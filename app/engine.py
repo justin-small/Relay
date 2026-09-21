@@ -18,6 +18,7 @@ from . import config, languages, redact
 from .audio import AudioCapture
 from .hub import hub
 from .realtime import TranslationRelaySession
+from .recorder import recorder
 
 log = logging.getLogger("relay.engine")
 
@@ -64,6 +65,8 @@ class Engine:
             src = cfg["source_language"]
             hub.reset(TRANSCRIPTION_STREAM, src)
             enabled = [t for t, spec in sorted(cfg["targets"].items()) if spec.get("enabled")]
+            # The recorded window is exactly this start -> the matching stop.
+            self._begin_recording(cfg, src, enabled)
             for target in enabled:
                 self._open_relay(target, cfg, key)
             # Both feeds now come out of the translation sessions, so with no
@@ -82,6 +85,7 @@ class Engine:
             if self.capture is not None:
                 self.capture.stop()
             self.running = False
+            self._end_recording()
             self._push_status()
             return self.status()
 
@@ -90,6 +94,22 @@ class Engine:
             await self.stop()
             return await self.start()
         return self.status()
+
+    # -- recording ------------------------------------------------------
+    def _begin_recording(self, cfg: dict, source: str, targets: list[str]) -> None:
+        """Open a run file, if recording is on. A failure here is logged by the
+        recorder and leaves `line_sink` unset: the event still goes ahead."""
+        hub.line_sink = None
+        rec = cfg.get("recording") or {}
+        if not rec.get("enabled"):
+            return
+        recorder.configure(config.recordings_path(), rec.get("keep_runs", 20))
+        if recorder.start_run(source, targets):
+            hub.line_sink = recorder.append
+
+    def _end_recording(self) -> None:
+        hub.line_sink = None
+        recorder.finish_run()
 
     # -- per-target toggling ------------------------------------------
     async def set_target(self, target: str, enabled: bool) -> dict:

@@ -75,6 +75,11 @@ ENV PATH="/opt/venv/bin:${PATH}" \
     HOME=/home/relay \
     RELAY_CONFIG=/app/config/config.json \
     RELAY_BLOCKLIST=/app/config/blocklist.txt \
+    # Recorded runs land on the state volume for the same reason the
+    # blocklist does: /app is read-only, and the operator has to be able to
+    # reach the files from the host. Nothing is written unless the operator
+    # turns recording on.
+    RELAY_RECORDINGS=/app/config/recordings \
     # The certificate outlives the container: it lives on the state volume, so
     # a restart does not change the fingerprint the operator trusted.
     RELAY_CERT_DIR=/app/config/certs \

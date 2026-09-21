@@ -79,6 +79,9 @@ services:
     environment:
       RELAY_CONFIG: /app/config/config.json
       RELAY_BLOCKLIST: /app/config/blocklist.txt
+      # Recorded runs, on the state volume so they survive the container and
+      # can be collected from the host. Off unless enabled in the panel.
+      RELAY_RECORDINGS: /app/config/recordings
       # A hostname for this machine, added to the panel certificate so the
       # browser is happy with https://<name>/admin as well as the IP address.
       # Normally answered at setup and stored as `admin_fqdn` in config.json;

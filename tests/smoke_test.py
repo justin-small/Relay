@@ -649,6 +649,199 @@ check("cookie is not Secure on a plain-HTTP login",
       "secure" not in _plain.headers["set-cookie"].lower(), _plain.headers["set-cookie"])
 _main.LOGIN_FAIL_DELAY_S = 0.75
 
+# ------------------------------------------------------------------ issue #5
+# Session recording + export. The recorded window is one start -> one stop,
+# which is longer than the ring buffer can hold, so the recorder keeps its own
+# append-only copy and the exports are derived from that.
+print("\nsession recording")
+import shutil as _shutil
+from app import exporting as _exporting
+from app.recorder import Recorder as _Recorder
+
+_recdir = Path(tempfile.mkdtemp()) / "recordings"
+_r = _Recorder()
+_r.configure(_recdir, keep_runs=2)
+_rid = _r.start_run("ENGLISH", ["SPANISH"])
+check("start_run creates a run", bool(_rid) and (_recdir / _rid).is_dir())
+_r.append("transcription", "ENGLISH", 1, "Good morning.", 100.0, 101.0)
+_r.append("translation", "SPANISH", 2, "Buenos d\u00edas.", 100.2, 101.4)
+_r.append("transcription", "ENGLISH", 3, "Welcome to the conference.", 102.0, 104.0)
+_r.append("translation", "SPANISH", 4, "Bienvenidos a la conferencia.", 102.1, 104.3)
+eq("lines are flushed as they commit, before stop",
+   len(_Recorder.read_lines(_recdir / _rid)), 4)
+_r.finish_run()
+_meta = _r.list_run(_rid)
+eq("finished run is stamped and counted", (_meta["lines"], bool(_meta["ended"])), (4, True))
+check("a finished run is not marked interrupted", not _meta.get("interrupted"))
+
+# The ring buffer is smaller than an event; the recorder must not be.
+_hub_lines = hub.history_lines
+eq("recording is not bounded by history_lines",
+   len(_Recorder.read_lines(_recdir / _rid)) <= _hub_lines, True)
+
+_rows = _Recorder.read_lines(_recdir / _rid)
+_files = _exporting.build_exports(_meta, _rows)
+check("export writes a transcript per language",
+      "transcript-ENGLISH.txt" in _files and "transcript-SPANISH.txt" in _files)
+check("export writes a pairs file", "pairs-SPANISH.jsonl" in _files)
+check("export writes a fine-tuning file", "finetune-SPANISH.jsonl" in _files)
+check("transcript carries clock times", "Good morning." in _files["transcript-ENGLISH.txt"])
+
+_pairs = [json.loads(l) for l in _files["pairs-SPANISH.jsonl"].splitlines()]
+eq("overlapping lines pair one to one", len(_pairs), 2)
+eq("both pairs are exact", sorted(p["confidence"] for p in _pairs), ["exact", "exact"])
+eq("a pair links the source to its translation",
+   (_pairs[0]["source"], _pairs[0]["target"]), ("Good morning.", "Buenos d\u00edas."))
+
+_ft = [json.loads(l) for l in _files["finetune-SPANISH.jsonl"].splitlines()]
+eq("fine-tune rows are OpenAI chat format", [sorted(r) for r in _ft], [["messages"], ["messages"]])
+eq("fine-tune roles", [m["role"] for m in _ft[0]["messages"]], ["system", "user", "assistant"])
+eq("fine-tune carries the pair", (_ft[0]["messages"][1]["content"], _ft[0]["messages"][2]["content"]),
+   ("Good morning.", "Buenos d\u00edas."))
+
+# Segmentation differs between the feeds, so a translation can span two source
+# lines. That pair is real but not clean, and must not reach the fine-tune set.
+_merged = _exporting.pair_lines(
+    [{"seq": 1, "t0": 10.0, "t1": 11.0, "text": "One."},
+     {"seq": 2, "t0": 11.1, "t1": 12.0, "text": "Two."}],
+    [{"seq": 3, "t0": 10.1, "t1": 12.1, "text": "Uno. Dos."}],
+)
+eq("a translation spanning two source lines is flagged merged",
+   [p["confidence"] for p in _merged], ["merged"])
+eq("merged joins the source lines", _merged[0]["source"], "One. Two.")
+eq("merged text is kept out of the fine-tune file",
+   _exporting.finetune_jsonl("ENGLISH", "SPANISH", _merged), "")
+
+# The interpreter lags the speaker, so a translation often starts after the
+# source line it answers has already committed -- no overlap at all. That is
+# still a confident pair, and losing it would throw away most of the data.
+_lagged = _exporting.pair_lines(
+    [{"seq": 1, "t0": 10.0, "t1": 12.0, "text": "The doors close at six."},
+     {"seq": 2, "t0": 13.4, "t1": 15.0, "text": "Please take your seats."}],
+    [{"seq": 3, "t0": 12.6, "t1": 13.3, "text": "Las puertas cierran a las seis."}],
+)
+eq("a lagging translation still pairs with the line it answers",
+   [(p["confidence"], p["source"]) for p in _lagged][:1],
+   [("exact", "The doors close at six.")])
+check("the sentence after the lagging translation is not swallowed",
+      any(p["confidence"] == "unpaired" and p["source"] == "Please take your seats."
+          for p in _lagged), _lagged)
+
+# A source line nothing translated (a dropped session) must be visible in the
+# export, not silently missing.
+_dropped = _exporting.pair_lines(
+    [{"seq": 1, "t0": 10.0, "t1": 11.0, "text": "Unanswered."}], [])
+eq("an untranslated source line is reported unpaired",
+   [(p["confidence"], p["target"]) for p in _dropped], [("unpaired", "")])
+
+# Retention: keep_runs is 2 above, so a third start drops the oldest.
+for _i in range(3):
+    _r2 = _r.start_run("ENGLISH", ["SPANISH"])
+    _r.append("transcription", "ENGLISH", 1, f"run {_i}", 1.0, 2.0)
+    _r.finish_run()
+eq("old runs are pruned to keep_runs", len(_r.list_runs()), 2)
+
+# A run killed mid-event never gets its end stamp. The lines are on disk and
+# the panel must say so rather than showing an empty run.
+_r.start_run("ENGLISH", ["SPANISH"])
+_r.append("transcription", "ENGLISH", 9, "cut off here", 1.0, 2.0)
+_r._close_fh()                    # what a kill -9 leaves behind
+_cut = _r.list_run(_r.run_id)
+eq("an interrupted run still reports its lines",
+   (_cut["interrupted"], _cut["lines"]), (True, 1))
+
+# run_id comes off an HTTP path and is the only thing that becomes a directory.
+for _bad in ("../../etc", "..", "not-a-run", "20260920-143012/../..", ""):
+    check(f"run id {_bad!r} is refused", _r.run_dir(_bad) is None)
+
+_shutil.rmtree(_recdir.parent, ignore_errors=True)
+
+# End to end over HTTP: a recorded run must come back down as a zip and as
+# individual files, through the same routes the panel uses.
+print("\nrecording downloads")
+from app.recorder import recorder as _live
+import io as _io, zipfile as _zip
+_dldir = Path(tempfile.mkdtemp()) / "recordings"
+_live.configure(_dldir, keep_runs=5)
+_dlid = _live.start_run("ENGLISH", ["SPANISH"])
+_live.append("transcription", "ENGLISH", 1, "The doors close at six.", 200.0, 202.0)
+_live.append("translation", "SPANISH", 2, "Las puertas cierran a las seis.", 200.2, 202.4)
+_live.finish_run()
+_dh = {"x-admin-token": "t0ken"}
+_ls = c.get("/api/admin/recordings", headers=_dh).json()
+eq("the finished run is listed", [r["run_id"] for r in _ls["runs"]], [_dlid])
+_one = c.get(f"/api/admin/recordings/{_dlid}", headers=_dh).json()
+check("the run lists its exportable files",
+      {"transcript-ENGLISH.txt", "finetune-SPANISH.jsonl"} <= {f["name"] for f in _one["files"]},
+      _one["files"])
+_z = c.get(f"/api/admin/recordings/{_dlid}/export.zip", headers=_dh)
+eq("zip download is served", (_z.status_code, _z.headers["content-type"]),
+   (200, "application/zip"))
+check("zip is offered as a download", "attachment" in _z.headers.get("content-disposition", ""))
+_names = sorted(n.split("/")[-1] for n in _zip.ZipFile(_io.BytesIO(_z.content)).namelist())
+check("zip carries the raw record and the exports",
+      {"lines.jsonl", "meta.json", "manifest.txt", "finetune-SPANISH.jsonl"} <= set(_names),
+      _names)
+_ftr = c.get(f"/api/admin/recordings/{_dlid}/file/finetune-SPANISH.jsonl", headers=_dh)
+eq("a single file downloads", _ftr.status_code, 200)
+check("it is the pair, in chat format",
+      json.loads(_ftr.text.splitlines()[0])["messages"][2]["content"]
+      == "Las puertas cierran a las seis.")
+eq("a file this run never produced is a 404",
+   c.get(f"/api/admin/recordings/{_dlid}/file/finetune-KLINGON.jsonl", headers=_dh).status_code, 404)
+eq("a file name cannot escape the run",
+   c.get(f"/api/admin/recordings/{_dlid}/file/..%2F..%2Fconfig.json", headers=_dh).status_code, 404)
+eq("delete needs a token",
+   c.delete(f"/api/admin/recordings/{_dlid}").status_code, 401)
+eq("delete removes the run",
+   c.delete(f"/api/admin/recordings/{_dlid}", headers=_dh).json()["runs"], [])
+check("the run directory is gone", not (_dldir / _dlid).exists())
+_shutil.rmtree(_dldir.parent, ignore_errors=True)
+_live.configure(Path(tempfile.mkdtemp()) / "recordings", keep_runs=20)
+
+print("\nrecording is off by default")
+eq("recording disabled in the shipped defaults", config.get()["recording"]["enabled"], False)
+check("no line sink until a recorded run starts", hub.line_sink is None)
+_rec_h = {"x-admin-token": "t0ken"}
+_rl = c.get("/api/admin/recordings", headers=_rec_h)
+eq("recordings list is served", _rl.status_code, 200)
+eq("nothing recorded with recording off", _rl.json()["runs"], [])
+check("recordings list needs a token", c.get("/api/admin/recordings").status_code == 401)
+check("unknown run is a 404",
+      c.get("/api/admin/recordings/20200101-000000", headers=_rec_h).status_code == 404)
+check("a non-run id is a 404, not a path",
+      c.get("/api/admin/recordings/..%2F..%2Fetc", headers=_rec_h).status_code in (400, 404))
+
+# The hub is what feeds the recorder: a committed line must arrive with the
+# span that pairing depends on, and only after the blocklist has run.
+print("\nhub feeds the recorder")
+_sunk = []
+hub.line_sink = lambda *a: _sunk.append(a)
+try:
+    hub.reset("transcription", "ENGLISH")
+    hub.publish_delta("transcription", "ENGLISH", "Hello ")
+    hub.publish_delta("transcription", "ENGLISH", "world")
+    hub.publish_final("transcription", "ENGLISH")
+finally:
+    hub.line_sink = None
+eq("one committed line reached the sink", len(_sunk), 1)
+eq("the sink gets stream, lang and text",
+   (_sunk[0][0], _sunk[0][1], _sunk[0][3]), ("transcription", "ENGLISH", "Hello world"))
+check("the line carries a start and an end time",
+      _sunk[0][4] <= _sunk[0][5] and _sunk[0][4] > 0)
+
+_sunk.clear()
+hub.set_blocklist(["mierda"])
+hub.line_sink = lambda *a: _sunk.append(a)
+try:
+    hub.reset("translation", "SPANISH")
+    hub.publish_final("translation", "SPANISH", "vaya mierda de dia")
+finally:
+    hub.line_sink = None
+    hub.set_blocklist([])
+check("a blocked word never reaches the recording",
+      _sunk and "mierda" not in _sunk[0][3], _sunk)
+
 print()
 if fails:
     print(f"{len(fails)} FAILED: " + "; ".join(fails)); sys.exit(1)

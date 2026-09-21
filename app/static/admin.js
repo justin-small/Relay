@@ -229,6 +229,145 @@
     $('keyState').className = cfg && cfg.openai_api_key_set ? 'ok' : 'err';
   }
 
+  /* ---- recordings ----
+     A run is one start -> stop. The list is refreshed on load, after a stop
+     (a finished event is the moment an operator wants the file) and on demand;
+     it is deliberately not on the 1 Hz status tick, which exists to keep the
+     meter live and should not be re-reading a directory. */
+  let recRunning = false;
+
+  function fmtDur(secs) {
+    if (!secs || secs < 0) return '—';
+    const h = Math.floor(secs / 3600), m = Math.floor(secs % 3600 / 60), s = Math.floor(secs % 60);
+    return (h ? h + 'h ' : '') + (h || m ? m + 'm ' : '') + s + 's';
+  }
+
+  function fmtWhen(ts) {
+    if (!ts) return '—';
+    const d = new Date(ts * 1000);
+    return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
+      + ' ' + d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+  }
+
+  function recLink(runId, name, label) {
+    const a = document.createElement('a');
+    a.href = '/api/admin/recordings/' + encodeURIComponent(runId)
+      + (name ? '/file/' + encodeURIComponent(name) : '/export.zip');
+    a.textContent = label;
+    a.download = '';
+    a.style.marginRight = '10px';
+    return a;
+  }
+
+  function renderRuns(info) {
+    $('recDir').textContent = info.dir;
+    const tb = $('recRuns');
+    tb.innerHTML = '';
+    if (!info.runs.length) {
+      tb.innerHTML = '<tr><td colspan="5" class="muted">'
+        + (info.enabled
+            ? 'Nothing recorded yet — the next run will be saved.'
+            : 'Recording is off, so no run has been saved.')
+        + '</td></tr>';
+      return;
+    }
+    info.runs.forEach(function (r) {
+      const tr = document.createElement('tr');
+
+      const when = document.createElement('td');
+      when.innerHTML = '<strong>' + fmtWhen(r.started) + '</strong>'
+        + (r.recording ? ' <span class="ok">· recording</span>'
+           : r.interrupted ? ' <span class="warn">· cut short</span>' : '');
+      tr.appendChild(when);
+
+      const dur = document.createElement('td');
+      dur.className = 'muted';
+      dur.textContent = r.recording ? 'in progress' : fmtDur((r.ended || 0) - (r.started || 0));
+      tr.appendChild(dur);
+
+      const lines = document.createElement('td');
+      lines.className = 'muted';
+      lines.textContent = r.lines;
+      tr.appendChild(lines);
+
+      const dl = document.createElement('td');
+      dl.appendChild(recLink(r.run_id, '', 'All (.zip)'));
+      const src = document.createElement('a');
+      src.href = '#';
+      src.textContent = 'Files…';
+      src.addEventListener('click', function (ev) {
+        ev.preventDefault();
+        showRunFiles(r.run_id, dl, src);
+      });
+      dl.appendChild(src);
+      tr.appendChild(dl);
+
+      const del = document.createElement('td');
+      del.style.width = '1%';
+      const btn = document.createElement('button');
+      btn.className = 'danger';
+      btn.textContent = 'Delete';
+      btn.disabled = !!r.recording;
+      btn.title = r.recording ? 'This run is still being recorded.' : '';
+      btn.addEventListener('click', function () { deleteRun(r.run_id, r.started); });
+      del.appendChild(btn);
+      tr.appendChild(del);
+
+      tb.appendChild(tr);
+    });
+  }
+
+  async function showRunFiles(runId, cell, trigger) {
+    try {
+      const info = await api('/api/admin/recordings/' + encodeURIComponent(runId));
+      trigger.remove();
+      info.files.forEach(function (f) {
+        if (f.name === 'manifest.txt') return;  // it ships inside the zip
+        cell.appendChild(recLink(runId, f.name, f.name));
+      });
+      if (info.files.length <= 1) {
+        const none = document.createElement('span');
+        none.className = 'muted';
+        none.textContent = 'no lines recorded';
+        cell.appendChild(none);
+      }
+    } catch (e) { alertMsg(e.message); }
+  }
+
+  async function deleteRun(runId, started) {
+    if (!window.confirm('Delete the recording from ' + fmtWhen(started)
+        + '? The transcript cannot be recovered.')) return;
+    try {
+      await api('/api/admin/recordings/' + encodeURIComponent(runId), { method: 'DELETE' });
+      okMsg('Recording deleted.');
+      loadRuns();
+    } catch (e) { alertMsg(e.message); }
+  }
+
+  async function loadRuns() {
+    try {
+      const info = await api('/api/admin/recordings');
+      $('recEnabled').checked = !!info.enabled;
+      $('recKeep').value = info.keep_runs;
+      renderRuns(info);
+    } catch (e) { /* the panel is still usable without the run list */ }
+  }
+
+  $('saveRecording').addEventListener('click', async function () {
+    try {
+      await post('/api/admin/config', {
+        recording: {
+          enabled: $('recEnabled').checked,
+          keep_runs: parseInt($('recKeep').value, 10)
+        }
+      });
+      loadRuns();
+      okMsg($('recEnabled').checked
+        ? 'Saved. The next run you start will be recorded.'
+        : 'Saved. Recording is off; runs already on disk are kept.');
+    } catch (e) { alertMsg(e.message); }
+  });
+
   /* ---- master ---- */
   $('startBtn').addEventListener('click', async function () {
     $('startBtn').disabled = true;
@@ -321,6 +460,8 @@
     $('masterState').textContent = st.running ? 'Running' : 'Stopped';
     $('startBtn').disabled = st.running;
     $('stopBtn').disabled = !st.running;
+    if (recRunning && !st.running) loadRuns();  // a run just ended: it is downloadable now
+    recRunning = !!st.running;
     $('viewerCount').textContent = st.viewers + (st.viewers === 1 ? ' viewer' : ' viewers');
 
     const a = st.audio || {};
@@ -498,6 +639,7 @@
       $('noise').value = cfg.realtime.noise_reduction || '';
       renderUrls(state.urls);
       applyStatus(state.status);
+      loadRuns();
     } catch (e) { alertMsg(e.message); }
 
     const es = new EventSource('/api/admin/status/stream');

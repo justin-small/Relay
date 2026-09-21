@@ -176,6 +176,77 @@ One caveat: the filter removes words, it does not rewrite grammar. Removing a
 noun mid-sentence leaves a gap ("the first item on is the review"). For a word
 you expect often, blocking the phrase around it usually reads better.
 
+## Recording and export
+
+**Off by default.** Turn it on in the panel under *Recordings & export*, or set
+`recording.enabled` in `config.json`. Nothing is written to disk until you do.
+
+A recording covers **exactly one run — from *Start capture* to *Stop***. Each
+committed caption line is appended as it happens, so a crash or a power cut
+mid-event still leaves you everything said up to that point. Blocked words are
+removed before anything is written, so a term on the blocklist never reaches
+the file.
+
+Runs land in `recordings/` (`docker-config/recordings/` under Docker), one
+directory per run:
+
+```
+recordings/20260920-143012/
+  meta.json     start and stop time, source language, line count
+  lines.jsonl   every committed line, as it happened
+```
+
+The panel lists past runs with their duration and line count. **Download the
+whole run as a zip, or any single file.** Everything but `lines.jsonl` is
+derived at download time, so nothing is duplicated on disk and a future
+improvement to the pairing applies to old events too.
+
+| File | What it is |
+| --- | --- |
+| `transcript-<LANGUAGE>.txt` | One timestamped line per caption, per language. What a client asks for after an event. |
+| `pairs-<TARGET>.jsonl` | Each source line matched to its translation, with a `confidence` field. The audit copy. |
+| `finetune-<TARGET>.jsonl` | The confident pairs only, in OpenAI chat format — upload to a fine-tuning job as-is. |
+
+One file set per target language, so a run with Spanish and French produces a
+clean English→Spanish pair set and a clean English→French one, rather than one
+file you have to reshape.
+
+### How source and translation are matched
+
+There is **no segment id tying a source line to its translation.** The two
+feeds arrive as separate event streams and are broken into lines independently
+by this app's own idle timers, so the counts do not match: one spoken sentence
+can commit as one English line and two Spanish ones, or the reverse.
+
+What the feeds do share is the clock. Lines are matched on **overlapping time
+span**, and every row in the pairs file says how sure that match is:
+
+| `confidence` | Meaning |
+| --- | --- |
+| `exact` | One source line, one translation, neither claimed twice. |
+| `merged` | Several source lines inside one translation's span, joined. |
+| `split` | One source line answered by several translations. |
+| `loose` | No overlap and no unambiguous near match; the nearest line within a wider window. |
+| `unpaired` | Nothing plausible on the other side — usually a dropout. |
+
+**Only `exact` rows are carried into the fine-tuning file.** The rest stay in
+the pairs file, where they can be reviewed, corrected or ignored. The model is
+interpreting, so a translation routinely lands just *after* the sentence it
+answers with no overlap at all; that case is matched to the source line that
+had just finished — which is also what stops the *next* sentence being swept in
+when a speaker pauses briefly.
+
+### Retention
+
+`recording.keep_runs` (default 20) caps how many runs are kept. The oldest are
+pruned when a new run starts, so a machine left running a season of events
+cannot fill its disk. Individual runs can be deleted from the panel; the run
+currently being recorded cannot.
+
+Recordings are a transcript of everything said in the room. `recordings/` is
+git-ignored, and under Docker the directory sits on the state volume so it
+survives the container and can be collected from the host.
+
 ## Docker
 
 Docker is the only way this runs: one image, one container, one command.
@@ -575,6 +646,7 @@ docker-config/               all state, git-ignored, created by setup
   blocklist.txt              the editable copy the panel writes
   Caddyfile                  generated from config.json on every start
   certs/admin.{crt,key}      operator panel certificate (key 0600)
+  recordings/                recorded runs, if recording is enabled
 
 app/
   main.py                    FastAPI routes, SSE, admin API
@@ -582,6 +654,8 @@ app/
   audio.py                   PortAudio capture, resample, fan-out
   realtime.py                gpt-realtime-translate sessions, reconnect, errors
   hub.py                     delta broadcast, sequencing, late-joiner history
+  recorder.py                per-run transcript on disk (opt-in), retention
+  exporting.py               transcripts, source<->translation pairing, zip
   languages.py               source + target language table (label, ISO code)
   redact.py                  blocklist filtering, incremental-safe
   demo.py                    rehearsal mode
@@ -617,7 +691,7 @@ virtualenv — the only reason to create one:
 
 ```bash
 python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
-.venv/bin/python tests/smoke_test.py   # config, hub, audio, routes, auth, blocklist
+.venv/bin/python tests/smoke_test.py   # config, hub, audio, routes, auth, blocklist, recording
 .venv/bin/python tests/test_redact.py  # blocklist filtering, incl. split-delta cases
 ```
 
@@ -627,8 +701,9 @@ redacted result.
 
 ## Not in scope
 
-Spoken output/TTS, browser microphone capture, speaker diarization, transcript
-archival, auto source-language detection.
+Spoken output/TTS, browser microphone capture, speaker diarization, audio
+recording (the transcript is recorded, the audio is not), auto source-language
+detection.
 
 ## Status and licence
 

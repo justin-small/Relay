@@ -13,6 +13,11 @@
   "default_font_px": 40,
   "speaking_indicator_vad": true,
   "history_lines": 40,
+  "recording": {
+    "enabled": false,
+    "dir": "recordings",
+    "keep_runs": 20
+  },
   "host": "0.0.0.0",
   "admin_host": "127.0.0.1",
   "port": 8000,

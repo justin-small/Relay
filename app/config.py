@@ -20,6 +20,9 @@ CONFIG_PATH = Path(os.environ.get("RELAY_CONFIG", ROOT / "config.json"))
 # the blocklist has to live outside the code tree. Same escape hatch as
 # RELAY_CONFIG: when set it wins over the `blocklist_file` config key.
 BLOCKLIST_ENV = os.environ.get("RELAY_BLOCKLIST") or ""
+# Same escape hatch for the recordings directory: the container keeps /app
+# read-only, so a recorded event has to land on the mounted state volume.
+RECORDINGS_ENV = os.environ.get("RELAY_RECORDINGS") or ""
 EXAMPLE_PATH = ROOT / "config.example.json"
 
 DEFAULTS: dict[str, Any] = {
@@ -33,6 +36,17 @@ DEFAULTS: dict[str, Any] = {
     "speaking_indicator_vad": True,
     "blocklist_file": "blocklist.txt",
     "history_lines": 40,
+    # Session recording, for the post-event transcript and the paired
+    # fine-tuning export. Off by default: writing every word spoken in a room
+    # to disk is the operator's call, not a default we make for them. Lines
+    # are recorded after the blocklist runs, so a blocked term never lands.
+    "recording": {
+        "enabled": False,
+        "dir": "recordings",
+        # Oldest runs beyond this are deleted when a new one starts, so a
+        # machine left running a season of events cannot fill its disk.
+        "keep_runs": 20,
+    },
     "host": "0.0.0.0",
     "admin_host": "127.0.0.1",
     "port": 8000,
@@ -169,6 +183,13 @@ def _normalise(cfg: dict) -> dict:
     if rt.get("noise_reduction") not in ("near_field", "far_field"):
         rt["noise_reduction"] = None
     cfg["realtime"] = rt
+    rec = cfg.get("recording") or {}
+    rec = {
+        "enabled": bool(rec.get("enabled", False)),
+        "dir": str(rec.get("dir") or "recordings").strip() or "recordings",
+        "keep_runs": max(1, min(500, int(rec.get("keep_runs") or 20))),
+    }
+    cfg["recording"] = rec
     # The blocklist lives in its own file; config.json only points at it.
     cfg.pop("blocklist", None)
     cfg["blocklist_file"] = str(cfg.get("blocklist_file") or "blocklist.txt")
@@ -193,6 +214,13 @@ def load() -> dict:
 def blocklist_path() -> Path:
     """Absolute path of the blocklist file (relative entries resolve to ROOT)."""
     p = Path(BLOCKLIST_ENV or get().get("blocklist_file") or "blocklist.txt")
+    return p if p.is_absolute() else ROOT / p
+
+
+def recordings_path() -> Path:
+    """Absolute path of the recordings directory (relative entries resolve to
+    ROOT). RELAY_RECORDINGS wins over the config key, as with the blocklist."""
+    p = Path(RECORDINGS_ENV or get()["recording"]["dir"] or "recordings")
     return p if p.is_absolute() else ROOT / p
 
 
