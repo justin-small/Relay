@@ -246,6 +246,47 @@ ssh -N -L 8443:127.0.0.1:8443 you@relay-host   # then open https://localhost:844
 **Why the wiring is needed:** the relay captures from a host sound card
 through PortAudio, and a container only sees devices the host hands it.
 
+### Scanning the image
+
+The base images are pinned by digest, which is right for reproducibility and
+wrong for CVEs: the layer is frozen, so an advisory published against Debian
+bookworm, CPython or Caddy lands silently and the build keeps succeeding.
+Scanning is what makes the pin safe. `tools/scan-image.sh` runs it locally —
+no CI, no account, nothing to install beyond Docker:
+
+```bash
+./tools/scan-image.sh                 # build, then scan
+./tools/scan-image.sh --no-build      # scan the image already built
+./tools/scan-image.sh --severity CRITICAL
+./tools/scan-image.sh --all           # include won't-fix advisories (noisy)
+./tools/scan-image.sh --json reports/ # also save the raw JSON
+```
+
+Three passes: image vulnerabilities (Debian packages *and* the Python venv
+*and* the Caddy binary's Go modules), Dockerfile/compose misconfiguration, and
+secrets in the working tree. Only the first gates — exit status is the number
+of **fixable** HIGH/CRITICAL findings, so a clean run means every finding has
+a version to move to. The other two print and never fail the run.
+
+Trivy does the work, from its own pinned container by default; a `trivy` on
+your PATH is used instead when you have one. The vulnerability database is
+cached in a named volume, so only the first run pays the download. Run it
+before an event and after any dependency bump — and on a repo nobody is
+touching, which is exactly when a frozen base image is most likely to be
+stale.
+
+Findings come out in two flavours, and the fix differs:
+
+| Where | Fix |
+|---|---|
+| OS package or Caddy's Go modules | Bump the pinned digest in `docker/Dockerfile` — `docker pull python:3.12-slim-bookworm` (or `caddy:2-alpine`), then `docker image inspect ... --format '{{index .RepoDigests 0}}'`. |
+| Python package | Bump it in `requirements.txt` and rebuild. |
+
+Pass 3 will flag your own `config.json` if it holds a real key — that is the
+scanner working, not a leak; the file is git-ignored and never enters an image
+layer. It is worth reading anyway, because it is the same check that would
+catch a key pasted into a file that *is* tracked.
+
 ### Windows: no, this does not add WSL2
 
 Docker Desktop on Windows *already* runs on WSL2 — it is the default backend,
@@ -443,6 +484,9 @@ check the host's bandwidth and the session health table, not these two fields.
   minutes after five failures in a row.
 - Translation sessions are instructed to treat everything they hear as content
   to translate, never as instructions to follow.
+- The container image is scanned locally with `tools/scan-image.sh` (see
+  Docker → *Scanning the image*): pinned base layers do not age gracefully, and
+  the scan is what turns the pin from a liability back into reproducibility.
 - **If you ever paste an API key somewhere it should not be, revoke it** at
   <https://platform.openai.com/api-keys> rather than deleting the file. A key
   that has been written to disk, a log or a screenshot should be considered
@@ -509,6 +553,7 @@ tests/
 
 tools/
   check-audio.sh             PASS/FAIL walk of the whole capture chain
+  scan-image.sh              CVE / misconfig / secret scan of the built image
   write_config.py            writes credentials into config.json
   setup_caddy.py             panel certificate + Caddyfile
 ```
