@@ -1,4 +1,7 @@
-fastapi==0.115.6
+fastapi==0.141.1
+# Transitive via fastapi, pinned here because the CVE fixes land in starlette,
+# not in fastapi: 1.3.1 clears CVE-2025-62727, CVE-2026-48818 and CVE-2026-54283.
+starlette==1.6.0
 uvicorn[standard]==0.34.0
 jinja2==3.1.6
 orjson==3.12.0

@@ -346,25 +346,25 @@ def _viewer_ctx(request: Request) -> dict:
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request):
     ctx = _viewer_ctx(request) | {"show_admin": _on_admin_port(request)}
-    return templates.TemplateResponse("index.html", ctx)
+    return templates.TemplateResponse(request, "index.html", ctx)
 
 
 @app.get("/transcription", response_class=HTMLResponse)
 async def page_transcription(request: Request):
     ctx = _viewer_ctx(request) | {"mode": "transcription"}
-    return templates.TemplateResponse("viewer.html", ctx)
+    return templates.TemplateResponse(request, "viewer.html", ctx)
 
 
 @app.get("/translation", response_class=HTMLResponse)
 async def page_translation(request: Request):
     ctx = _viewer_ctx(request) | {"mode": "translation"}
-    return templates.TemplateResponse("viewer.html", ctx)
+    return templates.TemplateResponse(request, "viewer.html", ctx)
 
 
 @app.get("/both", response_class=HTMLResponse)
 async def page_both(request: Request):
     ctx = _viewer_ctx(request) | {"mode": "both"}
-    return templates.TemplateResponse("viewer.html", ctx)
+    return templates.TemplateResponse(request, "viewer.html", ctx)
 
 
 @app.get("/present", response_class=HTMLResponse)
@@ -376,7 +376,7 @@ async def page_present(request: Request):
     if mode not in ("transcription", "translation", "both"):
         mode = "translation"
     ctx = _viewer_ctx(request) | {"mode": mode, "present": True}
-    return templates.TemplateResponse("viewer.html", ctx)
+    return templates.TemplateResponse(request, "viewer.html", ctx)
 
 
 @app.get("/screen", response_class=HTMLResponse)
@@ -428,7 +428,7 @@ async def page_screen(request: Request):
     }
     if font_override:
         ctx["font_px"] = font_override
-    return templates.TemplateResponse("viewer.html", ctx)
+    return templates.TemplateResponse(request, "viewer.html", ctx)
 
 
 import re as _re
@@ -512,7 +512,7 @@ async def page_overlay(request: Request):
         "overlay_bg": bg,
         "overlay_matte": matte,
     }
-    return templates.TemplateResponse("viewer.html", ctx)
+    return templates.TemplateResponse(request, "viewer.html", ctx)
 
 
 @app.get("/api/targets")
@@ -595,9 +595,9 @@ async def stream(request: Request, stream: str = "translation", lang: str | None
 async def admin_page(request: Request):
     if not _session_ok(request):
         return templates.TemplateResponse(
-            "login.html", {"request": request, "error": None}, status_code=200
+            request, "login.html", {"error": None}, status_code=200
         )
-    return templates.TemplateResponse("admin.html", {"request": request})
+    return templates.TemplateResponse(request, "admin.html")
 
 
 @app.post("/admin/login")
@@ -607,11 +607,9 @@ async def admin_login(request: Request, token: str = Form(...)):
     if left:
         log.warning("Admin login from %s refused, locked for %ds", ip, int(left))
         return templates.TemplateResponse(
+            request,
             "login.html",
-            {
-                "request": request,
-                "error": f"Too many attempts. Try again in {int(left) // 60 + 1} min.",
-            },
+            {"error": f"Too many attempts. Try again in {int(left) // 60 + 1} min."},
             status_code=429,
         )
 
@@ -623,7 +621,7 @@ async def admin_login(request: Request, token: str = Form(...)):
         await asyncio.sleep(LOGIN_FAIL_DELAY_S)
         _login_failed(ip)
         return templates.TemplateResponse(
-            "login.html", {"request": request, "error": "Incorrect token."}, status_code=401
+            request, "login.html", {"error": "Incorrect token."}, status_code=401
         )
 
     _LOGIN_FAILS.pop(ip, None)
