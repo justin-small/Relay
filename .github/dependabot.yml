@@ -1,0 +1,31 @@
+# Keeps the digest-pinned base images in docker/Dockerfile current.
+#
+# The pin in that file is deliberate -- it is what makes a rebuild
+# reproducible -- but it also means upstream's regular rebuilds of
+# `python:3.12-slim-bookworm` and `caddy:2-alpine`, the ones that carry
+# patched Debian packages and a newer Go toolchain, never reach us until
+# someone edits the digest by hand. Nobody reads a comment on a schedule.
+# Dependabot does: it opens a PR with the new digest and the tag it resolved
+# from, and ./tools/scan-image.sh then proves the new layer is actually
+# cleaner than the old one before it merges.
+#
+# Scope: digests only, for the tags already written in the Dockerfile.
+# Dependabot will not move 3.12 to 3.13 -- and that is correct, because the
+# audio stack (sounddevice, numpy, soxr) needs wheels for the new interpreter,
+# so a Python minor bump stays a deliberate human decision.
+#
+# There is no `pip` entry here on purpose. Dependabot *security* updates are
+# already enabled for this repo and cover requirements.txt when an advisory
+# lands (that is where PRs #18/#19 came from); routine version-chasing on a
+# pinned, wheels-only dependency set would be churn without a security story.
+version: 2
+updates:
+  - package-ecosystem: docker
+    directory: /docker
+    schedule:
+      interval: weekly
+    labels:
+      - dependencies
+      - security
+    commit-message:
+      prefix: docker

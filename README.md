@@ -251,7 +251,9 @@ through PortAudio, and a container only sees devices the host hands it.
 The base images are pinned by digest, which is right for reproducibility and
 wrong for CVEs: the layer is frozen, so an advisory published against Debian
 bookworm, CPython or Caddy lands silently and the build keeps succeeding.
-Scanning is what makes the pin safe. `tools/scan-image.sh` runs it locally —
+Two things make the pin safe. Dependabot proposes the digest bump weekly
+(`.github/dependabot.yml`), and scanning proves the new layer is actually
+cleaner than the old one before it merges. `tools/scan-image.sh` runs it locally —
 no CI, no account, nothing to install beyond Docker:
 
 ```bash
@@ -279,7 +281,7 @@ Findings come out in two flavours, and the fix differs:
 
 | Where | Fix |
 |---|---|
-| OS package or Caddy's Go modules | Bump the pinned digest in `docker/Dockerfile` — `docker pull python:3.12-slim-bookworm` (or `caddy:2-alpine`), then `docker image inspect ... --format '{{index .RepoDigests 0}}'`. For Caddy this currently changes nothing — see *Known findings* below. |
+| OS package or Caddy's Go modules | Bump the pinned digest in `docker/Dockerfile` — usually by merging Dependabot's PR, or by hand with `docker pull python:3.12-slim-bookworm` (or `caddy:2-alpine`) then `docker image inspect ... --format '{{index .RepoDigests 0}}'`. For Caddy this currently changes nothing — see *Known findings* below. |
 | Python package | Bump it in `requirements.txt` and rebuild. |
 
 Pass 3 will flag your own `config.json` if it holds a real key — that is the

@@ -10,19 +10,26 @@
 #
 # Two stages: the builder owns pip and the wheel cache, the runtime image
 # carries only the finished virtualenv. Base image is pinned by digest so a
-# rebuild is reproducible; bump it deliberately with:
+# rebuild is reproducible.
+#
+# The digest lives on a FROM line, aliased once and reused by both stages,
+# rather than in an ARG. That is not style: Dependabot's Docker parser reads
+# FROM lines only and never resolves ARG indirection, so a digest hidden
+# behind `FROM ${PYTHON_IMAGE}` is a pin nothing can bump. See
+# .github/dependabot.yml -- weekly digest PRs are what keeps this current.
+# By hand it is still:
 #   docker pull python:3.12-slim-bookworm && \
 #   docker image inspect python:3.12-slim-bookworm --format '{{index .RepoDigests 0}}'
-ARG PYTHON_IMAGE=python:3.12-slim-bookworm@sha256:392307d22300de8b5986851a12d9176dfc0fc073e65bf6523ebd7dcbeb23564e
+FROM python:3.12-slim-bookworm@sha256:392307d22300de8b5986851a12d9176dfc0fc073e65bf6523ebd7dcbeb23564e AS python-base
+
 # Caddy ships a static Go binary, so the alpine image is only a delivery
 # vehicle -- the binary is copied into the Debian runtime below and nothing
-# else from this image is used. Pinned by digest for the same reason as above:
-#   docker pull caddy:2-alpine && \
-#   docker image inspect caddy:2-alpine --format '{{index .RepoDigests 0}}'
-ARG CADDY_IMAGE=caddy:2-alpine@sha256:5f5c8640aae01df9654968d946d8f1a56c497f1dd5c5cda4cf95ab7c14d58648
+# else from this image is used. Pinned by digest, and bumped by Dependabot,
+# for the same reasons as above.
+FROM caddy:2-alpine@sha256:5f5c8640aae01df9654968d946d8f1a56c497f1dd5c5cda4cf95ab7c14d58648 AS caddy
 
 # ---------------------------------------------------------------- builder ---
-FROM ${PYTHON_IMAGE} AS builder
+FROM python-base AS builder
 
 ENV PIP_NO_CACHE_DIR=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1 \
@@ -38,11 +45,8 @@ COPY requirements.txt ./
 # silent source build that would pull a toolchain into the image.
 RUN pip install --no-cache-dir --only-binary=:all: -r requirements.txt
 
-# ------------------------------------------------------------------ caddy ---
-FROM ${CADDY_IMAGE} AS caddy
-
 # ---------------------------------------------------------------- runtime ---
-FROM ${PYTHON_IMAGE} AS runtime
+FROM python-base AS runtime
 
 # PortAudio (sounddevice) plus the ALSA->PulseAudio plugin, so the container
 # can see a sound card handed in from the host. libsndfile/soxr arrive as
