@@ -209,6 +209,46 @@
     </div>
   </details>
 
+  <details class="sect" id="sec-recordings">
+    <summary>Recordings &amp; export</summary>
+    <div class="note" style="margin:0 0 12px">
+      A recording covers exactly one run &mdash; from <em>Start capture</em> to
+      <em>Stop</em>. Every committed caption line is written to disk as it happens,
+      so a crash mid-event still leaves you the transcript up to that point.
+      Blocked words are removed before anything is written.
+      <strong>Off by default</strong>: nothing is recorded until you turn this on.
+    </div>
+    <div class="row">
+      <div class="field" style="flex:0 0 auto">
+        <label for="recEnabled">Record each run to disk</label>
+        <label class="switch" style="margin-top:4px">
+          <input id="recEnabled" type="checkbox"><span class="slider"></span>
+        </label>
+      </div>
+      <div class="field">
+        <label for="recKeep">Runs kept (oldest pruned at the next start)</label>
+        <input id="recKeep" type="number" min="1" max="500" step="1">
+      </div>
+    </div>
+    <button id="saveRecording">Save</button>
+    <span class="muted" style="margin-left:10px">Stored in <span class="mono" id="recDir">recordings/</span></span>
+    <table style="margin-top:14px">
+      <thead><tr><th>Run</th><th>Duration</th><th>Lines</th><th>Download</th><th></th></tr></thead>
+      <tbody id="recRuns"><tr><td colspan="5" class="muted">Nothing recorded yet.</td></tr></tbody>
+    </table>
+    <div class="note">
+      The zip holds a timestamped <span class="mono">transcript-&lt;LANGUAGE&gt;.txt</span> per
+      language, plus, per target language, a <span class="mono">pairs-&lt;TARGET&gt;.jsonl</span>
+      (each source line matched to its translation, with a confidence field) and a
+      <span class="mono">finetune-&lt;TARGET&gt;.jsonl</span> in OpenAI chat format, ready to
+      upload to a fine-tuning job.
+      <br>The two feeds carry no shared segment id and are broken into lines
+      independently, so pairs are matched on overlapping time span and every row says
+      how sure the match is. Only the <span class="mono">exact</span> ones are carried into
+      the fine-tuning file &mdash; the rest stay in the pairs file to be reviewed.
+    </div>
+  </details>
+
   <details class="sect" id="sec-credentials">
     <summary>Credentials</summary>
     <div class="row">

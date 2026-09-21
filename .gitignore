@@ -2,6 +2,8 @@
 # operator panel's TLS key. Never commit.
 config.json
 docker-config/
+# Recorded runs: every word spoken at an event. Never commit.
+recordings/
 
 # Python
 __pycache__/

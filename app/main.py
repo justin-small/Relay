@@ -19,9 +19,10 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Stre
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-from . import config, languages, redact
+from . import config, exporting, languages, redact
 from .engine import TRANSCRIPTION_STREAM, TRANSLATION_STREAM, engine
 from .hub import hub
+from .recorder import recorder
 
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s %(levelname)-7s %(name)s  %(message)s"
@@ -100,6 +101,10 @@ async def _startup() -> None:
     path = config.ensure_blocklist_file()
     hub.set_blocklist(redact.read_blocklist_file(path))
     log.info("Blocked words: %d term(s) from %s", len(hub.blocklist), path)
+    # Point the recorder at its directory up front, so the panel can list past
+    # runs before anything has been recorded in this process. Nothing is
+    # written until a run starts, and only if recording is enabled.
+    recorder.configure(config.recordings_path(), cfg["recording"]["keep_runs"])
     engine.bind(asyncio.get_running_loop())
     app.state.blocklist_task = asyncio.create_task(_watch_blocklist())
     if not (cfg.get("admin_token") or "").strip():
@@ -727,8 +732,14 @@ async def admin_config(request: Request, payload: dict):
     if isinstance(payload.get("realtime"), dict):
         updates["realtime"] = payload["realtime"]
 
+    if isinstance(payload.get("recording"), dict):
+        updates["recording"] = payload["recording"]
+
     cfg = config.save(updates)
     hub.history_lines = cfg["history_lines"]
+    # Takes effect on the next start: an event already being recorded keeps
+    # writing where it began, rather than losing its file mid-run.
+    recorder.configure(config.recordings_path(), cfg["recording"]["keep_runs"])
 
     if "blocklist" in payload:
         # The file is the source of truth; the panel is one way to edit it.
@@ -775,6 +786,95 @@ async def admin_start():
 @app.post("/api/admin/stop", dependencies=[Depends(require_admin)])
 async def admin_stop():
     return await engine.stop()
+
+
+# ---------------------------------------------------------------- recordings
+# A recorded run is the window between one start and the matching stop. The
+# files below are derived from it on download (see exporting.py); the run
+# directory itself only ever holds meta.json and lines.jsonl.
+
+def _run_or_404(run_id: str):
+    """The run directory for `run_id`, or a 404. `recorder.run_dir` is the only
+    thing that turns a request-supplied id into a path, and it accepts nothing
+    but a timestamp-shaped id."""
+    d = recorder.run_dir(run_id)
+    if d is None:
+        raise HTTPException(404, "unknown run")
+    return d
+
+
+def _download(body: bytes, filename: str, media: str) -> Response:
+    return Response(
+        content=body,
+        media_type=media,
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@app.get("/api/admin/recordings", dependencies=[Depends(require_admin)])
+async def admin_recordings():
+    cfg = config.get()
+    return {
+        "enabled": cfg["recording"]["enabled"],
+        "keep_runs": cfg["recording"]["keep_runs"],
+        "dir": str(config.recordings_path()),
+        "runs": recorder.list_runs(),
+    }
+
+
+@app.get("/api/admin/recordings/{run_id}", dependencies=[Depends(require_admin)])
+async def admin_recording(run_id: str):
+    """One run's metadata plus the files a download would produce, with line
+    counts -- enough for the panel to show what is in there before fetching
+    several megabytes of transcript."""
+    d = _run_or_404(run_id)
+    meta = recorder.list_run(run_id) or {"run_id": run_id}
+    rows = recorder.read_lines(d)
+    files = exporting.build_exports(meta, rows)
+    return {
+        "run": meta,
+        "files": [
+            {"name": name, "lines": text.count("\n"), "bytes": len(text.encode())}
+            for name, text in sorted(files.items())
+        ],
+    }
+
+
+@app.get("/api/admin/recordings/{run_id}/export.zip",
+         dependencies=[Depends(require_admin)])
+async def admin_recording_zip(run_id: str):
+    d = _run_or_404(run_id)
+    meta = recorder.list_run(run_id) or {"run_id": run_id}
+    rows = recorder.read_lines(d)
+    raw = ""
+    with contextlib.suppress(OSError):
+        raw = (d / "lines.jsonl").read_text(encoding="utf-8")
+    body = exporting.zip_bytes(meta, rows, raw)
+    return _download(body, f"relay-{run_id}.zip", "application/zip")
+
+
+@app.get("/api/admin/recordings/{run_id}/file/{name}",
+         dependencies=[Depends(require_admin)])
+async def admin_recording_file(run_id: str, name: str):
+    """One derived file. `name` is matched against the set this run actually
+    produces -- it is never joined onto a path."""
+    d = _run_or_404(run_id)
+    meta = recorder.list_run(run_id) or {"run_id": run_id}
+    rows = recorder.read_lines(d)
+    files = exporting.build_exports(meta, rows)
+    text = files.get(name)
+    if text is None:
+        raise HTTPException(404, "unknown file")
+    media = "application/x-ndjson" if name.endswith(".jsonl") else "text/plain"
+    return _download(text.encode("utf-8"), f"{run_id}-{name}", media + "; charset=utf-8")
+
+
+@app.delete("/api/admin/recordings/{run_id}", dependencies=[Depends(require_admin)])
+async def admin_recording_delete(run_id: str):
+    _run_or_404(run_id)
+    if not recorder.delete_run(run_id):
+        raise HTTPException(409, "that run is still being recorded")
+    return {"deleted": run_id, "runs": recorder.list_runs()}
 
 
 @app.get("/healthz")

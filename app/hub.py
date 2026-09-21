@@ -14,7 +14,7 @@ from __future__ import annotations
 import asyncio
 import time
 from collections import deque
-from typing import Any
+from typing import Any, Callable
 
 import orjson
 
@@ -51,6 +51,11 @@ class Channel:
         self.delta_count = 0       # deltas since the last resync anchor
         self.subscribers: set[asyncio.Queue] = set()
         self.last_delta_ts: float | None = None
+        # When the open segment's first delta arrived. A committed line spans
+        # [open_started_ts, commit time], which is what lets the exporter line
+        # a translation up against the source it came from -- the two feeds
+        # share no segment id, only the clock. See exporting.pair_lines().
+        self.open_started_ts: float | None = None
 
     def key(self) -> str:
         return f"{self.stream}:{self.lang}"
@@ -73,6 +78,10 @@ class Hub:
         self._status_subs: set[asyncio.Queue] = set()
         self.history_lines = 40
         self.blocklist: list[str] = []
+        # Set by the engine when a run is being recorded: called with each
+        # committed line, after redaction. None the rest of the time, which is
+        # the default -- recording is opt-in.
+        self.line_sink: Callable[[str, str, int, str, float, float], None] | None = None
 
     def set_blocklist(self, terms) -> None:
         """Apply a blocklist to every channel, current and future.
@@ -99,6 +108,7 @@ class Hub:
         ch.open_text = ""
         ch.open_seq = 0
         ch.delta_count = 0
+        ch.open_started_ts = None
         ch.redactor.reset()
         ch.history.clear()
         self._fanout(ch, ch.snapshot())
@@ -115,6 +125,8 @@ class Hub:
         if not visible:
             return
         self._seq += 1
+        if not ch.open_text:
+            ch.open_started_ts = time.time()
         ch.open_text += visible
         ch.open_seq = self._seq
         ch.last_delta_ts = time.time()
@@ -142,16 +154,24 @@ class Hub:
             final_text = ch.redactor.whole(text).strip()
         else:
             final_text = (ch.open_text + tail).strip()
+        started = ch.open_started_ts
         ch.redactor.reset()
         ch.open_text = ""
         ch.open_seq = 0
         ch.delta_count = 0
+        ch.open_started_ts = None
         if not final_text:
             return
         self._seq += 1
         ch.last_delta_ts = time.time()
         line = {"seq": self._seq, "text": final_text, "ts": ch.last_delta_ts}
         ch.history.append(line)
+        if self.line_sink is not None:
+            # The ring buffer above is sized for a late-joining viewer and is
+            # cleared every start; the sink is the copy that survives the run.
+            self.line_sink(stream, lang, self._seq, final_text,
+                           started if started is not None else ch.last_delta_ts,
+                           ch.last_delta_ts)
         self._fanout(
             ch,
             {
