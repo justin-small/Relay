@@ -1,10 +1,20 @@
 #!/usr/bin/env python3
 """Entry point. Reads host/ports from config.json, then serves.
 
-Two listening sockets, one app, one process: viewers get `port`, the operator
-panel gets `admin_port`. Admin routes are refused on the viewer port (see
-`_split_admin_port` in app/main.py), so the link handed to a room cannot reach
-the panel. Set `admin_port` equal to `port` to go back to a single port.
+Two listening sockets, one app, one process: viewers get `host:port`, the
+operator panel gets `admin_host:admin_port`. Admin routes are refused on the
+viewer port (see `_split_admin_port` in app/main.py), so the link handed to a
+room cannot reach the panel.
+
+The two sockets no longer share a host. `host` is every interface, because the
+room has to reach the viewer link. `admin_host` defaults to 127.0.0.1, because
+the panel reads and writes the OpenAI key and the admin token and has no TLS of
+its own -- it is reached through the Caddy front end running beside it in the
+same container, which terminates HTTPS on port 443.
+
+Set `admin_port` equal to `port` to go back to a single port; that is an
+explicit choice to serve the panel wherever the viewer link is served, so the
+one socket uses `host` and `admin_host` is ignored.
 """
 import socket
 import sys
@@ -27,14 +37,28 @@ def _listen(host: str, port: int) -> socket.socket:
     return sock
 
 
+def _is_loopback(host: str) -> bool:
+    return host in ("127.0.0.1", "::1", "localhost")
+
+
 def main() -> None:
     import uvicorn
 
     config.ensure_file()
     cfg = config.load()
-    host = cfg.get("host", "0.0.0.0")
-    ports = list(dict.fromkeys([int(cfg["port"]), int(cfg["admin_port"])]))
-    sockets = [_listen(host, p) for p in ports]
+    host = cfg["host"]
+    admin_host = cfg["admin_host"]
+    port = int(cfg["port"])
+    admin_port = int(cfg["admin_port"])
+
+    sockets = [_listen(host, port)]
+    print(f"Viewer pages  -> {host}:{port}")
+    if admin_port != port:
+        sockets.append(_listen(admin_host, admin_port))
+        print(f"Operator panel -> {admin_host}:{admin_port}", end="")
+        print("  (loopback only)" if _is_loopback(admin_host) else "  (ALL INTERFACES)")
+    else:
+        print(f"Operator panel -> {host}:{port}  (single-port mode)")
 
     # One worker, deliberately. Do NOT add uvicorn --workers / workers=nproc:
     # engine, hub and AudioCapture are in-process singletons owning one sound

@@ -110,9 +110,27 @@ async def _startup() -> None:
             "Admin token is not set: the operator panel will reject every login. "
             "Run setup.command (macOS) or setup.bat (Windows) to set one."
         )
-    log.info("Viewer pages: %s", " ".join(_urls(cfg["port"])))
+    # Both sockets are loopback-only behind the Caddy front end, so these are
+    # the internal addresses, not the ones anyone dials. The URLs the operator
+    # and the room actually use are printed by tools/setup_caddy.py at startup,
+    # where the published ports are known.
+    log.info("Viewer socket: 127.0.0.1:%d", int(cfg["port"]))
     if int(cfg["admin_port"]) != int(cfg["port"]):
-        log.info("Operator panel: %s", " ".join(u + "admin" for u in _urls(cfg["admin_port"])))
+        admin_host = str(cfg.get("admin_host") or "127.0.0.1")
+        if admin_host in _LOOPBACK_HOSTS:
+            log.info("Panel socket: 127.0.0.1:%d (loopback only, HTTPS via the "
+                     "front end)", int(cfg["admin_port"]))
+        else:
+            # Only reachable by hand-editing admin_host. Say plainly what it
+            # costs: the panel reads and writes the OpenAI key and the admin
+            # token, and on this socket they cross the network in the clear.
+            log.warning(
+                "Panel socket: %s:%d -- NOT loopback, so the panel is reachable "
+                "in CLEARTEXT from the network. Set \"admin_host\" back to "
+                "\"127.0.0.1\" in config.json and reach it over HTTPS instead.",
+                admin_host,
+                int(cfg["admin_port"]),
+            )
     if os.environ.get("RELAY_DEMO") == "1":
         from . import demo
 
@@ -222,19 +240,63 @@ def _drop_session(request: Request) -> None:
     _SESSIONS.pop(request.cookies.get(ADMIN_COOKIE) or "", None)
 
 
-def _set_session_cookie(resp: Response) -> None:
+def _set_session_cookie(resp: Response, request: Request | None = None) -> None:
+    # `Secure` only when this request actually came over TLS: setting it on a
+    # plain-HTTP login would have the browser drop the cookie and lock the
+    # operator out of a perfectly good loopback or single-port setup.
+    secure = bool(request is not None and _is_https(request))
     resp.set_cookie(
         ADMIN_COOKIE,
         _new_session(),
         httponly=True,
         samesite="strict",
+        secure=secure,
         max_age=SESSION_TTL_S,
         path="/",
     )
 
 
+_LOOPBACK_HOSTS = {"127.0.0.1", "::1", "localhost"}
+
+
+def _from_loopback(request: Request) -> bool:
+    """True when the TCP peer is a process on this host.
+
+    Only such a peer may speak for `X-Forwarded-*`. A reverse proxy in front of
+    the panel connects over loopback; anything arriving from the LAN is a direct
+    client and its headers are attacker-controlled, so they are ignored.
+    """
+    peer = request.client.host if request.client else ""
+    return peer in _LOOPBACK_HOSTS
+
+
 def _client_ip(request: Request) -> str:
+    """The address the login rate limiter counts against.
+
+    Behind the Caddy front end every request has a peer of 127.0.0.1, which
+    would collapse the per-IP lockout added in #8 into a single global counter:
+    one guesser would lock out the operator. So take the left-most entry of
+    X-Forwarded-For -- but only from a loopback peer, never from a direct
+    client that could simply invent the header to dodge its own lockout.
+    """
+    if _from_loopback(request):
+        fwd = (request.headers.get("x-forwarded-for") or "").split(",")[0].strip()
+        if fwd:
+            return fwd
     return request.client.host if request.client else "unknown"
+
+
+def _is_https(request: Request) -> bool:
+    """True when the browser's leg of this request is TLS.
+
+    Direct requests are plain HTTP. Through the front end the app still speaks
+    HTTP over loopback, so the only honest signal is Caddy's X-Forwarded-Proto.
+    """
+    if request.url.scheme == "https":
+        return True
+    if _from_loopback(request):
+        return (request.headers.get("x-forwarded-proto") or "").strip().lower() == "https"
+    return False
 
 
 def _login_locked(ip: str) -> float:
@@ -566,7 +628,7 @@ async def admin_login(request: Request, token: str = Form(...)):
 
     _LOGIN_FAILS.pop(ip, None)
     resp = RedirectResponse("/admin", status_code=303)
-    _set_session_cookie(resp)
+    _set_session_cookie(resp, request)
     return resp
 
 
@@ -642,7 +704,7 @@ async def admin_status_stream(request: Request):
 
 
 @app.post("/api/admin/config", dependencies=[Depends(require_admin)])
-async def admin_config(payload: dict):
+async def admin_config(request: Request, payload: dict):
     updates: dict = {}
     allowed_scalars = (
         "audio_device",
@@ -688,7 +750,7 @@ async def admin_config(payload: dict):
         # New token, so every session issued against the old one dies; the
         # operator who made the change keeps a fresh one.
         _SESSIONS.clear()
-        _set_session_cookie(resp)
+        _set_session_cookie(resp, request)
     return resp
 
 

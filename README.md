@@ -6,66 +6,100 @@ viewers. One vendor (OpenAI Realtime), native audio capture, text-only output.
 Viewers open a link on their phone and read. Nothing to install, no account,
 no microphone permission — the audio is captured on the host machine.
 
-Two ports, one process:
+Two front doors, served by Caddy:
 
-| Port | Serves |
-|---|---|
-| **8000** (`port`) | `/` chooser, `/transcription`, `/translation`, `/both` — the link you give the room |
-| **8001** (`admin_port`) | `/admin` — the operator panel (token required) |
+| | Serves | On the wire |
+|---|---|---|
+| **80** | `/` chooser, `/transcription`, `/translation`, `/both` — the link you give the room | plain HTTP |
+| **8443** | `/admin` — the operator panel | HTTPS |
 
-Admin routes are refused with a 404 on the viewer port, and the chooser page
-only offers the panel when it is served on the admin port, so the audience link
-never exposes it. Set `admin_port` equal to `port` in `config.json` to put
-everything back on one port.
+Behind them the relay is one process with two loopback sockets: `port` (8000)
+for viewers and `admin_port` (8001) for the panel. Neither is on the network.
+`host` is `0.0.0.0` because the room has to reach the viewer link; `admin_host`
+is `127.0.0.1` because the panel reads and writes the OpenAI key and the admin
+token, and those have no business crossing venue Wi-Fi in cleartext.
+
+Admin routes are refused with a 404 on the viewer port — in the app and again
+in Caddy — and the chooser page only offers the panel when it is served on the
+admin port, so the audience link never exposes it. Set `admin_port` equal to
+`port` in `config.json` to put everything back on one port.
+
+The panel's certificate is self-signed and generated on this machine: there is
+no public DNS name on a venue LAN and no ACME challenge to answer, so a real CA
+is not on the table. Setup prints its SHA-256 fingerprint. Check that against
+what the browser shows the first time and then accept it — that check is the
+whole value of the warning.
 
 ---
 
 ## Install
 
-Requires Python 3.10 or newer.
+Requires [Docker Desktop](https://www.docker.com/products/docker-desktop/) (or
+Docker Engine on Linux). Nothing else — no Python, no virtualenv, no Caddy.
+Everything runs in one container, and setup uses the image's own Python to
+write the credentials and mint the certificate.
 
 **Setup runs once. Start runs every time.**
 
 | | Set up | Start |
 |---|---|---|
 | **macOS** | double-click `setup.command` | double-click `start.command` |
-| **Windows** | double-click `setup.bat` | double-click `start.bat` |
+| **Windows 11** | double-click `setup.bat` | double-click `start.bat` |
+| **Linux** | `./setup.sh` | `./start.sh` |
 
-`setup.*` creates the virtualenv, installs dependencies, and asks for two
-things: your **OpenAI API key** and an **admin token** of your choosing. Both
-are written to `config.json` with permissions `0600`. Neither is echoed to the
-screen, and neither is ever committed — `config.json` is git-ignored.
+`setup.*` checks Docker, builds the image, then asks for three things: your
+**OpenAI API key**, an **admin token** of your choosing, and optionally a
+**hostname** for this machine. The first two are written to
+`docker-config/config.json` with permissions `0600`; neither is echoed to the
+screen, and neither is ever committed. It then mints the operator panel's TLS
+certificate and prints its SHA-256 fingerprint — write that down.
 
-`start.*` only starts the server. If setup has not been run it says so and
-stops rather than launching a half-configured relay.
+`start.*` starts the whole stack: Caddy and the relay, one container, one
+command. It finds this machine's LAN address first, because the certificate has
+to name whatever the operator's browser will dial and that changes with the
+venue. If setup has not been run it says so and stops rather than launching a
+half-configured relay.
 
-Run setup again at any time to change the credentials.
+Run setup again at any time to change the credentials, add a hostname, or renew
+the certificate.
 
 <details>
 <summary>Manual setup, without the launchers</summary>
 
 ```bash
-python3 -m venv .venv
-.venv/bin/pip install -r requirements.txt
-OPENAI_KEY='sk-…' ADMIN_TOKEN='your-token' .venv/bin/python tools/write_config.py
-.venv/bin/python run.py
+mkdir -p docker-config && chmod 700 docker-config
+export RELAY_UID=$(id -u) RELAY_GID=$(id -g)
+C="docker compose -f docker/docker-compose.yml"
+
+$C build
+OPENAI_KEY='sk-…' ADMIN_TOKEN='your-token' RELAY_ADMIN_FQDN='' \
+  $C run --rm --no-deps -e OPENAI_KEY -e ADMIN_TOKEN -e RELAY_ADMIN_FQDN \
+  relay python tools/write_config.py
+RELAY_ADMIN_IPS=10.0.1.42 $C run --rm --no-deps -e RELAY_ADMIN_IPS \
+  relay python tools/setup_caddy.py
+
+RELAY_ADMIN_IPS=10.0.1.42 $C -f docker/docker-compose.linux.yml up
 ```
 
 The credentials go through the environment rather than the command line so
-they never land in a process listing or a shell history file.
+they never land in a process listing or a shell history file. `RELAY_ADMIN_IPS`
+is this machine's LAN address: the container only sees its own bridge address,
+so it cannot work that out for itself.
 </details>
 
-There is also a Docker path — see [Docker](#docker). Native is still the
-recommendation for live events on macOS; Docker is the better answer on Linux,
-and for rehearsal and CI anywhere.
+Audio is the only part that needs per-platform wiring, and the launchers handle
+it — see [Docker](#docker) for what each one does and why.
 
 ## First run
 
-1. Run `setup.command` / `setup.bat` and enter your API key and admin token.
-2. Run `start.command` / `start.bat`. The console prints the LAN viewer URL,
-   e.g. `http://10.0.1.42:8000/`, and the panel URL,
-   `http://10.0.1.42:8001/admin`.
-3. Open the panel on port 8001, sign in with your admin token, and:
+1. Run `setup.command` / `setup.bat`. Enter your API key and admin token, and
+   a hostname if you have one — blank certifies this machine's IP address only.
+   Note the SHA-256 fingerprint it prints at the end.
+2. Run `start.command` / `start.bat`. It prints both URLs: viewers get
+   `http://10.0.1.42/`, the panel is at `https://10.0.1.42/admin`.
+3. Open the panel. The browser will warn about the certificate the first time —
+   check the fingerprint it shows against the one from setup, then accept it.
+   Sign in with your admin token, and:
    - pick the **capture device** and channel — the meter should move when
      someone speaks into it;
    - toggle on the **target languages** the room needs;
@@ -73,9 +107,11 @@ and for rehearsal and CI anywhere.
 4. Session health should show one `connected` session per enabled target.
    Share the LAN viewer link with the room.
 
-> **The admin token is the only thing protecting the panel**, and the panel
-> controls a session billed to your OpenAI account. Choose a real password, not
-> a word. There is no default token: leave it unset and every login is refused.
+> **The admin token is what protects the panel**, and the panel controls a
+> session billed to your OpenAI account. Choose a real password, not a word.
+> There is no default token: leave it unset and every login is refused. TLS is
+> what keeps that token off the wire, and the fingerprint check is what makes
+> the TLS mean anything — skip it and you are trusting whatever answered.
 
 ## Target languages
 
@@ -142,19 +178,40 @@ you expect often, blocking the phrase around it usually reads better.
 
 ## Docker
 
-Reproducible builds, pinned dependencies, one command. Audio is the only part
-that needs per-platform wiring, and the launchers handle it:
+Docker is the only way this runs: one image, one container, one command.
+Reproducible builds, pinned dependencies, and nothing to install on the host
+beyond Docker itself.
+
+Audio is the only part that needs per-platform wiring, and the launchers handle
+it:
 
 | Host | Start it with | Audio |
 |---|---|---|
-| **macOS** | `./start-docker.command` | starts a PulseAudio daemon on the Mac and bridges it in |
-| **Windows 11** | `start-docker.bat` | reuses WSLg's PulseAudio, which already publishes the mic |
-| **Linux** | `RELAY_UID=$(id -u) RELAY_GID=$(id -g) docker compose -f docker/docker-compose.yml -f docker/docker-compose.linux.yml up` | `/dev/snd` passed straight in |
+| **macOS** | `./start.command` | starts a PulseAudio daemon on the Mac and bridges it in |
+| **Windows 11** | `start.bat` | reuses WSLg's PulseAudio, which already publishes the mic |
+| **Linux** | `./start.sh` | `/dev/snd` passed straight in |
 
-Each launcher runs `tools/check-audio.sh` first and refuses to go live quietly if a
-link in the chain is broken. Viewer link on `:8000`, panel on `:8001`, exactly
-as native. State lives in `./docker-config/`, so the API key, admin token and
-blocklist survive rebuilds.
+Each launcher runs `tools/check-audio.sh` first and refuses to go live quietly
+if a link in the chain is broken, then finds this machine's LAN address and
+hands it to the container. State lives in `./docker-config/`: the API key,
+admin token, blocklist, the generated `Caddyfile` and the panel's certificate,
+all surviving rebuilds.
+
+Caddy runs **inside the same container** as the relay — there is no second
+process to launch and no second thing to keep running. The entrypoint mints the
+certificate if setup has not already, validates the generated Caddyfile, then
+supervises both processes; if either exits, the container exits and
+`restart: unless-stopped` brings back a known-good pair rather than leaving a
+half-running container that still passes a shallow probe.
+
+| | Outside | Caddy, in the namespace | Relay |
+|---|---|---|---|
+| **Viewers** | `:80`, plain HTTP | `:8080` | `127.0.0.1:8000` |
+| **Panel** | `:443`, HTTPS | `:8443` | `127.0.0.1:8001` |
+
+Caddy binds unprivileged ports inside and the host publishes 80 and 443 in
+front of them. That is deliberate: binding a privileged port directly would
+need `CAP_NET_BIND_SERVICE`, and the container keeps `cap_drop: ALL`.
 
 ### What the container is allowed to do
 
@@ -167,18 +224,24 @@ capabilities at all. In practice that means:
 | **Filesystem** | `read_only: true`. `/app` cannot be rewritten by the process that runs it. Writable: `docker-config/` (state), plus small tmpfs mounts for `/tmp` and `$HOME`. |
 | **Privileges** | `cap_drop: ALL` and `no-new-privileges:true` — no setuid escalation path. |
 | **Limits** | 1 GB memory, 2 CPUs, 256 pids, and log rotation at 3 × 10 MB, so a wedged run cannot fill the host. |
-| **Base image** | `python:3.12-slim-bookworm` pinned by digest; dependencies installed wheels-only in a builder stage, so no compiler or pip ships in the runtime image. |
+| **Base images** | `python:3.12-slim-bookworm` and `caddy:2-alpine`, both pinned by digest; dependencies installed wheels-only in a builder stage, so no compiler or pip ships in the runtime image. Only Caddy's binary is taken from its image, copied with `cp` so its `cap_net_bind_service` file capability is dropped — `execve` of a file with capabilities fails outright under `no-new-privileges`. |
+| **Front end** | Caddy, same container, same lifecycle. `admin off` — its control socket is unauthenticated and can rewrite the whole config, and nothing here needs it. `auto_https off` — nothing is public, so it never reaches for ACME and never redirects viewers to a certificate they cannot trust. |
+| **Panel key** | Minted in the container by setup, into `docker-config/certs/` at mode 0600. It is never in an image layer and never in a registry. Reused across restarts while it still covers the current names, so the fingerprint you wrote down at setup is the fingerprint you see at showtime. |
 
-**The panel is bound to loopback.** `:8001` reads and writes the OpenAI key
-and the admin token, so publishing it to the LAN would hand those to the room.
-Only `:8000` — the viewer link — listens on every interface. If the operator
-really is on another machine, prefer an SSH tunnel:
+**The relay's own sockets never leave loopback.** `:8000` and `:8001` are
+cleartext and live inside the network namespace; they are not published at all.
+Everything from outside arrives through Caddy, which means the panel is only
+ever reachable over TLS. The certificate names the host's LAN address, which
+the container cannot discover for itself — the launchers pass it in as
+`RELAY_ADMIN_IPS` on every start, and `admin_fqdn` in `config.json` (asked for
+at setup) adds a hostname.
+
+If you would rather not expose the panel at all, drop the `443:8443` line from
+`docker/docker-compose.yml` and tunnel instead:
 
 ```bash
-ssh -N -L 8001:127.0.0.1:8001 you@relay-host   # then open http://localhost:8001/admin
+ssh -N -L 8443:127.0.0.1:8443 you@relay-host   # then open https://localhost:8443/admin
 ```
-
-and only as a last resort, on a network you trust, `RELAY_ADMIN_BIND=0.0.0.0`.
 
 **Why the wiring is needed:** the relay captures from a host sound card
 through PortAudio, and a container only sees devices the host hands it.
@@ -186,17 +249,17 @@ through PortAudio, and a container only sees devices the host hands it.
 ### Windows: no, this does not add WSL2
 
 Docker Desktop on Windows *already* runs on WSL2 — it is the default backend,
-installed with Docker Desktop itself. `start-docker.bat` runs `docker compose`
+installed with Docker Desktop itself. `start.bat` runs `docker compose`
 inside that existing WSL environment, because that is where Windows 11's WSLg
 publishes the microphone (as a source named `RDPSource`). Operators
 double-click the `.bat`; nobody opens a Linux shell.
 
-Windows 10 has no WSLg and cannot reach the mic this way — use `start.bat` to
-run natively there.
+Windows 10 has no WSLg and cannot reach the mic this way, so the container
+cannot capture audio there.
 
 ### macOS: PulseAudio
 
-`./start-docker.command` does this for you. To run it by hand:
+`./start.command` does this for you. To run it by hand:
 
 ```bash
 brew install pulseaudio
@@ -235,7 +298,8 @@ working setup.
 ### Rehearsal in Docker
 
 ```bash
-docker compose -f docker/docker-compose.yml run --rm -e RELAY_DEMO=1 -p 8000:8000 -p 127.0.0.1:8001:8001 relay
+RELAY_DEMO=1 RELAY_ADMIN_IPS=127.0.0.1 \
+  docker compose -f docker/docker-compose.yml up
 ```
 
 No audio wiring needed, no API calls, no billed session.
@@ -247,19 +311,21 @@ runs at, so a 48k source would be resampled to 44.1k by PulseAudio and then to
 24k by soxr — two conversions, and a slower start (~4.8s to steady state
 against ~1.6s). The entrypoint therefore sets `RELAY_NATIVE_RATE=48000`, which
 `app/audio.py` uses in place of the reported default. Set it to your device's
-rate if that is not 48k, or to `0` to take PortAudio's default. The native run
-does not set it and is unaffected.
+rate if that is not 48k, or to `0` to take PortAudio's default. Linux hands
+`/dev/snd` straight in, so `PULSE_SERVER` is unset there and none of this
+applies.
 
 ### Caveats
 
 Published ports, not host networking, so the console prints the container's
 address rather than the LAN one — give the room the host machine's own LAN
-address on `:8000`.
+address on `:80`. The same blind spot is why the certificate needs
+`RELAY_ADMIN_IPS`: the container cannot name an address it cannot see.
 
-The macOS path adds a network hop to a pipeline tuned for latency and one more
-daemon to fail on event day; for live use on a Mac the native run is still the
-recommended one. Docker earns its keep on Linux, on Windows via WSLg (where
-the socket is local and the hop is cheap), in CI, and for rehearsal.
+The macOS path adds a network hop to a pipeline tuned for latency, and a
+PulseAudio daemon that can fail on event day — check the audio before the room
+fills up. Linux (`/dev/snd` straight in) and Windows via WSLg (the socket is
+local, so the hop is cheap) have neither problem.
 
 `auth-anonymous=1` means anything that can reach the PulseAudio port can
 listen to that microphone. Keep `auth-ip-acl` narrow and do not forward the
@@ -271,8 +337,10 @@ Check fonts, projector legibility and the link on every phone in the room
 **without opening a billed session**:
 
 ```bash
-RELAY_DEMO=1 .venv/bin/python run.py
+RELAY_DEMO=1 ./start.sh            # or start.command / start.bat
 ```
+
+`RELAY_DEMO` is read from the environment and passed through to the container.
 
 Canned captions stream to the viewer pages. No OpenAI connection is opened.
 
@@ -346,9 +414,21 @@ check the host's bandwidth and the session health table, not these two fields.
 - The OpenAI key lives only in `config.json` on the host (mode `0600`,
   git-ignored) and is never sent to a browser. The admin panel shows only
   whether a key is set and its last four characters.
-- Viewer pages are read-only and unauthenticated — appropriate for a venue LAN.
-  **Do not expose this server to the public internet as-is**: there is no TLS
-  and viewer pages have no access control.
+- Viewer pages are read-only and unauthenticated, and served in plain HTTP —
+  appropriate for a venue LAN. They carry no secret, and a room full of phones
+  will not install a certificate to read captions.
+  **Do not expose this server to the public internet as-is**: viewer pages have
+  no access control and no transport security.
+- The operator panel is a different matter, and is served over HTTPS by Caddy
+  (`docker-config/Caddyfile`, generated at setup). The relay's
+  own admin socket binds `127.0.0.1` — `admin_host` in `config.json` — so the
+  only route in is through TLS. The certificate is self-signed and generated on
+  the host; setup prints its SHA-256 fingerprint, and checking that once
+  against the browser is what makes the connection worth anything.
+- Behind the front end the app reads `X-Forwarded-For` and `X-Forwarded-Proto`,
+  but **only from a loopback peer**. A direct client on the LAN cannot forge
+  either: not its address, to dodge the login lockout, and not the scheme, to
+  influence the cookie.
 - The admin token is set by `setup.command` / `setup.bat` and stored in the
   same file. **There is no default token.** An unset token does not leave the
   panel open — every login is refused — but it does mean nobody can operate the
@@ -356,7 +436,9 @@ check the host's bandwidth and the session health table, not these two fields.
 - Signing in issues a random session id; the admin token itself never goes
   into a cookie. Sessions are held in memory, so they last 12 hours, die on
   restart, and are all revoked when the token is changed. The cookie is
-  `HttpOnly` and `SameSite=Strict`.
+  `HttpOnly` and `SameSite=Strict`, and `Secure` as well whenever the login
+  actually arrived over TLS — not on a plain-HTTP login, where the browser
+  would drop a `Secure` cookie and lock the operator out.
 - Failed logins are delayed and logged, and an IP is locked out for five
   minutes after five failures in a row.
 - Translation sessions are instructed to treat everything they hear as content
@@ -386,14 +468,20 @@ check the host's bandwidth and the session health table, not these two fields.
 ## Layout
 
 ```
-setup.command / setup.bat    one-time setup: venv, deps, credentials
-start.command / start.bat    start the server
-start-docker.command / .bat  start it in Docker instead
-run.py                       entry point — binds both ports, serves
-requirements.txt             pinned dependencies
-config.example.json          template for config.json
-config.json                  live config (git-ignored, 0600, created by setup)
+setup.command / .bat / .sh   one-time setup: image, credentials, panel TLS
+start.command / .bat / .sh   start the whole stack (Caddy + relay, one
+                             container). One per platform: macOS, Windows,
+                             Linux — nothing else to launch.
+run.py                       in-container entry point — binds both sockets
+requirements.txt             pinned dependencies (installed into the image)
+config.example.json          template, used when tests run outside the image
 blocklist.txt                blocked words, one per line, hot-reloaded
+
+docker-config/               all state, git-ignored, created by setup
+  config.json                live config (0600): API key, admin token, admin_fqdn
+  blocklist.txt              the editable copy the panel writes
+  Caddyfile                  generated from config.json on every start
+  certs/admin.{crt,key}      operator panel certificate (key 0600)
 
 app/
   main.py                    FastAPI routes, SSE, admin API
@@ -422,11 +510,19 @@ tests/
 tools/
   check-audio.sh             PASS/FAIL walk of the whole capture chain
   write_config.py            writes credentials into config.json
+  setup_caddy.py             panel certificate + Caddyfile
 ```
+
+`write_config.py` and `setup_caddy.py` run *inside* the container, called by
+setup through `docker compose run`. That is why the host needs no Python.
 
 ## Tests
 
+The suites run against the source tree, not the image, so they need a local
+virtualenv — the only reason to create one:
+
 ```bash
+python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
 .venv/bin/python tests/smoke_test.py   # config, hub, audio, routes, auth, blocklist
 .venv/bin/python tests/test_redact.py  # blocklist filtering, incl. split-delta cases
 ```

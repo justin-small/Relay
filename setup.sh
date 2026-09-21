@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Relay — one-time setup for macOS. Double-click this before the first run.
+# Relay — one-time setup for Linux. Run this before the first start.
 #
 # Everything the stack needs, in one pass: it checks Docker, builds the image,
 # asks for your OpenAI API key and admin token, and mints the TLS certificate
@@ -10,12 +10,9 @@
 # and the certificate are written by the image's own Python, through
 # `docker compose run`, so the only dependency here is Docker itself.
 #
-# It does not start the relay — use start.command for that.
+# It does not start the relay — use start.sh for that.
 cd "$(dirname "$0")" || exit 1
 set -u
-
-finish() { echo; read -r -p "Press return to close." _; }
-trap finish EXIT
 
 COMPOSE="docker compose -f docker/docker-compose.yml"
 
@@ -23,24 +20,22 @@ echo "Relay — setup"
 echo "============="
 echo
 
-# ---------------------------------------------------------------- docker
 if ! command -v docker >/dev/null 2>&1; then
     echo "  Docker is not installed."
-    echo "  Install Docker Desktop from https://www.docker.com/products/docker-desktop/"
-    echo "  and run this again."
+    echo "  Install Docker Engine, then run this again:"
+    echo "      https://docs.docker.com/engine/install/"
     exit 1
 fi
 if ! docker info >/dev/null 2>&1; then
-    echo "  Docker is installed but not running."
-    echo "  Start Docker Desktop, wait for it to settle, then run this again."
+    echo "  Cannot talk to Docker."
+    echo "  Start the daemon (sudo systemctl start docker), and if this is a"
+    echo "  fresh install add yourself to the docker group:"
+    echo "      sudo usermod -aG docker \"$USER\"   # then log out and back in"
     exit 1
 fi
 echo "Docker — ok"
 
-# Run the container as this user so the bind-mounted docker-config/ stays
-# readable and writable on both sides. The image defaults to 10001:10001.
 export RELAY_UID="$(id -u)" RELAY_GID="$(id -g)"
-
 mkdir -p docker-config
 chmod 700 docker-config
 
@@ -52,7 +47,6 @@ fi
 echo "Image — ok"
 echo
 
-# ---------------------------------------------------------------- config
 SKIP_CREDS=0
 if [ -f docker-config/config.json ]; then
     echo "docker-config/config.json already exists."
@@ -122,12 +116,12 @@ if ! OPENAI_KEY="$OPENAI_KEY" ADMIN_TOKEN="$ADMIN_TOKEN" RELAY_ADMIN_FQDN="$ADMI
 fi
 fi
 
-# ------------------------------------------------------------------- tls
 # Minted here rather than left to the first start so the operator reads the
 # fingerprint now, while they are still at the keyboard, instead of hunting for
 # it in a scrolling log on event day. Every start reuses it while it still
 # covers the current address and has 30+ days left.
-LAN_IP="$(ipconfig getifaddr en0 2>/dev/null || ipconfig getifaddr en1 2>/dev/null || echo 127.0.0.1)"
+LAN_IP="$(ip route get 1.1.1.1 2>/dev/null | awk '{for (i=1;i<NF;i++) if ($i=="src") print $(i+1); exit}')"
+LAN_IP="${LAN_IP:-127.0.0.1}"
 echo "Operator panel certificate"
 echo "  Certifying this machine's LAN address, $LAN_IP."
 echo
@@ -139,7 +133,7 @@ fi
 
 echo
 echo "Setup complete."
-echo "  Next: double-click start.command to launch Relay."
+echo "  Next: run ./start.sh to launch Relay."
 echo "  Write down the SHA-256 fingerprint above — you check it against the"
 echo "  browser the first time you open the panel."
 echo "  To change the key, the token or the hostname later, open the operator"
