@@ -87,7 +87,9 @@ echo Share the machine's LAN address with the room, e.g. http://192.168.1.50:800
 echo Close this window or press Ctrl+C to stop.
 echo.
 
-wsl -- bash -lc "cd '!PROJDIR!' && docker compose -f docker/docker-compose.yml -f docker/docker-compose.wsl.yml up --build"
+REM Compose runs inside WSL, where the docker-config bind mount carries real
+REM Linux ownership, so hand the container the invoking user's uid/gid.
+wsl -- bash -lc "cd '!PROJDIR!' && RELAY_UID=$(id -u) RELAY_GID=$(id -g) docker compose -f docker/docker-compose.yml -f docker/docker-compose.wsl.yml up --build"
 
 echo.
 pause

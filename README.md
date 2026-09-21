@@ -149,12 +149,36 @@ that needs per-platform wiring, and the launchers handle it:
 |---|---|---|
 | **macOS** | `./start-docker.command` | starts a PulseAudio daemon on the Mac and bridges it in |
 | **Windows 11** | `start-docker.bat` | reuses WSLg's PulseAudio, which already publishes the mic |
-| **Linux** | `docker compose -f docker/docker-compose.yml -f docker/docker-compose.linux.yml up` | `/dev/snd` passed straight in |
+| **Linux** | `RELAY_UID=$(id -u) RELAY_GID=$(id -g) docker compose -f docker/docker-compose.yml -f docker/docker-compose.linux.yml up` | `/dev/snd` passed straight in |
 
 Each launcher runs `tools/check-audio.sh` first and refuses to go live quietly if a
 link in the chain is broken. Viewer link on `:8000`, panel on `:8001`, exactly
-as native. State lives in `./docker-config/config.json`, so the API key and
-admin token survive rebuilds.
+as native. State lives in `./docker-config/`, so the API key, admin token and
+blocklist survive rebuilds.
+
+### What the container is allowed to do
+
+The image runs unprivileged with a read-only root filesystem and no Linux
+capabilities at all. In practice that means:
+
+| | |
+|---|---|
+| **User** | `10001:10001`, never root. On Linux, pass `RELAY_UID`/`RELAY_GID` so the bind-mounted `docker-config/` matches your account; Docker Desktop fakes ownership, so macOS and Windows can ignore this. |
+| **Filesystem** | `read_only: true`. `/app` cannot be rewritten by the process that runs it. Writable: `docker-config/` (state), plus small tmpfs mounts for `/tmp` and `$HOME`. |
+| **Privileges** | `cap_drop: ALL` and `no-new-privileges:true` — no setuid escalation path. |
+| **Limits** | 1 GB memory, 2 CPUs, 256 pids, and log rotation at 3 × 10 MB, so a wedged run cannot fill the host. |
+| **Base image** | `python:3.12-slim-bookworm` pinned by digest; dependencies installed wheels-only in a builder stage, so no compiler or pip ships in the runtime image. |
+
+**The panel is bound to loopback.** `:8001` reads and writes the OpenAI key
+and the admin token, so publishing it to the LAN would hand those to the room.
+Only `:8000` — the viewer link — listens on every interface. If the operator
+really is on another machine, prefer an SSH tunnel:
+
+```bash
+ssh -N -L 8001:127.0.0.1:8001 you@relay-host   # then open http://localhost:8001/admin
+```
+
+and only as a last resort, on a network you trust, `RELAY_ADMIN_BIND=0.0.0.0`.
 
 **Why the wiring is needed:** the relay captures from a host sound card
 through PortAudio, and a container only sees devices the host hands it.
@@ -211,7 +235,7 @@ working setup.
 ### Rehearsal in Docker
 
 ```bash
-docker compose -f docker/docker-compose.yml run --rm -e RELAY_DEMO=1 -p 8000:8000 -p 8001:8001 relay
+docker compose -f docker/docker-compose.yml run --rm -e RELAY_DEMO=1 -p 8000:8000 -p 127.0.0.1:8001:8001 relay
 ```
 
 No audio wiring needed, no API calls, no billed session.

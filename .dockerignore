@@ -1,17 +1,22 @@
-.venv/
-venv/
-__pycache__/
-*.pyc
-.git/
-.gitignore
-.dockerignore
-.DS_Store
-.agents/
-.codex/
-.claude/
-.ignore
-.mcp.json
-graft/
-docker-config/
-config.json
-README.md
+# Deny by default, then re-admit exactly what the image needs. An allowlist
+# keeps a new secret or scratch file at the repo root out of the build context
+# automatically, rather than needing a new ignore rule each time.
+*
+
+!requirements.txt
+!run.py
+!blocklist.txt
+!app/
+!docker/entrypoint.sh
+!docker/config.example.json
+
+# ...minus anything that slipped into the re-admitted directories.
+**/__pycache__/
+**/*.py[cod]
+**/.DS_Store
+**/*.log
+**/.env
+**/.env.*
+**/*.pem
+**/*.key
+**/config.json

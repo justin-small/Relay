@@ -9,4 +9,6 @@ services:
     environment:
       PULSE_SERVER: unix:/mnt/wslg/PulseServer
     volumes:
+      # Read-write: connect() on a unix socket needs write permission on the
+      # socket inode, so a :ro mount here would break capture.
       - /mnt/wslg:/mnt/wslg
