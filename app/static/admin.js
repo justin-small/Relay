@@ -238,7 +238,7 @@
   $('stopBtn').addEventListener('click', async function () {
     $('stopBtn').disabled = true;
     try { applyStatus(await post('/api/admin/stop')); alertMsg(''); }
-    catch (e) { alertMsg(e.message); }
+    catch (e) { alertMsg(e.message); $('stopBtn').disabled = false; }
   });
 
   /* ---- status rendering ---- */
