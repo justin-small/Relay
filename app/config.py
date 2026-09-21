@@ -16,6 +16,10 @@ from . import redact
 
 ROOT = Path(__file__).resolve().parent.parent
 CONFIG_PATH = Path(os.environ.get("RELAY_CONFIG", ROOT / "config.json"))
+# Container images mount a writable state volume and keep /app read-only, so
+# the blocklist has to live outside the code tree. Same escape hatch as
+# RELAY_CONFIG: when set it wins over the `blocklist_file` config key.
+BLOCKLIST_ENV = os.environ.get("RELAY_BLOCKLIST") or ""
 EXAMPLE_PATH = ROOT / "config.example.json"
 
 DEFAULTS: dict[str, Any] = {
@@ -170,7 +174,7 @@ def load() -> dict:
 
 def blocklist_path() -> Path:
     """Absolute path of the blocklist file (relative entries resolve to ROOT)."""
-    p = Path(get().get("blocklist_file") or "blocklist.txt")
+    p = Path(BLOCKLIST_ENV or get().get("blocklist_file") or "blocklist.txt")
     return p if p.is_absolute() else ROOT / p
 
 
@@ -179,7 +183,7 @@ def _migrate_blocklist(raw: dict) -> None:
     legacy = raw.get("blocklist")
     if not legacy:
         return
-    target = Path(raw.get("blocklist_file") or "blocklist.txt")
+    target = Path(BLOCKLIST_ENV or raw.get("blocklist_file") or "blocklist.txt")
     if not target.is_absolute():
         target = ROOT / target
     if not target.exists():

@@ -1,6 +1,9 @@
 # macOS host: Docker Desktop has no sound card of its own, so capture comes
 # from a PulseAudio server running natively on the Mac. start-docker.command
 # starts that daemon; see README "Docker" to run it by hand.
+#
+# Note the Pulse TCP socket is unauthenticated -- keep its ACL scoped to
+# Docker Desktop's VM subnet (see README), never 0.0.0.0/0.
 services:
   relay:
     environment:

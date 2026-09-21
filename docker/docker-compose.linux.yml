@@ -1,4 +1,9 @@
 # Linux host: hand the sound card straight to the container.
+#
+# `devices` grants the cgroup rule; `group_add` gives the process the gid that
+# owns /dev/snd (29 = `audio` on Debian/Ubuntu). If your distro uses a
+# different gid, check with `stat -c %g /dev/snd/controlC0` and put the number
+# here instead of the name -- the name is resolved inside the image.
 services:
   relay:
     devices:

@@ -8,8 +8,8 @@
 #   WSL2     docker compose -f docker/docker-compose.yml -f docker/docker-compose.wsl.yml up
 #
 # Ports: 8000 = viewer link for the room, 8001 = operator panel.
-# State:  ../docker-config/ (project root) holds config.json (API key, admin token), so
-#         rebuilds never lose them.
+# State:  ../docker-config/ (project root) holds config.json (API key, admin
+#         token) and blocklist.txt, so rebuilds never lose them.
 services:
   relay:
     build:
@@ -19,14 +19,57 @@ services:
     container_name: live-caption-relay
     restart: unless-stopped
 
+    # The image ships an unprivileged account (10001:10001). On a Linux host
+    # the bind mount below carries real ownership, so run as the invoking user
+    # instead -- the launchers export these; by hand use:
+    #   RELAY_UID=$(id -u) RELAY_GID=$(id -g) docker compose ... up
+    # Docker Desktop (macOS/Windows) fakes bind-mount ownership, so the
+    # defaults are correct there.
+    user: "${RELAY_UID:-10001}:${RELAY_GID:-10001}"
+
+    # Hardening. The relay needs no privileged operation at all: no setuid
+    # binaries, no capabilities, and nothing to write outside its state volume.
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    tmpfs:
+      # $HOME: the entrypoint writes ~/.asoundrc when PULSE_SERVER is set.
+      - /home/relay:mode=0777,size=1m
+      - /tmp:mode=1777,size=16m
+
+    # PID 1 that reaps zombies and forwards signals, so `docker stop` is a
+    # clean shutdown rather than a 10s timeout and SIGKILL.
+    init: true
+
+    # A wedged or runaway process should not be able to take the host down
+    # with it. Raise these if a large room needs more headroom.
+    mem_limit: 1g
+    cpus: 2.0
+    pids_limit: 256
+
+    # Unbounded container logs fill the host disk. Cap and rotate them.
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
     ports:
+      # Viewer link -- published on every interface so the room can reach it.
       - "8000:8000"
-      - "8001:8001"
+      # Operator panel. Loopback only by default: it can read and write the
+      # OpenAI key and the admin token, so it has no business on the LAN.
+      # Reach it over an SSH tunnel, or set RELAY_ADMIN_BIND=0.0.0.0 if the
+      # operator is genuinely on another machine on a trusted network.
+      - "${RELAY_ADMIN_BIND:-127.0.0.1}:8001:8001"
 
     environment:
       RELAY_CONFIG: /app/config/config.json
+      RELAY_BLOCKLIST: /app/config/blocklist.txt
       # RELAY_DEMO: "1"   # rehearsal mode: canned captions, no API calls
 
     volumes:
+      # Single writable mount, holding config.json and blocklist.txt.
       - ../docker-config:/app/config
-      - ../blocklist.txt:/app/blocklist.txt

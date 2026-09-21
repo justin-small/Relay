@@ -80,6 +80,10 @@ echo "Share the Mac's LAN address with the room, e.g. http://192.168.1.50:8000/"
 echo "Press Ctrl+C to stop."
 echo
 
+# Run the container as this user so the bind-mounted docker-config/ stays
+# readable and writable on both sides. The image defaults to 10001:10001.
+export RELAY_UID="$(id -u)" RELAY_GID="$(id -g)"
+
 docker compose -f docker/docker-compose.yml -f docker/docker-compose.macos.yml up --build
 
 echo
