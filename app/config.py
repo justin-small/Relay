@@ -34,8 +34,12 @@ DEFAULTS: dict[str, Any] = {
     "blocklist_file": "blocklist.txt",
     "history_lines": 40,
     "host": "0.0.0.0",
+    "admin_host": "127.0.0.1",
     "port": 8000,
     "admin_port": 8001,
+    # Optional hostname for the operator panel certificate, asked for by
+    # setup and read by tools/setup_caddy.py. Blank certifies the IP only.
+    "admin_fqdn": "",
     "realtime": {
         "translate_model": "gpt-realtime-translate",
         # The source-language transcript is opt-in: the translations endpoint only
@@ -122,6 +126,20 @@ def _normalise(cfg: dict) -> dict:
     # everything back on one port.
     cfg["port"] = int(cfg.get("port") or 8000)
     cfg["admin_port"] = int(cfg.get("admin_port") or cfg["port"])
+    cfg["admin_fqdn"] = str(cfg.get("admin_fqdn") or "").strip().strip(".")
+    # `host` is where the viewer link listens -- every interface, because the
+    # room has to reach it. The panel reads and writes the OpenAI key and the
+    # admin token, so it binds loopback by default and is reached from another
+    # machine through the Caddy front end in the same container, which
+    # terminates TLS for it. Setting `admin_host` to "0.0.0.0" puts the panel
+    # back on the network in cleartext -- never the default, and it would only
+    # be reachable at all if 8001 were also published.
+    cfg["host"] = (str(cfg.get("host") or "").strip() or "0.0.0.0")
+    # Not rewritten when admin_port == port: in single-port mode run.py binds
+    # one socket on `host` and never looks at admin_host, and collapsing the
+    # stored value here would mean a round trip through single-port mode left
+    # the panel silently on 0.0.0.0 afterwards.
+    cfg["admin_host"] = (str(cfg.get("admin_host") or "").strip() or "127.0.0.1")
     # The relay moved to the translations endpoint, which only serves
     # gpt-realtime-translate. A config written before that still names the old
     # conversational model; point it at the right one instead of failing to

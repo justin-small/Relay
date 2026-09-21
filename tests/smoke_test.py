@@ -560,6 +560,95 @@ check("a good login still goes through",
 check("counter reset on success", _main._LOGIN_FAILS == {}, _main._LOGIN_FAILS)
 _main.LOGIN_FAIL_DELAY_S = 0.75
 
+# --------------------------------------------------------------- issue #15
+# The panel socket no longer shares a host with the viewer socket, and it sits
+# behind a TLS front end (caddy/Caddyfile). Two things have to hold: the
+# defaults must keep the panel off the LAN, and the app must read the proxy's
+# forwarded headers -- but only from a loopback peer, or a direct client on
+# the LAN could forge them.
+print("\nadmin host + forwarded headers")
+
+_cfg = config.load()
+eq("admin_host defaults to loopback", _cfg["admin_host"], "127.0.0.1")
+eq("host still serves the room", _cfg["host"], "0.0.0.0")
+check("viewer and panel are separate sockets", _cfg["port"] != _cfg["admin_port"])
+
+# In single-port mode run.py binds one socket on `host` and ignores
+# admin_host. The stored value must survive that: collapsing it here would
+# mean a round trip through single-port mode left the panel on 0.0.0.0.
+_single = config._normalise({"port": 8000, "admin_port": 8000, "host": "0.0.0.0"})
+eq("single-port mode leaves admin_host alone", _single["admin_host"], "127.0.0.1")
+eq("a blank admin_host falls back to loopback",
+   config._normalise({"admin_host": "  "})["admin_host"], "127.0.0.1")
+
+_main._SESSIONS.clear()
+_main._LOGIN_FAILS.clear()
+_main.LOGIN_FAIL_DELAY_S = 0.0
+
+# TestClient's peer is "testclient", not a loopback address, so these headers
+# stand in for the untrusted case: a direct client on the venue LAN.
+c7 = TestClient(app)
+c7.post("/admin/login", data={"token": "nope"},
+        headers={"x-forwarded-for": "203.0.113.9"})
+check("forged X-Forwarded-For is ignored from a non-loopback peer",
+      "203.0.113.9" not in _main._LOGIN_FAILS, _main._LOGIN_FAILS)
+
+
+# TestClient has no way to set the peer address, so the loopback side is
+# exercised against Requests built by hand -- the peer is scope["client"],
+# which is exactly what _from_loopback reads.
+from starlette.requests import Request as _Req
+from starlette.responses import Response as _Resp
+
+
+def _req(peer, headers=None):
+    return _Req({
+        "type": "http", "method": "POST", "path": "/admin/login",
+        "scheme": "http", "server": ("127.0.0.1", 8001), "query_string": b"",
+        "client": peer,
+        "headers": [(k.encode(), v.encode()) for k, v in (headers or {}).items()],
+    })
+
+
+eq("X-Forwarded-For is honoured from a loopback peer",
+   _main._client_ip(_req(("127.0.0.1", 54321),
+                         {"x-forwarded-for": "203.0.113.9, 10.0.0.1"})),
+   "203.0.113.9")
+eq("a direct LAN client's forged X-Forwarded-For is ignored",
+   _main._client_ip(_req(("10.0.1.77", 54321),
+                         {"x-forwarded-for": "203.0.113.9"})),
+   "10.0.1.77")
+eq("no header means the peer itself",
+   _main._client_ip(_req(("10.0.1.77", 54321))), "10.0.1.77")
+
+check("X-Forwarded-Proto is honoured from a loopback peer",
+      _main._is_https(_req(("127.0.0.1", 54321), {"x-forwarded-proto": "https"})))
+check("a direct LAN client cannot claim https",
+      not _main._is_https(_req(("10.0.1.77", 54321), {"x-forwarded-proto": "https"})))
+check("plain loopback request is not https", not _main._is_https(_req(("127.0.0.1", 1))))
+
+# The cookie must pick up Secure behind TLS, and must NOT pick it up on a plain
+# HTTP login -- a browser drops a Secure cookie sent over HTTP, which would
+# lock the operator out of a working loopback or single-port setup.
+_main._SESSIONS.clear()
+_r = _Resp()
+_main._set_session_cookie(_r, _req(("127.0.0.1", 1), {"x-forwarded-proto": "https"}))
+check("cookie is Secure behind a TLS proxy",
+      "secure" in _r.headers["set-cookie"].lower(), _r.headers["set-cookie"])
+
+_r2 = _Resp()
+_main._set_session_cookie(_r2, _req(("10.0.1.77", 1), {"x-forwarded-proto": "https"}))
+check("forged X-Forwarded-Proto does not set Secure",
+      "secure" not in _r2.headers["set-cookie"].lower(), _r2.headers["set-cookie"])
+
+_main._SESSIONS.clear()
+_main._LOGIN_FAILS.clear()
+c9 = TestClient(app)
+_plain = c9.post("/admin/login", data={"token": "t0ken"}, follow_redirects=False)
+check("cookie is not Secure on a plain-HTTP login",
+      "secure" not in _plain.headers["set-cookie"].lower(), _plain.headers["set-cookie"])
+_main.LOGIN_FAIL_DELAY_S = 0.75
+
 print()
 if fails:
     print(f"{len(fails)} FAILED: " + "; ".join(fails)); sys.exit(1)

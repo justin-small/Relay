@@ -47,8 +47,10 @@
   "blocklist_file": "blocklist.txt",
   "history_lines": 40,
   "host": "0.0.0.0",
+  "admin_host": "127.0.0.1",
   "port": 8000,
   "admin_port": 8001,
+  "admin_fqdn": "",
   "realtime": {
     "translate_model": "gpt-realtime-translate",
     "transcribe_model": "gpt-live-transcribe",

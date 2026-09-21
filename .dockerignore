@@ -7,6 +7,8 @@
 !run.py
 !blocklist.txt
 !app/
+!tools/setup_caddy.py
+!tools/write_config.py
 !docker/entrypoint.sh
 !docker/config.example.json
 

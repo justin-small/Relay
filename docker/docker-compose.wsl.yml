@@ -2,7 +2,7 @@
 # Windows microphone. Nothing to install -- WSLg ships with Windows 11, and
 # Docker Desktop already runs on WSL2.
 #
-# Must be run from inside the WSL distro (start-docker.bat does this for you);
+# Must be run from inside the WSL distro (start.bat does this for you);
 # a Docker context outside WSL cannot see /mnt/wslg.
 services:
   relay:

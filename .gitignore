@@ -1,4 +1,5 @@
-# Secrets — holds the OpenAI API key and the admin token. Never commit.
+# Secrets and generated state — the OpenAI API key, the admin token, and the
+# operator panel's TLS key. Never commit.
 config.json
 docker-config/
 
