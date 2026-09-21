@@ -166,8 +166,9 @@ if [ "$findings" -eq 0 ]; then
     echo "RESULT: no fixable $SEVERITY findings in $REF"
 else
     echo "RESULT: $findings fixable $SEVERITY finding(s) in $REF"
-    echo "  -> rebuild against a current base: docker pull python:3.12-slim-bookworm,"
-    echo "     then update PYTHON_IMAGE in docker/Dockerfile to the new digest (see #12)."
+    echo "  -> rebuild against a current base: Dependabot opens the digest bump"
+    echo "     weekly (.github/dependabot.yml); by hand, docker pull"
+    echo "     python:3.12-slim-bookworm and re-pin the python-base FROM line."
     echo "  -> a finding in the venv is a requirements.txt bump instead."
     echo "  -> findings in the Caddy binary's Go modules are triaged in the README"
     echo "     (Docker > Scanning the image > Known findings); upstream caddy:2-alpine"
