@@ -168,6 +168,30 @@ _eng.relays = {}
 _eng._elect_source_owner()
 check("no owner with no sessions", _eng._source_owner is None)
 
+print("\nsession clock")
+# A real start() needs PortAudio and a live OpenAI key, so the stamping itself
+# is exercised through the state it leaves behind: what start() sets, what
+# stop() clears, and that both status frames carry it.
+eq("stopped relay reports no start time", _eng.status()["started_at"], None)
+eq("meter agrees when stopped", _eng.meter()["started_at"], None)
+_t0 = time.time()
+_eng.running = True
+_eng.started_at = _t0          # what start() stamps
+check("status carries the start time", _eng.status()["started_at"] == _t0)
+check("meter carries the same start time", _eng.meter()["started_at"] == _t0)
+check("timestamp is wall clock, not monotonic",
+      abs(_eng.status()["started_at"] - time.time()) < 5)
+asyncio.run(_eng.stop())
+eq("stop clears the start time", _eng.status()["started_at"], None)
+eq("stop clears it in the meter too", _eng.meter()["started_at"], None)
+check("stop also clears running", not _eng.running)
+# restart() is stop() + start(), so a restarted session is stamped afresh
+# rather than keeping the old window.
+import inspect as _inspect
+_restart_src = _inspect.getsource(_Engine.restart)
+check("restart re-stamps by going through stop and start",
+      "await self.stop()" in _restart_src and "await self.start()" in _restart_src)
+
 print("\nhub")
 async def hub_test():
     ch, q = await hub.subscribe("translation", "SPANISH")

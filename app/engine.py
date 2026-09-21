@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 
 from . import config, languages, redact
 from .audio import AudioCapture
@@ -34,6 +35,10 @@ class Engine:
         self._audio_queues: dict[str, asyncio.Queue] = {}
         self._source_owner: str | None = None
         self.running = False
+        # Wall clock, not monotonic: this timestamp is served to clients on
+        # other machines (a Companion surface, a browser) that render the
+        # session clock against their own clock. None whenever stopped.
+        self.started_at: float | None = None
         self.last_error: str | None = None
         self._lock = asyncio.Lock()
 
@@ -62,6 +67,7 @@ class Engine:
                 raise
 
             self.running = True
+            self.started_at = time.time()
             src = cfg["source_language"]
             hub.reset(TRANSCRIPTION_STREAM, src)
             enabled = [t for t, spec in sorted(cfg["targets"].items()) if spec.get("enabled")]
@@ -85,6 +91,7 @@ class Engine:
             if self.capture is not None:
                 self.capture.stop()
             self.running = False
+            self.started_at = None
             self._end_recording()
             self._push_status()
             return self.status()
@@ -207,6 +214,7 @@ class Engine:
         sessions = [self.relays[t].health() for t in sorted(self.relays)]
         return {
             "running": self.running,
+            "started_at": self.started_at,
             "error": self.last_error,
             "audio": self.capture.status() if self.capture else {},
             "sessions": sessions,
@@ -234,6 +242,7 @@ class Engine:
         return {
             "type": "meter",
             "running": self.running,
+            "started_at": self.started_at,
             "level": a.get("level", 0.0),
             "rms_dbfs": a.get("rms_dbfs", -60.0),
             "peak_dbfs": a.get("peak_dbfs", -60.0),
