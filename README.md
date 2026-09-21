@@ -279,13 +279,60 @@ Findings come out in two flavours, and the fix differs:
 
 | Where | Fix |
 |---|---|
-| OS package or Caddy's Go modules | Bump the pinned digest in `docker/Dockerfile` — `docker pull python:3.12-slim-bookworm` (or `caddy:2-alpine`), then `docker image inspect ... --format '{{index .RepoDigests 0}}'`. |
+| OS package or Caddy's Go modules | Bump the pinned digest in `docker/Dockerfile` — `docker pull python:3.12-slim-bookworm` (or `caddy:2-alpine`), then `docker image inspect ... --format '{{index .RepoDigests 0}}'`. For Caddy this currently changes nothing — see *Known findings* below. |
 | Python package | Bump it in `requirements.txt` and rebuild. |
 
 Pass 3 will flag your own `config.json` if it holds a real key — that is the
 scanner working, not a leak; the file is git-ignored and never enters an image
 layer. It is worth reading anyway, because it is the same check that would
 catch a key pasted into a file that *is* tracked.
+
+### Known findings: the Caddy binary's Go modules
+
+As of 2026-09-21 a clean scan is not achievable, and the reason is worth
+writing down so the next run does not re-litigate it. `caddy:2-alpine` ships
+Caddy 2.11.4 built against Go 1.26.3, and Trivy reports **17 fixable HIGH**
+findings inside that one binary:
+
+| Module | In image | Fixed in | Count |
+|---|---|---|---|
+| Go `stdlib` | 1.26.3 | 1.26.6 | 11 |
+| `google.golang.org/grpc` | 1.81.0 | 1.83.2 | 3 |
+| `golang.org/x/crypto` | 0.52.0 | 0.55.0 | 1 |
+| `golang.org/x/net` | 0.55.0 | 0.56.0 | 1 |
+| `golang.org/x/text` | 0.37.0 | 0.39.0 | 1 |
+
+Re-pinning the digest does **not** clear them. Upstream's current
+`caddy:2-alpine` carries the same binary built against the same toolchain —
+scanned directly to confirm, identical 17 findings, Alpine layer clean. This
+is upstream not having rebuilt, not this repo being behind.
+
+What actually reaches this deployment, since "17 HIGH" reads worse than it is:
+
+- **Not reachable.** `x/crypto/ssh` (Caddy runs no SSH), the three gRPC
+  findings (no gRPC listener; `admin off`), `dnsmessage` (no ACME DNS
+  challenge — `auto_https off`), and the `os.Root` symlink traversal (no
+  file-serving path takes an attacker-controlled root).
+- **Reachable, LAN-scoped.** The `crypto/tls` KeyUpdate and HTTP/2 denial of
+  service on the panel's 8443 listener, plus `net/url` and MIME header parsing
+  on any request Caddy accepts. All denial of service, from something already
+  on the venue LAN, against a service whose failure mode is "captions stop" —
+  which the operator sees immediately.
+- **`html/template` XSS** needs Caddy to render a template with attacker
+  input. This deployment serves static viewer assets and proxies; it renders
+  none.
+
+None of it is remote code execution, and none of it is reachable from the
+public internet, because nothing here is on the public internet.
+
+So: wait for upstream, and re-pin the `caddy:2-alpine` digest in
+`docker/Dockerfile` once it ships a Go 1.26.6 build. `./tools/scan-image.sh`
+re-checks every run, so the fix announces itself. Nothing is suppressed —
+there is deliberately no `.trivyignore`, because one would hide the next
+genuine Caddy finding too, and the exit status stays honest at 17. If upstream
+is still on 1.26.3 well after this was written, the alternative is building
+Caddy in a builder stage from a current `golang:` image, which buys a
+toolchain we control at the cost of the maintenance that follows.
 
 ### Windows: no, this does not add WSL2
 

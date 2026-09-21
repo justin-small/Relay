@@ -169,6 +169,9 @@ else
     echo "  -> rebuild against a current base: docker pull python:3.12-slim-bookworm,"
     echo "     then update PYTHON_IMAGE in docker/Dockerfile to the new digest (see #12)."
     echo "  -> a finding in the venv is a requirements.txt bump instead."
+    echo "  -> findings in the Caddy binary's Go modules are triaged in the README"
+    echo "     (Docker > Scanning the image > Known findings); upstream caddy:2-alpine"
+    echo "     has not rebuilt against a fixed Go toolchain yet."
 fi
 [ -n "$JSON_DIR" ] && echo "reports: $JSON_DIR"
 # Exit status is the finding count, clamped: a shell status is one byte, and
