@@ -329,6 +329,12 @@ check the host's bandwidth and the session health table, not these two fields.
   same file. **There is no default token.** An unset token does not leave the
   panel open — every login is refused — but it does mean nobody can operate the
   relay until setup has run.
+- Signing in issues a random session id; the admin token itself never goes
+  into a cookie. Sessions are held in memory, so they last 12 hours, die on
+  restart, and are all revoked when the token is changed. The cookie is
+  `HttpOnly` and `SameSite=Strict`.
+- Failed logins are delayed and logged, and an IP is locked out for five
+  minutes after five failures in a row.
 - Translation sessions are instructed to treat everything they hear as content
   to translate, never as instructions to follow.
 - **If you ever paste an API key somewhere it should not be, revoke it** at
