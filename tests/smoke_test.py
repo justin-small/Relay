@@ -521,6 +521,45 @@ check("bad non-ascii token -> 401 not 500",
       c3.post("/admin/login", data={"token": "wrong-ñ"}).status_code == 401)
 config.save({"admin_token": "t0ken"})
 
+print("\nadmin session cookie")
+from app import main as _main
+_main._SESSIONS.clear()
+_main._LOGIN_FAILS.clear()
+c4 = TestClient(app)
+lr = c4.post("/admin/login", data={"token": "t0ken"}, follow_redirects=False)
+_sid = c4.cookies.get("relay_admin")
+check("login issues a session cookie", lr.status_code == 303 and bool(_sid))
+check("cookie is not the admin token", _sid != "t0ken" and "t0ken" not in _sid, _sid)
+_sc = lr.headers["set-cookie"].lower()
+check("cookie is httponly + samesite=strict", "httponly" in _sc and "samesite=strict" in _sc, _sc)
+check("session opens the panel", "<h1>Relay</h1>" in c4.get("/admin").text)
+check("session authorises the api", c4.get("/api/admin/status").status_code == 200)
+c4.post("/admin/logout", follow_redirects=False)
+c4.cookies.set("relay_admin", _sid)
+check("logout kills the session server-side", c4.get("/api/admin/status").status_code == 401)
+_main._SESSIONS.clear()
+c5 = TestClient(app)
+c5.cookies.set("relay_admin", _sid)
+check("sessions do not survive a restart", c5.get("/api/admin/status").status_code == 401)
+
+print("\nadmin login rate limiting")
+_main._LOGIN_FAILS.clear()
+_main.LOGIN_FAIL_DELAY_S = 0.0  # keep the suite quick; the lockout is what we test
+c6 = TestClient(app)
+codes = [c6.post("/admin/login", data={"token": "nope"}).status_code for _ in range(6)]
+check("first attempts rejected 401", codes[:5] == [401] * 5, codes)
+check("locked out after 5 failures", codes[5] == 429, codes)
+check("lockout ignores the right token too",
+      c6.post("/admin/login", data={"token": "t0ken"}).status_code == 429)
+_main._LOGIN_FAILS.clear()
+c6.post("/admin/login", data={"token": "nope"})
+c6.post("/admin/login", data={"token": "nope"})
+check("failures counted before the lockout", bool(_main._LOGIN_FAILS), _main._LOGIN_FAILS)
+check("a good login still goes through",
+      c6.post("/admin/login", data={"token": "t0ken"}, follow_redirects=False).status_code == 303)
+check("counter reset on success", _main._LOGIN_FAILS == {}, _main._LOGIN_FAILS)
+_main.LOGIN_FAIL_DELAY_S = 0.75
+
 print()
 if fails:
     print(f"{len(fails)} FAILED: " + "; ".join(fails)); sys.exit(1)

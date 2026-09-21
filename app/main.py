@@ -12,7 +12,7 @@ import logging
 import os
 import secrets
 import socket
-import urllib.parse
+import time
 
 from fastapi import Depends, FastAPI, Form, HTTPException, Request, Response
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, StreamingResponse
@@ -49,6 +49,10 @@ app.mount("/static", StaticFiles(directory=BASE / "static"), name="static")
 templates = Jinja2Templates(directory=str(BASE / "templates"))
 
 ADMIN_COOKIE = "relay_admin"
+SESSION_TTL_S = 60 * 60 * 12
+LOGIN_FAIL_DELAY_S = 0.75
+LOGIN_MAX_FAILS = 5
+LOGIN_LOCKOUT_S = 300.0
 HEARTBEAT_S = 15.0
 BLOCKLIST_POLL_S = 2.0
 
@@ -180,26 +184,87 @@ def _token_ok(supplied: str, real: str) -> bool:
     return secrets.compare_digest(supplied.encode("utf-8"), real.encode("utf-8"))
 
 
-def _cookie_token(request: Request) -> str:
-    """The admin token carried by the cookie, un-escaped.
+# Session ids -> expiry. In-process only, so every restart logs everyone out
+# and the admin token itself never travels in a cookie.
+_SESSIONS: dict[str, float] = {}
 
-    Cookies are percent-encoded on the way out (see admin_login) because a
-    header cannot carry arbitrary Unicode; ASCII tokens are unaffected either
-    way, so cookies issued before that change still read back correctly.
+# Per-client-IP login failures: ip -> (count, last failure time).
+_LOGIN_FAILS: dict[str, tuple[int, float]] = {}
+
+
+def _new_session() -> str:
+    now = time.monotonic()
+    for sid, exp in [kv for kv in _SESSIONS.items() if kv[1] <= now]:
+        _SESSIONS.pop(sid, None)
+    sid = secrets.token_urlsafe(32)
+    _SESSIONS[sid] = now + SESSION_TTL_S
+    return sid
+
+
+def _session_ok(request: Request) -> bool:
+    """True when the cookie carries a live session id.
+
+    The cookie is an opaque random id, never the admin token, so a sniffed
+    cookie on venue Wi-Fi cannot be replayed past a restart and cannot be
+    turned back into the token the operator typed.
     """
-    raw = request.cookies.get(ADMIN_COOKIE) or ""
-    try:
-        return urllib.parse.unquote(raw)
-    except Exception:
-        return raw
+    sid = request.cookies.get(ADMIN_COOKIE) or ""
+    exp = _SESSIONS.get(sid)
+    if exp is None:
+        return False
+    if exp <= time.monotonic():
+        _SESSIONS.pop(sid, None)
+        return False
+    return True
+
+
+def _drop_session(request: Request) -> None:
+    _SESSIONS.pop(request.cookies.get(ADMIN_COOKIE) or "", None)
+
+
+def _set_session_cookie(resp: Response) -> None:
+    resp.set_cookie(
+        ADMIN_COOKIE,
+        _new_session(),
+        httponly=True,
+        samesite="strict",
+        max_age=SESSION_TTL_S,
+        path="/",
+    )
+
+
+def _client_ip(request: Request) -> str:
+    return request.client.host if request.client else "unknown"
+
+
+def _login_locked(ip: str) -> float:
+    """Seconds of lockout left for this IP, 0.0 when it may try again."""
+    count, last = _LOGIN_FAILS.get(ip, (0, 0.0))
+    if count < LOGIN_MAX_FAILS:
+        return 0.0
+    left = LOGIN_LOCKOUT_S - (time.monotonic() - last)
+    if left <= 0:
+        _LOGIN_FAILS.pop(ip, None)
+        return 0.0
+    return left
+
+
+def _login_failed(ip: str) -> None:
+    count, last = _LOGIN_FAILS.get(ip, (0, 0.0))
+    # A quiet lockout window clears the slate rather than accumulating forever.
+    if count and time.monotonic() - last > LOGIN_LOCKOUT_S:
+        count = 0
+    _LOGIN_FAILS[ip] = (count + 1, time.monotonic())
+    log.warning("Admin login failed from %s (%d in a row)", ip, count + 1)
 
 
 def require_admin(request: Request) -> bool:
+    if _session_ok(request):
+        return True
     token = (config.get().get("admin_token") or "").strip()
-    supplied = _cookie_token(request) or request.headers.get("x-admin-token") or ""
-    if not _token_ok(supplied, token):
-        raise HTTPException(status_code=401, detail="Admin token required")
-    return True
+    if _token_ok(request.headers.get("x-admin-token") or "", token):
+        return True
+    raise HTTPException(status_code=401, detail="Admin token required")
 
 
 # ------------------------------------------------------------- viewers
@@ -466,9 +531,7 @@ async def stream(request: Request, stream: str = "translation", lang: str | None
 # --------------------------------------------------------------- admin
 @app.get("/admin", response_class=HTMLResponse)
 async def admin_page(request: Request):
-    token = (config.get().get("admin_token") or "").strip()
-    supplied = _cookie_token(request)
-    if not _token_ok(supplied, token):
+    if not _session_ok(request):
         return templates.TemplateResponse(
             "login.html", {"request": request, "error": None}, status_code=200
         )
@@ -477,26 +540,41 @@ async def admin_page(request: Request):
 
 @app.post("/admin/login")
 async def admin_login(request: Request, token: str = Form(...)):
+    ip = _client_ip(request)
+    left = _login_locked(ip)
+    if left:
+        log.warning("Admin login from %s refused, locked for %ds", ip, int(left))
+        return templates.TemplateResponse(
+            "login.html",
+            {
+                "request": request,
+                "error": f"Too many attempts. Try again in {int(left) // 60 + 1} min.",
+            },
+            status_code=429,
+        )
+
     real = (config.get().get("admin_token") or "").strip()
     if not _token_ok(token.strip(), real):
+        # A fixed delay on every failure: it costs an operator who mistyped
+        # under a second, and caps a guesser on the venue LAN long before the
+        # lockout bites.
+        await asyncio.sleep(LOGIN_FAIL_DELAY_S)
+        _login_failed(ip)
         return templates.TemplateResponse(
             "login.html", {"request": request, "error": "Incorrect token."}, status_code=401
         )
+
+    _LOGIN_FAILS.pop(ip, None)
     resp = RedirectResponse("/admin", status_code=303)
-    resp.set_cookie(
-        ADMIN_COOKIE,
-        urllib.parse.quote(real, safe=""),
-        httponly=True,
-        samesite="lax",
-        max_age=60 * 60 * 24 * 7,
-    )
+    _set_session_cookie(resp)
     return resp
 
 
 @app.post("/admin/logout")
-async def admin_logout():
+async def admin_logout(request: Request):
+    _drop_session(request)
     resp = RedirectResponse("/admin", status_code=303)
-    resp.delete_cookie(ADMIN_COOKIE)
+    resp.delete_cookie(ADMIN_COOKIE, path="/")
     return resp
 
 
@@ -607,13 +685,10 @@ async def admin_config(payload: dict):
 
     resp = JSONResponse({"config": config.redacted(), "status": engine.status()})
     if "admin_token" in updates:
-        resp.set_cookie(
-            ADMIN_COOKIE,
-            updates["admin_token"],
-            httponly=True,
-            samesite="lax",
-            max_age=60 * 60 * 24 * 7,
-        )
+        # New token, so every session issued against the old one dies; the
+        # operator who made the change keeps a fresh one.
+        _SESSIONS.clear()
+        _set_session_cookie(resp)
     return resp
 
 
