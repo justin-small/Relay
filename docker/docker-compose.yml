@@ -1,0 +1,32 @@
+# Live Caption Relay -- base. Serves the pages; no audio wiring.
+#
+# Audio needs one platform overlay on top of this file. Use the launchers
+# (start-docker.bat / start-docker.command) or the explicit form:
+#
+#   Linux    docker compose -f docker/docker-compose.yml -f docker/docker-compose.linux.yml up
+#   macOS    docker compose -f docker/docker-compose.yml -f docker/docker-compose.macos.yml up
+#   WSL2     docker compose -f docker/docker-compose.yml -f docker/docker-compose.wsl.yml up
+#
+# Ports: 8000 = viewer link for the room, 8001 = operator panel.
+# State:  ../docker-config/ (project root) holds config.json (API key, admin token), so
+#         rebuilds never lose them.
+services:
+  relay:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    image: live-caption-relay
+    container_name: live-caption-relay
+    restart: unless-stopped
+
+    ports:
+      - "8000:8000"
+      - "8001:8001"
+
+    environment:
+      RELAY_CONFIG: /app/config/config.json
+      # RELAY_DEMO: "1"   # rehearsal mode: canned captions, no API calls
+
+    volumes:
+      - ../docker-config:/app/config
+      - ../blocklist.txt:/app/blocklist.txt

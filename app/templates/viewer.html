@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="{{ source_iso }}"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#000000">
+<title>{% if mode == 'transcription' %}{{ source_label }} Transcript{% elif mode == 'both' %}Captions{% else %}Live Translation{% endif %}</title>
+<link rel="stylesheet" href="/static/viewer.css">
+{% if overlay %}<style>
+  /* Broadcast overlay tokens, resolved server-side from the URL. The page is a
+     fixed canvas scaled to fit the browser source; everything outside it stays
+     transparent so OBS/ProPresenter composites the alpha directly. */
+  :root {
+    --ov-w: {{ overlay_w }}px; --ov-h: {{ overlay_h }}px;
+    --ov-font: {{ overlay_font }}px;
+    --ov-pad-x: {{ overlay_pad_x }}px; --ov-pad-y: {{ overlay_pad_y }}px;
+    --ov-plate: {{ overlay_plate }};
+    --ov-bg: {{ overlay_bg }};
+    --ov-hold-ms: {{ overlay_hold }}ms;
+  }
+</style>{% endif %}
+</head><body class="{{ 'present' if present }}{{ ' screen align-' + screen_align if screen }}{{ ' screen-fixedfont' if screen and screen_font }}{{ ' overlay ov-hidden' if overlay }}{{ ' overlay-matte' if overlay and overlay_matte }}">
+
+<div class="bar">
+  <span class="dot" id="statusDot"></span>
+  <a href="/transcription" class="{{ 'on' if mode=='transcription' }}">{{ source_label }}</a>
+  <a href="/translation" class="{{ 'on' if mode=='translation' }}">Translation</a>
+  <a href="/both" class="{{ 'on' if mode=='both' }}">Both</a>
+  <span class="spacer"></span>
+  {% if mode in ('translation', 'both') and not screen %}
+  <select id="langPicker" aria-label="Translation language"></select>
+  {% endif %}
+  <button id="themeToggle" aria-label="Toggle light or dark theme" title="Light / dark">&#9681;</button>
+  <button id="wakeToggle" aria-pressed="false" aria-label="Keep screen awake" title="Keep screen awake" hidden>&#9788;</button>
+  <button id="presentBtn" aria-label="Presentation mode" title="Presentation mode">&#9974;</button>
+  <button data-font="down" aria-label="Smaller text">A&minus;</button>
+  <button data-font="up" aria-label="Larger text">A+</button>
+</div>
+
+<div class="panes {{ 'dual' if mode == 'both' }}">
+  {% if mode in ('transcription', 'both') %}
+  <div class="pane">
+    {% if mode == 'both' %}<div class="pane-label">{{ source_label }}</div>{% endif %}
+    <div class="feed" data-stream="transcription" data-lang="{{ source_language }}" lang="{{ source_iso }}"{% if screen %} data-lines="{{ screen_lines }}"{% elif overlay %} data-lines="{{ overlay_lines }}"{% endif %}>
+      <div class="log" role="log" aria-live="polite" aria-atomic="false" aria-label="{{ source_label }} transcript"></div>
+      {% if not screen and not overlay %}<p class="empty">Waiting for audio&hellip;</p>{% endif %}
+    </div>
+    <button class="jump" type="button" hidden>Jump to live &#8595;</button>
+  </div>
+  {% endif %}
+  {% if mode in ('translation', 'both') %}
+  <div class="pane">
+    {% if mode == 'both' %}<div class="pane-label">Translation</div>{% endif %}
+    <div class="feed" data-stream="translation" data-lang="{% if screen %}{{ screen_lang }}{% elif overlay %}{{ overlay_lang }}{% endif %}"{% if screen and screen_iso %} lang="{{ screen_iso }}"{% elif overlay and overlay_iso %} lang="{{ overlay_iso }}"{% endif %}{% if screen %} data-lines="{{ screen_lines }}"{% elif overlay %} data-lines="{{ overlay_lines }}"{% endif %}>
+      <div class="log" role="log" aria-live="polite" aria-atomic="false" aria-label="Translation"></div>
+      {% if not screen and not overlay %}<p class="empty">Waiting for audio&hellip;</p>{% endif %}
+    </div>
+    <button class="jump" type="button" hidden>Jump to live &#8595;</button>
+  </div>
+  {% endif %}
+</div>
+
+<button id="presentExit" type="button" hidden aria-label="Exit presentation mode">&#10005;</button>
+
+{% if screen %}<span class="screen-fault" id="screenFault" title="Stream fault" hidden></span>{% endif %}
+
+<div class="toast" id="toast"></div>
+<script>window.RELAY = {fontPx: {{ font_px }}, sourceLanguage: "{{ source_language }}", sourceIso: "{{ source_iso }}", mode: "{{ mode }}", present: {{ 'true' if present else 'false' }}, screen: {{ 'true' if screen else 'false' }}, screenLang: "{{ screen_lang if screen else '' }}", screenFont: {{ screen_font or 0 }}, overlay: {{ 'true' if overlay else 'false' }}, overlayLang: "{{ overlay_lang if overlay else '' }}", overlayW: {{ overlay_w or 1920 }}, overlayH: {{ overlay_h or 1080 }}, overlayFont: {{ overlay_font or 54 }}, overlayHold: {{ overlay_hold if overlay else 0 }}};</script>
+<script src="/static/viewer.js"></script>
+</body></html>

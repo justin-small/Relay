@@ -1,0 +1,22 @@
+# Secrets — holds the OpenAI API key and the admin token. Never commit.
+config.json
+docker-config/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Local agent / editor tooling — kept on disk, not shared.
+.claude/
+.codex/
+.agents/
+.mcp.json
+.ignore
+/graft/

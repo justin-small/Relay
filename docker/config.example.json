@@ -1,0 +1,65 @@
+{
+  "openai_api_key": "",
+  "admin_token": "",
+  "audio_device": "ALSA: pulse",
+  "input_channel": 0,
+  "source_language": "ENGLISH",
+  "targets": {
+    "SPANISH": {
+      "enabled": true
+    },
+    "PORTUGUESE": {
+      "enabled": false
+    },
+    "FRENCH": {
+      "enabled": false
+    },
+    "GERMAN": {
+      "enabled": false
+    },
+    "ITALIAN": {
+      "enabled": false
+    },
+    "RUSSIAN": {
+      "enabled": false
+    },
+    "CHINESE": {
+      "enabled": false
+    },
+    "JAPANESE": {
+      "enabled": false
+    },
+    "KOREAN": {
+      "enabled": false
+    },
+    "HINDI": {
+      "enabled": false
+    },
+    "INDONESIAN": {
+      "enabled": false
+    },
+    "VIETNAMESE": {
+      "enabled": false
+    }
+  },
+  "default_font_px": 40,
+  "speaking_indicator_vad": true,
+  "blocklist_file": "blocklist.txt",
+  "history_lines": 40,
+  "host": "0.0.0.0",
+  "port": 8000,
+  "admin_port": 8001,
+  "realtime": {
+    "translate_model": "gpt-realtime-translate",
+    "transcribe_model": "gpt-live-transcribe",
+    "segment_idle_s": 1.0,
+    "segment_max_idle_s": 10.0,
+    "gate_silence": true,
+    "vad_mode": "semantic",
+    "vad_eagerness": "auto",
+    "vad_threshold": 0.5,
+    "vad_prefix_padding_ms": 300,
+    "vad_silence_duration_ms": 250,
+    "noise_reduction": null
+  }
+}

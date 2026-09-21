@@ -1,0 +1,270 @@
+<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Relay &middot; Operator</title><link rel="stylesheet" href="/static/viewer.css">
+<style>
+  body { display:block; font-size:14px; }
+  .wrap { max-width:820px; margin:0 auto; padding:22px 20px 90px; }
+  header { display:flex; align-items:center; gap:12px; margin-bottom:20px; }
+  header h1 { font-size:19px; margin:0; font-weight:600; }
+  header .spacer { flex:1; }
+  section { border:1px solid var(--line); border-radius:11px; background:#0a0b0d; padding:16px 18px; margin-bottom:14px; }
+  section h2 { font-size:11px; letter-spacing:.13em; text-transform:uppercase; color:var(--dim);
+               margin:0 0 13px; font-weight:600; }
+  label { display:block; font-size:12px; color:var(--dim); margin:0 0 5px; }
+  input, select, textarea { width:100%; padding:9px 11px; font:inherit; border-radius:7px;
+                  border:1px solid var(--line); background:#111216; color:var(--fg); }
+  textarea { resize:vertical; line-height:1.5; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+             font-size:13px; }
+  .row { display:flex; gap:10px; flex-wrap:wrap; }
+  .row > * { flex:1 1 200px; min-width:0; }
+  .field { margin-bottom:12px; }
+  button { padding:9px 15px; font:inherit; font-weight:500; border-radius:7px;
+           border:1px solid var(--line); background:#1a1c21; color:var(--fg); cursor:pointer; }
+  button:hover { background:#22252b; }
+  button.primary { background:#2f6df6; border-color:#2f6df6; color:#fff; font-weight:600; }
+  button.danger  { background:#7f1d1d; border-color:#7f1d1d; color:#fff; font-weight:600; }
+  button:disabled { opacity:.45; cursor:not-allowed; }
+  /* dBFS meter: -60 dBFS at the left edge, 0 at the right, with the -18 dBFS
+     target band marked. The bar is RMS; the thin marker is a decaying peak. */
+  /* The scale must be exactly as wide as the bar, so both live in .metercol and
+     the LED/readout take their space beside it, not out of it. */
+  .meterwrap { display:flex; align-items:flex-start; gap:10px; margin-top:9px; }
+  .metercol { flex:1 1 auto; min-width:0; }
+  /* Fixed width: the readout's digits change every tick, and a bar that
+     resizes under them is unreadable at a glance. */
+  .meterside { flex:0 0 152px; display:flex; flex-direction:column;
+               align-items:flex-end; gap:4px; padding-top:1px; }
+  .meter { position:relative; height:11px; border-radius:5px;
+           background:#111216; overflow:hidden; }
+  .meter > i { display:block; height:100%; width:0; background:var(--accent);
+               transition:width .08s linear; }
+  .meter.hot > i { background:var(--warn); }
+  .meter.clipping > i { background:var(--err); }
+  /* Target band, -20 to -16 dBFS => 66.7% to 73.3% of the scale. */
+  .meter::before { content:""; position:absolute; inset:0 26.7% 0 66.7%;
+                   background:rgba(255,255,255,.10);
+                   border-left:1px solid rgba(255,255,255,.22);
+                   border-right:1px solid rgba(255,255,255,.22); pointer-events:none; }
+  .meter > b { position:absolute; top:0; bottom:0; width:2px; margin-left:-1px;
+               background:var(--fg); opacity:0; border-radius:1px;
+               transition:left .08s linear, opacity .2s linear; pointer-events:none; }
+  .clip { font-size:9px; font-weight:700; letter-spacing:.1em;
+          padding:3px 6px; border-radius:4px; border:1px solid var(--line);
+          color:var(--line); background:#111216; transition:none; }
+  .clip.on { color:#fff; background:var(--err); border-color:var(--err); }
+  .meterscale { position:relative; display:block; height:12px; margin-top:3px; }
+  .meterscale span { position:absolute; top:0; font-size:9px; color:var(--dim);
+                     white-space:nowrap;
+                     font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+  .meterread { font-size:10px; color:var(--dim); white-space:nowrap;
+               font-variant-numeric:tabular-nums;
+               font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+  .meterread.clipped { color:var(--err); }
+  table { width:100%; border-collapse:collapse; }
+  td, th { text-align:left; padding:8px 6px; border-bottom:1px solid var(--line); font-size:13px; vertical-align:middle; }
+  th { color:var(--dim); font-weight:500; font-size:11px; text-transform:uppercase; letter-spacing:.09em; }
+  tr:last-child td { border-bottom:0; }
+  .pill { display:inline-flex; align-items:center; gap:6px; font-size:12px; color:var(--dim); }
+  .muted { color:var(--dim); }
+  .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size:12px; }
+  .switch { position:relative; display:inline-block; width:42px; height:24px; flex:0 0 auto; }
+  .switch input { opacity:0; width:0; height:0; }
+  .slider { position:absolute; inset:0; background:#2a2d34; border-radius:24px; transition:.15s; cursor:pointer; }
+  .slider:before { content:""; position:absolute; height:18px; width:18px; left:3px; top:3px;
+                   background:#fff; border-radius:50%; transition:.15s; }
+  .switch input:checked + .slider { background:var(--accent); }
+  .switch input:checked + .slider:before { transform:translateX(18px); }
+  .bannerbar { position:fixed; left:0; right:0; bottom:0; background:#0a0b0d;
+               border-top:1px solid var(--line); padding:11px 20px; display:flex; gap:10px;
+               align-items:center; z-index:10; }
+  .bannerbar .spacer { flex:1; }
+  .note { font-size:12px; color:var(--dim); margin-top:8px; line-height:1.5; }
+  .err { color:var(--err); }
+  .ok { color:var(--accent); }
+  .urls a { color:var(--fg); }
+  .urls .urlgroup { display:flex; gap:14px; align-items:baseline; padding:6px 0;
+                    border-bottom:1px solid var(--line); }
+  .urls .urlgroup:last-child { border-bottom:0; }
+  .urls .urllabel { flex:0 0 104px; color:var(--dim); font-size:11px; font-weight:600;
+                    text-transform:uppercase; letter-spacing:.09em; }
+  .urls .urllinks { display:flex; flex-wrap:wrap; gap:12px 20px; min-width:0; align-items:flex-start; }
+  .urls .urllink { display:flex; flex-direction:column; gap:6px; }
+  .urls .urlrow { display:flex; align-items:center; gap:8px; }
+  .urls .urllinks a { font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+                      font-size:12px; word-break:break-all; }
+  .urls .urlheading { color:var(--dim); font-size:10px; font-weight:700; letter-spacing:.12em;
+                      text-transform:uppercase; margin:14px 0 2px; }
+  .urls .urlheading:first-child { margin-top:0; }
+  .urls .urlcopy { flex:0 0 auto; background:var(--btn-bg,#17181c); color:var(--fg);
+                   border:1px solid var(--line); border-radius:6px; padding:3px 9px;
+                   font-size:11px; cursor:pointer; }
+  .urls .urlcopy:active { background:var(--btn-active,#24262c); }
+  .urls .urlcopy.ok { color:var(--accent); border-color:var(--accent); }
+  .urls .urlqr { display:block; width:96px; height:96px; background:#fff;
+                 border-radius:6px; padding:5px; }
+  .urls .urlqr svg { width:100%; height:100%; display:block; }
+  .urls .urlqr:empty { display:none; }
+  details.sect { border:1px solid var(--line); border-radius:11px; background:#0a0b0d;
+                 padding:16px 18px; margin-bottom:14px; }
+  details.sect > summary { font-size:11px; letter-spacing:.13em; text-transform:uppercase;
+                 color:var(--dim); font-weight:600; margin:0; cursor:pointer;
+                 list-style:none; display:flex; align-items:center; gap:8px; }
+  details.sect > summary::-webkit-details-marker { display:none; }
+  details.sect > summary::before { content:""; flex:0 0 auto; width:0; height:0;
+                 border-left:5px solid var(--dim); border-top:4px solid transparent;
+                 border-bottom:4px solid transparent; transition:transform .12s ease; }
+  details.sect[open] > summary::before { transform:rotate(90deg); }
+  details.sect > summary:focus-visible { outline:2px solid var(--accent); outline-offset:3px; border-radius:4px; }
+  details.sect[open] > summary { margin-bottom:13px; }
+</style>
+</head><body>
+<div class="wrap">
+  <header>
+    <span class="dot" id="masterDot"></span>
+    <h1>Relay</h1>
+    <span class="spacer"></span>
+    <span class="muted" id="viewerCount">0 viewers</span>
+    <form method="post" action="/admin/logout" style="margin:0"><button>Sign out</button></form>
+  </header>
+
+  <div id="alert" class="field err" hidden></div>
+
+  <section>
+    <h2>Audio input</h2>
+    <div class="field">
+      <label for="device">Capture device</label>
+      <div class="row">
+        <select id="device"></select>
+        <select id="channel" style="flex:0 0 130px"></select>
+        <button id="rescan" style="flex:0 0 auto">Rescan</button>
+      </div>
+    </div>
+    <div class="field">
+      <label for="noise">Noise reduction</label>
+      <select id="noise">
+        <option value="">Board feed / line in</option>
+        <option value="far_field">Room or laptop mic</option>
+        <option value="near_field">Headset / lavalier</option>
+      </select>
+      <div class="note">Runs before the model&rsquo;s own phrase detection. Leave off for a house console feed &mdash;
+        it is already gated, and reduction on top can chew word onsets. Changing it restarts
+        live sessions.</div>
+    </div>
+    <div class="pill"><span class="dot" id="audioDot"></span><span id="audioState">Idle</span></div>
+    <div class="meterwrap">
+      <div class="metercol">
+        <div class="meter" id="meter"><i></i><b id="meterPeak"></b></div>
+        <span class="meterscale" aria-hidden="true"><span style="left:0">−60</span><span
+          style="left:33.3%;transform:translateX(-50%)">−40</span><span
+          style="left:70%;transform:translateX(-50%)">−18</span><span
+          style="left:100%;transform:translateX(-100%)">0 dBFS</span></span>
+      </div>
+      <div class="meterside">
+        <span class="clip" id="clipLed" title="Input clipping — reduce gain at the console">CLIP</span>
+        <span class="meterread" id="meterRead">—</span>
+      </div>
+    </div>
+    <div class="note" id="audioNote"></div>
+  </section>
+
+  <section>
+    <h2>Target languages</h2>
+    <table><tbody id="targets"></tbody></table>
+    <div class="note">Each live target is a separate, continuously-billed session. Turning one off closes it immediately.</div>
+  </section>
+
+  <section>
+    <h2>Viewer links</h2>
+    <div class="urls note" id="urls"></div>
+  </section>
+
+  <section>
+    <h2>Session health</h2>
+    <table>
+      <thead><tr><th>Session</th><th>State</th><th>Last delta</th><th>Retries</th><th>Audio dropped</th></tr></thead>
+      <tbody id="sessions"><tr><td colspan="5" class="muted">Not started.</td></tr></tbody>
+    </table>
+  </section>
+
+  <details class="sect" id="sec-blocklist">
+    <summary>Blocked words</summary>
+    <div class="note" style="margin:0 0 12px">
+      Edited in <span class="mono" id="blocklistPath">blocklist.txt</span> &mdash;
+      one word or phrase per line. Changes to the file are picked up within about
+      two seconds, no restart. You can also edit it here.
+    </div>
+    <div class="field">
+      <label for="blocklist">Blocked words &mdash; removed from both the English and the Spanish feed</label>
+      <textarea id="blocklist" rows="8" spellcheck="false" placeholder="bad word&#10;another bad word&#10;a phrase to drop"></textarea>
+    </div>
+    <button id="saveBlocklist">Save to file</button>
+    <span id="blocklistCount" class="muted" style="margin-left:10px"></span>
+    <div class="note">
+      Matches are removed outright &mdash; no asterisks, no gap, nothing on screen to notice.
+      Case and accents are ignored (<span class="mono">nino</span> matches <span class="mono">ni&ntilde;o</span>) and only whole
+      words match, so <span class="mono">ass</span> will not touch <span class="mono">class</span>.
+      <br>The two feeds are filtered independently, so add both the English word and its
+      Spanish equivalent if you want it gone from both.
+    </div>
+  </details>
+
+  <details class="sect" id="sec-credentials">
+    <summary>Credentials</summary>
+    <div class="row">
+      <div class="field">
+        <label for="apikey">OpenAI API key <span id="keyState" class="muted"></span></label>
+        <input id="apikey" type="password" placeholder="sk-… (leave blank to keep current)" autocomplete="off">
+      </div>
+      <div class="field">
+        <label for="admintoken">Admin token (blank = unchanged)</label>
+        <input id="admintoken" type="password" placeholder="••••••••" autocomplete="off">
+      </div>
+    </div>
+    <button id="saveCreds">Save credentials</button>
+    <div class="note">Stored server-side in <span class="mono">config.json</span> (0600, git-ignored). Never sent to viewer pages.</div>
+  </details>
+
+  <details class="sect" id="sec-appearance">
+    <summary>Appearance &amp; tuning</summary>
+    <div class="row">
+      <div class="field">
+        <label for="font">Default viewer font size (px)</label>
+        <input id="font" type="number" min="16" max="160" step="2">
+      </div>
+      <div class="field">
+        <label for="history">History lines kept per stream</label>
+        <input id="history" type="number" min="1" max="500" step="1">
+      </div>
+      <div class="field">
+        <label for="segIdle">Caption line break after silence (s)</label>
+        <input id="segIdle" type="number" min="0.2" max="10" step="0.1">
+      </div>
+      <div class="field">
+        <label for="segMaxIdle">Force a line break after (s)</label>
+        <input id="segMaxIdle" type="number" min="1" max="60" step="0.5">
+      </div>
+    </div>
+    <button id="saveAppearance">Save</button>
+    <div class="note">A caption line is committed once its text has been quiet for
+      <em>line break after silence</em> <strong>and</strong> it ends on a sentence boundary.
+      A line that never reaches one is committed by the <em>force a line break</em> backstop,
+      always at a word boundary so a word is never cut in half. Lower the first for snappier
+      lines; raise the second if you see a sentence split across two lines. In-progress text
+      is already on screen as it streams, so a generous backstop costs nothing.
+      Changing these restarts live sessions.
+      <span class="mono">gpt-realtime-translate</span> fixes phrase boundaries server-side, so
+      these two fields are the only line-break controls.</div>
+  </details>
+</div>
+
+<div class="bannerbar">
+  <button class="primary" id="startBtn">Start capture</button>
+  <button class="danger" id="stopBtn" disabled>Stop</button>
+  <span class="spacer"></span>
+  <span class="muted" id="masterState">Stopped</span>
+</div>
+
+<script src="/static/qrcode.min.js"></script>
+<script src="/static/admin.js"></script>
+</body></html>

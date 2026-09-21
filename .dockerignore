@@ -1,0 +1,17 @@
+.venv/
+venv/
+__pycache__/
+*.pyc
+.git/
+.gitignore
+.dockerignore
+.DS_Store
+.agents/
+.codex/
+.claude/
+.ignore
+.mcp.json
+graft/
+docker-config/
+config.json
+README.md

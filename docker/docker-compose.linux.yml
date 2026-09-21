@@ -1,0 +1,7 @@
+# Linux host: hand the sound card straight to the container.
+services:
+  relay:
+    devices:
+      - /dev/snd:/dev/snd
+    group_add:
+      - audio

@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Operator sign in</title><link rel="stylesheet" href="/static/viewer.css">
+<style>
+  form { max-width: 340px; margin: 16vh auto; padding: 0 24px; }
+  h1 { font-size: 20px; margin: 0 0 4px; }
+  p.sub { color: var(--dim); font-size: 14px; margin: 0 0 22px; }
+  input { width: 100%; padding: 11px 13px; font: inherit; border-radius: 8px;
+          border: 1px solid var(--line); background: #0a0b0d; color: var(--fg); }
+  button { width: 100%; margin-top: 10px; padding: 11px; font: inherit; font-weight: 600;
+           border-radius: 8px; border: 0; background: #2f6df6; color: #fff; cursor: pointer; }
+  .err { color: var(--err); font-size: 14px; margin-top: 10px; }
+</style>
+</head><body>
+<form method="post" action="/admin/login">
+  <h1>Operator panel</h1>
+  <p class="sub">Enter the admin token from <code>config.json</code>.</p>
+  <input type="password" name="token" placeholder="Admin token" autofocus autocomplete="current-password">
+  <button type="submit">Sign in</button>
+  {% if error %}<div class="err">{{ error }}</div>{% endif %}
+</form>
+</body></html>

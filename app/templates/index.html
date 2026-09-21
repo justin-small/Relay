@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Live Captions</title><link rel="stylesheet" href="/static/viewer.css">
+<script>try{var t=localStorage.getItem('relay.theme');if(t)document.documentElement.setAttribute('data-theme',t);}catch(e){}</script>
+</head><body>
+<div class="index">
+  <h1>Live Captions</h1>
+  <p class="sub">Pick a view. Nothing to install &mdash; the page updates itself.</p>
+  <div class="choices">
+    <a class="choice" href="/translation"><strong>Translation</strong><span>Read along in your language</span></a>
+    <a class="choice" href="/transcription"><strong>Transcription</strong><span>Live {{ source_label }} of what is being said</span></a>
+    <a class="choice" href="/both"><strong>Both</strong><span>{{ source_label }} and translation, side by side</span></a>
+    {% if show_admin %}
+    <a class="choice" href="/admin"><strong>Operator panel</strong><span>Token required</span></a>
+    {% endif %}
+  </div>
+</div>
+</body></html>

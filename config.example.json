@@ -1,0 +1,25 @@
+{
+  "openai_api_key": "",
+  "admin_token": "",
+  "audio_device": null,
+  "input_channel": 0,
+  "source_language": "ENGLISH",
+  "targets": {
+    "SPANISH": {
+      "enabled": true
+    }
+  },
+  "blocklist": [],
+  "default_font_px": 40,
+  "speaking_indicator_vad": true,
+  "history_lines": 40,
+  "host": "0.0.0.0",
+  "port": 8000,
+  "admin_port": 8001,
+  "realtime": {
+    "translate_model": "gpt-realtime-translate",
+    "noise_reduction": null,
+    "segment_idle_s": 1.0,
+    "segment_max_idle_s": 10.0
+  }
+}

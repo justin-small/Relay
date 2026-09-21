@@ -1,0 +1,9 @@
+# macOS host: Docker Desktop has no sound card of its own, so capture comes
+# from a PulseAudio server running natively on the Mac. start-docker.command
+# starts that daemon; see README "Docker" to run it by hand.
+services:
+  relay:
+    environment:
+      PULSE_SERVER: tcp:host.docker.internal:4713
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
