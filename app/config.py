@@ -13,6 +13,7 @@ from typing import Any
 
 from . import languages
 from . import redact
+from . import schedules
 
 ROOT = Path(__file__).resolve().parent.parent
 CONFIG_PATH = Path(os.environ.get("RELAY_CONFIG", ROOT / "config.json"))
@@ -47,6 +48,9 @@ DEFAULTS: dict[str, Any] = {
         # machine left running a season of events cannot fill its disk.
         "keep_runs": 20,
     },
+    # Scheduled start/stop windows -- see schedules.py for the shape. Empty by
+    # default: nothing starts on its own until the operator sets a schedule.
+    "schedules": [],
     "host": "0.0.0.0",
     "admin_host": "127.0.0.1",
     "port": 8000,
@@ -190,6 +194,8 @@ def _normalise(cfg: dict) -> dict:
         "keep_runs": max(1, min(500, int(rec.get("keep_runs") or 20))),
     }
     cfg["recording"] = rec
+    # A hand-edited schedule that does not validate is dropped, not fatal.
+    cfg["schedules"] = schedules.clean_list(cfg.get("schedules"))
     # The blocklist lives in its own file; config.json only points at it.
     cfg.pop("blocklist", None)
     cfg["blocklist_file"] = str(cfg.get("blocklist_file") or "blocklist.txt")

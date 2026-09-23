@@ -19,10 +19,11 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Stre
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-from . import config, exporting, languages, redact
+from . import config, exporting, languages, redact, schedules
 from .engine import TRANSCRIPTION_STREAM, TRANSLATION_STREAM, engine
 from .hub import hub
 from .recorder import recorder
+from .scheduler import scheduler
 
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s %(levelname)-7s %(name)s  %(message)s"
@@ -107,6 +108,8 @@ async def _startup() -> None:
     recorder.configure(config.recordings_path(), cfg["recording"]["keep_runs"])
     engine.bind(asyncio.get_running_loop())
     app.state.blocklist_task = asyncio.create_task(_watch_blocklist())
+    # First tick runs straight away, so a relay started mid-window catches up.
+    scheduler.start()
     if not (cfg.get("admin_token") or "").strip():
         # _token_ok() returns False on an empty stored token, so the panel is
         # locked rather than open -- but an operator who cannot log in deserves
@@ -174,6 +177,7 @@ async def _watch_blocklist() -> None:
 
 
 async def _shutdown() -> None:
+    scheduler.cancel()
     for name in ("demo_task", "blocklist_task"):
         task = getattr(app.state, name, None)
         if task is not None:
@@ -777,6 +781,7 @@ async def admin_target(target: str, payload: dict):
 
 @app.post("/api/admin/start", dependencies=[Depends(require_admin)])
 async def admin_start():
+    scheduler.manual_start()
     try:
         return await engine.start()
     except RuntimeError as exc:
@@ -785,7 +790,65 @@ async def admin_start():
 
 @app.post("/api/admin/stop", dependencies=[Depends(require_admin)])
 async def admin_stop():
+    # Before the stop, so the status it pushes already shows the window held.
+    scheduler.manual_stop()
     return await engine.stop()
+
+
+# ---------------------------------------------------------------- schedules
+# Stored in config.json under `schedules`; see app/schedules.py for the shape
+# and app/scheduler.py for what starts and stops when.
+
+def _schedule_error(exc: ValueError) -> JSONResponse:
+    return JSONResponse({"error": str(exc)}, status_code=400)
+
+
+async def _save_schedules(items: list[dict]) -> dict:
+    config.save({"schedules": items})
+    await scheduler.poke()
+    engine._push_status()
+    return scheduler.listing()
+
+
+@app.get("/api/admin/schedules", dependencies=[Depends(require_admin)])
+async def admin_schedules():
+    return scheduler.listing()
+
+
+@app.post("/api/admin/schedules", dependencies=[Depends(require_admin)])
+async def admin_schedule_create(payload: dict):
+    items = list(config.get()["schedules"])
+    taken = {s["id"] for s in items}
+    try:
+        new = schedules.validate({k: v for k, v in payload.items() if k != "id"})
+    except ValueError as exc:
+        return _schedule_error(exc)
+    while new["id"] in taken:
+        new["id"] = secrets.token_hex(4)
+    items.append(new)
+    return await _save_schedules(items)
+
+
+@app.put("/api/admin/schedules/{sid}", dependencies=[Depends(require_admin)])
+async def admin_schedule_update(sid: str, payload: dict):
+    items = list(config.get()["schedules"])
+    idx = next((i for i, s in enumerate(items) if s["id"] == sid), None)
+    if idx is None:
+        raise HTTPException(404, "unknown schedule")
+    try:
+        items[idx] = schedules.validate(payload, sid=sid)
+    except ValueError as exc:
+        return _schedule_error(exc)
+    return await _save_schedules(items)
+
+
+@app.delete("/api/admin/schedules/{sid}", dependencies=[Depends(require_admin)])
+async def admin_schedule_delete(sid: str):
+    items = list(config.get()["schedules"])
+    kept = [s for s in items if s["id"] != sid]
+    if len(kept) == len(items):
+        raise HTTPException(404, "unknown schedule")
+    return await _save_schedules(kept)
 
 
 # ---------------------------------------------------------------- recordings

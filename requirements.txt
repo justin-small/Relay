@@ -15,3 +15,6 @@ soxr==0.5.0.post1
 websockets==13.1
 certifi==2024.12.14
 cryptography==50.0.0
+# IANA zone data for the scheduler (zoneinfo). The slim base image's system
+# zone files are not something to rely on; zoneinfo falls back to this.
+tzdata==2026.4

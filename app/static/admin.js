@@ -369,6 +369,368 @@
     } catch (e) { alertMsg(e.message); }
   });
 
+  /* ---- schedules ----
+     Stored ISO (YYYY-MM-DD) and 24-hour (HH:MM) on the server; shown and typed
+     here in US formats only -- MM/DD/YYYY and h:mm AM/PM -- whatever locale the
+     browser is set to. The server formats every instant it reports, in the
+     schedule's own zone, so the panel never does time-zone maths itself. */
+  const DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+  let schedTimezones = [];
+  let schedDefaultTz = 'America/New_York';
+  let schedEditing = null;   // id being edited, '' for a new one, null when closed
+  let schedItems = [];
+  let schedSig = '';
+  let schedStatus = null;
+
+  function usToIso(text) {
+    const m = /^\s*(\d{1,2})\/(\d{1,2})\/(\d{4})\s*$/.exec(text || '');
+    if (!m) return null;
+    const mo = +m[1], d = +m[2], y = +m[3];
+    const dt = new Date(Date.UTC(y, mo - 1, d));
+    if (dt.getUTCFullYear() !== y || dt.getUTCMonth() !== mo - 1 || dt.getUTCDate() !== d) return null;
+    return y + '-' + String(mo).padStart(2, '0') + '-' + String(d).padStart(2, '0');
+  }
+
+  function isoToUs(iso) {
+    const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso || '');
+    return m ? m[2] + '/' + m[3] + '/' + m[1] : '';
+  }
+
+  // Three selects per time: hour 1-12, minute in 5s, AM/PM. A minute that is
+  // not a multiple of five (a hand-edited config) is added so it round-trips.
+  function buildTimePicker(box) {
+    const opts = function (list) {
+      const sel = document.createElement('select');
+      list.forEach(function (o) {
+        const el = document.createElement('option');
+        el.value = o[0]; el.textContent = o[1];
+        sel.appendChild(el);
+      });
+      return sel;
+    };
+    const hours = [];
+    for (let h = 1; h <= 12; h++) hours.push([String(h), String(h)]);
+    const mins = [];
+    for (let m = 0; m < 60; m += 5) mins.push([String(m).padStart(2, '0'), ':' + String(m).padStart(2, '0')]);
+    const h = opts(hours), m = opts(mins), ap = opts([['AM', 'AM'], ['PM', 'PM']]);
+    h.setAttribute('aria-label', 'Hour');
+    m.setAttribute('aria-label', 'Minute');
+    ap.setAttribute('aria-label', 'AM or PM');
+    box.appendChild(h); box.appendChild(m); box.appendChild(ap);
+    return {
+      set: function (hhmm) {
+        const parts = (hhmm || '10:00').split(':');
+        const hh = parseInt(parts[0], 10), mm = parts[1];
+        h.value = String((hh % 12) || 12);
+        if (![].some.call(m.options, function (o) { return o.value === mm; })) {
+          const el = document.createElement('option');
+          el.value = mm; el.textContent = ':' + mm;
+          m.appendChild(el);
+        }
+        m.value = mm;
+        ap.value = hh < 12 ? 'AM' : 'PM';
+      },
+      get: function () {
+        let hh = parseInt(h.value, 10) % 12;
+        if (ap.value === 'PM') hh += 12;
+        return String(hh).padStart(2, '0') + ':' + m.value;
+      },
+      onChange: function (fn) { [h, m, ap].forEach(function (el) { el.addEventListener('change', fn); }); }
+    };
+  }
+
+  const startPicker = buildTimePicker($('schedStart'));
+  const stopPicker = buildTimePicker($('schedStop'));
+
+  function checkOvernight() {
+    $('schedOvernight').hidden = !(stopPicker.get() < startPicker.get());
+  }
+  startPicker.onChange(checkOvernight);
+  stopPicker.onChange(checkOvernight);
+
+  // The day chips.
+  DAY_NAMES.forEach(function (name, i) {
+    const lab = document.createElement('label');
+    lab.innerHTML = '<input type="checkbox" value="' + i + '"><span>' + name + '</span>';
+    $('schedDays').appendChild(lab);
+  });
+
+  // The calendar button opens the browser's own date picker and writes the
+  // choice back in US format.
+  document.querySelectorAll('.datepick').forEach(function (btn) {
+    const text = $(btn.dataset.for);
+    const native = btn.parentNode.querySelector('.nativedate');
+    btn.addEventListener('click', function () {
+      native.value = usToIso(text.value) || '';
+      try {
+        if (native.showPicker) native.showPicker(); else native.click();
+      } catch (e) { text.focus(); }
+    });
+    native.addEventListener('change', function () {
+      if (native.value) text.value = isoToUs(native.value);
+    });
+    // Tidy 1/5/2027 into 01/05/2027 once the operator leaves the field.
+    text.addEventListener('blur', function () {
+      const iso = usToIso(text.value);
+      if (iso) text.value = isoToUs(iso);
+    });
+  });
+
+  function syncRepeat() {
+    const once = $('schedRepeat').value === 'once';
+    $('schedDaysField').hidden = once;
+    $('schedEndDateField').hidden = once;
+    $('schedStartDateLabel').textContent = once ? 'Date' : 'Starting on (optional)';
+  }
+  $('schedRepeat').addEventListener('change', syncRepeat);
+
+  function renderTzOptions() {
+    const sel = $('schedTz');
+    sel.innerHTML = '';
+    schedTimezones.forEach(function (z) {
+      const o = document.createElement('option');
+      o.value = z.id; o.textContent = z.label;
+      sel.appendChild(o);
+    });
+  }
+
+  function openSchedForm(item) {
+    schedEditing = item ? item.id : '';
+    const s = item || {
+      name: '', repeat: 'weekly', days: [0], start_date: null, end_date: null,
+      start_time: '10:00', stop_time: '12:00', timezone: lastTz(), enabled: true
+    };
+    $('schedName').value = s.name || '';
+    $('schedRepeat').value = s.repeat;
+    $('schedDays').querySelectorAll('input').forEach(function (cb) {
+      cb.checked = s.days.indexOf(parseInt(cb.value, 10)) !== -1;
+    });
+    $('schedStartDate').value = isoToUs(s.start_date);
+    $('schedEndDate').value = isoToUs(s.end_date);
+    startPicker.set(s.start_time);
+    stopPicker.set(s.stop_time);
+    $('schedTz').value = s.timezone;
+    $('schedSave').textContent = item ? 'Save changes' : 'Add schedule';
+    syncRepeat();
+    checkOvernight();
+    $('schedForm').hidden = false;
+    $('schedAdd').hidden = true;
+    $('schedName').focus();
+  }
+
+  function closeSchedForm() {
+    schedEditing = null;
+    $('schedForm').hidden = true;
+    $('schedAdd').hidden = false;
+  }
+
+  // A new schedule starts on the zone the operator used last.
+  function lastTz() {
+    return schedItems.length ? schedItems[schedItems.length - 1].timezone : schedDefaultTz;
+  }
+
+  function readSchedForm() {
+    const repeat = $('schedRepeat').value;
+    const payload = {
+      name: $('schedName').value.trim(),
+      repeat: repeat,
+      start_time: startPicker.get(),
+      stop_time: stopPicker.get(),
+      timezone: $('schedTz').value,
+      days: [],
+      start_date: null,
+      end_date: null
+    };
+    const startText = $('schedStartDate').value.trim();
+    const endText = $('schedEndDate').value.trim();
+    if (startText) {
+      payload.start_date = usToIso(startText);
+      if (!payload.start_date) throw new Error('Enter the date as MM/DD/YYYY.');
+    }
+    if (repeat === 'once') {
+      if (!payload.start_date) throw new Error('Pick the date this runs, as MM/DD/YYYY.');
+    } else {
+      $('schedDays').querySelectorAll('input:checked').forEach(function (cb) {
+        payload.days.push(parseInt(cb.value, 10));
+      });
+      if (!payload.days.length) throw new Error('Pick at least one day.');
+      if (endText) {
+        payload.end_date = usToIso(endText);
+        if (!payload.end_date) throw new Error('Enter the end date as MM/DD/YYYY.');
+      }
+    }
+    if (payload.start_time === payload.stop_time) throw new Error('Start and stop time must differ.');
+    return payload;
+  }
+
+  $('schedAdd').addEventListener('click', function () { openSchedForm(null); });
+  $('schedCancel').addEventListener('click', closeSchedForm);
+
+  $('schedForm').addEventListener('submit', async function (ev) {
+    ev.preventDefault();
+    let payload;
+    try { payload = readSchedForm(); } catch (e) { alertMsg(e.message); return; }
+    const editing = schedEditing;
+    if (editing) {
+      const prev = schedItems.filter(function (s) { return s.id === editing; })[0];
+      payload.enabled = prev ? prev.enabled : true;
+    } else {
+      payload.enabled = true;
+    }
+    try {
+      const body = await api(editing ? '/api/admin/schedules/' + encodeURIComponent(editing)
+                                     : '/api/admin/schedules', {
+        method: editing ? 'PUT' : 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      closeSchedForm();
+      renderSchedules(body);
+      okMsg(editing ? 'Schedule saved.' : 'Schedule added.');
+    } catch (e) { alertMsg(e.message); }
+  });
+
+  async function schedToggle(item, on) {
+    try {
+      const body = await api('/api/admin/schedules/' + encodeURIComponent(item.id), {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(Object.assign({}, item, { enabled: on }))
+      });
+      renderSchedules(body);
+    } catch (e) { alertMsg(e.message); loadSchedules(); }
+  }
+
+  async function schedDelete(item) {
+    if (!window.confirm('Delete the schedule "' + (item.name || item.summary) + '"?')) return;
+    try {
+      const body = await api('/api/admin/schedules/' + encodeURIComponent(item.id), { method: 'DELETE' });
+      if (schedEditing === item.id) closeSchedForm();
+      renderSchedules(body);
+      okMsg('Schedule deleted.');
+    } catch (e) { alertMsg(e.message); }
+  }
+
+  function renderSchedules(info) {
+    if (info.timezones && !schedTimezones.length) {
+      schedTimezones = info.timezones;
+      renderTzOptions();
+    }
+    if (info.default_timezone) schedDefaultTz = info.default_timezone;
+    schedItems = info.schedules || [];
+    if (info.status) renderSchedStatus(info.status);
+
+    const tb = $('schedList');
+    tb.innerHTML = '';
+    if (!schedItems.length) {
+      tb.innerHTML = '<tr><td colspan="4" class="muted">No schedules yet.</td></tr>';
+      return;
+    }
+    schedItems.forEach(function (s) {
+      const tr = document.createElement('tr');
+
+      const what = document.createElement('td');
+      const name = document.createElement('div');
+      name.className = 'schedname';
+      name.textContent = s.name || s.summary;
+      if (s.live && s.enabled) name.insertAdjacentHTML('beforeend', ' <span class="ok">· live window</span>');
+      else if (s.expired) name.insertAdjacentHTML('beforeend', ' <span class="muted">· finished</span>');
+      what.appendChild(name);
+      if (s.name) {
+        const sum = document.createElement('div');
+        sum.className = 'schedsum';
+        sum.textContent = s.summary;
+        what.appendChild(sum);
+      }
+      tr.appendChild(what);
+
+      const next = document.createElement('td');
+      next.className = 'muted';
+      next.textContent = !s.enabled ? 'off' : (s.next_start || '—');
+      tr.appendChild(next);
+
+      const on = document.createElement('td');
+      const sw = document.createElement('label');
+      sw.className = 'switch';
+      sw.title = s.enabled ? 'Turn this schedule off' : 'Turn this schedule on';
+      sw.innerHTML = '<input type="checkbox"' + (s.enabled ? ' checked' : '') + '><span class="slider"></span>';
+      sw.querySelector('input').setAttribute('aria-label', 'Schedule on');
+      sw.querySelector('input').addEventListener('change', function (ev) { schedToggle(s, ev.target.checked); });
+      on.appendChild(sw);
+      tr.appendChild(on);
+
+      const act = document.createElement('td');
+      act.className = 'schedactions';
+      const edit = document.createElement('button');
+      edit.type = 'button';
+      edit.textContent = 'Edit';
+      edit.addEventListener('click', function () { openSchedForm(s); });
+      const del = document.createElement('button');
+      del.type = 'button';
+      del.className = 'danger';
+      del.textContent = 'Delete';
+      del.addEventListener('click', function () { schedDelete(s); });
+      act.appendChild(edit); act.appendChild(del);
+      tr.appendChild(act);
+
+      tb.appendChild(tr);
+    });
+  }
+
+  function renderSchedStatus(sc) {
+    schedStatus = sc;
+    const el = $('schedStatus');
+    if (!sc || !sc.count) {
+      el.innerHTML = 'No schedules set. Capture only starts when you press <em>Start capture</em>.';
+      return;
+    }
+    const bits = [];
+    if (sc.active_schedule) {
+      bits.push(sc.held
+        ? 'Stopped by hand during “' + sc.active_schedule + '” — it stays off until the next scheduled start.'
+        : 'Inside “' + sc.active_schedule + '”.');
+    }
+    if (sc.started_by_schedule && sc.next_scheduled_stop) {
+      bits.push('Stops ' + sc.next_scheduled_stop.label + '.');
+    }
+    if (sc.next_scheduled_start) {
+      bits.push('Next start: ' + sc.next_scheduled_start.label
+        + ' (' + sc.next_scheduled_start.names.join(', ') + ').');
+    } else if (!sc.active_schedule) {
+      bits.push(sc.enabled ? 'Nothing scheduled in the days ahead.' : 'Every schedule is turned off.');
+    }
+    el.textContent = bits.join(' ');
+    el.className = 'note' + (sc.held ? ' warn' : '');
+  }
+
+  function masterText(running) {
+    const sc = schedStatus;
+    if (running) {
+      if (sc && sc.started_by_schedule) {
+        return 'Running · ' + sc.started_by_schedule
+          + (sc.next_scheduled_stop ? ' · until ' + sc.next_scheduled_stop.label : '');
+      }
+      return 'Running';
+    }
+    if (sc && sc.next_scheduled_start) return 'Stopped · next ' + sc.next_scheduled_start.label;
+    return 'Stopped';
+  }
+
+  // The list's "next start" and "live window" marks move when a window opens or
+  // closes; the status stream says when, so refetch then rather than on a timer.
+  function schedStatusChanged(sc) {
+    const sig = JSON.stringify(sc || null);
+    if (sig === schedSig) return;
+    schedSig = sig;
+    renderSchedStatus(sc);
+    loadSchedules();
+  }
+
+  async function loadSchedules() {
+    try { renderSchedules(await api('/api/admin/schedules')); }
+    catch (e) { /* the panel is still usable without the list */ }
+  }
+
   /* ---- master ---- */
   $('startBtn').addEventListener('click', async function () {
     $('startBtn').disabled = true;
@@ -445,7 +807,7 @@
   // change. Update the live bits in place and leave the table to full status.
   function applyMeter(st) {
     $('masterDot').className = 'dot ' + (st.running ? 'ok' : '');
-    $('masterState').textContent = st.running ? 'Running' : 'Stopped';
+    $('masterState').textContent = masterText(st.running);
     $('startBtn').disabled = st.running;
     $('stopBtn').disabled = !st.running;
     if (st.running) $('audioDot').className = 'dot ' + (st.speaking ? 'ok' : 'warn');
@@ -457,8 +819,9 @@
     if (st.type === 'meter') { applyMeter(st); return; }
     if (!st.sessions) return;
 
+    if (st.schedule) schedStatusChanged(st.schedule);
     $('masterDot').className = 'dot ' + (st.running ? 'ok' : '');
-    $('masterState').textContent = st.running ? 'Running' : 'Stopped';
+    $('masterState').textContent = masterText(st.running);
     $('startBtn').disabled = st.running;
     $('stopBtn').disabled = !st.running;
     if (recRunning && !st.running) loadRuns();  // a run just ended: it is downloadable now

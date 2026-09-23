@@ -210,6 +210,9 @@ class Engine:
         return sorted(out, key=lambda d: d["label"])
 
     def status(self) -> dict:
+        # Imported here: the scheduler drives this engine, so it imports us.
+        from .scheduler import scheduler
+
         cfg = config.get()
         sessions = [self.relays[t].health() for t in sorted(self.relays)]
         return {
@@ -222,6 +225,7 @@ class Engine:
             "blocklist": list(hub.blocklist),
             "blocklist_file": str(config.blocklist_path()),
             "source_language": cfg["source_language"],
+            "schedule": scheduler.status(),
             "targets": [
                 {
                     "target": name,
