@@ -8,6 +8,9 @@
 # Linux hands /dev/snd straight to the container, so there is no PulseAudio
 # bridge to start — unlike the macOS and Windows paths.
 #
+# The container runs detached: this returns once the relay is up, and the
+# relay keeps running until ./stop.sh. Follow its output with ./logs.sh.
+#
 # Run setup.sh first: it writes the credentials and mints the panel certificate.
 cd "$(dirname "$0")" || exit 1
 set -u
@@ -54,19 +57,22 @@ LAN_IP="$(ip route get 1.1.1.1 2>/dev/null | awk '{for (i=1;i<NF;i++) if ($i=="s
 LAN_IP="${LAN_IP:-127.0.0.1}"
 export RELAY_ADMIN_IPS="${RELAY_ADMIN_IPS:-$LAN_IP}"
 
-echo
-echo "Starting."
-echo "  Viewer link : http://$LAN_IP/            <- share this with the room"
-echo "  Panel       : https://$LAN_IP/admin"
-echo
-echo "  The panel's certificate is self-signed, so the browser warns the first"
-echo "  time. The startup log prints its SHA-256 fingerprint -- check that"
-echo "  against what the browser shows before accepting it."
-echo "Press Ctrl+C to stop."
-echo
-
 # Run the container as this user so the bind-mounted docker-config/ carries
 # real ownership on both sides. The image defaults to 10001:10001.
 export RELAY_UID="$(id -u)" RELAY_GID="$(id -g)"
 
-exec docker compose -f docker/docker-compose.yml -f docker/docker-compose.linux.yml up --build
+echo
+echo "Building and starting the container..."
+docker compose -f docker/docker-compose.yml -f docker/docker-compose.linux.yml up --build -d || exit 1
+./tools/wait-ready.sh || exit 1
+
+echo
+echo "  Viewer link : http://$LAN_IP/            <- share this with the room"
+echo "  Panel       : https://$LAN_IP/admin"
+echo
+echo "  The panel's certificate is self-signed, so the browser warns the first"
+echo "  time. Check the SHA-256 above against what the browser shows before"
+echo "  accepting it."
+echo
+echo "  The relay runs in the background. Stop it with ./stop.sh; follow its"
+echo "  log with ./logs.sh."
