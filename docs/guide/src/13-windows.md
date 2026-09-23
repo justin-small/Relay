@@ -625,18 +625,15 @@ On Windows, you start rehearsal mode by typing a few lines in Command Prompt.
    ```bat
    cd /d C:\Relay
    set RELAY_DEMO=1
-   set WSLENV=RELAY_DEMO
    start.bat
    ```
 
    Type them all in the **same** Command Prompt window. `set` only lasts in
    the window where you typed it.
 
-   The second line turns on rehearsal mode. The third line tells Windows to
-   pass that setting on to WSL, where Relay's scripts do their work. Without
-   it, Relay starts normally.
-
-   Start runs as usual and prints the same addresses. When it finishes, you
+   The second line turns on rehearsal mode. Start prints
+   `REHEARSAL MODE` just before it builds the container, then runs as usual
+   and prints the same addresses. When it finishes, you
    are back at the prompt.
 
 4. Open the viewer link. You should see sample captions appear.

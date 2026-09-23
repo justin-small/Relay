@@ -26,7 +26,7 @@ import os
 from datetime import datetime, timezone
 
 from . import config, schedules
-from .engine import engine
+from .engine import demo_mode, engine
 
 log = logging.getLogger("relay.scheduler")
 
@@ -101,6 +101,15 @@ class Scheduler:
 
     async def _start(self, win: schedules.Window) -> None:
         label = ", ".join(win.names)
+        if demo_mode():
+            # A rehearsal must never open a billed session, and a schedule
+            # coming due mid-rehearsal is the easy way to do it by accident.
+            # Skip quietly (logged once per window), rather than retrying the
+            # engine's refusal every tick.
+            if self._fail != "demo":
+                log.info("Scheduled start (%s) skipped: rehearsal mode", label)
+                self._fail = "demo"
+            return
         try:
             await engine.start()
         except RuntimeError as exc:

@@ -34,7 +34,7 @@ Made-up captions, no OpenAI connection, no cost. Stop Relay first.
 | | Type this |
 |---|---|
 | **macOS** (Terminal) | `cd ~/Relay` then `RELAY_DEMO=1 ./start.command` |
-| **Windows** (Command Prompt) | `cd /d C:\Relay`, `set RELAY_DEMO=1`, `set WSLENV=RELAY_DEMO`, then `start.bat` |
+| **Windows** (Command Prompt) | `cd /d C:\Relay`, `set RELAY_DEMO=1`, then `start.bat` |
 | **Linux** (terminal) | `cd ~/Relay` then `RELAY_DEMO=1 ./start.sh` |
 
 To leave rehearsal mode: stop, then start normally.
