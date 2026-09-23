@@ -438,6 +438,12 @@ macOS gates capture per process: the terminal running PulseAudio needs
 Microphone permission (System Settings → Privacy & Security → Microphone), or
 sources appear and read pure silence.
 
+With `PULSE_SERVER` set, the panel's device list shows the PulseAudio server's
+inputs by name ("PulseAudio: MacBook Pro Microphone") rather than ALSA's
+`default` and `pulse`, which both only reach the server's default input.
+Picking one opens that source directly. A mic connected later (an iPhone, a
+USB interface) shows up after **Rescan**, even while capture is running.
+
 ### Verifying the chain
 
 `tools/check-audio.sh` walks the whole path and prints PASS/FAIL per link, so a

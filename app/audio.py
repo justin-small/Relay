@@ -76,6 +76,19 @@ def capture_is_live() -> bool:
     return _capture_live
 
 
+def _number_repeats(devices: list[dict]) -> list[dict]:
+    """Two identical interfaces report the same name, and the label is both
+    what the dropdown shows and what the config saves. Number the repeats so
+    each one can be told apart and picked; the first keeps the plain label so
+    configs saved before this still resolve to it."""
+    seen: dict[str, int] = {}
+    for d in devices:
+        seen[d["label"]] = n = seen.get(d["label"], 0) + 1
+        if n > 1:
+            d["label"] = f"{d['label']} #{n}"
+    return devices
+
+
 def _probe_input_devices(reinit: bool) -> list[dict]:
     """Ask PortAudio for the device table. `reinit` restarts the backend so
     newly-connected hardware shows up -- and closes any open stream with it."""
@@ -101,7 +114,64 @@ def _probe_input_devices(reinit: bool) -> list[dict]:
                 "default_samplerate": int(dev["default_samplerate"] or 0),
             }
         )
-    return out
+    return _pulse_sources(out) or _number_repeats(out)
+
+
+# Monitor sources replay a sink's output. They are never a microphone, and
+# listing them next to the real inputs invites picking the speakers by mistake.
+def _is_monitor(src) -> bool:
+    return src.name.endswith(".monitor") or src.proplist.get("device.class") == "monitor"
+
+
+def _pulse_sources(alsa: list[dict]) -> list[dict] | None:
+    """The host's real inputs, when capture runs through a PulseAudio server.
+
+    In Docker on macOS/Windows, PortAudio only sees ALSA's `default` and
+    `pulse` devices, and both lead to whatever the server's default source is.
+    The actual microphones live on the server, so ask it for them and show
+    those instead. Each entry still opens the ALSA `pulse` device; start()
+    sets PULSE_SOURCE so that open lands on the chosen source.
+
+    None (and the plain ALSA list stands) when there is no server, or it
+    cannot be reached.
+    """
+    if not os.environ.get("PULSE_SERVER"):
+        return None
+    bridge = next((d for d in alsa if d["hostapi"] == "ALSA" and d["name"] == "pulse"), None)
+    bridge = bridge or next((d for d in alsa if d["hostapi"] == "ALSA" and d["name"] == "default"), None)
+    if bridge is None:
+        return None
+    try:
+        import pulsectl
+
+        with pulsectl.Pulse("live-caption-relay", connect=False) as pulse:
+            pulse.connect(timeout=3)
+            default = pulse.server_info().default_source_name
+            sources = [s for s in pulse.source_list() if not _is_monitor(s)]
+    except Exception as exc:
+        log.warning("Could not list PulseAudio sources, showing ALSA devices: %s", exc)
+        return None
+    if not sources:
+        return None
+    rate = int(os.environ.get("RELAY_NATIVE_RATE") or 0) or bridge["default_samplerate"]
+    return _number_repeats(
+        [
+            {
+                "index": bridge["index"],
+                "name": s.description,
+                "hostapi": "PulseAudio",
+                "label": f"PulseAudio: {s.description}",
+                "channels": s.channel_count,
+                # Not s.sample_spec: pulsectl hands back that struct after
+                # libpulse has freed it, and the rate reads as garbage. The
+                # open rate comes from RELAY_NATIVE_RATE, as it always has.
+                "default_samplerate": rate,
+                "pulse_source": s.name,
+                "default": s.name == default,
+            }
+            for s in sources
+        ]
+    )
 
 
 def list_input_devices(refresh: bool = False) -> list[dict]:
@@ -125,6 +195,9 @@ def resolve_device(selector, refresh: bool = False) -> dict | None:
     if not devices:
         return None
     if selector is None or selector == "":
+        for d in devices:
+            if d.get("default"):
+                return d
         try:
             default_idx = sd.default.device[0]
         except Exception:
@@ -149,6 +222,15 @@ def resolve_device(selector, refresh: bool = False) -> dict | None:
     for d in devices:
         if sel in d["label"].lower():
             return d
+    for d in devices:
+        if d.get("pulse_source") == str(selector).strip():
+            return d
+    # Saved before the panel listed PulseAudio's sources: those two ALSA
+    # devices both meant "the server's default input", so keep meaning that.
+    if sel in ("alsa: pulse", "alsa: default", "pulse", "default"):
+        for d in devices:
+            if d.get("default"):
+                return d
     return None
 
 
@@ -212,6 +294,12 @@ class AudioCapture:
         # RELAY_NATIVE_RATE pins the open rate for that case; unset (the native
         # run, and Linux /dev/snd) keeps the device's own default.
         rate = int(os.environ.get("RELAY_NATIVE_RATE") or 0) or dev["default_samplerate"] or 48000
+        # libpulse reads PULSE_SOURCE whenever the ALSA plugin opens a stream,
+        # which is what points the shared `pulse` device at this one source.
+        if dev.get("pulse_source"):
+            os.environ["PULSE_SOURCE"] = dev["pulse_source"]
+        else:
+            os.environ.pop("PULSE_SOURCE", None)
         channels = dev["channels"]
         # A stereo board feed is usually better summed than halved: taking one
         # channel discards whatever is only on the other. "mix" averages every
