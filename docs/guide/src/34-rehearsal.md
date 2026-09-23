@@ -61,12 +61,12 @@ To check which mode Relay is in, open the logs (`logs.command`, `logs.bat` or
 REHEARSAL MODE: captions are canned. No OpenAI session is open.
 ```
 
-::: warning
-**Do not click Start capture in rehearsal mode.** Rehearsal mode only fakes
-the viewer pages. **Start capture** still opens real, billed sessions with
-your API key. The same is true for **schedules**: a schedule that comes due
-during a rehearsal starts a real session. Switch schedules off first if one
-could come due.
+::: note
+**Start capture is switched off in rehearsal mode.** If you press it, the
+panel says so and nothing starts. **Schedules** are skipped too: a schedule
+that comes due during a rehearsal does not start a session. Neither can open
+a billed session with your API key. To go live, stop Relay and start it again
+without `RELAY_DEMO=1`.
 :::
 
 ::: warning

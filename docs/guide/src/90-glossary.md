@@ -232,9 +232,5 @@
 : Windows Subsystem for Linux, which lets Windows run Linux programs. WSLg is
   the Windows 11 part of it that carries sound, including the microphone.
 
-**WSLENV**
-: A Windows setting that lists which environment variables are passed on to
-  WSL.
-
 **ZIP file**
 : One compressed file holding a whole folder of files.

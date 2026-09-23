@@ -481,6 +481,46 @@ config.save({"openai_api_key": ""})
 r = c.post("/api/admin/start", headers=h)
 check("start without key fails cleanly", r.status_code == 400 and "API key" in r.json()["error"], r.text)
 
+print("\nrehearsal mode never opens a billed session")
+from app import scheduler as scheduler_mod, schedules as schedules_mod
+from app.engine import engine as real_engine
+config.save({"openai_api_key": "sk-test-1234"})
+os.environ["RELAY_DEMO"] = "1"
+_opened = []
+_real_open = real_engine._open_relay
+real_engine._open_relay = lambda *a, **k: _opened.append(a)
+real_engine.last_error = None  # left over from the no-key start above
+try:
+    r = c.post("/api/admin/start", headers=h)
+    check("start is refused in rehearsal mode", r.status_code == 400, r.text)
+    check("the refusal says why", "Rehearsal mode" in r.json().get("error", ""), r.text)
+    check("nothing is running after the refusal", r.json().get("running") is False, r.text)
+    check("no session was opened", _opened == [], _opened)
+    check("the refusal does not stick as a panel error",
+          c.get("/api/admin/status", headers=h).json()["error"] is None)
+    # A schedule whose window is open right now must not start capture either.
+    from datetime import datetime, timedelta, timezone
+    from zoneinfo import ZoneInfo
+    _now = datetime.now(timezone.utc)
+    _tz = schedules_mod.DEFAULT_TIMEZONE
+    _local = _now.astimezone(ZoneInfo(_tz))
+    _win = {"id": "demo0001", "name": "Rehearsal clash", "enabled": True, "repeat": "once",
+            "days": [], "start_date": _local.strftime("%Y-%m-%d"), "end_date": None,
+            "start_time": (_local - timedelta(minutes=5)).strftime("%H:%M"),
+            "stop_time": (_local + timedelta(minutes=30)).strftime("%H:%M"),
+            "timezone": _tz}
+    _saved = config.get()["schedules"]
+    config.save({"schedules": [_win]})
+    _sch = scheduler_mod.Scheduler()
+    asyncio.run(_sch.tick(_now))
+    check("a schedule inside its window does not start capture", not real_engine.running)
+    check("and no session was opened by it", _opened == [], _opened)
+    config.save({"schedules": _saved})
+finally:
+    os.environ.pop("RELAY_DEMO", None)
+    real_engine._open_relay = _real_open
+    config.save({"openai_api_key": ""})
+
 print("\noperator panel is served on its own port")
 config.save({"admin_token": "t0ken", "port": 8000, "admin_port": 8001})
 viewer_c = TestClient(app, base_url="http://relay.local:8000")

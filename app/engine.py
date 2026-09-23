@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import time
 
 from . import config, languages, redact
@@ -25,6 +26,18 @@ log = logging.getLogger("relay.engine")
 
 TRANSCRIPTION_STREAM = "transcription"
 TRANSLATION_STREAM = "translation"
+
+
+REHEARSAL_REFUSAL = (
+    "Rehearsal mode: capture is disabled so nothing is billed. The viewer pages "
+    "are showing canned captions. Restart Relay without RELAY_DEMO=1 to go live."
+)
+
+
+def demo_mode() -> bool:
+    """Rehearsal mode (RELAY_DEMO=1). Read on every call rather than once at
+    import, so the value always matches the environment the process runs in."""
+    return os.environ.get("RELAY_DEMO") == "1"
 
 
 class Engine:
@@ -48,6 +61,13 @@ class Engine:
 
     # -- master control -----------------------------------------------
     async def start(self) -> dict:
+        # Rehearsal only fakes the viewer feed. A real start here would open
+        # billed sessions with the configured key, which is exactly what a
+        # rehearsal exists to avoid -- so refuse before touching anything.
+        # Not recorded in last_error: the refusal answers one press, and a
+        # sticky error would sit in the panel for the whole rehearsal.
+        if demo_mode():
+            raise RuntimeError(REHEARSAL_REFUSAL)
         async with self._lock:
             cfg = config.get()
             key = (cfg.get("openai_api_key") or "").strip()

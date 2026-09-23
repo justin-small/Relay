@@ -103,9 +103,12 @@ if "!RELAY_ADMIN_IPS!"=="" set "RELAY_ADMIN_IPS=127.0.0.1"
 
 REM Compose runs inside WSL, where the docker-config bind mount carries real
 REM Linux ownership, so hand the container the invoking user's uid/gid.
+REM RELAY_DEMO is handed in the same way: WSL does not inherit Windows
+REM variables, so "set RELAY_DEMO=1" alone would otherwise start Relay live.
 echo.
+if "!RELAY_DEMO!"=="1" echo REHEARSAL MODE: canned captions, capture and schedules disabled.
 echo Building and starting the container...
-wsl -- bash -lc "cd '!PROJDIR!' && RELAY_UID=$(id -u) RELAY_GID=$(id -g) RELAY_ADMIN_IPS='!RELAY_ADMIN_IPS!' docker compose -f docker/docker-compose.yml -f docker/docker-compose.wsl.yml up --build -d && ./tools/wait-ready.sh"
+wsl -- bash -lc "cd '!PROJDIR!' && RELAY_UID=$(id -u) RELAY_GID=$(id -g) RELAY_ADMIN_IPS='!RELAY_ADMIN_IPS!' RELAY_DEMO='!RELAY_DEMO!' docker compose -f docker/docker-compose.yml -f docker/docker-compose.wsl.yml up --build -d && ./tools/wait-ready.sh"
 if errorlevel 1 (
   echo.
   pause & exit /b 1

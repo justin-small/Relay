@@ -20,7 +20,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from . import config, exporting, languages, redact, schedules
-from .engine import TRANSCRIPTION_STREAM, TRANSLATION_STREAM, engine
+from .engine import TRANSCRIPTION_STREAM, TRANSLATION_STREAM, demo_mode, engine
 from .hub import hub
 from .recorder import recorder
 from .scheduler import scheduler
@@ -139,7 +139,7 @@ async def _startup() -> None:
                 admin_host,
                 int(cfg["admin_port"]),
             )
-    if os.environ.get("RELAY_DEMO") == "1":
+    if demo_mode():
         from . import demo
 
         target = next(
@@ -532,7 +532,7 @@ async def api_targets():
     never offers a dead language."""
     data = engine.targets_payload()
     data.pop("type", None)
-    if not data["live"] and os.environ.get("RELAY_DEMO") == "1":
+    if not data["live"] and demo_mode():
         cfg = config.get()
         data["live"] = [
             {
@@ -785,7 +785,9 @@ async def admin_start():
     try:
         return await engine.start()
     except RuntimeError as exc:
-        return JSONResponse({"error": str(exc), **engine.status()}, status_code=400)
+        # The refusal last: status() carries its own "error" (the sticky
+        # last_error), which must not mask why this press failed.
+        return JSONResponse({**engine.status(), "error": str(exc)}, status_code=400)
 
 
 @app.post("/api/admin/stop", dependencies=[Depends(require_admin)])
