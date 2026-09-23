@@ -53,7 +53,8 @@
     list.forEach(function (d) {
       const o = document.createElement('option');
       o.value = d.label;
-      o.textContent = d.label + '  (' + d.channels + ' ch, ' + d.default_samplerate + ' Hz)';
+      o.textContent = d.label + '  (' + d.channels + ' ch, ' + d.default_samplerate + ' Hz'
+        + (d.default ? ', system default' : '') + ')';
       sel.appendChild(o);
     });
     if (selected) sel.value = selected;
