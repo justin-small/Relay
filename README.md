@@ -41,11 +41,11 @@ write the credentials and mint the certificate.
 
 **Setup runs once. Start runs every time.**
 
-| | Set up | Start |
-|---|---|---|
-| **macOS** | double-click `setup.command` | double-click `start.command` |
-| **Windows 11** | double-click `setup.bat` | double-click `start.bat` |
-| **Linux** | `./setup.sh` | `./start.sh` |
+| | Set up | Start | Stop | Follow the log |
+|---|---|---|---|---|
+| **macOS** | double-click `setup.command` | double-click `start.command` | double-click `stop.command` | double-click `logs.command` |
+| **Windows 11** | double-click `setup.bat` | double-click `start.bat` | double-click `stop.bat` | double-click `logs.bat` |
+| **Linux** | `./setup.sh` | `./start.sh` | `./stop.sh` | `./logs.sh` |
 
 `setup.*` checks Docker, builds the image, then asks for three things: your
 **OpenAI API key**, an **admin token** of your choosing, and optionally a
@@ -59,6 +59,19 @@ command. It finds this machine's LAN address first, because the certificate has
 to name whatever the operator's browser will dial and that changes with the
 venue. If setup has not been run it says so and stops rather than launching a
 half-configured relay.
+
+The container runs in the background, so there is no window to keep open.
+`start.*` waits until the relay answers, prints both URLs and the panel
+certificate's SHA-256, opens the panel in the browser, then closes its window
+after 30 seconds (press return to close it sooner). If anything fails, the
+window stays open with the error and the last lines of the relay's log. The
+relay keeps running until `stop.*`; `logs.*` shows what it is doing, and
+closing the log window does not stop it.
+
+Docker restarts the container if it crashes, and again when Docker Desktop
+starts, unless `stop.*` ran first. On macOS that restart comes up without the
+PulseAudio daemon, which only `start.command` launches, so after a reboot run
+`start.command` again rather than relying on the automatic restart.
 
 Run setup again at any time to change the credentials, add a hostname, or renew
 the certificate.
@@ -96,7 +109,8 @@ it — see [Docker](#docker) for what each one does and why.
    a hostname if you have one — blank certifies this machine's IP address only.
    Note the SHA-256 fingerprint it prints at the end.
 2. Run `start.command` / `start.bat`. It prints both URLs: viewers get
-   `http://10.0.1.42/`, the panel is at `https://10.0.1.42/admin`.
+   `http://10.0.1.42/`, the panel is at `https://10.0.1.42/admin`. It opens
+   the panel for you, and its window closes by itself once the relay is up.
 3. Open the panel. The browser will warn about the certificate the first time —
    check the fingerprint it shows against the one from setup, then accept it.
    Sign in with your admin token, and:
@@ -630,7 +644,7 @@ check the host's bandwidth and the session health table, not these two fields.
 | `No input device matched` | The interface was unplugged. Reselect it and press Start. |
 | Viewers see "No target language is live" | Spanish is toggled off, or capture is stopped. |
 | A blocked word still appears in Spanish | The two feeds are filtered independently — add the Spanish form to the list as well. |
-| Edited `blocklist.txt` but nothing changed | Give it ~2 s. Check the console log line `Blocked words reloaded: N term(s)`, and that the file is the one named in the admin panel. |
+| Edited `blocklist.txt` but nothing changed | Give it ~2 s. Check the relay's log (`logs.*`) for the line `Blocked words reloaded: N term(s)`, and that the file is the one named in the admin panel. |
 | A blocked word appears inside a longer word | By design: only whole words match. Add the longer word explicitly. |
 | Captions lag or arrive in long blocks | Phrase boundaries come from the model and are not tunable. Long *lines* are a line-break setting — lower *Caption line break after silence*. Genuine lag is upstream: check the host's bandwidth. |
 | `CERTIFICATE_VERIFY_FAILED` | Handled via certifi. If it reappears on macOS, run `Install Certificates.command` in your Python folder. |
@@ -640,8 +654,10 @@ check the host's bandwidth and the session health table, not these two fields.
 ```
 setup.command / .bat / .sh   one-time setup: image, credentials, panel TLS
 start.command / .bat / .sh   start the whole stack (Caddy + relay, one
-                             container). One per platform: macOS, Windows,
-                             Linux — nothing else to launch.
+                             container) in the background. One per platform:
+                             macOS, Windows, Linux — nothing else to launch.
+stop.command / .bat / .sh    stop it (and, on macOS, its PulseAudio daemon)
+logs.command / .bat / .sh    follow the running relay's log
 run.py                       in-container entry point — binds both sockets
 requirements.txt             pinned dependencies (installed into the image)
 config.example.json          template, used when tests run outside the image
@@ -682,6 +698,7 @@ tests/
 
 tools/
   check-audio.sh             PASS/FAIL walk of the whole capture chain
+  wait-ready.sh              launchers: wait for /healthz, print fingerprint
   scan-image.sh              CVE / misconfig / secret scan of the built image
   write_config.py            writes credentials into config.json
   setup_caddy.py             panel certificate + Caddyfile

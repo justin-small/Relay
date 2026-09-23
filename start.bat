@@ -12,6 +12,10 @@ REM Docker Desktop already runs on WSL2, and Windows 11's WSLg already exposes
 REM the microphone to it, so this just runs docker compose inside WSL where
 REM that microphone is visible. You should not need to open a Linux shell.
 REM
+REM The container runs detached, so this window is not what keeps the relay
+REM alive: once it is up the window closes itself, and the relay runs until
+REM stop.bat. Use logs.bat to follow its output.
+REM
 REM Run setup.bat first: it writes the credentials and mints the panel
 REM certificate.
 
@@ -97,20 +101,29 @@ if "!RELAY_ADMIN_IPS!"=="" (
 )
 if "!RELAY_ADMIN_IPS!"=="" set "RELAY_ADMIN_IPS=127.0.0.1"
 
+REM Compose runs inside WSL, where the docker-config bind mount carries real
+REM Linux ownership, so hand the container the invoking user's uid/gid.
 echo.
-echo Starting.
+echo Building and starting the container...
+wsl -- bash -lc "cd '!PROJDIR!' && RELAY_UID=$(id -u) RELAY_GID=$(id -g) RELAY_ADMIN_IPS='!RELAY_ADMIN_IPS!' docker compose -f docker/docker-compose.yml -f docker/docker-compose.wsl.yml up --build -d && ./tools/wait-ready.sh"
+if errorlevel 1 (
+  echo.
+  pause & exit /b 1
+)
+
+echo.
 echo   Viewer link : http://!RELAY_ADMIN_IPS!/            ^<- share this with the room
 echo   Panel       : https://!RELAY_ADMIN_IPS!/admin
 echo.
 echo   The panel's certificate is self-signed, so the browser warns the first
-echo   time. The startup log prints its SHA-256 fingerprint - check that
-echo   against what the browser shows before accepting it.
-echo Close this window or press Ctrl+C to stop.
+echo   time. Check the SHA-256 above against what the browser shows before
+echo   accepting it.
+echo.
+echo   The relay keeps running after this window closes.
+echo   Stop it with stop.bat; follow its log with logs.bat.
 echo.
 
-REM Compose runs inside WSL, where the docker-config bind mount carries real
-REM Linux ownership, so hand the container the invoking user's uid/gid.
-wsl -- bash -lc "cd '!PROJDIR!' && RELAY_UID=$(id -u) RELAY_GID=$(id -g) RELAY_ADMIN_IPS='!RELAY_ADMIN_IPS!' docker compose -f docker/docker-compose.yml -f docker/docker-compose.wsl.yml up --build"
+start "" "https://!RELAY_ADMIN_IPS!/admin"
 
-echo.
-pause
+timeout /t 30
+exit /b 0

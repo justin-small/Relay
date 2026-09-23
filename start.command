@@ -9,10 +9,20 @@
 # PulseAudio daemon running natively on the Mac. This starts that daemon if it
 # is not already up, checks the chain, then runs the container.
 #
+# The container runs detached, so this window is not what keeps the relay
+# alive: once it is up the window closes itself, and the relay runs until
+# stop.command. Use logs.command to follow its output.
+#
 # Run setup.command first: it writes the credentials and mints the panel
 # certificate.
 cd "$(dirname "$0")" || exit 1
 set -u
+
+# The window this script was double-clicked into, so it can close exactly
+# that one once the relay is up. Empty outside Terminal.app.
+WIN_ID=""
+[ "${TERM_PROGRAM:-}" = Apple_Terminal ] &&
+    WIN_ID="$(osascript -e 'tell application "Terminal" to id of front window' 2>/dev/null)"
 
 PORT=4713
 # Docker Desktop's VM subnet and the default bridge range -- the container is
@@ -49,11 +59,14 @@ if lsof -nP -iTCP:"$PORT" -sTCP:LISTEN >/dev/null 2>&1; then
 else
     echo "Starting PulseAudio on port $PORT..."
     # --daemonize=yes fails on the Homebrew build, so background it and keep
-    # a log next to the project for when something needs diagnosing.
+    # a log next to the project for when something needs diagnosing. setsid
+    # (via perl -- macOS has no setsid(1)) takes it off this window's tty, so
+    # the window can close without Terminal offering to kill it.
     LOG="${TMPDIR:-/tmp}/relay-pulseaudio.log"
-    nohup "$PA" --exit-idle-time=-1 --log-target=stderr \
+    nohup perl -MPOSIX -e 'POSIX::setsid(); exec @ARGV' \
+        "$PA" --exit-idle-time=-1 --log-target=stderr \
         --load="module-native-protocol-tcp port=$PORT auth-anonymous=1 auth-ip-acl=$ACL" \
-        > "$LOG" 2>&1 &
+        < /dev/null > "$LOG" 2>&1 &
     for _ in 1 2 3 4 5 6 7 8 9 10; do
         sleep 1
         lsof -nP -iTCP:"$PORT" -sTCP:LISTEN >/dev/null 2>&1 && break
@@ -84,22 +97,39 @@ fi
 LAN_IP="$(ipconfig getifaddr en0 2>/dev/null || ipconfig getifaddr en1 2>/dev/null || echo 127.0.0.1)"
 export RELAY_ADMIN_IPS="${RELAY_ADMIN_IPS:-$LAN_IP}"
 
-echo
-echo "Starting."
-echo "  Viewer link : http://$LAN_IP/            <- share this with the room"
-echo "  Panel       : https://$LAN_IP/admin"
-echo
-echo "  The panel's certificate is self-signed, so the browser warns the first"
-echo "  time. The startup log prints its SHA-256 fingerprint -- check that"
-echo "  against what the browser shows before accepting it."
-echo "Press Ctrl+C to stop."
-echo
-
 # Run the container as this user so the bind-mounted docker-config/ stays
 # readable and writable on both sides. The image defaults to 10001:10001.
 export RELAY_UID="$(id -u)" RELAY_GID="$(id -g)"
 
-docker compose -f docker/docker-compose.yml -f docker/docker-compose.macos.yml up --build
+echo
+echo "Building and starting the container..."
+if ! docker compose -f docker/docker-compose.yml -f docker/docker-compose.macos.yml up --build -d \
+        || ! ./tools/wait-ready.sh; then
+    echo
+    read -r -p "Press return to close." _; exit 1
+fi
 
 echo
-read -r -p "Press return to close." _
+echo "  Viewer link : http://$LAN_IP/            <- share this with the room"
+echo "  Panel       : https://$LAN_IP/admin"
+echo
+echo "  The panel's certificate is self-signed, so the browser warns the first"
+echo "  time. Check the SHA-256 above against what the browser shows before"
+echo "  accepting it."
+echo
+echo "  The relay keeps running after this window closes."
+echo "  Stop it with stop.command; follow its log with logs.command."
+echo
+
+open "https://$LAN_IP/admin" 2>/dev/null
+
+read -r -t 30 -p "This window closes in 30 seconds (press return to close now)." _
+echo
+
+# Close the window from outside this shell, a moment after it has exited, so
+# Terminal does not ask whether to terminate a running process.
+[ -n "$WIN_ID" ] && nohup osascript \
+    -e 'delay 1' \
+    -e "tell application \"Terminal\" to close (every window whose id is $WIN_ID)" \
+    >/dev/null 2>&1 &
+exit 0
