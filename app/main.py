@@ -745,10 +745,19 @@ async def admin_config(request: Request, payload: dict):
     # writing where it began, rather than losing its file mid-run.
     recorder.configure(config.recordings_path(), cfg["recording"]["keep_runs"])
 
+    blocklist_report = None
     if "blocklist" in payload:
         # The file is the source of truth; the panel is one way to edit it.
-        terms = redact.write_blocklist_file(config.blocklist_path(), payload["blocklist"])
+        report = redact.parse_terms_report(payload["blocklist"])
+        terms = redact.write_blocklist_file(config.blocklist_path(), report.terms)
         hub.set_blocklist(terms)
+        # Collapsed or cut-off entries vanish from the textarea; say so.
+        blocklist_report = {
+            "terms": len(terms),
+            "duplicates": report.duplicates,
+            "dropped": report.dropped,
+            "max_terms": redact.MAX_TERMS,
+        }
 
     # Changes that alter the audio path or model behaviour need a session cycle.
     needs_restart = any(
@@ -758,7 +767,10 @@ async def admin_config(request: Request, payload: dict):
     if needs_restart and engine.running:
         await engine.restart()
 
-    resp = JSONResponse({"config": config.redacted(), "status": engine.status()})
+    body = {"config": config.redacted(), "status": engine.status()}
+    if blocklist_report is not None:
+        body["blocklist_report"] = blocklist_report
+    resp = JSONResponse(body)
     if "admin_token" in updates:
         # New token, so every session issued against the old one dies; the
         # operator who made the change keeps a fresh one.

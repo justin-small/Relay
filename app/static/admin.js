@@ -189,12 +189,14 @@
   /* ---- blocked words ---- */
   let blocklistShown = null;
 
-  function renderBlocklist(terms, path) {
+  function renderBlocklist(terms, path, max) {
     if (path) $('blocklistPath').textContent = path;
     const joined = (terms || []).join('\n');
-    $('blocklistCount').textContent = terms.length
+    let count = terms.length
       ? terms.length + (terms.length === 1 ? ' term active' : ' terms active')
       : 'none';
+    if (max && terms.length >= max) count += ' (limit reached)';
+    $('blocklistCount').textContent = count;
     // Never overwrite what the operator is in the middle of typing; otherwise
     // keep the box in step with edits made to the file directly.
     if (joined !== blocklistShown && document.activeElement !== $('blocklist')) {
@@ -209,9 +211,21 @@
         blocklist: $('blocklist').value
       });
       blocklistShown = null;
-      renderBlocklist(body.status.blocklist, body.status.blocklist_file);
+      renderBlocklist(body.status.blocklist, body.status.blocklist_file, body.status.blocklist_max);
       $('blocklist').blur();
-      okMsg('Saved to file — live now.');
+      const rep = body.blocklist_report || {};
+      if (rep.dropped) {
+        // Not a failure -- the list is live -- but terms were left out, so
+        // this must stay on screen rather than fade like a normal save.
+        alertMsg('Saved, but the list is capped at ' + rep.max_terms + ' terms: ' +
+          rep.dropped + (rep.dropped === 1 ? ' term was' : ' terms were') +
+          ' left out. Remove some to make room.');
+      } else if (rep.duplicates) {
+        okMsg('Saved — ' + rep.duplicates +
+          (rep.duplicates === 1 ? ' duplicate' : ' duplicates') + ' removed. Live now.');
+      } else {
+        okMsg('Saved to file — live now.');
+      }
     } catch (e) { alertMsg(e.message); }
   });
 
@@ -868,7 +882,7 @@
           + (drops ? '  ·  ' + drops + ' capture frame(s) dropped' : ''));
     $('audioNote').className = 'note' + (a.error || drops ? ' err' : '');
 
-    if (st.blocklist) renderBlocklist(st.blocklist, st.blocklist_file);
+    if (st.blocklist) renderBlocklist(st.blocklist, st.blocklist_file, st.blocklist_max);
     if (st.targets) renderTargets(st.targets);
     st.targets && st.targets.forEach(function (t) {
       const el = document.getElementById('tstate-' + t.target);

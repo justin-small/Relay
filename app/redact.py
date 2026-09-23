@@ -20,12 +20,20 @@ multi-word phrases.
 """
 from __future__ import annotations
 
+import logging
 import os
 import re
 import unicodedata
 from pathlib import Path
+from typing import NamedTuple
+
+log = logging.getLogger(__name__)
 
 MAX_TERMS = 1000
+
+# Spaces and hyphens are interchangeable inside a term: "bad-word" and
+# "bad word" are one entry, and each matches either spelling.
+_TERM_SEP = re.compile(r"[\s\-]+")
 
 # Punctuation that must not be left orphaned behind a space after a removal.
 _SPACE_BEFORE_PUNCT = re.compile(r"[ \t]+([,.;:!?…)\]}»”’%])")
@@ -47,26 +55,45 @@ def fold(text: str) -> str:
     return "".join(out)
 
 
-def parse_terms(raw) -> list[str]:
-    """Accept a list or a newline/comma-separated string; dedupe, preserve order."""
+def term_words(term: str) -> list[str]:
+    """The folded words a term matches on, split at spaces and hyphens."""
+    return [w for w in _TERM_SEP.split(fold(term)) if w]
+
+
+class ParsedTerms(NamedTuple):
+    terms: list[str]
+    duplicates: int  # entries collapsed into an earlier one
+    dropped: int     # distinct terms past MAX_TERMS, not applied
+
+
+def parse_terms_report(raw) -> ParsedTerms:
+    """Like `parse_terms`, but also says what was collapsed or cut off."""
     if isinstance(raw, str):
         parts = re.split(r"[\n,]", raw)
     else:
         parts = list(raw or [])
-    seen: set[str] = set()
+    seen: set[tuple[str, ...]] = set()
     terms: list[str] = []
+    duplicates = dropped = 0
     for part in parts:
         term = " ".join(str(part).split()).strip()
-        if not term:
+        key = tuple(term_words(term))
+        if not key:
             continue
-        key = fold(term)
         if key in seen:
+            duplicates += 1
             continue
         seen.add(key)
-        terms.append(term)
         if len(terms) >= MAX_TERMS:
-            break
-    return terms
+            dropped += 1
+            continue
+        terms.append(term)
+    return ParsedTerms(terms, duplicates, dropped)
+
+
+def parse_terms(raw) -> list[str]:
+    """Accept a list or a newline/comma-separated string; dedupe, preserve order."""
+    return parse_terms_report(raw).terms
 
 
 class Redactor:
@@ -79,7 +106,7 @@ class Redactor:
     # -- configuration -------------------------------------------------
     def set_terms(self, terms) -> None:
         self.terms = parse_terms(terms)
-        self._folded = [fold(t).split() for t in self.terms]
+        self._folded = [term_words(t) for t in self.terms]
         self.max_words = max((len(w) for w in self._folded), default=0)
         if self._folded:
             self._pattern = re.compile(
@@ -235,7 +262,13 @@ def read_blocklist_file(path) -> list[str]:
         return []
     except OSError:
         return []
-    return parse_terms(_COMMENT.sub("", raw))
+    report = parse_terms_report(_COMMENT.sub("", raw))
+    if report.dropped:
+        log.warning(
+            "%s: %d term(s) past the %d-term limit are not applied",
+            path, report.dropped, MAX_TERMS,
+        )
+    return report.terms
 
 
 def write_blocklist_file(path, terms) -> list[str]:

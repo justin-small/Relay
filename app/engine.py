@@ -244,6 +244,7 @@ class Engine:
             "viewers": hub.viewer_count(),
             "blocklist": list(hub.blocklist),
             "blocklist_file": str(config.blocklist_path()),
+            "blocklist_max": redact.MAX_TERMS,
             "source_language": cfg["source_language"],
             "schedule": scheduler.status(),
             "targets": [
