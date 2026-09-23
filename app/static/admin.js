@@ -120,7 +120,29 @@
     return t.enabled ? 'armed — starts with capture' : 'off';
   }
 
+  /* The heading line: which targets are live or armed, so the operator can
+     confirm them with the section collapsed. */
+  function renderTargetsSummary(targets) {
+    const names = function (list) {
+      return list.map(function (t) { return t.language_label; }).join(', ');
+    };
+    const live = targets.filter(function (t) { return t.live; });
+    const armed = targets.filter(function (t) { return !t.live && t.enabled; });
+    const el = $('targetsSum');
+    el.textContent = '· ' + (live.length || armed.length ? '' : 'none on');
+    const add = function (text, cls) {
+      const s = document.createElement('span');
+      if (cls) s.className = cls;
+      s.textContent = text;
+      el.appendChild(s);
+    };
+    if (live.length) add(names(live) + ' live', 'live');
+    if (live.length && armed.length) add(' · ');
+    if (armed.length) add(names(armed) + ' armed');
+  }
+
   function renderTargets(targets) {
+    renderTargetsSummary(targets);
     const key = JSON.stringify(targets);
     if (key === lastTargetsKey) return;
     lastTargetsKey = key;

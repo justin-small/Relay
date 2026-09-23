@@ -117,6 +117,14 @@
   details.sect[open] > summary::before { transform:rotate(90deg); }
   details.sect > summary:focus-visible { outline:2px solid var(--accent); outline-offset:3px; border-radius:4px; }
   details.sect[open] > summary { margin-bottom:13px; }
+  /* What is on, shown on the Target languages heading so a collapsed section
+     never hides a live (billed) session. */
+  details.sect > summary .sumstate { text-transform:none; letter-spacing:0; font-size:12px;
+                 font-weight:500; color:var(--dim); }
+  details.sect > summary .sumstate .live { color:var(--accent); }
+  /* Session health's five columns scroll inside the section on a phone, not the page. */
+  .tablescroll { overflow-x:auto; -webkit-overflow-scrolling:touch; }
+  .tablescroll table { min-width:480px; }
   /* Schedules. Days are chips, not a column of checkboxes; the date field is a
      US-format text box with the browser's own calendar behind a button, so the
      format never follows the browser's locale. */
@@ -153,6 +161,16 @@
   </header>
 
   <div id="alert" class="field err" hidden></div>
+
+  <section>
+    <h2>Session health</h2>
+    <div class="tablescroll">
+      <table>
+        <thead><tr><th>Session</th><th>State</th><th>Last delta</th><th>Retries</th><th>Audio dropped</th></tr></thead>
+        <tbody id="sessions"><tr><td colspan="5" class="muted">Not started.</td></tr></tbody>
+      </table>
+    </div>
+  </section>
 
   <section>
     <h2>Audio input</h2>
@@ -192,11 +210,11 @@
     <div class="note" id="audioNote"></div>
   </section>
 
-  <section>
-    <h2>Target languages</h2>
+  <details class="sect" id="sec-targets" open>
+    <summary>Target languages <span class="sumstate" id="targetsSum"></span></summary>
     <table><tbody id="targets"></tbody></table>
     <div class="note">Each live target is a separate, continuously-billed session. Turning one off closes it immediately.</div>
-  </section>
+  </details>
 
   <details class="sect" id="sec-schedules" open>
     <summary>Schedules</summary>
@@ -273,18 +291,10 @@
     </div>
   </details>
 
-  <section>
-    <h2>Viewer links</h2>
+  <details class="sect" id="sec-urls" open>
+    <summary>Viewer links</summary>
     <div class="urls note" id="urls"></div>
-  </section>
-
-  <section>
-    <h2>Session health</h2>
-    <table>
-      <thead><tr><th>Session</th><th>State</th><th>Last delta</th><th>Retries</th><th>Audio dropped</th></tr></thead>
-      <tbody id="sessions"><tr><td colspan="5" class="muted">Not started.</td></tr></tbody>
-    </table>
-  </section>
+  </details>
 
   <details class="sect" id="sec-blocklist">
     <summary>Blocked words</summary>
