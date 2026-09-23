@@ -50,23 +50,33 @@ else
 fi
 
 # 2. server reachable (pulse paths only)
+# The image carries no pactl (see docker/Dockerfile), so probe the socket
+# from Python instead. module-native-protocol-* waits for the client to speak
+# first, but closes straight away on a client its auth-ip-acl rejects -- so
+# an open connection that stays quiet means reachable and admitted.
 if [ -n "${PULSE_SERVER:-}" ]; then
-    info=$(run pactl info)
-    if printf '%s' "$info" | grep -q "Server Protocol Version"; then
+    probe=$(run python -c "
+import os, socket
+srv = os.environ['PULSE_SERVER'].split()[0]
+try:
+    if srv.startswith('unix:'):
+        s = socket.socket(socket.AF_UNIX); s.settimeout(3); s.connect(srv[5:])
+    else:
+        host, _, port = srv.removeprefix('tcp:').removeprefix('tcp4:').partition(':')
+        s = socket.create_connection((host, int(port or 4713)), timeout=3)
+    s.settimeout(1)
+    try:
+        print('rejected: server closed the connection' if s.recv(1) == b'' else 'ok')
+    except socket.timeout:
+        print('ok')
+except OSError as e:
+    print('unreachable: %s' % e)
+" | grep -v '^relay:')
+    if [ "$probe" = ok ]; then
         pass "PulseAudio server reachable at $PULSE_SERVER"
     else
         fail "PulseAudio server reachable at $PULSE_SERVER" \
-             "is the daemon running, and does its auth-ip-acl cover the container subnet? ($(printf '%s' "$info" | tail -1))"
-    fi
-
-    # 3. at least one capture source
-    # pactl prints its errors on stdout too, so keep only real source rows
-    # (leading numeric index, tab separated) rather than anything non-empty.
-    srcs=$(run pactl list short sources | grep -E '^[0-9]+\s')
-    if [ -n "$srcs" ]; then
-        pass "capture sources visible:"; printf '%s\n' "$srcs" | sed 's/^/          /'
-    else
-        fail "capture sources visible" "no sources; on macOS load module-coreaudio-detect, on WSL check WSLg is running"
+             "is the daemon running, and does its auth-ip-acl cover the container subnet? ($(printf '%s' "$probe" | tail -1))"
     fi
 fi
 
@@ -81,7 +91,8 @@ else
     fail "PortAudio input devices" "ALSA is not routed; check /etc/asound.conf in the container"
 fi
 
-# 5. real samples, and are they actually moving
+# 5. real samples, and are they actually moving. On the pulse path this is
+# also what proves the server has a capture source to hand out.
 cap=$(run python -c "
 import sounddevice as sd, numpy as np, os
 dev = 'pulse' if os.environ.get('PULSE_SERVER') else None
@@ -93,8 +104,10 @@ print('%.8f %s' % (rms, over))
 " | grep -v '^relay:')
 rms=$(printf '%s' "$cap" | awk '{print $1}')
 case "$rms" in
-    ''|*[!0-9.]*) fail "one second of audio captured" \
-                      "stream would not open: $(printf '%s' "$cap" | tail -1)" ;;
+    ''|*[!0-9.]*)
+        hint="stream would not open: $(printf '%s' "$cap" | tail -1)"
+        [ -n "${PULSE_SERVER:-}" ] && hint="$hint; if the server has no sources, on macOS load module-coreaudio-detect, on WSL check WSLg is running"
+        fail "one second of audio captured" "$hint" ;;
     *)
         pass "one second of audio captured (rms $rms)"
         if awk "BEGIN{exit !($rms == 0)}"; then
