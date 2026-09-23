@@ -30,6 +30,13 @@ is not on the table. Setup prints its SHA-256 fingerprint. Check that against
 what the browser shows the first time and then accept it — that check is the
 whole value of the warning.
 
+**Running Relay at a venue, not developing it?** The
+[Relay User Guide](https://github.com/justin-small/Relay/releases/latest/download/Relay-User-Guide.pdf)
+([Word version](https://github.com/justin-small/Relay/releases/latest/download/Relay-User-Guide.docx))
+walks through installing on macOS, Windows and Linux, getting an OpenAI key
+with a spending limit, every screen of the panel, and the Bitfocus Companion
+module, in plain English. Its source is in [`docs/guide/`](docs/guide/).
+
 ---
 
 ## Install

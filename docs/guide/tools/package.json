@@ -1,0 +1,11 @@
+{
+  "name": "relay-guide-tools",
+  "private": true,
+  "description": "Screenshot capture for the Relay user guide",
+  "scripts": {
+    "shots": "node capture.mjs"
+  },
+  "devDependencies": {
+    "playwright": "^1.55.0"
+  }
+}

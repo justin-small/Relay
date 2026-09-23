@@ -1,0 +1,95 @@
+// Pandoc template for the PDF build (pandoc --pdf-engine=typst).
+// Cover page, table of contents, page numbers and callout boxes.
+
+#let accent = rgb("#2f6df6")
+#let ink = rgb("#1d2330")
+#let dim = rgb("#5b6475")
+
+#let callout(kind, body) = {
+  let (label, fill, stroke) = if kind == "warning" {
+    ("Warning", rgb("#fdecea"), rgb("#d93025"))
+  } else if kind == "tip" {
+    ("Tip", rgb("#e8f5ec"), rgb("#1e8e3e"))
+  } else {
+    ("Note", rgb("#e8f0fe"), accent)
+  }
+  block(
+    width: 100%, fill: fill, inset: (x: 12pt, y: 10pt), radius: 4pt,
+    stroke: (left: 4pt + stroke), breakable: false, above: 1.1em, below: 1.1em,
+  )[
+    #text(weight: "bold", fill: stroke)[#label] \
+    #set par(justify: false)
+    #body
+  ]
+}
+
+#let horizontalRule = line(start: (25%,0%), end: (75%,0%))
+#let divider = horizontalRule
+
+$if(highlighting-definitions)$
+$highlighting-definitions$
+$endif$
+
+#set document(title: "$title$")
+#set text(font: ("Helvetica Neue", "Helvetica", "Arial"), size: 10.5pt, fill: ink, lang: "en", region: "US")
+#set par(justify: false, leading: 0.68em, spacing: 0.95em)
+#show raw: set text(font: ("Menlo", "DejaVu Sans Mono", "Courier New"), size: 9pt)
+#show raw.where(block: true): it => block(width: 100%, fill: rgb("#f4f5f7"), inset: 9pt, radius: 3pt, it)
+#show link: set text(fill: accent)
+#set table(inset: 6pt, stroke: 0.5pt + rgb("#c9ced8"))
+#show table.cell: set align(left)
+#show table.cell.where(y: 0): set text(weight: "bold")
+#set list(indent: 0.4em)
+#set enum(indent: 0.4em)
+#show figure.where(kind: image): set figure.caption(position: bottom)
+#show figure.caption: set text(size: 9pt, fill: dim)
+#show figure: set block(breakable: false, above: 1em, below: 1.2em)
+
+// ---- cover ----
+#set page(paper: "us-letter", margin: (x: 0.9in, y: 0.9in))
+#page(numbering: none)[
+  #v(22%)
+  #text(size: 34pt, weight: "bold", fill: ink)[$title$]
+  #v(4pt)
+  #text(size: 15pt, fill: dim)[$subtitle$]
+  #v(28pt)
+  #line(length: 38%, stroke: 3pt + accent)
+  #v(18pt)
+  #text(size: 11pt, fill: dim)[Version $version$ · $date$]
+  #v(1fr)
+  #text(size: 9.5pt, fill: dim)[$description$]
+]
+
+// ---- contents ----
+#set page(
+  numbering: "i",
+  footer: context align(center, text(size: 9pt, fill: dim, counter(page).display(page.numbering))),
+)
+#counter(page).update(1)
+#show outline.entry.where(level: 1): it => { v(0.9em, weak: true); strong(it) }
+#outline(title: [Contents], depth: $toc-depth$)
+
+// ---- body ----
+#set page(
+  numbering: "1",
+  header: context {
+    if counter(page).get().first() > 1 {
+      align(right, text(size: 8.5pt, fill: dim)[$title$ · Version $version$])
+    }
+  },
+  footer: context align(center, text(size: 9pt, fill: dim, counter(page).display("1"))),
+)
+#pagebreak(weak: true)
+#counter(page).update(1)
+
+#set heading(numbering: none)
+#show heading: set text(fill: ink)
+#show heading.where(level: 1): it => {
+  pagebreak(weak: true)
+  block(below: 1.1em)[#text(size: 22pt, weight: "bold")[#it.body]]
+}
+#show heading.where(level: 2): it => block(above: 1.6em, below: 0.8em)[#text(size: 15pt, weight: "bold")[#it.body]]
+#show heading.where(level: 3): it => block(above: 1.3em, below: 0.6em)[#text(size: 12pt, weight: "bold")[#it.body]]
+#show heading.where(level: 4): it => block(above: 1.1em, below: 0.5em)[#text(size: 10.5pt, weight: "bold")[#it.body]]
+
+$body$
