@@ -261,6 +261,57 @@ Recordings are a transcript of everything said in the room. `recordings/` is
 git-ignored, and under Docker the directory sits on the state volume so it
 survives the container and can be collected from the host.
 
+## Schedules
+
+Capture can start and stop on its own. Under *Schedules* in the panel, add as
+many as you need. Each one has a start time, a stop time and a US time zone, and
+either repeats weekly on the days you tick or runs once on a date:
+
+| Schedule | Repeats | Start | Stop |
+| --- | --- | --- | --- |
+| Sunday morning | Every Sun | 10:00 AM | 12:00 PM |
+| Sunday evening | Every Sun | 5:00 PM | 7:00 PM |
+| Wednesday night | Every Wed | 8:00 PM | 9:30 PM |
+| Christmas Eve | Once, 12/24/2026 | 7:00 PM | 8:30 PM |
+
+A weekly schedule can have optional start and end dates. A stop time earlier
+than the start time means the next day, so 11:00 PM to 1:00 AM works. The panel
+shows the next scheduled start, and the bottom bar says which schedule started
+a live session and when it will stop.
+
+**Formats and zones.** Dates are shown and entered as MM/DD/YYYY and times as
+12-hour with AM/PM, whatever the browser's locale. The zones offered are
+Eastern, Central, Mountain, Arizona (no daylight saving), Pacific, Alaska and
+Hawaii. Times are wall-clock in the zone you pick, so 10:00 AM stays 10:00 AM
+on both sides of a daylight-saving change. A time that falls in the
+spring-forward gap runs at the first minute after it; one in the repeated
+fall-back hour runs once.
+
+**Rules.**
+
+- **Already running when a window opens:** it keeps running and stops at the
+  window's end.
+- **You press Stop during a window:** the window is held, and nothing restarts
+  until the next scheduled start. Pressing Start clears the hold, and that
+  session stops at the window's end.
+- **You start by hand outside any window:** no schedule stops it.
+- **Windows that overlap or touch** run as one session, with no stop and
+  restart at the boundary.
+- **Changing or deleting a schedule while its session is live** never cuts the
+  session off. Stop it by hand.
+- **A start that fails** (no API key, audio device missing) shows the error in
+  the panel and is retried every few seconds while the window is open.
+
+**The machine and the relay must be running** for a schedule to fire. If the
+relay starts during a window, the session starts straight away. A window missed
+entirely is skipped, not run late. A hold is kept in memory only, so a restart
+during a held window starts the session again.
+
+Schedules are stored in `config.json` under `schedules`, with ISO dates
+(`YYYY-MM-DD`), 24-hour times (`HH:MM`) and days counted from Sunday = 0. See
+`app/schedules.py` for the shape. An entry edited by hand that does not
+validate is ignored rather than stopping the relay.
+
 ## Docker
 
 Docker is the only way this runs: one image, one container, one command.
@@ -682,6 +733,8 @@ app/
   redact.py                  blocklist filtering, incremental-safe
   demo.py                    rehearsal mode
   config.py                  load, validate, atomic save, hot-reload
+  schedules.py               schedule validation, windows, DST, US formats
+  scheduler.py               starts and stops capture on the schedules
   templates/                 chooser, viewer, admin panel, login
   static/                    viewer + admin JS and CSS
 
@@ -695,6 +748,7 @@ docker/
 tests/
   smoke_test.py              offline checks — no API calls
   test_redact.py             blocklist filtering, incl. split-delta cases
+  test_schedules.py          schedule windows, DST, override rules, admin API
 
 tools/
   check-audio.sh             PASS/FAIL walk of the whole capture chain
@@ -716,9 +770,10 @@ virtualenv — the only reason to create one:
 python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
 .venv/bin/python tests/smoke_test.py   # config, hub, audio, routes, auth, blocklist, recording
 .venv/bin/python tests/test_redact.py  # blocklist filtering, incl. split-delta cases
+.venv/bin/python tests/test_schedules.py  # schedule windows, DST, override rules, admin API
 ```
 
-Neither makes an API call. `tests/test_redact.py` includes a randomised check that
+None makes an API call. `tests/test_redact.py` includes a randomised check that
 300 different delta chunkings of the same sentence all produce the identical
 redacted result.
 

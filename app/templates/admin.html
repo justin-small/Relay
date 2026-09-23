@@ -117,6 +117,30 @@
   details.sect[open] > summary::before { transform:rotate(90deg); }
   details.sect > summary:focus-visible { outline:2px solid var(--accent); outline-offset:3px; border-radius:4px; }
   details.sect[open] > summary { margin-bottom:13px; }
+  /* Schedules. Days are chips, not a column of checkboxes; the date field is a
+     US-format text box with the browser's own calendar behind a button, so the
+     format never follows the browser's locale. */
+  .days { display:flex; flex-wrap:wrap; gap:6px; }
+  .days label { display:inline-flex; align-items:center; margin:0; cursor:pointer; }
+  .days input { position:absolute; opacity:0; width:0; height:0; }
+  .days span { display:inline-block; min-width:46px; text-align:center; padding:7px 9px;
+               border:1px solid var(--line); border-radius:7px; background:#111216;
+               color:var(--dim); font-size:13px; }
+  .days input:checked + span { background:var(--accent); border-color:var(--accent); color:#04130a; font-weight:600; }
+  .days input:focus-visible + span { outline:2px solid var(--accent); outline-offset:2px; }
+  .datefield { position:relative; display:flex; gap:6px; }
+  .datefield input[type=text] { flex:1 1 auto; }
+  .datefield button { flex:0 0 auto; padding:0 10px; display:inline-flex; align-items:center; }
+  .datefield .nativedate { position:absolute; right:0; bottom:0; width:1px; height:1px;
+                           padding:0; border:0; opacity:0; pointer-events:none; }
+  .timefield { display:flex; gap:6px; }
+  .timefield select { flex:1 1 0; min-width:0; }
+  #schedForm { border-top:1px solid var(--line); margin-top:14px; padding-top:14px; }
+  .schedname { font-weight:600; }
+  .schedsum { font-size:12px; color:var(--dim); margin-top:2px; }
+  .schedactions { white-space:nowrap; text-align:right; }
+  .schedactions button { padding:5px 10px; font-size:12px; margin-left:4px; }
+  .warn { color:var(--warn); }
 </style>
 </head><body>
 <div class="wrap">
@@ -173,6 +197,81 @@
     <table><tbody id="targets"></tbody></table>
     <div class="note">Each live target is a separate, continuously-billed session. Turning one off closes it immediately.</div>
   </section>
+
+  <details class="sect" id="sec-schedules" open>
+    <summary>Schedules</summary>
+    <div class="note" style="margin:0 0 12px" id="schedStatus">No schedules set. Capture only starts when you press <em>Start capture</em>.</div>
+    <table>
+      <thead><tr><th>Schedule</th><th>Next start</th><th style="width:52px">On</th><th></th></tr></thead>
+      <tbody id="schedList"><tr><td colspan="4" class="muted">No schedules yet.</td></tr></tbody>
+    </table>
+    <button id="schedAdd" style="margin-top:12px">Add schedule</button>
+
+    <form id="schedForm" hidden autocomplete="off">
+      <div class="row">
+        <div class="field">
+          <label for="schedName">Name (optional)</label>
+          <input id="schedName" type="text" maxlength="60" placeholder="Sunday morning service">
+        </div>
+        <div class="field" style="flex:0 1 180px">
+          <label for="schedRepeat">Repeats</label>
+          <select id="schedRepeat">
+            <option value="weekly">Every week</option>
+            <option value="once">One time only</option>
+          </select>
+        </div>
+      </div>
+      <div class="field" id="schedDaysField">
+        <label>Days</label>
+        <div class="days" id="schedDays"></div>
+      </div>
+      <div class="row">
+        <div class="field" id="schedStartDateField">
+          <label for="schedStartDate" id="schedStartDateLabel">Starting on (optional)</label>
+          <div class="datefield">
+            <input id="schedStartDate" type="text" inputmode="numeric" maxlength="10" placeholder="MM/DD/YYYY">
+            <button type="button" class="datepick" data-for="schedStartDate" aria-label="Pick a date" title="Pick a date"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><rect x="2" y="3" width="12" height="11" rx="1.5"/><path d="M2 6.5h12M5 1.5v3M11 1.5v3"/></svg></button>
+            <input type="date" class="nativedate" tabindex="-1" aria-hidden="true">
+          </div>
+        </div>
+        <div class="field" id="schedEndDateField">
+          <label for="schedEndDate">Ending on (optional)</label>
+          <div class="datefield">
+            <input id="schedEndDate" type="text" inputmode="numeric" maxlength="10" placeholder="MM/DD/YYYY">
+            <button type="button" class="datepick" data-for="schedEndDate" aria-label="Pick a date" title="Pick a date"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><rect x="2" y="3" width="12" height="11" rx="1.5"/><path d="M2 6.5h12M5 1.5v3M11 1.5v3"/></svg></button>
+            <input type="date" class="nativedate" tabindex="-1" aria-hidden="true">
+          </div>
+        </div>
+      </div>
+      <div class="row">
+        <div class="field">
+          <label id="schedStartLabel">Start time</label>
+          <div class="timefield" id="schedStart" role="group" aria-labelledby="schedStartLabel"></div>
+        </div>
+        <div class="field">
+          <label id="schedStopLabel">Stop time</label>
+          <div class="timefield" id="schedStop" role="group" aria-labelledby="schedStopLabel"></div>
+        </div>
+        <div class="field">
+          <label for="schedTz">Time zone</label>
+          <select id="schedTz"></select>
+        </div>
+      </div>
+      <div class="note" id="schedOvernight" hidden style="margin:-4px 0 12px">The stop time is earlier than the start time, so it stops the next day.</div>
+      <button class="primary" type="submit" id="schedSave">Save schedule</button>
+      <button type="button" id="schedCancel">Cancel</button>
+    </form>
+
+    <div class="note">
+      Capture starts and stops on its own inside each window. If it is already running when a
+      window opens, it keeps running and stops at the window&rsquo;s end. Pressing <em>Stop</em>
+      during a window holds it until the next scheduled start. Starting by hand outside a window
+      is never stopped by a schedule. Windows that overlap or touch run as one session.
+      <br>Times follow the time zone you pick, including daylight saving. The machine and the
+      relay must be running for a schedule to fire; a window already under way when the relay
+      starts is picked up, and one missed entirely is skipped.
+    </div>
+  </details>
 
   <section>
     <h2>Viewer links</h2>
