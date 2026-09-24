@@ -7,8 +7,9 @@ there, and you can download it for free without an account:
 
 There are two ways to get it:
 
-- **Download a ZIP file.** This is the easiest way. Choose it if you are not
-  sure.
+- **Download the latest release.** This is the easiest way. Choose it if you
+  are not sure. A **release** is a tested version of Relay, packed into one
+  ZIP file.
 - **Clone it with git.** Git is a tool that copies the project and can update
   it later with one command. Choose it if you already use git, or if you will
   update Relay often.
@@ -40,27 +41,28 @@ OpenAI API key and admin token in its folder, and they should never leave this
 computer.
 :::
 
-## Option A: Download the ZIP file
+## Option A: Download the latest release
 
-1. Open <https://github.com/justin-small/Relay> in your web browser.
+1. Open <https://github.com/justin-small/Relay/releases/latest> in your web
+   browser.
 
-   You should see the project page, with a list of files and folders such as
-   `app`, `docker` and `tools`, and a README below them.
+   You should see a page titled with the newest version, for example
+   **Relay v1.0.0**, and a list of files under **Assets**.
 
-2. Click the green **Code** button above the list of files.
+2. Under **Assets**, click `Relay-v1.0.0.zip`. The number is the version and
+   may be higher for you.
 
-   A small menu opens.
+   Your browser downloads the file to your Downloads folder. Ignore the two
+   **Source code** files: they unzip to a folder with a different name.
 
-3. Click **Download ZIP**.
+   The same list has the user guide you are reading, as a PDF and a Word
+   file, always for the same version.
 
-   Your browser downloads a file called `Relay-main.zip` to your Downloads
-   folder.
-
-4. Unzip the file. The steps are different on each system. See the sections
+3. Unzip the file. The steps are different on each system. See the sections
    below.
 
-5. Rename the unzipped folder from `Relay-main` to `Relay`, and move it to the
-   place you chose in [Where to put the Relay folder](#where-to-put-the-relay-folder).
+4. Move the unzipped `Relay` folder to the place you chose in
+   [Where to put the Relay folder](#where-to-put-the-relay-folder).
 
    Inside the folder you should see files such as `setup.command`,
    `setup.bat`, `setup.sh`, `start.command`, `start.bat` and `start.sh`.
@@ -68,10 +70,10 @@ computer.
 ### Unzipping on macOS
 
 1. Open your **Downloads** folder in Finder.
-2. Double-click `Relay-main.zip`.
+2. Double-click `Relay-v1.0.0.zip`.
 
-   **Archive Utility** unzips it. A folder called `Relay-main` appears next to
-   the ZIP file.
+   **Archive Utility** unzips it. A folder called `Relay` appears next to the
+   ZIP file.
 
 macOS marks files that come from the internet. The first time you open a
 Relay script, macOS may refuse to open it. The macOS chapter explains what to
@@ -80,16 +82,16 @@ do.
 ### Unzipping on Windows
 
 1. Open your **Downloads** folder in File Explorer.
-2. Right-click `Relay-main.zip` and choose **Properties**.
+2. Right-click `Relay-v1.0.0.zip` and choose **Properties**.
 3. If you see a checkbox called **Unblock** at the bottom of the **General**
    tab, tick it and click **OK**.
 
    This tells Windows that you trust the file. It means fewer warnings later.
 
-4. Right-click `Relay-main.zip` again and choose **Extract All…**.
+4. Right-click `Relay-v1.0.0.zip` again and choose **Extract All…**.
 5. In the box that opens, type `C:\` as the destination and click **Extract**.
 
-   You should see a new folder, `C:\Relay-main`. Rename it to `C:\Relay`.
+   You should see a new folder, `C:\Relay`.
 
 ::: warning
 Always extract the ZIP first. If you double-click the ZIP file, Windows shows
@@ -101,12 +103,11 @@ leaves the rest of Relay behind. Setup then fails with **The build failed**.
 ### Unzipping on Linux
 
 1. Open a terminal.
-2. Unzip the file into your home folder and rename it:
+2. Unzip the file into your home folder:
 
    ```bash
    cd ~
-   unzip ~/Downloads/Relay-main.zip
-   mv Relay-main Relay
+   unzip ~/Downloads/Relay-v1.0.0.zip
    cd Relay
    ```
 
@@ -207,15 +208,20 @@ certificate fingerprint also changes.
 
 4. Start Relay.
 
-**If you used the ZIP file:**
+**If you downloaded a release:**
 
 1. Stop Relay.
-2. Download a fresh ZIP and unzip it, as in [Option A](#option-a-download-the-zip-file).
-3. Copy the whole `docker-config` folder from your old Relay folder into the
-   new one.
-4. Rename the old folder (for example to `Relay-old`), and give the new folder
-   the old name.
+2. Rename the old Relay folder, for example to `Relay-old`, so the new one
+   does not unzip on top of it.
+3. Download the latest release and unzip it, as in
+   [Option A](#option-a-download-the-latest-release). You now have a new
+   `Relay` folder next to `Relay-old`.
+4. Copy the whole `docker-config` folder from `Relay-old` into the new
+   `Relay` folder.
 5. Start Relay. When everything works, you can delete `Relay-old`.
+
+With git, `git pull` gets the newest changes, which can be newer than the
+latest release.
 
 ## Getting the Companion module
 
@@ -230,16 +236,13 @@ The module has its own GitHub page:
 
 <https://github.com/justin-small/companion-module-relay-translation>
 
-There are no ready-made releases yet, so you download the source code, in the
-same two ways as Relay itself:
+Each release of the module is one ready-made file, the **module package**.
+Download it from the latest release:
 
-- **ZIP file:** open the page, click the green **Code** button, then
-  **Download ZIP**. You get a file called
-  `companion-module-relay-translation-main.zip`. Unzip it as described above.
-- **git:**
+<https://github.com/justin-small/companion-module-relay-translation/releases/latest>
 
-  ```bash
-  git clone https://github.com/justin-small/companion-module-relay-translation.git
-  ```
+Under **Assets**, click `relay-translation-1.0.0.tgz` (the number may be
+higher). Do not unzip it: Companion takes the file as it is.
 
-Part 4 explains how to load the module into Companion.
+Companion 3 cannot load a module package, so there you need the source code
+and must build the module yourself. Part 4 explains both.

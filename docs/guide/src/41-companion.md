@@ -8,7 +8,7 @@ appeared then.
 :::
 
 This chapter takes you from nothing to working Stream Deck buttons for Relay.
-You build the Relay module, load it into Companion, connect it to Relay and
+You download the Relay module, load it into Companion, connect it to Relay and
 drag ready-made buttons onto a page. Set aside about 45 minutes the first
 time.
 
@@ -32,21 +32,48 @@ module is not one of them yet. You add it yourself, once.
   between `https://` and `/admin`: here, `192.168.1.50`.
 - **The certificate fingerprint** (optional, but recommended). See
   [The certificate fingerprint](#companion-fingerprint) below.
-- **Node.js**, to build the module. Node.js is a free program that runs
-  JavaScript code outside a web browser. It includes **npm**, a tool that
-  downloads the pieces a project needs and runs its build steps. You need
-  Node.js only on the computer where you build the module. That can be any
-  computer, not necessarily the Companion computer.
+- **Companion 3 only: Node.js**, to build the module yourself. Companion 4
+  and later take the ready-made module package and need no Node.js. See
+  [Step 2](#companion-build).
 
-## Step 1: Get the module from GitHub
+## Step 1: Download the module package
 
-The module has its own page on GitHub:
+Each release of the module is one ready-made file, the **module package**. It
+ends in `.tgz` and holds the whole module packed into one compressed file,
+like a ZIP file.
 
-<https://github.com/justin-small/companion-module-relay-translation>
+1. Open the module's latest release in a web browser:
 
-There are no ready-made releases yet, so you download the source code and
-build it yourself. Download it as a ZIP file (green **Code** button, then
-**Download ZIP**) and unzip it, or clone it with git. For the details, see
+   <https://github.com/justin-small/companion-module-relay-translation/releases/latest>
+
+2. Under **Assets**, click `relay-translation-1.0.0.tgz`. The number is the
+   module's version and may be higher for you.
+
+   Your browser saves the file to your Downloads folder. Do not unzip it:
+   Companion takes the `.tgz` file as it is.
+
+::: note
+Safari can unpack some downloads by itself. If you end up with a `.tar` file
+or a folder instead of the `.tgz` file, download it again with another
+browser, or in Safari open **Settings → General** and switch off
+**Open "safe" files after downloading**.
+:::
+
+You can download the file on any computer and carry it to the Companion
+computer on a USB stick.
+
+**Companion 4 or later:** go straight to
+[Step 3](#step-3-load-the-module-into-companion) and use Route A.
+**Companion 3:** it cannot load a module package. Do Step 2 first.
+
+## Step 2: Companion 3 only: build the module yourself {#companion-build}
+
+Skip this step on Companion 4 and later.
+
+### Get the source code
+
+On the same release page, under **Assets**, click **Source code (zip)** and
+unzip it, or clone the module with git. For the details, see
 [Downloading from GitHub](#download).
 
 Put the folder somewhere simple, for example:
@@ -58,15 +85,17 @@ Put the folder somewhere simple, for example:
 | Linux | `/home/yourname/companion-modules/companion-module-relay-translation` |
 
 ::: tip
-Keep the module in a folder of its own, such as `companion-modules`. If you
-choose the developer modules route in Step 3, Companion needs a folder that
-holds module folders, and this one is ready for that.
+Keep the module in a folder of its own, such as `companion-modules`.
+Companion needs a folder that holds module folders, and this one is ready for
+that.
 :::
 
 If you downloaded the ZIP file, the folder is called
-`companion-module-relay-translation-main`. You can rename it, or leave it.
+`companion-module-relay-translation-1.0.0`. You can rename it, or leave it.
 
-## Step 2: Install Node.js and build the module
+Node.js is a free program that runs JavaScript code outside a web browser. It
+includes **npm**, a tool that downloads the pieces a project needs and runs
+its build steps.
 
 ### Install Node.js
 
@@ -99,47 +128,7 @@ On Linux, your distribution's own Node.js package may be too old. Check with
 `node --version`. If it is older than 18.18, install version 22 from
 <https://nodejs.org> instead.
 
-### Build the module
-
-1. In the terminal, go to the module folder. For example, on macOS:
-
-   ```bash
-   cd ~/companion-modules/companion-module-relay-translation
-   ```
-
-   On Windows:
-
-   ```bat
-   cd C:\companion-modules\companion-module-relay-translation
-   ```
-
-2. Download the pieces the module needs:
-
-   ```bash
-   npm install
-   ```
-
-   This takes a minute or two and needs the internet. It ends with a line
-   such as `added 250 packages`. Warnings are normal. A line that starts
-   with `npm error` is not; see [Troubleshooting](#companion-troubleshooting).
-3. Build the module package:
-
-   ```bash
-   npm run package
-   ```
-
-   This builds the module and packs it into one file. It ends with:
-
-   ```
-   Writing compressed package output to relay-translation-1.0.0.tgz
-   ```
-
-   The file `relay-translation-1.0.0.tgz` is now in the module folder. The
-   number is the module's version and may be higher for you.
-
-A file ending in `.tgz` is a **module package**: the whole module packed into
-one compressed file, like a ZIP file. You can copy it to a USB stick and carry
-it to the Companion computer. That computer does not need Node.js.
+Route B in Step 3 builds the module in place.
 
 ## Step 3: Load the module into Companion
 
@@ -162,7 +151,7 @@ There are two ways. Use the first one if you can.
 
    1. Click **Modules** in the menu on the left.
    2. Click **Import module package**, then choose the file
-      `relay-translation-1.0.0.tgz` from Step 2.
+      `relay-translation-1.0.0.tgz` from Step 1.
 
    The file picker closes and nothing else seems to happen. That is normal.
 
@@ -203,7 +192,7 @@ npm run build
 
 ::: warning
 Point Companion at the folder that **contains** the module folder, not at
-the module folder itself. With the suggested folders from Step 1, that is
+the module folder itself. With the suggested folders from Step 2, that is
 `companion-modules`, not `companion-module-relay-translation`.
 :::
 
@@ -559,7 +548,7 @@ spend money on your OpenAI account.
 | Problem | Likely cause | What to do |
 |---|---|---|
 | `npm` or `node` says "command not found" or "is not recognized" | Node.js is not installed, or the terminal was open before you installed it. | Close the terminal, open a new one, and try again. If it still fails, install Node.js again. |
-| `npm install` fails with `npm error` and a network message | No internet, or a venue firewall. | Build on another network, then carry the `.tgz` file over. |
+| `npm install` fails with `npm error` and a network message | No internet, or a venue firewall. | Build on another network, then copy the whole built folder over. |
 | `npm warn EBADENGINE` | Your Node.js version is not 18 or 22. | Usually harmless. If the build fails, install Node.js 22. |
 | There is no **Import module package** button | Companion 3.x. | Use the developer modules folder (Route B), or update Companion. |
 | Import says importing from a remote computer is disabled | Companion 5, importing from another computer. | Import on the Companion computer, or switch on **Restricted modules** under **Dangerous Features**. |
@@ -577,23 +566,23 @@ spend money on your OpenAI account.
 
 When a new version of the module comes out:
 
-1. Download it again from GitHub (ZIP), or run `git pull` in the module
-   folder (git).
-2. In the module folder, run `npm install` again.
-
 **If you imported a package (Route A):**
 
-3. Run `npm run package` to make the new `.tgz` file.
-4. In Companion, open **Modules** and import it with
+1. Download the new `.tgz` file from the latest release, as in Step 1.
+2. In Companion, open **Modules** and import it with
    **Import module package**. Both versions are now listed under
    **Relay: Relay**.
-5. Open **Connections**, click your Relay connection, and click the pencil
+3. Open **Connections**, click your Relay connection, and click the pencil
    next to **Module Version**. Choose the new version.
-6. When everything works, you can remove the old version: on the **Modules**
+4. When everything works, you can remove the old version: on the **Modules**
    page, click **Relay: Relay**, then the bin icon next to the old version.
 
 **If you used the developer modules folder (Route B):**
 
+1. Download the new source code from the latest release, unzip it, and put
+   it in place of the old module folder. With git, run `git pull` in the
+   module folder instead.
+2. In the module folder, run `npm install` again.
 3. Run `npm run build`. Companion notices the change and restarts the module.
    If it does not, switch the connection off and on again, or restart
    Companion.

@@ -46,6 +46,9 @@ Docker Engine on Linux). Nothing else — no Python, no virtualenv, no Caddy.
 Everything runs in one container, and setup uses the image's own Python to
 write the credentials and mint the certificate.
 
+Get Relay from the [latest release](https://github.com/justin-small/Relay/releases/latest)
+(`Relay-vX.Y.Z.zip`, which unzips to a folder named `Relay/`) or clone `main`.
+
 **Setup runs once. Start runs every time.**
 
 | | Set up | Start | Stop | Follow the log |
@@ -774,7 +777,7 @@ The suites run against the source tree, not the image, so they need a local
 virtualenv — the only reason to create one:
 
 ```bash
-python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
+python3 -m venv .venv && .venv/bin/pip install -r requirements.txt httpx2
 .venv/bin/python tests/smoke_test.py   # config, hub, audio, routes, auth, blocklist, recording
 .venv/bin/python tests/test_redact.py  # blocklist filtering, incl. split-delta cases
 .venv/bin/python tests/test_schedules.py  # schedule windows, DST, override rules, admin API
@@ -783,6 +786,29 @@ python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
 None makes an API call. `tests/test_redact.py` includes a randomised check that
 300 different delta chunkings of the same sentence all produce the identical
 redacted result.
+
+`httpx2` is test-only: starlette's `TestClient` needs it, the app does not, so
+it stays out of `requirements.txt` and the image.
+
+## Releasing
+
+Push a version tag; [`.github/workflows/release.yml`](.github/workflows/release.yml)
+does the rest:
+
+```bash
+git tag v1.2.0 && git push origin v1.2.0
+```
+
+It runs the three suites, builds the user guide with `GUIDE_VERSION` taken
+from the tag, and publishes a GitHub release with `Relay-v1.2.0.zip` (a
+`git archive` of the tag, so nothing gitignored ships),
+`Relay-User-Guide.pdf` and `Relay-User-Guide.docx`. A tag with a hyphen
+(`v1.2.0-rc.1`) becomes a pre-release, which `releases/latest` skips. Pull
+requests that touch the workflow or `docs/guide/` run everything but the
+publish.
+
+The Companion module releases the same way from its own repo, with the tag
+checked against `package.json` and `companion/manifest.json`.
 
 ## Not in scope
 
@@ -793,7 +819,7 @@ detection.
 ## Status and licence
 
 Built for a specific production need and shared as-is. There is no test matrix
-across audio interfaces, no release process, and no support commitment — read
+across audio interfaces and no support commitment — read
 the [Security](#security) section before pointing it at anything that matters.
 
 **No licence is granted.** This repository is public for reference; all rights
