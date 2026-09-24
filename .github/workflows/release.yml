@@ -1,0 +1,108 @@
+name: Release
+
+# Push a version tag and this publishes the GitHub release:
+#
+#   git tag v1.2.0 && git push origin v1.2.0
+#
+# Assets:
+#   Relay-v1.2.0.zip        the app; unzips to a folder already named Relay/,
+#                           so the guide's install steps apply unchanged
+#   Relay-User-Guide.pdf    the README's releases/latest/download links
+#   Relay-User-Guide.docx   resolve to these
+#
+# A tag with a hyphen (v1.2.0-rc.1) is published as a pre-release, which
+# releases/latest skips. Pull requests that touch this file or the guide run
+# every step except the publish, so a broken build shows up before a tag does.
+
+on:
+  push:
+    tags: ['v*']
+  pull_request:
+    paths:
+      - .github/workflows/release.yml
+      - docs/guide/**
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          # Matches the base image in docker/Dockerfile.
+          python-version: '3.12'
+          cache: pip
+      # sounddevice needs the PortAudio library to import, even with no
+      # audio devices present; the smoke test fakes the devices it needs.
+      - run: sudo apt-get update && sudo apt-get install -y libportaudio2
+      - run: pip install -r requirements.txt
+      - run: python tests/test_redact.py
+      - run: python tests/test_schedules.py
+      - run: python tests/smoke_test.py
+
+  guide:
+    name: User guide
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      # The versions the committed guide was last built with.
+      PANDOC_VERSION: '3.11'
+      TYPST_VERSION: '0.15.1'
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install pandoc, typst and fonts
+        run: |
+          curl -fsSL -o pandoc.deb \
+            "https://github.com/jgm/pandoc/releases/download/${PANDOC_VERSION}/pandoc-${PANDOC_VERSION}-1-amd64.deb"
+          sudo apt-get update
+          sudo apt-get install -y ./pandoc.deb fonts-liberation fonts-dejavu-core
+          rm pandoc.deb
+          curl -fsSL "https://github.com/typst/typst/releases/download/v${TYPST_VERSION}/typst-x86_64-unknown-linux-musl.tar.xz" \
+            | sudo tar -xJ -C /usr/local/bin --strip-components=1 typst-x86_64-unknown-linux-musl/typst
+          pandoc --version | head -1
+          typst --version
+      - name: Build PDF and DOCX
+        run: |
+          if [[ "$GITHUB_REF_TYPE" == tag ]]; then
+            export GUIDE_VERSION="${GITHUB_REF_NAME#v}"
+          fi
+          docs/guide/build.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: guide
+          path: |
+            docs/guide/out/Relay-User-Guide.pdf
+            docs/guide/out/Relay-User-Guide.docx
+          if-no-files-found: error
+
+  release:
+    name: Publish release
+    needs: [test, guide]
+    if: github.event_name == 'push' && github.ref_type == 'tag'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: guide
+          path: dist
+      - name: Package the app
+        # git archive ships exactly what is committed at the tag: no
+        # config.json, docker-config/ or recordings/, which are gitignored.
+        run: git archive --format=zip --prefix=Relay/ -o "dist/Relay-${GITHUB_REF_NAME}.zip" "$GITHUB_REF_NAME"
+      - name: Create the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          flags=()
+          [[ "$GITHUB_REF_NAME" == *-* ]] && flags+=(--prerelease)
+          gh release create "$GITHUB_REF_NAME" dist/* \
+            --verify-tag --title "Relay ${GITHUB_REF_NAME}" --generate-notes "${flags[@]}"
