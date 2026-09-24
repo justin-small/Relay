@@ -40,7 +40,9 @@ jobs:
       # sounddevice needs the PortAudio library to import, even with no
       # audio devices present; the smoke test fakes the devices it needs.
       - run: sudo apt-get update && sudo apt-get install -y libportaudio2
-      - run: pip install -r requirements.txt
+      # httpx2 is test-only (starlette's TestClient), so it stays out of
+      # requirements.txt and the image.
+      - run: pip install -r requirements.txt httpx2==2.13.1
       - run: python tests/test_redact.py
       - run: python tests/test_schedules.py
       - run: python tests/smoke_test.py
