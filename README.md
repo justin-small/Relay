@@ -11,7 +11,12 @@ Two front doors, served by Caddy:
 | | Serves | On the wire |
 |---|---|---|
 | **80** | `/` chooser, `/transcription`, `/translation`, `/both` — the link you give the room | plain HTTP |
-| **8443** | `/admin` — the operator panel | HTTPS |
+| **443** | `/admin` — the operator panel | HTTPS |
+
+Those are the ports on the host, so the panel is `https://<host>/admin` with no
+port number. Caddy itself listens on 8080 and 8443 inside the container and
+Docker publishes them as 80 and 443; set `RELAY_HTTP_PORT` or
+`RELAY_HTTPS_PORT` to publish on other host ports (see [Docker](#docker)).
 
 Behind them the relay is one process with two loopback sockets: `port` (8000)
 for viewers and `admin_port` (8001) for the panel. Neither is on the network.
@@ -383,12 +388,15 @@ the container cannot discover for itself — the launchers pass it in as
 `RELAY_ADMIN_IPS` on every start, and `admin_fqdn` in `config.json` (asked for
 at setup) adds a hostname.
 
-If you would rather not expose the panel at all, drop the `443:8443` line from
-`docker/docker-compose.yml` and tunnel instead:
+If you would rather not expose the panel to the LAN at all, publish it on the
+host's loopback only — change the panel's line in `docker/docker-compose.yml` to
+`"127.0.0.1:${RELAY_HTTPS_PORT:-443}:8443"` — and tunnel instead:
 
 ```bash
-ssh -N -L 8443:127.0.0.1:8443 you@relay-host   # then open https://localhost:8443/admin
+ssh -N -L 8443:127.0.0.1:443 you@relay-host   # then open https://localhost:8443/admin
 ```
+
+The Companion module then has no way in; it needs the panel port on the LAN.
 
 **Why the wiring is needed:** the relay captures from a host sound card
 through PortAudio, and a container only sees devices the host hands it.
@@ -463,8 +471,8 @@ What actually reaches this deployment, since "17 HIGH" reads worse than it is:
   challenge — `auto_https off`), and the `os.Root` symlink traversal (no
   file-serving path takes an attacker-controlled root).
 - **Reachable, LAN-scoped.** The `crypto/tls` KeyUpdate and HTTP/2 denial of
-  service on the panel's 8443 listener, plus `net/url` and MIME header parsing
-  on any request Caddy accepts. All denial of service, from something already
+  service on the panel's HTTPS listener (8443 in the container, 443 on the
+  host), plus `net/url` and MIME header parsing on any request Caddy accepts. All denial of service, from something already
   on the venue LAN, against a service whose failure mode is "captions stop" —
   which the operator sees immediately.
 - **`html/template` XSS** needs Caddy to render a template with attacker
