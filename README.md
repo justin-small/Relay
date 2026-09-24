@@ -4,14 +4,14 @@ Server-captured, low-latency live captioning and translation for remote
 viewers. One vendor (OpenAI Realtime), native audio capture, text-only output.
 
 Viewers open a link on their phone and read. Nothing to install, no account,
-no microphone permission — the audio is captured on the host machine.
+no microphone permission. The audio is captured on the host machine.
 
 Two front doors, served by Caddy:
 
 | | Serves | On the wire |
 |---|---|---|
-| **80** | `/` chooser, `/transcription`, `/translation`, `/both` — the link you give the room | plain HTTP |
-| **443** | `/admin` — the operator panel | HTTPS |
+| **80** | `/` chooser, `/transcription`, `/translation`, `/both`: the link you give the room | plain HTTP |
+| **443** | `/admin`: the operator panel | HTTPS |
 
 Those are the ports on the host, so the panel is `https://<host>/admin` with no
 port number. Caddy itself listens on 8080 and 8443 inside the container and
@@ -24,16 +24,16 @@ for viewers and `admin_port` (8001) for the panel. Neither is on the network.
 is `127.0.0.1` because the panel reads and writes the OpenAI key and the admin
 token, and those have no business crossing venue Wi-Fi in cleartext.
 
-Admin routes are refused with a 404 on the viewer port — in the app and again
-in Caddy — and the chooser page only offers the panel when it is served on the
+Admin routes are refused with a 404 on the viewer port, both in the app and in
+Caddy, and the chooser page only offers the panel when it is served on the
 admin port, so the audience link never exposes it. Set `admin_port` equal to
 `port` in `config.json` to put everything back on one port.
 
 The panel's certificate is self-signed and generated on this machine: there is
 no public DNS name on a venue LAN and no ACME challenge to answer, so a real CA
-is not on the table. Setup prints its SHA-256 fingerprint. Check that against
-what the browser shows the first time and then accept it — that check is the
-whole value of the warning.
+is not an option. Setup prints its SHA-256 fingerprint. Check it against what
+the browser shows the first time, then accept the certificate. Without that
+check, the warning protects nothing.
 
 **Running Relay at a venue, not developing it?** The
 [Relay User Guide](https://github.com/justin-small/Relay/releases/latest/download/Relay-User-Guide.pdf)
@@ -47,7 +47,7 @@ module, in plain English. Its source is in [`docs/guide/`](docs/guide/).
 ## Install
 
 Requires [Docker Desktop](https://www.docker.com/products/docker-desktop/) (or
-Docker Engine on Linux). Nothing else — no Python, no virtualenv, no Caddy.
+Docker Engine on Linux). Nothing else: no Python, no virtualenv, no Caddy.
 Everything runs in one container, and setup uses the image's own Python to
 write the credentials and mint the certificate.
 
@@ -67,7 +67,7 @@ Get Relay from the [latest release](https://github.com/justin-small/Relay/releas
 **hostname** for this machine. The first two are written to
 `docker-config/config.json` with permissions `0600`; neither is echoed to the
 screen, and neither is ever committed. It then mints the operator panel's TLS
-certificate and prints its SHA-256 fingerprint — write that down.
+certificate and prints its SHA-256 fingerprint. Write that down.
 
 `start.*` starts the whole stack: Caddy and the relay, one container, one
 command. It finds this machine's LAN address first, because the certificate has
@@ -116,21 +116,22 @@ so it cannot work that out for itself.
 </details>
 
 Audio is the only part that needs per-platform wiring, and the launchers handle
-it — see [Docker](#docker) for what each one does and why.
+it. See [Docker](#docker) for what each one does and why.
 
 ## First run
 
-1. Run `setup.command` / `setup.bat`. Enter your API key and admin token, and
-   a hostname if you have one — blank certifies this machine's IP address only.
+1. Run `setup.command` / `setup.bat` / `./setup.sh`. Enter your API key and
+   admin token, and a hostname if you have one. Leave it blank to certify this
+   machine's IP address only.
    Note the SHA-256 fingerprint it prints at the end.
-2. Run `start.command` / `start.bat`. It prints both URLs: viewers get
+2. Run `start.command` / `start.bat` / `./start.sh`. It prints both URLs: viewers get
    `http://10.0.1.42/`, the panel is at `https://10.0.1.42/admin`. It opens
    the panel for you, and its window closes by itself once the relay is up.
-3. Open the panel. The browser will warn about the certificate the first time —
-   check the fingerprint it shows against the one from setup, then accept it.
+3. Open the panel. The browser warns about the certificate the first time.
+   Check the fingerprint it shows against the one from setup, then accept it.
    Sign in with your admin token, and:
-   - pick the **capture device** and channel — the meter should move when
-     someone speaks into it;
+   - pick the **capture device** and channel (the meter should move when
+     someone speaks into it);
    - toggle on the **target languages** the room needs;
    - press **Start capture**.
 4. Session health should show one `connected` session per enabled target.
@@ -138,15 +139,15 @@ it — see [Docker](#docker) for what each one does and why.
 
 > **The admin token is what protects the panel**, and the panel controls a
 > session billed to your OpenAI account. Choose a real password, not a word.
-> There is no default token: leave it unset and every login is refused. TLS is
-> what keeps that token off the wire, and the fingerprint check is what makes
-> the TLS mean anything — skip it and you are trusting whatever answered.
+> There is no default token: leave it unset and every login is refused. TLS
+> keeps the token off the wire, but only if you check the fingerprint. Skip the
+> check and you are trusting whatever answered.
 
 ## Target languages
 
 The relay runs on `gpt-realtime-translate`, a streaming interpreter model. One
-session per target carries **both** feeds — the English transcript and that
-target's translation — so there is no separate transcription session to run or
+session per target carries **both** feeds, the English transcript and that
+target's translation, so there is no separate transcription session to run or
 pay for. Billing is per minute of audio, per open session.
 
 Twelve targets are available (the 13 output languages the model supports, minus
@@ -156,17 +157,17 @@ Chinese, Japanese, Korean, Hindi, Indonesian, Vietnamese.
 Two things follow from the model:
 
 - **No dialect or register control.** The model takes an output language and
-  nothing else — no prompt, no voice, no formality setting. The old
+  nothing else: no prompt, no voice, no formality setting. The old
   `es-419 / es-MX / es-CA` selector is gone; a `variant` left in `config.json`
   is ignored. Spanish comes out in a neutral Latin American register.
 - **A target must be enabled for anything to appear**, including
-  `/transcription` — the English transcript is produced by the translation
+  `/transcription`. The English transcript is produced by the translation
   session, so with every target off both feeds are silent. The panel says so.
 
 ## Blocked words
 
-Blocked words live in **`blocklist.txt`** next to `run.py`, one word or phrase
-per line:
+Blocked words live in **`docker-config/blocklist.txt`**, one word or phrase per
+line:
 
 ```
 damn
@@ -176,12 +177,13 @@ mierda
 hijo de puta
 ```
 
-The file is created on first start. **Save it and the change is live within
-about two seconds — no restart, safe to edit mid-event.** The admin panel shows
+On first start the file is copied from `blocklist.txt` in the Relay folder.
+**Save it and the change is live within about two seconds, with no restart, so
+it is safe to edit mid-event.** The admin panel shows
 the same list and can edit it, but the file is the source of truth.
 
-Matches are **removed** from both the English transcript and the Spanish
-translation — no asterisks, no gap, nothing on screen to notice.
+Matches are **removed** from the English transcript and from every
+translation. There are no asterisks and no gap on screen.
 
 - Case and accents are ignored: `nino` matches `Niño`, `cabron` matches `cabrón`.
 - Whole words only: `ass` will not touch `class`.
@@ -191,15 +193,15 @@ translation — no asterisks, no gap, nothing on screen to notice.
 - Lines starting with `#` are comments and are preserved when the panel saves.
 - Comma-separated input works too, if you'd rather paste a list in one line.
 
-**The two feeds are filtered independently.** A word blocked in English does not
-block its Spanish translation, because the translation is produced from audio,
-not from the English text. To remove a term from both, list both forms.
+**Each feed is filtered independently.** A word blocked in English does not
+block its translation, because the translation is produced from audio, not from
+the English text. To remove a term everywhere, list it in each language.
 
 Because captions stream in fragments, a banned word can arrive split across
 deltas (`"dam"` then `"n"`). The filter holds back any trailing text that could
 still grow into a blocked term, so a partial word never renders and then
-vanishes. That hold is narrow — measured against a 464-term list, roughly 0.2%
-of words are briefly held — so the latency budget is untouched.
+vanishes. The hold is narrow: measured against a 464-term list, roughly 0.2%
+of words are briefly held, so latency is unaffected.
 
 One caveat: the filter removes words, it does not rewrite grammar. Removing a
 noun mid-sentence leaves a gap ("the first item on is the review"). For a word
@@ -210,7 +212,7 @@ you expect often, blocking the phrase around it usually reads better.
 **Off by default.** Turn it on in the panel under *Recordings & export*, or set
 `recording.enabled` in `config.json`. Nothing is written to disk until you do.
 
-A recording covers **exactly one run — from *Start capture* to *Stop***. Each
+A recording covers **exactly one run, from *Start capture* to *Stop***. Each
 committed caption line is appended as it happens, so a crash or a power cut
 mid-event still leaves you everything said up to that point. Blocked words are
 removed before anything is written, so a term on the blocklist never reaches
@@ -234,7 +236,7 @@ improvement to the pairing applies to old events too.
 | --- | --- |
 | `transcript-<LANGUAGE>.txt` | One timestamped line per caption, per language. What a client asks for after an event. |
 | `pairs-<TARGET>.jsonl` | Each source line matched to its translation, with a `confidence` field. The audit copy. |
-| `finetune-<TARGET>.jsonl` | The confident pairs only, in OpenAI chat format — upload to a fine-tuning job as-is. |
+| `finetune-<TARGET>.jsonl` | The confident pairs only, in OpenAI chat format, ready to upload to a fine-tuning job as-is. |
 
 One file set per target language, so a run with Spanish and French produces a
 clean English→Spanish pair set and a clean English→French one, rather than one
@@ -256,14 +258,14 @@ span**, and every row in the pairs file says how sure that match is:
 | `merged` | Several source lines inside one translation's span, joined. |
 | `split` | One source line answered by several translations. |
 | `loose` | No overlap and no unambiguous near match; the nearest line within a wider window. |
-| `unpaired` | Nothing plausible on the other side — usually a dropout. |
+| `unpaired` | Nothing plausible on the other side, usually a dropout. |
 
 **Only `exact` rows are carried into the fine-tuning file.** The rest stay in
 the pairs file, where they can be reviewed, corrected or ignored. The model is
 interpreting, so a translation routinely lands just *after* the sentence it
-answers with no overlap at all; that case is matched to the source line that
-had just finished — which is also what stops the *next* sentence being swept in
-when a speaker pauses briefly.
+answers with no overlap at all. That case is matched to the source line that
+had just finished, which also stops the *next* sentence being swept in when a
+speaker pauses briefly.
 
 ### Retention
 
@@ -329,9 +331,8 @@ validate is ignored rather than stopping the relay.
 
 ## Docker
 
-Docker is the only way this runs: one image, one container, one command.
-Reproducible builds, pinned dependencies, and nothing to install on the host
-beyond Docker itself.
+Relay runs only in Docker, as a single container. The build is reproducible,
+the dependencies are pinned, and the host needs nothing but Docker.
 
 Audio is the only part that needs per-platform wiring, and the launchers handle
 it:
@@ -349,8 +350,8 @@ hands it to the container. State lives in `./docker-config/`: the API key,
 admin token, blocklist, the generated `Caddyfile` and the panel's certificate,
 all surviving rebuilds.
 
-Caddy runs **inside the same container** as the relay — there is no second
-process to launch and no second thing to keep running. The entrypoint mints the
+Caddy runs **inside the same container** as the relay, so there is nothing
+else to launch or keep running. The entrypoint mints the
 certificate if setup has not already, validates the generated Caddyfile, then
 supervises both processes; if either exits, the container exits and
 `restart: unless-stopped` brings back a known-good pair rather than leaving a
@@ -374,23 +375,24 @@ capabilities at all. In practice that means:
 |---|---|
 | **User** | `10001:10001`, never root. On Linux, pass `RELAY_UID`/`RELAY_GID` so the bind-mounted `docker-config/` matches your account; Docker Desktop fakes ownership, so macOS and Windows can ignore this. |
 | **Filesystem** | `read_only: true`. `/app` cannot be rewritten by the process that runs it. Writable: `docker-config/` (state), plus small tmpfs mounts for `/tmp` and `$HOME`. |
-| **Privileges** | `cap_drop: ALL` and `no-new-privileges:true` — no setuid escalation path. |
+| **Privileges** | `cap_drop: ALL` and `no-new-privileges:true`, so there is no setuid escalation path. |
 | **Limits** | 1 GB memory, 2 CPUs, 256 pids, and log rotation at 3 × 10 MB, so a wedged run cannot fill the host. |
-| **Base images** | `python:3.12-slim-bookworm` and `caddy:2-alpine`, both pinned by digest; dependencies installed wheels-only in a builder stage, so no compiler or pip ships in the runtime image. Only Caddy's binary is taken from its image, copied with `cp` so its `cap_net_bind_service` file capability is dropped — `execve` of a file with capabilities fails outright under `no-new-privileges`. |
-| **Front end** | Caddy, same container, same lifecycle. `admin off` — its control socket is unauthenticated and can rewrite the whole config, and nothing here needs it. `auto_https off` — nothing is public, so it never reaches for ACME and never redirects viewers to a certificate they cannot trust. |
+| **Base images** | `python:3.12-slim-bookworm` and `caddy:2-alpine`, both pinned by digest; dependencies installed wheels-only in a builder stage, so no compiler or pip ships in the runtime image. Only Caddy's binary is taken from its image, copied with `cp` so its `cap_net_bind_service` file capability is dropped: `execve` of a file with capabilities fails outright under `no-new-privileges`. |
+| **Front end** | Caddy, in the same container with the same lifecycle. `admin off`, because its control socket is unauthenticated and can rewrite the whole config, and nothing here needs it. `auto_https off`, because nothing is public: it never tries ACME and never redirects viewers to a certificate they cannot trust. |
 | **Panel key** | Minted in the container by setup, into `docker-config/certs/` at mode 0600. It is never in an image layer and never in a registry. Reused across restarts while it still covers the current names, so the fingerprint you wrote down at setup is the fingerprint you see at showtime. |
 
 **The relay's own sockets never leave loopback.** `:8000` and `:8001` are
 cleartext and live inside the network namespace; they are not published at all.
 Everything from outside arrives through Caddy, which means the panel is only
 ever reachable over TLS. The certificate names the host's LAN address, which
-the container cannot discover for itself — the launchers pass it in as
+the container cannot discover for itself. The launchers pass it in as
 `RELAY_ADMIN_IPS` on every start, and `admin_fqdn` in `config.json` (asked for
 at setup) adds a hostname.
 
 If you would rather not expose the panel to the LAN at all, publish it on the
-host's loopback only — change the panel's line in `docker/docker-compose.yml` to
-`"127.0.0.1:${RELAY_HTTPS_PORT:-443}:8443"` — and tunnel instead:
+host's loopback only and tunnel to it. Change the panel's line in
+`docker/docker-compose.yml` to `"127.0.0.1:${RELAY_HTTPS_PORT:-443}:8443"`,
+then:
 
 ```bash
 ssh -N -L 8443:127.0.0.1:443 you@relay-host   # then open https://localhost:8443/admin
@@ -408,8 +410,8 @@ wrong for CVEs: the layer is frozen, so an advisory published against Debian
 bookworm, CPython or Caddy lands silently and the build keeps succeeding.
 Two things make the pin safe. Dependabot proposes the digest bump weekly
 (`.github/dependabot.yml`), and scanning proves the new layer is actually
-cleaner than the old one before it merges. `tools/scan-image.sh` runs it locally —
-no CI, no account, nothing to install beyond Docker:
+cleaner than the old one before it merges. `tools/scan-image.sh` runs the scan
+locally, with no CI, no account and nothing to install beyond Docker:
 
 ```bash
 ./tools/scan-image.sh                 # build, then scan
@@ -421,33 +423,33 @@ no CI, no account, nothing to install beyond Docker:
 
 Three passes: image vulnerabilities (Debian packages *and* the Python venv
 *and* the Caddy binary's Go modules), Dockerfile/compose misconfiguration, and
-secrets in the working tree. Only the first gates — exit status is the number
-of **fixable** HIGH/CRITICAL findings, so a clean run means every finding has
+secrets in the working tree. Only the first can fail the run: the exit status
+is the number of **fixable** HIGH/CRITICAL findings, so a clean run means every finding has
 a version to move to. The other two print and never fail the run.
 
 Trivy does the work, from its own pinned container by default; a `trivy` on
 your PATH is used instead when you have one. The vulnerability database is
-cached in a named volume, so only the first run pays the download. Run it
-before an event and after any dependency bump — and on a repo nobody is
-touching, which is exactly when a frozen base image is most likely to be
-stale.
+cached in a named volume, so only the first run downloads it. Run the scan
+before an event and after any dependency bump. Also run it when nobody has
+touched the repo for a while, because that is when a frozen base image is most
+likely to be stale.
 
-Findings come out in two flavours, and the fix differs:
+Findings come in two kinds, and the fix differs:
 
 | Where | Fix |
 |---|---|
-| OS package or Caddy's Go modules | Bump the pinned digest in `docker/Dockerfile` — usually by merging Dependabot's PR, or by hand with `docker pull python:3.12-slim-bookworm` (or `caddy:2-alpine`) then `docker image inspect ... --format '{{index .RepoDigests 0}}'`. For Caddy this currently changes nothing — see *Known findings* below. |
+| OS package or Caddy's Go modules | Bump the pinned digest in `docker/Dockerfile`, usually by merging Dependabot's PR, or by hand with `docker pull python:3.12-slim-bookworm` (or `caddy:2-alpine`) then `docker image inspect ... --format '{{index .RepoDigests 0}}'`. For Caddy this currently changes nothing; see *Known findings* below. |
 | Python package | Bump it in `requirements.txt` and rebuild. |
 
-Pass 3 will flag your own `config.json` if it holds a real key — that is the
-scanner working, not a leak; the file is git-ignored and never enters an image
+Pass 3 flags your own `config.json` if it holds a real key. That is the
+scanner working, not a leak: the file is git-ignored and never enters an image
 layer. It is worth reading anyway, because it is the same check that would
 catch a key pasted into a file that *is* tracked.
 
 ### Known findings: the Caddy binary's Go modules
 
-As of 2026-09-21 a clean scan is not achievable, and the reason is worth
-writing down so the next run does not re-litigate it. `caddy:2-alpine` ships
+As of 2026-09-21 a clean scan is not achievable. The reason is recorded here so
+nobody has to investigate it again. `caddy:2-alpine` ships
 Caddy 2.11.4 built against Go 1.26.3, and Trivy reports **17 fixable HIGH**
 findings inside that one binary:
 
@@ -460,21 +462,21 @@ findings inside that one binary:
 | `golang.org/x/text` | 0.37.0 | 0.39.0 | 1 |
 
 Re-pinning the digest does **not** clear them. Upstream's current
-`caddy:2-alpine` carries the same binary built against the same toolchain —
-scanned directly to confirm, identical 17 findings, Alpine layer clean. This
-is upstream not having rebuilt, not this repo being behind.
+`caddy:2-alpine` carries the same binary built against the same toolchain.
+Scanning it directly gives the same 17 findings, with a clean Alpine layer.
+Upstream has not rebuilt yet; this repo is not behind.
 
-What actually reaches this deployment, since "17 HIGH" reads worse than it is:
+What actually affects this deployment:
 
 - **Not reachable.** `x/crypto/ssh` (Caddy runs no SSH), the three gRPC
   findings (no gRPC listener; `admin off`), `dnsmessage` (no ACME DNS
-  challenge — `auto_https off`), and the `os.Root` symlink traversal (no
+  challenge; `auto_https off`), and the `os.Root` symlink traversal (no
   file-serving path takes an attacker-controlled root).
 - **Reachable, LAN-scoped.** The `crypto/tls` KeyUpdate and HTTP/2 denial of
   service on the panel's HTTPS listener (8443 in the container, 443 on the
-  host), plus `net/url` and MIME header parsing on any request Caddy accepts. All denial of service, from something already
-  on the venue LAN, against a service whose failure mode is "captions stop" —
-  which the operator sees immediately.
+  host), plus `net/url` and MIME header parsing on any request Caddy accepts.
+  All are denial of service, need a device already on the venue LAN, and fail
+  as "captions stop", which the operator sees immediately.
 - **`html/template` XSS** needs Caddy to render a template with attacker
   input. This deployment serves static viewer assets and proxies; it renders
   none.
@@ -482,27 +484,27 @@ What actually reaches this deployment, since "17 HIGH" reads worse than it is:
 None of it is remote code execution, and none of it is reachable from the
 public internet, because nothing here is on the public internet.
 
-So: wait for upstream, and re-pin the `caddy:2-alpine` digest in
+The plan is to wait for upstream, then re-pin the `caddy:2-alpine` digest in
 `docker/Dockerfile` once it ships a Go 1.26.6 build. `./tools/scan-image.sh`
-re-checks every run, so the fix announces itself. Nothing is suppressed —
-there is deliberately no `.trivyignore`, because one would hide the next
-genuine Caddy finding too, and the exit status stays honest at 17. If upstream
-is still on 1.26.3 well after this was written, the alternative is building
-Caddy in a builder stage from a current `golang:` image, which buys a
-toolchain we control at the cost of the maintenance that follows.
+re-checks on every run, so the scan shows when that happens. Nothing is
+suppressed. There is deliberately no `.trivyignore`, because it would also hide
+the next real Caddy finding, and the exit status stays at 17. If upstream is
+still on 1.26.3 long after this was written, the alternative is to build Caddy
+in a builder stage from a current `golang:` image. That gives a toolchain we
+control, but it has to be maintained.
 
 ### Windows: PulseAudio
 
 One path for Windows 10 and 11 alike. Docker Desktop runs on WSL2, its default
 backend, but nothing here uses a Linux distro of your own: `setup.bat` and
 `start.bat` run `docker compose` straight from Windows, and the microphone
-comes in the way it does on macOS — from a PulseAudio daemon running natively
+comes in the way it does on macOS: from a PulseAudio daemon running natively
 on the host. Operators double-click the `.bat`; nobody opens a Linux shell.
 
 `setup.bat` downloads a PulseAudio build for Windows
 ([pgaskin/pulseaudio-win32](https://github.com/pgaskin/pulseaudio-win32) v5,
-PulseAudio 15) into `.pulseaudio\` — git-ignored, never in the image — and
-refuses it unless its SHA-256 matches the one pinned in
+PulseAudio 15) into `.pulseaudio\`, which is git-ignored and never in the
+image. It refuses the download unless its SHA-256 matches the one pinned in
 `tools/windows-audio.ps1`. `start.bat` then starts the daemon hidden, so
 closing the window leaves it running, and `stop.bat` stops it. By hand:
 
@@ -514,14 +516,14 @@ docker compose -f docker/docker-compose.yml -f docker/docker-compose.windows.yml
 The daemon loads one capture source per Windows recording device, named after
 the device, so the panel lists them by name ("WaveIn on USB Audio CODEC").
 Windows trims those names to 31 characters. A device plugged in after
-`start.bat` needs `stop.bat` + `start.bat` to show up — **Rescan** alone will
-not find it, unlike on macOS.
+`start.bat` needs `stop.bat` and then `start.bat` to show up. Unlike on macOS,
+**Rescan** alone does not find it.
 
 It listens on **127.0.0.1 only**. Docker Desktop forwards the container's
 `host.docker.internal` to the host's loopback, so the container reaches the
-daemon while nothing on the LAN can — which matters, because the Pulse
-protocol here is unauthenticated (`auth-anonymous=1`), and it also means
-Windows Firewall never prompts for it.
+daemon while nothing on the LAN can. That matters because the Pulse protocol
+here is unauthenticated (`auth-anonymous=1`). It also means Windows Firewall
+never prompts for it.
 
 Windows gates desktop apps' microphone access: **Settings → Privacy →
 Microphone → "Allow desktop apps to access your microphone"** must be on, or
@@ -540,7 +542,7 @@ docker compose -f docker/docker-compose.yml -f docker/docker-compose.macos.yml u
 ```
 
 The ACL must cover Docker Desktop's VM subnet (`192.168.65.0/24`) and the
-bridge range (`172.16.0.0/12`) — the container is not on your LAN, so
+bridge range (`172.16.0.0/12`). The container is not on your LAN, so
 `127.0.0.1` alone refuses it. `--daemonize=yes` fails on the Homebrew build;
 background it instead.
 
@@ -567,10 +569,10 @@ powershell -ExecutionPolicy Bypass -File tools\check-audio.ps1        # Windows
 ```
 
 It checks that the image exists, the server answers, sources are listed,
-PortAudio enumerates an input, and one second of audio actually arrives — and
-it fails separately on *digital silence*, the microphone-permission mistake on
-both macOS and Windows, and the one that otherwise looks exactly like a
-working setup.
+PortAudio enumerates an input, and one second of audio actually arrives. It
+also fails separately on *digital silence*. That is what a missing microphone
+permission looks like on macOS and Windows, and otherwise it looks exactly like
+a working setup.
 
 ### Rehearsal in Docker
 
@@ -585,8 +587,8 @@ No audio wiring needed, no API calls, no billed session.
 
 PortAudio reports 44100 for ALSA's `pulse` device whatever the server actually
 runs at, so a 48k source would be resampled to 44.1k by PulseAudio and then to
-24k by soxr — two conversions, and a slower start (~4.8s to steady state
-against ~1.6s). The entrypoint therefore sets `RELAY_NATIVE_RATE=48000`, which
+24k by soxr. That is two conversions and a slower start (about 4.8 s to steady
+state, against about 1.6 s). The entrypoint therefore sets `RELAY_NATIVE_RATE=48000`, which
 `app/audio.py` uses in place of the reported default. Set it to your device's
 rate if that is not 48k, or to `0` to take PortAudio's default. Linux hands
 `/dev/snd` straight in, so `PULSE_SERVER` is unset there and none of this
@@ -595,12 +597,12 @@ applies.
 ### Caveats
 
 Published ports, not host networking, so the console prints the container's
-address rather than the LAN one — give the room the host machine's own LAN
+address rather than the LAN one. Give the room the host machine's own LAN
 address on `:80`. The same blind spot is why the certificate needs
 `RELAY_ADMIN_IPS`: the container cannot name an address it cannot see.
 
 The macOS and Windows paths add a network hop to a pipeline tuned for latency,
-and a PulseAudio daemon that can fail on event day — check the audio before the
+and a PulseAudio daemon that can fail on event day. Check the audio before the
 room fills up. On Windows the hop never leaves the machine. Linux (`/dev/snd`
 straight in) has neither problem.
 
@@ -624,31 +626,31 @@ Canned captions stream to the viewer pages. No OpenAI connection is opened.
 ## Cost
 
 Cost is `(enabled targets) × (time)`, billed per minute of audio, including
-silence — the sessions stay open by design. One session per target carries both
+silence, because the sessions stay open by design. One session per target carries both
 the English transcript and that target's translation, so running Spanish is one
 stream, not two. Viewers cost nothing.
 
-**Press Stop between sessions.** That is the whole cost control.
+**Press Stop between sessions.** Nothing else controls the cost.
 
 ## Tuning line breaks
 
 **Phrase boundaries are not tunable.** `gpt-realtime-translate` decides where a
 phrase ends from the audio itself, and the translations endpoint has no turn
-detection to configure — there is no `semantic_vad`, no `eagerness`, no
+detection to configure: there is no `semantic_vad`, no `eagerness`, no
 millisecond threshold. A translation session has no turn lifecycle at all;
 sending `turn_detection` is rejected outright. If you have an older
 `config.json` carrying `vad_mode`, `vad_eagerness` or the `vad_*_ms` fields,
 they do nothing and are dropped the next time the file is saved.
 
-What you *can* steer is when this app commits a caption **line** — the point at
+What you *can* steer is when this app commits a caption **line**: the point at
 which streaming text stops changing and settles. Both controls are in the panel
 under *Appearance & tuning*:
 
-- **Caption line break after silence** (`realtime.segment_idle_s`, default 1 s)
-  — a line is committed once its text has been quiet this long **and** it ends
-  on a sentence boundary. Lower it for snappier lines.
-- **Force a line break after** (`realtime.segment_max_idle_s`, default 10 s) —
-  the backstop for a line that never reaches a sentence end, always applied at a
+- **Caption line break after silence** (`realtime.segment_idle_s`, default
+  1 s). A line is committed once its text has been quiet this long **and** it
+  ends on a sentence boundary. Lower it for snappier lines.
+- **Force a line break after** (`realtime.segment_max_idle_s`, default 10 s).
+  The backstop for a line that never reaches a sentence end, always applied at a
   word boundary so a word is never cut in half. Raise it if you see one sentence
   split across two lines.
 
@@ -656,8 +658,8 @@ In-progress text is already on screen as it streams, so a generous backstop
 costs nothing: it changes when a line *settles*, not when it appears. Changing
 either restarts live sessions.
 
-If captions arrive late rather than in awkward chunks, the cause is upstream —
-check the host's bandwidth and the session health table, not these two fields.
+If captions arrive late rather than in awkward chunks, the cause is upstream.
+Check the host's bandwidth and the session health table, not these two fields.
 
 ## Audio decisions
 
@@ -666,63 +668,63 @@ check the host's bandwidth and the session health table, not these two fields.
 - **No silence trimming.** Audio streams continuously, silence included.
   Gating risks clipping word onsets and breaking the model's context, and saves
   nothing meaningful. A local RMS check drives the admin "speaking" indicator
-  only — it never sits on the path to the API.
+  only; it never sits on the path to the API.
 - **The input meter reads dBFS.** −60 dBFS at the left edge, 0 at the right,
   with the −18 dBFS target band marked: aim the loudest speech at that band.
   The bar is RMS, the thin marker is a peak hold that decays at 20 dB/s, and
   the **CLIP** indicator latches red for three seconds whenever a sample hits
   the rail. Clipping is the most common cause of bad transcription from a
-  console feed, and short transients are invisible on an RMS bar alone — watch
+  console feed, and short transients are invisible on an RMS bar alone. Watch
   the LED, not the bar. The cumulative clipped-sample count sits beside it and
   resets on each Start.
 - **Stereo feeds can be summed.** The channel selector offers **Mix** on any
   interface with more than one input channel, which averages them rather than
-  discarding one — usually the right choice for a stereo board feed. Averaging,
+  discarding one. That is usually the right choice for a stereo board feed. Averaging,
   not adding, so the downmix cannot clip where the source channels did not.
 - **Noise reduction defaults off.** The `Noise reduction` control in the admin
-  panel's Audio input section sends nothing for a house console feed (already
-  gated and gain-staged); reduction runs before the model's own phrase detection,
-  so applying it to a conditioned board mix can chew word onsets. Switch to *Room or laptop mic*
-  (`far_field`) or *Headset / lavalier* (`near_field`) only when the capture is
-  actually one of those.
+  panel's Audio input section sends nothing for a house console feed, which is
+  already gated and gain-staged. Reduction runs before the model's own phrase
+  detection, so on a conditioned board mix it can clip the start of words.
+  Switch to *Room or laptop mic* (`far_field`) or *Headset / lavalier*
+  (`near_field`) only when the capture really is one of those.
 
 ## Security
 
 - The OpenAI key lives only in `config.json` on the host (mode `0600`,
   git-ignored) and is never sent to a browser. The admin panel shows only
   whether a key is set and its last four characters.
-- Viewer pages are read-only and unauthenticated, and served in plain HTTP —
-  appropriate for a venue LAN. They carry no secret, and a room full of phones
+- Viewer pages are read-only and unauthenticated, and served in plain HTTP,
+  which suits a venue LAN. They carry no secret, and a room full of phones
   will not install a certificate to read captions.
   **Do not expose this server to the public internet as-is**: viewer pages have
   no access control and no transport security.
 - The operator panel is a different matter, and is served over HTTPS by Caddy
   (`docker-config/Caddyfile`, generated at setup). The relay's
-  own admin socket binds `127.0.0.1` — `admin_host` in `config.json` — so the
+  own admin socket binds `127.0.0.1` (`admin_host` in `config.json`), so the
   only route in is through TLS. The certificate is self-signed and generated on
-  the host; setup prints its SHA-256 fingerprint, and checking that once
-  against the browser is what makes the connection worth anything.
+  the host. Setup prints its SHA-256 fingerprint; check it once against the
+  browser, or the TLS proves nothing.
 - Behind the front end the app reads `X-Forwarded-For` and `X-Forwarded-Proto`,
   but **only from a loopback peer**. A direct client on the LAN cannot forge
   either: not its address, to dodge the login lockout, and not the scheme, to
   influence the cookie.
-- The admin token is set by `setup.command` / `setup.bat` and stored in the
-  same file. **There is no default token.** An unset token does not leave the
-  panel open — every login is refused — but it does mean nobody can operate the
+- The admin token is set by `setup.*` and stored in the same file. **There is
+  no default token.** An unset token does not leave the panel open, because
+  every login is refused, but it does mean nobody can operate the
   relay until setup has run.
 - Signing in issues a random session id; the admin token itself never goes
   into a cookie. Sessions are held in memory, so they last 12 hours, die on
   restart, and are all revoked when the token is changed. The cookie is
-  `HttpOnly` and `SameSite=Strict`, and `Secure` as well whenever the login
-  actually arrived over TLS — not on a plain-HTTP login, where the browser
-  would drop a `Secure` cookie and lock the operator out.
+  `HttpOnly` and `SameSite=Strict`. It is also `Secure` whenever the login
+  arrived over TLS, but not on a plain-HTTP login, where the browser would drop
+  a `Secure` cookie and lock the operator out.
 - Failed logins are delayed and logged, and an IP is locked out for five
   minutes after five failures in a row.
 - Translation sessions are instructed to treat everything they hear as content
   to translate, never as instructions to follow.
 - The container image is scanned locally with `tools/scan-image.sh` (see
-  Docker → *Scanning the image*): pinned base layers do not age gracefully, and
-  the scan is what turns the pin from a liability back into reproducibility.
+  Docker → *Scanning the image*). Pinned base layers go stale, and the scan
+  shows when they have.
 - **If you ever paste an API key somewhere it should not be, revoke it** at
   <https://platform.openai.com/api-keys> rather than deleting the file. A key
   that has been written to disk, a log or a screenshot should be considered
@@ -732,18 +734,17 @@ check the host's bandwidth and the session health table, not these two fields.
 
 | Symptom | Cause / fix |
 |---|---|
-| `Incorrect API key provided` | The key is wrong. Sessions stop rather than retry — paste the right key and press Start again. |
+| `Incorrect API key provided` | The key is wrong. Sessions stop rather than retry. Paste the right key and press Start again. |
 | Sessions say `reconnecting` and climb | Network. Reconnect is automatic with backoff; check the host's connection. |
 | Meter is flat while someone speaks | Wrong device or wrong channel. Try each channel, or **Mix** on a stereo feed; press Rescan if the interface was plugged in after launch. |
 | CLIP indicator keeps lighting | The feed is too hot. Reduce gain at the console or interface until the peak marker sits at the −18 dBFS band and CLIP stays dark. Clipped audio transcribes badly and no model setting recovers it. |
 | Meter moves but sits far left | Input gain is too low. Below about −40 dBFS the model has little to work with; bring the loudest speech up to the marked band. |
 | `No input device matched` | The interface was unplugged. Reselect it and press Start. |
-| Viewers see "No target language is live" | Spanish is toggled off, or capture is stopped. |
-| A blocked word still appears in Spanish | The two feeds are filtered independently — add the Spanish form to the list as well. |
-| Edited `blocklist.txt` but nothing changed | Give it ~2 s. Check the relay's log (`logs.*`) for the line `Blocked words reloaded: N term(s)`, and that the file is the one named in the admin panel. |
+| Viewers see "No target language is live" | Every target is toggled off, or capture is stopped. |
+| A blocked word still appears in a translation | Each feed is filtered independently. Add that language's form to the list as well. |
+| Edited `blocklist.txt` but nothing changed | Give it about 2 s. Check the relay's log (`logs.*`) for the line `Blocked words reloaded: N term(s)`, and that the file is the one named in the admin panel. |
 | A blocked word appears inside a longer word | By design: only whole words match. Add the longer word explicitly. |
-| Captions lag or arrive in long blocks | Phrase boundaries come from the model and are not tunable. Long *lines* are a line-break setting — lower *Caption line break after silence*. Genuine lag is upstream: check the host's bandwidth. |
-| `CERTIFICATE_VERIFY_FAILED` | Handled via certifi. If it reappears on macOS, run `Install Certificates.command` in your Python folder. |
+| Captions lag or arrive in long blocks | Phrase boundaries come from the model and are not tunable. Long *lines* are a line-break setting: lower *Caption line break after silence*. Real lag is upstream: check the host's bandwidth. |
 
 ## Layout
 
@@ -751,17 +752,18 @@ check the host's bandwidth and the session health table, not these two fields.
 setup.command / .bat / .sh   one-time setup: image, credentials, panel TLS
 start.command / .bat / .sh   start the whole stack (Caddy + relay, one
                              container) in the background. One per platform:
-                             macOS, Windows, Linux — nothing else to launch.
+                             macOS, Windows, Linux.
 stop.command / .bat / .sh    stop it (and, on macOS / Windows, its PulseAudio daemon)
 logs.command / .bat / .sh    follow the running relay's log
-run.py                       in-container entry point — binds both sockets
+run.py                       in-container entry point; binds both sockets
 requirements.txt             pinned dependencies (installed into the image)
 config.example.json          template, used when tests run outside the image
-blocklist.txt                blocked words, one per line, hot-reloaded
+blocklist.txt                default blocked words, copied into docker-config/
+                             on first start
 
 docker-config/               all state, git-ignored, created by setup
   config.json                live config (0600): API key, admin token, admin_fqdn
-  blocklist.txt              the editable copy the panel writes
+  blocklist.txt              the live list: hot-reloaded, written by the panel
   Caddyfile                  generated from config.json on every start
   certs/admin.{crt,key}      operator panel certificate (key 0600)
   recordings/                recorded runs, if recording is enabled
@@ -791,7 +793,7 @@ docker/
   config.example.json        template for docker-config/config.json
 
 tests/
-  smoke_test.py              offline checks — no API calls
+  smoke_test.py              offline checks, no API calls
   test_redact.py             blocklist filtering, incl. split-delta cases
   test_schedules.py          schedule windows, DST, override rules, admin API
 
@@ -812,7 +814,7 @@ setup through `docker compose run`. That is why the host needs no Python.
 ## Tests
 
 The suites run against the source tree, not the image, so they need a local
-virtualenv — the only reason to create one:
+virtualenv. That is the only reason to create one:
 
 ```bash
 python3 -m venv .venv && .venv/bin/pip install -r requirements.txt httpx2
@@ -857,8 +859,8 @@ detection.
 ## Status and licence
 
 Built for a specific production need and shared as-is. There is no test matrix
-across audio interfaces and no support commitment — read
-the [Security](#security) section before pointing it at anything that matters.
+across audio interfaces and no support commitment. Read the
+[Security](#security) section before pointing it at anything that matters.
 
 **No licence is granted.** This repository is public for reference; all rights
 are reserved. If you want to use it for something, open an issue and ask.

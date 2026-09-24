@@ -123,7 +123,7 @@ the organization uses OpenAI for.
      a key that belongs to no person. It is useful for larger teams, but not
      needed here.)
    - **Name**: type something that says where the key lives, for example
-     `Relay – main hall laptop`. This helps you find the right key to delete
+     `Relay main hall laptop`. This helps you find the right key to delete
      later.
    - **Project**: choose **Relay**.
    - **Permissions**: choose **All**. See the box below.

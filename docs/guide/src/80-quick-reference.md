@@ -66,7 +66,7 @@ cloud-synced folder: it holds your API key.
 
 ## After a restart
 
-- **macOS:** always double-click `start.command` again. It restarts the
-  microphone bridge.
-- **Windows and Linux:** run start again to check the audio and see the
-  current addresses.
+- **macOS and Windows:** always run start again. It restarts PulseAudio, the
+  microphone bridge, which does not come back by itself.
+- **Linux:** run start again to check the audio and see the current
+  addresses.

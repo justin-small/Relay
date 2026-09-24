@@ -1,4 +1,4 @@
-# Relay user guide — source
+# Relay user guide: source
 
 The operator guide, published as `Relay-User-Guide.pdf` and
 `Relay-User-Guide.docx` from one Markdown source. It is written for people
