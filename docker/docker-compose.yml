@@ -5,7 +5,7 @@
 #
 #   Linux    docker compose -f docker/docker-compose.yml -f docker/docker-compose.linux.yml up
 #   macOS    docker compose -f docker/docker-compose.yml -f docker/docker-compose.macos.yml up
-#   WSL2     docker compose -f docker/docker-compose.yml -f docker/docker-compose.wsl.yml up
+#   Windows  docker compose -f docker/docker-compose.yml -f docker/docker-compose.windows.yml up
 #
 # Ports: 80 = viewer link for the room (plain HTTP), 443 = operator panel
 #        (HTTPS). Both are served by Caddy inside the container; the relay's

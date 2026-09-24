@@ -51,7 +51,7 @@ write the credentials and mint the certificate.
 | | Set up | Start | Stop | Follow the log |
 |---|---|---|---|---|
 | **macOS** | double-click `setup.command` | double-click `start.command` | double-click `stop.command` | double-click `logs.command` |
-| **Windows 11** | double-click `setup.bat` | double-click `start.bat` | double-click `stop.bat` | double-click `logs.bat` |
+| **Windows 10 / 11** | double-click `setup.bat` | double-click `start.bat` | double-click `stop.bat` | double-click `logs.bat` |
 | **Linux** | `./setup.sh` | `./start.sh` | `./stop.sh` | `./logs.sh` |
 
 `setup.*` checks Docker, builds the image, then asks for three things: your
@@ -331,10 +331,11 @@ it:
 | Host | Start it with | Audio |
 |---|---|---|
 | **macOS** | `./start.command` | starts a PulseAudio daemon on the Mac and bridges it in |
-| **Windows 11** | `start.bat` | reuses WSLg's PulseAudio, which already publishes the mic |
+| **Windows 10 / 11** | `start.bat` | starts a PulseAudio daemon on Windows, on loopback only, and bridges it in |
 | **Linux** | `./start.sh` | `/dev/snd` passed straight in |
 
-Each launcher runs `tools/check-audio.sh` first and refuses to go live quietly
+Each launcher runs `tools/check-audio.sh` (`tools/check-audio.ps1` on Windows,
+where there is no bash) first and refuses to go live quietly
 if a link in the chain is broken, then finds this machine's LAN address and
 hands it to the container. State lives in `./docker-config/`: the API key,
 admin token, blocklist, the generated `Caddyfile` and the panel's certificate,
@@ -479,16 +480,42 @@ is still on 1.26.3 well after this was written, the alternative is building
 Caddy in a builder stage from a current `golang:` image, which buys a
 toolchain we control at the cost of the maintenance that follows.
 
-### Windows: no, this does not add WSL2
+### Windows: PulseAudio
 
-Docker Desktop on Windows *already* runs on WSL2 — it is the default backend,
-installed with Docker Desktop itself. `start.bat` runs `docker compose`
-inside that existing WSL environment, because that is where Windows 11's WSLg
-publishes the microphone (as a source named `RDPSource`). Operators
-double-click the `.bat`; nobody opens a Linux shell.
+One path for Windows 10 and 11 alike. Docker Desktop runs on WSL2, its default
+backend, but nothing here uses a Linux distro of your own: `setup.bat` and
+`start.bat` run `docker compose` straight from Windows, and the microphone
+comes in the way it does on macOS — from a PulseAudio daemon running natively
+on the host. Operators double-click the `.bat`; nobody opens a Linux shell.
 
-Windows 10 has no WSLg and cannot reach the mic this way, so the container
-cannot capture audio there.
+`setup.bat` downloads a PulseAudio build for Windows
+([pgaskin/pulseaudio-win32](https://github.com/pgaskin/pulseaudio-win32) v5,
+PulseAudio 15) into `.pulseaudio\` — git-ignored, never in the image — and
+refuses it unless its SHA-256 matches the one pinned in
+`tools/windows-audio.ps1`. `start.bat` then starts the daemon hidden, so
+closing the window leaves it running, and `stop.bat` stops it. By hand:
+
+```bat
+powershell -ExecutionPolicy Bypass -File tools\windows-audio.ps1 start
+docker compose -f docker/docker-compose.yml -f docker/docker-compose.windows.yml up -d
+```
+
+The daemon loads one capture source per Windows recording device, named after
+the device, so the panel lists them by name ("WaveIn on USB Audio CODEC").
+Windows trims those names to 31 characters. A device plugged in after
+`start.bat` needs `stop.bat` + `start.bat` to show up — **Rescan** alone will
+not find it, unlike on macOS.
+
+It listens on **127.0.0.1 only**. Docker Desktop forwards the container's
+`host.docker.internal` to the host's loopback, so the container reaches the
+daemon while nothing on the LAN can — which matters, because the Pulse
+protocol here is unauthenticated (`auth-anonymous=1`), and it also means
+Windows Firewall never prompts for it.
+
+Windows gates desktop apps' microphone access: **Settings → Privacy →
+Microphone → "Allow desktop apps to access your microphone"** must be on, or
+the sources appear and read pure silence. `check-audio.ps1` fails on exactly
+that.
 
 ### macOS: PulseAudio
 
@@ -525,7 +552,7 @@ number of failures.
 ```bash
 ./tools/check-audio.sh                                              # Linux
 PULSE_SERVER=tcp:host.docker.internal:4713 ./tools/check-audio.sh   # macOS
-PULSE_SERVER=unix:/mnt/wslg/PulseServer ./tools/check-audio.sh      # WSL2
+powershell -ExecutionPolicy Bypass -File tools\check-audio.ps1        # Windows
 ```
 
 It checks that the image exists, the server answers, sources are listed,
@@ -561,10 +588,10 @@ address rather than the LAN one — give the room the host machine's own LAN
 address on `:80`. The same blind spot is why the certificate needs
 `RELAY_ADMIN_IPS`: the container cannot name an address it cannot see.
 
-The macOS path adds a network hop to a pipeline tuned for latency, and a
-PulseAudio daemon that can fail on event day — check the audio before the room
-fills up. Linux (`/dev/snd` straight in) and Windows via WSLg (the socket is
-local, so the hop is cheap) have neither problem.
+The macOS and Windows paths add a network hop to a pipeline tuned for latency,
+and a PulseAudio daemon that can fail on event day — check the audio before the
+room fills up. On Windows the hop never leaves the machine. Linux (`/dev/snd`
+straight in) has neither problem.
 
 `auth-anonymous=1` means anything that can reach the PulseAudio port can
 listen to that microphone. Keep `auth-ip-acl` narrow and do not forward the
@@ -714,7 +741,7 @@ setup.command / .bat / .sh   one-time setup: image, credentials, panel TLS
 start.command / .bat / .sh   start the whole stack (Caddy + relay, one
                              container) in the background. One per platform:
                              macOS, Windows, Linux — nothing else to launch.
-stop.command / .bat / .sh    stop it (and, on macOS, its PulseAudio daemon)
+stop.command / .bat / .sh    stop it (and, on macOS / Windows, its PulseAudio daemon)
 logs.command / .bat / .sh    follow the running relay's log
 run.py                       in-container entry point — binds both sockets
 requirements.txt             pinned dependencies (installed into the image)
@@ -748,7 +775,7 @@ app/
 docker/
   Dockerfile                 build context is the repo root
   docker-compose.yml         base service; overlays add the audio wiring
-  docker-compose.{macos,linux,wsl}.yml
+  docker-compose.{macos,linux,windows}.yml
   entrypoint.sh              ALSA -> Pulse routing when PULSE_SERVER is set
   config.example.json        template for docker-config/config.json
 
@@ -760,6 +787,9 @@ tests/
 tools/
   check-audio.sh             PASS/FAIL walk of the whole capture chain
   wait-ready.sh              launchers: wait for /healthz, print fingerprint
+  check-audio.ps1            the same two, for Windows without bash
+  wait-ready.ps1
+  windows-audio.ps1          Windows: install / start / stop native PulseAudio
   scan-image.sh              CVE / misconfig / secret scan of the built image
   write_config.py            writes credentials into config.json
   setup_caddy.py             panel certificate + Caddyfile

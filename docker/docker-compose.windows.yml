@@ -1,0 +1,11 @@
+# Windows host: Docker Desktop has no sound card of its own, so capture comes
+# from a PulseAudio daemon running natively on Windows, which start.bat
+# launches through tools/windows-audio.ps1.
+#
+# That daemon listens on 127.0.0.1 only. Docker Desktop forwards
+# host.docker.internal to the host's loopback, so the container reaches it
+# and the LAN does not -- the Pulse protocol here is unauthenticated.
+services:
+  relay:
+    environment:
+      PULSE_SERVER: tcp:host.docker.internal:4713

@@ -30,8 +30,8 @@ Two tools help with almost every problem:
 | `Docker is not installed.` | Install Docker Desktop (macOS, Windows) or Docker Engine (Linux), then run setup again. |
 | `Docker is installed but not running.` or `Docker is not running. Start Docker Desktop and try again.` | Open Docker Desktop and wait until it says **Engine running**. Then run the script again. |
 | Linux: `Cannot talk to Docker.` | Start Docker with `sudo systemctl start docker`. If you have just installed Docker, add yourself to the `docker` group with `sudo usermod -aG docker $USER`, then log out and back in. |
-| Windows: `Docker is not available inside WSL.` | Open Docker Desktop → **Settings → Resources → WSL integration**. Tick **Enable integration with my default WSL distro** and turn on **Ubuntu**. Click **Apply & restart**. Check that Ubuntu is your default WSL system (`wsl -l -v` shows a `*` next to it). |
-| Windows: `Cannot talk to WSL.` | WSL is missing or broken. Open Terminal as administrator and run `wsl --install`, then `wsl --update`. Restart, open Docker Desktop, and try again. |
+| Windows: `Docker is not running, or not installed.` | Open Docker Desktop and wait until it says **Engine running**. If Docker Desktop is not installed, install it (see the Windows chapter), then run setup again. |
+| Windows: Docker Desktop says WSL is missing or needs updating | Open Terminal (Windows 10: PowerShell) as administrator and run `wsl --install --no-distribution`, then `wsl --update`. Restart, open Docker Desktop, and try again. |
 | Windows: Docker Desktop says virtualisation is not enabled or not supported | Virtualisation is turned off in the PC's firmware (BIOS or UEFI). Ask your IT department to turn on **Intel VT-x** or **AMD-V** (sometimes called **SVM**). |
 | Linux: `docker: 'compose' is not a docker command` | The Compose plugin is missing. Install the `docker-compose-plugin` package, following Docker's instructions for your distribution. |
 | `The build failed — see the output above.` | Scroll up and read the first error. The usual causes are no internet connection, a full disk, or Docker not running. Fix the cause and run setup again. |
@@ -59,8 +59,10 @@ Two tools help with almost every problem:
 | `Not set up yet — docker-config/config.json is missing.` | Run setup first. If you have just updated Relay from a ZIP file, you forgot to copy the old `docker-config` folder into the new Relay folder. Copy it across, or run setup again. |
 | macOS: `PulseAudio is not installed.` | Install it with `brew install pulseaudio`. See the macOS chapter. |
 | macOS: `PulseAudio did not come up. Log: …` | The lines below the message show why. Run `stop.command`, then `start.command`. If it still fails, restart the Mac and try again. |
-| Windows: `WSLg is not available (no /mnt/wslg/PulseServer).` | Relay needs Windows 11. On Windows 11, run `wsl --update` in Terminal, then `wsl --shutdown`, and try again. |
-| Windows: `Could not map "C:\…" to a WSL path.` | WSL could not reach the Relay folder. Check that Ubuntu is installed and is your default WSL system, and that the folder is on a local drive, such as `C:\Relay`. |
+| Windows: `PulseAudio is not installed. Run setup.bat first.` | Run `setup.bat`. It downloads PulseAudio. You do not need to re-enter your credentials: answer the first question with `Enter`. |
+| Windows: `Could not install PulseAudio` | Setup could not download PulseAudio. Check that the PC can reach the internet, then run setup again. If the lines above say `Checksum mismatch - refusing to install.`, the download was not the expected file. Do not work around it; ask whoever supports your Relay installation. |
+| Windows: `PulseAudio did not come up. Log: …` | The lines below the message show why. Run `stop.bat`, then `start.bat`. If it still fails, restart the PC and try again. |
+| Windows: `Windows reports no recording devices.` | Windows cannot see any microphone. Plug it in, check it is listed in **Settings → System → Sound** under **Input**, then run `start.bat` again. |
 | Linux: `/dev/snd does not exist, so there is no sound card to hand in.` | Linux cannot see a sound card. Plug in your audio interface. Check with `arecord -l`. |
 | `Audio checks failed -- see the FAIL lines above.` | Read the `FAIL` lines, and look them up in the next table. |
 | `The relay did not come up (container state: …).` followed by `Last lines of its log:` | Relay started but then stopped. The log lines below the message show why. Common causes are in this table; if you cannot tell, send those lines to whoever supports your Relay installation. |
@@ -76,10 +78,10 @@ followed by a line starting `->` with a hint.
 | Symptom | What to do |
 |---|---|
 | `FAIL  image 'live-caption-relay' is built` | Relay has not been built. Run setup first. |
-| `FAIL  PulseAudio server reachable at …` (macOS, Windows) | The sound bridge is not running. On a Mac, run `stop.command` and then `start.command`. On Windows, run `wsl --shutdown` in Terminal, then `start.bat` again. |
+| `FAIL  PulseAudio server reachable at …` (macOS, Windows) | The sound bridge is not running. On a Mac, run `stop.command` and then `start.command`. On Windows, run `stop.bat` and then `start.bat`. |
 | `FAIL  PortAudio input devices` | Relay cannot see any microphone. Check that the microphone is plugged in. On Linux, see the note about the audio group in the Linux chapter. |
 | `FAIL  one second of audio captured` | Relay sees a device but cannot record from it. Plug the microphone in again, close other programs that use it, and run start again. On a Mac, make sure no other copy of PulseAudio is running: run `stop.command` first. |
-| `FAIL  signal is non-silent`, with `digital silence` on the next line | Relay records, but the sound is pure silence. This is almost always microphone permission. **macOS:** turn on **Terminal** in **System Settings → Privacy & Security → Microphone**, then run `stop.command` and `start.command`. **Windows:** in **Settings → Privacy & security → Microphone**, turn on **Let apps access your microphone** and **Let desktop apps access your microphone**. |
+| `FAIL  signal is non-silent`, with `digital silence` on the next line | Relay records, but the sound is pure silence. This is almost always microphone permission. **macOS:** turn on **Terminal** in **System Settings → Privacy & Security → Microphone**, then run `stop.command` and `start.command`. **Windows:** in **Settings → Privacy & security → Microphone** (Windows 10: **Settings → Privacy → Microphone**), turn on **Let apps access your microphone** and **Let desktop apps access your microphone** (Windows 10: **Allow apps…** and **Allow desktop apps…**), then run `stop.bat` and `start.bat`. |
 | macOS: audio worked yesterday, but not after a restart | Run `start.command` again. After a restart, Docker brings Relay back but not PulseAudio. |
 
 ## Opening the panel and the viewer link

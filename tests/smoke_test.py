@@ -55,6 +55,25 @@ check("spanish target present", "SPANISH" in cfg["targets"])
 cfg = config.save({"admin_token": "t0ken", "openai_api_key": "sk-test-1234", "default_font_px": 999})
 check("font clamped to 160", cfg["default_font_px"] == 160, cfg["default_font_px"])
 check("file mode 0600", oct(os.stat(config.CONFIG_PATH).st_mode)[-3:] == "600")
+# A config.json this process does not own (copied in from another machine;
+# Docker Desktop on Windows shows it as root's) refuses chmod. Starting must
+# still work, by rewriting the file rather than crashing on every start.
+_real_chmod, _refused = os.chmod, []
+def _chmod_not_owner(path, mode, *a, **kw):
+    if Path(path) == config.CONFIG_PATH and not _refused:
+        _refused.append(path)
+        raise PermissionError(1, "Operation not permitted", str(path))
+    return _real_chmod(path, mode, *a, **kw)
+_before = config.CONFIG_PATH.read_bytes()
+os.chmod = _chmod_not_owner
+try:
+    config.ensure_file()
+    check("start survives a config.json it cannot chmod", bool(_refused))
+finally:
+    os.chmod = _real_chmod
+check("…with its contents intact", config.CONFIG_PATH.read_bytes() == _before)
+check("…and no temp copy left behind",
+      not config.CONFIG_PATH.with_suffix(".json.tmp").exists())
 red = config.redacted()
 check("key never serialised", "openai_api_key" not in red and "admin_token" not in red)
 check("key hint only", red["openai_api_key_set"] and red["openai_api_key_hint"] == "…1234")

@@ -1,0 +1,14 @@
+# Line endings are part of whether the launchers run, so pin them per type
+# rather than leaving them to each machine's core.autocrlf.
+* text=auto
+
+# Run by bash -- in the image (entrypoint.sh, copied from a checkout that may
+# be on Windows) and on macOS/Linux. A CR on the shebang line is
+# "bash\r: not found", so these stay LF even in a Windows checkout.
+*.sh      text eol=lf
+*.command text eol=lf
+
+# Run by cmd.exe and Windows PowerShell. cmd mis-parses LF-only batch files --
+# `goto` and `call :label` can miss labels -- so these are CRLF everywhere.
+*.bat text eol=crlf
+*.ps1 text eol=crlf

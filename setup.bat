@@ -8,42 +8,38 @@ REM docker-config\, which survives rebuilds.
 REM
 REM There is no Python or virtualenv on this machine to set up. The credentials
 REM and the certificate are written by the image's own Python, through
-REM `docker compose run`, so the only dependency here is Docker itself.
-REM
-REM Compose runs inside WSL, where the docker-config bind mount carries real
-REM Linux ownership - same as start.bat.
+REM `docker compose run`, so the only dependencies here are Docker itself and
+REM the PulseAudio build that start.bat uses to carry the microphone into the
+REM container (tools\windows-audio.ps1), which this downloads. Compose runs
+REM straight from Windows; no Linux distro is needed beyond Docker Desktop's own.
 REM
 REM It does not start the relay - use start.bat for that.
 setlocal enabledelayedexpansion
 cd /d "%~dp0"
-
-set "PROJDIR=%CD%"
-for /f "usebackq delims=" %%p in (`wsl -- wslpath "'%PROJDIR%'"`) do set "PROJDIR=%%p"
 
 echo Relay - setup
 echo =============
 echo.
 
 REM -------------------------------------------------------------- docker
-wsl -- bash -lc "command -v docker >/dev/null 2>&1"
+docker info >nul 2>&1
 if errorlevel 1 (
-    echo   Docker is not available inside WSL.
-    echo   Install Docker Desktop, enable WSL2 integration in its settings,
-    echo   then run this again.
-    goto :fail
-)
-wsl -- bash -lc "docker info >/dev/null 2>&1"
-if errorlevel 1 (
-    echo   Docker is installed but not running.
-    echo   Start Docker Desktop, wait for it to settle, then run this again.
+    echo   Docker is not running, or not installed.
+    echo   Install Docker Desktop, start it, wait for it to settle, then run
+    echo   this again.
     goto :fail
 )
 echo Docker - ok
 
-wsl -- bash -lc "cd '!PROJDIR!' && mkdir -p docker-config && chmod 700 docker-config"
+if not exist docker-config mkdir docker-config
+powershell -NoProfile -ExecutionPolicy Bypass -File tools\windows-audio.ps1 install
+if errorlevel 1 (
+    echo   Could not install PulseAudio - see the output above.
+    goto :fail
+)
 
 echo Building the image ^(this can take a few minutes the first time^)...
-wsl -- bash -lc "cd '!PROJDIR!' && RELAY_UID=$(id -u) RELAY_GID=$(id -g) docker compose -f docker/docker-compose.yml build"
+docker compose -f docker/docker-compose.yml build
 if errorlevel 1 (
     echo   The build failed - see the output above.
     goto :fail
@@ -52,8 +48,7 @@ echo Image - ok
 echo.
 
 REM -------------------------------------------------------------- config
-wsl -- bash -lc "cd '!PROJDIR!' && test -f docker-config/config.json"
-if not errorlevel 1 (
+if exist docker-config\config.json (
     echo docker-config/config.json already exists.
     set /p ANS="Reconfigure the API key and admin token? [y/N] "
     REM A "no" skips only the credentials - setup still falls through to the
@@ -117,11 +112,13 @@ echo   The operator panel is served over HTTPS. Its certificate always covers
 echo   this machine's LAN address. If you also reach this host by a hostname,
 echo   type it now so the certificate covers that too.
 echo   Leave blank to use the IP address only.
-set "ADMIN_FQDN="
-set /p ADMIN_FQDN="  Hostname (FQDN), or blank: "
+set "RELAY_ADMIN_FQDN="
+set /p RELAY_ADMIN_FQDN="  Hostname (FQDN), or blank: "
 echo.
 
-wsl -- bash -lc "cd '!PROJDIR!' && RELAY_UID=$(id -u) RELAY_GID=$(id -g) OPENAI_KEY='!OPENAI_KEY!' ADMIN_TOKEN='!ADMIN_TOKEN!' RELAY_ADMIN_FQDN='!ADMIN_FQDN!' docker compose -f docker/docker-compose.yml run --rm --no-deps -e OPENAI_KEY -e ADMIN_TOKEN -e RELAY_ADMIN_FQDN relay python tools/write_config.py"
+REM The secrets reach compose through this process's environment, and
+REM `-e NAME` with no value forwards them - so they are never on a command line.
+docker compose -f docker/docker-compose.yml run --rm --no-deps -e OPENAI_KEY -e ADMIN_TOKEN -e RELAY_ADMIN_FQDN relay python tools/write_config.py
 if errorlevel 1 (
     echo   Could not write docker-config\config.json - see the output above.
     goto :fail
@@ -138,13 +135,13 @@ REM for it in a scrolling log on event day. Every start reuses it while it
 REM still covers the current address and has 30+ days left.
 :tls
 for /f "usebackq delims=" %%i in (`powershell -NoProfile -Command ^
-    "(Get-NetIPConfiguration | Where-Object {$_.IPv4DefaultGateway -ne $null} | Select-Object -First 1).IPv4Address.IPAddress"`) do set "LAN_IP=%%i"
-if "!LAN_IP!"=="" set "LAN_IP=127.0.0.1"
+    "(Get-NetIPConfiguration | Where-Object {$_.IPv4DefaultGateway -ne $null} | Select-Object -First 1).IPv4Address.IPAddress"`) do set "RELAY_ADMIN_IPS=%%i"
+if "!RELAY_ADMIN_IPS!"=="" set "RELAY_ADMIN_IPS=127.0.0.1"
 
 echo Operator panel certificate
-echo   Certifying this machine's LAN address, !LAN_IP!.
+echo   Certifying this machine's LAN address, !RELAY_ADMIN_IPS!.
 echo.
-wsl -- bash -lc "cd '!PROJDIR!' && RELAY_UID=$(id -u) RELAY_GID=$(id -g) RELAY_ADMIN_IPS='!LAN_IP!' docker compose -f docker/docker-compose.yml run --rm --no-deps -e RELAY_ADMIN_IPS relay python tools/setup_caddy.py"
+docker compose -f docker/docker-compose.yml run --rm --no-deps -e RELAY_ADMIN_IPS relay python tools/setup_caddy.py
 if errorlevel 1 (
     echo   Could not generate the certificate - see the output above.
     goto :fail

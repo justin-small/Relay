@@ -12,7 +12,7 @@ follow it.
 
 ## What you need
 
-- **A computer to run Relay on.** A Mac, a Windows 11 PC or a Linux PC. It
+- **A computer to run Relay on.** A Mac, a Windows 10 or 11 PC, or a Linux PC. It
   stays at the venue during the event.
 - **A sound source.** A feed from the sound desk is best. A USB microphone or
   the computer's own microphone also works.

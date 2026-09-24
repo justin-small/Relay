@@ -173,9 +173,6 @@
 : How much you may use OpenAI per minute. The tier rises with the total you
   have paid, and sets the rate limit.
 
-**RDPSource**
-: The name the Windows microphone has inside WSL.
-
 **Rehearsal mode**
 : Relay showing made-up captions, without connecting to OpenAI, at no cost.
 
@@ -228,9 +225,9 @@
 : The plain `http://` address you give the room, and the caption pages it
   opens.
 
-**WSL, WSLg**
-: Windows Subsystem for Linux, which lets Windows run Linux programs. WSLg is
-  the Windows 11 part of it that carries sound, including the microphone.
+**WSL**
+: Windows Subsystem for Linux, which lets Windows run Linux programs. Docker
+  Desktop runs on it.
 
 **ZIP file**
 : One compressed file holding a whole folder of files.

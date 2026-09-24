@@ -1,28 +1,27 @@
 @echo off
-setlocal enabledelayedexpansion
+setlocal
 cd /d "%~dp0"
 
-REM Live Caption Relay on Windows - stops the container start.bat started.
-REM Compose runs inside WSL, as it does in start.bat.
+REM Live Caption Relay on Windows - stops what start.bat started: the
+REM container, and the PulseAudio daemon that carries the microphone in.
 
 echo Live Caption Relay - stopping...
 echo.
 
-set "PROJDIR="
-for /f "usebackq delims=" %%i in (`wsl -- wslpath -a "'%CD%'"`) do set "PROJDIR=%%i"
-if "!PROJDIR!"=="" (
-  echo   Could not map "%CD%" to a WSL path.
-  echo.
-  pause & exit /b 1
+docker info >nul 2>&1
+if errorlevel 1 (
+  echo   Docker is not running, so neither is the relay.
+) else (
+  docker compose -f docker/docker-compose.yml down
+  if errorlevel 1 (
+    echo.
+    echo   Stopping failed - see above.
+    echo.
+    pause & exit /b 1
+  )
 )
 
-wsl -- bash -lc "cd '!PROJDIR!' && docker compose -f docker/docker-compose.yml -f docker/docker-compose.wsl.yml down"
-if errorlevel 1 (
-  echo.
-  echo   Stopping failed - see above.
-  echo.
-  pause & exit /b 1
-)
+powershell -NoProfile -ExecutionPolicy Bypass -File tools\windows-audio.ps1 stop
 
 echo.
 echo Stopped.
