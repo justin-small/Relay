@@ -299,22 +299,22 @@
   <details class="sect" id="sec-blocklist">
     <summary>Blocked words</summary>
     <div class="note" style="margin:0 0 12px">
-      Edited in <span class="mono" id="blocklistPath">blocklist.txt</span> &mdash;
+      Edited in <span class="mono" id="blocklistPath">blocklist.txt</span> with
       one word or phrase per line. Changes to the file are picked up within about
       two seconds, no restart. You can also edit it here.
     </div>
     <div class="field">
-      <label for="blocklist">Blocked words &mdash; removed from both the English and the Spanish feed</label>
+      <label for="blocklist">Blocked words, removed from the transcript and every translation</label>
       <textarea id="blocklist" rows="8" spellcheck="false" placeholder="bad word&#10;another bad word&#10;a phrase to drop"></textarea>
     </div>
     <button id="saveBlocklist">Save to file</button>
     <span id="blocklistCount" class="muted" style="margin-left:10px"></span>
     <div class="note">
-      Matches are removed outright &mdash; no asterisks, no gap, nothing on screen to notice.
+      Matches are removed outright: no asterisks, no gap, nothing on screen to notice.
       Case and accents are ignored (<span class="mono">nino</span> matches <span class="mono">ni&ntilde;o</span>) and only whole
       words match, so <span class="mono">ass</span> will not touch <span class="mono">class</span>.
-      <br>The two feeds are filtered independently, so add both the English word and its
-      Spanish equivalent if you want it gone from both.
+      <br>Each feed is filtered on its own, so to remove a word everywhere, list it
+      in each language.
     </div>
   </details>
 
