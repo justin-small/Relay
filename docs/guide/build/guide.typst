@@ -31,7 +31,7 @@ $highlighting-definitions$
 $endif$
 
 #set document(title: "$title$")
-#set text(font: ("Helvetica Neue", "Helvetica", "Arial"), size: 10.5pt, fill: ink, lang: "en", region: "US")
+#set text(font: ("Helvetica Neue", "Helvetica", "Arial", "Liberation Sans"), size: 10.5pt, fill: ink, lang: "en", region: "US")
 #set par(justify: false, leading: 0.68em, spacing: 0.95em)
 #show raw: set text(font: ("Menlo", "DejaVu Sans Mono", "Courier New"), size: 9pt)
 #show raw.where(block: true): it => block(width: 100%, fill: rgb("#f4f5f7"), inset: 9pt, radius: 3pt, it)

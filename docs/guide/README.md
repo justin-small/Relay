@@ -96,11 +96,8 @@ captured without a real account. The OpenAI chapter is dated for that reason.
 
 ## Publishing
 
-Build with a release version, attach both files to the GitHub release, and
-the README's link picks them up:
-
-```bash
-GUIDE_VERSION=1.0 docs/guide/build.sh
-gh release create guide-v1.0 docs/guide/out/Relay-User-Guide.pdf docs/guide/out/Relay-User-Guide.docx \
-  --title "Relay User Guide 1.0" --notes "Operator guide, PDF and Word."
-```
+The release workflow builds both files and attaches them to every tagged
+release, with the version on the cover taken from the tag, so the README's
+`releases/latest` links always point at the newest guide. See **Releasing** in
+the top-level README. CI builds on Linux with pinned pandoc and typst, where
+the template's sans-serif fallback is Liberation Sans.
