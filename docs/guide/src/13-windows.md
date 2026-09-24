@@ -644,7 +644,7 @@ REHEARSAL MODE: captions are canned. No OpenAI session is open.
 ```
 
 If you do not see that line, Relay started normally. Stop it, and check that
-you typed all four lines in the same window.
+you typed all three lines in the same window.
 
 To leave rehearsal mode, double-click `stop.bat`, then double-click
 `start.bat`. A normal start never uses rehearsal mode.

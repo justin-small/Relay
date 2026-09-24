@@ -31,8 +31,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           # Matches the base image in docker/Dockerfile.
           python-version: '3.12'
@@ -56,7 +56,7 @@ jobs:
       PANDOC_VERSION: '3.11'
       TYPST_VERSION: '0.15.1'
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Install pandoc, typst and fonts
         run: |
           curl -fsSL -o pandoc.deb \
@@ -74,7 +74,7 @@ jobs:
             export GUIDE_VERSION="${GITHUB_REF_NAME#v}"
           fi
           docs/guide/build.sh
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: guide
           path: |
@@ -91,8 +91,8 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
         with:
           name: guide
           path: dist

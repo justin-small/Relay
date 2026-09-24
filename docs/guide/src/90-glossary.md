@@ -134,7 +134,8 @@
 
 **Node.js, npm**
 : Node.js runs JavaScript programs outside a browser. npm installs the parts
-  they need. Needed only to build the Companion module.
+  they need. Needed only to build the Companion module yourself, for
+  Companion 3.
 
 **OpenAI Platform**
 : OpenAI's pay-as-you-go service for programs, at platform.openai.com. It is
@@ -163,8 +164,8 @@
 : A folder inside an OpenAI organization with its own keys, usage and limits.
 
 **PulseAudio**
-: A sound program. On a Mac, it carries the microphone into Relay's
-  container.
+: A sound program. On a Mac or a Windows PC, it carries the microphone into
+  Relay's container.
 
 **QR code**
 : A square barcode that a phone camera turns into a link.
@@ -175,6 +176,10 @@
 
 **Rehearsal mode**
 : Relay showing made-up captions, without connecting to OpenAI, at no cost.
+
+**Release**
+: A tested version of Relay or of the Companion module, published on GitHub
+  as ready-made files. The newest one is called the latest release.
 
 **Restricted modules**
 : A Companion 5 setting, under **Dangerous Features**, that allows importing

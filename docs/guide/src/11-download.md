@@ -169,10 +169,10 @@ cd Relay
 You should see git print a few lines ending in `done.` A new folder called
 `Relay` now holds the project.
 
-::: warning
-On Windows, do not leave out `--config core.autocrlf=false`. Without it, Git
-for Windows changes the line endings in Relay's Linux scripts, and start then
-fails with errors such as `$'\r': command not found`.
+::: note
+On Windows, `--config core.autocrlf=false` stops Git for Windows from changing
+the line endings in Relay's files. Relay pins the line endings of its scripts
+itself, so this is a second safeguard. Keep it in.
 :::
 
 ## Updating Relay later
