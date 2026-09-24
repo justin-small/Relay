@@ -4,7 +4,7 @@
 
 **Setup runs once. Start runs every time.**
 
-| | macOS | Windows 11 | Linux |
+| | macOS | Windows 10 / 11 | Linux |
 |---|---|---|---|
 | **Set up** (once) | double-click `setup.command` | double-click `setup.bat` | `./setup.sh` |
 | **Start** (every event) | double-click `start.command` | double-click `start.bat` | `./start.sh` |

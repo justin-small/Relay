@@ -5,6 +5,9 @@ docker-config/
 # Recorded runs: every word spoken at an event. Never commit.
 recordings/
 
+# PulseAudio for Windows, downloaded by setup.bat (tools/windows-audio.ps1).
+.pulseaudio/
+
 # Python
 __pycache__/
 *.py[cod]

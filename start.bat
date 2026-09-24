@@ -8,9 +8,11 @@ REM One container holds both processes: Caddy on the network side (viewers on
 REM port 80, the operator panel on 443 over HTTPS) and the relay on loopback
 REM behind it. There is nothing else to launch.
 REM
-REM Docker Desktop already runs on WSL2, and Windows 11's WSLg already exposes
-REM the microphone to it, so this just runs docker compose inside WSL where
-REM that microphone is visible. You should not need to open a Linux shell.
+REM Docker Desktop has no sound card of its own, so capture comes from a
+REM PulseAudio daemon running natively on Windows (tools\windows-audio.ps1,
+REM installed by setup.bat). This starts that daemon if it is not already up,
+REM checks the chain, then runs the container. You should not need to open a
+REM Linux shell.
 REM
 REM The container runs detached, so this window is not what keeps the relay
 REM alive: once it is up the window closes itself, and the relay runs until
@@ -22,46 +24,12 @@ REM certificate.
 echo Live Caption Relay - starting...
 echo.
 
-REM --- WSL present? (Docker Desktop's default backend, so it should be) ---
-wsl --status >nul 2>&1
+REM --- Docker running? ---
+docker info >nul 2>&1
 if errorlevel 1 (
-  echo   Cannot talk to WSL.
+  echo   Docker is not running.
   echo.
-  echo   Docker Desktop uses WSL2 as its backend, so this usually means Docker
-  echo   Desktop is not installed or not running. Start Docker Desktop and try
-  echo   again.
-  echo.
-  pause & exit /b 1
-)
-
-REM --- docker reachable from inside WSL? (Docker Desktop > Settings >
-REM     Resources > WSL integration must be on for the default distro) ---
-wsl -- docker version >nul 2>&1
-if errorlevel 1 (
-  echo   Docker is not available inside WSL.
-  echo.
-  echo   Open Docker Desktop - Settings - Resources - WSL integration and
-  echo   enable it for your default distro, then try again.
-  echo.
-  pause & exit /b 1
-)
-
-REM --- WSLg's PulseAudio socket: this is what carries the microphone ---
-wsl -- test -e /mnt/wslg/PulseServer
-if errorlevel 1 (
-  echo   WSLg is not available ^(no /mnt/wslg/PulseServer^).
-  echo.
-  echo   WSLg ships with Windows 11. On Windows 10 there is no WSLg, so the
-  echo   container cannot reach the microphone.
-  echo.
-  pause & exit /b 1
-)
-
-REM --- translate this folder to its WSL path ---
-set "PROJDIR="
-for /f "usebackq delims=" %%i in (`wsl -- wslpath -a "'%CD%'"`) do set "PROJDIR=%%i"
-if "!PROJDIR!"=="" (
-  echo   Could not map "%CD%" to a WSL path.
+  echo   Start Docker Desktop, wait for it to settle, and try again.
   echo.
   pause & exit /b 1
 )
@@ -75,21 +43,31 @@ if not exist docker-config\config.json (
   pause & exit /b 1
 )
 
+REM Rehearsal needs no microphone, so it skips the daemon and the check.
+if "!RELAY_DEMO!"=="1" goto :up
+
+powershell -NoProfile -ExecutionPolicy Bypass -File tools\windows-audio.ps1 start
+if errorlevel 1 (
+  echo.
+  pause & exit /b 1
+)
+
 REM --- check the audio chain before going live ---
 echo Checking audio...
-wsl -- bash -lc "cd '!PROJDIR!' && PULSE_SERVER=unix:/mnt/wslg/PulseServer ./tools/check-audio.sh"
+powershell -NoProfile -ExecutionPolicy Bypass -File tools\check-audio.ps1
 if errorlevel 1 (
   echo.
   echo   Audio checks failed - see the FAIL lines above.
   echo.
-  echo   The usual cause is microphone permission: open Settings - Privacy ^&
-  echo   Security - Microphone and turn on BOTH "Let apps access your
-  echo   microphone" and "Let desktop apps access your microphone".
+  echo   The usual cause is microphone permission: open Settings - Privacy -
+  echo   Microphone and turn on "Allow apps to access your microphone" and
+  echo   "Allow desktop apps to access your microphone".
   echo.
   choice /m "Start anyway"
   if errorlevel 2 (pause & exit /b 1)
 )
 
+:up
 REM The panel's certificate has to name the address the operator's browser will
 REM dial, and the container cannot work that out for itself - inside the
 REM namespace it only sees its own bridge address. So find this machine's LAN
@@ -101,14 +79,18 @@ if "!RELAY_ADMIN_IPS!"=="" (
 )
 if "!RELAY_ADMIN_IPS!"=="" set "RELAY_ADMIN_IPS=127.0.0.1"
 
-REM Compose runs inside WSL, where the docker-config bind mount carries real
-REM Linux ownership, so hand the container the invoking user's uid/gid.
-REM RELAY_DEMO is handed in the same way: WSL does not inherit Windows
-REM variables, so "set RELAY_DEMO=1" alone would otherwise start Relay live.
+REM Docker Desktop fakes bind-mount ownership here, so the image's default user
+REM is right and RELAY_UID/RELAY_GID are left unset. The environment -
+REM RELAY_ADMIN_IPS, RELAY_DEMO - reaches compose directly.
 echo.
 if "!RELAY_DEMO!"=="1" echo REHEARSAL MODE: canned captions, capture and schedules disabled.
 echo Building and starting the container...
-wsl -- bash -lc "cd '!PROJDIR!' && RELAY_UID=$(id -u) RELAY_GID=$(id -g) RELAY_ADMIN_IPS='!RELAY_ADMIN_IPS!' RELAY_DEMO='!RELAY_DEMO!' docker compose -f docker/docker-compose.yml -f docker/docker-compose.wsl.yml up --build -d && ./tools/wait-ready.sh"
+docker compose -f docker/docker-compose.yml -f docker/docker-compose.windows.yml up --build -d
+if errorlevel 1 (
+  echo.
+  pause & exit /b 1
+)
+powershell -NoProfile -ExecutionPolicy Bypass -File tools\wait-ready.ps1
 if errorlevel 1 (
   echo.
   pause & exit /b 1

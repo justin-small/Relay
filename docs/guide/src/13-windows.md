@@ -16,12 +16,10 @@ commands for normal use.
 
 ## Requirements
 
-- **Windows 11.** Windows 10 does not work. Relay reaches the microphone
-  through a part of Windows 11 called **WSLg**, and start checks for it.
-- **WSL 2 with Ubuntu.** **WSL** (Windows Subsystem for Linux) lets Windows
-  run Linux programs. Docker Desktop runs on it, and Relay's scripts use it to
-  reach the microphone. You install WSL and **Ubuntu**, a popular version of
-  Linux, in [Installing WSL and Ubuntu](#windows-wsl).
+- **Windows 10 or Windows 11.** Relay works the same way on both.
+- **WSL 2.** **WSL** (Windows Subsystem for Linux) lets Windows run Linux
+  programs. Docker Desktop runs on it. You do not need to install a Linux
+  system such as Ubuntu. See [Installing WSL](#windows-wsl).
 - **Virtualisation turned on.** Most PCs have it on already. If Docker says
   it is off, see [Troubleshooting the installation](#install-troubleshooting).
 - **8 GB of memory (RAM) or more** is recommended.
@@ -30,75 +28,53 @@ commands for normal use.
   while it builds it. Have **about 10 GB free** on drive C: to be comfortable.
 - **Docker Desktop.** Docker is the tool that runs Relay in a sealed box,
   called a **container**, so you do not have to install anything else by hand.
+- **PulseAudio.** Docker cannot see the microphone by itself. Relay uses a
+  small program called **PulseAudio** to carry the microphone's sound into the
+  container. You do not install it yourself: setup downloads it for you.
 - **A network connection.** The PC must be on the same local network (LAN)
   as the phones and screens that show captions, and it must be able to reach
   the internet, so Relay can talk to OpenAI.
 - **An OpenAI API key.** Part 2 explains how to get one.
 
-## Installing WSL and Ubuntu {#windows-wsl}
+## Installing WSL {#windows-wsl}
 
-You do this once.
+You do this once. Docker Desktop needs WSL 2 to run.
 
-1. Click **Start**, type `Terminal`, right-click **Terminal** and choose
-   **Run as administrator**. Click **Yes** when Windows asks for permission.
+1. Click **Start**, type `Terminal` (on Windows 10, type `PowerShell`),
+   right-click it and choose **Run as administrator**. Click **Yes** when
+   Windows asks for permission.
 
    A window opens with a prompt such as `PS C:\Windows\system32>`.
 
 2. Type this and press `Enter`:
 
    ```bat
-   wsl --install
+   wsl --install --no-distribution
    ```
 
-   Windows downloads and installs WSL and Ubuntu. This takes several minutes.
-   When it finishes, it asks you to restart.
+   Windows downloads and installs WSL. This takes a few minutes. When it
+   finishes, it may ask you to restart.
 
-   If WSL is already installed, this command prints its help text or says
-   that Ubuntu is already installed. That is fine.
+   If WSL is already installed, this command says so, or prints its help
+   text. That is fine.
 
-3. Restart the PC.
-4. After the restart, an **Ubuntu** window opens by itself. (If it does not,
-   click **Start** and open **Ubuntu**.) It says it is installing, then asks:
+3. Restart the PC if Windows asked you to.
 
-   ```
-   Enter new UNIX username:
-   ```
-
-   Type a short user name in lower case, such as `relay`, and press `Enter`.
-   Then type a password, press `Enter`, and type it again. The password is
-   hidden as you type.
-
-   This user name and password are only for Ubuntu on this PC. Write them
-   down; you rarely need them.
-
-5. Close the Ubuntu window.
-6. Open **Terminal** again (it does not need to be as administrator) and type:
+4. Open the same window again (it does not need to be as administrator) and
+   type:
 
    ```bat
    wsl --update
-   wsl -l -v
    ```
 
-   The second command lists your Linux systems. You should see `Ubuntu` with
-   a `*` next to it (that means it is the default) and `2` in the **VERSION**
-   column:
-
-   ```
-     NAME              STATE           VERSION
-   * Ubuntu            Running         2
-   ```
-
-   If the `*` is next to something else, such as `docker-desktop`, make
-   Ubuntu the default:
-
-   ```bat
-   wsl --set-default Ubuntu
-   ```
+   This makes sure WSL is up to date. It prints a message such as
+   `The most recent version of Windows Subsystem for Linux is already
+   installed.`
 
 ::: note
-Relay's scripts run their work inside your default Linux system. That is why
-Ubuntu must be the default, with the `*` next to it. You never need to open
-Ubuntu yourself for normal use.
+`--no-distribution` installs WSL without a Linux system such as Ubuntu.
+Relay does not need one, and neither does Docker Desktop. If you already have
+Ubuntu installed, you can leave it; Relay does not use it.
 :::
 
 ## Installing Docker Desktop
@@ -139,9 +115,6 @@ Ubuntu yourself for normal use.
 
     - Under **General**, make sure **Use the WSL 2 based engine** is ticked,
       and tick **Start Docker Desktop when you sign in to your computer**.
-    - Under **Resources → WSL integration**, make sure
-      **Enable integration with my default WSL distro** is ticked, and turn on
-      the switch next to **Ubuntu**.
 
     Click **Apply & restart**.
 
@@ -180,8 +153,13 @@ on an **admin token**. The admin token is the password for the operator panel.
    =============
 
    Docker - ok
+   Downloading PulseAudio for Windows (9 MB)...
+   PulseAudio - ok (C:\Relay\.pulseaudio)
    Building the image (this can take a few minutes the first time)...
    ```
+
+   Setup downloads PulseAudio only the first time. When you run setup again,
+   it says `PulseAudio - already installed` instead.
 
 3. Wait while Docker builds Relay. Many lines scroll past. This can take
    several minutes the first time, because Docker downloads what Relay needs
@@ -334,28 +312,35 @@ Do this before every event.
 
 1. Make sure Docker Desktop is running. You should see the whale near the
    clock.
-2. Plug in your microphone or audio interface, and make it the default
-   recording device in Windows. See [Choosing the microphone](#windows-mic).
+2. Plug in your microphone or audio interface **before** you start. See
+   [Choosing the microphone](#windows-mic).
 3. Double-click `start.bat` in `C:\Relay`.
 
-   A Command Prompt window opens. First, start checks the audio. You should
-   see something like this:
+   A Command Prompt window opens. First, start starts PulseAudio and checks
+   the audio. You should see something like this:
 
    ```
    Live Caption Relay - starting...
 
+   Starting PulseAudio on 127.0.0.1:4713...
+     input: Microphone (USB Audio CODEC)
    Checking audio...
    Live Caption Relay -- audio chain check
-   image: live-caption-relay   PULSE_SERVER=unix:/mnt/wslg/PulseServer
+   image: live-caption-relay   PULSE_SERVER=tcp:host.docker.internal:4713
 
      PASS  image 'live-caption-relay' is built
-     PASS  PulseAudio server reachable at unix:/mnt/wslg/PulseServer
+     PASS  PulseAudio server reachable at tcp:host.docker.internal:4713
      PASS  PortAudio input devices: pulse default
      PASS  one second of audio captured (rms 0.00218342)
      PASS  signal is non-silent (mic permission is granted)
 
-   All checks passed. Pick 'ALSA: pulse' (or your card) in the operator panel.
+   All checks passed. Pick your input by name in the operator panel.
    ```
+
+   There is one `input:` line for each recording device Windows has. If
+   PulseAudio is already running, the first line says
+   `PulseAudio already running on port 4713.` instead, and the `input:`
+   lines are not shown.
 
 4. Wait while Relay starts. You should see:
 
@@ -420,9 +405,9 @@ If the audio check fails, start shows the `FAIL` lines and asks:
 ```
   Audio checks failed - see the FAIL lines above.
 
-  The usual cause is microphone permission: open Settings - Privacy &
-  Security - Microphone and turn on BOTH "Let apps access your
-  microphone" and "Let desktop apps access your microphone".
+  The usual cause is microphone permission: open Settings - Privacy -
+  Microphone and turn on "Allow apps to access your microphone" and
+  "Allow desktop apps to access your microphone".
 
 Start anyway [Y,N]?
 ```
@@ -446,6 +431,7 @@ Stop Relay after every event.
    Live Caption Relay - stopping...
 
    [Docker's own lines, ending with the container being removed]
+   Stopped PulseAudio.
 
    Stopped.
 
@@ -454,8 +440,8 @@ Stop Relay after every event.
 
 2. The window closes by itself after 5 seconds.
 
-Your settings and credentials stay in `C:\Relay\docker-config` and are there
-the next time you start.
+Stop closes the container and PulseAudio. Your settings and credentials stay
+in `C:\Relay\docker-config` and are there the next time you start.
 
 ::: tip
 Stopping Relay is not the same as pressing **Stop** in the panel. The
@@ -561,24 +547,25 @@ check, open Docker Desktop and click the gear icon (**Settings**):
 - **General → Use the WSL 2 based engine**: ticked.
 - **General → Start Docker Desktop when you sign in to your computer**:
   ticked, so Docker is ready when you arrive at the venue.
-- **Resources → WSL integration → Enable integration with my default WSL
-  distro**: ticked, with **Ubuntu** switched on.
 
 If you change anything, click **Apply & restart**.
 
 ### Choosing the microphone {#windows-mic}
 
-Relay hears whatever Windows uses as its default recording device. Windows
-passes that device into WSL, where it appears as a source called
-**RDPSource**.
+When start runs, PulseAudio makes every recording device Windows has
+available to Relay, and the operator panel lists them by name, such as
+**WaveIn on Microphone (USB Audio CODEC)**. Windows shortens long names to 31
+characters. You choose the device in the panel's **Capture device** list.
 
-1. Open **Settings → System → Sound**.
-2. Under **Input**, choose your microphone or audio interface in
-   **Choose a device for speaking or recording**.
-3. Speak into it. The **Input volume** bar should move.
+1. Plug in your microphone or audio interface.
+2. Open **Settings → System → Sound**. Under **Input**, speak into the device.
+   The input volume bar should move. If the device is not listed, Windows
+   cannot see it: check the cable and any driver it needs.
+3. Run `start.bat`. The device appears in an `input:` line.
 
-If you change the default device while Relay is running, run `stop.bat` and
-`start.bat` so Relay picks it up.
+A device you plug in *after* running start does not appear, even after you
+click **Rescan** in the panel. Run `stop.bat`, then `start.bat`, so PulseAudio
+finds it.
 
 ### Microphone privacy settings
 
@@ -586,17 +573,23 @@ Windows blocks the microphone unless you allow it. If the audio check says
 `FAIL  signal is non-silent` with `digital silence` on the next line, turn on
 access:
 
-1. Open **Settings → Privacy & security → Microphone**.
-2. Turn on **Microphone access**.
-3. Turn on **Let apps access your microphone**.
-4. Turn on **Let desktop apps access your microphone**. This one is further
-   down the page, and it is the one people most often miss.
-5. Run `start.bat` again.
+1. Open the microphone privacy page:
+   - **Windows 11:** **Settings → Privacy & security → Microphone**.
+   - **Windows 10:** **Settings → Privacy → Microphone**.
+2. Turn on **Microphone access** (Windows 10: **Allow access to the
+   microphone on this device**).
+3. Turn on **Let apps access your microphone** (Windows 10: **Allow apps to
+   access your microphone**).
+4. Turn on **Let desktop apps access your microphone** (Windows 10: **Allow
+   desktop apps to access your microphone**). This one is further down the
+   page, and it is the one people most often miss.
+5. Run `stop.bat`, then `start.bat`.
 
 ### Windows Firewall
 
 The first time Relay starts, Windows Defender Firewall may ask whether to
-allow Docker to communicate on networks. Tick **Private networks** and click
+allow Docker to communicate on networks. (It does not ask about PulseAudio:
+PulseAudio only talks to programs on this PC.) Tick **Private networks** and click
 **Allow access**. Without this, phones in the room cannot open the viewer
 link.
 
@@ -604,11 +597,15 @@ At a venue, Windows may treat the network as **Public**. If phones cannot
 connect, open **Settings → Network & internet**, click your connection, and
 set **Network profile type** to **Private network**.
 
-### After a restart
+### After a restart, run start.bat again
 
 Docker restarts Relay by itself when Docker Desktop starts, unless you stopped
-it with `stop.bat` first. It is still best to double-click `start.bat` after a
-restart: it checks the audio and prints the current addresses.
+it with `stop.bat` first. But PulseAudio does not restart, so Relay comes back
+without a microphone.
+
+After every restart of the PC, double-click `start.bat` before the event,
+even if Relay seems to be running. It starts PulseAudio and reconnects
+everything, checks the audio, and prints the current addresses.
 
 ## Rehearsal mode
 

@@ -303,5 +303,31 @@ def ensure_file() -> Path:
         )
         os.chmod(CONFIG_PATH, 0o600)
     else:
-        os.chmod(CONFIG_PATH, 0o600)
+        _tighten(CONFIG_PATH)
     return CONFIG_PATH
+
+
+def _tighten(path: Path) -> None:
+    """Make an existing file 0600, taking ownership of it first if need be.
+
+    chmod needs the caller to own the file. One this process did not create --
+    copied into docker-config/ from another machine, which Docker Desktop on
+    Windows presents as root-owned -- refuses it, and the relay would crash
+    on every start. Rewriting it through a fresh 0600 file and renaming that
+    over the original, as save() does, leaves a file this process owns. Where
+    even that is refused the error is raised: a secret that cannot be made
+    private should stop the start, not be served as it is.
+    """
+    try:
+        os.chmod(path, 0o600)
+    except PermissionError:
+        tmp = path.with_suffix(path.suffix + ".tmp")
+        fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        try:
+            with os.fdopen(fd, "wb") as fh:
+                fh.write(path.read_bytes())
+            os.replace(tmp, path)
+        except BaseException:
+            # The copy holds the same secrets; never leave it lying around.
+            tmp.unlink(missing_ok=True)
+            raise

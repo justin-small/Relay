@@ -3,7 +3,8 @@
 #
 #   ./check-audio.sh                     # Linux: /dev/snd passthrough
 #   PULSE_SERVER=tcp:host.docker.internal:4713 ./check-audio.sh    # macOS
-#   PULSE_SERVER=unix:/mnt/wslg/PulseServer ./check-audio.sh       # WSL2
+#
+# Windows has no bash; tools/check-audio.ps1 is the same walk there.
 #
 # Each step prints PASS or FAIL with the thing to fix. Exit status is the
 # number of failures.
@@ -17,7 +18,6 @@ run() {  # run a command in the relay image with the audio wiring applied
     docker run --rm \
         ${PULSE_SERVER:+-e PULSE_SERVER="$PULSE_SERVER"} \
         ${PULSE_SERVER:+--add-host=host.docker.internal:host-gateway} \
-        ${WSLG_MOUNT:+-v "$WSLG_MOUNT"} \
         ${PULSE_SERVER:+} ${DEV_SND:+--device /dev/snd:/dev/snd --group-add audio} \
         "$IMAGE" "$@" 2>&1
 }
@@ -28,15 +28,9 @@ echo
 
 # Pick the wiring from the environment.
 if [ -n "${PULSE_SERVER:-}" ]; then
-    # WSLg's socket lives on the host filesystem, so it has to be bind
-    # mounted in. RELAY_PULSE_MOUNT overrides the source (a path or a volume).
-    case "$PULSE_SERVER" in
-        unix:*) WSLG_MOUNT="${RELAY_PULSE_MOUNT:-/mnt/wslg:/mnt/wslg}" ;;
-        *) WSLG_MOUNT="" ;;
-    esac
     DEV_SND=""
 else
-    WSLG_MOUNT=""; DEV_SND=1
+    DEV_SND=1
     [ -e /dev/snd ] || fail "/dev/snd exists on this host" \
         "no sound card visible; on macOS/Windows set PULSE_SERVER instead"
 fi
@@ -106,7 +100,7 @@ rms=$(printf '%s' "$cap" | awk '{print $1}')
 case "$rms" in
     ''|*[!0-9.]*)
         hint="stream would not open: $(printf '%s' "$cap" | tail -1)"
-        [ -n "${PULSE_SERVER:-}" ] && hint="$hint; if the server has no sources, on macOS load module-coreaudio-detect, on WSL check WSLg is running"
+        [ -n "${PULSE_SERVER:-}" ] && hint="$hint; if the server has no sources, on macOS load module-coreaudio-detect"
         fail "one second of audio captured" "$hint" ;;
     *)
         pass "one second of audio captured (rms $rms)"
