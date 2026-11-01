@@ -212,8 +212,19 @@
 
   <details class="sect" id="sec-targets" open>
     <summary>Target languages <span class="sumstate" id="targetsSum"></span></summary>
+    <div class="field">
+      <label for="xmode">Translation engine</label>
+      <select id="xmode">
+        <option value="realtime">Realtime: streams word by word, billed per minute per language</option>
+        <option value="text">Text: one line at a time, a fraction of the cost</option>
+      </select>
+      <div class="note">Realtime runs one translation session per language. Text transcribes once and
+        has a text model translate each finished line into every language, so extra languages cost
+        almost nothing. Captions then arrive a line at a time, a second or two behind.
+        Changing it restarts live sessions.</div>
+    </div>
     <table><tbody id="targets"></tbody></table>
-    <div class="note">Each live target is a separate, continuously-billed session. Turning one off closes it immediately.</div>
+    <div class="note" id="targetsNote">Each live target is a separate, continuously-billed session. Turning one off closes it immediately.</div>
   </details>
 
   <details class="sect" id="sec-schedules" open>

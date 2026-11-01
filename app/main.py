@@ -187,6 +187,22 @@ async def _shutdown() -> None:
 
 
 def _urls(port: int) -> list[str]:
+    """The viewer links the panel shows (and turns into QR codes).
+
+    In the Docker image the relay sits behind Caddy, so neither what this
+    process can see nor its own port is what a phone should dial: the address
+    is the container's bridge (172.x) and 8000 is not published. There the
+    launcher hands in the host's LAN address (RELAY_ADMIN_IPS) and the image
+    names the port the host publishes (RELAY_PUBLIC_HTTP) -- the same pair the
+    startup banner prints. Run natively, the relay serves viewers itself.
+    """
+    public = os.environ.get("RELAY_PUBLIC_HTTP")
+    if public:
+        ips = [ip.strip() for ip in
+               (os.environ.get("RELAY_ADMIN_IPS") or "").replace(";", ",").split(",")
+               if ip.strip()]
+        suffix = "" if int(public) == 80 else f":{int(public)}"
+        return [f"http://{ip}{suffix}/" for ip in ips] + [f"http://127.0.0.1{suffix}/"]
     try:
         s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         s.connect(("8.8.8.8", 80))

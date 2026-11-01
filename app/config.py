@@ -71,6 +71,16 @@ DEFAULTS: dict[str, Any] = {
         #   gpt-4o-mini-transcribe 50k
         #   gpt-4o-transcribe      10k   lowest ceiling of the set; avoid
         "transcribe_model": "gpt-live-transcribe",
+        # "realtime": one gpt-realtime-translate session per target, billed per
+        # minute each. "text": one transcription session, and each committed
+        # line translated into every target by text_model (billed per token --
+        # a small fraction of the cost, but captions arrive a line at a time).
+        "translation_mode": "realtime",
+        "text_model": "gpt-6-luna",
+        # Sent as reasoning_effort when non-empty. "none" keeps a reasoning
+        # model from thinking before each line, which only adds delay here;
+        # blank omits it, for a model that does not take the parameter.
+        "text_reasoning_effort": "none",
         # Segment timing for the committed caption lines. A line is committed
         # once its deltas have been quiet for segment_idle_s AND it ends on a
         # sentence boundary; segment_max_idle_s is the backstop that commits a
@@ -183,6 +193,11 @@ def _normalise(cfg: dict) -> dict:
     for _dead in ("vad_mode", "vad_eagerness", "vad_threshold",
                   "vad_prefix_padding_ms", "vad_silence_duration_ms"):
         rt.pop(_dead, None)
+    if rt.get("translation_mode") not in ("realtime", "text"):
+        rt["translation_mode"] = DEFAULTS["realtime"]["translation_mode"]
+    rt["text_model"] = str(rt.get("text_model") or "").strip() or DEFAULTS["realtime"]["text_model"]
+    effort = rt.get("text_reasoning_effort", DEFAULTS["realtime"]["text_reasoning_effort"])
+    rt["text_reasoning_effort"] = str(effort or "").strip()
     # An empty string from the panel's default option means "off".
     if rt.get("noise_reduction") not in ("near_field", "far_field"):
         rt["noise_reduction"] = None

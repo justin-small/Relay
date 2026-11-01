@@ -1,7 +1,9 @@
 """OpenAI Realtime sessions over WebSocket.
 
-One kind: TranslationRelaySession -- a `gpt-realtime-translate` connection that
-emits *both* transcripts on a single socket:
+TranscriptionSession is the source-only session the text translation mode uses
+(see texttranslate.py). The realtime mode's session is TranslationRelaySession
+-- a `gpt-realtime-translate` connection that emits *both* transcripts on a
+single socket:
 
     session.input_transcript.*   -> source-language text  (transcription stream)
     session.output_transcript.*  -> target-language text  (translation stream)
@@ -48,6 +50,8 @@ FATAL_MARKERS = (
     "does not have access",
     "http 401",
     "http 403",
+    # A retired or misspelled model name fails every request the same way.
+    "model_not_found",
 )
 
 
@@ -491,3 +495,100 @@ class TranslationRelaySession(RealtimeSession):
         if etype in TARGET_DONE_EVENTS:
             return TARGET
         return None
+
+
+class TranscriptionSession(RealtimeSession):
+    """Source language only: a `gpt-live-transcribe` transcription session.
+
+    Used by the text translation mode, where the translations come from a chat
+    model fed the committed source lines (see texttranslate.py), so one
+    transcription stream serves every target.
+
+    This endpoint has no server-side turn detection for this model, and it only
+    sends a final transcript for audio the client has committed. With silence
+    gating on, frames stop arriving when the speaker pauses; that gap is the
+    turn boundary. A turn that runs past MAX_TURN_S without a pause is committed
+    anyway, so a long unbroken passage still settles into lines.
+    """
+
+    kind = "transcribe"
+    AUDIO_APPEND_TYPE = "input_audio_buffer.append"
+    COMMIT_GAP_S = 0.6
+    MAX_TURN_S = 15.0
+
+    def __init__(
+        self,
+        *,
+        source_language: str,
+        on_source_delta: Callable[[str], None],
+        on_source_final: Callable[[str], None],
+        segment_idle_s: float | None = None,
+        segment_max_idle_s: float | None = None,
+        **kw,
+    ):
+        super().__init__(**kw)
+        self.source_language = source_language
+        if segment_idle_s is not None:
+            self.SEGMENT_IDLE_S = segment_idle_s
+        if segment_max_idle_s is not None:
+            self.SEGMENT_MAX_IDLE_S = segment_max_idle_s
+        self._sinks = {SOURCE: (on_source_delta, on_source_final)}
+
+    def _url(self) -> str:
+        # No model in the URL: that would open a conversation session.
+        return f"{WS_BASE}?intent=transcription"
+
+    def _session_update(self) -> dict:
+        iso = languages.SOURCE_LANGUAGES[self.source_language]["iso"]
+        inp: dict = {
+            "format": {"type": "audio/pcm", "rate": 24000},
+            "transcription": {"model": self.model, "languages": [iso], "delay": "low"},
+            "turn_detection": None,
+        }
+        if self.noise_reduction:
+            inp["noise_reduction"] = {"type": self.noise_reduction}
+        return {"type": "session.update",
+                "session": {"type": "transcription", "audio": {"input": inp}}}
+
+    async def _pump_audio(self, ws) -> None:
+        """Send frames as they come; commit on a pause or a long turn."""
+        assert self._audio_q is not None
+        turn_started: float | None = None
+        while True:
+            timeout = self.COMMIT_GAP_S if turn_started is not None else None
+            try:
+                pcm = await asyncio.wait_for(self._audio_q.get(), timeout)
+            except asyncio.TimeoutError:
+                pcm = None
+            now = time.monotonic()
+            if pcm is not None:
+                payload = base64.b64encode(pcm).decode("ascii")
+                await ws.send(json.dumps({"type": self.AUDIO_APPEND_TYPE, "audio": payload}))
+                if turn_started is None:
+                    turn_started = now
+            if turn_started is not None and (pcm is None or now - turn_started >= self.MAX_TURN_S):
+                await ws.send(json.dumps({"type": "input_audio_buffer.commit"}))
+                turn_started = None
+
+    def _handle(self, evt: dict) -> None:
+        # Unlike the translations endpoint, this one does send a completed
+        # event -- one per committed turn, carrying the turn's whole text. The
+        # segmenter has usually committed that text already, line by line, as
+        # the deltas went quiet; publishing the event's transcript as well put
+        # every line on screen twice. So a completed event only commits what
+        # is still in flight, and the deltas stay the one source of text.
+        if evt.get("type", "") in SOURCE_DONE_EVENTS:
+            rest = self._partials.get(SOURCE, "").strip()
+            self._partials[SOURCE] = ""
+            self._last_ch_delta.pop(SOURCE, None)
+            if rest:
+                self.last_delta_ts = time.time()
+                self._emit(SOURCE, 1, rest)
+            return
+        super()._handle(evt)
+
+    def _delta_channel(self, etype: str) -> str | None:
+        return SOURCE if etype in SOURCE_DELTA_EVENTS else None
+
+    def _final_channel(self, etype: str) -> str | None:
+        return SOURCE if etype in SOURCE_DONE_EVENTS else None

@@ -411,10 +411,25 @@ The same three languages left running over a weekend by mistake (48 hours,
 
 > 3 × 2,880 × $0.034 = **$293.76**
 
-Relay also asks OpenAI for the English transcript on each session. The
-pricing page lists live transcription (`gpt-live-transcribe`) at $0.017 per
-minute. OpenAI may bill this on top of the translation. If it does, the
-two-hour example above would cost up to $6.12 more, $18.36 in total.
+Relay also asks OpenAI for the English transcript, on one session only,
+however many languages are on. OpenAI bills it on top of the translation as
+`gpt-live-transcribe`, listed at $0.017 per minute, so the two-hour example
+above costs 120 × $0.017 = $2.04 more, $14.28 in total.
+
+### Text translation mode (cheaper)
+
+Under **Target languages**, the **Translation engine** setting has a **Text**
+option. Relay then transcribes once and has a small text model
+(`gpt-6-luna` by default) translate each finished line into every language
+you have on. Text is billed per token, so each extra language costs cents per
+event instead of $0.034 a minute. The same two-hour event with three
+languages:
+
+> 120 minutes × $0.017 (transcription) + about $0.10 (text) = **about $2.14**
+
+The trade-off: captions appear a line at a time, a second or two after each
+sentence ends, rather than word by word. Try it at a midweek event first and
+ask native speakers to check the translations.
 
 ::: tip
 After your first real session, open the **Usage** page on the OpenAI

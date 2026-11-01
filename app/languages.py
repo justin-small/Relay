@@ -11,8 +11,11 @@ SOURCE_LANGUAGES = {
     "ENGLISH": {"label": "English", "iso": "en"},
 }
 
-# The 13 output languages gpt-realtime-translate can produce. Input is far
-# wider -- 70+ languages -- but this app only ever sends one source language.
+# The 13 output languages gpt-realtime-translate can produce, then the ones only
+# the text translation mode can (`text_only`): a chat model translates into
+# them, so `name` is what the request calls the language -- spelled out where
+# the bare label is ambiguous. Input is far wider -- 70+ languages -- but this
+# app only ever sends one source language.
 TARGETS = {
     "SPANISH": {"label": "Spanish", "iso": "es"},
     "PORTUGUESE": {"label": "Portuguese", "iso": "pt"},
@@ -27,7 +30,26 @@ TARGETS = {
     "INDONESIAN": {"label": "Indonesian", "iso": "id"},
     "VIETNAMESE": {"label": "Vietnamese", "iso": "vi"},
     "ENGLISH": {"label": "English", "iso": "en"},
+    "ARABIC": {"label": "Arabic", "iso": "ar", "text_only": True,
+               "name": "Modern Standard Arabic"},
+    "NEPALI": {"label": "Nepali", "iso": "ne", "text_only": True,
+               "name": "Nepali, in Devanagari script"},
+    "TELUGU": {"label": "Telugu", "iso": "te", "text_only": True,
+               "name": "Telugu, in Telugu script"},
+    # No ISO 639-1 code; hmn is the ISO 639-2 code for the Hmong group.
+    "HMONG": {"label": "Hmong", "iso": "hmn", "text_only": True,
+              "name": "White Hmong (Hmoob Dawb), in the Romanized Popular Alphabet"},
 }
+
+
+def text_only(target: str) -> bool:
+    """True for a target only the text translation mode can produce."""
+    return bool(TARGETS.get(target, {}).get("text_only"))
+
+
+def target_prompt_name(target: str) -> str:
+    spec = TARGETS.get(target) or {}
+    return spec.get("name") or spec.get("label") or target.title()
 
 
 def target_names(source: str | None = None) -> list[str]:

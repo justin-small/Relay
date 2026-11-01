@@ -93,6 +93,23 @@
   $('channel').addEventListener('change', saveDevice);
   $('noise').addEventListener('change', saveDevice);
 
+  function renderMode() {
+    const text = cfg.realtime.translation_mode === 'text';
+    $('xmode').value = text ? 'text' : 'realtime';
+    $('targetsNote').textContent = text
+      ? 'Every live target is translated from the one transcription session. Turning one off takes effect from the next line.'
+      : 'Each live target is a separate, continuously-billed session. Turning one off closes it immediately.';
+  }
+
+  $('xmode').addEventListener('change', async function () {
+    try {
+      const body = await post('/api/admin/config', { realtime: { translation_mode: $('xmode').value } });
+      cfg = body.config;
+      renderMode();
+      okMsg('Translation engine saved.' + (body.status && body.status.running ? ' Live sessions restarted.' : ''));
+    } catch (e) { alertMsg(e.message); renderMode(); }
+  });
+
   async function saveDevice() {
     try {
       const body = await post('/api/admin/config', {
@@ -117,6 +134,9 @@
   /* ---- targets ---- */
   function targetState(t) {
     if (t.live) return 'live';
+    if (t.text_only && cfg && cfg.realtime.translation_mode !== 'text') {
+      return t.enabled ? 'needs the Text engine' : 'Text engine only';
+    }
     return t.enabled ? 'armed — starts with capture' : 'off';
   }
 
@@ -1037,6 +1057,7 @@
       $('segIdle').value = cfg.realtime.segment_idle_s;
       $('segMaxIdle').value = cfg.realtime.segment_max_idle_s;
       $('noise').value = cfg.realtime.noise_reduction || '';
+      renderMode();
       renderUrls(state.urls);
       applyStatus(state.status);
       loadRuns();
