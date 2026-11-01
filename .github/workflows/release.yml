@@ -39,7 +39,11 @@ jobs:
           cache: pip
       # sounddevice needs the PortAudio library to import, even with no
       # audio devices present; the smoke test fakes the devices it needs.
-      - run: sudo apt-get update && sudo apt-get install -y libportaudio2
+      # The runner's PortAudio is built with PulseAudio and fails to
+      # initialise -- so the import fails -- when no Pulse server answers.
+      # A headless one with a null sink is enough.
+      - run: sudo apt-get update && sudo apt-get install -y libportaudio2 pulseaudio
+      - run: pulseaudio -D --exit-idle-time=-1 --load=module-null-sink && pactl info | head -3
       # httpx2 is test-only (starlette's TestClient), so it stays out of
       # requirements.txt and the image.
       - run: pip install -r requirements.txt httpx2==2.13.1
