@@ -1,13 +1,20 @@
 """The relay: one capture, one session per enabled target, one hub.
 
-Each session is a `gpt-realtime-translate` connection that carries both feeds --
-the source transcript and that target's translation -- so there is no separate
-transcription session to run or pay for. Toggling a target on/off opens/closes
-exactly one session; that toggle is the cost control.
+Each session is a `gpt-realtime-translate` connection. The translation comes
+with it; the source transcript does not -- the endpoint only emits it when the
+session names an input transcription model, and that model is billed on its
+own (`gpt-live-transcribe`, per second of audio). Toggling a target on/off
+opens/closes exactly one session; that toggle is the cost control.
 
-With two or more targets live, every session reports the same source
-transcript. Only one of them (`_source_owner`) is allowed to publish it, so the
-transcription stream never receives the same words twice.
+Every session would transcribe the same audio, so only one of them
+(`_source_owner`) is opened with a transcription model. When the owner closes
+while others stay live, one of those is reopened with transcription so the
+source pane keeps running.
+
+realtime.translation_mode = "text" swaps all of that for one transcription
+session whose committed lines a chat model translates into every target
+(texttranslate.py). Targets then cost tokens, not minutes; a toggle only
+changes which languages the next request asks for.
 """
 from __future__ import annotations
 
@@ -19,7 +26,8 @@ import time
 from . import config, languages, redact
 from .audio import AudioCapture
 from .hub import hub
-from .realtime import TranslationRelaySession
+from .realtime import TranscriptionSession, TranslationRelaySession
+from .texttranslate import TextTranslator
 from .recorder import recorder
 
 log = logging.getLogger("relay.engine")
@@ -32,6 +40,12 @@ REHEARSAL_REFUSAL = (
     "Rehearsal mode: capture is disabled so nothing is billed. The viewer pages "
     "are showing canned captions. Restart Relay without RELAY_DEMO=1 to go live."
 )
+
+
+def text_mode(cfg: dict) -> bool:
+    """Transcribe once and translate the text, rather than one realtime
+    translation session per target. See texttranslate.py."""
+    return cfg["realtime"].get("translation_mode") == "text"
 
 
 def demo_mode() -> bool:
@@ -47,6 +61,10 @@ class Engine:
         self.relays: dict[str, TranslationRelaySession] = {}
         self._audio_queues: dict[str, asyncio.Queue] = {}
         self._source_owner: str | None = None
+        # Text translation mode: one transcription session feeding a chat
+        # model, instead of a realtime session per target.
+        self.transcriber: TranscriptionSession | None = None
+        self.translator: TextTranslator | None = None
         self.running = False
         # Wall clock, not monotonic: this timestamp is served to clients on
         # other machines (a Companion surface, a browser) that render the
@@ -93,8 +111,15 @@ class Engine:
             enabled = [t for t, spec in sorted(cfg["targets"].items()) if spec.get("enabled")]
             # The recorded window is exactly this start -> the matching stop.
             self._begin_recording(cfg, src, enabled)
-            for target in enabled:
-                self._open_relay(target, cfg, key)
+            skipped = []
+            if text_mode(cfg):
+                self._open_text_pipeline(enabled, cfg, key)
+            else:
+                for target in enabled:
+                    if languages.text_only(target):
+                        skipped.append(languages.target_label(target))
+                    else:
+                        self._open_relay(target, cfg, key)
             # Both feeds now come out of the translation sessions, so with no
             # target enabled there is nothing to transcribe either. Say so
             # rather than sitting there looking connected.
@@ -102,6 +127,11 @@ class Engine:
                 "No target language is enabled, so nothing is being transcribed "
                 "or translated. Turn one on."
             )
+            if skipped:
+                self.last_error = (
+                    f"{', '.join(skipped)} need the Text translation engine; "
+                    "the Realtime engine cannot produce them, so they are off."
+                )
             self._push_status()
             return self.status()
 
@@ -148,9 +178,18 @@ class Engine:
         cfg = config.save({"targets": {target: spec}})
 
         async with self._lock:
+            if self.translator is not None:
+                # Text mode: a target is a key in the next request, not a session.
+                if enabled:
+                    hub.reset(TRANSLATION_STREAM, target)
+                    self.translator.targets.add(target)
+                else:
+                    self.translator.targets.discard(target)
+                self._push_status()
+                return self.status()
             if target in self.relays:
                 await self._close_relay(target)
-            if enabled and self.running:
+            if enabled and self.running and not languages.text_only(target):
                 key = (cfg.get("openai_api_key") or "").strip()
                 if key:
                     hub.reset(TRANSLATION_STREAM, target)
@@ -174,17 +213,17 @@ class Engine:
         if target == self._source_owner:
             hub.publish_final(TRANSCRIPTION_STREAM, config.get()["source_language"], text)
 
-    def _elect_source_owner(self) -> None:
-        self._source_owner = min(self.relays) if self.relays else None
-
     def _open_relay(self, target: str, cfg: dict, key: str) -> None:
         assert self.capture is not None
+        # The transcription model is fixed when the session opens, so the owner
+        # is decided here: the first session opened while there is none.
+        owner = self._source_owner not in self.relays
         session = TranslationRelaySession(
             name=f"translate:{target}",
             api_key=key,
             model=cfg["realtime"]["translate_model"],
             noise_reduction=cfg["realtime"].get("noise_reduction"),
-            transcribe_model=cfg["realtime"].get("transcribe_model") or "",
+            transcribe_model=(cfg["realtime"].get("transcribe_model") or "") if owner else "",
             segment_idle_s=cfg["realtime"].get("segment_idle_s"),
             segment_max_idle_s=cfg["realtime"].get("segment_max_idle_s"),
             source_language=cfg["source_language"],
@@ -199,26 +238,104 @@ class Engine:
         self._audio_queues[target] = q
         session.start(q)
         self.relays[target] = session
-        self._elect_source_owner()
+        if owner:
+            self._source_owner = target
 
-    async def _close_relay(self, target: str) -> None:
+    async def _close_relay(self, target: str, handoff: bool = True) -> None:
         session = self.relays.pop(target, None)
         if session is not None:
             await session.stop()
         q = self._audio_queues.pop(target, None)
         if q is not None and self.capture is not None:
             self.capture.remove_consumer(q)
-        self._elect_source_owner()
+        if target != self._source_owner:
+            return
+        self._source_owner = None
+        if not (handoff and self.relays):
+            return
+        # The others were opened without transcription; reopen one with it.
+        cfg = config.get()
+        key = (cfg.get("openai_api_key") or "").strip()
+        if key:
+            heir = min(self.relays)
+            await self._close_relay(heir, handoff=False)
+            self._open_relay(heir, cfg, key)
+
+    def _open_text_pipeline(self, enabled: list[str], cfg: dict, key: str) -> None:
+        assert self.capture is not None
+        rt = cfg["realtime"]
+        src = cfg["source_language"]
+        translator = TextTranslator(
+            api_key=key,
+            model=rt.get("text_model") or config.DEFAULTS["realtime"]["text_model"],
+            reasoning_effort=rt.get("text_reasoning_effort", ""),
+            source_language=src,
+            on_final=lambda t, x: hub.publish_final(TRANSLATION_STREAM, t, x),
+            on_status=self._push_status,
+        )
+        translator.targets = set(enabled)
+
+        def source_final(text: str) -> None:
+            # Translate the line as published, blocklist applied: the list is
+            # English and Spanish words, which no filter on the far side could
+            # catch once they are Arabic or Chinese. A removed word is never
+            # sent to the model, so it cannot reach any language.
+            translator.submit(hub.publish_final(TRANSCRIPTION_STREAM, src, text))
+
+        session = TranscriptionSession(
+            name="transcribe",
+            api_key=key,
+            # Text mode has nothing to translate without the transcript, so an
+            # empty transcribe_model (the realtime mode's "source pane off")
+            # falls back to the default here.
+            model=rt.get("transcribe_model") or config.DEFAULTS["realtime"]["transcribe_model"],
+            noise_reduction=rt.get("noise_reduction"),
+            segment_idle_s=rt.get("segment_idle_s"),
+            segment_max_idle_s=rt.get("segment_max_idle_s"),
+            source_language=src,
+            on_source_delta=lambda d: hub.publish_delta(TRANSCRIPTION_STREAM, src, d),
+            on_source_final=source_final,
+            on_status=self._push_status,
+        )
+        translator.start()
+        q = self.capture.add_consumer()
+        self._audio_queues[session.name] = q
+        session.start(q)
+        self.transcriber, self.translator = session, translator
+
+    async def _close_text_pipeline(self) -> None:
+        session, translator = self.transcriber, self.translator
+        self.transcriber = self.translator = None
+        if session is not None:
+            await session.stop()
+            q = self._audio_queues.pop(session.name, None)
+            if q is not None and self.capture is not None:
+                self.capture.remove_consumer(q)
+        if translator is not None:
+            await translator.stop()
 
     async def _stop_all_sessions(self) -> None:
         for target in list(self.relays):
-            await self._close_relay(target)
+            await self._close_relay(target, handoff=False)
+        await self._close_text_pipeline()
+
+    def _sessions(self) -> list:
+        """Every live connection, for health and the meter, in a stable order."""
+        if self.translator is not None:
+            return [s for s in (self.transcriber, self.translator) if s is not None]
+        return [self.relays[t] for t in sorted(self.relays)]
+
+    def _live_names(self) -> list[str]:
+        if self.translator is not None:
+            return sorted(self.translator.targets)
+        return list(self.relays)
 
     # -- status --------------------------------------------------------
     def live_targets(self) -> list[dict]:
         cfg = config.get()
         out = []
-        for target, session in self.relays.items():
+        for target in self._live_names():
+            session = self.relays.get(target) or self.translator
             out.append(
                 {
                     "target": target,
@@ -234,7 +351,8 @@ class Engine:
         from .scheduler import scheduler
 
         cfg = config.get()
-        sessions = [self.relays[t].health() for t in sorted(self.relays)]
+        sessions = [s.health() for s in self._sessions()]
+        live = set(self._live_names())
         return {
             "running": self.running,
             "started_at": self.started_at,
@@ -253,7 +371,8 @@ class Engine:
                     "label": languages.target_label(name),
                     "language_label": languages.target_label(name),
                     "enabled": spec.get("enabled", False),
-                    "live": name in self.relays,
+                    "live": name in live,
+                    "text_only": languages.text_only(name),
                 }
                 for name, spec in sorted(cfg["targets"].items())
             ],
@@ -274,10 +393,7 @@ class Engine:
             "clipping": a.get("clipping", False),
             "clipped_samples": a.get("clipped_samples", 0),
             "speaking": a.get("speaking", False),
-            "sessions": [
-                {"name": self.relays[t].name, "state": self.relays[t].state}
-                for t in sorted(self.relays)
-            ],
+            "sessions": [{"name": s.name, "state": s.state} for s in self._sessions()],
         }
 
     def targets_payload(self) -> dict:

@@ -145,7 +145,9 @@ class Hub:
             msg["text"] = ch.open_text
         self._fanout(ch, msg)
 
-    def publish_final(self, stream: str, lang: str, text: str | None = None) -> None:
+    def publish_final(self, stream: str, lang: str, text: str | None = None) -> str:
+        """Commit a line. Returns it as published -- blocklist applied -- or ""
+        when nothing was left to publish."""
         ch = self.channel(stream, lang)
         tail = ch.redactor.flush()
         if text is not None:
@@ -161,7 +163,7 @@ class Hub:
         ch.delta_count = 0
         ch.open_started_ts = None
         if not final_text:
-            return
+            return ""
         self._seq += 1
         ch.last_delta_ts = time.time()
         line = {"seq": self._seq, "text": final_text, "ts": ch.last_delta_ts}
@@ -184,6 +186,7 @@ class Hub:
                 "ts": ch.last_delta_ts,
             },
         )
+        return final_text
 
     def _fanout(self, ch: Channel, msg: dict) -> None:
         # Serialise once here, not once per subscriber: 300 phones on a feed

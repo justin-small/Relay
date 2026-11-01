@@ -38,6 +38,13 @@ _TERM_SEP = re.compile(r"[\s\-]+")
 # Punctuation that must not be left orphaned behind a space after a removal.
 _SPACE_BEFORE_PUNCT = re.compile(r"[ \t]+([,.;:!?…)\]}»”’%])")
 _WHITESPACE_RUN = re.compile(r"[ \t]{2,}")
+# A removal between two pieces of punctuation leaves them touching: "Well,
+# damn, that" -> "Well,, that". Speech never produces these pairs, so the
+# second mark is the one the removed word owned. A clause mark after a sentence
+# end goes the same way ("Stop. Damn, now" -> "Stop. now" -> "Stop. Now" would
+# need recasing, so only the stray comma is dropped).
+_CLAUSE = ",;:"
+_DOUBLED = re.compile(r"([,;:.!?…])[ \t]*[,;:]+")
 _WORD = re.compile(r"[^\W_]+(?:['’][^\W_]+)*", re.UNICODE)
 
 
@@ -146,7 +153,7 @@ class Redactor:
         if not self.active or not text:
             return text
         cleaned = self._remove(text, allow_match_at_start=True)
-        return _tidy(cleaned, "").strip()
+        return _recase(text, _tidy(cleaned, "")).strip()
 
     # -- internals -----------------------------------------------------
     def _drain(self, final: bool) -> str:
@@ -170,6 +177,8 @@ class Redactor:
 
         cleaned = self._remove(emit, allow_match_at_start=not _is_word_char(self._prev_char))
         cleaned = _tidy(cleaned, self._prev_char)
+        if not self._prev_char or self._prev_char in ".!?…" or self._prev_char.isspace():
+            cleaned = _recase(emit, cleaned)
         if final:
             # Nothing follows, so a space left by a trailing removal is dead.
             cleaned = cleaned.rstrip(" \t")
@@ -210,15 +219,25 @@ class Redactor:
 
     def _remove(self, text: str, allow_match_at_start: bool) -> str:
         folded = fold(text)
-        out, cursor = [], 0
+        out, cursor, recap = [], 0, False
         for m in self._pattern.finditer(folded):
             if m.start() == 0 and not allow_match_at_start:
                 # This fragment continues a word already on screen, so a match
                 # anchored at its first character is not a real word start.
                 continue
-            out.append(text[cursor:m.start()])
+            before = text[cursor:m.start()]
+            if recap:
+                before = _capitalise_first(before)
+            out.append(before)
+            # A capitalised word right after a sentence end opened that
+            # sentence; the word after it inherits the capital. (At the very
+            # start of a fragment _recase handles it, knowing what came before.)
+            so_far = "".join(out).rstrip(" \t")
+            recap = (so_far[-1:] in (".", "!", "?", "\u2026")
+                     and text[m.start()].isupper()) or (recap and not before.strip())
             cursor = m.end()
-        out.append(text[cursor:])
+        rest = text[cursor:]
+        out.append(_capitalise_first(rest) if recap else rest)
         return "".join(out)
 
 
@@ -226,10 +245,35 @@ def _is_word_char(ch: str) -> bool:
     return bool(ch) and (ch.isalnum() or ch in "'’")
 
 
+def _capitalise_first(text: str) -> str:
+    i = next((i for i, c in enumerate(text) if c.isalpha()), None)
+    return text if i is None else text[:i] + text[i].upper() + text[i + 1:]
+
+
+def _recase(original: str, cleaned: str) -> str:
+    """A removed word that opened a sentence took its capital with it: give it
+    to the word that now opens the sentence. Only when the original opened
+    with a capital and the first word changed, so text is otherwise as spoken."""
+    a = next((i for i, c in enumerate(original) if c.isalpha()), None)
+    b = next((i for i, c in enumerate(cleaned) if c.isalpha()), None)
+    if a is None or b is None or not original[a].isupper() or not cleaned[b].islower():
+        return cleaned
+    if original.lstrip()[:12] == cleaned.lstrip()[:12]:
+        return cleaned
+    return cleaned[:b] + cleaned[b].upper() + cleaned[b + 1:]
+
+
 def _tidy(fragment: str, prev_char: str) -> str:
     """Close the gap a removal leaves, so the line still reads naturally."""
     fragment = _WHITESPACE_RUN.sub(" ", fragment)
     fragment = _SPACE_BEFORE_PUNCT.sub(r"\1", fragment)
+    fragment = _DOUBLED.sub(r"\1", fragment)
+    if not prev_char or prev_char in _CLAUSE + ".!?…":
+        # Line start, or the mark before it already arrived in an earlier
+        # fragment: a clause mark leading this one is the removed word's.
+        body = fragment.lstrip(" \t")
+        if body[:1] and body[0] in _CLAUSE:
+            fragment = (" " if prev_char else "") + body.lstrip(_CLAUSE + " \t")
     if not prev_char or prev_char.isspace():
         fragment = fragment.lstrip(" \t")
     return fragment

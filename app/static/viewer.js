@@ -167,6 +167,8 @@
     // Screen/overlay want a bounded feed: keep the last N settled lines, drop
     // the rest. 0 (the phone default) means unbounded.
     this.lineCap = parseInt(el.dataset.lines, 10) || 0;
+    // A screen/overlay page pins its language in the markup.
+    if (el.getAttribute('lang')) setDir(el, el.getAttribute('lang'));
     const ph = el.querySelector('.empty');
     this.emptyText = ph ? ph.textContent : 'Waiting for audio…';
     const pane = el.closest('.pane');
@@ -254,9 +256,16 @@
     return this.openEl;
   };
 
+  // Scripts that run right to left; the rest of the page stays left to right.
+  const RTL = ['ar', 'fa', 'he', 'ur'];
+  function setDir(el, iso) {
+    el.setAttribute('dir', RTL.indexOf(iso) !== -1 ? 'rtl' : 'auto');
+  }
+
   Pane.prototype.setLangAttr = function (iso, label) {
     if (iso) {
       this.feed.setAttribute('lang', iso);
+      setDir(this.feed, iso);
       // On a translation-only page the document language should track the pane
       // so a screen reader voices the whole page correctly.
       if (cfg.mode === 'translation') root.setAttribute('lang', iso);
