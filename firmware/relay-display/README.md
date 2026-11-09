@@ -5,9 +5,10 @@ ESP32-S3-WROOM-1-N16R8 (16 MB flash, 8 MB octal PSRAM), an 800 x 480 RGB panel, 
 controller and LVGL 9.2. It is a touch-screen caption panel for Relay: a small screen on a wall or a
 desk that shows the live transcription, or one translation, from a Relay server on the same network.
 
-**This is the foundation.** It boots, lights the panel, joins Wi-Fi (from a setup page on the panel's
-own network), keeps its settings, and shows a test screen. It does not show captions yet: the caption
-stream, the touch menu, the panel registry and updates are separate pieces of work that build on this.
+**This is the foundation and the caption client.** It boots, lights the panel, joins Wi-Fi (from a setup
+page on the panel's own network), keeps its settings, shows a test screen, and keeps the last 200 finished
+lines of up to two caption feeds from Relay. It does not draw captions yet: the caption view, the touch
+menu, Relay discovery, the panel registry and updates are separate pieces of work that build on this.
 
 ## What is here
 
@@ -20,6 +21,7 @@ stream, the touch menu, the panel registry and updates are separate pieces of wo
 | Setup | An access point and a page to join Wi-Fi (join code as a QR on the panel), with recovery |
 | BOOT button | Hold 5 s: open the setup network. Hold 15 s: factory reset |
 | Screen | LVGL: centred text with an optional QR code, and the colour-bar bench picture |
+| Captions | Up to two feeds from Relay's `/stream?finals=1`, each with its own connection and 200-line buffer in PSRAM, resumed with `?last_id=` after a drop (see "Caption client") |
 | Partitions | Two app slots, `otadata`, `nvs`; signing set up (the update itself is a later change) |
 | `build.sh` | Release, `--dev` and `--qemu` builds, `--sign`, the native checks and the image check |
 | Tests | Native checks (g++), and an emulator suite under `qemu-system-xtensa` |
@@ -124,6 +126,38 @@ sits above the application slots, so flashing a new image does not erase the pan
   the panel restarts blank. It is a new panel to Relay afterwards.
 * `id` on the serial console prints the panel ID.
 
+## Caption client
+
+`main/captions.cpp` holds up to two feeds (slot 0, and slot 1 for the split view). Each is a task with one
+plain-HTTP connection to `GET /stream?stream=...&lang=...&finals=1` on Relay's viewer port and a buffer of
+the last **200 finished lines**, oldest dropped first, in PSRAM. The rules are in `main/caption_format.h`,
+which has no ESP-IDF in it and is what the native checks test.
+
+* **What is read.** Finished lines (`final: true`, with `id:` = seq), snapshots, `targets` and `: ping`.
+  Partial lines and anything else are ignored. Chunked and plain bodies, and CRLF, LF or CR line ends.
+* **Resume.** After a drop the feed reconnects with `?last_id=<highest seq it holds>`, so Relay sends only
+  the lines it missed. A seq it already holds is dropped. Retries back off from 1 s to 30 s, plus up to a
+  quarter at random. A stream with nothing on it, not even a ping, for 45 s is reopened
+  (`RELAY_CAPTION_SILENCE_S`; Relay pings every 15 s).
+* **Snapshots replace the buffer**, as the browser viewer does: on a fresh connection, on a resume older
+  than Relay's history, on a reset (Start), which is a snapshot with no lines and empties the feed, and on
+  a resume from before a reset or from a Relay that has since restarted (`Hub._resume_frames`), so a reset
+  the panel was away for still clears it.
+  **Set Relay's `history_lines` to 200** (it allows up to 500) so a rebooted panel refills all 200 lines;
+  at the default 40 it gets 40.
+* **State for the UI** (`captions_state`): off, waiting for network, connecting, connected, reconnecting,
+  relay not running (the connection was refused, or Caddy answered 502-504), feed refused (Relay answered
+  4xx, such as a language it does not offer). While retries keep failing the last state stays on screen.
+* **Text.** Lines are stored folded to what a Latin font draws: ASCII, U+00A1-U+024F, U+1E00-U+1EFF and €
+  stay; typographic quotes, dashes and the ellipsis become plain ones; zero-width characters and combining
+  marks go; every other run (emoji, other scripts, broken UTF-8) becomes one `?`, so text never vanishes
+  without a sign. A line is cut at 1024 bytes with `...`. **LVGL's built-in Montserrat covers ASCII only**:
+  the caption view needs a font generated for the ranges above.
+* **Where the feed comes from.** At boot, slot 0 shows the stored Relay address and feed when both are
+  set. Discovery and the feed picker set it later. On the serial console, for the bench:
+  `feed <slot> <url> translation <LANG>`, `feed <slot> <url> transcription`, `feed <slot> off` (not saved),
+  and `captions <slot>` prints the state and every line held.
+
 ## Tests
 
 ```bash
@@ -151,6 +185,14 @@ kept across a reset, different per panel), the colour bars and the software turn
 screen draws. It does **not** reach what the emulator has no model of: the RGB interface's timing, the
 backlight, Wi-Fi, the touch panel, PSRAM timing. Those are the bench checks below.
 
+`tests/test_captions.py` runs the caption client against `tests/fake_relay.py`, a stand-in for Relay's
+stream on the host (the emulator reaches it at 10.0.2.2): a fresh feed fills from the snapshot, lines arrive
+as committed, a dropped stream resumes with only the missed lines and no duplicates, the buffer keeps the
+newest 200, a 300-line history refills 200, a reset clears (also one made while the panel was away), a silent stream is reopened, a refused
+connection reads "relay not running" until Relay starts, a refused language reads "feed refused", two feeds
+keep apart, and unsupported characters show as `?`. The fake copies Relay's wire format and resume rule by
+hand; `app/hub.py`'s own tests own the server side.
+
 `firmware/relay-display/tests/test_seed_layout.py` needs no emulator: it checks the seed generator against
 `main/settings_format.h`.
 
@@ -168,6 +210,8 @@ Not proven by any test, and to be done on the board:
 - [ ] The panel rejoins that network after a power cycle without the setup network opening
 - [ ] Hold BOOT for 5 s opens the setup network; hold for 15 s erases everything
 - [ ] The picture does not shift or flicker while Wi-Fi is busy (the bounce buffer exists for this)
+- [ ] Captions: an hour on Wi-Fi against a running Relay with no lost or doubled lines (`captions 0`
+      against Relay's history), across at least one Wi-Fi drop and one Relay restart
 
 ## Copied from VXP
 

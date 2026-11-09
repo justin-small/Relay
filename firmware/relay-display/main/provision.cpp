@@ -27,6 +27,7 @@
 #include "setup_format.h"
 #include "setup_page.h"
 #include "touch.h"
+#include "captions.h"
 #include "wifi_policy.h"
 
 #if !CONFIG_RELAY_QEMU
@@ -887,7 +888,7 @@ void console_task(void *)
     // touching the button, and it reads the clock for a bench check. The console is the USB port the board is flashed
     // through, so typing into it needs the same physical access as a reflash, which already reads every stored value
     // (README, "Recovery").
-    char line[32];
+    char line[192];
     for (;;) {
         if (fgets(line, sizeof line, stdin) == nullptr) {
             clearerr(stdin);
@@ -907,6 +908,26 @@ void console_task(void *)
             lock();
             ESP_LOGI(TAG, "console: panel id %s", s_.stored.panel_id);
             unlock();
+        } else if (strncmp(line, "feed ", 5) == 0) {
+            // Point a caption slot at a Relay, for the bench and the emulator suite. Not saved: the stored feed is
+            // what the panel shows after a restart.
+            //   feed <slot> off | feed <slot> <url> transcription | feed <slot> <url> translation <LANG>
+            int slot = -1;
+            char url[130] = "";
+            char stream[16] = "";
+            char lang[20] = "";
+            const int got = sscanf(line + 5, "%d %129s %15s %19s", &slot, url, stream, lang);
+            esp_err_t err = ESP_ERR_INVALID_ARG;
+            if (got == 2 && strcmp(url, "off") == 0) {
+                err = captions_set_feed(slot, "", kFeedNone, "");
+            } else if (got == 3 && strcmp(stream, "transcription") == 0) {
+                err = captions_set_feed(slot, url, kFeedTranscription, "");
+            } else if (got == 4 && strcmp(stream, "translation") == 0) {
+                err = captions_set_feed(slot, url, kFeedTranslation, lang);
+            }
+            ESP_LOGI(TAG, "console: feed %s", err == ESP_OK ? "set" : "not set: feed <slot> off | <url> transcription | <url> translation <LANG>");
+        } else if (strncmp(line, "captions ", 9) == 0) {
+            captions_dump(atoi(line + 9));
 #if CONFIG_RELAY_DEV_DIAG
         } else if (strncmp(line, "pclk ", 5) == 0) {
             // A bench build only: try a pixel clock without a reflash. The frame rate in the next diag block shows

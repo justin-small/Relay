@@ -1,0 +1,626 @@
+// The caption feeds' sockets and tasks. The rules are in `caption_format.h`; `captions.h` says what
+// this file is for.
+
+#include "captions.h"
+
+#include <cerrno>
+#include <cstdio>
+#include <cstring>
+#include <fcntl.h>
+#include <new>
+
+#include "config.h"
+#include "esp_heap_caps.h"
+#include "esp_log.h"
+#include "esp_random.h"
+#include "esp_timer.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/semphr.h"
+#include "freertos/task.h"
+#include "lwip/netdb.h"
+#include "lwip/sockets.h"
+#include "net.h"
+#include "sdkconfig.h"
+#include "settings_format.h"
+
+namespace {
+
+const char *TAG = "captions";
+
+// **A snapshot is one event, held whole.** Relay's history can be 500 lines, and a snapshot of them is
+// one `data:` line of tens of kilobytes, so each feed has a quarter megabyte of PSRAM for it. The
+// emulator has no PSRAM, and its snapshots are the test's, so it gets a small one in internal RAM. An
+// event larger than the buffer is dropped and logged; the lines after it still arrive.
+constexpr size_t kSseBytesPsram = 256 * 1024;
+constexpr size_t kSseBytesInternal = 32 * 1024;
+
+// How long a connection may take to open. lwIP's own wait for a SYN that is never answered is minutes.
+constexpr int kConnectTimeoutMs = 5000;
+
+// Relay pings every 15 s of quiet (app/main.py HEARTBEAT_S). A stream with nothing at all for this long
+// is a connection that died without a FIN, which a Wi-Fi drop leaves behind, and is opened again.
+constexpr int64_t kSilenceUs = static_cast<int64_t>(CONFIG_RELAY_CAPTION_SILENCE_S) * 1000 * 1000;
+
+// Lines and the feed itself go to PSRAM where there is any, and to internal RAM where there is none.
+void *feed_alloc(size_t n)
+{
+    return heap_caps_malloc_prefer(n, 2, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT, MALLOC_CAP_DEFAULT);
+}
+
+void feed_free(void *p)
+{
+    heap_caps_free(p);
+}
+
+struct Slot {
+    int index = 0;
+    SemaphoreHandle_t lock = nullptr;
+    TaskHandle_t task = nullptr;
+
+    // What was asked for, under `lock`. `wanted_gen` counts the changes.
+    char url[sizeof(relay_settings_t::relay_addr)] = {};
+    uint8_t stream = kFeedNone;
+    char lang[sizeof(relay_settings_t::feed_lang)] = {};
+    uint32_t wanted_gen = 0;
+
+    // What readers see, under `lock`.
+    caption_feed *feed = nullptr;
+    caption_state state = caption_state::off;
+    uint32_t revision = 0;
+
+    // The task's own.
+    char *sse = nullptr;
+    size_t sse_cap = 0;
+};
+
+Slot s_slots[kCaptionSlots];
+bool s_started = false;
+void (*volatile s_listener)(int, void *) = nullptr;
+void *volatile s_listener_ctx = nullptr;
+
+void lock(Slot &s)
+{
+    xSemaphoreTake(s.lock, portMAX_DELAY);
+}
+
+void unlock(Slot &s)
+{
+    xSemaphoreGive(s.lock);
+}
+
+void notify(Slot &s)
+{
+    auto fn = s_listener;
+    if (fn != nullptr) {
+        fn(s.index, s_listener_ctx);
+    }
+}
+
+uint32_t wanted_gen(Slot &s)
+{
+    lock(s);
+    const uint32_t gen = s.wanted_gen;
+    unlock(s);
+    return gen;
+}
+
+void set_state(Slot &s, caption_state state)
+{
+    lock(s);
+    const bool changed = s.state != state;
+    if (changed) {
+        s.state = state;
+        ++s.revision;
+    }
+    unlock(s);
+    if (changed) {
+        ESP_LOGI(TAG, "captions[%d]: %s", s.index, caption_state_name(state));
+        notify(s);
+    }
+}
+
+// A new, empty feed, or none. The old one's lines are freed.
+bool replace_feed(Slot &s, bool make)
+{
+    caption_feed *fresh = nullptr;
+    if (make) {
+        void *mem = feed_alloc(sizeof(caption_feed));
+        if (mem == nullptr) {
+            return false;
+        }
+        fresh = new (mem) caption_feed(feed_alloc, feed_free);
+    }
+    lock(s);
+    caption_feed *old = s.feed;
+    s.feed = fresh;
+    ++s.revision;
+    unlock(s);
+    if (old != nullptr) {
+        old->~caption_feed();
+        feed_free(old);
+    }
+    return true;
+}
+
+// Wait up to `ms`, or until the feed is changed.
+void rest(int ms)
+{
+    ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(ms));
+}
+
+bool has_address()
+{
+    return net_station_has_address() || net_wired_has_address();
+}
+
+// ---------------------------------------------------------------------------
+// One connection
+// ---------------------------------------------------------------------------
+
+struct Outcome {
+    caption_end end = caption_end::closed;
+    int status = 0;
+    bool opened = false;
+    uint32_t open_ms = 0;
+};
+
+struct Conn {
+    Slot *slot;
+    caption_http http;
+    caption_sse sse;
+    bool opened = false;
+    bool rejected = false;
+    int64_t opened_at = 0;
+    uint64_t resumed_from = 0;
+
+    Conn(Slot *s) : slot(s), sse(s->sse, s->sse_cap) {}
+};
+
+void on_event(void *ctx, const caption_sse_event &event)
+{
+    auto *c = static_cast<Conn *>(ctx);
+    Slot &s = *c->slot;
+    if (event.oversize) {
+        ESP_LOGW(TAG, "captions[%d]: an event larger than %u bytes was dropped", s.index,
+                 static_cast<unsigned>(s.sse_cap));
+        return;
+    }
+    lock(s);
+    caption_change change = caption_change::ignored;
+    int kept = 0;
+    uint64_t resume = 0;
+    uint64_t newest = 0;
+    if (s.feed != nullptr) {
+        change = s.feed->apply(event.data, event.len);
+        kept = s.feed->lines().size();
+        resume = s.feed->resume_id();
+        newest = kept > 0 ? s.feed->lines().at(kept - 1).seq : 0;
+        if (change != caption_change::ignored && change != caption_change::malformed) {
+            ++s.revision;
+        }
+    }
+    unlock(s);
+
+    switch (change) {
+    case caption_change::line:
+        ESP_LOGI(TAG, "captions[%d]: line %llu (%d kept)", s.index, static_cast<unsigned long long>(newest), kept);
+        break;
+    case caption_change::rebuilt:
+        ESP_LOGI(TAG, "captions[%d]: snapshot, %d lines, resume after %llu", s.index, kept,
+                 static_cast<unsigned long long>(resume));
+        break;
+    case caption_change::cleared:
+        ESP_LOGI(TAG, "captions[%d]: reset, buffer cleared", s.index);
+        break;
+    case caption_change::targets:
+        ESP_LOGI(TAG, "captions[%d]: targets (%u bytes)", s.index, static_cast<unsigned>(event.len));
+        break;
+    case caption_change::no_memory:
+        ESP_LOGE(TAG, "captions[%d]: no memory for a line; it is not shown", s.index);
+        break;
+    case caption_change::malformed:
+        ESP_LOGW(TAG, "captions[%d]: unreadable message (%u bytes)", s.index, static_cast<unsigned>(event.len));
+        return;
+    case caption_change::ignored:
+        return;
+    }
+    notify(s);
+}
+
+void on_comment(void *, const char *)
+{
+    // `: ping`. Any byte resets the silence clock, so there is nothing more to do.
+}
+
+// The response's headers are in: is this a caption stream?
+void check_open(Conn &c)
+{
+    if (c.opened || c.rejected || c.http.state() != caption_http::phase::body) {
+        return;
+    }
+    if (c.http.status() != 200 || !c.http.event_stream()) {
+        c.rejected = true;
+        return;
+    }
+    c.opened = true;
+    c.opened_at = esp_timer_get_time();
+    if (c.resumed_from != 0) {
+        ESP_LOGI(TAG, "captions[%d]: stream open, resuming after %llu", c.slot->index,
+                 static_cast<unsigned long long>(c.resumed_from));
+    } else {
+        ESP_LOGI(TAG, "captions[%d]: stream open, fresh", c.slot->index);
+    }
+    set_state(*c.slot, caption_state::connected);
+}
+
+void on_body(void *ctx, const char *p, size_t n)
+{
+    auto *c = static_cast<Conn *>(ctx);
+    check_open(*c);
+    if (c->opened) {
+        c->sse.feed(p, n, on_event, on_comment, c);
+    }
+}
+
+int open_socket(const char *host, uint16_t port, caption_end *why)
+{
+    addrinfo hints = {};
+    hints.ai_family = AF_INET;
+    hints.ai_socktype = SOCK_STREAM;
+    char port_text[6];
+    snprintf(port_text, sizeof port_text, "%u", static_cast<unsigned>(port));
+    addrinfo *found = nullptr;
+    if (getaddrinfo(host, port_text, &hints, &found) != 0 || found == nullptr) {
+        *why = caption_end::unreachable;
+        return -1;
+    }
+    const int fd = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+    if (fd < 0) {
+        freeaddrinfo(found);
+        *why = caption_end::unreachable;
+        return -1;
+    }
+    fcntl(fd, F_SETFL, fcntl(fd, F_GETFL, 0) | O_NONBLOCK);
+    int rc = connect(fd, found->ai_addr, found->ai_addrlen);
+    freeaddrinfo(found);
+    int err = rc == 0 ? 0 : errno;
+    if (rc != 0 && err == EINPROGRESS) {
+        fd_set writable;
+        FD_ZERO(&writable);
+        FD_SET(fd, &writable);
+        timeval tv = {kConnectTimeoutMs / 1000, (kConnectTimeoutMs % 1000) * 1000};
+        rc = select(fd + 1, nullptr, &writable, nullptr, &tv);
+        if (rc <= 0) {
+            err = ETIMEDOUT;
+        } else {
+            socklen_t len = sizeof err;
+            getsockopt(fd, SOL_SOCKET, SO_ERROR, &err, &len);
+        }
+    }
+    if (err != 0) {
+        close(fd);
+        // lwIP reports a refused SYN as a reset.
+        *why = (err == ECONNREFUSED || err == ECONNRESET) ? caption_end::refused : caption_end::unreachable;
+        return -1;
+    }
+    fcntl(fd, F_SETFL, fcntl(fd, F_GETFL, 0) & ~O_NONBLOCK);
+    timeval rx = {1, 0};
+    setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &rx, sizeof rx);
+    timeval tx = {5, 0};
+    setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &tx, sizeof tx);
+    return fd;
+}
+
+bool send_all(int fd, const char *p, size_t n)
+{
+    while (n > 0) {
+        const ssize_t sent = send(fd, p, n, 0);
+        if (sent <= 0) {
+            return false;
+        }
+        p += sent;
+        n -= static_cast<size_t>(sent);
+    }
+    return true;
+}
+
+Outcome run_connection(Slot &s, uint32_t gen, const char *url, uint8_t stream, const char *lang)
+{
+    Outcome out;
+    char host[sizeof(relay_settings_t::relay_addr)];
+    uint16_t port = 0;
+    if (!caption_url_split(url, host, sizeof host, &port)) {
+        out.end = caption_end::unreachable;
+        return out;
+    }
+    lock(s);
+    const uint64_t resume = s.feed != nullptr ? s.feed->resume_id() : 0;
+    unlock(s);
+
+    char request[384];
+    const size_t request_len = caption_request(request, sizeof request, host, port, stream, lang, resume,
+                                               RELAY_FW_VERSION);
+    if (request_len == 0) {
+        out.end = caption_end::bad_response;
+        return out;
+    }
+    const int fd = open_socket(host, port, &out.end);
+    if (fd < 0) {
+        return out;
+    }
+    if (!send_all(fd, request, request_len)) {
+        close(fd);
+        out.end = caption_end::closed;
+        return out;
+    }
+
+    auto *conn = new (std::nothrow) Conn(&s);
+    if (conn == nullptr) {
+        close(fd);
+        out.end = caption_end::closed;
+        return out;
+    }
+    conn->resumed_from = resume;
+    char buf[1024];
+    int64_t last_rx = esp_timer_get_time();
+    for (;;) {
+        if (wanted_gen(s) != gen) {
+            out.end = caption_end::stopped;
+            break;
+        }
+        const ssize_t n = recv(fd, buf, sizeof buf, 0);
+        const int64_t now = esp_timer_get_time();
+        if (n > 0) {
+            last_rx = now;
+            conn->http.feed(buf, static_cast<size_t>(n), on_body, conn);
+            check_open(*conn);
+            if (conn->rejected || conn->http.state() == caption_http::phase::bad) {
+                out.end = conn->http.status() != 200 ? caption_end::http_status : caption_end::bad_response;
+                break;
+            }
+            if (conn->http.state() == caption_http::phase::done) {
+                out.end = caption_end::closed;
+                break;
+            }
+            continue;
+        }
+        if (n < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
+            if (now - last_rx > kSilenceUs) {
+                ESP_LOGW(TAG, "captions[%d]: silent for %d s; reconnecting", s.index,
+                         static_cast<int>(CONFIG_RELAY_CAPTION_SILENCE_S));
+                out.end = caption_end::silent;
+                break;
+            }
+            continue;
+        }
+        out.end = caption_end::closed;
+        break;
+    }
+    out.status = conn->http.status();
+    out.opened = conn->opened;
+    if (conn->opened) {
+        out.open_ms = static_cast<uint32_t>((esp_timer_get_time() - conn->opened_at) / 1000);
+    }
+    delete conn;
+    shutdown(fd, SHUT_RDWR);
+    close(fd);
+    return out;
+}
+
+const char *end_name(caption_end end)
+{
+    switch (end) {
+    case caption_end::closed: return "closed by the server";
+    case caption_end::silent: return "silent";
+    case caption_end::refused: return "refused";
+    case caption_end::unreachable: return "unreachable";
+    case caption_end::http_status: return "answered";
+    case caption_end::bad_response: return "not a caption stream";
+    case caption_end::stopped: return "stopped";
+    }
+    return "?";
+}
+
+// ---------------------------------------------------------------------------
+// The slot's task
+// ---------------------------------------------------------------------------
+
+void slot_task(void *arg)
+{
+    Slot &s = *static_cast<Slot *>(arg);
+    uint32_t feed_gen = 0;
+    uint32_t failures = 0;
+    bool tried = false;
+    for (;;) {
+        lock(s);
+        const uint32_t gen = s.wanted_gen;
+        char url[sizeof s.url];
+        char lang[sizeof s.lang];
+        memcpy(url, s.url, sizeof url);
+        memcpy(lang, s.lang, sizeof lang);
+        const uint8_t stream = s.stream;
+        unlock(s);
+
+        const bool wanted = stream != kFeedNone && url[0] != '\0';
+        if (gen != feed_gen) {
+            // A different feed: start over, with an empty buffer and nothing to resume.
+            feed_gen = gen;
+            failures = 0;
+            tried = false;
+            if (!replace_feed(s, wanted)) {
+                ESP_LOGE(TAG, "captions[%d]: no memory for the feed", s.index);
+                set_state(s, caption_state::off);
+                rest(5000);
+                feed_gen = 0;
+                continue;
+            }
+            if (wanted) {
+                ESP_LOGI(TAG, "captions[%d]: feed %s %s from %s", s.index,
+                         stream == kFeedTranscription ? "transcription" : "translation",
+                         stream == kFeedTranscription ? "" : lang, url);
+            }
+        }
+        if (!wanted) {
+            set_state(s, caption_state::off);
+            ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+            continue;
+        }
+        if (s.sse == nullptr) {
+            s.sse_cap = kSseBytesPsram;
+            s.sse = static_cast<char *>(heap_caps_malloc(s.sse_cap, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+            if (s.sse == nullptr) {
+                s.sse_cap = kSseBytesInternal;
+                s.sse = static_cast<char *>(heap_caps_malloc(s.sse_cap, MALLOC_CAP_DEFAULT));
+            }
+            if (s.sse == nullptr) {
+                ESP_LOGE(TAG, "captions[%d]: no memory for the event buffer", s.index);
+                rest(5000);
+                continue;
+            }
+            ESP_LOGI(TAG, "captions[%d]: event buffer %u bytes", s.index, static_cast<unsigned>(s.sse_cap));
+        }
+        if (!has_address()) {
+            set_state(s, caption_state::waiting_for_network);
+            rest(1000);
+            continue;
+        }
+        // The state shown while a try is made is the last one's outcome, so "Relay not running" stays on
+        // the screen through the retries instead of flickering to "connecting" each time.
+        if (!tried) {
+            set_state(s, caption_state::connecting);
+        }
+        tried = true;
+        const Outcome got = run_connection(s, gen, url, stream, lang);
+        if (got.end == caption_end::stopped) {
+            continue;
+        }
+        failures = caption_failures_after(failures, got.opened, got.open_ms);
+        const caption_state next = caption_state_after(got.end, got.status);
+        uint32_t wait = caption_backoff_ms(failures == 0 ? 0 : failures - 1);
+        wait += esp_random() % (wait / 4 + 1);
+        if (got.end == caption_end::http_status) {
+            ESP_LOGW(TAG, "captions[%d]: Relay answered %d; trying again in %u ms", s.index, got.status,
+                     static_cast<unsigned>(wait));
+        } else {
+            ESP_LOGW(TAG, "captions[%d]: connection %s; trying again in %u ms", s.index, end_name(got.end),
+                     static_cast<unsigned>(wait));
+        }
+        set_state(s, next);
+        rest(static_cast<int>(wait));
+    }
+}
+
+}  // namespace
+
+esp_err_t captions_start()
+{
+    if (s_started) {
+        return ESP_OK;
+    }
+    for (int i = 0; i < kCaptionSlots; ++i) {
+        Slot &s = s_slots[i];
+        s.index = i;
+        s.lock = xSemaphoreCreateMutex();
+        if (s.lock == nullptr) {
+            return ESP_ERR_NO_MEM;
+        }
+        char name[16];
+        snprintf(name, sizeof name, "captions%d", i);
+        // Core 0, with the network: core 1 is the panel's (main.cpp).
+        if (xTaskCreatePinnedToCore(slot_task, name, 6144, &s, 4, &s.task, 0) != pdPASS) {
+            return ESP_ERR_NO_MEM;
+        }
+    }
+    s_started = true;
+    return ESP_OK;
+}
+
+esp_err_t captions_set_feed(int slot, const char *relay_url, uint8_t stream, const char *lang)
+{
+    if (!s_started || slot < 0 || slot >= kCaptionSlots || stream > kFeedTranslation) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    if (relay_url == nullptr) {
+        relay_url = "";
+    }
+    if (lang == nullptr || stream != kFeedTranslation) {
+        lang = "";
+    }
+    Slot &s = s_slots[slot];
+    lock(s);
+    const bool same = s.stream == stream && strcmp(s.url, relay_url) == 0 && strcmp(s.lang, lang) == 0;
+    if (!same) {
+        settings_set_text(s.url, sizeof s.url, relay_url);
+        settings_set_text(s.lang, sizeof s.lang, lang);
+        s.stream = stream;
+        ++s.wanted_gen;
+    }
+    unlock(s);
+    if (!same) {
+        xTaskNotifyGive(s.task);
+    }
+    return ESP_OK;
+}
+
+caption_state captions_state(int slot)
+{
+    if (!s_started || slot < 0 || slot >= kCaptionSlots) {
+        return caption_state::off;
+    }
+    Slot &s = s_slots[slot];
+    lock(s);
+    const caption_state state = s.state;
+    unlock(s);
+    return state;
+}
+
+uint32_t captions_revision(int slot)
+{
+    if (!s_started || slot < 0 || slot >= kCaptionSlots) {
+        return 0;
+    }
+    Slot &s = s_slots[slot];
+    lock(s);
+    const uint32_t rev = s.revision;
+    unlock(s);
+    return rev;
+}
+
+void captions_read(int slot, void (*fn)(const caption_feed *, caption_state, void *), void *ctx)
+{
+    if (!s_started || slot < 0 || slot >= kCaptionSlots) {
+        fn(nullptr, caption_state::off, ctx);
+        return;
+    }
+    Slot &s = s_slots[slot];
+    lock(s);
+    fn(s.feed, s.state, ctx);
+    unlock(s);
+}
+
+void captions_set_listener(void (*fn)(int, void *), void *ctx)
+{
+    s_listener = nullptr;
+    s_listener_ctx = ctx;
+    s_listener = fn;
+}
+
+void captions_dump(int slot)
+{
+    captions_read(
+        slot,
+        [](const caption_feed *feed, caption_state state, void *ctx) {
+            const int index = *static_cast<int *>(ctx);
+            const int n = feed != nullptr ? feed->lines().size() : 0;
+            ESP_LOGI(TAG, "captions[%d]: dump begin, %s, %d lines, resume after %llu, %u lost", index,
+                     caption_state_name(state), n,
+                     static_cast<unsigned long long>(feed != nullptr ? feed->resume_id() : 0),
+                     static_cast<unsigned>(feed != nullptr ? feed->lost() : 0));
+            for (int i = 0; i < n; ++i) {
+                const caption_line &line = feed->lines().at(i);
+                ESP_LOGI(TAG, "captions[%d]: #%llu %s", index, static_cast<unsigned long long>(line.seq), line.text);
+            }
+            ESP_LOGI(TAG, "captions[%d]: dump end", index);
+        },
+        &slot);
+}

@@ -1,0 +1,43 @@
+#pragma once
+
+// The panel's caption feeds: up to two connections to Relay's `GET /stream?...&finals=1`, each with
+// its own task, socket and 200-line buffer. A feed resumes with `?last_id=` after a drop, so only the
+// lines it missed are fetched, and backs off from 1 s to 30 s while Relay is away.
+//
+// The rules (the HTTP and event-stream readers, the JSON fields, the text folding, the buffer and what
+// each message does to it) are in `caption_format.h`, which `test_native.cpp` checks on a laptop. This
+// file is the socket and the task.
+//
+// **Every read of a feed's lines is under its lock**, through `captions_read`. The caption view (#69)
+// draws from inside that call, or copies what it needs, and the client task waits for it.
+
+#include <cstddef>
+#include <cstdint>
+
+#include "caption_format.h"
+#include "esp_err.h"
+
+constexpr int kCaptionSlots = 2;
+
+// Make the two slots and their tasks. Nothing connects until a feed is set.
+esp_err_t captions_start();
+
+// Show `stream` (kFeedTranscription or kFeedTranslation; kFeedNone turns the slot off) from the Relay
+// at `relay_url` (`http://host[:port]`) in `slot`. A different feed from the one the slot has starts
+// over with an empty buffer; the same feed again changes nothing. Not saved: the settings are.
+esp_err_t captions_set_feed(int slot, const char *relay_url, uint8_t stream, const char *lang);
+
+caption_state captions_state(int slot);
+
+// Counts every change to the slot: a line, a rebuild, a reset, a new target set or a new state. The
+// view compares it with the one it last drew.
+uint32_t captions_revision(int slot);
+
+// Call `fn` with the slot's feed under its lock. `feed` is null while the slot is off.
+void captions_read(int slot, void (*fn)(const caption_feed *feed, caption_state state, void *ctx), void *ctx);
+
+// Told after each change, from the slot's task, outside the lock. One listener; null removes it.
+void captions_set_listener(void (*fn)(int slot, void *ctx), void *ctx);
+
+// The console's `captions <slot>`: the state and every line, one per log line.
+void captions_dump(int slot);

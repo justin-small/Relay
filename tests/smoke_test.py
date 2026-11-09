@@ -536,6 +536,20 @@ async def hub_test():
     # Falling further behind than the ring buffer -> full snapshot fallback.
     _, qf = await hub.subscribe("translation", "SPANISH", last_id=0)
     check("last_id 0 is a fresh snapshot", unframe(await qf.get())["type"] == "snapshot")
+    # A resume from before a reset gets the (empty) snapshot, not an empty replay that
+    # would leave the old run's lines on the viewer's screen.
+    hub.reset("translation", "SPANISH")
+    _, qx = await hub.subscribe("translation", "SPANISH", last_id=seen_seq + 1)
+    rx = unframe(await qx.get())
+    check("resume across a reset is a snapshot", rx["type"] == "snapshot" and rx["lines"] == [], rx)
+    hub.publish_final("translation", "SPANISH", "three")
+    _, qy = await hub.subscribe("translation", "SPANISH", last_id=seen_seq + 1, finals_only=True)
+    ry = unframe(await qy.get())
+    check("resume across a reset with new lines is a snapshot of them",
+          ry["type"] == "snapshot" and [l["text"] for l in ry["lines"]] == ["three"], ry)
+    # A resume id this hub never issued (the server restarted) is a snapshot too.
+    _, qz = await hub.subscribe("translation", "SPANISH", last_id=hub._seq + 1000)
+    check("resume id from the future is a snapshot", unframe(await qz.get())["type"] == "snapshot")
 
     # S3: a target-set change is broadcast to every viewer on their open SSE.
     _, qv = await hub.subscribe("translation", "SPANISH")
