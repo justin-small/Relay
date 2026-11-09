@@ -143,6 +143,12 @@ CONFIG_LV_FONT_MONTSERRAT_20=y
 CONFIG_LV_FONT_MONTSERRAT_28=y
 CONFIG_LV_FONT_MONTSERRAT_40=y
 
+# **LVGL allocates from the heap, not from a 64 KB pool of its own.** The caption view holds a label for each of up to
+# 200 lines, about 300 bytes apiece with its text, which is most of that pool and would leave the setup screen's QR
+# code no room. The heap is shared, and what the lines cost shows in the `heap:` log line.
+# CONFIG_LV_USE_BUILTIN_MALLOC is not set
+CONFIG_LV_USE_CLIB_MALLOC=y
+
 # **Sixteen sockets, not ESP-IDF's ten.** The setup page's server holds its listening socket, a control socket
 # and up to seven connections, the setup network's DNS holds one, and the caption
 # stream's connection holds one. An iPhone's captive-portal sheet and Safari open five or six

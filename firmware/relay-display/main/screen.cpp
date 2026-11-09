@@ -1,5 +1,7 @@
 #include "screen.h"
 
+#include "caption_view.h"
+
 #include <cstdio>
 #include <cstring>
 
@@ -40,7 +42,7 @@ lv_display_t *s_disp = nullptr;
 uint16_t *s_draw_buf = nullptr;
 bool s_active = false;  // LVGL flushes to the panel only while this is set
 
-enum class Request : uint8_t { none, lines, bench };
+enum class Request : uint8_t { none, lines, captions, bench };
 Request s_request = Request::none;
 // The lines a request names, copied by the caller: a caller's own buffers are gone by the time the task draws.
 constexpr int kLineChars = 64;
@@ -50,6 +52,7 @@ int s_line_count = 0;
 // Sized for the setup network's join code: at most about 90 characters with every character of a 32-byte name escaped.
 char s_line_qr[160] = "";
 char s_bench_version[16] = "";
+int s_caption_slot = 0;
 
 // PSRAM when the module has it, and internal RAM when it does not. The emulator's module has no PSRAM, and the
 // screen must still start there.
@@ -186,6 +189,7 @@ void activate()
 
 void draw_lines_now()
 {
+    caption_view_teardown();
     lv_obj_t *root = fresh_root();
     if (s_line_qr[0] != '\0' && draw_qr(root, s_line_qr)) {
         const int x = kMarginX + kQrBox + kQrColumnGap;
@@ -207,8 +211,14 @@ void lvgl_task(void *)
         case Request::lines:
             draw_lines_now();
             break;
+        case Request::captions:
+            caption_view_teardown();
+            caption_view_build(fresh_root(), s_caption_slot);
+            activate();
+            break;
         case Request::bench:
             // The bench picture is written raw, and LVGL stops flushing until something is drawn again.
+            caption_view_teardown();
             s_active = false;
             display_show_test_screen(s_bench_version);
             break;
@@ -286,6 +296,15 @@ esp_err_t screen_show_lines(const panel_text_line *lines, int count, const char 
     }
     std::snprintf(s_line_qr, sizeof s_line_qr, "%s", qr != nullptr ? qr : "");
     s_request = Request::lines;
+    screen_unlock();
+    return ESP_OK;
+}
+
+esp_err_t screen_show_captions(int slot)
+{
+    screen_lock();
+    s_caption_slot = slot;
+    s_request = Request::captions;
     screen_unlock();
     return ESP_OK;
 }

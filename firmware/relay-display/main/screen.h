@@ -2,10 +2,9 @@
 
 // What is on the glass, drawn with LVGL into the RGB panel's frame buffer.
 //
-// This foundation draws two things: lines of centred text (the setup network, the Wi-Fi
-// status), with an optional QR code beside them, and the bench picture (the boot's colour
-// bars). The caption screens come with the later panel issues and draw through the same
-// lock and task.
+// This draws three things: lines of centred text (the setup network, the Wi-Fi
+// status), with an optional QR code beside them, the bench picture (the boot's colour
+// bars), and the caption view (`caption_view.cpp`), which draws through the same lock and task.
 //
 // Written for this target from the VXP compact display's `room_screen.cpp` (vxp-compact-display
 // 0.2.2): the LVGL port (partial buffer, flush callback, one drawing task, one recursive
@@ -30,6 +29,10 @@ void screen_unlock();
 // lines, which then stand in the column beside it: the setup network's join code
 // (`setup_wifi_qr`). Null for every other screen.
 esp_err_t screen_show_lines(const panel_text_line *lines, int count, const char *qr = nullptr);
+
+// Show the caption view for caption slot `slot` (`caption_view.h`). It takes over the glass until another
+// picture is asked for, and draws what the slot's feed holds and keeps up with it.
+esp_err_t screen_show_captions(int slot);
 
 // The bench picture: the boot's colour bars, kept as the idle picture of a board with nothing
 // to say. Written raw, not drawn by LVGL, and LVGL is inactive while it is up.

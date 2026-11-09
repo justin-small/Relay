@@ -20,7 +20,7 @@ menu, Relay discovery, the panel registry and updates are separate pieces of wor
 | Wi-Fi | Station with DHCP or a static address, with backoff when the network is down |
 | Setup | An access point and a page to join Wi-Fi (join code as a QR on the panel), with recovery |
 | BOOT button | Hold 5 s: open the setup network. Hold 15 s: factory reset |
-| Screen | LVGL: centred text with an optional QR code, and the colour-bar bench picture |
+| Screen | LVGL: centred text with an optional QR code, the caption view (see "Caption view"), and the colour-bar bench picture |
 | Captions | Up to two feeds from Relay's `/stream?finals=1`, each with its own connection and 200-line buffer in PSRAM, resumed with `?last_id=` after a drop (see "Caption client") |
 | Partitions | Two app slots, `otadata`, `nvs`; signing set up (the update itself is a later change) |
 | `build.sh` | Release, `--dev` and `--qemu` builds, `--sign`, the native checks and the image check |
@@ -148,15 +148,41 @@ which has no ESP-IDF in it and is what the native checks test.
 * **State for the UI** (`captions_state`): off, waiting for network, connecting, connected, reconnecting,
   relay not running (the connection was refused, or Caddy answered 502-504), feed refused (Relay answered
   4xx, such as a language it does not offer). While retries keep failing the last state stays on screen.
-* **Text.** Lines are stored folded to what a Latin font draws: ASCII, U+00A1-U+024F, U+1E00-U+1EFF and €
+* **Text.** Lines are stored folded to what a Latin font draws: ASCII, U+00A1-U+024F, U+1E00-U+1EFB and €
   stay; typographic quotes, dashes and the ellipsis become plain ones; zero-width characters and combining
   marks go; every other run (emoji, other scripts, broken UTF-8) becomes one `?`, so text never vanishes
-  without a sign. A line is cut at 1024 bytes with `...`. **LVGL's built-in Montserrat covers ASCII only**:
-  the caption view needs a font generated for the ranges above.
+  without a sign. A line is cut at 1024 bytes with `...`. **LVGL's built-in Montserrat covers ASCII only**,
+  so the caption view has a font of its own (below).
 * **Where the feed comes from.** At boot, slot 0 shows the stored Relay address and feed when both are
   set. Discovery and the feed picker set it later. On the serial console, for the bench:
   `feed <slot> <url> translation <LANG>`, `feed <slot> <url> transcription`, `feed <slot> off` (not saved),
   and `captions <slot>` prints the state and every line held.
+
+## Caption view
+
+`main/caption_view.cpp` draws slot 0's feed: a header with the feed's name ("Transcription", or the language in
+words) and a coloured dot with the connection in words (Live, Reconnecting, Relay not running...), and under it
+the finished lines, newest at the bottom, each wrapped in the caption font. Only finished lines are drawn, so
+nothing appears word by word (the client asks for `finals=1`).
+
+* **It follows live.** Each new line scrolls into view. A drag back stops that and shows **Jump to live**; tapping
+  it, or dragging back to the bottom, follows again. A new line never moves a view someone is reading, and when
+  the oldest of the 200 lines drop out the view keeps its place.
+* **A paused view returns to live by itself after 60 s with no touch** (`kCaptionAutoLiveMs`), so a wall panel
+  someone scrolled and walked away from does not show old lines for good. A snapshot or reset from Relay also puts
+  the view back on live: where the finger had it no longer exists.
+* **The font is fixed at 36 px**, readable from a few metres on the 7". Following Relay's `default_font_px` is not
+  done: the panel does not receive it yet, and a size that changes needs the wrapped lines measured again.
+* **The font** is Montserrat Medium (SIL OFL) with DejaVu Sans (its own license, permissive) as a fallback for the
+  Latin Extended letters Montserrat lacks, generated into `main/fonts/` by `tools/gen_caption_font.sh` (needs node;
+  `lv_font_conv` is fetched by `npx` at a pinned version). Together they cover every character the client keeps,
+  Vietnamese's stacked diacritics from the main face, and `tests/test_caption_font.py` fails if the kept set and the
+  font drift apart. About 300 KB of flash.
+* **LVGL allocates from the heap** (`CONFIG_LV_USE_CLIB_MALLOC`), not from its own 64 KB pool: 200 line labels do not
+  fit in that.
+* The rules (following, what to add or drop when the buffer changes, the header's words) are in
+  `main/caption_view_format.h`, with native checks. `view` on the serial console logs whether the list follows, its
+  line count and how far it is from the bottom; the emulator tests read that.
 
 ## Tests
 
@@ -193,7 +219,14 @@ connection reads "relay not running" until Relay starts, a refused language read
 keep apart, and unsupported characters show as `?`. The fake copies Relay's wire format and resume rule by
 hand; `app/hub.py`'s own tests own the server side.
 
-`firmware/relay-display/tests/test_seed_layout.py` needs no emulator: it checks the seed generator against
+`tests/test_caption_view.py` runs the caption view against the fake Relay with a finger injected from the console:
+lines arrive and the view follows, a drag back pauses and shows the button, new lines do not move a paused view,
+Jump to live and a drag to the bottom each resume, a full 200-line buffer keeps following and keeps a paused view
+paused, the header shows the feed and a green dot, and Vietnamese and accented text draws. The emulator draws a
+frame a second or so and reads the finger once per frame, so the tests wait for each press to be seen and hold the
+finger still before lifting.
+
+`firmware/relay-display/tests/test_seed_layout.py` and `test_caption_font.py` need no emulator. The first checks the seed generator against
 `main/settings_format.h`.
 
 ## Bench checklist
@@ -210,6 +243,9 @@ Not proven by any test, and to be done on the board:
 - [ ] The panel rejoins that network after a power cycle without the setup network opening
 - [ ] Hold BOOT for 5 s opens the setup network; hold for 15 s erases everything
 - [ ] The picture does not shift or flicker while Wi-Fi is busy (the bounce buffer exists for this)
+- [ ] Caption view: drag scrolling is smooth with 200 lines in the buffer while new lines keep arriving (the
+      emulator is too slow to say); a flick settles; the 36 px text reads from the back of the room
+- [ ] Caption view: touch lands where the finger is (the GT911 and the rotation), and Jump to live is easy to hit
 - [ ] Captions: an hour on Wi-Fi against a running Relay with no lost or doubled lines (`captions 0`
       against Relay's history), across at least one Wi-Fi drop and one Relay restart
 

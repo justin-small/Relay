@@ -44,12 +44,13 @@ constexpr char kCaptionFallback = '?';
 
 // The characters a panel font is expected to carry, kept as they are: ASCII, Latin-1 and Latin
 // Extended-A and -B (Spanish, French, German, Portuguese, Italian, Romanian, Hmong, Indonesian...),
-// Latin Extended Additional (Vietnamese), and the euro sign. The caption view's font has to cover
-// exactly this set (README.md, "Caption client").
+// Latin Extended Additional up to U+1EFB (Vietnamese), and the euro sign. The caption view's font
+// (`fonts/`, checked by `tests/test_caption_font.py`) has to cover exactly this set. U+1EFC-1EFF
+// (Middle Welsh Ỽ, Ỿ) are left out because neither source font has them.
 inline bool caption_glyph_kept(uint32_t cp)
 {
     return (cp >= 0x20 && cp <= 0x7E) || (cp >= 0xA1 && cp <= 0x24F && cp != 0xAD) ||
-           (cp >= 0x1E00 && cp <= 0x1EFF) || cp == 0x20AC;
+           (cp >= 0x1E00 && cp <= 0x1EFB) || cp == 0x20AC;
 }
 
 // Characters outside that set with a plain equivalent inside it: typographic quotes, dashes, the

@@ -164,6 +164,7 @@ extern "C" void app_main(void)
         ESP_LOGE(TAG, "boot: captions not started (%s)", esp_err_to_name(captions));
     } else if (settings.relay_addr[0] != '\0' && settings.feed_stream != kFeedNone) {
         captions_set_feed(0, settings.relay_addr, settings.feed_stream, settings.feed_lang);
+        screen_show_captions(0);
     }
     start_heap_log();
     diag_start();

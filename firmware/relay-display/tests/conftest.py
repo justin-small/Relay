@@ -137,8 +137,8 @@ def _unavailable() -> str | None:
 
 @pytest.fixture(scope="module", autouse=True)
 def _requires_qemu(request: pytest.FixtureRequest) -> None:
-    # The seed layout check reads a header and needs no emulator, so it always runs.
-    if request.module.__name__ == "test_seed_layout":
+    # The seed layout and font checks read source files and need no emulator, so they always run.
+    if request.module.__name__ in ("test_seed_layout", "test_caption_font"):
         return
     reason = _unavailable()
     if reason is None:

@@ -36,6 +36,7 @@
 #include "auth.h"
 #include "board_format.h"
 #include "caption_format.h"
+#include "caption_view_format.h"
 #include "button_policy.h"
 #include "config.h"
 #include "panel_format.h"
@@ -1637,6 +1638,156 @@ void check_caption_connection()
     CHECK(strcmp(caption_state_name(caption_state::relay_not_running), "relay not running") == 0);
 }
 
+// What the caption view decides: following, what to add and remove on the glass, and the header's words.
+void check_caption_view()
+{
+    // Following: on by default, a drag away pauses, back to the bottom resumes, and a pause times out.
+    caption_follow f;
+    f.reset(1000);
+    CHECK(f.following());
+    CHECK(!f.user_scrolled(true, 1100) && f.following());   // a drag that stayed at the bottom changes nothing
+    CHECK(f.user_scrolled(false, 1200) && !f.following());  // away from the bottom: paused
+    CHECK(!f.user_scrolled(false, 1300) && !f.following());
+    CHECK(f.user_scrolled(true, 1400) && f.following());    // back at the bottom: live again
+    CHECK(f.user_scrolled(false, 2000) && !f.following());
+    CHECK(f.jump(2500) && f.following());                    // the button
+    CHECK(!f.jump(2600));
+    // The pause times out after a minute of no touch, and a touch restarts the minute.
+    CHECK(f.user_scrolled(false, 10000));
+    CHECK(!f.tick(10000 + kCaptionAutoLiveMs - 1) && !f.following());
+    f.touched(10000 + kCaptionAutoLiveMs - 1);
+    CHECK(!f.tick(10000 + kCaptionAutoLiveMs) && !f.following());
+    CHECK(f.tick(10000 + 2 * kCaptionAutoLiveMs - 1) && f.following());
+    CHECK(!f.tick(10000 + 5 * kCaptionAutoLiveMs));  // following already: nothing to end
+    // The tick counter wraps.
+    caption_follow w;
+    w.reset(0);
+    CHECK(w.user_scrolled(false, 0xFFFFFF00u) && !w.following());
+    CHECK(!w.tick(0xFFFFFF00u + 1000));
+    CHECK(w.tick(0xFFFFFF00u + kCaptionAutoLiveMs));
+    CHECK(caption_at_bottom(0) && caption_at_bottom(kCaptionBottomSlackPx) && !caption_at_bottom(kCaptionBottomSlackPx + 1));
+    CHECK(caption_at_bottom(-12));  // a list shorter than the view has "negative" content below
+
+    // What to do to the glass when the buffer changes.
+    auto buf = new caption_buffer(malloc, free);
+    std::vector<caption_shown_line> shown;
+    auto sync = [&](const caption_plan &plan) {
+        if (plan.rebuild) {
+            shown.clear();
+        }
+        shown.erase(shown.begin(), shown.begin() + plan.drop_front);
+        if (plan.append_from >= 0) {
+            for (int i = plan.append_from; i < buf->size(); ++i) {
+                shown.push_back({buf->at(i).seq, caption_text_hash(buf->at(i).text)});
+            }
+        }
+    };
+    auto consistent = [&]() {
+        if (static_cast<int>(shown.size()) != buf->size()) {
+            return false;
+        }
+        for (int i = 0; i < buf->size(); ++i) {
+            if (shown[i].seq != buf->at(i).seq || shown[i].hash != caption_text_hash(buf->at(i).text)) {
+                return false;
+            }
+        }
+        return true;
+    };
+    auto plan = [&]() { return caption_plan_update(shown.data(), static_cast<int>(shown.size()), *buf); };
+
+    CHECK(plan().rebuild);  // nothing on the glass yet: build it (an empty buffer is a rebuild to nothing)
+    sync(plan());
+    CHECK(consistent());
+    buf->push(5, "one", 3);
+    buf->push(9, "two", 3);
+    caption_plan p = plan();
+    CHECK(p.rebuild);  // an empty glass is always a rebuild
+    sync(p);
+    CHECK(consistent() && plan().nothing());  // the same buffer again: nothing to do
+    buf->push(12, "three", 5);
+    p = plan();
+    CHECK(!p.rebuild && p.drop_front == 0 && p.append_from == 2);
+    sync(p);
+    CHECK(consistent());
+    // A full buffer: each new line evicts the oldest, and the glass drops one from the top and adds one.
+    for (int i = 0; i < kCaptionLines + 20; ++i) {
+        char t[16];
+        const int n = snprintf(t, sizeof t, "line %d", i);
+        buf->push(100 + static_cast<uint64_t>(i), t, static_cast<size_t>(n));
+        p = plan();
+        CHECK(!p.rebuild);
+        sync(p);
+        CHECK(consistent());
+    }
+    CHECK(buf->size() == kCaptionLines && shown.size() == static_cast<size_t>(kCaptionLines));
+    // Several lines at once, with eviction.
+    buf->push(400, "a", 1);
+    buf->push(401, "b", 1);
+    buf->push(402, "c", 1);
+    p = plan();
+    CHECK(!p.rebuild && p.drop_front == 3 && p.append_from == kCaptionLines - 3);
+    sync(p);
+    CHECK(consistent());
+    // Lines evicted from the buffer faster than the glass was synced still plan as an append.
+    for (int i = 0; i < 50; ++i) {
+        buf->push(500 + static_cast<uint64_t>(i), "x", 1);
+    }
+    p = plan();
+    CHECK(!p.rebuild && p.drop_front == 50 && p.append_from == kCaptionLines - 50);
+    sync(p);
+    CHECK(consistent());
+    // More than a buffer's worth between syncs: nothing on the glass is in the buffer, so rebuild.
+    for (int i = 0; i < kCaptionLines + 5; ++i) {
+        buf->push(1000 + static_cast<uint64_t>(i), "y", 1);
+    }
+    CHECK(plan().rebuild);
+    sync(plan());
+    CHECK(consistent());
+    // A snapshot that replaces the buffer with other lines, or with the same seqs and other text, is a rebuild.
+    buf->clear();
+    buf->push(1000 + kCaptionLines + 4, "y", 1);
+    p = plan();  // a snapshot that holds only the newest line is the same picture as 199 evictions
+    CHECK(!p.rebuild && p.drop_front == kCaptionLines - 1 && p.append_from == -1);
+    sync(p);
+    CHECK(consistent());
+    buf->clear();
+    buf->push(3, "restarted", 9);
+    CHECK(plan().rebuild);  // a Relay restart: lower seqs
+    sync(plan());
+    buf->clear();
+    buf->push(3, "different text", 14);
+    CHECK(plan().rebuild);  // the same seq after a reset, other words
+    sync(plan());
+    CHECK(consistent());
+    buf->clear();
+    CHECK(plan().rebuild);  // reset: the glass empties
+    sync(plan());
+    CHECK(shown.empty());
+    delete buf;
+
+    // The header.
+    char title[40];
+    CHECK(caption_feed_title(kFeedTranscription, "", title, sizeof title) == 13 && strcmp(title, "Transcription") == 0);
+    caption_feed_title(kFeedTranslation, "SPANISH", title, sizeof title);
+    CHECK(strcmp(title, "Spanish") == 0);
+    caption_feed_title(kFeedTranslation, "CHINESE_SIMPLIFIED", title, sizeof title);
+    CHECK(strcmp(title, "Chinese Simplified") == 0);
+    caption_feed_title(kFeedTranslation, "", title, sizeof title);
+    CHECK(strcmp(title, "Translation") == 0);
+    CHECK(caption_feed_title(kFeedNone, "", title, sizeof title) == 0 && title[0] == '\0');
+    char tiny[6];
+    caption_feed_title(kFeedTranscription, "", tiny, sizeof tiny);
+    CHECK(strcmp(tiny, "Trans") == 0);  // cut at the buffer, still terminated
+    CHECK(caption_state_tone(caption_state::connected) == caption_tone::good);
+    CHECK(caption_state_tone(caption_state::reconnecting) == caption_tone::busy);
+    CHECK(caption_state_tone(caption_state::relay_not_running) == caption_tone::bad);
+    CHECK(caption_state_tone(caption_state::off) == caption_tone::idle);
+    for (int s = 0; s <= static_cast<int>(caption_state::feed_refused); ++s) {
+        const auto st = static_cast<caption_state>(s);
+        CHECK(caption_state_label(st)[0] != '\0' && caption_empty_text(st)[0] != '\0');
+    }
+}
+
 }  // namespace
 
 int main()
@@ -1683,6 +1834,7 @@ int main()
     check_caption_buffer();
     check_caption_feed();
     check_caption_connection();
+    check_caption_view();
 
     if (g_failures != 0) {
         fprintf(stderr, "%d check(s) failed\n", g_failures);

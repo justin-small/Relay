@@ -14,7 +14,7 @@
 #   relay_auth, relay_form   the Origin check and the form parser the setup page uses
 #   relay_button       the BOOT button's hold rules
 #   relay_captive      the setup network's address and its DNS answer
-#   lvgl               the drawing library (screen.cpp), with the settings in lvgl_config/
+#   lvgl               the drawing library (screen.cpp, caption_view.cpp), with the settings in lvgl_config/
 #
 # The `relay_*` components are in `components/` beside this target and are header-only, so
 # listing them adds include paths and nothing to the image's code. They are copies of the VXP
@@ -61,7 +61,8 @@ endif()
 # `setup_format.h`, `setup_page.h`, `caption_format.h`) hold no ESP-IDF calls, so the same files serve both builds.
 idf_component_register(
     SRCS "main.cpp" "display.cpp" "board_i2c.cpp" "button.cpp" "net.cpp" "settings.cpp" "diag.cpp"
-         "provision.cpp" "screen.cpp" "touch.cpp" "captions.cpp"
+         "provision.cpp" "screen.cpp" "touch.cpp" "captions.cpp" "caption_view.cpp"
+         "fonts/relay_caption_36.c" "fonts/relay_caption_36_more.c"
          ${_relay_qemu_srcs}
     INCLUDE_DIRS "."
     REQUIRES ${_relay_requires}

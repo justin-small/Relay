@@ -27,6 +27,7 @@
 #include "setup_format.h"
 #include "setup_page.h"
 #include "touch.h"
+#include "caption_view.h"
 #include "captions.h"
 #include "wifi_policy.h"
 
@@ -293,8 +294,10 @@ void draw_panel()
             ESP_LOGE(TAG, "panel: the screen did not reach the panel");
         }
     } else {
-        // Nothing to say: the bench picture.
-        if (screen_show_bench(RELAY_FW_VERSION) != ESP_OK) {
+        // Nothing to say: the captions when a feed is chosen, and otherwise the bench picture.
+        if (captions_state(0) != caption_state::off) {
+            screen_show_captions(0);
+        } else if (screen_show_bench(RELAY_FW_VERSION) != ESP_OK) {
             ESP_LOGE(TAG, "panel: the bench picture did not reach the panel");
         }
     }
@@ -926,8 +929,18 @@ void console_task(void *)
                 err = captions_set_feed(slot, url, kFeedTranslation, lang);
             }
             ESP_LOGI(TAG, "console: feed %s", err == ESP_OK ? "set" : "not set: feed <slot> off | <url> transcription | <url> translation <LANG>");
+            // Slot 0 is what the screen shows: a feed puts the captions up, and no feed puts the bench picture back.
+            if (err == ESP_OK && slot == 0) {
+                if (got == 2) {
+                    screen_show_bench(RELAY_FW_VERSION);
+                } else {
+                    screen_show_captions(0);
+                }
+            }
         } else if (strncmp(line, "captions ", 9) == 0) {
             captions_dump(atoi(line + 9));
+        } else if (strcmp(line, "view") == 0) {
+            caption_view_report();
 #if CONFIG_RELAY_DEV_DIAG
         } else if (strncmp(line, "pclk ", 5) == 0) {
             // A bench build only: try a pixel clock without a reflash. The frame rate in the next diag block shows
