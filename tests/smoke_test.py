@@ -110,6 +110,11 @@ check("valid noise reduction kept",
 print("\nlanguages")
 check("13 realtime output languages",
       sum(not languages.text_only(t) for t in languages.TARGETS) == 13, sorted(languages.TARGETS))
+check("every target and source has a known script",
+      all(v.get("script") in languages.SCRIPTS
+          for d in (languages.TARGETS, languages.SOURCE_LANGUAGES) for v in d.values()))
+check("non-latin scripts tagged", languages.target_script("RUSSIAN") == "cyrillic"
+      and languages.target_script("HMONG") == "latin")
 check("spanish present", languages.target_iso("SPANISH") == "es")
 check("plain label", languages.target_label("SPANISH") == "Spanish")
 check("source language excluded from targets",
@@ -355,6 +360,19 @@ try:
         finally:
             hub.publish_final = real_final
         out["heard"] = heard
+        # Finals-only panel subscribers in text mode, real hub: the source
+        # deltas and the translated finals both honour finals_only.
+        _src = languages.SOURCE_LANGUAGES[_cfg["source_language"]] and _cfg["source_language"]
+        _cs, _qs = await hub.subscribe(_TS, _src, finals_only=True)
+        _ct, _qt = await hub.subscribe("translation", "SPANISH", finals_only=True)
+        await _qs.get(); await _qt.get()
+        _eng.transcriber.kw["on_source_delta"]("Good mor")
+        _eng.transcriber.kw["on_source_final"]("Good morning.")
+        await asyncio.sleep(0.05)
+        out["tx_frames"] = [unframe(_qs.get_nowait()) for _ in range(_qs.qsize())]
+        out["tl_frames"] = [unframe(_qt.get_nowait()) for _ in range(_qt.qsize())]
+        hub.unsubscribe(_cs, _qs); hub.unsubscribe(_ct, _qt)
+        hub.reset(_TS, _src); hub.reset("translation", "SPANISH")  # leave no history behind
         await _eng._stop_all_sessions()
         out["stopped"] = (_eng.transcriber, _eng.translator)
         return out
@@ -369,6 +387,12 @@ try:
         ("translation", "FRENCH", "[fr] Welcome."),
         ("translation", "SPANISH", "[es] Welcome.")])
     eq("stop closes the text pipeline", _o["stopped"], (None, None))
+    check("text mode: finals-only transcription gets the line, no delta",
+          [f["final"] for f in _o["tx_frames"]] == [True]
+          and _o["tx_frames"][0]["text"] == "Good morning.", _o["tx_frames"])
+    check("text mode: finals-only translation gets the translated line, no delta",
+          [f["final"] for f in _o["tl_frames"]] == [True]
+          and _o["tl_frames"][0]["text"] == "[es] Good morning.", _o["tl_frames"])
 finally:
     _engine_mod.TranscriptionSession = _real_tx
     _eng.capture = _real_cap
@@ -760,6 +784,82 @@ check("overlay bg cannot inject CSS", "display:none" not in inj and "--ov-bg: tr
 t = c.get("/api/targets").json()
 check("/api/targets shape", t["source"]["lang"] == "ENGLISH" and "live" in t)
 check("no live targets before start", t["live"] == [])
+check("/api/targets source carries script", t["source"].get("script") == "latin", t["source"])
+# live targets carry script: force two live names (one Latin, one not).
+_orig_live = _eng._live_names
+_eng._live_names = lambda: ["SPANISH", "RUSSIAN"]
+_orig_tr = _eng.translator
+_eng.translator = type("_S", (), {"state": "live"})()
+try:
+    _lt = {d["target"]: d for d in _eng.live_targets()}
+    check("live targets carry script",
+          _lt["SPANISH"]["script"] == "latin" and _lt["RUSSIAN"]["script"] == "cyrillic", _lt)
+    _tp = _eng.targets_payload()
+    check("targets message carries script",
+          _tp["type"] == "targets" and _tp["source"]["script"] == "latin"
+          and all("script" in d for d in _tp["live"]), _tp)
+    _api = c.get("/api/targets").json()
+    check("/api/targets live entries carry script",
+          {d["target"]: d["script"] for d in _api["live"]} == {"SPANISH": "latin", "RUSSIAN": "cyrillic"}, _api)
+finally:
+    _eng._live_names = _orig_live
+    _eng.translator = _orig_tr
+
+# /stream?finals=1 through the route: first frame is a snapshot, deltas skipped.
+async def _route_finals():
+    from app.main import stream as stream_route
+
+    class _Req:
+        headers = {}
+        query_params = {}
+
+    hub.reset("translation", "SPANISH")
+    _ch = hub.channel("translation", "SPANISH")
+    _before = len(_ch.final_subscribers)
+    fin = await stream_route(_Req(), stream="translation", lang="SPANISH", finals=1)
+    norm = await stream_route(_Req(), stream="translation", lang="SPANISH")
+    f_first = await asyncio.wait_for(fin.body_iterator.__anext__(), 2)
+    n_first = await asyncio.wait_for(norm.body_iterator.__anext__(), 2)
+    hub.publish_delta("translation", "SPANISH", "par")
+    hub.publish_final("translation", "SPANISH", "partial done")
+    n_next = unframe(await asyncio.wait_for(norm.body_iterator.__anext__(), 2))
+    f_next = unframe(await asyncio.wait_for(fin.body_iterator.__anext__(), 2))
+    check("route finals=1 starts with a snapshot", unframe(f_first)["type"] == "snapshot")
+    check("route without finals gets the delta first", not n_next["final"] and n_next["delta"] == "par", n_next)
+    check("route finals=1 skips the delta", f_next["final"] and f_next["text"] == "partial done", f_next)
+    await fin.body_iterator.aclose(); await norm.body_iterator.aclose()
+    check("route disconnect unsubscribes", len(_ch.final_subscribers) == _before)
+asyncio.run(_route_finals())
+import app.main as _main
+_real_demo = _main.demo_mode
+_main.demo_mode = lambda: True
+try:
+    _dm = c.get("/api/targets").json()
+    check("demo-mode /api/targets entries carry script",
+          _dm["live"] and all(d.get("script") in languages.SCRIPTS for d in _dm["live"]), _dm)
+finally:
+    _main.demo_mode = _real_demo
+
+# First frame a panel gets: 200 history lines (the panel setting) in a snapshot.
+async def _snapshot_size():
+    _prev = hub.history_lines
+    hub.history_lines = 200
+    hub.channels.pop(("translation:VIETNAMESE"), None)
+    try:
+        for i in range(250):
+            hub.publish_final("translation", "VIETNAMESE", f"Line {i}: " + "x" * 70)
+        _ch, _q = await hub.subscribe("translation", "VIETNAMESE", finals_only=True)
+        frame = await _q.get()
+        hub.unsubscribe(_ch, _q)
+        return frame, unframe(frame)
+    finally:
+        hub.history_lines = _prev
+        hub.channels.pop("translation:VIETNAMESE", None)
+_fr, _snap = asyncio.run(_snapshot_size())
+print(f"  info 200-line finals-only snapshot: {len(_fr)} bytes")
+check("panel snapshot holds 200 lines, newest kept",
+      len(_snap["lines"]) == 200 and _snap["lines"][-1]["text"].startswith("Line 249"))
+check("panel snapshot first frame is bounded (<32 KiB)", len(_fr) < 32768, len(_fr))
 check("bad stream rejected", c.get("/stream?stream=bogus").status_code == 400)
 check("bad lang rejected", c.get("/stream?stream=translation&lang=KLINGON").status_code == 400)
 
