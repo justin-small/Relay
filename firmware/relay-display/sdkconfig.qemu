@@ -63,3 +63,8 @@ CONFIG_SPIRAM_RODATA=n
 CONFIG_RELAY_BOUNCE_LINES=0
 CONFIG_SPIRAM_SPEED_80M=y
 CONFIG_ESPTOOLPY_FLASHFREQ_80M=y
+
+# **A silent caption stream is reopened after 4 s, not 45.** `tests/test_captions.py` holds a stream open
+# with nothing on it and waits for the panel to notice; the shipped wait would make that test three-quarters
+# of a minute long. The fake Relay pings every second, so a live stream is never silent this long.
+CONFIG_RELAY_CAPTION_SILENCE_S=4

@@ -55,6 +55,9 @@ class Channel:
         # subscriber: the frame is still serialised once.
         self.final_subscribers: set[asyncio.Queue] = set()
         self.last_delta_ts: float | None = None
+        # The hub's seq when this channel was last reset. A viewer whose last id is
+        # at or below it saw nothing since, so its screen is from before the reset.
+        self.reset_seq = 0
         # When the open segment's first delta arrived. A committed line spans
         # [open_started_ts, commit time], which is what lets the exporter line
         # a translation up against the source it came from -- the two feeds
@@ -115,6 +118,7 @@ class Hub:
         ch.open_started_ts = None
         ch.redactor.reset()
         ch.history.clear()
+        ch.reset_seq = self._seq
         self._fanout(ch, ch.snapshot())
         if ch.final_subscribers:
             self._put_frame(ch.final_subscribers, sse_frame(ch.snapshot(True)))
@@ -243,8 +247,15 @@ class Hub:
         `last_id` plus the current open segment -- so the reader keeps their
         place. If the client has fallen further behind than the ring buffer
         holds, fall back to a full snapshot (which the viewer treats as a
-        rebuild)."""
-        if last_id:
+        rebuild).
+
+        **Two resumes look servable and are not.** One from before the last reset:
+        the viewer missed the (empty) reset snapshot, and with nothing committed
+        since there are no lines to replay, so it would keep the old run's lines on
+        screen. And one from a server that has since restarted: its id is ahead of
+        anything this hub has issued, and every line committed since would compare
+        lower and be skipped. Both get the snapshot, which rebuilds the viewer."""
+        if last_id and ch.reset_seq < last_id <= self._seq:
             oldest = ch.history[0]["seq"] if ch.history else None
             if oldest is None or oldest <= last_id + 1:
                 frames = []

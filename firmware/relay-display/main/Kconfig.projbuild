@@ -84,6 +84,17 @@ config RELAY_ROTATION_DEG
     default 180 if RELAY_ROTATION_180
     default 0
 
+config RELAY_CAPTION_SILENCE_S
+    int "Seconds of silence before a caption stream is reopened"
+    range 3 600
+    default 45
+    help
+        Relay sends a ping on a quiet caption stream every 15 seconds. A stream with
+        nothing at all for this long is a connection that died without closing, which a
+        Wi-Fi drop leaves behind, and the panel opens it again with ?last_id=. Three
+        pings' worth by default. `sdkconfig.qemu` shortens it so the emulator suite can
+        see one happen.
+
 config RELAY_QEMU
     bool "Build for qemu-system-xtensa (emulator suite)"
     default n

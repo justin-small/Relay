@@ -24,7 +24,9 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
+#include <algorithm>
 #include <initializer_list>
 
 #include <string>
@@ -33,6 +35,7 @@
 
 #include "auth.h"
 #include "board_format.h"
+#include "caption_format.h"
 #include "button_policy.h"
 #include "config.h"
 #include "panel_format.h"
@@ -1260,6 +1263,380 @@ void check_setup_ssid_name()
     CHECK(strcmp(ssid, "Relay-Panel-ABCD") == 0);
 }
 
+// ---------------------------------------------------------------------------
+// The caption client (caption_format.h)
+// ---------------------------------------------------------------------------
+
+std::string fold(const char *s, size_t cap = kCaptionLineMax + 1)
+{
+    std::vector<char> out(cap);
+    const size_t n = caption_fold(s, strlen(s), out.data(), cap);
+    CHECK(n == strlen(out.data()));
+    return std::string(out.data(), n);
+}
+
+void check_caption_fold()
+{
+    CHECK(fold("Hello, world.") == "Hello, world.");
+    // Latin letters stay, in Spanish, French, German, Romanian and Vietnamese.
+    CHECK(fold("¿Qué tal? Ça va. Größe. Ștefan. Tiếng Việt.") == "¿Qué tal? Ça va. Größe. Ștefan. Tiếng Việt.");
+    CHECK(fold("5 €") == "5 €");
+    // Typography becomes its plain form.
+    CHECK(fold("\xE2\x80\x9CHola\xE2\x80\x9D \xE2\x80\x94 it\xE2\x80\x99s\xE2\x80\xA6") == "\"Hola\" - it's...");
+    // Anything else is one visible "?" per run, never silently gone.
+    CHECK(fold("Thanks \xF0\x9F\x91\x8D") == "Thanks ?");
+    CHECK(fold("\xF0\x9F\x91\x8D\xF0\x9F\x8F\xBD great") == "? great");                      // emoji + skin tone
+    CHECK(fold("\xF0\x9F\x91\xA8\xE2\x80\x8D\xF0\x9F\x91\xA9 family") == "? family");           // ZWJ sequence
+    CHECK(fold("Name: \xE6\x9D\x8E\xE5\xB0\x8F\xE9\xBE\x99.") == "Name: ?.");
+    CHECK(fold("a \xE6\x9D\x8E b \xE6\x9D\x8E c") == "a ? b ? c");
+    // Invalid UTF-8 is a fallback too, and resynchronises.
+    CHECK(fold("bad \xC3 byte") == "bad ? byte");
+    CHECK(fold("over\xC0\xAFlong") == "over?long");
+    CHECK(fold("\xED\xA0\x80surrogate") == "?surrogate");
+    // Combining marks and invisible characters go; the base letter stays.
+    CHECK(fold("cafe\xCC\x81 soft\xC2\xADhyphen zero\xE2\x80\x8Bwidth") == "cafe softhyphen zerowidth");
+    // Whitespace is collapsed and trimmed; controls never reach the screen.
+    CHECK(fold("  two\n\tlines\xC2\xA0here  ") == "two lines here");
+    CHECK(fold("bell\x07") == "bell");
+    CHECK(fold("") == "");
+    CHECK(fold("\xF0\x9F\x91\x8D").size() == 1);
+    // A long line is cut at a character and ends in "...".
+    std::string longer(2000, 'a');
+    std::string cut = fold(longer.c_str());
+    CHECK(cut.size() == kCaptionLineMax && cut.substr(cut.size() - 3) == "...");
+    CHECK(fold("ééééé", 8) == "éé...");  // 7 bytes of room: two two-byte letters and the dots
+    CHECK(fold("abcdef", 7) == "abcdef");
+    CHECK(fold("abcdefg", 7) == "abc...");
+    CHECK(fold("abcdef", 4) == "...");
+    CHECK(fold("abc", 4) == "abc");
+}
+
+void check_caption_json()
+{
+    using namespace caption_json;
+    const char *j = R"({"a":1,"s":"x\"y\\z\u00e9\ud83d\udc4d\u0041","n":{"deep":[1,{"k":"v"}]},"b":true,"c":false,"seq":18446744073709551615})";
+    const char *e = j + strlen(j);
+    uint64_t v = 0;
+    CHECK(read_uint(get(j, e, "a"), e, &v) && v == 1);
+    CHECK(read_uint(get(j, e, "seq"), e, &v) && v == 18446744073709551615ULL);
+    char s[32];
+    size_t n = 0;
+    CHECK(read_string(get(j, e, "s"), e, s, sizeof s, &n));
+    CHECK(strcmp(s, "x\"y\\z\xC3\xA9\xF0\x9F\x91\x8D" "A") == 0 && n == strlen(s));
+    bool b = false;
+    CHECK(read_bool(get(j, e, "b"), e, &b) && b);
+    CHECK(read_bool(get(j, e, "c"), e, &b) && !b);
+    CHECK(get(j, e, "missing") == nullptr);
+    CHECK(get(j, e, "k") == nullptr);  // only the top level is searched
+    // Lone surrogates are U+FFFD, not garbage.
+    const char *lone = R"({"t":"\ud800x\udc00"})";
+    CHECK(read_string(get(lone, lone + strlen(lone), "t"), lone + strlen(lone), s, sizeof s, &n));
+    CHECK(strcmp(s, "\xEF\xBF\xBDx\xEF\xBF\xBD") == 0);
+    // A string longer than its room is cut whole characters at a time.
+    const char *wide = R"({"t":"ééééé"})";
+    CHECK(read_string(get(wide, wide + strlen(wide), "t"), wide + strlen(wide), s, 6, &n));
+    CHECK(n == 4 && strcmp(s, "éé") == 0);
+    // Malformed input is "not found", never a crash.
+    for (const char *bad : {"", "{", "{\"a\"", "{\"a\":", "[1,2]", "{\"a\":\"\x01\"}", "{\"s\":\"\\q\"}"}) {
+        const char *be = bad + strlen(bad);
+        CHECK(!read_uint(get(bad, be, "a"), be, &v));
+        CHECK(!read_string(get(bad, be, "s"), be, s, sizeof s, &n));
+    }
+    // Deep nesting is walked without recursion.
+    std::string deep = "{\"x\":" + std::string(5000, '[') + std::string(5000, ']') + ",\"a\":7}";
+    CHECK(read_uint(get(deep.c_str(), deep.c_str() + deep.size(), "a"), deep.c_str() + deep.size(), &v) && v == 7);
+    // Arrays.
+    const char *arr = R"({"lines":[ {"seq":1}, {"seq":2} ,{"seq":3}]})";
+    const char *ae = arr + strlen(arr);
+    array_iter it;
+    CHECK(array_begin(get(arr, ae, "lines"), ae, &it));
+    int count = 0;
+    while (const char *el = array_next(&it)) {
+        CHECK(read_uint(get(el, ae, "seq"), ae, &v) && v == static_cast<uint64_t>(++count));
+    }
+    CHECK(count == 3);
+    for (const char *num : {"1.5", "-1", "1e3", "99999999999999999999"}) {
+        CHECK(!read_uint(num, num + strlen(num), &v));
+    }
+}
+
+struct http_capture {
+    std::string body;
+};
+
+void http_sink(void *ctx, const char *p, size_t n)
+{
+    static_cast<http_capture *>(ctx)->body.append(p, n);
+}
+
+// Feed `wire` to a fresh reader `step` bytes at a time.
+caption_http http_read(const std::string &wire, size_t step, http_capture *got)
+{
+    caption_http h;
+    for (size_t i = 0; i < wire.size(); i += step) {
+        h.feed(wire.data() + i, std::min(step, wire.size() - i), http_sink, got);
+    }
+    return h;
+}
+
+void check_caption_http()
+{
+    const std::string chunked =
+        "HTTP/1.1 200 OK\r\ncontent-type: text/event-stream; charset=utf-8\r\n"
+        "Transfer-Encoding: chunked\r\nX-Long: " + std::string(500, 'x') + "\r\n\r\n"
+        "5\r\nhello\r\n19;ext=1\r\n, chunked world, in parts\r\n0\r\nTrailer: t\r\n\r\n";
+    for (size_t step : {1u, 2u, 3u, 7u, 64u, 10000u}) {
+        http_capture got;
+        caption_http h = http_read(chunked, step, &got);
+        CHECK(h.status() == 200 && h.chunked() && h.event_stream());
+        CHECK(got.body == "hello, chunked world, in parts");
+        CHECK(h.state() == caption_http::phase::done);
+    }
+    // Identity body (HTTP/1.0 or a proxy that dechunks): everything after the headers.
+    http_capture plain;
+    caption_http h = http_read("HTTP/1.0 200 OK\nContent-Type: text/event-stream\n\ndata: x\n\n", 5, &plain);
+    CHECK(h.status() == 200 && !h.chunked() && h.event_stream() && plain.body == "data: x\n\n");
+    // Status codes come through for the caller to judge.
+    http_capture none;
+    CHECK(http_read("HTTP/1.1 502 Bad Gateway\r\n\r\n", 4, &none).status() == 502);
+    CHECK(http_read("HTTP/1.1 400 Bad Request\r\ncontent-type: application/json\r\n\r\n{}", 4, &none).status() == 400);
+    // Not HTTP, or a broken chunk size, is a bad response.
+    CHECK(http_read("SSH-2.0-OpenSSH\r\n", 3, &none).state() == caption_http::phase::bad);
+    CHECK(http_read("HTTP/1.1 2x0 OK\r\n", 3, &none).state() == caption_http::phase::bad);
+    CHECK(http_read("HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\nzz\r\n", 3, &none).state() ==
+          caption_http::phase::bad);
+    CHECK(http_read("HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n3\r\nabcX", 3, &none).state() ==
+          caption_http::phase::bad);
+}
+
+struct sse_capture {
+    std::vector<std::string> data;
+    std::vector<std::string> ids;
+    std::vector<std::string> types;
+    std::vector<std::string> comments;
+    int oversize = 0;
+};
+
+void sse_on_event(void *ctx, const caption_sse_event &ev)
+{
+    auto *c = static_cast<sse_capture *>(ctx);
+    CHECK(ev.data[ev.len] == '\0');
+    if (ev.oversize) {
+        ++c->oversize;
+        return;
+    }
+    c->data.emplace_back(ev.data, ev.len);
+    c->ids.emplace_back(ev.id);
+    c->types.emplace_back(ev.type);
+}
+
+void sse_on_comment(void *ctx, const char *text)
+{
+    static_cast<sse_capture *>(ctx)->comments.emplace_back(text);
+}
+
+sse_capture sse_read(const std::string &wire, size_t step, size_t cap = 4096)
+{
+    std::vector<char> buf(cap);
+    caption_sse sse(buf.data(), cap);
+    sse_capture got;
+    for (size_t i = 0; i < wire.size(); i += step) {
+        sse.feed(wire.data() + i, std::min(step, wire.size() - i), sse_on_event, sse_on_comment, &got);
+    }
+    return got;
+}
+
+void check_caption_sse()
+{
+    // Relay's frames, a ping, and the line endings the spec allows, split at every boundary.
+    const std::string wire =
+        "id: 12\ndata: {\"seq\":12}\n\n"
+        ": ping\n\n"
+        "data: {\"type\":\"targets\"}\r\n\r\n"
+        "id:13\rdata:one\rdata: two\r\r"
+        "event: custom\r\nretry: 5\r\nunknown: x\r\ndata\r\n\r\n"
+        "id: 14\n\n";  // an id with no data dispatches nothing
+    for (size_t step : {1u, 2u, 5u, 4096u}) {
+        sse_capture got = sse_read(wire, step);
+        CHECK(got.data.size() == 4);
+        if (got.data.size() != 4) {
+            continue;
+        }
+        CHECK(got.data[0] == "{\"seq\":12}" && got.ids[0] == "12");
+        CHECK(got.data[1] == "{\"type\":\"targets\"}" && got.ids[1].empty());
+        CHECK(got.data[2] == "one\ntwo" && got.ids[2] == "13");
+        CHECK(got.data[3].empty() && got.types[3] == "custom");
+        CHECK(got.comments.size() == 1 && got.comments[0] == "ping");
+    }
+    // An event larger than the buffer is reported as oversize and does not spill into the next.
+    sse_capture big = sse_read("data: " + std::string(100, 'x') + "\n\ndata: ok\n\n", 7, 64);
+    CHECK(big.oversize == 1 && big.data.size() == 1 && big.data[0] == "ok");
+    // A field name too long to be one of ours is skipped whole.
+    sse_capture odd = sse_read(std::string(100, 'n') + ": v\ndata: kept\n\n", 3);
+    CHECK(odd.data.size() == 1 && odd.data[0] == "kept");
+}
+
+void check_caption_buffer()
+{
+    caption_buffer b(malloc, free);
+    CHECK(b.size() == 0 && !b.contains(1));
+    char text[16];
+    for (int i = 1; i <= 250; ++i) {
+        const int n = snprintf(text, sizeof text, "line %d", i);
+        CHECK(b.push(static_cast<uint64_t>(i), text, static_cast<size_t>(n)));
+    }
+    // The newest 200, oldest first.
+    CHECK(b.size() == kCaptionLines);
+    CHECK(b.at(0).seq == 51 && strcmp(b.at(0).text, "line 51") == 0);
+    CHECK(b.at(199).seq == 250 && strcmp(b.at(199).text, "line 250") == 0 && b.at(199).len == 8);
+    for (int i = 1; i < b.size(); ++i) {
+        CHECK(b.at(i).seq == b.at(i - 1).seq + 1);
+    }
+    CHECK(!b.contains(50) && b.contains(51) && b.contains(250));
+    b.clear();
+    CHECK(b.size() == 0);
+    CHECK(b.push(7, "again", 5) && b.size() == 1 && b.at(0).seq == 7);
+    // A failed allocation leaves the buffer as it was.
+    caption_buffer none([](size_t) -> void * { return nullptr; }, free);
+    CHECK(!none.push(1, "x", 1) && none.size() == 0);
+}
+
+std::string final_line(uint64_t seq, const char *text)
+{
+    return "{\"stream\":\"translation\",\"lang\":\"SPANISH\",\"seq\":" + std::to_string(seq) +
+           ",\"delta\":\"\",\"text\":\"" + text + "\",\"final\":true,\"ts\":1730000000.5}";
+}
+
+caption_change feed_apply(caption_feed &f, const std::string &json)
+{
+    return f.apply(json.data(), json.size());
+}
+
+std::vector<uint64_t> seqs(const caption_feed &f)
+{
+    std::vector<uint64_t> out;
+    for (int i = 0; i < f.lines().size(); ++i) {
+        out.push_back(f.lines().at(i).seq);
+    }
+    return out;
+}
+
+void check_caption_feed()
+{
+    auto *f = new caption_feed(malloc, free);
+    CHECK(f->resume_id() == 0);
+
+    // A fresh connection: the snapshot fills the buffer and sets the resume point.
+    CHECK(feed_apply(*f, R"({"type":"snapshot","stream":"translation","lang":"SPANISH","lines":[)"
+                    R"({"seq":3,"text":"uno","ts":1},{"seq":9,"text":"dos","ts":2}],"open":"","ts":3})") ==
+          caption_change::rebuilt);
+    CHECK((seqs(*f) == std::vector<uint64_t>{3, 9}) && f->resume_id() == 9);
+
+    // Finished lines append; seqs have gaps because Relay's counter is shared by every feed.
+    CHECK(feed_apply(*f, final_line(15, "tres")) == caption_change::line);
+    CHECK(feed_apply(*f, final_line(22, "\\u201ccuatro\\u201d \xF0\x9F\x99\x82")) == caption_change::line);
+    CHECK(f->resume_id() == 22 && strcmp(f->lines().at(3).text, "\"cuatro\" ?") == 0);
+
+    // A replayed line is not added twice.
+    CHECK(feed_apply(*f, final_line(15, "tres")) == caption_change::ignored);
+    CHECK(f->lines().size() == 4 && f->resume_id() == 22);
+
+    // Partial lines, unknown types and pings never touch the buffer.
+    CHECK(feed_apply(*f, R"({"stream":"translation","lang":"SPANISH","seq":23,"delta":"ho","final":false,"ts":1})") ==
+          caption_change::ignored);
+    CHECK(feed_apply(*f, R"({"type":"status","x":1})") == caption_change::ignored);
+    CHECK(feed_apply(*f, "not json") == caption_change::malformed);
+    CHECK(feed_apply(*f, "{\"final\":true,\"seq\":31,\"text\":\"cut\",") == caption_change::malformed);
+    CHECK(feed_apply(*f, R"({"final":true,"text":"no seq"})") == caption_change::malformed);
+    CHECK(feed_apply(*f, final_line(30, "   ")) == caption_change::ignored);  // nothing left to show
+    CHECK(f->lines().size() == 4 && f->resume_id() == 22);
+
+    // Targets are kept whole for the feed picker.
+    const std::string targets = R"({"type":"targets","source":{"lang":"ENGLISH"},"live":["SPANISH"],"running":true})";
+    CHECK(feed_apply(*f, targets) == caption_change::targets);
+    CHECK(f->targets() == targets && f->targets_revision() == 1);
+
+    // A reset (Start) is a snapshot with no lines: the buffer empties, and the resume point stays, so a
+    // reconnect asks only for what came after it.
+    CHECK(feed_apply(*f, R"({"type":"snapshot","lines":[],"open":""})") == caption_change::cleared);
+    CHECK(f->lines().size() == 0 && f->resume_id() == 22);
+    CHECK(feed_apply(*f, final_line(40, "nuevo")) == caption_change::line);
+
+    // A Relay that restarted counts from 1 again: its lines are taken and the resume point follows.
+    CHECK(feed_apply(*f, final_line(2, "otra vez")) == caption_change::line);
+    CHECK(f->resume_id() == 2 && (seqs(*f) == std::vector<uint64_t>{40, 2}));
+
+    // 250 lines keep the newest 200.
+    for (uint64_t s = 100; s < 350; ++s) {
+        CHECK(feed_apply(*f, final_line(s, "x")) == caption_change::line);
+    }
+    CHECK(f->lines().size() == kCaptionLines && f->lines().at(0).seq == 150 && f->resume_id() == 349);
+
+    // A snapshot of 500 lines (Relay's most) keeps its newest 200.
+    std::string snap = R"({"type":"snapshot","lines":[)";
+    for (int s = 1; s <= 500; ++s) {
+        snap += (s > 1 ? "," : "") + std::string("{\"seq\":") + std::to_string(s) + ",\"text\":\"l\",\"ts\":0}";
+    }
+    snap += "]}";
+    CHECK(feed_apply(*f, snap) == caption_change::rebuilt);
+    CHECK(f->lines().size() == kCaptionLines && f->lines().at(0).seq == 301 && f->resume_id() == 500);
+    delete f;
+
+    // Lines that cannot be stored are counted, not silently lost.
+    auto *starved = new caption_feed([](size_t) -> void * { return nullptr; }, free);
+    CHECK(feed_apply(*starved, final_line(1, "x")) == caption_change::no_memory && starved->lost() == 1);
+    CHECK(starved->resume_id() == 0);
+    delete starved;
+}
+
+void check_caption_connection()
+{
+    char host[64];
+    uint16_t port = 0;
+    CHECK(caption_url_split("http://192.168.1.20:8000", host, sizeof host, &port));
+    CHECK(strcmp(host, "192.168.1.20") == 0 && port == 8000);
+    CHECK(caption_url_split("relay.local/", host, sizeof host, &port) && strcmp(host, "relay.local") == 0 && port == 80);
+    CHECK(!caption_url_split("http://", host, sizeof host, &port));
+    CHECK(!caption_url_split("http://h:0", host, sizeof host, &port));
+    CHECK(!caption_url_split("http://h:65536", host, sizeof host, &port));
+    CHECK(!caption_url_split("http://h/stream", host, sizeof host, &port));
+    CHECK(!caption_url_split("http://u@h", host, sizeof host, &port));
+    CHECK(!caption_url_split("http://h:80x", host, sizeof host, &port));
+    CHECK(!caption_url_split("http://h", host, 1, &port));
+
+    char req[512];
+    CHECK(caption_request(req, sizeof req, "10.0.2.2", 8000, kFeedTranslation, "SPANISH", 0, "0.1.0") > 0);
+    CHECK(strncmp(req, "GET /stream?stream=translation&lang=SPANISH&finals=1 HTTP/1.1\r\n", 63) == 0);
+    CHECK(strstr(req, "\r\nHost: 10.0.2.2:8000\r\n") != nullptr);
+    CHECK(strstr(req, "\r\nAccept: text/event-stream\r\n") != nullptr);
+    CHECK(strstr(req, "last_id") == nullptr);
+    CHECK(strcmp(req + strlen(req) - 4, "\r\n\r\n") == 0);
+    CHECK(caption_request(req, sizeof req, "relay.local", 80, kFeedTranscription, "", 123456789012ULL, "0.1.0") > 0);
+    CHECK(strncmp(req, "GET /stream?stream=transcription&finals=1&last_id=123456789012 HTTP/1.1\r\n", 73) == 0);
+    CHECK(strstr(req, "\r\nHost: relay.local\r\n") != nullptr);
+    CHECK(caption_request(req, sizeof req, "h", 80, kFeedTranslation, "A B&", 0, "v") > 0);
+    CHECK(strstr(req, "lang=A%20B%26&finals=1") != nullptr);
+    CHECK(caption_request(req, sizeof req, "h", 80, kFeedTranslation, "", 0, "v") == 0);
+    CHECK(caption_request(req, sizeof req, "h", 80, kFeedNone, "X", 0, "v") == 0);
+    CHECK(caption_request(req, 40, "h", 80, kFeedTranscription, "", 0, "v") == 0);
+
+    // Backoff: 1 s doubling to 30 s.
+    CHECK(caption_backoff_ms(0) == 1000 && caption_backoff_ms(1) == 2000 && caption_backoff_ms(4) == 16000);
+    CHECK(caption_backoff_ms(5) == 30000 && caption_backoff_ms(1000) == 30000);
+    CHECK(caption_failures_after(4, true, kCaptionHealthyMs) == 0);
+    CHECK(caption_failures_after(4, true, 500) == 5);
+    CHECK(caption_failures_after(4, false, 60000) == 5);
+
+    // What the UI is told.
+    CHECK(caption_state_after(caption_end::refused, 0) == caption_state::relay_not_running);
+    CHECK(caption_state_after(caption_end::http_status, 502) == caption_state::relay_not_running);
+    CHECK(caption_state_after(caption_end::http_status, 400) == caption_state::feed_refused);
+    CHECK(caption_state_after(caption_end::closed, 0) == caption_state::reconnecting);
+    CHECK(caption_state_after(caption_end::silent, 0) == caption_state::reconnecting);
+    CHECK(caption_state_after(caption_end::unreachable, 0) == caption_state::reconnecting);
+    CHECK(strcmp(caption_state_name(caption_state::relay_not_running), "relay not running") == 0);
+}
+
 }  // namespace
 
 int main()
@@ -1299,6 +1676,13 @@ int main()
     check_setup_page();
     check_button_hold();
     check_touch();
+    check_caption_fold();
+    check_caption_json();
+    check_caption_http();
+    check_caption_sse();
+    check_caption_buffer();
+    check_caption_feed();
+    check_caption_connection();
 
     if (g_failures != 0) {
         fprintf(stderr, "%d check(s) failed\n", g_failures);
