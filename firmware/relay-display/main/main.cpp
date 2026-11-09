@@ -7,6 +7,7 @@
 #include "captions.h"
 #include "config.h"
 #include "diag.h"
+#include "feeds.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "display.h"
@@ -156,15 +157,17 @@ extern "C" void app_main(void)
     ESP_ERROR_CHECK(net_wired_start());
 
     // The caption feed. It waits for an address by itself, so it starts here whatever the network is doing.
-    // The stored Relay address and feed choose what slot 0 shows; with either missing it stays off until the
-    // feed is set (Relay discovery and the feed picker come with later changes). A feed that cannot start costs
-    // the captions and not the boot.
+    // A feed that cannot start costs the captions and not the boot.
     const esp_err_t captions = captions_start();
     if (captions != ESP_OK) {
         ESP_LOGE(TAG, "boot: captions not started (%s)", esp_err_to_name(captions));
-    } else if (settings.relay_addr[0] != '\0' && settings.feed_stream != kFeedNone) {
-        captions_set_feed(0, settings.relay_addr, settings.feed_stream, settings.feed_lang);
-        screen_show_captions(0);
+    } else {
+        // The saved choice (one feed or two, and which) and the Relay address start the feeds, and the caption screen
+        // with them. With no address nothing is shown until the panel is given one.
+        const esp_err_t feeds = feeds_start(settings);
+        if (feeds != ESP_OK) {
+            ESP_LOGE(TAG, "boot: feeds not started (%s)", esp_err_to_name(feeds));
+        }
     }
     start_heap_log();
     diag_start();

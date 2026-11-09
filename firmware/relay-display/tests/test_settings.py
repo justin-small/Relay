@@ -110,7 +110,7 @@ def test_a_wrong_magic_falls_back_to_the_defaults(boot) -> None:
     uart = machine.uart
     assert uart is not None
     uart.wait_for(
-        r"settings: stored blob is schema \d+, this firmware reads 1; using defaults",
+        r"settings: stored blob is schema \d+, this firmware reads 2; using defaults",
         timeout=BOOT_TIMEOUT,
     )
     uart.wait_for(r"panel: QEMU virtual panel 800x480 RGB565, rotation 180", timeout=BOOT_TIMEOUT)
@@ -120,14 +120,14 @@ def test_a_wrong_magic_falls_back_to_the_defaults(boot) -> None:
 
 def test_a_wrong_schema_falls_back_to_the_defaults(boot) -> None:
     """A blob from a layout this firmware does not read is replaced with defaults, not read as the wrong
-    fields. The seed is schema 2, one past this firmware's 1, and holds a valid-looking network, and the
+    fields. The seed is schema 3, one past this firmware's 2, and holds a valid-looking network, and the
     boot does not start it."""
     machine = boot("nvs-bad-schema")
     wait_ready(machine)
     uart = machine.uart
     assert uart is not None
     uart.wait_for(
-        r"settings: stored blob is schema 2, this firmware reads 1; using defaults",
+        r"settings: stored blob is schema 3, this firmware reads 2; using defaults",
         timeout=BOOT_TIMEOUT,
     )
     uart.wait_for(r"panel: QEMU virtual panel 800x480 RGB565, rotation 180", timeout=BOOT_TIMEOUT)

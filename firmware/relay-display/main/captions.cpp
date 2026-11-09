@@ -407,6 +407,25 @@ Outcome run_connection(Slot &s, uint32_t gen, const char *url, uint8_t stream, c
     return out;
 }
 
+struct TargetsBody {
+    char *out;
+    size_t cap;
+    size_t len;
+    bool overflow;
+};
+
+void on_targets_body(void *ctx, const char *p, size_t n)
+{
+    auto *b = static_cast<TargetsBody *>(ctx);
+    if (b->len + n + 1 > b->cap) {
+        b->overflow = true;
+        return;
+    }
+    memcpy(b->out + b->len, p, n);
+    b->len += n;
+    b->out[b->len] = '\0';
+}
+
 const char *end_name(caption_end end)
 {
     switch (end) {
@@ -621,6 +640,60 @@ void captions_set_listener(void (*fn)(int, void *), void *ctx)
     s_listener = nullptr;
     s_listener_ctx = ctx;
     s_listener = fn;
+}
+
+bool captions_fetch_targets(const char *relay_url, char *out, size_t cap)
+{
+    if (out == nullptr || cap < 2) {
+        return false;
+    }
+    out[0] = '\0';
+    if (relay_url == nullptr || !has_address()) {
+        return false;
+    }
+    char host[sizeof(relay_settings_t::relay_addr)];
+    uint16_t port = 0;
+    if (!caption_url_split(relay_url, host, sizeof host, &port)) {
+        return false;
+    }
+    char request[256];
+    const size_t request_len = caption_targets_request(request, sizeof request, host, port, RELAY_FW_VERSION);
+    caption_end why = caption_end::closed;
+    const int fd = request_len > 0 ? open_socket(host, port, &why) : -1;
+    if (fd < 0) {
+        return false;
+    }
+    TargetsBody body = {out, cap, 0, false};
+    caption_http *http = new (std::nothrow) caption_http();
+    bool ok = false;
+    if (http != nullptr && send_all(fd, request, request_len)) {
+        char buf[512];
+        const int64_t deadline = esp_timer_get_time() + 8 * 1000 * 1000;
+        while (esp_timer_get_time() < deadline) {
+            const ssize_t n = recv(fd, buf, sizeof buf, 0);
+            if (n > 0) {
+                if (!http->feed(buf, static_cast<size_t>(n), on_targets_body, &body)) {
+                    break;
+                }
+                if (http->state() == caption_http::phase::done) {
+                    break;
+                }
+                continue;
+            }
+            if (n < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
+                continue;
+            }
+            break;  // closed: the body is whole (Connection: close)
+        }
+        ok = http->status() == 200 && !body.overflow && body.len > 0;
+    }
+    delete http;
+    shutdown(fd, SHUT_RDWR);
+    close(fd);
+    if (!ok) {
+        out[0] = '\0';
+    }
+    return ok;
 }
 
 void captions_dump(int slot)

@@ -29,7 +29,7 @@ from pathlib import Path
 
 # `kSettingsMagic` ("RLDP", little-endian) and `kSettingsSchema` in settings_format.h.
 MAGIC = 0x50444C52
-SCHEMA = 1
+SCHEMA = 2
 
 # `relay_settings_t`, field by field, in declaration order. The sizes are the array lengths in the
 # header, and each text field has room for its terminator.
@@ -39,15 +39,17 @@ RELAY_ADDR_BYTES = 129
 PANEL_ID_BYTES = 33
 FEED_LANG_BYTES = 20
 
-# One struct format, no padding (`<`): the header's layout is pinned by its `static_assert` at 312
+# One struct format, no padding (`<`): the header's layout is pinned by its `static_assert` at 336
 # bytes, and every field is a whole number of bytes with no alignment gap, so this format and the C
 # struct agree. After the text fields: the address mode, the feed (one byte each), two reserved bytes,
 # the feed's language, and five four-byte addresses.
 FORMAT = (
     f"<IHH{SSID_BYTES}s{PASSWORD_BYTES}s{RELAY_ADDR_BYTES}s{PANEL_ID_BYTES}s"
     f"BB2x{FEED_LANG_BYTES}s4s4s4s4s4s"
+    # Schema 2: the split switch, pane 2's feed, two reserved bytes and pane 2's language.
+    f"BB2x{FEED_LANG_BYTES}s"
 )
-SIZE = 312
+SIZE = 336
 
 FEED_NONE, FEED_TRANSCRIPTION, FEED_TRANSLATION = 0, 1, 2
 
@@ -87,6 +89,9 @@ def blob(
     ip_mode: int = 0,
     feed_stream: int = FEED_NONE,
     feed_lang: str = "",
+    feed_split: int = 0,
+    feed2_stream: int = FEED_NONE,
+    feed2_lang: str = "",
     static: tuple[str, str, str, str, str] = ("", "", "", "", ""),
 ) -> bytes:
     """A stored blob with these fields, as `settings_save` writes one."""
@@ -103,6 +108,9 @@ def blob(
         feed_stream,
         _text(feed_lang, FEED_LANG_BYTES),
         *(_addr(part) for part in static),
+        feed_split,
+        feed2_stream,
+        _text(feed2_lang, FEED_LANG_BYTES),
     )
     assert len(data) == SIZE, f"blob is {len(data)} bytes, expected {SIZE}"
     return data

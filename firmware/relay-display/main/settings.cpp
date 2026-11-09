@@ -8,6 +8,8 @@
 #include "esp_log.h"
 #include "esp_random.h"
 #include "esp_wifi.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/semphr.h"
 #include "nvs.h"
 #include "nvs_flash.h"
 #include "sdkconfig.h"
@@ -110,6 +112,49 @@ esp_err_t settings_save(const relay_settings_t *in)
     ESP_RETURN_ON_ERROR(commit, TAG, "write");
     ESP_LOGI(TAG, "settings: saved");
     return ESP_OK;
+}
+
+namespace {
+
+// One writer of the feed fields at a time: a load, a change and a save are not one NVS operation.
+SemaphoreHandle_t feeds_lock()
+{
+    static SemaphoreHandle_t lock = xSemaphoreCreateMutex();
+    return lock;
+}
+
+void copy_feeds(relay_settings_t *to, const relay_settings_t *from)
+{
+    to->feed_stream = from->feed_stream;
+    memcpy(to->feed_lang, from->feed_lang, sizeof to->feed_lang);
+    to->feed2_stream = from->feed2_stream;
+    memcpy(to->feed2_lang, from->feed2_lang, sizeof to->feed2_lang);
+    to->feed_split = from->feed_split;
+}
+
+}  // namespace
+
+esp_err_t settings_save_feeds(const relay_settings_t *in)
+{
+    xSemaphoreTake(feeds_lock(), portMAX_DELAY);
+    relay_settings_t current;
+    esp_err_t err = settings_load(&current);
+    if (err == ESP_OK) {
+        copy_feeds(&current, in);
+        err = settings_save(&current);
+    }
+    xSemaphoreGive(feeds_lock());
+    return err;
+}
+
+void settings_adopt_feeds(relay_settings_t *cand)
+{
+    xSemaphoreTake(feeds_lock(), portMAX_DELAY);
+    relay_settings_t current;
+    if (settings_load(&current) == ESP_OK) {
+        copy_feeds(cand, &current);
+    }
+    xSemaphoreGive(feeds_lock());
 }
 
 esp_err_t settings_ensure_panel_id(relay_settings_t *settings, bool *created)

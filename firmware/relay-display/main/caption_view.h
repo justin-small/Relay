@@ -13,7 +13,7 @@
 #include "lvgl.h"
 
 // Build the view for caption slot `slot` on `root`, which `screen.cpp` has just emptied.
-void caption_view_build(lv_obj_t *root, int slot);
+void caption_view_build(lv_obj_t *root);
 
 // Stop updating. Called before the screen is cleared or handed to another picture; the objects themselves
 // go with the screen.

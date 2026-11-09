@@ -15,6 +15,15 @@ esp_err_t settings_load(relay_settings_t *out);
 // Write the whole blob in one NVS entry and commit it.
 esp_err_t settings_save(const relay_settings_t *in);
 
+// Save the feed choice (`feed_stream`, `feed_lang`, `feed2_stream`, `feed2_lang`, `feed_split` of `in`) into the stored
+// blob and leave every other field as stored: the choice is saved from the feeds task while the setup page may be
+// saving a network. An error comes back if the blob cannot be written.
+esp_err_t settings_save_feeds(const relay_settings_t *in);
+
+// Copy the stored feed choice into `*cand`, so a save of a whole blob made from an older copy (the setup page's)
+// does not put an old choice back.
+void settings_adopt_feeds(relay_settings_t *cand);
+
 // The defaults: nothing configured, so the panel opens its setup network and does not
 // connect to anything. The rotation starts at the Kconfig value, and the address is DHCP.
 void settings_defaults(relay_settings_t *out);

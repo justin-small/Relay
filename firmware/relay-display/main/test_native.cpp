@@ -37,6 +37,7 @@
 #include "board_format.h"
 #include "caption_format.h"
 #include "caption_view_format.h"
+#include "feed_format.h"
 #include "button_policy.h"
 #include "config.h"
 #include "panel_format.h"
@@ -1788,6 +1789,220 @@ void check_caption_view()
     }
 }
 
+// ---------------------------------------------------------------------------
+// The feed picker: what is offered, what a pane shows, and the saved choice
+// ---------------------------------------------------------------------------
+
+// A `targets` message as Relay sends it (`Engine.targets_payload`).
+const char *kTargets =
+    "{\"type\":\"targets\",\"source\":{\"lang\":\"ENGLISH\",\"label\":\"English\",\"iso\":\"en\",\"script\":\"latin\"},"
+    "\"live\":[{\"target\":\"FRENCH\",\"label\":\"French\",\"iso\":\"fr\",\"script\":\"latin\",\"state\":\"open\"},"
+    "{\"target\":\"JAPANESE\",\"label\":\"Japanese\",\"iso\":\"ja\",\"script\":\"kana\",\"state\":\"open\"},"
+    "{\"target\":\"SPANISH\",\"label\":\"Spanish\",\"iso\":\"es\",\"script\":\"latin\",\"state\":\"open\"},"
+    "{\"target\":\"RUSSIAN\",\"label\":\"Russian\",\"iso\":\"ru\",\"script\":\"cyrillic\",\"state\":\"open\"}],"
+    "\"running\":true,\"font_px\":48}";
+
+feed_options parse_options(const char *json)
+{
+    feed_options o;
+    CHECK(feed_options_parse(json, strlen(json), &o));
+    return o;
+}
+
+void check_feed_options()
+{
+    // Transcription first, then the live translations the panel can draw, in Relay's order. Japanese (kana) and
+    // Russian (cyrillic) are not drawable and are never offered.
+    const feed_options o = parse_options(kTargets);
+    CHECK(o.known && o.count == 3);
+    CHECK(o.items[0].pick.stream == kFeedTranscription && strcmp(o.items[0].label, "Transcription") == 0);
+    CHECK(o.items[1].pick.stream == kFeedTranslation && strcmp(o.items[1].pick.lang, "FRENCH") == 0);
+    CHECK(strcmp(o.items[1].label, "French") == 0);
+    CHECK(strcmp(o.items[2].pick.lang, "SPANISH") == 0);
+    CHECK(!o.has(feed_pick_make(kFeedTranslation, "JAPANESE")));
+    CHECK(!o.has(feed_pick_make(kFeedTranslation, "RUSSIAN")));
+    CHECK(o.has(feed_pick_make(kFeedTranscription, "")));
+
+    // A source language the panel cannot draw has no transcription on offer; the translations still are.
+    const feed_options ru = parse_options(
+        "{\"type\":\"targets\",\"source\":{\"lang\":\"RUSSIAN\",\"script\":\"cyrillic\"},"
+        "\"live\":[{\"target\":\"ENGLISH\",\"label\":\"English\",\"script\":\"latin\"}]}");
+    CHECK(ru.known && ru.count == 1 && ru.items[0].pick.stream == kFeedTranslation);
+    CHECK(!ru.has(feed_pick_make(kFeedTranscription, "")));
+
+    // A language with no script is not offered: what the panel cannot be sure of it does not draw.
+    const feed_options none = parse_options(
+        "{\"type\":\"targets\",\"source\":{\"script\":\"latin\"},\"live\":[{\"target\":\"GERMAN\",\"label\":\"German\"}]}");
+    CHECK(none.count == 1);  // the transcription only
+
+    // Nothing live is a known, short list. A label that is missing falls back to the language's name.
+    const feed_options empty = parse_options("{\"type\":\"targets\",\"source\":{\"script\":\"latin\"},\"live\":[]}");
+    CHECK(empty.known && empty.count == 1);
+    const feed_options nolabel = parse_options(
+        "{\"type\":\"targets\",\"source\":{\"script\":\"latin\"},\"live\":[{\"target\":\"ITALIAN\",\"script\":\"latin\"}]}");
+    CHECK(nolabel.count == 2 && strcmp(nolabel.items[1].label, "ITALIAN") == 0);
+
+    // A poll that says nothing new is not a change; a language coming or going is.
+    CHECK(feed_options_same(o, parse_options(kTargets)));
+    CHECK(!feed_options_same(o, empty));
+    CHECK(!feed_options_same(o, feed_options()));
+
+    // Not JSON the client reads leaves the options as they were.
+    feed_options keep = parse_options(kTargets);
+    CHECK(!feed_options_parse("nope", 4, &keep));
+    CHECK(keep.count == 3);
+
+    // More languages than the menu holds are cut, never overrun.
+    std::string many = "{\"type\":\"targets\",\"source\":{\"script\":\"latin\"},\"live\":[";
+    for (int i = 0; i < 40; ++i) {
+        many += std::string(i ? "," : "") + "{\"target\":\"L" + std::to_string(i) + "\",\"label\":\"L\",\"script\":\"latin\"}";
+    }
+    many += "]}";
+    const feed_options big = parse_options(many.c_str());
+    CHECK(big.count == kFeedOptionsMax);
+
+    // A language name longer than the saved field is dropped rather than cut into another language.
+    const feed_options longname = parse_options(
+        "{\"type\":\"targets\",\"source\":{\"script\":\"latin\"},\"live\":[{\"target\":\"ABCDEFGHIJKLMNOPQRSTUVWXYZ\",\"script\":\"latin\"}]}");
+    CHECK(longname.count == 1);
+}
+
+void check_feed_resolve()
+{
+    const feed_options o = parse_options(kTargets);
+    const feed_options unknown;  // no `targets` yet
+    const feed_pick es = feed_pick_make(kFeedTranslation, "SPANISH");
+    const feed_pick de = feed_pick_make(kFeedTranslation, "GERMAN");
+    const feed_pick tr = feed_pick_make(kFeedTranscription, "");
+
+    // A live language is shown as chosen.
+    feed_resolved r = feed_resolve(es, o, false);
+    CHECK(feed_pick_same(r.pick, es) && !r.fallback);
+    // A language that is not live falls back to the transcription, and says so.
+    r = feed_resolve(de, o, false);
+    CHECK(feed_pick_same(r.pick, tr) && r.fallback);
+    // ...and the same pick is shown again the moment the language is live: nothing was forgotten.
+    feed_options back = o;
+    feed_option g;
+    g.pick = de;
+    back.items[back.count++] = g;
+    r = feed_resolve(de, back, false);
+    CHECK(feed_pick_same(r.pick, de) && !r.fallback);
+    // A language the panel cannot draw is never shown, even when chosen (a saved choice from another build).
+    r = feed_resolve(feed_pick_make(kFeedTranslation, "JAPANESE"), o, false);
+    CHECK(feed_pick_same(r.pick, tr) && r.fallback);
+
+    // No choice is the transcription.
+    r = feed_resolve(feed_pick(), o, false);
+    CHECK(feed_pick_same(r.pick, tr) && !r.fallback);
+    r = feed_resolve(feed_pick(), unknown, false);
+    CHECK(feed_pick_same(r.pick, tr) && !r.fallback);
+
+    // Before Relay has said what is live, a pick is tried as it is; a 4xx on it says it is not live.
+    r = feed_resolve(es, unknown, false);
+    CHECK(feed_pick_same(r.pick, es) && !r.fallback);
+    r = feed_resolve(es, unknown, true);
+    CHECK(feed_pick_same(r.pick, tr) && r.fallback);
+
+    // A source the panel cannot draw has no transcription: a pane that wants it, or falls back to it, shows nothing.
+    const feed_options ru = parse_options(
+        "{\"type\":\"targets\",\"source\":{\"script\":\"cyrillic\"},\"live\":[{\"target\":\"ENGLISH\",\"script\":\"latin\"}]}");
+    r = feed_resolve(tr, ru, false);
+    CHECK(r.pick.stream == kFeedNone && !r.fallback);
+    r = feed_resolve(de, ru, false);
+    CHECK(r.pick.stream == kFeedNone && r.fallback);
+
+    // The second pane's default is the first live translation that is not the first pane's.
+    CHECK(feed_pick_same(feed_default_second(o, tr), feed_pick_make(kFeedTranslation, "FRENCH")));
+    CHECK(feed_pick_same(feed_default_second(o, feed_pick_make(kFeedTranslation, "FRENCH")),
+                         feed_pick_make(kFeedTranslation, "SPANISH")));
+    CHECK(feed_pick_same(feed_default_second(unknown, tr), tr));  // nothing to pair with yet
+
+    // The notice.
+    char note[64];
+    CHECK(feed_fallback_note(feed_pick_make(kFeedTranslation, "CHINESE_SIMPLIFIED"), note, sizeof note) > 0);
+    CHECK(strcmp(note, "Chinese Simplified is not live") == 0);
+    CHECK(feed_fallback_note(es, note, sizeof note) > 0 && strcmp(note, "Spanish is not live") == 0);
+    CHECK(feed_fallback_note(tr, note, sizeof note) == 0 && note[0] == '\0');
+    char tiny[8];
+    feed_fallback_note(es, tiny, sizeof tiny);
+    CHECK(strlen(tiny) == sizeof tiny - 1);
+}
+
+void check_targets_request()
+{
+    char req[256];
+    const size_t n = caption_targets_request(req, sizeof req, "10.0.2.2", 8000, "0.1.0");
+    CHECK(n > 0 && n == strlen(req));
+    CHECK(strncmp(req, "GET /api/targets HTTP/1.1\r\nHost: 10.0.2.2:8000\r\n", 47) == 0);
+    CHECK(strstr(req, "Connection: close\r\n\r\n") != nullptr);
+    CHECK(caption_targets_request(req, sizeof req, "relay.local", 80, "0.1.0") > 0 && strstr(req, "Host: relay.local\r\n") != nullptr);
+    CHECK(caption_targets_request(req, 20, "10.0.2.2", 8000, "0.1.0") == 0);  // does not fit
+
+    // The answer's body is a `targets` message without its `type`, and the options read it the same.
+    const feed_options o = parse_options(
+        "{\"source\":{\"lang\":\"ENGLISH\",\"script\":\"latin\"},\"live\":[{\"target\":\"SPANISH\",\"label\":\"Spanish\","
+        "\"script\":\"latin\"}],\"running\":true,\"font_px\":48}");
+    CHECK(o.known && o.count == 2);
+}
+
+void check_feed_panes()
+{
+    // One feed takes the whole width; two split it with a divider, and the halves are equal.
+    feed_pane_rect a = feed_pane_rect_for(false, 0, 800);
+    CHECK(a.x == 0 && a.w == 800);
+    a = feed_pane_rect_for(true, 0, 800);
+    const feed_pane_rect b = feed_pane_rect_for(true, 1, 800);
+    CHECK(a.x == 0 && a.w == 398 && b.x == 402 && b.w == 398);
+    CHECK(a.x + a.w + kFeedPaneDividerPx == b.x && b.x + b.w == 800);
+    // A saved language is a whole language name: the field is as long as the settings'.
+    CHECK(kFeedLangBytes == sizeof(relay_settings_t::feed2_lang));
+}
+
+void check_settings_split_and_v1()
+{
+    // The split choice is saved and read back whole.
+    relay_settings_t s = example_settings();
+    s.feed_split = 1;
+    s.feed2_stream = kFeedTranslation;
+    settings_set_text(s.feed2_lang, sizeof s.feed2_lang, "FRENCH");
+    relay_settings_t out;
+    settings_defaults_fill(&out, 0);
+    CHECK(settings_decode(&s, sizeof s, &out, 0) == settings_blob::accepted);
+    CHECK(out.feed_split == 1 && out.feed2_stream == kFeedTranslation && strcmp(out.feed2_lang, "FRENCH") == 0);
+    CHECK(out.schema == kSettingsSchema);
+
+    // Damaged values are not read as a choice.
+    relay_settings_t bad = s;
+    bad.feed_split = 7;
+    bad.feed2_stream = 9;
+    memset(bad.feed2_lang, 'z', sizeof bad.feed2_lang);
+    settings_defaults_fill(&out, 0);
+    CHECK(settings_decode(&bad, sizeof bad, &out, 0) == settings_blob::accepted);
+    CHECK(out.feed_split == 0 && out.feed2_stream == kFeedNone);
+    CHECK(strlen(out.feed2_lang) == sizeof out.feed2_lang - 1);
+
+    // **A schema 1 blob is kept**: its network, panel ID and feed read as stored, and the split reads as off. A panel
+    // updated over one that wrote schema 1 does not lose its setup.
+    relay_settings_t v1src = example_settings();
+    v1src.schema = 1;
+    uint8_t v1[kSettingsSizeV1];
+    memcpy(v1, &v1src, sizeof v1);
+    settings_defaults_fill(&out, 0);
+    CHECK(settings_decode(v1, sizeof v1, &out, 0) == settings_blob::accepted);
+    CHECK(strcmp(out.wifi_ssid, "Office-5G") == 0);
+    CHECK(strcmp(out.panel_id, "0123456789abcdef0123456789abcdef") == 0);
+    CHECK(out.feed_stream == kFeedTranslation && strcmp(out.feed_lang, "SPANISH") == 0);
+    CHECK(out.feed_split == 0 && out.feed2_stream == kFeedNone && out.feed2_lang[0] == '\0');
+    CHECK(out.schema == kSettingsSchema);
+    // A short blob that names schema 2, and a long one that names schema 1, are not read.
+    relay_settings_t lie = example_settings();
+    memcpy(v1, &lie, sizeof v1);
+    CHECK(settings_decode(v1, sizeof v1, &out, 0) == settings_blob::wrong_schema);
+    lie.schema = 1;
+    CHECK(settings_decode(&lie, sizeof lie, &out, 0) == settings_blob::wrong_schema);
+}
+
 }  // namespace
 
 int main()
@@ -1835,6 +2050,11 @@ int main()
     check_caption_feed();
     check_caption_connection();
     check_caption_view();
+    check_feed_options();
+    check_feed_resolve();
+    check_feed_panes();
+    check_targets_request();
+    check_settings_split_and_v1();
 
     if (g_failures != 0) {
         fprintf(stderr, "%d check(s) failed\n", g_failures);
