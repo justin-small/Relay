@@ -1,0 +1,10 @@
+build/
+managed_components/
+sdkconfig
+sdkconfig.old
+build-qemu/
+# The component manager writes this for the emulator build, which fetches a managed
+# component the release build does not. Its contents differ by build, so it is not committed.
+dependencies.lock
+build-qemu-update/
+build-dev/

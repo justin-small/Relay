@@ -1,0 +1,18 @@
+# The bench build of the compact room display. **An overlay**, applied after
+# `sdkconfig.defaults` the way `sdkconfig.qemu` is. It is never released and it
+# carries no signing key of its own: sign it with a throwaway key for the bench.
+
+# Timing and task logs. See `main/diag.cpp` and the help text in `main/Kconfig.projbuild`.
+CONFIG_RELAY_DEV_DIAG=y
+CONFIG_FREERTOS_USE_TRACE_FACILITY=y
+CONFIG_FREERTOS_GENERATE_RUN_TIME_STATS=y
+
+# lwIP's own counters (drops, errors, retransmits, pbuf and memory-pool exhaustion), read by
+# `main/diag.cpp` each interval.
+CONFIG_LWIP_STATS=y
+
+# The core each task ran on, in the CPU lines.
+CONFIG_FREERTOS_VTASKLIST_INCLUDE_COREID=y
+
+# The panel's settings that were tried here (bounce buffer, code from PSRAM, 64-byte cache line, 240 MHz, 120 MHz
+# PSRAM and flash) are in `sdkconfig.defaults` now, with what each was for.

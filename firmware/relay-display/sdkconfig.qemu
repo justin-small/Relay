@@ -1,0 +1,65 @@
+# The QEMU test build of the compact room display. **An overlay, not a
+# replacement.** `build.sh --qemu` applies it after `sdkconfig.defaults`, so the
+# partition table, the module, the flash geometry and the LF line endings are the
+# ones a panel ships with. Only what qemu-system-xtensa does not model differs, and
+# each line below says which.
+#
+# The test build is never released. `tools/firmware_image_check.py` reads the
+# shipped image, and nothing here is in it.
+
+# The virtual RGB panel in place of the RGB driver, and no Wi-Fi radio. See the
+# help text in `main/Kconfig.projbuild`.
+CONFIG_RELAY_QEMU=y
+
+# **The configured orientation is 180 in this build, not 0.** The shipped default is
+# upright. An invalid stored rotation falls back to the configured orientation
+#, so with 0 as the default a test that expects the fallback could not tell
+# "fell back to the configured value" from "fell back to 0". 180 makes that
+# difference visible on the screen and in the log, and `tests/firmware_compact`
+# asserts it.
+CONFIG_RELAY_ROTATION_0=n
+CONFIG_RELAY_ROTATION_180=y
+
+# **No PSRAM under the emulator, and the boot must not depend on it.** qemu-system-xtensa
+# models no octal PSRAM chip: the ESP-IDF PSRAM init reads no chip and calls
+# `abort()` in `cpu_start` (`Failed to init external RAM!`), and the board reboots into
+# the same abort every time. The shipped image needs PSRAM for its frame buffer; this
+# image does not, because the virtual panel keeps its own frame buffer and the strips
+# are in internal RAM. So the init is allowed to find nothing. `CONFIG_SPIRAM` itself
+# stays on, so the PSRAM configuration is still the shipped one up to the point the
+# chip is looked for. The boot line then reports the size the emulator gives, which is
+# 0, and `tests/firmware_compact/test_boot.py` asserts exactly that.
+CONFIG_SPIRAM_IGNORE_NOTFOUND=y
+
+# **DIO, not the shipped QIO, in the emulated image.** The bootloader's own log reads
+# `Failed to set QIE bit, not enabling QIO mode`, and the application then fails
+# `esp_flash_init_default_chip` in `set_io_mode`, which writes the QE bit in the flash's
+# status register. The emulator's flash model does not accept that write. The I/O board
+# runs DIO, so this is the mode its emulator suite already boots in. QIO on the module
+# stays a bench item in the README: this build tests the firmware, not the flash mode.
+CONFIG_ESPTOOLPY_FLASHMODE_QIO=n
+CONFIG_ESPTOOLPY_FLASHMODE_DIO=y
+
+# **The emulator's wired link.** The Opencores MAC, which the emulated machine
+# always instantiates, and the driver that uses it. `main/wired_qemu.cpp` brings the link up
+# with DHCP, so the pairing and the heartbeat run under the emulator on the wired netif, since
+# the emulator has no radio. These two lines are only here, never in `sdkconfig.defaults`: the
+# released board has no Ethernet, and the released image must not link the driver. The link map
+# check in the README says how to confirm that.
+CONFIG_ETH_USE_OPENETH=y
+CONFIG_ETH_USE_SPI_ETHERNET=n
+
+# **The update's two timers are shorter in this build.** The emulator suite has to see a retry and
+# a rollback happen, and the shipped waits (a minute to retry, ten to prove a new image) would make one run
+# of it longer than anybody will wait for. `tests/firmware_compact/test_update.py` reads these values.
+
+# **The panel's PSRAM settings are off again under the emulator.** `sdkconfig.defaults` runs code and
+# constants from PSRAM and puts a bounce buffer in front of the frame. The emulator has no PSRAM to run code from
+# (above), and its virtual panel keeps its own frame buffer, so neither has anything to do here and the first would
+# have nowhere to copy the code. The clocks go back to the 80 MHz the emulator's flash model is known to boot at.
+CONFIG_SPIRAM_XIP_FROM_PSRAM=n
+CONFIG_SPIRAM_FETCH_INSTRUCTIONS=n
+CONFIG_SPIRAM_RODATA=n
+CONFIG_RELAY_BOUNCE_LINES=0
+CONFIG_SPIRAM_SPEED_80M=y
+CONFIG_ESPTOOLPY_FLASHFREQ_80M=y
