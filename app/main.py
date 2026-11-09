@@ -576,7 +576,8 @@ def _parse_seq(raw: str | None) -> int | None:
 
 
 @app.get("/stream")
-async def stream(request: Request, stream: str = "translation", lang: str | None = None):
+async def stream(request: Request, stream: str = "translation", lang: str | None = None,
+                 finals: int = 0):
     if stream not in (TRANSCRIPTION_STREAM, TRANSLATION_STREAM):
         raise HTTPException(400, "unknown stream")
     if stream == TRANSCRIPTION_STREAM:
@@ -590,7 +591,7 @@ async def stream(request: Request, stream: str = "translation", lang: str | None
     # an explicit ?last_id= the viewer sends when it reconnects by hand. Either
     # lets the hub replay only what was missed instead of a full snapshot.
     last_id = _parse_seq(request.headers.get("last-event-id") or request.query_params.get("last_id"))
-    channel, queue = await hub.subscribe(stream, lang, last_id)
+    channel, queue = await hub.subscribe(stream, lang, last_id, finals_only=bool(finals))
 
     async def gen():
         # The queue already holds finished SSE frames (serialised once at

@@ -50,6 +50,10 @@ class Channel:
         self.open_seq = 0          # seq of the latest delta in the open segment
         self.delta_count = 0       # deltas since the last resync anchor
         self.subscribers: set[asyncio.Queue] = set()
+        # Finished-lines-only viewers (touch-screen panels). Kept apart from
+        # `subscribers` so a delta is fanned to one set and never filtered per
+        # subscriber: the frame is still serialised once.
+        self.final_subscribers: set[asyncio.Queue] = set()
         self.last_delta_ts: float | None = None
         # When the open segment's first delta arrived. A committed line spans
         # [open_started_ts, commit time], which is what lets the exporter line
@@ -60,13 +64,13 @@ class Channel:
     def key(self) -> str:
         return f"{self.stream}:{self.lang}"
 
-    def snapshot(self) -> dict:
+    def snapshot(self, finals_only: bool = False) -> dict:
         return {
             "type": "snapshot",
             "stream": self.stream,
             "lang": self.lang,
             "lines": list(self.history),
-            "open": self.open_text,
+            "open": "" if finals_only else self.open_text,
             "ts": time.time(),
         }
 
@@ -112,6 +116,8 @@ class Hub:
         ch.redactor.reset()
         ch.history.clear()
         self._fanout(ch, ch.snapshot())
+        if ch.final_subscribers:
+            self._put_frame(ch.final_subscribers, sse_frame(ch.snapshot(True)))
 
     # -- publishing ---------------------------------------------------
     def publish_delta(self, stream: str, lang: str, delta: str) -> None:
@@ -143,7 +149,7 @@ class Hub:
         # otherwise, and a reconnect resyncs from history (see subscribe()).
         if ch.delta_count % RESYNC_EVERY == 0:
             msg["text"] = ch.open_text
-        self._fanout(ch, msg)
+        self._fanout(ch, msg, finals=False)
 
     def publish_final(self, stream: str, lang: str, text: str | None = None) -> str:
         """Commit a line. Returns it as published -- blocklist applied -- or ""
@@ -188,11 +194,15 @@ class Hub:
         )
         return final_text
 
-    def _fanout(self, ch: Channel, msg: dict) -> None:
+    def _fanout(self, ch: Channel, msg: dict, finals: bool = True) -> None:
         # Serialise once here, not once per subscriber: 300 phones on a feed
         # would otherwise re-encode the same delta 300 times, several times a
-        # second. Every queue gets the identical finished frame.
-        self._put_frame(ch.subscribers, sse_frame(msg, msg.get("seq")))
+        # second. Every queue gets the identical finished frame. `finals`
+        # False (open-segment deltas) skips the finals-only set.
+        frame = sse_frame(msg, msg.get("seq"))
+        self._put_frame(ch.subscribers, frame)
+        if finals:
+            self._put_frame(ch.final_subscribers, frame)
 
     @staticmethod
     def _put_frame(subs: set[asyncio.Queue], frame: bytes) -> None:
@@ -211,19 +221,23 @@ class Hub:
         frame = sse_frame(msg)
         for ch in list(self.channels.values()):
             self._put_frame(ch.subscribers, frame)
+            self._put_frame(ch.final_subscribers, frame)
 
     # -- subscriptions ------------------------------------------------
     async def subscribe(
-        self, stream: str, lang: str, last_id: int | None = None
+        self, stream: str, lang: str, last_id: int | None = None,
+        finals_only: bool = False,
     ) -> tuple[Channel, asyncio.Queue]:
         ch = self.channel(stream, lang)
         q: asyncio.Queue = asyncio.Queue(maxsize=MAX_QUEUE)
-        ch.subscribers.add(q)
-        for frame in self._resume_frames(ch, last_id):
+        (ch.final_subscribers if finals_only else ch.subscribers).add(q)
+        for frame in self._resume_frames(ch, last_id, finals_only):
             await q.put(frame)
         return ch, q
 
-    def _resume_frames(self, ch: Channel, last_id: int | None) -> list[bytes]:
+    def _resume_frames(
+        self, ch: Channel, last_id: int | None, finals_only: bool = False
+    ) -> list[bytes]:
         """Frames to prime a new subscriber. On a reconnect with a known
         position we replay only what was missed -- the committed lines after
         `last_id` plus the current open segment -- so the reader keeps their
@@ -241,20 +255,22 @@ class Hub:
                             "delta": "", "text": line["text"], "final": True,
                             "ts": line["ts"],
                         }, line["seq"]))
-                if ch.open_text and ch.open_seq > last_id:
+                if not finals_only and ch.open_text and ch.open_seq > last_id:
                     frames.append(sse_frame({
                         "stream": ch.stream, "lang": ch.lang, "seq": ch.open_seq,
                         "delta": "", "text": ch.open_text, "final": False,
                         "ts": ch.last_delta_ts,
                     }, ch.open_seq))
                 return frames
-        return [sse_frame(ch.snapshot())]
+        return [sse_frame(ch.snapshot(finals_only))]
 
     def unsubscribe(self, ch: Channel, q: asyncio.Queue) -> None:
         ch.subscribers.discard(q)
+        ch.final_subscribers.discard(q)
 
     def viewer_count(self) -> int:
-        return sum(len(c.subscribers) for c in self.channels.values())
+        return sum(len(c.subscribers) + len(c.final_subscribers)
+                   for c in self.channels.values())
 
     # -- admin status stream ------------------------------------------
     def subscribe_status(self) -> asyncio.Queue:
