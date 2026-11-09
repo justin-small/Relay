@@ -2,7 +2,7 @@
 #
 #   esp_lcd            the RGB panel driver (display.cpp)
 #   esp_driver_gpio    the RGB panel's pins, and the BOOT button (button.cpp)
-#   esp_driver_i2c     the board's I2C bus: the STC8 that switches the backlight (board_i2c.cpp)
+#   esp_driver_i2c     the board's I2C bus: the STC8 that switches the backlight (board_i2c.cpp), the GT911 touch (touch.cpp)
 #   esp_psram          the PSRAM size on the boot line; the frame buffer's home
 #   esp_wifi, esp_netif, esp_event   the radio and the station (net.cpp)
 #   esp_http_server    the setup page, served only while the setup network is open (provision.cpp)
@@ -60,7 +60,7 @@ endif()
 # `setup_format.h`, `setup_page.h`) hold no ESP-IDF calls, so the same files serve both builds.
 idf_component_register(
     SRCS "main.cpp" "display.cpp" "board_i2c.cpp" "button.cpp" "net.cpp" "settings.cpp" "diag.cpp"
-         "provision.cpp" "screen.cpp"
+         "provision.cpp" "screen.cpp" "touch.cpp"
          ${_relay_qemu_srcs}
     INCLUDE_DIRS "."
     REQUIRES ${_relay_requires}

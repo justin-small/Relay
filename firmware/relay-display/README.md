@@ -39,7 +39,7 @@ key-shaped string.
 | Module | ESP32-S3-WROOM-1-N16R8 |
 | Display | 7.0" 800 x 480 RGB565 (16 data lines), 16 MHz pixel clock |
 | Backlight | Switched by an STC8H1K28 microcontroller on the I2C bus, at address 0x30 |
-| Touch | GT911 on the same I2C bus (not read by this firmware yet) |
+| Touch | GT911 on the same I2C bus (0x5D, or 0x14 if the board straps it that way; `touch.cpp` tries both), read into LVGL as its pointer. Coordinates follow the panel rotation. The emulator takes touches from the console: `touch <x> <y>`, `touch up` |
 
 **Revision.** V1.2 and V1.3-or-later send the STC8 different bytes for backlight on and off, and the
 firmware cannot read the revision back. Build for the board's revision (`Board revision` in

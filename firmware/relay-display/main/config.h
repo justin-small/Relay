@@ -62,7 +62,7 @@ constexpr int kPinBoot = 0;
 
 // ---------------------------------------------------------------------------
 // The board's I2C bus (`board_i2c.cpp`). Three devices share it: the GT911 touch
-// at 0x5D, which this target does not use; the PCF8563 real-time clock at 0x51,
+// at 0x5D (or 0x14, by its INT level at reset), which `touch.cpp` reads; the PCF8563 real-time clock at 0x51,
 // which rtc.cpp reads at boot; and the STC8H1K28 microcontroller at 0x30, which
 // switches the backlight here. The pins are Elecrow's; the speed is the one the
 // touch controller's examples use.
@@ -83,8 +83,8 @@ constexpr uint8_t kStc8Addr = 0x30;
 //
 // **V1.2 and V1.3 or later cannot be told apart in software.** The STC8 takes any
 // byte it is sent and does not answer with its version, so the Kconfig choice is
-// the only thing that picks a pair. The touch-activate command is not sent: this
-// target has no touch driver.
+// the only thing that picks a pair. The STC8 touch-activate command is not sent: the
+// firmware does not know it, so a board that needs it shows up as a GT911 that does not answer.
 // ---------------------------------------------------------------------------
 
 constexpr uint8_t kStc8BacklightOnV12 = 0x10;

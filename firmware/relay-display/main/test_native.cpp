@@ -39,6 +39,7 @@
 #include "settings_format.h"
 #include "setup_format.h"
 #include "setup_page.h"
+#include "touch_format.h"
 #include "wifi_policy.h"
 
 namespace {
@@ -205,6 +206,47 @@ void check_rotation()
     CHECK(!panel_rotation_mirrors(0));
     CHECK(panel_rotation_mirrors(180));
     CHECK(!panel_rotation_mirrors(90));
+}
+
+// The GT911's report, and where it lands on the picture.
+void check_touch()
+{
+    CHECK(kGt911AddrPrimary == 0x5D);
+    CHECK(kGt911AddrAlternate == 0x14);
+
+    touch_raw t;
+    // Ready, one point at (0x0123, 0x00A5) = (291, 165).
+    const uint8_t one[kGt911ReadBytes] = {0x81, 0x00, 0x23, 0x01, 0xA5, 0x00, 0x10, 0x00, 0x00};
+    CHECK(gt911_decode(one, &t) == touch_report::pressed);
+    CHECK(t.pressed && t.x == 291 && t.y == 165);
+
+    // Ready with no points: the finger is up.
+    const uint8_t up[kGt911ReadBytes] = {0x80};
+    t = {true, 5, 6};
+    CHECK(gt911_decode(up, &t) == touch_report::released);
+    CHECK(!t.pressed);
+
+    // Not ready: the bytes are stale and the state stands, whatever they say.
+    const uint8_t stale[kGt911ReadBytes] = {0x01, 0x00, 0x23, 0x01, 0xA5, 0x00};
+    t = {true, 7, 8};
+    CHECK(gt911_decode(stale, &t) == touch_report::none);
+    CHECK(t.pressed && t.x == 7 && t.y == 8);
+
+    // More points than the chip tracks is bus noise, not a release.
+    const uint8_t noisy[kGt911ReadBytes] = {0x8F};
+    CHECK(gt911_decode(noisy, &t) == touch_report::none);
+    CHECK(t.pressed);
+
+    // Upright: positions pass through, and a report past the edge is pulled onto it.
+    CHECK(touch_logical_x(0, 0) == 0 && touch_logical_y(0, 0) == 0);
+    CHECK(touch_logical_x(799, 0) == 799 && touch_logical_y(479, 0) == 479);
+    CHECK(touch_logical_x(400, 0) == 400 && touch_logical_y(100, 0) == 100);
+    CHECK(touch_logical_x(900, 0) == 799 && touch_logical_y(-3, 0) == 0);
+    // Turned: both axes mirror, so the corners swap and the centre stays near the centre.
+    CHECK(touch_logical_x(0, 180) == 799 && touch_logical_y(0, 180) == 479);
+    CHECK(touch_logical_x(799, 180) == 0 && touch_logical_y(479, 180) == 0);
+    CHECK(touch_logical_x(100, 180) == 699 && touch_logical_y(100, 180) == 379);
+    CHECK(touch_logical_x(900, 180) == 0 && touch_logical_y(-3, 180) == 479);
 }
 
 void check_settings_text()
@@ -1256,6 +1298,7 @@ int main()
     check_origin_for_setup();
     check_setup_page();
     check_button_hold();
+    check_touch();
 
     if (g_failures != 0) {
         fprintf(stderr, "%d check(s) failed\n", g_failures);
