@@ -45,6 +45,13 @@ void feeds_set_split(bool split);
 // The bench and the emulator suite use it; a panel finds Relay from its settings.
 void feeds_use_relay(const char *url);
 
+// The Relay address the panel uses now (typed, or found), copied into `out`. False when it has none.
+bool feeds_relay_url(char *out, size_t cap);
+
+// The operator's setting, from Relay: one or two feeds, as one change. `count` 1 is one feed full screen with `picks[0]`;
+// 2 is two side by side. Saved and shown at once, and the newest change wins, as with a choice at the screen.
+void feeds_apply(const feed_pick *picks, int count);
+
 // The console's `feed` sets the slots by hand. The task leaves them alone from then on.
 void feeds_go_manual();
 

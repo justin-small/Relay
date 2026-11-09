@@ -1,5 +1,6 @@
 #include "net.h"
 
+#include <cstdio>
 #include <cstring>
 
 #include "display.h"
@@ -391,6 +392,31 @@ esp_err_t net_station_connect(const net_sta_config *sta)
     }
     return esp_wifi_connect();
 #endif
+}
+
+bool net_link_info(char *ip, size_t cap, int *rssi)
+{
+    if (ip != nullptr && cap > 0) {
+        ip[0] = '\0';
+    }
+#if !CONFIG_RELAY_QEMU
+    esp_netif_t *netif = s_sta;
+#else
+    esp_netif_t *netif = esp_netif_get_handle_from_ifkey("ETH_DEF");  // the emulator's wired link
+#endif
+    esp_netif_ip_info_t info = {};
+    if (ip != nullptr && cap >= 16 && netif != nullptr && esp_netif_get_ip_info(netif, &info) == ESP_OK &&
+        info.ip.addr != 0) {
+        snprintf(ip, cap, IPSTR, IP2STR(&info.ip));
+    }
+#if !CONFIG_RELAY_QEMU
+    wifi_ap_record_t ap = {};
+    if (rssi != nullptr && esp_wifi_sta_get_ap_info(&ap) == ESP_OK) {
+        *rssi = ap.rssi;
+        return true;
+    }
+#endif
+    return false;
 }
 
 bool net_station_has_address()

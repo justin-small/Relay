@@ -6,6 +6,10 @@ resume older than its history, only the missed lines on a resume it can cover, a
 on a reset, and `: ping` when nothing else is said. It keeps one history per feed and one counter for
 all of them, as Relay does, so seqs have gaps.
 
+It also serves the panel registry (`app/panels.py`): `POST /api/panels/checkin` and `GET /api/panels/<id>/events`, with
+the rule that decides when a `set_feed` is sent (the panel's `feed_rev` against the operator's), and `404` on the stream
+for a panel that has not checked in. `set_feed` is the operator's setting; `forget_panels` is a Relay restart.
+
 The test drives it: `commit` a line, `reset`, `drop` every open connection, `hold` new connections at the
 door while lines are committed, `mute` the pings so a connection goes silent. Standard library only.
 
@@ -61,6 +65,14 @@ class FakeRelay:
         self.live: list[str] = ["SPANISH", "FRENCH"]
         self.source_script = "latin"
         self.muted = False
+        # The panel registry. `checkins` is every check-in body, in order; `known` the panel IDs that have checked in.
+        self.checkins: list[dict] = []
+        self.known: set[str] = set()
+        self.panel_streams: list[tuple[str, queue.Queue]] = []
+        self.panel_stream_opens = 0
+        self.operator_feed: dict | None = None  # {"rev": N, "feeds": [..]}
+        self.acked_rev = 0
+        self.checkin_status = 200
         # Set: connections are served. Cleared: a new connection waits here before it is primed, so the
         # test can commit lines that only a resume can deliver.
         self.door = threading.Event()
@@ -76,6 +88,9 @@ class FakeRelay:
 
             def do_GET(self) -> None:  # noqa: N802 - the stdlib's name
                 relay._serve(self)
+
+            def do_POST(self) -> None:  # noqa: N802
+                relay._serve_post(self)
 
         self._server = ThreadingHTTPServer(("127.0.0.1", port), Handler)
         self._server.daemon_threads = True
@@ -153,6 +168,46 @@ class FakeRelay:
             for key in self._subscribers:
                 self._send(*key, frame)
 
+    def set_feed(self, feeds: list[dict], *, push: bool = True) -> int:
+        """The operator sets the panels' feed. Pushed on every open event stream unless `push` is false, and
+        otherwise left for the next check-in or stream to find. Returns the revision."""
+        with self._lock:
+            rev = (self.operator_feed or {"rev": 0})["rev"] + 1
+            self.operator_feed = {"rev": rev, "feeds": feeds}
+            if push:
+                frame = _frame({"type": "set_feed", **self.operator_feed})
+                for _, q in self.panel_streams:
+                    q.put(frame)
+            return rev
+
+    def push(self, message: dict) -> None:
+        """Any message, on every open panel stream (an `update_available`, say)."""
+        with self._lock:
+            for _, q in self.panel_streams:
+                q.put(_frame(message))
+
+    def forget_panels(self) -> None:
+        """A Relay restart as the registry sees it: nobody has checked in, and every stream is cut."""
+        with self._lock:
+            self.known.clear()
+            self.acked_rev = 0
+        self.drop()
+
+    def wait_checkins(self, count: int, *, timeout: float = 60.0) -> list[dict]:
+        deadline = time.monotonic() + timeout
+        while len(self.checkins) < count:
+            if time.monotonic() >= deadline:
+                raise AssertionError(f"waited {timeout}s for {count} check-ins; got {len(self.checkins)}")
+            time.sleep(0.05)
+        return list(self.checkins)
+
+    def wait_panel_streams(self, count: int, *, timeout: float = 60.0) -> None:
+        deadline = time.monotonic() + timeout
+        while len(self.panel_streams) < count:
+            if time.monotonic() >= deadline:
+                raise AssertionError(f"waited {timeout}s for {count} panel streams; got {len(self.panel_streams)}")
+            time.sleep(0.05)
+
     def drop(self) -> None:
         """Every open stream is cut, as a Wi-Fi drop or a restart of Caddy would."""
         with self._lock:
@@ -160,6 +215,8 @@ class FakeRelay:
             for subs in self._subscribers.values():
                 for q in subs:
                     q.put(None)
+            for _, q in self.panel_streams:
+                q.put(None)
         for handler in handlers:
             with contextlib.suppress(OSError):
                 handler.connection.shutdown(socket.SHUT_RDWR)
@@ -199,6 +256,9 @@ class FakeRelay:
     def _serve(self, handler: BaseHTTPRequestHandler) -> None:
         url = urlparse(handler.path)
         query = {k: v[0] for k, v in parse_qs(url.query).items()}
+        if url.path.startswith("/api/panels/") and url.path.endswith("/events"):
+            self._serve_panel_events(handler, url.path[len("/api/panels/"):-len("/events")])
+            return
         if url.path == "/api/targets":
             self.api_requests += 1
             body = json.dumps(self._targets_payload()).encode()
@@ -264,3 +324,87 @@ class FakeRelay:
                     self._subscribers[(stream, lang)].remove(q)
                 with contextlib.suppress(ValueError):
                     self._handlers.remove(handler)
+
+    # -- the panel registry ---------------------------------------------------
+
+    def _pending(self) -> dict | None:
+        """`Registry._pending_feed`: the operator's feed, until the panel has said it applied it."""
+        feed = self.operator_feed
+        if feed is not None and self.acked_rev < feed["rev"]:
+            return {"type": "set_feed", **feed}
+        return None
+
+    def _json(self, handler: BaseHTTPRequestHandler, status: int, body: dict) -> None:
+        raw = json.dumps(body).encode()
+        handler.send_response(status)
+        handler.send_header("Content-Type", "application/json")
+        handler.send_header("Content-Length", str(len(raw)))
+        handler.send_header("Connection", "close")
+        handler.end_headers()
+        handler.wfile.write(raw)
+        handler.close_connection = True
+
+    def _serve_post(self, handler: BaseHTTPRequestHandler) -> None:
+        if urlparse(handler.path).path != "/api/panels/checkin":
+            handler.send_error(404)
+            return
+        size = int(handler.headers.get("Content-Length") or 0)
+        try:
+            body = json.loads(handler.rfile.read(size))
+        except ValueError:
+            self._json(handler, 400, {"detail": "body must be JSON"})
+            return
+        if self.checkin_status != 200:
+            self._json(handler, self.checkin_status, {"detail": "refused"})
+            return
+        with self._lock:
+            self.checkins.append(body)
+            self.known.add(body.get("id", ""))
+            self.acked_rev = max(self.acked_rev, int(body.get("feed_rev") or 0))
+            reply = {"ok": True, "name": body.get("name", ""), "interval_s": 30}
+            pending = self._pending()
+            if pending:
+                reply["set_feed"] = pending
+        self._json(handler, 200, reply)
+
+    def _serve_panel_events(self, handler: BaseHTTPRequestHandler, panel_id: str) -> None:
+        with self._lock:
+            known = panel_id in self.known
+        if not known:
+            self._json(handler, 404, {"detail": "unknown panel"})
+            return
+        handler.send_response(200)
+        handler.send_header("Content-Type", "text/event-stream; charset=utf-8")
+        handler.send_header("Cache-Control", "no-cache, no-transform")
+        handler.send_header("Transfer-Encoding", "chunked")
+        handler.end_headers()
+        handler.close_connection = True
+        q: queue.Queue = queue.Queue()
+        with self._lock:
+            pending = self._pending()
+            if pending:
+                q.put(_frame(pending))
+            entry = (panel_id, q)
+            self.panel_streams.append(entry)
+            self.panel_stream_opens += 1
+        try:
+            while True:
+                try:
+                    frame = q.get(timeout=self.ping_s)
+                except queue.Empty:
+                    if self.muted:
+                        continue
+                    frame = b": ping\n\n"
+                if frame is None:
+                    break
+                cut = min(7, len(frame))
+                for part in (frame[:cut], frame[cut:]):
+                    if part:
+                        handler.wfile.write(b"%x\r\n" % len(part) + part + b"\r\n")
+                handler.wfile.flush()
+        except OSError:
+            pass
+        finally:
+            with self._lock:
+                with contextlib.suppress(ValueError):
+                    self.panel_streams.remove(entry)

@@ -51,6 +51,9 @@ DEFAULTS: dict[str, Any] = {
     # Scheduled start/stop windows -- see schedules.py for the shape. Empty by
     # default: nothing starts on its own until the operator sets a schedule.
     "schedules": [],
+    # Caption panels the operator has named or given a feed, by panel id --
+    # see panels.py. Panels themselves are never written here by a check-in.
+    "panels": {},
     "host": "0.0.0.0",
     "admin_host": "127.0.0.1",
     "port": 8000,
@@ -211,6 +214,10 @@ def _normalise(cfg: dict) -> dict:
     cfg["recording"] = rec
     # A hand-edited schedule that does not validate is dropped, not fatal.
     cfg["schedules"] = schedules.clean_list(cfg.get("schedules"))
+    # Imported here: panels.py reads config, so the module-level import would loop.
+    from . import panels
+
+    cfg["panels"] = panels.clean_stored(cfg.get("panels"))
     # The blocklist lives in its own file; config.json only points at it.
     cfg.pop("blocklist", None)
     cfg["blocklist_file"] = str(cfg.get("blocklist_file") or "blocklist.txt")
@@ -283,11 +290,19 @@ def get() -> dict:
         return _data
 
 
-def save(updates: dict) -> dict:
-    """Merge `updates` into the live config and persist it atomically."""
+def save(updates: dict, replace: tuple[str, ...] = ()) -> dict:
+    """Merge `updates` into the live config and persist it atomically.
+
+    Keys named in `replace` overwrite instead of merging, for a dict whose
+    entries have to be removable (the panel list).
+    """
     global _data
     with _lock:
-        merged = _normalise(_merge(get(), updates))
+        base = dict(get())
+        for key in replace:
+            if key in updates:
+                base.pop(key, None)
+        merged = _normalise(_merge(base, updates))
         tmp = CONFIG_PATH.with_suffix(".json.tmp")
         tmp.write_text(json.dumps(merged, indent=2, ensure_ascii=False), encoding="utf-8")
         os.chmod(tmp, 0o600)

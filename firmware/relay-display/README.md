@@ -8,7 +8,7 @@ desk that shows the live transcription, or one translation, from a Relay server 
 **This is the foundation and the caption client.** It boots, lights the panel, joins Wi-Fi (from a setup
 page on the panel's own network), keeps its settings, shows a test screen, and keeps the last 200 finished
 lines of up to two caption feeds from Relay. It does not draw captions yet: the caption view, the touch
-menu, the panel registry and updates are separate pieces of work that build on this.
+menu and updates are separate pieces of work that build on this.
 
 ## What is here
 
@@ -22,6 +22,7 @@ menu, the panel registry and updates are separate pieces of work that build on t
 | BOOT button | Hold 5 s: open the setup network. Hold 15 s: factory reset |
 | Screen | LVGL: centred text with an optional QR code, the caption view (see "Caption view"), and the colour-bar bench picture |
 | Feed picker | A menu button on the caption screen: Transcription or a live translation, one feed or two side by side, saved in NVS (see "Feed picker") |
+| Panel link | Checks in with Relay every 30 s and keeps an event stream open; applies the feed the operator sets there (see "Panel registry link") |
 | Captions | Up to two feeds from Relay's `/stream?finals=1`, each with its own connection and 200-line buffer in PSRAM, resumed with `?last_id=` after a drop (see "Caption client") |
 | Partitions | Two app slots, `otadata`, `nvs`; signing set up (the update itself is a later change) |
 | `build.sh` | Release, `--dev` and `--qemu` builds, `--sign`, the native checks and the image check |
@@ -174,6 +175,27 @@ checked on a laptop:
   followed. While none answers it browses every 5 s.
 * Uses `espressif/mdns` (`main/idf_component.yml`). **Not yet built or run on a panel:** the native test
   covers the rules, and `discovery.cpp` has had no ESP-IDF build.
+
+### Panel registry link
+
+`main/panel_link.cpp` keeps the panel in Relay's registry (top-level README, "Caption panels: the panel registry"). Two
+tasks, both on the address the caption feeds use (a typed one, or what discovery found), both quiet until the panel has
+one:
+
+* **Check-in**, `POST /api/panels/checkin` every 30 s (8 s while Relay is not taking it, with up to 2 s of jitter): the
+  panel ID, the name `Panel xxxx` (the operator renames it in Relay), the firmware version, `scripts: ["latin"]`, what
+  each pane shows now, its IP, uptime, Wi-Fi signal (absent on the emulator) and `feed_rev`.
+* **Event stream**, `GET /api/panels/<id>/events`, opened once Relay has taken a check-in and reopened with the feed
+  client's backoff (1 s to 30 s; a silent stream is reopened after `RELAY_CAPTION_SILENCE_S`). Relay answers 404 for a
+  panel it does not know (it restarted), and the panel then checks in again at once.
+
+A `set_feed` from either (one or two feeds) goes to `feeds_apply`: saved in NVS and shown at once, **newest change wins**
+against a choice at the screen. The panel applies a revision once, whichever way it arrives, and reports it as
+`feed_rev`, which is what stops Relay sending it again. An `update_available` is logged and nothing more: fetching and
+flashing an image is a separate piece of work. The console's `panel` logs the link's state.
+
+The rules (the body, the two requests, the messages, when to apply) are in `main/panel_link_format.h`, checked on a
+laptop; `tests/test_panel_link.py` runs the whole link against `fake_relay.py`, which copies Relay's side by hand.
 
 ## Caption view
 

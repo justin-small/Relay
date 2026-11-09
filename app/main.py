@@ -19,9 +19,10 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Stre
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-from . import config, exporting, languages, redact, schedules
+from . import config, exporting, languages, panels, redact, schedules
 from .engine import TRANSCRIPTION_STREAM, TRANSLATION_STREAM, demo_mode, engine
 from .hub import hub
+from .panels import registry as panel_registry
 from .recorder import recorder
 from .scheduler import scheduler
 
@@ -617,6 +618,74 @@ async def stream(request: Request, stream: str = "translation", lang: str | None
     )
 
 
+# --------------------------------------------------------------- panels
+# Caption panels (firmware/relay-display) talk to these two routes on the viewer
+# port, with no login: they do not pair. See panels.py for what bounds them.
+async def _read_limited(request: Request, limit: int) -> bytes:
+    """The request body, refused as soon as it passes `limit` bytes -- not read
+    whole first, so a client cannot make this process buffer a large upload."""
+    declared = request.headers.get("content-length")
+    if declared is not None and declared.isdigit() and int(declared) > limit:
+        raise HTTPException(413, "request too large")
+    chunks: list[bytes] = []
+    size = 0
+    async for chunk in request.stream():
+        size += len(chunk)
+        if size > limit:
+            raise HTTPException(413, "request too large")
+        chunks.append(chunk)
+    return b"".join(chunks)
+
+
+@app.post("/api/panels/checkin")
+async def panel_checkin(request: Request):
+    raw = await _read_limited(request, panels.CHECKIN_MAX_BYTES)
+    try:
+        body = json.loads(raw)
+    except (ValueError, UnicodeDecodeError):
+        raise HTTPException(400, "body must be JSON")
+    if not isinstance(body, dict):
+        raise HTTPException(400, "body must be a JSON object")
+    peer = request.client.host if request.client else ""
+    try:
+        return panel_registry.checkin(body, peer)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+    except panels.RegistryFull:
+        log.warning("Panel registry full (%d); refused a check-in from %s",
+                    panels.MAX_PANELS, peer)
+        raise HTTPException(429, "too many panels")
+
+
+@app.get("/api/panels/{panel_id}/events")
+async def panel_events(panel_id: str):
+    # Only a panel that has checked in. The stream carries nothing but a feed
+    # choice, so this is bookkeeping, not access control.
+    if not panels.valid_id(panel_id) or panel_id not in panel_registry.panels:
+        raise HTTPException(404, "unknown panel")
+    queue = panel_registry.subscribe(panel_id)
+
+    async def gen():
+        try:
+            while True:
+                try:
+                    frame = await asyncio.wait_for(queue.get(), timeout=HEARTBEAT_S)
+                except asyncio.TimeoutError:
+                    yield b": ping\n\n"
+                    continue
+                if frame is None:
+                    return
+                yield frame
+        finally:
+            panel_registry.unsubscribe(panel_id, queue)
+
+    return StreamingResponse(
+        gen(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache, no-transform", "X-Accel-Buffering": "no"},
+    )
+
+
 # --------------------------------------------------------------- admin
 @app.get("/admin", response_class=HTMLResponse)
 async def admin_page(request: Request):
@@ -830,6 +899,39 @@ async def admin_stop():
 # ---------------------------------------------------------------- schedules
 # Stored in config.json under `schedules`; see app/schedules.py for the shape
 # and app/scheduler.py for what starts and stops when.
+
+# ---------------------------------------------------------------- panels
+@app.get("/api/admin/panels", dependencies=[Depends(require_admin)])
+async def admin_panels():
+    return {"panels": panel_registry.listing(), "limit": panels.MAX_PANELS,
+            "offline_after_s": panels.OFFLINE_AFTER_S}
+
+
+@app.post("/api/admin/panels/{panel_id}", dependencies=[Depends(require_admin)])
+async def admin_panel_update(panel_id: str, payload: dict):
+    """Rename a panel and/or set its feed. `feeds` is a list of one or two
+    {"stream", "lang"}, or null to stop overriding the panel's own choice."""
+    kwargs: dict = {}
+    if "name" in payload:
+        if not isinstance(payload["name"], str):
+            raise HTTPException(400, "name must be a string")
+        kwargs["name"] = payload["name"]
+    if "feeds" in payload:
+        kwargs["feeds"] = payload["feeds"]
+    try:
+        return panel_registry.update(panel_id, **kwargs)
+    except KeyError:
+        raise HTTPException(404, "unknown panel")
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+
+
+@app.delete("/api/admin/panels/{panel_id}", dependencies=[Depends(require_admin)])
+async def admin_panel_forget(panel_id: str):
+    if not panel_registry.forget(panel_id):
+        raise HTTPException(404, "unknown panel")
+    return {"ok": True}
+
 
 def _schedule_error(exc: ValueError) -> JSONResponse:
     return JSONResponse({"error": str(exc)}, status_code=400)

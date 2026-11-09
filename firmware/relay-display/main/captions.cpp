@@ -715,3 +715,19 @@ void captions_dump(int slot)
         },
         &slot);
 }
+
+bool captions_has_address()
+{
+    return has_address();
+}
+
+int captions_connect(const char *host, uint16_t port)
+{
+    caption_end why = caption_end::closed;
+    return open_socket(host, port, &why);
+}
+
+bool captions_send(int fd, const char *p, size_t n)
+{
+    return send_all(fd, p, n);
+}

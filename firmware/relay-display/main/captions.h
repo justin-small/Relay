@@ -50,5 +50,12 @@ void captions_set_listener(void (*fn)(int slot, void *ctx), void *ctx);
 // is how a panel learns it when it connects.
 bool captions_fetch_targets(const char *relay_url, char *out, size_t cap);
 
+// For the panel link (`panel_link.cpp`), which talks to Relay over plain HTTP the way the feeds do: whether the panel has an
+// address, a TCP connection to `host:port` (the descriptor, or -1; receives time out after a second so a task can look
+// at its own state between reads), and a write of all of `n` bytes.
+bool captions_has_address();
+int captions_connect(const char *host, uint16_t port);
+bool captions_send(int fd, const char *p, size_t n);
+
 // The console's `captions <slot>`: the state and every line, one per log line.
 void captions_dump(int slot);
