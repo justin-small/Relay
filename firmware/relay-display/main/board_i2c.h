@@ -6,7 +6,7 @@
 #include "esp_err.h"
 
 // The board's one I2C bus, shared by the STC8 that switches the backlight, the
-// RTC that `rtc.cpp` reads at boot and the touch controller this target does not use. The bus
+// RTC that `rtc.cpp` reads at boot and the GT911 touch controller that `touch.cpp` reads. The bus
 // is created once and every caller gets the same controller, because two buses on the
 // same pins would fight each other.
 

@@ -25,7 +25,7 @@ It does not reach what `qemu-system-xtensa` has no model of, and each is a bench
   setup page is tested.
 * **PSRAM timing**, if the module's PSRAM is modelled at all; `test_boot.py` says what the boot line
   reports.
-* **the touch panel.** The firmware does not read it yet.
+* **the touch panel.** There is no GT911 in the emulator, so touches are injected from the console (`touch <x> <y>`, `touch up`) in the controller's own coordinates. The rotation and LVGL's pointer are tested (`test_touch.py`); the chip, its address and its I2C traffic are bench items.
 
 ## The framebuffer
 

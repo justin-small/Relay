@@ -20,6 +20,7 @@
 #include "provision.h"
 #include "screen.h"
 #include "settings.h"
+#include "touch.h"
 
 namespace {
 
@@ -129,6 +130,11 @@ extern "C" void app_main(void)
     // LVGL draws everything after the bench picture. It starts before the network, so the panel can show its
     // screens as the network comes up, and it draws nothing until something is shown.
     ESP_ERROR_CHECK(screen_start());
+    // Touch is LVGL's pointer. A controller that does not answer costs the touch and not the boot: captions need none.
+    const esp_err_t touch = touch_start(settings.rotation_deg);
+    if (touch != ESP_OK) {
+        ESP_LOGE(TAG, "boot: touch not started (%s); the screen works without it", esp_err_to_name(touch));
+    }
 
     // The network: a stored Wi-Fi network is joined, otherwise the setup network opens and
     // the panel shows its passphrase. Either way `recover` on the serial console is there.

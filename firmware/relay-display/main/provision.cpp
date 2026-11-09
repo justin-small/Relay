@@ -26,6 +26,7 @@
 #include "settings.h"
 #include "setup_format.h"
 #include "setup_page.h"
+#include "touch.h"
 #include "wifi_policy.h"
 
 #if !CONFIG_RELAY_QEMU
@@ -920,6 +921,17 @@ void console_task(void *)
         } else if (strcmp(line, "resync") == 0) {
             display_resync();
             ESP_LOGW(TAG, "console: panel DMA restart requested");
+#endif
+#if CONFIG_RELAY_QEMU
+        } else if (strcmp(line, "touch up") == 0) {
+            // The emulator has no touch controller: the suite puts a finger down and lifts it from here.
+            touch_inject(0, 0, false);
+        } else if (strncmp(line, "touch ", 6) == 0) {
+            int x = 0;
+            int y = 0;
+            if (sscanf(line + 6, "%d %d", &x, &y) == 2) {
+                touch_inject(x, y, true);
+            }
 #endif
         } else if (n > 0) {
             ESP_LOGI(TAG, "console: type 'recover' and press Enter to open the setup network, or 'id' for the panel ID");
