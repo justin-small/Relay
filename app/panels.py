@@ -23,7 +23,7 @@ import json
 import re
 import time
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Callable
 
 from . import config, languages
 
@@ -146,6 +146,11 @@ class Panel:
     last_seen: float = 0.0
     # Newest operator feed revision this panel has said it applied, this run.
     acked_rev: int = 0
+    # When the feed it shows last changed (wall clock), and whether that was the
+    # operator ("admin") or someone at the screen ("screen"). 0 / "" until a
+    # change is seen: a first check-in is not a change.
+    feeds_changed_at: float = 0.0
+    feeds_changed_by: str = ""
 
 
 class RegistryFull(Exception):
@@ -156,6 +161,16 @@ class Registry:
     def __init__(self) -> None:
         self.panels: dict[str, Panel] = {}
         self._subs: dict[str, list[asyncio.Queue]] = {}
+        # Called after anything the operator's list shows has changed; main wires
+        # it to the admin status stream.
+        self.on_change: Callable[[], None] | None = None
+
+    def _changed(self) -> None:
+        if self.on_change is not None:
+            try:
+                self.on_change()
+            except Exception:  # a listener must never break a check-in
+                pass
 
     # ---------------------------------------------------------- what is stored
     @staticmethod
@@ -175,6 +190,18 @@ class Registry:
         panel = self.panels.get(pid)
         return stored.get("name") or (panel.name if panel else "") or f"Panel {pid[:4]}"
 
+    def offered_languages(self, pid: str) -> list[dict[str, str]]:
+        """Languages the operator may give this panel: every translation target
+        whose script the panel has said it can draw. A panel that has not
+        reported its scripts gets them all; `update` is the one that refuses."""
+        panel = self.panels.get(pid)
+        scripts = panel.scripts if panel is not None else []
+        out = [{"id": name, "label": languages.target_label(name)}
+               for name in languages.TARGETS
+               if not scripts or languages.target_script(name) in scripts]
+        out.sort(key=lambda row: row["label"].lower())
+        return out
+
     def view(self, pid: str) -> dict[str, Any]:
         stored = self.stored().get(pid) or {}
         panel = self.panels.get(pid) or Panel(pid)
@@ -192,7 +219,16 @@ class Registry:
             "ip": panel.ip,
             "uptime_s": panel.uptime_s,
             "rssi": panel.rssi,
+            "languages": self.offered_languages(pid),
+            "feeds_changed_ago_s": (round(time.time() - panel.feeds_changed_at, 1)
+                                    if panel.feeds_changed_at else None),
+            "feeds_changed_by": panel.feeds_changed_by or None,
         }
+
+    def online_signature(self) -> tuple:
+        """Which panels are online right now: what changes with the clock alone,
+        so the admin stream can notice a panel going quiet without a timer."""
+        return tuple(sorted(pid for pid, p in self.panels.items() if self.online(p)))
 
     def listing(self) -> list[dict[str, Any]]:
         ids = set(self.panels) | set(self.stored())
@@ -228,6 +264,8 @@ class Registry:
         if panel is None:
             self._make_room()
             panel = self.panels[pid] = Panel(pid)
+        old_feeds = panel.feeds if panel.last_seen else None
+        old_acked = panel.acked_rev
         panel.name = _text(body.get("name"), 64)
         panel.version = _text(body.get("version"), 32)
         scripts = body.get("scripts")
@@ -239,6 +277,11 @@ class Registry:
         rssi = body.get("rssi")
         panel.rssi = _int(rssi, -127, 0) if not isinstance(rssi, bool) and isinstance(rssi, (int, float)) else None
         panel.acked_rev = max(panel.acked_rev, _int(body.get("feed_rev"), 0, 2**31 - 1))
+        if old_feeds is not None and panel.feeds != old_feeds:
+            # Applying the operator's revision moves `feed_rev`; a choice made at
+            # the screen does not.
+            panel.feeds_changed_at = time.time()
+            panel.feeds_changed_by = "admin" if panel.acked_rev > old_acked else "screen"
         panel.last_seen = _now()
         reply: dict[str, Any] = {
             "ok": True,
@@ -248,6 +291,7 @@ class Registry:
         pending = self._pending_feed(pid)
         if pending:
             reply["set_feed"] = pending
+        self._changed()
         return reply
 
     def _pending_feed(self, pid: str) -> dict[str, Any] | None:
@@ -355,6 +399,7 @@ class Registry:
         self._save_stored(stored)
         if push is not None:
             self._push(pid, push)
+        self._changed()
         return self.view(pid)
 
     def forget(self, pid: str) -> bool:
@@ -367,6 +412,7 @@ class Registry:
         self.panels.pop(pid, None)
         for q in self._subs.pop(pid, []):
             self._close(q)
+        self._changed()
         return True
 
     def push_update_available(self, message: dict[str, Any], pid: str | None = None) -> int:

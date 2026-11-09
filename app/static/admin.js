@@ -799,6 +799,259 @@
     catch (e) { alertMsg(e.message); $('stopBtn').disabled = false; }
   });
 
+  /* ---- panels ---- */
+  let panelRows = [];
+  let panelsAt = 0;          // when panelRows arrived: "last seen" counts on from here
+  let panelEditing = null;   // id of the card with an open editor; the list is not rebuilt under it
+  let panelDirty = false;
+
+  function el(tag, cls, text) {
+    const n = document.createElement(tag);
+    if (cls) n.className = cls;
+    if (text !== undefined) n.textContent = text;
+    return n;
+  }
+
+  function agoText(sec) {
+    if (sec === null || sec === undefined) return 'never';
+    if (sec < 5) return 'just now';
+    if (sec < 90) return Math.round(sec) + 's ago';
+    if (sec < 5400) return Math.round(sec / 60) + 'm ago';
+    if (sec < 172800) return Math.round(sec / 3600) + 'h ago';
+    return Math.round(sec / 86400) + 'd ago';
+  }
+
+  function feedText(feeds, rows) {
+    if (!feeds || !feeds.length) return 'none chosen';
+    return feeds.map(function (f) {
+      if (f.stream === 'transcription') return 'Transcription';
+      const hit = (rows || []).find(function (l) { return l.id === f.lang; });
+      return hit ? hit.label : (f.lang || '?');
+    }).join(' + ');
+  }
+
+  function signalText(rssi) {
+    if (rssi === null || rssi === undefined) return '—';
+    const q = rssi >= -60 ? 'strong' : rssi >= -72 ? 'fair' : 'weak';
+    return q + ' (' + rssi + ' dBm)';
+  }
+
+  function feedOptions(sel, row, value) {
+    sel.innerHTML = '';
+    const none = el('option', '', '— none —');
+    none.value = '';
+    sel.appendChild(none);
+    const t = el('option', '', 'Transcription');
+    t.value = 'transcription';
+    sel.appendChild(t);
+    // Only languages this panel can draw are offered.
+    row.languages.forEach(function (l) {
+      const o = el('option', '', l.label);
+      o.value = 'translation:' + l.id;
+      sel.appendChild(o);
+    });
+    sel.value = value || '';
+  }
+
+  function feedValue(f) {
+    if (!f) return '';
+    return f.stream === 'transcription' ? 'transcription' : 'translation:' + f.lang;
+  }
+
+  function closePanelEditor() {
+    panelEditing = null;
+    if (panelDirty) renderPanels();
+  }
+
+  function panelCard(row) {
+    const card = el('div', 'pcard' + (row.online ? '' : ' offline'));
+    card.dataset.id = row.id;
+    const head = el('div', 'phead');
+    head.appendChild(el('span', 'dot ' + (row.online ? 'ok' : '')));
+    head.appendChild(el('span', 'pname', row.name));
+    const state = el('span', 'pstate', row.online ? 'Online' : 'Offline');
+    state.dataset.seen = row.seen_ago_s === null ? '' : String(row.seen_ago_s);
+    head.appendChild(state);
+    card.appendChild(head);
+
+    const dl = el('dl');
+    function add(k, v, cls) {
+      dl.appendChild(el('dt', '', k));
+      dl.appendChild(el('dd', cls || '', v));
+    }
+    const seen = el('span', 'panelseen', '');
+    seen.dataset.seen = row.seen_ago_s === null ? '' : String(row.seen_ago_s);
+    dl.appendChild(el('dt', '', 'Last seen'));
+    const seenDd = el('dd');
+    seenDd.appendChild(seen);
+    dl.appendChild(seenDd);
+    add('Showing', feedText(row.feeds, row.languages));
+    if (row.feeds_changed_by) {
+      add('Feed changed', (row.feeds_changed_by === 'screen' ? 'at the screen' : 'from admin')
+        + ' · ' + agoText(row.feeds_changed_ago_s + (Date.now() - panelsAt) / 1000));
+    }
+    if (row.set_feeds) add('Set from admin', feedText(row.set_feeds, row.languages));
+    add('Firmware', row.version || '—');
+    add('IP', row.ip || '—');
+    add('Wi-Fi', signalText(row.rssi));
+    if (row.named && row.reported_name && row.reported_name !== row.name) {
+      add('Reports as', row.reported_name);
+    }
+    card.appendChild(dl);
+
+    const actions = el('div', 'pactions');
+    const rename = el('button', '', 'Rename');
+    const feed = el('button', '', 'Set feed');
+    const forget = el('button', '', 'Forget');
+    actions.appendChild(rename);
+    actions.appendChild(feed);
+    actions.appendChild(forget);
+    card.appendChild(actions);
+
+    rename.addEventListener('click', function () { openRename(card, row, actions); });
+    feed.addEventListener('click', function () { openFeed(card, row, actions); });
+    forget.addEventListener('click', async function () {
+      if (!confirm('Forget ' + row.name + '? A panel that is still on will reappear, unnamed.')) return;
+      try { await api('/api/admin/panels/' + row.id, { method: 'DELETE' }); alertMsg(''); }
+      catch (e) { alertMsg(e.message); }
+    });
+    return card;
+  }
+
+  function openForm(card, actions, row, build) {
+    if (panelEditing && panelEditing !== row.id) { panelEditing = null; renderPanels(); return; }
+    panelEditing = row.id;
+    actions.hidden = true;
+    const form = el('form');
+    form.autocomplete = 'off';
+    build(form);
+    const save = el('button', 'primary', 'Save');
+    save.type = 'submit';
+    const cancel = el('button', '', 'Cancel');
+    cancel.type = 'button';
+    form.appendChild(save);
+    form.appendChild(document.createTextNode(' '));
+    form.appendChild(cancel);
+    cancel.addEventListener('click', function () {
+      form.remove();
+      actions.hidden = false;
+      closePanelEditor();
+    });
+    card.appendChild(form);
+    return form;
+  }
+
+  function openRename(card, row, actions) {
+    let input;
+    const form = openForm(card, actions, row, function (f) {
+      const field = el('div', 'field');
+      const label = el('label', '', 'Panel name');
+      input = el('input');
+      input.type = 'text';
+      input.maxLength = 64;
+      input.placeholder = 'Lobby left';
+      input.value = row.named ? row.name : '';
+      input.id = 'panelName-' + row.id;
+      label.htmlFor = input.id;
+      field.appendChild(label);
+      field.appendChild(input);
+      f.appendChild(field);
+    });
+    if (!form) return;
+    input.focus();
+    form.addEventListener('submit', async function (ev) {
+      ev.preventDefault();
+      try {
+        await post('/api/admin/panels/' + row.id, { name: input.value });
+        panelEditing = null;
+        renderPanels();
+        alertMsg('');
+      } catch (e) { alertMsg(e.message); }
+    });
+  }
+
+  function openFeed(card, row, actions) {
+    let first, second;
+    const current = row.set_feeds || row.feeds || [];
+    const form = openForm(card, actions, row, function (f) {
+      [['Feed', 0], ['Second feed (optional)', 1]].forEach(function (spec) {
+        const field = el('div', 'field');
+        const label = el('label', '', spec[0]);
+        const sel = el('select');
+        sel.id = 'panelFeed' + spec[1] + '-' + row.id;
+        label.htmlFor = sel.id;
+        feedOptions(sel, row, feedValue(current[spec[1]]));
+        field.appendChild(label);
+        field.appendChild(sel);
+        f.appendChild(field);
+        if (spec[1] === 0) first = sel; else second = sel;
+      });
+      if (row.set_feeds) {
+        const clear = el('button', '', "Use the panel's own choice");
+        clear.type = 'button';
+        clear.style.marginBottom = '10px';
+        clear.addEventListener('click', async function () {
+          try {
+            await post('/api/admin/panels/' + row.id, { feeds: null });
+            panelEditing = null;
+            renderPanels();
+            alertMsg('');
+          } catch (e) { alertMsg(e.message); }
+        });
+        f.appendChild(clear);
+        f.appendChild(el('br'));
+      }
+    });
+    if (!form) return;
+    form.addEventListener('submit', async function (ev) {
+      ev.preventDefault();
+      const feeds = [first.value, second.value].filter(Boolean).map(function (v) {
+        return v === 'transcription'
+          ? { stream: 'transcription' }
+          : { stream: 'translation', lang: v.slice('translation:'.length) };
+      });
+      if (!feeds.length) { alertMsg('Pick a feed for the panel.'); return; }
+      try {
+        await post('/api/admin/panels/' + row.id, { feeds: feeds });
+        panelEditing = null;
+        renderPanels();
+        okMsg('Feed sent to ' + row.name + '.');
+      } catch (e) { alertMsg(e.message); }
+    });
+  }
+
+  function tickPanelSeen() {
+    const dt = (Date.now() - panelsAt) / 1000;
+    document.querySelectorAll('.panelseen').forEach(function (n) {
+      const base = n.dataset.seen;
+      n.textContent = base === '' ? 'never' : agoText(parseFloat(base) + dt);
+    });
+  }
+
+  function renderPanels() {
+    panelDirty = false;
+    const list = $('panelList');
+    list.innerHTML = '';
+    if (!panelRows.length) {
+      list.appendChild(el('div', 'muted', 'No panels have checked in yet.'));
+    }
+    panelRows.forEach(function (row) { list.appendChild(panelCard(row)); });
+    const on = panelRows.filter(function (r) { return r.online; }).length;
+    $('panelsSum').textContent = panelRows.length ? on + ' of ' + panelRows.length + ' online' : '';
+    tickPanelSeen();
+  }
+
+  function applyPanels(frame) {
+    panelRows = frame.panels || [];
+    panelsAt = Date.now();
+    if (panelEditing && panelRows.some(function (r) { return r.id === panelEditing; })) {
+      panelDirty = true;   // rebuilt once the editor closes
+      return;
+    }
+    panelEditing = null;
+    renderPanels();
+  }
+
   /* ---- status rendering ---- */
   function ago(ts) {
     if (!ts) return '—';
@@ -872,7 +1125,8 @@
 
   function applyStatus(st) {
     if (!st) return;
-    if (st.type === 'meter') { applyMeter(st); return; }
+    if (st.type === 'panels') { applyPanels(st); return; }
+    if (st.type === 'meter') { applyMeter(st); tickPanelSeen(); return; }
     if (!st.sessions) return;
 
     if (st.schedule) schedStatusChanged(st.schedule);

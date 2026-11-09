@@ -781,12 +781,19 @@ async def admin_status_stream(request: Request):
         # the 1 Hz tick that keeps the meter live sends a <200-byte meter frame.
         try:
             yield _sse(engine.status())
+            yield _sse(_panels_frame())
+            online = panel_registry.online_signature()
             while True:
                 try:
                     msg = await asyncio.wait_for(q.get(), timeout=1.0)
                 except asyncio.TimeoutError:
                     msg = engine.meter()
                 yield _sse(msg)
+                # A panel that stopped checking in sends nothing to announce it.
+                now_online = panel_registry.online_signature()
+                if now_online != online:
+                    online = now_online
+                    yield _sse(_panels_frame())
         finally:
             hub.unsubscribe_status(q)
 
@@ -901,10 +908,20 @@ async def admin_stop():
 # and app/scheduler.py for what starts and stops when.
 
 # ---------------------------------------------------------------- panels
+def _panels_frame() -> dict:
+    return {"type": "panels", "panels": panel_registry.listing(), "limit": panels.MAX_PANELS,
+            "offline_after_s": panels.OFFLINE_AFTER_S}
+
+
+# A check-in, rename, feed or forget reaches the open operator panels at once,
+# over the same stream as the status. The stream's own 1 s tick covers a panel
+# going quiet (see admin_status_stream).
+panel_registry.on_change = lambda: hub.push_status(_panels_frame())
+
+
 @app.get("/api/admin/panels", dependencies=[Depends(require_admin)])
 async def admin_panels():
-    return {"panels": panel_registry.listing(), "limit": panels.MAX_PANELS,
-            "offline_after_s": panels.OFFLINE_AFTER_S}
+    return _panels_frame()
 
 
 @app.post("/api/admin/panels/{panel_id}", dependencies=[Depends(require_admin)])
