@@ -519,6 +519,38 @@ async def hub_test():
     hub.broadcast_viewers({"type": "targets", "live": [], "running": False})
     tmsg = unframe(await qv.get())
     check("targets pushed over the caption SSE", tmsg["type"] == "targets", tmsg)
+
+    # finals-only subscriber alongside a normal one: no deltas, same finals.
+    hub.reset("translation", "SPANISH")
+    chn, qn = await hub.subscribe("translation", "SPANISH")
+    _, qfo = await hub.subscribe("translation", "SPANISH", finals_only=True)
+    snap = unframe(await qfo.get()); await qn.get()
+    check("finals-only first frame is a snapshot with no open text",
+          snap["type"] == "snapshot" and snap["open"] == "", snap)
+    hub.publish_delta("translation", "SPANISH", "hel")
+    hub.publish_delta("translation", "SPANISH", "lo")
+    check("finals-only gets no deltas", qfo.empty(), qfo.qsize())
+    check("normal viewer still gets deltas", qn.qsize() == 2, qn.qsize())
+    hub.publish_final("translation", "SPANISH", "hello")
+    ffin = unframe(await qfo.get())
+    check("finals-only gets the finished line", ffin["final"] and ffin["text"] == "hello", ffin)
+    hub.broadcast_viewers({"type": "targets", "live": [], "running": False})
+    check("finals-only gets targets", unframe(await qfo.get())["type"] == "targets")
+    hub.publish_delta("translation", "SPANISH", "wor")
+    hub.publish_final("translation", "SPANISH", "world")
+    hub.publish_delta("translation", "SPANISH", "open")
+    _, qrf = await hub.subscribe("translation", "SPANISH", last_id=ffin["seq"], finals_only=True)
+    rf = unframe(await qrf.get())
+    check("finals-only resume replays only missed finals",
+          rf["final"] and rf["text"] == "world" and qrf.empty(), rf)
+    hub.reset("translation", "SPANISH")
+    frames = []
+    while not qfo.empty():
+        frames.append(unframe(qfo.get_nowait()))
+    check("finals-only gets reset snapshot last",
+          frames and frames[-1].get("type") == "snapshot" and frames[-1]["open"] == "", frames)
+    hub.unsubscribe(chn, qn); hub.unsubscribe(chn, qfo)
+    check("unsubscribe clears finals set", qfo not in chn.final_subscribers and qn not in chn.subscribers)
 asyncio.run(hub_test())
 
 print("\naudio")
