@@ -133,10 +133,17 @@ RELAY_QEMU=/path/to/qemu-system-xtensa pytest firmware/relay-display/tests --fir
 ```
 
 `pytest` skips, rather than fails, when there is no emulator or no build; `--firmware` turns the skip into
-a failure, which is what CI passes. It needs **Espressif's fork** of QEMU (the esp32s3 machine is not in
+a failure, for a run that must not be skipped. **CI does not run this suite**: it runs locally, and CI only compiles the
+`--qemu` build. It needs **Espressif's fork** of QEMU (the esp32s3 machine is not in
 upstream or in distribution packages): the container above has one at
-`/opt/esp/tools/qemu-xtensa/.../qemu-system-xtensa`, and `.github/workflows/firmware.yml` pins a newer
-release.
+`/opt/esp/tools/qemu-xtensa/.../qemu-system-xtensa`, so the whole suite can run inside it:
+
+```bash
+docker run --rm -v "$PWD":/p -w /p/firmware/relay-display \
+  espressif/idf:v5.4.4@sha256:9ce51d4ace496845678065dc86f8e55fb9c25fc9f01f45597042afa7ed546926 \
+  bash -c '. $IDF_PATH/export.sh && pip install -q pytest && ./build.sh --qemu \
+    && RELAY_QEMU=$(which qemu-system-xtensa) python -m pytest tests --firmware'
+```
 
 The emulator suite boots the image and reads its console and framebuffer. It proves the boot order, the
 stored configuration (read back, refused when wrong, defaults when erased), the panel ID (made once,
