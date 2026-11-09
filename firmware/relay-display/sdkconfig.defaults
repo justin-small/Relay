@@ -1,0 +1,157 @@
+# The production build of the compact room display. `sdkconfig` itself is
+# generated and ignored; this file is the part that is a decision.
+
+CONFIG_IDF_TARGET="esp32s3"
+
+# The module: ESP32-S3-WROOM-1-N16R8, 16 MB quad-SPI flash and 8 MB octal PSRAM. Both run at
+# 120 MHz, below. The flash size has to match `merge-bin`'s header or the bootloader and
+# the chip disagree and the panel boot-loops. QIO is the mode Elecrow's board
+# definition names for this module at 80 MHz; Elecrow's ESP-IDF sdkconfig names both
+# QIO and dio, so the mode is a bench item (README, section "Confirm on the bench").
+CONFIG_ESPTOOLPY_FLASHSIZE_16MB=y
+CONFIG_ESPTOOLPY_FLASHMODE_QIO=y
+CONFIG_ESPTOOLPY_FLASHFREQ_120M=y
+
+# `partitions.csv`, with `nvs` above the application slots. The reasoning is in
+# that file.
+CONFIG_PARTITION_TABLE_CUSTOM=y
+CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
+
+# **Octal PSRAM holds the frame buffer.** 800 x 480 x 16 bits is 768,000 bytes,
+# which does not fit in the internal SRAM beside Wi-Fi. The panel reads it over
+# the PSRAM bus.
+CONFIG_SPIRAM=y
+CONFIG_SPIRAM_MODE_OCT=y
+
+# **The panel's configuration is the bench's, as one set.** Each of these was tried on the bench overlay,
+# `sdkconfig.dev`, and the set together is what held the picture still through diagnostics and a 60-second UDP
+# flood. The release build had none of them until #1481's second PR, and on the bench it came up shifted to the
+# right: the frame read straight from PSRAM fell behind. They are kept together because they depend on each other.
+#
+# A ten-line bounce buffer (`main/Kconfig.projbuild`): the driver copies the frame from PSRAM into two strips of
+# internal RAM ahead of the scan, so a late PSRAM read costs a strip and not the picture's position. Elecrow's
+# ESP-IDF example for this panel uses ten.
+CONFIG_RELAY_BOUNCE_LINES=10
+# The bounce buffer reads PSRAM from an interrupt, and a flash write (Wi-Fi's init writes NVS) turns the cache off,
+# so that read faulted: "Cache disabled but cached memory region accessed", a reboot loop. Code and constants in
+# PSRAM keep the cache on through a flash operation. ESP-IDF 5.4 names the pair as one option.
+CONFIG_SPIRAM_XIP_FROM_PSRAM=y
+CONFIG_SPIRAM_FETCH_INSTRUCTIONS=y
+CONFIG_SPIRAM_RODATA=y
+# Espressif's RGB panel guide pairs a bounce buffer with a 64-byte data cache line: the copy reads PSRAM in longer
+# bursts.
+CONFIG_ESP32S3_DATA_CACHE_LINE_64B=y
+# 240 MHz, as Elecrow's example runs this panel: the CPU refills the bounce buffer in the panel's interrupt, and at
+# ESP-IDF's default 160 MHz the picture flickered with the bounce buffer on.
+CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ_240=y
+# **PSRAM and flash at 120 MHz, as Elecrow's own Arduino core runs this board** (`ESP32S3_120M`). Experimental in
+# ESP-IDF: Espressif's help says octal PSRAM at 120 MHz holds while the chip stays within about 20 C of the
+# temperature it started at. Taken with that caveat because it is the configuration the bench proved, and a panel
+# indoors on a wall does not swing that far. A panel that misbehaves after a large temperature change is the sign.
+CONFIG_IDF_EXPERIMENTAL_FEATURES=y
+CONFIG_SPIRAM_SPEED_120M=y
+
+# **The RGB interrupt runs with the cache off.** NVS writes (a settings save) and
+# any future OTA write turn the external-memory cache off for their duration, and
+# without this the panel's interrupt stops with them. Espressif's Kconfig help
+# says it keeps the LCD driver flushing the screen in that window, at the cost
+# of IRAM. A glitch on the panel during a settings save is still possible; that is
+# a bench item; the bounce buffer above is what covers it.
+CONFIG_LCD_RGB_ISR_IRAM_SAFE=y
+
+# **Not enabled: `LCD_RGB_RESTART_IN_VSYNC`.** Without the bounce buffer, the GDMA read the frame straight from
+# PSRAM, and a flash write holds the bus long enough for that read to fall behind: the picture lands shifted to
+# the right and stays there (the bench saw it shift further on every reboot, 2026-10-28). Restarting the DMA in
+# every blank put it right and made the panel flicker once a phone joined the setup network, because the Wi-Fi
+# interrupt delays the VSYNC interrupt and a late restart re-sends the start of a frame. `display_resync` in
+# `display.cpp` restarts it once after each flash write instead.
+
+
+# The console is the UART. USB-Serial-JTAG stays off because GPIO19 and GPIO20
+# are the module's native USB D- and D+ pads, and the USB peripheral would claim
+# them. On this board they are also the microphone, which nothing here uses.
+CONFIG_ESP_CONSOLE_UART_DEFAULT=y
+CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=n
+CONFIG_NEWLIB_STDOUT_LINE_ENDING_LF=y
+
+# Out of scope for this board: no Bluetooth, no Ethernet and no SD
+# card. Each is off here so no driver for it compiles into the image.
+CONFIG_BT_ENABLED=n
+
+# Ethernet is off through the driver choices. `CONFIG_ETH_ENABLED` is an umbrella
+# that is not a prompt, and the SPI and OpenETH drivers each select it on by
+# default, so setting the umbrella alone does nothing. The ESP32-S3 has no internal
+# EMAC, so there is no choice to turn off for that one. Found when the build still
+# compiled `esp_eth`.
+CONFIG_ETH_USE_SPI_ETHERNET=n
+CONFIG_ETH_USE_OPENETH=n
+
+# Wi-Fi is the only network interface. Provisioning arrives on it later.
+CONFIG_ESP_WIFI_ENABLED=y
+
+# **The network stays on core 0; core 1 is the panel's.** `main.cpp` sets the panel up from core 1 so its
+# interrupt, which refills the bounce buffer, lands there. A critical section masks interrupts on its own core
+# only, and the bench showed one on the panel's core is a flicker: a FreeRTOS task snapshot flickered the picture
+# from core 1 and not from core 0. Wi-Fi's task is on core 0 by default. lwIP's has no affinity by default, and
+# under a UDP flood it ran about a quarter of the CPU and flickered the panel from core 1 now and then.
+CONFIG_LWIP_TCPIP_TASK_AFFINITY_CPU0=y
+
+# **Eight received frames in flight, not thirty-two.** Each dynamic Wi-Fi receive buffer is a frame in
+# internal RAM, and the panel's bounce buffers and every DMA allocation live in that RAM too. A 60-second UDP flood
+# on the bench took free internal RAM from about 49 KB down to 1.8 KB with 32 buffers, and again with 16; with 8 its
+# low point was 14.7 KB and no allocation failed. A room display receives a server-sent event stream and the odd
+# page, not bulk data, so the cost is throughput nothing here needs: a flood drops frames at the radio. lwIP's input
+# queue is cut to match, since a queue deeper than the buffers behind it only holds frames longer.
+# `SPIRAM_TRY_ALLOCATE_WIFI_LWIP` would move the buffers to PSRAM instead, and was not taken: it puts the radio's
+# traffic on the bus the panel reads its frame over, which is how the panel shifted sideways in the first place.
+CONFIG_ESP_WIFI_DYNAMIC_RX_BUFFER_NUM=8
+CONFIG_LWIP_TCPIP_RECVMBOX_SIZE=16
+
+# Size first. The display's rendering is one pass per strip and does not need
+# speed; a smaller image is the cheaper thing to hold over a slow link.
+CONFIG_COMPILER_OPTIMIZATION_SIZE=y
+CONFIG_LOG_DEFAULT_LEVEL_INFO=y
+
+# ---------------------------------------------------------------------------
+# Updating the board over the network. Set now so the image that ships
+# first has the same rules as the one that does not yet update.
+# ---------------------------------------------------------------------------
+
+# A freshly written image boots on approval and has to say so; without rollback
+# a bad update is a site visit with a serial cable.
+CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE=y
+
+# Secure Boot V2 with no hardware secure boot: the running application carries the
+# public key, and `esp_ota_end` checks the next image against it. The consequence: an
+# unsigned image refuses every update, so boards on an unsigned build are flashed over USB.
+# The update itself is a later change; the signing is set up here so the first image in the
+# field can already take it.
+CONFIG_SECURE_SIGNED_APPS_NO_SECURE_BOOT=y
+CONFIG_SECURE_SIGNED_ON_UPDATE_NO_SECURE_BOOT=y
+
+# The build does not hold the private key. `build.sh --sign` does the signing,
+# outside the build, so a laptop build needs no secret to compile.
+CONFIG_SECURE_BOOT_BUILD_SIGNED_BINARIES=n
+
+# LVGL takes its settings from Kconfig here. The setup screen's QR code, which a phone's camera joins the setup
+# network from, and the three font sizes the text screens use. The QR code draws on a canvas, which the
+# component's defaults already enable.
+# LVGL's bundled examples are not used; building them is most of the build's objects.
+CONFIG_LV_BUILD_EXAMPLES=n
+CONFIG_LV_USE_QRCODE=y
+CONFIG_LV_FONT_MONTSERRAT_20=y
+CONFIG_LV_FONT_MONTSERRAT_28=y
+CONFIG_LV_FONT_MONTSERRAT_40=y
+
+# **Sixteen sockets, not ESP-IDF's ten.** The setup page's server holds its listening socket, a control socket
+# and up to seven connections, the setup network's DNS holds one, and the caption
+# stream's connection holds one. An iPhone's captive-portal sheet and Safari open five or six
+# connections at once, and with ten the server's accept failed with ENFILE on the bench (2026-10-28). Each
+# socket is a table entry; the memory that matters is per connection, which the server's own limit still bounds.
+CONFIG_LWIP_MAX_SOCKETS=16
+
+# **The main task has 8 KB of stack, not ESP-IDF's 3.5.** `app_main` opens the setup network on a first boot, and
+# that draws the setup screen from this task: the lines, their copies of the names and passphrase, and the QR
+# code's text. Adding the QR code's 160 bytes overflowed the default on the bench (2026-10-28), a reboot on the
+# first boot after a flash. `app_main` returns once the boot is done, and its stack is freed with it.
+CONFIG_ESP_MAIN_TASK_STACK_SIZE=8192

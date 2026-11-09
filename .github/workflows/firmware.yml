@@ -1,0 +1,58 @@
+name: Firmware
+
+# The caption panel's firmware, `firmware/relay-display/`: the native checks and the release, dev and
+# emulator-configuration builds, in Espressif's own container. The builds fetch LVGL from the component
+# registry, and `build.sh` runs the native checks and the image check (no installation's values in the
+# released image) before and after.
+#
+# **The emulator suite (`firmware/relay-display/tests`) is not run here.** It runs locally, against the
+# `--qemu` build (README.md, "Tests"). The `--qemu` build is compiled here only so a break in that
+# configuration shows up.
+#
+# Runs only when the firmware, its tests or this file change. The Python app's own tests are in
+# release.yml and do not depend on any of this.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - firmware/relay-display/**
+      - .github/workflows/firmware.yml
+  pull_request:
+    paths:
+      - firmware/relay-display/**
+      - .github/workflows/firmware.yml
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    container: espressif/idf:v5.4.4@sha256:9ce51d4ace496845678065dc86f8e55fb9c25fc9f01f45597042afa7ed546926
+    steps:
+      - uses: actions/checkout@v7
+
+      # `build.sh` builds into the checkout when given no directory, and git in a container objects
+      # to a checkout it does not own.
+      - run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
+      - name: Release build, with the native checks and the image check
+        shell: bash
+        run: |
+          . "$IDF_PATH/export.sh"
+          firmware/relay-display/build.sh
+
+      - name: Bench build
+        shell: bash
+        run: |
+          . "$IDF_PATH/export.sh"
+          firmware/relay-display/build.sh --dev
+
+      - name: Emulator build
+        shell: bash
+        run: |
+          . "$IDF_PATH/export.sh"
+          firmware/relay-display/build.sh --qemu

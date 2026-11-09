@@ -1,0 +1,112 @@
+# The three things a board can differ in: the PCB revision, the pixel clock and
+# the orientation. Everything else is the module and the panel, which do not vary.
+#
+# **The default is the board Elecrow sells now.** V1.3 and later is the default. The
+# revisions differ only in the backlight bytes the STC8 is sent, and the firmware cannot
+# read the revision back, so a build for the wrong revision is wrong without a sign.
+
+menu "Relay display"
+
+choice RELAY_BOARD_REV
+    prompt "Board revision"
+    default RELAY_BOARD_ADV_V13
+    help
+        The CrowPanel Advance 7.0 (DIS02170A) revision the build is for. The two differ in
+        one thing the firmware acts on: the bytes the STC8H1K28 microcontroller is sent to
+        switch the backlight to full brightness and to off. V1.2 uses different values
+        from V1.3, V1.4 and V1.5, which is what Elecrow sells now.
+
+        **V1.2 and V1.3 or later cannot be told apart in software.** The STC8 takes any byte
+        it is sent and does not answer with its revision, so nothing here can read it. A
+        build for the wrong revision sends bytes its board may not use, and no log says so.
+        Choose the board's revision when the image is built, and check the backlight on the
+        bench (README.md, "The board").
+
+    config RELAY_BOARD_ADV_V12
+        bool "V1.2"
+
+    config RELAY_BOARD_ADV_V13
+        bool "V1.3, V1.4 or V1.5"
+endchoice
+
+config RELAY_PCLK_HZ
+    int "Pixel clock (Hz)"
+    range 15000000 50000000
+    default 16000000
+    help
+        The RGB pixel clock. Elecrow's examples for V1.3 and later run 16 MHz in their
+        ESP-IDF code, which this firmware follows, and 18 MHz in their PlatformIO project.
+        Their V1.2 examples run 21 MHz. The default is the ESP-IDF value.
+
+        At 16 MHz a frame is 820 by 500 clocks, so the panel refreshes about 39 times a
+        second. A picture that flickers or breaks up on the bench is the first thing to
+        check. README.md lists what to look for and which value to try next.
+
+config RELAY_BOUNCE_LINES
+    int "RGB bounce buffer (lines, 0 = off)"
+    range 0 48
+    default 10
+    help
+        The RGB driver reads the frame from PSRAM as the panel scans. Wi-Fi, flash and
+        the CPU share that bus, and when a read is late the picture shifts sideways
+        and stays shifted until the next restart of the panel. A bounce buffer is two
+        strips of this many lines in internal RAM: the driver fills them from the frame
+        buffer ahead of the scan, so a late PSRAM read costs a strip and not the whole
+        picture. 10 lines is Elecrow's own ESP-IDF value for this panel. Each line is
+        1600 bytes, twice. The count must divide 480 evenly.
+
+config RELAY_DEV_DIAG
+    bool "Development diagnostics (timing and task logs)"
+    default n
+    help
+        **A bench build, never a shipped one.** Logs each setup-page connection's life
+        and each request's phases in milliseconds, and every five seconds the heap and
+        FreeRTOS's per-task CPU share. `sdkconfig.dev` turns it on.
+
+choice RELAY_ROTATION
+    prompt "Panel orientation"
+    default RELAY_ROTATION_0
+    help
+        How the panel is mounted. This is the starting value of the stored rotation
+        setting, which the device's own page can change later. For 180
+        degrees the driver mirrors in both axes, so the frame is drawn the same way
+        in either orientation.
+
+    config RELAY_ROTATION_0
+        bool "Upright"
+
+    config RELAY_ROTATION_180
+        bool "Upside down (mirrored in x and y)"
+endchoice
+
+config RELAY_ROTATION_DEG
+    int
+    default 180 if RELAY_ROTATION_180
+    default 0
+
+config RELAY_QEMU
+    bool "Build for qemu-system-xtensa (emulator suite)"
+    default n
+    help
+        **A test build, never a shipped one.** It swaps the two things
+        qemu-system-xtensa does not model and leaves everything else as the
+        board builds it.
+
+        The panel is created with Espressif's virtual RGB panel
+        (esp_lcd_qemu_rgb, the managed component) in place of the RGB driver.
+        The virtual panel has no mirror, no frame-complete event and no pixel
+        clock, so the 180 degree turn is done in software on the way into each
+        strip. The backlight calls do nothing, because the emulator has no STC8 to send
+        them to, and the boot line still says the backlight is on.
+        The frame buffer the virtual panel reads is its own, not PSRAM.
+
+        Wi-Fi is not started. The decision the board would make is logged,
+        with a fixed line saying the radio is skipped, because the emulator has
+        no radio model.
+
+        Turned on by `sdkconfig.qemu`, which `build.sh --qemu` applies on top of
+        `sdkconfig.defaults`. `tests/firmware_compact` reads the image it makes.
+        Off by default, and the managed component is only fetched when this is
+        on (`main/idf_component.yml`).
+
+endmenu

@@ -1,0 +1,22 @@
+# The layout for the 16 MB module (ESP32-S3-WROOM-1-N16R8). Two application slots, so a later
+# update can write the slot that is not running and fall back to the one that is. The slots,
+# `otadata` and `nvs` are laid out as the VXP compact display lays them out
+# (vxp-compact-display 0.2.2), which is the layout its bench and emulator tests ran against.
+#
+# **`nvs` sits above the application slots, not at the usual `0x9000`.** A merged image spans
+# `0x0` to the end of the application and fills its gaps with `0xFF`, and `write-flash` erases
+# every sector it writes. At `0x9000`, in the gap between the partition table and `otadata`,
+# `nvs` would sit inside that span, so every flash would erase the Wi-Fi password and the panel's
+# settings. Silently. Above the slots it is outside the span, because the merged image is not
+# padded to the full flash (`build.sh` does not pass `--fill-flash-size`).
+#
+# Each slot is a multiple of 64 KB, which ESP-IDF requires of an OTA slot's offset. Two slots of
+# 1.875 MB each leave the tail after `nvs` free.
+#
+# Changing any of this later is a repartition, and a repartition on a panel on a wall is a serial
+# cable and a ladder: an update never writes the partition table.
+# Name,   Type, SubType, Offset,   Size
+otadata,  data, ota,     0xE000,   0x2000
+app0,     app,  ota_0,   0x10000,  0x1E0000
+app1,     app,  ota_1,   0x1F0000, 0x1E0000
+nvs,      data, nvs,     0x3D0000, 0x8000

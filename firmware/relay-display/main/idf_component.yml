@@ -1,0 +1,12 @@
+# The managed components this target uses. `lvgl` is the panel's drawing library, pinned to an exact
+# release: a change to it is a change to every pixel the panel draws, so it is made by hand. LVGL is MIT
+# licensed. `esp_lcd_qemu_rgb` is conditional: it is the virtual RGB panel the emulator suite draws to,
+# and the shipped image neither needs it nor links it. The rule reads the Kconfig option directly, so a
+# release build with `CONFIG_RELAY_QEMU` off does not fetch that component at all.
+dependencies:
+  lvgl/lvgl:
+    version: "9.2.2"
+  espressif/esp_lcd_qemu_rgb:
+    version: "1.0.2"
+    rules:
+      - if: "$CONFIG{RELAY_QEMU} == True"
