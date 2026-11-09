@@ -555,6 +555,7 @@ async def api_targets():
                 "target": name,
                 "label": languages.target_label(name),
                 "iso": languages.target_iso(name),
+                "script": languages.target_script(name),
                 "state": "demo",
             }
             for name, spec in cfg["targets"].items()

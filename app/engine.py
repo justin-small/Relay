@@ -341,6 +341,7 @@ class Engine:
                     "target": target,
                     "label": languages.target_label(target),
                     "iso": languages.target_iso(target),
+                    "script": languages.target_script(target),
                     "state": session.state,
                 }
             )
@@ -406,6 +407,7 @@ class Engine:
                 "lang": cfg["source_language"],
                 "label": languages.SOURCE_LANGUAGES[cfg["source_language"]]["label"],
                 "iso": languages.SOURCE_LANGUAGES[cfg["source_language"]]["iso"],
+                "script": languages.SOURCE_LANGUAGES[cfg["source_language"]]["script"],
             },
             "live": self.live_targets(),
             "running": self.running,
