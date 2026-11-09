@@ -24,6 +24,11 @@ if pkill -f 'module-native-protocol-tcp port=4713 auth-anonymous=1' 2>/dev/null;
     echo "Stopped PulseAudio."
 fi
 
+# The panels' announcement, matched on its own arguments.
+if pkill -f 'dns-sd -R .* _relay-captions._tcp' 2>/dev/null; then
+    echo "Stopped the panel announcement."
+fi
+
 echo
 echo "Stopped."
 read -r -t 5 -p "This window closes in 5 seconds." _

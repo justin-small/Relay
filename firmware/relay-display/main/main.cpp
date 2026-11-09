@@ -7,6 +7,7 @@
 #include "captions.h"
 #include "config.h"
 #include "diag.h"
+#include "discovery.h"
 #include "feeds.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -167,6 +168,9 @@ extern "C" void app_main(void)
         const esp_err_t feeds = feeds_start(settings);
         if (feeds != ESP_OK) {
             ESP_LOGE(TAG, "boot: feeds not started (%s)", esp_err_to_name(feeds));
+        } else if (discovery_start(settings) != ESP_OK) {
+            // With no Relay address stored the panel finds Relay itself. Without it the setup page's field still works.
+            ESP_LOGE(TAG, "boot: discovery not started");
         }
     }
     start_heap_log();

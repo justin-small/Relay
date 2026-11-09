@@ -8,7 +8,7 @@ desk that shows the live transcription, or one translation, from a Relay server 
 **This is the foundation and the caption client.** It boots, lights the panel, joins Wi-Fi (from a setup
 page on the panel's own network), keeps its settings, shows a test screen, and keeps the last 200 finished
 lines of up to two caption feeds from Relay. It does not draw captions yet: the caption view, the touch
-menu, Relay discovery, the panel registry and updates are separate pieces of work that build on this.
+menu, the panel registry and updates are separate pieces of work that build on this.
 
 ## What is here
 
@@ -155,9 +155,25 @@ which has no ESP-IDF in it and is what the native checks test.
   without a sign. A line is cut at 1024 bytes with `...`. **LVGL's built-in Montserrat covers ASCII only**,
   so the caption view has a font of its own (below).
 * **Where the feed comes from.** At boot, slot 0 shows the stored Relay address and feed when both are
-  set. Discovery and the feed picker set it later. On the serial console, for the bench:
+  set, or Relay discovery finds it (below). On the serial console, for the bench:
   `feed <slot> <url> translation <LANG>`, `feed <slot> <url> transcription`, `feed <slot> off` (not saved),
   and `captions <slot>` prints the state and every line held.
+
+### Relay discovery
+
+With **no Relay address stored**, `main/discovery.cpp` waits for an address, then browses mDNS for
+`_relay-captions._tcp` (what Relay announces is in the top-level README, "Caption panels: Relay announces
+itself") and calls `feeds_use_relay` with the first answer. The rules are in `main/discovery_format.h`,
+checked on a laptop:
+
+* **A typed address wins.** Discovery is off whenever the setup page's Relay address is filled in.
+* **The first Relay is kept.** Its install name (the TXT `name`, folded to printable ASCII) is saved in its
+  own NVS key, `relay_name`. From then on only that name is taken, so with two Relays on one network the
+  panel does not move to the other when the first is off. The factory reset clears it.
+* **The address is not saved.** It is read again every 30 s, and a Relay that comes back at another address is
+  followed. While none answers it browses every 5 s.
+* Uses `espressif/mdns` (`main/idf_component.yml`). **Not yet built or run on a panel:** the native test
+  covers the rules, and `discovery.cpp` has had no ESP-IDF build.
 
 ## Caption view
 

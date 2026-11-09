@@ -109,9 +109,26 @@ if ! docker compose -f docker/docker-compose.yml -f docker/docker-compose.macos.
     read -r -p "Press return to close." _; exit 1
 fi
 
+# Announce Relay on the LAN so caption panels find it without an address typed
+# in. Docker Desktop's container is not on the LAN, so this is done from the Mac
+# itself with the built-in dns-sd. RELAY_ANNOUNCE=0 turns it off;
+# RELAY_INSTALL_NAME names this install (default: the Mac's name).
+pkill -f 'dns-sd -R .* _relay-captions._tcp' 2>/dev/null
+ANNOUNCED=""
+if [ "${RELAY_ANNOUNCE:-1}" != 0 ] && command -v dns-sd >/dev/null 2>&1; then
+    INSTALL_NAME="${RELAY_INSTALL_NAME:-$(scutil --get ComputerName 2>/dev/null || hostname -s)}"
+    VERSION="${RELAY_VERSION:-$(git describe --tags --always 2>/dev/null || echo dev)}"
+    nohup perl -MPOSIX -e 'POSIX::setsid(); exec @ARGV' \
+        dns-sd -R "$INSTALL_NAME" _relay-captions._tcp local "${RELAY_HTTP_PORT:-80}" \
+        "v=$VERSION" "name=$INSTALL_NAME" path=/ \
+        < /dev/null > /dev/null 2>&1 &
+    ANNOUNCED="$INSTALL_NAME"
+fi
+
 echo
 echo "  Viewer link : http://$LAN_IP/            <- share this with the room"
 echo "  Panel       : https://$LAN_IP/admin"
+[ -n "$ANNOUNCED" ] && echo "  Announced   : \"$ANNOUNCED\" (_relay-captions._tcp) for caption panels"
 echo
 echo "  The panel's certificate is self-signed, so the browser warns the first"
 echo "  time. Check the SHA-256 above against what the browser shows before"

@@ -22,6 +22,7 @@ const char *TAG = "settings";
 // to 15 characters.
 constexpr const char *kNamespace = "relay";
 constexpr const char *kKey = "config";
+constexpr const char *kRelayNameKey = "relay_name";
 
 // The orientation this build was configured for. It is the defaults' rotation, and it
 // is also what a stored rotation that is neither 0 nor 180 falls back to. The Kconfig
@@ -155,6 +156,35 @@ void settings_adopt_feeds(relay_settings_t *cand)
         copy_feeds(cand, &current);
     }
     xSemaphoreGive(feeds_lock());
+}
+
+void settings_load_relay_name(char *out, size_t cap)
+{
+    if (cap == 0) {
+        return;
+    }
+    out[0] = '\0';
+    nvs_handle_t handle = 0;
+    if (nvs_open(kNamespace, NVS_READONLY, &handle) != ESP_OK) {
+        return;
+    }
+    size_t len = cap;
+    if (nvs_get_str(handle, kRelayNameKey, out, &len) != ESP_OK) {
+        out[0] = '\0';
+    }
+    nvs_close(handle);
+}
+
+esp_err_t settings_save_relay_name(const char *name)
+{
+    nvs_handle_t handle = 0;
+    ESP_RETURN_ON_ERROR(nvs_open(kNamespace, NVS_READWRITE, &handle), TAG, "open for write");
+    esp_err_t err = nvs_set_str(handle, kRelayNameKey, name);
+    if (err == ESP_OK) {
+        err = nvs_commit(handle);
+    }
+    nvs_close(handle);
+    return err;
 }
 
 esp_err_t settings_ensure_panel_id(relay_settings_t *settings, bool *created)

@@ -96,6 +96,13 @@ if errorlevel 1 (
   pause & exit /b 1
 )
 
+REM Announce Relay on the LAN so caption panels find it. Docker Desktop's container
+REM is not on the LAN, so this runs here, with Windows' own DNS-SD. Set RELAY_ANNOUNCE=0
+REM to turn it off; RELAY_INSTALL_NAME names this install (default: the computer's name).
+echo.
+if not "!RELAY_ANNOUNCE!"=="0" (
+  powershell -NoProfile -ExecutionPolicy Bypass -File tools\announce.ps1 start -Ip "!RELAY_ADMIN_IPS!"
+)
 echo.
 echo   Viewer link : http://!RELAY_ADMIN_IPS!/            ^<- share this with the room
 echo   Panel       : https://!RELAY_ADMIN_IPS!/admin

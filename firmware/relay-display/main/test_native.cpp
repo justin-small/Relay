@@ -37,6 +37,7 @@
 #include "board_format.h"
 #include "caption_format.h"
 #include "caption_view_format.h"
+#include "discovery_format.h"
 #include "feed_format.h"
 #include "button_policy.h"
 #include "config.h"
@@ -2005,6 +2006,51 @@ void check_settings_split_and_v1()
 
 }  // namespace
 
+void check_discovery()
+{
+    char name[kRelayNameCap];
+    relay_name_clean("  Main Hall  ", name, sizeof name);
+    CHECK(strcmp(name, "Main Hall") == 0);
+    relay_name_clean("Caf\xC3\xA9 \xE2\x80\x93 hall", name, sizeof name);  // each non-ASCII character is one ?
+    CHECK(strcmp(name, "Caf? ? hall") == 0);
+    relay_name_clean(std::string(80, 'x').c_str(), name, sizeof name);
+    CHECK(strlen(name) == kRelayNameCap - 1);
+    relay_name_clean("tab\there", name, sizeof name);
+    CHECK(strcmp(name, "tab?here") == 0);
+    relay_name_clean(nullptr, name, sizeof name);
+    CHECK(name[0] == '\0');
+
+    relay_found a = {{192, 168, 1, 20}, 80, "Main Hall"};
+    relay_found b = {{192, 168, 1, 31}, 8080, "Chapel"};
+    char url[64];
+    CHECK(relay_url_make(a, url, sizeof url) && strcmp(url, "http://192.168.1.20") == 0);
+    CHECK(relay_url_make(b, url, sizeof url) && strcmp(url, "http://192.168.1.31:8080") == 0);
+    CHECK(!relay_url_make(a, url, 10));  // too small a buffer
+    CHECK(!relay_url_make(relay_found{{0, 0, 0, 0}, 80, "x"}, url, sizeof url));
+    CHECK(!relay_url_make(relay_found{{127, 0, 0, 1}, 80, "x"}, url, sizeof url));
+    CHECK(!relay_url_make(relay_found{{10, 0, 0, 1}, 0, "x"}, url, sizeof url));
+    // What the panel hands the caption client is something it reads back.
+    char host[64];
+    uint16_t port = 0;
+    CHECK(relay_url_make(b, url, sizeof url) && caption_url_split(url, host, sizeof host, &port));
+    CHECK(strcmp(host, "192.168.1.31") == 0 && port == 8080);
+    CHECK(relay_url_make(a, url, sizeof url) && caption_url_split(url, host, sizeof host, &port) && port == 80);
+
+    // Nothing remembered: the first usable answer. Unusable answers are skipped.
+    relay_found bad = {{0, 0, 0, 0}, 80, "Broken"};
+    const relay_found both[] = {bad, a, b};
+    CHECK(relay_pick(both, 3, "") == 1);
+    CHECK(relay_pick(both, 3, nullptr) == 1);
+    CHECK(relay_pick(both, 0, "") == -1);
+    CHECK(relay_pick(&bad, 1, "") == -1);
+    // Remembered: stays with that one, whatever order the answers come in, and never takes another.
+    const relay_found swapped[] = {b, a};
+    CHECK(relay_pick(swapped, 2, "Main Hall") == 1);
+    CHECK(relay_pick(swapped, 2, "Chapel") == 0);
+    CHECK(relay_pick(&b, 1, "Main Hall") == -1);
+    CHECK(relay_pick(swapped, 2, "main hall") == -1);  // names are compared exactly
+}
+
 int main()
 {
     check_panel_constants();
@@ -2029,6 +2075,7 @@ int main()
     check_static_ip_rules();
     check_ssid_and_password();
     check_relay_address();
+    check_discovery();
     check_setup_form();
     check_form_codecs();
     check_passphrase();

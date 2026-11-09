@@ -1,5 +1,7 @@
 #pragma once
 
+#include <cstddef>
+
 #include "esp_err.h"
 #include "settings_format.h"
 
@@ -27,6 +29,11 @@ void settings_adopt_feeds(relay_settings_t *cand);
 // The defaults: nothing configured, so the panel opens its setup network and does not
 // connect to anything. The rotation starts at the Kconfig value, and the address is DHCP.
 void settings_defaults(relay_settings_t *out);
+
+// The install name of the Relay this panel first found on the LAN (`discovery.cpp`), in its own NVS key, so saving it
+// never races the blob. Empty when none is remembered. The factory reset erases it with everything else.
+void settings_load_relay_name(char *out, size_t cap);
+esp_err_t settings_save_relay_name(const char *name);
 
 // Make the panel ID if there is none yet: 16 random bytes from the hardware generator, as
 // 32 hex characters, saved at once. Called at boot after `settings_load`. `*created` says

@@ -796,6 +796,7 @@ tests/
   smoke_test.py              offline checks, no API calls
   test_redact.py             blocklist filtering, incl. split-delta cases
   test_schedules.py          schedule windows, DST, override rules, admin API
+  test_announce.py           mDNS records and answers of tools/announce.py
 
 tools/
   check-audio.sh             PASS/FAIL walk of the whole capture chain
@@ -803,6 +804,8 @@ tools/
   check-audio.ps1            the same two, for Windows without bash
   wait-ready.ps1
   windows-audio.ps1          Windows: install / start / stop native PulseAudio
+  announce.py                Linux: mDNS announcement for caption panels
+  announce.ps1               Windows: the same, with Windows' own DNS-SD
   scan-image.sh              CVE / misconfig / secret scan of the built image
   write_config.py            writes credentials into config.json
   setup_caddy.py             panel certificate + Caddyfile
@@ -821,6 +824,7 @@ python3 -m venv .venv && .venv/bin/pip install -r requirements.txt httpx2
 .venv/bin/python tests/smoke_test.py   # config, hub, audio, routes, auth, blocklist, recording
 .venv/bin/python tests/test_redact.py  # blocklist filtering, incl. split-delta cases
 .venv/bin/python tests/test_schedules.py  # schedule windows, DST, override rules, admin API
+python3 tests/test_announce.py         # panel announcement; standard library only
 ```
 
 None makes an API call. `tests/test_redact.py` includes a randomised check that
@@ -849,6 +853,49 @@ publish.
 
 The Companion module releases the same way from its own repo, with the tag
 checked against `package.json` and `companion/manifest.json`.
+
+## Caption panels: Relay announces itself
+
+Touch-screen caption panels (`firmware/relay-display/`) find Relay on the LAN
+without anyone typing an address. Relay announces itself over mDNS / DNS-SD:
+
+| | |
+|---|---|
+| Service | `_relay-captions._tcp` |
+| Instance | the install name (default: the computer's name) |
+| Port | the viewer port (80) |
+| TXT | `v=<Relay version>` `name=<install name>` `path=/` |
+
+Nothing else is announced: no address of the operator panel, no key, no
+language list. A panel that finds the announcement then asks the viewer port
+for captions, as any phone would.
+
+The announcement has to be made **from the host**, because Docker Desktop's
+container is not on your LAN and multicast inside it never reaches a panel.
+The launchers do it:
+
+- **macOS:** `start.command` runs the built-in `dns-sd -R` in the background;
+  `stop.command` ends it.
+- **Windows:** `start.bat` runs `tools\announce.ps1`, which registers with
+  Windows' own DNS-SD (Windows 10 1809 or later; no Bonjour install).
+  `stop.bat` withdraws it. This path is untested on a real Windows host so far.
+- **Linux:** `start.sh` also starts a small second container (the `announce`
+  profile of `docker/docker-compose.linux.yml`) on the host network, running
+  `tools/announce.py`. It publishes and mounts nothing. `stop.sh` removes it.
+
+**Turn it off:** start with `RELAY_ANNOUNCE=0` (`RELAY_ANNOUNCE=0 ./start.sh`;
+on Windows `set RELAY_ANNOUNCE=0` first). Name this install with
+`RELAY_INSTALL_NAME`. Panels already holding that name stop finding it, and an
+unannounced Relay still works at its address.
+
+**What a panel does.** With no Relay address on its setup page, a panel browses
+once it has Wi-Fi and connects to the first answer. It remembers that
+install's name, so with **two Relays on one network it stays with the one it
+first chose** and never moves to the other if the first is off. A Relay that
+comes back at a new address is followed. **Typing an address** in the panel's
+setup page always wins and is the way in when the network blocks multicast
+(guest Wi-Fi often does). To move a panel to another Relay, give it that
+Relay's address, or factory-reset it.
 
 ## Not in scope
 
