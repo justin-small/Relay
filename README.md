@@ -897,6 +897,52 @@ setup page always wins and is the way in when the network blocks multicast
 (guest Wi-Fi often does). To move a panel to another Relay, give it that
 Relay's address, or factory-reset it.
 
+## Caption panels: the panel registry
+
+Relay lists the panels it can see and can tell each one what to show. The code
+is `app/panels.py`; the panel's side is `firmware/relay-display/main/panel_link.cpp`.
+
+**Panel to Relay**, on the viewer port, plain HTTP, no login (panels do not
+pair, by decision):
+
+- `POST /api/panels/checkin` every 30 s: panel ID, name, firmware version, the
+  scripts it can draw, the feed or feeds it shows, its IP, uptime and Wi-Fi
+  signal.
+- `GET /api/panels/{id}/events`: a server-sent event stream the panel keeps
+  open. Relay writes `set_feed` and `update_available` to it, so a change
+  arrives at once and not at the next check-in. It is only served to a panel
+  that has checked in.
+
+**Relay's side.** The list is in memory. A panel not heard from for 90 s shows
+as offline, and is online again at its next check-in. What the *operator* sets
+for a panel, its name and its feed, is saved in `config.json` under `panels`
+and survives a restart; what a panel says about itself is never written there.
+
+**Control is on the operator port.** Everything that changes a panel is under
+`/api/admin/*` on the HTTPS port, and the viewer port refuses it (the app
+and the Caddyfile both):
+
+| | |
+|---|---|
+| `GET /api/admin/panels` | every panel: online or not, version, feeds, IP, uptime, signal |
+| `POST /api/admin/panels/{id}` | `{"name": "Lobby"}` and/or `{"feeds": [{"stream": "translation", "lang": "SPANISH"}]}` (one or two feeds; `null` stops overriding). A feed is `transcription` or a `translation` with a language |
+| `DELETE /api/admin/panels/{id}` | forget a panel (one that is still checking in comes straight back, unnamed) |
+
+**A screen choice is not undone.** The operator's feed carries a revision. The
+panel reports the last one it applied (`feed_rev`) and Relay sends a `set_feed`
+only while it has not, so a feed picked at the screen afterwards stands until
+the operator sets another. **Newest wins, from either side.**
+
+**What a stray device on the LAN can do.** Anything can check in as a panel or
+read a panel's events: they carry a feed choice and nothing secret. It cannot
+fill memory or config: at most 64 panels are held (a new one past that makes
+room by dropping the stalest offline panel the operator never named, and is
+refused with 429 when there is none), a check-in body over 2 KB is refused
+with 413 before it is read whole, every field is length-limited, and at most
+two event streams are open per panel. It cannot control anything.
+
+Run the server's checks with `python tests/test_panels.py`.
+
 ## Not in scope
 
 Spoken output/TTS, browser microphone capture, speaker diarization, audio

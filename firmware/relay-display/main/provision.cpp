@@ -30,6 +30,7 @@
 #include "caption_view.h"
 #include "captions.h"
 #include "feeds.h"
+#include "panel_link.h"
 #include "wifi_policy.h"
 
 #if !CONFIG_RELAY_QEMU
@@ -949,6 +950,8 @@ void console_task(void *)
             ESP_LOGI(TAG, "console: relay set");
         } else if (strcmp(line, "feeds") == 0) {
             feeds_report();
+        } else if (strcmp(line, "panel") == 0) {
+            panel_link_report();
         } else if (strncmp(line, "captions ", 9) == 0) {
             captions_dump(atoi(line + 9));
         } else if (strcmp(line, "view") == 0) {

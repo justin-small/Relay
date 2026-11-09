@@ -318,6 +318,37 @@ void feeds_set_split(bool split)
     wake();
 }
 
+bool feeds_relay_url(char *out, size_t cap)
+{
+    if (!s_started || cap == 0) {
+        return false;
+    }
+    lock();
+    snprintf(out, cap, "%s", s_.url);
+    unlock();
+    return out[0] != '\0';
+}
+
+void feeds_apply(const feed_pick *picks, int count)
+{
+    if (!s_started || picks == nullptr || count < 1 || count > 2) {
+        return;
+    }
+    lock();
+    s_.view.saved[0] = picks[0];
+    s_.refused[0] = false;
+    if (count == 2) {
+        s_.view.saved[1] = picks[1];
+        s_.refused[1] = false;
+    }
+    s_.view.split = count == 2;
+    s_.dirty = true;
+    ++s_.view.revision;
+    unlock();
+    ESP_LOGI(TAG, "feeds: set from Relay, %s", count == 2 ? "two feeds" : "one feed");
+    wake();
+}
+
 void feeds_use_relay(const char *url)
 {
     if (!s_started) {

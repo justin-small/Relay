@@ -19,6 +19,7 @@
 #include "esp_psram.h"
 #include "esp_timer.h"
 #include "net.h"
+#include "panel_link.h"
 #include "nvs_flash.h"
 #include "provision.h"
 #include "screen.h"
@@ -168,9 +169,15 @@ extern "C" void app_main(void)
         const esp_err_t feeds = feeds_start(settings);
         if (feeds != ESP_OK) {
             ESP_LOGE(TAG, "boot: feeds not started (%s)", esp_err_to_name(feeds));
-        } else if (discovery_start(settings) != ESP_OK) {
-            // With no Relay address stored the panel finds Relay itself. Without it the setup page's field still works.
-            ESP_LOGE(TAG, "boot: discovery not started");
+        } else {
+            if (discovery_start(settings) != ESP_OK) {
+                // With no Relay address stored the panel finds Relay itself. Without it the setup page's field still works.
+                ESP_LOGE(TAG, "boot: discovery not started");
+            }
+            // The panel's check-in with Relay and its event stream. The captions do not wait for either.
+            if (panel_link_start(settings) != ESP_OK) {
+                ESP_LOGE(TAG, "boot: panel link not started");
+            }
         }
     }
     start_heap_log();

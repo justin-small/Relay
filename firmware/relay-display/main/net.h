@@ -87,3 +87,8 @@ bool net_station_has_address();
 // as the station's, so the same code runs on the emulator's netif and on the radio.
 esp_err_t net_wired_start();
 bool net_wired_has_address();
+
+// What the panel tells Relay about its link: the station's IPv4 address as dotted text in `ip` (`cap` bytes, at least 16;
+// empty when it has none) and, where there is a radio link, its signal strength in dBm in `rssi`. Returns whether `rssi`
+// was filled: false under the emulator, which has no radio, and while the station is not joined.
+bool net_link_info(char *ip, size_t cap, int *rssi);

@@ -42,6 +42,7 @@
 #include "button_policy.h"
 #include "config.h"
 #include "panel_format.h"
+#include "panel_link_format.h"
 #include "settings_format.h"
 #include "setup_format.h"
 #include "setup_page.h"
@@ -2051,6 +2052,129 @@ void check_discovery()
     CHECK(relay_pick(swapped, 2, "main hall") == -1);  // names are compared exactly
 }
 
+// The panel's check-in with Relay, and what Relay tells it back (`panel_link_format.h`).
+void check_panel_link()
+{
+    panel_status st = {};
+    snprintf(st.id, sizeof st.id, "%s", "0123456789abcdef0123456789abcdef");
+    snprintf(st.version, sizeof st.version, "%s", "0.1.0");
+    snprintf(st.ip, sizeof st.ip, "%s", "192.168.1.50");
+    st.uptime_s = 42;
+    st.has_rssi = true;
+    st.rssi = -58;
+    st.feed_count = 1;
+    st.feeds[0] = feed_pick_make(kFeedTranslation, "SPANISH");
+
+    char body[kPanelBodyMax];
+    size_t n = panel_checkin_body(body, sizeof body, st);
+    CHECK(n > 0 && n == strlen(body));
+    CHECK(strcmp(body,
+                 "{\"id\":\"0123456789abcdef0123456789abcdef\",\"name\":\"Panel 0123\",\"version\":\"0.1.0\","
+                 "\"scripts\":[\"latin\"],\"feeds\":[{\"stream\":\"translation\",\"lang\":\"SPANISH\"}],"
+                 "\"ip\":\"192.168.1.50\",\"uptime_s\":42,\"rssi\":-58,\"feed_rev\":0}") == 0);
+    // The body is JSON the readers here understand.
+    uint64_t up = 0;
+    CHECK(caption_json::read_uint(caption_json::get(body, body + n, "uptime_s"), body + n, &up) && up == 42);
+
+    // Two feeds, a transcription, no radio and no address: the fields that are unknown are left out.
+    st.feed_count = 2;
+    st.feeds[0] = feed_pick_make(kFeedTranscription, nullptr);
+    st.feeds[1] = feed_pick_make(kFeedTranslation, "FRENCH");
+    st.has_rssi = false;
+    st.ip[0] = '\0';
+    st.feed_rev = 7;
+    n = panel_checkin_body(body, sizeof body, st);
+    CHECK(strstr(body, "\"feeds\":[{\"stream\":\"transcription\"},{\"stream\":\"translation\",\"lang\":\"FRENCH\"}]") != nullptr);
+    CHECK(strstr(body, "\"ip\"") == nullptr && strstr(body, "\"rssi\"") == nullptr);
+    CHECK(strstr(body, "\"feed_rev\":7}") != nullptr);
+    st.feed_count = 0;  // a panel with nothing chosen says so
+    n = panel_checkin_body(body, sizeof body, st);
+    CHECK(strstr(body, "\"feeds\":[]") != nullptr);
+    st.feed_count = 2;
+    st.feeds[0] = feed_pick();  // a pane with no feed is not reported
+    n = panel_checkin_body(body, sizeof body, st);
+    CHECK(strstr(body, "\"feeds\":[{\"stream\":\"translation\",\"lang\":\"FRENCH\"}]") != nullptr);
+
+    // Text is escaped, and a body that does not fit is refused, not cut.
+    snprintf(st.version, sizeof st.version, "%s", "a\"b\\c\n");
+    n = panel_checkin_body(body, sizeof body, st);
+    CHECK(strstr(body, "\"version\":\"a\\\"b\\\\c\\u000a\"") != nullptr);
+    CHECK(panel_checkin_body(body, 60, st) == 0);
+    CHECK(panel_checkin_body(body, 0, st) == 0);
+    CHECK(kPanelBodyMax < 2048);  // Relay's cap (app/panels.py CHECKIN_MAX_BYTES)
+
+    char name[kPanelNameMax];
+    CHECK(panel_default_name("abcd1234", name, sizeof name) > 0 && strcmp(name, "Panel abcd") == 0);
+
+    // The requests.
+    char req[640];
+    n = panel_checkin_request(req, sizeof req, "10.0.2.2", 8000, "{\"a\":1}", 7, "0.1.0");
+    CHECK(n > 0 && n == strlen(req));
+    CHECK(strncmp(req, "POST /api/panels/checkin HTTP/1.1\r\nHost: 10.0.2.2:8000\r\n", 56) == 0);
+    CHECK(strstr(req, "Content-Length: 7\r\n") != nullptr && strstr(req, "Connection: close\r\n\r\n{\"a\":1}") != nullptr);
+    CHECK(panel_checkin_request(req, sizeof req, "relay.local", 80, "{}", 2, "0.1.0") > 0 &&
+          strstr(req, "Host: relay.local\r\n") != nullptr);
+    CHECK(panel_checkin_request(req, 30, "10.0.2.2", 8000, "{}", 2, "0.1.0") == 0);
+    n = panel_events_request(req, sizeof req, "10.0.2.2", 8000, st.id, "0.1.0");
+    CHECK(n > 0 && strncmp(req, "GET /api/panels/0123456789abcdef0123456789abcdef/events HTTP/1.1\r\n", 65) == 0);
+    CHECK(strstr(req, "Accept: text/event-stream\r\n") != nullptr);
+    CHECK(panel_events_request(req, sizeof req, "10.0.2.2", 8000, "../admin", "0.1.0") == 0);  // not a panel ID
+    CHECK(panel_events_request(req, 40, "10.0.2.2", 8000, st.id, "0.1.0") == 0);
+
+    // A `set_feed`, as Relay writes it.
+    auto event = [](const char *json) { return panel_parse_event(json, strlen(json)); };
+    panel_event ev = event("{\"type\":\"set_feed\",\"rev\":3,\"feeds\":[{\"stream\":\"transcription\"}]}");
+    CHECK(ev.kind == panel_message::set_feed && ev.feed.rev == 3 && ev.feed.count == 1 &&
+          ev.feed.feeds[0].stream == kFeedTranscription);
+    ev = event("{\"type\":\"set_feed\",\"rev\":4,\"feeds\":[{\"stream\":\"translation\",\"lang\":\"FRENCH\"},"
+               "{\"stream\":\"translation\",\"lang\":\"SPANISH\"}]}");
+    CHECK(ev.kind == panel_message::set_feed && ev.feed.count == 2 && strcmp(ev.feed.feeds[0].lang, "FRENCH") == 0 &&
+          strcmp(ev.feed.feeds[1].lang, "SPANISH") == 0);
+    // What Relay would never send is ignored, not half applied.
+    for (const char *bad : {
+             "{\"type\":\"set_feed\",\"rev\":1,\"feeds\":[]}",
+             "{\"type\":\"set_feed\",\"rev\":1}",
+             "{\"type\":\"set_feed\",\"feeds\":[{\"stream\":\"transcription\"}]}",
+             "{\"type\":\"set_feed\",\"rev\":-1,\"feeds\":[{\"stream\":\"transcription\"}]}",
+             "{\"type\":\"set_feed\",\"rev\":99999999999,\"feeds\":[{\"stream\":\"transcription\"}]}",
+             "{\"type\":\"set_feed\",\"rev\":1,\"feeds\":[{\"stream\":\"nope\"}]}",
+             "{\"type\":\"set_feed\",\"rev\":1,\"feeds\":[{\"stream\":\"translation\"}]}",
+             "{\"type\":\"set_feed\",\"rev\":1,\"feeds\":[{\"stream\":\"translation\",\"lang\":\"\"}]}",
+             "{\"type\":\"set_feed\",\"rev\":1,\"feeds\":[{\"stream\":\"transcription\"},{\"stream\":\"transcription\"},"
+             "{\"stream\":\"transcription\"}]}",
+             "{\"type\":\"set_feed\",\"rev\":1,\"feeds\":\"transcription\"}",
+             "{\"type\":\"snapshot\"}", "{\"type\":5}", "{}", "[]", "nope", ""}) {
+        CHECK(event(bad).kind == panel_message::none);
+    }
+    ev = event("{\"type\":\"update_available\",\"version\":\"0.2.0\",\"size\":1234}");
+    CHECK(ev.kind == panel_message::update_available && strcmp(ev.version, "0.2.0") == 0);
+    CHECK(event("{\"type\":\"update_available\"}").kind == panel_message::update_available);
+
+    // A check-in reply.
+    auto reply = [](const char *json) { return panel_parse_reply(json, strlen(json)); };
+    panel_reply r = reply("{\"ok\":true,\"name\":\"Lobby\",\"interval_s\":30}");
+    CHECK(r.ok && !r.has_feed && strcmp(r.name, "Lobby") == 0);
+    r = reply("{\"ok\":true,\"name\":\"Lobby\",\"interval_s\":30,\"set_feed\":{\"type\":\"set_feed\",\"rev\":2,"
+              "\"feeds\":[{\"stream\":\"translation\",\"lang\":\"FRENCH\"}]}}");
+    CHECK(r.ok && r.has_feed && r.feed.rev == 2 && r.feed.count == 1 && strcmp(r.feed.feeds[0].lang, "FRENCH") == 0);
+    r = reply("{\"ok\":true,\"set_feed\":{\"rev\":2,\"feeds\":[]}}");
+    CHECK(r.ok && !r.has_feed);  // a feed that does not read is dropped, the check-in still counts
+    CHECK(!reply("{\"ok\":false}").ok && !reply("{\"detail\":\"too many panels\"}").ok && !reply("").ok);
+    // A name longer than the field is cut, not overrun.
+    r = reply("{\"ok\":true,\"name\":\"0123456789012345678901234567890123456789\"}");
+    CHECK(r.ok && strlen(r.name) < kPanelNameMax);
+
+    // Applying: a revision already applied is not applied again; any other is.
+    CHECK(!panel_should_apply(3, 3));
+    CHECK(panel_should_apply(4, 3));
+    CHECK(panel_should_apply(1, 3));  // Relay's counter restarted
+    CHECK(panel_should_apply(1, 0));
+
+    // The stream's retry: a panel Relay does not know is retried soon, anything else backs off.
+    CHECK(panel_events_wait_ms(5, 404) == 2000);
+    CHECK(panel_events_wait_ms(0, 0) == 1000 && panel_events_wait_ms(9, 500) == 30000);
+}
+
 int main()
 {
     check_panel_constants();
@@ -2102,6 +2226,7 @@ int main()
     check_feed_panes();
     check_targets_request();
     check_settings_split_and_v1();
+    check_panel_link();
 
     if (g_failures != 0) {
         fprintf(stderr, "%d check(s) failed\n", g_failures);

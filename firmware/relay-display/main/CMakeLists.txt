@@ -8,6 +8,7 @@
 #   esp_http_server    the setup page, served only while the setup network is open (provision.cpp)
 #   esp_hw_support     esp_fill_random for the passphrase and the panel ID, esp_read_mac for the name
 #   esp_timer          the retry backoff and the setup network's timers, the caption stream's silence clock
+#   (panel_link.cpp checks in with Relay's panel registry and keeps its event stream open, over the same lwip sockets)
 #   mdns               browsing for Relay's `_relay-captions._tcp` announcement (discovery.cpp); the managed component
 #                      `espressif/mdns` (idf_component.yml)
 #   lwip               getpeername, so the setup page can refuse a client off its network; the caption
@@ -61,10 +62,10 @@ endif()
 # `test_native.cpp` is deliberately not in SRCS. It is a `main()` compiled by g++ on a laptop, and
 # `build.sh` runs it before anything is built for the board. Linking it here would be a second `main`
 # in the application. The headers it checks (`panel_format.h`, `settings_format.h`, `wifi_policy.h`,
-# `setup_format.h`, `setup_page.h`, `caption_format.h`, `feed_format.h`, `discovery_format.h`) hold no ESP-IDF calls, so the same files serve both builds.
+# `setup_format.h`, `setup_page.h`, `caption_format.h`, `feed_format.h`, `discovery_format.h`, `panel_link_format.h`) hold no ESP-IDF calls, so the same files serve both builds.
 idf_component_register(
     SRCS "main.cpp" "display.cpp" "board_i2c.cpp" "button.cpp" "net.cpp" "settings.cpp" "diag.cpp"
-         "provision.cpp" "screen.cpp" "touch.cpp" "captions.cpp" "caption_view.cpp" "feeds.cpp" "discovery.cpp"
+         "provision.cpp" "screen.cpp" "touch.cpp" "captions.cpp" "caption_view.cpp" "feeds.cpp" "discovery.cpp" "panel_link.cpp"
          "fonts/relay_caption_36.c" "fonts/relay_caption_36_more.c"
          ${_relay_qemu_srcs}
     INCLUDE_DIRS "."
