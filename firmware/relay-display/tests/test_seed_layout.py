@@ -32,6 +32,7 @@ def test_the_text_fields_are_the_sizes_the_seed_packs() -> None:
     assert _array("relay_addr") == seeds.RELAY_ADDR_BYTES
     assert _array("panel_id") == seeds.PANEL_ID_BYTES
     assert _array("feed_lang") == seeds.FEED_LANG_BYTES
+    assert _array("feed2_lang") == seeds.FEED_LANG_BYTES
 
 
 def test_the_total_is_the_firmwares_static_assert() -> None:

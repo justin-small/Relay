@@ -30,9 +30,10 @@ void screen_unlock();
 // (`setup_wifi_qr`). Null for every other screen.
 esp_err_t screen_show_lines(const panel_text_line *lines, int count, const char *qr = nullptr);
 
-// Show the caption view for caption slot `slot` (`caption_view.h`). It takes over the glass until another
-// picture is asked for, and draws what the slot's feed holds and keeps up with it.
-esp_err_t screen_show_captions(int slot);
+// Show the caption view (`caption_view.h`): one feed or two, as `feeds.h` says. It takes over the glass until another
+// picture is asked for, and draws what the feeds hold and keeps up with them. Asked again, it is built again, which
+// is how a change between one feed and two reaches the glass.
+esp_err_t screen_show_captions();
 
 // The bench picture: the boot's colour bars, kept as the idle picture of a board with nothing
 // to say. Written raw, not drawn by LVGL, and LVGL is inactive while it is up.

@@ -52,7 +52,6 @@ int s_line_count = 0;
 // Sized for the setup network's join code: at most about 90 characters with every character of a 32-byte name escaped.
 char s_line_qr[160] = "";
 char s_bench_version[16] = "";
-int s_caption_slot = 0;
 
 // PSRAM when the module has it, and internal RAM when it does not. The emulator's module has no PSRAM, and the
 // screen must still start there.
@@ -213,7 +212,7 @@ void lvgl_task(void *)
             break;
         case Request::captions:
             caption_view_teardown();
-            caption_view_build(fresh_root(), s_caption_slot);
+            caption_view_build(fresh_root());
             activate();
             break;
         case Request::bench:
@@ -300,10 +299,9 @@ esp_err_t screen_show_lines(const panel_text_line *lines, int count, const char 
     return ESP_OK;
 }
 
-esp_err_t screen_show_captions(int slot)
+esp_err_t screen_show_captions()
 {
     screen_lock();
-    s_caption_slot = slot;
     s_request = Request::captions;
     screen_unlock();
     return ESP_OK;

@@ -44,5 +44,11 @@ void captions_read(int slot, void (*fn)(const caption_feed *feed, caption_state 
 // Told after each change, from the slot's task, outside the lock. One listener; null removes it.
 void captions_set_listener(void (*fn)(int slot, void *ctx), void *ctx);
 
+// Ask the Relay at `relay_url` what is live: `GET /api/targets`, the JSON copied into `out` (`cap` bytes, `kCaptionTargetsMax`
+// is enough). Blocks for up to a few seconds, so it is for a task of its own. False when the panel has no address,
+// Relay does not answer 200, or the answer does not fit. Relay's stream says what is live only when it changes, so this
+// is how a panel learns it when it connects.
+bool captions_fetch_targets(const char *relay_url, char *out, size_t cap);
+
 // The console's `captions <slot>`: the state and every line, one per log line.
 void captions_dump(int slot);

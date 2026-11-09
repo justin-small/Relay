@@ -21,6 +21,7 @@ menu, Relay discovery, the panel registry and updates are separate pieces of wor
 | Setup | An access point and a page to join Wi-Fi (join code as a QR on the panel), with recovery |
 | BOOT button | Hold 5 s: open the setup network. Hold 15 s: factory reset |
 | Screen | LVGL: centred text with an optional QR code, the caption view (see "Caption view"), and the colour-bar bench picture |
+| Feed picker | A menu button on the caption screen: Transcription or a live translation, one feed or two side by side, saved in NVS (see "Feed picker") |
 | Captions | Up to two feeds from Relay's `/stream?finals=1`, each with its own connection and 200-line buffer in PSRAM, resumed with `?last_id=` after a drop (see "Caption client") |
 | Partitions | Two app slots, `otadata`, `nvs`; signing set up (the update itself is a later change) |
 | `build.sh` | Release, `--dev` and `--qemu` builds, `--sign`, the native checks and the image check |
@@ -180,9 +181,41 @@ nothing appears word by word (the client asks for `finals=1`).
   font drift apart. About 300 KB of flash.
 * **LVGL allocates from the heap** (`CONFIG_LV_USE_CLIB_MALLOC`), not from its own 64 KB pool: 200 line labels do not
   fit in that.
+* **Two feeds** (see "Feed picker") put two of these side by side, 398 px each with a 4 px rule between. Each pane
+  follows, scrolls and jumps on its own; the header of a half-width pane shows the connection as a dot only.
 * The rules (following, what to add or drop when the buffer changes, the header's words) are in
   `main/caption_view_format.h`, with native checks. `view` on the serial console logs whether the list follows, its
   line count and how far it is from the bottom; the emulator tests read that.
+
+## Feed picker
+
+The menu button at the top right of the caption screen opens a card over the captions: **One feed / Two feeds**,
+which pane a pick is for (Left / Right, with two feeds), and the feeds on offer. A tap applies at once and the card
+stays up until **Done** (or a tap outside it). The rules are in `main/feed_format.h` (native checks); `main/feeds.cpp`
+keeps the choice and points the two caption slots at it; the menu and the panes are in `main/caption_view.cpp`.
+
+* **What is offered.** Transcription, then the live translations from Relay's `targets`, **only those the panel can
+  draw**: Relay marks each language with a `script`, and only `"latin"` is offered, because the caption font is Latin.
+  A language with no `script`, and a transcription whose source language is not Latin, are not offered either.
+* **How the panel learns what is live.** Relay's `/stream` says what is live only when it *changes*, not when a client
+  connects, so a panel also asks `GET /api/targets` (`captions_fetch_targets`) from its own task: every 2.5 s until it
+  has an answer, then every 10 s, and the stream's `targets` messages update it at once.
+* **Saved in NVS** (schema 2: `feed_stream`/`feed_lang` for the left pane, `feed2_*` for the right, `feed_split`), by the
+  feeds task and not on the tap. A schema 1 blob is still read: network, panel ID and feed are kept, and the split
+  reads as off. With nothing chosen a pane shows the transcription.
+* **A language that stops being live** falls back to the transcription, with an amber strip under the header ("Spanish
+  is not live"), and **goes back by itself when the language returns**: the pick is never overwritten by the fall-back.
+  A 4xx on a language before Relay has said what is live also counts as not live. The menu keeps listing what was
+  chosen, dim, ticked and marked "(not live)".
+* **Turning on two feeds** with nothing chosen for the right pane gives it the first live translation that is not the
+  left's (the `/both` page's pairing), else the transcription.
+* **Newest wins, from either side.** A person at the screen and Relay admin (a later change) make the same two calls,
+  `feeds_choose` and `feeds_set_split`; the last one is shown and saved.
+* Console: `feeds` logs what each pane has saved and shows and what is offered; `relay <url>` points the feeds at a
+  Relay without saving it; `feed <slot> ...` still sets a slot by hand and takes it away from the feeds until `relay`.
+
+Open questions from the issue, not decided here: whether the operator can **lock** a panel so the screen cannot change it,
+and whether a panel **returns to the operator's choice** after a period of no touch.
 
 ## Tests
 
@@ -246,6 +279,8 @@ Not proven by any test, and to be done on the board:
 - [ ] Caption view: drag scrolling is smooth with 200 lines in the buffer while new lines keep arriving (the
       emulator is too slow to say); a flick settles; the 36 px text reads from the back of the room
 - [ ] Caption view: touch lands where the finger is (the GT911 and the rotation), and Jump to live is easy to hit
+- [ ] Feed picker: the menu button and the 56 px rows are easy to hit with a finger, with two feeds as well as one
+- [ ] Feed picker: with two feeds, the half-width panes read well from the back of the room
 - [ ] Captions: an hour on Wi-Fi against a running Relay with no lost or doubled lines (`captions 0`
       against Relay's history), across at least one Wi-Fi drop and one Relay restart
 

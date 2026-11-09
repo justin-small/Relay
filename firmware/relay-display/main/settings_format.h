@@ -38,11 +38,20 @@ struct relay_settings_t {
     uint8_t static_gateway[4];  // the default gateway
     uint8_t static_dns1[4];     // the primary DNS server
     uint8_t static_dns2[4];     // the secondary DNS server; 0.0.0.0 when there is none
+    // Schema 2: the split view. Pane 1 is `feed_stream`/`feed_lang` above; pane 2 is here.
+    uint8_t feed_split;      // 0 for one feed full screen, 1 for two side by side
+    uint8_t feed2_stream;    // pane 2's feed: kFeedNone, kFeedTranscription or kFeedTranslation
+    uint8_t reserved2[2];    // zero
+    char feed2_lang[20];     // pane 2's translation language, as Relay names it
 };
 
 // The layout is pinned: a compiler that pads this differently would read the blobs
-// another build wrote as garbage. 312 bytes, no padding.
-static_assert(sizeof(relay_settings_t) == 312, "relay_settings_t layout changed; bump kSettingsSchema");
+// another build wrote as garbage. 336 bytes, no padding. Schema 1 was the first 312 of them.
+static_assert(sizeof(relay_settings_t) == 336, "relay_settings_t layout changed; bump kSettingsSchema");
+
+// The size of a schema 1 blob: everything up to `feed_split`. A panel flashed with this firmware over one
+// that wrote schema 1 keeps its network, panel ID and feed: the split fields read as zero.
+constexpr size_t kSettingsSizeV1 = 312;
 
 // "RLDP" in ASCII, little-endian in the blob. A blob that does not start with this was not
 // written by this firmware and is not read.
@@ -51,7 +60,7 @@ constexpr uint32_t kSettingsMagic = 0x50444C52;
 // The layout version. Bump it when the struct changes, and teach `settings_decode` to read
 // the version before it. A blob this firmware does not know is replaced with defaults, not
 // read as the wrong fields.
-constexpr uint16_t kSettingsSchema = 1;
+constexpr uint16_t kSettingsSchema = 2;
 
 // How the station gets its address. DHCP is the default: a zeroed blob is DHCP.
 constexpr uint8_t kIpModeDhcp = 0;
@@ -81,6 +90,8 @@ inline void settings_defaults_fill(relay_settings_t *out, uint16_t rotation_deg)
     out->rotation_deg = rotation_deg;
     out->ip_mode = kIpModeDhcp;
     out->feed_stream = kFeedNone;
+    out->feed_split = 0;
+    out->feed2_stream = kFeedNone;
 }
 
 // Copy `src` into a text field of `capacity` bytes. What does not fit is cut off, and the
@@ -133,17 +144,21 @@ inline bool settings_panel_id_valid(const char *id)
 inline settings_blob settings_decode(const void *blob, size_t len, relay_settings_t *out,
                                      uint16_t default_rotation)
 {
-    if (blob == nullptr || len != sizeof(relay_settings_t)) {
+    if (blob == nullptr || (len != sizeof(relay_settings_t) && len != kSettingsSizeV1)) {
         return settings_blob::wrong_size;
     }
     relay_settings_t stored;
+    memset(&stored, 0, sizeof stored);
     memcpy(&stored, blob, len);
     if (stored.magic != kSettingsMagic) {
         return settings_blob::wrong_magic;
     }
-    if (stored.schema != kSettingsSchema) {
+    // A schema 1 blob is its own size, and a blob of either size that names the other schema is not read.
+    const bool v1 = len == kSettingsSizeV1;
+    if (stored.schema != (v1 ? 1 : kSettingsSchema)) {
         return settings_blob::wrong_schema;
     }
+    stored.schema = kSettingsSchema;
 
     // The strings are bounded by their fields, but a stored value still gets its terminator
     // forced in, so a corrupt blob cannot run a string past its field.
@@ -152,6 +167,7 @@ inline settings_blob settings_decode(const void *blob, size_t len, relay_setting
     stored.relay_addr[sizeof stored.relay_addr - 1] = '\0';
     stored.panel_id[sizeof stored.panel_id - 1] = '\0';
     stored.feed_lang[sizeof stored.feed_lang - 1] = '\0';
+    stored.feed2_lang[sizeof stored.feed2_lang - 1] = '\0';
 
     // An address mode that is neither DHCP nor static is treated as DHCP, the default a
     // board with nothing stored gets. A damaged byte must not select an address the user
@@ -161,6 +177,12 @@ inline settings_blob settings_decode(const void *blob, size_t len, relay_setting
     }
     if (stored.feed_stream > kFeedTranslation) {
         stored.feed_stream = kFeedNone;
+    }
+    if (stored.feed2_stream > kFeedTranslation) {
+        stored.feed2_stream = kFeedNone;
+    }
+    if (stored.feed_split > 1) {
+        stored.feed_split = 0;
     }
     // A panel ID that is not one this firmware made is dropped; boot makes a new one.
     if (!settings_panel_id_valid(stored.panel_id)) {

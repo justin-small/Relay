@@ -1330,6 +1330,31 @@ inline size_t caption_request(char *out, size_t cap, const char *host, uint16_t 
     return static_cast<size_t>(n);
 }
 
+// The request for what is live: `GET /api/targets`, which answers with the `targets` message's fields (no `type`).
+// **Relay's `/stream` says what is live only when that changes**, not when a client connects, so a panel asks for it
+// once itself, and then keeps up from the stream's `targets` messages. Returns the length, or 0 when it does not fit.
+inline size_t caption_targets_request(char *out, size_t cap, const char *host, uint16_t port, const char *version)
+{
+    char host_header[160];
+    if (port == 80) {
+        snprintf(host_header, sizeof host_header, "%s", host);
+    } else {
+        snprintf(host_header, sizeof host_header, "%s:%u", host, static_cast<unsigned>(port));
+    }
+    const int n = snprintf(out, cap,
+                           "GET /api/targets HTTP/1.1\r\n"
+                           "Host: %s\r\n"
+                           "Accept: application/json\r\n"
+                           "User-Agent: relay-display/%s\r\n"
+                           "Connection: close\r\n"
+                           "\r\n",
+                           host_header, version);
+    if (n <= 0 || static_cast<size_t>(n) >= cap) {
+        return 0;
+    }
+    return static_cast<size_t>(n);
+}
+
 // What the UI is told about a feed's connection.
 enum class caption_state : uint8_t {
     off,                  // no feed chosen, or no Relay address

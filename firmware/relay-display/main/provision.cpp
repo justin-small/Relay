@@ -29,6 +29,7 @@
 #include "touch.h"
 #include "caption_view.h"
 #include "captions.h"
+#include "feeds.h"
 #include "wifi_policy.h"
 
 #if !CONFIG_RELAY_QEMU
@@ -296,7 +297,7 @@ void draw_panel()
     } else {
         // Nothing to say: the captions when a feed is chosen, and otherwise the bench picture.
         if (captions_state(0) != caption_state::off) {
-            screen_show_captions(0);
+            screen_show_captions();
         } else if (screen_show_bench(RELAY_FW_VERSION) != ESP_OK) {
             ESP_LOGE(TAG, "panel: the bench picture did not reach the panel");
         }
@@ -343,6 +344,9 @@ void attempt_succeeded(const uint8_t addr[4])
     // The settings are written only now: a network that did not answer leaves NVS as it
     // was. NVS writes the blob whole or not at all, so a power cut here keeps the old one.
     esp_timer_stop(s_attempt_timer);
+    // The candidate was copied before the setup page opened, and a person may have chosen a feed since: the stored
+    // choice is kept, not put back.
+    settings_adopt_feeds(&cand);
     const esp_err_t saved = settings_save(&cand);
 
     lock();
@@ -915,6 +919,7 @@ void console_task(void *)
             // Point a caption slot at a Relay, for the bench and the emulator suite. Not saved: the stored feed is
             // what the panel shows after a restart.
             //   feed <slot> off | feed <slot> <url> transcription | feed <slot> <url> translation <LANG>
+            feeds_go_manual();
             int slot = -1;
             char url[130] = "";
             char stream[16] = "";
@@ -934,9 +939,16 @@ void console_task(void *)
                 if (got == 2) {
                     screen_show_bench(RELAY_FW_VERSION);
                 } else {
-                    screen_show_captions(0);
+                    screen_show_captions();
                 }
             }
+        } else if (strncmp(line, "relay ", 6) == 0) {
+            // Point the feeds at a Relay for the bench and the emulator suite, and let them follow the choice again
+            // (what `feed` took from them). Not saved.
+            feeds_use_relay(line + 6);
+            ESP_LOGI(TAG, "console: relay set");
+        } else if (strcmp(line, "feeds") == 0) {
+            feeds_report();
         } else if (strncmp(line, "captions ", 9) == 0) {
             captions_dump(atoi(line + 9));
         } else if (strcmp(line, "view") == 0) {

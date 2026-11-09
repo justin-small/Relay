@@ -29,6 +29,16 @@ from qemu import HOST_FROM_GUEST
 
 LANGUAGES = ("SPANISH", "FRENCH", "PORTUGUESE")
 
+# What Relay says about each language it can have live: `app/languages.py`'s label and script. JAPANESE and RUSSIAN are
+# here so a test can have a live language the panel cannot draw.
+SCRIPTS = {
+    "SPANISH": ("Spanish", "es", "latin"),
+    "FRENCH": ("French", "fr", "latin"),
+    "PORTUGUESE": ("Portuguese", "pt", "latin"),
+    "JAPANESE": ("Japanese", "ja", "kana"),
+    "RUSSIAN": ("Russian", "ru", "cyrillic"),
+}
+
 
 def _frame(message: dict, seq: int | None = None) -> bytes:
     prefix = b"id: %d\n" % seq if seq else b""
@@ -46,6 +56,10 @@ class FakeRelay:
         self._subscribers: dict[tuple[str, str], list[queue.Queue]] = {}
         self._handlers: list[BaseHTTPRequestHandler] = []
         self.requests: list[dict[str, str]] = []
+        self.api_requests = 0
+        # Which languages are live, and the source language's script: what `targets_payload` says.
+        self.live: list[str] = ["SPANISH", "FRENCH"]
+        self.source_script = "latin"
         self.muted = False
         # Set: connections are served. Cleared: a new connection waits here before it is primed, so the
         # test can commit lines that only a resume can deliver.
@@ -115,12 +129,26 @@ class FakeRelay:
             self._reset_seq[(stream, lang)] = self._seq
             self._send(stream, lang, _frame(self._snapshot(stream, lang)))
 
+    def _targets_payload(self) -> dict:
+        """`Engine.targets_payload`: the source, and the live languages sorted by label."""
+        live = sorted(self.live, key=lambda t: SCRIPTS[t][0])
+        return {
+            "source": {"lang": "ENGLISH", "label": "English", "iso": "en", "script": self.source_script},
+            "live": [{"target": t, "label": SCRIPTS[t][0], "iso": SCRIPTS[t][1], "script": SCRIPTS[t][2],
+                      "state": "open"} for t in live],
+            "running": True,
+            "font_px": 48,
+        }
+
+    def set_live(self, languages: list[str]) -> None:
+        """A change to the live languages, to every viewer of every feed (`Hub.broadcast_viewers`)."""
+        self.live = list(languages)
+        self.targets()
+
     def targets(self) -> None:
-        """A change to the live languages, to every viewer of every feed."""
-        frame = _frame({"type": "targets", "source": {"lang": "ENGLISH", "label": "English", "iso": "en",
-                                                      "script": "latin"},
-                        "live": [{"lang": "SPANISH", "label": "Spanish", "script": "latin"}],
-                        "running": True, "font_px": 32})
+        """The live set as it is, to every viewer of every feed. Relay does this when the set changes, and not when
+        a viewer connects: a viewer asks `/api/targets` for the first picture."""
+        frame = _frame({"type": "targets", **self._targets_payload()})
         with self._lock:
             for key in self._subscribers:
                 self._send(*key, frame)
@@ -171,6 +199,17 @@ class FakeRelay:
     def _serve(self, handler: BaseHTTPRequestHandler) -> None:
         url = urlparse(handler.path)
         query = {k: v[0] for k, v in parse_qs(url.query).items()}
+        if url.path == "/api/targets":
+            self.api_requests += 1
+            body = json.dumps(self._targets_payload()).encode()
+            handler.send_response(200)
+            handler.send_header("Content-Type", "application/json")
+            handler.send_header("Content-Length", str(len(body)))
+            handler.send_header("Connection", "close")
+            handler.end_headers()
+            handler.wfile.write(body)
+            handler.close_connection = True
+            return
         if url.path != "/stream":
             handler.send_error(404)
             return
