@@ -6,6 +6,9 @@
 dependencies:
   lvgl/lvgl:
     version: "9.2.2"
+  # Relay's announcement is found with mDNS browsing (`discovery.cpp`). Pinned for the same reason as LVGL.
+  espressif/mdns:
+    version: "1.4.3"
   espressif/esp_lcd_qemu_rgb:
     version: "1.0.2"
     rules:

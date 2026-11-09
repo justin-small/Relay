@@ -10,3 +10,34 @@ services:
       - /dev/snd:/dev/snd
     group_add:
       - audio
+
+  # Announce Relay on the LAN (mDNS, _relay-captions._tcp) so caption panels find
+  # it. Host networking, because multicast has to leave the host's own network --
+  # this is the one container that has it, and it publishes nothing and mounts
+  # nothing. It reuses the relay image, which already carries tools/announce.py.
+  # It is a compose profile: start.sh adds `--profile announce` unless RELAY_ANNOUNCE=0.
+  announce:
+    image: live-caption-relay
+    container_name: live-caption-relay-announce
+    restart: unless-stopped
+    network_mode: host
+    user: "${RELAY_UID:-10001}:${RELAY_GID:-10001}"
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    mem_limit: 64m
+    pids_limit: 16
+    depends_on:
+      - relay
+    profiles: ["announce"]
+    # The image's health check dials the relay on loopback, which is the wrong test here.
+    healthcheck:
+      disable: true
+    entrypoint: ["python", "/app/tools/announce.py"]
+    environment:
+      RELAY_ADMIN_IPS: "${RELAY_ADMIN_IPS:-}"
+      RELAY_HTTP_PORT: "${RELAY_HTTP_PORT:-80}"
+      RELAY_INSTALL_NAME: "${RELAY_INSTALL_NAME:-}"
+      RELAY_VERSION: "${RELAY_VERSION:-}"

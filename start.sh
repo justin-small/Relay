@@ -61,14 +61,26 @@ export RELAY_ADMIN_IPS="${RELAY_ADMIN_IPS:-$LAN_IP}"
 # real ownership on both sides. The image defaults to 10001:10001.
 export RELAY_UID="$(id -u)" RELAY_GID="$(id -g)"
 
+# Announce Relay on the LAN (mDNS) so caption panels find it. RELAY_ANNOUNCE=0
+# turns it off; RELAY_INSTALL_NAME names this install (default: the host name).
+# The announcer is a second container on the host network, because multicast
+# has to leave the host's own network. The container cannot see the host's name.
+PROFILE=()
+if [ "${RELAY_ANNOUNCE:-1}" != 0 ]; then
+    PROFILE=(--profile announce)
+    export RELAY_INSTALL_NAME="${RELAY_INSTALL_NAME:-$(hostname -s 2>/dev/null || hostname)}"
+    export RELAY_VERSION="${RELAY_VERSION:-$(git describe --tags --always 2>/dev/null || echo dev)}"
+fi
+
 echo
 echo "Building and starting the container..."
-docker compose -f docker/docker-compose.yml -f docker/docker-compose.linux.yml up --build -d || exit 1
+docker compose -f docker/docker-compose.yml -f docker/docker-compose.linux.yml ${PROFILE[@]+"${PROFILE[@]}"} up --build -d || exit 1
 ./tools/wait-ready.sh || exit 1
 
 echo
 echo "  Viewer link : http://$LAN_IP/            <- share this with the room"
 echo "  Panel       : https://$LAN_IP/admin"
+[ "${#PROFILE[@]}" -gt 0 ] && echo "  Announced   : \"$RELAY_INSTALL_NAME\" (_relay-captions._tcp) for caption panels"
 echo
 echo "  The panel's certificate is self-signed, so the browser warns the first"
 echo "  time. Check the SHA-256 above against what the browser shows before"

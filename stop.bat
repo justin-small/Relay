@@ -21,6 +21,7 @@ if errorlevel 1 (
   )
 )
 
+powershell -NoProfile -ExecutionPolicy Bypass -File tools\announce.ps1 stop
 powershell -NoProfile -ExecutionPolicy Bypass -File tools\windows-audio.ps1 stop
 
 echo.
