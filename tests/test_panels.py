@@ -18,7 +18,7 @@ os.environ["RELAY_CONFIG"] = os.path.join(tempfile.mkdtemp(), "config.json")
 
 from fastapi.testclient import TestClient
 
-from app import config, main, panels
+from app import config, languages, main, panels
 from app.main import app
 
 fails = []
@@ -310,6 +310,51 @@ for _ in range(50):
     time.sleep(0.1)
 eq("a dropped client's stream is released", reg.stream_count(), 0)
 server.should_exit = True
+
+print("\noperator panel: list view, live frames, feed provenance")
+seen_frames = []
+reg.on_change = lambda: seen_frames.append(main._panels_frame())
+viewer.post("/api/panels/checkin", json=body(20, scripts=["latin"]))
+check("a check-in tells the admin stream", len(seen_frames) == 1 and seen_frames[-1]["type"] == "panels")
+row = next(p for p in seen_frames[-1]["panels"] if p["id"] == pid(20))
+labels = [l["id"] for l in row["languages"]]
+check("languages the panel cannot draw are not offered",
+      "SPANISH" in labels and "RUSSIAN" not in labels, labels)
+viewer.post("/api/panels/checkin", json=body(21, scripts=[]))
+row = next(p for p in main._panels_frame()["panels"] if p["id"] == pid(21))
+check("a panel that has not reported scripts is offered every language",
+      {l["id"] for l in row["languages"]} == set(languages.TARGETS))
+row = next(p for p in main._panels_frame()["panels"] if p["id"] == pid(20))
+eq("a first check-in is not a feed change", (row["feeds_changed_by"], row["feeds_changed_ago_s"]), (None, None))
+
+viewer.post("/api/panels/checkin", json=body(20, feeds=[{"stream": "transcription"}]))
+row = next(p for p in main._panels_frame()["panels"] if p["id"] == pid(20))
+eq("a feed that changed with no operator revision is marked as changed at the screen",
+   row["feeds_changed_by"], "screen")
+check("and says how long ago", row["feeds_changed_ago_s"] is not None and row["feeds_changed_ago_s"] < 5)
+
+n = len(seen_frames)
+r = admin.post(f"/api/admin/panels/{pid(20)}", json={"feeds": [{"stream": "translation", "lang": "FRENCH"}]})
+eq("the operator sets a feed", r.status_code, 200)
+check("setting a feed tells the admin stream", len(seen_frames) == n + 1)
+r = admin.post(f"/api/admin/panels/{pid(20)}", json={"feeds": [{"stream": "translation", "lang": "RUSSIAN"}]})
+eq("a language the panel cannot draw is refused", r.status_code, 400)
+rev = next(p for p in main._panels_frame()["panels"] if p["id"] == pid(20))["set_feeds"]
+viewer.post("/api/panels/checkin", json=body(20, feeds=[{"stream": "translation", "lang": "FRENCH"}], feed_rev=1))
+row = next(p for p in main._panels_frame()["panels"] if p["id"] == pid(20))
+eq("a change that applies the operator's revision is marked as from admin", row["feeds_changed_by"], "admin")
+
+n = len(seen_frames)
+r = admin.delete(f"/api/admin/panels/{pid(20)}")
+eq("the operator forgets a panel", r.status_code, 200)
+check("forgetting tells the admin stream", len(seen_frames) == n + 1)
+check("and it is gone from the list", pid(20) not in [p["id"] for p in main._panels_frame()["panels"]])
+
+before = reg.online_signature()
+clock[0] += panels.OFFLINE_AFTER_S + 1
+check("a panel going quiet changes the online signature without any push",
+      reg.online_signature() != before)
+reg.on_change = lambda: main.hub.push_status(main._panels_frame())
 
 print()
 if fails:

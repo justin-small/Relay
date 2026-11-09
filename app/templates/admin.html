@@ -122,6 +122,20 @@
   details.sect > summary .sumstate { text-transform:none; letter-spacing:0; font-size:12px;
                  font-weight:500; color:var(--dim); }
   details.sect > summary .sumstate .live { color:var(--accent); }
+  /* Panels. One card per panel, so a phone-width screen never scrolls sideways. */
+  .plist { display:flex; flex-direction:column; gap:10px; }
+  .pcard { border:1px solid var(--line); border-radius:9px; background:#111216; padding:12px 14px; }
+  .pcard.offline { opacity:.72; }
+  .pcard .phead { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+  .pcard .pname { font-weight:600; font-size:15px; overflow-wrap:anywhere; }
+  .pcard .pstate { font-size:12px; color:var(--dim); margin-left:auto; }
+  .pcard dl { display:grid; grid-template-columns:max-content 1fr; gap:3px 12px; margin:10px 0 0;
+              font-size:12.5px; }
+  .pcard dt { color:var(--dim); }
+  .pcard dd { margin:0; overflow-wrap:anywhere; }
+  .pcard .pactions { display:flex; flex-wrap:wrap; gap:8px; margin-top:12px; }
+  .pcard form { margin-top:12px; }
+  .pcard form .field { margin-bottom:10px; }
   /* Session health's five columns scroll inside the section on a phone, not the page. */
   .tablescroll { overflow-x:auto; -webkit-overflow-scrolling:touch; }
   .tablescroll table { min-width:480px; }
@@ -299,6 +313,16 @@
       <br>Times follow the time zone you pick, including daylight saving. The machine and the
       relay must be running for a schedule to fire; a window already under way when the relay
       starts is picked up, and one missed entirely is skipped.
+    </div>
+  </details>
+
+  <details class="sect" id="sec-panels" open>
+    <summary>Panels <span class="sumstate" id="panelsSum"></span></summary>
+    <div class="plist" id="panelList"><div class="muted">No panels have checked in yet.</div></div>
+    <div class="note">
+      Caption panels on the venue network appear here by themselves. A feed you set is sent to the
+      panel at once; a change made at the panel&rsquo;s own screen afterwards wins until you set
+      one again. Forgetting a panel that is still switched on brings it straight back, unnamed.
     </div>
   </details>
 
