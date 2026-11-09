@@ -8,8 +8,9 @@
 // each message does to it) are in `caption_format.h`, which `test_native.cpp` checks on a laptop. This
 // file is the socket and the task.
 //
-// **Every read of a feed's lines is under its lock**, through `captions_read`. The caption view (#69)
-// draws from inside that call, or copies what it needs, and the client task waits for it.
+// **Every read of a feed's lines is under its lock**, through `captions_read`. The caption view
+// (`caption_view.cpp`) builds its lines from inside that call, and the client task waits for it. The lock
+// order is the screen's, then a feed's: the client task never takes the screen's.
 
 #include <cstddef>
 #include <cstdint>
@@ -28,6 +29,10 @@ esp_err_t captions_start();
 esp_err_t captions_set_feed(int slot, const char *relay_url, uint8_t stream, const char *lang);
 
 caption_state captions_state(int slot);
+
+// The feed the slot was asked for: kFeedNone, kFeedTranscription or kFeedTranslation, with the translation's
+// language (as Relay names it) copied into `lang`. For the view's header.
+uint8_t captions_feed_choice(int slot, char *lang, size_t lang_cap);
 
 // Counts every change to the slot: a line, a rebuild, a reset, a new target set or a new state. The
 // view compares it with the one it last drew.

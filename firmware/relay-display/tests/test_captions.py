@@ -30,8 +30,13 @@ ANSI = re.compile(r"\x1b\[[0-9;]*m")
 def panel(provisioned: Board) -> Iterator[Board]:
     wait_ready(provisioned)
     yield provisioned
+    assert provisioned.uart is not None
+    mark = provisioned.uart.mark()
     for slot in (0, 1):
         _send(provisioned, f"feed {slot} off")
+    # Turning slot 0 off puts the bench picture back, on the screen task's next turn, which the emulator takes a
+    # moment to reach. A later test reads the framebuffer, so it is waited for here.
+    provisioned.uart.wait_for_after(mark, r"panel: test screen shown, backlight on", timeout=30)
 
 
 @pytest.fixture

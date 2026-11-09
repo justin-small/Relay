@@ -574,6 +574,24 @@ caption_state captions_state(int slot)
     return state;
 }
 
+uint8_t captions_feed_choice(int slot, char *lang, size_t lang_cap)
+{
+    if (lang != nullptr && lang_cap > 0) {
+        lang[0] = '\0';
+    }
+    if (!s_started || slot < 0 || slot >= kCaptionSlots) {
+        return kFeedNone;
+    }
+    Slot &s = s_slots[slot];
+    lock(s);
+    const uint8_t stream = s.stream;
+    if (lang != nullptr && lang_cap > 0) {
+        snprintf(lang, lang_cap, "%s", s.lang);
+    }
+    unlock(s);
+    return stream;
+}
+
 uint32_t captions_revision(int slot)
 {
     if (!s_started || slot < 0 || slot >= kCaptionSlots) {
