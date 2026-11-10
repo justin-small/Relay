@@ -20,9 +20,16 @@
 : Free software that turns a Stream Deck or similar button panel into a
   control surface for many kinds of equipment, including Relay.
 
+**BOOT button**
+: A small button on the back of a caption panel. Hold it for 5 seconds to open
+  the panel's setup network, or 15 seconds to erase it.
+
 **Capture**
 : Relay listening to the sound source and sending it to OpenAI. It runs from
   **Start capture** to **Stop**, and is billed for that whole time.
+
+**Caption panel**
+: A touch screen that shows Relay's captions on a wall or a desk. See Part 5.
 
 **Certificate**
 : A small file that proves to a browser which computer it is talking to.

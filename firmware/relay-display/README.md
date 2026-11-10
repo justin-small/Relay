@@ -5,10 +5,14 @@ ESP32-S3-WROOM-1-N16R8 (16 MB flash, 8 MB octal PSRAM), an 800 x 480 RGB panel, 
 controller and LVGL 9.2. It is a touch-screen caption panel for Relay: a small screen on a wall or a
 desk that shows the live transcription, or one translation, from a Relay server on the same network.
 
-**This is the foundation and the caption client.** It boots, lights the panel, joins Wi-Fi (from a setup
-page on the panel's own network), keeps its settings, shows a test screen, and keeps the last 200 finished
-lines of up to two caption feeds from Relay. It does not draw captions yet: the caption view, the touch
-menu and updates are separate pieces of work that build on this.
+**What it does.** It boots, lights the panel, joins Wi-Fi (from a setup page on the panel's own network),
+keeps its settings, finds Relay by mDNS, and shows the finished lines of up to two caption feeds (200 lines
+each) with a touch menu to choose the feed. It checks in with Relay, takes a feed set from Relay admin, and
+installs signed firmware updates. Latin-script languages only, because the one caption font is Latin: other
+languages are hidden from the menu and refused by Relay (see "Feed picker").
+
+The operator's view of all this is in the Relay user guide (`docs/guide/src/51-panels.md`); the server side is
+in the root README ("Caption panels").
 
 ## What is here
 

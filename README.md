@@ -854,6 +854,45 @@ publish.
 The Companion module releases the same way from its own repo, with the tag
 checked against `package.json` and `companion/manifest.json`.
 
+## Caption panels
+
+A caption panel is a small touch screen for a wall or a desk that shows
+Relay's captions without a phone. It shows finished lines only, the
+transcription or one translation (or two feeds side by side), follows the
+live text, and lets a person scroll back and tap **Jump to live**.
+
+**Supported board:** the Elecrow CrowPanel Advance 7.0" (DIS02170A, hardware
+V1.2 or later), 800 x 480, ESP32-S3. One board, one size. The firmware is in
+`firmware/relay-display/` (see its README for the pin map, building, signing
+and the bench checklist); a release attaches `relay-display.bin` (first flash
+over USB) and `relay-display-app.bin` (the signed update, uploaded in the
+admin page).
+
+**How a panel finds Relay:** it joins Wi-Fi from its own setup page, then
+browses mDNS for Relay's announcement (next section). Typing Relay's address
+into the setup page skips that and always wins.
+
+**Ports.** A panel never uses the operator port or logs in.
+
+| Who | Port | What |
+|---|---|---|
+| Panel to Relay | viewer port (80), plain HTTP | `/stream`, `/api/targets`, `/api/panels/*`, firmware download |
+| Relay to the LAN | UDP 5353 (multicast) | the mDNS announcement, made from the host |
+| Operator to Relay | operator port (443), HTTPS | Panels section of `/admin` |
+| Phone to a panel in setup | the panel's own Wi-Fi, `http://192.168.4.1/` | joining the panel to the venue Wi-Fi |
+
+**Languages.** The caption font is Latin only, so a panel offers the
+transcription and the live translations whose `script` is `latin` in
+`app/languages.py` (English, Spanish, Portuguese, French, German, Italian,
+Indonesian, Vietnamese and the like). Russian, Chinese, Japanese, Korean,
+Hindi, Arabic and the other non-Latin languages are hidden from the panel's
+menu, and Relay refuses to set one on a panel from admin. A transcription
+whose spoken language is not Latin is not offered either. They still work on
+phones.
+
+For operators there is a chapter in the user guide
+(`docs/guide/src/51-panels.md`).
+
 ## Caption panels: Relay announces itself
 
 Touch-screen caption panels (`firmware/relay-display/`) find Relay on the LAN
