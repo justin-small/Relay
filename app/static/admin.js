@@ -298,6 +298,8 @@
       ? 'A token is saved. Test the connection to choose service types.'
       : 'Not connected.';
     $('pcState').className = 'note ' + (pc.connected ? 'ok' : '');
+    $('pcNotesRow').hidden = !pc.connected;
+    $('pcNotes').checked = !!pc.show_notes;
     if (!types) { $('pcTypes').hidden = true; return; }
     const list = $('pcTypeList');
     list.innerHTML = '';
@@ -346,6 +348,15 @@
       renderPc(body.service_types);
       okMsg('Connected to Planning Center.');
     } catch (e) { alertMsg(e.message); }
+  });
+
+  $('pcNotes').addEventListener('change', async function () {
+    const box = $('pcNotes');
+    try {
+      const body = await post('/api/admin/planning-center/notes', { show: box.checked });
+      cfg.planning_center = body.planning_center;
+      okMsg(box.checked ? 'Item notes are shown on panels.' : 'Item notes are hidden from panels.');
+    } catch (e) { box.checked = !box.checked; alertMsg(e.message); }
   });
 
   $('pcDisconnect').addEventListener('click', async function () {

@@ -29,6 +29,7 @@ from .hub import hub
 from .realtime import TranscriptionSession, TranslationRelaySession
 from .texttranslate import TextTranslator
 from .recorder import recorder
+from .servicefeed import feed as service_feed
 
 log = logging.getLogger("relay.engine")
 
@@ -410,6 +411,8 @@ class Engine:
                 "script": languages.SOURCE_LANGUAGES[cfg["source_language"]]["script"],
             },
             "live": self.live_targets(),
+            # Planning Center service feeds a panel can pick (empty until connected).
+            "service": service_feed.offered(),
             "running": self.running,
             "font_px": cfg["default_font_px"],
         }
@@ -425,3 +428,5 @@ class Engine:
 
 
 engine = Engine()
+# A service type followed or dropped in admin reaches open pickers at once.
+service_feed.on_offered_change = engine._push_status

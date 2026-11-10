@@ -467,6 +467,8 @@ def clean_stored(raw: Any) -> dict:
         "secret": str(raw.get("secret") or "").strip(),
         "service_types": ids[:200],
         "plan_overrides": overrides,
+        # Item notes reach panels only when the operator turns this on.
+        "show_notes": raw.get("show_notes") is True,
     }
 
 
