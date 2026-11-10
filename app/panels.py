@@ -7,9 +7,13 @@ client can do to this module is bounded:
 
 * the registry holds at most MAX_PANELS entries, and a check-in body is at most
   CHECKIN_MAX_BYTES, so a flood cannot grow memory or config.json;
-* the event stream carries only a feed choice, never a secret;
+* the event stream carries a feed choice and the panel's service mode. A
+  panel allowed to move the Planning Center service on is also sent its
+  control key there (and on its check-in reply): plain HTTP, so the key stops
+  casual misuse, not someone reading the network. Never the Planning Center
+  token;
 * nothing a panel sends is ever written to config.json. Only what the operator
-  sets from the admin side (a name, a feed) is persisted -- and that side stays
+  sets from the admin side (a name, a feed, a service mode) is persisted -- and that side stays
   under /api/admin/*, which the viewer port refuses.
 
 The registry is in memory. The operator's name and feed per panel live in
@@ -21,6 +25,7 @@ import asyncio
 import ipaddress
 import json
 import re
+import secrets
 import time
 from dataclasses import dataclass, field
 from typing import Any, Callable
@@ -50,6 +55,13 @@ UPDATE_ERRORS = {
     "rollback": "the new image did not check in, so the panel went back to the old one",
 }
 UPDATE_REPORT_MAX_BYTES = 512
+
+# What a panel does with the Planning Center service (#80, #81). Off until the
+# operator says otherwise; only the two control modes get a key.
+SERVICE_MODES = ("off", "show", "control", "both")
+CONTROL_MODES = ("control", "both")
+_KEY_RE = re.compile(r"^[0-9a-f]{32}$")
+_ST_RE = re.compile(r"^\d{1,20}$")
 
 TRANSCRIPTION = "transcription"
 TRANSLATION = "translation"
@@ -143,6 +155,15 @@ def clean_stored(raw: object) -> dict[str, dict[str, Any]]:
         if feeds:
             entry["feeds"] = feeds
         entry["feed_rev"] = _int(spec.get("feed_rev"), 0, 2**31 - 1)
+        mode = spec.get("service_mode")
+        if mode in SERVICE_MODES and mode != "off":
+            entry["service_mode"] = mode
+            st = str(spec.get("service_type") or "")
+            if _ST_RE.match(st):
+                entry["service_type"] = st
+            key = str(spec.get("control_key") or "")
+            if mode in CONTROL_MODES and _KEY_RE.match(key):
+                entry["control_key"] = key
         out[pid] = entry
     return out
 
@@ -246,7 +267,28 @@ class Registry:
             "update_available": self.update_available(panel),
             "update_requested": panel.update_request is not None,
             "update": self._update_view(panel),
+            "service_mode": stored.get("service_mode") or "off",
+            "service_type": stored.get("service_type") or None,
         }
+
+    # ------------------------------------------------------- service mode
+    def service(self, pid: str) -> dict[str, Any]:
+        """What the panel is told about the Planning Center service: its mode,
+        the service type it follows (None: its own pick), and its control key
+        while it may control."""
+        stored = self.stored().get(pid) or {}
+        mode = stored.get("service_mode") or "off"
+        out: dict[str, Any] = {"mode": mode, "service_type": stored.get("service_type") or None}
+        if mode in CONTROL_MODES and stored.get("control_key"):
+            out["key"] = stored["control_key"]
+        return out
+
+    def control_key(self, pid: str) -> str | None:
+        """The key a panel must send with a LIVE button, or None if it may not control."""
+        stored = self.stored().get(pid) or {}
+        if stored.get("service_mode") in CONTROL_MODES:
+            return stored.get("control_key") or None
+        return None
 
     def online_signature(self) -> tuple:
         """Which panels are online right now: what changes with the clock alone,
@@ -318,6 +360,7 @@ class Registry:
         offer = self._update_offer(panel)
         if offer:
             reply["update"] = offer
+        reply["service"] = self.service(pid)
         self._changed()
         return reply
 
@@ -464,6 +507,9 @@ class Registry:
         offer = self._update_offer(panel) if panel is not None else None
         if offer:
             q.put_nowait(sse_frame({"type": "update_available", **offer}))
+        service = self.service(pid)
+        if service["mode"] != "off":   # off is the default; the check-in reply says it either way
+            q.put_nowait(sse_frame({"type": "service_mode", **service}))
         return q
 
     def unsubscribe(self, pid: str, q: asyncio.Queue) -> None:
@@ -503,9 +549,13 @@ class Registry:
         return sum(len(v) for v in self._subs.values())
 
     # ------------------------------------------------------- operator actions
-    def update(self, pid: str, *, name: str | None = None, feeds: Any = ...) -> dict[str, Any]:
-        """Rename a panel and/or set its feed. `feeds=None` clears the operator's
-        feed; leaving `feeds` out changes nothing. Pushes `set_feed` at once.
+    def update(self, pid: str, *, name: str | None = None, feeds: Any = ...,
+               service_mode: str | None = None, service_type: Any = ...) -> dict[str, Any]:
+        """Rename a panel, set its feed and/or its service mode. `feeds=None`
+        clears the operator's feed; leaving `feeds` out changes nothing.
+        `service_type=None` lets the panel pick. Pushes `set_feed` and
+        `service_mode` at once. A control mode gets a new random key when the
+        panel had none; leaving control drops it.
         Raises KeyError for an unknown panel and ValueError for a bad value."""
         if not valid_id(pid) or not self.known(pid):
             raise KeyError(pid)
@@ -537,11 +587,38 @@ class Registry:
                 entry["feeds"] = clean
                 entry["feed_rev"] = int(entry.get("feed_rev") or 0) + 1
                 push = {"type": "set_feed", "rev": entry["feed_rev"], "feeds": clean}
-        if not entry.get("name") and not entry.get("feeds"):
+        service_push = False
+        if service_mode is not None:
+            if service_mode not in SERVICE_MODES:
+                raise ValueError("service mode must be off, show, control or both")
+            if service_mode == "off":
+                for k in ("service_mode", "control_key"):
+                    entry.pop(k, None)
+            else:
+                entry["service_mode"] = service_mode
+                if service_mode in CONTROL_MODES:
+                    entry.setdefault("control_key", secrets.token_hex(16))
+                else:
+                    entry.pop("control_key", None)
+            service_push = True
+        if service_type is not ...:
+            st = "" if service_type is None else str(service_type).strip()
+            if st and not _ST_RE.match(st):
+                raise ValueError("service type must be a Planning Center service type id")
+            if st:
+                entry["service_type"] = st
+            else:
+                entry.pop("service_type", None)
+            service_push = True
+        if not entry.get("service_mode"):
+            entry.pop("service_type", None)
+        if not entry.get("name") and not entry.get("feeds") and not entry.get("service_mode"):
             stored.pop(pid, None)
         self._save_stored(stored)
         if push is not None:
             self._push(pid, push)
+        if service_push:
+            self._push(pid, {"type": "service_mode", **self.service(pid)})
         self._changed()
         return self.view(pid)
 

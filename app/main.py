@@ -25,6 +25,7 @@ from .hub import hub
 from .panels import registry as panel_registry
 from .pclive import follower as pc_follower
 from .servicefeed import feed as service_feed
+from . import pccontrol
 from .recorder import recorder
 from .scheduler import scheduler
 
@@ -724,6 +725,32 @@ async def panel_events(panel_id: str):
     )
 
 
+panel_control = pccontrol.Control(pc_follower, panel_registry, service_feed)
+
+
+@app.post("/api/panels/{panel_id}/service/{action}")
+async def panel_service_action(panel_id: str, action: str, request: Request):
+    """Next / Previous / Take control / Release from a panel the operator lets
+    control, with its key (pccontrol.py). Answers with the new Service feed
+    state, or {"ok": false, "error": <code>} for the panel to word."""
+    if action not in pccontrol.ACTIONS:
+        raise HTTPException(404, "unknown action")
+    if not panels.valid_id(panel_id) or not panel_registry.known(panel_id):
+        raise HTTPException(404, "unknown panel")
+    raw = await _read_limited(request, pccontrol.BODY_MAX_BYTES)
+    try:
+        body = json.loads(raw or b"{}")
+    except (ValueError, UnicodeDecodeError):
+        raise HTTPException(400, "body must be JSON")
+    if not isinstance(body, dict):
+        raise HTTPException(400, "body must be a JSON object")
+    try:
+        state = await panel_control.press(panel_id, action, body)
+    except pccontrol.Refused as exc:
+        return JSONResponse({"ok": False, "error": exc.code}, status_code=exc.status)
+    return {"ok": True, "service": state}
+
+
 @app.get("/api/panels/firmware/{name}")
 async def panel_firmware_image(name: str):
     """The stored panel image, to a panel that was told to fetch it. Plain HTTP on the LAN, like the
@@ -1011,8 +1038,9 @@ async def admin_planning_center_notes(payload: dict):
 
 @app.get("/api/admin/planning-center/live", dependencies=[Depends(require_admin)])
 async def admin_planning_center_live():
-    """Today's plan and its LIVE state for each followed service type."""
-    return pc_follower.snapshot()
+    """Today's plan and its LIVE state for each followed service type, and
+    the presses made from panels."""
+    return {**pc_follower.snapshot(), "actions": panel_control.recent()}
 
 
 @app.post("/api/admin/planning-center/plan", dependencies=[Depends(require_admin)])
@@ -1153,7 +1181,9 @@ async def admin_panel_firmware_update(payload: dict):
 @app.post("/api/admin/panels/{panel_id}", dependencies=[Depends(require_admin)])
 async def admin_panel_update(panel_id: str, payload: dict):
     """Rename a panel and/or set its feed. `feeds` is a list of one or two
-    {"stream", "lang"}, or null to stop overriding the panel's own choice."""
+    {"stream", "lang"}, or null to stop overriding the panel's own choice.
+    `service_mode` is off / show / control / both; `service_type` a followed
+    service type id, or null to let the panel pick."""
     kwargs: dict = {}
     if "name" in payload:
         if not isinstance(payload["name"], str):
@@ -1161,6 +1191,12 @@ async def admin_panel_update(panel_id: str, payload: dict):
         kwargs["name"] = payload["name"]
     if "feeds" in payload:
         kwargs["feeds"] = payload["feeds"]
+    if "service_mode" in payload:
+        if not isinstance(payload["service_mode"], str):
+            raise HTTPException(400, "service_mode must be a string")
+        kwargs["service_mode"] = payload["service_mode"]
+    if "service_type" in payload:
+        kwargs["service_type"] = payload["service_type"]
     try:
         return panel_registry.update(panel_id, **kwargs)
     except KeyError:

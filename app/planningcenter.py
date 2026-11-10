@@ -61,6 +61,10 @@ class PlanningCenterError(Exception):
         self.status = status
 
 
+LIVE_INCLUDE = "current_item_time,next_item_time,controller"
+LIVE_ACTIONS = ("go_to_next_item", "go_to_previous_item", "toggle_control")
+
+
 def user_agent() -> str:
     """Names Relay and its version; requests without a User-Agent can get 403."""
     version = re.sub(r"[^\w.+-]", "", os.environ.get("RELAY_VERSION") or "") or "dev"
@@ -105,6 +109,15 @@ class Client:
         return text.replace(self._secret, "…") if self._secret else text
 
     def get(self, path: str, params: dict[str, Any] | None = None) -> dict:
+        return self._request("GET", path, params)
+
+    def post(self, path: str, params: dict[str, Any] | None = None) -> dict:
+        """An action with no body (the LIVE buttons). A 429 is retried, since
+        Planning Center did not carry it out; a dropped connection is not,
+        since it may have."""
+        return self._request("POST", path, params)
+
+    def _request(self, method: str, path: str, params: dict[str, Any] | None) -> dict:
         url = self.base_url + path
         if params:
             url += "?" + urllib.parse.urlencode(params)
@@ -115,7 +128,8 @@ class Client:
             if count is not None and limit is not None and count >= limit:
                 _sleep(max(0.0, min(MAX_WAIT_S, float(period or DEFAULT_WAIT_S))))
                 self.rate["count"] = None
-            req = urllib.request.Request(url, headers=self._headers())
+            req = urllib.request.Request(url, headers=self._headers(), method=method,
+                                         data=b"" if method == "POST" else None)
             try:
                 kw = {"context": _SSL} if url.startswith("https:") else {}
                 with urllib.request.urlopen(req, timeout=TIMEOUT_S, **kw) as resp:
@@ -139,7 +153,7 @@ class Client:
                 if exc.code == 403:
                     raise PlanningCenterError(
                         "auth", "Planning Center accepted the token, but the person who made it "
-                        "does not have access to this in Services.") from None
+                        "does not have access to this in Services.", status=403) from None
                 detail = self._clean(exc.read().decode("utf-8", "replace")[:200])
                 raise PlanningCenterError(
                     "http", f"Planning Center answered HTTP {exc.code}: {detail}", status=exc.code) from None
@@ -213,26 +227,29 @@ class Client:
         the plan, is an ordinary answer (controller None), not an error."""
         try:
             doc = self.get(f"/services/v2/service_types/{service_type}/plans/{plan_id}/live",
-                           {"include": "current_item_time,next_item_time,controller"})
+                           {"include": LIVE_INCLUDE})
         except PlanningCenterError as exc:
             if exc.status == 404:
                 return {"id": None, "controller": None, "current": None, "next": None}
             raise
-        row = doc.get("data") or {}
-        inc = _included(doc)
-        person = inc.get(("Person", _rel_id(row, "controller")))
-        controller = None
-        if person:
-            a = person.get("attributes") or {}
-            name = a.get("full_name") or a.get("name") or " ".join(
-                x for x in (a.get("first_name"), a.get("last_name")) if x)
-            controller = {"id": str(person.get("id")), "name": str(name or "Someone").strip()}
-        return {
-            "id": str(row["id"]) if row.get("id") is not None else None,
-            "controller": controller,
-            "current": _item_time(inc.get(("ItemTime", _rel_id(row, "current_item_time")))),
-            "next": _item_time(inc.get(("ItemTime", _rel_id(row, "next_item_time")))),
-        }
+        return _live(doc)
+
+    def me(self) -> str:
+        """The Planning Center person id of whoever made the token: LIVE's
+        controller is compared with it, because toggle_control releases
+        control when that person already has it."""
+        return str((self.get("/services/v2/me").get("data") or {}).get("id") or "")
+
+    def live_action(self, service_type: str, plan_id: str, action: str) -> dict:
+        """Press a LIVE button as the token's owner: go_to_next_item,
+        go_to_previous_item or toggle_control. The path has no LIVE id (the
+        Live resource's own links say so). Planning Center answers 201 with
+        the new LIVE state, which is returned parsed like `live`. Next and
+        Previous answer 403 unless the token's owner has control."""
+        if action not in LIVE_ACTIONS:
+            raise ValueError(action)
+        return _live(self.post(f"/services/v2/service_types/{service_type}/plans/{plan_id}/live/{action}",
+                               {"include": LIVE_INCLUDE}))
 
     def items(self, service_type: str, plan_id: str) -> list[dict]:
         """The plan's items in order, with key, arrangement, notes and per-service times."""
@@ -300,6 +317,25 @@ def _rel_id(row: dict, name: str) -> str | None:
 def _rel_ids(row: dict, name: str) -> list[str]:
     data = ((row.get("relationships") or {}).get(name) or {}).get("data")
     return [str(d["id"]) for d in data if d.get("id") is not None] if isinstance(data, list) else []
+
+
+def _live(doc: dict) -> dict:
+    """A Live document (from GET .../live or a LIVE action) as Relay keeps it."""
+    row = doc.get("data") or {}
+    inc = _included(doc)
+    person = inc.get(("Person", _rel_id(row, "controller")))
+    controller = None
+    if person:
+        a = person.get("attributes") or {}
+        name = a.get("full_name") or a.get("name") or " ".join(
+            x for x in (a.get("first_name"), a.get("last_name")) if x)
+        controller = {"id": str(person.get("id")), "name": str(name or "Someone").strip()}
+    return {
+        "id": str(row["id"]) if row.get("id") is not None else None,
+        "controller": controller,
+        "current": _item_time(inc.get(("ItemTime", _rel_id(row, "current_item_time")))),
+        "next": _item_time(inc.get(("ItemTime", _rel_id(row, "next_item_time")))),
+    }
 
 
 def _item_time(row: dict | None) -> dict | None:
