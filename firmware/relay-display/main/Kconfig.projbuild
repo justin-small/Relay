@@ -1,14 +1,39 @@
-# The three things a board can differ in: the PCB revision, the pixel clock and
-# the orientation. Everything else is the module and the panel, which do not vary.
+# The board, and then the things one board can differ in: the CrowPanel's PCB revision and pixel clock, and the
+# orientation. Everything else is the module and the panel, which do not vary.
 #
-# **The default is the board Elecrow sells now.** V1.3 and later is the default. The
+# **The board follows the chip.** `build.sh --board <name>` applies `sdkconfig.board.<name>`, which sets
+# `CONFIG_IDF_TARGET`, and each board here is offered only on its own chip, so with one board per chip the
+# choice is already made. A second board on a chip needs a line in its `sdkconfig.board.` file to pick it.
+#
+# **The CrowPanel's default revision is the board Elecrow sells now.** V1.3 and later is the default. The
 # revisions differ only in the backlight bytes the STC8 is sent, and the firmware cannot
 # read the revision back, so a build for the wrong revision is wrong without a sign.
 
 menu "Relay display"
 
+choice RELAY_BOARD
+    prompt "Board"
+    default RELAY_BOARD_WAVESHARE_P4_10_1 if IDF_TARGET_ESP32P4
+    default RELAY_BOARD_CROWPANEL_ADV7
+    help
+        The board the image is for. Its pins, panel and touch controller are in a header of its own
+        under `main/boards/`, which `main/config.h` includes, and its panel driver is one file
+        (`main/board_panel.h` lists them). Everything else in the firmware is the same on every board.
+
+    config RELAY_BOARD_CROWPANEL_ADV7
+        bool "Elecrow CrowPanel Advance 7.0 (ESP32-S3, 800 x 480 RGB)"
+        depends on IDF_TARGET_ESP32S3
+
+    config RELAY_BOARD_WAVESHARE_P4_10_1
+        bool "Waveshare ESP32-P4-WIFI6-Touch-LCD-10.1 (ESP32-P4, 800 x 1280 MIPI-DSI)"
+        depends on IDF_TARGET_ESP32P4
+        help
+            Groundwork: not yet compiled to an image, and not yet on a bench (README.md, "Boards").
+endchoice
+
 choice RELAY_BOARD_REV
     prompt "Board revision"
+    depends on RELAY_BOARD_CROWPANEL_ADV7
     default RELAY_BOARD_ADV_V13
     help
         The CrowPanel Advance 7.0 (DIS02170A) revision the build is for. The two differ in
@@ -31,6 +56,7 @@ endchoice
 
 config RELAY_PCLK_HZ
     int "Pixel clock (Hz)"
+    depends on RELAY_BOARD_CROWPANEL_ADV7
     range 15000000 50000000
     default 16000000
     help
@@ -44,6 +70,7 @@ config RELAY_PCLK_HZ
 
 config RELAY_BOUNCE_LINES
     int "RGB bounce buffer (lines, 0 = off)"
+    depends on RELAY_BOARD_CROWPANEL_ADV7
     range 0 48
     default 10
     help
@@ -117,6 +144,10 @@ config RELAY_QEMU
     bool "Build for qemu-system-xtensa (emulator suite)"
     default n
     help
+        **The CrowPanel's only.** `build.sh` refuses `--qemu` for another board. The option itself is
+        offered on every chip, because `main/idf_component.yml` reads it to decide whether to fetch the
+        virtual panel, and an option that does not exist there stops the configure.
+
         **A test build, never a shipped one.** It swaps the two things
         qemu-system-xtensa does not model and leaves everything else as the
         board builds it.
@@ -137,5 +168,30 @@ config RELAY_QEMU
         `sdkconfig.defaults`. `tests/firmware_compact` reads the image it makes.
         Off by default, and the managed component is only fetched when this is
         on (`main/idf_component.yml`).
+
+
+# **Three options that are not this firmware's, declared so the ESP32-P4 build can configure.** The component
+# manager solves `esp_wifi_remote`'s dependency on `esp_hosted` by reading every esp_hosted release, and the
+# newer ones (2.x and 3.x) carry optional USB dependencies behind these three options. The pinned 1.4.7 has no
+# such options, so they exist in no Kconfig file, and ESP-IDF 5.4.4 stops the configure on an option a manifest
+# names that it cannot find ("Missing required kconfig option after retry"). Declared here as 0, they are
+# found (the manifests compare them with 1, so they are numbers). Each has a prompt because the manager reads `sdkconfig.json`, which leaves out an option that is off
+# and has none. To be removed when esp_hosted moves to a release that declares them itself.
+if IDF_TARGET_ESP32P4
+    config ESP_HOSTED_HOST_USB_CDC_ACM_MANIFEST
+        int "esp_hosted over USB CDC-ACM (not used; leave at 0)"
+        range 0 0
+        default 0
+
+    config ESP_HOSTED_HOST_USB_CHERRYUSB_MANIFEST
+        int "esp_hosted over CherryUSB (not used; leave at 0)"
+        range 0 0
+        default 0
+
+    config ESP_HOSTED_HOST_USB_RNDIS_MANIFEST
+        int "esp_hosted over USB RNDIS (not used; leave at 0)"
+        range 0 0
+        default 0
+endif
 
 endmenu

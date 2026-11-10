@@ -1,87 +1,27 @@
-# The production build of the compact room display. `sdkconfig` itself is
+# The production build of the Relay panel, the part every board shares. `sdkconfig` itself is
 # generated and ignored; this file is the part that is a decision.
-
-CONFIG_IDF_TARGET="esp32s3"
-
-# The module: ESP32-S3-WROOM-1-N16R8, 16 MB quad-SPI flash and 8 MB octal PSRAM. Both run at
-# 120 MHz, below. The flash size has to match `merge-bin`'s header or the bootloader and
-# the chip disagree and the panel boot-loops. QIO is the mode Elecrow's board
-# definition names for this module at 80 MHz; Elecrow's ESP-IDF sdkconfig names both
-# QIO and dio, so the mode is a bench item (README, section "Confirm on the bench").
-CONFIG_ESPTOOLPY_FLASHSIZE_16MB=y
-CONFIG_ESPTOOLPY_FLASHMODE_QIO=y
-CONFIG_ESPTOOLPY_FLASHFREQ_120M=y
+#
+# **Half of the decision.** The chip, the module's flash and PSRAM, and the panel's own settings are the
+# board's, in `sdkconfig.board.<name>`, and `build.sh --board <name>` applies that file and then this one
+# (and then `sdkconfig.dev` or `sdkconfig.qemu`). The two halves set different options, so the order between
+# them does not matter; the board's is first because ESP-IDF reads the chip from the first file that names it.
 
 # `partitions.csv`, with `nvs` above the application slots. The reasoning is in
 # that file.
 CONFIG_PARTITION_TABLE_CUSTOM=y
 CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
 
-# **Octal PSRAM holds the frame buffer.** 800 x 480 x 16 bits is 768,000 bytes,
-# which does not fit in the internal SRAM beside Wi-Fi. The panel reads it over
-# the PSRAM bus.
-CONFIG_SPIRAM=y
-CONFIG_SPIRAM_MODE_OCT=y
-
-# **The panel's configuration is the bench's, as one set.** Each of these was tried on the bench overlay,
-# `sdkconfig.dev`, and the set together is what held the picture still through diagnostics and a 60-second UDP
-# flood. The release build had none of them until #1481's second PR, and on the bench it came up shifted to the
-# right: the frame read straight from PSRAM fell behind. They are kept together because they depend on each other.
-#
-# A ten-line bounce buffer (`main/Kconfig.projbuild`): the driver copies the frame from PSRAM into two strips of
-# internal RAM ahead of the scan, so a late PSRAM read costs a strip and not the picture's position. Elecrow's
-# ESP-IDF example for this panel uses ten.
-CONFIG_RELAY_BOUNCE_LINES=10
-# The bounce buffer reads PSRAM from an interrupt, and a flash write (Wi-Fi's init writes NVS) turns the cache off,
-# so that read faulted: "Cache disabled but cached memory region accessed", a reboot loop. Code and constants in
-# PSRAM keep the cache on through a flash operation. ESP-IDF 5.4 names the pair as one option.
-CONFIG_SPIRAM_XIP_FROM_PSRAM=y
-CONFIG_SPIRAM_FETCH_INSTRUCTIONS=y
-CONFIG_SPIRAM_RODATA=y
-# Espressif's RGB panel guide pairs a bounce buffer with a 64-byte data cache line: the copy reads PSRAM in longer
-# bursts.
-CONFIG_ESP32S3_DATA_CACHE_LINE_64B=y
-# 240 MHz, as Elecrow's example runs this panel: the CPU refills the bounce buffer in the panel's interrupt, and at
-# ESP-IDF's default 160 MHz the picture flickered with the bounce buffer on.
-CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ_240=y
-# **PSRAM and flash at 120 MHz, as Elecrow's own Arduino core runs this board** (`ESP32S3_120M`). Experimental in
-# ESP-IDF: Espressif's help says octal PSRAM at 120 MHz holds while the chip stays within about 20 C of the
-# temperature it started at. Taken with that caveat because it is the configuration the bench proved, and a panel
-# indoors on a wall does not swing that far. A panel that misbehaves after a large temperature change is the sign.
-CONFIG_IDF_EXPERIMENTAL_FEATURES=y
-CONFIG_SPIRAM_SPEED_120M=y
-
-# **The RGB interrupt runs with the cache off.** NVS writes (a settings save) and
-# any future OTA write turn the external-memory cache off for their duration, and
-# without this the panel's interrupt stops with them. Espressif's Kconfig help
-# says it keeps the LCD driver flushing the screen in that window, at the cost
-# of IRAM. A glitch on the panel during a settings save is still possible; that is
-# a bench item; the bounce buffer above is what covers it.
-CONFIG_LCD_RGB_ISR_IRAM_SAFE=y
-
-# **Not enabled: `LCD_RGB_RESTART_IN_VSYNC`.** Without the bounce buffer, the GDMA read the frame straight from
-# PSRAM, and a flash write holds the bus long enough for that read to fall behind: the picture lands shifted to
-# the right and stays there (the bench saw it shift further on every reboot, 2026-10-28). Restarting the DMA in
-# every blank put it right and made the panel flicker once a phone joined the setup network, because the Wi-Fi
-# interrupt delays the VSYNC interrupt and a late restart re-sends the start of a frame. `display_resync` in
-# `display.cpp` restarts it once after each flash write instead.
-
-
-# The console is the UART. USB-Serial-JTAG stays off because GPIO19 and GPIO20
-# are the module's native USB D- and D+ pads, and the USB peripheral would claim
-# them. On this board they are also the microphone, which nothing here uses.
-CONFIG_ESP_CONSOLE_UART_DEFAULT=y
-CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=n
+# The console's line endings. Which port the console is on is the board's.
 CONFIG_NEWLIB_STDOUT_LINE_ENDING_LF=y
 
-# Out of scope for this board: no Bluetooth, no Ethernet and no SD
+# Out of scope on every board: no Bluetooth, no Ethernet and no SD
 # card. Each is off here so no driver for it compiles into the image.
 CONFIG_BT_ENABLED=n
 
 # Ethernet is off through the driver choices. `CONFIG_ETH_ENABLED` is an umbrella
 # that is not a prompt, and the SPI and OpenETH drivers each select it on by
-# default, so setting the umbrella alone does nothing. The ESP32-S3 has no internal
-# EMAC, so there is no choice to turn off for that one. Found when the build still
+# default, so setting the umbrella alone does nothing. A chip with an internal
+# EMAC turns that one off in its board file. Found when the build still
 # compiled `esp_eth`.
 CONFIG_ETH_USE_SPI_ETHERNET=n
 CONFIG_ETH_USE_OPENETH=n

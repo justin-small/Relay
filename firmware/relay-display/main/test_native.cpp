@@ -34,7 +34,11 @@
 #include <vector>
 
 #include "auth.h"
+#include "config.h"
+// The STC8's backlight bytes are the CrowPanel's alone: the header names constants only its board header has.
+#if !defined(RELAY_NATIVE_BOARD_WAVESHARE_P4_10_1)
 #include "board_format.h"
+#endif
 #include "caption_format.h"
 #include "caption_view_format.h"
 #include "discovery_format.h"
@@ -96,6 +100,69 @@ bool glyph_lit(int glyph, int row, int col)
 
 
 // ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// The board. One set of checks per board header (`boards/`): `build.sh` compiles this file once for each,
+// naming it with a `-D`. Everything after these four functions is the same code on every board.
+// ---------------------------------------------------------------------------
+
+#if defined(RELAY_NATIVE_BOARD_WAVESHARE_P4_10_1)
+
+// The Waveshare ESP32-P4 10.1": the glass is portrait, as the JD9365 scans it.
+void check_panel_constants()
+{
+    CHECK(kLcdWidth == 800);
+    CHECK(kLcdHeight == 1280);
+    CHECK(kStripRows == 8);
+    // The DSI driver has no mirror, so the half turn is `display.cpp`'s.
+    CHECK(kPanelTurnsInSoftware);
+    CHECK(std::strcmp(RELAY_BOARD_ID, "waveshare-p4-10.1") == 0);
+}
+
+// Waveshare's pins for this board, from their board support package. A mistyped one is a dark panel or a
+// touch controller that does not answer, so the table is caught before a board is plugged in.
+void check_board_pins()
+{
+    CHECK(kPinBacklight == 26);
+    CHECK(kPinLcdReset == 27);
+    CHECK(kPinI2cSda == 7);
+    CHECK(kPinI2cScl == 8);
+    CHECK(kPinBoot == 35);
+
+    // No two signals share a pin.
+    const int used[] = {kPinBacklight, kPinLcdReset, kPinI2cSda, kPinI2cScl, kPinBoot};
+    const int n = static_cast<int>(sizeof used / sizeof used[0]);
+    for (int i = 0; i < n; ++i) {
+        for (int j = i + 1; j < n; ++j) {
+            CHECK(used[i] != used[j]);
+        }
+    }
+}
+
+// The DSI link and its supply: two lanes at 1.5 Gbit/s, the pads on the chip's regulator channel 3 at 2.5 V.
+void check_panel_timing()
+{
+    CHECK(kDsiLanes == 2);
+    CHECK(kDsiLaneMbps == 1500);
+    CHECK(kDsiPhyLdoChannel == 3);
+    CHECK(kDsiPhyLdoMillivolts == 2500);
+}
+
+// The backlight is a PWM pin: ten bits of duty at 5 kHz, and full brightness is every bit set.
+void check_backlight()
+{
+    CHECK(kI2cSpeedHz == 400000);
+    CHECK(kBacklightPwmHz == 5000);
+    CHECK(kBacklightDutyMax == 1023);
+    // A GT9271: the GT911's registers, ten fingers, and its own product ID.
+    CHECK(kTouchMaxPoints == 10);
+    const uint8_t id[4] = {'9', '2', '7', '1'};
+    CHECK(gt911_id_matches(id));
+    const uint8_t other[4] = {'9', '1', '1', 0};
+    CHECK(!gt911_id_matches(other));
+}
+
+#else
 
 void check_panel_constants()
 {
@@ -163,7 +230,7 @@ void check_panel_timing()
 
 // The STC8 is at 0x30 and the RTC at 0x51, on a 400 kHz bus. The backlight pair is one byte each,
 // and each revision has its own. The two values for a revision are never the same byte.
-void check_stc8_commands()
+void check_backlight()
 {
     CHECK(kStc8Addr == 0x30);
     CHECK(kI2cSpeedHz == 400000);
@@ -178,7 +245,20 @@ void check_stc8_commands()
 
     CHECK(v12.on != v12.off);
     CHECK(v13.on != v13.off);
+
+    // A GT911: five fingers, and a product ID of "911" and a NUL. A GT9271's ID is another board's.
+    CHECK(kTouchMaxPoints == 5);
+    CHECK(!kPanelTurnsInSoftware);
+    CHECK(std::strcmp(RELAY_BOARD_ID, "crowpanel-adv7") == 0);
+    const uint8_t id[4] = {'9', '1', '1', 0};
+    CHECK(gt911_id_matches(id));
+    const uint8_t other[4] = {'9', '2', '7', '1'};
+    CHECK(!gt911_id_matches(other));
+    const uint8_t longer[4] = {'9', '1', '1', '0'};
+    CHECK(!gt911_id_matches(longer));
 }
+
+#endif
 
 void check_rgb565()
 {
@@ -247,16 +327,19 @@ void check_touch()
     CHECK(gt911_decode(noisy, &t) == touch_report::none);
     CHECK(t.pressed);
 
+    // The far corner of this board's glass: (799, 479) on the CrowPanel.
+    const int W = kLcdWidth - 1;
+    const int H = kLcdHeight - 1;
     // Upright: positions pass through, and a report past the edge is pulled onto it.
     CHECK(touch_logical_x(0, 0) == 0 && touch_logical_y(0, 0) == 0);
-    CHECK(touch_logical_x(799, 0) == 799 && touch_logical_y(479, 0) == 479);
+    CHECK(touch_logical_x(W, 0) == W && touch_logical_y(H, 0) == H);
     CHECK(touch_logical_x(400, 0) == 400 && touch_logical_y(100, 0) == 100);
-    CHECK(touch_logical_x(900, 0) == 799 && touch_logical_y(-3, 0) == 0);
+    CHECK(touch_logical_x(W + 101, 0) == W && touch_logical_y(-3, 0) == 0);
     // Turned: both axes mirror, so the corners swap and the centre stays near the centre.
-    CHECK(touch_logical_x(0, 180) == 799 && touch_logical_y(0, 180) == 479);
-    CHECK(touch_logical_x(799, 180) == 0 && touch_logical_y(479, 180) == 0);
-    CHECK(touch_logical_x(100, 180) == 699 && touch_logical_y(100, 180) == 379);
-    CHECK(touch_logical_x(900, 180) == 0 && touch_logical_y(-3, 180) == 479);
+    CHECK(touch_logical_x(0, 180) == W && touch_logical_y(0, 180) == H);
+    CHECK(touch_logical_x(W, 180) == 0 && touch_logical_y(H, 180) == 0);
+    CHECK(touch_logical_x(100, 180) == W - 100 && touch_logical_y(100, 180) == H - 100);
+    CHECK(touch_logical_x(W + 101, 180) == 0 && touch_logical_y(-3, 180) == H);
 }
 
 void check_settings_text()
@@ -418,15 +501,15 @@ void check_test_screen_bars_and_border()
     // the right, top and bottom are the ones that show it. The pixels at x=0 and
     // x=799 are on the border, and the bars are inside it.
     CHECK(screen(0, 0) == kWhite);
-    CHECK(screen(799, 479) == kWhite);
-    CHECK(screen(799, 200) == kWhite);
+    CHECK(screen(kLcdWidth - 1, kLcdHeight - 1) == kWhite);
+    CHECK(screen(kLcdWidth - 1, 200) == kWhite);
     CHECK(screen(0, 200) == kWhite);
     CHECK(screen(400, 5) == kWhite);
     CHECK(screen(400, 6) == kMagenta);
-    CHECK(screen(793, 200) == kBlack);
-    CHECK(screen(794, 200) == kWhite);
-    CHECK(screen(400, 473) == kBlack);
-    CHECK(screen(400, 474) == kWhite);
+    CHECK(screen(kLcdWidth - 7, 200) == kBlack);
+    CHECK(screen(kLcdWidth - 6, 200) == kWhite);
+    CHECK(screen(400, kLcdHeight - 7) == kBlack);
+    CHECK(screen(400, kLcdHeight - 6) == kWhite);
 }
 
 void check_test_screen_marker_title_version()
@@ -503,18 +586,21 @@ void check_text_clipping()
 
 void check_strip_schedule()
 {
-    // The panel is 480 rows, eight to a strip: sixty strips, all full.
-    CHECK(strip_count(kLcdHeight, kStripRows) == 60);
+    // The panel's rows, eight to a strip, all full: sixty strips on the CrowPanel's 480 rows, and a
+    // hundred and sixty on the 1280 of the Waveshare board.
+    const int full = kLcdHeight / kStripRows;
+    CHECK(kLcdHeight % kStripRows == 0);
+    CHECK(strip_count(kLcdHeight, kStripRows) == full);
     const strip_span first = strip_at(0, kLcdHeight, kStripRows);
     CHECK(first.y0 == 0 && first.rows == 8);
-    const strip_span last = strip_at(59, kLcdHeight, kStripRows);
-    CHECK(last.y0 == 472 && last.rows == 8);
+    const strip_span last = strip_at(full - 1, kLcdHeight, kStripRows);
+    CHECK(last.y0 == kLcdHeight - 8 && last.rows == 8);
 
-    // Every row is covered exactly once, in order, for the real panel and for heights
+    // Every row is covered exactly once, in order, for the real panels and for heights
     // that do not divide evenly. A short last strip covers only the rows left.
-    const int heights[] = {480, 470, 9, 8, 7, 1};
+    const int heights[] = {1280, 480, 470, 9, 8, 7, 1};
     for (int height : heights) {
-        int covered[480] = {};
+        int covered[1280] = {};
         int next_row = 0;
         const int strips = strip_count(height, kStripRows);
         for (int i = 0; i < strips; ++i) {
@@ -587,12 +673,12 @@ void check_mirror_180()
     // Concretely: the marker moves to the bottom-right corner, and the bars read in
     // reverse, so the black bar is on the left.
     CHECK(shown(0, 16, 16) == kRed);
-    CHECK(shown(180, 783, 463) == kRed);
+    CHECK(shown(180, kLcdWidth - 17, kLcdHeight - 17) == kRed);
     CHECK(shown(180, 16, 16) == kBlack);
     CHECK(shown(0, 50, 200) == kWhite);
-    CHECK(shown(180, 50, 200) == kBlack);
+    CHECK(shown(180, 50, kLcdHeight - 201) == kBlack);
     CHECK(shown(0, 750, 200) == kBlack);
-    CHECK(shown(180, 750, 200) == kWhite);
+    CHECK(shown(180, 750, kLcdHeight - 201) == kWhite);
 }
 
 
@@ -2585,7 +2671,7 @@ int main()
     check_panel_constants();
     check_board_pins();
     check_panel_timing();
-    check_stc8_commands();
+    check_backlight();
     check_rgb565();
     check_rotation();
     check_settings_defaults();

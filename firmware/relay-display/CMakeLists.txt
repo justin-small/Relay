@@ -1,4 +1,5 @@
-# The Relay caption panel's firmware, for the Elecrow CrowPanel Advance 7.0". ESP-IDF, pinned in README.md.
+# The Relay caption panel's firmware, for the Elecrow CrowPanel Advance 7.0" and the boards beside it
+# (README.md, "Boards"). ESP-IDF, pinned in README.md.
 #
 # **The project is named `relay-display-app`, and the merged image is not.**
 # `idf.py` names the application image after

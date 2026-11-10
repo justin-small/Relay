@@ -18,6 +18,7 @@ in the root README ("Caption panels").
 
 | | |
 |---|---|
+| Boards | The CrowPanel, and groundwork for a second (see "Boards"): a board is a header, an sdkconfig file and a panel driver |
 | Panel | RGB driver and timings, the STC8 backlight (revision as a build setting), software 180-degree turn |
 | Settings | One NVS blob: Wi-Fi network and password, address mode (DHCP or static), Relay address override, panel ID, saved feed, rotation |
 | Panel ID | 32 random hex characters, made on first boot, kept until a factory reset. Names the panel to Relay |
@@ -41,7 +42,71 @@ they are written to the panel's flash by its own setup page. `tools/image_check.
 the images `build.sh` produces and fails the build if one carries a host name, a UUID, a PEM block or a
 key-shaped string.
 
+## Boards
+
+One firmware, and a board is the small part of it that differs. The released board is the CrowPanel; a second
+is being added (#114).
+
+| `--board` | Board | Chip | Panel | State |
+|---|---|---|---|---|
+| `crowpanel-adv7` (the default) | Elecrow CrowPanel Advance 7.0" (DIS02170A) | ESP32-S3 | 7.0" 800 x 480, RGB | Released. Everything below this section is about it unless it says otherwise |
+| `waveshare-p4-10.1` | Waveshare ESP32-P4-WIFI6-Touch-LCD-10.1 | ESP32-P4, Wi-Fi from an ESP32-C6 | 10.1" 800 x 1280, MIPI-DSI (JD9365) | **Groundwork.** It configures; its image has not finished a compile yet. It has not been on a bench, and it is not released |
+
+**What a board is**, and so what a new one adds:
+
+| File | Holds |
+|---|---|
+| `sdkconfig.board.<name>` | The chip, the module's flash and PSRAM, and the settings that belong to that panel's interface. `build.sh --board <name>` applies it and then `sdkconfig.defaults`, which every board shares |
+| `main/boards/<name>.h` | The board's facts: the picture's size, the pins, the touch controller's ID and finger count. `main/config.h` includes one, and lists what every board header has to define |
+| `main/board_<kind>.cpp` | The panel and backlight driver, behind `main/board_panel.h`: `board_rgb_stc8.cpp` (RGB interface, STC8 backlight) and `board_dsi_jd9365.cpp` (MIPI-DSI, PWM backlight). `main/CMakeLists.txt` compiles the one for the build's chip |
+| `main/Kconfig.projbuild`, "Board" | The choice, which follows the chip |
+| `main/idf_component.yml` | Managed components only that chip needs, each behind a `target ==` rule |
+| `main/test_native.cpp` | The board's own checks (its size, pins and touch ID). `build.sh` runs the native checks once for every board, whichever is being built |
+
+Everything else is shared and does not know the board: LVGL and the screens, the caption and service views
+(sized from `kLcdWidth` and `kLcdHeight`), touch (the GT9271 speaks the GT911's registers), the I2C bus,
+settings, Wi-Fi and the setup page (`esp_wifi_remote` gives the ESP32-P4 the same `esp_wifi` calls), the
+caption client, the panel link and the firmware update. `display.cpp` paints strips into whichever `esp_lcd`
+panel the board's driver hands back.
+
+### The Waveshare ESP32-P4 10.1": what is left
+
+The values are Waveshare's, from their board support package (`waveshare/esp32_p4_wifi6_touch_lcd_x` 2.0.3) and
+repository (github.com/waveshareteam/ESP32-P4-WIFI6-Touch-LCD-X). The package itself is not used: it needs ESP-IDF
+5.5 and brings its own LVGL port, and this firmware is pinned to 5.4.4 with one of its own. The JD9365's start-up
+table is copied from it (`main/boards/waveshare_p4_10_1_init.c`, Apache-2.0).
+
+To confirm on the first board:
+
+- [ ] The chip's silicon revision. The build is for revision 3.x, which Waveshare ship now; a revision 1.3 board
+      needs the other two lines (`sdkconfig.board.waveshare-p4-10.1`), and the image for one does not start on the other
+- [ ] The panel lights and shows the colour bars (the DSI pad supply, the reset on GPIO27, the start-up table)
+- [ ] The backlight is dark through the boot and on after it (GPIO26, high for on)
+- [ ] The touch controller answers as a GT9271 at 0x5D or 0x14, and a touch lands where the finger is
+- [ ] BOOT is GPIO35 (the chip's strapping pin; Waveshare's package does not name the button)
+- [ ] The boot line reports `psram 33554432 bytes`
+- [ ] Wi-Fi: the ESP32-C6's factory firmware speaks to the pinned `esp_hosted` 1.4.7, as a station and as the
+      setup network's access point (Waveshare's own example builds the station only)
+- [ ] A signed update installs and a bad one rolls back, as on the CrowPanel
+
+Not written yet:
+
+- **Landscape.** The glass is portrait, 800 x 1280, and that is the picture drawn now. A wall panel wants
+  1280 x 800, and a DSI panel has no quarter turn: it goes in `display.cpp` beside the half turn (and in
+  `touch_format.h`), with 90 and 270 as rotation settings. The views then need a pass at that size: they are
+  sized from the panel's constants and were laid out for 800 x 480
+- **Relay.** `app/panelfw.py` accepts one image, for the ESP32-S3. A second board means the panel names its
+  board at check-in and Relay keeps and offers an image for each
+- **A finished compile.** `build.sh --board waveshare-p4-10.1` configures and builds ESP-IDF's own components;
+  this firmware's sources, the DSI driver among them, have not been through the ESP32-P4 compiler yet
+- **Release and CI.** The release builds and publishes the CrowPanel's two files, and CI builds only the
+  CrowPanel
+- **Emulator.** The suite runs the CrowPanel's build. It covers the shared code, which is nearly all of it,
+  and nothing of this board's driver
+
 ## The board
+
+The CrowPanel Advance 7.0".
 
 | | |
 |---|---|
@@ -57,7 +122,7 @@ A build for the wrong revision is wrong without a sign: check the backlight on t
 
 ### Pin map and timing
 
-Elecrow's values for this board, from `main/config.h`.
+Elecrow's values for this board, from `main/boards/crowpanel_adv7.h`.
 
 | Signal | GPIO |
 |---|---|
@@ -90,6 +155,7 @@ firmware/relay-display/build.sh            # release, into build/
 firmware/relay-display/build.sh --dev      # bench image with diagnostics, into build-dev/
 firmware/relay-display/build.sh --qemu     # emulator image and seeds, into build-qemu/
 firmware/relay-display/build.sh --sign key.pem   # release, signed (see below)
+firmware/relay-display/build.sh --board waveshare-p4-10.1   # another board, into build-waveshare-p4-10.1/ (see "Boards")
 ```
 
 Every build runs the native checks first (`main/test_native.cpp`, a second of g++), then compiles, then

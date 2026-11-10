@@ -1,8 +1,8 @@
 # The Relay panel's own code. The components it calls:
 #
-#   esp_lcd            the RGB panel driver (display.cpp)
+#   esp_lcd            the panel driver (display.cpp, and the board's own driver: see below)
 #   esp_driver_gpio    the RGB panel's pins, and the BOOT button (button.cpp)
-#   esp_driver_i2c     the board's I2C bus: the STC8 that switches the backlight (board_i2c.cpp), the GT911 touch (touch.cpp)
+#   esp_driver_i2c     the board's I2C bus (board_i2c.cpp): the touch controller (touch.cpp), and the CrowPanel's STC8
 #   esp_psram          the PSRAM size on the boot line; the frame buffer's home
 #   esp_wifi, esp_netif, esp_event   the radio and the station (net.cpp)
 #   esp_http_server    the setup page, served only while the setup network is open (provision.cpp)
@@ -47,6 +47,21 @@ set(_relay_requires
     relay_form
     lvgl)
 
+# **One board's driver, and only that one.** `board_panel.h` is what `display.cpp` calls, and each kind of
+# board implements it in one file. The chip decides here, because the list of components is read before
+# `sdkconfig` is (ESP-IDF scans REQUIRES first), and the chip is known by then; `Kconfig.projbuild` ties each
+# board to its chip. The emulator build is the CrowPanel's, and it compiles the driver without calling it.
+idf_build_get_property(_relay_target IDF_TARGET)
+if(_relay_target STREQUAL "esp32p4")
+    # The Waveshare ESP32-P4 10.1": a JD9365 on MIPI-DSI, a PWM backlight, and Wi-Fi from the ESP32-C6 beside
+    # the chip (`esp_wifi_remote` over `esp_hosted`). The start-up table is a C file (it says why).
+    set(_relay_board_srcs "board_dsi_jd9365.cpp" "boards/waveshare_p4_10_1_init.c")
+    list(APPEND _relay_requires esp_driver_ledc esp_lcd_jd9365 esp_wifi_remote esp_hosted)
+else()
+    # The CrowPanel Advance 7.0: the ESP32-S3's RGB interface, and the STC8 backlight.
+    set(_relay_board_srcs "board_rgb_stc8.cpp")
+endif()
+
 # The emulator's virtual RGB panel. Its managed component is fetched only when `CONFIG_RELAY_QEMU`
 # is on, which `idf_component.yml` checks, so the shipped image does not require it.
 if(CONFIG_RELAY_QEMU)
@@ -68,7 +83,7 @@ endif()
 # in the application. The headers it checks (`panel_format.h`, `settings_format.h`, `wifi_policy.h`,
 # `setup_format.h`, `setup_page.h`, `caption_format.h`, `feed_format.h`, `service_format.h`, `discovery_format.h`, `panel_link_format.h`) hold no ESP-IDF calls, so the same files serve both builds.
 idf_component_register(
-    SRCS "main.cpp" "display.cpp" "board_i2c.cpp" "button.cpp" "net.cpp" "settings.cpp" "diag.cpp"
+    SRCS "main.cpp" "display.cpp" ${_relay_board_srcs} "board_i2c.cpp" "button.cpp" "net.cpp" "settings.cpp" "diag.cpp"
          "provision.cpp" "screen.cpp" "touch.cpp" "captions.cpp" "caption_view.cpp" "service_view.cpp" "service_control.cpp" "feeds.cpp" "discovery.cpp" "panel_link.cpp" "firmware_update.cpp"
          "fonts/relay_caption_36.c" "fonts/relay_caption_36_more.c"
          ${_relay_qemu_srcs}
