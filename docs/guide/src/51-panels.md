@@ -1,0 +1,185 @@
+# Setting up a caption panel {#panels}
+
+This chapter takes you from a panel in its box to captions on the screen. Set
+aside about 30 minutes for the first panel. The second one takes five.
+
+## What you need
+
+- **A supported panel.** The only one is the **Elecrow CrowPanel Advance
+  7.0 inch**, model DIS02170A, hardware version 1.2 or later. It has an
+  800 by 480 touch screen. Other screens and other sizes do not work.
+- **Relay, installed and started**, on the same network (**LAN**) as the
+  panel. See Part 1.
+- **The Wi-Fi name and password** of that network. The panel joins Wi-Fi by
+  itself. It does not need a cable.
+- **A computer with a USB cable and Python**, for the first flash only.
+- **Your admin token.** See Part 1.
+
+::: note
+A panel needs a Wi-Fi network that is **not** a guest network. Guest networks
+often block devices from finding each other, and the panel cannot find Relay.
+If you have to use one, type Relay's address into the panel's setup page, as
+described below.
+:::
+
+## What a panel shows
+
+A panel shows **finished lines** only. A line appears when the speaker
+finishes it, not word by word. The newest line is at the bottom. A panel
+keeps the last 200 lines.
+
+- It shows the **transcription** (what was said), or **one translation**, or
+  two of these side by side.
+- If someone drags the captions back to read an earlier line, the panel stops
+  following. A **Jump to live** button appears. Tap it to catch up. If nobody
+  touches the screen for a minute, it jumps to live by itself.
+- The text size is fixed. It is made to be read from a few metres away.
+
+### Which languages a panel can show
+
+A panel can show **languages written in the Latin alphabet**: English,
+Spanish, Portuguese, French, German, Italian, Indonesian, Vietnamese and
+similar.
+
+It cannot show Russian, Chinese, Japanese, Korean, Hindi, Arabic, Nepali,
+Telugu or other languages with their own letters. The panel's text is drawn
+with a single small font that holds only Latin letters. A language it cannot
+draw would appear as empty boxes. So the panel **hides** those languages from
+its menu, and the operator panel refuses to set one on it. They still work on
+phones and on the viewer pages.
+
+A transcription is hidden too if the language being spoken is not written in
+Latin letters.
+
+## Step 1: Flash the panel
+
+You do this once for each new panel. Relay's releases include a file called
+`relay-display.bin`. Download it from the same release page as Relay itself.
+
+1. Plug the panel into your computer with a USB cable.
+2. Install the flashing tool: `python3 -m pip install esptool`.
+3. Run this, in the folder that holds the file:
+
+   ```
+   python3 -m esptool --chip esp32s3 -b 460800 write_flash \
+     --flash_mode dio --flash_size keep --flash_freq 80m 0x0 relay-display.bin
+   ```
+
+4. The tool shows a progress bar and ends with `Hard resetting`.
+
+   If it says it cannot connect, hold the **BOOT** button on the back of the
+   panel while you plug the cable in, then try again.
+
+You should see the panel light up and show the setup screen from the next
+step.
+
+::: tip
+The file does not hold your Wi-Fi password or any address. The same file goes
+on every panel. You give each panel its Wi-Fi on its own screen.
+:::
+
+## Step 2: Join the panel to Wi-Fi
+
+A new panel has no Wi-Fi yet, so it makes its own small network for setup.
+
+1. Look at the panel's screen. It shows a network name that starts with
+   `Relay-Panel-`, a password, and a **QR code**.
+2. On your phone, scan the QR code. Your phone joins the panel's network.
+   You can type the name and password instead.
+3. Open `http://192.168.4.1/` in the phone's browser. Your phone may open it
+   by itself.
+4. Choose your venue's Wi-Fi name and type its password.
+5. Leave **Relay address** empty. The panel finds Relay by itself. Fill it in
+   only if the panel cannot find Relay (see the troubleshooting table below).
+6. Save.
+
+The panel tries the network. When it works, the panel shows the address it
+got, and a minute later it closes its setup network. Within a few seconds it
+shows captions, or a message saying **Relay not running** if capture is not
+started.
+
+## Step 3: Name the panel and choose its feed
+
+The panel appears in Relay by itself. You do not add it.
+
+1. Open the operator panel and sign in. See [Opening the operator
+   panel](#operator-access).
+2. Open the **Panels** section. Each panel has a card. A new one is called
+   **Panel** followed by a few letters, and says **Online**.
+3. Click **Rename** and type a name that says where it is, for example
+   `Lobby`. Save.
+4. Click **Set feed**. Choose **Transcription**, or a language. To show two
+   feeds side by side, choose two. Save.
+
+The panel changes at once. The card's **Showing** line tells you what the
+panel shows now.
+
+::: note
+Anyone can also change what a panel shows from the panel's own screen: tap the
+menu button at the top right. **The newest change wins.** If you set a feed in
+the operator panel and a person then changes it at the screen, their choice
+stays until you set another. The card says **Feed changed at the screen** or
+**from admin** so you can tell.
+:::
+
+If a language you chose stops being live, the panel shows the transcription
+with an amber strip saying so, and returns to your language by itself when it
+comes back.
+
+## Step 4: Update a panel
+
+New panel software comes with new Relay releases. A release includes
+`relay-display-app.bin`. It is signed, which means it carries a mark that only
+the Relay team can make.
+
+1. Download `relay-display-app.bin` from the release.
+2. In the **Panels** section, under **Panel firmware**, choose the file and
+   click **Upload**.
+3. Each panel with older software shows **Update available** and the version.
+4. Click **Update** on one panel. It installs at a quiet moment, when no new
+   caption line has come in for two minutes. Or click **Update now** to
+   restart it at once. Captions stop for about half a minute. **Update all
+   online panels** does every panel that is on.
+5. The card shows each step: **Downloading**, **Downloaded and verified**,
+   **Restarting into the new version**, and then **Updated**.
+
+You should see the **Firmware** line on the card show the new version.
+
+::: warning
+A panel only installs an update that is signed with the Relay release key. It
+checks this itself, so nobody on your network can push other software to it.
+An update that does not work is undone by the panel: if the new version cannot
+reach Relay within ten minutes, the panel goes back to the old one and the
+card says **Rolled back**.
+:::
+
+## Recovering a panel
+
+Use the **BOOT** button on the back of the panel.
+
+| What to do | What happens |
+|---|---|
+| Hold **BOOT** for **5 seconds** | The panel opens its setup network again, as in Step 2. Use this when the Wi-Fi name or password changed. Its settings are kept until a new network works. |
+| Hold **BOOT** for **15 seconds** | **Factory reset.** Everything is erased, including the panel's identity. It restarts blank and Relay sees a new, unnamed panel. |
+
+After a factory reset, delete the old card with **Forget** in the operator
+panel.
+
+## Troubleshooting
+
+| What you see | What to do |
+|---|---|
+| The panel says **Relay not running** | Relay is not started, or capture is stopped, or the panel cannot find it. Check the Relay computer first. |
+| The panel is on Wi-Fi but never appears in **Panels** | It cannot find Relay. Guest networks and some routers block this. Hold **BOOT** for 5 seconds, then type Relay's address in **Relay address**, for example `http://192.168.1.50`. Use `http://`, not `https://`. |
+| The card says **Offline** | Relay has not heard from the panel for 90 seconds. Check its power and Wi-Fi. |
+| A language you want is not in the panel's menu | It is not written in Latin letters. See the list above. |
+| Two Relays on one network | A panel stays with the first one it found. To move it, type the other Relay's address on its setup page, or factory-reset it. |
+| **Update failed** | The card says why. Check that the file is `relay-display-app.bin` from a Relay release, then try again. |
+| **Forget** brings the panel straight back | Expected, if the panel is still on. It returns unnamed. |
+
+## Where panels use the network
+
+You only need this if your network has firewall rules. Panels never sign in
+to the operator panel. They use Relay's **viewer port** (80, plain HTTP). The
+operator panel stays on port 443. Relay announces itself on the network with
+mDNS (UDP port 5353) so panels can find it.

@@ -49,7 +49,7 @@ that it is safe.
 
 ## How to use this guide
 
-The guide has four parts. Read them in order the first time.
+The guide has five parts. Read them in order the first time.
 
 1. **Part 1: Installing Relay.** Download Relay, install Docker, run setup,
    and start Relay. There is one chapter for each of macOS, Windows and Linux.
@@ -61,6 +61,8 @@ The guide has four parts. Read them in order the first time.
    of each control: the viewer pages, the operator panel, and rehearsal mode.
 4. **Part 4: Bitfocus Companion and Stream Deck.** Optional. Control Relay
    from buttons on a Stream Deck.
+5. **Part 5: Caption panels.** Optional. Set up a touch screen that shows the
+   captions on a wall or a desk.
 
 At the back you will find a one-page **quick reference card**, and a
 **glossary** that explains every technical word used in the guide.
