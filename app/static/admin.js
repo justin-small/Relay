@@ -286,6 +286,80 @@
     $('keyState').className = cfg && cfg.openai_api_key_set ? 'ok' : 'err';
   }
 
+  /* ---- Planning Center ----
+     The ID and secret go up once and never come back: cfg.planning_center only
+     says whether a token is saved and which service types are followed. */
+  function renderPc(types) {
+    const pc = (cfg && cfg.planning_center) || { connected: false, service_types: [] };
+    $('pcSum').textContent = pc.connected ? 'connected' : '';
+    $('pcDisconnect').hidden = !pc.connected;
+    $('pcTest').disabled = !pc.connected && !($('pcAppId').value.trim() && $('pcSecret').value.trim());
+    $('pcState').textContent = pc.connected
+      ? 'A token is saved. Test the connection to choose service types.'
+      : 'Not connected.';
+    $('pcState').className = 'note ' + (pc.connected ? 'ok' : '');
+    if (!types) { $('pcTypes').hidden = true; return; }
+    const list = $('pcTypeList');
+    list.innerHTML = '';
+    $('pcTypes').hidden = false;
+    if (!types.length) { list.appendChild(el('div', 'muted', 'This account has no service types.')); return; }
+    types.forEach(function (t) {
+      const label = document.createElement('label');
+      label.className = 'check';
+      const box = document.createElement('input');
+      box.type = 'checkbox';
+      box.value = t.id;
+      box.checked = pc.service_types.indexOf(t.id) !== -1;
+      box.addEventListener('change', async function () {
+        const ids = Array.prototype.slice.call(list.querySelectorAll('input:checked'))
+          .map(function (n) { return n.value; });
+        try {
+          const body = await post('/api/admin/planning-center/service-types', { ids: ids });
+          cfg.planning_center = body.planning_center;
+          alertMsg('');
+        } catch (e) { box.checked = !box.checked; alertMsg(e.message); }
+      });
+      label.appendChild(box);
+      label.appendChild(document.createTextNode(' ' + t.name));
+      list.appendChild(label);
+    });
+  }
+
+  async function pcSaveFields() {
+    const id = $('pcAppId').value.trim(), secret = $('pcSecret').value.trim();
+    if (!id && !secret) return;
+    const body = await post('/api/admin/planning-center', { app_id: id, secret: secret });
+    cfg.planning_center = body.planning_center;
+    $('pcAppId').value = ''; $('pcSecret').value = '';
+  }
+
+  $('pcSave').addEventListener('click', async function () {
+    try { await pcSaveFields(); renderPc(null); okMsg('Saved. Test the connection to choose service types.'); }
+    catch (e) { alertMsg(e.message); }
+  });
+
+  $('pcTest').addEventListener('click', async function () {
+    try {
+      await pcSaveFields();
+      const body = await post('/api/admin/planning-center/test');
+      cfg.planning_center = body.planning_center;
+      renderPc(body.service_types);
+      okMsg('Connected to Planning Center.');
+    } catch (e) { alertMsg(e.message); }
+  });
+
+  $('pcDisconnect').addEventListener('click', async function () {
+    try {
+      const body = await api('/api/admin/planning-center', { method: 'DELETE' });
+      cfg.planning_center = body.planning_center;
+      renderPc(null);
+      okMsg('Disconnected. Relay no longer contacts Planning Center.');
+    } catch (e) { alertMsg(e.message); }
+  });
+  ['pcAppId', 'pcSecret'].forEach(function (id) {
+    $(id).addEventListener('input', function () { renderPc(null); });
+  });
+
   /* ---- recordings ----
      A run is one start -> stop. The list is refreshed on load, after a stop
      (a finished event is the moment an operator wants the file) and on demand;
@@ -1392,6 +1466,7 @@
       cfg = state.config;
       renderDevices(state.devices, cfg.audio_device);
       renderKeyState();
+      renderPc(null);
       $('font').value = cfg.default_font_px;
       $('history').value = cfg.history_lines;
       $('segIdle').value = cfg.realtime.segment_idle_s;

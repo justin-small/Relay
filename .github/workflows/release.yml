@@ -55,6 +55,7 @@ jobs:
       - run: python tests/test_schedules.py
       - run: python tests/test_announce.py
       - run: python tests/test_panels.py
+      - run: python tests/test_planningcenter.py
       - run: python tests/smoke_test.py
 
   guide:

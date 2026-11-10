@@ -54,6 +54,9 @@ DEFAULTS: dict[str, Any] = {
     # Caption panels the operator has named or given a feed, by panel id --
     # see panels.py. Panels themselves are never written here by a check-in.
     "panels": {},
+    # Planning Center Personal Access Token and the service types Relay
+    # follows -- see planningcenter.py. Blank means the integration is off.
+    "planning_center": {"app_id": "", "secret": "", "service_types": []},
     "host": "0.0.0.0",
     "admin_host": "127.0.0.1",
     "port": 8000,
@@ -218,6 +221,9 @@ def _normalise(cfg: dict) -> dict:
     from . import panels
 
     cfg["panels"] = panels.clean_stored(cfg.get("panels"))
+    from . import planningcenter
+
+    cfg["planning_center"] = planningcenter.clean_stored(cfg.get("planning_center"))
     # The blocklist lives in its own file; config.json only points at it.
     cfg.pop("blocklist", None)
     cfg["blocklist_file"] = str(cfg.get("blocklist_file") or "blocklist.txt")
@@ -313,10 +319,17 @@ def save(updates: dict, replace: tuple[str, ...] = ()) -> dict:
 
 
 def redacted() -> dict:
-    """Config safe to hand to the admin browser: no key, no token."""
+    """Config safe to hand to the admin browser: no key, no token, no
+    Planning Center secret."""
     cfg = dict(get())
     key = cfg.pop("openai_api_key", "") or ""
     cfg.pop("admin_token", None)
+    # The ID and secret are never sent back, only whether a token is saved.
+    pc = cfg.pop("planning_center", None) or {}
+    cfg["planning_center"] = {
+        "connected": bool(pc.get("app_id") and pc.get("secret")),
+        "service_types": list(pc.get("service_types") or []),
+    }
     cfg["openai_api_key_set"] = bool(key)
     cfg["openai_api_key_hint"] = f"…{key[-4:]}" if len(key) >= 4 else ""
     return cfg

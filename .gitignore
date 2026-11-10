@@ -29,3 +29,6 @@ Thumbs.db
 
 # The signed panel firmware an operator uploaded to this Relay (app/panelfw.py).
 panel-firmware/
+
+# Planning Center live-test credentials (tools/check_planningcenter.py)
+planningcenter-test.env

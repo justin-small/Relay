@@ -124,6 +124,7 @@
   details.sect > summary .sumstate .live { color:var(--accent); }
   /* Panels. One card per panel, so a phone-width screen never scrolls sideways. */
   .plist { display:flex; flex-direction:column; gap:10px; }
+  label.check { display:flex; align-items:center; gap:8px; font-weight:normal; min-height:32px; }
   .pcard { border:1px solid var(--line); border-radius:9px; background:#111216; padding:12px 14px; }
   .pcard.offline { opacity:.72; }
   .pcard .phead { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
@@ -428,6 +429,36 @@
     </div>
     <button id="saveCreds">Save credentials</button>
     <div class="note">Stored server-side in <span class="mono">config.json</span> (0600, git-ignored). Never sent to viewer pages.</div>
+  </details>
+
+  <details class="sect" id="sec-planningcenter">
+    <summary>Planning Center <span class="sumstate" id="pcSum"></span></summary>
+    <div class="row">
+      <div class="field">
+        <label for="pcAppId">Application ID</label>
+        <input id="pcAppId" type="password" placeholder="(leave blank to keep current)" autocomplete="off">
+      </div>
+      <div class="field">
+        <label for="pcSecret">Secret</label>
+        <input id="pcSecret" type="password" placeholder="(leave blank to keep current)" autocomplete="off">
+      </div>
+    </div>
+    <button type="button" id="pcSave">Save</button>
+    <button type="button" id="pcTest">Test connection</button>
+    <button type="button" id="pcDisconnect" hidden>Disconnect</button>
+    <div class="note" id="pcState" style="margin-top:12px"></div>
+    <div id="pcTypes" hidden>
+      <label>Service types Relay follows</label>
+      <div class="plist" id="pcTypeList"></div>
+    </div>
+    <div class="note">
+      Make a Personal Access Token at <span class="mono">api.planningcenteronline.com/personal_access_tokens</span>
+      and paste its application ID and secret here. Everything Relay does in Planning Center,
+      including Next and Previous from a panel, runs as the person who made the token and only
+      within their permissions. The secret is stored server-side in <span class="mono">config.json</span>,
+      never shown again, and never written to the log, an export or a recording. Until a token is
+      saved, Relay does not contact Planning Center at all.
+    </div>
   </details>
 
   <details class="sect" id="sec-appearance">
