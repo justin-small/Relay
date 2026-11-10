@@ -13,3 +13,20 @@ dependencies:
     version: "1.0.2"
     rules:
       - if: "$CONFIG{RELAY_QEMU} == True"
+  # The Waveshare ESP32-P4 10.1" board only (`sdkconfig.board.waveshare-p4-10.1`); the CrowPanel's build fetches
+  # none of the three. The JD9365 is that board's panel controller, on MIPI-DSI (`board_dsi_jd9365.cpp`).
+  espressif/esp_lcd_jd9365:
+    version: "2.0.2"
+    rules:
+      - if: "target == esp32p4"
+  # The ESP32-P4 has no radio: these two reach the ESP32-C6 on the board and give `net.cpp` its `esp_wifi`
+  # calls. The versions are the newest in the ranges Waveshare name for ESP-IDF 5.x (`0.14.*` and `1.4.*`),
+  # which are the ones that speak to the firmware the C6 ships with.
+  espressif/esp_wifi_remote:
+    version: "0.14.5"
+    rules:
+      - if: "target == esp32p4"
+  espressif/esp_hosted:
+    version: "1.4.7"
+    rules:
+      - if: "target == esp32p4"

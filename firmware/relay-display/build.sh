@@ -6,6 +6,14 @@
 #   firmware/relay-display/build.sh --sign key.pem
 #   firmware/relay-display/build.sh --qemu       # into build-qemu/, for the emulator
 #   firmware/relay-display/build.sh --dev        # into build-dev/, for the bench
+#   firmware/relay-display/build.sh --board waveshare-p4-10.1   # another board, into build-waveshare-p4-10.1/
+#
+# **`--board` names the board, and without it the build is the CrowPanel's.** A board is a file,
+# `sdkconfig.board.<name>`, which sets the chip and the module, and a header under `main/boards/`.
+# That file is applied first and `sdkconfig.defaults`, which every board shares, after it. The
+# CrowPanel's directories keep their names (`build/`, `build-dev/`, `build-qemu/`); another board's
+# carry its name. `--board` combines with `--dev` and `--sign`. It does not combine with `--qemu`:
+# the emulator models the CrowPanel's chip, and the code the suite covers is the same on every board.
 #
 # **`--dev` is a bench image, flashed over USB.** It applies `sdkconfig.dev` on top of
 # `sdkconfig.defaults` (the diagnostics in `main/diag.cpp`) and signs with a throwaway key
@@ -38,11 +46,14 @@ set -euo pipefail
 
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
+default_board="crowpanel-adv7"
+board="$default_board"
 signing_key=""
 qemu=0
 dev=0
 while true; do
   case "${1:-}" in
+    --board) board="${2:?--board needs a name}"; shift 2 ;;
     --sign) signing_key="${2:?--sign needs a key file}"; shift 2 ;;
     --qemu) qemu=1; shift ;;
     --dev) dev=1; shift ;;
@@ -55,6 +66,28 @@ if [ "$qemu" = 1 ] && [ "$dev" = 1 ]; then
   exit 2
 fi
 
+# Every board there is: one `sdkconfig.board.<name>` each.
+boards=""
+for f in "$here"/sdkconfig.board.*; do
+  boards="$boards ${f##*/sdkconfig.board.}"
+done
+if [ ! -f "$here/sdkconfig.board.$board" ]; then
+  echo "No such board: $board. The boards are:$boards" >&2
+  exit 2
+fi
+if [ "$qemu" = 1 ] && [ "$board" != "$default_board" ]; then
+  echo "--qemu is the $default_board's: the emulator has no model of another board's chip." >&2
+  exit 2
+fi
+# The default board's directories have no board in their names, so the paths CI and the release
+# read (`build/relay-display-app.bin`) stay where they were.
+if [ "$board" = "$default_board" ]; then
+  build_base="$here/build"
+else
+  build_base="$here/build-$board"
+fi
+board_defaults="sdkconfig.board.$board;sdkconfig.defaults"
+
 if [ "$qemu" = 1 ]; then
   # **The emulator's image is signed, with a throwaway key of its own.** `sdkconfig.defaults`
   # sets CONFIG_SECURE_SIGNED_APPS_NO_SECURE_BOOT, and a running app with no signature
@@ -65,18 +98,18 @@ if [ "$qemu" = 1 ]; then
     echo "--qemu and --sign do not combine: the emulator signs with its own test key." >&2
     exit 2
   fi
-  out="${1:-$here/build-qemu}"
-  defaults="sdkconfig.defaults;sdkconfig.qemu"
+  out="${1:-$build_base-qemu}"
+  defaults="$board_defaults;sdkconfig.qemu"
 elif [ "$dev" = 1 ]; then
   if [ -n "$signing_key" ]; then
     echo "--dev and --sign do not combine: the bench image signs with its own test key." >&2
     exit 2
   fi
-  out="${1:-$here/build-dev}"
-  defaults="sdkconfig.defaults;sdkconfig.dev"
+  out="${1:-$build_base-dev}"
+  defaults="$board_defaults;sdkconfig.dev"
 else
-  out="${1:-$here/build}"
-  defaults="sdkconfig.defaults"
+  out="${1:-$build_base}"
+  defaults="$board_defaults"
 fi
 mkdir -p "$out"
 
@@ -86,13 +119,22 @@ echo "==> native checks"
 # includes (`relay_auth`, `relay_button` for the BOOT button, `relay_captive` for the setup
 # network's DNS, and `relay_form`) are named here as the `-I` lines the target's REQUIRES list
 # gives it. The test file is kept out of the component's SRCS (`main/CMakeLists.txt` says why).
-c++ -std=c++17 -Wall -Werror \
-  -I "$here/components/relay_auth/include" \
-  -I "$here/components/relay_button/include" \
-  -I "$here/components/relay_captive/include" \
-  -I "$here/components/relay_form/include" \
-  -o "$out/test_native" "$here/main/test_native.cpp"
-"$out/test_native"
+#
+# **Once for every board, whichever one is being built.** The board's header changes the panel's size
+# and the touch controller, which the shared headers are written against, so a change made for one
+# board is checked against the others before any of them is compiled. The native test has no
+# sdkconfig: the board is named with a `-D`, which `main/config.h` reads.
+for b in $boards; do
+  define="RELAY_NATIVE_BOARD_$(printf '%s' "$b" | tr 'a-z.-' 'A-Z__')"
+  echo "    $b"
+  c++ -std=c++17 -Wall -Werror "-D$define" \
+    -I "$here/components/relay_auth/include" \
+    -I "$here/components/relay_button/include" \
+    -I "$here/components/relay_captive/include" \
+    -I "$here/components/relay_form/include" \
+    -o "$out/test_native" "$here/main/test_native.cpp"
+  "$out/test_native"
+done
 
 if ! command -v idf.py >/dev/null 2>&1; then
   echo "idf.py is not on PATH. Source the ESP-IDF export script first:" >&2

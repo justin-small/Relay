@@ -1,0 +1,42 @@
+# The Waveshare ESP32-P4-WIFI6-Touch-LCD-10.1: the chip, its flash and PSRAM, and the radio beside it.
+# `build.sh --board waveshare-p4-10.1` applies this file and then `sdkconfig.defaults`, which holds what
+# every board shares. The board's pins and panel values are in `main/boards/waveshare_p4_10_1.h`.
+#
+# **Nothing here has been on a bench.** The chip, flash and PSRAM lines are Waveshare's own, from the
+# sdkconfig files of their examples for this board (github.com/waveshareteam/ESP32-P4-WIFI6-Touch-LCD-X).
+# README.md, "Boards", lists what the first board on a desk has to confirm.
+
+CONFIG_IDF_TARGET="esp32p4"
+
+# **Silicon revision 3.x, which is what Waveshare ship now and what their examples default to.** ESP-IDF builds
+# the ESP32-P4 for revisions below 3 or for 3 and later, not both: an image for one does not start on the
+# other. An older board (revision 1.3) needs `CONFIG_ESP32P4_SELECTS_REV_LESS_V3=y` and
+# `CONFIG_ESP32P4_REV_MIN_100=y` in place of these two lines. The boot ROM prints the revision.
+# CONFIG_ESP32P4_SELECTS_REV_LESS_V3 is not set
+CONFIG_ESP32P4_REV_MIN_300=y
+
+# The flash: 32 MB, quad I/O. `partitions.csv` is the CrowPanel's 16 MB layout and uses the first 4 MB of it,
+# so the two boards' slots are the same size and one application has to fit both.
+CONFIG_ESPTOOLPY_FLASHSIZE_32MB=y
+CONFIG_ESPTOOLPY_FLASHMODE_QIO=y
+
+# **PSRAM holds the frame buffer**, as on the CrowPanel: 800 x 1280 x 16 bits is 2,048,000 bytes. The 32 MB
+# is inside the chip's package and runs at 200 MHz, which ESP-IDF marks experimental and Waveshare's examples
+# for this board all use.
+CONFIG_SPIRAM=y
+CONFIG_IDF_EXPERIMENTAL_FEATURES=y
+CONFIG_SPIRAM_SPEED_200M=y
+
+# The console is the UART, which the board's USB-to-UART port carries.
+CONFIG_ESP_CONSOLE_UART_DEFAULT=y
+
+# No Ethernet. The ESP32-P4 has an internal EMAC, and its driver selects `CONFIG_ETH_ENABLED` on by default
+# (`sdkconfig.defaults` turns the other two drivers off and says why).
+CONFIG_ETH_USE_ESP32_EMAC=n
+
+# **Wi-Fi is the ESP32-C6 beside the chip**, reached over SDIO by `esp_hosted`; `esp_wifi_remote` gives the
+# application the `esp_wifi` calls `net.cpp` already makes. Both are managed components, fetched only for
+# this chip (`main/idf_component.yml`). Nothing is set here: esp_hosted's defaults for an ESP32-P4 host are
+# SDIO to an ESP32-C6 on the pins Espressif's own ESP32-P4 board uses, and Waveshare's Wi-Fi example for this
+# board builds with those defaults. The C6 runs the firmware it left the factory with, which the pinned
+# versions have to keep speaking to.

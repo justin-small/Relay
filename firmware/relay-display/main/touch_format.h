@@ -27,7 +27,24 @@ constexpr uint16_t kGt911RegPoint1 = 0x814F;     // the first point's eight byte
 
 // Status byte, then the first point: track id, x low, x high, y low, y high, size low, size high.
 constexpr int kGt911ReadBytes = 9;
-constexpr int kGt911MaxPoints = 5;
+// How many fingers the board's controller can report (`kTouchMaxPoints`, in the board's header): five for
+// the GT911, ten for the GT9271, which speaks the same registers. Only the first is read either way.
+constexpr int kGt911MaxPoints = kTouchMaxPoints;
+
+// Whether the four bytes of the product ID register are this board's controller: the board's ID
+// (`kTouchProductId`, "911" or "9271") and then NULs to the end of the register.
+constexpr bool gt911_id_matches(const uint8_t (&id)[4])
+{
+    bool ended = false;
+    for (int i = 0; i < 4; ++i) {
+        const char want = ended ? '\0' : kTouchProductId[i];
+        ended = ended || want == '\0';
+        if (id[i] != static_cast<uint8_t>(want)) {
+            return false;
+        }
+    }
+    return true;
+}
 
 // One report from the controller, in the panel's own (unmirrored) coordinates.
 struct touch_raw {

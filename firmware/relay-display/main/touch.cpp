@@ -119,10 +119,11 @@ public:
                          esp_err_to_name(err));
                 return err;
             }
-            // The ID is ASCII: "911" then a NUL. Anything else is some other device at this address.
-            if (std::memcmp(id, "911", 3) != 0) {
-                ESP_LOGW(TAG, "gt911: 0x%02x answered with ID %02x %02x %02x %02x, not a GT911", addr, id[0], id[1],
-                         id[2], id[3]);
+            // The ID is ASCII: the board's controller ("911", or "9271" on a board with a GT9271) and then
+            // NULs. Anything else is some other device at this address.
+            if (!gt911_id_matches(id)) {
+                ESP_LOGW(TAG, "gt911: 0x%02x answered with ID %02x %02x %02x %02x, not a GT%s", addr, id[0], id[1],
+                         id[2], id[3], kTouchProductId);
                 return ESP_ERR_NOT_FOUND;
             }
             ESP_LOGI(TAG, "gt911: found at 0x%02x%s", addr, addr == kGt911AddrPrimary ? "" : " (the alternate address)");
