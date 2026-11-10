@@ -1,5 +1,9 @@
 # Glossary {#glossary}
 
+**`docker-config`**
+: The folder inside the Relay folder that holds all your settings: API key,
+  admin token, certificate, blocked words and recordings.
+
 **Admin token**
 : The password for the operator panel. You choose it during setup. Companion
   uses it too.
@@ -24,12 +28,12 @@
 : A small button on the back of a caption panel. Hold it for 5 seconds to open
   the panel's setup network, or 15 seconds to erase it.
 
+**Caption panel**
+: A touch screen that shows Relay's captions on a wall or a desk. See Part 5.
+
 **Capture**
 : Relay listening to the sound source and sending it to OpenAI. It runs from
   **Start capture** to **Stop**, and is billed for that whole time.
-
-**Caption panel**
-: A touch screen that shows Relay's captions on a wall or a desk. See Part 5.
 
 **Certificate**
 : A small file that proves to a browser which computer it is talking to.
@@ -69,10 +73,6 @@
 
 **Docker Engine**
 : Docker for Linux, without the desktop app.
-
-**`docker-config`**
-: The folder inside the Relay folder that holds all your settings: API key,
-  admin token, certificate, blocked words and recordings.
 
 **docker group**
 : The Linux user group allowed to run Docker without typing `sudo`.
@@ -157,6 +157,14 @@
 **Organization verification**
 : A one-time identity check that OpenAI requires for some models.
 
+**Personal Access Token**
+: A pair of codes, an application ID and a secret, that lets Relay use Planning
+  Center as the person who made it. Treat it like a password.
+
+**Planning Center Services**
+: Software many churches use to plan their services. Relay can follow today's
+  service in it and show it on caption panels.
+
 **Port**
 : A numbered door on a computer that a program listens on. Relay uses 80 for
   viewers and 443 for the operator panel.
@@ -202,6 +210,15 @@
 **Self-signed certificate**
 : A certificate made on your own computer rather than bought from a company
   that browsers trust. Browsers warn about it the first time.
+
+**Service mode**
+: A setting for each caption panel: **Off**, **Show only**, **Control only** or
+  **Show and control**. It decides whether the panel shows the Planning Center
+  service and whether it can move it on.
+
+**Services LIVE**
+: The part of Planning Center Services that steps through a plan during the
+  service. Whoever is controlling LIVE moves it to the next item.
 
 **Session**
 : One open connection to OpenAI. Relay opens one per live target language.
