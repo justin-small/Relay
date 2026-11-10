@@ -56,6 +56,10 @@ FEED_NONE, FEED_TRANSCRIPTION, FEED_TRANSLATION = 0, 1, 2
 # A network and panel that exist nowhere: they are the emulator's, not an installation's.
 # `tools/image_check.py` refuses an image that carries them, and nothing here is shipped.
 PANEL_ID = "0123456789abcdef0123456789abcdef"
+# The update suite's own panel and Relay port. The suite's other boards (`PROVISIONED`) talk to 8000, and a panel from the
+# session's shared board checking in on the update suite's fake Relay would be offered the update too.
+UPDATE_PANEL_ID = "fedcba9876543210fedcba9876543210"
+UPDATE_RELAY_ADDR = "http://10.0.2.2:8100"
 PROVISIONED = dict(
     ssid="Relay-QEMU-Net",
     password="relay-qemu-psk",
@@ -122,6 +126,16 @@ SEEDS: dict[str, dict] = {
     # A provisioned board on a network, mirrored: the picture the 180 check reads, and the case where
     # the decision says the station would start. It already has a panel ID and a saved feed.
     "nvs": dict(**PROVISIONED, rotation=180, feed_stream=FEED_TRANSLATION, feed_lang="SPANISH"),
+    # The update suite's board: the same, with a panel ID and a Relay port of its own (`test_update.py`).
+    "nvs-update": dict(
+        ssid=PROVISIONED["ssid"],
+        password=PROVISIONED["password"],
+        relay_addr=UPDATE_RELAY_ADDR,
+        panel_id=UPDATE_PANEL_ID,
+        rotation=180,
+        feed_stream=FEED_TRANSLATION,
+        feed_lang="SPANISH",
+    ),
     # A board nobody has configured: no network, upright, and no panel ID yet. The decision says it
     # will not start Wi-Fi, and the boot makes the panel ID.
     "nvs-unprovisioned": dict(rotation=0),

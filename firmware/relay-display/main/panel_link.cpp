@@ -13,6 +13,7 @@
 #include "esp_random.h"
 #include "esp_timer.h"
 #include "feeds.h"
+#include "firmware_update.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "lwip/sockets.h"
@@ -155,6 +156,10 @@ bool checkin(const char *url)
                 if (r.has_feed && panel_should_apply(r.feed.rev, s_.applied_rev.load())) {
                     apply(r.feed, "check-in");
                 }
+                // The reply is Relay's current word on an update: no `update` is the ask withdrawn. A 200 that
+                // parsed is also the proof a new image needs.
+                firmware_update_offer(r.update);
+                firmware_update_reached_relay();
             }
         } else if (http->status() != 0) {
             ESP_LOGW(TAG, "panel_link: Relay answered the check-in with %d", http->status());
@@ -233,8 +238,12 @@ void on_event(void *, const caption_sse_event &event)
         apply(ev.feed, "stream");
         break;
     case panel_message::update_available:
-        // The update itself is a later piece of work; the panel says it heard.
-        ESP_LOGI(TAG, "panel_link: update available%s%s", ev.version[0] != '\0' ? ": " : "", ev.version);
+        // Acted on by `firmware_update.cpp`; an offer that is not one the panel will act on is only logged.
+        ESP_LOGI(TAG, "panel_link: update available%s%s", ev.update.present ? ": " : " (not one this panel reads)",
+                 ev.update.present ? ev.update.version : "");
+        if (ev.update.present) {
+            firmware_update_offer(ev.update);
+        }
         break;
     case panel_message::none:
         break;

@@ -20,6 +20,7 @@ door while lines are committed, `mute` the pings so a connection goes silent. St
 from __future__ import annotations
 
 import contextlib
+import hashlib
 import json
 import queue
 import socket
@@ -73,6 +74,18 @@ class FakeRelay:
         self.operator_feed: dict | None = None  # {"rev": N, "feeds": [..]}
         self.acked_rev = 0
         self.checkin_status = 200
+        # Firmware updates (`app/panelfw.py`, `app/panels.py`). `image` is what is served at `/api/panels/firmware/<v>.bin`;
+        # `update_offer` is what Relay is asking the panel to fetch, and ends (as Relay's does) on a failed, rolled_back
+        # or installed report. `update_reports` is every report in order. A check-in from a version in `refuse_versions`
+        # is answered 503, which is a new image that cannot reach Relay.
+        self.image: bytes | None = None
+        self.image_version = ""
+        self.update_offer: dict | None = None
+        self.update_reports: list[dict] = []
+        self.image_requests = 0
+        self.update_report_status = 200
+        self.cut_image_at: int | None = None
+        self.refuse_versions: set[str] = set()
         # Set: connections are served. Cleared: a new connection waits here before it is primed, so the
         # test can commit lines that only a resume can deliver.
         self.door = threading.Event()
@@ -186,6 +199,35 @@ class FakeRelay:
             for _, q in self.panel_streams:
                 q.put(_frame(message))
 
+    def serve_image(self, image: bytes, version: str) -> None:
+        """The image Relay holds, at `/api/panels/firmware/<version>.bin`."""
+        self.image, self.image_version = image, version
+
+    def offer_update(self, *, now: bool = True, version: str | None = None, image: bytes | None = None) -> dict:
+        """The operator asks the panel to update: carried in its check-in replies and pushed on its open streams, as
+        `Registry.request_update` does. The size and checksum are the image's unless `image` says what Relay claims."""
+        version = version or self.image_version
+        claimed = image if image is not None else self.image
+        assert claimed is not None
+        offer = {"version": version, "size": len(claimed), "sha256": hashlib.sha256(claimed).hexdigest(),
+                 "path": f"/api/panels/firmware/{version}.bin", "now": now}
+        with self._lock:
+            self.update_offer = offer
+            frame = _frame({"type": "update_available", **offer})
+            for _, q in self.panel_streams:
+                q.put(frame)
+        return offer
+
+    def wait_update_report(self, state: str, *, timeout: float = 120.0, after: int = 0) -> dict:
+        deadline = time.monotonic() + timeout
+        while True:
+            for report in self.update_reports[after:]:
+                if report.get("state") == state:
+                    return report
+            if time.monotonic() >= deadline:
+                raise AssertionError(f"waited {timeout}s for an update report {state!r}; got {self.update_reports}")
+            time.sleep(0.1)
+
     def forget_panels(self) -> None:
         """A Relay restart as the registry sees it: nobody has checked in, and every stream is cut."""
         with self._lock:
@@ -258,6 +300,9 @@ class FakeRelay:
         query = {k: v[0] for k, v in parse_qs(url.query).items()}
         if url.path.startswith("/api/panels/") and url.path.endswith("/events"):
             self._serve_panel_events(handler, url.path[len("/api/panels/"):-len("/events")])
+            return
+        if url.path.startswith("/api/panels/firmware/"):
+            self._serve_image(handler, url.path[len("/api/panels/firmware/"):])
             return
         if url.path == "/api/targets":
             self.api_requests += 1
@@ -344,8 +389,46 @@ class FakeRelay:
         handler.wfile.write(raw)
         handler.close_connection = True
 
+    def _serve_image(self, handler: BaseHTTPRequestHandler, name: str) -> None:
+        with self._lock:
+            image, version = self.image, self.image_version
+            self.image_requests += 1
+            cut = self.cut_image_at
+        if image is None or name != f"{version}.bin":
+            self._json(handler, 404, {"detail": "no such firmware"})
+            return
+        handler.send_response(200)
+        handler.send_header("Content-Type", "application/octet-stream")
+        handler.send_header("Content-Length", str(len(image)))
+        handler.send_header("Connection", "close")
+        handler.end_headers()
+        handler.close_connection = True
+        try:
+            # A download the network cuts part way through: the headers promised the whole image.
+            handler.wfile.write(image if cut is None else image[:cut])
+            handler.wfile.flush()
+            if cut is not None:
+                handler.connection.shutdown(socket.SHUT_RDWR)
+        except OSError:
+            pass
+
     def _serve_post(self, handler: BaseHTTPRequestHandler) -> None:
-        if urlparse(handler.path).path != "/api/panels/checkin":
+        path = urlparse(handler.path).path
+        if path.startswith("/api/panels/") and path.endswith("/update"):
+            size = int(handler.headers.get("Content-Length") or 0)
+            try:
+                report = json.loads(handler.rfile.read(size))
+            except ValueError:
+                self._json(handler, 400, {"detail": "body must be JSON"})
+                return
+            with self._lock:
+                self.update_reports.append(report)
+                # A report Relay does not take (a 503) does not end the ask: the panel has to hold off on its own.
+                if self.update_report_status == 200 and report.get("state") in ("failed", "rolled_back", "installed"):
+                    self.update_offer = None
+            self._json(handler, self.update_report_status, {"ok": True})
+            return
+        if path != "/api/panels/checkin":
             handler.send_error(404)
             return
         size = int(handler.headers.get("Content-Length") or 0)
@@ -354,8 +437,8 @@ class FakeRelay:
         except ValueError:
             self._json(handler, 400, {"detail": "body must be JSON"})
             return
-        if self.checkin_status != 200:
-            self._json(handler, self.checkin_status, {"detail": "refused"})
+        if self.checkin_status != 200 or body.get("version") in self.refuse_versions:
+            self._json(handler, self.checkin_status if self.checkin_status != 200 else 503, {"detail": "refused"})
             return
         with self._lock:
             self.checkins.append(body)
@@ -365,6 +448,10 @@ class FakeRelay:
             pending = self._pending()
             if pending:
                 reply["set_feed"] = pending
+            if self.update_offer and self.update_offer["version"] == body.get("version"):
+                self.update_offer = None  # `Registry._settle_update`: the version asked for has checked in
+            if self.update_offer:
+                reply["update"] = self.update_offer
         self._json(handler, 200, reply)
 
     def _serve_panel_events(self, handler: BaseHTTPRequestHandler, panel_id: str) -> None:
@@ -384,6 +471,8 @@ class FakeRelay:
             pending = self._pending()
             if pending:
                 q.put(_frame(pending))
+            if self.update_offer:
+                q.put(_frame({"type": "update_available", **self.update_offer}))
             entry = (panel_id, q)
             self.panel_streams.append(entry)
             self.panel_stream_opens += 1

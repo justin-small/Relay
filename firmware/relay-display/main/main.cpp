@@ -9,6 +9,7 @@
 #include "diag.h"
 #include "discovery.h"
 #include "feeds.h"
+#include "firmware_update.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "display.h"
@@ -157,6 +158,13 @@ extern "C" void app_main(void)
 
     // The emulator's wired link. A no-op on the released board, which has none.
     ESP_ERROR_CHECK(net_wired_start());
+
+    // The firmware update's boot state (is this a new image on approval; was the last one taken back) and its
+    // task. Started whatever else fails, because the proof bound that rolls a bad image back lives in it, and it is
+    // read before the panel link starts so a pending image is known when the first check-in is answered.
+    if (firmware_update_start(true) != ESP_OK) {
+        ESP_LOGE(TAG, "boot: firmware update not started");
+    }
 
     // The caption feed. It waits for an address by itself, so it starts here whatever the network is doing.
     // A feed that cannot start costs the captions and not the boot.

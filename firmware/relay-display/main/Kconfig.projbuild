@@ -95,6 +95,24 @@ config RELAY_CAPTION_SILENCE_S
         pings' worth by default. `sdkconfig.qemu` shortens it so the emulator suite can
         see one happen.
 
+config RELAY_UPDATE_CONFIRM_S
+    int "Update: seconds a new image has to reach Relay"
+    range 30 86400
+    default 600
+    help
+        A new firmware image boots on approval and has this long, from its boot, to check in with Relay and be
+        answered with a 200. If it does not, the panel restarts and the bootloader returns it to the image it
+        replaced (`update_format.h`). Ten minutes covers a Wi-Fi drop and a slow Relay; a longer value keeps a
+        bad image running for longer. `sdkconfig.qemu` shortens it so the emulator suite can see a rollback.
+
+config RELAY_UPDATE_QUIET_S
+    int "Update: seconds with no new caption line before the panel restarts"
+    range 1 3600
+    default 120
+    help
+        A verified image waits for a pause in the room: the panel restarts when no caption line has arrived for
+        this long. The operator's "Update now" skips the wait. `sdkconfig.qemu` shortens it.
+
 config RELAY_QEMU
     bool "Build for qemu-system-xtensa (emulator suite)"
     default n

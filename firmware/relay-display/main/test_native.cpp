@@ -46,7 +46,9 @@
 #include "settings_format.h"
 #include "setup_format.h"
 #include "setup_page.h"
+#include "ota_format.h"
 #include "touch_format.h"
+#include "update_format.h"
 #include "wifi_policy.h"
 
 namespace {
@@ -2147,7 +2149,7 @@ void check_panel_link()
         CHECK(event(bad).kind == panel_message::none);
     }
     ev = event("{\"type\":\"update_available\",\"version\":\"0.2.0\",\"size\":1234}");
-    CHECK(ev.kind == panel_message::update_available && strcmp(ev.version, "0.2.0") == 0);
+    CHECK(ev.kind == panel_message::update_available && !ev.update.present);  // not enough to act on
     CHECK(event("{\"type\":\"update_available\"}").kind == panel_message::update_available);
 
     // A check-in reply.
@@ -2173,6 +2175,143 @@ void check_panel_link()
     // The stream's retry: a panel Relay does not know is retried soon, anything else backs off.
     CHECK(panel_events_wait_ms(5, 404) == 2000);
     CHECK(panel_events_wait_ms(0, 0) == 1000 && panel_events_wait_ms(9, 500) == 30000);
+}
+
+// An application head as a built image has it: header, segment header, descriptor with version and project.
+static void make_head(uint8_t *h, const char *version, const char *project)
+{
+    memset(h, 0, kOtaHeadBytes);
+    h[0] = 0xE9;
+    h[kOtaAppDescMagicOffset] = 0x32;
+    h[kOtaAppDescMagicOffset + 1] = 0x54;
+    h[kOtaAppDescMagicOffset + 2] = 0xCD;
+    h[kOtaAppDescMagicOffset + 3] = 0xAB;
+    memcpy(h + kOtaVersionOffset, version, strlen(version));
+    memcpy(h + kOtaProjectOffset, project, strlen(project));
+}
+
+void check_update()
+{
+    using namespace update_format;
+    uint8_t head[kOtaHeadBytes];
+    make_head(head, "0.2.0", "relay-display-app");
+    CHECK(ota_inspect_head(head, sizeof head) == ota_verdict::accept);
+    CHECK(ota_inspect_head(head, sizeof head - 1) == ota_verdict::not_an_image);
+    uint8_t bad[kOtaHeadBytes];
+    memcpy(bad, head, sizeof bad);
+    bad[0] = 0x00;
+    CHECK(ota_inspect_head(bad, sizeof bad) == ota_verdict::not_an_image);
+    memcpy(bad, head, sizeof bad);
+    bad[kOtaAppDescMagicOffset] = 0;  // a bootloader's descriptor: the merged serial image
+    CHECK(ota_inspect_head(bad, sizeof bad) == ota_verdict::merged_image);
+    CHECK(error_for(ota_verdict::merged_image) == update_error::compatible && error_for(ota_verdict::older) == update_error::version &&
+          error_for(ota_verdict::not_an_image) == update_error::download);
+
+    CHECK(ota_project_matches(head, sizeof head, "relay-display-app"));
+    CHECK(!ota_project_matches(head, sizeof head, "relay-display"));      // a prefix is not the name
+    CHECK(!ota_project_matches(head, sizeof head, "relay-display-app2"));
+    CHECK(!ota_project_matches(head, sizeof head, "vxp-io-8di8ro"));
+    uint8_t other[kOtaHeadBytes];
+    make_head(other, "0.2.0", "vxp-io-8di8ro");
+    CHECK(!ota_project_matches(other, sizeof other, "relay-display-app"));
+    CHECK(ota_version_matches(head, sizeof head, "0.2.0") && !ota_version_matches(head, sizeof head, "0.2.1") &&
+          !ota_version_matches(head, sizeof head, "0.2"));
+
+    // An update only goes forward; the same version again is allowed.
+    CHECK(ota_inspect_version(head, sizeof head, "0.1.0") == ota_verdict::accept);
+    CHECK(ota_inspect_version(head, sizeof head, "0.2.0") == ota_verdict::accept);
+    CHECK(ota_inspect_version(head, sizeof head, "0.2.1") == ota_verdict::older);
+    CHECK(ota_inspect_version(head, sizeof head, "0.10.0") == ota_verdict::older);    // numbers, not text
+    uint8_t ten[kOtaHeadBytes];
+    make_head(ten, "0.10.0", "relay-display-app");
+    CHECK(ota_inspect_version(ten, sizeof ten, "0.9.0") == ota_verdict::accept);
+    CHECK(ota_inspect_version(head, sizeof head, "junk") == ota_verdict::accept);     // a running version nobody can read
+    uint8_t unreadable[kOtaHeadBytes];
+    make_head(unreadable, "next", "relay-display-app");
+    CHECK(ota_inspect_version(unreadable, sizeof unreadable, "0.1.0") == ota_verdict::older);
+
+    // What proves a new image works.
+    CHECK(ota_confirmed_by(true, true, true));
+    CHECK(!ota_confirmed_by(false, true, true) && !ota_confirmed_by(true, false, true) &&
+          !ota_confirmed_by(true, true, false));
+
+    // What Relay may offer.
+    CHECK(version_ok("0.2.0") && version_ok("10.20.30"));
+    CHECK(!version_ok("") && !version_ok("0.2") && !version_ok("v0.2.0") && !version_ok("0.2.0-rc1") && !version_ok(nullptr));
+    CHECK(path_ok("/api/panels/firmware/0.2.0.bin"));
+    CHECK(!path_ok("") && !path_ok("api/x") && !path_ok("http://evil/x") && !path_ok("//evil/x") && !path_ok("/a/../b") &&
+          !path_ok("/a b") && !path_ok("/a?x=1") && !path_ok("/a%2e%2e/b") && !path_ok("/a\\b"));
+    const char *sha = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+    CHECK(sha256_ok(sha) && !sha256_ok("0123") && !sha256_ok(nullptr));
+    char upper[65];
+    snprintf(upper, sizeof upper, "%s", sha);
+    upper[3] = 'D';
+    CHECK(!sha256_ok(upper));
+
+    // Reading the offer, as Relay writes it.
+    const char *offer = "{\"version\":\"0.2.0\",\"size\":1048576,\"sha256\":\"0123456789abcdef0123456789abcdef0123456789abcdef"
+                        "0123456789abcdef\",\"path\":\"/api/panels/firmware/0.2.0.bin\",\"now\":true}";
+    Order o = panel_read_update(offer, offer + strlen(offer), 0x1E0000);
+    CHECK(o.present && o.now && o.size == 1048576 && strcmp(o.version, "0.2.0") == 0 &&
+          strcmp(o.path, "/api/panels/firmware/0.2.0.bin") == 0);
+    CHECK(!panel_read_update(offer, offer + strlen(offer), 1000).present);  // bigger than the slot
+    const char *no_now = "{\"version\":\"0.2.0\",\"size\":2000,\"sha256\":\"0123456789abcdef0123456789abcdef0123456789abcdef"
+                         "0123456789abcdef\",\"path\":\"/x\"}";
+    o = panel_read_update(no_now, no_now + strlen(no_now), 0x1E0000);
+    CHECK(o.present && !o.now);
+    for (const char *badoffer : {
+             "{\"version\":\"0.2.0\",\"size\":2000,\"sha256\":\"00\",\"path\":\"/x\"}",
+             "{\"version\":\"x\",\"size\":2000,\"sha256\":\"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\",\"path\":\"/x\"}",
+             "{\"version\":\"0.2.0\",\"size\":2000,\"sha256\":\"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\",\"path\":\"http://h/x\"}",
+             "{\"version\":\"0.2.0\",\"size\":10,\"sha256\":\"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\",\"path\":\"/x\"}",
+             "{\"version\":\"0.2.0\",\"sha256\":\"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\",\"path\":\"/x\"}"}) {
+        CHECK(!panel_read_update(badoffer, badoffer + strlen(badoffer), 0x1E0000).present);
+    }
+    // In a check-in reply, and absent from one.
+    char reply_json[512];
+    snprintf(reply_json, sizeof reply_json, "{\"ok\":true,\"name\":\"Lobby\",\"interval_s\":30,\"update\":%s}", offer);
+    panel_reply r = panel_parse_reply(reply_json, strlen(reply_json));
+    CHECK(r.ok && r.update.present && strcmp(r.update.version, "0.2.0") == 0);
+    const char *plain = "{\"ok\":true,\"name\":\"Lobby\",\"interval_s\":30}";
+    r = panel_parse_reply(plain, strlen(plain));
+    CHECK(r.ok && !r.update.present);  // the ask withdrawn
+    // On the stream, with its type.
+    char event_json[512];
+    snprintf(event_json, sizeof event_json, "{\"type\":\"update_available\",%s", offer + 1);
+    panel_event ev = panel_parse_event(event_json, strlen(event_json));
+    CHECK(ev.kind == panel_message::update_available && ev.update.present && ev.update.now);
+
+    // The decisions.
+    CHECK(may_restart(true, true, false) && may_restart(true, false, true) && !may_restart(true, false, false) &&
+          !may_restart(false, true, true));
+    CHECK(!quiet_moment(kQuietSeconds - 1) && quiet_moment(kQuietSeconds));
+    CHECK(attempt_was_taken_back("0.2.0", "0.1.0", false));   // the attempt is on record and the old image runs
+    CHECK(!attempt_was_taken_back("0.2.0", "0.2.0", false));  // confirmed: the record was not cleared
+    CHECK(!attempt_was_taken_back("0.2.0", "0.2.0", true));   // on approval
+    CHECK(!attempt_was_taken_back("", "0.1.0", false) && !attempt_was_taken_back(nullptr, "0.1.0", false));
+    CHECK(retry_seconds(0) == 0 && retry_seconds(1) == 60 && retry_seconds(2) == 120 && retry_seconds(30) == 1800);
+
+    // The words Relay keeps (`app/panels.py`, UPDATE_STATES and UPDATE_ERRORS).
+    CHECK(strcmp(state_word(update_state::downloading), "downloading") == 0 && strcmp(state_word(update_state::ready), "ready") == 0 &&
+          strcmp(state_word(update_state::restarting), "restarting") == 0 && strcmp(state_word(update_state::failed), "failed") == 0);
+    CHECK(strcmp(error_word(update_error::signature), "signature") == 0 && strcmp(error_word(update_error::rollback), "rollback") == 0 &&
+          strcmp(error_word(update_error::none), "") == 0);
+    char body[160];
+    CHECK(report_body(body, sizeof body, "downloading", "0.2.0", 40, "") > 0 &&
+          strcmp(body, "{\"state\":\"downloading\",\"version\":\"0.2.0\",\"progress\":40}") == 0);
+    CHECK(report_body(body, sizeof body, "failed", "0.2.0", 0, "signature") > 0 &&
+          strcmp(body, "{\"state\":\"failed\",\"version\":\"0.2.0\",\"error\":\"signature\"}") == 0);
+    CHECK(report_body(body, 10, "failed", "0.2.0", 0, "signature") == 0);
+
+    // The two requests.
+    char req[512];
+    const char *id = "0123456789abcdef0123456789abcdef";
+    size_t n = panel_update_report_request(req, sizeof req, "10.0.2.2", 8000, id, "{\"a\":1}", 7, "0.1.0");
+    CHECK(n > 0 && strncmp(req, "POST /api/panels/0123456789abcdef0123456789abcdef/update HTTP/1.1\r\nHost: 10.0.2.2:8000\r\n", 83) == 0);
+    CHECK(panel_update_report_request(req, sizeof req, "10.0.2.2", 8000, "../x", "{}", 2, "0.1.0") == 0);
+    n = panel_image_request(req, sizeof req, "10.0.2.2", 8000, "/api/panels/firmware/0.2.0.bin", "0.1.0");
+    CHECK(n > 0 && strncmp(req, "GET /api/panels/firmware/0.2.0.bin HTTP/1.1\r\nHost: 10.0.2.2:8000\r\n", 66) == 0);
+    CHECK(panel_image_request(req, sizeof req, "10.0.2.2", 8000, "http://evil/x", "0.1.0") == 0);
 }
 
 int main()
@@ -2227,6 +2366,7 @@ int main()
     check_targets_request();
     check_settings_split_and_v1();
     check_panel_link();
+    check_update();
 
     if (g_failures != 0) {
         fprintf(stderr, "%d check(s) failed\n", g_failures);

@@ -13,7 +13,7 @@
 //
 //   GET /api/panels/<id>/events       kept open; Relay writes to it the moment the operator acts
 //   -> data: {"type":"set_feed","rev":3,"feeds":[{"stream":"transcription"}]}
-//   -> data: {"type":"update_available","version":"0.2.0",..}
+//   -> data: {"type":"update_available","version":"0.2.0","size":..,"sha256":"..","path":"/api/panels/firmware/0.2.0.bin","now":false}
 //   -> : ping                          every 15 s of quiet
 //
 // **`rev` is how Relay and the panel agree what has been applied.** The operator's feed carries a revision
@@ -30,6 +30,7 @@
 #include "caption_format.h"
 #include "feed_format.h"
 #include "settings_format.h"
+#include "update_format.h"
 
 constexpr uint32_t kPanelCheckinMs = 30000;       // between check-ins
 constexpr uint32_t kPanelCheckinRetryMs = 8000;   // after one that failed
@@ -205,6 +206,49 @@ inline size_t panel_events_request(char *out, size_t cap, const char *host, uint
     return static_cast<size_t>(n);
 }
 
+// `POST /api/panels/<id>/update` with `body` (update_format::report_body). Returns the length, or 0.
+inline size_t panel_update_report_request(char *out, size_t cap, const char *host, uint16_t port, const char *id,
+                                          const char *body, size_t body_len, const char *version)
+{
+    if (!settings_panel_id_valid(id)) {
+        return 0;
+    }
+    char host_header[160];
+    panel_host_header(host_header, sizeof host_header, host, port);
+    const int n = snprintf(out, cap,
+                           "POST /api/panels/%s/update HTTP/1.1\r\n"
+                           "Host: %s\r\n"
+                           "Content-Type: application/json\r\n"
+                           "Content-Length: %u\r\n"
+                           "Accept: application/json\r\n"
+                           "User-Agent: relay-display/%s\r\n"
+                           "Connection: close\r\n"
+                           "\r\n"
+                           "%s",
+                           id, host_header, static_cast<unsigned>(body_len), version, body);
+    return n > 0 && static_cast<size_t>(n) < cap ? static_cast<size_t>(n) : 0;
+}
+
+// `GET <path>`: the firmware image Relay offered. `path` has been through update_format::path_ok.
+inline size_t panel_image_request(char *out, size_t cap, const char *host, uint16_t port, const char *path,
+                                  const char *version)
+{
+    if (!update_format::path_ok(path)) {
+        return 0;
+    }
+    char host_header[160];
+    panel_host_header(host_header, sizeof host_header, host, port);
+    const int n = snprintf(out, cap,
+                           "GET %s HTTP/1.1\r\n"
+                           "Host: %s\r\n"
+                           "Accept: application/octet-stream\r\n"
+                           "User-Agent: relay-display/%s\r\n"
+                           "Connection: close\r\n"
+                           "\r\n",
+                           path, host_header, version);
+    return n > 0 && static_cast<size_t>(n) < cap ? static_cast<size_t>(n) : 0;
+}
+
 // ---------------------------------------------------------------------------
 // What Relay tells the panel
 // ---------------------------------------------------------------------------
@@ -265,21 +309,54 @@ inline bool panel_read_set_feed(const char *obj, const char *e, panel_set_feed *
     return true;
 }
 
+// A firmware update Relay asks for (`app/panels.py`, `_update_message`): in a check-in reply's `update`, and
+// at the top level of an `update_available` event. `present` is false when the object is missing a field or
+// one is not something the panel will act on (a version that is not X.Y.Z, a path that leaves the origin,
+// a checksum that is not 64 lowercase hex digits, a size over the slot); nothing partial is ever returned.
+inline update_format::Order panel_read_update(const char *obj, const char *e, uint32_t slot_bytes)
+{
+    update_format::Order o = {};
+    size_t n = 0;
+    uint64_t size = 0;
+    bool now = false;
+    const char *v = caption_json::get(obj, e, "version");
+    const char *h = caption_json::get(obj, e, "sha256");
+    const char *p = caption_json::get(obj, e, "path");
+    const char *z = caption_json::get(obj, e, "size");
+    if (v == nullptr || h == nullptr || p == nullptr || z == nullptr ||
+        !caption_json::read_string(v, e, o.version, sizeof o.version, &n) ||
+        !caption_json::read_string(h, e, o.sha256, sizeof o.sha256, &n) ||
+        !caption_json::read_string(p, e, o.path, sizeof o.path, &n) || !caption_json::read_uint(z, e, &size) ||
+        size > 0xFFFFFFFFull) {
+        return update_format::Order{};
+    }
+    const char *w = caption_json::get(obj, e, "now");
+    if (w != nullptr && caption_json::read_bool(w, e, &now)) {
+        o.now = now;
+    }
+    o.size = static_cast<uint32_t>(size);
+    o.present = update_format::order_ok(o, slot_bytes);
+    if (!o.present) {
+        return update_format::Order{};
+    }
+    return o;
+}
+
 // What one message from Relay asks of the panel.
 enum class panel_message : uint8_t {
     none,              // not something the panel acts on (an unknown type, or unreadable)
     set_feed,          // `feed` is filled in
-    update_available,  // a firmware update is waiting; `version` is its version if the message said
+    update_available,  // a firmware update is waiting; `update` is it when it is one the panel will act on
 };
 
 struct panel_event {
     panel_message kind = panel_message::none;
     panel_set_feed feed = {};
-    char version[16] = {};
+    update_format::Order update = {};
 };
 
 // One event from the stream (the JSON of a `data:` line).
-inline panel_event panel_parse_event(const char *json, size_t len)
+inline panel_event panel_parse_event(const char *json, size_t len, uint32_t slot_bytes = 0x1E0000)
 {
     panel_event ev;
     const char *e = json + len;
@@ -295,10 +372,7 @@ inline panel_event panel_parse_event(const char *json, size_t len)
         }
     } else if (strcmp(type, "update_available") == 0) {
         ev.kind = panel_message::update_available;
-        const char *v = caption_json::get(json, e, "version");
-        if (v != nullptr) {
-            caption_json::read_string(v, e, ev.version, sizeof ev.version, &n);
-        }
+        ev.update = panel_read_update(json, e, slot_bytes);
     }
     return ev;
 }
@@ -310,9 +384,11 @@ struct panel_reply {
     bool has_feed = false;
     panel_set_feed feed = {};
     char name[kPanelNameMax] = {};
+    // The firmware update Relay is asking for, if it is asking. A reply with none is the ask withdrawn.
+    update_format::Order update = {};
 };
 
-inline panel_reply panel_parse_reply(const char *json, size_t len)
+inline panel_reply panel_parse_reply(const char *json, size_t len, uint32_t slot_bytes = 0x1E0000)
 {
     panel_reply r;
     const char *e = json + len;
@@ -330,6 +406,10 @@ inline panel_reply panel_parse_reply(const char *json, size_t len)
     const char *feed = caption_json::get(json, e, "set_feed");
     if (feed != nullptr && panel_read_set_feed(feed, e, &r.feed)) {
         r.has_feed = true;
+    }
+    const char *update = caption_json::get(json, e, "update");
+    if (update != nullptr) {
+        r.update = panel_read_update(update, e, slot_bytes);
     }
     return r;
 }

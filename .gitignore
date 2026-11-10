@@ -26,3 +26,6 @@ Thumbs.db
 .mcp.json
 .ignore
 /graft/
+
+# The signed panel firmware an operator uploaded to this Relay (app/panelfw.py).
+panel-firmware/

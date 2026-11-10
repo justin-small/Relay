@@ -804,6 +804,7 @@
   let panelsAt = 0;          // when panelRows arrived: "last seen" counts on from here
   let panelEditing = null;   // id of the card with an open editor; the list is not rebuilt under it
   let panelDirty = false;
+  let panelFirmware = null;  // what Relay holds for the panels, or null
 
   function el(tag, cls, text) {
     const n = document.createElement(tag);
@@ -899,12 +900,26 @@
     }
     card.appendChild(dl);
 
+    const up = updateRow(row);
+    if (up) card.appendChild(up);
+
     const actions = el('div', 'pactions');
     const rename = el('button', '', 'Rename');
     const feed = el('button', '', 'Set feed');
     const forget = el('button', '', 'Forget');
     actions.appendChild(rename);
     actions.appendChild(feed);
+    if (row.update_available && !row.update_requested && row.online) {
+      const later = el('button', '', 'Update');
+      const now = el('button', '', 'Update now');
+      later.title = 'Installs at a quiet moment: no new caption line for a while';
+      later.addEventListener('click', function () { askUpdate(row.id, false); });
+      now.addEventListener('click', function () {
+        if (confirm('Restart ' + row.name + ' now? Its captions stop for about half a minute.')) askUpdate(row.id, true);
+      });
+      actions.appendChild(later);
+      actions.appendChild(now);
+    }
     actions.appendChild(forget);
     card.appendChild(actions);
 
@@ -917,6 +932,75 @@
     });
     return card;
   }
+
+  const UPDATE_WORDS = {
+    queued: 'Waiting for the panel to start',
+    downloading: 'Downloading',
+    ready: 'Downloaded and verified; installs at a quiet moment',
+    restarting: 'Restarting into the new version',
+    installed: 'Updated',
+    failed: 'Update failed',
+    rolled_back: 'Rolled back'
+  };
+
+  function updateRow(row) {
+    const u = row.update;
+    if (!u && !row.update_available) return null;
+    const box = el('div', 'pupdate');
+    if (u) {
+      const bad = u.state === 'failed' || u.state === 'rolled_back';
+      let text = (UPDATE_WORDS[u.state] || u.state) + (u.version ? ' · ' + u.version : '');
+      if (u.state === 'downloading') text += ' · ' + u.progress + '%';
+      if (bad && u.error_text) text += ': ' + u.error_text;
+      box.appendChild(el('div', bad ? 'bad' : '', text));
+      if (u.state === 'downloading') {
+        const p = el('progress');
+        p.max = 100;
+        p.value = u.progress;
+        box.appendChild(p);
+      }
+    }
+    if (row.update_available && !row.update_requested) {
+      box.appendChild(el('div', 'badge', 'Update available' + (panelFirmware ? ' · ' + panelFirmware.version : '')));
+    }
+    return box;
+  }
+
+  async function askUpdate(id, now) {
+    try { await post('/api/admin/panels/firmware/update', { id: id, now: now }); alertMsg(''); }
+    catch (e) { alertMsg(e.message); }
+  }
+
+  function renderFirmware() {
+    const f = panelFirmware;
+    $('fwInfo').textContent = f
+      ? f.version + ' · ' + Math.round(f.size / 1024) + ' KB · uploaded ' + agoText(f.uploaded_ago_s + (Date.now() - panelsAt) / 1000)
+      : 'none uploaded';
+    $('fwRemove').hidden = !f;
+    $('fwUpdateAll').hidden = !(f && panelRows.some(function (r) { return r.update_available && r.online && !r.update_requested; }));
+  }
+
+  $('fwUpload').addEventListener('click', async function () {
+    const file = $('fwFile').files[0];
+    if (!file) { alertMsg('Choose relay-display-app.bin first.'); return; }
+    try {
+      await api('/api/admin/panels/firmware?filename=' + encodeURIComponent(file.name), {
+        method: 'POST', headers: { 'Content-Type': 'application/octet-stream' }, body: file });
+      $('fwFile').value = '';
+      alertMsg('');
+    } catch (e) { alertMsg(e.message); }
+  });
+  $('fwRemove').addEventListener('click', async function () {
+    if (!confirm('Remove the panel firmware held by Relay?')) return;
+    try { await api('/api/admin/panels/firmware', { method: 'DELETE' }); alertMsg(''); }
+    catch (e) { alertMsg(e.message); }
+  });
+  $('fwUpdateAll').addEventListener('click', async function () {
+    try {
+      const r = await post('/api/admin/panels/firmware/update', { now: false });
+      okMsg(r.requested + ' panel(s) asked to update' + (r.offline ? '; ' + r.offline + ' offline, ask them one by one' : ''));
+    } catch (e) { alertMsg(e.message); }
+  });
 
   function openForm(card, actions, row, build) {
     if (panelEditing && panelEditing !== row.id) { panelEditing = null; renderPanels(); return; }
@@ -1043,7 +1127,9 @@
 
   function applyPanels(frame) {
     panelRows = frame.panels || [];
+    panelFirmware = frame.firmware || null;
     panelsAt = Date.now();
+    renderFirmware();
     if (panelEditing && panelRows.some(function (r) { return r.id === panelEditing; })) {
       panelDirty = true;   // rebuilt once the editor closes
       return;

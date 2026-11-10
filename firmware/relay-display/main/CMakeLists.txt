@@ -9,6 +9,7 @@
 #   esp_hw_support     esp_fill_random for the passphrase and the panel ID, esp_read_mac for the name
 #   esp_timer          the retry backoff and the setup network's timers, the caption stream's silence clock
 #   (panel_link.cpp checks in with Relay's panel registry and keeps its event stream open, over the same lwip sockets)
+#   app_update, esp_partition, mbedtls   the firmware update (firmware_update.cpp): the spare slot, its signature check, the image's SHA-256
 #   mdns               browsing for Relay's `_relay-captions._tcp` announcement (discovery.cpp); the managed component
 #                      `espressif/mdns` (idf_component.yml)
 #   lwip               getpeername, so the setup page can refuse a client off its network; the caption
@@ -36,6 +37,9 @@ set(_relay_requires
     lwip
     mdns
     nvs_flash
+    app_update
+    esp_partition
+    mbedtls
     esp_eth
     relay_auth
     relay_button
@@ -65,7 +69,7 @@ endif()
 # `setup_format.h`, `setup_page.h`, `caption_format.h`, `feed_format.h`, `discovery_format.h`, `panel_link_format.h`) hold no ESP-IDF calls, so the same files serve both builds.
 idf_component_register(
     SRCS "main.cpp" "display.cpp" "board_i2c.cpp" "button.cpp" "net.cpp" "settings.cpp" "diag.cpp"
-         "provision.cpp" "screen.cpp" "touch.cpp" "captions.cpp" "caption_view.cpp" "feeds.cpp" "discovery.cpp" "panel_link.cpp"
+         "provision.cpp" "screen.cpp" "touch.cpp" "captions.cpp" "caption_view.cpp" "feeds.cpp" "discovery.cpp" "panel_link.cpp" "firmware_update.cpp"
          "fonts/relay_caption_36.c" "fonts/relay_caption_36_more.c"
          ${_relay_qemu_srcs}
     INCLUDE_DIRS "."

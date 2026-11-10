@@ -49,9 +49,11 @@ CONFIG_ESPTOOLPY_FLASHMODE_DIO=y
 CONFIG_ETH_USE_OPENETH=y
 CONFIG_ETH_USE_SPI_ETHERNET=n
 
-# **The update's two timers are shorter in this build.** The emulator suite has to see a retry and
-# a rollback happen, and the shipped waits (a minute to retry, ten to prove a new image) would make one run
-# of it longer than anybody will wait for. `tests/firmware_compact/test_update.py` reads these values.
+# **The update's two timers are shorter in this build.** The emulator suite has to see a rollback and a
+# restart at a quiet moment happen, and the shipped waits (ten minutes to prove a new image, two of quiet)
+# would make one run of it longer than anybody will wait for. `tests/test_update.py` reads these values.
+CONFIG_RELAY_UPDATE_CONFIRM_S=60
+CONFIG_RELAY_UPDATE_QUIET_S=6
 
 # **The panel's PSRAM settings are off again under the emulator.** `sdkconfig.defaults` runs code and
 # constants from PSRAM and puts a bounce buffer in front of the frame. The emulator has no PSRAM to run code from
