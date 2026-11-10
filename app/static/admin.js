@@ -360,6 +360,97 @@
     $(id).addEventListener('input', function () { renderPc(null); });
   });
 
+  /* ---- Planning Center: today's plan and LIVE ----
+     Read every few seconds while the section is open and a token is saved.
+     Relay picks the plan with a service time today; the select overrides that
+     pick for the rest of the day. */
+  let pcLiveTimer = null, pcLiveSig = '';
+
+  function mmss(sec) {
+    const s = Math.abs(Math.round(sec));
+    return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0');
+  }
+
+  function pcLiveLine(t) {
+    if (t.error) return t.error;
+    if (!t.plan) return 'No plan with a service time today.';
+    const tm = t.timers || {};
+    const item = (t.items || []).filter(function (i) { return i.id === tm.current_item; })[0];
+    const parts = [t.live ? 'Live · ' + t.controller.name + ' is controlling' : 'Not live'];
+    if (item && tm.item_left_s !== null) {
+      parts.push(item.title + ' · ' + mmss(tm.item_left_s) + (tm.item_left_s < 0 ? ' over' : ' left'));
+    }
+    if (tm.service_over_s !== null && tm.service_over_s !== undefined) {
+      parts.push('service ' + mmss(tm.service_over_s) + (tm.service_over_s > 0 ? ' behind' : ' ahead'));
+    }
+    return parts.join(' · ');
+  }
+
+  function renderPcLive(snap) {
+    const types = snap.service_types || [];
+    $('pcToday').hidden = !types.length;
+    $('pcTodayNote').textContent = types.length
+      ? 'Day boundary: ' + snap.time_zone + (snap.time_zone_guessed
+        ? ' (Relay\'s own zone; Planning Center\'s was not readable)' : ' (from Planning Center)')
+      : '';
+    const list = $('pcTodayList');
+    // Rebuild the rows only when the plans change, so an open select is not
+    // pulled out from under the operator; the status line updates in place.
+    const sig = JSON.stringify(types.map(function (t) {
+      return [t.service_type, t.name, t.plan && t.plan.id, t.override, t.plans.map(function (p) { return p.id; })];
+    }));
+    if (sig !== pcLiveSig) {
+      pcLiveSig = sig;
+      list.innerHTML = '';
+      types.forEach(function (t) {
+        const row = el('div', 'pctoday', '');
+        row.appendChild(el('strong', '', t.name + ' '));
+        const sel = document.createElement('select');
+        sel.setAttribute('aria-label', 'Plan followed today for ' + t.name);
+        const auto = document.createElement('option');
+        auto.value = ''; auto.textContent = 'Relay\'s pick for today';
+        sel.appendChild(auto);
+        const plans = t.plans.slice();
+        if (t.plan && !plans.some(function (p) { return p.id === t.plan.id; })) plans.unshift(t.plan);
+        plans.forEach(function (p) {
+          const o = document.createElement('option');
+          o.value = p.id;
+          o.textContent = (p.dates || 'No date') + (p.title ? ' · ' + p.title : '');
+          sel.appendChild(o);
+        });
+        sel.value = t.override && t.plan ? t.plan.id : '';
+        sel.addEventListener('change', async function () {
+          try {
+            renderPcLive(await post('/api/admin/planning-center/plan',
+              { service_type: t.service_type, plan: sel.value }));
+            alertMsg('');
+          } catch (e) { alertMsg(e.message); }
+        });
+        row.appendChild(sel);
+        const line = el('div', 'note', '');
+        line.id = 'pcLive-' + t.service_type;
+        row.appendChild(line);
+        list.appendChild(row);
+      });
+    }
+    types.forEach(function (t) {
+      const line = $('pcLive-' + t.service_type);
+      if (!line) return;
+      const picked = !t.override && t.plan ? (t.plan.dates || 'Plan ' + t.plan.id) + ' · ' : '';
+      line.textContent = picked + pcLiveLine(t);
+      line.className = 'note ' + (t.error ? 'err' : t.live ? 'ok' : '');
+    });
+  }
+
+  async function pcLivePoll() {
+    const on = cfg && cfg.planning_center && cfg.planning_center.connected
+      && cfg.planning_center.service_types.length && $('sec-planningcenter').open;
+    if (!on) { if (!(cfg && cfg.planning_center && cfg.planning_center.connected)) $('pcToday').hidden = true; return; }
+    try { renderPcLive(await api('/api/admin/planning-center/live')); } catch (e) { /* next tick */ }
+  }
+  $('sec-planningcenter').addEventListener('toggle', pcLivePoll);
+  pcLiveTimer = setInterval(pcLivePoll, 3000);
+
   /* ---- recordings ----
      A run is one start -> stop. The list is refreshed on load, after a stop
      (a finished event is the moment an operator wants the file) and on demand;

@@ -56,6 +56,7 @@ jobs:
       - run: python tests/test_announce.py
       - run: python tests/test_panels.py
       - run: python tests/test_planningcenter.py
+      - run: python tests/test_pclive.py
       - run: python tests/smoke_test.py
 
   guide:

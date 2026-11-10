@@ -23,6 +23,7 @@ from . import config, exporting, languages, panelfw, panels, planningcenter, red
 from .engine import TRANSCRIPTION_STREAM, TRANSLATION_STREAM, demo_mode, engine
 from .hub import hub
 from .panels import registry as panel_registry
+from .pclive import follower as pc_follower
 from .recorder import recorder
 from .scheduler import scheduler
 
@@ -111,6 +112,8 @@ async def _startup() -> None:
     app.state.blocklist_task = asyncio.create_task(_watch_blocklist())
     # First tick runs straight away, so a relay started mid-window catches up.
     scheduler.start()
+    # Idle until a Planning Center token is saved and a service type followed.
+    pc_follower.start()
     if not (cfg.get("admin_token") or "").strip():
         # _token_ok() returns False on an empty stored token, so the panel is
         # locked rather than open -- but an operator who cannot log in deserves
@@ -179,6 +182,7 @@ async def _watch_blocklist() -> None:
 
 async def _shutdown() -> None:
     scheduler.cancel()
+    pc_follower.cancel()
     for name in ("demo_task", "blocklist_task"):
         task = getattr(app.state, name, None)
         if task is not None:
@@ -921,8 +925,10 @@ async def admin_planning_center_save(payload: dict):
         "app_id": app_id,
         "secret": secret,
         "service_types": [] if changed else saved["service_types"],
+        "plan_overrides": {} if changed else saved["plan_overrides"],
     }}, replace=("planning_center",))
     log.info("Planning Center token %s", "saved" if changed else "unchanged")
+    await pc_follower.poke()
     return _pc_body()
 
 
@@ -950,13 +956,45 @@ async def admin_planning_center_service_types(payload: dict):
         return JSONResponse({"error": "ids must be a list."}, status_code=400)
     saved = config.get()["planning_center"]
     config.save({"planning_center": {**saved, "service_types": ids}}, replace=("planning_center",))
+    await pc_follower.poke()
     return _pc_body()
+
+
+@app.get("/api/admin/planning-center/live", dependencies=[Depends(require_admin)])
+async def admin_planning_center_live():
+    """Today's plan and its LIVE state for each followed service type."""
+    return pc_follower.snapshot()
+
+
+@app.post("/api/admin/planning-center/plan", dependencies=[Depends(require_admin)])
+async def admin_planning_center_plan(payload: dict):
+    """Follow a different plan today for one service type; a blank plan goes
+    back to Relay's own pick. The choice lapses when the day ends."""
+    saved = config.get()["planning_center"]
+    st = str(payload.get("service_type") or "")
+    if st not in saved["service_types"]:
+        return JSONResponse({"error": "Relay is not following that service type."}, status_code=400)
+    plan = str(payload.get("plan") or "").strip()
+    if plan and not plan.isdigit():
+        return JSONResponse({"error": "plan must be a Planning Center plan id."}, status_code=400)
+    overrides = {k: v for k, v in saved["plan_overrides"].items() if k != st}
+    if plan:
+        track = pc_follower.tracks.get(st)
+        day = track.day if track and track.day else planningcenter.local_day(
+            scheduler.now(), pc_follower.zone or pc_follower.fallback_zone())
+        overrides[st] = {"plan": plan, "day": day.isoformat()}
+    config.save({"planning_center": {**saved, "plan_overrides": overrides}}, replace=("planning_center",))
+    log.info("Planning Center, service type %s: operator %s", st,
+             f"picked plan {plan} for today" if plan else "cleared the plan pick")
+    await pc_follower.poke()
+    return pc_follower.snapshot()
 
 
 @app.delete("/api/admin/planning-center", dependencies=[Depends(require_admin)])
 async def admin_planning_center_disconnect():
     config.save({"planning_center": {}}, replace=("planning_center",))
     log.info("Planning Center disconnected")
+    await pc_follower.poke()
     return _pc_body()
 
 
