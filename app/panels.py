@@ -25,7 +25,7 @@ import time
 from dataclasses import dataclass, field
 from typing import Any, Callable
 
-from . import config, languages
+from . import config, languages, panelfw
 
 # A panel not heard from for this long shows as offline. It checks in every 30 s.
 OFFLINE_AFTER_S = 90.0
@@ -36,6 +36,20 @@ MAX_PANELS = 64
 # arrives before the old socket is noticed dead, so one is not enough.
 MAX_EVENT_STREAMS_PER_PANEL = 2
 EVENT_QUEUE_MAX = 16
+
+# What a panel may say about a firmware update in flight (POST /api/panels/{id}/update), and why one
+# failed. The panel's own words (firmware/relay-display/main/update_format.h keeps the same two lists,
+# and tests/test_panels.py holds the two sides together); anything else is dropped.
+UPDATE_STATES = ("downloading", "ready", "restarting", "failed", "installed", "rolled_back")
+UPDATE_ERRORS = {
+    "download": "the image did not download completely",
+    "signature": "the image is not signed with the key this panel trusts",
+    "version": "the image is not newer than the one the panel runs",
+    "compatible": "the image is for other hardware",
+    "install": "the panel could not write the image",
+    "rollback": "the new image did not check in, so the panel went back to the old one",
+}
+UPDATE_REPORT_MAX_BYTES = 512
 
 TRANSCRIPTION = "transcription"
 TRANSLATION = "translation"
@@ -151,6 +165,12 @@ class Panel:
     # change is seen: a first check-in is not a change.
     feeds_changed_at: float = 0.0
     feeds_changed_by: str = ""
+    # A firmware update the operator asked this panel for, and not yet finished: {"version", "now"}.
+    # Memory only, like the rest of what a panel is: Relay restarting forgets it, and the panel's own
+    # staged image is dropped at its next check-in, which carries no offer.
+    update_request: dict[str, Any] | None = None
+    # How the last update went, as the panel reported it: {"state", "version", "progress", "error", "at"}.
+    update: dict[str, Any] | None = None
 
 
 class RegistryFull(Exception):
@@ -223,6 +243,9 @@ class Registry:
             "feeds_changed_ago_s": (round(time.time() - panel.feeds_changed_at, 1)
                                     if panel.feeds_changed_at else None),
             "feeds_changed_by": panel.feeds_changed_by or None,
+            "update_available": self.update_available(panel),
+            "update_requested": panel.update_request is not None,
+            "update": self._update_view(panel),
         }
 
     def online_signature(self) -> tuple:
@@ -283,6 +306,7 @@ class Registry:
             panel.feeds_changed_at = time.time()
             panel.feeds_changed_by = "admin" if panel.acked_rev > old_acked else "screen"
         panel.last_seen = _now()
+        self._settle_update(panel)
         reply: dict[str, Any] = {
             "ok": True,
             "name": self.display_name(pid),
@@ -291,8 +315,123 @@ class Registry:
         pending = self._pending_feed(pid)
         if pending:
             reply["set_feed"] = pending
+        offer = self._update_offer(panel)
+        if offer:
+            reply["update"] = offer
         self._changed()
         return reply
+
+    # ------------------------------------------------------- firmware updates
+    @staticmethod
+    def update_available(panel: Panel) -> bool:
+        """An image is stored that is a step forward from what this panel says it runs."""
+        info = panelfw.current()
+        return info is not None and bool(panel.version) and panelfw.newer(info.version, panel.version)
+
+    @staticmethod
+    def _update_message(info: panelfw.Info, now: bool) -> dict[str, Any]:
+        return {"version": info.version, "size": info.size, "sha256": info.sha256,
+                "path": f"/api/panels/firmware/{info.version}.bin", "now": bool(now)}
+
+    def _update_offer(self, panel: Panel) -> dict[str, Any] | None:
+        """What the panel is told to fetch: the stored image, if the operator asked this panel for
+        it and it is still the version asked for. No offer is also how a panel learns the request
+        was withdrawn (the image replaced or removed), so it drops what it had staged."""
+        request = panel.update_request
+        info = panelfw.current()
+        if request is None or info is None or request["version"] != info.version:
+            return None
+        return self._update_message(info, request["now"])
+
+    def _update_view(self, panel: Panel) -> dict[str, Any] | None:
+        u = panel.update
+        if u is None:
+            return None
+        return {"state": u["state"], "version": u["version"], "progress": u["progress"],
+                "error": u["error"], "error_text": UPDATE_ERRORS.get(u["error"], ""),
+                "ago_s": round(max(0.0, time.time() - u["at"]), 1)}
+
+    def _settle_update(self, panel: Panel) -> None:
+        """A check-in from the version that was asked for is the update's last word, whether or not
+        the panel got to say so itself."""
+        request = panel.update_request
+        if request is not None and panel.version == request["version"]:
+            panel.update_request = None
+            panel.update = {"state": "installed", "version": panel.version, "progress": 100,
+                            "error": "", "at": time.time()}
+
+    def request_update(self, pid: str, now: bool = False) -> dict[str, Any]:
+        """Ask one panel to install the stored image: at a quiet moment, or at once with `now`.
+        Pushed on its event stream if one is open, and carried in its next check-in reply either way.
+        Raises KeyError (no such panel), LookupError (no image stored) or ValueError (nothing to do)."""
+        panel = self.panels.get(pid) if valid_id(pid) else None
+        if panel is None:
+            raise KeyError(pid)
+        info = panelfw.current()
+        if info is None:
+            raise LookupError("no panel firmware has been uploaded")
+        if not self.update_available(panel):
+            raise ValueError(f"{self.display_name(pid)} already runs {panel.version or 'a version Relay cannot read'}"
+                             f" or newer; the image held is {info.version}")
+        panel.update_request = {"version": info.version, "now": bool(now)}
+        panel.update = {"state": "queued", "version": info.version, "progress": 0, "error": "",
+                        "at": time.time()}
+        self._push(pid, {"type": "update_available", **self._update_message(info, now)})
+        self._changed()
+        return self.view(pid)
+
+    def request_update_all(self, now: bool = False) -> dict[str, int]:
+        """Ask every panel that is online and has an update available. Panels that are offline are
+        left for the operator to ask one by one: an update should not be a surprise on a panel that
+        comes back days later."""
+        asked = skipped = 0
+        for panel in list(self.panels.values()):
+            if not self.update_available(panel):
+                continue
+            if not self.online(panel):
+                skipped += 1
+                continue
+            try:
+                self.request_update(panel.id, now)
+                asked += 1
+            except (KeyError, LookupError, ValueError):
+                pass
+        return {"requested": asked, "offline": skipped}
+
+    def firmware_changed(self) -> None:
+        """The stored image was replaced or removed: no panel is still asked for the old one. A panel
+        that had staged it drops it at its next check-in, which carries no offer."""
+        for panel in self.panels.values():
+            if panel.update_request is not None:
+                panel.update_request = None
+                if panel.update and panel.update["state"] in ("queued", "downloading", "ready"):
+                    panel.update = None
+        self._changed()
+
+    def report_update(self, pid: str, body: dict) -> bool:
+        """A panel's word on an update. False for a panel Relay does not know. Everything is bounded
+        and anything unfamiliar is dropped: nothing here is authenticated."""
+        panel = self.panels.get(pid) if valid_id(pid) else None
+        if panel is None:
+            return False
+        state = body.get("state")
+        if state not in UPDATE_STATES:
+            return True
+        error = body.get("error")
+        error = error if error in UPDATE_ERRORS else ""
+        if state == "rolled_back" and not error:
+            error = "rollback"
+        version = _text(body.get("version"), 32)
+        if panelfw.parse_version(version) is None:
+            version = (panel.update_request or {}).get("version", "")
+        panel.update = {"state": state, "version": version,
+                        "progress": 100 if state in ("ready", "restarting", "installed") else _int(body.get("progress"), 0, 100),
+                        "error": error if state in ("failed", "rolled_back") else "", "at": time.time()}
+        if state in ("failed", "rolled_back", "installed"):
+            # Over, one way or the other. Asking again is the operator's.
+            panel.update_request = None
+        self._changed()
+        return True
 
     def _pending_feed(self, pid: str) -> dict[str, Any] | None:
         """The operator's feed as a `set_feed` event, if this panel has not said
@@ -321,6 +460,10 @@ class Registry:
         pending = self._pending_feed(pid)
         if pending:
             q.put_nowait(sse_frame(pending))
+        panel = self.panels.get(pid)
+        offer = self._update_offer(panel) if panel is not None else None
+        if offer:
+            q.put_nowait(sse_frame({"type": "update_available", **offer}))
         return q
 
     def unsubscribe(self, pid: str, q: asyncio.Queue) -> None:

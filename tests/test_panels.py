@@ -3,14 +3,17 @@
 Offline: no OpenAI, no hardware. Run: .venv/bin/python tests/test_panels.py
 """
 import asyncio
+import hashlib
 import http.client
 import json
 import os
 import socket
+import struct
 import sys
 import tempfile
 import threading
 import time
+import zlib
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -18,7 +21,7 @@ os.environ["RELAY_CONFIG"] = os.path.join(tempfile.mkdtemp(), "config.json")
 
 from fastapi.testclient import TestClient
 
-from app import config, languages, main, panels
+from app import config, languages, main, panelfw, panels
 from app.main import app
 
 fails = []
@@ -355,6 +358,227 @@ clock[0] += panels.OFFLINE_AFTER_S + 1
 check("a panel going quiet changes the online signature without any push",
       reg.online_signature() != before)
 reg.on_change = lambda: main.hub.push_status(main._panels_frame())
+
+# ---------------------------------------------------------------------------
+# Firmware updates: the image Relay holds, and the panel's side of the exchange.
+# ---------------------------------------------------------------------------
+print("\nfirmware: the image check")
+
+
+def make_image(version="0.2.0", project="relay-display-app", chip=0x0009, signed=True, filler=3000):
+    """An application image shaped like a built and signed one: header, one segment that opens with the
+    application descriptor, the image's own checksum and SHA-256, and a Secure Boot V2 block whose
+    digest and CRC are the real ones. Not a runnable image; the panel's check is the signature's."""
+    header = bytearray(24)
+    header[0], header[1], header[23] = 0xE9, 1, 1
+    struct.pack_into("<H", header, 12, chip)
+    desc = bytearray(256)
+    struct.pack_into("<I", desc, 0, 0xABCD5432)
+    desc[16:16 + len(version)] = version.encode()
+    desc[48:48 + len(project)] = project.encode()
+    segment = bytes(desc) + b"\x5a" * filler
+    body = bytes(header) + struct.pack("<II", 0x3C000020, len(segment)) + segment
+    checked = (len(body) + 1 + 15) // 16 * 16
+    body += b"\x00" * (checked - len(body))
+    body += hashlib.sha256(body).digest()
+    body += b"\x00" * (-len(body) % 4096)
+    if not signed:
+        return body
+    block = bytearray(4096)
+    block[:4] = b"\xe7\x02\x00\x00"
+    block[4:36] = hashlib.sha256(body).digest()
+    struct.pack_into("<I", block, 1196, zlib.crc32(bytes(block[:1196])) & 0xFFFFFFFF)
+    return body + bytes(block)
+
+
+def refused(label, data, fragment):
+    try:
+        panelfw.inspect(data)
+    except panelfw.ImageRefused as exc:
+        check(label, fragment in str(exc), str(exc))
+    else:
+        check(label, False, "accepted")
+
+
+good = make_image("0.2.0")
+eq("a good image reads as its version", panelfw.inspect(good)[0], "0.2.0")
+refused("an empty upload is refused", b"", "empty")
+refused("a text file is refused", b"hello" * 100, "not panel firmware")
+refused("an image for another board is refused", make_image(project="vxp-io-8di8ro"), "another board")
+refused("an image for another chip is refused", make_image(chip=0x0005), "another chip")
+refused("an unsigned image is refused", make_image(signed=False), "not signed")
+refused("an image with no readable version is refused", make_image(version="v2"), "version")
+refused("a truncated image is refused", good[:len(good) - 4096 - 100], "not signed")
+flipped = bytearray(good)
+flipped[200] ^= 0xFF
+refused("a flipped byte is refused on the image's own checksum", bytes(flipped), "damaged")
+resigned = bytearray(good)
+resigned[-4096 + 10] ^= 0xFF
+refused("a signature that is not for these bytes is refused", bytes(resigned), "not for these bytes")
+refused("an image over the slot is refused", good + b"\x00" * panelfw.SLOT_BYTES, "larger")
+merged = bytearray(good)
+struct.pack_into("<I", merged, 32, 0)
+refused("the merged serial image (no application descriptor) is refused", bytes(merged), "serial-flash")
+check("0.1.0 -> 0.2.0 is forward", panelfw.newer("0.2.0", "0.1.0"))
+check("0.10.0 is newer than 0.9.0, as numbers", panelfw.newer("0.10.0", "0.9.0"))
+check("the same version is not forward", not panelfw.newer("0.2.0", "0.2.0"))
+check("an older one is not", not panelfw.newer("0.1.0", "0.2.0"))
+check("a version nobody can read is not", not panelfw.newer("0.2.0", "") and not panelfw.newer("x", "0.1.0"))
+
+real = Path(__file__).resolve().parent.parent / "firmware" / "relay-display" / "build-qemu" / "relay-display-app.bin"
+if real.exists():
+    check("a real built and signed image passes the same check", bool(panelfw.inspect(real.read_bytes())[0]))
+
+print("\nfirmware: upload, store and serve")
+eq("no firmware at first", admin.get("/api/admin/panels/firmware").json(), {"firmware": None})
+eq("the viewer port serves nothing before an upload", viewer.get("/api/panels/firmware/0.2.0.bin").status_code, 404)
+r = admin.post("/api/admin/panels/firmware", content=make_image(signed=False))
+eq("an unsigned upload is refused with the reason", (r.status_code, "not signed" in r.text), (400, True))
+check("…and nothing is kept", panelfw.current() is None)
+r = admin.post("/api/admin/panels/firmware?filename=relay-display-app.bin", content=good,
+               headers={"content-type": "application/octet-stream"})
+eq("a good image is kept", r.status_code, 200)
+info = r.json()["firmware"]
+eq("it reports its version, size and checksum",
+   (info["version"], info["size"], info["sha256"]), ("0.2.0", len(good), hashlib.sha256(good).hexdigest()))
+eq("the panels frame carries it", main._panels_frame()["firmware"]["version"], "0.2.0")
+r = viewer.get("/api/panels/firmware/0.2.0.bin")
+eq("a panel gets exactly the bytes, on the viewer port", (r.status_code, r.content == good), (200, True))
+eq("…with a length", r.headers.get("content-length"), str(len(good)))
+eq("a version that is not the one held is 404", viewer.get("/api/panels/firmware/0.3.0.bin").status_code, 404)
+eq("a name that is not a version is 404", viewer.get("/api/panels/firmware/..%2Fconfig.json").status_code, 404)
+eq("…and so is one without the suffix", viewer.get("/api/panels/firmware/0.2.0").status_code, 404)
+config.save({"admin_token": "t0ken", "port": 8000, "admin_port": 8001})
+eq("the upload route is not on the viewer port",
+   viewer.post("/api/admin/panels/firmware", content=good).status_code, 404)
+eq("the upload needs the admin token",
+   TestClient(app, base_url="http://relay.local:8001").post("/api/admin/panels/firmware", content=good).status_code, 401)
+big = admin.post("/api/admin/panels/firmware", content=b"\x00" * (panelfw.SLOT_BYTES + 1))
+eq("an upload over the slot is cut off at the door", big.status_code, 413)
+check("the image survives a restart: it is read from disk", panelfw.current() is not None and panelfw.current().version == "0.2.0")
+
+print("\nfirmware: asking panels to update")
+clock[0] += 1000
+for n in (30, 31, 32):
+    viewer.post("/api/panels/checkin", json=body(n, version="0.1.0"))
+viewer.post("/api/panels/checkin", json=body(33, version="0.2.0"))
+viewer.post("/api/panels/checkin", json=body(34, version="0.1.0"))
+rows = {p["id"]: p for p in main._panels_frame()["panels"]}
+eq("a panel on an older version shows an update available", rows[pid(30)]["update_available"], True)
+eq("a panel already on it does not", rows[pid(33)]["update_available"], False)
+eq("an ask that does nothing is refused", admin.post("/api/admin/panels/firmware/update", json={"id": pid(33)}).status_code, 400)
+eq("an unknown panel is 404", admin.post("/api/admin/panels/firmware/update", json={"id": pid(77)}).status_code, 404)
+r = viewer.post("/api/panels/checkin", json=body(30, version="0.1.0"))
+check("a panel that was not asked is not offered anything", "update" not in r.json())
+
+q = reg.subscribe(pid(30))
+seen_frames = []
+reg.on_change = lambda: seen_frames.append(1)
+n = 0
+r = admin.post("/api/admin/panels/firmware/update", json={"id": pid(30)})
+eq("the operator asks one panel", r.status_code, 200)
+check("…which tells the admin stream", len(seen_frames) > n)
+eq("…and the row says it was asked", (r.json()["panel"]["update_requested"], r.json()["panel"]["update"]["state"]),
+   (True, "queued"))
+frame = q.get_nowait()
+msg = json.loads(frame.decode().split("data: ", 1)[1])
+eq("the stream gets update_available with what to fetch",
+   msg, {"type": "update_available", "version": "0.2.0", "size": len(good),
+         "sha256": hashlib.sha256(good).hexdigest(), "path": "/api/panels/firmware/0.2.0.bin", "now": False})
+reg.unsubscribe(pid(30), q)
+r = viewer.post("/api/panels/checkin", json=body(30, version="0.1.0"))
+eq("the check-in reply carries the same offer", r.json()["update"]["path"], "/api/panels/firmware/0.2.0.bin")
+q = reg.subscribe(pid(30))
+check("a stream opened later is told at once", json.loads(q.get_nowait().decode().split("data: ", 1)[1])["type"] == "update_available")
+reg.unsubscribe(pid(30), q)
+check("a panel that was not asked gets nothing on its stream",
+      reg.subscribe(pid(31)).empty())
+
+r = admin.post("/api/admin/panels/firmware/update", json={"id": pid(31), "now": True})
+eq("`now` is carried", viewer.post("/api/panels/checkin", json=body(31, version="0.1.0")).json()["update"]["now"], True)
+n_online = len([p for p in reg.panels.values() if reg.online(p) and reg.update_available(p)])
+clock[0] += panels.OFFLINE_AFTER_S + 1
+viewer.post("/api/panels/checkin", json=body(32, version="0.1.0"))   # 32 comes back; 34 stays quiet
+r = admin.post("/api/admin/panels/firmware/update", json={})
+eq("`all` asks the panels that are online and leaves the offline ones",
+   (r.json()["requested"], r.json()["offline"] >= 1), (1, True))
+check("…and the offline one was not asked", not reg.panels[pid(34)].update_request)
+
+print("\nfirmware: what a panel reports")
+for state, extra in (("downloading", {"progress": 40}), ("ready", {}), ("restarting", {})):
+    r = viewer.post(f"/api/panels/{pid(30)}/update", json={"state": state, "version": "0.2.0", **extra})
+    eq(f"a panel reports {state}", r.status_code, 200)
+u = reg.view(pid(30))["update"]
+eq("the row carries its latest word", (u["state"], u["progress"], u["error"]), ("restarting", 100, ""))
+viewer.post(f"/api/panels/{pid(30)}/update", json={"state": "downloading", "version": "0.2.0", "progress": 250})
+eq("progress is clamped", reg.view(pid(30))["update"]["progress"], 100)
+viewer.post(f"/api/panels/{pid(30)}/update", json={"state": "downloading", "version": "0.2.0", "progress": 40})
+eq("…and passed on", reg.view(pid(30))["update"]["progress"], 40)
+check("a report does not end the ask while it is going", reg.panels[pid(30)].update_request is not None)
+viewer.post(f"/api/panels/{pid(30)}/update", json={"state": "failed", "version": "0.2.0", "error": "signature"})
+u = reg.view(pid(30))["update"]
+eq("a refusal on the panel is shown with its reason", (u["state"], u["error"], "signed" in u["error_text"]),
+   ("failed", "signature", True))
+check("…and ends the ask, so a refused image is not offered in a loop", reg.panels[pid(30)].update_request is None)
+check("…and the next check-in carries no offer",
+      "update" not in viewer.post("/api/panels/checkin", json=body(30, version="0.1.0")).json())
+viewer.post(f"/api/panels/{pid(30)}/update", json={"state": "failed", "error": "<script>"})
+eq("an error word Relay does not know is dropped", reg.view(pid(30))["update"]["error"], "")
+viewer.post(f"/api/panels/{pid(30)}/update", json={"state": "melting"})
+eq("a state Relay does not know changes nothing", reg.view(pid(30))["update"]["state"], "failed")
+eq("a report from an unknown panel is 404", viewer.post(f"/api/panels/{pid(77)}/update", json={"state": "ready"}).status_code, 404)
+eq("a report that is not JSON is 400",
+   viewer.post(f"/api/panels/{pid(30)}/update", content=b"{", headers={"content-type": "application/json"}).status_code, 400)
+eq("an oversized report is 413",
+   viewer.post(f"/api/panels/{pid(30)}/update", json={"state": "failed", "error": "x" * 2000}).status_code, 413)
+viewer.post(f"/api/panels/{pid(30)}/update", json={"state": "rolled_back", "version": "0.2.0"})
+u = reg.view(pid(30))["update"]
+eq("a rollback is reported as one, with its reason", (u["state"], u["error"]), ("rolled_back", "rollback"))
+
+admin.post("/api/admin/panels/firmware/update", json={"id": pid(30)})
+viewer.post("/api/panels/checkin", json=body(30, version="0.2.0"))
+u = reg.view(pid(30))["update"]
+eq("a check-in from the new version is the result, whether or not the panel said so",
+   (u["state"], u["version"]), ("installed", "0.2.0"))
+check("…and ends the ask", reg.panels[pid(30)].update_request is None)
+eq("…and the update is no longer available", reg.view(pid(30))["update_available"], False)
+
+print("\nfirmware: replaced or removed while panels are asked")
+admin.post("/api/admin/panels/firmware/update", json={"id": pid(31), "now": False})
+admin.post("/api/admin/panels/firmware", content=make_image("0.3.0"))
+check("a new image withdraws the asks for the old one", reg.panels[pid(31)].update_request is None)
+check("…so the panel's next check-in carries no offer, and it drops what it had staged",
+      "update" not in viewer.post("/api/panels/checkin", json=body(31, version="0.1.0")).json())
+eq("…and its row no longer says it is going", reg.view(pid(31))["update"], None)
+eq("the old version is no longer served", viewer.get("/api/panels/firmware/0.2.0.bin").status_code, 404)
+eq("the new one is", viewer.get("/api/panels/firmware/0.3.0.bin").status_code, 200)
+r = admin.delete("/api/admin/panels/firmware")
+eq("the operator removes the firmware", (r.status_code, r.json()["removed"]), (200, True))
+eq("…and nothing is held", admin.get("/api/admin/panels/firmware").json(), {"firmware": None})
+eq("…or served", viewer.get("/api/panels/firmware/0.3.0.bin").status_code, 404)
+eq("asking for an update with none held is 409",
+   admin.post("/api/admin/panels/firmware/update", json={"id": pid(31)}).status_code, 409)
+eq("…and so is asking for all", admin.post("/api/admin/panels/firmware/update", json={}).status_code, 409)
+check("a panel row has no update available", not reg.view(pid(31))["update_available"])
+
+print("\nfirmware: the panel's words and Relay's are the same")
+fw_source = (Path(__file__).resolve().parent.parent / "firmware" / "relay-display" / "main" / "update_format.h")
+check("the panel's update vocabulary is where this test reads it", fw_source.exists())
+if fw_source.exists():
+    import re as _re
+    text = fw_source.read_text()
+
+    def words(fn):
+        body = text.split(f"inline const char *{fn}(")[1].split("\ninline ")[0]
+        return set(_re.findall(r'return "([a-z_]+)";', body)) - {""}
+
+    sent_states, sent_errors = words("state_word"), words("error_word")
+    # `installed` and `rolled_back` are the outcomes `firmware_update.cpp` reports after a boot, not states.
+    check("every state the panel sends is one Relay keeps",
+          sent_states | {"installed", "rolled_back"} <= set(panels.UPDATE_STATES), sent_states)
+    check("…and Relay keeps no state the panel never sends",
+          set(panels.UPDATE_STATES) <= sent_states | {"installed", "rolled_back"})
+    eq("the errors are the same words, both ways", sent_errors, set(panels.UPDATE_ERRORS))
 
 print()
 if fails:

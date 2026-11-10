@@ -35,6 +35,16 @@ void settings_defaults(relay_settings_t *out);
 void settings_load_relay_name(char *out, size_t cap);
 esp_err_t settings_save_relay_name(const char *name);
 
+// The firmware update's record, in its own NVS key so saving it never races the settings blob: the version this
+// panel is trying to boot, and a result not yet told to Relay. Two NUL-terminated fields; an empty record is a
+// panel that has never updated. `update_format.h` says what each means. The factory reset erases it.
+struct update_record_t {
+    char attempt[33];  // written just before the restart into this version; cleared once it is confirmed
+    char pending[48];  // an outcome Relay has not heard yet: "installed 0.2.0" or "rolled_back 0.2.0"
+};
+esp_err_t settings_load_update(update_record_t *out);
+esp_err_t settings_save_update(const update_record_t &in);
+
 // Make the panel ID if there is none yet: 16 random bytes from the hardware generator, as
 // 32 hex characters, saved at once. Called at boot after `settings_load`. `*created` says
 // whether a new one was made.

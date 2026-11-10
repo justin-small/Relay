@@ -15,11 +15,11 @@ import socket
 import time
 
 from fastapi import Depends, FastAPI, Form, HTTPException, Request, Response
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, StreamingResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-from . import config, exporting, languages, panels, redact, schedules
+from . import config, exporting, languages, panelfw, panels, redact, schedules
 from .engine import TRANSCRIPTION_STREAM, TRANSLATION_STREAM, demo_mode, engine
 from .hub import hub
 from .panels import registry as panel_registry
@@ -686,6 +686,35 @@ async def panel_events(panel_id: str):
     )
 
 
+@app.get("/api/panels/firmware/{name}")
+async def panel_firmware_image(name: str):
+    """The stored panel image, to a panel that was told to fetch it. Plain HTTP on the LAN, like the
+    rest of the panels' traffic: what keeps a stranger's image off a panel is the signature the panel
+    checks, not this route. Only the version held is served, under the name the offer gave."""
+    version = name[:-4] if name.endswith(".bin") else ""
+    path = panelfw.image_path_for(version) if panelfw.parse_version(version) else None
+    if path is None:
+        raise HTTPException(404, "no such firmware")
+    return FileResponse(path, media_type="application/octet-stream",
+                        headers={"Cache-Control": "no-store"})
+
+
+@app.post("/api/panels/{panel_id}/update")
+async def panel_update_report(panel_id: str, request: Request):
+    """A panel's progress and result on a firmware update. Bounded like a check-in: nothing here is
+    authenticated, so only what the admin page shows is kept, and it is in memory."""
+    raw = await _read_limited(request, panels.UPDATE_REPORT_MAX_BYTES)
+    try:
+        body = json.loads(raw)
+    except (ValueError, UnicodeDecodeError):
+        raise HTTPException(400, "body must be JSON")
+    if not isinstance(body, dict):
+        raise HTTPException(400, "body must be a JSON object")
+    if not panel_registry.report_update(panel_id, body):
+        raise HTTPException(404, "unknown panel")
+    return {"ok": True}
+
+
 # --------------------------------------------------------------- admin
 @app.get("/admin", response_class=HTMLResponse)
 async def admin_page(request: Request):
@@ -909,8 +938,10 @@ async def admin_stop():
 
 # ---------------------------------------------------------------- panels
 def _panels_frame() -> dict:
+    info = panelfw.current()
     return {"type": "panels", "panels": panel_registry.listing(), "limit": panels.MAX_PANELS,
-            "offline_after_s": panels.OFFLINE_AFTER_S}
+            "offline_after_s": panels.OFFLINE_AFTER_S,
+            "firmware": info.public() if info else None}
 
 
 # A check-in, rename, feed or forget reaches the open operator panels at once,
@@ -922,6 +953,56 @@ panel_registry.on_change = lambda: hub.push_status(_panels_frame())
 @app.get("/api/admin/panels", dependencies=[Depends(require_admin)])
 async def admin_panels():
     return _panels_frame()
+
+
+# Firmware for the panels. These are declared before `/api/admin/panels/{panel_id}`, which would
+# otherwise take "firmware" for a panel's id.
+@app.get("/api/admin/panels/firmware", dependencies=[Depends(require_admin)])
+async def admin_panel_firmware():
+    info = panelfw.current()
+    return {"firmware": info.public() if info else None}
+
+
+@app.post("/api/admin/panels/firmware", dependencies=[Depends(require_admin)])
+async def admin_panel_firmware_upload(request: Request, filename: str = ""):
+    """Keep the uploaded image (the raw body) as the panels' firmware. It is checked as far as Relay
+    can -- a panel's application, a readable version, whole and signed -- and refused with a sentence
+    if not. Whether the signature is the right one is the panel's to say."""
+    raw = await _read_limited(request, panelfw.SLOT_BYTES)
+    try:
+        info = await asyncio.to_thread(panelfw.store, raw, filename)
+    except panelfw.ImageRefused as exc:
+        raise HTTPException(400, str(exc))
+    panel_registry.firmware_changed()
+    log.info("Panel firmware %s uploaded (%d bytes)", info.version, info.size)
+    return {"firmware": info.public()}
+
+
+@app.delete("/api/admin/panels/firmware", dependencies=[Depends(require_admin)])
+async def admin_panel_firmware_delete():
+    had = await asyncio.to_thread(panelfw.remove)
+    panel_registry.firmware_changed()
+    return {"ok": True, "removed": had}
+
+
+@app.post("/api/admin/panels/firmware/update", dependencies=[Depends(require_admin)])
+async def admin_panel_firmware_update(payload: dict):
+    """Ask one panel (`id`) or every online panel that has an update available (no `id`) to install
+    the stored image. `now` skips the wait for a quiet moment."""
+    now = payload.get("now") is True
+    target = payload.get("id")
+    if target is None:
+        if panelfw.current() is None:
+            raise HTTPException(409, "no panel firmware has been uploaded")
+        return panel_registry.request_update_all(now)
+    try:
+        return {"panel": panel_registry.request_update(target, now)}
+    except KeyError:
+        raise HTTPException(404, "unknown panel")
+    except LookupError as exc:
+        raise HTTPException(409, str(exc))
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
 
 
 @app.post("/api/admin/panels/{panel_id}", dependencies=[Depends(require_admin)])

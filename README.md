@@ -927,6 +927,24 @@ and the Caddyfile both):
 | `GET /api/admin/panels` | every panel: online or not, version, feeds, IP, uptime, signal |
 | `POST /api/admin/panels/{id}` | `{"name": "Lobby"}` and/or `{"feeds": [{"stream": "translation", "lang": "SPANISH"}]}` (one or two feeds; `null` stops overriding). A feed is `transcription` or a `translation` with a language |
 | `DELETE /api/admin/panels/{id}` | forget a panel (one that is still checking in comes straight back, unnamed) |
+| `GET /api/admin/panels/firmware` | the signed panel image Relay holds, or `null` |
+| `POST /api/admin/panels/firmware` | upload `relay-display-app.bin` (the raw body). Relay checks it is a panel's application with a readable version, whole, and signed at all, and refuses it with a sentence if not. Whether the signature is the right one is the panel's to say |
+| `DELETE /api/admin/panels/firmware` | forget the image |
+| `POST /api/admin/panels/firmware/update` | `{"id": "<panel id>", "now": false}` asks one panel to install it; no `id` asks every online panel that has an update available. `now` skips the wait for a quiet moment |
+
+**Firmware updates.** The Panels section of the admin page has an upload box for
+`relay-display-app.bin` (a release publishes it, signed). A panel whose version
+is older than the image shows "Update available"; **Update** installs at a quiet
+moment (no new caption line for two minutes), **Update now** restarts it at once,
+and each row shows the progress and the result (downloading, ready, restarting,
+updated, failed with the reason, or rolled back). The image is kept beside
+`config.json` in `panel-firmware/` and served to panels on the viewer port at
+`/api/panels/firmware/<version>.bin`. **Images travel over plain HTTP on the LAN,
+so the signature check on the panel is what keeps a stranger's image off it**:
+a panel refuses anything not signed with the release key, and an image that does
+not check in with Relay within ten minutes of its first boot is rolled back. The
+asks are held in memory: a restart of Relay forgets them. Panels report on
+`POST /api/panels/{id}/update`, bounded like a check-in.
 
 **A screen choice is not undone.** The operator's feed carries a revision. The
 panel reports the last one it applied (`feed_rev`) and Relay sends a `set_feed`

@@ -147,10 +147,13 @@ def test_relay_forgetting_the_panel_is_cured_by_a_check_in(panel: Board, relay: 
     assert relay.panel_stream_opens > opens
 
 
-def test_an_update_notice_is_noted_not_acted_on(panel: Board, relay: FakeRelay) -> None:
+def test_an_update_notice_without_what_to_fetch_is_not_acted_on(panel: Board, relay: FakeRelay) -> None:
+    """A notice with no size, checksum or path is not an offer: it is logged and nothing is fetched. The update
+    itself is `test_update.py`."""
     relay.wait_panel_streams(1)
     relay.push({"type": "update_available", "version": "0.2.0"})
-    wait_log(panel, r"panel_link: update available: 0\.2\.0")
+    wait_log(panel, r"panel_link: update available \(not one this panel reads\)")
+    assert relay.image_requests == 0
 
 
 def test_a_refused_check_in_is_retried_and_the_stream_waits(

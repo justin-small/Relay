@@ -2,6 +2,7 @@
 // this file is for.
 
 #include "captions.h"
+#include "firmware_update.h"
 
 #include <cerrno>
 #include <cstdio>
@@ -203,6 +204,7 @@ void on_event(void *ctx, const caption_sse_event &event)
 
     switch (change) {
     case caption_change::line:
+        firmware_update_note_line();  // the quiet moment an update waits for starts again
         ESP_LOGI(TAG, "captions[%d]: line %llu (%d kept)", s.index, static_cast<unsigned long long>(newest), kept);
         break;
     case caption_change::rebuilt:

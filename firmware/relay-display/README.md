@@ -24,7 +24,8 @@ menu and updates are separate pieces of work that build on this.
 | Feed picker | A menu button on the caption screen: Transcription or a live translation, one feed or two side by side, saved in NVS (see "Feed picker") |
 | Panel link | Checks in with Relay every 30 s and keeps an event stream open; applies the feed the operator sets there (see "Panel registry link") |
 | Captions | Up to two feeds from Relay's `/stream?finals=1`, each with its own connection and 200-line buffer in PSRAM, resumed with `?last_id=` after a drop (see "Caption client") |
-| Partitions | Two app slots, `otadata`, `nvs`; signing set up (the update itself is a later change) |
+| Partitions | Two app slots, `otadata`, `nvs` |
+| Firmware update | Fetches a signed image Relay offers into the spare slot, refuses it on the panel unless the signature holds, restarts at a quiet moment, and rolls back an image that does not check in (see "Firmware update") |
 | `build.sh` | Release, `--dev` and `--qemu` builds, `--sign`, the native checks and the image check |
 | Tests | Native checks (g++), and an emulator suite under `qemu-system-xtensa` |
 
@@ -89,7 +90,7 @@ firmware/relay-display/build.sh --sign key.pem   # release, signed (see below)
 
 Every build runs the native checks first (`main/test_native.cpp`, a second of g++), then compiles, then
 for a release build checks the image for installation-specific values. The merged image is
-`relay-display.bin`; `relay-display-app.bin` is the application alone, the file an update would carry.
+`relay-display.bin`; `relay-display-app.bin` is the application alone, the file an update carries (a release attaches it, signed).
 
 **Signing.** An unsigned release is a good image, and no panel will accept it as an update. `--sign`
 signs the application with a Secure Boot V2 key (RSA-3072, `espsecure.py generate_signing_key --version 2
@@ -191,11 +192,47 @@ one:
 
 A `set_feed` from either (one or two feeds) goes to `feeds_apply`: saved in NVS and shown at once, **newest change wins**
 against a choice at the screen. The panel applies a revision once, whichever way it arrives, and reports it as
-`feed_rev`, which is what stops Relay sending it again. An `update_available` is logged and nothing more: fetching and
-flashing an image is a separate piece of work. The console's `panel` logs the link's state.
+`feed_rev`, which is what stops Relay sending it again. An `update_available` (and the `update` a check-in reply carries) is
+handed to the firmware update (see "Firmware update"). The console's `panel` logs the link's state.
 
 The rules (the body, the two requests, the messages, when to apply) are in `main/panel_link_format.h`, checked on a
 laptop; `tests/test_panel_link.py` runs the whole link against `fake_relay.py`, which copies Relay's side by hand.
+
+## Firmware update
+
+Relay admin uploads a signed `relay-display-app.bin`; each panel row then shows "Update available", and the operator
+updates one panel or all that are online. The panel's side is `main/firmware_update.cpp`, with the decisions in
+`main/update_format.h` and `main/ota_format.h` (both checked on a laptop). Adapted from the VXP room panel's update
+(`firmware_update.cpp`, `update_format.h`, `components/vxp_ota`).
+
+1. **Relay asks.** `update_available` on the event stream, and `update` in every check-in reply while the ask stands:
+   `{version, size, sha256, path, now}`. A reply with no `update` is the ask withdrawn (the image was replaced or
+   removed), and a verified image waiting for its restart is dropped. Nothing is taken from the offer but a version
+   (`X.Y.Z`), a size no bigger than the slot, a checksum, and a path on the Relay the panel already talks to.
+2. **The panel downloads** into the spare slot over plain HTTP, 4 KB at a time, hashing as it writes. The first 112
+   bytes decide before a slot is opened: an ESP-IDF application (not the merged serial image), for
+   `relay-display-app`, at the version Relay named, and not older than the one running (an update only goes forward).
+3. **The signature is checked on the panel**, by `esp_ota_end` against the public key this firmware was built with
+   (`CONFIG_SECURE_SIGNED_ON_UPDATE_NO_SECURE_BOOT`). **Images travel over plain HTTP on the LAN, so this check is what
+   keeps a stranger's image off the panel.** An unsigned or wrongly signed image is refused here, not only in Relay,
+   and the slot is never made bootable: the bootloader is pointed at it only at the moment of the restart.
+4. **It restarts at a quiet moment**: no new caption line for `CONFIG_RELAY_UPDATE_QUIET_S` (120 s), or at once when
+   the operator chose "Update now". A power cut before that boots the image that was running.
+5. **The new image must check in.** It boots on approval and has `CONFIG_RELAY_UPDATE_CONFIRM_S` (600 s) to be
+   answered with a 200 by Relay; then `esp_ota_mark_app_valid_cancel_rollback`. If it is not (a crash, or no route to
+   Relay), the panel restarts and the bootloader returns to the old image. The attempt is recorded in NVS (`update`)
+   before the restart, so the old image knows it was a rollback and does not fetch that version again until Relay has
+   been told.
+
+The panel tells Relay what is happening with `POST /api/panels/<id>/update` (`downloading` with a progress, `ready`,
+`restarting`, `failed` with an error word, and after the restart `installed` or `rolled_back`), which the admin page
+shows on the panel's row. The words are in `update_format.h` and `app/panels.py`, and `tests/test_panels.py` holds the
+two lists to each other. A failed update ends the ask: asking again is the operator's.
+
+**Release signing keys stay out of the repo**, as with VXP. A release is signed in `release.yml` from a secret
+(`PANEL_FIRMWARE_SIGNING_KEY`, a Secure Boot V2 RSA-3072 PEM); the public half is in every image built from it, so
+rotating the key means panels in the field must be flashed over USB once. `--dev` and `--qemu` builds sign with a
+throwaway key of their own and accept only images signed with it.
 
 ## Caption view
 
@@ -297,6 +334,17 @@ paused, the header shows the feed and a green dot, and Vietnamese and accented t
 frame a second or so and reads the finger once per frame, so the tests wait for each press to be seen and hold the
 finger still before lifting.
 
+`tests/test_update.py` runs the firmware update against the fake Relay, with images made by `tests/build_update.py`
+(the same firmware at 0.2.0, signed with the build's throwaway key, and the same image signed with a key the panel does
+not hold). A good image installs: it downloads, is verified, the panel restarts into it, it checks in and is
+confirmed, and Relay hears each step. A bad signature is refused on the panel and it never restarts. An image whose
+check-ins Relay refuses is taken back by the bootloader, the old version runs again and reports the rollback, and the
+refused version is not fetched a second time. Build the images first:
+
+```bash
+firmware/relay-display/build.sh --qemu && python3 firmware/relay-display/tests/build_update.py
+```
+
 `firmware/relay-display/tests/test_seed_layout.py` and `test_caption_font.py` need no emulator. The first checks the seed generator against
 `main/settings_format.h`.
 
@@ -339,8 +387,9 @@ one reaches the other by hand. What came from where, and what was changed:
 | `components/relay_auth`, `relay_captive`, `relay_form` | `vxp_auth`, `vxp_captive`, `vxp_form` | Renamed |
 | `main/screen.*` | `room_screen.cpp` | The LVGL port (partial buffer, flush, task, lock) and the text/QR drawing, rewritten for this target; no room, notice or evacuation drawing; LVGL's Montserrat fonts instead of the generated Geist ones |
 | `main/diag.*` | same | Renamed |
-| `main/test_native.cpp` | same | Checks for pairing, room, clock and update dropped; settings, Relay address, form and page checks rewritten |
-| `build.sh`, `CMakeLists.txt`, `partitions.csv`, `sdkconfig.*` | same | Renamed; the `cache` partition, TLS, update and clock settings dropped |
+| `main/test_native.cpp` | same | Checks for pairing, room and clock dropped; settings, Relay address, form, page and update checks rewritten |
+| `main/firmware_update.*`, `update_format.h`, `ota_format.h` | `firmware_update.*`, `update_format.h`, `components/vxp_ota` | Plain HTTP from Relay in place of the pinned TLS stream; Relay's offer in place of the heartbeat's manifest; the quiet moment is no caption line, not an unchanged room; the outcome (`installed`, `rolled_back`) is kept in NVS until Relay has been told |
+| `build.sh`, `CMakeLists.txt`, `partitions.csv`, `sdkconfig.*` | same | Renamed; the `cache` partition, TLS and clock settings dropped |
 | `tools/image_check.py` | `tools/firmware_image_check.py` | I/O-board-specific allowlist entries removed |
 | `tests/qemu.py`, `uart.py`, `staleness.py` | `tests/firmware/` | Comments for the I/O board removed |
 | `tests/conftest.py`, `seeds.py`, `test_boot.py`, `test_settings.py`, `test_screen.py` | `tests/firmware_compact/` | New seed layout; Relay names; panel ID tests |

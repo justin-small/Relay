@@ -135,6 +135,12 @@
   .pcard dd { margin:0; overflow-wrap:anywhere; }
   .pcard .pactions { display:flex; flex-wrap:wrap; gap:8px; margin-top:12px; }
   .pcard form { margin-top:12px; }
+  .pcard .pupdate { margin-top:10px; font-size:12.5px; }
+  .pcard .pupdate .badge { color:var(--accent); font-weight:600; }
+  .pcard .pupdate .bad { color:#ff8a80; }
+  .pcard progress { width:100%; height:6px; margin-top:4px; }
+  .fwbox { border:1px solid var(--line); border-radius:9px; background:#111216; padding:12px 14px; margin-top:12px; }
+  .fwbox .fwrow { display:flex; flex-wrap:wrap; align-items:center; gap:8px; margin-top:8px; }
   .pcard form .field { margin-bottom:10px; }
   /* Session health's five columns scroll inside the section on a phone, not the page. */
   .tablescroll { overflow-x:auto; -webkit-overflow-scrolling:touch; }
@@ -319,6 +325,21 @@
   <details class="sect" id="sec-panels" open>
     <summary>Panels <span class="sumstate" id="panelsSum"></span></summary>
     <div class="plist" id="panelList"><div class="muted">No panels have checked in yet.</div></div>
+    <div class="fwbox" id="fwBox">
+      <strong>Panel firmware</strong> <span class="muted" id="fwInfo">none uploaded</span>
+      <div class="fwrow">
+        <input type="file" id="fwFile" accept=".bin,application/octet-stream" aria-label="Signed panel image (relay-display-app.bin)">
+        <button type="button" id="fwUpload">Upload</button>
+        <button type="button" id="fwUpdateAll" hidden>Update all online panels</button>
+        <button type="button" id="fwRemove" hidden>Remove</button>
+      </div>
+      <div class="note">
+        Upload <code>relay-display-app.bin</code> from a release. Relay checks it is a panel image, but the
+        panel decides whether the signature is right and refuses anything not signed with its release key.
+        An update installs at a quiet moment (no new caption line for a while) unless you choose
+        &ldquo;Update now&rdquo;.
+      </div>
+    </div>
     <div class="note">
       Caption panels on the venue network appear here by themselves. A feed you set is sent to the
       panel at once; a change made at the panel&rsquo;s own screen afterwards wins until you set
