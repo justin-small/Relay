@@ -92,6 +92,12 @@ class FakeRelay:
         self.service_offers: list[dict] = []
         self.service_states: dict[str, dict] = {}
         self._service_subs: dict[str, list[queue.Queue]] = {}
+        # The LIVE buttons (#80, #83): every press as (action, body), and what answers it. `on_action(action, body)`
+        # returns (status, reply); the default accepts. `action_delay` holds each answer back, as a slow Planning
+        # Center would.
+        self.actions: list[tuple[str, dict]] = []
+        self.on_action = lambda action, body: (200, {"ok": True})
+        self.action_delay = 0.0
         # Set: connections are served. Cleared: a new connection waits here before it is primed, so the
         # test can commit lines that only a resume can deliver.
         self.door = threading.Event()
@@ -492,6 +498,25 @@ class FakeRelay:
 
     def _serve_post(self, handler: BaseHTTPRequestHandler) -> None:
         path = urlparse(handler.path).path
+        if path.startswith("/api/panels/") and "/service/" in path:
+            size = int(handler.headers.get("Content-Length") or 0)
+            try:
+                body = json.loads(handler.rfile.read(size) or b"{}")
+            except ValueError:
+                self._json(handler, 400, {"detail": "body must be JSON"})
+                return
+            action = path.rsplit("/", 1)[1]
+            with self._lock:
+                self.actions.append((action, body))
+            if self.action_delay:
+                time.sleep(self.action_delay)
+            # `app/pccontrol.py`: a panel needs a control mode and its key.
+            if self.service_mode.get("mode") not in ("control", "both") or body.get("key") != self.service_mode.get("key"):
+                self._json(handler, 403, {"ok": False, "error": "not_allowed"})
+                return
+            status, reply = self.on_action(action, body)
+            self._json(handler, status, reply)
+            return
         if path.startswith("/api/panels/") and path.endswith("/update"):
             size = int(handler.headers.get("Content-Length") or 0)
             try:

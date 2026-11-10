@@ -87,6 +87,10 @@ class Follower:
         self._client: Any = None
         self._token: tuple | None = None
         self._zone_due = 0.0
+        # The token owner's Planning Center person id: LIVE's controller is compared with it, so a panel can tell
+        # whether Relay itself has control (Take control or Release). Read once per token.
+        self.me_id: str | None = None
+        self._me_due = 0.0
         self._names_for: tuple | None = None
         self._sig = ""
         self._task: asyncio.Task | None = None
@@ -144,14 +148,15 @@ class Follower:
         if not (token[0] and token[1] and ids):
             self.tracks.clear()
             if not (token[0] and token[1]):
-                self._client = self._token = self.zone = self._names_for = None
-                self.zone_name, self.names, self._zone_due = "", {}, 0.0
+                self._client = self._token = self.zone = self._names_for = self.me_id = None
+                self.zone_name, self.names, self._zone_due, self._me_due = "", {}, 0.0, 0.0
             self._note_change()
             return
         if token != self._token:
             self._client, self._token = self.make_client(config.get()), token
             self.tracks.clear()
             self.zone, self.zone_name, self._zone_due, self._names_for = None, "", 0.0, None
+            self.me_id, self._me_due = None, 0.0
         client, ts = self._client, now.timestamp()
 
         for st in [s for s in self.tracks if s not in ids]:
@@ -161,6 +166,11 @@ class Follower:
 
         if self.zone is None and ts >= self._zone_due:
             await self._read_zone(client, ts)
+        if self.me_id is None and ts >= self._me_due:
+            try:
+                self.me_id = await self._call(client.me) or None
+            except pc.PlanningCenterError:
+                self._me_due = ts + ERROR_RETRY_S
         if self._names_for != tuple(ids):
             await self._read_names(client, ids)
         zone = self.zone or self.fallback_zone()
@@ -281,7 +291,7 @@ class Follower:
 
     # -- state ----------------------------------------------------------
     def _note_change(self) -> None:
-        sig = json.dumps([[t.st, t.plan, t.items, t.live, t.error, t.override,
+        sig = json.dumps([self.me_id] + [[t.st, t.plan, t.items, t.live, t.error, t.override,
                            [p["id"] for p in t.plans]] for t in self.tracks.values()], sort_keys=True)
         if sig != self._sig:
             self._sig = sig

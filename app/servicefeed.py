@@ -100,6 +100,9 @@ class ServiceFeed:
             "service_over_s": t["service_over_s"],
             "live": s["live"],
             "controller": (s["controller"] or {}).get("name"),
+            # Whether the controller is the token's owner, so the panel offers Release rather than Take control.
+            "relay_controls": bool(s["controller"] and self.follower.me_id
+                                   and s["controller"].get("id") == self.follower.me_id),
             # The reason stays in admin; a panel only says Planning Center is unreachable.
             "reachable": bool(s["reachable"] and not s["error"]),
             "updated_at": s["updated_at"],
