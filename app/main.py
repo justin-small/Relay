@@ -1196,7 +1196,10 @@ async def admin_panel_update(panel_id: str, payload: dict):
             raise HTTPException(400, "service_mode must be a string")
         kwargs["service_mode"] = payload["service_mode"]
     if "service_type" in payload:
-        kwargs["service_type"] = payload["service_type"]
+        st = payload["service_type"]
+        if st not in (None, "") and str(st) not in config.get()["planning_center"]["service_types"]:
+            raise HTTPException(400, "Relay does not follow that service type")
+        kwargs["service_type"] = st
     try:
         return panel_registry.update(panel_id, **kwargs)
     except KeyError:
