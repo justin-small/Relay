@@ -24,6 +24,7 @@ from .engine import TRANSCRIPTION_STREAM, TRANSLATION_STREAM, demo_mode, engine
 from .hub import hub
 from .panels import registry as panel_registry
 from .pclive import follower as pc_follower
+from .servicefeed import feed as service_feed
 from .recorder import recorder
 from .scheduler import scheduler
 
@@ -581,9 +582,42 @@ def _parse_seq(raw: str | None) -> int | None:
         return None
 
 
+SERVICE_STREAM = "service"
+
+
+def _service_stream(st: str) -> StreamingResponse:
+    """Today's plan and LIVE state for one followed service type (servicefeed.py)."""
+    queue = service_feed.subscribe(st)
+
+    async def gen():
+        try:
+            while True:
+                try:
+                    frame = await asyncio.wait_for(queue.get(), timeout=HEARTBEAT_S)
+                except asyncio.TimeoutError:
+                    yield _sse(service_feed.tick_payload(st)).encode()
+                    continue
+                yield frame
+        finally:
+            service_feed.unsubscribe(st, queue)
+
+    return StreamingResponse(
+        gen(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache, no-transform", "X-Accel-Buffering": "no"},
+    )
+
+
 @app.get("/stream")
 async def stream(request: Request, stream: str = "translation", lang: str | None = None,
-                 finals: int = 0):
+                 finals: int = 0, type: str | None = None):
+    if stream == SERVICE_STREAM:
+        st = (type or "").strip()
+        # Only a followed service type: the feed is no way to make Relay ask
+        # Planning Center about anything else.
+        if not any(o["service_type"] == st for o in service_feed.offered()):
+            raise HTTPException(404, "not a followed service type")
+        return _service_stream(st)
     if stream not in (TRANSCRIPTION_STREAM, TRANSLATION_STREAM):
         raise HTTPException(400, "unknown stream")
     if stream == TRANSCRIPTION_STREAM:
@@ -926,6 +960,7 @@ async def admin_planning_center_save(payload: dict):
         "secret": secret,
         "service_types": [] if changed else saved["service_types"],
         "plan_overrides": {} if changed else saved["plan_overrides"],
+        "show_notes": saved["show_notes"],
     }}, replace=("planning_center",))
     log.info("Planning Center token %s", "saved" if changed else "unchanged")
     await pc_follower.poke()
@@ -957,6 +992,20 @@ async def admin_planning_center_service_types(payload: dict):
     saved = config.get()["planning_center"]
     config.save({"planning_center": {**saved, "service_types": ids}}, replace=("planning_center",))
     await pc_follower.poke()
+    return _pc_body()
+
+
+@app.post("/api/admin/planning-center/notes", dependencies=[Depends(require_admin)])
+async def admin_planning_center_notes(payload: dict):
+    """"Show item notes on panels". Off by default: notes can hold names and
+    pastoral details, and the service feed is on the viewer port with no login."""
+    show = payload.get("show")
+    if not isinstance(show, bool):
+        return JSONResponse({"error": "show must be true or false."}, status_code=400)
+    saved = config.get()["planning_center"]
+    config.save({"planning_center": {**saved, "show_notes": show}}, replace=("planning_center",))
+    log.info("Planning Center item notes on panels: %s", "shown" if show else "hidden")
+    service_feed.refresh()
     return _pc_body()
 
 

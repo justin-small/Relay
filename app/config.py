@@ -56,7 +56,8 @@ DEFAULTS: dict[str, Any] = {
     "panels": {},
     # Planning Center Personal Access Token and the service types Relay
     # follows -- see planningcenter.py. Blank means the integration is off.
-    "planning_center": {"app_id": "", "secret": "", "service_types": [], "plan_overrides": {}},
+    "planning_center": {"app_id": "", "secret": "", "service_types": [], "plan_overrides": {},
+                        "show_notes": False},
     "host": "0.0.0.0",
     "admin_host": "127.0.0.1",
     "port": 8000,
@@ -329,6 +330,7 @@ def redacted() -> dict:
     cfg["planning_center"] = {
         "connected": bool(pc.get("app_id") and pc.get("secret")),
         "service_types": list(pc.get("service_types") or []),
+        "show_notes": bool(pc.get("show_notes")),
     }
     cfg["openai_api_key_set"] = bool(key)
     cfg["openai_api_key_hint"] = f"…{key[-4:]}" if len(key) >= 4 else ""

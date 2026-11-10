@@ -19,8 +19,8 @@ Planning Center has no confirmed push for LIVE, so this polls. Every call goes
 through planningcenter.Client on a worker thread; nothing is sent until a token
 is saved and a service type is followed.
 
-Nothing here is shown to viewers yet: the state is read by the admin page, and
-by the panel feed when that lands.
+The state is read by the admin page and by the panels' Service feed
+(servicefeed.py), which registers as a listener.
 """
 from __future__ import annotations
 
