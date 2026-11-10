@@ -720,6 +720,10 @@ Check the host's bandwidth and the session health table, not these two fields.
   a `Secure` cookie and lock the operator out.
 - Failed logins are delayed and logged, and an IP is locked out for five
   minutes after five failures in a row.
+- The Planning Center token is stored only in `config.json` and is never
+  sent to a browser, a panel or a log. Panels on the viewer port can read the
+  Service feed with no login, and a panel the operator allows to control sends
+  a key over plain HTTP: see *Planning Center Services LIVE*.
 - Translation sessions are instructed to treat everything they hear as content
   to translate, never as instructions to follow.
 - The container image is scanned locally with `tools/scan-image.sh` (see
@@ -999,6 +1003,68 @@ with 413 before it is read whole, every field is length-limited, and at most
 two event streams are open per panel. It cannot control anything.
 
 Run the server's checks with `python tests/test_panels.py`.
+
+## Planning Center Services LIVE
+
+Relay can follow **today's service in Planning Center Services** and show it on
+the caption panels: the current and next item with timers, the order of service,
+song keys and arrangements, and who is running LIVE. A panel can also be allowed
+to move the service on (**Next**, **Previous**, **Take control**). It is off until
+a token is saved: with none, Relay behaves exactly as without it.
+
+**Connecting.** One church, one **Personal Access Token**, made at
+<https://api.planningcenteronline.com/personal_access_tokens> by a person who has
+access to **Services**. Paste its application ID and secret into the operator
+panel's **Planning Center** section, press **Test connection**, and tick the
+service types to follow. The token is stored in `config.json` only; the ID and
+the secret are never sent back to the browser, to a panel or to a log.
+
+**Everything Relay does in Planning Center runs as the token's owner.** A press
+of **Next** on a panel is that person pressing Next in Services LIVE. To control
+LIVE that person must be allowed to control it for the service type: if they can
+press Next in Services LIVE themselves, Relay can too. Without it a press reads
+"Planning Center said no" on the panel.
+
+**What Relay does** (`app/planningcenter.py`, `app/pclive.py`):
+
+- Finds **today's plan** for each followed service type, by the organisation's own
+  time zone, every few minutes. The operator can pick another plan for today; the
+  pick lapses at midnight.
+- **Polls LIVE**: every 2 s from an hour before a service until shortly after it
+  (or while an item is open), every 3 minutes otherwise, held to half of
+  Planning Center's rate limit. Planning Center's webhook list does show a LIVE
+  event (`services.v2.events.plan.live.updated`), but Relay sits on the LAN and
+  cannot receive it, so it polls.
+- Works out the **timers** itself: item time left, and how far ahead or behind
+  the service is.
+
+**What panels get** (`app/servicefeed.py`): `GET /stream?stream=service&type=<id>`
+on the viewer port, the whole state per message, a new message only when
+something shown changes, and a tick every 15 s. Followed service types are listed
+under `service` in `/api/targets`.
+
+**Per panel, in admin** (each panel's **Service** button): **Off** (the default:
+no Service feed in its menu), **Show only**, **Control only**, or **Show and
+control**, and which service type it follows. **Item notes** reach panels only
+while **Show item notes on panels** is on (off by default), because notes can
+hold names and pastoral details.
+
+**Panel control** (`app/pccontrol.py`): `POST /api/panels/<id>/service/<next|previous|take_control|release>`
+on the viewer port with the panel's key. Relay checks the panel's mode, its
+random 128-bit key (made when control is turned on, dropped when it is turned
+off), one press a second per panel, and a followed type with a plan today, then
+presses the button in Planning Center and shows the result to every panel.
+Presses are listed in admin under **Presses from panels**.
+
+**What anyone on the LAN can reach.** The Service feed is on the viewer port with **no login**, like the captions:
+anyone on the venue network can read the plan title, the song names and, while
+the switch is on, the item notes. The control key travels over **plain HTTP**:
+it stops casual misuse, not someone who can read the network. Give control only
+to panels in places you trust, on a network you trust.
+
+`tools/check_planningcenter.py --live` checks a token against the real API,
+read-only, from a git-ignored `planningcenter-test.env`. For operators there is
+a chapter in the user guide (`docs/guide/src/52-planning-center.md`).
 
 ## Not in scope
 
