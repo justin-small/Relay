@@ -451,6 +451,30 @@
       line.textContent = picked + pcLiveLine(t);
       line.className = 'note ' + (t.error ? 'err' : t.live ? 'ok' : '');
     });
+    renderPcActions(snap.actions || []);
+  }
+
+  const PC_ACTION_WORDS = { next: 'Next', previous: 'Previous', take_control: 'Take control', release: 'Release' };
+  const PC_RESULT_WORDS = {
+    ok: 'done', unchanged: 'nothing to do', too_fast: 'too fast', not_followed: 'service type not followed',
+    no_plan: 'no plan today', not_controlling: 'Relay does not have control', not_connected: 'not connected',
+    unreachable: 'Planning Center unreachable', refused: 'Planning Center refused'
+  };
+  let pcActionsSig = '';
+  function renderPcActions(actions) {
+    const sig = JSON.stringify(actions.slice(0, 20));
+    if (sig === pcActionsSig) return;
+    pcActionsSig = sig;
+    $('pcActions').hidden = !actions.length;
+    const list = $('pcActionList');
+    list.innerHTML = '';
+    actions.slice(0, 20).forEach(function (a) {
+      const when = new Date(a.at * 1000).toLocaleTimeString();
+      const row = el('div', 'note ' + (a.result === 'ok' ? 'ok' : a.result === 'unchanged' ? '' : 'err'),
+        when + ' · ' + a.panel_name + ' · ' + (PC_ACTION_WORDS[a.action] || a.action) + ' · '
+        + (PC_RESULT_WORDS[a.result] || a.result));
+      list.appendChild(row);
+    });
   }
 
   async function pcLivePoll() {

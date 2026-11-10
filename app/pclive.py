@@ -257,6 +257,28 @@ class Follower:
         hot = sum(1 for t in self.tracks.values() if t.fast)
         tr.live_due = ts + (fast_interval(hot, client.rate) if tr.fast else SLOW_S)
 
+    # -- LIVE buttons (pccontrol.py) -------------------------------------
+    def client(self):
+        """The client for the saved token, shared with the poll so both count
+        against the same rate-limit reading. None until the first tick."""
+        return self._client
+
+    def apply_live(self, st: str, live: dict, ts: float | None = None) -> None:
+        """A LIVE state Planning Center just answered an action with: shown to
+        every panel at once, and the next poll comes soon to fill in the rest."""
+        tr = self.tracks.get(st)
+        if tr is None:
+            return
+        ts = datetime.now(timezone.utc).timestamp() if ts is None else ts
+        tr.live, tr.updated_at, tr.error, tr.reachable = live, ts, None, True
+        cur = live.get("current")
+        if cur and cur["live_start_at"] and cur["plan_time"]:
+            seen = tr.service_start.get(cur["plan_time"])
+            tr.service_start[cur["plan_time"]] = min(seen or cur["live_start_at"], cur["live_start_at"])
+        tr.fast = True
+        tr.live_due = min(tr.live_due, ts + FAST_S)
+        self._note_change()
+
     # -- state ----------------------------------------------------------
     def _note_change(self) -> None:
         sig = json.dumps([[t.st, t.plan, t.items, t.live, t.error, t.override,
