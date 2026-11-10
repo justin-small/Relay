@@ -66,10 +66,10 @@ endif()
 # `test_native.cpp` is deliberately not in SRCS. It is a `main()` compiled by g++ on a laptop, and
 # `build.sh` runs it before anything is built for the board. Linking it here would be a second `main`
 # in the application. The headers it checks (`panel_format.h`, `settings_format.h`, `wifi_policy.h`,
-# `setup_format.h`, `setup_page.h`, `caption_format.h`, `feed_format.h`, `discovery_format.h`, `panel_link_format.h`) hold no ESP-IDF calls, so the same files serve both builds.
+# `setup_format.h`, `setup_page.h`, `caption_format.h`, `feed_format.h`, `service_format.h`, `discovery_format.h`, `panel_link_format.h`) hold no ESP-IDF calls, so the same files serve both builds.
 idf_component_register(
     SRCS "main.cpp" "display.cpp" "board_i2c.cpp" "button.cpp" "net.cpp" "settings.cpp" "diag.cpp"
-         "provision.cpp" "screen.cpp" "touch.cpp" "captions.cpp" "caption_view.cpp" "feeds.cpp" "discovery.cpp" "panel_link.cpp" "firmware_update.cpp"
+         "provision.cpp" "screen.cpp" "touch.cpp" "captions.cpp" "caption_view.cpp" "service_view.cpp" "feeds.cpp" "discovery.cpp" "panel_link.cpp" "firmware_update.cpp"
          "fonts/relay_caption_36.c" "fonts/relay_caption_36_more.c"
          ${_relay_qemu_srcs}
     INCLUDE_DIRS "."

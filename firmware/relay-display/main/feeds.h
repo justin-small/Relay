@@ -57,3 +57,6 @@ void feeds_go_manual();
 
 // The console's `feeds`: log the state in one line.
 void feeds_report();
+
+// The panel's service mode changed (`panel_link.cpp`): the menu is made again from it at the next step.
+void feeds_service_changed();

@@ -43,6 +43,30 @@ struct State {
 State s_;
 bool s_started = false;
 
+// The panel's service mode (#81), as Relay last said it. Memory only: Relay says it again on every check-in and when
+// the stream opens, and a panel that has not heard yet offers no Service feed. Read by `feeds.cpp` and the view.
+portMUX_TYPE s_service_mux = portMUX_INITIALIZER_UNLOCKED;
+panel_service s_service;
+std::atomic<uint32_t> s_service_rev{0};
+
+void set_service(const panel_service &svc, const char *how)
+{
+    taskENTER_CRITICAL(&s_service_mux);
+    const bool changed = !panel_service_same(svc, s_service);
+    if (changed) {
+        s_service = svc;
+    }
+    taskEXIT_CRITICAL(&s_service_mux);
+    if (changed) {
+        s_service_rev.fetch_add(1);
+        static const char *const kNames[] = {"off", "show", "control", "both"};
+        ESP_LOGI(TAG, "panel_link: service mode %s%s%s%s (%s)", kNames[static_cast<int>(svc.mode)],
+                 svc.type[0] != '\0' ? ", service type " : "", svc.type, svc.key[0] != '\0' ? ", with a key" : "",
+                 how);
+        feeds_service_changed();
+    }
+}
+
 // The check-in task's own. Static: the stack is small, and the feeds snapshot is a kilobyte or two.
 feeds_view s_view;
 char s_body[kPanelBodyMax];
@@ -156,6 +180,9 @@ bool checkin(const char *url)
                 if (r.has_feed && panel_should_apply(r.feed.rev, s_.applied_rev.load())) {
                     apply(r.feed, "check-in");
                 }
+                if (r.has_service) {
+                    set_service(r.service, "check-in");
+                }
                 // The reply is Relay's current word on an update: no `update` is the ask withdrawn. A 200 that
                 // parsed is also the proof a new image needs.
                 firmware_update_offer(r.update);
@@ -244,6 +271,9 @@ void on_event(void *, const caption_sse_event &event)
         if (ev.update.present) {
             firmware_update_offer(ev.update);
         }
+        break;
+    case panel_message::service_mode:
+        set_service(ev.service, "stream");
         break;
     case panel_message::none:
         break;
@@ -382,4 +412,17 @@ void panel_link_report()
     ESP_LOGI(TAG, "panel_link: report: %s, %u check-ins, stream %s, rev %u, named \"%s\"",
              s_started ? "running" : "not started", static_cast<unsigned>(s_.checkins.load()),
              s_.stream_open ? "open" : "closed", static_cast<unsigned>(s_.applied_rev.load()), s_.name);
+}
+
+panel_service panel_link_service()
+{
+    taskENTER_CRITICAL(&s_service_mux);
+    const panel_service svc = s_service;
+    taskEXIT_CRITICAL(&s_service_mux);
+    return svc;
+}
+
+uint32_t panel_link_service_revision()
+{
+    return s_service_rev.load();
 }

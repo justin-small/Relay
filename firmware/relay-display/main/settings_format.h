@@ -30,7 +30,7 @@ struct relay_settings_t {
     char relay_addr[129];    // the Relay address override, `http://host[:port]`; empty means find Relay
     char panel_id[33];       // 32 lower-case hex characters, random, made on first boot
     uint8_t ip_mode;         // kIpModeDhcp or kIpModeStatic; zero is DHCP
-    uint8_t feed_stream;     // the saved feed: kFeedNone, kFeedTranscription or kFeedTranslation
+    uint8_t feed_stream;     // the saved feed: kFeedNone, kFeedTranscription, kFeedTranslation or kFeedService
     uint8_t reserved[2];     // zero
     char feed_lang[20];      // the translation feed's language, as Relay names it ("SPANISH")
     uint8_t static_addr[4];     // the station's IPv4 address, network byte order
@@ -70,6 +70,8 @@ constexpr uint8_t kIpModeStatic = 1;
 constexpr uint8_t kFeedNone = 0;
 constexpr uint8_t kFeedTranscription = 1;
 constexpr uint8_t kFeedTranslation = 2;
+// The Planning Center service (#82): `feed_lang` holds the service type id.
+constexpr uint8_t kFeedService = 3;
 
 // What `settings_decode` made of a blob.
 enum class settings_blob {
@@ -175,10 +177,10 @@ inline settings_blob settings_decode(const void *blob, size_t len, relay_setting
     if (stored.ip_mode != kIpModeDhcp && stored.ip_mode != kIpModeStatic) {
         stored.ip_mode = kIpModeDhcp;
     }
-    if (stored.feed_stream > kFeedTranslation) {
+    if (stored.feed_stream > kFeedService) {
         stored.feed_stream = kFeedNone;
     }
-    if (stored.feed2_stream > kFeedTranslation) {
+    if (stored.feed2_stream > kFeedService) {
         stored.feed2_stream = kFeedNone;
     }
     if (stored.feed_split > 1) {

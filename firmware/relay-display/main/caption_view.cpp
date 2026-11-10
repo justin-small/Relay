@@ -9,6 +9,7 @@
 #include "feeds.h"
 #include "esp_log.h"
 #include "screen.h"
+#include "service_view.h"
 
 extern "C" {
 LV_FONT_DECLARE(relay_caption_36);
@@ -33,6 +34,7 @@ constexpr uint32_t kJumpHex = 0x2F6FED;
 // each follows live, scrolls and jumps on its own.
 struct Pane {
     bool built = false;
+    bool service = false;   // the Planning Center service (`service_view.cpp`) instead of captions
     int slot = 0;
     int x = 0;
     int w = kLcdWidth;
@@ -263,6 +265,20 @@ void place_list(Pane &p)
     lv_obj_align(p.empty, LV_ALIGN_CENTER, 0, top / 2);
 }
 
+// A service pane's header: the service's name and the connection. Its body is `service_view.cpp`'s.
+void refresh_service_header(Pane &p)
+{
+    char title[48];
+    if (!service_view_title(p.slot, title, sizeof title)) {
+        snprintf(title, sizeof title, "Service");
+    }
+    if (strcmp(lv_label_get_text(p.title), title) != 0) {
+        lv_label_set_text(p.title, title);
+    }
+    lv_label_set_text(p.state_label, caption_state_label(p.state));
+    lv_obj_set_style_bg_color(p.dot, tone_colour(caption_state_tone(p.state)), 0);
+}
+
 void refresh_header(Pane &p)
 {
     char lang[sizeof p.shown_lang] = {};
@@ -293,6 +309,9 @@ void refresh_header(Pane &p)
 // The strip under the header that says a language is not live, while its pane shows the transcription.
 void refresh_notice(Pane &p, int pane_index)
 {
+    if (p.service) {
+        return;   // a service pane is never a fallback: one whose service is not offered shows the transcription
+    }
     char note[64] = {};
     const bool want = s_fv.shown[pane_index].fallback;
     if (want) {
@@ -342,6 +361,12 @@ void on_jump(lv_event_t *e)
 void tick_pane(Pane &p, uint32_t now, bool touching)
 {
     if (!p.built) {
+        return;
+    }
+    if (p.service) {
+        p.state = captions_state(p.slot);
+        service_view_tick(p.slot, now, touching);
+        refresh_service_header(p);
         return;
     }
     const uint32_t rev = captions_revision(p.slot);
@@ -487,6 +512,13 @@ void build_pane(lv_obj_t *root, Pane &p, int index, bool split)
     p.box = plain_box(root);
     lv_obj_set_pos(p.box, p.x, 0);
     lv_obj_set_size(p.box, p.w, kLcdHeight);
+    p.service = s_fv.shown[index].pick.stream == kFeedService;
+    if (p.service) {
+        service_view_build(index, p.box, index, p.w);
+        build_header(p, index == (split ? 1 : 0));
+        p.built = true;
+        return;
+    }
     build_list(p);
     build_header(p, index == (split ? 1 : 0));
     build_jump(p);
@@ -712,7 +744,12 @@ void sync_feeds()
     }
     feeds_snapshot(&s_fv);
     s_v.feeds_rev = s_fv.revision;
-    if (s_fv.split != s_v.split) {
+    // A pane going between captions and the service is a different picture, as one feed and two are.
+    bool kind_changed = false;
+    for (int i = 0; i < s_v.count; ++i) {
+        kind_changed = kind_changed || (s_fv.shown[i].pick.stream == kFeedService) != s_v.pane[i].service;
+    }
+    if (s_fv.split != s_v.split || kind_changed) {
         if (!s_v.rebuild_requested) {
             s_v.rebuild_requested = true;
             screen_show_captions();
@@ -796,6 +833,7 @@ void caption_view_build(lv_obj_t *root)
 
 void caption_view_teardown()
 {
+    service_view_teardown();
     if (s_v.timer != nullptr) {
         lv_timer_delete(s_v.timer);
         s_v.timer = nullptr;
@@ -817,10 +855,14 @@ void caption_view_report()
     } else {
         for (int i = 0; i < s_v.count; ++i) {
             Pane &p = s_v.pane[i];
+            if (p.service) {
+                continue;   // service_view_report, below
+            }
             ESP_LOGI(TAG, "%s: %s, %d lines, %d px below, jump button %s", i == 0 ? "view" : "view: split, pane 2",
                      p.follow.following() ? "following live" : "paused", p.shown_count, px_below(p),
                      lv_obj_has_flag(p.jump, LV_OBJ_FLAG_HIDDEN) ? "hidden" : "shown");
         }
+        service_view_report();
         ESP_LOGI(TAG, "view: menu %s, %s", s_v.menu.open ? "open" : "closed",
                  s_v.split ? "two feeds" : "one feed");
     }

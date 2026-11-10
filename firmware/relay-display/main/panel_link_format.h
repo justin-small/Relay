@@ -14,6 +14,7 @@
 //   GET /api/panels/<id>/events       kept open; Relay writes to it the moment the operator acts
 //   -> data: {"type":"set_feed","rev":3,"feeds":[{"stream":"transcription"}]}
 //   -> data: {"type":"update_available","version":"0.2.0","size":..,"sha256":"..","path":"/api/panels/firmware/0.2.0.bin","now":false}
+//   -> data: {"type":"service_mode","mode":"both","service_type":"7","key":"<32 hex>"}   (#81; also in a reply's `service`)
 //   -> : ping                          every 15 s of quiet
 //
 // **`rev` is how Relay and the panel agree what has been applied.** The operator's feed carries a revision
@@ -347,12 +348,14 @@ enum class panel_message : uint8_t {
     none,              // not something the panel acts on (an unknown type, or unreadable)
     set_feed,          // `feed` is filled in
     update_available,  // a firmware update is waiting; `update` is it when it is one the panel will act on
+    service_mode,      // the operator set the panel's service mode (#81); `service` is it
 };
 
 struct panel_event {
     panel_message kind = panel_message::none;
     panel_set_feed feed = {};
     update_format::Order update = {};
+    panel_service service = {};
 };
 
 // One event from the stream (the JSON of a `data:` line).
@@ -373,6 +376,10 @@ inline panel_event panel_parse_event(const char *json, size_t len, uint32_t slot
     } else if (strcmp(type, "update_available") == 0) {
         ev.kind = panel_message::update_available;
         ev.update = panel_read_update(json, e, slot_bytes);
+    } else if (strcmp(type, "service_mode") == 0) {
+        if (panel_service_parse(json, e, &ev.service)) {
+            ev.kind = panel_message::service_mode;
+        }
     }
     return ev;
 }
@@ -386,6 +393,9 @@ struct panel_reply {
     char name[kPanelNameMax] = {};
     // The firmware update Relay is asking for, if it is asking. A reply with none is the ask withdrawn.
     update_format::Order update = {};
+    // The panel's service mode (#81). A Relay from before it sends none, which leaves the mode as it was.
+    bool has_service = false;
+    panel_service service = {};
 };
 
 inline panel_reply panel_parse_reply(const char *json, size_t len, uint32_t slot_bytes = 0x1E0000)
@@ -410,6 +420,10 @@ inline panel_reply panel_parse_reply(const char *json, size_t len, uint32_t slot
     const char *update = caption_json::get(json, e, "update");
     if (update != nullptr) {
         r.update = panel_read_update(update, e, slot_bytes);
+    }
+    const char *service = caption_json::get(json, e, "service");
+    if (service != nullptr) {
+        r.has_service = panel_service_parse(service, e, &r.service);
     }
     return r;
 }

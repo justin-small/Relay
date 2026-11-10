@@ -5,6 +5,7 @@
 
 #include "captions.h"
 #include "esp_log.h"
+#include "panel_link.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 #include "freertos/task.h"
@@ -33,6 +34,13 @@ struct State {
     uint32_t seen_poll_rev = 0;
 };
 
+// The step's own, static for the task's stack: what Relay's `targets` offers (captions and service feeds apart), and
+// the menu made from them with the panel's service mode.
+feed_options s_base;
+service_offers s_offers;
+feed_options s_combined;
+feed_options s_parsed;
+
 State s_;
 bool s_started = false;
 
@@ -60,6 +68,8 @@ void describe(const feed_pick &p, char *out, size_t cap)
         snprintf(out, cap, "transcription");
     } else if (p.stream == kFeedTranslation) {
         snprintf(out, cap, "translation %s", p.lang);
+    } else if (p.stream == kFeedService) {
+        snprintf(out, cap, "service %s", p.lang);
     } else {
         snprintf(out, cap, "nothing");
     }
@@ -75,9 +85,25 @@ void read_targets(const caption_feed *feed, caption_state, void *)
     }
 }
 
+// Read one `targets` message into the caption options and the service offers. Returns whether either changed.
+bool take_targets(const char *json)
+{
+    if (!feed_options_parse(json, strlen(json), &s_parsed)) {
+        return false;
+    }
+    const service_offers offers = service_offers_parse(json, strlen(json));
+    bool changed = !feed_options_same(s_parsed, s_base);
+    s_base = s_parsed;
+    if (offers.count != s_offers.count || memcmp(&offers, &s_offers, sizeof offers) != 0) {
+        s_offers = offers;
+        changed = true;
+    }
+    return changed;
+}
+
 // The newest `targets` message either slot has read, if one is new since the last step. Returns whether the
 // options changed.
-bool update_options(feed_options *options)
+bool update_options()
 {
     bool changed = false;
     for (int slot = 0; slot < kCaptionSlots; ++slot) {
@@ -87,11 +113,7 @@ bool update_options(feed_options *options)
             continue;
         }
         s_.seen_targets_rev[slot] = s_copy.rev;
-        feed_options parsed;
-        if (feed_options_parse(s_copy.json, strlen(s_copy.json), &parsed) && !feed_options_same(parsed, *options)) {
-            *options = parsed;
-            changed = true;
-        }
+        changed = take_targets(s_copy.json) || changed;
     }
     // What Relay answered when asked (it does not say what is live when a stream opens, only when that changes).
     lock();
@@ -102,11 +124,7 @@ bool update_options(feed_options *options)
     }
     unlock();
     if (polled) {
-        feed_options parsed;
-        if (feed_options_parse(s_copy.json, strlen(s_copy.json), &parsed) && !feed_options_same(parsed, *options)) {
-            *options = parsed;
-            changed = true;
-        }
+        changed = take_targets(s_copy.json) || changed;
     }
     return changed;
 }
@@ -132,18 +150,21 @@ void persist()
 
 void step()
 {
-    feed_options options;
-    lock();
-    options = s_.view.options;
-    unlock();
-    const bool options_changed = update_options(&options);
+    const bool targets_changed = update_options();
+    // The menu: what Relay offers, with the service feeds the panel's service mode allows. Made every step, since the
+    // mode can change without a `targets` message.
+    s_combined = feed_options_with_service(s_base, s_offers, panel_link_service());
+    const feed_options &options = s_combined;
 
     lock();
+    const bool options_changed = !feed_options_same(options, s_.view.options);
     if (options_changed) {
         s_.view.options = options;
-        s_.refused[0] = s_.refused[1] = false;
         ++s_.view.revision;
         ESP_LOGI(TAG, "feeds: %d on offer", options.count);
+    }
+    if (targets_changed) {
+        s_.refused[0] = s_.refused[1] = false;
     }
     const bool manual = s_.manual;
     const bool split = s_.view.split;
@@ -375,7 +396,9 @@ void feeds_go_manual()
 
 void feeds_report()
 {
-    feeds_view v;
+    // Static: the console task's stack is small, and a snapshot with its menu is a couple of kilobytes. The console
+    // runs one command at a time.
+    static feeds_view v;
     feeds_snapshot(&v);
     char saved1[48], saved2[48], shown1[48], shown2[48];
     describe(v.saved[0], saved1, sizeof saved1);
@@ -385,10 +408,16 @@ void feeds_report()
     char list[200] = "";
     size_t o = 0;
     for (int i = 0; i < v.options.count && o + 40 < sizeof list; ++i) {
-        o += snprintf(list + o, sizeof list - o, "%s%s", i > 0 ? "," : "",
-                      v.options.items[i].pick.stream == kFeedTranscription ? "transcription" : v.options.items[i].pick.lang);
+        const feed_pick &pick = v.options.items[i].pick;
+        o += snprintf(list + o, sizeof list - o, "%s%s%s", i > 0 ? "," : "", pick.stream == kFeedService ? "service:" : "",
+                      pick.stream == kFeedTranscription ? "transcription" : pick.lang);
     }
     ESP_LOGI(TAG, "feeds: report: %s; pane 1 saved %s shows %s%s; pane 2 saved %s shows %s%s; options %s [%s]",
              v.split ? "split" : "single", saved1, shown1, v.shown[0].fallback ? " (fallback)" : "", saved2, shown2,
              v.shown[1].fallback ? " (fallback)" : "", v.options.known ? "known" : "unknown", list);
+}
+
+void feeds_service_changed()
+{
+    wake();
 }

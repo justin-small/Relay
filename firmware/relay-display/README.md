@@ -296,6 +296,37 @@ keeps the choice and points the two caption slots at it; the menu and the panes 
 Open questions from the issue, not decided here: whether the operator can **lock** a panel so the screen cannot change it,
 and whether a panel **returns to the operator's choice** after a period of no touch.
 
+## Service feed
+
+The Planning Center service (#82), chosen from the same menu as Transcription and the languages, full screen or as one
+half of the split view. The rules are in `main/service_format.h` (native checks); the drawing is `main/service_view.cpp`,
+which `main/caption_view.cpp` builds in a pane whose feed is the service.
+
+* **Offered only while the operator allows it.** Relay sends the panel's **service mode** (Off, Show only, Control only,
+  Show and control, set per panel in Relay admin) in every check-in reply's `service` and as a `service_mode` event on
+  its stream (`main/panel_link.cpp`). Off, the default, offers no Service feed. Relay's `targets` lists the service types
+  it follows (`service`); the menu offers each one ("Service", or "Service: <name>" with several), or only the one the
+  operator set for this panel. A saved Service pick that is no longer offered falls back to the transcription, with the
+  amber strip, and returns by itself.
+* **The feed** is a caption slot pointed at `GET /stream?stream=service&type=<id>`: the same socket, backoff and silence
+  clock as the captions, with the service state in place of the 200 lines. **Each `service` message is the whole state**,
+  so there is nothing to resume; a `service_tick` every 15 s keeps the silence clock happy and says when Planning Center
+  last answered.
+* **On the glass**: the current item in the caption font with its time left (`montserrat_40`, red with a `+` once over)
+  and the next item; the order of service below, scrollable, the current item highlighted, headers as small section
+  breaks, songs with their key and arrangement sequence and items with their length; a footer with over/under and who
+  is controlling, or "Not live", "No service planned today", "Planning Center unreachable".
+* **Timers count on the panel** from the last message, as the message stood at Relay's `server_time`: time left goes
+  down, and the service only falls further behind once the current item has run past its length.
+* **Following**: the list keeps the current item in view. A finger's scroll pauses it and shows "Jump to now"; a minute
+  without a touch goes back, as the caption view does.
+* **Notes** (only sent while Relay's "Show item notes on panels" is on) show as a file mark on the row; a tap opens them
+  in a card over the glass, a tap anywhere closes it.
+* **Fonts.** Only the 36 px caption font draws accents, so item titles use it. The smaller text (key, sequence, footer,
+  header, notes) is LVGL's Montserrat, ASCII only: an accented letter is drawn without its accent ("José" reads "Jose").
+* Console: `feeds` lists a service option as `service:<id>`; `view` adds a line per service pane (items, current, next,
+  the timer and footer as drawn, following or paused, and where the current row is).
+
 ## Tests
 
 ```bash
@@ -338,6 +369,13 @@ paused, the header shows the feed and a green dot, and Vietnamese and accented t
 frame a second or so and reads the finger once per frame, so the tests wait for each press to be seen and hold the
 finger still before lifting.
 
+`tests/test_service_view.py` runs the Service feed against the fake Relay (which copies `app/servicefeed.py`'s wire
+format): it is offered only while the operator's service mode allows it; chosen from the menu it shows the current and
+next item and the footer; the current item moves when Relay says so; the timer runs over and the service falls behind;
+Planning Center going away and coming back reads in the footer; nobody controlling reads "Not live"; and a service
+type Relay stops following falls back to the transcription and returns. A tap on a row opening its notes is a test
+that is skipped for now: it is a bench item.
+
 `tests/test_update.py` runs the firmware update against the fake Relay, with images made by `tests/build_update.py`
 (the same firmware at 0.2.0, signed with the build's throwaway key, and the same image signed with a key the panel does
 not hold). A good image installs: it downloads, is verified, the panel restarts into it, it checks in and is
@@ -371,6 +409,10 @@ Not proven by any test, and to be done on the board:
 - [ ] Caption view: touch lands where the finger is (the GT911 and the rotation), and Jump to live is easy to hit
 - [ ] Feed picker: the menu button and the 56 px rows are easy to hit with a finger, with two feeds as well as one
 - [ ] Feed picker: with two feeds, the half-width panes read well from the back of the room
+- [ ] Service feed: the current item, its timer and the next item read from a few metres; the order of service scrolls
+      smoothly and a finger on a row with notes opens them without scrolling by mistake
+- [ ] Service feed: a song title and a controller name with accents read right (titles in the caption font, the
+      smaller text without its accents)
 - [ ] Captions: an hour on Wi-Fi against a running Relay with no lost or doubled lines (`captions 0`
       against Relay's history), across at least one Wi-Fi drop and one Relay restart
 

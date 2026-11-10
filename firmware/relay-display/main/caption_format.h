@@ -1258,8 +1258,8 @@ inline bool caption_url_split(const char *url, char *host, size_t host_cap, uint
     return true;
 }
 
-// The request for a feed. `stream` is kFeedTranscription (1) or kFeedTranslation (2), as stored in the
-// settings; `lang` is the translation's language as Relay names it. `resume_id` 0 asks for a snapshot.
+// The request for a feed. `stream` is kFeedTranscription (1), kFeedTranslation (2) or kFeedService (3), as stored in
+// the settings; `lang` is the translation's language as Relay names it, or the service type id. `resume_id` 0 asks for a snapshot.
 // Returns the length, or 0 when it does not fit in `cap` or the feed is not one.
 inline size_t caption_request(char *out, size_t cap, const char *host, uint16_t port, uint8_t stream,
                               const char *lang, uint64_t resume_id, const char *version)
@@ -1296,10 +1296,25 @@ inline size_t caption_request(char *out, size_t cap, const char *host, uint16_t 
                 return 0;
             }
         }
+    } else if (stream == 3) {
+        // The Planning Center service (servicefeed.py): whole state per message, nothing to resume.
+        if (lang == nullptr || lang[0] == '\0' || strlen(lang) > 20) {
+            return 0;
+        }
+        for (const char *c = lang; *c != '\0'; ++c) {
+            if (*c < '0' || *c > '9') {
+                return 0;
+            }
+        }
+        add("stream=service&type=");
+        if (!add(lang)) {
+            return 0;
+        }
+        resume_id = 0;
     } else {
         return 0;
     }
-    if (!add("&finals=1")) {
+    if (stream != 3 && !add("&finals=1")) {
         return 0;
     }
     if (resume_id != 0) {
