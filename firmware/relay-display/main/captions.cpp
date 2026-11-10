@@ -64,8 +64,9 @@ struct Slot {
     char lang[sizeof(relay_settings_t::feed_lang)] = {};
     uint32_t wanted_gen = 0;
 
-    // What readers see, under `lock`.
+    // What readers see, under `lock`. A slot on the Service feed holds `service` instead of `feed`.
     caption_feed *feed = nullptr;
+    service_state *service = nullptr;
     caption_state state = caption_state::off;
     uint32_t revision = 0;
 
@@ -120,27 +121,66 @@ void set_state(Slot &s, caption_state state)
     }
 }
 
-// A new, empty feed, or none. The old one's lines are freed.
-bool replace_feed(Slot &s, bool make)
+// A new, empty feed (or service state, for the Service feed), or none. The old one is freed.
+bool replace_feed(Slot &s, bool make, bool service)
 {
     caption_feed *fresh = nullptr;
-    if (make) {
+    service_state *fresh_service = nullptr;
+    if (make && !service) {
         void *mem = feed_alloc(sizeof(caption_feed));
         if (mem == nullptr) {
             return false;
         }
         fresh = new (mem) caption_feed(feed_alloc, feed_free);
+    } else if (make) {
+        void *mem = feed_alloc(sizeof(service_state));
+        if (mem == nullptr) {
+            return false;
+        }
+        fresh_service = new (mem) service_state();
     }
     lock(s);
     caption_feed *old = s.feed;
+    service_state *old_service = s.service;
     s.feed = fresh;
+    s.service = fresh_service;
     ++s.revision;
     unlock(s);
     if (old != nullptr) {
         old->~caption_feed();
         feed_free(old);
     }
+    if (old_service != nullptr) {
+        old_service->~service_state();
+        feed_free(old_service);
+    }
     return true;
+}
+
+// One event of the Service feed (`service_format.h`).
+void on_service_event(Slot &s, const caption_sse_event &event)
+{
+    lock(s);
+    service_change change = service_change::ignored;
+    int items = 0;
+    if (s.service != nullptr) {
+        change = service_apply(s.service, event.data, event.len,
+                               static_cast<uint32_t>(esp_timer_get_time() / 1000));
+        items = s.service->count;
+        if (change == service_change::state || change == service_change::tick) {
+            ++s.revision;
+        }
+    }
+    unlock(s);
+    if (change == service_change::state) {
+        ESP_LOGI(TAG, "captions[%d]: service, %d items", s.index, items);
+        notify(s);
+    } else if (change == service_change::tick) {
+        notify(s);
+    } else if (change == service_change::malformed) {
+        ESP_LOGW(TAG, "captions[%d]: unreadable service message (%u bytes)", s.index,
+                 static_cast<unsigned>(event.len));
+    }
 }
 
 // Wait up to `ms`, or until the feed is changed.
@@ -173,6 +213,7 @@ struct Conn {
     bool rejected = false;
     int64_t opened_at = 0;
     uint64_t resumed_from = 0;
+    uint8_t stream = kFeedNone;   // what this connection was opened for
 
     Conn(Slot *s) : slot(s), sse(s->sse, s->sse_cap) {}
 };
@@ -184,6 +225,10 @@ void on_event(void *ctx, const caption_sse_event &event)
     if (event.oversize) {
         ESP_LOGW(TAG, "captions[%d]: an event larger than %u bytes was dropped", s.index,
                  static_cast<unsigned>(s.sse_cap));
+        return;
+    }
+    if (c->stream == kFeedService) {
+        on_service_event(s, event);
         return;
     }
     lock(s);
@@ -363,6 +408,7 @@ Outcome run_connection(Slot &s, uint32_t gen, const char *url, uint8_t stream, c
         return out;
     }
     conn->resumed_from = resume;
+    conn->stream = stream;
     char buf[1024];
     int64_t last_rx = esp_timer_get_time();
     for (;;) {
@@ -468,7 +514,7 @@ void slot_task(void *arg)
             feed_gen = gen;
             failures = 0;
             tried = false;
-            if (!replace_feed(s, wanted)) {
+            if (!replace_feed(s, wanted, stream == kFeedService)) {
                 ESP_LOGE(TAG, "captions[%d]: no memory for the feed", s.index);
                 set_state(s, caption_state::off);
                 rest(5000);
@@ -477,7 +523,9 @@ void slot_task(void *arg)
             }
             if (wanted) {
                 ESP_LOGI(TAG, "captions[%d]: feed %s %s from %s", s.index,
-                         stream == kFeedTranscription ? "transcription" : "translation",
+                         stream == kFeedTranscription ? "transcription"
+                         : stream == kFeedService     ? "service"
+                                                      : "translation",
                          stream == kFeedTranscription ? "" : lang, url);
             }
         }
@@ -558,13 +606,13 @@ esp_err_t captions_start()
 
 esp_err_t captions_set_feed(int slot, const char *relay_url, uint8_t stream, const char *lang)
 {
-    if (!s_started || slot < 0 || slot >= kCaptionSlots || stream > kFeedTranslation) {
+    if (!s_started || slot < 0 || slot >= kCaptionSlots || stream > kFeedService) {
         return ESP_ERR_INVALID_ARG;
     }
     if (relay_url == nullptr) {
         relay_url = "";
     }
-    if (lang == nullptr || stream != kFeedTranslation) {
+    if (lang == nullptr || (stream != kFeedTranslation && stream != kFeedService)) {
         lang = "";
     }
     Slot &s = s_slots[slot];
@@ -634,6 +682,19 @@ void captions_read(int slot, void (*fn)(const caption_feed *, caption_state, voi
     Slot &s = s_slots[slot];
     lock(s);
     fn(s.feed, s.state, ctx);
+    unlock(s);
+}
+
+void captions_read_service(int slot, void (*fn)(const service_state *service, caption_state state, void *ctx),
+                           void *ctx)
+{
+    if (!s_started || slot < 0 || slot >= kCaptionSlots) {
+        fn(nullptr, caption_state::off, ctx);
+        return;
+    }
+    Slot &s = s_slots[slot];
+    lock(s);
+    fn(s.service, s.state, ctx);
     unlock(s);
 }
 

@@ -43,6 +43,7 @@
 #include "config.h"
 #include "panel_format.h"
 #include "panel_link_format.h"
+#include "service_format.h"
 #include "settings_format.h"
 #include "setup_format.h"
 #include "setup_page.h"
@@ -2314,6 +2315,222 @@ void check_update()
     CHECK(panel_image_request(req, sizeof req, "10.0.2.2", 8000, "http://evil/x", "0.1.0") == 0);
 }
 
+// ---------------------------------------------------------------------------
+// The Planning Center service (#82)
+// ---------------------------------------------------------------------------
+
+// A `service` message as app/servicefeed.py sends it.
+const char *kService =
+    "{\"type\":\"service\",\"service_type\":\"7\",\"followed\":true,\"name\":\"Sunday AM\","
+    "\"plan\":{\"id\":\"700\",\"title\":\"Sunday Morning\",\"series_title\":\"Autumn\",\"dates\":\"November 8, 2026\"},"
+    "\"items\":[{\"id\":\"1\",\"title\":\"Countdown\",\"type\":\"media\",\"length\":300,\"position\":\"pre\"},"
+    "{\"id\":\"2\",\"title\":\"Worship\",\"type\":\"header\",\"length\":0,\"position\":\"during\"},"
+    "{\"id\":\"3\",\"title\":\"Caf\\u00e9 Song \\u201cLive\\u201d\",\"type\":\"song\",\"length\":240,\"position\":\"during\","
+    "\"key\":\"G\",\"arrangement\":\"Radio\",\"sequence\":[\"Verse 1\",\"Chorus 1\",\"Bridge\"],"
+    "\"notes\":[{\"category\":\"Vocals\",\"content\":\"Ask Jos\\u00e9 to lead\"},{\"category\":\"\",\"content\":\"Slow end\"}]},"
+    "{\"id\":\"4\",\"title\":\"Sermon\",\"type\":\"item\",\"length\":1500,\"position\":\"during\"},"
+    "{\"id\":\"5\",\"title\":\"Odd\",\"type\":\"something\",\"length\":-3,\"position\":\"post\"}],"
+    "\"notes\":true,\"current_item\":\"3\",\"next_item\":\"4\",\"item_started_at\":1799999940.0,\"item_length_s\":240,"
+    "\"item_left_s\":20.0,\"service_started_at\":1799999400,\"service_over_s\":-45.5,"
+    "\"live\":true,\"controller\":\"Dana Ort\\u00edz\",\"reachable\":true,\"updated_at\":1800000000.0,"
+    "\"server_time\":1800000000.5}";
+
+void check_service()
+{
+    // The panel's service mode, from a check-in reply or a `service_mode` event.
+    {
+        panel_service m;
+        const char *both = "{\"mode\":\"both\",\"service_type\":\"7\",\"key\":\"0123456789abcdef0123456789abcdef\"}";
+        CHECK(panel_service_parse(both, both + strlen(both), &m));
+        CHECK(m.mode == service_mode::both && strcmp(m.type, "7") == 0 && strlen(m.key) == 32);
+        CHECK(service_mode_shows(m.mode) && service_mode_controls(m.mode));
+        const char *show = "{\"mode\":\"show\",\"service_type\":null,\"key\":\"0123456789abcdef0123456789abcdef\"}";
+        CHECK(panel_service_parse(show, show + strlen(show), &m));
+        CHECK(m.mode == service_mode::show && m.type[0] == '\0' && m.key[0] == '\0');  // no key without control
+        const char *bad_type = "{\"mode\":\"control\",\"service_type\":\"x1\",\"key\":\"short\"}";
+        CHECK(panel_service_parse(bad_type, bad_type + strlen(bad_type), &m));
+        CHECK(m.type[0] == '\0' && m.key[0] == '\0');
+        panel_service keep = m;
+        const char *unknown = "{\"mode\":\"sideways\"}";
+        CHECK(!panel_service_parse(unknown, unknown + strlen(unknown), &keep));
+        CHECK(keep.mode == service_mode::control);
+
+        const char *ev = "{\"type\":\"service_mode\",\"mode\":\"show\",\"service_type\":\"42\"}";
+        const panel_event e = panel_parse_event(ev, strlen(ev));
+        CHECK(e.kind == panel_message::service_mode && e.service.mode == service_mode::show &&
+              strcmp(e.service.type, "42") == 0);
+        const char *reply = "{\"ok\":true,\"name\":\"Lobby\",\"interval_s\":30,\"service\":{\"mode\":\"off\",\"service_type\":null}}";
+        const panel_reply r = panel_parse_reply(reply, strlen(reply));
+        CHECK(r.ok && r.has_service && r.service.mode == service_mode::off);
+        const char *old_relay = "{\"ok\":true,\"name\":\"Lobby\",\"interval_s\":30}";
+        CHECK(!panel_parse_reply(old_relay, strlen(old_relay)).has_service);
+    }
+
+    // The offers in `targets`, and the menu the mode allows.
+    {
+        std::string targets = kTargets;
+        targets.insert(targets.size() - 1,
+                       ",\"service\":[{\"service_type\":\"7\",\"label\":\"Sunday AM\"},"
+                       "{\"service_type\":\"42\",\"label\":\"Mi\\u00e9rcoles\"},{\"service_type\":\"x\",\"label\":\"Bad\"}]");
+        const service_offers offers = service_offers_parse(targets.c_str(), targets.size());
+        CHECK(offers.count == 2 && strcmp(offers.items[1].type, "42") == 0);
+        const feed_options base = parse_options(targets.c_str());
+        CHECK(base.count == 3);  // the captions alone: Transcription, French, Spanish
+
+        panel_service off;
+        CHECK(feed_options_same(feed_options_with_service(base, offers, off), base));
+        panel_service show;
+        show.mode = service_mode::show;
+        feed_options all = feed_options_with_service(base, offers, show);
+        CHECK(all.count == 5 && all.items[3].pick.stream == kFeedService && strcmp(all.items[3].pick.lang, "7") == 0);
+        CHECK(strcmp(all.items[3].label, "Service: Sunday AM") == 0);
+        CHECK(strcmp(all.items[4].label, "Service: Miercoles") == 0);  // the menu's font is ASCII
+        snprintf(show.type, sizeof show.type, "42");
+        feed_options one = feed_options_with_service(base, offers, show);
+        CHECK(one.count == 4 && strcmp(one.items[3].label, "Service") == 0 && strcmp(one.items[3].pick.lang, "42") == 0);
+        CHECK(service_offers_parse(kTargets, strlen(kTargets)).count == 0);  // an older Relay offers none
+
+        // A service pick is shown while it is offered; otherwise the pane falls back to the transcription.
+        const feed_pick svc = feed_pick_make(kFeedService, "42");
+        CHECK(svc.stream == kFeedService && strcmp(svc.lang, "42") == 0);
+        feed_resolved r = feed_resolve(svc, one, false);
+        CHECK(feed_pick_same(r.pick, svc) && !r.fallback);
+        r = feed_resolve(svc, base, false);
+        CHECK(r.pick.stream == kFeedTranscription && r.fallback);
+        char note[64];
+        CHECK(feed_fallback_note(svc, note, sizeof note) > 0);
+        feed_options unknown;
+        r = feed_resolve(svc, unknown, false);
+        CHECK(feed_pick_same(r.pick, svc));  // tried before Relay has said what it offers
+        CHECK(feed_pick_make(4, "1").stream == kFeedNone);
+    }
+
+    // The request.
+    {
+        char req[512];
+        CHECK(caption_request(req, sizeof req, "relay.local", 8000, kFeedService, "678893", 99, "0.3.0") > 0);
+        CHECK(strstr(req, "GET /stream?stream=service&type=678893 HTTP/1.1") != nullptr);  // no finals, no resume
+        CHECK(caption_request(req, sizeof req, "relay.local", 8000, kFeedService, "7&x=1", 0, "0.3.0") == 0);
+        CHECK(caption_request(req, sizeof req, "relay.local", 8000, kFeedService, "", 0, "0.3.0") == 0);
+    }
+
+    // The settings keep a saved service pick; an unknown feed is still none.
+    {
+        relay_settings_t st;
+        settings_defaults_fill(&st, 0);
+        st.feed_stream = kFeedService;
+        st.feed2_stream = 9;
+        relay_settings_t out;
+        CHECK(settings_decode(&st, sizeof st, &out, 0) == settings_blob::accepted);
+        CHECK(out.feed_stream == kFeedService && out.feed2_stream == kFeedNone);
+    }
+
+    // The message.
+    {
+        static service_state s;
+        CHECK(service_apply(&s, kService, strlen(kService), 1000) == service_change::state);
+        CHECK(s.known && s.followed && strcmp(s.name, "Sunday AM") == 0);
+        CHECK(s.has_plan && strcmp(s.plan_title, "Sunday Morning") == 0);
+        CHECK(s.count == 5 && s.total == 5);
+        CHECK(s.items[0].type == service_item_type::media && s.items[0].position == service_position::pre);
+        CHECK(s.items[1].type == service_item_type::header);
+        CHECK(s.items[4].type == service_item_type::item && s.items[4].length_s == 0 &&
+              s.items[4].position == service_position::post);
+        const service_item &song = s.items[2];
+        CHECK(strcmp(song.title, "Caf\xC3\xA9 Song \"Live\"") == 0);  // accents kept for the caption font
+        CHECK(strcmp(song.key, "G") == 0 && strcmp(song.sequence, "Verse 1, Chorus 1, Bridge") == 0);
+        CHECK(strcmp(song.notes, "Vocals: Ask Jos\xC3\xA9 to lead\nSlow end") == 0);
+        CHECK(s.current == 2 && s.next == 3 && s.timing && s.item_left_s == 20.0 && s.has_over);
+        CHECK(s.live && s.reachable && s.notes_allowed && strcmp(s.controller, "Dana Ort\xC3\xADz") == 0);
+        char words[96];
+        service_song_words(song, words, sizeof words);
+        CHECK(strcmp(words, "Key G - Verse 1, Chorus 1, Bridge") == 0);
+        service_length_words(s.items[3], words, sizeof words);
+        CHECK(strcmp(words, "25:00") == 0);
+        service_length_words(s.items[1], words, sizeof words);
+        CHECK(words[0] == '\0');  // a header has no length
+
+        // The countdown, from when the message arrived.
+        CHECK(service_item_left(s, 6000) == 15.0);
+        service_item_left_words(s, 6000, words, sizeof words);
+        CHECK(strcmp(words, "0:15 left") == 0);
+        service_item_left_words(s, 95000, words, sizeof words);
+        CHECK(strcmp(words, "1:14 over") == 0);
+        // Over/under only grows once the item has run past its length.
+        CHECK(service_over(s, 11000) == -45.5);
+        CHECK(service_over(s, 21000) == -45.5);
+        CHECK(service_over(s, 101000) == 34.5);
+        service_over_words(s, 1000, words, sizeof words);
+        CHECK(strcmp(words, "Service 0:45 ahead") == 0);
+        service_over_words(s, 41000, words, sizeof words);
+        CHECK(strcmp(words, "Service on time") == 0);
+        service_over_words(s, 201000, words, sizeof words);
+        CHECK(strcmp(words, "Service 2:14 behind") == 0);
+        service_status st = service_footer(s, 201000);
+        CHECK(st.tone == service_tone::good);
+        char ascii[96];
+        service_ascii(st.text, ascii, sizeof ascii);
+        CHECK(strcmp(ascii, "Service 2:14 behind - Dana Ortiz is controlling") == 0);
+        CHECK(service_focus(s) == 2);
+
+        // A tick moves `updated_at` and leaves the countdown alone.
+        const char *tick = "{\"type\":\"service_tick\",\"service_type\":\"7\",\"server_time\":1800000015.5,\"updated_at\":1800000014}";
+        CHECK(service_apply(&s, tick, strlen(tick), 16000) == service_change::tick);
+        CHECK(s.updated_at == 1800000014.0 && service_item_left(s, 16000) == 5.0);
+        CHECK(s.changes == 1);
+
+        // The footer, worst news first.
+        std::string m = kService;
+        auto with = [&](const char *from, const char *to) {
+            std::string out = m;
+            out.replace(out.find(from), strlen(from), to);
+            return out;
+        };
+        std::string j = with("\"reachable\":true", "\"reachable\":false");
+        service_apply(&s, j.c_str(), j.size(), 0);
+        CHECK(strcmp(service_footer(s, 0).text, "Planning Center unreachable") == 0 &&
+              service_footer(s, 0).tone == service_tone::bad);
+        j = with("\"live\":true,\"controller\":\"Dana Ort\\u00edz\"", "\"live\":false,\"controller\":null");
+        service_apply(&s, j.c_str(), j.size(), 0);
+        CHECK(strcmp(service_footer(s, 0).text, "Not live") == 0 && s.controller[0] == '\0');
+        j = with("\"followed\":true", "\"followed\":false");
+        service_apply(&s, j.c_str(), j.size(), 0);
+        CHECK(strcmp(service_footer(s, 0).text, "Relay does not follow this service") == 0);
+        const char *unfollowed = "{\"type\":\"service\",\"service_type\":\"8\",\"followed\":false,\"server_time\":1}";
+        CHECK(service_apply(&s, unfollowed, strlen(unfollowed), 0) == service_change::state);
+        CHECK(!s.followed && s.count == 0 && s.current == -1 && service_focus(s) == -1);
+        const char *noplan = "{\"type\":\"service\",\"followed\":true,\"plan\":null,\"items\":[],\"live\":false}";
+        service_apply(&s, noplan, strlen(noplan), 0);
+        CHECK(!s.has_plan && strcmp(service_footer(s, 0).text, "No service planned today") == 0);
+        CHECK(service_apply(&s, "{\"type\":\"targets\"}", 18, 0) == service_change::ignored);
+        CHECK(service_apply(&s, "nope", 4, 0) == service_change::malformed);
+        static service_state fresh;
+        CHECK(service_apply(&fresh, tick, strlen(tick), 0) == service_change::ignored);  // a tick before any state
+        CHECK(strcmp(service_footer(fresh, 0).text, "Waiting for Relay") == 0);
+
+        // A long plan keeps the first kServiceItemsMax and says how many there were.
+        std::string big = "{\"type\":\"service\",\"followed\":true,\"items\":[";
+        for (int i = 0; i < kServiceItemsMax + 5; ++i) {
+            big += (i ? "," : "") + std::string("{\"id\":\"") + std::to_string(i) + "\",\"title\":\"Item\"}";
+        }
+        big += "],\"current_item\":\"" + std::to_string(kServiceItemsMax + 2) + "\"}";
+        service_apply(&s, big.c_str(), big.size(), 0);
+        CHECK(s.count == kServiceItemsMax && s.total == kServiceItemsMax + 5 && s.current == -1);
+    }
+
+    // Clocks and the ASCII the Montserrat text needs.
+    {
+        char c[16];
+        service_clock(3725.9, c, sizeof c);
+        CHECK(strcmp(c, "1:02:05") == 0);
+        service_clock(-61, c, sizeof c);
+        CHECK(strcmp(c, "1:01") == 0);
+        char a[64];
+        service_ascii("\xC3\x89" "glise \xC5\x81\xC3\xB3" "d\xC5\xBA \xE2\x80\x94 \xE6\x97\xA5", a, sizeof a);
+        CHECK(strcmp(a, "Eglise Lodz - ?") == 0);
+    }
+}
+
 int main()
 {
     check_panel_constants();
@@ -2366,6 +2583,7 @@ int main()
     check_targets_request();
     check_settings_split_and_v1();
     check_panel_link();
+    check_service();
     check_update();
 
     if (g_failures != 0) {

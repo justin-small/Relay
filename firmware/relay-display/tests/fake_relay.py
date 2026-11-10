@@ -86,6 +86,12 @@ class FakeRelay:
         self.update_report_status = 200
         self.cut_image_at: int | None = None
         self.refuse_versions: set[str] = set()
+        # The Planning Center service (#79, #81): the panel's mode (in check-in replies and pushed on its stream), the
+        # service types offered in `targets`, and the whole state per service type, sent on connect and on each change.
+        self.service_mode: dict = {"mode": "off", "service_type": None}
+        self.service_offers: list[dict] = []
+        self.service_states: dict[str, dict] = {}
+        self._service_subs: dict[str, list[queue.Queue]] = {}
         # Set: connections are served. Cleared: a new connection waits here before it is primed, so the
         # test can commit lines that only a resume can deliver.
         self.door = threading.Event()
@@ -166,6 +172,7 @@ class FakeRelay:
                       "state": "open"} for t in live],
             "running": True,
             "font_px": 48,
+            "service": list(self.service_offers),
         }
 
     def set_live(self, languages: list[str]) -> None:
@@ -192,6 +199,31 @@ class FakeRelay:
                 for _, q in self.panel_streams:
                     q.put(frame)
             return rev
+
+    def set_service_mode(self, mode: str, service_type: str | None = None, key: str | None = None) -> None:
+        """The operator sets the panel's service mode (`Registry.update`): pushed at once, and in later replies."""
+        msg: dict = {"mode": mode, "service_type": service_type}
+        if key is not None and mode in ("control", "both"):
+            msg["key"] = key
+        with self._lock:
+            self.service_mode = msg
+            frame = _frame({"type": "service_mode", **msg})
+            for _, q in self.panel_streams:
+                q.put(frame)
+
+    def offer_service(self, offers: list[dict]) -> None:
+        """The followed service types, as `targets` lists them; sent to every viewer as Relay does on a change."""
+        self.service_offers = list(offers)
+        self.targets()
+
+    def set_service(self, service_type: str, state: dict) -> None:
+        """Planning Center's state changed: the whole `service` message, to every panel on that feed."""
+        msg = {"type": "service", "service_type": service_type, "followed": True, "server_time": time.time(), **state}
+        with self._lock:
+            self.service_states[service_type] = msg
+            frame = _frame(msg)
+            for q in self._service_subs.get(service_type, []):
+                q.put(frame)
 
     def push(self, message: dict) -> None:
         """Any message, on every open panel stream (an `update_available`, say)."""
@@ -259,6 +291,9 @@ class FakeRelay:
                     q.put(None)
             for _, q in self.panel_streams:
                 q.put(None)
+            for subs in self._service_subs.values():
+                for q in subs:
+                    q.put(None)
         for handler in handlers:
             with contextlib.suppress(OSError):
                 handler.connection.shutdown(socket.SHUT_RDWR)
@@ -319,6 +354,9 @@ class FakeRelay:
             handler.send_error(404)
             return
         self.requests.append(query)
+        if query.get("stream") == "service":
+            self._serve_service(handler, query.get("type", ""))
+            return
         stream = query.get("stream", "")
         lang = "ENGLISH" if stream == "transcription" else query.get("lang", "")
         if stream not in ("transcription", "translation") or (stream == "translation" and lang not in LANGUAGES):
@@ -367,6 +405,46 @@ class FakeRelay:
             with self._lock:
                 with contextlib.suppress(ValueError):
                     self._subscribers[(stream, lang)].remove(q)
+                with contextlib.suppress(ValueError):
+                    self._handlers.remove(handler)
+
+    def _serve_service(self, handler: BaseHTTPRequestHandler, service_type: str) -> None:
+        """`/stream?stream=service&type=..` (app/servicefeed.py): the whole state on connect, then each change, and
+        a `service_tick` in the quiet. A type Relay does not follow is a 404."""
+        if not any(o["service_type"] == service_type for o in self.service_offers):
+            self._json(handler, 404, {"detail": "not a followed service type"})
+            return
+        handler.send_response(200)
+        handler.send_header("Content-Type", "text/event-stream; charset=utf-8")
+        handler.send_header("Cache-Control", "no-cache, no-transform")
+        handler.send_header("Transfer-Encoding", "chunked")
+        handler.end_headers()
+        handler.close_connection = True
+        q: queue.Queue = queue.Queue()
+        with self._lock:
+            state = self.service_states.get(service_type) or {
+                "type": "service", "service_type": service_type, "followed": True, "plan": None, "items": [],
+                "live": False, "reachable": True, "server_time": time.time()}
+            q.put(_frame(state))
+            self._service_subs.setdefault(service_type, []).append(q)
+            self._handlers.append(handler)
+        try:
+            while True:
+                try:
+                    frame = q.get(timeout=self.ping_s)
+                except queue.Empty:
+                    frame = _frame({"type": "service_tick", "service_type": service_type, "server_time": time.time(),
+                                    "updated_at": time.time()})
+                if frame is None:
+                    break
+                handler.wfile.write(b"%x\r\n" % len(frame) + frame + b"\r\n")
+                handler.wfile.flush()
+        except OSError:
+            pass
+        finally:
+            with self._lock:
+                with contextlib.suppress(ValueError):
+                    self._service_subs[service_type].remove(q)
                 with contextlib.suppress(ValueError):
                     self._handlers.remove(handler)
 
@@ -444,7 +522,7 @@ class FakeRelay:
             self.checkins.append(body)
             self.known.add(body.get("id", ""))
             self.acked_rev = max(self.acked_rev, int(body.get("feed_rev") or 0))
-            reply = {"ok": True, "name": body.get("name", ""), "interval_s": 30}
+            reply = {"ok": True, "name": body.get("name", ""), "interval_s": 30, "service": dict(self.service_mode)}
             pending = self._pending()
             if pending:
                 reply["set_feed"] = pending

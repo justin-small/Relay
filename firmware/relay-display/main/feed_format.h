@@ -20,6 +20,7 @@
 
 #include "caption_format.h"
 #include "caption_view_format.h"
+#include "service_format.h"
 #include "settings_format.h"
 
 constexpr size_t kFeedLangBytes = sizeof(relay_settings_t::feed_lang);
@@ -30,7 +31,8 @@ constexpr size_t kFeedLabelBytes = 32;
 // A pick
 // ---------------------------------------------------------------------------
 
-// One pane's choice: kFeedNone, kFeedTranscription, or kFeedTranslation with the language as Relay names it.
+// One pane's choice: kFeedNone, kFeedTranscription, kFeedTranslation with the language as Relay names it, or
+// kFeedService with the Planning Center service type id in `lang`.
 struct feed_pick {
     uint8_t stream = kFeedNone;
     char lang[kFeedLangBytes] = {};
@@ -39,11 +41,11 @@ struct feed_pick {
 inline feed_pick feed_pick_make(uint8_t stream, const char *lang)
 {
     feed_pick p;
-    if (stream > kFeedTranslation) {
+    if (stream > kFeedService) {
         return p;
     }
     p.stream = stream;
-    if (stream == kFeedTranslation && lang != nullptr) {
+    if ((stream == kFeedTranslation || stream == kFeedService) && lang != nullptr) {
         settings_set_text(p.lang, sizeof p.lang, lang);
     }
     return p;
@@ -164,6 +166,42 @@ inline bool feed_options_parse(const char *json, size_t len, feed_options *out)
     return true;
 }
 
+// The menu with the Planning Center service added: Relay's `service` offers, as the panel's service mode allows.
+// Off offers none; a service type the operator set offers only that one. One offer reads "Service"; several read
+// "Service: <name>". They come after the captions.
+inline feed_options feed_options_with_service(const feed_options &base, const service_offers &offers,
+                                              const panel_service &mode)
+{
+    feed_options out = base;
+    if (mode.mode == service_mode::off) {
+        return out;
+    }
+    int shown = 0;
+    for (int i = 0; i < offers.count; ++i) {
+        if (mode.type[0] == '\0' || strcmp(mode.type, offers.items[i].type) == 0) {
+            ++shown;
+        }
+    }
+    for (int i = 0; i < offers.count && out.count < kFeedOptionsMax; ++i) {
+        const service_offer &o = offers.items[i];
+        if (mode.type[0] != '\0' && strcmp(mode.type, o.type) != 0) {
+            continue;
+        }
+        feed_option &t = out.items[out.count++];
+        t.pick = feed_pick_make(kFeedService, o.type);
+        char ascii[kFeedLabelBytes] = {};
+        service_ascii(o.label, ascii, sizeof ascii);
+        if (shown == 1) {
+            settings_set_text(t.label, sizeof t.label, "Service");
+        } else {
+            char label[kFeedLabelBytes + 16];
+            snprintf(label, sizeof label, "Service: %s", ascii);
+            settings_set_text(t.label, sizeof t.label, label);
+        }
+    }
+    return out;
+}
+
 // Whether two option lists offer the same things, so a poll that says nothing new changes nothing.
 inline bool feed_options_same(const feed_options &a, const feed_options &b)
 {
@@ -205,6 +243,17 @@ inline feed_resolved feed_resolve(const feed_pick &saved, const feed_options &op
         }
         return {want, false};
     }
+    if (want.stream == kFeedService) {
+        // Offered only while the operator's service mode allows it and Relay follows the type. Until the panel
+        // has heard from Relay it is tried; the stream itself says if Relay does not follow it.
+        if (!options.known || options.has(want)) {
+            return {want, false};
+        }
+        if (!options.has(transcription)) {
+            return {feed_pick(), true};
+        }
+        return {transcription, true};
+    }
     const bool live = options.known ? options.has(want) : !refused;
     if (live) {
         return {want, false};
@@ -243,6 +292,10 @@ inline size_t feed_fallback_note(const feed_pick &saved, char *out, size_t cap)
         return 0;
     }
     out[0] = '\0';
+    if (saved.stream == kFeedService) {
+        const int n = snprintf(out, cap, "The service is not shown on this panel");
+        return n > 0 ? static_cast<size_t>(n) : 0;
+    }
     if (saved.stream != kFeedTranslation || saved.lang[0] == '\0') {
         return 0;
     }
