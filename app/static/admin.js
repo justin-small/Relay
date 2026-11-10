@@ -394,11 +394,25 @@
     if (tm.service_over_s !== null && tm.service_over_s !== undefined) {
       parts.push('service ' + mmss(tm.service_over_s) + (tm.service_over_s > 0 ? ' behind' : ' ahead'));
     }
+    const next = (t.items || []).filter(function (i) { return i.id === tm.next_item; })[0];
+    if (next) parts.push('next: ' + next.title);
+    if (t.updated_at) {
+      parts.push('checked ' + agoText(Math.max(0, Date.now() / 1000 - t.updated_at)));
+    }
     return parts.join(' · ');
+  }
+
+  // Followed service types' names, for the panels' Service form and cards.
+  let pcTypeNames = {};
+  function notePcNames(types) {
+    const names = {};
+    types.forEach(function (t) { names[t.service_type] = t.name; });
+    pcTypeNames = names;
   }
 
   function renderPcLive(snap) {
     const types = snap.service_types || [];
+    notePcNames(types);
     $('pcToday').hidden = !types.length;
     $('pcTodayNote').textContent = types.length
       ? 'Day boundary: ' + snap.time_zone + (snap.time_zone_guessed
@@ -1092,6 +1106,10 @@
         + ' · ' + agoText(row.feeds_changed_ago_s + (Date.now() - panelsAt) / 1000));
     }
     if (row.set_feeds) add('Set from admin', feedText(row.set_feeds, row.languages));
+    if (row.service_mode && row.service_mode !== 'off') {
+      add('Service', SERVICE_MODE_WORDS[row.service_mode] + (row.service_type
+        ? ' · ' + (pcTypeNames[row.service_type] || 'Service type ' + row.service_type) : ''));
+    }
     add('Firmware', row.version || '—');
     add('IP', row.ip || '—');
     add('Wi-Fi', signalText(row.rssi));
@@ -1109,6 +1127,12 @@
     const forget = el('button', '', 'Forget');
     actions.appendChild(rename);
     actions.appendChild(feed);
+    const pcOn = cfg && cfg.planning_center && cfg.planning_center.connected;
+    if (pcOn || (row.service_mode && row.service_mode !== 'off')) {
+      const service = el('button', '', 'Service');
+      service.addEventListener('click', function () { openService(card, row, actions); });
+      actions.appendChild(service);
+    }
     if (row.update_available && !row.update_requested && row.online) {
       const later = el('button', '', 'Update');
       const now = el('button', '', 'Update now');
@@ -1300,6 +1324,84 @@
         panelEditing = null;
         renderPanels();
         okMsg('Feed sent to ' + row.name + '.');
+      } catch (e) { alertMsg(e.message); }
+    });
+  }
+
+  const SERVICE_MODE_WORDS = {
+    off: 'Off', show: 'Show only', control: 'Control only', both: 'Show and control'
+  };
+  const SERVICE_MODE_HELP = {
+    off: 'No Service feed in the panel\'s menu.',
+    show: 'Now and next, timers, the order of service, song details and who is controlling.',
+    control: 'Next, Previous and Take control, with who is controlling. No order of service.',
+    both: 'The order of service and the controls.'
+  };
+
+  async function openService(card, row, actions) {
+    try { notePcNames((await api('/api/admin/planning-center/live')).service_types || []); } catch (e) { /* names stay as they were */ }
+    let mode, type, help;
+    const form = openForm(card, actions, row, function (f) {
+      const field = el('div', 'field');
+      const label = el('label', '', 'Service mode');
+      mode = el('select');
+      mode.id = 'panelSvc-' + row.id;
+      label.htmlFor = mode.id;
+      ['off', 'show', 'control', 'both'].forEach(function (m) {
+        const o = el('option', '', SERVICE_MODE_WORDS[m]);
+        o.value = m;
+        mode.appendChild(o);
+      });
+      mode.value = row.service_mode || 'off';
+      field.appendChild(label);
+      field.appendChild(mode);
+      help = el('div', 'note', '');
+      field.appendChild(help);
+      f.appendChild(field);
+
+      const ids = Object.keys(pcTypeNames);
+      const tfield = el('div', 'field');
+      const tlabel = el('label', '', 'Service type');
+      type = el('select');
+      type.id = 'panelSvcType-' + row.id;
+      tlabel.htmlFor = type.id;
+      const own = el('option', '', ids.length > 1 ? 'The panel picks' : 'The one Relay follows');
+      own.value = '';
+      type.appendChild(own);
+      ids.forEach(function (id) {
+        const o = el('option', '', pcTypeNames[id]);
+        o.value = id;
+        type.appendChild(o);
+      });
+      if (row.service_type && ids.indexOf(row.service_type) === -1) {
+        const o = el('option', '', 'Service type ' + row.service_type + ' (no longer followed)');
+        o.value = row.service_type;
+        type.appendChild(o);
+      }
+      type.value = row.service_type || '';
+      tfield.appendChild(tlabel);
+      tfield.appendChild(type);
+      f.appendChild(tfield);
+      function sync() {
+        help.textContent = SERVICE_MODE_HELP[mode.value]
+          + (mode.value === 'control' || mode.value === 'both'
+            ? ' Presses run as the person who made the Planning Center token. The panel gets a key, '
+              + 'but it travels over plain HTTP: anyone who can read the network could use it.' : '');
+        tfield.hidden = mode.value === 'off';
+      }
+      mode.addEventListener('change', sync);
+      sync();
+    });
+    if (!form) return;
+    form.addEventListener('submit', async function (ev) {
+      ev.preventDefault();
+      try {
+        const body = { service_mode: mode.value };
+        if (mode.value !== 'off') body.service_type = type.value || null;
+        await post('/api/admin/panels/' + row.id, body);
+        panelEditing = null;
+        renderPanels();
+        okMsg(row.name + ': service ' + SERVICE_MODE_WORDS[mode.value].toLowerCase() + '.');
       } catch (e) { alertMsg(e.message); }
     });
   }

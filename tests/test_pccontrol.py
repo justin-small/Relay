@@ -167,6 +167,8 @@ svc = viewer.post("/api/panels/checkin", json={"id": A, "name": "Stage left"}).j
 eq("check-in carries mode and key", svc, {"mode": "both", "service_type": None, "key": key})
 eq("a bad mode is refused", admin.post(f"/api/admin/panels/{A}", json={"service_mode": "all"}).status_code, 400)
 eq("a bad service type is refused", admin.post(f"/api/admin/panels/{A}", json={"service_type": "x"}).status_code, 400)
+eq("a service type Relay does not follow is refused",
+   admin.post(f"/api/admin/panels/{A}", json={"service_type": "8"}).status_code, 400)
 eq("not on the viewer port",
    viewer.post(f"/api/admin/panels/{A}", json={"service_mode": "both"}).status_code in (403, 404), True)
 admin.post(f"/api/admin/panels/{A}", json={"service_mode": "control"})
