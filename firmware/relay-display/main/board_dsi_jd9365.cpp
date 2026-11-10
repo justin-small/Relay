@@ -173,3 +173,8 @@ esp_err_t board_panel_set_pclk(uint32_t)
 {
     return ESP_ERR_NOT_SUPPORTED;
 }
+
+esp_err_t board_panel_frame_buffers(void **, void **)
+{
+    return ESP_ERR_NOT_SUPPORTED;
+}

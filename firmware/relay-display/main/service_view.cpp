@@ -498,7 +498,10 @@ void build_rows(SPane &p)
         if (notes) {
             lv_obj_add_flag(row, LV_OBJ_FLAG_CLICKABLE);
             const intptr_t tag = (static_cast<intptr_t>(&p - s_p) << 8) | i;
-            lv_obj_add_event_cb(row, on_row, LV_EVENT_SHORT_CLICKED, reinterpret_cast<void *>(tag));
+            // CLICKED, not SHORT_CLICKED: LVGL sends SHORT_CLICKED only when the press was shorter than its
+            // long-press time (400 ms), so a finger held a little longer opened nothing. CLICKED is still not
+            // sent when the press scrolled.
+            lv_obj_add_event_cb(row, on_row, LV_EVENT_CLICKED, reinterpret_cast<void *>(tag));
         }
     }
     if (s.total > s.count) {

@@ -28,6 +28,11 @@ esp_err_t board_backlight(bool on);
 // `display.cpp` turns the picture.
 esp_err_t board_panel_init(int rotation_deg, esp_lcd_panel_handle_t *out);
 
+// The panel's two frame buffers, when the driver keeps two. `display.cpp` then draws into the one that is not
+// being scanned and flips by passing that buffer to `esp_lcd_panel_draw_bitmap`, so a redraw is never seen half
+// done. ESP_ERR_NOT_SUPPORTED on a board with one buffer, which is written in place.
+esp_err_t board_panel_frame_buffers(void **a, void **b);
+
 // Frames the panel has finished scanning since `board_panel_init`.
 uint32_t board_panel_frames_done();
 

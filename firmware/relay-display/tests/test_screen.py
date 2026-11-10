@@ -41,7 +41,12 @@ CENTRES = [BAR_WIDTH * i + BAR_WIDTH // 2 for i in range(8)]
 
 
 def _shot(machine: Board, name: str):
+    """The bench picture, asked for with the `bench` console command: the panel does not rest on it by itself."""
     wait_ready(machine)
+    assert machine.uart is not None
+    mark = machine.uart.mark()
+    machine.uart.send_line("bench")
+    machine.uart.wait_for_after(mark, r"panel: test screen shown, backlight on", timeout=30)
     return capture(machine, name)
 
 
@@ -162,3 +167,22 @@ def test_an_unconfigured_panel_shows_the_setup_screen_not_the_bench_picture(boot
     assert screen.rgb565(WIDTH - 1, HEIGHT - 1) == pack565(0x10, 0x10, 0x10)
     # No colour bars: the bench picture's red marker is not in the corner.
     assert screen.rgb565(30, 30) != pack565(255, 0, 0)
+
+
+def test_a_panel_with_no_feed_shows_the_regular_display_not_the_bench_picture(boot) -> None:
+    """The bench picture is a boot aid. A configured panel with nothing to show settles on LVGL's caption view,
+    on its near-black ground, saying it has no feed: no white border and no colour bars.
+    """
+    machine = boot("nvs-upright")
+    wait_ready(machine)
+    ground, white = pack565(0x10, 0x10, 0x10), pack565(255, 255, 255)
+    deadline = time.monotonic() + 30
+    while True:
+        screen = capture(machine, "no-feed")
+        # The header bar is the top row's colour; the list below it is LVGL's near-black ground.
+        if screen.rgb565(WIDTH - 1, HEIGHT - 1) == ground:
+            break
+        assert time.monotonic() < deadline, "the panel never left the bench picture"
+        time.sleep(0.5)
+    assert screen.rgb565(30, 30) != pack565(255, 0, 0)
+    assert screen.rgb565(0, 0) != white

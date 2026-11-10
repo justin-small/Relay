@@ -35,6 +35,7 @@ esp_err_t screen_show_lines(const panel_text_line *lines, int count, const char 
 // is how a change between one feed and two reaches the glass.
 esp_err_t screen_show_captions();
 
-// The bench picture: the boot's colour bars, kept as the idle picture of a board with nothing
-// to say. Written raw, not drawn by LVGL, and LVGL is inactive while it is up.
+// The bench picture: the boot's colour bars. A bench aid, shown only by the `bench` console command. The panel
+// never falls back to it: with nothing to say it shows the captions view, which says it is offline.
+// Written raw, not drawn by LVGL, and LVGL is inactive while it is up.
 esp_err_t screen_show_bench(const char *version);

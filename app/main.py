@@ -1008,6 +1008,13 @@ async def admin_planning_center_test():
     return {**_pc_body(), "service_types": types}
 
 
+@app.post("/api/admin/planning-center/service-types/refresh", dependencies=[Depends(require_admin)])
+async def admin_planning_center_service_types_refresh():
+    """The account's service types, read from Planning Center. The page calls this after Save
+    and once a minute while the list is on screen; it changes nothing."""
+    return await admin_planning_center_test()
+
+
 @app.post("/api/admin/planning-center/service-types", dependencies=[Depends(require_admin)])
 async def admin_planning_center_service_types(payload: dict):
     """Which service types Relay follows."""

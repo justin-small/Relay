@@ -51,8 +51,14 @@ esp_err_t display_show_test_screen(const char *version);
 
 // Write a rectangle of logical pixels into the panel. `x1..x2` and `y1..y2` are inclusive, in the
 // upright picture's coordinates. `pixels` holds the rows of the rectangle, `stride` pixels apart, and the
-// first pixel is at (x1, y1). On the board the driver turns the picture, so the coordinates pass
-// straight through; on the emulator the turn is made here, as `paint` makes it for the bench screen.
+// first pixel is at (x1, y1). The turn for a 180 degree rotation is made here, on the board and the emulator
+// alike, as `paint` makes it for the bench screen.
 // Partial updates: only the rectangle is written, and the rest of the frame stays as it was.
+// On a board with two frame buffers the rectangle goes into the one that is not on the glass, and shows
+// when `display_present` is called.
 esp_err_t display_write_rect(int x1, int y1, int x2, int y2, const uint16_t *pixels, int stride);
+
+// Show what `display_write_rect` has written since the last call, all at once. A no-op where there is one
+// frame buffer, which shows each write as it lands.
+esp_err_t display_present();
 

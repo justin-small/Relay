@@ -94,5 +94,7 @@ constexpr uint8_t kStc8BacklightOffV13 = 245;
 constexpr char kTouchProductId[] = "911";
 constexpr int kTouchMaxPoints = 5;
 
-// The RGB driver mirrors the picture itself for 180 degrees (`esp_lcd_panel_mirror`).
-constexpr bool kPanelTurnsInSoftware = false;
+// **`display.cpp` makes the 180 degree turn.** The RGB driver's mirror applies only to a bitmap it copies in,
+// and the two frame buffers are flipped by handing the driver one of its own, which skips the copy and the
+// mirror with it. So the turn is made while strips are written into the back buffer.
+constexpr bool kPanelTurnsInSoftware = true;

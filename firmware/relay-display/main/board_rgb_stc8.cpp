@@ -123,10 +123,10 @@ esp_err_t board_panel_init(int rotation_deg, esp_lcd_panel_handle_t *out)
 
     cfg.data_width = 16;
     cfg.bits_per_pixel = 16;
-    // **One frame buffer, in PSRAM.** The cost of one buffer is tearing on a redraw, since the panel
-    // reads the buffer while it is written. A second buffer fixes that for 768 KB more PSRAM, and it
-    // is the change to make if the bench shows tearing on a live screen.
-    cfg.num_fbs = 1;
+    // **Two frame buffers, in PSRAM** (768 KB each). With one, the panel read the buffer while a redraw was
+    // written into it, and a scrolling list showed old and new rows in the same frame (the caption list
+    // "jumped"). `display.cpp` now draws into the buffer that is not being scanned and flips.
+    cfg.num_fbs = 2;
     // A bounce buffer in internal RAM that the driver fills from the PSRAM frame buffer, ten lines as
     // shipped. With a frame buffer present the driver does the
     // copy itself, so strips are still painted as before.
@@ -150,15 +150,22 @@ esp_err_t board_panel_init(int rotation_deg, esp_lcd_panel_handle_t *out)
                         TAG, "frame callback");
     ESP_RETURN_ON_ERROR(esp_lcd_panel_init(s_panel), TAG, "panel init");
 
-    // Mirroring is set after init and before anything is drawn, so no frame is
-    // ever painted unmirrored and then flipped. For 0 degrees both axes stay clear.
+    // **No hardware mirror.** The driver's mirror applies only to a bitmap it copies in, and a flip hands it
+    // one of its own buffers, so `display.cpp` turns the picture itself (`kPanelTurnsInSoftware`).
     const bool flip = panel_rotation_mirrors(rotation_deg);
-    ESP_RETURN_ON_ERROR(esp_lcd_panel_mirror(s_panel, flip, flip), TAG, "mirror");
 
-    ESP_LOGI(TAG, "panel: %dx%d RGB565, pclk %d Hz, rotation %d",
+    ESP_LOGI(TAG, "panel: %dx%d RGB565, pclk %d Hz, two frame buffers, rotation %d (turned in software)",
              kLcdWidth, kLcdHeight, static_cast<int>(CONFIG_RELAY_PCLK_HZ), flip ? 180 : 0);
     *out = s_panel;
     return ESP_OK;
+}
+
+esp_err_t board_panel_frame_buffers(void **a, void **b)
+{
+    if (s_panel == nullptr) {
+        return ESP_ERR_INVALID_STATE;
+    }
+    return esp_lcd_rgb_panel_get_frame_buffer(s_panel, 2, a, b);
 }
 
 uint32_t board_panel_frames_done()

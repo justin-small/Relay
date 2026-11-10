@@ -81,6 +81,7 @@ void flush(lv_display_t *disp, const lv_area_t *area, uint8_t *px_map)
         // a narrow one smeared the rows beside it on the glass.
         const int w = area->x2 - area->x1 + 1;
         display_write_rect(area->x1, area->y1, area->x2, area->y2, reinterpret_cast<const uint16_t *>(px_map), w);
+        // Shown together by `lvgl_task`, after the pass.
     }
 #if CONFIG_RELAY_DEV_DIAG
     diag_note_flush(esp_timer_get_time() - flush_start);
@@ -226,6 +227,10 @@ void lvgl_task(void *)
         }
         s_request = Request::none;
         const uint32_t next = lv_timer_handler();
+        // **Everything LVGL flushed in this pass is shown now, once.** Not on the flush LVGL calls the last: a
+        // redraw that never got that flag was written to the back buffer and never shown (a removed pane stayed
+        // up and a new feed stayed blank). A pass with nothing written is a no-op.
+        display_present();
         screen_unlock();
         const uint32_t wait = next < 5 ? 5 : (next > 33 ? 33 : next);
         vTaskDelay(pdMS_TO_TICKS(wait));

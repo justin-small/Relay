@@ -49,15 +49,15 @@
   .meter > b { position:absolute; top:0; bottom:0; width:2px; margin-left:-1px;
                background:var(--fg); opacity:0; border-radius:1px;
                transition:left .08s linear, opacity .2s linear; pointer-events:none; }
-  .clip { font-size:9px; font-weight:700; letter-spacing:.1em;
-          padding:3px 6px; border-radius:4px; border:1px solid var(--line);
+  .clip { font-size:11px; font-weight:700; letter-spacing:.1em;
+          padding:3px 8px; border-radius:4px; border:1px solid var(--line);
           color:var(--line); background:#111216; transition:none; }
   .clip.on { color:#fff; background:var(--err); border-color:var(--err); }
   .meterscale { position:relative; display:block; height:12px; margin-top:3px; }
-  .meterscale span { position:absolute; top:0; font-size:9px; color:var(--dim);
+  .meterscale span { position:absolute; top:0; font-size:11px; color:var(--dim);
                      white-space:nowrap;
                      font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
-  .meterread { font-size:10px; color:var(--dim); white-space:nowrap;
+  .meterread { font-size:11px; color:var(--dim); white-space:nowrap;
                font-variant-numeric:tabular-nums;
                font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
   .meterread.clipped { color:var(--err); }
@@ -93,11 +93,11 @@
   .urls .urlrow { display:flex; align-items:center; gap:8px; }
   .urls .urllinks a { font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
                       font-size:12px; word-break:break-all; }
-  .urls .urlheading { color:var(--dim); font-size:10px; font-weight:700; letter-spacing:.12em;
+  .urls .urlheading { color:var(--dim); font-size:11px; font-weight:700; letter-spacing:.12em;
                       text-transform:uppercase; margin:14px 0 2px; }
   .urls .urlheading:first-child { margin-top:0; }
   .urls .urlcopy { flex:0 0 auto; background:var(--btn-bg,#17181c); color:var(--fg);
-                   border:1px solid var(--line); border-radius:6px; padding:3px 9px;
+                   border:1px solid var(--line); border-radius:6px; padding:6px 12px;
                    font-size:11px; cursor:pointer; }
   .urls .urlcopy:active { background:var(--btn-active,#24262c); }
   .urls .urlcopy.ok { color:var(--accent); border-color:var(--accent); }
@@ -169,23 +169,197 @@
   .schedname { font-weight:600; }
   .schedsum { font-size:12px; color:var(--dim); margin-top:2px; }
   .schedactions { white-space:nowrap; text-align:right; }
-  .schedactions button { padding:5px 10px; font-size:12px; margin-left:4px; }
+  .schedactions button { padding:6px 12px; font-size:12px; margin-left:4px; }
   .warn { color:var(--warn); }
+
+  /* ---- Operator layout: top bar, left sidebar of settings areas, one page at a time ---- */
+  :root { --bg:#0d0e10; --line:#23252a; --btn:#17181b; --btn-bg:#17181b; --fg:#eceae6; --dim:#9aa0a8;
+          --accent:#5fcf8f; --err:#f87171; }
+  html { scrollbar-color:#2c2e33 transparent; }
+  body { display:block; font:14px/1.5 ui-sans-serif,-apple-system,"Segoe UI",system-ui,sans-serif; background:var(--bg); }
+  ::selection { background:#3b4a40; color:#fff; }
+  :focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
+  input[type=checkbox],input[type=radio] { accent-color:var(--accent); }
+  button { border-radius:5px; }
+  button.primary { background:var(--fg); border-color:var(--fg); color:#111; }
+  button.danger { background:#7f1d1d; border-color:#7f1d1d; color:#fff; }
+  select,input,textarea { border-radius:5px; background:#141518; }
+  .spacer { flex:1; }
+  .ic { width:16px; height:16px; fill:none; stroke:currentColor; stroke-width:1.6; stroke-linecap:round; stroke-linejoin:round; vertical-align:-3px; }
+
+  header.topbar { position:sticky; top:0; z-index:10; background:var(--bg); display:flex; align-items:center;
+                  gap:12px; padding:12px 20px; margin:0; border-bottom:1px solid var(--line); }
+  header.topbar h1 { font-size:17px; letter-spacing:-.01em; margin:0; font-weight:600; }
+  .menu { display:none; }
+  /* Always visible: is the transcription stream running? */
+  .spill { display:inline-flex; align-items:center; gap:8px; border:1px solid var(--line); border-radius:4px;
+           padding:5px 12px; font-weight:700; letter-spacing:.02em; font-size:12px; text-decoration:none; }
+  .spill.on { color:var(--accent); border-color:#1f4d33; background:#0b1a12; }
+  .spill.on .dot { background:var(--accent); animation:pulse 1.4s infinite; }
+  .spill.off { color:#fca5a5; border-color:#5b2020; background:#1c0b0b; }
+  .spill.off .dot { background:var(--err); }
+  .dot { width:9px; height:9px; }
+  @keyframes pulse { 50% { opacity:.3; } }
+  @media (prefers-reduced-motion:reduce) { .spill.on .dot { animation:none; } }
+
+  .layout { display:grid; grid-template-columns:220px minmax(0,1fr); min-height:calc(100vh - 54px); }
+  nav { border-right:1px solid var(--line); padding:16px 12px; position:sticky; top:54px; align-self:start;
+        height:calc(100vh - 54px); overflow:auto; }
+  nav .grp { font-size:12px; color:var(--dim); font-weight:500; padding:16px 10px 4px; }
+  nav .grp:first-child { padding-top:0; }
+  nav a { display:flex; align-items:center; gap:9px; padding:7px 10px; border-radius:5px; color:#c4c7cc; text-decoration:none; }
+  nav a:hover { background:#16171a; }
+  nav a.on { background:#1d1f23; color:#fff; box-shadow:inset 0 0 0 1px #2c2f35; font-weight:600; }
+  nav a .ico { display:inline-flex; width:16px; height:16px; opacity:.75; }
+  nav a .ico svg { width:16px; height:16px; fill:none; stroke:currentColor; stroke-width:1.5; stroke-linecap:round; stroke-linejoin:round; }
+  main { padding:28px 36px 96px; max-width:880px; width:100%; }
+  .page[hidden] { display:none; }
+  main h2.title { font-size:22px; letter-spacing:-.015em; margin:0 0 4px; font-weight:600; }
+  main h2.title .sumstate { font-size:13px; font-weight:400; letter-spacing:0; color:var(--dim); margin-left:8px; }
+  main h2.title .sumstate .live { color:var(--accent); }
+  main p.sub { margin:0 0 28px; color:var(--dim); max-width:60ch; }
+
+  /* Flat sections under a hairline: no card around every group. */
+  main section { border:0; border-top:1px solid var(--line); border-radius:0; background:transparent;
+                 padding:20px 0 4px; margin:0 0 24px; }
+  main section h3 { font-size:15px; color:var(--fg); font-weight:600; margin:0 0 14px; }
+  label { font-size:13px; }
+  .meter { border-radius:3px; }
+  th { text-transform:none; letter-spacing:0; font-weight:500; font-size:12px; }
+  .note { border-radius:0; }
+  .ctl { display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
+  .feedbar { display:flex; align-items:center; gap:12px; flex-wrap:wrap; margin-bottom:10px; }
+  .feedbar select { width:auto; min-width:200px; }
+  .feedscroll { margin:0; white-space:nowrap; }
+  label.check { justify-content:flex-start; }
+  label.check input[type=checkbox] { width:auto; flex:0 0 auto; margin:0; }
+  #pcTypeList { gap:2px; }
+  main h3 .count { font-weight:400; font-size:13px; color:var(--dim); margin-left:6px; }
+  .langgrid { display:grid; grid-template-columns:repeat(auto-fill,minmax(210px,1fr)); gap:2px 24px; }
+  .langgrid label.check { margin:0; padding:6px 0; }
+  .langgrid .tstate { margin-left:auto; font-size:11px; color:var(--dim); }
+  .langgrid label.check.off { opacity:.55; }
+  main form.formsec { border-top:1px solid var(--line); padding:20px 0 4px; margin:0 0 24px; }
+  main form.formsec h3 { font-size:15px; font-weight:600; margin:0 0 14px; }
+  .prow.head { color:var(--dim); font-size:12px; padding:0 0 6px; border-top:0; }
+  /* Viewer links: label, link and Copy on the left, the QR code on the right. */
+  .urls .urlgroup { display:flex; gap:16px; align-items:center; padding:12px 0; border-bottom:0; border-top:1px solid var(--line); }
+  .urls section > .urlgroup:first-of-type { border-top:0; padding-top:0; }
+  .urls .urllabel { flex:0 0 170px; }
+  .urls .urllinks { flex:1; flex-direction:column; gap:14px; }
+  .urls .urllink { flex-direction:row; align-items:center; justify-content:space-between; gap:14px; width:100%; }
+  .urls .urlrow { min-width:0; }
+  .urls .urlrow { flex-direction:column; align-items:flex-start; gap:6px; }
+  .urls .urllinks a { color:#9db8ff; }
+  .urls .urlqr { width:72px; height:72px; padding:4px; border-radius:4px; }
+  #pcTypes { margin-top:18px; }
+  #pcNotesRow { margin-top:16px; }
+  .feedbox { height:240px; overflow:auto; background:#08090a; border:1px solid var(--line); border-radius:5px;
+             padding:10px 14px; font-size:15px; line-height:1.6; }
+  .feedbox p { margin:0 0 4px; }
+  .feedbox p.open { color:#fff; }
+  .feedbox p.settled { color:#c9cbd1; }
+  .feedbox .empty { color:var(--dim); font-size:13px; }
+
+  /* Viewer links: sentence-case group headings instead of letter-spaced labels. */
+  .urls .urlheading { text-transform:none; letter-spacing:0; font-size:15px; font-weight:600; color:var(--fg); margin:18px 0 4px; }
+  .urls .urllabel { text-transform:none; letter-spacing:0; font-size:13px; font-weight:600; color:var(--fg); }
+
+  /* Panels: a compact list; the name opens its settings in a right-hand drawer. */
+  .prow { display:grid; grid-template-columns:minmax(120px,1.4fr) minmax(100px,1.4fr) minmax(70px,.7fr) auto; gap:4px 14px;
+          align-items:center; padding:10px 0; border-top:1px solid var(--line); font-size:13px; }
+  .prow:first-child { border-top:0; }
+  .prow.offline { opacity:.75; }
+  .plink { background:none; border:0; padding:0; color:#fff; font-weight:600; font-size:14px; text-align:left;
+           text-decoration:underline; text-decoration-color:#3a3d45; text-underline-offset:3px; cursor:pointer;
+           overflow-wrap:anywhere; }
+  .plink:hover { text-decoration-color:#fff; }
+  .pstat { display:inline-flex; align-items:center; gap:6px; font-size:12px; color:var(--dim); justify-self:end; }
+  .pstat .badge { color:var(--accent); }
+  .fwbox.flat { border:0; background:transparent; padding:0; margin:0; }
+  #drawerBg { position:fixed; inset:0; background:rgba(0,0,0,.55); z-index:20; }
+  #drawerBg[hidden],#drawer[hidden] { display:none; }
+  #drawer { position:fixed; top:0; right:0; bottom:0; width:min(420px,100%); background:#101114;
+            border-left:1px solid var(--line); z-index:21; display:flex; flex-direction:column; }
+  #drawer > header { display:flex; align-items:center; gap:10px; padding:14px 18px; margin:0; border-bottom:1px solid var(--line); }
+  #drawer > header h2 { margin:0; font-size:16px; flex:1; font-weight:600; overflow-wrap:anywhere; }
+  #drawer .dbody { padding:16px 18px 28px; overflow:auto; flex:1; }
+  #drawer .dfoot { padding:12px 18px; border-top:1px solid var(--line); display:flex; gap:8px; align-items:center; }
+  #drawer .dfoot .forget { color:var(--err); }
+  #drawer .dhead { font-size:15px; font-weight:600; margin:22px 0 10px; }
+  #drawer .radios { display:flex; gap:20px; flex-wrap:wrap; }
+  #drawer .radios label.check { margin:0; min-height:0; padding:4px 0; }
+  #drawer input[type=radio] { width:auto; flex:0 0 auto; margin:0; }
+  #drawer .kv { display:flex; justify-content:space-between; gap:16px; padding:7px 0; border-bottom:1px solid var(--line); font-size:13px; }
+  #drawer .kv > :last-child { text-align:right; overflow-wrap:anywhere; }
+  #drawer .pupdate { margin-top:10px; font-size:12.5px; }
+  #drawer .pupdate .badge { color:var(--accent); font-weight:600; }
+  #drawer .pupdate .bad { color:#ff8a80; }
+  #drawer .pactions { display:flex; flex-wrap:wrap; gap:8px; margin-top:12px; }
+
+  @media (max-width:760px) {
+    .layout { grid-template-columns:minmax(0,1fr); }
+    nav { display:none; position:static; height:auto; border-right:0; border-bottom:1px solid var(--line); }
+    nav.open { display:block; }
+    .menu { display:inline-block; }
+    main { padding:20px 16px 96px; }
+    .prow { grid-template-columns:1fr auto; }
+    .prow .pshow,.prow .pfw { grid-column:1 / -1; }
+  }
 </style>
 </head><body>
-<div class="wrap">
-  <header>
-    <span class="dot" id="masterDot"></span>
-    <h1>Relay</h1>
-    <span class="spacer"></span>
-    <span class="muted" id="viewerCount">0 viewers</span>
-    <form method="post" action="/admin/logout" style="margin:0"><button>Sign out</button></form>
-  </header>
-
+<header class="topbar">
+  <button class="menu" id="navToggle" aria-expanded="false" aria-controls="nav"><svg class="ic" viewBox="0 0 16 16" aria-hidden="true"><path d="M2 4h12M2 8h12M2 12h12"/></svg> Menu</button>
+  <h1>Relay</h1>
+  <a href="#health" class="spill off" id="streamPill" title="Open Session health" aria-live="polite"><span class="dot" id="masterDot"></span><span id="pillTxt">STOPPED</span></a>
+  <span class="spacer"></span>
+  <span class="muted" id="viewerCount">0 viewers</span>
+  <form method="post" action="/admin/logout" style="margin:0"><button>Sign out</button></form>
+</header>
+<div class="layout">
+  <nav id="nav" aria-label="Settings areas">
+    <div class="grp">Live</div>
+    <a href="#health" data-page="health"><span class="ico"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 8h3l2-5 2 10 2-5h3"/></svg></span>Session health</a>
+    <a href="#audio" data-page="audio"><span class="ico"><svg viewBox="0 0 16 16" aria-hidden="true"><rect x="6" y="1.5" width="4" height="8" rx="2"/><path d="M3.5 7.5a4.5 4.5 0 0 0 9 0M8 12v2.5"/></svg></span>Audio input</a>
+    <a href="#targets" data-page="targets"><span class="ico"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 4h7M5.5 2v2M3.5 4c.5 3 2.5 5 5 6M8 4c-.5 3-2.5 5-5.5 6.5M9 14l3-7 3 7M10 12h4"/></svg></span>Target languages</a>
+    <div class="grp">Output</div>
+    <a href="#panels" data-page="panels"><span class="ico"><svg viewBox="0 0 16 16" aria-hidden="true"><rect x="1.5" y="3" width="13" height="9" rx="1.5"/><path d="M5.5 14.5h5"/></svg></span>Panels</a>
+    <a href="#urls" data-page="urls"><span class="ico"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M6.5 9.5a3 3 0 0 0 4 0l2-2a3 3 0 0 0-4-4l-1 1M9.5 6.5a3 3 0 0 0-4 0l-2 2a3 3 0 0 0 4 4l1-1"/></svg></span>Viewer links</a>
+    <a href="#recordings" data-page="recordings"><span class="ico"><svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6"/><circle cx="8" cy="8" r="2" fill="currentColor"/></svg></span>Recordings &amp; export</a>
+    <div class="grp">Automation</div>
+    <a href="#schedules" data-page="schedules"><span class="ico"><svg viewBox="0 0 16 16" aria-hidden="true"><rect x="2" y="3" width="12" height="11" rx="1.5"/><path d="M2 7h12M5.5 1.5v3M10.5 1.5v3"/></svg></span>Schedules</a>
+    <a href="#planningcenter" data-page="planningcenter"><span class="ico"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 13V6l5-4 5 4v7zM6.5 13V9h3v4"/></svg></span>Planning Center</a>
+    <div class="grp">Settings</div>
+    <a href="#blocklist" data-page="blocklist"><span class="ico"><svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6"/><path d="M3.8 12.2l8.4-8.4"/></svg></span>Blocked words</a>
+    <a href="#credentials" data-page="credentials"><span class="ico"><svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="5" cy="10.5" r="2.5"/><path d="M7 9l6-6M11 5l1.5 1.5M9.5 6.5L11 8"/></svg></span>Credentials</a>
+    <a href="#appearance" data-page="appearance"><span class="ico"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 4h12M2 8h12M2 12h12"/><circle cx="5" cy="4" r="1.5" fill="var(--bg)"/><circle cx="10.5" cy="8" r="1.5" fill="var(--bg)"/><circle cx="6.5" cy="12" r="1.5" fill="var(--bg)"/></svg></span>Appearance &amp; tuning</a>
+  </nav>
+  <main>
   <div id="alert" class="field err" hidden></div>
-
-  <section>
-    <h2>Session health</h2>
+  <div class="page" id="page-health" data-page="health" hidden>
+    <h2 class="title">Session health</h2>
+    <p class="sub">Start and stop the stream, watch the live transcript and check each session.</p>
+    <section>
+      <h3>Stream control</h3>
+      <div class="ctl">
+        <span class="muted" id="masterState">Stopped</span>
+        <span class="spacer"></span>
+        <button class="primary" id="startBtn">Start capture</button>
+        <button class="danger" id="stopBtn" disabled>Stop</button>
+      </div>
+      <div class="note">Starts or stops transcription and every translation session together. Stopping ends billed API usage.</div>
+    </section>
+    <section>
+      <h3>Live transcript</h3>
+      <div class="feedbar">
+        <select id="feedSel" aria-label="Feed to watch"><option value="">Transcription (source)</option></select>
+        <label class="check feedscroll"><input type="checkbox" id="feedScroll" checked> Auto-scroll</label>
+        <span class="muted" id="feedState"></span>
+      </div>
+      <div class="feedbox" id="feedBox" tabindex="0" role="log" aria-label="Live transcript"></div>
+    </section>
+    <section>
+      <h3>Sessions</h3>
     <div class="tablescroll">
       <table>
         <thead><tr><th>Session</th><th>State</th><th>Last delta</th><th>Retries</th><th>Audio dropped</th></tr></thead>
@@ -193,9 +367,12 @@
       </table>
     </div>
   </section>
-
-  <section>
-    <h2>Audio input</h2>
+  </div>
+  <div class="page" id="page-audio" data-page="audio" hidden>
+    <h2 class="title">Audio input</h2>
+    <p class="sub">Choose the capture device and watch the input level.</p>
+    <section>
+      <h3>Capture device</h3>
     <div class="field">
       <label for="device">Capture device</label>
       <div class="row">
@@ -215,6 +392,9 @@
         it is already gated, and reduction on top can chew word onsets. Changing it restarts
         live sessions.</div>
     </div>
+    </section>
+    <section>
+      <h3>Input level</h3>
     <div class="pill"><span class="dot" id="audioDot"></span><span id="audioState">Idle</span></div>
     <div class="meterwrap">
       <div class="metercol">
@@ -231,12 +411,14 @@
     </div>
     <div class="note" id="audioNote"></div>
   </section>
-
-  <details class="sect" id="sec-targets" open>
-    <summary>Target languages <span class="sumstate" id="targetsSum"></span></summary>
+  </div>
+  <div class="page" id="page-targets" data-page="targets" hidden>
+    <h2 class="title">Target languages <span class="sumstate" id="targetsSum"></span></h2>
+    <p class="sub">Choose which languages are translated and offered to viewers.</p>
+    <section>
+      <h3>Translation engine</h3>
     <div class="field">
-      <label for="xmode">Translation engine</label>
-      <select id="xmode">
+      <select id="xmode" aria-label="Translation engine">
         <option value="realtime">Realtime: streams word by word, billed per minute per language</option>
         <option value="text">Text: one line at a time, a fraction of the cost</option>
       </select>
@@ -245,20 +427,121 @@
         almost nothing. Captions then arrive a line at a time, a second or two behind.
         Changing it restarts live sessions.</div>
     </div>
-    <table><tbody id="targets"></tbody></table>
+    </section>
+    <section>
+      <h3>Enabled languages <span class="count" id="targetsCount"></span></h3>
+      <div class="ctl" style="margin-bottom:10px">
+        <button type="button" id="targetsAll">Select all</button>
+        <button type="button" id="targetsNone">Clear</button>
+      </div>
+      <div class="langgrid" id="targets"></div>
     <div class="note" id="targetsNote">Each live target is a separate, continuously-billed session. Turning one off closes it immediately.</div>
-  </details>
+    </section>
+  </div>
+  <div class="page" id="page-panels" data-page="panels" hidden>
+    <h2 class="title">Panels <span class="sumstate" id="panelsSum"></span></h2>
+    <p class="sub">Caption panels on the venue network. Click a panel name to see and change its settings.</p>
+    <section>
+      <h3>Paired panels</h3>
+      <div class="plist" id="panelList"><div class="muted">No panels have checked in yet.</div></div>
+    </section>
+    <section>
+      <h3>Panel firmware</h3>
+    <div class="fwbox flat" id="fwBox">
+      <span class="muted">Current image:</span> <span id="fwInfo">none uploaded</span>
+      <div class="fwrow">
+        <input type="file" id="fwFile" accept=".bin,application/octet-stream" aria-label="Signed panel image (relay-display-app.bin)">
+        <button type="button" id="fwUpload">Upload</button>
+        <button type="button" id="fwUpdateAll" hidden>Update all online panels</button>
+        <button type="button" id="fwRemove" hidden>Remove</button>
+      </div>
+      <div class="note">
+        Upload <code>relay-display-app.bin</code> from a release. Relay checks it is a panel image, but the
+        panel decides whether the signature is right and refuses anything not signed with its release key.
+        An update installs at a quiet moment (no new caption line for a while) unless you choose
+        &ldquo;Update now&rdquo;.
+      </div>
+    </div>
 
-  <details class="sect" id="sec-schedules" open>
-    <summary>Schedules</summary>
+    </section>
+    <section>
+      <h3>How panels work</h3>
+      <div class="note">
+      Caption panels on the venue network appear here by themselves. A feed you set is sent to the
+      panel at once; a change made at the panel&rsquo;s own screen afterwards wins until you set
+      one again. Forgetting a panel that is still switched on brings it straight back, unnamed.
+    </div>
+    </section>
+  </div>
+  <div class="page" id="page-urls" data-page="urls" hidden>
+    <h2 class="title">Viewer links</h2>
+    <p class="sub">Open these on a screen or paste them into another app.</p>
+    <div class="urls" id="urls"></div>
+  </div>
+  <div class="page" id="page-recordings" data-page="recordings" hidden>
+    <h2 class="title">Recordings &amp; export</h2>
+    <p class="sub">Save each run's transcript to disk and export it.</p>
+    <section>
+      <h3>Recording</h3>
+    <div class="note" style="margin:0 0 12px">
+      A recording covers exactly one run &mdash; from <em>Start capture</em> to
+      <em>Stop</em>. Every committed caption line is written to disk as it happens,
+      so a crash mid-event still leaves you the transcript up to that point.
+      Blocked words are removed before anything is written.
+      <strong>Off by default</strong>: nothing is recorded until you turn this on.
+    </div>
+    <div class="row">
+      <div class="field" style="flex:0 0 auto">
+        <label for="recEnabled">Record each run to disk</label>
+        <label class="switch" style="margin-top:4px">
+          <input id="recEnabled" type="checkbox"><span class="slider"></span>
+        </label>
+      </div>
+      <div class="field">
+        <label for="recKeep">Runs kept (oldest pruned at the next start)</label>
+        <input id="recKeep" type="number" min="1" max="500" step="1">
+      </div>
+    </div>
+    <button class="primary" id="saveRecording">Save</button>
+    <span class="muted" style="margin-left:10px">Stored in <span class="mono" id="recDir">recordings/</span></span>
+    </section>
+    <section>
+      <h3>Runs</h3>
+    <table>
+      <thead><tr><th>Run</th><th>Duration</th><th>Lines</th><th>Download</th><th></th></tr></thead>
+      <tbody id="recRuns"><tr><td colspan="5" class="muted">Nothing recorded yet.</td></tr></tbody>
+    </table>
+    </section>
+    <section>
+      <h3>What&rsquo;s in the export</h3>
+    <div class="note" style="margin-top:0">
+      The zip holds a timestamped <span class="mono">transcript-&lt;LANGUAGE&gt;.txt</span> per
+      language, plus, per target language, a <span class="mono">pairs-&lt;TARGET&gt;.jsonl</span>
+      (each source line matched to its translation, with a confidence field) and a
+      <span class="mono">finetune-&lt;TARGET&gt;.jsonl</span> in OpenAI chat format, ready to
+      upload to a fine-tuning job.
+      <br>The two feeds carry no shared segment id and are broken into lines
+      independently, so pairs are matched on overlapping time span and every row says
+      how sure the match is. Only the <span class="mono">exact</span> ones are carried into
+      the fine-tuning file &mdash; the rest stay in the pairs file to be reviewed.
+    </div>
+    </section>
+  </div>
+  <div class="page" id="page-schedules" data-page="schedules" hidden>
+    <h2 class="title">Schedules</h2>
+    <p class="sub">Start and stop capture automatically.</p>
+    <section>
+      <h3>Schedules</h3>
     <div class="note" style="margin:0 0 12px" id="schedStatus">No schedules set. Capture only starts when you press <em>Start capture</em>.</div>
     <table>
       <thead><tr><th>Schedule</th><th>Next start</th><th style="width:52px">On</th><th></th></tr></thead>
       <tbody id="schedList"><tr><td colspan="4" class="muted">No schedules yet.</td></tr></tbody>
     </table>
     <button id="schedAdd" style="margin-top:12px">Add schedule</button>
+    </section>
 
-    <form id="schedForm" hidden autocomplete="off">
+    <form id="schedForm" class="formsec" hidden autocomplete="off">
+      <h3>New schedule</h3>
       <div class="row">
         <div class="field">
           <label for="schedName">Name (optional)</label>
@@ -313,7 +596,9 @@
       <button type="button" id="schedCancel">Cancel</button>
     </form>
 
-    <div class="note">
+    <section>
+      <h3>How schedules work</h3>
+    <div class="note" style="margin-top:0">
       Capture starts and stops on its own inside each window. If it is already running when a
       window opens, it keeps running and stops at the window&rsquo;s end. Pressing <em>Stop</em>
       during a window holds it until the next scheduled start. Starting by hand outside a window
@@ -322,118 +607,13 @@
       relay must be running for a schedule to fire; a window already under way when the relay
       starts is picked up, and one missed entirely is skipped.
     </div>
-  </details>
-
-  <details class="sect" id="sec-panels" open>
-    <summary>Panels <span class="sumstate" id="panelsSum"></span></summary>
-    <div class="plist" id="panelList"><div class="muted">No panels have checked in yet.</div></div>
-    <div class="fwbox" id="fwBox">
-      <strong>Panel firmware</strong> <span class="muted" id="fwInfo">none uploaded</span>
-      <div class="fwrow">
-        <input type="file" id="fwFile" accept=".bin,application/octet-stream" aria-label="Signed panel image (relay-display-app.bin)">
-        <button type="button" id="fwUpload">Upload</button>
-        <button type="button" id="fwUpdateAll" hidden>Update all online panels</button>
-        <button type="button" id="fwRemove" hidden>Remove</button>
-      </div>
-      <div class="note">
-        Upload <code>relay-display-app.bin</code> from a release. Relay checks it is a panel image, but the
-        panel decides whether the signature is right and refuses anything not signed with its release key.
-        An update installs at a quiet moment (no new caption line for a while) unless you choose
-        &ldquo;Update now&rdquo;.
-      </div>
-    </div>
-    <div class="note">
-      Caption panels on the venue network appear here by themselves. A feed you set is sent to the
-      panel at once; a change made at the panel&rsquo;s own screen afterwards wins until you set
-      one again. Forgetting a panel that is still switched on brings it straight back, unnamed.
-    </div>
-  </details>
-
-  <details class="sect" id="sec-urls" open>
-    <summary>Viewer links</summary>
-    <div class="urls note" id="urls"></div>
-  </details>
-
-  <details class="sect" id="sec-blocklist">
-    <summary>Blocked words</summary>
-    <div class="note" style="margin:0 0 12px">
-      Edited in <span class="mono" id="blocklistPath">blocklist.txt</span> with
-      one word or phrase per line. Changes to the file are picked up within about
-      two seconds, no restart. You can also edit it here.
-    </div>
-    <div class="field">
-      <label for="blocklist">Blocked words, removed from the transcript and every translation</label>
-      <textarea id="blocklist" rows="8" spellcheck="false" placeholder="bad word&#10;another bad word&#10;a phrase to drop"></textarea>
-    </div>
-    <button id="saveBlocklist">Save to file</button>
-    <span id="blocklistCount" class="muted" style="margin-left:10px"></span>
-    <div class="note">
-      Matches are removed outright: no asterisks, no gap, nothing on screen to notice.
-      Case and accents are ignored (<span class="mono">nino</span> matches <span class="mono">ni&ntilde;o</span>) and only whole
-      words match, so <span class="mono">ass</span> will not touch <span class="mono">class</span>.
-      <br>Each feed is filtered on its own, so to remove a word everywhere, list it
-      in each language.
-    </div>
-  </details>
-
-  <details class="sect" id="sec-recordings">
-    <summary>Recordings &amp; export</summary>
-    <div class="note" style="margin:0 0 12px">
-      A recording covers exactly one run &mdash; from <em>Start capture</em> to
-      <em>Stop</em>. Every committed caption line is written to disk as it happens,
-      so a crash mid-event still leaves you the transcript up to that point.
-      Blocked words are removed before anything is written.
-      <strong>Off by default</strong>: nothing is recorded until you turn this on.
-    </div>
-    <div class="row">
-      <div class="field" style="flex:0 0 auto">
-        <label for="recEnabled">Record each run to disk</label>
-        <label class="switch" style="margin-top:4px">
-          <input id="recEnabled" type="checkbox"><span class="slider"></span>
-        </label>
-      </div>
-      <div class="field">
-        <label for="recKeep">Runs kept (oldest pruned at the next start)</label>
-        <input id="recKeep" type="number" min="1" max="500" step="1">
-      </div>
-    </div>
-    <button id="saveRecording">Save</button>
-    <span class="muted" style="margin-left:10px">Stored in <span class="mono" id="recDir">recordings/</span></span>
-    <table style="margin-top:14px">
-      <thead><tr><th>Run</th><th>Duration</th><th>Lines</th><th>Download</th><th></th></tr></thead>
-      <tbody id="recRuns"><tr><td colspan="5" class="muted">Nothing recorded yet.</td></tr></tbody>
-    </table>
-    <div class="note">
-      The zip holds a timestamped <span class="mono">transcript-&lt;LANGUAGE&gt;.txt</span> per
-      language, plus, per target language, a <span class="mono">pairs-&lt;TARGET&gt;.jsonl</span>
-      (each source line matched to its translation, with a confidence field) and a
-      <span class="mono">finetune-&lt;TARGET&gt;.jsonl</span> in OpenAI chat format, ready to
-      upload to a fine-tuning job.
-      <br>The two feeds carry no shared segment id and are broken into lines
-      independently, so pairs are matched on overlapping time span and every row says
-      how sure the match is. Only the <span class="mono">exact</span> ones are carried into
-      the fine-tuning file &mdash; the rest stay in the pairs file to be reviewed.
-    </div>
-  </details>
-
-  <details class="sect" id="sec-credentials">
-    <summary>Credentials</summary>
-    <div class="row">
-      <div class="field">
-        <label for="apikey">OpenAI API key <span id="keyState" class="muted"></span></label>
-        <input id="apikey" type="password" placeholder="sk-… (leave blank to keep current)" autocomplete="off">
-      </div>
-      <div class="field">
-        <label for="admintoken">Admin token (blank = unchanged)</label>
-        <input id="admintoken" type="password" placeholder="••••••••" autocomplete="off">
-      </div>
-    </div>
-    <button id="saveCreds">Save credentials</button>
-    <div class="note">Stored server-side in <span class="mono">config.json</span> (0600, git-ignored). Never sent to viewer pages.</div>
-  </details>
-
-  <details class="sect" id="sec-planningcenter">
-    <summary>Planning Center <span class="sumstate" id="pcSum"></span></summary>
+    </section>
+  </div>
+  <div class="page" id="page-planningcenter" data-page="planningcenter" hidden>
+    <h2 class="title">Planning Center <span class="sumstate" id="pcSum"></span></h2>
+    <p class="sub">Follow the service plan and show it on panels.</p>
+    <section>
+      <h3>Connection</h3>
     <div class="row">
       <div class="field">
         <label for="pcAppId">Application ID</label>
@@ -444,27 +624,12 @@
         <input id="pcSecret" type="password" placeholder="(leave blank to keep current)" autocomplete="off">
       </div>
     </div>
-    <button type="button" id="pcSave">Save</button>
-    <button type="button" id="pcTest">Test connection</button>
-    <button type="button" id="pcDisconnect" hidden>Disconnect</button>
+    <div class="ctl">
+      <button type="button" class="primary" id="pcSave">Save</button>
+      <button type="button" id="pcTest">Test connection</button>
+      <button type="button" id="pcDisconnect" class="forget" hidden>Disconnect</button>
+    </div>
     <div class="note" id="pcState" style="margin-top:12px"></div>
-    <div id="pcTypes" hidden>
-      <label>Service types Relay follows</label>
-      <div class="plist" id="pcTypeList"></div>
-    </div>
-    <label class="check" id="pcNotesRow" hidden>
-      <input type="checkbox" id="pcNotes"> Show item notes on panels
-      <span class="muted">(off by default: notes can hold names and pastoral details, and anyone on the network can open the Service feed)</span>
-    </label>
-    <div id="pcToday" hidden>
-      <label>Today</label>
-      <div class="plist" id="pcTodayList"></div>
-      <div class="note" id="pcTodayNote"></div>
-      <div id="pcActions" hidden>
-        <label>Presses from panels</label>
-        <div class="plist" id="pcActionList"></div>
-      </div>
-    </div>
     <div class="note">
       Make a Personal Access Token at <span class="mono">api.planningcenteronline.com/personal_access_tokens</span>
       and paste its application ID and secret here. Everything Relay does in Planning Center,
@@ -473,10 +638,84 @@
       never shown again, and never written to the log, an export or a recording. Until a token is
       saved, Relay does not contact Planning Center at all.
     </div>
-  </details>
-
-  <details class="sect" id="sec-appearance">
-    <summary>Appearance &amp; tuning</summary>
+    </section>
+    <section id="pcTypes" hidden>
+      <h3>Service types Relay follows</h3>
+      <div class="plist" id="pcTypeList"></div>
+      <div class="ctl" style="margin-top:12px">
+        <button type="button" class="primary" id="pcTypesSave" disabled>Save selection</button>
+        <span class="muted" id="pcTypesNote"></span>
+      </div>
+    </section>
+    <section id="pcDisplay" hidden>
+      <h3>Display</h3>
+    <label class="check" id="pcNotesRow" hidden>
+      <input type="checkbox" id="pcNotes"> <span>Show item notes on panels<br>
+      <span class="muted">Off by default: notes can hold names and pastoral details, and anyone on the network can open the Service feed.</span></span>
+    </label>
+    </section>
+    <section id="pcToday" hidden>
+      <h3>Today</h3>
+      <div class="plist" id="pcTodayList"></div>
+      <div class="note" id="pcTodayNote"></div>
+      <div id="pcActions" hidden>
+        <h3 style="margin-top:22px">Presses from panels</h3>
+        <div class="plist" id="pcActionList"></div>
+      </div>
+    </section>
+  </div>
+  <div class="page" id="page-blocklist" data-page="blocklist" hidden>
+    <h2 class="title">Blocked words</h2>
+    <p class="sub">Removed from the transcript and every translation.</p>
+    <section>
+      <h3>Blocklist</h3>
+    <div class="note" style="margin:0 0 12px">
+      Edited in <span class="mono" id="blocklistPath">blocklist.txt</span> with
+      one word or phrase per line. Changes to the file are picked up within about
+      two seconds, no restart. You can also edit it here.
+    </div>
+    <div class="field">
+      <label for="blocklist">Blocked words, removed from the transcript and every translation</label>
+      <textarea id="blocklist" rows="8" spellcheck="false" placeholder="bad word&#10;another bad word&#10;a phrase to drop"></textarea>
+    </div>
+    <button class="primary" id="saveBlocklist">Save to file</button>
+    <span id="blocklistCount" class="muted" style="margin-left:10px"></span>
+    </section>
+    <section>
+      <h3>How matching works</h3>
+    <div class="note" style="margin-top:0">
+      Matches are removed outright: no asterisks, no gap, nothing on screen to notice.
+      Case and accents are ignored (<span class="mono">nino</span> matches <span class="mono">ni&ntilde;o</span>) and only whole
+      words match, so <span class="mono">ass</span> will not touch <span class="mono">class</span>.
+      <br>Each feed is filtered on its own, so to remove a word everywhere, list it
+      in each language.
+    </div>
+    </section>
+  </div>
+  <div class="page" id="page-credentials" data-page="credentials" hidden>
+    <h2 class="title">Credentials</h2>
+    <p class="sub">Keys used by this relay.</p>
+    <section>
+      <h3>Keys</h3>
+    <div class="row">
+      <div class="field">
+        <label for="apikey">OpenAI API key <span id="keyState" class="muted"></span></label>
+        <input id="apikey" type="password" placeholder="sk-… (leave blank to keep current)" autocomplete="off">
+      </div>
+      <div class="field">
+        <label for="admintoken">Admin token (blank = unchanged)</label>
+        <input id="admintoken" type="password" placeholder="••••••••" autocomplete="off">
+      </div>
+    </div>
+    <button class="primary" id="saveCreds">Save credentials</button>
+    <div class="note">Stored server-side in <span class="mono">config.json</span> (0600, git-ignored). Never sent to viewer pages.</div>
+    </section>
+  </div>
+  <div class="page" id="page-appearance" data-page="appearance" hidden>
+    <h2 class="title">Appearance &amp; tuning</h2>
+    <p class="sub">Viewer text size and how caption lines are broken.</p>
+    <section>
+      <h3>Viewer display</h3>
     <div class="row">
       <div class="field">
         <label for="font">Default viewer font size (px)</label>
@@ -486,6 +725,11 @@
         <label for="history">History lines kept per stream</label>
         <input id="history" type="number" min="1" max="500" step="1">
       </div>
+    </div>
+    </section>
+    <section>
+      <h3>Caption line breaks</h3>
+    <div class="row">
       <div class="field">
         <label for="segIdle">Caption line break after silence (s)</label>
         <input id="segIdle" type="number" min="0.2" max="10" step="0.1">
@@ -495,7 +739,7 @@
         <input id="segMaxIdle" type="number" min="1" max="60" step="0.5">
       </div>
     </div>
-    <button id="saveAppearance">Save</button>
+    <button class="primary" id="saveAppearance">Save</button>
     <div class="note">A caption line is committed once its text has been quiet for
       <em>line break after silence</em> <strong>and</strong> it ends on a sentence boundary.
       A line that never reaches one is committed by the <em>force a line break</em> backstop,
@@ -505,15 +749,16 @@
       Changing these restarts live sessions.
       <span class="mono">gpt-realtime-translate</span> fixes phrase boundaries server-side, so
       these two fields are the only line-break controls.</div>
-  </details>
+    </section>
+  </div>
+  </main>
 </div>
-
-<div class="bannerbar">
-  <button class="primary" id="startBtn">Start capture</button>
-  <button class="danger" id="stopBtn" disabled>Stop</button>
-  <span class="spacer"></span>
-  <span class="muted" id="masterState">Stopped</span>
-</div>
+<div id="drawerBg" hidden></div>
+<aside id="drawer" aria-hidden="true" aria-labelledby="dTitle" hidden>
+  <header><h2 id="dTitle"></h2><button type="button" id="dClose" aria-label="Close"><svg class="ic" viewBox="0 0 16 16" aria-hidden="true"><path d="M3.5 3.5l9 9M12.5 3.5l-9 9"/></svg></button></header>
+  <div class="dbody" id="dBody"></div>
+  <div class="dfoot" id="dFoot"></div>
+</aside>
 
 <script src="/static/qrcode.min.js"></script>
 <script src="/static/admin.js"></script>

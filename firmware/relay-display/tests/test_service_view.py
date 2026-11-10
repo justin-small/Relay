@@ -18,7 +18,7 @@ from collections.abc import Callable
 
 import pytest
 
-from conftest import wait_ready
+from conftest import HEIGHT, WIDTH, wait_ready
 from fake_relay import FakeRelay
 from qemu import Board
 from test_caption_view import ANSI, tap
@@ -142,7 +142,18 @@ def test_the_service_view(panel: Board, relay: FakeRelay) -> None:
     assert m.group(4) == "0"
 
 
-@pytest.mark.skip(reason="skipped for now; notes on a tap is a bench item")
+def held_tap(board: Board, x: int, y: int, hold: float = 1.0) -> None:
+    """A finger down at (x, y), held `hold` seconds, then lifted. Held past LVGL's 400 ms long-press time, as a finger
+    on the glass often is: a row must open its notes on that too."""
+    assert board.uart is not None
+    mark = board.uart.mark()
+    board.uart.send_line(f"touch {WIDTH - 1 - x} {HEIGHT - 1 - y}")
+    board.uart.wait_for_after(mark, r"pointer down at", timeout=30)
+    time.sleep(hold)
+    board.uart.send_line("touch up")
+    board.uart.wait_for_after(mark, r"pointer up at", timeout=30)
+
+
 def test_notes_open_on_a_tap(panel: Board, relay: FakeRelay) -> None:
     relay.set_service_mode("show")
     wait_report(panel, lambda r: "service:7" in r.options, "offered")
@@ -152,7 +163,7 @@ def test_notes_open_on_a_tap(panel: Board, relay: FakeRelay) -> None:
     assert 172 < y < 440, y
     assert panel.uart is not None
     mark = panel.uart.mark()
-    tap(panel, 300, y)
+    held_tap(panel, 300, y)
     panel.uart.wait_for_after(mark, r"view: service notes open for item 3", timeout=30)
     mark = panel.uart.mark()
     tap(panel, 400, 20)
