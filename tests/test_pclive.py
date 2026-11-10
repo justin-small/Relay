@@ -150,6 +150,8 @@ class FakeClient(pc.Client):
             raise world.fail
         if path == "/services/v2":
             return {"data": {"type": "Organization", "id": "1", "attributes": {"time_zone": world.zone}}}
+        if path == "/services/v2/me":
+            return {"data": {"type": "Person", "id": "5", "attributes": {"full_name": "Dana Ortiz"}}}
         if path == "/services/v2/service_types":
             return {"data": [{"type": "ServiceType", "id": i, "attributes": {"name": n}} for i, n in NAMES.items()]}
         m = re.fullmatch(r"/services/v2/service_types/(\d+)/plans(?:/(\d+)(?:/(live|items|plan_times))?)?", path)

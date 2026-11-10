@@ -155,6 +155,14 @@ async def main_async():
     check("note text is nowhere in the message", "Sam" not in json.dumps(m))
     eq("current and next", (m["current_item"], m["next_item"]), ("3", "4"))
     eq("controller and live", (m["controller"], m["live"], m["reachable"]), ("Dana Ortiz", True, True))
+    eq("someone else controlling is not Relay", m["relay_controls"], False)
+    f.me_id = "5"
+    f._note_change()
+    m = await next_msg(resp)
+    eq("the token's owner controlling is Relay", m["relay_controls"], True)
+    f.me_id = None
+    f._note_change()
+    await next_msg(resp)
     check("timers from the last message", m["item_started_at"] == NOW - 60 and m["item_length_s"] == 240
           and isinstance(m["item_left_s"], float) and m["server_time"] > 0, m)
     check("no secret", "secret" not in json.dumps(m))

@@ -21,6 +21,7 @@
 #include "esp_timer.h"
 #include "net.h"
 #include "panel_link.h"
+#include "service_control.h"
 #include "nvs_flash.h"
 #include "provision.h"
 #include "screen.h"
@@ -185,6 +186,10 @@ extern "C" void app_main(void)
             // The panel's check-in with Relay and its event stream. The captions do not wait for either.
             if (panel_link_start(settings) != ESP_OK) {
                 ESP_LOGE(TAG, "boot: panel link not started");
+            }
+            // The LIVE buttons' client: idle until a panel the operator lets control is tapped.
+            if (service_control_start(settings) != ESP_OK) {
+                ESP_LOGE(TAG, "boot: service control not started");
             }
         }
     }

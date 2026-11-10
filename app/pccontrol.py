@@ -113,6 +113,8 @@ class Control:
         return await asyncio.get_running_loop().run_in_executor(None, fn, *args)
 
     async def _my_id(self, client) -> str:
+        if getattr(self.follower, "me_id", None):
+            return self.follower.me_id
         if self._me is None or self._me[0] is not client:
             self._me = (client, await self._call(client.me))
         return self._me[1]

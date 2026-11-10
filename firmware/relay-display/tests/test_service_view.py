@@ -22,7 +22,7 @@ from conftest import wait_ready
 from fake_relay import FakeRelay
 from qemu import Board
 from test_caption_view import ANSI, tap
-from test_feed_picker import open_menu, relay, row, tap_and_wait, wait_report  # noqa: F401 - `relay` is a fixture
+from test_feed_picker import DONE, open_menu, relay, row, tap_and_wait, wait_report  # noqa: F401 - `relay` is a fixture
 
 SERVICE = re.compile(
     r'view: service pane (\d), (known|waiting), (\d+) items, current (\d+), next (\d+), timer "([^"]*)", '
@@ -89,10 +89,12 @@ def panel(boot: Callable[[str | None], Board], relay: FakeRelay) -> Board:  # no
 
 
 def choose_service(board: Board) -> None:
-    """Open the menu and pick the Service feed, the last row."""
+    """Open the menu, pick the Service feed (the last row) and close the menu with Done: the view is built again for
+    the new feed and the menu goes up again over it, so it would take the next tap."""
     listed = open_menu(board)
     tap_and_wait(board, row(listed - 1, split=False), r"feeds: pane 1 shows service 7")
     board.uart.wait_for(r"view: service pane 1 up for slot 0", timeout=45)
+    tap_and_wait(board, DONE, r"view: menu closed")
 
 
 def test_offered_only_while_the_service_mode_allows_it(panel: Board, relay: FakeRelay) -> None:
@@ -140,7 +142,7 @@ def test_the_service_view(panel: Board, relay: FakeRelay) -> None:
     assert m.group(4) == "0"
 
 
-@pytest.mark.skip(reason="a tap on a row reaches the row's inner box under the emulator's finger; checked at the bench")
+@pytest.mark.skip(reason="skipped for now; notes on a tap is a bench item")
 def test_notes_open_on_a_tap(panel: Board, relay: FakeRelay) -> None:
     relay.set_service_mode("show")
     wait_report(panel, lambda r: "service:7" in r.options, "offered")

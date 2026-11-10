@@ -254,6 +254,7 @@ struct service_state {
     bool has_over = false;
     double service_over_s = 0;
     bool live = false;
+    bool relay_controls = false;    // the controller is Relay's own Planning Center person: Release, not Take control
     char controller[kServiceNameBytes] = {};
     bool reachable = true;
     bool notes_allowed = false;
@@ -499,6 +500,7 @@ inline service_change service_apply(service_state *s, const char *json, size_t l
         s->service_over_s = v;
     }
     s->live = d::flag(json, e, "live", false);
+    s->relay_controls = d::flag(json, e, "relay_controls", false);
     d::folded(json, e, "controller", s->controller, sizeof s->controller);
     s->reachable = d::flag(json, e, "reachable", true);
     s->notes_allowed = d::flag(json, e, "notes", false);
@@ -662,4 +664,159 @@ inline int service_focus(const service_state &s)
         return s.next;
     }
     return s.count > 0 ? 0 : -1;
+}
+
+// ---------------------------------------------------------------------------
+// The LIVE buttons (#83)
+// ---------------------------------------------------------------------------
+//
+//   POST /api/panels/<id>/service/<next|previous|take_control|release>
+//        {"key":"<the panel's control key>","type":"<service type id>"}
+//   -> 200 {"ok":true,"service":{..}}            the new state also arrives on the Service feed
+//   -> 4xx/5xx {"ok":false,"error":"not_controlling"}
+//
+// Relay presses the button in Planning Center as its token's owner (app/pccontrol.py). **One press at a time**: a
+// second tap while the first is unanswered is ignored, so a double tap cannot skip two items.
+
+enum class service_action : uint8_t { next, previous, take_control, release };
+
+inline const char *service_action_path(service_action a)
+{
+    switch (a) {
+    case service_action::next: return "next";
+    case service_action::previous: return "previous";
+    case service_action::take_control: return "take_control";
+    case service_action::release: return "release";
+    }
+    return "next";
+}
+
+// The request. Returns its length, or 0 when it does not fit, `id` is not a panel ID, `type` not a service type or
+// `key` not a control key.
+inline size_t service_action_request(char *out, size_t cap, const char *host, uint16_t port, const char *id,
+                                     service_action action, const char *key, const char *type, const char *version)
+{
+    if (strlen(id) != 32 || strlen(key) != kServiceKeyBytes - 1 || !service_id_ok(type)) {
+        return 0;
+    }
+    for (const char *c = id; *c != '\0'; ++c) {
+        if (!((*c >= '0' && *c <= '9') || (*c >= 'a' && *c <= 'f'))) {
+            return 0;
+        }
+    }
+    for (const char *c = key; *c != '\0'; ++c) {
+        if (!((*c >= '0' && *c <= '9') || (*c >= 'a' && *c <= 'f'))) {
+            return 0;
+        }
+    }
+    char body[96];
+    const int bn = snprintf(body, sizeof body, "{\"key\":\"%s\",\"type\":\"%s\"}", key, type);
+    if (bn <= 0 || static_cast<size_t>(bn) >= sizeof body) {
+        return 0;
+    }
+    char host_header[80];
+    if (port == 80) {
+        snprintf(host_header, sizeof host_header, "%s", host);
+    } else {
+        snprintf(host_header, sizeof host_header, "%s:%u", host, static_cast<unsigned>(port));
+    }
+    const int n = snprintf(out, cap,
+                           "POST /api/panels/%s/service/%s HTTP/1.1\r\n"
+                           "Host: %s\r\n"
+                           "Content-Type: application/json\r\n"
+                           "Content-Length: %d\r\n"
+                           "User-Agent: relay-display/%s\r\n"
+                           "Connection: close\r\n"
+                           "\r\n"
+                           "%s",
+                           id, service_action_path(action), host_header, bn, version, body);
+    if (n <= 0 || static_cast<size_t>(n) >= cap) {
+        return 0;
+    }
+    return static_cast<size_t>(n);
+}
+
+// How a press went, as the panel words it.
+enum class service_result : uint8_t {
+    none,             // nothing pressed yet
+    sending,          // waiting for Relay
+    done,             // Relay pressed it; the change arrives on the feed
+    not_allowed,      // this panel may not control, or its key is not Relay's
+    too_fast,
+    not_controlling,  // Next / Previous before Take control
+    no_service,       // no plan today, or a service type Relay does not follow
+    unreachable,      // Planning Center did not answer
+    no_relay,         // Relay did not answer
+    refused,          // anything else
+};
+
+// Relay's answer: the HTTP status and the body's `error` code.
+inline service_result service_result_from(int status, const char *body, size_t len)
+{
+    if (status == 0) {
+        return service_result::no_relay;
+    }
+    if (status == 200) {
+        return service_result::done;
+    }
+    char code[24] = {};
+    size_t n = 0;
+    const char *e = body + len;
+    const char *v = caption_json::get(body, e, "error");
+    if (v != nullptr) {
+        caption_json::read_string(v, e, code, sizeof code, &n);
+    }
+    if (strcmp(code, "not_allowed") == 0 || strcmp(code, "bad_key") == 0) {
+        return service_result::not_allowed;
+    }
+    if (strcmp(code, "too_fast") == 0) {
+        return service_result::too_fast;
+    }
+    if (strcmp(code, "not_controlling") == 0) {
+        return service_result::not_controlling;
+    }
+    if (strcmp(code, "no_plan") == 0 || strcmp(code, "not_followed") == 0 || strcmp(code, "not_connected") == 0) {
+        return service_result::no_service;
+    }
+    if (strcmp(code, "unreachable") == 0) {
+        return service_result::unreachable;
+    }
+    if (status == 404) {
+        return service_result::not_allowed;   // Relay does not know this panel (it restarted): a check-in cures it
+    }
+    return service_result::refused;
+}
+
+// The words under the buttons: "" for none and done (the item changing says it), else what went wrong.
+inline const char *service_result_words(service_result r)
+{
+    switch (r) {
+    case service_result::none:
+    case service_result::done: return "";
+    case service_result::sending: return "Sending...";
+    case service_result::not_allowed: return "Not allowed";
+    case service_result::too_fast: return "Too fast: try again";
+    case service_result::not_controlling: return "Take control first";
+    case service_result::no_service: return "No service to control";
+    case service_result::unreachable: return "Planning Center unreachable";
+    case service_result::no_relay: return "Relay not reachable";
+    case service_result::refused: return "Planning Center said no";
+    }
+    return "";
+}
+
+// The confirmation Take control asks for: "Take control from Dana Ortiz?" when someone else has it, "" when nobody
+// does (then it is pressed at once). ASCII, for Montserrat.
+inline size_t service_take_question(const service_state &s, char *out, size_t cap)
+{
+    out[0] = '\0';
+    if (!s.live || s.relay_controls || s.controller[0] == '\0' || cap == 0) {
+        return 0;
+    }
+    char who[kServiceNameBytes] = {};
+    service_ascii(s.controller, who, sizeof who);
+    service_detail::join(out, cap, "", "Take control from ");
+    service_detail::join(out, cap, "", who);
+    service_detail::join(out, cap, "", "?");
+    return strlen(out);
 }

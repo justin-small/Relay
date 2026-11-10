@@ -2531,6 +2531,55 @@ void check_service()
     }
 }
 
+// The LIVE buttons (#83).
+void check_service_control()
+{
+    const char *id = "0123456789abcdef0123456789abcdef";
+    const char *key = "fedcba9876543210fedcba9876543210";
+    char req[512];
+    const size_t n = service_action_request(req, sizeof req, "relay.local", 8000, id, service_action::take_control,
+                                            key, "7", "0.3.0");
+    CHECK(n > 0);
+    CHECK(strstr(req, "POST /api/panels/0123456789abcdef0123456789abcdef/service/take_control HTTP/1.1\r\n") == req);
+    const char *body = strstr(req, "\r\n\r\n");
+    CHECK(body != nullptr && strcmp(body + 4, "{\"key\":\"fedcba9876543210fedcba9876543210\",\"type\":\"7\"}") == 0);
+    CHECK(strstr(req, "Content-Length: 53\r\n") != nullptr);
+    CHECK(service_action_request(req, sizeof req, "h", 80, id, service_action::next, "short", "7", "0") == 0);
+    CHECK(service_action_request(req, sizeof req, "h", 80, id, service_action::next, key, "7&x", "0") == 0);
+    CHECK(service_action_request(req, sizeof req, "h", 80, "NOTANID", service_action::next, key, "7", "0") == 0);
+    CHECK(service_action_request(req, 40, "h", 80, id, service_action::next, key, "7", "0") == 0);
+    CHECK(strcmp(service_action_path(service_action::previous), "previous") == 0);
+    CHECK(strcmp(service_action_path(service_action::release), "release") == 0);
+
+    auto result = [](int status, const char *b) { return service_result_from(status, b, strlen(b)); };
+    CHECK(result(200, "{\"ok\":true,\"service\":{}}") == service_result::done);
+    CHECK(result(0, "") == service_result::no_relay);
+    CHECK(result(403, "{\"ok\":false,\"error\":\"bad_key\"}") == service_result::not_allowed);
+    CHECK(result(403, "{\"ok\":false,\"error\":\"not_allowed\"}") == service_result::not_allowed);
+    CHECK(result(429, "{\"ok\":false,\"error\":\"too_fast\"}") == service_result::too_fast);
+    CHECK(result(409, "{\"ok\":false,\"error\":\"not_controlling\"}") == service_result::not_controlling);
+    CHECK(result(409, "{\"ok\":false,\"error\":\"no_plan\"}") == service_result::no_service);
+    CHECK(result(502, "{\"ok\":false,\"error\":\"unreachable\"}") == service_result::unreachable);
+    CHECK(result(502, "{\"ok\":false,\"error\":\"refused\"}") == service_result::refused);
+    CHECK(result(404, "{\"detail\":\"unknown panel\"}") == service_result::not_allowed);
+    CHECK(strcmp(service_result_words(service_result::not_allowed), "Not allowed") == 0);
+    CHECK(strcmp(service_result_words(service_result::unreachable), "Planning Center unreachable") == 0);
+    CHECK(service_result_words(service_result::done)[0] == '\0');
+
+    static service_state s;
+    service_apply(&s, kService, strlen(kService), 0);
+    CHECK(!s.relay_controls);
+    char q[96];
+    CHECK(service_take_question(s, q, sizeof q) > 0 && strcmp(q, "Take control from Dana Ortiz?") == 0);
+    std::string mine = kService;
+    mine.replace(mine.find("\"live\":true"), 11, "\"live\":true,\"relay_controls\":true");
+    service_apply(&s, mine.c_str(), mine.size(), 0);
+    CHECK(s.relay_controls && service_take_question(s, q, sizeof q) == 0);
+    const char *nobody = "{\"type\":\"service\",\"followed\":true,\"live\":false,\"controller\":null}";
+    service_apply(&s, nobody, strlen(nobody), 0);
+    CHECK(service_take_question(s, q, sizeof q) == 0);   // nobody to take it from: pressed at once
+}
+
 int main()
 {
     check_panel_constants();
@@ -2584,6 +2633,7 @@ int main()
     check_settings_split_and_v1();
     check_panel_link();
     check_service();
+    check_service_control();
     check_update();
 
     if (g_failures != 0) {

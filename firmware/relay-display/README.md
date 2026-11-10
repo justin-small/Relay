@@ -322,6 +322,14 @@ which `main/caption_view.cpp` builds in a pane whose feed is the service.
   without a touch goes back, as the caption view does.
 * **Notes** (only sent while Relay's "Show item notes on panels" is on) show as a file mark on the row; a tap opens them
   in a card over the glass, a tap anywhere closes it.
+* **The LIVE buttons** (#83), when the panel's service mode includes control: **Previous**, **Next** and **Take
+  control** (Release once Relay's own Planning Center person has it) in a bar under the order of service; in "Control
+  only" they fill the pane under the current and next item. A press goes to Relay
+  (`POST /api/panels/<id>/service/<action>` with the panel's control key, `main/service_control.cpp`), which presses
+  it in Planning Center; the item changes on the glass when Relay's feed says so. Take control asks "Take control from
+  <name>?" first when someone else has it. **A second tap while the first is unanswered is ignored**, so a double tap
+  is one press. A refusal reads under the buttons for a few seconds ("Take control first", "Not allowed", "Planning
+  Center unreachable"). A change of mode in admin rebuilds the view, so the buttons come and go at once.
 * **Fonts.** Only the 36 px caption font draws accents, so item titles use it. The smaller text (key, sequence, footer,
   header, notes) is LVGL's Montserrat, ASCII only: an accented letter is drawn without its accent ("José" reads "Jose").
 * Console: `feeds` lists a service option as `service:<id>`; `view` adds a line per service pane (items, current, next,
@@ -376,6 +384,11 @@ Planning Center going away and coming back reads in the footer; nobody controlli
 type Relay stops following falls back to the transcription and returns. A tap on a row opening its notes is a test
 that is skipped for now: it is a bench item.
 
+`tests/test_service_buttons.py` runs the LIVE buttons against the fake Relay: Next before control reads "Take control
+first"; Take control asks first and then shows Release; Next and Previous move the service; Release hands it back; a
+double tap is one press; a key Relay no longer knows reads "Not allowed"; and turning control off in admin takes the
+buttons away.
+
 `tests/test_update.py` runs the firmware update against the fake Relay, with images made by `tests/build_update.py`
 (the same firmware at 0.2.0, signed with the build's throwaway key, and the same image signed with a key the panel does
 not hold). A good image installs: it downloads, is verified, the panel restarts into it, it checks in and is
@@ -413,6 +426,8 @@ Not proven by any test, and to be done on the board:
       smoothly and a finger on a row with notes opens them without scrolling by mistake
 - [ ] Service feed: a song title and a controller name with accents read right (titles in the caption font, the
       smaller text without its accents)
+- [ ] LIVE buttons: Previous / Next / Take control are easy to hit with a thumb, and scrolling the order of service
+      never presses one by mistake; Next moves the real service on the stage screen
 - [ ] Captions: an hour on Wi-Fi against a running Relay with no lost or doubled lines (`captions 0`
       against Relay's history), across at least one Wi-Fi drop and one Relay restart
 

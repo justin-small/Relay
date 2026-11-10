@@ -4,6 +4,7 @@
 
 #include <cstdio>
 #include <cstring>
+#include <initializer_list>
 #include <new>
 
 #include "caption_view_format.h"
@@ -11,6 +12,9 @@
 #include "config.h"
 #include "esp_heap_caps.h"
 #include "esp_log.h"
+#include "panel_link.h"
+#include "screen.h"
+#include "service_control.h"
 #include "service_format.h"
 
 extern "C" {
@@ -31,6 +35,9 @@ constexpr uint32_t kJumpHex = 0x2F6FED;
 
 constexpr int kNowH = 116;
 constexpr int kFooterH = 40;
+constexpr int kBarH = 84;          // the LIVE buttons under the order of service
+constexpr int kBarBigH = 200;      // the same, filling the pane, in "Control only"
+constexpr uint32_t kResultShowMs = 4000;
 constexpr int kPad = kCaptionPadX;
 
 struct SPane {
@@ -59,6 +66,21 @@ struct SPane {
     char drawn_timer[24] = {};
     char drawn_footer[sizeof(service_status::text)] = {};
     service_tone drawn_tone = service_tone::idle;
+
+    // The LIVE buttons (#83), when the panel's service mode lets it control.
+    bool controls = false;
+    bool shows = true;              // the order of service ("Control only" leaves it out)
+    uint32_t mode_rev = 0;          // panel_link_service_revision() when built: a change rebuilds the view
+    bool rebuild_asked = false;
+    lv_obj_t *btn_prev = nullptr;
+    lv_obj_t *btn_next = nullptr;
+    lv_obj_t *btn_take = nullptr;
+    lv_obj_t *take_label = nullptr;
+    lv_obj_t *message = nullptr;
+    lv_obj_t *confirm = nullptr;    // "Take control from ..?", while it is up
+    uint32_t drawn_ctrl_rev = 0xFFFFFFFF;
+    bool drawn_release = false;
+    char drawn_message[48] = {};
 
     caption_follow follow;          // following = the current item is kept in view
     bool programmatic = false;
@@ -229,6 +251,191 @@ void on_row(lv_event_t *e)
 }
 
 // ---------------------------------------------------------------------------
+// The LIVE buttons
+// ---------------------------------------------------------------------------
+
+SPane &pane_of(lv_event_t *e)
+{
+    return s_p[static_cast<int>(reinterpret_cast<intptr_t>(lv_event_get_user_data(e))) & 1];
+}
+
+void press(SPane &p, service_action action)
+{
+    char type[kServiceTypeBytes] = {};
+    if (captions_feed_choice(p.slot, type, sizeof type) != kFeedService) {
+        return;
+    }
+    service_control_press(action, type);   // refused while the last press waits: a double tap is one press
+}
+
+void confirm_close(SPane &p)
+{
+    if (p.confirm != nullptr) {
+        lv_obj_delete_async(p.confirm);
+        p.confirm = nullptr;
+    }
+}
+
+void on_confirm_yes(lv_event_t *e)
+{
+    SPane &p = pane_of(e);
+    confirm_close(p);
+    ESP_LOGI(TAG, "view: take control confirmed");
+    press(p, service_action::take_control);
+}
+
+void on_confirm_no(lv_event_t *e)
+{
+    SPane &p = pane_of(e);
+    confirm_close(p);
+    ESP_LOGI(TAG, "view: take control cancelled");
+}
+
+lv_obj_t *button(lv_obj_t *parent, const char *label, uint32_t colour, lv_event_cb_t cb, intptr_t tag)
+{
+    lv_obj_t *b = lv_button_create(parent);
+    lv_obj_remove_style_all(b);
+    lv_obj_set_style_bg_color(b, hex(colour), 0);
+    lv_obj_set_style_bg_opa(b, LV_OPA_COVER, 0);
+    lv_obj_set_style_radius(b, 14, 0);
+    lv_obj_set_style_bg_color(b, hex(0x1F52C2), LV_STATE_PRESSED);
+    lv_obj_set_style_bg_opa(b, LV_OPA_50, LV_STATE_DISABLED);
+    lv_obj_t *l = text(b, &lv_font_montserrat_28, 0xFFFFFF);
+    lv_label_set_text(l, label);
+    lv_obj_center(l);
+    lv_obj_add_event_cb(b, cb, LV_EVENT_CLICKED, reinterpret_cast<void *>(tag));
+    return b;
+}
+
+void confirm_open(SPane &p, const char *question)
+{
+    confirm_close(p);
+    const intptr_t tag = &p - s_p;
+    p.confirm = plain_box(lv_obj_get_parent(p.box));
+    lv_obj_set_pos(p.confirm, 0, 0);
+    lv_obj_set_size(p.confirm, kLcdWidth, kLcdHeight);
+    lv_obj_set_style_bg_color(p.confirm, hex(0x000000), 0);
+    lv_obj_set_style_bg_opa(p.confirm, LV_OPA_70, 0);
+    lv_obj_add_flag(p.confirm, LV_OBJ_FLAG_CLICKABLE);   // a tap outside the card does nothing
+    lv_obj_t *card = plain_box(p.confirm);
+    lv_obj_set_size(card, 600, 220);
+    lv_obj_center(card);
+    lv_obj_set_style_bg_color(card, hex(0x1E1E1E), 0);
+    lv_obj_set_style_bg_opa(card, LV_OPA_COVER, 0);
+    lv_obj_set_style_radius(card, 16, 0);
+    lv_obj_set_style_border_color(card, hex(0x555555), 0);
+    lv_obj_set_style_border_width(card, 2, 0);
+    lv_obj_t *q = text(card, &lv_font_montserrat_28, 0xFFFFFF);
+    lv_label_set_long_mode(q, LV_LABEL_LONG_WRAP);
+    lv_obj_set_width(q, 560);
+    lv_obj_set_style_text_align(q, LV_TEXT_ALIGN_CENTER, 0);
+    lv_label_set_text(q, question);
+    lv_obj_align(q, LV_ALIGN_TOP_MID, 0, 28);
+    lv_obj_t *yes = button(card, "Take control", kBadHex, on_confirm_yes, tag);
+    lv_obj_set_size(yes, 250, 72);
+    lv_obj_align(yes, LV_ALIGN_BOTTOM_LEFT, 30, -24);
+    lv_obj_t *no = button(card, "Cancel", 0x303030, on_confirm_no, tag);
+    lv_obj_set_size(no, 250, 72);
+    lv_obj_align(no, LV_ALIGN_BOTTOM_RIGHT, -30, -24);
+    ESP_LOGI(TAG, "view: confirm \"%s\"", question);
+}
+
+void on_prev(lv_event_t *e)
+{
+    press(pane_of(e), service_action::previous);
+}
+
+void on_next(lv_event_t *e)
+{
+    press(pane_of(e), service_action::next);
+}
+
+void on_take(lv_event_t *e)
+{
+    SPane &p = pane_of(e);
+    if (p.has_snap && p.snap->relay_controls) {
+        press(p, service_action::release);
+        return;
+    }
+    char question[96] = {};
+    if (p.has_snap && service_take_question(*p.snap, question, sizeof question) > 0) {
+        confirm_open(p, question);   // it takes LIVE from whoever has it
+        return;
+    }
+    press(p, service_action::take_control);
+}
+
+// The bar: Previous and Next, large, and Take control (Release once Relay has it), with a line for how the last
+// press went. In "Control only" it fills the pane under the current and next item.
+void build_bar(SPane &p, int top, int height)
+{
+    const intptr_t tag = &p - s_p;
+    lv_obj_t *bar = plain_box(p.box);
+    lv_obj_set_pos(bar, 0, top);
+    lv_obj_set_size(bar, p.w, height);
+    lv_obj_set_style_bg_color(bar, hex(kNowHex), 0);
+    lv_obj_set_style_bg_opa(bar, LV_OPA_COVER, 0);
+    const bool big = height >= kBarBigH;
+    const int gap = 12;
+    const int bh = big ? 120 : 64;
+    const int take_w = p.w < kLcdWidth ? 120 : 220;
+    const int arrow_w = (p.w - 2 * kPad - take_w - 2 * gap) / 2;
+    p.btn_prev = button(bar, LV_SYMBOL_PREV "  Previous", 0x303030, on_prev, tag);
+    p.btn_next = button(bar, "Next  " LV_SYMBOL_NEXT, kJumpHex, on_next, tag);
+    p.btn_take = button(bar, "Take control", 0x5A3A00, on_take, tag);
+    p.take_label = lv_obj_get_child(p.btn_take, 0);
+    if (p.w < kLcdWidth) {
+        // A half-width pane: arrows only, and a short word for control.
+        lv_label_set_text(lv_obj_get_child(p.btn_prev, 0), LV_SYMBOL_PREV);
+        lv_label_set_text(lv_obj_get_child(p.btn_next, 0), LV_SYMBOL_NEXT);
+    }
+    lv_obj_set_size(p.btn_prev, arrow_w, bh);
+    lv_obj_set_size(p.btn_next, arrow_w, bh);
+    lv_obj_set_size(p.btn_take, take_w, bh);
+    const int y = big ? 16 : (height - bh) / 2 - 6;
+    lv_obj_set_pos(p.btn_prev, kPad, y);
+    lv_obj_set_pos(p.btn_next, kPad + arrow_w + gap, y);
+    lv_obj_set_pos(p.btn_take, kPad + 2 * arrow_w + 2 * gap, y);
+    p.message = text(bar, &lv_font_montserrat_20, kBadHex);
+    lv_label_set_long_mode(p.message, LV_LABEL_LONG_DOT);
+    lv_obj_set_width(p.message, p.w - 2 * kPad);
+    lv_obj_set_pos(p.message, kPad, y + bh + 2);
+}
+
+// Keep the buttons and the message in step with the last press and with who has control.
+void draw_controls(SPane &p, uint32_t now_ms)
+{
+    if (!p.controls || p.btn_take == nullptr) {
+        return;
+    }
+    const bool release = p.has_snap && p.snap->relay_controls;
+    const bool narrow = p.w < kLcdWidth;
+    if (release != p.drawn_release || p.drawn_ctrl_rev == 0xFFFFFFFF) {
+        p.drawn_release = release;
+        lv_label_set_text(p.take_label, release ? "Release" : (narrow ? "Take" : "Take control"));
+    }
+    const service_control_state st = service_control_get();
+    const bool sending = st.result == service_result::sending;
+    const char *words = "";
+    if (sending || now_ms - st.at_ms < kResultShowMs) {
+        words = service_result_words(st.result);
+    }
+    if (st.revision != p.drawn_ctrl_rev || strcmp(words, p.drawn_message) != 0) {
+        p.drawn_ctrl_rev = st.revision;
+        snprintf(p.drawn_message, sizeof p.drawn_message, "%s", words);
+        lv_label_set_text(p.message, words);
+        lv_obj_set_style_text_color(p.message, hex(sending ? kDimHex : kBadHex), 0);
+        for (lv_obj_t *b : {p.btn_prev, p.btn_next, p.btn_take}) {
+            if (sending) {
+                lv_obj_add_state(b, LV_STATE_DISABLED);
+            } else {
+                lv_obj_remove_state(b, LV_STATE_DISABLED);
+            }
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
 // The order of service
 // ---------------------------------------------------------------------------
 
@@ -336,7 +543,7 @@ void draw_now(SPane &p, uint32_t now_ms)
     } else if (s.count == 0) {
         empty = "The plan has no items";
     }
-    if (empty != nullptr) {
+    if (empty != nullptr && (p.shows || !have || !s.followed || !s.has_plan)) {
         set_ascii(p.empty, empty);
         lv_obj_remove_flag(p.empty, LV_OBJ_FLAG_HIDDEN);
     } else {
@@ -403,6 +610,10 @@ void service_view_build(int pane, lv_obj_t *box, int slot, int w)
     p.slot = slot;
     p.w = w;
     p.box = box;
+    const panel_service mode = panel_link_service();
+    p.mode_rev = panel_link_service_revision();
+    p.controls = service_mode_controls(mode.mode) && mode.key[0] != '\0';
+    p.shows = !(mode.mode == service_mode::control && p.controls);
     lv_obj_set_style_bg_color(box, hex(kBgHex), 0);
     const bool narrow = w < kLcdWidth;
     const int timer_w = narrow ? 120 : 200;
@@ -435,9 +646,13 @@ void service_view_build(int pane, lv_obj_t *box, int slot, int w)
 
     // The order of service.
     const int list_top = kCaptionHeaderH + kNowH;
+    const int bar_h = !p.controls ? 0 : p.shows ? kBarH : kLcdHeight - list_top - kFooterH;
     p.list = plain_box(box);
     lv_obj_set_pos(p.list, 0, list_top);
-    lv_obj_set_size(p.list, w, kLcdHeight - list_top - kFooterH);
+    lv_obj_set_size(p.list, w, kLcdHeight - list_top - kFooterH - bar_h);
+    if (!p.shows) {
+        lv_obj_add_flag(p.list, LV_OBJ_FLAG_HIDDEN);
+    }
     lv_obj_add_flag(p.list, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_remove_flag(p.list, LV_OBJ_FLAG_SCROLL_ELASTIC);
     lv_obj_remove_flag(p.list, LV_OBJ_FLAG_SCROLL_CHAIN);
@@ -461,7 +676,7 @@ void service_view_build(int pane, lv_obj_t *box, int slot, int w)
     p.jump = lv_button_create(box);
     lv_obj_remove_style_all(p.jump);
     lv_obj_set_size(p.jump, narrow ? 220 : kCaptionJumpW, kCaptionJumpH);
-    lv_obj_align(p.jump, LV_ALIGN_BOTTOM_MID, 0, -kFooterH - 12);
+    lv_obj_align(p.jump, LV_ALIGN_BOTTOM_MID, 0, -kFooterH - bar_h - 12);
     lv_obj_set_style_bg_color(p.jump, hex(kJumpHex), 0);
     lv_obj_set_style_bg_opa(p.jump, LV_OPA_COVER, 0);
     lv_obj_set_style_radius(p.jump, kCaptionJumpH / 2, 0);
@@ -492,9 +707,14 @@ void service_view_build(int pane, lv_obj_t *box, int slot, int w)
     lv_label_set_long_mode(p.footer, LV_LABEL_LONG_DOT);
     lv_obj_set_flex_grow(p.footer, 1);
 
+    if (p.controls) {
+        build_bar(p, kLcdHeight - kFooterH - bar_h, bar_h);
+    }
+
     p.follow.reset(lv_tick_get());
     p.built = true;
-    ESP_LOGI(TAG, "view: service pane %d up for slot %d", pane + 1, slot);
+    ESP_LOGI(TAG, "view: service pane %d up for slot %d%s", pane + 1, slot,
+             !p.controls ? "" : p.shows ? ", with controls" : ", controls only");
 }
 
 void service_view_tick(int pane, uint32_t now_ms, bool touching)
@@ -552,8 +772,14 @@ void service_view_tick(int pane, uint32_t now_ms, bool touching)
         p.scroll_due = false;
         scroll_to_focus(p);
     }
-    show_jump(p, !p.follow.following());
+    show_jump(p, p.shows && !p.follow.following());
     draw_clock(p, now_ms);
+    draw_controls(p, now_ms);
+    // The operator changed the panel's service mode: the buttons come or go, so the picture is made again.
+    if (panel_link_service_revision() != p.mode_rev && !p.rebuild_asked) {
+        p.rebuild_asked = true;
+        screen_show_captions();
+    }
 }
 
 bool service_view_title(int pane, char *out, size_t cap)
@@ -574,6 +800,7 @@ void service_view_teardown()
         p.scrim = nullptr;
         p.row_count = 0;
         p.note_item = -1;
+        p.btn_prev = p.btn_next = p.btn_take = p.take_label = p.message = p.confirm = nullptr;
     }
 }
 
@@ -593,6 +820,18 @@ void service_view_report()
             lv_obj_update_layout(p.list);
             lv_obj_get_coords(p.rows[focus], &a);
             row_y = (a.y1 + a.y2) / 2;
+        }
+        if (p.controls && p.btn_take != nullptr) {
+            lv_area_t a, b, c;
+            lv_obj_get_coords(p.btn_prev, &a);
+            lv_obj_get_coords(p.btn_next, &b);
+            lv_obj_get_coords(p.btn_take, &c);
+            ESP_LOGI(TAG, "view: service pane %d buttons: previous %d %d, next %d %d, %s %d %d, message \"%s\"%s", i + 1,
+                     static_cast<int>((a.x1 + a.x2) / 2), static_cast<int>((a.y1 + a.y2) / 2),
+                     static_cast<int>((b.x1 + b.x2) / 2), static_cast<int>((b.y1 + b.y2) / 2),
+                     lv_label_get_text(p.take_label), static_cast<int>((c.x1 + c.x2) / 2),
+                     static_cast<int>((c.y1 + c.y2) / 2), p.drawn_message,
+                     p.confirm != nullptr ? ", confirm up" : "");
         }
         ESP_LOGI(TAG, "view: service pane %d, %s, %d items, current %d, next %d, timer \"%s\", footer \"%s\", %s, "
                       "row at %d%s",
