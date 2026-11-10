@@ -19,7 +19,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Redirect
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-from . import config, exporting, languages, panelfw, panels, redact, schedules
+from . import config, exporting, languages, panelfw, panels, planningcenter, redact, schedules
 from .engine import TRANSCRIPTION_STREAM, TRANSLATION_STREAM, demo_mode, engine
 from .hub import hub
 from .panels import registry as panel_registry
@@ -900,6 +900,64 @@ async def admin_config(request: Request, payload: dict):
         _SESSIONS.clear()
         _set_session_cookie(resp, request)
     return resp
+
+
+def _pc_body() -> dict:
+    return {"planning_center": config.redacted()["planning_center"]}
+
+
+@app.post("/api/admin/planning-center", dependencies=[Depends(require_admin)])
+async def admin_planning_center_save(payload: dict):
+    """Save the Personal Access Token. A blank field keeps what is saved; a new
+    ID or secret means a different token, so the followed service types reset.
+    The secret is never in the response."""
+    saved = config.get()["planning_center"]
+    app_id = str(payload.get("app_id") or "").strip() or saved["app_id"]
+    secret = str(payload.get("secret") or "").strip() or saved["secret"]
+    if not app_id or not secret:
+        return JSONResponse({"error": "Enter both the application ID and the secret."}, status_code=400)
+    changed = (app_id, secret) != (saved["app_id"], saved["secret"])
+    config.save({"planning_center": {
+        "app_id": app_id,
+        "secret": secret,
+        "service_types": [] if changed else saved["service_types"],
+    }}, replace=("planning_center",))
+    log.info("Planning Center token %s", "saved" if changed else "unchanged")
+    return _pc_body()
+
+
+@app.post("/api/admin/planning-center/test", dependencies=[Depends(require_admin)])
+async def admin_planning_center_test():
+    """Try the saved token and list the account's service types."""
+    client = planningcenter.client_from(config.get())
+    if client is None:
+        return JSONResponse({"error": "Save an application ID and secret first."}, status_code=400)
+    try:
+        types = await asyncio.get_running_loop().run_in_executor(None, client.service_types)
+    except planningcenter.PlanningCenterError as exc:
+        status = {"auth": 400, "rate": 429, "network": 502}.get(exc.kind, 502)
+        return JSONResponse({"error": str(exc)}, status_code=status)
+    return {**_pc_body(), "service_types": types}
+
+
+@app.post("/api/admin/planning-center/service-types", dependencies=[Depends(require_admin)])
+async def admin_planning_center_service_types(payload: dict):
+    """Which service types Relay follows."""
+    if not planningcenter.connected(config.get()):
+        return JSONResponse({"error": "Connect to Planning Center first."}, status_code=400)
+    ids = payload.get("ids")
+    if not isinstance(ids, list):
+        return JSONResponse({"error": "ids must be a list."}, status_code=400)
+    saved = config.get()["planning_center"]
+    config.save({"planning_center": {**saved, "service_types": ids}}, replace=("planning_center",))
+    return _pc_body()
+
+
+@app.delete("/api/admin/planning-center", dependencies=[Depends(require_admin)])
+async def admin_planning_center_disconnect():
+    config.save({"planning_center": {}}, replace=("planning_center",))
+    log.info("Planning Center disconnected")
+    return _pc_body()
 
 
 @app.post("/api/admin/target/{target}", dependencies=[Depends(require_admin)])
