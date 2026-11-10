@@ -143,6 +143,8 @@ print("bad token")
 r = admin.post(URL + "/test")
 eq("rejected with a sentence", (r.status_code, "did not accept" in r.json()["error"]), (400, True))
 check("the secret is not in that sentence", SECRET not in r.text)
+r = admin.post(URL + "/service-types/refresh")
+eq("the page's refresh says the same", (r.status_code, "did not accept" in r.json()["error"]), (400, True))
 
 print("valid token without Services access")
 admin.post(URL, json={"app_id": APP_ID, "secret": SECRET})

@@ -296,12 +296,9 @@ void draw_panel()
             ESP_LOGE(TAG, "panel: the screen did not reach the panel");
         }
     } else {
-        // Nothing to say: the captions when a feed is chosen, and otherwise the bench picture.
-        if (captions_state(0) != caption_state::off) {
-            screen_show_captions();
-        } else if (screen_show_bench(RELAY_FW_VERSION) != ESP_OK) {
-            ESP_LOGE(TAG, "panel: the bench picture did not reach the panel");
-        }
+        // Nothing to say: the regular display. With no feed chosen, or no Relay to reach, its header says so
+        // ("No feed", "No network", "Relay not running"). The bench picture is a boot aid and never an end state.
+        screen_show_captions();
     }
     xSemaphoreGive(s_paint_lock);
 }
@@ -935,13 +932,9 @@ void console_task(void *)
                 err = captions_set_feed(slot, url, kFeedTranslation, lang);
             }
             ESP_LOGI(TAG, "console: feed %s", err == ESP_OK ? "set" : "not set: feed <slot> off | <url> transcription | <url> translation <LANG>");
-            // Slot 0 is what the screen shows: a feed puts the captions up, and no feed puts the bench picture back.
+            // Slot 0 is what the screen shows: the captions view, which reads "No feed" when the slot is off.
             if (err == ESP_OK && slot == 0) {
-                if (got == 2) {
-                    screen_show_bench(RELAY_FW_VERSION);
-                } else {
-                    screen_show_captions();
-                }
+                screen_show_captions();
             }
         } else if (strncmp(line, "relay ", 6) == 0) {
             // Point the feeds at a Relay for the bench and the emulator suite, and let them follow the choice again
@@ -950,6 +943,10 @@ void console_task(void *)
             ESP_LOGI(TAG, "console: relay set");
         } else if (strcmp(line, "feeds") == 0) {
             feeds_report();
+        } else if (strcmp(line, "bench") == 0) {
+            // Put the bench picture up, for the emulator suite and the bench. The panel never ends up there on its
+            // own: this is the only way back to it after boot.
+            screen_show_bench(RELAY_FW_VERSION);
         } else if (strcmp(line, "panel") == 0) {
             panel_link_report();
         } else if (strncmp(line, "captions ", 9) == 0) {
@@ -1030,7 +1027,11 @@ esp_err_t provision_start(const relay_settings_t &settings)
         net_set_reconnect(true);
         const net_sta_config sta = sta_from_settings(settings);
         ESP_LOGI(TAG, "boot: a network is configured; joining it, setup network not opened");
-        return net_radio_start(nullptr, &sta);
+        const esp_err_t radio = net_radio_start(nullptr, &sta);
+        // Leave the boot's bench picture at once. Until the station gets an address or drops there is no event to
+        // draw on, and a panel that never joins would otherwise sit on the bench picture.
+        draw_panel();
+        return radio;
     }
     return provision_open_setup(false);
 }

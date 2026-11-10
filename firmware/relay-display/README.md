@@ -447,8 +447,9 @@ finger still before lifting.
 format): it is offered only while the operator's service mode allows it; chosen from the menu it shows the current and
 next item and the footer; the current item moves when Relay says so; the timer runs over and the service falls behind;
 Planning Center going away and coming back reads in the footer; nobody controlling reads "Not live"; and a service
-type Relay stops following falls back to the transcription and returns. A tap on a row opening its notes is a test
-that is skipped for now: it is a bench item.
+type Relay stops following falls back to the transcription and returns; and a finger held on a row with notes for a
+second (past LVGL's long-press time) opens them. The notes card's own tap-to-close is covered there too. Whether a real
+finger on a row scrolls or opens is a bench item.
 
 `tests/test_service_buttons.py` runs the LIVE buttons against the fake Relay: Next before control reads "Take control
 first"; Take control asks first and then shows Release; Next and Previous move the service; Release hands it back; a

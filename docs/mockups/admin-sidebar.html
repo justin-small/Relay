@@ -1,0 +1,337 @@
+<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Relay · Operator (mockup, #120)</title>
+<style>
+  :root { --bg:#000; --fg:#f4f4f5; --dim:#8b93a1; --line:#1f2024; --accent:#4ade80;
+          --warn:#fbbf24; --err:#f87171; --card:#0a0b0d; --btn:#1a1c21; --blue:#2f6df6; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg); font:14px/1.45 -apple-system,system-ui,sans-serif; }
+  .topbar { position:sticky; top:0; z-index:10; background:var(--bg); display:flex; align-items:center; gap:12px; padding:12px 20px; border-bottom:1px solid var(--line); }
+  .topbar h1 { font-size:19px; margin:0; font-weight:600; }
+  .dot { width:10px; height:10px; border-radius:50%; background:var(--accent); }
+  .spacer { flex:1; } .muted { color:var(--dim); }
+  button { padding:8px 14px; font:inherit; font-weight:500; border-radius:7px; border:1px solid var(--line);
+           background:var(--btn); color:var(--fg); cursor:pointer; }
+  button:disabled { opacity:.4; cursor:not-allowed; }
+  button.primary { background:var(--blue); border-color:var(--blue); font-weight:600; }
+  .layout { display:grid; grid-template-columns:220px 1fr; min-height:calc(100vh - 54px); }
+  nav { border-right:1px solid var(--line); padding:14px 10px; position:sticky; top:0; align-self:start;
+        height:calc(100vh - 54px); overflow:auto; }
+  nav .grp { font-size:11px; letter-spacing:.13em; text-transform:uppercase; color:var(--dim);
+             padding:12px 10px 6px; font-weight:600; }
+  nav a { display:flex; align-items:center; gap:9px; padding:8px 10px; border-radius:7px; color:#c9cbd1;
+          text-decoration:none; cursor:pointer; border-left:2px solid transparent; }
+  nav a:hover { background:#101216; }
+  nav a.on { background:#15171c; color:#fff; border-left-color:var(--blue); font-weight:600; }
+  nav a .ico { width:16px; text-align:center; opacity:.8; }
+  nav a .badge { margin-left:auto; font-size:11px; color:var(--dim); }
+  nav a .badge.ok { color:var(--accent); }
+  main { padding:22px 28px 80px; max-width:900px; }
+  main h2.title { font-size:18px; margin:0 0 4px; }
+  main p.sub { margin:0 0 18px; color:var(--dim); }
+  section { border:1px solid var(--line); border-radius:11px; background:var(--card); padding:16px 18px; margin-bottom:14px; }
+  section h3 { font-size:11px; letter-spacing:.13em; text-transform:uppercase; color:var(--dim); margin:0 0 13px; font-weight:600; }
+  label { display:block; font-size:12px; color:var(--dim); margin:0 0 5px; }
+  select, input { width:100%; padding:9px 11px; font:inherit; border-radius:7px; border:1px solid var(--line);
+                  background:#111216; color:var(--fg); }
+  .field { margin-bottom:12px; }
+  .meter { height:11px; border-radius:5px; background:#111216; overflow:hidden; position:relative; }
+  .meter i { display:block; height:100%; width:62%; background:var(--accent); }
+  table { width:100%; border-collapse:collapse; }
+  th { text-align:left; font-size:11px; color:var(--dim); font-weight:600; padding:6px 8px; border-bottom:1px solid var(--line); }
+  td { padding:8px; border-bottom:1px solid var(--line); }
+  .note { position:fixed; right:14px; bottom:14px; background:#1a1c21; border:1px solid var(--line);
+          border-radius:8px; padding:8px 12px; font-size:12px; color:var(--dim); max-width:280px; }
+  .plink { background:none; border:0; padding:0; color:#fff; font-weight:600; text-decoration:underline; text-decoration-color:#3a3d45; text-underline-offset:3px; cursor:pointer; }
+  .plink:hover { text-decoration-color:#fff; }
+  #drawerBg { position:fixed; inset:0; background:rgba(0,0,0,.55); display:none; z-index:20; }
+  #drawer { position:fixed; top:0; right:0; bottom:0; width:min(400px,100%); background:#0a0b0d; border-left:1px solid var(--line);
+            transform:translateX(100%); transition:transform .18s ease; z-index:21; display:flex; flex-direction:column; }
+  body.dopen #drawer { transform:none; } body.dopen #drawerBg { display:block; }
+  #drawer header { display:flex; align-items:center; gap:10px; padding:14px 18px; border-bottom:1px solid var(--line); }
+  #drawer header h3 { margin:0; font-size:16px; flex:1; }
+  #drawer .dbody { padding:16px 18px; overflow:auto; flex:1; }
+  #drawer .dfoot { padding:12px 18px; border-top:1px solid var(--line); display:flex; gap:8px; }
+  .kv { display:flex; justify-content:space-between; padding:6px 0; border-bottom:1px solid var(--line); font-size:13px; }
+  .fwrow { display:flex; gap:10px; align-items:center; flex-wrap:wrap; padding:12px 0; border-top:1px solid var(--line); }
+  .fwrow:first-child { border-top:0; padding-top:0; }
+  .pill2 { font-size:11px; padding:2px 8px; border-radius:99px; border:1px solid var(--line); color:var(--dim); }
+  .pill2.on { color:var(--accent); border-color:#1f4d33; }
+  .spill { display:inline-flex; align-items:center; gap:8px; border-radius:99px; padding:5px 12px; font-weight:700; letter-spacing:.04em; font-size:12px; }
+  .spill.on { color:var(--accent); border-color:#1f4d33; background:#0b1a12; }
+  .spill.on .dot { animation:pulse 1.4s infinite; }
+  .spill.off { color:#fca5a5; border-color:#5b2020; background:#1c0b0b; }
+  .spill.off .dot { background:var(--err); }
+  @keyframes pulse { 50% { opacity:.3; } }
+  @media (prefers-reduced-motion:reduce) { .spill.on .dot { animation:none; } }
+  .menu { display:none; }
+  /* Narrow: sidebar collapses into a top dropdown */
+  @media (max-width:760px) {
+    .layout { grid-template-columns:1fr; }
+    nav { display:none; position:static; height:auto; border-right:0; border-bottom:1px solid var(--line); }
+    nav.open { display:block; }
+    .menu { display:inline-block; }
+    main { padding:18px 16px 80px; }
+  }
+
+  /* --- de-templated pass: flat sections, one neutral action colour, drawn icons --- */
+  :root { --bg:#0d0e10; --card:transparent; --line:#23252a; --btn:#17181b; --fg:#eceae6; --dim:#9aa0a8;
+          --accent:#5fcf8f; --blue:#eceae6; }
+  body { font:14px/1.5 ui-sans-serif,-apple-system,"Segoe UI",system-ui,sans-serif; font-feature-settings:"tnum" 1; }
+  ::selection { background:#3b4a40; color:#fff; }
+  :focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
+  input[type=checkbox],input[type=radio] { accent-color:var(--accent); }
+  html { scrollbar-color:#2c2e33 transparent; }
+  button { border-radius:5px; }
+  button.primary { background:var(--fg); border-color:var(--fg); color:#111; }
+  select,input,textarea { border-radius:5px; background:#141518; }
+  .topbar h1 { font-size:17px; letter-spacing:-.01em; }
+  nav { padding:16px 12px; }
+  nav .grp { font-size:12px; letter-spacing:0; text-transform:none; font-weight:500; padding:16px 10px 4px; }
+  nav a { border-left:0; border-radius:5px; padding:7px 10px; color:#c4c7cc; }
+  nav a:hover { background:#16171a; }
+  nav a.on { background:#1d1f23; color:#fff; box-shadow:inset 0 0 0 1px #2c2f35; }
+  nav a .ico { display:inline-flex; width:16px; height:16px; opacity:.75; }
+  nav a .ico svg { width:16px; height:16px; fill:none; stroke:currentColor; stroke-width:1.5; stroke-linecap:round; stroke-linejoin:round; }
+  main { padding:28px 36px 96px; max-width:880px; }
+  main h2.title { font-size:22px; letter-spacing:-.015em; margin:0 0 4px; }
+  main p.sub { margin:0 0 28px; max-width:60ch; }
+  section { border:0; border-top:1px solid var(--line); border-radius:0; padding:20px 0 4px; margin:0 0 24px; }
+  section h3 { font-size:15px; letter-spacing:0; text-transform:none; color:var(--fg); font-weight:600; margin:0 0 14px; }
+  label { font-size:13px; }
+  .meter { border-radius:3px; }
+  th { font-weight:500; font-size:12px; }
+  .pill2,.spill { border-radius:4px; }
+  .spill { letter-spacing:.02em; }
+  .note { border-radius:5px; background:#17181b; }
+  #drawer { background:#101114; }
+  .ic { width:16px; height:16px; fill:none; stroke:currentColor; stroke-width:1.6; stroke-linecap:round; stroke-linejoin:round; vertical-align:-3px; }
+  @media (max-width:760px) { main { padding:20px 16px 96px; } }
+</style></head><body>
+<div class="topbar">
+  <button class="menu" onclick="document.querySelector('nav').classList.toggle('open')"><svg class="ic" viewBox="0 0 16 16" aria-hidden="true"><path d="M2 4h12M2 8h12M2 12h12"/></svg> Menu</button>
+  <h1>Relay</h1>
+  <button id="streamPill" class="spill off" onclick="show('health')" title="Open Session health" aria-live="polite"><span class="dot" id="pillDot"></span><span id="pillTxt">STOPPED</span></button>
+  <span class="spacer"></span>
+  <span class="muted">12 viewers</span>
+  <button>Sign out</button>
+</div>
+<div class="layout">
+  <nav id="nav">
+    <div class="grp">Live</div>
+    <a data-p="health"><span class="ico"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 8h3l2-5 2 10 2-5h3"/></svg></span>Session health<span class="badge ok">OK</span></a>
+    <a data-p="audio" class="on"><span class="ico"><svg viewBox="0 0 16 16" aria-hidden="true"><rect x="6" y="1.5" width="4" height="8" rx="2"/><path d="M3.5 7.5a4.5 4.5 0 0 0 9 0M8 12v2.5"/></svg></span>Audio input</a>
+    <a data-p="languages"><span class="ico"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 4h7M5.5 2v2M3.5 4c.5 3 2.5 5 5 6M8 4c-.5 3-2.500 5-5.500 6.500M9 14l3-7 3 7M10 12h4"/></svg></span>Target languages<span class="badge">4</span></a>
+    <div class="grp">Output</div>
+    <a data-p="panels"><span class="ico"><svg viewBox="0 0 16 16" aria-hidden="true"><rect x="1.5" y="3" width="13" height="9" rx="1.5"/><path d="M5.500 14.500h5"/></svg></span>Panels<span class="badge">3</span></a>
+    <a data-p="viewers"><span class="ico"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M6.500 9.500a3 3 0 0 0 4 0l2-2a3 3 0 0 0-4-4l-1 1M9.500 6.500a3 3 0 0 0-4 0l-2 2a3 3 0 0 0 4 4l1-1"/></svg></span>Viewer links</a>
+    <a data-p="recordings"><span class="ico"><svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6"/><circle cx="8" cy="8" r="2" fill="currentColor"/></svg></span>Recordings &amp; export</a>
+    <div class="grp">Automation</div>
+    <a data-p="schedules"><span class="ico"><svg viewBox="0 0 16 16" aria-hidden="true"><rect x="2" y="3" width="12" height="11" rx="1.500"/><path d="M2 7h12M5.500 1.500v3M10.500 1.500v3"/></svg></span>Schedules</a>
+    <a data-p="pc"><span class="ico"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 13V6l5-4 5 4v7zM6.500 13V9h3v4"/></svg></span>Planning Center<span class="badge ok">On</span></a>
+    <div class="grp">Settings</div>
+    <a data-p="blocked"><span class="ico"><svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6"/><path d="M3.800 12.200l8.400-8.400"/></svg></span>Blocked words</a>
+    <a data-p="creds"><span class="ico"><svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="5" cy="10.500" r="2.500"/><path d="M7 9l6-6M11 5l1.500 1.500M9.500 6.500L11 8"/></svg></span>Credentials</a>
+    <a data-p="appearance"><span class="ico"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 4h12M2 8h12M2 12h12"/><circle cx="5" cy="4" r="1.500" fill="var(--bg)"/><circle cx="10.500" cy="8" r="1.500" fill="var(--bg)"/><circle cx="6.500" cy="12" r="1.500" fill="var(--bg)"/></svg></span>Appearance &amp; tuning</a>
+  </nav>
+  <main id="main"></main>
+</div>
+<div id="drawerBg" onclick="closeDrawer()"></div>
+<aside id="drawer" aria-hidden="true">
+  <header><h2 id="dTitle" style="margin:0;font-size:16px;flex:1"></h2><button onclick="closeDrawer()" aria-label="Close"><svg class="ic" viewBox="0 0 16 16" aria-hidden="true"><path d="M3.500 3.500l9 9M12.500 3.500l-9 9"/></svg></button></header>
+  <div class="dbody" id="dBody"></div>
+  <div class="dfoot"><button class="primary" onclick="closeDrawer()">Save</button><button onclick="closeDrawer()">Cancel</button><span class="spacer"></span><button style="color:var(--err)" onclick="closeDrawer()">Forget</button></div>
+</aside>
+<div class="note">Mockup for #120. Click sidebar items; selection is stored in the URL hash. Below 760px the sidebar collapses behind “Menu”.</div>
+<script>
+const pages = {
+  health:{t:"Session health",s:"Live status of each translation session.",
+    body:`<section><h3>Stream control</h3>
+    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+      <span id="streamState" style="color:var(--accent);font-weight:600">Streaming</span>
+      <span class="spacer"></span>
+      <button class="primary" id="btnStart" onclick="setStream(true)">Start</button>
+      <button id="btnStop" onclick="setStream(false)" style="background:#7f1d1d;border-color:#7f1d1d">Stop</button>
+    </div>
+    <p class="muted" style="margin:8px 0 0">Starts or stops transcription and all translation sessions together. Stopping ends billed API usage.</p></section>
+    <section><h3>Live transcript</h3>
+    <div style="display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap">
+      <select style="width:auto" id="feedLang"><option>Source (English)</option><option>Spanish</option><option>French</option><option>Portuguese</option><option>Korean</option></select>
+      <label style="display:flex;align-items:center;gap:6px;margin:0"><input type="checkbox" checked style="width:auto"> Auto-scroll</label>
+    </div>
+    <div id="feed" style="height:220px;overflow:auto;background:#050506;border:1px solid var(--line);border-radius:8px;padding:10px 12px;font-size:15px;line-height:1.6">
+      <div class="muted">12:01:04</div><div>Good morning everyone, thanks for joining us today.</div>
+      <div class="muted" style="margin-top:6px">12:01:09</div><div>Please turn to page forty-two in your bulletin.</div>
+      <div class="muted" style="margin-top:6px">12:01:15</div><div style="color:#fff">We will begin with a short <span style="opacity:.6">prayer for the…</span></div>
+    </div></section>
+    <section><h3>Sessions</h3><table><tr><th>Session</th><th>State</th><th>Last delta</th><th>Retries</th><th>Audio dropped</th></tr>
+    <tr><td>Spanish</td><td style="color:var(--accent)">Running</td><td>0.4s</td><td>0</td><td>0</td></tr>
+    <tr><td>French</td><td style="color:var(--accent)">Running</td><td>0.6s</td><td>1</td><td>0</td></tr></table></section>`},
+  audio:{t:"Audio input",s:"Choose and monitor the capture device.",
+    body:`<section><h3>Capture device</h3>
+    <div class="field"><label>Capture device</label>
+      <div style="display:flex;gap:10px;flex-wrap:wrap">
+        <select style="flex:1 1 220px"><option>Behringer X32 – USB</option></select>
+        <select style="flex:0 0 130px"><option>Ch 1/2</option><option>Ch 3/4</option></select>
+        <button>Rescan</button>
+      </div></div>
+    <div class="field"><label>Noise reduction</label>
+      <select><option>Board feed / line in</option><option>Room or laptop mic</option><option>Headset / lavalier</option></select>
+      <p class="muted" style="margin:6px 0 0;font-size:12px">Runs before the model’s own phrase detection. Leave off for a house console feed — it is already gated, and reduction on top can chew word onsets. Changing it restarts live sessions.</p></div></section>
+    <section><h3>Input level</h3>
+    <div style="display:inline-flex;align-items:center;gap:7px;border:1px solid var(--line);border-radius:999px;padding:3px 10px;margin-bottom:10px"><span class="dot"></span>Receiving audio</div>
+    <div style="display:flex;gap:10px;align-items:flex-start">
+      <div style="flex:1;min-width:0"><div class="meter"><i></i></div>
+        <div style="position:relative;height:14px;margin-top:3px;font-size:11px;color:var(--dim);font-family:ui-monospace,Menlo,monospace"><span style="position:absolute;left:0">−60</span><span style="position:absolute;left:33.3%;transform:translateX(-50%)">−40</span><span style="position:absolute;left:70%;transform:translateX(-50%)">−18</span><span style="position:absolute;right:0">0 dBFS</span></div></div>
+      <div style="flex:0 0 130px;text-align:right"><span style="font-size:11px;font-weight:700;letter-spacing:.1em;padding:3px 6px;border-radius:4px;border:1px solid var(--line);color:var(--dim)">CLIP</span>
+        <div class="muted" style="font-size:12px;margin-top:4px">−18 dBFS · peak −9</div></div>
+    </div></section>`},
+  languages:{t:"Target languages",s:"Choose which languages are translated and offered to viewers.",
+    body:`<section><h3>Translation engine</h3>
+    <select id="xmode" onchange="langs()"><option value="realtime">Realtime: streams word by word, billed per minute per language</option><option value="text">Text: one line at a time, a fraction of the cost</option></select>
+    <p class="muted" style="margin:6px 0 0;font-size:12px">Realtime runs one session per language. Text translates each finished line, so extra languages cost almost nothing. Changing it restarts live sessions.</p></section>
+    <section><h3>Enabled languages <span id="langCount" style="text-transform:none;letter-spacing:0;margin-left:6px"></span></h3>
+    <div style="display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap"><button onclick="langAll(true)">Select all</button><button onclick="langAll(false)">Clear</button></div>
+    <div id="langList" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:8px"></div>
+    <p class="muted" id="langNote" style="margin:10px 0 0;font-size:12px"></p></section>`},
+  panels:{t:"Panels",s:"Wall displays on the venue network. Click a panel name to edit its settings.",
+    body:`<section><h3>Paired panels</h3><table id="panelTable"></table></section>
+    <section><h3>Panel firmware</h3>
+    <p class="muted" style="margin:0 0 12px;font-size:12px">One signed image per panel type. Relay checks it is a panel image; the panel refuses anything not signed with its release key. Updates install at a quiet moment unless you choose “Update now”.</p>
+    <div id="fwTypes"></div></section>`}
+,
+ viewers:{t:"Viewer links",s:"Open these on a screen or paste them into another app.",body:`${[["For the room",[["Translation","translation"],["Transcription","transcription"],["Both","both"],["Chooser page",""],["Screen (kiosk display)","screen"]]],["For your switcher",[["Overlay (OBS / ProPresenter)","overlay"]]]].map(g=>`<section><h3>${g[0]}</h3>${g[1].map(r=>`<div style="display:flex;gap:12px;align-items:center;padding:10px 0;border-top:1px solid var(--line)"><div style="flex:1;min-width:0"><div style="font-weight:600">${r[0]}</div><a href="#" style="color:#9db8ff;word-break:break-all;font-size:13px;font-family:ui-monospace,Menlo,monospace">http://192.168.1.20:8000/${r[1]}</a></div><button>Copy</button><svg width="56" height="56" viewBox="0 0 8 8" style="background:#fff;border-radius:4px;flex:0 0 auto" role="img" aria-label="QR code"><path d="M0 0h3v3H0zM5 0h3v3H5zM0 5h3v3H0zM4 4h1v1H4zM6 5h2v1H6zM5 7h2v1H5z" fill="#000"/></svg></div>`).join('')}</section>`).join('')}<section><h3>Notes</h3><p class="muted" style="margin:0;font-size:12px">Screen defaults to translation plus the first live language; append <span style="font-family:ui-monospace,Menlo,monospace">?stream=&amp;lang=</span> to pin a specific room display. The overlay is transparent by default; it takes <span style="font-family:ui-monospace,Menlo,monospace">?bg=</span>, <span style="font-family:ui-monospace,Menlo,monospace">?matte=</span> and sizing parameters. Only the LAN address is shown; 127.0.0.1 works only on this machine.</p></section>`},
+ recordings:{t:"Recordings & export",s:"Save each run's transcript to disk and export it.",body:`<section><h3>Recording</h3><p class="muted" style="margin:0 0 12px;font-size:12px">A recording covers exactly one run, from Start capture to Stop. Every committed caption line is written to disk as it happens, so a crash mid-event still leaves you the transcript up to that point. Blocked words are removed before anything is written. <strong style="color:var(--fg)">Off by default:</strong> nothing is recorded until you turn this on.</p><div style="display:flex;gap:16px;flex-wrap:wrap;align-items:flex-end"><div class="field"><label>Record each run to disk</label><label style="display:flex;align-items:center;gap:8px;margin:0;color:var(--fg)"><input type="checkbox" style="width:auto" checked> On</label></div><div class="field" style="flex:1 1 240px"><label>Runs kept (oldest pruned at the next start)</label><input type="number" value="50" min="1" max="500"></div></div><button class="primary">Save</button> <span class="muted" style="margin-left:10px">Stored in <span style="font-family:ui-monospace,Menlo,monospace">recordings/</span></span></section><section><h3>Runs</h3><table><tr><th>Run</th><th>Duration</th><th>Lines</th><th>Download</th><th></th></tr><tr><td>Nov 9, 9:55 AM</td><td>2h 36m</td><td>1,482</td><td><button style="padding:5px 10px;font-size:12px">Zip</button></td><td style="text-align:right"><button style="padding:5px 10px;font-size:12px">Delete</button></td></tr><tr><td>Nov 2, 9:55 AM</td><td>2h 31m</td><td>1,390</td><td><button style="padding:5px 10px;font-size:12px">Zip</button></td><td style="text-align:right"><button style="padding:5px 10px;font-size:12px">Delete</button></td></tr></table></section><section><h3>What's in the export</h3><p class="muted" style="margin:0;font-size:12px">The zip holds a timestamped <span style="font-family:ui-monospace,Menlo,monospace">transcript-&lt;LANGUAGE&gt;.txt</span> per language, plus, per target language, a <span style="font-family:ui-monospace,Menlo,monospace">pairs-&lt;TARGET&gt;.jsonl</span> (each source line matched to its translation, with a confidence field) and a <span style="font-family:ui-monospace,Menlo,monospace">finetune-&lt;TARGET&gt;.jsonl</span> in OpenAI chat format, ready to upload to a fine-tuning job.<br><br>The two feeds carry no shared segment id and are broken into lines independently, so pairs are matched on overlapping time span and every row says how sure the match is. Only the <span style="font-family:ui-monospace,Menlo,monospace">exact</span> ones are carried into the fine-tuning file; the rest stay in the pairs file to be reviewed.</p></section>`},
+  schedules:{t:"Schedules",s:"Start and stop capture automatically.",
+    body:`<section><h3>Schedules</h3>
+    <p class="muted" style="margin:0 0 12px;font-size:12px">Next: Sunday Morning Service, Sun 9:55 AM</p>
+    <table><tr><th>Schedule</th><th>Next start</th><th style="width:52px">On</th><th></th></tr>
+    <tr><td>Sunday morning service<div class="muted" style="font-size:12px">Sun · 9:55 AM – 12:30 PM · America/New_York</div></td><td>Sun 9:55 AM</td><td><input type="checkbox" checked style="width:auto"></td><td style="text-align:right;white-space:nowrap"><button style="padding:5px 10px;font-size:12px">Edit</button> <button style="padding:5px 10px;font-size:12px">Delete</button></td></tr>
+    <tr><td>Sunday evening<div class="muted" style="font-size:12px">Sun · 5:55 PM – 8:00 PM · America/New_York</div></td><td>Sun 5:55 PM</td><td><input type="checkbox" checked style="width:auto"></td><td style="text-align:right;white-space:nowrap"><button style="padding:5px 10px;font-size:12px">Edit</button> <button style="padding:5px 10px;font-size:12px">Delete</button></td></tr>
+    <tr><td>Christmas Eve<div class="muted" style="font-size:12px">One time · Dec 24 · 6:00 PM – 8:00 PM</div></td><td>Dec 24 6:00 PM</td><td><input type="checkbox" style="width:auto"></td><td style="text-align:right;white-space:nowrap"><button style="padding:5px 10px;font-size:12px">Edit</button> <button style="padding:5px 10px;font-size:12px">Delete</button></td></tr></table>
+    <button style="margin-top:12px" onclick="document.getElementById('schedForm').hidden=!document.getElementById('schedForm').hidden">Add schedule</button></section>
+    <section id="schedForm" hidden><h3>New schedule</h3>
+    <div style="display:flex;gap:10px;flex-wrap:wrap"><div class="field" style="flex:1 1 220px"><label>Name (optional)</label><input placeholder="Sunday morning service" maxlength="60"></div>
+      <div class="field" style="flex:0 1 180px"><label>Repeats</label><select id="schedRepeat" onchange="document.getElementById('schedDays').style.display=this.value==='weekly'?'':'none'"><option value="weekly">Every week</option><option value="once">One time only</option></select></div></div>
+    <div class="field" id="schedDays"><label>Days</label><div style="display:flex;gap:6px;flex-wrap:wrap">${["Sun","Mon","Tue","Wed","Thu","Fri","Sat"].map((d,i)=>`<label style="display:flex;align-items:center;gap:5px;margin:0;padding:7px 10px;border:1px solid var(--line);border-radius:7px;background:#111216;color:var(--fg);cursor:pointer"><input type="checkbox" style="width:auto" ${i===0?'checked':''}>${d}</label>`).join('')}</div></div>
+    <div style="display:flex;gap:10px;flex-wrap:wrap"><div class="field" style="flex:1 1 180px"><label>Starting on (optional)</label><input placeholder="MM/DD/YYYY" inputmode="numeric" maxlength="10"></div>
+      <div class="field" style="flex:1 1 180px"><label>Ending on (optional)</label><input placeholder="MM/DD/YYYY" inputmode="numeric" maxlength="10"></div></div>
+    <div style="display:flex;gap:10px;flex-wrap:wrap"><div class="field" style="flex:1 1 140px"><label>Start time</label><input type="time" value="09:55"></div>
+      <div class="field" style="flex:1 1 140px"><label>Stop time</label><input type="time" value="12:30"></div>
+      <div class="field" style="flex:1 1 200px"><label>Time zone</label><select><option>America/New_York</option><option>America/Chicago</option><option>America/Los_Angeles</option></select></div></div>
+    <p class="muted" style="margin:-4px 0 12px;font-size:12px">If the stop time is earlier than the start time, it stops the next day.</p>
+    <button class="primary">Save schedule</button> <button onclick="document.getElementById('schedForm').hidden=true">Cancel</button></section>
+    <section><h3>How schedules work</h3><p class="muted" style="margin:0;font-size:12px">Capture starts and stops on its own inside each window. If it is already running when a window opens, it keeps running and stops at the window’s end. Pressing Stop during a window holds it until the next scheduled start. Starting by hand outside a window is never stopped by a schedule. Windows that overlap or touch run as one session.<br><br>Times follow the time zone you pick, including daylight saving. The machine and the relay must be running for a schedule to fire; a window already under way when the relay starts is picked up, and one missed entirely is skipped.</p></section>`},
+  pc:{t:"Planning Center",s:"Follow the service plan and show it on panels.",
+    body:`<section><h3>Connection</h3>
+    <div style="display:flex;gap:10px;flex-wrap:wrap">
+      <div class="field" style="flex:1 1 220px"><label>Application ID</label><input type="password" placeholder="(leave blank to keep current)" autocomplete="off"></div>
+      <div class="field" style="flex:1 1 220px"><label>Secret</label><input type="password" placeholder="(leave blank to keep current)" autocomplete="off"></div>
+    </div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="primary">Save</button><button>Test connection</button><button style="color:var(--err)">Disconnect</button></div>
+    <p style="margin:12px 0 0;color:var(--accent)">Connected as Pat Lee · 2 service types followed</p>
+    <p class="muted" style="margin:12px 0 0;font-size:12px">Make a Personal Access Token at <span style="font-family:ui-monospace,Menlo,monospace">api.planningcenteronline.com/personal_access_tokens</span> and paste its application ID and secret here. Everything Relay does in Planning Center, including Next and Previous from a panel, runs as the person who made the token and only within their permissions. The secret is stored server-side in <span style="font-family:ui-monospace,Menlo,monospace">config.json</span>, never shown again, and never written to the log, an export or a recording. Until a token is saved, Relay does not contact Planning Center at all.</p></section>
+    <section><h3>Service types Relay follows</h3>
+    <div style="display:grid;gap:8px">
+      ${["Sunday Worship","Youth","Wednesday Prayer"].map((t,i)=>`<label style="display:flex;align-items:center;gap:9px;margin:0;padding:6px 0;color:var(--fg);font-size:14px;cursor:pointer"><input type="checkbox" style="width:auto" ${i<2?'checked':''}>${t}</label>`).join('')}
+    </div></section>
+    <section><h3>Display</h3>
+    <label style="display:flex;align-items:flex-start;gap:9px;margin:0;color:var(--fg);font-size:14px;cursor:pointer"><input type="checkbox" style="width:auto;margin-top:3px"><span>Show item notes on panels<br><span class="muted" style="font-size:12px">Off by default: notes can hold names and pastoral details, and anyone on the network can open the Service feed.</span></span></label></section>
+    <section><h3>Today</h3>
+    <table><tr><th>Service</th><th>Plan</th><th>Time</th><th>LIVE</th></tr>
+    <tr><td>Sunday Worship</td><td>Nov 10 – Gratitude</td><td>9:00 AM</td><td><span class="pill2 on">Live</span></td></tr>
+    <tr><td>Youth</td><td>Nov 10 – Open Mic</td><td>5:00 PM</td><td><span class="pill2">Not live</span></td></tr></table>
+    <p class="muted" style="margin:10px 0 0;font-size:12px">Relay polls LIVE every few seconds near service time and slowly otherwise.</p>
+    <h3 style="margin:18px 0 8px">Presses from panels</h3>
+    <table><tr><th>Time</th><th>Panel</th><th>Action</th><th>Result</th></tr>
+    <tr><td>9:41:12</td><td>Green room</td><td>Next</td><td style="color:var(--accent)">OK</td></tr>
+    <tr><td>9:38:50</td><td>Green room</td><td>Take control</td><td style="color:var(--accent)">OK</td></tr>
+    <tr><td>9:12:03</td><td>Lobby</td><td>Previous</td><td style="color:var(--err)">Refused</td></tr></table></section>`},
+ blocked:{t:"Blocked words",s:"Removed from the transcript and every translation.",body:`<section><h3>Blocklist</h3><p class="muted" style="margin:0 0 12px;font-size:12px">Edited in <span style="font-family:ui-monospace,Menlo,monospace">blocklist.txt</span> with one word or phrase per line. Changes to the file are picked up within about two seconds, no restart. You can also edit it here.</p><div class="field"><label>Blocked words, removed from the transcript and every translation</label><textarea rows="8" spellcheck="false" placeholder="bad word&#10;another bad word&#10;a phrase to drop" style="width:100%;padding:9px 11px;border-radius:7px;border:1px solid var(--line);background:#111216;color:var(--fg);font:13px/1.5 ui-monospace,Menlo,monospace"></textarea></div><button class="primary">Save to file</button> <span class="muted" style="margin-left:10px">0 entries</span></section><section><h3>How matching works</h3><p class="muted" style="margin:0;font-size:12px">Matches are removed outright: no asterisks, no gap, nothing on screen to notice. Case and accents are ignored (<span style="font-family:ui-monospace,Menlo,monospace">nino</span> matches <span style="font-family:ui-monospace,Menlo,monospace">niño</span>) and only whole words match, so <span style="font-family:ui-monospace,Menlo,monospace">ass</span> will not touch <span style="font-family:ui-monospace,Menlo,monospace">class</span>.<br><br>Each feed is filtered on its own, so to remove a word everywhere, list it in each language.</p></section>`},
+ creds:{t:"Credentials",s:"Keys used by this relay.",body:`<section><h3>Keys</h3><div style="display:flex;gap:10px;flex-wrap:wrap"><div class="field" style="flex:1 1 240px"><label>OpenAI API key <span class="muted">· saved (…a4f2)</span></label><input type="password" placeholder="sk-… (leave blank to keep current)" autocomplete="off"></div><div class="field" style="flex:1 1 240px"><label>Admin token (blank = unchanged)</label><input type="password" placeholder="••••••••" autocomplete="off"></div></div><button class="primary">Save credentials</button><p class="muted" style="margin:12px 0 0;font-size:12px">Stored server-side in <span style="font-family:ui-monospace,Menlo,monospace">config.json</span> (0600, git-ignored). Never sent to viewer pages.</p></section>`},
+  appearance:{t:"Appearance & tuning",s:"Viewer text size and how caption lines are broken.",body:`<section><h3>Viewer display</h3><div style="display:flex;gap:10px;flex-wrap:wrap"><div class="field" style="flex:1 1 220px"><label>Default viewer font size (px)</label><input type="number" value="48" min="16" max="160" step="2"></div><div class="field" style="flex:1 1 220px"><label>History lines kept per stream</label><input type="number" value="40" min="1" max="500"></div></div></section><section><h3>Caption line breaks</h3><div style="display:flex;gap:10px;flex-wrap:wrap"><div class="field" style="flex:1 1 220px"><label>Caption line break after silence (s)</label><input type="number" value="1.2" min="0.2" max="10" step="0.1"></div><div class="field" style="flex:1 1 220px"><label>Force a line break after (s)</label><input type="number" value="8" min="1" max="60" step="0.5"></div></div><button class="primary">Save</button><p class="muted" style="margin:12px 0 0;font-size:12px">A caption line is committed once its text has been quiet for <em>line break after silence</em> <strong style="color:var(--fg)">and</strong> it ends on a sentence boundary. A line that never reaches one is committed by the <em>force a line break</em> backstop, always at a word boundary so a word is never cut in half. Lower the first for snappier lines; raise the second if you see a sentence split across two lines. In-progress text is already on screen as it streams, so a generous backstop costs nothing. Changing these restarts live sessions. <span style="font-family:ui-monospace,Menlo,monospace">gpt-realtime-translate</span> fixes phrase boundaries server-side, so these two fields are the only line-break controls.</p></section>`}
+};
+const main = document.getElementById('main'), links = [...document.querySelectorAll('nav a')];
+const LANGS=[["Spanish",1,1],["Portuguese",1,0],["French",1,1],["German",0,0],["Italian",0,0],["Russian",0,0],["Chinese",0,0],["Japanese",0,0],["Korean",1,0],["Hindi",0,0],["Indonesian",0,0],["Vietnamese",0,0],["Arabic",0,0,1],["Nepali",0,0,1],["Telugu",0,0,1],["Hmong",0,0,1]];
+window.__on = window.__on || Object.fromEntries(LANGS.map(l=>[l[0],!!l[1]]));
+function langAll(v){ LANGS.forEach(l=>{ if(!(l[3] && !textMode())) __on[l[0]]=v; }); langs(); }
+function textMode(){ const x=document.getElementById('xmode'); return x && x.value==='text'; }
+function langs(){
+  const box=document.getElementById('langList'); if(!box) return;
+  const tm=textMode();
+  box.innerHTML=LANGS.map(([n,,,t])=>{
+    const dis=t&&!tm;
+    return `<label style="display:flex;align-items:center;gap:9px;margin:0;padding:6px 0;color:var(--fg);font-size:14px;${dis?'opacity:.45':'cursor:pointer'}">
+      <input type="checkbox" style="width:auto" ${__on[n]&&!dis?'checked':''} ${dis?'disabled':''} onchange="__on['${n}']=this.checked;langs()">
+      ${n}${t?'<span class="muted" style="margin-left:auto;font-size:11px">text only</span>':''}</label>`;}).join('');
+  const n=LANGS.filter(l=>__on[l[0]]&&!(l[3]&&!tm)).length;
+  document.getElementById('langCount').textContent=n+' enabled';
+  document.getElementById('langNote').textContent = tm
+    ? 'Text mode: extra languages add almost no cost.'
+    : 'Each enabled language is a separate, continuously-billed session. Turning one off closes it immediately. Arabic, Nepali, Telugu and Hmong need the Text engine.';
+}
+const PANELS=[
+ {id:"lobby",n:"Lobby",b:"CrowPanel Advance 7\"",fw:"1.4.2",on:true,seen:"2s ago",ip:"10.0.4.21",feed:"Translation: Spanish",nf:1,f1:"Translation: Spanish",f2:"Transcription",rot:0,svc:"show",st:"Sunday Worship"},
+ {id:"green",n:"Green room",b:"Waveshare ESP32-P4 10.1\"",fw:"1.4.2",on:true,seen:"4s ago",ip:"10.0.4.37",feed:"Service + Transcription",nf:2,f1:"Service",f2:"Transcription",rot:180,svc:"both",st:"Sunday Worship"},
+ {id:"cafe",n:"Café",b:"CrowPanel Advance 7\"",fw:"1.3.9",on:false,seen:"3h ago",ip:"10.0.4.52",feed:"Translation: French",nf:1,f1:"Translation: French",f2:"Transcription",rot:0,svc:"off",st:""}];
+const FW=[{t:"CrowPanel Advance 7\"",f:"relay-display-app.bin",v:"1.4.2",up:"Nov 8",on:2,old:1},{t:"Waveshare ESP32-P4 10.1\"",f:"",v:"",up:"",on:0,old:0}];
+function panelsPage(){
+  document.getElementById('panelTable').innerHTML='<tr><th>Name</th><th>Board</th><th>Feed</th><th>Firmware</th><th>Status</th></tr>'+
+   PANELS.map(p=>`<tr><td><button class="plink" onclick="openPanel('${p.id}')">${p.n}</button></td><td>${p.b}</td><td>${p.feed}</td><td>${p.fw}</td><td><span class="pill2 ${p.on?'on':''}">${p.on?'Online':'Offline'}</span></td></tr>`).join('');
+  document.getElementById('fwTypes').innerHTML=FW.map(f=>`<div class="fwrow"><div style="flex:1 1 200px"><strong>${f.t}</strong><div class="muted" style="font-size:12px">${f.v?`${f.f} · v${f.v} · uploaded ${f.up} · ${f.on} online`:'No firmware uploaded'}</div></div>
+    <input type="file" style="flex:1 1 180px;width:auto" accept=".bin"><button>Upload</button>${f.v?`<button class="primary">Update ${f.old?f.old+' out-of-date':'all online'}</button><button>Remove</button>`:''}</div>`).join('');
+}
+const FEEDOPTS=["Transcription","Translation: Spanish","Translation: French","Translation: Portuguese","Translation: Korean","Service"];
+function feedCount(n){ document.getElementById('feed2').hidden = n!==2; }
+function openPanel(id){
+  const p=PANELS.find(x=>x.id===id);
+  document.getElementById('dTitle').textContent=p.n;
+  const sel=(opts,v)=>`<select>${opts.map(o=>`<option ${o===v?'selected':''}>${o}</option>`).join('')}</select>`;
+  document.getElementById('dBody').innerHTML=`
+   <div class="field"><label>Name</label><input value="${p.n}"></div>
+   <h3 style="margin:4px 0 10px;font-size:15px;font-weight:600;color:var(--fg)">Display</h3>
+   <div class="field"><label>Number of feeds</label><div style="display:flex;gap:8px">${[1,2].map(n=>`<label style="flex:1;display:flex;align-items:center;gap:7px;margin:0;padding:6px 0;color:var(--fg);cursor:pointer"><input type="radio" name="nfeeds" style="width:auto" ${n===p.nf?'checked':''} onchange="feedCount(${n})">${n===1?'One (full screen)':'Two (split)'}</label>`).join('')}</div></div>
+   <div class="field"><label>Feed 1 <span class="muted">· ${p.nf===2?'left / top':'full screen'}</span></label>${sel(FEEDOPTS,p.f1)}</div>
+   <div class="field" id="feed2" ${p.nf===2?'':'hidden'}><label>Feed 2 <span class="muted">· right / bottom</span></label>${sel(FEEDOPTS,p.f2)}</div>
+   <div class="field"><label>Screen rotation</label><div style="display:flex;gap:8px">${[0,180].map(d=>`<label style="flex:1;display:flex;align-items:center;gap:7px;margin:0;padding:6px 0;color:var(--fg);cursor:pointer"><input type="radio" name="rot" style="width:auto" ${d===p.rot?'checked':''}>${d}°${d===180?' (upside down)':''}</label>`).join('')}</div><p class="muted" style="margin:6px 0 0;font-size:12px">Sent to the panel and applied on its next redraw. A change made at the panel's own screen afterwards wins until you set one again.</p></div>
+   <h3 style="margin:22px 0 10px;font-size:15px;font-weight:600;color:var(--fg)">Planning Center</h3>
+   <div class="field"><label>Service mode</label>${sel(["off","show","control","both"],p.svc)}<p class="muted" style="margin:6px 0 0;font-size:12px">Show lets the panel display the Service feed; control adds LIVE buttons (Next, Previous, Take control). Pick “Service” as a feed above to put it on screen.</p></div>
+   <div class="field"><label>Planning Center service type</label>${sel(["","Sunday Worship","Youth"],p.st)}</div>
+   <div class="field"><label>Control key</label><input type="password" value="••••••"></div>
+   <h3 style="margin:22px 0 6px;font-size:15px;font-weight:600;color:var(--fg)">Device</h3>
+   <div class="kv"><span class="muted">Board</span><span>${p.b}</span></div>
+   <div class="kv"><span class="muted">Address</span><span>${p.ip}</span></div>
+   <div class="kv"><span class="muted">Firmware</span><span>v${p.fw}</span></div>
+   <div class="kv"><span class="muted">Last seen</span><span>${p.seen}</span></div>
+   <div style="margin-top:14px;display:flex;gap:8px;flex-wrap:wrap"><button>Update now</button><button>Reboot</button></div>`;
+  document.body.classList.add('dopen'); document.getElementById('drawer').setAttribute('aria-hidden','false');
+}
+function closeDrawer(){ document.body.classList.remove('dopen'); document.getElementById('drawer').setAttribute('aria-hidden','true'); }
+document.addEventListener('keydown',e=>{ if(e.key==='Escape') closeDrawer(); });
+function setStream(on){
+  const s=document.getElementById('streamState')||{style:{}};
+  s.textContent = on ? 'Streaming' : 'Stopped';
+  s.style.color = on ? 'var(--accent)' : 'var(--dim)';
+  const b1=document.getElementById('btnStart'),b2=document.getElementById('btnStop'); if(b1){b1.disabled=on;b2.disabled=!on;}
+  window.__stream = on;
+  document.getElementById('streamPill').className='spill '+(on?'on':'off');
+  document.getElementById('pillTxt').textContent = on ? 'STREAMING' : 'STOPPED';
+}
+function show(id){
+  if(!pages[id]) id='audio';
+  const p = pages[id];
+  main.innerHTML = `<h2 class="title">${p.t}</h2><p class="sub">${p.s}</p>${p.body}`;
+  if(id==='languages') langs();
+  if(id==='panels') panelsPage();
+  closeDrawer();
+  if(id==='health') setStream(window.__stream!==false);
+  links.forEach(a=>a.classList.toggle('on', a.dataset.p===id));
+  document.getElementById('nav').classList.remove('open');
+  if(location.hash.slice(1)!==id) history.replaceState(null,'','#'+id);
+}
+links.forEach(a=>a.onclick=()=>show(a.dataset.p));
+setStream(true);
+show(location.hash.slice(1));
+</script>
+</body></html>

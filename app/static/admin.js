@@ -106,6 +106,8 @@
       const body = await post('/api/admin/config', { realtime: { translation_mode: $('xmode').value } });
       cfg = body.config;
       renderMode();
+      lastTargetsKey = '';
+      renderTargets(lastTargets);
       okMsg('Translation engine saved.' + (body.status && body.status.running ? ' Live sessions restarted.' : ''));
     } catch (e) { alertMsg(e.message); renderMode(); }
   });
@@ -161,41 +163,50 @@
     if (armed.length) add(names(armed) + ' armed');
   }
 
+  let lastTargets = [];
+
   function renderTargets(targets) {
+    lastTargets = targets;
     renderTargetsSummary(targets);
-    const key = JSON.stringify(targets);
+    feedTargets(targets);
+    const on = targets.filter(function (t) { return t.enabled; }).length;
+    $('targetsCount').textContent = on + ' enabled';
+    const key = JSON.stringify(targets) + (cfg && cfg.realtime.translation_mode);
     if (key === lastTargetsKey) return;
     lastTargetsKey = key;
 
-    const tb = $('targets');
-    tb.innerHTML = '';
+    const grid = $('targets');
+    grid.innerHTML = '';
+    const text = cfg && cfg.realtime.translation_mode === 'text';
     targets.forEach(function (t) {
-      const tr = document.createElement('tr');
-
-      const nameTd = document.createElement('td');
-      nameTd.innerHTML = '<strong>' + t.language_label + '</strong>';
-      tr.appendChild(nameTd);
-
-      const stateTd = document.createElement('td');
-      stateTd.className = 'muted';
-      stateTd.id = 'tstate-' + t.target;
-      stateTd.textContent = targetState(t);
-      tr.appendChild(stateTd);
-
-      const toggleTd = document.createElement('td');
-      toggleTd.style.width = '52px';
-      const sw = document.createElement('label');
-      sw.className = 'switch';
-      sw.innerHTML = '<input type="checkbox"' + (t.enabled ? ' checked' : '') + '><span class="slider"></span>';
-      sw.querySelector('input').addEventListener('change', function (ev) {
-        setTarget(t.target, ev.target.checked);
-      });
-      toggleTd.appendChild(sw);
-      tr.appendChild(toggleTd);
-
-      tb.appendChild(tr);
+      const needsText = t.text_only && !text;
+      const lab = el('label', 'check' + (needsText && !t.enabled ? ' off' : ''));
+      const box = document.createElement('input');
+      box.type = 'checkbox';
+      box.checked = !!t.enabled;
+      box.disabled = needsText && !t.enabled;   // Text-only languages need the Text engine
+      box.addEventListener('change', function (ev) { setTarget(t.target, ev.target.checked); });
+      lab.appendChild(box);
+      lab.appendChild(el('span', '', t.language_label));
+      const st = el('span', 'tstate', targetState(t));
+      st.id = 'tstate-' + t.target;
+      lab.appendChild(st);
+      grid.appendChild(lab);
     });
   }
+
+  /* Select all / Clear apply one language at a time, the same call each tick box makes. */
+  async function setAllTargets(enabled) {
+    const text = cfg && cfg.realtime.translation_mode === 'text';
+    const todo = lastTargets.filter(function (t) {
+      return t.enabled !== enabled && (!enabled || text || !t.text_only);
+    });
+    if (!todo.length) return;
+    if (enabled && !text && !window.confirm('Turn on ' + todo.length + ' languages? Each is a separate, continuously-billed session while capture runs.')) return;
+    for (let i = 0; i < todo.length; i++) await setTarget(todo[i].target, enabled);
+  }
+  $('targetsAll').addEventListener('click', function () { setAllTargets(true); });
+  $('targetsNone').addEventListener('click', function () { setAllTargets(false); });
 
   async function setTarget(target, enabled) {
     try {
@@ -289,42 +300,89 @@
   /* ---- Planning Center ----
      The ID and secret go up once and never come back: cfg.planning_center only
      says whether a token is saved and which service types are followed. */
-  function renderPc(types) {
+  let pcTypes = null;          // the account's service types, as last read from Planning Center
+  let pcPending = [];          // ids ticked in the list, applied by "Save selection"
+  let pcDirty = false;         // ticks the operator has made but not saved
+  let pcLoading = false;
+  let pcError = '';            // why the last read from Planning Center failed, "" when it worked
+
+  function pcFollowed() { return ((cfg && cfg.planning_center && cfg.planning_center.service_types) || []).slice(); }
+
+  function renderPc() {
     const pc = (cfg && cfg.planning_center) || { connected: false, service_types: [] };
-    $('pcSum').textContent = pc.connected ? 'connected' : '';
+    // A saved token only means a token is saved. "connected" is said only while reads work.
+    const failing = pc.connected && !!pcError;
+    $('pcSum').textContent = failing ? 'not working' : (pc.connected ? 'connected' : '');
     $('pcDisconnect').hidden = !pc.connected;
     $('pcTest').disabled = !pc.connected && !($('pcAppId').value.trim() && $('pcSecret').value.trim());
-    $('pcState').textContent = pc.connected
-      ? 'A token is saved. Test the connection to choose service types.'
-      : 'Not connected.';
-    $('pcState').className = 'note ' + (pc.connected ? 'ok' : '');
+    $('pcState').textContent = failing
+      ? pcError
+      : pc.connected
+        ? (pcTypes ? 'Connected. The service type list refreshes from Planning Center every minute.'
+                   : 'A token is saved. Reading service types from Planning Center…')
+        : 'Not connected.';
+    $('pcState').className = 'note ' + (failing ? 'err' : (pc.connected ? 'ok' : ''));
     $('pcNotesRow').hidden = !pc.connected;
+    $('pcDisplay').hidden = !pc.connected;
     $('pcNotes').checked = !!pc.show_notes;
-    if (!types) { $('pcTypes').hidden = true; return; }
+    renderPcTypes();
+  }
+
+  function renderPcTypes() {
+    const pc = (cfg && cfg.planning_center) || { connected: false };
     const list = $('pcTypeList');
-    list.innerHTML = '';
+    if (!pc.connected || !pcTypes) { $('pcTypes').hidden = true; return; }
     $('pcTypes').hidden = false;
-    if (!types.length) { list.appendChild(el('div', 'muted', 'This account has no service types.')); return; }
-    types.forEach(function (t) {
+    list.innerHTML = '';
+    if (!pcTypes.length) {
+      list.appendChild(el('div', 'muted', 'This account has no service types.'));
+    }
+    pcTypes.forEach(function (t) {
       const label = document.createElement('label');
       label.className = 'check';
       const box = document.createElement('input');
       box.type = 'checkbox';
       box.value = t.id;
-      box.checked = pc.service_types.indexOf(t.id) !== -1;
-      box.addEventListener('change', async function () {
-        const ids = Array.prototype.slice.call(list.querySelectorAll('input:checked'))
+      box.checked = pcPending.indexOf(t.id) !== -1;
+      box.addEventListener('change', function () {
+        pcPending = Array.prototype.slice.call(list.querySelectorAll('input:checked'))
           .map(function (n) { return n.value; });
-        try {
-          const body = await post('/api/admin/planning-center/service-types', { ids: ids });
-          cfg.planning_center = body.planning_center;
-          alertMsg('');
-        } catch (e) { box.checked = !box.checked; alertMsg(e.message); }
+        pcDirty = JSON.stringify(pcPending.slice().sort()) !== JSON.stringify(pcFollowed().sort());
+        paintPcSelection();
       });
       label.appendChild(box);
-      label.appendChild(document.createTextNode(' ' + t.name));
+      label.appendChild(el('span', '', t.name));
       list.appendChild(label);
     });
+    paintPcSelection();
+  }
+
+  function paintPcSelection() {
+    $('pcTypesSave').disabled = !pcDirty;
+    $('pcTypesNote').textContent = pcDirty
+      ? 'Unsaved changes. Save selection to apply them.'
+      : (pcFollowed().length ? pcFollowed().length + ' followed.' : 'None followed yet.');
+  }
+
+  /* Read the service types from Planning Center. Quiet reads (the periodic refresh)
+     never interrupt with an error and never overwrite ticks that are not saved yet. */
+  async function loadPcTypes(quiet) {
+    if (pcLoading || !(cfg && cfg.planning_center && cfg.planning_center.connected)) return;
+    pcLoading = true;
+    try {
+      const body = await post('/api/admin/planning-center/service-types/refresh');
+      cfg.planning_center = body.planning_center;
+      pcTypes = body.service_types || [];
+      pcError = '';
+      if (!pcDirty) pcPending = pcFollowed();
+      renderPc();
+    } catch (e) {
+      // The server says whether the token was refused or Planning Center could not be reached.
+      // Show that on the page; a quiet read never pops up, and unsaved ticks are left alone.
+      pcError = e.message || 'Planning Center could not be read.';
+      if (!quiet) alertMsg(pcError);
+      renderPc();
+    } finally { pcLoading = false; }
   }
 
   async function pcSaveFields() {
@@ -333,21 +391,46 @@
     const body = await post('/api/admin/planning-center', { app_id: id, secret: secret });
     cfg.planning_center = body.planning_center;
     $('pcAppId').value = ''; $('pcSecret').value = '';
+    // A different token means a different account: its types and ticks start over.
+    pcTypes = null; pcPending = pcFollowed(); pcDirty = false; pcError = '';
   }
 
   $('pcSave').addEventListener('click', async function () {
-    try { await pcSaveFields(); renderPc(null); okMsg('Saved. Test the connection to choose service types.'); }
-    catch (e) { alertMsg(e.message); }
+    try {
+      await pcSaveFields();
+      renderPc();
+      await loadPcTypes(false);
+      if (!pcError) okMsg('Saved. Choose the service types to follow below.');
+    } catch (e) { alertMsg(e.message); }
   });
 
   $('pcTest').addEventListener('click', async function () {
     try {
       await pcSaveFields();
-      const body = await post('/api/admin/planning-center/test');
-      cfg.planning_center = body.planning_center;
-      renderPc(body.service_types);
-      okMsg('Connected to Planning Center.');
+      renderPc();
+      await loadPcTypes(false);
+      if (!pcError) okMsg('Connected to Planning Center.');
     } catch (e) { alertMsg(e.message); }
+  });
+
+  $('pcTypesSave').addEventListener('click', async function () {
+    $('pcTypesSave').disabled = true;
+    try {
+      const body = await post('/api/admin/planning-center/service-types', { ids: pcPending });
+      cfg.planning_center = body.planning_center;
+      pcPending = pcFollowed();
+      pcDirty = false;
+      renderPcTypes();
+      okMsg('Service types saved. Relay now follows ' + pcPending.length + '.');
+    } catch (e) { alertMsg(e.message); paintPcSelection(); }
+  });
+
+  // Keep the list current while it is on screen.
+  setInterval(function () {
+    if (!$('page-planningcenter').hidden) loadPcTypes(true);
+  }, 60000);
+  window.addEventListener('hashchange', function () {
+    if (!$('page-planningcenter').hidden && !pcTypes) loadPcTypes(true);
   });
 
   $('pcNotes').addEventListener('change', async function () {
@@ -363,12 +446,13 @@
     try {
       const body = await api('/api/admin/planning-center', { method: 'DELETE' });
       cfg.planning_center = body.planning_center;
-      renderPc(null);
+      pcTypes = null; pcPending = []; pcDirty = false; pcError = '';
+      renderPc();
       okMsg('Disconnected. Relay no longer contacts Planning Center.');
     } catch (e) { alertMsg(e.message); }
   });
   ['pcAppId', 'pcSecret'].forEach(function (id) {
-    $(id).addEventListener('input', function () { renderPc(null); });
+    $(id).addEventListener('input', function () { renderPc(); });
   });
 
   /* ---- Planning Center: today's plan and LIVE ----
@@ -493,11 +577,11 @@
 
   async function pcLivePoll() {
     const on = cfg && cfg.planning_center && cfg.planning_center.connected
-      && cfg.planning_center.service_types.length && $('sec-planningcenter').open;
+      && cfg.planning_center.service_types.length && !$('page-planningcenter').hidden;
     if (!on) { if (!(cfg && cfg.planning_center && cfg.planning_center.connected)) $('pcToday').hidden = true; return; }
     try { renderPcLive(await api('/api/admin/planning-center/live')); } catch (e) { /* next tick */ }
   }
-  $('sec-planningcenter').addEventListener('toggle', pcLivePoll);
+  window.addEventListener('hashchange', pcLivePoll);
   pcLiveTimer = setInterval(pcLivePoll, 3000);
 
   /* ---- recordings ----
@@ -1016,7 +1100,6 @@
   /* ---- panels ---- */
   let panelRows = [];
   let panelsAt = 0;          // when panelRows arrived: "last seen" counts on from here
-  let panelEditing = null;   // id of the card with an open editor; the list is not rebuilt under it
   let panelDirty = false;
   let panelFirmware = null;  // what Relay holds for the panels, or null
 
@@ -1071,90 +1154,6 @@
   function feedValue(f) {
     if (!f) return '';
     return f.stream === 'transcription' ? 'transcription' : 'translation:' + f.lang;
-  }
-
-  function closePanelEditor() {
-    panelEditing = null;
-    if (panelDirty) renderPanels();
-  }
-
-  function panelCard(row) {
-    const card = el('div', 'pcard' + (row.online ? '' : ' offline'));
-    card.dataset.id = row.id;
-    const head = el('div', 'phead');
-    head.appendChild(el('span', 'dot ' + (row.online ? 'ok' : '')));
-    head.appendChild(el('span', 'pname', row.name));
-    const state = el('span', 'pstate', row.online ? 'Online' : 'Offline');
-    state.dataset.seen = row.seen_ago_s === null ? '' : String(row.seen_ago_s);
-    head.appendChild(state);
-    card.appendChild(head);
-
-    const dl = el('dl');
-    function add(k, v, cls) {
-      dl.appendChild(el('dt', '', k));
-      dl.appendChild(el('dd', cls || '', v));
-    }
-    const seen = el('span', 'panelseen', '');
-    seen.dataset.seen = row.seen_ago_s === null ? '' : String(row.seen_ago_s);
-    dl.appendChild(el('dt', '', 'Last seen'));
-    const seenDd = el('dd');
-    seenDd.appendChild(seen);
-    dl.appendChild(seenDd);
-    add('Showing', feedText(row.feeds, row.languages));
-    if (row.feeds_changed_by) {
-      add('Feed changed', (row.feeds_changed_by === 'screen' ? 'at the screen' : 'from admin')
-        + ' · ' + agoText(row.feeds_changed_ago_s + (Date.now() - panelsAt) / 1000));
-    }
-    if (row.set_feeds) add('Set from admin', feedText(row.set_feeds, row.languages));
-    if (row.service_mode && row.service_mode !== 'off') {
-      add('Service', SERVICE_MODE_WORDS[row.service_mode] + (row.service_type
-        ? ' · ' + (pcTypeNames[row.service_type] || 'Service type ' + row.service_type) : ''));
-    }
-    add('Firmware', row.version || '—');
-    add('IP', row.ip || '—');
-    add('Wi-Fi', signalText(row.rssi));
-    if (row.named && row.reported_name && row.reported_name !== row.name) {
-      add('Reports as', row.reported_name);
-    }
-    card.appendChild(dl);
-
-    const up = updateRow(row);
-    if (up) card.appendChild(up);
-
-    const actions = el('div', 'pactions');
-    const rename = el('button', '', 'Rename');
-    const feed = el('button', '', 'Set feed');
-    const forget = el('button', '', 'Forget');
-    actions.appendChild(rename);
-    actions.appendChild(feed);
-    const pcOn = cfg && cfg.planning_center && cfg.planning_center.connected;
-    if (pcOn || (row.service_mode && row.service_mode !== 'off')) {
-      const service = el('button', '', 'Service');
-      service.addEventListener('click', function () { openService(card, row, actions); });
-      actions.appendChild(service);
-    }
-    if (row.update_available && !row.update_requested && row.online) {
-      const later = el('button', '', 'Update');
-      const now = el('button', '', 'Update now');
-      later.title = 'Installs at a quiet moment: no new caption line for a while';
-      later.addEventListener('click', function () { askUpdate(row.id, false); });
-      now.addEventListener('click', function () {
-        if (confirm('Restart ' + row.name + ' now? Its captions stop for about half a minute.')) askUpdate(row.id, true);
-      });
-      actions.appendChild(later);
-      actions.appendChild(now);
-    }
-    actions.appendChild(forget);
-    card.appendChild(actions);
-
-    rename.addEventListener('click', function () { openRename(card, row, actions); });
-    feed.addEventListener('click', function () { openFeed(card, row, actions); });
-    forget.addEventListener('click', async function () {
-      if (!confirm('Forget ' + row.name + '? A panel that is still on will reappear, unnamed.')) return;
-      try { await api('/api/admin/panels/' + row.id, { method: 'DELETE' }); alertMsg(''); }
-      catch (e) { alertMsg(e.message); }
-    });
-    return card;
   }
 
   const UPDATE_WORDS = {
@@ -1226,108 +1225,6 @@
     } catch (e) { alertMsg(e.message); }
   });
 
-  function openForm(card, actions, row, build) {
-    if (panelEditing && panelEditing !== row.id) { panelEditing = null; renderPanels(); return; }
-    panelEditing = row.id;
-    actions.hidden = true;
-    const form = el('form');
-    form.autocomplete = 'off';
-    build(form);
-    const save = el('button', 'primary', 'Save');
-    save.type = 'submit';
-    const cancel = el('button', '', 'Cancel');
-    cancel.type = 'button';
-    form.appendChild(save);
-    form.appendChild(document.createTextNode(' '));
-    form.appendChild(cancel);
-    cancel.addEventListener('click', function () {
-      form.remove();
-      actions.hidden = false;
-      closePanelEditor();
-    });
-    card.appendChild(form);
-    return form;
-  }
-
-  function openRename(card, row, actions) {
-    let input;
-    const form = openForm(card, actions, row, function (f) {
-      const field = el('div', 'field');
-      const label = el('label', '', 'Panel name');
-      input = el('input');
-      input.type = 'text';
-      input.maxLength = 64;
-      input.placeholder = 'Lobby left';
-      input.value = row.named ? row.name : '';
-      input.id = 'panelName-' + row.id;
-      label.htmlFor = input.id;
-      field.appendChild(label);
-      field.appendChild(input);
-      f.appendChild(field);
-    });
-    if (!form) return;
-    input.focus();
-    form.addEventListener('submit', async function (ev) {
-      ev.preventDefault();
-      try {
-        await post('/api/admin/panels/' + row.id, { name: input.value });
-        panelEditing = null;
-        renderPanels();
-        alertMsg('');
-      } catch (e) { alertMsg(e.message); }
-    });
-  }
-
-  function openFeed(card, row, actions) {
-    let first, second;
-    const current = row.set_feeds || row.feeds || [];
-    const form = openForm(card, actions, row, function (f) {
-      [['Feed', 0], ['Second feed (optional)', 1]].forEach(function (spec) {
-        const field = el('div', 'field');
-        const label = el('label', '', spec[0]);
-        const sel = el('select');
-        sel.id = 'panelFeed' + spec[1] + '-' + row.id;
-        label.htmlFor = sel.id;
-        feedOptions(sel, row, feedValue(current[spec[1]]));
-        field.appendChild(label);
-        field.appendChild(sel);
-        f.appendChild(field);
-        if (spec[1] === 0) first = sel; else second = sel;
-      });
-      if (row.set_feeds) {
-        const clear = el('button', '', "Use the panel's own choice");
-        clear.type = 'button';
-        clear.style.marginBottom = '10px';
-        clear.addEventListener('click', async function () {
-          try {
-            await post('/api/admin/panels/' + row.id, { feeds: null });
-            panelEditing = null;
-            renderPanels();
-            alertMsg('');
-          } catch (e) { alertMsg(e.message); }
-        });
-        f.appendChild(clear);
-        f.appendChild(el('br'));
-      }
-    });
-    if (!form) return;
-    form.addEventListener('submit', async function (ev) {
-      ev.preventDefault();
-      const feeds = [first.value, second.value].filter(Boolean).map(function (v) {
-        return v === 'transcription'
-          ? { stream: 'transcription' }
-          : { stream: 'translation', lang: v.slice('translation:'.length) };
-      });
-      if (!feeds.length) { alertMsg('Pick a feed for the panel.'); return; }
-      try {
-        await post('/api/admin/panels/' + row.id, { feeds: feeds });
-        panelEditing = null;
-        renderPanels();
-        okMsg('Feed sent to ' + row.name + '.');
-      } catch (e) { alertMsg(e.message); }
-    });
-  }
-
   const SERVICE_MODE_WORDS = {
     off: 'Off', show: 'Show only', control: 'Control only', both: 'Show and control'
   };
@@ -1338,33 +1235,136 @@
     both: 'The order of service and the controls.'
   };
 
-  async function openService(card, row, actions) {
-    try { notePcNames((await api('/api/admin/planning-center/live')).service_types || []); } catch (e) { /* names stay as they were */ }
-    let mode, type, help;
-    const form = openForm(card, actions, row, function (f) {
-      const field = el('div', 'field');
-      const label = el('label', '', 'Service mode');
+  function tickPanelSeen() {
+    const dt = (Date.now() - panelsAt) / 1000;
+    document.querySelectorAll('.panelseen').forEach(function (n) {
+      const base = n.dataset.seen;
+      n.textContent = base === '' ? 'never' : agoText(parseFloat(base) + dt);
+    });
+  }
+
+  /* The list is one row per panel; the name opens that panel's full card (settings,
+     feed, service, firmware) in the right-hand drawer. */
+  let panelDrawer = null;
+  let drawerTouched = false;   // the form has edits (or focus) that a refresh must not wipe
+
+  function openDrawer(id) {
+    panelDrawer = id;
+    drawerTouched = false;
+    renderPanels();
+    const d = $('drawer');
+    $('drawerBg').hidden = false;
+    d.hidden = false;
+    d.setAttribute('aria-hidden', 'false');
+    const close = $('dClose');
+    if (close) close.focus();
+  }
+
+  function closeDrawer() {
+    panelDrawer = null;
+    drawerTouched = false;
+    $('drawerBg').hidden = true;
+    $('drawer').hidden = true;
+    $('drawer').setAttribute('aria-hidden', 'true');
+    renderPanels();
+  }
+
+  function field(label, control, id) {
+    const f = el('div', 'field');
+    const l = el('label', '', label);
+    if (id) { control.id = id; l.htmlFor = id; }
+    f.appendChild(l);
+    f.appendChild(control);
+    return f;
+  }
+
+  function radioRow(name, options, value, onchange) {
+    const wrap = el('div', 'radios');
+    options.forEach(function (o) {
+      const lab = el('label', 'check');
+      const r = document.createElement('input');
+      r.type = 'radio'; r.name = name; r.value = o[0];
+      r.checked = String(o[0]) === String(value);
+      r.addEventListener('change', function () { onchange(o[0]); });
+      lab.appendChild(r);
+      lab.appendChild(el('span', '', o[1]));
+      wrap.appendChild(lab);
+    });
+    return wrap;
+  }
+
+  function kv(parent, k, v) {
+    const r = el('div', 'kv');
+    r.appendChild(el('span', 'muted', k));
+    if (typeof v === 'string') r.appendChild(el('span', '', v)); else r.appendChild(v);
+    parent.appendChild(r);
+  }
+
+  /* One form for everything about a panel. Save sends only what changed: re-sending an
+     unchanged feed would overwrite a choice made at the panel's own screen. */
+  function renderDrawer() {
+    const row = panelDrawer && panelRows.find(function (r) { return r.id === panelDrawer; });
+    if (!row) {
+      if (panelDrawer) { panelDrawer = null; $('drawerBg').hidden = true; $('drawer').hidden = true; }
+      return;
+    }
+    $('dTitle').textContent = row.name;
+    const body = $('dBody');
+    if (drawerTouched || body.contains(document.activeElement)) { refreshDrawerDevice(row); return; }
+    body.innerHTML = '';
+    const foot = $('dFoot');
+    foot.innerHTML = '';
+
+    const form = el('form');
+    form.autocomplete = 'off';
+    form.addEventListener('input', function () { drawerTouched = true; });
+    form.addEventListener('change', function () { drawerTouched = true; });
+
+    const name = el('input');
+    name.type = 'text'; name.maxLength = 64; name.placeholder = 'Lobby left';
+    name.value = row.named ? row.name : '';
+    form.appendChild(field('Name', name, 'panelName-' + row.id));
+
+    form.appendChild(el('h3', 'dhead', 'Display'));
+    const current = row.set_feeds || row.feeds || [];
+    let count = current.length > 1 ? 2 : 1;
+    const feed1 = el('select'), feed2 = el('select');
+    feedOptions(feed1, row, feedValue(current[0]));
+    feedOptions(feed2, row, feedValue(current[1]));
+    feed1.firstChild.textContent = row.set_feeds ? "The panel's own choice" : '— none —';
+    feed2.firstChild.textContent = '— none —';
+    const f2 = field('Feed 2 · right / bottom', feed2, 'panelFeed1-' + row.id);
+    const f1label = el('span', 'muted', '');
+    form.appendChild(field('Number of feeds', radioRow('nfeeds-' + row.id,
+      [[1, 'One (full screen)'], [2, 'Two (split)']], count, function (n) {
+        count = Number(n); f2.hidden = count !== 2; f1label.textContent = count === 2 ? ' · left / top' : ' · full screen';
+      })));
+    const f1 = field('Feed 1', feed1, 'panelFeed0-' + row.id);
+    f1.firstChild.appendChild(f1label);
+    f1label.textContent = count === 2 ? ' · left / top' : ' · full screen';
+    f2.hidden = count !== 2;
+    form.appendChild(f1);
+    form.appendChild(f2);
+    if (row.set_feeds) form.appendChild(el('div', 'note', 'Set from admin: ' + feedText(row.set_feeds, row.languages)
+      + '. A change made at the panel\'s own screen afterwards wins until you set one again.'));
+
+    const pcOn = cfg && cfg.planning_center && cfg.planning_center.connected;
+    let mode, type, tfield, help;
+    if (pcOn || (row.service_mode && row.service_mode !== 'off')) {
+      form.appendChild(el('h3', 'dhead', 'Planning Center'));
       mode = el('select');
-      mode.id = 'panelSvc-' + row.id;
-      label.htmlFor = mode.id;
       ['off', 'show', 'control', 'both'].forEach(function (m) {
         const o = el('option', '', SERVICE_MODE_WORDS[m]);
         o.value = m;
         mode.appendChild(o);
       });
       mode.value = row.service_mode || 'off';
-      field.appendChild(label);
-      field.appendChild(mode);
+      const mfield = field('Service mode', mode, 'panelSvc-' + row.id);
       help = el('div', 'note', '');
-      field.appendChild(help);
-      f.appendChild(field);
-
+      mfield.appendChild(help);
+      form.appendChild(mfield);
       const ids = Object.keys(pcTypeNames);
-      const tfield = el('div', 'field');
-      const tlabel = el('label', '', 'Service type');
       type = el('select');
-      type.id = 'panelSvcType-' + row.id;
-      tlabel.htmlFor = type.id;
       const own = el('option', '', ids.length > 1 ? 'The panel picks' : 'The one Relay follows');
       own.value = '';
       type.appendChild(own);
@@ -1379,39 +1379,124 @@
         type.appendChild(o);
       }
       type.value = row.service_type || '';
-      tfield.appendChild(tlabel);
-      tfield.appendChild(type);
-      f.appendChild(tfield);
-      function sync() {
+      tfield = field('Planning Center service type', type, 'panelSvcType-' + row.id);
+      form.appendChild(tfield);
+      const sync = function () {
         help.textContent = SERVICE_MODE_HELP[mode.value]
           + (mode.value === 'control' || mode.value === 'both'
             ? ' Presses run as the person who made the Planning Center token. The panel gets a key, '
               + 'but it travels over plain HTTP: anyone who can read the network could use it.' : '');
         tfield.hidden = mode.value === 'off';
-      }
+      };
       mode.addEventListener('change', sync);
       sync();
+    }
+
+    form.appendChild(el('h3', 'dhead', 'Device'));
+    const dev = el('div', 'devinfo');
+    dev.id = 'devInfo';
+    form.appendChild(dev);
+    body.appendChild(form);
+    refreshDrawerDevice(row);
+
+    const save = el('button', 'primary', 'Save');
+    save.type = 'button';
+    const cancel = el('button', '', 'Cancel');
+    cancel.type = 'button';
+    const forget = el('button', 'forget', 'Forget');
+    forget.type = 'button';
+    foot.appendChild(save);
+    foot.appendChild(cancel);
+    foot.appendChild(el('span', 'spacer'));
+    foot.appendChild(forget);
+
+    cancel.addEventListener('click', closeDrawer);
+    forget.addEventListener('click', async function () {
+      if (!confirm('Forget ' + row.name + '? A panel that is still on will reappear, unnamed.')) return;
+      try { await api('/api/admin/panels/' + row.id, { method: 'DELETE' }); alertMsg(''); closeDrawer(); }
+      catch (e) { alertMsg(e.message); }
     });
-    if (!form) return;
-    form.addEventListener('submit', async function (ev) {
-      ev.preventDefault();
+    form.addEventListener('submit', function (ev) { ev.preventDefault(); save.click(); });
+    save.addEventListener('click', async function () {
+      const out = {};
+      if (name.value.trim() !== (row.named ? row.name : '')) out.name = name.value;
+      const picked = [feed1.value, count === 2 ? feed2.value : ''].filter(Boolean).map(function (v) {
+        return v === 'transcription'
+          ? { stream: 'transcription' }
+          : { stream: 'translation', lang: v.slice('translation:'.length) };
+      });
+      const before = JSON.stringify(current.map(function (f) { return f.stream === 'transcription' ? f : { stream: f.stream, lang: f.lang }; }));
+      if (!picked.length) {
+        if (row.set_feeds) out.feeds = null;                   // back to the panel's own choice
+      } else if (JSON.stringify(picked) !== before) {
+        out.feeds = picked;
+      }
+      if (mode) {
+        if (mode.value !== (row.service_mode || 'off')) out.service_mode = mode.value;
+        if (mode.value !== 'off' && type.value !== (row.service_type || '')) out.service_type = type.value || null;
+      }
+      if (!Object.keys(out).length) { closeDrawer(); return; }
+      save.disabled = true;
       try {
-        const body = { service_mode: mode.value };
-        if (mode.value !== 'off') body.service_type = type.value || null;
-        await post('/api/admin/panels/' + row.id, body);
-        panelEditing = null;
-        renderPanels();
-        okMsg(row.name + ': service ' + SERVICE_MODE_WORDS[mode.value].toLowerCase() + '.');
-      } catch (e) { alertMsg(e.message); }
+        await post('/api/admin/panels/' + row.id, out);
+        okMsg('Saved ' + (out.name !== undefined ? (out.name || row.name) : row.name) + '.');
+        closeDrawer();
+      } catch (e) { alertMsg(e.message); save.disabled = false; }
     });
   }
 
-  function tickPanelSeen() {
-    const dt = (Date.now() - panelsAt) / 1000;
-    document.querySelectorAll('.panelseen').forEach(function (n) {
-      const base = n.dataset.seen;
-      n.textContent = base === '' ? 'never' : agoText(parseFloat(base) + dt);
-    });
+  /* The read-only device details can refresh while the form is being edited. */
+  function refreshDrawerDevice(row) {
+    const dev = $('devInfo');
+    if (!dev) return;
+    dev.innerHTML = '';
+    kv(dev, 'Status', row.online ? 'Online' : 'Offline');
+    const seen = el('span', 'panelseen', '');
+    seen.dataset.seen = row.seen_ago_s === null ? '' : String(row.seen_ago_s);
+    kv(dev, 'Last seen', seen);
+    kv(dev, 'Showing', feedText(row.feeds, row.languages));
+    if (row.feeds_changed_by) {
+      kv(dev, 'Feed changed', (row.feeds_changed_by === 'screen' ? 'at the screen' : 'from admin')
+        + ' · ' + agoText(row.feeds_changed_ago_s + (Date.now() - panelsAt) / 1000));
+    }
+    kv(dev, 'Firmware', row.version || '—');
+    kv(dev, 'Address', row.ip || '—');
+    kv(dev, 'Wi-Fi', signalText(row.rssi));
+    if (row.named && row.reported_name && row.reported_name !== row.name) kv(dev, 'Reports as', row.reported_name);
+    const up = updateRow(row);
+    if (up) dev.appendChild(up);
+    if (row.update_available && !row.update_requested && row.online) {
+      const actions = el('div', 'pactions');
+      const later = el('button', '', 'Update');
+      later.type = 'button';
+      later.title = 'Installs at a quiet moment: no new caption line for a while';
+      later.addEventListener('click', function () { askUpdate(row.id, false); });
+      const now = el('button', '', 'Update now');
+      now.type = 'button';
+      now.addEventListener('click', function () {
+        if (confirm('Restart ' + row.name + ' now? Its captions stop for about half a minute.')) askUpdate(row.id, true);
+      });
+      actions.appendChild(later);
+      actions.appendChild(now);
+      dev.appendChild(actions);
+    }
+    tickPanelSeen();
+  }
+
+  function panelRow(row) {
+    const r = el('div', 'prow' + (row.online ? '' : ' offline'));
+    const name = el('button', 'plink', row.name);
+    name.type = 'button';
+    name.addEventListener('click', function () { openDrawer(row.id); });
+    r.appendChild(name);
+    r.appendChild(el('span', 'pshow', feedText(row.feeds, row.languages)));
+    r.appendChild(el('span', 'pfw muted', row.version || '—'));
+    const stat = el('span', 'pstat');
+    stat.appendChild(el('span', 'dot ' + (row.online ? 'ok' : '')));
+    stat.appendChild(document.createTextNode(row.online ? 'Online' : 'Offline'));
+    if (row.update_available && !row.update_requested) stat.appendChild(el('span', 'badge', ' · update'));
+    r.appendChild(stat);
+    return r;
   }
 
   function renderPanels() {
@@ -1421,7 +1506,16 @@
     if (!panelRows.length) {
       list.appendChild(el('div', 'muted', 'No panels have checked in yet.'));
     }
-    panelRows.forEach(function (row) { list.appendChild(panelCard(row)); });
+    if (panelRows.length) {
+      const head = el('div', 'prow head');
+      ['Name', 'Showing', 'Firmware', 'Status'].forEach(function (t, i) {
+        const c = el('span', i === 3 ? 'pstat' : '', t);
+        head.appendChild(c);
+      });
+      list.appendChild(head);
+    }
+    panelRows.forEach(function (row) { list.appendChild(panelRow(row)); });
+    renderDrawer();
     const on = panelRows.filter(function (r) { return r.online; }).length;
     $('panelsSum').textContent = panelRows.length ? on + ' of ' + panelRows.length + ' online' : '';
     tickPanelSeen();
@@ -1432,11 +1526,6 @@
     panelFirmware = frame.firmware || null;
     panelsAt = Date.now();
     renderFirmware();
-    if (panelEditing && panelRows.some(function (r) { return r.id === panelEditing; })) {
-      panelDirty = true;   // rebuilt once the editor closes
-      return;
-    }
-    panelEditing = null;
     renderPanels();
   }
 
@@ -1504,6 +1593,7 @@
   // change. Update the live bits in place and leave the table to full status.
   function applyMeter(st) {
     $('masterDot').className = 'dot ' + (st.running ? 'ok' : '');
+    paintPill(st.running);
     $('masterState').textContent = masterText(st.running);
     $('startBtn').disabled = st.running;
     $('stopBtn').disabled = !st.running;
@@ -1519,6 +1609,7 @@
 
     if (st.schedule) schedStatusChanged(st.schedule);
     $('masterDot').className = 'dot ' + (st.running ? 'ok' : '');
+    paintPill(st.running);
     $('masterState').textContent = masterText(st.running);
     $('startBtn').disabled = st.running;
     $('stopBtn').disabled = !st.running;
@@ -1618,8 +1709,12 @@
     if (!hosts.length) hosts = urls || [];
     $('urls').innerHTML = VIEW_GROUPS.map(function (group) {
       const rows = group[1].map(function (v) { return urlRow(v[0], v[1], hosts); }).join('');
-      return '<div class="urlheading">' + group[0] + '</div>' + rows;
-    }).join('');
+      return '<section><h3>' + group[0] + '</h3>' + rows + '</section>';
+    }).join('') +
+      '<section><h3>Notes</h3><div class="note" style="margin-top:0">Screen defaults to translation plus the first live ' +
+      'language; append <span class="mono">?stream=&amp;lang=</span> to pin a specific room display. The overlay is ' +
+      'transparent by default; it takes <span class="mono">?bg=</span>, <span class="mono">?matte=</span> and sizing ' +
+      'parameters. Only the LAN address is shown; 127.0.0.1 works only on the machine running Relay.</div></section>';
     wireCopies();
     paintQrs();
   }
@@ -1674,27 +1769,138 @@
     });
   }
 
-  /* ---- collapsible sections: remember open/closed across reloads ---- */
-  function restoreSections() {
-    document.querySelectorAll('details.sect[id]').forEach(function (d) {
-      let saved = null;
-      try { saved = localStorage.getItem('relay.section.' + d.id); } catch (e) {}
-      if (saved !== null) d.open = saved === '1';
-      d.addEventListener('toggle', function () {
-        try { localStorage.setItem('relay.section.' + d.id, d.open ? '1' : '0'); } catch (e) {}
-      });
+  /* ---- navigation: one settings area at a time, chosen from the sidebar ---- */
+  const PAGES = Array.prototype.map.call(document.querySelectorAll('.page[data-page]'), function (n) { return n.dataset.page; });
+
+  function showPage(name) {
+    if (PAGES.indexOf(name) === -1) name = PAGES[0];
+    document.querySelectorAll('.page[data-page]').forEach(function (n) { n.hidden = n.dataset.page !== name; });
+    document.querySelectorAll('nav a[data-page]').forEach(function (a) {
+      if (a.dataset.page === name) a.setAttribute('aria-current', 'page'); else a.removeAttribute('aria-current');
+      a.classList.toggle('on', a.dataset.page === name);
     });
+    $('nav').classList.remove('open');
+    $('navToggle').setAttribute('aria-expanded', 'false');
+    if (panelDrawer && name !== 'panels') closeDrawer();
+    feedSync(name === 'health');
+    try { window.scrollTo(0, 0); } catch (e) {}
   }
+  window.addEventListener('hashchange', function () { showPage(location.hash.slice(1)); });
+  $('navToggle').addEventListener('click', function () {
+    const open = $('nav').classList.toggle('open');
+    $('navToggle').setAttribute('aria-expanded', open ? 'true' : 'false');
+  });
+  $('drawerBg').addEventListener('click', closeDrawer);
+  $('dClose').addEventListener('click', closeDrawer);
+  document.addEventListener('keydown', function (e) { if (e.key === 'Escape' && panelDrawer) closeDrawer(); });
+
+  /* The stream indicator in the top bar is visible on every page. */
+  function paintPill(running) {
+    const pill = $('streamPill');
+    pill.className = 'spill ' + (running ? 'on' : 'off');
+    $('pillTxt').textContent = running ? 'STREAMING' : 'STOPPED';
+  }
+
+  /* ---- live transcript on Session health: the same /stream the viewers use ---- */
+  const FEED_MAX = 200;
+  let feedEs = null, feedKey = '', feedOpenEl = null, feedLast = 0, feedWanted = false, feedRetry = 500, feedTimer = null;
+
+  function feedTargets(targets) {
+    const sel = $('feedSel');
+    const keep = sel.value;
+    const live = (targets || []).filter(function (t) { return t.live || t.enabled; });
+    sel.innerHTML = '';
+    const src = el('option', '', 'Transcription (source)');
+    src.value = '';
+    sel.appendChild(src);
+    live.forEach(function (t) {
+      const o = el('option', '', t.language_label + ' (translation)');
+      o.value = t.target;
+      sel.appendChild(o);
+    });
+    sel.value = Array.prototype.some.call(sel.options, function (o) { return o.value === keep; }) ? keep : '';
+    if (feedKey !== (sel.value || '') && feedWanted) feedConnect();
+  }
+
+  function feedLine(text, open) {
+    const box = $('feedBox');
+    const p = el('p', open ? 'open' : 'settled', text);
+    box.appendChild(p);
+    while (box.children.length > FEED_MAX) box.removeChild(box.firstChild);
+    return p;
+  }
+
+  function feedStick() { if ($('feedScroll').checked) { const b = $('feedBox'); b.scrollTop = b.scrollHeight; } }
+
+  function feedApply(msg) {
+    const box = $('feedBox');
+    if (msg.type === 'snapshot') {
+      box.innerHTML = '';
+      feedOpenEl = null;
+      (msg.lines || []).forEach(function (l) { feedLine(l.text, false); });
+      if (msg.open) feedOpenEl = feedLine(msg.open, true);
+      if (!box.children.length) box.appendChild(el('div', 'empty', 'Waiting for speech…'));
+      feedStick();
+      return;
+    }
+    if (msg.seq && msg.seq <= feedLast) return;
+    feedLast = msg.seq || feedLast;
+    const empty = box.querySelector('.empty');
+    if (empty) empty.remove();
+    if (!feedOpenEl) feedOpenEl = feedLine('', true);
+    feedOpenEl.textContent = msg.text !== undefined ? msg.text : feedOpenEl.textContent + (msg.delta || '');
+    if (msg.final) { feedOpenEl.className = 'settled'; feedOpenEl = null; }
+    feedStick();
+  }
+
+  function feedClose() {
+    if (feedTimer) { clearTimeout(feedTimer); feedTimer = null; }
+    if (feedEs) { feedEs.close(); feedEs = null; }
+  }
+
+  function feedConnect() {
+    feedClose();
+    const lang = $('feedSel').value;
+    feedKey = lang;
+    feedLast = 0;
+    feedOpenEl = null;
+    const qs = new URLSearchParams(lang ? { stream: 'translation', lang: lang } : { stream: 'transcription' });
+    const es = new EventSource('/stream?' + qs.toString());
+    feedEs = es;
+    $('feedState').textContent = 'Connecting…';
+    es.onopen = function () { feedRetry = 500; $('feedState').textContent = 'Live'; };
+    es.onmessage = function (ev) {
+      let msg;
+      try { msg = JSON.parse(ev.data); } catch (e) { return; }
+      if (msg.type === 'targets') return;
+      feedApply(msg);
+    };
+    es.onerror = function () {
+      $('feedState').textContent = 'Reconnecting…';
+      es.close();
+      if (feedEs === es) feedEs = null;
+      if (!feedWanted) return;
+      feedTimer = setTimeout(feedConnect, feedRetry);
+      feedRetry = Math.min(5000, feedRetry * 2);
+    };
+  }
+
+  /* Only listen while Session health is on screen. */
+  function feedSync(visible) {
+    feedWanted = visible;
+    if (visible) { if (!feedEs) feedConnect(); } else { feedClose(); $('feedState').textContent = ''; }
+  }
+  $('feedSel').addEventListener('change', function () { feedConnect(); });
 
   /* ---- boot ---- */
   (async function boot() {
-    restoreSections();
     try {
       const state = await api('/api/admin/state');
       cfg = state.config;
       renderDevices(state.devices, cfg.audio_device);
       renderKeyState();
-      renderPc(null);
+      renderPc();
+      loadPcTypes(true);
       $('font').value = cfg.default_font_px;
       $('history').value = cfg.history_lines;
       $('segIdle').value = cfg.realtime.segment_idle_s;
@@ -1705,6 +1911,8 @@
       applyStatus(state.status);
       loadRuns();
     } catch (e) { alertMsg(e.message); }
+
+    showPage(location.hash.slice(1));
 
     const es = new EventSource('/api/admin/status/stream');
     es.onmessage = function (ev) {

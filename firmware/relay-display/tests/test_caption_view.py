@@ -47,9 +47,6 @@ def panel(provisioned: Board) -> Iterator[Board]:
     provisioned.uart.send_line("touch up")
     provisioned.uart.send_line("feed 0 off")
     provisioned.uart.wait_for_after(mark, r"console: feed set")
-    # The bench picture goes up on the screen task's next turn, which the emulator takes a moment to reach. The
-    # next test reads the framebuffer, so it is waited for here.
-    provisioned.uart.wait_for_after(mark, r"panel: test screen shown, backlight on", timeout=30)
 
 
 @pytest.fixture

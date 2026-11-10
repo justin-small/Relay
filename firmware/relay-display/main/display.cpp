@@ -41,6 +41,97 @@ constexpr bool kSoftwareTurn = kPanelTurnsInSoftware;
 #endif
 bool s_software_mirror = false;
 
+// **Two frame buffers, when the board keeps two** (`board_panel_frame_buffers`). Strips are copied into the
+// back buffer, which the panel is not scanning, and `display_present` flips to it, so a redraw is seen whole.
+// On a board with one buffer, and on the emulator, strips go straight to the driver as before.
+//
+// After a flip the old front buffer is the new back one and is stale by the area just presented. It is brought
+// up to date from the new front before anything is drawn into it (`settle`), which also waits for the panel
+// to finish scanning the old front: the driver switches buffers at the end of the frame being scanned, and
+// the next frame-complete event is that end.
+uint16_t *s_fb[2] = {nullptr, nullptr};
+int s_back = 1;  // the buffer drawn into; the driver starts out scanning buffer 0
+bool s_flip_pending = false;
+uint32_t s_flip_mark = 0;
+
+struct box {
+    int x1 = kLcdWidth, y1 = kLcdHeight, x2 = 0, y2 = 0;  // x2 and y2 are exclusive
+    bool empty() const { return x2 <= x1 || y2 <= y1; }
+    void add(int ax1, int ay1, int ax2, int ay2)
+    {
+        if (ax1 < x1) x1 = ax1;
+        if (ay1 < y1) y1 = ay1;
+        if (ax2 > x2) x2 = ax2;
+        if (ay2 > y2) y2 = ay2;
+    }
+};
+box s_dirty;  // drawn into the back buffer since the last flip
+box s_stale;  // what the last flip changed, which the new back buffer has yet to receive
+
+void copy_box(uint16_t *to, const uint16_t *from, const box &b)
+{
+    for (int y = b.y1; y < b.y2; ++y) {
+        std::memcpy(to + y * kLcdWidth + b.x1, from + y * kLcdWidth + b.x1,
+                    static_cast<size_t>(b.x2 - b.x1) * sizeof(uint16_t));
+    }
+}
+
+#if !CONFIG_RELAY_QEMU
+void settle()
+{
+    if (!s_flip_pending) {
+        return;
+    }
+    const TickType_t deadline = xTaskGetTickCount() + pdMS_TO_TICKS(100);
+    while (board_panel_frames_done() - s_flip_mark < 1) {
+        if (static_cast<int32_t>(xTaskGetTickCount() - deadline) >= 0) {
+            ESP_LOGW(TAG, "panel: no frame ended within 100 ms of a flip; drawing on");
+            break;
+        }
+        vTaskDelay(1);
+    }
+    if (!s_stale.empty()) {
+        copy_box(s_fb[s_back], s_fb[s_back ^ 1], s_stale);
+        s_stale = box();
+    }
+    s_flip_pending = false;
+}
+#else
+void settle() {}
+#endif
+
+// Put the strip `[x1, x2) x [y1, y2)` on the panel's own (physical) coordinates.
+esp_err_t put(int x1, int y1, int x2, int y2, const uint16_t *pixels)
+{
+    if (s_fb[0] == nullptr) {
+        return esp_lcd_panel_draw_bitmap(s_panel, x1, y1, x2, y2, pixels);
+    }
+    settle();
+    const int w = x2 - x1;
+    for (int y = y1; y < y2; ++y) {
+        std::memcpy(s_fb[s_back] + y * kLcdWidth + x1, pixels + (y - y1) * w, static_cast<size_t>(w) * sizeof(uint16_t));
+    }
+    s_dirty.add(x1, y1, x2, y2);
+    return ESP_OK;
+}
+
+esp_err_t present()
+{
+    if (s_fb[0] == nullptr || s_dirty.empty()) {
+        return ESP_OK;
+    }
+    // A whole buffer handed to the driver is a flip, not a copy.
+    ESP_RETURN_ON_ERROR(esp_lcd_panel_draw_bitmap(s_panel, 0, 0, kLcdWidth, kLcdHeight, s_fb[s_back]), TAG, "flip");
+    s_stale = s_dirty;
+    s_dirty = box();
+    s_back ^= 1;
+    s_flip_pending = true;
+#if !CONFIG_RELAY_QEMU
+    s_flip_mark = board_panel_frames_done();
+#endif
+    return ESP_OK;
+}
+
 // Paint the whole panel from `pixel(x, y)`, one strip at a time.
 template <typename Pixel>
 esp_err_t paint_rows(Pixel pixel)
@@ -48,10 +139,10 @@ esp_err_t paint_rows(Pixel pixel)
     for (int i = 0; i < strip_count(kLcdHeight, kStripRows); ++i) {
         const strip_span span = strip_at(i, kLcdHeight, kStripRows);
         render_strip(pixel, span.y0, span.rows, kLcdWidth, s_strip);
-        ESP_RETURN_ON_ERROR(esp_lcd_panel_draw_bitmap(s_panel, 0, span.y0, kLcdWidth, span.y0 + span.rows, s_strip),
-                            TAG, "draw strip at row %d", span.y0);
+        ESP_RETURN_ON_ERROR(put(0, span.y0, kLcdWidth, span.y0 + span.rows, s_strip), TAG, "draw strip at row %d",
+                            span.y0);
     }
-    return ESP_OK;
+    return present();
 }
 
 template <typename Pixel>
@@ -123,6 +214,14 @@ esp_err_t display_init(int rotation_deg)
 #else
     ESP_RETURN_ON_ERROR(board_panel_init(rotation_deg, &s_panel), TAG, "panel");
     s_software_mirror = kSoftwareTurn && panel_rotation_mirrors(rotation_deg);
+    void *a = nullptr;
+    void *b = nullptr;
+    if (board_panel_frame_buffers(&a, &b) == ESP_OK && a != nullptr && b != nullptr) {
+        s_fb[0] = static_cast<uint16_t *>(a);
+        s_fb[1] = static_cast<uint16_t *>(b);
+        s_back = 1;
+        ESP_LOGI(TAG, "panel: drawing into the back of two frame buffers");
+    }
     return ESP_OK;
 #endif
 }
@@ -211,8 +310,7 @@ esp_err_t display_write_rect(int x1, int y1, int x2, int y2, const uint16_t *pix
                     s_strip[r * w + c] = pixels[(ly - y1) * stride + (lx - x1)];
                 }
             }
-            ESP_RETURN_ON_ERROR(esp_lcd_panel_draw_bitmap(s_panel, px1, py0, px1 + w, py0 + rows, s_strip),
-                                TAG, "draw rect at row %d", py0);
+            ESP_RETURN_ON_ERROR(put(px1, py0, px1 + w, py0 + rows, s_strip), TAG, "draw rect at row %d", py0);
         }
         return ESP_OK;
     }
@@ -221,8 +319,12 @@ esp_err_t display_write_rect(int x1, int y1, int x2, int y2, const uint16_t *pix
         for (int r = 0; r < rows; ++r) {
             std::memcpy(s_strip + r * w, pixels + (y0 + r) * stride, static_cast<size_t>(w) * sizeof(uint16_t));
         }
-        ESP_RETURN_ON_ERROR(esp_lcd_panel_draw_bitmap(s_panel, x1, y1 + y0, x2 + 1, y1 + y0 + rows, s_strip),
-                            TAG, "draw rect at row %d", y1 + y0);
+        ESP_RETURN_ON_ERROR(put(x1, y1 + y0, x2 + 1, y1 + y0 + rows, s_strip), TAG, "draw rect at row %d", y1 + y0);
     }
     return ESP_OK;
+}
+
+esp_err_t display_present()
+{
+    return present();
 }

@@ -248,7 +248,8 @@ void check_backlight()
 
     // A GT911: five fingers, and a product ID of "911" and a NUL. A GT9271's ID is another board's.
     CHECK(kTouchMaxPoints == 5);
-    CHECK(!kPanelTurnsInSoftware);
+    // Two frame buffers are flipped by handing the driver one of its own, which skips its mirror.
+    CHECK(kPanelTurnsInSoftware);
     CHECK(std::strcmp(RELAY_BOARD_ID, "crowpanel-adv7") == 0);
     const uint8_t id[4] = {'9', '1', '1', 0};
     CHECK(gt911_id_matches(id));
