@@ -8,6 +8,7 @@
 //   medium     28     22    18
 //   large      40     30    26
 //   caption    36     27    23
+//   alert      48     48    48   (the alert flash's sender name, #121: as large as the panel carries)
 
 #include "lvgl.h"
 #include "ui_scale.h"
@@ -20,11 +21,13 @@ LV_FONT_DECLARE(relay_caption_23);
 #define RELAY_UI_FONT_MEDIUM lv_font_montserrat_18
 #define RELAY_UI_FONT_LARGE lv_font_montserrat_26
 #define RELAY_UI_FONT_CAPTION relay_caption_23
+#define RELAY_UI_FONT_ALERT lv_font_montserrat_48
 #elif RELAY_UI_SCALE_PCT == 75
 #define RELAY_UI_FONT_SMALL lv_font_montserrat_16
 #define RELAY_UI_FONT_MEDIUM lv_font_montserrat_22
 #define RELAY_UI_FONT_LARGE lv_font_montserrat_30
 #define RELAY_UI_FONT_CAPTION relay_caption_27
+#define RELAY_UI_FONT_ALERT lv_font_montserrat_48
 #else
 #error "RELAY_UI_SCALE_PCT must be 65 or 75; add its fonts to ui_fonts.h"
 #endif

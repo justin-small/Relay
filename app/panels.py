@@ -68,6 +68,8 @@ TRANSLATION = "translation"
 # The Planning Center service as a feed (#122): {"stream": "service", "service_type": "<id>"}. The
 # panel holds the id where a translation holds its language, in 19 characters.
 SERVICE = "service"
+# The alert buttons as a feed (#121): {"stream": "alert"}. The pane sends alerts; it needs no setting of its own.
+ALERT = "alert"
 MAX_FEEDS = 2
 _FEED_ST_RE = re.compile(r"^\d{1,19}$")
 # What the panel's screen may be turned to (#122), clockwise: 0 and 180 landscape, 90 and 270 upright.
@@ -98,7 +100,7 @@ def clean_feeds(raw: object) -> list[dict[str, str]] | None:
     """One or two feed choices, or None if `raw` is not a valid list of them.
 
     A feed is {"stream": "transcription"}, {"stream": "translation", "lang":
-    "SPANISH"} or {"stream": "service", "service_type": "123"}. The language
+    "SPANISH"}, {"stream": "service", "service_type": "123"} or {"stream": "alert"}. The language
     must be one Relay can translate into; whether the service type is one Relay
     follows, and the panel shows the service, is the caller's to check.
     """
@@ -121,6 +123,8 @@ def clean_feeds(raw: object) -> list[dict[str, str]] | None:
             if not _FEED_ST_RE.fullmatch(st):
                 return None
             out.append({"stream": SERVICE, "service_type": st})
+        elif stream == ALERT:
+            out.append({"stream": ALERT})
         else:
             return None
     return out
@@ -146,6 +150,8 @@ def _reported_feeds(raw: object) -> list[dict[str, str]]:
             st = _text(item.get("service_type"), 24)
             if _FEED_ST_RE.fullmatch(st):
                 out.append({"stream": SERVICE, "service_type": st})
+        elif stream == ALERT:
+            out.append({"stream": ALERT})
     return out
 
 
@@ -236,6 +242,9 @@ class Registry:
         # Called after anything the operator's list shows has changed; main wires
         # it to the admin status stream.
         self.on_change: Callable[[], None] | None = None
+        # The `alert` messages a newly opened stream starts with (#121): main wires it to alerts.py, so a panel
+        # that reconnects mid-alert still flashes.
+        self.alerts_for: Callable[[str], list[dict]] = lambda pid: []
 
     def _changed(self) -> None:
         if self.on_change is not None:
@@ -590,6 +599,8 @@ class Registry:
         rotation = self._pending_rotation(pid)
         if rotation:
             q.put_nowait(sse_frame(rotation))
+        for alert in self.alerts_for(pid)[:4]:
+            q.put_nowait(sse_frame(alert))
         return q
 
     def unsubscribe(self, pid: str, q: asyncio.Queue) -> None:
@@ -659,8 +670,8 @@ class Registry:
             else:
                 clean = clean_feeds(feeds)
                 if clean is None:
-                    raise ValueError("feeds must be one or two of transcription, a translation language "
-                                     "or the service")
+                    raise ValueError("feeds must be one or two of transcription, a translation language, "
+                                     "the service or the alert buttons")
                 panel = self.panels.get(pid)
                 if panel is not None and panel.scripts:
                     for feed in clean:
@@ -753,6 +764,10 @@ class Registry:
             self._close(q)
         self._changed()
         return True
+
+    def push_alert(self, pid: str, message: dict) -> int:
+        """An `alert` or `alert_end` (#121) onto a panel's event stream. Returns how many streams took it."""
+        return self._push(pid, message)
 
     def push_update_available(self, message: dict[str, Any], pid: str | None = None) -> int:
         """Tell one panel, or every panel with a stream open, that a firmware

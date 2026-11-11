@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#000000">
+<title>Alerts</title>
+{% include "_brand_head.html" %}
+<link rel="stylesheet" href="/static/viewer.css">
+</head><body class="alert-page">
+
+<header class="alert-head">
+  <h1>Get attention</h1>
+  <span class="dot" id="statusDot" title="Connection"></span>
+</header>
+
+<form class="alert-name" id="nameForm" hidden>
+  <label for="nameInput">Who are you?</label>
+  <div class="alert-name-row">
+    <input id="nameInput" maxlength="32" autocomplete="nickname" placeholder="Drums" required>
+    <button type="submit">Save</button>
+  </div>
+  <p class="alert-note">Shown on the screen you flash, so they know who needs them.</p>
+</form>
+
+<p class="alert-as" id="sendingAs" hidden>Sending as <strong id="senderName"></strong> &middot; <button type="button" class="linklike" id="changeName">change</button></p>
+
+<main class="alert-buttons" id="buttons" aria-live="polite"></main>
+<p class="alert-empty" id="empty" hidden>No alert buttons yet. The operator sets them up in Relay admin, under Alerts.</p>
+<p class="alert-note alert-foot">Tap a button to flash its screens. Tap it again to stop.</p>
+
+<div class="toast" id="toast"></div>
+<script src="/static/alert.js"></script>
+</body></html>

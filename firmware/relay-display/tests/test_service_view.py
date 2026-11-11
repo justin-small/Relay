@@ -170,12 +170,13 @@ def test_notes_open_on_a_tap(panel: Board, relay: FakeRelay) -> None:
     panel.uart.wait_for_after(mark, r"view: service notes closed", timeout=30)
 
 
-def test_a_service_relay_stops_following_falls_back(panel: Board, relay: FakeRelay) -> None:
+def test_a_service_not_offered_stays_on_the_service(panel: Board, relay: FakeRelay) -> None:
+    # No fallback to the transcription: the Service pane itself says there is no service.
     relay.set_service_mode("show")
     wait_report(panel, lambda r: "service:7" in r.options, "offered")
     choose_service(panel)
     relay.offer_service([])
-    r = wait_report(panel, lambda r: r.shows[0] == "transcription (fallback)", "the pane falls back to the transcription")
-    assert r.saved[0] == "service 7"
+    r = wait_report(panel, lambda r: "service:7" not in r.options, "no longer offered")
+    assert r.shows[0] == "service 7" and r.saved[0] == "service 7", r
     relay.offer_service([{"service_type": "7", "label": "Sunday AM"}])
-    wait_report(panel, lambda r: r.shows[0] == "service 7", "and returns to the service")
+    wait_report(panel, lambda r: "service:7" in r.options and r.shows[0] == "service 7", "offered again")

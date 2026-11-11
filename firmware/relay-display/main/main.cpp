@@ -3,6 +3,8 @@
 // brought up and shows the bench screen, and only then does the network decide what it
 // is: a stored network is joined, and with none the setup network opens (`provision.cpp`).
 
+#include "alert_client.h"
+#include "alert_view.h"
 #include "button.h"
 #include "captions.h"
 #include "config.h"
@@ -140,6 +142,8 @@ extern "C" void app_main(void)
     ESP_ERROR_CHECK(screen_start());
     // The boot picture: the logo, from now until the feeds the panel shows are loaded (`screen.h`).
     screen_show_boot();
+    // The alert flash's timer (#121): it draws over any view, so it starts with the screen.
+    alert_view_start();
     // Touch is LVGL's pointer. A controller that does not answer costs the touch and not the boot: captions need none.
     const esp_err_t touch = touch_start(settings.rotation_deg);
     if (touch != ESP_OK) {
@@ -194,6 +198,10 @@ extern "C" void app_main(void)
             // The LIVE buttons' client: idle until a panel the operator lets control is tapped.
             if (service_control_start(settings) != ESP_OK) {
                 ESP_LOGE(TAG, "boot: service control not started");
+            }
+            // Alerts (#121): sending from an Alert pane, and acknowledging a flash.
+            if (alert_client_start(settings) != ESP_OK) {
+                ESP_LOGE(TAG, "boot: alert client not started");
             }
         }
     }

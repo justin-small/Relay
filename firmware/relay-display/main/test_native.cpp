@@ -33,6 +33,7 @@
 #include <utility>
 #include <vector>
 
+#include "alert_format.h"
 #include "auth.h"
 #include "config.h"
 // The STC8's backlight bytes are the CrowPanel's alone: the header names constants only its board header has.
@@ -2351,6 +2352,118 @@ static void make_head(uint8_t *h, const char *version, const char *project)
     memcpy(h + kOtaProjectOffset, project, strlen(project));
 }
 
+// Alerts (#121): the Alert feed's buttons, the flash, the requests, and the feed as a pick.
+void check_alerts()
+{
+    // The buttons, whole in each message.
+    const char *msg =
+        R"({"type":"alerts","buttons":[{"id":"0677be7d","name":"FOH booth","state":"on","from":"Drums","seen_on":"",)"
+        R"("age_s":3},{"id":"1234abcd","name":"Everyone on stage","state":"seen","seen_on":"Wedge L","age_s":75},)"
+        R"({"id":"nothex!!","name":"Bad"},{"id":"aaaabbbb","name":""},{"id":"ccccdddd","name":"Keys"}]})";
+    alert_board b;
+    CHECK(alert_apply(&b, msg, strlen(msg), 1000) == alert_change::state);
+    CHECK(b.known && b.count == 3 && b.changes == 1 && b.at_ms == 1000);
+    CHECK(strcmp(b.buttons[0].name, "FOH booth") == 0 && b.buttons[0].state == alert_button_state::on &&
+          strcmp(b.buttons[0].from, "Drums") == 0 && b.buttons[0].age_s == 3);
+    CHECK(b.buttons[1].state == alert_button_state::seen && strcmp(b.buttons[1].seen_on, "Wedge L") == 0);
+    CHECK(strcmp(b.buttons[2].id, "ccccdddd") == 0 && b.buttons[2].state == alert_button_state::idle);
+    // The same again (a heartbeat) changes nothing the pane shows, though the ages move.
+    CHECK(alert_apply(&b, msg, strlen(msg), 16000) == alert_change::tick && b.changes == 1 && b.at_ms == 16000);
+    const char *other = R"({"type":"targets","live":[]})";
+    CHECK(alert_apply(&b, other, strlen(other), 0) == alert_change::ignored && b.count == 3);
+    const char *junk = R"({"type":"alerts","buttons":7})";
+    CHECK(alert_apply(&b, junk, strlen(junk), 0) == alert_change::malformed && b.count == 3);
+    CHECK(alert_apply(&b, "nope", 4, 0) == alert_change::malformed);
+    const char *none = R"({"type":"alerts","buttons":[]})";
+    CHECK(alert_apply(&b, none, strlen(none), 0) == alert_change::state && b.known && b.count == 0 && b.changes == 2);
+
+    // The words under a button.
+    char words[96];
+    alert_button on;
+    on.state = alert_button_state::on;
+    snprintf(on.from, sizeof on.from, "Drums");
+    alert_button_words(on, 0, words, sizeof words);
+    CHECK(strcmp(words, "Flashing - from Drums - tap to stop") == 0);
+    alert_button seen;
+    seen.state = alert_button_state::seen;
+    snprintf(seen.seen_on, sizeof seen.seen_on, "Booth");
+    alert_button_words(seen, 75, words, sizeof words);
+    CHECK(strcmp(words, "Seen on Booth - 1 min ago") == 0);
+    alert_button missed;
+    missed.state = alert_button_state::missed;
+    alert_button_words(missed, 12, words, sizeof words);
+    CHECK(strcmp(words, "Not seen - 12 s ago") == 0);
+    CHECK(alert_button_words(alert_button(), 0, words, sizeof words) == 0 && words[0] == '\0');
+
+    // Being flashed: on the event stream.
+    const char *flash = R"({"type":"alert","id":"00112233aabbccdd","from":"Drums","to":"FOH booth","ends_in_s":120,"hz":9})";
+    panel_event ev = panel_parse_event(flash, strlen(flash));
+    CHECK(ev.kind == panel_message::alert && strcmp(ev.alert.id, "00112233aabbccdd") == 0 &&
+          strcmp(ev.alert.from, "Drums") == 0 && strcmp(ev.alert.to, "FOH booth") == 0 && ev.alert.ends_in_s == 120);
+    CHECK(ev.alert.hz == kAlertFlashMaxHz);   // never faster than twice a second, whatever Relay says
+    const char *noid = R"({"type":"alert","id":"xyz","from":"Drums"})";
+    CHECK(panel_parse_event(noid, strlen(noid)).kind == panel_message::none);
+    const char *forever = R"({"type":"alert","id":"00112233aabbccdd","ends_in_s":99999})";
+    CHECK(panel_parse_event(forever, strlen(forever)).alert.ends_in_s == kAlertEndsMaxS);
+    const char *end = R"({"type":"alert_end","id":"00112233aabbccdd","why":"seen"})";
+    ev = panel_parse_event(end, strlen(end));
+    CHECK(ev.kind == panel_message::alert_end && strcmp(ev.alert_end_id, "00112233aabbccdd") == 0);
+
+    // Red then white, half a period each; a panel that lost Relay stops a little after the auto-stop.
+    CHECK(alert_flash_red(0, 1) && alert_flash_red(499, 1) && !alert_flash_red(500, 1) && alert_flash_red(1000, 1));
+    CHECK(alert_flash_red(0, 2) && !alert_flash_red(250, 2) && alert_flash_red(500, 2));
+    CHECK(!alert_flash_red(250, 7));   // clamped to two a second
+    alert_flash f;
+    f.ends_in_s = 60;
+    CHECK(!alert_flash_expired(f, 64999) && alert_flash_expired(f, 65000));
+
+    // The requests.
+    const char *pid = "0123456789abcdef0123456789abcdef";
+    char req[512];
+    size_t n = alert_send_request(req, sizeof req, "relay.local", 8000, "0677be7d", pid, "0.6.0");
+    CHECK(n > 0 && strstr(req, "POST /api/alerts/0677be7d/send HTTP/1.1\r\n") == req);
+    CHECK(strstr(req, "Host: relay.local:8000\r\n") != nullptr && strstr(req, "Content-Length: 44\r\n") != nullptr);
+    CHECK(strstr(req, "\r\n\r\n{\"panel\":\"0123456789abcdef0123456789abcdef\"}") != nullptr);
+    CHECK(alert_send_request(req, sizeof req, "relay.local", 8000, "../admin", pid, "0.6.0") == 0);
+    CHECK(alert_send_request(req, sizeof req, "relay.local", 8000, "0677be7d", "short", "0.6.0") == 0);
+    CHECK(alert_send_request(req, 40, "relay.local", 8000, "0677be7d", pid, "0.6.0") == 0);
+    n = alert_ack_request(req, sizeof req, "relay.local", 80, "00112233aabbccdd", pid, "0.6.0");
+    CHECK(n > 0 && strstr(req, "POST /api/alerts/ack HTTP/1.1\r\nHost: relay.local\r\n") == req);
+    CHECK(strstr(req, "{\"id\":\"00112233aabbccdd\",\"panel\":\"0123456789abcdef0123456789abcdef\"}") != nullptr);
+    CHECK(alert_ack_request(req, sizeof req, "relay.local", 80, "00112233", pid, "0.6.0") == 0);
+
+    // The Alert feed as a pick: saved, offered last, never a fallback, reported and set by Relay.
+    const feed_pick a = feed_pick_make(kFeedAlert, "ignored");
+    CHECK(a.stream == kFeedAlert && a.lang[0] == '\0');
+    feed_options base;
+    base.known = true;
+    const feed_options with = feed_options_with_alert(base);
+    CHECK(with.count == 1 && with.items[0].pick.stream == kFeedAlert && strcmp(with.items[0].label, "Alert buttons") == 0);
+    const feed_resolved r = feed_resolve(a, base, false);
+    CHECK(feed_pick_same(r.pick, a) && !r.fallback);
+    CHECK(caption_request(req, sizeof req, "relay.local", 8000, kFeedAlert, "", 99, "0.6.0") > 0);
+    CHECK(strstr(req, "GET /stream?stream=alert HTTP/1.1\r\n") == req);
+    char title[24];
+    caption_feed_title(kFeedAlert, "", title, sizeof title);
+    CHECK(strcmp(title, "Alerts") == 0);
+    relay_settings_t st = example_settings();
+    st.feed_stream = kFeedAlert;
+    st.feed2_stream = kFeedAlert + 1;
+    relay_settings_t out = {};
+    CHECK(settings_decode(&st, sizeof st, &out, 0) == settings_blob::accepted);
+    CHECK(out.feed_stream == kFeedAlert && out.feed2_stream == kFeedNone);
+    const char *set = R"({"type":"set_feed","rev":4,"feeds":[{"stream":"alert"},{"stream":"transcription"}]})";
+    ev = panel_parse_event(set, strlen(set));
+    CHECK(ev.kind == panel_message::set_feed && ev.feed.count == 2 && ev.feed.feeds[0].stream == kFeedAlert);
+    panel_status ps = {};
+    snprintf(ps.id, sizeof ps.id, "%s", pid);
+    snprintf(ps.version, sizeof ps.version, "0.6.0");
+    ps.feed_count = 1;
+    ps.feeds[0] = a;
+    char body[600];
+    CHECK(panel_checkin_body(body, sizeof body, ps) > 0 && strstr(body, R"("feeds":[{"stream":"alert"}])") != nullptr);
+}
+
 void check_update()
 {
     using namespace update_format;
@@ -2550,19 +2663,19 @@ void check_service()
         CHECK(one.count == 4 && strcmp(one.items[3].label, "Service") == 0 && strcmp(one.items[3].pick.lang, "42") == 0);
         CHECK(service_offers_parse(kTargets, strlen(kTargets)).count == 0);  // an older Relay offers none
 
-        // A service pick is shown while it is offered; otherwise the pane falls back to the transcription.
+        // A service pick is always shown, offered or not: the Service pane says when there is no service.
         const feed_pick svc = feed_pick_make(kFeedService, "42");
         CHECK(svc.stream == kFeedService && strcmp(svc.lang, "42") == 0);
         feed_resolved r = feed_resolve(svc, one, false);
         CHECK(feed_pick_same(r.pick, svc) && !r.fallback);
         r = feed_resolve(svc, base, false);
-        CHECK(r.pick.stream == kFeedTranscription && r.fallback);
+        CHECK(feed_pick_same(r.pick, svc) && !r.fallback);
         char note[64];
         CHECK(feed_fallback_note(svc, note, sizeof note) > 0);
         feed_options unknown;
         r = feed_resolve(svc, unknown, false);
         CHECK(feed_pick_same(r.pick, svc));  // tried before Relay has said what it offers
-        CHECK(feed_pick_make(4, "1").stream == kFeedNone);
+        CHECK(feed_pick_make(kFeedAlert + 1, "1").stream == kFeedNone);
     }
 
     // The request.
@@ -2809,6 +2922,7 @@ int main()
     check_panel_link();
     check_service();
     check_service_control();
+    check_alerts();
     check_update();
 
     if (g_failures != 0) {

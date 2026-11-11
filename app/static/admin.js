@@ -1097,6 +1097,206 @@
     catch (e) { alertMsg(e.message); $('stopBtn').disabled = false; }
   });
 
+  /* ---- alerts (#121) ----
+     The operator's buttons are edited here and saved whole. The status stream's `alerts_admin` frame brings the
+     saved settings, the browser screens open now and each button's state; while there are unsaved edits only the
+     states and hints are repainted, so typing is never undone. */
+  let alertCfg = { auto_stop_s: 120, buttons: [] };
+  let alertScreens = [];
+  let alertState = [];
+  let alertDirty = false;
+  let viewerHosts = [];
+  const ALERT_WORDS = { on: 'Flashing', seen: 'Seen', missed: 'Not seen', cancelled: 'Stopped' };
+
+  function alertSetDirty(on) {
+    alertDirty = on;
+    $('alertDirty').hidden = !on;
+  }
+
+  function applyAlerts(frame) {
+    alertScreens = frame.screens || [];
+    alertState = frame.state || [];
+    if (!alertDirty) {
+      alertCfg = JSON.parse(JSON.stringify(frame.alerts || alertCfg));
+      $('alertAutoStop').value = String(alertCfg.auto_stop_s);
+    }
+    renderAlerts();
+  }
+
+  function alertStateText(id) {
+    const row = alertState.find(function (r) { return r.id === id; });
+    if (!row || row.state === 'idle') return { cls: '', text: '' };
+    let text = ALERT_WORDS[row.state] || row.state;
+    if (row.state === 'on' && row.from) text += ' · from ' + row.from;
+    if (row.state === 'seen' && row.seen_on) text += ' on ' + row.seen_on;
+    return { cls: row.state, text: text };
+  }
+
+  function renderAlertSum() {
+    const on = alertState.filter(function (r) { return r.state === 'on'; }).length;
+    const n = alertCfg.buttons.length;
+    $('alertsSum').innerHTML = on ? '<span class="live">' + on + ' flashing</span>'
+      : n ? n + (n === 1 ? ' button' : ' buttons') : '';
+  }
+
+  function renderAlerts() {
+    renderAlertSum();
+    const list = $('alertList');
+    // Never rebuild under the operator's cursor, or while edits wait: repaint the states only.
+    if (alertDirty || list.contains(document.activeElement)) {
+      list.querySelectorAll('[data-astate]').forEach(function (n) {
+        const st = alertStateText(n.dataset.astate);
+        n.className = 'astate ' + st.cls;
+        n.textContent = st.text;
+      });
+      list.querySelectorAll('[data-ahint]').forEach(function (n) { n.textContent = screenHint(); });
+      renderAlertLinks();
+      return;
+    }
+    list.innerHTML = '';
+    if (!alertCfg.buttons.length) {
+      list.appendChild(el('div', 'muted', 'No alert buttons yet. Add one for each place a musician may need to reach.'));
+    }
+    alertCfg.buttons.forEach(function (b, i) { list.appendChild(alertCard(b, i)); });
+    renderAlertLinks();
+  }
+
+  function screenHint() {
+    return alertScreens.length ? 'Open now: ' + alertScreens.join(', ') : 'No alert screen is open right now.';
+  }
+
+  function alertCard(b, i) {
+    const card = el('div', 'pcard acard');
+    const head = el('div', 'phead');
+    const name = el('input');
+    name.value = b.name;
+    name.maxLength = 32;
+    name.placeholder = 'FOH booth';
+    name.setAttribute('aria-label', 'Button name');
+    name.style.flex = '1 1 180px';
+    name.addEventListener('input', function () { b.name = name.value; alertSetDirty(true); renderAlertLinks(); });
+    head.appendChild(name);
+    const st = alertStateText(b.id);
+    const state = el('span', 'astate ' + st.cls, st.text);
+    if (b.id) state.dataset.astate = b.id;
+    head.appendChild(state);
+    const remove = el('button', '', 'Remove');
+    remove.type = 'button';
+    remove.addEventListener('click', function () {
+      alertCfg.buttons.splice(i, 1);
+      alertSetDirty(true);
+      alertDirty = false;   // rebuild now; the flag is set again just below
+      renderAlerts();
+      alertSetDirty(true);
+    });
+    head.appendChild(remove);
+    card.appendChild(head);
+
+    const pf = el('div', 'field');
+    pf.appendChild(el('label', '', 'Panels it flashes'));
+    const grid = el('div', 'atargets');
+    const known = panelRows.slice();
+    b.panels.forEach(function (pid) {
+      if (!known.some(function (r) { return r.id === pid; })) known.push({ id: pid, name: 'Forgotten panel ' + pid.slice(0, 4), online: false });
+    });
+    if (!known.length) grid.appendChild(el('span', 'muted', 'No panels have checked in yet.'));
+    known.forEach(function (r) {
+      const lab = el('label', 'check');
+      const box = el('input');
+      box.type = 'checkbox';
+      box.checked = b.panels.indexOf(r.id) !== -1;
+      box.addEventListener('change', function () {
+        b.panels = b.panels.filter(function (x) { return x !== r.id; });
+        if (box.checked) b.panels.push(r.id);
+        alertSetDirty(true);
+      });
+      lab.appendChild(box);
+      lab.appendChild(el('span', '', r.name + (r.online ? '' : ' (offline)')));
+      grid.appendChild(lab);
+    });
+    pf.appendChild(grid);
+    card.appendChild(pf);
+
+    const sf = el('div', 'field');
+    const sid = 'alertScreens' + i;
+    const sl = el('label', '', 'Browser screens it flashes (names, separated by commas)');
+    sl.htmlFor = sid;
+    sf.appendChild(sl);
+    const screens = el('input');
+    screens.id = sid;
+    screens.placeholder = 'Booth TV';
+    screens.value = b.screens.join(', ');
+    screens.addEventListener('input', function () {
+      b.screens = screens.value.split(',').map(function (x) { return x.replace(/\s+/g, ' ').trim(); })
+        .filter(Boolean);
+      alertSetDirty(true);
+      renderAlertLinks();
+    });
+    sf.appendChild(screens);
+    const hint = el('div', 'note', screenHint());
+    hint.dataset.ahint = '1';
+    sf.appendChild(hint);
+    card.appendChild(sf);
+    return card;
+  }
+
+  function renderAlertLinks() {
+    const box = $('alertLinks');
+    if (!box) return;
+    const host = viewerHosts[0] || location.origin;
+    const rows = [['Sender page (phones)', '/alert']];
+    const seen = {};
+    alertCfg.buttons.forEach(function (b) {
+      b.screens.forEach(function (sname) {
+        const key = sname.toLowerCase();
+        if (seen[key]) return;
+        seen[key] = true;
+        rows.push(['Screen “' + sname + '”', '/screen?alert=' + encodeURIComponent(sname)]);
+      });
+    });
+    box.innerHTML = '';
+    rows.forEach(function (r) {
+      const line = el('div', 'ctl');
+      line.style.marginBottom = '6px';
+      line.appendChild(el('span', '', r[0] + ':'));
+      const a = el('a', 'mono', host + r[1]);
+      a.href = host + r[1];
+      a.target = '_blank';
+      a.rel = 'noopener';
+      line.appendChild(a);
+      box.appendChild(line);
+    });
+  }
+
+  $('alertAdd').addEventListener('click', function () {
+    alertCfg.buttons.push({ name: '', panels: [], screens: [] });
+    alertDirty = false;
+    renderAlerts();
+    alertSetDirty(true);
+    const inputs = $('alertList').querySelectorAll('.phead input');
+    if (inputs.length) inputs[inputs.length - 1].focus();
+  });
+  $('alertAutoStop').addEventListener('change', function () {
+    alertCfg.auto_stop_s = parseInt($('alertAutoStop').value, 10);
+    alertSetDirty(true);
+  });
+  $('alertSave').addEventListener('click', async function () {
+    try {
+      const frame = await post('/api/admin/alerts', {
+        auto_stop_s: parseInt($('alertAutoStop').value, 10),
+        buttons: alertCfg.buttons.map(function (b) {
+          const out = { name: b.name, panels: b.panels, screens: b.screens };
+          if (b.id) out.id = b.id;
+          return out;
+        })
+      });
+      alertSetDirty(false);
+      if (document.activeElement && $('alertList').contains(document.activeElement)) document.activeElement.blur();
+      applyAlerts(frame);
+      okMsg('Alerts saved');
+    } catch (e) { alertMsg(e.message); }
+  });
+
   /* ---- panels ---- */
   let panelRows = [];
   let panelsAt = 0;          // when panelRows arrived: "last seen" counts on from here
@@ -1130,6 +1330,7 @@
     return feeds.map(function (f) {
       if (f.stream === 'transcription') return 'Transcription';
       if (f.stream === 'service') return serviceLabel(f.service_type);
+      if (f.stream === 'alert') return 'Alert buttons';
       const hit = (rows || []).find(function (l) { return l.id === f.lang; });
       return hit ? hit.label : (f.lang || '?');
     }).join(' + ');
@@ -1164,6 +1365,10 @@
       o.value = 'service:' + id;
       sel.appendChild(o);
     });
+    // The alert buttons (#121): the pane sends alerts, set up on the Alerts page.
+    const a = el('option', '', 'Alert buttons');
+    a.value = 'alert';
+    sel.appendChild(a);
     sel.value = value || '';
   }
 
@@ -1171,11 +1376,13 @@
     if (!f) return '';
     if (f.stream === 'transcription') return 'transcription';
     if (f.stream === 'service') return 'service:' + f.service_type;
+    if (f.stream === 'alert') return 'alert';
     return 'translation:' + f.lang;
   }
 
   function feedFromValue(v) {
     if (v === 'transcription') return { stream: 'transcription' };
+    if (v === 'alert') return { stream: 'alert' };
     if (v.indexOf('service:') === 0) return { stream: 'service', service_type: v.slice('service:'.length) };
     return { stream: 'translation', lang: v.slice('translation:'.length) };
   }
@@ -1693,7 +1900,8 @@
 
   function applyStatus(st) {
     if (!st) return;
-    if (st.type === 'panels') { applyPanels(st); return; }
+    if (st.type === 'panels') { applyPanels(st); renderAlerts(); return; }
+    if (st.type === 'alerts_admin') { applyAlerts(st); return; }
     if (st.type === 'meter') { applyMeter(st); tickPanelSeen(); return; }
     if (!st.sessions) return;
 
@@ -1797,6 +2005,8 @@
     // the host. Keep it as a fallback if the LAN address could not be resolved.
     let hosts = (urls || []).filter(function (u) { return u.indexOf('127.0.0.1') === -1; });
     if (!hosts.length) hosts = urls || [];
+    viewerHosts = hosts;
+    renderAlertLinks();
     $('urls').innerHTML = VIEW_GROUPS.map(function (group) {
       const rows = group[1].map(function (v) { return urlRow(v[0], v[1], hosts); }).join('');
       return '<section><h3>' + group[0] + '</h3>' + rows + '</section>';

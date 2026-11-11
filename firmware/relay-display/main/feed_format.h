@@ -31,8 +31,8 @@ constexpr size_t kFeedLabelBytes = 32;
 // A pick
 // ---------------------------------------------------------------------------
 
-// One pane's choice: kFeedNone, kFeedTranscription, kFeedTranslation with the language as Relay names it, or
-// kFeedService with the Planning Center service type id in `lang`.
+// One pane's choice: kFeedNone, kFeedTranscription, kFeedTranslation with the language as Relay names it,
+// kFeedService with the Planning Center service type id in `lang`, or kFeedAlert (the alert buttons, #121).
 struct feed_pick {
     uint8_t stream = kFeedNone;
     char lang[kFeedLangBytes] = {};
@@ -41,7 +41,7 @@ struct feed_pick {
 inline feed_pick feed_pick_make(uint8_t stream, const char *lang)
 {
     feed_pick p;
-    if (stream > kFeedService) {
+    if (stream > kFeedAlert) {
         return p;
     }
     p.stream = stream;
@@ -202,6 +202,18 @@ inline feed_options feed_options_with_service(const feed_options &base, const se
     return out;
 }
 
+// The menu with the alert buttons (#121) last. Always offered: the pane says itself when Relay has no buttons.
+inline feed_options feed_options_with_alert(const feed_options &base)
+{
+    feed_options out = base;
+    if (out.count < kFeedOptionsMax) {
+        feed_option &t = out.items[out.count++];
+        t.pick = feed_pick_make(kFeedAlert, "");
+        settings_set_text(t.label, sizeof t.label, "Alert buttons");
+    }
+    return out;
+}
+
 // Whether two option lists offer the same things, so a poll that says nothing new changes nothing.
 inline bool feed_options_same(const feed_options &a, const feed_options &b)
 {
@@ -233,6 +245,7 @@ struct feed_resolved {
 //    nothing is known, and the pick is tried as it is; `refused` (Relay answered it with a 4xx, which it
 //    does for a language it does not offer) is then what says it is not live.
 //  * A transcription that is not on offer (a source language the panel cannot draw) shows nothing.
+//  * A Service pick is always shown as it is: its pane says when there is no service.
 inline feed_resolved feed_resolve(const feed_pick &saved, const feed_options &options, bool refused)
 {
     const feed_pick transcription = feed_pick_make(kFeedTranscription, "");
@@ -243,16 +256,11 @@ inline feed_resolved feed_resolve(const feed_pick &saved, const feed_options &op
         }
         return {want, false};
     }
-    if (want.stream == kFeedService) {
-        // Offered only while the operator's service mode allows it and Relay follows the type. Until the panel
-        // has heard from Relay it is tried; the stream itself says if Relay does not follow it.
-        if (!options.known || options.has(want)) {
-            return {want, false};
-        }
-        if (!options.has(transcription)) {
-            return {feed_pick(), true};
-        }
-        return {transcription, true};
+    if (want.stream == kFeedService || want.stream == kFeedAlert) {
+        // **A Service pick never falls back to the transcription.** The Service pane says itself when there is
+        // nothing to show (no service planned today, Relay does not follow it, Planning Center unreachable), so it
+        // is shown whether or not the menu offers it right now.
+        return {want, false};
     }
     const bool live = options.known ? options.has(want) : !refused;
     if (live) {

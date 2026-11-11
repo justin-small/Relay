@@ -6,6 +6,7 @@
 #include <cstring>
 #include <new>
 
+#include "alert_view.h"
 #include "captions.h"
 #include "config.h"
 #include "esp_heap_caps.h"
@@ -326,6 +327,14 @@ void on_event(void *, const caption_sse_event &event)
         break;
     case panel_message::reboot:
         restart("Relay's operator asked for it");
+        break;
+    case panel_message::alert:
+        ESP_LOGI(TAG, "panel_link: alert %s from %s", ev.alert.id, ev.alert.from);
+        alert_view_flash(ev.alert);
+        break;
+    case panel_message::alert_end:
+        ESP_LOGI(TAG, "panel_link: alert %s ended", ev.alert_end_id);
+        alert_view_flash_end(ev.alert_end_id);
         break;
     case panel_message::none:
         break;

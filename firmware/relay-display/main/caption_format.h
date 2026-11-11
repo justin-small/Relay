@@ -1258,7 +1258,7 @@ inline bool caption_url_split(const char *url, char *host, size_t host_cap, uint
     return true;
 }
 
-// The request for a feed. `stream` is kFeedTranscription (1), kFeedTranslation (2) or kFeedService (3), as stored in
+// The request for a feed. `stream` is kFeedTranscription (1), kFeedTranslation (2), kFeedService (3) or kFeedAlert (4), as stored in
 // the settings; `lang` is the translation's language as Relay names it, or the service type id. `resume_id` 0 asks for a snapshot.
 // Returns the length, or 0 when it does not fit in `cap` or the feed is not one.
 inline size_t caption_request(char *out, size_t cap, const char *host, uint16_t port, uint8_t stream,
@@ -1311,10 +1311,14 @@ inline size_t caption_request(char *out, size_t cap, const char *host, uint16_t 
             return 0;
         }
         resume_id = 0;
+    } else if (stream == 4) {
+        // The alert buttons (#121): whole state per message, nothing to resume.
+        add("stream=alert");
+        resume_id = 0;
     } else {
         return 0;
     }
-    if (stream != 3 && !add("&finals=1")) {
+    if (stream != 3 && stream != 4 && !add("&finals=1")) {
         return 0;
     }
     if (resume_id != 0) {

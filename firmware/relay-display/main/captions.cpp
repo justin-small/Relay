@@ -64,9 +64,11 @@ struct Slot {
     char lang[sizeof(relay_settings_t::feed_lang)] = {};
     uint32_t wanted_gen = 0;
 
-    // What readers see, under `lock`. A slot on the Service feed holds `service` instead of `feed`.
+    // What readers see, under `lock`. A slot on the Service feed holds `service` instead of `feed`, and one on the
+    // Alert feed (#121) `alerts`.
     caption_feed *feed = nullptr;
     service_state *service = nullptr;
+    alert_board *alerts = nullptr;
     caption_state state = caption_state::off;
     uint32_t revision = 0;
 
@@ -122,30 +124,43 @@ void set_state(Slot &s, caption_state state)
 }
 
 // A new, empty feed (or service state, for the Service feed), or none. The old one is freed.
-bool replace_feed(Slot &s, bool make, bool service)
+bool replace_feed(Slot &s, bool make, uint8_t stream)
 {
     caption_feed *fresh = nullptr;
     service_state *fresh_service = nullptr;
-    if (make && !service) {
-        void *mem = feed_alloc(sizeof(caption_feed));
-        if (mem == nullptr) {
-            return false;
-        }
-        fresh = new (mem) caption_feed(feed_alloc, feed_free);
-    } else if (make) {
+    alert_board *fresh_alerts = nullptr;
+    if (make && stream == kFeedService) {
         void *mem = feed_alloc(sizeof(service_state));
         if (mem == nullptr) {
             return false;
         }
         fresh_service = new (mem) service_state();
+    } else if (make && stream == kFeedAlert) {
+        void *mem = feed_alloc(sizeof(alert_board));
+        if (mem == nullptr) {
+            return false;
+        }
+        fresh_alerts = new (mem) alert_board();
+    } else if (make) {
+        void *mem = feed_alloc(sizeof(caption_feed));
+        if (mem == nullptr) {
+            return false;
+        }
+        fresh = new (mem) caption_feed(feed_alloc, feed_free);
     }
     lock(s);
     caption_feed *old = s.feed;
     service_state *old_service = s.service;
+    alert_board *old_alerts = s.alerts;
     s.feed = fresh;
     s.service = fresh_service;
+    s.alerts = fresh_alerts;
     ++s.revision;
     unlock(s);
+    if (old_alerts != nullptr) {
+        old_alerts->~alert_board();
+        feed_free(old_alerts);
+    }
     if (old != nullptr) {
         old->~caption_feed();
         feed_free(old);
@@ -180,6 +195,30 @@ void on_service_event(Slot &s, const caption_sse_event &event)
     } else if (change == service_change::malformed) {
         ESP_LOGW(TAG, "captions[%d]: unreadable service message (%u bytes)", s.index,
                  static_cast<unsigned>(event.len));
+    }
+}
+
+// One event of the Alert feed (`alert_format.h`): every button, whole.
+void on_alert_event(Slot &s, const caption_sse_event &event)
+{
+    lock(s);
+    alert_change change = alert_change::ignored;
+    int count = 0;
+    if (s.alerts != nullptr) {
+        change = alert_apply(s.alerts, event.data, event.len, static_cast<uint32_t>(esp_timer_get_time() / 1000));
+        count = s.alerts->count;
+        if (change == alert_change::state || change == alert_change::tick) {
+            ++s.revision;
+        }
+    }
+    unlock(s);
+    if (change == alert_change::state) {
+        ESP_LOGI(TAG, "captions[%d]: alerts, %d buttons", s.index, count);
+        notify(s);
+    } else if (change == alert_change::tick) {
+        notify(s);
+    } else if (change == alert_change::malformed) {
+        ESP_LOGW(TAG, "captions[%d]: unreadable alerts message (%u bytes)", s.index, static_cast<unsigned>(event.len));
     }
 }
 
@@ -229,6 +268,10 @@ void on_event(void *ctx, const caption_sse_event &event)
     }
     if (c->stream == kFeedService) {
         on_service_event(s, event);
+        return;
+    }
+    if (c->stream == kFeedAlert) {
+        on_alert_event(s, event);
         return;
     }
     lock(s);
@@ -514,7 +557,7 @@ void slot_task(void *arg)
             feed_gen = gen;
             failures = 0;
             tried = false;
-            if (!replace_feed(s, wanted, stream == kFeedService)) {
+            if (!replace_feed(s, wanted, stream)) {
                 ESP_LOGE(TAG, "captions[%d]: no memory for the feed", s.index);
                 set_state(s, caption_state::off);
                 rest(5000);
@@ -525,6 +568,7 @@ void slot_task(void *arg)
                 ESP_LOGI(TAG, "captions[%d]: feed %s %s from %s", s.index,
                          stream == kFeedTranscription ? "transcription"
                          : stream == kFeedService     ? "service"
+                         : stream == kFeedAlert       ? "alert"
                                                       : "translation",
                          stream == kFeedTranscription ? "" : lang, url);
             }
@@ -606,7 +650,7 @@ esp_err_t captions_start()
 
 esp_err_t captions_set_feed(int slot, const char *relay_url, uint8_t stream, const char *lang)
 {
-    if (!s_started || slot < 0 || slot >= kCaptionSlots || stream > kFeedService) {
+    if (!s_started || slot < 0 || slot >= kCaptionSlots || stream > kFeedAlert) {
         return ESP_ERR_INVALID_ARG;
     }
     if (relay_url == nullptr) {
@@ -682,6 +726,18 @@ void captions_read(int slot, void (*fn)(const caption_feed *, caption_state, voi
     Slot &s = s_slots[slot];
     lock(s);
     fn(s.feed, s.state, ctx);
+    unlock(s);
+}
+
+void captions_read_alerts(int slot, void (*fn)(const alert_board *alerts, caption_state state, void *ctx), void *ctx)
+{
+    if (!s_started || slot < 0 || slot >= kCaptionSlots) {
+        fn(nullptr, caption_state::off, ctx);
+        return;
+    }
+    Slot &s = s_slots[slot];
+    lock(s);
+    fn(s.alerts, s.state, ctx);
     unlock(s);
 }
 

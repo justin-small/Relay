@@ -19,7 +19,9 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Redirect
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
+from . import alerts as alertsmod
 from . import config, exporting, languages, panelfw, panels, planningcenter, redact, schedules
+from .alerts import alerts
 from .engine import TRANSCRIPTION_STREAM, TRANSLATION_STREAM, demo_mode, engine
 from .hub import hub
 from .panels import registry as panel_registry
@@ -112,6 +114,7 @@ async def _startup() -> None:
     recorder.configure(config.recordings_path(), cfg["recording"]["keep_runs"])
     engine.bind(asyncio.get_running_loop())
     app.state.blocklist_task = asyncio.create_task(_watch_blocklist())
+    app.state.alerts_task = asyncio.create_task(_alert_ticks())
     # First tick runs straight away, so a relay started mid-window catches up.
     scheduler.start()
     # Idle until a Planning Center token is saved and a service type followed.
@@ -182,10 +185,22 @@ async def _watch_blocklist() -> None:
             log.exception("blocklist reload failed")
 
 
+async def _alert_ticks() -> None:
+    """Once a second: end alerts nobody tapped in time, so the sender sees "Not seen" when it happens."""
+    while True:
+        await asyncio.sleep(1.0)
+        try:
+            alerts.tick()
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            log.exception("alert tick failed")
+
+
 async def _shutdown() -> None:
     scheduler.cancel()
     pc_follower.cancel()
-    for name in ("demo_task", "blocklist_task"):
+    for name in ("demo_task", "blocklist_task", "alerts_task"):
         task = getattr(app.state, name, None)
         if task is not None:
             task.cancel()
@@ -449,6 +464,9 @@ async def page_screen(request: Request):
     if align not in ("bottom", "center"):
         align = "bottom"
 
+    # ?alert=<name>: this screen flashes for the alert buttons that name it (#121).
+    screen_alert = alertsmod.clean_name(qp.get("alert") or "")
+
     ctx = _viewer_ctx(request) | {
         "mode": stream,
         "screen": True,
@@ -457,6 +475,7 @@ async def page_screen(request: Request):
         "screen_lines": lines,
         "screen_align": align,
         "screen_font": font_override,
+        "screen_alert": screen_alert,
     }
     if font_override:
         ctx["font_px"] = font_override
@@ -609,9 +628,40 @@ def _service_stream(st: str) -> StreamingResponse:
     )
 
 
+ALERT_STREAM = "alert"
+
+
+def _alert_sender_stream() -> StreamingResponse:
+    """Every alert button and how it stands, whole in each message (alerts.py): for the /alert page and a panel
+    on the Alert feed. Repeated at each heartbeat, so a panel's silence timer never fires on a quiet stream."""
+    queue = alerts.subscribe_sender()
+
+    async def gen():
+        try:
+            while True:
+                try:
+                    frame = await asyncio.wait_for(queue.get(), timeout=HEARTBEAT_S)
+                except asyncio.TimeoutError:
+                    yield alertsmod.sse_frame(alerts.state())
+                    continue
+                if frame is None:
+                    return
+                yield frame
+        finally:
+            alerts.unsubscribe_sender(queue)
+
+    return StreamingResponse(
+        gen(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache, no-transform", "X-Accel-Buffering": "no"},
+    )
+
+
 @app.get("/stream")
 async def stream(request: Request, stream: str = "translation", lang: str | None = None,
                  finals: int = 0, type: str | None = None):
+    if stream == ALERT_STREAM:
+        return _alert_sender_stream()
     if stream == SERVICE_STREAM:
         st = (type or "").strip()
         # Only a followed service type: the feed is no way to make Relay ask
@@ -726,6 +776,109 @@ async def panel_events(panel_id: str):
 
 
 panel_control = pccontrol.Control(pc_follower, panel_registry, service_feed)
+
+
+# --------------------------------------------------------------- alerts (#121)
+# On the viewer port with no login, like the panels' routes: anyone with the /alert link may send, by the
+# operator's choice. alerts.py says what bounds them.
+alerts.push_panel = panel_registry.push_alert
+alerts.panel_name = panel_registry.display_name
+panel_registry.alerts_for = alerts.active_for_panel
+
+
+async def _alert_body(request: Request) -> dict:
+    raw = await _read_limited(request, alertsmod.BODY_MAX_BYTES)
+    try:
+        body = json.loads(raw or b"{}")
+    except (ValueError, UnicodeDecodeError):
+        raise HTTPException(400, "body must be JSON")
+    if not isinstance(body, dict):
+        raise HTTPException(400, "body must be a JSON object")
+    return body
+
+
+def _alert_refused(exc: alertsmod.Refused) -> JSONResponse:
+    return JSONResponse({"ok": False, "error": str(exc)}, status_code=exc.status)
+
+
+@app.get("/alert", response_class=HTMLResponse)
+async def page_alert(request: Request):
+    """The musicians' page: one button per alert. Not on the chooser page; the operator hands out the link."""
+    return templates.TemplateResponse(request, "alert.html", _viewer_ctx(request))
+
+
+@app.post("/api/alerts/{button_id}/send")
+async def alert_send(button_id: str, request: Request):
+    """Flash a button's screens, or stop the alert it has flashing. `from` names the sender; a panel sends its
+    `panel` id instead, and is named as Relay names it."""
+    body = await _alert_body(request)
+    sender = alertsmod.clean_name(body.get("from"))
+    pid = body.get("panel")
+    if pid is not None:
+        if not panels.valid_id(pid) or not panel_registry.known(pid):
+            raise HTTPException(404, "unknown panel")
+        sender = panel_registry.display_name(pid)
+    try:
+        return {"ok": True, **alerts.press(button_id, sender)}
+    except alertsmod.Refused as exc:
+        return _alert_refused(exc)
+
+
+@app.post("/api/alerts/{button_id}/cancel")
+async def alert_cancel(button_id: str):
+    try:
+        return {"ok": True, **alerts.cancel(button_id)}
+    except alertsmod.Refused as exc:
+        return _alert_refused(exc)
+
+
+@app.post("/api/alerts/ack")
+async def alert_ack(request: Request):
+    """A flashing panel or screen was tapped: `id` is the alert, and `panel` (an id) or `screen` (a name) says
+    where."""
+    body = await _alert_body(request)
+    panel = body.get("panel")
+    screen = body.get("screen")
+    if panel is not None and not panels.valid_id(panel):
+        raise HTTPException(400, "panel must be a panel id")
+    if screen is not None and not isinstance(screen, str):
+        raise HTTPException(400, "screen must be a name")
+    try:
+        return alerts.ack(body.get("id"), panel=panel, screen=screen)
+    except alertsmod.Refused as exc:
+        return _alert_refused(exc)
+
+
+@app.get("/api/alerts/screen")
+async def alert_screen_stream(name: str = ""):
+    """A browser screen's alerts: `alert` when one of its buttons is pressed, `alert_end` when it stops."""
+    name = alertsmod.clean_name(name)
+    if not name:
+        raise HTTPException(400, "name the screen")
+    try:
+        queue = alerts.subscribe_screen(name)
+    except alertsmod.Refused as exc:
+        raise HTTPException(exc.status, str(exc))
+
+    async def gen():
+        try:
+            while True:
+                try:
+                    frame = await asyncio.wait_for(queue.get(), timeout=HEARTBEAT_S)
+                except asyncio.TimeoutError:
+                    yield b": ping\n\n"
+                    continue
+                if frame is None:
+                    return
+                yield frame
+        finally:
+            alerts.unsubscribe_screen(name, queue)
+
+    return StreamingResponse(
+        gen(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache, no-transform", "X-Accel-Buffering": "no"},
+    )
 
 
 @app.post("/api/panels/{panel_id}/service/{action}")
@@ -877,6 +1030,7 @@ async def admin_status_stream(request: Request):
         try:
             yield _sse(engine.status())
             yield _sse(_panels_frame())
+            yield _sse(_alerts_frame())
             online = panel_registry.online_signature()
             while True:
                 try:
@@ -1153,6 +1307,29 @@ def _board_arg(board: str) -> str:
     if b.on_hold:
         raise HTTPException(400, f"the {b.label} is on hold; Relay keeps no firmware for it")
     return board
+
+
+def _alerts_frame() -> dict:
+    return {"type": "alerts_admin", **alerts.admin_view()}
+
+
+alerts.on_change = lambda: hub.push_status(_alerts_frame())
+
+
+@app.get("/api/admin/alerts", dependencies=[Depends(require_admin)])
+async def admin_alerts():
+    return _alerts_frame()
+
+
+@app.post("/api/admin/alerts", dependencies=[Depends(require_admin)])
+async def admin_alerts_save(payload: dict):
+    """The alert buttons and the auto-stop, whole: {"auto_stop_s", "buttons": [{"id"?, "name", "panels",
+    "screens"}]}. A button left out is deleted, and an alert it had flashing stops."""
+    try:
+        alerts.save(payload)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+    return _alerts_frame()
 
 
 # A check-in, rename, feed or forget reaches the open operator panels at once,

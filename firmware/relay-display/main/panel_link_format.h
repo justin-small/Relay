@@ -18,11 +18,13 @@
 //   -> data: {"type":"service_mode","mode":"both","service_type":"7","key":"<32 hex>"}   (#81; also in a reply's `service`)
 //   -> data: {"type":"set_rotation","rev":2,"deg":180}   (#122; also in a reply's `set_rotation`)
 //   -> data: {"type":"reboot"}         (#122; on the stream only, never in a reply)
+//   -> data: {"type":"alert","id":"<16 hex>","from":"Drums","to":"FOH booth","ends_in_s":120,"hz":1}   (#121)
+//   -> data: {"type":"alert_end","id":"<16 hex>","why":"seen"}   (#121; seen, missed or cancelled)
 //   -> : ping                          every 15 s of quiet
 //
 // A feed is {"stream":"transcription"}, {"stream":"translation","lang":"SPANISH"} or, since #122,
 // {"stream":"service","service_type":"7"}: the Planning Center service, which the panel keeps as a pick with the
-// service type id where a translation keeps its language.
+// service type id where a translation keeps its language. Since #121 also {"stream":"alert"}: the alert buttons.
 //
 // **The rotation follows the feed's rule: the newest change wins, from either side.** The operator's carries a `rev`,
 // and the panel reports the last one it applied (`rotation_rev`), so Relay sends it only until it is applied. A turn
@@ -41,6 +43,7 @@
 #include <cstdio>
 #include <cstring>
 
+#include "alert_format.h"
 #include "caption_format.h"
 #include "feed_format.h"
 #include "settings_format.h"
@@ -142,7 +145,7 @@ inline size_t panel_checkin_body(char *out, size_t cap, const panel_status &st)
     bool any = false;
     for (int i = 0; ok && i < st.feed_count && i < kPanelFeedsMax; ++i) {
         const feed_pick &f = st.feeds[i];
-        if (f.stream != kFeedTranscription && f.stream != kFeedTranslation &&
+        if (f.stream != kFeedTranscription && f.stream != kFeedTranslation && f.stream != kFeedAlert &&
             !(f.stream == kFeedService && f.lang[0] != '\0')) {
             continue;
         }
@@ -152,6 +155,8 @@ inline size_t panel_checkin_body(char *out, size_t cap, const panel_status &st)
             ok = ok && raw("{\"stream\":\"transcription\"}");
         } else if (f.stream == kFeedService) {
             ok = ok && raw("{\"stream\":\"service\",\"service_type\":\"") && val(f.lang) && raw("\"}");
+        } else if (f.stream == kFeedAlert) {
+            ok = ok && raw("{\"stream\":\"alert\"}");
         } else {
             ok = ok && raw("{\"stream\":\"translation\",\"lang\":\"") && val(f.lang) && raw("\"}");
         }
@@ -340,6 +345,8 @@ inline bool panel_read_set_feed(const char *obj, const char *e, panel_set_feed *
                 }
             }
             pick = feed_pick_make(kFeedService, lang);
+        } else if (strcmp(stream, "alert") == 0) {
+            pick = feed_pick_make(kFeedAlert, nullptr);
         } else {
             return false;
         }
@@ -414,6 +421,8 @@ enum class panel_message : uint8_t {
     service_mode,      // the operator set the panel's service mode (#81); `service` is it
     set_rotation,      // the operator set the screen's rotation (#122); `rotation` is it, 0, 90, 180 or 270
     reboot,            // the operator asked the panel to restart (#122)
+    alert,             // flash the screen until someone taps it (#121); `alert` is it
+    alert_end,         // the alert `alert_end_id` is over: seen elsewhere, not seen in time, or stopped (#121)
 };
 
 struct panel_event {
@@ -422,6 +431,8 @@ struct panel_event {
     update_format::Order update = {};
     panel_service service = {};
     panel_set_rotation rotation = {};
+    alert_flash alert = {};
+    char alert_end_id[kAlertFlashIdBytes] = {};
 };
 
 // One event from the stream (the JSON of a `data:` line).
@@ -452,6 +463,14 @@ inline panel_event panel_parse_event(const char *json, size_t len, uint32_t slot
         }
     } else if (strcmp(type, "reboot") == 0) {
         ev.kind = panel_message::reboot;
+    } else if (strcmp(type, "alert") == 0) {
+        if (alert_flash_parse(json, e, &ev.alert)) {
+            ev.kind = panel_message::alert;
+        }
+    } else if (strcmp(type, "alert_end") == 0) {
+        if (alert_end_parse(json, e, ev.alert_end_id, sizeof ev.alert_end_id)) {
+            ev.kind = panel_message::alert_end;
+        }
     }
     return ev;
 }

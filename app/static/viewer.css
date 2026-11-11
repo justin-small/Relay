@@ -261,3 +261,56 @@ body.overlay.overlay-matte .feed p {
    leave almost nothing visible in each half. Trim it in the dual layout. */
 .panes.dual .feed { padding-bottom: 16vh; }
 @media (min-width: 900px) { .panes.dual .feed { padding-bottom: 45vh; } }
+
+/* ---- alerts (#121) ----
+   The flash is fixed at once a second (red half, white half): well under the 3 per second where flashing
+   becomes a seizure risk. It is the point of the feature, so reduced motion does not stop it. */
+@keyframes alert-flash {
+  0%, 49.9% { background: #e00000; color: #fff; }
+  50%, 100% { background: #fff; color: #b00000; }
+}
+.alert-flash {
+  position: fixed; inset: 0; z-index: 100;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  text-align: center; padding: 5vh 5vw; cursor: pointer; outline: none;
+  animation: alert-flash 1s steps(1, end) infinite;
+  -webkit-user-select: none; user-select: none; touch-action: manipulation;
+}
+.alert-flash[hidden] { display: none; }
+.alert-flash-from { font-size: clamp(48px, 14vw, 220px); font-weight: 800; line-height: 1.05; }
+.alert-flash-to { font-size: clamp(20px, 4vw, 64px); font-weight: 600; margin-top: .4em; }
+
+body.alert-page { display: block; max-width: 560px; margin: 0 auto; padding: 16px 16px 40px; }
+.alert-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
+.alert-head h1 { font-size: 22px; font-weight: 600; margin: 0; }
+.alert-name { margin: 0 0 16px; }
+.alert-name label { display: block; font-size: 15px; margin-bottom: 6px; }
+.alert-name-row { display: flex; gap: 8px; }
+.alert-name input {
+  flex: 1; min-width: 0; font: inherit; font-size: 17px; padding: 10px 12px;
+  background: var(--btn-bg); color: var(--fg); border: 1px solid var(--line); border-radius: 8px;
+}
+.alert-name button, .alert-btn { font: inherit; color: var(--fg); cursor: pointer; }
+.alert-name button { padding: 10px 16px; background: var(--btn-active); border: 1px solid var(--line); border-radius: 8px; }
+.alert-as { font-size: 14px; color: var(--dim); margin: 0 0 14px; }
+.alert-as strong { color: var(--fg); font-weight: 600; }
+.linklike { background: none; border: 0; padding: 0; font: inherit; color: var(--accent); cursor: pointer; text-decoration: underline; }
+.alert-note { font-size: 13px; color: var(--dim); margin: 8px 0 0; }
+.alert-foot { margin-top: 18px; }
+.alert-empty { color: var(--dim); }
+.alert-buttons { display: grid; gap: 10px; }
+.alert-btn {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 6px;
+  width: 100%; min-height: 72px; padding: 16px 18px; text-align: left;
+  background: var(--card-bg); border: 1px solid var(--line); border-radius: 12px;
+  -webkit-tap-highlight-color: transparent; touch-action: manipulation;
+}
+.alert-btn:hover { background: var(--card-hover); border-color: var(--card-border-hover); }
+.alert-btn:active { transform: scale(.99); }
+.alert-btn-name { font-size: 20px; font-weight: 600; }
+.alert-btn-state { font-size: 14px; }
+.alert-btn-state.seen { color: var(--accent); }
+.alert-btn-state.missed { color: var(--warn); }
+.alert-btn-state.cancelled { color: var(--dim); }
+.alert-btn.flashing { animation: alert-flash 1s steps(1, end) infinite; border-color: transparent; }
+.alert-btn.flashing .alert-btn-state { color: inherit; }

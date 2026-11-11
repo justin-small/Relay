@@ -70,6 +70,8 @@ void describe(const feed_pick &p, char *out, size_t cap)
         snprintf(out, cap, "translation %s", p.lang);
     } else if (p.stream == kFeedService) {
         snprintf(out, cap, "service %s", p.lang);
+    } else if (p.stream == kFeedAlert) {
+        snprintf(out, cap, "alert");
     } else {
         snprintf(out, cap, "nothing");
     }
@@ -153,7 +155,7 @@ void step()
     const bool targets_changed = update_options();
     // The menu: what Relay offers, with the service feeds the panel's service mode allows. Made every step, since the
     // mode can change without a `targets` message.
-    s_combined = feed_options_with_service(s_base, s_offers, panel_link_service());
+    s_combined = feed_options_with_alert(feed_options_with_service(s_base, s_offers, panel_link_service()));
     const feed_options &options = s_combined;
 
     lock();
@@ -410,7 +412,9 @@ void feeds_report()
     for (int i = 0; i < v.options.count && o + 40 < sizeof list; ++i) {
         const feed_pick &pick = v.options.items[i].pick;
         o += snprintf(list + o, sizeof list - o, "%s%s%s", i > 0 ? "," : "", pick.stream == kFeedService ? "service:" : "",
-                      pick.stream == kFeedTranscription ? "transcription" : pick.lang);
+                      pick.stream == kFeedTranscription ? "transcription"
+                      : pick.stream == kFeedAlert       ? "alert"
+                                                        : pick.lang);
     }
     ESP_LOGI(TAG, "feeds: report: %s; pane 1 saved %s shows %s%s; pane 2 saved %s shows %s%s; options %s [%s]",
              v.split ? "split" : "single", saved1, shown1, v.shown[0].fallback ? " (fallback)" : "", saved2, shown2,

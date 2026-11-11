@@ -54,6 +54,8 @@ DEFAULTS: dict[str, Any] = {
     # Caption panels the operator has named or given a feed, by panel id --
     # see panels.py. Panels themselves are never written here by a check-in.
     "panels": {},
+    # Alert buttons (#121): what each flashes, and how long an alert flashes when nobody taps -- see alerts.py.
+    "alerts": {"auto_stop_s": 120, "buttons": []},
     # Planning Center Personal Access Token and the service types Relay
     # follows -- see planningcenter.py. Blank means the integration is off.
     "planning_center": {"app_id": "", "secret": "", "service_types": [], "plan_overrides": {},
@@ -222,6 +224,9 @@ def _normalise(cfg: dict) -> dict:
     from . import panels
 
     cfg["panels"] = panels.clean_stored(cfg.get("panels"))
+    from . import alerts
+
+    cfg["alerts"] = alerts.clean_stored(cfg.get("alerts"))
     from . import planningcenter
 
     cfg["planning_center"] = planningcenter.clean_stored(cfg.get("planning_center"))

@@ -12,6 +12,7 @@
 #include "esp_log.h"
 #include "panel_link.h"
 #include "screen.h"
+#include "alert_view.h"
 #include "service_view.h"
 
 extern "C" {
@@ -37,6 +38,7 @@ constexpr uint32_t kJumpHex = 0x2F6FED;
 struct Pane {
     bool built = false;
     bool service = false;   // the Planning Center service (`service_view.cpp`) instead of captions
+    bool alert = false;     // the alert buttons (`alert_view.cpp`, #121) instead of captions
     int slot = 0;
     int x = 0;
     int y = 0;
@@ -284,6 +286,16 @@ void refresh_service_header(Pane &p)
     lv_obj_set_style_bg_color(p.dot, tone_colour(caption_state_tone(p.state)), 0);
 }
 
+// An Alert pane's header: "Alerts" and the connection. Its body is `alert_view.cpp`'s.
+void refresh_alert_header(Pane &p)
+{
+    if (strcmp(lv_label_get_text(p.title), "Alerts") != 0) {
+        lv_label_set_text(p.title, "Alerts");
+    }
+    lv_label_set_text(p.state_label, caption_state_label(p.state));
+    lv_obj_set_style_bg_color(p.dot, tone_colour(caption_state_tone(p.state)), 0);
+}
+
 void refresh_header(Pane &p)
 {
     char lang[sizeof p.shown_lang] = {};
@@ -314,8 +326,8 @@ void refresh_header(Pane &p)
 // The strip under the header that says a language is not live, while its pane shows the transcription.
 void refresh_notice(Pane &p, int pane_index)
 {
-    if (p.service) {
-        return;   // a service pane is never a fallback: one whose service is not offered shows the transcription
+    if (p.service || p.alert) {
+        return;   // a service or alert pane is never a fallback
     }
     char note[64] = {};
     const bool want = s_fv.shown[pane_index].fallback;
@@ -372,6 +384,12 @@ void tick_pane(Pane &p, uint32_t now, bool touching)
         p.state = captions_state(p.slot);
         service_view_tick(p.slot, now, touching);
         refresh_service_header(p);
+        return;
+    }
+    if (p.alert) {
+        p.state = captions_state(p.slot);
+        alert_view_tick(p.slot, now);
+        refresh_alert_header(p);
         return;
     }
     const uint32_t rev = captions_revision(p.slot);
@@ -525,6 +543,13 @@ void build_pane(lv_obj_t *root, Pane &p, int index, bool split)
     p.service = s_fv.shown[index].pick.stream == kFeedService;
     if (p.service) {
         service_view_build(index, p.box, index, p.w, p.h);
+        build_header(p, under_menu);
+        p.built = true;
+        return;
+    }
+    p.alert = s_fv.shown[index].pick.stream == kFeedAlert;
+    if (p.alert) {
+        alert_view_build(index, p.box, index, p.w, p.h);
         build_header(p, under_menu);
         p.built = true;
         return;
@@ -804,7 +829,8 @@ void sync_feeds()
     // A pane going between captions and the service is a different picture, as one feed and two are.
     bool kind_changed = false;
     for (int i = 0; i < s_v.count; ++i) {
-        kind_changed = kind_changed || (s_fv.shown[i].pick.stream == kFeedService) != s_v.pane[i].service;
+        kind_changed = kind_changed || (s_fv.shown[i].pick.stream == kFeedService) != s_v.pane[i].service ||
+                       (s_fv.shown[i].pick.stream == kFeedAlert) != s_v.pane[i].alert;
     }
     if (s_fv.split != s_v.split || kind_changed) {
         if (!s_v.rebuild_requested) {
@@ -896,6 +922,7 @@ void caption_view_build(lv_obj_t *root)
 void caption_view_teardown()
 {
     service_view_teardown();
+    alert_view_teardown();
     if (s_v.timer != nullptr) {
         lv_timer_delete(s_v.timer);
         s_v.timer = nullptr;
@@ -917,14 +944,15 @@ void caption_view_report()
     } else {
         for (int i = 0; i < s_v.count; ++i) {
             Pane &p = s_v.pane[i];
-            if (p.service) {
-                continue;   // service_view_report, below
+            if (p.service || p.alert) {
+                continue;   // service_view_report and alert_view_report, below
             }
             ESP_LOGI(TAG, "%s: %s, %d lines, %d px below, jump button %s", i == 0 ? "view" : "view: split, pane 2",
                      p.follow.following() ? "following live" : "paused", p.shown_count, px_below(p),
                      lv_obj_has_flag(p.jump, LV_OBJ_FLAG_HIDDEN) ? "hidden" : "shown");
         }
         service_view_report();
+        alert_view_report();
         ESP_LOGI(TAG, "view: menu %s, %s", s_v.menu.open ? "open" : "closed",
                  s_v.split ? "two feeds" : "one feed");
     }

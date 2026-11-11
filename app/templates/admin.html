@@ -144,6 +144,12 @@
   .fwbox { border:1px solid var(--line); border-radius:9px; background:#111216; padding:12px 14px; margin-top:12px; }
   .fwbox .fwrow { display:flex; flex-wrap:wrap; align-items:center; gap:8px; margin-top:8px; }
   .pcard form .field { margin-bottom:10px; }
+  /* Alerts (#121). */
+  .acard .atargets { display:grid; grid-template-columns:repeat(auto-fill,minmax(180px,1fr)); gap:0 16px; }
+  .acard .astate { font-size:12px; color:var(--dim); margin-left:auto; }
+  .acard .astate.on { color:#ff8a80; font-weight:600; }
+  .acard .astate.seen { color:var(--accent); }
+  .acard .field { margin:10px 0 0; }
   /* Session health's five columns scroll inside the section on a phone, not the page. */
   .tablescroll { overflow-x:auto; -webkit-overflow-scrolling:touch; }
   .tablescroll table { min-width:480px; }
@@ -329,6 +335,7 @@
     <a href="#targets" data-page="targets"><span class="ico"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 4h7M5.5 2v2M3.5 4c.5 3 2.5 5 5 6M8 4c-.5 3-2.5 5-5.5 6.5M9 14l3-7 3 7M10 12h4"/></svg></span>Target languages</a>
     <div class="grp">Output</div>
     <a href="#panels" data-page="panels"><span class="ico"><svg viewBox="0 0 16 16" aria-hidden="true"><rect x="1.5" y="3" width="13" height="9" rx="1.5"/><path d="M5.5 14.5h5"/></svg></span>Panels</a>
+    <a href="#alerts" data-page="alerts"><span class="ico"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4 11V7a4 4 0 0 1 8 0v4l1.5 1.5h-11zM6.5 14h3"/></svg></span>Alerts</a>
     <a href="#urls" data-page="urls"><span class="ico"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M6.5 9.5a3 3 0 0 0 4 0l2-2a3 3 0 0 0-4-4l-1 1M9.5 6.5a3 3 0 0 0-4 0l-2 2a3 3 0 0 0 4 4l1-1"/></svg></span>Viewer links</a>
     <a href="#recordings" data-page="recordings"><span class="ico"><svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6"/><circle cx="8" cy="8" r="2" fill="currentColor"/></svg></span>Recordings &amp; export</a>
     <div class="grp">Automation</div>
@@ -470,6 +477,45 @@
       panel at once; a change made at the panel&rsquo;s own screen afterwards wins until you set
       one again. Forgetting a panel that is still switched on brings it straight back, unnamed.
     </div>
+    </section>
+  </div>
+  <div class="page" id="page-alerts" data-page="alerts" hidden>
+    <h2 class="title">Alerts <span class="sumstate" id="alertsSum"></span></h2>
+    <p class="sub">Buttons a musician taps to flash panels and screens red and white until someone there taps one.</p>
+    <section>
+      <h3>Buttons</h3>
+      <div class="plist" id="alertList"></div>
+      <div class="ctl" style="margin-top:12px">
+        <button type="button" id="alertAdd">Add button</button>
+      </div>
+    </section>
+    <section>
+      <h3>When nobody taps</h3>
+      <div class="field">
+        <label for="alertAutoStop">Stop flashing after</label>
+        <select id="alertAutoStop" style="width:auto">
+          <option value="30">30 seconds</option>
+          <option value="60">1 minute</option>
+          <option value="120">2 minutes</option>
+          <option value="180">3 minutes</option>
+          <option value="300">5 minutes</option>
+          <option value="600">10 minutes</option>
+        </select>
+        <div class="note">The sender then sees &ldquo;Not seen&rdquo; and can send again. The flash is once a second,
+          fixed: well under the rate where flashing becomes a seizure risk.</div>
+      </div>
+      <button class="primary" type="button" id="alertSave">Save alerts</button>
+      <span class="muted" id="alertDirty" style="margin-left:10px" hidden>Unsaved changes</span>
+    </section>
+    <section>
+      <h3>Where to send from, and what flashes</h3>
+      <div id="alertLinks"></div>
+      <div class="note">
+        Anyone with the sender link can send, so hand it to the band, not the room. A panel sends from its
+        <em>Alert buttons</em> feed, set on its card under Panels. A browser screen flashes when it is opened as
+        <span class="mono">/screen?alert=&lt;name&gt;</span> with a name a button lists; a TV with no touch needs a
+        mouse click or key press to acknowledge, or it flashes until the auto-stop.
+      </div>
     </section>
   </div>
   <div class="page" id="page-urls" data-page="urls" hidden>

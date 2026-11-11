@@ -15,6 +15,7 @@
 #include <cstddef>
 #include <cstdint>
 
+#include "alert_format.h"
 #include "caption_format.h"
 #include "esp_err.h"
 #include "service_format.h"
@@ -24,7 +25,7 @@ constexpr int kCaptionSlots = 2;
 // Make the two slots and their tasks. Nothing connects until a feed is set.
 esp_err_t captions_start();
 
-// Show `stream` (kFeedTranscription, kFeedTranslation or kFeedService; kFeedNone turns the slot off) from the Relay
+// Show `stream` (kFeedTranscription, kFeedTranslation, kFeedService or kFeedAlert; kFeedNone turns the slot off) from the Relay
 // at `relay_url` (`http://host[:port]`) in `slot`. A different feed from the one the slot has starts
 // over with an empty buffer; the same feed again changes nothing. Not saved: the settings are.
 esp_err_t captions_set_feed(int slot, const char *relay_url, uint8_t stream, const char *lang);
@@ -46,6 +47,10 @@ void captions_read(int slot, void (*fn)(const caption_feed *feed, caption_state 
 // slot is on the Service feed (then `lang` is the service type id). The same lock and order as `captions_read`.
 void captions_read_service(int slot, void (*fn)(const service_state *service, caption_state state, void *ctx),
                            void *ctx);
+
+// Call `fn` with the slot's alert buttons under its lock (`alert_format.h`, #121). `alerts` is null unless the slot is
+// on the Alert feed. The same lock and order as `captions_read`.
+void captions_read_alerts(int slot, void (*fn)(const alert_board *alerts, caption_state state, void *ctx), void *ctx);
 
 // Told after each change, from the slot's task, outside the lock. One listener; null removes it.
 void captions_set_listener(void (*fn)(int slot, void *ctx), void *ctx);
