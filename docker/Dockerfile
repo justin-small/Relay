@@ -26,7 +26,7 @@ FROM python:3.12-slim-bookworm@sha256:392307d22300de8b5986851a12d9176dfc0fc073e6
 # vehicle -- the binary is copied into the Debian runtime below and nothing
 # else from this image is used. Pinned by digest, and bumped by Dependabot,
 # for the same reasons as above.
-FROM caddy:2-alpine@sha256:de23def33b17fb5d1290b0f6c2add1d70780e52341896c00a4c8a2a2fe9d355e AS caddy
+FROM caddy:2-alpine@sha256:6aeddd44c3078b0f9a35206472a11420648a79c184603ef95957d0a20044cb2b AS caddy
 
 # ---------------------------------------------------------------- builder ---
 FROM python-base AS builder
