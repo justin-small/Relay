@@ -27,8 +27,12 @@ struct Pending {
     char type[kServiceTypeBytes] = {};
 };
 
+// Relay refuses a second press from one panel inside a quarter second (`MIN_GAP_S` in app/pccontrol.py).
+constexpr uint32_t kPressGapMs = 300;
+
 portMUX_TYPE s_mux = portMUX_INITIALIZER_UNLOCKED;
 Pending s_pending;
+Pending s_queued;   // a tap made while a press waits: sent once that one is answered
 service_control_state s_state;
 TaskHandle_t s_task = nullptr;
 char s_id[33] = {};
@@ -125,19 +129,49 @@ int send_press(service_action action, const char *type, const char *key)
     return status;
 }
 
+// The tap made while the last press waited, if any, becomes the press now waiting.
+bool take_queued()
+{
+    taskENTER_CRITICAL(&s_mux);
+    // A tap that came in after the answer is newer still, and is already the press waiting.
+    const bool queued = s_queued.waiting && !s_pending.waiting;
+    s_queued.waiting = false;
+    if (queued) {
+        s_pending = s_queued;
+        s_pending.waiting = true;
+        s_state.result = service_result::sending;
+        s_state.action = s_pending.action;
+        s_state.at_ms = now_ms();
+        ++s_state.revision;
+    }
+    taskEXIT_CRITICAL(&s_mux);
+    return queued;
+}
+
 void task(void *)
 {
+    uint32_t sent_ms = 0;
+    bool next_queued = false;
     for (;;) {
-        ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+        if (!next_queued) {
+            ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+        }
+        next_queued = false;
         taskENTER_CRITICAL(&s_mux);
         const Pending p = s_pending;
         taskEXIT_CRITICAL(&s_mux);
         if (!p.waiting) {
             continue;
         }
+        const uint32_t since = now_ms() - sent_ms;
+        if (since < kPressGapMs) {
+            vTaskDelay(pdMS_TO_TICKS(kPressGapMs - since));
+        }
+        sent_ms = now_ms();
         const panel_service svc = panel_link_service();
         if (!service_mode_controls(svc.mode) || svc.key[0] == '\0') {
             set_result(service_result::not_allowed, p.action);
+            next_queued = take_queued();
             continue;
         }
         const int status = send_press(p.action, p.type, svc.key);
@@ -145,6 +179,7 @@ void task(void *)
         ESP_LOGI(TAG, "control: %s on service type %s: %d, %s", service_action_path(p.action), p.type, status,
                  r == service_result::done ? "done" : service_result_words(r));
         set_result(r, p.action);
+        next_queued = take_queued();
     }
 }
 
@@ -172,10 +207,11 @@ bool service_control_press(service_action action, const char *type)
     }
     taskENTER_CRITICAL(&s_mux);
     const bool busy = s_pending.waiting;
+    Pending &into = busy ? s_queued : s_pending;
+    into.waiting = true;
+    into.action = action;
+    snprintf(into.type, sizeof into.type, "%s", type);
     if (!busy) {
-        s_pending.waiting = true;
-        s_pending.action = action;
-        snprintf(s_pending.type, sizeof s_pending.type, "%s", type);
         s_state.result = service_result::sending;
         s_state.action = action;
         s_state.at_ms = now_ms();
@@ -183,8 +219,9 @@ bool service_control_press(service_action action, const char *type)
     }
     taskEXIT_CRITICAL(&s_mux);
     if (busy) {
-        ESP_LOGI(TAG, "control: %s ignored, the last press is still waiting", service_action_path(action));
-        return false;
+        // Not dropped: a quick second Next is meant. One is kept (the latest), so a burst cannot run on.
+        ESP_LOGI(TAG, "control: %s queued behind the press still waiting", service_action_path(action));
+        return true;
     }
     ESP_LOGI(TAG, "control: %s pressed", service_action_path(action));
     xTaskNotifyGive(s_task);

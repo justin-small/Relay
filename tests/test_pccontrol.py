@@ -221,9 +221,9 @@ eq("release leaves someone else's control alone", fake.controller, OTHER)
 print("rate limit")
 fake.controller = ME
 press(A, "next", key=key)
-r = press(A, "next", key=key, gap=0.3)
-eq("a second press inside a second", (r.status_code, r.json()["error"]), (429, "too_fast"))
-eq("the next one after a second works", press(A, "next", key=key, gap=1.0).status_code, 200)
+r = press(A, "next", key=key, gap=0.1)
+eq("a second press inside a quarter second", (r.status_code, r.json()["error"]), (429, "too_fast"))
+eq("the next one a third of a second later works", press(A, "next", key=key, gap=0.3).status_code, 200)
 
 print("Planning Center trouble")
 fake.fail = pc.PlanningCenterError("network", "Could not reach Planning Center: timed out")

@@ -37,9 +37,10 @@ constexpr uint32_t kJumpHex = 0x2F6FED;
 // The now box under the header: the current item and the next one, packed (two caption lines and a few pixels).
 constexpr int kNowH = ui_px(100);
 constexpr int kFooterH = ui_px(40);
-constexpr int kBarH = ui_px(84);          // the LIVE buttons under the order of service
+constexpr int kBarH = ui_px(104);         // the LIVE buttons under the order of service
 constexpr int kBarBigH = ui_px(200);      // the same, filling the pane, in "Control only"
 constexpr uint32_t kResultShowMs = 4000;
+constexpr uint32_t kPreviewMs = 5000;     // a pressed Next shown ahead of Relay's answer, at most this long
 constexpr int kPad = kCaptionPadX;
 
 struct SPane {
@@ -84,6 +85,11 @@ struct SPane {
     uint32_t drawn_ctrl_rev = 0xFFFFFFFF;
     bool drawn_release = false;
     char drawn_message[48] = {};
+    // Next and Previous move the highlight the moment they are pressed (`service_preview_step`), ahead of the
+    // Service feed. `preview_steps` presses are shown that the feed has not brought yet (+ Next, - Previous).
+    int preview_steps = 0;
+    int preview_from = -1;          // the feed's current item when the preview was last made
+    uint32_t preview_ms = 0;
 
     caption_follow follow;          // following = the current item is kept in view
     bool programmatic = false;
@@ -262,13 +268,50 @@ SPane &pane_of(lv_event_t *e)
     return s_p[static_cast<int>(reinterpret_cast<intptr_t>(lv_event_get_user_data(e))) & 1];
 }
 
+void build_rows(SPane &p);
+void draw_now(SPane &p, uint32_t now_ms);
+
 void press(SPane &p, service_action action)
 {
     char type[kServiceTypeBytes] = {};
     if (captions_feed_choice(p.slot, type, sizeof type) != kFeedService) {
         return;
     }
-    service_control_press(action, type);   // refused while the last press waits: a double tap is one press
+    if (!service_control_press(action, type)) {   // a press made while one waits is queued, not dropped
+        return;
+    }
+    const bool step = action == service_action::next || action == service_action::previous;
+    if (!step || !p.has_snap) {
+        return;
+    }
+    const int from = p.snap->current;
+    if (service_preview_step(*p.snap, action == service_action::next)) {
+        if (p.preview_steps == 0) {
+            p.preview_from = from;
+        }
+        p.preview_steps += action == service_action::next ? 1 : -1;
+        p.preview_ms = lv_tick_get();
+        build_rows(p);
+        draw_now(p, p.preview_ms);
+        p.scroll_due = true;
+    }
+}
+
+// The real state was just copied from the slot: count the presses it has brought, and show the rest on top of it.
+void reapply_preview(SPane &p)
+{
+    if (p.preview_steps == 0 || !p.has_snap) {
+        return;
+    }
+    if (p.snap->current != p.preview_from) {
+        p.preview_steps += p.preview_steps > 0 ? -1 : 1;   // one press answered
+        p.preview_from = p.snap->current;
+    }
+    for (int i = 0; i < (p.preview_steps > 0 ? p.preview_steps : -p.preview_steps); ++i) {
+        if (!service_preview_step(*p.snap, p.preview_steps > 0)) {
+            break;
+        }
+    }
 }
 
 void confirm_close(SPane &p)
@@ -294,7 +337,8 @@ void on_confirm_no(lv_event_t *e)
     ESP_LOGI(TAG, "view: take control cancelled");
 }
 
-lv_obj_t *button(lv_obj_t *parent, const char *label, uint32_t colour, lv_event_cb_t cb, intptr_t tag)
+lv_obj_t *button(lv_obj_t *parent, const char *label, uint32_t colour, lv_event_cb_t cb, intptr_t tag,
+                 lv_event_code_t on = LV_EVENT_CLICKED)
 {
     lv_obj_t *b = lv_button_create(parent);
     lv_obj_remove_style_all(b);
@@ -306,7 +350,7 @@ lv_obj_t *button(lv_obj_t *parent, const char *label, uint32_t colour, lv_event_
     lv_obj_t *l = text(b, &RELAY_UI_FONT_MEDIUM, 0xFFFFFF);
     lv_label_set_text(l, label);
     lv_obj_center(l);
-    lv_obj_add_event_cb(b, cb, LV_EVENT_CLICKED, reinterpret_cast<void *>(tag));
+    lv_obj_add_event_cb(b, cb, on, reinterpret_cast<void *>(tag));
     return b;
 }
 
@@ -380,12 +424,22 @@ void build_bar(SPane &p, int top, int height)
     lv_obj_set_style_bg_opa(bar, LV_OPA_COVER, 0);
     const bool big = height >= kBarBigH;
     const int gap = ui_px(12);
-    const int bh = big ? ui_px(120) : ui_px(64);
+    const int margin = big ? ui_px(16) : ui_px(10);
+    int bh = big ? ui_px(160) : height - 2 * margin;
+    if (bh > height - 2 * margin) {
+        bh = height - 2 * margin;
+    }
     const int take_w = p.w < kCaptionNarrowW ? ui_px(120) : ui_px(220);
     const int arrow_w = (p.w - 2 * kPad - take_w - 2 * gap) / 2;
-    p.btn_prev = button(bar, LV_SYMBOL_PREV "  Previous", 0x303030, on_prev, tag);
-    p.btn_next = button(bar, "Next  " LV_SYMBOL_NEXT, kJumpHex, on_next, tag);
-    p.btn_take = button(bar, "Take control", 0x5A3A00, on_take, tag);
+    // On the press, not the release: it goes the moment the finger lands, and a finger that slides a little before
+    // lifting still counts. The bar does not scroll, so a press here is never the start of a drag.
+    p.btn_prev = button(bar, LV_SYMBOL_PREV "  Previous", 0x303030, on_prev, tag, LV_EVENT_PRESSED);
+    p.btn_next = button(bar, "Next  " LV_SYMBOL_NEXT, kJumpHex, on_next, tag, LV_EVENT_PRESSED);
+    p.btn_take = button(bar, "Take control", 0x5A3A00, on_take, tag, LV_EVENT_PRESSED);
+    // A finger in the gap between two buttons counts as the nearer one.
+    for (lv_obj_t *b : {p.btn_prev, p.btn_next, p.btn_take}) {
+        lv_obj_set_ext_click_area(b, gap / 2);
+    }
     p.take_label = lv_obj_get_child(p.btn_take, 0);
     if (p.w < kCaptionNarrowW) {
         // A half-width pane: arrows only, and a short word for control.
@@ -395,14 +449,10 @@ void build_bar(SPane &p, int top, int height)
     lv_obj_set_size(p.btn_prev, arrow_w, bh);
     lv_obj_set_size(p.btn_next, arrow_w, bh);
     lv_obj_set_size(p.btn_take, take_w, bh);
-    const int y = big ? ui_px(16) : (height - bh) / 2 - ui_px(6);
+    const int y = margin;
     lv_obj_set_pos(p.btn_prev, kPad, y);
     lv_obj_set_pos(p.btn_next, kPad + arrow_w + gap, y);
     lv_obj_set_pos(p.btn_take, kPad + 2 * arrow_w + 2 * gap, y);
-    p.message = text(bar, &RELAY_UI_FONT_SMALL, kBadHex);
-    lv_label_set_long_mode(p.message, LV_LABEL_LONG_DOT);
-    lv_obj_set_width(p.message, p.w - 2 * kPad);
-    lv_obj_set_pos(p.message, kPad, y + bh + 2);
 }
 
 // Keep the buttons and the message in step with the last press and with who has control.
@@ -428,13 +478,7 @@ void draw_controls(SPane &p, uint32_t now_ms)
         snprintf(p.drawn_message, sizeof p.drawn_message, "%s", words);
         lv_label_set_text(p.message, words);
         lv_obj_set_style_text_color(p.message, hex(sending ? kDimHex : kBadHex), 0);
-        for (lv_obj_t *b : {p.btn_prev, p.btn_next, p.btn_take}) {
-            if (sending) {
-                lv_obj_add_state(b, LV_STATE_DISABLED);
-            } else {
-                lv_obj_remove_state(b, LV_STATE_DISABLED);
-            }
-        }
+        // The buttons stay live while a press waits: a second tap is queued behind it, not refused.
     }
 }
 
@@ -706,13 +750,23 @@ void service_view_build(int pane, lv_obj_t *box, int slot, int w, int h)
     lv_obj_set_flex_align(foot, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
     lv_obj_set_style_pad_hor(foot, kPad, 0);
     lv_obj_set_style_pad_column(foot, ui_px(10), 0);
+    // How the last press went on the left ("Sending...", "Take control first"), where the Service's own state
+    // ("Not live", "Dana Ortiz is controlling") used to be; that is now on the right, with its dot.
+    lv_obj_t *left = text(foot, &RELAY_UI_FONT_SMALL, kBadHex);
+    lv_label_set_long_mode(left, LV_LABEL_LONG_DOT);
+    lv_label_set_text(left, "");
+    lv_obj_set_flex_grow(left, 1);
+    if (p.controls) {
+        p.message = left;
+    }
+    p.footer = text(foot, &RELAY_UI_FONT_SMALL, 0xD0D0D0);
+    lv_label_set_long_mode(p.footer, LV_LABEL_LONG_DOT);
+    lv_obj_set_style_max_width(p.footer, w * 2 / 3, 0);
+    lv_obj_set_style_text_align(p.footer, LV_TEXT_ALIGN_RIGHT, 0);
     p.dot = plain_box(foot);
     lv_obj_set_size(p.dot, ui_px(14), ui_px(14));
     lv_obj_set_style_radius(p.dot, LV_RADIUS_CIRCLE, 0);
     lv_obj_set_style_bg_opa(p.dot, LV_OPA_COVER, 0);
-    p.footer = text(foot, &RELAY_UI_FONT_SMALL, 0xD0D0D0);
-    lv_label_set_long_mode(p.footer, LV_LABEL_LONG_DOT);
-    lv_obj_set_flex_grow(p.footer, 1);
 
     if (p.controls) {
         build_bar(p, h - kFooterH - bar_h, bar_h);
@@ -733,11 +787,23 @@ void service_view_tick(int pane, uint32_t now_ms, bool touching)
     if (touching) {
         p.follow.touched(now_ms);
     }
+    if (p.preview_steps != 0) {
+        // A refused press, or no word from the feed for a while: show the real state again.
+        const service_control_state st = service_control_get();
+        const bool refused = st.result != service_result::sending && st.result != service_result::done &&
+                             st.result != service_result::none;
+        if (refused || now_ms - p.preview_ms > kPreviewMs) {
+            p.preview_steps = 0;
+            p.synced = false;
+            p.drawn_changes = 0xFFFFFFFF;
+        }
+    }
     const uint32_t rev = captions_revision(p.slot);
     if (!p.synced || rev != p.revision) {
         p.revision = rev;
         p.synced = true;
         captions_read_service(p.slot, copy_state, &p);
+        reapply_preview(p);
         const uint32_t changes = p.has_snap ? p.snap->changes : 0;
         if (changes != p.drawn_changes) {
             p.drawn_changes = changes;

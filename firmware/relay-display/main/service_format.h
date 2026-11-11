@@ -666,6 +666,38 @@ inline int service_focus(const service_state &s)
     return s.count > 0 ? 0 : -1;
 }
 
+// Where Next (`forward`) or Previous would put the current item, shown on the glass the moment the button is pressed
+// while Relay asks Planning Center; the Service feed then brings the real state. Headers are stepped over, like
+// Planning Center does. False when the press would not move anything here (not live, no control, at an end): then
+// nothing is shown before the answer. The timer is hidden until the real state says how long the new item has.
+inline bool service_preview_step(service_state &s, bool forward)
+{
+    if (!s.live || !s.relay_controls || s.count == 0) {
+        return false;
+    }
+    auto item = [&](int i) { return i >= 0 && i < s.count && s.items[i].type != service_item_type::header; };
+    int to = -1;
+    if (forward) {
+        for (int i = s.current + 1; i < s.count && to < 0; ++i) {
+            to = item(i) ? i : -1;
+        }
+    } else {
+        for (int i = s.current - 1; i >= 0 && to < 0; --i) {
+            to = item(i) ? i : -1;
+        }
+    }
+    if (to < 0) {
+        return false;
+    }
+    s.current = to;
+    s.next = -1;
+    for (int i = to + 1; i < s.count && s.next < 0; ++i) {
+        s.next = item(i) ? i : -1;
+    }
+    s.timing = false;
+    return true;
+}
+
 // ---------------------------------------------------------------------------
 // The LIVE buttons (#83)
 // ---------------------------------------------------------------------------
