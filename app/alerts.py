@@ -52,6 +52,13 @@ _ALERT_ID_RE = re.compile(r"^[0-9a-f]{16}$")
 _PANEL_RE = re.compile(r"^[0-9a-f]{32}$")
 
 STATES = ("idle", "on", "seen", "missed", "cancelled")
+# The icon a button shows on the /alert page, picked by the operator. The page draws each one; "bell" is the default.
+ICONS = ("bell", "mic", "headphones", "keys", "drums", "guitar", "person", "people", "video", "sliders")
+DEFAULT_ICON = "bell"
+
+
+def clean_icon(value: object) -> str:
+    return value if isinstance(value, str) and value in ICONS else DEFAULT_ICON
 
 
 def _now() -> float:
@@ -94,7 +101,8 @@ def clean_stored(raw: object) -> dict[str, Any]:
             continue
         seen_ids.add(bid)
         seen_names.add(name.lower())
-        buttons.append({"id": bid, "name": name, "panels": panels, "screens": screens})
+        buttons.append({"id": bid, "name": name, "icon": clean_icon(item.get("icon")), "panels": panels,
+                        "screens": screens})
     return {"auto_stop_s": max(AUTO_STOP_MIN_S, min(AUTO_STOP_MAX_S, auto)), "buttons": buttons}
 
 
@@ -147,7 +155,10 @@ def validate(raw: object) -> dict[str, Any]:
             raise ValueError(f"{name} flashes nothing; pick a panel or a screen")
         if len(panels) + len(screens) > MAX_TARGETS:
             raise ValueError(f"{name}: at most {MAX_TARGETS} panels and screens")
-        buttons.append({"id": bid, "name": name, "panels": panels, "screens": screens})
+        icon = item.get("icon", DEFAULT_ICON)
+        if icon not in ICONS:
+            raise ValueError(f"{name}: the icon must be one of {', '.join(ICONS)}")
+        buttons.append({"id": bid, "name": name, "icon": icon, "panels": panels, "screens": screens})
     return {"auto_stop_s": auto, "buttons": buttons}
 
 
@@ -215,18 +226,23 @@ class Alerts:
         rows = []
         for b in self.settings()["buttons"]:
             alert = self.latest.get(b["id"])
-            row: dict[str, Any] = {"id": b["id"], "name": b["name"], "state": "idle"}
+            row: dict[str, Any] = {"id": b["id"], "name": b["name"], "icon": b.get("icon") or DEFAULT_ICON,
+                                   "state": "idle"}
             if alert is not None:
                 row["state"] = alert.state
                 row["from"] = alert.sender
                 row["seen_on"] = alert.seen_on
                 row["age_s"] = round(now - (alert.ended or alert.started))
+                if alert.state == "on":
+                    # Until the auto-stop, for the sender's countdown.
+                    row["ends_in_s"] = max(0, round(self.settings()["auto_stop_s"] - (now - alert.started)))
             rows.append(row)
         return {"type": "alerts", "buttons": rows}
 
     def admin_view(self) -> dict[str, Any]:
         cfg = self.settings()
         return {"alerts": cfg, "screens": self.screen_names(), "state": self.state()["buttons"],
+                "icons": list(ICONS),
                 "limits": {"buttons": MAX_BUTTONS, "targets": MAX_TARGETS, "name": NAME_MAX,
                            "auto_stop_min_s": AUTO_STOP_MIN_S, "auto_stop_max_s": AUTO_STOP_MAX_S}}
 

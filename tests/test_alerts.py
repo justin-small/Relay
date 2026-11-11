@@ -102,6 +102,16 @@ eq("saved", r.status_code, 200)
 saved = r.json()["alerts"]
 eq("names are tidied, screens kept once", (saved["buttons"][0]["name"], saved["buttons"][0]["screens"]),
    ("FOH booth", ["Booth TV"]))
+eq("a button with no icon gets the bell", saved["buttons"][0]["icon"], "bell")
+r = admin.post("/api/admin/alerts", json={"auto_stop_s": 60, "buttons": [{"name": "A", "panels": [pid(1)],
+                                                                          "icon": "trumpet"}]})
+check("an unknown icon is refused", r.status_code == 400 and "icon" in r.json()["detail"], r.text)
+r = admin.post("/api/admin/alerts", json={"auto_stop_s": 60, "buttons": [
+    {"id": saved["buttons"][0]["id"], "name": "FOH booth", "icon": "headphones", "panels": [pid(1)],
+     "screens": ["Booth TV"]},
+    {"id": saved["buttons"][1]["id"], "name": "Everyone on stage", "icon": "people", "panels": [pid(2), pid(3)]},
+]})
+eq("icons are kept", [b["icon"] for b in r.json()["alerts"]["buttons"]], ["headphones", "people"])
 check("each button gets an id", all(len(b["id"]) == 8 for b in saved["buttons"]))
 foh, stage = button("FOH booth"), button("Everyone on stage")
 eq("kept in config.json", config.load()["alerts"]["auto_stop_s"], 60)
@@ -121,6 +131,8 @@ eq("an open screen is listed for admin", alerts.screen_names(), ["booth TV"])
 r = viewer.post(f"/api/alerts/{foh['id']}/send", json={"from": "Drums\n\x07"})
 eq("send answers with the state", (r.status_code, row(r.json(), "FOH booth")["state"]), (200, "on"))
 eq("the sender's name is tidied", row(r.json(), "FOH booth")["from"], "Drums")
+eq("the state carries the icon and the time left", (row(r.json(), "FOH booth")["icon"],
+                                                     row(r.json(), "FOH booth")["ends_in_s"]), ("headphones", 60))
 msg = drain(booth)
 check("the panel is told to flash", len(msg) == 1 and msg[0]["type"] == "alert" and msg[0]["from"] == "Drums"
       and msg[0]["to"] == "FOH booth" and msg[0]["ends_in_s"] == 60 and msg[0]["hz"] == 1, msg)
@@ -211,7 +223,7 @@ eq("an oversized body is refused",
 cleaned = alertsmod.clean_stored({"auto_stop_s": 5, "buttons": [{"id": "zz", "name": "x", "panels": []},
                                                                {"id": "0000aaaa", "name": "ok", "panels": [pid(1)]}]})
 eq("a hand edit is cleaned, not fatal", cleaned, {"auto_stop_s": 30, "buttons": [
-    {"id": "0000aaaa", "name": "ok", "panels": [pid(1)], "screens": []}]})
+    {"id": "0000aaaa", "name": "ok", "icon": "bell", "panels": [pid(1)], "screens": []}]})
 
 print()
 if fails:

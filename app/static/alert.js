@@ -57,10 +57,24 @@
     return Math.round(s / 60) + ' min ago';
   }
 
+  function left(s) {
+    s = Math.max(0, Math.round(s));
+    return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0');
+  }
+
   function status(row) {
-    const age = (row.age_s || 0) + (Date.now() - receivedAt) / 1000;
+    const since = (Date.now() - receivedAt) / 1000;
+    const age = (row.age_s || 0) + since;
     switch (row.state) {
-      case 'on': return { cls: 'on', text: 'Flashing' + (row.from ? ' · from ' + row.from : '') + ' · tap to stop' };
+      case 'on': {
+        // The sender's own alert says only how long it has left; someone else's says who sent it.
+        const mine = row.from && row.from === sender;
+        const parts = ['Flashing'];
+        if (!mine && row.from) parts.push('from ' + row.from);
+        if (typeof row.ends_in_s === 'number') parts.push(left(row.ends_in_s - since) + ' left');
+        parts.push('tap to stop');
+        return { cls: 'on', text: parts.join(' · ') };
+      }
       case 'seen': return { cls: 'seen', text: 'Seen on ' + (row.seen_on || 'a screen') + ' · ' + ago(age) };
       case 'missed': return { cls: 'missed', text: 'Not seen · ' + ago(age) };
       case 'cancelled': return { cls: 'cancelled', text: 'Stopped · ' + ago(age) };
@@ -75,19 +89,26 @@
     rows.forEach(function (row) {
       const b = document.createElement('button');
       b.type = 'button';
-      b.className = 'alert-btn' + (row.state === 'on' ? ' flashing' : '');
+      const st = status(row);
+      b.className = 'alert-btn' + (row.state === 'on' ? ' flashing' : '') + (st ? ' was-' + st.cls : '');
       b.dataset.id = row.id;
+      const icon = document.createElement('span');
+      icon.className = 'alert-btn-icon';
+      icon.innerHTML = window.RelayAlertIcons ? window.RelayAlertIcons.svg(row.icon) : '';
+      b.appendChild(icon);
+      const body = document.createElement('span');
+      body.className = 'alert-btn-body';
       const name = document.createElement('span');
       name.className = 'alert-btn-name';
       name.textContent = row.name;
-      b.appendChild(name);
-      const st = status(row);
+      body.appendChild(name);
       if (st) {
         const tag = document.createElement('span');
         tag.className = 'alert-btn-state ' + st.cls;
         tag.textContent = st.text;
-        b.appendChild(tag);
+        body.appendChild(tag);
       }
+      b.appendChild(body);
       b.setAttribute('aria-pressed', row.state === 'on' ? 'true' : 'false');
       b.addEventListener('click', function () { press(row); });
       buttonsEl.appendChild(b);
@@ -130,8 +151,13 @@
     es.onerror = function () { dot.className = 'dot err'; };
   }
 
-  // Ages tick on between messages.
-  setInterval(function () { if (rows.some(function (r) { return r.state !== 'idle'; })) render(); }, 10000);
+  // The countdown ticks every second while an alert flashes; ages every ten seconds otherwise.
+  let ticks = 0;
+  setInterval(function () {
+    ticks += 1;
+    const on = rows.some(function (r) { return r.state === 'on'; });
+    if (on || (ticks % 10 === 0 && rows.some(function (r) { return r.state !== 'idle'; }))) render();
+  }, 1000);
 
   showName();
   connect();

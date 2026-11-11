@@ -8,7 +8,10 @@
 </head><body class="alert-page">
 
 <header class="alert-head">
-  <h1>Get attention</h1>
+  <div>
+    <h1>Need someone?</h1>
+    <p class="alert-as" id="sendingAs" hidden>as <strong id="senderName"></strong> &middot; <button type="button" class="linklike" id="changeName">change</button></p>
+  </div>
   <span class="dot" id="statusDot" title="Connection"></span>
 </header>
 
@@ -21,12 +24,11 @@
   <p class="alert-note">Shown on the screen you flash, so they know who needs them.</p>
 </form>
 
-<p class="alert-as" id="sendingAs" hidden>Sending as <strong id="senderName"></strong> &middot; <button type="button" class="linklike" id="changeName">change</button></p>
-
 <main class="alert-buttons" id="buttons" aria-live="polite"></main>
 <p class="alert-empty" id="empty" hidden>No alert buttons yet. The operator sets them up in Relay admin, under Alerts.</p>
-<p class="alert-note alert-foot">Tap a button to flash its screens. Tap it again to stop.</p>
+<p class="alert-note alert-foot">Tap a card to flash its screens. Tap it again to stop.</p>
 
 <div class="toast" id="toast"></div>
+<script src="/static/alert-icons.js"></script>
 <script src="/static/alert.js"></script>
 </body></html>

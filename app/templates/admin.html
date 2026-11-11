@@ -150,6 +150,9 @@
   .acard .astate.on { color:#ff8a80; font-weight:600; }
   .acard .astate.seen { color:var(--accent); }
   .acard .field { margin:10px 0 0; }
+  .acard .aicon { width:28px; height:28px; flex:0 0 auto; color:var(--dim); }
+  .acard .aicon svg { width:100%; height:100%; display:block; }
+  .acard select.aiconpick { width:auto; flex:0 0 auto; }
   /* Session health's five columns scroll inside the section on a phone, not the page. */
   .tablescroll { overflow-x:auto; -webkit-overflow-scrolling:touch; }
   .tablescroll table { min-width:480px; }
@@ -806,5 +809,6 @@
 </aside>
 
 <script src="/static/qrcode.min.js"></script>
+<script src="/static/alert-icons.js"></script>
 <script src="/static/admin.js"></script>
 </body></html>

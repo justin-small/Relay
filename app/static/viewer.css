@@ -281,8 +281,9 @@ body.overlay.overlay-matte .feed p {
 .alert-flash-to { font-size: clamp(20px, 4vw, 64px); font-weight: 600; margin-top: .4em; }
 
 body.alert-page { display: block; max-width: 560px; margin: 0 auto; padding: 16px 16px 40px; }
-.alert-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
-.alert-head h1 { font-size: 22px; font-weight: 600; margin: 0; }
+.alert-head { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 14px; }
+.alert-head h1 { font-size: 26px; font-weight: 600; margin: 0 0 2px; }
+.alert-head .dot { margin-top: 10px; }
 .alert-name { margin: 0 0 16px; }
 .alert-name label { display: block; font-size: 15px; margin-bottom: 6px; }
 .alert-name-row { display: flex; gap: 8px; }
@@ -292,25 +293,31 @@ body.alert-page { display: block; max-width: 560px; margin: 0 auto; padding: 16p
 }
 .alert-name button, .alert-btn { font: inherit; color: var(--fg); cursor: pointer; }
 .alert-name button { padding: 10px 16px; background: var(--btn-active); border: 1px solid var(--line); border-radius: 8px; }
-.alert-as { font-size: 14px; color: var(--dim); margin: 0 0 14px; }
+.alert-as { font-size: 14px; color: var(--dim); margin: 0; }
 .alert-as strong { color: var(--fg); font-weight: 600; }
 .linklike { background: none; border: 0; padding: 0; font: inherit; color: var(--accent); cursor: pointer; text-decoration: underline; }
 .alert-note { font-size: 13px; color: var(--dim); margin: 8px 0 0; }
 .alert-foot { margin-top: 18px; }
 .alert-empty { color: var(--dim); }
-.alert-buttons { display: grid; gap: 10px; }
+.alert-buttons { display: grid; gap: 8px; }
+/* Icon cards (#121, look C): the operator's icon, the name, and under it how the last alert went. */
 .alert-btn {
-  display: flex; flex-direction: column; align-items: flex-start; gap: 6px;
-  width: 100%; min-height: 72px; padding: 16px 18px; text-align: left;
-  background: var(--card-bg); border: 1px solid var(--line); border-radius: 12px;
+  display: flex; align-items: center; gap: 14px;
+  width: 100%; min-height: 68px; padding: 12px 14px; text-align: left;
+  background: var(--btn-bg); border: 1px solid transparent; border-radius: 14px;
   -webkit-tap-highlight-color: transparent; touch-action: manipulation;
 }
-.alert-btn:hover { background: var(--card-hover); border-color: var(--card-border-hover); }
+.alert-btn:hover { background: var(--btn-active); }
 .alert-btn:active { transform: scale(.99); }
-.alert-btn-name { font-size: 20px; font-weight: 600; }
-.alert-btn-state { font-size: 14px; }
+.alert-btn-icon { flex: 0 0 auto; width: 30px; height: 30px; color: var(--dim); }
+.alert-btn-icon svg { width: 100%; height: 100%; display: block; }
+.alert-btn.was-seen .alert-btn-icon { color: var(--accent); }
+.alert-btn.was-missed .alert-btn-icon { color: var(--warn); }
+.alert-btn-body { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.alert-btn-name { font-size: 18px; font-weight: 600; overflow-wrap: anywhere; }
+.alert-btn-state { font-size: 13px; }
 .alert-btn-state.seen { color: var(--accent); }
 .alert-btn-state.missed { color: var(--warn); }
 .alert-btn-state.cancelled { color: var(--dim); }
-.alert-btn.flashing { animation: alert-flash 1s steps(1, end) infinite; border-color: transparent; }
-.alert-btn.flashing .alert-btn-state { color: inherit; }
+.alert-btn.flashing { animation: alert-flash 1s steps(1, end) infinite; }
+.alert-btn.flashing .alert-btn-state, .alert-btn.flashing .alert-btn-icon { color: inherit; }

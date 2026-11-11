@@ -1168,6 +1168,27 @@
   function alertCard(b, i) {
     const card = el('div', 'pcard acard');
     const head = el('div', 'phead');
+    // The icon the /alert page shows for it (look C): a preview and a picker.
+    const icons = window.RelayAlertIcons;
+    const preview = el('span', 'aicon');
+    const pick = el('select', 'aiconpick');
+    pick.setAttribute('aria-label', 'Icon');
+    if (!b.icon) b.icon = 'bell';
+    if (icons) {
+      icons.names.forEach(function (n) {
+        const o = el('option', '', icons.label(n));
+        o.value = n;
+        pick.appendChild(o);
+      });
+      pick.value = b.icon;
+      preview.innerHTML = icons.svg(b.icon);
+    }
+    pick.addEventListener('change', function () {
+      b.icon = pick.value;
+      if (icons) preview.innerHTML = icons.svg(b.icon);
+      alertSetDirty(true);
+    });
+    head.appendChild(preview);
     const name = el('input');
     name.value = b.name;
     name.maxLength = 32;
@@ -1176,6 +1197,7 @@
     name.style.flex = '1 1 180px';
     name.addEventListener('input', function () { b.name = name.value; alertSetDirty(true); renderAlertLinks(); });
     head.appendChild(name);
+    head.appendChild(pick);
     const st = alertStateText(b.id);
     const state = el('span', 'astate ' + st.cls, st.text);
     if (b.id) state.dataset.astate = b.id;
@@ -1286,7 +1308,7 @@
       const frame = await post('/api/admin/alerts', {
         auto_stop_s: parseInt($('alertAutoStop').value, 10),
         buttons: alertCfg.buttons.map(function (b) {
-          const out = { name: b.name, panels: b.panels, screens: b.screens };
+          const out = { name: b.name, icon: b.icon || 'bell', panels: b.panels, screens: b.screens };
           if (b.id) out.id = b.id;
           return out;
         })
