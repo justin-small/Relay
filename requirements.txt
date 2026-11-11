@@ -2,15 +2,20 @@ fastapi==0.141.1
 # Transitive via fastapi, pinned here because the CVE fixes land in starlette,
 # not in fastapi: 1.3.1 clears CVE-2025-62727, CVE-2026-48818 and CVE-2026-54283.
 starlette==1.6.0
-uvicorn[standard]==0.34.0
+# uvicorn without [standard]: that extra pulls in PyYAML, which has no
+# Python 3.15 build. Only the two speedups the app uses are listed; it uses
+# no YAML log config, --reload (watchfiles) or --env-file (python-dotenv).
+uvicorn==0.34.0
+uvloop==0.23.0
+httptools==0.9.0
 jinja2==3.1.6
-orjson==3.12.0
+orjson==3.13.0
 python-multipart==0.0.31
 sounddevice==0.5.1
 # Lists the host's inputs when capture runs through a PulseAudio server
 # (Docker on macOS/Windows); see app/audio.py _pulse_sources().
 pulsectl==24.12.0
-numpy==2.1.3
+numpy==2.5.4
 soxr==0.5.0.post1
 websockets==13.1
 certifi==2024.12.14

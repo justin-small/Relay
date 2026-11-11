@@ -18,9 +18,9 @@
 # behind `FROM ${PYTHON_IMAGE}` is a pin nothing can bump. See
 # .github/dependabot.yml -- weekly digest PRs are what keeps this current.
 # By hand it is still:
-#   docker pull python:3.12-slim-bookworm && \
-#   docker image inspect python:3.12-slim-bookworm --format '{{index .RepoDigests 0}}'
-FROM python:3.15-slim-bookworm@sha256:96599df822d0e1c6bb700014a05c7f3c8cabc6e0f7ff3c4f9f69cee033b4b5d9 AS python-base
+#   docker pull python:3.15-slim-trixie && \
+#   docker image inspect python:3.15-slim-trixie --format '{{index .RepoDigests 0}}'
+FROM python:3.15-slim-trixie@sha256:65a65fc7b30b06cb6df4930fd4650697cb23f4c2698ab81fc87e4b031bc36928 AS python-base
 
 # Caddy ships a static Go binary, so the alpine image is only a delivery
 # vehicle -- the binary is copied into the Debian runtime below and nothing

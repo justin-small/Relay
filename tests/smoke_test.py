@@ -382,7 +382,11 @@ try:
     eq("health lists the transcriber and the translator", _o["sessions"], ["transcribe", "text:gpt-6-luna"])
     eq("enabled targets are live", _o["live"], ["CHINESE", "SPANISH"])
     eq("toggling a target changes the next request, not a session", _o["after_toggle"], ["FRENCH", "SPANISH"])
-    eq("a source line is published, then translated for each target", _o["heard"], [
+    # The languages are translated in parallel and each publishes when its
+    # reply lands, so only the source line's place is fixed: first. Python
+    # 3.15 schedules the fake replies in a different order from 3.12.
+    eq("a source line is published, then translated for each target",
+       _o["heard"][:1] + sorted(_o["heard"][1:]), [
         (_TS, "ENGLISH", "Welcome."),
         ("translation", "FRENCH", "[fr] Welcome."),
         ("translation", "SPANISH", "[es] Welcome.")])
