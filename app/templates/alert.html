@@ -4,7 +4,7 @@
 <meta name="theme-color" content="#000000">
 <title>Alerts</title>
 {% include "_brand_head.html" %}
-<link rel="stylesheet" href="/static/viewer.css">
+<link rel="stylesheet" href="{{ static('viewer.css') }}">
 </head><body class="alert-page">
 
 <header class="alert-head">
@@ -29,6 +29,6 @@
 <p class="alert-note alert-foot">Tap a card to flash its screens. Tap it again to stop.</p>
 
 <div class="toast" id="toast"></div>
-<script src="/static/alert-icons.js"></script>
-<script src="/static/alert.js"></script>
+<script src="{{ static('alert-icons.js') }}"></script>
+<script src="{{ static('alert.js') }}"></script>
 </body></html>

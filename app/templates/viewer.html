@@ -4,7 +4,7 @@
 <meta name="theme-color" content="#000000">
 <title>{% if mode == 'transcription' %}{{ source_label }} Transcript{% elif mode == 'both' %}Captions{% else %}Live Translation{% endif %}</title>
 {% include "_brand_head.html" %}
-<link rel="stylesheet" href="/static/viewer.css">
+<link rel="stylesheet" href="{{ static('viewer.css') }}">
 {% if overlay %}<style>
   /* Broadcast overlay tokens, resolved server-side from the URL. The page is a
      fixed canvas scaled to fit the browser source; everything outside it stays
@@ -70,6 +70,6 @@
 
 <div class="toast" id="toast"></div>
 <script>window.RELAY = {fontPx: {{ font_px }}, sourceLanguage: "{{ source_language }}", sourceIso: "{{ source_iso }}", mode: "{{ mode }}", present: {{ 'true' if present else 'false' }}, screen: {{ 'true' if screen else 'false' }}, screenLang: "{{ screen_lang if screen else '' }}", screenFont: {{ screen_font or 0 }}, overlay: {{ 'true' if overlay else 'false' }}, overlayLang: "{{ overlay_lang if overlay else '' }}", overlayW: {{ overlay_w or 1920 }}, overlayH: {{ overlay_h or 1080 }}, overlayFont: {{ overlay_font or 54 }}, overlayHold: {{ overlay_hold if overlay else 0 }}};</script>
-<script src="/static/viewer.js"></script>
-{% if screen and screen_alert %}<script src="/static/alert-screen.js"></script>{% endif %}
+<script src="{{ static('viewer.js') }}"></script>
+{% if screen and screen_alert %}<script src="{{ static('alert-screen.js') }}"></script>{% endif %}
 </body></html>
