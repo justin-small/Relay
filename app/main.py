@@ -94,6 +94,24 @@ def _on_admin_port(request: Request) -> bool:
     return _request_port(request) != viewer_port
 
 
+# Web Serial is denied everywhere but the board flasher, which writes a panel's flash through it. An
+# exact path and not a prefix, so nothing added under it later gets the serial port too.
+FLASH_PATH = "/admin/flash"
+PERMISSIONS_POLICY = "camera=(), microphone=(), geolocation=(), payment=(), usb=(), serial=()"
+FLASH_PERMISSIONS_POLICY = "camera=(), microphone=(), geolocation=(), payment=(), usb=(), serial=(self)"
+
+
+def permissions_policy_for(path: str) -> str:
+    return FLASH_PERMISSIONS_POLICY if path == FLASH_PATH else PERMISSIONS_POLICY
+
+
+@app.middleware("http")
+async def _permissions_policy(request: Request, call_next):
+    response = await call_next(request)
+    response.headers.setdefault("Permissions-Policy", permissions_policy_for(request.url.path))
+    return response
+
+
 @app.middleware("http")
 async def _split_admin_port(request: Request, call_next):
     if _is_admin_path(request.url.path) and not _on_admin_port(request):
@@ -944,6 +962,22 @@ async def admin_page(request: Request):
     return templates.TemplateResponse(request, "admin.html")
 
 
+@app.get("/admin/flash", response_class=HTMLResponse)
+async def admin_flash_page(request: Request, board: str = ""):
+    """Write a new or recovered panel's whole firmware over USB from the browser (copied from VXP's
+    board flasher). The page holds every sentence it can show; `flasher.js` picks which is visible."""
+    if not _session_ok(request):
+        return templates.TemplateResponse(request, "login.html", {"error": None}, status_code=200)
+    boards = panelfw.active_boards()
+    chosen = next((b for b in boards if b.id == board), boards[0])
+    info = panelfw.current_flash(chosen.id)
+    return templates.TemplateResponse(request, "flash.html", {
+        "boards": [{"id": b.id, "label": b.label, "flash": panelfw.current_flash(b.id)} for b in boards],
+        "board": chosen, "flash_mb": panelfw.FLASH_MB.get(chosen.id, 16),
+        "project": panelfw.PROJECT_NAME, "flash": info,
+    })
+
+
 @app.post("/admin/login")
 async def admin_login(request: Request, token: str = Form(...)):
     ip = _client_ip(request)
@@ -1396,6 +1430,50 @@ async def admin_panel_firmware_update(payload: dict):
         raise HTTPException(409, str(exc))
     except ValueError as exc:
         raise HTTPException(400, str(exc))
+
+
+# The USB image for the board flasher at `/admin/flash`: the merged `relay-display.bin`, never offered to a
+# panel over the network. Admin-only like every route here; the flasher page fetches it with the session.
+@app.get("/api/admin/panels/flash", dependencies=[Depends(require_admin)])
+async def admin_panel_flash(board: str = ""):
+    info = panelfw.current_flash(_board_arg(board))
+    return {"flash": info.public() if info else None}
+
+
+@app.post("/api/admin/panels/flash", dependencies=[Depends(require_admin)])
+async def admin_panel_flash_upload(request: Request, filename: str = "", board: str = ""):
+    """Keep the uploaded merged image (the raw body) as its board's USB image, checked as an update's
+    image is, through the application inside it."""
+    want = _board_arg(board) if board else None
+    raw = await _read_limited(request, panelfw.FLASH_BYTES)
+    try:
+        info = await asyncio.to_thread(panelfw.store_flash, raw, filename, want)
+    except panelfw.ImageRefused as exc:
+        raise HTTPException(400, str(exc))
+    log.info("Panel USB image %s for %s uploaded (%d bytes)", info.version, info.board, info.size)
+    return {"flash": info.public()}
+
+
+@app.delete("/api/admin/panels/flash", dependencies=[Depends(require_admin)])
+async def admin_panel_flash_delete(board: str = ""):
+    had = await asyncio.to_thread(panelfw.remove_flash, _board_arg(board))
+    return {"ok": True, "removed": had}
+
+
+@app.get("/api/admin/panels/flash/{name}", dependencies=[Depends(require_admin)])
+async def admin_panel_flash_file(name: str):
+    """`<board>.json`, the manifest the page checks the bytes against, and `<board>.bin`, the bytes."""
+    board, _, suffix = name.rpartition(".")
+    b = panelfw.BOARDS.get(board)
+    info = panelfw.current_flash(board) if b is not None and not b.on_hold else None
+    if info is None or suffix not in ("json", "bin"):
+        raise HTTPException(404, "no such image")
+    if suffix == "json":
+        return JSONResponse(info.manifest(), headers={"Cache-Control": "no-store"})
+    path = panelfw.flash_path(board)
+    if path is None:
+        raise HTTPException(404, "no such image")
+    return FileResponse(path, media_type="application/octet-stream", headers={"Cache-Control": "no-store"})
 
 
 @app.post("/api/admin/panels/{panel_id}", dependencies=[Depends(require_admin)])

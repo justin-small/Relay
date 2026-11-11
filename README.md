@@ -978,6 +978,10 @@ and the Caddyfile both):
 | `GET /api/admin/panels/firmware` | the signed panel image Relay holds, or `null` |
 | `POST /api/admin/panels/firmware` | upload `relay-display-app.bin` (the raw body). Relay checks it is a panel's application with a readable version, whole, and signed at all, and refuses it with a sentence if not. Whether the signature is the right one is the panel's to say |
 | `DELETE /api/admin/panels/firmware` | forget the image |
+| `GET /api/admin/panels/flash` | the merged USB image (`relay-display.bin`) Relay holds for the browser flasher, or `null` |
+| `POST /api/admin/panels/flash` | upload `relay-display.bin` (the raw body); the application inside it is checked as an update's image is. Kept apart from the update image and never offered to a panel |
+| `DELETE /api/admin/panels/flash` | forget the USB image |
+| `GET /api/admin/panels/flash/<board>.json`, `.bin` | the manifest (version, size, SHA-256) and the bytes the flasher page fetches |
 | `POST /api/admin/panels/firmware/update` | `{"id": "<panel id>", "now": false}` asks one panel to install it; no `id` asks every online panel that has an update available. `now` skips the wait for a quiet moment |
 
 **Firmware updates.** The Panels section of the admin page has an upload box for
@@ -993,6 +997,22 @@ a panel refuses anything not signed with the release key, and an image that does
 not check in with Relay within ten minutes of its first boot is rolled back. The
 asks are held in memory: a restart of Relay forgets them. Panels report on
 `POST /api/panels/{id}/update`, bounded like a check-in.
+
+**Flashing a new panel from the browser.** `/admin/flash` (linked from Panels)
+writes a new or recovered panel's whole flash at 0x0 over USB from Chrome or
+Edge, with [esptool-js](https://github.com/espressif/esptool-js) over Web
+Serial; it is VXP's board flasher, copied. Its image is the merged
+`relay-display.bin`, uploaded on that page. Before it writes, the page checks
+the image's size and SHA-256 against Relay's manifest, that the board is an
+ESP32-S3 with 16 MB of flash, and reads the firmware in the board's first slot:
+a Relay panel's is rewritten without asking, anything else (blank, another
+vendor's) is asked about first. It writes at 115200 (the CrowPanel's CH340
+drops at higher rates), never erases, and ends once the write is checked: the
+person presses RESET on the panel, because the CrowPanel does not restart from
+USB. Web Serial is allowed on that one path
+(`Permissions-Policy: serial=(self)`) and denied everywhere else. esptool-js is
+vendored in `app/static/vendor/esptool-js/` (Apache-2.0; `VERSION` says which);
+the steps are tested with `node --test tests/js/`.
 
 **A screen choice is not undone.** The operator's feed carries a revision. The
 panel reports the last one it applied (`feed_rev`) and Relay sends a `set_feed`

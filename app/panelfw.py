@@ -318,3 +318,132 @@ def image_path_for(version: str, board: str = DEFAULT_BOARD) -> Path | None:
 def image_url(info: Info) -> str:
     """Where a panel fetches `info` on the viewer port."""
     return f"/api/panels/firmware/{info.board}/{info.version}.bin"
+
+
+# ------------------------------------------------------- the USB flash image
+# The browser flasher at `/admin/flash` (copied from VXP's board flasher, #1546 there) writes a new or
+# recovered panel's whole flash at 0x0 over USB, from Chrome or Edge, with esptool-js over Web Serial.
+# What it writes is the merged image a release attaches (`relay-display.bin`): the bootloader at 0x0,
+# the partition table at 0x8000 and the signed application at `APP_OFFSET`. The application image
+# above cannot start a blank board, so a board has two files here, kept apart: `panel.bin` is what
+# panels are offered over the network, `flash.bin` is never offered to anything.
+#
+# The merged image is checked by checking the application inside it with `inspect_board`, the same
+# check an update's image gets: `build.sh` refuses a merged file whose bytes at `APP_OFFSET` are not
+# the signed application exactly, and `merge-bin` does not pad past it, so everything from
+# `APP_OFFSET` on is that application. `nvs` sits above both slots (partitions.csv), so the write
+# cannot reach a panel's Wi-Fi or settings.
+
+# `app0` in firmware/relay-display/partitions.csv, where a merged image carries the application.
+APP_OFFSET = 0x10000
+# CONFIG_PARTITION_TABLE_OFFSET's default, and the table's first entry's magic.
+_PARTITION_TABLE_OFFSET = 0x8000
+_PARTITION_MAGIC = b"\xaa\x50"
+FLASH_BYTES = APP_OFFSET + SLOT_BYTES
+# The flash a board's module has, which the flasher refuses any other size of.
+FLASH_MB = {"crowpanel-adv7": 16, "waveshare-p4-10.1": 16}
+
+
+def inspect_flash(data: bytes, board: str | None = None) -> tuple[str, str, str]:
+    """Check a merged image for the USB flasher. Returns (version, sha256 of the file, board) or raises
+    ImageRefused with a sentence for the operator."""
+    if len(data) == 0:
+        raise ImageRefused("The upload was empty.")
+    if len(data) > FLASH_BYTES:
+        raise ImageRefused("That file is larger than a panel's bootloader and application slot together.")
+    if data[0] == _IMAGE_MAGIC and len(data) >= _HEAD_BYTES and \
+            struct.unpack_from("<I", data, _APP_DESC_OFFSET)[0] == _APP_DESC_MAGIC:
+        raise ImageRefused(
+            "That is the application alone (relay-display-app.bin), which updates a panel that is already "
+            "running and cannot start a blank one. Upload relay-display.bin from the same release.")
+    if data[0] != _IMAGE_MAGIC or len(data) <= APP_OFFSET or \
+            data[_PARTITION_TABLE_OFFSET:_PARTITION_TABLE_OFFSET + 2] != _PARTITION_MAGIC:
+        raise ImageRefused("That file is not a panel's USB image. Upload relay-display.bin from the release.")
+    try:
+        version, _, found = inspect_board(data[APP_OFFSET:], board)
+    except ImageRefused as exc:
+        # The sentences name the update's file; here the file is the merged one.
+        raise ImageRefused(str(exc).replace("relay-display-app.bin", "relay-display.bin")) from None
+    return version, hashlib.sha256(data).hexdigest(), found
+
+
+@dataclass
+class FlashInfo:
+    version: str
+    size: int
+    sha256: str
+    uploaded_at: float
+    filename: str
+    board: str = DEFAULT_BOARD
+
+    def public(self) -> dict:
+        row = asdict(self)
+        row["uploaded_ago_s"] = round(max(0.0, time.time() - self.uploaded_at), 1)
+        row["board_label"] = board_label(self.board)
+        row.pop("uploaded_at")
+        return row
+
+    def manifest(self) -> dict:
+        """What the flasher page checks the bytes against before it writes one."""
+        return {"version": self.version, "board": self.board, "project": PROJECT_NAME,
+                "chip": BOARDS[self.board].chip_name, "flash_mb": FLASH_MB.get(self.board, 16),
+                "sha256": self.sha256, "size": self.size, "url": flash_url(self.board)}
+
+
+def flash_url(board: str) -> str:
+    return f"/api/admin/panels/flash/{board}.bin"
+
+
+def _flash_path(board: str) -> Path:
+    return _folder(board) / "flash.bin"
+
+
+def _flash_meta_path(board: str) -> Path:
+    return _folder(board) / "flash.json"
+
+
+def current_flash(board: str = DEFAULT_BOARD) -> FlashInfo | None:
+    """The merged image stored for `board`, or None. A half-written or hand-edited store reads as none."""
+    if board not in BOARDS:
+        return None
+    try:
+        meta = json.loads(_flash_meta_path(board).read_text("utf-8"))
+        info = FlashInfo(version=str(meta["version"]), size=int(meta["size"]), sha256=str(meta["sha256"]),
+                         uploaded_at=float(meta["uploaded_at"]), filename=str(meta.get("filename") or ""),
+                         board=board)
+        if parse_version(info.version) is None or _flash_path(board).stat().st_size != info.size:
+            return None
+        return info
+    except (OSError, ValueError, KeyError, TypeError):
+        return None
+
+
+def flash_path(board: str) -> Path | None:
+    return _flash_path(board) if current_flash(board) is not None else None
+
+
+def store_flash(data: bytes, filename: str = "", board: str | None = None) -> FlashInfo:
+    """Check `data` and keep it as its board's USB image, replacing the one held. Raises ImageRefused."""
+    version, digest, found = inspect_flash(data, board)
+    info = FlashInfo(version=version, size=len(data), sha256=digest, uploaded_at=time.time(),
+                     filename="".join(ch for ch in filename if ch.isprintable())[:96], board=found)
+    folder = _folder(found)
+    folder.mkdir(parents=True, exist_ok=True)
+    # The image first, the description second, for `store`'s reason.
+    image_tmp = folder / "flash.bin.tmp"
+    image_tmp.write_bytes(data)
+    image_tmp.replace(_flash_path(found))
+    meta_tmp = folder / "flash.json.tmp"
+    meta_tmp.write_text(json.dumps({**asdict(info)}), "utf-8")
+    meta_tmp.replace(_flash_meta_path(found))
+    return info
+
+
+def remove_flash(board: str = DEFAULT_BOARD) -> bool:
+    """Forget the USB image stored for `board`. True if there was one."""
+    if board not in BOARDS:
+        return False
+    had = current_flash(board) is not None
+    for path in (_flash_meta_path(board), _flash_path(board)):
+        path.unlink(missing_ok=True)
+    return had

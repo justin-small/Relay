@@ -177,6 +177,9 @@ python -m esptool --chip esp32s3 -b 460800 write_flash --flash_mode dio --flash_
   --flash_freq 80m 0x0 firmware/relay-display/build/relay-display.bin
 ```
 
+Or from the browser: the operator panel's **Flash a panel** page (`/admin/flash`, Chrome or Edge) writes
+the same file at 0x0 over Web Serial, after checking it and the board.
+
 Hold BOOT while plugging in USB if the board does not enter the bootloader by itself. `nvs`
 sits above the application slots, so flashing a new image does not erase the panel's settings.
 

@@ -673,6 +673,76 @@ eq("a panel reports a Service feed it shows", reg.view(pid(50))["feeds"], svc)
 eq("clean_feeds refuses a service with no type", panels.clean_feeds([{"stream": "service"}]), None)
 eq("…or a type the panel could not hold", panels.clean_feeds([{"stream": "service", "service_type": "1" * 20}]), None)
 
+print("\nfirmware: the USB image for the browser flasher")
+
+
+def make_merged(app_image):
+    """A merged image shaped like `idf.py merge-bin`'s: a bootloader at 0x0, the partition table at 0x8000,
+    0xFF between, and the application at 0x10000."""
+    out = bytearray(b"\xff" * panelfw.APP_OFFSET)
+    out[0], out[1] = 0xE9, 3
+    out[0x8000:0x8002] = b"\xaa\x50"
+    return bytes(out) + app_image
+
+
+merged_good = make_merged(make_image("0.4.0"))
+eq("a merged image reads as its application's version", panelfw.inspect_flash(merged_good)[0], "0.4.0")
+
+
+def flash_refused(label, data, fragment):
+    try:
+        panelfw.inspect_flash(data)
+    except panelfw.ImageRefused as exc:
+        check(label, fragment in str(exc), str(exc))
+    else:
+        check(label, False, "accepted")
+
+
+flash_refused("the application alone is refused, naming the right file", make_image("0.4.0"), "relay-display.bin")
+flash_refused("a text file is refused", b"hello" * 100, "not a panel's USB image")
+flash_refused("a merged image with no partition table is refused",
+              merged_good[:0x8000] + b"\xff\xff" + merged_good[0x8002:], "not a panel's USB image")
+flash_refused("a merged image of an unsigned application is refused", make_merged(make_image(signed=False)), "not signed")
+flash_refused("a merged image for another chip is refused", make_merged(make_image(chip=0x0005)), "another chip")
+
+eq("no USB image at first", admin.get("/api/admin/panels/flash").json()["flash"], None)
+eq("the flasher's manifest is 404 with none", admin.get("/api/admin/panels/flash/crowpanel-adv7.json").status_code, 404)
+r = admin.post("/api/admin/panels/flash", content=good)
+eq("the application alone is refused as a USB image", r.status_code, 400)
+r = admin.post("/api/admin/panels/flash?board=crowpanel-adv7&filename=relay-display.bin", content=merged_good)
+eq("the merged image is kept", r.status_code, 200)
+eq("…as its version", r.json()["flash"]["version"], "0.4.0")
+check("…apart from the update image", getattr(panelfw.current("crowpanel-adv7"), "version", None) != "0.4.0")
+man = admin.get("/api/admin/panels/flash/crowpanel-adv7.json").json()
+eq("the manifest names the image and its checks",
+   (man["board"], man["chip"], man["flash_mb"], man["project"], man["size"], man["sha256"], man["url"]),
+   ("crowpanel-adv7", "ESP32-S3", 16, "relay-display-app", len(merged_good),
+    hashlib.sha256(merged_good).hexdigest(), "/api/admin/panels/flash/crowpanel-adv7.bin"))
+eq("the bytes are served whole", admin.get("/api/admin/panels/flash/crowpanel-adv7.bin").content, merged_good)
+eq("a board on hold has none", admin.get("/api/admin/panels/flash/waveshare-p4-10.1.bin").status_code, 404)
+eq("…nor does a path", admin.get("/api/admin/panels/flash/..%2Fconfig.json").status_code, 404)
+eq("the USB image is not on the viewer port",
+   viewer.get("/api/admin/panels/flash/crowpanel-adv7.bin").status_code, 404)
+eq("…and needs the admin token",
+   TestClient(app, base_url="http://relay.local:8001").get("/api/admin/panels/flash/crowpanel-adv7.bin").status_code, 401)
+eq("…and is never offered to a panel",
+   viewer.get("/api/panels/firmware/crowpanel-adv7/0.4.0.bin").status_code, 404)
+
+print("\nfirmware: the flasher page")
+anon = TestClient(app, base_url="http://relay.local:8001")
+r = anon.get("/admin/flash")
+check("signed out, the flasher page is the sign-in form", 'action="/admin/login"' in r.text)
+anon.post("/admin/login", data={"token": "t0ken"})
+r = anon.get("/admin/flash")
+check("signed in, it offers the write", "data-flasher" in r.text and "Write firmware 0.4.0" in r.text, r.text[:200])
+check("…with the board's chip and flash size", 'data-chip="ESP32-S3"' in r.text and 'data-flash-mb="16"' in r.text)
+eq("Web Serial is open on the flasher", r.headers.get("permissions-policy", "").split(", ")[-1], "serial=(self)")
+eq("…and only there", anon.get("/admin").headers.get("permissions-policy", "").split(", ")[-1], "serial=()")
+eq("…not under it either", main.permissions_policy_for("/admin/flash/x").split(", ")[-1], "serial=()")
+eq("the flasher page is not on the viewer port", viewer.get("/admin/flash").status_code, 404)
+eq("removing the USB image", admin.delete("/api/admin/panels/flash").json()["removed"], True)
+check("with none, the page asks for the upload", "data-flasher" not in anon.get("/admin/flash").text)
+
 print("\nfirmware: the panel's words and Relay's are the same")
 fw_source = (Path(__file__).resolve().parent.parent / "firmware" / "relay-display" / "main" / "update_format.h")
 check("the panel's update vocabulary is where this test reads it", fw_source.exists())
