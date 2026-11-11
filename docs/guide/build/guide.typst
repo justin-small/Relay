@@ -48,7 +48,8 @@ $endif$
 // ---- cover ----
 #set page(paper: "us-letter", margin: (x: 0.9in, y: 0.9in))
 #page(numbering: none)[
-  #v(22%)
+  #image("images/relay-lockup.svg", height: 30pt)
+  #v(17%)
   #text(size: 34pt, weight: "bold", fill: ink)[$title$]
   #v(4pt)
   #text(size: 15pt, fill: dim)[$subtitle$]

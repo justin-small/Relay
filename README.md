@@ -1,3 +1,8 @@
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="brand/export/svg/relay-lockup-on-dark.svg">
+  <img src="brand/export/svg/relay-lockup-on-light.svg" alt="Relay" height="56">
+</picture>
+
 # Relay
 
 Server-captured, low-latency live captioning and translation for remote

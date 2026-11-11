@@ -30,6 +30,15 @@ void screen_unlock();
 // (`setup_wifi_qr`). Null for every other screen.
 esp_err_t screen_show_lines(const panel_text_line *lines, int count, const char *qr = nullptr);
 
+// Show the boot picture (`boot_view.h`): the Relay logo, written as it appears. The boot asks for it once, first.
+// **It stays up until the feeds the panel shows are loaded.** While it is up, `screen_show_lines` and
+// `screen_show_captions` are remembered and not drawn. The picture is taken down, and the last one asked for drawn:
+//   - never before the logo has finished being written (`kBootWriteMs`);
+//   - for lines (the setup network, a network that failed), as soon as that;
+//   - for the caption view, when every feed it shows is connected, or after `kBootMaxMs` when one is not, and the
+//     view then says why in its header.
+esp_err_t screen_show_boot();
+
 // Show the caption view (`caption_view.h`): one feed or two, as `feeds.h` says. It takes over the glass until another
 // picture is asked for, and draws what the feeds hold and keeps up with them. Asked again, it is built again, which
 // is how a change between one feed and two reaches the glass.

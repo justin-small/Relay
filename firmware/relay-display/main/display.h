@@ -45,6 +45,10 @@ uint32_t display_frames_done();
 // Paint the whole panel one RGB565 colour.
 esp_err_t display_fill(uint16_t rgb565);
 
+// Paint the whole panel `rgb565`, wait for two whole frames as the test screen does, and turn the backlight on. The
+// boot's first picture: the ground the boot picture (`boot_view.h`) is then drawn on. The same errors as the test screen.
+esp_err_t display_light_up(uint16_t rgb565);
+
 // Paint the bench test screen: eight colour bars, a red marker in the top-left
 // corner of the frame, the name "VXP" and `version`, and a white border. Then wait
 // for the panel to finish two whole frames and turn the backlight on, so the first

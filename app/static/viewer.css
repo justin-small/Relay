@@ -229,6 +229,9 @@ body.overlay.overlay-matte .feed p {
 
 /* ---- index ---- */
 .index { max-width: 620px; margin: 0 auto; padding: 56px 24px; }
+/* The Relay lockup, drawn inline so it takes the theme's text colour and accent. */
+.lockup { display: block; height: 22px; width: auto; }
+.index .brand { margin: 0 0 30px; }
 .index h1 { font-size: 26px; margin: 0 0 6px; font-weight: 600; }
 .index p.sub { color: var(--dim); margin: 0 0 32px; font-size: 15px; }
 /* ---- chooser: one button per view ---- */
