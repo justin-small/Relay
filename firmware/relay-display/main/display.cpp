@@ -266,6 +266,21 @@ esp_err_t display_fill(uint16_t rgb565)
     return paint([rgb565](int, int) { return rgb565; });
 }
 
+esp_err_t display_light_up(uint16_t rgb565)
+{
+    ESP_RETURN_ON_ERROR(display_fill(rgb565), TAG, "ground");
+#if !CONFIG_RELAY_QEMU
+    const esp_err_t waited = wait_for_frames(2, 500);
+    if (waited != ESP_OK) {
+        ESP_LOGE(TAG, "panel: no frame completed in 500 ms; the backlight stays off");
+        return waited;
+    }
+#endif
+    ESP_RETURN_ON_ERROR(display_backlight(true), TAG, "backlight on");
+    ESP_LOGI(TAG, "panel: ground shown, backlight on");
+    return ESP_OK;
+}
+
 esp_err_t display_show_test_screen(const char *version)
 {
     if (s_panel == nullptr) {

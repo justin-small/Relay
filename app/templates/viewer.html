@@ -3,6 +3,7 @@
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="theme-color" content="#000000">
 <title>{% if mode == 'transcription' %}{{ source_label }} Transcript{% elif mode == 'both' %}Captions{% else %}Live Translation{% endif %}</title>
+{% include "_brand_head.html" %}
 <link rel="stylesheet" href="/static/viewer.css">
 {% if overlay %}<style>
   /* Broadcast overlay tokens, resolved server-side from the URL. The page is a

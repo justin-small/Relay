@@ -1,6 +1,9 @@
 #include "screen.h"
 
+#include "boot_view.h"
 #include "caption_view.h"
+#include "captions.h"
+#include "settings_format.h"
 
 #include <cstdio>
 #include <cstring>
@@ -43,8 +46,16 @@ lv_display_t *s_disp = nullptr;
 uint16_t *s_draw_buf = nullptr;
 bool s_active = false;  // LVGL flushes to the panel only while this is set
 
-enum class Request : uint8_t { none, lines, captions, bench };
+enum class Request : uint8_t { none, lines, captions, bench, boot };
 Request s_request = Request::none;
+
+// The boot picture (`screen.h`). While it is up the picture asked for is held here and not drawn.
+// A panel whose feeds never load (no Relay, no feed chosen) leaves the boot picture after this long, for the caption
+// view, whose header says what is wrong.
+constexpr int64_t kBootMaxMs = 15000;
+bool s_boot_up = false;
+int64_t s_boot_since_us = 0;
+Request s_held = Request::none;
 // The lines a request names, copied by the caller: a caller's own buffers are gone by the time the task draws.
 constexpr int kLineChars = 64;
 char s_line_text[kPanelTextMaxLines][kLineChars];
@@ -215,6 +226,46 @@ void draw_lines_now()
     activate();
 }
 
+// Every feed the panel shows has its stream open. False with no feed chosen: there is nothing to have loaded.
+bool feeds_loaded()
+{
+    bool any = false;
+    for (int slot = 0; slot < kCaptionSlots; ++slot) {
+        char lang[48];
+        if (captions_feed_choice(slot, lang, sizeof lang) == kFeedNone) {
+            continue;
+        }
+        any = true;
+        if (captions_state(slot) != caption_state::connected) {
+            return false;
+        }
+    }
+    return any;
+}
+
+// Whether the boot picture gives way to the picture that is held (`screen.h` has the rules).
+bool boot_may_end()
+{
+    const int64_t up_ms = (esp_timer_get_time() - s_boot_since_us) / 1000;
+    if (up_ms < static_cast<int64_t>(kBootWriteMs)) {
+        return false;
+    }
+    if (s_held == Request::lines) {
+        return true;
+    }
+    return feeds_loaded() || up_ms >= kBootMaxMs;
+}
+
+// Ask for `request`, or hold it while the boot picture is up. Called under the lock.
+void ask(Request request)
+{
+    if (s_boot_up) {
+        s_held = request;
+    } else {
+        s_request = request;
+    }
+}
+
 // The task that draws. Every picture is built here, on this task's stack: the callers (the boot, the setup network's
 // handlers) run on stacks of a few kilobytes. They ask for a picture with a request, and this task draws what was
 // asked for, so a burst of requests draws the last one.
@@ -224,6 +275,12 @@ void lvgl_task(void *)
         screen_lock();
         // **Take the request before drawing it.** A picture can ask for another while it builds (the caption view does,
         // when the feeds changed between its snapshot and its first tick), and clearing after the switch lost that one.
+        if (s_boot_up && s_held != Request::none && boot_may_end()) {
+            ESP_LOGI(TAG, "boot picture: down after %lld ms", static_cast<long long>((esp_timer_get_time() - s_boot_since_us) / 1000));
+            s_boot_up = false;
+            s_request = s_held;
+            s_held = Request::none;
+        }
         const Request request = s_request;
         s_request = Request::none;
         switch (request) {
@@ -233,6 +290,11 @@ void lvgl_task(void *)
         case Request::captions:
             caption_view_teardown();
             caption_view_build(fresh_root());
+            activate();
+            break;
+        case Request::boot:
+            caption_view_teardown();
+            boot_view_build(fresh_root());
             activate();
             break;
         case Request::bench:
@@ -318,7 +380,19 @@ esp_err_t screen_show_lines(const panel_text_line *lines, int count, const char 
         ++s_line_count;
     }
     std::snprintf(s_line_qr, sizeof s_line_qr, "%s", qr != nullptr ? qr : "");
-    s_request = Request::lines;
+    ask(Request::lines);
+    screen_unlock();
+    return ESP_OK;
+}
+
+esp_err_t screen_show_boot()
+{
+    screen_lock();
+    // Up from this call, not from the frame it is drawn in: a picture asked for a moment later must be held.
+    s_boot_up = true;
+    s_boot_since_us = esp_timer_get_time();
+    s_held = Request::none;
+    s_request = Request::boot;
     screen_unlock();
     return ESP_OK;
 }
@@ -326,7 +400,7 @@ esp_err_t screen_show_lines(const panel_text_line *lines, int count, const char 
 esp_err_t screen_show_captions()
 {
     screen_lock();
-    s_request = Request::captions;
+    ask(Request::captions);
     screen_unlock();
     return ESP_OK;
 }
@@ -335,6 +409,9 @@ esp_err_t screen_show_bench(const char *version)
 {
     screen_lock();
     std::snprintf(s_bench_version, sizeof s_bench_version, "%s", version != nullptr ? version : "");
+    // A bench aid asked for by hand: it takes the glass at once, the boot picture included.
+    s_boot_up = false;
+    s_held = Request::none;
     s_request = Request::bench;
     screen_unlock();
     return ESP_OK;

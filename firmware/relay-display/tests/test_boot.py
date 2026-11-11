@@ -38,7 +38,7 @@ def test_the_backlight_is_on_before_the_boot_is_ready(provisioned: Board) -> Non
     uart = provisioned.uart
     assert uart is not None
     wait_ready(provisioned)
-    lit = uart.text.index("panel: test screen shown, backlight on")
+    lit = uart.text.index("panel: ground shown, backlight on")
     ready = uart.text.index("boot: ready")
     assert lit < ready
 

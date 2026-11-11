@@ -129,13 +129,17 @@ extern "C" void app_main(void)
     // the reset is the ESP-IDF default. A test screen that does not finish is not:
     // the network still starts, and the panel reports it.
     ESP_ERROR_CHECK(display_init_on_core1(settings.rotation_deg));
-    const esp_err_t screen = display_show_test_screen(RELAY_FW_VERSION);
+    // The glass is lit on the plain ground (0x1082 is `screen.cpp`'s #101010), and the boot picture is drawn on it
+    // a moment later. The colour bars are the `bench` console command's now, and no longer the boot's.
+    const esp_err_t screen = display_light_up(0x1082);
     if (screen != ESP_OK) {
-        ESP_LOGE(TAG, "boot: test screen did not reach the panel (%s); continuing", esp_err_to_name(screen));
+        ESP_LOGE(TAG, "boot: the panel was not lit (%s); continuing", esp_err_to_name(screen));
     }
     // LVGL draws everything after the bench picture. It starts before the network, so the panel can show its
     // screens as the network comes up, and it draws nothing until something is shown.
     ESP_ERROR_CHECK(screen_start());
+    // The boot picture: the logo, from now until the feeds the panel shows are loaded (`screen.h`).
+    screen_show_boot();
     // Touch is LVGL's pointer. A controller that does not answer costs the touch and not the boot: captions need none.
     const esp_err_t touch = touch_start(settings.rotation_deg);
     if (touch != ESP_OK) {
