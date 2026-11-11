@@ -285,6 +285,21 @@
   .plink:hover { text-decoration-color:#fff; }
   .pstat { display:inline-flex; align-items:center; gap:6px; font-size:12px; color:var(--dim); justify-self:end; }
   .pstat .badge { color:var(--accent); }
+  /* The way to the USB flasher (/admin/flash): a whole-card link above the panel list, so a new
+     panel's first step is the first thing on the page. */
+  .flashcta { display:flex; align-items:center; gap:14px; margin:0 0 14px; padding:14px 18px;
+              border:1px solid var(--accent); border-radius:11px;
+              background:color-mix(in srgb, var(--accent) 10%, transparent);
+              color:var(--fg); text-decoration:none; }
+  .flashcta:hover { background:color-mix(in srgb, var(--accent) 18%, transparent); }
+  .flashcta:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
+  .flashcta__ico svg { width:22px; height:22px; fill:none; stroke:var(--accent); stroke-width:1.5;
+                       stroke-linecap:round; stroke-linejoin:round; display:block; }
+  .flashcta__text { flex:1; min-width:0; display:flex; flex-direction:column; gap:3px; line-height:1.45; }
+  .flashcta__text span { color:var(--dim); font-size:13px; }
+  .flashcta__go { flex:0 0 auto; padding:8px 14px; border-radius:7px; background:var(--accent); color:var(--bg);
+                  font-weight:600; white-space:nowrap; }
+  @media (max-width:560px) { .flashcta { flex-wrap:wrap; } .flashcta__go { width:100%; text-align:center; } }
   .fwbox.flat { border:0; background:transparent; padding:0; margin:0; }
   .fwtype { padding:12px 0; border-top:1px solid var(--line); }
   .fwtype:first-child { border-top:0; padding-top:0; }
@@ -456,6 +471,12 @@
   <div class="page" id="page-panels" data-page="panels" hidden>
     <h2 class="title">Panels <span class="sumstate" id="panelsSum"></span></h2>
     <p class="sub">Caption panels on the venue network. Click a panel name to see and change its settings.</p>
+    <a class="flashcta" href="/admin/flash">
+      <span class="flashcta__ico" aria-hidden="true"><svg viewBox="0 0 16 16"><path d="M8 1.5v8M5 6.5l3 3 3-3M2.5 11v2a1.5 1.5 0 0 0 1.5 1.5h8a1.5 1.5 0 0 0 1.5-1.5v-2"/></svg></span>
+      <span class="flashcta__text"><strong>Set up a new panel over USB</strong>
+        <span>Flash a new or recovered panel from Chrome or Edge with the release&rsquo;s <code>relay-display.bin</code>.</span></span>
+      <span class="flashcta__go">Flash a panel &rarr;</span>
+    </a>
     <section>
       <h3>Paired panels</h3>
       <div class="plist" id="panelList"><div class="muted">No panels have checked in yet.</div></div>
@@ -470,6 +491,7 @@
         right and refuses anything not signed with its release key. An update installs at a quiet moment
         (no new caption line for a while) unless you choose &ldquo;Update now&rdquo;.
       </div>
+
     </div>
 
     </section>

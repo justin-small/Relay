@@ -1,0 +1,161 @@
+<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Relay &middot; Flash a panel</title>{% include "_brand_head.html" %}<link rel="stylesheet" href="/static/viewer.css">
+<script type="module" src="/static/flasher.js"></script>
+{#
+  The panel flasher, copied from VXP's board flasher (#1546 there). Writes a new or
+  recovered panel's whole firmware at 0x0 over USB, from the browser, with esptool-js
+  over Web Serial. The image is the merged relay-display.bin uploaded here, so Relay
+  serves it and the browser checks its size and SHA-256 before it writes a byte.
+
+  Every sentence the page can show is below; flasher.js only chooses which one is
+  visible and fills in a version, a chip or a percentage. With scripting off, or in a
+  browser without Web Serial, the page says what it needs and names esptool.
+#}
+<style>
+  body { display:block; font-size:14px; }
+  .wrap { max-width:760px; margin:0 auto; padding:22px 20px 90px; }
+  header { display:flex; align-items:center; gap:12px; margin-bottom:20px; }
+  header h1 { font-size:19px; margin:0; font-weight:600; }
+  header .spacer { flex:1; }
+  a { color:inherit; }
+  h2.title { font-size:22px; margin:0 0 6px; font-weight:600; }
+  .sub { color:var(--dim); margin:0 0 18px; line-height:1.5; }
+  section { border:1px solid var(--line); border-radius:11px; background:var(--card-bg); padding:16px 18px; margin-bottom:14px; }
+  section h3 { font-size:15px; font-weight:600; margin:0 0 12px; display:flex; align-items:center; gap:9px; }
+  .num { display:inline-grid; place-items:center; width:22px; height:22px; border-radius:50%;
+         background:var(--btn-bg); border:1px solid var(--line); font-size:12px; }
+  .muted { color:var(--dim); }
+  .mono, code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size:13px; }
+  ol.list { margin:0; padding-inline-start:1.25rem; display:grid; gap:6px; line-height:1.5; }
+  .stack > * + * { margin-top:12px; }
+  .row { display:flex; gap:10px; flex-wrap:wrap; align-items:center; }
+  .row[hidden] { display:none; }
+  input[type=file] { font:inherit; color:var(--fg); }
+  button { padding:9px 15px; font:inherit; font-weight:500; border-radius:7px;
+           border:1px solid var(--line); background:var(--btn-bg); color:var(--fg); cursor:pointer; }
+  button:hover { background:var(--btn-active); }
+  button.primary { background:#2f6df6; border-color:#2f6df6; color:#fff; font-weight:600; }
+  button:disabled { opacity:.45; cursor:not-allowed; }
+  .boards { display:flex; gap:10px; flex-wrap:wrap; list-style:none; margin:0; padding:0; }
+  .boards a { display:block; padding:10px 14px; border:1px solid var(--line); border-radius:9px; text-decoration:none; }
+  .boards a[aria-current] { border-color:var(--accent); }
+  .boards small { display:block; color:var(--dim); margin-top:2px; }
+  .notice { margin:0; padding:10px 12px; border-radius:8px; border:1px solid var(--line); line-height:1.5; }
+  .notice.warn { border-color:var(--warn); }
+  .notice.error { border-color:var(--err); color:var(--err); }
+  .notice:focus { outline:none; }
+  .flash-steps { margin:0; padding-inline-start:1.25rem; display:grid; gap:6px; color:var(--dim); }
+  .flash-steps[hidden] { display:none; }
+  .flash-steps .on { color:var(--fg); font-weight:600; }
+  .flash-steps .on::marker { color:var(--accent); }
+  .flash-progress { width:100%; accent-color:var(--accent); }
+</style>
+</head><body>
+<div class="wrap">
+<header>
+  <h1 class="brand">{% include "_lockup.svg" %}</h1>
+  <span class="spacer"></span>
+  <a href="/admin#panels">Back to Panels</a>
+</header>
+
+<h2 class="title">Flash a panel</h2>
+<p class="sub">Write a new or recovered panel&rsquo;s firmware over USB. A panel keeps its Wi-Fi and its settings.</p>
+
+{% if boards|length > 1 %}
+<section aria-labelledby="board-title">
+  <h3 id="board-title">Which panel?</h3>
+  <ul class="boards">
+    {% for b in boards %}
+    <li><a href="/admin/flash?board={{ b.id }}"{% if b.id == board.id %} aria-current="page"{% endif %}>{{ b.label }}
+      <small>{% if b.flash %}Firmware {{ b.flash.version }}{% else %}No USB image{% endif %}</small></a></li>
+    {% endfor %}
+  </ul>
+</section>
+{% endif %}
+
+<section aria-labelledby="image-title">
+  <h3 id="image-title"><span class="num" aria-hidden="true">1</span>The firmware</h3>
+  <div class="stack" data-flash-upload data-board="{{ board.id }}">
+    {% if flash %}
+    <p>{{ board.label }} firmware <strong>{{ flash.version }}</strong> is on this Relay{% if flash.filename %} (<span class="mono">{{ flash.filename }}</span>){% endif %}.</p>
+    {% else %}
+    <p>No USB image for the {{ board.label }} is on this Relay yet.</p>
+    {% endif %}
+    <p class="muted">Upload <span class="mono">relay-display.bin</span> from a release: the whole image, bootloader
+      included. The <span class="mono">relay-display-app.bin</span> uploaded under Panels updates a running panel and
+      cannot start a blank one.</p>
+    <div class="row">
+      <input type="file" accept=".bin,application/octet-stream" aria-label="relay-display.bin" data-upload-file>
+      <button type="button" data-upload>{% if flash %}Replace{% else %}Upload{% endif %}</button>
+      {% if flash %}<button type="button" data-upload-remove>Remove</button>{% endif %}
+    </div>
+    <p class="notice error" data-upload-error role="alert" hidden></p>
+  </div>
+</section>
+
+{% if flash %}
+<section aria-labelledby="connect-title">
+  <h3 id="connect-title"><span class="num" aria-hidden="true">2</span>Connect the panel</h3>
+  <ol class="list">
+    <li>Use Chrome or Edge on a Windows, macOS or Linux computer.</li>
+    <li>Connect the panel&rsquo;s USB-C port to the computer with a cable that carries data.</li>
+    <li>If the computer does not see the panel, hold <strong>BOOT</strong>, press <strong>RESET</strong>, then release <strong>BOOT</strong>.</li>
+  </ol>
+</section>
+
+<section aria-labelledby="flash-title">
+  <h3 id="flash-title"><span class="num" aria-hidden="true">3</span>Write firmware {{ flash.version }}</h3>
+  <div class="stack"
+       data-flasher
+       data-board="{{ board.id }}"
+       data-project="{{ project }}"
+       data-chip="{{ board.chip_name }}"
+       data-flash-mb="{{ flash_mb }}">
+    <p class="notice warn" data-flash-unsupported>
+      This page needs Chrome or Edge on a desktop, with scripting on. In any other browser, flash
+      <span class="mono">relay-display.bin</span> at 0x0 with esptool, as the firmware README describes.
+    </p>
+
+    <div><button type="button" class="primary" data-flash-start hidden>Choose the panel&rsquo;s port and flash</button></div>
+
+    <ol class="flash-steps" data-flash-steps hidden>
+      <li data-step="image">Fetch and check the image</li>
+      <li data-step="connect">Connect to the panel</li>
+      <li data-step="check">Read the firmware it runs</li>
+      <li data-step="write">Write <span data-slot="percent"></span></li>
+    </ol>
+    <progress class="flash-progress" data-flash-progress max="100" value="0" hidden></progress>
+
+    <div class="stack" data-flash-confirm hidden>
+      <p>This board does not run Relay panel firmware. Write the {{ board.label }} firmware to it?</p>
+      <div class="row">
+        <button type="button" class="primary" data-flash-yes>Write it</button>
+        <button type="button" data-flash-no>Cancel</button>
+      </div>
+    </div>
+
+    <div role="status">
+      <p class="notice" data-result="done" tabindex="-1" hidden>
+        Firmware <span data-slot="version"></span> is written and checked. Press <strong>RESET</strong> on the
+        panel to start it. With no Wi-Fi saved it opens its setup network; once it joins, it appears under
+        <a href="/admin#panels">Panels</a>.
+      </p>
+      <p class="notice" data-result="cancelled" tabindex="-1" hidden>Cancelled. Nothing was written.</p>
+      <p class="notice error" data-result="image-missing" tabindex="-1" hidden>Relay could not send the firmware. Nothing was written.</p>
+      <p class="notice error" data-result="manifest-wrong" tabindex="-1" hidden>The firmware on this Relay is not the {{ board.label }}&rsquo;s. Nothing was written.</p>
+      <p class="notice error" data-result="image-size" tabindex="-1" hidden>The firmware Relay sent is not the size it should be. Nothing was written.</p>
+      <p class="notice error" data-result="image-sha" tabindex="-1" hidden>The firmware Relay sent does not match its checksum. Nothing was written.</p>
+      <p class="notice error" data-result="image-project" tabindex="-1" hidden>The firmware on this Relay is not a Relay panel&rsquo;s. Nothing was written.</p>
+      <p class="notice error" data-result="connect-failed" tabindex="-1" hidden>The panel did not answer. Hold BOOT, press RESET, release BOOT, then try again. Nothing was written.</p>
+      <p class="notice error" data-result="wrong-chip" tabindex="-1" hidden>This is not an {{ board.chip_name }} (<span data-slot="chip"></span>), so it is not a {{ board.label }}. Nothing was written.</p>
+      <p class="notice error" data-result="wrong-size" tabindex="-1" hidden>This board does not have {{ flash_mb }} MB of flash (<span data-slot="chip"></span>). Nothing was written.</p>
+      <p class="notice error" data-result="read-failed" tabindex="-1" hidden>The panel stopped answering before anything was written. Try again.</p>
+      <p class="notice error" data-result="write-failed" tabindex="-1" hidden>The write did not finish. Connect again and flash once more. The panel keeps its settings.</p>
+    </div>
+  </div>
+</section>
+{% endif %}
+</div>
+</body></html>

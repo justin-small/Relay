@@ -56,6 +56,21 @@ Latin letters.
 You do this once for each new panel. Relay's releases include a file called
 `relay-display.bin`. Download it from the same release page as Relay itself.
 
+**From the operator panel (Chrome or Edge).** Open **Panels**, then **Flash a
+panel** (`/admin/flash`).
+
+1. Upload `relay-display.bin` there. Relay keeps it for the next panel too.
+2. Plug the panel into the computer with a USB cable that carries data.
+3. Click **Choose the panel's port and flash**, and pick the panel's port in
+   the browser's list.
+
+The page checks the file and the board before it writes anything, asks before
+writing a board that runs something else, and shows the progress (about two
+minutes). When it says the firmware is written, press **RESET** on the panel to
+start it. It never erases the panel's Wi-Fi or settings.
+
+**From a terminal, in any browser or none.**
+
 1. Plug the panel into your computer with a USB cable.
 2. Install the flashing tool: `python3 -m pip install esptool`.
 3. Run this, in the folder that holds the file:
