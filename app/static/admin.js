@@ -1243,7 +1243,8 @@
   function renderAlertLinks() {
     const box = $('alertLinks');
     if (!box) return;
-    const host = viewerHosts[0] || location.origin;
+    // The viewer hosts end in "/" (they are joined to "translation" and the like); these paths start with one.
+    const host = (viewerHosts[0] || location.origin).replace(/\/+$/, '');
     const rows = [['Sender page (phones)', '/alert']];
     const seen = {};
     alertCfg.buttons.forEach(function (b) {
