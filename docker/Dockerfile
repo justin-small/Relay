@@ -20,7 +20,7 @@
 # By hand it is still:
 #   docker pull python:3.12-slim-bookworm && \
 #   docker image inspect python:3.12-slim-bookworm --format '{{index .RepoDigests 0}}'
-FROM python:3.12-slim-bookworm@sha256:392307d22300de8b5986851a12d9176dfc0fc073e65bf6523ebd7dcbeb23564e AS python-base
+FROM python:3.15-slim-bookworm@sha256:96599df822d0e1c6bb700014a05c7f3c8cabc6e0f7ff3c4f9f69cee033b4b5d9 AS python-base
 
 # Caddy ships a static Go binary, so the alpine image is only a delivery
 # vehicle -- the binary is copied into the Debian runtime below and nothing
