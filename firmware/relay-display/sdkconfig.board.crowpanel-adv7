@@ -8,7 +8,7 @@ CONFIG_IDF_TARGET="esp32s3"
 # 120 MHz, below. The flash size has to match `merge-bin`'s header or the bootloader and
 # the chip disagree and the panel boot-loops. QIO is the mode Elecrow's board
 # definition names for this module at 80 MHz; Elecrow's ESP-IDF sdkconfig names both
-# QIO and dio, so the mode is a bench item (README, section "Confirm on the bench").
+# QIO and dio, so the mode is a bench item (README, "Bench checklist"; QIO confirmed).
 CONFIG_ESPTOOLPY_FLASHSIZE_16MB=y
 CONFIG_ESPTOOLPY_FLASHMODE_QIO=y
 CONFIG_ESPTOOLPY_FLASHFREQ_120M=y
