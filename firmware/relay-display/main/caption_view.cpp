@@ -140,13 +140,39 @@ void scroll_to_live(Pane &p)
     p.programmatic = false;
 }
 
+// **Nothing is set to the value it already has.** LVGL 9.2 redraws on every `lv_label_set_text`, local style set and
+// un-hide, changed or not, and these run on the 50 ms tick: a header refreshed each tick was four strips redrawn
+// and a frame-buffer flip twenty times a second on a still screen (77 flushes/s, 40% CPU in the diag log), and
+// that traffic on the PSRAM bus is what the panel's bounce-buffer refill loses to: flickering bands.
+void set_text(lv_obj_t *label, const char *words)
+{
+    if (strcmp(lv_label_get_text(label), words) != 0) {
+        lv_label_set_text(label, words);
+    }
+}
+
+void set_bg(lv_obj_t *o, lv_color_t c)
+{
+    if (!lv_color_eq(lv_obj_get_style_bg_color(o, 0), c)) {
+        lv_obj_set_style_bg_color(o, c, 0);
+    }
+}
+
+void set_shown(lv_obj_t *o, bool shown)
+{
+    if (lv_obj_has_flag(o, LV_OBJ_FLAG_HIDDEN) != shown) {
+        return;
+    }
+    if (shown) {
+        lv_obj_remove_flag(o, LV_OBJ_FLAG_HIDDEN);
+    } else {
+        lv_obj_add_flag(o, LV_OBJ_FLAG_HIDDEN);
+    }
+}
+
 void show_jump(Pane &p, bool shown)
 {
-    if (shown) {
-        lv_obj_remove_flag(p.jump, LV_OBJ_FLAG_HIDDEN);
-    } else {
-        lv_obj_add_flag(p.jump, LV_OBJ_FLAG_HIDDEN);
-    }
+    set_shown(p.jump, shown);
 }
 
 void log_following(const Pane &p, const char *why)
@@ -282,8 +308,8 @@ void refresh_service_header(Pane &p)
     if (strcmp(lv_label_get_text(p.title), title) != 0) {
         lv_label_set_text(p.title, title);
     }
-    lv_label_set_text(p.state_label, caption_state_label(p.state));
-    lv_obj_set_style_bg_color(p.dot, tone_colour(caption_state_tone(p.state)), 0);
+    set_text(p.state_label, caption_state_label(p.state));
+    set_bg(p.dot, tone_colour(caption_state_tone(p.state)));
 }
 
 // An Alert pane's header: "Alerts" and the connection. Its body is `alert_view.cpp`'s.
@@ -292,8 +318,8 @@ void refresh_alert_header(Pane &p)
     if (strcmp(lv_label_get_text(p.title), "Alerts") != 0) {
         lv_label_set_text(p.title, "Alerts");
     }
-    lv_label_set_text(p.state_label, caption_state_label(p.state));
-    lv_obj_set_style_bg_color(p.dot, tone_colour(caption_state_tone(p.state)), 0);
+    set_text(p.state_label, caption_state_label(p.state));
+    set_bg(p.dot, tone_colour(caption_state_tone(p.state)));
 }
 
 void refresh_header(Pane &p)
@@ -313,14 +339,10 @@ void refresh_header(Pane &p)
             show_jump(p, false);
         }
     }
-    lv_label_set_text(p.state_label, caption_state_label(p.state));
-    lv_obj_set_style_bg_color(p.dot, tone_colour(caption_state_tone(p.state)), 0);
-    lv_label_set_text(p.empty, caption_empty_text(p.state));
-    if (p.shown_count == 0) {
-        lv_obj_remove_flag(p.empty, LV_OBJ_FLAG_HIDDEN);
-    } else {
-        lv_obj_add_flag(p.empty, LV_OBJ_FLAG_HIDDEN);
-    }
+    set_text(p.state_label, caption_state_label(p.state));
+    set_bg(p.dot, tone_colour(caption_state_tone(p.state)));
+    set_text(p.empty, caption_empty_text(p.state));
+    set_shown(p.empty, p.shown_count == 0);
 }
 
 // The strip under the header that says a language is not live, while its pane shows the transcription.
