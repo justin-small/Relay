@@ -143,6 +143,10 @@ void copy_state(const service_state *service, caption_state, void *ctx)
 
 void show_jump(SPane &p, bool shown)
 {
+    // Called on every tick: un-hiding what is already shown would redraw it each time (`caption_view.cpp`, `set_text`).
+    if (lv_obj_has_flag(p.jump, LV_OBJ_FLAG_HIDDEN) != shown) {
+        return;
+    }
     if (shown) {
         lv_obj_remove_flag(p.jump, LV_OBJ_FLAG_HIDDEN);
     } else {
