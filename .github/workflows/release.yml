@@ -46,7 +46,10 @@ jobs:
       # The runner's PortAudio is built with PulseAudio and fails to
       # initialise -- so the import fails -- when no Pulse server answers.
       # A headless one with a null sink is enough.
+      # A mirror outage makes apt retry every package until the job's limit;
+      # fail fast instead.
       - run: sudo apt-get update && sudo apt-get install -y libportaudio2 pulseaudio
+        timeout-minutes: 3
       - run: pulseaudio -D --exit-idle-time=-1 --load=module-null-sink && pactl info | head -3
       # httpx2 is test-only (starlette's TestClient), so it stays out of
       # requirements.txt and the image.
@@ -72,6 +75,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - name: Install pandoc, typst and fonts
+        timeout-minutes: 5
         run: |
           curl -fsSL -o pandoc.deb \
             "https://github.com/jgm/pandoc/releases/download/${PANDOC_VERSION}/pandoc-${PANDOC_VERSION}-1-amd64.deb"
