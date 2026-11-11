@@ -26,8 +26,8 @@ from qemu import Board
 ANSI = re.compile(r"\x1b\[[0-9;]*m")
 VIEW = re.compile(r"view: (following live|paused), (\d+) lines, (-?\d+) px below, jump button (shown|hidden)")
 
-# The button's place in logical coordinates: centred, 20 px above the bottom edge, 280 x 64.
-JUMP_X, JUMP_Y = 400, 428
+# The button's place in logical coordinates (`layout.py`).
+from layout import DOT_Y, JUMP_X, JUMP_Y  # noqa: E402
 
 
 @dataclass
@@ -159,7 +159,7 @@ def test_the_header_shows_the_feed_and_the_connection(panel: Board, relay: FakeR
     header = pixel(panel, "header", 8, 8)
     ground = pixel(panel, "ground", 8, 300)
     assert header[0] > ground[0], (header, ground)
-    green = [pixel(panel, "dot", x, 28) for x in range(WIDTH - 220, WIDTH - 28, 4)]
+    green = [pixel(panel, "dot", x, DOT_Y) for x in range(WIDTH - 220, WIDTH - 21, 4)]
     assert any(g > r + 60 and g > b for r, g, b in green), "no green status dot in the header"
 
 

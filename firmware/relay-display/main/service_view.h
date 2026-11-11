@@ -18,9 +18,9 @@
 
 #include "lvgl.h"
 
-// Build the service body for pane `pane` (0 or 1) in `box`, a column `w` wide and the panel's height, under the
+// Build the service body for pane `pane` (0 or 1) in `box`, a column `w` x `h`, under the
 // header. It reads caption slot `slot`.
-void service_view_build(int pane, lv_obj_t *box, int slot, int w);
+void service_view_build(int pane, lv_obj_t *box, int slot, int w, int h);
 
 // Take in what changed and move the timers. `touching` is whether a finger is on the panel.
 void service_view_tick(int pane, uint32_t now_ms, bool touching);

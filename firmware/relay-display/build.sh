@@ -6,7 +6,12 @@
 #   firmware/relay-display/build.sh --sign key.pem
 #   firmware/relay-display/build.sh --qemu       # into build-qemu/, for the emulator
 #   firmware/relay-display/build.sh --dev        # into build-dev/, for the bench
-#   firmware/relay-display/build.sh --board waveshare-p4-10.1   # another board, into build-waveshare-p4-10.1/
+#   firmware/relay-display/build.sh --board <name>   # another board, into build-<name>/
+#
+# **A board on hold is not built or checked** (`on_hold` below). The Waveshare ESP32-P4 10.1" is on
+# hold (#114): `--board waveshare-p4-10.1` is refused, and the native checks skip it, so a change to
+# the shared code is never held up by a board nobody is working on. `--on-hold` builds and checks it
+# anyway; to bring it back, take it out of `on_hold` (and out of `BOARDS` on hold in app/panelfw.py).
 #
 # **`--board` names the board, and without it the build is the CrowPanel's.** A board is a file,
 # `sdkconfig.board.<name>`, which sets the chip and the module, and a header under `main/boards/`.
@@ -47,13 +52,17 @@ set -euo pipefail
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 default_board="crowpanel-adv7"
+# Boards whose development is paused. Space-separated names of `sdkconfig.board.<name>` files.
+on_hold="waveshare-p4-10.1"
 board="$default_board"
 signing_key=""
 qemu=0
 dev=0
+with_on_hold=0
 while true; do
   case "${1:-}" in
     --board) board="${2:?--board needs a name}"; shift 2 ;;
+    --on-hold) with_on_hold=1; shift ;;
     --sign) signing_key="${2:?--sign needs a key file}"; shift 2 ;;
     --qemu) qemu=1; shift ;;
     --dev) dev=1; shift ;;
@@ -66,13 +75,27 @@ if [ "$qemu" = 1 ] && [ "$dev" = 1 ]; then
   exit 2
 fi
 
-# Every board there is: one `sdkconfig.board.<name>` each.
+is_on_hold() {
+  case " $on_hold " in *" $1 "*) return 0 ;; esac
+  return 1
+}
+
+# Every board there is: one `sdkconfig.board.<name>` each. A board on hold is left out unless
+# `--on-hold` asks for it.
 boards=""
 for f in "$here"/sdkconfig.board.*; do
-  boards="$boards ${f##*/sdkconfig.board.}"
+  b="${f##*/sdkconfig.board.}"
+  if is_on_hold "$b" && [ "$with_on_hold" = 0 ]; then
+    continue
+  fi
+  boards="$boards $b"
 done
 if [ ! -f "$here/sdkconfig.board.$board" ]; then
   echo "No such board: $board. The boards are:$boards" >&2
+  exit 2
+fi
+if is_on_hold "$board" && [ "$with_on_hold" = 0 ]; then
+  echo "The $board is on hold (#114): it is not built. Pass --on-hold to build it anyway." >&2
   exit 2
 fi
 if [ "$qemu" = 1 ] && [ "$board" != "$default_board" ]; then

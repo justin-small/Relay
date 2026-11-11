@@ -9,7 +9,7 @@ and the `feeds:` and `view:` lines are what is read, and the framebuffer is read
 The seed `nvs` has a Relay address (the emulator's host, port 8000), a saved translation (SPANISH) and no split. The
 fake Relay is on another port, and `relay <url>` points the feeds at it for the test, unsaved.
 
-What this does not cover is how a real finger lands on a 56 px row at the bench: a README item.
+What this does not cover is how a real finger lands on a 42 px row at the bench: a README item.
 """
 
 from __future__ import annotations
@@ -32,20 +32,13 @@ REPORT = re.compile(
 )
 SPLIT_VIEW = re.compile(r"view: split, pane 2: (following live|paused), (\d+) lines")
 
-# Where things are, in logical coordinates. The menu button is 64 x 44 at the top right. The card is 620 x 440,
-# centred, with 16 px of padding: a title row, a One feed / Two feeds row at y 94..146, (with two feeds) a Left /
-# Right row at y 156..200, and then the feeds, 56 px each with 8 px between.
-MENU_BUTTON = (756, 28)
-DONE = (639, 60)
-ONE_FEED = (206, 120)
-TWO_FEEDS = (418, 120)
-LEFT_TAB = (176, 178)
-RIGHT_TAB = (328, 178)
+# Where things are, in logical coordinates, for the UI scale in `main/ui_scale.h`: see `layout.py`.
+from layout import DONE, feed_row, LEFT_TAB, MENU_BUTTON, NOTICE_Y, ONE_FEED, RIGHT_TAB, TWO_FEEDS  # noqa: E402,F401
 
 
 def row(index: int, *, split: bool) -> tuple[int, int]:
     """The centre of the menu's `index`th feed."""
-    return 400, (238 if split else 184) + 64 * index
+    return feed_row(index, split=split)
 
 
 @dataclass
@@ -232,7 +225,7 @@ def test_a_language_that_goes_dark_falls_back_and_returns(panel: Board, relay: F
     # The notice strip under the header is amber.
     deadline = time.monotonic() + 30
     while True:
-        red, green, blue = pixel(panel, "notice", 600, 72)
+        red, green, blue = pixel(panel, "notice", 600, NOTICE_Y)
         if red > 55 and blue < 25 and red > green:
             break
         assert time.monotonic() < deadline, f"no notice strip on the glass: {(red, green, blue)}"
@@ -243,7 +236,7 @@ def test_a_language_that_goes_dark_falls_back_and_returns(panel: Board, relay: F
     assert r.saved[0] == "translation SPANISH"
     deadline = time.monotonic() + 30
     while True:
-        red, green, blue = pixel(panel, "no-notice", 600, 72)
+        red, green, blue = pixel(panel, "no-notice", 600, NOTICE_Y)
         if not (red > 55 and blue < 25 and red > green):
             break
         assert time.monotonic() < deadline, "the notice strip stayed after Spanish came back"

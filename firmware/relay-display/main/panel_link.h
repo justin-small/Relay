@@ -8,7 +8,7 @@
 // `panel_link_format.h`, which `test_native.cpp` checks on a laptop. This file is the two tasks and their sockets.
 //
 // **Plain HTTP, no pairing, by decision.** The check-in says what any device on the LAN can already see, and the
-// stream carries a feed choice and the panel's service mode. A panel the operator lets control the service is also
+// stream carries a feed choice, a rotation, a restart and the panel's service mode. A panel the operator lets control the service is also
 // sent its control key there (#80): it stops casual misuse, not someone reading the network. Relay bounds what a stray client can do (`app/panels.py`);
 // control stays under `/api/admin/*` on Relay's HTTPS port, which the panel never calls.
 //
@@ -27,6 +27,11 @@ esp_err_t panel_link_start(const relay_settings_t &settings);
 
 // The console's `panel`: log the link's state in one line.
 void panel_link_report();
+
+// Turn the screen to `deg` (0, 90, 180 or 270) from the panel's own menu (#122): saved, then the panel restarts, as
+// its screen is set up at boot. Relay's last rotation revision is kept, so the turn stands until the operator sets one
+// again. Returns at once for the angle shown now, and if the save failed. Works whether or not Relay was ever found.
+void panel_link_turn_from_screen(int deg);
 
 // The panel's Planning Center service mode as Relay last said it (off until it has), and a count of its changes.
 panel_service panel_link_service();

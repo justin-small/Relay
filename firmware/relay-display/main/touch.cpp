@@ -39,14 +39,14 @@ void read_cb(lv_indev_t *, lv_indev_data_t *data)
             // using the screen; the emulator suite reads these lines.
 #if CONFIG_RELAY_QEMU
             ESP_LOGI(TAG, "pointer %s at (%d, %d)", raw.pressed ? "down" : "up",
-                     touch_logical_x(raw.x, s_rotation_deg), touch_logical_y(raw.y, s_rotation_deg));
+                     touch_logical_x(raw.x, raw.y, s_rotation_deg), touch_logical_y(raw.x, raw.y, s_rotation_deg));
 #else
             ESP_LOGD(TAG, "pointer %s", raw.pressed ? "down" : "up");
 #endif
         }
     }
-    data->point.x = touch_logical_x(s_last.x, s_rotation_deg);
-    data->point.y = touch_logical_y(s_last.y, s_rotation_deg);
+    data->point.x = touch_logical_x(s_last.x, s_last.y, s_rotation_deg);
+    data->point.y = touch_logical_y(s_last.x, s_last.y, s_rotation_deg);
     data->state = s_last.pressed ? LV_INDEV_STATE_PRESSED : LV_INDEV_STATE_RELEASED;
 }
 
@@ -177,14 +177,14 @@ esp_err_t touch_start(int rotation_deg)
     s_rotation_deg = rotation_deg;
 #if CONFIG_RELAY_QEMU
     s_source = &s_injected;
-    ESP_LOGI(TAG, "touch: emulator input, rotation %d", panel_rotation_mirrors(rotation_deg) ? 180 : 0);
+    ESP_LOGI(TAG, "touch: emulator input, rotation %d", rotation_deg);
 #else
     const esp_err_t found = s_gt911.begin();
     if (found != ESP_OK) {
         return found;
     }
     s_source = &s_gt911;
-    ESP_LOGI(TAG, "touch: gt911 up, rotation %d", panel_rotation_mirrors(rotation_deg) ? 180 : 0);
+    ESP_LOGI(TAG, "touch: gt911 up, rotation %d", rotation_deg);
 #endif
     screen_lock();
     const esp_err_t err = register_pointer();

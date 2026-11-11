@@ -79,9 +79,12 @@ CONFIG_SECURE_BOOT_BUILD_SIGNED_BINARIES=n
 # LVGL's bundled examples are not used; building them is most of the build's objects.
 CONFIG_LV_BUILD_EXAMPLES=n
 CONFIG_LV_USE_QRCODE=y
-CONFIG_LV_FONT_MONTSERRAT_20=y
-CONFIG_LV_FONT_MONTSERRAT_28=y
-CONFIG_LV_FONT_MONTSERRAT_40=y
+CONFIG_LV_FONT_MONTSERRAT_14=y
+CONFIG_LV_FONT_MONTSERRAT_16=y
+CONFIG_LV_FONT_MONTSERRAT_18=y
+CONFIG_LV_FONT_MONTSERRAT_22=y
+CONFIG_LV_FONT_MONTSERRAT_26=y
+CONFIG_LV_FONT_MONTSERRAT_30=y
 
 # **LVGL allocates from the heap, not from a 64 KB pool of its own.** The caption view holds a label for each of up to
 # 200 lines, about 300 bytes apiece with its text, which is most of that pool and would leave the setup screen's QR
@@ -101,3 +104,8 @@ CONFIG_LWIP_MAX_SOCKETS=16
 # code's text. Adding the QR code's 160 bytes overflowed the default on the bench (2026-10-28), a reboot on the
 # first boot after a flash. `app_main` returns once the boot is done, and its stack is freed with it.
 CONFIG_ESP_MAIN_TASK_STACK_SIZE=8192
+
+# The system event task runs the Wi-Fi and address callbacks, and the setup page's save runs from one of them
+# (`provision.cpp`, `attempt_succeeded`): loading and saving the settings blob there overflowed the default 2304 bytes
+# and restarted the panel before a new network was saved.
+CONFIG_ESP_SYSTEM_EVENT_TASK_STACK_SIZE=4096

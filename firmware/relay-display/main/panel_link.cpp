@@ -11,6 +11,7 @@
 #include "esp_heap_caps.h"
 #include "esp_log.h"
 #include "esp_random.h"
+#include "esp_system.h"
 #include "esp_timer.h"
 #include "feeds.h"
 #include "firmware_update.h"
@@ -20,6 +21,7 @@
 #include "net.h"
 #include "panel_link_format.h"
 #include "sdkconfig.h"
+#include "settings.h"
 
 namespace {
 
@@ -38,6 +40,9 @@ struct State {
     std::atomic<uint32_t> checkins{0};
     std::atomic<bool> stream_open{false};
     char name[kPanelNameMax] = {};  // what Relay calls this panel; the check-in task's
+    int booted_rotation = 0;        // what the screen was set up with; a change takes a restart
+    std::atomic<uint32_t> rotation_rev{0};  // the operator rotation last applied, kept in NVS across the restart
+    std::atomic<bool> restarting{false};
 };
 
 State s_;
@@ -83,6 +88,41 @@ bool relay_address(char *url, size_t cap)
     return feeds_relay_url(url, cap) && captions_has_address();
 }
 
+// Restart now, for the operator (#122): a Reboot, or a rotation that the panel and touch layer only take at boot.
+// Once: a second word while the first is under way is dropped. The short wait lets the log line out.
+void restart(const char *why)
+{
+    if (s_.restarting.exchange(true)) {
+        return;
+    }
+    ESP_LOGW(TAG, "panel_link: restarting: %s", why);
+    vTaskDelay(pdMS_TO_TICKS(500));
+    esp_restart();
+}
+
+// The operator's rotation, once per revision: the same one reaches the panel in a check-in reply and on the stream.
+// Saved with its revision first; a save that fails does not restart (it would boot as it was). A revision whose angle
+// is the one shown only moves the revision.
+void set_rotation(const panel_set_rotation &r, const char *how)
+{
+    if (r.rev == s_.rotation_rev.load() || s_.restarting.load()) {
+        return;
+    }
+    const esp_err_t err = settings_save_rotation(static_cast<uint16_t>(r.deg), r.rev);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "panel_link: rotation %d (rev %u, %s) not saved (%s); staying at %d", r.deg,
+                 static_cast<unsigned>(r.rev), how, esp_err_to_name(err), s_.booted_rotation);
+        return;
+    }
+    s_.rotation_rev = r.rev;
+    ESP_LOGI(TAG, "panel_link: rotation %d rev %u applied (%s)", r.deg, static_cast<unsigned>(r.rev), how);
+    if (panel_rotation_needs_restart(r.deg, s_.booted_rotation)) {
+        char why[40];
+        snprintf(why, sizeof why, "rotation set to %d from Relay", r.deg);
+        restart(why);
+    }
+}
+
 void apply(const panel_set_feed &f, const char *how)
 {
     if (s_.applied_rev.exchange(f.rev) == f.rev) {
@@ -125,6 +165,9 @@ bool checkin(const char *url)
     panel_status st = {};
     snprintf(st.id, sizeof st.id, "%s", s_.id);
     snprintf(st.version, sizeof st.version, "%s", RELAY_FW_VERSION);
+    snprintf(st.board, sizeof st.board, "%s", RELAY_BOARD_ID);
+    st.rotation = s_.booted_rotation;
+    st.rotation_rev = s_.rotation_rev.load();
     st.uptime_s = static_cast<uint32_t>(esp_timer_get_time() / 1000000);
     st.feed_rev = s_.applied_rev.load();
     int rssi = 0;
@@ -182,6 +225,9 @@ bool checkin(const char *url)
                 }
                 if (r.has_service) {
                     set_service(r.service, "check-in");
+                }
+                if (r.has_rotation) {
+                    set_rotation(r.rotation, "check-in");
                 }
                 // The reply is Relay's current word on an update: no `update` is the ask withdrawn. A 200 that
                 // parsed is also the proof a new image needs.
@@ -274,6 +320,12 @@ void on_event(void *, const caption_sse_event &event)
         break;
     case panel_message::service_mode:
         set_service(ev.service, "stream");
+        break;
+    case panel_message::set_rotation:
+        set_rotation(ev.rotation, "stream");
+        break;
+    case panel_message::reboot:
+        restart("Relay's operator asked for it");
         break;
     case panel_message::none:
         break;
@@ -393,6 +445,9 @@ esp_err_t panel_link_start(const relay_settings_t &settings)
     if (s_started) {
         return ESP_OK;
     }
+    // Before anything that can return: the screen's own turn needs these with or without a panel ID.
+    s_.booted_rotation = panel_rotation_valid(settings.rotation_deg) ? settings.rotation_deg : 0;
+    s_.rotation_rev = settings_load_rotation_rev();
     if (!settings_panel_id_valid(settings.panel_id)) {
         ESP_LOGW(TAG, "panel_link: no panel ID; not checking in");
         return ESP_OK;
@@ -412,6 +467,22 @@ void panel_link_report()
     ESP_LOGI(TAG, "panel_link: report: %s, %u check-ins, stream %s, rev %u, named \"%s\"",
              s_started ? "running" : "not started", static_cast<unsigned>(s_.checkins.load()),
              s_.stream_open ? "open" : "closed", static_cast<unsigned>(s_.applied_rev.load()), s_.name);
+}
+
+void panel_link_turn_from_screen(int deg)
+{
+    // The screen's own turn keeps the operator's revision as it is, so Relay does not send its rotation back.
+    if (!panel_rotation_valid(deg) || deg == s_.booted_rotation) {
+        return;
+    }
+    const esp_err_t err = settings_save_rotation(static_cast<uint16_t>(deg), s_.rotation_rev.load());
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "panel_link: rotation %d from the screen not saved (%s)", deg, esp_err_to_name(err));
+        return;
+    }
+    char why[40];
+    snprintf(why, sizeof why, "turned to %d at the screen", deg);
+    restart(why);
 }
 
 panel_service panel_link_service()

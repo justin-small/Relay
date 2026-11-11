@@ -266,7 +266,7 @@
   .urls .urllabel { text-transform:none; letter-spacing:0; font-size:13px; font-weight:600; color:var(--fg); }
 
   /* Panels: a compact list; the name opens its settings in a right-hand drawer. */
-  .prow { display:grid; grid-template-columns:minmax(120px,1.4fr) minmax(100px,1.4fr) minmax(70px,.7fr) auto; gap:4px 14px;
+  .prow { display:grid; grid-template-columns:minmax(120px,1.3fr) minmax(90px,1fr) minmax(100px,1.3fr) minmax(60px,.6fr) auto; gap:4px 14px;
           align-items:center; padding:10px 0; border-top:1px solid var(--line); font-size:13px; }
   .prow:first-child { border-top:0; }
   .prow.offline { opacity:.75; }
@@ -277,6 +277,11 @@
   .pstat { display:inline-flex; align-items:center; gap:6px; font-size:12px; color:var(--dim); justify-self:end; }
   .pstat .badge { color:var(--accent); }
   .fwbox.flat { border:0; background:transparent; padding:0; margin:0; }
+  .fwtype { padding:12px 0; border-top:1px solid var(--line); }
+  .fwtype:first-child { border-top:0; padding-top:0; }
+  .fwtype .fwname { font-weight:600; font-size:14px; }
+  .fwtype .fwmeta { font-size:12px; color:var(--dim); margin-top:2px; }
+  .fwtype .fwrow [hidden] { display:none; }
   #drawerBg { position:fixed; inset:0; background:rgba(0,0,0,.55); z-index:20; }
   #drawerBg[hidden],#drawer[hidden] { display:none; }
   #drawer { position:fixed; top:0; right:0; bottom:0; width:min(420px,100%); background:#101114;
@@ -304,7 +309,7 @@
     .menu { display:inline-block; }
     main { padding:20px 16px 96px; }
     .prow { grid-template-columns:1fr auto; }
-    .prow .pshow,.prow .pfw { grid-column:1 / -1; }
+    .prow .pshow,.prow .pfw,.prow .pboard { grid-column:1 / -1; }
   }
 </style>
 </head><body>
@@ -448,18 +453,12 @@
     <section>
       <h3>Panel firmware</h3>
     <div class="fwbox flat" id="fwBox">
-      <span class="muted">Current image:</span> <span id="fwInfo">none uploaded</span>
-      <div class="fwrow">
-        <input type="file" id="fwFile" accept=".bin,application/octet-stream" aria-label="Signed panel image (relay-display-app.bin)">
-        <button type="button" id="fwUpload">Upload</button>
-        <button type="button" id="fwUpdateAll" hidden>Update all online panels</button>
-        <button type="button" id="fwRemove" hidden>Remove</button>
-      </div>
+      <div id="fwTypes"></div>
       <div class="note">
-        Upload <code>relay-display-app.bin</code> from a release. Relay checks it is a panel image, but the
-        panel decides whether the signature is right and refuses anything not signed with its release key.
-        An update installs at a quiet moment (no new caption line for a while) unless you choose
-        &ldquo;Update now&rdquo;.
+        One image per kind of panel. Upload that panel's <code>relay-display-app.bin</code> from a release;
+        Relay checks it is a panel image for that board, but the panel decides whether the signature is
+        right and refuses anything not signed with its release key. An update installs at a quiet moment
+        (no new caption line for a while) unless you choose &ldquo;Update now&rdquo;.
       </div>
     </div>
 

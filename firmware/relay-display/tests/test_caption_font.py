@@ -12,6 +12,8 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+import pytest
+
 ROOT = Path(__file__).resolve().parent.parent / "main"
 
 
@@ -35,14 +37,16 @@ def _kept() -> set[int]:
     return kept
 
 
-def test_the_font_draws_every_kept_character() -> None:
-    have = _glyphs("relay_caption_36.c") | _glyphs("relay_caption_36_more.c")
+@pytest.mark.parametrize("size", [27, 23])
+def test_the_font_draws_every_kept_character(size: int) -> None:
+    have = _glyphs(f"relay_caption_{size}.c") | _glyphs(f"relay_caption_{size}_more.c")
     missing = sorted(_kept() - have)
     assert not missing, "no glyph for " + " ".join(f"U+{c:04X}" for c in missing)
 
 
-def test_the_vietnamese_letters_come_from_the_main_face() -> None:
+@pytest.mark.parametrize("size", [27, 23])
+def test_the_vietnamese_letters_come_from_the_main_face(size: int) -> None:
     """Stacked diacritics are the case that matters most; they should not come from the fallback."""
-    main = _glyphs("relay_caption_36.c")
+    main = _glyphs(f"relay_caption_{size}.c")
     vietnamese = set(range(0x1EA0, 0x1EFA)) | {0x0102, 0x0103, 0x00C2, 0x00CA, 0x00D4, 0x01A0, 0x01A1, 0x01AF, 0x01B0, 0x0110, 0x0111}
     assert vietnamese <= main, sorted(f"U+{c:04X}" for c in vietnamese - main)

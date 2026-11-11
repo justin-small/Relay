@@ -22,9 +22,18 @@ esp_err_t settings_save(const relay_settings_t *in);
 // saving a network. An error comes back if the blob cannot be written.
 esp_err_t settings_save_feeds(const relay_settings_t *in);
 
-// Copy the stored feed choice into `*cand`, so a save of a whole blob made from an older copy (the setup page's)
-// does not put an old choice back.
+// Copy the stored feed choice and rotation into `*cand`, so a save of a whole blob made from an older copy (the
+// setup page's) does not put an old choice back.
 void settings_adopt_feeds(relay_settings_t *cand);
+
+// Save the rotation (0, 90, 180 or 270) into the stored blob, leaving every other field as stored, and the newest operator
+// rotation revision applied (#122) in its own key. The angle takes effect at the next boot: the panel and the touch
+// layer are set up once. A turn made at the screen passes the revision it has, unchanged. ESP_ERR_INVALID_ARG for any
+// other angle.
+esp_err_t settings_save_rotation(uint16_t rotation_deg, uint32_t rotation_rev);
+
+// The operator rotation revision last saved; 0 when none. The factory reset erases it with everything else.
+uint32_t settings_load_rotation_rev();
 
 // The defaults: nothing configured, so the panel opens its setup network and does not
 // connect to anything. The rotation starts at the Kconfig value, and the address is DHCP.

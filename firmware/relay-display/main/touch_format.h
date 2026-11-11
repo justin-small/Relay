@@ -88,22 +88,20 @@ constexpr touch_report gt911_decode(const uint8_t (&buf)[kGt911ReadBytes], touch
 // ---------------------------------------------------------------------------
 
 // The controller reports where the glass was touched, and the glass does not know how the picture
-// is turned. At 180 degrees the driver mirrors the picture in both axes (`panel_rotation_mirrors`),
-// so the same touch is at the mirrored position of the picture. A report outside the panel (the
-// controller's range is its own and a worn edge can read past it) is pulled onto the edge first.
+// is turned. The touch is turned back the way the picture was turned onto the glass
+// (`panel_logical_x`, `panel_logical_y`), so it lands on what was drawn there. A report outside the panel
+// (the controller's range is its own and a worn edge can read past it) is pulled onto the edge first.
 constexpr int touch_clamp(int v, int max)
 {
     return v < 0 ? 0 : (v > max ? max : v);
 }
 
-constexpr int touch_logical_x(int raw_x, int rotation_deg)
+constexpr int touch_logical_x(int raw_x, int raw_y, int rotation_deg)
 {
-    const int x = touch_clamp(raw_x, kLcdWidth - 1);
-    return panel_rotation_mirrors(rotation_deg) ? kLcdWidth - 1 - x : x;
+    return panel_logical_x(touch_clamp(raw_x, kLcdWidth - 1), touch_clamp(raw_y, kLcdHeight - 1), rotation_deg);
 }
 
-constexpr int touch_logical_y(int raw_y, int rotation_deg)
+constexpr int touch_logical_y(int raw_x, int raw_y, int rotation_deg)
 {
-    const int y = touch_clamp(raw_y, kLcdHeight - 1);
-    return panel_rotation_mirrors(rotation_deg) ? kLcdHeight - 1 - y : y;
+    return panel_logical_y(touch_clamp(raw_x, kLcdWidth - 1), touch_clamp(raw_y, kLcdHeight - 1), rotation_deg);
 }

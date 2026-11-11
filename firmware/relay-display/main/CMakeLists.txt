@@ -85,7 +85,7 @@ endif()
 idf_component_register(
     SRCS "main.cpp" "display.cpp" ${_relay_board_srcs} "board_i2c.cpp" "button.cpp" "net.cpp" "settings.cpp" "diag.cpp"
          "provision.cpp" "screen.cpp" "touch.cpp" "captions.cpp" "caption_view.cpp" "service_view.cpp" "service_control.cpp" "feeds.cpp" "discovery.cpp" "panel_link.cpp" "firmware_update.cpp"
-         "fonts/relay_caption_36.c" "fonts/relay_caption_36_more.c"
+         "fonts/relay_caption_27.c" "fonts/relay_caption_27_more.c" "fonts/relay_caption_23.c" "fonts/relay_caption_23_more.c"
          ${_relay_qemu_srcs}
     INCLUDE_DIRS "."
     REQUIRES ${_relay_requires}

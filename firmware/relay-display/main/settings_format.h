@@ -24,7 +24,7 @@
 struct relay_settings_t {
     uint32_t magic;          // identifies a blob this firmware wrote
     uint16_t schema;         // the layout version; see `kSettingsSchema`
-    uint16_t rotation_deg;   // 0 or 180
+    uint16_t rotation_deg;   // 0, 90, 180 or 270 (90 and 270 since #122)
     char wifi_ssid[33];      // 32 bytes and the terminator
     char wifi_password[65];  // 64 bytes and the terminator; empty for an open network
     char relay_addr[129];    // the Relay address override, `http://host[:port]`; empty means find Relay
@@ -40,7 +40,7 @@ struct relay_settings_t {
     uint8_t static_dns2[4];     // the secondary DNS server; 0.0.0.0 when there is none
     // Schema 2: the split view. Pane 1 is `feed_stream`/`feed_lang` above; pane 2 is here.
     uint8_t feed_split;      // 0 for one feed full screen, 1 for two side by side
-    uint8_t feed2_stream;    // pane 2's feed: kFeedNone, kFeedTranscription or kFeedTranslation
+    uint8_t feed2_stream;    // pane 2's feed: kFeedNone, kFeedTranscription, kFeedTranslation or kFeedService
     uint8_t reserved2[2];    // zero
     char feed2_lang[20];     // pane 2's translation language, as Relay names it
 };
@@ -76,7 +76,7 @@ constexpr uint8_t kFeedService = 3;
 // What `settings_decode` made of a blob.
 enum class settings_blob {
     accepted,        // read whole; `*out` now holds it
-    rotation_reset,  // read, but its rotation was not 0 or 180 and is the default now
+    rotation_reset,  // read, but its rotation was not one of 0, 90, 180, 270 and is the default now
     wrong_size,      // not the size of this layout
     wrong_magic,     // not written by this firmware
     wrong_schema,    // written by a layout this firmware does not read

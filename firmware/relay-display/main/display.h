@@ -18,9 +18,15 @@ esp_err_t display_backlight_init();
 // Returns the bus error when the STC8 does not take the command.
 esp_err_t display_backlight(bool on);
 
-// Bring up the RGB panel with its frame buffer in PSRAM. `rotation_deg` is 0 or
-// 180; 180 is applied by the driver as a mirror in both axes.
+// Bring up the RGB panel with its frame buffer in PSRAM. `rotation_deg` is 0, 90, 180 or 270 (`panel_format.h`);
+// every turn is made in software as rectangles are written.
 esp_err_t display_init(int rotation_deg);
+
+// The picture's size at the rotation the panel was set up with: 800 x 480, or 480 x 800 for 90 and 270. Everything
+// LVGL lays out is in these coordinates.
+int display_width();
+int display_height();
+int display_rotation();
 
 // Put the picture back in place after a flash write. With the frame buffer in PSRAM and no bounce buffer, a
 // flash write holds the bus the panel's DMA reads, the DMA falls behind, and the picture lands shifted to the
@@ -51,7 +57,7 @@ esp_err_t display_show_test_screen(const char *version);
 
 // Write a rectangle of logical pixels into the panel. `x1..x2` and `y1..y2` are inclusive, in the
 // upright picture's coordinates. `pixels` holds the rows of the rectangle, `stride` pixels apart, and the
-// first pixel is at (x1, y1). The turn for a 180 degree rotation is made here, on the board and the emulator
+// first pixel is at (x1, y1). The turn for the rotation is made here, on the board and the emulator
 // alike, as `paint` makes it for the bench screen.
 // Partial updates: only the rectangle is written, and the rest of the frame stays as it was.
 // On a board with two frame buffers the rectangle goes into the one that is not on the glass, and shows

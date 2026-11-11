@@ -12,6 +12,7 @@
 #include <cstring>
 
 #include "config.h"
+#include "ui_scale.h"
 
 // ---------------------------------------------------------------------------
 // Colour
@@ -37,16 +38,57 @@ constexpr uint16_t kBlue = rgb565_pack(0, 0, 255);
 // Rotation
 // ---------------------------------------------------------------------------
 
-// The orientation is 0 or 180 degrees. 180 is applied by the driver as a mirror
-// in both axes (`esp_lcd_panel_mirror`), not by drawing the frame differently.
+// The orientation is 0, 90, 180 or 270 degrees, clockwise: how far the picture is turned on the glass. 0 and 180
+// are landscape, the panel's own 800 x 480; 90 and 270 are portrait, a 480 x 800 picture (#122). Every turn is
+// made in software as the picture is written to the frame buffer (`display.cpp`), and touch is turned back the
+// same way (`touch_format.h`).
 constexpr bool panel_rotation_valid(int deg)
 {
-    return deg == 0 || deg == 180;
+    return deg == 0 || deg == 90 || deg == 180 || deg == 270;
 }
 
 constexpr bool panel_rotation_mirrors(int deg)
 {
     return deg == 180;
+}
+
+constexpr bool panel_rotation_portrait(int deg)
+{
+    return deg == 90 || deg == 270;
+}
+
+// The picture's size at `deg`: what LVGL lays out.
+constexpr int panel_logical_width(int deg)
+{
+    return panel_rotation_portrait(deg) ? kLcdHeight : kLcdWidth;
+}
+
+constexpr int panel_logical_height(int deg)
+{
+    return panel_rotation_portrait(deg) ? kLcdWidth : kLcdHeight;
+}
+
+// The glass pixel that picture pixel (lx, ly) lands on at `deg`. At 90 the picture's top edge runs down the
+// glass's right-hand side; at 270, down its left.
+constexpr int panel_physical_x(int lx, int ly, int deg)
+{
+    return deg == 180 ? kLcdWidth - 1 - lx : deg == 90 ? kLcdWidth - 1 - ly : deg == 270 ? ly : lx;
+}
+
+constexpr int panel_physical_y(int lx, int ly, int deg)
+{
+    return deg == 180 ? kLcdHeight - 1 - ly : deg == 90 ? lx : deg == 270 ? kLcdHeight - 1 - lx : ly;
+}
+
+// The picture pixel on glass pixel (px, py) at `deg`: the inverse of the two above.
+constexpr int panel_logical_x(int px, int py, int deg)
+{
+    return deg == 180 ? kLcdWidth - 1 - px : deg == 90 ? py : deg == 270 ? kLcdHeight - 1 - py : px;
+}
+
+constexpr int panel_logical_y(int px, int py, int deg)
+{
+    return deg == 180 ? kLcdHeight - 1 - py : deg == 90 ? kLcdWidth - 1 - px : deg == 270 ? px : py;
 }
 
 // ---------------------------------------------------------------------------
@@ -305,7 +347,7 @@ struct panel_text_line {
     bool mono = false;
 };
 
-constexpr int kPanelTextGap = 18;  // screen pixels between two lines
+constexpr int kPanelTextGap = ui_px(18);  // screen pixels between two lines
 constexpr int kPanelTextMaxLines = 9;  // the pairing screen's step line made it nine
 
 constexpr int panel_text_line_height(int scale)

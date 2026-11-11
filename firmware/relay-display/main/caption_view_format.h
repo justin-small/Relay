@@ -10,19 +10,23 @@
 
 #include "caption_format.h"
 #include "settings_format.h"
+#include "ui_scale.h"
 
 // ---------------------------------------------------------------------------
 // Layout, in panel pixels (800 x 480)
 // ---------------------------------------------------------------------------
 
-constexpr int kCaptionHeaderH = 56;
-constexpr int kCaptionPadX = 28;
-constexpr int kCaptionPadY = 14;
-// The gap between two lines. A line is 41 px tall in the caption font, so a screen holds about seven.
-constexpr int kCaptionLineGap = 16;
-constexpr int kCaptionJumpW = 280;
-constexpr int kCaptionJumpH = 64;
-constexpr int kCaptionJumpMargin = 20;
+constexpr int kCaptionHeaderH = ui_px(56);
+// A pane narrower than this is laid out narrow: shorter words, a smaller title. The half of a landscape panel
+// (about 400 px) is; a full-width upright panel (480 px, #122) and anything wider is not.
+constexpr int kCaptionNarrowW = 440;
+constexpr int kCaptionPadX = ui_px(28);
+constexpr int kCaptionPadY = ui_px(14);
+// The gap between two lines. A line is 36 px tall at 100% (31 at 75%, 27 at 65%), so a screen holds seven to ten.
+constexpr int kCaptionLineGap = ui_px(16);
+constexpr int kCaptionJumpW = ui_px(280);
+constexpr int kCaptionJumpH = ui_px(64);
+constexpr int kCaptionJumpMargin = ui_px(20);
 
 // A view this near the bottom, in px, counts as at the bottom. Touch scrolling does not land on the last pixel.
 constexpr int kCaptionBottomSlackPx = 6;

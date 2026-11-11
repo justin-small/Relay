@@ -28,8 +28,7 @@ BUTTONS = re.compile(
     r'view: service pane 1 buttons: previous (\d+) (\d+), next (\d+) (\d+), (Take control|Take|Release) (\d+) (\d+), '
     r'message "([^"]*)"(, confirm up)?'
 )
-# The confirmation card: 600 x 220, centred; "Take control" at its bottom left.
-CONFIRM_YES = (255, 290)
+from layout import CONFIRM_YES  # noqa: E402 - the confirmation card's "Take control" button
 ORDER = ["1", "3", "4", "6"]  # the items Next steps through (headers are skipped)
 
 

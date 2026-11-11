@@ -317,7 +317,7 @@ nothing appears word by word (the client asks for `finals=1`).
 * **A paused view returns to live by itself after 60 s with no touch** (`kCaptionAutoLiveMs`), so a wall panel
   someone scrolled and walked away from does not show old lines for good. A snapshot or reset from Relay also puts
   the view back on live: where the finger had it no longer exists.
-* **The font is fixed at 36 px**, readable from a few metres on the 7". Following Relay's `default_font_px` is not
+* **The UI scale is one number:**  `RELAY_UI_SCALE_PCT` in `main/ui_scale.h` (65 now; 75 also works; 100 was the first size, a 36 px caption font), and every size is `ui_px(<size at 100%>)`. The caption font is fixed at 23 px at 65%, readable from a few metres on the 7". Following Relay's `default_font_px` is not
   done: the panel does not receive it yet, and a size that changes needs the wrapped lines measured again.
 * **The font** is Montserrat Medium (SIL OFL) with DejaVu Sans (its own license, permissive) as a fallback for the
   Latin Extended letters Montserrat lacks, generated into `main/fonts/` by `tools/gen_caption_font.sh` (needs node;
@@ -378,7 +378,7 @@ which `main/caption_view.cpp` builds in a pane whose feed is the service.
   clock as the captions, with the service state in place of the 200 lines. **Each `service` message is the whole state**,
   so there is nothing to resume; a `service_tick` every 15 s keeps the silence clock happy and says when Planning Center
   last answered.
-* **On the glass**: the current item in the caption font with its time left (`montserrat_40`, red with a `+` once over)
+* **On the glass**: the current item in the caption font with its time left (`montserrat_26`, red with a `+` once over)
   and the next item; the order of service below, scrollable, the current item highlighted, headers as small section
   breaks, songs with their key and arrangement sequence and items with their length; a footer with over/under and who
   is controlling, or "Not live", "No service planned today", "Planning Center unreachable".
@@ -396,7 +396,7 @@ which `main/caption_view.cpp` builds in a pane whose feed is the service.
   <name>?" first when someone else has it. **A second tap while the first is unanswered is ignored**, so a double tap
   is one press. A refusal reads under the buttons for a few seconds ("Take control first", "Not allowed", "Planning
   Center unreachable"). A change of mode in admin rebuilds the view, so the buttons come and go at once.
-* **Fonts.** Only the 36 px caption font draws accents, so item titles use it. The smaller text (key, sequence, footer,
+* **Fonts.** Only the caption font draws accents, so item titles use it. The smaller text (key, sequence, footer,
   header, notes) is LVGL's Montserrat, ASCII only: an accented letter is drawn without its accent ("José" reads "Jose").
 * Console: `feeds` lists a service option as `service:<id>`; `view` adds a line per service pane (items, current, next,
   the timer and footer as drawn, following or paused, and where the current row is).
@@ -485,9 +485,9 @@ Not proven by any test, and to be done on the board:
 - [ ] Hold BOOT for 5 s opens the setup network; hold for 15 s erases everything
 - [ ] The picture does not shift or flicker while Wi-Fi is busy (the bounce buffer exists for this)
 - [ ] Caption view: drag scrolling is smooth with 200 lines in the buffer while new lines keep arriving (the
-      emulator is too slow to say); a flick settles; the 36 px text reads from the back of the room
+      emulator is too slow to say); a flick settles; the caption text reads from the back of the room
 - [ ] Caption view: touch lands where the finger is (the GT911 and the rotation), and Jump to live is easy to hit
-- [ ] Feed picker: the menu button and the 56 px rows are easy to hit with a finger, with two feeds as well as one
+- [ ] Feed picker: the rows (36 px at 65%) and the menu button (29 px, whose touch area is 12 px wider on every side) are easy to hit with a finger, with two feeds as well as one
 - [ ] Feed picker: with two feeds, the half-width panes read well from the back of the room
 - [ ] Service feed: the current item, its timer and the next item read from a few metres; the order of service scrolls
       smoothly and a finger on a row with notes opens them without scrolling by mistake

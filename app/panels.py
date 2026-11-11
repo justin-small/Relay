@@ -7,13 +7,13 @@ client can do to this module is bounded:
 
 * the registry holds at most MAX_PANELS entries, and a check-in body is at most
   CHECKIN_MAX_BYTES, so a flood cannot grow memory or config.json;
-* the event stream carries a feed choice and the panel's service mode. A
+* the event stream carries a feed choice, a rotation, a restart and the panel's service mode. A
   panel allowed to move the Planning Center service on is also sent its
   control key there (and on its check-in reply): plain HTTP, so the key stops
   casual misuse, not someone reading the network. Never the Planning Center
   token;
 * nothing a panel sends is ever written to config.json. Only what the operator
-  sets from the admin side (a name, a feed, a service mode) is persisted -- and that side stays
+  sets from the admin side (a name, a feed, a rotation, a service mode) is persisted -- and that side stays
   under /api/admin/*, which the viewer port refuses.
 
 The registry is in memory. The operator's name and feed per panel live in
@@ -65,7 +65,15 @@ _ST_RE = re.compile(r"^\d{1,20}$")
 
 TRANSCRIPTION = "transcription"
 TRANSLATION = "translation"
+# The Planning Center service as a feed (#122): {"stream": "service", "service_type": "<id>"}. The
+# panel holds the id where a translation holds its language, in 19 characters.
+SERVICE = "service"
 MAX_FEEDS = 2
+_FEED_ST_RE = re.compile(r"^\d{1,19}$")
+# What the panel's screen may be turned to (#122), clockwise: 0 and 180 landscape, 90 and 270 upright.
+ROTATIONS = (0, 90, 180, 270)
+# What a panel may say about its board: RELAY_BOARD_ID in firmware/relay-display/main/boards/.
+_BOARD_RE = re.compile(r"^[a-z0-9][a-z0-9.-]{0,31}$")
 
 _ID_RE = re.compile(r"^[0-9a-f]{32}$")
 _SCRIPT_RE = re.compile(r"^[a-z]{2,16}$")
@@ -89,8 +97,10 @@ def _text(value: object, limit: int) -> str:
 def clean_feeds(raw: object) -> list[dict[str, str]] | None:
     """One or two feed choices, or None if `raw` is not a valid list of them.
 
-    A feed is {"stream": "transcription"} or {"stream": "translation", "lang":
-    "SPANISH"}. The language must be one Relay can translate into.
+    A feed is {"stream": "transcription"}, {"stream": "translation", "lang":
+    "SPANISH"} or {"stream": "service", "service_type": "123"}. The language
+    must be one Relay can translate into; whether the service type is one Relay
+    follows, and the panel shows the service, is the caller's to check.
     """
     if not isinstance(raw, list) or not 1 <= len(raw) <= MAX_FEEDS:
         return None
@@ -106,6 +116,11 @@ def clean_feeds(raw: object) -> list[dict[str, str]] | None:
             if lang not in languages.TARGETS:
                 return None
             out.append({"stream": TRANSLATION, "lang": lang})
+        elif stream == SERVICE:
+            st = str(item.get("service_type") or "")
+            if not _FEED_ST_RE.fullmatch(st):
+                return None
+            out.append({"stream": SERVICE, "service_type": st})
         else:
             return None
     return out
@@ -127,6 +142,10 @@ def _reported_feeds(raw: object) -> list[dict[str, str]]:
             lang = _text(item.get("lang"), 24).upper()
             if lang:
                 out.append({"stream": TRANSLATION, "lang": lang})
+        elif stream == SERVICE:
+            st = _text(item.get("service_type"), 24)
+            if _FEED_ST_RE.fullmatch(st):
+                out.append({"stream": SERVICE, "service_type": st})
     return out
 
 
@@ -155,6 +174,10 @@ def clean_stored(raw: object) -> dict[str, dict[str, Any]]:
         if feeds:
             entry["feeds"] = feeds
         entry["feed_rev"] = _int(spec.get("feed_rev"), 0, 2**31 - 1)
+        rotation = spec.get("rotation")
+        if rotation in ROTATIONS and not isinstance(rotation, bool):
+            entry["rotation"] = rotation
+        entry["rotation_rev"] = _int(spec.get("rotation_rev"), 0, 2**31 - 1)
         mode = spec.get("service_mode")
         if mode in SERVICE_MODES and mode != "off":
             entry["service_mode"] = mode
@@ -173,6 +196,14 @@ class Panel:
     id: str
     name: str = ""
     version: str = ""
+    # The board it says it is (#122); "" from firmware that does not say, which is a CrowPanel.
+    board: str = ""
+    # The rotation it says it shows (#122); None from firmware that does not say.
+    rotation: int | None = None
+    # The newest operator rotation revision it has applied. The panel keeps it in its own storage, as it
+    # restarts to apply one; a turn made at the screen does not move it.
+    rotation_rev: int = 0
+    rotation_changed_by: str = ""
     scripts: list[str] = field(default_factory=list)
     feeds: list[dict[str, str]] = field(default_factory=list)
     ip: str = ""
@@ -246,6 +277,8 @@ class Registry:
     def view(self, pid: str) -> dict[str, Any]:
         stored = self.stored().get(pid) or {}
         panel = self.panels.get(pid) or Panel(pid)
+        # A panel that does not say its board is a CrowPanel; one never seen this run is not known.
+        board = (panel.board or panelfw.DEFAULT_BOARD) if panel.last_seen else ""
         return {
             "id": pid,
             "name": self.display_name(pid),
@@ -254,6 +287,12 @@ class Registry:
             "online": self.online(panel),
             "seen_ago_s": round(_now() - panel.last_seen, 1) if panel.last_seen else None,
             "version": panel.version,
+            "board": board,
+            "board_label": panelfw.board_label(board) if board else "",
+            "rotation": panel.rotation,
+            "set_rotation": stored.get("rotation"),
+            "rotation_changed_by": panel.rotation_changed_by or None,
+            "can_reboot": bool(self._subs.get(pid)),
             "scripts": panel.scripts,
             "feeds": panel.feeds,
             "set_feeds": stored.get("feeds"),
@@ -331,8 +370,17 @@ class Registry:
             panel = self.panels[pid] = Panel(pid)
         old_feeds = panel.feeds if panel.last_seen else None
         old_acked = panel.acked_rev
+        old_rotation = panel.rotation if panel.last_seen else None
+        old_rotation_rev = panel.rotation_rev
         panel.name = _text(body.get("name"), 64)
         panel.version = _text(body.get("version"), 32)
+        board = body.get("board")
+        panel.board = board if isinstance(board, str) and _BOARD_RE.fullmatch(board) else ""
+        rotation = body.get("rotation")
+        panel.rotation = rotation if rotation in ROTATIONS and not isinstance(rotation, bool) else None
+        panel.rotation_rev = _int(body.get("rotation_rev"), 0, 2**31 - 1)
+        if old_rotation is not None and panel.rotation is not None and panel.rotation != old_rotation:
+            panel.rotation_changed_by = "admin" if panel.rotation_rev != old_rotation_rev else "screen"
         scripts = body.get("scripts")
         panel.scripts = [s for s in (scripts if isinstance(scripts, list) else [])[:8]
                          if isinstance(s, str) and _SCRIPT_RE.match(s)]
@@ -360,28 +408,37 @@ class Registry:
         offer = self._update_offer(panel)
         if offer:
             reply["update"] = offer
+        rotation = self._pending_rotation(pid)
+        if rotation:
+            reply["set_rotation"] = rotation
         reply["service"] = self.service(pid)
         self._changed()
         return reply
 
     # ------------------------------------------------------- firmware updates
     @staticmethod
-    def update_available(panel: Panel) -> bool:
-        """An image is stored that is a step forward from what this panel says it runs."""
-        info = panelfw.current()
+    def firmware_for(panel: Panel) -> panelfw.Info | None:
+        """The image stored for this panel's board, or None (none stored, or a board on hold)."""
+        board = panelfw.panel_board(panel.board)
+        return panelfw.current(board) if board else None
+
+    @classmethod
+    def update_available(cls, panel: Panel) -> bool:
+        """An image is stored for this panel's board that is a step forward from what it says it runs."""
+        info = cls.firmware_for(panel)
         return info is not None and bool(panel.version) and panelfw.newer(info.version, panel.version)
 
     @staticmethod
     def _update_message(info: panelfw.Info, now: bool) -> dict[str, Any]:
         return {"version": info.version, "size": info.size, "sha256": info.sha256,
-                "path": f"/api/panels/firmware/{info.version}.bin", "now": bool(now)}
+                "path": panelfw.image_url(info), "now": bool(now)}
 
     def _update_offer(self, panel: Panel) -> dict[str, Any] | None:
         """What the panel is told to fetch: the stored image, if the operator asked this panel for
         it and it is still the version asked for. No offer is also how a panel learns the request
         was withdrawn (the image replaced or removed), so it drops what it had staged."""
         request = panel.update_request
-        info = panelfw.current()
+        info = self.firmware_for(panel)
         if request is None or info is None or request["version"] != info.version:
             return None
         return self._update_message(info, request["now"])
@@ -410,9 +467,11 @@ class Registry:
         panel = self.panels.get(pid) if valid_id(pid) else None
         if panel is None:
             raise KeyError(pid)
-        info = panelfw.current()
+        info = self.firmware_for(panel)
         if info is None:
-            raise LookupError("no panel firmware has been uploaded")
+            board = panelfw.panel_board(panel.board)
+            raise LookupError(f"no firmware has been uploaded for the {panelfw.board_label(board)}" if board
+                              else f"Relay keeps no firmware for this panel's board ({panel.board})")
         if not self.update_available(panel):
             raise ValueError(f"{self.display_name(pid)} already runs {panel.version or 'a version Relay cannot read'}"
                              f" or newer; the image held is {info.version}")
@@ -423,12 +482,14 @@ class Registry:
         self._changed()
         return self.view(pid)
 
-    def request_update_all(self, now: bool = False) -> dict[str, int]:
-        """Ask every panel that is online and has an update available. Panels that are offline are
-        left for the operator to ask one by one: an update should not be a surprise on a panel that
-        comes back days later."""
+    def request_update_all(self, now: bool = False, board: str | None = None) -> dict[str, int]:
+        """Ask every panel that is online and has an update available (of `board`, or of any board).
+        Panels that are offline are left for the operator to ask one by one: an update should not be a
+        surprise on a panel that comes back days later."""
         asked = skipped = 0
         for panel in list(self.panels.values()):
+            if board is not None and panelfw.panel_board(panel.board) != board:
+                continue
             if not self.update_available(panel):
                 continue
             if not self.online(panel):
@@ -441,10 +502,13 @@ class Registry:
                 pass
         return {"requested": asked, "offline": skipped}
 
-    def firmware_changed(self) -> None:
-        """The stored image was replaced or removed: no panel is still asked for the old one. A panel
-        that had staged it drops it at its next check-in, which carries no offer."""
+    def firmware_changed(self, board: str | None = None) -> None:
+        """A board's stored image (or any, with no `board`) was replaced or removed: no panel of it is
+        still asked for the old one. A panel that had staged it drops it at its next check-in, which
+        carries no offer."""
         for panel in self.panels.values():
+            if board is not None and panelfw.panel_board(panel.board) != board:
+                continue
             if panel.update_request is not None:
                 panel.update_request = None
                 if panel.update and panel.update["state"] in ("queued", "downloading", "ready"):
@@ -490,6 +554,19 @@ class Registry:
             return None
         return {"type": "set_feed", "rev": rev, "feeds": feeds}
 
+    def _pending_rotation(self, pid: str) -> dict[str, Any] | None:
+        """The operator's rotation as a `set_rotation`, if this panel has not applied that revision. As
+        with the feed, a turn made at the panel's screen afterwards is not undone by the next check-in:
+        the newest change wins, from either side."""
+        stored = self.stored().get(pid) or {}
+        if stored.get("rotation") is None:
+            return None
+        rev = int(stored.get("rotation_rev") or 0)
+        panel = self.panels.get(pid)
+        if panel is not None and panel.rotation_rev == rev:
+            return None
+        return {"type": "set_rotation", "rev": rev, "deg": stored["rotation"]}
+
     # ---------------------------------------------------------------- events
     def subscribe(self, pid: str) -> asyncio.Queue:
         """A queue of finished SSE frames for one panel, primed with its pending
@@ -510,6 +587,9 @@ class Registry:
         service = self.service(pid)
         if service["mode"] != "off":   # off is the default; the check-in reply says it either way
             q.put_nowait(sse_frame({"type": "service_mode", **service}))
+        rotation = self._pending_rotation(pid)
+        if rotation:
+            q.put_nowait(sse_frame(rotation))
         return q
 
     def unsubscribe(self, pid: str, q: asyncio.Queue) -> None:
@@ -550,12 +630,15 @@ class Registry:
 
     # ------------------------------------------------------- operator actions
     def update(self, pid: str, *, name: str | None = None, feeds: Any = ...,
-               service_mode: str | None = None, service_type: Any = ...) -> dict[str, Any]:
-        """Rename a panel, set its feed and/or its service mode. `feeds=None`
-        clears the operator's feed; leaving `feeds` out changes nothing.
-        `service_type=None` lets the panel pick. Pushes `set_feed` and
-        `service_mode` at once. A control mode gets a new random key when the
-        panel had none; leaving control drops it.
+               service_mode: str | None = None, service_type: Any = ...,
+               rotation: Any = ...) -> dict[str, Any]:
+        """Rename a panel, set its feed, its rotation and/or its service mode.
+        `feeds=None` clears the operator's feed; leaving `feeds` out changes
+        nothing. `rotation` is 0 or 180, or None to leave the panel as it is.
+        `service_type=None` lets the panel pick. Pushes `set_feed`,
+        `set_rotation` and `service_mode` at once. A control mode gets a new
+        random key when the panel had none; leaving control drops it. A Service
+        feed needs a service mode that shows the service.
         Raises KeyError for an unknown panel and ValueError for a bad value."""
         if not valid_id(pid) or not self.known(pid):
             raise KeyError(pid)
@@ -576,7 +659,8 @@ class Registry:
             else:
                 clean = clean_feeds(feeds)
                 if clean is None:
-                    raise ValueError("feeds must be one or two of transcription or a translation language")
+                    raise ValueError("feeds must be one or two of transcription, a translation language "
+                                     "or the service")
                 panel = self.panels.get(pid)
                 if panel is not None and panel.scripts:
                     for feed in clean:
@@ -612,14 +696,49 @@ class Registry:
             service_push = True
         if not entry.get("service_mode"):
             entry.pop("service_type", None)
-        if not entry.get("name") and not entry.get("feeds") and not entry.get("service_mode"):
+        # A Service feed is shown only while the service mode shows the service, and only the type the
+        # panel is held to, if it is held to one (the panel offers nothing else).
+        for feed in entry.get("feeds") or []:
+            if feed["stream"] != SERVICE or (push is None and not service_push):
+                continue
+            if entry.get("service_mode") not in ("show", "both"):
+                raise ValueError("a Service feed needs the panel's service mode to be Show only or Show and control")
+            if entry.get("service_type") and entry["service_type"] != feed["service_type"]:
+                raise ValueError("a Service feed must be the service type this panel is set to")
+        rotation_push = None
+        if rotation is not ...:
+            if rotation is None:
+                entry.pop("rotation", None)
+            elif rotation in ROTATIONS and not isinstance(rotation, bool):
+                # A new revision every time, as with the feed: setting it again wins over a turn made at
+                # the screen since.
+                entry["rotation"] = rotation
+                entry["rotation_rev"] = int(entry.get("rotation_rev") or 0) + 1
+                rotation_push = {"type": "set_rotation", "rev": entry["rotation_rev"], "deg": rotation}
+            else:
+                raise ValueError("rotation must be 0, 90, 180 or 270")
+        if (not entry.get("name") and not entry.get("feeds") and not entry.get("service_mode")
+                and entry.get("rotation") is None):
             stored.pop(pid, None)
         self._save_stored(stored)
         if push is not None:
             self._push(pid, push)
         if service_push:
             self._push(pid, {"type": "service_mode", **self.service(pid)})
+        if rotation_push is not None:
+            self._push(pid, rotation_push)
         self._changed()
+        return self.view(pid)
+
+    def reboot(self, pid: str) -> dict[str, Any]:
+        """Restart a panel. Sent on its event stream only, never in a check-in reply, so a panel cannot
+        be left restarting at every check-in. Raises KeyError for an unknown panel and LookupError for
+        one with no stream open (it is offline, or runs firmware from before #122 and has just come
+        back)."""
+        if not valid_id(pid) or not self.known(pid):
+            raise KeyError(pid)
+        if self._push(pid, {"type": "reboot"}) == 0:
+            raise LookupError(f"{self.display_name(pid)} is not connected; it can only be restarted while online")
         return self.view(pid)
 
     def forget(self, pid: str) -> bool:

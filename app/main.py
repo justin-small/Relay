@@ -751,13 +751,14 @@ async def panel_service_action(panel_id: str, action: str, request: Request):
     return {"ok": True, "service": state}
 
 
-@app.get("/api/panels/firmware/{name}")
-async def panel_firmware_image(name: str):
-    """The stored panel image, to a panel that was told to fetch it. Plain HTTP on the LAN, like the
-    rest of the panels' traffic: what keeps a stranger's image off a panel is the signature the panel
-    checks, not this route. Only the version held is served, under the name the offer gave."""
+@app.get("/api/panels/firmware/{board}/{name}")
+async def panel_firmware_image(board: str, name: str):
+    """A board's stored panel image, to a panel that was told to fetch it. Plain HTTP on the LAN, like
+    the rest of the panels' traffic: what keeps a stranger's image off a panel is the signature the
+    panel checks, not this route. Only the version held is served, under the name the offer gave."""
     version = name[:-4] if name.endswith(".bin") else ""
-    path = panelfw.image_path_for(version) if panelfw.parse_version(version) else None
+    path = (panelfw.image_path_for(version, board)
+            if panelfw.parse_version(version) and board in panelfw.BOARDS else None)
     if path is None:
         raise HTTPException(404, "no such firmware")
     return FileResponse(path, media_type="application/octet-stream",
@@ -1117,11 +1118,41 @@ async def admin_stop():
 # and app/scheduler.py for what starts and stops when.
 
 # ---------------------------------------------------------------- panels
+def _firmware_boards(rows: list[dict] | None = None) -> list[dict]:
+    """One row per board that is not on hold: its image (or None), and how many of its panels are online
+    and how many of those run something older than the image."""
+    rows = panel_registry.listing() if rows is None else rows
+    out = []
+    for board in panelfw.active_boards():
+        info = panelfw.current(board.id)
+        mine = [r for r in rows if r["board"] == board.id and r["online"]]
+        out.append({"board": board.id, "label": board.label,
+                    "firmware": info.public() if info else None,
+                    "online": len(mine),
+                    "outdated": sum(1 for r in mine if r["update_available"])})
+    return out
+
+
 def _panels_frame() -> dict:
-    info = panelfw.current()
-    return {"type": "panels", "panels": panel_registry.listing(), "limit": panels.MAX_PANELS,
+    rows = panel_registry.listing()
+    boards = _firmware_boards(rows)
+    return {"type": "panels", "panels": rows, "limit": panels.MAX_PANELS,
             "offline_after_s": panels.OFFLINE_AFTER_S,
-            "firmware": info.public() if info else None}
+            "boards": boards,
+            # The CrowPanel's image, as before #122, for a page that reads one image.
+            "firmware": next((b["firmware"] for b in boards if b["board"] == panelfw.DEFAULT_BOARD), None)}
+
+
+def _board_arg(board: str) -> str:
+    """A board named by the admin page, or the CrowPanel when it names none. 400 for one Relay does not
+    know or that is on hold."""
+    board = board or panelfw.DEFAULT_BOARD
+    b = panelfw.BOARDS.get(board)
+    if b is None:
+        raise HTTPException(400, "unknown board")
+    if b.on_hold:
+        raise HTTPException(400, f"the {b.label} is on hold; Relay keeps no firmware for it")
+    return board
 
 
 # A check-in, rename, feed or forget reaches the open operator panels at once,
@@ -1138,43 +1169,48 @@ async def admin_panels():
 # Firmware for the panels. These are declared before `/api/admin/panels/{panel_id}`, which would
 # otherwise take "firmware" for a panel's id.
 @app.get("/api/admin/panels/firmware", dependencies=[Depends(require_admin)])
-async def admin_panel_firmware():
-    info = panelfw.current()
-    return {"firmware": info.public() if info else None}
+async def admin_panel_firmware(board: str = ""):
+    info = panelfw.current(_board_arg(board))
+    return {"firmware": info.public() if info else None, "boards": _firmware_boards()}
 
 
 @app.post("/api/admin/panels/firmware", dependencies=[Depends(require_admin)])
-async def admin_panel_firmware_upload(request: Request, filename: str = ""):
-    """Keep the uploaded image (the raw body) as the panels' firmware. It is checked as far as Relay
-    can -- a panel's application, a readable version, whole and signed -- and refused with a sentence
-    if not. Whether the signature is the right one is the panel's to say."""
+async def admin_panel_firmware_upload(request: Request, filename: str = "", board: str = ""):
+    """Keep the uploaded image (the raw body) as its board's firmware. It is checked as far as Relay
+    can -- a panel's application for a board that is not on hold (and the one `board` names, if it
+    names one), a readable version, whole and signed -- and refused with a sentence if not. Whether the
+    signature is the right one is the panel's to say."""
+    want = _board_arg(board) if board else None
     raw = await _read_limited(request, panelfw.SLOT_BYTES)
     try:
-        info = await asyncio.to_thread(panelfw.store, raw, filename)
+        info = await asyncio.to_thread(panelfw.store, raw, filename, want)
     except panelfw.ImageRefused as exc:
         raise HTTPException(400, str(exc))
-    panel_registry.firmware_changed()
-    log.info("Panel firmware %s uploaded (%d bytes)", info.version, info.size)
+    panel_registry.firmware_changed(info.board)
+    log.info("Panel firmware %s for %s uploaded (%d bytes)", info.version, info.board, info.size)
     return {"firmware": info.public()}
 
 
 @app.delete("/api/admin/panels/firmware", dependencies=[Depends(require_admin)])
-async def admin_panel_firmware_delete():
-    had = await asyncio.to_thread(panelfw.remove)
-    panel_registry.firmware_changed()
+async def admin_panel_firmware_delete(board: str = ""):
+    board = _board_arg(board)
+    had = await asyncio.to_thread(panelfw.remove, board)
+    panel_registry.firmware_changed(board)
     return {"ok": True, "removed": had}
 
 
 @app.post("/api/admin/panels/firmware/update", dependencies=[Depends(require_admin)])
 async def admin_panel_firmware_update(payload: dict):
-    """Ask one panel (`id`) or every online panel that has an update available (no `id`) to install
-    the stored image. `now` skips the wait for a quiet moment."""
+    """Ask one panel (`id`) or every online panel of a board that has an update available (no `id`;
+    `board`, or the CrowPanel) to install its board's stored image. `now` skips the wait for a quiet
+    moment."""
     now = payload.get("now") is True
     target = payload.get("id")
     if target is None:
-        if panelfw.current() is None:
-            raise HTTPException(409, "no panel firmware has been uploaded")
-        return panel_registry.request_update_all(now)
+        board = _board_arg(str(payload.get("board") or ""))
+        if panelfw.current(board) is None:
+            raise HTTPException(409, f"no firmware has been uploaded for the {panelfw.board_label(board)}")
+        return panel_registry.request_update_all(now, board)
     try:
         return {"panel": panel_registry.request_update(target, now)}
     except KeyError:
@@ -1202,17 +1238,38 @@ async def admin_panel_update(panel_id: str, payload: dict):
         if not isinstance(payload["service_mode"], str):
             raise HTTPException(400, "service_mode must be a string")
         kwargs["service_mode"] = payload["service_mode"]
+    followed = config.get()["planning_center"]["service_types"]
     if "service_type" in payload:
         st = payload["service_type"]
-        if st not in (None, "") and str(st) not in config.get()["planning_center"]["service_types"]:
+        if st not in (None, "") and str(st) not in followed:
             raise HTTPException(400, "Relay does not follow that service type")
         kwargs["service_type"] = st
+    if isinstance(payload.get("feeds"), list):
+        for feed in payload["feeds"]:
+            if (isinstance(feed, dict) and feed.get("stream") == panels.SERVICE
+                    and str(feed.get("service_type") or "") not in followed):
+                raise HTTPException(400, "Relay does not follow that service type")
+    if "rotation" in payload:
+        kwargs["rotation"] = payload["rotation"]
     try:
         return panel_registry.update(panel_id, **kwargs)
     except KeyError:
         raise HTTPException(404, "unknown panel")
     except ValueError as exc:
         raise HTTPException(400, str(exc))
+
+
+@app.post("/api/admin/panels/{panel_id}/reboot", dependencies=[Depends(require_admin)])
+async def admin_panel_reboot(panel_id: str):
+    """Restart a panel now. It must be online with its event stream open: a restart is never queued."""
+    try:
+        row = panel_registry.reboot(panel_id)
+    except KeyError:
+        raise HTTPException(404, "unknown panel")
+    except LookupError as exc:
+        raise HTTPException(409, str(exc))
+    log.info("Panel %s asked to restart", row["name"])
+    return {"panel": row}
 
 
 @app.delete("/api/admin/panels/{panel_id}", dependencies=[Depends(require_admin)])

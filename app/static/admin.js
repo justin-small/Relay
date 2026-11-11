@@ -1101,7 +1101,7 @@
   let panelRows = [];
   let panelsAt = 0;          // when panelRows arrived: "last seen" counts on from here
   let panelDirty = false;
-  let panelFirmware = null;  // what Relay holds for the panels, or null
+  let panelBoards = [];      // one row per kind of panel: {board, label, firmware, online, outdated}
 
   function el(tag, cls, text) {
     const n = document.createElement(tag);
@@ -1119,10 +1119,17 @@
     return Math.round(sec / 86400) + 'd ago';
   }
 
+  function serviceLabel(id) {
+    const several = Object.keys(pcTypeNames).length > 1;
+    const name = pcTypeNames[id];
+    return name && several ? 'Service: ' + name : name ? 'Service' : 'Service (type ' + id + ')';
+  }
+
   function feedText(feeds, rows) {
     if (!feeds || !feeds.length) return 'none chosen';
     return feeds.map(function (f) {
       if (f.stream === 'transcription') return 'Transcription';
+      if (f.stream === 'service') return serviceLabel(f.service_type);
       const hit = (rows || []).find(function (l) { return l.id === f.lang; });
       return hit ? hit.label : (f.lang || '?');
     }).join(' + ');
@@ -1148,12 +1155,34 @@
       o.value = 'translation:' + l.id;
       sel.appendChild(o);
     });
+    // The Planning Center service, one entry per type Relay follows (#122). The panel shows it only while
+    // its service mode shows the service; Relay says so if not.
+    const ids = Object.keys(pcTypeNames);
+    if (value && value.indexOf('service:') === 0 && ids.indexOf(value.slice(8)) === -1) ids.push(value.slice(8));
+    ids.forEach(function (id) {
+      const o = el('option', '', serviceLabel(id));
+      o.value = 'service:' + id;
+      sel.appendChild(o);
+    });
     sel.value = value || '';
   }
 
   function feedValue(f) {
     if (!f) return '';
-    return f.stream === 'transcription' ? 'transcription' : 'translation:' + f.lang;
+    if (f.stream === 'transcription') return 'transcription';
+    if (f.stream === 'service') return 'service:' + f.service_type;
+    return 'translation:' + f.lang;
+  }
+
+  function feedFromValue(v) {
+    if (v === 'transcription') return { stream: 'transcription' };
+    if (v.indexOf('service:') === 0) return { stream: 'service', service_type: v.slice('service:'.length) };
+    return { stream: 'translation', lang: v.slice('translation:'.length) };
+  }
+
+  function boardFirmware(board) {
+    const b = panelBoards.find(function (x) { return x.board === board; });
+    return b ? b.firmware : null;
   }
 
   const UPDATE_WORDS = {
@@ -1184,7 +1213,8 @@
       }
     }
     if (row.update_available && !row.update_requested) {
-      box.appendChild(el('div', 'badge', 'Update available' + (panelFirmware ? ' · ' + panelFirmware.version : '')));
+      const fw = boardFirmware(row.board);
+      box.appendChild(el('div', 'badge', 'Update available' + (fw ? ' · ' + fw.version : '')));
     }
     return box;
   }
@@ -1194,36 +1224,63 @@
     catch (e) { alertMsg(e.message); }
   }
 
+  /* One row per kind of panel (#122): its image, how many of its panels are online and behind, and its own
+     upload, update and remove. A board on hold is not listed: Relay keeps nothing for it. */
   function renderFirmware() {
-    const f = panelFirmware;
-    $('fwInfo').textContent = f
-      ? f.version + ' · ' + Math.round(f.size / 1024) + ' KB · uploaded ' + agoText(f.uploaded_ago_s + (Date.now() - panelsAt) / 1000)
-      : 'none uploaded';
-    $('fwRemove').hidden = !f;
-    $('fwUpdateAll').hidden = !(f && panelRows.some(function (r) { return r.update_available && r.online && !r.update_requested; }));
+    const box = $('fwTypes');
+    if (box.contains(document.activeElement) && document.activeElement.type === 'file') return;
+    box.innerHTML = '';
+    panelBoards.forEach(function (b) {
+      const f = b.firmware;
+      const row = el('div', 'fwtype');
+      row.appendChild(el('div', 'fwname', b.label));
+      row.appendChild(el('div', 'fwmeta', f
+        ? (f.filename || 'relay-display-app.bin') + ' · ' + f.version + ' · ' + Math.round(f.size / 1024) + ' KB · uploaded '
+          + agoText(f.uploaded_ago_s + (Date.now() - panelsAt) / 1000) + ' · ' + b.online + ' online'
+          + (b.outdated ? ', ' + b.outdated + ' behind' : '')
+        : 'No firmware uploaded · ' + b.online + ' online'));
+      const ctl = el('div', 'fwrow');
+      const file = el('input');
+      file.type = 'file';
+      file.accept = '.bin,application/octet-stream';
+      file.setAttribute('aria-label', 'Signed ' + b.label + ' image (relay-display-app.bin)');
+      const up = el('button', '', 'Upload');
+      up.type = 'button';
+      up.addEventListener('click', async function () {
+        const chosen = file.files[0];
+        if (!chosen) { alertMsg('Choose the ' + b.label + ' relay-display-app.bin first.'); return; }
+        try {
+          await api('/api/admin/panels/firmware?board=' + encodeURIComponent(b.board) + '&filename='
+            + encodeURIComponent(chosen.name), {
+            method: 'POST', headers: { 'Content-Type': 'application/octet-stream' }, body: chosen });
+          file.value = '';
+          alertMsg('');
+        } catch (e) { alertMsg(e.message); }
+      });
+      const all = el('button', '', 'Update all online');
+      all.type = 'button';
+      all.hidden = !(f && panelRows.some(function (r) {
+        return r.board === b.board && r.update_available && r.online && !r.update_requested;
+      }));
+      all.addEventListener('click', async function () {
+        try {
+          const r = await post('/api/admin/panels/firmware/update', { now: false, board: b.board });
+          okMsg(r.requested + ' panel(s) asked to update' + (r.offline ? '; ' + r.offline + ' offline, ask them one by one' : ''));
+        } catch (e) { alertMsg(e.message); }
+      });
+      const rm = el('button', '', 'Remove');
+      rm.type = 'button';
+      rm.hidden = !f;
+      rm.addEventListener('click', async function () {
+        if (!confirm('Remove the ' + b.label + ' firmware held by Relay?')) return;
+        try { await api('/api/admin/panels/firmware?board=' + encodeURIComponent(b.board), { method: 'DELETE' }); alertMsg(''); }
+        catch (e) { alertMsg(e.message); }
+      });
+      [file, up, all, rm].forEach(function (n) { ctl.appendChild(n); });
+      row.appendChild(ctl);
+      box.appendChild(row);
+    });
   }
-
-  $('fwUpload').addEventListener('click', async function () {
-    const file = $('fwFile').files[0];
-    if (!file) { alertMsg('Choose relay-display-app.bin first.'); return; }
-    try {
-      await api('/api/admin/panels/firmware?filename=' + encodeURIComponent(file.name), {
-        method: 'POST', headers: { 'Content-Type': 'application/octet-stream' }, body: file });
-      $('fwFile').value = '';
-      alertMsg('');
-    } catch (e) { alertMsg(e.message); }
-  });
-  $('fwRemove').addEventListener('click', async function () {
-    if (!confirm('Remove the panel firmware held by Relay?')) return;
-    try { await api('/api/admin/panels/firmware', { method: 'DELETE' }); alertMsg(''); }
-    catch (e) { alertMsg(e.message); }
-  });
-  $('fwUpdateAll').addEventListener('click', async function () {
-    try {
-      const r = await post('/api/admin/panels/firmware/update', { now: false });
-      okMsg(r.requested + ' panel(s) asked to update' + (r.offline ? '; ' + r.offline + ' offline, ask them one by one' : ''));
-    } catch (e) { alertMsg(e.message); }
-  });
 
   const SERVICE_MODE_WORDS = {
     off: 'Off', show: 'Show only', control: 'Control only', both: 'Show and control'
@@ -1348,6 +1405,21 @@
     if (row.set_feeds) form.appendChild(el('div', 'note', 'Set from admin: ' + feedText(row.set_feeds, row.languages)
       + '. A change made at the panel\'s own screen afterwards wins until you set one again.'));
 
+    // 0 or 180 (#122), starting from what the panel shows. The panel takes a new rotation by restarting, as its
+    // screen is set up at boot. A turn made at the panel's own menu afterwards wins until one is set here again.
+    const rotNow = row.rotation !== null && row.rotation !== undefined ? row.rotation
+      : (row.set_rotation !== null && row.set_rotation !== undefined ? row.set_rotation : 0);
+    let rotation = rotNow;
+    const rfield = field('Screen rotation', radioRow('rot-' + row.id,
+      [[0, '0°'], [90, '90°'], [180, '180°'], [270, '270°']], rotNow, function (d) { rotation = Number(d); }));
+    let rnote = 'A change restarts the panel, which takes about half a minute. A turn made at the panel\'s own '
+      + 'screen afterwards wins until you set one again.';
+    if (row.rotation_changed_by === 'screen') rnote += ' Last turned at the screen.';
+    else if (row.set_rotation !== null && row.set_rotation !== undefined && row.rotation !== null
+             && row.rotation !== row.set_rotation) rnote += ' Waiting for the panel to restart at ' + row.set_rotation + '°.';
+    rfield.appendChild(el('div', 'note', rnote));
+    form.appendChild(rfield);
+
     const pcOn = cfg && cfg.planning_center && cfg.planning_center.connected;
     let mode, type, tfield, help;
     if (pcOn || (row.service_mode && row.service_mode !== 'off')) {
@@ -1420,23 +1492,24 @@
     save.addEventListener('click', async function () {
       const out = {};
       if (name.value.trim() !== (row.named ? row.name : '')) out.name = name.value;
-      const picked = [feed1.value, count === 2 ? feed2.value : ''].filter(Boolean).map(function (v) {
-        return v === 'transcription'
-          ? { stream: 'transcription' }
-          : { stream: 'translation', lang: v.slice('translation:'.length) };
-      });
-      const before = JSON.stringify(current.map(function (f) { return f.stream === 'transcription' ? f : { stream: f.stream, lang: f.lang }; }));
+      const picked = [feed1.value, count === 2 ? feed2.value : ''].filter(Boolean).map(feedFromValue);
+      const before = JSON.stringify(current.map(function (f) { return feedFromValue(feedValue(f)); }));
       if (!picked.length) {
         if (row.set_feeds) out.feeds = null;                   // back to the panel's own choice
       } else if (JSON.stringify(picked) !== before) {
         out.feeds = picked;
       }
+      if (rotation !== rotNow) out.rotation = rotation;
       if (mode) {
         if (mode.value !== (row.service_mode || 'off')) out.service_mode = mode.value;
         if (mode.value !== 'off' && type.value !== (row.service_type || '')) out.service_type = type.value || null;
       }
       if (!Object.keys(out).length) { closeDrawer(); return; }
       save.disabled = true;
+      if (out.rotation !== undefined && row.online
+          && !confirm('Turning the screen restarts ' + row.name + '. Its captions stop for about half a minute.')) {
+        return;
+      }
       try {
         await post('/api/admin/panels/' + row.id, out);
         okMsg('Saved ' + (out.name !== undefined ? (out.name || row.name) : row.name) + '.');
@@ -1459,6 +1532,8 @@
       kv(dev, 'Feed changed', (row.feeds_changed_by === 'screen' ? 'at the screen' : 'from admin')
         + ' · ' + agoText(row.feeds_changed_ago_s + (Date.now() - panelsAt) / 1000));
     }
+    kv(dev, 'Board', row.board_label || row.board || '—');
+    kv(dev, 'Rotation', row.rotation === null || row.rotation === undefined ? '—' : row.rotation + '°');
     kv(dev, 'Firmware', row.version || '—');
     kv(dev, 'Address', row.ip || '—');
     kv(dev, 'Wi-Fi', signalText(row.rssi));
@@ -1480,6 +1555,20 @@
       actions.appendChild(now);
       dev.appendChild(actions);
     }
+    if (row.online) {
+      const actions = el('div', 'pactions');
+      const reboot = el('button', '', 'Reboot');
+      reboot.type = 'button';
+      reboot.disabled = !row.can_reboot;
+      if (!row.can_reboot) reboot.title = 'The panel is not connected to Relay right now, or its firmware is too old to restart from here';
+      reboot.addEventListener('click', async function () {
+        if (!confirm('Restart ' + row.name + ' now? Its captions stop for about half a minute.')) return;
+        try { await post('/api/admin/panels/' + row.id + '/reboot', {}); okMsg(row.name + ' is restarting.'); }
+        catch (e) { alertMsg(e.message); }
+      });
+      actions.appendChild(reboot);
+      dev.appendChild(actions);
+    }
     tickPanelSeen();
   }
 
@@ -1489,6 +1578,7 @@
     name.type = 'button';
     name.addEventListener('click', function () { openDrawer(row.id); });
     r.appendChild(name);
+    r.appendChild(el('span', 'pboard muted', row.board_label || row.board || '—'));
     r.appendChild(el('span', 'pshow', feedText(row.feeds, row.languages)));
     r.appendChild(el('span', 'pfw muted', row.version || '—'));
     const stat = el('span', 'pstat');
@@ -1508,8 +1598,8 @@
     }
     if (panelRows.length) {
       const head = el('div', 'prow head');
-      ['Name', 'Showing', 'Firmware', 'Status'].forEach(function (t, i) {
-        const c = el('span', i === 3 ? 'pstat' : '', t);
+      ['Name', 'Board', 'Showing', 'Firmware', 'Status'].forEach(function (t, i) {
+        const c = el('span', i === 4 ? 'pstat' : '', t);
         head.appendChild(c);
       });
       list.appendChild(head);
@@ -1523,7 +1613,7 @@
 
   function applyPanels(frame) {
     panelRows = frame.panels || [];
-    panelFirmware = frame.firmware || null;
+    panelBoards = frame.boards || [];
     panelsAt = Date.now();
     renderFirmware();
     renderPanels();

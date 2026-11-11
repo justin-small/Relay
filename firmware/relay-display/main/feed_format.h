@@ -319,16 +319,25 @@ constexpr int kFeedPaneDividerPx = 4;
 
 struct feed_pane_rect {
     int x;
+    int y;
     int w;
+    int h;
+    bool stacked;  // two panes one above the other (an upright panel), not side by side
 };
 
-// Where pane `index` (0 left, 1 right) sits across the 800 px panel: the whole width for one feed, and two
-// halves with a divider between them for two.
-inline feed_pane_rect feed_pane_rect_for(bool split, int index, int panel_w)
+// Where pane `index` sits on a `panel_w` x `panel_h` picture: all of it for one feed. Two feeds are two halves with a
+// divider between them, side by side on a landscape picture and one above the other on an upright one (90 or 270,
+// #122), where side by side would leave each a column too narrow to read.
+inline feed_pane_rect feed_pane_rect_for(bool split, int index, int panel_w, int panel_h)
 {
     if (!split) {
-        return {0, panel_w};
+        return {0, 0, panel_w, panel_h, false};
+    }
+    if (panel_h > panel_w) {
+        const int half = (panel_h - kFeedPaneDividerPx) / 2;
+        return index == 0 ? feed_pane_rect{0, 0, panel_w, half, true}
+                          : feed_pane_rect{0, panel_h - half, panel_w, half, true};
     }
     const int half = (panel_w - kFeedPaneDividerPx) / 2;
-    return index == 0 ? feed_pane_rect{0, half} : feed_pane_rect{panel_w - half, half};
+    return index == 0 ? feed_pane_rect{0, 0, half, panel_h, false} : feed_pane_rect{panel_w - half, 0, half, panel_h, false};
 }

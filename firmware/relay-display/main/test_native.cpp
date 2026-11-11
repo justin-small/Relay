@@ -287,8 +287,8 @@ void check_rotation()
 {
     CHECK(panel_rotation_valid(0));
     CHECK(panel_rotation_valid(180));
+    CHECK(panel_rotation_valid(90) && panel_rotation_valid(270));
     CHECK(!panel_rotation_valid(1));
-    CHECK(!panel_rotation_valid(90));
     CHECK(!panel_rotation_valid(181));
     CHECK(!panel_rotation_valid(-180));
     CHECK(!panel_rotation_valid(360));
@@ -297,6 +297,22 @@ void check_rotation()
     CHECK(!panel_rotation_mirrors(0));
     CHECK(panel_rotation_mirrors(180));
     CHECK(!panel_rotation_mirrors(90));
+    // A quarter turn is portrait, and every turn maps the picture onto the glass and back.
+    CHECK(panel_logical_width(90) == kLcdHeight && panel_logical_height(270) == kLcdWidth);
+    CHECK(panel_logical_width(180) == kLcdWidth);
+    for (int deg : {0, 90, 180, 270}) {
+        const int lw = panel_logical_width(deg), lh = panel_logical_height(deg);
+        for (int lx : {0, 7, lw - 1}) {
+            for (int ly : {0, 13, lh - 1}) {
+                const int px = panel_physical_x(lx, ly, deg), py = panel_physical_y(lx, ly, deg);
+                CHECK(px >= 0 && px < kLcdWidth && py >= 0 && py < kLcdHeight);
+                CHECK(panel_logical_x(px, py, deg) == lx && panel_logical_y(px, py, deg) == ly);
+            }
+        }
+    }
+    // At 90 the picture's top-left is the glass's top-right.
+    CHECK(panel_physical_x(0, 0, 90) == kLcdWidth - 1 && panel_physical_y(0, 0, 90) == 0);
+    CHECK(panel_physical_x(0, 0, 270) == 0 && panel_physical_y(0, 0, 270) == kLcdHeight - 1);
 }
 
 // The GT911's report, and where it lands on the picture.
@@ -332,15 +348,18 @@ void check_touch()
     const int W = kLcdWidth - 1;
     const int H = kLcdHeight - 1;
     // Upright: positions pass through, and a report past the edge is pulled onto it.
-    CHECK(touch_logical_x(0, 0) == 0 && touch_logical_y(0, 0) == 0);
-    CHECK(touch_logical_x(W, 0) == W && touch_logical_y(H, 0) == H);
-    CHECK(touch_logical_x(400, 0) == 400 && touch_logical_y(100, 0) == 100);
-    CHECK(touch_logical_x(W + 101, 0) == W && touch_logical_y(-3, 0) == 0);
+    CHECK(touch_logical_x(0, 0, 0) == 0 && touch_logical_y(0, 0, 0) == 0);
+    CHECK(touch_logical_x(W, H, 0) == W && touch_logical_y(W, H, 0) == H);
+    CHECK(touch_logical_x(400, 100, 0) == 400 && touch_logical_y(400, 100, 0) == 100);
+    CHECK(touch_logical_x(W + 101, -3, 0) == W && touch_logical_y(W + 101, -3, 0) == 0);
     // Turned: both axes mirror, so the corners swap and the centre stays near the centre.
-    CHECK(touch_logical_x(0, 180) == W && touch_logical_y(0, 180) == H);
-    CHECK(touch_logical_x(W, 180) == 0 && touch_logical_y(H, 180) == 0);
-    CHECK(touch_logical_x(100, 180) == W - 100 && touch_logical_y(100, 180) == H - 100);
-    CHECK(touch_logical_x(W + 101, 180) == 0 && touch_logical_y(-3, 180) == H);
+    CHECK(touch_logical_x(0, 0, 180) == W && touch_logical_y(0, 0, 180) == H);
+    CHECK(touch_logical_x(W, H, 180) == 0 && touch_logical_y(W, H, 180) == 0);
+    CHECK(touch_logical_x(100, 100, 180) == W - 100 && touch_logical_y(100, 100, 180) == H - 100);
+    CHECK(touch_logical_x(W + 101, -3, 180) == 0 && touch_logical_y(W + 101, -3, 180) == H);
+    // A quarter turn: the glass's top-right is the picture's top-left at 90.
+    CHECK(touch_logical_x(W, 0, 90) == 0 && touch_logical_y(W, 0, 90) == 0);
+    CHECK(touch_logical_x(0, H, 270) == 0 && touch_logical_y(0, H, 270) == 0);
 }
 
 void check_settings_text()
@@ -1148,7 +1167,7 @@ void check_settings_decode()
 
     // A rotation that is neither 0 nor 180 falls back to the build's.
     bad = good;
-    bad.rotation_deg = 90;
+    bad.rotation_deg = 45;
     CHECK(settings_decode(&bad, sizeof bad, &out, 0) == settings_blob::rotation_reset);
     CHECK(out.rotation_deg == 0);
 
@@ -2041,12 +2060,16 @@ void check_targets_request()
 void check_feed_panes()
 {
     // One feed takes the whole width; two split it with a divider, and the halves are equal.
-    feed_pane_rect a = feed_pane_rect_for(false, 0, 800);
-    CHECK(a.x == 0 && a.w == 800);
-    a = feed_pane_rect_for(true, 0, 800);
-    const feed_pane_rect b = feed_pane_rect_for(true, 1, 800);
-    CHECK(a.x == 0 && a.w == 398 && b.x == 402 && b.w == 398);
+    feed_pane_rect a = feed_pane_rect_for(false, 0, 800, 480);
+    CHECK(a.x == 0 && a.w == 800 && a.h == 480);
+    a = feed_pane_rect_for(true, 0, 800, 480);
+    const feed_pane_rect b = feed_pane_rect_for(true, 1, 800, 480);
+    CHECK(a.x == 0 && a.w == 398 && b.x == 402 && b.w == 398 && !a.stacked);
     CHECK(a.x + a.w + kFeedPaneDividerPx == b.x && b.x + b.w == 800);
+    // Upright (#122): one above the other, full width.
+    const feed_pane_rect t = feed_pane_rect_for(true, 0, 480, 800);
+    const feed_pane_rect u = feed_pane_rect_for(true, 1, 480, 800);
+    CHECK(t.stacked && t.y == 0 && t.w == 480 && u.y == t.h + kFeedPaneDividerPx && u.y + u.h == 800);
     // A saved language is a whole language name: the field is as long as the settings'.
     CHECK(kFeedLangBytes == sizeof(relay_settings_t::feed2_lang));
 }
@@ -2160,8 +2183,8 @@ void check_panel_link()
     CHECK(n > 0 && n == strlen(body));
     CHECK(strcmp(body,
                  "{\"id\":\"0123456789abcdef0123456789abcdef\",\"name\":\"Panel 0123\",\"version\":\"0.1.0\","
-                 "\"scripts\":[\"latin\"],\"feeds\":[{\"stream\":\"translation\",\"lang\":\"SPANISH\"}],"
-                 "\"ip\":\"192.168.1.50\",\"uptime_s\":42,\"rssi\":-58,\"feed_rev\":0}") == 0);
+                 "\"rotation\":0,\"scripts\":[\"latin\"],\"feeds\":[{\"stream\":\"translation\",\"lang\":\"SPANISH\"}],"
+                 "\"ip\":\"192.168.1.50\",\"uptime_s\":42,\"rssi\":-58,\"feed_rev\":0,\"rotation_rev\":0}") == 0);
     // The body is JSON the readers here understand.
     uint64_t up = 0;
     CHECK(caption_json::read_uint(caption_json::get(body, body + n, "uptime_s"), body + n, &up) && up == 42);
@@ -2176,7 +2199,20 @@ void check_panel_link()
     n = panel_checkin_body(body, sizeof body, st);
     CHECK(strstr(body, "\"feeds\":[{\"stream\":\"transcription\"},{\"stream\":\"translation\",\"lang\":\"FRENCH\"}]") != nullptr);
     CHECK(strstr(body, "\"ip\"") == nullptr && strstr(body, "\"rssi\"") == nullptr);
-    CHECK(strstr(body, "\"feed_rev\":7}") != nullptr);
+    CHECK(strstr(body, "\"feed_rev\":7,\"rotation_rev\":0}") != nullptr);
+    // The board and the rotation (#122), and a Service feed with its type.
+    snprintf(st.board, sizeof st.board, "%s", RELAY_BOARD_ID);
+    st.rotation = 180;
+    st.feeds[1] = feed_pick_make(kFeedService, "7");
+    n = panel_checkin_body(body, sizeof body, st);
+    CHECK(strstr(body, "\"version\":\"0.1.0\",\"board\":\"" RELAY_BOARD_ID "\",\"rotation\":180,") != nullptr);
+    CHECK(strstr(body, "{\"stream\":\"service\",\"service_type\":\"7\"}]") != nullptr);
+    st.feeds[1] = feed_pick_make(kFeedService, "");  // a service with no type is not reported
+    n = panel_checkin_body(body, sizeof body, st);
+    CHECK(strstr(body, "\"feeds\":[{\"stream\":\"transcription\"}]") != nullptr);
+    st.feeds[1] = feed_pick_make(kFeedTranslation, "FRENCH");
+    st.board[0] = '\0';
+    st.rotation = 0;
     st.feed_count = 0;  // a panel with nothing chosen says so
     n = panel_checkin_body(body, sizeof body, st);
     CHECK(strstr(body, "\"feeds\":[]") != nullptr);
@@ -2236,6 +2272,37 @@ void check_panel_link()
              "{\"type\":\"snapshot\"}", "{\"type\":5}", "{}", "[]", "nope", ""}) {
         CHECK(event(bad).kind == panel_message::none);
     }
+    // The service as a feed (#122): its type is kept where a translation keeps its language.
+    ev = event("{\"type\":\"set_feed\",\"rev\":5,\"feeds\":[{\"stream\":\"service\",\"service_type\":\"1234567\"},"
+               "{\"stream\":\"transcription\"}]}");
+    CHECK(ev.kind == panel_message::set_feed && ev.feed.count == 2 && ev.feed.feeds[0].stream == kFeedService &&
+          strcmp(ev.feed.feeds[0].lang, "1234567") == 0 && ev.feed.feeds[1].stream == kFeedTranscription);
+    for (const char *bad : {
+             "{\"type\":\"set_feed\",\"rev\":1,\"feeds\":[{\"stream\":\"service\"}]}",
+             "{\"type\":\"set_feed\",\"rev\":1,\"feeds\":[{\"stream\":\"service\",\"service_type\":\"\"}]}",
+             "{\"type\":\"set_feed\",\"rev\":1,\"feeds\":[{\"stream\":\"service\",\"service_type\":\"7a\"}]}",
+             "{\"type\":\"set_feed\",\"rev\":1,\"feeds\":[{\"stream\":\"service\",\"service_type\":7}]}",
+             "{\"type\":\"set_feed\",\"rev\":1,\"feeds\":[{\"stream\":\"service\",\"service_type\":"
+             "\"12345678901234567890123\"}]}"}) {
+        CHECK(event(bad).kind == panel_message::none);
+    }
+    // Rotation and Reboot (#122).
+    ev = event("{\"type\":\"set_rotation\",\"rev\":2,\"deg\":180}");
+    CHECK(ev.kind == panel_message::set_rotation && ev.rotation.rev == 2 && ev.rotation.deg == 180);
+    ev = event("{\"type\":\"set_rotation\",\"rev\":3,\"deg\":0}");
+    CHECK(ev.kind == panel_message::set_rotation && ev.rotation.rev == 3 && ev.rotation.deg == 0);
+    for (const char *bad : {"{\"type\":\"set_rotation\",\"rev\":1,\"deg\":45}",
+                            "{\"type\":\"set_rotation\",\"rev\":1,\"deg\":-180}",
+                            "{\"type\":\"set_rotation\",\"rev\":1,\"deg\":\"180\"}", "{\"type\":\"set_rotation\"}",
+                            "{\"type\":\"set_rotation\",\"deg\":180}",
+                            "{\"type\":\"set_rotation\",\"rev\":1,\"deg\":4294967476}"}) {
+        CHECK(event(bad).kind == panel_message::none);
+    }
+    CHECK(event("{\"type\":\"reboot\"}").kind == panel_message::reboot);
+    CHECK(panel_rotation_needs_restart(180, 0) && panel_rotation_needs_restart(0, 180));
+    CHECK(!panel_rotation_needs_restart(180, 180) && !panel_rotation_needs_restart(0, 0));
+    CHECK(panel_rotation_needs_restart(90, 0) && !panel_rotation_needs_restart(45, 0));
+
     ev = event("{\"type\":\"update_available\",\"version\":\"0.2.0\",\"size\":1234}");
     CHECK(ev.kind == panel_message::update_available && !ev.update.present);  // not enough to act on
     CHECK(event("{\"type\":\"update_available\"}").kind == panel_message::update_available);
@@ -2249,6 +2316,12 @@ void check_panel_link()
     CHECK(r.ok && r.has_feed && r.feed.rev == 2 && r.feed.count == 1 && strcmp(r.feed.feeds[0].lang, "FRENCH") == 0);
     r = reply("{\"ok\":true,\"set_feed\":{\"rev\":2,\"feeds\":[]}}");
     CHECK(r.ok && !r.has_feed);  // a feed that does not read is dropped, the check-in still counts
+    CHECK(!r.has_rotation);      // no rotation set: the panel is left as it is
+    r = reply("{\"ok\":true,\"set_rotation\":{\"type\":\"set_rotation\",\"rev\":4,\"deg\":180}}");
+    CHECK(r.ok && r.has_rotation && r.rotation.rev == 4 && r.rotation.deg == 180);
+    r = reply("{\"ok\":true,\"set_rotation\":{\"rev\":4,\"deg\":45}}");
+    CHECK(r.ok && !r.has_rotation);
+    CHECK(!reply("{\"ok\":true,\"rotation\":180}").has_rotation);  // the angle alone is not an operator rotation
     CHECK(!reply("{\"ok\":false}").ok && !reply("{\"detail\":\"too many panels\"}").ok && !reply("").ok);
     // A name longer than the field is cut, not overrun.
     r = reply("{\"ok\":true,\"name\":\"0123456789012345678901234567890123456789\"}");

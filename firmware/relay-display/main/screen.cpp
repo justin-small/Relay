@@ -6,6 +6,7 @@
 #include <cstring>
 
 #include "config.h"
+#include "ui_fonts.h"
 #include "diag.h"
 #include "display.h"
 #include "esp_heap_caps.h"
@@ -21,18 +22,18 @@ namespace {
 
 const char *TAG = "screen";
 
-constexpr int kMarginX = 32;
+constexpr int kMarginX = ui_px(32);
 // The gap between two lines of a stack, the same as `kPanelTextGap` in `panel_format.h`.
-constexpr int kLineGap = 18;
+constexpr int kLineGap = ui_px(18);
 // The draw buffer is this many rows of the panel. Sixteen rows is 25.6 KB and a full screen is thirty flushes, which
 // the board's PSRAM does not notice and the emulator, which has no PSRAM, has to fit in internal RAM.
 constexpr int kDrawRows = 16;
 constexpr uint32_t kTaskStackBytes = 8192;
 
 // The QR code on the left of the setup screen: a white field and the code inside it.
-constexpr int kQrBox = 264;
-constexpr int kQrPx = 232;
-constexpr int kQrColumnGap = 40;
+constexpr int kQrBox = ui_px(264);
+constexpr int kQrPx = ui_px(232);
+constexpr int kQrColumnGap = ui_px(40);
 
 // Colours: a near-black ground, white text, and a dimmer tone for the small lines.
 constexpr uint8_t kBg = 0x10;
@@ -93,12 +94,12 @@ void flush(lv_display_t *disp, const lv_area_t *area, uint8_t *px_map)
 const lv_font_t *font_for_scale(int scale)
 {
     if (scale <= 3) {
-        return &lv_font_montserrat_20;
+        return &RELAY_UI_FONT_SMALL;
     }
     if (scale == 4) {
-        return &lv_font_montserrat_28;
+        return &RELAY_UI_FONT_MEDIUM;
     }
-    return &lv_font_montserrat_40;
+    return &RELAY_UI_FONT_LARGE;
 }
 
 int line_height(int scale)
@@ -142,13 +143,11 @@ lv_obj_t *fresh_root()
     return root;
 }
 
-// The QR code on the left, and its caption under it. False when the text does not fit a QR code, and then nothing is
-// left on the screen.
-bool draw_qr(lv_obj_t *root, const char *payload)
+// The QR code with its caption under it, its box's top-left at (x, y). False when the text does not fit a QR code,
+// and then nothing is left on the screen.
+bool draw_qr(lv_obj_t *root, const char *payload, int x, int y)
 {
-    const int caption_h = line_height(3);
-    const int y = (kLcdHeight - kQrBox - kLineGap - caption_h) / 2;
-    lv_obj_t *field = box(root, kMarginX, y, kQrBox, kQrBox, lv_color_white(), 8);
+    lv_obj_t *field = box(root, x, y, kQrBox, kQrBox, lv_color_white(), ui_px(8));
     lv_obj_t *qr = lv_qrcode_create(field);
     lv_qrcode_set_size(qr, kQrPx);
     lv_qrcode_set_dark_color(qr, lv_color_black());
@@ -159,19 +158,23 @@ bool draw_qr(lv_obj_t *root, const char *payload)
         return false;
     }
     lv_obj_center(qr);
-    label(root, kMarginX, y + kQrBox + kLineGap, kQrBox, "Scan to join", 3, LV_TEXT_ALIGN_CENTER);
+    label(root, x, y + kQrBox + kLineGap, kQrBox, "Scan to join", 3, LV_TEXT_ALIGN_CENTER);
     return true;
 }
 
-// A stack of lines, centred vertically in the column [x, x + w).
-void draw_stack(lv_obj_t *root, int x, int w)
+int stack_height()
 {
     int total = 0;
     for (int i = 0; i < s_line_count; ++i) {
         total += line_height(s_line_scale[i]);
     }
-    total += kLineGap * (s_line_count - 1);
-    int y = (kLcdHeight - total) / 2;
+    return total + kLineGap * (s_line_count - 1);
+}
+
+// A stack of lines in the column [x, x + w), centred vertically in [top, bottom).
+void draw_stack(lv_obj_t *root, int x, int w, int top, int bottom)
+{
+    int y = top + (bottom - top - stack_height()) / 2;
     for (int i = 0; i < s_line_count; ++i) {
         label(root, x, y, w, s_line_text[i], s_line_scale[i], LV_TEXT_ALIGN_CENTER);
         y += line_height(s_line_scale[i]) + kLineGap;
@@ -191,11 +194,23 @@ void draw_lines_now()
 {
     caption_view_teardown();
     lv_obj_t *root = fresh_root();
-    if (s_line_qr[0] != '\0' && draw_qr(root, s_line_qr)) {
+    const int w = display_width();
+    const int h = display_height();
+    const int qr_h = kQrBox + kLineGap + line_height(3);
+    if (h > w) {
+        // Upright (90 or 270): the QR code centred above the lines.
+        const int top = (h - qr_h - kQrColumnGap - stack_height()) / 2;
+        if (s_line_qr[0] != '\0' && draw_qr(root, s_line_qr, (w - kQrBox) / 2, top)) {
+            const int below = top + qr_h + kQrColumnGap;
+            draw_stack(root, kMarginX, w - 2 * kMarginX, below, below + stack_height());
+        } else {
+            draw_stack(root, kMarginX, w - 2 * kMarginX, 0, h);
+        }
+    } else if (s_line_qr[0] != '\0' && draw_qr(root, s_line_qr, kMarginX, (h - qr_h) / 2)) {
         const int x = kMarginX + kQrBox + kQrColumnGap;
-        draw_stack(root, x, kLcdWidth - kMarginX - x);
+        draw_stack(root, x, w - kMarginX - x, 0, h);
     } else {
-        draw_stack(root, kMarginX, kLcdWidth - 2 * kMarginX);
+        draw_stack(root, kMarginX, w - 2 * kMarginX, 0, h);
     }
     activate();
 }
@@ -207,7 +222,11 @@ void lvgl_task(void *)
 {
     for (;;) {
         screen_lock();
-        switch (s_request) {
+        // **Take the request before drawing it.** A picture can ask for another while it builds (the caption view does,
+        // when the feeds changed between its snapshot and its first tick), and clearing after the switch lost that one.
+        const Request request = s_request;
+        s_request = Request::none;
+        switch (request) {
         case Request::lines:
             draw_lines_now();
             break;
@@ -225,7 +244,6 @@ void lvgl_task(void *)
         case Request::none:
             break;
         }
-        s_request = Request::none;
         const uint32_t next = lv_timer_handler();
         // **Everything LVGL flushed in this pass is shown now, once.** Not on the flush LVGL calls the last: a
         // redraw that never got that flag was written to the back buffer and never shown (a removed pane stayed
@@ -247,7 +265,8 @@ esp_err_t screen_start()
     }
     lv_init();
     lv_tick_set_cb(tick_ms);
-    s_disp = lv_display_create(kLcdWidth, kLcdHeight);
+    // The picture's size at the panel's rotation: 480 x 800 when it stands upright (`display.h`).
+    s_disp = lv_display_create(display_width(), display_height());
     if (s_disp == nullptr) {
         return ESP_ERR_NO_MEM;
     }

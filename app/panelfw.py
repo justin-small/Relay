@@ -1,10 +1,15 @@
-"""Panel firmware: the one signed image Relay holds for the caption panels.
+"""Panel firmware: one signed image per kind of panel (board), held by Relay for the caption panels.
 
 The operator uploads the application image a release builds (`relay-display-app.bin`,
 firmware/relay-display) from the admin page. Relay checks that it is a Relay panel's image at all --
-an ESP-IDF application for the ESP32-S3, named `relay-display-app`, with a version it can read, a
+an ESP-IDF application for a board's chip, named `relay-display-app`, with a version it can read, a
 whole image whose own checksum holds, and a signature block that belongs to it -- keeps it, and
-serves it to the panels on the viewer port.
+serves it to the panels of that board on the viewer port.
+
+**Which board an image is for is read from its chip** (`BOARDS`): every board is a different chip, and
+the image carries no other board name. A panel says its board in its check-in (#122); one that says
+none is a CrowPanel, the only board there was before. A board that is on hold (`on_hold`) is listed
+nowhere and its images are refused, so nothing is ever offered to it.
 
 **Relay does not decide whether a signature is good. The panel does.** Images travel over plain HTTP
 on the LAN, so the check that keeps a stranger's image off a panel has to be the panel's, against the
@@ -13,8 +18,10 @@ only turns a file somebody picked by mistake (the merged serial image, another b
 was never signed, a truncated copy) into a sentence on the admin page instead of a failed update on
 a wall.
 
-The image is stored beside config.json (so on the state volume in a container) as `panel-firmware/`:
-`panel.bin` and `panel.json`. One image at a time: uploading replaces it.
+The images are stored beside config.json (so on the state volume in a container) as
+`panel-firmware/<board>/`: `panel.bin` and `panel.json`. One image per board: uploading replaces it.
+A store from before #122 kept the one image at `panel-firmware/panel.bin`; it is a CrowPanel's and is
+moved into place the first time it is read.
 """
 from __future__ import annotations
 
@@ -35,8 +42,46 @@ SLOT_BYTES = 0x1E0000
 # `project()` in firmware/relay-display/CMakeLists.txt: the name every Relay panel image carries in
 # its application descriptor. Another board's image has another name.
 PROJECT_NAME = "relay-display-app"
-# esp_image_header_t.chip_id for the ESP32-S3.
+# esp_image_header_t.chip_id for the boards' chips.
 CHIP_ESP32_S3 = 0x0009
+CHIP_ESP32_P4 = 0x0012
+
+
+@dataclass(frozen=True)
+class Board:
+    id: str          # RELAY_BOARD_ID in the board's header (firmware/relay-display/main/boards/)
+    label: str       # what the admin page calls it
+    chip: int
+    chip_name: str
+    on_hold: bool = False
+
+
+# Every board the firmware builds for. The Waveshare 10.1" is on hold (#114): its development is
+# paused, so Relay takes no image for it and lists it nowhere. Set `on_hold=False` to bring it back.
+BOARDS: dict[str, Board] = {
+    "crowpanel-adv7": Board("crowpanel-adv7", 'CrowPanel Advance 7"', CHIP_ESP32_S3, "ESP32-S3"),
+    "waveshare-p4-10.1": Board("waveshare-p4-10.1", 'Waveshare ESP32-P4 10.1"', CHIP_ESP32_P4, "ESP32-P4",
+                               on_hold=True),
+}
+DEFAULT_BOARD = "crowpanel-adv7"
+
+
+def active_boards() -> list[Board]:
+    return [b for b in BOARDS.values() if not b.on_hold]
+
+
+def board_label(board_id: str) -> str:
+    b = BOARDS.get(board_id)
+    return b.label if b else board_id
+
+
+def panel_board(reported: str) -> str:
+    """The board whose firmware a panel takes: the one it reports, or the CrowPanel for a panel that
+    reports none (every panel from before #122). A board Relay does not know, or one on hold, takes
+    none: ""."""
+    board = reported or DEFAULT_BOARD
+    b = BOARDS.get(board)
+    return board if b is not None and not b.on_hold else ""
 
 _IMAGE_MAGIC = 0xE9
 _APP_DESC_MAGIC = 0xABCD5432
@@ -64,10 +109,12 @@ class Info:
     sha256: str
     uploaded_at: float     # wall clock
     filename: str
+    board: str = DEFAULT_BOARD
 
     def public(self) -> dict:
         row = asdict(self)
         row["uploaded_ago_s"] = round(max(0.0, time.time() - self.uploaded_at), 1)
+        row["board_label"] = board_label(self.board)
         row.pop("uploaded_at")
         return row
 
@@ -114,7 +161,14 @@ def _image_end(data: bytes) -> tuple[int, int]:
 
 def inspect(data: bytes) -> tuple[str, str]:
     """Check an upload. Returns (version, sha256 of the file) or raises ImageRefused with a sentence
-    saying what is wrong with it."""
+    saying what is wrong with it. `inspect_board` also says which board it is for."""
+    version, digest, _ = inspect_board(data)
+    return version, digest
+
+
+def inspect_board(data: bytes, board: str | None = None) -> tuple[str, str, str]:
+    """`inspect`, and the board the image is for, read from its chip. With `board`, an image for
+    another board is refused."""
     if len(data) == 0:
         raise ImageRefused("The upload was empty.")
     if len(data) > SLOT_BYTES:
@@ -126,8 +180,16 @@ def inspect(data: bytes) -> tuple[str, str]:
             "That is the serial-flash image (relay-display.bin), which holds a bootloader and a partition "
             "table that an update cannot write. Upload relay-display-app.bin, the application alone, from "
             "the same release.")
-    if struct.unpack_from("<H", data, 12)[0] != CHIP_ESP32_S3:
-        raise ImageRefused("That image is for another chip, not the panel's ESP32-S3.")
+    chip = struct.unpack_from("<H", data, 12)[0]
+    found = next((b for b in BOARDS.values() if b.chip == chip), None)
+    if found is None:
+        names = " or ".join(b.chip_name for b in active_boards())
+        raise ImageRefused(f"That image is for another chip, not a panel's {names}.")
+    if found.on_hold:
+        raise ImageRefused(f"That image is for the {found.label}, whose panels are on hold; Relay does not "
+                           "keep firmware for them.")
+    if board is not None and found.id != board:
+        raise ImageRefused(f"That image is for the {found.label}, not the {board_label(board)}.")
     project = _cstr(data[_PROJECT_OFFSET:_PROJECT_OFFSET + 32])
     if project != PROJECT_NAME:
         raise ImageRefused(
@@ -157,7 +219,7 @@ def inspect(data: bytes) -> tuple[str, str]:
     (crc,) = struct.unpack_from("<I", block, _SIG_CRC_OFFSET)
     if crc != zlib.crc32(block[:_SIG_CRC_OFFSET]) & 0xFFFFFFFF:
         raise ImageRefused("That image's signature block is damaged.")
-    return version, hashlib.sha256(data).hexdigest()
+    return version, hashlib.sha256(data).hexdigest(), found.id
 
 
 # ------------------------------------------------------------------ the store
@@ -165,49 +227,81 @@ def directory() -> Path:
     return config.CONFIG_PATH.parent / "panel-firmware"
 
 
-def _image_path() -> Path:
-    return directory() / "panel.bin"
+def _folder(board: str) -> Path:
+    if board not in BOARDS:
+        raise ValueError(f"unknown board {board!r}")
+    return directory() / board
 
 
-def _meta_path() -> Path:
-    return directory() / "panel.json"
+def _image_path(board: str) -> Path:
+    return _folder(board) / "panel.bin"
 
 
-def current() -> Info | None:
-    """The stored image's description, or None. A half-written or hand-edited store reads as none."""
+def _meta_path(board: str) -> Path:
+    return _folder(board) / "panel.json"
+
+
+def _migrate() -> None:
+    """Move a store from before #122 (`panel-firmware/panel.bin`, the CrowPanel's: it was the only
+    board) into the CrowPanel's folder. Nothing to do once it has been moved."""
+    old_image, old_meta = directory() / "panel.bin", directory() / "panel.json"
+    if not old_meta.exists() and not old_image.exists():
+        return
     try:
-        meta = json.loads(_meta_path().read_text("utf-8"))
+        folder = _folder(DEFAULT_BOARD)
+        if not _meta_path(DEFAULT_BOARD).exists() and old_meta.exists() and old_image.exists():
+            folder.mkdir(parents=True, exist_ok=True)
+            old_image.replace(_image_path(DEFAULT_BOARD))
+            old_meta.replace(_meta_path(DEFAULT_BOARD))
+        for path in (old_meta, old_image):
+            path.unlink(missing_ok=True)
+    except OSError:
+        pass
+
+
+def current(board: str = DEFAULT_BOARD) -> Info | None:
+    """The image stored for `board`, or None. A half-written or hand-edited store reads as none."""
+    if board not in BOARDS:
+        return None
+    _migrate()
+    try:
+        meta = json.loads(_meta_path(board).read_text("utf-8"))
         info = Info(version=str(meta["version"]), size=int(meta["size"]), sha256=str(meta["sha256"]),
-                    uploaded_at=float(meta["uploaded_at"]), filename=str(meta.get("filename") or ""))
-        if parse_version(info.version) is None or _image_path().stat().st_size != info.size:
+                    uploaded_at=float(meta["uploaded_at"]), filename=str(meta.get("filename") or ""),
+                    board=board)
+        if parse_version(info.version) is None or _image_path(board).stat().st_size != info.size:
             return None
         return info
     except (OSError, ValueError, KeyError, TypeError):
         return None
 
 
-def store(data: bytes, filename: str = "") -> Info:
-    """Check `data` and keep it as the panels' image, replacing the one held. Raises ImageRefused."""
-    version, digest = inspect(data)
+def store(data: bytes, filename: str = "", board: str | None = None) -> Info:
+    """Check `data` and keep it as its board's image, replacing the one held. With `board`, an image for
+    another board is refused. Raises ImageRefused."""
+    version, digest, found = inspect_board(data, board)
     info = Info(version=version, size=len(data), sha256=digest, uploaded_at=time.time(),
-                filename="".join(ch for ch in filename if ch.isprintable())[:96])
-    folder = directory()
+                filename="".join(ch for ch in filename if ch.isprintable())[:96], board=found)
+    _migrate()
+    folder = _folder(found)
     folder.mkdir(parents=True, exist_ok=True)
     # The image first, the description second: `current` reads the description, so a crash between the
     # two leaves the old description, whose size no longer matches, and reads as no image at all.
     image_tmp = folder / "panel.bin.tmp"
     image_tmp.write_bytes(data)
-    image_tmp.replace(_image_path())
+    image_tmp.replace(_image_path(found))
     meta_tmp = folder / "panel.json.tmp"
     meta_tmp.write_text(json.dumps({**asdict(info)}), "utf-8")
-    meta_tmp.replace(_meta_path())
+    meta_tmp.replace(_meta_path(found))
     return info
 
 
-def remove() -> bool:
-    """Forget the stored image. True if there was one."""
-    had = current() is not None
-    for path in (_meta_path(), _image_path()):
+def remove(board: str = DEFAULT_BOARD) -> bool:
+    """Forget the image stored for `board`. True if there was one."""
+    had = current(board) is not None
+    if board not in BOARDS:
+        return False
+    for path in (_meta_path(board), _image_path(board)):
         try:
             path.unlink()
         except FileNotFoundError:
@@ -215,7 +309,12 @@ def remove() -> bool:
     return had
 
 
-def image_path_for(version: str) -> Path | None:
-    """The stored image's file if it is the one at `version`, else None."""
-    info = current()
-    return _image_path() if info is not None and info.version == version else None
+def image_path_for(version: str, board: str = DEFAULT_BOARD) -> Path | None:
+    """The image stored for `board` if it is the one at `version`, else None."""
+    info = current(board)
+    return _image_path(board) if info is not None and info.version == version else None
+
+
+def image_url(info: Info) -> str:
+    """Where a panel fetches `info` on the viewer port."""
+    return f"/api/panels/firmware/{info.board}/{info.version}.bin"

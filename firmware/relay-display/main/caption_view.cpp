@@ -6,13 +6,15 @@
 #include "caption_view_format.h"
 #include "captions.h"
 #include "config.h"
+#include "display.h"
+#include "ui_fonts.h"
 #include "feeds.h"
 #include "esp_log.h"
+#include "panel_link.h"
 #include "screen.h"
 #include "service_view.h"
 
 extern "C" {
-LV_FONT_DECLARE(relay_caption_36);
 }
 
 namespace {
@@ -37,7 +39,9 @@ struct Pane {
     bool service = false;   // the Planning Center service (`service_view.cpp`) instead of captions
     int slot = 0;
     int x = 0;
+    int y = 0;
     int w = kLcdWidth;
+    int h = kLcdHeight;
 
     lv_obj_t *box = nullptr;
     lv_obj_t *header = nullptr;
@@ -74,6 +78,7 @@ struct Menu {
     lv_obj_t *button = nullptr; // the header button that opens it
     lv_obj_t *scrim = nullptr;
     lv_obj_t *card = nullptr;
+    int turn_armed = -1;        // a rotation tapped once (0, 90, 180, 270); a second tap restarts the panel at it
     feed_pick rows[kFeedOptionsMax + 1];
 };
 
@@ -89,11 +94,11 @@ struct View {
     bool rebuild_requested = false;
 };
 
-constexpr int kMenuButtonW = 64;
-constexpr int kMenuButtonH = 44;
+constexpr int kMenuButtonW = ui_px(64);
+constexpr int kMenuButtonH = ui_px(44);
 // Room a header leaves for the menu button at its right edge.
-constexpr int kMenuReserve = kMenuButtonW + 20;
-constexpr int kNoticeH = 32;
+constexpr int kMenuReserve = kMenuButtonW + ui_px(20);
+constexpr int kNoticeH = ui_px(32);
 
 View s_v;
 feeds_view s_fv;  // the last state read from `feeds.h`; kept off the stack
@@ -261,7 +266,7 @@ void place_list(Pane &p)
 {
     const int top = kCaptionHeaderH + (p.notice_shown ? kNoticeH : 0);
     lv_obj_set_pos(p.list, 0, top);
-    lv_obj_set_size(p.list, p.w, kLcdHeight - top);
+    lv_obj_set_size(p.list, p.w, p.h - top);
     lv_obj_align(p.empty, LV_ALIGN_CENTER, 0, top / 2);
 }
 
@@ -416,11 +421,11 @@ void build_header(Pane &p, bool last)
 
     // The menu button sits over the last pane's right edge, so that header leaves room for it.
     const int reserve = last ? kMenuReserve : 0;
-    const bool narrow = s_v.count > 1;
+    const bool narrow = p.w < kCaptionNarrowW;
 
-    p.title = text(p.header, &lv_font_montserrat_28, 0xFFFFFF);
+    p.title = text(p.header, &RELAY_UI_FONT_MEDIUM, 0xFFFFFF);
     lv_label_set_long_mode(p.title, LV_LABEL_LONG_CLIP);
-    lv_obj_set_width(p.title, narrow ? p.w - kCaptionPadX - 44 - reserve : p.w / 2);
+    lv_obj_set_width(p.title, narrow ? p.w - kCaptionPadX - ui_px(44) - reserve : p.w / 2);
     lv_obj_align(p.title, LV_ALIGN_LEFT_MID, kCaptionPadX, 0);
 
     // The indicator: a dot and the connection in words (the dot alone on a half-width pane), a row that sizes
@@ -429,14 +434,14 @@ void build_header(Pane &p, bool last)
     lv_obj_set_size(status, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
     lv_obj_set_flex_flow(status, LV_FLEX_FLOW_ROW);
     lv_obj_set_flex_align(status, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-    lv_obj_set_style_pad_column(status, 12, 0);
-    lv_obj_align(status, LV_ALIGN_RIGHT_MID, -(narrow ? 14 : kCaptionPadX) - reserve, 0);
+    lv_obj_set_style_pad_column(status, ui_px(12), 0);
+    lv_obj_align(status, LV_ALIGN_RIGHT_MID, -(narrow ? ui_px(14) : kCaptionPadX) - reserve, 0);
 
     p.dot = plain_box(status);
-    lv_obj_set_size(p.dot, 16, 16);
+    lv_obj_set_size(p.dot, ui_px(16), ui_px(16));
     lv_obj_set_style_radius(p.dot, LV_RADIUS_CIRCLE, 0);
     lv_obj_set_style_bg_opa(p.dot, LV_OPA_COVER, 0);
-    p.state_label = text(status, &lv_font_montserrat_20, 0xD0D0D0);
+    p.state_label = text(status, &RELAY_UI_FONT_SMALL, 0xD0D0D0);
     if (narrow) {
         lv_obj_add_flag(p.state_label, LV_OBJ_FLAG_HIDDEN);
     }
@@ -459,11 +464,11 @@ void build_list(Pane &p)
     // `remove_style_all` took the theme's scrollbar with it: a thin bar that shows how far back the list is.
     lv_obj_set_style_bg_color(p.list, hex(0x707070), LV_PART_SCROLLBAR);
     lv_obj_set_style_bg_opa(p.list, LV_OPA_COVER, LV_PART_SCROLLBAR);
-    lv_obj_set_style_width(p.list, 6, LV_PART_SCROLLBAR);
-    lv_obj_set_style_radius(p.list, 3, LV_PART_SCROLLBAR);
+    lv_obj_set_style_width(p.list, ui_px(6), LV_PART_SCROLLBAR);
+    lv_obj_set_style_radius(p.list, ui_px(3), LV_PART_SCROLLBAR);
     lv_obj_add_event_cb(p.list, on_scroll, LV_EVENT_SCROLL, &p);
 
-    p.empty = text(p.box, &lv_font_montserrat_28, kDimHex);
+    p.empty = text(p.box, &RELAY_UI_FONT_MEDIUM, kDimHex);
     lv_label_set_long_mode(p.empty, LV_LABEL_LONG_WRAP);
     lv_obj_set_width(p.empty, p.w - 2 * kCaptionPadX);
     lv_obj_set_style_text_align(p.empty, LV_TEXT_ALIGN_CENTER, 0);
@@ -474,7 +479,7 @@ void build_list(Pane &p)
     lv_obj_set_size(p.notice, p.w, kNoticeH);
     lv_obj_set_style_bg_color(p.notice, hex(0x4A3300), 0);
     lv_obj_set_style_bg_opa(p.notice, LV_OPA_COVER, 0);
-    lv_obj_t *note = text(p.notice, &lv_font_montserrat_20, kBusyHex);
+    lv_obj_t *note = text(p.notice, &RELAY_UI_FONT_SMALL, kBusyHex);
     lv_label_set_long_mode(note, LV_LABEL_LONG_CLIP);
     lv_obj_set_width(note, p.w - 2 * kCaptionPadX);
     lv_obj_align(note, LV_ALIGN_LEFT_MID, kCaptionPadX, 0);
@@ -495,7 +500,7 @@ void build_jump(Pane &p)
     lv_obj_set_style_border_color(p.jump, hex(0xFFFFFF), 0);
     lv_obj_set_style_border_width(p.jump, 2, 0);
     lv_obj_set_style_bg_color(p.jump, hex(0x1F52C2), LV_STATE_PRESSED);
-    lv_obj_t *label = text(p.jump, &lv_font_montserrat_28, 0xFFFFFF);
+    lv_obj_t *label = text(p.jump, &RELAY_UI_FONT_MEDIUM, 0xFFFFFF);
     lv_label_set_text(label, LV_SYMBOL_DOWN "  Jump to live");
     lv_obj_center(label);
     lv_obj_add_event_cb(p.jump, on_jump, LV_EVENT_CLICKED, &p);
@@ -506,21 +511,26 @@ void build_pane(lv_obj_t *root, Pane &p, int index, bool split)
 {
     p = Pane();
     p.slot = index;
-    const feed_pane_rect r = feed_pane_rect_for(split, index, kLcdWidth);
+    const feed_pane_rect r = feed_pane_rect_for(split, index, display_width(), display_height());
     p.x = r.x;
+    p.y = r.y;
     p.w = r.w;
+    p.h = r.h;
     p.box = plain_box(root);
-    lv_obj_set_pos(p.box, p.x, 0);
-    lv_obj_set_size(p.box, p.w, kLcdHeight);
+    lv_obj_set_pos(p.box, p.x, p.y);
+    lv_obj_set_size(p.box, p.w, p.h);
+    // The menu button sits at the top right of the screen, over the header of the pane there: the right one side by
+    // side, the top one stacked.
+    const bool under_menu = !split || index == (r.stacked ? 0 : 1);
     p.service = s_fv.shown[index].pick.stream == kFeedService;
     if (p.service) {
-        service_view_build(index, p.box, index, p.w);
-        build_header(p, index == (split ? 1 : 0));
+        service_view_build(index, p.box, index, p.w, p.h);
+        build_header(p, under_menu);
         p.built = true;
         return;
     }
     build_list(p);
-    build_header(p, index == (split ? 1 : 0));
+    build_header(p, under_menu);
     build_jump(p);
     p.follow.reset(lv_tick_get());
     p.built = true;
@@ -530,12 +540,13 @@ void build_pane(lv_obj_t *root, Pane &p, int index, bool split)
 // The menu
 // ---------------------------------------------------------------------------
 
-constexpr int kCardW = 620;
-constexpr int kCardH = 440;
+constexpr int kCardW = ui_px(620);
+constexpr int kCardH = ui_px(440);
 
 void menu_close()
 {
     s_v.menu.open = false;
+    s_v.menu.turn_armed = -1;
     if (s_v.menu.scrim != nullptr) {
         lv_obj_delete_async(s_v.menu.scrim);
     }
@@ -556,8 +567,28 @@ void on_menu_scrim(lv_event_t *e)
     }
 }
 
+// The screen's rotation (#122). A turn restarts the panel, so it takes two taps on the same angle: the first asks,
+// the second turns.
+void on_menu_turn(lv_event_t *e)
+{
+    const int deg = static_cast<int>(reinterpret_cast<intptr_t>(lv_event_get_user_data(e)));
+    if (deg == display_rotation()) {
+        s_v.menu.turn_armed = -1;
+        s_v.menu.dirty = true;
+        return;
+    }
+    if (s_v.menu.turn_armed != deg) {
+        s_v.menu.turn_armed = deg;
+        s_v.menu.dirty = true;
+        return;
+    }
+    ESP_LOGI(TAG, "view: rotation %d confirmed", deg);
+    panel_link_turn_from_screen(deg);
+}
+
 void on_menu_mode(lv_event_t *e)
 {
+    s_v.menu.turn_armed = -1;
     const bool two = lv_event_get_user_data(e) != nullptr;
     s_v.menu.pane = 0;
     feeds_set_split(two);
@@ -566,6 +597,7 @@ void on_menu_mode(lv_event_t *e)
 
 void on_menu_pane(lv_event_t *e)
 {
+    s_v.menu.turn_armed = -1;
     s_v.menu.pane = static_cast<int>(reinterpret_cast<intptr_t>(lv_event_get_user_data(e)));
     s_v.menu.dirty = true;
 }
@@ -573,6 +605,7 @@ void on_menu_pane(lv_event_t *e)
 void on_menu_row(lv_event_t *e)
 {
     const feed_pick *pick = static_cast<const feed_pick *>(lv_event_get_user_data(e));
+    s_v.menu.turn_armed = -1;
     feeds_choose(s_v.menu.pane, *pick);
     s_v.menu.dirty = true;
 }
@@ -584,9 +617,9 @@ lv_obj_t *menu_button(lv_obj_t *parent, const char *label, int w, int h, bool se
     lv_obj_set_size(b, w, h);
     lv_obj_set_style_bg_color(b, hex(selected ? kJumpHex : 0x303030), 0);
     lv_obj_set_style_bg_opa(b, LV_OPA_COVER, 0);
-    lv_obj_set_style_radius(b, 10, 0);
+    lv_obj_set_style_radius(b, ui_px(10), 0);
     lv_obj_set_style_bg_color(b, hex(0x1F52C2), LV_STATE_PRESSED);
-    lv_obj_t *l = text(b, &lv_font_montserrat_28, 0xFFFFFF);
+    lv_obj_t *l = text(b, &RELAY_UI_FONT_MEDIUM, 0xFFFFFF);
     lv_label_set_text(l, label);
     lv_obj_center(l);
     lv_obj_add_event_cb(b, cb, LV_EVENT_CLICKED, arg);
@@ -608,27 +641,48 @@ void menu_rebuild()
     }
 
     lv_obj_t *top = plain_box(m.card);
-    lv_obj_set_size(top, lv_pct(100), 48);
-    lv_obj_t *title = text(top, &lv_font_montserrat_28, 0xFFFFFF);
+    lv_obj_set_size(top, lv_pct(100), ui_px(48));
+    lv_obj_t *title = text(top, &RELAY_UI_FONT_MEDIUM, 0xFFFFFF);
     lv_label_set_text(title, "Show on screen");
     lv_obj_align(title, LV_ALIGN_LEFT_MID, 0, 0);
-    lv_obj_t *done = menu_button(top, "Done", 110, 48, false, on_menu_close, nullptr);
+    lv_obj_t *done = menu_button(top, "Done", ui_px(110), ui_px(48), false, on_menu_close, nullptr);
+    lv_obj_set_ext_click_area(done, 8);
     lv_obj_align(done, LV_ALIGN_RIGHT_MID, 0, 0);
 
+    // The screen's rotation: the one shown is highlighted; another, tapped, turns red and asks for a second tap.
+    lv_obj_t *turn = plain_box(m.card);
+    lv_obj_set_size(turn, lv_pct(100), ui_px(48));
+    lv_obj_set_flex_flow(turn, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(turn, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_style_pad_column(turn, ui_px(10), 0);
+    lv_obj_t *turn_label = text(turn, &RELAY_UI_FONT_MEDIUM, kDimHex);
+    lv_label_set_text(turn_label, LV_SYMBOL_REFRESH);
+    static const int kTurns[] = {0, 90, 180, 270};
+    static const char *const kTurnWords[] = {"0", "90", "180", "270"};
+    for (int i = 0; i < 4; ++i) {
+        const bool armed = m.turn_armed == kTurns[i];
+        lv_obj_t *b = menu_button(turn, armed ? "Sure?" : kTurnWords[i], ui_px(118), ui_px(48),
+                                  kTurns[i] == display_rotation(), on_menu_turn,
+                                  reinterpret_cast<void *>(static_cast<intptr_t>(kTurns[i])));
+        if (armed) {
+            lv_obj_set_style_bg_color(b, hex(0xB3261E), 0);
+        }
+    }
+
     lv_obj_t *mode = plain_box(m.card);
-    lv_obj_set_size(mode, lv_pct(100), 52);
+    lv_obj_set_size(mode, lv_pct(100), ui_px(52));
     lv_obj_set_flex_flow(mode, LV_FLEX_FLOW_ROW);
-    lv_obj_set_style_pad_column(mode, 12, 0);
-    menu_button(mode, "One feed", 200, 52, !s_fv.split, on_menu_mode, nullptr);
-    menu_button(mode, "Two feeds", 200, 52, s_fv.split, on_menu_mode, reinterpret_cast<void *>(1));
+    lv_obj_set_style_pad_column(mode, ui_px(12), 0);
+    menu_button(mode, "One feed", ui_px(200), ui_px(52), !s_fv.split, on_menu_mode, nullptr);
+    menu_button(mode, "Two feeds", ui_px(200), ui_px(52), s_fv.split, on_menu_mode, reinterpret_cast<void *>(1));
 
     if (s_fv.split) {
         lv_obj_t *tabs = plain_box(m.card);
-        lv_obj_set_size(tabs, lv_pct(100), 44);
+        lv_obj_set_size(tabs, lv_pct(100), ui_px(44));
         lv_obj_set_flex_flow(tabs, LV_FLEX_FLOW_ROW);
-        lv_obj_set_style_pad_column(tabs, 12, 0);
-        menu_button(tabs, "Left", 140, 44, m.pane == 0, on_menu_pane, reinterpret_cast<void *>(0));
-        menu_button(tabs, "Right", 140, 44, m.pane == 1, on_menu_pane, reinterpret_cast<void *>(1));
+        lv_obj_set_style_pad_column(tabs, ui_px(12), 0);
+        menu_button(tabs, "Left", ui_px(140), ui_px(44), m.pane == 0, on_menu_pane, reinterpret_cast<void *>(0));
+        menu_button(tabs, "Right", ui_px(140), ui_px(44), m.pane == 1, on_menu_pane, reinterpret_cast<void *>(1));
     }
 
     lv_obj_t *list = plain_box(m.card);
@@ -637,7 +691,7 @@ void menu_rebuild()
     lv_obj_add_flag(list, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_set_scroll_dir(list, LV_DIR_VER);
     lv_obj_set_flex_flow(list, LV_FLEX_FLOW_COLUMN);
-    lv_obj_set_style_pad_row(list, 8, 0);
+    lv_obj_set_style_pad_row(list, ui_px(8), 0);
 
     const feed_pick &saved = s_fv.saved[m.pane];
     const feed_pick current = saved.stream == kFeedNone ? feed_pick_make(kFeedTranscription, "") : saved;
@@ -645,15 +699,15 @@ void menu_rebuild()
     auto add_row = [&](const feed_pick &pick, const char *label, bool dim) {
         m.rows[rows] = pick;
         const bool checked = feed_pick_same(pick, current);
-        lv_obj_t *b = menu_button(list, "", lv_pct(100), 56, checked, on_menu_row, &m.rows[rows]);
+        lv_obj_t *b = menu_button(list, "", lv_pct(100), ui_px(56), checked, on_menu_row, &m.rows[rows]);
         lv_obj_t *l = lv_obj_get_child(b, 0);
         lv_label_set_text(l, label);
         lv_obj_set_style_text_color(l, hex(dim ? kDimHex : 0xFFFFFF), 0);
-        lv_obj_align(l, LV_ALIGN_LEFT_MID, 18, 0);
+        lv_obj_align(l, LV_ALIGN_LEFT_MID, ui_px(18), 0);
         if (checked) {
-            lv_obj_t *tick = text(b, &lv_font_montserrat_28, 0xFFFFFF);
+            lv_obj_t *tick = text(b, &RELAY_UI_FONT_MEDIUM, 0xFFFFFF);
             lv_label_set_text(tick, LV_SYMBOL_OK);
-            lv_obj_align(tick, LV_ALIGN_RIGHT_MID, -18, 0);
+            lv_obj_align(tick, LV_ALIGN_RIGHT_MID, -ui_px(18), 0);
         }
         ++rows;
     };
@@ -669,7 +723,7 @@ void menu_rebuild()
         add_row(current, label, true);
     }
     if (rows == 0) {
-        lv_obj_t *none = text(list, &lv_font_montserrat_28, kDimHex);
+        lv_obj_t *none = text(list, &RELAY_UI_FONT_MEDIUM, kDimHex);
         lv_label_set_text(none, s_fv.options.known ? "Nothing is live" : "Waiting for Relay");
     }
     ESP_LOGI(TAG, "view: menu %s, %d on offer, pane %d", s_fv.split ? "two feeds" : "one feed", rows, m.pane + 1);
@@ -683,7 +737,7 @@ void menu_open()
         return;
     }
     m.scrim = plain_box(s_v.root);
-    lv_obj_set_size(m.scrim, kLcdWidth, kLcdHeight);
+    lv_obj_set_size(m.scrim, display_width(), display_height());
     lv_obj_set_pos(m.scrim, 0, 0);
     lv_obj_set_style_bg_color(m.scrim, hex(0x000000), 0);
     lv_obj_set_style_bg_opa(m.scrim, LV_OPA_70, 0);
@@ -695,15 +749,16 @@ void menu_open()
     lv_obj_center(m.card);
     lv_obj_set_style_bg_color(m.card, hex(kHeaderHex), 0);
     lv_obj_set_style_bg_opa(m.card, LV_OPA_COVER, 0);
-    lv_obj_set_style_radius(m.card, 16, 0);
+    lv_obj_set_style_radius(m.card, ui_px(16), 0);
     lv_obj_set_style_border_color(m.card, hex(0x555555), 0);
     lv_obj_set_style_border_width(m.card, 2, 0);
-    lv_obj_set_style_pad_all(m.card, 16, 0);
-    lv_obj_set_style_pad_row(m.card, 10, 0);
+    lv_obj_set_style_pad_all(m.card, ui_px(16), 0);
+    lv_obj_set_style_pad_row(m.card, ui_px(10), 0);
     lv_obj_set_flex_flow(m.card, LV_FLEX_FLOW_COLUMN);
     // A tap on the card is the card's, not the dark around it.
     lv_obj_add_flag(m.card, LV_OBJ_FLAG_CLICKABLE);
     m.pane = 0;
+    m.turn_armed = -1;
     menu_rebuild();
     ESP_LOGI(TAG, "view: menu opened");
 }
@@ -719,12 +774,14 @@ void build_menu_button(lv_obj_t *root)
     m.button = lv_button_create(root);
     lv_obj_remove_style_all(m.button);
     lv_obj_set_size(m.button, kMenuButtonW, kMenuButtonH);
-    lv_obj_align(m.button, LV_ALIGN_TOP_RIGHT, -12, (kCaptionHeaderH - kMenuButtonH) / 2);
+    // The drawn button shrinks with the scale; the touch target around it stays about the old size.
+    lv_obj_set_ext_click_area(m.button, 12);
+    lv_obj_align(m.button, LV_ALIGN_TOP_RIGHT, -ui_px(12), (kCaptionHeaderH - kMenuButtonH) / 2);
     lv_obj_set_style_bg_color(m.button, hex(0x303030), 0);
     lv_obj_set_style_bg_opa(m.button, LV_OPA_COVER, 0);
-    lv_obj_set_style_radius(m.button, 10, 0);
+    lv_obj_set_style_radius(m.button, ui_px(10), 0);
     lv_obj_set_style_bg_color(m.button, hex(0x1F52C2), LV_STATE_PRESSED);
-    lv_obj_t *l = text(m.button, &lv_font_montserrat_28, 0xFFFFFF);
+    lv_obj_t *l = text(m.button, &RELAY_UI_FONT_MEDIUM, 0xFFFFFF);
     lv_label_set_text(l, LV_SYMBOL_LIST);
     lv_obj_center(l);
     lv_obj_add_event_cb(m.button, on_menu_button, LV_EVENT_CLICKED, nullptr);
@@ -790,7 +847,7 @@ void caption_view_build(lv_obj_t *root)
     caption_view_teardown();
     if (!s_style_ready) {
         lv_style_init(&s_line_style);
-        lv_style_set_text_font(&s_line_style, &relay_caption_36);
+        lv_style_set_text_font(&s_line_style, &RELAY_UI_FONT_CAPTION);
         lv_style_set_text_color(&s_line_style, lv_color_white());
         lv_style_set_pad_all(&s_line_style, 0);
         s_style_ready = true;
@@ -808,10 +865,15 @@ void caption_view_build(lv_obj_t *root)
     }
     if (s_v.split) {
         // A rule between the two panes.
-        const feed_pane_rect left = feed_pane_rect_for(true, 0, kLcdWidth);
+        const feed_pane_rect first = feed_pane_rect_for(true, 0, display_width(), display_height());
         lv_obj_t *rule = plain_box(root);
-        lv_obj_set_pos(rule, left.w, 0);
-        lv_obj_set_size(rule, kFeedPaneDividerPx, kLcdHeight);
+        if (first.stacked) {
+            lv_obj_set_pos(rule, 0, first.h);
+            lv_obj_set_size(rule, display_width(), kFeedPaneDividerPx);
+        } else {
+            lv_obj_set_pos(rule, first.w, 0);
+            lv_obj_set_size(rule, kFeedPaneDividerPx, display_height());
+        }
         lv_obj_set_style_bg_color(rule, hex(0x3A3A3A), 0);
         lv_obj_set_style_bg_opa(rule, LV_OPA_COVER, 0);
     }

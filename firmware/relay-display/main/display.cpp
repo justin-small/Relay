@@ -40,6 +40,9 @@ constexpr bool kSoftwareTurn = true;
 constexpr bool kSoftwareTurn = kPanelTurnsInSoftware;
 #endif
 bool s_software_mirror = false;
+// The rotation the picture is written at (`panel_format.h`). 90 and 270 are always turned here, on every board:
+// no driver turns a picture a quarter.
+int s_rotation = 0;
 
 // **Two frame buffers, when the board keeps two** (`board_panel_frame_buffers`). Strips are copied into the
 // back buffer, which the panel is not scanning, and `display_present` flips to it, so a redraw is seen whole.
@@ -208,11 +211,14 @@ esp_err_t display_init(int rotation_deg)
     qemu.bpp = RGB_QEMU_BPP_16;
     ESP_RETURN_ON_ERROR(esp_lcd_new_rgb_qemu(&qemu, &s_panel), TAG, "virtual panel create");
     s_software_mirror = panel_rotation_mirrors(rotation_deg);
+    s_rotation = panel_rotation_valid(rotation_deg) ? rotation_deg : 0;
     ESP_LOGI(TAG, "panel: QEMU virtual panel %dx%d RGB565, rotation %d (turned in software)",
-             kLcdWidth, kLcdHeight, s_software_mirror ? 180 : 0);
+             kLcdWidth, kLcdHeight, s_rotation);
     return ESP_OK;
 #else
-    ESP_RETURN_ON_ERROR(board_panel_init(rotation_deg, &s_panel), TAG, "panel");
+    s_rotation = panel_rotation_valid(rotation_deg) ? rotation_deg : 0;
+    // A quarter turn is never the driver's: it is told 0 and the turn is made here.
+    ESP_RETURN_ON_ERROR(board_panel_init(panel_rotation_portrait(s_rotation) ? 0 : s_rotation, &s_panel), TAG, "panel");
     s_software_mirror = kSoftwareTurn && panel_rotation_mirrors(rotation_deg);
     void *a = nullptr;
     void *b = nullptr;
@@ -291,8 +297,30 @@ esp_err_t display_write_rect(int x1, int y1, int x2, int y2, const uint16_t *pix
     if (s_panel == nullptr) {
         return ESP_ERR_INVALID_STATE;
     }
-    if (x1 < 0 || y1 < 0 || x2 >= kLcdWidth || y2 >= kLcdHeight || x2 < x1 || y2 < y1 || stride < x2 - x1 + 1) {
+    if (x1 < 0 || y1 < 0 || x2 >= display_width() || y2 >= display_height() || x2 < x1 || y2 < y1 ||
+        stride < x2 - x1 + 1) {
         return ESP_ERR_INVALID_ARG;
+    }
+    if (panel_rotation_portrait(s_rotation)) {
+        // A quarter turn: the glass rectangle is the picture's turned on its side, each glass strip read pixel by
+        // pixel from where the turn puts it (`panel_logical_x`, `panel_logical_y`).
+        const int ax = panel_physical_x(x1, y1, s_rotation), bx = panel_physical_x(x2, y2, s_rotation);
+        const int ay = panel_physical_y(x1, y1, s_rotation), by = panel_physical_y(x2, y2, s_rotation);
+        const int px1 = ax < bx ? ax : bx, px2 = ax < bx ? bx : ax;
+        const int py1 = ay < by ? ay : by, py2 = ay < by ? by : ay;
+        const int pw = px2 - px1 + 1;
+        for (int py0 = py1; py0 <= py2; py0 += kStripRows) {
+            const int rows = (py2 - py0 + 1) < kStripRows ? (py2 - py0 + 1) : kStripRows;
+            for (int r = 0; r < rows; ++r) {
+                for (int c = 0; c < pw; ++c) {
+                    const int lx = panel_logical_x(px1 + c, py0 + r, s_rotation);
+                    const int ly = panel_logical_y(px1 + c, py0 + r, s_rotation);
+                    s_strip[r * pw + c] = pixels[(ly - y1) * stride + (lx - x1)];
+                }
+            }
+            ESP_RETURN_ON_ERROR(put(px1, py0, px1 + pw, py0 + rows, s_strip), TAG, "draw rect at row %d", py0);
+        }
+        return ESP_OK;
     }
     const int w = x2 - x1 + 1;
     if (kSoftwareTurn && s_software_mirror) {
@@ -322,6 +350,21 @@ esp_err_t display_write_rect(int x1, int y1, int x2, int y2, const uint16_t *pix
         ESP_RETURN_ON_ERROR(put(x1, y1 + y0, x2 + 1, y1 + y0 + rows, s_strip), TAG, "draw rect at row %d", y1 + y0);
     }
     return ESP_OK;
+}
+
+int display_width()
+{
+    return panel_logical_width(s_rotation);
+}
+
+int display_height()
+{
+    return panel_logical_height(s_rotation);
+}
+
+int display_rotation()
+{
+    return s_rotation;
 }
 
 esp_err_t display_present()

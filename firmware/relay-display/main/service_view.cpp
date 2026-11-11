@@ -10,6 +10,8 @@
 #include "caption_view_format.h"
 #include "captions.h"
 #include "config.h"
+#include "display.h"
+#include "ui_fonts.h"
 #include "esp_heap_caps.h"
 #include "esp_log.h"
 #include "panel_link.h"
@@ -18,7 +20,6 @@
 #include "service_format.h"
 
 extern "C" {
-LV_FONT_DECLARE(relay_caption_36);
 }
 
 namespace {
@@ -33,10 +34,11 @@ constexpr uint32_t kBadHex = 0xF0524F;
 constexpr uint32_t kCurrentHex = 0x1F3A70;
 constexpr uint32_t kJumpHex = 0x2F6FED;
 
-constexpr int kNowH = 116;
-constexpr int kFooterH = 40;
-constexpr int kBarH = 84;          // the LIVE buttons under the order of service
-constexpr int kBarBigH = 200;      // the same, filling the pane, in "Control only"
+// The now box under the header: the current item and the next one, packed (two caption lines and a few pixels).
+constexpr int kNowH = ui_px(100);
+constexpr int kFooterH = ui_px(40);
+constexpr int kBarH = ui_px(84);          // the LIVE buttons under the order of service
+constexpr int kBarBigH = ui_px(200);      // the same, filling the pane, in "Control only"
 constexpr uint32_t kResultShowMs = 4000;
 constexpr int kPad = kCaptionPadX;
 
@@ -44,6 +46,7 @@ struct SPane {
     bool built = false;
     int slot = 0;
     int w = kLcdWidth;
+    int h = kLcdHeight;
     lv_obj_t *box = nullptr;
     lv_obj_t *now_title = nullptr;
     lv_obj_t *now_timer = nullptr;
@@ -210,34 +213,34 @@ void notes_open(SPane &p, int index)
     // Over the whole glass: a pane in the split view is too narrow for a paragraph.
     p.scrim = plain_box(lv_obj_get_parent(p.box));
     lv_obj_set_pos(p.scrim, 0, 0);
-    lv_obj_set_size(p.scrim, kLcdWidth, kLcdHeight);
+    lv_obj_set_size(p.scrim, display_width(), display_height());
     lv_obj_set_style_bg_color(p.scrim, hex(0x000000), 0);
     lv_obj_set_style_bg_opa(p.scrim, LV_OPA_70, 0);
     lv_obj_add_flag(p.scrim, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_add_event_cb(p.scrim, on_notes_scrim, LV_EVENT_CLICKED, &p);
 
     lv_obj_t *card = plain_box(p.scrim);
-    lv_obj_set_size(card, 640, LV_SIZE_CONTENT);
-    lv_obj_set_style_max_height(card, 420, 0);
+    lv_obj_set_size(card, ui_px(640), LV_SIZE_CONTENT);
+    lv_obj_set_style_max_height(card, ui_px(420), 0);
     lv_obj_center(card);
     lv_obj_set_style_bg_color(card, hex(0x1E1E1E), 0);
     lv_obj_set_style_bg_opa(card, LV_OPA_COVER, 0);
-    lv_obj_set_style_radius(card, 16, 0);
+    lv_obj_set_style_radius(card, ui_px(16), 0);
     lv_obj_set_style_border_color(card, hex(0x555555), 0);
     lv_obj_set_style_border_width(card, 2, 0);
-    lv_obj_set_style_pad_all(card, 20, 0);
-    lv_obj_set_style_pad_row(card, 12, 0);
+    lv_obj_set_style_pad_all(card, ui_px(20), 0);
+    lv_obj_set_style_pad_row(card, ui_px(12), 0);
     lv_obj_set_flex_flow(card, LV_FLEX_FLOW_COLUMN);
     lv_obj_add_flag(card, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_t *title = text(card, &lv_font_montserrat_28, 0xFFFFFF);
+    lv_obj_t *title = text(card, &RELAY_UI_FONT_MEDIUM, 0xFFFFFF);
     lv_label_set_long_mode(title, LV_LABEL_LONG_DOT);
     lv_obj_set_width(title, lv_pct(100));
     set_ascii(title, it.title);
-    lv_obj_t *body = text(card, &lv_font_montserrat_20, 0xD0D0D0);
+    lv_obj_t *body = text(card, &RELAY_UI_FONT_SMALL, 0xD0D0D0);
     lv_label_set_long_mode(body, LV_LABEL_LONG_WRAP);
     lv_obj_set_width(body, lv_pct(100));
     set_ascii(body, it.notes);
-    lv_obj_t *hint = text(card, &lv_font_montserrat_20, kDimHex);
+    lv_obj_t *hint = text(card, &RELAY_UI_FONT_SMALL, kDimHex);
     lv_label_set_text(hint, "Tap to close");
     p.note_item = index;
     ESP_LOGI(TAG, "view: service notes open for item %d", index + 1);
@@ -297,10 +300,10 @@ lv_obj_t *button(lv_obj_t *parent, const char *label, uint32_t colour, lv_event_
     lv_obj_remove_style_all(b);
     lv_obj_set_style_bg_color(b, hex(colour), 0);
     lv_obj_set_style_bg_opa(b, LV_OPA_COVER, 0);
-    lv_obj_set_style_radius(b, 14, 0);
+    lv_obj_set_style_radius(b, ui_px(14), 0);
     lv_obj_set_style_bg_color(b, hex(0x1F52C2), LV_STATE_PRESSED);
     lv_obj_set_style_bg_opa(b, LV_OPA_50, LV_STATE_DISABLED);
-    lv_obj_t *l = text(b, &lv_font_montserrat_28, 0xFFFFFF);
+    lv_obj_t *l = text(b, &RELAY_UI_FONT_MEDIUM, 0xFFFFFF);
     lv_label_set_text(l, label);
     lv_obj_center(l);
     lv_obj_add_event_cb(b, cb, LV_EVENT_CLICKED, reinterpret_cast<void *>(tag));
@@ -313,30 +316,30 @@ void confirm_open(SPane &p, const char *question)
     const intptr_t tag = &p - s_p;
     p.confirm = plain_box(lv_obj_get_parent(p.box));
     lv_obj_set_pos(p.confirm, 0, 0);
-    lv_obj_set_size(p.confirm, kLcdWidth, kLcdHeight);
+    lv_obj_set_size(p.confirm, display_width(), display_height());
     lv_obj_set_style_bg_color(p.confirm, hex(0x000000), 0);
     lv_obj_set_style_bg_opa(p.confirm, LV_OPA_70, 0);
     lv_obj_add_flag(p.confirm, LV_OBJ_FLAG_CLICKABLE);   // a tap outside the card does nothing
     lv_obj_t *card = plain_box(p.confirm);
-    lv_obj_set_size(card, 600, 220);
+    lv_obj_set_size(card, ui_px(600), ui_px(220));
     lv_obj_center(card);
     lv_obj_set_style_bg_color(card, hex(0x1E1E1E), 0);
     lv_obj_set_style_bg_opa(card, LV_OPA_COVER, 0);
-    lv_obj_set_style_radius(card, 16, 0);
+    lv_obj_set_style_radius(card, ui_px(16), 0);
     lv_obj_set_style_border_color(card, hex(0x555555), 0);
     lv_obj_set_style_border_width(card, 2, 0);
-    lv_obj_t *q = text(card, &lv_font_montserrat_28, 0xFFFFFF);
+    lv_obj_t *q = text(card, &RELAY_UI_FONT_MEDIUM, 0xFFFFFF);
     lv_label_set_long_mode(q, LV_LABEL_LONG_WRAP);
-    lv_obj_set_width(q, 560);
+    lv_obj_set_width(q, ui_px(560));
     lv_obj_set_style_text_align(q, LV_TEXT_ALIGN_CENTER, 0);
     lv_label_set_text(q, question);
-    lv_obj_align(q, LV_ALIGN_TOP_MID, 0, 28);
+    lv_obj_align(q, LV_ALIGN_TOP_MID, 0, ui_px(28));
     lv_obj_t *yes = button(card, "Take control", kBadHex, on_confirm_yes, tag);
-    lv_obj_set_size(yes, 250, 72);
-    lv_obj_align(yes, LV_ALIGN_BOTTOM_LEFT, 30, -24);
+    lv_obj_set_size(yes, ui_px(250), ui_px(72));
+    lv_obj_align(yes, LV_ALIGN_BOTTOM_LEFT, ui_px(30), -ui_px(24));
     lv_obj_t *no = button(card, "Cancel", 0x303030, on_confirm_no, tag);
-    lv_obj_set_size(no, 250, 72);
-    lv_obj_align(no, LV_ALIGN_BOTTOM_RIGHT, -30, -24);
+    lv_obj_set_size(no, ui_px(250), ui_px(72));
+    lv_obj_align(no, LV_ALIGN_BOTTOM_RIGHT, -ui_px(30), -ui_px(24));
     ESP_LOGI(TAG, "view: confirm \"%s\"", question);
 }
 
@@ -376,15 +379,15 @@ void build_bar(SPane &p, int top, int height)
     lv_obj_set_style_bg_color(bar, hex(kNowHex), 0);
     lv_obj_set_style_bg_opa(bar, LV_OPA_COVER, 0);
     const bool big = height >= kBarBigH;
-    const int gap = 12;
-    const int bh = big ? 120 : 64;
-    const int take_w = p.w < kLcdWidth ? 120 : 220;
+    const int gap = ui_px(12);
+    const int bh = big ? ui_px(120) : ui_px(64);
+    const int take_w = p.w < kCaptionNarrowW ? ui_px(120) : ui_px(220);
     const int arrow_w = (p.w - 2 * kPad - take_w - 2 * gap) / 2;
     p.btn_prev = button(bar, LV_SYMBOL_PREV "  Previous", 0x303030, on_prev, tag);
     p.btn_next = button(bar, "Next  " LV_SYMBOL_NEXT, kJumpHex, on_next, tag);
     p.btn_take = button(bar, "Take control", 0x5A3A00, on_take, tag);
     p.take_label = lv_obj_get_child(p.btn_take, 0);
-    if (p.w < kLcdWidth) {
+    if (p.w < kCaptionNarrowW) {
         // A half-width pane: arrows only, and a short word for control.
         lv_label_set_text(lv_obj_get_child(p.btn_prev, 0), LV_SYMBOL_PREV);
         lv_label_set_text(lv_obj_get_child(p.btn_next, 0), LV_SYMBOL_NEXT);
@@ -392,11 +395,11 @@ void build_bar(SPane &p, int top, int height)
     lv_obj_set_size(p.btn_prev, arrow_w, bh);
     lv_obj_set_size(p.btn_next, arrow_w, bh);
     lv_obj_set_size(p.btn_take, take_w, bh);
-    const int y = big ? 16 : (height - bh) / 2 - 6;
+    const int y = big ? ui_px(16) : (height - bh) / 2 - ui_px(6);
     lv_obj_set_pos(p.btn_prev, kPad, y);
     lv_obj_set_pos(p.btn_next, kPad + arrow_w + gap, y);
     lv_obj_set_pos(p.btn_take, kPad + 2 * arrow_w + 2 * gap, y);
-    p.message = text(bar, &lv_font_montserrat_20, kBadHex);
+    p.message = text(bar, &RELAY_UI_FONT_SMALL, kBadHex);
     lv_label_set_long_mode(p.message, LV_LABEL_LONG_DOT);
     lv_obj_set_width(p.message, p.w - 2 * kPad);
     lv_obj_set_pos(p.message, kPad, y + bh + 2);
@@ -409,7 +412,7 @@ void draw_controls(SPane &p, uint32_t now_ms)
         return;
     }
     const bool release = p.has_snap && p.snap->relay_controls;
-    const bool narrow = p.w < kLcdWidth;
+    const bool narrow = p.w < kCaptionNarrowW;
     if (release != p.drawn_release || p.drawn_ctrl_rev == 0xFFFFFFFF) {
         p.drawn_release = release;
         lv_label_set_text(p.take_label, release ? "Release" : (narrow ? "Take" : "Take control"));
@@ -451,17 +454,17 @@ void build_rows(SPane &p)
         lv_obj_set_width(row, lv_pct(100));
         lv_obj_set_height(row, LV_SIZE_CONTENT);
         lv_obj_set_flex_flow(row, LV_FLEX_FLOW_COLUMN);
-        lv_obj_set_style_pad_hor(row, 12, 0);
-        lv_obj_set_style_pad_ver(row, it.type == service_item_type::header ? 2 : 6, 0);
-        lv_obj_set_style_radius(row, 8, 0);
+        lv_obj_set_style_pad_hor(row, ui_px(12), 0);
+        lv_obj_set_style_pad_ver(row, it.type == service_item_type::header ? 2 : ui_px(6), 0);
+        lv_obj_set_style_radius(row, ui_px(8), 0);
         if (i == s.current) {
             lv_obj_set_style_bg_color(row, hex(kCurrentHex), 0);
             lv_obj_set_style_bg_opa(row, LV_OPA_COVER, 0);
         }
         if (it.type == service_item_type::header) {
             // A section break: small, dim, with room above it.
-            lv_obj_set_style_margin_top(row, i == 0 ? 0 : 10, 0);
-            lv_obj_t *h = text(row, &lv_font_montserrat_20, kDimHex);
+            lv_obj_set_style_margin_top(row, i == 0 ? 0 : ui_px(10), 0);
+            lv_obj_t *h = text(row, &RELAY_UI_FONT_SMALL, kDimHex);
             lv_label_set_long_mode(h, LV_LABEL_LONG_DOT);
             lv_obj_set_width(h, lv_pct(100));
             set_ascii(h, it.title[0] != '\0' ? it.title : "Section");
@@ -474,8 +477,8 @@ void build_rows(SPane &p)
         lv_obj_set_size(top, lv_pct(100), LV_SIZE_CONTENT);
         lv_obj_set_flex_flow(top, LV_FLEX_FLOW_ROW);
         lv_obj_set_flex_align(top, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-        lv_obj_set_style_pad_column(top, 12, 0);
-        lv_obj_t *title = text(top, &relay_caption_36, i < s.current ? kDimHex : 0xFFFFFF);
+        lv_obj_set_style_pad_column(top, ui_px(12), 0);
+        lv_obj_t *title = text(top, &RELAY_UI_FONT_CAPTION, i < s.current ? kDimHex : 0xFFFFFF);
         lv_label_set_long_mode(title, LV_LABEL_LONG_DOT);
         lv_obj_set_flex_grow(title, 1);
         lv_label_set_text(title, it.title[0] != '\0' ? it.title : "(untitled)");
@@ -485,12 +488,12 @@ void build_rows(SPane &p)
         if (len[0] != '\0' || notes) {
             char right[40];
             snprintf(right, sizeof right, "%s%s%s", notes ? LV_SYMBOL_FILE : "", notes && len[0] ? "  " : "", len);
-            lv_obj_t *r = text(top, &lv_font_montserrat_20, kDimHex);
+            lv_obj_t *r = text(top, &RELAY_UI_FONT_SMALL, kDimHex);
             lv_label_set_text(r, right);
         }
         char song[sizeof(service_item::sequence) + 24] = {};
         if (service_song_words(it, song, sizeof song) > 0) {
-            lv_obj_t *l = text(row, &lv_font_montserrat_20, 0xB0B0B0);
+            lv_obj_t *l = text(row, &RELAY_UI_FONT_SMALL, 0xB0B0B0);
             lv_label_set_long_mode(l, LV_LABEL_LONG_WRAP);
             lv_obj_set_width(l, lv_pct(100));
             set_ascii(l, song);
@@ -505,7 +508,7 @@ void build_rows(SPane &p)
         }
     }
     if (s.total > s.count) {
-        lv_obj_t *more = text(p.list, &lv_font_montserrat_20, kDimHex);
+        lv_obj_t *more = text(p.list, &RELAY_UI_FONT_SMALL, kDimHex);
         char words[64];
         snprintf(words, sizeof words, "and %d more items", s.total - s.count);
         lv_label_set_text(more, words);
@@ -592,7 +595,7 @@ void draw_clock(SPane &p, uint32_t now_ms)
 
 }  // namespace
 
-void service_view_build(int pane, lv_obj_t *box, int slot, int w)
+void service_view_build(int pane, lv_obj_t *box, int slot, int w, int h)
 {
     if (pane < 0 || pane > 1) {
         return;
@@ -612,14 +615,15 @@ void service_view_build(int pane, lv_obj_t *box, int slot, int w)
     p.snap = snap;
     p.slot = slot;
     p.w = w;
+    p.h = h;
     p.box = box;
     const panel_service mode = panel_link_service();
     p.mode_rev = panel_link_service_revision();
     p.controls = service_mode_controls(mode.mode) && mode.key[0] != '\0';
     p.shows = !(mode.mode == service_mode::control && p.controls);
     lv_obj_set_style_bg_color(box, hex(kBgHex), 0);
-    const bool narrow = w < kLcdWidth;
-    const int timer_w = narrow ? 120 : 200;
+    const bool narrow = w < kCaptionNarrowW;
+    const int timer_w = narrow ? ui_px(120) : ui_px(200);
 
     // Now.
     lv_obj_t *now = plain_box(box);
@@ -627,32 +631,32 @@ void service_view_build(int pane, lv_obj_t *box, int slot, int w)
     lv_obj_set_size(now, w, kNowH);
     lv_obj_set_style_bg_color(now, hex(kNowHex), 0);
     lv_obj_set_style_bg_opa(now, LV_OPA_COVER, 0);
-    p.now_title = text(now, &relay_caption_36, 0xFFFFFF);
+    p.now_title = text(now, &RELAY_UI_FONT_CAPTION, 0xFFFFFF);
     lv_label_set_long_mode(p.now_title, LV_LABEL_LONG_DOT);
     lv_obj_set_width(p.now_title, w - 2 * kPad - timer_w);
-    lv_obj_set_pos(p.now_title, kPad, 10);
-    p.now_timer = text(now, &lv_font_montserrat_40, 0xFFFFFF);
+    lv_obj_set_pos(p.now_title, kPad, ui_px(4));
+    p.now_timer = text(now, &RELAY_UI_FONT_LARGE, 0xFFFFFF);
     lv_obj_set_width(p.now_timer, timer_w);
     lv_obj_set_style_text_align(p.now_timer, LV_TEXT_ALIGN_RIGHT, 0);
-    lv_obj_align(p.now_timer, LV_ALIGN_TOP_RIGHT, -kPad, 10);
+    lv_obj_align(p.now_timer, LV_ALIGN_TOP_RIGHT, -kPad, ui_px(4));
     lv_obj_t *next_row = plain_box(now);
     lv_obj_set_size(next_row, w - 2 * kPad, LV_SIZE_CONTENT);
-    lv_obj_set_pos(next_row, kPad, 64);
+    lv_obj_set_pos(next_row, kPad, ui_px(52));
     lv_obj_set_flex_flow(next_row, LV_FLEX_FLOW_ROW);
     lv_obj_set_flex_align(next_row, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-    lv_obj_set_style_pad_column(next_row, 12, 0);
-    lv_obj_t *next_word = text(next_row, &lv_font_montserrat_20, kDimHex);
+    lv_obj_set_style_pad_column(next_row, ui_px(12), 0);
+    lv_obj_t *next_word = text(next_row, &RELAY_UI_FONT_SMALL, kDimHex);
     lv_label_set_text(next_word, "NEXT");
-    p.next_title = text(next_row, &relay_caption_36, 0xB0B0B0);
+    p.next_title = text(next_row, &RELAY_UI_FONT_CAPTION, 0xB0B0B0);
     lv_label_set_long_mode(p.next_title, LV_LABEL_LONG_DOT);
     lv_obj_set_flex_grow(p.next_title, 1);
 
     // The order of service.
     const int list_top = kCaptionHeaderH + kNowH;
-    const int bar_h = !p.controls ? 0 : p.shows ? kBarH : kLcdHeight - list_top - kFooterH;
+    const int bar_h = !p.controls ? 0 : p.shows ? kBarH : h - list_top - kFooterH;
     p.list = plain_box(box);
     lv_obj_set_pos(p.list, 0, list_top);
-    lv_obj_set_size(p.list, w, kLcdHeight - list_top - kFooterH - bar_h);
+    lv_obj_set_size(p.list, w, h - list_top - kFooterH - bar_h);
     if (!p.shows) {
         lv_obj_add_flag(p.list, LV_OBJ_FLAG_HIDDEN);
     }
@@ -662,31 +666,31 @@ void service_view_build(int pane, lv_obj_t *box, int slot, int w)
     lv_obj_set_scroll_dir(p.list, LV_DIR_VER);
     lv_obj_set_scrollbar_mode(p.list, LV_SCROLLBAR_MODE_ACTIVE);
     lv_obj_set_flex_flow(p.list, LV_FLEX_FLOW_COLUMN);
-    lv_obj_set_style_pad_hor(p.list, kPad - 12, 0);
+    lv_obj_set_style_pad_hor(p.list, kPad - ui_px(12), 0);
     lv_obj_set_style_pad_ver(p.list, kCaptionPadY, 0);
-    lv_obj_set_style_pad_row(p.list, 4, 0);
+    lv_obj_set_style_pad_row(p.list, ui_px(4), 0);
     lv_obj_set_style_bg_color(p.list, hex(0x707070), LV_PART_SCROLLBAR);
     lv_obj_set_style_bg_opa(p.list, LV_OPA_COVER, LV_PART_SCROLLBAR);
-    lv_obj_set_style_width(p.list, 6, LV_PART_SCROLLBAR);
+    lv_obj_set_style_width(p.list, ui_px(6), LV_PART_SCROLLBAR);
     lv_obj_add_event_cb(p.list, on_scroll, LV_EVENT_SCROLL, &p);
 
-    p.empty = text(box, &lv_font_montserrat_28, kDimHex);
+    p.empty = text(box, &RELAY_UI_FONT_MEDIUM, kDimHex);
     lv_label_set_long_mode(p.empty, LV_LABEL_LONG_WRAP);
     lv_obj_set_width(p.empty, w - 2 * kPad);
     lv_obj_set_style_text_align(p.empty, LV_TEXT_ALIGN_CENTER, 0);
-    lv_obj_align(p.empty, LV_ALIGN_TOP_MID, 0, list_top + 60);
+    lv_obj_align(p.empty, LV_ALIGN_TOP_MID, 0, list_top + ui_px(60));
 
     p.jump = lv_button_create(box);
     lv_obj_remove_style_all(p.jump);
-    lv_obj_set_size(p.jump, narrow ? 220 : kCaptionJumpW, kCaptionJumpH);
-    lv_obj_align(p.jump, LV_ALIGN_BOTTOM_MID, 0, -kFooterH - bar_h - 12);
+    lv_obj_set_size(p.jump, narrow ? ui_px(220) : kCaptionJumpW, kCaptionJumpH);
+    lv_obj_align(p.jump, LV_ALIGN_BOTTOM_MID, 0, -kFooterH - bar_h - ui_px(12));
     lv_obj_set_style_bg_color(p.jump, hex(kJumpHex), 0);
     lv_obj_set_style_bg_opa(p.jump, LV_OPA_COVER, 0);
     lv_obj_set_style_radius(p.jump, kCaptionJumpH / 2, 0);
     lv_obj_set_style_border_color(p.jump, hex(0xFFFFFF), 0);
     lv_obj_set_style_border_width(p.jump, 2, 0);
     lv_obj_set_style_bg_color(p.jump, hex(0x1F52C2), LV_STATE_PRESSED);
-    lv_obj_t *jl = text(p.jump, &lv_font_montserrat_28, 0xFFFFFF);
+    lv_obj_t *jl = text(p.jump, &RELAY_UI_FONT_MEDIUM, 0xFFFFFF);
     lv_label_set_text(jl, LV_SYMBOL_UP "  Jump to now");
     lv_obj_center(jl);
     lv_obj_add_event_cb(p.jump, on_jump, LV_EVENT_CLICKED, &p);
@@ -694,24 +698,24 @@ void service_view_build(int pane, lv_obj_t *box, int slot, int w)
 
     // The footer.
     lv_obj_t *foot = plain_box(box);
-    lv_obj_set_pos(foot, 0, kLcdHeight - kFooterH);
+    lv_obj_set_pos(foot, 0, h - kFooterH);
     lv_obj_set_size(foot, w, kFooterH);
     lv_obj_set_style_bg_color(foot, hex(0x1E1E1E), 0);
     lv_obj_set_style_bg_opa(foot, LV_OPA_COVER, 0);
     lv_obj_set_flex_flow(foot, LV_FLEX_FLOW_ROW);
     lv_obj_set_flex_align(foot, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
     lv_obj_set_style_pad_hor(foot, kPad, 0);
-    lv_obj_set_style_pad_column(foot, 10, 0);
+    lv_obj_set_style_pad_column(foot, ui_px(10), 0);
     p.dot = plain_box(foot);
-    lv_obj_set_size(p.dot, 14, 14);
+    lv_obj_set_size(p.dot, ui_px(14), ui_px(14));
     lv_obj_set_style_radius(p.dot, LV_RADIUS_CIRCLE, 0);
     lv_obj_set_style_bg_opa(p.dot, LV_OPA_COVER, 0);
-    p.footer = text(foot, &lv_font_montserrat_20, 0xD0D0D0);
+    p.footer = text(foot, &RELAY_UI_FONT_SMALL, 0xD0D0D0);
     lv_label_set_long_mode(p.footer, LV_LABEL_LONG_DOT);
     lv_obj_set_flex_grow(p.footer, 1);
 
     if (p.controls) {
-        build_bar(p, kLcdHeight - kFooterH - bar_h, bar_h);
+        build_bar(p, h - kFooterH - bar_h, bar_h);
     }
 
     p.follow.reset(lv_tick_get());

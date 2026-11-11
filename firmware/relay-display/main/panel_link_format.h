@@ -6,16 +6,29 @@
 // **What goes over the wire**, plain HTTP on the viewer port, no login (panels do not pair):
 //
 //   POST /api/panels/checkin          every 30 s: who this panel is and what it shows
-//        {"id":"<32 hex>","name":"Panel 1a2b","version":"0.1.0","scripts":["latin"],
-//         "feeds":[{"stream":"translation","lang":"SPANISH"}],"ip":"192.168.1.50","uptime_s":42,
-//         "rssi":-58,"feed_rev":0}
-//   -> {"ok":true,"name":"Lobby","interval_s":30,"set_feed":{"type":"set_feed","rev":3,"feeds":[..]}}
+//        {"id":"<32 hex>","name":"Panel 1a2b","version":"0.1.0","board":"crowpanel-adv7","rotation":0,
+//         "scripts":["latin"],"feeds":[{"stream":"translation","lang":"SPANISH"}],"ip":"192.168.1.50",
+//         "uptime_s":42,"rssi":-58,"feed_rev":0,"rotation_rev":0}
+//   -> {"ok":true,"name":"Lobby","interval_s":30,"set_feed":{"type":"set_feed","rev":3,"feeds":[..]},
+//       "set_rotation":{"type":"set_rotation","rev":2,"deg":180}}
 //
 //   GET /api/panels/<id>/events       kept open; Relay writes to it the moment the operator acts
 //   -> data: {"type":"set_feed","rev":3,"feeds":[{"stream":"transcription"}]}
 //   -> data: {"type":"update_available","version":"0.2.0","size":..,"sha256":"..","path":"/api/panels/firmware/0.2.0.bin","now":false}
 //   -> data: {"type":"service_mode","mode":"both","service_type":"7","key":"<32 hex>"}   (#81; also in a reply's `service`)
+//   -> data: {"type":"set_rotation","rev":2,"deg":180}   (#122; also in a reply's `set_rotation`)
+//   -> data: {"type":"reboot"}         (#122; on the stream only, never in a reply)
 //   -> : ping                          every 15 s of quiet
+//
+// A feed is {"stream":"transcription"}, {"stream":"translation","lang":"SPANISH"} or, since #122,
+// {"stream":"service","service_type":"7"}: the Planning Center service, which the panel keeps as a pick with the
+// service type id where a translation keeps its language.
+//
+// **The rotation follows the feed's rule: the newest change wins, from either side.** The operator's carries a `rev`,
+// and the panel reports the last one it applied (`rotation_rev`), so Relay sends it only until it is applied. A turn
+// made at the screen (the menu's "Turn 180°") does not move `rotation_rev`, so the next check-in does not undo it.
+// Either way the panel saves the angle and restarts, because its screen and touch layer are set up once, at boot; it
+// keeps `rotation_rev` in its own storage for the same reason.
 //
 // **`rev` is how Relay and the panel agree what has been applied.** The operator's feed carries a revision
 // that rises with each setting. The panel tells Relay the last one it applied (`feed_rev`), and Relay sends a
@@ -47,11 +60,14 @@ constexpr int kPanelFeedsMax = 2;
 struct panel_status {
     char id[33];
     char version[16];
+    char board[24];      // RELAY_BOARD_ID; empty leaves it out
+    int rotation;        // 0, 90, 180 or 270, what the screen shows
     char ip[16];         // dotted quad, empty when unknown
     uint32_t uptime_s;
     bool has_rssi;
     int rssi;            // dBm
     uint32_t feed_rev;   // the last operator feed it applied; 0 when none
+    uint32_t rotation_rev;  // the last operator rotation it applied; 0 when none
     int feed_count;      // 0..2, what is shown now
     feed_pick feeds[kPanelFeedsMax];
 };
@@ -115,19 +131,27 @@ inline size_t panel_checkin_body(char *out, size_t cap, const panel_status &st)
     out[0] = '\0';
     auto raw = [&](const char *s) { return panel_raw_put(out, cap, &o, s); };
     auto val = [&](const char *s) { return panel_json_put(out, cap, &o, s); };
-    char num[40];
+    char num[64];
     bool ok = raw("{\"id\":\"") && val(st.id) && raw("\",\"name\":\"") && val(name) && raw("\",\"version\":\"") &&
-              val(st.version) && raw("\",\"scripts\":[\"latin\"],\"feeds\":[");
+              val(st.version) && raw("\"");
+    if (ok && st.board[0] != '\0') {
+        ok = raw(",\"board\":\"") && val(st.board) && raw("\"");
+    }
+    snprintf(num, sizeof num, ",\"rotation\":%d", panel_rotation_valid(st.rotation) ? st.rotation : 0);
+    ok = ok && raw(num) && raw(",\"scripts\":[\"latin\"],\"feeds\":[");
     bool any = false;
     for (int i = 0; ok && i < st.feed_count && i < kPanelFeedsMax; ++i) {
         const feed_pick &f = st.feeds[i];
-        if (f.stream != kFeedTranscription && f.stream != kFeedTranslation) {
+        if (f.stream != kFeedTranscription && f.stream != kFeedTranslation &&
+            !(f.stream == kFeedService && f.lang[0] != '\0')) {
             continue;
         }
         ok = raw(any ? "," : "");
         any = true;
         if (f.stream == kFeedTranscription) {
             ok = ok && raw("{\"stream\":\"transcription\"}");
+        } else if (f.stream == kFeedService) {
+            ok = ok && raw("{\"stream\":\"service\",\"service_type\":\"") && val(f.lang) && raw("\"}");
         } else {
             ok = ok && raw("{\"stream\":\"translation\",\"lang\":\"") && val(f.lang) && raw("\"}");
         }
@@ -142,7 +166,8 @@ inline size_t panel_checkin_body(char *out, size_t cap, const panel_status &st)
         snprintf(num, sizeof num, ",\"rssi\":%d", st.rssi);
         ok = raw(num);
     }
-    snprintf(num, sizeof num, ",\"feed_rev\":%lu}", static_cast<unsigned long>(st.feed_rev));
+    snprintf(num, sizeof num, ",\"feed_rev\":%lu,\"rotation_rev\":%lu}", static_cast<unsigned long>(st.feed_rev),
+             static_cast<unsigned long>(st.rotation_rev));
     ok = ok && raw(num);
     return ok ? o : 0;
 }
@@ -260,9 +285,11 @@ struct panel_set_feed {
     feed_pick feeds[kPanelFeedsMax];
 };
 
-// Read the `feeds` array of a `set_feed` object at `obj`. Each entry is {"stream":"transcription"} or
-// {"stream":"translation","lang":".."}. False for anything else: no feed, three feeds, an unknown stream, or a
-// translation with no language. A language is not checked against what is live: the panel's feed rules do that.
+// Read the `feeds` array of a `set_feed` object at `obj`. Each entry is {"stream":"transcription"},
+// {"stream":"translation","lang":".."} or {"stream":"service","service_type":"<digits>"}. False for anything else: no
+// feed, three feeds, an unknown stream, a translation with no language, or a service type that is not a Planning
+// Center id. A language is not checked against what is live, nor a service against what is offered: the panel's feed
+// rules do that.
 inline bool panel_read_set_feed(const char *obj, const char *e, panel_set_feed *out)
 {
     uint64_t rev = 0;
@@ -298,6 +325,21 @@ inline bool panel_read_set_feed(const char *obj, const char *e, panel_set_feed *
                 return false;
             }
             pick = feed_pick_make(kFeedTranslation, lang);
+        } else if (strcmp(stream, "service") == 0) {
+            // A type longer than the pick holds would be cut into another type, so it is refused: the quoted
+            // value's own length is checked, as `read_string` stops quietly at the buffer's end.
+            const char *t = caption_json::get(item, e, "service_type");
+            const char *t_end = t != nullptr ? caption_json::skip_value(t, e) : nullptr;
+            if (t_end == nullptr || static_cast<size_t>(t_end - t) > sizeof lang + 1 ||
+                !caption_json::read_string(t, e, lang, sizeof lang, &n) || n == 0) {
+                return false;
+            }
+            for (size_t i = 0; i < n; ++i) {
+                if (lang[i] < '0' || lang[i] > '9') {
+                    return false;
+                }
+            }
+            pick = feed_pick_make(kFeedService, lang);
         } else {
             return false;
         }
@@ -343,12 +385,35 @@ inline update_format::Order panel_read_update(const char *obj, const char *e, ui
     return o;
 }
 
+// The operator's rotation (#122): {"rev":2,"deg":180}. The angle is 0, 90, 180 or 270 and nothing else.
+struct panel_set_rotation {
+    uint32_t rev = 0;
+    int deg = 0;
+};
+
+inline bool panel_read_set_rotation(const char *obj, const char *e, panel_set_rotation *out)
+{
+    uint64_t rev = 0;
+    uint64_t deg = 0;
+    const char *r = caption_json::get(obj, e, "rev");
+    const char *d = caption_json::get(obj, e, "deg");
+    if (r == nullptr || !caption_json::read_uint(r, e, &rev) || rev > 0xFFFFFFFFull || d == nullptr ||
+        !caption_json::read_uint(d, e, &deg) || deg > 270 || !panel_rotation_valid(static_cast<int>(deg))) {
+        return false;
+    }
+    out->rev = static_cast<uint32_t>(rev);
+    out->deg = static_cast<int>(deg);
+    return true;
+}
+
 // What one message from Relay asks of the panel.
 enum class panel_message : uint8_t {
     none,              // not something the panel acts on (an unknown type, or unreadable)
     set_feed,          // `feed` is filled in
     update_available,  // a firmware update is waiting; `update` is it when it is one the panel will act on
     service_mode,      // the operator set the panel's service mode (#81); `service` is it
+    set_rotation,      // the operator set the screen's rotation (#122); `rotation` is it, 0, 90, 180 or 270
+    reboot,            // the operator asked the panel to restart (#122)
 };
 
 struct panel_event {
@@ -356,6 +421,7 @@ struct panel_event {
     panel_set_feed feed = {};
     update_format::Order update = {};
     panel_service service = {};
+    panel_set_rotation rotation = {};
 };
 
 // One event from the stream (the JSON of a `data:` line).
@@ -380,6 +446,12 @@ inline panel_event panel_parse_event(const char *json, size_t len, uint32_t slot
         if (panel_service_parse(json, e, &ev.service)) {
             ev.kind = panel_message::service_mode;
         }
+    } else if (strcmp(type, "set_rotation") == 0) {
+        if (panel_read_set_rotation(json, e, &ev.rotation)) {
+            ev.kind = panel_message::set_rotation;
+        }
+    } else if (strcmp(type, "reboot") == 0) {
+        ev.kind = panel_message::reboot;
     }
     return ev;
 }
@@ -396,6 +468,9 @@ struct panel_reply {
     // The panel's service mode (#81). A Relay from before it sends none, which leaves the mode as it was.
     bool has_service = false;
     panel_service service = {};
+    // The operator's rotation (#122), while the panel has not applied its revision.
+    bool has_rotation = false;
+    panel_set_rotation rotation = {};
 };
 
 inline panel_reply panel_parse_reply(const char *json, size_t len, uint32_t slot_bytes = 0x1E0000)
@@ -425,6 +500,8 @@ inline panel_reply panel_parse_reply(const char *json, size_t len, uint32_t slot
     if (service != nullptr) {
         r.has_service = panel_service_parse(service, e, &r.service);
     }
+    const char *rotation = caption_json::get(json, e, "set_rotation");
+    r.has_rotation = rotation != nullptr && panel_read_set_rotation(rotation, e, &r.rotation);
     return r;
 }
 
@@ -434,6 +511,12 @@ inline panel_reply panel_parse_reply(const char *json, size_t len, uint32_t slot
 inline bool panel_should_apply(uint32_t rev, uint32_t applied)
 {
     return rev != applied;
+}
+
+// Whether a rotation means a restart: it is not the one the panel booted with.
+inline bool panel_rotation_needs_restart(int wanted, int booted)
+{
+    return panel_rotation_valid(wanted) && wanted != booted;
 }
 
 // How long to wait before opening the event stream again after `failures` in a row, in ms. A 404 is Relay saying it

@@ -23,6 +23,8 @@ const char *TAG = "settings";
 constexpr const char *kNamespace = "relay";
 constexpr const char *kKey = "config";
 constexpr const char *kRelayNameKey = "relay_name";
+// The newest operator rotation revision applied (#122), its own key so the blob's layout stays as it is.
+constexpr const char *kRotationRevKey = "rot_rev";
 constexpr const char *kUpdateKey = "update";
 
 // The orientation this build was configured for. It is the defaults' rotation, and it
@@ -81,7 +83,7 @@ esp_err_t settings_load(relay_settings_t *out)
                  static_cast<unsigned>(stored.schema), static_cast<unsigned>(kSettingsSchema));
         return ESP_OK;
     case settings_blob::rotation_reset:
-        ESP_LOGW(TAG, "settings: stored rotation is not 0 or 180; using the configured %u",
+        ESP_LOGW(TAG, "settings: stored rotation is not 0, 90, 180 or 270; using the configured %u",
                  static_cast<unsigned>(out->rotation_deg));
         break;
     case settings_blob::accepted:
@@ -155,8 +157,50 @@ void settings_adopt_feeds(relay_settings_t *cand)
     relay_settings_t current;
     if (settings_load(&current) == ESP_OK) {
         copy_feeds(cand, &current);
+        cand->rotation_deg = current.rotation_deg;  // set from Relay (#122), and not the setup page's to change
     }
     xSemaphoreGive(feeds_lock());
+}
+
+esp_err_t settings_save_rotation(uint16_t rotation_deg, uint32_t rotation_rev)
+{
+    if (!panel_rotation_valid(rotation_deg)) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    xSemaphoreTake(feeds_lock(), portMAX_DELAY);
+    relay_settings_t current;
+    esp_err_t err = settings_load(&current);
+    if (err == ESP_OK && current.rotation_deg != rotation_deg) {
+        current.rotation_deg = rotation_deg;
+        err = settings_save(&current);
+    }
+    xSemaphoreGive(feeds_lock());
+    if (err != ESP_OK || rotation_rev == settings_load_rotation_rev()) {
+        return err;
+    }
+    // After the angle: a power cut between the two leaves the old revision, and Relay sends the same rotation again,
+    // which then needs no restart.
+    nvs_handle_t handle = 0;
+    ESP_RETURN_ON_ERROR(nvs_open(kNamespace, NVS_READWRITE, &handle), TAG, "open for write");
+    err = nvs_set_u32(handle, kRotationRevKey, rotation_rev);
+    if (err == ESP_OK) {
+        err = nvs_commit(handle);
+    }
+    nvs_close(handle);
+    return err;
+}
+
+uint32_t settings_load_rotation_rev()
+{
+    nvs_handle_t handle = 0;
+    uint32_t rev = 0;
+    if (nvs_open(kNamespace, NVS_READONLY, &handle) == ESP_OK) {
+        if (nvs_get_u32(handle, kRotationRevKey, &rev) != ESP_OK) {
+            rev = 0;
+        }
+        nvs_close(handle);
+    }
+    return rev;
 }
 
 void settings_load_relay_name(char *out, size_t cap)

@@ -330,7 +330,10 @@ void attempt_failed(setup_failure f)
 
 void attempt_succeeded(const uint8_t addr[4])
 {
-    relay_settings_t cand;
+    // Static, not on the stack: this runs on the event task (`on_address`), whose stack is small, and the load and save
+    // below each hold a whole blob of their own. A copy here overflowed it, and the panel restarted before the new
+    // network was saved, so it came back on the old one (#122 bench, 2026-11-11). Only this task runs it.
+    static relay_settings_t cand;
     lock();
     if (!s_.connecting) {
         unlock();
@@ -467,6 +470,10 @@ void close_setup(void *)
         unlock();
         return;
     }
+    // A setup network that closes without a new network joined (an attempt that failed, or none made) goes back to
+    // the stored one: a failed attempt left the station off, with the refused configuration in it.
+    const bool rejoin = !s_.connected && wifi_should_start(s_.stored.wifi_ssid);
+    const net_sta_config stored_sta = rejoin ? sta_from_settings(s_.stored) : net_sta_config{};
     s_.open = false;
     s_.recovery = false;
     s_.connecting = false;
@@ -491,6 +498,9 @@ void close_setup(void *)
     // The station reconnects by itself from here on, with the stored configuration.
     net_set_reconnect(true);
     net_radio_drop_ap();
+    if (rejoin && net_station_connect(&stored_sta) != ESP_OK) {
+        ESP_LOGW(TAG, "setup: could not rejoin the stored network; retrying in the background");
+    }
     ESP_LOGI(TAG, "setup: setup network closed; the display keeps its settings");
     draw_panel();
 }

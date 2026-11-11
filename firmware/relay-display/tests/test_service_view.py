@@ -160,7 +160,7 @@ def test_notes_open_on_a_tap(panel: Board, relay: FakeRelay) -> None:
     choose_service(panel)
     m = wait_service(panel, lambda m: m.group(2) == "known" and int(m.group(9)) > 0, "the current row on the glass")
     y = int(m.group(9))
-    assert 172 < y < 440, y
+    assert 129 < y < 440, y
     assert panel.uart is not None
     mark = panel.uart.mark()
     held_tap(panel, 300, y)

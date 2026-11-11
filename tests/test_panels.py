@@ -430,8 +430,11 @@ if real.exists():
     check("a real built and signed image passes the same check", bool(panelfw.inspect(real.read_bytes())[0]))
 
 print("\nfirmware: upload, store and serve")
-eq("no firmware at first", admin.get("/api/admin/panels/firmware").json(), {"firmware": None})
-eq("the viewer port serves nothing before an upload", viewer.get("/api/panels/firmware/0.2.0.bin").status_code, 404)
+eq("no firmware at first", admin.get("/api/admin/panels/firmware").json()["firmware"], None)
+eq("only the CrowPanel is listed: the Waveshare is on hold",
+   [b["board"] for b in admin.get("/api/admin/panels/firmware").json()["boards"]], ["crowpanel-adv7"])
+eq("the viewer port serves nothing before an upload",
+   viewer.get("/api/panels/firmware/crowpanel-adv7/0.2.0.bin").status_code, 404)
 r = admin.post("/api/admin/panels/firmware", content=make_image(signed=False))
 eq("an unsigned upload is refused with the reason", (r.status_code, "not signed" in r.text), (400, True))
 check("…and nothing is kept", panelfw.current() is None)
@@ -442,12 +445,25 @@ info = r.json()["firmware"]
 eq("it reports its version, size and checksum",
    (info["version"], info["size"], info["sha256"]), ("0.2.0", len(good), hashlib.sha256(good).hexdigest()))
 eq("the panels frame carries it", main._panels_frame()["firmware"]["version"], "0.2.0")
-r = viewer.get("/api/panels/firmware/0.2.0.bin")
+eq("it is the CrowPanel's", info["board"], "crowpanel-adv7")
+r = viewer.get("/api/panels/firmware/crowpanel-adv7/0.2.0.bin")
 eq("a panel gets exactly the bytes, on the viewer port", (r.status_code, r.content == good), (200, True))
 eq("…with a length", r.headers.get("content-length"), str(len(good)))
-eq("a version that is not the one held is 404", viewer.get("/api/panels/firmware/0.3.0.bin").status_code, 404)
-eq("a name that is not a version is 404", viewer.get("/api/panels/firmware/..%2Fconfig.json").status_code, 404)
-eq("…and so is one without the suffix", viewer.get("/api/panels/firmware/0.2.0").status_code, 404)
+eq("a version that is not the one held is 404",
+   viewer.get("/api/panels/firmware/crowpanel-adv7/0.3.0.bin").status_code, 404)
+eq("a name that is not a version is 404",
+   viewer.get("/api/panels/firmware/crowpanel-adv7/..%2Fconfig.json").status_code, 404)
+eq("…and so is one without the suffix", viewer.get("/api/panels/firmware/crowpanel-adv7/0.2.0").status_code, 404)
+eq("…and a board Relay does not know", viewer.get("/api/panels/firmware/nope/0.2.0.bin").status_code, 404)
+eq("…and the Waveshare's, which is on hold",
+   viewer.get("/api/panels/firmware/waveshare-p4-10.1/0.2.0.bin").status_code, 404)
+r = admin.post("/api/admin/panels/firmware", content=make_image("0.9.0", chip=panelfw.CHIP_ESP32_P4))
+eq("a Waveshare (ESP32-P4) image is refused: that board is on hold",
+   (r.status_code, "on hold" in r.text), (400, True))
+eq("…and naming that board is refused too",
+   admin.post("/api/admin/panels/firmware?board=waveshare-p4-10.1", content=good).status_code, 400)
+eq("naming the CrowPanel for a CrowPanel image is fine",
+   admin.post("/api/admin/panels/firmware?board=crowpanel-adv7", content=good).status_code, 200)
 config.save({"admin_token": "t0ken", "port": 8000, "admin_port": 8001})
 eq("the upload route is not on the viewer port",
    viewer.post("/api/admin/panels/firmware", content=good).status_code, 404)
@@ -484,10 +500,10 @@ frame = q.get_nowait()
 msg = json.loads(frame.decode().split("data: ", 1)[1])
 eq("the stream gets update_available with what to fetch",
    msg, {"type": "update_available", "version": "0.2.0", "size": len(good),
-         "sha256": hashlib.sha256(good).hexdigest(), "path": "/api/panels/firmware/0.2.0.bin", "now": False})
+         "sha256": hashlib.sha256(good).hexdigest(), "path": "/api/panels/firmware/crowpanel-adv7/0.2.0.bin", "now": False})
 reg.unsubscribe(pid(30), q)
 r = viewer.post("/api/panels/checkin", json=body(30, version="0.1.0"))
-eq("the check-in reply carries the same offer", r.json()["update"]["path"], "/api/panels/firmware/0.2.0.bin")
+eq("the check-in reply carries the same offer", r.json()["update"]["path"], "/api/panels/firmware/crowpanel-adv7/0.2.0.bin")
 q = reg.subscribe(pid(30))
 check("a stream opened later is told at once", json.loads(q.get_nowait().decode().split("data: ", 1)[1])["type"] == "update_available")
 reg.unsubscribe(pid(30), q)
@@ -550,16 +566,112 @@ check("a new image withdraws the asks for the old one", reg.panels[pid(31)].upda
 check("…so the panel's next check-in carries no offer, and it drops what it had staged",
       "update" not in viewer.post("/api/panels/checkin", json=body(31, version="0.1.0")).json())
 eq("…and its row no longer says it is going", reg.view(pid(31))["update"], None)
-eq("the old version is no longer served", viewer.get("/api/panels/firmware/0.2.0.bin").status_code, 404)
-eq("the new one is", viewer.get("/api/panels/firmware/0.3.0.bin").status_code, 200)
+eq("the old version is no longer served", viewer.get("/api/panels/firmware/crowpanel-adv7/0.2.0.bin").status_code, 404)
+eq("the new one is", viewer.get("/api/panels/firmware/crowpanel-adv7/0.3.0.bin").status_code, 200)
 r = admin.delete("/api/admin/panels/firmware")
 eq("the operator removes the firmware", (r.status_code, r.json()["removed"]), (200, True))
-eq("…and nothing is held", admin.get("/api/admin/panels/firmware").json(), {"firmware": None})
-eq("…or served", viewer.get("/api/panels/firmware/0.3.0.bin").status_code, 404)
+eq("…and nothing is held", admin.get("/api/admin/panels/firmware").json()["firmware"], None)
+eq("…or served", viewer.get("/api/panels/firmware/crowpanel-adv7/0.3.0.bin").status_code, 404)
 eq("asking for an update with none held is 409",
    admin.post("/api/admin/panels/firmware/update", json={"id": pid(31)}).status_code, 409)
 eq("…and so is asking for all", admin.post("/api/admin/panels/firmware/update", json={}).status_code, 409)
 check("a panel row has no update available", not reg.view(pid(31))["update_available"])
+
+
+print("\nfirmware: one image per board, and the store from before #122")
+viewer.post("/api/panels/checkin", json=body(40, version="0.1.0", board="crowpanel-adv7"))
+viewer.post("/api/panels/checkin", json=body(41, version="0.1.0", board="waveshare-p4-10.1"))
+viewer.post("/api/panels/checkin", json=body(42, version="0.1.0"))
+admin.post("/api/admin/panels/firmware", content=make_image("0.4.0"))
+eq("a panel that reports the CrowPanel is offered its image", reg.view(pid(40))["update_available"], True)
+eq("…and so is one that reports no board: it is a CrowPanel", reg.view(pid(42))["update_available"], True)
+check("…which is how every panel from before #122 checks in", reg.view(pid(42))["board"] == "crowpanel-adv7")
+eq("a panel of a board on hold is offered nothing", reg.view(pid(41))["update_available"], False)
+r = admin.post("/api/admin/panels/firmware/update", json={"id": pid(41)})
+eq("…and asking it is refused with why", (r.status_code, "waveshare-p4-10.1" in r.text), (409, True))
+eq("the list says each panel's board", (reg.view(pid(40))["board_label"], reg.view(pid(41))["board"]),
+   ('CrowPanel Advance 7"', "waveshare-p4-10.1"))
+fw = {b["board"]: b for b in main._panels_frame()["boards"]}
+check("the firmware row counts the CrowPanels online, and those behind",
+      fw["crowpanel-adv7"]["online"] >= 2 and fw["crowpanel-adv7"]["outdated"] >= 2, fw)
+admin.delete("/api/admin/panels/firmware")
+# A store written before #122: one image at panel-firmware/panel.bin.
+legacy = make_image("0.5.0")
+panelfw.directory().mkdir(parents=True, exist_ok=True)
+(panelfw.directory() / "panel.bin").write_bytes(legacy)
+(panelfw.directory() / "panel.json").write_text(json.dumps(
+    {"version": "0.5.0", "size": len(legacy), "sha256": hashlib.sha256(legacy).hexdigest(),
+     "uploaded_at": time.time(), "filename": "relay-display-app.bin"}))
+eq("an image kept before #122 is the CrowPanel's", panelfw.current("crowpanel-adv7").version, "0.5.0")
+check("…moved into its board's folder", (panelfw.directory() / "crowpanel-adv7" / "panel.bin").exists()
+      and not (panelfw.directory() / "panel.bin").exists())
+eq("…and served there", viewer.get("/api/panels/firmware/crowpanel-adv7/0.5.0.bin").status_code, 200)
+admin.delete("/api/admin/panels/firmware")
+
+print("\nboard, rotation, the Service feed and a restart (#122)")
+clock[0] += 1000
+r = viewer.post("/api/panels/checkin", json=body(50, board="crowpanel-adv7", rotation=0))
+check("a panel with no rotation set is told none", "set_rotation" not in r.json())
+eq("the list shows the rotation it reports", reg.view(pid(50))["rotation"], 0)
+viewer.post("/api/panels/checkin", json=body(51, board="x" * 40, rotation=45))
+eq("a board or rotation that is not one is dropped", (reg.panels[pid(51)].board, reg.view(pid(51))["rotation"]), ("", None))
+r = admin.post(f"/api/admin/panels/{pid(50)}", json={"rotation": 180})
+eq("the operator turns a panel upside down", (r.status_code, r.json()["set_rotation"]), (200, 180))
+eq("…which is saved with a revision", (config.get()["panels"][pid(50)]["rotation"],
+                                       config.get()["panels"][pid(50)]["rotation_rev"]), (180, 1))
+eq("…and is in the next check-in reply until the panel applies it",
+   viewer.post("/api/panels/checkin", json=body(50, rotation=0)).json()["set_rotation"],
+   {"type": "set_rotation", "rev": 1, "deg": 180})
+r = viewer.post("/api/panels/checkin", json=body(50, rotation=180, rotation_rev=1))
+check("a panel that applied it is not told again", "set_rotation" not in r.json())
+eq("…and the change is the operator's", reg.view(pid(50))["rotation_changed_by"], "admin")
+r = viewer.post("/api/panels/checkin", json=body(50, rotation=0, rotation_rev=1))
+check("a turn at the screen afterwards is not undone", "set_rotation" not in r.json())
+eq("…and is shown as made at the screen", (reg.view(pid(50))["rotation"], reg.view(pid(50))["rotation_changed_by"]),
+   (0, "screen"))
+eq("a rotation that is not 0, 90, 180 or 270 is refused", admin.post(f"/api/admin/panels/{pid(50)}", json={"rotation": 45}).status_code, 400)
+eq("…and so is true", admin.post(f"/api/admin/panels/{pid(50)}", json={"rotation": True}).status_code, 400)
+q = reg.subscribe(pid(50))
+check("a stream that opens is told nothing the panel has applied", q.empty())
+admin.post(f"/api/admin/panels/{pid(50)}", json={"rotation": 180})
+eq("setting it again is a new revision, pushed on the stream", json.loads(q.get_nowait().decode()[len("data: "):]),
+   {"type": "set_rotation", "rev": 2, "deg": 180})
+reg.unsubscribe(pid(50), q)
+q = reg.subscribe(pid(50))
+frames = []
+while not q.empty():
+    frames.append(json.loads(q.get_nowait().decode()[len("data: "):]))
+check("a stream that opens is told a revision not yet applied", {"type": "set_rotation", "rev": 2, "deg": 180} in frames, frames)
+r = admin.post(f"/api/admin/panels/{pid(50)}/reboot")
+eq("Reboot reaches a panel with its stream open", (r.status_code, json.loads(q.get_nowait().decode()[6:])),
+   (200, {"type": "reboot"}))
+reg.unsubscribe(pid(50), q)
+r = admin.post(f"/api/admin/panels/{pid(50)}/reboot")
+eq("…and is refused for one with none: a restart is never queued", (r.status_code, "not connected" in r.text), (409, True))
+check("…nor carried in a check-in reply", "reboot" not in json.dumps(viewer.post("/api/panels/checkin", json=body(50)).json()))
+eq("Reboot for an unknown panel is 404", admin.post(f"/api/admin/panels/{pid(99)}/reboot").status_code, 404)
+eq("Reboot is not on the viewer port", viewer.post(f"/api/admin/panels/{pid(50)}/reboot").status_code, 404)
+
+config.save({"planning_center": {"service_types": ["7", "9"]}})
+svc = [{"stream": "service", "service_type": "7"}]
+r = admin.post(f"/api/admin/panels/{pid(50)}", json={"feeds": svc})
+eq("a Service feed needs the panel to show the service", (r.status_code, "service mode" in r.text), (400, True))
+r = admin.post(f"/api/admin/panels/{pid(50)}", json={"feeds": svc, "service_mode": "show"})
+eq("…and is set with it", (r.status_code, r.json()["set_feeds"]), (200, svc))
+eq("a type Relay does not follow is refused",
+   admin.post(f"/api/admin/panels/{pid(50)}", json={"feeds": [{"stream": "service", "service_type": "8"}]}).status_code, 400)
+r = admin.post(f"/api/admin/panels/{pid(50)}", json={"feeds": svc + [{"stream": "transcription"}]})
+eq("the service beside the transcription is two feeds", (r.status_code, len(r.json()["set_feeds"])), (200, 2))
+r = admin.post(f"/api/admin/panels/{pid(50)}", json={"service_type": "9"})
+eq("holding the panel to another type while it shows this one is refused", r.status_code, 400)
+r = admin.post(f"/api/admin/panels/{pid(50)}", json={"service_mode": "control"})
+eq("…and so is a mode that does not show the service", r.status_code, 400)
+reply = viewer.post("/api/panels/checkin", json=body(50, feed_rev=0)).json()
+eq("the panel is sent the Service feed", reply["set_feed"]["feeds"], svc + [{"stream": "transcription"}])
+viewer.post("/api/panels/checkin", json=body(50, feeds=svc, feed_rev=reply["set_feed"]["rev"]))
+eq("a panel reports a Service feed it shows", reg.view(pid(50))["feeds"], svc)
+eq("clean_feeds refuses a service with no type", panels.clean_feeds([{"stream": "service"}]), None)
+eq("…or a type the panel could not hold", panels.clean_feeds([{"stream": "service", "service_type": "1" * 20}]), None)
 
 print("\nfirmware: the panel's words and Relay's are the same")
 fw_source = (Path(__file__).resolve().parent.parent / "firmware" / "relay-display" / "main" / "update_format.h")
