@@ -5,7 +5,7 @@ arrive, word by word. They work in any modern browser on a phone, tablet or
 computer. There is nothing to install and no sign-in.
 
 The address is the Relay computer's LAN IP address, for example
-`http://192.168.1.50/`. The **Viewer links** section of the operator panel
+`http://192.168.1.50/`. The **Viewer links** page of the operator panel
 shows the exact links, with a QR code for each. See
 [Viewer links](#viewer-links).
 
@@ -151,7 +151,7 @@ A short announcement works well:
 > open the link. Tap **Translation** and pick your language. Tap the sun
 > button to keep your screen awake.
 
-Put the QR code from the **Viewer links** section on a slide or a printed
+Put the QR code from the **Viewer links** page on a slide or a printed
 card.
 
 ::: warning

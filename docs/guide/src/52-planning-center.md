@@ -71,8 +71,8 @@ LIVE, the item that is running and how long is left on it.
 
 ## Step 4: Choose what each panel does
 
-Each panel has its own setting. In the **Panels** section, click **Service** on
-a panel, then choose its **Service mode**:
+Each panel has its own setting. In **Panels**, click the panel's name. Under
+**Planning Center**, choose its **Service mode**:
 
 - **Off** (the default): the panel does not offer the service at all.
 - **Show only**: the panel shows the service. Nobody can change it from the
@@ -83,7 +83,12 @@ a panel, then choose its **Service mode**:
 
 If Relay follows more than one service type, also choose the **Service type**
 the panel shows, or let the panel pick. Click **Save**. The panel changes
-within a second.
+within a second. You can also pick **Service** as one of the panel's feeds
+under **Display**.
+
+Relay re-reads the plan every 30 seconds near a service, so a title, length or
+order you change in Planning Center reaches the panels within about half a
+minute. Away from a service it checks every five minutes.
 
 ::: warning
 Only give control to panels in places you trust. Anyone who can reach your
@@ -124,9 +129,11 @@ On a panel set to **Control only** or **Show and control**:
    Center has moved on, usually within a second.
 3. Tap **Release** when you are done, so someone else can control.
 
-A second tap while the first is still on its way is ignored, so a double tap
-does not skip two items. If a tap does not work, the panel says why under the
-buttons:
+The buttons act the moment you touch them, and **Next** and **Previous** move
+the highlight on the panel at once. If you tap again while the first tap is
+still on its way, the second tap waits and is sent right after, so two quick
+taps move two items. The bottom of the screen shows the result of your last tap
+and whether Relay has control. If a tap does not work, the panel says why:
 
 - **Take control first**: Relay is not controlling LIVE. Tap **Take control**.
 - **Not allowed**: the panel is not set to control, or its setting changed.

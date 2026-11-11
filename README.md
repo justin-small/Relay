@@ -49,6 +49,49 @@ module, in plain English. Its source is in [`docs/guide/`](docs/guide/).
 
 ---
 
+## What's new
+
+<p>
+  <img src="docs/guide/images/admin-panels.png" alt="The Panels page, with three caption panels online" width="49%">
+  <img src="docs/guide/images/alert-sender.png" alt="The alert sender page on a phone" width="22%">
+</p>
+
+**Caption panels.** A small touch screen on a wall or desk now shows your
+captions without anyone needing a phone. Plug a new panel in, join it to your
+Wi-Fi from your phone, and it finds Relay on its own. Show the transcription,
+one translation, or two side by side, and turn the picture to any of four
+angles to suit how it is mounted. Name each panel, change what it shows, or
+restart it from the operator panel, and update its software from there too.
+
+**Set up a panel from your browser.** A new panel is flashed over USB straight
+from Chrome or Edge: pick the port, press one button, and watch the progress.
+No tools to install.
+
+**Alerts.** When a musician needs the sound desk or the video team, they tap a
+button on their phone. The screens you choose flash red and white and show who
+is asking, until someone there taps. The first tap stops it everywhere and
+tells the sender it was seen. Set up the buttons, icons and screens in the
+operator panel; the flashing is once a second.
+
+**Your order of service on the panels.** Connect Planning Center Services and
+the panels show what is happening now, what is next and how much time is left.
+Where you allow it, a panel's **Next**, **Previous** and **Take control**
+buttons move the service on at once. Plan changes reach the panels within
+about 30 seconds.
+
+**A tidier operator panel.** A menu down the left groups everything by what
+you are doing (Live, Output, Automation, Settings), with a status pill that
+always shows whether capture is running.
+
+**Lower cost for many languages.** A new **Text** translation engine
+transcribes once and translates each finished line, so adding languages costs
+almost nothing. It also adds Arabic, Nepali, Telugu and Hmong.
+
+Every screen is explained, with pictures, in the
+[Relay User Guide](https://github.com/justin-small/Relay/releases/latest/download/Relay-User-Guide.pdf).
+
+---
+
 ## Install
 
 Requires [Docker Desktop](https://www.docker.com/products/docker-desktop/) (or
@@ -635,6 +678,10 @@ silence, because the sessions stay open by design. One session per target carrie
 the English transcript and that target's translation, so running Spanish is one
 stream, not two. Viewers cost nothing.
 
+In **Text** translation mode there is one transcription session and a text
+model translates each finished line, so extra languages cost almost nothing;
+captions then arrive a line at a time.
+
 **Press Stop between sessions.** Nothing else controls the cost.
 
 ## Tuning line breaks
@@ -899,6 +946,10 @@ menu, and Relay refuses to set one on a panel from admin. A transcription
 whose spoken language is not Latin is not offered either. They still work on
 phones.
 
+A panel can also be turned 0, 90, 180 or 270 degrees (from the admin page or
+its own menu; the newest change wins), restarted from admin, and set to show
+the Planning Center service or the Alert buttons feed (below).
+
 For operators there is a chapter in the user guide
 (`docs/guide/src/51-panels.md`).
 
@@ -998,6 +1049,12 @@ not check in with Relay within ten minutes of its first boot is rolled back. The
 asks are held in memory: a restart of Relay forgets them. Panels report on
 `POST /api/panels/{id}/update`, bounded like a check-in.
 
+**USB driver.** The panel's USB chip is a CH340. If the panel does not show up
+in the port list, install the driver for
+[macOS](https://sparks.gogo.co.nz/assets/_site_/downloads/CH341SER_MAC_V1_8.zip) or
+[Windows](https://sparks.gogo.co.nz/assets/_site_/downloads/CH34x_Install_Windows_v4_0.zip),
+then replug the panel.
+
 **Flashing a new panel from the browser.** `/admin/flash` (linked from Panels)
 writes a new or recovered panel's whole flash at 0x0 over USB from Chrome or
 Edge, with [esptool-js](https://github.com/espressif/esptool-js) over Web
@@ -1053,7 +1110,8 @@ press Next in Services LIVE themselves, Relay can too. Without it a press reads
 **What Relay does** (`app/planningcenter.py`, `app/pclive.py`):
 
 - Finds **today's plan** for each followed service type, by the organisation's own
-  time zone, every few minutes. The operator can pick another plan for today; the
+  time zone, every few minutes, and re-reads it every 30 s near a service (5 min
+  otherwise) so plan edits reach panels quickly. The operator can pick another plan for today; the
   pick lapses at midnight.
 - **Polls LIVE**: every 2 s from an hour before a service until shortly after it
   (or while an item is open), every 3 minutes otherwise, held to half of
@@ -1090,6 +1148,20 @@ to panels in places you trust, on a network you trust.
 `tools/check_planningcenter.py --live` checks a token against the real API,
 read-only, from a git-ignored `planningcenter-test.env`. For operators there is
 a chapter in the user guide (`docs/guide/src/52-planning-center.md`).
+
+## Alerts
+
+A musician taps a button on `/alert` (viewer port, no login: anyone with the
+link can send) or on a panel set to the **Alert buttons** feed, and the
+panels and browser screens that button lists flash red and white once a
+second until someone taps one. The first tap anywhere acknowledges for all;
+with no tap the alert ends after the auto-stop (30 s to 10 min, default 2 min)
+and the sender sees "Not seen". Buttons (up to 16, each with an icon, panels
+by id and screens by name) are set under **Alerts** in admin and kept in
+`config.json`. A browser screen flashes when opened as `/screen?alert=<name>`.
+Code: `app/alerts.py`, `app/static/alert*.js`, `tests/test_alerts.py`; panel
+side in `firmware/relay-display/main/alert_*`. For operators there is a chapter
+in the user guide (`docs/guide/src/53-alerts.md`).
 
 ## Not in scope
 

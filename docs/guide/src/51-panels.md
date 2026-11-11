@@ -53,6 +53,18 @@ Latin letters.
 
 ## Step 1: Flash the panel
 
+**First, install the USB driver if your computer does not see the panel.** The
+panel talks to your computer through a CH340 chip. Linux and recent versions
+of macOS often include a driver for it. If the panel does not appear in the
+port list, install one:
+
+- **macOS:** [download the CH340 driver for Mac](https://sparks.gogo.co.nz/assets/_site_/downloads/CH341SER_MAC_V1_8.zip)
+- **Windows:** [download the CH34x driver for Windows](https://sparks.gogo.co.nz/assets/_site_/downloads/CH34x_Install_Windows_v4_0.zip)
+
+Unzip the download, run the installer, then unplug the panel and plug it in
+again. On a Mac you may need to allow the driver in **System Settings >
+Privacy & Security**, and restart.
+
 You do this once for each new panel. Relay's releases include a file called
 `relay-display.bin`. Download it from the same release page as Relay itself.
 
@@ -119,22 +131,45 @@ The panel appears in Relay by itself. You do not add it.
 
 1. Open the operator panel and sign in. See [Opening the operator
    panel](#operator-access).
-2. Open the **Panels** section. Each panel has a card. A new one is called
-   **Panel** followed by a few letters, and says **Online**.
-3. Click **Rename** and type a name that says where it is, for example
-   `Lobby`. Save.
-4. Click **Set feed**. Choose **Transcription**, or a language. To show two
-   feeds side by side, choose two. Save.
+2. Open **Panels**. Each panel is a row. A new one is called **Panel**
+   followed by a few letters, and says **Online**.
 
-The panel changes at once. The card's **Showing** line tells you what the
-panel shows now.
+Here is the page with three panels:
+
+![The Panels page with three panels online.](images/admin-panels.png){width=100%}
+
+1. **Set up a new panel over USB.** Opens the flasher from Step 1.
+2. **Name.** Click it to open the panel's settings.
+3. **Showing.** What the panel shows now.
+4. **Firmware.** The panel's software version.
+5. **Status.** **Online**, or **Offline** if Relay has not heard from the
+   panel for 90 seconds.
+6. **Panel firmware.** Where you upload updates (Step 4).
+
+Click a panel's name. Its settings open at the side.
+
+![A panel's settings.](images/admin-panel-settings.png){width=60%}
+
+1. **Name.** Type where the panel is, for example `Lobby`.
+2. **Feed.** Choose **Transcription**, a language, the **Planning Center**
+   service, or **Alert buttons** (see [Alerts](#alerts)). Choose **Two
+   (split)** under **Number of feeds** to show two side by side.
+3. **Screen rotation.** **0°**, **90°**, **180°** or **270°**, for a panel
+   mounted upright or upside down. A change restarts the panel, which takes
+   about half a minute.
+4. **Device.** The panel's board, software, address and Wi-Fi strength.
+   **Reboot** restarts it. **Update** and **Update now** appear here when a
+   newer version is available.
+5. **Save**, **Cancel**, or **Forget** to remove the panel from the list.
+
+The panel changes at once. **Showing** tells you what the panel shows now.
 
 ::: note
 Anyone can also change what a panel shows from the panel's own screen: tap the
-menu button at the top right. **The newest change wins.** If you set a feed in
-the operator panel and a person then changes it at the screen, their choice
-stays until you set another. The card says **Feed changed at the screen** or
-**from admin** so you can tell.
+menu button at the top right. It can turn the picture too. **The newest change
+wins.** If you set a feed in the operator panel and a person then changes it at
+the screen, their choice stays until you set another. The panel's settings say
+**Feed changed at the screen** or **from admin** so you can tell.
 :::
 
 If a language you chose stops being live, the panel shows the transcription
@@ -148,24 +183,24 @@ New panel software comes with new Relay releases. A release includes
 the Relay team can make.
 
 1. Download `relay-display-app.bin` from the release.
-2. In the **Panels** section, under **Panel firmware**, choose the file and
+2. In **Panels**, under **Panel firmware**, choose the file and
    click **Upload**.
 3. Each panel with older software shows **Update available** and the version.
-4. Click **Update** on one panel. It installs at a quiet moment, when no new
+4. Open a panel's settings and click **Update**. It installs at a quiet moment, when no new
    caption line has come in for two minutes. Or click **Update now** to
    restart it at once. Captions stop for about half a minute. **Update all
    online panels** does every panel that is on.
-5. The card shows each step: **Downloading**, **Downloaded and verified**,
+5. The panel's settings show each step: **Downloading**, **Downloaded and verified**,
    **Restarting into the new version**, and then **Updated**.
 
-You should see the **Firmware** line on the card show the new version.
+You should see the **Firmware** line in its settings show the new version.
 
 ::: warning
 A panel only installs an update that is signed with the Relay release key. It
 checks this itself, so nobody on your network can push other software to it.
 An update that does not work is undone by the panel: if the new version cannot
 reach Relay within ten minutes, the panel goes back to the old one and the
-card says **Rolled back**.
+panel's settings say **Rolled back**.
 :::
 
 ## Recovering a panel
@@ -177,8 +212,8 @@ Use the **BOOT** button on the back of the panel.
 | Hold **BOOT** for **5 seconds** | The panel opens its setup network again, as in Step 2. Use this when the Wi-Fi name or password changed. Its settings are kept until a new network works. |
 | Hold **BOOT** for **15 seconds** | **Factory reset.** Everything is erased, including the panel's identity. It restarts blank and Relay sees a new, unnamed panel. |
 
-After a factory reset, delete the old card with **Forget** in the operator
-panel.
+After a factory reset, remove the old entry with **Forget** in the panel's
+settings.
 
 ## Troubleshooting
 
@@ -186,10 +221,10 @@ panel.
 |---|---|
 | The panel says **Relay not running** | Relay is not started, or capture is stopped, or the panel cannot find it. Check the Relay computer first. |
 | The panel is on Wi-Fi but never appears in **Panels** | It cannot find Relay. Guest networks and some routers block this. Hold **BOOT** for 5 seconds, then type Relay's address in **Relay address**, for example `http://192.168.1.50`. Use `http://`, not `https://`. |
-| The card says **Offline** | Relay has not heard from the panel for 90 seconds. Check its power and Wi-Fi. |
+| The panel says **Offline** | Relay has not heard from the panel for 90 seconds. Check its power and Wi-Fi. |
 | A language you want is not in the panel's menu | It is not written in Latin letters. See the list above. |
 | Two Relays on one network | A panel stays with the first one it found. To move it, type the other Relay's address on its setup page, or factory-reset it. |
-| **Update failed** | The card says why. Check that the file is `relay-display-app.bin` from a Relay release, then try again. |
+| **Update failed** | The panel's settings say why. Check that the file is `relay-display-app.bin` from a Relay release, then try again. |
 | **Forget** brings the panel straight back | Expected, if the panel is still on. It returns unnamed. |
 
 ## Where panels use the network

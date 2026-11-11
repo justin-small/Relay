@@ -1,45 +1,34 @@
 # The operator panel {#admin-panel}
 
-The operator panel is one long page. Two sections are always open at the top:
-**Session health** and **Audio input**. Below them are sections you can open
-and close by clicking their headings. The panel remembers which ones you left
-open. A bar along the bottom holds **Start capture** and **Stop**, and stays
-on screen as you scroll.
+The operator panel has a **menu down the left side**. Click an item to open
+its page. The panel remembers the page you were on. At the top, a coloured
+pill shows whether capture is running, and **Start capture** and **Stop** are
+on the **Session health** page. On a phone or a narrow window, the menu is
+behind a **Menu** button.
 
 ## Overview
 
-![The whole operator panel, with capture stopped and every section closed.](images/admin-overview.png){width=88%}
+![The operator panel on its first page, Session health, with capture stopped.](images/admin-overview.png){width=100%}
 
-1. **Header.** The dot is green while capture runs and grey when stopped. On
-   the right: how many people have a viewer page open, and **Sign out**.
-2. **Session health.** One row per open connection to OpenAI. See
-   [Session health](#session-health).
-3. **Audio input.** Choose the sound source and watch the level. See
-   [Audio input](#audio-input).
-4. **Target languages.** Choose the languages to translate into. See
-   [Target languages](#target-languages).
-5. **Schedules.** Start and stop capture automatically. See
-   [Schedules](#schedules).
-6. **Viewer links.** The links and QR codes to give the room. See
-   [Viewer links](#viewer-links).
-7. **Blocked words.** Words to remove from the captions. See
-   [Blocked words](#blocked-words).
-8. **Recordings & export.** Save and download transcripts. See
-   [Recordings & export](#recordings).
-9. **Credentials.** Change the OpenAI API key or the admin token. See
-   [Credentials](#credentials).
-10. **Appearance & tuning.** Text size and when caption lines break. See
-    [Appearance & tuning](#appearance).
-11. **The bottom bar.** **Start capture**, **Stop**, and the current state.
-    See [Starting and stopping](#start-stop).
+1. **Status pill.** Red and **STOPPED** while capture is off, green and
+   **RUNNING** while it runs. Click it to go to **Session health**.
+2. **Live.** The pages you use during a session: **Session health**,
+   **Audio input** and **Target languages**.
+3. **Output.** Where the captions go: **Panels**, **Alerts**, **Viewer
+   links** and **Recordings & export**.
+4. **Automation.** **Schedules** and **Planning Center**.
+5. **Settings.** **Blocked words**, **Credentials** and **Appearance &
+   tuning**.
+6. **Start capture.** See [Starting and stopping](#start-stop).
+7. **Viewers.** How many people have a viewer page open, next to **Sign
+   out**.
 
-A closed section can still show a summary in its heading. For example,
-**Target languages · French, Spanish armed** tells you which languages are
-ready, without opening the section.
+Each page is described in this chapter, except **Panels**, **Alerts** and
+**Planning Center**, which are in Part 5.
 
-When something goes wrong, a red message appears under the header. Green
-messages, such as **Saved.**, confirm that a change worked and fade after a
-couple of seconds.
+When something goes wrong, a red message appears at the top of the page.
+Green messages, such as **Saved.**, confirm that a change worked and fade after
+a couple of seconds.
 
 ### A session in progress
 
@@ -47,17 +36,15 @@ This is the panel during a session, with two languages live.
 
 ![The operator panel while capture is running (test data).](images/admin-running.png){width=100%}
 
-1. The header dot is **green**: capture is running.
+1. The status pill is **green** and says **RUNNING**.
 2. **37 viewers**: people with a viewer page open right now. This number can
    lag a little behind.
-3. **Session health** shows one row per language, both **connected**.
-4. The **level meter** moves with the sound.
-5. **Target languages** shows **French, Spanish live**.
-6. The bottom bar says **Running**.
+3. **Sessions** shows one row per language, both **connected**.
+4. The stream control says **Running** and shows when it started.
 
 ## Starting and stopping {#start-stop}
 
-![The bottom bar while capture is running.](images/admin-bottom-bar.png){width=100%}
+![Stream control while capture is running.](images/admin-stream-control.png){width=100%}
 
 1. **Start capture** begins listening and opens one connection to OpenAI for
    each target language that is switched on. It is greyed out while capture
@@ -74,7 +61,7 @@ This is the panel during a session, with two languages live.
 1. Check that at least one language is switched on in **Target languages**.
    If none is, nothing appears on the viewer pages.
 2. Click **Start capture**.
-3. You should see the header dot turn green and the state change to
+3. You should see the status pill turn green and the state change to
    **Running**.
 4. Within a few seconds, **Session health** should show one row per language,
    each **connected**.
@@ -84,7 +71,7 @@ This is the panel during a session, with two languages live.
 ### To end a session
 
 1. Click **Stop**.
-2. You should see the dot turn grey and the state change to **Stopped**.
+2. You should see the pill turn red and the state change to **Stopped**.
    **Session health** says **Not started.**
 
 ::: warning
@@ -160,7 +147,7 @@ backups, or move to a wired connection.
 
 ## Audio input {#audio-input}
 
-This section chooses where the sound comes from, and shows how loud it is.
+This page chooses where the sound comes from, and shows how loud it is.
 
 ![Audio input while capture is running (test data).](images/admin-audio-input.png){width=100%}
 
@@ -228,22 +215,29 @@ shows nothing even if a microphone is connected.
 
 ## Target languages {#target-languages}
 
-This section chooses which languages Relay translates into. There are 12:
-Chinese, French, German, Hindi, Indonesian, Italian, Japanese, Korean,
-Portuguese, Russian, Spanish and Vietnamese.
+This page chooses which languages Relay translates into. There are 17:
+Arabic, Chinese, French, German, Hindi, Indonesian, Italian, Japanese,
+Korean, Nepali, Portuguese, Russian, Spanish, Telugu, Vietnamese, Hmong and
+English (English only when the speaker is not speaking English). Arabic,
+Nepali, Telugu and Hmong need the **Text** engine, described below.
 
 ![Target languages with capture stopped: two languages armed.](images/admin-targets-stopped.png){width=90%}
 
-1. **Summary.** Which languages are live or armed. It stays visible when the
-   section is closed.
-2. **State** of each language:
+1. **Translation engine.** **Realtime** translates word by word and bills
+   each language per minute. **Text** transcribes once and translates each
+   finished line, so extra languages cost almost nothing. In Text mode,
+   captions arrive a line at a time, a second or two behind. Changing it
+   restarts live sessions.
+2. **Select all** and **Clear** switch every language on or off at once.
+3. **Count.** How many languages are enabled.
+4. **Tick box.** Click to turn a language on or off. The change is saved at
+   once.
+5. **State** of each language:
    - **off**: not used.
    - **armed — starts with capture**: switched on, but capture is stopped, so
      nothing is being translated yet. It goes live when you click **Start
      capture**.
-   - **live**: being translated now, and billed.
-3. **Switch.** Click to turn a language on (green) or off (grey). The change
-   is saved at once.
+   - **live**: being translated now.
 
 ![Target languages while capture runs: the same two languages are live.](images/admin-targets-live.png){width=90%}
 
@@ -256,8 +250,9 @@ You can switch languages while capture is running:
 
 ### What each language costs
 
-Each live language is its own connection to OpenAI, billed per minute for as
-long as capture runs, speech or silence. Two languages cost twice as much as
+In **Realtime** mode, each live language is its own connection to OpenAI,
+billed per minute for as long as capture runs, speech or silence. (In **Text**
+mode there is one connection and extra languages add only a little.) Two languages cost twice as much as
 one. The English transcript comes with each connection. Viewers cost nothing:
 a hundred phones cost the same as one.
 
@@ -344,7 +339,7 @@ not run late. Set the computer never to sleep while it is plugged in.
 
 ## Viewer links {#viewer-links}
 
-This section lists the links to give out, each with a **Copy** button and a
+This page lists the links to give out, each with a **Copy** button and a
 QR code.
 
 ![Viewer links, with a QR code for each.](images/admin-viewer-links.png){width=90%}
@@ -476,7 +471,7 @@ runs you no longer need.
 
 ## Credentials {#credentials}
 
-This section changes the OpenAI API key and the admin token, without running
+This page changes the OpenAI API key and the admin token, without running
 setup again.
 
 ![Credentials.](images/admin-credentials.png){width=100%}
@@ -515,7 +510,7 @@ make a new one. See Part 2, "Keeping the key safe".
 
 ## Appearance & tuning {#appearance}
 
-This section sets the default text size, and when caption lines break.
+This page sets the default text size, and when caption lines break.
 
 ![Appearance & tuning.](images/admin-appearance.png){width=100%}
 
@@ -537,7 +532,7 @@ This section sets the default text size, and when caption lines break.
 5. **Save** stores all four.
 
 ::: note
-Saving this section restarts the connections to OpenAI if capture is
+Saving this page restarts the connections to OpenAI if capture is
 running, so captions pause for a few seconds. Change it between sessions if
 you can.
 :::
