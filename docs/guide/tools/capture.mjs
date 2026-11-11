@@ -126,7 +126,43 @@ async function seed() {
   for (const s of existing.schedules) await api.delete('/api/admin/schedules/' + s.id);
   for (const s of SCHEDULES) await ok(await api.post('/api/admin/schedules', { data: s }));
   seedRecordings();
+  await seedPanels(api);
   await api.dispose();
+}
+
+// Three panels check in as real ones would (the viewer port, no login); the operator then names two and
+// sets up the alert buttons. Panel ids are made up.
+const PANEL_IDS = ['a1b2c3d4e5f60718293a4b5c6d7e8f90', '0123456789abcdef0123456789abcdef',
+  'fedcba9876543210fedcba9876543210'];
+const ALERT_BUTTONS = [
+  { name: 'Front of house', icon: 'sliders', panels: [PANEL_IDS[1]], screens: ['Stage TV'] },
+  { name: 'Stage', icon: 'people', panels: [PANEL_IDS[2]], screens: [] },
+  { name: 'Video', icon: 'video', panels: [PANEL_IDS[0]], screens: [] },
+];
+
+async function seedPanels(admin) {
+  const view = await request.newContext({ baseURL: VIEW });
+  const rows = [
+    [0, [{ stream: 'translation', lang: 'SPANISH' }], 0, 1],
+    [1, [{ stream: 'transcription' }], 0, 2],
+    [2, [{ stream: 'transcription' }, { stream: 'translation', lang: 'FRENCH' }], 180, 3],
+  ];
+  for (const [i, feeds, rotation] of rows) {
+    const res = await view.post('/api/panels/checkin', {
+      data: { id: PANEL_IDS[i], name: '', version: '1.4.0', board: 'crowpanel-adv7', rotation, rotation_rev: 0,
+        scripts: ['latin'], feeds, ip: '192.168.1.' + (60 + i), uptime_s: 172800 + i * 3600, rssi: -52 - i * 7,
+        feed_rev: 0 },
+    });
+    if (!res.ok()) throw new Error('panel check-in -> ' + res.status());
+  }
+  await view.dispose();
+  const names = ['Lobby', 'Front of house', 'Green room'];
+  for (let i = 0; i < 3; i++) {
+    const res = await admin.post('/api/admin/panels/' + PANEL_IDS[i], { data: { name: names[i] } });
+    if (!res.ok()) throw new Error('panel rename -> ' + res.status() + ' ' + (await res.text()));
+  }
+  const res = await admin.post('/api/admin/alerts', { data: { auto_stop_s: 120, buttons: ALERT_BUTTONS } });
+  if (!res.ok()) throw new Error('alerts -> ' + res.status() + ' ' + (await res.text()));
 }
 
 /* ---------- page helpers ---------- */
@@ -251,8 +287,11 @@ async function adminPage(browser, { status = null, width = 1100, height = 900 } 
   return { ctx, page };
 }
 
-async function openSections(page, ids, open = true) {
-  await page.evaluate(({ ids, open }) => ids.forEach((id) => { document.getElementById(id).open = open; }), { ids, open });
+// The operator panel shows one page at a time, picked in the sidebar (#health, #panels, ...).
+async function openPage(page, name) {
+  await page.evaluate((n) => { location.hash = '#' + n; }, name);
+  await page.waitForSelector('#page-' + name + ':not([hidden])');
+  await page.waitForTimeout(400);
 }
 
 const RUNNING = (real) => ({
@@ -412,37 +451,37 @@ async function adminShots(browser) {
   {
     // Clear any error left from an earlier Start in the soundless container.
     const clean = (real) => ({ error: null, audio: { ...real.audio, error: null } });
-    const { ctx, page } = await adminPage(browser, { status: clean, height: 1000 });
+    const { ctx, page } = await adminPage(browser, { status: clean, height: 860 });
     if (want('admin-overview')) {
-      // Every section collapsed, so the whole panel fits on one page; each
-      // section has its own close-up further on.
-      await openSections(page, ['sec-targets', 'sec-schedules', 'sec-urls', 'sec-blocklist', 'sec-recordings',
-        'sec-credentials', 'sec-appearance'], false);
-      await page.addStyleTag({ content: '.wrap{padding-left:56px!important}' });
-      const h = await page.evaluate(() => document.documentElement.scrollHeight);
-      await page.setViewportSize({ width: page.viewportSize().width, height: h });
-      await page.waitForTimeout(300);
-      await annotate(page, [{ sel: 'header .dot', n: 1, pos: 'left' }, { sel: '#startBtn', n: 11, pos: 'top' }]
-        .concat(['section:nth-of-type(1) h2', 'section:nth-of-type(2) h2', '#sec-targets summary',
-          '#sec-schedules summary', '#sec-urls summary', '#sec-blocklist summary', '#sec-recordings summary',
-          '#sec-credentials summary', '#sec-appearance summary'].map((sel, i) => ({ sel, n: i + 2, pos: 'left' })))
-        .map((m) => ({ ...m, box: false })));
+      await openPage(page, 'health');
+      await annotate(page, [
+        { sel: '#streamPill', n: 1, pos: 'right' },
+        { sel: '#nav .grp:nth-of-type(1)', n: 2, pos: 'right', dx: -90, box: false },
+        { sel: '#nav .grp:nth-of-type(2)', n: 3, pos: 'right', dx: -90, box: false },
+        { sel: '#nav .grp:nth-of-type(3)', n: 4, pos: 'right', dx: -90, box: false },
+        { sel: '#nav .grp:nth-of-type(4)', n: 5, pos: 'right', dx: -90, box: false },
+        { sel: '#startBtn', n: 6, pos: 'top' },
+        { sel: '#viewerCount', n: 7, pos: 'left' },
+      ]);
       await shot(page, 'admin-overview.png');
     }
-    await page.setViewportSize({ width: 1100, height: 1000 });
     await page.evaluate(() => { try { localStorage.clear(); } catch (e) {} });
     if (want('admin-targets-stopped')) {
       await page.reload();
-      await page.waitForSelector('#targets tr');
+      await openPage(page, 'targets');
+      await page.waitForSelector('#targets label');
       await annotate(page, [
-        { sel: '#targetsSum', n: 1, pos: 'right' },
-        { sel: '#tstate-SPANISH', n: 2, pos: 'left' },
-        { sel: '#targets tr:nth-child(1) .switch', n: 3, pos: 'right' },
+        { sel: '#xmode', n: 1, pos: 'top' },
+        { sel: '#targetsAll', n: 2, pos: 'top' },
+        { sel: '#targetsCount', n: 3, pos: 'right' },
+        { sel: '#targets label:has(#tstate-SPANISH) input', n: 4, pos: 'left' },
+        { sel: '#tstate-SPANISH', n: 5, pos: 'right' },
       ]);
-      await shotOf(page, '#sec-targets', 'admin-targets-stopped.png');
+      await shotOf(page, '#page-targets', 'admin-targets-stopped.png');
     }
     if (want('admin-schedules')) {
       await page.reload();
+      await openPage(page, 'schedules');
       await page.waitForSelector('#schedList .schedname');
       await annotate(page, [
         { sel: '#schedStatus', n: 1, pos: 'right', dx: -40 },
@@ -452,16 +491,17 @@ async function adminShots(browser) {
         { sel: '#schedList tr:nth-child(1) .schedactions', n: 5, pos: 'right' },
         { sel: '#schedAdd', n: 6, pos: 'right' },
       ]);
-      await shotOf(page, '#sec-schedules', 'admin-schedules.png');
+      await shotOf(page, '#page-schedules', 'admin-schedules.png');
     }
     if (want('admin-schedule-form')) {
       await page.reload();
+      await openPage(page, 'schedules');
       await page.waitForSelector('#schedList .schedname');
       await page.click('#schedAdd');
       await page.fill('#schedName', 'Sunday evening');
       await page.check('#schedDays input[value="0"]').catch(() => {});
       await page.evaluate(() => {
-        // Pick 5:00 PM – 7:00 PM through the pickers' own selects.
+        // Pick 5:00 PM - 7:00 PM through the pickers' own selects.
         const set = (box, h, m, ap) => {
           const s = document.querySelectorAll('#' + box + ' select');
           s[0].value = h; s[1].value = m; s[2].value = ap;
@@ -484,6 +524,7 @@ async function adminShots(browser) {
     }
     if (want('admin-viewer-links')) {
       await page.reload();
+      await openPage(page, 'urls');
       await page.waitForSelector('#urls .urlgroup', { state: 'attached' });
       await annotate(page, [
         { sel: '#urls .urlheading', n: 1, pos: 'left', box: false },
@@ -494,49 +535,47 @@ async function adminShots(browser) {
         { sel: '#urls .urlgroup .urllabel', nth: 4, n: 6, pos: 'left' },
         { sel: '#urls .urlgroup .urllabel', nth: 5, n: 7, pos: 'left' },
       ]);
-      await shotOf(page, '#sec-urls', 'admin-viewer-links.png');
+      await shotOf(page, '#page-urls', 'admin-viewer-links.png');
     }
     if (want('admin-blocked-words')) {
-      await openSections(page, ['sec-blocklist']);
-      await page.waitForTimeout(300);
+      await page.reload();
+      await openPage(page, 'blocklist');
       await annotate(page, [
         { sel: '#blocklistPath', n: 1, pos: 'top' },
         { sel: '#blocklist', n: 2, pos: 'left' },
         { sel: '#saveBlocklist', n: 3, pos: 'left' },
         { sel: '#blocklistCount', n: 4, pos: 'right' },
       ]);
-      await shotOf(page, '#sec-blocklist', 'admin-blocked-words.png');
+      await shotOf(page, '#page-blocklist', 'admin-blocked-words.png');
     }
     if (want('admin-recordings')) {
       await page.reload();
-      await openSections(page, ['sec-recordings']);
+      await openPage(page, 'recordings');
       await page.waitForSelector('#recRuns tr td strong');
       await annotate(page, [
-        { sel: '#sec-recordings .switch', n: 1, pos: 'left' },
+        { sel: '#page-recordings .switch', n: 1, pos: 'left' },
         { sel: '#recKeep', n: 2, pos: 'top' },
         { sel: '#saveRecording', n: 3, pos: 'left' },
         { sel: '#recRuns tr:nth-child(1) td:nth-child(1)', n: 4, pos: 'left' },
         { sel: '#recRuns tr:nth-child(1) td:nth-child(4)', n: 5, pos: 'top' },
         { sel: '#recRuns tr:nth-child(1) button.danger', n: 6, pos: 'right' },
       ]);
-      await shotOf(page, '#sec-recordings', 'admin-recordings.png');
+      await shotOf(page, '#page-recordings', 'admin-recordings.png');
     }
     if (want('admin-credentials')) {
       await page.reload();
-      await openSections(page, ['sec-credentials']);
-      await page.waitForTimeout(300);
+      await openPage(page, 'credentials');
       await annotate(page, [
         { sel: '#keyState', n: 1, pos: 'top' },
         { sel: '#apikey', n: 2, pos: 'bottom', dx: 180 },
         { sel: '#admintoken', n: 3, pos: 'bottom' },
         { sel: '#saveCreds', n: 4, pos: 'left' },
       ]);
-      await shotOf(page, '#sec-credentials', 'admin-credentials.png');
+      await shotOf(page, '#page-credentials', 'admin-credentials.png');
     }
     if (want('admin-appearance')) {
       await page.reload();
-      await openSections(page, ['sec-appearance']);
-      await page.waitForTimeout(300);
+      await openPage(page, 'appearance');
       await annotate(page, [
         { sel: 'label[for=font]', n: 1, pos: 'right' },
         { sel: 'label[for=history]', n: 2, pos: 'right' },
@@ -544,8 +583,74 @@ async function adminShots(browser) {
         { sel: 'label[for=segMaxIdle]', n: 4, pos: 'right' },
         { sel: '#saveAppearance', n: 5, pos: 'left' },
       ]);
-      await shotOf(page, '#sec-appearance', 'admin-appearance.png');
+      await shotOf(page, '#page-appearance', 'admin-appearance.png');
     }
+    await ctx.close();
+  }
+
+  // Panels and alerts arrive over the live status stream, so these pages use the real one.
+  {
+    const { ctx, page } = await adminPage(browser, { height: 860 });
+    if (want('admin-panels')) {
+      await page.reload();
+      await openPage(page, 'panels');
+      await page.waitForSelector('#panelList .plink');
+      await annotate(page, [
+        { sel: '#page-panels .flashcta', n: 1, pos: 'top', dx: -300 },
+        { sel: '#panelList .prow:nth-child(2) .plink', n: 2, pos: 'left' },
+        { sel: '#panelList .prow:nth-child(2) .pshow', n: 3, pos: 'top' },
+        { sel: '#panelList .prow:nth-child(2) .pfw', n: 4, pos: 'top' },
+        { sel: '#panelList .prow:nth-child(2) .pstat', n: 5, pos: 'top' },
+        { sel: '#fwBox', n: 6, pos: 'left' },
+      ]);
+      await shotOf(page, '#page-panels', 'admin-panels.png');
+    }
+    if (want('admin-panel-settings')) {
+      await page.reload();
+      await openPage(page, 'panels');
+      await page.waitForSelector('#panelList .plink');
+      await page.click('#panelList .prow:nth-child(2) .plink');
+      await page.waitForSelector('#drawer:not([hidden])');
+      await page.waitForTimeout(500);
+      await page.setViewportSize({ width: 1280, height: 1200 });
+      await page.waitForTimeout(300);
+      await annotate(page, [
+        { sel: '#drawer input[type=text]', n: 1, pos: 'left' },
+        { sel: '#drawer select', n: 2, pos: 'left' },
+        { sel: '#drawer .radios', nth: 1, n: 3, pos: 'left' },
+        { sel: '#devInfo', n: 4, pos: 'left' },
+        { sel: '#dFoot button', n: 5, pos: 'top' },
+      ]);
+      await shotOf(page, '#drawer', 'admin-panel-settings.png', 30);
+      await page.setViewportSize({ width: 1280, height: 860 });
+    }
+    if (want('admin-alerts')) {
+      await page.reload();
+      await openPage(page, 'alerts');
+      await page.waitForSelector('#alertList > *');
+      await annotate(page, [
+        { sel: '#alertList > *:nth-child(1)', n: 1, pos: 'left' },
+        { sel: '#alertAdd', n: 2, pos: 'right' },
+        { sel: '#alertAutoStop', n: 3, pos: 'right' },
+        { sel: '#alertSave', n: 4, pos: 'right' },
+        { sel: '#alertLinks', n: 5, pos: 'left' },
+      ]);
+      await shotOf(page, '#page-alerts', 'admin-alerts.png');
+    }
+    if (want('admin-planning-center')) {
+      await page.reload();
+      await openPage(page, 'planningcenter');
+      await shotOf(page, '#page-planningcenter', 'admin-planning-center.png');
+    }
+    await ctx.close();
+  }
+
+  // The USB flasher is its own page.
+  if (want('admin-flash')) {
+    const { ctx, page } = await adminPage(browser, { height: 900 });
+    await page.goto(ADMIN + '/admin/flash');
+    await page.waitForTimeout(800);
+    await shot(page, 'admin-flash.png', { fullPage: true });
     await ctx.close();
   }
 
@@ -553,20 +658,18 @@ async function adminShots(browser) {
   {
     const { ctx, page } = await adminPage(browser, { status: RUNNING });
     if (want('admin-running')) {
-      await openSections(page, ['sec-schedules', 'sec-urls'], false);
+      await openPage(page, 'health');
       await annotate(page, [
-        { sel: 'header .dot', n: 1, pos: 'left', box: false },
+        { sel: '#streamPill', n: 1, pos: 'right' },
         { sel: '#viewerCount', n: 2, pos: 'left' },
-        { sel: '#sessions', n: 3, pos: 'right', dx: -44 },
-        { sel: '.meterwrap', n: 4, pos: 'top' },
-        { sel: '#targetsSum', n: 5, pos: 'right' },
-        { sel: '#masterState', n: 6, pos: 'left' },
+        { sel: '#sessions', n: 3, pos: 'top' },
+        { sel: '#masterState', n: 4, pos: 'top' },
       ]);
       await shot(page, 'admin-running.png');
     }
     if (want('admin-audio-input')) {
       await page.reload();
-      await page.waitForSelector('#urls .urlgroup', { state: 'attached' });
+      await openPage(page, 'audio');
       await page.waitForTimeout(800);
       await annotate(page, [
         { sel: '#device', n: 1, pos: 'top' },
@@ -578,10 +681,11 @@ async function adminShots(browser) {
         { sel: '#clipLed', n: 7, pos: 'top' },
         { sel: '#meterRead', n: 8, pos: 'bottom' },
       ]);
-      await shotOf(page, 'section:nth-of-type(2)', 'admin-audio-input.png');
+      await shotOf(page, '#page-audio', 'admin-audio-input.png');
     }
     if (want('admin-session-health')) {
       await page.reload();
+      await openPage(page, 'health');
       await page.waitForSelector('#sessions td');
       await page.waitForTimeout(800);
       await annotate(page, [
@@ -591,25 +695,25 @@ async function adminShots(browser) {
         { sel: '#sessions tr:nth-child(1) td:nth-child(4)', n: 4, pos: 'top' },
         { sel: '#sessions tr:nth-child(1) td:nth-child(5)', n: 5, pos: 'top' },
       ]);
-      await shotOf(page, 'section:nth-of-type(1)', 'admin-session-health.png');
+      await shotOf(page, '#page-health', 'admin-session-health.png');
     }
     if (want('admin-targets-live')) {
       await page.reload();
-      await page.waitForSelector('#targets tr');
+      await openPage(page, 'targets');
+      await page.waitForSelector('#targets label');
       await page.waitForTimeout(800);
-      await shotOf(page, '#sec-targets', 'admin-targets-live.png');
+      await annotate(page, [{ sel: '#tstate-SPANISH', n: 1, pos: 'right' }, { sel: '#tstate-FRENCH', n: 2, pos: 'right' }]);
+      await shotOf(page, '#page-targets', 'admin-targets-live.png');
     }
-    if (want('admin-bottom-bar')) {
+    if (want('admin-stream-control')) {
+      await page.reload();
+      await openPage(page, 'health');
       await annotate(page, [
         { sel: '#startBtn', n: 1, pos: 'top' },
         { sel: '#stopBtn', n: 2, pos: 'top' },
         { sel: '#masterState', n: 3, pos: 'top' },
       ]);
-      await page.screenshot({
-        path: join(OUT, 'admin-bottom-bar.png'),
-        clip: { x: 0, y: page.viewportSize().height - 130, width: page.viewportSize().width, height: 130 },
-      });
-      console.log('wrote admin-bottom-bar.png');
+      await shotOf(page, '#page-health > section:first-of-type', 'admin-stream-control.png', 50);
     }
     await ctx.close();
   }
@@ -628,12 +732,13 @@ async function adminShots(browser) {
         ],
       }),
     });
+    await openPage(page, 'health');
     await page.waitForSelector('#sessions td');
     await annotate(page, [
       { sel: '#sessions tr:nth-child(1) td:nth-child(2)', n: 1, pos: 'top' },
       { sel: '#sessions tr:nth-child(2) td:nth-child(2)', n: 2, pos: 'bottom' },
     ]);
-    await shotOf(page, 'section:nth-of-type(1)', 'admin-session-health-problem.png', 50);
+    await shotOf(page, '#page-health', 'admin-session-health-problem.png', 50);
     await ctx.close();
   }
 
@@ -644,6 +749,7 @@ async function adminShots(browser) {
         audio: audio({ rms_dbfs: -4.2, peak_dbfs: 0, clipping: true, clipped_samples: 18342 }),
       }),
     });
+    await openPage(page, 'audio');
     await page.waitForTimeout(800);
     await annotate(page, [
       { sel: '#meter', n: 1, pos: 'left' },
@@ -657,12 +763,71 @@ async function adminShots(browser) {
   if (want('admin-no-device')) {
     // The real error from the container, which has no sound card.
     const { ctx, page } = await adminPage(browser);
+    await openPage(page, 'health');
     await page.evaluate(() => document.getElementById('startBtn').click());
     await page.waitForSelector('#alert:not([hidden])', { timeout: 8000 }).catch(() => {});
     await annotate(page, [{ sel: '#alert', n: 1, pos: 'left' }]);
     await shotOf(page, '#alert', 'admin-start-error.png', 50);
     await ctx.close();
   }
+}
+
+/* ---------- alerts: the sender page and a screen that flashes ---------- */
+
+async function alertShots(browser) {
+  if (!want('alert-sender') && !want('alert-screen')) return;
+  const admin = await request.newContext({
+    baseURL: ADMIN, ignoreHTTPSErrors: true, extraHTTPHeaders: { 'x-admin-token': TOKEN },
+  });
+  const saved = await (await admin.get('/api/admin/alerts')).json();
+  const list = (saved.alerts && saved.alerts.buttons) || saved.buttons || [];
+  const booth = list.find((b) => b.name === ALERT_BUTTONS[0].name);
+  if (!booth) { console.warn('alert buttons not seeded; skipped alert shots'); await admin.dispose(); return; }
+  const view = await request.newContext({ baseURL: VIEW });
+
+  if (want('alert-sender')) {
+    const phone = await browser.newContext({
+      viewport: { width: 390, height: 780 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true,
+      colorScheme: 'dark', locale: 'en-US',
+      userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1',
+    });
+    await phone.addInitScript(() => { try { localStorage.setItem('relay.alert.from', 'Drums'); } catch (e) {} });
+    const m = await phone.newPage();
+    await m.goto(VIEW + '/alert');
+    await m.waitForSelector('#buttons > *');
+    await m.waitForTimeout(600);
+    await annotate(m, [
+      { sel: '#sendingAs', n: 1, pos: 'right', dx: -60 },
+      { sel: '#buttons > *:nth-child(1)', n: 2, pos: 'right', dx: -50 },
+      { sel: '#statusDot', n: 3, pos: 'left' },
+    ]);
+    await shot(m, 'alert-sender.png');
+    await phone.close();
+  }
+
+  if (want('alert-screen')) {
+    // A TV opened as /screen?alert=Stage%20TV, flashing for the Front of house button. The flash alternates
+    // red and white once a second, so wait for a red frame.
+    const ctx = await browser.newContext({ viewport: { width: 1280, height: 720 }, deviceScaleFactor: 1,
+      colorScheme: 'dark', locale: 'en-US' });
+    const p = await ctx.newPage();
+    await p.goto(VIEW + '/screen?alert=Stage%20TV');
+    await p.waitForTimeout(800);
+    const sent = await view.post('/api/alerts/' + booth.id + '/send', { data: { from: 'Drums' } });
+    if (!sent.ok()) console.warn('alert send -> ' + sent.status());
+    await p.waitForSelector('#alertFlash:not([hidden])', { timeout: 5000 }).catch(() => {});
+    for (let i = 0; i < 20; i++) {
+      const bg = await p.evaluate(() => getComputedStyle(document.getElementById('alertFlash')).backgroundColor);
+      const m = bg.match(/\d+/g) || [];
+      if (m.length >= 3 && Number(m[0]) > 150 && Number(m[1]) < 80) break;
+      await p.waitForTimeout(150);
+    }
+    await shot(p, 'alert-screen.png');
+    await view.post('/api/alerts/' + booth.id + '/cancel', { data: { from: 'Drums' } });
+    await ctx.close();
+  }
+  await view.dispose();
+  await admin.dispose();
 }
 
 /* ---------- main ---------- */
@@ -673,6 +838,7 @@ try {
   await viewerShots(browser);
   await signinShot(browser);
   await adminShots(browser);
+  await alertShots(browser);
 } finally {
   await browser.close();
 }

@@ -57,7 +57,9 @@ rather than editing images by hand.
    RELAY_DEMO=1 RELAY_ADMIN_IPS=127.0.0.1 RELAY_HTTP_PORT=18080 RELAY_HTTPS_PORT=18443 c up -d
    ```
 
-   The key is fake on purpose: nothing here talks to OpenAI.
+   The key is fake on purpose: nothing here talks to OpenAI. If a real Relay is
+   already running on this machine, first change `container_name` in the
+   copy's `docker/docker-compose.yml` (in `$S` only), or the names clash.
 
 2. Capture:
 
@@ -83,6 +85,10 @@ What keeps secrets and addresses out of the images:
 
 Check new images for anything that looks like a real key, token or address
 before committing them.
+
+The script also checks three panels in and sets up three alert buttons, for the
+Panels and Alerts pages. The two flashing screenshots (`flash-port-picker.png`,
+`flash-progress.png`) are taken by hand from a real flash and are not retaken.
 
 Companion screenshots come from `tools/capture-companion.mjs`; see the
 comments at its top.

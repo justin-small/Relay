@@ -62,7 +62,8 @@ The guide has five parts. Read them in order the first time.
 4. **Part 4: Bitfocus Companion and Stream Deck.** Optional. Control Relay
    from buttons on a Stream Deck.
 5. **Part 5: Caption panels.** Optional. Set up a touch screen that shows the
-   captions on a wall or a desk.
+   captions on a wall or a desk, show your order of service,
+   and flash screens when a musician needs someone.
 
 At the back you will find a one-page **quick reference card**, and a
 **glossary** that explains every technical word used in the guide.

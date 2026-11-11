@@ -46,7 +46,7 @@ Relay started, so switch Spanish on before you start Relay in rehearsal mode
 to see it under the right name. The other viewer controls,
 such as **A−**, **A+**, light / dark and presentation mode, all work as normal.
 
-The operator panel works too, so you can practise with every section. The
+The operator panel works too, so you can practise with every page. The
 panel shows capture as **Stopped** and **Session health** says **Not
 started.**, because no real session is open.
 
