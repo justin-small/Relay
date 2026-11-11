@@ -40,6 +40,7 @@ TICK_S = 0.5
 FAST_S = 2.0            # LIVE poll while a service is near or running
 SLOW_S = 180.0          # LIVE poll the rest of the time
 PLAN_CHECK_S = 300.0    # look for today's plan (and re-read its items) this often
+PLAN_CHECK_FAST_S = 30.0  # ...and this often near or during a service, so plan edits reach panels soon
 ERROR_RETRY_S = 20.0    # after a call fails
 AUTH_RETRY_S = 300.0    # after Planning Center refuses the token: no point hammering
 ZONE_RETRY_S = 300.0
@@ -222,7 +223,8 @@ class Follower:
     async def _check_plan(self, client, tr: Track, now: datetime, zone: ZoneInfo,
                           day: date, override: str | None) -> None:
         ts = now.timestamp()
-        tr.plan_due = ts + PLAN_CHECK_S  # set first: a failure must not retry every tick
+        # Set first: a failure must not retry every tick.
+        tr.plan_due = ts + (PLAN_CHECK_FAST_S if tr.fast else PLAN_CHECK_S)
         midnight = datetime.combine(day, dtime.min, tzinfo=zone)
         plans = await self._call(client.plans_from, tr.st, midnight - LOOKBACK)
         tr.plans, tr.day, tr.override = plans, day, override
@@ -264,6 +266,8 @@ class Follower:
             if not any(i["id"] == cur["item"] for i in tr.items):
                 tr.items = await self._call(client.items, tr.st, plan["id"])
         tr.fast = pc.near_service(plan, ts) or pc.running(live, ts)
+        if tr.fast:
+            tr.plan_due = min(tr.plan_due, ts + PLAN_CHECK_FAST_S)
         hot = sum(1 for t in self.tracks.values() if t.fast)
         tr.live_due = ts + (fast_interval(hot, client.rate) if tr.fast else SLOW_S)
 
