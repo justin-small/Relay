@@ -39,7 +39,7 @@ jobs:
       - uses: actions/setup-python@v7
         with:
           # Matches the base image in docker/Dockerfile.
-          python-version: '3.12'
+          python-version: '3.15'
           cache: pip
       # sounddevice needs the PortAudio library to import, even with no
       # audio devices present; the smoke test fakes the devices it needs.
