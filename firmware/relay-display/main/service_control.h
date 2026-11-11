@@ -4,8 +4,9 @@
 // (`POST /api/panels/<id>/service/<action>` with the panel's control key), which presses them in Planning Center as
 // its token's owner. The panel never holds the Planning Center token.
 //
-// **One press at a time.** A press made while one is waiting for Relay is refused here, so a double tap cannot skip
-// two items. The result (`service_result`) is kept for the view to word; the change itself arrives on the Service
+// **One press at a time.** A press made while one is waiting for Relay is kept (the latest one) and sent when that
+// one is answered, at least 300 ms after it: a quick second Next is meant, and Relay refuses presses closer than a
+// quarter second. The result (`service_result`) is kept for the view to word; the change itself arrives on the Service
 // feed, so the item on the glass moves when Relay confirms, not when the finger lifts.
 //
 // The rules (the request, the answer, the words) are in `service_format.h`. This file is the task and its socket.
@@ -26,8 +27,8 @@ struct service_control_state {
 // Start the task. Needs the panel's ID. Call after `panel_link_start`.
 esp_err_t service_control_start(const relay_settings_t &settings);
 
-// Press `action` for service type `type`. False, and nothing sent, while a press is still waiting for Relay or the
-// panel has no control key.
+// Press `action` for service type `type`, or queue it behind the press still waiting for Relay. False when the task
+// is not running or the type is not an ID.
 bool service_control_press(service_action action, const char *type);
 
 service_control_state service_control_get();

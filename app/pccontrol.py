@@ -9,7 +9,8 @@ What bounds a stranger on the LAN:
 * a panel may press only while the operator has set its service mode to
   "control" or "both" in admin. Every panel starts "off";
 * it must send the random key Relay gave it when control was turned on;
-* one press a second per panel;
+* a quarter second between presses from one panel (the panel itself sends
+  one at a time, so this only stops a flood);
 * the press goes to a service type Relay follows, and to today's plan for it.
 
 The panel never holds the Planning Center token. Relay presses the button as
@@ -39,7 +40,7 @@ from . import planningcenter as pc
 log = logging.getLogger("relay.pccontrol")
 
 ACTIONS = ("next", "previous", "take_control", "release")
-MIN_GAP_S = 1.0
+MIN_GAP_S = 0.25   # was 1 s: a quick second Next was refused as "too fast"
 LOG_MAX = 100
 BODY_MAX_BYTES = 512
 

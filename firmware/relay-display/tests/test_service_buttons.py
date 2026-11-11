@@ -134,7 +134,7 @@ def test_next_previous_take_control_and_release(panel: Board, relay: FakeRelay) 
     assert relay.actions[-1][0] == "release"
 
 
-def test_a_double_tap_is_one_press(panel: Board, relay: FakeRelay) -> None:
+def test_a_quick_second_tap_is_queued_not_dropped(panel: Board, relay: FakeRelay) -> None:
     plan = Planning(relay)
     plan.mine, plan.controller = True, "Relay Owner"
     relay.on_action = plan.answer
@@ -146,10 +146,13 @@ def test_a_double_tap_is_one_press(panel: Board, relay: FakeRelay) -> None:
     press(panel, at)
     press(panel, at)
     assert panel.uart is not None
-    panel.uart.wait_for(r"control: next ignored, the last press is still waiting", timeout=30)
-    wait_service(panel, lambda m: m.group(4) == "4", "one step")
+    panel.uart.wait_for(r"control: next queued behind the press still waiting", timeout=30)
+    wait_service(panel, lambda m: m.group(4) == "4", "one step")   # the first answer
+    deadline = time.time() + 20
+    while len(relay.actions) - count < 2 and time.time() < deadline:
+        time.sleep(0.5)
     time.sleep(2)
-    assert [a for a, _ in relay.actions[count:]] == ["next"]
+    assert [a for a, _ in relay.actions[count:]] == ["next", "next"]   # the second sent after it, once
 
 
 def test_refused_without_the_key_and_no_buttons_without_control(panel: Board, relay: FakeRelay) -> None:

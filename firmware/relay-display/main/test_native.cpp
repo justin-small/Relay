@@ -2735,6 +2735,21 @@ void check_service_control()
     mine.replace(mine.find("\"live\":true"), 11, "\"live\":true,\"relay_controls\":true");
     service_apply(&s, mine.c_str(), mine.size(), 0);
     CHECK(s.relay_controls && service_take_question(s, q, sizeof q) == 0);
+
+    // Next and Previous shown at once, ahead of Relay's answer: headers stepped over, nothing past the ends.
+    static service_state v;
+    v = s;
+    CHECK(v.current == 2 && v.timing);
+    CHECK(service_preview_step(v, true) && v.current == 3 && v.next == 4 && !v.timing);
+    CHECK(service_preview_step(v, true) && v.current == 4 && v.next == -1);
+    CHECK(!service_preview_step(v, true) && v.current == 4);
+    CHECK(service_preview_step(v, false) && v.current == 3);
+    CHECK(service_preview_step(v, false) && v.current == 2);
+    CHECK(service_preview_step(v, false) && v.current == 0 && v.next == 2);   // over the "Worship" header
+    CHECK(!service_preview_step(v, false) && v.current == 0);
+    v = s;
+    v.relay_controls = false;
+    CHECK(!service_preview_step(v, true) && v.current == 2);   // without control Planning Center refuses it
     const char *nobody = "{\"type\":\"service\",\"followed\":true,\"live\":false,\"controller\":null}";
     service_apply(&s, nobody, strlen(nobody), 0);
     CHECK(service_take_question(s, q, sizeof q) == 0);   // nobody to take it from: pressed at once
