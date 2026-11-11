@@ -244,8 +244,9 @@ checked on a laptop:
   panel does not move to the other when the first is off. The factory reset clears it.
 * **The address is not saved.** It is read again every 30 s, and a Relay that comes back at another address is
   followed. While none answers it browses every 5 s.
-* Uses `espressif/mdns` (`main/idf_component.yml`). **Not yet built or run on a panel:** the native test
-  covers the rules, and `discovery.cpp` has had no ESP-IDF build.
+* Uses `espressif/mdns` (`main/idf_component.yml`). The native test covers the rules; on a CrowPanel against a
+  Mac announcing with `dns-sd` it finds Relay a few seconds after the panel has an address, keeps the first one
+  with a second on offer, and follows it to a new address and back within one 30 s refresh.
 
 ### Panel registry link
 
@@ -478,10 +479,10 @@ Not proven by any test, and to be done on the board:
       from the left, with a white border and the red marker top-left (swap `RELAY_PCLK_HZ` or the data pin
       order if not: README "Pin map")
 - [ ] The backlight comes on at boot and goes off at power-down (and the revision setting is right)
-- [ ] The boot line reports `psram 8388608 bytes`
+- [x] The boot line reports `psram 8388608 bytes`
 - [ ] A blank panel opens the setup network; a phone joins it from the QR code and the page saves a
       real network; the panel shows its address
-- [ ] The panel rejoins that network after a power cycle without the setup network opening
+- [x] The panel rejoins that network after a power cycle without the setup network opening
 - [ ] Hold BOOT for 5 s opens the setup network; hold for 15 s erases everything
 - [ ] The picture does not shift or flicker while Wi-Fi is busy (the bounce buffer exists for this)
 - [ ] Caption view: drag scrolling is smooth with 200 lines in the buffer while new lines keep arriving (the
@@ -497,6 +498,14 @@ Not proven by any test, and to be done on the board:
       never presses one by mistake; Next moves the real service on the stage screen
 - [ ] Captions: an hour on Wi-Fi against a running Relay with no lost or doubled lines (`captions 0`
       against Relay's history), across at least one Wi-Fi drop and one Relay restart
+- [ ] The I2C bus has pull-ups on the board; the internal ones are off (`main/board_i2c.cpp`). A scan that
+      finds nothing at 0x30 is the first sign they are missing
+- [x] PCLK and sync polarity (`main/board_rgb_stc8.cpp`): the picture locks and is not shifted
+- [x] Flash mode (`sdkconfig.board.crowpanel-adv7`): the board boots in QIO at 80 MHz
+- [x] Two frame buffers: a scrolling caption list never shows old and new rows in one frame, and the 180 degree
+      turn made in software is right
+- [x] mDNS discovery with no Relay address typed: it finds Relay, keeps the first one when a second is announced,
+      and follows it to a new address (a `dns-sd -P` announcement of the same name at another address)
 
 ## Copied from VXP
 
