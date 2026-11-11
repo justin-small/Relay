@@ -53,8 +53,33 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="Relay", docs_url=None, redoc_url=None, lifespan=lifespan
 )
-app.mount("/static", StaticFiles(directory=BASE / "static"), name="static")
+class RevalidatedStaticFiles(StaticFiles):
+    """Static files the browser must check with Relay before reuse. Without a Cache-Control header,
+    browsers guess a freshness lifetime from Last-Modified and keep serving an old stylesheet or script
+    after an update (a new page then rendered unstyled). With no-cache an unchanged file is still a
+    cheap 304 from its ETag."""
+
+    def file_response(self, *args, **kwargs):
+        response = super().file_response(*args, **kwargs)
+        response.headers.setdefault("Cache-Control", "no-cache")
+        return response
+
+
+app.mount("/static", RevalidatedStaticFiles(directory=BASE / "static"), name="static")
 templates = Jinja2Templates(directory=str(BASE / "templates"))
+
+
+def _static_url(path: str) -> str:
+    """A /static URL that changes whenever the file does, so a browser holding a copy cached before
+    no-cache was sent (or before an update) fetches the new one instead of reusing the old."""
+    try:
+        version = format((BASE / "static" / path).stat().st_mtime_ns, "x")
+    except OSError:
+        return "/static/" + path
+    return f"/static/{path}?v={version}"
+
+
+templates.env.globals["static"] = _static_url
 
 ADMIN_COOKIE = "relay_admin"
 SESSION_TTL_S = 60 * 60 * 12

@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="en"><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Relay &middot; Operator</title>{% include "_brand_head.html" %}<link rel="stylesheet" href="/static/viewer.css">
+<title>Relay &middot; Operator</title>{% include "_brand_head.html" %}<link rel="stylesheet" href="{{ static('viewer.css') }}">
 <style>
   body { display:block; font-size:14px; }
   .wrap { max-width:820px; margin:0 auto; padding:22px 20px 90px; }
@@ -830,7 +830,7 @@
   <div class="dfoot" id="dFoot"></div>
 </aside>
 
-<script src="/static/qrcode.min.js"></script>
-<script src="/static/alert-icons.js"></script>
-<script src="/static/admin.js"></script>
+<script src="{{ static('qrcode.min.js') }}"></script>
+<script src="{{ static('alert-icons.js') }}"></script>
+<script src="{{ static('admin.js') }}"></script>
 </body></html>
