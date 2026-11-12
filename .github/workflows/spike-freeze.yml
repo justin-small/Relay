@@ -48,7 +48,7 @@ jobs:
         run: |
           export RELAY_CONFIG="$RUNNER_TEMP/probe/config.json"
           EXE=dist-dir/relay/relay; [ "$RUNNER_OS" = Windows ] && EXE=dist-dir/relay/relay.exe
-          "$EXE" --probe
+          "$EXE" --probe --capture
       - name: Smoke, size, start-up
         shell: bash
         run: |
@@ -56,3 +56,14 @@ jobs:
           if [ "$RUNNER_OS" = Windows ]; then D=$D.exe; O=$O.exe; fi
           python spike/smoke.py "$D" dist-dir/relay onedir
           python spike/smoke.py "$O" "$O" onefile
+      - name: Windows Defender scan of both builds
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          Get-MpComputerStatus | Select-Object AMServiceEnabled, AntivirusEnabled, AntivirusSignatureVersion | Format-List
+          foreach ($p in 'dist-dir', 'dist-one') {
+            Start-MpScan -ScanType CustomScan -ScanPath (Resolve-Path $p).Path
+            Write-Host "scanned $p"
+          }
+          $d = Get-MpThreatDetection
+          if ($d) { $d | Format-List; Write-Host "::warning::Defender detections: $($d.Count)" } else { Write-Host "Defender: no detections" }
