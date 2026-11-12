@@ -249,6 +249,8 @@ async def run_until(f, start, end, events=(), watch=None):
 config.ensure_file()
 config.save({"admin_token": "t0ken", "port": 8000, "admin_port": 8001,
              "modules": {"planning_center": {"enabled": True}}})  # the module is switched on (#157)
+from app.modules import modules as _modules  # noqa: E402
+_modules.attach("planning_center")  # its hooks into core, without its background work
 
 
 async def main():

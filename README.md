@@ -1173,8 +1173,9 @@ in the user guide (`docs/guide/src/53-alerts.md`).
 
 ## ProPresenter
 
-Relay follows ProPresenter's current slide (`app/propresenter.py`; part of
-issue 138). Under **ProPresenter** in admin: the machine's address and the
+Relay follows ProPresenter's current slide (`app/modules/propresenter/propresenter.py`; part of
+issue 138). It is a module ([docs/modules.md](docs/modules.md)): switch it on under
+**Modules** in admin; while it is off Relay never contacts ProPresenter. Under **ProPresenter** in admin: the machine's address and the
 port set in ProPresenter's Network preferences (no default is assumed), a
 **Test connection** button (`GET /version`), mDNS discovery
 (`_proapiv1ws._tcp`, standard library only; it cannot cross Docker Desktop's
@@ -1211,7 +1212,7 @@ VM), a **view-only** switch, the lyrics feed switches and a stage message.
   that address and port; allow the port in the ProPresenter machine's
   firewall. Standard library only (`http.client`), like Planning Center.
 
-- **Control (stage 2).** `app/ppcontrol.py` and `app/static/ppcontrol.js`
+- **Control (stage 2).** `app/modules/propresenter/ppcontrol.py` and `app/modules/propresenter/static/ppcontrol.js`
   (admin page *ProPresenter control*, plus a clear dock on every admin page):
   next/previous, the slide grid, clears, playlists, looks, macros, timers,
   messages, media position. All writes go through `propresenter.Client`
@@ -1246,7 +1247,7 @@ VM), a **view-only** switch, the lyrics feed switches and a stage message.
   request. The viewer port has no login, so the panel id picks settings and is
   not a credential.
 
-- **Slide-note tags (stage 5).** `app/slidetags.py`; settings `propresenter.tags`
+- **Slide-note tags (stage 5).** `app/modules/propresenter/slidetags.py`; settings `propresenter.tags`
   (`enabled`, default **off**; `settle_s`, default 1.5, 0.2 to 30). A tag in a slide's notes,
   `[relay:action]` or `[relay:action=value]`, runs a Relay action once the slide has stayed live for
   `settle_s`; `[relay-deck:...]` in any slide's notes is the default for slides of that presentation that
@@ -1282,7 +1283,7 @@ VM), a **view-only** switch, the lyrics feed switches and a stage message.
   `propresenter.cue_list`), and `.../playlists/{id}/diagnostics` counts the
   items and checks each presentation exists.
 
-- **The Planning Center link (stage 6).** `app/plmatch.py` (pure matching rules), `app/pclink.py`
+- **The Planning Center link (stage 6).** `app/modules/propresenter/plmatch.py` (pure matching rules), `app/modules/propresenter/pclink.py`
   (reads ProPresenter, caches, follows, drives), settings `propresenter.link` (`follow`, `drive`, both
   default **off**; `dwell_s` default 10, 1 to 300; `allow_back`; `service_type`; `threshold`; `mapping`;
   `owned`, set by Relay only). Matching order per plan item: the operator's pairing (`mapping`, kept by
@@ -1302,9 +1303,9 @@ VM), a **view-only** switch, the lyrics feed switches and a stage message.
   (state, presentations, refresh, mapping, playlist); the Service feed message gains `pp_item` and
   `pp_agree` while `follow` or `drive` is on. Tests: `tests/test_pclink.py`.
 
-- **Lobby announcements and the slide view (stage 7).** `app/pplobby.py` (the rotation), `app/ppview.py` (the
-  slide view's data and images), `app/static/slideview.js` + `slideview.css` (the view, shared by the admin page
-  *Slide view and lobby* and by `/stage`), `app/static/pplive.js` (the admin page's controls). Settings
+- **Lobby announcements and the slide view (stage 7).** `app/modules/propresenter/pplobby.py` (the rotation), `app/modules/propresenter/ppview.py` (the
+  slide view's data and images), `app/modules/propresenter/static/slideview.js` + `slideview.css` (the view, shared by the admin page
+  *Slide view and lobby* and by `/stage`), `app/modules/propresenter/static/pplive.js` (the admin page's controls). Settings
   `propresenter.lobby` (`playlist`, `interval_s` default 8, 3 to 600, `loop` default on) and `propresenter.view`
   (`timer`, `public` default **off**). A rotation is never a setting: it runs only after
   `POST /api/admin/propresenter/lobby/start` (so Relay never starts one on its own, and a restart of Relay does

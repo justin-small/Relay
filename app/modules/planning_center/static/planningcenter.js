@@ -6,6 +6,8 @@
   if (!R || !document.getElementById('page-planningcenter')) return;
   const $ = R.$, el = R.el, api = R.api, post = R.post, okMsg = R.okMsg, alertMsg = R.alertMsg, agoText = R.agoText;
   function C() { return R.cfg(); }
+  // The Panels page offers a panel's service mode while Planning Center is connected.
+  R.panelHooks.serviceOn = function () { return !!(C() && C().planning_center && C().planning_center.connected); };
 
   /* ---- Planning Center ----
      The ID and secret go up once and never come back: C().planning_center only

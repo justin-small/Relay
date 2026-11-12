@@ -28,12 +28,6 @@ from .hub import hub
 from . import modules as modules_pkg
 from .modules import HERE as MODULES_DIR, modules as module_registry
 from .panels import registry as panel_registry
-from . import propresenter, slidetags
-from .pplobby import lobby as pp_lobby, LobbyError
-from .ppview import view as pp_view
-from .pclink import link as pc_link, LinkError
-from .ppcontrol import control as pp_control
-from .propresenter import follower as pp_follower, lyrics_feed, timers_feed
 from .recorder import recorder
 from .scheduler import scheduler
 
@@ -190,12 +184,7 @@ async def _startup() -> None:
     app.state.alerts_task = asyncio.create_task(_alert_ticks())
     # First tick runs straight away, so a relay started mid-window catches up.
     scheduler.start()
-    # Idle until an address is entered and ProPresenter is switched on in admin.
-    pp_follower.start()
-    # Idle until the Planning Center link is switched on (follow the plan, or ProPresenter drives LIVE).
-    pc_link.start()
-    # Idle until the operator presses Start on the lobby rotation (never started by Relay itself).
-    pp_lobby.start()
+    # The integrations that are switched on (app/modules/). Each idles until it is set up.
     await module_registry.start_enabled()
     if not (cfg.get("admin_token") or "").strip():
         # _token_ok() returns False on an empty stored token, so the panel is
@@ -279,9 +268,6 @@ async def _shutdown() -> None:
     with contextlib.suppress(Exception):
         await module_registry.stop_all()
     scheduler.cancel()
-    pp_follower.cancel()
-    pc_link.cancel()
-    pp_lobby.cancel()
     for name in ("demo_task", "blocklist_task", "alerts_task"):
         task = getattr(app.state, name, None)
         if task is not None:
@@ -458,8 +444,9 @@ def require_admin(request: Request) -> bool:
     raise HTTPException(status_code=401, detail="Admin token required")
 
 
-# Modules' admin routes use the same login (they cannot import this file).
+# Modules' admin routes use the same login, and their pages the same templates (they cannot import this file).
 modules_pkg.admin_check = require_admin
+modules_pkg.templates = templates
 
 
 # ------------------------------------------------------------- viewers
@@ -562,12 +549,17 @@ async def page_screen(request: Request):
         "screen_align": align,
         "screen_font": font_override,
         "screen_alert": screen_alert,
-        # ?lyrics=1: ProPresenter's lyrics in place of the captions while a song is up (propresenter.py).
-        "lyrics_for": "screen" if qp.get("lyrics") in ("1", "true", "yes") else "",
+        # ?lyrics=1: lyrics in place of the captions while a song is up, from a module that offers the
+        # "lyrics" stream (ProPresenter), and only while it is on.
+        "lyrics_for": "screen" if qp.get("lyrics") in ("1", "true", "yes") and _lyrics_offered() else "",
     }
     if font_override:
         ctx["font_px"] = font_override
     return templates.TemplateResponse(request, "viewer.html", ctx)
+
+
+def _lyrics_offered() -> bool:
+    return LYRICS_STREAM in module_registry.streams()
 
 
 import re as _re
@@ -650,7 +642,7 @@ async def page_overlay(request: Request):
         "overlay_plate": plate,
         "overlay_bg": bg,
         "overlay_matte": matte,
-        "lyrics_for": "overlay" if qp.get("lyrics") in ("1", "true", "yes") else "",
+        "lyrics_for": "overlay" if qp.get("lyrics") in ("1", "true", "yes") and _lyrics_offered() else "",
     }
     return templates.TemplateResponse(request, "viewer.html", ctx)
 
@@ -691,62 +683,9 @@ def _parse_seq(raw: str | None) -> int | None:
         return None
 
 
-LYRICS_STREAM = "lyrics"
-
-
-def _lyrics_stream(audience: str) -> StreamingResponse:
-    """ProPresenter's current slide as lyrics, whole in each message (propresenter.LyricsFeed). Repeated at each
-    heartbeat, so a panel's silence timer never fires on a quiet stream."""
-    queue = lyrics_feed.subscribe(audience)
-
-    async def gen():
-        try:
-            while True:
-                try:
-                    frame = await asyncio.wait_for(queue.get(), timeout=HEARTBEAT_S)
-                except asyncio.TimeoutError:
-                    yield alertsmod.sse_frame(lyrics_feed.payload(audience))
-                    continue
-                yield frame
-        finally:
-            lyrics_feed.unsubscribe(audience, queue)
-
-    return StreamingResponse(
-        gen(),
-        media_type="text/event-stream",
-        headers={"Cache-Control": "no-cache, no-transform", "X-Accel-Buffering": "no"},
-    )
-
-
-TIMERS_STREAM = "pptimers"
-
-
-def _timers_stream(pid: str) -> StreamingResponse:
-    """The ProPresenter timers a panel shows, whole in each message (propresenter.TimersFeed), for the panel `pid`
-    ("" for the global settings). Repeated at each heartbeat, so a panel's silence timer never fires on a quiet
-    stream and its local count is brought back to Relay's."""
-    queue = timers_feed.subscribe(pid)
-
-    async def gen():
-        try:
-            while True:
-                try:
-                    frame = await asyncio.wait_for(queue.get(), timeout=HEARTBEAT_S)
-                except asyncio.TimeoutError:
-                    yield alertsmod.sse_frame(timers_feed.payload(pid))
-                    continue
-                yield frame
-        finally:
-            timers_feed.unsubscribe(pid, queue)
-
-    return StreamingResponse(
-        gen(),
-        media_type="text/event-stream",
-        headers={"Cache-Control": "no-cache, no-transform", "X-Accel-Buffering": "no"},
-    )
-
-
 ALERT_STREAM = "alert"
+# Served by a module (ProPresenter) while it is on; the viewer's lyrics.js reads it.
+LYRICS_STREAM = "lyrics"
 
 
 def _alert_sender_stream() -> StreamingResponse:
@@ -786,25 +725,6 @@ async def stream(request: Request, stream: str = "translation", lang: str | None
     owned = module_registry.stream(stream, request, params)
     if owned is not None:
         return owned
-    if stream == LYRICS_STREAM:
-        audience = request.query_params.get("for") or "viewer"
-        if audience not in propresenter.AUDIENCES:
-            raise HTTPException(400, "unknown audience")
-        # Licensed lyrics: each audience is the operator's switch, and the phone viewer's is off by default.
-        if not lyrics_feed.allowed(audience):
-            raise HTTPException(403, "the lyrics feed is not switched on for this audience")
-        return _lyrics_stream(audience)
-    if stream == TIMERS_STREAM:
-        # Timers are not licensed text, so there is no audience switch: the stream is open while ProPresenter is
-        # set up (and says `enabled: false` otherwise). `panel` selects that panel's own settings.
-        if request.query_params.get("for", "panel") != "panel":
-            raise HTTPException(400, "unknown audience")
-        pid = request.query_params.get("panel") or ""
-        if pid and not panels.valid_id(pid):
-            raise HTTPException(400, "not a panel id")
-        if not timers_feed.allowed():
-            raise HTTPException(403, "ProPresenter is not set up")
-        return _timers_stream(pid)
     if stream not in (TRANSCRIPTION_STREAM, TRANSLATION_STREAM):
         raise HTTPException(400, "unknown stream")
     if stream == TRANSCRIPTION_STREAM:
@@ -1275,423 +1195,6 @@ async def admin_config(request: Request, payload: dict):
     return resp
 
 
-def _pp_body() -> dict:
-    s = config.get()["propresenter"]
-    return {"settings": s, "state": pp_follower.state(), "lyrics_readers": lyrics_feed.viewer_count(),
-            "tags": slidetags.tags.state(), "lobby": pp_lobby.state()}
-
-
-_PP_ERRORS = {
-    "view_only": "View-only mode is on, so Relay did not change anything in ProPresenter.",
-    "timeout": "ProPresenter did not answer in time.",
-    "network": "Could not reach ProPresenter. Check the address and port, and that ProPresenter is running.",
-    "bad": "That address answered, but not like ProPresenter.",
-}
-
-
-def _pp_error(exc: propresenter.ProError) -> JSONResponse:
-    """Answer with a fixed message chosen by the error's kind; the detail goes to the log only, so no
-    exception text (socket errors, ProPresenter's own reply) reaches the browser."""
-    log.warning("ProPresenter: %s", exc)
-    status = {"view_only": 409, "http": 502, "bad": 502, "timeout": 504, "network": 502}.get(exc.kind, 502)
-    if exc.kind == "http":
-        message = ("ProPresenter said not found: is Network switched on in its preferences?" if exc.status == 404
-                   else f"ProPresenter refused the request ({int(exc.status)}).")
-    else:
-        message = _PP_ERRORS.get(exc.kind, "ProPresenter could not do that.")
-    return JSONResponse({"error": message}, status_code=status)
-
-
-@app.get("/api/admin/propresenter", dependencies=[Depends(require_admin)])
-async def admin_propresenter():
-    return _pp_body()
-
-
-@app.post("/api/admin/propresenter", dependencies=[Depends(require_admin)])
-async def admin_propresenter_save(payload: dict):
-    """Save the connection and switches. Only the keys sent change. A new address reconnects at once."""
-    saved = config.get()["propresenter"]
-    merged = {**saved, **{k: v for k, v in payload.items() if k in saved and k not in ("lyrics", "timers", "tags", "link", "lobby", "view")}}
-    if isinstance(payload.get("lyrics"), dict):
-        merged["lyrics"] = {**saved["lyrics"], **payload["lyrics"]}
-    if "timers" in payload:
-        problem = propresenter.timer_fields(payload["timers"])[1]
-        if problem:
-            return JSONResponse({"error": problem}, status_code=400)
-        merged["timers"] = propresenter.clean_timer_settings(payload["timers"], saved["timers"])
-    if "tags" in payload:
-        problem = propresenter.tag_fields(payload["tags"])[1]
-        if problem:
-            return JSONResponse({"error": problem}, status_code=400)
-        merged["tags"] = propresenter.clean_tag_settings(payload["tags"], saved["tags"])
-    for key, check, clean in (("lobby", propresenter.lobby_fields, propresenter.clean_lobby_settings),
-                              ("view", propresenter.view_fields, propresenter.clean_view_settings)):
-        if key in payload:
-            problem = check(payload[key])[1]
-            if problem:
-                return JSONResponse({"error": problem}, status_code=400)
-            merged[key] = clean(payload[key], saved[key])
-    if "link" in payload:
-        problem = propresenter.link_fields(payload["link"])[1]
-        if problem:
-            return JSONResponse({"error": problem}, status_code=400)
-        merged["link"] = propresenter.clean_link_settings(payload["link"], saved["link"])
-    if payload.get("host") and not propresenter.clean_host(payload["host"]):
-        return JSONResponse({"error": "Enter just the machine's name or IP address, with no http:// or port."},
-                            status_code=400)
-    if payload.get("port") not in ("", None, 0) and "port" in payload and not propresenter.clean_port(payload["port"]):
-        return JSONResponse({"error": "The port is a number from 1 to 65535."}, status_code=400)
-    clean = propresenter.clean_stored(merged)
-    if clean["enabled"] and not (clean["host"] and clean["port"]):
-        return JSONResponse({"error": "Enter the machine's address and ProPresenter's port first. "
-                                      "The port is in ProPresenter's Network preferences."}, status_code=400)
-    config.save({"propresenter": clean}, replace=("propresenter",))
-    log.info("ProPresenter settings saved (%s, view-only %s, slide tags %s, follow the plan %s, drive LIVE %s)",
-             "on" if clean["enabled"] else "off", "on" if clean["view_only"] else "off",
-             "on" if clean["tags"]["enabled"] else "off", "on" if clean["link"]["follow"] else "off",
-             "on" if clean["link"]["drive"] else "off")
-    await pp_follower.poke()
-    lyrics_feed.refresh()
-    timers_feed.refresh()
-    engine._push_status()   # what a panel's menu may offer from ProPresenter changed
-    return _pp_body()
-
-
-@app.post("/api/admin/propresenter/test", dependencies=[Depends(require_admin)])
-async def admin_propresenter_test(payload: dict):
-    """`GET /version` on the address in the form (saved or not). Changes nothing."""
-    host = propresenter.clean_host(payload.get("host"))
-    port = propresenter.clean_port(payload.get("port"))
-    if not host or not port:
-        return JSONResponse({"error": "Enter the machine's address and ProPresenter's port."}, status_code=400)
-    client = propresenter.Client(host, port)
-    try:
-        info = await pp_follower.call(client.version)
-    except propresenter.ProError as exc:
-        return _pp_error(exc)
-    return {"ok": True, "version": info}
-
-
-@app.post("/api/admin/propresenter/discover", dependencies=[Depends(require_admin)])
-async def admin_propresenter_discover():
-    """ProPresenters announcing themselves on the LAN (mDNS). Nothing is saved or contacted."""
-    return {"found": await pp_follower.call(propresenter.discover, 2.5)}
-
-
-@app.post("/api/admin/propresenter/stage", dependencies=[Depends(require_admin)])
-async def admin_propresenter_stage(payload: dict):
-    text = pp_follower.clean_message(payload.get("text"))
-    if not text:
-        return JSONResponse({"error": "Type the message to show."}, status_code=400)
-    try:
-        await pp_follower.set_stage_message(text)
-    except propresenter.ProError as exc:
-        return _pp_error(exc)
-    return _pp_body()
-
-
-@app.delete("/api/admin/propresenter/stage", dependencies=[Depends(require_admin)])
-async def admin_propresenter_stage_clear():
-    try:
-        await pp_follower.clear_stage_message()
-    except propresenter.ProError as exc:
-        return _pp_error(exc)
-    return _pp_body()
-
-
-# --- ProPresenter control (#138 stage 2). Every route is admin-protected; the writes go through the one client,
-# which refuses them in view-only mode (409). Errors answer through _pp_error or a fixed sentence.
-async def _pp_run(fn, *args):
-    try:
-        data = await fn(*args)
-    except PermissionError:
-        return JSONResponse({"error": "That is not allowed by the operator-safe selection."}, status_code=403)
-    except LookupError:
-        return JSONResponse({"error": "No playlist is active or focused in ProPresenter. Trigger an item first."},
-                            status_code=404)
-    except ValueError:
-        return JSONResponse({"error": "That request was not valid."}, status_code=400)
-    except propresenter.ProError as exc:
-        return _pp_error(exc)
-    return data if data is not None else {"ok": True}
-
-
-@app.get("/api/admin/propresenter/slides", dependencies=[Depends(require_admin)])
-async def admin_pp_slides(uuid: str = ""):
-    return await _pp_run(pp_control.slides, uuid or None)
-
-
-@app.get("/api/admin/propresenter/thumbnail/{uuid}/{index}", dependencies=[Depends(require_admin)])
-async def admin_pp_thumbnail(uuid: str, index: int, v: str = ""):
-    """A slide thumbnail, proxied and cached by Relay (key: presentation, index, change marker `v`)."""
-    try:
-        ctype, data = await pp_control.thumbnail(uuid, index, v)
-    except ValueError:
-        return JSONResponse({"error": "That request was not valid."}, status_code=400)
-    except propresenter.ProError as exc:
-        return _pp_error(exc)
-    return Response(data, media_type=ctype, headers={"Cache-Control": "private, max-age=3600"})
-
-
-@app.post("/api/admin/propresenter/step", dependencies=[Depends(require_admin)])
-async def admin_pp_step(payload: dict):
-    return await _pp_run(pp_control.step, payload.get("direction"))
-
-
-@app.post("/api/admin/propresenter/next-presentation", dependencies=[Depends(require_admin)])
-async def admin_pp_next_presentation():
-    return await _pp_run(pp_control.next_presentation)
-
-
-@app.post("/api/admin/propresenter/item", dependencies=[Depends(require_admin)])
-async def admin_pp_item(payload: dict):
-    """The next or previous playlist item (Shift+arrow keys on the control page)."""
-    return await _pp_run(pp_control.step_item, payload.get("direction"))
-
-
-@app.post("/api/admin/propresenter/screens", dependencies=[Depends(require_admin)])
-async def admin_pp_screens(payload: dict):
-    """Audience or stage screens on or off. A write, so view-only refuses it like every other."""
-    return await _pp_run(pp_control.set_screens, payload.get("kind"), payload.get("on"))
-
-
-@app.post("/api/admin/propresenter/slide", dependencies=[Depends(require_admin)])
-async def admin_pp_slide(payload: dict):
-    return await _pp_run(pp_control.trigger_slide, payload.get("uuid"), payload.get("index"))
-
-
-@app.post("/api/admin/propresenter/clear", dependencies=[Depends(require_admin)])
-async def admin_pp_clear(payload: dict):
-    return await _pp_run(pp_control.clear, payload.get("layer"))
-
-
-@app.get("/api/admin/propresenter/playlists", dependencies=[Depends(require_admin)])
-async def admin_pp_playlists():
-    return await _pp_run(pp_control.playlists)
-
-
-@app.get("/api/admin/propresenter/playlists/{playlist}", dependencies=[Depends(require_admin)])
-async def admin_pp_playlist(playlist: str):
-    return await _pp_run(pp_control.playlist_items, playlist)
-
-
-@app.get("/api/admin/propresenter/playlists/{playlist}/diagnostics", dependencies=[Depends(require_admin)])
-async def admin_pp_playlist_diagnostics(playlist: str):
-    return await _pp_run(pp_control.playlist_diagnostics, playlist)
-
-
-@app.get("/api/admin/propresenter/playlists/{playlist}/items/{index}/cues", dependencies=[Depends(require_admin)])
-async def admin_pp_playlist_cues(playlist: str, index: int):
-    return await _pp_run(pp_control.playlist_item_cues, playlist, index)
-
-
-@app.get("/api/admin/propresenter/playlists/{playlist}/thumbnail/{index}/{cue}", dependencies=[Depends(require_admin)])
-async def admin_pp_playlist_thumbnail(playlist: str, index: int, cue: int, v: str = ""):
-    """A playlist item's cue thumbnail, proxied and cached like the presentation ones (browsers never reach
-    ProPresenter)."""
-    try:
-        ctype, data = await pp_control.playlist_thumbnail(playlist, index, cue, v)
-    except ValueError:
-        return JSONResponse({"error": "That request was not valid."}, status_code=400)
-    except propresenter.ProError as exc:
-        return _pp_error(exc)
-    return Response(data, media_type=ctype, headers={"Cache-Control": "private, max-age=3600"})
-
-
-@app.post("/api/admin/propresenter/playlists/{playlist}/trigger", dependencies=[Depends(require_admin)])
-async def admin_pp_playlist_trigger(playlist: str, payload: dict):
-    return await _pp_run(pp_control.trigger_playlist_item, playlist, payload.get("index"))
-
-
-@app.get("/api/admin/propresenter/macros", dependencies=[Depends(require_admin)])
-async def admin_pp_macros(all: bool = False):
-    return await _pp_run(pp_control.macros, all)
-
-
-@app.post("/api/admin/propresenter/macros/{macro}/trigger", dependencies=[Depends(require_admin)])
-async def admin_pp_macro_trigger(macro: str):
-    return await _pp_run(pp_control.trigger_macro, macro)
-
-
-@app.get("/api/admin/propresenter/looks", dependencies=[Depends(require_admin)])
-async def admin_pp_looks():
-    return await _pp_run(pp_control.looks)
-
-
-@app.post("/api/admin/propresenter/looks/{look}/trigger", dependencies=[Depends(require_admin)])
-async def admin_pp_look_trigger(look: str):
-    return await _pp_run(pp_control.trigger_look, look)
-
-
-@app.get("/api/admin/propresenter/timers", dependencies=[Depends(require_admin)])
-async def admin_pp_timers():
-    return await _pp_run(pp_control.timers)
-
-
-@app.post("/api/admin/propresenter/timers/{timer}/{op}", dependencies=[Depends(require_admin)])
-async def admin_pp_timer(timer: str, op: str):
-    return await _pp_run(pp_control.timer, timer, op)
-
-
-@app.get("/api/admin/propresenter/messages", dependencies=[Depends(require_admin)])
-async def admin_pp_messages():
-    return await _pp_run(pp_control.messages)
-
-
-@app.post("/api/admin/propresenter/messages/{message}/trigger", dependencies=[Depends(require_admin)])
-async def admin_pp_message_trigger(message: str, payload: dict):
-    return await _pp_run(pp_control.trigger_message, message, payload.get("tokens"))
-
-
-@app.post("/api/admin/propresenter/messages/{message}/clear", dependencies=[Depends(require_admin)])
-async def admin_pp_message_clear(message: str):
-    return await _pp_run(pp_control.clear_message, message)
-
-
-@app.post("/api/admin/propresenter/transport", dependencies=[Depends(require_admin)])
-async def admin_pp_transport(payload: dict):
-    return await _pp_run(pp_control.go_to_time, payload.get("seconds"))
-
-
-# --- Lobby announcements and the slide view (#138 stage 7, pplobby.py and ppview.py). Admin-protected; every
-# write goes through propresenter.Client, which refuses it in view-only mode (409).
-async def _lobby_run(fn, *args):
-    try:
-        data = await fn(*args)
-    except LobbyError as exc:
-        return JSONResponse({"error": str(exc)}, status_code=409)
-    except ValueError:
-        return JSONResponse({"error": "That request was not valid."}, status_code=400)
-    except propresenter.ProError as exc:
-        return _pp_error(exc)
-    return data
-
-
-@app.get("/api/admin/propresenter/lobby", dependencies=[Depends(require_admin)])
-async def admin_pp_lobby():
-    return pp_lobby.state()
-
-
-@app.post("/api/admin/propresenter/lobby/start", dependencies=[Depends(require_admin)])
-async def admin_pp_lobby_start():
-    return await _lobby_run(pp_lobby.start_rotation)
-
-
-@app.post("/api/admin/propresenter/lobby/resume", dependencies=[Depends(require_admin)])
-async def admin_pp_lobby_resume():
-    return await _lobby_run(pp_lobby.resume)
-
-
-@app.post("/api/admin/propresenter/lobby/stop", dependencies=[Depends(require_admin)])
-async def admin_pp_lobby_stop(payload: dict):
-    """Stop stepping; with `clear` true, also clear the announcements layer."""
-    return await _lobby_run(pp_lobby.stop_rotation, payload.get("clear") is True)
-
-
-async def _view_image(which: str, v: str):
-    try:
-        ctype, data = await pp_view.image(which, v)
-    except LookupError:
-        return JSONResponse({"error": "That slide is not up any more."}, status_code=404)
-    except ValueError:
-        return JSONResponse({"error": "That request was not valid."}, status_code=400)
-    except propresenter.ProError as exc:
-        return _pp_error(exc)
-    return Response(data, media_type=ctype, headers={"Cache-Control": "private, max-age=300"})
-
-
-@app.get("/api/admin/propresenter/live", dependencies=[Depends(require_admin)])
-async def admin_pp_live():
-    return pp_view.snapshot("/api/admin/propresenter/live")
-
-
-@app.get("/api/admin/propresenter/live/image/{which}", dependencies=[Depends(require_admin)])
-async def admin_pp_live_image(which: str, v: str = ""):
-    return await _view_image(which, v)
-
-
-# The same view without the admin login, only while `view.public` is on (off by default: slide images are
-# licensed content). Off, every one of these is a 404, as though the route did not exist.
-def _stage_public() -> bool:
-    return bool(config.get()["propresenter"]["view"]["public"]) and propresenter.configured()
-
-
-@app.get("/stage", response_class=HTMLResponse)
-async def page_stage(request: Request):
-    if not _stage_public():
-        raise HTTPException(404, "Not found")
-    return templates.TemplateResponse(request, "stage.html", {})
-
-
-@app.get("/api/stage/live")
-async def stage_live():
-    if not _stage_public():
-        raise HTTPException(404, "Not found")
-    return pp_view.snapshot("/api/stage/live")
-
-
-@app.get("/api/stage/live/image/{which}")
-async def stage_live_image(which: str, v: str = ""):
-    if not _stage_public():
-        raise HTTPException(404, "Not found")
-    return await _view_image(which, v)
-
-
-# --- The Planning Center link (#138 stage 6, pclink.py). Admin-protected. Matching only reads; the playlist
-# route writes through propresenter.Client (view-only answers 409) and only ever to a playlist Relay made.
-async def _link_run(fn, *args):
-    try:
-        data = await fn(*args)
-    except LinkError as exc:
-        return JSONResponse({"error": str(exc)}, status_code=409)
-    except ValueError:
-        return JSONResponse({"error": "That request was not valid."}, status_code=400)
-    except propresenter.ProError as exc:
-        return _pp_error(exc)
-    return data
-
-
-@app.get("/api/admin/propresenter/link", dependencies=[Depends(require_admin)])
-async def admin_pp_link():
-    return pc_link.state()
-
-
-@app.get("/api/admin/propresenter/link/presentations", dependencies=[Depends(require_admin)])
-async def admin_pp_link_presentations():
-    """The presentations the last read found, for the operator's pairing picker (names and UUIDs only)."""
-    return {"presentations": [{"uuid": c["uuid"], "name": c["name"]} for c in pc_link.pool]}
-
-
-@app.post("/api/admin/propresenter/link/refresh", dependencies=[Depends(require_admin)])
-async def admin_pp_link_refresh():
-    """Read ProPresenter's playlists and libraries again and match the plan. Reads only."""
-    async def go():
-        await pc_link.refresh()
-        return pc_link.state()
-    return await _link_run(go)
-
-
-@app.post("/api/admin/propresenter/link/mapping", dependencies=[Depends(require_admin)])
-async def admin_pp_link_mapping(payload: dict):
-    """Pair a plan item title with a presentation, or clear the pairing with an empty `uuid`."""
-    async def go():
-        uuid = str(payload.get("uuid") or "")
-        if uuid and not propresenter.ID_RE.match(uuid):
-            raise ValueError
-        pc_link.set_mapping(str(payload.get("item") or ""), uuid, str(payload.get("name") or ""))
-        return pc_link.state()
-    return await _link_run(go)
-
-
-@app.post("/api/admin/propresenter/link/playlist", dependencies=[Depends(require_admin)])
-async def admin_pp_link_playlist():
-    """Build (or rebuild) the Relay-owned playlist from the matched plan. On the operator's click only."""
-    async def go():
-        done = await pc_link.build_playlist()
-        return {**done, "state": pc_link.state()}
-    return await _link_run(go)
-
-
 @app.post("/api/admin/target/{target}", dependencies=[Depends(require_admin)])
 async def admin_target(target: str, payload: dict):
     target = target.upper()
@@ -1769,54 +1272,6 @@ def _alerts_frame() -> dict:
 
 
 alerts.on_change = lambda: hub.push_status(_alerts_frame())
-alerts.on_stage = lambda alert_id, text: (pp_follower.alert_ended(alert_id) if text is None
-                                          else pp_follower.alert_started(alert_id, text))
-
-
-# Slide-note tags (#138): what each action does in Relay. These are Relay's own doing, so view-only (which is about
-# writes to ProPresenter) does not stop them. None of them calls ProPresenter: capture means Relay's own audio and
-# captions, never ProPresenter's capture/start.
-async def _tag_capture_start(value: str | None) -> str:
-    if engine.running:
-        return "Captioning was already running."
-    scheduler.manual_start()
-    try:
-        await engine.start()
-    except RuntimeError as exc:
-        raise RuntimeError(f"Captioning did not start: {exc}")
-    return "Captioning started."
-
-
-async def _tag_capture_stop(value: str | None) -> str:
-    if not engine.running:
-        return "Captioning was already stopped."
-    scheduler.manual_stop()
-    await engine.stop()
-    return "Captioning stopped."
-
-
-async def _tag_lyrics(value: str | None) -> str:
-    return panel_registry.show_lyrics()
-
-
-async def _tag_captions(value: str | None) -> str:
-    return panel_registry.show_captions()
-
-
-async def _tag_lang(value: str | None) -> str:
-    return panel_registry.show_language(value or "")
-
-
-async def _tag_alert(value: str | None) -> str:
-    try:
-        return alerts.raise_named(value or "", "ProPresenter")
-    except alertsmod.Refused as exc:
-        raise RuntimeError(str(exc))
-
-
-slidetags.tags.actions = {"capture-start": _tag_capture_start, "capture-stop": _tag_capture_stop,
-                          "lyrics": _tag_lyrics, "captions": _tag_captions, "lang": _tag_lang,
-                          "alert": _tag_alert}
 
 
 @app.get("/api/admin/alerts", dependencies=[Depends(require_admin)])
@@ -1839,7 +1294,6 @@ async def admin_alerts_save(payload: dict):
 # over the same stream as the status. The stream's own 1 s tick covers a panel
 # going quiet (see admin_status_stream).
 panel_registry.on_change = lambda: hub.push_status(_panels_frame())
-timers_feed.panel_settings = panel_registry.timer_settings
 
 
 @app.get("/api/admin/panels", dependencies=[Depends(require_admin)])
@@ -1963,7 +1417,8 @@ async def admin_panel_update(panel_id: str, payload: dict):
         if not isinstance(payload["service_mode"], str):
             raise HTTPException(400, "service_mode must be a string")
         kwargs["service_mode"] = payload["service_mode"]
-    followed = config.get()["planning_center"]["service_types"]
+    # Empty while the Planning Center module is off: no panel can be set to a service then.
+    followed = panel_registry.followed_service_types()
     if "service_type" in payload:
         st = payload["service_type"]
         if st not in (None, "") and str(st) not in followed:
@@ -1978,13 +1433,13 @@ async def admin_panel_update(panel_id: str, payload: dict):
         kwargs["rotation"] = payload["rotation"]
     if "timers" in payload:
         if payload["timers"] is not None:
-            problem = propresenter.timer_fields(payload["timers"])[1]
+            problem = panels.timer_fields(payload["timers"])[1]
             if problem or not isinstance(payload["timers"], dict):
                 raise HTTPException(400, problem or "timers must be an object, or null")
         kwargs["timers"] = payload["timers"]
     try:
         row = panel_registry.update(panel_id, **kwargs)
-        timers_feed.refresh()   # a panel reading the timers is told its new thresholds at once
+        panel_registry.on_timers_change()   # a panel reading the timers is told its new thresholds at once
         return row
     except KeyError:
         raise HTTPException(404, "unknown panel")

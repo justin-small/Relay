@@ -59,17 +59,6 @@ DEFAULTS: dict[str, Any] = {
     # Which modules are switched on, by module id: {"<id>": {"enabled": bool}} -- see app/modules/. A
     # module with no switch saved is on only if its integration was already set up (Module.configured).
     "modules": {},
-    # ProPresenter (#138): the address of the machine running it, and what Relay may do there -- see propresenter.py.
-    # Off until the operator enters an address and switches it on. The port is per install (set in ProPresenter's
-    # Network preferences), so there is no default for it.
-    "propresenter": {"enabled": False, "host": "", "port": 0, "view_only": False, "songs_library": "Songs",
-                     "songs_only": True,
-                     "lyrics": {"viewer": False, "screen": True, "overlay": False, "panels": True},
-                     # Slide-note tags (see slidetags.py): off until switched on.
-                     "tags": {"enabled": False, "settle_s": 1.5},
-                     # The Planning Center link (see pclink.py): everything off until switched on.
-                     "link": {"follow": False, "drive": False, "dwell_s": 10.0, "allow_back": False,
-                              "service_type": "", "threshold": 0.8, "mapping": [], "owned": {}}},
     "host": "0.0.0.0",
     "admin_host": "127.0.0.1",
     "port": 8000,
@@ -237,9 +226,6 @@ def _normalise(cfg: dict) -> dict:
     from . import alerts
 
     cfg["alerts"] = alerts.clean_stored(cfg.get("alerts"))
-    from . import propresenter
-
-    cfg["propresenter"] = propresenter.clean_stored(cfg.get("propresenter"))
     # Each module's settings and its on/off switch (app/modules/). Imported here for the same reason.
     from .modules import modules
 

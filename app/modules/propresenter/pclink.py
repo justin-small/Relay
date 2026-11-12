@@ -28,13 +28,20 @@ import time
 from collections import deque
 from typing import Any, Callable
 
-from . import config, plmatch, propresenter as pp
-from .modules.planning_center import planningcenter as pc
+from ... import config
+from . import plmatch, propresenter as pp
+from .. import modules
+from ..planning_center import planningcenter as pc
 from .ppcontrol import _seg
-from .modules.planning_center.pclive import follower as pc_follower
+from ..planning_center.pclive import follower as pc_follower
 from .propresenter import follower as pp_follower
 
 log = logging.getLogger("relay.pclink")
+
+
+def _pc_on() -> bool:
+    """Planning Center is usable: its module is on (it is a separate module, #157) and a token is saved."""
+    return modules.enabled("planning_center") and pc.connected(config.get())
 
 TICK_S = 0.5
 CACHE_S = 120.0            # ProPresenter's lists are read again after this long while the link is on
@@ -106,8 +113,8 @@ class Link:
     def __init__(self) -> None:
         self.pp = pp_follower
         self.pc = pc_follower
-        self.pc_control: Any = None                  # pccontrol.Control, set by main
-        self.on_change: Callable[[], None] | None = None   # the Service feed's refresh, set by main
+        self.pc_control: Any = None                  # pccontrol.Control, set by the module (attach)
+        self.on_change: Callable[[], None] | None = None   # the Service feed's refresh, set by the module (attach)
         self.clock = time.monotonic                  # a test swaps this
         self.now = time.time
         # what was read from ProPresenter
@@ -162,7 +169,7 @@ class Link:
 
     def active(self) -> bool:
         s = self.settings()
-        return bool((s["follow"] or s["drive"]) and pp.configured() and pc.connected(config.get()))
+        return bool((s["follow"] or s["drive"]) and pp.configured() and _pc_on())
 
     def track(self) -> tuple[str | None, Any]:
         """The service type and its track the link works on: the operator's pick, else the first with a plan."""
@@ -335,7 +342,7 @@ class Link:
             self.act_uuid, self.act_name, self.act_since = uuid, (pres["name"] if pres else ""), now
             if uuid:
                 self.act_n += 1       # a new activation: one try each, so a re-triggered slide of the same one is not
-        on = bool(s["drive"] and pp.configured() and pc.connected(config.get()))
+        on = bool(s["drive"] and pp.configured() and _pc_on())
         if on and not self._drive_on:
             self.act_since = now      # switched on with something already up: the wait starts now
         self._drive_on = on
@@ -478,7 +485,7 @@ class Link:
         s = self.settings()
         if not s["drive"]:
             return {"code": "off", "text": "ProPresenter does not move Planning Center. This is off."}
-        if not pp.configured() or not pc.connected(config.get()):
+        if not pp.configured() or not _pc_on():
             return {"code": "unavailable", "text": "Needs both ProPresenter and Planning Center to be connected."}
         if not self.pp.up:
             return {"code": "pp_down", "text": "ProPresenter is not connected."}
@@ -509,7 +516,7 @@ class Link:
             "service_type": st,
             "plan": {"title": tr.plan["title"], "dates": tr.plan["dates"], "day": tr.day.isoformat() if tr.day else ""}
             if tr and tr.plan else None,
-            "pc_connected": pc.connected(config.get()),
+            "pc_connected": _pc_on(),
             "pp_connected": bool(pp.configured() and self.pp.up),
             "view_only": bool(client.view_only) if client else bool(pp.settings().get("view_only")),
             "rows": rows,
@@ -524,11 +531,3 @@ class Link:
 
 
 link = Link()
-# ProPresenter moves Services LIVE through the same press path as a panel, and tells the Service feed which plan
-# item it has up (the Planning Center module's objects; this file moves into the ProPresenter module next).
-from .modules.planning_center.routes import control as _pc_control  # noqa: E402
-from .modules.planning_center.servicefeed import feed as _service_feed  # noqa: E402
-
-link.pc_control = _pc_control
-link.on_change = _service_feed.refresh
-_service_feed.extra = link.feed_extra

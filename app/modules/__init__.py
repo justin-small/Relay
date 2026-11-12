@@ -21,11 +21,12 @@ nothing: work starts only in `start`, which is called only while the module is o
 """
 from __future__ import annotations
 
+import contextlib
 import importlib
 import logging
 import pkgutil
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Awaitable, Callable
 
@@ -37,6 +38,10 @@ from fastapi.responses import StreamingResponse
 log = logging.getLogger("relay.modules")
 
 HERE = Path(__file__).resolve().parent
+
+
+def _suppress():
+    return contextlib.suppress(Exception)
 _ID_RE = re.compile(r"^[a-z][a-z0-9_]{1,31}$")
 _VERSION_RE = re.compile(r"^\d+\.\d+\.\d+$")
 HEALTH_STATES = ("ok", "warn", "error", "idle")
@@ -86,6 +91,8 @@ class Module:
     # Path prefixes of every route the module adds. Core templates and scripts must not name them
     # (tests/test_modules.py), so the only way into a module is through pages it renders itself.
     route_prefixes: tuple[str, ...] = ()
+    # The /stream?stream=<name> streams it serves through `stream()`.
+    streams: tuple[str, ...] = ()
 
     # ------------------------------------------------------------ settings
     def clean(self, raw: Any) -> dict:
@@ -107,12 +114,18 @@ class Module:
         return []
 
     # ------------------------------------------------------------ life cycle
+    def attach(self) -> None:
+        """Set the module's hooks into core (callables core holds, such as a panel registry hook). Synchronous
+        and cheap, no background work. Called before `start`."""
+
+    def detach(self) -> None:
+        """Put every hook `attach` set back to core's default. Called after `stop`."""
+
     async def start(self) -> None:
-        """Start background work. Called at startup while on, and when switched on."""
+        """Start background work. Called at startup while on, and when switched on, after `attach`."""
 
     async def stop(self) -> None:
-        """Stop everything `start` began, and clear any hook it set. Called when switched off and at
-        shutdown."""
+        """Stop everything `start` began. Called when switched off and at shutdown, before `detach`."""
 
     def health(self) -> Health:
         return Health("idle", "")
@@ -137,6 +150,8 @@ class Module:
 HEARTBEAT_S = 15.0
 # main sets this to its own admin check (session cookie or x-admin-token).
 admin_check: Callable[[Request], bool] | None = None
+# main sets this to its Jinja2Templates; a module's own templates are named "<module id>/<file>".
+templates: Any = None
 
 
 def require_admin(request: Request) -> bool:
@@ -240,22 +255,27 @@ class Registry:
             await self._start(mod)
 
     async def stop_all(self) -> None:
+        """At shutdown: stop the background work. The hooks stay attached, since nothing runs after this (and a
+        test's app, started and stopped around a request, keeps the hooks it attached)."""
         for mod in self.all():
-            await self._stop(mod)
+            await self._stop(mod, detach=False)
 
     async def _start(self, mod: Module) -> None:
         mid = mod.manifest.id
         if mid in self._running:
             return
         try:
+            mod.attach()
             await mod.start()
         except Exception:
             log.exception("module %s failed to start", mid)
+            with _suppress():
+                mod.detach()
             return
         self._running.add(mid)
         log.info("Module on: %s %s", mod.manifest.name, mod.manifest.version)
 
-    async def _stop(self, mod: Module) -> None:
+    async def _stop(self, mod: Module, detach: bool = True) -> None:
         mid = mod.manifest.id
         if mid not in self._running:
             return
@@ -264,7 +284,17 @@ class Registry:
             await mod.stop()
         except Exception:
             log.exception("module %s failed to stop", mid)
+        if detach:
+            with _suppress():
+                mod.detach()
         log.info("Module off: %s", mod.manifest.name)
+
+    def attach(self, mid: str) -> None:
+        """Only the hooks of a module, without starting it: for tests, which drive its background work
+        themselves."""
+        mod = self.get(mid)
+        assert mod is not None, mid
+        mod.attach()
 
     def running(self, mid: str) -> bool:
         return mid in self._running
@@ -281,10 +311,15 @@ class Registry:
 
     def stream(self, name: str, request: Any, params: dict) -> Any:
         for mod in self.active():
-            resp = mod.stream(name, request, params)
-            if resp is not None:
-                return resp
+            if name in mod.streams:
+                resp = mod.stream(name, request, params)
+                if resp is not None:
+                    return resp
         return None
+
+    def streams(self) -> set[str]:
+        """The stream names the modules that are on serve."""
+        return {n for mod in self.active() for n in mod.streams}
 
     def health(self, mod: Module) -> Health:
         if not self.enabled(mod.manifest.id):

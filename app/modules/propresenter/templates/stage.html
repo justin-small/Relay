@@ -4,10 +4,10 @@
 <meta name="robots" content="noindex">
 <title>Slide view</title>{% include "_brand_head.html" %}
 <link rel="stylesheet" href="{{ static('viewer.css') }}">
-<link rel="stylesheet" href="{{ static('slideview.css') }}">
+<link rel="stylesheet" href="{{ static('modules/propresenter/slideview.css') }}">
 <style>body { display:block; padding:16px; margin:0; } #sv { max-width:1400px; margin:0 auto; }</style>
 </head><body>
 <div id="sv"></div>
-<script src="{{ static('slideview.js') }}"></script>
+<script src="{{ static('modules/propresenter/slideview.js') }}"></script>
 <script>RelaySlideView.create(document.getElementById('sv'), { base: '/api/stage/live' });</script>
 </body></html>

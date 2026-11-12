@@ -26,7 +26,8 @@ os.environ["RELAY_CONFIG"] = os.path.join(tempfile.mkdtemp(), "config.json")
 
 from fastapi.testclient import TestClient
 
-from app import config, main as app_main, propresenter as pp
+from app import config, main as app_main
+from app.modules.propresenter import propresenter as pp
 from app.alerts import alerts
 from app.main import app
 
@@ -403,7 +404,12 @@ pp.RESYNC_S = 0.2
 pp.BACKOFF_S = (0.1, 0.2)
 
 config.ensure_file()
-config.save({"admin_token": "t0ken", "port": 8000, "admin_port": 8001})
+config.save({"admin_token": "t0ken", "port": 8000, "admin_port": 8001,
+             "modules": {"propresenter": {"enabled": True}, "planning_center": {"enabled": True}}})
+# Both modules are switched on (#157); their hooks into core are set without starting their background work.
+from app.modules import modules as _modules  # noqa: E402
+_modules.attach("planning_center")
+_modules.attach("propresenter")
 viewer = TestClient(app, base_url="http://relay.local:8000")
 admin = TestClient(app, base_url="http://relay.local:8001", headers={"x-admin-token": "t0ken"})
 
@@ -900,7 +906,7 @@ asyncio.run(scenario_state())
 
 # ------------------------------------------------------------------------------------------------ control
 print("control")
-from app.ppcontrol import control as ctl
+from app.modules.propresenter.ppcontrol import control as ctl
 
 fake.song(groups=[("Verse 1", ["v1 a", "v1 b"]), ("Chorus", ["chorus a"])])
 fake.presentation["arrangement"] = ["Verse 1", "Chorus", "Verse 1", "Chorus"]
@@ -1423,7 +1429,7 @@ asyncio.run(scenario_timers_route())
 
 # ------------------------------------------------------------------------------------------- slide-note tags
 print("slide-note tags")
-from app import slidetags as st  # noqa: E402
+from app.modules.propresenter import slidetags as st  # noqa: E402
 
 
 async def scenario_tags():
