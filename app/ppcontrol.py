@@ -23,6 +23,7 @@ from . import propresenter as pp
 LAYERS = ("slide", "media", "props", "messages", "audio", "video_input", "announcements")
 TIMER_OPS = ("start", "stop", "reset")
 THUMB_QUALITY = 320
+LIVE_QUALITY = 960            # the slide view draws the live and next slide large: the longest side in pixels
 THUMB_MAX_ENTRIES = 600
 THUMB_MAX_BYTES = 48 * 1024 * 1024
 THUMB_PARALLEL = 3            # ProPresenter can stall: a page of thumbnails must not tie up every worker
@@ -99,12 +100,15 @@ class Control:
         cues = [{k: v for k, v in c.items() if k != "notes"} for c in pp.cue_list(detail)]
         return {"uuid": str(uuid), "name": _id(detail)["name"], "rev": _rev(cues), "cues": cues}
 
-    async def thumbnail(self, uuid: str, index: Any, rev: str = "") -> tuple[str, bytes]:
-        """A slide's thumbnail, from the cache when it has been fetched for this presentation, index and change
-        marker. Browsers never see ProPresenter: they ask Relay, and Relay asks once."""
+    async def thumbnail(self, uuid: str, index: Any, rev: str = "", quality: int = THUMB_QUALITY) -> tuple[str, bytes]:
+        """A slide's thumbnail, from the cache when it has been fetched for this presentation, index, change
+        marker and size. Browsers never see ProPresenter: they ask Relay, and Relay asks once."""
         n = _index(index)
-        return await self._cached((str(uuid), n, str(rev)[:32]),
-                                  f"/v1/presentation/{_seg(uuid)}/thumbnail/{n}?quality={THUMB_QUALITY}&thumbnail_type=jpeg")
+        q = int(quality)
+        if not 64 <= q <= 2048:
+            raise ValueError("That size is not allowed.")
+        key = (str(uuid), n, str(rev)[:32]) if q == THUMB_QUALITY else (str(uuid), n, str(rev)[:32], q)
+        return await self._cached(key, f"/v1/presentation/{_seg(uuid)}/thumbnail/{n}?quality={q}&thumbnail_type=jpeg")
 
     async def playlist_thumbnail(self, playlist: str, item: Any, cue: Any, rev: str = "") -> tuple[str, bytes]:
         """A cue of a playlist item. ProPresenter draws it for the item's own arrangement, so a chorus that the
@@ -263,6 +267,10 @@ class Control:
 
     async def trigger_playlist_item(self, playlist: str, index: Any) -> None:
         await self._act(f"/v1/playlist/{_seg(playlist)}/{_index(index)}/trigger")
+
+    async def trigger_announcement_cue(self, index: Any) -> None:
+        """A cue of the presentation that is up on the announcements layer (the lobby rotation's next slide)."""
+        await self._act(f"/v1/announcement/active/{_index(index)}/trigger")
 
     # -- macros and looks --------------------------------------------------------------------------------
     def macro_allowed(self, uuid: str) -> bool:

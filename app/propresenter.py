@@ -94,7 +94,74 @@ def default_settings() -> dict[str, Any]:
             "tags": {"enabled": False, "settle_s": slidetags.SETTLE_DEFAULT_S},
             # The Planning Center link (stage 6, see pclink.py): follow the plan and ProPresenter driving Services
             # LIVE are both off until the operator switches them on.
-            "link": default_link()}
+            "link": default_link(),
+            # Lobby announcements (stage 7, pplobby.py): which playlist Relay rotates, how long each slide stays
+            # and whether it starts over. Whether a rotation is RUNNING is not stored: it starts when the
+            # operator presses Start, never by itself.
+            "lobby": default_lobby(),
+            # The slide view (stage 7, ppview.py): which timer counts on the slide, and whether the page may be
+            # opened without the admin login (/stage). Slide images are licensed content: off by default.
+            "view": default_view()}
+
+
+LOBBY_INTERVAL_DEFAULT_S = 8.0
+LOBBY_INTERVAL_MIN_S, LOBBY_INTERVAL_MAX_S = 3.0, 600.0
+
+
+def default_lobby() -> dict[str, Any]:
+    return {"playlist": "", "interval_s": LOBBY_INTERVAL_DEFAULT_S, "loop": True}
+
+
+def lobby_fields(raw: object) -> tuple[dict[str, Any], str]:
+    """The lobby settings `raw` sets (`playlist` a ProPresenter UUID or empty, `interval_s`, `loop`), each checked,
+    with a fixed sentence for the first thing wrong. A key left out stays out."""
+    raw = raw if isinstance(raw, dict) else {}
+    out: dict[str, Any] = {}
+    problem = ""
+    if raw.get("playlist") is not None:
+        v = str(raw["playlist"]).strip()
+        if v and not ID_RE.match(v):
+            problem = "That is not a ProPresenter playlist."
+        else:
+            out["playlist"] = v
+    v = raw.get("interval_s")
+    if v is not None:
+        if isinstance(v, bool) or not isinstance(v, (int, float)) or not LOBBY_INTERVAL_MIN_S <= v <= LOBBY_INTERVAL_MAX_S:
+            problem = (f"The time per slide is a number of seconds from {LOBBY_INTERVAL_MIN_S:g} "
+                       f"to {LOBBY_INTERVAL_MAX_S:g}.")
+        else:
+            out["interval_s"] = round(float(v), 1)
+    if raw.get("loop") is not None:
+        out["loop"] = raw["loop"] is True
+    return out, problem
+
+
+def clean_lobby_settings(raw: object, base: dict[str, Any]) -> dict[str, Any]:
+    return {**default_lobby(), **base, **lobby_fields(raw)[0]}
+
+
+def default_view() -> dict[str, Any]:
+    return {"timer": "", "public": False}
+
+
+def view_fields(raw: object) -> tuple[dict[str, Any], str]:
+    """The slide-view settings `raw` sets: `timer` (a timer UUID, or empty for none) and `public`."""
+    raw = raw if isinstance(raw, dict) else {}
+    out: dict[str, Any] = {}
+    problem = ""
+    if raw.get("timer") is not None:
+        v = str(raw["timer"]).strip()
+        if v and not ID_RE.match(v):
+            problem = "That is not a ProPresenter timer."
+        else:
+            out["timer"] = v
+    if raw.get("public") is not None:
+        out["public"] = raw["public"] is True
+    return out, problem
+
+
+def clean_view_settings(raw: object, base: dict[str, Any]) -> dict[str, Any]:
+    return {**default_view(), **base, **view_fields(raw)[0]}
 
 
 LINK_DWELL_DEFAULT_S = 10.0
@@ -201,6 +268,8 @@ def clean_stored(raw: object) -> dict[str, Any]:
                                   if isinstance(u, str) and ID_RE.match(u)})[:500],
         "timers": clean_timer_settings(raw.get("timers"), base["timers"]),
         "tags": clean_tag_settings(raw.get("tags"), base["tags"]),
+        "lobby": clean_lobby_settings(raw.get("lobby"), base["lobby"]),
+        "view": clean_view_settings(raw.get("view"), base["view"]),
         "link": clean_link_settings(raw.get("link"), {**base["link"], "owned": (raw.get("link") or {}).get("owned")
                                                       if isinstance(raw.get("link"), dict) else {}}),
     }
@@ -608,6 +677,7 @@ class Follower:
         self.announcement_index: int | None = None
         self.deck: slidetags.Deck | None = None   # the active presentation's deck-wide tags, read with it
         self.data: dict[str, Any] = {}          # the last body of the other stream paths
+        self.media: dict | None = None          # {time, duration, playing, name, audio_only, read_at}: the presentation layer's media
         self.timers_read_at = 0.0               # when data["timers/current"] was read (Relay's clock)
         self.timer_kinds: dict[str, str] = {}   # timer UUID -> "down" (countdown, to a time) or "up" (elapsed)
         self._kinds_asked: set[str] = set()     # the timers the configuration was read for (a missing one is not asked again)
@@ -854,7 +924,30 @@ class Follower:
                 if path == "timers/current":
                     self.timers_read_at = time.time()
         await self._read_timer_kinds(client)
+        await self._read_media(client)
         self._note_change()
+
+    async def _read_media(self, client: Client) -> None:
+        """Where the presentation layer's media is (`transport/presentation/time`) and what it is
+        (`transport/presentation/current`), read with the slide: the stream is not trusted to send them. Only while
+        the slide or media layer has something on it; otherwise nothing is asked."""
+        layers = self.data.get("status/layers")
+        if not (isinstance(layers, dict) and (layers.get("slide") or layers.get("media"))):
+            self.media = None
+            return
+        try:
+            at = await self.call(client.read, "/v1/transport/presentation/time")
+            cur = await self.call(client.read, "/v1/transport/presentation/current")
+        except ProError as exc:
+            log.debug("Media read failed: %s", exc)
+            self.media = None
+            return
+        cur = cur if isinstance(cur, dict) else {}
+        dur = cur.get("duration")
+        ok = lambda v: isinstance(v, (int, float)) and not isinstance(v, bool) and v == v and v >= 0
+        self.media = {"time": float(at) if ok(at) else 0.0, "duration": float(dur) if ok(dur) else 0.0,
+                      "playing": cur.get("is_playing") is True, "name": " ".join(str(cur.get("name") or "").split())[:120],
+                      "audio_only": cur.get("audio_only") is True, "read_at": time.time()}
 
     async def _read_timer_kinds(self, client: Client) -> None:
         """Which timers count down and which count up, from `GET /v1/timers` (the configuration; `timers/current`
@@ -1071,6 +1164,7 @@ class Follower:
         self.announcement, self.announcement_index = None, None
         self.stage_message, self.stage_owner = "", None
         self.data = {}
+        self.media = None
         self.timers_read_at = 0.0
         self.timer_kinds = {}
         self._kinds_asked = set()

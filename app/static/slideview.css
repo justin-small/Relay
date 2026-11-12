@@ -1,0 +1,33 @@
+/* The ProPresenter slide view (slideview.js): the live slide and the next slide, with a countdown and the video
+   progress over the live one. Used by the admin page and by /stage. */
+.sv { display:grid; grid-template-columns:minmax(0,2fr) minmax(0,1fr); gap:14px; align-items:start; }
+@media (max-width:720px) { .sv { grid-template-columns:1fr; } }
+.sv-head { grid-column:1 / -1; display:flex; flex-wrap:wrap; gap:8px 12px; align-items:baseline; min-height:22px; }
+.sv-title { font-weight:600; }
+.sv-part { display:inline-block; padding:1px 8px; border-radius:10px; font-size:11.5px; font-weight:600;
+           border:1px solid var(--sv-part,#666); color:var(--sv-part,#aaa); }
+.sv-count { color:var(--dim,#999); font-size:12.5px; }
+.sv-label { font-size:11px; letter-spacing:.12em; text-transform:uppercase; color:var(--dim,#999); margin:0 0 6px; }
+.sv-frame { position:relative; aspect-ratio:16 / 9; background:#000; border:1px solid var(--line,#2a2c31);
+            border-radius:7px; overflow:hidden; display:flex; align-items:center; justify-content:center; }
+.sv-frame img { position:absolute; inset:0; width:100%; height:100%; object-fit:contain; }
+.sv-text { position:relative; padding:12px 16px; text-align:center; white-space:pre-line; color:#f2f2f2; line-height:1.35;
+           font-size:clamp(14px,2.6vw,26px); max-height:100%; overflow:hidden; }
+.sv-next .sv-text { font-size:clamp(11px,1.6vw,16px); color:#cfcfcf; }
+.sv-frame.sv-img .sv-text { display:none; }
+.sv-empty { color:var(--dim,#999); font-size:13px; }
+.sv-timer { position:absolute; top:8px; right:8px; padding:3px 10px; border-radius:6px; background:rgba(0,0,0,.72);
+            font:600 clamp(16px,3vw,30px)/1.2 ui-monospace,SFMono-Regular,Menlo,monospace; color:#fff;
+            font-variant-numeric:tabular-nums; }
+.sv-timer small { font:500 11px/1 system-ui,sans-serif; opacity:.75; margin-right:8px; letter-spacing:.04em; }
+.sv-timer.amber { color:#ffb020; }
+.sv-timer.red { color:#ff5a4f; }
+.sv-timer.idle { opacity:.7; }
+.sv-media { position:absolute; left:0; right:0; bottom:0; padding:14px 10px 6px; display:flex; gap:10px; align-items:center;
+            background:linear-gradient(transparent, rgba(0,0,0,.78)); color:#fff;
+            font:500 12px/1 ui-monospace,SFMono-Regular,Menlo,monospace; }
+.sv-media .bar { flex:1; height:5px; border-radius:3px; background:rgba(255,255,255,.28); overflow:hidden; }
+.sv-media .bar > i { display:block; height:100%; width:0; background:#4f8cff; }
+.sv-media.paused .bar > i { background:#9aa0aa; }
+.sv-note { grid-column:1 / -1; color:var(--dim,#999); font-size:12.5px; }
+.sv-media[hidden], .sv-timer[hidden], .sv-part[hidden], .sv-next[hidden] { display:none; }

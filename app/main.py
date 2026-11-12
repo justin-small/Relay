@@ -28,6 +28,8 @@ from .panels import registry as panel_registry
 from .pclive import follower as pc_follower
 from .servicefeed import feed as service_feed
 from . import pccontrol, propresenter, slidetags
+from .pplobby import lobby as pp_lobby, LobbyError
+from .ppview import view as pp_view
 from .pclink import link as pc_link, LinkError
 from .ppcontrol import control as pp_control
 from .propresenter import follower as pp_follower, lyrics_feed, timers_feed
@@ -169,6 +171,8 @@ async def _startup() -> None:
     pp_follower.start()
     # Idle until the Planning Center link is switched on (follow the plan, or ProPresenter drives LIVE).
     pc_link.start()
+    # Idle until the operator presses Start on the lobby rotation (never started by Relay itself).
+    pp_lobby.start()
     if not (cfg.get("admin_token") or "").strip():
         # _token_ok() returns False on an empty stored token, so the panel is
         # locked rather than open -- but an operator who cannot log in deserves
@@ -252,6 +256,7 @@ async def _shutdown() -> None:
     pc_follower.cancel()
     pp_follower.cancel()
     pc_link.cancel()
+    pp_lobby.cancel()
     for name in ("demo_task", "blocklist_task", "alerts_task"):
         task = getattr(app.state, name, None)
         if task is not None:
@@ -1391,7 +1396,7 @@ async def admin_planning_center_disconnect():
 def _pp_body() -> dict:
     s = config.get()["propresenter"]
     return {"settings": s, "state": pp_follower.state(), "lyrics_readers": lyrics_feed.viewer_count(),
-            "tags": slidetags.tags.state()}
+            "tags": slidetags.tags.state(), "lobby": pp_lobby.state()}
 
 
 _PP_ERRORS = {
@@ -1424,7 +1429,7 @@ async def admin_propresenter():
 async def admin_propresenter_save(payload: dict):
     """Save the connection and switches. Only the keys sent change. A new address reconnects at once."""
     saved = config.get()["propresenter"]
-    merged = {**saved, **{k: v for k, v in payload.items() if k in saved and k not in ("lyrics", "timers", "tags", "link")}}
+    merged = {**saved, **{k: v for k, v in payload.items() if k in saved and k not in ("lyrics", "timers", "tags", "link", "lobby", "view")}}
     if isinstance(payload.get("lyrics"), dict):
         merged["lyrics"] = {**saved["lyrics"], **payload["lyrics"]}
     if "timers" in payload:
@@ -1437,6 +1442,13 @@ async def admin_propresenter_save(payload: dict):
         if problem:
             return JSONResponse({"error": problem}, status_code=400)
         merged["tags"] = propresenter.clean_tag_settings(payload["tags"], saved["tags"])
+    for key, check, clean in (("lobby", propresenter.lobby_fields, propresenter.clean_lobby_settings),
+                              ("view", propresenter.view_fields, propresenter.clean_view_settings)):
+        if key in payload:
+            problem = check(payload[key])[1]
+            if problem:
+                return JSONResponse({"error": problem}, status_code=400)
+            merged[key] = clean(payload[key], saved[key])
     if "link" in payload:
         problem = propresenter.link_fields(payload["link"])[1]
         if problem:
@@ -1657,6 +1669,90 @@ async def admin_pp_message_clear(message: str):
 @app.post("/api/admin/propresenter/transport", dependencies=[Depends(require_admin)])
 async def admin_pp_transport(payload: dict):
     return await _pp_run(pp_control.go_to_time, payload.get("seconds"))
+
+
+# --- Lobby announcements and the slide view (#138 stage 7, pplobby.py and ppview.py). Admin-protected; every
+# write goes through propresenter.Client, which refuses it in view-only mode (409).
+async def _lobby_run(fn, *args):
+    try:
+        data = await fn(*args)
+    except LobbyError as exc:
+        return JSONResponse({"error": str(exc)}, status_code=409)
+    except ValueError:
+        return JSONResponse({"error": "That request was not valid."}, status_code=400)
+    except propresenter.ProError as exc:
+        return _pp_error(exc)
+    return data
+
+
+@app.get("/api/admin/propresenter/lobby", dependencies=[Depends(require_admin)])
+async def admin_pp_lobby():
+    return pp_lobby.state()
+
+
+@app.post("/api/admin/propresenter/lobby/start", dependencies=[Depends(require_admin)])
+async def admin_pp_lobby_start():
+    return await _lobby_run(pp_lobby.start_rotation)
+
+
+@app.post("/api/admin/propresenter/lobby/resume", dependencies=[Depends(require_admin)])
+async def admin_pp_lobby_resume():
+    return await _lobby_run(pp_lobby.resume)
+
+
+@app.post("/api/admin/propresenter/lobby/stop", dependencies=[Depends(require_admin)])
+async def admin_pp_lobby_stop(payload: dict):
+    """Stop stepping; with `clear` true, also clear the announcements layer."""
+    return await _lobby_run(pp_lobby.stop_rotation, payload.get("clear") is True)
+
+
+async def _view_image(which: str, v: str):
+    try:
+        ctype, data = await pp_view.image(which, v)
+    except LookupError:
+        return JSONResponse({"error": "That slide is not up any more."}, status_code=404)
+    except ValueError:
+        return JSONResponse({"error": "That request was not valid."}, status_code=400)
+    except propresenter.ProError as exc:
+        return _pp_error(exc)
+    return Response(data, media_type=ctype, headers={"Cache-Control": "private, max-age=300"})
+
+
+@app.get("/api/admin/propresenter/live", dependencies=[Depends(require_admin)])
+async def admin_pp_live():
+    return pp_view.snapshot("/api/admin/propresenter/live")
+
+
+@app.get("/api/admin/propresenter/live/image/{which}", dependencies=[Depends(require_admin)])
+async def admin_pp_live_image(which: str, v: str = ""):
+    return await _view_image(which, v)
+
+
+# The same view without the admin login, only while `view.public` is on (off by default: slide images are
+# licensed content). Off, every one of these is a 404, as though the route did not exist.
+def _stage_public() -> bool:
+    return bool(config.get()["propresenter"]["view"]["public"]) and propresenter.configured()
+
+
+@app.get("/stage", response_class=HTMLResponse)
+async def page_stage(request: Request):
+    if not _stage_public():
+        raise HTTPException(404, "Not found")
+    return templates.TemplateResponse(request, "stage.html", {})
+
+
+@app.get("/api/stage/live")
+async def stage_live():
+    if not _stage_public():
+        raise HTTPException(404, "Not found")
+    return pp_view.snapshot("/api/stage/live")
+
+
+@app.get("/api/stage/live/image/{which}")
+async def stage_live_image(which: str, v: str = ""):
+    if not _stage_public():
+        raise HTTPException(404, "Not found")
+    return await _view_image(which, v)
 
 
 # --- The Planning Center link (#138 stage 6, pclink.py). Admin-protected. Matching only reads; the playlist
