@@ -359,6 +359,7 @@
     <div class="grp">Automation</div>
     <a href="#schedules" data-page="schedules"><span class="ico"><svg viewBox="0 0 16 16" aria-hidden="true"><rect x="2" y="3" width="12" height="11" rx="1.5"/><path d="M2 7h12M5.5 1.5v3M10.5 1.5v3"/></svg></span>Schedules</a>
     <a href="#planningcenter" data-page="planningcenter"><span class="ico"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 13V6l5-4 5 4v7zM6.5 13V9h3v4"/></svg></span>Planning Center</a>
+    <a href="#propresenter" data-page="propresenter"><span class="ico"><svg viewBox="0 0 16 16" aria-hidden="true"><rect x="2" y="2.5" width="12" height="8" rx="1"/><path d="M5 13.5h6M8 10.5v3"/></svg></span>ProPresenter</a>
     <div class="grp">Settings</div>
     <a href="#blocklist" data-page="blocklist"><span class="ico"><svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6"/><path d="M3.8 12.2l8.4-8.4"/></svg></span>Blocked words</a>
     <a href="#credentials" data-page="credentials"><span class="ico"><svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="5" cy="10.5" r="2.5"/><path d="M7 9l6-6M11 5l1.5 1.5M9.5 6.5L11 8"/></svg></span>Credentials</a>
@@ -732,6 +733,78 @@
         <h3 style="margin-top:22px">Presses from panels</h3>
         <div class="plist" id="pcActionList"></div>
       </div>
+    </section>
+  </div>
+  <div class="page" id="page-propresenter" data-page="propresenter" hidden>
+    <h2 class="title">ProPresenter <span class="sumstate" id="ppSum"></span></h2>
+    <p class="sub">Follow the slide that is up, show lyrics on screens and panels, and put a message on the stage display.</p>
+    <section>
+      <h3>Connection</h3>
+      <div class="row">
+        <div class="field">
+          <label for="ppHost">Machine name or address</label>
+          <input id="ppHost" placeholder="10.0.0.20 or Studio-Mac.local" autocomplete="off" spellcheck="false">
+        </div>
+        <div class="field">
+          <label for="ppPort">Port</label>
+          <input id="ppPort" type="number" min="1" max="65535" placeholder="from ProPresenter" autocomplete="off">
+        </div>
+      </div>
+      <label class="check"><input type="checkbox" id="ppEnabled"> <span>Follow ProPresenter</span></label>
+      <div class="ctl" style="margin-top:8px">
+        <button type="button" class="primary" id="ppSave">Save</button>
+        <button type="button" id="ppTest">Test connection</button>
+        <button type="button" id="ppFind">Find on this network</button>
+      </div>
+      <div class="plist" id="ppFound" style="margin-top:10px" hidden></div>
+      <div class="note" id="ppState" style="margin-top:12px"></div>
+      <div class="note">
+        In ProPresenter, open Settings &rarr; Network, switch <em>Enable Network</em> on, and copy the port it shows:
+        the port is set per install, so Relay assumes none. ProPresenter&rsquo;s API has no password, so Relay only
+        ever talks out to the address typed here, and anyone who can reach that port can control ProPresenter: keep
+        it on the production network. If Relay runs in Docker, the container must be able to reach that address and
+        port (allow it in the firewall of the ProPresenter machine), and <em>Find on this network</em> cannot see
+        it from inside Docker Desktop: type the address.
+      </div>
+    </section>
+    <section>
+      <h3>Safety</h3>
+      <label class="check"><input type="checkbox" id="ppViewOnly"> <span>View-only<br>
+        <span class="muted">Relay reads ProPresenter but never changes anything in it: no stage message, no triggers, no clears. For a second computer, or a church that runs the slides from ProPresenter itself.</span></span></label>
+    </section>
+    <section>
+      <h3>Now</h3>
+      <div id="ppNow" class="plist"></div>
+    </section>
+    <section>
+      <h3>Lyrics feed</h3>
+      <div class="note" style="margin-top:0">Song lyrics are licensed. The feed is off for the public phone viewer unless you switch it on, and anyone on the network who opens the link can read it when it is on.</div>
+      <div class="plist" style="margin-top:10px">
+        <label class="check"><input type="checkbox" id="ppLyScreen"> <span>Screens (<span class="mono">/screen?lyrics=1</span>)</span></label>
+        <label class="check"><input type="checkbox" id="ppLyOverlay"> <span>Broadcast overlay (<span class="mono">/overlay?lyrics=1</span>)</span></label>
+        <label class="check"><input type="checkbox" id="ppLyPanels"> <span>Caption panels</span></label>
+        <label class="check"><input type="checkbox" id="ppLyViewer"> <span>Phone viewer (public)</span></label>
+        <label class="check"><input type="checkbox" id="ppSongsOnly"> <span>Songs only<br><span class="muted">Skip sermon and announcement slides.</span></span></label>
+      </div>
+      <div class="field" style="margin-top:10px">
+        <label for="ppLibrary">Library that holds the songs</label>
+        <input id="ppLibrary" style="max-width:260px" placeholder="Songs">
+        <div class="note">A presentation is a song when its file is in this library, or when its parts are named Verse, Chorus, Bridge and the like.</div>
+      </div>
+      <button type="button" class="primary" id="ppLyricsSave">Save lyrics settings</button>
+    </section>
+    <section>
+      <h3>Stage message</h3>
+      <div class="field">
+        <label for="ppStageText">Message for the stage display</label>
+        <input id="ppStageText" maxlength="200" placeholder="Sound desk needed" autocomplete="off">
+      </div>
+      <div class="ctl">
+        <button type="button" class="primary" id="ppStageSet">Show</button>
+        <button type="button" id="ppStageClear">Clear</button>
+      </div>
+      <div class="note" id="ppStageNote"></div>
+      <div class="note">An alert can also appear here: tick <em>Also show on the ProPresenter stage display</em> on its button under Alerts. It is cleared when the alert is acknowledged.</div>
     </section>
   </div>
   <div class="page" id="page-blocklist" data-page="blocklist" hidden>

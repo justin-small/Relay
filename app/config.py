@@ -60,6 +60,12 @@ DEFAULTS: dict[str, Any] = {
     # follows -- see planningcenter.py. Blank means the integration is off.
     "planning_center": {"app_id": "", "secret": "", "service_types": [], "plan_overrides": {},
                         "show_notes": False},
+    # ProPresenter (#138): the address of the machine running it, and what Relay may do there -- see propresenter.py.
+    # Off until the operator enters an address and switches it on. The port is per install (set in ProPresenter's
+    # Network preferences), so there is no default for it.
+    "propresenter": {"enabled": False, "host": "", "port": 0, "view_only": False, "songs_library": "Songs",
+                     "songs_only": True,
+                     "lyrics": {"viewer": False, "screen": True, "overlay": False, "panels": True}},
     "host": "0.0.0.0",
     "admin_host": "127.0.0.1",
     "port": 8000,
@@ -230,6 +236,9 @@ def _normalise(cfg: dict) -> dict:
     from . import planningcenter
 
     cfg["planning_center"] = planningcenter.clean_stored(cfg.get("planning_center"))
+    from . import propresenter
+
+    cfg["propresenter"] = propresenter.clean_stored(cfg.get("propresenter"))
     # The blocklist lives in its own file; config.json only points at it.
     cfg.pop("blocklist", None)
     cfg["blocklist_file"] = str(cfg.get("blocklist_file") or "blocklist.txt")
