@@ -15,7 +15,7 @@ import asyncio
 import hashlib
 import json
 import urllib.parse
-from collections import OrderedDict
+from collections import Counter, OrderedDict
 from typing import Any
 
 from . import propresenter as pp
@@ -27,6 +27,8 @@ THUMB_MAX_ENTRIES = 600
 THUMB_MAX_BYTES = 48 * 1024 * 1024
 THUMB_PARALLEL = 3            # ProPresenter can stall: a page of thumbnails must not tie up every worker
 MAX_INDEX = 5000
+MAX_DIAG_CHECKS = 150         # presentations looked up when checking a playlist (3 at a time)
+SCREEN_KINDS = ("audience", "stage")
 TOKEN_TEXT_MAX = 500
 
 
@@ -48,14 +50,12 @@ def _index(value: Any) -> int:
     return n
 
 
-def _hex(color: Any) -> str:
-    if not isinstance(color, dict):
-        return ""
-    try:
-        r, g, b = (max(0, min(255, round(float(color.get(k, 0)) * 255))) for k in ("red", "green", "blue"))
-    except (TypeError, ValueError):
-        return ""
-    return f"#{r:02x}{g:02x}{b:02x}"
+_hex = pp.hex_color
+
+
+def _rev(*parts: Any) -> str:
+    """A short marker that changes when what it was made from does; it keys the thumbnail cache."""
+    return hashlib.sha1(json.dumps(parts, sort_keys=True).encode()).hexdigest()[:10]
 
 
 def _id(obj: Any) -> dict:
@@ -96,22 +96,25 @@ class Control:
         body = await self._get(f"/v1/presentation/{seg}")
         detail = body.get("presentation") if isinstance(body, dict) and "presentation" in body else body
         detail = detail if isinstance(detail, dict) else {}
-        cues = []
-        for g in pp.cue_groups(detail):
-            for s in g.get("slides") or []:
-                if not isinstance(s, dict):
-                    continue
-                cues.append({"index": len(cues), "group": str(g.get("name") or "").strip(),
-                             "color": _hex(g.get("color")) or _hex(s.get("color")),
-                             "text": str(s.get("text") or ""), "label": str(s.get("label") or ""),
-                             "enabled": s.get("enabled") is not False})
-        rev = hashlib.sha1(json.dumps(cues, sort_keys=True).encode()).hexdigest()[:10]
-        return {"uuid": str(uuid), "name": _id(detail)["name"], "rev": rev, "cues": cues}
+        cues = [{k: v for k, v in c.items() if k != "notes"} for c in pp.cue_list(detail)]
+        return {"uuid": str(uuid), "name": _id(detail)["name"], "rev": _rev(cues), "cues": cues}
 
     async def thumbnail(self, uuid: str, index: Any, rev: str = "") -> tuple[str, bytes]:
         """A slide's thumbnail, from the cache when it has been fetched for this presentation, index and change
         marker. Browsers never see ProPresenter: they ask Relay, and Relay asks once."""
-        key = (str(uuid), _index(index), str(rev)[:32])
+        n = _index(index)
+        return await self._cached((str(uuid), n, str(rev)[:32]),
+                                  f"/v1/presentation/{_seg(uuid)}/thumbnail/{n}?quality={THUMB_QUALITY}&thumbnail_type=jpeg")
+
+    async def playlist_thumbnail(self, playlist: str, item: Any, cue: Any, rev: str = "") -> tuple[str, bytes]:
+        """A cue of a playlist item. ProPresenter draws it for the item's own arrangement, so a chorus that the
+        arrangement repeats has a thumbnail at each place. Same cache and same rule as presentation thumbnails."""
+        i, c = _index(item), _index(cue)
+        return await self._cached(("playlist", str(playlist), i, c, str(rev)[:32]),
+                                  f"/v1/playlist/{_seg(playlist)}/{i}/thumbnail/{c}"
+                                  f"?quality={THUMB_QUALITY}&thumbnail_type=jpeg")
+
+    async def _cached(self, key: tuple, path: str) -> tuple[str, bytes]:
         hit = self.thumbs.get(key)
         if hit:
             self.thumbs.move_to_end(key)
@@ -125,7 +128,6 @@ class Control:
             if hit:
                 self.thumb_hits += 1
                 return hit
-            path = f"/v1/presentation/{_seg(uuid)}/thumbnail/{key[1]}?quality={THUMB_QUALITY}&thumbnail_type=jpeg"
             ctype, data = await self.f.call(self._client().read_image, path)
             self.thumb_fetches += 1
         if not ctype.startswith("image/"):
@@ -142,8 +144,27 @@ class Control:
             raise ValueError("Direction is next or previous.")
         await self._act(f"/v1/trigger/{direction}")
 
+    async def step_item(self, direction: str) -> None:
+        """The next or previous ITEM of the active playlist, where `step` moves a slide. Not
+        `presentation/active/next/trigger`: that is the next CUE (tried live, it moved a slide). The active
+        playlist is the one ProPresenter reports in `playlist/active`; without one, the focused playlist."""
+        if direction not in ("next", "previous"):
+            raise ValueError("Direction is next or previous.")
+        active = (self.f.data.get("playlist/active") or {}).get("presentation")
+        pl = (active or {}).get("playlist") if isinstance(active, dict) else None
+        uuid = pl.get("uuid") if isinstance(pl, dict) else None
+        if uuid:
+            await self._act(f"/v1/playlist/{_seg(uuid)}/{direction}/trigger")
+        else:
+            try:
+                await self._act(f"/v1/playlist/focused/{direction}/trigger")
+            except pp.ProError as exc:
+                if exc.status == 404:   # ProPresenter answers 404 when no playlist is focused
+                    raise LookupError("No playlist is active or focused.") from exc
+                raise
+
     async def next_presentation(self) -> None:
-        await self._act("/v1/presentation/active/next/trigger")
+        await self.step_item("next")
 
     async def trigger_slide(self, uuid: str, index: Any) -> None:
         await self._act(f"/v1/presentation/{_seg(uuid)}/{_index(index)}/trigger")
@@ -170,6 +191,7 @@ class Control:
         return {"playlists": tree(body), "active": self.f.data.get("playlist/active")}
 
     async def playlist_items(self, playlist: str) -> dict:
+        """Every item, headers and section markers included, in order."""
         body = await self._get(f"/v1/playlist/{_seg(playlist)}")
         body = body if isinstance(body, dict) else {}
         items = []
@@ -178,13 +200,66 @@ class Control:
                 continue
             info = o.get("presentation_info") if isinstance(o.get("presentation_info"), dict) else {}
             ident = _id(o)
+            kind = str(o.get("type") or "")
             items.append({"index": n if ident["index"] is None else ident["index"], "uuid": ident["uuid"],
-                          "name": ident["name"], "type": str(o.get("type") or ""),
-                          "hidden": bool(o.get("is_hidden")), "color": _hex(o.get("header_color")),
-                          "duration": o.get("duration"),
+                          "name": ident["name"], "type": kind,
+                          "hidden": bool(o.get("is_hidden")), "pco": bool(o.get("is_pco")),
+                          "color": _hex(o.get("header_color")), "duration": o.get("duration"),
                           "presentation": str(info.get("presentation_uuid") or o.get("target_uuid") or "")
-                          if o.get("type") == "presentation" else ""})
+                          if kind == "presentation" else "",
+                          "arrangement": str(info.get("arrangement_name") or ""),
+                          "arrangement_uuid": str(info.get("arrangement_uuid") or "")})
         return {"playlist": _id(body), "items": items}
+
+    async def playlist_item_cues(self, playlist: str, item: Any) -> dict:
+        """The cues of one playlist item in ITS arrangement (reusing the slide grid's cue list), so a repeated
+        chorus has a cue, and a thumbnail, at each place it is played. `rev` keys the thumbnails."""
+        n = _index(item)
+        found = next((i for i in (await self.playlist_items(playlist))["items"] if i["index"] == n), None)
+        if not found or found["type"] != "presentation" or not found["presentation"]:
+            raise ValueError("That playlist item has no slides.")
+        body = await self._get(f"/v1/presentation/{_seg(found['presentation'])}")
+        detail = body.get("presentation") if isinstance(body, dict) and "presentation" in body else body
+        detail = detail if isinstance(detail, dict) else {}
+        arrangement = found["arrangement_uuid"] or found["arrangement"]
+        cues = [{k: v for k, v in c.items() if k != "notes"} for c in pp.cue_list(detail, arrangement)]
+        return {"playlist": str(playlist), "index": n, "name": found["name"], "arrangement": found["arrangement"],
+                "presentation": found["presentation"], "rev": _rev(cues, arrangement), "cues": cues}
+
+    async def playlist_diagnostics(self, playlist: str) -> dict:
+        """What is in a playlist and what is wrong with it: counts by type, and for each presentation item
+        whether ProPresenter still has the presentation it points at. A lookup that fails for another reason
+        than "not found" (a stall) is "unknown", never "missing"."""
+        data = await self.playlist_items(playlist)
+        items = data["items"]
+        uuids = sorted({i["presentation"] for i in items if i["presentation"]})
+        checked = uuids[:MAX_DIAG_CHECKS]
+        status: dict[str, str] = {}
+        sem = asyncio.Semaphore(THUMB_PARALLEL)
+
+        async def look(u: str) -> None:
+            async with sem:
+                try:
+                    await self._get(f"/v1/presentation/{_seg(u)}")
+                    status[u] = "ok"
+                except pp.ProError as exc:
+                    status[u] = "missing" if exc.status == 404 else "unknown"
+                except ValueError:
+                    status[u] = "missing"
+
+        await asyncio.gather(*(look(u) for u in checked))
+        rows = []
+        for i in items:
+            if i["type"] == "presentation":
+                st = status.get(i["presentation"], "unchecked") if i["presentation"] else "none"
+            else:
+                st = ""
+            rows.append({"index": i["index"], "name": i["name"], "type": i["type"], "uuid": i["uuid"],
+                         "presentation": i["presentation"], "hidden": i["hidden"], "pco": i["pco"],
+                         "arrangement": i["arrangement"], "status": st})
+        return {"playlist": data["playlist"], "count": len(items), "types": dict(Counter(i["type"] for i in items)),
+                "hidden": sum(1 for i in items if i["hidden"]), "checked": len(checked),
+                "problems": sum(1 for r in rows if r["status"] in ("missing", "none")), "items": rows}
 
     async def trigger_playlist_item(self, playlist: str, index: Any) -> None:
         await self._act(f"/v1/playlist/{_seg(playlist)}/{_index(index)}/trigger")
@@ -271,6 +346,14 @@ class Control:
 
     async def clear_message(self, message: str) -> None:
         await self._act(f"/v1/message/{_seg(message)}/clear")
+
+    # -- screens -----------------------------------------------------------------------------------------
+    async def set_screens(self, kind: str, on: Any) -> None:
+        """Audience or stage screens on or off: `PUT /v1/status/{kind}_screens` with a bare true or false (any
+        other content type, or an object, is a 400 live)."""
+        if kind not in SCREEN_KINDS or not isinstance(on, bool):
+            raise ValueError("Choose audience or stage, on or off.")
+        await self.f.call(self._client().put, f"/v1/status/{kind}_screens", on)
 
     # -- transport ---------------------------------------------------------------------------------------
     async def go_to_time(self, seconds: Any) -> None:

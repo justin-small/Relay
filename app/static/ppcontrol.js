@@ -10,6 +10,7 @@
   let slidesFor = '';         // the presentation uuid the grid was built for
   let gridCards = [];
   let playlistId = '';
+  let thumbEpoch = Date.now();   // playlist row thumbnails are cached per page load; Reload asks ProPresenter again
   let timerDefs = [], timerEls = {};
   let busy = false;
   let loadedOnce = false;
@@ -36,6 +37,12 @@
     n.textContent = msg || '';
     n.hidden = !msg;
   }
+  function chip(part, color, label) {
+    if (!part && !label) return null;
+    const c = h('span', 'ppchip', part + (label ? (part ? ' · ' : '') + label : ''));
+    if (color) c.style.setProperty('--pp', color);
+    return c;
+  }
   function pageOpen() { return !$('page-ppcontrol').hidden; }
   function state() { return (body && body.state) || {}; }
   function enabled() { const s = state(); return !!(s.configured && s.connected && !s.view_only); }
@@ -60,23 +67,67 @@
     });
     $('pcSum').textContent = !s.configured ? 'not set up' : !s.connected ? 'waiting for ProPresenter'
       : s.view_only ? 'connected, view-only' : 'connected';
-    ['pcPrev', 'pcNext', 'pcNextPres', 'pcGoTo', 'pcMacroSave'].forEach(function (id) { $(id).disabled = !on; });
+    ['pcPrev', 'pcNext', 'pcPrevPres', 'pcNextPres', 'pcGoTo', 'pcMacroSave', 'pcAud', 'pcStageScr'].forEach(function (id) { $(id).disabled = !on; });
     const now = $('pcNow');
     now.textContent = '';
     if (!s.configured) now.appendChild(h('div', 'muted', 'ProPresenter is not set up. Enter its address under ProPresenter.'));
     else if (!s.connected) now.appendChild(h('div', 'muted', s.error || 'Waiting for ProPresenter.'));
     else if (!s.presentation) now.appendChild(h('div', 'muted', 'Nothing is up.'));
     else {
-      now.appendChild(h('div', 'muted', s.presentation.name + (s.presentation.part ? ' · ' + s.presentation.part : '')
-        + (s.slide_index === null || s.slide_index === undefined ? '' : ' · #' + (s.slide_index + 1))));
+      const it = s.item || {};
+      const head = h('div', 'muted');
+      head.appendChild(document.createTextNode((it.title || s.presentation.name) + '  '));
+      const c = chip(it.part || s.presentation.part || '', it.part_color, it.label);
+      if (c) head.appendChild(c);
+      if (it.slide_number) head.appendChild(document.createTextNode('slide ' + it.slide_number + (it.slide_count ? ' of ' + it.slide_count : '')));
+      if (it.playlist) head.appendChild(document.createTextNode(' · ' + it.playlist + (it.playlist_item && it.playlist_item.name ? ' › ' + it.playlist_item.name : '')));
+      now.appendChild(head);
       now.appendChild(h('div', 't', (s.current && s.current.text) || '(blank)'));
-      if (s.next && s.next.text) now.appendChild(h('div', 'n', 'Next: ' + s.next.text));
+      if (it.notes) now.appendChild(h('div', 'ppnotes', 'Notes: ' + it.notes));
+      if (s.next && (s.next.text || (it.next && it.next.part))) {
+        const nx = h('div', 'n');
+        nx.appendChild(document.createTextNode('Next: '));
+        const nc = it.next && chip(it.next.part, it.next.part_color, it.next.label);
+        if (nc) nx.appendChild(nc);
+        nx.appendChild(document.createTextNode(s.next.text || '(blank)'));
+        now.appendChild(nx);
+        if (it.next && it.next.notes) now.appendChild(h('div', 'ppnotes', 'Next notes: ' + it.next.notes));
+      }
     }
+    renderScreens();
     // The grid follows the presentation that is up.
     const uuid = s.presentation ? s.presentation.uuid : '';
     if (pageOpen() && uuid !== slidesFor) loadSlides();
     markLive();
     renderLists();
+  }
+
+  /* Screens (on/off from status/screens) and the announcement layer, both followed by the server. */
+  function renderScreens() {
+    const s = state();
+    const sc = s.screens || {};
+    [['pcAud', 'Audience screens', sc.audience], ['pcStageScr', 'Stage screens', sc.stage]].forEach(function (r) {
+      const b = $(r[0]);
+      b.textContent = r[1] + ': ' + (r[2] === true ? 'On' : r[2] === false ? 'Off' : '?');
+      b.classList.toggle('primary', r[2] === true);
+      b.disabled = !enabled() || typeof r[2] !== 'boolean';
+      b.title = s.view_only ? 'View-only mode is on' : 'Click to turn ' + (r[2] ? 'off' : 'on');
+    });
+    $('pcScreenList').textContent = (sc.list || []).map(function (x) {
+      return x.name + ' (' + x.type + (x.width ? ' ' + x.width + 'x' + x.height : '') + ')';
+    }).join(', ');
+    const box = $('pcAnn');
+    box.textContent = '';
+    const a = s.announcement;
+    if (!a) { box.appendChild(h('div', 't muted', s.connected ? 'No announcement is up.' : '')); return; }
+    const head = h('div', 'muted');
+    head.appendChild(document.createTextNode('Announcement: ' + a.title + '  '));
+    const c = chip(a.part, a.part_color, a.label);
+    if (c) head.appendChild(c);
+    if (a.slide_number) head.appendChild(document.createTextNode('slide ' + a.slide_number + (a.slide_count ? ' of ' + a.slide_count : '')));
+    box.appendChild(head);
+    box.appendChild(h('div', 't', a.text || '(blank)'));
+    if (a.notes) box.appendChild(h('div', 'ppnotes', 'Notes: ' + a.notes));
   }
 
   function markLive() {
@@ -142,23 +193,105 @@
   async function loadItems() {
     const box = $('pcItems');
     box.textContent = '';
+    $('pcDiagOut').hidden = true;
     if (!playlistId) return;
     try {
       const r = await call(BASE + '/playlists/' + encodeURIComponent(playlistId));
       box.dataset.pid = playlistId;
       r.items.forEach(function (it) {
-        if (it.type === 'header') { box.appendChild(h('div', 'note', it.name)); return; }
+        if (it.type === 'header') {
+          const m = h('div', 'ppmark' + (it.hidden ? ' dim' : ''), it.name || '(section)');
+          if (it.color) m.style.setProperty('--pp', it.color);
+          box.appendChild(m);
+          return;
+        }
+        const row = h('div', 'ppitemrow' + (it.hidden ? ' dim' : ''));
         const b = h('button', 'ppitem');
         b.type = 'button';
         b.dataset.index = it.index;
+        if (it.presentation) {
+          const img = h('img');
+          img.loading = 'lazy';
+          img.alt = '';
+          img.src = BASE + '/playlists/' + encodeURIComponent(playlistId) + '/thumbnail/' + it.index + '/0?v=' + encodeURIComponent((it.arrangement_uuid || it.arrangement || '') + '-' + thumbEpoch);
+          img.addEventListener('error', function () { img.remove(); });
+          b.appendChild(img);
+        }
         b.appendChild(h('span', 'k', String(it.index + 1)));
-        b.appendChild(h('span', '', it.name + (it.type !== 'presentation' ? ' (' + it.type + ')' : '')));
+        b.appendChild(h('span', '', it.name));
+        const tag = it.type !== 'presentation' ? it.type : (it.arrangement && it.arrangement !== 'Master' ? it.arrangement : '');
+        if (tag) b.appendChild(h('span', 'tag', tag));
         b.addEventListener('click', function () { act(function () { return send('/playlists/' + encodeURIComponent(playlistId) + '/trigger', { index: it.index }); }); });
-        box.appendChild(b);
+        row.appendChild(b);
+        const strip = h('div', 'ppstrip ppgrid');
+        strip.hidden = true;
+        if (it.presentation) {
+          const more = h('button', '', 'Slides');
+          more.type = 'button';
+          more.setAttribute('aria-expanded', 'false');
+          more.addEventListener('click', function () {
+            strip.hidden = !strip.hidden;
+            more.setAttribute('aria-expanded', String(!strip.hidden));
+            if (!strip.hidden && !strip.dataset.loaded) loadStrip(strip, it);
+          });
+          row.appendChild(more);
+        }
+        box.appendChild(row);
+        box.appendChild(strip);
       });
       if (!r.items.length) box.appendChild(h('div', 'muted', 'This playlist is empty.'));
       renderLists();
     } catch (e) { $('pcPlaylistNote').textContent = e.message; }
+  }
+  /* One item's cues in ITS arrangement: a chorus the arrangement repeats shows at each place, each with its own thumbnail. */
+  async function loadStrip(strip, it) {
+    strip.dataset.loaded = '1';
+    strip.textContent = '';
+    try {
+      const r = await call(BASE + '/playlists/' + encodeURIComponent(playlistId) + '/items/' + it.index + '/cues');
+      r.cues.forEach(function (c) {
+        const card = h('div', 'ppcue');
+        if (c.color) card.style.setProperty('--pp', c.color);
+        const img = h('img');
+        img.loading = 'lazy';
+        img.alt = '';
+        img.src = BASE + '/playlists/' + encodeURIComponent(playlistId) + '/thumbnail/' + it.index + '/' + c.index + '?v=' + encodeURIComponent(r.rev);
+        card.appendChild(img);
+        const meta = h('div', 'meta');
+        meta.appendChild(h('div', 'gn', (c.group || 'Slide') + ' · ' + (c.index + 1)));
+        meta.appendChild(h('div', 'tx', c.text || c.label || '(blank)'));
+        card.appendChild(meta);
+        strip.appendChild(card);
+      });
+      if (!r.cues.length) strip.appendChild(h('div', 'muted', 'No slides.'));
+    } catch (e) { strip.dataset.loaded = ''; strip.appendChild(h('div', 'muted', e.message)); }
+  }
+  /* What is in the playlist and what is wrong with it. */
+  async function runDiag() {
+    const out = $('pcDiagOut');
+    if (!playlistId) return;
+    out.hidden = false;
+    out.textContent = 'Checking...';
+    try {
+      const r = await call(BASE + '/playlists/' + encodeURIComponent(playlistId) + '/diagnostics');
+      out.textContent = '';
+      const types = Object.keys(r.types).map(function (k) { return r.types[k] + ' ' + k; }).join(', ');
+      out.appendChild(h('div', '', r.count + ' items (' + (types || 'none') + ')' + (r.hidden ? ', ' + r.hidden + ' hidden' : '')
+        + '. ' + (r.problems ? r.problems + ' with no matching presentation.' : 'Every presentation was found.')));
+      const t = h('table');
+      const head = h('tr');
+      ['#', 'Type', 'Name', 'Presentation', 'Item ID', 'Check'].forEach(function (x) { head.appendChild(h('th', '', x)); });
+      t.appendChild(head);
+      const words = { ok: 'found', missing: 'NOT FOUND', none: 'NO PRESENTATION', unknown: 'could not check', unchecked: 'not checked', '': '' };
+      r.items.forEach(function (i) {
+        const tr = h('tr', i.status === 'missing' || i.status === 'none' ? 'bad' : '');
+        [String(i.index + 1), i.type + (i.hidden ? ' (hidden)' : ''), i.name, i.presentation, i.uuid, words[i.status] || i.status].forEach(function (x, n) {
+          tr.appendChild(h('td', n === 3 || n === 4 ? 'id' : '', x));
+        });
+        t.appendChild(tr);
+      });
+      out.appendChild(t);
+    } catch (e) { out.textContent = e.message; }
   }
 
   /* ---- looks, macros, timers, messages ---- */
@@ -346,10 +479,19 @@
   /* ---- wiring ---- */
   $('pcPrev').addEventListener('click', function () { act(function () { return send('/step', { direction: 'previous' }); }); });
   $('pcNext').addEventListener('click', function () { act(function () { return send('/step', { direction: 'next' }); }); });
-  $('pcNextPres').addEventListener('click', function () { act(function () { return send('/next-presentation'); }); });
+  $('pcNextPres').addEventListener('click', function () { act(function () { return send('/item', { direction: 'next' }); }); });
+  $('pcPrevPres').addEventListener('click', function () { act(function () { return send('/item', { direction: 'previous' }); }); });
+  $('pcDiag').addEventListener('click', runDiag);
+  [['pcAud', 'audience'], ['pcStageScr', 'stage']].forEach(function (r) {
+    $(r[0]).addEventListener('click', function () {
+      const cur = (state().screens || {})[r[1]];
+      if (typeof cur !== 'boolean') return;
+      act(function () { return send('/screens', { kind: r[1], on: !cur }); });
+    });
+  });
   $('pcGridRefresh').addEventListener('click', function () { slidesFor = ''; loadSlides(); });
   $('pcPlaylist').addEventListener('change', function () { playlistId = $('pcPlaylist').value; loadItems(); });
-  $('pcPlaylistRefresh').addEventListener('click', loadPlaylists);
+  $('pcPlaylistRefresh').addEventListener('click', function () { thumbEpoch = Date.now(); loadPlaylists(); });
   $('pcGoTo').addEventListener('click', function () {
     act(function () { return send('/transport', { seconds: parseFloat($('pcSeconds').value) }); });
   });
@@ -371,9 +513,10 @@
     if (pageOpen()) { loadedOnce = false; slidesFor = ''; poll(); }
   });
 
-  /* Arrow keys and Page Up / Page Down step the slide, while this page is open and nothing is being typed. */
+  /* Arrow keys and Page Up / Page Down step the slide; Shift + the same keys step the playlist item. Only while
+     this page is open and nothing is being typed. */
   document.addEventListener('keydown', function (ev) {
-    if (!pageOpen() || ev.altKey || ev.ctrlKey || ev.metaKey || ev.shiftKey) return;
+    if (!pageOpen() || ev.altKey || ev.ctrlKey || ev.metaKey) return;
     const t = ev.target;
     if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable)) return;
     const next = ['ArrowRight', 'ArrowDown', 'PageDown'].indexOf(ev.key) !== -1;
@@ -381,7 +524,8 @@
     if (!next && !prev) return;
     ev.preventDefault();
     if (!enabled()) return;
-    act(function () { return send('/step', { direction: next ? 'next' : 'previous' }); });
+    const dir = next ? 'next' : 'previous';
+    act(function () { return ev.shiftKey ? send('/item', { direction: dir }) : send('/step', { direction: dir }); });
   });
 
   poll();

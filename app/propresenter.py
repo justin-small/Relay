@@ -44,8 +44,12 @@ log = logging.getLogger("relay.propresenter")
 
 # What the stream is asked for. Fixed: one path ProPresenter does not know fails the whole request.
 STREAM_PATHS = ["status/slide", "presentation/current", "presentation/slide_index", "timers/current",
-                "stage/message", "status/layers", "playlist/active", "look/current"]
+                "stage/message", "status/layers", "playlist/active", "look/current",
+                "announcement/active", "announcement/slide_index",
+                "status/screens", "status/audience_screens", "status/stage_screens"]
 RESYNC_DATA = ["timers/current", "status/layers", "playlist/active", "look/current"]   # re-read every RESYNC_S
+SLOW_DATA = ["status/screens", "status/audience_screens", "status/stage_screens"]   # every SLOW_EVERY resyncs
+SLOW_EVERY = 5
 HEARTBEAT_PATH = "timer/system_time"
 
 REQUEST_TIMEOUT_S = 3.0
@@ -200,20 +204,57 @@ def is_action_path(path: str) -> bool:
     return any(s in _ACTION_SEGMENTS for s in segs)
 
 
-def cue_groups(detail: dict) -> list[dict]:
-    """The presentation's groups in CUE order: the current arrangement's list, so a chorus that repeats appears
-    each time it is played and cue indexes (what trigger and thumbnails take) line up. Without a usable
-    arrangement it is the groups as listed."""
+def cue_groups(detail: dict, arrangement: str | None = None) -> list[dict]:
+    """The presentation's groups in CUE order: the arrangement's list, so a chorus that repeats appears each
+    time it is played and cue indexes (what trigger and thumbnails take) line up. `arrangement` (a UUID or a
+    name) is the one a playlist item chose; without it, or when it is not found, the presentation's current
+    arrangement. Without a usable arrangement it is the groups as listed."""
     groups = [g for g in (detail.get("groups") or []) if isinstance(g, dict)]
     by_id = {g.get("uuid"): g for g in groups if g.get("uuid")}
     cur = detail.get("current_arrangement")
-    for arr in detail.get("arrangements") or []:
-        aid = arr.get("id") if isinstance(arr, dict) else None
-        if isinstance(aid, dict) and aid.get("uuid") == cur and arr.get("groups"):
+    arrs = [a for a in (detail.get("arrangements") or []) if isinstance(a, dict)
+            and isinstance(a.get("id"), dict)]
+
+    def usable(arr: dict) -> list[dict] | None:
+        if arr.get("groups"):
             ordered = [by_id.get(u) for u in arr["groups"]]
             if all(ordered):
                 return ordered
+        return None
+
+    wanted = str(arrangement or "").strip()
+    for key, field in ((wanted, "uuid"), (wanted, "name"), (cur, "uuid")):
+        if not key:
+            continue
+        for arr in arrs:
+            if arr["id"].get(field) == key and (got := usable(arr)):
+                return got
     return groups
+
+
+def cue_list(detail: dict, arrangement: str | None = None) -> list[dict]:
+    """Every cue of a presentation in play order: {index, group, color (#rrggbb), text, label, notes, enabled}.
+    One list for the slide grid, a playlist item's strip and the item details."""
+    out = []
+    for g in cue_groups(detail, arrangement):
+        for sl in g.get("slides") or []:
+            if not isinstance(sl, dict):
+                continue
+            out.append({"index": len(out), "group": str(g.get("name") or "").strip(),
+                        "color": hex_color(g.get("color")) or hex_color(sl.get("color")),
+                        "text": str(sl.get("text") or ""), "label": str(sl.get("label") or ""),
+                        "notes": str(sl.get("notes") or ""), "enabled": sl.get("enabled") is not False})
+    return out
+
+
+def hex_color(color: Any) -> str:
+    if not isinstance(color, dict):
+        return ""
+    try:
+        r, g, b = (max(0, min(255, round(float(color.get(k, 0)) * 255))) for k in ("red", "green", "blue"))
+    except (TypeError, ValueError):
+        return ""
+    return f"#{r:02x}{g:02x}{b:02x}"
 
 
 def resolve(host: str, port: int) -> str:
@@ -451,11 +492,14 @@ class Follower:
         self.slide_index: int | None = None
         self.current = _slide_side(None)
         self.next = _slide_side(None)
+        self.announcement: dict | None = None   # same shape as `presentation`, for the announcements layer
+        self.announcement_index: int | None = None
         self.data: dict[str, Any] = {}          # the last body of the other stream paths
         self.timers_read_at = 0.0               # when data["timers/current"] was read (Relay's clock)
         self.timer_kinds: dict[str, str] = {}   # timer UUID -> "down" (countdown, to a time) or "up" (elapsed)
         self._kinds_asked: set[str] = set()     # the timers the configuration was read for (a missing one is not asked again)
         self._resyncs = 0
+        self._ticks = 0
         self.stage_message = ""
         self.stage_owner: str | None = None     # the alert whose text is on the stage display
         self._announced_down = False
@@ -468,7 +512,9 @@ class Follower:
         self._warned_view_only = False
         self._pending_slide = False
         self._pending_presentation = False
+        self._pending_announcement = False
         self._presentation_hint: Any = None
+        self._announcement_hint: Any = ...        # `...`: only the position was pushed, read the rest
         self.make_client: Callable[..., Client] = Client   # a test swaps this
 
     # -- lifecycle ---------------------------------------------------------------------------------------
@@ -631,6 +677,12 @@ class Follower:
             self._pending_slide = True
         elif url == "status/slide":
             self._pending_slide = True
+        elif url == "announcement/active":
+            self._pending_announcement = True
+            self._announcement_hint = data
+        elif url == "announcement/slide_index":
+            self.announcement_index = self._announcement_position(data)[1]
+            self._pending_announcement = True
         else:
             self.data[url] = data
             if url == "timers/current":
@@ -646,6 +698,13 @@ class Follower:
         if self._pending_slide:
             self._pending_slide = False
             await self._read_slide(client)
+        if self._pending_announcement:
+            self._pending_announcement = False
+            hint, self._announcement_hint = self._announcement_hint, ...
+            if hint is ...:
+                await self._resync_announcement(client)   # only the position was pushed
+            else:
+                await self._read_announcement(client, hint)
 
     async def _resync(self, client: Client) -> None:
         """A live ProPresenter does not push every slide change (sometimes none at all), so every second the
@@ -668,9 +727,11 @@ class Follower:
                 return
             await self._read_presentation(client, data)
         await self._read_slide(client)
+        await self._resync_announcement(client)
         # The same stream also misses timer and layer changes (a stopped timer kept reading "running"), and the
-        # control page shows both, so they are re-read with the slide.
-        for path in RESYNC_DATA:
+        # control page shows both, so they are re-read with the slide. Screens change rarely: every few turns.
+        self._ticks += 1
+        for path in RESYNC_DATA + (SLOW_DATA if self._ticks % SLOW_EVERY == 1 else []):
             try:
                 body = await self.call(client.read, "/v1/" + path)
             except ProError:
@@ -758,7 +819,52 @@ class Follower:
         self._note_change()
 
     @staticmethod
-    def _describe(uuid: str, name: str, detail: dict | None) -> dict:
+    def _announcement_position(data: Any) -> tuple[str | None, int | None]:
+        """(presentation UUID, cue index) from an `announcement/slide_index` body; (None, None) when none is up."""
+        idx = data.get("announcement_index") if isinstance(data, dict) else None
+        if not isinstance(idx, dict):
+            return None, None
+        pid = idx.get("presentation_id")
+        uuid = pid.get("uuid") if isinstance(pid, dict) else None
+        n = idx.get("index")
+        return (uuid if isinstance(uuid, str) and uuid else None), (n if isinstance(n, int) else None)
+
+    async def _resync_announcement(self, client: Client) -> None:
+        """Announcements are as unreliably pushed as slides: read the position (cheap) every turn, and the
+        announcement itself only when the position names a different one (or none)."""
+        try:
+            body = await self.call(client.read, "/v1/announcement/slide_index")
+        except ProError as exc:
+            log.debug("Announcement resync failed: %s", exc)
+            return
+        uuid, idx = self._announcement_position(body)
+        self.announcement_index = idx
+        known = self.announcement["uuid"] if self.announcement else None
+        if uuid != known:
+            try:
+                data = await self.call(client.read, "/v1/announcement/active")
+            except ProError as exc:
+                log.debug("Announcement resync failed: %s", exc)
+                return
+            await self._read_announcement(client, data)
+
+    async def _read_announcement(self, client: Client, data: Any) -> None:
+        """`announcement/active` carries the whole presentation (groups and slides), so no second read."""
+        ann = data.get("announcement") if isinstance(data, dict) else None
+        pid = ann.get("id") if isinstance(ann, dict) else None
+        uuid = pid.get("uuid") if isinstance(pid, dict) else None
+        if not uuid:
+            if self.announcement is not None or self.announcement_index is not None:
+                self.announcement, self.announcement_index = None, None
+                self._note_change()
+            return
+        desc = self._describe(uuid, str(pid.get("name") or "").strip(), ann, with_text=True)
+        if desc != self.announcement:
+            self.announcement = desc
+            self._note_change()
+
+    @staticmethod
+    def _describe(uuid: str, name: str, detail: dict | None, with_text: bool = False) -> dict:
         detail = detail if isinstance(detail, dict) else {}
         path = str(detail.get("presentation_path") or "")
         m = re.search(r"/Libraries/([^/]+)/", path.replace("\\", "/"))
@@ -767,7 +873,9 @@ class Follower:
         pid = detail.get("id") if isinstance(detail.get("id"), dict) else {}
         # Names can end in a space ("All The Way To Calvary ").
         return {"uuid": uuid, "name": str(pid.get("name") or name).strip(), "path": path,
-                "library": m.group(1).strip() if m else "", "groups": groups}
+                "library": m.group(1).strip() if m else "", "groups": groups,
+                "cues": [{k: c[k] for k in (("group", "color", "label", "text", "notes") if with_text
+                                           else ("group", "color", "label"))} for c in cue_list(detail)]}
 
     def is_song(self) -> bool:
         pres = self.presentation
@@ -831,6 +939,7 @@ class Follower:
             self.connecting = False
             self.presentation, self.slide_index = None, None
             self.current, self.next = _slide_side(None), _slide_side(None)
+            self.announcement, self.announcement_index = None, None
         self._note_change()
 
     def _reset_state(self) -> None:
@@ -843,6 +952,7 @@ class Follower:
         self._announced_down = False
         self.presentation, self.slide_index = None, None
         self.current, self.next = _slide_side(None), _slide_side(None)
+        self.announcement, self.announcement_index = None, None
         self.stage_message, self.stage_owner = "", None
         self.data = {}
         self.timers_read_at = 0.0
@@ -868,6 +978,59 @@ class Follower:
             "next": self.next["text"] if showing else "",
         }
 
+    @staticmethod
+    def _part(cue: dict | None) -> dict:
+        cue = cue or {}
+        return {"part": cue.get("group", ""), "part_color": cue.get("color", ""), "label": cue.get("label", "")}
+
+    def item(self) -> dict | None:
+        """What is up, in the words an operator uses: the item's title, which part (Verse, Chorus) and its colour,
+        the slide number, and the notes for this slide and the next. None with no presentation up."""
+        pres, idx = self.presentation, self.slide_index
+        if not pres:
+            return None
+        cues = pres.get("cues") or []
+        here = cues[idx] if idx is not None and 0 <= idx < len(cues) else None
+        ahead = cues[idx + 1] if idx is not None and 0 <= idx + 1 < len(cues) else None
+        pa = (self.data.get("playlist/active") or {}).get("presentation")
+        pa = pa if isinstance(pa, dict) else {}
+        entry = pa.get("item") if isinstance(pa.get("item"), dict) else None
+        plist = pa.get("playlist") if isinstance(pa.get("playlist"), dict) else None
+        return {
+            "title": pres["name"], "slide_number": idx + 1 if idx is not None else None, "slide_count": len(cues),
+            **self._part(here), "notes": self.current["notes"],
+            "next": {**self._part(ahead), "text": self.next["text"], "notes": self.next["notes"]},
+            "playlist": (plist or {}).get("name") or "",
+            "playlist_item": {"name": entry.get("name") or "", "index": entry.get("index")} if entry else None,
+        }
+
+    def announcement_state(self) -> dict | None:
+        ann, idx = self.announcement, self.announcement_index
+        if not ann:
+            return None
+        cues = ann.get("cues") or []
+        here = cues[idx] if idx is not None and 0 <= idx < len(cues) else None
+        return {"uuid": ann["uuid"], "title": ann["name"], "slide_number": idx + 1 if idx is not None else None,
+                "slide_count": len(cues), **self._part(here), "text": (here or {}).get("text", ""),
+                "notes": (here or {}).get("notes", "")}
+
+    def screens(self) -> dict:
+        """Audience and stage screens: on or off (None until read), and the screens ProPresenter lists."""
+        def flag(path: str) -> bool | None:
+            v = self.data.get(path)
+            return v if isinstance(v, bool) else None
+        listed = []
+        rows = self.data.get("status/screens")
+        for o in rows if isinstance(rows, list) else []:
+            ident = o.get("id") if isinstance(o, dict) and isinstance(o.get("id"), dict) else None
+            if ident is None:
+                continue
+            size = o.get("size") if isinstance(o.get("size"), dict) else {}
+            listed.append({"uuid": str(ident.get("uuid") or ""), "name": str(ident.get("name") or "").strip(),
+                           "type": str(o.get("screen_type") or ""), "width": size.get("width"),
+                           "height": size.get("height")})
+        return {"audience": flag("status/audience_screens"), "stage": flag("status/stage_screens"), "list": listed}
+
     def state(self) -> dict:
         """For the admin page."""
         s = settings()
@@ -891,12 +1054,15 @@ class Follower:
             "look_id": ((look.get("id") or {}).get("uuid") if isinstance(look, dict) else None),
             "look": ((look.get("id") or {}).get("name") if isinstance(look, dict) else None),
             "timers": self.data.get("timers/current") or [],
+            "item": self.item(),
+            "announcement": self.announcement_state(),
+            "screens": self.screens(),
         }
 
     def _note_change(self) -> None:
         sig = json.dumps([self.up, self.connecting, self.error, self.presentation, self.slide_index,
                           self.current, self.next, self.stage_message, self.data, self.lyrics(),
-                          self.timer_kinds],
+                          self.timer_kinds, self.announcement, self.announcement_index],
                          sort_keys=True, default=str)
         if sig != self._sig:
             self._sig = sig

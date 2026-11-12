@@ -172,6 +172,25 @@
   .ppitem { display:flex; gap:10px; align-items:center; text-align:left; width:100%; margin-bottom:4px; }
   .ppitem.live { border-color:var(--accent); color:var(--accent); }
   .ppitem .k { color:var(--dim); font-size:11px; min-width:2.2em; }
+  .ppitem img { width:64px; aspect-ratio:16/9; object-fit:cover; background:#000; border-radius:3px; flex:0 0 auto; }
+  .ppitem .tag { color:var(--dim); font-size:11px; margin-left:auto; white-space:nowrap; }
+  .ppitemrow { display:flex; gap:6px; align-items:flex-start; }
+  .ppitemrow[hidden] { display:none; }
+  .ppitemrow .ppitem { flex:1 1 auto; width:auto; }
+  .ppitemrow.dim .ppitem { opacity:.55; }
+  .ppmark { border-left:4px solid var(--pp,#666); padding:4px 10px; margin:10px 0 4px; font-weight:600; font-size:12.5px; letter-spacing:.03em; }
+  .ppmark.dim { opacity:.55; }
+  .ppstrip { margin:2px 0 8px 14px; }
+  .ppstrip[hidden], .ppdiag[hidden] { display:none; }
+  .ppstrip .ppcue { cursor:default; }
+  .ppchip { display:inline-block; padding:1px 8px; border-radius:10px; font-size:11.5px; font-weight:600; border:1px solid var(--pp,#666); color:var(--pp,var(--dim)); margin-right:6px; }
+  .ppnotes { color:var(--dim); font-size:12px; white-space:pre-line; margin-top:4px; border-left:2px solid var(--line); padding-left:8px; }
+  .ppdiag table { width:100%; border-collapse:collapse; font-size:12px; margin-top:8px; }
+  .ppdiag th, .ppdiag td { text-align:left; padding:3px 6px; border-top:1px solid var(--line); vertical-align:top; }
+  .ppdiag td.id { font-family:ui-monospace,Menlo,monospace; font-size:10.5px; color:var(--dim); word-break:break-all; }
+  .ppdiag tr.bad td { color:#ff8a80; }
+  .ppscreens { display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin-bottom:8px; }
+  .ppscreens[hidden] { display:none; }
   .pptimer { display:flex; gap:8px; align-items:center; flex-wrap:wrap; padding:6px 0; border-top:1px solid var(--line); }
   .pptimer .nm { flex:1 1 140px; font-weight:600; }
   .pptimer .tm { font-variant-numeric:tabular-nums; font-size:17px; min-width:5.5em; }
@@ -780,10 +799,21 @@
       <div class="ppbar">
         <button type="button" class="big" id="pcPrev" title="Left arrow, up arrow or Page Up">&larr; Previous</button>
         <button type="button" class="big primary" id="pcNext" title="Right arrow, down arrow or Page Down">Next &rarr;</button>
-        <button type="button" id="pcNextPres">Next presentation</button>
+        <button type="button" id="pcPrevPres" title="Shift + left arrow or Shift + up arrow">&laquo; Previous item</button>
+        <button type="button" id="pcNextPres" title="Shift + right arrow or Shift + down arrow">Next item &raquo;</button>
       </div>
       <div class="ppnow" id="pcNow"><div class="t muted">Nothing is up.</div></div>
-      <div class="note">Arrow keys and Page Up / Page Down move the slide while this page is open.</div>
+      <div class="note">Arrow keys and Page Up / Page Down move the slide while this page is open. Shift + arrow keys move to the previous or next playlist item.</div>
+    </section>
+    <section>
+      <h3>Screens and announcements</h3>
+      <div class="ppscreens" id="pcScreens">
+        <button type="button" id="pcAud" data-screens="audience">Audience screens</button>
+        <button type="button" id="pcStageScr" data-screens="stage">Stage screens</button>
+        <span class="muted" id="pcScreenList"></span>
+      </div>
+      <div class="ppnow" id="pcAnn"><div class="t muted">No announcement is up.</div></div>
+      <div class="note">Turning screens on or off is a change to ProPresenter, so it is off in view-only mode. Announcements are shown here and cleared from the dock below.</div>
     </section>
     <section>
       <h3>Slide grid <span class="count" id="pcGridName"></span></h3>
@@ -794,6 +824,8 @@
     <section>
       <h3>Playlists</h3>
       <div class="ppbar"><select id="pcPlaylist" style="max-width:320px"></select><button type="button" id="pcPlaylistRefresh">Reload</button></div>
+      <div class="ppbar"><button type="button" id="pcDiag">Check this playlist</button></div>
+      <div class="ppdiag" id="pcDiagOut" hidden></div>
       <div id="pcItems"></div>
       <div class="note" id="pcPlaylistNote"></div>
     </section>

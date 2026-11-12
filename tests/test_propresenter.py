@@ -81,6 +81,10 @@ class Fake:
         self.timer_rows = []              # what GET /v1/timers/current answers: [{"id": {...}, "time", "state"}]
         self.timer_cfg = None             # what GET /v1/timers answers, when a test sets it
         self.timer_cfg_calls = 0
+        self.announcement = None          # {"uuid", "name", "groups": [(name, [text...])]}
+        self.ann_index = None
+        self.screens = {"audience": False, "stage": False}
+        self.missing = set()              # presentation UUIDs that answer 404
         self.stream_count = 0
         self.stream_bodies = []
         self.out = queue.Queue()
@@ -127,6 +131,38 @@ class Fake:
         """(status, body, content type) for the control paths, or None."""
         base = path.split("?")[0]
         j = lambda o: (200, (json.dumps(o) + "\r\n\r\n").encode(), "application/json")
+        if base == "/v1/announcement/active":
+            a = self.announcement
+            return j({"announcement": None if not a else {
+                "id": {"uuid": a["uuid"], "name": a["name"], "index": 0},
+                "groups": [{"name": n, "color": {"red": 0, "green": 1, "blue": 0, "alpha": 1},
+                            "slides": [{"text": t, "notes": "ann note " + t, "label": "", "enabled": True} for t in g]}
+                           for n, g in a["groups"]]}})
+        if base == "/v1/announcement/slide_index":
+            a = self.announcement
+            return j({"announcement_index": None if not a or self.ann_index is None else {
+                "index": self.ann_index, "presentation_id": {"uuid": a["uuid"], "name": a["name"], "index": 0}}})
+        if base == "/v1/status/screens":
+            return j([{"id": {"uuid": "SCR", "name": "Screen", "index": 0}, "size": {"width": 1920, "height": 1080},
+                       "screen_type": "audience"}])
+        if base in ("/v1/status/audience_screens", "/v1/status/stage_screens"):
+            return j(self.screens[base.split("/")[-1].split("_")[0]])
+        if base == "/v1/playlist/PL3":
+            return j({"id": {"uuid": "PL3", "name": "Setlist", "index": 2}, "items": [
+                {"id": {"uuid": "H0", "name": "Worship", "index": 0}, "type": "header", "is_hidden": False,
+                 "is_pco": False, "header_color": {"red": 0, "green": 0, "blue": 1, "alpha": 1}},
+                {"id": {"uuid": "S1", "name": "Great Song", "index": 1}, "type": "presentation", "is_hidden": False,
+                 "is_pco": True, "presentation_info": {"presentation_uuid": "P-Grea", "arrangement_name": "Master",
+                                                       "arrangement_uuid": "ARR"}},
+                {"id": {"uuid": "S2", "name": "Gone Song", "index": 2}, "type": "presentation", "is_hidden": True,
+                 "is_pco": False, "presentation_info": {"presentation_uuid": "P-GONE", "arrangement_name": "",
+                                                        "arrangement_uuid": ""}},
+                {"id": {"uuid": "S3", "name": "Empty slot", "index": 3}, "type": "placeholder", "is_hidden": False,
+                 "is_pco": False},
+                {"id": {"uuid": "S4", "name": "Unlinked", "index": 4}, "type": "presentation", "is_hidden": False,
+                 "is_pco": False, "presentation_info": {"presentation_uuid": ""}},
+                {"id": {"uuid": "H1", "name": "Sermon", "index": 5}, "type": "header", "is_hidden": False,
+                 "is_pco": False, "header_color": {"red": 1, "green": 0, "blue": 0, "alpha": 1}}]})
         if base == "/v1/playlists":
             return j([{"id": {"uuid": "PL1", "name": "Sunday", "index": 0}, "field_type": "playlist", "children": []},
                       {"id": {"uuid": "GRP", "name": "Folder", "index": 1}, "field_type": "group",
@@ -157,6 +193,8 @@ class Fake:
         if "/thumbnail/" in base:
             self.thumb_calls += 1
             return (200, b"\xff\xd8JPEG" + base.encode(), "image/jpeg")
+        if base.startswith("/v1/playlist/focused/") and getattr(self, "no_focus", False):
+            return (404, b"", "application/json")
         if base.endswith("/trigger") or "/clear" in base or base.startswith("/v1/timer/") or base.startswith("/v1/timers/"):
             if base.startswith("/v1/message/") and base.endswith("/clear"):
                 self.msg_active = False
@@ -169,13 +207,27 @@ class Fake:
             return (204, b"", "application/json")
         if method == "PUT" and path == "/v1/transport/presentation/time":
             return (204, b"", "application/json")
+        if method == "PUT" and path in ("/v1/status/audience_screens", "/v1/status/stage_screens"):
+            value = json.loads(raw)
+            if not isinstance(value, bool):
+                return (400, b"bad body", "text/plain")
+            self.screens[path.split("/")[-1].split("_")[0]] = value
+            return (204, b"", "application/json")
         return None
+
+    def body(self, path):
+        return json.loads(self.extra_get(path)[1].decode())
 
     def stream_message(self, url):
         data = {"status/slide": self.status_slide(), "presentation/current": self.current_body(),
                 "presentation/slide_index": self.index_body(), "stage/message": self.stage,
                 "timers/current": self.timer_rows, "status/layers": {"slide": bool(self.presentation)},
-                "playlist/active": {}, "look/current": {"id": {"name": "Default"}}}[url]
+                "playlist/active": {}, "look/current": {"id": {"name": "Default"}},
+                "announcement/active": self.body("/v1/announcement/active"),
+                "announcement/slide_index": self.body("/v1/announcement/slide_index"),
+                "status/screens": self.body("/v1/status/screens"),
+                "status/audience_screens": self.screens["audience"],
+                "status/stage_screens": self.screens["stage"]}[url]
         return json.dumps({"url": url, "data": data}).encode() + b"\r\n\r\n"
 
     def push(self, *urls):
@@ -230,6 +282,8 @@ def make_handler(fake):
                 return self._json(fake.current_body())
             if p == "/v1/presentation/slide_index":
                 return self._json(fake.index_body())
+            if p.startswith("/v1/presentation/") and p.rsplit("/", 1)[1] in fake.missing:
+                return self._reply(404)
             if p.startswith("/v1/presentation/") and fake.presentation:
                 return self._json(fake.detail(p.rsplit("/", 1)[1]))
             if p == "/v1/stage/message":
@@ -385,7 +439,8 @@ check("nothing is followed until it is switched on and has an address", not pp.c
 check("the stream's path list is accepted by a live install (46 names)", set(pp.STREAM_PATHS) <= ACCEPTED)
 eq("the stream's path list is the fixed one", pp.STREAM_PATHS,
    ["status/slide", "presentation/current", "presentation/slide_index", "timers/current", "stage/message",
-    "status/layers", "playlist/active", "look/current"])
+    "status/layers", "playlist/active", "look/current", "announcement/active", "announcement/slide_index",
+    "status/screens", "status/audience_screens", "status/stage_screens"])
 
 # --------------------------------------------------------------------------------------------------- framing
 print("framing")
@@ -489,9 +544,10 @@ async def scenario_follow():
     # one that is not pushed at all (the stream misses changes)
     fake.index = 2
     check("a slide change with no push is found by the re-read", await until(lambda: f.lyrics()["text"] == "chorus a"))
-    eq("the part changes at the group boundary", f.lyrics()["part"], "Chorus")
+    check("the part changes at the group boundary", await until(lambda: f.lyrics()["part"] == "Chorus"))
     eq("the last slide has no next", f.lyrics()["next"], "")
     # the same text pushed twice does nothing
+    await asyncio.sleep(0.5)   # a delayed push from the change above may still be on its way
     rev = f.rev
     fake.push("status/slide", "status/slide", "presentation/slide_index")
     await asyncio.sleep(0.6)
@@ -746,6 +802,91 @@ r = admin.request("DELETE", "/api/admin/propresenter/stage")
 eq("the admin clear", (r.status_code, fake.stage), (200, ""))
 pp.follower.client = None
 
+# --------------------------------------------------------------------------------- live state (stage 4)
+print("live state")
+
+
+async def scenario_state():
+    fake.song(groups=[("Verse 1", ["v1 a", "v1 b"]), ("Chorus", ["chorus a"])])
+    fake.presentation["arrangement"] = ["Verse 1", "Chorus", "Verse 1", "Chorus"]
+    fake.index = 2
+    configure(srv)
+    f = pp.Follower()
+    f.start()
+    check("connects", await until(lambda: f.up))
+    check("the item is read", await until(lambda: f.item() is not None and f.item()["part"] == "Chorus"))
+    it = f.item()
+    eq("item title, slide number and the part with its colour", (it["title"], it["slide_number"], it["slide_count"],
+                                                                  it["part"], it["part_color"]),
+       ("Great Song", 3, 6, "Chorus", "#ff0080"))
+    eq("the next slide's part is the repeated verse", (it["next"]["part"], it["next"]["part_color"]), ("Verse 1", "#ff0080"))
+    eq("notes of this and the next slide travel with the item", (it["notes"], it["next"]["notes"]), ("", ""))
+    fake.stale = None
+    st = f.state()
+    eq("the admin state carries the item, announcement and screens", sorted(k for k in ("item", "announcement", "screens")
+                                                                          if k in st), ["announcement", "item", "screens"])
+    eq("no announcement is up", st["announcement"], None)
+    eq("screens come from status/screens and the two switches", (st["screens"]["audience"], st["screens"]["stage"],
+                                                                 st["screens"]["list"]),
+       (False, False, [{"uuid": "SCR", "name": "Screen", "type": "audience", "width": 1920, "height": 1080}]))
+    # a presentation with a slide's notes
+    orig = fake.status_slide
+    fake.status_slide = lambda: {"current": {"text": "chorus a", "notes": "Key of G", "uuid": "x"},
+                                 "next": {"text": "v1 a", "notes": "Softly", "uuid": "y"}}
+    check("slide notes of this and the next slide are followed", await until(lambda: f.item()["notes"] == "Key of G"))
+    eq("both are in the item", (f.item()["notes"], f.item()["next"]["notes"]), ("Key of G", "Softly"))
+    fake.status_slide = orig
+
+    # announcements: pushed, and not pushed
+    fake.ann_index = 1   # the position first: it reads as "none" until an announcement exists
+    fake.announcement = {"uuid": "A1", "name": "Lobby loop", "groups": [("Welcome", ["Hello", "Nursery is open"])]}
+    fake.push("announcement/active", "announcement/slide_index")
+    check("a pushed announcement shows", await until(lambda: f.announcement_state() is not None
+                                                     and f.announcement_state()["slide_number"] == 2))
+    a = f.announcement_state()
+    eq("title, slide number, part, text and notes", (a["title"], a["slide_number"], a["slide_count"], a["part"],
+                                                      a["text"], a["notes"]),
+       ("Lobby loop", 2, 2, "Welcome", "Nursery is open", "ann note Nursery is open"))
+    fake.ann_index = 0
+    check("an announcement slide change with no push is found by the re-read",
+          await until(lambda: f.announcement_state()["slide_number"] == 1))
+    fake.announcement = {"uuid": "A2", "name": "Second loop", "groups": [("Info", ["Parking"])]}
+    check("a different announcement with no push is found too", await until(lambda: f.announcement_state()
+                                                                           and f.announcement_state()["title"] == "Second loop"))
+    fake.push("announcement/slide_index")
+    await asyncio.sleep(0.5)
+    check("a pushed position alone does not lose the announcement", f.announcement_state() is not None)
+    fake.announcement = None
+    fake.ann_index = None
+    check("a cleared announcement goes away", await until(lambda: f.announcement_state() is None))
+
+    # screens
+    fake.screens["stage"] = True
+    check("screens turned on in ProPresenter are found (the stream may miss it)",
+          await until(lambda: f.screens()["stage"] is True))
+    fake.screens["audience"] = True
+    fake.push("status/audience_screens")
+    check("and a pushed one at once", await until(lambda: f.screens()["audience"] is True))
+    fake.screens.update(audience=False, stage=False)
+    check("and off again", await until(lambda: f.screens()["audience"] is False and f.screens()["stage"] is False))
+
+    # the playlist item's own name
+    f.data["playlist/active"] = {"presentation": {"playlist": {"uuid": "PL3", "name": "Setlist", "index": 2},
+                                                  "item": {"uuid": "S1", "name": "Great Song (opener)", "index": 1}}}
+    eq("the playlist and its item are named in the item details", (f.item()["playlist"], f.item()["playlist_item"]),
+       ("Setlist", {"name": "Great Song (opener)", "index": 1}))
+    # down: nothing stale
+    f.client = None
+    f._miss("x"); f._miss("x")
+    eq("when ProPresenter goes away the announcement and item go too", (f.item(), f.announcement_state()), (None, None))
+    f.cancel()
+    await asyncio.sleep(0.1)
+    fake.clear()
+    fake.announcement = None
+
+
+asyncio.run(scenario_state())
+
 # ------------------------------------------------------------------------------------------------ control
 print("control")
 from app.ppcontrol import control as ctl
@@ -770,7 +911,9 @@ routes = [("GET", "/slides"), ("GET", "/thumbnail/P-Grea/0"), ("POST", "/step"),
           ("POST", "/slide"), ("POST", "/clear"), ("GET", "/playlists"), ("GET", "/playlists/PL1"),
           ("POST", "/playlists/PL1/trigger"), ("GET", "/macros"), ("POST", "/macros/M1/trigger"), ("GET", "/looks"),
           ("POST", "/looks/L1/trigger"), ("GET", "/timers"), ("POST", "/timers/T1/start"), ("GET", "/messages"),
-          ("POST", "/messages/MSG1/trigger"), ("POST", "/messages/MSG1/clear"), ("POST", "/transport")]
+          ("POST", "/messages/MSG1/trigger"), ("POST", "/messages/MSG1/clear"), ("POST", "/transport"),
+          ("POST", "/item"), ("POST", "/screens"), ("GET", "/playlists/PL3/diagnostics"),
+          ("GET", "/playlists/PL3/items/1/cues"), ("GET", "/playlists/PL3/thumbnail/1/0")]
 fake.requests.clear()
 codes = {(m, p): anon.request(m, B + p, json={} if m == "POST" else None).status_code for m, p in routes}
 eq("no control route answers without the admin token", sorted(set(codes.values())), [401])
@@ -781,8 +924,8 @@ fake.requests.clear()
 eq("next", admin.post(B + "/step", json={"direction": "next"}).status_code, 200)
 admin.post(B + "/step", json={"direction": "previous"})
 admin.post(B + "/next-presentation")
-eq("next, previous and the next presentation hit the right paths", [p for _, p, _ in sent("GET")],
-   ["/v1/trigger/next", "/v1/trigger/previous", "/v1/presentation/active/next/trigger"])
+eq("next, previous and the next item hit the right paths", [p for _, p, _ in sent("GET")],
+   ["/v1/trigger/next", "/v1/trigger/previous", "/v1/playlist/focused/next/trigger"])
 eq("a bad direction is refused", admin.post(B + "/step", json={"direction": "sideways"}).status_code, 400)
 fake.requests.clear()
 admin.post(B + "/slide", json={"uuid": "P-Grea", "index": 3})
@@ -897,6 +1040,140 @@ eq("go to a time is a PUT of a bare number", (r.status_code, [(m, p, json.loads(
    (200, [("PUT", "/v1/transport/presentation/time", 12.5)]))
 eq("a bad time is refused", [admin.post(B + "/transport", json={"seconds": v}).status_code for v in ("x", -1, None)], [400, 400, 400])
 
+# -- next / previous playlist ITEM (Shift + arrow keys, and the buttons)
+fake.requests.clear()
+admin.post(B + "/item", json={"direction": "next"})
+admin.post(B + "/item", json={"direction": "previous"})
+eq("with no active playlist, next and previous item go to the focused playlist (never the slide-level trigger)",
+   [p for _, p, _ in sent("GET")], ["/v1/playlist/focused/next/trigger", "/v1/playlist/focused/previous/trigger"])
+fake.no_focus = True
+r = admin.post(B + "/item", json={"direction": "next"})
+eq("with no playlist focused, ProPresenter's 404 becomes a plain sentence", (r.status_code, r.json()["error"]),
+   (404, "No playlist is active or focused in ProPresenter. Trigger an item first."))
+fake.no_focus = False
+pp.follower.data["playlist/active"] = {"presentation": {"playlist": {"uuid": "PL3", "name": "Setlist", "index": 2},
+                                                        "item": {"uuid": "S1", "name": "Great Song", "index": 1}}}
+fake.requests.clear()
+admin.post(B + "/item", json={"direction": "next"})
+admin.post(B + "/item", json={"direction": "previous"})
+eq("with an active playlist they go to it", [p for _, p, _ in sent("GET")],
+   ["/v1/playlist/PL3/next/trigger", "/v1/playlist/PL3/previous/trigger"])
+pp.follower.data["playlist/active"] = {"presentation": {"playlist": {"uuid": "../clear/layer/slide"}}}
+fake.requests.clear()
+eq("an active playlist id that is path-shaped is refused", (admin.post(B + "/item", json={"direction": "next"}).status_code,
+                                                            fake.requests), (400, []))
+pp.follower.data.pop("playlist/active")
+eq("a bad direction for an item is refused", admin.post(B + "/item", json={"direction": "../x"}).status_code, 400)
+
+# -- screens: a bare true or false, through the one client
+fake.requests.clear()
+r = admin.post(B + "/screens", json={"kind": "audience", "on": True})
+eq("audience screens on is a PUT of a bare true", (r.status_code, [(m, p, json.loads(b)) for m, p, b in sent("PUT")]),
+   (200, [("PUT", "/v1/status/audience_screens", True)]))
+admin.post(B + "/screens", json={"kind": "stage", "on": False})
+eq("stage screens off is a PUT of a bare false", [(p, json.loads(b)) for m, p, b in sent("PUT")][-1],
+   ("/v1/status/stage_screens", False))
+eq("the fake has them", fake.screens, {"audience": True, "stage": False})
+fake.screens["audience"] = False
+fake.requests.clear()
+eq("an unknown screen, or a non-boolean, is refused", [admin.post(B + "/screens", json=b).status_code for b in (
+   {"kind": "lobby", "on": True}, {"kind": "audience", "on": "yes"}, {"kind": "audience", "on": 1}, {"kind": "audience"})],
+   [400, 400, 400, 400])
+eq("and nothing was sent", fake.requests, [])
+
+# -- the cue list: an item's own arrangement
+detail = {"groups": [{"uuid": "G-V", "name": "Verse", "slides": [{"text": "v"}]},
+                     {"uuid": "G-C", "name": "Chorus", "slides": [{"text": "c1"}, {"text": "c2"}]}],
+          "arrangements": [{"id": {"uuid": "A1", "name": "Master"}, "groups": ["G-V", "G-C"]},
+                           {"id": {"uuid": "A2", "name": "Chorus twice"}, "groups": ["G-V", "G-C", "G-C"]},
+                           {"id": {"uuid": "A3", "name": "Broken"}, "groups": ["G-V", "G-GONE"]}],
+          "current_arrangement": "A1"}
+names = lambda arr: [c["group"] + str(c["index"]) for c in pp.cue_list(detail, arr)]
+eq("no arrangement named: the current one", names(None), ["Verse0", "Chorus1", "Chorus2"])
+eq("an arrangement by uuid repeats the chorus at its own place", names("A2"),
+   ["Verse0", "Chorus1", "Chorus2", "Chorus3", "Chorus4"])
+eq("an arrangement by name", names("Chorus twice"), names("A2"))
+eq("an unknown or unusable arrangement falls back to the current one", (names("nope"), names("A3")),
+   (names(None), names(None)))
+
+# -- playlist items: every kind, with section markers and the arrangement
+r = admin.get(B + "/playlists/PL3").json()
+eq("every item is listed, headers and placeholders included",
+   [(i["index"], i["type"], i["name"], i["hidden"], i["pco"]) for i in r["items"]],
+   [(0, "header", "Worship", False, False), (1, "presentation", "Great Song", False, True),
+    (2, "presentation", "Gone Song", True, False), (3, "placeholder", "Empty slot", False, False),
+    (4, "presentation", "Unlinked", False, False), (5, "header", "Sermon", False, False)])
+eq("a header keeps its colour, a presentation its arrangement", (r["items"][0]["color"], r["items"][1]["arrangement"],
+                                                                 r["items"][1]["arrangement_uuid"]),
+   ("#0000ff", "Master", "ARR"))
+r = admin.get(B + "/playlists/PL3/items/1/cues").json()
+eq("an item's cues follow its arrangement: the repeated verse and chorus each have a cue",
+   [(c["index"], c["group"]) for c in r["cues"]],
+   [(0, "Verse 1"), (1, "Verse 1"), (2, "Chorus"), (3, "Verse 1"), (4, "Verse 1"), (5, "Chorus")])
+eq("the strip is for that item", (r["index"], r["name"], r["presentation"], r["arrangement"]),
+   (1, "Great Song", "P-Grea", "Master"))
+prev_rev = r["rev"]
+eq("a header has no slides", admin.get(B + "/playlists/PL3/items/0/cues").status_code, 400)
+eq("nor has a placeholder", admin.get(B + "/playlists/PL3/items/3/cues").status_code, 400)
+eq("nor an item that does not exist", admin.get(B + "/playlists/PL3/items/99/cues").status_code, 400)
+eq("a path-shaped playlist id is refused", admin.get(B + "/playlists/..%2Fclear/items/1/cues").status_code in (400, 404), True)
+
+# -- playlist thumbnails: proxied and cached exactly like the presentation ones
+fake.thumb_calls = 0
+fake.requests.clear()
+t1 = admin.get(f"{B}/playlists/PL3/thumbnail/1/2?v={prev_rev}")
+eq("a playlist thumbnail is served as an image", (t1.status_code, t1.headers["content-type"], t1.content[:2]),
+   (200, "image/jpeg", b"\xff\xd8"))
+eq("ProPresenter was asked at the playlist item's path, for that cue",
+   [p for _, p, _ in sent("GET")], ["/v1/playlist/PL3/1/thumbnail/2?quality=320&thumbnail_type=jpeg"])
+t2 = admin.get(f"{B}/playlists/PL3/thumbnail/1/2?v={prev_rev}")
+eq("asking again is a cache hit", (t2.content == t1.content, fake.thumb_calls), (True, 1))
+admin.get(f"{B}/playlists/PL3/thumbnail/1/3?v={prev_rev}")
+eq("the second chorus, at its own cue, is its own thumbnail", fake.thumb_calls, 2)
+admin.get(f"{B}/playlists/PL3/thumbnail/1/2?v=other")
+eq("a new change marker fetches again", fake.thumb_calls, 3)
+admin.get(f"{B}/playlists/PL3/thumbnail/2/2?v={prev_rev}")
+eq("another item is another fetch", fake.thumb_calls, 4)
+eq("a presentation thumbnail with the same numbers is not mistaken for it",
+   (admin.get(f"{B}/thumbnail/PL3/1?v={prev_rev}").status_code, fake.thumb_calls), (200, 5))
+eq("a bad playlist id or cue is refused", (admin.get(B + "/playlists/..%2Fx/thumbnail/1/0").status_code in (400, 404),
+                                            admin.get(B + "/playlists/PL3/thumbnail/x/0").status_code,
+                                            admin.get(B + "/playlists/PL3/thumbnail/1/-1").status_code), (True, 422, 400))
+pp.follower.client = pp.Client("127.0.0.1", 1, False)
+ctl.thumbs.clear(); ctl.thumb_bytes = 0
+r = admin.get(B + "/playlists/PL3/thumbnail/1/0?v=z")
+eq("a playlist thumbnail while ProPresenter is down is a fixed 502", (r.status_code, "Could not reach" in r.json()["error"]),
+   (502, True))
+pp.follower.client = pp.Client("127.0.0.1", srv.port, lambda: bool(pp.settings().get("view_only")))
+
+# -- playlist diagnostics
+fake.missing = {"P-GONE"}
+fake.requests.clear()
+r = admin.get(B + "/playlists/PL3/diagnostics").json()
+eq("the diagnostics count the items and their kinds", (r["count"], r["types"], r["hidden"]),
+   (6, {"header": 2, "presentation": 3, "placeholder": 1}, 1))
+eq("each presentation item says whether its presentation exists",
+   [(i["index"], i["status"]) for i in r["items"]],
+   [(0, ""), (1, "ok"), (2, "missing"), (3, ""), (4, "none"), (5, "")])
+eq("items with no matching presentation are counted", r["problems"], 2)
+eq("the uuids are there", (r["items"][1]["uuid"], r["items"][1]["presentation"]), ("S1", "P-Grea"))
+eq("each presentation was looked up once, and an empty one not at all",
+   sorted(p for _, p, _ in sent("GET") if p.startswith("/v1/presentation/")), ["/v1/presentation/P-GONE", "/v1/presentation/P-Grea"])
+fake.missing = set()
+pp.follower.client = pp.Client("127.0.0.1", srv.port, lambda: False)
+orig_read = pp.Client.read
+def flaky(self, path, timeout=pp.REQUEST_TIMEOUT_S):
+    if path.startswith("/v1/presentation/P-Grea"):
+        raise pp.ProError("timeout", "ProPresenter did not answer in time.")
+    return orig_read(self, path, timeout)
+pp.Client.read = flaky
+try:
+    r = admin.get(B + "/playlists/PL3/diagnostics").json()
+    eq("a stalled lookup is 'unknown', never 'missing'", r["items"][1]["status"], "unknown")
+finally:
+    pp.Client.read = orig_read
+pp.follower.client = pp.Client("127.0.0.1", srv.port, lambda: bool(pp.settings().get("view_only")))
+
 # -- view-only: every control write is refused, before ProPresenter is touched; reads still work
 config.save({"propresenter": {"enabled": True, "host": "127.0.0.1", "port": srv.port, "view_only": True,
                               "macros_mode": "all"}}, replace=("propresenter",))
@@ -904,12 +1181,16 @@ fake.requests.clear()
 writes = [("/step", {"direction": "next"}), ("/next-presentation", {}), ("/slide", {"uuid": "P-Grea", "index": 0}),
           ("/clear", {"layer": "slide"}), ("/playlists/PL1/trigger", {"index": 1}), ("/macros/M1/trigger", {}),
           ("/looks/L1/trigger", {}), ("/timers/T1/start", {}), ("/messages/MSG1/trigger", {"tokens": []}),
-          ("/messages/MSG1/clear", {}), ("/transport", {"seconds": 1})]
+          ("/messages/MSG1/clear", {}), ("/transport", {"seconds": 1}), ("/item", {"direction": "next"}),
+          ("/screens", {"kind": "audience", "on": True})]
 codes = [admin.post(B + p, json=b).status_code for p, b in writes]
 eq("view-only refuses every control write with 409", codes, [409] * len(writes))
 eq("and nothing reached ProPresenter", fake.requests, [])
 eq("reads still work in view-only mode", (admin.get(B + "/playlists").status_code, admin.get(B + "/slides").status_code,
-                                          admin.get(f"{B}/thumbnail/P-Grea/0?v=ro").status_code), (200, 200, 200))
+                                          admin.get(f"{B}/thumbnail/P-Grea/0?v=ro").status_code,
+                                          admin.get(B + "/playlists/PL3/diagnostics").status_code,
+                                          admin.get(f"{B}/playlists/PL3/thumbnail/1/0?v=ro").status_code),
+   (200, 200, 200, 200, 200))
 config.save({"propresenter": {"enabled": True, "host": "127.0.0.1", "port": srv.port, "view_only": False}},
             replace=("propresenter",))
 

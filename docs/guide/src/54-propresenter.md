@@ -126,8 +126,20 @@ acknowledges the alert or it times out.
 Open **ProPresenter control** in admin. Everything on it needs the admin
 sign-in, and every button is off while ProPresenter is down or view-only is on.
 
-- **Next, Previous, Next presentation.** The arrow keys and Page Up / Page Down
-  do the same while the page is open (not while you are typing in a box).
+- **Next, Previous, Previous item, Next item.** The arrow keys and Page Up /
+  Page Down move a slide while the page is open (not while you are typing in a
+  box). Hold **Shift** with the same keys, or use the two item buttons, to go to
+  the previous or next **item** of the active playlist (the next song, rather
+  than the next slide). If no playlist is active or focused in ProPresenter,
+  Relay says so.
+- **What is up.** Under the buttons: the item's title, the part it is in (Verse,
+  Chorus) with ProPresenter's colour and the slide's label, the slide number
+  ("slide 3 of 8"), the playlist and item it came from, and the notes of this
+  slide and the next.
+- **Screens and announcements.** Whether the audience and stage screens are on
+  or off, with a button to switch each (off in view-only mode), and the
+  announcement that is up on the announcements layer: its title, slide number
+  and text. Clear announcements from the dock.
 - **Slide grid.** The slides of the presentation that is up, with the part
   name and colour from ProPresenter. Tap one to trigger it; the one that is
   live is outlined. A repeated chorus appears once for every time it is
@@ -137,7 +149,14 @@ sign-in, and every button is off while ProPresenter is down or view-only is on.
   Props, Messages, Audio, Video input and Announcements. A button is red while
   that layer has something live.
 - **Playlists.** Pick a playlist and tap an item to trigger it. The active
-  item is highlighted.
+  item is highlighted. Section markers (headers) show with their colour, hidden
+  items are dimmed, and each presentation has a small thumbnail. **Slides** opens
+  an item's slides in the order its own arrangement plays them, so a chorus
+  that comes round twice has two slides, each with its own picture.
+  **Check this playlist** counts the items by kind and lists each one with its
+  ProPresenter ID, marking presentations that ProPresenter no longer has
+  ("NOT FOUND") or that were never linked to one. A lookup that failed because
+  ProPresenter was slow says "could not check", not "not found".
 - **Looks, macros, timers.** A timer is started, stopped or reset one at a
   time; Relay never starts all timers at once. Macros show only an
   operator-safe selection: use **Choose what operators see** to tick the
