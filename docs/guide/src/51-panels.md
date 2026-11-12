@@ -152,7 +152,8 @@ Click a panel's name. Its settings open at the side.
 
 1. **Name.** Type where the panel is, for example `Lobby`.
 2. **Feed.** Choose **Transcription**, a language, the **Planning Center**
-   service, or **Alert buttons** (see [Alerts](#alerts)). Choose **Two
+   service, **Alert buttons** (see [Alerts](#alerts)), or ProPresenter's
+   **Lyrics** or **Timers** (see [ProPresenter](#propresenter-panels)). Choose **Two
    (split)** under **Number of feeds** to show two side by side.
 3. **Screen rotation.** **0°**, **90°**, **180°** or **270°**, for a panel
    mounted upright or upside down. A change restarts the panel, which takes

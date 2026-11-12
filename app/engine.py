@@ -30,6 +30,7 @@ from .realtime import TranscriptionSession, TranslationRelaySession
 from .texttranslate import TextTranslator
 from .recorder import recorder
 from .servicefeed import feed as service_feed
+from . import propresenter
 
 log = logging.getLogger("relay.engine")
 
@@ -413,6 +414,9 @@ class Engine:
             "live": self.live_targets(),
             # Planning Center service feeds a panel can pick (empty until connected).
             "service": service_feed.offered(),
+            # ProPresenter feeds a panel can pick (#138): the slide's lyrics, while the operator has them on for
+            # panels, and the timers. Both false until ProPresenter is set up.
+            "propresenter": propresenter.panel_offers(),
             "running": self.running,
             "font_px": cfg["default_font_px"],
         }

@@ -888,6 +888,27 @@
       <button type="button" class="primary" id="ppLyricsSave">Save lyrics settings</button>
     </section>
     <section>
+      <h3>Timers on panels</h3>
+      <div class="note" style="margin-top:0">A caption panel set to <em>Timers</em> shows ProPresenter timers large: white while one runs, amber and then red as a countdown nears zero, and red with a minus sign once it is over. The panel counts the seconds itself between Relay's updates. A panel can use its own settings instead: open it under Panels.</div>
+      <div class="ctl" style="margin-top:10px">
+        <div class="field" style="margin:0">
+          <label for="ppTmAmber">Amber at</label>
+          <input id="ppTmAmber" style="max-width:90px" placeholder="2:00" autocomplete="off" aria-describedby="ppTmHelp">
+        </div>
+        <div class="field" style="margin:0">
+          <label for="ppTmRed">Red at</label>
+          <input id="ppTmRed" style="max-width:90px" placeholder="0:30" autocomplete="off" aria-describedby="ppTmHelp">
+        </div>
+      </div>
+      <div class="note" id="ppTmHelp">Time left, as minutes:seconds (<span class="mono">2:00</span>) or seconds (<span class="mono">90</span>). Red cannot be earlier than amber.</div>
+      <div class="field" style="margin-top:10px">
+        <label>Timers to show</label>
+        <div id="ppTmPick" class="plist"></div>
+        <div class="note">Tick up to four. With none ticked, panels show the first four timers ProPresenter has.</div>
+      </div>
+      <button type="button" class="primary" id="ppTimersSave">Save timer settings</button>
+    </section>
+    <section>
       <h3>Stage message</h3>
       <div class="field">
         <label for="ppStageText">Message for the stage display</label>

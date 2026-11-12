@@ -948,7 +948,7 @@ phones.
 
 A panel can also be turned 0, 90, 180 or 270 degrees (from the admin page or
 its own menu; the newest change wins), restarted from admin, and set to show
-the Planning Center service or the Alert buttons feed (below).
+the Planning Center service, the Alert buttons feed (below), or ProPresenter's lyrics or timers (see "ProPresenter").
 
 For operators there is a chapter in the user guide
 (`docs/guide/src/51-panels.md`).
@@ -1216,7 +1216,30 @@ VM), a **view-only** switch, the lyrics feed switches and a stage message.
   is `PUT /v1/transport/presentation/time` with a bare number (the issue
   said `go_to_time`; the published description says `time`).
 
-Tests: `tests/test_propresenter.py` (a fake ProPresenter on localhost). For
+- **Panels (stage 3).** A caption panel can be set to **Lyrics** (the stream
+  above, `for=panel`) or **Timers**, which are new firmware views
+  (`firmware/relay-display`, "ProPresenter: lyrics and timers"). Both are
+  offered in `/api/targets` and the caption `targets` message as
+  `"propresenter":{"lyrics":true,"timers":true}` (lyrics only while
+  `lyrics.panels` is on; timers while ProPresenter is set up), and as panel
+  feeds `{"stream":"lyrics"}` and `{"stream":"timers"}`.
+  `GET /stream?stream=pptimers&for=panel[&panel=<panel id>]` carries the whole
+  state of up to four timers in each message, sent when a timer is started,
+  stopped, reset, renamed or changed in ProPresenter (never once a second) and
+  at the heartbeat: `{"type":"pptimers","enabled":true,"live":true,"amber_s":120,
+  "red_s":30,"timers":[{"id":"...","name":"...","state":"running","dir":"down",
+  "value":298.0,"level":"ok"}],"rev":12,"server_time":...}`. `value` is the
+  seconds as of `server_time` (negative while a countdown overruns) and the
+  panel counts it itself, down for `dir` `down` and up for `up` (read from
+  `GET /v1/timers`, re-read now and then). The thresholds (`propresenter.timers`:
+  `amber_s`, `red_s`, `show`; defaults 2:00, 0:30, every timer) are global and a
+  panel can override each in its own settings (the `timers` block of the panel's
+  entry, set with `POST /api/admin/panels/<id>`); the panel names itself in the
+  request. The viewer port has no login, so the panel id picks settings and is
+  not a credential.
+
+Tests: `tests/test_propresenter.py` (a fake ProPresenter on localhost), and for
+the panel views `firmware/relay-display/tests/test_propresenter_view.py`. For
 operators there is a chapter in the user guide
 (`docs/guide/src/54-propresenter.md`).
 

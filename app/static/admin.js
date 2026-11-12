@@ -596,12 +596,75 @@
       $('ppHost').value = s.host || '';
       $('ppPort').value = s.port || '';
       $('ppLibrary').value = s.songs_library || 'Songs';
+      const tm = s.timers || { amber_s: 120, red_s: 30 };
+      $('ppTmAmber').value = clockText(tm.amber_s);
+      $('ppTmRed').value = clockText(tm.red_s);
     }
     [['ppEnabled', s.enabled], ['ppViewOnly', s.view_only], ['ppSongsOnly', s.songs_only],
       ['ppLyScreen', s.lyrics.screen], ['ppLyOverlay', s.lyrics.overlay], ['ppLyPanels', s.lyrics.panels],
       ['ppLyViewer', s.lyrics.viewer]].forEach(function (p) {
       if (document.activeElement !== $(p[0])) $(p[0]).checked = !!p[1];
     });
+  }
+
+  /* Timer settings for panels (#138): thresholds as "m:ss" or seconds, and which timers. Used by the ProPresenter page
+     (the global ones) and by a panel's card (its own). */
+  function clockText(sec) {
+    sec = Math.max(0, Math.round(sec));
+    return Math.floor(sec / 60) + ':' + String(sec % 60).padStart(2, '0');
+  }
+
+  function clockSeconds(text) {
+    const m = /^\s*(?:(\d{1,4}):)?(\d{1,5})\s*$/.exec(String(text));
+    if (!m) return null;
+    const sec = m[1] === undefined ? Number(m[2]) : Number(m[1]) * 60 + Number(m[2]);
+    return sec <= 86399 ? sec : null;
+  }
+
+  /* Fill `box` with a tick box per timer. `timers` is ProPresenter's list ({id: {uuid, name}}), `chosen` the UUIDs
+     ticked. A chosen timer ProPresenter no longer has stays listed, so saving does not drop it unseen. */
+  function timerPicker(box, timers, chosen) {
+    box.innerHTML = '';
+    const seen = {};
+    const add = function (uuid, name, gone) {
+      seen[uuid] = true;
+      const lab = el('label', 'check');
+      const cb = document.createElement('input');
+      cb.type = 'checkbox';
+      cb.value = uuid;
+      cb.checked = chosen.indexOf(uuid) !== -1;
+      lab.appendChild(cb);
+      lab.appendChild(el('span', '', name + (gone ? ' (not in ProPresenter now)' : '')));
+      box.appendChild(lab);
+    };
+    (timers || []).forEach(function (t) { if (t.id && t.id.uuid && !seen[t.id.uuid]) add(t.id.uuid, t.id.name || 'Timer'); });
+    chosen.forEach(function (u) { if (!seen[u]) add(u, u, true); });
+    if (!box.firstChild) box.appendChild(el('div', 'muted', 'ProPresenter has no timers to list yet.'));
+  }
+
+  function timerPickerValue(box) {
+    return Array.prototype.map.call(box.querySelectorAll('input:checked'), function (c) { return c.value; });
+  }
+
+  /* The thresholds from two inputs, or a sentence for what is wrong. */
+  function timerThresholds(amberEl, redEl) {
+    const amber = clockSeconds(amberEl.value), red = clockSeconds(redEl.value);
+    if (amber === null) return { error: 'Amber is a time left, like 2:00 or 90.' };
+    if (red === null) return { error: 'Red is a time left, like 0:30 or 30.' };
+    if (red > amber) return { error: 'Red cannot be earlier than amber: it is the shorter time left.' };
+    return { amber_s: amber, red_s: red };
+  }
+
+  let ppTimersKey = '';
+
+  function ppTimersPick(body) {
+    const list = body.state.timers || [];
+    const key = JSON.stringify(list.map(function (t) { return [t.id && t.id.uuid, t.id && t.id.name]; }))
+      + JSON.stringify((body.settings.timers || {}).show);
+    const box = $('ppTmPick');
+    if (key === ppTimersKey || box.contains(document.activeElement)) return;
+    ppTimersKey = key;
+    timerPicker(box, list, (body.settings.timers || {}).show || []);
   }
 
   function ppKv(label, value, cls) {
@@ -614,6 +677,7 @@
 
   function ppRender(body) {
     ppFill(body.settings);
+    ppTimersPick(body);
     const st = body.state;
     const failing = st.configured && !st.connected && !!st.error;
     $('ppSum').textContent = !st.configured ? '' : st.connected ? (st.view_only ? 'connected, view-only' : 'connected')
@@ -712,6 +776,17 @@
         songs_library: $('ppLibrary').value.trim() || 'Songs', songs_only: $('ppSongsOnly').checked,
         lyrics: { screen: $('ppLyScreen').checked, overlay: $('ppLyOverlay').checked,
                   panels: $('ppLyPanels').checked, viewer: $('ppLyViewer').checked }
+      }));
+      okMsg('Saved.');
+    } catch (e) { alertMsg(e.message); }
+  });
+  $('ppTimersSave').addEventListener('click', async function () {
+    const th = timerThresholds($('ppTmAmber'), $('ppTmRed'));
+    if (th.error) { alertMsg(th.error); return; }
+    try {
+      ppTimersKey = '';
+      ppRender(await post('/api/admin/propresenter', {
+        timers: { amber_s: th.amber_s, red_s: th.red_s, show: timerPickerValue($('ppTmPick')) }
       }));
       okMsg('Saved.');
     } catch (e) { alertMsg(e.message); }
@@ -1506,6 +1581,8 @@
       if (f.stream === 'transcription') return 'Transcription';
       if (f.stream === 'service') return serviceLabel(f.service_type);
       if (f.stream === 'alert') return 'Alert buttons';
+      if (f.stream === 'lyrics') return 'Lyrics';
+      if (f.stream === 'timers') return 'Timers';
       const hit = (rows || []).find(function (l) { return l.id === f.lang; });
       return hit ? hit.label : (f.lang || '?');
     }).join(' + ');
@@ -1544,6 +1621,13 @@
     const a = el('option', '', 'Alert buttons');
     a.value = 'alert';
     sel.appendChild(a);
+    // ProPresenter's lyrics and timers (#138). The panel shows them only while Relay has ProPresenter set up, and
+    // says so itself if not.
+    [['lyrics', 'Lyrics (ProPresenter)'], ['timers', 'Timers (ProPresenter)']].forEach(function (p) {
+      const o = el('option', '', p[1]);
+      o.value = p[0];
+      sel.appendChild(o);
+    });
     sel.value = value || '';
   }
 
@@ -1551,13 +1635,13 @@
     if (!f) return '';
     if (f.stream === 'transcription') return 'transcription';
     if (f.stream === 'service') return 'service:' + f.service_type;
-    if (f.stream === 'alert') return 'alert';
+    if (f.stream === 'alert' || f.stream === 'lyrics' || f.stream === 'timers') return f.stream;
     return 'translation:' + f.lang;
   }
 
   function feedFromValue(v) {
     if (v === 'transcription') return { stream: 'transcription' };
-    if (v === 'alert') return { stream: 'alert' };
+    if (v === 'alert' || v === 'lyrics' || v === 'timers') return { stream: v };
     if (v.indexOf('service:') === 0) return { stream: 'service', service_type: v.slice('service:'.length) };
     return { stream: 'translation', lang: v.slice('translation:'.length) };
   }
@@ -1802,6 +1886,49 @@
     rfield.appendChild(el('div', 'note', rnote));
     form.appendChild(rfield);
 
+    // ProPresenter's timers (#138): this panel's own thresholds and timers, used instead of the global ones. Shown
+    // while a timers feed is chosen here (or the panel already has settings of its own).
+    const tmBox = el('div');
+    tmBox.appendChild(el('h3', 'dhead', 'ProPresenter timers'));
+    const tmOwn = document.createElement('input');
+    tmOwn.type = 'checkbox';
+    tmOwn.checked = !!row.set_timers;
+    const tmOwnLab = el('label', 'check');
+    tmOwnLab.appendChild(tmOwn);
+    tmOwnLab.appendChild(el('span', '', 'Use settings of its own for this panel'));
+    tmBox.appendChild(tmOwnLab);
+    const tmFields = el('div');
+    const tmAmber = el('input'), tmRed = el('input');
+    [tmAmber, tmRed].forEach(function (i) { i.type = 'text'; i.autocomplete = 'off'; i.style.maxWidth = '90px'; });
+    tmAmber.placeholder = '2:00';
+    tmRed.placeholder = '0:30';
+    tmFields.appendChild(field('Amber at', tmAmber, 'panelTmAmber-' + row.id));
+    tmFields.appendChild(field('Red at', tmRed, 'panelTmRed-' + row.id));
+    const tmPick = el('div', 'plist');
+    tmFields.appendChild(field('Timers to show', tmPick));
+    tmFields.appendChild(el('div', 'note', 'Time left, as minutes:seconds (2:00) or seconds (90). Tick up to four timers; '
+      + 'with none ticked the panel shows the first four ProPresenter has.'));
+    tmBox.appendChild(tmFields);
+    const tmNote = el('div', 'note', 'Without settings of its own, this panel follows Timers on panels, on the ProPresenter page.');
+    tmBox.appendChild(tmNote);
+    let tmGlobal = null;
+    const tmSync = function () {
+      tmBox.hidden = !(feed1.value === 'timers' || (count === 2 && feed2.value === 'timers') || row.set_timers);
+      tmFields.hidden = !tmOwn.checked;
+      tmNote.hidden = tmOwn.checked;
+    };
+    [feed1, feed2, tmOwn].forEach(function (n) { n.addEventListener('change', tmSync); });
+    form.querySelectorAll('input[type=radio]').forEach(function (n) { n.addEventListener('change', tmSync); });
+    tmSync();
+    form.appendChild(tmBox);
+    api('/api/admin/propresenter').then(function (b) {
+      tmGlobal = b;
+      const mine = row.set_timers || {}, g = b.settings.timers || { amber_s: 120, red_s: 30, show: [] };
+      tmAmber.value = clockText(mine.amber_s !== undefined ? mine.amber_s : g.amber_s);
+      tmRed.value = clockText(mine.red_s !== undefined ? mine.red_s : g.red_s);
+      timerPicker(tmPick, b.state.timers || [], mine.show !== undefined ? mine.show : g.show);
+    }).catch(function () { /* the timers just are not listed */ });
+
     const pcOn = cfg && cfg.planning_center && cfg.planning_center.connected;
     let mode, type, tfield, help;
     if (pcOn || (row.service_mode && row.service_mode !== 'off')) {
@@ -1882,6 +2009,16 @@
         out.feeds = picked;
       }
       if (rotation !== rotNow) out.rotation = rotation;
+      if (!tmBox.hidden) {
+        if (tmOwn.checked) {
+          const th = timerThresholds(tmAmber, tmRed);
+          if (th.error) { alertMsg(th.error); return; }
+          const t = { amber_s: th.amber_s, red_s: th.red_s, show: timerPickerValue(tmPick) };
+          if (tmGlobal && JSON.stringify(t) !== JSON.stringify(row.set_timers || null)) out.timers = t;
+        } else if (row.set_timers) {
+          out.timers = null;   // back to the global settings
+        }
+      }
       if (mode) {
         if (mode.value !== (row.service_mode || 'off')) out.service_mode = mode.value;
         if (mode.value !== 'off' && type.value !== (row.service_type || '')) out.service_type = type.value || null;

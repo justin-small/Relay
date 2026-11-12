@@ -181,6 +181,8 @@ extern "C" void app_main(void)
     if (captions != ESP_OK) {
         ESP_LOGE(TAG, "boot: captions not started (%s)", esp_err_to_name(captions));
     } else {
+        // The timers feed asks Relay for this panel's own timers by its id (#138): known before any feed connects.
+        captions_set_panel_id(settings.panel_id);
         // The saved choice (one feed or two, and which) and the Relay address start the feeds, and the caption screen
         // with them. With no address nothing is shown until the panel is given one.
         const esp_err_t feeds = feeds_start(settings);

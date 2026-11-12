@@ -146,7 +146,7 @@ inline size_t panel_checkin_body(char *out, size_t cap, const panel_status &st)
     for (int i = 0; ok && i < st.feed_count && i < kPanelFeedsMax; ++i) {
         const feed_pick &f = st.feeds[i];
         if (f.stream != kFeedTranscription && f.stream != kFeedTranslation && f.stream != kFeedAlert &&
-            !(f.stream == kFeedService && f.lang[0] != '\0')) {
+            f.stream != kFeedLyrics && f.stream != kFeedTimers && !(f.stream == kFeedService && f.lang[0] != '\0')) {
             continue;
         }
         ok = raw(any ? "," : "");
@@ -157,6 +157,10 @@ inline size_t panel_checkin_body(char *out, size_t cap, const panel_status &st)
             ok = ok && raw("{\"stream\":\"service\",\"service_type\":\"") && val(f.lang) && raw("\"}");
         } else if (f.stream == kFeedAlert) {
             ok = ok && raw("{\"stream\":\"alert\"}");
+        } else if (f.stream == kFeedLyrics) {
+            ok = ok && raw("{\"stream\":\"lyrics\"}");
+        } else if (f.stream == kFeedTimers) {
+            ok = ok && raw("{\"stream\":\"timers\"}");
         } else {
             ok = ok && raw("{\"stream\":\"translation\",\"lang\":\"") && val(f.lang) && raw("\"}");
         }
@@ -347,6 +351,10 @@ inline bool panel_read_set_feed(const char *obj, const char *e, panel_set_feed *
             pick = feed_pick_make(kFeedService, lang);
         } else if (strcmp(stream, "alert") == 0) {
             pick = feed_pick_make(kFeedAlert, nullptr);
+        } else if (strcmp(stream, "lyrics") == 0) {
+            pick = feed_pick_make(kFeedLyrics, nullptr);
+        } else if (strcmp(stream, "timers") == 0) {
+            pick = feed_pick_make(kFeedTimers, nullptr);
         } else {
             return false;
         }

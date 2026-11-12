@@ -48,6 +48,7 @@
 #include "config.h"
 #include "panel_format.h"
 #include "panel_link_format.h"
+#include "pp_format.h"
 #include "service_format.h"
 #include "settings_format.h"
 #include "setup_format.h"
@@ -2448,7 +2449,7 @@ void check_alerts()
     CHECK(strcmp(title, "Alerts") == 0);
     relay_settings_t st = example_settings();
     st.feed_stream = kFeedAlert;
-    st.feed2_stream = kFeedAlert + 1;
+    st.feed2_stream = kFeedTimers + 1;
     relay_settings_t out = {};
     CHECK(settings_decode(&st, sizeof st, &out, 0) == settings_blob::accepted);
     CHECK(out.feed_stream == kFeedAlert && out.feed2_stream == kFeedNone);
@@ -2675,7 +2676,7 @@ void check_service()
         feed_options unknown;
         r = feed_resolve(svc, unknown, false);
         CHECK(feed_pick_same(r.pick, svc));  // tried before Relay has said what it offers
-        CHECK(feed_pick_make(kFeedAlert + 1, "1").stream == kFeedNone);
+        CHECK(feed_pick_make(kFeedTimers + 1, "1").stream == kFeedNone);
     }
 
     // The request.
@@ -2868,6 +2869,350 @@ void check_service_control()
     CHECK(service_take_question(s, q, sizeof q) == 0);   // nobody to take it from: pressed at once
 }
 
+// ProPresenter's lyrics and timers on the panel (#138): `pp_format.h`, and the places it meets the feed menu, the request,
+// the settings and the panel link.
+void check_propresenter()
+{
+    // ---- what Relay offers ----
+    {
+        const char *both = R"({"type":"targets","live":[],"propresenter":{"lyrics":true,"timers":true},"running":true})";
+        pp_offers o = pp_offers_parse(both, strlen(both));
+        CHECK(o.lyrics && o.timers);
+        const char *one = R"({"propresenter":{"lyrics":false,"timers":true}})";
+        o = pp_offers_parse(one, strlen(one));
+        CHECK(!o.lyrics && o.timers);
+        const char *old = R"({"type":"targets","live":[],"service":[]})";   // an older Relay
+        o = pp_offers_parse(old, strlen(old));
+        CHECK(!o.lyrics && !o.timers);
+        const char *odd = R"({"propresenter":{"lyrics":"yes","timers":1}})";
+        o = pp_offers_parse(odd, strlen(odd));
+        CHECK(!o.lyrics && !o.timers);
+
+        feed_options base;
+        base.known = true;
+        base.count = 1;
+        base.items[0].pick = feed_pick_make(kFeedTranscription, "");
+        settings_set_text(base.items[0].label, sizeof base.items[0].label, "Transcription");
+        pp_offers on;
+        on.lyrics = on.timers = true;
+        const feed_options with = feed_options_with_alert(feed_options_with_propresenter(base, on));
+        CHECK(with.count == 4 && with.items[1].pick.stream == kFeedLyrics && strcmp(with.items[1].label, "Lyrics") == 0 &&
+              with.items[2].pick.stream == kFeedTimers && strcmp(with.items[2].label, "Timers") == 0 &&
+              with.items[3].pick.stream == kFeedAlert);
+        CHECK(feed_options_with_propresenter(base, pp_offers()).count == 1);
+        // A pick is held whether or not it is on offer: the pane says what is wrong, it does not fall back.
+        const feed_pick lyr = feed_pick_make(kFeedLyrics, "ignored");
+        CHECK(lyr.stream == kFeedLyrics && lyr.lang[0] == '\0');
+        const feed_resolved r = feed_resolve(lyr, base, true);
+        CHECK(r.pick.stream == kFeedLyrics && !r.fallback);
+        CHECK(feed_resolve(feed_pick_make(kFeedTimers, ""), base, false).pick.stream == kFeedTimers);
+        CHECK(feed_pick_make(kFeedTimers + 1, "").stream == kFeedNone);
+    }
+
+    // ---- the requests ----
+    {
+        char req[400];
+        CHECK(caption_request(req, sizeof req, "relay.local", 8000, kFeedLyrics, "", 99, "0.6.0") > 0);
+        CHECK(strstr(req, "GET /stream?stream=lyrics&for=panel HTTP/1.1\r\n") == req && strstr(req, "last_id") == nullptr &&
+              strstr(req, "finals") == nullptr);
+        const char *id = "0123456789abcdef0123456789abcdef";
+        CHECK(caption_request(req, sizeof req, "relay.local", 8000, kFeedTimers, id, 99, "0.6.0") > 0);
+        CHECK(strstr(req, "GET /stream?stream=pptimers&for=panel&panel=0123456789abcdef0123456789abcdef HTTP/1.1\r\n") == req &&
+              strstr(req, "last_id") == nullptr);
+        // An id that is not 32 lower-case hex is left out, never sent.
+        CHECK(caption_request(req, sizeof req, "relay.local", 8000, kFeedTimers, "NOT-AN-ID", 0, "0.6.0") > 0 &&
+              strstr(req, "panel=") == nullptr && strstr(req, "stream=pptimers&for=panel HTTP") != nullptr);
+        CHECK(caption_request(req, sizeof req, "relay.local", 8000, kFeedTimers, "", 0, "0.6.0") > 0 &&
+              strstr(req, "panel=") == nullptr);
+        CHECK(caption_request(req, sizeof req, "relay.local", 8000, 7, "", 0, "0.6.0") == 0);
+        char title[48];
+        caption_feed_title(kFeedLyrics, "", title, sizeof title);
+        CHECK(strcmp(title, "Lyrics") == 0);
+        caption_feed_title(kFeedTimers, "", title, sizeof title);
+        CHECK(strcmp(title, "Timers") == 0);
+    }
+
+    // ---- the saved choice and the operator's, through the panel link ----
+    {
+        relay_settings_t st = example_settings();
+        st.feed_stream = kFeedLyrics;
+        st.feed2_stream = kFeedTimers;
+        relay_settings_t out = {};
+        CHECK(settings_decode(&st, sizeof st, &out, 180) == settings_blob::accepted);
+        CHECK(out.feed_stream == kFeedLyrics && out.feed2_stream == kFeedTimers);
+        st.feed2_stream = kFeedTimers + 1;
+        CHECK(settings_decode(&st, sizeof st, &out, 180) == settings_blob::accepted &&
+              out.feed2_stream == kFeedNone);
+
+        const char *set = R"({"type":"set_feed","rev":4,"feeds":[{"stream":"lyrics"},{"stream":"timers"}]})";
+        panel_event ev = panel_parse_event(set, strlen(set));
+        CHECK(ev.kind == panel_message::set_feed && ev.feed.count == 2 && ev.feed.feeds[0].stream == kFeedLyrics &&
+              ev.feed.feeds[1].stream == kFeedTimers);
+        const char *bad = R"({"type":"set_feed","rev":4,"feeds":[{"stream":"lyrics"},{"stream":"sparkles"}]})";
+        CHECK(panel_parse_event(bad, strlen(bad)).kind != panel_message::set_feed);
+    }
+
+    // ---- lyrics: parse ----
+    {
+        const char *msg =
+            R"({"type":"lyrics","enabled":true,"live":true,"song":true,"title":"Great Is Thy Faithfulness","part":"Verse 1",)"
+            R"("index":3,"text":"Great is Thy faithfulness\nO God my Father","next":"Morning by morning","rev":12,"server_time":1760000000.0})";
+        lyrics_state s;
+        CHECK(lyrics_apply(&s, msg, strlen(msg)) == lyrics_change::state);
+        CHECK(s.known && s.enabled && s.live && s.changes == 1);
+        CHECK(strcmp(s.title, "Great Is Thy Faithfulness") == 0 && strcmp(s.part, "Verse 1") == 0);
+        CHECK(strcmp(s.text, "Great is Thy faithfulness\nO God my Father") == 0 && strcmp(s.next, "Morning by morning") == 0);
+
+        // **A still screen is not redrawn**: the same slide again, with a new `rev` and a new `server_time`, says nothing new.
+        const char *again =
+            R"({"type":"lyrics","enabled":true,"live":true,"song":true,"title":"Great Is Thy Faithfulness","part":"Verse 1",)"
+            R"("index":3,"text":"Great is Thy faithfulness\nO God my Father","next":"Morning by morning","rev":99,"server_time":1760000015.0})";
+        CHECK(lyrics_apply(&s, again, strlen(again)) == lyrics_change::same && s.changes == 1);
+        // A different slide is a change.
+        const char *moved =
+            R"({"type":"lyrics","enabled":true,"live":true,"title":"Great Is Thy Faithfulness","part":"Chorus","index":4,)"
+            R"("text":"Morning by morning","next":"","rev":100,"server_time":1.0})";
+        CHECK(lyrics_apply(&s, moved, strlen(moved)) == lyrics_change::state && s.changes == 2 && strcmp(s.part, "Chorus") == 0 &&
+              s.next[0] == '\0');
+        // Folding: accents are kept, typography is made plain, a long dash is a hyphen, blank lines go, CRLF is a line end.
+        const char *acc =
+            R"({"type":"lyrics","enabled":true,"live":true,"title":"Señor","part":"","text":"Santo — Santo\r\n\r\n  Digno eres  ","next":"a\nb"})";
+        CHECK(lyrics_apply(&s, acc, strlen(acc)) == lyrics_change::state);
+        CHECK(strcmp(s.title, "Se\xC3\xB1or") == 0 && strcmp(s.text, "Santo - Santo\nDigno eres") == 0 && strcmp(s.next, "a b") == 0);
+        CHECK(!pp_ascii_only(s.title) && pp_ascii_only(s.text));
+        // Off, or not live: the text is gone, never kept.
+        const char *off = R"({"type":"lyrics","enabled":false,"live":false,"server_time":1.0})";
+        CHECK(lyrics_apply(&s, off, strlen(off)) == lyrics_change::state && !s.enabled && !s.live && s.text[0] == '\0' &&
+              s.title[0] == '\0');
+        const char *dark = R"({"type":"lyrics","enabled":true,"live":false,"title":"Stale","text":"Stale words","rev":1})";
+        CHECK(lyrics_apply(&s, dark, strlen(dark)) == lyrics_change::state && s.enabled && !s.live && s.text[0] == '\0');
+        // Not for this feed, or not JSON, leaves it as it was.
+        const char *other = R"({"type":"targets","live":[]})";
+        CHECK(lyrics_apply(&s, other, strlen(other)) == lyrics_change::ignored);
+        CHECK(lyrics_apply(&s, "nope", 4) == lyrics_change::malformed);
+        const char *nobool = R"({"type":"lyrics","enabled":"yes"})";
+        CHECK(lyrics_apply(&s, nobool, strlen(nobool)) == lyrics_change::malformed);
+        // A slide longer than the state holds is cut with "..." and does not run past it.
+        std::string big = R"({"type":"lyrics","enabled":true,"live":true,"text":")";
+        for (int i = 0; i < 150; ++i) {
+            big += "word" + std::to_string(i % 10) + "\\n";
+        }
+        big += R"("})";
+        CHECK(lyrics_apply(&s, big.c_str(), big.size()) == lyrics_change::state && strlen(s.text) < kLyricsTextBytes);
+        char folded[24];
+        lyrics_fold_lines("first line\nsecond line\nthird", 28, folded, sizeof folded);
+        CHECK(strlen(folded) < sizeof folded && strstr(folded, "...") != nullptr && strncmp(folded, "first line", 10) == 0);
+    }
+
+    // ---- lyrics: what the pane says ----
+    {
+        lyrics_state s;
+        CHECK(strcmp(lyrics_idle_text(s, false, false), "Connecting to Relay") == 0);
+        CHECK(strstr(lyrics_idle_text(s, true, false), "not offering lyrics") != nullptr);
+        CHECK(strcmp(lyrics_idle_text(s, false, true), "Relay is not running") == 0);
+        s.known = true;
+        CHECK(strstr(lyrics_idle_text(s, false, false), "switched off") != nullptr);
+        s.enabled = true;
+        CHECK(strcmp(lyrics_idle_text(s, false, false), "No song on screen") == 0);
+        s.live = true;
+        CHECK(strcmp(lyrics_idle_text(s, false, false), "") == 0);   // a blank slide: nothing
+        snprintf(s.text, sizeof s.text, "words");
+        CHECK(lyrics_idle_text(s, false, false) == nullptr);
+        // Whatever the text says, a pane that is not live never shows it.
+        s.live = false;
+        CHECK(lyrics_idle_text(s, false, false) != nullptr);
+
+        // Which size: a short line takes the biggest, a verse a smaller one, accents the caption font.
+        const int px[kLyricsTiers] = {48, 26, 23};
+        CHECK(lyrics_pick_tier("Amazing grace", true, px, 760, 300) == 0);
+        CHECK(lyrics_pick_tier("Amazing grace how sweet the sound\nthat saved a wretch like me\nI once was lost but now am found",
+                               true, px, 760, 300) > 0);
+        CHECK(lyrics_pick_tier("Se\xC3\xB1" "or", false, px, 760, 300) == 2);
+        std::string wall(2000, 'a');
+        CHECK(lyrics_pick_tier(wall.c_str(), true, px, 760, 300) == kLyricsTiers - 1);   // nothing fits: the smallest
+        CHECK(pp_wrapped_rows("a\n\nb", 20, 400) == 3);
+    }
+
+    // ---- timers: parse ----
+    {
+        const char *msg =
+            R"({"type":"pptimers","enabled":true,"live":true,"amber_s":120,"red_s":30,"timers":[)"
+            R"({"id":"195531B6-629A-5F0B-A1E9-0EE260CC7C2D","name":"Segment Countdown","state":"running","dir":"down","value":298.4,"level":"ok"},)"
+            R"({"id":"B26F3BCD-1AFD-59B2-9F8E-7C433AECE1F6","name":"Game Timer","state":"stopped","dir":"up","value":-3.5,"level":"ok"},)"
+            R"({"id":"x","name":"No value","state":"running","dir":"down"}],"rev":7,"server_time":1760000000.0})";
+        timers_state s;
+        CHECK(timers_apply(&s, msg, strlen(msg), 1000) == timers_change::state);
+        CHECK(s.known && s.enabled && s.live && s.count == 2 && s.amber_s == 120 && s.red_s == 30 && s.at_ms == 1000 && s.changes == 1);
+        CHECK(strcmp(s.timers[0].name, "Segment Countdown") == 0 && s.timers[0].state == pp_timer_state::running &&
+              s.timers[0].down && s.timers[0].value_ds == 2984);
+        CHECK(!s.timers[1].down && s.timers[1].state == pp_timer_state::stopped && s.timers[1].value_ds == -35);
+
+        // A heartbeat re-anchors the count and changes nothing the pane is made of: no new rows.
+        const char *beat =
+            R"({"type":"pptimers","enabled":true,"live":true,"amber_s":120,"red_s":30,"timers":[)"
+            R"({"id":"195531B6-629A-5F0B-A1E9-0EE260CC7C2D","name":"Segment Countdown","state":"running","dir":"down","value":283.4},)"
+            R"({"id":"B26F3BCD-1AFD-59B2-9F8E-7C433AECE1F6","name":"Game Timer","state":"stopped","dir":"up","value":-3.5}],"rev":9})";
+        CHECK(timers_apply(&s, beat, strlen(beat), 16000) == timers_change::same && s.changes == 1 && s.at_ms == 16000 &&
+              s.timers[0].value_ds == 2834);
+        // A stopped timer's value changing is a change; so is a state, a name, the thresholds.
+        const char *reset =
+            R"({"type":"pptimers","enabled":true,"live":true,"amber_s":120,"red_s":30,"timers":[)"
+            R"({"id":"195531B6-629A-5F0B-A1E9-0EE260CC7C2D","name":"Segment Countdown","state":"running","dir":"down","value":283.4},)"
+            R"({"id":"B26F3BCD-1AFD-59B2-9F8E-7C433AECE1F6","name":"Game Timer","state":"stopped","dir":"up","value":0.0}]})";
+        CHECK(timers_apply(&s, reset, strlen(reset), 17000) == timers_change::state && s.changes == 2);
+        const char *stopped =
+            R"({"type":"pptimers","enabled":true,"live":true,"amber_s":120,"red_s":30,"timers":[)"
+            R"({"id":"195531B6-629A-5F0B-A1E9-0EE260CC7C2D","name":"Segment Countdown","state":"stopped","dir":"down","value":283.4},)"
+            R"({"id":"B26F3BCD-1AFD-59B2-9F8E-7C433AECE1F6","name":"Game Timer","state":"stopped","dir":"up","value":0.0}]})";
+        CHECK(timers_apply(&s, stopped, strlen(stopped), 18000) == timers_change::state && s.changes == 3);
+        const char *thresholds =
+            R"({"type":"pptimers","enabled":true,"live":true,"amber_s":90,"red_s":600,"timers":[)"
+            R"({"id":"195531B6-629A-5F0B-A1E9-0EE260CC7C2D","name":"Segment Countdown","state":"stopped","dir":"down","value":283.4},)"
+            R"({"id":"B26F3BCD-1AFD-59B2-9F8E-7C433AECE1F6","name":"Game Timer","state":"stopped","dir":"up","value":0.0}]})";
+        CHECK(timers_apply(&s, thresholds, strlen(thresholds), 19000) == timers_change::state && s.amber_s == 90 &&
+              s.red_s == 90);   // red is held to amber
+        // Not live: no rows. Not for this feed, or not JSON: as it was.
+        const char *down = R"({"type":"pptimers","enabled":true,"live":false,"timers":[],"server_time":1.0})";
+        CHECK(timers_apply(&s, down, strlen(down), 20000) == timers_change::state && s.count == 0 && s.enabled && !s.live);
+        const char *other = R"({"type":"lyrics","enabled":true})";
+        CHECK(timers_apply(&s, other, strlen(other), 0) == timers_change::ignored);
+        CHECK(timers_apply(&s, "nope", 4, 0) == timers_change::malformed);
+        // At most four rows, however many Relay sends.
+        std::string many = R"({"type":"pptimers","enabled":true,"live":true,"timers":[)";
+        for (int i = 0; i < 6; ++i) {
+            many += std::string(i > 0 ? "," : "") + R"({"id":"t)" + std::to_string(i) + R"(","name":"T","state":"stopped","dir":"down","value":60.0})";
+        }
+        many += "]}";
+        CHECK(timers_apply(&s, many.c_str(), many.size(), 0) == timers_change::state && s.count == kPpTimersMax);
+    }
+
+    // ---- timers: counting ----
+    {
+        pp_timer down;
+        down.state = pp_timer_state::running;
+        down.value_ds = 1250;   // 125.0 s
+        CHECK(pp_timer_seconds(down, 1000, 1000) == 125);
+        CHECK(pp_timer_seconds(down, 1000, 1500) == 124);    // 124.5, shown as 124: never more time than there is
+        CHECK(pp_timer_seconds(down, 1000, 2000) == 124);
+        CHECK(pp_timer_seconds(down, 1000, 126000) == 0 || pp_timer_seconds(down, 1000, 126000) == -1);
+        CHECK(pp_timer_seconds(down, 1000, 11000) == 115);   // ten seconds on
+        // Past zero it goes on counting, into the overrun, toward zero (-0.5 is 0, never "-0:00").
+        CHECK(pp_timer_seconds(down, 1000, 126500) == 0 && pp_timer_seconds(down, 1000, 128000) == -2);
+        pp_timer up;
+        up.state = pp_timer_state::running;
+        up.down = false;
+        up.value_ds = 600;
+        CHECK(pp_timer_seconds(up, 0, 2500) == 62);
+        pp_timer still = down;
+        still.state = pp_timer_state::stopped;
+        CHECK(pp_timer_seconds(still, 0, 90000) == 125);
+        pp_timer over = down;
+        over.state = pp_timer_state::overrunning;
+        over.value_ds = -20;
+        CHECK(pp_timer_seconds(over, 0, 3000) == -5);
+        // A clock that has gone backwards counts nothing.
+        CHECK(pp_timer_seconds(down, 5000, 1000) == 125);
+        // Across the 32-bit millisecond clock's wrap.
+        CHECK(pp_timer_seconds(down, 0xFFFFFC18u, 1000) == 123);   // 2 s later: 1000 - (-1000)
+
+        char t[16];
+        pp_timer_format(300, t, sizeof t);
+        CHECK(strcmp(t, "5:00") == 0);
+        pp_timer_format(754, t, sizeof t);
+        CHECK(strcmp(t, "12:34") == 0);
+        pp_timer_format(3723, t, sizeof t);
+        CHECK(strcmp(t, "1:02:03") == 0);
+        pp_timer_format(0, t, sizeof t);
+        CHECK(strcmp(t, "0:00") == 0);
+        pp_timer_format(-5, t, sizeof t);
+        CHECK(strcmp(t, "-0:05") == 0);
+        pp_timer_format(-3725, t, sizeof t);
+        CHECK(strcmp(t, "-1:02:05") == 0);
+        pp_timer_format(99 * 3600, t, sizeof t);
+        CHECK(strcmp(t, "9:59:59") == 0);
+        pp_timer_format(-99 * 3600, t, sizeof t);
+        CHECK(strcmp(t, "-9:59:59") == 0 && strlen(t) <= 8);
+        CHECK(pp_timer_format(12345, t, 4) == 3 && strlen(t) == 3);   // never past its buffer
+        CHECK(pp_timer_format(5, t, 0) == 0);
+    }
+
+    // ---- timers: the colour ----
+    {
+        pp_timer t;
+        t.state = pp_timer_state::running;
+        CHECK(pp_timer_level(t, 300, 120, 30) == pp_level::ok);
+        CHECK(pp_timer_level(t, 121, 120, 30) == pp_level::ok);
+        CHECK(pp_timer_level(t, 120, 120, 30) == pp_level::amber);   // inclusive
+        CHECK(pp_timer_level(t, 31, 120, 30) == pp_level::amber);
+        CHECK(pp_timer_level(t, 30, 120, 30) == pp_level::red);
+        CHECK(pp_timer_level(t, 0, 120, 30) == pp_level::red);
+        CHECK(pp_timer_level(t, -1, 120, 30) == pp_level::over);
+        t.state = pp_timer_state::overrunning;
+        CHECK(pp_timer_level(t, 0, 120, 30) == pp_level::over);
+        t.state = pp_timer_state::complete;
+        CHECK(pp_timer_level(t, 500, 120, 30) == pp_level::red);
+        pp_timer elapsed;
+        elapsed.down = false;
+        elapsed.state = pp_timer_state::running;
+        CHECK(pp_timer_level(elapsed, 5, 120, 30) == pp_level::ok && pp_timer_level(elapsed, -5, 120, 30) == pp_level::ok);
+        CHECK(pp_level_hex(pp_level::amber, true, false) == 0xF5B342 && pp_level_hex(pp_level::red, true, false) == 0xF0524F &&
+              pp_level_hex(pp_level::over, false, false) == 0xF0524F);
+        CHECK(pp_level_hex(pp_level::ok, true, false) == 0xFFFFFF && pp_level_hex(pp_level::ok, false, false) == 0x9A9A9A);
+        CHECK(pp_level_hex(pp_level::red, true, true) == 0x6A6A6A);   // not heard from: grey whatever it was
+        CHECK(strcmp(pp_timer_state_words(pp_timer_state::running, true), "Running") == 0 &&
+              strcmp(pp_timer_state_words(pp_timer_state::running, false), "Counting up") == 0 &&
+              strcmp(pp_timer_state_words(pp_timer_state::overrunning, true), "Overrunning") == 0 &&
+              strcmp(pp_timer_state_words(pp_timer_state::stopped, true), "Stopped") == 0);
+        CHECK(!pp_timers_stale(1000, 1000 + 15000) && !pp_timers_stale(1000, 1000 + 40000) && pp_timers_stale(1000, 1000 + 40001));
+        CHECK(!pp_timers_stale(0xFFFFFF00u, 100));   // across the wrap
+    }
+
+    // ---- timers: what the pane says, the sizes, the cells ----
+    {
+        timers_state s;
+        CHECK(strcmp(timers_idle_text(s, false, false), "Connecting to Relay") == 0);
+        CHECK(strstr(timers_idle_text(s, true, false), "not offering timers") != nullptr);
+        s.known = true;
+        CHECK(strstr(timers_idle_text(s, false, false), "not set up") != nullptr);
+        s.enabled = true;
+        CHECK(strstr(timers_idle_text(s, false, false), "not answering") != nullptr);
+        s.live = true;
+        CHECK(strcmp(timers_idle_text(s, false, false), "No timers to show") == 0);
+        s.count = 1;
+        CHECK(timers_idle_text(s, false, false) == nullptr);
+
+        // One or two timers on the 7-inch glass are as big as it goes; in half the width, or with four rows, the middle size;
+        // more rows than that, the least.
+        CHECK(pp_digit_pick(1, "-00:00", 760, 400, 30) == 0);
+        CHECK(pp_digit_pick(1, "-00:00", 360, 400, 30) == 1);
+        CHECK(pp_digit_pick(2, "-00:00", 760, 400, 30) == 0);
+        CHECK(pp_digit_pick(4, "-00:00", 760, 400, 30) == 1);
+        CHECK(pp_digit_pick(5, "-00:00", 760, 400, 30) == 2);
+        CHECK(pp_digit_pick(1, "-00:00", 100, 400, 30) == kPpDigitFonts - 1);   // nothing fits: the least
+        CHECK(pp_digit_pick(0, "-00:00", 760, 400, 30) == 0);
+        // An hour or more is wider.
+        s.count = 1;
+        s.timers[0].value_ds = 40000;
+        CHECK(strcmp(pp_timers_sample(s), "-0:00:00") == 0);
+        s.timers[0].value_ds = 3000;
+        CHECK(strcmp(pp_timers_sample(s), "-00:00") == 0);
+        for (int i = 0; i < kPpDigitFonts; ++i) {
+            CHECK(kPpDigitFont[i].line > 0 && kPpDigitFont[i].digit_w > kPpDigitFont[i].colon_w);
+        }
+        // The cells: fixed width per kind of glyph, centred, so a ticking digit never moves its neighbours.
+        int x[8], cw[8];
+        const pp_digit_font &f = kPpDigitFont[1];
+        CHECK(pp_timer_cells("12:34", f, 400, x, cw, 8) == 5);
+        CHECK(cw[0] == f.digit_w && cw[2] == f.colon_w && x[1] == x[0] + f.digit_w && x[3] == x[2] + f.colon_w);
+        const int width = pp_timer_width("12:34", f);
+        CHECK(width == 4 * f.digit_w + f.colon_w && x[0] == (400 - width) / 2);
+        int x2[8], cw2[8];
+        pp_timer_cells("11:11", f, 400, x2, cw2, 8);
+        CHECK(x2[0] == x[0] && x2[4] == x[4]);   // "1" takes the same cell as "2"
+        CHECK(pp_timer_cells("-1:02:03", f, 100, x, cw, 4) == 4 && x[0] == 0);   // too wide: starts at the edge; capped
+    }
+}
+
 int main()
 {
     check_panel_constants();
@@ -2923,6 +3268,7 @@ int main()
     check_service();
     check_service_control();
     check_alerts();
+    check_propresenter();
     check_update();
 
     if (g_failures != 0) {

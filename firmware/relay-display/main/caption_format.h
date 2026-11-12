@@ -1258,7 +1258,7 @@ inline bool caption_url_split(const char *url, char *host, size_t host_cap, uint
     return true;
 }
 
-// The request for a feed. `stream` is kFeedTranscription (1), kFeedTranslation (2), kFeedService (3) or kFeedAlert (4), as stored in
+// The request for a feed. `stream` is kFeedTranscription (1), kFeedTranslation (2), kFeedService (3), kFeedAlert (4), kFeedLyrics (5) or kFeedTimers (6), as stored in
 // the settings; `lang` is the translation's language as Relay names it, or the service type id. `resume_id` 0 asks for a snapshot.
 // Returns the length, or 0 when it does not fit in `cap` or the feed is not one.
 inline size_t caption_request(char *out, size_t cap, const char *host, uint16_t port, uint8_t stream,
@@ -1315,10 +1315,26 @@ inline size_t caption_request(char *out, size_t cap, const char *host, uint16_t 
         // The alert buttons (#121): whole state per message, nothing to resume.
         add("stream=alert");
         resume_id = 0;
+    } else if (stream == 5) {
+        // ProPresenter's lyrics (#138), for a panel: whole state per message, nothing to resume.
+        add("stream=lyrics&for=panel");
+        resume_id = 0;
+    } else if (stream == 6) {
+        // ProPresenter's timers: `lang` is this panel's id, which is how Relay finds the timers and thresholds the
+        // operator set for it. An id that is not 32 lower-case hex is left out (Relay then uses the global ones).
+        add("stream=pptimers&for=panel");
+        bool hex = lang != nullptr && strlen(lang) == 32;
+        for (size_t i = 0; hex && i < 32; ++i) {
+            hex = (lang[i] >= '0' && lang[i] <= '9') || (lang[i] >= 'a' && lang[i] <= 'f');
+        }
+        if (hex && (!add("&panel=") || !add(lang))) {
+            return 0;
+        }
+        resume_id = 0;
     } else {
         return 0;
     }
-    if (stream != 3 && stream != 4 && !add("&finals=1")) {
+    if (stream < 3 && !add("&finals=1")) {
         return 0;
     }
     if (resume_id != 0) {

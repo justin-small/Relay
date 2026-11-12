@@ -69,7 +69,8 @@ they may appear:
 - **Screens.** Open `/screen?lyrics=1`. While a song is up, the lyrics replace
   the captions. When no slide is up, the captions come back.
 - **Broadcast overlay.** Open `/overlay?lyrics=1`. Off by default.
-- **Caption panels.** Offered to panels that are set to show lyrics.
+- **Caption panels.** Offered to panels, which can be set to the **Lyrics**
+  feed (see [Lyrics and timers on a panel](#propresenter-panels)).
 - **Phone viewer.** Off by default.
 
 **Songs only** keeps sermon and announcement slides off the lyrics feed. A
@@ -79,6 +80,36 @@ are named Verse, Chorus, Bridge and so on.
 
 Nothing is shown when ProPresenter has no presentation on screen, even if an
 old slide's text is still remembered.
+
+## Lyrics and timers on a panel {#propresenter-panels}
+
+A caption panel can show ProPresenter on its own screen, instead of captions.
+Open the panel's settings (**Panels**, then the panel's name) and set its feed
+to **Lyrics (ProPresenter)** or **Timers (ProPresenter)**. The choice is in
+the panel's own menu too. Both appear only while ProPresenter is set up in
+Relay, and **Lyrics** only while **Caption panels** is ticked under **Lyrics
+feed**.
+
+**Lyrics.** The current slide's lines are large and in the middle of the
+screen. The first words of the next slide are under them, dimmed, and the part
+(**Verse 1**, **Chorus**) and the song's title are small along the bottom.
+With no song on screen, or a blank slide, the panel shows nothing but a few dim
+words: never the last slide. The size follows the words: a short line is very
+large, a verse is smaller. A slide with accents (Spanish and French lyrics) is
+drawn in the panel's caption font, which is smaller but keeps them.
+
+**Timers.** Each timer is large, with its name and whether it is running under
+it. The panel counts the seconds itself, so it ticks smoothly. A countdown is
+white while it runs, **amber** from the time you set under **Timers on panels**
+(2:00 by default) and **red** from the next (0:30), and red with a minus sign
+once it is past zero. A timer that is stopped is grey, and a timer that counts
+up (an elapsed timer) has no colours. If the panel loses Relay, the digits go
+grey and say **not updating**.
+
+Under **Timers on panels** you choose the two times, and which timers panels
+show (up to four; with none ticked, the first four ProPresenter has). A panel
+can use its own: in its settings, under **ProPresenter timers**, tick **Use
+settings of its own for this panel**.
 
 ## Stage message
 

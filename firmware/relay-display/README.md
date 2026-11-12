@@ -26,7 +26,7 @@ in the root README ("Caption panels").
 | Setup | An access point and a page to join Wi-Fi (join code as a QR on the panel), with recovery |
 | BOOT button | Hold 5 s: open the setup network. Hold 15 s: factory reset |
 | Screen | LVGL: centred text with an optional QR code, the caption view (see "Caption view"), and the colour-bar bench picture |
-| Feed picker | A menu button on the caption screen: Transcription or a live translation, one feed or two side by side, saved in NVS (see "Feed picker") |
+| Feed picker | A menu button on the caption screen: Transcription or a live translation, the Service, the Alert buttons, or ProPresenter's lyrics or timers (see "ProPresenter"), one feed or two side by side, saved in NVS (see "Feed picker") |
 | Panel link | Checks in with Relay every 30 s and keeps an event stream open; applies the feed the operator sets there (see "Panel registry link") |
 | Captions | Up to two feeds from Relay's `/stream?finals=1`, each with its own connection and 200-line buffer in PSRAM, resumed with `?last_id=` after a drop (see "Caption client") |
 | Partitions | Two app slots, `otadata`, `nvs` |
@@ -405,6 +405,42 @@ which `main/caption_view.cpp` builds in a pane whose feed is the service.
 * Console: `feeds` lists a service option as `service:<id>`; `view` adds a line per service pane (items, current, next,
   the timer and footer as drawn, following or paused, and where the current row is).
 
+## ProPresenter: lyrics and timers (#138)
+
+Two more feeds, set like the Service and Alert feeds (`kFeedLyrics` and `kFeedTimers`, saved in the same NVS fields, set
+by the operator as `{"stream":"lyrics"}` and `{"stream":"timers"}`, which need no setting of their own) and offered in
+the menu from the `propresenter` object of Relay's `targets` message (`{"lyrics":true,"timers":true}`). Each is a caption
+slot pointed at its own stream and holding its own state instead of caption lines. The rules, all with no LVGL in them
+and checked on a laptop (`check_propresenter` in `main/test_native.cpp`), are in `main/pp_format.h`; the panes are
+`main/lyrics_view.cpp` and `main/timers_view.cpp`.
+
+* **Lyrics** (`GET /stream?stream=lyrics&for=panel`). Whole state per message, repeated at Relay's 15 s heartbeat. The
+  current slide's lines are large and centred, the first words of the next slide dim under them, and the part
+  ("Verse 1", "Chorus") and the song's title small along the foot. The size is the largest of three that fits
+  (`lyrics_pick_tier`): Montserrat 48 and the large tier draw ASCII only, so a slide with accents is drawn in the
+  caption font, which keeps them and is smaller. With no song up (`live` false), a blank slide, Relay switched off for
+  panels, or Relay away, the pane is a few dim words and never the last slide's text (`lyrics_idle_text`).
+* **Timers** (`GET /stream?stream=pptimers&for=panel&panel=<this panel's id>`). Each timer is a row: name and state,
+  and its time in the largest digit font that fits (140 px, 80 px, or Montserrat 48; `pp_digit_pick`). The panel names
+  itself, so Relay can send this panel's own timers and thresholds (set per panel in admin, or Timers on panels for all).
+  **The panel counts the time**: a message gives each timer's seconds as of `server_time` and the panel counts from
+  arrival, down for a countdown and up for an elapsed timer, so it ticks with no request a second. The colour is worked
+  out from the counted time: white while running, amber from `amber_s` seconds left, red from `red_s`, red with a minus
+  once past zero; a stopped timer is grey. After 40 s with no message (Relay repeats every 15 s) the digits go grey and
+  say "not updating". The digits are generated (`tools/gen_digits_font.sh`: 0-9, the colon and the minus sign only) and
+  sit in fixed-width cells, one label each, because the font's digits are proportional and a ticking "1" must not move its
+  neighbours.
+* **A still screen is not redrawn.** Relay's heartbeat repeats the state, and its `rev` moves whenever anything in
+  ProPresenter does (a running timer included), so neither says the screen changed: a message that says what the glass
+  already says is `same` and bumps no revision (`lyrics_apply`, `timers_apply`), and the views set a label, a colour or
+  a visibility only when it differs (`main/pp_view_util.h`). A timers pane redraws only the digit that changed.
+* **Stacks.** `lyrics_state` is about 700 bytes and `timers_state` about 500: both are allocated from PSRAM with the
+  slot's other states and never built on a task's stack. The menu is built in place (`feed_options_add_*`): three by-value
+  `feed_options` (1.5 KB each) overflowed the `feeds` task's 6 KB stack, which the emulator suite found.
+* Console: `feeds` lists `lyrics` and `timers` among the options; `view` adds a line per ProPresenter pane
+  (`pane 1 lyrics, a slide up` or `idle`; `pane 1 timers, 2 shown`). The emulator suite is
+  `tests/test_propresenter_view.py`, against `tests/fake_relay.py`'s copy of the wire format.
+
 ## Tests
 
 ```bash
@@ -499,6 +535,12 @@ Not proven by any test, and to be done on the board:
       smaller text without its accents)
 - [ ] LIVE buttons: Previous / Next / Take control are easy to hit with a thumb, and scrolling the order of service
       never presses one by mistake; Next moves the real service on the stage screen
+- [ ] Lyrics: a verse on screen reads from the back of the room, and the next slide's dim line is readable and not
+      distracting; a slide with accents (the caption font) is acceptable at its size; the panel goes quiet at once when
+      ProPresenter clears
+- [ ] Timers: the digits read from across a room, a running countdown ticks once a second with no flicker (`feeds` and the
+      diag build's "lvgl N flushes" show the screen is still when nothing counts), amber and red come on at the times set
+      in admin, and the panel agrees with ProPresenter's own display to within a second over ten minutes
 - [ ] Captions: an hour on Wi-Fi against a running Relay with no lost or doubled lines (`captions 0`
       against Relay's history), across at least one Wi-Fi drop and one Relay restart
 - [ ] The I2C bus has pull-ups on the board; the internal ones are off (`main/board_i2c.cpp`). A scan that

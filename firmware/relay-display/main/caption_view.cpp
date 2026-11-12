@@ -13,6 +13,8 @@
 #include "panel_link.h"
 #include "screen.h"
 #include "alert_view.h"
+#include "lyrics_view.h"
+#include "timers_view.h"
 #include "service_view.h"
 
 extern "C" {
@@ -39,6 +41,8 @@ struct Pane {
     bool built = false;
     bool service = false;   // the Planning Center service (`service_view.cpp`) instead of captions
     bool alert = false;     // the alert buttons (`alert_view.cpp`, #121) instead of captions
+    bool lyrics = false;    // ProPresenter's lyrics (`lyrics_view.cpp`, #138) instead of captions
+    bool timers = false;    // ProPresenter's timers (`timers_view.cpp`)
     int slot = 0;
     int x = 0;
     int y = 0;
@@ -322,6 +326,16 @@ void refresh_alert_header(Pane &p)
     set_bg(p.dot, tone_colour(caption_state_tone(p.state)));
 }
 
+// A ProPresenter pane's header: its title and the connection. Its body is `lyrics_view.cpp`'s or `timers_view.cpp`'s.
+void refresh_pp_header(Pane &p, const char *title)
+{
+    if (strcmp(lv_label_get_text(p.title), title) != 0) {
+        lv_label_set_text(p.title, title);
+    }
+    set_text(p.state_label, caption_state_label(p.state));
+    set_bg(p.dot, tone_colour(caption_state_tone(p.state)));
+}
+
 void refresh_header(Pane &p)
 {
     char lang[sizeof p.shown_lang] = {};
@@ -348,8 +362,8 @@ void refresh_header(Pane &p)
 // The strip under the header that says a language is not live, while its pane shows the transcription.
 void refresh_notice(Pane &p, int pane_index)
 {
-    if (p.service || p.alert) {
-        return;   // a service or alert pane is never a fallback
+    if (p.service || p.alert || p.lyrics || p.timers) {
+        return;   // a service, alert, lyrics or timers pane is never a fallback
     }
     char note[64] = {};
     const bool want = s_fv.shown[pane_index].fallback;
@@ -412,6 +426,18 @@ void tick_pane(Pane &p, uint32_t now, bool touching)
         p.state = captions_state(p.slot);
         alert_view_tick(p.slot, now);
         refresh_alert_header(p);
+        return;
+    }
+    if (p.lyrics) {
+        p.state = captions_state(p.slot);
+        lyrics_view_tick(p.slot, now);
+        refresh_pp_header(p, "Lyrics");
+        return;
+    }
+    if (p.timers) {
+        p.state = captions_state(p.slot);
+        timers_view_tick(p.slot, now);
+        refresh_pp_header(p, "Timers");
         return;
     }
     const uint32_t rev = captions_revision(p.slot);
@@ -572,6 +598,20 @@ void build_pane(lv_obj_t *root, Pane &p, int index, bool split)
     p.alert = s_fv.shown[index].pick.stream == kFeedAlert;
     if (p.alert) {
         alert_view_build(index, p.box, index, p.w, p.h);
+        build_header(p, under_menu);
+        p.built = true;
+        return;
+    }
+    p.lyrics = s_fv.shown[index].pick.stream == kFeedLyrics;
+    if (p.lyrics) {
+        lyrics_view_build(index, p.box, index, p.w, p.h);
+        build_header(p, under_menu);
+        p.built = true;
+        return;
+    }
+    p.timers = s_fv.shown[index].pick.stream == kFeedTimers;
+    if (p.timers) {
+        timers_view_build(index, p.box, index, p.w, p.h);
         build_header(p, under_menu);
         p.built = true;
         return;
@@ -852,7 +892,9 @@ void sync_feeds()
     bool kind_changed = false;
     for (int i = 0; i < s_v.count; ++i) {
         kind_changed = kind_changed || (s_fv.shown[i].pick.stream == kFeedService) != s_v.pane[i].service ||
-                       (s_fv.shown[i].pick.stream == kFeedAlert) != s_v.pane[i].alert;
+                       (s_fv.shown[i].pick.stream == kFeedAlert) != s_v.pane[i].alert ||
+                       (s_fv.shown[i].pick.stream == kFeedLyrics) != s_v.pane[i].lyrics ||
+                       (s_fv.shown[i].pick.stream == kFeedTimers) != s_v.pane[i].timers;
     }
     if (s_fv.split != s_v.split || kind_changed) {
         if (!s_v.rebuild_requested) {
@@ -945,6 +987,8 @@ void caption_view_teardown()
 {
     service_view_teardown();
     alert_view_teardown();
+    lyrics_view_teardown();
+    timers_view_teardown();
     if (s_v.timer != nullptr) {
         lv_timer_delete(s_v.timer);
         s_v.timer = nullptr;
@@ -966,8 +1010,8 @@ void caption_view_report()
     } else {
         for (int i = 0; i < s_v.count; ++i) {
             Pane &p = s_v.pane[i];
-            if (p.service || p.alert) {
-                continue;   // service_view_report and alert_view_report, below
+            if (p.service || p.alert || p.lyrics || p.timers) {
+                continue;   // service_view_report, alert_view_report and the ProPresenter views', below
             }
             ESP_LOGI(TAG, "%s: %s, %d lines, %d px below, jump button %s", i == 0 ? "view" : "view: split, pane 2",
                      p.follow.following() ? "following live" : "paused", p.shown_count, px_below(p),
@@ -975,6 +1019,8 @@ void caption_view_report()
         }
         service_view_report();
         alert_view_report();
+        lyrics_view_report();
+        timers_view_report();
         ESP_LOGI(TAG, "view: menu %s, %s", s_v.menu.open ? "open" : "closed",
                  s_v.split ? "two feeds" : "one feed");
     }

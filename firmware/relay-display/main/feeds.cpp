@@ -38,6 +38,7 @@ struct State {
 // the menu made from them with the panel's service mode.
 feed_options s_base;
 service_offers s_offers;
+pp_offers s_pp_offers;   // ProPresenter's lyrics and timers, from the same `targets`
 feed_options s_combined;
 feed_options s_parsed;
 
@@ -72,6 +73,10 @@ void describe(const feed_pick &p, char *out, size_t cap)
         snprintf(out, cap, "service %s", p.lang);
     } else if (p.stream == kFeedAlert) {
         snprintf(out, cap, "alert");
+    } else if (p.stream == kFeedLyrics) {
+        snprintf(out, cap, "lyrics");
+    } else if (p.stream == kFeedTimers) {
+        snprintf(out, cap, "timers");
     } else {
         snprintf(out, cap, "nothing");
     }
@@ -98,6 +103,11 @@ bool take_targets(const char *json)
     s_base = s_parsed;
     if (offers.count != s_offers.count || memcmp(&offers, &s_offers, sizeof offers) != 0) {
         s_offers = offers;
+        changed = true;
+    }
+    const pp_offers pp = pp_offers_parse(json, strlen(json));
+    if (pp.lyrics != s_pp_offers.lyrics || pp.timers != s_pp_offers.timers) {
+        s_pp_offers = pp;
         changed = true;
     }
     return changed;
@@ -155,7 +165,10 @@ void step()
     const bool targets_changed = update_options();
     // The menu: what Relay offers, with the service feeds the panel's service mode allows. Made every step, since the
     // mode can change without a `targets` message.
-    s_combined = feed_options_with_alert(feed_options_with_service(s_base, s_offers, panel_link_service()));
+    // In place, in the static: a feed_options is 1.5 KB and this task's stack is 6 KB (feed_format.h).
+    s_combined = feed_options_with_service(s_base, s_offers, panel_link_service());
+    feed_options_add_propresenter(&s_combined, s_pp_offers);
+    feed_options_add_alert(&s_combined);
     const feed_options &options = s_combined;
 
     lock();
@@ -407,13 +420,15 @@ void feeds_report()
     describe(v.saved[1], saved2, sizeof saved2);
     describe(v.shown[0].pick, shown1, sizeof shown1);
     describe(v.shown[1].pick, shown2, sizeof shown2);
-    char list[200] = "";
+    char list[240] = "";
     size_t o = 0;
     for (int i = 0; i < v.options.count && o + 40 < sizeof list; ++i) {
         const feed_pick &pick = v.options.items[i].pick;
         o += snprintf(list + o, sizeof list - o, "%s%s%s", i > 0 ? "," : "", pick.stream == kFeedService ? "service:" : "",
                       pick.stream == kFeedTranscription ? "transcription"
                       : pick.stream == kFeedAlert       ? "alert"
+                      : pick.stream == kFeedLyrics      ? "lyrics"
+                      : pick.stream == kFeedTimers      ? "timers"
                                                         : pick.lang);
     }
     ESP_LOGI(TAG, "feeds: report: %s; pane 1 saved %s shows %s%s; pane 2 saved %s shows %s%s; options %s [%s]",

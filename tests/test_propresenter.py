@@ -26,7 +26,7 @@ os.environ["RELAY_CONFIG"] = os.path.join(tempfile.mkdtemp(), "config.json")
 
 from fastapi.testclient import TestClient
 
-from app import config, propresenter as pp
+from app import config, main as app_main, propresenter as pp
 from app.alerts import alerts
 from app.main import app
 
@@ -78,6 +78,9 @@ class Fake:
         self.requests = []                # (method, path, body) of everything except the stream
         self.thumb_calls = 0
         self.msg_active = False
+        self.timer_rows = []              # what GET /v1/timers/current answers: [{"id": {...}, "time", "state"}]
+        self.timer_cfg = None             # what GET /v1/timers answers, when a test sets it
+        self.timer_cfg_calls = 0
         self.stream_count = 0
         self.stream_bodies = []
         self.out = queue.Queue()
@@ -141,7 +144,12 @@ class Fake:
         if base == "/v1/looks":
             return j([{"id": {"uuid": "L1", "name": "Default", "index": 0}, "screens": []},
                       {"id": {"uuid": "L2", "name": "Sermon", "index": 1}, "screens": []}])
+        if base == "/v1/timers/current":
+            return j(self.timer_rows)
         if base == "/v1/timers":
+            self.timer_cfg_calls += 1
+            if self.timer_cfg is not None:
+                return j(self.timer_cfg)
             return j([{"id": {"uuid": "T1", "name": "Segment", "index": 0}, "countdown": {"duration": 300}}])
         if base == "/v1/messages":
             return j([{"id": {"uuid": "MSG1", "name": "Nursery", "index": 0}, "message": "Room {room}",
@@ -166,7 +174,7 @@ class Fake:
     def stream_message(self, url):
         data = {"status/slide": self.status_slide(), "presentation/current": self.current_body(),
                 "presentation/slide_index": self.index_body(), "stage/message": self.stage,
-                "timers/current": [], "status/layers": {"slide": bool(self.presentation)},
+                "timers/current": self.timer_rows, "status/layers": {"slide": bool(self.presentation)},
                 "playlist/active": {}, "look/current": {"id": {"name": "Default"}}}[url]
         return json.dumps({"url": url, "data": data}).encode() + b"\r\n\r\n"
 
@@ -915,6 +923,227 @@ r = admin.post(B + "/step", json={"direction": "next"})
 eq("with ProPresenter not set up there is an error, not a crash", r.status_code, 502)
 pp.follower.presentation = None
 fake.clear()
+
+
+# ------------------------------------------------------------------------------------------------ panel feeds
+print("panel feeds (stage 3)")
+
+
+def trow(uuid, name, time_text, state):
+    return {"id": {"uuid": uuid, "name": name, "index": 0}, "time": time_text, "state": state}
+
+
+def cfg_row(uuid, name, kind):
+    return {"id": {"uuid": uuid, "name": name, "index": 0}, "allows_overrun": True,
+            ("elapsed_time" if kind == "up" else "countdown"): {"duration": 300}}
+
+
+def frames(q):
+    out = []
+    while not q.empty():
+        out.append(json.loads(q.get_nowait().decode()[len("data: "):]))
+    return out
+
+
+eq("the time ProPresenter writes is read as seconds", [pp.Follower.parse_timer(t) for t in
+   ("00:05:00", "00:00:02", "-00:00:02", "1:30", "42", "", "ab:cd", "00:00:00:01", None)],
+   [300.0, 2.0, -2.0, 90.0, 42.0, None, None, None, None])
+eq("a countdown is ok above amber, amber from it, red from red, over past zero",
+   [pp.timer_level(v, s, "down", 120, 30) for v, s in ((300, "running"), (120, "running"), (31, "running"),
+                                                     (30, "running"), (0, "running"), (-1, "overrunning"),
+                                                     (0, "complete"), (5, "overran"))],
+   ["ok", "amber", "amber", "red", "red", "over", "red", "over"])
+eq("an elapsed timer has no threshold", pp.timer_level(5000, "running", "up", 120, 30), "ok")
+eq("thresholds: red is held to amber, a bad number is dropped, never raised",
+   (pp.clean_timer_settings({"amber_s": 90, "red_s": 600}, {"amber_s": 120, "red_s": 30, "show": []}),
+    pp.clean_timer_settings({"amber_s": "x", "red_s": -4, "show": "all"}, {"amber_s": 120, "red_s": 30, "show": []})),
+   ({"amber_s": 90, "red_s": 90, "show": []}, {"amber_s": 120, "red_s": 30, "show": []}))
+eq("a problem is a fixed sentence", [pp.timer_fields(x)[1] for x in (
+    {"amber_s": 99999999}, {"red_s": True}, {"show": ["../x"]}, {"show": ["ok-id"], "amber_s": 5})],
+   ["The amber threshold is a number of seconds from 0 to 86399.", "The red threshold is a number of seconds from 0 to 86399.",
+    "Timers to show is a list of timer IDs.", ""])
+eq("hand-edited settings are cleaned on load, not refused",
+   pp.clean_stored({"timers": {"amber_s": "soon", "red_s": 10, "show": ["A1", 5, "../no", "A1", "B2"]}})["timers"],
+   {"amber_s": 120, "red_s": 10, "show": ["A1", "B2"]})
+
+
+async def scenario_panel_feeds():
+    fake.clear()
+    fake.song(groups=[("Verse 1", ["line one\nline two", "line three"]), ("Chorus", ["chorus a"])])
+    fake.timer_rows = [trow("T-A", "Segment Countdown", "00:05:00", "stopped"),
+                       trow("T-B", "Game Timer", "00:01:00", "stopped")]
+    fake.timer_cfg = [cfg_row("T-A", "Segment Countdown", "down"), cfg_row("T-B", "Game Timer", "up")]
+    configure(srv)
+    f = pp.Follower()
+    feed = pp.TimersFeed(f)
+    f.start()
+    check("connects", await until(lambda: f.up))
+    check("the timers are read", await until(lambda: len(f.timers()) == 2))
+    check("and which count up is read from the configuration", await until(lambda: f.timer_kinds.get("T-B") == "up"))
+    eq("a down timer and an up timer", [(t["name"], t["dir"], t["value"]) for t in f.timers()],
+       [("Segment Countdown", "down", 300.0), ("Game Timer", "up", 60.0)])
+    calls = fake.timer_cfg_calls
+    await asyncio.sleep(0.8)
+    check("the configuration is not read every second", fake.timer_cfg_calls - calls <= 1, fake.timer_cfg_calls - calls)
+
+    # -- the message
+    q = feed.subscribe("")
+    first = frames(q)[0]
+    eq("the message shape", sorted(first), ["amber_s", "enabled", "live", "red_s", "rev", "server_time", "timers", "type"])
+    eq("it carries every timer with a state, a direction, the seconds and the colour",
+       (first["type"], first["enabled"], first["live"], first["amber_s"], first["red_s"],
+        [(t["name"], t["state"], t["dir"], t["value"], t["level"]) for t in first["timers"]]),
+       ("pptimers", True, True, 120, 30, [("Segment Countdown", "stopped", "down", 300.0, "ok"),
+                                            ("Game Timer", "stopped", "up", 60.0, "ok")]))
+
+    # -- a timer starts: one message, then none while it only counts
+    fake.timer_rows = [trow("T-A", "Segment Countdown", "00:04:59", "running"),
+                       trow("T-B", "Game Timer", "00:01:00", "stopped")]
+    check("a started timer is announced", await until(lambda: any(
+        t["state"] == "running" for m in frames(q) for t in m["timers"])))
+    for secs in range(298, 292, -1):
+        fake.timer_rows[0] = trow("T-A", "Segment Countdown", f"00:0{secs // 60}:{secs % 60:02d}", "running")
+        await asyncio.sleep(0.25)
+    sent_while_counting = frames(q)
+    eq("while it counts down, nothing more is sent (the panel counts itself)", sent_while_counting, [])
+
+    # -- a timer changed in ProPresenter while running is a new message at once
+    fake.timer_rows[0] = trow("T-A", "Segment Countdown", "00:09:00", "running")
+    jumped = await until(lambda: any(m["timers"][0]["value"] > 500 for m in frames(q)))
+    check("time added to a running timer is sent at once", jumped)
+
+    # -- thresholds: the colour state is Relay's reading of the same seconds
+    fake.timer_rows[0] = trow("T-A", "Segment Countdown", "00:01:30", "running")
+    check("amber is reported under two minutes", await until(lambda: any(
+        m["timers"][0]["level"] == "amber" for m in frames(q))))
+    fake.timer_rows[0] = trow("T-A", "Segment Countdown", "00:00:20", "running")
+    check("red under half a minute", await until(lambda: any(m["timers"][0]["level"] == "red" for m in frames(q))))
+    fake.timer_rows[0] = trow("T-A", "Segment Countdown", "-00:00:03", "overrunning")
+    over = None
+
+    def saw_over():
+        nonlocal over
+        for m in frames(q):
+            if m["timers"][0]["level"] == "over":
+                over = m["timers"][0]
+        return over is not None
+
+    check("past zero it is over, with a negative time", await until(saw_over))
+    check("and the seconds are negative", over["value"] < 0 and over["state"] == "overrunning", over)
+    fake.timer_rows[0] = trow("T-A", "Segment Countdown", "00:05:00", "stopped")
+    check("a reset timer is ok again", await until(lambda: any(m["timers"][0]["state"] == "stopped" for m in frames(q))))
+
+    # -- the heartbeat in main re-sends the state as it is
+    hb = feed.payload("")
+    eq("a heartbeat is the same state, with Relay's clock", (hb["type"], len(hb["timers"]), "server_time" in hb),
+       ("pptimers", 2, True))
+
+    # -- which timers: the global setting, then a panel's own
+    config.save({"propresenter": {**config.get()["propresenter"], "timers": {"amber_s": 60, "red_s": 10, "show": ["T-B"]}}},
+                replace=("propresenter",))
+    feed.refresh()
+    msg = frames(q)[-1]
+    eq("the global setting picks the timers and the thresholds", ([t["id"] for t in msg["timers"]], msg["amber_s"], msg["red_s"]),
+       (["T-B"], 60, 10))
+    feed.panel_settings = lambda pid: {"amber_s": 300, "show": ["T-A", "T-B"]} if pid == "a" * 32 else None
+    q2 = feed.subscribe("a" * 32)
+    mine = frames(q2)[0]
+    eq("a panel's own setting beats the global one, key by key", ([t["id"] for t in mine["timers"]], mine["amber_s"],
+                                                                   mine["red_s"]), (["T-A", "T-B"], 300, 10))
+    eq("another panel is unaffected", [t["id"] for t in feed.payload("b" * 32)["timers"]], ["T-B"])
+    check("a heartbeat on the panel's own stream does not leak into the other's", not frames(q))
+    feed.panel_settings = lambda pid: {"amber_s": 20, "red_s": 5, "show": ["T-A"]} if pid == "a" * 32 else None
+    feed.refresh()
+    again = frames(q2)
+    eq("changing a panel's settings reaches its open stream, and only that one",
+       ([(t["id"], m["amber_s"], m["red_s"]) for m in again for t in m["timers"]], frames(q)),
+       ([("T-A", 20, 5)], []))
+    # at most four timers
+    fake.timer_rows = [trow(f"T-{i}", f"Timer {i}", "00:01:00", "stopped") for i in range(6)]
+    config.save({"propresenter": {**config.get()["propresenter"], "timers": {"amber_s": 120, "red_s": 30, "show": []}}},
+                replace=("propresenter",))
+    check("six timers in ProPresenter, four sent", await until(lambda: len(feed.payload("")["timers"]) == 4))
+
+    # -- ProPresenter away: not live, no rows, never the last values
+    fake.timer_rows = [trow("T-A", "Segment Countdown", "00:05:00", "running")]
+    fake.kill.set()
+    f.cancel()
+    f2 = pp.Follower()
+    f2.start()
+    f2.cancel()
+    fake.kill.clear()
+    dead = pp.TimersFeed(pp.Follower())
+    p = dead.payload("")
+    eq("with ProPresenter not answering the feed says not live and sends no timers", (p["enabled"], p["live"], p["timers"]),
+       (True, False, []))
+    config.save({"propresenter": {"enabled": False}}, replace=("propresenter",))
+    off = dead.payload("")
+    eq("switched off, the message carries nothing else", (off["enabled"], off["live"], off["timers"]), (False, False, []))
+    f.cancel()
+
+
+asyncio.run(scenario_panel_feeds())
+
+print("panel feeds: the routes")
+configure(srv)
+r = viewer.get("/api/targets")
+eq("/api/targets offers lyrics (switched on for panels) and the timers", r.json()["propresenter"],
+   {"lyrics": True, "timers": True})
+admin.post("/api/admin/propresenter", json={"lyrics": {"panels": False}})
+eq("…and not the lyrics once they are off for panels", viewer.get("/api/targets").json()["propresenter"],
+   {"lyrics": False, "timers": True})
+admin.post("/api/admin/propresenter", json={"lyrics": {"panels": True}})
+config.save({"propresenter": {"enabled": False}}, replace=("propresenter",))
+eq("…and neither while ProPresenter is off", viewer.get("/api/targets").json()["propresenter"],
+   {"lyrics": False, "timers": False})
+eq("the caption stream's own targets message carries it too", "propresenter" in app_main.engine.targets_payload(), True)
+eq("the timers stream is refused while ProPresenter is off", viewer.get("/stream?stream=pptimers&for=panel").status_code, 403)
+configure(srv)
+eq("an audience other than the panel is refused", viewer.get("/stream?stream=pptimers&for=tv").status_code, 400)
+eq("a panel id that is not one is refused", viewer.get("/stream?stream=pptimers&for=panel&panel=../x").status_code, 400)
+
+
+async def read_first_frame(response):
+    it = response.body_iterator
+    chunk = await asyncio.wait_for(it.__anext__(), 3)
+    await it.aclose()   # the client going away: the generator's finally unsubscribes
+    return json.loads((chunk if isinstance(chunk, str) else chunk.decode())[len("data: "):])
+
+
+async def scenario_timers_route():
+    fake.timer_rows = [trow("T-A", "Segment Countdown", "00:05:00", "stopped")]
+    fake.timer_cfg = [cfg_row("T-A", "Segment Countdown", "down")]
+    configure(srv)
+    pp.follower.start()
+    check("the app's follower is up", await until(lambda: pp.follower.up and pp.follower.timers()))
+    pid = "c" * 32
+    got = await read_first_frame(await app_main.stream(
+        type("R", (), {"query_params": {"for": "panel", "panel": pid}})(), stream="pptimers"))
+    eq("the route's first message is the timers, whole", (got["type"], got["enabled"], got["live"],
+                                                           [t["name"] for t in got["timers"]]),
+       ("pptimers", True, True, ["Segment Countdown"]))
+    check("a reader that has gone is not kept", pid not in pp.timers_feed.subs and "" not in pp.timers_feed.subs,
+          pp.timers_feed.subs)
+    pp.follower.cancel()
+
+
+asyncio.run(scenario_timers_route())
+
+# the admin route: global timer settings
+r = admin.post("/api/admin/propresenter", json={"timers": {"amber_s": 150, "red_s": 45, "show": ["T-A"]}})
+eq("the global timer settings are saved", (r.status_code, r.json()["settings"]["timers"]),
+   (200, {"amber_s": 150, "red_s": 45, "show": ["T-A"]}))
+r = admin.post("/api/admin/propresenter", json={"timers": {"amber_s": 10, "red_s": 40}})
+eq("red later than amber is held to amber", r.json()["settings"]["timers"]["red_s"], 10)
+r = admin.post("/api/admin/propresenter", json={"timers": {"amber_s": "soon"}})
+eq("a bad threshold is refused with a fixed sentence", (r.status_code, r.json()["error"]),
+   (400, "The amber threshold is a number of seconds from 0 to 86399."))
+eq("…and changed nothing", config.get()["propresenter"]["timers"]["amber_s"], 10)
+r = admin.post("/api/admin/propresenter", json={"timers": {"show": "everything"}})
+eq("a bad list of timers is refused", (r.status_code, r.json()["error"]), (400, "Timers to show is a list of timer IDs."))
+anon_pp = TestClient(app, base_url="http://relay.local:8001")
+eq("the setting is not for anyone without the admin token", anon_pp.post("/api/admin/propresenter",
+                                                                       json={"timers": {"amber_s": 1}}).status_code, 401)
 
 # ------------------------------------------------------------------------------------------------ discovery
 print("discovery")

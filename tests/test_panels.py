@@ -743,6 +743,64 @@ eq("the flasher page is not on the viewer port", viewer.get("/admin/flash").stat
 eq("removing the USB image", admin.delete("/api/admin/panels/flash").json()["removed"], True)
 check("with none, the page asks for the upload", "data-flasher" not in anon.get("/admin/flash").text)
 
+print("\nProPresenter lyrics and timers as panel feeds (#138)")
+LY, TM = {"stream": "lyrics"}, {"stream": "timers"}
+eq("clean_feeds takes lyrics and timers, which have no setting of their own", (panels.clean_feeds([LY]),
+   panels.clean_feeds([LY, TM]), panels.clean_feeds([{"stream": "timers", "lang": "x"}])), ([LY], [LY, TM], [TM]))
+eq("…and not three feeds", panels.clean_feeds([LY, TM, LY]), None)
+viewer.post("/api/panels/checkin", json=body(60))
+r = admin.post(f"/api/admin/panels/{pid(60)}", json={"feeds": [LY, TM]})
+eq("the operator sets lyrics and timers", (r.status_code, r.json()["set_feeds"]), (200, [LY, TM]))
+reply = viewer.post("/api/panels/checkin", json=body(60, feed_rev=0)).json()
+eq("the panel is sent them", reply["set_feed"]["feeds"], [LY, TM])
+viewer.post("/api/panels/checkin", json=body(60, feeds=[LY, TM], feed_rev=reply["set_feed"]["rev"]))
+eq("a panel reports the feeds it shows", reg.view(pid(60))["feeds"], [LY, TM])
+viewer.post("/api/panels/checkin", json=body(60, feeds=[LY, {"stream": "lyrics", "x": 1}, {"stream": "sparkles"}]))
+eq("…and what it says beyond that is dropped, not refused", reg.view(pid(60))["feeds"], [LY, LY])
+q = reg.subscribe(pid(60))
+frames = []
+while not q.empty():
+    frames.append(json.loads(q.get_nowait().decode()[len("data: "):]))
+reg.unsubscribe(pid(60), q)
+
+print("\nthe panel's own timer settings")
+eq("a panel follows the global settings until the operator sets its own", reg.view(pid(60))["set_timers"], None)
+r = admin.post(f"/api/admin/panels/{pid(60)}", json={"timers": {"amber_s": 180, "red_s": 60, "show": ["T-A", "T-B"]}})
+eq("the operator sets this panel's thresholds and timers", (r.status_code, r.json()["set_timers"]),
+   (200, {"amber_s": 180, "red_s": 60, "show": ["T-A", "T-B"]}))
+eq("…saved with the panel's other settings", config.get()["panels"][pid(60)]["timers"],
+   {"amber_s": 180, "red_s": 60, "show": ["T-A", "T-B"]})
+eq("…and the feed revision is untouched (the panel asks for them when it opens the stream)",
+   config.get()["panels"][pid(60)]["feed_rev"], 1)
+check("…so nothing is pushed on its event stream", not frames, frames)
+r = admin.post(f"/api/admin/panels/{pid(60)}", json={"timers": {"amber_s": 90}})
+eq("a later save replaces them whole", r.json()["set_timers"], {"amber_s": 90})
+eq("the registry hands the timers feed what the panel set", reg.timer_settings(pid(60)), {"amber_s": 90})
+eq("…and nothing for a panel that set none", reg.timer_settings(pid(1)), None)
+for bad, why in (({"timers": {"amber_s": "soon"}}, "a threshold that is not a number"),
+                 ({"timers": {"red_s": -1}}, "a negative threshold"),
+                 ({"timers": {"amber_s": 10 ** 9}}, "a threshold past a day"),
+                 ({"timers": {"show": "all"}}, "timers that are not a list"),
+                 ({"timers": {"show": ["../x"]}}, "a timer id that is a path"),
+                 ({"timers": 5}, "not an object")):
+    r = admin.post(f"/api/admin/panels/{pid(60)}", json=bad)
+    eq(f"refused: {why}", (r.status_code, "Traceback" in r.text), (400, False))
+eq("…and the refusals changed nothing", reg.timer_settings(pid(60)), {"amber_s": 90})
+r = admin.post(f"/api/admin/panels/{pid(60)}", json={"timers": None})
+eq("null goes back to the global settings", (r.status_code, r.json()["set_timers"]), (200, None))
+eq("…which removes it from the file", "timers" in config.get()["panels"].get(pid(60), {}), False)
+admin.post(f"/api/admin/panels/{pid(60)}", json={"timers": {"red_s": 15}})
+eq("a panel with only timer settings is kept", config.get()["panels"][pid(60)]["timers"], {"red_s": 15})
+config.save({"panels": {pid(61): {"feed_rev": 0, "timers": {"amber_s": "x", "red_s": 20, "show": ["A1", 5, "../no"]}}}},
+            replace=("panels",))
+eq("hand-edited timer settings are cleaned when Relay loads them, not refused",
+   panels.clean_stored(config.get()["panels"])[pid(61)]["timers"], {"red_s": 20, "show": ["A1"]})
+eq("the operator view survives a restart", reg.view(pid(61))["set_timers"], {"red_s": 20, "show": ["A1"]})
+config.save({"panels": {pid(62): {"feed_rev": 0, "timers": {"amber_s": "x"}}}}, replace=("panels",))
+eq("settings that all fail leave the panel on the global ones", reg.view(pid(62))["set_timers"], None)
+eq("the timers are the admin port's: not on the viewer port",
+   viewer.post(f"/api/admin/panels/{pid(60)}", json={"timers": None}).status_code, 404)
+
 print("\nfirmware: the panel's words and Relay's are the same")
 fw_source = (Path(__file__).resolve().parent.parent / "firmware" / "relay-display" / "main" / "update_format.h")
 check("the panel's update vocabulary is where this test reads it", fw_source.exists())
