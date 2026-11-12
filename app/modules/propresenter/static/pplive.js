@@ -5,6 +5,8 @@
   const $ = function (id) { return document.getElementById(id); };
   if (!$('page-pplive')) return;
   const BASE = '/api/admin/propresenter';
+  // What this user may do here. Without the admin page's relayCan the server still refuses, so assume yes.
+  function can(perm) { return typeof window.relayCan !== 'function' || !!window.relayCan(perm); }
   let view = null, body = null, filled = false, timer = null, busy = false, actionErr = '';
 
   function h(tag, cls, text) {
@@ -86,12 +88,21 @@
       + (l.next_in_s !== null ? ' Next step in ' + Math.ceil(l.next_in_s) + ' s.' : '');
     box.appendChild(h('div', 't' + (l.running ? '' : ' muted'), line));
     $('lbSum').textContent = l.running ? (l.paused ? 'paused' : 'running') : '';
-    const on = l.connected && !l.view_only;
+    // Start, Resume and Stop run ProPresenter (propresenter.control); the playlist, time and loop are setup (.manage).
+    const on = l.connected && !l.view_only && can('propresenter.control');
+    const manage = can('propresenter.manage');
+    ['lbPlaylist', 'lbInterval', 'lbLoop', 'svTimer', 'svPublic'].forEach(function (id) { $(id).disabled = !manage; });
+    $('lbSave').hidden = !manage;
+    $('svSave').hidden = !manage;
+    const note = $('svAccessNote');
+    note.hidden = manage;
+    note.textContent = manage ? '' : can('propresenter.control')
+      ? 'You can run the rotation but not change its settings.' : 'You can view this page but not change it.';
     $('lbStart').disabled = !on || !$('lbPlaylist').value;
     $('lbStart').textContent = l.running ? 'Restart' : 'Start';
     $('lbResume').hidden = !(l.running && l.paused);
     $('lbResume').disabled = !on;
-    $('lbStop').disabled = !l.running;
+    $('lbStop').disabled = !l.running || !can('propresenter.control');
     $('lbStopClear').disabled = !on;
     $('lbMsg').textContent = l.view_only ? 'View-only mode is on, so the rotation cannot change anything in ProPresenter.' : '';
     say('lbErr', actionErr || l.error, true);
@@ -136,7 +147,10 @@
   // Start uses what is on screen: it saves the playlist, time and loop first, so there is no unsaved choice.
   $('lbStart').addEventListener('click', function () {
     run(async function () {
-      body = await post('', { lobby: { playlist: $('lbPlaylist').value, interval_s: Number($('lbInterval').value), loop: $('lbLoop').checked } });
+      // Whoever may not change the settings starts the rotation with the ones already saved.
+      if (can('propresenter.manage')) {
+        body = await post('', { lobby: { playlist: $('lbPlaylist').value, interval_s: Number($('lbInterval').value), loop: $('lbLoop').checked } });
+      }
       await post('/lobby/start');
     });
   });

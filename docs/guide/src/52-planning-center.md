@@ -15,7 +15,7 @@ Center until you connect it.
 - **A person who can sign in to Planning Center** and has access to Services.
   Relay acts as this person. Choose someone whose access you are happy for the
   panels to use.
-- **Your admin token.** See Part 1.
+- **An operator account** with the Admin role. See Part 1.
 - **At least one caption panel**, set up as in the previous chapter.
 
 ::: warning

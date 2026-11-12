@@ -12,6 +12,11 @@ from zoneinfo import ZoneInfo
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 os.environ["RELAY_CONFIG"] = os.path.join(tempfile.mkdtemp(), "config.json")
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import _pg  # noqa: E402  (a throwaway Postgres for the user system; must come before app.main)
+
+_pg.start()
+_pg.reset()
 
 from app import config, schedules as S
 from app import scheduler as scheduler_mod
@@ -315,37 +320,37 @@ from fastapi.testclient import TestClient
 from app import engine as engine_mod
 from app.main import app
 
-config.save({"admin_token": "t0ken", "schedules": [], "port": 8000, "admin_port": 8000})
-H = {"x-admin-token": "t0ken"}
+config.save({"schedules": [], "port": 8000, "admin_port": 8000})
 body = {"name": "Sunday morning", "repeat": "weekly", "days": [0],
         "start_time": "10:00", "stop_time": "12:00", "timezone": "America/Chicago"}
-with TestClient(app) as cl:
+cl = _pg.client(app, base_url="http://testserver")
+with cl:
     scheduler_mod.engine = engine_mod.engine
-    check("needs a token", cl.get("/api/admin/schedules").status_code, 401)
-    got = cl.get("/api/admin/schedules", headers=H).json()
+    check("needs a sign-in", TestClient(app).get("/api/admin/schedules").status_code, 401)
+    got = cl.get("/api/admin/schedules").json()
     check("lists US zones only", [z["id"] for z in got["timezones"]], [z for z, _ in S.US_TIMEZONES])
-    res = cl.post("/api/admin/schedules", headers=H, json=body)
+    res = cl.post("/api/admin/schedules", json=body)
     check("create", res.status_code, 200)
     item = res.json()["schedules"][0]
     check("the listing carries the US summary", item["summary"],
           "Every Sun · 10:00 AM – 12:00 PM Central")
     check("and the next start in US format", item["next_start"].endswith("10:00 AM CDT")
           or item["next_start"].endswith("10:00 AM CST"), True)
-    res = cl.post("/api/admin/schedules", headers=H, json=dict(body, timezone="Asia/Tokyo"))
+    res = cl.post("/api/admin/schedules", json=dict(body, timezone="Asia/Tokyo"))
     check("a non-US zone is refused", (res.status_code, "US time zone" in res.json()["error"]),
           (400, True))
-    res = cl.put(f"/api/admin/schedules/{item['id']}", headers=H,
+    res = cl.put(f"/api/admin/schedules/{item['id']}",
                  json=dict(body, days=[0, 3], enabled=False))
     check("update", (res.status_code, res.json()["schedules"][0]["days"],
                      res.json()["schedules"][0]["enabled"]), (200, [0, 3], False))
     check("the id is kept on update", res.json()["schedules"][0]["id"], item["id"])
-    check("update of an unknown id", cl.put("/api/admin/schedules/nope", headers=H,
+    check("update of an unknown id", cl.put("/api/admin/schedules/nope",
                                             json=body).status_code, 404)
     check("status carries the schedule block",
-          "next_scheduled_start" in cl.get("/api/admin/status", headers=H).json()["schedule"], True)
+          "next_scheduled_start" in cl.get("/api/admin/status").json()["schedule"], True)
     check("stored in config.json", config.load()["schedules"][0]["days"], [0, 3])
-    check("delete", cl.delete(f"/api/admin/schedules/{item['id']}", headers=H).json()["schedules"], [])
-    check("delete of an unknown id", cl.delete("/api/admin/schedules/nope", headers=H).status_code, 404)
+    check("delete", cl.delete(f"/api/admin/schedules/{item['id']}").json()["schedules"], [])
+    check("delete of an unknown id", cl.delete("/api/admin/schedules/nope").status_code, 404)
 
 print()
 if fails:

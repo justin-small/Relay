@@ -1,7 +1,8 @@
 # syntax=docker/dockerfile:1.7
 # Live Caption Relay
 #
-# Two processes, one container: Caddy on the network side, uvicorn on loopback.
+# Three processes, one container: Caddy on the network side, uvicorn on loopback,
+# and Postgres on a unix socket only (no TCP listener at all).
 # Caddy serves the viewer pages in plain HTTP on 8080 (published as 80) and the
 # operator panel over HTTPS on 8443 (published as 443); the relay's own sockets
 # never leave 127.0.0.1 inside the network namespace, so the panel and the
@@ -58,6 +59,25 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         libasound2-plugins \
     && rm -rf /var/lib/apt/lists/*
 
+# Postgres, for the user accounts and anything else that needs a database. The
+# major is pinned by package name: trixie ships 17, and docker/entrypoint.sh
+# compares the data directory's PG_VERSION with it, so moving to another major
+# is a deliberate edit here that triggers a dump-and-restore on next start.
+# postgresql-client-17 is pg_dump/pg_restore/psql/pg_isready; libpq5 is what the
+# pure-Python psycopg loads at runtime; libnss-wrapper lets initdb and postgres
+# run when the container's uid has no passwd entry (a Linux host's own uid).
+# create_main_cluster=false stops the package from making a cluster in /var/lib,
+# which is read-only at run time anyway. The server never listens on TCP; see
+# entrypoint.sh.
+RUN mkdir -p /etc/postgresql-common \
+    && echo 'create_main_cluster = false' > /etc/postgresql-common/createcluster.conf \
+    && apt-get update && apt-get install -y --no-install-recommends \
+        postgresql-17 \
+        postgresql-client-17 \
+        libpq5 \
+        libnss-wrapper \
+    && rm -rf /var/lib/apt/lists/*
+
 # Unprivileged runtime account. High, fixed ids so they cannot collide with a
 # real host account through a bind mount. `audio` is Debian's gid 29, which is
 # what /dev/snd is handed in as on a Linux host.
@@ -68,11 +88,18 @@ RUN groupadd --gid "${RELAY_GID}" relay \
         --home-dir /home/relay --create-home --shell /usr/sbin/nologin relay \
     && usermod --append --groups audio relay
 
-ENV PATH="/opt/venv/bin:${PATH}" \
+# The real binaries first on PATH, ahead of Debian's perl wrappers in /usr/bin.
+ENV PATH="/usr/lib/postgresql/17/bin:/opt/venv/bin:${PATH}" \
     PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PYTHONFAULTHANDLER=1 \
     HOME=/home/relay \
+    # So psql / pg_dump from `docker exec` reach the private socket as the
+    # database role without a passwd entry for the uid. The app's own URL is
+    # exported by entrypoint.sh, not here, so tool runs never look configured.
+    PGHOST=/tmp/relay-pg \
+    PGUSER=relay \
+    PGDATABASE=relay \
     RELAY_CONFIG=/app/config/config.json \
     RELAY_BLOCKLIST=/app/config/blocklist.txt \
     # Recorded runs land on the state volume for the same reason the
@@ -136,10 +163,19 @@ COPY --chown=root:root --chmod=0644 docker/config.example.json ./config.example.
 # and a directory without the execute bit cannot be traversed.
 COPY --chown=root:root app ./app
 COPY --chmod=0555 docker/entrypoint.sh /usr/local/bin/docker-entrypoint.sh
+# Sourced by the entrypoint's `serve` path: starts and supervises Postgres.
+COPY --chmod=0444 docker/postgres.sh /usr/local/bin/docker-postgres.sh
 
 # Mount point for the state volume (config.json holds the API key and the
 # admin token, so it stays out of the image and survives rebuilds).
 RUN install -d -o "${RELAY_UID}" -g "${RELAY_GID}" -m 0700 /app/config
+
+# Mount point for the `relay-db` named volume (Postgres data). A fresh named
+# volume inherits this directory's mode and owner, and the container can neither
+# chown nor run as root, so it is 1777 (world-writable, sticky): whichever uid
+# the container runs as can create its own 0700 data/ inside, and no other uid
+# can remove it. See entrypoint.sh.
+RUN install -d -m 1777 /var/lib/relay-db
 
 # 8080 viewer pages (plain HTTP, published as 80), 8443 operator panel (HTTPS,
 # published as 443). 8000/8001 are the relay's own sockets and stay on loopback
@@ -149,13 +185,15 @@ EXPOSE 8080 8443
 USER relay:relay
 
 # Through Caddy on the viewer port, so one probe covers both processes: a dead
-# front end fails it even when uvicorn is fine. Adjust if you change `port` in
-# config.json.
+# front end fails it even when uvicorn is fine. Postgres is deliberately not
+# part of it: the entrypoint restarts a dead database with backoff, captions
+# keep running while it is down, and /healthz must keep meaning "the relay
+# answers". Adjust if you change `port` in config.json.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
     CMD ["python", "-c", "import urllib.request as u; u.urlopen('http://127.0.0.1:8080/healthz', timeout=3).read()"]
 
 ENTRYPOINT ["docker-entrypoint.sh"]
-# "serve" is the whole stack: certificate, Caddy, uvicorn, supervised together.
+# "serve" is the whole stack: Postgres, certificate, Caddy, uvicorn, supervised together.
 # Any other command is run as-is, which is how setup.command / setup.bat reach
 # tools/write_config.py and tools/setup_caddy.py without a Python on the host.
 CMD ["serve"]

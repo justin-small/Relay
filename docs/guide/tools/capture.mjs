@@ -9,7 +9,17 @@
 //    interception, because rehearsal mode never opens a real session;
 //  - the key hint shows the last four characters of the throwaway key.
 //
-//   RELAY_GUIDE_TOKEN=... RELAY_GUIDE_STATE=/path/to/docker-config node capture.mjs [name ...]
+//   RELAY_GUIDE_USER=... RELAY_GUIDE_PASSWORD=... RELAY_GUIDE_STATE=/path/to/docker-config \
+//     node capture.mjs [name ...]
+//
+// Sign-in: Relay has per-person accounts, so the script signs in through
+// POST /admin/login with RELAY_GUIDE_USER and RELAY_GUIDE_PASSWORD (an Owner
+// or Admin of the rehearsal instance; the account must not still have a
+// temporary password). On a brand-new instance with no users yet, also set
+// RELAY_GUIDE_TOKEN to its admin token: the script then creates that Owner
+// from the first-run form, and the token header works until it exists.
+// Variables: RELAY_GUIDE_USER, RELAY_GUIDE_PASSWORD, RELAY_GUIDE_TOKEN
+// (first run only), RELAY_GUIDE_STATE, RELAY_VIEW_URL, RELAY_ADMIN_URL.
 
 import { chromium, request } from 'playwright';
 import { mkdirSync, writeFileSync } from 'node:fs';
@@ -21,12 +31,15 @@ const OUT = join(HERE, '..', 'images');
 const VIEW = process.env.RELAY_VIEW_URL || 'http://localhost:18080';
 const ADMIN = process.env.RELAY_ADMIN_URL || 'https://localhost:18443';
 const TOKEN = process.env.RELAY_GUIDE_TOKEN;
+const USER = process.env.RELAY_GUIDE_USER;
+const PASSWORD = process.env.RELAY_GUIDE_PASSWORD;
 const STATE = process.env.RELAY_GUIDE_STATE; // the instance's docker-config/, for test recordings
 const EXAMPLE = 'http://192.168.1.50/';
 const ONLY = process.argv.slice(2);
 
-if (!TOKEN) {
-  console.error('Set RELAY_GUIDE_TOKEN to the rehearsal instance\'s admin token.');
+if (!(USER && PASSWORD) && !TOKEN) {
+  console.error('Set RELAY_GUIDE_USER and RELAY_GUIDE_PASSWORD to an account on the rehearsal instance '
+    + '(or RELAY_GUIDE_TOKEN, its admin token, while it has no users yet).');
   process.exit(2);
 }
 mkdirSync(OUT, { recursive: true });
@@ -103,10 +116,28 @@ const SCHEDULES = [
     start_time: '19:00', stop_time: '20:30', timezone: 'America/Chicago' },
 ];
 
+// An API client for the panel: signed in with the account (the session cookie is kept), or, with only the
+// token, sending it as a header (accepted only while Relay has no users).
+async function apiContext() {
+  if (USER && PASSWORD) {
+    const api = await request.newContext({ baseURL: ADMIN, ignoreHTTPSErrors: true });
+    const res = await api.post('/admin/login', { form: { username: USER, password: PASSWORD } });
+    const me = await api.get('/api/admin/me');
+    if (!res.ok() || !me.ok()) {
+      // First run: no users yet, so make the Owner the way the first-run form does.
+      if (TOKEN) {
+        await api.post('/admin/setup', { form: { token: TOKEN, username: USER, name: USER, password: PASSWORD, confirm: PASSWORD } });
+        if ((await api.get('/api/admin/me')).ok()) return api;
+      }
+      throw new Error('Could not sign in as ' + USER + ' (wrong password, or a temporary password not yet changed).');
+    }
+    return api;
+  }
+  return request.newContext({ baseURL: ADMIN, ignoreHTTPSErrors: true, extraHTTPHeaders: { 'x-admin-token': TOKEN } });
+}
+
 async function seed() {
-  const api = await request.newContext({
-    baseURL: ADMIN, ignoreHTTPSErrors: true, extraHTTPHeaders: { 'x-admin-token': TOKEN },
-  });
+  const api = await apiContext();
   const ok = async (res) => {
     if (!res.ok()) throw new Error(res.url() + ' -> ' + res.status() + ' ' + (await res.text()));
     return res.json();
@@ -277,8 +308,17 @@ async function adminPage(browser, { status = null, width = 1100, height = 900 } 
   });
 
   await page.goto(ADMIN + '/admin');
-  if (await page.locator('input[name=token]').count()) {
-    await page.fill('input[name=token]', TOKEN);
+  if (await page.locator('input[name=token]').count()) {          // first run: create the Owner
+    await page.fill('input[name=token]', TOKEN || '');
+    await page.fill('input[name=username]', USER);
+    await page.fill('input[name=name]', USER);
+    await page.fill('input[name=password]', PASSWORD);
+    await page.fill('input[name=confirm]', PASSWORD);
+    await page.click('button[type=submit]');
+    await page.waitForURL('**/admin');
+  } else if (await page.locator('input[name=username]').count()) { // sign in
+    await page.fill('input[name=username]', USER);
+    await page.fill('input[name=password]', PASSWORD);
     await page.click('button[type=submit]');
     await page.waitForURL('**/admin');
   }
@@ -406,14 +446,16 @@ async function signinShot(browser) {
   await p.goto(ADMIN + '/admin');
   if (want('operator-signin')) {
     await annotate(p, [
-      { sel: 'input[name=token]', n: 1 },
-      { sel: 'button[type=submit]', n: 2 },
+      { sel: 'input[name=username]', n: 1 },
+      { sel: 'input[name=password]', n: 2 },
+      { sel: 'button[type=submit]', n: 3 },
     ]);
     await shotOf(p, 'form', 'operator-signin.png', 70);
   }
   if (want('operator-signin-error')) {
     await p.evaluate(() => document.querySelectorAll('.guide-mark').forEach((n) => n.remove()));
-    await p.fill('input[name=token]', 'not-the-token');
+    await p.fill('input[name=username]', 'sam');
+    await p.fill('input[name=password]', 'not-the-password');
     await p.click('button[type=submit]');
     await p.waitForSelector('.err');
     await annotate(p, [{ sel: '.err', n: 1 }]);
@@ -568,8 +610,7 @@ async function adminShots(browser) {
       await annotate(page, [
         { sel: '#keyState', n: 1, pos: 'top' },
         { sel: '#apikey', n: 2, pos: 'bottom', dx: 180 },
-        { sel: '#admintoken', n: 3, pos: 'bottom' },
-        { sel: '#saveCreds', n: 4, pos: 'left' },
+        { sel: '#saveCreds', n: 3, pos: 'left' },
       ]);
       await shotOf(page, '#page-credentials', 'admin-credentials.png');
     }
@@ -776,9 +817,7 @@ async function adminShots(browser) {
 
 async function alertShots(browser) {
   if (!want('alert-sender') && !want('alert-screen')) return;
-  const admin = await request.newContext({
-    baseURL: ADMIN, ignoreHTTPSErrors: true, extraHTTPHeaders: { 'x-admin-token': TOKEN },
-  });
+  const admin = await apiContext();
   const saved = await (await admin.get('/api/admin/alerts')).json();
   const list = (saved.alerts && saved.alerts.buttons) || saved.buttons || [];
   const booth = list.find((b) => b.name === ALERT_BUTTONS[0].name);
@@ -844,6 +883,6 @@ try {
 }
 await certShot();
 // Leave the instance stopped: nothing here should keep a session open.
-const api = await request.newContext({ baseURL: ADMIN, ignoreHTTPSErrors: true, extraHTTPHeaders: { 'x-admin-token': TOKEN } });
+const api = await apiContext();
 await api.post('/api/admin/stop');
 await api.dispose();

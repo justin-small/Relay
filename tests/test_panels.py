@@ -18,6 +18,11 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 os.environ["RELAY_CONFIG"] = os.path.join(tempfile.mkdtemp(), "config.json")
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import _pg  # noqa: E402  (a throwaway Postgres for the user system; must come before app.main)
+
+_pg.start()
+_pg.reset()
 
 from fastapi.testclient import TestClient
 
@@ -49,7 +54,7 @@ config.save({"modules": {"planning_center": {"enabled": True}, "propresenter": {
 _modules.attach("planning_center")
 _modules.attach("propresenter")
 viewer = TestClient(app, base_url="http://relay.local:8000")
-admin = TestClient(app, base_url="http://relay.local:8001", headers={"x-admin-token": "t0ken"})
+admin = _pg.client(app, base_url="http://relay.local:8001")
 reg = panels.registry
 
 clock = [1000.0]
@@ -200,10 +205,11 @@ print("\nadmin routes stay on the admin port")
 viewer.post("/api/panels/checkin", json=body(1))
 for method, path in (("get", "/api/admin/panels"), ("post", f"/api/admin/panels/{pid(1)}"),
                      ("delete", f"/api/admin/panels/{pid(1)}")):
-    r = getattr(viewer, method)(path, headers={"x-admin-token": "t0ken"})
+    # Even a signed-in operator's cookie gets nothing on the viewer port.
+    r = getattr(viewer, method)(path, cookies=dict(admin.cookies))
     eq(f"viewer port: {method.upper()} {path} is 404", r.status_code, 404)
 r = TestClient(app, base_url="http://relay.local:8001").get("/api/admin/panels")
-eq("admin routes still need the token", r.status_code, 401)
+eq("admin routes still need a sign-in", r.status_code, 401)
 eq("panel routes are not served on the admin port's behalf",
    TestClient(app, base_url="http://relay.local:8001").post("/api/panels/checkin", json=body(5)).status_code, 200)
 
@@ -301,7 +307,7 @@ frame = read_frame(resp)
 check("a quiet stream pings", frame.startswith(": ping"), frame)
 c = conn()
 c.request("POST", f"/api/admin/panels/{pid(9)}", json.dumps({"feeds": [{"stream": "translation", "lang": "PORTUGUESE"}]}),
-          {"content-type": "application/json", "x-admin-token": "t0ken"})
+          {"content-type": "application/json", "cookie": "relay_admin=" + admin.cookies.get("relay_admin")})
 eq("the operator sets a feed", c.getresponse().status, 200)
 c.close()
 for _ in range(10):
@@ -472,7 +478,7 @@ eq("naming the CrowPanel for a CrowPanel image is fine",
 config.save({"admin_token": "t0ken", "port": 8000, "admin_port": 8001})
 eq("the upload route is not on the viewer port",
    viewer.post("/api/admin/panels/firmware", content=good).status_code, 404)
-eq("the upload needs the admin token",
+eq("the upload needs a sign-in",
    TestClient(app, base_url="http://relay.local:8001").post("/api/admin/panels/firmware", content=good).status_code, 401)
 big = admin.post("/api/admin/panels/firmware", content=b"\x00" * (panelfw.SLOT_BYTES + 1))
 eq("an upload over the slot is cut off at the door", big.status_code, 413)
@@ -728,7 +734,7 @@ eq("a board on hold has none", admin.get("/api/admin/panels/flash/waveshare-p4-1
 eq("…nor does a path", admin.get("/api/admin/panels/flash/..%2Fconfig.json").status_code, 404)
 eq("the USB image is not on the viewer port",
    viewer.get("/api/admin/panels/flash/crowpanel-adv7.bin").status_code, 404)
-eq("…and needs the admin token",
+eq("…and needs a sign-in",
    TestClient(app, base_url="http://relay.local:8001").get("/api/admin/panels/flash/crowpanel-adv7.bin").status_code, 401)
 eq("…and is never offered to a panel",
    viewer.get("/api/panels/firmware/crowpanel-adv7/0.4.0.bin").status_code, 404)
@@ -737,7 +743,7 @@ print("\nfirmware: the flasher page")
 anon = TestClient(app, base_url="http://relay.local:8001")
 r = anon.get("/admin/flash")
 check("signed out, the flasher page is the sign-in form", 'action="/admin/login"' in r.text)
-anon.post("/admin/login", data={"token": "t0ken"})
+anon.post("/admin/login", data={"username": "owner", "password": "correct horse"})
 r = anon.get("/admin/flash")
 check("signed in, it offers the write", "data-flasher" in r.text and "Write firmware 0.4.0" in r.text, r.text[:200])
 check("…with the board's chip and flash size", 'data-chip="ESP32-S3"' in r.text and 'data-flash-mb="16"' in r.text)

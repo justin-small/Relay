@@ -6,6 +6,18 @@
   if (!R || !document.getElementById('page-planningcenter')) return;
   const $ = R.$, el = R.el, api = R.api, post = R.post, okMsg = R.okMsg, alertMsg = R.alertMsg, agoText = R.agoText;
   function C() { return R.cfg(); }
+  // What this user may do here. Without the admin page's relayCan the server still refuses, so assume yes.
+  function can(perm) { return typeof window.relayCan !== 'function' || !!window.relayCan(perm); }
+  function paintAccess() {
+    const manage = can('planning_center.manage'), control = can('planning_center.control');
+    // The token, the service types and the notes switch are changes to the setup: only for who manages it.
+    $('pcConnBox').querySelectorAll('.row, .ctl, .note:not(#pcState)').forEach(function (n) { n.hidden = !manage; });
+    $('pcNotes').disabled = !manage;
+    const note = $('pcSetupAccessNote');
+    note.hidden = manage;
+    note.textContent = manage ? '' : control
+      ? 'You can choose the plan for today but not change the setup.' : 'You can view this page but not change it.';
+  }
   // The Panels page offers a panel's service mode while Planning Center is connected.
   R.panelHooks.serviceOn = function () { return !!(C() && C().planning_center && C().planning_center.connected); };
 
@@ -25,7 +37,7 @@
     // A saved token only means a token is saved. "connected" is said only while reads work.
     const failing = pc.connected && !!pcError;
     $('pcConnSum').textContent = failing ? 'not working' : (pc.connected ? 'connected' : '');
-    $('pcDisconnect').hidden = !pc.connected;
+    $('pcDisconnect').hidden = !pc.connected || !can('planning_center.manage');
     $('pcTest').disabled = !pc.connected && !($('pcAppId').value.trim() && $('pcSecret').value.trim());
     $('pcState').textContent = failing
       ? pcError
@@ -38,6 +50,7 @@
     $('pcDisplay').hidden = !pc.connected;
     $('pcNotes').checked = !!pc.show_notes;
     renderPcTypes();
+    paintAccess();
   }
 
   function renderPcTypes() {
@@ -79,7 +92,8 @@
   /* Read the service types from Planning Center. Quiet reads (the periodic refresh)
      never interrupt with an error and never overwrite ticks that are not saved yet. */
   async function loadPcTypes(quiet) {
-    if (pcLoading || !(C() && C().planning_center && C().planning_center.connected)) return;
+    // Reading the account's service types is a call to Planning Center that only who manages the setup may make.
+    if (pcLoading || !can('planning_center.manage') || !(C() && C().planning_center && C().planning_center.connected)) return;
     pcLoading = true;
     try {
       const body = await post('/api/admin/planning-center/service-types/refresh');
@@ -226,6 +240,7 @@
         row.appendChild(el('strong', '', t.name + ' '));
         const sel = document.createElement('select');
         sel.setAttribute('aria-label', 'Plan followed today for ' + t.name);
+        sel.disabled = !can('planning_center.control');
         const auto = document.createElement('option');
         auto.value = ''; auto.textContent = 'Relay\'s pick for today';
         sel.appendChild(auto);

@@ -4,13 +4,19 @@
    from the server (app/overlays.py); the server checks every value again whichever way it arrives. Everything
    from the server is set as text. */
 (function () {
-  const $ = function (id) { return document.getElementById(id); };
-  if (!$('page-overlay')) return;
+  if (!document.getElementById('page-overlay')) return;
+  // The saving controls are left out of the page for a role that may not change overlays; the code that
+  // wires them runs against a detached stand-in for what is not there.
+  const $ = function (id) { return document.getElementById(id) || document.createElement('div'); };
+  const canManage = window.relayCan('overlays.manage');
 
   async function call(path, opts) {
     const res = await fetch(path, Object.assign({ cache: 'no-store' }, opts || {}));
     const data = await res.json().catch(function () { return {}; });
-    if (!res.ok) throw new Error(data.error || data.detail || ('HTTP ' + res.status));
+    if (!res.ok) {
+      if (window.RelayAdmin) window.RelayAdmin.sessionEnded(res, data);
+      throw new Error(data.error || data.detail || ('HTTP ' + res.status));
+    }
     return data;
   }
   function send(method, path, body) {
@@ -342,7 +348,7 @@
         navigator.clipboard.writeText(host + '/overlay/' + o.id).then(function () {
           cp.textContent = 'Copied';
           setTimeout(function () { cp.textContent = 'Copy link'; }, 1600);
-        }).catch(function () { startEditing(o); });
+        }).catch(function () { if (canManage) startEditing(o); });
       });
       const ed = h('button', '', 'Edit');
       ed.type = 'button';
@@ -350,7 +356,8 @@
       const del = h('button', '', 'Delete');
       del.type = 'button';
       del.addEventListener('click', function () { remove(o); });
-      acts.appendChild(cp); acts.appendChild(ed); acts.appendChild(del);
+      acts.appendChild(cp);
+      if (canManage) { acts.appendChild(ed); acts.appendChild(del); }
       td.appendChild(acts);
       tr.appendChild(td);
       body.appendChild(tr);

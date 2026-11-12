@@ -1,6 +1,16 @@
 /* Operator panel: device + key + target toggles + live health. */
 (function () {
-  const $ = function (id) { return document.getElementById(id); };
+  /* A page the signed-in role may not see is not in the document at all (the server leaves it out), but the code
+     that feeds every page still runs. For an element that is not there it hands back a detached stand-in, so
+     nothing throws and nothing shows. */
+  const $ = function (id) {
+    return document.getElementById(id) || (function () {
+      const n = document.createElement('div');
+      n.innerHTML = '<i></i>';
+      return n;
+    })();
+  };
+  const can = function (perm) { return window.relayCan(perm); };
   let devices = [];
   let cfg = null;
   let lastTargetsKey = '';
@@ -22,10 +32,23 @@
     okTimer = setTimeout(function () { el.hidden = true; }, 2600);
   }
 
+  /* The session ended (signed out elsewhere, turned off, or a password change is waiting): the sign-in page
+     says what to do next. Returns true when it has sent the browser there. */
+  function sessionEnded(res, body) {
+    if (res.status === 401 || (res.status === 403 && body && body.detail === 'password_change_required')) {
+      window.location.href = '/admin';
+      return true;
+    }
+    return false;
+  }
+
   async function api(path, opts) {
     const res = await fetch(path, Object.assign({ cache: 'no-store' }, opts || {}));
     const body = await res.json().catch(function () { return {}; });
-    if (!res.ok) throw new Error(body.error || body.detail || ('HTTP ' + res.status));
+    if (!res.ok) {
+      sessionEnded(res, body);
+      throw new Error(body.error || body.detail || ('HTTP ' + res.status));
+    }
     return body;
   }
 
@@ -114,11 +137,14 @@
 
   async function saveDevice() {
     try {
-      const body = await post('/api/admin/config', {
+      const payload = {
         audio_device: $('device').value,
-        input_channel: $('channel').value === 'mix' ? 'mix' : (parseInt($('channel').value, 10) || 0),
-        realtime: { noise_reduction: $('noise').value || null }
-      });
+        input_channel: $('channel').value === 'mix' ? 'mix' : (parseInt($('channel').value, 10) || 0)
+      };
+      // Noise reduction is a realtime setting: a role that cannot change those must not send it (the whole
+      // request would be refused).
+      if (can('settings.manage')) payload.realtime = { noise_reduction: $('noise').value || null };
+      const body = await post('/api/admin/config', payload);
       cfg = body.config;
       okMsg('Input saved.');
     } catch (e) { alertMsg(e.message); }
@@ -264,12 +290,11 @@
   $('saveCreds').addEventListener('click', async function () {
     const payload = {};
     if ($('apikey').value.trim()) payload.openai_api_key = $('apikey').value.trim();
-    if ($('admintoken').value.trim()) payload.admin_token = $('admintoken').value.trim();
     if (!Object.keys(payload).length) { alertMsg('Nothing to save.'); return; }
     try {
       const body = await post('/api/admin/config', payload);
       cfg = body.config;
-      $('apikey').value = ''; $('admintoken').value = '';
+      $('apikey').value = '';
       renderKeyState();
       okMsg('Saved.' + (payload.openai_api_key ? ' Restart capture to use the new key.' : ''));
     } catch (e) { alertMsg(e.message); }
@@ -426,7 +451,7 @@
       btn.disabled = !!r.recording;
       btn.title = r.recording ? 'This run is still being recorded.' : '';
       btn.addEventListener('click', function () { deleteRun(r.run_id, r.started); });
-      del.appendChild(btn);
+      if (can('recordings.manage')) del.appendChild(btn);
       tr.appendChild(del);
 
       tb.appendChild(tr);
@@ -461,6 +486,7 @@
   }
 
   async function loadRuns() {
+    if (!can('recordings.view')) return;
     try {
       const info = await api('/api/admin/recordings');
       $('recEnabled').checked = !!info.enabled;
@@ -770,6 +796,7 @@
       sw.title = s.enabled ? 'Turn this schedule off' : 'Turn this schedule on';
       sw.innerHTML = '<input type="checkbox"' + (s.enabled ? ' checked' : '') + '><span class="slider"></span>';
       sw.querySelector('input').setAttribute('aria-label', 'Schedule on');
+      if (!can('schedules.manage')) sw.querySelector('input').disabled = true;
       sw.querySelector('input').addEventListener('change', function (ev) { schedToggle(s, ev.target.checked); });
       on.appendChild(sw);
       tr.appendChild(on);
@@ -785,7 +812,7 @@
       del.className = 'danger';
       del.textContent = 'Delete';
       del.addEventListener('click', function () { schedDelete(s); });
-      act.appendChild(edit); act.appendChild(del);
+      if (can('schedules.manage')) { act.appendChild(edit); act.appendChild(del); }
       tr.appendChild(act);
 
       tb.appendChild(tr);
@@ -842,6 +869,7 @@
   }
 
   async function loadSchedules() {
+    if (!can('schedules.view')) return;
     try { renderSchedules(await api('/api/admin/schedules')); }
     catch (e) { /* the panel is still usable without the list */ }
   }
@@ -927,6 +955,7 @@
   }
 
   function alertCard(b, i) {
+    const editable = can('alerts.manage');
     const card = el('div', 'pcard acard');
     const head = el('div', 'phead');
     // The icon the /alert page shows for it (look C): a preview and a picker.
@@ -963,6 +992,7 @@
     const state = el('span', 'astate ' + st.cls, st.text);
     if (b.id) state.dataset.astate = b.id;
     head.appendChild(state);
+    if (!editable) { name.disabled = true; pick.disabled = true; }
     const remove = el('button', '', 'Remove');
     remove.type = 'button';
     remove.addEventListener('click', function () {
@@ -972,7 +1002,7 @@
       renderAlerts();
       alertSetDirty(true);
     });
-    head.appendChild(remove);
+    if (editable) head.appendChild(remove);
     card.appendChild(head);
 
     const pf = el('div', 'field');
@@ -988,6 +1018,7 @@
       const box = el('input');
       box.type = 'checkbox';
       box.checked = b.panels.indexOf(r.id) !== -1;
+      box.disabled = !editable;
       box.addEventListener('change', function () {
         b.panels = b.panels.filter(function (x) { return x !== r.id; });
         if (box.checked) b.panels.push(r.id);
@@ -1009,6 +1040,7 @@
     screens.id = sid;
     screens.placeholder = 'Booth TV';
     screens.value = b.screens.join(', ');
+    screens.disabled = !editable;
     screens.addEventListener('input', function () {
       b.screens = screens.value.split(',').map(function (x) { return x.replace(/\s+/g, ' ').trim(); })
         .filter(Boolean);
@@ -1025,6 +1057,7 @@
     const stageBox = el('input');
     stageBox.type = 'checkbox';
     stageBox.checked = !!b.stage;
+    stageBox.disabled = !editable;
     stageBox.addEventListener('change', function () { b.stage = stageBox.checked; alertSetDirty(true); });
     stageRow.appendChild(stageBox);
     stageRow.appendChild(el('span', '', 'Also show on the ProPresenter stage display (cleared when acknowledged)'));
@@ -1291,7 +1324,7 @@
         catch (e) { alertMsg(e.message); }
       });
       [file, up, all, rm].forEach(function (n) { ctl.appendChild(n); });
-      row.appendChild(ctl);
+      if (can('panels.manage')) row.appendChild(ctl);
       box.appendChild(row);
     });
   }
@@ -1386,6 +1419,7 @@
     const foot = $('dFoot');
     foot.innerHTML = '';
 
+    const editable = can('panels.manage');
     const form = el('form');
     form.autocomplete = 'off';
     form.addEventListener('input', function () { drawerTouched = true; });
@@ -1476,6 +1510,7 @@
       tmAmber.value = clockText(mine.amber_s !== undefined ? mine.amber_s : g.amber_s);
       tmRed.value = clockText(mine.red_s !== undefined ? mine.red_s : g.red_s);
       timerPicker(tmPick, b.state.timers || [], mine.show !== undefined ? mine.show : g.show);
+      if (!editable) tmPick.querySelectorAll('input').forEach(function (n) { n.disabled = true; });
     }).catch(function () { /* the timers just are not listed */ });
 
     const pcOn = !!(window.RelayAdmin.panelHooks.serviceOn && window.RelayAdmin.panelHooks.serviceOn());
@@ -1528,6 +1563,17 @@
     form.appendChild(dev);
     body.appendChild(form);
     refreshDrawerDevice(row);
+
+    if (!editable) {
+      // A role that can see panels but not change them gets the settings as read-only text, not controls that
+      // would only be refused.
+      form.querySelectorAll('input, select, textarea').forEach(function (n) { n.disabled = true; });
+      const closeBtn = el('button', '', 'Close');
+      closeBtn.type = 'button';
+      closeBtn.addEventListener('click', closeDrawer);
+      foot.appendChild(closeBtn);
+      return;
+    }
 
     const save = el('button', 'primary', 'Save');
     save.type = 'button';
@@ -1608,7 +1654,7 @@
     if (row.named && row.reported_name && row.reported_name !== row.name) kv(dev, 'Reports as', row.reported_name);
     const up = updateRow(row);
     if (up) dev.appendChild(up);
-    if (row.update_available && !row.update_requested && row.online) {
+    if (can('panels.manage') && row.update_available && !row.update_requested && row.online) {
       const actions = el('div', 'pactions');
       const later = el('button', '', 'Update');
       later.type = 'button';
@@ -1623,7 +1669,7 @@
       actions.appendChild(now);
       dev.appendChild(actions);
     }
-    if (row.online) {
+    if (can('panels.manage') && row.online) {
       const actions = el('div', 'pactions');
       const reboot = el('button', '', 'Reboot');
       reboot.type = 'button';
@@ -1940,6 +1986,8 @@
       if (a.dataset.page === name) a.setAttribute('aria-current', 'page'); else a.removeAttribute('aria-current');
       a.classList.toggle('on', a.dataset.page === name);
     });
+    $('acctLink').classList.toggle('on', name === 'account');
+    if (name === 'account') $('acctLink').setAttribute('aria-current', 'page'); else $('acctLink').removeAttribute('aria-current');
     $('nav').classList.remove('open');
     $('navToggle').setAttribute('aria-expanded', 'false');
     if (panelDrawer && name !== 'panels') closeDrawer();
@@ -2056,6 +2104,9 @@
   /* ---- what module scripts may use (app/modules/<id>/static/), loaded after this file ---- */
   window.RelayAdmin = {
     $: $, el: el, api: api, post: post, okMsg: okMsg, alertMsg: alertMsg, agoText: agoText,
+    // For the scripts that make their own requests: true when the session has ended and the browser is on its
+    // way to the sign-in page.
+    sessionEnded: sessionEnded,
     cfg: function () { return cfg; },
     setServiceNames: function (names) { serviceNames = names || {}; },
     clockText: clockText, timerPicker: timerPicker, timerPickerValue: timerPickerValue, timerThresholds: timerThresholds,
@@ -2089,6 +2140,11 @@
     const es = new EventSource('/api/admin/status/stream');
     es.onmessage = function (ev) {
       try { applyStatus(JSON.parse(ev.data)); } catch (e) {}
+    };
+    // A stream the server refuses (the session ended) is not retried by the browser: ask once, and the shared
+    // helper sends the browser to the sign-in page if that is why.
+    es.onerror = function () {
+      if (es.readyState === 2) api('/api/admin/me').catch(function () {});
     };
   })();
 })();

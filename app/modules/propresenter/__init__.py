@@ -10,6 +10,7 @@ from __future__ import annotations
 from typing import Any
 
 from .. import AdminPage, Health, Manifest, Module
+from ...users import Permission
 
 LYRICS_STREAM = "lyrics"
 TIMERS_STREAM = "pptimers"
@@ -38,6 +39,13 @@ class ProPresenter(Module):
     )
     admin_scripts = ("propresenter.js", "slideview.js", "ppcontrol.js", "pplive.js", "pclink.js")
     route_prefixes = ("/api/admin/propresenter", "/api/stage/live", "/stage")
+    permissions = (
+        Permission("propresenter.view", "See ProPresenter slides, playlists and status", "ProPresenter", "viewer"),
+        Permission("propresenter.control", "Control ProPresenter: step, trigger, clear, timers", "ProPresenter",
+                   "operator"),
+        Permission("propresenter.manage", "Change the ProPresenter setup and its link to Planning Center",
+                   "ProPresenter", "admin"),
+    )
     streams = (LYRICS_STREAM, TIMERS_STREAM)
 
     @property

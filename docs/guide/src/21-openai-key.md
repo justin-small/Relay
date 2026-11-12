@@ -286,26 +286,25 @@ to enter a new key. Press `Return` alone to keep the current one.
 
 ### In the admin panel
 
-1. Open the admin panel and sign in.
+1. Open the admin panel and sign in as an Owner (only Owners see
+   **Credentials**).
 2. Press **Stop** if a session is running.
 3. Click **Credentials** to open that section.
    Next to **OpenAI API key** you should see either `· set …` followed by the
    last four characters of the current key, or `· not set` in red.
 4. Click in the **OpenAI API key** box and paste the new key. The box shows
    dots instead of the key.
-5. Leave **Admin token (blank = unchanged)** empty, unless you also want to
-   change the token.
-6. Click **Save credentials**.
+5. Click **Save credentials**.
    You should see `Saved. Restart capture to use the new key.` The label next
    to **OpenAI API key** should now end in the last four characters of the new
    key.
-7. Press **Start capture**.
+6. Press **Start capture**.
    Session health should show one `connected` session for each target
    language you switched on.
 
 ::: note
 Leaving the **OpenAI API key** box empty keeps the current key. Clicking
-**Save credentials** with both boxes empty does nothing and shows
+**Save credentials** with the box empty does nothing and shows
 `Nothing to save.`
 :::
 

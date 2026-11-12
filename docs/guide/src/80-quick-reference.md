@@ -22,7 +22,7 @@ printed today.
 | | Address | Who uses it |
 |---|---|---|
 | **Viewer link** | `http://192.168.1.50/` | The room. Share it, or show it as a QR code. |
-| **Operator panel** | `https://192.168.1.50/admin` | You only. Sign in with your admin token. |
+| **Operator panel** | `https://192.168.1.50/admin` | Operators. Sign in with your own username and password. |
 
 The first time you open the panel, check that the browser's certificate
 fingerprint matches the `SHA-256` line that start printed.
@@ -55,11 +55,12 @@ Relay folder:
 
 | File or folder | What it holds |
 |---|---|
-| `config.json` | Your API key, admin token and all panel settings |
+| `config.json` | Your API key, setup admin token and all panel settings |
 | `blocklist.txt` | Your blocked words |
 | `certs/` | The panel's certificate and its private key |
 | `Caddyfile` | The web server settings, made by setup |
 | `recordings/` | Recorded sessions, if you turned recording on |
+| `backups/` | A copy of the user accounts, made once a day (the newest 7 are kept) |
 
 Keep this folder when you update Relay. Never share it, and never put it in a
 cloud-synced folder: it holds your API key.

@@ -23,6 +23,11 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 os.environ["RELAY_CONFIG"] = os.path.join(tempfile.mkdtemp(), "config.json")
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import _pg  # noqa: E402  (a throwaway Postgres for the user system; must come before app.main)
+
+_pg.start()
+_pg.reset()
 
 from fastapi.testclient import TestClient
 
@@ -411,7 +416,7 @@ from app.modules import modules as _modules  # noqa: E402
 _modules.attach("planning_center")
 _modules.attach("propresenter")
 viewer = TestClient(app, base_url="http://relay.local:8000")
-admin = TestClient(app, base_url="http://relay.local:8001", headers={"x-admin-token": "t0ken"})
+admin = _pg.client(app, base_url="http://relay.local:8001")
 
 
 def configure(srv, **extra):
@@ -765,7 +770,7 @@ alerts.on_stage = None
 
 # ------------------------------------------------------------------------------------------- admin routes
 print("admin")
-eq("admin needs the token", TestClient(app, base_url="http://relay.local:8001").get("/api/admin/propresenter").status_code, 401)
+eq("admin needs a sign-in", TestClient(app, base_url="http://relay.local:8001").get("/api/admin/propresenter").status_code, 401)
 r = admin.post("/api/admin/propresenter", json={"host": "http://10.0.0.5:50001/"})
 eq("a URL as the host is refused with a sentence", (r.status_code, "no http://" in r.json()["error"]), (400, True))
 config.save({"propresenter": {}}, replace=("propresenter",))
@@ -933,8 +938,33 @@ routes = [("GET", "/slides"), ("GET", "/thumbnail/P-Grea/0"), ("POST", "/step"),
           ("GET", "/playlists/PL3/items/1/cues"), ("GET", "/playlists/PL3/thumbnail/1/0")]
 fake.requests.clear()
 codes = {(m, p): anon.request(m, B + p, json={} if m == "POST" else None).status_code for m, p in routes}
-eq("no control route answers without the admin token", sorted(set(codes.values())), [401])
+eq("no control route answers without signing in", sorted(set(codes.values())), [401])
 eq("and none reached ProPresenter", fake.requests, [])
+
+# -- roles: an operator controls, a viewer reads, only an admin changes the setup
+operator = _pg.client(app, "operator", base_url="http://relay.local:8001")
+viewer_user = _pg.client(app, "viewer", base_url="http://relay.local:8001")
+fake.requests.clear()
+eq("an operator steps the slides", operator.post(B + "/step", json={"direction": "next"}).status_code, 200)
+eq("an operator triggers a macro, a look and a message",
+   [operator.post(B + p, json={}).status_code for p in ("/macros/M1/trigger", "/looks/L1/trigger", "/messages/MSG1/clear")],
+   [200, 200, 200])
+eq("an operator reads the playlists and slides", [operator.get(B + p).status_code for p in ("/playlists", "/slides")], [200, 200])
+eq("an operator may not change the setup", operator.post(B, json={"view_only": True}).status_code, 403)
+eq("…nor test a connection, search the network or edit the link",
+   [operator.post(B + p, json={}).status_code for p in ("/test", "/discover", "/link/mapping", "/link/playlist")], [403] * 4)
+eq("…nor list every macro", operator.get(B + "/macros?all=true").status_code, 403)
+eq("…and the setup is unchanged", config.get()["propresenter"]["view_only"], False)
+fake.requests.clear()
+eq("a viewer reads the state, the slides, the playlists and the live view",
+   [viewer_user.get(B + p).status_code for p in ("", "/slides", "/playlists", "/macros", "/live")], [200] * 5)
+eq("a viewer may not control",
+   [viewer_user.post(B + p, json={}).status_code for p in ("/step", "/clear", "/stage", "/playlists/PL1/trigger",
+                                                           "/timers/T1/start", "/lobby/start", "/transport")], [403] * 7)
+eq("a viewer may not change the setup", [viewer_user.post(B, json={"view_only": True}).status_code,
+                                         viewer_user.delete(B + "/stage").status_code], [403, 403])
+eq("a refused request never reached ProPresenter",
+   [p for _, p, _ in sent("GET") if "trigger" in p or "clear" in p or "next" in p], [])
 
 # -- next / previous / next presentation / a slide / clears
 fake.requests.clear()
@@ -1552,7 +1582,7 @@ eq("saving something else leaves the tag settings alone", r.json()["settings"]["
 r = admin.post("/api/admin/propresenter", json={"tags": {"enabled": False}})
 eq("tags can be switched off without touching the settle time", r.json()["settings"]["tags"],
    {"enabled": False, "settle_s": 2.5})
-eq("the tag state is not for anyone without the admin token",
+eq("the tag state is not for anyone without signing in",
    TestClient(app, base_url="http://relay.local:8001").get("/api/admin/propresenter").status_code, 401)
 
 # the admin route: global timer settings
@@ -1568,7 +1598,7 @@ eq("…and changed nothing", config.get()["propresenter"]["timers"]["amber_s"], 
 r = admin.post("/api/admin/propresenter", json={"timers": {"show": "everything"}})
 eq("a bad list of timers is refused", (r.status_code, r.json()["error"]), (400, "Timers to show is a list of timer IDs."))
 anon_pp = TestClient(app, base_url="http://relay.local:8001")
-eq("the setting is not for anyone without the admin token", anon_pp.post("/api/admin/propresenter",
+eq("the setting is not for anyone without signing in", anon_pp.post("/api/admin/propresenter",
                                                                        json={"timers": {"amber_s": 1}}).status_code, 401)
 
 # ------------------------------------------------------------------------------------------------ discovery

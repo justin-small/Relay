@@ -14,7 +14,7 @@ from ... import config, panels
 from ...scheduler import scheduler
 from ...panels import registry as panel_registry
 from ... import modules as shared
-from .. import event_stream, read_limited, require_admin, sse
+from .. import event_stream, read_limited, require, sse
 from . import pccontrol, planningcenter as pc
 from .pclive import follower
 from .servicefeed import feed
@@ -72,7 +72,7 @@ def _pc_body() -> dict:
     return {"planning_center": config.redacted()["planning_center"]}
 
 
-@router.post("/api/admin/planning-center", dependencies=[Depends(require_admin)])
+@router.post("/api/admin/planning-center", dependencies=[Depends(require("planning_center.manage"))])
 async def admin_planning_center_save(payload: dict):
     """Save the Personal Access Token. A blank field keeps what is saved; a new
     ID or secret means a different token, so the followed service types reset.
@@ -95,7 +95,7 @@ async def admin_planning_center_save(payload: dict):
     return _pc_body()
 
 
-@router.post("/api/admin/planning-center/test", dependencies=[Depends(require_admin)])
+@router.post("/api/admin/planning-center/test", dependencies=[Depends(require("planning_center.manage"))])
 async def admin_planning_center_test():
     """Try the saved token and list the account's service types."""
     client = pc.client_from(config.get())
@@ -110,14 +110,14 @@ async def admin_planning_center_test():
     return {**_pc_body(), "service_types": types}
 
 
-@router.post("/api/admin/planning-center/service-types/refresh", dependencies=[Depends(require_admin)])
+@router.post("/api/admin/planning-center/service-types/refresh", dependencies=[Depends(require("planning_center.manage"))])
 async def admin_planning_center_service_types_refresh():
     """The account's service types, read from Planning Center. The page calls this after Save
     and once a minute while the list is on screen; it changes nothing."""
     return await admin_planning_center_test()
 
 
-@router.post("/api/admin/planning-center/service-types", dependencies=[Depends(require_admin)])
+@router.post("/api/admin/planning-center/service-types", dependencies=[Depends(require("planning_center.manage"))])
 async def admin_planning_center_service_types(payload: dict):
     """Which service types Relay follows."""
     if not pc.connected(config.get()):
@@ -131,7 +131,7 @@ async def admin_planning_center_service_types(payload: dict):
     return _pc_body()
 
 
-@router.post("/api/admin/planning-center/notes", dependencies=[Depends(require_admin)])
+@router.post("/api/admin/planning-center/notes", dependencies=[Depends(require("planning_center.manage"))])
 async def admin_planning_center_notes(payload: dict):
     """"Show item notes on panels". Off by default: notes can hold names and
     pastoral details, and the service feed is on the viewer port with no login."""
@@ -145,14 +145,14 @@ async def admin_planning_center_notes(payload: dict):
     return _pc_body()
 
 
-@router.get("/api/admin/planning-center/live", dependencies=[Depends(require_admin)])
+@router.get("/api/admin/planning-center/live", dependencies=[Depends(require("planning_center.view"))])
 async def admin_planning_center_live():
     """Today's plan and its LIVE state for each followed service type, and
     the presses made from panels."""
     return {**follower.snapshot(), "actions": control.recent()}
 
 
-@router.post("/api/admin/planning-center/plan", dependencies=[Depends(require_admin)])
+@router.post("/api/admin/planning-center/plan", dependencies=[Depends(require("planning_center.control"))])
 async def admin_planning_center_plan(payload: dict):
     """Follow a different plan today for one service type; a blank plan goes
     back to Relay's own pick. The choice lapses when the day ends."""
@@ -176,7 +176,7 @@ async def admin_planning_center_plan(payload: dict):
     return follower.snapshot()
 
 
-@router.delete("/api/admin/planning-center", dependencies=[Depends(require_admin)])
+@router.delete("/api/admin/planning-center", dependencies=[Depends(require("planning_center.manage"))])
 async def admin_planning_center_disconnect():
     config.save({"planning_center": {}}, replace=("planning_center",))
     log.info("Planning Center disconnected")

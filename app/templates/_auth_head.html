@@ -1,0 +1,18 @@
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex">
+{% include "_brand_head.html" %}<link rel="stylesheet" href="{{ static('viewer.css') }}">
+<style>
+  form, .card { max-width: 340px; margin: 12vh auto; padding: 0 24px; }
+  form + form { margin-top: -6vh; }
+  h1 { font-size: 20px; margin: 0 0 4px; }
+  .mark { display: block; margin: 0 0 18px; }
+  p.sub { color: var(--dim); font-size: 14px; margin: 0 0 22px; }
+  label { display: block; font-size: 13px; color: var(--dim); margin: 14px 0 5px; }
+  input, select { width: 100%; padding: 11px 13px; font: inherit; border-radius: 8px;
+          border: 1px solid var(--line); background: #0a0b0d; color: var(--fg); }
+  button { width: 100%; margin-top: 18px; padding: 11px; font: inherit; font-weight: 600;
+           border-radius: 8px; border: 0; background: var(--accent); color: var(--bg); cursor: pointer; }
+  button.link, a.link { display: block; width: auto; margin: 16px 0 0; padding: 0; background: none;
+           color: var(--dim); font-weight: 400; font-size: 14px; text-decoration: underline; }
+  .err { color: var(--err); font-size: 14px; margin-top: 14px; }
+</style>

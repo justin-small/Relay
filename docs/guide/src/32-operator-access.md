@@ -97,40 +97,66 @@ Edge works the same way as Chrome.
 
 ## Signing in
 
-After the warning, you see the **Operator panel** sign-in page.
+After the warning, you see either the first-run page or the **Operator panel**
+sign-in page.
+
+### The first time: create the Owner
+
+On a new Relay nobody has an account yet, so the page is **Set up Relay**.
+
+1. Type the **admin token** you chose during setup. The dots hide what you
+   type.
+2. Type a **Username**, **Your name**, and a **Password** twice. The password
+   must have at least 8 characters.
+3. Click **Create the Owner**.
+
+You are signed in as the Owner. The admin token is never accepted again, here
+or anywhere else. Add the other people on the **Users** page, see
+[Users](#users).
+
+### Every other time
 
 ![The sign-in page.](images/operator-signin.png){width=55%}
 
-1. Type your **admin token**. This is the password you chose during setup.
-   The dots hide what you type.
+1. Type your **Username** and **Password**.
 2. Click **Sign in**, or press `Return` / `Enter`.
+
+If an Admin gave you a temporary password, Relay asks you to choose your own
+before it opens the panel.
+
+On a trusted device (such as the sound booth computer) the page may ask for
+your name and PIN instead. **Use my password instead** goes back to the
+password form.
 
 You should now see the operator panel. See [The operator panel](#admin-panel).
 
-### If the token is wrong
+### If the sign-in is wrong
 
-![The sign-in page after a wrong token.](images/operator-signin-error.png){width=55%}
+![The sign-in page after a wrong password.](images/operator-signin-error.png){width=55%}
 
-1. **Incorrect token.** means the token did not match. Type it again. It is
-   case-sensitive: `Relay` and `relay` are different.
+1. **Wrong username or password.** means one of them did not match. Type them
+   again. The password is case-sensitive: `Relay` and `relay` are different.
+   Relay does not say which one was wrong.
 
 After five wrong tries in a row, that computer is locked out for five minutes
 and the page says **Too many attempts. Try again in … min.** with the number of
 minutes left. Wait, then try
 again.
 
-If you have lost the token, run setup again on the Relay computer and choose
-a new one. See the install chapter for your computer.
+If you have forgotten your password, ask an Admin to reset it. If you are the
+only Owner, see [If nobody can sign in](#lockout).
 
 ### How long you stay signed in
 
-- You stay signed in for 12 hours on that browser.
-- Restarting Relay signs everyone out.
-- Changing the admin token signs out every other browser.
+- A password sign-in lasts 30 days on that browser, and a PIN sign-in lasts
+  12 hours.
+- Restarting Relay does not sign anyone out.
+- Changing your password, or an Admin resetting it, signs you out of your other
+  browsers. Turning off or deleting an account signs that person out at once.
 - **Sign out**, at the top right of the panel, signs out that browser now.
 
 ::: warning
-The admin token is what protects the panel, and the panel spends money on
-your OpenAI account. Choose a real password, not a word. Do not write it on
-the screen or share it in a group chat.
+Your password is what protects the panel, and the panel spends money on your
+OpenAI account. Choose a real password, not a word. Do not write it on the
+screen or share it in a group chat. Every person should have their own account.
 :::

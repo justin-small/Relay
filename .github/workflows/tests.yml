@@ -25,7 +25,10 @@ jobs:
           python-version: '3.15'
           cache: pip
       # sounddevice needs the PortAudio library to import (see release.yml for why PulseAudio runs headless).
-      - run: sudo apt-get update && sudo apt-get install -y libportaudio2 pulseaudio
+      # postgresql: the user-system tests start a throwaway cluster with initdb from /usr/lib/postgresql/*/bin
+      # (tests/_pg.py); the runner image already ships it, listed so a slimmer image cannot break the build.
+      # libpq5 is the client library the pure-Python psycopg loads.
+      - run: sudo apt-get update && sudo apt-get install -y libportaudio2 pulseaudio postgresql libpq5
       - run: pulseaudio -D --exit-idle-time=-1 --load=module-null-sink && pactl info | head -3
       # httpx2 is test-only (starlette's TestClient), so it stays out of requirements.txt and the image.
       - run: pip install -r requirements.txt httpx2==2.13.1

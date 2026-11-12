@@ -23,3 +23,7 @@ cryptography==50.0.0
 # IANA zone data for the scheduler (zoneinfo). The slim base image's system
 # zone files are not something to rely on; zoneinfo falls back to this.
 tzdata==2026.4
+# Postgres client for the user system (app/db.py). The pure-Python package, not psycopg[binary]: the image
+# is Python 3.15 and a binary wheel may not exist yet, so it uses the libpq the image installs.
+psycopg==3.3.9
+psycopg-pool==3.3.3

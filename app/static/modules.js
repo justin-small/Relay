@@ -5,6 +5,8 @@
   const $ = function (id) { return document.getElementById(id); };
   if (!$('moduleList')) return;
 
+  const canManage = window.relayCan('modules.manage');
+
   function h(tag, cls, text) {
     const n = document.createElement(tag);
     if (cls) n.className = cls;
@@ -14,7 +16,10 @@
   async function call(path, opts) {
     const res = await fetch(path, Object.assign({ cache: 'no-store' }, opts || {}));
     const data = await res.json().catch(function () { return {}; });
-    if (!res.ok && !('ok' in data)) throw new Error(data.error || data.detail || ('HTTP ' + res.status));
+    if (!res.ok && !('ok' in data)) {
+      if (window.RelayAdmin) window.RelayAdmin.sessionEnded(res, data);
+      throw new Error(data.error || data.detail || ('HTTP ' + res.status));
+    }
     return data;
   }
   function post(path, body) {
@@ -30,11 +35,12 @@
     head.appendChild(title);
     head.appendChild(h('span', 'mver', 'v' + m.version));
     const sw = h('label', 'switch');
-    sw.title = m.enabled ? 'Switch ' + m.name + ' off' : 'Switch ' + m.name + ' on';
+    if (canManage) sw.title = m.enabled ? 'Switch ' + m.name + ' off' : 'Switch ' + m.name + ' on';
     const box = h('input');
     box.type = 'checkbox';
     box.checked = !!m.enabled;
     box.setAttribute('aria-label', m.name);
+    box.disabled = !canManage;   // a role that may only look sees the state, not a switch that would be refused
     sw.appendChild(box);
     sw.appendChild(h('span', 'slider'));
     head.appendChild(sw);
@@ -58,7 +64,7 @@
       foot.appendChild(g);
     }
     let result = null;
-    if (m.enabled && m.has_test) {
+    if (canManage && m.enabled && m.has_test) {
       const t = h('button', '', 'Test connection');
       t.type = 'button';
       result = h('span', 'muted');

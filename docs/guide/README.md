@@ -65,9 +65,14 @@ rather than editing images by hand.
 
    ```bash
    cd docs/guide/tools && npm install && npx playwright install chromium
-   RELAY_GUIDE_TOKEN=guide-demo-token RELAY_GUIDE_STATE="$S/docker-config" node capture.mjs
+   RELAY_GUIDE_USER=guide RELAY_GUIDE_PASSWORD=guide-demo-password \
+     RELAY_GUIDE_TOKEN=guide-demo-token RELAY_GUIDE_STATE="$S/docker-config" node capture.mjs
    node capture.mjs admin-schedules viewer-both   # or just some of them
    ```
+
+   The instance starts with no users, so the first run uses the admin token to
+   create the Owner `guide` from the first-run form. Later runs sign in with
+   the username and password, and `RELAY_GUIDE_TOKEN` can be left out.
 
    The script seeds the instance (targets, schedules, a clean blocklist,
    three test recordings), then writes `images/*.png`. The certificate warning

@@ -23,6 +23,11 @@ from zoneinfo import ZoneInfo
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 os.environ["RELAY_CONFIG"] = os.path.join(tempfile.mkdtemp(), "config.json")
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import _pg  # noqa: E402  (a throwaway Postgres for the user system; must come before app.main)
+
+_pg.start()
+_pg.reset()
 os.environ["TZ"] = "America/Chicago"   # Relay's own zone differs from the organisation's on purpose
 
 from fastapi.testclient import TestClient
@@ -436,7 +441,7 @@ asyncio.run(main())
 print("admin")
 pclive.follower.make_client = lambda cfg: FakeClient()
 world.now = at(12, d=10)
-admin = TestClient(app, base_url="http://relay.local:8001", headers={"x-admin-token": "t0ken"})
+admin = _pg.client(app, base_url="http://relay.local:8001")
 URL = "/api/admin/planning-center"
 admin.post(URL, json={"app_id": "id", "secret": "secret"})
 admin.post(URL + "/service-types", json={"ids": ["50"]})

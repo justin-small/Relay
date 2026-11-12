@@ -3,9 +3,11 @@
 # so everything here writes to $HOME, /tmp, or the mounted state volume --
 # never /etc and never into /app.
 #
-# Two processes live in this container: Caddy faces the network, uvicorn stays
-# on loopback inside the namespace. bash rather than sh because the supervision
-# at the bottom needs `wait -n`, which dash does not have.
+# Three processes live in this container: Caddy faces the network, uvicorn stays
+# on loopback inside the namespace, and Postgres listens on a unix socket only
+# (docker-postgres.sh). Caddy or uvicorn exiting ends the container; Postgres is
+# restarted instead, because captions must run with the database down. bash rather than sh because the supervision at the
+# bottom needs `wait -n`, which dash does not have.
 #
 # `serve` (the image's CMD) runs that whole stack. Anything else is run as
 # given, after the audio setup below -- that is how setup.command / setup.bat
@@ -73,36 +75,78 @@ if ! caddy validate --config "$CADDYFILE" >/dev/null 2>&1; then
     exit 1
 fi
 
+# ----------------------------------------------------------------- postgres
+# Postgres is supervised apart from Caddy and the app (see docker-postgres.sh):
+# a database that will not start, or dies later, is logged and retried with
+# backoff, and never takes the container down -- captions are the job, and the
+# app tolerates the database being down. The stop handlers are installed first
+# so a signal during the (bounded) first start is handled too.
+CADDY_PID=""
+APP_PID=""
+SUP_PID=""
+
+stop_all() {
+    # The app and Caddy first, so nothing is writing, then Postgres last: the
+    # supervisor gives it a fast shutdown (SIGINT, so it checkpoints and the next
+    # start needs no crash recovery) and exits once it is gone. Waited for,
+    # because the container ends when this script does.
+    local pids=()
+    [ -n "$CADDY_PID" ] && pids+=("$CADDY_PID")
+    [ -n "$APP_PID" ] && pids+=("$APP_PID")
+    if [ "${#pids[@]}" -gt 0 ]; then
+        kill -TERM "${pids[@]}" 2>/dev/null || true
+        wait "${pids[@]}" 2>/dev/null || true
+    fi
+    if [ -n "$SUP_PID" ] && kill -TERM "$SUP_PID" 2>/dev/null; then
+        wait "$SUP_PID" 2>/dev/null || true
+    fi
+}
+
+shutdown() {
+    # Docker sends SIGTERM to PID 1 (tini, via `init: true`), which forwards it
+    # here. Stop the children in order rather than dying and leaving them to be
+    # SIGKILLed when the grace period runs out.
+    trap - TERM INT
+    stop_all
+    exit 0
+}
+trap shutdown TERM INT
+
+# shellcheck source=docker/postgres.sh
+. /usr/local/bin/docker-postgres.sh   # also exports RELAY_DATABASE_URL / RELAY_DB_BACKUPS
+mkdir -p "$BACKUPS" 2>/dev/null || echo "relay: cannot create $BACKUPS -- database backups will fail until it is writable." >&2
+
+pg_supervisor &
+SUP_PID=$!
+# Give the first start a chance to finish before the app comes up, so it finds
+# the database on its first try -- but not forever: initdb plus the 30 s ready
+# wait fit well inside this, and the app copes either way.
+for _ in $(seq 240); do
+    [ -e "$PG_BOOT" ] && break
+    kill -0 "$SUP_PID" 2>/dev/null || break
+    sleep 0.5
+done
+
 # -------------------------------------------------------------- supervision
-# Both processes matter: without uvicorn there is nothing to serve, and without
-# Caddy the panel is unreachable and the viewer port is closed. So run them
-# side by side and let the first exit take the container down -- `restart:
-# unless-stopped` then rebuilds a known-good pair, which is far easier to
-# reason about than a half-running container that passes a shallow probe.
+# Caddy and uvicorn both matter: without uvicorn there is nothing to serve, and
+# without Caddy the panel is unreachable and the viewer port is closed. So run
+# them side by side and let the first exit take the container down -- `restart:
+# unless-stopped` then rebuilds a known-good pair, which is far easier to reason
+# about than a half-running container that passes a shallow probe. Postgres is
+# deliberately not in that pair: `wait -n` below names the two pids, so the
+# database supervisor coming and going never ends it.
 caddy run --config "$CADDYFILE" --adapter caddyfile &
 CADDY_PID=$!
 
 python run.py &
 APP_PID=$!
 
-shutdown() {
-    # Docker sends SIGTERM to PID 1 (tini, via `init: true`), which forwards it
-    # here. Pass it on to both children rather than dying and leaving them to
-    # be SIGKILLed 10 seconds later.
-    trap - TERM INT
-    kill -TERM "$CADDY_PID" "$APP_PID" 2>/dev/null || true
-    wait "$CADDY_PID" "$APP_PID" 2>/dev/null || true
-    exit 0
-}
-trap shutdown TERM INT
-
 # `|| STATUS=$?` rather than a bare `wait -n`: under `set -e` a non-zero exit
 # from the first child would end this script immediately and the diagnostic
 # below would never be printed, leaving an operator with a container that
 # vanished and no reason why.
 STATUS=0
-wait -n || STATUS=$?
+wait -n "$CADDY_PID" "$APP_PID" || STATUS=$?
 echo "relay: a supervised process exited (status $STATUS) -- stopping the container" >&2
-kill -TERM "$CADDY_PID" "$APP_PID" 2>/dev/null || true
-wait "$CADDY_PID" "$APP_PID" 2>/dev/null || true
+stop_all
 exit "$STATUS"

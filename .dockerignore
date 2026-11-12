@@ -9,7 +9,9 @@
 !app/
 !tools/setup_caddy.py
 !tools/write_config.py
+!tools/reset_owner.py
 !docker/entrypoint.sh
+!docker/postgres.sh
 !docker/config.example.json
 
 # ...minus anything that slipped into the re-admitted directories.

@@ -26,8 +26,9 @@ Docker publishes them as 80 and 443; set `RELAY_HTTP_PORT` or
 Behind them the relay is one process with two loopback sockets: `port` (8000)
 for viewers and `admin_port` (8001) for the panel. Neither is on the network.
 `host` is `0.0.0.0` because the room has to reach the viewer link; `admin_host`
-is `127.0.0.1` because the panel reads and writes the OpenAI key and the admin
-token, and those have no business crossing venue Wi-Fi in cleartext.
+is `127.0.0.1` because the panel reads and writes the OpenAI key and carries
+everyone's sign-in, and those have no business crossing venue Wi-Fi in
+cleartext.
 
 Admin routes are refused with a 404 on the viewer port, both in the app and in
 Caddy, and the chooser page only offers the panel when it is served on the
@@ -103,7 +104,8 @@ Every screen is explained, with pictures, in the
 
 Requires [Docker Desktop](https://www.docker.com/products/docker-desktop/) (or
 Docker Engine on Linux). Nothing else: no Python, no virtualenv, no Caddy.
-Everything runs in one container, and setup uses the image's own Python to
+Everything runs in one container (Caddy, the relay and a small Postgres
+database for the user accounts), and setup uses the image's own Python to
 write the credentials and mint the certificate.
 
 Get Relay from the [latest release](https://github.com/justin-small/Relay/releases/latest)
@@ -121,11 +123,13 @@ Get Relay from the [latest release](https://github.com/justin-small/Relay/releas
 **OpenAI API key**, an **admin token** of your choosing, and optionally a
 **hostname** for this machine. The first two are written to
 `docker-config/config.json` with permissions `0600`; neither is echoed to the
-screen, and neither is ever committed. It then mints the operator panel's TLS
+screen, and neither is ever committed. The admin token is a one-time setup
+token: you use it once, to create the first Owner (see
+[Users and roles](#users-and-roles)). It then mints the operator panel's TLS
 certificate and prints its SHA-256 fingerprint. Write that down.
 
-`start.*` starts the whole stack: Caddy and the relay, one container, one
-command. It finds this machine's LAN address first, because the certificate has
+`start.*` starts the whole stack: Caddy, the relay and Postgres, one
+container, one command. It finds this machine's LAN address first, because the certificate has
 to name whatever the operator's browser will dial and that changes with the
 venue. If setup has not been run it says so and stops rather than launching a
 half-configured relay.
@@ -143,8 +147,8 @@ starts, unless `stop.*` ran first. On macOS that restart comes up without the
 PulseAudio daemon, which only `start.command` launches, so after a reboot run
 `start.command` again rather than relying on the automatic restart.
 
-Run setup again at any time to change the credentials, add a hostname, or renew
-the certificate.
+Run setup again at any time to change the API key, add a hostname, or renew
+the certificate. It does not touch the accounts.
 
 <details>
 <summary>Manual setup, without the launchers</summary>
@@ -184,7 +188,9 @@ it. See [Docker](#docker) for what each one does and why.
    the panel for you, and its window closes by itself once the relay is up.
 3. Open the panel. The browser warns about the certificate the first time.
    Check the fingerprint it shows against the one from setup, then accept it.
-   Sign in with your admin token, and:
+   The panel asks you to create the first account, the Owner: enter the admin
+   token from setup, then choose a username, your name and a password. You are
+   signed in when it is done. Then:
    - pick the **capture device** and channel (the meter should move when
      someone speaks into it);
    - toggle on the **target languages** the room needs;
@@ -192,11 +198,99 @@ it. See [Docker](#docker) for what each one does and why.
 4. Session health should show one `connected` session per enabled target.
    Share the LAN viewer link with the room.
 
-> **The admin token is what protects the panel**, and the panel controls a
+> **Your password is what protects the panel**, and the panel controls a
 > session billed to your OpenAI account. Choose a real password, not a word.
-> There is no default token: leave it unset and every login is refused. TLS
-> keeps the token off the wire, but only if you check the fingerprint. Skip the
-> check and you are trusting whatever answered.
+> The admin token works only until the first Owner exists, and there is no
+> default token: with none set, first-run setup is closed. TLS keeps your
+> password off the wire, but only if you check the fingerprint. Skip the check
+> and you are trusting whatever answered.
+
+## Users and roles
+
+Everyone signs in to the operator panel as themselves, with a username and a
+password. Each account has one of four roles, ranked **Viewer**, **Operator**,
+**Admin**, **Owner**. A role is a set of permissions, one per action, and the
+server checks the permission on every admin API route. The panel also hides
+whatever a role may not use.
+
+**First run.** Open the panel and it asks for the admin token that setup wrote
+to `docker-config/config.json`, then a username, your name and a password. That
+creates the first Owner and signs you in. After that the token is never accepted
+again, neither on the sign-in form nor as the `x-admin-token` header. Usernames
+are 3 to 32 characters (letters, digits, dot, dash, underscore, lowercase);
+passwords are 8 to 200 characters.
+
+**What each role can do.** Each role can do everything the roles to its left
+can, and more.
+
+| Area | Viewer | Operator | Admin | Owner |
+|---|---|---|---|---|
+| Session health and status | see | see | see | see |
+| Start and stop captions, target languages | no | yes | yes | yes |
+| Overlays | see | create, change, delete | same | same |
+| Recordings | no | list and download | also delete, change settings | same |
+| Panels, alerts, schedules | see | see | change (panels: firmware, flash, reboot, forget) | same |
+| Audio device, input channel, source language | no | no | change | same |
+| Blocked words | no | no | edit | edit |
+| Appearance, tuning, realtime settings | read (secrets hidden) | read | change | change |
+| OpenAI API key (Credentials) | no | no | no | change |
+| Modules | see which exist and their health | see | switch on and off, run a test | same |
+| ProPresenter, Planning Center | see | also control live actions | also change setup | same |
+| Users and trusted devices | no | no | see, create, change, reset, trust devices | same |
+
+Each module declares its own permissions (see [docs/modules.md](docs/modules.md)).
+
+**Adding people.** An Admin or Owner opens **Users** and creates the account
+with a role and a temporary password. They give the person that password, and
+the person must change it at their first sign-in. There is no email. If someone
+forgets their password, an admin resets it: they get a new temporary password,
+are signed out everywhere, and their PIN is cleared. Turning off or deleting an
+account ends its sessions immediately.
+
+**Rules.** You cannot change an account ranked above yours, or give anyone a
+role above your own, so an Admin cannot touch an Owner. The last active Owner
+cannot be deleted, turned off or demoted. You cannot turn off or delete your
+own account.
+
+**PIN and trusted devices.** A person may set a 4 to 8 digit PIN from their
+account (it asks for their password). A PIN works only in a browser an admin has
+marked as a trusted device, such as the sound booth computer: the admin signs in
+there, opens **Users**, and trusts that browser under a name. On a trusted
+browser the sign-in page lists the people who have a PIN, with a link back to
+the password form. Five wrong PINs in a row clear that person's PIN, and they
+must sign in with their password and set a new one. Removing a trusted device
+ends the PIN sessions that came from it. A password sign-in lasts 30 days, a PIN
+sign-in 12 hours.
+
+Display panels, alert senders and the other devices on the viewer port
+authenticate as before. Devices are not users.
+
+**Anything that sent `x-admin-token` stops working** once the first Owner
+exists. That includes the Bitfocus Companion module (see `COMPANION_MODULE.md`)
+and `docs/guide/tools/capture.mjs` (which now signs in with a username and
+password). Until per-user API tokens exist
+([#174](https://github.com/justin-small/Relay/issues/174)), Companion cannot
+sign in. Also not built yet: an audit log
+([#172](https://github.com/justin-small/Relay/issues/172)), per-user
+preferences ([#173](https://github.com/justin-small/Relay/issues/173)) and
+sign-ins for people who never open the admin page
+([#175](https://github.com/justin-small/Relay/issues/175)). Single sign-on
+would come later, as a module.
+
+### If nobody can sign in
+
+If the only Owner is locked out or has forgotten their password, run this on the
+Relay computer:
+
+```bash
+docker exec -it live-caption-relay python tools/reset_owner.py <username>
+```
+
+It creates `<username>` as an Owner, or, if that account exists, turns it on and
+makes it an Owner. It asks for a new password twice, without showing it, then
+ends their sessions and clears their PIN. Sign in with that password. Run
+outside Docker, it is `python tools/reset_owner.py <username>` with
+`RELAY_DATABASE_URL` set. It needs the database to be up.
 
 ## Target languages
 
@@ -401,16 +495,20 @@ it:
 Each launcher runs `tools/check-audio.sh` (`tools/check-audio.ps1` on Windows,
 where there is no bash) first and refuses to go live quietly
 if a link in the chain is broken, then finds this machine's LAN address and
-hands it to the container. State lives in `./docker-config/`: the API key,
-admin token, blocklist, the generated `Caddyfile` and the panel's certificate,
-all surviving rebuilds.
+hands it to the container. State lives in two places, and both survive
+rebuilds. `./docker-config/` holds the API key, the setup admin token, the
+blocklist, the generated `Caddyfile`, the panel's certificate and `backups/`
+(the daily database dumps). The user accounts live in the `relay-db` Docker
+volume; see [Database and backups](#database-and-backups).
 
-Caddy runs **inside the same container** as the relay, so there is nothing
-else to launch or keep running. The entrypoint mints the
-certificate if setup has not already, validates the generated Caddyfile, then
-supervises both processes; if either exits, the container exits and
-`restart: unless-stopped` brings back a known-good pair rather than leaving a
-half-running container that still passes a shallow probe.
+Caddy and Postgres run **inside the same container** as the relay, so there is
+nothing else to launch or keep running. The entrypoint mints the
+certificate if setup has not already, validates the generated Caddyfile, starts
+Postgres, then supervises Caddy and the relay; if either of those exits, the
+container exits and `restart: unless-stopped` brings back a known-good pair
+rather than leaving a half-running container that still passes a shallow probe.
+Postgres is the exception: if it stops it is restarted on its own, with a
+growing wait between tries, and captions keep running meanwhile.
 
 | | Outside | Caddy, in the namespace | Relay |
 |---|---|---|---|
@@ -428,11 +526,11 @@ capabilities at all. In practice that means:
 
 | | |
 |---|---|
-| **User** | `10001:10001`, never root. On Linux, pass `RELAY_UID`/`RELAY_GID` so the bind-mounted `docker-config/` matches your account; Docker Desktop fakes ownership, so macOS and Windows can ignore this. |
-| **Filesystem** | `read_only: true`. `/app` cannot be rewritten by the process that runs it. Writable: `docker-config/` (state), plus small tmpfs mounts for `/tmp` and `$HOME`. |
+| **User** | `10001:10001`, never root. On Linux, pass `RELAY_UID`/`RELAY_GID` so the bind-mounted `docker-config/` matches your account; Docker Desktop fakes ownership, so macOS and Windows can ignore this. The `relay-db` volume is created for whichever uid runs the container. If you later start Relay as a different uid, the database is refused with a clear message in the log and left untouched; start Relay as the original uid again, or use a new volume. |
+| **Filesystem** | `read_only: true`. `/app` cannot be rewritten by the process that runs it. Writable: `docker-config/` (state), the `relay-db` volume (the database), plus small tmpfs mounts for `/tmp` and `$HOME`. |
 | **Privileges** | `cap_drop: ALL` and `no-new-privileges:true`, so there is no setuid escalation path. |
 | **Limits** | 1 GB memory, 2 CPUs, 256 pids, and log rotation at 3 × 10 MB, so a wedged run cannot fill the host. |
-| **Base images** | `python:3.12-slim-bookworm` and `caddy:2-alpine`, both pinned by digest; dependencies installed wheels-only in a builder stage, so no compiler or pip ships in the runtime image. Only Caddy's binary is taken from its image, copied with `cp` so its `cap_net_bind_service` file capability is dropped: `execve` of a file with capabilities fails outright under `no-new-privileges`. |
+| **Base images** | `python:3.15-slim-trixie` and `caddy:2-alpine`, both pinned by digest; dependencies installed wheels-only in a builder stage, so no compiler or pip ships in the runtime image. Only Caddy's binary is taken from its image, copied with `cp` so its `cap_net_bind_service` file capability is dropped: `execve` of a file with capabilities fails outright under `no-new-privileges`. |
 | **Front end** | Caddy, in the same container with the same lifecycle. `admin off`, because its control socket is unauthenticated and can rewrite the whole config, and nothing here needs it. `auto_https off`, because nothing is public: it never tries ACME and never redirects viewers to a certificate they cannot trust. |
 | **Panel key** | Minted in the container by setup, into `docker-config/certs/` at mode 0600. It is never in an image layer and never in a registry. Reused across restarts while it still covers the current names, so the fingerprint you wrote down at setup is the fingerprint you see at showtime. |
 
@@ -462,7 +560,7 @@ through PortAudio, and a container only sees devices the host hands it.
 
 The base images are pinned by digest, which is right for reproducibility and
 wrong for CVEs: the layer is frozen, so an advisory published against Debian
-bookworm, CPython or Caddy lands silently and the build keeps succeeding.
+trixie, CPython or Caddy lands silently and the build keeps succeeding.
 Two things make the pin safe. Dependabot proposes the digest bump weekly
 (`.github/dependabot.yml`), and scanning proves the new layer is actually
 cleaner than the old one before it merges. `tools/scan-image.sh` runs the scan
@@ -493,7 +591,7 @@ Findings come in two kinds, and the fix differs:
 
 | Where | Fix |
 |---|---|
-| OS package or Caddy's Go modules | Bump the pinned digest in `docker/Dockerfile`, usually by merging Dependabot's PR, or by hand with `docker pull python:3.12-slim-bookworm` (or `caddy:2-alpine`) then `docker image inspect ... --format '{{index .RepoDigests 0}}'`. For Caddy this currently changes nothing; see *Known findings* below. |
+| OS package or Caddy's Go modules | Bump the pinned digest in `docker/Dockerfile`, usually by merging Dependabot's PR, or by hand with `docker pull python:3.15-slim-trixie` (or `caddy:2-alpine`) then `docker image inspect ... --format '{{index .RepoDigests 0}}'`. For Caddy this currently changes nothing; see *Known findings* below. |
 | Python package | Bump it in `requirements.txt` and rebuild. |
 
 Pass 3 flags your own `config.json` if it holds a real key. That is the
@@ -665,6 +763,84 @@ straight in) has neither problem.
 listen to that microphone. Keep `auth-ip-acl` narrow and do not forward the
 port beyond the host.
 
+## Database and backups
+
+The user accounts are kept in Postgres 17, which runs inside the Relay
+container beside Caddy and the relay. It listens on a unix socket inside the
+container and on no TCP port, and nothing is published, so it cannot be reached
+from the LAN.
+
+**Where the data is.**
+
+| | |
+|---|---|
+| Live database | the Docker named volume `relay-db`, mounted at `/var/lib/relay-db` (the files are in `data/`) |
+| Dumps | `docker-config/backups/` on the host (`/app/config/backups` in the container) |
+
+`docker compose down` keeps the volume. `docker compose down -v` or
+`docker volume rm relay-db` deletes the accounts; the dumps remain.
+
+**Daily dumps.** Relay checks a minute after it starts and then every hour, and
+writes a dump if none was written in the last 24 hours. A dump is a `pg_dump`
+custom-format file named `relay-YYYYMMDD-HHMMSS.dump` (the time is UTC, mode
+`0600`). The newest 7 are kept and older ones are deleted. A dump that fails is
+logged and tried again an hour later.
+
+**Backing up.** Copy `docker-config/`: it holds the dumps, so it captures the
+users along with the API key and the certificate. To take a dump on demand, for
+example before an upgrade:
+
+```bash
+docker exec live-caption-relay pg_dump -Fc -f /app/config/backups/before-upgrade.dump
+```
+
+A name that does not look like `relay-YYYYMMDD-HHMMSS.dump` is never deleted by
+the daily cleanup and never picked for an automatic restore.
+
+**Restoring a dump by hand.** This replaces what is in the database with the
+dump's contents, so everyone's accounts and sessions go back to that moment:
+
+```bash
+docker exec live-caption-relay pg_restore --clean --if-exists --no-owner \
+  -d relay /app/config/backups/relay-20261112-030000.dump
+```
+
+Put a dump from elsewhere in `docker-config/backups/` first.
+
+**Starting over.** Run `stop.*`, then `docker volume rm relay-db`, then
+`start.*`. Relay starts with an empty database and asks for the first Owner
+again, using the admin token in `config.json`. The dumps are untouched, so you
+can still restore one as above.
+
+**When the database is down.** Captions, viewer pages, panels and schedules
+keep running. The operator panel says **The user database is not available**
+and stays closed until it is back, for everyone, including people already
+signed in. Postgres is restarted automatically, waiting 2, 5, 15, then 60
+seconds between tries. The reason is in the container log (`logs.*`), in lines
+that start with `relay:`. Two problems need a person: files written by another
+uid (see *What the container is allowed to do*), and a `relay-db` volume that is
+not mounted or not writable (start with `docker compose`, which mounts it).
+
+**Upgrading Postgres.** The image pins Postgres 17. When a new image carries a
+different major version, the first start moves the old files aside inside the
+volume as `data.pg<old>-<timestamp>` (for example `data.pg16-20261112-030000`),
+creates a new database and restores the newest dump into it. If there is no dump
+the database starts empty. A `data` directory that is not a finished database is
+moved to `data.incomplete-<timestamp>` instead. Nothing is deleted. Once you have
+signed in and confirmed that the accounts are right, remove the leftovers to
+free the space:
+
+```bash
+docker exec live-caption-relay ls /var/lib/relay-db
+docker exec live-caption-relay rm -rf /var/lib/relay-db/data.pg16-20261112-030000
+```
+
+Never remove `data` itself, which is the live database.
+
+**Looking inside.** `docker exec -it live-caption-relay psql` opens `psql` on
+the private socket as the database role. Change accounts in the panel, not by
+hand.
+
 ## Rehearsal mode
 
 Check fonts, projector legibility and the link on every phone in the room
@@ -767,18 +943,27 @@ Check the host's bandwidth and the session health table, not these two fields.
   but **only from a loopback peer**. A direct client on the LAN cannot forge
   either: not its address, to dodge the login lockout, and not the scheme, to
   influence the cookie.
-- The admin token is set by `setup.*` and stored in the same file. **There is
-  no default token.** An unset token does not leave the panel open, because
-  every login is refused, but it does mean nobody can operate the
-  relay until setup has run.
-- Signing in issues a random session id; the admin token itself never goes
-  into a cookie. Sessions are held in memory, so they last 12 hours, die on
-  restart, and are all revoked when the token is changed. The cookie is
-  `HttpOnly` and `SameSite=Strict`. It is also `Secure` whenever the login
-  arrived over TLS, but not on a plain-HTTP login, where the browser would drop
-  a `Secure` cookie and lock the operator out.
-- Failed logins are delayed and logged, and an IP is locked out for five
-  minutes after five failures in a row.
+- The admin token is set by `setup.*` and stored in the same file. It is a
+  one-time setup token: it creates the first Owner, and once any account exists
+  it is never accepted again, neither on the sign-in form nor as an
+  `x-admin-token` header. **There is no default token.** With none set,
+  first-run setup is closed, so nobody can operate the relay until setup has
+  run. The token stays in `config.json` and opens nothing. If the user
+  database is ever wiped (see [Database and backups](#database-and-backups)),
+  first-run setup opens again and the token works again.
+- People sign in with a username and password. Passwords and PINs are stored
+  only as salted scrypt hashes. Signing in issues a random session id; the
+  password never goes into a cookie, and only a hash of the session id is
+  stored. Sessions are kept in the database, so they survive a restart: 30 days
+  after a password sign-in, 12 hours after a PIN sign-in. Turning off or
+  deleting an account ends its sessions at once, and so does a password change
+  or reset. The cookie is `HttpOnly` and `SameSite=Strict`. It is also
+  `Secure` whenever the login arrived over TLS, but not on a plain-HTTP login,
+  where the browser would drop a `Secure` cookie and lock the operator out.
+- The server checks a permission on every admin API route, not only in the
+  menus. See [Users and roles](#users-and-roles).
+- Failed sign-ins, PINs and first-run attempts are delayed and logged, and an IP
+  is locked out for five minutes after five failures in a row.
 - The Planning Center token is stored only in `config.json` and is never
   sent to a browser, a panel or a log. Panels on the viewer port can read the
   Service feed with no login, and a panel the operator allows to control sends
@@ -807,14 +992,16 @@ Check the host's bandwidth and the session health table, not these two fields.
 | A blocked word still appears in a translation | Each feed is filtered independently. Add that language's form to the list as well. |
 | Edited `blocklist.txt` but nothing changed | Give it about 2 s. Check the relay's log (`logs.*`) for the line `Blocked words reloaded: N term(s)`, and that the file is the one named in the admin panel. |
 | A blocked word appears inside a longer word | By design: only whole words match. Add the longer word explicitly. |
+| The panel says "The user database is not available" | Postgres inside the container is down or still starting. Captions and viewer pages are not affected. The panel opens again by itself once the database is back; if it does not, read the log (`logs.*`) for lines starting `relay:`. See [Database and backups](#database-and-backups). |
+| Nobody can sign in, or the only Owner is locked out | [Recover with `tools/reset_owner.py`](#if-nobody-can-sign-in). |
 | Captions lag or arrive in long blocks | Phrase boundaries come from the model and are not tunable. Long *lines* are a line-break setting: lower *Caption line break after silence*. Real lag is upstream: check the host's bandwidth. |
 
 ## Layout
 
 ```
 setup.command / .bat / .sh   one-time setup: image, credentials, panel TLS
-start.command / .bat / .sh   start the whole stack (Caddy + relay, one
-                             container) in the background. One per platform:
+start.command / .bat / .sh   start the whole stack (Caddy + relay + Postgres,
+                             one container) in the background. One per platform:
                              macOS, Windows, Linux.
 stop.command / .bat / .sh    stop it (and, on macOS / Windows, its PulseAudio daemon)
 logs.command / .bat / .sh    follow the running relay's log
@@ -824,12 +1011,14 @@ config.example.json          template, used when tests run outside the image
 blocklist.txt                default blocked words, copied into docker-config/
                              on first start
 
-docker-config/               all state, git-ignored, created by setup
-  config.json                live config (0600): API key, admin token, admin_fqdn
+docker-config/               state, git-ignored, created by setup (the user
+                             database is in the `relay-db` volume, not here)
+  config.json                live config (0600): API key, setup admin token, admin_fqdn
   blocklist.txt              the live list: hot-reloaded, written by the panel
   Caddyfile                  generated from config.json on every start
   certs/admin.{crt,key}      operator panel certificate (key 0600)
   recordings/                recorded runs, if recording is enabled
+  backups/                   daily database dumps, relay-YYYYMMDD-HHMMSS.dump
 
 app/
   main.py                    FastAPI routes, SSE, admin API
@@ -843,10 +1032,13 @@ app/
   redact.py                  blocklist filtering, incremental-safe
   demo.py                    rehearsal mode
   config.py                  load, validate, atomic save, hot-reload
+  db.py                      Postgres pool, migrations, daily dump
+  users.py                   accounts, roles, permissions, sessions, trusted devices
+  migrations/                core schema, NNNN_name.sql, applied once each
   schedules.py               schedule validation, windows, DST, US formats
   overlays.py                broadcast overlay options, presets, named overlays
   scheduler.py               starts and stops capture on the schedules
-  templates/                 chooser, viewer, admin panel, login
+  templates/                 chooser, viewer, admin panel, sign-in
   static/                    viewer + admin JS and CSS
   modules/                   integrations, each switched on and off on its own
                              (docs/modules.md); __init__.py is the registry
@@ -855,7 +1047,9 @@ docker/
   Dockerfile                 build context is the repo root
   docker-compose.yml         base service; overlays add the audio wiring
   docker-compose.{macos,linux,windows}.yml
-  entrypoint.sh              ALSA -> Pulse routing when PULSE_SERVER is set
+  entrypoint.sh              ALSA -> Pulse routing when PULSE_SERVER is set;
+                             starts Postgres, Caddy and the relay
+  postgres.sh                starts and supervises the in-container Postgres
   config.example.json        template for docker-config/config.json
 
 tests/
@@ -864,6 +1058,9 @@ tests/
   test_schedules.py          schedule windows, DST, override rules, admin API
   test_overlays.py           overlay options, presets, named overlays, page
   test_announce.py           mDNS records and answers of tools/announce.py
+  test_users.py              accounts, roles, sessions, devices, database, dumps
+  test_auth.py               first run, sign-in, PIN, every admin route per role
+  _pg.py                     throwaway Postgres the tests start for themselves
 
 tools/
   check-audio.sh             PASS/FAIL walk of the whole capture chain
@@ -876,6 +1073,7 @@ tools/
   scan-image.sh              CVE / misconfig / secret scan of the built image
   write_config.py            writes credentials into config.json
   setup_caddy.py             panel certificate + Caddyfile
+  reset_owner.py             lockout recovery: make someone an Owner with a new password
 ```
 
 `write_config.py` and `setup_caddy.py` run *inside* the container, called by
@@ -891,8 +1089,27 @@ python3 -m venv .venv && .venv/bin/pip install -r requirements.txt httpx2
 .venv/bin/python tests/smoke_test.py   # config, hub, audio, routes, auth, blocklist, recording
 .venv/bin/python tests/test_redact.py  # blocklist filtering, incl. split-delta cases
 .venv/bin/python tests/test_schedules.py  # schedule windows, DST, override rules, admin API
+.venv/bin/python tests/test_users.py   # accounts, roles, sessions, database, dumps
+.venv/bin/python tests/test_auth.py    # first run, sign-in, PIN, every admin route per role
 python3 tests/test_announce.py         # panel announcement; standard library only
 ```
+
+Every suite except `test_redact.py` and `test_announce.py` needs PostgreSQL.
+Each such test process starts its own throwaway cluster with `initdb` and
+`pg_ctl`, on a unix socket in a temp directory, and deletes it at exit. It looks
+for them on `PATH`, then in `/usr/lib/postgresql/*/bin`, `/opt/homebrew/bin`,
+`/opt/homebrew/opt/postgresql@*/bin` and `/usr/local/bin`. Install Postgres
+(`brew install postgresql@17`, or `apt install postgresql`) or, to use a server
+you already run, set `RELAY_TEST_DATABASE_URL` to a connection URL for it: the
+test creates its own uniquely named database there and drops it afterwards. The
+backup checks in `tests/test_users.py` also need `pg_dump` and `pg_restore`, and
+say loudly when they are skipped. The CI workflow installs `postgresql` and
+`libpq5` for this.
+
+To run the app itself outside Docker (the tests do not need this), set
+`RELAY_DATABASE_URL` to a Postgres connection URL. Without it the user database
+counts as not configured, and the panel stays closed. Inside the container the
+entrypoint sets it.
 
 None makes an API call. `tests/test_redact.py` includes a randomised check that
 300 different delta chunkings of the same sentence all produce the identical

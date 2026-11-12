@@ -35,6 +35,9 @@ import json
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse
 
+from ..users import Permission, User
+from .. import users as users_mod
+
 log = logging.getLogger("relay.modules")
 
 HERE = Path(__file__).resolve().parent
@@ -71,6 +74,8 @@ class AdminPage:
     template: str      # a template in the module's templates/ directory
     group: str         # the nav group it is listed under: "Live", "Output", "Automation" or "Settings"
     icon: str = ""     # inner SVG for the 16x16 nav icon
+    # The permission needed to see the page's nav link; empty means "<module id>.view".
+    permission: str = ""
 
 
 @dataclass(frozen=True)
@@ -93,6 +98,9 @@ class Module:
     route_prefixes: tuple[str, ...] = ()
     # The /stream?stream=<name> streams it serves through `stream()`.
     streams: tuple[str, ...] = ()
+    # What the module's users may be allowed to do, as users.Permission("<id>.<action>", label, group, min_role).
+    # Every id starts with "<module id>."; the registry registers them at discovery.
+    permissions: tuple[Permission, ...] = ()
 
     # ------------------------------------------------------------ settings
     def clean(self, raw: Any) -> dict:
@@ -148,17 +156,34 @@ class Module:
 # A module cannot import app.main (main imports this registry), so the few things its routes need from the
 # web layer are here.
 HEARTBEAT_S = 15.0
-# main sets this to its own admin check (session cookie or x-admin-token).
-admin_check: Callable[[Request], bool] | None = None
+# main sets this to its `require` (permission -> FastAPI dependency); a module cannot import main.
+permission_hook: Callable[[str], Callable[..., Any]] | None = None
 # main sets this to its Jinja2Templates; a module's own templates are named "<module id>/<file>".
 templates: Any = None
 
 
-def require_admin(request: Request) -> bool:
-    """FastAPI dependency for a module's admin routes: the same login as the rest of the admin panel."""
-    if admin_check is None:
-        raise HTTPException(status_code=401, detail="Admin token required")
-    return admin_check(request)
+def require(perm: str) -> Callable[..., Any]:
+    """FastAPI dependency for a module's admin route: the signed-in user must hold permission `perm`
+    (`<module id>.view`, `<module id>.manage` or a finer one the module declares). 401 when signed out,
+    403 when the role lacks it, and the same checks as every other admin route."""
+    inner: list[Callable[..., Any]] = []
+
+    def dep(request: Request) -> User:
+        if permission_hook is None:
+            raise HTTPException(status_code=401, detail="Sign in required")
+        if not inner:
+            inner.append(permission_hook(perm))
+        return inner[0](request)
+
+    dep.permission = perm          # type: ignore[attr-defined]  (tests read it)
+    return dep
+
+
+# `require_admin` means the core permission `modules.manage` (admin and above), which says nothing about the module's
+# own pages: a module's routes should use `require("<id>.view")`, `require("<id>.manage")` or a finer permission it
+# declares (`<id>.control`). It stays so a third-party module written before permissions keeps working, never open
+# and never wider than an admin. Relay's own modules no longer use it (tests/test_modules.py).
+require_admin = require("modules.manage")
 
 
 async def read_limited(request: Request, limit: int) -> bytes:
@@ -367,11 +392,18 @@ class Registry:
             "has_test": type(mod).test is not Module.test,
         }
 
-    def admin_nav(self) -> dict[str, list[dict]]:
-        """The admin pages of the modules that are on, by nav group, for admin.html."""
+    @staticmethod
+    def _page_permission(mod: Module, page: AdminPage) -> str:
+        return page.permission or f"{mod.manifest.id}.view"
+
+    def admin_nav(self, user: User | None = None) -> dict[str, list[dict]]:
+        """The admin pages of the modules that are on, by nav group, for admin.html. With a `user`, only the
+        pages that user may see; with None, all of them (for code that has no user)."""
         groups: dict[str, list[dict]] = {}
         for mod in self.active():
             for p in mod.admin_pages:
+                if user is not None and not user.can(self._page_permission(mod, p)):
+                    continue
                 groups.setdefault(p.group, []).append({
                     "id": p.id, "title": p.title, "icon": p.icon,
                     "template": f"{mod.manifest.id}/{p.template}",
@@ -379,8 +411,17 @@ class Registry:
                 })
         return groups
 
-    def admin_scripts(self) -> list[str]:
-        return [f"{mod.manifest.id}/{s}" for mod in self.active() for s in mod.admin_scripts]
+    def admin_scripts(self, user: User | None = None) -> list[str]:
+        """The scripts of the modules that are on. With a `user`, only those of a module with at least one page
+        they may see (or, for a module with no pages, when they hold its `.view`)."""
+        out: list[str] = []
+        for mod in self.active():
+            if user is not None:
+                pages = [self._page_permission(mod, p) for p in mod.admin_pages] or [f"{mod.manifest.id}.view"]
+                if not any(user.can(perm) for perm in pages):
+                    continue
+            out += [f"{mod.manifest.id}/{s}" for s in mod.admin_scripts]
+        return out
 
 
 def validate(mod: Any, package: str) -> list[str]:
@@ -407,6 +448,19 @@ def validate(mod: Any, package: str) -> list[str]:
     for script in mod.admin_scripts:
         if not (HERE / package / "static" / script).is_file():
             problems.append(f"{package}: admin script {script} is missing")
+    declared = set()
+    for perm in mod.permissions:
+        if not isinstance(perm, Permission):
+            problems.append(f"{package}: permissions must be users.Permission values")
+        elif not perm.id.startswith(m.id + "."):
+            problems.append(f"{package}: permission {perm.id!r} must start with {m.id + '.'!r}")
+        else:
+            declared.add(perm.id)
+    known = declared | {p.id for p in users_mod.catalogue()}
+    for page in mod.admin_pages:
+        want = page.permission or f"{m.id}.view"
+        if want not in known and (page.permission or declared):
+            problems.append(f"{package}: admin page {page.id} needs permission {want!r}, which is not declared")
     return problems
 
 
@@ -422,6 +476,7 @@ def discover() -> dict[str, Module]:
         problems = validate(mod, name)
         if problems:
             raise RuntimeError("; ".join(problems))
+        users_mod.register(mod.permissions)
         found[name] = mod
     return found
 
