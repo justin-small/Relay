@@ -20,8 +20,11 @@ os.environ["RELAY_CONFIG"] = os.path.join(tempfile.mkdtemp(), "config.json")
 from fastapi.testclient import TestClient
 
 import app.main as main
-from app import config, pclive, planningcenter as pc
-from app.main import app, panel_control
+from app import config
+from app.modules.planning_center import pclive, planningcenter as pc
+from app.main import app
+from app.modules.planning_center.servicefeed import feed as service_feed
+from app.modules.planning_center.routes import control as panel_control
 from app.panels import registry
 
 fails = []
@@ -40,7 +43,8 @@ def check(label, cond, extra=""):
 
 
 config.ensure_file()
-config.save({"admin_token": "t0ken", "port": 8000, "admin_port": 8001})
+config.save({"admin_token": "t0ken", "port": 8000, "admin_port": 8001,
+             "modules": {"planning_center": {"enabled": True}}})  # the module is switched on (#157)
 viewer = TestClient(app, base_url="http://relay.local:8000")
 admin = TestClient(app, base_url="http://relay.local:8001", headers={"x-admin-token": "t0ken"})
 
@@ -191,7 +195,7 @@ eq("Next before Take control", (r.status_code, r.json()["error"]), (409, "not_co
 print("take control, next, previous, release")
 r = press(A, "take_control", key=key)
 eq("take control", (r.status_code, r.json()["ok"], r.json()["service"]["controller"]), (200, True, "Relay Owner"))
-eq("everyone on the feed sees it at once", main.service_feed.payload("7")["controller"], "Relay Owner")
+eq("everyone on the feed sees it at once", service_feed.payload("7")["controller"], "Relay Owner")
 r = press(A, "take_control", key=key)
 eq("again: nothing to do, still in control", (r.json()["service"]["controller"], fake.controller), ("Relay Owner", ME))
 r = press(A, "next", key=key)

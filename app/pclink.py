@@ -28,9 +28,10 @@ import time
 from collections import deque
 from typing import Any, Callable
 
-from . import config, plmatch, planningcenter as pc, propresenter as pp
+from . import config, plmatch, propresenter as pp
+from .modules.planning_center import planningcenter as pc
 from .ppcontrol import _seg
-from .pclive import follower as pc_follower
+from .modules.planning_center.pclive import follower as pc_follower
 from .propresenter import follower as pp_follower
 
 log = logging.getLogger("relay.pclink")
@@ -523,3 +524,11 @@ class Link:
 
 
 link = Link()
+# ProPresenter moves Services LIVE through the same press path as a panel, and tells the Service feed which plan
+# item it has up (the Planning Center module's objects; this file moves into the ProPresenter module next).
+from .modules.planning_center.routes import control as _pc_control  # noqa: E402
+from .modules.planning_center.servicefeed import feed as _service_feed  # noqa: E402
+
+link.pc_control = _pc_control
+link.on_change = _service_feed.refresh
+_service_feed.extra = link.feed_extra

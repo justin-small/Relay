@@ -56,10 +56,6 @@ DEFAULTS: dict[str, Any] = {
     "panels": {},
     # Alert buttons (#121): what each flashes, and how long an alert flashes when nobody taps -- see alerts.py.
     "alerts": {"auto_stop_s": 120, "buttons": []},
-    # Planning Center Personal Access Token and the service types Relay
-    # follows -- see planningcenter.py. Blank means the integration is off.
-    "planning_center": {"app_id": "", "secret": "", "service_types": [], "plan_overrides": {},
-                        "show_notes": False},
     # Which modules are switched on, by module id: {"<id>": {"enabled": bool}} -- see app/modules/. A
     # module with no switch saved is on only if its integration was already set up (Module.configured).
     "modules": {},
@@ -241,9 +237,6 @@ def _normalise(cfg: dict) -> dict:
     from . import alerts
 
     cfg["alerts"] = alerts.clean_stored(cfg.get("alerts"))
-    from . import planningcenter
-
-    cfg["planning_center"] = planningcenter.clean_stored(cfg.get("planning_center"))
     from . import propresenter
 
     cfg["propresenter"] = propresenter.clean_stored(cfg.get("propresenter"))
@@ -355,18 +348,11 @@ def save(updates: dict, replace: tuple[str, ...] = ()) -> dict:
 
 
 def redacted() -> dict:
-    """Config safe to hand to the admin browser: no key, no token, no
-    Planning Center secret."""
+    """Config safe to hand to the admin browser: no key, no token, and each
+    module's settings as its `public()` gives them (no Planning Center secret)."""
     cfg = dict(get())
     key = cfg.pop("openai_api_key", "") or ""
     cfg.pop("admin_token", None)
-    # The ID and secret are never sent back, only whether a token is saved.
-    pc = cfg.pop("planning_center", None) or {}
-    cfg["planning_center"] = {
-        "connected": bool(pc.get("app_id") and pc.get("secret")),
-        "service_types": list(pc.get("service_types") or []),
-        "show_notes": bool(pc.get("show_notes")),
-    }
     from .modules import modules
 
     modules.redact_config(cfg)

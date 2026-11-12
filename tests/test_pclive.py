@@ -27,7 +27,8 @@ os.environ["TZ"] = "America/Chicago"   # Relay's own zone differs from the organ
 
 from fastapi.testclient import TestClient
 
-from app import config, pclive, planningcenter as pc
+from app import config
+from app.modules.planning_center import pclive, planningcenter as pc
 from app.main import app
 
 fails = []
@@ -246,7 +247,8 @@ async def run_until(f, start, end, events=(), watch=None):
 
 
 config.ensure_file()
-config.save({"admin_token": "t0ken", "port": 8000, "admin_port": 8001})
+config.save({"admin_token": "t0ken", "port": 8000, "admin_port": 8001,
+             "modules": {"planning_center": {"enabled": True}}})  # the module is switched on (#157)
 
 
 async def main():

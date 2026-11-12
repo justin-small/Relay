@@ -21,8 +21,11 @@ os.environ["RELAY_CONFIG"] = os.path.join(tempfile.mkdtemp(), "config.json")
 from fastapi.testclient import TestClient
 
 import app.main as main
-from app import config, plmatch, pclive, planningcenter as pc, propresenter as pp
-from app.main import app, panel_control, pc_link, service_feed
+from app import config, plmatch, propresenter as pp
+from app.modules.planning_center import pclive, planningcenter as pc
+from app.main import app, pc_link
+from app.modules.planning_center.routes import control as panel_control
+from app.modules.planning_center.servicefeed import feed as service_feed
 from app.pclink import link
 
 fails = []

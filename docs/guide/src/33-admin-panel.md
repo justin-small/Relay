@@ -546,3 +546,26 @@ Relay's colours are fixed: dark by default, with the light / dark button on
 each viewer page. The **Overlay** link's background colour can be set with
 the `bg` option. See [Viewer links](#viewer-links).
 :::
+
+## Modules {#modules}
+
+Relay's links to other products (Planning Center, ProPresenter, and the ones
+still to come) are **modules**. Each is switched on and set up on its own. A
+module that is off contacts nothing, and its pages do not appear in the
+sidebar.
+
+### To switch a module on or off
+
+1. Open **Modules**, under **Settings**.
+2. Click the switch on the module's card. The page reloads, and the module's
+   own pages appear in the sidebar, or go.
+3. Set it up on its own page. **Setup guide** on the card and at the foot of
+   the module's page opens the instructions for it.
+
+Each card says whether the module is working. **Test connection** tries the
+saved settings without changing anything.
+
+::: note
+After the update that added modules, a module you had already set up starts
+switched on, so nothing changes for you. One you had not set up starts off.
+:::

@@ -21,15 +21,14 @@ from fastapi.templating import Jinja2Templates
 from jinja2 import ChoiceLoader, FileSystemLoader, PrefixLoader
 
 from . import alerts as alertsmod
-from . import config, exporting, languages, panelfw, panels, planningcenter, redact, schedules
+from . import config, exporting, languages, panelfw, panels, redact, schedules
 from .alerts import alerts
 from .engine import TRANSCRIPTION_STREAM, TRANSLATION_STREAM, demo_mode, engine
 from .hub import hub
+from . import modules as modules_pkg
 from .modules import HERE as MODULES_DIR, modules as module_registry
 from .panels import registry as panel_registry
-from .pclive import follower as pc_follower
-from .servicefeed import feed as service_feed
-from . import pccontrol, propresenter, slidetags
+from . import propresenter, slidetags
 from .pplobby import lobby as pp_lobby, LobbyError
 from .ppview import view as pp_view
 from .pclink import link as pc_link, LinkError
@@ -191,8 +190,6 @@ async def _startup() -> None:
     app.state.alerts_task = asyncio.create_task(_alert_ticks())
     # First tick runs straight away, so a relay started mid-window catches up.
     scheduler.start()
-    # Idle until a Planning Center token is saved and a service type followed.
-    pc_follower.start()
     # Idle until an address is entered and ProPresenter is switched on in admin.
     pp_follower.start()
     # Idle until the Planning Center link is switched on (follow the plan, or ProPresenter drives LIVE).
@@ -282,7 +279,6 @@ async def _shutdown() -> None:
     with contextlib.suppress(Exception):
         await module_registry.stop_all()
     scheduler.cancel()
-    pc_follower.cancel()
     pp_follower.cancel()
     pc_link.cancel()
     pp_lobby.cancel()
@@ -460,6 +456,10 @@ def require_admin(request: Request) -> bool:
     if _token_ok(request.headers.get("x-admin-token") or "", token):
         return True
     raise HTTPException(status_code=401, detail="Admin token required")
+
+
+# Modules' admin routes use the same login (they cannot import this file).
+modules_pkg.admin_check = require_admin
 
 
 # ------------------------------------------------------------- viewers
@@ -691,32 +691,6 @@ def _parse_seq(raw: str | None) -> int | None:
         return None
 
 
-SERVICE_STREAM = "service"
-
-
-def _service_stream(st: str) -> StreamingResponse:
-    """Today's plan and LIVE state for one followed service type (servicefeed.py)."""
-    queue = service_feed.subscribe(st)
-
-    async def gen():
-        try:
-            while True:
-                try:
-                    frame = await asyncio.wait_for(queue.get(), timeout=HEARTBEAT_S)
-                except asyncio.TimeoutError:
-                    yield _sse(service_feed.tick_payload(st)).encode()
-                    continue
-                yield frame
-        finally:
-            service_feed.unsubscribe(st, queue)
-
-    return StreamingResponse(
-        gen(),
-        media_type="text/event-stream",
-        headers={"Cache-Control": "no-cache, no-transform", "X-Accel-Buffering": "no"},
-    )
-
-
 LYRICS_STREAM = "lyrics"
 
 
@@ -807,7 +781,9 @@ async def stream(request: Request, stream: str = "translation", lang: str | None
     if stream == ALERT_STREAM:
         return _alert_sender_stream()
     # A stream a module owns (only while it is on).
-    owned = module_registry.stream(stream, request, dict(request.query_params))
+    params = dict(request.query_params)
+    params.update({k: v for k, v in (("type", type), ("lang", lang)) if v is not None})
+    owned = module_registry.stream(stream, request, params)
     if owned is not None:
         return owned
     if stream == LYRICS_STREAM:
@@ -829,13 +805,6 @@ async def stream(request: Request, stream: str = "translation", lang: str | None
         if not timers_feed.allowed():
             raise HTTPException(403, "ProPresenter is not set up")
         return _timers_stream(pid)
-    if stream == SERVICE_STREAM:
-        st = (type or "").strip()
-        # Only a followed service type: the feed is no way to make Relay ask
-        # Planning Center about anything else.
-        if not any(o["service_type"] == st for o in service_feed.offered()):
-            raise HTTPException(404, "not a followed service type")
-        return _service_stream(st)
     if stream not in (TRANSCRIPTION_STREAM, TRANSLATION_STREAM):
         raise HTTPException(400, "unknown stream")
     if stream == TRANSCRIPTION_STREAM:
@@ -877,20 +846,8 @@ async def stream(request: Request, stream: str = "translation", lang: str | None
 # --------------------------------------------------------------- panels
 # Caption panels (firmware/relay-display) talk to these two routes on the viewer
 # port, with no login: they do not pair. See panels.py for what bounds them.
-async def _read_limited(request: Request, limit: int) -> bytes:
-    """The request body, refused as soon as it passes `limit` bytes -- not read
-    whole first, so a client cannot make this process buffer a large upload."""
-    declared = request.headers.get("content-length")
-    if declared is not None and declared.isdigit() and int(declared) > limit:
-        raise HTTPException(413, "request too large")
-    chunks: list[bytes] = []
-    size = 0
-    async for chunk in request.stream():
-        size += len(chunk)
-        if size > limit:
-            raise HTTPException(413, "request too large")
-        chunks.append(chunk)
-    return b"".join(chunks)
+# Shared with modules (app/modules/__init__.py), which cannot import this file.
+_read_limited = modules_pkg.read_limited
 
 
 @app.post("/api/panels/checkin")
@@ -942,12 +899,7 @@ async def panel_events(panel_id: str):
     )
 
 
-panel_control = pccontrol.Control(pc_follower, panel_registry, service_feed)
-# The Planning Center link (pclink.py): ProPresenter moves Services LIVE through the same press path as a panel, and
-# tells the Service feed which plan item it has up.
-pc_link.pc_control = panel_control
-pc_link.on_change = service_feed.refresh
-service_feed.extra = pc_link.feed_extra
+
 
 
 # --------------------------------------------------------------- alerts (#121)
@@ -1051,29 +1003,6 @@ async def alert_screen_stream(name: str = ""):
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache, no-transform", "X-Accel-Buffering": "no"},
     )
-
-
-@app.post("/api/panels/{panel_id}/service/{action}")
-async def panel_service_action(panel_id: str, action: str, request: Request):
-    """Next / Previous / Take control / Release from a panel the operator lets
-    control, with its key (pccontrol.py). Answers with the new Service feed
-    state, or {"ok": false, "error": <code>} for the panel to word."""
-    if action not in pccontrol.ACTIONS:
-        raise HTTPException(404, "unknown action")
-    if not panels.valid_id(panel_id) or not panel_registry.known(panel_id):
-        raise HTTPException(404, "unknown panel")
-    raw = await _read_limited(request, pccontrol.BODY_MAX_BYTES)
-    try:
-        body = json.loads(raw or b"{}")
-    except (ValueError, UnicodeDecodeError):
-        raise HTTPException(400, "body must be JSON")
-    if not isinstance(body, dict):
-        raise HTTPException(400, "body must be a JSON object")
-    try:
-        state = await panel_control.press(panel_id, action, body)
-    except pccontrol.Refused as exc:
-        return JSONResponse({"ok": False, "error": exc.code}, status_code=exc.status)
-    return {"ok": True, "service": state}
 
 
 @app.get("/api/panels/firmware/{board}/{name}")
@@ -1346,122 +1275,6 @@ async def admin_config(request: Request, payload: dict):
     return resp
 
 
-def _pc_body() -> dict:
-    return {"planning_center": config.redacted()["planning_center"]}
-
-
-@app.post("/api/admin/planning-center", dependencies=[Depends(require_admin)])
-async def admin_planning_center_save(payload: dict):
-    """Save the Personal Access Token. A blank field keeps what is saved; a new
-    ID or secret means a different token, so the followed service types reset.
-    The secret is never in the response."""
-    saved = config.get()["planning_center"]
-    app_id = str(payload.get("app_id") or "").strip() or saved["app_id"]
-    secret = str(payload.get("secret") or "").strip() or saved["secret"]
-    if not app_id or not secret:
-        return JSONResponse({"error": "Enter both the application ID and the secret."}, status_code=400)
-    changed = (app_id, secret) != (saved["app_id"], saved["secret"])
-    config.save({"planning_center": {
-        "app_id": app_id,
-        "secret": secret,
-        "service_types": [] if changed else saved["service_types"],
-        "plan_overrides": {} if changed else saved["plan_overrides"],
-        "show_notes": saved["show_notes"],
-    }}, replace=("planning_center",))
-    log.info("Planning Center token %s", "saved" if changed else "unchanged")
-    await pc_follower.poke()
-    return _pc_body()
-
-
-@app.post("/api/admin/planning-center/test", dependencies=[Depends(require_admin)])
-async def admin_planning_center_test():
-    """Try the saved token and list the account's service types."""
-    client = planningcenter.client_from(config.get())
-    if client is None:
-        return JSONResponse({"error": "Save an application ID and secret first."}, status_code=400)
-    try:
-        types = await asyncio.get_running_loop().run_in_executor(None, client.service_types)
-    except planningcenter.PlanningCenterError as exc:
-        status = {"auth": 400, "rate": 429, "network": 502}.get(exc.kind, 502)
-        return JSONResponse({"error": str(exc)}, status_code=status)
-    return {**_pc_body(), "service_types": types}
-
-
-@app.post("/api/admin/planning-center/service-types/refresh", dependencies=[Depends(require_admin)])
-async def admin_planning_center_service_types_refresh():
-    """The account's service types, read from Planning Center. The page calls this after Save
-    and once a minute while the list is on screen; it changes nothing."""
-    return await admin_planning_center_test()
-
-
-@app.post("/api/admin/planning-center/service-types", dependencies=[Depends(require_admin)])
-async def admin_planning_center_service_types(payload: dict):
-    """Which service types Relay follows."""
-    if not planningcenter.connected(config.get()):
-        return JSONResponse({"error": "Connect to Planning Center first."}, status_code=400)
-    ids = payload.get("ids")
-    if not isinstance(ids, list):
-        return JSONResponse({"error": "ids must be a list."}, status_code=400)
-    saved = config.get()["planning_center"]
-    config.save({"planning_center": {**saved, "service_types": ids}}, replace=("planning_center",))
-    await pc_follower.poke()
-    return _pc_body()
-
-
-@app.post("/api/admin/planning-center/notes", dependencies=[Depends(require_admin)])
-async def admin_planning_center_notes(payload: dict):
-    """"Show item notes on panels". Off by default: notes can hold names and
-    pastoral details, and the service feed is on the viewer port with no login."""
-    show = payload.get("show")
-    if not isinstance(show, bool):
-        return JSONResponse({"error": "show must be true or false."}, status_code=400)
-    saved = config.get()["planning_center"]
-    config.save({"planning_center": {**saved, "show_notes": show}}, replace=("planning_center",))
-    log.info("Planning Center item notes on panels: %s", "shown" if show else "hidden")
-    service_feed.refresh()
-    return _pc_body()
-
-
-@app.get("/api/admin/planning-center/live", dependencies=[Depends(require_admin)])
-async def admin_planning_center_live():
-    """Today's plan and its LIVE state for each followed service type, and
-    the presses made from panels."""
-    return {**pc_follower.snapshot(), "actions": panel_control.recent()}
-
-
-@app.post("/api/admin/planning-center/plan", dependencies=[Depends(require_admin)])
-async def admin_planning_center_plan(payload: dict):
-    """Follow a different plan today for one service type; a blank plan goes
-    back to Relay's own pick. The choice lapses when the day ends."""
-    saved = config.get()["planning_center"]
-    st = str(payload.get("service_type") or "")
-    if st not in saved["service_types"]:
-        return JSONResponse({"error": "Relay is not following that service type."}, status_code=400)
-    plan = str(payload.get("plan") or "").strip()
-    if plan and not plan.isdigit():
-        return JSONResponse({"error": "plan must be a Planning Center plan id."}, status_code=400)
-    overrides = {k: v for k, v in saved["plan_overrides"].items() if k != st}
-    if plan:
-        track = pc_follower.tracks.get(st)
-        day = track.day if track and track.day else planningcenter.local_day(
-            scheduler.now(), pc_follower.zone or pc_follower.fallback_zone())
-        overrides[st] = {"plan": plan, "day": day.isoformat()}
-    config.save({"planning_center": {**saved, "plan_overrides": overrides}}, replace=("planning_center",))
-    log.info("Planning Center, service type %s: operator %s", st,
-             f"picked plan {plan} for today" if plan else "cleared the plan pick")
-    await pc_follower.poke()
-    return pc_follower.snapshot()
-
-
-@app.delete("/api/admin/planning-center", dependencies=[Depends(require_admin)])
-async def admin_planning_center_disconnect():
-    config.save({"planning_center": {}}, replace=("planning_center",))
-    log.info("Planning Center disconnected")
-    await pc_follower.poke()
-    return _pc_body()
-
-
-# --------------------------------------------------------------- ProPresenter (#138)
 def _pp_body() -> dict:
     s = config.get()["propresenter"]
     return {"settings": s, "state": pp_follower.state(), "lyrics_readers": lyrics_feed.viewer_count(),

@@ -29,7 +29,7 @@ from datetime import date, datetime, timedelta, timezone
 from typing import Any
 from zoneinfo import ZoneInfo
 
-from .realtime import _SSL
+from ...realtime import _SSL
 
 log = logging.getLogger("relay.planningcenter")
 

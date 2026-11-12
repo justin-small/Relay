@@ -1,0 +1,54 @@
+{# The Planning Center admin page, rendered inside admin.html only while the module is on. #}
+    <h2 class="title">Planning Center <span class="sumstate" id="pcConnSum"></span></h2>
+    <p class="sub">Follow the service plan and show it on panels.</p>
+    <section>
+      <h3>Connection</h3>
+    <div class="row">
+      <div class="field">
+        <label for="pcAppId">Application ID</label>
+        <input id="pcAppId" type="password" placeholder="(leave blank to keep current)" autocomplete="off">
+      </div>
+      <div class="field">
+        <label for="pcSecret">Secret</label>
+        <input id="pcSecret" type="password" placeholder="(leave blank to keep current)" autocomplete="off">
+      </div>
+    </div>
+    <div class="ctl">
+      <button type="button" class="primary" id="pcSave">Save</button>
+      <button type="button" id="pcTest">Test connection</button>
+      <button type="button" id="pcDisconnect" class="forget" hidden>Disconnect</button>
+    </div>
+    <div class="note" id="pcState" style="margin-top:12px"></div>
+    <div class="note">
+      Make a Personal Access Token at <span class="mono">api.planningcenteronline.com/personal_access_tokens</span>
+      and paste its application ID and secret here. Everything Relay does in Planning Center,
+      including Next and Previous from a panel, runs as the person who made the token and only
+      within their permissions. The secret is stored server-side in <span class="mono">config.json</span>,
+      never shown again, and never written to the log, an export or a recording. Until a token is
+      saved, Relay does not contact Planning Center at all.
+    </div>
+    </section>
+    <section id="pcTypes" hidden>
+      <h3>Service types Relay follows</h3>
+      <div class="plist" id="pcTypeList"></div>
+      <div class="ctl" style="margin-top:12px">
+        <button type="button" class="primary" id="pcTypesSave" disabled>Save selection</button>
+        <span class="muted" id="pcTypesNote"></span>
+      </div>
+    </section>
+    <section id="pcDisplay" hidden>
+      <h3>Display</h3>
+    <label class="check" id="pcNotesRow" hidden>
+      <input type="checkbox" id="pcNotes"> <span>Show item notes on panels<br>
+      <span class="muted">Off by default: notes can hold names and pastoral details, and anyone on the network can open the Service feed.</span></span>
+    </label>
+    </section>
+    <section id="pcToday" hidden>
+      <h3>Today</h3>
+      <div class="plist" id="pcTodayList"></div>
+      <div class="note" id="pcTodayNote"></div>
+      <div id="pcActions" hidden>
+        <h3 style="margin-top:22px">Presses from panels</h3>
+        <div class="plist" id="pcActionList"></div>
+      </div>
+    </section>

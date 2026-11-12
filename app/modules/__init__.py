@@ -29,7 +29,10 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Awaitable, Callable
 
-from fastapi import APIRouter, HTTPException
+import json
+
+from fastapi import APIRouter, HTTPException, Request
+from fastapi.responses import StreamingResponse
 
 log = logging.getLogger("relay.modules")
 
@@ -126,6 +129,49 @@ class Module:
     def stream(self, name: str, request: Any, params: dict) -> Any:
         """A /stream response for a stream this module owns, or None if `name` is not one of its own."""
         return None
+
+
+# ------------------------------------------------------------------ what core gives modules
+# A module cannot import app.main (main imports this registry), so the few things its routes need from the
+# web layer are here.
+HEARTBEAT_S = 15.0
+# main sets this to its own admin check (session cookie or x-admin-token).
+admin_check: Callable[[Request], bool] | None = None
+
+
+def require_admin(request: Request) -> bool:
+    """FastAPI dependency for a module's admin routes: the same login as the rest of the admin panel."""
+    if admin_check is None:
+        raise HTTPException(status_code=401, detail="Admin token required")
+    return admin_check(request)
+
+
+async def read_limited(request: Request, limit: int) -> bytes:
+    """The request body, refused as soon as it passes `limit` bytes -- not read
+    whole first, so a client cannot make this process buffer a large upload."""
+    declared = request.headers.get("content-length")
+    if declared is not None and declared.isdigit() and int(declared) > limit:
+        raise HTTPException(413, "request too large")
+    chunks: list[bytes] = []
+    size = 0
+    async for chunk in request.stream():
+        size += len(chunk)
+        if size > limit:
+            raise HTTPException(413, "request too large")
+        chunks.append(chunk)
+    return b"".join(chunks)
+
+
+def sse(payload: dict) -> str:
+    return f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
+
+
+def event_stream(gen: Any) -> StreamingResponse:
+    return StreamingResponse(
+        gen,
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache, no-transform", "X-Accel-Buffering": "no"},
+    )
 
 
 # ------------------------------------------------------------------ registry
@@ -294,6 +340,7 @@ class Registry:
                 groups.setdefault(p.group, []).append({
                     "id": p.id, "title": p.title, "icon": p.icon,
                     "template": f"{mod.manifest.id}/{p.template}",
+                    "module": mod.manifest.name, "version": mod.manifest.version, "guide": mod.manifest.guide,
                 })
         return groups
 

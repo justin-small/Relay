@@ -44,11 +44,14 @@ delete the token in Planning Center and make a new one.
 ## Step 2: Connect Relay
 
 1. Open the operator panel and sign in.
-2. Open the **Planning Center** section.
-3. Paste the **Application ID** and the **Secret**.
-4. Click **Test connection**. The section should say it is connected, and list
+2. Open **Modules** and switch **Planning Center** on (see
+   [Modules](#modules)). If Relay was already connected before the update
+   that added modules, it is on already.
+3. Open the **Planning Center** section.
+4. Paste the **Application ID** and the **Secret**.
+5. Click **Test connection**. The section should say it is connected, and list
    your **service types** (for example "Sunday AM").
-5. Tick the service types Relay should follow.
+6. Tick the service types Relay should follow.
 
 Relay never shows the ID or the secret again. The section only says a token is
 saved. To use a different token, paste the new one. To stop, click

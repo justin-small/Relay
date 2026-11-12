@@ -140,6 +140,8 @@
   .mcard .mhealth.warn::before { background:var(--warn); }
   .mcard .mhealth.error::before { background:var(--err); }
   .mcard .mfoot a { color:var(--fg); }
+  .modfoot { margin-top:18px; }
+  .modfoot a { color:var(--fg); }
   .pcard .phead { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
   .pcard .pname { font-weight:600; font-size:15px; overflow-wrap:anywhere; }
   .pcard .pstate { font-size:12px; color:var(--dim); margin-left:auto; }
@@ -429,7 +431,6 @@
     <a href="#recordings" data-page="recordings"><span class="ico"><svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6"/><circle cx="8" cy="8" r="2" fill="currentColor"/></svg></span>Recordings &amp; export</a>{{ module_links("Output") }}
     <div class="grp">Automation</div>
     <a href="#schedules" data-page="schedules"><span class="ico"><svg viewBox="0 0 16 16" aria-hidden="true"><rect x="2" y="3" width="12" height="11" rx="1.5"/><path d="M2 7h12M5.5 1.5v3M10.5 1.5v3"/></svg></span>Schedules</a>
-    <a href="#planningcenter" data-page="planningcenter"><span class="ico"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 13V6l5-4 5 4v7zM6.5 13V9h3v4"/></svg></span>Planning Center</a>
     <a href="#propresenter" data-page="propresenter"><span class="ico"><svg viewBox="0 0 16 16" aria-hidden="true"><rect x="2" y="2.5" width="12" height="8" rx="1"/><path d="M5 13.5h6M8 10.5v3"/></svg></span>ProPresenter</a>{{ module_links("Automation") }}
     <div class="grp">Settings</div>
     <a href="#blocklist" data-page="blocklist"><span class="ico"><svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6"/><path d="M3.8 12.2l8.4-8.4"/></svg></span>Blocked words</a>
@@ -750,61 +751,6 @@
       relay must be running for a schedule to fire; a window already under way when the relay
       starts is picked up, and one missed entirely is skipped.
     </div>
-    </section>
-  </div>
-  <div class="page" id="page-planningcenter" data-page="planningcenter" hidden>
-    <h2 class="title">Planning Center <span class="sumstate" id="pcSum"></span></h2>
-    <p class="sub">Follow the service plan and show it on panels.</p>
-    <section>
-      <h3>Connection</h3>
-    <div class="row">
-      <div class="field">
-        <label for="pcAppId">Application ID</label>
-        <input id="pcAppId" type="password" placeholder="(leave blank to keep current)" autocomplete="off">
-      </div>
-      <div class="field">
-        <label for="pcSecret">Secret</label>
-        <input id="pcSecret" type="password" placeholder="(leave blank to keep current)" autocomplete="off">
-      </div>
-    </div>
-    <div class="ctl">
-      <button type="button" class="primary" id="pcSave">Save</button>
-      <button type="button" id="pcTest">Test connection</button>
-      <button type="button" id="pcDisconnect" class="forget" hidden>Disconnect</button>
-    </div>
-    <div class="note" id="pcState" style="margin-top:12px"></div>
-    <div class="note">
-      Make a Personal Access Token at <span class="mono">api.planningcenteronline.com/personal_access_tokens</span>
-      and paste its application ID and secret here. Everything Relay does in Planning Center,
-      including Next and Previous from a panel, runs as the person who made the token and only
-      within their permissions. The secret is stored server-side in <span class="mono">config.json</span>,
-      never shown again, and never written to the log, an export or a recording. Until a token is
-      saved, Relay does not contact Planning Center at all.
-    </div>
-    </section>
-    <section id="pcTypes" hidden>
-      <h3>Service types Relay follows</h3>
-      <div class="plist" id="pcTypeList"></div>
-      <div class="ctl" style="margin-top:12px">
-        <button type="button" class="primary" id="pcTypesSave" disabled>Save selection</button>
-        <span class="muted" id="pcTypesNote"></span>
-      </div>
-    </section>
-    <section id="pcDisplay" hidden>
-      <h3>Display</h3>
-    <label class="check" id="pcNotesRow" hidden>
-      <input type="checkbox" id="pcNotes"> <span>Show item notes on panels<br>
-      <span class="muted">Off by default: notes can hold names and pastoral details, and anyone on the network can open the Service feed.</span></span>
-    </label>
-    </section>
-    <section id="pcToday" hidden>
-      <h3>Today</h3>
-      <div class="plist" id="pcTodayList"></div>
-      <div class="note" id="pcTodayNote"></div>
-      <div id="pcActions" hidden>
-        <h3 style="margin-top:22px">Presses from panels</h3>
-        <div class="plist" id="pcActionList"></div>
-      </div>
     </section>
   </div>
   <div class="page" id="page-ppcontrol" data-page="ppcontrol" hidden>
@@ -1142,6 +1088,7 @@
 {% for group in module_nav.values() %}{% for p in group %}
   <div class="page" id="page-{{ p.id }}" data-page="{{ p.id }}" hidden>
 {% include p.template %}
+    <p class="note modfoot">{{ p.module }} module v{{ p.version }}{% if p.guide %} &middot; <a href="{{ p.guide }}" target="_blank" rel="noopener">Setup guide</a>{% endif %} &middot; <a href="#modules">Switch it off on the Modules page</a></p>
   </div>
 {% endfor %}{% endfor %}
   </main>
