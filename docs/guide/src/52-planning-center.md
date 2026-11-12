@@ -144,6 +144,15 @@ and whether Relay has control. If a tap does not work, the panel says why:
 Every press is listed in the operator panel under **Presses from panels**, with
 the panel's name and the time.
 
+## Moving the service from ProPresenter
+
+If your church also runs ProPresenter, Relay can move Planning Center's LIVE item
+when a song comes up there, once it has stayed up for a few seconds. It is **off**
+unless you switch it on, and it never takes control: it moves LIVE only while
+Relay's token already has control, which you give it with **Take control** on a
+panel. See [Linking to Planning Center](#propresenter-link) in the ProPresenter
+chapter.
+
 ## Item notes
 
 Planning Center items can carry **notes**. Notes sometimes hold private things,

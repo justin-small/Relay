@@ -67,7 +67,10 @@ DEFAULTS: dict[str, Any] = {
                      "songs_only": True,
                      "lyrics": {"viewer": False, "screen": True, "overlay": False, "panels": True},
                      # Slide-note tags (see slidetags.py): off until switched on.
-                     "tags": {"enabled": False, "settle_s": 1.5}},
+                     "tags": {"enabled": False, "settle_s": 1.5},
+                     # The Planning Center link (see pclink.py): everything off until switched on.
+                     "link": {"follow": False, "drive": False, "dwell_s": 10.0, "allow_back": False,
+                              "service_type": "", "threshold": 0.8, "mapping": [], "owned": {}}},
     "host": "0.0.0.0",
     "admin_host": "127.0.0.1",
     "port": 8000,

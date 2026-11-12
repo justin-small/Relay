@@ -19,6 +19,10 @@ address and switch it on.
   looks, macros, timers, prepared messages and the media position (see
   [Running ProPresenter from Relay](#propresenter-control)).
 - **Writes** the stage message, and everything the control page does.
+- **Links** the plan to ProPresenter: matches Planning Center's items to presentations,
+  can build one Relay-owned playlist, shows both sides, and (if you switch it on)
+  lets ProPresenter move Planning Center's LIVE item (see
+  [Linking to Planning Center](#propresenter-link)).
 - **View-only** mode turns all of that off. Relay then only reads.
 
 ::: warning
@@ -227,6 +231,61 @@ the others on the slide still run.
 
 Panels that connect after a `[relay:lyrics]` are not switched; the next change
 of tags does it.
+
+## Linking to Planning Center {#propresenter-link}
+
+If you also use **Planning Center Services** (see [Showing the service from
+Planning Center](#planning-center)), Relay can compare the plan with what is in
+ProPresenter. Open **ProPresenter** in admin and find **Planning Center link**.
+Both switches there start **off**.
+
+**Matching.** Press **Match the plan now**. Relay reads ProPresenter's playlists
+and libraries (it only reads) and pairs each plan item with a presentation:
+
+1. **A pairing you made.** For an item whose presentation has a different
+   name, like "Message" and "Sermon: Grace", press **Pair** on its row and pick
+   the presentation. The pairing is remembered by the item's title, so it still
+   works next week. **Unpair** removes it.
+2. **ProPresenter's playlist synced from Planning Center**, in its own order.
+   An item ProPresenter has not linked to a presentation shows as **Not linked
+   in ProPresenter**; Relay does not guess for it.
+3. **The same title**, ignoring capitals, punctuation, "(Live)", the key
+   ("- G", "in G") and an arrangement name.
+4. **A similar title**, only if it is clearly the closest. If two presentations
+   fit equally well the row says **Several fit** and you choose.
+
+Headers have no presentation. Every row says how it was matched, so you can see
+why. Anything unmatched is listed with a red row.
+
+**Build the Relay playlist.** Press **Build the Relay playlist** to put the
+matched presentations in the plan's order into one ProPresenter playlist named
+**Relay – 2026-11-15** (the plan's date). Relay makes that playlist the first
+time and remakes only that one after. It **never changes any other playlist**,
+yours included. If a playlist with that name already exists and Relay did not make
+it, Relay stops and tells you. In **View-only** mode the button is off.
+After writing, Relay reads the playlist back and says whether it matches.
+
+**Follow the plan.** With **Follow the plan** on, Relay keeps the match up to date and
+shows, side by side, the item ProPresenter has up and the item Planning Center
+is on, with a note when they disagree. Caption panels are told which plan item
+ProPresenter has up; the real lyrics reach panels through the Lyrics view as
+before.
+
+**ProPresenter drives Services LIVE.** Switch this on and, once a presentation
+has been up for **Stay up for** seconds (10 by default), Relay moves Planning
+Center's LIVE to the matching item with the same Next and Previous presses a
+panel uses.
+
+- It **never takes control.** It moves LIVE only when Relay's own Planning Center
+  token already holds control. If someone else holds it, or nobody does, nothing
+  moves and the page says which.
+- It tries **once** each time a presentation comes up. Skipping quickly through
+  several songs starts the wait again, so only the one you stay on counts.
+- It goes **forward** by default. Tick **Also go back** and it will step back to
+  the matching item when ProPresenter shows an earlier one, and never further.
+- A presentation that matches no plan item moves nothing.
+
+Recent moves, and why a move did not happen, are listed under the switches.
 
 ## View-only mode
 

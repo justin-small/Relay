@@ -50,6 +50,9 @@ class ServiceFeed:
         # Called when the list of service feeds a panel can pick changes
         # (main.py re-sends the `targets` message).
         self.on_offered_change = None
+        # Extra fields for a service type's message (pclink.py: which plan item ProPresenter has up). A function
+        # of the service type id returning a dict, or None.
+        self.extra = None
         follower.listeners.append(self.refresh)
 
     # -- what the panel menu offers -------------------------------------
@@ -82,7 +85,14 @@ class ServiceFeed:
                 out["notes"] = [{"category": n["category"], "content": n["content"]} for n in i["notes"]]
             items.append(out)
         t = s["timers"]
+        extra = {}
+        if self.extra is not None:
+            try:
+                extra = self.extra(st) or {}
+            except Exception:
+                log.exception("service feed extra failed")
         return {
+            **extra,
             "type": "service",
             "service_type": st,
             "followed": True,

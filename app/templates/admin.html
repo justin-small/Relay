@@ -965,6 +965,31 @@
       <button type="button" class="primary" id="ppTagsSave">Save tag settings</button>
       <div id="ppTagsSeen" class="plist" style="margin-top:12px"></div>
     </section>
+    <section id="ppLink">
+      <h3>Planning Center link</h3>
+      <div class="note" style="margin-top:0">Matches the plan's items to ProPresenter's presentations, shows both sides while a service runs, and can let ProPresenter move Planning Center's LIVE item. Both switches are off until you turn them on. Needs ProPresenter and Planning Center connected.</div>
+      <label class="check" style="margin-top:10px"><input type="checkbox" id="plkFollow"> <span>Follow the plan<br><span class="muted">Read ProPresenter's lists in the background, match them to the plan, and tell panels which item ProPresenter has up.</span></span></label>
+      <label class="check" style="margin-top:10px"><input type="checkbox" id="plkDrive"> <span>ProPresenter drives Services LIVE<br><span class="muted">Once a presentation has been up for the time below, Relay moves Planning Center to the matching item. It never takes LIVE control: it moves LIVE only while Relay's own Planning Center token already holds it.</span></span></label>
+      <div class="field" style="margin-top:10px">
+        <label for="plkDwell">Stay up for (seconds)</label>
+        <input id="plkDwell" type="number" min="1" max="300" step="1" style="max-width:90px" autocomplete="off">
+      </div>
+      <label class="check"><input type="checkbox" id="plkBack"> <span>Also go back<br><span class="muted">When ProPresenter shows an item before Planning Center's, step back to it (never further). Off: only forward.</span></span></label>
+      <div class="field" id="plkStField" style="margin-top:10px" hidden>
+        <label for="plkSt">Service type</label>
+        <select id="plkSt"></select>
+      </div>
+      <button type="button" class="primary" id="plkSave">Save link settings</button>
+      <div class="note" id="plkMsg" role="status"></div>
+      <div id="plkStatus" class="plist" style="margin-top:12px"></div>
+      <div class="ctl" style="margin-top:12px">
+        <button type="button" id="plkMatch">Match the plan now</button>
+        <button type="button" id="plkBuild">Build the Relay playlist</button>
+      </div>
+      <div class="note" id="plkBuildNote"></div>
+      <div class="tablescroll ppdiag"><table id="plkTable"></table></div>
+      <datalist id="plkNames"></datalist>
+    </section>
   </div>
   <div class="page" id="page-blocklist" data-page="blocklist" hidden>
     <h2 class="title">Blocked words</h2>
@@ -1076,4 +1101,5 @@
 <script src="{{ static('alert-icons.js') }}"></script>
 <script src="{{ static('admin.js') }}"></script>
 <script src="{{ static('ppcontrol.js') }}"></script>
+<script src="{{ static('pclink.js') }}"></script>
 </body></html>

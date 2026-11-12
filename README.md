@@ -1274,6 +1274,26 @@ VM), a **view-only** switch, the lyrics feed switches and a stage message.
   `propresenter.cue_list`), and `.../playlists/{id}/diagnostics` counts the
   items and checks each presentation exists.
 
+- **The Planning Center link (stage 6).** `app/plmatch.py` (pure matching rules), `app/pclink.py`
+  (reads ProPresenter, caches, follows, drives), settings `propresenter.link` (`follow`, `drive`, both
+  default **off**; `dwell_s` default 10, 1 to 300; `allow_back`; `service_type`; `threshold`; `mapping`;
+  `owned`, set by Relay only). Matching order per plan item: the operator's pairing (`mapping`, kept by
+  normalised title), ProPresenter's playlist synced from Planning Center (the `is_pco` playlist that fits
+  the plan best, in its order; an unlinked entry is a `placeholder`, never guessed), the same title once
+  normalised (`plmatch.normalise`: case, accents, punctuation, "(Live)", key and arrangement suffixes),
+  then the closest title at or above `threshold` and clearly ahead of the runner-up (a tie is `ambiguous`).
+  `POST /api/admin/propresenter/link/playlist` (the operator's click) builds the one playlist Relay made,
+  `Relay – <plan date>`: `POST /v1/playlists` once, then `PUT /v1/playlist/{uuid}` with the matched
+  presentations in order, read back to verify. The UUID is kept in `link.owned`; a write checks it and the
+  name prefix, and a same-named playlist Relay did not make is refused. Never any other playlist. View-only
+  answers 409 from `propresenter.Client`. `drive`: after a presentation has been the active one for
+  `dwell_s` seconds, `pccontrol.Control.drive` reads LIVE fresh, does nothing unless the token's own person
+  is the controller, and presses Next (or Previous with `allow_back`) until LIVE is on the matched item,
+  stopping on an overshoot or after 12 presses; one try per activation. It uses the panels' press path and
+  lock, and each outcome is logged as a `ProPresenter` press. Routes under `/api/admin/propresenter/link`
+  (state, presentations, refresh, mapping, playlist); the Service feed message gains `pp_item` and
+  `pp_agree` while `follow` or `drive` is on. Tests: `tests/test_pclink.py`.
+
 Tests: `tests/test_propresenter.py` (a fake ProPresenter on localhost), and for
 the panel views `firmware/relay-display/tests/test_propresenter_view.py`. For
 operators there is a chapter in the user guide

@@ -44,6 +44,10 @@ MIN_GAP_S = 0.25   # was 1 s: a quick second Next was refused as "too fast"
 LOG_MAX = 100
 BODY_MAX_BYTES = 512
 
+MAX_DRIVE_STEPS = 12   # one ProPresenter-driven move never presses more than this many times
+DRIVE_RESULTS = ("advanced", "went_back", "already", "nobody", "someone_else", "behind", "not_in_plan", "overshot",
+                 "too_far", "lost_control", "unknown_item", "no_plan", "not_connected", "unreachable", "refused")
+
 # What a panel is told when a press does not go through: a short code it
 # words itself, and an HTTP status. The reason stays in Relay's log.
 REFUSALS = {
@@ -166,8 +170,8 @@ class Control:
         self.follower.apply_live(st, live)
         return True
 
-    def _record(self, pid: str, st: str, action: str, result: str) -> None:
-        name = self.registry.display_name(pid)
+    def _record(self, pid: str, st: str, action: str, result: str, name: str | None = None) -> None:
+        name = name or self.registry.display_name(pid)
         entry = {"at": datetime.now(timezone.utc).timestamp(), "panel": pid, "panel_name": name,
                  "service_type": st, "action": action, "result": result}
         self.actions.appendleft(entry)
@@ -177,6 +181,75 @@ class Control:
                 self.on_action()
             except Exception:
                 log.exception("control listener failed")
+
+    # -- ProPresenter drives LIVE (pclink.py) -------------------------------------------------------------
+    async def drive(self, st: str, order: list[str], targets: list[str], allow_back: bool = False,
+                    max_steps: int = MAX_DRIVE_STEPS) -> dict:
+        """Move the plan's LIVE to one of the plan items in `targets` (ids), using the same Next / Previous
+        presses as a panel, one press at a time under the same lock. `order` is the plan's item ids in order.
+
+        It NEVER takes control: it first reads LIVE fresh and does nothing unless Relay's own token is the
+        controller. It goes forward to the first target after the current item; backwards only when `allow_back`
+        and then to the nearest target behind, never past it; and it stops as soon as an answer shows it
+        arrived, overshot or did not move. Returns {"result": code, "steps": n, "who": controller name}; the
+        result codes are listed in DRIVE_RESULTS. No secret reaches the result or the log: only the fixed
+        codes and the controller's display name.
+        """
+        async with self._lock:
+            client = self.follower.client()
+            tr = self.follower.tracks.get(st)
+            if client is None:
+                return self._drove(st, "not_connected", 0)
+            if tr is None or tr.plan is None:
+                return self._drove(st, "no_plan", 0)
+            plan = tr.plan["id"]
+            try:
+                live = await self._call(client.live, st, plan)
+                me = await self._my_id(client)
+            except pc.PlanningCenterError as exc:
+                log.warning("Planning Center would not answer for ProPresenter's LIVE advance (%s)", exc.kind)
+                return self._drove(st, "unreachable" if exc.kind == "network" else "refused", 0)
+            self.follower.apply_live(st, live)
+            ctrl = live.get("controller")
+            if not ctrl:
+                return self._drove(st, "nobody", 0)
+            if ctrl.get("id") != me:
+                return self._drove(st, "someone_else", 0, ctrl.get("name") or "Someone")
+            cur = (live.get("current") or {}).get("item")
+            at = order.index(cur) if cur in order else (-1 if cur is None else None)
+            if at is None:
+                return self._drove(st, "unknown_item", 0)
+            if cur in targets:
+                return self._drove(st, "already", 0)
+            ahead = [order.index(t) for t in targets if t in order and order.index(t) > at]
+            behind = [order.index(t) for t in targets if t in order and order.index(t) < at]
+            if ahead:
+                goal, action = min(ahead), "next"
+            elif behind and allow_back:
+                goal, action = max(behind), "previous"
+            elif behind:
+                return self._drove(st, "behind", 0)
+            else:
+                return self._drove(st, "not_in_plan", 0)
+            steps = 0
+            while steps < max_steps:
+                try:
+                    await self._press(st, action)
+                except Refused as exc:
+                    return self._drove(st, "lost_control" if exc.code == "not_controlling" else exc.code, steps)
+                steps += 1
+                cur = ((self.follower.tracks[st].live or {}).get("current") or {}).get("item")
+                here = order.index(cur) if cur in order else None
+                if cur in targets:
+                    return self._drove(st, "advanced" if action == "next" else "went_back", steps)
+                if here is None or (action == "next" and here > goal) or (action == "previous" and here < goal):
+                    return self._drove(st, "overshot", steps)   # a skipped item (excluded or a header): stop where it landed
+            return self._drove(st, "too_far", steps)
+
+    def _drove(self, st: str, result: str, steps: int, who: str = "") -> dict:
+        self._record("propresenter", st, "drive", result if steps == 0 else f"{result} ({steps} step{'s' if steps != 1 else ''})",
+                     name="ProPresenter")
+        return {"result": result, "steps": steps, "who": who}
 
     def recent(self) -> list[dict[str, Any]]:
         return list(self.actions)
