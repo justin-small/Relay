@@ -1490,6 +1490,9 @@ async def _pp_run(fn, *args):
         data = await fn(*args)
     except PermissionError:
         return JSONResponse({"error": "That is not allowed by the operator-safe selection."}, status_code=403)
+    except LookupError:
+        return JSONResponse({"error": "No playlist is active or focused in ProPresenter. Trigger an item first."},
+                            status_code=404)
     except ValueError:
         return JSONResponse({"error": "That request was not valid."}, status_code=400)
     except propresenter.ProError as exc:
@@ -1524,6 +1527,18 @@ async def admin_pp_next_presentation():
     return await _pp_run(pp_control.next_presentation)
 
 
+@app.post("/api/admin/propresenter/item", dependencies=[Depends(require_admin)])
+async def admin_pp_item(payload: dict):
+    """The next or previous playlist item (Shift+arrow keys on the control page)."""
+    return await _pp_run(pp_control.step_item, payload.get("direction"))
+
+
+@app.post("/api/admin/propresenter/screens", dependencies=[Depends(require_admin)])
+async def admin_pp_screens(payload: dict):
+    """Audience or stage screens on or off. A write, so view-only refuses it like every other."""
+    return await _pp_run(pp_control.set_screens, payload.get("kind"), payload.get("on"))
+
+
 @app.post("/api/admin/propresenter/slide", dependencies=[Depends(require_admin)])
 async def admin_pp_slide(payload: dict):
     return await _pp_run(pp_control.trigger_slide, payload.get("uuid"), payload.get("index"))
@@ -1542,6 +1557,29 @@ async def admin_pp_playlists():
 @app.get("/api/admin/propresenter/playlists/{playlist}", dependencies=[Depends(require_admin)])
 async def admin_pp_playlist(playlist: str):
     return await _pp_run(pp_control.playlist_items, playlist)
+
+
+@app.get("/api/admin/propresenter/playlists/{playlist}/diagnostics", dependencies=[Depends(require_admin)])
+async def admin_pp_playlist_diagnostics(playlist: str):
+    return await _pp_run(pp_control.playlist_diagnostics, playlist)
+
+
+@app.get("/api/admin/propresenter/playlists/{playlist}/items/{index}/cues", dependencies=[Depends(require_admin)])
+async def admin_pp_playlist_cues(playlist: str, index: int):
+    return await _pp_run(pp_control.playlist_item_cues, playlist, index)
+
+
+@app.get("/api/admin/propresenter/playlists/{playlist}/thumbnail/{index}/{cue}", dependencies=[Depends(require_admin)])
+async def admin_pp_playlist_thumbnail(playlist: str, index: int, cue: int, v: str = ""):
+    """A playlist item's cue thumbnail, proxied and cached like the presentation ones (browsers never reach
+    ProPresenter)."""
+    try:
+        ctype, data = await pp_control.playlist_thumbnail(playlist, index, cue, v)
+    except ValueError:
+        return JSONResponse({"error": "That request was not valid."}, status_code=400)
+    except propresenter.ProError as exc:
+        return _pp_error(exc)
+    return Response(data, media_type=ctype, headers={"Cache-Control": "private, max-age=3600"})
 
 
 @app.post("/api/admin/propresenter/playlists/{playlist}/trigger", dependencies=[Depends(require_admin)])

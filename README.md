@@ -1238,6 +1238,26 @@ VM), a **view-only** switch, the lyrics feed switches and a stage message.
   request. The viewer port has no login, so the panel id picks settings and is
   not a credential.
 
+- **Live state and playlist details (stage 4).** The follower also follows
+  `announcement/active` and `announcement/slide_index` (position read every
+  second, the announcement itself only when it changes), `status/screens`,
+  `status/audience_screens` and `status/stage_screens` (re-read every few
+  seconds), and keeps each cue's part name, colour and label, so the admin
+  state has `item` (title, part and colour, slide number, notes of this and the
+  next slide, active playlist item), `announcement` and `screens`.
+  `POST /api/admin/propresenter/screens` (`{"kind":"audience"|"stage","on":bool}`)
+  is a `PUT /v1/status/{kind}_screens` with a bare boolean; `POST .../item`
+  (`{"direction":"next"|"previous"}`) goes to
+  `playlist/{active playlist}/{direction}/trigger`, or the focused playlist
+  without one. **Not** `presentation/active/next/trigger`: that is the next
+  cue, and moves a slide (tried live). Playlist thumbnails are
+  `GET .../playlists/{id}/thumbnail/{item}/{cue}?v=` (ProPresenter's
+  `playlist/{id}/{item}/thumbnail/{cue}`, drawn for the item's arrangement),
+  cached with the presentation thumbnails; `.../playlists/{id}/items/{item}/cues`
+  lists an item's cues in its arrangement (the same cue list as the slide grid,
+  `propresenter.cue_list`), and `.../playlists/{id}/diagnostics` counts the
+  items and checks each presentation exists.
+
 Tests: `tests/test_propresenter.py` (a fake ProPresenter on localhost), and for
 the panel views `firmware/relay-display/tests/test_propresenter_view.py`. For
 operators there is a chapter in the user guide
