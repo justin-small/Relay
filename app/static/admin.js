@@ -602,8 +602,36 @@
     }
     [['ppEnabled', s.enabled], ['ppViewOnly', s.view_only], ['ppSongsOnly', s.songs_only],
       ['ppLyScreen', s.lyrics.screen], ['ppLyOverlay', s.lyrics.overlay], ['ppLyPanels', s.lyrics.panels],
-      ['ppLyViewer', s.lyrics.viewer]].forEach(function (p) {
+      ['ppLyViewer', s.lyrics.viewer], ['ppTagsOn', (s.tags || {}).enabled]].forEach(function (p) {
       if (document.activeElement !== $(p[0])) $(p[0]).checked = !!p[1];
+    });
+    if (!ppTagsFilled) { ppTagsFilled = true; $('ppTagsSettle').value = (s.tags || {}).settle_s || 1.5; }
+  }
+
+  let ppTagsFilled = false;
+
+  /* Slide-note tags: the slide that is up and what its notes say, what ran and when, and what Relay could not read. */
+  function ppTagsRender(body) {
+    const box = $('ppTagsSeen');
+    box.innerHTML = '';
+    const tg = body.tags || {}, on = !!(body.settings.tags || {}).enabled;
+    if (!on) { box.appendChild(el('div', 'muted', 'Slide-note tags are off.')); return; }
+    const seen = tg.seen;
+    if (!seen) { box.appendChild(el('div', 'muted', 'Waiting for a slide. Tags are read once ProPresenter has one up.')); }
+    else {
+      const list = function (a) { return a && a.length ? a.join(', ') : 'none'; };
+      box.appendChild(ppKv('Slide up', (seen.presentation || 'nothing') + (seen.slide ? ', slide ' + seen.slide : '')));
+      box.appendChild(ppKv('Tags on the slide', list(seen.slide_tags)));
+      box.appendChild(ppKv('Deck-wide tags', list(seen.deck_tags)));
+      box.appendChild(ppKv('Runs for this slide', list(seen.resolved) + (seen.settling && seen.resolved.length ? ' (once it has settled)' : '')));
+      (seen.warnings || []).forEach(function (w) { box.appendChild(ppKv('Warning', w, 'err')); });
+    }
+    const fired = tg.fired || [];
+    box.appendChild(el('div', 'note', 'What ran'));
+    if (!fired.length) box.appendChild(el('div', 'muted', 'Nothing yet.'));
+    fired.slice(0, 8).forEach(function (r) {
+      const when = new Date(r.at * 1000).toLocaleTimeString();
+      box.appendChild(ppKv(when + '  ' + r.action + (r.value ? '=' + r.value : ''), r.result, r.ok ? '' : 'err'));
     });
   }
 
@@ -677,6 +705,7 @@
 
   function ppRender(body) {
     ppFill(body.settings);
+    ppTagsRender(body);
     ppTimersPick(body);
     const st = body.state;
     const failing = st.configured && !st.connected && !!st.error;
@@ -777,6 +806,14 @@
         lyrics: { screen: $('ppLyScreen').checked, overlay: $('ppLyOverlay').checked,
                   panels: $('ppLyPanels').checked, viewer: $('ppLyViewer').checked }
       }));
+      okMsg('Saved.');
+    } catch (e) { alertMsg(e.message); }
+  });
+  $('ppTagsSave').addEventListener('click', async function () {
+    const settle = parseFloat($('ppTagsSettle').value);
+    if (!(settle >= 0.2 && settle <= 30)) { alertMsg('The settle time is a number of seconds from 0.2 to 30.'); return; }
+    try {
+      ppRender(await post('/api/admin/propresenter', { tags: { enabled: $('ppTagsOn').checked, settle_s: settle } }));
       okMsg('Saved.');
     } catch (e) { alertMsg(e.message); }
   });

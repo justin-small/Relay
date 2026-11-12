@@ -65,7 +65,9 @@ DEFAULTS: dict[str, Any] = {
     # Network preferences), so there is no default for it.
     "propresenter": {"enabled": False, "host": "", "port": 0, "view_only": False, "songs_library": "Songs",
                      "songs_only": True,
-                     "lyrics": {"viewer": False, "screen": True, "overlay": False, "panels": True}},
+                     "lyrics": {"viewer": False, "screen": True, "overlay": False, "panels": True},
+                     # Slide-note tags (see slidetags.py): off until switched on.
+                     "tags": {"enabled": False, "settle_s": 1.5}},
     "host": "0.0.0.0",
     "admin_host": "127.0.0.1",
     "port": 8000,

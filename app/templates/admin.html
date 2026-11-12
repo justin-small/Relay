@@ -953,6 +953,18 @@
       <div class="note" id="ppStageNote"></div>
       <div class="note">An alert can also appear here: tick <em>Also show on the ProPresenter stage display</em> on its button under Alerts. It is cleared when the alert is acknowledged.</div>
     </section>
+    <section>
+      <h3>Slide-note tags</h3>
+      <div class="note" style="margin-top:0">A tag in a slide's notes in ProPresenter does something in Relay when that slide goes live. Relay only reads the notes, it never changes them. <span class="mono">[relay:lyrics]</span> on a slide, or <span class="mono">[relay-deck:lyrics]</span> in any slide of a presentation for every slide of it that has no tag of its own. The tags are <span class="mono">capture-start</span>, <span class="mono">capture-stop</span> (Relay's own captioning, not ProPresenter's capture), <span class="mono">lyrics</span>, <span class="mono">captions</span>, <span class="mono">lang=es</span> and <span class="mono">alert=Button name</span>. The guide has the full list.</div>
+      <label class="check" style="margin-top:10px"><input type="checkbox" id="ppTagsOn"> <span>Run slide-note tags<br><span class="muted">Off until you switch it on. Needs Follow ProPresenter, above.</span></span></label>
+      <div class="field" style="margin-top:10px">
+        <label for="ppTagsSettle">Settle time (seconds)</label>
+        <input id="ppTagsSettle" type="number" min="0.2" max="30" step="0.1" style="max-width:90px" autocomplete="off" aria-describedby="ppTagsHelp">
+        <div class="note" id="ppTagsHelp">A slide's tags run only after it has stayed live this long, so a fast run through the slides runs one set, not all of them. Moving to a slide with the same tags runs nothing again.</div>
+      </div>
+      <button type="button" class="primary" id="ppTagsSave">Save tag settings</button>
+      <div id="ppTagsSeen" class="plist" style="margin-top:12px"></div>
+    </section>
   </div>
   <div class="page" id="page-blocklist" data-page="blocklist" hidden>
     <h2 class="title">Blocked words</h2>

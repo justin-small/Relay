@@ -1238,6 +1238,22 @@ VM), a **view-only** switch, the lyrics feed switches and a stage message.
   request. The viewer port has no login, so the panel id picks settings and is
   not a credential.
 
+- **Slide-note tags (stage 5).** `app/slidetags.py`; settings `propresenter.tags`
+  (`enabled`, default **off**; `settle_s`, default 1.5, 0.2 to 30). A tag in a slide's notes,
+  `[relay:action]` or `[relay:action=value]`, runs a Relay action once the slide has stayed live for
+  `settle_s`; `[relay-deck:...]` in any slide's notes is the default for slides of that presentation that
+  have no `[relay:...]` tag. Actions: `capture-start`, `capture-stop` (Relay's own captioning, through the
+  same `scheduler.manual_*` and `engine.start/stop` as the Start and Stop buttons; ProPresenter's
+  `capture/start` is never called), `lyrics` and `captions` (`panels.Registry.show_lyrics/show_captions`:
+  a `set_feed` that is not stored, so the operator's own choice stays), `lang=<code or name>`
+  (`show_language`, validated against `languages.py` and the enabled targets) and `alert=<button name>`
+  (`Alerts.raise_named`). The same resolved set does not run twice in a row. The follower hands `observe` the
+  live slide's notes (from `status/slide`) and the deck's tags, parsed from the one
+  `presentation/{uuid}` read made when the presentation changes and cached by uuid and a hash of the notes.
+  Nothing is written to ProPresenter, so view-only does not apply. `GET /api/admin/propresenter` carries
+  `tags`: `seen`, `fired` and `actions`. Tests: `tests/test_slidetags.py`, and the follower side in
+  `tests/test_propresenter.py`. Tag reference: the guide's ProPresenter chapter.
+
 - **Live state and playlist details (stage 4).** The follower also follows
   `announcement/active` and `announcement/slide_index` (position read every
   second, the announcement itself only when it changes), `status/screens`,
