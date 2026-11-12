@@ -1,22 +1,27 @@
-"""The database: one Postgres, reached over psycopg 3 with a small pool.
+"""The database: one SQLite file beside config.json (relay.db), through the standard library.
 
-Postgres runs beside the app (a unix socket inside the container, see RELAY_DATABASE_URL). Everything here is
-blocking: callers on the event loop use asyncio.to_thread or a sync FastAPI dependency.
+There is no server to install, start or supervise, and copying the state folder is a complete backup.
+Everything here is blocking: callers on the event loop use asyncio.to_thread or a sync FastAPI dependency.
 
-The app must start and serve viewers with the database down, so nothing here raises at import or in `init()`.
-A missing or unreachable database shows up as `Unavailable` on the call that needed it, and is re-probed later
-(after a short backoff, so a dead database does not add a connect timeout to every request).
+One connection serves the whole process, behind one lock, so there is one writer at a time (Relay runs one
+worker by design, see run.py) and a transaction is exclusive in process; `BEGIN IMMEDIATE` makes it exclusive
+against any other process too. The file is opened in WAL mode with foreign keys on and a busy timeout.
+
+The app must start and serve viewers with the database unusable (a corrupt file, a read-only disk), so nothing
+here raises at import or in `init()`. A database that cannot be opened shows up as `Unavailable` on the call
+that needed it, and is re-probed later (after a short backoff, so a broken database does not cost an open
+attempt on every request).
 
 A module that wants tables of its own calls `migrate("<module id>", <its migrations dir>)`; that, `query`,
-`one`, `execute` and `transaction` are the whole module-facing API.
+`one`, `execute` and `transaction` are the whole module-facing API. Timestamps are UTC ISO text
+("2026-11-12T09:30:00Z"): `now()` and `later()` make them, and they compare correctly as text.
 """
 from __future__ import annotations
 
 import logging
 import os
 import re
-import shutil
-import subprocess
+import sqlite3
 import threading
 import time
 from contextlib import contextmanager
@@ -24,76 +29,77 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Iterator
 
-import psycopg
-from psycopg import errors as pgerrors
-from psycopg.conninfo import conninfo_to_dict
-from psycopg.rows import dict_row
-from psycopg_pool import ConnectionPool, PoolClosed, PoolTimeout
-
 log = logging.getLogger("relay.db")
 
 ROOT = Path(__file__).resolve().parent.parent
 CORE_MIGRATIONS = Path(__file__).resolve().parent / "migrations"
 
-CONNECT_TIMEOUT = 3          # seconds to reach the server
-POOL_TIMEOUT = 3             # seconds to wait for a pooled connection
-BACKOFF = 5.0                # seconds after a failure during which calls fail at once instead of re-probing
+MIN_SQLITE = (3, 35, 0)      # UPDATE ... RETURNING
+BUSY_TIMEOUT_MS = 5000
+BACKOFF = 5.0                # seconds after a failure during which calls fail at once instead of re-opening
 KEEP_BACKUPS = 7
 BACKUP_EVERY = timedelta(hours=24)
-BACKUP_TIMEOUT = 600
-_MIGRATE_LOCK_KEY = 727274   # advisory lock so two processes never migrate at once
-_BACKUP_NAME = re.compile(r"^relay-(\d{8}-\d{6})\.dump$")
+_BACKUP_NAME = re.compile(r"^relay-(\d{8}-\d{6})\.db$")
 _NAMESPACE = re.compile(r"^[a-z][a-z0-9_]*$")
 _MIGRATION = re.compile(r"^\d{4}_[a-z0-9_]+\.sql$")
+# OperationalError texts that mean the file or disk, not a bad statement.
+_FILE_TROUBLE = ("unable to open", "disk i/o", "readonly", "read-only", "locked", "full", "malformed",
+                 "not a database", "disk image", "corrupt", "cannot start a transaction")
 
 _lock = threading.RLock()
-_pool: ConnectionPool | None = None
-_pool_url = ""
-_down_until = 0.0            # monotonic time before which a failed database is not probed again
+_conn: sqlite3.Connection | None = None
+_conn_path = ""
+_down_until = 0.0            # monotonic time before which a failed database is not opened again
 
 
 class Unavailable(Exception):
-    """The database is not configured or cannot be reached. The text is fixed and safe to log."""
+    """The database cannot be opened or used. The text is fixed and safe to log."""
 
 
-def _url() -> str:
-    return (os.environ.get("RELAY_DATABASE_URL") or "").strip()
+# ------------------------------------------------------------------ time
+
+def _iso(dt: datetime) -> str:
+    return dt.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def now() -> str:
+    return _iso(datetime.now(timezone.utc))
+
+
+def later(seconds: float) -> str:
+    """The timestamp `seconds` from now (negative for the past)."""
+    return _iso(datetime.now(timezone.utc) + timedelta(seconds=seconds))
+
+
+# ------------------------------------------------------------------ connection
+
+def path() -> Path:
+    env = (os.environ.get("RELAY_DATABASE") or "").strip()
+    if env:
+        return Path(env)
+    return Path(os.environ.get("RELAY_CONFIG") or ROOT / "config.json").parent / "relay.db"
 
 
 def configured() -> bool:
-    return bool(_url())
+    return True              # there is always a default place for the file
 
 
-def _scrub(text: object) -> str:
-    """A log-safe string: the conninfo's password never appears, whatever libpq echoes back."""
-    s = str(text)
-    url = _url()
-    try:
-        pw = conninfo_to_dict(url).get("password") if url else None
-    except Exception:
-        pw = None
-    if pw:
-        s = s.replace(str(pw), "***")
-    return s
+def _is_file_trouble(exc: BaseException) -> bool:
+    if isinstance(exc, (sqlite3.IntegrityError, sqlite3.ProgrammingError, sqlite3.DataError,
+                        sqlite3.NotSupportedError)):
+        return False
+    if isinstance(exc, sqlite3.OperationalError):
+        text = str(exc).lower()
+        return any(t in text for t in _FILE_TROUBLE)
+    return isinstance(exc, (sqlite3.DatabaseError, OSError))     # corruption ("not a database") and the disk
 
 
-def _is_connection_error(exc: BaseException) -> bool:
-    if isinstance(exc, (PoolTimeout, PoolClosed, psycopg.InterfaceError)):
-        return True
-    if isinstance(exc, pgerrors.TransactionRollback):
-        return False       # a deadlock or serialization failure: the server is fine
-    if isinstance(exc, psycopg.OperationalError):
-        state = getattr(exc, "sqlstate", None)
-        return state is None or state.startswith(("08", "57P", "53"))
-    return False
-
-
-def _discard_pool() -> None:
-    global _pool
-    pool, _pool = _pool, None
-    if pool is not None:
+def _close_conn() -> None:
+    global _conn
+    conn, _conn = _conn, None
+    if conn is not None:
         try:
-            pool.close(timeout=1)
+            conn.close()
         except Exception:
             pass
 
@@ -102,78 +108,92 @@ def _mark_down(exc: BaseException | None = None) -> None:
     global _down_until
     with _lock:
         _down_until = time.monotonic() + BACKOFF
-        _discard_pool()
+        _close_conn()
     if exc is not None:
-        log.warning("database unavailable: %s", _scrub(exc).splitlines()[0][:200] if str(exc) else type(exc).__name__)
+        log.warning("database unavailable: %s", str(exc).splitlines()[0][:200] if str(exc) else type(exc).__name__)
 
 
-def _get_pool() -> ConnectionPool:
-    """The open pool, connecting first if needed. Raises Unavailable (fast while backing off)."""
-    global _pool, _pool_url
-    url = _url()
-    if not url:
-        raise Unavailable("The database is not configured.")
+def _dict_row(cur: sqlite3.Cursor, row: tuple) -> dict:
+    return {d[0]: v for d, v in zip(cur.description, row)}
+
+
+def _open(p: Path) -> sqlite3.Connection:
+    if sqlite3.sqlite_version_info < MIN_SQLITE:
+        log.error("SQLite %s is too old: Relay needs %s or newer", sqlite3.sqlite_version,
+                  ".".join(map(str, MIN_SQLITE)))
+        raise Unavailable("The database is unavailable.")
+    os.makedirs(p.parent, exist_ok=True)
+    if not p.exists():
+        os.close(os.open(p, os.O_WRONLY | os.O_CREAT, 0o600))      # 0600 from the first byte
+    try:
+        os.chmod(p, 0o600)
+    except OSError:
+        pass                                                        # not every file system has modes
+    conn = sqlite3.connect(p, timeout=BUSY_TIMEOUT_MS / 1000, isolation_level=None, check_same_thread=False)
+    try:
+        conn.row_factory = _dict_row
+        conn.execute(f"pragma busy_timeout = {BUSY_TIMEOUT_MS}")
+        conn.execute("pragma foreign_keys = on")
+        mode = conn.execute("pragma journal_mode = wal").fetchone()["journal_mode"]
+        if mode != "wal":
+            log.warning("database is not in WAL mode (got %s); this file system may not support it", mode)
+        conn.execute("pragma synchronous = normal")                 # durable and corruption-proof under WAL
+        conn.execute("select count(*) from sqlite_master").fetchone()   # fails now, not later, on a bad file
+    except BaseException:
+        conn.close()
+        raise
+    return conn
+
+
+def _get_conn() -> sqlite3.Connection:
+    """The open connection, opening it first if needed. Raises Unavailable (fast while backing off)."""
+    global _conn, _conn_path
+    p = path()
     with _lock:
-        if _pool is not None and _pool_url == url:
-            return _pool
-        if _pool is not None:
-            _discard_pool()
+        if _conn is not None and _conn_path == str(p):
+            return _conn
+        _close_conn()
         if time.monotonic() < _down_until:
             raise Unavailable("The database is unavailable.")
-        pool = None
         try:
-            # A single plain connect first: a dead server fails here in milliseconds, where an opening pool
-            # would sit out its whole wait.
-            with psycopg.connect(url, connect_timeout=CONNECT_TIMEOUT):
-                pass
-            pool = ConnectionPool(
-                url, min_size=1, max_size=4, open=False, timeout=POOL_TIMEOUT,
-                kwargs={"autocommit": True, "row_factory": dict_row, "connect_timeout": CONNECT_TIMEOUT},
-                check=ConnectionPool.check_connection,
-            )
-            pool.open(wait=True, timeout=CONNECT_TIMEOUT + 2)
+            _conn = _open(p)
+        except Unavailable:
+            _mark_down()
+            raise
         except Exception as e:
-            if pool is not None:
-                try:
-                    pool.close(timeout=1)
-                except Exception:
-                    pass
             _mark_down(e)
             raise Unavailable("The database is unavailable.") from None
-        _pool, _pool_url = pool, url
-        return pool
+        _conn_path = str(p)
+        return _conn
 
 
 def available() -> bool:
-    """True once a connection has worked; after a failure it re-probes (at most once per backoff)."""
+    """True once the file has opened; after a failure it re-probes (at most once per backoff)."""
     try:
-        _get_pool()
+        _get_conn()
         return True
     except Unavailable:
         return False
 
 
 def init() -> bool:
-    """Open the pool and apply the core migrations. Never raises; returns available()."""
-    if not configured():
-        log.info("database not configured (RELAY_DATABASE_URL is unset)")
-        return False
+    """Open the file and apply the core migrations. Never raises; returns available()."""
     try:
         migrate("core", CORE_MIGRATIONS)
     except Unavailable:
         return False
     except Exception as e:
-        log.error("core migrations failed: %s", _scrub(e))
+        log.error("core migrations failed: %s", e)
         _mark_down()
         return False
     return available()
 
 
 def close() -> None:
-    """Close the pool and forget any failure (so the next call connects afresh)."""
+    """Close the connection and forget any failure (so the next call opens afresh)."""
     global _down_until
     with _lock:
-        _discard_pool()
+        _close_conn()
         _down_until = 0.0
 
 
@@ -184,19 +204,19 @@ def _guard() -> Iterator[None]:
     except Unavailable:
         raise
     except Exception as e:
-        if _is_connection_error(e):
+        if _is_file_trouble(e):
             _mark_down(e)
             raise Unavailable("The database is unavailable.") from None
         raise
 
 
-def _rows(cur) -> list[dict]:
+def _rows(cur: sqlite3.Cursor) -> list[dict]:
     return cur.fetchall() if cur.description else []
 
 
 def query(sql: str, params: Any = ()) -> list[dict]:
-    with _guard(), _get_pool().connection() as conn:
-        return _rows(conn.execute(sql, params or None))
+    with _guard(), _lock:
+        return _rows(_get_conn().execute(sql, params))
 
 
 def one(sql: str, params: Any = ()) -> dict | None:
@@ -205,32 +225,60 @@ def one(sql: str, params: Any = ()) -> dict | None:
 
 
 def execute(sql: str, params: Any = ()) -> int:
-    with _guard(), _get_pool().connection() as conn:
-        return conn.execute(sql, params or None).rowcount
+    with _guard(), _lock:
+        return _get_conn().execute(sql, params).rowcount
 
 
 class Tx:
     """What `transaction()` yields: the same three calls, all inside one transaction."""
 
-    def __init__(self, conn):
+    def __init__(self, conn: sqlite3.Connection):
         self._conn = conn
 
     def query(self, sql: str, params: Any = ()) -> list[dict]:
-        return _rows(self._conn.execute(sql, params or None))
+        return _rows(self._conn.execute(sql, params))
 
     def one(self, sql: str, params: Any = ()) -> dict | None:
         rows = self.query(sql, params)
         return rows[0] if rows else None
 
     def execute(self, sql: str, params: Any = ()) -> int:
-        return self._conn.execute(sql, params or None).rowcount
+        return self._conn.execute(sql, params).rowcount
 
 
 @contextmanager
 def transaction() -> Iterator[Tx]:
-    """Commit on a clean exit, roll back on any exception."""
-    with _guard(), _get_pool().connection() as conn, conn.transaction():
-        yield Tx(conn)
+    """Commit on a clean exit, roll back on any exception.
+
+    The write lock is taken when the transaction begins (BEGIN IMMEDIATE) and held in process too, so two
+    transactions never interleave: a rule that reads and then writes (the last Owner) cannot be raced."""
+    with _guard(), _lock:
+        conn = _get_conn()
+        conn.execute("begin immediate")
+        try:
+            yield Tx(conn)
+        except BaseException:
+            try:
+                conn.execute("rollback")
+            except sqlite3.Error:
+                pass
+            raise
+        else:
+            conn.execute("commit")
+
+
+def _statements(sql: str) -> Iterator[str]:
+    """Split a migration into statements, so they run inside the caller's transaction (executescript would
+    commit it)."""
+    buf = ""
+    for line in sql.splitlines(keepends=True):
+        buf += line
+        if sqlite3.complete_statement(buf):
+            if buf.strip():
+                yield buf
+            buf = ""
+    if buf.strip() and not all(l.strip().startswith("--") or not l.strip() for l in buf.splitlines()):
+        yield buf
 
 
 def migrate(namespace: str, directory: Path) -> None:
@@ -244,21 +292,21 @@ def migrate(namespace: str, directory: Path) -> None:
     directory = Path(directory)
     files = sorted(p for p in directory.glob("*.sql") if _MIGRATION.match(p.name)) if directory.is_dir() else []
     with transaction() as tx:
-        tx.execute("select pg_advisory_xact_lock(%s)", (_MIGRATE_LOCK_KEY,))
         tx.execute(
             "create table if not exists schema_migrations ("
             " namespace text not null, version text not null,"
-            " applied_at timestamptz not null default now(),"
+            " applied_at text not null default (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),"
             " primary key (namespace, version))"
         )
-        done = {r["version"] for r in tx.query("select version from schema_migrations where namespace = %s",
+        done = {r["version"] for r in tx.query("select version from schema_migrations where namespace = ?",
                                                (namespace,))}
-        for path in files:
-            if path.stem in done:
+        for p in files:
+            if p.stem in done:
                 continue
-            tx.execute(path.read_text(encoding="utf-8"))
-            tx.execute("insert into schema_migrations (namespace, version) values (%s, %s)", (namespace, path.stem))
-            log.info("applied migration %s/%s", namespace, path.stem)
+            for stmt in _statements(p.read_text(encoding="utf-8")):
+                tx.execute(stmt)
+            tx.execute("insert into schema_migrations (namespace, version) values (?, ?)", (namespace, p.stem))
+            log.info("applied migration %s/%s", namespace, p.stem)
 
 
 # ------------------------------------------------------------------ backups
@@ -277,42 +325,37 @@ def _dumps(directory: Path) -> list[Path]:
 
 
 def backup(now: datetime | None = None) -> Path | None:
-    """pg_dump -Fc into the backups dir (atomically, 0600), then keep only the newest KEEP_BACKUPS.
+    """Copy the database into the backups dir with SQLite's online backup (atomically, 0600), then keep only
+    the newest KEEP_BACKUPS. The copy is one self-contained file: restoring is copying it over relay.db.
 
-    Returns the new file, or None (with a warning logged) when there is nothing to dump or pg_dump is missing
-    or fails. Never raises for those.
+    Returns the new file, or None (with a warning logged) when the database is unavailable or the copy fails.
+    Never raises for those.
     """
-    url = _url()
-    if not url:
-        return None
-    exe = shutil.which("pg_dump")
-    if not exe:
-        log.warning("database backup skipped: pg_dump was not found on PATH")
-        return None
     now = now or datetime.now(timezone.utc)
     directory = backups_dir()
-    final = directory / f"relay-{now.astimezone(timezone.utc):%Y%m%d-%H%M%S}.dump"
+    final = directory / f"relay-{now.astimezone(timezone.utc):%Y%m%d-%H%M%S}.db"
     tmp = directory / f".{final.name}.tmp"
     try:
         os.makedirs(directory, mode=0o700, exist_ok=True)
-        # The tmp name does not match the dump pattern, so a half-written file is never listed or restored.
-        fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-        os.close(fd)
-        res = subprocess.run([exe, "-Fc", "--dbname", url, "-f", str(tmp)], capture_output=True, text=True,
-                             timeout=BACKUP_TIMEOUT, stdin=subprocess.DEVNULL)
-        if res.returncode != 0:
-            last = (_scrub(res.stderr).strip().splitlines() or ["no error text"])[-1][:200]
-            log.warning("database backup failed (pg_dump exit %s): %s", res.returncode, last)
-            tmp.unlink(missing_ok=True)
-            return None
+        # The tmp name does not match the backup pattern, so a half-written file is never listed or restored.
+        tmp.unlink(missing_ok=True)
+        os.close(os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600))
+        dst = sqlite3.connect(tmp)
+        try:
+            with _guard(), _lock:
+                _get_conn().backup(dst)
+            dst.execute("pragma journal_mode = delete")      # a single file, no -wal beside it
+        finally:
+            dst.close()
         os.chmod(tmp, 0o600)
         os.replace(tmp, final)
-    except (OSError, subprocess.SubprocessError) as e:
-        log.warning("database backup failed: %s", _scrub(e))
-        try:
-            tmp.unlink(missing_ok=True)
-        except OSError:
-            pass
+    except Unavailable:
+        log.warning("database backup skipped: the database is unavailable")
+        _drop(tmp)
+        return None
+    except (OSError, sqlite3.Error) as e:
+        log.warning("database backup failed: %s", e)
+        _drop(tmp)
         return None
     for old in _dumps(directory)[:-KEEP_BACKUPS]:
         try:
@@ -323,10 +366,15 @@ def backup(now: datetime | None = None) -> Path | None:
     return final
 
 
+def _drop(p: Path) -> None:
+    try:
+        p.unlink(missing_ok=True)
+    except OSError:
+        pass
+
+
 def backup_due(now: datetime | None = None) -> bool:
-    """True when the database is configured and no dump was taken in the last 24 hours."""
-    if not configured():
-        return False
+    """True when no backup was taken in the last 24 hours."""
     dumps = _dumps(backups_dir())
     if not dumps:
         return True

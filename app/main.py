@@ -1211,7 +1211,7 @@ async def admin_setup(request: Request, token: str = Form(""), username: str = F
                 raise _WebRefused("mismatch")
             user = users.create(username, name, "owner", password, temporary=False, actor=None)
             # Setup signs the Owner in without a password check, so stamp the sign-in here.
-            db.execute("update users set last_login = now() where id = %s", (user.id,))
+            db.execute("update users set last_login = ? where id = ?", (db.now(), user.id))
             global _have_users
             _have_users = True
         return users.start_session(user, via="password")

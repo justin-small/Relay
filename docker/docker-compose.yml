@@ -10,17 +10,13 @@
 # Ports: 80 = viewer link for the room (plain HTTP), 443 = operator panel
 #        (HTTPS). Both are served by Caddy inside the container; the relay's
 #        own sockets stay on loopback in the network namespace.
-#        Postgres (user accounts) runs in the same container on a unix socket
-#        only; it has no TCP listener and no published port. If it cannot start
-#        or dies, the log says why and it is restarted with backoff; captions
-#        keep running and only sign-in is affected.
-# State:  two places, so rebuilds never lose either.
-#         ../docker-config/ (project root): config.json (API key), blocklist.txt,
-#           certs/ (the panel's TLS key and certificate) and backups/ (a daily
-#           pg_dump of the database, newest 7 kept).
-#         the `relay-db` Docker volume: the live Postgres files. `docker compose
-#           down` keeps it; `down -v` or `docker volume rm relay-db` deletes it
-#           (restore from backups/).
+#        The user accounts live in relay.db, a SQLite file in the state folder
+#        (no database server). If it cannot be opened the log says why;
+#        captions keep running and only sign-in is affected.
+# State:  one place, so rebuilds never lose it, and copying it is a full backup.
+#         ../docker-config/ (project root): config.json (API key), relay.db
+#           (the user accounts), blocklist.txt, certs/ (the panel's TLS key and
+#           certificate) and backups/ (a daily copy of relay.db, newest 7 kept).
 services:
   relay:
     build:
@@ -54,9 +50,8 @@ services:
     # PID 1 that reaps zombies and forwards signals, so `docker stop` is a
     # clean shutdown rather than a 10s timeout and SIGKILL.
     init: true
-    # The entrypoint stops the app and Caddy, then Postgres last with a fast
-    # shutdown so the data is checkpointed. That is normally a second or two;
-    # the margin is for a database that has a lot to flush.
+    # The entrypoint stops the app and Caddy. SQLite commits as it goes, so a
+    # stop never leaves the database needing repair; this is only a margin.
     stop_grace_period: 30s
 
     # A wedged or runaway process should not be able to take the host down
@@ -110,15 +105,5 @@ services:
       RELAY_DEMO: "${RELAY_DEMO:-}"
 
     volumes:
-      # Single writable mount, holding config.json and blocklist.txt.
+      # Single writable mount, holding config.json, relay.db and blocklist.txt.
       - ../docker-config:/app/config
-      # Postgres data. A named volume, not a bind mount: Postgres needs real
-      # POSIX ownership and fsync, which a Docker Desktop bind mount fakes. The
-      # image makes this directory 1777 so a fresh volume is usable by whatever
-      # uid the container runs as; the entrypoint creates data/ (0700) inside.
-      - relay-db:/var/lib/relay-db
-
-# Fixed name (not prefixed with the compose project), like container_name above.
-volumes:
-  relay-db:
-    name: relay-db

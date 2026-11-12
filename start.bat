@@ -4,9 +4,9 @@ cd /d "%~dp0"
 
 REM Live Caption Relay on Windows - starts the whole stack.
 REM
-REM One container holds all three processes: Caddy on the network side (viewers on
+REM One container holds both processes: Caddy on the network side (viewers on
 REM port 80, the operator panel on 443 over HTTPS), the relay on loopback behind
-REM it, and Postgres for the user accounts on a private unix socket (no port).
+REM it. The user accounts are a SQLite file in the state folder (no database server).
 REM There is nothing else to launch.
 REM
 REM Docker Desktop has no sound card of its own, so capture comes from a

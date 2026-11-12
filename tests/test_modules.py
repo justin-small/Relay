@@ -26,10 +26,10 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 os.environ["RELAY_CONFIG"] = os.path.join(tempfile.mkdtemp(), "config.json")
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import _pg  # noqa: E402  (a throwaway Postgres for the user system; must come before app.main)
+import _db  # noqa: E402  (a throwaway SQLite file for the user system; must come before app.main)
 
-_pg.start()
-_pg.reset()
+_db.start()
+_db.reset()
 
 from fastapi import APIRouter, Depends, FastAPI
 from fastapi.testclient import TestClient
@@ -134,7 +134,7 @@ for name in sorted(CORE_FILES & top):
 print("module contract")
 config.ensure_file()
 config.save({"port": 8000, "admin_port": 8001})
-admin = _pg.client(app, base_url="http://relay.local:8001")
+admin = _db.client(app, base_url="http://relay.local:8001")
 viewer = TestClient(app, base_url="http://relay.local:8000")
 check("logged in to the admin page", 'id="page-modules"' in admin.get("/admin").text)
 

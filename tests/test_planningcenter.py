@@ -16,10 +16,10 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 os.environ["RELAY_CONFIG"] = os.path.join(tempfile.mkdtemp(), "config.json")
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import _pg  # noqa: E402  (a throwaway Postgres for the user system; must come before app.main)
+import _db  # noqa: E402  (a throwaway SQLite file for the user system; must come before app.main)
 
-_pg.start()
-_pg.reset()
+_db.start()
+_db.reset()
 os.environ["RELAY_VERSION"] = "9.9.9"
 
 from fastapi.testclient import TestClient
@@ -113,7 +113,7 @@ config.save({"admin_token": "t0ken", "port": 8000, "admin_port": 8001,
              "modules": {"planning_center": {"enabled": True}}})  # the module is switched on (#157)
 from app.modules import modules as _modules  # noqa: E402
 _modules.attach("planning_center")  # its hooks into core, without its background work
-admin = _pg.client(app, base_url="http://relay.local:8001")
+admin = _db.client(app, base_url="http://relay.local:8001")
 URL = "/api/admin/planning-center"
 
 print("off until a token is saved")
@@ -188,8 +188,8 @@ check("a missing Retry-After falls back to the period", pc._retry_after({}, 20) 
 print("roles")
 admin.post(URL, json={"app_id": APP_ID, "secret": SECRET})
 admin.post(URL + "/service-types", json={"ids": ["7"]})
-operator = _pg.client(app, "operator", base_url="http://relay.local:8001")
-viewer_user = _pg.client(app, "viewer", base_url="http://relay.local:8001")
+operator = _db.client(app, "operator", base_url="http://relay.local:8001")
+viewer_user = _db.client(app, "viewer", base_url="http://relay.local:8001")
 state.update(limit_429=0, forbid=False)
 eq("an operator picks today's plan", operator.post(URL + "/plan", json={"service_type": "7", "plan": ""}).status_code, 200)
 eq("an operator reads the live view", operator.get(URL + "/live").status_code, 200)

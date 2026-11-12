@@ -13,10 +13,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 os.environ["RELAY_CONFIG"] = os.path.join(tempfile.mkdtemp(), "config.json")
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import _pg  # noqa: E402  (a throwaway Postgres for the user system; must come before app.main)
+import _db  # noqa: E402  (a throwaway SQLite file for the user system; must come before app.main)
 
-_pg.start()
-_pg.reset()
+_db.start()
+_db.reset()
 
 from app import config, schedules as S
 from app import scheduler as scheduler_mod
@@ -323,7 +323,7 @@ from app.main import app
 config.save({"schedules": [], "port": 8000, "admin_port": 8000})
 body = {"name": "Sunday morning", "repeat": "weekly", "days": [0],
         "start_time": "10:00", "stop_time": "12:00", "timezone": "America/Chicago"}
-cl = _pg.client(app, base_url="http://testserver")
+cl = _db.client(app, base_url="http://testserver")
 with cl:
     scheduler_mod.engine = engine_mod.engine
     check("needs a sign-in", TestClient(app).get("/api/admin/schedules").status_code, 401)
