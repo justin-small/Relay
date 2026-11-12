@@ -30,7 +30,7 @@ import time
 from dataclasses import dataclass, field
 from typing import Any, Callable
 
-from . import config, languages, panelfw
+from . import config, languages, panelfw, propresenter
 
 # A panel not heard from for this long shows as offline. It checks in every 30 s.
 OFFLINE_AFTER_S = 90.0
@@ -70,6 +70,11 @@ TRANSLATION = "translation"
 SERVICE = "service"
 # The alert buttons as a feed (#121): {"stream": "alert"}. The pane sends alerts; it needs no setting of its own.
 ALERT = "alert"
+# ProPresenter (#138): the current slide's lyrics and the timers, as feeds that need no setting of their own:
+# {"stream": "lyrics"} and {"stream": "timers"}. Which timers, and their thresholds, are per panel, in the
+# stored entry's "timers" block (propresenter.clean_timer_settings), because the panel asks for them by its id.
+LYRICS = "lyrics"
+TIMERS = "timers"
 MAX_FEEDS = 2
 _FEED_ST_RE = re.compile(r"^\d{1,19}$")
 # What the panel's screen may be turned to (#122), clockwise: 0 and 180 landscape, 90 and 270 upright.
@@ -100,7 +105,8 @@ def clean_feeds(raw: object) -> list[dict[str, str]] | None:
     """One or two feed choices, or None if `raw` is not a valid list of them.
 
     A feed is {"stream": "transcription"}, {"stream": "translation", "lang":
-    "SPANISH"}, {"stream": "service", "service_type": "123"} or {"stream": "alert"}. The language
+    "SPANISH"}, {"stream": "service", "service_type": "123"}, {"stream": "alert"}, {"stream": "lyrics"} or
+    {"stream": "timers"} (ProPresenter). The language
     must be one Relay can translate into; whether the service type is one Relay
     follows, and the panel shows the service, is the caller's to check.
     """
@@ -125,6 +131,8 @@ def clean_feeds(raw: object) -> list[dict[str, str]] | None:
             out.append({"stream": SERVICE, "service_type": st})
         elif stream == ALERT:
             out.append({"stream": ALERT})
+        elif stream in (LYRICS, TIMERS):
+            out.append({"stream": stream})
         else:
             return None
     return out
@@ -152,6 +160,8 @@ def _reported_feeds(raw: object) -> list[dict[str, str]]:
                 out.append({"stream": SERVICE, "service_type": st})
         elif stream == ALERT:
             out.append({"stream": ALERT})
+        elif stream in (LYRICS, TIMERS):
+            out.append({"stream": stream})
     return out
 
 
@@ -184,6 +194,11 @@ def clean_stored(raw: object) -> dict[str, dict[str, Any]]:
         if rotation in ROTATIONS and not isinstance(rotation, bool):
             entry["rotation"] = rotation
         entry["rotation_rev"] = _int(spec.get("rotation_rev"), 0, 2**31 - 1)
+        timers = spec.get("timers")
+        if isinstance(timers, dict):
+            mine = propresenter.timer_fields(timers)[0]
+            if mine:
+                entry["timers"] = mine
         mode = spec.get("service_mode")
         if mode in SERVICE_MODES and mode != "off":
             entry["service_mode"] = mode
@@ -317,9 +332,15 @@ class Registry:
             "update": self._update_view(panel),
             "service_mode": stored.get("service_mode") or "off",
             "service_type": stored.get("service_type") or None,
+            # This panel's own ProPresenter timer settings (None: it follows the global ones).
+            "set_timers": stored.get("timers") or None,
         }
 
     # ------------------------------------------------------- service mode
+    def timer_settings(self, pid: str) -> dict[str, Any] | None:
+        """The panel's own ProPresenter timer settings, for the timers feed."""
+        return self.stored().get(pid, {}).get("timers") or None
+
     def service(self, pid: str) -> dict[str, Any]:
         """What the panel is told about the Planning Center service: its mode,
         the service type it follows (None: its own pick), and its control key
@@ -642,12 +663,14 @@ class Registry:
     # ------------------------------------------------------- operator actions
     def update(self, pid: str, *, name: str | None = None, feeds: Any = ...,
                service_mode: str | None = None, service_type: Any = ...,
-               rotation: Any = ...) -> dict[str, Any]:
+               rotation: Any = ..., timers: Any = ...) -> dict[str, Any]:
         """Rename a panel, set its feed, its rotation and/or its service mode.
         `feeds=None` clears the operator's feed; leaving `feeds` out changes
         nothing. `rotation` is 0 or 180, or None to leave the panel as it is.
         `service_type=None` lets the panel pick. Pushes `set_feed`,
-        `set_rotation` and `service_mode` at once. A control mode gets a new
+        `set_rotation` and `service_mode` at once. `timers` is this panel's own ProPresenter timer settings
+        ({"amber_s", "red_s", "show"}, any of them), or None to follow the global ones; the panel asks for them
+        when it opens its timers stream, so nothing is pushed. A control mode gets a new
         random key when the panel had none; leaving control drops it. A Service
         feed needs a service mode that shows the service.
         Raises KeyError for an unknown panel and ValueError for a bad value."""
@@ -671,7 +694,7 @@ class Registry:
                 clean = clean_feeds(feeds)
                 if clean is None:
                     raise ValueError("feeds must be one or two of transcription, a translation language, "
-                                     "the service or the alert buttons")
+                                     "the service, the alert buttons, the lyrics or the timers")
                 panel = self.panels.get(pid)
                 if panel is not None and panel.scripts:
                     for feed in clean:
@@ -716,6 +739,19 @@ class Registry:
                 raise ValueError("a Service feed needs the panel's service mode to be Show only or Show and control")
             if entry.get("service_type") and entry["service_type"] != feed["service_type"]:
                 raise ValueError("a Service feed must be the service type this panel is set to")
+        if timers is not ...:
+            if timers is None:
+                entry.pop("timers", None)
+            elif isinstance(timers, dict):
+                mine, problem = propresenter.timer_fields(timers)
+                if problem:
+                    raise ValueError(problem)
+                if mine:
+                    entry["timers"] = mine
+                else:
+                    entry.pop("timers", None)
+            else:
+                raise ValueError("timers must be an object, or null to follow the global settings")
         rotation_push = None
         if rotation is not ...:
             if rotation is None:
@@ -729,7 +765,7 @@ class Registry:
             else:
                 raise ValueError("rotation must be 0, 90, 180 or 270")
         if (not entry.get("name") and not entry.get("feeds") and not entry.get("service_mode")
-                and entry.get("rotation") is None):
+                and entry.get("rotation") is None and not entry.get("timers")):
             stored.pop(pid, None)
         self._save_stored(stored)
         if push is not None:

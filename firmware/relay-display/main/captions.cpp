@@ -69,6 +69,8 @@ struct Slot {
     caption_feed *feed = nullptr;
     service_state *service = nullptr;
     alert_board *alerts = nullptr;
+    lyrics_state *lyrics = nullptr;   // ProPresenter's lyrics (#138)
+    timers_state *timers = nullptr;   // and its timers
     caption_state state = caption_state::off;
     uint32_t revision = 0;
 
@@ -79,6 +81,9 @@ struct Slot {
 
 Slot s_slots[kCaptionSlots];
 bool s_started = false;
+// This panel's id, which the timers feed names it by (`captions_set_panel_id`). Written once at boot, before a feed
+// can be pointed at the timers.
+char s_panel_id[33] = {};
 void (*volatile s_listener)(int, void *) = nullptr;
 void *volatile s_listener_ctx = nullptr;
 
@@ -129,7 +134,21 @@ bool replace_feed(Slot &s, bool make, uint8_t stream)
     caption_feed *fresh = nullptr;
     service_state *fresh_service = nullptr;
     alert_board *fresh_alerts = nullptr;
-    if (make && stream == kFeedService) {
+    lyrics_state *fresh_lyrics = nullptr;
+    timers_state *fresh_timers = nullptr;
+    if (make && stream == kFeedLyrics) {
+        void *mem = feed_alloc(sizeof(lyrics_state));
+        if (mem == nullptr) {
+            return false;
+        }
+        fresh_lyrics = new (mem) lyrics_state();
+    } else if (make && stream == kFeedTimers) {
+        void *mem = feed_alloc(sizeof(timers_state));
+        if (mem == nullptr) {
+            return false;
+        }
+        fresh_timers = new (mem) timers_state();
+    } else if (make && stream == kFeedService) {
         void *mem = feed_alloc(sizeof(service_state));
         if (mem == nullptr) {
             return false;
@@ -152,11 +171,23 @@ bool replace_feed(Slot &s, bool make, uint8_t stream)
     caption_feed *old = s.feed;
     service_state *old_service = s.service;
     alert_board *old_alerts = s.alerts;
+    lyrics_state *old_lyrics = s.lyrics;
+    timers_state *old_timers = s.timers;
+    s.lyrics = fresh_lyrics;
+    s.timers = fresh_timers;
     s.feed = fresh;
     s.service = fresh_service;
     s.alerts = fresh_alerts;
     ++s.revision;
     unlock(s);
+    if (old_lyrics != nullptr) {
+        old_lyrics->~lyrics_state();
+        feed_free(old_lyrics);
+    }
+    if (old_timers != nullptr) {
+        old_timers->~timers_state();
+        feed_free(old_timers);
+    }
     if (old_alerts != nullptr) {
         old_alerts->~alert_board();
         feed_free(old_alerts);
@@ -222,6 +253,50 @@ void on_alert_event(Slot &s, const caption_sse_event &event)
     }
 }
 
+// One event of the lyrics feed (`pp_format.h`): the whole slide. A repeat that says what the glass already says
+// changes nothing, so a still screen is not told to redraw (`lyrics_change::same`).
+void on_lyrics_event(Slot &s, const caption_sse_event &event)
+{
+    lock(s);
+    lyrics_change change = lyrics_change::ignored;
+    if (s.lyrics != nullptr) {
+        change = lyrics_apply(s.lyrics, event.data, event.len);
+        if (change == lyrics_change::state) {
+            ++s.revision;
+        }
+    }
+    unlock(s);
+    if (change == lyrics_change::state) {
+        ESP_LOGI(TAG, "captions[%d]: lyrics changed", s.index);
+        notify(s);
+    } else if (change == lyrics_change::malformed) {
+        ESP_LOGW(TAG, "captions[%d]: unreadable lyrics message (%u bytes)", s.index, static_cast<unsigned>(event.len));
+    }
+}
+
+// One event of the timers feed (`pp_format.h`). Every message re-anchors the count, but only a change to the rows
+// themselves is announced.
+void on_timers_event(Slot &s, const caption_sse_event &event)
+{
+    lock(s);
+    timers_change change = timers_change::ignored;
+    int count = 0;
+    if (s.timers != nullptr) {
+        change = timers_apply(s.timers, event.data, event.len, static_cast<uint32_t>(esp_timer_get_time() / 1000));
+        count = s.timers->count;
+        if (change == timers_change::state) {
+            ++s.revision;
+        }
+    }
+    unlock(s);
+    if (change == timers_change::state) {
+        ESP_LOGI(TAG, "captions[%d]: timers changed, %d shown", s.index, count);
+        notify(s);
+    } else if (change == timers_change::malformed) {
+        ESP_LOGW(TAG, "captions[%d]: unreadable timers message (%u bytes)", s.index, static_cast<unsigned>(event.len));
+    }
+}
+
 // Wait up to `ms`, or until the feed is changed.
 void rest(int ms)
 {
@@ -272,6 +347,14 @@ void on_event(void *ctx, const caption_sse_event &event)
     }
     if (c->stream == kFeedAlert) {
         on_alert_event(s, event);
+        return;
+    }
+    if (c->stream == kFeedLyrics) {
+        on_lyrics_event(s, event);
+        return;
+    }
+    if (c->stream == kFeedTimers) {
+        on_timers_event(s, event);
         return;
     }
     lock(s);
@@ -428,8 +511,9 @@ Outcome run_connection(Slot &s, uint32_t gen, const char *url, uint8_t stream, c
     unlock(s);
 
     char request[384];
-    const size_t request_len = caption_request(request, sizeof request, host, port, stream, lang, resume,
-                                               RELAY_FW_VERSION);
+    // The timers feed names this panel; every other feed's `lang` is what the saved choice holds.
+    const size_t request_len = caption_request(request, sizeof request, host, port, stream,
+                                               stream == kFeedTimers ? s_panel_id : lang, resume, RELAY_FW_VERSION);
     if (request_len == 0) {
         out.end = caption_end::bad_response;
         return out;
@@ -569,6 +653,8 @@ void slot_task(void *arg)
                          stream == kFeedTranscription ? "transcription"
                          : stream == kFeedService     ? "service"
                          : stream == kFeedAlert       ? "alert"
+                         : stream == kFeedLyrics      ? "lyrics"
+                         : stream == kFeedTimers      ? "timers"
                                                       : "translation",
                          stream == kFeedTranscription ? "" : lang, url);
             }
@@ -650,7 +736,7 @@ esp_err_t captions_start()
 
 esp_err_t captions_set_feed(int slot, const char *relay_url, uint8_t stream, const char *lang)
 {
-    if (!s_started || slot < 0 || slot >= kCaptionSlots || stream > kFeedAlert) {
+    if (!s_started || slot < 0 || slot >= kCaptionSlots || stream > kFeedTimers) {
         return ESP_ERR_INVALID_ARG;
     }
     if (relay_url == nullptr) {
@@ -739,6 +825,37 @@ void captions_read_alerts(int slot, void (*fn)(const alert_board *alerts, captio
     lock(s);
     fn(s.alerts, s.state, ctx);
     unlock(s);
+}
+
+void captions_read_lyrics(int slot, void (*fn)(const lyrics_state *lyrics, caption_state state, void *ctx), void *ctx)
+{
+    if (!s_started || slot < 0 || slot >= kCaptionSlots) {
+        fn(nullptr, caption_state::off, ctx);
+        return;
+    }
+    Slot &s = s_slots[slot];
+    lock(s);
+    fn(s.lyrics, s.state, ctx);
+    unlock(s);
+}
+
+void captions_read_timers(int slot, void (*fn)(const timers_state *timers, caption_state state, void *ctx), void *ctx)
+{
+    if (!s_started || slot < 0 || slot >= kCaptionSlots) {
+        fn(nullptr, caption_state::off, ctx);
+        return;
+    }
+    Slot &s = s_slots[slot];
+    lock(s);
+    fn(s.timers, s.state, ctx);
+    unlock(s);
+}
+
+void captions_set_panel_id(const char *id)
+{
+    if (id != nullptr && settings_panel_id_valid(id)) {
+        snprintf(s_panel_id, sizeof s_panel_id, "%s", id);
+    }
 }
 
 void captions_read_service(int slot, void (*fn)(const service_state *service, caption_state state, void *ctx),

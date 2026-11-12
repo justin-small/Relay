@@ -92,6 +92,13 @@ class FakeRelay:
         self.service_offers: list[dict] = []
         self.service_states: dict[str, dict] = {}
         self._service_subs: dict[str, list[queue.Queue]] = {}
+        # ProPresenter (#138): what `targets` offers a panel, the whole state of each feed (`lyrics`, `pptimers`), sent on
+        # connect, on each change and again at every heartbeat, as app/propresenter.py does. `pp_status` answers the
+        # feeds with an error instead (Relay's 403 for a feed that is off).
+        self.pp_offers: dict[str, bool] = {"lyrics": False, "timers": False}
+        self.pp_states: dict[str, dict] = {}
+        self.pp_status = 200
+        self._pp_subs: dict[str, list[queue.Queue]] = {}
         # The LIVE buttons (#80, #83): every press as (action, body), and what answers it. `on_action(action, body)`
         # returns (status, reply); the default accepts. `action_delay` holds each answer back, as a slow Planning
         # Center would.
@@ -179,6 +186,7 @@ class FakeRelay:
             "running": True,
             "font_px": 48,
             "service": list(self.service_offers),
+            "propresenter": dict(self.pp_offers),
         }
 
     def set_live(self, languages: list[str]) -> None:
@@ -230,6 +238,19 @@ class FakeRelay:
             frame = _frame(msg)
             for q in self._service_subs.get(service_type, []):
                 q.put(frame)
+
+    def set_propresenter(self, stream: str, state: dict) -> None:
+        """ProPresenter's `lyrics` or `pptimers` state changed: the whole message, to every panel on that feed."""
+        msg = {"type": "lyrics" if stream == "lyrics" else "pptimers", "enabled": True, "server_time": time.time(), **state}
+        with self._lock:
+            self.pp_states[stream] = msg
+            frame = _frame(msg)
+            for q in self._pp_subs.get(stream, []):
+                q.put(frame)
+
+    def offer_propresenter(self, *, lyrics: bool, timers: bool) -> None:
+        self.pp_offers = {"lyrics": lyrics, "timers": timers}
+        self.targets()
 
     def push(self, message: dict) -> None:
         """Any message, on every open panel stream (an `update_available`, say)."""
@@ -297,7 +318,7 @@ class FakeRelay:
                     q.put(None)
             for _, q in self.panel_streams:
                 q.put(None)
-            for subs in self._service_subs.values():
+            for subs in (*self._service_subs.values(), *self._pp_subs.values()):
                 for q in subs:
                     q.put(None)
         for handler in handlers:
@@ -362,6 +383,9 @@ class FakeRelay:
         self.requests.append(query)
         if query.get("stream") == "service":
             self._serve_service(handler, query.get("type", ""))
+            return
+        if query.get("stream") in ("lyrics", "pptimers"):
+            self._serve_pp(handler, query["stream"])
             return
         stream = query.get("stream", "")
         lang = "ENGLISH" if stream == "transcription" else query.get("lang", "")
@@ -451,6 +475,45 @@ class FakeRelay:
             with self._lock:
                 with contextlib.suppress(ValueError):
                     self._service_subs[service_type].remove(q)
+                with contextlib.suppress(ValueError):
+                    self._handlers.remove(handler)
+
+    def _serve_pp(self, handler: BaseHTTPRequestHandler, stream: str) -> None:
+        """`/stream?stream=lyrics&for=panel` and `/stream?stream=pptimers&for=panel&panel=..` (app/propresenter.py): the
+        whole state on connect and on each change, and the same state again in the quiet, as Relay repeats it."""
+        if self.pp_status != 200:
+            self._json(handler, self.pp_status, {"detail": "not switched on"})
+            return
+        handler.send_response(200)
+        handler.send_header("Content-Type", "text/event-stream; charset=utf-8")
+        handler.send_header("Cache-Control", "no-cache, no-transform")
+        handler.send_header("Transfer-Encoding", "chunked")
+        handler.end_headers()
+        handler.close_connection = True
+        q: queue.Queue = queue.Queue()
+        empty = {"type": "lyrics" if stream == "lyrics" else "pptimers", "enabled": True, "live": False, "timers": [],
+                 "server_time": time.time()}
+        with self._lock:
+            q.put(_frame(self.pp_states.get(stream) or empty))
+            self._pp_subs.setdefault(stream, []).append(q)
+            self._handlers.append(handler)
+        try:
+            while True:
+                try:
+                    frame = q.get(timeout=self.ping_s)
+                except queue.Empty:
+                    frame = _frame({**(self.pp_states.get(stream) or empty), "server_time": time.time(),
+                                    "rev": int(time.time())})
+                if frame is None:
+                    break
+                handler.wfile.write(b"%x\r\n" % len(frame) + frame + b"\r\n")
+                handler.wfile.flush()
+        except OSError:
+            pass
+        finally:
+            with self._lock:
+                with contextlib.suppress(ValueError):
+                    self._pp_subs[stream].remove(q)
                 with contextlib.suppress(ValueError):
                     self._handlers.remove(handler)
 

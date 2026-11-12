@@ -30,7 +30,7 @@ struct relay_settings_t {
     char relay_addr[129];    // the Relay address override, `http://host[:port]`; empty means find Relay
     char panel_id[33];       // 32 lower-case hex characters, random, made on first boot
     uint8_t ip_mode;         // kIpModeDhcp or kIpModeStatic; zero is DHCP
-    uint8_t feed_stream;     // the saved feed: kFeedNone, kFeedTranscription, kFeedTranslation, kFeedService or kFeedAlert
+    uint8_t feed_stream;     // the saved feed: kFeedNone, kFeedTranscription, kFeedTranslation, kFeedService, kFeedAlert, kFeedLyrics or kFeedTimers
     uint8_t reserved[2];     // zero
     char feed_lang[20];      // the translation feed's language, as Relay names it ("SPANISH")
     uint8_t static_addr[4];     // the station's IPv4 address, network byte order
@@ -40,7 +40,7 @@ struct relay_settings_t {
     uint8_t static_dns2[4];     // the secondary DNS server; 0.0.0.0 when there is none
     // Schema 2: the split view. Pane 1 is `feed_stream`/`feed_lang` above; pane 2 is here.
     uint8_t feed_split;      // 0 for one feed full screen, 1 for two side by side
-    uint8_t feed2_stream;    // pane 2's feed: kFeedNone, kFeedTranscription, kFeedTranslation, kFeedService or kFeedAlert
+    uint8_t feed2_stream;    // pane 2's feed: kFeedNone, kFeedTranscription, kFeedTranslation, kFeedService, kFeedAlert, kFeedLyrics or kFeedTimers
     uint8_t reserved2[2];    // zero
     char feed2_lang[20];     // pane 2's translation language, as Relay names it
 };
@@ -74,6 +74,10 @@ constexpr uint8_t kFeedTranslation = 2;
 constexpr uint8_t kFeedService = 3;
 // The alert buttons (#121): a pane that sends alerts. `feed_lang` is empty.
 constexpr uint8_t kFeedAlert = 4;
+// ProPresenter (#138): the current slide's lyrics, and its timers. `feed_lang` is empty for both: the timers
+// are the ones Relay's admin sets for this panel (the panel names itself in the request).
+constexpr uint8_t kFeedLyrics = 5;
+constexpr uint8_t kFeedTimers = 6;
 
 // What `settings_decode` made of a blob.
 enum class settings_blob {
@@ -179,10 +183,10 @@ inline settings_blob settings_decode(const void *blob, size_t len, relay_setting
     if (stored.ip_mode != kIpModeDhcp && stored.ip_mode != kIpModeStatic) {
         stored.ip_mode = kIpModeDhcp;
     }
-    if (stored.feed_stream > kFeedAlert) {
+    if (stored.feed_stream > kFeedTimers) {
         stored.feed_stream = kFeedNone;
     }
-    if (stored.feed2_stream > kFeedAlert) {
+    if (stored.feed2_stream > kFeedTimers) {
         stored.feed2_stream = kFeedNone;
     }
     if (stored.feed_split > 1) {

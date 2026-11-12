@@ -18,6 +18,7 @@
 #include "alert_format.h"
 #include "caption_format.h"
 #include "esp_err.h"
+#include "pp_format.h"
 #include "service_format.h"
 
 constexpr int kCaptionSlots = 2;
@@ -25,7 +26,7 @@ constexpr int kCaptionSlots = 2;
 // Make the two slots and their tasks. Nothing connects until a feed is set.
 esp_err_t captions_start();
 
-// Show `stream` (kFeedTranscription, kFeedTranslation, kFeedService or kFeedAlert; kFeedNone turns the slot off) from the Relay
+// Show `stream` (kFeedTranscription, kFeedTranslation, kFeedService, kFeedAlert, kFeedLyrics or kFeedTimers; kFeedNone turns the slot off) from the Relay
 // at `relay_url` (`http://host[:port]`) in `slot`. A different feed from the one the slot has starts
 // over with an empty buffer; the same feed again changes nothing. Not saved: the settings are.
 esp_err_t captions_set_feed(int slot, const char *relay_url, uint8_t stream, const char *lang);
@@ -51,6 +52,14 @@ void captions_read_service(int slot, void (*fn)(const service_state *service, ca
 // Call `fn` with the slot's alert buttons under its lock (`alert_format.h`, #121). `alerts` is null unless the slot is
 // on the Alert feed. The same lock and order as `captions_read`.
 void captions_read_alerts(int slot, void (*fn)(const alert_board *alerts, caption_state state, void *ctx), void *ctx);
+
+// Call `fn` with the slot's ProPresenter lyrics, or timers, under its lock (`pp_format.h`, #138). `lyrics` (`timers`) is null
+// unless the slot is on that feed. The same lock and order as `captions_read`.
+void captions_read_lyrics(int slot, void (*fn)(const lyrics_state *lyrics, caption_state state, void *ctx), void *ctx);
+void captions_read_timers(int slot, void (*fn)(const timers_state *timers, caption_state state, void *ctx), void *ctx);
+
+// This panel's id, which the timers feed asks Relay for its own timers by. Call once at boot, before any feed is set.
+void captions_set_panel_id(const char *id);
 
 // Told after each change, from the slot's task, outside the lock. One listener; null removes it.
 void captions_set_listener(void (*fn)(int slot, void *ctx), void *ctx);

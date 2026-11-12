@@ -15,6 +15,9 @@
 
 LV_FONT_DECLARE(relay_caption_27);
 LV_FONT_DECLARE(relay_caption_23);
+// The timers view's digits (tools/gen_digits_font.sh): 0-9, the colon and the minus sign only.
+LV_FONT_DECLARE(relay_digits_140);
+LV_FONT_DECLARE(relay_digits_80);
 
 #if RELAY_UI_SCALE_PCT == 65
 #define RELAY_UI_FONT_SMALL lv_font_montserrat_14
@@ -22,12 +25,16 @@ LV_FONT_DECLARE(relay_caption_23);
 #define RELAY_UI_FONT_LARGE lv_font_montserrat_26
 #define RELAY_UI_FONT_CAPTION relay_caption_23
 #define RELAY_UI_FONT_ALERT lv_font_montserrat_48
+#define RELAY_UI_PX_LARGE 26
+#define RELAY_UI_PX_CAPTION 23
 #elif RELAY_UI_SCALE_PCT == 75
 #define RELAY_UI_FONT_SMALL lv_font_montserrat_16
 #define RELAY_UI_FONT_MEDIUM lv_font_montserrat_22
 #define RELAY_UI_FONT_LARGE lv_font_montserrat_30
 #define RELAY_UI_FONT_CAPTION relay_caption_27
 #define RELAY_UI_FONT_ALERT lv_font_montserrat_48
+#define RELAY_UI_PX_LARGE 30
+#define RELAY_UI_PX_CAPTION 27
 #else
 #error "RELAY_UI_SCALE_PCT must be 65 or 75; add its fonts to ui_fonts.h"
 #endif

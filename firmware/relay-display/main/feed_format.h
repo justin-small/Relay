@@ -20,6 +20,7 @@
 
 #include "caption_format.h"
 #include "caption_view_format.h"
+#include "pp_format.h"
 #include "service_format.h"
 #include "settings_format.h"
 
@@ -41,7 +42,7 @@ struct feed_pick {
 inline feed_pick feed_pick_make(uint8_t stream, const char *lang)
 {
     feed_pick p;
-    if (stream > kFeedAlert) {
+    if (stream > kFeedTimers) {
         return p;
     }
     p.stream = stream;
@@ -202,15 +203,47 @@ inline feed_options feed_options_with_service(const feed_options &base, const se
     return out;
 }
 
-// The menu with the alert buttons (#121) last. Always offered: the pane says itself when Relay has no buttons.
-inline feed_options feed_options_with_alert(const feed_options &base)
+// The menu with ProPresenter's lyrics and timers (#138), as Relay's `targets` offers them. Not offered, and a panel
+// already on one keeps showing it: its pane says what is wrong (see feed_resolve).
+//
+// **A feed_options is about 1.5 KB, and the feeds task has 6 KB of stack**: each of these has an in-place form
+// (`feed_options_add_*`) so the task's step can build the menu in a static, not in a chain of temporaries. Nesting
+// the by-value forms overflowed that stack once the third was added (found by the emulator suite).
+inline void feed_options_add_propresenter(feed_options *out, const pp_offers &offers)
+{
+    if (offers.lyrics && out->count < kFeedOptionsMax) {
+        feed_option &t = out->items[out->count++];
+        t.pick = feed_pick_make(kFeedLyrics, "");
+        settings_set_text(t.label, sizeof t.label, "Lyrics");
+    }
+    if (offers.timers && out->count < kFeedOptionsMax) {
+        feed_option &t = out->items[out->count++];
+        t.pick = feed_pick_make(kFeedTimers, "");
+        settings_set_text(t.label, sizeof t.label, "Timers");
+    }
+}
+
+inline feed_options feed_options_with_propresenter(const feed_options &base, const pp_offers &offers)
 {
     feed_options out = base;
-    if (out.count < kFeedOptionsMax) {
-        feed_option &t = out.items[out.count++];
+    feed_options_add_propresenter(&out, offers);
+    return out;
+}
+
+// The menu with the alert buttons (#121) last. Always offered: the pane says itself when Relay has no buttons.
+inline void feed_options_add_alert(feed_options *out)
+{
+    if (out->count < kFeedOptionsMax) {
+        feed_option &t = out->items[out->count++];
         t.pick = feed_pick_make(kFeedAlert, "");
         settings_set_text(t.label, sizeof t.label, "Alert buttons");
     }
+}
+
+inline feed_options feed_options_with_alert(const feed_options &base)
+{
+    feed_options out = base;
+    feed_options_add_alert(&out);
     return out;
 }
 
@@ -256,8 +289,9 @@ inline feed_resolved feed_resolve(const feed_pick &saved, const feed_options &op
         }
         return {want, false};
     }
-    if (want.stream == kFeedService || want.stream == kFeedAlert) {
-        // **A Service pick never falls back to the transcription.** The Service pane says itself when there is
+    if (want.stream == kFeedService || want.stream == kFeedAlert || want.stream == kFeedLyrics ||
+        want.stream == kFeedTimers) {
+        // **A Service pick never falls back to the transcription.** Nor does lyrics or timers: each pane says what is wrong. The Service pane says itself when there is
         // nothing to show (no service planned today, Relay does not follow it, Planning Center unreachable), so it
         // is shown whether or not the menu offers it right now.
         return {want, false};

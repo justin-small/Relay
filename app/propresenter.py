@@ -65,6 +65,11 @@ ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")   # a ProPresenter UUID
 
 AUDIENCES = ("viewer", "screen", "overlay", "panel")
 
+MAX_TIMERS_SHOWN = 4         # a panel has room for a few large timers, not a list
+MAX_THRESHOLD_S = 86399      # a day less a second: ProPresenter's own timers do not run longer
+TIMERS_RESYNC_EVERY = 20     # the timers' configuration (count down or up) is re-read this many resyncs apart
+TIMER_JUMP_S = 2.0           # a running timer that is this far from where it should be was changed by someone
+
 
 # ----------------------------------------------------------------------------------------------- settings
 def default_settings() -> dict[str, Any]:
@@ -74,7 +79,10 @@ def default_settings() -> dict[str, Any]:
             "lyrics": {"viewer": False, "screen": True, "overlay": False, "panels": True},
             # Control (stage 2): which macros an operator sees and may trigger. "selected" shows only the
             # ones listed in macros_allowed (by stable ID); "all" shows every macro.
-            "macros_mode": "selected", "macros_allowed": []}
+            "macros_mode": "selected", "macros_allowed": [],
+            # The timers panels show (stage 3): amber and red thresholds in seconds left, and which timers
+            # (UUIDs; empty means every timer, up to MAX_TIMERS_SHOWN). A panel may override each, see panels.py.
+            "timers": {"amber_s": 120, "red_s": 30, "show": []}}
 
 
 def clean_host(value: object) -> str:
@@ -108,11 +116,51 @@ def clean_stored(raw: object) -> dict[str, Any]:
         "macros_mode": "all" if raw.get("macros_mode") == "all" else "selected",
         "macros_allowed": sorted({str(u)[:64] for u in (raw.get("macros_allowed") or [])
                                   if isinstance(u, str) and ID_RE.match(u)})[:500],
+        "timers": clean_timer_settings(raw.get("timers"), base["timers"]),
     }
+
+
+def timer_fields(raw: object) -> tuple[dict[str, Any], str]:
+    """The timer settings that `raw` sets, each checked: `amber_s` and `red_s` (seconds left, 0 to a day) and
+    `show` (timer IDs). A key left out stays out, and one that is wrong is dropped. Returns them with a fixed
+    sentence for the first thing that was wrong ("" when nothing was), which a caller refusing a save can show;
+    one that reads a hand-edited config ignores it."""
+    raw = raw if isinstance(raw, dict) else {}
+    out: dict[str, Any] = {}
+    problem = ""
+    for key, label in (("amber_s", "amber"), ("red_s", "red")):
+        if raw.get(key) is None:
+            continue
+        v = raw[key]
+        if isinstance(v, bool) or not isinstance(v, (int, float)) or not 0 <= v <= MAX_THRESHOLD_S:
+            problem = problem or f"The {label} threshold is a number of seconds from 0 to {MAX_THRESHOLD_S}."
+            continue
+        out[key] = int(v)
+    show = raw.get("show")
+    if show is not None:
+        good = [u for u in show if isinstance(u, str) and ID_RE.match(u)] if isinstance(show, list) else []
+        if not isinstance(show, list) or len(good) != len(show):
+            problem = problem or "Timers to show is a list of timer IDs."
+        out["show"] = list(dict.fromkeys(good))[:MAX_TIMERS_SHOWN]
+    return out, problem
+
+
+def clean_timer_settings(raw: object, base: dict[str, Any]) -> dict[str, Any]:
+    """`base` with what `raw` sets on top. Red cannot be later than amber, so it is held to it."""
+    out = {**{"amber_s": base["amber_s"], "red_s": base["red_s"], "show": list(base["show"])},
+           **timer_fields(raw)[0]}
+    out["red_s"] = min(out["red_s"], out["amber_s"])
+    return out
 
 
 def settings() -> dict[str, Any]:
     return config.get().get("propresenter") or default_settings()
+
+
+def panel_offers() -> dict[str, bool]:
+    """What a panel's menu may offer from ProPresenter: it rides `/api/targets` and the caption `targets` message."""
+    on = configured()
+    return {"lyrics": bool(on and settings()["lyrics"].get("panels")), "timers": on}
 
 
 def configured(cfg: dict | None = None) -> bool:
@@ -404,6 +452,10 @@ class Follower:
         self.current = _slide_side(None)
         self.next = _slide_side(None)
         self.data: dict[str, Any] = {}          # the last body of the other stream paths
+        self.timers_read_at = 0.0               # when data["timers/current"] was read (Relay's clock)
+        self.timer_kinds: dict[str, str] = {}   # timer UUID -> "down" (countdown, to a time) or "up" (elapsed)
+        self._kinds_asked: set[str] = set()     # the timers the configuration was read for (a missing one is not asked again)
+        self._resyncs = 0
         self.stage_message = ""
         self.stage_owner: str | None = None     # the alert whose text is on the stage display
         self._announced_down = False
@@ -581,6 +633,8 @@ class Follower:
             self._pending_slide = True
         else:
             self.data[url] = data
+            if url == "timers/current":
+                self.timers_read_at = time.time()
             self._note_change()
 
     async def _flush_signals(self, client: Client) -> None:
@@ -623,7 +677,61 @@ class Follower:
                 continue
             if body is not None:
                 self.data[path] = body
+                if path == "timers/current":
+                    self.timers_read_at = time.time()
+        await self._read_timer_kinds(client)
         self._note_change()
+
+    async def _read_timer_kinds(self, client: Client) -> None:
+        """Which timers count down and which count up, from `GET /v1/timers` (the configuration; `timers/current`
+        says only the time and the state). Read when a timer is new to Relay and every TIMERS_RESYNC_EVERY
+        resyncs, since a timer can be edited in ProPresenter."""
+        self._resyncs += 1
+        ids = {t["id"] for t in self.timers()}
+        if not ids or (ids <= self._kinds_asked and self._resyncs % TIMERS_RESYNC_EVERY):
+            return
+        try:
+            body = await self.call(client.read, "/v1/timers")
+        except ProError as exc:
+            log.debug("Could not read the timers' configuration: %s", exc)
+            return
+        kinds: dict[str, str] = {}
+        for item in body if isinstance(body, list) else []:
+            ident = item.get("id") if isinstance(item, dict) else None
+            uuid = ident.get("uuid") if isinstance(ident, dict) else None
+            if isinstance(uuid, str):
+                kinds[uuid] = "up" if "elapsed_time" in item else "down"
+        self.timer_kinds = kinds
+        self._kinds_asked = ids
+
+    @staticmethod
+    def parse_timer(text: object) -> float | None:
+        """ProPresenter's "HH:MM:SS" (negative once a timer overruns, "-00:00:02") as seconds, or None."""
+        t = str(text or "").strip()
+        neg = t.startswith("-")
+        parts = t.lstrip("-+").split(":")
+        if not 1 <= len(parts) <= 3 or not all(p.isdigit() for p in parts):
+            return None
+        secs = 0
+        for p in parts:
+            secs = secs * 60 + int(p)
+        return float(-secs if neg else secs)
+
+    def timers(self) -> list[dict]:
+        """Every timer ProPresenter has, as read: {id, name, state, dir, value}, `value` in seconds as of
+        `timers_read_at` (negative while overrun). A timer whose time cannot be read is left out."""
+        out = []
+        for item in self.data.get("timers/current") or []:
+            ident = item.get("id") if isinstance(item, dict) else None
+            if not isinstance(ident, dict) or not isinstance(ident.get("uuid"), str):
+                continue
+            value = self.parse_timer(item.get("time"))
+            if value is None:
+                continue
+            out.append({"id": ident["uuid"], "name": " ".join(str(ident.get("name") or "").split())[:48],
+                        "state": str(item.get("state") or "stopped"),
+                        "dir": self.timer_kinds.get(ident["uuid"], "down"), "value": value})
+        return out
 
     async def _read_presentation(self, client: Client, data: Any) -> None:
         pres = data.get("presentation") if isinstance(data, dict) else None
@@ -737,6 +845,9 @@ class Follower:
         self.current, self.next = _slide_side(None), _slide_side(None)
         self.stage_message, self.stage_owner = "", None
         self.data = {}
+        self.timers_read_at = 0.0
+        self.timer_kinds = {}
+        self._kinds_asked = set()
         if had:
             self._hang_up()
             self._note_change()
@@ -784,7 +895,8 @@ class Follower:
 
     def _note_change(self) -> None:
         sig = json.dumps([self.up, self.connecting, self.error, self.presentation, self.slide_index,
-                          self.current, self.next, self.stage_message, self.data, self.lyrics()],
+                          self.current, self.next, self.stage_message, self.data, self.lyrics(),
+                          self.timer_kinds],
                          sort_keys=True, default=str)
         if sig != self._sig:
             self._sig = sig
@@ -930,6 +1042,145 @@ class LyricsFeed:
 
 
 lyrics_feed = LyricsFeed(follower)
+
+
+# ------------------------------------------------------------------------------------------------ timers feed
+RUNNING_STATES = ("running", "overrunning")
+
+
+def timer_level(value: float, state: str, direction: str, amber_s: int, red_s: int) -> str:
+    """The colour a countdown is in: ok, amber (that many seconds left or fewer), red, or over (past zero, or
+    overrunning). An elapsed timer counts up and has no threshold, so it is always ok."""
+    if direction == "up":
+        return "ok"
+    if state in ("overrunning", "overran") or value < 0:
+        return "over"
+    if state == "complete" or value <= red_s:
+        return "red"
+    return "amber" if value <= amber_s else "ok"
+
+
+class TimersFeed:
+    """`GET /stream?stream=pptimers&for=panel[&panel=<panel id>]`: the ProPresenter timers a panel shows, whole in
+    each message, sent when something about a timer changes (never once a second) and by main every heartbeat.
+
+        {"type": "pptimers", "enabled": true, "live": true, "amber_s": 120, "red_s": 30,
+         "timers": [{"id": "195531B6-...", "name": "Segment Countdown", "state": "running", "dir": "down",
+                     "value": 298.0, "level": "ok"}],
+         "rev": 12, "server_time": 1760000000.0}
+
+    `value` is the seconds shown as of `server_time` (negative while a countdown overruns); the panel counts it
+    itself, down for `dir` "down" and up for "up", while the state is running or overrunning. A timer that is
+    stopped or finished stays where it is. A change made in ProPresenter to a running timer (time added, stopped,
+    reset) is a new message; the heartbeat re-sends the state, which is also what keeps a drifting clock honest.
+
+    Which timers, and the thresholds, are the settings' `timers` block, and a panel may override each of them
+    (`panel_settings`, set by main): the panel names itself in the query. `enabled` is false when the
+    integration is off; `live` is false when ProPresenter is not answering.
+    """
+
+    def __init__(self, source: Follower):
+        self.source = source
+        self.subs: dict[str, set[asyncio.Queue]] = {}
+        self.panel_settings: Callable[[str], dict | None] = lambda pid: None
+        self._sig: dict[str, str] = {}
+        self._anchor: dict[str, tuple[float, float, str]] = {}   # timer -> (value, read_at, state)
+        self._jumps: dict[str, int] = {}
+        source.listeners.append(self.refresh)
+
+    @staticmethod
+    def allowed() -> bool:
+        return configured()
+
+    def effective(self, pid: str) -> dict[str, Any]:
+        base = settings()["timers"]
+        return clean_timer_settings(self.panel_settings(pid) if pid else None, base)
+
+    def _chosen(self, show: list[str]) -> list[dict]:
+        timers = self.source.timers()
+        if show:
+            by_id = {t["id"]: t for t in timers}
+            return [by_id[u] for u in show if u in by_id][:MAX_TIMERS_SHOWN]
+        return timers[:MAX_TIMERS_SHOWN]
+
+    def payload(self, pid: str = "") -> dict:
+        now = time.time()
+        if not self.allowed():
+            return {"type": "pptimers", "enabled": False, "live": False, "timers": [], "server_time": now}
+        eff = self.effective(pid)
+        src = self.source
+        rows = []
+        # A reading older than this is not carried forward: Relay would be guessing.
+        dt = min(max(now - src.timers_read_at, 0.0), 5.0) if src.timers_read_at else 0.0
+        for t in self._chosen(eff["show"]) if src.up else []:
+            value = t["value"]
+            if t["state"] in RUNNING_STATES:
+                value += -dt if t["dir"] == "down" else dt
+            value = round(value, 1)
+            rows.append({"id": t["id"], "name": t["name"], "state": t["state"], "dir": t["dir"], "value": value,
+                         "level": timer_level(value, t["state"], t["dir"], eff["amber_s"], eff["red_s"])})
+        return {"type": "pptimers", "enabled": True, "live": bool(src.up), "amber_s": eff["amber_s"],
+                "red_s": eff["red_s"], "timers": rows, "rev": src.rev, "server_time": now}
+
+    def _watch(self) -> None:
+        """Note a running timer that is not where it was heading, so that is sent at once and not at the next
+        heartbeat. ProPresenter reports whole seconds a second apart, so ordinary reads are within a second."""
+        for t in self.source.timers():
+            read_at = self.source.timers_read_at
+            old = self._anchor.get(t["id"])
+            if old is not None and old[1] == read_at:
+                continue
+            if old is not None and old[2] in RUNNING_STATES and t["state"] in RUNNING_STATES:
+                heading = old[0] + (-(read_at - old[1]) if t["dir"] == "down" else read_at - old[1])
+                if abs(heading - t["value"]) > TIMER_JUMP_S:
+                    self._jumps[t["id"]] = self._jumps.get(t["id"], 0) + 1
+            self._anchor[t["id"]] = (t["value"], read_at, t["state"])
+
+    def _signature(self, msg: dict) -> str:
+        """What a panel must be told again: not the seconds of a running timer, which it counts itself."""
+        rows = [{"id": r["id"], "name": r["name"], "state": r["state"], "dir": r["dir"],
+                 "jump": self._jumps.get(r["id"], 0),
+                 "value": None if r["state"] in RUNNING_STATES else r["value"]} for r in msg.get("timers", [])]
+        return json.dumps({"e": msg["enabled"], "l": msg["live"], "a": msg.get("amber_s"), "r": msg.get("red_s"),
+                           "t": rows}, sort_keys=True)
+
+    def subscribe(self, pid: str = "") -> asyncio.Queue:
+        q: asyncio.Queue = asyncio.Queue(maxsize=QUEUE_MAX)
+        msg = self.payload(pid)
+        self._sig.setdefault(pid, self._signature(msg))
+        q.put_nowait(sse_frame(msg))
+        self.subs.setdefault(pid, set()).add(q)
+        return q
+
+    def unsubscribe(self, pid: str, q: asyncio.Queue) -> None:
+        subs = self.subs.get(pid)
+        if subs is not None:
+            subs.discard(q)
+            if not subs:
+                del self.subs[pid]
+                self._sig.pop(pid, None)
+
+    def refresh(self) -> None:
+        """Send each reader whatever changed for it. Called when the follower's state changes and when the
+        settings (the global ones, or a panel's own) move."""
+        self._watch()
+        for pid, subs in list(self.subs.items()):
+            if not subs:
+                continue
+            msg = self.payload(pid)
+            sig = self._signature(msg)
+            if sig == self._sig.get(pid):
+                continue
+            self._sig[pid] = sig
+            frame = sse_frame(msg)
+            for q in list(subs):
+                try:
+                    q.put_nowait(frame)
+                except asyncio.QueueFull:
+                    subs.discard(q)   # stopped reading: it reconnects and is told the state
+
+
+timers_feed = TimersFeed(follower)
 
 
 # ------------------------------------------------------------------------------------------------ discovery

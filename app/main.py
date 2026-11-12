@@ -29,7 +29,7 @@ from .pclive import follower as pc_follower
 from .servicefeed import feed as service_feed
 from . import pccontrol, propresenter
 from .ppcontrol import control as pp_control
-from .propresenter import follower as pp_follower, lyrics_feed
+from .propresenter import follower as pp_follower, lyrics_feed, timers_feed
 from .recorder import recorder
 from .scheduler import scheduler
 
@@ -706,6 +706,34 @@ def _lyrics_stream(audience: str) -> StreamingResponse:
     )
 
 
+TIMERS_STREAM = "pptimers"
+
+
+def _timers_stream(pid: str) -> StreamingResponse:
+    """The ProPresenter timers a panel shows, whole in each message (propresenter.TimersFeed), for the panel `pid`
+    ("" for the global settings). Repeated at each heartbeat, so a panel's silence timer never fires on a quiet
+    stream and its local count is brought back to Relay's."""
+    queue = timers_feed.subscribe(pid)
+
+    async def gen():
+        try:
+            while True:
+                try:
+                    frame = await asyncio.wait_for(queue.get(), timeout=HEARTBEAT_S)
+                except asyncio.TimeoutError:
+                    yield alertsmod.sse_frame(timers_feed.payload(pid))
+                    continue
+                yield frame
+        finally:
+            timers_feed.unsubscribe(pid, queue)
+
+    return StreamingResponse(
+        gen(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache, no-transform", "X-Accel-Buffering": "no"},
+    )
+
+
 ALERT_STREAM = "alert"
 
 
@@ -748,6 +776,17 @@ async def stream(request: Request, stream: str = "translation", lang: str | None
         if not lyrics_feed.allowed(audience):
             raise HTTPException(403, "the lyrics feed is not switched on for this audience")
         return _lyrics_stream(audience)
+    if stream == TIMERS_STREAM:
+        # Timers are not licensed text, so there is no audience switch: the stream is open while ProPresenter is
+        # set up (and says `enabled: false` otherwise). `panel` selects that panel's own settings.
+        if request.query_params.get("for", "panel") != "panel":
+            raise HTTPException(400, "unknown audience")
+        pid = request.query_params.get("panel") or ""
+        if pid and not panels.valid_id(pid):
+            raise HTTPException(400, "not a panel id")
+        if not timers_feed.allowed():
+            raise HTTPException(403, "ProPresenter is not set up")
+        return _timers_stream(pid)
     if stream == SERVICE_STREAM:
         st = (type or "").strip()
         # Only a followed service type: the feed is no way to make Relay ask
@@ -1375,9 +1414,14 @@ async def admin_propresenter():
 async def admin_propresenter_save(payload: dict):
     """Save the connection and switches. Only the keys sent change. A new address reconnects at once."""
     saved = config.get()["propresenter"]
-    merged = {**saved, **{k: v for k, v in payload.items() if k in saved and k != "lyrics"}}
+    merged = {**saved, **{k: v for k, v in payload.items() if k in saved and k not in ("lyrics", "timers")}}
     if isinstance(payload.get("lyrics"), dict):
         merged["lyrics"] = {**saved["lyrics"], **payload["lyrics"]}
+    if "timers" in payload:
+        problem = propresenter.timer_fields(payload["timers"])[1]
+        if problem:
+            return JSONResponse({"error": problem}, status_code=400)
+        merged["timers"] = propresenter.clean_timer_settings(payload["timers"], saved["timers"])
     if payload.get("host") and not propresenter.clean_host(payload["host"]):
         return JSONResponse({"error": "Enter just the machine's name or IP address, with no http:// or port."},
                             status_code=400)
@@ -1392,6 +1436,8 @@ async def admin_propresenter_save(payload: dict):
              "on" if clean["enabled"] else "off", "on" if clean["view_only"] else "off")
     await pp_follower.poke()
     lyrics_feed.refresh()
+    timers_feed.refresh()
+    engine._push_status()   # what a panel's menu may offer from ProPresenter changed
     return _pp_body()
 
 
@@ -1654,6 +1700,7 @@ async def admin_alerts_save(payload: dict):
 # over the same stream as the status. The stream's own 1 s tick covers a panel
 # going quiet (see admin_status_stream).
 panel_registry.on_change = lambda: hub.push_status(_panels_frame())
+timers_feed.panel_settings = panel_registry.timer_settings
 
 
 @app.get("/api/admin/panels", dependencies=[Depends(require_admin)])
@@ -1790,8 +1837,16 @@ async def admin_panel_update(panel_id: str, payload: dict):
                 raise HTTPException(400, "Relay does not follow that service type")
     if "rotation" in payload:
         kwargs["rotation"] = payload["rotation"]
+    if "timers" in payload:
+        if payload["timers"] is not None:
+            problem = propresenter.timer_fields(payload["timers"])[1]
+            if problem or not isinstance(payload["timers"], dict):
+                raise HTTPException(400, problem or "timers must be an object, or null")
+        kwargs["timers"] = payload["timers"]
     try:
-        return panel_registry.update(panel_id, **kwargs)
+        row = panel_registry.update(panel_id, **kwargs)
+        timers_feed.refresh()   # a panel reading the timers is told its new thresholds at once
+        return row
     except KeyError:
         raise HTTPException(404, "unknown panel")
     except ValueError as exc:
