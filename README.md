@@ -287,8 +287,8 @@ docker exec -it live-caption-relay python tools/reset_owner.py <username>
 ```
 
 It creates `<username>` as an Owner, or, if that account exists, turns it on and
-makes it an Owner. Either way it ends their sessions, clears their PIN and
-prints a new temporary password once. Sign in with it and choose a password. Run
+makes it an Owner. It asks for a new password twice, without showing it, then
+ends their sessions and clears their PIN. Sign in with that password. Run
 outside Docker, it is `python tools/reset_owner.py <username>` with
 `RELAY_DATABASE_URL` set. It needs the database to be up.
 
@@ -1073,7 +1073,7 @@ tools/
   scan-image.sh              CVE / misconfig / secret scan of the built image
   write_config.py            writes credentials into config.json
   setup_caddy.py             panel certificate + Caddyfile
-  reset_owner.py             lockout recovery: a new temporary Owner password
+  reset_owner.py             lockout recovery: make someone an Owner with a new password
 ```
 
 `write_config.py` and `setup_caddy.py` run *inside* the container, called by

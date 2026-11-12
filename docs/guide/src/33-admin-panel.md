@@ -692,9 +692,9 @@ computer, in a terminal:
 docker exec -it live-caption-relay python tools/reset_owner.py YOURNAME
 ```
 
-Replace `YOURNAME` with the username. Relay makes that person an Owner (or
-creates them), clears their PIN and prints a temporary password once. Sign in
-with it and choose a new password.
+Replace `YOURNAME` with the username. Relay asks you to type a new password
+twice (it does not show as you type), makes that person an Owner (or creates
+them) and clears their PIN. Sign in with that password.
 
 ### The user database {#user-database}
 

@@ -1,14 +1,15 @@
 #!/usr/bin/env python3
-"""Lockout recovery: make <username> an enabled Owner with a new temporary password.
+"""Lockout recovery: make <username> an enabled Owner with a password you choose.
 
     python tools/reset_owner.py <username>
 
-Creates the user if they do not exist; otherwise re-enables and promotes them. Prints a random temporary
-password once (it must be changed at the next sign-in) and ends all their sessions. In the container:
+Creates the user if they do not exist; otherwise re-enables and promotes them. Asks for the new password
+twice without showing it (nothing secret is printed, so nothing lands in a terminal log), ends all their
+sessions and clears their PIN. In the container:
     docker exec -it live-caption-relay python tools/reset_owner.py <username>
 """
+import getpass
 import os
-import secrets
 import sys
 from pathlib import Path
 
@@ -33,22 +34,30 @@ def main(argv: list[str]) -> int:
                else "the database cannot be reached or migrated (see the log above)")
         print(f"  The user database is not available: {why}.", file=sys.stderr)
         return 1
-    password = secrets.token_urlsafe(12)
+    try:
+        password = getpass.getpass("  New password (8 characters or more): ")
+        if getpass.getpass("  Again: ") != password:
+            print("  The two passwords do not match. Nothing was changed.", file=sys.stderr)
+            return 1
+    except (EOFError, KeyboardInterrupt):
+        print("\n  Cancelled. Nothing was changed.", file=sys.stderr)
+        return 1
     try:
         existing = users.get_by_username(argv[1])
         if existing is None:
-            user = users.create(argv[1], argv[1].strip(), "owner", password, temporary=True, actor=None)
+            user = users.create(argv[1], argv[1].strip(), "owner", password, temporary=False, actor=None)
         else:
+            # The password first: if it is refused (too short), the account is left exactly as it was.
+            users.set_password(existing.id, password, temporary=False, actor=None)  # also ends their sessions
+            users.clear_pin(existing.id)
             user = users.update(existing.id, role="owner", disabled=False, actor=None)
-            users.set_password(user.id, password, temporary=True, actor=None)   # also ends their sessions
     except users.Refused as e:
         print(f"  {e.message}", file=sys.stderr)
         return 1
     except db.Unavailable:
         print("  The user database became unavailable.", file=sys.stderr)
         return 1
-    print(f"Owner '{user.username}' is ready. Temporary password (shown once, change it at sign-in):")
-    print(password)
+    print(f"Owner '{user.username}' is ready. Sign in with the password you just chose.")
     return 0
 
 

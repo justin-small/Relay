@@ -43,7 +43,8 @@ def eq(label, got, want):
     ok = got == want
     print(("  ok   " if ok else "  FAIL ") + label)
     if not ok:
-        print(f"         got  {got!r}\n         want {want!r}")
+        # The values are not printed: this file compares passwords, PINs and tokens, and a CI log is public.
+        print("         got and want differ (values withheld; re-run locally with a print to see them)")
         fails.append(label)
 
 
