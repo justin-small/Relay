@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="en"><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Relay &middot; Operator</title>{% include "_brand_head.html" %}<link rel="stylesheet" href="{{ static('viewer.css') }}">
+<title>Relay &middot; Operator</title>{% include "_brand_head.html" %}<link rel="stylesheet" href="{{ static('viewer.css') }}"><link rel="stylesheet" href="{{ static('slideview.css') }}">
 <style>
   body { display:block; font-size:14px; }
   .wrap { max-width:820px; margin:0 auto; padding:22px 20px 90px; }
@@ -408,6 +408,7 @@
     <div class="grp">Output</div>
     <a href="#panels" data-page="panels"><span class="ico"><svg viewBox="0 0 16 16" aria-hidden="true"><rect x="1.5" y="3" width="13" height="9" rx="1.5"/><path d="M5.5 14.5h5"/></svg></span>Panels</a>
     <a href="#ppcontrol" data-page="ppcontrol"><span class="ico"><svg viewBox="0 0 16 16" aria-hidden="true"><rect x="2" y="2.5" width="12" height="8" rx="1"/><path d="M6.5 5l3 1.5-3 1.5z" fill="currentColor"/><path d="M4 13.5h8"/></svg></span>ProPresenter control</a>
+    <a href="#pplive" data-page="pplive"><span class="ico"><svg viewBox="0 0 16 16" aria-hidden="true"><rect x="1.5" y="3" width="9" height="6.5" rx="1"/><rect x="8" y="7" width="6.5" height="5.5" rx="1" fill="#0a0b0d"/><rect x="8" y="7" width="6.5" height="5.5" rx="1"/></svg></span>Slide view and lobby</a>
     <a href="#alerts" data-page="alerts"><span class="ico"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4 11V7a4 4 0 0 1 8 0v4l1.5 1.5h-11zM6.5 14h3"/></svg></span>Alerts</a>
     <a href="#urls" data-page="urls"><span class="ico"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M6.5 9.5a3 3 0 0 0 4 0l2-2a3 3 0 0 0-4-4l-1 1M9.5 6.5a3 3 0 0 0-4 0l-2 2a3 3 0 0 0 4 4l1-1"/></svg></span>Viewer links</a>
     <a href="#recordings" data-page="recordings"><span class="ico"><svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6"/><circle cx="8" cy="8" r="2" fill="currentColor"/></svg></span>Recordings &amp; export</a>
@@ -861,6 +862,39 @@
       <div class="note">Moves the media playing on the presentation layer to that time.</div>
     </section>
   </div>
+  <div class="page" id="page-pplive" data-page="pplive" hidden>
+    <h2 class="title">Slide view and lobby <span class="sumstate" id="svSum"></span></h2>
+    <p class="sub">The slides ProPresenter has up, as pictures with the countdown and video progress over them, and a rotation that steps a ProPresenter announcement playlist for lobby screens.</p>
+    <div class="note err" id="lbErr" hidden></div>
+    <section>
+      <h3>Slide view</h3>
+      <div id="svRoot"></div>
+      <div class="row" style="margin-top:12px">
+        <div class="field"><label for="svTimer">Countdown on the slide</label>
+          <select id="svTimer"></select></div>
+      </div>
+      <label class="check"><input type="checkbox" id="svPublic"> <span>Let the slide view be opened without the admin login, at <code>/stage</code> on the viewer address<br><span class="muted">Off by default. Slide images are licensed content, so they stay behind the admin login until you switch this on.</span></span></label>
+      <div class="ctl" style="margin-top:10px"><button type="button" class="primary" id="svSave">Save</button> <span class="note" id="svMsg"></span></div>
+    </section>
+    <section>
+      <h3>Lobby announcements <span class="count" id="lbSum"></span></h3>
+      <p class="note">Relay steps through a ProPresenter playlist by itself, one slide at a time. ProPresenter does not say which playlists are announcement playlists, so pick the one your lobby screens show. It does not start on its own: press Start. If you put something else on the announcements layer, the rotation waits and carries on when you clear it.</p>
+      <div class="row">
+        <div class="field"><label for="lbPlaylist">Playlist</label><select id="lbPlaylist"></select></div>
+        <div class="field"><label for="lbInterval">Seconds per slide</label><input id="lbInterval" type="number" min="3" max="600" step="1" value="8"></div>
+      </div>
+      <label class="check"><input type="checkbox" id="lbLoop"> <span>Start over when it reaches the end</span></label>
+      <div class="ppbar" style="margin-top:12px">
+        <button type="button" class="primary" id="lbSave">Save</button>
+        <button type="button" class="primary" id="lbStart">Start</button>
+        <button type="button" id="lbResume" hidden>Resume</button>
+        <button type="button" id="lbStop">Stop</button>
+        <button type="button" id="lbStopClear">Stop and clear announcements</button>
+      </div>
+      <div class="ppnow" id="lbState"><div class="t muted">Not running.</div></div>
+      <div class="note" id="lbMsg"></div>
+    </section>
+  </div>
   <div class="page" id="page-propresenter" data-page="propresenter" hidden>
     <h2 class="title">ProPresenter <span class="sumstate" id="ppSum"></span></h2>
     <p class="sub">Follow the slide that is up, show lyrics on screens and panels, and put a message on the stage display.</p>
@@ -1100,6 +1134,8 @@
 <script src="{{ static('qrcode.min.js') }}"></script>
 <script src="{{ static('alert-icons.js') }}"></script>
 <script src="{{ static('admin.js') }}"></script>
+<script src="{{ static('slideview.js') }}"></script>
 <script src="{{ static('ppcontrol.js') }}"></script>
+<script src="{{ static('pplive.js') }}"></script>
 <script src="{{ static('pclink.js') }}"></script>
 </body></html>

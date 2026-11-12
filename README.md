@@ -1294,6 +1294,28 @@ VM), a **view-only** switch, the lyrics feed switches and a stage message.
   (state, presentations, refresh, mapping, playlist); the Service feed message gains `pp_item` and
   `pp_agree` while `follow` or `drive` is on. Tests: `tests/test_pclink.py`.
 
+- **Lobby announcements and the slide view (stage 7).** `app/pplobby.py` (the rotation), `app/ppview.py` (the
+  slide view's data and images), `app/static/slideview.js` + `slideview.css` (the view, shared by the admin page
+  *Slide view and lobby* and by `/stage`), `app/static/pplive.js` (the admin page's controls). Settings
+  `propresenter.lobby` (`playlist`, `interval_s` default 8, 3 to 600, `loop` default on) and `propresenter.view`
+  (`timer`, `public` default **off**). A rotation is never a setting: it runs only after
+  `POST /api/admin/propresenter/lobby/start` (so Relay never starts one on its own, and a restart of Relay does
+  not resume it); `.../lobby/stop` (`{"clear": true}` also clears the announcements layer), `.../lobby/resume`,
+  `GET .../lobby`. ProPresenter does not say which playlists are announcement playlists, so the operator picks
+  one. Each step is `GET /v1/announcement/active/{n}/trigger` (next cue) or `GET /v1/playlist/{id}/{index}/trigger`
+  (next item) through `propresenter.Client` (view-only answers 409). The tick compares the announcement the
+  follower reads (`status/layers.announcements`, `announcement/active`, `announcement/slide_index`) with what
+  Relay put up: a slide of one of the playlist's own presentations the operator moved to is adopted; anything
+  else pauses the rotation (no writes) until the layer has been empty 5 s; a cleared layer pauses until Resume.
+  ProPresenter dropping off holds it (nothing written); on return an empty layer restarts the playlist.
+  Switching ProPresenter off, picking another playlist, view-only or `lobby.cancel()` at shutdown ends it.
+  The slide view: `GET /api/admin/propresenter/live` (slide, next, the chosen timer's value and the video's time
+  and duration, as of the read) and `.../live/image/{current|next}?v=` (ProPresenter's thumbnail at 960 px, the
+  same cache as the grid; only the slide that is up, a stale `v` is a 404). The follower now reads
+  `transport/presentation/time` and `.../current` with the slide each second, only while the slide or media layer
+  has content. The same view is open without the admin login at `/stage` (`/api/stage/live`) only when
+  `view.public` is on (default off, 404 otherwise). Tests: `tests/test_pclobby.py`.
+
 Tests: `tests/test_propresenter.py` (a fake ProPresenter on localhost), and for
 the panel views `firmware/relay-display/tests/test_propresenter_view.py`. For
 operators there is a chapter in the user guide

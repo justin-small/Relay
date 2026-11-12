@@ -23,6 +23,9 @@ address and switch it on.
   can build one Relay-owned playlist, shows both sides, and (if you switch it on)
   lets ProPresenter move Planning Center's LIVE item (see
   [Linking to Planning Center](#propresenter-link)).
+- **Shows the slides** as pictures, with a countdown and video progress over
+  them, and **runs a lobby announcement rotation** on its own (see
+  [Slide view and lobby announcements](#propresenter-lobby)).
 - **View-only** mode turns all of that off. Relay then only reads.
 
 ::: warning
@@ -286,6 +289,57 @@ panel uses.
 - A presentation that matches no plan item moves nothing.
 
 Recent moves, and why a move did not happen, are listed under the switches.
+
+## Slide view and lobby announcements {#propresenter-lobby}
+
+Open **Slide view and lobby** in the admin menu.
+
+### Slide view
+
+The live slide and the next one, as pictures drawn by ProPresenter, with the
+slide's text instead when no picture can be had. Over the live slide:
+
+- **A countdown**, for the timer you pick under *Countdown on the slide*. It
+  turns amber and red at the same times as the timers on the panels.
+- **Video progress**, a bar with the time played and the length, while a video
+  is playing on the slide. A paused video stays where it is.
+
+Your browser never talks to ProPresenter: Relay fetches the pictures and keeps
+them, so a slide is fetched once.
+
+Slide pictures are licensed content, like lyrics, so this page is only for
+people signed in to admin. If you want a stage-style screen without the login,
+for example a tablet on the platform, tick *Let the slide view be opened without
+the admin login*. It is then at **/stage** on the viewer address, and shows
+only the slide that is up and the one after it. It is off until you tick it.
+
+### Lobby announcements
+
+Relay can step a ProPresenter announcement playlist along by itself, so the
+lobby screens keep moving without anyone at the computer.
+
+1. Pick the **playlist** your lobby screens show. ProPresenter does not tell
+   Relay which playlists are announcement playlists, so you choose.
+2. Set **seconds per slide** (8 to start with) and whether it should **start
+   over** at the end.
+3. Press **Start**. Nothing runs until you do, and a restart of Relay does not
+   start it again.
+
+Relay shows the first slide, then moves on a slide at a time, and on to the next
+playlist item after a presentation's last slide. Headers and hidden items are
+skipped.
+
+If you or someone else puts **something else** on the announcements layer, the
+rotation **waits** and changes nothing. It carries on, from the top, once that is
+cleared. If you move to another slide of the same playlist, it carries on from
+there. If you press **Clear announcements** while it runs, it stays paused until
+you press **Resume** (or **Stop**), because a clear is usually on purpose.
+
+If ProPresenter goes away for a while the rotation waits, and starts the
+playlist again when ProPresenter comes back with nothing on screen. **Stop**
+ends it and leaves the last slide up; **Stop and clear announcements** also
+clears the layer. In view-only mode Relay cannot change anything, so it cannot
+start.
 
 ## View-only mode
 
