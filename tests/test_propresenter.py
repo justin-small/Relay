@@ -85,6 +85,7 @@ class Fake:
         self.ann_index = None
         self.screens = {"audience": False, "stage": False}
         self.missing = set()              # presentation UUIDs that answer 404
+        self.notes = {}                   # slide number (0-based, in listed order) -> notes text
         self.stream_count = 0
         self.stream_bodies = []
         self.out = queue.Queue()
@@ -102,7 +103,15 @@ class Fake:
         if self.presentation is None or self.index is None or self.index >= len(t):
             return getattr(self, "stale", None)
         nxt = slide(t[self.index + 1]) if self.index + 1 < len(t) else None
-        return {"current": slide(t[self.index]), "next": nxt}
+        cur = slide(t[self.index])
+        cur["notes"] = self.notes.get(self.index, "")
+        if nxt:
+            nxt["notes"] = self.notes.get(self.index + 1, "")
+        return {"current": cur, "next": nxt}
+
+    def slide_no(self, gi, si):
+        """The listed number of slide `si` of group `gi`."""
+        return sum(len(g) for _, g in self.presentation["groups"][:gi]) + si
 
     def current_body(self):
         p = self.presentation
@@ -118,8 +127,10 @@ class Fake:
         p = self.presentation
         d = {
             "id": {"uuid": p["uuid"], "name": p["name"], "index": 0}, "presentation_path": p["path"],
-            "groups": [{"name": n, "slides": [{"text": t} for t in g], "uuid": "G-" + n,
-                        "color": {"red": 1.0, "green": 0.0, "blue": 0.5, "alpha": 1}} for n, g in p["groups"]]}
+            "groups": [{"name": n, "slides": [{"text": t, "notes": self.notes.get(self.slide_no(gi, si), "")}
+                                              for si, t in enumerate(g)], "uuid": "G-" + n,
+                        "color": {"red": 1.0, "green": 0.0, "blue": 0.5, "alpha": 1}}
+                       for gi, (n, g) in enumerate(p["groups"])]}
         if p.get("arrangement"):   # the order the groups are played in; a name may repeat
             d["arrangements"] = [{"id": {"uuid": "ARR", "name": "Master", "index": 0},
                                   "groups": ["G-" + n for n in p["arrangement"]]}]
@@ -1409,6 +1420,134 @@ async def scenario_timers_route():
 
 
 asyncio.run(scenario_timers_route())
+
+# ------------------------------------------------------------------------------------------- slide-note tags
+print("slide-note tags")
+from app import slidetags as st  # noqa: E402
+
+
+async def scenario_tags():
+    fired = []
+
+    def rec(name):
+        async def fn(value):
+            fired.append((name, value))
+            return "done"
+        return fn
+    real_actions = dict(st.tags.actions)
+    st.tags.actions = {n: rec(n) for n in st.ACTIONS}
+    st.tags.reset()
+    st.tags.history.clear()
+    st.tags.decks.clear()
+    st.tags.deck_reads = 0
+    try:
+        fake.requests.clear()
+        fake.notes = {0: "Song starts here [relay-deck:lyrics]", 2: "Sermon [relay:capture-start] [relay:oops]"}
+        fake.song("Tagged Song", groups=[("Verse 1", ["one", "two"]), ("Chorus", ["three", "four"])])
+        fake.index = 0
+        configure(srv)                                  # tags default: off
+        f = pp.Follower()
+        f.start()
+        check("tags off: the follower is up and reads the slide",
+              await until(lambda: f.up and f.lyrics()["text"] == "one"))
+        await asyncio.sleep(0.6)
+        eq("tags off: nothing fires", fired, [])
+        eq("tags off: nothing is shown as seen", st.tags.seen, None)
+
+        configure(srv, tags={"enabled": True, "settle_s": 0.4})
+        check("tags on: the first slide's deck tag is read from the presentation's notes",
+              await until(lambda: st.tags.seen and st.tags.seen["deck_tags"] == ["lyrics"], 4), st.tags.seen)
+        eq("the deck default shows as what the slide resolves to", st.tags.seen["resolved"], ["lyrics"])
+        eq("it is waiting out the settle time", (fired, st.tags.seen["settling"]), ([], True))
+        check("then it fires, once", await until(lambda: fired == [("lyrics", None)]), fired)
+        reads = [r for r in fake.requests if r[1].startswith("/v1/presentation/P-Tagg")]
+        eq("the whole presentation was read once for the deck-wide tags", len(reads), 1)
+
+        for i in (1, 0, 1):
+            fake.index = i
+            await asyncio.sleep(0.15)
+        await asyncio.sleep(0.9)
+        eq("moving between slides with the deck tag fires nothing more", fired, [("lyrics", None)])
+        reads = [r for r in fake.requests if r[1].startswith("/v1/presentation/P-Tagg")]
+        eq("…and the presentation was not read again for each slide", len(reads), 1)
+
+        fake.index = 2
+        check("a slide with its own tag runs that and not the deck's",
+              await until(lambda: fired[-1:] == [("capture-start", None)], 4), fired)
+        check("an unknown action is a warning, not an action",
+              any("Unknown action" in w for w in st.tags.seen["warnings"]), st.tags.seen["warnings"])
+        eq("the slide's tags and what it resolved to are shown",
+           (st.tags.seen["slide_tags"], st.tags.seen["resolved"], st.tags.seen["slide"]),
+           (["capture-start"], ["capture-start"], 3))
+        fake.index = 3
+        check("a slide with none falls back to the deck's: the set changed, so it runs",
+              await until(lambda: fired[-1:] == [("lyrics", None)], 4), fired)
+        eq("…in all, in this order", fired, [("lyrics", None), ("capture-start", None), ("lyrics", None)])
+        eq("what fired is listed for admin, newest first",
+           [(r["action"], r["ok"]) for r in st.tags.history][:2], [("lyrics", True), ("capture-start", True)])
+
+        # a fast run
+        fired.clear()
+        fake.notes = {i: f"[relay:alert=Slide {i}]" for i in range(4)}
+        for i in (0, 1, 2, 3, 0, 1, 2):
+            fake.index = i
+            await asyncio.sleep(0.12)
+        await until(lambda: fired, 3)
+        await asyncio.sleep(0.5)
+        eq("a fast run of slides fires once, for the slide it stopped on", fired, [("alert", "Slide 2")])
+
+        # read-only toward ProPresenter, view-only does not stop Relay-side actions, ProPresenter's capture is never called
+        writes = [r for r in fake.requests if r[0] != "GET"]
+        eq("tags never write to ProPresenter (no notes edited, nothing triggered)", writes, [])
+        check("ProPresenter's capture is never called",
+              not any("/capture" in r[1] for r in fake.requests), [r[1] for r in fake.requests if "/capture" in r[1]])
+        fired.clear()
+        configure(srv, view_only=True, tags={"enabled": True, "settle_s": 0.4})
+        fake.notes = {0: "[relay:captions]", 1: "[relay:captions]", 2: "[relay:captions]", 3: "[relay:lang=fr]"}
+        fake.index = 3
+        check("view-only does not stop an action that stays inside Relay",
+              await until(lambda: fired == [("lang", "FRENCH")], 4), fired)
+
+        # off again
+        fired.clear()
+        configure(srv, tags={"enabled": False, "settle_s": 0.4})
+        fake.index = 0
+        await asyncio.sleep(1.0)
+        eq("switched off: nothing fires", fired, [])
+        eq("…and nothing is shown", st.tags.seen, None)
+
+        # the admin page
+        configure(srv, tags={"enabled": True, "settle_s": 0.4})
+        fake.index = 2
+        pp.follower.start()
+        check("the admin body carries the tags' state",
+              await until(lambda: admin.get("/api/admin/propresenter").json()["tags"]["seen"] is not None, 5))
+        body = admin.get("/api/admin/propresenter").json()
+        eq("…its shape", sorted(body["tags"]), ["actions", "fired", "seen"])
+        pp.follower.cancel()
+        f.cancel()
+    finally:
+        st.tags.actions = real_actions
+        st.tags.reset()
+        configure(srv)
+
+
+asyncio.run(scenario_tags())
+
+# the settings route
+r = admin.post("/api/admin/propresenter", json={"tags": {"enabled": True, "settle_s": 2.5}})
+eq("the tag settings are saved", (r.status_code, r.json()["settings"]["tags"]), (200, {"enabled": True, "settle_s": 2.5}))
+r = admin.post("/api/admin/propresenter", json={"tags": {"settle_s": 99}})
+eq("a settle time out of range is refused with a fixed sentence", (r.status_code, r.json()["error"]),
+   (400, "The settle time is a number of seconds from 0.2 to 30."))
+eq("…and changed nothing", config.get()["propresenter"]["tags"], {"enabled": True, "settle_s": 2.5})
+r = admin.post("/api/admin/propresenter", json={"host": "127.0.0.1"})
+eq("saving something else leaves the tag settings alone", r.json()["settings"]["tags"], {"enabled": True, "settle_s": 2.5})
+r = admin.post("/api/admin/propresenter", json={"tags": {"enabled": False}})
+eq("tags can be switched off without touching the settle time", r.json()["settings"]["tags"],
+   {"enabled": False, "settle_s": 2.5})
+eq("the tag state is not for anyone without the admin token",
+   TestClient(app, base_url="http://relay.local:8001").get("/api/admin/propresenter").status_code, 401)
 
 # the admin route: global timer settings
 r = admin.post("/api/admin/propresenter", json={"timers": {"amber_s": 150, "red_s": 45, "show": ["T-A"]}})

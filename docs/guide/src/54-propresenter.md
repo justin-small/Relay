@@ -165,6 +165,69 @@ sign-in, and every button is off while ProPresenter is down or view-only is on.
 - **Messages.** Fill in a prepared message's text and tap Show; Clear hides it.
 - **Media position.** Type a time in seconds and tap Go to time.
 
+## Slide-note tags {#propresenter-tags}
+
+A tag typed into a slide's **notes** in ProPresenter makes Relay do something
+when that slide goes live: start captioning, put the lyrics on the panels,
+change the language. Relay only reads the notes; it never writes to them.
+
+Tags are **off** until you tick **Run slide-note tags** under **Slide-note
+tags** on the ProPresenter page (and Follow ProPresenter is on).
+
+Write a tag as `[relay:action]`, or `[relay:action=value]` for an action that
+takes a value. Put as many as you like on a slide. Capital letters do not
+matter, and anything else in the notes is ignored.
+
+| Tag | What Relay does |
+|---|---|
+| `[relay:capture-start]` | Starts Relay's own captioning (the same as **Start** in admin). Nothing if it is already running. |
+| `[relay:capture-stop]` | Stops it (the same as **Stop**). Nothing if it is already stopped. |
+| `[relay:lyrics]` | Caption panels that show captions switch to the ProPresenter lyrics. Panels showing the service, the alert buttons or timers are left alone. Needs **Caption panels** ticked under Lyrics. |
+| `[relay:captions]` | Panels that a tag switched to the lyrics go back to what they showed. A panel someone changed at its own screen since is left as it is. |
+| `[relay:lang=es]` | Panels showing captions show them in this language. Write a code (`es`) or a name (`Spanish`) from the languages Relay offers. The language must be switched on under Languages. |
+| `[relay:alert=Sound desk]` | Raises the alert on the Alerts button with that name (not case-sensitive), like a tap on it, and does nothing if it is already flashing. The text must match a button. |
+| `[relay-deck:action]` | Any of the above, written in **any** slide's notes, as a default for every slide of that presentation that has no `[relay:...]` tag of its own. |
+
+**`capture-start` and `capture-stop` are Relay's captioning, not ProPresenter's
+capture.** Relay never starts or stops ProPresenter's capture.
+
+A value runs to the end of its line and may hold spaces. To put a `]` in it,
+write `[...]` as a pair (`[relay:alert=Check [mic] now]`) or put a backslash in
+front of it (`\]`).
+
+**How they run.**
+
+- **A slide has to settle.** A tag runs only after its slide has stayed live
+  for the settle time (1.5 seconds; change it on the ProPresenter page, 0.2 to
+  30). Clicking quickly through a section runs the tags of the slide you stop on,
+  not of every slide you passed.
+- **The same tags run once.** What runs is the slide's whole set of tags. When
+  the next slide settles on the same set (every slide of a song with a
+  `[relay-deck:lyrics]`), nothing runs again. A slide with no tags at all is a
+  set of its own, so a tag that comes back after it runs again. Stepping back to
+  a slide you left a moment ago does not re-run tags you have already run.
+- **A slide's own tag beats the deck's.** If a slide has any valid `[relay:...]`
+  tag, the deck-wide ones do not apply to it. A mistyped tag does not count as
+  one, so that slide falls back to the deck's.
+- **Deck-wide tags are read once.** Relay reads the whole presentation's notes
+  once, when the presentation goes live, not for every slide. A
+  `[relay-deck:...]` you add to another slide while the presentation is up is
+  not seen until it goes live again.
+- **View-only does not stop them.** View-only is about writing to ProPresenter,
+  and tags only change Relay.
+
+The admin section shows the slide that is up, the tags on it and the deck's,
+what runs for it, what ran lately with the time and the result, and a warning
+for every tag Relay could not use: an action it does not know, a missing value,
+a language it does not offer, or a tag with no closing bracket.
+
+A tag that cannot run says so in the list (captioning could not start without
+an OpenAI key, no alert button has that name, a language is switched off) and
+the others on the slide still run.
+
+Panels that connect after a `[relay:lyrics]` are not switched; the next change
+of tags does it.
+
 ## View-only mode
 
 Tick **View-only** when Relay should never change anything in ProPresenter, for

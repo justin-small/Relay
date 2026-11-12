@@ -27,7 +27,7 @@ from .hub import hub
 from .panels import registry as panel_registry
 from .pclive import follower as pc_follower
 from .servicefeed import feed as service_feed
-from . import pccontrol, propresenter
+from . import pccontrol, propresenter, slidetags
 from .ppcontrol import control as pp_control
 from .propresenter import follower as pp_follower, lyrics_feed, timers_feed
 from .recorder import recorder
@@ -1381,7 +1381,8 @@ async def admin_planning_center_disconnect():
 # --------------------------------------------------------------- ProPresenter (#138)
 def _pp_body() -> dict:
     s = config.get()["propresenter"]
-    return {"settings": s, "state": pp_follower.state(), "lyrics_readers": lyrics_feed.viewer_count()}
+    return {"settings": s, "state": pp_follower.state(), "lyrics_readers": lyrics_feed.viewer_count(),
+            "tags": slidetags.tags.state()}
 
 
 _PP_ERRORS = {
@@ -1414,7 +1415,7 @@ async def admin_propresenter():
 async def admin_propresenter_save(payload: dict):
     """Save the connection and switches. Only the keys sent change. A new address reconnects at once."""
     saved = config.get()["propresenter"]
-    merged = {**saved, **{k: v for k, v in payload.items() if k in saved and k not in ("lyrics", "timers")}}
+    merged = {**saved, **{k: v for k, v in payload.items() if k in saved and k not in ("lyrics", "timers", "tags")}}
     if isinstance(payload.get("lyrics"), dict):
         merged["lyrics"] = {**saved["lyrics"], **payload["lyrics"]}
     if "timers" in payload:
@@ -1422,6 +1423,11 @@ async def admin_propresenter_save(payload: dict):
         if problem:
             return JSONResponse({"error": problem}, status_code=400)
         merged["timers"] = propresenter.clean_timer_settings(payload["timers"], saved["timers"])
+    if "tags" in payload:
+        problem = propresenter.tag_fields(payload["tags"])[1]
+        if problem:
+            return JSONResponse({"error": problem}, status_code=400)
+        merged["tags"] = propresenter.clean_tag_settings(payload["tags"], saved["tags"])
     if payload.get("host") and not propresenter.clean_host(payload["host"]):
         return JSONResponse({"error": "Enter just the machine's name or IP address, with no http:// or port."},
                             status_code=400)
@@ -1432,8 +1438,9 @@ async def admin_propresenter_save(payload: dict):
         return JSONResponse({"error": "Enter the machine's address and ProPresenter's port first. "
                                       "The port is in ProPresenter's Network preferences."}, status_code=400)
     config.save({"propresenter": clean}, replace=("propresenter",))
-    log.info("ProPresenter settings saved (%s, view-only %s)",
-             "on" if clean["enabled"] else "off", "on" if clean["view_only"] else "off")
+    log.info("ProPresenter settings saved (%s, view-only %s, slide tags %s)",
+             "on" if clean["enabled"] else "off", "on" if clean["view_only"] else "off",
+             "on" if clean["tags"]["enabled"] else "off")
     await pp_follower.poke()
     lyrics_feed.refresh()
     timers_feed.refresh()
@@ -1716,6 +1723,52 @@ def _alerts_frame() -> dict:
 alerts.on_change = lambda: hub.push_status(_alerts_frame())
 alerts.on_stage = lambda alert_id, text: (pp_follower.alert_ended(alert_id) if text is None
                                           else pp_follower.alert_started(alert_id, text))
+
+
+# Slide-note tags (#138): what each action does in Relay. These are Relay's own doing, so view-only (which is about
+# writes to ProPresenter) does not stop them. None of them calls ProPresenter: capture means Relay's own audio and
+# captions, never ProPresenter's capture/start.
+async def _tag_capture_start(value: str | None) -> str:
+    if engine.running:
+        return "Captioning was already running."
+    scheduler.manual_start()
+    try:
+        await engine.start()
+    except RuntimeError as exc:
+        raise RuntimeError(f"Captioning did not start: {exc}")
+    return "Captioning started."
+
+
+async def _tag_capture_stop(value: str | None) -> str:
+    if not engine.running:
+        return "Captioning was already stopped."
+    scheduler.manual_stop()
+    await engine.stop()
+    return "Captioning stopped."
+
+
+async def _tag_lyrics(value: str | None) -> str:
+    return panel_registry.show_lyrics()
+
+
+async def _tag_captions(value: str | None) -> str:
+    return panel_registry.show_captions()
+
+
+async def _tag_lang(value: str | None) -> str:
+    return panel_registry.show_language(value or "")
+
+
+async def _tag_alert(value: str | None) -> str:
+    try:
+        return alerts.raise_named(value or "", "ProPresenter")
+    except alertsmod.Refused as exc:
+        raise RuntimeError(str(exc))
+
+
+slidetags.tags.actions = {"capture-start": _tag_capture_start, "capture-stop": _tag_capture_stop,
+                          "lyrics": _tag_lyrics, "captions": _tag_captions, "lang": _tag_lang,
+                          "alert": _tag_alert}
 
 
 @app.get("/api/admin/alerts", dependencies=[Depends(require_admin)])

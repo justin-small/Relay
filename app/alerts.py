@@ -298,6 +298,21 @@ class Alerts:
         self._broadcast_state()
         return self.state()
 
+    def raise_named(self, text: str, sender: str) -> str:
+        """Start the alert on the button NAMED `text` (any capitals), for something other than a person tapping it,
+        such as a slide-note tag. Unlike `press` it never cancels: an alert already flashing stays as it is. Raises
+        Refused(404) when no button has that name. Returns a sentence for what happened."""
+        want = clean_name(text).lower()
+        button = next((b for b in self.settings()["buttons"] if b["name"].lower() == want), None) if want else None
+        if button is None:
+            raise Refused(404, f"No alert button is named \"{clean_name(text)}\". Add one under Alerts.")
+        self.expire()
+        alert = self.latest.get(button["id"])
+        if alert is not None and alert.state == "on":
+            return f"The {button['name']} alert is already on."
+        self.press(button["id"], sender)
+        return f"Alert {button['name']} raised."
+
     def cancel(self, bid: str) -> dict[str, Any]:
         button = self.button(bid) if isinstance(bid, str) else None
         if button is None:

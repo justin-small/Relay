@@ -260,6 +260,11 @@ class Registry:
         # The `alert` messages a newly opened stream starts with (#121): main wires it to alerts.py, so a panel
         # that reconnects mid-alert still flashes.
         self.alerts_for: Callable[[str], list[dict]] = lambda pid: []
+        # Slide-note tags (#138): panels that were switched to the lyrics, with what they showed ("restore") and
+        # what Relay sent ("pushed"), so `captions` can put them back and a choice made at the screen since is left alone.
+        self._swapped: dict[str, dict[str, list[dict[str, str]]]] = {}
+        # The newest feed revision Relay has sent each panel without storing it, so the next one differs.
+        self._rev_floor: dict[str, int] = {}
 
     def _changed(self) -> None:
         if self.on_change is not None:
@@ -661,6 +666,104 @@ class Registry:
         return sum(len(v) for v in self._subs.values())
 
     # ------------------------------------------------------- operator actions
+    # ----------------------------------------------------- feeds set by slide-note tags
+    def _rev_base(self, pid: str, entry: dict[str, Any] | None = None) -> int:
+        """The highest feed revision this panel has been given or has applied: the next one is above it."""
+        entry = entry if entry is not None else (self.stored().get(pid) or {})
+        panel = self.panels.get(pid)
+        return max(int(entry.get("feed_rev") or 0), panel.acked_rev if panel else 0, self._rev_floor.get(pid, 0))
+
+    def _send_feeds(self, pid: str, feeds: list[dict[str, str]]) -> int:
+        """Tell a panel to show `feeds` now, without storing them: the operator's own choice (if any) stays what
+        it is, and a panel that comes back later is not told again."""
+        rev = self._rev_floor[pid] = self._rev_base(pid) + 1
+        sent = self._push(pid, {"type": "set_feed", "rev": rev, "feeds": feeds})
+        panel = self.panels.get(pid)
+        if sent and panel is not None:
+            panel.feeds = [dict(f) for f in feeds]   # what it shows now; its next check-in says it for itself
+        return sent
+
+    def _reachable(self) -> list[Panel]:
+        return [p for p in self.panels.values() if self.online(p) and self._subs.get(p.id)]
+
+    @staticmethod
+    def _with_caption(feeds: list[dict[str, str]], feed: dict[str, str]) -> list[dict[str, str]]:
+        """`feeds` with each transcription or translation feed replaced by `feed` (once). A panel on the service,
+        the alert buttons or the timers has no captions to replace and comes back unchanged."""
+        out: list[dict[str, str]] = []
+        for f in feeds:
+            f = feed if f.get("stream") in (TRANSCRIPTION, TRANSLATION) else f
+            if f not in out:
+                out.append(f)
+        return out
+
+    def show_lyrics(self) -> str:
+        """Every panel showing captions shows the ProPresenter lyrics instead, until `show_captions`."""
+        if not propresenter.panel_offers()["lyrics"]:
+            raise ValueError("Lyrics on caption panels are switched off (ProPresenter page, Lyrics), so no panel was changed.")
+        lyrics = {"stream": LYRICS}
+        done = 0
+        for panel in self._reachable():
+            held = self._swapped.get(panel.id)
+            if held is not None and panel.feeds == held["pushed"]:
+                continue                       # already showing it
+            self._swapped.pop(panel.id, None)  # moved at the screen since: a fresh start
+            new = self._with_caption(panel.feeds, lyrics)
+            if new == panel.feeds or not clean_feeds(new):
+                continue
+            before = [dict(f) for f in panel.feeds]
+            if self._send_feeds(panel.id, new):
+                self._swapped[panel.id] = {"pushed": new, "restore": before}
+                done += 1
+        self._changed()
+        return f"Lyrics shown on {done} panel{'s' if done != 1 else ''}."
+
+    def show_captions(self) -> str:
+        """Put back what each panel showed before `show_lyrics`. A panel someone has changed at its screen since
+        is left as it is."""
+        done = 0
+        for pid, held in list(self._swapped.items()):
+            panel = self.panels.get(pid)
+            if panel is None or (panel.feeds and panel.feeds != held["pushed"]):
+                self._swapped.pop(pid, None)   # changed at the screen, or gone
+                continue
+            if self._send_feeds(pid, held["restore"]):
+                self._swapped.pop(pid, None)
+                done += 1
+        self._changed()
+        return f"Captions back on {done} panel{'s' if done != 1 else ''}." if done else "No panel was showing lyrics from a tag."
+
+    def show_language(self, target: str) -> str:
+        """Panels showing captions show them in `target` (a name from languages.py). A panel that is on the lyrics
+        because of a tag goes back to this language when `show_captions` puts it back."""
+        spec = languages.TARGETS.get(target)
+        if spec is None:
+            raise ValueError("That is not a language Relay translates into.")
+        cfg = config.get()
+        if target == str(cfg.get("source_language") or "").upper():
+            feed = {"stream": TRANSCRIPTION}
+        elif (cfg.get("targets") or {}).get(target, {}).get("enabled"):
+            feed = {"stream": TRANSLATION, "lang": target}
+        else:
+            raise ValueError(f"{spec['label']} is not switched on under Languages, so no panel was changed.")
+        done = skipped = 0
+        for panel in self._reachable():
+            if feed["stream"] == TRANSLATION and panel.scripts and spec["script"] not in panel.scripts:
+                skipped += 1
+                continue
+            held = self._swapped.get(panel.id)
+            if held is not None and panel.feeds == held["pushed"]:
+                held["restore"] = self._with_caption(held["restore"], feed)
+                done += 1
+                continue
+            self._swapped.pop(panel.id, None)
+            new = self._with_caption(panel.feeds, feed)
+            if new != panel.feeds and self._send_feeds(panel.id, new):
+                done += 1
+        self._changed()
+        out = f"{spec['label']} set on {done} panel{'s' if done != 1 else ''}."
+        return out + (f" {skipped} cannot draw it." if skipped else "")
+
     def update(self, pid: str, *, name: str | None = None, feeds: Any = ...,
                service_mode: str | None = None, service_type: Any = ...,
                rotation: Any = ..., timers: Any = ...) -> dict[str, Any]:
@@ -703,7 +806,8 @@ class Registry:
                             if script not in panel.scripts:
                                 raise ValueError(f"this panel cannot draw {script} text")
                 entry["feeds"] = clean
-                entry["feed_rev"] = int(entry.get("feed_rev") or 0) + 1
+                entry["feed_rev"] = self._rev_base(pid, entry) + 1
+                self._swapped.pop(pid, None)   # the operator's choice is the newest
                 push = {"type": "set_feed", "rev": entry["feed_rev"], "feeds": clean}
         service_push = False
         if service_mode is not None:
@@ -796,6 +900,7 @@ class Registry:
         stored = {k: dict(v) for k, v in self.stored().items() if k != pid}
         self._save_stored(stored)
         self.panels.pop(pid, None)
+        self._swapped.pop(pid, None)
         for q in self._subs.pop(pid, []):
             self._close(q)
         self._changed()

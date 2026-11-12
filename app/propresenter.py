@@ -37,7 +37,7 @@ import time
 import urllib.parse
 from typing import Any, Callable
 
-from . import config
+from . import config, slidetags
 from .hub import sse_frame
 
 log = logging.getLogger("relay.propresenter")
@@ -86,7 +86,10 @@ def default_settings() -> dict[str, Any]:
             "macros_mode": "selected", "macros_allowed": [],
             # The timers panels show (stage 3): amber and red thresholds in seconds left, and which timers
             # (UUIDs; empty means every timer, up to MAX_TIMERS_SHOWN). A panel may override each, see panels.py.
-            "timers": {"amber_s": 120, "red_s": 30, "show": []}}
+            "timers": {"amber_s": 120, "red_s": 30, "show": []},
+            # Slide-note tags (stage 5): off until the operator switches them on. `settle_s` is how long a slide
+            # must stay live before its tags run (see slidetags.py).
+            "tags": {"enabled": False, "settle_s": slidetags.SETTLE_DEFAULT_S}}
 
 
 def clean_host(value: object) -> str:
@@ -121,7 +124,30 @@ def clean_stored(raw: object) -> dict[str, Any]:
         "macros_allowed": sorted({str(u)[:64] for u in (raw.get("macros_allowed") or [])
                                   if isinstance(u, str) and ID_RE.match(u)})[:500],
         "timers": clean_timer_settings(raw.get("timers"), base["timers"]),
+        "tags": clean_tag_settings(raw.get("tags"), base["tags"]),
     }
+
+
+def tag_fields(raw: object) -> tuple[dict[str, Any], str]:
+    """The slide-tag settings that `raw` sets (`enabled`, `settle_s`), each checked, with a fixed sentence for the
+    first thing wrong ("" when nothing was). A key left out stays out."""
+    raw = raw if isinstance(raw, dict) else {}
+    out: dict[str, Any] = {}
+    problem = ""
+    if raw.get("enabled") is not None:
+        out["enabled"] = raw["enabled"] is True
+    v = raw.get("settle_s")
+    if v is not None:
+        if isinstance(v, bool) or not isinstance(v, (int, float)) or not slidetags.SETTLE_MIN_S <= v <= slidetags.SETTLE_MAX_S:
+            problem = (f"The settle time is a number of seconds from {slidetags.SETTLE_MIN_S:g} "
+                       f"to {slidetags.SETTLE_MAX_S:g}.")
+        else:
+            out["settle_s"] = round(float(v), 2)
+    return out, problem
+
+
+def clean_tag_settings(raw: object, base: dict[str, Any]) -> dict[str, Any]:
+    return {**base, **tag_fields(raw)[0]}
 
 
 def timer_fields(raw: object) -> tuple[dict[str, Any], str]:
@@ -245,6 +271,14 @@ def cue_list(detail: dict, arrangement: str | None = None) -> list[dict]:
                         "text": str(sl.get("text") or ""), "label": str(sl.get("label") or ""),
                         "notes": str(sl.get("notes") or ""), "enabled": sl.get("enabled") is not False})
     return out
+
+
+def slide_notes(detail: Any) -> list[str]:
+    """The notes of every slide of a presentation, as listed (not in arrangement order): what deck-wide
+    slide-note tags are read from."""
+    detail = detail if isinstance(detail, dict) else {}
+    return [str(sl.get("notes") or "") for g in (detail.get("groups") or []) if isinstance(g, dict)
+            for sl in (g.get("slides") or []) if isinstance(sl, dict)]
 
 
 def hex_color(color: Any) -> str:
@@ -494,6 +528,7 @@ class Follower:
         self.next = _slide_side(None)
         self.announcement: dict | None = None   # same shape as `presentation`, for the announcements layer
         self.announcement_index: int | None = None
+        self.deck: slidetags.Deck | None = None   # the active presentation's deck-wide tags, read with it
         self.data: dict[str, Any] = {}          # the last body of the other stream paths
         self.timers_read_at = 0.0               # when data["timers/current"] was read (Relay's clock)
         self.timer_kinds: dict[str, str] = {}   # timer UUID -> "down" (countdown, to a time) or "up" (elapsed)
@@ -801,6 +836,7 @@ class Follower:
         if not uuid:
             if self.presentation is not None:
                 self.presentation = None
+                self.deck = None
                 self.slide_index = None
                 self.current, self.next = _slide_side(None), _slide_side(None)
             self._note_change()
@@ -809,9 +845,11 @@ class Follower:
             return
         name = str(pid.get("name") or "").strip()
         self.presentation = self._describe(uuid, name, None)
+        self.deck = None
         try:
             detail = await self.call(client.read, f"/v1/presentation/{urllib.parse.quote(uuid)}")
             self.presentation = self._describe(uuid, name, (detail or {}).get("presentation"))
+            self.deck = slidetags.tags.deck_for(uuid, slide_notes((detail or {}).get("presentation")))
         except ProError as exc:
             # The slide text still works without the library and group names; the song test says "not a song"
             # until they are known.
@@ -937,7 +975,7 @@ class Follower:
                 self._announced_down = True
             self.up = False
             self.connecting = False
-            self.presentation, self.slide_index = None, None
+            self.presentation, self.slide_index, self.deck = None, None, None
             self.current, self.next = _slide_side(None), _slide_side(None)
             self.announcement, self.announcement_index = None, None
         self._note_change()
@@ -950,7 +988,7 @@ class Follower:
         self.client = None
         self.version = None
         self._announced_down = False
-        self.presentation, self.slide_index = None, None
+        self.presentation, self.slide_index, self.deck = None, None, None
         self.current, self.next = _slide_side(None), _slide_side(None)
         self.announcement, self.announcement_index = None, None
         self.stage_message, self.stage_owner = "", None
@@ -1059,7 +1097,22 @@ class Follower:
             "screens": self.screens(),
         }
 
+    def _observe_tags(self) -> None:
+        """Tell the slide-note tags what is live. Only a followed, connected ProPresenter with tags switched on
+        has anything live; a comparison when nothing changed."""
+        tg = settings().get("tags") or {}
+        on = bool(tg.get("enabled") and configured() and self.up)
+        pres = self.presentation if on else None
+        slidetags.tags.observe(
+            enabled=on, settle_s=tg.get("settle_s", slidetags.SETTLE_DEFAULT_S),
+            uuid=pres["uuid"] if pres else None, title=pres["name"] if pres else "",
+            index=self.slide_index, notes=self.current["notes"] if pres else "", deck=self.deck)
+
     def _note_change(self) -> None:
+        try:
+            self._observe_tags()
+        except Exception:
+            log.exception("slide tag check failed")
         sig = json.dumps([self.up, self.connecting, self.error, self.presentation, self.slide_index,
                           self.current, self.next, self.stage_message, self.data, self.lyrics(),
                           self.timer_kinds, self.announcement, self.announcement_index],
