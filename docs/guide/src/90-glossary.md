@@ -28,6 +28,10 @@
 : A small button on the back of a caption panel. Hold it for 5 seconds to open
   the panel's setup network, or 15 seconds to erase it.
 
+**Browser source**
+: A layer in OBS, vMix or ProPresenter that shows a web page over the video.
+  Relay's broadcast overlay is added as one.
+
 **Caption panel**
 : A touch screen that shows Relay's captions on a wall or a desk. See Part 5.
 
@@ -38,6 +42,10 @@
 **Certificate**
 : A small file that proves to a browser which computer it is talking to.
   It makes the `https://` connection to the operator panel possible.
+
+**Chroma key**
+: A switcher effect that makes one colour (usually bright green) see-through,
+  so what is behind it shows. Used for the overlay's **Chroma green** output.
 
 **Clipping**
 : Sound so loud that its peaks are cut off. It makes speech hard to
@@ -131,6 +139,11 @@
 
 **LTS (long-term support)**
 : The stable version of Node.js that most people should install.
+
+**Luma key**
+: A switcher effect that uses a black-and-white *key* picture to decide what
+  is see-through: white shows the *fill* picture, black shows the video
+  behind. Used for the overlay's **Key matte** output on an ATEM.
 
 **Module**
 : An add-on that teaches Companion how to control one kind of equipment.
@@ -242,6 +255,10 @@
 
 **Terminal**
 : The macOS and Linux window where you type commands.
+
+**Title-safe margin**
+: A border around the picture kept clear of text, because some TVs crop the
+  edges.
 
 **Transcription**
 : The words as spoken, written out in the same language.

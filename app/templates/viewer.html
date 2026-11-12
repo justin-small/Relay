@@ -5,20 +5,24 @@
 <title>{% if mode == 'transcription' %}{{ source_label }} Transcript{% elif mode == 'both' %}Captions{% else %}Live Translation{% endif %}</title>
 {% include "_brand_head.html" %}
 <link rel="stylesheet" href="{{ static('viewer.css') }}">
-{% if overlay %}<style>
-  /* Broadcast overlay tokens, resolved server-side from the URL. The page is a
-     fixed canvas scaled to fit the browser source; everything outside it stays
+{% if overlay %}<link rel="stylesheet" href="{{ static('overlay-fonts.css') }}"><style>
+  /* Broadcast overlay tokens, resolved server-side (app/overlays.py: every value
+     is an enum, a clamped number or a checked colour). The page is a fixed
+     canvas scaled to fit the browser source; everything outside it stays
      transparent so OBS/ProPresenter composites the alpha directly. */
   :root {
-    --ov-w: {{ overlay_w }}px; --ov-h: {{ overlay_h }}px;
-    --ov-font: {{ overlay_font }}px;
+    --ov-w: {{ ov.w }}px; --ov-h: {{ ov.h }}px;
+    --ov-font: {{ ov.font }}px;
     --ov-pad-x: {{ overlay_pad_x }}px; --ov-pad-y: {{ overlay_pad_y }}px;
-    --ov-plate: {{ overlay_plate }};
-    --ov-bg: {{ overlay_bg }};
-    --ov-hold-ms: {{ overlay_hold }}ms;
+    --ov-plate: {{ ov.plate }};
+    --ov-platec: {{ overlay_platec }};
+    --ov-color: #{{ ov.color }};
+    --ov-maxw: {{ ov.maxw }}%;
+    --ov-bg: {{ ov.bg }};
+    --ov-hold-ms: {{ ov.hold }}ms;
   }
 </style>{% endif %}
-</head><body class="{{ 'present' if present }}{{ ' screen align-' + screen_align if screen }}{{ ' screen-fixedfont' if screen and screen_font }}{{ ' overlay ov-hidden' if overlay }}{{ ' overlay-matte' if overlay and overlay_matte }}"{% if screen and screen_alert %} data-alert="{{ screen_alert }}"{% endif %}>
+</head><body class="{{ 'present' if present }}{{ ' screen align-' + screen_align if screen }}{{ ' screen-fixedfont' if screen and screen_font }}{% if overlay %} overlay ov-hidden ov-pos-{{ ov.pos }} ov-align-{{ ov.align }} ov-font-{{ ov.family }} ov-edge-{{ ov.edge }} ov-{{ ov.mode }}{{ ' overlay-matte' if ov.matte }}{% endif %}"{% if screen and screen_alert %} data-alert="{{ screen_alert }}"{% endif %}>
 
 <div class="bar">
   <span class="dot" id="statusDot"></span>
@@ -36,13 +40,25 @@
   <button data-font="up" aria-label="Larger text">A+</button>
 </div>
 
+{% if overlay %}
+<div class="panes ov-canvas">
+  {% for f in overlay_feeds %}
+  <div class="pane">
+    {% if overlay_labels and f.label %}<div class="ov-label" aria-hidden="true">{{ f.label }}</div>{% endif %}
+    <div class="feed" data-stream="{{ f.stream }}" data-lang="{{ f.lang }}"{% if f.iso %} lang="{{ f.iso }}"{% endif %} data-lines="{{ ov.lines }}"{% if ov.finals %} data-finals="1"{% endif %}>
+      <div class="log" role="log" aria-live="polite" aria-atomic="false" aria-label="{{ f.label or 'Captions' }}"></div>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% else %}
 <div class="panes {{ 'dual' if mode == 'both' }}">
   {% if mode in ('transcription', 'both') %}
   <div class="pane">
     {% if mode == 'both' %}<div class="pane-label">{{ source_label }}</div>{% endif %}
-    <div class="feed" data-stream="transcription" data-lang="{{ source_language }}" lang="{{ source_iso }}"{% if screen %} data-lines="{{ screen_lines }}"{% elif overlay %} data-lines="{{ overlay_lines }}"{% endif %}>
+    <div class="feed" data-stream="transcription" data-lang="{{ source_language }}" lang="{{ source_iso }}"{% if screen %} data-lines="{{ screen_lines }}"{% endif %}>
       <div class="log" role="log" aria-live="polite" aria-atomic="false" aria-label="{{ source_label }} transcript"></div>
-      {% if not screen and not overlay %}<p class="empty">Waiting for audio&hellip;</p>{% endif %}
+      {% if not screen %}<p class="empty">Waiting for audio&hellip;</p>{% endif %}
     </div>
     <button class="jump" type="button" hidden>Jump to live &#8595;</button>
   </div>
@@ -50,14 +66,15 @@
   {% if mode in ('translation', 'both') %}
   <div class="pane">
     {% if mode == 'both' %}<div class="pane-label">Translation</div>{% endif %}
-    <div class="feed" data-stream="translation" data-lang="{% if screen %}{{ screen_lang }}{% elif overlay %}{{ overlay_lang }}{% endif %}"{% if screen and screen_iso %} lang="{{ screen_iso }}"{% elif overlay and overlay_iso %} lang="{{ overlay_iso }}"{% endif %}{% if screen %} data-lines="{{ screen_lines }}"{% elif overlay %} data-lines="{{ overlay_lines }}"{% endif %}>
+    <div class="feed" data-stream="translation" data-lang="{% if screen %}{{ screen_lang }}{% endif %}"{% if screen and screen_iso %} lang="{{ screen_iso }}"{% endif %}{% if screen %} data-lines="{{ screen_lines }}"{% endif %}>
       <div class="log" role="log" aria-live="polite" aria-atomic="false" aria-label="Translation"></div>
-      {% if not screen and not overlay %}<p class="empty">Waiting for audio&hellip;</p>{% endif %}
+      {% if not screen %}<p class="empty">Waiting for audio&hellip;</p>{% endif %}
     </div>
     <button class="jump" type="button" hidden>Jump to live &#8595;</button>
   </div>
   {% endif %}
 </div>
+{% endif %}
 
 {% if lyrics_for %}<div class="lyrics" id="lyrics" hidden aria-live="polite"><div class="lyrics-text" id="lyricsText"></div></div>{% endif %}
 
@@ -71,7 +88,7 @@
 {% if screen %}<span class="screen-fault" id="screenFault" title="Stream fault" hidden></span>{% endif %}
 
 <div class="toast" id="toast"></div>
-<script>window.RELAY = {fontPx: {{ font_px }}, sourceLanguage: "{{ source_language }}", sourceIso: "{{ source_iso }}", mode: "{{ mode }}", present: {{ 'true' if present else 'false' }}, screen: {{ 'true' if screen else 'false' }}, screenLang: "{{ screen_lang if screen else '' }}", screenFont: {{ screen_font or 0 }}, overlay: {{ 'true' if overlay else 'false' }}, overlayLang: "{{ overlay_lang if overlay else '' }}", overlayW: {{ overlay_w or 1920 }}, overlayH: {{ overlay_h or 1080 }}, overlayFont: {{ overlay_font or 54 }}, overlayHold: {{ overlay_hold if overlay else 0 }}};</script>
+<script>window.RELAY = {fontPx: {{ font_px }}, sourceLanguage: "{{ source_language }}", sourceIso: "{{ source_iso }}", mode: "{{ mode }}", present: {{ 'true' if present else 'false' }}, screen: {{ 'true' if screen else 'false' }}, screenLang: "{{ screen_lang if screen else '' }}", screenFont: {{ screen_font or 0 }}, overlay: {{ 'true' if overlay else 'false' }}, overlayLang: "{{ overlay_feeds[0].lang if overlay and overlay_feeds[0].stream == 'translation' else '' }}", overlayW: {{ ov.w if overlay else 1920 }}, overlayH: {{ ov.h if overlay else 1080 }}, overlayFont: {{ ov.font if overlay else 54 }}, overlayHold: {{ ov.hold if overlay else 0 }}, overlayPopOn: {{ 'true' if overlay and ov.mode == 'popon' else 'false' }}, overlayDemo: {{ overlay_demo|tojson if overlay and overlay_demo else 'null' }}};</script>
 <script src="{{ static('viewer.js') }}"></script>
 {% if screen and screen_alert %}<script src="{{ static('alert-screen.js') }}"></script>{% endif %}
 {% if lyrics_for %}<script src="{{ static('lyrics.js') }}" data-for="{{ lyrics_for }}"></script>{% endif %}

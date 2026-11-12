@@ -162,60 +162,99 @@ body.screen .feed p.open::after { display: none; }
   box-shadow: 0 0 0 3px var(--bg);
 }
 
-/* ---- overlay mode: key/fill for OBS, ProPresenter, ATEM ----
+/* ---- overlay mode: key/fill for OBS, vMix, ProPresenter, ATEM ----
    Composited over live video, so anything untidy is a broadcast defect. The
    page is a fixed pixel canvas (var --ov-w/--ov-h) scaled to the browser source
    by JS; everything outside it, and everything when nobody is speaking, is fully
-   transparent. No scrollbar, no caret, no placeholder, no reconnect toast. */
+   transparent. No scrollbar, no caret, no placeholder, no reconnect toast.
+   Layout comes from body classes set server-side (app/overlays.py): ov-pos-*,
+   ov-align-*, ov-font-*, ov-edge-*, ov-rollup / ov-popon. */
 html:has(body.overlay), body.overlay { background: transparent; }
 body.overlay {
   overflow: hidden;
   /* The theme toggle still runs; pin the overlay's own contrast regardless. */
-  --settled: #fff; --open: #fff;
+  --settled: var(--ov-color); --open: var(--ov-color);
+  --ov-edge: #000;
 }
 body.overlay .bar,
 body.overlay .jump,
-body.overlay .toast,
-/* `both` shows a "Transcription"/"Translation" badge per pane; that is an
-   operator-facing label, a broadcast defect keyed over program video. */
-body.overlay .pane-label { display: none; }
+body.overlay .toast { display: none; }
+/* The canvas: one column of feeds (two when languages are stacked), placed
+   inside the title-safe inset by position and alignment. */
 body.overlay .panes {
   position: absolute; top: 0; left: 0;
   width: var(--ov-w); height: var(--ov-h);
   transform-origin: top left;               /* JS sets translate()+scale() to fit */
   background: var(--ov-bg);
-}
-body.overlay .pane { position: static; }
-body.overlay .feed {
-  display: flex; flex-direction: column; justify-content: flex-end;
-  overflow: hidden;
+  display: flex; flex-direction: column; justify-content: flex-end; align-items: center;
+  gap: .3em; font-size: var(--ov-font);
   padding: var(--ov-pad-y) var(--ov-pad-x);  /* title-safe inset, resolved to px */
-  font-size: var(--ov-font); line-height: 1.28;
+  box-sizing: border-box;
+}
+body.ov-pos-top .panes { justify-content: flex-start; }
+body.ov-pos-middle .panes { justify-content: center; }
+body.ov-align-left .panes { align-items: flex-start; text-align: left; }
+body.ov-align-right .panes { align-items: flex-end; text-align: right; }
+body.ov-align-center .panes { text-align: center; }
+body.overlay .pane {
+  position: static; flex: none; min-height: 0; width: var(--ov-maxw); max-width: 100%;
+  display: flex; flex-direction: column; align-items: inherit;
   /* Hold-to-hide fades the captions only; the canvas background (transparent,
      a chroma fill, or the matte's black) is left intact so a keyer downstream
      never sees it flicker. */
   transition: opacity .4s ease;
 }
-body.overlay.ov-hidden .feed { opacity: 0; }
+body.overlay.ov-hidden .pane { opacity: 0; }
+body.overlay .feed {
+  display: flex; flex-direction: column; align-items: inherit;
+  overflow: hidden; padding: 0; height: auto; flex: none;
+  font-size: 1em; line-height: 1.28; font-weight: inherit; letter-spacing: normal;
+}
+body.overlay .log { display: flex; flex-direction: column; align-items: inherit; }
+/* The language name over each of two stacked feeds. */
+body.overlay .ov-label {
+  font-size: .5em; font-weight: 700; letter-spacing: .08em; text-transform: uppercase;
+  color: var(--ov-color); opacity: .8; margin: 0 .15em .15em;
+}
 /* Each caption line carries its own plate, sized to the text, so the background
    only darkens where there is something to read. */
 body.overlay .feed p {
-  width: fit-content; max-width: 88%;
-  margin: 0 auto .18em auto; padding: .06em .34em;
+  width: fit-content; max-width: 100%;
+  margin: 0 0 .18em; padding: .06em .34em;
   border-radius: .1em;
-  color: #fff;
-  background: rgba(0, 0, 0, var(--ov-plate));
-  text-shadow: 0 1px 2px rgba(0, 0, 0, .55);
+  color: var(--ov-color);
+  background: rgba(var(--ov-platec), var(--ov-plate));
+  -webkit-box-decoration-break: clone; box-decoration-break: clone;
 }
 body.overlay .feed p:last-child { margin-bottom: 0; }
 body.overlay .feed p.open::after { display: none; }   /* no caret over program */
-/* ATEM key: the same layout as a white-on-black alpha matte for a linear keyer.
-   White text on a plate whose grey level equals the fill's plate opacity. */
-body.overlay.overlay-matte .panes { background: #000; }
-body.overlay.overlay-matte .feed p {
-  color: #fff; text-shadow: none;
-  background: rgba(255, 255, 255, var(--ov-plate));
+/* Text edge, for use with or without a plate. The outline is drawn with eight
+   shadows rather than -webkit-text-stroke: stroke eats into the glyph and the
+   paint-order fix is missing from the older Chromium inside OBS and vMix. */
+body.ov-edge-plate .feed p { text-shadow: 0 1px 2px rgba(0, 0, 0, .55); }
+body.ov-edge-outline .feed p, body.ov-edge-shadow .feed p, body.ov-edge-none .feed p { background: transparent; }
+body.ov-edge-outline .feed p {
+  text-shadow: -.05em -.05em 0 var(--ov-edge), 0 -.05em 0 var(--ov-edge), .05em -.05em 0 var(--ov-edge),
+    -.05em 0 0 var(--ov-edge), .05em 0 0 var(--ov-edge), -.05em .05em 0 var(--ov-edge),
+    0 .05em 0 var(--ov-edge), .05em .05em 0 var(--ov-edge), 0 0 .12em var(--ov-edge);
 }
+body.ov-edge-shadow .feed p { text-shadow: 0 .05em .12em rgba(0, 0, 0, .95), 0 0 .3em rgba(0, 0, 0, .7); }
+body.ov-edge-none .feed p { text-shadow: none; }
+/* Fonts: two ship with Relay (overlay-fonts.css), the rest are the host's own. */
+body.ov-font-sans .panes { font-family: ui-sans-serif, -apple-system, "Segoe UI", system-ui, Roboto, sans-serif; font-weight: 600; }
+body.ov-font-serif .panes { font-family: "Relay Serif", Georgia, "Times New Roman", serif; font-weight: 600; }
+body.ov-font-rounded .panes { font-family: ui-rounded, "SF Pro Rounded", "Arial Rounded MT Bold", system-ui, sans-serif; font-weight: 600; }
+body.ov-font-hyper .panes { font-family: "Relay Hyperlegible", Verdana, system-ui, sans-serif; font-weight: 700; }
+body.ov-font-mono .panes { font-family: ui-monospace, Menlo, Consolas, monospace; font-weight: 500; }
+/* ATEM key: the same layout as a white-on-black alpha matte for a linear keyer.
+   White text (and white outline, so the key covers it) on a plate whose grey
+   level equals the fill's plate opacity. */
+body.overlay.overlay-matte .panes { background: #000; }
+body.overlay.overlay-matte { --ov-edge: #fff; }
+body.overlay.overlay-matte .feed p { color: #fff; }
+body.overlay.overlay-matte.ov-edge-plate .feed p { text-shadow: none; background: rgba(255, 255, 255, var(--ov-plate)); }
+body.overlay.overlay-matte.ov-edge-shadow .feed p { text-shadow: 0 .05em .12em #fff, 0 0 .3em rgba(255, 255, 255, .7); }
+body.overlay.overlay-matte .ov-label { color: #fff; }
 
 /* ---- reconnect toast: shows only on drop ---- */
 .toast {

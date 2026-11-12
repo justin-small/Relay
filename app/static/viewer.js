@@ -167,6 +167,10 @@
     // Screen/overlay want a bounded feed: keep the last N settled lines, drop
     // the rest. 0 (the phone default) means unbounded.
     this.lineCap = parseInt(el.dataset.lines, 10) || 0;
+    // An overlay set to finished lines only (or pop-on) subscribes with
+    // finals=1: the server sends settled sentences and no word-by-word deltas,
+    // so nothing on air is ever revised.
+    this.finals = el.dataset.finals === '1';
     // A screen/overlay page pins its language in the markup.
     if (el.getAttribute('lang')) setDir(el, el.getAttribute('lang'));
     const ph = el.querySelector('.empty');
@@ -294,6 +298,10 @@
     this.lastSeq = msg.seq || this.lastSeq;
 
     if (msg.final) {
+      // Pop-on: a block of up to `lines` finished sentences stays put, and the
+      // next sentence after a full block clears it and starts the next one --
+      // whole captions appear and leave together instead of scrolling.
+      if (cfg.overlayPopOn && this.lineCap && this.log.children.length >= this.lineCap) this.log.innerHTML = '';
       const p = this.ensureOpen();
       p.textContent = msg.text;
       this.settle();
@@ -318,6 +326,7 @@
     }
     const qs = new URLSearchParams({ stream: this.stream });
     if (this.lang) qs.set('lang', this.lang);
+    if (this.finals) qs.set('finals', '1');
     if (this.lastSeq) qs.set('last_id', this.lastSeq);
     const es = new EventSource('/stream?' + qs.toString());
     this.es = es;
@@ -434,6 +443,37 @@
         pane.setLangAttr(isoByTarget[picker.value] || '', (chosen.textContent || '') + ' translation');
       }
     });
+  }
+
+  /* ---- overlay demo (?demo=1): the admin builder's preview ----
+     Plays sample sentences through the same Pane.apply a live feed uses --
+     word by word, then the finished line -- so the preview shows exactly what
+     the settings do on air, including finals-only and pop-on. No subscription. */
+  if (cfg.overlay && cfg.overlayDemo) {
+    let seq = 0;
+    const runs = panes.map(function (p) {
+      const lines = cfg.overlayDemo[p.lang] || cfg.overlayDemo[Object.keys(cfg.overlayDemo)[0]] || [];
+      return { pane: p, lines: lines, line: 0, word: 0 };
+    });
+    // Asian scripts without spaces are revealed a few characters at a time.
+    const chunks = function (text) {
+      return / /.test(text) ? text.split(/(?= )/) : (text.match(/.{1,3}/g) || []);
+    };
+    const step = function () {
+      runs.forEach(function (r) {
+        if (!r.lines.length) return;
+        const parts = chunks(r.lines[r.line % r.lines.length]);
+        r.word++;
+        if (r.word >= parts.length) {
+          r.pane.apply({ seq: ++seq, final: true, text: parts.join('') });
+          r.line++; r.word = 0;
+        } else if (!r.pane.finals) {
+          r.pane.apply({ seq: ++seq, text: parts.slice(0, r.word).join('') });
+        }
+      });
+    };
+    setInterval(step, 260);
+    return;
   }
 
   panes.forEach(function (p) {

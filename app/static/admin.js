@@ -1837,10 +1837,9 @@
       ['Screen (kiosk display)', 'screen'],
     ]],
     ['For your switcher', [
-      // A browser source for OBS / ProPresenter, or a keyed output for an ATEM.
-      // Transparent by default; see the /overlay route in app/main.py for the
-      // ?bg=, ?matte= and sizing parameters.
-      ['Overlay (OBS / ProPresenter)', 'overlay'],
+      // A browser source for OBS / vMix / ProPresenter, or a keyed output for an
+      // ATEM. The defaults; the Broadcast overlay page builds and saves others.
+      ['Overlay (OBS / vMix / ProPresenter)', 'overlay'],
     ]],
   ];
 
@@ -1873,9 +1872,10 @@
       return '<section><h3>' + group[0] + '</h3>' + rows + '</section>';
     }).join('') +
       '<section><h3>Notes</h3><div class="note" style="margin-top:0">Screen defaults to translation plus the first live ' +
-      'language; append <span class="mono">?stream=&amp;lang=</span> to pin a specific room display. The overlay is ' +
-      'transparent by default; it takes <span class="mono">?bg=</span>, <span class="mono">?matte=</span> and sizing ' +
-      'parameters. Only the LAN address is shown; 127.0.0.1 works only on the machine running Relay.</div></section>';
+      'language; append <span class="mono">?stream=&amp;lang=</span> to pin a specific room display. The overlay link ' +
+      'here uses the defaults; to choose a layout, language, size and colours, or save it by name, use ' +
+      '<a href="#overlay">Broadcast overlay</a>. Only the LAN address is shown; 127.0.0.1 works only on the machine ' +
+      'running Relay.</div></section>';
     wireCopies();
     paintQrs();
   }
