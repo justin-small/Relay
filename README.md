@@ -840,6 +840,8 @@ app/
   scheduler.py               starts and stops capture on the schedules
   templates/                 chooser, viewer, admin panel, login
   static/                    viewer + admin JS and CSS
+  modules/                   integrations, each switched on and off on its own
+                             (docs/modules.md); __init__.py is the registry
 
 docker/
   Dockerfile                 build context is the repo root
@@ -886,6 +888,10 @@ python3 tests/test_announce.py         # panel announcement; standard library on
 None makes an API call. `tests/test_redact.py` includes a randomised check that
 300 different delta chunkings of the same sentence all produce the identical
 redacted result.
+
+`tests/test_modules.py` enforces that every integration is a module that can be
+switched on and off (see [docs/modules.md](docs/modules.md)). The **Tests** workflow
+runs it, and every other suite, on each pull request.
 
 `httpx2` is test-only: starlette's `TestClient` needs it, the app does not, so
 it stays out of `requirements.txt` and the image.

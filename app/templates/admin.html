@@ -127,6 +127,19 @@
   label.check { display:flex; align-items:center; gap:8px; font-weight:normal; min-height:32px; }
   .pcard { border:1px solid var(--line); border-radius:9px; background:#111216; padding:12px 14px; }
   .pcard.offline { opacity:.72; }
+  /* Modules page: one card per module. */
+  .mcard .phead { flex-wrap:nowrap; }
+  .mcard .mver { font-size:12px; color:var(--dim); }
+  .mcard .switch { margin-left:auto; }
+  .mcard .msum { margin:6px 0 0; font-size:13px; line-height:1.5; }
+  .mcard .mfoot { display:flex; flex-wrap:wrap; align-items:center; gap:8px 14px; margin-top:10px; font-size:12.5px; }
+  .mcard .mfoot[hidden] { display:none; }
+  .mcard .mhealth::before { content:""; display:inline-block; width:7px; height:7px; border-radius:50%;
+                            background:var(--dim); margin-right:6px; vertical-align:1px; }
+  .mcard .mhealth.ok::before { background:var(--accent); }
+  .mcard .mhealth.warn::before { background:var(--warn); }
+  .mcard .mhealth.error::before { background:var(--err); }
+  .mcard .mfoot a { color:var(--fg); }
   .pcard .phead { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
   .pcard .pname { font-weight:600; font-size:15px; overflow-wrap:anywhere; }
   .pcard .pstate { font-size:12px; color:var(--dim); margin-left:auto; }
@@ -400,26 +413,29 @@
   <form method="post" action="/admin/logout" style="margin:0"><button>Sign out</button></form>
 </header>
 <div class="layout">
+{% macro module_links(group) %}{% for p in module_nav.get(group, []) %}
+    <a href="#{{ p.id }}" data-page="{{ p.id }}"><span class="ico"><svg viewBox="0 0 16 16" aria-hidden="true">{{ p.icon|safe }}</svg></span>{{ p.title }}</a>{% endfor %}{% endmacro %}
   <nav id="nav" aria-label="Settings areas">
     <div class="grp">Live</div>
     <a href="#health" data-page="health"><span class="ico"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 8h3l2-5 2 10 2-5h3"/></svg></span>Session health</a>
     <a href="#audio" data-page="audio"><span class="ico"><svg viewBox="0 0 16 16" aria-hidden="true"><rect x="6" y="1.5" width="4" height="8" rx="2"/><path d="M3.5 7.5a4.5 4.5 0 0 0 9 0M8 12v2.5"/></svg></span>Audio input</a>
-    <a href="#targets" data-page="targets"><span class="ico"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 4h7M5.5 2v2M3.5 4c.5 3 2.5 5 5 6M8 4c-.5 3-2.5 5-5.5 6.5M9 14l3-7 3 7M10 12h4"/></svg></span>Target languages</a>
+    <a href="#targets" data-page="targets"><span class="ico"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 4h7M5.5 2v2M3.5 4c.5 3 2.5 5 5 6M8 4c-.5 3-2.5 5-5.5 6.5M9 14l3-7 3 7M10 12h4"/></svg></span>Target languages</a>{{ module_links("Live") }}
     <div class="grp">Output</div>
     <a href="#panels" data-page="panels"><span class="ico"><svg viewBox="0 0 16 16" aria-hidden="true"><rect x="1.5" y="3" width="13" height="9" rx="1.5"/><path d="M5.5 14.5h5"/></svg></span>Panels</a>
     <a href="#ppcontrol" data-page="ppcontrol"><span class="ico"><svg viewBox="0 0 16 16" aria-hidden="true"><rect x="2" y="2.5" width="12" height="8" rx="1"/><path d="M6.5 5l3 1.5-3 1.5z" fill="currentColor"/><path d="M4 13.5h8"/></svg></span>ProPresenter control</a>
     <a href="#pplive" data-page="pplive"><span class="ico"><svg viewBox="0 0 16 16" aria-hidden="true"><rect x="1.5" y="3" width="9" height="6.5" rx="1"/><rect x="8" y="7" width="6.5" height="5.5" rx="1" fill="#0a0b0d"/><rect x="8" y="7" width="6.5" height="5.5" rx="1"/></svg></span>Slide view and lobby</a>
     <a href="#alerts" data-page="alerts"><span class="ico"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4 11V7a4 4 0 0 1 8 0v4l1.5 1.5h-11zM6.5 14h3"/></svg></span>Alerts</a>
     <a href="#urls" data-page="urls"><span class="ico"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M6.5 9.5a3 3 0 0 0 4 0l2-2a3 3 0 0 0-4-4l-1 1M9.5 6.5a3 3 0 0 0-4 0l-2 2a3 3 0 0 0 4 4l1-1"/></svg></span>Viewer links</a>
-    <a href="#recordings" data-page="recordings"><span class="ico"><svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6"/><circle cx="8" cy="8" r="2" fill="currentColor"/></svg></span>Recordings &amp; export</a>
+    <a href="#recordings" data-page="recordings"><span class="ico"><svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6"/><circle cx="8" cy="8" r="2" fill="currentColor"/></svg></span>Recordings &amp; export</a>{{ module_links("Output") }}
     <div class="grp">Automation</div>
     <a href="#schedules" data-page="schedules"><span class="ico"><svg viewBox="0 0 16 16" aria-hidden="true"><rect x="2" y="3" width="12" height="11" rx="1.5"/><path d="M2 7h12M5.5 1.5v3M10.5 1.5v3"/></svg></span>Schedules</a>
     <a href="#planningcenter" data-page="planningcenter"><span class="ico"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 13V6l5-4 5 4v7zM6.5 13V9h3v4"/></svg></span>Planning Center</a>
-    <a href="#propresenter" data-page="propresenter"><span class="ico"><svg viewBox="0 0 16 16" aria-hidden="true"><rect x="2" y="2.5" width="12" height="8" rx="1"/><path d="M5 13.5h6M8 10.5v3"/></svg></span>ProPresenter</a>
+    <a href="#propresenter" data-page="propresenter"><span class="ico"><svg viewBox="0 0 16 16" aria-hidden="true"><rect x="2" y="2.5" width="12" height="8" rx="1"/><path d="M5 13.5h6M8 10.5v3"/></svg></span>ProPresenter</a>{{ module_links("Automation") }}
     <div class="grp">Settings</div>
     <a href="#blocklist" data-page="blocklist"><span class="ico"><svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6"/><path d="M3.8 12.2l8.4-8.4"/></svg></span>Blocked words</a>
     <a href="#credentials" data-page="credentials"><span class="ico"><svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="5" cy="10.5" r="2.5"/><path d="M7 9l6-6M11 5l1.5 1.5M9.5 6.5L11 8"/></svg></span>Credentials</a>
-    <a href="#appearance" data-page="appearance"><span class="ico"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 4h12M2 8h12M2 12h12"/><circle cx="5" cy="4" r="1.5" fill="var(--bg)"/><circle cx="10.5" cy="8" r="1.5" fill="var(--bg)"/><circle cx="6.5" cy="12" r="1.5" fill="var(--bg)"/></svg></span>Appearance &amp; tuning</a>
+    <a href="#appearance" data-page="appearance"><span class="ico"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 4h12M2 8h12M2 12h12"/><circle cx="5" cy="4" r="1.5" fill="var(--bg)"/><circle cx="10.5" cy="8" r="1.5" fill="var(--bg)"/><circle cx="6.5" cy="12" r="1.5" fill="var(--bg)"/></svg></span>Appearance &amp; tuning</a>{{ module_links("Settings") }}
+    <a href="#modules" data-page="modules"><span class="ico"><svg viewBox="0 0 16 16" aria-hidden="true"><rect x="2" y="2" width="5" height="5" rx="1"/><rect x="9" y="2" width="5" height="5" rx="1"/><rect x="2" y="9" width="5" height="5" rx="1"/><path d="M11.5 9v5M9 11.5h5"/></svg></span>Modules</a>
   </nav>
   <main>
   <div id="alert" class="field err" hidden></div>
@@ -1112,6 +1128,22 @@
       these two fields are the only line-break controls.</div>
     </section>
   </div>
+  <div class="page" id="page-modules" data-page="modules" hidden>
+    <h2 class="title">Modules</h2>
+    <p class="sub">Integrations with other products. Each is switched on and set up on its own; one that is off
+      runs nothing and adds nothing to Relay.</p>
+    <section>
+      <h3>Installed modules</h3>
+      <div class="plist" id="moduleList"><div class="muted">Loading&hellip;</div></div>
+      <div class="note">Modules ship inside Relay&rsquo;s signed release and update with it. Switching one on or off
+        reloads this page so its settings pages appear or go.</div>
+    </section>
+  </div>
+{% for group in module_nav.values() %}{% for p in group %}
+  <div class="page" id="page-{{ p.id }}" data-page="{{ p.id }}" hidden>
+{% include p.template %}
+  </div>
+{% endfor %}{% endfor %}
   </main>
 </div>
 <div id="drawerBg" hidden></div>
@@ -1138,4 +1170,6 @@
 <script src="{{ static('ppcontrol.js') }}"></script>
 <script src="{{ static('pplive.js') }}"></script>
 <script src="{{ static('pclink.js') }}"></script>
-</body></html>
+<script src="{{ static('modules.js') }}"></script>
+{% for script in module_scripts %}<script src="{{ static('modules/' ~ script) }}"></script>
+{% endfor %}</body></html>
