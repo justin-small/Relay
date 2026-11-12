@@ -107,7 +107,7 @@ class PlanningCenter(Module):
         try:
             types = await asyncio.get_running_loop().run_in_executor(None, client.service_types)
         except pc.PlanningCenterError as exc:
-            return {"ok": False, "detail": str(exc)}
+            return {"ok": False, "detail": pc.operator_message(exc)}
         return {"ok": True, "detail": f"Connected. The account has {len(types)} service type"
                                       f"{'s' if len(types) != 1 else ''}."}
 

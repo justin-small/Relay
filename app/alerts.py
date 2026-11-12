@@ -181,10 +181,28 @@ class Alert:
     ended: float = 0.0
 
 
+# What a sender, panel or screen is told when an alert request is refused: fixed sentences by key, so a response
+# never carries an exception's own text.
+MESSAGES = {
+    "no_button": "no such alert button",
+    "no_button_named": "No alert button has that name. Add one under Alerts.",
+    "bad_id": "id must be an alert id",
+    "no_alert": "no such alert",
+    "not_this_panel": "this panel is not flashed by that alert",
+    "not_this_screen": "this screen is not flashed by that alert",
+    "who_saw": "say which panel or screen saw it",
+    "too_many_screens": "too many alert screens are open",
+}
+
+
 class Refused(Exception):
-    def __init__(self, status: int, message: str) -> None:
-        super().__init__(message)
+    """`key` names the fixed sentence in MESSAGES. `detail` is a fuller sentence for Relay's own history (a
+    slide-note tag's, say), never sent in a response."""
+
+    def __init__(self, status: int, key: str, detail: str | None = None) -> None:
+        super().__init__(detail or MESSAGES[key])
         self.status = status
+        self.key = key
 
 
 class Alerts:
@@ -277,7 +295,7 @@ class Alerts:
         """Start an alert on a button, or cancel the one flashing. Returns the new state."""
         button = self.button(bid) if isinstance(bid, str) else None
         if button is None:
-            raise Refused(404, "no such alert button")
+            raise Refused(404, "no_button")
         self.expire()
         alert = self.latest.get(bid)
         now = _now()
@@ -305,7 +323,7 @@ class Alerts:
         want = clean_name(text).lower()
         button = next((b for b in self.settings()["buttons"] if b["name"].lower() == want), None) if want else None
         if button is None:
-            raise Refused(404, f"No alert button is named \"{clean_name(text)}\". Add one under Alerts.")
+            raise Refused(404, "no_button_named", f"No alert button is named \"{clean_name(text)}\". Add one under Alerts.")
         self.expire()
         alert = self.latest.get(button["id"])
         if alert is not None and alert.state == "on":
@@ -316,7 +334,7 @@ class Alerts:
     def cancel(self, bid: str) -> dict[str, Any]:
         button = self.button(bid) if isinstance(bid, str) else None
         if button is None:
-            raise Refused(404, "no such alert button")
+            raise Refused(404, "no_button")
         alert = self.latest.get(bid)
         if alert is not None and alert.state == "on":
             self._end(alert, "cancelled")
@@ -326,25 +344,25 @@ class Alerts:
     def ack(self, alert_id: str, *, panel: str | None = None, screen: str | None = None) -> dict[str, Any]:
         """Someone tapped a flashing screen: the alert ends everywhere, and the sender is told where."""
         if not isinstance(alert_id, str) or not _ALERT_ID_RE.fullmatch(alert_id):
-            raise Refused(400, "id must be an alert id")
+            raise Refused(400, "bad_id")
         self.expire()
         alert = next((a for a in self.latest.values() if a.id == alert_id), None)
         if alert is None:
-            raise Refused(404, "no such alert")
+            raise Refused(404, "no_alert")
         button = self.button(alert.button)
         if button is None:
-            raise Refused(404, "no such alert")
+            raise Refused(404, "no_alert")
         if panel is not None:
             if panel not in button["panels"]:
-                raise Refused(403, "this panel is not flashed by that alert")
+                raise Refused(403, "not_this_panel")
             where = self.panel_name(panel) or "a panel"
         elif screen is not None:
             screen = clean_name(screen).lower()
             where = next((s for s in button["screens"] if s.lower() == screen), "")
             if not where:
-                raise Refused(403, "this screen is not flashed by that alert")
+                raise Refused(403, "not_this_screen")
         else:
-            raise Refused(400, "say which panel or screen saw it")
+            raise Refused(400, "who_saw")
         if alert.state == "on":
             alert.seen_on = where
             self._end(alert, "seen")
@@ -399,7 +417,7 @@ class Alerts:
         key = name.lower()
         q: asyncio.Queue = asyncio.Queue(maxsize=QUEUE_MAX)
         if key not in self._screens and len(self._screens) >= MAX_SCREEN_STREAMS:
-            raise Refused(429, "too many alert screens are open")
+            raise Refused(429, "too_many_screens")
         subs = self._screens.setdefault(key, [])
         while len(subs) >= 4:
             self._close(subs.pop(0))

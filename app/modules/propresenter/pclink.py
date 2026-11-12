@@ -75,8 +75,25 @@ READ_ERRORS = {"network": "Could not reach ProPresenter.", "timeout": "ProPresen
                "http": "ProPresenter refused a request.", "bad": "ProPresenter answered in a way Relay did not expect."}
 
 
+# What the operator is told when the link refuses something: fixed sentences, looked up by key, so no exception text
+# ever reaches the browser.
+MESSAGES = {
+    "pick_both": "Pick a plan item and a ProPresenter presentation.",
+    "no_plan": "There is no plan to build a playlist from.",
+    "nothing_matched": "No plan item is matched to a presentation yet, so there is nothing to put in a playlist.",
+    "name_taken": "A playlist with today's Relay playlist name is already in ProPresenter and Relay did not create "
+                  "it, so Relay will not change it. Rename or remove it there first.",
+    "not_identified": "ProPresenter made the playlist but Relay could not tell which one it is, so it left it alone.",
+    "not_ours": "Relay will only change a playlist it made itself.",
+}
+
+
 class LinkError(Exception):
-    """Something the operator should be told, with a fixed sentence safe to show."""
+    """Something the operator should be told: `key` names its fixed sentence in MESSAGES."""
+
+    def __init__(self, key: str):
+        super().__init__(MESSAGES[key])
+        self.key = key
 
 
 def _flatten(tree: Any, out: list[dict] | None = None) -> list[dict]:
@@ -264,7 +281,7 @@ class Link:
             kept.append({"item": " ".join(str(item).split())[:200], "uuid": uuid, "name": name})
         fields, problem = pp.link_fields({"mapping": kept})
         if problem or not key:
-            raise LinkError("Pick a plan item and a ProPresenter presentation.")
+            raise LinkError("pick_both")
         self.save({"mapping": fields["mapping"]})
         return self.settings()
 
@@ -420,7 +437,7 @@ class Link:
         view-only is refused there before any request."""
         st, tr = self.track()
         if tr is None or tr.plan is None:
-            raise LinkError("There is no plan to build a playlist from.")
+            raise LinkError("no_plan")
         client = self.pp._need_client()
         if client.view_only:
             raise pp.ViewOnly("build a playlist")
@@ -440,7 +457,7 @@ class Link:
             else:
                 left_out.append(r["title"])
         if not any(e["type"] == "presentation" for e in entries):
-            raise LinkError("No plan item is matched to a presentation yet, so there is nothing to put in a playlist.")
+            raise LinkError("nothing_matched")
         name = self.playlist_name(tr.day)
         owned = self.settings().get("owned") or {}
         tree = _flatten(await self.pp.call(client.read, "/v1/playlists"))
@@ -449,8 +466,8 @@ class Link:
                 and owned["name"] == name:
             uuid = owned["uuid"]
         elif any(p["name"] == name for p in tree):
-            raise LinkError(f"A playlist named \"{name}\" is already in ProPresenter and Relay did not create it, "
-                            "so Relay will not change it. Rename or remove it there first.")
+            log.warning("Planning Center link: a playlist named %r is already in ProPresenter and is not Relay's", name)
+            raise LinkError("name_taken")
         else:
             made = await self.pp.call(client.post, "/v1/playlists", {"name": name, "type": "playlist"})
             uuid = self._uuid_of(made)
@@ -458,12 +475,12 @@ class Link:
                 after = _flatten(await self.pp.call(client.read, "/v1/playlists"))
                 uuid = next((p["uuid"] for p in after if p["name"] == name and p["uuid"] not in {t["uuid"] for t in tree}), "")
             if not uuid:
-                raise LinkError("ProPresenter made the playlist but Relay could not tell which one it is, so it left it alone.")
+                raise LinkError("not_identified")
             self.save({"owned": {"uuid": uuid, "name": name}})
         # The one write to an existing playlist: only ever the one Relay made.
         owned = self.settings().get("owned") or {}
         if not (uuid and owned.get("uuid") == uuid and owned.get("name", "").startswith(pp.OWNED_PREFIX)):
-            raise LinkError("Relay will only change a playlist it made itself.")
+            raise LinkError("not_ours")
         await self.pp.call(client.put, f"/v1/playlist/{_seg(uuid)}", entries)
         back = await self.pp.call(client.read, f"/v1/playlist/{_seg(uuid)}")
         got = [e["uuid"] for e in _entries(back) if e["type"] == "presentation"]

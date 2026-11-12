@@ -228,9 +228,11 @@ def directory() -> Path:
 
 
 def _folder(board: str) -> Path:
-    if board not in BOARDS:
-        raise ValueError(f"unknown board {board!r}")
-    return directory() / board
+    b = BOARDS.get(board)
+    if b is None:
+        raise ValueError("unknown board")
+    # Built from the board's own id, never from the caller's string.
+    return directory() / b.id
 
 
 def _image_path(board: str) -> Path:

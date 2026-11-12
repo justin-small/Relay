@@ -62,26 +62,57 @@ def default_timezone(env_tz: str | None = None) -> str:
 
 
 # ------------------------------------------------------------ validation
+# What the admin page is told when a schedule is refused: fixed sentences by key, so a response never carries an
+# exception's own text. ScheduleError is a ValueError, so callers that catch ValueError still do.
+MESSAGES = {
+    "not_object": "A schedule must be an object.",
+    "repeat": "Repeat must be weekly or once.",
+    "zone": "Pick a US time zone.",
+    "same_time": "Start and stop time must differ.",
+    "days_range": "Days must be 0 (Sunday) to 6 (Saturday).",
+    "no_days": "Pick at least one day of the week.",
+    "end_before_start": "End date is before the start date.",
+    "once_needs_date": "A one-time schedule needs a date.",
+    "bad_start_time": "Start time is not a valid time.",
+    "bad_stop_time": "Stop time is not a valid time.",
+    "bad_start_date": "Start date is not a valid date.",
+    "bad_end_date": "End date is not a valid date.",
+    "bad_date": "That is not a valid date.",
+    "bad_time": "That is not a valid time.",
+}
+
+
+class ScheduleError(ValueError):
+    def __init__(self, key: str):
+        super().__init__(MESSAGES[key])
+        self.key = key
+
+
+def _field_key(kind: str, what: str) -> str:
+    key = "bad_" + what.lower().replace(" ", "_")
+    return key if key in MESSAGES else f"bad_{kind}"
+
+
 def _parse_date(raw, what: str) -> date | None:
     if raw in (None, ""):
         return None
     try:
         return date.fromisoformat(str(raw))
     except ValueError:
-        raise ValueError(f"{what} is not a valid date.") from None
+        raise ScheduleError(_field_key("date", what)) from None
 
 
 def _parse_time(raw, what: str) -> str:
     m = _TIME.match(str(raw or "").strip())
     if not m:
-        raise ValueError(f"{what} is not a valid time.")
+        raise ScheduleError(_field_key("time", what))
     return m.group(0)
 
 
 def validate(raw: dict, *, sid: str | None = None) -> dict:
     """A clean schedule dict, or ValueError with a message fit for the panel."""
     if not isinstance(raw, dict):
-        raise ValueError("A schedule must be an object.")
+        raise ScheduleError("not_object")
     sid = sid or str(raw.get("id") or "")
     if not _ID.match(sid):
         sid = secrets.token_hex(4)
@@ -89,16 +120,16 @@ def validate(raw: dict, *, sid: str | None = None) -> dict:
     name = " ".join(str(raw.get("name") or "").split())[:NAME_MAX]
     repeat = str(raw.get("repeat") or "weekly").lower()
     if repeat not in REPEATS:
-        raise ValueError("Repeat must be weekly or once.")
+        raise ScheduleError("repeat")
 
     tz = str(raw.get("timezone") or "")
     if tz not in TZ_LABELS:
-        raise ValueError("Pick a US time zone.")
+        raise ScheduleError("zone")
 
     start_time = _parse_time(raw.get("start_time"), "Start time")
     stop_time = _parse_time(raw.get("stop_time"), "Stop time")
     if start_time == stop_time:
-        raise ValueError("Start and stop time must differ.")
+        raise ScheduleError("same_time")
 
     start_date = _parse_date(raw.get("start_date"), "Start date")
     end_date = _parse_date(raw.get("end_date"), "End date")
@@ -108,16 +139,16 @@ def validate(raw: dict, *, sid: str | None = None) -> dict:
         try:
             days = sorted({int(d) for d in (raw.get("days") or [])})
         except (TypeError, ValueError):
-            raise ValueError("Days must be 0 (Sunday) to 6 (Saturday).") from None
+            raise ScheduleError("days_range") from None
         if not days:
-            raise ValueError("Pick at least one day of the week.")
+            raise ScheduleError("no_days")
         if days[0] < 0 or days[-1] > 6:
-            raise ValueError("Days must be 0 (Sunday) to 6 (Saturday).")
+            raise ScheduleError("days_range")
         if start_date and end_date and end_date < start_date:
-            raise ValueError("End date is before the start date.")
+            raise ScheduleError("end_before_start")
     else:
         if start_date is None:
-            raise ValueError("A one-time schedule needs a date.")
+            raise ScheduleError("once_needs_date")
         end_date = None
 
     return {
