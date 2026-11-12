@@ -14,9 +14,9 @@ from ...hub import sse_frame
 from ...panels import timer_fields
 from .. import event_stream, require_admin
 from . import propresenter, slidetags
-from .pclink import LinkError, link as pc_link
+from .pclink import MESSAGES as LINK_MESSAGES, LinkError, link as pc_link
 from .ppcontrol import control as pp_control
-from .pplobby import LobbyError, lobby as pp_lobby
+from .pplobby import MESSAGES as LOBBY_MESSAGES, LobbyError, lobby as pp_lobby
 from .ppview import view as pp_view
 from .propresenter import follower as pp_follower, lyrics_feed, timers_feed
 
@@ -354,7 +354,9 @@ async def _lobby_run(fn, *args):
     try:
         data = await fn(*args)
     except LobbyError as exc:
-        return JSONResponse({"error": str(exc)}, status_code=409)
+        # A fixed sentence by key, never the exception's own text.
+        return JSONResponse({"error": LOBBY_MESSAGES.get(exc.key, "The lobby rotation could not do that.")},
+                            status_code=409)
     except ValueError:
         return JSONResponse({"error": "That request was not valid."}, status_code=400)
     except propresenter.ProError as exc:
@@ -438,7 +440,9 @@ async def _link_run(fn, *args):
     try:
         data = await fn(*args)
     except LinkError as exc:
-        return JSONResponse({"error": str(exc)}, status_code=409)
+        # A fixed sentence by key, never the exception's own text.
+        return JSONResponse({"error": LINK_MESSAGES.get(exc.key, "The Planning Center link could not do that.")},
+                            status_code=409)
     except ValueError:
         return JSONResponse({"error": "That request was not valid."}, status_code=400)
     except propresenter.ProError as exc:

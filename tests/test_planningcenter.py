@@ -208,6 +208,13 @@ eq("test is refused again", admin.post(URL + "/test").status_code, 400)
 eq("and nothing reached Planning Center", len(seen), before)
 
 print()
+print("the admin page gets fixed sentences, never an error's own text")
+leaky = pc.PlanningCenterError("network", "Could not reach Planning Center: [Errno 61] 10.1.2.3 refused")
+eq("network: a fixed sentence", pc.operator_message(leaky), "Could not reach Planning Center. Check this machine's internet connection.")
+body = pc.PlanningCenterError("http", "Planning Center answered HTTP 422: {\"detail\": \"internal stuff\"}", status=422)
+eq("http: only the status", pc.operator_message(body), "Planning Center refused the request (HTTP 422).")
+eq("403 is told apart", "does not have access" in pc.operator_message(pc.PlanningCenterError("auth", "x", status=403)), True)
+
 if fails:
     print(f"{len(fails)} FAILED: " + "; ".join(fails))
     sys.exit(1)

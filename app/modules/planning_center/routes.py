@@ -105,7 +105,8 @@ async def admin_planning_center_test():
         types = await asyncio.get_running_loop().run_in_executor(None, client.service_types)
     except pc.PlanningCenterError as exc:
         status = {"auth": 400, "rate": 429, "network": 502}.get(exc.kind, 502)
-        return JSONResponse({"error": str(exc)}, status_code=status)
+        log.warning("Planning Center test: %s", exc)
+        return JSONResponse({"error": pc.operator_message(exc)}, status_code=status)
     return {**_pc_body(), "service_types": types}
 
 

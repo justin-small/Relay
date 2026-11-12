@@ -61,6 +61,21 @@ class PlanningCenterError(Exception):
         self.status = status
 
 
+def operator_message(exc: PlanningCenterError) -> str:
+    """A fixed sentence for the admin page, chosen by the error's kind and status: the exception's own text (which
+    can carry Planning Center's reply or a socket error) goes to the log, never to the browser."""
+    if exc.kind == "auth":
+        return ("Planning Center accepted the token, but the person who made it does not have access to this in "
+                "Services." if exc.status == 403 else "Planning Center did not accept that application ID and secret.")
+    if exc.kind == "rate":
+        return "Planning Center is rate limiting this account. Try again in a minute."
+    if exc.kind == "network":
+        return "Could not reach Planning Center. Check this machine's internet connection."
+    if exc.status:
+        return f"Planning Center refused the request (HTTP {int(exc.status)})."
+    return "Planning Center sent something Relay could not read."
+
+
 LIVE_INCLUDE = "current_item_time,next_item_time,controller"
 LIVE_ACTIONS = ("go_to_next_item", "go_to_previous_item", "toggle_control")
 
