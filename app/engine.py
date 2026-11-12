@@ -37,10 +37,23 @@ TRANSCRIPTION_STREAM = "transcription"
 TRANSLATION_STREAM = "translation"
 
 
+class StartRefused(RuntimeError):
+    """Why a start was refused: `key` names its sentence in START_MESSAGES ("capture": the audio device's own
+    sentence is in last_error). A RuntimeError, so callers that catch that still do."""
+
+    def __init__(self, key: str, message: str):
+        super().__init__(message)
+        self.key = key
+
+
 REHEARSAL_REFUSAL = (
     "Rehearsal mode: capture is disabled so nothing is billed. The viewer pages "
     "are showing canned captions. Restart Relay without RELAY_DEMO=1 to go live."
 )
+START_MESSAGES = {
+    "rehearsal": REHEARSAL_REFUSAL,
+    "no_key": "No OpenAI API key set. Add one in the admin panel.",
+}
 
 
 def text_mode(cfg: dict) -> bool:
@@ -86,13 +99,13 @@ class Engine:
         # Not recorded in last_error: the refusal answers one press, and a
         # sticky error would sit in the panel for the whole rehearsal.
         if demo_mode():
-            raise RuntimeError(REHEARSAL_REFUSAL)
+            raise StartRefused("rehearsal", REHEARSAL_REFUSAL)
         async with self._lock:
             cfg = config.get()
             key = (cfg.get("openai_api_key") or "").strip()
             if not key:
-                self.last_error = "No OpenAI API key set. Add one in the admin panel."
-                raise RuntimeError(self.last_error)
+                self.last_error = START_MESSAGES["no_key"]
+                raise StartRefused("no_key", self.last_error)
 
             hub.history_lines = cfg["history_lines"]
             hub.set_blocklist(redact.read_blocklist_file(config.blocklist_path()))
@@ -101,9 +114,10 @@ class Engine:
             try:
                 self.capture.gate_silence = bool(cfg["realtime"].get("gate_silence", True))
                 self.capture.start(cfg.get("audio_device"), cfg.get("input_channel", 0))
-            except RuntimeError as exc:
-                self.last_error = str(exc)
-                raise
+            except RuntimeError:
+                # The capture's own sentence (fixed text naming the device), never the exception's.
+                self.last_error = self.capture.error or "The audio input could not be opened."
+                raise StartRefused("capture", self.last_error) from None
 
             self.running = True
             self.started_at = time.time()

@@ -343,7 +343,9 @@ class AudioCapture:
             self._stream.start()
         except Exception as exc:
             self._stream = None
-            self.error = f"Could not open {dev['label']}: {exc}"
+            # PortAudio's own text goes to the log; the admin page gets a fixed sentence about the device.
+            log.warning("Could not open %s: %s", dev["label"], exc)
+            self.error = f"Could not open {dev['label']}. Check it is plugged in and not in use by another app."
             raise RuntimeError(self.error) from exc
 
         self.device = dev

@@ -23,6 +23,7 @@ from jinja2 import ChoiceLoader, FileSystemLoader, PrefixLoader
 from . import alerts as alertsmod
 from . import config, exporting, languages, panelfw, panels, redact, schedules
 from .alerts import alerts
+from . import engine as engine_mod
 from .engine import TRANSCRIPTION_STREAM, TRANSLATION_STREAM, demo_mode, engine
 from .hub import hub
 from . import modules as modules_pkg
@@ -842,7 +843,9 @@ async def _alert_body(request: Request) -> dict:
 
 
 def _alert_refused(exc: alertsmod.Refused) -> JSONResponse:
-    return JSONResponse({"ok": False, "error": str(exc)}, status_code=exc.status)
+    # A fixed sentence by key, never the exception's own text.
+    return JSONResponse({"ok": False, "error": alertsmod.MESSAGES.get(exc.key, "The alert could not be sent.")},
+                        status_code=exc.status)
 
 
 @app.get("/alert", response_class=HTMLResponse)
@@ -902,7 +905,7 @@ async def alert_screen_stream(name: str = ""):
     try:
         queue = alerts.subscribe_screen(name)
     except alertsmod.Refused as exc:
-        raise HTTPException(exc.status, str(exc))
+        raise HTTPException(exc.status, alertsmod.MESSAGES.get(exc.key, "Refused."))
 
     async def gen():
         try:
@@ -1215,7 +1218,10 @@ async def admin_start():
     except RuntimeError as exc:
         # The refusal last: status() carries its own "error" (the sticky
         # last_error), which must not mask why this press failed.
-        return JSONResponse({**engine.status(), "error": str(exc)}, status_code=400)
+        # A fixed sentence by key (or the capture's own, kept in the status), never the exception's own text.
+        error = engine_mod.START_MESSAGES.get(getattr(exc, "key", "")) or engine.last_error \
+            or "Captioning could not start."
+        return JSONResponse({**engine.status(), "error": error}, status_code=400)
 
 
 @app.post("/api/admin/stop", dependencies=[Depends(require_admin)])
@@ -1468,7 +1474,9 @@ async def admin_panel_forget(panel_id: str):
 
 
 def _schedule_error(exc: ValueError) -> JSONResponse:
-    return JSONResponse({"error": str(exc)}, status_code=400)
+    # A fixed sentence by key, never the exception's own text.
+    key = exc.key if isinstance(exc, schedules.ScheduleError) else ""
+    return JSONResponse({"error": schedules.MESSAGES.get(key, "That schedule is not valid.")}, status_code=400)
 
 
 async def _save_schedules(items: list[dict]) -> dict:
