@@ -1344,9 +1344,25 @@ def _pp_body() -> dict:
     return {"settings": s, "state": pp_follower.state(), "lyrics_readers": lyrics_feed.viewer_count()}
 
 
+_PP_ERRORS = {
+    "view_only": "View-only mode is on, so Relay did not change anything in ProPresenter.",
+    "timeout": "ProPresenter did not answer in time.",
+    "network": "Could not reach ProPresenter. Check the address and port, and that ProPresenter is running.",
+    "bad": "That address answered, but not like ProPresenter.",
+}
+
+
 def _pp_error(exc: propresenter.ProError) -> JSONResponse:
+    """Answer with a fixed message chosen by the error's kind; the detail goes to the log only, so no
+    exception text (socket errors, ProPresenter's own reply) reaches the browser."""
+    log.warning("ProPresenter: %s", exc)
     status = {"view_only": 409, "http": 502, "bad": 502, "timeout": 504, "network": 502}.get(exc.kind, 502)
-    return JSONResponse({"error": str(exc)}, status_code=status)
+    if exc.kind == "http":
+        message = ("ProPresenter said not found: is Network switched on in its preferences?" if exc.status == 404
+                   else f"ProPresenter refused the request ({int(exc.status)}).")
+    else:
+        message = _PP_ERRORS.get(exc.kind, "ProPresenter could not do that.")
+    return JSONResponse({"error": message}, status_code=status)
 
 
 @app.get("/api/admin/propresenter", dependencies=[Depends(require_admin)])
