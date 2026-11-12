@@ -79,6 +79,13 @@ Where you allow it, a panel's **Next**, **Previous** and **Take control**
 buttons move the service on at once. Plan changes reach the panels within
 about 30 seconds.
 
+**Captions for your livestream.** A new **Broadcast overlay** page builds the
+caption layer for OBS, vMix, ProPresenter or an ATEM: pick a lower third, a top
+strip, a full-screen accessibility slate or two languages stacked, set the
+position, font, colours and outline against a live preview, and copy the link.
+Save it by name and later changes reach the stream with no new link to paste.
+Finished-lines-only and pop-on captions keep words from changing on air.
+
 **A tidier operator panel.** A menu down the left groups everything by what
 you are doing (Live, Output, Automation, Settings), with a status pill that
 always shows whether capture is running.
@@ -837,6 +844,7 @@ app/
   demo.py                    rehearsal mode
   config.py                  load, validate, atomic save, hot-reload
   schedules.py               schedule validation, windows, DST, US formats
+  overlays.py                broadcast overlay options, presets, named overlays
   scheduler.py               starts and stops capture on the schedules
   templates/                 chooser, viewer, admin panel, login
   static/                    viewer + admin JS and CSS
@@ -854,6 +862,7 @@ tests/
   smoke_test.py              offline checks, no API calls
   test_redact.py             blocklist filtering, incl. split-delta cases
   test_schedules.py          schedule windows, DST, override rules, admin API
+  test_overlays.py           overlay options, presets, named overlays, page
   test_announce.py           mDNS records and answers of tools/announce.py
 
 tools/

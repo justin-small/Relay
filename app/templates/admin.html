@@ -350,6 +350,78 @@
     .prow { grid-template-columns:1fr auto; }
     .prow .pshow,.prow .pfw,.prow .pboard { grid-column:1 / -1; }
   }
+  /* ---- Broadcast overlay builder (#139): controls left, sticky live preview right ---- */
+  main:has(#page-overlay:not([hidden])) { max-width:1240px; }
+  .ovtabs { display:flex; gap:4px; border-bottom:1px solid var(--line); margin:-8px 0 20px; }
+  .ovtabs button { border:0; background:none; border-bottom:2px solid transparent; border-radius:0; color:var(--dim); padding:8px 12px; }
+  .ovtabs button.on { color:var(--fg); border-bottom-color:var(--fg); }
+  .ovb { display:grid; grid-template-columns:minmax(300px,380px) minmax(0,1fr); gap:28px; align-items:start; }
+  .ovb[hidden], .ovguides[hidden] { display:none; }
+  .ovb-preview { position:sticky; top:72px; min-width:0; }
+  .ovb fieldset { border:0; border-top:1px solid var(--line); margin:0 0 6px; padding:14px 0 6px; min-width:0; }
+  .ovb legend { font-size:15px; font-weight:600; padding:0 0 10px; float:left; width:100%; }
+  .ovb legend + * { clear:both; }
+  .ovb .lbl { display:block; font-size:12px; color:var(--dim); margin:0 0 5px; }
+  .seg { display:flex; border:1px solid var(--line); border-radius:7px; overflow:hidden; }
+  .seg.seg-auto { display:inline-flex; }
+  .seg button { flex:1; border:0; border-radius:0; background:#111216; color:var(--dim); padding:7px 6px; font-size:13px; }
+  .seg button + button { border-left:1px solid var(--line); }
+  .seg button.on { background:#2a2c31; color:#fff; }
+  .rng { display:flex; align-items:center; gap:10px; }
+  .rng input { flex:1; padding:0; border:0; background:none; accent-color:var(--accent); }
+  .rng output { min-width:64px; text-align:right; color:var(--dim); font-size:13px; }
+  .chk { display:flex; gap:9px; align-items:flex-start; font-size:14px; color:var(--fg); margin:0 0 12px; }
+  .chk input { width:auto; margin-top:3px; accent-color:var(--accent); }
+  .chk small { display:block; color:var(--dim); font-size:12px; }
+  .chk[hidden], .field[hidden] { display:none; }
+  .chk-inline { display:inline-flex; align-items:center; margin:0; }
+  .chk-inline input { margin-top:0; }
+  .ovcolours .field { flex:0 0 auto; } .ovcolours .ovwide { flex:1 1 160px; }
+  .ovcolours input[type=color] { width:52px; height:36px; padding:3px; }
+  .ovpresets { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
+  .ovpreset { text-align:left; padding:8px; background:#111216; }
+  .ovpreset.on { box-shadow:0 0 0 2px var(--fg); }
+  .ovpreset .th { position:relative; aspect-ratio:16/9; border-radius:3px; margin-bottom:6px; background:#26303f; overflow:hidden; }
+  .ovpreset .th.dark { background:#000; }
+  .ovpreset .th i { position:absolute; left:16%; right:16%; height:9%; background:rgba(255,255,255,.85); border-radius:1px; }
+  .ovpreset .th i.b { background:rgba(255,255,255,.5); }
+  .ovpreset .th.dark i { left:7%; right:7%; }
+  .ovpreset span { display:block; font-size:13px; font-weight:500; }
+  .ovpreset small { display:block; color:var(--dim); font-size:12px; }
+  .ovedit { border:1px solid var(--line); border-radius:7px; padding:10px 12px; margin:0 0 12px; font-size:13px; color:var(--dim); }
+  .ovedit strong { color:var(--fg); }
+  .ovedit button { margin-top:8px; padding:5px 10px; font-size:13px; }
+  .ovstagebar { display:flex; align-items:center; gap:10px; margin-bottom:8px; flex-wrap:wrap; }
+  .ovstagebar .lbl { margin:0; }
+  .ovstagebar .chk-inline { margin-left:auto; }
+  .ovstage { position:relative; aspect-ratio:16/9; border-radius:6px; overflow:hidden; border:1px solid var(--line); }
+  .ovstage iframe { position:absolute; inset:0; width:100%; height:100%; border:0; background:transparent; color-scheme:normal; }
+  /* A stand-in for program video: a lit stage and a speaker, drawn flat. */
+  .ovstage.bk-program { background:
+      linear-gradient(180deg, transparent 56%, #241d17 56%),
+      linear-gradient(90deg, transparent 44%, #3a312d 44%, #3a312d 56%, transparent 56%) 0 0/100% 100% no-repeat,
+      linear-gradient(180deg, #2c3a55 0%, #3b2f4a 100%); }
+  .ovstage.bk-checker { background:repeating-conic-gradient(#2a2a2a 0 25%, #1c1c1c 0 50%) 0 0/24px 24px; }
+  .ovstage.bk-black { background:#000; }
+  .ovsafe { position:absolute; border:1px dashed rgba(255,255,255,.4); pointer-events:none; }
+  .ovsafe[hidden] { display:none; }
+  .ovlink { margin-top:16px; border:1px solid var(--line); border-radius:7px; padding:12px 14px; }
+  .ovurl { word-break:break-all; color:#cfd3d8; margin:4px 0 10px; line-height:1.5; }
+  .ovacts { display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
+  .btnlink { display:inline-block; padding:9px 15px; border-radius:7px; border:1px solid var(--line); background:#1a1c21; color:var(--fg); text-decoration:none; font-weight:500; }
+  .ovsave { margin-top:14px; padding-top:12px; border-top:1px solid var(--line); }
+  .ovsaverow { display:flex; gap:8px; } .ovsaverow input { flex:1; min-width:0; } .ovsaverow button { flex:0 0 auto; }
+  .ovsaved { margin-top:22px; }
+  .ovsaved h3 { font-size:15px; font-weight:600; margin:0 0 8px; }
+  .ovsaved td .rowacts { display:flex; gap:6px; justify-content:flex-end; flex-wrap:wrap; }
+  .ovsaved td .rowacts button { padding:5px 10px; font-size:13px; }
+  .ovsaved tr.on td { color:#fff; }
+  .ovrecipes { display:grid; grid-template-columns:repeat(auto-fit,minmax(260px,1fr)); gap:22px; }
+  .ovrecipes > div { border-top:1px solid var(--line); padding-top:14px; }
+  .ovrecipes h3 { margin:0 0 4px; font-size:15px; }
+  .ovrecipes .note { margin:0 0 10px; }
+  .ovrecipes ol { margin:0; padding-left:20px; color:#d4d6da; } .ovrecipes li { margin-bottom:7px; }
+  @media (max-width:1100px) { .ovb { grid-template-columns:minmax(0,1fr); } .ovb-preview { position:static; order:-1; } }
 </style>
 </head><body>
 <header class="topbar">
@@ -373,6 +445,7 @@
     <a href="#panels" data-page="panels"><span class="ico"><svg viewBox="0 0 16 16" aria-hidden="true"><rect x="1.5" y="3" width="13" height="9" rx="1.5"/><path d="M5.5 14.5h5"/></svg></span>Panels</a>
     <a href="#alerts" data-page="alerts"><span class="ico"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4 11V7a4 4 0 0 1 8 0v4l1.5 1.5h-11zM6.5 14h3"/></svg></span>Alerts</a>
     <a href="#urls" data-page="urls"><span class="ico"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M6.5 9.5a3 3 0 0 0 4 0l2-2a3 3 0 0 0-4-4l-1 1M9.5 6.5a3 3 0 0 0-4 0l-2 2a3 3 0 0 0 4 4l1-1"/></svg></span>Viewer links</a>
+    <a href="#overlay" data-page="overlay"><span class="ico"><svg viewBox="0 0 16 16" aria-hidden="true"><rect x="1.5" y="2.5" width="13" height="11" rx="1.5"/><path d="M4 10.5h8M5 8.5h6"/></svg></span>Broadcast overlay</a>
     <a href="#recordings" data-page="recordings"><span class="ico"><svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6"/><circle cx="8" cy="8" r="2" fill="currentColor"/></svg></span>Recordings &amp; export</a>
     {{ module_links("Output") }}
     <div class="grp">Automation</div>
@@ -568,6 +641,129 @@
     <h2 class="title">Viewer links</h2>
     <p class="sub">Open these on a screen or paste them into another app.</p>
     <div class="urls" id="urls"></div>
+  </div>
+  <div class="page" id="page-overlay" data-page="overlay" hidden>
+    <h2 class="title">Broadcast overlay</h2>
+    <p class="sub">Captions for your livestream as a browser source. Pick a layout, adjust it against the preview, then copy the link into OBS, vMix, ProPresenter or your switcher.</p>
+    <div class="ovtabs" role="tablist">
+      <button type="button" role="tab" class="on" aria-selected="true" data-ovtab="build">Build</button>
+      <button type="button" role="tab" aria-selected="false" data-ovtab="guides">Setup guides</button>
+    </div>
+
+    <div id="ovBuild" class="ovb">
+      <div class="ovb-controls">
+        <div class="ovedit" id="ovEditing" hidden>Editing <strong id="ovEditingName"></strong>. Changes reach the browser source the next time it loads. <button type="button" id="ovEditDone">Start a new overlay</button></div>
+
+        <fieldset><legend>Layout</legend>
+          <div class="ovpresets" id="ovPresets"></div>
+        </fieldset>
+
+        <fieldset><legend>Captions</legend>
+          <div class="field"><span class="lbl">Show</span>
+            <div class="seg" data-k="stream"><button type="button" data-v="translation">Translation</button><button type="button" data-v="transcription">Original</button><button type="button" data-v="both">Two, stacked</button></div></div>
+          <div class="row">
+            <div class="field" id="ovLangF"><label for="ovLang" id="ovLangLbl">Language</label><select id="ovLang" data-k="lang"></select></div>
+            <div class="field" id="ovLang2F"><label for="ovLang2">Second language</label><select id="ovLang2" data-k="lang2"></select></div>
+          </div>
+          <div class="field"><label for="ovLines">Lines on screen</label><div class="rng"><input id="ovLines" type="range" min="1" max="8" data-k="lines"><output></output></div></div>
+          <label class="chk"><input type="checkbox" data-k="finals"><span>Finished lines only<small>Waits for each sentence to settle, so words never change on air. About a second later than live.</small></span></label>
+          <div class="field"><span class="lbl">Style</span>
+            <div class="seg" data-k="mode"><button type="button" data-v="rollup">Roll-up</button><button type="button" data-v="popon">Pop-on</button></div>
+            <p class="note" id="ovModeHint"></p></div>
+          <div class="field"><label for="ovHold">Hide after silence</label><div class="rng"><input id="ovHold" type="range" min="0" max="30000" step="1000" data-k="hold"><output></output></div></div>
+          <label class="chk" id="ovLabelsF"><input type="checkbox" data-k="labels"><span>Language names over each feed</span></label>
+        </fieldset>
+
+        <fieldset><legend>Position &amp; size</legend>
+          <div class="field"><span class="lbl">Position</span><div class="seg" data-k="pos"><button type="button" data-v="top">Top</button><button type="button" data-v="middle">Middle</button><button type="button" data-v="bottom">Bottom</button></div></div>
+          <div class="field"><span class="lbl">Alignment</span><div class="seg" data-k="align"><button type="button" data-v="left">Left</button><button type="button" data-v="center">Centre</button><button type="button" data-v="right">Right</button></div></div>
+          <div class="field"><label for="ovFont">Text size</label><div class="rng"><input id="ovFont" type="range" min="20" max="160" data-k="font"><output></output></div></div>
+          <div class="field"><label for="ovMaxw">Max width</label><div class="rng"><input id="ovMaxw" type="range" min="20" max="100" data-k="maxw"><output></output></div></div>
+          <div class="field"><label for="ovSafe">Title-safe margin</label><div class="rng"><input id="ovSafe" type="range" min="0" max="15" step="0.5" data-k="safe"><output></output></div></div>
+          <div class="field"><label for="ovRes">Canvas</label><select id="ovRes" data-k="res">
+            <option value="1920x1080">1920 × 1080 (1080p)</option><option value="1280x720">1280 × 720 (720p)</option>
+            <option value="3840x2160">3840 × 2160 (4K)</option><option value="1080x1920">1080 × 1920 (vertical)</option></select>
+            <p class="note">Match your OBS or vMix canvas. The overlay scales if the source is another size.</p></div>
+        </fieldset>
+
+        <fieldset><legend>Look</legend>
+          <div class="field"><label for="ovFamily">Font</label><select id="ovFamily" data-k="family">
+            <option value="sans">Sans (default)</option><option value="serif">Serif (Source Serif)</option>
+            <option value="rounded">Rounded</option><option value="hyper">Atkinson Hyperlegible (easiest to read)</option>
+            <option value="mono">Monospace (caption-box look)</option></select></div>
+          <div class="field"><span class="lbl">Text edge</span><div class="seg" data-k="edge"><button type="button" data-v="plate">Plate</button><button type="button" data-v="outline">Outline</button><button type="button" data-v="shadow">Shadow</button><button type="button" data-v="none">None</button></div></div>
+          <div class="row ovcolours">
+            <div class="field"><label for="ovColor">Text colour</label><input id="ovColor" type="color" data-k="color"></div>
+            <div class="field" id="ovPlatecF"><label for="ovPlatec">Plate colour</label><input id="ovPlatec" type="color" data-k="platec"></div>
+            <div class="field ovwide" id="ovPlateF"><label for="ovPlate">Plate opacity</label><div class="rng"><input id="ovPlate" type="range" min="0" max="1" step="0.05" data-k="plate"><output></output></div></div>
+          </div>
+        </fieldset>
+
+        <fieldset><legend>Output</legend>
+          <div class="field"><span class="lbl">Background</span>
+            <div class="seg" data-k="out"><button type="button" data-v="transparent">Transparent</button><button type="button" data-v="green">Chroma green</button><button type="button" data-v="matte">Key matte</button><button type="button" data-v="black">Black</button></div>
+            <p class="note" id="ovBgHint"></p></div>
+        </fieldset>
+      </div>
+
+      <div class="ovb-preview">
+        <div class="ovstagebar">
+          <span class="lbl">Preview</span>
+          <div class="seg seg-auto" id="ovBackdrop"><button type="button" data-v="program" class="on">Over video</button><button type="button" data-v="checker">Transparency</button><button type="button" data-v="black">Black</button></div>
+          <label class="chk chk-inline"><input type="checkbox" id="ovGuideLines" checked> Title-safe guide</label>
+        </div>
+        <div class="ovstage bk-program" id="ovStage">
+          <iframe id="ovFrame" title="Overlay preview" tabindex="-1"></iframe>
+          <div class="ovsafe" id="ovSafe-guide" aria-hidden="true"></div>
+        </div>
+        <label class="chk chk-inline" style="margin-top:8px"><input type="checkbox" id="ovSample" checked> Sample captions <span class="muted">(off shows the live feed)</span></label>
+
+        <div class="ovlink">
+          <span class="lbl">Browser source link</span>
+          <div class="ovurl mono" id="ovUrl"></div>
+          <div class="ovacts">
+            <button type="button" class="primary" id="ovCopy">Copy link</button>
+            <a class="btnlink" id="ovOpen" target="_blank" rel="noopener">Open</a>
+          </div>
+          <form class="ovsave" id="ovSaveForm" autocomplete="off">
+            <label for="ovName">Save as a named overlay: a short link that keeps working when you change it here</label>
+            <div class="ovsaverow">
+              <input id="ovName" type="text" maxlength="60" placeholder="Stream – Spanish">
+              <button type="submit" id="ovSave">Save</button>
+            </div>
+          </form>
+        </div>
+
+        <div class="ovsaved">
+          <h3>Saved overlays</h3>
+          <table><thead><tr><th>Name</th><th>Link</th><th></th></tr></thead>
+            <tbody id="ovList"><tr><td colspan="3" class="muted">None saved yet.</td></tr></tbody></table>
+        </div>
+      </div>
+    </div>
+
+    <div id="ovGuides" class="ovguides" hidden>
+      <p class="sub">Copy the link from the Build tab first. Use the canvas size your switcher runs at; the overlay is transparent everywhere except the captions.</p>
+      <div class="ovrecipes">
+        <div><h3>OBS Studio</h3><p class="note">Browser source · your canvas size · transparent</p><ol>
+          <li>Sources → + → <strong>Browser</strong>. Name it “Relay captions”.</li>
+          <li>Paste the link into URL. Set width and height to your canvas (Settings → Video → Base resolution).</li>
+          <li>Untick <em>Shutdown source when not visible</em> so captions do not restart when you change scenes.</li>
+          <li>Drag it above your camera sources in every scene that needs captions, or put it in a nested scene shared by all of them.</li></ol></div>
+        <div><h3>vMix</h3><p class="note">Web Browser input · 1920 × 1080 · transparent</p><ol>
+          <li>Add Input → <strong>Web Browser</strong>, paste the link, and set the size to your output resolution.</li>
+          <li>Put it on an Overlay channel (1–4) and press it on.</li>
+          <li>To caption the stream only, take it on the stream output’s overlay channel and leave the projector output clean.</li></ol></div>
+        <div><h3>ProPresenter</h3><p class="note">Web Page object on a Prop · stream Look only</p><ol>
+          <li>Create a Prop with a <strong>Web Page</strong> object filling the slide; paste the link.</li>
+          <li>In <strong>Looks</strong>, turn Props on for the stream screen and off for the room screens.</li>
+          <li>Trigger the Prop at the start of the service; it stays up while slides change.</li></ol></div>
+        <div><h3>Blackmagic ATEM</h3><p class="note">Upstream key · switcher format</p><ol>
+          <li><strong>Chroma green</strong>: open the link full-screen on a computer whose HDMI feeds one ATEM input, then use a Chroma key on that input.</li>
+          <li><strong>Key matte</strong>: save two overlays, one with <em>Key matte</em> and one with <em>Black</em>; feed each to its own input and set a Luma key with the black one as fill and the matte as key.</li>
+          <li>Turn the key on for program. Keep the computer’s screen saver and notifications off.</li></ol></div>
+      </div>
+    </div>
   </div>
   <div class="page" id="page-recordings" data-page="recordings" hidden>
     <h2 class="title">Recordings &amp; export</h2>
@@ -817,5 +1013,6 @@
 <script src="{{ static('alert-icons.js') }}"></script>
 <script src="{{ static('admin.js') }}"></script>
 <script src="{{ static('modules.js') }}"></script>
+<script src="{{ static('overlay-builder.js') }}"></script>
 {% for script in module_scripts %}<script src="{{ static('modules/' ~ script) }}"></script>
 {% endfor %}</body></html>

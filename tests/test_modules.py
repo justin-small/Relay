@@ -40,7 +40,7 @@ MODULES = APP / "modules"
 # Relay's core. A new file here is a new piece of core, not an integration: say why in the pull request.
 CORE_FILES = {
     "__init__.py", "alerts.py", "audio.py", "config.py", "demo.py", "engine.py", "exporting.py", "hub.py",
-    "languages.py", "main.py", "panelfw.py", "panels.py", "realtime.py", "recorder.py", "redact.py",
+    "languages.py", "main.py", "overlays.py", "panelfw.py", "panels.py", "realtime.py", "recorder.py", "redact.py",
     "scheduler.py", "schedules.py", "texttranslate.py",
 }
 # Network clients, and the core files allowed them: OpenAI (realtime, text translation) and the host's own

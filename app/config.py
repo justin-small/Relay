@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any
 
 from . import languages
+from . import overlays
 from . import redact
 from . import schedules
 
@@ -51,6 +52,8 @@ DEFAULTS: dict[str, Any] = {
     # Scheduled start/stop windows -- see schedules.py for the shape. Empty by
     # default: nothing starts on its own until the operator sets a schedule.
     "schedules": [],
+    # Named broadcast overlays (/overlay/<id>) -- see overlays.py for the shape.
+    "overlays": [],
     # Caption panels the operator has named or given a feed, by panel id --
     # see panels.py. Panels themselves are never written here by a check-in.
     "panels": {},
@@ -219,6 +222,7 @@ def _normalise(cfg: dict) -> dict:
     cfg["recording"] = rec
     # A hand-edited schedule that does not validate is dropped, not fatal.
     cfg["schedules"] = schedules.clean_list(cfg.get("schedules"))
+    cfg["overlays"] = overlays.clean_list(cfg.get("overlays"), languages.TARGETS)
     # Imported here: panels.py reads config, so the module-level import would loop.
     from . import panels
 

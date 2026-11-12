@@ -21,7 +21,7 @@ from fastapi.templating import Jinja2Templates
 from jinja2 import ChoiceLoader, FileSystemLoader, PrefixLoader
 
 from . import alerts as alertsmod
-from . import config, exporting, languages, panelfw, panels, redact, schedules
+from . import config, exporting, languages, overlays, panelfw, panels, redact, schedules
 from .alerts import alerts
 from . import engine as engine_mod
 from .engine import TRANSCRIPTION_STREAM, TRANSLATION_STREAM, demo_mode, engine
@@ -563,89 +563,81 @@ def _lyrics_offered() -> bool:
     return LYRICS_STREAM in module_registry.streams()
 
 
-import re as _re
+def _overlay_feed(stream: str, target: str) -> dict:
+    """One caption feed on an overlay: a translation into `target`, or the
+    original speech when `stream` is transcription."""
+    if stream == "transcription":
+        src = config.get()["source_language"]
+        iso = languages.SOURCE_LANGUAGES[src]["iso"]
+        return {"stream": stream, "lang": src, "iso": iso,
+                "label": overlays.NATIVE.get(iso, languages.SOURCE_LANGUAGES[src]["label"])}
+    iso = languages.target_iso(target) if target else ""
+    return {"stream": stream, "lang": target, "iso": iso,
+            "label": overlays.NATIVE.get(iso, languages.target_label(target)) if target else ""}
 
-# A background colour written verbatim into a CSS custom property. Only three
-# shapes are accepted -- the transparent keyword, a hex colour, or a bare colour
-# name -- so a hand-typed ?bg= cannot break out of the value and inject CSS.
-_BG_HEX = _re.compile(r"#[0-9A-Fa-f]{3,8}\Z")
-_BG_NAME = _re.compile(r"[A-Za-z]{1,20}\Z")
 
-
-def _overlay_bg(raw: str) -> str:
-    if raw == "transparent" or _BG_HEX.match(raw) or _BG_NAME.match(raw):
-        return raw
-    return "transparent"
+def _overlay_page(request: Request, s: dict) -> HTMLResponse:
+    """Render one overlay from resolved settings (overlays.resolve)."""
+    # Fixed target: an explicit lang wins, else the first live target -- there
+    # is nobody at a switcher to pick one (same resolution as /screen).
+    lang = s["lang"]
+    if not lang:
+        live = engine.live_targets()
+        lang = live[0]["target"] if live else ""
+    if s["stream"] == "transcription":
+        feeds = [_overlay_feed("transcription", "")]
+    elif s["stream"] == "both":
+        # Two stacked feeds: the first language over the second, which is the
+        # original speech unless a second translation is named.
+        second = (_overlay_feed("translation", s["lang2"]) if s["lang2"] and s["lang2"] != lang
+                  else _overlay_feed("transcription", ""))
+        feeds = [_overlay_feed("translation", lang), second]
+    else:
+        feeds = [_overlay_feed("translation", lang)]
+    w, h = s["w"], s["h"]
+    ctx = _viewer_ctx(request) | {
+        "mode": s["stream"],
+        "overlay": True,
+        "ov": s,
+        "overlay_feeds": feeds,
+        "overlay_labels": s["labels"] and len(feeds) > 1,
+        # Title-safe inset resolved to px on the fixed canvas, so the layout does
+        # not depend on the browser-source window matching the canvas size.
+        "overlay_pad_x": round(w * s["safe"] / 100),
+        "overlay_pad_y": round(h * s["safe"] / 100),
+        "overlay_platec": ",".join(str(int(s["platec"][i:i + 2], 16)) for i in (0, 2, 4)),
+        # The admin builder's preview: sample captions played in the page, no
+        # subscription, so the preview is the real renderer with or without a
+        # service running.
+        "overlay_demo": ({f["lang"]: overlays.SAMPLES.get(f["iso"], overlays.SAMPLES["en"]) for f in feeds}
+                         if request.query_params.get("demo") in ("1", "true", "yes") else None),
+        "lyrics_for": ("overlay" if request.query_params.get("lyrics") in ("1", "true", "yes")
+                       and _lyrics_offered() else ""),
+    }
+    return templates.TemplateResponse(request, "viewer.html", ctx)
 
 
 @app.get("/overlay", response_class=HTMLResponse)
 async def page_overlay(request: Request):
     """Broadcast overlay: a transparent, fixed-canvas, caret-free caption feed
-    meant to be composited over live video -- an OBS/ProPresenter browser source,
-    or keyed over program on an ATEM. Reuses viewer.html; the
-    template branches on `overlay` for the transparent, hold-to-hide, plated
-    layout. Not on the chooser page -- this is switcher setup, not an audience
-    choice. Everything is set through the URL because it is pasted into another
-    application's address field once."""
-    qp = request.query_params
+    meant to be composited over live video -- an OBS/vMix/ProPresenter browser
+    source, or keyed over program on an ATEM. Reuses viewer.html; the template
+    branches on `overlay`. Not on the chooser page -- this is switcher setup,
+    not an audience choice. Every option is in the URL (overlays.DEFAULTS); the
+    admin page's builder writes it, or saves it by name (/overlay/<id>)."""
+    return _overlay_page(request, overlays.resolve(request.query_params, languages.TARGETS))
 
-    stream = qp.get("stream", "translation")
-    if stream not in ("transcription", "translation", "both"):
-        stream = "translation"
 
-    # Fixed target: an explicit ?lang= wins, else the first live target -- there
-    # is nobody at a switcher to pick one (same resolution as /screen).
-    fixed_lang = (qp.get("lang") or "").upper()
-    if fixed_lang not in languages.TARGETS:
-        live = engine.live_targets()
-        fixed_lang = live[0]["target"] if live else ""
-    overlay_iso = languages.target_iso(fixed_lang) if fixed_lang else ""
-
-    def _clamp_int(name: str, default: int, lo: int, hi: int | None = None) -> int:
-        try:
-            val = int(qp.get(name, str(default)))
-        except (TypeError, ValueError):
-            return default
-        val = max(lo, val)
-        return val if hi is None else min(hi, val)
-
-    def _clamp_float(name: str, default: float, lo: float, hi: float) -> float:
-        try:
-            val = float(qp.get(name, str(default)))
-        except (TypeError, ValueError):
-            return default
-        return min(hi, max(lo, val))
-
-    lines = _clamp_int("lines", 2, 1, 12)
-    font = _clamp_int("font", 54, 8, 400)
-    width = _clamp_int("w", 1920, 16, 8192)
-    height = _clamp_int("h", 1080, 16, 8192)
-    hold = _clamp_int("hold", 4000, 0, 600_000)
-    safe = _clamp_float("safe", 5.0, 0.0, 45.0)
-    plate = _clamp_float("plate", 0.55, 0.0, 1.0)
-    matte = qp.get("matte") in ("1", "true", "yes")
-    bg = _overlay_bg(qp.get("bg", "transparent"))
-
-    ctx = _viewer_ctx(request) | {
-        "mode": stream,
-        "overlay": True,
-        "overlay_lang": fixed_lang,
-        "overlay_iso": overlay_iso,
-        "overlay_lines": lines,
-        "overlay_font": font,
-        "overlay_w": width,
-        "overlay_h": height,
-        "overlay_hold": hold,
-        # Title-safe inset resolved to px on the fixed canvas, so the layout does
-        # not depend on the browser-source window matching the canvas size.
-        "overlay_pad_x": round(width * safe / 100),
-        "overlay_pad_y": round(height * safe / 100),
-        "overlay_plate": plate,
-        "overlay_bg": bg,
-        "overlay_matte": matte,
-        "lyrics_for": "overlay" if qp.get("lyrics") in ("1", "true", "yes") and _lyrics_offered() else "",
-    }
-    return templates.TemplateResponse(request, "viewer.html", ctx)
+@app.get("/overlay/{oid}", response_class=HTMLResponse)
+async def page_named_overlay(oid: str, request: Request):
+    """A saved overlay. Its settings live in config, so an edit in admin reaches
+    the browser source on its next load with no new link to paste; anything in
+    the query string (?lyrics=1, or a one-off tweak) still applies on top."""
+    saved = next((o for o in config.get()["overlays"] if o["id"] == oid), None)
+    if saved is None:
+        raise HTTPException(404, "unknown overlay")
+    raw = dict(saved["settings"]) | dict(request.query_params)
+    return _overlay_page(request, overlays.resolve(raw, languages.TARGETS))
 
 
 @app.get("/api/targets")
@@ -1525,6 +1517,69 @@ async def admin_schedule_delete(sid: str):
     if len(kept) == len(items):
         raise HTTPException(404, "unknown schedule")
     return await _save_schedules(kept)
+
+
+# ---------------------------------------------------------------- overlays
+
+def _overlays_frame() -> dict:
+    """What the Broadcast overlay page needs: the saved overlays, and the
+    options the builder offers (presets, defaults, languages)."""
+    src = config.get()["source_language"]
+    return {
+        "overlays": config.get()["overlays"],
+        "defaults": overlays.DEFAULTS,
+        "presets": overlays.PRESETS,
+        "targets": [{"target": t, "label": languages.target_label(t)} for t in languages.target_names(src)],
+        "live": [t["target"] for t in engine.live_targets()],
+        "source_label": languages.SOURCE_LANGUAGES[src]["label"],
+    }
+
+
+def _overlay_error(exc: overlays.OverlayError) -> JSONResponse:
+    # A fixed sentence by key, never the exception's own text.
+    return JSONResponse({"error": overlays.MESSAGES.get(exc.key, "That overlay is not valid.")}, status_code=400)
+
+
+@app.get("/api/admin/overlays", dependencies=[Depends(require_admin)])
+async def admin_overlays():
+    return _overlays_frame()
+
+
+@app.post("/api/admin/overlays", dependencies=[Depends(require_admin)])
+async def admin_overlay_create(payload: dict):
+    items = list(config.get()["overlays"])
+    try:
+        new = overlays.validate(payload, languages.TARGETS, {o["id"] for o in items})
+    except overlays.OverlayError as exc:
+        return _overlay_error(exc)
+    items.append(new)
+    config.save({"overlays": items})
+    return _overlays_frame() | {"saved": new["id"]}
+
+
+@app.put("/api/admin/overlays/{oid}", dependencies=[Depends(require_admin)])
+async def admin_overlay_update(oid: str, payload: dict):
+    items = list(config.get()["overlays"])
+    idx = next((i for i, o in enumerate(items) if o["id"] == oid), None)
+    if idx is None:
+        raise HTTPException(404, "unknown overlay")
+    try:
+        items[idx] = overlays.validate(payload, languages.TARGETS,
+                                       {o["id"] for o in items if o["id"] != oid}, oid=oid)
+    except overlays.OverlayError as exc:
+        return _overlay_error(exc)
+    config.save({"overlays": items})
+    return _overlays_frame() | {"saved": items[idx]["id"]}
+
+
+@app.delete("/api/admin/overlays/{oid}", dependencies=[Depends(require_admin)])
+async def admin_overlay_delete(oid: str):
+    items = list(config.get()["overlays"])
+    kept = [o for o in items if o["id"] != oid]
+    if len(kept) == len(items):
+        raise HTTPException(404, "unknown overlay")
+    config.save({"overlays": kept})
+    return _overlays_frame()
 
 
 # ---------------------------------------------------------------- recordings

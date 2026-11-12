@@ -1,0 +1,351 @@
+<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Relay · Overlay builder (mockup, #139)</title>
+<style>
+  :root { --bg:#0d0e10; --fg:#eceae6; --dim:#9aa0a8; --line:#23252a; --btn:#17181b; --accent:#5fcf8f; --err:#f87171; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg); font:14px/1.5 ui-sans-serif,-apple-system,"Segoe UI",system-ui,sans-serif; font-feature-settings:"tnum" 1; }
+  :focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
+  input[type=checkbox],input[type=radio],input[type=range] { accent-color:var(--accent); }
+  .topbar { position:sticky; top:0; z-index:10; background:var(--bg); display:flex; align-items:center; gap:12px; padding:12px 20px; border-bottom:1px solid var(--line); }
+  .topbar h1 { font-size:17px; margin:0; font-weight:600; letter-spacing:-.01em; }
+  .spacer { flex:1; } .muted { color:var(--dim); }
+  button { padding:7px 13px; font:inherit; font-weight:500; border-radius:5px; border:1px solid var(--line); background:var(--btn); color:var(--fg); cursor:pointer; }
+  button.primary { background:var(--fg); border-color:var(--fg); color:#111; font-weight:600; }
+  button.sm { padding:4px 10px; font-size:13px; }
+  select, input[type=text], input[type=number] { width:100%; padding:7px 10px; font:inherit; border-radius:5px; border:1px solid var(--line); background:#141518; color:var(--fg); }
+  input[type=color] { width:38px; height:32px; padding:2px; border:1px solid var(--line); border-radius:5px; background:#141518; }
+  .layout { display:grid; grid-template-columns:220px 1fr; min-height:calc(100vh - 54px); }
+  nav { border-right:1px solid var(--line); padding:16px 12px; }
+  nav .grp { font-size:12px; color:var(--dim); font-weight:500; padding:16px 10px 4px; }
+  nav a { display:block; padding:7px 10px; border-radius:5px; color:#c4c7cc; text-decoration:none; }
+  nav a.on { background:#1d1f23; color:#fff; box-shadow:inset 0 0 0 1px #2c2f35; }
+  main { padding:28px 32px 96px; max-width:1280px; }
+  h2.title { font-size:22px; letter-spacing:-.015em; margin:0 0 4px; }
+  p.sub { margin:0 0 22px; color:var(--dim); max-width:68ch; }
+  .tabs { display:flex; gap:4px; border-bottom:1px solid var(--line); margin-bottom:20px; }
+  .tabs button { border:0; background:none; border-bottom:2px solid transparent; border-radius:0; color:var(--dim); padding:8px 12px; }
+  .tabs button.on { color:var(--fg); border-bottom-color:var(--fg); }
+
+  /* builder: controls left, sticky preview right */
+  .builder { display:grid; grid-template-columns:minmax(300px,380px) 1fr; gap:28px; align-items:start; }
+  .preview-col { position:sticky; top:72px; }
+  fieldset { border:0; border-top:1px solid var(--line); margin:0 0 6px; padding:14px 0 6px; }
+  legend { font-size:15px; font-weight:600; padding:0 0 10px; float:left; width:100%; }
+  .f { margin-bottom:12px; clear:both; }
+  .f > label, .lbl { display:block; font-size:13px; color:var(--dim); margin-bottom:5px; }
+  .row { display:flex; gap:10px; } .row > * { flex:1; }
+  .seg { display:inline-flex; border:1px solid var(--line); border-radius:5px; overflow:hidden; width:100%; }
+  .seg button { flex:1; border:0; border-radius:0; background:#141518; color:var(--dim); padding:6px 8px; font-size:13px; }
+  .seg button + button { border-left:1px solid var(--line); }
+  .seg button.on { background:#2a2c31; color:#fff; }
+  .rng { display:flex; align-items:center; gap:10px; } .rng input { flex:1; } .rng output { width:56px; text-align:right; color:var(--dim); font-size:13px; }
+  .chk { display:flex; gap:8px; align-items:flex-start; font-size:14px; color:var(--fg); margin-bottom:10px; }
+  .chk small { display:block; color:var(--dim); font-size:12px; }
+  .hint { font-size:12px; color:var(--dim); margin:4px 0 0; }
+
+  .presets { display:grid; grid-template-columns:1fr 1fr; gap:8px; clear:both; }
+  .preset { text-align:left; padding:8px; background:#141518; }
+  .preset.on { box-shadow:0 0 0 2px var(--fg); }
+  .preset .th { position:relative; aspect-ratio:16/9; border-radius:3px; margin-bottom:6px; background:linear-gradient(135deg,#2a3242,#141a24); overflow:hidden; }
+  .preset .th i { position:absolute; left:14%; right:14%; height:9%; background:rgba(255,255,255,.85); border-radius:1px; }
+  .preset .th i.b { background:rgba(255,255,255,.5); }
+  .preset span { font-size:13px; font-weight:500; } .preset small { display:block; color:var(--dim); font-size:11px; }
+
+  /* preview stage */
+  .stagebar { display:flex; align-items:center; gap:8px; margin-bottom:8px; flex-wrap:wrap; }
+  .stagebar .seg { width:auto; }
+  .stage { position:relative; aspect-ratio:16/9; border-radius:6px; overflow:hidden; border:1px solid var(--line); container-type:inline-size; }
+  .bk-program { background:
+      radial-gradient(ellipse 14% 30% at 50% 58%, #3b3330 0 60%, transparent 61%),
+      radial-gradient(circle at 50% 30%, #b98c6c 0 5.5%, transparent 5.6%),
+      linear-gradient(180deg,#2c3a55 0%,#3b2f4a 55%,#1b1712 56%,#2a211a 100%); }
+  .bk-checker { background:repeating-conic-gradient(#2a2a2a 0 25%, #1c1c1c 0 50%) 0 0/24px 24px; }
+  .bk-black { background:#000; }
+  .bk-green { background:#00b140; }
+  .safe { position:absolute; border:1px dashed rgba(255,255,255,.35); pointer-events:none; }
+  .safe span { position:absolute; top:6px; left:8px; font-size:11px; color:rgba(255,255,255,.55); }
+  /* the overlay canvas is laid out in cqw so it scales like the real fixed canvas */
+  .ov { position:absolute; inset:0; display:flex; flex-direction:column; }
+  .ov .blk { display:flex; flex-direction:column; transition:opacity .4s; }
+  .ov .blk.gone { opacity:0; }
+  .ov p { margin:0 0 .18em; padding:.08em .4em; border-radius:.12em; line-height:1.28; display:inline-block; box-decoration-break:clone; -webkit-box-decoration-break:clone; }
+  .ov .lab { font-size:.42em; letter-spacing:.08em; text-transform:uppercase; opacity:.75; margin:.3em 0 .1em; }
+  .ov .interim { opacity:.7; }
+  .ov .pair + .pair { margin-top:.35em; }
+
+  .urlbox { margin-top:14px; border:1px solid var(--line); border-radius:6px; padding:10px 12px; background:#111215; }
+  .urlbox code { display:block; font:12px/1.5 ui-monospace,Menlo,monospace; color:#cfd3d8; word-break:break-all; margin:4px 0 10px; }
+  .urlbox .acts { display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
+  .saved { margin-top:14px; }
+  .saved table { width:100%; border-collapse:collapse; font-size:13px; }
+  .saved td, .saved th { text-align:left; padding:7px 6px; border-bottom:1px solid var(--line); }
+  .saved th { color:var(--dim); font-weight:500; font-size:12px; }
+  .q { color:#fbbf24; font-size:11px; border:1px solid #5a4510; border-radius:3px; padding:2px 8px; margin-left:6px; vertical-align:1px; cursor:help; }
+
+  .recipes { display:grid; grid-template-columns:repeat(auto-fit,minmax(280px,1fr)); gap:18px; }
+  .recipe { border-top:1px solid var(--line); padding-top:14px; }
+  .recipe h3 { margin:0 0 6px; font-size:15px; }
+  .recipe ol { margin:0; padding-left:20px; color:#d4d6da; } .recipe li { margin-bottom:6px; }
+  .recipe .size { font-size:12px; color:var(--dim); margin:0 0 10px; }
+  .mono { font-family:ui-monospace,Menlo,monospace; font-size:12px; background:#1a1b1f; padding:2px 6px; border-radius:3px; }
+  .note { position:fixed; right:14px; bottom:14px; background:#17181b; border:1px solid var(--line); border-radius:5px; padding:8px 12px; font-size:12px; color:var(--dim); max-width:300px; }
+
+  @media (max-width:1000px) { .builder { grid-template-columns:1fr; } .preview-col { position:static; order:-1; } }
+  @media (max-width:760px) { .layout { grid-template-columns:1fr; } nav { display:none; } main { padding:20px 16px 96px; } }
+</style></head><body>
+<div class="topbar"><h1>Relay</h1><span class="spacer"></span><span class="muted">12 viewers</span><button>Sign out</button></div>
+<div class="layout">
+  <nav>
+    <div class="grp">Live</div><a>Session health</a><a>Audio input</a><a>Target languages</a>
+    <div class="grp">Output</div><a>Panels</a><a>Viewer links</a><a class="on">Broadcast overlay</a><a>Recordings &amp; export</a>
+    <div class="grp">Automation</div><a>Schedules</a>
+    <div class="grp">Settings</div><a>Modules</a><a>Appearance &amp; tuning</a>
+  </nav>
+  <main>
+    <h2 class="title">Broadcast overlay</h2>
+    <p class="sub">Captions for your livestream as a browser source. Pick a layout, adjust it against the preview, then copy the link into OBS, vMix, ProPresenter or your switcher.</p>
+    <div class="tabs"><button class="on" data-tab="build">Build</button><button data-tab="recipes">Setup guides</button></div>
+
+    <div id="tab-build">
+    <div class="builder">
+      <div class="controls">
+        <fieldset><legend>Layout</legend>
+          <div class="presets" id="presets"></div>
+        </fieldset>
+
+        <fieldset><legend>Captions</legend>
+          <div class="f"><label>Show</label>
+            <div class="seg" data-k="stream"><button data-v="translation">Translation</button><button data-v="transcription">Original</button><button data-v="both">Both, stacked</button></div></div>
+          <div class="row">
+            <div class="f"><label id="lang1lbl">Language</label><select data-k="lang"><option value="ES">Spanish</option><option value="FR">French</option><option value="PT">Portuguese</option><option value="KO">Korean</option></select></div>
+            <div class="f" id="lang2wrap"><label>Second language</label><select data-k="lang2"><option value="">Original (English)</option><option value="FR">French</option><option value="PT">Portuguese</option></select></div>
+          </div>
+          <div class="f"><label>Lines on screen</label><div class="rng"><input type="range" min="1" max="6" data-k="lines"><output></output></div></div>
+          <label class="chk"><input type="checkbox" data-k="finals"><span>Finished lines only<small>Waits for each sentence to settle, so words never change on air. About a second later than live.</small></span></label>
+          <div class="f"><label>Style</label>
+            <div class="seg" data-k="mode"><button data-v="rollup">Roll-up</button><button data-v="popon">Pop-on</button></div>
+            <p class="hint" id="modehint"></p></div>
+          <div class="f"><label>Hide after silence</label><div class="rng"><input type="range" min="0" max="15" data-k="hold"><output></output></div></div>
+        </fieldset>
+
+        <fieldset><legend>Position &amp; size</legend>
+          <div class="f"><label>Position</label><div class="seg" data-k="pos"><button data-v="top">Top</button><button data-v="middle">Middle</button><button data-v="bottom">Bottom</button></div></div>
+          <div class="f"><label>Alignment</label><div class="seg" data-k="align"><button data-v="left">Left</button><button data-v="center">Centre</button><button data-v="right">Right</button></div></div>
+          <div class="f"><label>Text size</label><div class="rng"><input type="range" min="24" max="120" data-k="font"><output></output></div></div>
+          <div class="f"><label>Max width</label><div class="rng"><input type="range" min="30" max="100" data-k="maxw"><output></output></div></div>
+          <div class="f"><label>Title-safe margin</label><div class="rng"><input type="range" min="0" max="15" data-k="safe"><output></output></div></div>
+          <div class="f"><label>Canvas</label><select data-k="res"><option value="1920x1080">1920 × 1080 (1080p)</option><option value="1280x720">1280 × 720 (720p)</option><option value="3840x2160">3840 × 2160 (4K)</option><option value="1080x1920">1080 × 1920 (vertical)</option></select>
+            <p class="hint">Match your OBS/vMix canvas. The overlay scales if the source is a different size.</p></div>
+        </fieldset>
+
+        <fieldset><legend>Look</legend>
+          <div class="f"><label>Font</label><select data-k="family"><option value="sans">Relay sans (default)</option><option value="serif">Serif</option><option value="rounded">Rounded</option><option value="hyper">Atkinson Hyperlegible (accessibility)</option><option value="mono">Monospace (caption-box look)</option></select></div>
+          <div class="f"><label>Text edge</label><div class="seg" data-k="edge"><button data-v="plate">Plate</button><button data-v="outline">Outline</button><button data-v="shadow">Shadow</button><button data-v="none">None</button></div></div>
+          <div class="row">
+            <div class="f"><label>Text colour</label><input type="color" data-k="color"></div>
+            <div class="f" id="platecwrap"><label>Plate colour</label><input type="color" data-k="platec"></div>
+            <div class="f" id="plateowrap" style="flex:2"><label>Plate opacity</label><div class="rng"><input type="range" min="0" max="100" data-k="plate"><output></output></div></div>
+          </div>
+        </fieldset>
+
+        <fieldset><legend>Output</legend>
+          <div class="f"><label>Background</label>
+            <div class="seg" data-k="bg"><button data-v="transparent">Transparent</button><button data-v="green">Chroma green</button><button data-v="matte">Key + fill</button></div>
+            <p class="hint" id="bghint"></p></div>
+        </fieldset>
+      </div>
+
+      <div class="preview-col">
+        <div class="stagebar">
+          <span class="lbl" style="margin:0">Preview</span>
+          <div class="seg" id="backdrop"><button data-v="program" class="on">Over video</button><button data-v="checker">Transparency</button><button data-v="black">Black</button></div>
+          <label class="chk" style="margin:0 0 0 auto"><input type="checkbox" id="guides" checked> Title-safe guide</label>
+        </div>
+        <div class="stage bk-program" id="stage"><div class="safe" id="safebox"><span>title safe</span></div><div class="ov" id="ov"></div></div>
+        <p class="hint">Sample captions. With a service running this shows the live feed instead.</p>
+
+        <div class="urlbox">
+          <span class="lbl" style="margin:0">Browser source link</span>
+          <code id="url"></code>
+          <div class="acts">
+            <button class="primary" id="copy">Copy link</button><button>Open</button>
+            <span class="spacer"></span>
+            <button class="sm" id="saveBtn">Save as named overlay…</button><span class="q" title="Question: should overlays be saved and named (short /overlay/lower-third link, edits apply without re-pasting) or stay as one long URL?">?</span>
+          </div>
+        </div>
+
+        <div class="saved">
+          <span class="lbl">Saved overlays <span class="q" title="Only if named overlays are wanted">?</span></span>
+          <table><tr><th>Name</th><th>Layout</th><th>Link</th><th></th></tr>
+            <tr><td>Stream – Spanish</td><td>Lower third · ES</td><td class="muted">/overlay/stream-es</td><td><button class="sm">Edit</button></td></tr>
+            <tr><td>Overflow room slate</td><td>Accessibility slate · EN</td><td class="muted">/overlay/slate</td><td><button class="sm">Edit</button></td></tr>
+          </table>
+        </div>
+      </div>
+    </div>
+    </div>
+
+    <div id="tab-recipes" hidden>
+      <p class="sub">One page per tool in the guide, linked from here. Each starts with “copy the link from the Build tab”.</p>
+      <div class="recipes">
+        <div class="recipe"><h3>OBS Studio</h3><p class="size">Browser source · canvas size (1920 × 1080) · transparent</p><ol>
+          <li>Sources → + → <b>Browser</b>, name it “Relay captions”.</li><li>Paste the link into URL. Width and height = your canvas.</li>
+          <li>Untick “Shutdown source when not visible” so captions don’t restart.</li><li>Put it above your camera sources.</li></ol></div>
+        <div class="recipe"><h3>vMix</h3><p class="size">Add Input → Web Browser · 1920 × 1080 · transparent</p><ol>
+          <li>Add Input → <b>Web Browser</b>, paste the link.</li><li>Set the size to 1920 × 1080.</li>
+          <li>Put it on an Overlay channel (1–4) and turn it on for the stream output only.</li></ol></div>
+        <div class="recipe"><h3>ProPresenter</h3><p class="size">Web page on the Props layer · stream Look only</p><ol>
+          <li>Create a Prop with a <b>Web Page</b> object filling the slide; paste the link.</li>
+          <li>In <b>Looks</b>, turn Props on for the stream screen and off for the room screens.</li>
+          <li>Trigger the Prop at service start.</li></ol></div>
+        <div class="recipe"><h3>Blackmagic ATEM</h3><p class="size">Key + fill, or chroma green · output at switcher format</p><ol>
+          <li>Choose <b>Key + fill</b> on the Build tab; open the link full-screen on a computer feeding two ATEM inputs (fill and key), or use <b>Chroma green</b> on one input.</li>
+          <li>Upstream key: Luma (key + fill) or Chroma (green).</li><li>Turn the key on for program.</li></ol></div>
+      </div>
+    </div>
+  </main>
+</div>
+<div class="note">Mockup for #139. Every control changes the preview and the link. Items marked <span class="q">?</span> are open questions.</div>
+
+<script>
+const PRESETS = {
+  lower:  { name:'Lower third', sub:'Bottom, 2 lines', s:{ pos:'bottom', align:'center', lines:2, font:54, maxw:80, edge:'plate', plate:60, stream:'translation', family:'sans', mode:'rollup' }, th:[[78,'']] },
+  top:    { name:'Top strip', sub:'Top, 1 line, wide', s:{ pos:'top', align:'center', lines:1, font:46, maxw:100, edge:'plate', plate:75, stream:'translation', family:'sans', mode:'rollup' }, th:[[6,'']] },
+  slate:  { name:'Accessibility slate', sub:'Full screen, large', s:{ pos:'middle', align:'left', lines:6, font:84, maxw:100, edge:'none', plate:0, stream:'translation', family:'hyper', mode:'rollup', bg:'black' }, th:[[22,''],[36,''],[50,''],[64,'']], slate:true },
+  dual:   { name:'Two languages', sub:'Stacked, labelled', s:{ pos:'bottom', align:'center', lines:1, font:44, maxw:85, edge:'plate', plate:60, stream:'both', family:'sans', mode:'rollup' }, th:[[66,''],[80,'b']] },
+};
+const S = { preset:'lower', lang:'ES', lang2:'', lines:2, finals:false, mode:'rollup', hold:4, pos:'bottom', align:'center', font:54, maxw:80, safe:5, res:'1920x1080', family:'sans', edge:'plate', color:'#ffffff', platec:'#000000', plate:60, bg:'transparent', stream:'translation' };
+const FAM = { sans:'ui-sans-serif,-apple-system,system-ui,sans-serif', serif:'Georgia,"Times New Roman",serif', rounded:'ui-rounded,"SF Pro Rounded",system-ui,sans-serif', hyper:'"Atkinson Hyperlegible",Verdana,sans-serif', mono:'ui-monospace,Menlo,monospace' };
+const LANGNAME = { ES:'Español', FR:'Français', PT:'Português', KO:'한국어', '':'English' };
+const SCRIPT = {
+  '':  ['Good morning, church. It is so good to be together.', 'Open your Bibles with me to John chapter fifteen.', 'Jesus says, I am the vine and you are the branches.', 'Whoever abides in me bears much fruit.'],
+  ES:  ['Buenos días, iglesia. Qué bueno estar juntos.', 'Abran sus Biblias conmigo en Juan capítulo quince.', 'Jesús dice: yo soy la vid y ustedes los pámpanos.', 'El que permanece en mí da mucho fruto.'],
+  FR:  ['Bonjour, église. Quelle joie d’être ensemble.', 'Ouvrez vos Bibles avec moi à Jean chapitre quinze.', 'Jésus dit : je suis le cep, vous êtes les sarments.', 'Celui qui demeure en moi porte beaucoup de fruit.'],
+  PT:  ['Bom dia, igreja. Que bom estarmos juntos.', 'Abram suas Bíblias comigo em João capítulo quinze.', 'Jesus diz: eu sou a videira, vocês são os ramos.', 'Quem permanece em mim dá muito fruto.'],
+  KO:  ['좋은 아침입니다, 여러분. 함께하게 되어 기쁩니다.', '요한복음 15장을 함께 펴 주십시오.', '예수님은 나는 포도나무요 너희는 가지라고 하십니다.', '내 안에 거하는 자는 열매를 많이 맺습니다.'],
+};
+const $ = s => document.querySelector(s), $$ = s => [...document.querySelectorAll(s)];
+
+// presets
+$('#presets').innerHTML = Object.entries(PRESETS).map(([k,p]) =>
+  `<button class="preset" data-p="${k}"><div class="th" style="${p.slate?'background:#000':''}">${p.th.map(([t,c])=>`<i class="${c}" style="top:${t}%;${p.slate?'left:6%;right:6%':''}"></i>`).join('')}</div><span>${p.name}</span><small>${p.sub}</small></button>`).join('');
+$$('.preset').forEach(b => b.onclick = () => { S.preset=b.dataset.p; Object.assign(S,{bg:'transparent'},PRESETS[S.preset].s); if (S.preset==='slate') setBackdrop('black'); else setBackdrop('program'); sync(); });
+
+// generic controls
+$$('[data-k]').forEach(el => {
+  const k = el.dataset.k;
+  if (el.classList.contains('seg')) el.querySelectorAll('button').forEach(b => b.onclick = () => { S[k]=b.dataset.v; S.preset=''; sync(); });
+  else el.oninput = () => { S[k] = el.type==='checkbox' ? el.checked : el.type==='range' ? +el.value : el.value; if (!['lang','lang2','finals','hold','res'].includes(k)) S.preset=''; sync(); };
+});
+$$('.tabs button').forEach(b => b.onclick = () => { $$('.tabs button').forEach(x=>x.classList.toggle('on',x===b)); $('#tab-build').hidden = b.dataset.tab!=='build'; $('#tab-recipes').hidden = b.dataset.tab!=='recipes'; });
+function setBackdrop(v){ $$('#backdrop button').forEach(x=>x.classList.toggle('on',x.dataset.v===v)); paintBackdrop(); }
+$$('#backdrop button').forEach(b => b.onclick = () => setBackdrop(b.dataset.v));
+$('#guides').onchange = sync;
+$('#copy').onclick = () => { navigator.clipboard?.writeText(location.origin + $('#url').textContent).catch(()=>{}); $('#copy').textContent='Copied'; setTimeout(()=>$('#copy').textContent='Copy link',1200); };
+$('#saveBtn').onclick = () => { const n = prompt('Name this overlay', 'Stream – Spanish'); if (n) alert('Would save as /overlay/' + n.toLowerCase().replace(/[^a-z0-9]+/g,'-')); };
+
+function paintBackdrop(){
+  const v = $('#backdrop .on').dataset.v;
+  const st = $('#stage');
+  st.className = 'stage ' + (S.bg==='green' ? 'bk-green' : S.bg==='matte' ? 'bk-black' : S.bg==='black' ? 'bk-black' : 'bk-' + v);
+}
+
+function sync(){
+  // reflect state into controls
+  $$('[data-k]').forEach(el => {
+    const k = el.dataset.k;
+    if (el.classList.contains('seg')) el.querySelectorAll('button').forEach(b => b.classList.toggle('on', b.dataset.v===S[k]));
+    else if (el.type==='checkbox') el.checked = S[k];
+    else el.value = S[k];
+    const o = el.parentElement.querySelector('output');
+    if (o) o.textContent = k==='hold' ? (S.hold ? S.hold+' s' : 'never') : k==='font' ? S.font+' px' : k==='lines' ? S.lines : S[k]+'%';
+  });
+  $$('.preset').forEach(b => b.classList.toggle('on', b.dataset.p===S.preset));
+  $('#lang2wrap').style.display = S.stream==='both' ? '' : 'none';
+  $('#lang1lbl').textContent = S.stream==='both' ? 'First language' : 'Language';
+  $('[data-k=lang]').disabled = S.stream==='transcription';
+  $('#platecwrap').style.display = $('#plateowrap').style.display = S.edge==='plate' ? '' : 'none';
+  $('#modehint').textContent = S.mode==='rollup' ? 'Lines scroll up as new words arrive, like TV live captions.' : 'Each finished sentence replaces the last as a block. Calmer, a little later.';
+  $('#bghint').textContent = { transparent:'For OBS, vMix and ProPresenter. Nothing behind the text.', green:'One input on a switcher, keyed on green.', matte:'Black/white key with a separate fill, for an ATEM luma key.', black:'Solid black, for a full-screen slate on its own output.' }[S.bg] || '';
+  paintBackdrop();
+
+  // canvas geometry, in container-width units so the preview scales like the real canvas
+  const [W,H] = S.res.split('x').map(Number);
+  $('#stage').style.aspectRatio = W + '/' + H;
+  const px = v => (v / W * 100) + 'cqw';
+  const sb = $('#safebox'); sb.style.display = $('#guides').checked ? '' : 'none';
+  sb.style.inset = `${S.safe/100*H/W*100}cqw ${S.safe}cqw`;
+  const ov = $('#ov');
+  ov.style.padding = `${S.safe/100*H/W*100}cqw ${S.safe}cqw`;
+  ov.style.justifyContent = { top:'flex-start', middle:'center', bottom:'flex-end' }[S.pos];
+  ov.style.alignItems = { left:'flex-start', center:'center', right:'flex-end' }[S.align];
+  ov.style.textAlign = S.align;
+  ov.style.fontSize = px(S.font);
+  ov.style.fontFamily = FAM[S.family];
+  ov.style.fontWeight = S.family==='mono' ? 500 : 600;
+
+  // link
+  const q = new URLSearchParams();
+  if (S.preset) q.set('preset', S.preset);
+  q.set('stream', S.stream);
+  if (S.stream!=='transcription') q.set('lang', S.lang);
+  if (S.stream==='both' && S.lang2) q.set('lang2', S.lang2);
+  q.set('w', W); q.set('h', H);
+  ['lines','font','pos','align','maxw','safe','family','edge','mode'].forEach(k => q.set(k, S[k]));
+  q.set('color', S.color.slice(1));
+  if (S.edge==='plate') { q.set('plate', (S.plate/100).toFixed(2)); q.set('platec', S.platec.slice(1)); }
+  q.set('hold', S.hold*1000);
+  if (S.finals) q.set('finals', 1);
+  if (S.bg==='green') q.set('bg', '00B140'); else if (S.bg==='matte') q.set('matte', 1); else if (S.bg==='black') q.set('bg','000000');
+  $('#url').textContent = '/overlay?' + q.toString();
+  render();
+}
+
+// caption simulation
+let tick = 0, timer;
+function hexA(h,a){ const n=parseInt(h.slice(1),16); return `rgba(${n>>16},${n>>8&255},${n&255},${a})`; }
+function lineStyle(){
+  let st = `color:${S.color};`;
+  if (S.edge==='plate') st += `background:${hexA(S.platec,S.plate/100)};`;
+  if (S.edge==='outline') st += `-webkit-text-stroke:.06em #000;paint-order:stroke fill;text-shadow:0 0 .08em #000;`;
+  if (S.edge==='shadow') st += `text-shadow:0 .05em .12em rgba(0,0,0,.95),0 0 .3em rgba(0,0,0,.7);`;
+  if (S.bg==='matte') st = `color:#fff;background:transparent;`;
+  return st;
+}
+function linesFor(lang, n){
+  const src = SCRIPT[lang] || SCRIPT[''];
+  const total = src.join(' ').split(' ');
+  // reveal words progressively; tick drives position
+  const shown = tick % (total.length + 8);
+  const done = Math.min(shown, total.length);
+  // split into sentences, mark the last as interim if mid-sentence
+  let count = 0, out = [];
+  for (const s of src) {
+    const w = s.split(' ');
+    if (count + w.length <= done) { out.push({ t:s, fin:true }); count += w.length; }
+    else { const k = done - count; if (k > 0) out.push({ t:w.slice(0,k).join(' ') + (S.finals ? '' : '…'), fin:false }); break; }
+  }
+  if (S.finals) out = out.filter(l => l.fin);
+  if (S.mode==='popon') out = out.filter(l => l.fin).slice(-1);
+  // revise a word to show flicker when not finals-only
+  if (!S.finals && out.length && !out[out.length-1].fin && tick % 3 === 0) out[out.length-1].t = out[out.length-1].t.replace(/(\S+)…$/, '$1s…');
+  return out.slice(-n);
+}
+function block(lang, label){
+  const ls = linesFor(lang, S.lines);
+  const lab = label ? `<div class="lab" style="color:${S.color}">${label}</div>` : '';
+  return `<div class="pair" style="max-width:${S.maxw}%;display:flex;flex-direction:column;align-items:inherit">${lab}${ls.map(l => `<p class="${l.fin?'':'interim'}" style="${lineStyle()}">${l.t}</p>`).join('')}</div>`;
+}
+function render(){
+  const ov = $('#ov');
+  let html;
+  if (S.stream==='both') html = block(S.lang, LANGNAME[S.lang]) + block(S.lang2, LANGNAME[S.lang2]);
+  else html = block(S.stream==='transcription' ? '' : S.lang, '');
+  ov.innerHTML = `<div class="blk" style="width:100%;display:flex;flex-direction:column;align-items:inherit">${html}</div>`;
+}
+function loop(){ tick++; render(); }
+sync(); timer = setInterval(loop, 380);
+</script>
+</body></html>

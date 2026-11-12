@@ -355,9 +355,10 @@ QR code.
 6. **Screen (kiosk display)**: for a screen that nobody touches, such as a
    lobby TV. No buttons, no scroll bar, just the last few lines of captions.
    It follows the first live language by itself.
-7. **For your switcher**: **Overlay (OBS / ProPresenter)**, a transparent
-   caption layer to put over live video, in a video switcher or streaming
-   program.
+7. **For your switcher**: **Overlay (OBS / vMix / ProPresenter)**, a
+   transparent caption layer to put over live video, in a video switcher or
+   streaming program. This link uses the default look. To choose the layout,
+   language, size and colours, use [Broadcast overlay](#broadcast-overlay).
 
 ::: note
 The links use the Relay computer's LAN IP address. That address can change
@@ -365,22 +366,134 @@ when you move to a different network, so check the links (and reprint the QR
 codes) at each new venue.
 :::
 
-### Changing a kiosk or overlay link
+### Changing a kiosk link
 
-The **Screen** and **Overlay** views are set up by adding options to the end
-of the link. Separate the first option with `?` and each further one with
+The **Screen** view is set up by adding options to the end of the link. (The
+overlay has a page of its own that writes its link for you; see
+[Broadcast overlay](#broadcast-overlay).) Separate the first option with `?` and each further one with
 `&`. For example:
 
 `http://192.168.1.50/screen?lang=FRENCH&lines=2`
 
 | Option | Works on | What it does | Example |
 |---|---|---|---|
-| `lang` | Screen, Overlay | Always show this language. | `lang=SPANISH` |
-| `stream` | Screen, Overlay | `translation` (default), `transcription` or `both`. | `stream=transcription` |
-| `lines` | Screen, Overlay | How many lines to show. | `lines=3` |
-| `font` | Screen, Overlay | Text size in pixels. | `font=64` |
+| `lang` | Screen | Always show this language. | `lang=SPANISH` |
+| `stream` | Screen | `translation` (default), `transcription` or `both`. | `stream=transcription` |
+| `lines` | Screen | How many lines to show. | `lines=3` |
+| `font` | Screen | Text size in pixels. | `font=64` |
 | `align` | Screen | `bottom` (default) or `center`. | `align=center` |
-| `bg` | Overlay | Background colour. Transparent by default. | `bg=black` |
+
+## Broadcast overlay {#broadcast-overlay}
+
+The broadcast overlay puts captions over your livestream. It is a web page
+with a transparent background. OBS, vMix and ProPresenter show it as a
+*browser source* (a layer that displays a web page). A Blackmagic ATEM
+switcher can key it in.
+
+This page builds the overlay. Choose a layout, adjust it while you watch the
+preview, then copy the link into your streaming program.
+
+1. **Layout.** Pick a starting point:
+   - **Lower third**: two lines at the bottom of the picture.
+   - **Top strip**: one wide line at the top, out of the way of name captions.
+   - **Accessibility slate**: large, easy-to-read text on black, filling the
+     screen. Use it on a screen or stream of its own.
+   - **Two languages**: two languages stacked, each with its name above it.
+2. **Captions.**
+   - **Show**: **Translation**, **Original** (what is being said) or **Two,
+     stacked**. With two, pick a **Second language**, or leave it on
+     **Original**.
+   - **Lines on screen**: how many lines to show at once.
+   - **Finished lines only**: waits until each sentence is complete, so the
+     words never change on air. Captions appear about a second later.
+   - **Style**: **Roll-up** scrolls lines up as words arrive, like TV
+     captions. **Pop-on** shows finished sentences as a block, then replaces
+     the whole block.
+   - **Hide after silence**: the captions fade out when nobody has spoken for
+     this long. **never** keeps them up.
+3. **Position & size.** Top, middle or bottom; left, centre or right; text
+   size; how wide a line may get; the *title-safe margin* (a border kept clear
+   so a TV does not crop the text); and the **Canvas**, which must match your
+   streaming program's resolution.
+4. **Look.** The font, and the **Text edge**: a **Plate** (a dark box behind
+   each line), an **Outline**, a **Shadow**, or **None**. Pick the text and
+   plate colours here. **Atkinson Hyperlegible** is the easiest font to read;
+   it is designed for people with low vision.
+5. **Output.** **Transparent** for OBS, vMix and ProPresenter. **Chroma
+   green** for a switcher that keys out green. **Key matte** and **Black** for
+   an ATEM luma key (see below).
+6. **Preview.** Shows the overlay over a stand-in video picture, with sample
+   captions. **Transparency** shows a checkerboard where the overlay is see-
+   through. Untick **Sample captions** to see the live captions instead.
+7. **Browser source link.** **Copy link** puts it on the clipboard. **Open**
+   opens it in a new tab.
+8. **Save as a named overlay.** Type a name and click **Save**. The overlay
+   gets a short link, such as `/overlay/stream-spanish`. Change it here later
+   and click **Save changes**: the streaming program picks up the change the
+   next time it loads the page, without pasting a new link.
+9. **Saved overlays.** Each one with **Copy link**, **Edit** and **Delete**.
+
+::: tip
+Save the overlay before you paste its link. A saved link never has to be
+pasted again, however often you change the look.
+:::
+
+::: warning
+Deleting a saved overlay stops captions in every program that uses its link.
+:::
+
+### Adding the overlay to your streaming program
+
+The **Setup guides** tab on the page has the same steps.
+
+**OBS Studio**
+
+1. Under **Sources**, click **+**, then **Browser**. Name it "Relay
+   captions".
+2. Paste the link into **URL**. Set **Width** and **Height** to your canvas
+   (**Settings** → **Video** → **Base (Canvas) Resolution**, usually
+   1920 × 1080).
+3. Untick **Shutdown source when not visible**, so captions do not restart
+   when you change scenes.
+4. Drag the source above your cameras. To caption every scene, put it in one
+   scene and add that scene to the others.
+
+The captions should appear over the picture when someone speaks.
+
+**vMix**
+
+1. Click **Add Input** → **Web Browser**. Paste the link and set the size to
+   your output resolution.
+2. Put the input on an **Overlay** channel (1 to 4) and press it on.
+
+**ProPresenter**
+
+1. Make a **Prop** with a **Web Page** object that fills the slide. Paste the
+   link.
+2. In **Looks**, turn **Props** on for the stream screen and off for the
+   screens in the room.
+3. Trigger the prop at the start of the service. It stays up while the slides
+   change.
+
+**Blackmagic ATEM**
+
+An ATEM cannot open a web page, so a computer shows the overlay full screen
+and its video output goes into the switcher.
+
+- **Chroma green** (one input): choose **Chroma green**, open the link full
+  screen on the computer, and set a **Chroma** key on that input.
+- **Key matte** (two inputs, cleaner edges): save two overlays with the same
+  settings, one with **Key matte** and one with **Black**. Show each full
+  screen on its own output. In the ATEM, set a **Luma** key with the **Black**
+  one as the fill source and the **Key matte** one as the key source.
+
+Turn the key on for the program output. Switch off the computer's screen saver
+and notifications.
+
+::: note
+The overlay link also takes `?lyrics=1`, to show ProPresenter's lyrics in
+place of the captions. See the ProPresenter chapter.
+:::
 
 ## Blocked words {#blocked-words}
 
@@ -543,8 +656,8 @@ connection, not these settings.
 
 ::: note
 Relay's colours are fixed: dark by default, with the light / dark button on
-each viewer page. The **Overlay** link's background colour can be set with
-the `bg` option. See [Viewer links](#viewer-links).
+each viewer page. The overlay's colours, font and background are set on
+the [Broadcast overlay](#broadcast-overlay) page.
 :::
 
 ## Modules {#modules}
