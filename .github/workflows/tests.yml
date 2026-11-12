@@ -1,0 +1,42 @@
+name: Tests
+
+# Every pull request and every push to main runs the whole suite, including tests/test_modules.py, which
+# enforces that each integration is a module that can be switched on and off (#157, docs/modules.md).
+# Every tests/test_*.py file is picked up by itself, so a new test file needs no change here.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          # Matches the base image in docker/Dockerfile.
+          python-version: '3.15'
+          cache: pip
+      # sounddevice needs the PortAudio library to import (see release.yml for why PulseAudio runs headless).
+      - run: sudo apt-get update && sudo apt-get install -y libportaudio2 pulseaudio
+      - run: pulseaudio -D --exit-idle-time=-1 --load=module-null-sink && pactl info | head -3
+      # httpx2 is test-only (starlette's TestClient), so it stays out of requirements.txt and the image.
+      - run: pip install -r requirements.txt httpx2==2.13.1
+      - name: Module rule (every integration is a switchable module)
+        run: python tests/test_modules.py
+      - name: The rest of the suite
+        run: |
+          set -e
+          for t in tests/test_*.py tests/smoke_test.py; do
+            [ "$t" = tests/test_modules.py ] && continue
+            echo "::group::$t"
+            python "$t"
+            echo "::endgroup::"
+          done

@@ -60,6 +60,9 @@ DEFAULTS: dict[str, Any] = {
     # follows -- see planningcenter.py. Blank means the integration is off.
     "planning_center": {"app_id": "", "secret": "", "service_types": [], "plan_overrides": {},
                         "show_notes": False},
+    # Which modules are switched on, by module id: {"<id>": {"enabled": bool}} -- see app/modules/. A
+    # module with no switch saved is on only if its integration was already set up (Module.configured).
+    "modules": {},
     # ProPresenter (#138): the address of the machine running it, and what Relay may do there -- see propresenter.py.
     # Off until the operator enters an address and switches it on. The port is per install (set in ProPresenter's
     # Network preferences), so there is no default for it.
@@ -244,6 +247,10 @@ def _normalise(cfg: dict) -> dict:
     from . import propresenter
 
     cfg["propresenter"] = propresenter.clean_stored(cfg.get("propresenter"))
+    # Each module's settings and its on/off switch (app/modules/). Imported here for the same reason.
+    from .modules import modules
+
+    modules.clean_config(cfg)
     # The blocklist lives in its own file; config.json only points at it.
     cfg.pop("blocklist", None)
     cfg["blocklist_file"] = str(cfg.get("blocklist_file") or "blocklist.txt")
@@ -263,6 +270,15 @@ def load() -> dict:
         _migrate_blocklist(raw)
         _data = _normalise(raw)
         return _data
+
+
+def read_raw() -> dict:
+    """config.json as stored, before normalising ({} when missing or unreadable)."""
+    try:
+        raw = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    return raw if isinstance(raw, dict) else {}
 
 
 def blocklist_path() -> Path:
@@ -351,6 +367,9 @@ def redacted() -> dict:
         "service_types": list(pc.get("service_types") or []),
         "show_notes": bool(pc.get("show_notes")),
     }
+    from .modules import modules
+
+    modules.redact_config(cfg)
     cfg["openai_api_key_set"] = bool(key)
     cfg["openai_api_key_hint"] = f"…{key[-4:]}" if len(key) >= 4 else ""
     return cfg

@@ -18,12 +18,14 @@ from fastapi import Depends, FastAPI, Form, HTTPException, Request, Response
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from jinja2 import ChoiceLoader, FileSystemLoader, PrefixLoader
 
 from . import alerts as alertsmod
 from . import config, exporting, languages, panelfw, panels, planningcenter, redact, schedules
 from .alerts import alerts
 from .engine import TRANSCRIPTION_STREAM, TRANSLATION_STREAM, demo_mode, engine
 from .hub import hub
+from .modules import HERE as MODULES_DIR, modules as module_registry
 from .panels import registry as panel_registry
 from .pclive import follower as pc_follower
 from .servicefeed import feed as service_feed
@@ -70,16 +72,37 @@ class RevalidatedStaticFiles(StaticFiles):
         return response
 
 
+# Each module's own static files, at /static/modules/<id>/ (mounted before /static, which would match first).
+# Served whether the module is on or off: they are inert files, and nothing links to them while it is off.
+for _mod in module_registry.all():
+    _mid = _mod.manifest.id
+    if (MODULES_DIR / _mid / "static").is_dir():
+        app.mount(f"/static/modules/{_mid}", RevalidatedStaticFiles(directory=MODULES_DIR / _mid / "static"),
+                  name=f"static-{_mid}")
 app.mount("/static", RevalidatedStaticFiles(directory=BASE / "static"), name="static")
 templates = Jinja2Templates(directory=str(BASE / "templates"))
+# A module's templates are named "<module id>/<file>", from app/modules/<id>/templates/.
+templates.env.loader = ChoiceLoader([
+    FileSystemLoader(str(BASE / "templates")),
+    PrefixLoader({m.manifest.id: FileSystemLoader(str(MODULES_DIR / m.manifest.id / "templates"))
+                  for m in module_registry.all()}),
+])
+
+
+def _static_file(path: str):
+    """The file behind a static path: "modules/<id>/<file>" is in that module's static/ directory."""
+    if path.startswith("modules/"):
+        _, mid, rest = path.split("/", 2)
+        return MODULES_DIR / mid / "static" / rest
+    return BASE / "static" / path
 
 
 def _static_url(path: str) -> str:
     """A /static URL that changes whenever the file does, so a browser holding a copy cached before
     no-cache was sent (or before an update) fetches the new one instead of reusing the old."""
     try:
-        version = format((BASE / "static" / path).stat().st_mtime_ns, "x")
-    except OSError:
+        version = format(_static_file(path).stat().st_mtime_ns, "x")
+    except (OSError, ValueError):
         return "/static/" + path
     return f"/static/{path}?v={version}"
 
@@ -151,7 +174,10 @@ async def _split_admin_port(request: Request, call_next):
 
 async def _startup() -> None:
     config.ensure_file()
-    cfg = config.load()
+    config.load()
+    # Record each module's switch once (on if its integration was already set up), then start those that are on.
+    module_registry.settle()
+    cfg = config.get()
     hub.history_lines = cfg["history_lines"]
     path = config.ensure_blocklist_file()
     hub.set_blocklist(redact.read_blocklist_file(path))
@@ -173,6 +199,7 @@ async def _startup() -> None:
     pc_link.start()
     # Idle until the operator presses Start on the lobby rotation (never started by Relay itself).
     pp_lobby.start()
+    await module_registry.start_enabled()
     if not (cfg.get("admin_token") or "").strip():
         # _token_ok() returns False on an empty stored token, so the panel is
         # locked rather than open -- but an operator who cannot log in deserves
@@ -252,6 +279,8 @@ async def _alert_ticks() -> None:
 
 
 async def _shutdown() -> None:
+    with contextlib.suppress(Exception):
+        await module_registry.stop_all()
     scheduler.cancel()
     pc_follower.cancel()
     pp_follower.cancel()
@@ -777,6 +806,10 @@ async def stream(request: Request, stream: str = "translation", lang: str | None
                  finals: int = 0, type: str | None = None):
     if stream == ALERT_STREAM:
         return _alert_sender_stream()
+    # A stream a module owns (only while it is on).
+    owned = module_registry.stream(stream, request, dict(request.query_params))
+    if owned is not None:
+        return owned
     if stream == LYRICS_STREAM:
         audience = request.query_params.get("for") or "viewer"
         if audience not in propresenter.AUDIENCES:
@@ -1080,7 +1113,10 @@ async def admin_page(request: Request):
         return templates.TemplateResponse(
             request, "login.html", {"error": None}, status_code=200
         )
-    return templates.TemplateResponse(request, "admin.html")
+    return templates.TemplateResponse(request, "admin.html", {
+        "module_nav": module_registry.admin_nav(),
+        "module_scripts": module_registry.admin_scripts(),
+    })
 
 
 @app.get("/admin/flash", response_class=HTMLResponse)
@@ -1155,6 +1191,39 @@ async def admin_state():
         "devices": list_input_devices(),
         "urls": _urls(config.get()["port"]),
     }
+
+
+# --------------------------------------------------------------- modules (#157)
+@app.get("/api/admin/modules", dependencies=[Depends(require_admin)])
+async def admin_modules():
+    return {"modules": [module_registry.describe(m) for m in module_registry.all()]}
+
+
+@app.post("/api/admin/modules/{mid}", dependencies=[Depends(require_admin)])
+async def admin_module_switch(mid: str, payload: dict):
+    """Switch a module on or off. Its pages appear or go once the admin page reloads."""
+    if module_registry.get(mid) is None:
+        raise HTTPException(404, "no such module")
+    on = payload.get("enabled")
+    if not isinstance(on, bool):
+        return JSONResponse({"error": "enabled must be true or false"}, status_code=400)
+    await module_registry.set_enabled(mid, on)
+    return module_registry.describe(module_registry.get(mid))
+
+
+@app.post("/api/admin/modules/{mid}/test", dependencies=[Depends(require_admin)])
+async def admin_module_test(mid: str):
+    mod = module_registry.get(mid)
+    if mod is None:
+        raise HTTPException(404, "no such module")
+    if not module_registry.enabled(mid):
+        return JSONResponse({"ok": False, "detail": "Switch the module on first."}, status_code=409)
+    try:
+        result = await mod.test()
+    except Exception as exc:
+        log.exception("module %s test failed", mid)
+        result = {"ok": False, "detail": f"The test failed: {type(exc).__name__}"}
+    return {"ok": bool(result.get("ok")), "detail": str(result.get("detail") or "")}
 
 
 @app.get("/api/admin/devices", dependencies=[Depends(require_admin)])
@@ -2274,3 +2343,11 @@ async def admin_recording_delete(run_id: str):
 @app.get("/healthz")
 async def healthz():
     return {"ok": True, "running": engine.running}
+
+
+# --------------------------------------------------------------- module routes (#157)
+# Last, so a core route always wins. Every route a module adds answers 404 while the module is off.
+for _mod in module_registry.all():
+    for _router in _mod.routers():
+        app.include_router(_router, dependencies=[Depends(module_registry.require_enabled(_mod.manifest.id))])
+module_registry.on_change = engine._push_status
