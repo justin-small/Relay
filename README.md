@@ -104,8 +104,8 @@ Every screen is explained, with pictures, in the
 
 Requires [Docker Desktop](https://www.docker.com/products/docker-desktop/) (or
 Docker Engine on Linux). Nothing else: no Python, no virtualenv, no Caddy.
-Everything runs in one container (Caddy, the relay and a small Postgres
-database for the user accounts), and setup uses the image's own Python to
+Everything runs in one container (Caddy and the relay; the user accounts are a
+SQLite file in the state folder), and setup uses the image's own Python to
 write the credentials and mint the certificate.
 
 Get Relay from the [latest release](https://github.com/justin-small/Relay/releases/latest)
@@ -128,7 +128,7 @@ token: you use it once, to create the first Owner (see
 [Users and roles](#users-and-roles)). It then mints the operator panel's TLS
 certificate and prints its SHA-256 fingerprint. Write that down.
 
-`start.*` starts the whole stack: Caddy, the relay and Postgres, one
+`start.*` starts the whole stack: Caddy and the relay, one
 container, one command. It finds this machine's LAN address first, because the certificate has
 to name whatever the operator's browser will dial and that changes with the
 venue. If setup has not been run it says so and stops rather than launching a
@@ -290,7 +290,8 @@ It creates `<username>` as an Owner, or, if that account exists, turns it on and
 makes it an Owner. It asks for a new password twice, without showing it, then
 ends their sessions and clears their PIN. Sign in with that password. Run
 outside Docker, it is `python tools/reset_owner.py <username>` with
-`RELAY_DATABASE_URL` set. It needs the database to be up.
+`RELAY_DATABASE` pointing at the `relay.db` the app uses (the default is
+`relay.db` beside `config.json`). It needs that file to be openable.
 
 ## Target languages
 
@@ -497,18 +498,17 @@ where there is no bash) first and refuses to go live quietly
 if a link in the chain is broken, then finds this machine's LAN address and
 hands it to the container. State lives in two places, and both survive
 rebuilds. `./docker-config/` holds the API key, the setup admin token, the
-blocklist, the generated `Caddyfile`, the panel's certificate and `backups/`
-(the daily database dumps). The user accounts live in the `relay-db` Docker
-volume; see [Database and backups](#database-and-backups).
+blocklist, the generated `Caddyfile`, the panel's certificate, `relay.db` (the
+user accounts) and `backups/` (the daily database copies); see
+[Database and backups](#database-and-backups).
 
-Caddy and Postgres run **inside the same container** as the relay, so there is
+Caddy runs **inside the same container** as the relay, so there is
 nothing else to launch or keep running. The entrypoint mints the
-certificate if setup has not already, validates the generated Caddyfile, starts
-Postgres, then supervises Caddy and the relay; if either of those exits, the
+certificate if setup has not already, validates the generated Caddyfile, then
+supervises Caddy and the relay; if either of those exits, the
 container exits and `restart: unless-stopped` brings back a known-good pair
 rather than leaving a half-running container that still passes a shallow probe.
-Postgres is the exception: if it stops it is restarted on its own, with a
-growing wait between tries, and captions keep running meanwhile.
+The database is a file the relay opens itself, so there is no third process.
 
 | | Outside | Caddy, in the namespace | Relay |
 |---|---|---|---|
@@ -526,8 +526,8 @@ capabilities at all. In practice that means:
 
 | | |
 |---|---|
-| **User** | `10001:10001`, never root. On Linux, pass `RELAY_UID`/`RELAY_GID` so the bind-mounted `docker-config/` matches your account; Docker Desktop fakes ownership, so macOS and Windows can ignore this. The `relay-db` volume is created for whichever uid runs the container. If you later start Relay as a different uid, the database is refused with a clear message in the log and left untouched; start Relay as the original uid again, or use a new volume. |
-| **Filesystem** | `read_only: true`. `/app` cannot be rewritten by the process that runs it. Writable: `docker-config/` (state), the `relay-db` volume (the database), plus small tmpfs mounts for `/tmp` and `$HOME`. |
+| **User** | `10001:10001`, never root. On Linux, pass `RELAY_UID`/`RELAY_GID` so the bind-mounted `docker-config/` matches your account; Docker Desktop fakes ownership, so macOS and Windows can ignore this. If you later start Relay as a different uid, `relay.db` may not be writable by it: the database is reported unavailable in the log and left untouched; start Relay as the original uid again. |
+| **Filesystem** | `read_only: true`. `/app` cannot be rewritten by the process that runs it. Writable: `docker-config/` (state, including `relay.db`), plus small tmpfs mounts for `/tmp` and `$HOME`. |
 | **Privileges** | `cap_drop: ALL` and `no-new-privileges:true`, so there is no setuid escalation path. |
 | **Limits** | 1 GB memory, 2 CPUs, 256 pids, and log rotation at 3 × 10 MB, so a wedged run cannot fill the host. |
 | **Base images** | `python:3.15-slim-trixie` and `caddy:2-alpine`, both pinned by digest; dependencies installed wheels-only in a builder stage, so no compiler or pip ships in the runtime image. Only Caddy's binary is taken from its image, copied with `cp` so its `cap_net_bind_service` file capability is dropped: `execve` of a file with capabilities fails outright under `no-new-privileges`. |
@@ -765,81 +765,67 @@ port beyond the host.
 
 ## Database and backups
 
-The user accounts are kept in Postgres 17, which runs inside the Relay
-container beside Caddy and the relay. It listens on a unix socket inside the
-container and on no TCP port, and nothing is published, so it cannot be reached
-from the LAN.
+The user accounts are kept in one SQLite file, `relay.db`, beside `config.json`.
+There is no database server to install, start or watch, and nothing listens on
+the network for it.
 
 **Where the data is.**
 
 | | |
 |---|---|
-| Live database | the Docker named volume `relay-db`, mounted at `/var/lib/relay-db` (the files are in `data/`) |
-| Dumps | `docker-config/backups/` on the host (`/app/config/backups` in the container) |
+| Live database | `docker-config/relay.db` on the host (`/app/config/relay.db` in the container); `RELAY_DATABASE` names another file |
+| Backups | `docker-config/backups/` on the host (`/app/config/backups` in the container) |
 
-`docker compose down` keeps the volume. `docker compose down -v` or
-`docker volume rm relay-db` deletes the accounts; the dumps remain.
+The file is created with mode `0600`. It runs in WAL mode, so `relay.db-wal` and
+`relay.db-shm` may sit beside it while Relay is running; they belong to it.
 
-**Daily dumps.** Relay checks a minute after it starts and then every hour, and
-writes a dump if none was written in the last 24 hours. A dump is a `pg_dump`
-custom-format file named `relay-YYYYMMDD-HHMMSS.dump` (the time is UTC, mode
-`0600`). The newest 7 are kept and older ones are deleted. A dump that fails is
-logged and tried again an hour later.
+**Daily backups.** Relay checks a minute after it starts and then every hour, and
+takes a backup if none was taken in the last 24 hours. It uses SQLite's online
+backup, so the copy is consistent while Relay is running, written to a temporary
+name and renamed into place, as one self-contained file named
+`relay-YYYYMMDD-HHMMSS.db` (the time is UTC, mode `0600`). The newest 7 are kept
+and older ones are deleted. A backup that fails is logged and tried again an hour
+later.
 
-**Backing up.** Copy `docker-config/`: it holds the dumps, so it captures the
-users along with the API key and the certificate. To take a dump on demand, for
-example before an upgrade:
-
-```bash
-docker exec live-caption-relay pg_dump -Fc -f /app/config/backups/before-upgrade.dump
-```
-
-A name that does not look like `relay-YYYYMMDD-HHMMSS.dump` is never deleted by
-the daily cleanup and never picked for an automatic restore.
-
-**Restoring a dump by hand.** This replaces what is in the database with the
-dump's contents, so everyone's accounts and sessions go back to that moment:
+**Backing up.** Copy `docker-config/`: it holds the database, the backups, the
+API key and the certificate, so it is a complete backup. To take one on demand,
+for example before an upgrade:
 
 ```bash
-docker exec live-caption-relay pg_restore --clean --if-exists --no-owner \
-  -d relay /app/config/backups/relay-20261112-030000.dump
+docker exec live-caption-relay python -c "from app import db; print(db.backup())"
 ```
 
-Put a dump from elsewhere in `docker-config/backups/` first.
+A name that does not look like `relay-YYYYMMDD-HHMMSS.db` is never deleted by the
+daily cleanup.
 
-**Starting over.** Run `stop.*`, then `docker volume rm relay-db`, then
-`start.*`. Relay starts with an empty database and asks for the first Owner
-again, using the admin token in `config.json`. The dumps are untouched, so you
-can still restore one as above.
-
-**When the database is down.** Captions, viewer pages, panels and schedules
-keep running. The operator panel says **The user database is not available**
-and stays closed until it is back, for everyone, including people already
-signed in. Postgres is restarted automatically, waiting 2, 5, 15, then 60
-seconds between tries. The reason is in the container log (`logs.*`), in lines
-that start with `relay:`. Two problems need a person: files written by another
-uid (see *What the container is allowed to do*), and a `relay-db` volume that is
-not mounted or not writable (start with `docker compose`, which mounts it).
-
-**Upgrading Postgres.** The image pins Postgres 17. When a new image carries a
-different major version, the first start moves the old files aside inside the
-volume as `data.pg<old>-<timestamp>` (for example `data.pg16-20261112-030000`),
-creates a new database and restores the newest dump into it. If there is no dump
-the database starts empty. A `data` directory that is not a finished database is
-moved to `data.incomplete-<timestamp>` instead. Nothing is deleted. Once you have
-signed in and confirmed that the accounts are right, remove the leftovers to
-free the space:
+**Restoring a backup by hand.** This replaces the accounts with what the backup
+held, so everyone's accounts and sessions go back to that moment. Run `stop.*`,
+then:
 
 ```bash
-docker exec live-caption-relay ls /var/lib/relay-db
-docker exec live-caption-relay rm -rf /var/lib/relay-db/data.pg16-20261112-030000
+cd docker-config
+rm -f relay.db relay.db-wal relay.db-shm
+cp backups/relay-20261112-030000.db relay.db
 ```
 
-Never remove `data` itself, which is the live database.
+then `start.*`.
 
-**Looking inside.** `docker exec -it live-caption-relay psql` opens `psql` on
-the private socket as the database role. Change accounts in the panel, not by
-hand.
+**Starting over.** Run `stop.*`, delete `docker-config/relay.db` (and any
+`relay.db-wal` and `relay.db-shm`), then `start.*`. Relay starts with an empty
+database and asks for the first Owner again, using the admin token in
+`config.json`. The backups are untouched.
+
+**When the database cannot be opened.** A corrupt file, a full or read-only
+disk, or the wrong owner: captions, viewer pages, panels and schedules keep
+running. The operator panel says **The user database is not available** and stays
+closed until it can be opened, for everyone, including people already signed in.
+Relay tries again every few seconds. The reason is in the container log
+(`logs.*`), in lines that start with `relay:`. Files written by another uid are
+the usual cause (see *What the container is allowed to do*); restoring a backup
+fixes a corrupt file.
+
+**Looking inside.** `sqlite3 docker-config/relay.db` on the host, if you have
+it. Change accounts in the panel, not by hand.
 
 ## Rehearsal mode
 
@@ -992,7 +978,7 @@ Check the host's bandwidth and the session health table, not these two fields.
 | A blocked word still appears in a translation | Each feed is filtered independently. Add that language's form to the list as well. |
 | Edited `blocklist.txt` but nothing changed | Give it about 2 s. Check the relay's log (`logs.*`) for the line `Blocked words reloaded: N term(s)`, and that the file is the one named in the admin panel. |
 | A blocked word appears inside a longer word | By design: only whole words match. Add the longer word explicitly. |
-| The panel says "The user database is not available" | Postgres inside the container is down or still starting. Captions and viewer pages are not affected. The panel opens again by itself once the database is back; if it does not, read the log (`logs.*`) for lines starting `relay:`. See [Database and backups](#database-and-backups). |
+| The panel says "The user database is not available" | `relay.db` cannot be opened (a corrupt file, a full or read-only disk, or the wrong owner). Captions and viewer pages are not affected. The panel opens again by itself once the database is back; if it does not, read the log (`logs.*`) for lines starting `relay:`. See [Database and backups](#database-and-backups). |
 | Nobody can sign in, or the only Owner is locked out | [Recover with `tools/reset_owner.py`](#if-nobody-can-sign-in). |
 | Captions lag or arrive in long blocks | Phrase boundaries come from the model and are not tunable. Long *lines* are a line-break setting: lower *Caption line break after silence*. Real lag is upstream: check the host's bandwidth. |
 
@@ -1000,7 +986,7 @@ Check the host's bandwidth and the session health table, not these two fields.
 
 ```
 setup.command / .bat / .sh   one-time setup: image, credentials, panel TLS
-start.command / .bat / .sh   start the whole stack (Caddy + relay + Postgres,
+start.command / .bat / .sh   start the whole stack (Caddy + relay,
                              one container) in the background. One per platform:
                              macOS, Windows, Linux.
 stop.command / .bat / .sh    stop it (and, on macOS / Windows, its PulseAudio daemon)
@@ -1012,7 +998,7 @@ blocklist.txt                default blocked words, copied into docker-config/
                              on first start
 
 docker-config/               state, git-ignored, created by setup (the user
-                             database is in the `relay-db` volume, not here)
+                             database, `relay.db`, is here too)
   config.json                live config (0600): API key, setup admin token, admin_fqdn
   blocklist.txt              the live list: hot-reloaded, written by the panel
   Caddyfile                  generated from config.json on every start
@@ -1032,7 +1018,7 @@ app/
   redact.py                  blocklist filtering, incremental-safe
   demo.py                    rehearsal mode
   config.py                  load, validate, atomic save, hot-reload
-  db.py                      Postgres pool, migrations, daily dump
+  db.py                      SQLite file, migrations, daily backup
   users.py                   accounts, roles, permissions, sessions, trusted devices
   migrations/                core schema, NNNN_name.sql, applied once each
   schedules.py               schedule validation, windows, DST, US formats
@@ -1048,8 +1034,7 @@ docker/
   docker-compose.yml         base service; overlays add the audio wiring
   docker-compose.{macos,linux,windows}.yml
   entrypoint.sh              ALSA -> Pulse routing when PULSE_SERVER is set;
-                             starts Postgres, Caddy and the relay
-  postgres.sh                starts and supervises the in-container Postgres
+                             starts Caddy and the relay
   config.example.json        template for docker-config/config.json
 
 tests/
@@ -1060,7 +1045,7 @@ tests/
   test_announce.py           mDNS records and answers of tools/announce.py
   test_users.py              accounts, roles, sessions, devices, database, dumps
   test_auth.py               first run, sign-in, PIN, every admin route per role
-  _pg.py                     throwaway Postgres the tests start for themselves
+  _db.py                     throwaway SQLite file the tests make for themselves
 
 tools/
   check-audio.sh             PASS/FAIL walk of the whole capture chain
@@ -1089,27 +1074,16 @@ python3 -m venv .venv && .venv/bin/pip install -r requirements.txt httpx2
 .venv/bin/python tests/smoke_test.py   # config, hub, audio, routes, auth, blocklist, recording
 .venv/bin/python tests/test_redact.py  # blocklist filtering, incl. split-delta cases
 .venv/bin/python tests/test_schedules.py  # schedule windows, DST, override rules, admin API
-.venv/bin/python tests/test_users.py   # accounts, roles, sessions, database, dumps
+.venv/bin/python tests/test_users.py   # accounts, roles, sessions, database, backups
 .venv/bin/python tests/test_auth.py    # first run, sign-in, PIN, every admin route per role
 python3 tests/test_announce.py         # panel announcement; standard library only
 ```
 
-Every suite except `test_redact.py` and `test_announce.py` needs PostgreSQL.
-Each such test process starts its own throwaway cluster with `initdb` and
-`pg_ctl`, on a unix socket in a temp directory, and deletes it at exit. It looks
-for them on `PATH`, then in `/usr/lib/postgresql/*/bin`, `/opt/homebrew/bin`,
-`/opt/homebrew/opt/postgresql@*/bin` and `/usr/local/bin`. Install Postgres
-(`brew install postgresql@17`, or `apt install postgresql`) or, to use a server
-you already run, set `RELAY_TEST_DATABASE_URL` to a connection URL for it: the
-test creates its own uniquely named database there and drops it afterwards. The
-backup checks in `tests/test_users.py` also need `pg_dump` and `pg_restore`, and
-say loudly when they are skipped. The CI workflow installs `postgresql` and
-`libpq5` for this.
+Nothing needs installing for the suites: each test process makes its own
+throwaway SQLite file in a temp directory and deletes it at exit.
 
-To run the app itself outside Docker (the tests do not need this), set
-`RELAY_DATABASE_URL` to a Postgres connection URL. Without it the user database
-counts as not configured, and the panel stays closed. Inside the container the
-entrypoint sets it.
+To run the app itself outside Docker, nothing needs setting: it opens `relay.db`
+beside `config.json`. Set `RELAY_DATABASE` to put the file elsewhere.
 
 None makes an API call. `tests/test_redact.py` includes a randomised check that
 300 different delta chunkings of the same sentence all produce the identical

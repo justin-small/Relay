@@ -179,8 +179,7 @@ itself, so this is a second safeguard. Keep it in.
 
 Your settings, API key, admin token, certificate, recordings and the daily
 database backups are all kept in one folder inside Relay: `docker-config`.
-The user accounts live in a Docker volume called `relay-db`, which an update
-does not touch. Nothing else in the Relay folder
+The user accounts (`relay.db`) are in that folder too. Nothing else in the Relay folder
 holds anything of yours. Updating Relay means replacing everything **except**
 that folder.
 
@@ -192,8 +191,8 @@ minutes longer than usual.
 An update keeps your credentials only if you keep the `docker-config` folder.
 If you delete it, or download a fresh copy and forget to copy it across, you
 have to run setup again and type your API key and admin token again. The
-certificate fingerprint also changes. Your accounts are not lost, because
-they are in the `relay-db` volume.
+certificate fingerprint also changes. Your accounts are in `docker-config` as
+well, so they go with it.
 :::
 
 **If you used git:**

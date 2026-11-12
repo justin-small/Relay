@@ -1,4 +1,4 @@
-"""Accounts, roles, permissions, sessions and trusted devices (everything lives in app/db.py's Postgres).
+"""Accounts, roles, permissions, sessions and trusted devices (everything lives in app/db.py's SQLite file).
 
 Four fixed roles, ranked viewer < operator < admin < owner, sit on top of named permissions: code asks
 `user.can("settings.manage")`, never "is the role at least admin". Today a permission's `min_role` decides who
@@ -40,7 +40,6 @@ SCRYPT_P = 1
 
 _USERNAME = re.compile(r"[a-z0-9._-]{3,32}")
 _PIN = re.compile(r"[0-9]{4,8}")
-_USERS_LOCK = 727275     # advisory lock: one account change at a time, so the last-owner rule cannot race
 
 
 def _rank(role: str) -> int:
@@ -262,8 +261,8 @@ _COLS_U = ("u.id, u.username, u.name, u.role, u.disabled, u.must_change_password
 
 def _user(row: dict) -> User:
     return User(id=row["id"], username=row["username"], name=row["name"], role=row["role"],
-                disabled=row["disabled"], must_change_password=row["must_change_password"],
-                pin_set=row["pin_set"])
+                disabled=bool(row["disabled"]), must_change_password=bool(row["must_change_password"]),
+                pin_set=bool(row["pin_set"]))
 
 
 def count() -> int:
@@ -277,23 +276,19 @@ def list_users() -> list[dict]:
 
 
 def get(user_id) -> User | None:
-    row = db.one(f"select {_COLS} from users where id = %s", (user_id,))
+    row = db.one(f"select {_COLS} from users where id = ?", (user_id,))
     return _user(row) if row else None
 
 
 def get_by_username(username: str) -> User | None:
-    row = db.one(f"select {_COLS} from users where username = %s",
+    row = db.one(f"select {_COLS} from users where username = ?",
                  ((username or "").strip().lower() if isinstance(username, str) else "",))
     return _user(row) if row else None
 
 
-def _lock(tx) -> None:
-    tx.execute("select pg_advisory_xact_lock(%s)", (_USERS_LOCK,))
-
-
 def _target(tx, user_id, actor: User | None) -> dict:
     """The row being changed, locked, after the actor's rank rule. Raises not_found / account_above_you."""
-    row = tx.one(f"select {_COLS} from users where id = %s for update", (user_id,))
+    row = tx.one(f"select {_COLS} from users where id = ?", (user_id,))
     if row is None:
         raise Refused("not_found")
     if actor is not None and _rank(row["role"]) > _rank(actor.role):
@@ -302,7 +297,7 @@ def _target(tx, user_id, actor: User | None) -> dict:
 
 
 def _other_owner(tx, user_id) -> bool:
-    return tx.one("select 1 as x from users where role = 'owner' and not disabled and id <> %s limit 1",
+    return tx.one("select 1 as x from users where role = 'owner' and not disabled and id <> ? limit 1",
                   (user_id,)) is not None
 
 
@@ -315,7 +310,7 @@ def create(username, name, role, password, *, temporary: bool = True, actor: Use
     with db.transaction() as tx:
         row = tx.one(
             "insert into users (username, name, role, password_hash, must_change_password)"
-            f" values (%s, %s, %s, %s, %s) on conflict (username) do nothing returning {_COLS}",
+            f" values (?, ?, ?, ?, ?) on conflict (username) do nothing returning {_COLS}",
             (username, name, role, pw, bool(temporary)))
         if row is None:
             raise Refused("username_taken")
@@ -326,7 +321,6 @@ def update(user_id, *, name=None, role=None, disabled=None, actor: User | None) 
     new_name = _clean_name(name) if name is not None else None
     new_role = _check_role(role) if role is not None else None
     with db.transaction() as tx:
-        _lock(tx)
         cur = _target(tx, user_id, actor)
         if actor is not None:
             if new_role is not None and _rank(new_role) > _rank(actor.role):
@@ -339,23 +333,23 @@ def update(user_id, *, name=None, role=None, disabled=None, actor: User | None) 
             if not _other_owner(tx, cur["id"]):
                 raise Refused("last_owner")
         row = tx.one(
-            "update users set name = %s, role = %s, disabled = %s, updated_at = now() where id = %s"
+            "update users set name = ?, role = ?, disabled = ?, updated_at = ? where id = ?"
             f" returning {_COLS}",
-            (new_name if new_name is not None else cur["name"], final_role, final_disabled, cur["id"]))
+            (new_name if new_name is not None else cur["name"], final_role, int(final_disabled), db.now(),
+             cur["id"]))
         if final_disabled:
-            tx.execute("delete from sessions where user_id = %s", (cur["id"],))
+            tx.execute("delete from sessions where user_id = ?", (cur["id"],))
     return _user(row)
 
 
 def delete(user_id, *, actor: User | None) -> None:
     with db.transaction() as tx:
-        _lock(tx)
         cur = _target(tx, user_id, actor)
         if actor is not None and actor.id == cur["id"]:
             raise Refused("self_action")
         if cur["role"] == "owner" and not cur["disabled"] and not _other_owner(tx, cur["id"]):
             raise Refused("last_owner")
-        tx.execute("delete from users where id = %s", (cur["id"],))     # sessions go with it (cascade)
+        tx.execute("delete from users where id = ?", (cur["id"],))     # sessions go with it (cascade)
 
 
 def set_password(user_id, new_password, *, temporary: bool, actor: User | None = None) -> None:
@@ -364,14 +358,13 @@ def set_password(user_id, new_password, *, temporary: bool, actor: User | None =
     _check_password(new_password)
     pw = hash_secret(new_password)
     with db.transaction() as tx:
-        _lock(tx)
         cur = _target(tx, user_id, actor)
         tx.execute(
-            "update users set password_hash = %s, must_change_password = %s, updated_at = now(),"
-            " pin_hash = case when %s then null else pin_hash end,"
-            " pin_failures = case when %s then 0 else pin_failures end where id = %s",
-            (pw, bool(temporary), bool(temporary), bool(temporary), cur["id"]))
-        tx.execute("delete from sessions where user_id = %s", (cur["id"],))
+            "update users set password_hash = ?, must_change_password = ?, updated_at = ?,"
+            " pin_hash = case when ? then null else pin_hash end,"
+            " pin_failures = case when ? then 0 else pin_failures end where id = ?",
+            (pw, int(bool(temporary)), db.now(), int(bool(temporary)), int(bool(temporary)), cur["id"]))
+        tx.execute("delete from sessions where user_id = ?", (cur["id"],))
 
 
 def change_own_password(user: User, current: str, new: str, *, keep_token: str | None = None) -> None:
@@ -379,42 +372,41 @@ def change_own_password(user: User, current: str, new: str, *, keep_token: str |
     request) stays, so they are not signed out of the browser they are using. Clears must_change_password."""
     _check_password(new)
     with db.transaction() as tx:
-        _lock(tx)
-        row = tx.one("select password_hash from users where id = %s for update", (user.id,))
+        row = tx.one("select password_hash from users where id = ?", (user.id,))
         if row is None:
             raise Refused("not_found")
         if not isinstance(current, str) or not verify_secret(current, row["password_hash"]):
             raise Refused("wrong_password")
         if new == current:
             raise Refused("same_password")
-        tx.execute("update users set password_hash = %s, must_change_password = false, updated_at = now()"
-                   " where id = %s", (hash_secret(new), user.id))
+        tx.execute("update users set password_hash = ?, must_change_password = 0, updated_at = ?"
+                   " where id = ?", (hash_secret(new), db.now(), user.id))
         _end_sessions(tx, user.id, keep_token)
 
 
 def set_pin(user: User, password: str, pin: str) -> None:
     _check_pin(pin)
-    row = db.one("select password_hash from users where id = %s", (user.id,))
+    row = db.one("select password_hash from users where id = ?", (user.id,))
     if row is None:
         raise Refused("not_found")
     if not isinstance(password, str) or not verify_secret(password, row["password_hash"]):
         raise Refused("wrong_password")
-    db.execute("update users set pin_hash = %s, pin_failures = 0, updated_at = now() where id = %s",
-               (hash_secret(pin), user.id))
+    db.execute("update users set pin_hash = ?, pin_failures = 0, updated_at = ? where id = ?",
+               (hash_secret(pin), db.now(), user.id))
 
 
 def clear_pin(user_id) -> None:
     with db.transaction() as tx:
-        tx.execute("update users set pin_hash = null, pin_failures = 0, updated_at = now() where id = %s",
-                   (user_id,))
-        tx.execute("delete from sessions where user_id = %s and via = 'pin'", (user_id,))
+        tx.execute("update users set pin_hash = null, pin_failures = 0, updated_at = ? where id = ?",
+                   (db.now(), user_id))
+        tx.execute("delete from sessions where user_id = ? and via = 'pin'", (user_id,))
 
 
 def authenticate(username, password) -> User:
     """Refused("bad_login") for an unknown user or a wrong password alike; "disabled" only once the password
     was right (so it tells nothing to someone guessing)."""
     uname = username.strip().lower() if isinstance(username, str) else ""
-    row = db.one(f"select {_COLS}, password_hash from users where username = %s", (uname,)) if uname else None
+    row = db.one(f"select {_COLS}, password_hash from users where username = ?", (uname,)) if uname else None
     if row is None or not isinstance(password, str) or len(password) > 200:
         _burn()
         raise Refused("bad_login")
@@ -422,31 +414,32 @@ def authenticate(username, password) -> User:
         raise Refused("bad_login")
     if row["disabled"]:
         raise Refused("disabled")
-    db.execute("update users set last_login = now() where id = %s", (row["id"],))
+    db.execute("update users set last_login = ? where id = ?", (db.now(), row["id"]))
     return _user(row)
 
 
 def authenticate_pin(user_id, pin, device_id) -> User:
     """Sign in with a PIN. Only from a trusted device (`device_id` from device_for). The 5th wrong PIN in a
     row clears the PIN: Refused("pin_cleared")."""
-    if device_id is None or db.one("select 1 as x from trusted_devices where id = %s", (device_id,)) is None:
+    if device_id is None or db.one("select 1 as x from trusted_devices where id = ?", (device_id,)) is None:
         raise Refused("no_device")
-    row = db.one(f"select {_COLS}, pin_hash from users where id = %s", (user_id,))
+    row = db.one(f"select {_COLS}, pin_hash from users where id = ?", (user_id,))
     if row is None or not row["pin_hash"]:
         _burn()
         raise Refused("wrong_pin")
     if row["disabled"]:
         raise Refused("disabled")
     if isinstance(pin, str) and len(pin) <= 16 and verify_secret(pin, row["pin_hash"]):
-        db.execute("update users set pin_failures = 0, last_login = now() where id = %s", (row["id"],))
+        db.execute("update users set pin_failures = 0, last_login = ? where id = ?",
+                   (db.now(), row["id"]))
         return _user(row)
     with db.transaction() as tx:
-        n = tx.one("update users set pin_failures = pin_failures + 1 where id = %s and pin_hash is not null"
+        n = tx.one("update users set pin_failures = pin_failures + 1 where id = ? and pin_hash is not null"
                    " returning pin_failures", (row["id"],))
         locked = n is not None and n["pin_failures"] >= PIN_ATTEMPTS
         if locked:
-            tx.execute("update users set pin_hash = null, pin_failures = 0 where id = %s", (row["id"],))
-            tx.execute("delete from sessions where user_id = %s and via = 'pin'", (row["id"],))
+            tx.execute("update users set pin_hash = null, pin_failures = 0 where id = ?", (row["id"],))
+            tx.execute("delete from sessions where user_id = ? and via = 'pin'", (row["id"],))
     raise Refused("pin_cleared" if locked else "wrong_pin")
 
 
@@ -474,10 +467,10 @@ def start_session(user: User, *, via: str, device_id: int | None = None) -> tupl
     age = PASSWORD_SESSION_SECONDS if via == "password" else PIN_SESSION_SECONDS
     token = secrets.token_urlsafe(32)
     with db.transaction() as tx:
-        tx.execute("delete from sessions where expires_at < now()")      # housekeeping, no timer needed
+        tx.execute("delete from sessions where expires_at < ?", (db.now(),))      # housekeeping, no timer needed
         tx.execute("insert into sessions (user_id, token_hash, via, device_id, expires_at)"
-                   " values (%s, %s, %s, %s, now() + make_interval(secs => %s))",
-                   (user.id, _hash_token(token), via, device_id if via == "pin" else None, age))
+                   " values (?, ?, ?, ?, ?)",
+                   (user.id, _hash_token(token), via, device_id if via == "pin" else None, db.later(age)))
     return token, age
 
 
@@ -485,21 +478,22 @@ def session_user(token: str) -> User | None:
     if not _valid_token(token):
         return None
     row = db.one(f"select {_COLS_U} from sessions s join users u on u.id = s.user_id"
-                 " where s.token_hash = %s and s.expires_at > now() and not u.disabled", (_hash_token(token),))
+                 " where s.token_hash = ? and s.expires_at > ? and not u.disabled",
+                 (_hash_token(token), db.now()))
     return _user(row) if row else None
 
 
 def end_session(token: str) -> None:
     if _valid_token(token):
-        db.execute("delete from sessions where token_hash = %s", (_hash_token(token),))
+        db.execute("delete from sessions where token_hash = ?", (_hash_token(token),))
 
 
 def _end_sessions(tx, user_id, except_token) -> None:
     if _valid_token(except_token):
-        tx.execute("delete from sessions where user_id = %s and token_hash <> %s",
+        tx.execute("delete from sessions where user_id = ? and token_hash <> ?",
                    (user_id, _hash_token(except_token)))
     else:
-        tx.execute("delete from sessions where user_id = %s", (user_id,))
+        tx.execute("delete from sessions where user_id = ?", (user_id,))
 
 
 def end_sessions(user_id, *, except_token: str | None = None) -> None:
@@ -517,9 +511,9 @@ def trust_device(name: str, actor: User) -> tuple[str, dict]:
     name = _clean_name(name, "bad_device_name")
     token = secrets.token_urlsafe(32)
     with db.transaction() as tx:
-        new = tx.one("insert into trusted_devices (name, token_hash, created_by) values (%s, %s, %s)"
+        new = tx.one("insert into trusted_devices (name, token_hash, created_by) values (?, ?, ?)"
                      " returning id", (name, _hash_token(token), actor.id))
-        row = tx.one(f"select {_DEVICE_COLS} where d.id = %s", (new["id"],))
+        row = tx.one(f"select {_DEVICE_COLS} where d.id = ?", (new["id"],))
     return token, row
 
 
@@ -529,12 +523,12 @@ def device_for(token: str) -> dict | None:
     read should not cost a write each time."""
     if not _valid_token(token):
         return None
-    row = db.one("select id, name, (last_used is null or last_used < now() - interval '10 minutes') as stale"
-                 " from trusted_devices where token_hash = %s", (_hash_token(token),))
+    row = db.one("select id, name, (last_used is null or last_used < ?) as stale"
+                 " from trusted_devices where token_hash = ?", (db.later(-600), _hash_token(token)))
     if row is None:
         return None
     if row.pop("stale"):
-        db.execute("update trusted_devices set last_used = now() where id = %s", (row["id"],))
+        db.execute("update trusted_devices set last_used = ? where id = ?", (db.now(), row["id"]))
     return row
 
 
@@ -544,5 +538,5 @@ def list_devices() -> list[dict]:
 
 def revoke_device(device_id) -> None:
     """Forget a device; the PIN sessions that came from it end with it (cascade)."""
-    if db.execute("delete from trusted_devices where id = %s", (device_id,)) == 0:
+    if db.execute("delete from trusted_devices where id = ?", (device_id,)) == 0:
         raise Refused("not_found")

@@ -1,7 +1,7 @@
 """The web layer of the user system, end to end: first-run setup, sign-in, PIN sign-in on trusted devices,
 forced password change, every /api/admin route against every role, the users API and its rank rules.
 
-Runs against a real throwaway Postgres (tests/_pg.py). Offline: no OpenAI, no hardware.
+Runs against a real throwaway SQLite file (tests/_db.py). Offline: no OpenAI, no hardware.
 Run: .venv/bin/python tests/test_auth.py
 """
 import asyncio
@@ -19,10 +19,10 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 os.environ["RELAY_CONFIG"] = os.path.join(tempfile.mkdtemp(), "config.json")
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import _pg  # noqa: E402
+import _db  # noqa: E402
 
-_pg.start()
-_pg.reset()
+_db.start()
+_db.reset()
 
 from fastapi.routing import APIRoute  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
@@ -100,8 +100,10 @@ config.save({"admin_token": SETUP_TOKEN, "port": 8000, "admin_port": 8001,
 
 # ------------------------------------------------------------------ the database is down
 print("database unavailable")
-good_url = os.environ["RELAY_DATABASE_URL"]
-os.environ["RELAY_DATABASE_URL"] = "postgresql://relay@/relay?host=/nonexistent-relay-dir"
+good_url = os.environ["RELAY_DATABASE"]
+broken = Path(os.environ["RELAY_CONFIG"]).parent / "broken.db"
+broken.write_bytes(b"this is not a database file " * 100)        # a corrupt file: it cannot be opened
+os.environ["RELAY_DATABASE"] = str(broken)
 db.close()
 M._db_ready = False
 M.forget_users_cache()
@@ -118,18 +120,19 @@ eq("the viewer page still answers", anon(VIEWER).get("/").status_code, 200)
 eq("the caption page still answers", anon(VIEWER).get("/translation").status_code, 200)
 eq("healthz still answers", anon(VIEWER).get("/healthz").status_code, 200)
 eq("a panel check-in still answers", anon(VIEWER).get("/api/targets").status_code, 200)
-del os.environ["RELAY_DATABASE_URL"]
 db.close()
 M._db_ready = False
-eq("not configured at all is the same 503", anon().get("/admin").status_code, 503)
-os.environ["RELAY_DATABASE_URL"] = good_url
+os.environ["RELAY_DATABASE"] = str(Path(os.environ["RELAY_CONFIG"]).parent / "afile" / "x" / "relay.db")
+(Path(os.environ["RELAY_CONFIG"]).parent / "afile").write_text("a file where a folder should be")
+eq("a file that cannot be created is the same 503", anon().get("/admin").status_code, 503)
+os.environ["RELAY_DATABASE"] = good_url
 db.close()
 M._db_ready = False
 eq("and it recovers when the database comes back", anon().get("/admin").status_code, 200)
 
 # ------------------------------------------------------------------ first run
 print("first run")
-_pg.reset()
+_db.reset()
 fresh()
 c = anon()
 r = c.get("/admin")
@@ -194,7 +197,7 @@ check("signed out with users: the sign-in form, no token field",
 check("…with autocomplete hints", 'autocomplete="username"' in r.text and 'autocomplete="current-password"' in r.text)
 
 # Two valid first-run posts at once: one Owner.
-_pg.reset()
+_db.reset()
 fresh()
 barrier_form = {**form, "token": SETUP_TOKEN}
 
@@ -210,9 +213,9 @@ eq("…and there is one Owner", users.count(), 1)
 
 # ------------------------------------------------------------------ sign-in, cookies, lockout
 print("sign-in")
-_pg.reset()
+_db.reset()
 fresh()
-owner = _pg.owner("owner", PW)
+owner = _db.owner("owner", PW)
 M.forget_users_cache()
 c = anon()
 t0 = time.monotonic()
@@ -274,7 +277,7 @@ fresh()
 
 # ------------------------------------------------------------------ logout
 print("logout")
-c = _pg.client(app)
+c = _db.client(app)
 old = c.cookies.get("relay_admin")
 eq("signed in", c.get("/api/admin/me").status_code, 200)
 r = c.post("/admin/logout", follow_redirects=False)
@@ -289,7 +292,7 @@ eq("logging out signed out is harmless", anon().post("/admin/logout", follow_red
 print("roles")
 ROLE_NAMES = ("viewer", "operator", "admin", "owner")
 RANK = {r: i + 1 for i, r in enumerate(ROLE_NAMES)}
-clients = {role: _pg.client(app, role) for role in ROLE_NAMES}
+clients = {role: _db.client(app, role) for role in ROLE_NAMES}
 owner_c, admin_c, op_c, view_c = (clients[r] for r in ("owner", "admin", "operator", "viewer"))
 
 # The catalogue, written out here independently of users.py.
@@ -730,11 +733,11 @@ r = owner_c.put(f"/api/admin/users/{owner_id}", json={"role": "admin"})
 eq("…and then the one left is protected again", r.status_code, 409)
 
 # Reset, signout, disable: the other person's next request.
-tmp_c = _pg.client(app, "operator", username="tempop")
+tmp_c = _db.client(app, "operator", username="tempop")
 r = admin_c.post(f"/api/admin/users/{users.get_by_username('tempop').id}/signout")
 eq("an admin signs an operator out", (r.status_code, r.json()), (200, {"ok": True}))
 eq("…their next request is 401", tmp_c.get("/api/admin/me").status_code, 401)
-tmp_c = _pg.client(app, "operator", username="tempop")
+tmp_c = _db.client(app, "operator", username="tempop")
 tid = users.get_by_username("tempop").id
 r = admin_c.post(f"/api/admin/users/{tid}/password", json={"password": "reset reset 1"})
 eq("an admin resets their password", (r.status_code, r.json()), (200, {"ok": True}))
@@ -742,19 +745,19 @@ eq("…which ends their sessions", tmp_c.get("/api/admin/me").status_code, 401)
 t2 = anon()
 login(t2, "tempop", "reset reset 1")
 eq("…and the new one is temporary", t2.get("/api/admin/me").json()["user"]["must_change_password"], True)
-tmp_c = _pg.client(app, "operator", username="tempop")
+tmp_c = _db.client(app, "operator", username="tempop")
 r = admin_c.put(f"/api/admin/users/{tid}", json={"disabled": True})
 eq("an admin turns an operator off", (r.status_code, r.json()["user"]["disabled"]), (200, True))
 eq("…their next request is 401", tmp_c.get("/api/admin/me").status_code, 401)
 eq("…and they cannot sign in", login(anon(), "tempop").status_code, 403)
 admin_c.put(f"/api/admin/users/{tid}", json={"disabled": False})
-tmp_c = _pg.client(app, "operator", username="tempop")
+tmp_c = _db.client(app, "operator", username="tempop")
 r = admin_c.delete(f"/api/admin/users/{tid}")
 eq("an admin deletes an operator", r.status_code, 200)
 eq("…their session is gone", tmp_c.get("/api/admin/me").status_code, 401)
 
 # Self-service PIN and password.
-me_c = _pg.client(app, "operator", username="selfserve")
+me_c = _db.client(app, "operator", username="selfserve")
 r = me_c.post("/api/admin/me/pin", json={"password": "bad bad bad", "pin": "1234"})
 eq("a PIN needs the right password", (r.status_code, detail(r)), (403, MSG["wrong_password"]))
 r = me_c.post("/api/admin/me/pin", json={"password": PW, "pin": "12"})
@@ -800,10 +803,10 @@ eq("the list has the contract's shape", (sorted(r.json()), sorted(r.json()["devi
 eq("…and says which is this browser", r.json()["this"], dev["id"])
 eq("…another browser has none", owner_c.get("/api/admin/trusted-devices").json()["this"], None)
 eq("/me knows the device", admin_c.get("/api/admin/me").json()["device"], {"trusted": True, "name": "Booth iPad"})
-r = _pg.client(app, "admin", username="admin").post("/api/admin/trusted-devices", json={"name": "Secure one"},
+r = _db.client(app, "admin", username="admin").post("/api/admin/trusted-devices", json={"name": "Secure one"},
                                                   headers={"x-forwarded-proto": "https"})
 check("a device cookie from a LAN client is not Secure however it claims", "secure" not in cookie_attrs(r, "relay_device"))
-r = _pg.client(app, "admin", username="admin", client=("127.0.0.1", 5)).post(
+r = _db.client(app, "admin", username="admin", client=("127.0.0.1", 5)).post(
     "/api/admin/trusted-devices", json={"name": "TLS one"}, headers={"x-forwarded-proto": "https"})
 check("…and through the TLS front end it is", "secure" in cookie_attrs(r, "relay_device"))
 for d in admin_c.get("/api/admin/trusted-devices").json()["devices"]:
@@ -812,9 +815,9 @@ for d in admin_c.get("/api/admin/trusted-devices").json()["devices"]:
 
 # A PIN for the operator, then sign in with it from the trusted browser.
 fresh()
-pin_c = _pg.client(app, "operator", username="pinuser")
+pin_c = _db.client(app, "operator", username="pinuser")
 pin_c.post("/api/admin/me/pin", json={"password": PW, "pin": "2468"})
-nopin_c = _pg.client(app, "viewer", username="nopin")
+nopin_c = _db.client(app, "viewer", username="nopin")
 users_with_pins = users.pin_users()
 eq("pin_users lists only people with a PIN", [u["name"] for u in users_with_pins], ["Pinuser"])
 
@@ -874,7 +877,7 @@ fresh()
 check("…and the picker no longer lists them", "Pinuser" not in browser().get("/admin").text)
 
 # Revoking a device ends its PIN sessions.
-pin_c = _pg.client(app, "operator", username="pinuser")
+pin_c = _db.client(app, "operator", username="pinuser")
 pin_c.post("/api/admin/me/pin", json={"password": PW, "pin": "2468"})
 b = browser()
 eq("PIN sign-in again", b.post("/admin/login/pin", data={"user_id": uid, "pin": "2468"}, follow_redirects=False).status_code, 303)
@@ -1013,7 +1016,7 @@ async def loop_survives():
 
     def boom():
         n.append(1)
-        raise RuntimeError("pg_dump exploded")
+        raise RuntimeError("backup exploded")
     saved = (M._backup_if_due, M.BACKUP_FIRST_DELAY_S, M.BACKUP_EVERY_S)
     M._backup_if_due, M.BACKUP_FIRST_DELAY_S, M.BACKUP_EVERY_S = boom, 0.01, 0.01
     logging.disable(logging.CRITICAL)           # the failure is logged with a traceback; keep the output clean

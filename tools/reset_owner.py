@@ -5,22 +5,16 @@
 
 Creates the user if they do not exist; otherwise re-enables and promotes them. Asks for the new password
 twice without showing it (nothing secret is printed, so nothing lands in a terminal log), ends all their
-sessions and clears their PIN. In the container:
+sessions and clears their PIN. It opens the same relay.db the app does (beside config.json, or the file
+RELAY_DATABASE names). In the container:
     docker exec -it live-caption-relay python tools/reset_owner.py <username>
 """
 import getpass
-import os
 import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
-
-# `docker exec` does not inherit what the entrypoint exported, so inside the container fall back to the
-# socket Postgres listens on there (docker/postgres.sh).
-CONTAINER_SOCKET = Path("/tmp/relay-pg")
-if not os.environ.get("RELAY_DATABASE_URL") and CONTAINER_SOCKET.is_dir():
-    os.environ["RELAY_DATABASE_URL"] = f"postgresql://relay@/relay?host={CONTAINER_SOCKET}"
 
 from app import db, users  # noqa: E402
 
@@ -30,9 +24,8 @@ def main(argv: list[str]) -> int:
         print("Usage: python tools/reset_owner.py <username>", file=sys.stderr)
         return 2
     if not db.init():
-        why = ("RELAY_DATABASE_URL is not set" if not db.configured()
-               else "the database cannot be reached or migrated (see the log above)")
-        print(f"  The user database is not available: {why}.", file=sys.stderr)
+        print(f"  The user database is not available: {db.path()} cannot be opened or migrated "
+              "(see the log above).", file=sys.stderr)
         return 1
     try:
         password = getpass.getpass("  New password (8 characters or more): ")
@@ -65,5 +58,5 @@ if __name__ == "__main__":
     try:
         code = main(sys.argv)
     finally:
-        db.close()      # before the interpreter tears down, or the pool complains on its way out
+        db.close()      # so the file is closed cleanly
     raise SystemExit(code)

@@ -9,10 +9,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 os.environ.setdefault("RELAY_CONFIG", os.path.join(tempfile.mkdtemp(), "config.json"))
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import _pg  # noqa: E402  (a throwaway Postgres for the user system; must come before app.main)
+import _db  # noqa: E402  (a throwaway SQLite file for the user system; must come before app.main)
 
-_pg.start()
-_pg.reset()
+_db.start()
+_db.reset()
 
 import numpy as np
 from fastapi.testclient import TestClient
@@ -897,7 +897,7 @@ h = {"x-admin-token": "t0ken"}
 st = c.get("/api/admin/state", headers=h)
 check("state with the setup token, before any user exists", st.status_code == 200)
 # ... and from here on there are accounts, so everything below signs in.
-sc = _pg.client(app, base_url="http://testserver")
+sc = _db.client(app, base_url="http://testserver")
 check("the setup token stops working once a user exists",
       c.get("/api/admin/state", headers=h).status_code == 401)
 body = st.json()
@@ -977,7 +977,7 @@ finally:
 print("\noperator panel is served on its own port")
 config.save({"admin_token": "t0ken", "port": 8000, "admin_port": 8001})
 viewer_c = TestClient(app, base_url="http://relay.local:8000")
-admin_c = _pg.client(app, base_url="http://relay.local:8001")
+admin_c = _db.client(app, base_url="http://relay.local:8001")
 for path in ("/admin", "/admin/login", "/api/admin/status", "/api/admin/state"):
     check(f"viewer port hides {path}", viewer_c.get(path).status_code == 404, path)
 check("viewer pages still served on the viewer port",
@@ -1027,7 +1027,7 @@ import urllib.parse as _up
 from app import main as _main, users as _users
 _main._LOGIN_FAILS.clear()
 for _tok in ("contraseña", "пароль"):
-    _pg.reset()
+    _db.reset()
     config.save({"admin_token": _tok})
     c2 = TestClient(app)
     lr = c2.post("/admin/setup", data={"token": _tok, "username": "first", "name": "First",
@@ -1045,8 +1045,8 @@ check("a non-ascii password signs in",
       TestClient(app).post("/admin/login", data={"username": "first", "password": "pässwörd-1234"},
                            follow_redirects=False).status_code == 303)
 config.save({"admin_token": "t0ken"})
-_pg.reset()
-sc = _pg.client(app, base_url="http://testserver")      # the reset ended the earlier session
+_db.reset()
+sc = _db.client(app, base_url="http://testserver")      # the reset ended the earlier session
 
 print("\nadmin session cookie")
 _main._LOGIN_FAILS.clear()

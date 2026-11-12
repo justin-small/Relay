@@ -24,10 +24,10 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 os.environ["RELAY_CONFIG"] = os.path.join(tempfile.mkdtemp(), "config.json")
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import _pg  # noqa: E402  (a throwaway Postgres for the user system; must come before app.main)
+import _db  # noqa: E402  (a throwaway SQLite file for the user system; must come before app.main)
 
-_pg.start()
-_pg.reset()
+_db.start()
+_db.reset()
 
 from fastapi.testclient import TestClient
 
@@ -416,7 +416,7 @@ from app.modules import modules as _modules  # noqa: E402
 _modules.attach("planning_center")
 _modules.attach("propresenter")
 viewer = TestClient(app, base_url="http://relay.local:8000")
-admin = _pg.client(app, base_url="http://relay.local:8001")
+admin = _db.client(app, base_url="http://relay.local:8001")
 
 
 def configure(srv, **extra):
@@ -942,8 +942,8 @@ eq("no control route answers without signing in", sorted(set(codes.values())), [
 eq("and none reached ProPresenter", fake.requests, [])
 
 # -- roles: an operator controls, a viewer reads, only an admin changes the setup
-operator = _pg.client(app, "operator", base_url="http://relay.local:8001")
-viewer_user = _pg.client(app, "viewer", base_url="http://relay.local:8001")
+operator = _db.client(app, "operator", base_url="http://relay.local:8001")
+viewer_user = _db.client(app, "viewer", base_url="http://relay.local:8001")
 fake.requests.clear()
 eq("an operator steps the slides", operator.post(B + "/step", json={"direction": "next"}).status_code, 200)
 eq("an operator triggers a macro, a look and a message",

@@ -1,6 +1,6 @@
-"""Users, roles, sessions, trusted devices and the database layer, against a real throwaway Postgres.
+"""Users, roles, sessions, trusted devices and the database layer, against a real throwaway SQLite file.
 
-Run: .venv/bin/python tests/test_users.py   (needs Postgres: see tests/_pg.py; RELAY_TEST_DATABASE_URL works too)
+Run: .venv/bin/python tests/test_users.py   (nothing to install: see tests/_db.py)
 """
 import logging
 import os
@@ -8,7 +8,9 @@ import shutil
 import stat
 import subprocess
 import sys
+import sqlite3
 import tempfile
+import threading
 import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -21,9 +23,9 @@ WORK = tempfile.mkdtemp(prefix="relay-users-")
 os.environ["RELAY_CONFIG"] = os.path.join(WORK, "config.json")
 os.environ["RELAY_DB_BACKUPS"] = os.path.join(WORK, "backups")
 
-import _pg  # noqa: E402
+import _db  # noqa: E402
 
-_pg.start()
+_db.start()
 
 from app import db, users  # noqa: E402
 from app.users import Permission, Refused  # noqa: E402
@@ -67,15 +69,21 @@ def mk(username, role, password="password one", actor=None, **kw):
                         actor=actor, **kw)
 
 
+def _left(token):
+    """How long a stored session has left."""
+    at = db.one("select expires_at from sessions where token_hash = ?", (users._hash_token(token),))["expires_at"]
+    return datetime.strptime(at, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc) - datetime.now(timezone.utc)
+
+
 def age(token, seconds):
     """Move a session's expiry `seconds` into the past (negative: future) without sleeping."""
-    db.execute("update sessions set expires_at = now() - make_interval(secs => %s) where token_hash = %s",
-               (seconds, users._hash_token(token)))
+    db.execute("update sessions set expires_at = ? where token_hash = ?",
+               (db.later(-seconds), users._hash_token(token)))
 
 
 # ------------------------------------------------------------------ database layer
 print("\ndatabase: migrations")
-_pg.reset()
+_db.reset()
 check("init() is true with a database", db.init())
 check("available() is true", db.available())
 rows = db.query("select namespace, version from schema_migrations order by version")
@@ -88,7 +96,7 @@ eq("one migration row after re-run", db.one("select count(*) as n from schema_mi
 
 mdir = Path(WORK) / "mig_a"
 mdir.mkdir()
-(mdir / "0001_first.sql").write_text("create table modx_things (id int primary key, label text);\n"
+(mdir / "0001_first.sql").write_text("create table modx_things (id integer primary key, label text);\n"
                                      "insert into modx_things values (1, '100% real');\n")
 (mdir / "0002_second.sql").write_text("alter table modx_things add column extra int default 7;\n")
 (mdir / "notes.txt").write_text("ignored")
@@ -108,14 +116,14 @@ eq("core namespace untouched", db.one("select count(*) as n from schema_migratio
 bad = Path(WORK) / "mig_bad"
 bad.mkdir()
 (bad / "0001_ok.sql").write_text("create table modbad_t (id int);\n")
-(bad / "0002_boom.sql").write_text("select no_such_function();\n")
+(bad / "0002_boom.sql").write_text("select * from no_such_table;\n")
 try:
     db.migrate("modbad", bad)
     check("a failing migration raises", False)
 except Exception as e:
     check("a failing migration raises", not isinstance(e, db.Unavailable))
 eq("a failing migration rolls the whole run back",
-   db.one("select to_regclass('modbad_t') as t")["t"], None)
+   db.one("select name from sqlite_master where name = 'modbad_t'"), None)
 eq("and records nothing", db.one("select count(*) as n from schema_migrations where namespace = 'modbad'")["n"], 0)
 try:
     db.migrate("Bad Name", mdir)
@@ -126,7 +134,7 @@ except ValueError:
 print("\ndatabase: query helpers")
 eq("query returns dict rows", db.query("select 1 as a, 'x' as b"), [{"a": 1, "b": "x"}])
 eq("one returns None for no row", db.one("select 1 where false"), None)
-eq("execute returns the rowcount", db.execute("update modx_things set label = %s", ("y",)), 1)
+eq("execute returns the rowcount", db.execute("update modx_things set label = ?", ("y",)), 1)
 eq("percent signs pass when there are no params", db.query("select '100%' as p"), [{"p": "100%"}])
 try:
     with db.transaction() as tx:
@@ -140,32 +148,25 @@ with db.transaction() as tx:
     tx.execute("insert into modx_things (id) values (3)")
 eq("transaction commits on success", db.one("select count(*) as n from modx_things")["n"], 2)
 
-print("\ndatabase: not configured / unreachable")
-real_url = os.environ["RELAY_DATABASE_URL"]
-os.environ.pop("RELAY_DATABASE_URL")
-db.close()
-check("configured() is false without the variable", not db.configured())
-check("available() is false", not db.available())
-eq("init() returns False and does not raise", db.init(), False)
-for label, fn in (("query", lambda: db.query("select 1")), ("one", lambda: db.one("select 1")),
-                  ("execute", lambda: db.execute("select 1")), ("transaction", lambda: db.transaction().__enter__()),
-                  ("migrate", lambda: db.migrate("core", db.CORE_MIGRATIONS)), ("users.count", users.count)):
-    try:
-        fn()
-        check(f"{label} raises Unavailable when not configured", False)
-    except db.Unavailable:
-        check(f"{label} raises Unavailable when not configured", True)
-eq("backup() is None when not configured", db.backup(), None)
-check("backup_due() is false when not configured", not db.backup_due())
+print("\ndatabase: file settings")
+dbfile = Path(os.environ["RELAY_DATABASE"])
+check("configured() is true: there is always a default place", db.configured())
+eq("RELAY_DATABASE chooses the file", db.path(), dbfile)
+check("the file exists", dbfile.exists())
+eq("file mode is 0600", stat.S_IMODE(dbfile.stat().st_mode), 0o600) if os.name == "posix" else None
+eq("WAL journal mode", db.one("pragma journal_mode")["journal_mode"], "wal")
+eq("foreign keys are on", db.one("pragma foreign_keys")["foreign_keys"], 1)
+check("a busy timeout is set", db.one("pragma busy_timeout")["timeout"] >= 1000)
+saved_env = os.environ.pop("RELAY_DATABASE")
+eq("the default file sits beside config.json", db.path(), Path(os.environ["RELAY_CONFIG"]).parent / "relay.db")
+os.environ["RELAY_DATABASE"] = saved_env
+check("this SQLite is new enough", db.sqlite3.sqlite_version_info >= db.MIN_SQLITE)
 
-out = subprocess.run(
-    [sys.executable, "-c", "from app import db, users; print(db.init(), db.available())"],
-    cwd=ROOT, env={k: v for k, v in os.environ.items() if k != "RELAY_DATABASE_URL"},
-    capture_output=True, text=True, timeout=60)
-eq("import + init() with no database does not raise", (out.returncode, out.stdout.strip()), (0, "False False"))
-
-secret = "hunter2-very-secret"
-os.environ["RELAY_DATABASE_URL"] = f"postgresql://relay:{secret}@/relay?host=/nonexistent-relay-pg-dir"
+print("\ndatabase: a file that cannot be opened")
+real_file = os.environ["RELAY_DATABASE"]
+junk = Path(WORK) / "junk.db"
+junk.write_bytes(b"this is not a database file " * 100)
+os.environ["RELAY_DATABASE"] = str(junk)
 db.close()
 records = []
 
@@ -178,30 +179,41 @@ class Grab(logging.Handler):
 h = Grab()
 logging.getLogger("relay").addHandler(h)
 logging.getLogger("relay").setLevel(logging.DEBUG)
+check("available() is false for a corrupt file", not db.available())
+eq("init() returns False and does not raise", db.init(), False)
+for label, fn in (("query", lambda: db.query("select 1")), ("one", lambda: db.one("select 1")),
+                  ("execute", lambda: db.execute("select 1")), ("transaction", lambda: db.transaction().__enter__()),
+                  ("migrate", lambda: db.migrate("core", db.CORE_MIGRATIONS)), ("users.count", users.count)):
+    try:
+        fn()
+        check(f"{label} raises Unavailable for a corrupt file", False)
+    except db.Unavailable as e:
+        check(f"{label} raises Unavailable for a corrupt file", True)
+        check(f"{label}: the text is the fixed sentence", str(e) == "The database is unavailable.", str(e))
+eq("backup() is None when the database is unavailable", db.backup(), None)
 t0 = time.monotonic()
-eq("init() returns False for an unreachable server", db.init(), False)
-check("an unreachable socket fails fast", time.monotonic() - t0 < 4, time.monotonic() - t0)
-t0 = time.monotonic()
-for _ in range(20):
+for _ in range(200):
     try:
         db.query("select 1")
     except db.Unavailable:
         pass
-check("backoff: 20 calls on a down database cost no connects", time.monotonic() - t0 < 0.5, time.monotonic() - t0)
+check("backoff: 200 calls on a broken database cost no open attempts", time.monotonic() - t0 < 0.5,
+      time.monotonic() - t0)
 check("something was logged", bool(records))
-check("the password never reaches a log line", not any(secret in r for r in records), records)
-try:
-    db.query("select 1")
-except db.Unavailable as e:
-    check("Unavailable text carries no conninfo", secret not in str(e) and "nonexistent" not in str(e))
-if shutil.which("pg_dump"):
-    eq("backup() is None when pg_dump cannot connect", db.backup(), None)
-    bd = Path(os.environ["RELAY_DB_BACKUPS"])
-    check("a failed dump leaves no file behind", not bd.exists() or not list(bd.iterdir()))
-check("the password never reaches a log line (backup)", not any(secret in r for r in records), records)
+check("the file's path never reaches a log line", not any("junk.db" in r for r in records), records)
+out = subprocess.run(
+    [sys.executable, "-c", "from app import db, users; print(db.init(), db.available())"],
+    cwd=ROOT, env={**os.environ, "RELAY_DATABASE": str(junk)}, capture_output=True, text=True, timeout=60)
+eq("import + init() on a corrupt file does not raise", (out.returncode, out.stdout.strip()), (0, "False False"))
+
+blocker = Path(WORK) / "afile"
+blocker.write_text("a file where a folder should be")
+os.environ["RELAY_DATABASE"] = str(blocker / "x" / "relay.db")
+db.close()
+check("a path that cannot be created is unavailable, not an exception", not db.available())
 logging.getLogger("relay").removeHandler(h)
 
-os.environ["RELAY_DATABASE_URL"] = real_url
+os.environ["RELAY_DATABASE"] = real_file
 db._down_until = 0.0         # as if the backoff had elapsed: the next call re-probes without close()
 check("re-probes after the backoff and recovers", db.available())
 eq("calls work again", db.query("select 1 as a"), [{"a": 1}])
@@ -273,7 +285,7 @@ check("garbage hashes verify nothing", not any(users.verify_secret("x", g) for g
                                                 "md5$1$2$3$4$5", "scrypt$99999999$8$1$AA==$AA==")))
 
 print("\nvalidation")
-_pg.reset()
+_db.reset()
 for bad_name in ("ab", "x" * 33, "has space", "UPPER!", "a/b", "", None, "tab\tx", "é" * 4):
     refused(f"username {bad_name!r} refused", "bad_username", users.create, bad_name, "N", "viewer", "password one")
 a = users.create("  Mixed.Case_1-x  ", "  Pat Smith  ", "viewer", "password one")
@@ -302,8 +314,8 @@ refused("PIN needs the right password", "wrong_password", users.set_pin, o, "nop
 
 # ------------------------------------------------------------------ authentication
 print("\nauthenticate")
-_pg.reset()
-own = _pg.owner("owner", "correct horse")
+_db.reset()
+own = _db.owner("owner", "correct horse")
 eq("owner() makes an enabled owner", (own.role, own.disabled, own.must_change_password), ("owner", False, False))
 eq("count()", users.count(), 1)
 au = users.authenticate("owner", "correct horse")
@@ -329,8 +341,8 @@ eq("list_users keys", sorted(row), sorted(["id", "username", "name", "role", "di
 
 # ------------------------------------------------------------------ actor rules
 print("\nactor rules")
-_pg.reset()
-own = _pg.owner()
+_db.reset()
+own = _db.owner()
 own2 = mk("owner2", "owner", actor=own)
 adm = mk("admin1", "admin", actor=own)
 adm2 = mk("admin2", "admin", actor=adm)
@@ -383,8 +395,8 @@ eq("renaming the last owner is fine", users.update(own.id, name="Boss", actor=ow
 
 # ------------------------------------------------------------------ passwords and sessions
 print("\npasswords and sessions")
-_pg.reset()
-own = _pg.owner()
+_db.reset()
+own = _db.owner()
 usr = mk("pat", "operator", "first password")
 t_a, age_a = users.start_session(usr, via="password")
 t_b, _ = users.start_session(usr, via="password")
@@ -392,8 +404,8 @@ t_o, _ = users.start_session(own, via="password")
 eq("password sessions last 30 days", age_a, 30 * 24 * 3600)
 check("tokens are random and long", t_a != t_b and len(t_a) >= 40)
 check("only the sha256 is stored, not the token",
-      db.one("select count(*) as n from sessions where token_hash = %s", (t_a,))["n"] == 0
-      and db.one("select count(*) as n from sessions where token_hash = %s", (users._hash_token(t_a),))["n"] == 1)
+      db.one("select count(*) as n from sessions where token_hash = ?", (t_a,))["n"] == 0
+      and db.one("select count(*) as n from sessions where token_hash = ?", (users._hash_token(t_a),))["n"] == 1)
 eq("session_user resolves a token", users.session_user(t_a).id, usr.id)
 check("garbage and empty tokens resolve to nobody",
       users.session_user("nope") is None and users.session_user("") is None and users.session_user(None) is None)
@@ -434,12 +446,12 @@ refused("reset checks the password", "bad_password", users.set_password, usr.id,
 print("\nsession lifetime")
 t_p, age_p = users.start_session(usr, via="password")
 eq("max_age for password", age_p, 2592000)
-exp = db.one("select expires_at - now() as d from sessions where token_hash = %s", (users._hash_token(t_p),))["d"]
+exp = _left(t_p)
 check("30 days stored", timedelta(days=29, hours=23) < exp <= timedelta(days=30), exp)
 dev_tok, dev = users.trust_device("Booth iPad", own)
 t_n, age_n = users.start_session(usr, via="pin", device_id=dev["id"])
 eq("max_age for pin", age_n, 12 * 3600)
-exp = db.one("select expires_at - now() as d from sessions where token_hash = %s", (users._hash_token(t_n),))["d"]
+exp = _left(t_n)
 check("12 hours stored", timedelta(hours=11, minutes=59) < exp <= timedelta(hours=12), exp)
 try:
     users.start_session(usr, via="pin")
@@ -462,7 +474,7 @@ age(t_n, 1)
 check("pin session expired", users.session_user(t_n) is None)
 t_x, _ = users.start_session(usr, via="password")
 eq("expired rows are swept when a session starts",
-   db.one("select count(*) as n from sessions where token_hash = %s", (users._hash_token(t_p),))["n"], 0)
+   db.one("select count(*) as n from sessions where token_hash = ?", (users._hash_token(t_p),))["n"], 0)
 
 print("\nsession ending")
 t_s, _ = users.start_session(usr, via="password")
@@ -488,21 +500,21 @@ tv, _ = users.start_session(v, via="password")
 users.update(v.id, disabled=True, actor=own)
 check("disabling ends their sessions at once", users.session_user(tv) is None)
 eq("the session rows are gone, not merely hidden",
-   db.one("select count(*) as n from sessions where user_id = %s", (v.id,))["n"], 0)
+   db.one("select count(*) as n from sessions where user_id = ?", (v.id,))["n"], 0)
 users.update(v.id, disabled=False, actor=own)
 check("enabling does not resurrect them", users.session_user(tv) is None)
 tv, _ = users.start_session(v, via="password")
-db.execute("update users set disabled = true where id = %s", (v.id,))      # disabled behind users.py's back
+db.execute("update users set disabled = true where id = ?", (v.id,))      # disabled behind users.py's back
 check("session_user also refuses a disabled user", users.session_user(tv) is None)
-db.execute("update users set disabled = false where id = %s", (v.id,))
+db.execute("update users set disabled = false where id = ?", (v.id,))
 users.delete(v.id, actor=own)
 check("deleting a user ends their sessions", users.session_user(tv) is None)
-eq("and cascades the rows", db.one("select count(*) as n from sessions where user_id = %s", (v.id,))["n"], 0)
+eq("and cascades the rows", db.one("select count(*) as n from sessions where user_id = ?", (v.id,))["n"], 0)
 
 # ------------------------------------------------------------------ trusted devices and PINs
 print("\ntrusted devices")
-_pg.reset()
-own = _pg.owner()
+_db.reset()
+own = _db.owner()
 pat = mk("pat", "operator")
 users.set_pin(pat, "password one", "2468")
 eq("no devices at first", users.list_devices(), [])
@@ -510,7 +522,7 @@ tok, dev = users.trust_device("  Booth iPad ", own)
 eq("trust_device returns the row", (dev["name"], dev["created_by"]), ("Booth iPad", own.name))
 check("row keys", {"id", "name", "created", "created_by", "last_used"} <= set(dev))
 check("only the token's sha256 is stored",
-      db.one("select count(*) as n from trusted_devices where token_hash = %s", (tok,))["n"] == 0)
+      db.one("select count(*) as n from trusted_devices where token_hash = ?", (tok,))["n"] == 0)
 refused("a device needs a name", "bad_device_name", users.trust_device, "  ", own)
 refused("a device name has a limit", "bad_device_name", users.trust_device, "x" * 81, own)
 eq("device_for resolves the token", users.device_for(tok), {"id": dev["id"], "name": "Booth iPad"})
@@ -528,13 +540,13 @@ eq("PIN works from a trusted device", got.id, pat.id)
 refused("wrong PIN", "wrong_pin", users.authenticate_pin, pat.id, "1111", dev["id"])
 refused("non-string PIN is just wrong", "wrong_pin", users.authenticate_pin, pat.id, None, dev["id"])
 eq("a good PIN resets the failure count", (users.authenticate_pin(pat.id, "2468", dev["id"]).id,
-                                           db.one("select pin_failures as n from users where id = %s", (pat.id,))["n"]),
+                                           db.one("select pin_failures as n from users where id = ?", (pat.id,))["n"]),
    (pat.id, 0))
 refused("a user with no PIN", "wrong_pin", users.authenticate_pin, own.id, "2468", dev["id"])
 refused("an unknown user", "wrong_pin", users.authenticate_pin, 99999, "2468", dev["id"])
 for i in range(4):
     refused(f"wrong PIN #{i + 1} of 5", "wrong_pin", users.authenticate_pin, pat.id, "0000", dev["id"])
-eq("four failures are counted", db.one("select pin_failures as n from users where id = %s", (pat.id,))["n"], 4)
+eq("four failures are counted", db.one("select pin_failures as n from users where id = ?", (pat.id,))["n"], 4)
 ps, _ = users.start_session(pat, via="pin", device_id=dev["id"])
 pw_sess, _ = users.start_session(pat, via="password")
 refused("the 5th wrong PIN clears the PIN", "pin_cleared", users.authenticate_pin, pat.id, "0000", dev["id"])
@@ -545,7 +557,7 @@ check("PIN sessions end when the PIN is cleared, password ones stay",
       users.session_user(ps) is None and users.session_user(pw_sess) is not None)
 users.set_pin(pat, "password one", "1357")
 eq("setting a new PIN resets the count and works",
-   (users.authenticate_pin(pat.id, "1357", dev["id"]).id, db.one("select pin_failures as n from users where id = %s",
+   (users.authenticate_pin(pat.id, "1357", dev["id"]).id, db.one("select pin_failures as n from users where id = ?",
                                                                  (pat.id,))["n"]), (pat.id, 0))
 users.update(pat.id, disabled=True, actor=own)
 refused("a disabled user cannot use a PIN", "disabled", users.authenticate_pin, pat.id, "1357", dev["id"])
@@ -576,40 +588,128 @@ eq("a device outlives the admin who trusted it", [d["created_by"] for d in users
 
 # ------------------------------------------------------------------ backups
 print("\nbackups")
-if not shutil.which("pg_dump") or not shutil.which("pg_restore"):
-    print("  SKIP  !!! pg_dump / pg_restore not found on PATH: the backup checks did NOT run !!!")
-else:
-    bdir = Path(os.environ["RELAY_DB_BACKUPS"])
-    shutil.rmtree(bdir, ignore_errors=True)
-    check("a missing backups dir means a dump is due", db.backup_due())
-    made = []
-    for day in range(1, 10):
-        made.append(db.backup(now=datetime(2026, 1, day, 12, 0, 0, tzinfo=timezone.utc)))
-    check("every backup returned a path", all(isinstance(p, Path) for p in made), made)
-    left = sorted(p.name for p in bdir.iterdir())
-    eq("pruned to the newest 7", left, [f"relay-202601{d:02d}-120000.dump" for d in range(3, 10)])
-    last = made[-1]
-    eq("file mode is 0600", stat.S_IMODE(last.stat().st_mode), 0o600)
-    eq("directory mode is 0700", stat.S_IMODE(bdir.stat().st_mode), 0o700)
-    res = subprocess.run(["pg_restore", "--list", str(last)], capture_output=True, text=True)
-    check("pg_restore --list reads the dump", res.returncode == 0, res.stderr)
-    check("and it holds the user tables", "TABLE public users" in res.stdout and "schema_migrations" in res.stdout)
-    check("no temp files are left", not [p for p in bdir.iterdir() if p.name.startswith(".")])
-    check("an old newest dump means a backup is due", db.backup_due())
-    now = datetime.now(timezone.utc)
-    fresh = db.backup(now=now)
-    check("a fresh dump is taken", fresh is not None and fresh.exists())
-    check("then none is due", not db.backup_due())
-    check("until 24 hours have passed", db.backup_due(now + timedelta(hours=24, minutes=1))
-          and not db.backup_due(now + timedelta(hours=23)))
-    eq("still only 7 files", len(list(bdir.glob("relay-*.dump"))), 7)
-    path_was = os.environ["PATH"]
-    os.environ["PATH"] = ""
+bdir = Path(os.environ["RELAY_DB_BACKUPS"])
+shutil.rmtree(bdir, ignore_errors=True)
+check("a missing backups dir means a backup is due", db.backup_due())
+made = []
+for day in range(1, 10):
+    made.append(db.backup(now=datetime(2026, 1, day, 12, 0, 0, tzinfo=timezone.utc)))
+check("every backup returned a path", all(isinstance(p, Path) for p in made), made)
+left = sorted(p.name for p in bdir.iterdir())
+eq("pruned to the newest 7", left, [f"relay-202601{d:02d}-120000.db" for d in range(3, 10)])
+last = made[-1]
+eq("file mode is 0600", stat.S_IMODE(last.stat().st_mode), 0o600)
+eq("directory mode is 0700", stat.S_IMODE(bdir.stat().st_mode), 0o700)
+check("no temp files are left", not [p for p in bdir.iterdir() if p.name.startswith(".")])
+check("an old newest backup means a backup is due", db.backup_due())
+now = datetime.now(timezone.utc)
+fresh = db.backup(now=now)
+check("a fresh backup is taken", fresh is not None and fresh.exists())
+check("then none is due", not db.backup_due())
+check("until 24 hours have passed", db.backup_due(now + timedelta(hours=24, minutes=1))
+      and not db.backup_due(now + timedelta(hours=23)))
+eq("still only 7 files", len(list(bdir.glob("relay-*.db"))), 7)
+
+# A backup restores to a working database: copy it over a fresh path and open it with the app's own layer.
+restored = Path(WORK) / "restored" / "relay.db"
+restored.parent.mkdir()
+shutil.copy(fresh, restored)
+live_names = sorted(u["username"] for u in users.list_users())
+eq("a backup is one self-contained file", [p.name for p in restored.parent.iterdir()], ["relay.db"])
+os.environ["RELAY_DATABASE"] = str(restored)
+db.close()
+check("a restored backup opens", db.init())
+eq("…and holds the same accounts", sorted(u["username"] for u in users.list_users()), live_names)
+eq("…and the same migrations", db.one("select count(*) as n from schema_migrations where namespace = 'core'")["n"], 1)
+os.environ["RELAY_DATABASE"] = real_file
+db.close()
+check("the live database is back", db.init())
+
+# The online backup is consistent while another thread writes.
+stop = threading.Event()
+
+
+def writer():
+    i = 0
+    while not stop.is_set():
+        db.execute("insert into modx_things (id, label) values (?, 'w')", (1000 + i,))
+        i += 1
+
+
+db.execute("delete from modx_things where id >= 1000")
+wt = threading.Thread(target=writer)
+wt.start()
+time.sleep(0.1)
+busy = db.backup(now=now + timedelta(seconds=5))
+stop.set()
+wt.join()
+check("a backup taken during writes is written", busy is not None)
+chk = sqlite3.connect(busy)
+eq("…and passes integrity_check", chk.execute("pragma integrity_check").fetchone()[0], "ok")
+chk.close()
+
+# The case the old advisory lock covered: two requests each demote the other last Owner at once.
+print("\nconcurrency")
+_db.reset()
+o1, o2 = mk("owner_a", "owner"), mk("owner_b", "owner")
+results = []
+barrier = threading.Barrier(2)
+
+
+def demote(target, actor):
+    barrier.wait()
     try:
-        eq("backup() is None when pg_dump is missing", db.backup(), None)
-    finally:
-        os.environ["PATH"] = path_was
-    eq("nothing new was written", len(list(bdir.glob("relay-*.dump"))), 7)
+        users.update(target.id, role="viewer", actor=actor)
+        results.append("ok")
+    except Refused as e:
+        results.append(e.key)
+    except Exception as e:  # noqa: BLE001
+        results.append(type(e).__name__)
+
+
+ts = [threading.Thread(target=demote, args=(o2, o1)), threading.Thread(target=demote, args=(o1, o2))]
+for t in ts:
+    t.start()
+for t in ts:
+    t.join()
+check("both demotions cannot succeed", sorted(results).count("ok") <= 1, results)
+check("exactly one Owner is left", db.one("select count(*) as n from users where role = 'owner' and not disabled")["n"] >= 1)
+# Two processes at once, through the file itself (BEGIN IMMEDIATE), not just the in-process lock.
+_db.reset()
+p1, p2 = mk("proc_a", "owner"), mk("proc_b", "owner")
+code = ("import sys; from app import db, users; users.SCRYPT_N = 2 ** 10\n"
+        "try:\n    users.update(int(sys.argv[1]), role='viewer', actor=None); print('ok')\n"
+        "except users.Refused as e:\n    print(e.key)\n")
+procs = [subprocess.Popen([sys.executable, "-c", code, str(i)], cwd=ROOT, env=os.environ.copy(),
+                          stdout=subprocess.PIPE, text=True) for i in (p1.id, p2.id)]
+outs = sorted(pr.communicate(timeout=60)[0].strip() for pr in procs)
+eq("two processes: one demotion wins, one is refused", outs, ["last_owner", "ok"])
+
+# Killed mid-write: the next start opens cleanly and holds only committed data.
+print("\ncrash safety")
+killer = Path(WORK) / "killme.db"
+code = ("import os, sys, time\n"
+        "os.environ['RELAY_DATABASE'] = sys.argv[1]\n"
+        "from app import db\n"
+        "db.init()\n"
+        "db.execute('create table if not exists crash_t (id integer primary key, v text)')\n"
+        "db.execute(\"insert into crash_t (v) values ('committed')\")\n"
+        "tx = db.transaction(); t = tx.__enter__()\n"
+        "t.execute(\"insert into crash_t (v) values ('half')\")\n"
+        "print('ready', flush=True)\n"
+        "time.sleep(60)\n")
+pr = subprocess.Popen([sys.executable, "-c", code, str(killer)], cwd=ROOT, stdout=subprocess.PIPE, text=True)
+eq("the child is mid-transaction", pr.stdout.readline().strip(), "ready")
+pr.kill()
+pr.wait()
+os.environ["RELAY_DATABASE"] = str(killer)
+db.close()
+check("the file opens cleanly after a kill", db.init())
+eq("only committed rows survive", [r["v"] for r in db.query("select v from crash_t")], ["committed"])
+eq("integrity check passes", db.one("pragma integrity_check")["integrity_check"], "ok")
+os.environ["RELAY_DATABASE"] = real_file
+db.close()
+db.init()
 
 for d in ("modx_things",):
     db.execute(f"drop table if exists {d}")

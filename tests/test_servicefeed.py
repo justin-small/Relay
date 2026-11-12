@@ -20,10 +20,10 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 os.environ["RELAY_CONFIG"] = os.path.join(tempfile.mkdtemp(), "config.json")
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import _pg  # noqa: E402  (a throwaway Postgres for the user system; must come before app.main)
+import _db  # noqa: E402  (a throwaway SQLite file for the user system; must come before app.main)
 
-_pg.start()
-_pg.reset()
+_db.start()
+_db.reset()
 
 from fastapi.testclient import TestClient
 
@@ -59,7 +59,7 @@ config.save({"admin_token": "t0ken", "port": 8000, "admin_port": 8001,
 from app.modules import modules as _modules  # noqa: E402
 _modules.attach("planning_center")  # its hooks into core, without its background work
 viewer = TestClient(app, base_url="http://relay.local:8000")
-admin = _pg.client(app, base_url="http://relay.local:8001")
+admin = _db.client(app, base_url="http://relay.local:8001")
 
 NOW = 1_800_000_000.0
 ITEMS = [

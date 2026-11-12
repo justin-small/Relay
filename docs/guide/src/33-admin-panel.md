@@ -698,13 +698,12 @@ them) and clears their PIN. Sign in with that password.
 
 ### The user database {#user-database}
 
-The accounts are kept in a small database inside the Relay container. If it is
-down, captions and the viewer pages keep working, but the operator panel says
-**The user database is not available** until it is back. Relay restarts it by
-itself. Once a day Relay saves a copy into `docker-config/backups`, and keeps
-the newest 7, so copying `docker-config` copies the accounts too. The live
-database is in a Docker volume called `relay-db`: removing that volume
-deletes all accounts, and Relay asks for the first Owner again.
+The accounts are kept in one file, `relay.db`, in the `docker-config` folder. If
+it cannot be opened (a corrupt file, a full disk), captions and the viewer pages
+keep working, but the operator panel says **The user database is not available**
+until it can be. Once a day Relay saves a copy into `docker-config/backups`, and
+keeps the newest 7. Copying `docker-config` copies the accounts too. Deleting
+`relay.db` deletes all accounts, and Relay asks for the first Owner again.
 
 ## Appearance & tuning {#appearance}
 
