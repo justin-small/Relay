@@ -37,7 +37,7 @@ import time
 import urllib.parse
 from typing import Any, Callable
 
-from . import config, slidetags
+from . import config, plmatch, slidetags
 from .hub import sse_frame
 
 log = logging.getLogger("relay.propresenter")
@@ -65,6 +65,8 @@ SONG_GROUPS = re.compile(r"^\s*(verse|chorus|pre[- ]?chorus|bridge|tag|refrain|i
                          re.I)
 HOST_RE = re.compile(r"^[A-Za-z0-9]([A-Za-z0-9.-]{0,251}[A-Za-z0-9])?$|^\[?[0-9A-Fa-f:]+\]?$")
 
+OWNED_PREFIX = "Relay \u2013 "   # the only playlists Relay will ever change are ones it made, named "Relay \u2013 <date>"
+
 ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")   # a ProPresenter UUID (or a short name or index)
 
 AUDIENCES = ("viewer", "screen", "overlay", "panel")
@@ -89,7 +91,81 @@ def default_settings() -> dict[str, Any]:
             "timers": {"amber_s": 120, "red_s": 30, "show": []},
             # Slide-note tags (stage 5): off until the operator switches them on. `settle_s` is how long a slide
             # must stay live before its tags run (see slidetags.py).
-            "tags": {"enabled": False, "settle_s": slidetags.SETTLE_DEFAULT_S}}
+            "tags": {"enabled": False, "settle_s": slidetags.SETTLE_DEFAULT_S},
+            # The Planning Center link (stage 6, see pclink.py): follow the plan and ProPresenter driving Services
+            # LIVE are both off until the operator switches them on.
+            "link": default_link()}
+
+
+LINK_DWELL_DEFAULT_S = 10.0
+LINK_DWELL_MIN_S, LINK_DWELL_MAX_S = 1.0, 300.0
+LINK_MAP_MAX = 60
+LINK_ST_RE = re.compile(r"^[A-Za-z0-9_-]{1,24}$")
+
+
+def default_link() -> dict[str, Any]:
+    """`follow`: match the plan to ProPresenter in the background and show both sides. `drive`: once a presentation
+    has been up `dwell_s` seconds, advance the matching Planning Center LIVE item (never taking control).
+    `mapping`: the operator's pairings of a plan item title to a presentation. `owned`: the one playlist Relay
+    created, the only one it will ever change. Set by Relay, never by a save."""
+    return {"follow": False, "drive": False, "dwell_s": LINK_DWELL_DEFAULT_S, "allow_back": False,
+            "service_type": "", "threshold": plmatch.DEFAULT_THRESHOLD, "mapping": [], "owned": {}}
+
+
+def _clean_owned(raw: object) -> dict[str, str]:
+    raw = raw if isinstance(raw, dict) else {}
+    uuid, name = str(raw.get("uuid") or ""), " ".join(str(raw.get("name") or "").split())[:120]
+    return {"uuid": uuid, "name": name} if ID_RE.match(uuid) and name.startswith(OWNED_PREFIX) else {}
+
+
+def link_fields(raw: object) -> tuple[dict[str, Any], str]:
+    """The link settings that `raw` sets, each checked, with a fixed sentence for the first thing wrong.
+    `owned` is not settable here."""
+    raw = raw if isinstance(raw, dict) else {}
+    out: dict[str, Any] = {}
+    problem = ""
+    for key in ("follow", "drive", "allow_back"):
+        if raw.get(key) is not None:
+            out[key] = raw[key] is True
+    v = raw.get("dwell_s")
+    if v is not None:
+        if isinstance(v, bool) or not isinstance(v, (int, float)) or not LINK_DWELL_MIN_S <= v <= LINK_DWELL_MAX_S:
+            problem = (f"The dwell time is a number of seconds from {LINK_DWELL_MIN_S:g} to {LINK_DWELL_MAX_S:g}.")
+        else:
+            out["dwell_s"] = round(float(v), 1)
+    v = raw.get("threshold")
+    if v is not None:
+        if isinstance(v, bool) or not isinstance(v, (int, float)) or not 0.5 <= v <= 1.0:
+            problem = problem or "The match strictness is a number from 0.5 to 1."
+        else:
+            out["threshold"] = round(float(v), 2)
+    v = raw.get("service_type")
+    if v is not None:
+        if not isinstance(v, str) or (v and not LINK_ST_RE.match(v)):
+            problem = problem or "That is not a service type."
+        else:
+            out["service_type"] = v
+    if "mapping" in raw:
+        rows, m = raw["mapping"], []
+        if not isinstance(rows, list) or len(rows) > LINK_MAP_MAX:
+            problem = problem or f"Pairings are a list of up to {LINK_MAP_MAX}."
+        else:
+            for r in rows:
+                item = " ".join(str((r or {}).get("item") or "").split())[:200] if isinstance(r, dict) else ""
+                uuid = str(r.get("uuid") or "") if isinstance(r, dict) else ""
+                if not item or not ID_RE.match(uuid):
+                    problem = problem or "Each pairing needs a plan item title and a ProPresenter presentation."
+                    continue
+                m.append({"item": item, "uuid": uuid, "name": " ".join(str(r.get("name") or "").split())[:200]})
+            out["mapping"] = m
+    return out, problem
+
+
+def clean_link_settings(raw: object, base: dict[str, Any]) -> dict[str, Any]:
+    """`base` with what `raw` sets on top; what is stored and malformed is dropped, not refused."""
+    out = {**base, **link_fields(raw)[0]}
+    out["owned"] = _clean_owned(base.get("owned"))
+    return out
 
 
 def clean_host(value: object) -> str:
@@ -125,6 +201,8 @@ def clean_stored(raw: object) -> dict[str, Any]:
                                   if isinstance(u, str) and ID_RE.match(u)})[:500],
         "timers": clean_timer_settings(raw.get("timers"), base["timers"]),
         "tags": clean_tag_settings(raw.get("tags"), base["tags"]),
+        "link": clean_link_settings(raw.get("link"), {**base["link"], "owned": (raw.get("link") or {}).get("owned")
+                                                      if isinstance(raw.get("link"), dict) else {}}),
     }
 
 

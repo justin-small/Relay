@@ -28,6 +28,7 @@ from .panels import registry as panel_registry
 from .pclive import follower as pc_follower
 from .servicefeed import feed as service_feed
 from . import pccontrol, propresenter, slidetags
+from .pclink import link as pc_link, LinkError
 from .ppcontrol import control as pp_control
 from .propresenter import follower as pp_follower, lyrics_feed, timers_feed
 from .recorder import recorder
@@ -166,6 +167,8 @@ async def _startup() -> None:
     pc_follower.start()
     # Idle until an address is entered and ProPresenter is switched on in admin.
     pp_follower.start()
+    # Idle until the Planning Center link is switched on (follow the plan, or ProPresenter drives LIVE).
+    pc_link.start()
     if not (cfg.get("admin_token") or "").strip():
         # _token_ok() returns False on an empty stored token, so the panel is
         # locked rather than open -- but an operator who cannot log in deserves
@@ -248,6 +251,7 @@ async def _shutdown() -> None:
     scheduler.cancel()
     pc_follower.cancel()
     pp_follower.cancel()
+    pc_link.cancel()
     for name in ("demo_task", "blocklist_task", "alerts_task"):
         task = getattr(app.state, name, None)
         if task is not None:
@@ -901,6 +905,11 @@ async def panel_events(panel_id: str):
 
 
 panel_control = pccontrol.Control(pc_follower, panel_registry, service_feed)
+# The Planning Center link (pclink.py): ProPresenter moves Services LIVE through the same press path as a panel, and
+# tells the Service feed which plan item it has up.
+pc_link.pc_control = panel_control
+pc_link.on_change = service_feed.refresh
+service_feed.extra = pc_link.feed_extra
 
 
 # --------------------------------------------------------------- alerts (#121)
@@ -1415,7 +1424,7 @@ async def admin_propresenter():
 async def admin_propresenter_save(payload: dict):
     """Save the connection and switches. Only the keys sent change. A new address reconnects at once."""
     saved = config.get()["propresenter"]
-    merged = {**saved, **{k: v for k, v in payload.items() if k in saved and k not in ("lyrics", "timers", "tags")}}
+    merged = {**saved, **{k: v for k, v in payload.items() if k in saved and k not in ("lyrics", "timers", "tags", "link")}}
     if isinstance(payload.get("lyrics"), dict):
         merged["lyrics"] = {**saved["lyrics"], **payload["lyrics"]}
     if "timers" in payload:
@@ -1428,6 +1437,11 @@ async def admin_propresenter_save(payload: dict):
         if problem:
             return JSONResponse({"error": problem}, status_code=400)
         merged["tags"] = propresenter.clean_tag_settings(payload["tags"], saved["tags"])
+    if "link" in payload:
+        problem = propresenter.link_fields(payload["link"])[1]
+        if problem:
+            return JSONResponse({"error": problem}, status_code=400)
+        merged["link"] = propresenter.clean_link_settings(payload["link"], saved["link"])
     if payload.get("host") and not propresenter.clean_host(payload["host"]):
         return JSONResponse({"error": "Enter just the machine's name or IP address, with no http:// or port."},
                             status_code=400)
@@ -1438,9 +1452,10 @@ async def admin_propresenter_save(payload: dict):
         return JSONResponse({"error": "Enter the machine's address and ProPresenter's port first. "
                                       "The port is in ProPresenter's Network preferences."}, status_code=400)
     config.save({"propresenter": clean}, replace=("propresenter",))
-    log.info("ProPresenter settings saved (%s, view-only %s, slide tags %s)",
+    log.info("ProPresenter settings saved (%s, view-only %s, slide tags %s, follow the plan %s, drive LIVE %s)",
              "on" if clean["enabled"] else "off", "on" if clean["view_only"] else "off",
-             "on" if clean["tags"]["enabled"] else "off")
+             "on" if clean["tags"]["enabled"] else "off", "on" if clean["link"]["follow"] else "off",
+             "on" if clean["link"]["drive"] else "off")
     await pp_follower.poke()
     lyrics_feed.refresh()
     timers_feed.refresh()
@@ -1642,6 +1657,61 @@ async def admin_pp_message_clear(message: str):
 @app.post("/api/admin/propresenter/transport", dependencies=[Depends(require_admin)])
 async def admin_pp_transport(payload: dict):
     return await _pp_run(pp_control.go_to_time, payload.get("seconds"))
+
+
+# --- The Planning Center link (#138 stage 6, pclink.py). Admin-protected. Matching only reads; the playlist
+# route writes through propresenter.Client (view-only answers 409) and only ever to a playlist Relay made.
+async def _link_run(fn, *args):
+    try:
+        data = await fn(*args)
+    except LinkError as exc:
+        return JSONResponse({"error": str(exc)}, status_code=409)
+    except ValueError:
+        return JSONResponse({"error": "That request was not valid."}, status_code=400)
+    except propresenter.ProError as exc:
+        return _pp_error(exc)
+    return data
+
+
+@app.get("/api/admin/propresenter/link", dependencies=[Depends(require_admin)])
+async def admin_pp_link():
+    return pc_link.state()
+
+
+@app.get("/api/admin/propresenter/link/presentations", dependencies=[Depends(require_admin)])
+async def admin_pp_link_presentations():
+    """The presentations the last read found, for the operator's pairing picker (names and UUIDs only)."""
+    return {"presentations": [{"uuid": c["uuid"], "name": c["name"]} for c in pc_link.pool]}
+
+
+@app.post("/api/admin/propresenter/link/refresh", dependencies=[Depends(require_admin)])
+async def admin_pp_link_refresh():
+    """Read ProPresenter's playlists and libraries again and match the plan. Reads only."""
+    async def go():
+        await pc_link.refresh()
+        return pc_link.state()
+    return await _link_run(go)
+
+
+@app.post("/api/admin/propresenter/link/mapping", dependencies=[Depends(require_admin)])
+async def admin_pp_link_mapping(payload: dict):
+    """Pair a plan item title with a presentation, or clear the pairing with an empty `uuid`."""
+    async def go():
+        uuid = str(payload.get("uuid") or "")
+        if uuid and not propresenter.ID_RE.match(uuid):
+            raise ValueError
+        pc_link.set_mapping(str(payload.get("item") or ""), uuid, str(payload.get("name") or ""))
+        return pc_link.state()
+    return await _link_run(go)
+
+
+@app.post("/api/admin/propresenter/link/playlist", dependencies=[Depends(require_admin)])
+async def admin_pp_link_playlist():
+    """Build (or rebuild) the Relay-owned playlist from the matched plan. On the operator's click only."""
+    async def go():
+        done = await pc_link.build_playlist()
+        return {**done, "state": pc_link.state()}
+    return await _link_run(go)
 
 
 @app.post("/api/admin/target/{target}", dependencies=[Depends(require_admin)])
