@@ -23,9 +23,10 @@ os.environ["RELAY_CONFIG"] = os.path.join(tempfile.mkdtemp(), "config.json")
 from fastapi.testclient import TestClient
 
 import app.main as main
-from app import config, pclive
+from app import config
+from app.modules.planning_center import pclive
 from app.main import app
-from app.servicefeed import feed, show_notes
+from app.modules.planning_center.servicefeed import feed, show_notes
 
 fails = []
 
@@ -48,7 +49,8 @@ def unframe(frame: bytes) -> dict:
 
 
 config.ensure_file()
-config.save({"admin_token": "t0ken", "port": 8000, "admin_port": 8001})
+config.save({"admin_token": "t0ken", "port": 8000, "admin_port": 8001,
+             "modules": {"planning_center": {"enabled": True}}})  # the module is switched on (#157)
 viewer = TestClient(app, base_url="http://relay.local:8000")
 admin = TestClient(app, base_url="http://relay.local:8001", headers={"x-admin-token": "t0ken"})
 
@@ -214,8 +216,9 @@ async def main_async():
     await next_msg(resp)
 
     print("heartbeat")
-    real = main.HEARTBEAT_S
-    main.HEARTBEAT_S = 0.05
+    import app.modules as shared
+    real = shared.HEARTBEAT_S
+    shared.HEARTBEAT_S = 0.05
     try:
         hb = await main.stream(_Req(), stream="service", type="7")
         await next_msg(hb)
@@ -223,7 +226,7 @@ async def main_async():
         eq("a tick between changes", (t["type"], t["service_type"], t["updated_at"]), ("service_tick", "7", NOW))
         await hb.body_iterator.aclose()
     finally:
-        main.HEARTBEAT_S = real
+        shared.HEARTBEAT_S = real
 
     print("dropped from admin")
     follow(["42"])

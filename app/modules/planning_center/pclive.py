@@ -32,7 +32,8 @@ from datetime import date, datetime, time as dtime, timedelta, timezone
 from typing import Any, Callable
 from zoneinfo import ZoneInfo
 
-from . import config, planningcenter as pc, schedules
+from ... import config, schedules
+from . import planningcenter as pc
 
 log = logging.getLogger("relay.pclive")
 

@@ -19,7 +19,8 @@ os.environ["RELAY_VERSION"] = "9.9.9"
 
 from fastapi.testclient import TestClient
 
-from app import config, planningcenter as pc
+from app import config
+from app.modules.planning_center import planningcenter as pc
 from app.main import app
 
 fails = []
@@ -103,7 +104,8 @@ logging.getLogger().addHandler(Grab())
 logging.getLogger().setLevel(logging.DEBUG)
 
 config.ensure_file()
-config.save({"admin_token": "t0ken", "port": 8000, "admin_port": 8001})
+config.save({"admin_token": "t0ken", "port": 8000, "admin_port": 8001,
+             "modules": {"planning_center": {"enabled": True}}})  # the module is switched on (#157)
 admin = TestClient(app, base_url="http://relay.local:8001", headers={"x-admin-token": "t0ken"})
 URL = "/api/admin/planning-center"
 

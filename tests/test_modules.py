@@ -46,7 +46,6 @@ CORE_FILES = {
 # Integrations built before modules existed, still in core while they are moved into app/modules/ (#157).
 # This list only ever shrinks: nothing may be added to it.
 LEGACY_INTEGRATIONS = {
-    "planningcenter.py", "pclive.py", "pccontrol.py", "servicefeed.py",
     "propresenter.py", "ppcontrol.py", "pplobby.py", "ppview.py", "pclink.py", "plmatch.py", "slidetags.py",
 }
 # Network clients, and the core files allowed them: OpenAI (realtime, text translation) and the host's own
@@ -113,6 +112,8 @@ print("core stays free of modules")
 ids = module_ids()
 for path in core_py_files():
     rel = path.relative_to(APP).as_posix()
+    if rel in LEGACY_INTEGRATIONS:
+        continue  # an integration waiting to be moved into its module; it may use one already moved
     bad = sorted({i for i in imports(path) if any(i == f"app.modules.{m}" or i.startswith(f"app.modules.{m}.")
                                                  for m in ids)})
     check(f"{rel} imports no module package", not bad, bad)
@@ -137,6 +138,9 @@ config.ensure_file()
 config.save({"admin_token": "t0ken", "port": 8000, "admin_port": 8001})
 admin = TestClient(app, base_url="http://relay.local:8001", headers={"x-admin-token": "t0ken"})
 viewer = TestClient(app, base_url="http://relay.local:8000")
+# The admin page itself needs the login cookie, not just the token header.
+admin.post("/admin/login", data={"token": "t0ken"})
+check("logged in to the admin page", 'id="page-modules"' in admin.get("/admin").text)
 
 core_web = ""
 for p in list((APP / "templates").glob("*.html")) + list((APP / "static").glob("*.js")):
@@ -175,6 +179,17 @@ for mid in ids:
     check(f"{mid}: no admin page while off",
           all(f'data-page="{p.id}"' not in admin.get("/admin").text for p in mod.admin_pages))
     check(f"{mid}: adds nothing to the status while off", not (set(mod.status()) & set(registry.status())))
+
+    # On: its pages are rendered, then it is switched off again.
+    async def on_then_off():
+        await registry.set_enabled(mid, True)
+        page = admin.get("/admin").text
+        await registry.set_enabled(mid, False)
+        return page
+    page = asyncio.run(on_then_off())
+    check(f"{mid}: admin pages and scripts rendered while on",
+          all(f'data-page="{p.id}"' in page for p in mod.admin_pages)
+          and all(f"/static/modules/{mid}/{s}" in page for s in mod.admin_scripts))
 
 # ------------------------------------------------------------------ the registry, with a module made up here
 print("registry")

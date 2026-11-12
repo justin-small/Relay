@@ -1097,8 +1097,10 @@ Run the server's checks with `python tests/test_panels.py`.
 Relay can follow **today's service in Planning Center Services** and show it on
 the caption panels: the current and next item with timers, the order of service,
 song keys and arrangements, and who is running LIVE. A panel can also be allowed
-to move the service on (**Next**, **Previous**, **Take control**). It is off until
-a token is saved: with none, Relay behaves exactly as without it.
+to move the service on (**Next**, **Previous**, **Take control**). It is a
+module ([docs/modules.md](docs/modules.md)): switch it on under **Modules** in the
+operator panel. While it is off, or on with no token saved, Relay behaves exactly
+as without it.
 
 **Connecting.** One church, one **Personal Access Token**, made at
 <https://api.planningcenteronline.com/personal_access_tokens> by a person who has
@@ -1113,7 +1115,7 @@ LIVE that person must be allowed to control it for the service type: if they can
 press Next in Services LIVE themselves, Relay can too. Without it a press reads
 "Planning Center said no" on the panel.
 
-**What Relay does** (`app/planningcenter.py`, `app/pclive.py`):
+**What Relay does** (`app/modules/planning_center/planningcenter.py`, `pclive.py`):
 
 - Finds **today's plan** for each followed service type, by the organisation's own
   time zone, every few minutes, and re-reads it every 30 s near a service (5 min
@@ -1127,7 +1129,7 @@ press Next in Services LIVE themselves, Relay can too. Without it a press reads
 - Works out the **timers** itself: item time left, and how far ahead or behind
   the service is.
 
-**What panels get** (`app/servicefeed.py`): `GET /stream?stream=service&type=<id>`
+**What panels get** (`app/modules/planning_center/servicefeed.py`): `GET /stream?stream=service&type=<id>`
 on the viewer port, the whole state per message, a new message only when
 something shown changes, and a tick every 15 s. Followed service types are listed
 under `service` in `/api/targets`.
@@ -1138,7 +1140,7 @@ control**, and which service type it follows. **Item notes** reach panels only
 while **Show item notes on panels** is on (off by default), because notes can
 hold names and pastoral details.
 
-**Panel control** (`app/pccontrol.py`): `POST /api/panels/<id>/service/<next|previous|take_control|release>`
+**Panel control** (`app/modules/planning_center/pccontrol.py`): `POST /api/panels/<id>/service/<next|previous|take_control|release>`
 on the viewer port with the panel's key. Relay checks the panel's mode, its
 random 128-bit key (made when control is turned on, dropped when it is turned
 off), one press a second per panel, and a followed type with a plan today, then
