@@ -1028,7 +1028,8 @@
     stageBox.addEventListener('change', function () { b.stage = stageBox.checked; alertSetDirty(true); });
     stageRow.appendChild(stageBox);
     stageRow.appendChild(el('span', '', 'Also show on the ProPresenter stage display (cleared when acknowledged)'));
-    card.appendChild(stageRow);
+    // Only while the ProPresenter module is on (its script sets the hook); the saved choice is kept either way.
+    if (window.RelayAdmin && window.RelayAdmin.panelHooks.stageDisplay) card.appendChild(stageRow);
     return card;
   }
 
@@ -2058,7 +2059,8 @@
     cfg: function () { return cfg; },
     setServiceNames: function (names) { serviceNames = names || {}; },
     clockText: clockText, timerPicker: timerPicker, timerPickerValue: timerPickerValue, timerThresholds: timerThresholds,
-    // What module scripts tell the Panels page: timers() (ProPresenter), serviceOn() (Planning Center).
+    // What module scripts tell the Panels and Alerts pages: timers() and stageDisplay (ProPresenter), serviceOn()
+    // (Planning Center).
     panelHooks: {}
   };
 

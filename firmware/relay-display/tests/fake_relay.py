@@ -93,7 +93,7 @@ class FakeRelay:
         self.service_states: dict[str, dict] = {}
         self._service_subs: dict[str, list[queue.Queue]] = {}
         # ProPresenter (#138): what `targets` offers a panel, the whole state of each feed (`lyrics`, `pptimers`), sent on
-        # connect, on each change and again at every heartbeat, as app/propresenter.py does. `pp_status` answers the
+        # connect, on each change and again at every heartbeat, as app/modules/propresenter/propresenter.py does. `pp_status` answers the
         # feeds with an error instead (Relay's 403 for a feed that is off).
         self.pp_offers: dict[str, bool] = {"lyrics": False, "timers": False}
         self.pp_states: dict[str, dict] = {}
@@ -439,7 +439,7 @@ class FakeRelay:
                     self._handlers.remove(handler)
 
     def _serve_service(self, handler: BaseHTTPRequestHandler, service_type: str) -> None:
-        """`/stream?stream=service&type=..` (app/servicefeed.py): the whole state on connect, then each change, and
+        """`/stream?stream=service&type=..` (app/modules/planning_center/servicefeed.py): the whole state on connect, then each change, and
         a `service_tick` in the quiet. A type Relay does not follow is a 404."""
         if not any(o["service_type"] == service_type for o in self.service_offers):
             self._json(handler, 404, {"detail": "not a followed service type"})
@@ -479,7 +479,7 @@ class FakeRelay:
                     self._handlers.remove(handler)
 
     def _serve_pp(self, handler: BaseHTTPRequestHandler, stream: str) -> None:
-        """`/stream?stream=lyrics&for=panel` and `/stream?stream=pptimers&for=panel&panel=..` (app/propresenter.py): the
+        """`/stream?stream=lyrics&for=panel` and `/stream?stream=pptimers&for=panel&panel=..` (app/modules/propresenter/propresenter.py): the
         whole state on connect and on each change, and the same state again in the quiet, as Relay repeats it."""
         if self.pp_status != 200:
             self._json(handler, self.pp_status, {"detail": "not switched on"})
@@ -573,7 +573,7 @@ class FakeRelay:
                 self.actions.append((action, body))
             if self.action_delay:
                 time.sleep(self.action_delay)
-            # `app/pccontrol.py`: a panel needs a control mode and its key.
+            # `app/modules/planning_center/pccontrol.py`: a panel needs a control mode and its key.
             if self.service_mode.get("mode") not in ("control", "both") or body.get("key") != self.service_mode.get("key"):
                 self._json(handler, 403, {"ok": False, "error": "not_allowed"})
                 return

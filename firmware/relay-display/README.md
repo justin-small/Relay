@@ -483,7 +483,7 @@ paused, the header shows the feed and a green dot, and Vietnamese and accented t
 frame a second or so and reads the finger once per frame, so the tests wait for each press to be seen and hold the
 finger still before lifting.
 
-`tests/test_service_view.py` runs the Service feed against the fake Relay (which copies `app/servicefeed.py`'s wire
+`tests/test_service_view.py` runs the Service feed against the fake Relay (which copies `app/modules/planning_center/servicefeed.py`'s wire
 format): it is offered only while the operator's service mode allows it; chosen from the menu it shows the current and
 next item and the footer; the current item moves when Relay says so; the timer runs over and the service falls behind;
 Planning Center going away and coming back reads in the footer; nobody controlling reads "Not live"; and a service

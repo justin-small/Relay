@@ -19,7 +19,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from app import planningcenter as pc  # noqa: E402
+from app.modules.planning_center import planningcenter as pc  # noqa: E402
 
 ENV = ROOT / "planningcenter-test.env"
 

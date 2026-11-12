@@ -2,7 +2,7 @@
 confirmation) and Release; a press Relay refuses reads in words; a double tap is one press; and a panel whose mode does
 not include control has no buttons.
 
-The fake copies `POST /api/panels/<id>/service/<action>` from app/pccontrol.py by hand (`tests/test_pccontrol.py` at
+The fake copies `POST /api/panels/<id>/service/<action>` from app/modules/planning_center/pccontrol.py by hand (`tests/test_pccontrol.py` at
 the repository root checks the real one). Where the buttons are is read from the panel's `view` report.
 
 What this does not cover is a thumb on the glass: the bench items in README.md.
@@ -50,7 +50,7 @@ def wait_buttons(board: Board, ok: Callable[[re.Match], bool], what: str, timeou
 
 
 class Planning:
-    """The plan as Planning Center would run it, answering the fake Relay's presses as app/pccontrol.py does."""
+    """The plan as Planning Center would run it, answering the fake Relay's presses as app/modules/planning_center/pccontrol.py does."""
 
     def __init__(self, relay: FakeRelay) -> None:
         self.relay = relay

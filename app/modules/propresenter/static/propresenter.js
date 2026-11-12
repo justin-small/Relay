@@ -10,6 +10,8 @@
 
   // A panel's timers form lists ProPresenter's timers and its global thresholds.
   R.panelHooks.timers = function () { return api('/api/admin/propresenter'); };
+  // The Alerts page offers "also show on the stage display".
+  R.panelHooks.stageDisplay = true;
 
   /* ---- ProPresenter (#138) ----
      The connection fields are filled from the server once and then left alone while the operator types; the

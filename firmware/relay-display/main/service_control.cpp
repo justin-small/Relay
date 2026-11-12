@@ -27,7 +27,7 @@ struct Pending {
     char type[kServiceTypeBytes] = {};
 };
 
-// Relay refuses a second press from one panel inside a quarter second (`MIN_GAP_S` in app/pccontrol.py).
+// Relay refuses a second press from one panel inside a quarter second (`MIN_GAP_S` in app/modules/planning_center/pccontrol.py).
 constexpr uint32_t kPressGapMs = 300;
 
 portMUX_TYPE s_mux = portMUX_INITIALIZER_UNLOCKED;
