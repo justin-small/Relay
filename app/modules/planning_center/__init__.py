@@ -11,6 +11,7 @@ import asyncio
 from typing import Any
 
 from .. import AdminPage, Health, Manifest, Module
+from ...users import Permission
 
 SERVICE_STREAM = "service"
 
@@ -31,6 +32,11 @@ class PlanningCenter(Module):
         icon='<path d="M3 13V6l5-4 5 4v7zM6.5 13V9h3v4"/>'),)
     admin_scripts = ("planningcenter.js",)
     route_prefixes = ("/api/admin/planning-center", "/api/panels/{panel_id}/service/")
+    permissions = (
+        Permission("planning_center.view", "See the Planning Center setup and plan", "Planning Center", "viewer"),
+        Permission("planning_center.control", "Choose which plan Relay follows today", "Planning Center", "operator"),
+        Permission("planning_center.manage", "Change the Planning Center setup", "Planning Center", "admin"),
+    )
     streams = (SERVICE_STREAM,)
 
     def clean(self, raw: Any) -> dict:

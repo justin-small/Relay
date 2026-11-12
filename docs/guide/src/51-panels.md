@@ -13,7 +13,7 @@ aside about 30 minutes for the first panel. The second one takes five.
 - **The Wi-Fi name and password** of that network. The panel joins Wi-Fi by
   itself. It does not need a cable.
 - **A computer with a USB cable and Python**, for the first flash only.
-- **Your admin token.** See Part 1.
+- **An operator account** with the Admin role. See Part 1.
 
 ::: note
 A panel needs a Wi-Fi network that is **not** a guest network. Guest networks

@@ -7,6 +7,15 @@ differences are pointed out where they matter. Menu names are given as they
 appeared then.
 :::
 
+::: warning
+Relay now has user accounts, and once the first account exists it no longer
+accepts the admin token from any program. The Companion module signed in with
+that token, so **it cannot connect to a Relay that has users** until Relay
+supports per-user API tokens, which are planned and not built yet. The steps
+below describe the module as it was written; they will work again once the
+module signs in with an API token.
+:::
+
 This chapter takes you from nothing to working Stream Deck buttons for Relay.
 You download the Relay module, load it into Companion, connect it to Relay and
 drag ready-made buttons onto a page. Set aside about 45 minutes the first
@@ -25,8 +34,8 @@ module is not one of them yet. You add it yourself, once.
 - **Companion 3.x, 4.x or 5.x.** Download it free from
   <https://bitfocus.io/companion>. On macOS, Companion 5 needs macOS 13.5 or
   later.
-- **Relay, installed and started**, with its **admin token** (the operator
-  panel password you chose during setup). See Part 1.
+- **Relay, installed and started**, with its **admin token** (see the
+  warning at the top of this chapter). See Part 1.
 - **The Relay computer's LAN IP address.** Start prints it on the `Panel`
   line, for example `https://192.168.1.50/admin`. The IP address is the part
   between `https://` and `/admin`: here, `192.168.1.50`.
@@ -267,7 +276,7 @@ one connection for your Relay computer.
    A normal Relay install serves the operator panel on port 443, and
    Companion uses the same door. A **port** is a numbered door on a computer;
    one computer offers different services on different ports.
-3. **Admin token**: the operator panel password you chose during Relay setup.
+3. **Admin token**: the admin token you chose during Relay setup.
    The picture shows this box empty on purpose. Companion shows what you
    type in plain text, so check who can see your screen.
 4. **Use HTTPS**: leave it on. **HTTPS** is the secure, encrypted form of the
@@ -354,7 +363,7 @@ These are the messages you can see, and what they mean:
 | **Bad Configuration: Set the Relay host** | The **Host** box is empty. | Fill in the Relay computer's IP address. |
 | **Bad Configuration: Set the admin token** | The **Admin token** box is empty. | Fill in your admin token. |
 | **Bad Configuration: The certificate fingerprint is not a SHA-256 hash (64 hex characters)** | The fingerprint is too short, too long or has a typing error. | Copy and paste it again. |
-| **Authentication Failure: Admin token rejected** | Relay answered, but the token is wrong. | Type the token again. It must match the operator panel password exactly. |
+| **Authentication Failure: Admin token rejected** | Relay answered, but the token is wrong. | Type the token again. It must match the admin token exactly. |
 | **Connection Failure: Nothing answering on** *address:port* | Nothing answered at that address and port. | Check the IP address and that **Port** is `443`. Check that Relay is running. |
 | **Connection Failure: Relay's certificate was refused…** | **Accept self-signed certificate** is off and no fingerprint is set. | Switch **Accept self-signed certificate** on, or paste the fingerprint. |
 | **Connection Failure: Certificate fingerprint does not match the one configured (server: …)** | The certificate Relay showed is not the one you pasted. | Compare the fingerprint after `server:` with the one Relay's start printed. If they match, paste it again. If they do not, you may be talking to the wrong computer. |
@@ -540,8 +549,8 @@ spend money on your OpenAI account.
 - Companion's web page has no password by default. Anyone on the network who
   opens it can see the token in the connection settings. Set a password or
   lock the page in Companion's **Settings** if other people use the network.
-- If you think the token has leaked, change it in Relay's operator panel (see
-  [Credentials](#credentials)), then type the new token into Companion.
+- If you think the token has leaked, tell your Relay Owner. Once the first
+  account exists, Relay no longer accepts the token at all.
 
 ## Troubleshooting {#companion-troubleshooting}
 

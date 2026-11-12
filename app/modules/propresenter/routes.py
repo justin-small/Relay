@@ -12,7 +12,7 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from ... import config, engine as enginemod, modules as shared
 from ...hub import sse_frame
 from ...panels import timer_fields
-from .. import event_stream, require_admin
+from .. import event_stream, require
 from . import propresenter, slidetags
 from .pclink import MESSAGES as LINK_MESSAGES, LinkError, link as pc_link
 from .ppcontrol import control as pp_control
@@ -97,12 +97,12 @@ def _pp_error(exc: propresenter.ProError) -> JSONResponse:
     return JSONResponse({"error": message}, status_code=status)
 
 
-@router.get("/api/admin/propresenter", dependencies=[Depends(require_admin)])
+@router.get("/api/admin/propresenter", dependencies=[Depends(require("propresenter.view"))])
 async def admin_propresenter():
     return _pp_body()
 
 
-@router.post("/api/admin/propresenter", dependencies=[Depends(require_admin)])
+@router.post("/api/admin/propresenter", dependencies=[Depends(require("propresenter.manage"))])
 async def admin_propresenter_save(payload: dict):
     """Save the connection and switches. Only the keys sent change. A new address reconnects at once."""
     saved = config.get()["propresenter"]
@@ -152,7 +152,7 @@ async def admin_propresenter_save(payload: dict):
     return _pp_body()
 
 
-@router.post("/api/admin/propresenter/test", dependencies=[Depends(require_admin)])
+@router.post("/api/admin/propresenter/test", dependencies=[Depends(require("propresenter.manage"))])
 async def admin_propresenter_test(payload: dict):
     """`GET /version` on the address in the form (saved or not). Changes nothing."""
     host = propresenter.clean_host(payload.get("host"))
@@ -167,13 +167,13 @@ async def admin_propresenter_test(payload: dict):
     return {"ok": True, "version": info}
 
 
-@router.post("/api/admin/propresenter/discover", dependencies=[Depends(require_admin)])
+@router.post("/api/admin/propresenter/discover", dependencies=[Depends(require("propresenter.manage"))])
 async def admin_propresenter_discover():
     """ProPresenters announcing themselves on the LAN (mDNS). Nothing is saved or contacted."""
     return {"found": await pp_follower.call(propresenter.discover, 2.5)}
 
 
-@router.post("/api/admin/propresenter/stage", dependencies=[Depends(require_admin)])
+@router.post("/api/admin/propresenter/stage", dependencies=[Depends(require("propresenter.control"))])
 async def admin_propresenter_stage(payload: dict):
     text = pp_follower.clean_message(payload.get("text"))
     if not text:
@@ -185,7 +185,7 @@ async def admin_propresenter_stage(payload: dict):
     return _pp_body()
 
 
-@router.delete("/api/admin/propresenter/stage", dependencies=[Depends(require_admin)])
+@router.delete("/api/admin/propresenter/stage", dependencies=[Depends(require("propresenter.control"))])
 async def admin_propresenter_stage_clear():
     try:
         await pp_follower.clear_stage_message()
@@ -194,7 +194,7 @@ async def admin_propresenter_stage_clear():
     return _pp_body()
 
 
-# --- ProPresenter control (#138 stage 2). Every route is admin-protected; the writes go through the one client,
+# --- ProPresenter control (#138 stage 2). Reads need propresenter.view, live control propresenter.control; the writes go through the one client,
 # which refuses them in view-only mode (409). Errors answer through _pp_error or a fixed sentence.
 async def _pp_run(fn, *args):
     try:
@@ -211,12 +211,12 @@ async def _pp_run(fn, *args):
     return data if data is not None else {"ok": True}
 
 
-@router.get("/api/admin/propresenter/slides", dependencies=[Depends(require_admin)])
+@router.get("/api/admin/propresenter/slides", dependencies=[Depends(require("propresenter.view"))])
 async def admin_pp_slides(uuid: str = ""):
     return await _pp_run(pp_control.slides, uuid or None)
 
 
-@router.get("/api/admin/propresenter/thumbnail/{uuid}/{index}", dependencies=[Depends(require_admin)])
+@router.get("/api/admin/propresenter/thumbnail/{uuid}/{index}", dependencies=[Depends(require("propresenter.view"))])
 async def admin_pp_thumbnail(uuid: str, index: int, v: str = ""):
     """A slide thumbnail, proxied and cached by Relay (key: presentation, index, change marker `v`)."""
     try:
@@ -228,59 +228,59 @@ async def admin_pp_thumbnail(uuid: str, index: int, v: str = ""):
     return Response(data, media_type=ctype, headers={"Cache-Control": "private, max-age=3600"})
 
 
-@router.post("/api/admin/propresenter/step", dependencies=[Depends(require_admin)])
+@router.post("/api/admin/propresenter/step", dependencies=[Depends(require("propresenter.control"))])
 async def admin_pp_step(payload: dict):
     return await _pp_run(pp_control.step, payload.get("direction"))
 
 
-@router.post("/api/admin/propresenter/next-presentation", dependencies=[Depends(require_admin)])
+@router.post("/api/admin/propresenter/next-presentation", dependencies=[Depends(require("propresenter.control"))])
 async def admin_pp_next_presentation():
     return await _pp_run(pp_control.next_presentation)
 
 
-@router.post("/api/admin/propresenter/item", dependencies=[Depends(require_admin)])
+@router.post("/api/admin/propresenter/item", dependencies=[Depends(require("propresenter.control"))])
 async def admin_pp_item(payload: dict):
     """The next or previous playlist item (Shift+arrow keys on the control page)."""
     return await _pp_run(pp_control.step_item, payload.get("direction"))
 
 
-@router.post("/api/admin/propresenter/screens", dependencies=[Depends(require_admin)])
+@router.post("/api/admin/propresenter/screens", dependencies=[Depends(require("propresenter.control"))])
 async def admin_pp_screens(payload: dict):
     """Audience or stage screens on or off. A write, so view-only refuses it like every other."""
     return await _pp_run(pp_control.set_screens, payload.get("kind"), payload.get("on"))
 
 
-@router.post("/api/admin/propresenter/slide", dependencies=[Depends(require_admin)])
+@router.post("/api/admin/propresenter/slide", dependencies=[Depends(require("propresenter.control"))])
 async def admin_pp_slide(payload: dict):
     return await _pp_run(pp_control.trigger_slide, payload.get("uuid"), payload.get("index"))
 
 
-@router.post("/api/admin/propresenter/clear", dependencies=[Depends(require_admin)])
+@router.post("/api/admin/propresenter/clear", dependencies=[Depends(require("propresenter.control"))])
 async def admin_pp_clear(payload: dict):
     return await _pp_run(pp_control.clear, payload.get("layer"))
 
 
-@router.get("/api/admin/propresenter/playlists", dependencies=[Depends(require_admin)])
+@router.get("/api/admin/propresenter/playlists", dependencies=[Depends(require("propresenter.view"))])
 async def admin_pp_playlists():
     return await _pp_run(pp_control.playlists)
 
 
-@router.get("/api/admin/propresenter/playlists/{playlist}", dependencies=[Depends(require_admin)])
+@router.get("/api/admin/propresenter/playlists/{playlist}", dependencies=[Depends(require("propresenter.view"))])
 async def admin_pp_playlist(playlist: str):
     return await _pp_run(pp_control.playlist_items, playlist)
 
 
-@router.get("/api/admin/propresenter/playlists/{playlist}/diagnostics", dependencies=[Depends(require_admin)])
+@router.get("/api/admin/propresenter/playlists/{playlist}/diagnostics", dependencies=[Depends(require("propresenter.view"))])
 async def admin_pp_playlist_diagnostics(playlist: str):
     return await _pp_run(pp_control.playlist_diagnostics, playlist)
 
 
-@router.get("/api/admin/propresenter/playlists/{playlist}/items/{index}/cues", dependencies=[Depends(require_admin)])
+@router.get("/api/admin/propresenter/playlists/{playlist}/items/{index}/cues", dependencies=[Depends(require("propresenter.view"))])
 async def admin_pp_playlist_cues(playlist: str, index: int):
     return await _pp_run(pp_control.playlist_item_cues, playlist, index)
 
 
-@router.get("/api/admin/propresenter/playlists/{playlist}/thumbnail/{index}/{cue}", dependencies=[Depends(require_admin)])
+@router.get("/api/admin/propresenter/playlists/{playlist}/thumbnail/{index}/{cue}", dependencies=[Depends(require("propresenter.view"))])
 async def admin_pp_playlist_thumbnail(playlist: str, index: int, cue: int, v: str = ""):
     """A playlist item's cue thumbnail, proxied and cached like the presentation ones (browsers never reach
     ProPresenter)."""
@@ -293,62 +293,65 @@ async def admin_pp_playlist_thumbnail(playlist: str, index: int, cue: int, v: st
     return Response(data, media_type=ctype, headers={"Cache-Control": "private, max-age=3600"})
 
 
-@router.post("/api/admin/propresenter/playlists/{playlist}/trigger", dependencies=[Depends(require_admin)])
+@router.post("/api/admin/propresenter/playlists/{playlist}/trigger", dependencies=[Depends(require("propresenter.control"))])
 async def admin_pp_playlist_trigger(playlist: str, payload: dict):
     return await _pp_run(pp_control.trigger_playlist_item, playlist, payload.get("index"))
 
 
-@router.get("/api/admin/propresenter/macros", dependencies=[Depends(require_admin)])
-async def admin_pp_macros(all: bool = False):
+@router.get("/api/admin/propresenter/macros", dependencies=[Depends(require("propresenter.view"))])
+async def admin_pp_macros(request: Request, all: bool = False):
+    # The operator-safe selection is what an operator sees; every macro (the picker's list) is for whoever manages it.
+    if all and not request.state.user.can("propresenter.manage"):
+        return JSONResponse({"detail": "Not allowed"}, status_code=403)
     return await _pp_run(pp_control.macros, all)
 
 
-@router.post("/api/admin/propresenter/macros/{macro}/trigger", dependencies=[Depends(require_admin)])
+@router.post("/api/admin/propresenter/macros/{macro}/trigger", dependencies=[Depends(require("propresenter.control"))])
 async def admin_pp_macro_trigger(macro: str):
     return await _pp_run(pp_control.trigger_macro, macro)
 
 
-@router.get("/api/admin/propresenter/looks", dependencies=[Depends(require_admin)])
+@router.get("/api/admin/propresenter/looks", dependencies=[Depends(require("propresenter.view"))])
 async def admin_pp_looks():
     return await _pp_run(pp_control.looks)
 
 
-@router.post("/api/admin/propresenter/looks/{look}/trigger", dependencies=[Depends(require_admin)])
+@router.post("/api/admin/propresenter/looks/{look}/trigger", dependencies=[Depends(require("propresenter.control"))])
 async def admin_pp_look_trigger(look: str):
     return await _pp_run(pp_control.trigger_look, look)
 
 
-@router.get("/api/admin/propresenter/timers", dependencies=[Depends(require_admin)])
+@router.get("/api/admin/propresenter/timers", dependencies=[Depends(require("propresenter.view"))])
 async def admin_pp_timers():
     return await _pp_run(pp_control.timers)
 
 
-@router.post("/api/admin/propresenter/timers/{timer}/{op}", dependencies=[Depends(require_admin)])
+@router.post("/api/admin/propresenter/timers/{timer}/{op}", dependencies=[Depends(require("propresenter.control"))])
 async def admin_pp_timer(timer: str, op: str):
     return await _pp_run(pp_control.timer, timer, op)
 
 
-@router.get("/api/admin/propresenter/messages", dependencies=[Depends(require_admin)])
+@router.get("/api/admin/propresenter/messages", dependencies=[Depends(require("propresenter.view"))])
 async def admin_pp_messages():
     return await _pp_run(pp_control.messages)
 
 
-@router.post("/api/admin/propresenter/messages/{message}/trigger", dependencies=[Depends(require_admin)])
+@router.post("/api/admin/propresenter/messages/{message}/trigger", dependencies=[Depends(require("propresenter.control"))])
 async def admin_pp_message_trigger(message: str, payload: dict):
     return await _pp_run(pp_control.trigger_message, message, payload.get("tokens"))
 
 
-@router.post("/api/admin/propresenter/messages/{message}/clear", dependencies=[Depends(require_admin)])
+@router.post("/api/admin/propresenter/messages/{message}/clear", dependencies=[Depends(require("propresenter.control"))])
 async def admin_pp_message_clear(message: str):
     return await _pp_run(pp_control.clear_message, message)
 
 
-@router.post("/api/admin/propresenter/transport", dependencies=[Depends(require_admin)])
+@router.post("/api/admin/propresenter/transport", dependencies=[Depends(require("propresenter.control"))])
 async def admin_pp_transport(payload: dict):
     return await _pp_run(pp_control.go_to_time, payload.get("seconds"))
 
 
-# --- Lobby announcements and the slide view (#138 stage 7, pplobby.py and ppview.py). Admin-protected; every
+# --- Lobby announcements and the slide view (#138 stage 7, pplobby.py and ppview.py). Reads need propresenter.view, running the rotation propresenter.control; every
 # write goes through propresenter.Client, which refuses it in view-only mode (409).
 async def _lobby_run(fn, *args):
     try:
@@ -364,22 +367,22 @@ async def _lobby_run(fn, *args):
     return data
 
 
-@router.get("/api/admin/propresenter/lobby", dependencies=[Depends(require_admin)])
+@router.get("/api/admin/propresenter/lobby", dependencies=[Depends(require("propresenter.view"))])
 async def admin_pp_lobby():
     return pp_lobby.state()
 
 
-@router.post("/api/admin/propresenter/lobby/start", dependencies=[Depends(require_admin)])
+@router.post("/api/admin/propresenter/lobby/start", dependencies=[Depends(require("propresenter.control"))])
 async def admin_pp_lobby_start():
     return await _lobby_run(pp_lobby.start_rotation)
 
 
-@router.post("/api/admin/propresenter/lobby/resume", dependencies=[Depends(require_admin)])
+@router.post("/api/admin/propresenter/lobby/resume", dependencies=[Depends(require("propresenter.control"))])
 async def admin_pp_lobby_resume():
     return await _lobby_run(pp_lobby.resume)
 
 
-@router.post("/api/admin/propresenter/lobby/stop", dependencies=[Depends(require_admin)])
+@router.post("/api/admin/propresenter/lobby/stop", dependencies=[Depends(require("propresenter.control"))])
 async def admin_pp_lobby_stop(payload: dict):
     """Stop stepping; with `clear` true, also clear the announcements layer."""
     return await _lobby_run(pp_lobby.stop_rotation, payload.get("clear") is True)
@@ -397,12 +400,12 @@ async def _view_image(which: str, v: str):
     return Response(data, media_type=ctype, headers={"Cache-Control": "private, max-age=300"})
 
 
-@router.get("/api/admin/propresenter/live", dependencies=[Depends(require_admin)])
+@router.get("/api/admin/propresenter/live", dependencies=[Depends(require("propresenter.view"))])
 async def admin_pp_live():
     return pp_view.snapshot("/api/admin/propresenter/live")
 
 
-@router.get("/api/admin/propresenter/live/image/{which}", dependencies=[Depends(require_admin)])
+@router.get("/api/admin/propresenter/live/image/{which}", dependencies=[Depends(require("propresenter.view"))])
 async def admin_pp_live_image(which: str, v: str = ""):
     return await _view_image(which, v)
 
@@ -434,7 +437,7 @@ async def stage_live_image(which: str, v: str = ""):
     return await _view_image(which, v)
 
 
-# --- The Planning Center link (#138 stage 6, pclink.py). Admin-protected. Matching only reads; the playlist
+# --- The Planning Center link (#138 stage 6, pclink.py). Reading it needs propresenter.view, changing it .manage. Matching only reads; the playlist
 # route writes through propresenter.Client (view-only answers 409) and only ever to a playlist Relay made.
 async def _link_run(fn, *args):
     try:
@@ -450,18 +453,18 @@ async def _link_run(fn, *args):
     return data
 
 
-@router.get("/api/admin/propresenter/link", dependencies=[Depends(require_admin)])
+@router.get("/api/admin/propresenter/link", dependencies=[Depends(require("propresenter.view"))])
 async def admin_pp_link():
     return pc_link.state()
 
 
-@router.get("/api/admin/propresenter/link/presentations", dependencies=[Depends(require_admin)])
+@router.get("/api/admin/propresenter/link/presentations", dependencies=[Depends(require("propresenter.view"))])
 async def admin_pp_link_presentations():
     """The presentations the last read found, for the operator's pairing picker (names and UUIDs only)."""
     return {"presentations": [{"uuid": c["uuid"], "name": c["name"]} for c in pc_link.pool]}
 
 
-@router.post("/api/admin/propresenter/link/refresh", dependencies=[Depends(require_admin)])
+@router.post("/api/admin/propresenter/link/refresh", dependencies=[Depends(require("propresenter.manage"))])
 async def admin_pp_link_refresh():
     """Read ProPresenter's playlists and libraries again and match the plan. Reads only."""
     async def go():
@@ -470,7 +473,7 @@ async def admin_pp_link_refresh():
     return await _link_run(go)
 
 
-@router.post("/api/admin/propresenter/link/mapping", dependencies=[Depends(require_admin)])
+@router.post("/api/admin/propresenter/link/mapping", dependencies=[Depends(require("propresenter.manage"))])
 async def admin_pp_link_mapping(payload: dict):
     """Pair a plan item title with a presentation, or clear the pairing with an empty `uuid`."""
     async def go():
@@ -482,7 +485,7 @@ async def admin_pp_link_mapping(payload: dict):
     return await _link_run(go)
 
 
-@router.post("/api/admin/propresenter/link/playlist", dependencies=[Depends(require_admin)])
+@router.post("/api/admin/propresenter/link/playlist", dependencies=[Depends(require("propresenter.manage"))])
 async def admin_pp_link_playlist():
     """Build (or rebuild) the Relay-owned playlist from the matched plan. On the operator's click only."""
     async def go():

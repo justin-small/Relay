@@ -1,25 +1,52 @@
 <!doctype html>
 <html lang="en"><head>
-<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Operator sign in</title>{% include "_brand_head.html" %}<link rel="stylesheet" href="{{ static('viewer.css') }}">
-<style>
-  form { max-width: 340px; margin: 16vh auto; padding: 0 24px; }
-  h1 { font-size: 20px; margin: 0 0 4px; }
-  .mark { display: block; margin: 0 0 18px; }
-  p.sub { color: var(--dim); font-size: 14px; margin: 0 0 22px; }
-  input { width: 100%; padding: 11px 13px; font: inherit; border-radius: 8px;
-          border: 1px solid var(--line); background: #0a0b0d; color: var(--fg); }
-  button { width: 100%; margin-top: 10px; padding: 11px; font: inherit; font-weight: 600;
-           border-radius: 8px; border: 0; background: var(--accent); color: var(--bg); cursor: pointer; }
-  .err { color: var(--err); font-size: 14px; margin-top: 10px; }
-</style>
+<title>{% if mode == 'setup' %}Set up Relay{% else %}Operator sign in{% endif %}</title>{% include "_auth_head.html" %}
 </head><body>
+{% if mode == 'setup' %}
+<form method="post" action="/admin/setup">
+  <img class="mark" src="/static/brand/relay-mark.svg" width="52" height="52" alt="Relay">
+  <h1>Set up Relay</h1>
+  <p class="sub">Create the first account, the Owner. Enter the admin token from <code>config.json</code> once; after this it is never used again.</p>
+  <label for="token">Admin token</label>
+  <input id="token" type="password" name="token" autofocus autocomplete="off" required>
+  <label for="username">Username</label>
+  <input id="username" type="text" name="username" value="{{ username }}" autocomplete="username" autocapitalize="none" spellcheck="false" required>
+  <label for="name">Your name</label>
+  <input id="name" type="text" name="name" value="{{ name }}" autocomplete="name" required>
+  <label for="password">Password</label>
+  <input id="password" type="password" name="password" autocomplete="new-password" minlength="8" required>
+  <label for="confirm">Confirm password</label>
+  <input id="confirm" type="password" name="confirm" autocomplete="new-password" minlength="8" required>
+  <button type="submit">Create the Owner</button>
+  {% if error %}<div class="err" role="alert">{{ error }}</div>{% endif %}
+</form>
+{% elif mode == 'pin' %}
+<form method="post" action="/admin/login/pin">
+  <img class="mark" src="/static/brand/relay-mark.svg" width="52" height="52" alt="Relay">
+  <h1>Operator panel</h1>
+  <p class="sub">{% if device_name %}This browser is trusted ({{ device_name }}). {% endif %}Pick your name and type your PIN.</p>
+  <label for="user_id">Name</label>
+  <select id="user_id" name="user_id" required>
+    {% for u in pin_users %}<option value="{{ u.id }}"{% if u.id == pin_user %} selected{% endif %}>{{ u.name }}</option>{% endfor %}
+  </select>
+  <label for="pin">PIN</label>
+  <input id="pin" type="password" name="pin" inputmode="numeric" pattern="[0-9]*" maxlength="8" autocomplete="off" autofocus required>
+  <button type="submit">Sign in</button>
+  {% if error %}<div class="err" role="alert">{{ error }}</div>{% endif %}
+  <a class="link" href="/admin?pw=1">Use my password instead</a>
+</form>
+{% else %}
 <form method="post" action="/admin/login">
   <img class="mark" src="/static/brand/relay-mark.svg" width="52" height="52" alt="Relay">
   <h1>Operator panel</h1>
-  <p class="sub">Enter the admin token from <code>config.json</code>.</p>
-  <input type="password" name="token" placeholder="Admin token" autofocus autocomplete="current-password">
+  <p class="sub">Sign in with your username and password.</p>
+  <label for="username">Username</label>
+  <input id="username" type="text" name="username" value="{{ username }}" autocomplete="username" autocapitalize="none" spellcheck="false" {% if not username %}autofocus {% endif %}required>
+  <label for="password">Password</label>
+  <input id="password" type="password" name="password" autocomplete="current-password" {% if username %}autofocus {% endif %}required>
   <button type="submit">Sign in</button>
-  {% if error %}<div class="err">{{ error }}</div>{% endif %}
+  {% if error %}<div class="err" role="alert">{{ error }}</div>{% endif %}
+  {% if pin_users %}<a class="link" href="/admin">Use a PIN instead</a>{% endif %}
 </form>
+{% endif %}
 </body></html>

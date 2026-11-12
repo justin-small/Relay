@@ -76,7 +76,7 @@ if "!OPENAI_KEY!"=="" (
 echo.
 
 echo Admin token
-echo   This is the password for the operator panel.
+echo   You type this once in the operator panel, to create the first Owner account.
 echo   Choose something only you know - anyone with it controls the session
 echo   and can spend against your OpenAI account. Minimum 8 characters.
 :asktoken

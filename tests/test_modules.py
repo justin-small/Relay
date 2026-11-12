@@ -25,6 +25,11 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 os.environ["RELAY_CONFIG"] = os.path.join(tempfile.mkdtemp(), "config.json")
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import _pg  # noqa: E402  (a throwaway Postgres for the user system; must come before app.main)
+
+_pg.start()
+_pg.reset()
 
 from fastapi import APIRouter, Depends, FastAPI
 from fastapi.testclient import TestClient
@@ -39,9 +44,9 @@ MODULES = APP / "modules"
 
 # Relay's core. A new file here is a new piece of core, not an integration: say why in the pull request.
 CORE_FILES = {
-    "__init__.py", "alerts.py", "audio.py", "config.py", "demo.py", "engine.py", "exporting.py", "hub.py",
+    "__init__.py", "alerts.py", "audio.py", "config.py", "db.py", "demo.py", "engine.py", "exporting.py", "hub.py",
     "languages.py", "main.py", "overlays.py", "panelfw.py", "panels.py", "realtime.py", "recorder.py", "redact.py",
-    "scheduler.py", "schedules.py", "texttranslate.py",
+    "scheduler.py", "schedules.py", "texttranslate.py", "users.py",
 }
 # Network clients, and the core files allowed them: OpenAI (realtime, text translation) and the host's own
 # address for the viewer links (main).
@@ -128,11 +133,9 @@ for name in sorted(CORE_FILES & top):
 # ------------------------------------------------------------------ each real module keeps the contract
 print("module contract")
 config.ensure_file()
-config.save({"admin_token": "t0ken", "port": 8000, "admin_port": 8001})
-admin = TestClient(app, base_url="http://relay.local:8001", headers={"x-admin-token": "t0ken"})
+config.save({"port": 8000, "admin_port": 8001})
+admin = _pg.client(app, base_url="http://relay.local:8001")
 viewer = TestClient(app, base_url="http://relay.local:8000")
-# The admin page itself needs the login cookie, not just the token header.
-admin.post("/admin/login", data={"token": "t0ken"})
 check("logged in to the admin page", 'id="page-modules"' in admin.get("/admin").text)
 
 core_web = ""
@@ -156,6 +159,42 @@ for mid in ids:
     check(f"{mid}: no core template or script names its routes", not named, named)
     check(f"{mid}: settings key is not a core config key", mod.manifest.settings_key not in
           {"modules", "panels", "alerts", "schedules", "recording", "realtime", "targets"})
+
+    # Permissions: every module declares view and manage, and every admin route asks for one of its own.
+    declared = {perm.id for perm in mod.permissions}
+    check(f"{mid}: declares {mid}.view and {mid}.manage", {f"{mid}.view", f"{mid}.manage"} <= declared, sorted(declared))
+    unguarded = []
+    for router in mod.routers():
+        for r in router.routes:
+            if not r.path.startswith(("/api/admin", "/admin")):
+                continue          # public streams, viewer pages and panel routes carry their own rules
+            asks = [d.call.permission for d in r.dependant.dependencies if hasattr(d.call, "permission")]
+            if len(asks) != 1 or asks[0] not in declared or not asks[0].startswith(mid + "."):
+                unguarded.append((sorted(r.methods), r.path, asks))
+    check(f"{mid}: every admin route asks for one of the module's own permissions (never require_admin or a core one)",
+          not unguarded, unguarded[:5])
+
+    # A page is in the nav only for a user who holds its permission.
+    class Holds:
+        def __init__(self, *perms):
+            self.perms = set(perms)
+
+        def can(self, perm):
+            return perm in self.perms
+
+    async def nav_for(user):
+        await registry.set_enabled(mid, True)
+        try:
+            return [pg["id"] for groups in registry.admin_nav(user).values() for pg in groups]
+        finally:
+            await registry.set_enabled(mid, False)
+    for pg in mod.admin_pages:
+        need = pg.permission or f"{mid}.view"
+        check(f"{mid}: page {pg.id} needs a permission the module (or core) declares",
+              need in declared or need.startswith(mid + "."), need)
+        check(f"{mid}: page {pg.id} is absent from the nav for a user without {need}",
+              pg.id not in asyncio.run(nav_for(Holds("modules.manage", "settings.view"))))
+        check(f"{mid}: page {pg.id} is in the nav for a user with {need}", pg.id in asyncio.run(nav_for(Holds(need))))
 
     # Off: every route is gone, and nothing runs.
     asyncio.run(registry.set_enabled(mid, False))

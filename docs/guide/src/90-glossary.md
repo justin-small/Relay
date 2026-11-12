@@ -2,11 +2,21 @@
 
 **`docker-config`**
 : The folder inside the Relay folder that holds all your settings: API key,
-  admin token, certificate, blocked words and recordings.
+  admin token, certificate, blocked words, recordings and the daily database
+  backups.
 
 **Admin token**
-: The password for the operator panel. You choose it during setup. Companion
-  uses it too.
+: A one-time code you choose during setup. You type it once, the first time you
+  open the operator panel, to create the first account (the Owner). After
+  that, Relay never accepts it again.
+
+**Role**
+: What a person may do in the operator panel: Viewer, Operator, Admin or
+  Owner, from least to most.
+
+**Trusted device**
+: A browser that an admin has marked as trusted, such as the sound booth
+  computer. A person can sign in there with a PIN instead of a password.
 
 **API key**
 : A secret code, like a password, that lets Relay use OpenAI. Everything done

@@ -8,6 +8,11 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 os.environ.setdefault("RELAY_CONFIG", os.path.join(tempfile.mkdtemp(), "config.json"))
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import _pg  # noqa: E402  (a throwaway Postgres for the user system; must come before app.main)
+
+_pg.start()
+_pg.reset()
 
 import numpy as np
 from fastapi.testclient import TestClient
@@ -882,45 +887,51 @@ check("bad stream rejected", c.get("/stream?stream=bogus").status_code == 400)
 check("bad lang rejected", c.get("/stream?stream=translation&lang=KLINGON").status_code == 400)
 
 print("\nadmin auth")
-check("state needs token", c.get("/api/admin/state").status_code == 401)
-check("start needs token", c.post("/api/admin/start").status_code == 401)
-check("admin page shows login", "Operator panel" in c.get("/admin").text)
-check("wrong token rejected", c.post("/admin/login", data={"token": "nope"}).status_code == 401)
+check("state needs a sign-in", c.get("/api/admin/state").status_code == 401)
+check("start needs a sign-in", c.post("/api/admin/start").status_code == 401)
+check("admin page shows first-run setup while there are no users", "Set up Relay" in c.get("/admin").text)
+check("wrong setup token rejected", c.post("/admin/setup", data={"token": "nope", "username": "smoke",
+      "name": "Smoke", "password": "long enough pw", "confirm": "long enough pw"}).status_code == 401)
+# While no account exists the token header acts as an Owner (first-run automation) ...
 h = {"x-admin-token": "t0ken"}
 st = c.get("/api/admin/state", headers=h)
-check("state with token", st.status_code == 200)
+check("state with the setup token, before any user exists", st.status_code == 200)
+# ... and from here on there are accounts, so everything below signs in.
+sc = _pg.client(app, base_url="http://testserver")
+check("the setup token stops working once a user exists",
+      c.get("/api/admin/state", headers=h).status_code == 401)
 body = st.json()
 blob = json.dumps(body)
 check("secret key value never leaves server", "sk-test-1234" not in blob and "t0ken" not in blob)
 check("only key hint exposed", body["config"]["openai_api_key_hint"] == "…1234")
 check("devices listed for admin", isinstance(body["devices"], list))
-r = c.post("/api/admin/config", headers=h, json={"blocklist": "damn\noff the record"})
+r = sc.post("/api/admin/config", json={"blocklist": "damn\noff the record"})
 check("panel saves blocklist", r.status_code == 200, r.text)
 eq("no report on a clean save", (r.json()["blocklist_report"]["duplicates"], r.json()["blocklist_report"]["dropped"]), (0, 0))
-_r = c.post("/api/admin/config", headers=h, json={"blocklist": "damn\nDAMN\noff the record\noff-the-record"})
+_r = sc.post("/api/admin/config", json={"blocklist": "damn\nDAMN\noff the record\noff-the-record"})
 eq("panel save reports duplicates", _r.json()["blocklist_report"]["duplicates"], 2)
 eq("status carries the term limit", _r.json()["status"]["blocklist_max"], redact.MAX_TERMS)
-r = c.post("/api/admin/config", headers=h, json={"blocklist": "damn\noff the record"})
+r = sc.post("/api/admin/config", json={"blocklist": "damn\noff the record"})
 eq("panel write reaches the file", redact.read_blocklist_file(bl), ["damn", "off the record"])
 eq("panel write reaches the hub", hub.blocklist, ["damn", "off the record"])
-r2 = c.post("/api/admin/config", headers=h, json={"blocklist": ""})
+r2 = sc.post("/api/admin/config", json={"blocklist": ""})
 eq("blocklist can be cleared", hub.blocklist, [])
 eq("cleared file is empty", redact.read_blocklist_file(bl), [])
-st2 = c.get("/api/admin/state", headers=h).json()["status"]
+st2 = sc.get("/api/admin/state").json()["status"]
 check("status reports the file path", st2["blocklist_file"].endswith("blocklist.txt"), st2["blocklist_file"])
 check("real blocklist.txt untouched by tests", not (config.ROOT / "blocklist.txt").samefile(bl)
       if (config.ROOT / "blocklist.txt").exists() else True)
 
-r = c.post("/api/admin/target/SPANISH", headers=h, json={"enabled": True})
+r = sc.post("/api/admin/target/SPANISH", json={"enabled": True})
 check("toggle target ok", r.status_code == 200)
 check("toggle persisted", config.get()["targets"]["SPANISH"]["enabled"] is True)
 check("not live while stopped",
       all(t["live"] is False for t in r.json()["targets"]))
 check("source language is not offered as a target",
-      c.post("/api/admin/target/ENGLISH", headers=h, json={"enabled": True}).status_code == 404)
-check("unknown target 404", c.post("/api/admin/target/ELVISH", headers=h, json={"enabled": True}).status_code == 404)
+      sc.post("/api/admin/target/ENGLISH", json={"enabled": True}).status_code == 404)
+check("unknown target 404", sc.post("/api/admin/target/ELVISH", json={"enabled": True}).status_code == 404)
 config.save({"openai_api_key": ""})
-r = c.post("/api/admin/start", headers=h)
+r = sc.post("/api/admin/start")
 check("start without key fails cleanly", r.status_code == 400 and "API key" in r.json()["error"], r.text)
 
 print("\nrehearsal mode never opens a billed session")
@@ -933,13 +944,13 @@ _real_open = real_engine._open_relay
 real_engine._open_relay = lambda *a, **k: _opened.append(a)
 real_engine.last_error = None  # left over from the no-key start above
 try:
-    r = c.post("/api/admin/start", headers=h)
+    r = sc.post("/api/admin/start")
     check("start is refused in rehearsal mode", r.status_code == 400, r.text)
     check("the refusal says why", "Rehearsal mode" in r.json().get("error", ""), r.text)
     check("nothing is running after the refusal", r.json().get("running") is False, r.text)
     check("no session was opened", _opened == [], _opened)
     check("the refusal does not stick as a panel error",
-          c.get("/api/admin/status", headers=h).json()["error"] is None)
+          sc.get("/api/admin/status").json()["error"] is None)
     # A schedule whose window is open right now must not start capture either.
     from datetime import datetime, timedelta, timezone
     from zoneinfo import ZoneInfo
@@ -966,7 +977,7 @@ finally:
 print("\noperator panel is served on its own port")
 config.save({"admin_token": "t0ken", "port": 8000, "admin_port": 8001})
 viewer_c = TestClient(app, base_url="http://relay.local:8000")
-admin_c = TestClient(app, base_url="http://relay.local:8001")
+admin_c = _pg.client(app, base_url="http://relay.local:8001")
 for path in ("/admin", "/admin/login", "/api/admin/status", "/api/admin/state"):
     check(f"viewer port hides {path}", viewer_c.get(path).status_code == 404, path)
 check("viewer pages still served on the viewer port",
@@ -974,7 +985,7 @@ check("viewer pages still served on the viewer port",
 check("chooser hides the panel on the viewer port", "Operator panel" not in viewer_c.get("/").text)
 check("panel reachable on the admin port", admin_c.get("/admin").status_code == 200)
 check("admin api reachable on the admin port",
-      admin_c.get("/api/admin/status", headers={"x-admin-token": "t0ken"}).status_code == 200)
+      admin_c.get("/api/admin/status").status_code == 200)
 check("chooser offers the panel on the admin port", "Operator panel" in admin_c.get("/").text)
 config.save({"admin_port": 8000})
 check("one port again when admin_port == port",
@@ -993,49 +1004,58 @@ try:
     audio.list_input_devices()                     # warm the cache
     _before = _terms["n"]
     for _ in range(3):
-        c.get("/api/admin/state", headers=h)
+        sc.get("/api/admin/state")
     check("panel loads never re-initialise PortAudio", _terms["n"] == _before, _terms["n"])
 
     audio._set_capture_live(True)
     _before = _terms["n"]
-    rb = c.get("/api/admin/devices", headers=h).json()
+    rb = sc.get("/api/admin/devices").json()
     check("rescan leaves PortAudio alone while capturing", _terms["n"] == _before, _terms["n"])
     check("rescan says so", rb["full_rescan"] is False and bool(rb["note"]), rb)
 
     audio._set_capture_live(False)
     _before = _terms["n"]
-    rb = c.get("/api/admin/devices", headers=h).json()
+    rb = sc.get("/api/admin/devices").json()
     check("rescan while stopped does a full probe", _terms["n"] == _before + 1, _terms["n"])
     check("full rescan flagged", rb["full_rescan"] is True and rb["note"] is None, rb)
 finally:
     _sd._terminate = _orig_terminate
     audio._set_capture_live(False)
 
-print("\nnon-ascii admin token")
+print("\nnon-ascii admin token and password")
 import urllib.parse as _up
+from app import main as _main, users as _users
+_main._LOGIN_FAILS.clear()
 for _tok in ("contraseña", "пароль"):
+    _pg.reset()
     config.save({"admin_token": _tok})
     c2 = TestClient(app)
-    lr = c2.post("/admin/login", data={"token": _tok}, follow_redirects=False)
-    check(f"login accepts {_tok!r}", lr.status_code == 303, lr.status_code)
+    lr = c2.post("/admin/setup", data={"token": _tok, "username": "first", "name": "First",
+                                       "password": "pässwörd-1234", "confirm": "pässwörd-1234"},
+                 follow_redirects=False)
+    check(f"first-run setup accepts the token {_tok!r}", lr.status_code == 303, lr.status_code)
     check(f"panel opens with {_tok!r}", '<h1 class="brand">' in c2.get("/admin").text)
     check(f"api authorises {_tok!r}", c2.get("/api/admin/status").status_code == 200)
 c3 = TestClient(app)
 c3.cookies.set("relay_admin", _up.quote("garbage-Ω", safe=""))
 check("bad non-ascii cookie -> 401 not 500", c3.get("/api/admin/status").status_code == 401)
-check("bad non-ascii token -> 401 not 500",
-      c3.post("/admin/login", data={"token": "wrong-ñ"}).status_code == 401)
+check("bad non-ascii password -> 401 not 500",
+      c3.post("/admin/login", data={"username": "first", "password": "wrong-ñ"}).status_code == 401)
+check("a non-ascii password signs in",
+      TestClient(app).post("/admin/login", data={"username": "first", "password": "pässwörd-1234"},
+                           follow_redirects=False).status_code == 303)
 config.save({"admin_token": "t0ken"})
+_pg.reset()
+sc = _pg.client(app, base_url="http://testserver")      # the reset ended the earlier session
 
 print("\nadmin session cookie")
-from app import main as _main
-_main._SESSIONS.clear()
 _main._LOGIN_FAILS.clear()
+_users.create("smoke", "Smoke", "owner", "smoke password", temporary=False)
 c4 = TestClient(app)
-lr = c4.post("/admin/login", data={"token": "t0ken"}, follow_redirects=False)
+lr = c4.post("/admin/login", data={"username": "smoke", "password": "smoke password"}, follow_redirects=False)
 _sid = c4.cookies.get("relay_admin")
 check("login issues a session cookie", lr.status_code == 303 and bool(_sid))
-check("cookie is not the admin token", _sid != "t0ken" and "t0ken" not in _sid, _sid)
+check("cookie is not the password", _sid != "smoke password" and "smoke" not in _sid, _sid)
 _sc = lr.headers["set-cookie"].lower()
 check("cookie is httponly + samesite=strict", "httponly" in _sc and "samesite=strict" in _sc, _sc)
 check("session opens the panel", '<h1 class="brand">' in c4.get("/admin").text)
@@ -1043,26 +1063,26 @@ check("session authorises the api", c4.get("/api/admin/status").status_code == 2
 c4.post("/admin/logout", follow_redirects=False)
 c4.cookies.set("relay_admin", _sid)
 check("logout kills the session server-side", c4.get("/api/admin/status").status_code == 401)
-_main._SESSIONS.clear()
 c5 = TestClient(app)
-c5.cookies.set("relay_admin", _sid)
-check("sessions do not survive a restart", c5.get("/api/admin/status").status_code == 401)
+c5.cookies.set("relay_admin", "not-a-session")
+check("an unknown session cookie is refused", c5.get("/api/admin/status").status_code == 401)
 
 print("\nadmin login rate limiting")
 _main._LOGIN_FAILS.clear()
 _main.LOGIN_FAIL_DELAY_S = 0.0  # keep the suite quick; the lockout is what we test
 c6 = TestClient(app)
-codes = [c6.post("/admin/login", data={"token": "nope"}).status_code for _ in range(6)]
+_bad = {"username": "smoke", "password": "nope nope nope"}
+_good = {"username": "smoke", "password": "smoke password"}
+codes = [c6.post("/admin/login", data=_bad).status_code for _ in range(6)]
 check("first attempts rejected 401", codes[:5] == [401] * 5, codes)
 check("locked out after 5 failures", codes[5] == 429, codes)
-check("lockout ignores the right token too",
-      c6.post("/admin/login", data={"token": "t0ken"}).status_code == 429)
+check("lockout ignores the right password too", c6.post("/admin/login", data=_good).status_code == 429)
 _main._LOGIN_FAILS.clear()
-c6.post("/admin/login", data={"token": "nope"})
-c6.post("/admin/login", data={"token": "nope"})
+c6.post("/admin/login", data=_bad)
+c6.post("/admin/login", data=_bad)
 check("failures counted before the lockout", bool(_main._LOGIN_FAILS), _main._LOGIN_FAILS)
 check("a good login still goes through",
-      c6.post("/admin/login", data={"token": "t0ken"}, follow_redirects=False).status_code == 303)
+      c6.post("/admin/login", data=_good, follow_redirects=False).status_code == 303)
 check("counter reset on success", _main._LOGIN_FAILS == {}, _main._LOGIN_FAILS)
 _main.LOGIN_FAIL_DELAY_S = 0.75
 
@@ -1087,14 +1107,13 @@ eq("single-port mode leaves admin_host alone", _single["admin_host"], "127.0.0.1
 eq("a blank admin_host falls back to loopback",
    config._normalise({"admin_host": "  "})["admin_host"], "127.0.0.1")
 
-_main._SESSIONS.clear()
 _main._LOGIN_FAILS.clear()
 _main.LOGIN_FAIL_DELAY_S = 0.0
 
 # TestClient's peer is "testclient", not a loopback address, so these headers
 # stand in for the untrusted case: a direct client on the venue LAN.
 c7 = TestClient(app)
-c7.post("/admin/login", data={"token": "nope"},
+c7.post("/admin/login", data={"username": "smoke", "password": "nope nope nope"},
         headers={"x-forwarded-for": "203.0.113.9"})
 check("forged X-Forwarded-For is ignored from a non-loopback peer",
       "203.0.113.9" not in _main._LOGIN_FAILS, _main._LOGIN_FAILS)
@@ -1136,21 +1155,20 @@ check("plain loopback request is not https", not _main._is_https(_req(("127.0.0.
 # The cookie must pick up Secure behind TLS, and must NOT pick it up on a plain
 # HTTP login -- a browser drops a Secure cookie sent over HTTP, which would
 # lock the operator out of a working loopback or single-port setup.
-_main._SESSIONS.clear()
 _r = _Resp()
-_main._set_session_cookie(_r, _req(("127.0.0.1", 1), {"x-forwarded-proto": "https"}))
+_main._set_cookie(_r, _req(("127.0.0.1", 1), {"x-forwarded-proto": "https"}), "relay_admin", "tok", 60)
 check("cookie is Secure behind a TLS proxy",
       "secure" in _r.headers["set-cookie"].lower(), _r.headers["set-cookie"])
 
 _r2 = _Resp()
-_main._set_session_cookie(_r2, _req(("10.0.1.77", 1), {"x-forwarded-proto": "https"}))
+_main._set_cookie(_r2, _req(("10.0.1.77", 1), {"x-forwarded-proto": "https"}), "relay_admin", "tok", 60)
 check("forged X-Forwarded-Proto does not set Secure",
       "secure" not in _r2.headers["set-cookie"].lower(), _r2.headers["set-cookie"])
 
-_main._SESSIONS.clear()
 _main._LOGIN_FAILS.clear()
 c9 = TestClient(app)
-_plain = c9.post("/admin/login", data={"token": "t0ken"}, follow_redirects=False)
+_plain = c9.post("/admin/login", data={"username": "smoke", "password": "smoke password"},
+                 follow_redirects=False)
 check("cookie is not Secure on a plain-HTTP login",
       "secure" not in _plain.headers["set-cookie"].lower(), _plain.headers["set-cookie"])
 _main.LOGIN_FAIL_DELAY_S = 0.75
@@ -1273,14 +1291,13 @@ _dlid = _live.start_run("ENGLISH", ["SPANISH"])
 _live.append("transcription", "ENGLISH", 1, "The doors close at six.", 200.0, 202.0)
 _live.append("translation", "SPANISH", 2, "Las puertas cierran a las seis.", 200.2, 202.4)
 _live.finish_run()
-_dh = {"x-admin-token": "t0ken"}
-_ls = c.get("/api/admin/recordings", headers=_dh).json()
+_ls = sc.get("/api/admin/recordings").json()
 eq("the finished run is listed", [r["run_id"] for r in _ls["runs"]], [_dlid])
-_one = c.get(f"/api/admin/recordings/{_dlid}", headers=_dh).json()
+_one = sc.get(f"/api/admin/recordings/{_dlid}").json()
 check("the run lists its exportable files",
       {"transcript-ENGLISH.txt", "finetune-SPANISH.jsonl"} <= {f["name"] for f in _one["files"]},
       _one["files"])
-_z = c.get(f"/api/admin/recordings/{_dlid}/export.zip", headers=_dh)
+_z = sc.get(f"/api/admin/recordings/{_dlid}/export.zip")
 eq("zip download is served", (_z.status_code, _z.headers["content-type"]),
    (200, "application/zip"))
 check("zip is offered as a download", "attachment" in _z.headers.get("content-disposition", ""))
@@ -1288,19 +1305,19 @@ _names = sorted(n.split("/")[-1] for n in _zip.ZipFile(_io.BytesIO(_z.content)).
 check("zip carries the raw record and the exports",
       {"lines.jsonl", "meta.json", "manifest.txt", "finetune-SPANISH.jsonl"} <= set(_names),
       _names)
-_ftr = c.get(f"/api/admin/recordings/{_dlid}/file/finetune-SPANISH.jsonl", headers=_dh)
+_ftr = sc.get(f"/api/admin/recordings/{_dlid}/file/finetune-SPANISH.jsonl")
 eq("a single file downloads", _ftr.status_code, 200)
 check("it is the pair, in chat format",
       json.loads(_ftr.text.splitlines()[0])["messages"][2]["content"]
       == "Las puertas cierran a las seis.")
 eq("a file this run never produced is a 404",
-   c.get(f"/api/admin/recordings/{_dlid}/file/finetune-KLINGON.jsonl", headers=_dh).status_code, 404)
+   sc.get(f"/api/admin/recordings/{_dlid}/file/finetune-KLINGON.jsonl").status_code, 404)
 eq("a file name cannot escape the run",
-   c.get(f"/api/admin/recordings/{_dlid}/file/..%2F..%2Fconfig.json", headers=_dh).status_code, 404)
+   sc.get(f"/api/admin/recordings/{_dlid}/file/..%2F..%2Fconfig.json").status_code, 404)
 eq("delete needs a token",
    c.delete(f"/api/admin/recordings/{_dlid}").status_code, 401)
 eq("delete removes the run",
-   c.delete(f"/api/admin/recordings/{_dlid}", headers=_dh).json()["runs"], [])
+   sc.delete(f"/api/admin/recordings/{_dlid}").json()["runs"], [])
 check("the run directory is gone", not (_dldir / _dlid).exists())
 _shutil.rmtree(_dldir.parent, ignore_errors=True)
 _live.configure(Path(tempfile.mkdtemp()) / "recordings", keep_runs=20)
@@ -1308,15 +1325,14 @@ _live.configure(Path(tempfile.mkdtemp()) / "recordings", keep_runs=20)
 print("\nrecording is off by default")
 eq("recording disabled in the shipped defaults", config.get()["recording"]["enabled"], False)
 check("no line sink until a recorded run starts", hub.line_sink is None)
-_rec_h = {"x-admin-token": "t0ken"}
-_rl = c.get("/api/admin/recordings", headers=_rec_h)
+_rl = sc.get("/api/admin/recordings")
 eq("recordings list is served", _rl.status_code, 200)
 eq("nothing recorded with recording off", _rl.json()["runs"], [])
 check("recordings list needs a token", c.get("/api/admin/recordings").status_code == 401)
 check("unknown run is a 404",
-      c.get("/api/admin/recordings/20200101-000000", headers=_rec_h).status_code == 404)
+      sc.get("/api/admin/recordings/20200101-000000").status_code == 404)
 check("a non-run id is a 404, not a path",
-      c.get("/api/admin/recordings/..%2F..%2Fetc", headers=_rec_h).status_code in (400, 404))
+      sc.get("/api/admin/recordings/..%2F..%2Fetc").status_code in (400, 404))
 
 # The hub is what feeds the recorder: a committed line must arrive with the
 # span that pairing depends on, and only after the blocklist has run.

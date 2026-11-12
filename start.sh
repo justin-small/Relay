@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 # Live Caption Relay on Linux — starts the whole stack.
 #
-# One container holds both processes: Caddy on the network side (viewers on
-# port 80, the operator panel on 443 over HTTPS) and the relay on loopback
-# behind it. There is nothing else to launch.
+# One container holds all three processes: Caddy on the network side (viewers on
+# port 80, the operator panel on 443 over HTTPS), the relay on loopback behind
+# it, and Postgres for the user accounts on a private unix socket (no port).
+# There is nothing else to launch.
 #
 # Linux hands /dev/snd straight to the container, so there is no PulseAudio
 # bridge to start — unlike the macOS and Windows paths.

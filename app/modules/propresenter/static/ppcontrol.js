@@ -5,6 +5,8 @@
   const $ = function (id) { return document.getElementById(id); };
   if (!$('page-ppcontrol')) return;
   const BASE = '/api/admin/propresenter';
+  // What this user may do here. Without the admin page's relayCan the server still refuses, so assume yes.
+  function can(perm) { return typeof window.relayCan !== 'function' || !!window.relayCan(perm); }
   let body = null;            // the last /api/admin/propresenter answer: {settings, state}
   let slides = null;          // {uuid, name, rev, cues}
   let slidesFor = '';         // the presentation uuid the grid was built for
@@ -45,7 +47,11 @@
   }
   function pageOpen() { return !$('page-ppcontrol').hidden; }
   function state() { return (body && body.state) || {}; }
-  function enabled() { const s = state(); return !!(s.configured && s.connected && !s.view_only); }
+  // Every button here changes something in ProPresenter, so each needs propresenter.control as well as a live,
+  // not view-only ProPresenter. The page itself (what is up, the grid, the lists) only needs propresenter.view.
+  function enabled() { const s = state(); return !!(s.configured && s.connected && !s.view_only && can('propresenter.control')); }
+  // Choosing which macros operators see changes Relay's setup.
+  function canChoose() { const s = state(); return can('propresenter.manage') && !!(s.configured && s.connected && !s.view_only); }
 
   /* Run one control. The poll refreshes what changed a moment later. */
   async function act(fn, then) {
@@ -63,11 +69,16 @@
     dock.querySelectorAll('button[data-layer]').forEach(function (b) {
       b.disabled = !on;
       b.classList.toggle('lit', !!(s.layers && s.layers[b.dataset.layer]));
-      b.title = s.view_only ? 'View-only mode is on' : (s.layers && s.layers[b.dataset.layer] ? 'Live now: clear it' : 'Nothing live here');
+      b.title = !can('propresenter.control') ? 'You can view this page but not change it' : s.view_only ? 'View-only mode is on' : (s.layers && s.layers[b.dataset.layer] ? 'Live now: clear it' : 'Nothing live here');
     });
     $('pcSum').textContent = !s.configured ? 'not set up' : !s.connected ? 'waiting for ProPresenter'
       : s.view_only ? 'connected, view-only' : 'connected';
-    ['pcPrev', 'pcNext', 'pcPrevPres', 'pcNextPres', 'pcGoTo', 'pcMacroSave', 'pcAud', 'pcStageScr'].forEach(function (id) { $(id).disabled = !on; });
+    ['pcPrev', 'pcNext', 'pcPrevPres', 'pcNextPres', 'pcGoTo', 'pcAud', 'pcStageScr'].forEach(function (id) { $(id).disabled = !on; });
+    $('pcMacroSave').disabled = !canChoose();
+    const choose = can('propresenter.manage');
+    $('pcMacroChoose').hidden = !choose;
+    if (!choose) $('pcMacroPick').hidden = true;
+    $('ppCtlAccessNote').hidden = can('propresenter.control');
     const now = $('pcNow');
     now.textContent = '';
     if (!s.configured) now.appendChild(h('div', 'muted', 'ProPresenter is not set up. Enter its address under ProPresenter.'));

@@ -9,8 +9,8 @@ There are two sides:
 - **The viewer side** is what the room sees. It is at the plain address,
   such as `http://192.168.1.50/`. Anyone on the network can open it.
 - **The operator side** is where you control Relay. It is at the same
-  address with `/admin` on the end, over `https://`. It needs the admin
-  token.
+  address with `/admin` on the end, over `https://`. It needs a sign-in with
+  your own username and password.
 
 The numbers in red circles on each screenshot match the numbered list below
 it.

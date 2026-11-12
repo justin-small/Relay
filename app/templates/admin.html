@@ -2,6 +2,10 @@
 <html lang="en"><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Relay &middot; Operator</title>{% include "_brand_head.html" %}<link rel="stylesheet" href="{{ static('viewer.css') }}">
+<script>
+window.RELAY_ME = {{ me|tojson }};
+window.relayCan = function (perm) { return window.RELAY_ME.permissions.indexOf(perm) !== -1; };
+</script>
 <style>
   body { display:block; font-size:14px; }
   .wrap { max-width:820px; margin:0 auto; padding:22px 20px 90px; }
@@ -422,56 +426,100 @@
   .ovrecipes .note { margin:0 0 10px; }
   .ovrecipes ol { margin:0; padding-left:20px; color:#d4d6da; } .ovrecipes li { margin-bottom:7px; }
   @media (max-width:1100px) { .ovb { grid-template-columns:minmax(0,1fr); } .ovb-preview { position:static; order:-1; } }
+
+  /* ---- Accounts: the header link, My account, Users ---- */
+  .acct { display:inline-flex; align-items:baseline; gap:8px; color:var(--fg); text-decoration:none; padding:5px 8px;
+          border-radius:5px; min-width:0; }
+  .acct:hover { background:#16171a; }
+  .acct[aria-current=page] { background:#1d1f23; box-shadow:inset 0 0 0 1px #2c2f35; }
+  .acct .acctname { font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:16ch; }
+  .acct .acctrole { font-size:12px; color:var(--dim); }
+  .viewonly { margin:-14px 0 20px; }
+  .ctl[hidden], .ctl .grow[hidden] { display:none; }
+  .ctl .grow { flex:1 1 200px; min-width:0; }
+  .ctl .grow input { width:100%; }
+  .acctform { max-width:420px; }
+  .acctform .ctl { margin-top:4px; }
+  .rolepill { display:inline-block; font-size:12px; padding:1px 8px; border:1px solid var(--line); border-radius:10px; color:var(--dim); }
+  .tablescroll { position:relative; }
+  .sr { position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0 0 0 0); white-space:nowrap; }
+  .stat-off { color:#fca5a5; }
+  .stat-warn { color:var(--warn); }
+  .userrow-acts { white-space:nowrap; text-align:right; }
+  .userrow-acts button { padding:5px 10px; font-size:12px; margin-left:4px; }
+  .userform { border:1px solid var(--line); border-radius:9px; background:#111216; padding:14px 16px; margin:12px 0; }
+  .userform[hidden] { display:none; }
+  .userform h4 { margin:0 0 12px; font-size:14px; font-weight:600; }
+  .passbox { display:flex; gap:8px; }
+  .passbox input { flex:1 1 auto; min-width:0; }
+  .passbox button { flex:0 0 auto; }
+  .passbox[hidden] { display:none; }
+  .shown { border:1px dashed var(--accent); border-radius:7px; padding:10px 12px; margin:10px 0; }
+  .shown[hidden] { display:none; }
+  .shown .mono { font-size:14px; user-select:all; overflow-wrap:anywhere; }
+  .rolegrid th, .rolegrid td { text-align:center; padding:6px 8px; }
+  .rolegrid th:first-child, .rolegrid td:first-child { text-align:left; }
+  .rolegrid tr.grp td { color:var(--dim); font-size:12px; font-weight:600; padding-top:14px; }
+  .rolegrid .yes { color:var(--accent); }
+  .rolegrid .no { color:var(--dim); opacity:.5; }
+  .thisdev { color:var(--accent); font-size:12px; margin-left:6px; }
+  @media (max-width:760px) { header.topbar { flex-wrap:wrap; gap:8px 10px; } .acct .acctname { max-width:12ch; } .acct .acctrole { display:none; } .viewonly { margin-top:-18px; } }
 </style>
 </head><body>
+{% set perms = me.permissions %}
+{% macro viewonly(perm) %}{% if perm not in perms %}<p class="note viewonly">You can view this page but not change it.</p>{% endif %}{% endmacro %}
 <header class="topbar">
   <button class="menu" id="navToggle" aria-expanded="false" aria-controls="nav"><svg class="ic" viewBox="0 0 16 16" aria-hidden="true"><path d="M2 4h12M2 8h12M2 12h12"/></svg> Menu</button>
   <h1 class="brand">{% include "_lockup.svg" %}</h1>
   <a href="#health" class="spill off" id="streamPill" title="Open Session health" aria-live="polite"><span class="dot" id="masterDot"></span><span id="pillTxt">STOPPED</span></a>
   <span class="spacer"></span>
   <span class="muted" id="viewerCount">0 viewers</span>
+  <a class="acct" href="#account" id="acctLink" title="My account"><span class="acctname">{{ me.user.name }}</span><span class="acctrole">{{ me.user.role|capitalize }}</span></a>
   <form method="post" action="/admin/logout" style="margin:0"><button>Sign out</button></form>
 </header>
 <div class="layout">
 {% macro module_links(group) %}{% for p in module_nav.get(group, []) %}
     <a href="#{{ p.id }}" data-page="{{ p.id }}"><span class="ico"><svg viewBox="0 0 16 16" aria-hidden="true">{{ p.icon|safe }}</svg></span>{{ p.title }}</a>{% endfor %}{% endmacro %}
   <nav id="nav" aria-label="Settings areas">
-    <div class="grp">Live</div>
-    <a href="#health" data-page="health"><span class="ico"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 8h3l2-5 2 10 2-5h3"/></svg></span>Session health</a>
-    <a href="#audio" data-page="audio"><span class="ico"><svg viewBox="0 0 16 16" aria-hidden="true"><rect x="6" y="1.5" width="4" height="8" rx="2"/><path d="M3.5 7.5a4.5 4.5 0 0 0 9 0M8 12v2.5"/></svg></span>Audio input</a>
-    <a href="#targets" data-page="targets"><span class="ico"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 4h7M5.5 2v2M3.5 4c.5 3 2.5 5 5 6M8 4c-.5 3-2.5 5-5.5 6.5M9 14l3-7 3 7M10 12h4"/></svg></span>Target languages</a>
+    {% if 'session.view' in perms or 'audio.manage' in perms or 'targets.manage' in perms or module_nav.get("Live") %}<div class="grp">Live</div>{% endif %}
+    {% if 'session.view' in perms %}<a href="#health" data-page="health"><span class="ico"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 8h3l2-5 2 10 2-5h3"/></svg></span>Session health</a>{% endif %}
+    {% if 'audio.manage' in perms %}<a href="#audio" data-page="audio"><span class="ico"><svg viewBox="0 0 16 16" aria-hidden="true"><rect x="6" y="1.5" width="4" height="8" rx="2"/><path d="M3.5 7.5a4.5 4.5 0 0 0 9 0M8 12v2.5"/></svg></span>Audio input</a>{% endif %}
+    {% if 'targets.manage' in perms %}<a href="#targets" data-page="targets"><span class="ico"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 4h7M5.5 2v2M3.5 4c.5 3 2.5 5 5 6M8 4c-.5 3-2.5 5-5.5 6.5M9 14l3-7 3 7M10 12h4"/></svg></span>Target languages</a>{% endif %}
     {{ module_links("Live") }}
-    <div class="grp">Output</div>
-    <a href="#panels" data-page="panels"><span class="ico"><svg viewBox="0 0 16 16" aria-hidden="true"><rect x="1.5" y="3" width="13" height="9" rx="1.5"/><path d="M5.5 14.5h5"/></svg></span>Panels</a>
-    <a href="#alerts" data-page="alerts"><span class="ico"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4 11V7a4 4 0 0 1 8 0v4l1.5 1.5h-11zM6.5 14h3"/></svg></span>Alerts</a>
-    <a href="#urls" data-page="urls"><span class="ico"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M6.5 9.5a3 3 0 0 0 4 0l2-2a3 3 0 0 0-4-4l-1 1M9.5 6.5a3 3 0 0 0-4 0l-2 2a3 3 0 0 0 4 4l1-1"/></svg></span>Viewer links</a>
-    <a href="#overlay" data-page="overlay"><span class="ico"><svg viewBox="0 0 16 16" aria-hidden="true"><rect x="1.5" y="2.5" width="13" height="11" rx="1.5"/><path d="M4 10.5h8M5 8.5h6"/></svg></span>Broadcast overlay</a>
-    <a href="#recordings" data-page="recordings"><span class="ico"><svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6"/><circle cx="8" cy="8" r="2" fill="currentColor"/></svg></span>Recordings &amp; export</a>
+    {% if 'panels.view' in perms or 'alerts.view' in perms or 'overlays.view' in perms or 'recordings.view' in perms or module_nav.get("Output") %}<div class="grp">Output</div>{% endif %}
+    {% if 'panels.view' in perms %}<a href="#panels" data-page="panels"><span class="ico"><svg viewBox="0 0 16 16" aria-hidden="true"><rect x="1.5" y="3" width="13" height="9" rx="1.5"/><path d="M5.5 14.5h5"/></svg></span>Panels</a>{% endif %}
+    {% if 'alerts.view' in perms %}<a href="#alerts" data-page="alerts"><span class="ico"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4 11V7a4 4 0 0 1 8 0v4l1.5 1.5h-11zM6.5 14h3"/></svg></span>Alerts</a>{% endif %}
+    {% if 'session.view' in perms %}<a href="#urls" data-page="urls"><span class="ico"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M6.5 9.5a3 3 0 0 0 4 0l2-2a3 3 0 0 0-4-4l-1 1M9.5 6.5a3 3 0 0 0-4 0l-2 2a3 3 0 0 0 4 4l1-1"/></svg></span>Viewer links</a>{% endif %}
+    {% if 'overlays.view' in perms %}<a href="#overlay" data-page="overlay"><span class="ico"><svg viewBox="0 0 16 16" aria-hidden="true"><rect x="1.5" y="2.5" width="13" height="11" rx="1.5"/><path d="M4 10.5h8M5 8.5h6"/></svg></span>Broadcast overlay</a>{% endif %}
+    {% if 'recordings.view' in perms %}<a href="#recordings" data-page="recordings"><span class="ico"><svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6"/><circle cx="8" cy="8" r="2" fill="currentColor"/></svg></span>Recordings &amp; export</a>{% endif %}
     {{ module_links("Output") }}
-    <div class="grp">Automation</div>
-    <a href="#schedules" data-page="schedules"><span class="ico"><svg viewBox="0 0 16 16" aria-hidden="true"><rect x="2" y="3" width="12" height="11" rx="1.5"/><path d="M2 7h12M5.5 1.5v3M10.5 1.5v3"/></svg></span>Schedules</a>
+    {% if 'schedules.view' in perms or module_nav.get("Automation") %}<div class="grp">Automation</div>{% endif %}
+    {% if 'schedules.view' in perms %}<a href="#schedules" data-page="schedules"><span class="ico"><svg viewBox="0 0 16 16" aria-hidden="true"><rect x="2" y="3" width="12" height="11" rx="1.5"/><path d="M2 7h12M5.5 1.5v3M10.5 1.5v3"/></svg></span>Schedules</a>{% endif %}
     {{ module_links("Automation") }}
-    <div class="grp">Settings</div>
-    <a href="#blocklist" data-page="blocklist"><span class="ico"><svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6"/><path d="M3.8 12.2l8.4-8.4"/></svg></span>Blocked words</a>
-    <a href="#credentials" data-page="credentials"><span class="ico"><svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="5" cy="10.5" r="2.5"/><path d="M7 9l6-6M11 5l1.5 1.5M9.5 6.5L11 8"/></svg></span>Credentials</a>
-    <a href="#appearance" data-page="appearance"><span class="ico"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 4h12M2 8h12M2 12h12"/><circle cx="5" cy="4" r="1.5" fill="var(--bg)"/><circle cx="10.5" cy="8" r="1.5" fill="var(--bg)"/><circle cx="6.5" cy="12" r="1.5" fill="var(--bg)"/></svg></span>Appearance &amp; tuning</a>
+    {% if 'blocklist.manage' in perms or 'credentials.manage' in perms or 'settings.manage' in perms or 'modules.view' in perms or 'users.view' in perms or module_nav.get("Settings") %}<div class="grp">Settings</div>{% endif %}
+    {% if 'blocklist.manage' in perms %}<a href="#blocklist" data-page="blocklist"><span class="ico"><svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6"/><path d="M3.8 12.2l8.4-8.4"/></svg></span>Blocked words</a>{% endif %}
+    {% if 'credentials.manage' in perms %}<a href="#credentials" data-page="credentials"><span class="ico"><svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="5" cy="10.5" r="2.5"/><path d="M7 9l6-6M11 5l1.5 1.5M9.5 6.5L11 8"/></svg></span>Credentials</a>{% endif %}
+    {% if 'settings.manage' in perms %}<a href="#appearance" data-page="appearance"><span class="ico"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 4h12M2 8h12M2 12h12"/><circle cx="5" cy="4" r="1.5" fill="var(--bg)"/><circle cx="10.5" cy="8" r="1.5" fill="var(--bg)"/><circle cx="6.5" cy="12" r="1.5" fill="var(--bg)"/></svg></span>Appearance &amp; tuning</a>{% endif %}
     {{ module_links("Settings") }}
-    <a href="#modules" data-page="modules"><span class="ico"><svg viewBox="0 0 16 16" aria-hidden="true"><rect x="2" y="2" width="5" height="5" rx="1"/><rect x="9" y="2" width="5" height="5" rx="1"/><rect x="2" y="9" width="5" height="5" rx="1"/><path d="M11.5 9v5M9 11.5h5"/></svg></span>Modules</a>
+    {% if 'users.view' in perms %}<a href="#users" data-page="users"><span class="ico"><svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="6" cy="5.5" r="2.5"/><path d="M1.5 13.5c.4-2.6 2.2-4 4.5-4s4.1 1.4 4.5 4M10.5 3.2a2.5 2.5 0 0 1 0 4.6M12 9.8c1.3.5 2.2 1.6 2.5 3.7"/></svg></span>Users</a>{% endif %}
+    {% if 'modules.view' in perms %}<a href="#modules" data-page="modules"><span class="ico"><svg viewBox="0 0 16 16" aria-hidden="true"><rect x="2" y="2" width="5" height="5" rx="1"/><rect x="9" y="2" width="5" height="5" rx="1"/><rect x="2" y="9" width="5" height="5" rx="1"/><path d="M11.5 9v5M9 11.5h5"/></svg></span>Modules</a>{% endif %}
   </nav>
   <main>
   <div id="alert" class="field err" hidden></div>
+{% if 'session.view' in perms %}
   <div class="page" id="page-health" data-page="health" hidden>
     <h2 class="title">Session health</h2>
     <p class="sub">Start and stop the stream, watch the live transcript and check each session.</p>
+    {{ viewonly('session.control') }}
     <section>
       <h3>Stream control</h3>
       <div class="ctl">
         <span class="muted" id="masterState">Stopped</span>
         <span class="spacer"></span>
-        <button class="primary" id="startBtn">Start capture</button>
-        <button class="danger" id="stopBtn" disabled>Stop</button>
+        {% if 'session.control' in perms %}<button class="primary" id="startBtn">Start capture</button>
+        <button class="danger" id="stopBtn" disabled>Stop</button>{% endif %}
       </div>
-      <div class="note">Starts or stops transcription and every translation session together. Stopping ends billed API usage.</div>
+      <div class="note">{% if 'session.control' in perms %}Starts or stops transcription and every translation session together. Stopping ends billed API usage.{% else %}Shows whether transcription and the translation sessions are running.{% endif %}</div>
     </section>
     <section>
       <h3>Live transcript</h3>
@@ -492,6 +540,8 @@
     </div>
   </section>
   </div>
+{% endif %}
+{% if 'audio.manage' in perms %}
   <div class="page" id="page-audio" data-page="audio" hidden>
     <h2 class="title">Audio input</h2>
     <p class="sub">Choose the capture device and watch the input level.</p>
@@ -507,7 +557,7 @@
     </div>
     <div class="field">
       <label for="noise">Noise reduction</label>
-      <select id="noise">
+      <select id="noise"{% if 'settings.manage' not in perms %} disabled{% endif %}>
         <option value="">Board feed / line in</option>
         <option value="far_field">Room or laptop mic</option>
         <option value="near_field">Headset / lavalier</option>
@@ -536,20 +586,22 @@
     <div class="note" id="audioNote"></div>
   </section>
   </div>
+{% endif %}
+{% if 'targets.manage' in perms %}
   <div class="page" id="page-targets" data-page="targets" hidden>
     <h2 class="title">Target languages <span class="sumstate" id="targetsSum"></span></h2>
     <p class="sub">Choose which languages are translated and offered to viewers.</p>
     <section>
       <h3>Translation engine</h3>
     <div class="field">
-      <select id="xmode" aria-label="Translation engine">
+      <select id="xmode" aria-label="Translation engine"{% if 'settings.manage' not in perms %} disabled{% endif %}>
         <option value="realtime">Realtime: streams word by word, billed per minute per language</option>
         <option value="text">Text: one line at a time, a fraction of the cost</option>
       </select>
       <div class="note">Realtime runs one translation session per language. Text transcribes once and
         has a text model translate each finished line into every language, so extra languages cost
         almost nothing. Captions then arrive a line at a time, a second or two behind.
-        Changing it restarts live sessions.</div>
+        Changing it restarts live sessions.{% if 'settings.manage' not in perms %} An administrator sets the engine.{% endif %}</div>
     </div>
     </section>
     <section>
@@ -562,15 +614,18 @@
     <div class="note" id="targetsNote">Each live target is a separate, continuously-billed session. Turning one off closes it immediately.</div>
     </section>
   </div>
+{% endif %}
+{% if 'panels.view' in perms %}
   <div class="page" id="page-panels" data-page="panels" hidden>
     <h2 class="title">Panels <span class="sumstate" id="panelsSum"></span></h2>
-    <p class="sub">Caption panels on the venue network. Click a panel name to see and change its settings.</p>
-    <a class="flashcta" href="/admin/flash">
+    <p class="sub">Caption panels on the venue network. Click a panel name to see {% if 'panels.manage' in perms %}and change {% endif %}its settings.</p>
+    {{ viewonly('panels.manage') }}
+    {% if 'panels.manage' in perms %}<a class="flashcta" href="/admin/flash">
       <span class="flashcta__ico" aria-hidden="true"><svg viewBox="0 0 16 16"><path d="M8 1.5v8M5 6.5l3 3 3-3M2.5 11v2a1.5 1.5 0 0 0 1.5 1.5h8a1.5 1.5 0 0 0 1.5-1.5v-2"/></svg></span>
       <span class="flashcta__text"><strong>Set up a new panel over USB</strong>
         <span>Flash a new or recovered panel from Chrome or Edge with the release&rsquo;s <code>relay-display.bin</code>.</span></span>
       <span class="flashcta__go">Flash a panel &rarr;</span>
-    </a>
+    </a>{% endif %}
     <section>
       <h3>Paired panels</h3>
       <div class="plist" id="panelList"><div class="muted">No panels have checked in yet.</div></div>
@@ -579,12 +634,12 @@
       <h3>Panel firmware</h3>
     <div class="fwbox flat" id="fwBox">
       <div id="fwTypes"></div>
-      <div class="note">
+      {% if 'panels.manage' in perms %}<div class="note">
         One image per kind of panel. Upload that panel's <code>relay-display-app.bin</code> from a release;
         Relay checks it is a panel image for that board, but the panel decides whether the signature is
         right and refuses anything not signed with its release key. An update installs at a quiet moment
         (no new caption line for a while) unless you choose &ldquo;Update now&rdquo;.
-      </div>
+      </div>{% endif %}
 
     </div>
 
@@ -598,21 +653,24 @@
     </div>
     </section>
   </div>
+{% endif %}
+{% if 'alerts.view' in perms %}
   <div class="page" id="page-alerts" data-page="alerts" hidden>
     <h2 class="title">Alerts <span class="sumstate" id="alertsSum"></span></h2>
     <p class="sub">Buttons a musician taps to flash panels and screens red and white until someone there taps one.</p>
+    {{ viewonly('alerts.manage') }}
     <section>
       <h3>Buttons</h3>
       <div class="plist" id="alertList"></div>
-      <div class="ctl" style="margin-top:12px">
+      {% if 'alerts.manage' in perms %}<div class="ctl" style="margin-top:12px">
         <button type="button" id="alertAdd">Add button</button>
-      </div>
+      </div>{% endif %}
     </section>
     <section>
       <h3>When nobody taps</h3>
       <div class="field">
         <label for="alertAutoStop">Stop flashing after</label>
-        <select id="alertAutoStop" style="width:auto">
+        <select id="alertAutoStop" style="width:auto"{% if 'alerts.manage' not in perms %} disabled{% endif %}>
           <option value="30">30 seconds</option>
           <option value="60">1 minute</option>
           <option value="120">2 minutes</option>
@@ -623,8 +681,8 @@
         <div class="note">The sender then sees &ldquo;Not seen&rdquo; and can send again. The flash is once a second,
           fixed: well under the rate where flashing becomes a seizure risk.</div>
       </div>
-      <button class="primary" type="button" id="alertSave">Save alerts</button>
-      <span class="muted" id="alertDirty" style="margin-left:10px" hidden>Unsaved changes</span>
+      {% if 'alerts.manage' in perms %}<button class="primary" type="button" id="alertSave">Save alerts</button>
+      <span class="muted" id="alertDirty" style="margin-left:10px" hidden>Unsaved changes</span>{% endif %}
     </section>
     <section>
       <h3>Where to send from, and what flashes</h3>
@@ -637,14 +695,19 @@
       </div>
     </section>
   </div>
+{% endif %}
+{% if 'session.view' in perms %}
   <div class="page" id="page-urls" data-page="urls" hidden>
     <h2 class="title">Viewer links</h2>
     <p class="sub">Open these on a screen or paste them into another app.</p>
     <div class="urls" id="urls"></div>
   </div>
+{% endif %}
+{% if 'overlays.view' in perms %}
   <div class="page" id="page-overlay" data-page="overlay" hidden>
     <h2 class="title">Broadcast overlay</h2>
     <p class="sub">Captions for your livestream as a browser source. Pick a layout, adjust it against the preview, then copy the link into OBS, vMix, ProPresenter or your switcher.</p>
+    {{ viewonly('overlays.manage') }}
     <div class="ovtabs" role="tablist">
       <button type="button" role="tab" class="on" aria-selected="true" data-ovtab="build">Build</button>
       <button type="button" role="tab" aria-selected="false" data-ovtab="guides">Setup guides</button>
@@ -652,7 +715,7 @@
 
     <div id="ovBuild" class="ovb">
       <div class="ovb-controls">
-        <div class="ovedit" id="ovEditing" hidden>Editing <strong id="ovEditingName"></strong>. Changes reach the browser source the next time it loads. <button type="button" id="ovEditDone">Start a new overlay</button></div>
+        {% if 'overlays.manage' in perms %}<div class="ovedit" id="ovEditing" hidden>Editing <strong id="ovEditingName"></strong>. Changes reach the browser source the next time it loads. <button type="button" id="ovEditDone">Start a new overlay</button></div>{% endif %}
 
         <fieldset><legend>Layout</legend>
           <div class="ovpresets" id="ovPresets"></div>
@@ -725,13 +788,13 @@
             <button type="button" class="primary" id="ovCopy">Copy link</button>
             <a class="btnlink" id="ovOpen" target="_blank" rel="noopener">Open</a>
           </div>
-          <form class="ovsave" id="ovSaveForm" autocomplete="off">
+          {% if 'overlays.manage' in perms %}<form class="ovsave" id="ovSaveForm" autocomplete="off">
             <label for="ovName">Save as a named overlay: a short link that keeps working when you change it here</label>
             <div class="ovsaverow">
               <input id="ovName" type="text" maxlength="60" placeholder="Stream – Spanish">
               <button type="submit" id="ovSave">Save</button>
             </div>
-          </form>
+          </form>{% endif %}
         </div>
 
         <div class="ovsaved">
@@ -765,9 +828,12 @@
       </div>
     </div>
   </div>
+{% endif %}
+{% if 'recordings.view' in perms %}
   <div class="page" id="page-recordings" data-page="recordings" hidden>
     <h2 class="title">Recordings &amp; export</h2>
     <p class="sub">Save each run's transcript to disk and export it.</p>
+    {{ viewonly('recordings.manage') }}
     <section>
       <h3>Recording</h3>
     <div class="note" style="margin:0 0 12px">
@@ -781,15 +847,15 @@
       <div class="field" style="flex:0 0 auto">
         <label for="recEnabled">Record each run to disk</label>
         <label class="switch" style="margin-top:4px">
-          <input id="recEnabled" type="checkbox"><span class="slider"></span>
+          <input id="recEnabled" type="checkbox"{% if 'recordings.manage' not in perms %} disabled{% endif %}><span class="slider"></span>
         </label>
       </div>
       <div class="field">
         <label for="recKeep">Runs kept (oldest pruned at the next start)</label>
-        <input id="recKeep" type="number" min="1" max="500" step="1">
+        <input id="recKeep" type="number" min="1" max="500" step="1"{% if 'recordings.manage' not in perms %} disabled{% endif %}>
       </div>
     </div>
-    <button class="primary" id="saveRecording">Save</button>
+    {% if 'recordings.manage' in perms %}<button class="primary" id="saveRecording">Save</button>{% endif %}
     <span class="muted" style="margin-left:10px">Stored in <span class="mono" id="recDir">recordings/</span></span>
     </section>
     <section>
@@ -814,9 +880,12 @@
     </div>
     </section>
   </div>
+{% endif %}
+{% if 'schedules.view' in perms %}
   <div class="page" id="page-schedules" data-page="schedules" hidden>
     <h2 class="title">Schedules</h2>
     <p class="sub">Start and stop capture automatically.</p>
+    {{ viewonly('schedules.manage') }}
     <section>
       <h3>Schedules</h3>
     <div class="note" style="margin:0 0 12px" id="schedStatus">No schedules set. Capture only starts when you press <em>Start capture</em>.</div>
@@ -824,10 +893,10 @@
       <thead><tr><th>Schedule</th><th>Next start</th><th style="width:52px">On</th><th></th></tr></thead>
       <tbody id="schedList"><tr><td colspan="4" class="muted">No schedules yet.</td></tr></tbody>
     </table>
-    <button id="schedAdd" style="margin-top:12px">Add schedule</button>
+    {% if 'schedules.manage' in perms %}<button id="schedAdd" style="margin-top:12px">Add schedule</button>{% endif %}
     </section>
 
-    <form id="schedForm" class="formsec" hidden autocomplete="off">
+    {% if 'schedules.manage' in perms %}<form id="schedForm" class="formsec" hidden autocomplete="off">
       <h3>New schedule</h3>
       <div class="row">
         <div class="field">
@@ -881,7 +950,7 @@
       <div class="note" id="schedOvernight" hidden style="margin:-4px 0 12px">The stop time is earlier than the start time, so it stops the next day.</div>
       <button class="primary" type="submit" id="schedSave">Save schedule</button>
       <button type="button" id="schedCancel">Cancel</button>
-    </form>
+    </form>{% endif %}
 
     <section>
       <h3>How schedules work</h3>
@@ -896,6 +965,8 @@
     </div>
     </section>
   </div>
+{% endif %}
+{% if 'blocklist.manage' in perms %}
   <div class="page" id="page-blocklist" data-page="blocklist" hidden>
     <h2 class="title">Blocked words</h2>
     <p class="sub">Removed from the transcript and every translation.</p>
@@ -924,25 +995,23 @@
     </div>
     </section>
   </div>
+{% endif %}
+{% if 'credentials.manage' in perms %}
   <div class="page" id="page-credentials" data-page="credentials" hidden>
     <h2 class="title">Credentials</h2>
     <p class="sub">Keys used by this relay.</p>
     <section>
       <h3>Keys</h3>
-    <div class="row">
-      <div class="field">
-        <label for="apikey">OpenAI API key <span id="keyState" class="muted"></span></label>
-        <input id="apikey" type="password" placeholder="sk-… (leave blank to keep current)" autocomplete="off">
-      </div>
-      <div class="field">
-        <label for="admintoken">Admin token (blank = unchanged)</label>
-        <input id="admintoken" type="password" placeholder="••••••••" autocomplete="off">
-      </div>
+    <div class="field">
+      <label for="apikey">OpenAI API key <span id="keyState" class="muted"></span></label>
+      <input id="apikey" type="password" placeholder="sk-… (leave blank to keep current)" autocomplete="off">
     </div>
     <button class="primary" id="saveCreds">Save credentials</button>
     <div class="note">Stored server-side in <span class="mono">config.json</span> (0600, git-ignored). Never sent to viewer pages.</div>
     </section>
   </div>
+{% endif %}
+{% if 'settings.manage' in perms %}
   <div class="page" id="page-appearance" data-page="appearance" hidden>
     <h2 class="title">Appearance &amp; tuning</h2>
     <p class="sub">Viewer text size and how caption lines are broken.</p>
@@ -983,10 +1052,13 @@
       these two fields are the only line-break controls.</div>
     </section>
   </div>
+{% endif %}
+{% if 'modules.view' in perms %}
   <div class="page" id="page-modules" data-page="modules" hidden>
     <h2 class="title">Modules</h2>
     <p class="sub">Integrations with other products. Each is switched on and set up on its own; one that is off
       runs nothing and adds nothing to Relay.</p>
+    {{ viewonly('modules.manage') }}
     <section>
       <h3>Installed modules</h3>
       <div class="plist" id="moduleList"><div class="muted">Loading&hellip;</div></div>
@@ -994,12 +1066,86 @@
         reloads this page so its settings pages appear or go.</div>
     </section>
   </div>
+{% endif %}
 {% for group in module_nav.values() %}{% for p in group %}
   <div class="page" id="page-{{ p.id }}" data-page="{{ p.id }}" hidden>
 {% include p.template %}
     <p class="note modfoot">{{ p.module }} module v{{ p.version }}{% if p.guide %} &middot; <a href="{{ p.guide }}" target="_blank" rel="noopener">Setup guide</a>{% endif %} &middot; <a href="#modules">Switch it off on the Modules page</a></p>
   </div>
 {% endfor %}{% endfor %}
+{% if 'users.view' in perms %}
+  <div class="page" id="page-users" data-page="users" hidden>
+    <h2 class="title">Users <span class="sumstate" id="usersSum"></span></h2>
+    <p class="sub">The people who can sign in to this page, and what each of them may do.</p>
+    {{ viewonly('users.manage') }}
+    <section>
+      <h3>People</h3>
+      <div class="tablescroll">
+        <table>
+          <thead><tr><th>Name</th><th>Username</th><th>Role</th><th>Status</th><th>PIN</th><th>Last sign-in</th><th><span class="sr">Actions</span></th></tr></thead>
+          <tbody id="userList"><tr><td colspan="7" class="muted">Loading&hellip;</td></tr></tbody>
+        </table>
+      </div>
+      <div class="shown" id="userSecret" hidden></div>
+      <div class="userform" id="userPanel" hidden></div>
+      {% if 'users.manage' in perms %}<div class="ctl" style="margin-top:12px">
+        <button type="button" id="userAdd">Add user</button>
+      </div>{% endif %}
+      <div class="note">A new user signs in with the temporary password you give them and chooses their own at once.
+        Forgotten passwords are reset here: there is no email.</div>
+    </section>
+    <section>
+      <h3>Trusted devices</h3>
+      <div class="note" style="margin:0 0 12px">People who have set a PIN can sign in with it on a trusted device only,
+        such as the sound booth iPad. Everywhere else they use their password.</div>
+      <div class="tablescroll">
+        <table>
+          <thead><tr><th>Device</th><th>Added by</th><th>Added</th><th>Last used</th><th><span class="sr">Actions</span></th></tr></thead>
+          <tbody id="deviceList"><tr><td colspan="5" class="muted">Loading&hellip;</td></tr></tbody>
+        </table>
+      </div>
+      <div class="userform" id="devicePanel" hidden></div>
+      {% if 'users.manage' in perms %}<div class="ctl" style="margin-top:12px">
+        <button type="button" id="deviceAdd">Trust this browser</button>
+      </div>{% endif %}
+    </section>
+    <section>
+      <h3>What each role can do</h3>
+      <div class="tablescroll" id="roleRef"><div class="muted">Loading&hellip;</div></div>
+    </section>
+  </div>
+{% endif %}
+  <div class="page" id="page-account" data-page="account" hidden>
+    <h2 class="title">My account</h2>
+    <p class="sub" id="acctWho"></p>
+    <section>
+      <h3>Password</h3>
+      <form id="pwForm" class="acctform" autocomplete="off">
+        <div class="field"><label for="pwCurrent">Current password</label><input id="pwCurrent" type="password" autocomplete="current-password" required></div>
+        <div class="field"><label for="pwNew">New password</label><input id="pwNew" type="password" autocomplete="new-password" minlength="8" required></div>
+        <div class="field"><label for="pwConfirm">New password again</label><input id="pwConfirm" type="password" autocomplete="new-password" minlength="8" required></div>
+        <button class="primary" type="submit">Change password</button>
+        <div class="note">At least 8 characters. Changing it signs you out of other browsers.</div>
+      </form>
+    </section>
+    <section>
+      <h3>PIN</h3>
+      <div class="note" style="margin:0 0 12px">A PIN is 4 to 8 digits, for signing in quickly. It only works on a trusted device.
+        <span id="pinState"></span></div>
+      <form id="pinForm" class="acctform" autocomplete="off">
+        <div class="field"><label for="pinPassword">Your password</label><input id="pinPassword" type="password" autocomplete="current-password" required></div>
+        <div class="field"><label for="pinNew">PIN</label><input id="pinNew" type="password" inputmode="numeric" pattern="[0-9]*" minlength="4" maxlength="8" autocomplete="off" required></div>
+        <div class="ctl">
+          <button class="primary" type="submit" id="pinSave">Set PIN</button>
+          <button type="button" id="pinRemove" hidden>Remove PIN</button>
+        </div>
+      </form>
+    </section>
+    <section>
+      <h3>This browser</h3>
+      <div class="note" style="margin-top:0" id="deviceState"></div>
+    </section>
+  </div>
   </main>
 </div>
 <div id="drawerBg" hidden></div>
@@ -1014,5 +1160,6 @@
 <script src="{{ static('admin.js') }}"></script>
 <script src="{{ static('modules.js') }}"></script>
 <script src="{{ static('overlay-builder.js') }}"></script>
+<script src="{{ static('users.js') }}"></script>
 {% for script in module_scripts %}<script src="{{ static('modules/' ~ script) }}"></script>
 {% endfor %}</body></html>

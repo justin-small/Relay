@@ -18,6 +18,11 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 os.environ["RELAY_CONFIG"] = os.path.join(tempfile.mkdtemp(), "config.json")
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import _pg  # noqa: E402  (a throwaway Postgres for the user system; must come before app.main)
+
+_pg.start()
+_pg.reset()
 
 from fastapi.testclient import TestClient
 
@@ -131,7 +136,7 @@ def save_pp(**kw):
 
 save_pp(enabled=True, host="127.0.0.1", port=1)
 viewer = TestClient(app, base_url="http://relay.local:8000")
-admin = TestClient(app, base_url="http://relay.local:8001", headers={"x-admin-token": "t0ken"})
+admin = _pg.client(app, base_url="http://relay.local:8001")
 anon = TestClient(app, base_url="http://relay.local:8001")
 
 fpp = FakePP()
@@ -229,7 +234,7 @@ for method, path, body in [("get", "/api/admin/propresenter/lobby", None), ("pos
                            ("get", "/api/admin/propresenter/live", None),
                            ("get", "/api/admin/propresenter/live/image/current?v=x", None)]:
     kw = {"json": body} if body is not None else {}
-    eq(f"{method.upper()} {path} needs the admin token", getattr(anon, method)(path, **kw).status_code, 401)
+    eq(f"{method.upper()} {path} needs a sign-in", getattr(anon, method)(path, **kw).status_code, 401)
     eq(f"{path} is not on the viewer port", getattr(viewer, method)(path, **kw).status_code, 404)
 fpp.sent.clear()
 for path in ("/stage", "/api/stage/live", "/api/stage/live/image/current?v=x", "/api/stage/live/image/next?v=x"):

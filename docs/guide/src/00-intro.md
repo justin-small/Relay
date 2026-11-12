@@ -36,12 +36,14 @@ Relay has two web addresses. Both are on the Relay computer.
 network, called its **LAN IP address**. Relay prints the real addresses when
 it starts.
 
-The viewer pages are open to anyone on the network. The operator panel needs a
-password, called the **admin token**, which you choose during setup.
+The viewer pages are open to anyone on the network. The operator panel needs
+a sign-in: each person has their own username and password, and a role that
+decides what they may do. The first time, you create the first account with
+the **admin token** you choose during setup.
 
 ::: note
 The operator panel address starts with `https://`. The `s` means the
-connection is encrypted, so nobody else on the Wi-Fi can read your admin token.
+connection is encrypted, so nobody else on the Wi-Fi can read your password.
 The first time you open it, your browser shows a warning. Chapter
 [Opening the operator panel](#operator-access) explains why, and how to check
 that it is safe.

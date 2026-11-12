@@ -12,6 +12,11 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 os.environ["RELAY_CONFIG"] = os.path.join(tempfile.mkdtemp(), "config.json")
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import _pg  # noqa: E402  (a throwaway Postgres for the user system; must come before app.main)
+
+_pg.start()
+_pg.reset()
 
 from fastapi.testclient import TestClient
 
@@ -72,9 +77,7 @@ for k, p in overlays.PRESETS.items():
     eq(f"preset {k} holds only valid values", overlays.clean(vals, T), vals)
 
 print("\npage")
-config.save({"admin_token": "t0ken"})
-c = TestClient(app)
-H = {"x-admin-token": "t0ken"}
+c = _pg.client(app, base_url="http://testserver")
 
 
 def body(html):
@@ -117,13 +120,13 @@ demo_ko = json.loads(re.search(r"overlayDemo: (.*?)};</script>", c.get("/overlay
 eq("a language with no samples plays English", demo_ko["HMONG"][0], overlays.SAMPLES["en"][0])
 
 print("\nnamed overlays")
-check("the list needs the admin token", c.get("/api/admin/overlays").status_code == 401)
-info = c.get("/api/admin/overlays", headers=H).json()
+check("the list needs a sign-in", TestClient(app).get("/api/admin/overlays").status_code == 401)
+info = c.get("/api/admin/overlays").json()
 eq("none saved at first", info["overlays"], [])
 check("the builder gets presets and defaults", "slate" in info["presets"] and info["defaults"]["pos"] == "bottom")
 check("the source language is not offered as a target", all(t["target"] != "ENGLISH" for t in info["targets"]))
 
-r = c.post("/api/admin/overlays", headers=H, json={"name": "Stream – Spanish",
+r = c.post("/api/admin/overlays", json={"name": "Stream – Spanish",
                                                    "settings": {"preset": "lower", "lang": "SPANISH", "pos": "top",
                                                                 "color": "ffcc00", "junk": "1", "bg": "red;}"}})
 eq("saving answers with its id", r.json().get("saved"), "stream-spanish")
@@ -138,26 +141,26 @@ check("and its preset under them", "--ov-maxw: 80%;" in page)
 check("the query still applies on top", "ov-pos-middle" in c.get("/overlay/stream-spanish?pos=middle").text)
 eq("an unknown name is 404", c.get("/overlay/nope").status_code, 404)
 
-r = c.post("/api/admin/overlays", headers=H, json={"name": "Stream – Spanish", "settings": {}})
+r = c.post("/api/admin/overlays", json={"name": "Stream – Spanish", "settings": {}})
 eq("the same name gets a numbered link", r.json()["saved"], "stream-spanish-2")
-r = c.post("/api/admin/overlays", headers=H, json={"name": "Other", "id": "stream-spanish", "settings": {}})
+r = c.post("/api/admin/overlays", json={"name": "Other", "id": "stream-spanish", "settings": {}})
 eq("asking for a taken link name is refused", (r.status_code, r.json()["error"]),
    (400, overlays.MESSAGES["id_taken"]))
-r = c.post("/api/admin/overlays", headers=H, json={"name": "  ", "settings": {}})
+r = c.post("/api/admin/overlays", json={"name": "  ", "settings": {}})
 eq("a name is needed", r.json()["error"], overlays.MESSAGES["name"])
-r = c.post("/api/admin/overlays", headers=H, json={"name": "x", "id": "Bad Id!", "settings": {}})
+r = c.post("/api/admin/overlays", json={"name": "x", "id": "Bad Id!", "settings": {}})
 eq("a bad link name is refused", r.json()["error"], overlays.MESSAGES["id"])
 
-r = c.put("/api/admin/overlays/stream-spanish", headers=H,
+r = c.put("/api/admin/overlays/stream-spanish",
           json={"name": "Stream – Spanish", "settings": {"preset": "top", "lang": "FRENCH"}})
 eq("an edit keeps the link", r.json()["saved"], "stream-spanish")
 check("and the link shows the change on its next load", 'data-lang="FRENCH"' in c.get("/overlay/stream-spanish").text)
 eq("editing an unknown overlay is 404",
-   c.put("/api/admin/overlays/nope", headers=H, json={"name": "x"}).status_code, 404)
+   c.put("/api/admin/overlays/nope", json={"name": "x"}).status_code, 404)
 
-r = c.delete("/api/admin/overlays/stream-spanish-2", headers=H)
+r = c.delete("/api/admin/overlays/stream-spanish-2")
 eq("delete removes it", [o["id"] for o in r.json()["overlays"]], ["stream-spanish"])
-eq("deleting again is 404", c.delete("/api/admin/overlays/stream-spanish-2", headers=H).status_code, 404)
+eq("deleting again is 404", c.delete("/api/admin/overlays/stream-spanish-2").status_code, 404)
 
 print("\nconfig")
 cleaned = overlays.clean_list([{"id": "a", "name": "A", "settings": {"pos": "top"}}, {"id": "a", "name": "Dup"},

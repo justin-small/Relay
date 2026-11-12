@@ -137,7 +137,9 @@ Setup builds Relay and asks for three things: your OpenAI API key, an admin
 token, and (if you want one) a hostname. It takes a few minutes the first time.
 
 Before you start, have your **OpenAI API key** ready (see Part 2), and decide
-on an **admin token**. The admin token is the password for the operator panel.
+on an **admin token**. The admin token is a one-time setup token. You type it once, when you open
+the operator panel for the first time, to create the first account. After
+that you sign in with your own username and password.
 
 1. Make sure Docker Desktop is running. You should see the whale near the
    clock.
@@ -220,14 +222,16 @@ Setup refuses some tokens and asks again:
 On Windows, use only letters, numbers, and the symbols `-`, `_` and `.` in
 your admin token. Other symbols, such as `!`, `'`, `"`, `&`, `%` and `^`, can
 be changed or lost on the way from Command Prompt into Relay, and then your
-token does not work in the panel. A long token made of several words joined
+token is not accepted when you create the first account. A long token made of several words joined
 with `-` is both safe and easy to type.
 :::
 
 ::: warning
-The admin token protects the operator panel, and the panel spends money on
-your OpenAI account. Choose a real password, not a single word. Write it down
-somewhere safe. You need it every time you sign in to the panel.
+Write the admin token down somewhere safe. You need it once, to create the
+first account in the operator panel. Until that account exists, anyone who
+has the token can create it, so do not share it. After that the token is
+never accepted again, and each person's own password protects the panel,
+which spends money on your OpenAI account. Choose real passwords.
 :::
 
 ### The hostname (optional)
@@ -479,7 +483,8 @@ If Relay is not running, the window shows an error such as
 
 Run setup again when you want to:
 
-- change the API key or the admin token;
+- change the API key (setup also asks for the admin token again, but that
+  only matters before the first account exists);
 - add, change or remove the hostname;
 - check or renew the panel certificate.
 
@@ -517,8 +522,8 @@ and run setup again. Only delete `certs`, not the whole `docker-config`
 folder.
 :::
 
-You can also change the API key and admin token from the operator panel,
-without running setup.
+You can also change the API key from the operator panel (**Credentials**,
+Owner only), without running setup.
 
 ## Platform notes {#windows-notes}
 

@@ -12,7 +12,10 @@ import logging
 import os
 import secrets
 import socket
+import threading
 import time
+from dataclasses import asdict
+from datetime import datetime
 
 from fastapi import Depends, FastAPI, Form, HTTPException, Request, Response
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, StreamingResponse
@@ -21,7 +24,7 @@ from fastapi.templating import Jinja2Templates
 from jinja2 import ChoiceLoader, FileSystemLoader, PrefixLoader
 
 from . import alerts as alertsmod
-from . import config, exporting, languages, overlays, panelfw, panels, redact, schedules
+from . import config, db, exporting, languages, overlays, panelfw, panels, redact, schedules, users
 from .alerts import alerts
 from . import engine as engine_mod
 from .engine import TRANSCRIPTION_STREAM, TRANSLATION_STREAM, demo_mode, engine
@@ -31,6 +34,7 @@ from .modules import HERE as MODULES_DIR, modules as module_registry
 from .panels import registry as panel_registry
 from .recorder import recorder
 from .scheduler import scheduler
+from .users import User
 
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s %(levelname)-7s %(name)s  %(message)s"
@@ -104,7 +108,10 @@ def _static_url(path: str) -> str:
 templates.env.globals["static"] = _static_url
 
 ADMIN_COOKIE = "relay_admin"
-SESSION_TTL_S = 60 * 60 * 12
+DEVICE_COOKIE = "relay_device"
+DEVICE_COOKIE_MAX_AGE = 2 * 365 * 24 * 3600
+BACKUP_FIRST_DELAY_S = 60.0      # after start-up, so the dump does not compete with the boot
+BACKUP_EVERY_S = 3600.0
 LOGIN_FAIL_DELAY_S = 0.75
 LOGIN_MAX_FAILS = 5
 LOGIN_LOCKOUT_S = 300.0
@@ -169,6 +176,11 @@ async def _split_admin_port(request: Request, call_next):
 async def _startup() -> None:
     config.ensure_file()
     config.load()
+    # The user database. Down is not fatal: viewers and panels never need it, and the admin page says so.
+    ready = await asyncio.to_thread(_ready_quietly)
+    if not ready:
+        log.warning("The user database is not available: the operator panel is closed until it is.")
+    app.state.backup_task = asyncio.create_task(_backup_loop())
     # Record each module's switch once (on if its integration was already set up), then start those that are on.
     module_registry.settle()
     cfg = config.get()
@@ -187,14 +199,14 @@ async def _startup() -> None:
     scheduler.start()
     # The integrations that are switched on (app/modules/). Each idles until it is set up.
     await module_registry.start_enabled()
-    if not (cfg.get("admin_token") or "").strip():
-        # _token_ok() returns False on an empty stored token, so the panel is
-        # locked rather than open -- but an operator who cannot log in deserves
-        # to know why. Run setup.command / setup.bat to set one.
-        log.warning(
-            "Admin token is not set: the operator panel will reject every login. "
-            "Run setup.command (macOS) or setup.bat (Windows) to set one."
-        )
+    if ready and not (cfg.get("admin_token") or "").strip():
+        with contextlib.suppress(Exception):
+            if await asyncio.to_thread(_any_users) is False:
+                # First-run setup checks this token once; without one nobody can create the first Owner.
+                log.warning(
+                    "No users yet and no admin token is set: first-run setup is closed. "
+                    "Run setup.command (macOS) or setup.bat (Windows) to set one."
+                )
     # Both sockets are loopback-only behind the Caddy front end, so these are
     # the internal addresses, not the ones anyone dials. The URLs the operator
     # and the room actually use are printed by tools/setup_caddy.py at startup,
@@ -265,16 +277,38 @@ async def _alert_ticks() -> None:
             log.exception("alert tick failed")
 
 
+def _backup_if_due() -> None:
+    if db.available() and db.backup_due():
+        db.backup()
+
+
+async def _backup_loop() -> None:
+    """Dump the database when none was taken in the last day: shortly after start-up, then hourly. A dump
+    that cannot be taken is logged by db.backup and tried again next hour."""
+    delay = BACKUP_FIRST_DELAY_S
+    while True:
+        await asyncio.sleep(delay)
+        delay = BACKUP_EVERY_S
+        try:
+            await asyncio.to_thread(_backup_if_due)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            log.exception("database backup check failed")
+
+
 async def _shutdown() -> None:
     with contextlib.suppress(Exception):
         await module_registry.stop_all()
     scheduler.cancel()
-    for name in ("demo_task", "blocklist_task", "alerts_task"):
+    for name in ("demo_task", "blocklist_task", "alerts_task", "backup_task"):
         task = getattr(app.state, name, None)
         if task is not None:
             task.cancel()
     with contextlib.suppress(Exception):
         await engine.stop()
+    with contextlib.suppress(Exception):
+        await asyncio.to_thread(db.close)
 
 
 def _urls(port: int) -> list[str]:
@@ -318,59 +352,9 @@ def _token_ok(supplied: str, real: str) -> bool:
     return secrets.compare_digest(supplied.encode("utf-8"), real.encode("utf-8"))
 
 
-# Session ids -> expiry. In-process only, so every restart logs everyone out
-# and the admin token itself never travels in a cookie.
-_SESSIONS: dict[str, float] = {}
-
-# Per-client-IP login failures: ip -> (count, last failure time).
+# Per-client-IP login failures: ip -> (count, last failure time). Shared by password sign-in, PIN sign-in and
+# first-run setup.
 _LOGIN_FAILS: dict[str, tuple[int, float]] = {}
-
-
-def _new_session() -> str:
-    now = time.monotonic()
-    for sid, exp in [kv for kv in _SESSIONS.items() if kv[1] <= now]:
-        _SESSIONS.pop(sid, None)
-    sid = secrets.token_urlsafe(32)
-    _SESSIONS[sid] = now + SESSION_TTL_S
-    return sid
-
-
-def _session_ok(request: Request) -> bool:
-    """True when the cookie carries a live session id.
-
-    The cookie is an opaque random id, never the admin token, so a sniffed
-    cookie on venue Wi-Fi cannot be replayed past a restart and cannot be
-    turned back into the token the operator typed.
-    """
-    sid = request.cookies.get(ADMIN_COOKIE) or ""
-    exp = _SESSIONS.get(sid)
-    if exp is None:
-        return False
-    if exp <= time.monotonic():
-        _SESSIONS.pop(sid, None)
-        return False
-    return True
-
-
-def _drop_session(request: Request) -> None:
-    _SESSIONS.pop(request.cookies.get(ADMIN_COOKIE) or "", None)
-
-
-def _set_session_cookie(resp: Response, request: Request | None = None) -> None:
-    # `Secure` only when this request actually came over TLS: setting it on a
-    # plain-HTTP login would have the browser drop the cookie and lock the
-    # operator out of a perfectly good loopback or single-port setup.
-    secure = bool(request is not None and _is_https(request))
-    resp.set_cookie(
-        ADMIN_COOKIE,
-        _new_session(),
-        httponly=True,
-        samesite="strict",
-        secure=secure,
-        max_age=SESSION_TTL_S,
-        path="/",
-    )
-
 
 _LOOPBACK_HOSTS = {"127.0.0.1", "::1", "localhost"}
 
@@ -436,18 +420,169 @@ def _login_failed(ip: str) -> None:
     log.warning("Admin login failed from %s (%d in a row)", ip, count + 1)
 
 
-def require_admin(request: Request) -> bool:
-    if _session_ok(request):
-        return True
-    token = (config.get().get("admin_token") or "").strip()
-    if _token_ok(request.headers.get("x-admin-token") or "", token):
-        return True
-    raise HTTPException(status_code=401, detail="Admin token required")
+async def _fail(ip: str) -> None:
+    """Count one failed attempt and make it cost a fixed delay: under a second for an operator who mistyped,
+    and it caps a guesser on the venue LAN long before the lockout bites."""
+    await asyncio.sleep(LOGIN_FAIL_DELAY_S)
+    _login_failed(ip)
 
 
-# Modules' admin routes use the same login, and their pages the same templates (they cannot import this file).
-modules_pkg.admin_check = require_admin
+def _locked_sentence(left: float) -> str:
+    return f"Too many attempts. Try again in {int(left) // 60 + 1} min."
+
+
+def _set_cookie(resp: Response, request: Request, name: str, token: str, max_age: int) -> None:
+    # `Secure` only when this request actually came over TLS: setting it on a plain-HTTP login would have the
+    # browser drop the cookie and lock the operator out of a perfectly good loopback or single-port setup.
+    resp.set_cookie(name, token, httponly=True, samesite="strict", secure=_is_https(request),
+                    max_age=max_age, path="/")
+
+
+# ----------------------------------------------------- the database, and whether anyone has an account
+_db_ready = False
+# Set once users.count() > 0 has been seen. It can only become false again by wiping the database (the
+# lockout tool, a test's reset), which is why those call forget_users_cache().
+_have_users = False
+# One first-run setup at a time, so two valid posts arriving together cannot both create an Owner.
+_SETUP_LOCK = threading.Lock()
+
+# The caller of a first-run request that sent the admin token as `x-admin-token`: the setup token acts as an
+# Owner while there are no accounts. It has no row (id 0), so anything that needs an account refuses it.
+SETUP_OWNER = User(id=0, username="setup", name="Setup token", role="owner", disabled=False,
+                   must_change_password=False, pin_set=False)
+
+DB_DOWN_SENTENCE = "The user database is not available. Relay is still captioning; try again in a moment."
+
+# Web-layer sentences that are not users.MESSAGES. Fixed text, looked up by key.
+WEB_MESSAGES = {
+    "bad_token": "That admin token is not right.",
+    "no_token": "No admin token is set in config.json, so first-run setup is closed.",
+    "already_set_up": "Relay is already set up. Sign in instead.",
+    "mismatch": "The two passwords do not match.",
+    "bad_request": "That request is not valid.",
+    "signin_required": "Sign in required",
+    "not_allowed": "Not allowed",
+}
+
+
+class _WebRefused(Exception):
+    def __init__(self, key: str):
+        super().__init__(key)
+        self.key = key
+
+    @property
+    def message(self) -> str:
+        return WEB_MESSAGES[self.key]
+
+
+def _ready_quietly() -> bool:
+    global _db_ready
+    _db_ready = bool(db.init())
+    return _db_ready
+
+
+def _ready() -> None:
+    """Raise db.Unavailable unless the database is up and migrated (it is retried here after a failed
+    start-up, and db backs off between probes, so a dead database costs nothing per request)."""
+    if _db_ready:
+        return
+    if not _ready_quietly():
+        raise db.Unavailable("The database is unavailable.")
+
+
+def _any_users() -> bool:
+    """True once any account exists. Blocks (database)."""
+    global _have_users
+    if _have_users:
+        return True
+    _ready()
+    _have_users = users.count() > 0
+    return _have_users
+
+
+def forget_users_cache() -> None:
+    """Forget that accounts were seen: for whatever wipes the database (tests)."""
+    global _have_users
+    _have_users = False
+
+
+def _session_token(request: Request) -> str:
+    return request.cookies.get(ADMIN_COOKIE) or ""
+
+
+def _session_user(request: Request) -> User | None:
+    """The signed-in user for this request's session cookie, loaded fresh (so a disabled or deleted user, or
+    a changed role, takes effect on the next request). Blocks (database)."""
+    global _have_users
+    _ready()
+    token = _session_token(request)
+    user = users.session_user(token) if token else None
+    if user is not None:
+        _have_users = True
+    return user
+
+
+def require(perm: str | None, *, pending_ok: bool = False):
+    """FastAPI dependency factory: the request needs a signed-in user who holds `perm` (None: just signed in).
+
+    401 {"detail": "Sign in required"} when not signed in; 403 "password_change_required" while the user must
+    still change their password (unless `pending_ok`: only /me, the password change and logout); 403
+    "Not allowed" when the role lacks the permission; 503 when the database is down. `x-admin-token` is
+    honoured only while no account exists, and then acts as an Owner. It is a sync dependency, so the database
+    calls run in the thread pool. `request.state.user` is the User.
+    """
+    def dep(request: Request) -> User:
+        user = _session_user(request)
+        if user is None:
+            supplied = request.headers.get("x-admin-token") or ""
+            real = (config.get().get("admin_token") or "").strip()
+            if supplied and not _any_users() and _token_ok(supplied, real):
+                user = SETUP_OWNER
+        if user is None:
+            raise HTTPException(status_code=401, detail=WEB_MESSAGES["signin_required"])
+        if user.must_change_password and not pending_ok:
+            raise HTTPException(status_code=403, detail="password_change_required")
+        if perm and not user.can(perm):
+            raise HTTPException(status_code=403, detail=WEB_MESSAGES["not_allowed"])
+        request.state.user = user
+        return user
+
+    dep.permission = perm        # type: ignore[attr-defined]  (the permission test reads it)
+    return dep
+
+
+# Modules' admin routes use the same checks, and their pages the same templates (they cannot import this file).
+modules_pkg.permission_hook = require
 modules_pkg.templates = templates
+
+# What a refusal from users.py means as a status. The text sent is always Refused.message.
+_REFUSAL_STATUS = {
+    "bad_login": 401, "wrong_pin": 401, "pin_cleared": 401, "no_device": 401,
+    "disabled": 403, "role_too_high": 403, "account_above_you": 403, "self_action": 403, "wrong_password": 403,
+    "not_found": 404,
+    "username_taken": 409, "last_owner": 409,
+}
+
+
+def _refusal_status(exc: users.Refused) -> int:
+    return _REFUSAL_STATUS.get(exc.key, 400)
+
+
+@app.exception_handler(users.Refused)
+async def _on_refused(request: Request, exc: users.Refused):
+    return JSONResponse({"detail": exc.message}, status_code=_refusal_status(exc))
+
+
+@app.exception_handler(db.Unavailable)
+async def _on_db_down(request: Request, exc: db.Unavailable):
+    if request.url.path.startswith("/api/"):
+        return JSONResponse({"detail": DB_DOWN_SENTENCE}, status_code=503)
+    return templates.TemplateResponse(request, "db_down.html", {"message": DB_DOWN_SENTENCE}, status_code=503,
+                                      headers={"Cache-Control": "no-store"})
+
+
+def _bad_request() -> HTTPException:
+    return HTTPException(status_code=400, detail=WEB_MESSAGES["bad_request"])
 
 
 # ------------------------------------------------------------- viewers
@@ -951,24 +1086,86 @@ async def panel_update_report(panel_id: str, request: Request):
 
 
 # --------------------------------------------------------------- admin
+# Server-rendered pages and forms (they work without JavaScript), then the JSON API under /api/admin.
+_NO_STORE = {"Cache-Control": "no-store"}
+
+
+def _render(request: Request, template: str, ctx: dict, status: int = 200) -> HTMLResponse:
+    return templates.TemplateResponse(request, template, ctx, status_code=status, headers=_NO_STORE)
+
+
+def _login_page(request: Request, *, error: str | None = None, status: int = 200, username: str = "",
+                pw: bool = False, pin_user: int | None = None, setup: dict | None = None) -> HTMLResponse:
+    """The sign-in form, the first-run form (no accounts yet) or, on a trusted device with PIN users, the PIN
+    picker. `pw` forces the password form. Blocks (database). Passwords are never echoed back; a username is."""
+    if setup is not None or not _any_users():
+        form = {"username": "", "name": ""} | (setup or {})
+        return _render(request, "login.html", {"mode": "setup", "error": error, **form,
+                                               "token_set": bool((config.get().get("admin_token") or "").strip())},
+                       status)
+    device = users.device_for(request.cookies.get(DEVICE_COOKIE) or "")
+    pins = users.pin_users() if device else []
+    mode = "pin" if pins and not pw else "signin"
+    return _render(request, "login.html", {"mode": mode, "error": error, "username": username,
+                                           "pin_users": pins, "pin_user": pin_user,
+                                           "device_name": device["name"] if device else ""}, status)
+
+
+def _password_page(request: Request, *, error: str | None = None, status: int = 200) -> HTMLResponse:
+    return _render(request, "password_change.html", {"error": error}, status)
+
+
+def _denied_page() -> HTMLResponse:
+    return HTMLResponse("<!doctype html><title>Not allowed</title><p>Not allowed.</p>", status_code=403,
+                        headers=_NO_STORE)
+
+
+def _page_gate(request: Request, perm: str | None = None, *, pw: bool = False):
+    """For a server-rendered admin page: the signed-in User, or the response to send instead (first-run form,
+    sign-in, forced password change, or "not allowed"). Blocks (database)."""
+    if not _any_users():
+        return _login_page(request)
+    user = _session_user(request)
+    if user is None:
+        return _login_page(request, pw=pw)
+    if user.must_change_password:
+        return _password_page(request)
+    if perm and not user.can(perm):
+        return _denied_page()
+    return user
+
+
+def _me_payload(request: Request, user: User) -> dict:
+    """Who is signed in and what they may do: GET /api/admin/me, and `me` on the admin page."""
+    device = users.device_for(request.cookies.get(DEVICE_COOKIE) or "")
+    return {
+        "user": {"id": user.id, "username": user.username, "name": user.name, "role": user.role,
+                 "must_change_password": user.must_change_password},
+        "permissions": sorted(users.role_permissions(user.role)),
+        "pin_set": user.pin_set,
+        "device": {"trusted": device is not None, "name": device["name"] if device else None},
+    }
+
+
 @app.get("/admin", response_class=HTMLResponse)
-async def admin_page(request: Request):
-    if not _session_ok(request):
-        return templates.TemplateResponse(
-            request, "login.html", {"error": None}, status_code=200
-        )
+def admin_page(request: Request, pw: str = ""):
+    got = _page_gate(request, pw=pw == "1")
+    if not isinstance(got, User):
+        return got
     return templates.TemplateResponse(request, "admin.html", {
-        "module_nav": module_registry.admin_nav(),
-        "module_scripts": module_registry.admin_scripts(),
-    })
+        "me": _me_payload(request, got),
+        "module_nav": module_registry.admin_nav(got),
+        "module_scripts": module_registry.admin_scripts(got),
+    }, headers=_NO_STORE)
 
 
 @app.get("/admin/flash", response_class=HTMLResponse)
-async def admin_flash_page(request: Request, board: str = ""):
+def admin_flash_page(request: Request, board: str = ""):
     """Write a new or recovered panel's whole firmware over USB from the browser (copied from VXP's
     board flasher). The page holds every sentence it can show; `flasher.js` picks which is visible."""
-    if not _session_ok(request):
-        return templates.TemplateResponse(request, "login.html", {"error": None}, status_code=200)
+    got = _page_gate(request, "panels.manage")
+    if not isinstance(got, User):
+        return got
     boards = panelfw.active_boards()
     chosen = next((b for b in boards if b.id == board), boards[0])
     info = panelfw.current_flash(chosen.id)
@@ -979,39 +1176,157 @@ async def admin_flash_page(request: Request, board: str = ""):
     })
 
 
-@app.post("/admin/login")
-async def admin_login(request: Request, token: str = Form(...)):
+def _signed_in(request: Request, token: str, max_age: int) -> RedirectResponse:
+    resp = RedirectResponse("/admin", status_code=303)
+    _set_cookie(resp, request, ADMIN_COOKIE, token, max_age)
+    return resp
+
+
+def _field(value: str, limit: int = 200) -> str:
+    return (value or "")[:limit]
+
+
+@app.post("/admin/setup")
+async def admin_setup(request: Request, token: str = Form(""), username: str = Form(""), name: str = Form(""),
+                      password: str = Form(""), confirm: str = Form("")):
+    """First run: the admin token from config.json (checked every time, in constant time) creates the Owner,
+    who is signed in. Once any account exists the token is never accepted again."""
     ip = _client_ip(request)
+    username, name = _field(username, 100), _field(name, 200)
+    shown = {"username": username, "name": name}
+    left = _login_locked(ip)
+    if left:
+        return await asyncio.to_thread(_login_page, request, error=_locked_sentence(left), status=429, setup=shown)
+
+    def work():
+        with _SETUP_LOCK:
+            if _any_users():
+                raise _WebRefused("already_set_up")
+            real = (config.get().get("admin_token") or "").strip()
+            if not real:
+                raise _WebRefused("no_token")
+            if not _token_ok(token.strip(), real):
+                raise _WebRefused("bad_token")
+            if password != confirm:
+                raise _WebRefused("mismatch")
+            user = users.create(username, name, "owner", password, temporary=False, actor=None)
+            # Setup signs the Owner in without a password check, so stamp the sign-in here.
+            db.execute("update users set last_login = now() where id = %s", (user.id,))
+            global _have_users
+            _have_users = True
+        return users.start_session(user, via="password")
+
+    try:
+        token_, age = await asyncio.to_thread(work)
+    except _WebRefused as exc:
+        if exc.key in ("bad_token", "no_token"):
+            await _fail(ip)
+        if exc.key == "already_set_up":
+            return await asyncio.to_thread(_login_page, request, error=exc.message, status=403)
+        return await asyncio.to_thread(_login_page, request, error=exc.message,
+                                       status=401 if exc.key == "bad_token" else 400, setup=shown)
+    except users.Refused as exc:
+        return await asyncio.to_thread(_login_page, request, error=exc.message, status=_refusal_status(exc),
+                                       setup=shown)
+    _LOGIN_FAILS.pop(ip, None)
+    return _signed_in(request, token_, age)
+
+
+@app.post("/admin/login")
+async def admin_login(request: Request, username: str = Form(""), password: str = Form("")):
+    ip = _client_ip(request)
+    username = _field(username, 100)
     left = _login_locked(ip)
     if left:
         log.warning("Admin login from %s refused, locked for %ds", ip, int(left))
-        return templates.TemplateResponse(
-            request,
-            "login.html",
-            {"error": f"Too many attempts. Try again in {int(left) // 60 + 1} min."},
-            status_code=429,
-        )
+        return await asyncio.to_thread(_login_page, request, error=_locked_sentence(left), status=429,
+                                       username=username, pw=True)
 
-    real = (config.get().get("admin_token") or "").strip()
-    if not _token_ok(token.strip(), real):
-        # A fixed delay on every failure: it costs an operator who mistyped
-        # under a second, and caps a guesser on the venue LAN long before the
-        # lockout bites.
-        await asyncio.sleep(LOGIN_FAIL_DELAY_S)
-        _login_failed(ip)
-        return templates.TemplateResponse(
-            request, "login.html", {"error": "Incorrect token."}, status_code=401
-        )
+    def work():
+        _ready()
+        user = users.authenticate(username, password)
+        return users.start_session(user, via="password")
 
+    try:
+        token, age = await asyncio.to_thread(work)
+    except users.Refused as exc:
+        if exc.key == "bad_login":
+            await _fail(ip)
+        return await asyncio.to_thread(_login_page, request, error=exc.message, status=_refusal_status(exc),
+                                       username=username, pw=True)
+    global _have_users
+    _have_users = True
     _LOGIN_FAILS.pop(ip, None)
-    resp = RedirectResponse("/admin", status_code=303)
-    _set_session_cookie(resp, request)
-    return resp
+    return _signed_in(request, token, age)
+
+
+@app.post("/admin/login/pin")
+async def admin_login_pin(request: Request, user_id: str = Form(""), pin: str = Form("")):
+    """A PIN signs in only from a browser an admin marked as a trusted device (the relay_device cookie)."""
+    ip = _client_ip(request)
+    uid = int(user_id) if user_id.isascii() and user_id.isdigit() and len(user_id) < 10 else -1
+    left = _login_locked(ip)
+    if left:
+        return await asyncio.to_thread(_login_page, request, error=_locked_sentence(left), status=429,
+                                       pin_user=uid)
+
+    def work():
+        _ready()
+        device = users.device_for(request.cookies.get(DEVICE_COOKIE) or "")
+        user = users.authenticate_pin(uid, _field(pin, 16), device["id"] if device else None)
+        return users.start_session(user, via="pin", device_id=device["id"])
+
+    try:
+        token, age = await asyncio.to_thread(work)
+    except users.Refused as exc:
+        if exc.key in ("wrong_pin", "pin_cleared"):
+            await _fail(ip)
+        # Without a trusted device there is no picker to go back to: the password form, with the sentence.
+        return await asyncio.to_thread(_login_page, request, error=exc.message, status=_refusal_status(exc),
+                                       pin_user=uid, pw=exc.key == "no_device")
+    global _have_users
+    _have_users = True
+    _LOGIN_FAILS.pop(ip, None)
+    return _signed_in(request, token, age)
+
+
+@app.post("/admin/password")
+async def admin_password(request: Request, current: str = Form(""), new: str = Form(""),
+                         confirm: str = Form("")):
+    """The signed-in user's own password: the form shown while a change is pending, and a plain change."""
+    ip = _client_ip(request)
+    left = _login_locked(ip)
+
+    def work():
+        user = _session_user(request)
+        if user is None:
+            return None
+        if left:
+            return _password_page(request, error=_locked_sentence(left), status=429)
+        if new != confirm:
+            return _password_page(request, error=WEB_MESSAGES["mismatch"], status=400)
+        users.change_own_password(user, current, new, keep_token=_session_token(request))
+        return "done"
+
+    try:
+        got = await asyncio.to_thread(work)
+    except users.Refused as exc:
+        if exc.key == "wrong_password":
+            await _fail(ip)
+        return await asyncio.to_thread(_password_page, request, error=exc.message, status=_refusal_status(exc))
+    if got is None or got == "done":
+        return RedirectResponse("/admin", status_code=303)
+    return got
 
 
 @app.post("/admin/logout")
 async def admin_logout(request: Request):
-    _drop_session(request)
+    token = _session_token(request)
+    if token:
+        # Ends it server-side, so a copied cookie is dead too. If the database is down the browser still
+        # forgets its cookie.
+        with contextlib.suppress(db.Unavailable):
+            await asyncio.to_thread(users.end_session, token)
     resp = RedirectResponse("/admin", status_code=303)
     resp.delete_cookie(ADMIN_COOKIE, path="/")
     return resp
@@ -1023,7 +1338,7 @@ RESCAN_LIVE_NOTE = (
 )
 
 
-@app.get("/api/admin/state", dependencies=[Depends(require_admin)])
+@app.get("/api/admin/state", dependencies=[Depends(require("settings.view"))])
 async def admin_state():
     from .audio import list_input_devices
 
@@ -1038,12 +1353,12 @@ async def admin_state():
 
 
 # --------------------------------------------------------------- modules (#157)
-@app.get("/api/admin/modules", dependencies=[Depends(require_admin)])
+@app.get("/api/admin/modules", dependencies=[Depends(require("modules.view"))])
 async def admin_modules():
     return {"modules": [module_registry.describe(m) for m in module_registry.all()]}
 
 
-@app.post("/api/admin/modules/{mid}", dependencies=[Depends(require_admin)])
+@app.post("/api/admin/modules/{mid}", dependencies=[Depends(require("modules.manage"))])
 async def admin_module_switch(mid: str, payload: dict):
     """Switch a module on or off. Its pages appear or go once the admin page reloads."""
     if module_registry.get(mid) is None:
@@ -1055,7 +1370,7 @@ async def admin_module_switch(mid: str, payload: dict):
     return module_registry.describe(module_registry.get(mid))
 
 
-@app.post("/api/admin/modules/{mid}/test", dependencies=[Depends(require_admin)])
+@app.post("/api/admin/modules/{mid}/test", dependencies=[Depends(require("modules.manage"))])
 async def admin_module_test(mid: str):
     mod = module_registry.get(mid)
     if mod is None:
@@ -1070,7 +1385,7 @@ async def admin_module_test(mid: str):
     return {"ok": bool(result.get("ok")), "detail": str(result.get("detail") or "")}
 
 
-@app.get("/api/admin/devices", dependencies=[Depends(require_admin)])
+@app.get("/api/admin/devices", dependencies=[Depends(require("session.view"))])
 async def admin_devices():
     from .audio import capture_is_live, list_input_devices
 
@@ -1082,12 +1397,12 @@ async def admin_devices():
     }
 
 
-@app.get("/api/admin/status", dependencies=[Depends(require_admin)])
+@app.get("/api/admin/status", dependencies=[Depends(require("session.view"))])
 async def admin_status():
     return engine.status()
 
 
-@app.get("/api/admin/status/stream", dependencies=[Depends(require_admin)])
+@app.get("/api/admin/status/stream", dependencies=[Depends(require("session.view"))])
 async def admin_status_stream(request: Request):
     q = hub.subscribe_status()
 
@@ -1121,8 +1436,29 @@ async def admin_status_stream(request: Request):
     )
 
 
-@app.post("/api/admin/config", dependencies=[Depends(require_admin)])
+# What each field of POST /api/admin/config needs. A field that is not here is not applied.
+CONFIG_PERMISSIONS = {
+    "audio_device": "audio.manage",
+    "input_channel": "audio.manage",
+    "source_language": "audio.manage",
+    "default_font_px": "settings.manage",
+    "speaking_indicator_vad": "settings.manage",
+    "history_lines": "settings.manage",
+    "realtime": "settings.manage",
+    "openai_api_key": "credentials.manage",
+    "recording": "recordings.manage",
+    "blocklist": "blocklist.manage",
+}
+
+
+@app.post("/api/admin/config", dependencies=[Depends(require("settings.view"))])
 async def admin_config(request: Request, payload: dict):
+    # Every supplied field is checked before any is applied: one that the role may not change refuses the
+    # whole request, so nothing is half saved.
+    user: User = request.state.user
+    if any(f in payload and not user.can(perm) for f, perm in CONFIG_PERMISSIONS.items()):
+        raise HTTPException(status_code=403, detail=WEB_MESSAGES["not_allowed"])
+
     updates: dict = {}
     allowed_scalars = (
         "audio_device",
@@ -1139,10 +1475,6 @@ async def admin_config(request: Request, payload: dict):
     key = payload.get("openai_api_key")
     if isinstance(key, str) and key.strip():
         updates["openai_api_key"] = key.strip()
-
-    admin_token = payload.get("admin_token")
-    if isinstance(admin_token, str) and admin_token.strip():
-        updates["admin_token"] = admin_token.strip()
 
     if isinstance(payload.get("realtime"), dict):
         updates["realtime"] = payload["realtime"]
@@ -1181,16 +1513,10 @@ async def admin_config(request: Request, payload: dict):
     body = {"config": config.redacted(), "status": engine.status()}
     if blocklist_report is not None:
         body["blocklist_report"] = blocklist_report
-    resp = JSONResponse(body)
-    if "admin_token" in updates:
-        # New token, so every session issued against the old one dies; the
-        # operator who made the change keeps a fresh one.
-        _SESSIONS.clear()
-        _set_session_cookie(resp, request)
-    return resp
+    return JSONResponse(body)
 
 
-@app.post("/api/admin/target/{target}", dependencies=[Depends(require_admin)])
+@app.post("/api/admin/target/{target}", dependencies=[Depends(require("targets.manage"))])
 async def admin_target(target: str, payload: dict):
     target = target.upper()
     try:
@@ -1202,7 +1528,7 @@ async def admin_target(target: str, payload: dict):
     return status
 
 
-@app.post("/api/admin/start", dependencies=[Depends(require_admin)])
+@app.post("/api/admin/start", dependencies=[Depends(require("session.control"))])
 async def admin_start():
     scheduler.manual_start()
     try:
@@ -1216,7 +1542,7 @@ async def admin_start():
         return JSONResponse({**engine.status(), "error": error}, status_code=400)
 
 
-@app.post("/api/admin/stop", dependencies=[Depends(require_admin)])
+@app.post("/api/admin/stop", dependencies=[Depends(require("session.control"))])
 async def admin_stop():
     # Before the stop, so the status it pushes already shows the window held.
     scheduler.manual_stop()
@@ -1272,12 +1598,12 @@ def _alerts_frame() -> dict:
 alerts.on_change = lambda: hub.push_status(_alerts_frame())
 
 
-@app.get("/api/admin/alerts", dependencies=[Depends(require_admin)])
+@app.get("/api/admin/alerts", dependencies=[Depends(require("alerts.view"))])
 async def admin_alerts():
     return _alerts_frame()
 
 
-@app.post("/api/admin/alerts", dependencies=[Depends(require_admin)])
+@app.post("/api/admin/alerts", dependencies=[Depends(require("alerts.manage"))])
 async def admin_alerts_save(payload: dict):
     """The alert buttons and the auto-stop, whole: {"auto_stop_s", "buttons": [{"id"?, "name", "panels",
     "screens"}]}. A button left out is deleted, and an alert it had flashing stops."""
@@ -1294,20 +1620,20 @@ async def admin_alerts_save(payload: dict):
 panel_registry.on_change = lambda: hub.push_status(_panels_frame())
 
 
-@app.get("/api/admin/panels", dependencies=[Depends(require_admin)])
+@app.get("/api/admin/panels", dependencies=[Depends(require("panels.view"))])
 async def admin_panels():
     return _panels_frame()
 
 
 # Firmware for the panels. These are declared before `/api/admin/panels/{panel_id}`, which would
 # otherwise take "firmware" for a panel's id.
-@app.get("/api/admin/panels/firmware", dependencies=[Depends(require_admin)])
+@app.get("/api/admin/panels/firmware", dependencies=[Depends(require("panels.view"))])
 async def admin_panel_firmware(board: str = ""):
     info = panelfw.current(_board_arg(board))
     return {"firmware": info.public() if info else None, "boards": _firmware_boards()}
 
 
-@app.post("/api/admin/panels/firmware", dependencies=[Depends(require_admin)])
+@app.post("/api/admin/panels/firmware", dependencies=[Depends(require("panels.manage"))])
 async def admin_panel_firmware_upload(request: Request, filename: str = "", board: str = ""):
     """Keep the uploaded image (the raw body) as its board's firmware. It is checked as far as Relay
     can -- a panel's application for a board that is not on hold (and the one `board` names, if it
@@ -1324,7 +1650,7 @@ async def admin_panel_firmware_upload(request: Request, filename: str = "", boar
     return {"firmware": info.public()}
 
 
-@app.delete("/api/admin/panels/firmware", dependencies=[Depends(require_admin)])
+@app.delete("/api/admin/panels/firmware", dependencies=[Depends(require("panels.manage"))])
 async def admin_panel_firmware_delete(board: str = ""):
     board = _board_arg(board)
     had = await asyncio.to_thread(panelfw.remove, board)
@@ -1332,7 +1658,7 @@ async def admin_panel_firmware_delete(board: str = ""):
     return {"ok": True, "removed": had}
 
 
-@app.post("/api/admin/panels/firmware/update", dependencies=[Depends(require_admin)])
+@app.post("/api/admin/panels/firmware/update", dependencies=[Depends(require("panels.manage"))])
 async def admin_panel_firmware_update(payload: dict):
     """Ask one panel (`id`) or every online panel of a board that has an update available (no `id`;
     `board`, or the CrowPanel) to install its board's stored image. `now` skips the wait for a quiet
@@ -1356,13 +1682,13 @@ async def admin_panel_firmware_update(payload: dict):
 
 # The USB image for the board flasher at `/admin/flash`: the merged `relay-display.bin`, never offered to a
 # panel over the network. Admin-only like every route here; the flasher page fetches it with the session.
-@app.get("/api/admin/panels/flash", dependencies=[Depends(require_admin)])
+@app.get("/api/admin/panels/flash", dependencies=[Depends(require("panels.manage"))])
 async def admin_panel_flash(board: str = ""):
     info = panelfw.current_flash(_board_arg(board))
     return {"flash": info.public() if info else None}
 
 
-@app.post("/api/admin/panels/flash", dependencies=[Depends(require_admin)])
+@app.post("/api/admin/panels/flash", dependencies=[Depends(require("panels.manage"))])
 async def admin_panel_flash_upload(request: Request, filename: str = "", board: str = ""):
     """Keep the uploaded merged image (the raw body) as its board's USB image, checked as an update's
     image is, through the application inside it."""
@@ -1376,13 +1702,13 @@ async def admin_panel_flash_upload(request: Request, filename: str = "", board: 
     return {"flash": info.public()}
 
 
-@app.delete("/api/admin/panels/flash", dependencies=[Depends(require_admin)])
+@app.delete("/api/admin/panels/flash", dependencies=[Depends(require("panels.manage"))])
 async def admin_panel_flash_delete(board: str = ""):
     had = await asyncio.to_thread(panelfw.remove_flash, _board_arg(board))
     return {"ok": True, "removed": had}
 
 
-@app.get("/api/admin/panels/flash/{name}", dependencies=[Depends(require_admin)])
+@app.get("/api/admin/panels/flash/{name}", dependencies=[Depends(require("panels.manage"))])
 async def admin_panel_flash_file(name: str):
     """`<board>.json`, the manifest the page checks the bytes against, and `<board>.bin`, the bytes."""
     board, _, suffix = name.rpartition(".")
@@ -1398,7 +1724,7 @@ async def admin_panel_flash_file(name: str):
     return FileResponse(path, media_type="application/octet-stream", headers={"Cache-Control": "no-store"})
 
 
-@app.post("/api/admin/panels/{panel_id}", dependencies=[Depends(require_admin)])
+@app.post("/api/admin/panels/{panel_id}", dependencies=[Depends(require("panels.manage"))])
 async def admin_panel_update(panel_id: str, payload: dict):
     """Rename a panel and/or set its feed. `feeds` is a list of one or two
     {"stream", "lang"}, or null to stop overriding the panel's own choice.
@@ -1445,7 +1771,7 @@ async def admin_panel_update(panel_id: str, payload: dict):
         raise HTTPException(400, str(exc))
 
 
-@app.post("/api/admin/panels/{panel_id}/reboot", dependencies=[Depends(require_admin)])
+@app.post("/api/admin/panels/{panel_id}/reboot", dependencies=[Depends(require("panels.manage"))])
 async def admin_panel_reboot(panel_id: str):
     """Restart a panel now. It must be online with its event stream open: a restart is never queued."""
     try:
@@ -1458,7 +1784,7 @@ async def admin_panel_reboot(panel_id: str):
     return {"panel": row}
 
 
-@app.delete("/api/admin/panels/{panel_id}", dependencies=[Depends(require_admin)])
+@app.delete("/api/admin/panels/{panel_id}", dependencies=[Depends(require("panels.manage"))])
 async def admin_panel_forget(panel_id: str):
     if not panel_registry.forget(panel_id):
         raise HTTPException(404, "unknown panel")
@@ -1478,12 +1804,12 @@ async def _save_schedules(items: list[dict]) -> dict:
     return scheduler.listing()
 
 
-@app.get("/api/admin/schedules", dependencies=[Depends(require_admin)])
+@app.get("/api/admin/schedules", dependencies=[Depends(require("schedules.view"))])
 async def admin_schedules():
     return scheduler.listing()
 
 
-@app.post("/api/admin/schedules", dependencies=[Depends(require_admin)])
+@app.post("/api/admin/schedules", dependencies=[Depends(require("schedules.manage"))])
 async def admin_schedule_create(payload: dict):
     items = list(config.get()["schedules"])
     taken = {s["id"] for s in items}
@@ -1497,7 +1823,7 @@ async def admin_schedule_create(payload: dict):
     return await _save_schedules(items)
 
 
-@app.put("/api/admin/schedules/{sid}", dependencies=[Depends(require_admin)])
+@app.put("/api/admin/schedules/{sid}", dependencies=[Depends(require("schedules.manage"))])
 async def admin_schedule_update(sid: str, payload: dict):
     items = list(config.get()["schedules"])
     idx = next((i for i, s in enumerate(items) if s["id"] == sid), None)
@@ -1510,7 +1836,7 @@ async def admin_schedule_update(sid: str, payload: dict):
     return await _save_schedules(items)
 
 
-@app.delete("/api/admin/schedules/{sid}", dependencies=[Depends(require_admin)])
+@app.delete("/api/admin/schedules/{sid}", dependencies=[Depends(require("schedules.manage"))])
 async def admin_schedule_delete(sid: str):
     items = list(config.get()["schedules"])
     kept = [s for s in items if s["id"] != sid]
@@ -1540,12 +1866,12 @@ def _overlay_error(exc: overlays.OverlayError) -> JSONResponse:
     return JSONResponse({"error": overlays.MESSAGES.get(exc.key, "That overlay is not valid.")}, status_code=400)
 
 
-@app.get("/api/admin/overlays", dependencies=[Depends(require_admin)])
+@app.get("/api/admin/overlays", dependencies=[Depends(require("overlays.view"))])
 async def admin_overlays():
     return _overlays_frame()
 
 
-@app.post("/api/admin/overlays", dependencies=[Depends(require_admin)])
+@app.post("/api/admin/overlays", dependencies=[Depends(require("overlays.manage"))])
 async def admin_overlay_create(payload: dict):
     items = list(config.get()["overlays"])
     try:
@@ -1557,7 +1883,7 @@ async def admin_overlay_create(payload: dict):
     return _overlays_frame() | {"saved": new["id"]}
 
 
-@app.put("/api/admin/overlays/{oid}", dependencies=[Depends(require_admin)])
+@app.put("/api/admin/overlays/{oid}", dependencies=[Depends(require("overlays.manage"))])
 async def admin_overlay_update(oid: str, payload: dict):
     items = list(config.get()["overlays"])
     idx = next((i for i, o in enumerate(items) if o["id"] == oid), None)
@@ -1572,7 +1898,7 @@ async def admin_overlay_update(oid: str, payload: dict):
     return _overlays_frame() | {"saved": items[idx]["id"]}
 
 
-@app.delete("/api/admin/overlays/{oid}", dependencies=[Depends(require_admin)])
+@app.delete("/api/admin/overlays/{oid}", dependencies=[Depends(require("overlays.manage"))])
 async def admin_overlay_delete(oid: str):
     items = list(config.get()["overlays"])
     kept = [o for o in items if o["id"] != oid]
@@ -1605,7 +1931,7 @@ def _download(body: bytes, filename: str, media: str) -> Response:
     )
 
 
-@app.get("/api/admin/recordings", dependencies=[Depends(require_admin)])
+@app.get("/api/admin/recordings", dependencies=[Depends(require("recordings.view"))])
 async def admin_recordings():
     cfg = config.get()
     return {
@@ -1616,7 +1942,7 @@ async def admin_recordings():
     }
 
 
-@app.get("/api/admin/recordings/{run_id}", dependencies=[Depends(require_admin)])
+@app.get("/api/admin/recordings/{run_id}", dependencies=[Depends(require("recordings.view"))])
 async def admin_recording(run_id: str):
     """One run's metadata plus the files a download would produce, with line
     counts -- enough for the panel to show what is in there before fetching
@@ -1635,7 +1961,7 @@ async def admin_recording(run_id: str):
 
 
 @app.get("/api/admin/recordings/{run_id}/export.zip",
-         dependencies=[Depends(require_admin)])
+         dependencies=[Depends(require("recordings.view"))])
 async def admin_recording_zip(run_id: str):
     d = _run_or_404(run_id)
     meta = recorder.list_run(run_id) or {"run_id": run_id}
@@ -1648,7 +1974,7 @@ async def admin_recording_zip(run_id: str):
 
 
 @app.get("/api/admin/recordings/{run_id}/file/{name}",
-         dependencies=[Depends(require_admin)])
+         dependencies=[Depends(require("recordings.view"))])
 async def admin_recording_file(run_id: str, name: str):
     """One derived file. `name` is matched against the set this run actually
     produces -- it is never joined onto a path."""
@@ -1663,12 +1989,125 @@ async def admin_recording_file(run_id: str, name: str):
     return _download(text.encode("utf-8"), f"{run_id}-{name}", media + "; charset=utf-8")
 
 
-@app.delete("/api/admin/recordings/{run_id}", dependencies=[Depends(require_admin)])
+@app.delete("/api/admin/recordings/{run_id}", dependencies=[Depends(require("recordings.manage"))])
 async def admin_recording_delete(run_id: str):
     _run_or_404(run_id)
     if not recorder.delete_run(run_id):
         raise HTTPException(409, "that run is still being recorded")
     return {"deleted": run_id, "runs": recorder.list_runs()}
+
+
+# ------------------------------------------------------- the signed-in user, accounts, trusted devices
+def _iso(row: dict) -> dict:
+    """A database row for JSON: timestamps as ISO 8601 strings."""
+    return {k: (v.isoformat() if isinstance(v, datetime) else v) for k, v in row.items()}
+
+
+def _text(payload: dict, key: str):
+    """A string field of a JSON body, or None when absent (users.py rejects what is not valid)."""
+    v = payload.get(key)
+    return v if isinstance(v, str) else None
+
+
+@app.get("/api/admin/me", dependencies=[Depends(require(None, pending_ok=True))])
+def admin_me(request: Request):
+    """Any signed-in user, including one who still has to change their password (so the page can tell)."""
+    return _me_payload(request, request.state.user)
+
+
+@app.post("/api/admin/me/password", dependencies=[Depends(require(None, pending_ok=True))])
+def admin_me_password(request: Request, payload: dict):
+    """Change the signed-in user's own password. Their other sessions end; this browser's stays."""
+    users.change_own_password(request.state.user, payload.get("current"), payload.get("new"),
+                              keep_token=_session_token(request))
+    return {"ok": True}
+
+
+@app.post("/api/admin/me/pin", dependencies=[Depends(require(None))])
+def admin_me_pin(request: Request, payload: dict):
+    user: User = request.state.user
+    users.set_pin(user, payload.get("password"), payload.get("pin"))
+    return {"ok": True, "pin_set": True}
+
+
+@app.delete("/api/admin/me/pin", dependencies=[Depends(require(None))])
+def admin_me_pin_clear(request: Request):
+    users.clear_pin(request.state.user.id)
+    return {"ok": True, "pin_set": False}
+
+
+@app.get("/api/admin/users", dependencies=[Depends(require("users.view"))])
+def admin_users():
+    return {
+        "users": [_iso(u) for u in users.list_users()],
+        "roles": [{"id": r, "label": r.title(), "rank": i + 1} for i, r in enumerate(users.ROLES)],
+        "permissions": [asdict(p) for p in users.catalogue()],
+    }
+
+
+@app.post("/api/admin/users", dependencies=[Depends(require("users.manage"))])
+def admin_user_create(request: Request, payload: dict):
+    """A new account with a temporary password the person must change at first sign-in."""
+    made = users.create(payload.get("username"), payload.get("name"), payload.get("role"),
+                        payload.get("password"), temporary=True, actor=request.state.user)
+    return {"user": asdict(made)}
+
+
+@app.put("/api/admin/users/{user_id}", dependencies=[Depends(require("users.manage"))])
+def admin_user_update(user_id: int, request: Request, payload: dict):
+    changes = {k: payload[k] for k in ("name", "role", "disabled") if k in payload}
+    if "disabled" in changes and not isinstance(changes["disabled"], bool):
+        raise _bad_request()
+    return {"user": asdict(users.update(user_id, actor=request.state.user, **changes))}
+
+
+@app.post("/api/admin/users/{user_id}/password", dependencies=[Depends(require("users.manage"))])
+def admin_user_password(user_id: int, request: Request, payload: dict):
+    """Reset a password (a forgotten one): temporary, so they change it at next sign-in. Ends their
+    sessions and clears their PIN."""
+    users.set_password(user_id, payload.get("password"), temporary=True, actor=request.state.user)
+    return {"ok": True}
+
+
+@app.post("/api/admin/users/{user_id}/signout", dependencies=[Depends(require("users.manage"))])
+def admin_user_signout(user_id: int, request: Request):
+    target = users.get(user_id)
+    if target is None:
+        raise users.Refused("not_found")
+    if users.ROLES.index(target.role) > users.ROLES.index(request.state.user.role):
+        raise users.Refused("account_above_you")
+    users.end_sessions(user_id)
+    return {"ok": True}
+
+
+@app.delete("/api/admin/users/{user_id}", dependencies=[Depends(require("users.manage"))])
+def admin_user_delete(user_id: int, request: Request):
+    users.delete(user_id, actor=request.state.user)
+    return {"ok": True}
+
+
+@app.get("/api/admin/trusted-devices", dependencies=[Depends(require("users.view"))])
+def admin_devices_trusted(request: Request):
+    here = users.device_for(request.cookies.get(DEVICE_COOKIE) or "")
+    return {"devices": [_iso(d) for d in users.list_devices()], "this": here["id"] if here else None}
+
+
+@app.post("/api/admin/trusted-devices", dependencies=[Depends(require("users.manage"))])
+def admin_device_trust(request: Request, payload: dict):
+    """Trust THIS browser: it gets the relay_device cookie, and from then on may sign in with a PIN."""
+    user: User = request.state.user
+    if user.id <= 0:                       # the setup token has no account to record it against
+        raise HTTPException(status_code=403, detail=WEB_MESSAGES["not_allowed"])
+    token, row = users.trust_device(payload.get("name"), user)
+    resp = JSONResponse({"device": _iso(row), "this": row["id"]})
+    _set_cookie(resp, request, DEVICE_COOKIE, token, DEVICE_COOKIE_MAX_AGE)
+    return resp
+
+
+@app.delete("/api/admin/trusted-devices/{device_id}", dependencies=[Depends(require("users.manage"))])
+def admin_device_revoke(device_id: int):
+    users.revoke_device(device_id)
+    return {"ok": True}
 
 
 @app.get("/healthz")

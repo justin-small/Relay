@@ -7,6 +7,26 @@
   const $ = R.$, el = R.el, api = R.api, post = R.post, okMsg = R.okMsg, alertMsg = R.alertMsg;
   const clockText = R.clockText, timerPicker = R.timerPicker, timerPickerValue = R.timerPickerValue,
     timerThresholds = R.timerThresholds;
+  // What this user may do here. Without the admin page's relayCan the server still refuses, so assume yes.
+  function can(perm) { return typeof window.relayCan !== 'function' || !!window.relayCan(perm); }
+
+  /* Everything on this page but the stage message changes the setup, so it is for who holds propresenter.manage;
+     the stage message is live control (propresenter.control). Fields are disabled and their buttons hidden for
+     anyone else, and again after each render, which rebuilds some of them. */
+  function applyAccess() {
+    const manage = can('propresenter.manage'), control = can('propresenter.control');
+    const page = $('page-propresenter');
+    if (!manage) {
+      page.querySelectorAll('section:not(#ppStage) input, section:not(#ppStage) select').forEach(function (n) { n.disabled = true; });
+      page.querySelectorAll('section:not(#ppStage) button').forEach(function (n) { n.hidden = true; });
+    }
+    $('ppStageText').disabled = !control;
+    if (!control) { $('ppStageSet').hidden = true; $('ppStageClear').hidden = true; }
+    const note = $('ppAccessNote');
+    note.hidden = manage;
+    note.textContent = manage ? '' : control
+      ? 'You can change the stage message here but not the setup.' : 'You can view this page but not change it.';
+  }
 
   // A panel's timers form lists ProPresenter's timers and its global thresholds.
   R.panelHooks.timers = function () { return api('/api/admin/propresenter'); };
@@ -128,6 +148,7 @@
     const blocked = st.view_only;
     $('ppStageSet').disabled = blocked || !st.connected;
     if (blocked) $('ppStageNote').textContent = 'View-only is on, so Relay will not change the stage display.';
+    applyAccess();
   }
 
   async function ppPoll() {

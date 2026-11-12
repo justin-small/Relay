@@ -42,12 +42,12 @@ Two tools help with almost every problem:
 | Symptom | What to do |
 |---|---|
 | `The API key cannot be empty.` | You pressed `Return` without pasting the key. Paste it and press `Return`. Nothing appears on screen while you paste; that is normal. |
-| `Too short — use at least 8 characters.` | Choose a longer admin token. |
+| `Too short — use at least 8 characters.` | Choose a longer admin token (it is used once, to create the first account). |
 | `That token is guessable. Pick another.` | `changeme`, `password`, `admin` and `relay` are refused. Choose a real password. |
 | `Tokens did not match — try again.` | The token and its confirmation were different. Type it carefully twice. |
 | `Could not write docker-config/config.json — see the output above.` | Read the lines above it. Check that the Relay folder is not read-only and not in a cloud-synced folder, then run setup again. |
 | `Could not generate the certificate — see the output above.` | Read the lines above it. Run setup again. If it keeps failing, send the output to whoever supports your Relay installation. |
-| Windows: the admin token does not work in the panel, even though you typed it correctly | The token probably contains a symbol that Command Prompt changed, such as `!` or `%`. Run `setup.bat` again, answer `y`, and choose a token made of letters, numbers, `-`, `_` and `.` only. |
+| Windows: the admin token is refused when you create the first account, even though you typed it correctly | The token probably contains a symbol that Command Prompt changed, such as `!` or `%`. Run `setup.bat` again, answer `y`, and choose a token made of letters, numbers, `-`, `_` and `.` only. |
 | Windows: you answered `yes` to **Reconfigure the API key and admin token?** but setup skipped the questions | On Windows only a single `y` counts. Run setup again and type `y`. |
 | `Setup did not finish.` (Windows) | One of the steps above failed. Read the message just above this line, and look it up in this chapter. |
 | Setup says `Certifying this machine's LAN address, 127.0.0.1.` | The computer was not connected to a network. That is fine for now: start checks the address again every time. |
@@ -92,7 +92,9 @@ followed by a line starting `->` with a hint.
 | The fingerprint in the browser does not match what setup printed | If this computer's IP address has changed, start made a new certificate. Compare with the `Panel certificate SHA-256` line that start printed today. If that does not match either, do not continue. |
 | `http://192.168.1.50/admin` shows **404 Not Found** | The panel only works over HTTPS. Type `https://`, not `http://`. |
 | Phones cannot open the viewer link | Check that the phones are on the same Wi-Fi network as the Relay computer, not a guest network or mobile data. Guest networks often stop devices from seeing each other. Check the computer's firewall (on Windows, allow Docker on **Private networks**). Make sure people type `http://`, not `https://`. |
-| The panel will not accept your admin token | Check for extra spaces and the right capital letters. If you have forgotten it, run setup again and answer `y` to choose a new one. |
+| The first-run form refuses your admin token | Check for extra spaces and the right capital letters. If you have forgotten it, run setup again and answer `y` to choose a new one. The token only works until the first account exists. |
+| Nobody can sign in, or you have forgotten the only Owner's password | See [If nobody can sign in](#lockout). |
+| The panel says **The user database is not available** | Captions are not affected. Wait a minute and reload. If it stays, see [The user database](#user-database). |
 
 ## Once Relay is running
 

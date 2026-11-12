@@ -17,8 +17,8 @@ behind a **Menu** button.
 3. **Output.** Where the captions go: **Panels**, **Alerts**, **Viewer
    links** and **Recordings & export**.
 4. **Automation.** **Schedules** and **Planning Center**.
-5. **Settings.** **Blocked words**, **Credentials** and **Appearance &
-   tuning**.
+5. **Settings.** **Blocked words**, **Credentials**, **Appearance &
+   tuning** and **Users**.
 6. **Start capture.** See [Starting and stopping](#start-stop).
 7. **Viewers.** How many people have a viewer page open, next to **Sign
    out**.
@@ -584,8 +584,8 @@ runs you no longer need.
 
 ## Credentials {#credentials}
 
-This page changes the OpenAI API key and the admin token, without running
-setup again.
+This page changes the OpenAI API key without running setup again. Only an
+Owner sees it.
 
 ![Credentials.](images/admin-credentials.png){width=100%}
 
@@ -594,9 +594,7 @@ setup again.
    is no key and capture cannot start. The full key is never shown.
 2. **OpenAI API key.** Paste a new key here. Leave it blank to keep the
    current one.
-3. **Admin token.** Type a new admin token here. Leave it blank to keep the
-   current one.
-4. **Save credentials** saves whatever you filled in.
+3. **Save credentials** saves the key.
 
 ### To change the API key
 
@@ -608,18 +606,105 @@ setup again.
 5. If capture is running, click **Stop**, then **Start capture**. The new key
    is only used from the next start.
 
-### To change the admin token
-
-1. Type the new token into **Admin token**.
-2. Click **Save credentials**.
-3. You stay signed in. Every other browser is signed out and must sign in
-   with the new token. Companion, if you use it, needs the new token too.
-
 ::: warning
 Treat the API key like a credit card number. Never paste it into a chat,
 an email or a screenshot. If it leaks, delete it on the OpenAI website and
 make a new one. See Part 2, "Keeping the key safe".
 :::
+
+## Users {#users}
+
+Everyone signs in to the operator panel as themselves. This page, which
+Admins and Owners see, lists the people who can sign in and what each may do.
+Someone with a lower role does not see it.
+
+### Roles
+
+Relay has four roles. Each can do everything the roles before it can, and more.
+
+| Role | What it is for |
+|---|---|
+| **Viewer** | Looking: session health, panels, alerts, overlays, schedules and settings, but changing nothing. |
+| **Operator** | Running a service: start and stop captions, choose target languages, make overlays, list and download recordings, and control ProPresenter and the Planning Center plan. |
+| **Admin** | Setting Relay up: audio, panels, alerts, schedules, blocked words, appearance, recordings, modules, and the people on this page. |
+| **Owner** | Everything an Admin can do, plus the OpenAI API key under **Credentials**. |
+
+The **What each role can do** table at the bottom of the page shows the exact
+list.
+
+### The first account
+
+The first time anyone opens the panel on a new Relay, it shows **Set up
+Relay** instead of a sign-in page. Type the admin token from setup, then a
+username, your name and a password (at least 8 characters), and click
+**Create the Owner**. You are signed in. From then on the admin token is
+never accepted again. A username is 3 to 32 letters, digits, dots, dashes or
+underscores.
+
+### To add a person
+
+1. Open **Users** and click **Add user**.
+2. Fill in their username, name and role, and a temporary password.
+3. Give them the username and the temporary password. At their first
+   sign-in, Relay makes them choose their own password.
+
+There is no email. You can only give someone a role up to your own: an
+Admin cannot make an Owner.
+
+### Forgotten passwords and leaving people
+
+Each person in the list has buttons to change their details, reset their
+password, sign them out, turn them off and delete them.
+
+- **Reset a password.** Choose a new temporary password and give it to the
+  person. Resetting signs them out everywhere and clears their PIN, and they
+  must choose a new password at their next sign-in.
+- **Turn off or delete.** The person is signed out at once and cannot sign in.
+- Relay always keeps one active Owner: the last one cannot be turned off,
+  deleted or given a lower role. You cannot turn off or delete yourself, and
+  you cannot change someone with a higher role than yours.
+
+### My account, and PINs
+
+Click your name at the top of the panel to open **My account**. There you can
+**Change password**, which signs you out of other browsers, and set a PIN.
+
+A PIN is 4 to 8 digits and is a quicker way to sign in on a **trusted
+device**, such as the sound booth computer. To trust a computer, an Admin
+signs in on it, opens **Users** and clicks **Trust this browser**, giving it a
+name. On a trusted browser, the sign-in page lists the people who have a PIN:
+pick your name and type your PIN. A PIN never works on any other browser.
+After five wrong PINs in a row, the PIN is cleared and you sign in with your
+password and set a new one. Removing a trusted device from the list stops PIN
+sign-ins there.
+
+### How long you stay signed in
+
+Signing in with a password lasts 30 days on that browser. Signing in with a
+PIN lasts 12 hours. **Sign out** at the top right ends it now.
+
+### If nobody can sign in {#lockout}
+
+If the only Owner has forgotten their password, run this on the Relay
+computer, in a terminal:
+
+```
+docker exec -it live-caption-relay python tools/reset_owner.py YOURNAME
+```
+
+Replace `YOURNAME` with the username. Relay makes that person an Owner (or
+creates them), clears their PIN and prints a temporary password once. Sign in
+with it and choose a new password.
+
+### The user database {#user-database}
+
+The accounts are kept in a small database inside the Relay container. If it is
+down, captions and the viewer pages keep working, but the operator panel says
+**The user database is not available** until it is back. Relay restarts it by
+itself. Once a day Relay saves a copy into `docker-config/backups`, and keeps
+the newest 7, so copying `docker-config` copies the accounts too. The live
+database is in a Docker volume called `relay-db`: removing that volume
+deletes all accounts, and Relay asks for the first Owner again.
 
 ## Appearance & tuning {#appearance}
 

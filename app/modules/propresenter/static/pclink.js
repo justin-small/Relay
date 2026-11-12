@@ -6,6 +6,8 @@
   const $ = function (id) { return document.getElementById(id); };
   if (!$('ppLink')) return;
   const BASE = '/api/admin/propresenter/link';
+  // What this user may do here. Without the admin page's relayCan the server still refuses, so assume yes.
+  function can(perm) { return typeof window.relayCan !== 'function' || !!window.relayCan(perm); }
   let last = null, filled = false, pairing = null, names = null, timer = null, busy = false;
 
   function h(tag, cls, text) {
@@ -63,6 +65,7 @@
       sel.appendChild(auto);
       st.service_types.forEach(function (t) { const o = h('option', '', t.name); o.value = t.id; sel.appendChild(o); });
       sel.value = s.service_type || '';
+      sel.disabled = !can('propresenter.manage');
     }
     const box = $('plkStatus');
     box.innerHTML = '';
@@ -122,7 +125,8 @@
       tr.insertCell().textContent = r.presentation ? r.presentation.name : (r.options && r.options.length ? 'maybe: ' + r.options.map(function (o) { return o.name; }).join(', ') : '');
       tr.insertCell().textContent = r.status === 'matched' ? (METHOD[r.method] || r.method) + (r.method === 'fuzzy' ? ' (' + Math.round(r.score * 100) + '%)' : '') : r.note;
       const act = tr.insertCell();
-      if (r.status === 'skipped') return;
+      // Pairing is a change to the link: only who holds propresenter.manage sees the buttons.
+      if (r.status === 'skipped' || !can('propresenter.manage')) return;
       if (r.method === 'mapping') {
         const b = h('button', '', 'Unpair');
         b.type = 'button';

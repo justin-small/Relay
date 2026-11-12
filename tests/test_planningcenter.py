@@ -15,6 +15,11 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 os.environ["RELAY_CONFIG"] = os.path.join(tempfile.mkdtemp(), "config.json")
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import _pg  # noqa: E402  (a throwaway Postgres for the user system; must come before app.main)
+
+_pg.start()
+_pg.reset()
 os.environ["RELAY_VERSION"] = "9.9.9"
 
 from fastapi.testclient import TestClient
@@ -108,7 +113,7 @@ config.save({"admin_token": "t0ken", "port": 8000, "admin_port": 8001,
              "modules": {"planning_center": {"enabled": True}}})  # the module is switched on (#157)
 from app.modules import modules as _modules  # noqa: E402
 _modules.attach("planning_center")  # its hooks into core, without its background work
-admin = TestClient(app, base_url="http://relay.local:8001", headers={"x-admin-token": "t0ken"})
+admin = _pg.client(app, base_url="http://relay.local:8001")
 URL = "/api/admin/planning-center"
 
 print("off until a token is saved")
@@ -179,6 +184,26 @@ client.service_types()
 eq("at the ceiling, waits out the period first", slept, [20.0])
 check("Retry-After is clamped", pc._retry_after({"Retry-After": "99999"}, None) == pc.MAX_WAIT_S)
 check("a missing Retry-After falls back to the period", pc._retry_after({}, 20) == 20)
+
+print("roles")
+admin.post(URL, json={"app_id": APP_ID, "secret": SECRET})
+admin.post(URL + "/service-types", json={"ids": ["7"]})
+operator = _pg.client(app, "operator", base_url="http://relay.local:8001")
+viewer_user = _pg.client(app, "viewer", base_url="http://relay.local:8001")
+state.update(limit_429=0, forbid=False)
+eq("an operator picks today's plan", operator.post(URL + "/plan", json={"service_type": "7", "plan": ""}).status_code, 200)
+eq("an operator reads the live view", operator.get(URL + "/live").status_code, 200)
+eq("an operator may not change the setup",
+   [operator.post(URL + p, json=b).status_code for p, b in (("", {"app_id": "x", "secret": "y"}), ("/test", {}),
+    ("/service-types/refresh", {}), ("/service-types", {"ids": []}), ("/notes", {"show": True}))], [403] * 5)
+eq("…nor disconnect", operator.delete(URL).status_code, 403)
+eq("a viewer reads the live view", viewer_user.get(URL + "/live").status_code, 200)
+eq("a viewer may not pick a plan", viewer_user.post(URL + "/plan", json={"service_type": "7", "plan": ""}).status_code, 403)
+eq("…nor change the setup", [viewer_user.post(URL, json={}).status_code, viewer_user.delete(URL).status_code], [403, 403])
+check("a viewer's read of the live view leaks no secret", SECRET not in viewer_user.get(URL + "/live").text
+      and APP_ID not in viewer_user.get(URL + "/live").text)
+eq("the saved followed types were left alone by the refusals",
+   admin.get("/api/admin/state").json()["config"]["planning_center"]["service_types"], ["7"])
 
 print("secret stays server-side")
 body = json.dumps(admin.get("/api/admin/state").json())
