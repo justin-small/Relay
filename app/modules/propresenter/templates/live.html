@@ -1,0 +1,32 @@
+{# The Slide view and lobby admin page, rendered inside admin.html only while the ProPresenter module is on. #}
+    <h2 class="title">Slide view and lobby <span class="sumstate" id="svSum"></span></h2>
+    <p class="sub">The slides ProPresenter has up, as pictures with the countdown and video progress over them, and a rotation that steps a ProPresenter announcement playlist for lobby screens.</p>
+    <div class="note err" id="lbErr" hidden></div>
+    <section>
+      <h3>Slide view</h3>
+      <div id="svRoot"></div>
+      <div class="row" style="margin-top:12px">
+        <div class="field"><label for="svTimer">Countdown on the slide</label>
+          <select id="svTimer"></select></div>
+      </div>
+      <label class="check"><input type="checkbox" id="svPublic"> <span>Let the slide view be opened without the admin login, at <code>/stage</code> on the viewer address<br><span class="muted">Off by default. Slide images are licensed content, so they stay behind the admin login until you switch this on.</span></span></label>
+      <div class="ctl" style="margin-top:10px"><button type="button" class="primary" id="svSave">Save</button> <span class="note" id="svMsg"></span></div>
+    </section>
+    <section>
+      <h3>Lobby announcements <span class="count" id="lbSum"></span></h3>
+      <p class="note">Relay steps through a ProPresenter playlist by itself, one slide at a time. ProPresenter does not say which playlists are announcement playlists, so pick the one your lobby screens show. It does not start on its own: press Start. If you put something else on the announcements layer, the rotation waits and carries on when you clear it.</p>
+      <div class="row">
+        <div class="field"><label for="lbPlaylist">Playlist</label><select id="lbPlaylist"></select></div>
+        <div class="field"><label for="lbInterval">Seconds per slide</label><input id="lbInterval" type="number" min="3" max="600" step="1" value="8"></div>
+      </div>
+      <label class="check"><input type="checkbox" id="lbLoop"> <span>Start over when it reaches the end</span></label>
+      <div class="ppbar" style="margin-top:12px">
+        <button type="button" class="primary" id="lbSave">Save</button>
+        <button type="button" class="primary" id="lbStart">Start</button>
+        <button type="button" id="lbResume" hidden>Resume</button>
+        <button type="button" id="lbStop">Stop</button>
+        <button type="button" id="lbStopClear">Stop and clear announcements</button>
+      </div>
+      <div class="ppnow" id="lbState"><div class="t muted">Not running.</div></div>
+      <div class="note" id="lbMsg"></div>
+    </section>

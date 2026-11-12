@@ -29,7 +29,6 @@ from .hub import hub
 from .realtime import TranscriptionSession, TranslationRelaySession
 from .texttranslate import TextTranslator
 from .recorder import recorder
-from . import propresenter
 from .modules import modules
 
 log = logging.getLogger("relay.engine")
@@ -414,9 +413,8 @@ class Engine:
             "live": self.live_targets(),
             # Planning Center service feeds a panel can pick: empty unless the module is on and connected.
             "service": [],
-            # ProPresenter feeds a panel can pick (#138): the slide's lyrics, while the operator has them on for
-            # panels, and the timers. Both false until ProPresenter is set up.
-            "propresenter": propresenter.panel_offers(),
+            # ProPresenter feeds a panel can pick (#138): both false unless its module is on and set up.
+            "propresenter": {"lyrics": False, "timers": False},
             "running": self.running,
             "font_px": cfg["default_font_px"],
             # Whatever the modules that are on add (app/modules/): they override the empty defaults above.

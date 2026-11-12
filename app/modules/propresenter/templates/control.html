@@ -1,0 +1,83 @@
+{# The ProPresenter control admin page, rendered inside admin.html only while the ProPresenter module is on. #}
+<link rel="stylesheet" href="{{ static('modules/propresenter/slideview.css') }}">
+<link rel="stylesheet" href="{{ static('modules/propresenter/propresenter.css') }}">
+    <h2 class="title">ProPresenter control <span class="sumstate" id="pcSum"></span></h2>
+    <p class="sub">Run the slides from here. Needs ProPresenter connected under ProPresenter; in view-only mode every button is off.</p>
+    <div class="note err" id="pcErr" hidden></div>
+    <section>
+      <h3>Slides</h3>
+      <div class="ppbar">
+        <button type="button" class="big" id="pcPrev" title="Left arrow, up arrow or Page Up">&larr; Previous</button>
+        <button type="button" class="big primary" id="pcNext" title="Right arrow, down arrow or Page Down">Next &rarr;</button>
+        <button type="button" id="pcPrevPres" title="Shift + left arrow or Shift + up arrow">&laquo; Previous item</button>
+        <button type="button" id="pcNextPres" title="Shift + right arrow or Shift + down arrow">Next item &raquo;</button>
+      </div>
+      <div class="ppnow" id="pcNow"><div class="t muted">Nothing is up.</div></div>
+      <div class="note">Arrow keys and Page Up / Page Down move the slide while this page is open. Shift + arrow keys move to the previous or next playlist item.</div>
+    </section>
+    <section>
+      <h3>Screens and announcements</h3>
+      <div class="ppscreens" id="pcScreens">
+        <button type="button" id="pcAud" data-screens="audience">Audience screens</button>
+        <button type="button" id="pcStageScr" data-screens="stage">Stage screens</button>
+        <span class="muted" id="pcScreenList"></span>
+      </div>
+      <div class="ppnow" id="pcAnn"><div class="t muted">No announcement is up.</div></div>
+      <div class="note">Turning screens on or off is a change to ProPresenter, so it is off in view-only mode. Announcements are shown here and cleared from the dock below.</div>
+    </section>
+    <section>
+      <h3>Slide grid <span class="count" id="pcGridName"></span></h3>
+      <div class="ppbar"><button type="button" id="pcGridRefresh">Reload slides</button></div>
+      <div class="ppgrid" id="pcGrid"></div>
+      <div class="note" id="pcGridNote"></div>
+    </section>
+    <section>
+      <h3>Playlists</h3>
+      <div class="ppbar"><select id="pcPlaylist" style="max-width:320px"></select><button type="button" id="pcPlaylistRefresh">Reload</button></div>
+      <div class="ppbar"><button type="button" id="pcDiag">Check this playlist</button></div>
+      <div class="ppdiag" id="pcDiagOut" hidden></div>
+      <div id="pcItems"></div>
+      <div class="note" id="pcPlaylistNote"></div>
+    </section>
+    <section>
+      <h3>Looks</h3>
+      <div class="ppbar" id="pcLooks"></div>
+    </section>
+    <section>
+      <h3>Macros</h3>
+      <div class="ppbar" id="pcMacros"></div>
+      <div class="note" id="pcMacroNote"></div>
+      <div class="ctl"><button type="button" id="pcMacroChoose">Choose what operators see</button></div>
+      <div id="pcMacroPick" hidden style="margin-top:10px">
+        <label class="check"><input type="checkbox" id="pcMacroAll"> <span>Show every macro<br><span class="muted">Otherwise only the ticked ones appear and can be triggered.</span></span></label>
+        <div class="plist" id="pcMacroList" style="margin:8px 0"></div>
+        <button type="button" class="primary" id="pcMacroSave">Save</button>
+      </div>
+    </section>
+    <section>
+      <h3>Timers</h3>
+      <div id="pcTimers"></div>
+    </section>
+    <section>
+      <h3>Messages</h3>
+      <div id="pcMessages"></div>
+    </section>
+    <section>
+      <h3>Media position</h3>
+      <div class="ctl">
+        <input id="pcSeconds" type="number" min="0" step="0.1" value="0" style="width:120px" aria-label="Seconds">
+        <button type="button" id="pcGoTo">Go to time (seconds)</button>
+      </div>
+      <div class="note">Moves the media playing on the presentation layer to that time.</div>
+    </section>
+{# Fixed to the bottom of the window while the control page is open (ppcontrol.js). #}
+<div id="ppDock" role="toolbar" aria-label="ProPresenter clear" hidden>
+  <span class="dl">Clear</span>
+  <button type="button" data-layer="slide">Slide</button>
+  <button type="button" data-layer="media">Media</button>
+  <button type="button" data-layer="props">Props</button>
+  <button type="button" data-layer="messages">Messages</button>
+  <button type="button" data-layer="audio">Audio</button>
+  <button type="button" data-layer="video_input">Video input</button>
+  <button type="button" data-layer="announcements">Announcements</button>
+</div>

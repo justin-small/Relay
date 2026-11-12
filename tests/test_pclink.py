@@ -21,12 +21,14 @@ os.environ["RELAY_CONFIG"] = os.path.join(tempfile.mkdtemp(), "config.json")
 from fastapi.testclient import TestClient
 
 import app.main as main
-from app import config, plmatch, propresenter as pp
+from app import config
+from app.modules.propresenter import plmatch, propresenter as pp
 from app.modules.planning_center import pclive, planningcenter as pc
-from app.main import app, pc_link
+from app.main import app
+from app.modules.propresenter.pclink import link as pc_link
 from app.modules.planning_center.routes import control as panel_control
 from app.modules.planning_center.servicefeed import feed as service_feed
-from app.pclink import link
+from app.modules.propresenter.pclink import link
 
 fails = []
 
@@ -273,7 +275,12 @@ logging.getLogger().addHandler(logs)
 logging.getLogger().setLevel(logging.INFO)
 
 config.ensure_file()
-config.save({"admin_token": "t0ken", "port": 8000, "admin_port": 8001})
+config.save({"admin_token": "t0ken", "port": 8000, "admin_port": 8001,
+             "modules": {"propresenter": {"enabled": True}, "planning_center": {"enabled": True}}})
+# Both modules are switched on (#157); their hooks into core are set without starting their background work.
+from app.modules import modules as _modules  # noqa: E402
+_modules.attach("planning_center")
+_modules.attach("propresenter")
 config.save({"planning_center": {"app_id": "id", "secret": SECRET, "service_types": ["7"]},
              "propresenter": {**config.get()["propresenter"], "enabled": True, "host": "127.0.0.1", "port": 1}},
             replace=("propresenter", "planning_center"))

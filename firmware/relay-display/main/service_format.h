@@ -3,7 +3,7 @@
 // The Planning Center service on the panel (#82), with no LVGL or ESP-IDF in it, so `test_native.cpp` checks it on a
 // laptop. `captions.cpp` holds the state for a caption slot pointed at the Service feed; `service_view.cpp` draws it.
 //
-// **What goes over the wire**, plain HTTP on the viewer port like the captions (app/servicefeed.py):
+// **What goes over the wire**, plain HTTP on the viewer port like the captions (app/modules/planning_center/servicefeed.py):
 //
 //   GET /stream?stream=service&type=<service type id>
 //   -> data: {"type":"service","service_type":"7","followed":true,"name":"Sunday AM",
@@ -707,7 +707,7 @@ inline bool service_preview_step(service_state &s, bool forward)
 //   -> 200 {"ok":true,"service":{..}}            the new state also arrives on the Service feed
 //   -> 4xx/5xx {"ok":false,"error":"not_controlling"}
 //
-// Relay presses the button in Planning Center as its token's owner (app/pccontrol.py). **One press at a time**: a
+// Relay presses the button in Planning Center as its token's owner (app/modules/planning_center/pccontrol.py). **One press at a time**: a
 // second tap while the first is unanswered is ignored, so a double tap cannot skip two items.
 
 enum class service_action : uint8_t { next, previous, take_control, release };

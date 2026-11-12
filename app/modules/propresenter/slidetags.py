@@ -33,7 +33,7 @@ import time
 from collections import OrderedDict, deque
 from typing import Any, Awaitable, Callable, NamedTuple
 
-from . import languages
+from ... import languages
 
 log = logging.getLogger("relay.slidetags")
 

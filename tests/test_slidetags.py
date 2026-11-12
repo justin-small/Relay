@@ -16,8 +16,9 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 os.environ["RELAY_CONFIG"] = os.path.join(tempfile.mkdtemp(), "config.json")
 
-from app import config, slidetags as st
-from app.slidetags import Tag
+from app import config
+from app.modules.propresenter import slidetags as st
+from app.modules.propresenter.slidetags import Tag
 
 fails = []
 
@@ -272,8 +273,14 @@ asyncio.run(scenarios())
 # -------------------------------------------------------------------------- the actions main.py wires
 print("actions wired to Relay")
 config.ensure_file()
-config.save({"admin_token": "t0ken", "port": 8000, "admin_port": 8001})
-from app import main as app_main, panels as panels_mod, propresenter as pp, alerts as alerts_mod  # noqa: E402
+config.save({"admin_token": "t0ken", "port": 8000, "admin_port": 8001,
+             "modules": {"propresenter": {"enabled": True}, "planning_center": {"enabled": True}}})
+# Both modules are switched on (#157); their hooks into core are set without starting their background work.
+from app.modules import modules as _modules  # noqa: E402
+_modules.attach("planning_center")
+_modules.attach("propresenter")
+from app import main as app_main, panels as panels_mod, alerts as alerts_mod  # noqa: E402
+from app.modules.propresenter import propresenter as pp  # noqa: E402
 from app.engine import engine  # noqa: E402
 from app.scheduler import scheduler  # noqa: E402
 
@@ -366,6 +373,8 @@ al.cancel("ab12cd34")
 # -------------------------------------------------------------------------------------------------- panels
 print("panels: lyrics, captions, lang")
 reg = panels_mod.Registry()
+# A registry made here: the ProPresenter module's attach wires only the shared one.
+reg.lyrics_offered = lambda: pp.panel_offers()["lyrics"]
 config.save({"propresenter": {"enabled": True, "host": "127.0.0.1", "port": 50402, "songs_library": "Songs",
                               "lyrics": {"viewer": False, "screen": True, "overlay": False, "panels": True}},
              "targets": {"SPANISH": {"enabled": True}, "FRENCH": {"enabled": False}}, "source_language": "ENGLISH"},
@@ -477,7 +486,7 @@ asyncio.run(panels_scenario())
 
 # -------------------------------------------------------------------------------------------------- settings
 print("settings")
-from app import propresenter as pp2  # noqa: E402
+from app.modules.propresenter import propresenter as pp2  # noqa: E402
 eq("tags are off by default, settle 1.5 s", pp2.default_settings()["tags"], {"enabled": False, "settle_s": 1.5})
 eq("a hand-edited config with bad values falls back", pp2.clean_stored({"tags": {"enabled": "yes", "settle_s": "soon"}})["tags"],
    {"enabled": False, "settle_s": 1.5})

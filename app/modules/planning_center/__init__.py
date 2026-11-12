@@ -31,6 +31,7 @@ class PlanningCenter(Module):
         icon='<path d="M3 13V6l5-4 5 4v7zM6.5 13V9h3v4"/>'),)
     admin_scripts = ("planningcenter.js",)
     route_prefixes = ("/api/admin/planning-center", "/api/panels/{panel_id}/service/")
+    streams = (SERVICE_STREAM,)
 
     def clean(self, raw: Any) -> dict:
         from .planningcenter import clean_stored
@@ -53,22 +54,33 @@ class PlanningCenter(Module):
 
         return [router]
 
-    async def start(self) -> None:
-        from ... import engine as enginemod
-        from .pclive import follower
+    def attach(self) -> None:
+        from ... import config, engine as enginemod
+        from ...panels import registry as panel_registry
         from .servicefeed import feed
 
         # A service type followed or dropped reaches open panel pickers at once.
         feed.on_offered_change = enginemod.engine._push_status
+        # The service types a panel may be set to show or control.
+        panel_registry.followed_service_types = lambda: list(config.get()["planning_center"]["service_types"])
+
+    def detach(self) -> None:
+        from ...panels import registry as panel_registry
+        from .servicefeed import feed
+
+        feed.on_offered_change = None
+        panel_registry.followed_service_types = lambda: []
+
+    async def start(self) -> None:
+        from .pclive import follower
+
         # Idle until a token is saved and a service type followed.
         follower.start()
 
     async def stop(self) -> None:
         from .pclive import follower
-        from .servicefeed import feed
 
         follower.cancel()
-        feed.on_offered_change = None
 
     def health(self) -> Health:
         from ... import config

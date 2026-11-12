@@ -22,10 +22,13 @@ os.environ["RELAY_CONFIG"] = os.path.join(tempfile.mkdtemp(), "config.json")
 from fastapi.testclient import TestClient
 
 import app.main as main
-from app import config, ppview, propresenter as pp
-from app.main import app, pp_lobby, pp_view
-from app.ppcontrol import control as ctl
-from app.pplobby import Lobby, ROTATE_TYPES, GRACE_S, RESUME_S
+from app import config
+from app.modules.propresenter import ppview, propresenter as pp
+from app.main import app
+from app.modules.propresenter.pplobby import lobby as pp_lobby
+from app.modules.propresenter.ppview import view as pp_view
+from app.modules.propresenter.ppcontrol import control as ctl
+from app.modules.propresenter.pplobby import Lobby, ROTATE_TYPES, GRACE_S, RESUME_S
 
 fails = []
 
@@ -113,7 +116,12 @@ logging.getLogger().addHandler(logs)
 logging.getLogger().setLevel(logging.INFO)
 
 config.ensure_file()
-config.save({"admin_token": "t0ken", "port": 8000, "admin_port": 8001})
+config.save({"admin_token": "t0ken", "port": 8000, "admin_port": 8001,
+             "modules": {"propresenter": {"enabled": True}, "planning_center": {"enabled": True}}})
+# Both modules are switched on (#157); their hooks into core are set without starting their background work.
+from app.modules import modules as _modules  # noqa: E402
+_modules.attach("planning_center")
+_modules.attach("propresenter")
 
 
 def save_pp(**kw):
@@ -635,9 +643,13 @@ eq("public on but ProPresenter off: still 404", viewer.get("/api/stage/live").st
 save_pp(enabled=True, view={"timer": "", "public": False})
 
 print("the pages carry the new controls and nothing from the server is put in as markup")
-page = (Path(__file__).resolve().parent.parent / "app/templates/admin.html").read_text()
-check("the admin page has the slide view and lobby section", all(k in page for k in ("page-pplive", "lbStart", "svRoot", "pplive.js", "slideview.js")))
-js = (Path(__file__).resolve().parent.parent / "app/static/pplive.js").read_text() + (Path(__file__).resolve().parent.parent / "app/static/slideview.js").read_text()
+from app.modules.propresenter import MODULE as _pp_module  # noqa: E402
+page = (Path(__file__).resolve().parent.parent / "app/modules/propresenter/templates/live.html").read_text()
+check("the admin page has the slide view and lobby section",
+      all(k in page for k in ("lbStart", "svRoot")) and "pplive" in [p.id for p in _pp_module.admin_pages]
+      and {"pplive.js", "slideview.js"} <= set(_pp_module.admin_scripts))
+_static = Path(__file__).resolve().parent.parent / "app/modules/propresenter/static"
+js = (_static / "pplive.js").read_text() + (_static / "slideview.js").read_text()
 check("no innerHTML anywhere in the new scripts", "innerHTML" not in js and "insertAdjacentHTML" not in js)
 
 check("no JSON answer or state carried the exception detail", "secret detail" not in str(lobby.state()))

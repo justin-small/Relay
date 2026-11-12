@@ -30,7 +30,7 @@ import time
 from dataclasses import dataclass, field
 from typing import Any, Callable
 
-from . import config, languages, panelfw, propresenter
+from . import config, languages, panelfw
 
 # A panel not heard from for this long shows as offline. It checks in every 30 s.
 OFFLINE_AFTER_S = 90.0
@@ -72,7 +72,7 @@ SERVICE = "service"
 ALERT = "alert"
 # ProPresenter (#138): the current slide's lyrics and the timers, as feeds that need no setting of their own:
 # {"stream": "lyrics"} and {"stream": "timers"}. Which timers, and their thresholds, are per panel, in the
-# stored entry's "timers" block (propresenter.clean_timer_settings), because the panel asks for them by its id.
+# stored entry's "timers" block (timer_fields below), because the panel asks for them by its id.
 LYRICS = "lyrics"
 TIMERS = "timers"
 MAX_FEEDS = 2
@@ -84,6 +84,39 @@ _BOARD_RE = re.compile(r"^[a-z0-9][a-z0-9.-]{0,31}$")
 
 _ID_RE = re.compile(r"^[0-9a-f]{32}$")
 _SCRIPT_RE = re.compile(r"^[a-z]{2,16}$")
+
+
+# The timers feed's settings (#138), per panel: thresholds and which timers. Kept here because the panel asks for
+# them by its id; the ProPresenter module validates its global settings with the same check.
+TIMER_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")   # a timer's id (a ProPresenter UUID, name or index)
+MAX_TIMERS_SHOWN = 4         # a panel has room for a few large timers, not a list
+MAX_THRESHOLD_S = 86399      # a day less a second
+
+
+def timer_fields(raw: object) -> tuple[dict[str, Any], str]:
+    """A panel's timer settings (and ProPresenter's global ones, which use this same check): what `raw` sets, each checked: `amber_s` and `red_s` (seconds left, 0 to a day) and
+    `show` (timer IDs). A key left out stays out, and one that is wrong is dropped. Returns them with a fixed
+    sentence for the first thing that was wrong ("" when nothing was), which a caller refusing a save can show;
+    one that reads a hand-edited config ignores it."""
+    raw = raw if isinstance(raw, dict) else {}
+    out: dict[str, Any] = {}
+    problem = ""
+    for key, label in (("amber_s", "amber"), ("red_s", "red")):
+        if raw.get(key) is None:
+            continue
+        v = raw[key]
+        if isinstance(v, bool) or not isinstance(v, (int, float)) or not 0 <= v <= MAX_THRESHOLD_S:
+            problem = problem or f"The {label} threshold is a number of seconds from 0 to {MAX_THRESHOLD_S}."
+            continue
+        out[key] = int(v)
+    show = raw.get("show")
+    if show is not None:
+        good = [u for u in show if isinstance(u, str) and TIMER_ID_RE.match(u)] if isinstance(show, list) else []
+        if not isinstance(show, list) or len(good) != len(show):
+            problem = problem or "Timers to show is a list of timer IDs."
+        out["show"] = list(dict.fromkeys(good))[:MAX_TIMERS_SHOWN]
+    return out, problem
+
 
 
 def _now() -> float:
@@ -196,7 +229,7 @@ def clean_stored(raw: object) -> dict[str, dict[str, Any]]:
         entry["rotation_rev"] = _int(spec.get("rotation_rev"), 0, 2**31 - 1)
         timers = spec.get("timers")
         if isinstance(timers, dict):
-            mine = propresenter.timer_fields(timers)[0]
+            mine = timer_fields(timers)[0]
             if mine:
                 entry["timers"] = mine
         mode = spec.get("service_mode")
@@ -260,6 +293,12 @@ class Registry:
         # The `alert` messages a newly opened stream starts with (#121): main wires it to alerts.py, so a panel
         # that reconnects mid-alert still flashes.
         self.alerts_for: Callable[[str], list[dict]] = lambda pid: []
+        # Set by the ProPresenter module while it is on (app/modules/): whether panels may be switched to its lyrics.
+        self.lyrics_offered: Callable[[], bool] = lambda: False
+        # Set by the Planning Center module while it is on: the service types a panel may show or control.
+        self.followed_service_types: Callable[[], list[str]] = lambda: []
+        # Set by the ProPresenter module while it is on: a panel's timer settings changed (its timers feed refreshes).
+        self.on_timers_change: Callable[[], None] = lambda: None
         # Slide-note tags (#138): panels that were switched to the lyrics, with what they showed ("restore") and
         # what Relay sent ("pushed"), so `captions` can put them back and a choice made at the screen since is left alone.
         self._swapped: dict[str, dict[str, list[dict[str, str]]]] = {}
@@ -699,7 +738,7 @@ class Registry:
 
     def show_lyrics(self) -> str:
         """Every panel showing captions shows the ProPresenter lyrics instead, until `show_captions`."""
-        if not propresenter.panel_offers()["lyrics"]:
+        if not self.lyrics_offered():
             raise ValueError("Lyrics on caption panels are switched off (ProPresenter page, Lyrics), so no panel was changed.")
         lyrics = {"stream": LYRICS}
         done = 0
@@ -847,7 +886,7 @@ class Registry:
             if timers is None:
                 entry.pop("timers", None)
             elif isinstance(timers, dict):
-                mine, problem = propresenter.timer_fields(timers)
+                mine, problem = timer_fields(timers)
                 if problem:
                     raise ValueError(problem)
                 if mine:

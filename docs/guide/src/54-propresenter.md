@@ -44,11 +44,17 @@ guest Wi-Fi.
 
 ## Step 2: Connect Relay
 
-1. In the operator panel, open **ProPresenter**.
-2. Under **Connection**, type the ProPresenter machine's name or IP address and
+1. In the operator panel, open **Modules** and switch **ProPresenter** on (see
+   [Modules](#modules)). If Relay was already set up for ProPresenter before
+   the update that added modules, it is on already.
+2. Open **ProPresenter**.
+3. Under **Connection**, type the ProPresenter machine's name or IP address and
    the port. Or click **Find on this network** and pick it from the list.
-3. Click **Test connection**. You should see the ProPresenter version.
-4. Tick **Follow ProPresenter** and click **Save**.
+4. Click **Test connection**. You should see the ProPresenter version.
+5. Tick **Follow ProPresenter** and click **Save**.
+
+The link to Planning Center (following the plan, and ProPresenter moving
+Services LIVE) needs the **Planning Center** module switched on too.
 
 The line under the buttons should turn green and say **Connected**. Under
 **Now** you will see the presentation, the part, and the current and next slide

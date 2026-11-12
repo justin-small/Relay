@@ -37,8 +37,11 @@ import time
 import urllib.parse
 from typing import Any, Callable
 
-from . import config, plmatch, slidetags
-from .hub import sse_frame
+from ... import config
+# A panel's own timer settings are the panel's (panels.py); ProPresenter's global ones use the same check.
+from ...panels import MAX_THRESHOLD_S, MAX_TIMERS_SHOWN, TIMER_ID_RE, timer_fields
+from . import plmatch, slidetags
+from ...hub import sse_frame
 
 log = logging.getLogger("relay.propresenter")
 
@@ -71,8 +74,6 @@ ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")   # a ProPresenter UUID
 
 AUDIENCES = ("viewer", "screen", "overlay", "panel")
 
-MAX_TIMERS_SHOWN = 4         # a panel has room for a few large timers, not a list
-MAX_THRESHOLD_S = 86399      # a day less a second: ProPresenter's own timers do not run longer
 TIMERS_RESYNC_EVERY = 20     # the timers' configuration (count down or up) is re-read this many resyncs apart
 TIMER_JUMP_S = 2.0           # a running timer that is this far from where it should be was changed by someone
 
@@ -295,31 +296,6 @@ def tag_fields(raw: object) -> tuple[dict[str, Any], str]:
 
 def clean_tag_settings(raw: object, base: dict[str, Any]) -> dict[str, Any]:
     return {**base, **tag_fields(raw)[0]}
-
-
-def timer_fields(raw: object) -> tuple[dict[str, Any], str]:
-    """The timer settings that `raw` sets, each checked: `amber_s` and `red_s` (seconds left, 0 to a day) and
-    `show` (timer IDs). A key left out stays out, and one that is wrong is dropped. Returns them with a fixed
-    sentence for the first thing that was wrong ("" when nothing was), which a caller refusing a save can show;
-    one that reads a hand-edited config ignores it."""
-    raw = raw if isinstance(raw, dict) else {}
-    out: dict[str, Any] = {}
-    problem = ""
-    for key, label in (("amber_s", "amber"), ("red_s", "red")):
-        if raw.get(key) is None:
-            continue
-        v = raw[key]
-        if isinstance(v, bool) or not isinstance(v, (int, float)) or not 0 <= v <= MAX_THRESHOLD_S:
-            problem = problem or f"The {label} threshold is a number of seconds from 0 to {MAX_THRESHOLD_S}."
-            continue
-        out[key] = int(v)
-    show = raw.get("show")
-    if show is not None:
-        good = [u for u in show if isinstance(u, str) and ID_RE.match(u)] if isinstance(show, list) else []
-        if not isinstance(show, list) or len(good) != len(show):
-            problem = problem or "Timers to show is a list of timer IDs."
-        out["show"] = list(dict.fromkeys(good))[:MAX_TIMERS_SHOWN]
-    return out, problem
 
 
 def clean_timer_settings(raw: object, base: dict[str, Any]) -> dict[str, Any]:
@@ -1466,7 +1442,7 @@ class TimersFeed:
     reset) is a new message; the heartbeat re-sends the state, which is also what keeps a drifting clock honest.
 
     Which timers, and the thresholds, are the settings' `timers` block, and a panel may override each of them
-    (`panel_settings`, set by main): the panel names itself in the query. `enabled` is false when the
+    (`panel_settings`, set by the module's attach): the panel names itself in the query. `enabled` is false when the
     integration is off; `live` is false when ProPresenter is not answering.
     """
 

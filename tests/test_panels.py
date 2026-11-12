@@ -43,6 +43,11 @@ def eq(label, got, want):
 
 config.ensure_file()
 config.save({"admin_token": "t0ken", "port": 8000, "admin_port": 8001})
+# The Planning Center and ProPresenter modules' hooks into the panels (#157), without their background work.
+from app.modules import modules as _modules  # noqa: E402
+config.save({"modules": {"planning_center": {"enabled": True}, "propresenter": {"enabled": True}}})
+_modules.attach("planning_center")
+_modules.attach("propresenter")
 viewer = TestClient(app, base_url="http://relay.local:8000")
 admin = TestClient(app, base_url="http://relay.local:8001", headers={"x-admin-token": "t0ken"})
 reg = panels.registry

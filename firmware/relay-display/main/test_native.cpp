@@ -2593,7 +2593,7 @@ void check_update()
 // The Planning Center service (#82)
 // ---------------------------------------------------------------------------
 
-// A `service` message as app/servicefeed.py sends it.
+// A `service` message as app/modules/planning_center/servicefeed.py sends it.
 const char *kService =
     "{\"type\":\"service\",\"service_type\":\"7\",\"followed\":true,\"name\":\"Sunday AM\","
     "\"plan\":{\"id\":\"700\",\"title\":\"Sunday Morning\",\"series_title\":\"Autumn\",\"dates\":\"November 8, 2026\"},"

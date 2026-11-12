@@ -3,7 +3,7 @@ them, set by the operator like any feed, the lyrics pane up with a slide and qui
 its rows and asking Relay for this panel's own by its id, and **a still screen costing no redraw**: Relay repeats each
 feed's state every heartbeat, and the panel must announce a change only when what it shows has changed.
 
-The fake copies app/propresenter.py's wire format by hand (`tests/test_propresenter.py` at the repository root checks
+The fake copies app/modules/propresenter/propresenter.py's wire format by hand (`tests/test_propresenter.py` at the repository root checks
 the real server's side). The panel's `feeds` and `view` console commands are what is read, as in
 `test_service_view.py`.
 

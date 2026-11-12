@@ -4,7 +4,7 @@
 // `captions.cpp` holds the state for a caption slot pointed at one of these feeds; `lyrics_view.cpp` and
 // `timers_view.cpp` draw it.
 //
-// **What goes over the wire**, plain HTTP on the viewer port like the captions (app/propresenter.py):
+// **What goes over the wire**, plain HTTP on the viewer port like the captions (app/modules/propresenter/propresenter.py):
 //
 //   GET /stream?stream=lyrics&for=panel
 //   -> data: {"type":"lyrics","enabled":true,"live":true,"song":true,"title":"Great Song","part":"Verse 1",

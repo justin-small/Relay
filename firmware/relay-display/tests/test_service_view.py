@@ -3,7 +3,7 @@ service mode allows it, chosen like any feed, and drawn with the current and nex
 timer counting down and running over, notes on a tap, and the footer saying when Planning Center goes away and comes
 back.
 
-The fake copies app/servicefeed.py's wire format by hand (`tests/test_servicefeed.py` at the repository root checks the
+The fake copies app/modules/planning_center/servicefeed.py's wire format by hand (`tests/test_servicefeed.py` at the repository root checks the
 real server's side). The panel's `feeds` and `view` console commands are what is read; a finger is the console's
 `touch`, as in `test_caption_view.py`.
 

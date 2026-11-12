@@ -1,0 +1,129 @@
+{# The ProPresenter settings admin page, rendered inside admin.html only while the ProPresenter module is on. #}
+    <h2 class="title">ProPresenter <span class="sumstate" id="ppSum"></span></h2>
+    <p class="sub">Follow the slide that is up, show lyrics on screens and panels, and put a message on the stage display.</p>
+    <section>
+      <h3>Connection</h3>
+      <div class="row">
+        <div class="field">
+          <label for="ppHost">Machine name or address</label>
+          <input id="ppHost" placeholder="10.0.0.20 or Studio-Mac.local" autocomplete="off" spellcheck="false">
+        </div>
+        <div class="field">
+          <label for="ppPort">Port</label>
+          <input id="ppPort" type="number" min="1" max="65535" placeholder="from ProPresenter" autocomplete="off">
+        </div>
+      </div>
+      <label class="check"><input type="checkbox" id="ppEnabled"> <span>Follow ProPresenter</span></label>
+      <div class="ctl" style="margin-top:8px">
+        <button type="button" class="primary" id="ppSave">Save</button>
+        <button type="button" id="ppTest">Test connection</button>
+        <button type="button" id="ppFind">Find on this network</button>
+      </div>
+      <div class="plist" id="ppFound" style="margin-top:10px" hidden></div>
+      <div class="note" id="ppState" style="margin-top:12px"></div>
+      <div class="note">
+        In ProPresenter, open Settings &rarr; Network, switch <em>Enable Network</em> on, and copy the port it shows:
+        the port is set per install, so Relay assumes none. ProPresenter&rsquo;s API has no password, so Relay only
+        ever talks out to the address typed here, and anyone who can reach that port can control ProPresenter: keep
+        it on the production network. If Relay runs in Docker, the container must be able to reach that address and
+        port (allow it in the firewall of the ProPresenter machine), and <em>Find on this network</em> cannot see
+        it from inside Docker Desktop: type the address.
+      </div>
+    </section>
+    <section>
+      <h3>Safety</h3>
+      <label class="check"><input type="checkbox" id="ppViewOnly"> <span>View-only<br>
+        <span class="muted">Relay reads ProPresenter but never changes anything in it: no stage message, no triggers, no clears. For a second computer, or a church that runs the slides from ProPresenter itself.</span></span></label>
+    </section>
+    <section>
+      <h3>Now</h3>
+      <div id="ppNow" class="plist"></div>
+    </section>
+    <section>
+      <h3>Lyrics feed</h3>
+      <div class="note" style="margin-top:0">Song lyrics are licensed. The feed is off for the public phone viewer unless you switch it on, and anyone on the network who opens the link can read it when it is on.</div>
+      <div class="plist" style="margin-top:10px">
+        <label class="check"><input type="checkbox" id="ppLyScreen"> <span>Screens (<span class="mono">/screen?lyrics=1</span>)</span></label>
+        <label class="check"><input type="checkbox" id="ppLyOverlay"> <span>Broadcast overlay (<span class="mono">/overlay?lyrics=1</span>)</span></label>
+        <label class="check"><input type="checkbox" id="ppLyPanels"> <span>Caption panels</span></label>
+        <label class="check"><input type="checkbox" id="ppLyViewer"> <span>Phone viewer (public)</span></label>
+        <label class="check"><input type="checkbox" id="ppSongsOnly"> <span>Songs only<br><span class="muted">Skip sermon and announcement slides.</span></span></label>
+      </div>
+      <div class="field" style="margin-top:10px">
+        <label for="ppLibrary">Library that holds the songs</label>
+        <input id="ppLibrary" style="max-width:260px" placeholder="Songs">
+        <div class="note">A presentation is a song when its file is in this library, or when its parts are named Verse, Chorus, Bridge and the like.</div>
+      </div>
+      <button type="button" class="primary" id="ppLyricsSave">Save lyrics settings</button>
+    </section>
+    <section>
+      <h3>Timers on panels</h3>
+      <div class="note" style="margin-top:0">A caption panel set to <em>Timers</em> shows ProPresenter timers large: white while one runs, amber and then red as a countdown nears zero, and red with a minus sign once it is over. The panel counts the seconds itself between Relay's updates. A panel can use its own settings instead: open it under Panels.</div>
+      <div class="ctl" style="margin-top:10px">
+        <div class="field" style="margin:0">
+          <label for="ppTmAmber">Amber at</label>
+          <input id="ppTmAmber" style="max-width:90px" placeholder="2:00" autocomplete="off" aria-describedby="ppTmHelp">
+        </div>
+        <div class="field" style="margin:0">
+          <label for="ppTmRed">Red at</label>
+          <input id="ppTmRed" style="max-width:90px" placeholder="0:30" autocomplete="off" aria-describedby="ppTmHelp">
+        </div>
+      </div>
+      <div class="note" id="ppTmHelp">Time left, as minutes:seconds (<span class="mono">2:00</span>) or seconds (<span class="mono">90</span>). Red cannot be earlier than amber.</div>
+      <div class="field" style="margin-top:10px">
+        <label>Timers to show</label>
+        <div id="ppTmPick" class="plist"></div>
+        <div class="note">Tick up to four. With none ticked, panels show the first four timers ProPresenter has.</div>
+      </div>
+      <button type="button" class="primary" id="ppTimersSave">Save timer settings</button>
+    </section>
+    <section>
+      <h3>Stage message</h3>
+      <div class="field">
+        <label for="ppStageText">Message for the stage display</label>
+        <input id="ppStageText" maxlength="200" placeholder="Sound desk needed" autocomplete="off">
+      </div>
+      <div class="ctl">
+        <button type="button" class="primary" id="ppStageSet">Show</button>
+        <button type="button" id="ppStageClear">Clear</button>
+      </div>
+      <div class="note" id="ppStageNote"></div>
+      <div class="note">An alert can also appear here: tick <em>Also show on the ProPresenter stage display</em> on its button under Alerts. It is cleared when the alert is acknowledged.</div>
+    </section>
+    <section>
+      <h3>Slide-note tags</h3>
+      <div class="note" style="margin-top:0">A tag in a slide's notes in ProPresenter does something in Relay when that slide goes live. Relay only reads the notes, it never changes them. <span class="mono">[relay:lyrics]</span> on a slide, or <span class="mono">[relay-deck:lyrics]</span> in any slide of a presentation for every slide of it that has no tag of its own. The tags are <span class="mono">capture-start</span>, <span class="mono">capture-stop</span> (Relay's own captioning, not ProPresenter's capture), <span class="mono">lyrics</span>, <span class="mono">captions</span>, <span class="mono">lang=es</span> and <span class="mono">alert=Button name</span>. The guide has the full list.</div>
+      <label class="check" style="margin-top:10px"><input type="checkbox" id="ppTagsOn"> <span>Run slide-note tags<br><span class="muted">Off until you switch it on. Needs Follow ProPresenter, above.</span></span></label>
+      <div class="field" style="margin-top:10px">
+        <label for="ppTagsSettle">Settle time (seconds)</label>
+        <input id="ppTagsSettle" type="number" min="0.2" max="30" step="0.1" style="max-width:90px" autocomplete="off" aria-describedby="ppTagsHelp">
+        <div class="note" id="ppTagsHelp">A slide's tags run only after it has stayed live this long, so a fast run through the slides runs one set, not all of them. Moving to a slide with the same tags runs nothing again.</div>
+      </div>
+      <button type="button" class="primary" id="ppTagsSave">Save tag settings</button>
+      <div id="ppTagsSeen" class="plist" style="margin-top:12px"></div>
+    </section>
+    <section id="ppLink">
+      <h3>Planning Center link</h3>
+      <div class="note" style="margin-top:0">Matches the plan's items to ProPresenter's presentations, shows both sides while a service runs, and can let ProPresenter move Planning Center's LIVE item. Both switches are off until you turn them on. Needs ProPresenter and Planning Center connected.</div>
+      <label class="check" style="margin-top:10px"><input type="checkbox" id="plkFollow"> <span>Follow the plan<br><span class="muted">Read ProPresenter's lists in the background, match them to the plan, and tell panels which item ProPresenter has up.</span></span></label>
+      <label class="check" style="margin-top:10px"><input type="checkbox" id="plkDrive"> <span>ProPresenter drives Services LIVE<br><span class="muted">Once a presentation has been up for the time below, Relay moves Planning Center to the matching item. It never takes LIVE control: it moves LIVE only while Relay's own Planning Center token already holds it.</span></span></label>
+      <div class="field" style="margin-top:10px">
+        <label for="plkDwell">Stay up for (seconds)</label>
+        <input id="plkDwell" type="number" min="1" max="300" step="1" style="max-width:90px" autocomplete="off">
+      </div>
+      <label class="check"><input type="checkbox" id="plkBack"> <span>Also go back<br><span class="muted">When ProPresenter shows an item before Planning Center's, step back to it (never further). Off: only forward.</span></span></label>
+      <div class="field" id="plkStField" style="margin-top:10px" hidden>
+        <label for="plkSt">Service type</label>
+        <select id="plkSt"></select>
+      </div>
+      <button type="button" class="primary" id="plkSave">Save link settings</button>
+      <div class="note" id="plkMsg" role="status"></div>
+      <div id="plkStatus" class="plist" style="margin-top:12px"></div>
+      <div class="ctl" style="margin-top:12px">
+        <button type="button" id="plkMatch">Match the plan now</button>
+        <button type="button" id="plkBuild">Build the Relay playlist</button>
+      </div>
+      <div class="note" id="plkBuildNote"></div>
+      <div class="tablescroll ppdiag"><table id="plkTable"></table></div>
+      <datalist id="plkNames"></datalist>
+    </section>
