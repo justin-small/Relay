@@ -15,6 +15,7 @@ import collections
 import math
 import os
 import queue
+import sys
 import threading
 import time
 
@@ -25,6 +26,13 @@ import soxr
 log = logging.getLogger("relay.audio")
 
 TARGET_RATE = 24000
+# A stream that delivers nothing for this long has lost its device (an unplugged interface). The pump then
+# tries to re-open the saved input every RETRY_EVERY_S until it is back.
+LOST_AFTER_S = 2.0
+RETRY_EVERY_S = 2.0
+# Fixed text for the admin page while the input is gone; it names no device.
+INPUT_LOST_SENTENCE = ("The audio input stopped. Check the interface is plugged in; Relay reconnects "
+                       "on its own when it comes back.")
 CHUNK_MS = 40  # ~1920 bytes per send at 24 kHz mono PCM16
 # Frames of speech to keep buffered ahead of a detected onset, so gating never
 # clips the start of a word (the risk the continuous-send PRD note called out).
@@ -114,64 +122,7 @@ def _probe_input_devices(reinit: bool) -> list[dict]:
                 "default_samplerate": int(dev["default_samplerate"] or 0),
             }
         )
-    return _pulse_sources(out) or _number_repeats(out)
-
-
-# Monitor sources replay a sink's output. They are never a microphone, and
-# listing them next to the real inputs invites picking the speakers by mistake.
-def _is_monitor(src) -> bool:
-    return src.name.endswith(".monitor") or src.proplist.get("device.class") == "monitor"
-
-
-def _pulse_sources(alsa: list[dict]) -> list[dict] | None:
-    """The host's real inputs, when capture runs through a PulseAudio server.
-
-    In Docker on macOS/Windows, PortAudio only sees ALSA's `default` and
-    `pulse` devices, and both lead to whatever the server's default source is.
-    The actual microphones live on the server, so ask it for them and show
-    those instead. Each entry still opens the ALSA `pulse` device; start()
-    sets PULSE_SOURCE so that open lands on the chosen source.
-
-    None (and the plain ALSA list stands) when there is no server, or it
-    cannot be reached.
-    """
-    if not os.environ.get("PULSE_SERVER"):
-        return None
-    bridge = next((d for d in alsa if d["hostapi"] == "ALSA" and d["name"] == "pulse"), None)
-    bridge = bridge or next((d for d in alsa if d["hostapi"] == "ALSA" and d["name"] == "default"), None)
-    if bridge is None:
-        return None
-    try:
-        import pulsectl
-
-        with pulsectl.Pulse("live-caption-relay", connect=False) as pulse:
-            pulse.connect(timeout=3)
-            default = pulse.server_info().default_source_name
-            sources = [s for s in pulse.source_list() if not _is_monitor(s)]
-    except Exception as exc:
-        log.warning("Could not list PulseAudio sources, showing ALSA devices: %s", exc)
-        return None
-    if not sources:
-        return None
-    rate = int(os.environ.get("RELAY_NATIVE_RATE") or 0) or bridge["default_samplerate"]
-    return _number_repeats(
-        [
-            {
-                "index": bridge["index"],
-                "name": s.description,
-                "hostapi": "PulseAudio",
-                "label": f"PulseAudio: {s.description}",
-                "channels": s.channel_count,
-                # Not s.sample_spec: pulsectl hands back that struct after
-                # libpulse has freed it, and the rate reads as garbage. The
-                # open rate comes from RELAY_NATIVE_RATE, as it always has.
-                "default_samplerate": rate,
-                "pulse_source": s.name,
-                "default": s.name == default,
-            }
-            for s in sources
-        ]
-    )
+    return _number_repeats(out)
 
 
 def list_input_devices(refresh: bool = False) -> list[dict]:
@@ -189,23 +140,68 @@ def list_input_devices(refresh: bool = False) -> list[dict]:
     return _device_cache
 
 
+def _default_device(devices: list[dict]) -> dict:
+    try:
+        default_idx = sd.default.device[0]
+    except Exception:
+        default_idx = None
+    for d in devices:
+        if d["index"] == default_idx:
+            return d
+    return devices[0]
+
+
+# What the admin page says when a saved device was named for the old PulseAudio bridge. A fixed
+# sentence: it names no device, so nothing from PortAudio or the config reaches the page.
+LEGACY_PULSE_NOTICE = ("The saved audio input was set up for the old PulseAudio bridge, so Relay is using "
+                       "this computer's default input instead. Pick an input from the list and save to "
+                       "keep your choice.")
+_LEGACY_PULSE_NAMES = ("alsa: pulse", "alsa: default", "pulse", "default")
+
+
+def is_legacy_pulse(selector) -> bool:
+    """True for a saved device named for the PulseAudio bridge ("PulseAudio: <source>", or the
+    two ALSA devices that stood for the server's default input)."""
+    sel = str(selector or "").strip().lower()
+    return sel.startswith("pulseaudio:") or sel in _LEGACY_PULSE_NAMES
+
+
+def selection_notice(selector, refresh: bool = False) -> str | None:
+    """LEGACY_PULSE_NOTICE when `selector` is a PulseAudio-era name that no real device carries,
+    so capture would fall back to the default input; None otherwise."""
+    if not is_legacy_pulse(selector):
+        return None
+    sel = str(selector).strip().lower()
+    for d in list_input_devices(refresh=refresh):
+        if d["label"].lower() == sel or d["name"].lower() == sel:
+            return None
+    return LEGACY_PULSE_NOTICE
+
+
+# Added after a failed open, by operating system: a blocked microphone and a busy device look the
+# same to PortAudio, so the sentence names the OS's switch without claiming which it was. Fixed text.
+MIC_BLOCKED_HINTS = {
+    "darwin": "If macOS blocked microphone access, open System Settings > Privacy & Security > Microphone "
+              "and switch on the app that started Relay (Terminal, or the Relay app).",
+    "win32": "If Windows blocked microphone access, open Settings > Privacy & security > Microphone and "
+             "allow desktop apps to use the microphone.",
+    "linux": "If the system blocked the input, check the sound server (PipeWire or PulseAudio) is running "
+             "and that your user can use the sound card.",
+}
+
+
+def mic_blocked_hint() -> str:
+    return MIC_BLOCKED_HINTS.get("darwin" if sys.platform == "darwin" else "win32" if sys.platform == "win32"
+                                 else "linux", "")
+
+
 def resolve_device(selector, refresh: bool = False) -> dict | None:
     """Match a saved device by 'API: Name' label, bare name, or index."""
     devices = list_input_devices(refresh=refresh)
     if not devices:
         return None
     if selector is None or selector == "":
-        for d in devices:
-            if d.get("default"):
-                return d
-        try:
-            default_idx = sd.default.device[0]
-        except Exception:
-            default_idx = None
-        for d in devices:
-            if d["index"] == default_idx:
-                return d
-        return devices[0]
+        return _default_device(devices)
     if isinstance(selector, int) or (isinstance(selector, str) and selector.isdigit()):
         idx = int(selector)
         for d in devices:
@@ -222,15 +218,10 @@ def resolve_device(selector, refresh: bool = False) -> dict | None:
     for d in devices:
         if sel in d["label"].lower():
             return d
-    for d in devices:
-        if d.get("pulse_source") == str(selector).strip():
-            return d
-    # Saved before the panel listed PulseAudio's sources: those two ALSA
-    # devices both meant "the server's default input", so keep meaning that.
-    if sel in ("alsa: pulse", "alsa: default", "pulse", "default"):
-        for d in devices:
-            if d.get("default"):
-                return d
+    # Saved by a Relay that ran in Docker and reached the sound card through a PulseAudio
+    # bridge: those names mean nothing to PortAudio's own host APIs, so use the default input.
+    if is_legacy_pulse(selector):
+        return _default_device(devices)
     return None
 
 
@@ -249,6 +240,12 @@ class AudioCapture:
         self.native_rate: int = 0
         self.running = False
         self.error: str | None = None
+        self.notice: str | None = None   # a saved device that could not be used as named
+        self.reconnecting = False        # the input vanished (unplugged?) and is being re-opened
+        self._selector = None            # what start() was given, so a reconnect finds the same input
+        self._channel_arg: int | str = 0
+        self._last_block_ts = 0.0
+        self._stream_lock = threading.Lock()
         self.level: float = 0.0
         self.speaking: bool = False
         self.channel: int | str = 0
@@ -279,27 +276,10 @@ class AudioCapture:
         self._consumers.discard(q)
 
     # -- lifecycle ----------------------------------------------------
-    def start(self, selector, channel: int | str = 0) -> dict:
-        self.stop()
-        # Nothing is running here (stop() just ran), so a full hardware re-probe
-        # is safe and picks up anything plugged in since the last look.
-        dev = resolve_device(selector, refresh=True)
-        if dev is None:
-            self.error = "No input device matched the saved selection."
-            raise RuntimeError(self.error)
-
-        # PortAudio reports 44100 for ALSA's `pulse` device no matter what the
-        # server actually runs at, which is how the Docker-over-PulseAudio path
-        # ends up resampling 48k -> 44.1k -> 24k instead of straight to 24k.
-        # RELAY_NATIVE_RATE pins the open rate for that case; unset (the native
-        # run, and Linux /dev/snd) keeps the device's own default.
-        rate = int(os.environ.get("RELAY_NATIVE_RATE") or 0) or dev["default_samplerate"] or 48000
-        # libpulse reads PULSE_SOURCE whenever the ALSA plugin opens a stream,
-        # which is what points the shared `pulse` device at this one source.
-        if dev.get("pulse_source"):
-            os.environ["PULSE_SOURCE"] = dev["pulse_source"]
-        else:
-            os.environ.pop("PULSE_SOURCE", None)
+    def _open_stream(self, dev: dict, channel) -> tuple[int, bool, int]:
+        """Open and start a PortAudio stream on `dev`; returns (rate, mix, pick). Raises RuntimeError
+        with a fixed sentence in self.error when it cannot be opened."""
+        rate = dev["default_samplerate"] or 48000
         channels = dev["channels"]
         # A stereo board feed is usually better summed than halved: taking one
         # channel discards whatever is only on the other. "mix" averages every
@@ -332,7 +312,7 @@ class AudioCapture:
                 self.dropped_capture += 1  # drop rather than block the driver thread
 
         try:
-            self._stream = sd.InputStream(
+            stream = sd.InputStream(
                 device=dev["index"],
                 channels=channels,
                 samplerate=rate,
@@ -340,13 +320,29 @@ class AudioCapture:
                 dtype="float32",
                 callback=callback,
             )
-            self._stream.start()
+            stream.start()
         except Exception as exc:
-            self._stream = None
             # PortAudio's own text goes to the log; the admin page gets a fixed sentence about the device.
             log.warning("Could not open %s: %s", dev["label"], exc)
-            self.error = f"Could not open {dev['label']}. Check it is plugged in and not in use by another app."
+            self.error = (f"Could not open {dev['label']}. Check it is plugged in and not in use by another app. "
+                          + mic_blocked_hint()).strip()
             raise RuntimeError(self.error) from exc
+        self._stream = stream
+        self._last_block_ts = time.time()
+        return rate, mix, pick
+
+    def start(self, selector, channel: int | str = 0) -> dict:
+        self.stop()
+        # Nothing is running here (stop() just ran), so a full hardware re-probe
+        # is safe and picks up anything plugged in since the last look.
+        dev = resolve_device(selector, refresh=True)
+        if dev is None:
+            self.error = "No input device matched the saved selection."
+            raise RuntimeError(self.error)
+
+        self.notice = selection_notice(selector)
+        self._selector, self._channel_arg = selector, channel
+        rate, mix, pick = self._open_stream(dev, channel)
 
         self.device = dev
         self.native_rate = int(rate)
@@ -367,20 +363,21 @@ class AudioCapture:
             "Capture started on %s @ %d Hz (%s)",
             dev["label"],
             rate,
-            "mix of %d ch" % channels if mix else "ch %d" % pick,
+            "mix of %d ch" % dev["channels"] if mix else "ch %d" % pick,
         )
         return dev
 
     def stop(self) -> None:
         self._stop.set()
         _set_capture_live(False)
-        if self._stream is not None:
-            try:
-                self._stream.stop()
-                self._stream.close()
-            except Exception:
-                pass
-            self._stream = None
+        with self._stream_lock:
+            if self._stream is not None:
+                try:
+                    self._stream.stop()
+                    self._stream.close()
+                except Exception:
+                    pass
+                self._stream = None
         if self._pump is not None:
             self._pump.join(timeout=2.0)
             self._pump = None
@@ -390,6 +387,7 @@ class AudioCapture:
             except queue.Empty:
                 break
         self.running = False
+        self.reconnecting = False
         self.level = 0.0
         self.speaking = False
         self.peak = 0.0
@@ -414,7 +412,16 @@ class AudioCapture:
         while not self._stop.is_set():
             try:
                 block = self._raw.get(timeout=0.25)
+                self._last_block_ts = time.time()
+                if self.reconnecting:
+                    self._recovered()
             except queue.Empty:
+                if self._input_lost():
+                    if self._reconnect():
+                        # The new device may run at another rate; start the resampler over for it.
+                        resampler = soxr.ResampleStream(self.native_rate, TARGET_RATE, 1, dtype="float32",
+                                                        quality="HQ")
+                        pending = np.zeros(0, dtype=np.float32)
                 continue
 
             rms = float(np.sqrt(np.mean(np.square(block)))) if block.size else 0.0
@@ -445,6 +452,59 @@ class AudioCapture:
                     self.loop.call_soon_threadsafe(self._dispatch, pcm)
                 else:
                     preroll.append(pcm)
+
+    # -- unplug / replug ------------------------------------------------
+    def _input_lost(self) -> bool:
+        """No audio for LOST_AFTER_S, or PortAudio says the stream stopped: the device went away."""
+        s = self._stream
+        dead = s is None or not getattr(s, "active", True)
+        return dead or (time.time() - self._last_block_ts) > LOST_AFTER_S
+
+    def _recovered(self) -> None:
+        self.reconnecting = False
+        self.error = None
+        log.info("Audio input is back on %s", self.device["label"] if self.device else "the same device")
+
+    def _reconnect(self) -> bool:
+        """Try once to re-open the input that was lost; runs on the pump thread, which calls it again
+        every RETRY_EVERY_S while the input stays gone. Captions stay up in between: viewers see no
+        new text, and the admin page says the input is missing. True once a stream is open again."""
+        if not self.reconnecting:
+            log.warning("Audio input lost on %s; waiting for it to come back",
+                        self.device["label"] if self.device else "the device")
+        self.reconnecting = True
+        self.error = INPUT_LOST_SENTENCE
+        self.level = 0.0
+        self.speaking = False
+        if self._stop.wait(timeout=RETRY_EVERY_S):
+            return False
+        with self._stream_lock:
+            old, self._stream = self._stream, None
+            if old is not None:
+                try:
+                    old.abort()
+                    old.close()
+                except Exception:
+                    pass
+            _set_capture_live(False)        # nothing is open, so the backend can be re-probed
+            try:
+                dev = resolve_device(self._selector, refresh=True)
+                if dev is None:
+                    return False
+                while not self._raw.empty():
+                    self._raw.get_nowait()
+                rate, mix, pick = self._open_stream(dev, self._channel_arg)
+            except (RuntimeError, queue.Empty):
+                self.error = INPUT_LOST_SENTENCE      # _open_stream's own sentence would hide that it is a replug wait
+                return False
+            if self._stop.is_set():
+                self._stream.close()
+                self._stream = None
+                return False
+            self.device, self.native_rate = dev, int(rate)
+            self.channel = "mix" if mix else pick
+            _set_capture_live(True)
+        return True
 
     # -- meter ---------------------------------------------------------
     def _meter(self, block: "np.ndarray", now: float) -> None:
@@ -507,6 +567,8 @@ class AudioCapture:
             "clipped_samples": self.clipped_samples,
             "speaking": self.speaking,
             "error": self.error,
+            "notice": self.notice,
+            "reconnecting": self.reconnecting,
             "last_audio_ts": self._last_audio_ts,
             "consumers": len(self._consumers),
             "dropped_capture": self.dropped_capture,
