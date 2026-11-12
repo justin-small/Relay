@@ -28,6 +28,7 @@ from .panels import registry as panel_registry
 from .pclive import follower as pc_follower
 from .servicefeed import feed as service_feed
 from . import pccontrol, propresenter
+from .ppcontrol import control as pp_control
 from .propresenter import follower as pp_follower, lyrics_feed
 from .recorder import recorder
 from .scheduler import scheduler
@@ -1434,6 +1435,122 @@ async def admin_propresenter_stage_clear():
     except propresenter.ProError as exc:
         return _pp_error(exc)
     return _pp_body()
+
+
+# --- ProPresenter control (#138 stage 2). Every route is admin-protected; the writes go through the one client,
+# which refuses them in view-only mode (409). Errors answer through _pp_error or a fixed sentence.
+async def _pp_run(fn, *args):
+    try:
+        data = await fn(*args)
+    except PermissionError:
+        return JSONResponse({"error": "That is not allowed by the operator-safe selection."}, status_code=403)
+    except ValueError:
+        return JSONResponse({"error": "That request was not valid."}, status_code=400)
+    except propresenter.ProError as exc:
+        return _pp_error(exc)
+    return data if data is not None else {"ok": True}
+
+
+@app.get("/api/admin/propresenter/slides", dependencies=[Depends(require_admin)])
+async def admin_pp_slides(uuid: str = ""):
+    return await _pp_run(pp_control.slides, uuid or None)
+
+
+@app.get("/api/admin/propresenter/thumbnail/{uuid}/{index}", dependencies=[Depends(require_admin)])
+async def admin_pp_thumbnail(uuid: str, index: int, v: str = ""):
+    """A slide thumbnail, proxied and cached by Relay (key: presentation, index, change marker `v`)."""
+    try:
+        ctype, data = await pp_control.thumbnail(uuid, index, v)
+    except ValueError:
+        return JSONResponse({"error": "That request was not valid."}, status_code=400)
+    except propresenter.ProError as exc:
+        return _pp_error(exc)
+    return Response(data, media_type=ctype, headers={"Cache-Control": "private, max-age=3600"})
+
+
+@app.post("/api/admin/propresenter/step", dependencies=[Depends(require_admin)])
+async def admin_pp_step(payload: dict):
+    return await _pp_run(pp_control.step, payload.get("direction"))
+
+
+@app.post("/api/admin/propresenter/next-presentation", dependencies=[Depends(require_admin)])
+async def admin_pp_next_presentation():
+    return await _pp_run(pp_control.next_presentation)
+
+
+@app.post("/api/admin/propresenter/slide", dependencies=[Depends(require_admin)])
+async def admin_pp_slide(payload: dict):
+    return await _pp_run(pp_control.trigger_slide, payload.get("uuid"), payload.get("index"))
+
+
+@app.post("/api/admin/propresenter/clear", dependencies=[Depends(require_admin)])
+async def admin_pp_clear(payload: dict):
+    return await _pp_run(pp_control.clear, payload.get("layer"))
+
+
+@app.get("/api/admin/propresenter/playlists", dependencies=[Depends(require_admin)])
+async def admin_pp_playlists():
+    return await _pp_run(pp_control.playlists)
+
+
+@app.get("/api/admin/propresenter/playlists/{playlist}", dependencies=[Depends(require_admin)])
+async def admin_pp_playlist(playlist: str):
+    return await _pp_run(pp_control.playlist_items, playlist)
+
+
+@app.post("/api/admin/propresenter/playlists/{playlist}/trigger", dependencies=[Depends(require_admin)])
+async def admin_pp_playlist_trigger(playlist: str, payload: dict):
+    return await _pp_run(pp_control.trigger_playlist_item, playlist, payload.get("index"))
+
+
+@app.get("/api/admin/propresenter/macros", dependencies=[Depends(require_admin)])
+async def admin_pp_macros(all: bool = False):
+    return await _pp_run(pp_control.macros, all)
+
+
+@app.post("/api/admin/propresenter/macros/{macro}/trigger", dependencies=[Depends(require_admin)])
+async def admin_pp_macro_trigger(macro: str):
+    return await _pp_run(pp_control.trigger_macro, macro)
+
+
+@app.get("/api/admin/propresenter/looks", dependencies=[Depends(require_admin)])
+async def admin_pp_looks():
+    return await _pp_run(pp_control.looks)
+
+
+@app.post("/api/admin/propresenter/looks/{look}/trigger", dependencies=[Depends(require_admin)])
+async def admin_pp_look_trigger(look: str):
+    return await _pp_run(pp_control.trigger_look, look)
+
+
+@app.get("/api/admin/propresenter/timers", dependencies=[Depends(require_admin)])
+async def admin_pp_timers():
+    return await _pp_run(pp_control.timers)
+
+
+@app.post("/api/admin/propresenter/timers/{timer}/{op}", dependencies=[Depends(require_admin)])
+async def admin_pp_timer(timer: str, op: str):
+    return await _pp_run(pp_control.timer, timer, op)
+
+
+@app.get("/api/admin/propresenter/messages", dependencies=[Depends(require_admin)])
+async def admin_pp_messages():
+    return await _pp_run(pp_control.messages)
+
+
+@app.post("/api/admin/propresenter/messages/{message}/trigger", dependencies=[Depends(require_admin)])
+async def admin_pp_message_trigger(message: str, payload: dict):
+    return await _pp_run(pp_control.trigger_message, message, payload.get("tokens"))
+
+
+@app.post("/api/admin/propresenter/messages/{message}/clear", dependencies=[Depends(require_admin)])
+async def admin_pp_message_clear(message: str):
+    return await _pp_run(pp_control.clear_message, message)
+
+
+@app.post("/api/admin/propresenter/transport", dependencies=[Depends(require_admin)])
+async def admin_pp_transport(payload: dict):
+    return await _pp_run(pp_control.go_to_time, payload.get("seconds"))
 
 
 @app.post("/api/admin/target/{target}", dependencies=[Depends(require_admin)])
