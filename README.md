@@ -1163,6 +1163,50 @@ Code: `app/alerts.py`, `app/static/alert*.js`, `tests/test_alerts.py`; panel
 side in `firmware/relay-display/main/alert_*`. For operators there is a chapter
 in the user guide (`docs/guide/src/53-alerts.md`).
 
+## ProPresenter
+
+Relay follows ProPresenter's current slide (`app/propresenter.py`; part of
+issue 138). Under **ProPresenter** in admin: the machine's address and the
+port set in ProPresenter's Network preferences (no default is assumed), a
+**Test connection** button (`GET /version`), mDNS discovery
+(`_proapiv1ws._tcp`, standard library only; it cannot cross Docker Desktop's
+VM), a **view-only** switch, the lyrics feed switches and a stage message.
+
+- One `POST /v1/status/updates` connection with a fixed path list; messages
+  are split on the blank line, not on HTTP chunks. Because a live
+  ProPresenter does not push every slide change, the slide is re-read with
+  `GET /v1/status/slide` on any slide signal and about once a second, and a
+  result with the same text is ignored. No presentation means no lyrics. The
+  `timer/system_time` heartbeat (every 1 to 3 s) going quiet for 10 s drops
+  and reopens the connection with backoff. Two misses in a row mark it down,
+  announced once, and recovery once. What a live install does is in
+  `docs/reference/propresenter-live-test.md`.
+- **One client.** Every call to ProPresenter goes through
+  `propresenter.Client`, which refuses every write in view-only mode: `read()`
+  (GET, refused for a path that acts), `action()` (a GET that triggers or
+  clears), `put()`, `post()`, `delete()`.
+- **Lyrics feed.** `GET /stream?stream=lyrics&for=viewer|screen|overlay|panel`
+  on the viewer port, whole state in each message, repeated at the heartbeat:
+  `{"type":"lyrics","enabled":true,"live":true,"song":true,"title":"...",
+  "part":"Verse 1","index":3,"text":"line1\nline2","next":"...","rev":12,
+  "server_time":...}`. Each audience is the operator's switch; the phone
+  viewer is off by default because song lyrics are licensed, and a switched
+  off audience is refused with 403. `/screen?lyrics=1` and `/overlay?lyrics=1`
+  show it. The viewer port has no login, so the switch decides what Relay
+  offers, not who may ask.
+- **Stage message.** `PUT /v1/stage/message` with a bare JSON string,
+  `DELETE` to clear. An Alerts button with **Also show on the ProPresenter
+  stage display** sets it when the alert starts and clears it when the alert
+  ends, unless something else has replaced the message since.
+- ProPresenter's API has no authentication: Relay only talks out to the
+  address typed in admin. Under Docker the container must be able to reach
+  that address and port; allow the port in the ProPresenter machine's
+  firewall. Standard library only (`http.client`), like Planning Center.
+
+Tests: `tests/test_propresenter.py` (a fake ProPresenter on localhost). For
+operators there is a chapter in the user guide
+(`docs/guide/src/54-propresenter.md`).
+
 ## Not in scope
 
 Spoken output/TTS, browser microphone capture, speaker diarization, audio

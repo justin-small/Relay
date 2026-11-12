@@ -102,7 +102,7 @@ def clean_stored(raw: object) -> dict[str, Any]:
         seen_ids.add(bid)
         seen_names.add(name.lower())
         buttons.append({"id": bid, "name": name, "icon": clean_icon(item.get("icon")), "panels": panels,
-                        "screens": screens})
+                        "screens": screens, "stage": item.get("stage") is True})
     return {"auto_stop_s": max(AUTO_STOP_MIN_S, min(AUTO_STOP_MAX_S, auto)), "buttons": buttons}
 
 
@@ -151,14 +151,18 @@ def validate(raw: object) -> dict[str, Any]:
             raise ValueError(f"{name}: screens must be names")
         screens = [s for s in (clean_name(s) for s in screens) if s]
         panels, screens = _unique(panels), _unique(screens)
-        if not panels and not screens:
+        stage = item.get("stage", False)
+        if not isinstance(stage, bool):
+            raise ValueError(f"{name}: stage must be true or false")
+        if not panels and not screens and not stage:
             raise ValueError(f"{name} flashes nothing; pick a panel or a screen")
         if len(panels) + len(screens) > MAX_TARGETS:
             raise ValueError(f"{name}: at most {MAX_TARGETS} panels and screens")
         icon = item.get("icon", DEFAULT_ICON)
         if icon not in ICONS:
             raise ValueError(f"{name}: the icon must be one of {', '.join(ICONS)}")
-        buttons.append({"id": bid, "name": name, "icon": icon, "panels": panels, "screens": screens})
+        buttons.append({"id": bid, "name": name, "icon": icon, "panels": panels, "screens": screens,
+                        "stage": stage})
     return {"auto_stop_s": auto, "buttons": buttons}
 
 
@@ -196,6 +200,9 @@ class Alerts:
         self.panel_name: Callable[[str], str] = lambda pid: ""
         # Called when anything the admin page shows has changed.
         self.on_change: Callable[[], None] | None = None
+        # ProPresenter's stage display (#138): called with (alert id, text) when an alert on a button with
+        # "also show on the stage display" starts, and with (alert id, None) when any alert ends, however.
+        self.on_stage: Callable[[str, str | None], None] | None = None
 
     # ------------------------------------------------------------ settings
     @staticmethod
@@ -282,6 +289,8 @@ class Alerts:
             alert = Alert(secrets.token_hex(8), bid, clean_name(sender), now)
             self.latest[bid] = alert
             message = self._alert_message(alert, button)
+            if button.get("stage"):
+                self._stage(alert.id, f"{button['name']} (from {alert.sender})" if alert.sender else button["name"])
             for pid in button["panels"]:
                 self.push_panel(pid, message)
             for name in button["screens"]:
@@ -351,6 +360,7 @@ class Alerts:
         alert.ended = _now()
         button = self.button(alert.button)
         message = {"type": "alert_end", "id": alert.id, "why": state}
+        self._stage(alert.id, None)
         if button is not None:
             for pid in button["panels"]:
                 self.push_panel(pid, message)
@@ -426,6 +436,13 @@ class Alerts:
                     q.get_nowait()
                 except asyncio.QueueEmpty:
                     return
+
+    def _stage(self, alert_id: str, text: str | None) -> None:
+        if self.on_stage is not None:
+            try:
+                self.on_stage(alert_id, text)
+            except Exception:
+                pass
 
     def _admin_changed(self) -> None:
         if self.on_change is not None:

@@ -223,7 +223,7 @@ eq("an oversized body is refused",
 cleaned = alertsmod.clean_stored({"auto_stop_s": 5, "buttons": [{"id": "zz", "name": "x", "panels": []},
                                                                {"id": "0000aaaa", "name": "ok", "panels": [pid(1)]}]})
 eq("a hand edit is cleaned, not fatal", cleaned, {"auto_stop_s": 30, "buttons": [
-    {"id": "0000aaaa", "name": "ok", "icon": "bell", "panels": [pid(1)], "screens": []}]})
+    {"id": "0000aaaa", "name": "ok", "icon": "bell", "panels": [pid(1)], "screens": [], "stage": False}]})
 
 print()
 if fails:

@@ -27,7 +27,8 @@ from .hub import hub
 from .panels import registry as panel_registry
 from .pclive import follower as pc_follower
 from .servicefeed import feed as service_feed
-from . import pccontrol
+from . import pccontrol, propresenter
+from .propresenter import follower as pp_follower, lyrics_feed
 from .recorder import recorder
 from .scheduler import scheduler
 
@@ -162,6 +163,8 @@ async def _startup() -> None:
     scheduler.start()
     # Idle until a Planning Center token is saved and a service type followed.
     pc_follower.start()
+    # Idle until an address is entered and ProPresenter is switched on in admin.
+    pp_follower.start()
     if not (cfg.get("admin_token") or "").strip():
         # _token_ok() returns False on an empty stored token, so the panel is
         # locked rather than open -- but an operator who cannot log in deserves
@@ -243,6 +246,7 @@ async def _alert_ticks() -> None:
 async def _shutdown() -> None:
     scheduler.cancel()
     pc_follower.cancel()
+    pp_follower.cancel()
     for name in ("demo_task", "blocklist_task", "alerts_task"):
         task = getattr(app.state, name, None)
         if task is not None:
@@ -519,6 +523,8 @@ async def page_screen(request: Request):
         "screen_align": align,
         "screen_font": font_override,
         "screen_alert": screen_alert,
+        # ?lyrics=1: ProPresenter's lyrics in place of the captions while a song is up (propresenter.py).
+        "lyrics_for": "screen" if qp.get("lyrics") in ("1", "true", "yes") else "",
     }
     if font_override:
         ctx["font_px"] = font_override
@@ -605,6 +611,7 @@ async def page_overlay(request: Request):
         "overlay_plate": plate,
         "overlay_bg": bg,
         "overlay_matte": matte,
+        "lyrics_for": "overlay" if qp.get("lyrics") in ("1", "true", "yes") else "",
     }
     return templates.TemplateResponse(request, "viewer.html", ctx)
 
@@ -671,6 +678,33 @@ def _service_stream(st: str) -> StreamingResponse:
     )
 
 
+LYRICS_STREAM = "lyrics"
+
+
+def _lyrics_stream(audience: str) -> StreamingResponse:
+    """ProPresenter's current slide as lyrics, whole in each message (propresenter.LyricsFeed). Repeated at each
+    heartbeat, so a panel's silence timer never fires on a quiet stream."""
+    queue = lyrics_feed.subscribe(audience)
+
+    async def gen():
+        try:
+            while True:
+                try:
+                    frame = await asyncio.wait_for(queue.get(), timeout=HEARTBEAT_S)
+                except asyncio.TimeoutError:
+                    yield alertsmod.sse_frame(lyrics_feed.payload(audience))
+                    continue
+                yield frame
+        finally:
+            lyrics_feed.unsubscribe(audience, queue)
+
+    return StreamingResponse(
+        gen(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache, no-transform", "X-Accel-Buffering": "no"},
+    )
+
+
 ALERT_STREAM = "alert"
 
 
@@ -705,6 +739,14 @@ async def stream(request: Request, stream: str = "translation", lang: str | None
                  finals: int = 0, type: str | None = None):
     if stream == ALERT_STREAM:
         return _alert_sender_stream()
+    if stream == LYRICS_STREAM:
+        audience = request.query_params.get("for") or "viewer"
+        if audience not in propresenter.AUDIENCES:
+            raise HTTPException(400, "unknown audience")
+        # Licensed lyrics: each audience is the operator's switch, and the phone viewer's is off by default.
+        if not lyrics_feed.allowed(audience):
+            raise HTTPException(403, "the lyrics feed is not switched on for this audience")
+        return _lyrics_stream(audience)
     if stream == SERVICE_STREAM:
         st = (type or "").strip()
         # Only a followed service type: the feed is no way to make Relay ask
@@ -1296,6 +1338,104 @@ async def admin_planning_center_disconnect():
     return _pc_body()
 
 
+# --------------------------------------------------------------- ProPresenter (#138)
+def _pp_body() -> dict:
+    s = config.get()["propresenter"]
+    return {"settings": s, "state": pp_follower.state(), "lyrics_readers": lyrics_feed.viewer_count()}
+
+
+_PP_ERRORS = {
+    "view_only": "View-only mode is on, so Relay did not change anything in ProPresenter.",
+    "timeout": "ProPresenter did not answer in time.",
+    "network": "Could not reach ProPresenter. Check the address and port, and that ProPresenter is running.",
+    "bad": "That address answered, but not like ProPresenter.",
+}
+
+
+def _pp_error(exc: propresenter.ProError) -> JSONResponse:
+    """Answer with a fixed message chosen by the error's kind; the detail goes to the log only, so no
+    exception text (socket errors, ProPresenter's own reply) reaches the browser."""
+    log.warning("ProPresenter: %s", exc)
+    status = {"view_only": 409, "http": 502, "bad": 502, "timeout": 504, "network": 502}.get(exc.kind, 502)
+    if exc.kind == "http":
+        message = ("ProPresenter said not found: is Network switched on in its preferences?" if exc.status == 404
+                   else f"ProPresenter refused the request ({int(exc.status)}).")
+    else:
+        message = _PP_ERRORS.get(exc.kind, "ProPresenter could not do that.")
+    return JSONResponse({"error": message}, status_code=status)
+
+
+@app.get("/api/admin/propresenter", dependencies=[Depends(require_admin)])
+async def admin_propresenter():
+    return _pp_body()
+
+
+@app.post("/api/admin/propresenter", dependencies=[Depends(require_admin)])
+async def admin_propresenter_save(payload: dict):
+    """Save the connection and switches. Only the keys sent change. A new address reconnects at once."""
+    saved = config.get()["propresenter"]
+    merged = {**saved, **{k: v for k, v in payload.items() if k in saved and k != "lyrics"}}
+    if isinstance(payload.get("lyrics"), dict):
+        merged["lyrics"] = {**saved["lyrics"], **payload["lyrics"]}
+    if payload.get("host") and not propresenter.clean_host(payload["host"]):
+        return JSONResponse({"error": "Enter just the machine's name or IP address, with no http:// or port."},
+                            status_code=400)
+    if payload.get("port") not in ("", None, 0) and "port" in payload and not propresenter.clean_port(payload["port"]):
+        return JSONResponse({"error": "The port is a number from 1 to 65535."}, status_code=400)
+    clean = propresenter.clean_stored(merged)
+    if clean["enabled"] and not (clean["host"] and clean["port"]):
+        return JSONResponse({"error": "Enter the machine's address and ProPresenter's port first. "
+                                      "The port is in ProPresenter's Network preferences."}, status_code=400)
+    config.save({"propresenter": clean}, replace=("propresenter",))
+    log.info("ProPresenter settings saved (%s, view-only %s)",
+             "on" if clean["enabled"] else "off", "on" if clean["view_only"] else "off")
+    await pp_follower.poke()
+    lyrics_feed.refresh()
+    return _pp_body()
+
+
+@app.post("/api/admin/propresenter/test", dependencies=[Depends(require_admin)])
+async def admin_propresenter_test(payload: dict):
+    """`GET /version` on the address in the form (saved or not). Changes nothing."""
+    host = propresenter.clean_host(payload.get("host"))
+    port = propresenter.clean_port(payload.get("port"))
+    if not host or not port:
+        return JSONResponse({"error": "Enter the machine's address and ProPresenter's port."}, status_code=400)
+    client = propresenter.Client(host, port)
+    try:
+        info = await pp_follower.call(client.version)
+    except propresenter.ProError as exc:
+        return _pp_error(exc)
+    return {"ok": True, "version": info}
+
+
+@app.post("/api/admin/propresenter/discover", dependencies=[Depends(require_admin)])
+async def admin_propresenter_discover():
+    """ProPresenters announcing themselves on the LAN (mDNS). Nothing is saved or contacted."""
+    return {"found": await pp_follower.call(propresenter.discover, 2.5)}
+
+
+@app.post("/api/admin/propresenter/stage", dependencies=[Depends(require_admin)])
+async def admin_propresenter_stage(payload: dict):
+    text = pp_follower.clean_message(payload.get("text"))
+    if not text:
+        return JSONResponse({"error": "Type the message to show."}, status_code=400)
+    try:
+        await pp_follower.set_stage_message(text)
+    except propresenter.ProError as exc:
+        return _pp_error(exc)
+    return _pp_body()
+
+
+@app.delete("/api/admin/propresenter/stage", dependencies=[Depends(require_admin)])
+async def admin_propresenter_stage_clear():
+    try:
+        await pp_follower.clear_stage_message()
+    except propresenter.ProError as exc:
+        return _pp_error(exc)
+    return _pp_body()
+
+
 @app.post("/api/admin/target/{target}", dependencies=[Depends(require_admin)])
 async def admin_target(target: str, payload: dict):
     target = target.upper()
@@ -1373,6 +1513,8 @@ def _alerts_frame() -> dict:
 
 
 alerts.on_change = lambda: hub.push_status(_alerts_frame())
+alerts.on_stage = lambda alert_id, text: (pp_follower.alert_ended(alert_id) if text is None
+                                          else pp_follower.alert_started(alert_id, text))
 
 
 @app.get("/api/admin/alerts", dependencies=[Depends(require_admin)])

@@ -59,6 +59,8 @@ jobs:
       - run: python tests/test_pclive.py
       - run: python tests/test_servicefeed.py
       - run: python tests/test_pccontrol.py
+      - run: python tests/test_alerts.py
+      - run: python tests/test_propresenter.py
       - run: python tests/smoke_test.py
 
   guide:
