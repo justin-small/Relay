@@ -45,6 +45,7 @@ log = logging.getLogger("relay.propresenter")
 # What the stream is asked for. Fixed: one path ProPresenter does not know fails the whole request.
 STREAM_PATHS = ["status/slide", "presentation/current", "presentation/slide_index", "timers/current",
                 "stage/message", "status/layers", "playlist/active", "look/current"]
+RESYNC_DATA = ["timers/current", "status/layers", "playlist/active", "look/current"]   # re-read every RESYNC_S
 HEARTBEAT_PATH = "timer/system_time"
 
 REQUEST_TIMEOUT_S = 3.0
@@ -60,6 +61,8 @@ SONG_GROUPS = re.compile(r"^\s*(verse|chorus|pre[- ]?chorus|bridge|tag|refrain|i
                          re.I)
 HOST_RE = re.compile(r"^[A-Za-z0-9]([A-Za-z0-9.-]{0,251}[A-Za-z0-9])?$|^\[?[0-9A-Fa-f:]+\]?$")
 
+ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")   # a ProPresenter UUID (or a short name or index)
+
 AUDIENCES = ("viewer", "screen", "overlay", "panel")
 
 
@@ -68,7 +71,10 @@ def default_settings() -> dict[str, Any]:
     return {"enabled": False, "host": "", "port": 0, "view_only": False,
             "songs_library": "Songs", "songs_only": True,
             # Where the lyrics feed may be read. Song lyrics are licensed: the public phone viewer is off.
-            "lyrics": {"viewer": False, "screen": True, "overlay": False, "panels": True}}
+            "lyrics": {"viewer": False, "screen": True, "overlay": False, "panels": True},
+            # Control (stage 2): which macros an operator sees and may trigger. "selected" shows only the
+            # ones listed in macros_allowed (by stable ID); "all" shows every macro.
+            "macros_mode": "selected", "macros_allowed": []}
 
 
 def clean_host(value: object) -> str:
@@ -99,6 +105,9 @@ def clean_stored(raw: object) -> dict[str, Any]:
         or base["songs_library"],
         "songs_only": bool(raw.get("songs_only", True)),
         "lyrics": {k: bool(lyr.get(k, v)) for k, v in base["lyrics"].items()},
+        "macros_mode": "all" if raw.get("macros_mode") == "all" else "selected",
+        "macros_allowed": sorted({str(u)[:64] for u in (raw.get("macros_allowed") or [])
+                                  if isinstance(u, str) and ID_RE.match(u)})[:500],
     }
 
 
@@ -133,9 +142,30 @@ _ACTION_SEGMENTS = frozenset({
     "find_my_mouse", "go_to_time", "increment", "play", "toggle", "activate"})
 
 
+# Never sent, view-only or not. The bulk timer calls start (or stop, or reset) EVERY timer the church has, and
+# capture/start was followed by a 4.5 minute stall on a live install.
+_NEVER = re.compile(r"^/?v1/(timers/(start|stop|reset)|capture/start)/?$")
+
+
 def is_action_path(path: str) -> bool:
     segs = [s for s in path.split("?", 1)[0].strip("/").split("/") if s]
     return any(s in _ACTION_SEGMENTS for s in segs)
+
+
+def cue_groups(detail: dict) -> list[dict]:
+    """The presentation's groups in CUE order: the current arrangement's list, so a chorus that repeats appears
+    each time it is played and cue indexes (what trigger and thumbnails take) line up. Without a usable
+    arrangement it is the groups as listed."""
+    groups = [g for g in (detail.get("groups") or []) if isinstance(g, dict)]
+    by_id = {g.get("uuid"): g for g in groups if g.get("uuid")}
+    cur = detail.get("current_arrangement")
+    for arr in detail.get("arrangements") or []:
+        aid = arr.get("id") if isinstance(arr, dict) else None
+        if isinstance(aid, dict) and aid.get("uuid") == cur and arr.get("groups"):
+            ordered = [by_id.get(u) for u in arr["groups"]]
+            if all(ordered):
+                return ordered
+    return groups
 
 
 def resolve(host: str, port: int) -> str:
@@ -183,7 +213,8 @@ class Client:
         self.ip = resolve(self.host, self.port)
         return self.ip
 
-    def _send(self, method: str, path: str, body: Any = None, *, timeout: float = REQUEST_TIMEOUT_S) -> Any:
+    def _send(self, method: str, path: str, body: Any = None, *, timeout: float = REQUEST_TIMEOUT_S,
+              raw_body: bool = False) -> Any:
         """The single place a request leaves Relay."""
         url = "/" + path.lstrip("/")
         conn = None
@@ -217,6 +248,8 @@ class Client:
         if resp.status >= 400:
             text = raw.decode("utf-8", "replace").strip()[:200]
             raise ProError("http", f"ProPresenter refused the request ({resp.status}) {text}".strip(), resp.status)
+        if raw_body:
+            return resp.getheader("Content-Type") or "application/octet-stream", raw
         text = raw.decode("utf-8", "replace").strip()
         if not text:
             return None
@@ -236,6 +269,12 @@ class Client:
             raise ValueError(f"{path} acts on ProPresenter; use action()")
         return self._send("GET", path, timeout=timeout)
 
+    def read_image(self, path: str, timeout: float = REQUEST_TIMEOUT_S) -> tuple[str, bytes]:
+        """A GET whose answer is an image (a thumbnail): (content type, bytes). Like read(), it never acts."""
+        if is_action_path(path):
+            raise ValueError(f"{path} acts on ProPresenter; use action()")
+        return self._send("GET", path, timeout=timeout, raw_body=True)
+
     def version(self) -> dict:
         """`GET /version`: unversioned, answers whenever Network is on."""
         data = self._send("GET", "/version")
@@ -245,6 +284,8 @@ class Client:
 
     # -- writes (all refused in view-only mode) ---------------------------------------------------------
     def action(self, path: str) -> Any:
+        if _NEVER.match(path.split("?", 1)[0]):
+            raise ValueError(f"{path} is never sent")
         return self._write(f"send {path}", "GET", path)
 
     def put(self, path: str, body: Any) -> Any:
@@ -573,6 +614,15 @@ class Follower:
                 return
             await self._read_presentation(client, data)
         await self._read_slide(client)
+        # The same stream also misses timer and layer changes (a stopped timer kept reading "running"), and the
+        # control page shows both, so they are re-read with the slide.
+        for path in RESYNC_DATA:
+            try:
+                body = await self.call(client.read, "/v1/" + path)
+            except ProError:
+                continue
+            if body is not None:
+                self.data[path] = body
         self._note_change()
 
     async def _read_presentation(self, client: Client, data: Any) -> None:
@@ -605,7 +655,7 @@ class Follower:
         path = str(detail.get("presentation_path") or "")
         m = re.search(r"/Libraries/([^/]+)/", path.replace("\\", "/"))
         groups = [(str(g.get("name") or "").strip(), len(g.get("slides") or []))
-                  for g in (detail.get("groups") or []) if isinstance(g, dict)]
+                  for g in cue_groups(detail)]
         pid = detail.get("id") if isinstance(detail.get("id"), dict) else {}
         # Names can end in a space ("All The Way To Calvary ").
         return {"uuid": uuid, "name": str(pid.get("name") or name).strip(), "path": path,
@@ -719,13 +769,15 @@ class Follower:
             "error": self.error if not self.up else "",
             "view_only": bool(s["view_only"]),
             "version": self.version,
-            "presentation": {"name": pres["name"], "library": pres["library"], "song": self.is_song(),
+            "presentation": {"uuid": pres["uuid"], "name": pres["name"], "library": pres["library"], "song": self.is_song(),
                              "part": self.group_name()} if pres else None,
             "slide_index": self.slide_index,
             "current": {"text": self.current["text"], "notes": self.current["notes"]},
             "next": {"text": self.next["text"], "notes": self.next["notes"]},
             "stage_message": self.stage_message,
             "layers": self.data.get("status/layers"),
+            "playlist_active": self.data.get("playlist/active"),
+            "look_id": ((look.get("id") or {}).get("uuid") if isinstance(look, dict) else None),
             "look": ((look.get("id") or {}).get("name") if isinstance(look, dict) else None),
             "timers": self.data.get("timers/current") or [],
         }

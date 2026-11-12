@@ -14,9 +14,12 @@ address and switch it on.
   part (Verse 1, Chorus), the active look, and which layers have content.
 - **Shows** the lyrics on `/screen` and `/overlay` pages, and offers them to
   caption panels.
-- **Writes** one thing: the stage message. Nothing else in ProPresenter is
-  changed by this chapter's features.
-- **View-only** mode turns even that off. Relay then only reads.
+- **Controls** ProPresenter from **ProPresenter control** in admin: next and
+  previous, a grid of the slides with thumbnails, a clear dock, playlists,
+  looks, macros, timers, prepared messages and the media position (see
+  [Running ProPresenter from Relay](#propresenter-control)).
+- **Writes** the stage message, and everything the control page does.
+- **View-only** mode turns all of that off. Relay then only reads.
 
 ::: warning
 ProPresenter's network control has **no password**. Anyone who can reach its
@@ -87,12 +90,37 @@ ProPresenter stage display** on a button. When that button is pressed, its name
 and the sender show on the stage display, and they disappear when someone
 acknowledges the alert or it times out.
 
+## Running ProPresenter from Relay {#propresenter-control}
+
+Open **ProPresenter control** in admin. Everything on it needs the admin
+sign-in, and every button is off while ProPresenter is down or view-only is on.
+
+- **Next, Previous, Next presentation.** The arrow keys and Page Up / Page Down
+  do the same while the page is open (not while you are typing in a box).
+- **Slide grid.** The slides of the presentation that is up, with the part
+  name and colour from ProPresenter. Tap one to trigger it; the one that is
+  live is outlined. A repeated chorus appears once for every time it is
+  played. Thumbnails come through Relay, which keeps a copy, so phones and
+  tablets never talk to ProPresenter directly.
+- **Clear dock.** A bar along the bottom of every admin page: Slide, Media,
+  Props, Messages, Audio, Video input and Announcements. A button is red while
+  that layer has something live.
+- **Playlists.** Pick a playlist and tap an item to trigger it. The active
+  item is highlighted.
+- **Looks, macros, timers.** A timer is started, stopped or reset one at a
+  time; Relay never starts all timers at once. Macros show only an
+  operator-safe selection: use **Choose what operators see** to tick the
+  ones to offer, or show them all. A macro outside the selection is refused
+  by Relay even if someone asks for it directly.
+- **Messages.** Fill in a prepared message's text and tap Show; Clear hides it.
+- **Media position.** Type a time in seconds and tap Go to time.
+
 ## View-only mode
 
 Tick **View-only** when Relay should never change anything in ProPresenter, for
 example on a second computer, or when your team runs all slides from
-ProPresenter. Relay still reads and shows lyrics, but the stage message and
-alert-on-stage do nothing.
+ProPresenter. Relay still reads and shows lyrics and slides, but the stage
+message, alert-on-stage and every control on the control page do nothing.
 
 ## If something is wrong
 

@@ -1203,6 +1203,19 @@ VM), a **view-only** switch, the lyrics feed switches and a stage message.
   that address and port; allow the port in the ProPresenter machine's
   firewall. Standard library only (`http.client`), like Planning Center.
 
+- **Control (stage 2).** `app/ppcontrol.py` and `app/static/ppcontrol.js`
+  (admin page *ProPresenter control*, plus a clear dock on every admin page):
+  next/previous, the slide grid, clears, playlists, looks, macros, timers,
+  messages, media position. All writes go through `propresenter.Client`
+  (view-only refuses them there, the routes answer 409); `Client.action`
+  refuses the bulk `timers/start|stop|reset` and `capture/start` outright.
+  Thumbnails are proxied behind the admin login and cached in memory by
+  presentation + index + a hash of the slides. Macros: `macros_mode`
+  (`selected` or `all`) and `macros_allowed` (UUIDs) in the `propresenter`
+  config block; the server checks them on every trigger. The media position
+  is `PUT /v1/transport/presentation/time` with a bare number (the issue
+  said `go_to_time`; the published description says `time`).
+
 Tests: `tests/test_propresenter.py` (a fake ProPresenter on localhost). For
 operators there is a chapter in the user guide
 (`docs/guide/src/54-propresenter.md`).

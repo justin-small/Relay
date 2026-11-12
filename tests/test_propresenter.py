@@ -76,6 +76,8 @@ class Fake:
         self.beat = True                  # send timer/system_time
         self.refuse = False               # answer the stream request with 503
         self.requests = []                # (method, path, body) of everything except the stream
+        self.thumb_calls = 0
+        self.msg_active = False
         self.stream_count = 0
         self.stream_bodies = []
         self.out = queue.Queue()
@@ -107,9 +109,59 @@ class Fake:
 
     def detail(self, uuid):
         p = self.presentation
-        return {"presentation": {
+        d = {
             "id": {"uuid": p["uuid"], "name": p["name"], "index": 0}, "presentation_path": p["path"],
-            "groups": [{"name": n, "slides": [{"text": t} for t in g], "uuid": "G"} for n, g in p["groups"]]}}
+            "groups": [{"name": n, "slides": [{"text": t} for t in g], "uuid": "G-" + n,
+                        "color": {"red": 1.0, "green": 0.0, "blue": 0.5, "alpha": 1}} for n, g in p["groups"]]}
+        if p.get("arrangement"):   # the order the groups are played in; a name may repeat
+            d["arrangements"] = [{"id": {"uuid": "ARR", "name": "Master", "index": 0},
+                                  "groups": ["G-" + n for n in p["arrangement"]]}]
+            d["current_arrangement"] = "ARR"
+        return {"presentation": d}
+
+    # -- the control set (stage 2) -----------------------------------------------------------------------
+    def extra_get(self, path):
+        """(status, body, content type) for the control paths, or None."""
+        base = path.split("?")[0]
+        j = lambda o: (200, (json.dumps(o) + "\r\n\r\n").encode(), "application/json")
+        if base == "/v1/playlists":
+            return j([{"id": {"uuid": "PL1", "name": "Sunday", "index": 0}, "field_type": "playlist", "children": []},
+                      {"id": {"uuid": "GRP", "name": "Folder", "index": 1}, "field_type": "group",
+                       "children": [{"id": {"uuid": "PL2", "name": "Youth", "index": 0}, "field_type": "playlist",
+                                     "children": []}]}])
+        if base == "/v1/playlist/PL1":
+            return j({"id": {"uuid": "PL1", "name": "Sunday", "index": 0}, "items": [
+                {"id": {"uuid": "I0", "name": "Welcome", "index": 0}, "type": "header", "is_hidden": False,
+                 "header_color": {"red": 1, "green": 0, "blue": 0, "alpha": 1}},
+                {"id": {"uuid": "I1", "name": "Great Song", "index": 1}, "type": "presentation", "is_hidden": False,
+                 "presentation_info": {"presentation_uuid": "P-Grea"}}]})
+        if base == "/v1/macros":
+            return j([{"id": {"uuid": "M1", "name": "Lights up", "index": 0}, "color": {"red": 0, "green": 1, "blue": 0}},
+                      {"id": {"uuid": "M2", "name": "Reboot", "index": 1}, "color": {"red": 1, "green": 0, "blue": 0}}])
+        if base == "/v1/looks":
+            return j([{"id": {"uuid": "L1", "name": "Default", "index": 0}, "screens": []},
+                      {"id": {"uuid": "L2", "name": "Sermon", "index": 1}, "screens": []}])
+        if base == "/v1/timers":
+            return j([{"id": {"uuid": "T1", "name": "Segment", "index": 0}, "countdown": {"duration": 300}}])
+        if base == "/v1/messages":
+            return j([{"id": {"uuid": "MSG1", "name": "Nursery", "index": 0}, "message": "Room {room}",
+                       "tokens": [{"name": "room", "text": {"text": "3"}}], "is_active": self.msg_active}])
+        if "/thumbnail/" in base:
+            self.thumb_calls += 1
+            return (200, b"\xff\xd8JPEG" + base.encode(), "image/jpeg")
+        if base.endswith("/trigger") or "/clear" in base or base.startswith("/v1/timer/") or base.startswith("/v1/timers/"):
+            if base.startswith("/v1/message/") and base.endswith("/clear"):
+                self.msg_active = False
+            return (204, b"", "application/json")
+        return None
+
+    def extra_write(self, method, path, raw):
+        if method == "POST" and path == "/v1/message/MSG1/trigger":
+            self.msg_active = True
+            return (204, b"", "application/json")
+        if method == "PUT" and path == "/v1/transport/presentation/time":
+            return (204, b"", "application/json")
+        return None
 
     def stream_message(self, url):
         data = {"status/slide": self.status_slide(), "presentation/current": self.current_body(),
@@ -159,6 +211,9 @@ def make_handler(fake):
             with fake.lock:
                 fake.requests.append(("GET", self.path, None))
             p = self.path
+            x = fake.extra_get(p) if p != "/v1/trigger/next" and p != "/v1/trigger/previous" else None
+            if x is not None and not (p.startswith("/v1/presentation/") and "/thumbnail/" not in p and "/trigger" not in p):
+                return self._reply(*x)
             if p == "/version":
                 return self._json(fake.version)
             if p == "/v1/status/slide":
@@ -179,6 +234,9 @@ def make_handler(fake):
             raw = self._body()
             with fake.lock:
                 fake.requests.append(("PUT", self.path, raw))
+            x = fake.extra_write("PUT", self.path, raw)
+            if x is not None:
+                return self._reply(*x)
             if self.path == "/v1/stage/message":
                 try:
                     value = json.loads(raw)
@@ -205,7 +263,8 @@ def make_handler(fake):
             if self.path != "/v1/status/updates":
                 with fake.lock:
                     fake.requests.append(("POST", self.path, raw))
-                return self._reply(404)
+                x = fake.extra_write("POST", self.path, raw)
+                return self._reply(*x) if x is not None else self._reply(404)
             paths = json.loads(raw)
             fake.stream_bodies.append(paths)
             fake.stream_count += 1
@@ -678,6 +737,184 @@ eq("an empty message is refused", r.status_code, 400)
 r = admin.request("DELETE", "/api/admin/propresenter/stage")
 eq("the admin clear", (r.status_code, fake.stage), (200, ""))
 pp.follower.client = None
+
+# ------------------------------------------------------------------------------------------------ control
+print("control")
+from app.ppcontrol import control as ctl
+
+fake.song(groups=[("Verse 1", ["v1 a", "v1 b"]), ("Chorus", ["chorus a"])])
+fake.presentation["arrangement"] = ["Verse 1", "Chorus", "Verse 1", "Chorus"]
+config.save({"propresenter": {"enabled": True, "host": "127.0.0.1", "port": srv.port, "view_only": False,
+                              "macros_mode": "selected", "macros_allowed": ["M1"]}}, replace=("propresenter",))
+pp.follower.client = pp.Client("127.0.0.1", srv.port, lambda: bool(pp.settings().get("view_only")))
+pp.follower.presentation = {"uuid": fake.presentation["uuid"], "name": "Great Song", "path": "", "library": "Songs",
+                            "groups": []}
+B = "/api/admin/propresenter"
+
+
+def sent(kind=None):
+    return [(m, p, b) for m, p, b in fake.requests if kind is None or m == kind]
+
+
+# -- token protection: every control route is admin-only
+anon = TestClient(app, base_url="http://relay.local:8001")
+routes = [("GET", "/slides"), ("GET", "/thumbnail/P-Grea/0"), ("POST", "/step"), ("POST", "/next-presentation"),
+          ("POST", "/slide"), ("POST", "/clear"), ("GET", "/playlists"), ("GET", "/playlists/PL1"),
+          ("POST", "/playlists/PL1/trigger"), ("GET", "/macros"), ("POST", "/macros/M1/trigger"), ("GET", "/looks"),
+          ("POST", "/looks/L1/trigger"), ("GET", "/timers"), ("POST", "/timers/T1/start"), ("GET", "/messages"),
+          ("POST", "/messages/MSG1/trigger"), ("POST", "/messages/MSG1/clear"), ("POST", "/transport")]
+fake.requests.clear()
+codes = {(m, p): anon.request(m, B + p, json={} if m == "POST" else None).status_code for m, p in routes}
+eq("no control route answers without the admin token", sorted(set(codes.values())), [401])
+eq("and none reached ProPresenter", fake.requests, [])
+
+# -- next / previous / next presentation / a slide / clears
+fake.requests.clear()
+eq("next", admin.post(B + "/step", json={"direction": "next"}).status_code, 200)
+admin.post(B + "/step", json={"direction": "previous"})
+admin.post(B + "/next-presentation")
+eq("next, previous and the next presentation hit the right paths", [p for _, p, _ in sent("GET")],
+   ["/v1/trigger/next", "/v1/trigger/previous", "/v1/presentation/active/next/trigger"])
+eq("a bad direction is refused", admin.post(B + "/step", json={"direction": "sideways"}).status_code, 400)
+fake.requests.clear()
+admin.post(B + "/slide", json={"uuid": "P-Grea", "index": 3})
+eq("a slide is triggered by presentation and index", [p for _, p, _ in sent("GET")], ["/v1/presentation/P-Grea/3/trigger"])
+eq("a path-shaped uuid is refused", admin.post(B + "/slide", json={"uuid": "../clear/layer/slide", "index": 0}).status_code, 400)
+eq("so is a bad index", admin.post(B + "/slide", json={"uuid": "P-Grea", "index": "x"}).status_code, 400)
+eq("and a negative one", admin.post(B + "/slide", json={"uuid": "P-Grea", "index": -1}).status_code, 400)
+fake.requests.clear()
+for layer in ("slide", "media", "props", "messages", "audio", "video_input", "announcements"):
+    admin.post(B + "/clear", json={"layer": layer})
+eq("each layer clears by its own path", [p for _, p, _ in sent("GET")],
+   [f"/v1/clear/layer/{x}" for x in ("slide", "media", "props", "messages", "audio", "video_input", "announcements")])
+eq("an unknown layer is refused", admin.post(B + "/clear", json={"layer": "everything"}).status_code, 400)
+
+# -- the slide grid follows the arrangement, with group names and colours
+r = admin.get(B + "/slides").json()
+eq("the grid has a cue for every play of a repeated group", [(c["index"], c["group"]) for c in r["cues"]],
+   [(0, "Verse 1"), (1, "Verse 1"), (2, "Chorus"), (3, "Verse 1"), (4, "Verse 1"), (5, "Chorus")])
+eq("each cue carries its group's colour", r["cues"][0]["color"], "#ff0080")
+rev = r["rev"]
+fake.presentation["groups"][0] = ("Verse 1", ["v1 a", "v1 CHANGED"])
+eq("the change marker moves when a slide changes", admin.get(B + "/slides").json()["rev"] != rev, True)
+fake.presentation["groups"][0] = ("Verse 1", ["v1 a", "v1 b"])
+eq("and returns when it is put back", admin.get(B + "/slides").json()["rev"], rev)
+eq("the follower's part name follows the arrangement too", pp.Follower._describe("u", "n", fake.detail("u")["presentation"])["groups"],
+   [("Verse 1", 2), ("Chorus", 1), ("Verse 1", 2), ("Chorus", 1)])
+
+# -- thumbnails: proxied, cached by presentation + index + change marker
+fake.thumb_calls = 0
+t1 = admin.get(f"{B}/thumbnail/P-Grea/2?v={rev}")
+eq("a thumbnail is served as an image", (t1.status_code, t1.headers["content-type"], t1.content[:2]), (200, "image/jpeg", b"\xff\xd8"))
+t2 = admin.get(f"{B}/thumbnail/P-Grea/2?v={rev}")
+eq("asking again is a cache hit: ProPresenter was asked once", (t2.content == t1.content, fake.thumb_calls), (True, 1))
+admin.get(f"{B}/thumbnail/P-Grea/3?v={rev}")
+eq("another index is another fetch", fake.thumb_calls, 2)
+admin.get(f"{B}/thumbnail/P-Grea/2?v=other")
+eq("a new change marker fetches again", fake.thumb_calls, 3)
+eq("a browser never needs ProPresenter's own thumbnail path", [p for _, p, _ in sent("GET") if "thumbnail" in p][0].startswith("/v1/presentation/P-Grea/thumbnail/2"), True)
+eq("a bad thumbnail id is refused", admin.get(B + "/thumbnail/..%2Fx/0").status_code in (400, 404), True)
+ctl.thumbs.clear(); ctl.thumb_bytes = 0
+pp.follower.client = pp.Client("127.0.0.1", 1, False)      # nothing listens there
+r = admin.get(B + "/thumbnail/P-Grea/9?v=z")
+eq("a thumbnail while ProPresenter is down is a clear 502", (r.status_code, "Could not reach" in r.json()["error"]), (502, True))
+pp.follower.client = pp.Client("127.0.0.1", srv.port, lambda: bool(pp.settings().get("view_only")))
+
+# -- playlists
+r = admin.get(B + "/playlists").json()
+eq("playlists come as a tree (folders hold playlists)", [(p["name"], p["type"], [c["name"] for c in p["children"]]) for p in r["playlists"]],
+   [("Sunday", "playlist", []), ("Folder", "group", ["Youth"])])
+r = admin.get(B + "/playlists/PL1").json()
+eq("a playlist lists its items", [(i["index"], i["name"], i["type"], i["presentation"]) for i in r["items"]],
+   [(0, "Welcome", "header", ""), (1, "Great Song", "presentation", "P-Grea")])
+fake.requests.clear()
+admin.post(B + "/playlists/PL1/trigger", json={"index": 1})
+eq("an item is triggered by playlist and index", [p for _, p, _ in sent("GET")], ["/v1/playlist/PL1/1/trigger"])
+
+# -- macros: the operator-safe selection is enforced on the server
+r = admin.get(B + "/macros").json()
+eq("only the selected macros are listed", [m["name"] for m in r["macros"]], ["Lights up"])
+eq("the picker lists them all", [(m["name"], m["selected"]) for m in admin.get(B + "/macros?all=true").json()["macros"]],
+   [("Lights up", True), ("Reboot", False)])
+fake.requests.clear()
+eq("a selected macro triggers by its ID", admin.post(B + "/macros/M1/trigger").status_code, 200)
+eq("one outside the selection is refused", admin.post(B + "/macros/M2/trigger").status_code, 403)
+eq("and never reached ProPresenter", [p for _, p, _ in sent("GET")], ["/v1/macro/M1/trigger"])
+admin.post(B, json={"macros_mode": "all"})
+eq("with 'all' every macro is listed", len(admin.get(B + "/macros").json()["macros"]), 2)
+eq("and may be triggered", admin.post(B + "/macros/M2/trigger").status_code, 200)
+r = admin.post(B, json={"macros_mode": "bogus", "macros_allowed": ["M1", "../x", 5]})
+eq("a bad mode and bad IDs are cleaned on save", (r.json()["settings"]["macros_mode"], r.json()["settings"]["macros_allowed"]),
+   ("selected", ["M1"]))
+
+# -- looks
+eq("looks list", [l["name"] for l in admin.get(B + "/looks").json()["looks"]], ["Default", "Sermon"])
+fake.requests.clear()
+admin.post(B + "/looks/L2/trigger")
+eq("a look is triggered by ID", [p for _, p, _ in sent("GET")], ["/v1/look/L2/trigger"])
+
+# -- timers: one at a time, never the bulk call
+eq("timers list", [(t["name"], t["kind"]) for t in admin.get(B + "/timers").json()["timers"]], [("Segment", "countdown")])
+fake.requests.clear()
+for op in ("start", "stop", "reset"):
+    admin.post(B + f"/timers/T1/{op}")
+eq("each operation goes to the one timer", [p for _, p, _ in sent("GET")], ["/v1/timer/T1/start", "/v1/timer/T1/stop", "/v1/timer/T1/reset"])
+eq("an unknown operation is refused", admin.post(B + "/timers/T1/explode").status_code, 400)
+for bulk in ("/v1/timers/start", "/v1/timers/stop", "/v1/timers/reset", "/v1/capture/start"):
+    try:
+        pp.follower.client.action(bulk)
+        check("the client never sends " + bulk, False)
+    except ValueError:
+        check("the client never sends " + bulk, True)
+eq("no bulk timer path was sent", [p for _, p, _ in fake.requests if p.startswith("/v1/timers/")], [])
+
+# -- messages
+r = admin.get(B + "/messages").json()["messages"]
+eq("messages list with their tokens", [(m["name"], m["tokens"], m["active"]) for m in r],
+   [("Nursery", [{"name": "room", "kind": "text", "text": "3"}], False)])
+fake.requests.clear()
+r = admin.post(B + "/messages/MSG1/trigger", json={"tokens": [{"name": "room", "text": "  Room   12 "}]})
+eq("a message is triggered with its text tokens", (r.status_code, [(m, p, json.loads(b)) for m, p, b in sent("POST")]),
+   (200, [("POST", "/v1/message/MSG1/trigger", [{"name": "room", "text": {"text": "Room 12"}}])]))
+eq("it then reads as active", admin.get(B + "/messages").json()["messages"][0]["active"], True)
+fake.requests.clear()
+admin.post(B + "/messages/MSG1/clear")
+eq("and clears with a GET to its clear path", [p for _, p, _ in sent("GET")], ["/v1/message/MSG1/clear"])
+eq("a token with no name is refused", admin.post(B + "/messages/MSG1/trigger", json={"tokens": [{"text": "x"}]}).status_code, 400)
+
+# -- transport
+fake.requests.clear()
+r = admin.post(B + "/transport", json={"seconds": 12.5})
+eq("go to a time is a PUT of a bare number", (r.status_code, [(m, p, json.loads(b)) for m, p, b in sent("PUT")]),
+   (200, [("PUT", "/v1/transport/presentation/time", 12.5)]))
+eq("a bad time is refused", [admin.post(B + "/transport", json={"seconds": v}).status_code for v in ("x", -1, None)], [400, 400, 400])
+
+# -- view-only: every control write is refused, before ProPresenter is touched; reads still work
+config.save({"propresenter": {"enabled": True, "host": "127.0.0.1", "port": srv.port, "view_only": True,
+                              "macros_mode": "all"}}, replace=("propresenter",))
+fake.requests.clear()
+writes = [("/step", {"direction": "next"}), ("/next-presentation", {}), ("/slide", {"uuid": "P-Grea", "index": 0}),
+          ("/clear", {"layer": "slide"}), ("/playlists/PL1/trigger", {"index": 1}), ("/macros/M1/trigger", {}),
+          ("/looks/L1/trigger", {}), ("/timers/T1/start", {}), ("/messages/MSG1/trigger", {"tokens": []}),
+          ("/messages/MSG1/clear", {}), ("/transport", {"seconds": 1})]
+codes = [admin.post(B + p, json=b).status_code for p, b in writes]
+eq("view-only refuses every control write with 409", codes, [409] * len(writes))
+eq("and nothing reached ProPresenter", fake.requests, [])
+eq("reads still work in view-only mode", (admin.get(B + "/playlists").status_code, admin.get(B + "/slides").status_code,
+                                          admin.get(f"{B}/thumbnail/P-Grea/0?v=ro").status_code), (200, 200, 200))
+config.save({"propresenter": {"enabled": True, "host": "127.0.0.1", "port": srv.port, "view_only": False}},
+            replace=("propresenter",))
+
+# -- ProPresenter down
+pp.follower.client = pp.Client("127.0.0.1", 1, False)
+r = admin.post(B + "/step", json={"direction": "next"})
+eq("with ProPresenter unreachable a control says so, without exception text",
+   (r.status_code, r.json()["error"]), (502, "Could not reach ProPresenter. Check the address and port, and that ProPresenter is running."))
+pp.follower.client = None
+r = admin.post(B + "/step", json={"direction": "next"})
+eq("with ProPresenter not set up there is an error, not a crash", r.status_code, 502)
+pp.follower.presentation = None
+fake.clear()
 
 # ------------------------------------------------------------------------------------------------ discovery
 print("discovery")
