@@ -6,7 +6,7 @@ starlette==1.6.0
 # Python 3.15 build. Only the two speedups the app uses are listed; it uses
 # no YAML log config, --reload (watchfiles) or --env-file (python-dotenv).
 uvicorn==0.34.0
-uvloop==0.23.0
+uvloop==0.23.0; sys_platform != "win32"
 httptools==0.9.0
 jinja2==3.1.6
 orjson==3.13.0
