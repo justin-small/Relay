@@ -69,3 +69,27 @@ When the desktop app is captioning and your panels are connected:
 3. If nothing else on the computer uses Docker, uninstall Docker Desktop.
 4. Keep the old `Relay` folder until you are sure you no longer need it. It
    holds a full copy of your 2.0 settings and recordings.
+
+## Updating the desktop app {#updating}
+
+Relay checks for a new release when it starts and once a day, and tells you in two places: the tray (menu bar)
+menu item **Check for updates** changes to **Install Relay *x.y.z* and restart**, and a box appears at the bottom
+right of the admin page. Relay never installs an update by itself. When you choose to, it asks first if captions
+are running, stops cleanly, installs, and starts again. Your settings, recordings and accounts stay where they
+are. Only final releases are offered; test releases (`-rc`, `-beta`) are not.
+
+Before installing, Relay copies the current app and your settings (not recordings) into a `backups` folder inside
+its state folder. If the new version does not start, Relay puts the old version and your settings back by itself and
+tells you once. (A rollback keeps the old settings, so anything you changed in the few minutes after an update that
+failed to start is lost.)
+
+Each download is checked against a signature before it is installed, and an altered file is refused.
+
+Relay looks for updates at the project's GitHub releases page. If the project moves, you can point Relay at the
+new address without reinstalling: set the `RELAY_UPDATE_URL` environment variable, or add a line
+`"update_url": "owner/repo"` to `shell.json` in Relay's state folder (open it from the tray menu with **Open
+state folder**), then restart Relay.
+
+Until the installers are signed with a developer certificate, the first install shows a warning from Windows
+(SmartScreen) or macOS (Gatekeeper). See [Troubleshooting the installation](#install-troubleshooting) for the
+steps; each release's notes repeat them.

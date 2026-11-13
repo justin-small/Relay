@@ -1,0 +1,22 @@
+version: 2
+updates:
+  # The desktop shell (#184). The Tauri crates and the Tauri CLI move together, so each ecosystem gets one group.
+  - package-ecosystem: cargo
+    directory: /desktop/src-tauri
+    schedule:
+      interval: weekly
+    groups:
+      tauri:
+        patterns: ['tauri*']
+  - package-ecosystem: npm
+    directory: /desktop
+    schedule:
+      interval: weekly
+    groups:
+      tauri:
+        patterns: ['@tauri-apps/*']
+  # The workflows' actions (release.yml, tests.yml, firmware.yml).
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly

@@ -26,3 +26,8 @@ pub fn logs_dir() -> PathBuf {
 pub fn shell_settings_file() -> PathBuf {
     state_dir().join("shell.json")
 }
+
+/// Where an update leaves what it needs to undo itself (rollback.rs): `state/` and `app/`.
+pub fn backups_dir() -> PathBuf {
+    state_dir().join("backups")
+}

@@ -29,6 +29,7 @@ use rustls::{
     DigitallySignedStruct, SignatureScheme,
 };
 use sha2::{Digest, Sha256};
+use tauri::AppHandle;
 use tokio::net::TcpListener;
 
 use crate::backend::Pins;
@@ -128,11 +129,19 @@ async fn forward(
     port: u16,
     pins: Arc<Pins>,
     client: reqwest::Client,
+    app: AppHandle,
 ) -> Result<Response<Body>, Infallible> {
     // DNS rebinding: only this listener's own name is served.
     let host_ok = req.headers().get(HOST).and_then(|h| h.to_str().ok()) == Some(format!("127.0.0.1:{port}").as_str());
     if !host_ok {
         return Ok(error_page(StatusCode::MISDIRECTED_REQUEST, "Not available."));
+    }
+    // The shell's own routes (the update banner's install button). They never reach the panel, and the
+    // webview that holds the per-run token is the only caller that can use them.
+    if req.uri().path().starts_with("/__shell/") {
+        let token = req.headers().get("x-relay-shell").and_then(|h| h.to_str().ok());
+        let (code, text) = crate::updater::http(&app, req.method().as_str(), req.uri().path(), token);
+        return Ok(error_page(StatusCode::from_u16(code).unwrap_or(StatusCode::BAD_REQUEST), text));
     }
     let admin = pins.admin_port.load(std::sync::atomic::Ordering::SeqCst);
     if admin == 0 {
@@ -172,16 +181,16 @@ async fn forward(
 }
 
 /// Start the proxy on a free loopback port; returns the port.
-pub async fn start(pins: Arc<Pins>) -> std::io::Result<u16> {
+pub async fn start(pins: Arc<Pins>, app: AppHandle) -> std::io::Result<u16> {
     let listener = TcpListener::bind(SocketAddr::from(([127, 0, 0, 1], 0))).await?;
     let port = listener.local_addr()?.port();
     let client = client(pins.clone());
     tokio::spawn(async move {
         loop {
             let Ok((stream, _)) = listener.accept().await else { continue };
-            let (pins, client) = (pins.clone(), client.clone());
+            let (pins, client, app) = (pins.clone(), client.clone(), app.clone());
             tokio::spawn(async move {
-                let svc = service_fn(move |req| forward(req, port, pins.clone(), client.clone()));
+                let svc = service_fn(move |req| forward(req, port, pins.clone(), client.clone(), app.clone()));
                 let _ = hyper::server::conn::http1::Builder::new().serve_connection(TokioIo::new(stream), svc).await;
             });
         }

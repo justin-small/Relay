@@ -4,19 +4,29 @@ name: Release
 #
 #   git tag v1.2.0 && git push origin v1.2.0
 #
-# Assets:
-#   Relay-v1.2.0.zip        the app; unzips to a folder already named Relay/,
-#                           so the guide's install steps apply unchanged
-#   Relay-User-Guide.pdf    the README's releases/latest/download links
-#   Relay-User-Guide.docx   resolve to these
-#   relay-display-app.bin   the caption panel's application image, signed with the release key: what an
-#                           operator uploads in the admin page's Panels section (#74)
-#   relay-display.bin       the same, merged with the bootloader and partition table, for the first flash
-#                           of a panel over USB (firmware/relay-display/README.md)
+# The tag is the one place a version is written: tools/release_tools.py puts it in the Tauri app's
+# version, which the shell hands to the backend as RELAY_VERSION (and Relay announces in its mDNS `v` record).
 #
-# A tag with a hyphen (v1.2.0-rc.1) is published as a pre-release, which
-# releases/latest skips. Pull requests that touch this file or the guide run
-# every step except the publish, so a broken build shows up before a tag does.
+# Assets:
+#   Relay_1.2.0_x64-setup.exe        Windows installer (NSIS, per user)
+#   Relay_1.2.0_aarch64.dmg          macOS, Apple silicon
+#   Relay_1.2.0_x64.dmg              macOS, Intel
+#   Relay_1.2.0_amd64.AppImage/.deb  Linux
+#   *.sig, *.app.tar.gz, latest.json what the in-app updater reads (desktop/src-tauri/src/updater.rs): each
+#                                    update artifact is signed with the updater key in the repository secret
+#                                    TAURI_SIGNING_PRIVATE_KEY (not an OS code-signing key); the matching public
+#                                    key is in desktop/src-tauri/tauri.conf.json
+#   Relay-v1.2.0.zip                 the source tree, unzips to Relay/: for a headless Linux service install
+#   Relay-User-Guide.pdf/.docx       the README's releases/latest/download links resolve to these
+#   relay-display-app.bin            the caption panel's application image, signed with the release key: what an
+#                                    operator uploads in the admin page's Panels section (#74)
+#   relay-display.bin                the same, merged with the bootloader and partition table, for the first
+#                                    flash of a panel over USB (firmware/relay-display/README.md)
+#
+# A tag with a hyphen (v1.2.0-rc.1) is published as a pre-release, which releases/latest skips: installs
+# update from releases/latest/download/latest.json, so they are never offered one.
+# Pull requests that touch this file, the guide or desktop/ run every step except the publish (and the
+# updater signing, which needs the secret), so a broken build shows up before a tag does.
 
 on:
   push:
@@ -25,6 +35,10 @@ on:
     paths:
       - .github/workflows/release.yml
       - docs/guide/**
+      - desktop/**
+      - spike/**
+      - tools/release_tools.py
+      - requirements.txt
 
 permissions:
   contents: read
@@ -148,9 +162,121 @@ jobs:
           path: panel/*.bin
           if-no-files-found: error
 
+  desktop:
+    name: Desktop (${{ matrix.name }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Windows on ARM and Linux arm64 come later (#184).
+          - { name: windows-x64, os: windows-latest, bundles: nsis }
+          - { name: macos-arm64, os: macos-latest, bundles: 'app,dmg', arch: aarch64 }
+          - { name: macos-x64, os: macos-15-intel, bundles: 'app,dmg', arch: x64 }
+          # The oldest glibc a hosted runner offers, so the AppImage runs on as many distributions as it can.
+          - { name: linux-x64, os: ubuntu-22.04, bundles: 'appimage,deb' }
+    steps:
+      - uses: actions/checkout@v7
+      # **A tag signs the updates; a pull request only proves the build.** Without the key an installed
+      # copy could never accept the release, so a tag without it fails here, loudly, as the panel
+      # firmware's does. The key never reaches a pull request.
+      - name: Require the updater signing key
+        if: github.ref_type == 'tag'
+        shell: bash
+        env:
+          KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+        run: |
+          if [[ -z "$KEY" ]]; then
+            echo "::error::TAURI_SIGNING_PRIVATE_KEY is not set. A release without it would ship installers no installed Relay can update to." >&2
+            exit 1
+          fi
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.15'
+          cache: pip
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: desktop/package-lock.json
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: desktop/src-tauri
+      - name: Linux libraries
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libxdo-dev \
+            patchelf libportaudio2 pulseaudio
+          pulseaudio -D --exit-idle-time=-1 --load=module-null-sink
+      - name: Version from the tag
+        if: github.ref_type == 'tag'
+        shell: bash
+        run: python tools/release_tools.py version "$GITHUB_REF_NAME"
+      - name: Freeze the backend
+        shell: bash
+        run: |
+          python -m pip install -U pip
+          pip install --only-binary=:all: -r requirements.txt pyinstaller==6.22.0
+          pyinstaller spike/relay.spec --noconfirm --distpath "$RUNNER_TEMP/relay-dist" --workpath "$RUNNER_TEMP/relay-work"
+          exe="$RUNNER_TEMP/relay-dist/relay/relay"
+          [[ "$RUNNER_OS" == Windows ]] && exe="$exe.exe"
+          RELAY_HOME="$RUNNER_TEMP/probe" "$exe" --probe
+          mkdir -p desktop/src-tauri/relay-backend
+          cp -R "$RUNNER_TEMP/relay-dist/relay/." desktop/src-tauri/relay-backend/
+      - name: Build the installers
+        shell: bash
+        working-directory: desktop
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          npm ci
+          extra=()
+          [[ "$GITHUB_REF_TYPE" == tag ]] && extra+=(--config '{"bundle":{"createUpdaterArtifacts":true}}')
+          npx tauri build --bundles "${{ matrix.bundles }}" "${extra[@]}"
+      - name: Stage the installers
+        shell: bash
+        env:
+          ARCH: ${{ matrix.arch }}
+        run: |
+          set -e
+          bundle=desktop/src-tauri/target/release/bundle
+          ver=$(python -c "import json; print(json.load(open('desktop/src-tauri/tauri.conf.json'))['version'])")
+          mkdir -p staged
+          shopt -s nullglob
+          case "$RUNNER_OS" in
+            Windows) files=("$bundle"/nsis/*-setup.exe "$bundle"/nsis/*-setup.exe.sig) ;;
+            macOS)
+              # Both Macs build a file called Relay.app.tar.gz: name it for its architecture before they meet.
+              cp "$bundle/macos/Relay.app.tar.gz" "staged/Relay_${ver}_${ARCH}.app.tar.gz" 2>/dev/null || true
+              [[ -f "$bundle/macos/Relay.app.tar.gz.sig" ]] && cp "$bundle/macos/Relay.app.tar.gz.sig" "staged/Relay_${ver}_${ARCH}.app.tar.gz.sig"
+              files=("$bundle"/dmg/*.dmg) ;;
+            Linux) files=("$bundle"/appimage/*.AppImage "$bundle"/appimage/*.AppImage.sig "$bundle"/deb/*.deb) ;;
+          esac
+          cp "${files[@]}" staged/
+          ls -l staged
+          # An installer and (on a tag) a signature for every update artifact, or this job fails.
+          [[ -n "$(ls staged | grep -E '\.(exe|dmg|AppImage)$')" ]] || { echo "::error::no installer was built"; exit 1; }
+          if [[ "$GITHUB_REF_TYPE" == tag ]]; then
+            for f in staged/*; do
+              case "$f" in
+                *.sig|*.dmg|*.deb) ;;
+                *) [[ -f "$f.sig" ]] || { echo "::error::$f has no .sig"; exit 1; } ;;
+              esac
+            done
+          fi
+      - uses: actions/upload-artifact@v7
+        with:
+          name: desktop-${{ matrix.name }}
+          path: staged/*
+          if-no-files-found: error
+
   release:
     name: Publish release
-    needs: [test, guide, panel-firmware]
+    needs: [test, guide, panel-firmware, desktop]
     if: github.event_name == 'push' && github.ref_type == 'tag'
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -166,10 +292,17 @@ jobs:
         with:
           name: panel-firmware
           path: dist
-      - name: Package the app
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: desktop-*
+          path: dist
+          merge-multiple: true
+      - name: Package the source
         # git archive ships exactly what is committed at the tag: no
-        # config.json or recordings/, which are gitignored.
+        # config.json or recordings/, which are gitignored. It is what a headless Linux service runs from.
         run: git archive --format=zip --prefix=Relay/ -o "dist/Relay-${GITHUB_REF_NAME}.zip" "$GITHUB_REF_NAME"
+      - name: Write latest.json for the in-app updater
+        run: python3 tools/release_tools.py latest-json dist --tag "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY"
       - name: Create the release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -177,4 +310,5 @@ jobs:
           flags=()
           [[ "$GITHUB_REF_NAME" == *-* ]] && flags+=(--prerelease)
           gh release create "$GITHUB_REF_NAME" dist/* \
-            --verify-tag --title "Relay ${GITHUB_REF_NAME}" --generate-notes "${flags[@]}"
+            --verify-tag --title "Relay ${GITHUB_REF_NAME}" \
+            --notes-file .github/release-notes.md --generate-notes "${flags[@]}"

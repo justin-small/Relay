@@ -15,6 +15,7 @@ pub struct Tray {
     panel: MenuItem<Wry>,
     link: MenuItem<Wry>,
     fingerprint: MenuItem<Wry>,
+    updates: MenuItem<Wry>,
     pub autostart: CheckMenuItem<Wry>,
     base: Image<'static>,
 }
@@ -91,10 +92,24 @@ pub fn build(app: &AppHandle, autostart_on: bool) -> tauri::Result<Tray> {
     // On macOS a click on the menu-bar icon opens the menu; elsewhere a left click opens the panel.
     builder = builder.show_menu_on_left_click(cfg!(target_os = "macos"));
     let icon = builder.build(app)?;
-    Ok(Tray { icon, status, panel, link, fingerprint, autostart, base })
+    Ok(Tray { icon, status, panel, link, fingerprint, updates, autostart, base })
 }
 
 impl Tray {
+    /// The "Check for updates" item doubles as the install button once something has been found.
+    pub fn set_update(&self, st: &crate::updater::State) {
+        let (text, enabled) = match st.kind {
+            "checking" => ("Checking for updates...".to_string(), false),
+            "available" => (format!("Install Relay {} and restart...", st.version), true),
+            "downloading" => (format!("Downloading Relay {}: {}%", st.version, st.percent), false),
+            "installing" => ("Installing update...".to_string(), false),
+            "failed" => ("Update check failed. Check again".to_string(), true),
+            _ => ("Check for updates".to_string(), true),
+        };
+        let _ = self.updates.set_text(text);
+        let _ = self.updates.set_enabled(enabled);
+    }
+
     pub fn update(&self, snap: &Snapshot) {
         let mut text = format!("Relay: {}", label(snap.status).to_lowercase());
         if !snap.message.is_empty() {
