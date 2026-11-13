@@ -46,13 +46,14 @@ MODULES = APP / "modules"
 CORE_FILES = {
     "__init__.py", "alerts.py", "announce.py", "audio.py", "config.py", "db.py", "demo.py", "engine.py", "exporting.py", "hub.py",
     "languages.py", "main.py", "netinfo.py", "overlays.py", "panelfw.py", "panels.py", "paths.py", "realtime.py", "recorder.py", "redact.py",
-    "scheduler.py", "schedules.py", "texttranslate.py", "users.py",
+    "scheduler.py", "schedules.py", "serving.py", "texttranslate.py", "tls.py", "users.py",
 }
 # Network clients, and the core files allowed them: OpenAI (realtime, text translation) and the host's own
 # address for the viewer links (main, netinfo) and Relay announcing itself to its own caption panels (announce).
 NETWORK = {"socket", "ssl", "http.client", "urllib.request", "websockets", "httpx", "aiohttp", "requests",
            "zeroconf", "paho", "pyserial", "serial"}
-CORE_NETWORK = {"announce.py": {"socket"}, "main.py": {"socket"}, "netinfo.py": {"socket"}, "realtime.py": {"ssl", "websockets"}, "texttranslate.py": {"urllib.request"}}
+CORE_NETWORK = {"announce.py": {"socket"}, "main.py": {"socket"}, "netinfo.py": {"socket"}, "realtime.py": {"ssl", "websockets"}, "serving.py": {"socket"},
+                "texttranslate.py": {"urllib.request"}, "tls.py": {"socket", "ssl"}}
 
 fails = []
 
@@ -134,6 +135,8 @@ for name in sorted(CORE_FILES & top):
 print("module contract")
 config.ensure_file()
 config.save({"port": 8000, "admin_port": 8001})
+from app import serving
+serving.publish(8000, 8001)
 admin = _db.client(app, base_url="http://relay.local:8001")
 viewer = TestClient(app, base_url="http://relay.local:8000")
 check("logged in to the admin page", 'id="page-modules"' in admin.get("/admin").text)

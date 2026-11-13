@@ -25,7 +25,7 @@ from jinja2 import ChoiceLoader, FileSystemLoader, PrefixLoader
 
 from . import alerts as alertsmod
 from . import announce as announcemod
-from . import config, db, exporting, languages, netinfo, overlays, panelfw, panels, redact, schedules, users
+from . import config, db, exporting, languages, netinfo, overlays, panelfw, panels, redact, schedules, serving, tls, users
 from .alerts import alerts
 from . import engine as engine_mod
 from .engine import TRANSCRIPTION_STREAM, TRANSLATION_STREAM, demo_mode, engine
@@ -135,18 +135,37 @@ def _is_admin_path(path: str) -> bool:
 
 
 def _on_admin_port(request: Request) -> bool:
-    """True unless this request arrived on the viewer port of a split setup.
+    """False only for a request that arrived on the viewer port.
 
-    Only the viewer port is gated, deliberately: anything else -- a test client,
-    a reverse proxy, `admin_port == port` -- keeps the old single-port
-    behaviour rather than locking the operator out.
+    The viewer port is the one Relay really bound (app/serving.py: 80, or 8080 when 80 was taken), or the
+    configured one when nothing has been published (a test client, a script importing the app).
     """
-    cfg = config.get()
-    viewer_port = int(cfg.get("port") or 8000)
-    admin_port = int(cfg.get("admin_port") or viewer_port)
-    if admin_port == viewer_port:
-        return True
-    return _request_port(request) != viewer_port
+    return _request_port(request) != serving.viewer_port(config.get()["port"])
+
+
+def _on_panel_socket(request: Request) -> bool:
+    """True when this request arrived on the HTTPS panel socket."""
+    return _request_port(request) == serving.admin_port(config.get()["admin_port"])
+
+
+# What Caddy used to add to every panel response. HSTS is only honoured over HTTPS, so it is only sent there.
+PANEL_HEADERS = {
+    "X-Content-Type-Options": "nosniff",
+    "X-Frame-Options": "DENY",
+    "Referrer-Policy": "no-referrer",
+}
+HSTS = f"max-age={tls.HSTS_MAX_AGE}"
+
+
+@app.middleware("http")
+async def _panel_headers(request: Request, call_next):
+    response = await call_next(request)
+    if _on_panel_socket(request):
+        for k, v in PANEL_HEADERS.items():
+            response.headers[k] = v
+        if _is_https(request):
+            response.headers["Strict-Transport-Security"] = HSTS
+    return response
 
 
 # Web Serial is denied everywhere but the board flasher, which writes a panel's flash through it. An
@@ -196,13 +215,14 @@ async def _startup() -> None:
     engine.bind(asyncio.get_running_loop())
     app.state.blocklist_task = asyncio.create_task(_watch_blocklist())
     app.state.alerts_task = asyncio.create_task(_alert_ticks())
-    # Logs a change of LAN address (Wi-Fi switch); the admin page re-reads its viewer links on its own.
-    app.state.net_task = asyncio.create_task(netinfo.watch(lambda ips: None))
+    # A change of LAN address (Wi-Fi switch): mint a certificate that names the new address if the current
+    # one does not; the admin page re-reads its viewer links and the fingerprint on its own.
+    app.state.net_task = asyncio.create_task(netinfo.watch(lambda ips: tls.panel.refresh()))
     # Tell caption panels on the LAN where Relay is (mDNS, in a background thread). Never stops Relay.
     app.state.announcer = None
     if announcemod.enabled():
         app.state.announcer = announcemod.Announcer(
-            announcemod.install_name(), int(cfg["port"]), os.environ.get("RELAY_VERSION") or "dev")
+            announcemod.install_name(), serving.viewer_port(cfg["port"]), os.environ.get("RELAY_VERSION") or "dev")
         app.state.announcer.start()
     # First tick runs straight away, so a relay started mid-window catches up.
     scheduler.start()
@@ -212,27 +232,11 @@ async def _startup() -> None:
         with contextlib.suppress(Exception):
             if await asyncio.to_thread(_any_users) is False:
                 log.info("No users yet: open the operator panel on this computer to finish setting up Relay.")
-    # Both sockets are loopback-only behind the Caddy front end, so these are
-    # the internal addresses, not the ones anyone dials. The URLs the operator
-    # and the room actually use are printed by tools/setup_caddy.py at startup,
-    # where the published ports are known.
-    log.info("Viewer socket: 127.0.0.1:%d", int(cfg["port"]))
-    if int(cfg["admin_port"]) != int(cfg["port"]):
-        admin_host = str(cfg.get("admin_host") or "127.0.0.1")
-        if admin_host in _LOOPBACK_HOSTS:
-            log.info("Panel socket: 127.0.0.1:%d (loopback only, HTTPS via the "
-                     "front end)", int(cfg["admin_port"]))
-        else:
-            # Only reachable by hand-editing admin_host. Say plainly what it
-            # costs: the panel reads and writes the OpenAI key and the admin
-            # token, and on this socket they cross the network in the clear.
-            log.warning(
-                "Panel socket: %s:%d -- NOT loopback, so the panel is reachable "
-                "in CLEARTEXT from the network. Set \"admin_host\" back to "
-                "\"127.0.0.1\" in config.json and reach it over HTTPS instead.",
-                admin_host,
-                int(cfg["admin_port"]),
-            )
+    if serving.published():
+        log.info("Viewer pages on port %d (HTTP), operator panel on port %d (HTTPS)",
+                 serving.viewer_port(), serving.admin_port())
+        for note in serving.notices():
+            log.warning(note)
     if demo_mode():
         from . import demo
 
@@ -324,10 +328,25 @@ def _urls(port: int) -> list[str]:
     """The viewer links the panel shows (and turns into QR codes).
 
     Relay serves viewers itself, so the links are this machine's own network addresses (app/netinfo.py)
-    on the viewer port.
+    on the viewer port, which is left out of the link when it is 80.
     """
     ips = netinfo.lan_ips() or ["127.0.0.1"]
-    return [f"http://{ip}:{port}/" for ip in ips] + [f"http://127.0.0.1:{port}/"]
+    return [serving.link("http", ip, port) for ip in ips] + [serving.link("http", "127.0.0.1", port)]
+
+
+def _serving_info() -> dict:
+    """What the admin page shows about how Relay is reachable: ports, notices, panel links, fingerprint."""
+    cfg = config.get()
+    admin_port = serving.admin_port(cfg["admin_port"])
+    ips = netinfo.lan_ips() or ["127.0.0.1"]
+    hosts = ([cfg["admin_fqdn"]] if cfg.get("admin_fqdn") else []) + ips
+    return {
+        "viewer_port": serving.viewer_port(cfg["port"]),
+        "admin_port": admin_port,
+        "notices": serving.notices(),
+        "panel_urls": [serving.link("https", h, admin_port, "/admin") for h in hosts],
+        "certificate": tls.panel.describe(),
+    }
 
 
 # ---------------------------------------------------------------- auth
@@ -365,7 +384,7 @@ def _from_loopback(request: Request) -> bool:
 def _client_ip(request: Request) -> str:
     """The address the login rate limiter counts against.
 
-    Behind the Caddy front end every request has a peer of 127.0.0.1, which
+    Behind a reverse proxy every request has a peer of 127.0.0.1, which
     would collapse the per-IP lockout added in #8 into a single global counter:
     one guesser would lock out the operator. So take the left-most entry of
     X-Forwarded-For -- but only from a loopback peer, never from a direct
@@ -381,8 +400,8 @@ def _client_ip(request: Request) -> str:
 def _is_https(request: Request) -> bool:
     """True when the browser's leg of this request is TLS.
 
-    Direct requests are plain HTTP. Through the front end the app still speaks
-    HTTP over loopback, so the only honest signal is Caddy's X-Forwarded-Proto.
+    The panel socket speaks TLS itself, so its requests say so. A reverse proxy that terminates TLS in
+    front of the app (not something Relay ships) is trusted only from a loopback peer.
     """
     if request.url.scheme == "https":
         return True
@@ -1350,7 +1369,9 @@ RESCAN_LIVE_NOTE = (
 @app.get("/api/admin/urls", dependencies=[Depends(require("settings.view"))])
 async def admin_urls():
     """Viewer links alone, so the admin page can follow a network change without a reload."""
-    return {"urls": await asyncio.to_thread(_urls, config.get()["port"])}
+    cfg = config.get()
+    return {"urls": await asyncio.to_thread(_urls, serving.viewer_port(cfg["port"])),
+            "serving": await asyncio.to_thread(_serving_info)}
 
 
 @app.get("/api/admin/state", dependencies=[Depends(require("settings.view"))])
@@ -1364,7 +1385,8 @@ async def admin_state():
         "status": engine.status(),
         "devices": list_input_devices(),
         "device_notice": selection_notice(config.get().get("audio_device")),
-        "urls": _urls(config.get()["port"]),
+        "urls": _urls(serving.viewer_port(config.get()["port"])),
+        "serving": _serving_info(),
     }
 
 

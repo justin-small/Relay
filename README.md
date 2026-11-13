@@ -11,77 +11,55 @@ viewers. One vendor (OpenAI Realtime), native audio capture, text-only output.
 Viewers open a link on their phone and read. Nothing to install, no account,
 no microphone permission. The audio is captured on the host machine.
 
-Two sockets, one process:
+Two sockets, one process, nothing in front of it:
 
 | | Default | Serves |
 |---|---|---|
-| **viewers** | `0.0.0.0:8000` | `/` chooser, `/transcription`, `/translation`, `/both`: the link you give the room (plain HTTP) |
-| **operator panel** | `127.0.0.1:8001` | `/admin`, reachable only from the computer Relay runs on |
+| **viewers** | `0.0.0.0:80` | `/` chooser, `/transcription`, `/translation`, `/both`: the link you give the room (plain HTTP) |
+| **operator panel** | `0.0.0.0:443` | `/admin`, over **HTTPS only**, with a certificate Relay makes itself |
 
-`host` is `0.0.0.0` because the room has to reach the viewer link; `admin_host` is
-`127.0.0.1` because the panel reads and writes the OpenAI key and carries everyone's
-sign-in, and those have no business crossing venue Wi-Fi in cleartext. Admin routes
-answer 404 on the viewer port, and the chooser page only offers the panel when it is
-served on the admin port, so the audience link never exposes it. Set `admin_port` equal
-to `port` in `config.json` to put everything on one port. Serving the panel over HTTPS
-to other machines is the job of the HTTPS issue.
+The panel carries the OpenAI key and everyone's sign-in, so it is never served in
+cleartext: its socket always speaks TLS, and `http://<address>/admin` is refused on the
+viewer port (admin routes answer 404 there, and the chooser only offers the panel when it
+is served on the admin port). `port` and `admin_port` in `config.json` change the ports; they
+cannot be the same. If port 80 or 443 cannot be opened (already in use, or not permitted)
+Relay uses **8080 / 8443** instead, says so on the *Viewer links* page, and puts the port in
+every viewer link and in the mDNS record. Set `admin_host` to `127.0.0.1` to keep the panel
+off the network altogether.
 
-**Running Relay at a venue, not developing it?** The
-[Relay User Guide](https://github.com/justin-small/Relay/releases/latest/download/Relay-User-Guide.pdf)
-([Word version](https://github.com/justin-small/Relay/releases/latest/download/Relay-User-Guide.docx))
-walks through installing on macOS, Windows and Linux, getting an OpenAI key
-with a spending limit, every screen of the panel, and the Bitfocus Companion
-module, in plain English. Its source is in [`docs/guide/`](docs/guide/).
+### The panel certificate
 
----
+Relay mints a self-signed certificate (`certs/` in the state folder, key `0600`, never
+logged) covering the machine's LAN addresses, its host name and an optional `admin_fqdn`
+from `config.json`. It is reused while it still covers those names and has more than 30
+days left, so a restart keeps the same fingerprint. When the LAN address changes to one it
+does not cover (a laptop on a new Wi-Fi network) a new one is minted at once, without a
+restart, and the *Viewer links* page says the fingerprint changed.
 
-## What's new
+The browser warns once. Check the SHA-256 fingerprint it shows against the one Relay prints at
+start-up, shows on the *Viewer links* page, or prints on demand:
 
-<p>
-  <img src="docs/guide/images/admin-panels.png" alt="The Panels page, with three caption panels online" width="49%">
-  <img src="docs/guide/images/alert-sender.png" alt="The alert sender page on a phone" width="22%">
-</p>
+```bash
+python run.py --fingerprint
+```
 
-**Caption panels.** A small touch screen on a wall or desk now shows your
-captions without anyone needing a phone. Plug a new panel in, join it to your
-Wi-Fi from your phone, and it finds Relay on its own. Show the transcription,
-one translation, or two side by side, and turn the picture to any of four
-angles to suit how it is mounted. Name each panel, change what it shows, or
-restart it from the operator panel, and update its software from there too.
+Per-OS notes for ports 80 and 443:
 
-**Set up a panel from your browser.** A new panel is flashed over USB straight
-from Chrome or Edge: pick the port, press one button, and watch the progress.
-No tools to install.
+- **Windows.** The first run raises a Windows Defender Firewall prompt; allow *Private
+  networks* or other machines cannot reach either port. Ports 80 and 443 are often taken by
+  IIS or another web server; Relay then falls back to 8080 / 8443.
+- **macOS.** The first run asks to allow *local network* access (and, in a packaged app, to
+  accept incoming connections); refusing it blocks other computers, not this one. Ports below
+  1024 need no privileges on macOS 10.14 and later.
+- **Linux.** An unprivileged account cannot open ports below 1024, so Relay falls back to
+  8080 / 8443. To use 80 and 443, either run
+  `sudo setcap 'cap_net_bind_service=+ep' $(readlink -f $(which python3))`, lower
+  `net.ipv4.ip_unprivileged_port_start` to 80, or run it from a systemd unit with
+  `AmbientCapabilities=CAP_NET_BIND_SERVICE`. Do not run it as root. The firewall (`ufw`,
+  `firewalld`) must allow the two ports.
 
-**Alerts.** When a musician needs the sound desk or the video team, they tap a
-button on their phone. The screens you choose flash red and white and show who
-is asking, until someone there taps. The first tap stops it everywhere and
-tells the sender it was seen. Set up the buttons, icons and screens in the
-operator panel; the flashing is once a second.
-
-**Your order of service on the panels.** Connect Planning Center Services and
-the panels show what is happening now, what is next and how much time is left.
-Where you allow it, a panel's **Next**, **Previous** and **Take control**
-buttons move the service on at once. Plan changes reach the panels within
-about 30 seconds.
-
-**Captions for your livestream.** A new **Broadcast overlay** page builds the
-caption layer for OBS, vMix, ProPresenter or an ATEM: pick a lower third, a top
-strip, a full-screen accessibility slate or two languages stacked, set the
-position, font, colours and outline against a live preview, and copy the link.
-Save it by name and later changes reach the stream with no new link to paste.
-Finished-lines-only and pop-on captions keep words from changing on air.
-
-**A tidier operator panel.** A menu down the left groups everything by what
-you are doing (Live, Output, Automation, Settings), with a status pill that
-always shows whether capture is running.
-
-**Lower cost for many languages.** A new **Text** translation engine
-transcribes once and translates each finished line, so adding languages costs
-almost nothing. It also adds Arabic, Nepali, Telugu and Hmong.
-
-Every screen is explained, with pictures, in the
-[Relay User Guide](https://github.com/justin-small/Relay/releases/latest/download/Relay-User-Guide.pdf).
+These notes follow each platform's documented behaviour; the Windows and Linux prompts have not yet been
+observed on a clean install.
 
 ---
 
@@ -94,7 +72,9 @@ pip install -r requirements.txt
 python run.py
 ```
 
-Then open <http://127.0.0.1:8001/admin> **on that computer**. The first-run page asks for
+Then open <https://127.0.0.1/admin> **on that computer** (<https://127.0.0.1:8443/admin> if Relay
+fell back to the other ports; the start-up message prints the real address, and the browser warns once
+about the self-signed certificate). The first-run page asks for
 your OpenAI API key (optional here; it can be added later in Settings) and creates the
 first Owner account. Until that account exists the page answers only to the machine
 itself, so nobody else on the network can claim it. Viewer links are worked out from
@@ -112,8 +92,7 @@ Everything Relay writes lives in one per-user folder, never in the install direc
 **Relay runs as the logged-in user.** There is no container around it: it can read
 and write whatever you can, and it holds your OpenAI key in `config.json` (owner-only
 permissions) in that folder. Run it from an account you would trust with that key,
-keep the operator panel on `127.0.0.1` (the default), and do not run it as an
-administrator or root.
+and do not run it as an administrator or root.
 
 **Moving from a Docker install.** Stop the old Relay, then on Windows run
 `powershell -ExecutionPolicy Bypass -File tools\migrate-from-docker.ps1`. It copies
@@ -125,7 +104,7 @@ to name the folder yourself, and `-Force` to replace an existing native config.
 ## First run
 
 1. `pip install -r requirements.txt && python run.py`.
-2. Open <http://127.0.0.1:8001/admin> on that computer. Enter your OpenAI API key
+2. Open <https://127.0.0.1/admin> on that computer. Enter your OpenAI API key
    (or add it later in Settings) and create the first account, the Owner. You are
    signed in when it is done.
 3. In the panel:
@@ -565,9 +544,11 @@ Check the host's bandwidth and the session health table, not these two fields.
   will not install a certificate to read captions.
   **Do not expose this server to the public internet as-is**: viewer pages have
   no access control and no transport security.
-- The operator panel is a different matter. The relay's admin socket binds `127.0.0.1`
-  (`admin_host` in `config.json`), so only this computer reaches it, and nothing crosses
-  the network in cleartext. Serving it to other machines waits for HTTPS (its own issue).
+- The operator panel is a different matter. It is served only over HTTPS, by Relay itself,
+  on its own port (443), with a self-signed certificate whose fingerprint you check once.
+  Its responses carry HSTS (397 days), `X-Content-Type-Options: nosniff`,
+  `X-Frame-Options: DENY` and `Referrer-Policy: no-referrer`, and the panel is never
+  reachable in cleartext on any interface: the viewer port refuses its routes.
 - If Relay ever sits behind a reverse proxy, the app reads `X-Forwarded-For` and
   `X-Forwarded-Proto`, but **only from a loopback peer**. A direct client on the LAN cannot
   forge either: not its address, to dodge the login lockout, and not the scheme, to
@@ -633,7 +614,7 @@ blocklist.txt                default blocked words, copied to the state folder o
   config.json                live config (0600): API key, admin_fqdn
   relay.db                   the user database (0600)
   blocklist.txt              the live list: hot-reloaded, written by the panel
-  certs/admin.{crt,key}      operator panel certificate (key 0600), once HTTPS exists
+  certs/admin.{crt,key}      operator panel certificate (key 0600)
   recordings/                recorded runs, if recording is enabled
   backups/                   daily database copies, relay-YYYYMMDD-HHMMSS.db
 
@@ -668,13 +649,13 @@ tests/
   test_schedules.py          schedule windows, DST, override rules, admin API
   test_overlays.py           overlay options, presets, named overlays, page
   test_announce.py           mDNS records and answers of app/announce.py
+  test_serving.py            certificate minting and reuse, port fallback, a real HTTPS panel + HTTP viewer server
   test_users.py              accounts, roles, sessions, devices, database, dumps
   test_auth.py               first run, sign-in, PIN, every admin route per role
   _db.py                     throwaway SQLite file the tests make for themselves
 
 tools/
   announce.ps1               Windows: the same, with Windows' own DNS-SD
-  setup_caddy.py             panel certificate (and a Caddyfile), for the HTTPS work
   migrate-from-docker.ps1    Windows: copy a Docker install's settings and data to the state folder
   reset_owner.py             lockout recovery: make someone an Owner with a new password
 ```
@@ -754,7 +735,7 @@ into the setup page skips that and always wins.
 |---|---|---|
 | Panel to Relay | viewer port (80), plain HTTP | `/stream`, `/api/targets`, `/api/panels/*`, firmware download |
 | Relay to the LAN | UDP 5353 (multicast) | the mDNS announcement, made by Relay itself |
-| Operator to Relay | operator port (8001), loopback | Panels section of `/admin` |
+| Operator to Relay | operator port (443), HTTPS | Panels section of `/admin` |
 | Phone to a panel in setup | the panel's own Wi-Fi, `http://192.168.4.1/` | joining the panel to the venue Wi-Fi |
 
 **Languages.** The caption font is Latin only, so a panel offers the
@@ -782,7 +763,7 @@ without anyone typing an address. Relay announces itself over mDNS / DNS-SD:
 |---|---|
 | Service | `_relay-captions._tcp` |
 | Instance | the install name (default: the computer's name) |
-| Port | the viewer port (8000) |
+| Port | the viewer port (80, or 8080 when 80 was taken) |
 | TXT | `v=<Relay version>` `name=<install name>` `path=/` |
 
 Nothing else is announced: no address of the operator panel, no key, no

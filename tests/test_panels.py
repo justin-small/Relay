@@ -291,9 +291,9 @@ c.request("GET", "/api/panels/not-an-id/events")
 eq("…and for a malformed id", c.getresponse().status, 404)
 c.close()
 
-# The server sees the viewer port as `port`; the admin routes are open here (single socket),
+# The live server is the panel socket here (admin routes are served; the viewer port is another number),
 # so set the config to match for what follows.
-config.save({"port": port, "admin_port": port})
+config.save({"port": port + 1, "admin_port": port})
 c = conn()
 c.request("POST", "/api/panels/checkin", json.dumps(body(9, feed_rev=0)), {"content-type": "application/json"})
 eq("check in over a socket", c.getresponse().status, 200)

@@ -1913,17 +1913,51 @@
 
   // The machine can change networks while the page is open (a laptop moving between Wi-Fi networks).
   // Re-read the viewer links every few seconds and redraw only when they differ.
-  let urlsSeen = null, urlsTimer = null;
+  let urlsSeen = null, urlsTimer = null, secureSeen = null, secureNow = null;
   function watchUrls(initial) {
     urlsSeen = JSON.stringify(initial || []);
+    secureSeen = JSON.stringify(secureNow);
     if (urlsTimer) return;
     urlsTimer = setInterval(async function () {
       if (document.hidden) return;
       try {
-        const now = (await api('/api/admin/urls')).urls || [];
+        const body = await api('/api/admin/urls');
+        const now = body.urls || [];
         if (JSON.stringify(now) !== urlsSeen) { urlsSeen = JSON.stringify(now); renderUrls(now); }
+        if (JSON.stringify(body.serving) !== secureSeen) { secureSeen = JSON.stringify(body.serving); renderSecure(body.serving); }
       } catch (e) { /* offline or signed out: the next tick tries again */ }
     }, 10000);
+  }
+
+  /* How the panel is reached: its HTTPS addresses, the certificate fingerprint to check against the browser's
+     warning, a notice when Relay had to use other ports, and a warning when the fingerprint changed. Built with
+     textContent: the host name and fingerprint come from the server, never from markup. */
+  function renderSecure(info) {
+    secureNow = info;
+    const box = $('secure');
+    if (!box || !info) return;
+    box.textContent = '';
+    const sec = document.createElement('section');
+    const h = document.createElement('h3'); h.textContent = 'Operator panel (HTTPS)'; sec.appendChild(h);
+    const add = function (cls, text) {
+      const d = document.createElement('div'); if (cls) d.className = cls; d.textContent = text; sec.appendChild(d); return d;
+    };
+    (info.notices || []).forEach(function (n) { add('note', n); });
+    const cert = info.certificate || {};
+    if (cert.changed) {
+      add('note', 'The panel certificate was replaced (' + (cert.changed.at || '') + '), so its fingerprint changed. ' +
+        'Check the new one below against what your browser shows before you trust it again.');
+    }
+    (info.panel_urls || []).forEach(function (u) {
+      const d = add('', ''); const a = document.createElement('a'); a.href = u; a.textContent = u; d.appendChild(a);
+    });
+    if (cert.fingerprint) {
+      add('', 'Certificate SHA-256 fingerprint:');
+      const fp = add('mono', cert.fingerprint); fp.style.wordBreak = 'break-all'; fp.style.userSelect = 'all';
+      if (cert.expires) add('note', 'Valid until ' + cert.expires.slice(0, 10) + '. It is self-signed, so the browser warns once; ' +
+        'compare this fingerprint with the one it shows before you accept.');
+    }
+    box.appendChild(sec);
   }
 
   function renderUrls(urls) {
@@ -2151,6 +2185,7 @@
       $('noise').value = cfg.realtime.noise_reduction || '';
       renderMode();
       renderUrls(state.urls);
+      renderSecure(state.serving);
       watchUrls(state.urls);
       applyStatus(state.status);
       loadRuns();

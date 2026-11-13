@@ -991,7 +991,7 @@ h = {"x-admin-token": "t0ken"}
 st = c.get("/api/admin/state", headers=h)
 check("state with the setup token, before any user exists", st.status_code == 200)
 # ... and from here on there are accounts, so everything below signs in.
-sc = _db.client(app, base_url="http://testserver")
+sc = _db.client(app, base_url="http://relay.local:8001")
 check("the setup token stops working once a user exists",
       c.get("/api/admin/state", headers=h).status_code == 401)
 body = st.json()
@@ -1070,6 +1070,8 @@ finally:
 
 print("\noperator panel is served on its own port")
 config.save({"admin_token": "t0ken", "port": 8000, "admin_port": 8001})
+from app import serving as _serving
+_serving.publish(8000, 8001)                       # what run.py does once it has opened the sockets
 viewer_c = TestClient(app, base_url="http://relay.local:8000")
 admin_c = _db.client(app, base_url="http://relay.local:8001")
 for path in ("/admin", "/admin/login", "/api/admin/status", "/api/admin/state"):
@@ -1082,9 +1084,16 @@ check("admin api reachable on the admin port",
       admin_c.get("/api/admin/status").status_code == 200)
 check("chooser offers the panel on the admin port", "Operator panel" in admin_c.get("/").text)
 config.save({"admin_port": 8000})
-check("one port again when admin_port == port",
-      TestClient(app, base_url="http://relay.local:8000").get("/admin").status_code == 200)
+check("admin_port == port is refused: the panel never shares the viewer port",
+      config.get()["admin_port"] != config.get()["port"], config.get())
 config.save({"admin_port": 8001})
+# Fallback ports: the refusal follows the port Relay really bound, not the one in config.json.
+_serving.publish(8080, 8443)
+fb_viewer = TestClient(app, base_url="http://relay.local:8080")
+check("viewer refusal follows the port in force", fb_viewer.get("/admin").status_code == 404)
+check("... and the old port is no longer the viewer's",
+      TestClient(app, base_url="http://relay.local:8000").get("/").status_code == 200)
+_serving.publish(8000, 8001)
 
 print("\nadmin panel never kills a live capture")
 import sounddevice as _sd
@@ -1140,7 +1149,7 @@ check("a non-ascii password signs in",
                            follow_redirects=False).status_code == 303)
 config.save({"admin_token": "t0ken"})
 _db.reset()
-sc = _db.client(app, base_url="http://testserver")      # the reset ended the earlier session
+sc = _db.client(app, base_url="http://relay.local:8001")      # the reset ended the earlier session
 
 print("\nadmin session cookie")
 _main._LOGIN_FAILS.clear()
@@ -1189,17 +1198,18 @@ _main.LOGIN_FAIL_DELAY_S = 0.75
 print("\nadmin host + forwarded headers")
 
 _cfg = config.load()
-eq("admin_host defaults to loopback", _cfg["admin_host"], "127.0.0.1")
+eq("the panel listens on every interface by default (it is HTTPS only)", config._normalise({})["admin_host"], "0.0.0.0")
+eq("default ports are 80 and 443", (config._normalise({})["port"], config._normalise({})["admin_port"]), (80, 443))
 eq("host still serves the room", _cfg["host"], "0.0.0.0")
 check("viewer and panel are separate sockets", _cfg["port"] != _cfg["admin_port"])
 
-# In single-port mode run.py binds one socket on `host` and ignores
-# admin_host. The stored value must survive that: collapsing it here would
-# mean a round trip through single-port mode left the panel on 0.0.0.0.
+# One socket for both would serve the panel in cleartext, so the config never produces it.
 _single = config._normalise({"port": 8000, "admin_port": 8000, "host": "0.0.0.0"})
-eq("single-port mode leaves admin_host alone", _single["admin_host"], "127.0.0.1")
-eq("a blank admin_host falls back to loopback",
-   config._normalise({"admin_host": "  "})["admin_host"], "127.0.0.1")
+check("equal ports are split again", _single["port"] != _single["admin_port"], _single)
+eq("a blank admin_host falls back to every interface",
+   config._normalise({"admin_host": "  "})["admin_host"], "0.0.0.0")
+eq("an operator's loopback admin_host is kept",
+   config._normalise({"admin_host": "127.0.0.1"})["admin_host"], "127.0.0.1")
 
 _main._LOGIN_FAILS.clear()
 _main.LOGIN_FAIL_DELAY_S = 0.0
@@ -1245,6 +1255,24 @@ check("X-Forwarded-Proto is honoured from a loopback peer",
 check("a direct LAN client cannot claim https",
       not _main._is_https(_req(("10.0.1.77", 54321), {"x-forwarded-proto": "https"})))
 check("plain loopback request is not https", not _main._is_https(_req(("127.0.0.1", 1))))
+
+# Headers Caddy used to add to the panel, now set by the app on the HTTPS socket; none of them on the viewer port.
+print("\npanel response headers, viewer port refusal (no proxy)")
+_serving.publish(8000, 8001)
+_pan = TestClient(app, base_url="https://relay.local:8001").get("/")
+for _h, _v in (("x-content-type-options", "nosniff"), ("x-frame-options", "DENY"),
+               ("referrer-policy", "no-referrer"), ("strict-transport-security", "max-age=34300800")):
+    eq(f"panel sends {_h}", _pan.headers.get(_h), _v)
+eq("HSTS is 397 days", 397 * 86400, 34300800)
+_pan_http = TestClient(app, base_url="http://relay.local:8001").get("/")
+check("no HSTS over plain HTTP (browsers ignore it there)", "strict-transport-security" not in _pan_http.headers)
+check("framing headers still sent", _pan_http.headers.get("x-frame-options") == "DENY")
+_view = TestClient(app, base_url="http://relay.local:8000")
+_vr = _view.get("/")
+check("viewer port sends no panel headers",
+      not any(h in _vr.headers for h in ("strict-transport-security", "x-frame-options")), dict(_vr.headers))
+eq("viewer port refuses /admin", _view.get("/admin").status_code, 404)
+eq("viewer port refuses /api/admin/state", _view.get("/api/admin/state").status_code, 404)
 
 # The cookie must pick up Secure behind TLS, and must NOT pick it up on a plain
 # HTTP login -- a browser drops a Secure cookie sent over HTTP, which would
