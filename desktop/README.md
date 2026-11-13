@@ -41,12 +41,16 @@ with the old key that carries the new pubkey first.
 
 1. the `RELAY_UPDATE_URL` environment variable,
 2. `"update_url"` in `shell.json` in the state folder,
-3. the built-in default, `https://github.com/justin-small/Relay/releases/latest/download/latest.json`.
+3. the built-in default, `https://relaychurchsystems.com/updates/latest.json`.
 
-Either of the first two takes a full URL to a `latest.json` or just `owner/repo`. If the repository moves,
-set it there; no rebuild is needed. (GitHub also redirects the old repository's release URLs for a while,
-so installs keep working in the meantime.) A new build can change the default and the `endpoints` in
-`tauri.conf.json`.
+Either of the first two takes a full URL to a `latest.json` or just `owner/repo`. The default is a 302
+redirect on the marketing site (`site/public/_redirects`) to
+`https://github.com/justin-small/Relay/releases/latest/download/latest.json`. **If the repository moves**,
+change the target in `site/public/_redirects` and run `cf deploy public` from `site/`; every install
+follows on its next check, with no rebuild and nothing done on the machines. The download links inside
+`latest.json` already name the repository that built the release (`tools/release_tools.py`). The
+redirect only steers where to look: an update is still refused unless it is signed with the updater key.
+If the domain lapses, installs stop finding updates until it is back or each one is re-pointed.
 
 **Flow.** Checks 20 s after start and daily; the tray's *Check for updates* item turns into *Install Relay
 X and restart* and the panel shows a banner with the same button. Installing is always the operator's click,

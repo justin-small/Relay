@@ -2,8 +2,9 @@
 //!
 //! * **Where it looks is changeable.** `RELAY_UPDATE_URL` (environment) beats `update_url` in `shell.json`
 //!   (state folder), which beats the built-in default. Either takes a full URL to a `latest.json`, or just
-//!   `owner/repo` for a GitHub release. So if the repository moves, an install is pointed at the new home
-//!   without a rebuild, and `releases/latest` redirects from the old name cover the rest.
+//!   `owner/repo` for a GitHub release. The default is an address on Relay's own domain that redirects
+//!   (`site/public/_redirects`) to the GitHub release, so if the repository moves, changing that one
+//!   redirect moves every install with nothing done on the machines.
 //! * **Nothing is installed unasked.** It checks at start and daily and only *shows* what it found (tray,
 //!   and a banner on the panel). Installing is the operator's click; if captions are running there is one
 //!   more question first.
@@ -33,9 +34,10 @@ use tokio::sync::oneshot;
 
 use crate::{backend::Status, settings, tray};
 
+/// Redirects (302, site/public/_redirects) to the GitHub release's `releases/latest/download/latest.json`.
 /// Stable releases only: `releases/latest` skips pre-releases, so `-rc` and `-beta` tags never reach a
 /// stable install. A pre-release install that wants them sets `update_url` to a specific tag's file.
-pub const DEFAULT_URL: &str = "https://github.com/justin-small/Relay/releases/latest/download/latest.json";
+pub const DEFAULT_URL: &str = "https://relaychurchsystems.com/updates/latest.json";
 const CHECK_EVERY: Duration = Duration::from_secs(24 * 60 * 60);
 const FIRST_CHECK_AFTER: Duration = Duration::from_secs(20);
 
