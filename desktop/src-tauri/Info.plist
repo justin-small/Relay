@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>NSMicrophoneUsageDescription</key>
+  <string>Relay listens to the sound card you choose so it can caption and translate the speaker.</string>
+  <key>NSLocalNetworkUsageDescription</key>
+  <string>Relay serves live captions to phones, screens and caption panels on this network.</string>
+  <key>NSBonjourServices</key>
+  <array>
+    <string>_http._tcp</string>
+  </array>
+  <key>LSUIElement</key>
+  <false/>
+</dict>
+</plist>

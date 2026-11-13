@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Relay's own start-up page and nothing else. The webview gets no shell, filesystem or sidecar permission, and the operator panel it later shows (remote content) is never listed here, so it has no Tauri IPC at all. Only the Rust side starts the backend.",
+  "windows": ["main"],
+  "permissions": []
+}

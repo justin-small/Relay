@@ -1,0 +1,39 @@
+[package]
+name = "relay-desktop"
+version = "0.1.0"
+description = "Relay desktop shell: starts the backend, sits in the tray, opens the panel."
+edition = "2021"
+rust-version = "1.80"
+publish = false
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = ["tray-icon", "image-png"] }
+tauri-plugin-single-instance = "2"
+tauri-plugin-autostart = "2"
+tauri-plugin-dialog = "2"
+tauri-plugin-clipboard-manager = "2"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "process", "io-util", "sync", "time", "net", "fs", "signal"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# The pinning proxy (proxy.rs): hyper serves the webview, reqwest talks to the panel with a verifier that
+# accepts exactly one certificate fingerprint.
+hyper = { version = "1", features = ["server", "http1"] }
+hyper-util = { version = "0.1", features = ["tokio"] }
+http-body-util = "0.1"
+bytes = "1"
+futures-util = "0.3"
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "stream", "json"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std"] }
+sha2 = "0.10"
+dirs = "5"
+open = "5"
+
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1
+strip = true
+panic = "abort"

@@ -1,0 +1,6 @@
+node_modules/
+src-tauri/target/
+src-tauri/gen/
+# The frozen backend is copied here for bundling; only the placeholder is committed.
+src-tauri/relay-backend/*
+!src-tauri/relay-backend/.gitkeep

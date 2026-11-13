@@ -110,11 +110,12 @@ def listen(host: str, port: int, what: str) -> tuple[socket.socket, int, str | N
         return sock, alt, f"The {what} could not use port {port} ({_why(exc)}), so it is on port {alt}."
 
 
-def make_server(app: str, plain: list[socket.socket], secure: list[socket.socket], context):
+def make_server(app: str, plain: list[socket.socket], secure: list[socket.socket], context, on_ready=None):
     """One uvicorn server: `plain` sockets speak HTTP, `secure` sockets speak HTTPS with `context`.
 
     uvicorn applies one TLS setting to every socket it is given, so the HTTPS sockets are added here once it
     has started the plain ones. Still one process and one event loop, which the engine and hub need.
+    `on_ready()` is called once both kinds of socket are accepting (the desktop shell waits for it).
     """
     import uvicorn
 
@@ -133,5 +134,7 @@ def make_server(app: str, plain: list[socket.socket], secure: list[socket.socket
             for sock in secure:
                 self.servers.append(await loop.create_server(
                     create_protocol, sock=sock, ssl=context, backlog=config.backlog))
+            if on_ready is not None:
+                on_ready()
 
     return RelayServer(uvicorn.Config(app, log_level="info", access_log=False))

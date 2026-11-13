@@ -15,12 +15,13 @@ admin page, and every link and the mDNS record carry the port actually in use (a
 
 `python run.py --fingerprint` prints the panel certificate's fingerprint and exits.
 """
+import os
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from app import config, serving, tls  # noqa: E402
+from app import config, serving, sidecar, tls  # noqa: E402
 
 
 def _print_identity(info, viewer_port: int, admin_port: int, fqdn: str) -> None:
@@ -69,7 +70,14 @@ def main() -> None:
     # engine, hub and AudioCapture are in-process singletons owning one sound
     # card. N workers would mean N capture attempts on the same device and N
     # separate hub states, with viewers load-balanced randomly between them.
-    server = serving.make_server("app.main:app", [viewer_sock], [admin_sock], tls.panel.context)
+    def ready() -> None:
+        sidecar.emit("ready", viewer_port=viewer_port, admin_port=admin_port, fingerprint=info.fingerprint,
+                     version=os.environ.get("RELAY_VERSION") or "dev", pid=os.getpid(), ips=list(info.ips))
+
+    server = serving.make_server("app.main:app", [viewer_sock], [admin_sock], tls.panel.context, on_ready=ready)
+    if sidecar.enabled():
+        # The desktop shell owns this process: `quit` or its pipe closing is a graceful stop (app/sidecar.py).
+        sidecar.watch_parent(lambda: setattr(server, "should_exit", True))
     server.run(sockets=[viewer_sock, admin_sock])
 
 
