@@ -136,6 +136,9 @@ class Link:
         self.now = time.time
         # what was read from ProPresenter
         self.pool: list[dict] = []                   # presentations {uuid, name, source}, best source first
+        # A presentation's name exactly as ProPresenter holds it (trailing spaces and all). The matcher works on
+        # trimmed names, but a playlist PUT finds each item by this exact name and answers 404 to anything else.
+        self.exact_names: dict[str, str] = {}
         self.playlists: list[dict] = []              # [{uuid, name, items: [entries]}] (the church's own, read only)
         self.loaded_at = 0.0
         self.load_error = ""
@@ -219,6 +222,7 @@ class Link:
                 playlists.append({**p, "items": _entries(body)})
             libs = await call(client.read, "/v1/libraries")
             pool: list[dict] = []
+            exact: dict[str, str] = {}
             for p in playlists:
                 pool += [{"uuid": e["uuid"], "name": e["name"], "source": "playlist: " + p["name"]}
                          for e in p["items"] if e["type"] == "presentation" and e["uuid"]]
@@ -227,12 +231,16 @@ class Link:
                 if not lid:
                     continue
                 body = await call(client.read, f"/v1/library/{_seg(lid)}")
+                for o in (body.get("items") if isinstance(body, dict) else None) or []:
+                    if isinstance(o, dict) and o.get("uuid") and o.get("name") is not None:
+                        exact.setdefault(str(o["uuid"]), str(o["name"]))
                 pool += [{"uuid": str(o.get("uuid") or ""), "name": str(o.get("name") or "").strip(),
                           "source": "library: " + str(lib.get("name") or "")}
                          for o in (body.get("items") if isinstance(body, dict) else None) or []
                          if isinstance(o, dict) and o.get("uuid")]
             seen: set[str] = set()
             self.pool = [c for c in pool if not (c["uuid"] in seen or seen.add(c["uuid"]))][:MAX_CANDIDATES]
+            self.exact_names = exact
             self.playlists = playlists
             self.loaded_at = self.now()
             self.load_error = ""
@@ -431,6 +439,22 @@ class Link:
     def playlist_name(day: Any) -> str:
         return f"{pp.OWNED_PREFIX}{day.isoformat() if day else 'plan'}"
 
+    async def _exact_name(self, client: Any, uuid: str, fallback: str) -> str:
+        """The presentation's name as ProPresenter holds it: from the libraries read at refresh, else read once."""
+        if uuid in self.exact_names:
+            return self.exact_names[uuid]
+        try:
+            body = await self.pp.call(client.read, f"/v1/presentation/{_seg(uuid)}")
+        except pp.ProError:
+            return fallback
+        detail = body.get("presentation") if isinstance(body, dict) and "presentation" in body else body
+        ident = detail.get("id") if isinstance(detail, dict) and isinstance(detail.get("id"), dict) else {}
+        name = ident.get("name")
+        if isinstance(name, str) and name.strip():
+            self.exact_names[uuid] = name
+            return name
+        return fallback
+
     async def build_playlist(self) -> dict:
         """Make (or remake) the Relay-owned ProPresenter playlist for the followed plan: matched presentations in
         plan order, headers kept. Refuses any playlist Relay did not create. Writes go through the Client, so
@@ -451,9 +475,15 @@ class Link:
                                 "is_hidden": False, "is_pco": False})
             elif r["status"] == "matched" and r["presentation"]:
                 u = r["presentation"]["uuid"]
-                entries.append({"id": {"uuid": "", "name": r["presentation"]["name"] or r["title"], "index": len(entries)},
+                # ProPresenter 22 finds the item by this name, exactly, and ignores the UUIDs (404 otherwise), and
+                # rejects the whole body (400) unless presentation_info carries both arrangement fields; empty
+                # means the presentation's own arrangement. Both checked live.
+                exact = await self._exact_name(client, u, r["presentation"]["name"] or r["title"])
+                entries.append({"id": {"uuid": "", "name": exact, "index": len(entries)},
                                 "type": "presentation", "is_hidden": False, "is_pco": False,
-                                "presentation_info": {"presentation_uuid": u}, "target_uuid": u})
+                                "presentation_info": {"presentation_uuid": u, "arrangement_name": "",
+                                                      "arrangement_uuid": ""},
+                                "target_uuid": u})
             else:
                 left_out.append(r["title"])
         if not any(e["type"] == "presentation" for e in entries):

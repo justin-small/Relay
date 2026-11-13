@@ -73,6 +73,10 @@ class Control:
         self.thumb_hits = 0
         self.thumb_fetches = 0
         self._sem: tuple[asyncio.AbstractEventLoop, asyncio.Semaphore] | None = None
+        # The playlist an operator last triggered an item of through Relay. ProPresenter 22 leaves
+        # playlist/active empty after an API trigger (and playlist/focused names no playlist), so without this
+        # Next item would always say no playlist is active right after Relay itself started one.
+        self.last_playlist: str | None = None
 
     # -- plumbing ----------------------------------------------------------------------------------------
     def _client(self) -> pp.Client:
@@ -151,12 +155,13 @@ class Control:
     async def step_item(self, direction: str) -> None:
         """The next or previous ITEM of the active playlist, where `step` moves a slide. Not
         `presentation/active/next/trigger`: that is the next CUE (tried live, it moved a slide). The active
-        playlist is the one ProPresenter reports in `playlist/active`; without one, the focused playlist."""
+        playlist is the one ProPresenter reports in `playlist/active`; without one, the playlist Relay last
+        triggered an item of; without that, the focused playlist."""
         if direction not in ("next", "previous"):
             raise ValueError("Direction is next or previous.")
         active = (self.f.data.get("playlist/active") or {}).get("presentation")
         pl = (active or {}).get("playlist") if isinstance(active, dict) else None
-        uuid = pl.get("uuid") if isinstance(pl, dict) else None
+        uuid = (pl.get("uuid") if isinstance(pl, dict) else None) or self.last_playlist
         if uuid:
             await self._act(f"/v1/playlist/{_seg(uuid)}/{direction}/trigger")
         else:
@@ -267,6 +272,7 @@ class Control:
 
     async def trigger_playlist_item(self, playlist: str, index: Any) -> None:
         await self._act(f"/v1/playlist/{_seg(playlist)}/{_index(index)}/trigger")
+        self.last_playlist = str(playlist)
 
     async def trigger_announcement_cue(self, index: Any) -> None:
         """A cue of the presentation that is up on the announcements layer (the lobby rotation's next slide)."""
