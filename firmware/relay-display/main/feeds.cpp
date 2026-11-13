@@ -39,6 +39,7 @@ struct State {
 feed_options s_base;
 service_offers s_offers;
 pp_offers s_pp_offers;   // ProPresenter's lyrics and timers, from the same `targets`
+bool s_status_offered = false;   // the status view (#224), from the same `targets`
 feed_options s_combined;
 feed_options s_parsed;
 
@@ -77,6 +78,8 @@ void describe(const feed_pick &p, char *out, size_t cap)
         snprintf(out, cap, "lyrics");
     } else if (p.stream == kFeedTimers) {
         snprintf(out, cap, "timers");
+    } else if (p.stream == kFeedStatus) {
+        snprintf(out, cap, "status");
     } else {
         snprintf(out, cap, "nothing");
     }
@@ -108,6 +111,11 @@ bool take_targets(const char *json)
     const pp_offers pp = pp_offers_parse(json, strlen(json));
     if (pp.lyrics != s_pp_offers.lyrics || pp.timers != s_pp_offers.timers) {
         s_pp_offers = pp;
+        changed = true;
+    }
+    const bool status = status_offered_parse(json, strlen(json));
+    if (status != s_status_offered) {
+        s_status_offered = status;
         changed = true;
     }
     return changed;
@@ -168,6 +176,7 @@ void step()
     // In place, in the static: a feed_options is 1.5 KB and this task's stack is 6 KB (feed_format.h).
     s_combined = feed_options_with_service(s_base, s_offers, panel_link_service());
     feed_options_add_propresenter(&s_combined, s_pp_offers);
+    feed_options_add_status(&s_combined, s_status_offered);
     feed_options_add_alert(&s_combined);
     const feed_options &options = s_combined;
 
@@ -429,6 +438,7 @@ void feeds_report()
                       : pick.stream == kFeedAlert       ? "alert"
                       : pick.stream == kFeedLyrics      ? "lyrics"
                       : pick.stream == kFeedTimers      ? "timers"
+                      : pick.stream == kFeedStatus      ? "status"
                                                         : pick.lang);
     }
     ESP_LOGI(TAG, "feeds: report: %s; pane 1 saved %s shows %s%s; pane 2 saved %s shows %s%s; options %s [%s]",

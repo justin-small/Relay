@@ -53,6 +53,7 @@
 #include "settings_format.h"
 #include "setup_format.h"
 #include "setup_page.h"
+#include "status_format.h"
 #include "ota_format.h"
 #include "touch_format.h"
 #include "update_format.h"
@@ -2449,7 +2450,7 @@ void check_alerts()
     CHECK(strcmp(title, "Alerts") == 0);
     relay_settings_t st = example_settings();
     st.feed_stream = kFeedAlert;
-    st.feed2_stream = kFeedTimers + 1;
+    st.feed2_stream = kFeedLast + 1;
     relay_settings_t out = {};
     CHECK(settings_decode(&st, sizeof st, &out, 0) == settings_blob::accepted);
     CHECK(out.feed_stream == kFeedAlert && out.feed2_stream == kFeedNone);
@@ -2676,7 +2677,7 @@ void check_service()
         feed_options unknown;
         r = feed_resolve(svc, unknown, false);
         CHECK(feed_pick_same(r.pick, svc));  // tried before Relay has said what it offers
-        CHECK(feed_pick_make(kFeedTimers + 1, "1").stream == kFeedNone);
+        CHECK(feed_pick_make(kFeedLast + 1, "1").stream == kFeedNone);
     }
 
     // The request.
@@ -2906,7 +2907,7 @@ void check_propresenter()
         const feed_resolved r = feed_resolve(lyr, base, true);
         CHECK(r.pick.stream == kFeedLyrics && !r.fallback);
         CHECK(feed_resolve(feed_pick_make(kFeedTimers, ""), base, false).pick.stream == kFeedTimers);
-        CHECK(feed_pick_make(kFeedTimers + 1, "").stream == kFeedNone);
+        CHECK(feed_pick_make(kFeedLast + 1, "").stream == kFeedNone);
     }
 
     // ---- the requests ----
@@ -2924,7 +2925,7 @@ void check_propresenter()
               strstr(req, "panel=") == nullptr && strstr(req, "stream=pptimers&for=panel HTTP") != nullptr);
         CHECK(caption_request(req, sizeof req, "relay.local", 8000, kFeedTimers, "", 0, "0.6.0") > 0 &&
               strstr(req, "panel=") == nullptr);
-        CHECK(caption_request(req, sizeof req, "relay.local", 8000, 7, "", 0, "0.6.0") == 0);
+        CHECK(caption_request(req, sizeof req, "relay.local", 8000, kFeedLast + 1, "", 0, "0.6.0") == 0);
         char title[48];
         caption_feed_title(kFeedLyrics, "", title, sizeof title);
         CHECK(strcmp(title, "Lyrics") == 0);
@@ -2940,7 +2941,7 @@ void check_propresenter()
         relay_settings_t out = {};
         CHECK(settings_decode(&st, sizeof st, &out, 180) == settings_blob::accepted);
         CHECK(out.feed_stream == kFeedLyrics && out.feed2_stream == kFeedTimers);
-        st.feed2_stream = kFeedTimers + 1;
+        st.feed2_stream = kFeedLast + 1;
         CHECK(settings_decode(&st, sizeof st, &out, 180) == settings_blob::accepted &&
               out.feed2_stream == kFeedNone);
 
@@ -3213,6 +3214,168 @@ void check_propresenter()
     }
 }
 
+void check_status()
+{
+    // ---- the feed kind ----
+    CHECK(kFeedStatus == 7 && kFeedLast == kFeedStatus);
+    CHECK(feed_pick_make(kFeedStatus, "x").stream == kFeedStatus && feed_pick_make(kFeedStatus, "x").lang[0] == '\0');
+    {
+        relay_settings_t st = example_settings();
+        st.feed_stream = kFeedStatus;
+        st.feed2_stream = kFeedStatus;
+        relay_settings_t out = {};
+        CHECK(settings_decode(&st, sizeof st, &out, 180) == settings_blob::accepted);
+        CHECK(out.feed_stream == kFeedStatus && out.feed2_stream == kFeedStatus);
+    }
+    {
+        char req[400];
+        CHECK(caption_request(req, sizeof req, "relay.local", 8000, kFeedStatus, "", 99, "0.7.0") > 0);
+        CHECK(strstr(req, "GET /stream?stream=status HTTP/1.1") != nullptr);   // nothing to resume, no finals
+        char title[48];
+        caption_feed_title(kFeedStatus, "", title, sizeof title);
+        CHECK(strcmp(title, "Status") == 0);
+    }
+    // Offered only when Relay says so: an older Relay has no status feed.
+    {
+        const char *with = R"({"type":"targets","live":[],"status":true,"running":true})";
+        const char *old = R"({"type":"targets","live":[],"running":true})";
+        const char *odd = R"({"status":"yes"})";
+        CHECK(status_offered_parse(with, strlen(with)));
+        CHECK(!status_offered_parse(old, strlen(old)));
+        CHECK(!status_offered_parse(odd, strlen(odd)));
+        static feed_options o;
+        o = feed_options();
+        feed_options_add_status(&o, false);
+        CHECK(o.count == 0);
+        feed_options_add_status(&o, true);
+        CHECK(o.count == 1 && o.items[0].pick.stream == kFeedStatus && strcmp(o.items[0].label, "Status") == 0);
+        static feed_options base;
+        base = feed_options();
+        CHECK(feed_resolve(feed_pick_make(kFeedStatus, ""), base, false).pick.stream == kFeedStatus);
+    }
+    // Relay sets it, and the panel reports it.
+    {
+        const char *set = R"({"type":"set_feed","rev":4,"feeds":[{"stream":"status"},{"stream":"transcription"}]})";
+        panel_event ev = panel_parse_event(set, strlen(set));
+        CHECK(ev.kind == panel_message::set_feed && ev.feed.count == 2 && ev.feed.feeds[0].stream == kFeedStatus);
+    }
+
+    // ---- reading a message ----
+    {
+        static status_state s;
+        s = status_state();
+        const char *m1 =
+            R"({"type":"status","running":true,"started_at":1000.5,"input":{"state":"ok","dbfs":-18},)"
+            R"("languages":["Spanish","Français"],"viewers":37,"on_air":true,)"
+            R"("streams":[{"source":"obs","label":"OBS Studio","on_air":true,"health":"ok","live_since":2000.0,"viewers":null},)"
+            R"({"source":"youtube","label":"YouTube","on_air":false,"health":"warn","live_since":null,"viewers":142}],)"
+            R"("server_time":3720.9})";
+        CHECK(status_apply(&s, m1, strlen(m1), 5000) == status_change::state);
+        CHECK(s.known && s.running && s.run_s == 2720 && s.input == status_input::ok && s.dbfs == -18);
+        CHECK(s.lang_count == 2 && strcmp(s.langs[0], "Spanish") == 0);
+        CHECK(s.viewers == 37 && s.on_air == status_air::on && s.stream_count == 2);
+        CHECK(strcmp(s.streams[0].label, "OBS Studio") == 0 && s.streams[0].air == status_air::on &&
+              s.streams[0].health == status_health::ok && s.streams[0].live_s == 1720 && s.streams[0].viewers == -1);
+        CHECK(s.streams[1].air == status_air::off && s.streams[1].live_s == -1 && s.streams[1].viewers == 142 &&
+              s.streams[1].health == status_health::warn);
+        CHECK(s.at_ms == 5000 && s.changes == 1);
+        // The same five seconds later: the clocks move, nothing else, so it is not a change. The level is not either.
+        const char *m2 =
+            R"({"type":"status","running":true,"started_at":1000.5,"input":{"state":"ok","dbfs":-21},)"
+            R"("languages":["Spanish","Français"],"viewers":37,"on_air":true,)"
+            R"("streams":[{"source":"obs","label":"OBS Studio","on_air":true,"health":"ok","live_since":2000.0,"viewers":null},)"
+            R"({"source":"youtube","label":"YouTube","on_air":false,"health":"warn","live_since":null,"viewers":142}],)"
+            R"("server_time":3725.9})";
+        CHECK(status_apply(&s, m2, strlen(m2), 10000) == status_change::same);
+        CHECK(s.run_s == 2725 && s.dbfs == -21 && s.at_ms == 10000 && s.changes == 1);
+        // A viewer more is.
+        const char *m3 = R"({"type":"status","running":false,"input":{"state":"off","dbfs":-60},"languages":[],)"
+                         R"("viewers":0,"on_air":null,"streams":[],"server_time":4000})";
+        CHECK(status_apply(&s, m3, strlen(m3), 11000) == status_change::state);
+        CHECK(!s.running && s.run_s == -1 && s.on_air == status_air::unknown && s.stream_count == 0 && s.lang_count == 0);
+        // Not ours, and not readable.
+        const char *other = R"({"type":"targets","live":[]})";
+        CHECK(status_apply(&s, other, strlen(other), 0) == status_change::ignored);
+        const char *bad = R"({"type":"status","running":true)";
+        CHECK(status_apply(&s, bad, strlen(bad), 0) == status_change::malformed);
+        const char *no_clock = R"({"type":"status","running":true})";
+        CHECK(status_apply(&s, no_clock, strlen(no_clock), 0) == status_change::malformed);
+    }
+    // At most kStatusStreamsMax streams and kStatusLangsMax languages; an unlabelled stream is skipped.
+    {
+        static status_state s;
+        s = status_state();
+        std::string m = R"({"type":"status","running":true,"languages":["a","b","c","d","e","f","g","h"],"streams":[)";
+        m += R"({"label":"","on_air":true},)";
+        for (int i = 0; i < 6; ++i) {
+            m += std::string(i ? "," : "") + R"({"label":"S)" + std::to_string(i) + R"(","on_air":false,"health":"great"})";
+        }
+        m += R"(],"server_time":1})";
+        CHECK(status_apply(&s, m.c_str(), m.size(), 0) == status_change::state);
+        CHECK(s.lang_count == kStatusLangsMax && s.stream_count == kStatusStreamsMax);
+        CHECK(strcmp(s.streams[0].label, "S0") == 0 && s.streams[0].health == status_health::idle);
+    }
+    // Seconds: the whole part, and nothing that is not a number.
+    {
+        int64_t v = 0;
+        const char *a = "1794592520.987";
+        CHECK(status_read_seconds(a, a + strlen(a), &v) && v == 1794592520LL);
+        const char *b = "-3.5";
+        CHECK(status_read_seconds(b, b + strlen(b), &v) && v == -3);
+        const char *c = "1e9";
+        CHECK(!status_read_seconds(c, c + strlen(c), &v));
+        const char *d = "null";
+        CHECK(!status_read_seconds(d, d + strlen(d), &v));
+        const char *f = "\"12\"";
+        CHECK(!status_read_seconds(f, f + strlen(f), &v));
+    }
+
+    // ---- what the pane says ----
+    {
+        char t[16];
+        status_elapsed_text(-1, t, sizeof t);
+        CHECK(t[0] == '\0');
+        status_elapsed_text(5, t, sizeof t);
+        CHECK(strcmp(t, "0:05") == 0);
+        status_elapsed_text(3723, t, sizeof t);
+        CHECK(strcmp(t, "1:02:03") == 0);
+        CHECK(status_seconds(10, 1000, 4500) == 13 && status_seconds(-1, 0, 9000) == -1);
+        CHECK(status_seconds(10, 0xFFFFFF00u, 900) == 11);   // across the wrap
+        CHECK(!status_stale(1000, 21000) && status_stale(1000, 21001));
+        CHECK(strcmp(status_input_words(status_input::clipping), "Clipping") == 0);
+        CHECK(status_input_tone(status_input::silent) == status_tone::warn &&
+              status_input_tone(status_input::lost) == status_tone::bad &&
+              status_input_tone(status_input::off) == status_tone::idle);
+        static status_state s;
+        s = status_state();
+        CHECK(strcmp(status_air_words(s), "NOT WATCHED") == 0);
+        CHECK(strcmp(status_idle_text(s, false, false), "Connecting to Relay") == 0);
+        CHECK(strstr(status_idle_text(s, true, false), "Update Relay") != nullptr);
+        s.known = true;
+        CHECK(status_idle_text(s, false, false) == nullptr);
+        s.stream_count = 1;
+        s.on_air = status_air::off;
+        CHECK(strcmp(status_air_words(s), "OFF AIR") == 0);
+        s.on_air = status_air::on;
+        s.streams[0].air = status_air::on;
+        s.streams[0].live_s = 60;
+        CHECK(strcmp(status_air_words(s), "ON AIR") == 0 && status_air_live_s(s) == 60);
+        char row[96];
+        s.streams[0].health = status_health::ok;
+        status_stream_text(s.streams[0], 0, 2000, row, sizeof row);
+        CHECK(strcmp(row, "live 1:02 - healthy") == 0);
+        s.streams[0].viewers = 142;
+        s.streams[0].health = status_health::warn;
+        status_stream_text(s.streams[0], 0, 0, row, sizeof row);
+        CHECK(strcmp(row, "live 1:00 - needs a look - 142 watching") == 0);
+        s.streams[0].air = status_air::off;
+        s.streams[0].live_s = -1;
+        s.streams[0].viewers = -1;
+        status_stream_text(s.streams[0], 0, 0, row, sizeof row);
+        CHECK(strcmp(row, "off air - needs a look") == 0);
+    }
+}
+
 int main()
 {
     check_panel_constants();
@@ -3269,6 +3432,7 @@ int main()
     check_service_control();
     check_alerts();
     check_propresenter();
+    check_status();
     check_update();
 
     if (g_failures != 0) {

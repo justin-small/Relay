@@ -1258,7 +1258,7 @@ inline bool caption_url_split(const char *url, char *host, size_t host_cap, uint
     return true;
 }
 
-// The request for a feed. `stream` is kFeedTranscription (1), kFeedTranslation (2), kFeedService (3), kFeedAlert (4), kFeedLyrics (5) or kFeedTimers (6), as stored in
+// The request for a feed. `stream` is kFeedTranscription (1), kFeedTranslation (2), kFeedService (3), kFeedAlert (4), kFeedLyrics (5), kFeedTimers (6) or kFeedStatus (7), as stored in
 // the settings; `lang` is the translation's language as Relay names it, or the service type id. `resume_id` 0 asks for a snapshot.
 // Returns the length, or 0 when it does not fit in `cap` or the feed is not one.
 inline size_t caption_request(char *out, size_t cap, const char *host, uint16_t port, uint8_t stream,
@@ -1330,6 +1330,10 @@ inline size_t caption_request(char *out, size_t cap, const char *host, uint16_t 
         if (hex && (!add("&panel=") || !add(lang))) {
             return 0;
         }
+        resume_id = 0;
+    } else if (stream == 7) {
+        // The status view (#224): whole state per message, nothing to resume.
+        add("stream=status");
         resume_id = 0;
     } else {
         return 0;

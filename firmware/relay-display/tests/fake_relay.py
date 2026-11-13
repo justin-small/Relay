@@ -98,6 +98,10 @@ class FakeRelay:
         self.pp_offers: dict[str, bool] = {"lyrics": False, "timers": False}
         self.pp_states: dict[str, dict] = {}
         self.pp_status = 200
+        # The status view (#224): whether `targets` offers it (off here, as an older Relay, so the other suites' menus
+        # are unchanged; `test_status_view.py` switches it on), and the whole state, served on the same pattern as
+        # the ProPresenter feeds (app/streamstatus.py repeats it every 5 s).
+        self.status_offered = False
         self._pp_subs: dict[str, list[queue.Queue]] = {}
         # The LIVE buttons (#80, #83): every press as (action, body), and what answers it. `on_action(action, body)`
         # returns (status, reply); the default accepts. `action_delay` holds each answer back, as a slow Planning
@@ -187,6 +191,7 @@ class FakeRelay:
             "font_px": 48,
             "service": list(self.service_offers),
             "propresenter": dict(self.pp_offers),
+            **({"status": True} if self.status_offered else {}),
         }
 
     def set_live(self, languages: list[str]) -> None:
@@ -247,6 +252,19 @@ class FakeRelay:
             frame = _frame(msg)
             for q in self._pp_subs.get(stream, []):
                 q.put(frame)
+
+    def set_status(self, state: dict) -> None:
+        """Relay's status changed (app/streamstatus.py): the whole message, to every panel on the Status feed."""
+        msg = {"type": "status", "server_time": time.time(), **state}
+        with self._lock:
+            self.pp_states["status"] = msg
+            frame = _frame(msg)
+            for q in self._pp_subs.get("status", []):
+                q.put(frame)
+
+    def offer_status(self, offered: bool) -> None:
+        self.status_offered = offered
+        self.targets()
 
     def offer_propresenter(self, *, lyrics: bool, timers: bool) -> None:
         self.pp_offers = {"lyrics": lyrics, "timers": timers}
@@ -384,7 +402,10 @@ class FakeRelay:
         if query.get("stream") == "service":
             self._serve_service(handler, query.get("type", ""))
             return
-        if query.get("stream") in ("lyrics", "pptimers"):
+        if query.get("stream") == "status" and not self.status_offered:
+            self._json(handler, 400, {"detail": "unknown stream"})   # an older Relay
+            return
+        if query.get("stream") in ("lyrics", "pptimers", "status"):
             self._serve_pp(handler, query["stream"])
             return
         stream = query.get("stream", "")
@@ -491,8 +512,12 @@ class FakeRelay:
         handler.end_headers()
         handler.close_connection = True
         q: queue.Queue = queue.Queue()
-        empty = {"type": "lyrics" if stream == "lyrics" else "pptimers", "enabled": True, "live": False, "timers": [],
-                 "server_time": time.time()}
+        if stream == "status":
+            empty = {"type": "status", "running": False, "input": {"state": "off", "dbfs": -60}, "languages": [],
+                     "viewers": 0, "on_air": None, "streams": [], "server_time": time.time()}
+        else:
+            empty = {"type": "lyrics" if stream == "lyrics" else "pptimers", "enabled": True, "live": False,
+                     "timers": [], "server_time": time.time()}
         with self._lock:
             q.put(_frame(self.pp_states.get(stream) or empty))
             self._pp_subs.setdefault(stream, []).append(q)

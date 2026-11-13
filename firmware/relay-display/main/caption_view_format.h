@@ -236,6 +236,10 @@ inline size_t caption_feed_title(uint8_t stream, const char *lang, char *out, si
         for (const char *p = "Timers"; *p != '\0'; ++p) {
             put(*p);
         }
+    } else if (stream == kFeedStatus) {
+        for (const char *p = "Status"; *p != '\0'; ++p) {
+            put(*p);
+        }
     }
     out[o] = '\0';
     return o;

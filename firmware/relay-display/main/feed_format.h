@@ -42,7 +42,7 @@ struct feed_pick {
 inline feed_pick feed_pick_make(uint8_t stream, const char *lang)
 {
     feed_pick p;
-    if (stream > kFeedTimers) {
+    if (stream > kFeedLast) {
         return p;
     }
     p.stream = stream;
@@ -230,6 +230,24 @@ inline feed_options feed_options_with_propresenter(const feed_options &base, con
     return out;
 }
 
+// The status view (#224), offered while Relay's `targets` says `"status": true` (an older Relay has no status feed).
+inline bool status_offered_parse(const char *json, size_t len)
+{
+    const char *e = json + len;
+    bool b = false;
+    const char *v = caption_json::get(json, e, "status");
+    return v != nullptr && caption_json::read_bool(v, e, &b) && b;
+}
+
+inline void feed_options_add_status(feed_options *out, bool offered)
+{
+    if (offered && out->count < kFeedOptionsMax) {
+        feed_option &t = out->items[out->count++];
+        t.pick = feed_pick_make(kFeedStatus, "");
+        settings_set_text(t.label, sizeof t.label, "Status");
+    }
+}
+
 // The menu with the alert buttons (#121) last. Always offered: the pane says itself when Relay has no buttons.
 inline void feed_options_add_alert(feed_options *out)
 {
@@ -290,7 +308,7 @@ inline feed_resolved feed_resolve(const feed_pick &saved, const feed_options &op
         return {want, false};
     }
     if (want.stream == kFeedService || want.stream == kFeedAlert || want.stream == kFeedLyrics ||
-        want.stream == kFeedTimers) {
+        want.stream == kFeedTimers || want.stream == kFeedStatus) {
         // **A Service pick never falls back to the transcription.** Nor does lyrics or timers: each pane says what is wrong. The Service pane says itself when there is
         // nothing to show (no service planned today, Relay does not follow it, Planning Center unreachable), so it
         // is shown whether or not the menu offers it right now.

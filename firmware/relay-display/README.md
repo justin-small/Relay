@@ -441,6 +441,23 @@ and checked on a laptop (`check_propresenter` in `main/test_native.cpp`), are in
   (`pane 1 lyrics, a slide up` or `idle`; `pane 1 timers, 2 shown`). The emulator suite is
   `tests/test_propresenter_view.py`, against `tests/fake_relay.py`'s copy of the wire format.
 
+## Status view (#224)
+
+One more feed, set like the others (`kFeedStatus`, `{"stream":"status"}`, no setting of its own), offered in the menu
+while Relay's `targets` says `"status": true` (an older Relay leaves it out, and answers the stream 400, which the pane
+shows as "This Relay has no status view. Update Relay."). It reads `GET /stream?stream=status` (app/streamstatus.py):
+the whole state in each message, sent on a change and again every 5 s. The rules (parsing, the words, the colours, the
+counting) are in `main/status_format.h`, checked on a laptop (`check_status` in `main/test_native.cpp`); the pane is
+`main/status_view.cpp`.
+
+A band across the top says **ON AIR** (red, with how long), **OFF AIR**, or **NOT WATCHED** when no livestream module is
+on; rows under it give captions running and for how long, the input's state and level, the live languages, how many are
+watching, and each livestream source with its health and viewers. The elapsed times are sent as Relay's clock and
+counted on by the panel; after 20 s with no message the values go grey. A label is set only when its words or colour
+change, so a still status is not redrawn.
+
+**Bench items:** how the band and rows read from across a room, and the red band on the glass.
+
 ## Tests
 
 ```bash
