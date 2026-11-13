@@ -76,7 +76,7 @@ def watch_parent(stop: Callable[[], None], stdin=None, grace: float = STOP_GRACE
         pending = b""
         while True:
             chunk = _poll_stdin() if sys.platform == "win32" else os.read(0, 4096)
-            if chunk is None:
+            if not chunk:  # EOF (posix: b""; Windows: None, the pipe is closed)
                 return
             pending += chunk
             while b"\n" in pending:
