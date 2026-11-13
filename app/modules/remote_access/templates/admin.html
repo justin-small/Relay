@@ -1,0 +1,54 @@
+{# The Remote access admin page, rendered inside admin.html only while the module is on. #}
+    <style>
+      /* A QR code needs a light quiet zone to scan, whatever the page's colours. */
+      .ra-qr { width:120px; height:120px; padding:6px; background:#fff; border-radius:6px; flex:none; }
+      .ra-qr svg { width:100%; height:100%; display:block; }
+      .ra-qr:empty { display:none; }
+    </style>
+    <h2 class="title">Remote access <span class="sumstate" id="raSum"></span></h2>
+    <p class="sub">An internet link to the captions and translations, for people who aren't on this network.</p>
+    <p class="note" id="raAccessNote" hidden></p>
+
+    <section id="raLinkBox" hidden>
+      <h3>Remote viewer link</h3>
+      <div class="row" style="align-items:center;gap:16px">
+        <div id="raQr" class="ra-qr"></div>
+        <div>
+          <a class="mono" id="raUrl" href="#" target="_blank" rel="noopener"></a>
+          <div class="ctl" style="margin-top:8px"><button type="button" id="raCopy">Copy link</button></div>
+        </div>
+      </div>
+      <div class="note" id="raState" style="margin-top:12px"></div>
+      <div class="note">
+        This link opens the same viewer pages as the room's link: the captions, the translations and the
+        presentation screens. The operator panel is never reachable through it. Anyone who has the link can watch,
+        so share it the way you'd share a livestream link.
+      </div>
+      <div class="ctl" style="margin-top:12px">
+        <button type="button" class="forget" id="raRelease">Release this address</button>
+      </div>
+      <div class="note">
+        Switching Remote access off on the Modules page stops the link and keeps the address, so the same link
+        works again when you switch it back on. Releasing gives the address up for good; enrolling again needs a
+        new code and gives a different link.
+      </div>
+    </section>
+
+    <section id="raEnrollBox" hidden>
+      <h3>Enroll this install</h3>
+      <div class="row">
+        <div class="field">
+          <label for="raCode">Enrollment code</label>
+          <input id="raCode" class="mono" placeholder="XXXX-XXXX-XXXX" autocomplete="off" spellcheck="false" maxlength="40">
+        </div>
+      </div>
+      <div class="ctl">
+        <button type="button" class="primary" id="raEnroll">Enroll</button>
+      </div>
+      <div class="note">
+        Enrolling gives this install its own address on <span class="mono">relaychurchsystems.com</span>.
+        Relay connects out to Cloudflare, so nothing changes on your router or firewall. The audio never leaves
+        this computer; only the viewer pages are served through the link.
+      </div>
+    </section>
+    <div class="note err" id="raErr" hidden></div>

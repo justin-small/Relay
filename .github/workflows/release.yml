@@ -226,6 +226,11 @@ jobs:
           RELAY_HOME="$RUNNER_TEMP/probe" "$exe" --probe
           mkdir -p desktop/src-tauri/relay-backend
           cp -R "$RUNNER_TEMP/relay-dist/relay/." desktop/src-tauri/relay-backend/
+      - name: Add cloudflared for Remote access
+        # Pinned and checksum-checked (tools/fetch_cloudflared.py); it ships beside the backend, where the
+        # remote_access module looks for it. Relay downloads nothing at run time.
+        shell: bash
+        run: python tools/fetch_cloudflared.py --dest desktop/src-tauri/relay-backend
       - name: Build the installers
         shell: bash
         working-directory: desktop

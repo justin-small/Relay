@@ -568,6 +568,29 @@ Check the host's bandwidth and the session health table, not these two fields.
   Switch to *Room or laptop mic* (`far_field`) or *Headset / lavalier*
   (`near_field`) only when the capture really is one of those.
 
+## Remote access
+
+People who aren't on the venue's network (at home, in an overflow room, on mobile data) can follow along
+over the internet. **Remote access** is a module, off until you switch it on (Admin page → Modules).
+
+1. Switch on **Remote access** and open its page (under Output).
+2. Enter the **enrollment code** you were given and press **Enroll**. Each code works once.
+3. Relay gets its own address, `https://<random>.relaychurchsystems.com`, with a QR code to put on a slide.
+
+How it works: Relay's cloud (the `relay-cloud` Worker, a separate repository) makes a Cloudflare Tunnel and a DNS
+name for this install. Relay then runs `cloudflared`, which connects **out** to Cloudflare, so nothing changes on
+the router or firewall. The tunnel reaches **only the viewer port**: `/admin` and `/api/admin/*` are refused at
+Cloudflare's edge and again by Relay. Audio and the OpenAI key never leave the computer. Viewers' scripts and
+styles are cached at Cloudflare's edge, so a full room of remote viewers barely touches the venue's upload; the
+captions themselves are a few bytes a line.
+
+- **Switching the module off** stops the tunnel and **keeps the address**: switch it on again and the same link
+  works. **Release this address** gives it up for good; enrolling again needs a new code and gives a new link.
+- `cloudflared` (pinned, checksum-checked: `tools/fetch_cloudflared.py`) ships beside the desktop app's backend
+  and is fetched by `tools/install-service.sh` on a headless install. From a source checkout, put `cloudflared`
+  on the PATH or set `RELAY_CLOUDFLARED`.
+- The enrollment secret and the tunnel token live only in `config.json` and never reach a browser or a log.
+
 ## Security
 
 - The OpenAI key lives only in `config.json` on the host (mode `0600`,
@@ -576,8 +599,10 @@ Check the host's bandwidth and the session health table, not these two fields.
 - Viewer pages are read-only and unauthenticated, and served in plain HTTP,
   which suits a venue LAN. They carry no secret, and a room full of phones
   will not install a certificate to read captions.
-  **Do not expose this server to the public internet as-is**: viewer pages have
-  no access control and no transport security.
+  **Do not expose this server to the public internet yourself** (port forwarding, a reverse proxy):
+  viewer pages have no access control. To reach people off the network, use
+  [Remote access](#remote-access), which publishes only the viewer pages, over HTTPS, through an outbound
+  Cloudflare Tunnel. Anyone with that link can watch, as with a livestream link.
 - The operator panel is a different matter. It is served only over HTTPS, by Relay itself,
   on its own port (443), with a self-signed certificate whose fingerprint you check once.
   Its responses carry HSTS (397 days), `X-Content-Type-Options: nosniff`,
