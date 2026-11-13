@@ -703,6 +703,7 @@ print("\nsaved PulseAudio-era devices, blocked microphone")
 _fake_dev = [{"index": 0, "name": "Fake", "hostapi": "Test", "label": "Test: Fake",
               "channels": 1, "default_samplerate": 44100}]
 audio._probe_input_devices = lambda reinit: list(_fake_dev)
+audio.sd.InputStream = _FakeStream      # never open a real device: a CI Mac's input can kill the process
 audio._device_cache = None
 for _old in ("PulseAudio: Scarlett 2i2", "ALSA: pulse", "default"):
     check(f"{_old!r} falls back to the default input", audio.resolve_device(_old)["label"] == "Test: Fake")

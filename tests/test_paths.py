@@ -37,7 +37,8 @@ with mock.patch.object(sys, "platform", "darwin"):
     eq("macOS default", paths.default_home(), home / "Library" / "Application Support" / "Relay")
 with mock.patch.object(sys, "platform", "linux"), mock.patch.dict(os.environ, {"XDG_DATA_HOME": "/x/data"}):
     eq("Linux honours XDG_DATA_HOME", paths.default_home(), Path("/x/data/relay"))
-with mock.patch.object(sys, "platform", "linux"), mock.patch.dict(os.environ, {}, clear=True):
+_no_xdg = {k: v for k, v in os.environ.items() if k != "XDG_DATA_HOME"}   # keep HOME/USERPROFILE: Windows needs them
+with mock.patch.object(sys, "platform", "linux"), mock.patch.dict(os.environ, _no_xdg, clear=True):
     eq("Linux falls back to ~/.local/share/relay", paths.default_home(), home / ".local" / "share" / "relay")
 with mock.patch.object(sys, "platform", "win32"), mock.patch.dict(os.environ, {"APPDATA": "C:/Users/a/AppData/Roaming"}):
     eq("Windows uses %APPDATA%\\Relay", paths.default_home(), Path("C:/Users/a/AppData/Roaming") / "Relay")
