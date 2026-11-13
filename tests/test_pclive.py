@@ -106,9 +106,14 @@ class World:
 world = World()
 
 
+def _long_date(d):
+    """"November 9, 2026": %-d is not portable (Windows rejects it), so the day is formatted by hand."""
+    return f"{d:%B} {d.day}, {d.year}"
+
+
 def plan_row(st, pid, title, times, linked=True):
     row = {"type": "Plan", "id": pid, "attributes": {
-        "title": title, "series_title": "Autumn", "dates": utc(times[0][2]).astimezone(NY).strftime("%B %-d, %Y"),
+        "title": title, "series_title": "Autumn", "dates": _long_date(utc(times[0][2]).astimezone(NY)),
         "sort_date": iso(min(t[2] for t in times if t[1] == "service")), "updated_at": "2026-11-01T12:00:00Z"},
         "relationships": {"service_type": {"data": {"type": "ServiceType", "id": st}}}}
     if linked:
