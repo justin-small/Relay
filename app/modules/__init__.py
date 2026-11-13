@@ -2,8 +2,8 @@
 
 Relay's core is captions, translation, panels, alerts, schedules and recordings. Anything that talks to
 another product (ProPresenter, Planning Center, mixing consoles, lighting, streams) is a module: a package
-under app/modules/<id>/ whose `__init__.py` defines `MODULE`, an instance of `Module`. Modules ship inside
-the signed Docker image; nothing is downloaded at run time. The operator switches each one on or off on
+under app/modules/<id>/ whose `__init__.py` defines `MODULE`, an instance of `Module`. Modules ship with
+the app; nothing is downloaded at run time. The operator switches each one on or off on
 the admin page's Modules page, and a module that is off carries none of its code paths:
 
 * its background work is never started (`start`/`stop`),

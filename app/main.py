@@ -24,7 +24,8 @@ from fastapi.templating import Jinja2Templates
 from jinja2 import ChoiceLoader, FileSystemLoader, PrefixLoader
 
 from . import alerts as alertsmod
-from . import config, db, exporting, languages, overlays, panelfw, panels, redact, schedules, users
+from . import announce as announcemod
+from . import config, db, exporting, languages, netinfo, overlays, panelfw, panels, redact, schedules, users
 from .alerts import alerts
 from . import engine as engine_mod
 from .engine import TRANSCRIPTION_STREAM, TRANSLATION_STREAM, demo_mode, engine
@@ -195,6 +196,14 @@ async def _startup() -> None:
     engine.bind(asyncio.get_running_loop())
     app.state.blocklist_task = asyncio.create_task(_watch_blocklist())
     app.state.alerts_task = asyncio.create_task(_alert_ticks())
+    # Logs a change of LAN address (Wi-Fi switch); the admin page re-reads its viewer links on its own.
+    app.state.net_task = asyncio.create_task(netinfo.watch(lambda ips: None))
+    # Tell caption panels on the LAN where Relay is (mDNS, in a background thread). Never stops Relay.
+    app.state.announcer = None
+    if announcemod.enabled():
+        app.state.announcer = announcemod.Announcer(
+            announcemod.install_name(), int(cfg["port"]), os.environ.get("RELAY_VERSION") or "dev")
+        app.state.announcer.start()
     # First tick runs straight away, so a relay started mid-window catches up.
     scheduler.start()
     # The integrations that are switched on (app/modules/). Each idles until it is set up.
@@ -202,11 +211,7 @@ async def _startup() -> None:
     if ready and not (cfg.get("admin_token") or "").strip():
         with contextlib.suppress(Exception):
             if await asyncio.to_thread(_any_users) is False:
-                # First-run setup checks this token once; without one nobody can create the first Owner.
-                log.warning(
-                    "No users yet and no admin token is set: first-run setup is closed. "
-                    "Run setup.command (macOS) or setup.bat (Windows) to set one."
-                )
+                log.info("No users yet: open the operator panel on this computer to finish setting up Relay.")
     # Both sockets are loopback-only behind the Caddy front end, so these are
     # the internal addresses, not the ones anyone dials. The URLs the operator
     # and the room actually use are printed by tools/setup_caddy.py at startup,
@@ -301,7 +306,11 @@ async def _shutdown() -> None:
     with contextlib.suppress(Exception):
         await module_registry.stop_all()
     scheduler.cancel()
-    for name in ("demo_task", "blocklist_task", "alerts_task", "backup_task"):
+    announcer = getattr(app.state, "announcer", None)
+    if announcer is not None:
+        with contextlib.suppress(Exception):
+            await asyncio.to_thread(announcer.stop)
+    for name in ("demo_task", "blocklist_task", "alerts_task", "backup_task", "net_task"):
         task = getattr(app.state, name, None)
         if task is not None:
             task.cancel()
@@ -314,28 +323,11 @@ async def _shutdown() -> None:
 def _urls(port: int) -> list[str]:
     """The viewer links the panel shows (and turns into QR codes).
 
-    In the Docker image the relay sits behind Caddy, so neither what this
-    process can see nor its own port is what a phone should dial: the address
-    is the container's bridge (172.x) and 8000 is not published. There the
-    launcher hands in the host's LAN address (RELAY_ADMIN_IPS) and the image
-    names the port the host publishes (RELAY_PUBLIC_HTTP) -- the same pair the
-    startup banner prints. Run natively, the relay serves viewers itself.
+    Relay serves viewers itself, so the links are this machine's own network addresses (app/netinfo.py)
+    on the viewer port.
     """
-    public = os.environ.get("RELAY_PUBLIC_HTTP")
-    if public:
-        ips = [ip.strip() for ip in
-               (os.environ.get("RELAY_ADMIN_IPS") or "").replace(";", ",").split(",")
-               if ip.strip()]
-        suffix = "" if int(public) == 80 else f":{int(public)}"
-        return [f"http://{ip}{suffix}/" for ip in ips] + [f"http://127.0.0.1{suffix}/"]
-    try:
-        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        s.connect(("8.8.8.8", 80))
-        ip = s.getsockname()[0]
-        s.close()
-    except Exception:
-        ip = "127.0.0.1"
-    return [f"http://{ip}:{port}/", f"http://127.0.0.1:{port}/"]
+    ips = netinfo.lan_ips() or ["127.0.0.1"]
+    return [f"http://{ip}:{port}/" for ip in ips] + [f"http://127.0.0.1:{port}/"]
 
 
 # ---------------------------------------------------------------- auth
@@ -456,7 +448,7 @@ DB_DOWN_SENTENCE = "The user database is not available. Relay is still captionin
 # Web-layer sentences that are not users.MESSAGES. Fixed text, looked up by key.
 WEB_MESSAGES = {
     "bad_token": "That admin token is not right.",
-    "no_token": "No admin token is set in config.json, so first-run setup is closed.",
+    "local_only": "Finish setting up Relay on the computer it runs on: open this page there.",
     "already_set_up": "Relay is already set up. Sign in instead.",
     "mismatch": "The two passwords do not match.",
     "bad_request": "That request is not valid.",
@@ -1100,9 +1092,9 @@ def _login_page(request: Request, *, error: str | None = None, status: int = 200
     picker. `pw` forces the password form. Blocks (database). Passwords are never echoed back; a username is."""
     if setup is not None or not _any_users():
         form = {"username": "", "name": ""} | (setup or {})
-        return _render(request, "login.html", {"mode": "setup", "error": error, **form,
-                                               "token_set": bool((config.get().get("admin_token") or "").strip())},
-                       status)
+        token_set = bool((config.get().get("admin_token") or "").strip())
+        return _render(request, "login.html", {"mode": "setup", "error": error, **form, "token_set": token_set,
+                                               "remote": not token_set and not _setup_local(request)}, status)
     device = users.device_for(request.cookies.get(DEVICE_COOKIE) or "")
     pins = users.pin_users() if device else []
     mode = "pin" if pins and not pw else "signin"
@@ -1182,15 +1174,27 @@ def _signed_in(request: Request, token: str, max_age: int) -> RedirectResponse:
     return resp
 
 
+def _setup_local(request: Request) -> bool:
+    """True when first-run setup may be done from this request: it comes from the machine itself.
+
+    Behind a reverse proxy the peer is always loopback, so this judges the client the proxy reports
+    (X-Forwarded-For, trusted only from a loopback peer; see _client_ip), not the peer.
+    """
+    return _client_ip(request) in _LOOPBACK_HOSTS | {"::ffff:127.0.0.1"}
+
+
 def _field(value: str, limit: int = 200) -> str:
     return (value or "")[:limit]
 
 
 @app.post("/admin/setup")
 async def admin_setup(request: Request, token: str = Form(""), username: str = Form(""), name: str = Form(""),
-                      password: str = Form(""), confirm: str = Form("")):
-    """First run: the admin token from config.json (checked every time, in constant time) creates the Owner,
-    who is signed in. Once any account exists the token is never accepted again."""
+                      password: str = Form(""), confirm: str = Form(""), api_key: str = Form("")):
+    """First run creates the Owner (and, optionally, stores the OpenAI key), and signs them in.
+
+    With no admin token in config.json the page works only from the machine itself. A config.json that does
+    carry an admin token (a container install) keeps requiring it, checked in constant time. Once any account
+    exists this is never accepted again."""
     ip = _client_ip(request)
     username, name = _field(username, 100), _field(name, 200)
     shown = {"username": username, "name": name}
@@ -1203,13 +1207,16 @@ async def admin_setup(request: Request, token: str = Form(""), username: str = F
             if _any_users():
                 raise _WebRefused("already_set_up")
             real = (config.get().get("admin_token") or "").strip()
-            if not real:
-                raise _WebRefused("no_token")
-            if not _token_ok(token.strip(), real):
-                raise _WebRefused("bad_token")
+            if real:
+                if not _token_ok(token.strip(), real):
+                    raise _WebRefused("bad_token")
+            elif not _setup_local(request):
+                raise _WebRefused("local_only")
             if password != confirm:
                 raise _WebRefused("mismatch")
             user = users.create(username, name, "owner", password, temporary=False, actor=None)
+            if api_key.strip():
+                config.save({"openai_api_key": api_key.strip()[:300]})
             # Setup signs the Owner in without a password check, so stamp the sign-in here.
             db.execute("update users set last_login = ? where id = ?", (db.now(), user.id))
             global _have_users
@@ -1219,8 +1226,10 @@ async def admin_setup(request: Request, token: str = Form(""), username: str = F
     try:
         token_, age = await asyncio.to_thread(work)
     except _WebRefused as exc:
-        if exc.key in ("bad_token", "no_token"):
+        if exc.key == "bad_token":
             await _fail(ip)
+        if exc.key == "local_only":
+            return await asyncio.to_thread(_login_page, request, error=exc.message, status=403)
         if exc.key == "already_set_up":
             return await asyncio.to_thread(_login_page, request, error=exc.message, status=403)
         return await asyncio.to_thread(_login_page, request, error=exc.message,
@@ -1336,6 +1345,12 @@ RESCAN_LIVE_NOTE = (
     "Capture is running, so the audio backend was left alone \u2014 anything plugged in "
     "since start-up will not appear. Stop capture and rescan for a full list."
 )
+
+
+@app.get("/api/admin/urls", dependencies=[Depends(require("settings.view"))])
+async def admin_urls():
+    """Viewer links alone, so the admin page can follow a network change without a reload."""
+    return {"urls": await asyncio.to_thread(_urls, config.get()["port"])}
 
 
 @app.get("/api/admin/state", dependencies=[Depends(require("settings.view"))])

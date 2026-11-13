@@ -60,8 +60,7 @@ check("spanish target present", "SPANISH" in cfg["targets"])
 cfg = config.save({"admin_token": "t0ken", "openai_api_key": "sk-test-1234", "default_font_px": 999})
 check("font clamped to 160", cfg["default_font_px"] == 160, cfg["default_font_px"])
 check("file mode 0600", os.name != "posix" or oct(os.stat(config.CONFIG_PATH).st_mode)[-3:] == "600")  # Windows has no modes
-# A config.json this process does not own (copied in from another machine;
-# Docker Desktop on Windows shows it as root's) refuses chmod. Starting must
+# A config.json this process does not own (copied in from another machine) refuses chmod. Starting must
 # still work, by rewriting the file rather than crashing on every start.
 _real_chmod, _refused = os.chmod, []
 def _chmod_not_owner(path, mode, *a, **kw):
@@ -464,19 +463,15 @@ finally:
 
 print("\npanel viewer links")
 from app.main import _urls
-_env = {k: os.environ.pop(k, None) for k in ("RELAY_PUBLIC_HTTP", "RELAY_ADMIN_IPS")}
+_env = os.environ.pop("RELAY_ADMIN_IPS", None)
 try:
-    check("run natively, links use the relay's own port", _urls(8000)[-1] == "http://127.0.0.1:8000/", _urls(8000))
-    os.environ.update(RELAY_PUBLIC_HTTP="80", RELAY_ADMIN_IPS="192.0.2.10")
-    eq("behind Caddy in Docker, links use the host address and port 80",
-       _urls(8000), ["http://192.0.2.10/", "http://127.0.0.1/"])
-    os.environ["RELAY_PUBLIC_HTTP"] = "8080"
-    eq("a non-default published port is kept", _urls(8000)[0], "http://192.0.2.10:8080/")
+    check("links use the relay's own port", _urls(8000)[-1] == "http://127.0.0.1:8000/", _urls(8000))
+    os.environ["RELAY_ADMIN_IPS"] = "192.0.2.10"
+    check("RELAY_ADMIN_IPS adds an extra link", "http://192.0.2.10:8000/" in _urls(8000), _urls(8000))
 finally:
-    for k, v in _env.items():
-        os.environ.pop(k, None)
-        if v is not None:
-            os.environ[k] = v
+    os.environ.pop("RELAY_ADMIN_IPS", None)
+    if _env is not None:
+        os.environ["RELAY_ADMIN_IPS"] = _env
 
 print("\nsession clock")
 # A real start() needs PortAudio and a live OpenAI key, so the stamping itself

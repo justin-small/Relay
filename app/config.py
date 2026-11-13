@@ -379,8 +379,8 @@ def _tighten(path: Path) -> None:
     """Make an existing file 0600, taking ownership of it first if need be.
 
     chmod needs the caller to own the file. One this process did not create --
-    copied into docker-config/ from another machine, which Docker Desktop on
-    Windows presents as root-owned -- refuses it, and the relay would crash
+    copied in from another machine, which the OS can present as owned
+    by someone else -- refuses it, and the relay would crash
     on every start. Rewriting it through a fresh 0600 file and renaming that
     over the original, as save() does, leaves a file this process owns. Where
     even that is refused the error is raised: a secret that cannot be made

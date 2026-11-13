@@ -21,7 +21,7 @@ jobs:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
         with:
-          # Matches the base image in docker/Dockerfile.
+          # The Python the app is developed and tested on.
           python-version: '3.15'
           cache: pip
       # sounddevice needs the PortAudio library to import (see release.yml for why PulseAudio runs headless).

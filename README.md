@@ -11,35 +11,20 @@ viewers. One vendor (OpenAI Realtime), native audio capture, text-only output.
 Viewers open a link on their phone and read. Nothing to install, no account,
 no microphone permission. The audio is captured on the host machine.
 
-Two front doors, served by Caddy:
+Two sockets, one process:
 
-| | Serves | On the wire |
+| | Default | Serves |
 |---|---|---|
-| **80** | `/` chooser, `/transcription`, `/translation`, `/both`: the link you give the room | plain HTTP |
-| **443** | `/admin`: the operator panel | HTTPS |
+| **viewers** | `0.0.0.0:8000` | `/` chooser, `/transcription`, `/translation`, `/both`: the link you give the room (plain HTTP) |
+| **operator panel** | `127.0.0.1:8001` | `/admin`, reachable only from the computer Relay runs on |
 
-Those are the ports on the host, so the panel is `https://<host>/admin` with no
-port number. Caddy itself listens on 8080 and 8443 inside the container and
-Docker publishes them as 80 and 443; set `RELAY_HTTP_PORT` or
-`RELAY_HTTPS_PORT` to publish on other host ports (see [Docker](#docker)).
-
-Behind them the relay is one process with two loopback sockets: `port` (8000)
-for viewers and `admin_port` (8001) for the panel. Neither is on the network.
-`host` is `0.0.0.0` because the room has to reach the viewer link; `admin_host`
-is `127.0.0.1` because the panel reads and writes the OpenAI key and carries
-everyone's sign-in, and those have no business crossing venue Wi-Fi in
-cleartext.
-
-Admin routes are refused with a 404 on the viewer port, both in the app and in
-Caddy, and the chooser page only offers the panel when it is served on the
-admin port, so the audience link never exposes it. Set `admin_port` equal to
-`port` in `config.json` to put everything back on one port.
-
-The panel's certificate is self-signed and generated on this machine: there is
-no public DNS name on a venue LAN and no ACME challenge to answer, so a real CA
-is not an option. Setup prints its SHA-256 fingerprint. Check it against what
-the browser shows the first time, then accept the certificate. Without that
-check, the warning protects nothing.
+`host` is `0.0.0.0` because the room has to reach the viewer link; `admin_host` is
+`127.0.0.1` because the panel reads and writes the OpenAI key and carries everyone's
+sign-in, and those have no business crossing venue Wi-Fi in cleartext. Admin routes
+answer 404 on the viewer port, and the chooser page only offers the panel when it is
+served on the admin port, so the audience link never exposes it. Set `admin_port` equal
+to `port` in `config.json` to put everything on one port. Serving the panel over HTTPS
+to other machines is the job of the HTTPS issue.
 
 **Running Relay at a venue, not developing it?** The
 [Relay User Guide](https://github.com/justin-small/Relay/releases/latest/download/Relay-User-Guide.pdf)
@@ -100,110 +85,60 @@ Every screen is explained, with pictures, in the
 
 ---
 
-## Install
+## Run it natively
 
-Requires [Docker Desktop](https://www.docker.com/products/docker-desktop/) (or
-Docker Engine on Linux). Nothing else: no Python, no virtualenv, no Caddy.
-Everything runs in one container (Caddy and the relay; the user accounts are a
-SQLite file in the state folder), and setup uses the image's own Python to
-write the credentials and mint the certificate.
-
-Get Relay from the [latest release](https://github.com/justin-small/Relay/releases/latest)
-(`Relay-vX.Y.Z.zip`, which unzips to a folder named `Relay/`) or clone `main`.
-
-**Setup runs once. Start runs every time.**
-
-| | Set up | Start | Stop | Follow the log |
-|---|---|---|---|---|
-| **macOS** | double-click `setup.command` | double-click `start.command` | double-click `stop.command` | double-click `logs.command` |
-| **Windows 10 / 11** | double-click `setup.bat` | double-click `start.bat` | double-click `stop.bat` | double-click `logs.bat` |
-| **Linux** | `./setup.sh` | `./start.sh` | `./stop.sh` | `./logs.sh` |
-
-`setup.*` checks Docker, builds the image, then asks for three things: your
-**OpenAI API key**, an **admin token** of your choosing, and optionally a
-**hostname** for this machine. The first two are written to
-`docker-config/config.json` with permissions `0600`; neither is echoed to the
-screen, and neither is ever committed. The admin token is a one-time setup
-token: you use it once, to create the first Owner (see
-[Users and roles](#users-and-roles)). It then mints the operator panel's TLS
-certificate and prints its SHA-256 fingerprint. Write that down.
-
-`start.*` starts the whole stack: Caddy and the relay, one
-container, one command. It finds this machine's LAN address first, because the certificate has
-to name whatever the operator's browser will dial and that changes with the
-venue. If setup has not been run it says so and stops rather than launching a
-half-configured relay.
-
-The container runs in the background, so there is no window to keep open.
-`start.*` waits until the relay answers, prints both URLs and the panel
-certificate's SHA-256, opens the panel in the browser, then closes its window
-after 30 seconds (press return to close it sooner). If anything fails, the
-window stays open with the error and the last lines of the relay's log. The
-relay keeps running until `stop.*`; `logs.*` shows what it is doing, and
-closing the log window does not stop it.
-
-Docker restarts the container if it crashes, and again when Docker Desktop
-starts, unless `stop.*` ran first. On macOS that restart comes up without the
-PulseAudio daemon, which only `start.command` launches, so after a reboot run
-`start.command` again rather than relying on the automatic restart.
-
-Run setup again at any time to change the API key, add a hostname, or renew
-the certificate. It does not touch the accounts.
-
-<details>
-<summary>Manual setup, without the launchers</summary>
+Relay runs straight from Python on Windows, macOS and Linux, with no container:
 
 ```bash
-mkdir -p docker-config && chmod 700 docker-config
-export RELAY_UID=$(id -u) RELAY_GID=$(id -g)
-C="docker compose -f docker/docker-compose.yml"
-
-$C build
-OPENAI_KEY='sk-…' ADMIN_TOKEN='your-token' RELAY_ADMIN_FQDN='' \
-  $C run --rm --no-deps -e OPENAI_KEY -e ADMIN_TOKEN -e RELAY_ADMIN_FQDN \
-  relay python tools/write_config.py
-RELAY_ADMIN_IPS=10.0.1.42 $C run --rm --no-deps -e RELAY_ADMIN_IPS \
-  relay python tools/setup_caddy.py
-
-RELAY_ADMIN_IPS=10.0.1.42 $C -f docker/docker-compose.linux.yml up
+pip install -r requirements.txt
+python run.py
 ```
 
-The credentials go through the environment rather than the command line so
-they never land in a process listing or a shell history file. `RELAY_ADMIN_IPS`
-is this machine's LAN address: the container only sees its own bridge address,
-so it cannot work that out for itself.
-</details>
+Then open <http://127.0.0.1:8001/admin> **on that computer**. The first-run page asks for
+your OpenAI API key (optional here; it can be added later in Settings) and creates the
+first Owner account. Until that account exists the page answers only to the machine
+itself, so nobody else on the network can claim it. Viewer links are worked out from
+the machine's own network addresses and follow a change of network.
 
-Audio is the only part that needs per-platform wiring, and the launchers handle
-it. See [Docker](#docker) for what each one does and why.
+Audio comes straight from the sound card through PortAudio (WASAPI, Core Audio,
+ALSA or PipeWire) under the names the OS gives the devices. On Linux install
+`libportaudio2` and run a sound server. If the OS has blocked microphone access, grant
+it to your terminal or Python in the system's privacy settings.
+
+Everything Relay writes lives in one per-user folder, never in the install directory:
+`%APPDATA%\Relay` on Windows, `~/Library/Application Support/Relay` on macOS and
+`$XDG_DATA_HOME/relay` (default `~/.local/share/relay`) on Linux. Set `RELAY_HOME` to move it.
+
+**Relay runs as the logged-in user.** There is no container around it: it can read
+and write whatever you can, and it holds your OpenAI key in `config.json` (owner-only
+permissions) in that folder. Run it from an account you would trust with that key,
+keep the operator panel on `127.0.0.1` (the default), and do not run it as an
+administrator or root.
+
+**Moving from a Docker install.** Stop the old Relay, then on Windows run
+`powershell -ExecutionPolicy Bypass -File tools\migrate-from-docker.ps1`. It copies
+`config.json` (your key and settings), `relay.db` (accounts), `blocklist.txt`, `recordings\`,
+`backups\` and `panel-firmware\` from the old `docker-config\` folder (or straight out of the
+container) into the state folder, and leaves the Docker install untouched. Pass `-Source <folder>`
+to name the folder yourself, and `-Force` to replace an existing native config.
 
 ## First run
 
-1. Run `setup.command` / `setup.bat` / `./setup.sh`. Enter your API key and
-   admin token, and a hostname if you have one. Leave it blank to certify this
-   machine's IP address only.
-   Note the SHA-256 fingerprint it prints at the end.
-2. Run `start.command` / `start.bat` / `./start.sh`. It prints both URLs: viewers get
-   `http://10.0.1.42/`, the panel is at `https://10.0.1.42/admin`. It opens
-   the panel for you, and its window closes by itself once the relay is up.
-3. Open the panel. The browser warns about the certificate the first time.
-   Check the fingerprint it shows against the one from setup, then accept it.
-   The panel asks you to create the first account, the Owner: enter the admin
-   token from setup, then choose a username, your name and a password. You are
-   signed in when it is done. Then:
+1. `pip install -r requirements.txt && python run.py`.
+2. Open <http://127.0.0.1:8001/admin> on that computer. Enter your OpenAI API key
+   (or add it later in Settings) and create the first account, the Owner. You are
+   signed in when it is done.
+3. In the panel:
    - pick the **capture device** and channel (the meter should move when
      someone speaks into it);
    - toggle on the **target languages** the room needs;
    - press **Start capture**.
 4. Session health should show one `connected` session per enabled target.
-   Share the LAN viewer link with the room.
+   Share the viewer link from the panel with the room.
 
 > **Your password is what protects the panel**, and the panel controls a
 > session billed to your OpenAI account. Choose a real password, not a word.
-> The admin token works only until the first Owner exists, and there is no
-> default token: with none set, first-run setup is closed. TLS keeps your
-> password off the wire, but only if you check the fingerprint. Skip the check
-> and you are trusting whatever answered.
+> Until the first Owner exists the setup page answers only to this computer.
 
 ## Users and roles
 
@@ -213,12 +148,11 @@ password. Each account has one of four roles, ranked **Viewer**, **Operator**,
 server checks the permission on every admin API route. The panel also hides
 whatever a role may not use.
 
-**First run.** Open the panel and it asks for the admin token that setup wrote
-to `docker-config/config.json`, then a username, your name and a password. That
-creates the first Owner and signs you in. After that the token is never accepted
-again, neither on the sign-in form nor as the `x-admin-token` header. Usernames
-are 3 to 32 characters (letters, digits, dot, dash, underscore, lowercase);
-passwords are 8 to 200 characters.
+**First run.** Open the panel on the computer Relay runs on and it asks for an
+OpenAI key (optional) and then a username, your name and a password. That creates
+the first Owner and signs you in. Until that account exists the page is reachable
+only from this machine. Usernames are 3 to 32 characters (letters, digits, dot,
+dash, underscore, lowercase); passwords are 8 to 200 characters.
 
 **What each role can do.** Each role can do everything the roles to its left
 can, and more.
@@ -283,15 +217,14 @@ If the only Owner is locked out or has forgotten their password, run this on the
 Relay computer:
 
 ```bash
-docker exec -it live-caption-relay python tools/reset_owner.py <username>
+python tools/reset_owner.py <username>
 ```
 
 It creates `<username>` as an Owner, or, if that account exists, turns it on and
 makes it an Owner. It asks for a new password twice, without showing it, then
-ends their sessions and clears their PIN. Sign in with that password. Run
-outside Docker, it is `python tools/reset_owner.py <username>` with
-`RELAY_DATABASE` pointing at the `relay.db` the app uses (the default is
-`relay.db` beside `config.json`). It needs that file to be openable.
+ends their sessions and clears their PIN. Sign in with that password. It opens
+the `relay.db` the app uses (beside `config.json` in the state folder, or the file
+`RELAY_DATABASE` names) and needs that file to be openable.
 
 ## Target languages
 
@@ -316,7 +249,7 @@ Two things follow from the model:
 
 ## Blocked words
 
-Blocked words live in **`docker-config/blocklist.txt`**, one word or phrase per
+Blocked words live in **`blocklist.txt` in the state folder**, one word or phrase per
 line:
 
 ```
@@ -368,7 +301,7 @@ mid-event still leaves you everything said up to that point. Blocked words are
 removed before anything is written, so a term on the blocklist never reaches
 the file.
 
-Runs land in `recordings/` (`docker-config/recordings/` under Docker), one
+Runs land in `recordings/` in the state folder, one
 directory per run:
 
 ```
@@ -425,8 +358,7 @@ cannot fill its disk. Individual runs can be deleted from the panel; the run
 currently being recorded cannot.
 
 Recordings are a transcript of everything said in the room. `recordings/` is
-git-ignored, and under Docker the directory sits on the state volume so it
-survives the container and can be collected from the host.
+git-ignored, and the real one lives in the state folder, outside the install.
 
 ## Schedules
 
@@ -479,290 +411,6 @@ Schedules are stored in `config.json` under `schedules`, with ISO dates
 `app/schedules.py` for the shape. An entry edited by hand that does not
 validate is ignored rather than stopping the relay.
 
-## Docker
-
-Relay runs only in Docker, as a single container. The build is reproducible,
-the dependencies are pinned, and the host needs nothing but Docker.
-
-Audio is the only part that needs per-platform wiring, and the launchers handle
-it:
-
-| Host | Start it with | Audio |
-|---|---|---|
-| **macOS** | `./start.command` | starts a PulseAudio daemon on the Mac and bridges it in |
-| **Windows 10 / 11** | `start.bat` | starts a PulseAudio daemon on Windows, on loopback only, and bridges it in |
-| **Linux** | `./start.sh` | `/dev/snd` passed straight in |
-
-Each launcher runs `tools/check-audio.sh` (`tools/check-audio.ps1` on Windows,
-where there is no bash) first and refuses to go live quietly
-if a link in the chain is broken, then finds this machine's LAN address and
-hands it to the container. State lives in two places, and both survive
-rebuilds. `./docker-config/` holds the API key, the setup admin token, the
-blocklist, the generated `Caddyfile`, the panel's certificate, `relay.db` (the
-user accounts) and `backups/` (the daily database copies); see
-[Database and backups](#database-and-backups).
-
-Caddy runs **inside the same container** as the relay, so there is
-nothing else to launch or keep running. The entrypoint mints the
-certificate if setup has not already, validates the generated Caddyfile, then
-supervises Caddy and the relay; if either of those exits, the
-container exits and `restart: unless-stopped` brings back a known-good pair
-rather than leaving a half-running container that still passes a shallow probe.
-The database is a file the relay opens itself, so there is no third process.
-
-| | Outside | Caddy, in the namespace | Relay |
-|---|---|---|---|
-| **Viewers** | `:80`, plain HTTP | `:8080` | `127.0.0.1:8000` |
-| **Panel** | `:443`, HTTPS | `:8443` | `127.0.0.1:8001` |
-
-Caddy binds unprivileged ports inside and the host publishes 80 and 443 in
-front of them. That is deliberate: binding a privileged port directly would
-need `CAP_NET_BIND_SERVICE`, and the container keeps `cap_drop: ALL`.
-
-### What the container is allowed to do
-
-The image runs unprivileged with a read-only root filesystem and no Linux
-capabilities at all. In practice that means:
-
-| | |
-|---|---|
-| **User** | `10001:10001`, never root. On Linux, pass `RELAY_UID`/`RELAY_GID` so the bind-mounted `docker-config/` matches your account; Docker Desktop fakes ownership, so macOS and Windows can ignore this. If you later start Relay as a different uid, `relay.db` may not be writable by it: the database is reported unavailable in the log and left untouched; start Relay as the original uid again. |
-| **Filesystem** | `read_only: true`. `/app` cannot be rewritten by the process that runs it. Writable: `docker-config/` (state, including `relay.db`), plus small tmpfs mounts for `/tmp` and `$HOME`. |
-| **Privileges** | `cap_drop: ALL` and `no-new-privileges:true`, so there is no setuid escalation path. |
-| **Limits** | 1 GB memory, 2 CPUs, 256 pids, and log rotation at 3 × 10 MB, so a wedged run cannot fill the host. |
-| **Base images** | `python:3.15-slim-trixie` and `caddy:2-alpine`, both pinned by digest; dependencies installed wheels-only in a builder stage, so no compiler or pip ships in the runtime image. Only Caddy's binary is taken from its image, copied with `cp` so its `cap_net_bind_service` file capability is dropped: `execve` of a file with capabilities fails outright under `no-new-privileges`. |
-| **Front end** | Caddy, in the same container with the same lifecycle. `admin off`, because its control socket is unauthenticated and can rewrite the whole config, and nothing here needs it. `auto_https off`, because nothing is public: it never tries ACME and never redirects viewers to a certificate they cannot trust. |
-| **Panel key** | Minted in the container by setup, into `docker-config/certs/` at mode 0600. It is never in an image layer and never in a registry. Reused across restarts while it still covers the current names, so the fingerprint you wrote down at setup is the fingerprint you see at showtime. |
-
-**The relay's own sockets never leave loopback.** `:8000` and `:8001` are
-cleartext and live inside the network namespace; they are not published at all.
-Everything from outside arrives through Caddy, which means the panel is only
-ever reachable over TLS. The certificate names the host's LAN address, which
-the container cannot discover for itself. The launchers pass it in as
-`RELAY_ADMIN_IPS` on every start, and `admin_fqdn` in `config.json` (asked for
-at setup) adds a hostname.
-
-If you would rather not expose the panel to the LAN at all, publish it on the
-host's loopback only and tunnel to it. Change the panel's line in
-`docker/docker-compose.yml` to `"127.0.0.1:${RELAY_HTTPS_PORT:-443}:8443"`,
-then:
-
-```bash
-ssh -N -L 8443:127.0.0.1:443 you@relay-host   # then open https://localhost:8443/admin
-```
-
-The Companion module then has no way in; it needs the panel port on the LAN.
-
-**Why the wiring is needed:** the relay captures from a host sound card
-through PortAudio, and a container only sees devices the host hands it.
-
-### Scanning the image
-
-The base images are pinned by digest, which is right for reproducibility and
-wrong for CVEs: the layer is frozen, so an advisory published against Debian
-trixie, CPython or Caddy lands silently and the build keeps succeeding.
-Two things make the pin safe. Dependabot proposes the digest bump weekly
-(`.github/dependabot.yml`), and scanning proves the new layer is actually
-cleaner than the old one before it merges. `tools/scan-image.sh` runs the scan
-locally, with no CI, no account and nothing to install beyond Docker:
-
-```bash
-./tools/scan-image.sh                 # build, then scan
-./tools/scan-image.sh --no-build      # scan the image already built
-./tools/scan-image.sh --severity CRITICAL
-./tools/scan-image.sh --all           # include won't-fix advisories (noisy)
-./tools/scan-image.sh --json reports/ # also save the raw JSON
-```
-
-Three passes: image vulnerabilities (Debian packages *and* the Python venv
-*and* the Caddy binary's Go modules), Dockerfile/compose misconfiguration, and
-secrets in the working tree. Only the first can fail the run: the exit status
-is the number of **fixable** HIGH/CRITICAL findings, so a clean run means every finding has
-a version to move to. The other two print and never fail the run.
-
-Trivy does the work, from its own pinned container by default; a `trivy` on
-your PATH is used instead when you have one. The vulnerability database is
-cached in a named volume, so only the first run downloads it. Run the scan
-before an event and after any dependency bump. Also run it when nobody has
-touched the repo for a while, because that is when a frozen base image is most
-likely to be stale.
-
-Findings come in two kinds, and the fix differs:
-
-| Where | Fix |
-|---|---|
-| OS package or Caddy's Go modules | Bump the pinned digest in `docker/Dockerfile`, usually by merging Dependabot's PR, or by hand with `docker pull python:3.15-slim-trixie` (or `caddy:2-alpine`) then `docker image inspect ... --format '{{index .RepoDigests 0}}'`. For Caddy this currently changes nothing; see *Known findings* below. |
-| Python package | Bump it in `requirements.txt` and rebuild. |
-
-Pass 3 flags your own `config.json` if it holds a real key. That is the
-scanner working, not a leak: the file is git-ignored and never enters an image
-layer. It is worth reading anyway, because it is the same check that would
-catch a key pasted into a file that *is* tracked.
-
-### Known findings: the Caddy binary's Go modules
-
-As of 2026-09-21 a clean scan is not achievable. The reason is recorded here so
-nobody has to investigate it again. `caddy:2-alpine` ships
-Caddy 2.11.4 built against Go 1.26.3, and Trivy reports **17 fixable HIGH**
-findings inside that one binary:
-
-| Module | In image | Fixed in | Count |
-|---|---|---|---|
-| Go `stdlib` | 1.26.3 | 1.26.6 | 11 |
-| `google.golang.org/grpc` | 1.81.0 | 1.83.2 | 3 |
-| `golang.org/x/crypto` | 0.52.0 | 0.55.0 | 1 |
-| `golang.org/x/net` | 0.55.0 | 0.56.0 | 1 |
-| `golang.org/x/text` | 0.37.0 | 0.39.0 | 1 |
-
-Re-pinning the digest does **not** clear them. Upstream's current
-`caddy:2-alpine` carries the same binary built against the same toolchain.
-Scanning it directly gives the same 17 findings, with a clean Alpine layer.
-Upstream has not rebuilt yet; this repo is not behind.
-
-What actually affects this deployment:
-
-- **Not reachable.** `x/crypto/ssh` (Caddy runs no SSH), the three gRPC
-  findings (no gRPC listener; `admin off`), `dnsmessage` (no ACME DNS
-  challenge; `auto_https off`), and the `os.Root` symlink traversal (no
-  file-serving path takes an attacker-controlled root).
-- **Reachable, LAN-scoped.** The `crypto/tls` KeyUpdate and HTTP/2 denial of
-  service on the panel's HTTPS listener (8443 in the container, 443 on the
-  host), plus `net/url` and MIME header parsing on any request Caddy accepts.
-  All are denial of service, need a device already on the venue LAN, and fail
-  as "captions stop", which the operator sees immediately.
-- **`html/template` XSS** needs Caddy to render a template with attacker
-  input. This deployment serves static viewer assets and proxies; it renders
-  none.
-
-None of it is remote code execution, and none of it is reachable from the
-public internet, because nothing here is on the public internet.
-
-The plan is to wait for upstream, then re-pin the `caddy:2-alpine` digest in
-`docker/Dockerfile` once it ships a Go 1.26.6 build. `./tools/scan-image.sh`
-re-checks on every run, so the scan shows when that happens. Nothing is
-suppressed. There is deliberately no `.trivyignore`, because it would also hide
-the next real Caddy finding, and the exit status stays at 17. If upstream is
-still on 1.26.3 long after this was written, the alternative is to build Caddy
-in a builder stage from a current `golang:` image. That gives a toolchain we
-control, but it has to be maintained.
-
-### Windows: PulseAudio
-
-One path for Windows 10 and 11 alike. Docker Desktop runs on WSL2, its default
-backend, but nothing here uses a Linux distro of your own: `setup.bat` and
-`start.bat` run `docker compose` straight from Windows, and the microphone
-comes in the way it does on macOS: from a PulseAudio daemon running natively
-on the host. Operators double-click the `.bat`; nobody opens a Linux shell.
-
-`setup.bat` downloads a PulseAudio build for Windows
-([pgaskin/pulseaudio-win32](https://github.com/pgaskin/pulseaudio-win32) v5,
-PulseAudio 15) into `.pulseaudio\`, which is git-ignored and never in the
-image. It refuses the download unless its SHA-256 matches the one pinned in
-`tools/windows-audio.ps1`. `start.bat` then starts the daemon hidden, so
-closing the window leaves it running, and `stop.bat` stops it. By hand:
-
-```bat
-powershell -ExecutionPolicy Bypass -File tools\windows-audio.ps1 start
-docker compose -f docker/docker-compose.yml -f docker/docker-compose.windows.yml up -d
-```
-
-The daemon loads one capture source per Windows recording device, named after
-the device, so the panel lists them by name ("WaveIn on USB Audio CODEC").
-Windows trims those names to 31 characters. A device plugged in after
-`start.bat` needs `stop.bat` and then `start.bat` to show up. Unlike on macOS,
-**Rescan** alone does not find it.
-
-It listens on **127.0.0.1 only**. Docker Desktop forwards the container's
-`host.docker.internal` to the host's loopback, so the container reaches the
-daemon while nothing on the LAN can. That matters because the Pulse protocol
-here is unauthenticated (`auth-anonymous=1`). It also means Windows Firewall
-never prompts for it.
-
-Windows gates desktop apps' microphone access: **Settings → Privacy →
-Microphone → "Allow desktop apps to access your microphone"** must be on, or
-the sources appear and read pure silence. `check-audio.ps1` fails on exactly
-that.
-
-### macOS: PulseAudio
-
-`./start.command` does this for you. To run it by hand:
-
-```bash
-brew install pulseaudio
-pulseaudio --exit-idle-time=-1 --log-target=stderr \
-  --load="module-native-protocol-tcp port=4713 auth-anonymous=1 auth-ip-acl=127.0.0.1;192.168.65.0/24;172.16.0.0/12" &
-docker compose -f docker/docker-compose.yml -f docker/docker-compose.macos.yml up
-```
-
-The ACL must cover Docker Desktop's VM subnet (`192.168.65.0/24`) and the
-bridge range (`172.16.0.0/12`). The container is not on your LAN, so
-`127.0.0.1` alone refuses it. `--daemonize=yes` fails on the Homebrew build;
-background it instead.
-
-macOS gates capture per process: the terminal running PulseAudio needs
-Microphone permission (System Settings → Privacy & Security → Microphone), or
-sources appear and read pure silence.
-
-With `PULSE_SERVER` set, the panel's device list shows the PulseAudio server's
-inputs by name ("PulseAudio: MacBook Pro Microphone") rather than ALSA's
-`default` and `pulse`, which both only reach the server's default input.
-Picking one opens that source directly. A mic connected later (an iPhone, a
-USB interface) shows up after **Rescan**, even while capture is running.
-
-### Verifying the chain
-
-`tools/check-audio.sh` walks the whole path and prints PASS/FAIL per link, so a
-broken mic turns up at setup rather than at showtime. Exit status is the
-number of failures.
-
-```bash
-./tools/check-audio.sh                                              # Linux
-PULSE_SERVER=tcp:host.docker.internal:4713 ./tools/check-audio.sh   # macOS
-powershell -ExecutionPolicy Bypass -File tools\check-audio.ps1        # Windows
-```
-
-It checks that the image exists, the server answers, sources are listed,
-PortAudio enumerates an input, and one second of audio actually arrives. It
-also fails separately on *digital silence*. That is what a missing microphone
-permission looks like on macOS and Windows, and otherwise it looks exactly like
-a working setup.
-
-### Rehearsal in Docker
-
-```bash
-RELAY_DEMO=1 RELAY_ADMIN_IPS=127.0.0.1 \
-  docker compose -f docker/docker-compose.yml up
-```
-
-No audio wiring needed, no API calls, no billed session.
-
-### Sample rate
-
-PortAudio reports 44100 for ALSA's `pulse` device whatever the server actually
-runs at, so a 48k source would be resampled to 44.1k by PulseAudio and then to
-24k by soxr. That is two conversions and a slower start (about 4.8 s to steady
-state, against about 1.6 s). The entrypoint therefore sets `RELAY_NATIVE_RATE=48000`, which
-`app/audio.py` uses in place of the reported default. Set it to your device's
-rate if that is not 48k, or to `0` to take PortAudio's default. Linux hands
-`/dev/snd` straight in, so `PULSE_SERVER` is unset there and none of this
-applies.
-
-### Caveats
-
-Published ports, not host networking, so the console prints the container's
-address rather than the LAN one. Give the room the host machine's own LAN
-address on `:80`. The same blind spot is why the certificate needs
-`RELAY_ADMIN_IPS`: the container cannot name an address it cannot see.
-
-The macOS and Windows paths add a network hop to a pipeline tuned for latency,
-and a PulseAudio daemon that can fail on event day. Check the audio before the
-room fills up. On Windows the hop never leaves the machine. Linux (`/dev/snd`
-straight in) has neither problem.
-
-`auth-anonymous=1` means anything that can reach the PulseAudio port can
-listen to that microphone. Keep `auth-ip-acl` narrow and do not forward the
-port beyond the host.
-
 ## Database and backups
 
 The user accounts are kept in one SQLite file, `relay.db`, beside `config.json`.
@@ -773,8 +421,8 @@ the network for it.
 
 | | |
 |---|---|
-| Live database | `docker-config/relay.db` on the host (`/app/config/relay.db` in the container); `RELAY_DATABASE` names another file |
-| Backups | `docker-config/backups/` on the host (`/app/config/backups` in the container) |
+| Live database | `relay.db` in the state folder; `RELAY_DATABASE` names another file |
+| Backups | `backups/` in the state folder |
 
 The file is created with mode `0600`. It runs in WAL mode, so `relay.db-wal` and
 `relay.db-shm` may sit beside it while Relay is running; they belong to it.
@@ -787,44 +435,42 @@ name and renamed into place, as one self-contained file named
 and older ones are deleted. A backup that fails is logged and tried again an hour
 later.
 
-**Backing up.** Copy `docker-config/`: it holds the database, the backups, the
-API key and the certificate, so it is a complete backup. To take one on demand,
+**Backing up.** Copy the state folder: it holds the database, the backups and the
+API key, so it is a complete backup. To take one on demand,
 for example before an upgrade:
 
 ```bash
-docker exec live-caption-relay python -c "from app import db; print(db.backup())"
+python -c "from app import db; print(db.backup())"
 ```
 
 A name that does not look like `relay-YYYYMMDD-HHMMSS.db` is never deleted by the
 daily cleanup.
 
 **Restoring a backup by hand.** This replaces the accounts with what the backup
-held, so everyone's accounts and sessions go back to that moment. Run `stop.*`,
+held, so everyone's accounts and sessions go back to that moment. Stop Relay,
 then:
 
 ```bash
-cd docker-config
+cd <the state folder>
 rm -f relay.db relay.db-wal relay.db-shm
 cp backups/relay-20261112-030000.db relay.db
 ```
 
-then `start.*`.
+then start Relay again.
 
-**Starting over.** Run `stop.*`, delete `docker-config/relay.db` (and any
-`relay.db-wal` and `relay.db-shm`), then `start.*`. Relay starts with an empty
-database and asks for the first Owner again, using the admin token in
-`config.json`. The backups are untouched.
+**Starting over.** Stop Relay, delete `relay.db` in the state folder (and any
+`relay.db-wal` and `relay.db-shm`), then start Relay. It starts with an empty
+database and asks for the first Owner again. The backups are untouched.
 
 **When the database cannot be opened.** A corrupt file, a full or read-only
 disk, or the wrong owner: captions, viewer pages, panels and schedules keep
 running. The operator panel says **The user database is not available** and stays
 closed until it can be opened, for everyone, including people already signed in.
-Relay tries again every few seconds. The reason is in the container log
-(`logs.*`), in lines that start with `relay:`. Files written by another uid are
-the usual cause (see *What the container is allowed to do*); restoring a backup
+Relay tries again every few seconds. The reason is in Relay's console output, in lines that start with `relay:`. Files written by another uid are
+the usual cause (files written by another account, or by a run as administrator); restoring a backup
 fixes a corrupt file.
 
-**Looking inside.** `sqlite3 docker-config/relay.db` on the host, if you have
+**Looking inside.** `sqlite3 relay.db` in the state folder, if you have
 it. Change accounts in the panel, not by hand.
 
 ## Rehearsal mode
@@ -833,10 +479,10 @@ Check fonts, projector legibility and the link on every phone in the room
 **without opening a billed session**:
 
 ```bash
-RELAY_DEMO=1 ./start.sh            # or start.command / start.bat
+RELAY_DEMO=1 python run.py         # on Windows: set RELAY_DEMO=1 first
 ```
 
-`RELAY_DEMO` is read from the environment and passed through to the container.
+`RELAY_DEMO` is read from the environment.
 
 Canned captions stream to the viewer pages. No OpenAI connection is opened.
 
@@ -919,24 +565,19 @@ Check the host's bandwidth and the session health table, not these two fields.
   will not install a certificate to read captions.
   **Do not expose this server to the public internet as-is**: viewer pages have
   no access control and no transport security.
-- The operator panel is a different matter, and is served over HTTPS by Caddy
-  (`docker-config/Caddyfile`, generated at setup). The relay's
-  own admin socket binds `127.0.0.1` (`admin_host` in `config.json`), so the
-  only route in is through TLS. The certificate is self-signed and generated on
-  the host. Setup prints its SHA-256 fingerprint; check it once against the
-  browser, or the TLS proves nothing.
-- Behind the front end the app reads `X-Forwarded-For` and `X-Forwarded-Proto`,
-  but **only from a loopback peer**. A direct client on the LAN cannot forge
-  either: not its address, to dodge the login lockout, and not the scheme, to
+- The operator panel is a different matter. The relay's admin socket binds `127.0.0.1`
+  (`admin_host` in `config.json`), so only this computer reaches it, and nothing crosses
+  the network in cleartext. Serving it to other machines waits for HTTPS (its own issue).
+- If Relay ever sits behind a reverse proxy, the app reads `X-Forwarded-For` and
+  `X-Forwarded-Proto`, but **only from a loopback peer**. A direct client on the LAN cannot
+  forge either: not its address, to dodge the login lockout, and not the scheme, to
   influence the cookie.
-- The admin token is set by `setup.*` and stored in the same file. It is a
-  one-time setup token: it creates the first Owner, and once any account exists
-  it is never accepted again, neither on the sign-in form nor as an
-  `x-admin-token` header. **There is no default token.** With none set,
-  first-run setup is closed, so nobody can operate the relay until setup has
-  run. The token stays in `config.json` and opens nothing. If the user
-  database is ever wiped (see [Database and backups](#database-and-backups)),
-  first-run setup opens again and the token works again.
+- First-run setup has no default password or token. With no admin token in `config.json`
+  it answers only to this computer until the first Owner exists, and once any account
+  exists it is never available again. (A `config.json` that carries an `admin_token`
+  still requires it on that page, and as an `x-admin-token` header until the first Owner.)
+  If the user database is ever wiped (see [Database and backups](#database-and-backups)),
+  first-run setup opens again.
 - People sign in with a username and password. Passwords and PINs are stored
   only as salted scrypt hashes. Signing in issues a random session id; the
   password never goes into a cookie, and only a hash of the session id is
@@ -956,9 +597,6 @@ Check the host's bandwidth and the session health table, not these two fields.
   a key over plain HTTP: see *Planning Center Services LIVE*.
 - Translation sessions are instructed to treat everything they hear as content
   to translate, never as instructions to follow.
-- The container image is scanned locally with `tools/scan-image.sh` (see
-  Docker → *Scanning the image*). Pinned base layers go stale, and the scan
-  shows when they have.
 - **If you ever paste an API key somewhere it should not be, revoke it** at
   <https://platform.openai.com/api-keys> rather than deleting the file. A key
   that has been written to disk, a log or a screenshot should be considered
@@ -976,7 +614,7 @@ Check the host's bandwidth and the session health table, not these two fields.
 | `No input device matched` | The interface was unplugged. Reselect it and press Start. |
 | Viewers see "No target language is live" | Every target is toggled off, or capture is stopped. |
 | A blocked word still appears in a translation | Each feed is filtered independently. Add that language's form to the list as well. |
-| Edited `blocklist.txt` but nothing changed | Give it about 2 s. Check the relay's log (`logs.*`) for the line `Blocked words reloaded: N term(s)`, and that the file is the one named in the admin panel. |
+| Edited `blocklist.txt` but nothing changed | Give it about 2 s. Check the relay's console output for the line `Blocked words reloaded: N term(s)`, and that the file is the one named in the admin panel. |
 | A blocked word appears inside a longer word | By design: only whole words match. Add the longer word explicitly. |
 | The panel says "The user database is not available" | `relay.db` cannot be opened (a corrupt file, a full or read-only disk, or the wrong owner). Captions and viewer pages are not affected. The panel opens again by itself once the database is back; if it does not, read the log (`logs.*`) for lines starting `relay:`. See [Database and backups](#database-and-backups). |
 | Nobody can sign in, or the only Owner is locked out | [Recover with `tools/reset_owner.py`](#if-nobody-can-sign-in). |
@@ -985,26 +623,19 @@ Check the host's bandwidth and the session health table, not these two fields.
 ## Layout
 
 ```
-setup.command / .bat / .sh   one-time setup: image, credentials, panel TLS
-start.command / .bat / .sh   start the whole stack (Caddy + relay,
-                             one container) in the background. One per platform:
-                             macOS, Windows, Linux.
-stop.command / .bat / .sh    stop it (and, on macOS / Windows, its PulseAudio daemon)
-logs.command / .bat / .sh    follow the running relay's log
-run.py                       in-container entry point; binds both sockets
-requirements.txt             pinned dependencies (installed into the image)
-config.example.json          template, used when tests run outside the image
-blocklist.txt                default blocked words, copied into docker-config/
-                             on first start
+run.py                       entry point; binds both sockets
+requirements.txt             pinned dependencies
+config.example.json          template, used when tests run from a checkout
+blocklist.txt                default blocked words, copied to the state folder on first start
 
-docker-config/               state, git-ignored, created by setup (the user
-                             database, `relay.db`, is here too)
-  config.json                live config (0600): API key, setup admin token, admin_fqdn
+<state folder>/              per-user, outside the install (see "Run it natively");
+                             git-ignored when it is a checkout's own
+  config.json                live config (0600): API key, admin_fqdn
+  relay.db                   the user database (0600)
   blocklist.txt              the live list: hot-reloaded, written by the panel
-  Caddyfile                  generated from config.json on every start
-  certs/admin.{crt,key}      operator panel certificate (key 0600)
+  certs/admin.{crt,key}      operator panel certificate (key 0600), once HTTPS exists
   recordings/                recorded runs, if recording is enabled
-  backups/                   daily database dumps, relay-YYYYMMDD-HHMMSS.dump
+  backups/                   daily database copies, relay-YYYYMMDD-HHMMSS.db
 
 app/
   main.py                    FastAPI routes, SSE, admin API
@@ -1018,6 +649,8 @@ app/
   redact.py                  blocklist filtering, incremental-safe
   demo.py                    rehearsal mode
   config.py                  load, validate, atomic save, hot-reload
+  announce.py                announces Relay to caption panels over mDNS, started on launch
+  netinfo.py                 this machine's LAN addresses, for viewer links
   db.py                      SQLite file, migrations, daily backup
   users.py                   accounts, roles, permissions, sessions, trusted devices
   migrations/                core schema, NNNN_name.sql, applied once each
@@ -1029,40 +662,22 @@ app/
   modules/                   integrations, each switched on and off on its own
                              (docs/modules.md); __init__.py is the registry
 
-docker/
-  Dockerfile                 build context is the repo root
-  docker-compose.yml         base service; overlays add the audio wiring
-  docker-compose.{macos,linux,windows}.yml
-  entrypoint.sh              ALSA -> Pulse routing when PULSE_SERVER is set;
-                             starts Caddy and the relay
-  config.example.json        template for docker-config/config.json
-
 tests/
   smoke_test.py              offline checks, no API calls
   test_redact.py             blocklist filtering, incl. split-delta cases
   test_schedules.py          schedule windows, DST, override rules, admin API
   test_overlays.py           overlay options, presets, named overlays, page
-  test_announce.py           mDNS records and answers of tools/announce.py
+  test_announce.py           mDNS records and answers of app/announce.py
   test_users.py              accounts, roles, sessions, devices, database, dumps
   test_auth.py               first run, sign-in, PIN, every admin route per role
   _db.py                     throwaway SQLite file the tests make for themselves
 
 tools/
-  check-audio.sh             PASS/FAIL walk of the whole capture chain
-  wait-ready.sh              launchers: wait for /healthz, print fingerprint
-  check-audio.ps1            the same two, for Windows without bash
-  wait-ready.ps1
-  windows-audio.ps1          Windows: install / start / stop native PulseAudio
-  announce.py                Linux: mDNS announcement for caption panels
   announce.ps1               Windows: the same, with Windows' own DNS-SD
-  scan-image.sh              CVE / misconfig / secret scan of the built image
-  write_config.py            writes credentials into config.json
-  setup_caddy.py             panel certificate + Caddyfile
+  setup_caddy.py             panel certificate (and a Caddyfile), for the HTTPS work
+  migrate-from-docker.ps1    Windows: copy a Docker install's settings and data to the state folder
   reset_owner.py             lockout recovery: make someone an Owner with a new password
 ```
-
-`write_config.py` and `setup_caddy.py` run *inside* the container, called by
-setup through `docker compose run`. That is why the host needs no Python.
 
 ## Tests
 
@@ -1076,14 +691,13 @@ python3 -m venv .venv && .venv/bin/pip install -r requirements.txt httpx2
 .venv/bin/python tests/test_schedules.py  # schedule windows, DST, override rules, admin API
 .venv/bin/python tests/test_users.py   # accounts, roles, sessions, database, backups
 .venv/bin/python tests/test_auth.py    # first run, sign-in, PIN, every admin route per role
-python3 tests/test_announce.py         # panel announcement; standard library only
+python3 tests/test_announce.py         # panel announcement records
 ```
 
 Nothing needs installing for the suites: each test process makes its own
 throwaway SQLite file in a temp directory and deletes it at exit.
 
-To run the app itself outside Docker, nothing needs setting: it opens `relay.db`
-beside `config.json`. Set `RELAY_DATABASE` to put the file elsewhere.
+The app opens `relay.db` beside `config.json`. Set `RELAY_DATABASE` to put the file elsewhere.
 
 None makes an API call. `tests/test_redact.py` includes a randomised check that
 300 different delta chunkings of the same sentence all produce the identical
@@ -1139,8 +753,8 @@ into the setup page skips that and always wins.
 | Who | Port | What |
 |---|---|---|
 | Panel to Relay | viewer port (80), plain HTTP | `/stream`, `/api/targets`, `/api/panels/*`, firmware download |
-| Relay to the LAN | UDP 5353 (multicast) | the mDNS announcement, made from the host |
-| Operator to Relay | operator port (443), HTTPS | Panels section of `/admin` |
+| Relay to the LAN | UDP 5353 (multicast) | the mDNS announcement, made by Relay itself |
+| Operator to Relay | operator port (8001), loopback | Panels section of `/admin` |
 | Phone to a panel in setup | the panel's own Wi-Fi, `http://192.168.4.1/` | joining the panel to the venue Wi-Fi |
 
 **Languages.** The caption font is Latin only, so a panel offers the
@@ -1168,28 +782,20 @@ without anyone typing an address. Relay announces itself over mDNS / DNS-SD:
 |---|---|
 | Service | `_relay-captions._tcp` |
 | Instance | the install name (default: the computer's name) |
-| Port | the viewer port (80) |
+| Port | the viewer port (8000) |
 | TXT | `v=<Relay version>` `name=<install name>` `path=/` |
 
 Nothing else is announced: no address of the operator panel, no key, no
 language list. A panel that finds the announcement then asks the viewer port
 for captions, as any phone would.
 
-The announcement has to be made **from the host**, because Docker Desktop's
-container is not on your LAN and multicast inside it never reaches a panel.
-The launchers do it:
+Relay starts the announcement itself when it launches (`app/announce.py`, a background
+thread), on the viewer port, and stops it when Relay exits. If the announcement cannot run
+(port 5353 taken, no network) Relay logs it and carries on. On Windows, if another program
+already holds the mDNS port, `tools\announce.ps1` registers with Windows' own DNS-SD
+instead (Windows 10 1809 or later; no Bonjour install; untested on a real Windows host).
 
-- **macOS:** `start.command` runs the built-in `dns-sd -R` in the background;
-  `stop.command` ends it.
-- **Windows:** `start.bat` runs `tools\announce.ps1`, which registers with
-  Windows' own DNS-SD (Windows 10 1809 or later; no Bonjour install).
-  `stop.bat` withdraws it. This path is untested on a real Windows host so far.
-- **Linux:** `start.sh` also starts a small second container (the `announce`
-  profile of `docker/docker-compose.linux.yml`) on the host network, running
-  `tools/announce.py`. It publishes and mounts nothing. `stop.sh` removes it.
-
-**Turn it off:** start with `RELAY_ANNOUNCE=0` (`RELAY_ANNOUNCE=0 ./start.sh`;
-on Windows `set RELAY_ANNOUNCE=0` first). Name this install with
+**Turn it off:** start with `RELAY_ANNOUNCE=0` (on Windows `set RELAY_ANNOUNCE=0` first). Name this install with
 `RELAY_INSTALL_NAME`. Panels already holding that name stop finding it, and an
 unannounced Relay still works at its address.
 
@@ -1224,8 +830,7 @@ for a panel, its name and its feed, is saved in `config.json` under `panels`
 and survives a restart; what a panel says about itself is never written there.
 
 **Control is on the operator port.** Everything that changes a panel is under
-`/api/admin/*` on the HTTPS port, and the viewer port refuses it (the app
-and the Caddyfile both):
+`/api/admin/*` on the operator port, and the viewer port refuses it:
 
 | | |
 |---|---|
@@ -1378,8 +983,7 @@ issue 138). It is a module ([docs/modules.md](docs/modules.md)): switch it on un
 **Modules** in admin; while it is off Relay never contacts ProPresenter. Under **ProPresenter** in admin: the machine's address and the
 port set in ProPresenter's Network preferences (no default is assumed), a
 **Test connection** button (`GET /version`), mDNS discovery
-(`_proapiv1ws._tcp`, standard library only; it cannot cross Docker Desktop's
-VM), a **view-only** switch, the lyrics feed switches and a stage message.
+(`_proapiv1ws._tcp`, standard library only), a **view-only** switch, the lyrics feed switches and a stage message.
 
 - One `POST /v1/status/updates` connection with a fixed path list; messages
   are split on the blank line, not on HTTP chunks. Because a live
@@ -1408,8 +1012,7 @@ VM), a **view-only** switch, the lyrics feed switches and a stage message.
   stage display** sets it when the alert starts and clears it when the alert
   ends, unless something else has replaced the message since.
 - ProPresenter's API has no authentication: Relay only talks out to the
-  address typed in admin. Under Docker the container must be able to reach
-  that address and port; allow the port in the ProPresenter machine's
+  address typed in admin. Allow the port in the ProPresenter machine's
   firewall. Standard library only (`http.client`), like Planning Center.
 
 - **Control (stage 2).** `app/modules/propresenter/ppcontrol.py` and `app/modules/propresenter/static/ppcontrol.js`

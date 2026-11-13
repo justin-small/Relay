@@ -1,4 +1,4 @@
-"""mDNS announcer tests: the records tools/announce.py builds and what it answers.
+"""mDNS announcer tests: the records app/announce.py builds and what it answers.
 
 No sockets are opened. Run: python3 tests/test_announce.py
 """
@@ -7,9 +7,9 @@ import struct
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "tools"))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-import announce as a
+from app import announce as a
 
 fails = []
 def check(label, got, want):
