@@ -667,7 +667,7 @@ tests/
   test_redact.py             blocklist filtering, incl. split-delta cases
   test_schedules.py          schedule windows, DST, override rules, admin API
   test_overlays.py           overlay options, presets, named overlays, page
-  test_announce.py           mDNS records and answers of tools/announce.py
+  test_announce.py           mDNS records and answers of app/announce.py
   test_users.py              accounts, roles, sessions, devices, database, dumps
   test_auth.py               first run, sign-in, PIN, every admin route per role
   _db.py                     throwaway SQLite file the tests make for themselves
@@ -753,7 +753,7 @@ into the setup page skips that and always wins.
 | Who | Port | What |
 |---|---|---|
 | Panel to Relay | viewer port (80), plain HTTP | `/stream`, `/api/targets`, `/api/panels/*`, firmware download |
-| Relay to the LAN | UDP 5353 (multicast) | the mDNS announcement, made from the host |
+| Relay to the LAN | UDP 5353 (multicast) | the mDNS announcement, made by Relay itself |
 | Operator to Relay | operator port (8001), loopback | Panels section of `/admin` |
 | Phone to a panel in setup | the panel's own Wi-Fi, `http://192.168.4.1/` | joining the panel to the venue Wi-Fi |
 
