@@ -337,6 +337,7 @@ route("POST", "/api/admin/me/pin", None)
 route("DELETE", "/api/admin/me/pin", None)
 # session and settings
 route("GET", "/api/admin/state", "settings.view")
+route("GET", "/api/admin/urls", "settings.view")
 route("GET", "/api/admin/status", "session.view")
 route("GET", "/api/admin/status/stream", "session.view")
 route("GET", "/api/admin/devices", "session.view")

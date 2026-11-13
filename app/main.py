@@ -24,7 +24,7 @@ from fastapi.templating import Jinja2Templates
 from jinja2 import ChoiceLoader, FileSystemLoader, PrefixLoader
 
 from . import alerts as alertsmod
-from . import config, db, exporting, languages, overlays, panelfw, panels, redact, schedules, users
+from . import config, db, exporting, languages, netinfo, overlays, panelfw, panels, redact, schedules, users
 from .alerts import alerts
 from . import engine as engine_mod
 from .engine import TRANSCRIPTION_STREAM, TRANSLATION_STREAM, demo_mode, engine
@@ -195,6 +195,8 @@ async def _startup() -> None:
     engine.bind(asyncio.get_running_loop())
     app.state.blocklist_task = asyncio.create_task(_watch_blocklist())
     app.state.alerts_task = asyncio.create_task(_alert_ticks())
+    # Logs a change of LAN address (Wi-Fi switch); the admin page re-reads its viewer links on its own.
+    app.state.net_task = asyncio.create_task(netinfo.watch(lambda ips: None))
     # First tick runs straight away, so a relay started mid-window catches up.
     scheduler.start()
     # The integrations that are switched on (app/modules/). Each idles until it is set up.
@@ -301,7 +303,7 @@ async def _shutdown() -> None:
     with contextlib.suppress(Exception):
         await module_registry.stop_all()
     scheduler.cancel()
-    for name in ("demo_task", "blocklist_task", "alerts_task", "backup_task"):
+    for name in ("demo_task", "blocklist_task", "alerts_task", "backup_task", "net_task"):
         task = getattr(app.state, name, None)
         if task is not None:
             task.cancel()
@@ -319,7 +321,8 @@ def _urls(port: int) -> list[str]:
     is the container's bridge (172.x) and 8000 is not published. There the
     launcher hands in the host's LAN address (RELAY_ADMIN_IPS) and the image
     names the port the host publishes (RELAY_PUBLIC_HTTP) -- the same pair the
-    startup banner prints. Run natively, the relay serves viewers itself.
+    startup banner prints. Run natively, the relay serves viewers itself and
+    reads its own addresses from the network interfaces (app/netinfo.py).
     """
     public = os.environ.get("RELAY_PUBLIC_HTTP")
     if public:
@@ -328,14 +331,8 @@ def _urls(port: int) -> list[str]:
                if ip.strip()]
         suffix = "" if int(public) == 80 else f":{int(public)}"
         return [f"http://{ip}{suffix}/" for ip in ips] + [f"http://127.0.0.1{suffix}/"]
-    try:
-        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        s.connect(("8.8.8.8", 80))
-        ip = s.getsockname()[0]
-        s.close()
-    except Exception:
-        ip = "127.0.0.1"
-    return [f"http://{ip}:{port}/", f"http://127.0.0.1:{port}/"]
+    ips = netinfo.lan_ips() or ["127.0.0.1"]
+    return [f"http://{ip}:{port}/" for ip in ips] + [f"http://127.0.0.1:{port}/"]
 
 
 # ---------------------------------------------------------------- auth
@@ -1336,6 +1333,12 @@ RESCAN_LIVE_NOTE = (
     "Capture is running, so the audio backend was left alone \u2014 anything plugged in "
     "since start-up will not appear. Stop capture and rescan for a full list."
 )
+
+
+@app.get("/api/admin/urls", dependencies=[Depends(require("settings.view"))])
+async def admin_urls():
+    """Viewer links alone, so the admin page can follow a network change without a reload."""
+    return {"urls": await asyncio.to_thread(_urls, config.get()["port"])}
 
 
 @app.get("/api/admin/state", dependencies=[Depends(require("settings.view"))])

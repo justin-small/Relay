@@ -1911,6 +1911,21 @@
            '<span class="urllinks">' + links + '</span></div>';
   }
 
+  // The machine can change networks while the page is open (a laptop moving between Wi-Fi networks).
+  // Re-read the viewer links every few seconds and redraw only when they differ.
+  let urlsSeen = null, urlsTimer = null;
+  function watchUrls(initial) {
+    urlsSeen = JSON.stringify(initial || []);
+    if (urlsTimer) return;
+    urlsTimer = setInterval(async function () {
+      if (document.hidden) return;
+      try {
+        const now = (await api('/api/admin/urls')).urls || [];
+        if (JSON.stringify(now) !== urlsSeen) { urlsSeen = JSON.stringify(now); renderUrls(now); }
+      } catch (e) { /* offline or signed out: the next tick tries again */ }
+    }, 10000);
+  }
+
   function renderUrls(urls) {
     // Only the LAN address is worth handing to a room; 127.0.0.1 works only on
     // the host. Keep it as a fallback if the LAN address could not be resolved.
@@ -2136,6 +2151,7 @@
       $('noise').value = cfg.realtime.noise_reduction || '';
       renderMode();
       renderUrls(state.urls);
+      watchUrls(state.urls);
       applyStatus(state.status);
       loadRuns();
     } catch (e) { alertMsg(e.message); }
