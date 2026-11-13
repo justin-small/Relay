@@ -3,8 +3,8 @@
 // Finding Relay on the LAN: the rules, with no ESP-IDF in them. `discovery.cpp` browses mDNS and calls these;
 // `test_native.cpp` compiles this header with g++ and checks them.
 //
-// Relay announces `_relay-captions._tcp` (`tools/announce.py`, `dns-sd` on macOS, `tools/announce.ps1` on
-// Windows) with the viewer port, and a TXT record holding `v` (Relay's version), `name` (the install name) and `path`.
+// Relay announces `_relay-captions._tcp` (from inside the app, `app/announce.py`) with the viewer port,
+// and a TXT record holding `v` (Relay's version), `name` (the install name) and `path`.
 // The panel connects to the first answer and remembers its install name. With more than one Relay on the network it
 // then stays with the one it first chose, and a Relay of another name is never taken in its place.
 

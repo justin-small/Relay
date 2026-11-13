@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Announce this Relay on the LAN so caption panels find it (mDNS / DNS-SD, standard library only).
 
 The service is `_relay-captions._tcp` on the viewer port, with TXT `v=<version>`, `name=<install name>`,
@@ -8,15 +7,11 @@ whenever the LAN address changes, and says goodbye (TTL 0) when stopped.
 The app starts it on launch (Announcer, below), in a background thread. `RELAY_ANNOUNCE=0` turns it off and
 `RELAY_INSTALL_NAME` names the install. Failing to announce (port 5353 taken, no network) is logged and never
 stops Relay: an unannounced Relay still works at its address.
-
-Standalone: python -m app.announce [--name NAME] [--port 8000] [--ip A.B.C.D]
 """
-import argparse
 import contextlib
 import logging
 import os
 import re
-import signal
 import socket
 import struct
 import sys
@@ -275,24 +270,3 @@ def enabled():
 def install_name():
     return os.environ.get("RELAY_INSTALL_NAME") or socket.gethostname().split(".")[0]
 
-
-def main(argv=None):
-    ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
-    ap.add_argument("--name", default=install_name())
-    ap.add_argument("--port", type=int, default=8000)
-    ap.add_argument("--ip", default=None)
-    ap.add_argument("--version", default="dev")
-    args = ap.parse_args(argv)
-    logging.basicConfig(level=logging.INFO, format="%(message)s")
-    announcer = Announcer(args.name, args.port, args.version, args.ip)
-    announcer.start()
-    done = threading.Event()
-    for sig in (signal.SIGINT, signal.SIGTERM):
-        signal.signal(sig, lambda *_: done.set())
-    done.wait()
-    announcer.stop()
-    return 0
-
-
-if __name__ == "__main__":
-    sys.exit(main())

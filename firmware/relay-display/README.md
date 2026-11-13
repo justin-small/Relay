@@ -248,7 +248,7 @@ checked on a laptop:
 * **The address is not saved.** It is read again every 30 s, and a Relay that comes back at another address is
   followed. While none answers it browses every 5 s.
 * Uses `espressif/mdns` (`main/idf_component.yml`). The native test covers the rules; on a CrowPanel against a
-  Mac announcing with `dns-sd` it finds Relay a few seconds after the panel has an address, keeps the first one
+  Mac announcing with `dns-sd -R` it finds Relay a few seconds after the panel has an address, keeps the first one
   with a second on offer, and follows it to a new address and back within one 30 s refresh.
 
 ### Panel registry link
