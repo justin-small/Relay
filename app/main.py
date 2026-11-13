@@ -31,6 +31,7 @@ from . import engine as engine_mod
 from .engine import TRANSCRIPTION_STREAM, TRANSLATION_STREAM, demo_mode, engine
 from .hub import hub
 from . import modules as modules_pkg
+from . import sidecar
 from .modules import HERE as MODULES_DIR, modules as module_registry
 from .panels import registry as panel_registry
 from .recorder import recorder
@@ -193,6 +194,14 @@ async def _split_admin_port(request: Request, call_next):
     return await call_next(request)
 
 
+def _on_lan_change(ips) -> None:
+    """The LAN address changed: re-mint the panel certificate if its names no longer fit, and tell the
+    desktop shell (it pins the fingerprint and builds the viewer link) of both."""
+    if tls.panel.refresh() and tls.panel.info:
+        sidecar.emit("fingerprint", fingerprint=tls.panel.info.fingerprint)
+    sidecar.emit("network", ips=list(ips))
+
+
 async def _startup() -> None:
     config.ensure_file()
     config.load()
@@ -217,7 +226,7 @@ async def _startup() -> None:
     app.state.alerts_task = asyncio.create_task(_alert_ticks())
     # A change of LAN address (Wi-Fi switch): mint a certificate that names the new address if the current
     # one does not; the admin page re-reads its viewer links and the fingerprint on its own.
-    app.state.net_task = asyncio.create_task(netinfo.watch(lambda ips: tls.panel.refresh()))
+    app.state.net_task = asyncio.create_task(netinfo.watch(_on_lan_change))
     # Tell caption panels on the LAN where Relay is (mDNS, in a background thread). Never stops Relay.
     app.state.announcer = None
     if announcemod.enabled():

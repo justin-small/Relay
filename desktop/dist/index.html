@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Relay</title>
+<style>
+  :root { color-scheme: light dark; --bg:#f6f5f2; --fg:#1d1d1b; --muted:#6b6a66; --ok:#1f8a4c; --bad:#c0392b; --card:#fff; --line:#dcdad4; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#161615; --fg:#ecebe7; --muted:#9a9993; --card:#212120; --line:#34342f; --ok:#4cc27f; --bad:#ef6b5c; } }
+  html,body { height:100%; margin:0; background:var(--bg); color:var(--fg); font:15px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif; }
+  main { min-height:100%; display:grid; place-items:center; padding:24px; box-sizing:border-box; }
+  .box { width:min(560px,100%); }
+  h1 { font-size:22px; margin:0 0 4px; font-weight:600; }
+  p { margin:0 0 12px; color:var(--muted); }
+  .dot { display:inline-block; width:10px; height:10px; border-radius:50%; margin-right:8px; background:var(--muted); }
+  .starting .dot { animation:pulse 1.2s ease-in-out infinite; }
+  .error .dot { background:var(--bad); }
+  @keyframes pulse { 50% { opacity:.25; } }
+  pre { background:var(--card); border:1px solid var(--line); border-radius:8px; padding:12px; margin:12px 0 0; max-height:260px; overflow:auto; font:12px/1.45 ui-monospace,Menlo,Consolas,monospace; white-space:pre-wrap; word-break:break-word; }
+  pre:empty { display:none; }
+  @media (prefers-reduced-motion: reduce) { .starting .dot { animation:none; } }
+</style>
+</head>
+<body>
+<main><div class="box starting" id="box">
+  <h1><span class="dot"></span><span id="title">Starting Relay</span></h1>
+  <p id="detail">This takes a few seconds.</p>
+  <pre id="log"></pre>
+</div></main>
+<script>
+  // The Rust side calls this (window.eval); the page itself has no Tauri access at all.
+  window.__relay = function (s) {
+    document.getElementById('box').className = 'box ' + s.kind;
+    document.getElementById('title').textContent = s.title;
+    document.getElementById('detail').textContent = s.detail || '';
+    document.getElementById('log').textContent = s.log || '';
+  };
+</script>
+</body>
+</html>

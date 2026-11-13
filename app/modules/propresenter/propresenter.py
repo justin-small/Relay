@@ -851,12 +851,17 @@ class Follower:
     async def _flush_signals(self, client: Client) -> None:
         """React to the signals gathered: read the presentation if it changed, then the slide. The stream misses
         slide changes, so the slide is always read from `GET /v1/status/slide`, never taken from the push."""
+        changed = False
         if self._pending_presentation:
             self._pending_presentation = False
-            await self._read_presentation(client, self._presentation_hint)
+            changed = await self._read_presentation(client, self._presentation_hint)
+            if changed:
+                self._pending_slide = True   # a new presentation always has its slide read before anyone is told
         if self._pending_slide:
             self._pending_slide = False
             await self._read_slide(client)
+        if changed:
+            self._note_change()
         if self._pending_announcement:
             self._pending_announcement = False
             hint, self._announcement_hint = self._announcement_hint, ...
@@ -884,8 +889,12 @@ class Follower:
             except ProError as exc:
                 log.debug("Resync failed: %s", exc)
                 return
-            await self._read_presentation(client, data)
+            changed = await self._read_presentation(client, data)
+        else:
+            changed = False
         await self._read_slide(client)
+        if changed:
+            self._note_change()
         await self._resync_announcement(client)
         # The same stream also misses timer and layer changes (a stopped timer kept reading "running"), and the
         # control page shows both, so they are re-read with the slide. Screens change rarely: every few turns.
@@ -976,7 +985,9 @@ class Follower:
                         "dir": self.timer_kinds.get(ident["uuid"], "down"), "value": value})
         return out
 
-    async def _read_presentation(self, client: Client, data: Any) -> None:
+    async def _read_presentation(self, client: Client, data: Any) -> bool:
+        """Read which presentation is up. True when it changed: the caller reads the slide next and only then
+        calls `_note_change()`, so a new title is never announced with the previous (or no) slide text."""
         pres = data.get("presentation") if isinstance(data, dict) else None
         pid = pres.get("id") if isinstance(pres, dict) else None
         uuid = pid.get("uuid") if isinstance(pid, dict) else None
@@ -986,13 +997,14 @@ class Follower:
                 self.deck = None
                 self.slide_index = None
                 self.current, self.next = _slide_side(None), _slide_side(None)
-            self._note_change()
-            return
+                return True
+            return False
         if self.presentation and self.presentation["uuid"] == uuid:
-            return
+            return False
         name = str(pid.get("name") or "").strip()
         self.presentation = self._describe(uuid, name, None)
         self.deck = None
+        self.current, self.next = _slide_side(None), _slide_side(None)
         try:
             detail = await self.call(client.read, f"/v1/presentation/{urllib.parse.quote(uuid)}")
             self.presentation = self._describe(uuid, name, (detail or {}).get("presentation"))
@@ -1001,7 +1013,7 @@ class Follower:
             # The slide text still works without the library and group names; the song test says "not a song"
             # until they are known.
             log.info("Could not read the presentation's details: %s", exc)
-        self._note_change()
+        return True
 
     @staticmethod
     def _announcement_position(data: Any) -> tuple[str | None, int | None]:
