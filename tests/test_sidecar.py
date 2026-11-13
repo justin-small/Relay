@@ -58,19 +58,20 @@ proc = subprocess.Popen([sys.executable, str(ROOT / "run.py")], env=env, stdin=s
                         stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
 import queue
 
+t0 = time.time()
 out_lines = queue.Queue()
 collected = []
 
 
 def pump():  # a thread, so a child that never prints cannot block the test
     for line in proc.stdout:
-        collected.append(line.rstrip())
+        collected.append(f"{time.time() - t0:6.1f}s {line.rstrip()}"[:200])
         out_lines.put(line)
 
 
 threading.Thread(target=pump, daemon=True).start()
 ready = None
-deadline = time.time() + 60
+deadline = time.time() + 180  # a cold Windows runner can take over a minute to import and bind
 while time.time() < deadline and ready is None:
     try:
         line = out_lines.get(timeout=1)
@@ -98,7 +99,7 @@ if proc.poll() is None:
     proc.kill()
 if fails:
     print("--- backend output ---")
-    print("\n".join(collected[-40:]))
+    print("\n".join(collected[-80:]))
 
 if fails:
     print(f"\n{len(fails)} FAILED")
