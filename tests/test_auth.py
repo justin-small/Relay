@@ -137,7 +137,7 @@ fresh()
 c = anon()
 r = c.get("/admin")
 check("no users: the first-run form", 'action="/admin/setup"' in r.text and "Set up Relay" in r.text)
-for field in ("token", "username", "name", "password", "confirm"):
+for field in ("token", "api_key", "username", "name", "password", "confirm"):
     check(f"…has a {field} field", f'name="{field}"' in r.text)
 check("…and every input has a label", all(f'for="{f}"' in r.text for f in ("token", "username", "name", "password", "confirm")))
 
@@ -170,8 +170,24 @@ check("…with users.py's sentence", MSG["bad_username"].split(":")[0] in r.text
 eq("none of that made a user", users.count(), 0)
 config.save({"admin_token": ""})
 r = c.post("/admin/setup", data={**form, "token": ""})
-eq("with no admin token configured, setup is closed", r.status_code, 400)
-eq("…and an empty x-admin-token is not a way in", c.get("/api/admin/state", headers={"x-admin-token": ""}).status_code, 401)
+eq("with no admin token, setup from another machine is refused", r.status_code, 403)
+check("…with a fixed sentence and no form", M.WEB_MESSAGES["local_only"] in r.text and 'name="password"' not in r.text)
+check("…and the page itself says to open it on the computer Relay runs on",
+      "on the computer Relay runs on" in c.get("/admin").text and 'name="password"' not in c.get("/admin").text)
+eq("…and no user was made", users.count(), 0)
+local = anon(client=("127.0.0.1", 50001))
+check("from this machine the form has no token field but has an API key field",
+      'name="token"' not in local.get("/admin").text and 'name="api_key"' in local.get("/admin").text)
+eq("a proxied LAN client (loopback peer, forwarded for a LAN address) is refused too",
+   local.post("/admin/setup", data=form, headers={"x-forwarded-for": "192.168.1.9"}).status_code, 403)
+eq("…while a proxied client that really is local is accepted",
+   local.post("/admin/setup", data={**form, "username": "localboss", "api_key": "sk-test-1234"},
+              headers={"x-forwarded-for": "127.0.0.1"}, follow_redirects=False).status_code, 303)
+check("…and the API key it carried was stored", config.get()["openai_api_key"] == "sk-test-1234")
+_db.reset()
+config.save({"openai_api_key": ""})
+fresh()
+eq("an empty x-admin-token is not a way in", c.get("/api/admin/state", headers={"x-admin-token": ""}).status_code, 401)
 config.save({"admin_token": SETUP_TOKEN})
 fresh()
 

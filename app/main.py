@@ -204,11 +204,7 @@ async def _startup() -> None:
     if ready and not (cfg.get("admin_token") or "").strip():
         with contextlib.suppress(Exception):
             if await asyncio.to_thread(_any_users) is False:
-                # First-run setup checks this token once; without one nobody can create the first Owner.
-                log.warning(
-                    "No users yet and no admin token is set: first-run setup is closed. "
-                    "Run setup.command (macOS) or setup.bat (Windows) to set one."
-                )
+                log.info("No users yet: open the operator panel on this computer to finish setting up Relay.")
     # Both sockets are loopback-only behind the Caddy front end, so these are
     # the internal addresses, not the ones anyone dials. The URLs the operator
     # and the room actually use are printed by tools/setup_caddy.py at startup,
@@ -453,7 +449,7 @@ DB_DOWN_SENTENCE = "The user database is not available. Relay is still captionin
 # Web-layer sentences that are not users.MESSAGES. Fixed text, looked up by key.
 WEB_MESSAGES = {
     "bad_token": "That admin token is not right.",
-    "no_token": "No admin token is set in config.json, so first-run setup is closed.",
+    "local_only": "Finish setting up Relay on the computer it runs on: open this page there.",
     "already_set_up": "Relay is already set up. Sign in instead.",
     "mismatch": "The two passwords do not match.",
     "bad_request": "That request is not valid.",
@@ -1097,9 +1093,9 @@ def _login_page(request: Request, *, error: str | None = None, status: int = 200
     picker. `pw` forces the password form. Blocks (database). Passwords are never echoed back; a username is."""
     if setup is not None or not _any_users():
         form = {"username": "", "name": ""} | (setup or {})
-        return _render(request, "login.html", {"mode": "setup", "error": error, **form,
-                                               "token_set": bool((config.get().get("admin_token") or "").strip())},
-                       status)
+        token_set = bool((config.get().get("admin_token") or "").strip())
+        return _render(request, "login.html", {"mode": "setup", "error": error, **form, "token_set": token_set,
+                                               "remote": not token_set and not _setup_local(request)}, status)
     device = users.device_for(request.cookies.get(DEVICE_COOKIE) or "")
     pins = users.pin_users() if device else []
     mode = "pin" if pins and not pw else "signin"
@@ -1179,15 +1175,27 @@ def _signed_in(request: Request, token: str, max_age: int) -> RedirectResponse:
     return resp
 
 
+def _setup_local(request: Request) -> bool:
+    """True when first-run setup may be done from this request: it comes from the machine itself.
+
+    Behind a reverse proxy the peer is always loopback, so this judges the client the proxy reports
+    (X-Forwarded-For, trusted only from a loopback peer; see _client_ip), not the peer.
+    """
+    return _client_ip(request) in _LOOPBACK_HOSTS | {"::ffff:127.0.0.1"}
+
+
 def _field(value: str, limit: int = 200) -> str:
     return (value or "")[:limit]
 
 
 @app.post("/admin/setup")
 async def admin_setup(request: Request, token: str = Form(""), username: str = Form(""), name: str = Form(""),
-                      password: str = Form(""), confirm: str = Form("")):
-    """First run: the admin token from config.json (checked every time, in constant time) creates the Owner,
-    who is signed in. Once any account exists the token is never accepted again."""
+                      password: str = Form(""), confirm: str = Form(""), api_key: str = Form("")):
+    """First run creates the Owner (and, optionally, stores the OpenAI key), and signs them in.
+
+    With no admin token in config.json the page works only from the machine itself. A config.json that does
+    carry an admin token (a container install) keeps requiring it, checked in constant time. Once any account
+    exists this is never accepted again."""
     ip = _client_ip(request)
     username, name = _field(username, 100), _field(name, 200)
     shown = {"username": username, "name": name}
@@ -1200,13 +1208,16 @@ async def admin_setup(request: Request, token: str = Form(""), username: str = F
             if _any_users():
                 raise _WebRefused("already_set_up")
             real = (config.get().get("admin_token") or "").strip()
-            if not real:
-                raise _WebRefused("no_token")
-            if not _token_ok(token.strip(), real):
-                raise _WebRefused("bad_token")
+            if real:
+                if not _token_ok(token.strip(), real):
+                    raise _WebRefused("bad_token")
+            elif not _setup_local(request):
+                raise _WebRefused("local_only")
             if password != confirm:
                 raise _WebRefused("mismatch")
             user = users.create(username, name, "owner", password, temporary=False, actor=None)
+            if api_key.strip():
+                config.save({"openai_api_key": api_key.strip()[:300]})
             # Setup signs the Owner in without a password check, so stamp the sign-in here.
             db.execute("update users set last_login = ? where id = ?", (db.now(), user.id))
             global _have_users
@@ -1216,8 +1227,10 @@ async def admin_setup(request: Request, token: str = Form(""), username: str = F
     try:
         token_, age = await asyncio.to_thread(work)
     except _WebRefused as exc:
-        if exc.key in ("bad_token", "no_token"):
+        if exc.key == "bad_token":
             await _fail(ip)
+        if exc.key == "local_only":
+            return await asyncio.to_thread(_login_page, request, error=exc.message, status=403)
         if exc.key == "already_set_up":
             return await asyncio.to_thread(_login_page, request, error=exc.message, status=403)
         return await asyncio.to_thread(_login_page, request, error=exc.message,
