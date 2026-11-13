@@ -549,7 +549,7 @@ async def scenario_follow():
     feed = pp.LyricsFeed(f)
     f.start()
     check("connects and is up", await until(lambda: f.up))
-    check("the first read of the slide arrives with the connection", await until(lambda: f.lyrics()["live"]))
+    check("the first read of the slide arrives with the connection", await until(lambda: f.lyrics()["text"]))
     ly = f.lyrics()
     eq("presentation name is trimmed", ly["title"], "Great Song")
     eq("a presentation in the Songs library is a song", ly["song"], True)
@@ -605,7 +605,8 @@ async def scenario_follow():
     fake.song("Sermon Slides", library="Media", groups=[("Slide", ["Point one", "Point two"])])
     fake.push("presentation/current")
     check("a presentation outside the library, with no song part names, is not a song",
-          await until(lambda: f.presentation and f.presentation["name"] == "Sermon Slides"))
+          await until(lambda: f.presentation and f.presentation["name"] == "Sermon Slides"
+                      and f.current["text"] == "Point one"))
     eq("songs-only keeps its slides off the lyrics feed", (f.is_song(), f.lyrics()["live"], f.lyrics()["text"]),
        (False, False, ""))
     configure(srv, songs_only=False)

@@ -48,11 +48,26 @@ def emit(event: str, **fields) -> None:
 
 def watch_parent(stop: Callable[[], None], stdin=None, grace: float = STOP_GRACE_S, kill=os._exit) -> threading.Thread:
     """Call `stop()` when the shell says `quit` or its pipe closes; end the process if that takes too long."""
-    stream = stdin if stdin is not None else sys.stdin
+    def lines():
+        if stdin is not None:  # tests pass a stream
+            yield from stdin
+            return
+        # The real pipe is read at the OS level, not through sys.stdin: a thread blocked inside the buffered
+        # sys.stdin holds its lock, and on Windows anything else that touches sys.stdin (uvicorn does while
+        # starting) then waits for the shell to close the pipe, so the server never came up.
+        fd, pending = 0, b""
+        while True:
+            chunk = os.read(fd, 4096)
+            if not chunk:
+                return
+            pending += chunk
+            while b"\n" in pending:
+                line, pending = pending.split(b"\n", 1)
+                yield line.decode("utf-8", "replace")
 
     def run() -> None:
         try:
-            for line in stream:
+            for line in lines():
                 if line.strip().lower() == "quit":
                     break
         except (OSError, ValueError):
