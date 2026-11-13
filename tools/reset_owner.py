@@ -6,8 +6,7 @@
 Creates the user if they do not exist; otherwise re-enables and promotes them. Asks for the new password
 twice without showing it (nothing secret is printed, so nothing lands in a terminal log), ends all their
 sessions and clears their PIN. It opens the same relay.db the app does (beside config.json, or the file
-RELAY_DATABASE names). In the container:
-    docker exec -it live-caption-relay python tools/reset_owner.py <username>
+RELAY_DATABASE names).
 """
 import getpass
 import sys

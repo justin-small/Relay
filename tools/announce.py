@@ -10,12 +10,9 @@ This is a small mDNS responder, standard library only. It answers PTR, SRV, TXT
 and A questions for that one service and says so unprompted at start-up and
 whenever the LAN address changes. It says goodbye (TTL 0) when stopped.
 
-Where it runs matters, because multicast has to leave the host's own network:
-  Linux    in a container with host networking (docker-compose.linux.yml)
-  macOS    not this file: start.command uses the built-in `dns-sd -R`
-  Windows  not this file: tools/announce.ps1 uses Windows' own DNS-SD API
-Docker Desktop's VM is not on the LAN, so an announcement from inside the
-relay's own container would never reach a panel.
+It has to run on the host itself, so multicast leaves the machine's own network. Relay no longer runs
+in a container, so nothing here depends on the Docker networking it was written around; macOS and
+Windows can also use the system's own DNS-SD (`dns-sd -R`, tools/announce.ps1).
 
   announce.py [--name NAME] [--port 80] [--ip A.B.C.D] [--version V]
 """

@@ -1,11 +1,8 @@
 #!/usr/bin/env python3
 """Generate the operator panel's TLS certificate and a matching Caddyfile.
 
-Runs inside the container: setup.command / setup.bat call it once through
-`docker compose run` so the operator sees the fingerprint while they are still
-at the keyboard, and docker/entrypoint.sh calls it again on every start. Both
-write to the state volume (docker-config/ on the host), so the certificate
-outlives the container and the fingerprint stays put.
+Kept for the HTTPS work (the native app no longer ships a container or launcher scripts that call it).
+It writes into the state folder, so the certificate outlives restarts and the fingerprint stays put.
 
 Relay itself only ever speaks plain HTTP on loopback. Caddy is the process that
 faces the network, and it is the only one holding the private key.
@@ -14,10 +11,6 @@ Split by design (see issue #15):
 
   viewers  plain HTTP, every interface, no certificate  -> 127.0.0.1:<port>
   panel    HTTPS with the certificate written here      -> 127.0.0.1:<admin_port>
-
-Caddy binds 8080 and 8443 inside the network namespace and the host publishes
-80 and 443 in front of them, so the container can keep cap_drop: ALL -- binding
-a privileged port directly would need CAP_NET_BIND_SERVICE.
 
 The viewer pages carry no secret and are read by a room full of phones that
 will not install a root certificate, so they stay on plain HTTP. The panel
@@ -36,9 +29,7 @@ fingerprint out from under an operator who has already trusted it. Pass
 
 Environment:
   RELAY_ADMIN_FQDN    optional hostname to add to the certificate ("" for none)
-  RELAY_ADMIN_IPS     extra IPs to certify, comma-separated. Needed in Docker:
-                      the address this process can see is the container's, and
-                      browsers connect to the host's, so the launcher passes it
+  RELAY_ADMIN_IPS     extra IPs to certify, comma-separated (optional)
   RELAY_CADDY_DIR     where to write the Caddyfile      (image: /app/config)
   RELAY_CERT_DIR      where to write the key and cert   (image: /app/config/certs)
   RELAY_HTTP_PORT     port Caddy serves viewers on      (default 8080)
