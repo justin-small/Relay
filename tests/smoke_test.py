@@ -59,7 +59,7 @@ check("defaults load", cfg["source_language"] == "ENGLISH")
 check("spanish target present", "SPANISH" in cfg["targets"])
 cfg = config.save({"admin_token": "t0ken", "openai_api_key": "sk-test-1234", "default_font_px": 999})
 check("font clamped to 160", cfg["default_font_px"] == 160, cfg["default_font_px"])
-check("file mode 0600", oct(os.stat(config.CONFIG_PATH).st_mode)[-3:] == "600")
+check("file mode 0600", os.name != "posix" or oct(os.stat(config.CONFIG_PATH).st_mode)[-3:] == "600")  # Windows has no modes
 # A config.json this process does not own (copied in from another machine;
 # Docker Desktop on Windows shows it as root's) refuses chmod. Starting must
 # still work, by rewriting the file rather than crashing on every start.
