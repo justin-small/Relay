@@ -67,11 +67,13 @@ DEFAULTS: dict[str, Any] = {
     # module with no switch saved is on only if its integration was already set up (Module.configured).
     "modules": {},
     "host": "0.0.0.0",
-    "admin_host": "127.0.0.1",
-    "port": 8000,
-    "admin_port": 8001,
-    # Optional hostname for the operator panel certificate, asked for by
-    # setup and read by tools/setup_caddy.py. Blank certifies the IP only.
+    # The operator panel is HTTPS only (app/tls.py), so it can face the network: 443 on every interface.
+    # Viewers get plain HTTP on 80. If either cannot be opened Relay uses 8080 / 8443 (app/serving.py).
+    "admin_host": "0.0.0.0",
+    "port": 80,
+    "admin_port": 443,
+    # Optional hostname for the operator panel certificate (app/tls.py), on top of this machine's own
+    # addresses and host name. Blank certifies those alone.
     "admin_fqdn": "",
     "realtime": {
         "translate_model": "gpt-realtime-translate",
@@ -164,25 +166,18 @@ def _normalise(cfg: dict) -> dict:
             cfg["input_channel"] = max(0, int(_ch or 0))
         except (TypeError, ValueError):
             cfg["input_channel"] = 0
-    # Viewers get `port`; the operator panel is served on `admin_port` so the
-    # link handed to a room never reaches the panel. Setting them equal puts
-    # everything back on one port.
-    cfg["port"] = int(cfg.get("port") or 8000)
-    cfg["admin_port"] = int(cfg.get("admin_port") or cfg["port"])
+    # Viewers get `port`; the operator panel is served on `admin_port`, over HTTPS only, so the link handed
+    # to a room never reaches the panel. They cannot be the same port: that would serve the panel where
+    # viewers are served, in cleartext.
+    cfg["port"] = int(cfg.get("port") or 80)
+    cfg["admin_port"] = int(cfg.get("admin_port") or 443)
+    if cfg["admin_port"] == cfg["port"]:
+        cfg["admin_port"] = 8443 if cfg["port"] == 443 else 443
     cfg["admin_fqdn"] = str(cfg.get("admin_fqdn") or "").strip().strip(".")
-    # `host` is where the viewer link listens -- every interface, because the
-    # room has to reach it. The panel reads and writes the OpenAI key and the
-    # admin token, so it binds loopback by default and is reached from another
-    # machine through the Caddy front end in the same container, which
-    # terminates TLS for it. Setting `admin_host` to "0.0.0.0" puts the panel
-    # back on the network in cleartext -- never the default, and it would only
-    # be reachable at all if 8001 were also published.
+    # `host` is where the viewer link listens -- every interface, because the room has to reach it.
+    # `admin_host` is where the HTTPS panel listens; set it to "127.0.0.1" to keep the panel off the network.
     cfg["host"] = (str(cfg.get("host") or "").strip() or "0.0.0.0")
-    # Not rewritten when admin_port == port: in single-port mode run.py binds
-    # one socket on `host` and never looks at admin_host, and collapsing the
-    # stored value here would mean a round trip through single-port mode left
-    # the panel silently on 0.0.0.0 afterwards.
-    cfg["admin_host"] = (str(cfg.get("admin_host") or "").strip() or "127.0.0.1")
+    cfg["admin_host"] = (str(cfg.get("admin_host") or "").strip() or "0.0.0.0")
     # The relay moved to the translations endpoint, which only serves
     # gpt-realtime-translate. A config written before that still names the old
     # conversational model; point it at the right one instead of failing to

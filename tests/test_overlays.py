@@ -77,7 +77,7 @@ for k, p in overlays.PRESETS.items():
     eq(f"preset {k} holds only valid values", overlays.clean(vals, T), vals)
 
 print("\npage")
-c = _db.client(app, base_url="http://testserver")
+c = _db.client(app, base_url="http://relay.local:8001")
 
 
 def body(html):
@@ -120,7 +120,7 @@ demo_ko = json.loads(re.search(r"overlayDemo: (.*?)};</script>", c.get("/overlay
 eq("a language with no samples plays English", demo_ko["HMONG"][0], overlays.SAMPLES["en"][0])
 
 print("\nnamed overlays")
-check("the list needs a sign-in", TestClient(app).get("/api/admin/overlays").status_code == 401)
+check("the list needs a sign-in", TestClient(app, base_url="http://relay.local:8001").get("/api/admin/overlays").status_code == 401)
 info = c.get("/api/admin/overlays").json()
 eq("none saved at first", info["overlays"], [])
 check("the builder gets presets and defaults", "slate" in info["presets"] and info["defaults"]["pos"] == "bottom")
