@@ -214,6 +214,44 @@ check("signed out with users: the sign-in form, no token field",
       'action="/admin/login"' in r.text and 'name="token"' not in r.text and 'name="username"' in r.text)
 check("…with autocomplete hints", 'autocomplete="username"' in r.text and 'autocomplete="current-password"' in r.text)
 
+# Headless install: a one-time setup code replaces "open this on the machine".
+print("setup code")
+from app import setupcode  # noqa: E402
+_db.reset()
+config.save({"admin_token": ""})
+fresh()
+os.environ.pop("RELAY_SETUP_CODE", None)
+eq("off by default: nothing is made", setupcode.prepare(False), "")
+os.environ["RELAY_SETUP_CODE"] = "1"
+code = setupcode.prepare(False)
+check("a code is made: three groups of four, no look-alike characters",
+      bool(re.fullmatch(r"[A-Z2-9]{4}(-[A-Z2-9]{4}){2}", code)) and not set("01OIL") & set(code))
+eq("a restart keeps the same code (journal and installer agree)", setupcode.prepare(False), code)
+check("it is stored owner-only in the state folder",
+      (setupcode._file().stat().st_mode & 0o077) == 0 or os.name == "nt")
+r = c.get("/admin")
+check("another device sees a code field, not the 'open this on the computer' page",
+      'name="token"' in r.text and "Setup code" in r.text and 'name="password"' in r.text and "/admin/import" not in r.text)
+eq("without the code, setup from the LAN is refused", c.post("/admin/setup", data={**form, "token": ""}).status_code, 401)
+r = c.post("/admin/setup", data={**form, "token": "AAAA-AAAA-AAAA"})
+eq("a wrong code is refused", r.status_code, 401)
+check("…with a fixed sentence", M.WEB_MESSAGES["bad_code"] in r.text)
+eq("…and no user was made", users.count(), 0)
+fresh()
+codes = [c.post("/admin/setup", data={**form, "token": "wrong"}).status_code for _ in range(5)]
+eq("guessing is throttled like the admin token", c.post("/admin/setup", data={**form, "token": code}).status_code, 429)
+fresh()
+r = c.post("/admin/setup", data={**form, "token": code.lower().replace("-", " ")}, follow_redirects=False)
+eq("the right code (any case, dashes or spaces) creates the Owner from another device",
+   (r.status_code, r.headers.get("location")), (303, "/admin"))
+check("…and the code is spent: the file is gone", not setupcode._file().exists() and setupcode.active() == "")
+eq("…and it is never accepted again", anon().post("/admin/setup", data={**form, "token": code}).status_code, 403)
+eq("with accounts, start-up makes no new code", setupcode.prepare(True), "")
+os.environ.pop("RELAY_SETUP_CODE", None)
+_db.reset()
+config.save({"admin_token": SETUP_TOKEN})
+fresh()
+
 # Two valid first-run posts at once: one Owner.
 _db.reset()
 config.save({"admin_token": SETUP_TOKEN})

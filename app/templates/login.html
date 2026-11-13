@@ -9,10 +9,13 @@
   {% if remote %}
   <p class="sub">Relay has not been set up yet. Open this page in a browser on the computer Relay runs on to create the first account.</p>
   {% else %}
-  <p class="sub">Create the first account, the Owner.{% if token_set %} Enter the admin token from <code>config.json</code> once; after this it is never used again.{% else %} This page is only reachable from this computer until the account exists.{% endif %}</p>
+  <p class="sub">Create the first account, the Owner.{% if token_set %} Enter the admin token from <code>config.json</code> once; after this it is never used again.{% elif code_set %} Enter the one-time setup code; it stops working once the account exists.{% else %} This page is only reachable from this computer until the account exists.{% endif %}</p>
   {% if token_set %}
   <label for="token">Admin token</label>
   <input id="token" type="password" name="token" autofocus autocomplete="off" required>
+  {% elif code_set %}
+  <label for="token">Setup code <span class="opt">(printed by the installer, or in the journal: <code>journalctl -u relay</code>)</span></label>
+  <input id="token" type="text" name="token" autofocus autocomplete="off" autocapitalize="characters" spellcheck="false" required>
   {% endif %}
   <label for="api_key">OpenAI API key <span class="opt">(optional, can be added later in Settings)</span></label>
   <input id="api_key" type="password" name="api_key" autocomplete="off" spellcheck="false">
@@ -29,7 +32,7 @@
   {% if notice %}<div class="sub" role="status">{{ notice }}</div>{% endif %}
   {% if error %}<div class="err" role="alert">{{ error }}</div>{% endif %}
 </form>
-{% if not remote %}
+{% if not remote and not code_set %}
 <form method="post" action="/admin/import">
   <h1>Coming from Relay 2.0?</h1>
   <p class="sub">Import your settings from the old Docker install. Type the path of the old Relay folder (or the <code>docker-config</code> folder inside it). Nothing in it is changed.</p>

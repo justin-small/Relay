@@ -55,7 +55,7 @@ Per-OS notes for ports 80 and 443:
   8080 / 8443. To use 80 and 443, either run
   `sudo setcap 'cap_net_bind_service=+ep' $(readlink -f $(which python3))`, lower
   `net.ipv4.ip_unprivileged_port_start` to 80, or run it from a systemd unit with
-  `AmbientCapabilities=CAP_NET_BIND_SERVICE`. Do not run it as root. The firewall (`ufw`,
+  `AmbientCapabilities=CAP_NET_BIND_SERVICE` (see [Headless Linux](#headless-linux-relay-as-a-system-service)). Do not run it as root. The firewall (`ufw`,
   `firewalld`) must allow the two ports.
 
 These notes follow each platform's documented behaviour; the Windows and Linux prompts have not yet been
@@ -100,6 +100,40 @@ and do not run it as an administrator or root.
 `backups\` and `panel-firmware\` from the old `docker-config\` folder (or straight out of the
 container) into the state folder, and leaves the Docker install untouched. Pass `-Source <folder>`
 to name the folder yourself, and `-Force` to replace an existing native config.
+
+## Headless Linux: Relay as a system service
+
+For a machine with no screen and no desktop session (a small server, a Raspberry Pi in a rack) run
+Relay as a systemd service. No Docker. Supported: Debian 12 or 13, Ubuntu 24.04 or newer, Raspberry Pi OS
+(arm64). It needs Python 3.13 or newer; Debian 13 and Ubuntu 24.04 ship one, Debian 12 does not (install a
+3.13 yourself, for example with `uv python install 3.13`, and pass it with `--python`).
+
+```bash
+git clone https://github.com/justin-small/Relay && cd Relay
+sudo tools/install-service.sh
+```
+
+That one command creates an unprivileged `relay` user (in the `audio` group), a virtualenv in `/opt/relay`
+with the pinned requirements, and `/etc/systemd/system/relay.service`, then starts it and enables it at
+boot. Everything Relay writes is in `/var/lib/relay` (`RELAY_HOME`). The unit (`tools/relay.service`) is
+sandboxed: `NoNewPrivileges`, `ProtectSystem=strict`, `ProtectHome`, `PrivateTmp`, and `ReadWritePaths=` the
+state folder only, so the service cannot write anywhere else; it holds only `CAP_NET_BIND_SERVICE`, for
+ports 80 and 443. Run `systemd-analyze security relay` to see its exposure score.
+
+**First Owner, with no browser on the machine.** The installer prints a one-time setup code (also in
+the journal: `journalctl -u relay | grep -A1 'setup code'`, or `sudo tools/install-service.sh setup-code`).
+From another device open `https://<the machine's address>/admin` (the browser warns once about the
+self-signed certificate; compare its fingerprint with the one the installer printed), enter the code and
+create the Owner. The code works from any device, only while no account exists, and is deleted when the
+Owner is created. Caption panels find the service over mDNS like any other install.
+
+| Command | What it does |
+|---|---|
+| `sudo tools/install-service.sh update` | Re-copies this checkout, refreshes the packages and restarts. `git pull` first. |
+| `sudo tools/install-service.sh uninstall` | Removes the service and `/opt/relay`; **keeps** `/var/lib/relay` (settings, accounts). |
+| `sudo tools/install-service.sh uninstall --purge` | Also deletes `/var/lib/relay` and the `relay` user. |
+| `sudo tools/install-service.sh reset-owner <username>` | Lockout recovery: stops the service, runs `tools/reset_owner.py` as `relay`, restarts it. |
+| `journalctl -u relay -f` | The log (replaces the container's `logs.sh`). |
 
 ## First run
 
@@ -656,6 +690,8 @@ tests/
 
 tools/
   migrate-from-docker.ps1    Windows: copy a Docker install's settings and data to the state folder
+  install-service.sh         headless Linux: install, update, uninstall Relay as a systemd service
+  relay.service              the systemd unit it installs (sandboxed, state folder only)
   reset_owner.py             lockout recovery: make someone an Owner with a new password
 ```
 
