@@ -221,6 +221,11 @@ class FakePP(pp.Client):
         self.libs = {"LIB1": ("Default", [("LIB-GOG", "Goodness Of God"), ("LIB-WM", "Way Maker"),
                                           ("LIB-AG", "Amazing Grace "), ("LIB-SERM", "Sermon: Grace"),
                                           ("LIB-WEL", "Welcome Slides")])}
+        # Presentations that are in a playlist but in no library this fake lists (exact names, as held).
+        self.extra = {"SYN-GOG": "Goodness of God", "SYN-WM": "Way Maker", "OLD-HS": "Holy Spirit"}
+
+    def exact(self):
+        return {**self.extra, **{pu: pn for _, (_, rows) in self.libs.items() for pu, pn in rows}}
 
     @staticmethod
     def item(i, name, kind, uuid, pco=False):
@@ -247,6 +252,11 @@ class FakePP(pp.Client):
         if method == "GET" and path.startswith("/v1/library/"):
             return {"update_type": "all", "items": [{"uuid": u, "name": n, "index": i}
                                                    for i, (u, n) in enumerate(self.libs[path.rsplit("/", 1)[1]][1])]}
+        if method == "GET" and path.startswith("/v1/presentation/"):
+            u = path.rsplit("/", 1)[1]
+            if u not in self.exact():
+                raise pp.ProError("http", "nf", 404)
+            return {"presentation": {"id": {"uuid": u, "name": self.exact()[u], "index": 0}, "groups": []}}
         if method == "POST" and path == "/v1/playlists":
             self.created += 1
             u = f"PL-NEW{self.created}"
@@ -255,6 +265,16 @@ class FakePP(pp.Client):
         if method == "PUT" and path.startswith("/v1/playlist/"):
             u = path.rsplit("/", 1)[1]
             items = []
+            exact = self.exact()
+            for o in body:
+                # As ProPresenter 22 answers (checked live): both arrangement fields or the whole body is a 400,
+                # and a presentation item is found by its exact name (trailing spaces too), never its UUID.
+                if o["type"] == "presentation":
+                    info = o.get("presentation_info") or {}
+                    if "arrangement_name" not in info or "arrangement_uuid" not in info:
+                        raise pp.ProError("http", "missing field arrangement", 400)
+                    if exact.get(info.get("presentation_uuid")) != o["id"]["name"]:
+                        raise pp.ProError("http", "nf", 404)
             for n, o in enumerate(body):
                 kind = o["type"]
                 items.append(self.item(n, o["id"]["name"], kind, (o.get("presentation_info") or {}).get("presentation_uuid", "")))
@@ -604,6 +624,13 @@ async def main_async():
     eq("the order is the plan's", [(o["type"], o["target_uuid"] if o["type"] == "presentation" else None) for o in put[0][2]],
        [("presentation", "SYN-GOG"), ("presentation", "SYN-WM"), ("presentation", "LIB-SERM"), ("presentation", "LIB-AG")])
     eq("read back and verified", res["verified"], True)
+    by_uuid = {o["target_uuid"]: o for o in put[0][2] if o["type"] == "presentation"}
+    eq("a name with a trailing space is sent exactly as ProPresenter holds it",
+       by_uuid["LIB-AG"]["id"]["name"], "Amazing Grace ")
+    eq("a song only in a playlist gets its own presentation's name", by_uuid["SYN-GOG"]["id"]["name"], "Goodness of God")
+    check("every presentation item carries both arrangement fields",
+          all(o["presentation_info"].get("arrangement_name") == "" and o["presentation_info"].get("arrangement_uuid") == ""
+              for o in by_uuid.values()))
     eq("what was left out is named", res["left_out"], ["Welcome", "Closing Prayer"])
     eq("the owned playlist is remembered", config.get()["propresenter"]["link"]["owned"],
        {"uuid": "PL-NEW1", "name": "Relay – 2026-11-15"})

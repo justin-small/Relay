@@ -39,6 +39,7 @@ struct Row {
     lv_obj_t *cell[kCells] = {};
     char shown[kCells + 1] = {};   // what the cells say now
     int placed = -1;               // how many cells are laid out (the text's length), -1 for none
+    int digit_y = 0;               // the digits' top within the row, kept here: see place_cells
     pp_level level = pp_level::ok;
     bool running = false;
     bool stale = false;
@@ -114,6 +115,7 @@ void build_rows(TPane &p)
         lv_obj_set_pos(r.name, 0, ui_px(4));
         lv_label_set_text(r.name, "");
         const int y = kNameH + (row_h - kNameH - f.line) / 2;
+        r.digit_y = y;
         for (int c = 0; c < kCells; ++c) {
             lv_obj_t *l = ppv::text(r.box, digit_font(p.font), 0xFFFFFF);
             lv_obj_set_style_text_align(l, LV_TEXT_ALIGN_CENTER, 0);
@@ -135,7 +137,9 @@ void place_cells(TPane &p, Row &r, const char *text)
     const int n = pp_timer_cells(text, f, p.w - 2 * kPad, x, cw, kCells);
     for (int c = 0; c < kCells; ++c) {
         if (c < n) {
-            lv_obj_set_pos(r.cell[c], x[c], lv_obj_get_y(r.cell[c]));
+            // Not lv_obj_get_y(): that is the laid-out position, still 0 for a cell made this tick, which put the
+            // digits on top of the timer's name (seen on the CrowPanel, 2026-11-13).
+            lv_obj_set_pos(r.cell[c], x[c], r.digit_y);
             lv_obj_set_size(r.cell[c], cw[c], f.line);
             ppv::set_shown(r.cell[c], true);
         } else {

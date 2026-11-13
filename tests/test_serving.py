@@ -83,6 +83,24 @@ check("a new LAN address the certificate does not cover mints a new one", p2.ref
 check("...which names the new address", "198.51.100.7" in p2.info.ips, p2.info.ips)
 check("...and the fingerprint changed again", p2.info.fingerprint != fp_fqdn)
 check("an unchanged LAN does not", p2.refresh() is False)
+check("...and the new certificate still names the address it replaced", "192.0.2.10" in p2.info.ips, p2.info.ips)
+
+# A Mac's host name comes from DHCP and falls back to the local name while the network is down (seen live): the
+# drop mints once, for the fallback name, and the network's name coming back must not mint again.
+real_host = socket.gethostname
+socket.gethostname = lambda: "dhcp-name"
+p2.refresh()
+IPS[:] = []
+socket.gethostname = lambda: "Local-Name"
+check("a network drop that changes the host name mints once", p2.refresh() is True)
+fp_drop = p2.info.fingerprint
+IPS[:] = ["198.51.100.7"]
+socket.gethostname = lambda: "dhcp-name"
+check("...and the network coming back with its old name does not mint again", p2.refresh() is False)
+eq("...so the fingerprint stays the one just trusted", p2.info.fingerprint, fp_drop)
+socket.gethostname = real_host
+names_now = tls._keep([f"n{i}" for i in range(3)], [f"old{i}" for i in range(40)])
+eq("kept names are capped, current ones first", (len(names_now), names_now[:3]), (tls.MAX_KEPT_NAMES, ["n0", "n1", "n2"]))
 
 real = tls.RENEW_WITHIN_DAYS
 tls.RENEW_WITHIN_DAYS = 400                    # every certificate is now "within 400 days of expiry"

@@ -34,6 +34,9 @@ log = logging.getLogger("relay.tls")
 VALID_DAYS = 397
 # Renew this far before expiry, not at the wire, so a renewal never lands in the middle of an event.
 RENEW_WITHIN_DAYS = 30
+# A new certificate keeps the names the one it replaces covered, up to this many of each kind (current names first),
+# so a name that comes back does not mint again (see Panel._ensure).
+MAX_KEPT_NAMES = 16
 # Strict-Transport-Security for the panel: 397 days, the certificate's own life.
 HSTS_MAX_AGE = 34300800
 
@@ -108,6 +111,30 @@ def _usable(cert, dns: list[str], ips: list[str]) -> bool:
         return cert.not_valid_after_utc - dt.datetime.now(dt.timezone.utc) >= dt.timedelta(days=RENEW_WITHIN_DAYS)
     except Exception:
         return False
+
+
+def _san(cert) -> tuple[list[str], list[str]]:
+    """(DNS names, IP addresses) a certificate names, or two empty lists when it cannot be read."""
+    try:
+        from cryptography import x509
+
+        san = cert.extensions.get_extension_for_class(x509.SubjectAlternativeName).value
+        return list(san.get_values_for_type(x509.DNSName)), [str(i) for i in san.get_values_for_type(x509.IPAddress)]
+    except Exception:
+        return [], []
+
+
+def _keep(current: list[str], old: list[str]) -> list[str]:
+    """`current`, then the `old` names it lacks, at most MAX_KEPT_NAMES of them (current ones are never dropped)."""
+    out = list(current)
+    seen = {n.lower() for n in out}
+    for n in old:
+        if len(out) >= max(MAX_KEPT_NAMES, len(current)):
+            break
+        if n.lower() not in seen:
+            out.append(n)
+            seen.add(n.lower())
+    return out
 
 
 def _write_private(path: Path, data: bytes) -> None:
@@ -185,8 +212,17 @@ class Panel:
         dns, ips = names(self.fqdn)
         existing = _load()
         if existing is not None and not force and _usable(existing, dns, ips):
-            self.info = Info(fingerprint(existing), dns, ips, existing.not_valid_after_utc.isoformat(), True)
+            have_dns, have_ips = _san(existing)   # what it names, kept names included, not only today's
+            self.info = Info(fingerprint(existing), have_dns or dns, have_ips or ips,
+                             existing.not_valid_after_utc.isoformat(), True)
             return False
+        if existing is not None:
+            # Keep what the old certificate named. On a Mac the host name comes from DHCP and falls back to the
+            # local name while the network is down, so without this a 5-second Wi-Fi drop minted twice (once
+            # for the fallback name, once when the network's name came back), and every operator and panel that
+            # had trusted the fingerprint had to trust a new one. Seen live on 2026-11-13.
+            old_dns, old_ips = _san(existing)
+            dns, ips = _keep(dns, old_dns), _keep(ips, old_ips)
         cert = _mint(self.fqdn, dns, ips)
         new = fingerprint(cert)
         if existing is not None:

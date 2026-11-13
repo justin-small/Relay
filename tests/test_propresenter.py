@@ -1089,6 +1089,8 @@ eq("go to a time is a PUT of a bare number", (r.status_code, [(m, p, json.loads(
 eq("a bad time is refused", [admin.post(B + "/transport", json={"seconds": v}).status_code for v in ("x", -1, None)], [400, 400, 400])
 
 # -- next / previous playlist ITEM (Shift + arrow keys, and the buttons)
+from app.modules.propresenter.ppcontrol import control as pp_control  # noqa: E402
+pp_control.last_playlist = None   # the playlist tests above triggered an item; start from none
 fake.requests.clear()
 admin.post(B + "/item", json={"direction": "next"})
 admin.post(B + "/item", json={"direction": "previous"})
@@ -1112,6 +1114,19 @@ eq("an active playlist id that is path-shaped is refused", (admin.post(B + "/ite
                                                             fake.requests), (400, []))
 pp.follower.data.pop("playlist/active")
 eq("a bad direction for an item is refused", admin.post(B + "/item", json={"direction": "../x"}).status_code, 400)
+# ProPresenter 22 leaves playlist/active empty after an item is triggered through the API (checked live), so the
+# playlist Relay itself just triggered is the one Next item steps through.
+admin.post(B + "/playlists/PL9/trigger", json={"index": 2})
+fake.requests.clear()
+admin.post(B + "/item", json={"direction": "next"})
+admin.post(B + "/item", json={"direction": "previous"})
+eq("with no active playlist, next and previous item go to the playlist Relay last triggered",
+   [p for _, p, _ in sent("GET")], ["/v1/playlist/PL9/next/trigger", "/v1/playlist/PL9/previous/trigger"])
+pp.follower.data["playlist/active"] = {"presentation": {"playlist": {"uuid": "PL3", "name": "Setlist", "index": 2}}}
+fake.requests.clear()
+admin.post(B + "/item", json={"direction": "next"})
+eq("but a playlist ProPresenter reports as active wins", [p for _, p, _ in sent("GET")], ["/v1/playlist/PL3/next/trigger"])
+pp.follower.data.pop("playlist/active")
 
 # -- screens: a bare true or false, through the one client
 fake.requests.clear()
