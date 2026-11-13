@@ -87,6 +87,15 @@ make_venv() {
   "$APP_DIR/venv/bin/python" -m compileall -q "$APP_DIR/app" "$APP_DIR/run.py" >/dev/null 2>&1 || true
 }
 
+fetch_cloudflared() {
+  # For the Remote access module (#50): a pinned, checksum-checked cloudflared. Fetched here, at install time,
+  # because Relay never downloads anything while it runs. Without it Relay still works; only Remote access can't.
+  say "Installing cloudflared for Remote access"
+  "$APP_DIR/venv/bin/python" "$SRC/tools/fetch_cloudflared.py" --dest "$APP_DIR/bin" >/dev/null \
+    || say "Couldn't fetch cloudflared: Relay works, but Remote access won't until you run 'sudo $0 update'."
+  chown -R root:root "$APP_DIR/bin" 2>/dev/null || true
+}
+
 write_unit() {
   install -m 0644 "$SRC/tools/relay.service" "$UNIT"
   systemctl daemon-reload
@@ -135,6 +144,7 @@ do_install() {
   make_user
   copy_program
   make_venv
+  fetch_cloudflared
   write_unit
   systemctl enable relay >/dev/null 2>&1
   systemctl restart relay

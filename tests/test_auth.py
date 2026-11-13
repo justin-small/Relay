@@ -363,6 +363,7 @@ MIN_ROLE = {
     "users.manage": "admin",
     "planning_center.view": "viewer", "planning_center.control": "operator", "planning_center.manage": "admin",
     "propresenter.view": "viewer", "propresenter.control": "operator", "propresenter.manage": "admin",
+    "remote_access.view": "viewer", "remote_access.manage": "admin",
 }
 for role in ROLE_NAMES:
     me = clients[role].get("/api/admin/me").json()
@@ -378,7 +379,8 @@ check("every permission registered is in the independent table",
 
 # ------------------------------------------------------------------ every /api/admin route, every role
 print("every /api/admin route")
-config.save({"modules": {"propresenter": {"enabled": True}, "planning_center": {"enabled": True}}})
+config.save({"modules": {"propresenter": {"enabled": True}, "planning_center": {"enabled": True},
+                         "remote_access": {"enabled": True}}})
 
 E = {}      # (METHOD, path) -> permission; None = any signed-in user
 
@@ -451,8 +453,11 @@ route("DELETE", "/api/admin/trusted-devices/{device_id}", "users.manage")
 
 # Module routes: one explicit entry for each, with the permission its module declares. A module route added
 # without an entry here fails "EVERY /api/admin route has a permission entry".
-PCX, PPX = "/api/admin/planning-center", "/api/admin/propresenter"
+PCX, PPX, RAX = "/api/admin/planning-center", "/api/admin/propresenter", "/api/admin/remote-access"
 for method, path, perm in (
+    ("GET", RAX, "remote_access.view"),
+    ("POST", RAX + "/enroll", "remote_access.manage"),                   # an empty body never reaches the cloud
+    ("POST", RAX + "/release", "remote_access.manage"),                  # not enrolled: nothing to tell the cloud
     ("POST", PCX, "planning_center.manage"),
     ("DELETE", PCX, "planning_center.manage"),
     ("POST", PCX + "/test", "planning_center.manage"),
@@ -608,7 +613,8 @@ eq("an admin may do all three", (not_through(admin_c.post("/api/admin/planning-c
                                   not_through(admin_c.post("/api/admin/propresenter/step", json={})),
                                   not_through(admin_c.get("/api/admin/propresenter/macros?all=true"))), (True, True, True))
 eq("signed out is 401", anon_c.get("/api/admin/propresenter").status_code, 401)
-config.save({"modules": {"propresenter": {"enabled": False}, "planning_center": {"enabled": False}}})
+config.save({"modules": {"propresenter": {"enabled": False}, "planning_center": {"enabled": False},
+                         "remote_access": {"enabled": False}}})
 eq("a module that is off is still a 404 for everyone", op_c.get("/api/admin/propresenter").status_code, 404)
 
 # ------------------------------------------------------------------ the page routes
@@ -1027,7 +1033,8 @@ finally:
 for mid, want in (("planning_center", {"planning_center.view": "viewer", "planning_center.control": "operator",
                                        "planning_center.manage": "admin"}),
                   ("propresenter", {"propresenter.view": "viewer", "propresenter.control": "operator",
-                                    "propresenter.manage": "admin"})):
+                                    "propresenter.manage": "admin"}),
+                  ("remote_access", {"remote_access.view": "viewer", "remote_access.manage": "admin"})):
     got = {p.id: p.min_role for p in registry.get(mid).permissions}
     eq(f"{mid} declares its permissions", got, want)
 

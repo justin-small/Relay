@@ -21,6 +21,8 @@ Environment=HOME=/var/lib/relay
 # No browser on this machine: the first Owner is made from another device with a one-time setup code
 # (app/setupcode.py), printed in the journal and by the installer.
 Environment=RELAY_SETUP_CODE=1
+# Remote access (#50) runs the cloudflared the installer put here (tools/fetch_cloudflared.py).
+Environment=RELAY_CLOUDFLARED=/opt/relay/bin/cloudflared
 Environment=PYTHONUNBUFFERED=1
 Environment=PYTHONDONTWRITEBYTECODE=1
 
