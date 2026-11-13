@@ -1,0 +1,499 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Relay: live captions and translation for your church</title>
+<meta name="description" content="Relay listens to your soundboard and shows live captions in English and twelve other languages. People open a link on their phone and read.">
+<meta name="theme-color" content="#050505">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="alternate icon" href="/favicon.ico">
+</head>
+<body>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:wght@400;700&family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&display=swap" rel="stylesheet">
+<style>
+html{color-scheme:dark}
+body{margin:0;background:#050505}
+a{color:inherit;text-underline-offset:4px}
+h1,h2,h3{text-wrap:balance;margin:0}
+p{text-wrap:pretty;margin:0}
+::selection{background:#4ade80;color:#04130a}
+:focus-visible{outline:2px solid #4ade80;outline-offset:4px;border-radius:999px}
+.pg{background:#050505;color:#f4f4f5;font-family:'Atkinson Hyperlegible',-apple-system,'Segoe UI',system-ui,sans-serif;font-size:18px;line-height:1.55;overflow-x:clip}
+.d{font-family:'Bricolage Grotesque','Atkinson Hyperlegible',system-ui,sans-serif;font-weight:700;letter-spacing:-0.035em;line-height:1}
+.wrap{max-width:1240px;margin:0 auto;padding-left:32px;padding-right:32px}
+.sec{padding-top:160px;padding-bottom:160px}
+.hair{border-top:1px solid rgba(255,255,255,.08)}
+.mut{color:#c9cbd1}.dim{color:#a1a1aa}
+
+/* nav */
+.nav{position:sticky;top:20px;z-index:40;width:max-content;max-width:calc(100% - 32px);box-sizing:border-box;margin:20px auto 0;display:flex;align-items:center;gap:36px;padding:8px 8px 8px 22px;border-radius:999px;background:rgba(12,13,15,.62);-webkit-backdrop-filter:blur(22px) saturate(1.4);backdrop-filter:blur(22px) saturate(1.4);box-shadow:inset 0 0 0 1px rgba(255,255,255,.1),inset 0 1px 0 rgba(255,255,255,.08)}
+.nl{display:flex;gap:30px;font-size:16px}
+.nl a{text-decoration:none;color:#c9cbd1;padding:10px 0;transition:color .5s cubic-bezier(.32,.72,0,1)}
+.nl a:hover{color:#fff}
+.mnav{display:none;margin-left:auto}
+.mnav summary{list-style:none;width:44px;height:44px;border-radius:50%;background:rgba(255,255,255,.08);position:relative;cursor:pointer}
+.mnav summary::-webkit-details-marker{display:none}
+.ln{position:absolute;left:13px;width:18px;height:1.5px;background:#f4f4f5;transition:transform .7s cubic-bezier(.32,.72,0,1)}
+.l1{top:18px}.l2{top:25px}
+.mnav[open] .l1{transform:translateY(3.5px) rotate(45deg)}
+.mnav[open] .l2{transform:translateY(-3.5px) rotate(-45deg)}
+.sheet{position:absolute;top:calc(100% + 10px);left:0;right:0;display:flex;flex-direction:column;padding:14px 26px 22px;border-radius:30px;background:rgba(10,11,13,.96);box-shadow:inset 0 0 0 1px rgba(255,255,255,.1)}
+.sheet a{text-decoration:none;font-size:26px;padding:14px 0;border-bottom:1px solid rgba(255,255,255,.08)}
+.sheet a:last-child{border-bottom:0}
+@media (max-width:860px){.nl,.nav>.btn{display:none}.mnav{display:block}.nav{width:auto;margin-left:16px;margin-right:16px;max-width:none}}
+
+/* buttons */
+.btn{display:inline-flex;align-items:center;gap:14px;padding:7px 7px 7px 26px;border-radius:999px;background:#4ade80;color:#04130a;font-weight:700;text-decoration:none;white-space:nowrap;transition:transform .7s cubic-bezier(.32,.72,0,1),background-color .7s cubic-bezier(.32,.72,0,1)}
+.btn:hover{background:#6ee7a0}
+.btn:active{transform:scale(.98)}
+.ic{width:40px;height:40px;border-radius:50%;background:rgba(4,19,10,.14);display:flex;align-items:center;justify-content:center;transition:transform .7s cubic-bezier(.32,.72,0,1)}
+.btn:hover .ic{transform:translate(4px,-1px) scale(1.05)}
+.btn.g{background:rgba(255,255,255,.05);color:#f4f4f5;box-shadow:inset 0 0 0 1px rgba(255,255,255,.12)}
+.btn.g:hover{background:rgba(255,255,255,.1)}
+.btn.g .ic{background:rgba(255,255,255,.1)}
+.btn.s{padding:5px 5px 5px 20px;gap:10px;font-size:16px}
+.btn.s .ic{width:34px;height:34px}
+
+/* double bezel */
+.bz{background:rgba(255,255,255,.035);border:1px solid rgba(255,255,255,.09);padding:6px;border-radius:32px;box-sizing:border-box}
+.core{background:#0b0c0e;border-radius:26px;box-shadow:inset 0 1px 1px rgba(255,255,255,.12);box-sizing:border-box;height:100%;overflow:hidden}
+.pad{padding:36px;display:flex;flex-direction:column;gap:12px}
+.scr{background:#000;border-radius:20px;box-shadow:inset 0 0 0 1px rgba(255,255,255,.06);overflow:hidden;min-height:0}
+.feed{flex:1;min-height:0;overflow:hidden;-webkit-mask-image:linear-gradient(transparent 0,rgba(0,0,0,.4) 40%,#000 88%);mask-image:linear-gradient(transparent 0,rgba(0,0,0,.4) 40%,#000 88%)}
+.roll{color:#fff}
+.roll p{margin:0 0 .8em}
+section[id]{scroll-margin-top:-40px}
+
+/* hero */
+.hero{position:relative;padding-top:120px;padding-bottom:140px;display:flex;flex-wrap:wrap;align-items:center;gap:72px 64px}
+.orb{position:absolute;right:-12%;top:-6%;width:70%;aspect-ratio:1;border-radius:50%;background:radial-gradient(closest-side,rgba(74,222,128,.13),rgba(74,222,128,0));pointer-events:none}
+.stage{position:relative;flex:1 1 500px;min-width:0;padding:0 110px 120px 0;box-sizing:border-box}
+.pnl{transform:rotate(-2deg)}
+.ph{position:absolute;right:0;bottom:0;width:236px;transform:rotate(3deg);box-shadow:0 50px 90px -30px rgba(0,0,0,.9)}
+@media (max-width:860px){.hero{padding-top:72px;padding-bottom:96px}.stage{padding:0}.pnl{transform:none}.ph{position:static;transform:none;margin:20px auto 0}.sec{padding-top:96px;padding-bottom:96px}.wrap{padding-left:16px;padding-right:16px}}
+
+/* steps */
+.step{display:flex;flex-wrap:wrap;align-items:baseline;gap:8px 40px;padding:36px 0;border-top:1px solid rgba(255,255,255,.08)}
+.s2{margin-left:9%}.s3{margin-left:18%}
+@media (max-width:860px){.s2,.s3{margin-left:0}}
+
+/* bento */
+.bento{display:grid;grid-template-columns:repeat(12,minmax(0,1fr));gap:20px}
+.c4{grid-column:span 4}.c5{grid-column:span 5}.c6{grid-column:span 6}.c7{grid-column:span 7}
+.drop{margin-top:72px}
+@media (max-width:980px){.bento>*{grid-column:1/-1}.drop{margin-top:0}}
+
+/* marquee */
+.mqw{overflow:hidden;-webkit-mask-image:linear-gradient(90deg,transparent,#000 12%,#000 88%,transparent);mask-image:linear-gradient(90deg,transparent,#000 12%,#000 88%,transparent)}
+.mq{display:flex;gap:64px;width:max-content;padding:30px 0;font-size:22px;color:#c9cbd1;white-space:nowrap}
+.mq span{display:flex;gap:64px}
+
+/* motion */
+@media (prefers-reduced-motion: no-preference){
+html{scroll-behavior:smooth}
+.w{animation:word .6s cubic-bezier(.32,.72,0,1) both}
+.mq{animation:mq 46s linear infinite}
+.roll{animation:roll 44s linear infinite}
+.mnav[open] .sheet a{animation:up .7s cubic-bezier(.32,.72,0,1) both}
+.mnav[open] .sheet a:nth-child(2){animation-delay:.06s}
+.mnav[open] .sheet a:nth-child(3){animation-delay:.12s}
+.mnav[open] .sheet a:nth-child(4){animation-delay:.18s}
+.mnav[open] .sheet a:nth-child(5){animation-delay:.24s}
+.pulse{animation:pulse 1s steps(1) infinite}
+}
+@supports (animation-timeline: view()){
+@media (prefers-reduced-motion: no-preference){
+.rv{animation:rise cubic-bezier(.32,.72,0,1) both;animation-timeline:view();animation-range:entry 0% entry 55%}
+}
+}
+@media (prefers-reduced-motion: reduce){.mq{flex-wrap:wrap;width:auto;white-space:normal;gap:14px 40px}.mq span{flex-wrap:wrap;gap:14px 40px}.mq .dup{display:none}}
+@keyframes word{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+@keyframes rise{from{opacity:0;transform:translateY(56px)}to{opacity:1;transform:none}}
+@keyframes up{from{opacity:0;transform:translateY(32px)}to{opacity:1;transform:none}}
+@keyframes mq{to{transform:translateX(-50%)}}
+@keyframes roll{to{transform:translateY(-50%)}}
+@keyframes pulse{0%{background:#dc2626;color:#fff}50%{background:#f4f4f5;color:#7f1d1d}}
+</style>
+<div class="pg">
+
+<!-- Floating nav -->
+<header class="nav">
+<a href="#top" aria-label="Relay home" style="display: flex; align-items: center">
+<svg role="img" aria-label="Relay" xmlns="http://www.w3.org/2000/svg" width="99" height="29" viewBox="0 0 219.3 64"><g transform="translate(-15.3 -14.55) scale(1.4545)"><rect x="11.5" y="14" width="9" height="36.4" rx="4.5" fill="#f4f4f5"/><path fill-rule="evenodd" fill="#4ade80" d="M33.5 14H44.5A9 9 0 0 1 53.5 23V30A9 9 0 0 1 49 37.8L52.6 48.2Q53.6 51.4 50.4 50.2L37 39H33.5A9 9 0 0 1 24.5 30V23A9 9 0 0 1 33.5 14ZM32.5 20.8H45.5A2 2 0 0 1 47.5 22.8V22.8A2 2 0 0 1 45.5 24.8H32.5A2 2 0 0 1 30.5 22.8V22.8A2 2 0 0 1 32.5 20.8ZM32.5 28.3H39.0A2 2 0 0 1 41.0 30.3V30.3A2 2 0 0 1 39.0 32.3H32.5A2 2 0 0 1 30.5 30.3V30.3A2 2 0 0 1 32.5 28.3Z"/></g><path transform="translate(84.29 19.6) scale(0.62)" d="M0 40V0M0 18A18 18 0 0 1 18 0M33 20H73A20 20 0 1 0 67.14 34.14M92 -24V40M151 20A20 20 0 1 0 151 20.01M151 0V40M170 0V20A20 20 0 0 0 210 20M210 0V44A16 16 0 0 1 194 60H186" fill="none" stroke="#f4f4f5" stroke-width="9" stroke-linecap="round" stroke-linejoin="round"/></svg>
+</a>
+<nav class="nl" aria-label="Main">
+<a href="#how">How it works</a>
+<a href="#features">Features</a>
+<a href="#panels">Caption panels</a>
+<a href="#cost">Cost</a>
+</nav>
+<a class="btn s" href="#get"><span>Get Relay</span><span class="ic"><svg aria-hidden="true" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 11.5l7-7M5.5 4.5h6v6"/></svg></span></a>
+<details class="mnav">
+<summary aria-label="Menu"><span class="ln l1"></span><span class="ln l2"></span></summary>
+<nav class="sheet" aria-label="Mobile">
+<a href="#how">How it works</a>
+<a href="#features">Features</a>
+<a href="#panels">Caption panels</a>
+<a href="#cost">Cost</a>
+<a href="#get" style="color: #4ade80">Get Relay</a>
+</nav>
+</details>
+</header>
+
+<!-- Hero -->
+<section id="top" class="wrap hero">
+<div class="orb" aria-hidden="true"></div>
+<div style="position: relative; flex: 1 1 520px; min-width: 0; display: flex; flex-direction: column; gap: 32px">
+<h1 class="d" style="font-size: clamp(48px, 7.4vw, 104px); line-height: 0.94">Everyone in the room can follow every word.</h1>
+<p class="mut" style="font-size: clamp(19px, 1.7vw, 22px); max-width: 520px">Relay listens to your soundboard and shows live captions in English and twelve other languages. People open a link on their phone and read. Nothing to install, no account, no microphone permission.</p>
+<div style="display: flex; flex-wrap: wrap; gap: 14px">
+<a class="btn" href="#get"><span>Get Relay</span><span class="ic"><svg aria-hidden="true" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 11.5l7-7M5.5 4.5h6v6"/></svg></span></a>
+<a class="btn g" href="#how"><span>See how it works</span><span class="ic"><svg aria-hidden="true" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3.5v9M4 8.5l4 4 4-4"/></svg></span></a>
+</div>
+<p class="dim" style="font-size: 16px">Runs on Windows, macOS and Linux, on a computer you already own.</p>
+</div>
+
+<div class="stage">
+<div class="bz pnl">
+<div class="core" style="padding: 10px">
+<div class="scr" style="aspect-ratio: 5 / 3; padding: 7% 30% 5% 7%; box-sizing: border-box; display: flex; flex-direction: column; justify-content: flex-end; gap: 4%; font-size: clamp(15px, 1.45vw, 21px); line-height: 1.3">
+<div class="feed"><div class="roll">
+<p>Good morning, and welcome.</p>
+<p>We are so glad you are here with us today.</p>
+<p>Please stand with us as we sing.</p>
+<p>If you are visiting, there is a welcome card in the seat in front of you.</p>
+<p>Let us pray together.</p>
+<p>Thank you for this day and for everyone gathered here.</p>
+<p>Be with those who could not join us this morning.</p>
+<p>Please be seated.</p>
+<p aria-hidden="true">Good morning, and welcome.</p>
+<p aria-hidden="true">We are so glad you are here with us today.</p>
+<p aria-hidden="true">Please stand with us as we sing.</p>
+<p aria-hidden="true">If you are visiting, there is a welcome card in the seat in front of you.</p>
+<p aria-hidden="true">Let us pray together.</p>
+<p aria-hidden="true">Thank you for this day and for everyone gathered here.</p>
+<p aria-hidden="true">Be with those who could not join us this morning.</p>
+<p aria-hidden="true">Please be seated.</p>
+</div></div>
+<div style="display: flex; justify-content: space-between; align-items: center; padding-top: 3%; font-size: 14px; color: #a1a1aa">
+<span style="display: flex; align-items: center; gap: 8px"><span aria-hidden="true" style="width: 8px; height: 8px; border-radius: 50%; background: #4ade80"></span>English</span>
+<span style="box-shadow: inset 0 0 0 1px rgba(255,255,255,.18); border-radius: 999px; padding: 6px 14px; color: #f4f4f5">Jump to live</span>
+</div>
+</div>
+</div>
+</div>
+<div class="bz ph" style="border-radius: 40px">
+<div class="core" style="border-radius: 34px; padding: 8px">
+<div class="scr" style="border-radius: 26px; height: 400px; display: flex; flex-direction: column; overflow: hidden">
+<div style="display: flex; gap: 4px; padding: 10px; font-size: 12px; font-weight: 700; border-bottom: 1px solid rgba(255,255,255,.07)">
+<span style="flex: 1; text-align: center; padding: 7px 0; border-radius: 9px; color: #a1a1aa">English</span>
+<span style="flex: 1; text-align: center; padding: 7px 0; border-radius: 9px; background: #24262c; color: #f4f4f5">Español</span>
+<span style="flex: 1; text-align: center; padding: 7px 0; border-radius: 9px; color: #a1a1aa">Both</span>
+</div>
+<div lang="es" style="flex: 1; min-height: 0; padding: 0 16px; display: flex; flex-direction: column; font-size: 18px; line-height: 1.3">
+<div class="feed"><div class="roll">
+<p>Buenos días y bienvenidos.</p>
+<p>Nos alegra mucho que estén aquí con nosotros hoy.</p>
+<p>Por favor, pónganse de pie mientras cantamos.</p>
+<p>Si nos visita, hay una tarjeta de bienvenida en el asiento frente a usted.</p>
+<p>Oremos juntos.</p>
+<p>Gracias por este día y por todos los que están reunidos aquí.</p>
+<p>Acompaña a quienes no pudieron estar con nosotros esta mañana.</p>
+<p>Pueden sentarse.</p>
+<p aria-hidden="true">Buenos días y bienvenidos.</p>
+<p aria-hidden="true">Nos alegra mucho que estén aquí con nosotros hoy.</p>
+<p aria-hidden="true">Por favor, pónganse de pie mientras cantamos.</p>
+<p aria-hidden="true">Si nos visita, hay una tarjeta de bienvenida en el asiento frente a usted.</p>
+<p aria-hidden="true">Oremos juntos.</p>
+<p aria-hidden="true">Gracias por este día y por todos los que están reunidos aquí.</p>
+<p aria-hidden="true">Acompaña a quienes no pudieron estar con nosotros esta mañana.</p>
+<p aria-hidden="true">Pueden sentarse.</p>
+</div></div>
+</div>
+<div style="display: flex; align-items: center; gap: 8px; padding: 10px 16px; border-top: 1px solid rgba(255,255,255,.07); font-size: 13px; color: #a1a1aa">
+<span aria-hidden="true" style="width: 7px; height: 7px; border-radius: 50%; background: #4ade80"></span>
+<span>Live</span>
+</div>
+</div>
+</div>
+</div>
+</div>
+</section>
+
+<!-- Languages marquee -->
+<section aria-label="Languages" class="hair" style="border-bottom: 1px solid rgba(255,255,255,.08)">
+<div class="mqw">
+<div class="mq">
+<span><span lang="es">Español</span><span lang="pt">Português</span><span lang="fr">Français</span><span lang="de">Deutsch</span><span lang="it">Italiano</span><span lang="ru">Русский</span><span lang="zh">中文</span><span lang="ja">日本語</span><span lang="ko">한국어</span><span lang="hi">हिन्दी</span><span lang="id">Bahasa Indonesia</span><span lang="vi">Tiếng Việt</span></span>
+<span class="dup" aria-hidden="true"><span>Español</span><span>Português</span><span>Français</span><span>Deutsch</span><span>Italiano</span><span>Русский</span><span>中文</span><span>日本語</span><span>한국어</span><span>हिन्दी</span><span>Bahasa Indonesia</span><span>Tiếng Việt</span></span>
+</div>
+</div>
+</section>
+
+<!-- How it works -->
+<section id="how" class="wrap sec">
+<div class="rv" style="display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 24px 64px; padding-bottom: 80px">
+<h2 class="d" style="flex: 1 1 480px; font-size: clamp(38px, 5.4vw, 76px)">Set up once.<br>Then it is one button.</h2>
+<p class="mut" style="flex: 0 1 380px">The audio is captured on the computer running Relay, so nobody in the room is asked for a microphone.</p>
+</div>
+<ol style="margin: 0; padding: 0; list-style: none">
+<li class="step rv">
+<span class="d" aria-hidden="true" style="flex: 0 0 120px; font-size: clamp(72px, 9vw, 128px); color: #4ade80">1</span>
+<h3 class="d" style="flex: 1 1 280px; font-size: clamp(26px, 2.6vw, 36px); letter-spacing: -0.025em">Connect your soundboard</h3>
+<p class="mut" style="flex: 1 1 320px; max-width: 420px">Send a feed from the soundboard to the computer's audio input and pick it in Relay.</p>
+</li>
+<li class="step s2 rv">
+<span class="d" aria-hidden="true" style="flex: 0 0 120px; font-size: clamp(72px, 9vw, 128px); color: #4ade80">2</span>
+<h3 class="d" style="flex: 1 1 280px; font-size: clamp(26px, 2.6vw, 36px); letter-spacing: -0.025em">Press Start</h3>
+<p class="mut" style="flex: 1 1 320px; max-width: 420px">Or add a schedule and Relay starts and stops by itself, every Sunday or on a single date.</p>
+</li>
+<li class="step s3 rv" style="border-bottom: 1px solid rgba(255,255,255,.08)">
+<span class="d" aria-hidden="true" style="flex: 0 0 120px; font-size: clamp(72px, 9vw, 128px); color: #4ade80">3</span>
+<h3 class="d" style="flex: 1 1 280px; font-size: clamp(26px, 2.6vw, 36px); letter-spacing: -0.025em">Share the link</h3>
+<p class="mut" style="flex: 1 1 320px; max-width: 420px">People open it on their own phone and choose captions, a translation, or both side by side.</p>
+</li>
+</ol>
+</section>
+
+<!-- One sentence, many languages -->
+<section aria-label="One service, many languages" class="hair" style="background: #000">
+<div class="wrap sec" style="display: flex; flex-direction: column; gap: clamp(10px, 1.4vw, 20px)">
+<p class="d rv" style="font-size: clamp(30px, 5.2vw, 76px); line-height: 1.06; color: #fff">Welcome. We are glad you are here.</p>
+<p class="d rv" lang="es" style="font-size: clamp(30px, 5.2vw, 76px); line-height: 1.06; color: #c9cbd1">Bienvenidos. Nos alegra que estén aquí.</p>
+<p class="d rv" lang="pt" style="font-size: clamp(30px, 5.2vw, 76px); line-height: 1.06; color: #a1a1aa">Bem-vindos. Que bom que vocês estão aqui.</p>
+<p class="d rv" lang="fr" style="font-size: clamp(30px, 5.2vw, 76px); line-height: 1.06; color: #85858d">Bienvenue. Nous sommes heureux de vous voir.</p>
+<p class="d rv" lang="ko" style="font-size: clamp(30px, 5.2vw, 76px); line-height: 1.12; color: #6e6e76; letter-spacing: -0.02em">환영합니다. 함께해 주셔서 기쁩니다.</p>
+<p class="d rv" lang="zh" style="font-size: clamp(30px, 5.2vw, 76px); line-height: 1.12; color: #5b5b63; letter-spacing: 0">欢迎。很高兴你们来到这里。</p>
+<p class="mut rv" style="max-width: 460px; padding-top: 40px">One service, read in up to twelve languages at the same moment. Each person chooses their own.</p>
+</div>
+</section>
+
+<!-- Features bento -->
+<section id="features" class="wrap sec">
+<h2 class="d rv" style="font-size: clamp(38px, 5.4vw, 76px); max-width: 900px; padding-bottom: 80px">Built for a live service, not a meeting.</h2>
+<div class="bento">
+
+<div class="bz c7 rv"><div class="core pad" style="gap: 28px">
+<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 8px 28px; font-size: 17px">
+<div style="display: flex; align-items: center; justify-content: space-between; padding: 12px 0; border-bottom: 1px solid rgba(255,255,255,.07)"><span>Spanish</span><span aria-hidden="true" style="width: 40px; height: 24px; border-radius: 999px; background: #4ade80; display: flex; justify-content: flex-end; padding: 3px; box-sizing: border-box"><span style="width: 18px; height: 18px; border-radius: 50%; background: #04130a"></span></span></div>
+<div style="display: flex; align-items: center; justify-content: space-between; padding: 12px 0; border-bottom: 1px solid rgba(255,255,255,.07)"><span>Korean</span><span aria-hidden="true" style="width: 40px; height: 24px; border-radius: 999px; background: #4ade80; display: flex; justify-content: flex-end; padding: 3px; box-sizing: border-box"><span style="width: 18px; height: 18px; border-radius: 50%; background: #04130a"></span></span></div>
+<div style="display: flex; align-items: center; justify-content: space-between; padding: 12px 0; border-bottom: 1px solid rgba(255,255,255,.07)"><span>Portuguese</span><span aria-hidden="true" style="width: 40px; height: 24px; border-radius: 999px; background: #4ade80; display: flex; justify-content: flex-end; padding: 3px; box-sizing: border-box"><span style="width: 18px; height: 18px; border-radius: 50%; background: #04130a"></span></span></div>
+<div style="display: flex; align-items: center; justify-content: space-between; padding: 12px 0; border-bottom: 1px solid rgba(255,255,255,.07)"><span class="dim">French</span><span aria-hidden="true" style="width: 40px; height: 24px; border-radius: 999px; background: #24262c; display: flex; padding: 3px; box-sizing: border-box"><span style="width: 18px; height: 18px; border-radius: 50%; background: #71717a"></span></span></div>
+<div style="display: flex; align-items: center; justify-content: space-between; padding: 12px 0; border-bottom: 1px solid rgba(255,255,255,.07)"><span>Chinese</span><span aria-hidden="true" style="width: 40px; height: 24px; border-radius: 999px; background: #4ade80; display: flex; justify-content: flex-end; padding: 3px; box-sizing: border-box"><span style="width: 18px; height: 18px; border-radius: 50%; background: #04130a"></span></span></div>
+<div style="display: flex; align-items: center; justify-content: space-between; padding: 12px 0; border-bottom: 1px solid rgba(255,255,255,.07)"><span class="dim">Vietnamese</span><span aria-hidden="true" style="width: 40px; height: 24px; border-radius: 999px; background: #24262c; display: flex; padding: 3px; box-sizing: border-box"><span style="width: 18px; height: 18px; border-radius: 50%; background: #71717a"></span></span></div>
+</div>
+<div style="display: flex; flex-direction: column; gap: 10px; margin-top: auto">
+<h3 class="d" style="font-size: 32px; letter-spacing: -0.025em">Twelve languages at once</h3>
+<p class="mut" style="max-width: 460px">Switch on the languages your congregation reads. Each person picks their own.</p>
+</div>
+</div></div>
+
+<div class="bz c5 rv"><div class="core pad" style="gap: 28px">
+<div style="aspect-ratio: 16 / 9; border-radius: 16px; background: linear-gradient(160deg, #2a2d34, #121316 70%); display: flex; align-items: flex-end; justify-content: center; padding: 6%; box-sizing: border-box">
+<p style="font-weight: 700; font-size: clamp(15px, 1.5vw, 20px); line-height: 1.3; text-align: center; color: #fff; text-shadow: 0 2px 6px rgba(0,0,0,.9)">We are so glad you are here with us today.</p>
+</div>
+<div style="display: flex; flex-direction: column; gap: 10px; margin-top: auto">
+<h3 class="d" style="font-size: 32px; letter-spacing: -0.025em">Broadcast overlays</h3>
+<p class="mut">Put captions on your stream or a screen in the room, styled to match your broadcast.</p>
+</div>
+</div></div>
+
+<div class="bz c4 rv"><div class="core pad">
+<div style="display: flex; justify-content: space-between; gap: 12px; padding: 14px 16px; border-radius: 14px; background: rgba(255,255,255,.04); font-size: 15px; margin-bottom: 20px">
+<span><span style="display: block; color: #f4f4f5">Sunday morning</span><span class="dim">Every Sun</span></span>
+<span style="text-align: right; font-variant-numeric: tabular-nums"><span style="display: block; color: #f4f4f5">10:00 AM</span><span class="dim">12:00 PM</span></span>
+</div>
+<h3 class="d" style="font-size: 26px; letter-spacing: -0.02em; margin-top: auto">Schedules</h3>
+<p class="mut">Capture starts and stops on its own, weekly or on a date, so nobody has to remember.</p>
+</div></div>
+
+<div class="bz c4 rv"><div class="core pad">
+<div class="pulse" style="border-radius: 14px; padding: 22px 16px; background: #dc2626; color: #fff; font-weight: 700; text-align: center; margin-bottom: 20px">Tap to acknowledge</div>
+<h3 class="d" style="font-size: 26px; letter-spacing: -0.02em; margin-top: auto">Stage alerts</h3>
+<p class="mut">A musician taps a button and the right screens flash until someone acknowledges it.</p>
+</div></div>
+
+<div class="bz c4 rv"><div class="core pad">
+<p class="d" style="font-size: 30px; line-height: 1.1; letter-spacing: -0.025em; color: #4ade80; margin-bottom: 20px">The audio is never recorded.</p>
+<h3 class="d" style="font-size: 26px; letter-spacing: -0.02em; margin-top: auto">Transcripts you can keep</h3>
+<p class="mut">Turn recording on and export the text of a service afterwards.</p>
+</div></div>
+
+<div class="bz c5 rv"><div class="core pad">
+<h3 class="d" style="font-size: 26px; letter-spacing: -0.02em">Blocked words</h3>
+<p class="mut">Keep words you choose off the screen, in the captions and in every translation.</p>
+</div></div>
+
+<div class="bz c7 rv"><div class="core pad">
+<h3 class="d" style="font-size: 26px; letter-spacing: -0.02em">Rehearsal mode</h3>
+<p class="mut" style="max-width: 520px">Check fonts, the projector and the link on every phone without opening a billed session.</p>
+</div></div>
+
+</div>
+</section>
+
+<!-- Caption panels -->
+<section id="panels" class="hair" style="background: #000">
+<div class="wrap sec" style="display: flex; flex-wrap: wrap; align-items: center; gap: 72px">
+<div class="bz rv" style="flex: 1 1 540px; min-width: 0">
+<div class="core" style="padding: 12px">
+<div class="scr" style="aspect-ratio: 5 / 3; display: flex; font-size: clamp(14px, 1.7vw, 22px); line-height: 1.3">
+<div style="flex: 1; min-width: 0; min-height: 0; padding: 0 5% 6%; display: flex; flex-direction: column; border-right: 1px solid rgba(255,255,255,.08)">
+<div class="feed"><div class="roll">
+<p>Let us pray together.</p>
+<p>Thank you for this day and for everyone gathered here.</p>
+<p>Be with those who could not join us this morning.</p>
+<p>Please be seated.</p>
+<p>Good morning, and welcome.</p>
+<p>We are so glad you are here with us today.</p>
+<p>Please stand with us as we sing.</p>
+<p>If you are visiting, there is a welcome card in the seat in front of you.</p>
+<p aria-hidden="true">Let us pray together.</p>
+<p aria-hidden="true">Thank you for this day and for everyone gathered here.</p>
+<p aria-hidden="true">Be with those who could not join us this morning.</p>
+<p aria-hidden="true">Please be seated.</p>
+<p aria-hidden="true">Good morning, and welcome.</p>
+<p aria-hidden="true">We are so glad you are here with us today.</p>
+<p aria-hidden="true">Please stand with us as we sing.</p>
+<p aria-hidden="true">If you are visiting, there is a welcome card in the seat in front of you.</p>
+</div></div>
+</div>
+<div lang="es" style="flex: 1; min-width: 0; min-height: 0; padding: 0 5% 6%; display: flex; flex-direction: column">
+<div class="feed"><div class="roll">
+<p>Oremos juntos.</p>
+<p>Gracias por este día y por todos los que están reunidos aquí.</p>
+<p>Acompaña a quienes no pudieron estar con nosotros esta mañana.</p>
+<p>Pueden sentarse.</p>
+<p>Buenos días y bienvenidos.</p>
+<p>Nos alegra mucho que estén aquí con nosotros hoy.</p>
+<p>Por favor, pónganse de pie mientras cantamos.</p>
+<p>Si nos visita, hay una tarjeta de bienvenida en el asiento frente a usted.</p>
+<p aria-hidden="true">Oremos juntos.</p>
+<p aria-hidden="true">Gracias por este día y por todos los que están reunidos aquí.</p>
+<p aria-hidden="true">Acompaña a quienes no pudieron estar con nosotros esta mañana.</p>
+<p aria-hidden="true">Pueden sentarse.</p>
+<p aria-hidden="true">Buenos días y bienvenidos.</p>
+<p aria-hidden="true">Nos alegra mucho que estén aquí con nosotros hoy.</p>
+<p aria-hidden="true">Por favor, pónganse de pie mientras cantamos.</p>
+<p aria-hidden="true">Si nos visita, hay una tarjeta de bienvenida en el asiento frente a usted.</p>
+</div></div>
+</div>
+</div>
+</div>
+</div>
+<div class="rv" style="flex: 1 1 400px; min-width: 0; display: flex; flex-direction: column; gap: 28px">
+<h2 class="d" style="font-size: clamp(38px, 4.6vw, 64px)">Captions on the wall, no phone needed.</h2>
+<p class="mut">A small touch screen for a wall, a desk or the stage. It joins your Wi-Fi, finds Relay by itself and follows the live text. Scroll back to reread, then tap Jump to live.</p>
+<ul style="margin: 0; padding: 0; list-style: none">
+<li style="padding: 16px 0; border-top: 1px solid rgba(255,255,255,.09)">Captions, one translation, or two feeds side by side</li>
+<li style="padding: 16px 0; border-top: 1px solid rgba(255,255,255,.09)">Song lyrics and timers from ProPresenter</li>
+<li style="padding: 16px 0; border-top: 1px solid rgba(255,255,255,.09)">Today's order of service from Planning Center</li>
+<li style="padding: 16px 0; border-top: 1px solid rgba(255,255,255,.09); border-bottom: 1px solid rgba(255,255,255,.09)">Alert buttons for the band and the tech team</li>
+</ul>
+<p class="dim" style="font-size: 16px">Runs on the Elecrow CrowPanel Advance 7.0". Updates install from the Relay admin page.</p>
+</div>
+</div>
+</section>
+
+<!-- Integrations -->
+<section aria-label="Integrations" class="wrap sec">
+<div class="rv" style="display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 24px 64px; padding-bottom: 80px">
+<h2 class="d" style="flex: 1 1 480px; font-size: clamp(38px, 5.4vw, 76px)">Works with the tools already in your booth.</h2>
+<p class="mut" style="flex: 0 1 380px">Every integration is a module you switch on. While it is off, Relay never contacts that product.</p>
+</div>
+<div class="bento">
+<div class="bz c6 rv"><div class="core pad" style="padding: 44px; gap: 16px; min-height: 300px">
+<h3 class="d" style="font-size: 40px; letter-spacing: -0.03em">ProPresenter</h3>
+<p class="mut" style="margin-top: auto">Relay follows the current slide and sends lyrics, timers and stage messages to your panels, screens and overlays. A view-only switch keeps it from changing anything.</p>
+</div></div>
+<div class="bz c6 rv"><div class="core pad" style="padding: 44px; gap: 16px; min-height: 300px">
+<h3 class="d" style="font-size: 40px; letter-spacing: -0.03em">Planning Center Services</h3>
+<p class="mut" style="margin-top: auto">Show today's service on a panel: the current and next item with timers, song keys and who is running LIVE. Allow a panel to move the service on, or keep it read-only.</p>
+</div></div>
+</div>
+</section>
+
+<!-- Your building -->
+<section aria-label="Privacy and control" class="hair" style="background: #000">
+<div class="wrap sec" style="display: flex; flex-wrap: wrap; gap: 56px 96px">
+<h2 class="d rv" style="flex: 1 1 380px; min-width: 0; font-size: clamp(38px, 5vw, 72px)">It runs in your building, on your computer.</h2>
+<dl class="rv" style="flex: 1.2 1 480px; min-width: 0; margin: 0">
+<div style="padding: 26px 0; border-top: 1px solid rgba(255,255,255,.09)">
+<dt class="d" style="font-size: 24px; letter-spacing: -0.02em; padding-bottom: 8px">Desktop app</dt>
+<dd class="mut" style="margin: 0">Install it on Windows, macOS or Linux. It sits in the tray, can start at login and updates when you choose.</dd>
+</div>
+<div style="padding: 26px 0; border-top: 1px solid rgba(255,255,255,.09)">
+<dt class="d" style="font-size: 24px; letter-spacing: -0.02em; padding-bottom: 8px">Or a box in the rack</dt>
+<dd class="mut" style="margin: 0">Run it as a service on a small Linux server or a Raspberry Pi with no screen attached.</dd>
+</div>
+<div style="padding: 26px 0; border-top: 1px solid rgba(255,255,255,.09)">
+<dt class="d" style="font-size: 24px; letter-spacing: -0.02em; padding-bottom: 8px">Locked operator panel</dt>
+<dd class="mut" style="margin: 0">Settings are served over HTTPS only and need a sign-in. The link you give the room cannot reach them.</dd>
+</div>
+<div style="padding: 26px 0; border-top: 1px solid rgba(255,255,255,.09)">
+<dt class="d" style="font-size: 24px; letter-spacing: -0.02em; padding-bottom: 8px">Accounts for your team</dt>
+<dd class="mut" style="margin: 0">Give each volunteer their own sign-in and a role that fits what they need to do.</dd>
+</div>
+<div style="padding: 26px 0; border-top: 1px solid rgba(255,255,255,.09); border-bottom: 1px solid rgba(255,255,255,.09)">
+<dt class="d" style="font-size: 24px; letter-spacing: -0.02em; padding-bottom: 8px">No audio kept</dt>
+<dd class="mut" style="margin: 0">Relay does not record audio. Transcripts are saved only if you turn recording on.</dd>
+</div>
+</dl>
+</div>
+</section>
+
+<!-- Cost -->
+<section id="cost" class="wrap sec">
+<div class="rv" style="display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 24px 64px; padding-bottom: 80px">
+<h2 class="d" style="flex: 1 1 480px; font-size: clamp(38px, 5.4vw, 76px)">What it costs.</h2>
+<p class="mut" style="flex: 0 1 380px">Two parts: Relay itself, and the captioning service it uses while it is running.</p>
+</div>
+<div class="bento">
+<div class="bz c5 rv" style="border-color: rgba(74,222,128,.45)"><div class="core pad" style="padding: 44px; gap: 16px">
+<h3 class="mut" style="font-size: 18px; font-weight: 400">Relay</h3>
+<p class="d" style="font-size: clamp(40px, 4vw, 56px)">Pricing on request</p>
+<p class="mut">Tell us about your church and we will talk it through.</p>
+<a class="btn" href="mailto:hello@relaychurchsystems.com" style="align-self: flex-start; margin-top: 28px"><span>Get in touch</span><span class="ic"><svg aria-hidden="true" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 11.5l7-7M5.5 4.5h6v6"/></svg></span></a>
+</div></div>
+<div class="bz c7 rv"><div class="core pad" style="padding: 44px; gap: 16px">
+<h3 class="mut" style="font-size: 18px; font-weight: 400">Captioning, on your own OpenAI account</h3>
+<p class="d" style="font-size: clamp(28px, 2.8vw, 40px); line-height: 1.1; letter-spacing: -0.03em">Billed per minute, per language, only while capture is running.</p>
+<p class="mut" style="max-width: 560px; margin-top: auto; padding-top: 20px">Each language includes the English captions too. People reading on their phones cost nothing, however many there are. Press Stop and the meter stops.</p>
+</div></div>
+</div>
+</section>
+
+<!-- CTA -->
+<section id="get" class="hair" style="background: #000">
+<div class="wrap rv" style="padding-top: 200px; padding-bottom: 200px; display: flex; flex-direction: column; align-items: flex-start; gap: 36px">
+<h2 class="d" style="font-size: clamp(56px, 11vw, 168px); line-height: 0.9">Ready for<br>this Sunday?</h2>
+<p class="mut" style="max-width: 480px; font-size: 20px">Tell us about your room and your soundboard and we will help you get set up.</p>
+<div style="display: flex; flex-wrap: wrap; gap: 14px">
+<a class="btn" href="mailto:hello@relaychurchsystems.com"><span>Get in touch</span><span class="ic"><svg aria-hidden="true" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 11.5l7-7M5.5 4.5h6v6"/></svg></span></a>
+</div>
+</div>
+</section>
+
+<!-- Footer -->
+<footer class="hair">
+<div class="wrap" style="padding-top: 40px; padding-bottom: 56px; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 20px; font-size: 16px; color: #a1a1aa">
+<span>Relay Church Systems</span>
+<div style="display: flex; flex-wrap: wrap; gap: 8px 30px">
+<a href="#how" style="padding: 12px 0">How it works</a>
+<a href="#features" style="padding: 12px 0">Features</a>
+<a href="#cost" style="padding: 12px 0">Cost</a>
+<a href="mailto:hello@relaychurchsystems.com" style="padding: 12px 0; color: #4ade80">hello@relaychurchsystems.com</a>
+</div>
+</div>
+</footer>
+
+</div>
+<script>
+document.querySelectorAll(".sheet a").forEach(function (a) {
+  a.addEventListener("click", function () { a.closest("details").removeAttribute("open"); });
+});
+</script>
+</body>
+</html>

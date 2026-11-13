@@ -1,0 +1,4 @@
+# Where installed Relay apps look for updates (desktop/src-tauri/src/updater.rs DEFAULT_URL).
+# If the GitHub repository moves, change the target here and run `cf deploy public` from site/.
+# Keep it a 302: a 301 may be cached by clients and would pin them to the old target.
+/updates/latest.json https://github.com/justin-small/Relay/releases/latest/download/latest.json 302
