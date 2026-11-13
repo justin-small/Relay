@@ -655,7 +655,6 @@ tests/
   _db.py                     throwaway SQLite file the tests make for themselves
 
 tools/
-  announce.ps1               Windows: the same, with Windows' own DNS-SD
   migrate-from-docker.ps1    Windows: copy a Docker install's settings and data to the state folder
   reset_owner.py             lockout recovery: make someone an Owner with a new password
 ```
@@ -772,9 +771,7 @@ for captions, as any phone would.
 
 Relay starts the announcement itself when it launches (`app/announce.py`, a background
 thread), on the viewer port, and stops it when Relay exits. If the announcement cannot run
-(port 5353 taken, no network) Relay logs it and carries on. On Windows, if another program
-already holds the mDNS port, `tools\announce.ps1` registers with Windows' own DNS-SD
-instead (Windows 10 1809 or later; no Bonjour install; untested on a real Windows host).
+(port 5353 taken, no network) Relay logs it and carries on.
 
 **Turn it off:** start with `RELAY_ANNOUNCE=0` (on Windows `set RELAY_ANNOUNCE=0` first). Name this install with
 `RELAY_INSTALL_NAME`. Panels already holding that name stop finding it, and an
