@@ -1,0 +1,57 @@
+# Relay as a system service (installed by tools/install-service.sh to /etc/systemd/system/relay.service).
+# Replaces the container: an unprivileged user, a read-only system, one writable folder, no extra privileges.
+[Unit]
+Description=Relay live captions
+Documentation=https://github.com/justin-small/Relay
+After=network-online.target sound.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=relay
+Group=relay
+# The sound card (ALSA): /dev/snd is group audio.
+SupplementaryGroups=audio
+WorkingDirectory=/opt/relay
+ExecStart=/opt/relay/venv/bin/python /opt/relay/run.py
+
+# Everything Relay writes lives in the state folder.
+Environment=RELAY_HOME=/var/lib/relay
+Environment=HOME=/var/lib/relay
+# No browser on this machine: the first Owner is made from another device with a one-time setup code
+# (app/setupcode.py), printed in the journal and by the installer.
+Environment=RELAY_SETUP_CODE=1
+Environment=PYTHONUNBUFFERED=1
+Environment=PYTHONDONTWRITEBYTECODE=1
+
+Restart=on-failure
+RestartSec=3
+# Logs go to the journal: journalctl -u relay
+
+# Sandbox. ReadWritePaths is the only place it can write; /dev/snd stays visible for the sound card.
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/relay
+ProtectHome=true
+PrivateTmp=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectClock=true
+ProtectHostname=true
+ProtectProc=invisible
+RestrictNamespaces=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+LockPersonality=true
+SystemCallArchitectures=native
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+UMask=0077
+
+# Ports 80 and 443 without root.
+CapabilityBoundingSet=CAP_NET_BIND_SERVICE
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+
+[Install]
+WantedBy=multi-user.target

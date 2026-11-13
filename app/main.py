@@ -12,6 +12,7 @@ import logging
 import os
 import secrets
 import socket
+import sys
 import threading
 import time
 from dataclasses import asdict
@@ -25,7 +26,7 @@ from jinja2 import ChoiceLoader, FileSystemLoader, PrefixLoader
 
 from . import alerts as alertsmod
 from . import announce as announcemod
-from . import config, db, exporting, importdocker, languages, netinfo, overlays, panelfw, panels, redact, schedules, serving, tls, users
+from . import config, db, exporting, importdocker, languages, netinfo, overlays, panelfw, panels, redact, schedules, serving, setupcode, tls, users
 from .alerts import alerts
 from . import engine as engine_mod
 from .engine import TRANSCRIPTION_STREAM, TRANSLATION_STREAM, demo_mode, engine
@@ -239,8 +240,13 @@ async def _startup() -> None:
     await module_registry.start_enabled()
     if ready and not (cfg.get("admin_token") or "").strip():
         with contextlib.suppress(Exception):
-            if await asyncio.to_thread(_any_users) is False:
+            fresh = await asyncio.to_thread(_any_users) is False
+            if fresh and setupcode.enabled():
+                await asyncio.to_thread(_announce_setup_code)
+            elif fresh:
                 log.info("No users yet: open the operator panel on this computer to finish setting up Relay.")
+            elif setupcode.enabled():
+                await asyncio.to_thread(setupcode.clear)
     if serving.published():
         log.info("Viewer pages on port %d (HTTP), operator panel on port %d (HTTPS)",
                  serving.viewer_port(), serving.admin_port())
@@ -476,6 +482,7 @@ DB_DOWN_SENTENCE = "The user database is not available. Relay is still captionin
 # Web-layer sentences that are not users.MESSAGES. Fixed text, looked up by key.
 WEB_MESSAGES = {
     "bad_token": "That admin token is not right.",
+    "bad_code": "That setup code is not right.",
     "local_only": "Finish setting up Relay on the computer it runs on: open this page there.",
     "already_set_up": "Relay is already set up. Sign in instead.",
     "mismatch": "The two passwords do not match.",
@@ -1122,14 +1129,28 @@ def _login_page(request: Request, *, error: str | None = None, status: int = 200
     if setup is not None or not _any_users():
         form = {"username": "", "name": ""} | (setup or {})
         token_set = bool((config.get().get("admin_token") or "").strip())
+        code_set = not token_set and bool(setupcode.active())
         return _render(request, "login.html", {"mode": "setup", "error": error, "notice": notice, **form, "token_set": token_set,
-                                               "remote": not token_set and not _setup_local(request)}, status)
+                                               "code_set": code_set,
+                                               "remote": not token_set and not code_set and not _setup_local(request)}, status)
     device = users.device_for(request.cookies.get(DEVICE_COOKIE) or "")
     pins = users.pin_users() if device else []
     mode = "pin" if pins and not pw else "signin"
     return _render(request, "login.html", {"mode": mode, "error": error, "username": username,
                                            "pin_users": pins, "pin_user": pin_user,
                                            "device_name": device["name"] if device else ""}, status)
+
+
+def _announce_setup_code() -> None:
+    """Headless install, no accounts yet: print the one-time setup code to the log (the journal). The installer
+    reads the same code from the state folder. Blocks (file)."""
+    pending = setupcode.prepare(have_users=False)
+    if not pending:
+        return
+    lines = ["", "  Relay is waiting for its first Owner. From any device on this network open the operator panel",
+             "  and enter this setup code:", f"      {pending}", "  (shown again by: journalctl -u relay | grep -A1 'setup code')", ""]
+    sys.stdout.write("\n".join(lines) + "\n")
+    sys.stdout.flush()
 
 
 def _password_page(request: Request, *, error: str | None = None, status: int = 200) -> HTMLResponse:
@@ -1239,6 +1260,10 @@ async def admin_setup(request: Request, token: str = Form(""), username: str = F
             if real:
                 if not _token_ok(token.strip(), real):
                     raise _WebRefused("bad_token")
+            elif setupcode.active():
+                # A headless install: the one-time code printed by the installer stands in for being at the machine.
+                if not setupcode.matches(token):
+                    raise _WebRefused("bad_code")
             elif not _setup_local(request):
                 raise _WebRefused("local_only")
             if password != confirm:
@@ -1253,19 +1278,20 @@ async def admin_setup(request: Request, token: str = Form(""), username: str = F
             db.execute("update users set last_login = ? where id = ?", (db.now(), user.id))
             global _have_users
             _have_users = True
+            setupcode.clear()
         return users.start_session(user, via="password")
 
     try:
         token_, age = await asyncio.to_thread(work)
     except _WebRefused as exc:
-        if exc.key == "bad_token":
+        if exc.key in ("bad_token", "bad_code"):
             await _fail(ip)
         if exc.key == "local_only":
             return await asyncio.to_thread(_login_page, request, error=exc.message, status=403)
         if exc.key == "already_set_up":
             return await asyncio.to_thread(_login_page, request, error=exc.message, status=403)
         return await asyncio.to_thread(_login_page, request, error=exc.message,
-                                       status=401 if exc.key == "bad_token" else 400, setup=shown)
+                                       status=401 if exc.key in ("bad_token", "bad_code") else 400, setup=shown)
     except users.Refused as exc:
         return await asyncio.to_thread(_login_page, request, error=exc.message, status=_refusal_status(exc),
                                        setup=shown)
