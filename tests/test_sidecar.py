@@ -71,7 +71,7 @@ def pump():  # a thread, so a child that never prints cannot block the test
 
 threading.Thread(target=pump, daemon=True).start()
 ready = None
-deadline = time.time() + 180  # a cold Windows runner can take over a minute to import and bind
+deadline = time.time() + 90
 while time.time() < deadline and ready is None:
     try:
         line = out_lines.get(timeout=1)

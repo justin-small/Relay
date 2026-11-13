@@ -46,19 +46,37 @@ def emit(event: str, **fields) -> None:
             pass  # the shell has gone; stdin closing is what stops us
 
 
+def _poll_stdin(interval: float = 0.25) -> bytes | None:
+    """Windows: wait for bytes on stdin without blocking in a read. None when the pipe is closed."""
+    import ctypes
+    import msvcrt
+    from ctypes import wintypes
+
+    handle = wintypes.HANDLE(msvcrt.get_osfhandle(0))
+    available = wintypes.DWORD(0)
+    while True:
+        ok = ctypes.windll.kernel32.PeekNamedPipe(handle, None, 0, None, ctypes.byref(available), None)
+        if not ok:
+            return None  # the write end is gone (ERROR_BROKEN_PIPE): the shell has exited
+        if available.value:
+            data = os.read(0, available.value)
+            return data or None
+        time.sleep(interval)
+
+
 def watch_parent(stop: Callable[[], None], stdin=None, grace: float = STOP_GRACE_S, kill=os._exit) -> threading.Thread:
     """Call `stop()` when the shell says `quit` or its pipe closes; end the process if that takes too long."""
     def lines():
         if stdin is not None:  # tests pass a stream
             yield from stdin
             return
-        # The real pipe is read at the OS level, not through sys.stdin: a thread blocked inside the buffered
-        # sys.stdin holds its lock, and on Windows anything else that touches sys.stdin (uvicorn does while
-        # starting) then waits for the shell to close the pipe, so the server never came up.
-        fd, pending = 0, b""
+        # The real pipe, read without ever holding a blocking read on it. On Windows a thread blocked in a read
+        # on the stdin handle stalls the rest of start-up (the server did not come up until the shell closed the
+        # pipe), so there the pipe is polled with PeekNamedPipe; elsewhere a plain os.read is fine.
+        pending = b""
         while True:
-            chunk = os.read(fd, 4096)
-            if not chunk:
+            chunk = _poll_stdin() if sys.platform == "win32" else os.read(0, 4096)
+            if chunk is None:
                 return
             pending += chunk
             while b"\n" in pending:
