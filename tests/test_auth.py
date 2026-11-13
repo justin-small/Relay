@@ -195,6 +195,7 @@ fresh()
 r = c.post("/admin/setup", data={**form, "token": SETUP_TOKEN}, follow_redirects=False)
 eq("the right token creates the Owner and signs in", (r.status_code, r.headers.get("location")), (303, "/admin"))
 check("…with a session cookie", bool(c.cookies.get("relay_admin")))
+check("…and the shared token is retired: it did its one job", not config.get().get("admin_token"))
 boss = users.get_by_username("boss")
 eq("…who is an owner without a pending password change", (boss.role, boss.must_change_password), ("owner", False))
 check("the admin page opens", '<h1 class="brand">' in c.get("/admin").text)
@@ -215,6 +216,7 @@ check("…with autocomplete hints", 'autocomplete="username"' in r.text and 'aut
 
 # Two valid first-run posts at once: one Owner.
 _db.reset()
+config.save({"admin_token": SETUP_TOKEN})
 fresh()
 barrier_form = {**form, "token": SETUP_TOKEN}
 
@@ -606,9 +608,10 @@ eq("an owner sets the key", r.status_code, 200)
 eq("…and it is saved", config.get()["openai_api_key"], "sk-owner-9999")
 check("…and never comes back whole", "sk-owner-9999" not in r.text)
 cookie_before = owner_c.cookies.get("relay_admin")
+token_before = config.get().get("admin_token")
 r = owner_c.post("/api/admin/config", json={"admin_token": "a-new-token-123"})
 eq("the admin_token field is gone: nothing is applied", r.status_code, 200)
-check("…the stored token did not change", config.get()["admin_token"] == SETUP_TOKEN)
+check("…the stored token did not change", config.get().get("admin_token") == token_before)
 check("…and no cookie was reissued", "set-cookie" not in r.headers and owner_c.cookies.get("relay_admin") == cookie_before)
 eq("…and the session still works", owner_c.get("/api/admin/me").status_code, 200)
 state = view_c.get("/api/admin/state")

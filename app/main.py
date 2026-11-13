@@ -25,7 +25,7 @@ from jinja2 import ChoiceLoader, FileSystemLoader, PrefixLoader
 
 from . import alerts as alertsmod
 from . import announce as announcemod
-from . import config, db, exporting, languages, netinfo, overlays, panelfw, panels, redact, schedules, serving, tls, users
+from . import config, db, exporting, importdocker, languages, netinfo, overlays, panelfw, panels, redact, schedules, serving, tls, users
 from .alerts import alerts
 from . import engine as engine_mod
 from .engine import TRANSCRIPTION_STREAM, TRANSLATION_STREAM, demo_mode, engine
@@ -1115,13 +1115,14 @@ def _render(request: Request, template: str, ctx: dict, status: int = 200) -> HT
 
 
 def _login_page(request: Request, *, error: str | None = None, status: int = 200, username: str = "",
-                pw: bool = False, pin_user: int | None = None, setup: dict | None = None) -> HTMLResponse:
+                pw: bool = False, pin_user: int | None = None, setup: dict | None = None,
+                notice: str | None = None) -> HTMLResponse:
     """The sign-in form, the first-run form (no accounts yet) or, on a trusted device with PIN users, the PIN
     picker. `pw` forces the password form. Blocks (database). Passwords are never echoed back; a username is."""
     if setup is not None or not _any_users():
         form = {"username": "", "name": ""} | (setup or {})
         token_set = bool((config.get().get("admin_token") or "").strip())
-        return _render(request, "login.html", {"mode": "setup", "error": error, **form, "token_set": token_set,
+        return _render(request, "login.html", {"mode": "setup", "error": error, "notice": notice, **form, "token_set": token_set,
                                                "remote": not token_set and not _setup_local(request)}, status)
     device = users.device_for(request.cookies.get(DEVICE_COOKIE) or "")
     pins = users.pin_users() if device else []
@@ -1245,6 +1246,9 @@ async def admin_setup(request: Request, token: str = Form(""), username: str = F
             user = users.create(username, name, "owner", password, temporary=False, actor=None)
             if api_key.strip():
                 config.save({"openai_api_key": api_key.strip()[:300]})
+            if real:
+                # The shared token did its one job (it created the first Owner); accounts replace it.
+                config.save({"admin_token": ""})
             # Setup signs the Owner in without a password check, so stamp the sign-in here.
             db.execute("update users set last_login = ? where id = ?", (db.now(), user.id))
             global _have_users
@@ -1267,6 +1271,30 @@ async def admin_setup(request: Request, token: str = Form(""), username: str = F
                                        setup=shown)
     _LOGIN_FAILS.pop(ip, None)
     return _signed_in(request, token_, age)
+
+
+@app.post("/admin/import")
+async def admin_import(request: Request, folder: str = Form("")):
+    """First run only, from this computer: bring in the settings of a v2.0 Docker install (app/importdocker.py).
+    The old folder is read, never changed. Refused once any account exists."""
+    def work():
+        if _any_users():
+            return _login_page(request, error=WEB_MESSAGES["already_set_up"], status=403)
+        if not _setup_local(request):
+            return _login_page(request, error=WEB_MESSAGES["local_only"], status=403)
+        try:
+            report = importdocker.import_from(_field(folder, 1000).strip().strip('"'), config.STATE_DIR)
+        except importdocker.ImportRefused as exc:
+            return _login_page(request, error=str(exc), status=400)
+        except OSError:
+            return _login_page(request, error="The old folder could not be read.", status=400)
+        config.load()
+        parts = ["Imported: " + ", ".join(report.copied or ["nothing new"]) + "."] + report.notes
+        fp = tls.panel.describe().get("fingerprint")
+        if fp:
+            parts.append(f"New certificate fingerprint (SHA-256): {fp}")
+        return _login_page(request, notice=" ".join(parts))
+    return await asyncio.to_thread(work)
 
 
 @app.post("/admin/login")
