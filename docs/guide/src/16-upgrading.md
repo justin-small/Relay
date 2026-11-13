@@ -85,8 +85,9 @@ failed to start is lost.)
 
 Each download is checked against a signature before it is installed, and an altered file is refused.
 
-Relay looks for updates at the project's GitHub releases page. If the project moves, you can point Relay at the
-new address without reinstalling: set the `RELAY_UPDATE_URL` environment variable, or add a line
+Relay looks for updates at relaychurchsystems.com, which sends it on to the project's current releases page, so
+if the project moves you do not need to do anything. To point one install somewhere else (a test build, for
+example) without reinstalling: set the `RELAY_UPDATE_URL` environment variable, or add a line
 `"update_url": "owner/repo"` to `shell.json` in Relay's state folder (open it from the tray menu with **Open
 state folder**), then restart Relay.
 

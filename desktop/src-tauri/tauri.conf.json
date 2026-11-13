@@ -25,7 +25,7 @@
   "plugins": {
     "updater": {
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDcwRUM5MTcwNUIzQURDRjUKUldUMTNEcGJjSkhzY0Z3cXo2dWE1YzY2SGF1ZDNWWEJmWkFkUHlsa3NXWUUrN0pQNUc1SUN6WkMK",
-      "endpoints": ["https://github.com/justin-small/Relay/releases/latest/download/latest.json"],
+      "endpoints": ["https://relaychurchsystems.com/updates/latest.json"],
       "windows": { "installMode": "passive" }
     }
   },
