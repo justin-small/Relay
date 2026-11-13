@@ -240,10 +240,10 @@ def write_cert(fqdn: str, force: bool = False) -> tuple[str, list[str], list[str
     )
 
     CERT_DIR.mkdir(parents=True, exist_ok=True)
-    try:
-        os.chmod(CERT_DIR, 0o700)
-    except OSError:
-        pass  # Windows; the ACL is what matters there and we do not touch it.
+    # 0700 here; on Windows an owner-only ACL that new files inherit (app/paths.py), so the key below is
+    # private there too. Done before the key is written.
+    from app import paths
+    paths.restrict(CERT_DIR)
 
     # Written 0600 before any bytes land in it: the key must never exist on
     # disk, even briefly, at the umask default.
