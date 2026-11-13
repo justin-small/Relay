@@ -13,6 +13,10 @@ pub struct Settings {
     /// Start at login was switched on once by first-run setup; after that only the user changes it.
     #[serde(default)]
     pub autostart_initialised: bool,
+    /// Where updates are looked for: a full URL to a `latest.json`, or `owner/repo` on GitHub. Absent means
+    /// the built-in default; `RELAY_UPDATE_URL` in the environment beats it (updater.rs).
+    #[serde(default)]
+    pub update_url: Option<String>,
 }
 
 pub fn load() -> Settings {

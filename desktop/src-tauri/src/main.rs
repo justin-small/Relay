@@ -10,8 +10,10 @@
 mod backend;
 mod paths;
 mod proxy;
+mod rollback;
 mod settings;
 mod tray;
+mod updater;
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
@@ -70,6 +72,7 @@ fn on_backend_change(app: &AppHandle, snap: backend::Snapshot) {
         t.update(&snap);
     }
     let sh = shell(app);
+    rollback::on_backend(app, snap.status);
     let live = matches!(snap.status, Status::Running | Status::Capturing);
     if let Some(w) = window(app) {
         if live && !sh.on_panel.swap(true, Ordering::SeqCst) {
@@ -144,10 +147,7 @@ pub fn on_menu(app: &AppHandle, id: &str) {
             let _ = open::that(paths::state_dir());
         }
         "restart" => sh.backend.restart(),
-        // The in-app updater arrives with #184; until then the release page is the way.
-        "updates" => {
-            let _ = open::that("https://github.com/justin-small/Relay/releases/latest");
-        }
+        "updates" => updater::on_menu(app),
         "autostart" => {
             let manager = app.autolaunch();
             let on = manager.is_enabled().unwrap_or(false);
@@ -200,6 +200,10 @@ fn explain_tray_once(app: &AppHandle) {
 }
 
 fn main() {
+    // An update on trial that failed is undone before anything starts (rollback.rs).
+    if let rollback::Launch::Exit = rollback::on_launch() {
+        return;
+    }
     let minimized = std::env::args().any(|a| a == "--minimized");
 
     let app = tauri::Builder::default()
@@ -207,12 +211,15 @@ fn main() {
         .plugin(tauri_plugin_autostart::init(MacosLauncher::LaunchAgent, Some(vec!["--minimized"])))
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_clipboard_manager::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .on_page_load(|webview, payload| {
             if matches!(payload.event(), tauri::webview::PageLoadEvent::Finished) {
                 let app = webview.app_handle();
                 if let Some(sh) = app.try_state::<Shell>() {
                     if !sh.on_panel.load(Ordering::SeqCst) {
                         push_splash(app, &sh.backend.snapshot());
+                    } else {
+                        updater::push(app); // the panel is a fresh page: show an offered update on it
                     }
                 }
             }
@@ -220,7 +227,8 @@ fn main() {
         .setup(move |app| {
             let handle = app.handle().clone();
             let backend = backend::spawn(handle.clone());
-            let proxy_port = tauri::async_runtime::block_on(proxy::start(backend.pins.clone()))?;
+            app.manage(updater::Updates::new());
+            let proxy_port = tauri::async_runtime::block_on(proxy::start(backend.pins.clone(), handle.clone()))?;
             let autostart_on = handle.autolaunch().is_enabled().unwrap_or(false);
             app.manage(tray::build(&handle, autostart_on)?);
             let splash = window(&handle).and_then(|w| w.url().ok());
@@ -234,6 +242,8 @@ fn main() {
             if !minimized {
                 open_panel(&handle);
             }
+            updater::spawn_checks(&handle);
+            rollback::show_notice(&handle);
             // A logout, shutdown or `kill` is a quit too: the backend is stopped gracefully first.
             let quit_handle = handle.clone();
             tauri::async_runtime::spawn(async move {

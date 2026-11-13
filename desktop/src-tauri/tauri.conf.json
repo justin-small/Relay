@@ -22,8 +22,16 @@
       "csp": "default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'"
     }
   },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDcwRUM5MTcwNUIzQURDRjUKUldUMTNEcGJjSkhzY0Z3cXo2dWE1YzY2SGF1ZDNWWEJmWkFkUHlsa3NXWUUrN0pQNUc1SUN6WkMK",
+      "endpoints": ["https://github.com/justin-small/Relay/releases/latest/download/latest.json"],
+      "windows": { "installMode": "passive" }
+    }
+  },
   "bundle": {
     "active": true,
+    "createUpdaterArtifacts": false,
     "targets": ["app", "dmg", "nsis", "appimage", "deb"],
     "category": "Productivity",
     "shortDescription": "Live captions and translation",
