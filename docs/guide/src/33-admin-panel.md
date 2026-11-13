@@ -620,10 +620,11 @@ Someone with a lower role does not see it.
 
 ### Roles
 
-Relay has four roles. Each can do everything the roles before it can, and more.
+Relay has five roles. Each can do everything the roles before it can, and more.
 
 | Role | What it is for |
 |---|---|
+| **Member** | People who never open the operator panel, such as musicians and volunteers. They sign in to use what they are allowed, like sending alerts when the sender page needs a sign-in, and land on a page that lists it. |
 | **Viewer** | Looking: session health, panels, alerts, overlays, schedules and settings, but changing nothing. |
 | **Operator** | Running a service: start and stop captions, choose target languages, make overlays, list and download recordings, and control ProPresenter and the Planning Center plan. |
 | **Admin** | Setting Relay up: audio, panels, alerts, schedules, blocked words, appearance, recordings, modules, and the people on this page. |

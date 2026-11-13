@@ -221,6 +221,7 @@ eq("calls work again", db.query("select 1 as a"), [{"a": 1}])
 # ------------------------------------------------------------------ permissions
 print("\npermissions")
 CATALOGUE = {
+    "admin.open": "viewer", "alerts.send": "member",
     "session.view": "viewer", "session.control": "operator", "audio.manage": "admin", "targets.manage": "operator",
     "panels.view": "viewer", "panels.manage": "admin", "alerts.view": "viewer", "alerts.manage": "admin",
     "overlays.view": "viewer", "overlays.manage": "operator", "recordings.view": "operator",
@@ -232,7 +233,8 @@ CATALOGUE = {
 eq("the core catalogue is exactly the contract's table",
    {p.id: p.min_role for p in users.catalogue()}, CATALOGUE)
 check("every permission has a label and group", all(p.label and p.group for p in users.catalogue()))
-eq("roles are ranked viewer < operator < admin < owner", users.ROLES, ("viewer", "operator", "admin", "owner"))
+eq("roles are ranked member < viewer < operator < admin < owner", users.ROLES,
+   ("member", "viewer", "operator", "admin", "owner"))
 rank = {r: i + 1 for i, r in enumerate(users.ROLES)}
 for role in users.ROLES:
     want = frozenset(pid for pid, mn in CATALOGUE.items() if rank[mn] <= rank[role])

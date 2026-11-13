@@ -11,8 +11,9 @@
   that, Relay never accepts it again.
 
 **Role**
-: What a person may do in the operator panel: Viewer, Operator, Admin or
-  Owner, from least to most.
+: What a person may do in Relay: Member, Viewer, Operator, Admin or Owner,
+  from least to most. A Member cannot open the operator panel; it signs in
+  only to use features such as sending alerts.
 
 **Trusted device**
 : A browser that an admin has marked as trusted, such as the sound booth

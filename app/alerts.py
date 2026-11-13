@@ -14,7 +14,9 @@ The pieces:
   the sender sees where it was seen.
 
 Like the panels' routes, all of this is on the viewer port with no login: anyone who has the `/alert` link can
-send, by the operator's choice. What a stray client can do is bounded -- a few short strings, a fixed number of
+send, by the operator's choice. The operator can instead require a sign-in (`require_signin`, #175): then /alert
+moves to the HTTPS operator port, a phone sends only as a signed-in account holding `alerts.send` and is named
+by that account, and a panel still sends by its id. What a stray client can do is bounded -- a few short strings, a fixed number of
 buttons and streams, and an alert is never stored.
 
 The flash is once a second, fixed: well under the 3 per second where flashing becomes a seizure risk.
@@ -103,7 +105,8 @@ def clean_stored(raw: object) -> dict[str, Any]:
         seen_names.add(name.lower())
         buttons.append({"id": bid, "name": name, "icon": clean_icon(item.get("icon")), "panels": panels,
                         "screens": screens, "stage": item.get("stage") is True})
-    return {"auto_stop_s": max(AUTO_STOP_MIN_S, min(AUTO_STOP_MAX_S, auto)), "buttons": buttons}
+    return {"auto_stop_s": max(AUTO_STOP_MIN_S, min(AUTO_STOP_MAX_S, auto)), "buttons": buttons,
+            "require_signin": raw.get("require_signin") is True}
 
 
 def _unique(items: list[str]) -> list[str]:
@@ -122,6 +125,9 @@ def validate(raw: object) -> dict[str, Any]:
     auto = raw.get("auto_stop_s", AUTO_STOP_DEFAULT_S)
     if isinstance(auto, bool) or not isinstance(auto, int) or not AUTO_STOP_MIN_S <= auto <= AUTO_STOP_MAX_S:
         raise ValueError(f"auto-stop must be {AUTO_STOP_MIN_S} to {AUTO_STOP_MAX_S} seconds")
+    require_signin = raw.get("require_signin", False)
+    if not isinstance(require_signin, bool):
+        raise ValueError("require sign-in must be true or false")
     items = raw.get("buttons")
     if not isinstance(items, list):
         raise ValueError("buttons must be a list")
@@ -163,7 +169,7 @@ def validate(raw: object) -> dict[str, Any]:
             raise ValueError(f"{name}: the icon must be one of {', '.join(ICONS)}")
         buttons.append({"id": bid, "name": name, "icon": icon, "panels": panels, "screens": screens,
                         "stage": stage})
-    return {"auto_stop_s": auto, "buttons": buttons}
+    return {"auto_stop_s": auto, "buttons": buttons, "require_signin": require_signin}
 
 
 def sse_frame(message: dict) -> bytes:

@@ -911,6 +911,7 @@
     if (!alertDirty) {
       alertCfg = JSON.parse(JSON.stringify(frame.alerts || alertCfg));
       $('alertAutoStop').value = String(alertCfg.auto_stop_s);
+      $('alertSignin').checked = !!alertCfg.require_signin;
     }
     renderAlerts();
   }
@@ -1074,7 +1075,8 @@
     if (!box) return;
     // The viewer hosts end in "/" (they are joined to "translation" and the like); these paths start with one.
     const host = (viewerHosts[0] || location.origin).replace(/\/+$/, '');
-    const rows = [['Sender page (phones)', '/alert']];
+    // With sign-in required the sender page lives on the operator panel's own https:// address, this one.
+    const rows = [['Sender page (phones)', '/alert', alertCfg.require_signin ? location.origin : host]];
     const seen = {};
     alertCfg.buttons.forEach(function (b) {
       b.screens.forEach(function (sname) {
@@ -1089,8 +1091,9 @@
       const line = el('div', 'ctl');
       line.style.marginBottom = '6px';
       line.appendChild(el('span', '', r[0] + ':'));
-      const a = el('a', 'mono', host + r[1]);
-      a.href = host + r[1];
+      const base = r[2] || host;
+      const a = el('a', 'mono', base + r[1]);
+      a.href = base + r[1];
       a.target = '_blank';
       a.rel = 'noopener';
       line.appendChild(a);
@@ -1110,12 +1113,18 @@
     alertCfg.auto_stop_s = parseInt($('alertAutoStop').value, 10);
     alertSetDirty(true);
   });
+  $('alertSignin').addEventListener('change', function () {
+    alertCfg.require_signin = $('alertSignin').checked;
+    alertSetDirty(true);
+  });
   $('alertSave').addEventListener('click', async function () {
     try {
       const frame = await post('/api/admin/alerts', {
         auto_stop_s: parseInt($('alertAutoStop').value, 10),
+        require_signin: $('alertSignin').checked,
         buttons: alertCfg.buttons.map(function (b) {
-          const out = { name: b.name, icon: b.icon || 'bell', panels: b.panels, screens: b.screens };
+          const out = { name: b.name, icon: b.icon || 'bell', panels: b.panels, screens: b.screens,
+                        stage: !!b.stage };
           if (b.id) out.id = b.id;
           return out;
         })

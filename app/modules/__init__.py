@@ -79,6 +79,17 @@ class AdminPage:
 
 
 @dataclass(frozen=True)
+class UserPage:
+    """A feature the module offers outside the admin panel, listed on the home page (/home) of a signed-in user
+    who holds `permission`, while the module is on (#175). The route behind `path` checks the permission itself,
+    through `permission_hook`, like an admin route: the list only tidies the screen."""
+    title: str         # the link's name on the home page
+    path: str          # the module's own page; must start with one of its route_prefixes
+    permission: str    # one of the module's own permissions
+    note: str = ""     # one line under the title: what it is for
+
+
+@dataclass(frozen=True)
 class Health:
     state: str         # one of HEALTH_STATES
     detail: str = ""
@@ -93,6 +104,8 @@ class Module:
     # Admin pages, and the scripts in the module's static/ directory the admin page loads for it.
     admin_pages: tuple[AdminPage, ...] = ()
     admin_scripts: tuple[str, ...] = ()
+    # Features for accounts that never open the admin panel (a Member's home page).
+    user_pages: tuple[UserPage, ...] = ()
     # Path prefixes of every route the module adds. Core templates and scripts must not name them
     # (tests/test_modules.py), so the only way into a module is through pages it renders itself.
     route_prefixes: tuple[str, ...] = ()
@@ -411,6 +424,11 @@ class Registry:
                 })
         return groups
 
+    def user_nav(self, user: User) -> list[dict]:
+        """The home-page links of the modules that are on that `user` may use."""
+        return [{"title": p.title, "note": p.note, "path": p.path}
+                for mod in self.active() for p in mod.user_pages if user.can(p.permission)]
+
     def admin_scripts(self, user: User | None = None) -> list[str]:
         """The scripts of the modules that are on. With a `user`, only those of a module with at least one page
         they may see (or, for a module with no pages, when they hold its `.view`)."""
@@ -461,6 +479,11 @@ def validate(mod: Any, package: str) -> list[str]:
         want = page.permission or f"{m.id}.view"
         if want not in known and (page.permission or declared):
             problems.append(f"{package}: admin page {page.id} needs permission {want!r}, which is not declared")
+    for page in mod.user_pages:
+        if page.permission not in declared:
+            problems.append(f"{package}: user page {page.title!r} needs one of the module's own permissions")
+        if not any(page.path == pre or page.path.startswith(pre.rstrip("/") + "/") for pre in mod.route_prefixes):
+            problems.append(f"{package}: user page {page.title!r} must be under the module's route_prefixes")
     return problems
 
 

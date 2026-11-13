@@ -86,7 +86,7 @@ checkin(1, "Booth")
 checkin(2, "Wedge L")
 checkin(3, "Wedge R")
 eq("defaults: two minutes, no buttons", admin.get("/api/admin/alerts").json()["alerts"],
-   {"auto_stop_s": 120, "buttons": []})
+   {"auto_stop_s": 120, "buttons": [], "require_signin": False})
 eq("the viewer port has no admin route", viewer.get("/api/admin/alerts").status_code, 404)
 bad = [
     ({"auto_stop_s": 10, "buttons": []}, "auto-stop"),
@@ -228,7 +228,71 @@ eq("an oversized body is refused",
 cleaned = alertsmod.clean_stored({"auto_stop_s": 5, "buttons": [{"id": "zz", "name": "x", "panels": []},
                                                                {"id": "0000aaaa", "name": "ok", "panels": [pid(1)]}]})
 eq("a hand edit is cleaned, not fatal", cleaned, {"auto_stop_s": 30, "buttons": [
-    {"id": "0000aaaa", "name": "ok", "icon": "bell", "panels": [pid(1)], "screens": [], "stage": False}]})
+    {"id": "0000aaaa", "name": "ok", "icon": "bell", "panels": [pid(1)], "screens": [], "stage": False}],
+    "require_signin": False})
+
+print("sign-in required (#175)")
+def save_alerts(require_signin):
+    cur = alerts.settings()
+    body = {"auto_stop_s": cur["auto_stop_s"], "require_signin": require_signin,
+            "buttons": [{k: b[k] for k in ("id", "name", "icon", "panels", "screens", "stage")}
+                        for b in cur["buttons"] if b["name"] != "Monitors"]
+            + [{"name": "Monitors", "panels": [pid(1)]}]}
+    return admin.post("/api/admin/alerts", json=body)
+
+
+r = admin.post("/api/admin/alerts", json={"auto_stop_s": 60, "require_signin": "yes", "buttons": []})
+check("require_signin must be true or false", r.status_code == 400 and "sign-in" in r.json()["detail"], r.text)
+r = save_alerts(True)
+eq("sign-in can be required", (r.status_code, r.json()["alerts"]["require_signin"]), (200, True))
+mon = button("Monitors")
+clock[0] += 5
+
+r = viewer.get("/alert", follow_redirects=False)
+eq("the viewer port's /alert moves to the operator port", (r.status_code, r.headers.get("location")),
+   (303, "https://relay.local:8001/alert"))
+anon_admin = TestClient(app, base_url="http://relay.local:8001")
+r = anon_admin.get("/alert")
+check("signed out, the operator port's /alert is the sign-in form", 'action="/admin/login"' in r.text, r.status_code)
+r = viewer.post(f"/api/alerts/{mon['id']}/send", json={"from": "Drums"})
+eq("a phone on the viewer port cannot send", r.status_code, 401)
+r = anon_admin.post(f"/api/alerts/{mon['id']}/send", json={"from": "Drums"})
+eq("a signed-out phone on the operator port cannot send", r.status_code, 401)
+eq("nor stop an alert", anon_admin.post(f"/api/alerts/{mon['id']}/cancel").status_code, 401)
+eq("nothing was sent", row(alerts.state(), "Monitors")["state"], "idle")
+
+member = _db.client(app, "member", base_url="http://relay.local:8001", username="singer")
+r = member.get("/alert")
+check("a member opens /alert named by its account",
+      r.status_code == 200 and 'data-account="Singer"' in r.text and 'id="nameForm"' not in r.text, r.status_code)
+r = member.post(f"/api/alerts/{mon['id']}/send", json={"from": "Somebody else"})
+eq("a member sends as its account, whatever `from` says",
+   (r.status_code, row(r.json(), "Monitors")["state"], row(r.json(), "Monitors")["from"]), (200, "on", "Singer"))
+clock[0] += 5
+eq("and can stop it", member.post(f"/api/alerts/{mon['id']}/cancel").status_code, 200)
+clock[0] += 5
+r = viewer.post(f"/api/alerts/{mon['id']}/send", json={"panel": pid(1)})
+eq("a panel still sends from the viewer port", (r.status_code, row(r.json(), "Monitors")["from"]), (200, "Booth"))
+clock[0] += 5
+viewer.post(f"/api/alerts/{mon['id']}/send", json={"panel": pid(1)})
+
+print("member home (#175)")
+fresh = TestClient(app, base_url="http://relay.local:8001")
+r = fresh.post("/admin/login", data={"username": "singer", "password": "correct horse"}, follow_redirects=False)
+eq("a member's sign-in lands on /home", (r.status_code, r.headers.get("location")), (303, "/home"))
+r = member.get("/home")
+check("its home lists Alerts and not the operator panel",
+      r.status_code == 200 and 'href="/alert"' in r.text and 'href="/admin"' not in r.text, r.status_code)
+check("an admin's home also links to the operator panel", 'href="/admin"' in admin.get("/home").text)
+check("?password=1 is the password form", 'name="voluntary"' in member.get("/home?password=1").text)
+r = member.post("/admin/password", data={"current": "correct horse", "new": "new horse 12", "confirm": "new horse 12",
+                                         "voluntary": "1"}, follow_redirects=False)
+eq("a member's password change returns home", (r.status_code, r.headers.get("location")), (303, "/home"))
+eq("the home page is not on the viewer port", viewer.get("/home").status_code, 404)
+eq("a signed-out /home is the sign-in form", 'action="/admin/login"' in anon_admin.get("/home").text, True)
+eq("a member is refused the admin API", member.get("/api/admin/alerts").status_code, 403)
+save_alerts(False)
+eq("with sign-in off, /alert is the viewer page again", viewer.get("/alert", follow_redirects=False).status_code, 200)
 
 print()
 if fails:

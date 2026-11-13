@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import functools
 import json
 import logging
 import os
@@ -124,7 +125,7 @@ BLOCKLIST_POLL_S = 2.0
 # The operator panel lives on its own port. Everything under these prefixes is
 # refused on the viewer port, so a link handed to a room cannot reach the panel
 # -- not even the login form.
-ADMIN_PREFIXES = ("/admin", "/api/admin")
+ADMIN_PREFIXES = ("/admin", "/api/admin", "/home")
 
 
 def _request_port(request: Request) -> int | None:
@@ -992,7 +993,7 @@ async def panel_events(panel_id: str):
 
 # --------------------------------------------------------------- alerts (#121)
 # On the viewer port with no login, like the panels' routes: anyone with the /alert link may send, by the
-# operator's choice. alerts.py says what bounds them.
+# operator's choice, unless the operator requires a sign-in (#175). alerts.py says what bounds them.
 alerts.push_panel = panel_registry.push_alert
 alerts.panel_name = panel_registry.display_name
 panel_registry.alerts_for = alerts.active_for_panel
@@ -1015,16 +1016,45 @@ def _alert_refused(exc: alertsmod.Refused) -> JSONResponse:
                         status_code=exc.status)
 
 
+def _alert_signin_required() -> bool:
+    return bool(alerts.settings().get("require_signin"))
+
+
+_alert_send_check = require("alerts.send")
+
+
+async def _alert_account(request: Request) -> User:
+    """With sign-in required, a phone sends only as an account holding alerts.send, checked by the same call as
+    every admin route, and only over the operator port (HTTPS), where the session cookie lives (#175)."""
+    if not _on_admin_port(request):
+        raise HTTPException(status_code=401, detail=WEB_MESSAGES["signin_required"])
+    return await asyncio.to_thread(_alert_send_check, request)
+
+
 @app.get("/alert", response_class=HTMLResponse)
 async def page_alert(request: Request):
-    """The musicians' page: one button per alert. Not on the chooser page; the operator hands out the link."""
-    return templates.TemplateResponse(request, "alert.html", _viewer_ctx(request))
+    """The musicians' page: one button per alert. Not on the chooser page; the operator hands out the link.
+    With sign-in required it is served only on the operator port, to a signed-in account holding alerts.send."""
+    if not _alert_signin_required():
+        return templates.TemplateResponse(request, "alert.html", _viewer_ctx(request) | {"account": None})
+    if not _on_admin_port(request):
+        host = request.url.hostname or "localhost"
+        if ":" in host:
+            host = f"[{host}]"
+        return RedirectResponse(serving.link("https", host, serving.admin_port(config.get()["admin_port"]),
+                                             "/alert"), status_code=303)
+    got = await asyncio.to_thread(_page_gate, request, "alerts.send")
+    if not isinstance(got, User):
+        return got
+    return templates.TemplateResponse(request, "alert.html", _viewer_ctx(request) | {"account": got.name},
+                                      headers=_NO_STORE)
 
 
 @app.post("/api/alerts/{button_id}/send")
 async def alert_send(button_id: str, request: Request):
     """Flash a button's screens, or stop the alert it has flashing. `from` names the sender; a panel sends its
-    `panel` id instead, and is named as Relay names it."""
+    `panel` id instead, and is named as Relay names it. With sign-in required, a phone is named by its account
+    and `from` is ignored."""
     body = await _alert_body(request)
     sender = alertsmod.clean_name(body.get("from"))
     pid = body.get("panel")
@@ -1032,6 +1062,8 @@ async def alert_send(button_id: str, request: Request):
         if not panels.valid_id(pid) or not panel_registry.known(pid):
             raise HTTPException(404, "unknown panel")
         sender = panel_registry.display_name(pid)
+    elif _alert_signin_required():
+        sender = alertsmod.clean_name((await _alert_account(request)).name)
     try:
         return {"ok": True, **alerts.press(button_id, sender)}
     except alertsmod.Refused as exc:
@@ -1039,7 +1071,9 @@ async def alert_send(button_id: str, request: Request):
 
 
 @app.post("/api/alerts/{button_id}/cancel")
-async def alert_cancel(button_id: str):
+async def alert_cancel(button_id: str, request: Request):
+    if _alert_signin_required():
+        await _alert_account(request)
     try:
         return {"ok": True, **alerts.cancel(button_id)}
     except alertsmod.Refused as exc:
@@ -1166,8 +1200,11 @@ def _announce_setup_code() -> None:
     sys.stdout.flush()
 
 
-def _password_page(request: Request, *, error: str | None = None, status: int = 200) -> HTMLResponse:
-    return _render(request, "password_change.html", {"error": error}, status)
+def _password_page(request: Request, *, error: str | None = None, status: int = 200,
+                   voluntary: bool = False) -> HTMLResponse:
+    """The password form: forced while a temporary password is pending, or `voluntary` from the home page (the
+    operator panel has its own, under My account)."""
+    return _render(request, "password_change.html", {"error": error, "voluntary": voluntary}, status)
 
 
 def _denied_page() -> HTMLResponse:
@@ -1207,6 +1244,8 @@ def admin_page(request: Request, pw: str = ""):
     got = _page_gate(request, pw=pw == "1")
     if not isinstance(got, User):
         return got
+    if not got.can("admin.open"):
+        return RedirectResponse(HOME_PATH, status_code=303)
     return templates.TemplateResponse(request, "admin.html", {
         "me": _me_payload(request, got),
         "module_nav": module_registry.admin_nav(got),
@@ -1231,8 +1270,44 @@ def admin_flash_page(request: Request, board: str = ""):
     })
 
 
-def _signed_in(request: Request, token: str, max_age: int) -> RedirectResponse:
-    resp = RedirectResponse("/admin", status_code=303)
+HOME_PATH = "/home"
+
+
+def _home_for(user: User) -> str:
+    """Where a sign-in lands: the operator panel for a role that may open it, else the home page listing the
+    features the account may use (#175)."""
+    return "/admin" if user.can("admin.open") else HOME_PATH
+
+
+# The features a signed-in account can open outside the operator panel: core's, then the modules' (#175).
+# (title, what it is for, path, permission).
+CORE_HOME_TOOLS = (
+    ("Alerts", "Flash a screen to get someone's attention", "/alert", "alerts.send"),
+)
+
+
+def _home_tools(user: User) -> list[dict]:
+    tools = [{"title": t, "note": n, "path": p} for t, n, p, perm in CORE_HOME_TOOLS if user.can(perm)]
+    return tools + module_registry.user_nav(user)
+
+
+@app.get(HOME_PATH, response_class=HTMLResponse)
+def home_page(request: Request, password: str = ""):
+    """Where an account that never opens the operator panel lands after signing in: the features it may use,
+    its password and sign-out. Anyone signed in may open it. ?password=1 is the password form."""
+    got = _page_gate(request)
+    if not isinstance(got, User):
+        return got
+    if password == "1":
+        return _password_page(request, voluntary=True)
+    return _render(request, "home.html", {"user": got, "tools": _home_tools(got),
+                                          "admin": got.can("admin.open")})
+
+
+def _signed_in(request: Request, started: tuple[str, int, str]) -> RedirectResponse:
+    """`started` is (session token, max age, where to land)."""
+    token, max_age, dest = started
+    resp = RedirectResponse(dest, status_code=303)
     _set_cookie(resp, request, ADMIN_COOKIE, token, max_age)
     return resp
 
@@ -1292,10 +1367,10 @@ async def admin_setup(request: Request, token: str = Form(""), username: str = F
             global _have_users
             _have_users = True
             setupcode.clear()
-        return users.start_session(user, via="password")
+        return (*users.start_session(user, via="password"), _home_for(user))
 
     try:
-        token_, age = await asyncio.to_thread(work)
+        started = await asyncio.to_thread(work)
     except _WebRefused as exc:
         if exc.key in ("bad_token", "bad_code"):
             await _fail(ip)
@@ -1309,7 +1384,7 @@ async def admin_setup(request: Request, token: str = Form(""), username: str = F
         return await asyncio.to_thread(_login_page, request, error=exc.message, status=_refusal_status(exc),
                                        setup=shown)
     _LOGIN_FAILS.pop(ip, None)
-    return _signed_in(request, token_, age)
+    return _signed_in(request, started)
 
 
 @app.post("/admin/import")
@@ -1349,10 +1424,10 @@ async def admin_login(request: Request, username: str = Form(""), password: str 
     def work():
         _ready()
         user = users.authenticate(username, password)
-        return users.start_session(user, via="password")
+        return (*users.start_session(user, via="password"), _home_for(user))
 
     try:
-        token, age = await asyncio.to_thread(work)
+        started = await asyncio.to_thread(work)
     except users.Refused as exc:
         if exc.key == "bad_login":
             await _fail(ip)
@@ -1361,7 +1436,7 @@ async def admin_login(request: Request, username: str = Form(""), password: str 
     global _have_users
     _have_users = True
     _LOGIN_FAILS.pop(ip, None)
-    return _signed_in(request, token, age)
+    return _signed_in(request, started)
 
 
 @app.post("/admin/login/pin")
@@ -1378,10 +1453,10 @@ async def admin_login_pin(request: Request, user_id: str = Form(""), pin: str = 
         _ready()
         device = users.device_for(request.cookies.get(DEVICE_COOKIE) or "")
         user = users.authenticate_pin(uid, _field(pin, 16), device["id"] if device else None)
-        return users.start_session(user, via="pin", device_id=device["id"])
+        return (*users.start_session(user, via="pin", device_id=device["id"]), _home_for(user))
 
     try:
-        token, age = await asyncio.to_thread(work)
+        started = await asyncio.to_thread(work)
     except users.Refused as exc:
         if exc.key in ("wrong_pin", "pin_cleared"):
             await _fail(ip)
@@ -1391,35 +1466,37 @@ async def admin_login_pin(request: Request, user_id: str = Form(""), pin: str = 
     global _have_users
     _have_users = True
     _LOGIN_FAILS.pop(ip, None)
-    return _signed_in(request, token, age)
+    return _signed_in(request, started)
 
 
 @app.post("/admin/password")
 async def admin_password(request: Request, current: str = Form(""), new: str = Form(""),
-                         confirm: str = Form("")):
+                         confirm: str = Form(""), voluntary: str = Form("")):
     """The signed-in user's own password: the form shown while a change is pending, and a plain change."""
     ip = _client_ip(request)
     left = _login_locked(ip)
+    again = voluntary == "1"
 
     def work():
         user = _session_user(request)
         if user is None:
             return None
         if left:
-            return _password_page(request, error=_locked_sentence(left), status=429)
+            return _password_page(request, error=_locked_sentence(left), status=429, voluntary=again)
         if new != confirm:
-            return _password_page(request, error=WEB_MESSAGES["mismatch"], status=400)
+            return _password_page(request, error=WEB_MESSAGES["mismatch"], status=400, voluntary=again)
         users.change_own_password(user, current, new, keep_token=_session_token(request))
-        return "done"
+        return _home_for(user)
 
     try:
         got = await asyncio.to_thread(work)
     except users.Refused as exc:
         if exc.key == "wrong_password":
             await _fail(ip)
-        return await asyncio.to_thread(_password_page, request, error=exc.message, status=_refusal_status(exc))
-    if got is None or got == "done":
-        return RedirectResponse("/admin", status_code=303)
+        return await asyncio.to_thread(functools.partial(_password_page, request, error=exc.message,
+                                                         status=_refusal_status(exc), voluntary=again))
+    if got is None or isinstance(got, str):
+        return RedirectResponse(got or "/admin", status_code=303)
     return got
 
 

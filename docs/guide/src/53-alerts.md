@@ -76,3 +76,17 @@ stop the flashing.
 Anyone who has the sender link can send alerts, with no sign-in. Hand it to
 the band, not to the room.
 :::
+
+### Requiring a sign-in
+
+To control who can send, tick **Only signed-in people can send** under
+**When nobody taps** and click **Save alerts**. Then:
+
+- The sender link becomes the operator panel's `https://` address. Old
+  `http://` links forward there.
+- Each musician signs in with their own account. Give them the **Member**
+  role (see Users): they can send alerts but cannot open the operator panel.
+  After signing in they land on a page that lists **Alerts**.
+- The screen they flash shows their account name, so there is no
+  **Who are you?** box.
+- Panels with an Alert buttons feed keep sending as before.
