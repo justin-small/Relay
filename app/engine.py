@@ -23,7 +23,7 @@ import logging
 import os
 import time
 
-from . import config, languages, redact
+from . import config, languages, redact, streamstatus
 from .audio import AudioCapture
 from .hub import hub
 from .realtime import TranscriptionSession, TranslationRelaySession
@@ -376,6 +376,8 @@ class Engine:
             "audio": self.capture.status() if self.capture else {},
             "sessions": sessions,
             "viewers": hub.viewer_count(),
+            # What the stream-watching modules say, with their reasons (admin only; the status feed drops them).
+            "streams": streamstatus.streams.entries(admin=True),
             "blocklist": list(hub.blocklist),
             "blocklist_file": str(config.blocklist_path()),
             "blocklist_max": redact.MAX_TERMS,
@@ -429,6 +431,8 @@ class Engine:
             "service": [],
             # ProPresenter feeds a panel can pick (#138): both false unless its module is on and set up.
             "propresenter": {"lyrics": False, "timers": False},
+            # The status feed (#224) is core, so always offered; an older Relay leaves this out.
+            "status": True,
             "running": self.running,
             "font_px": cfg["default_font_px"],
             # Whatever the modules that are on add (app/modules/): they override the empty defaults above.

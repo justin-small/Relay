@@ -153,7 +153,8 @@ Click a panel's name. Its settings open at the side.
 1. **Name.** Type where the panel is, for example `Lobby`.
 2. **Feed.** Choose **Transcription**, a language, the **Planning Center**
    service, **Alert buttons** (see [Alerts](#alerts)), or ProPresenter's
-   **Lyrics** or **Timers** (see [ProPresenter](#propresenter-panels)). Choose **Two
+   **Lyrics** or **Timers** (see [ProPresenter](#propresenter-panels)), or
+   **Status** (see [The status view](#status-view)). Choose **Two
    (split)** under **Number of feeds** to show two side by side.
 3. **Screen rotation.** **0°**, **90°**, **180°** or **270°**, for a panel
    mounted upright or upside down. A change restarts the panel, which takes
@@ -203,6 +204,27 @@ An update that does not work is undone by the panel: if the new version cannot
 reach Relay within ten minutes, the panel goes back to the old one and the
 panel's settings say **Rolled back**.
 :::
+
+## The status view {#status-view}
+
+The **Status** feed is for the sound desk and the booth. It shows, at a
+glance:
+
+- **Livestream**: a red **ON AIR** band with how long it has been live, or
+  **OFF AIR**. It says **NOT WATCHED** until a livestream module (such as OBS)
+  is switched on, on the **Modules** page.
+- **Captions**: running or stopped, and for how long.
+- **Input**: OK, silent, clipping or lost, with the level in dB.
+- **Languages**: the translations that are live.
+- **Watching**: how many people have Relay's caption pages open.
+- One row for each livestream source, with its health and, where the
+  service gives one, its viewer count.
+
+If the panel stops hearing from Relay, the values turn grey.
+
+The same view is a web page: open `http://<Relay's address>/status` on any
+screen in the building. It needs no sign-in, so it shows no addresses, keys
+or error messages. The reasons stay on the module's admin page.
 
 ## Recovering a panel
 

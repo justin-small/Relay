@@ -115,6 +115,22 @@ files in that directory. Each file runs once, in order, and what has run is reco
 module's id, so its tables never collide with core's. `migrate` raises `db.Unavailable` while the
 database is down; the module must cope with that.
 
+## Livestream status
+
+A module that watches a livestream (OBS, Resi, YouTube, ...) publishes into the shared stream status in core
+(`app/streamstatus.py`), which the status view (`/status`, and a panel on the Status feed) shows:
+
+```python
+from ...streamstatus import streams
+
+streams.publish("obs", label="OBS Studio", on_air=True, health="ok", live_since=started, viewers=None,
+                detail="Connected to 10.0.0.5")   # `detail` is for the admin page only; never sent to the status view
+```
+
+The source is the module's id. Publish from the module's own background work when what it knows changes, and call
+`streams.clear("<id>")` in `detach()`, so a module switched off leaves nothing on the screen. The status view is on
+the viewer port with no login: put reasons, addresses and keys in `detail`, never in `label`.
+
 ## Rules
 
 1. **Imports go one way.** A module may import core (`app.config`, `app.hub`, `app.engine`, `app.panels`,

@@ -14,6 +14,7 @@
 #include "screen.h"
 #include "alert_view.h"
 #include "lyrics_view.h"
+#include "status_view.h"
 #include "timers_view.h"
 #include "service_view.h"
 
@@ -43,6 +44,7 @@ struct Pane {
     bool alert = false;     // the alert buttons (`alert_view.cpp`, #121) instead of captions
     bool lyrics = false;    // ProPresenter's lyrics (`lyrics_view.cpp`, #138) instead of captions
     bool timers = false;    // ProPresenter's timers (`timers_view.cpp`)
+    bool status = false;    // the status view (`status_view.cpp`, #224)
     int slot = 0;
     int x = 0;
     int y = 0;
@@ -440,6 +442,12 @@ void tick_pane(Pane &p, uint32_t now, bool touching)
         refresh_pp_header(p, "Timers");
         return;
     }
+    if (p.status) {
+        p.state = captions_state(p.slot);
+        status_view_tick(p.slot, now);
+        refresh_pp_header(p, "Status");
+        return;
+    }
     const uint32_t rev = captions_revision(p.slot);
     if (!p.synced || rev != p.revision) {
         p.revision = rev;
@@ -612,6 +620,13 @@ void build_pane(lv_obj_t *root, Pane &p, int index, bool split)
     p.timers = s_fv.shown[index].pick.stream == kFeedTimers;
     if (p.timers) {
         timers_view_build(index, p.box, index, p.w, p.h);
+        build_header(p, under_menu);
+        p.built = true;
+        return;
+    }
+    p.status = s_fv.shown[index].pick.stream == kFeedStatus;
+    if (p.status) {
+        status_view_build(index, p.box, index, p.w, p.h);
         build_header(p, under_menu);
         p.built = true;
         return;
@@ -894,7 +909,8 @@ void sync_feeds()
         kind_changed = kind_changed || (s_fv.shown[i].pick.stream == kFeedService) != s_v.pane[i].service ||
                        (s_fv.shown[i].pick.stream == kFeedAlert) != s_v.pane[i].alert ||
                        (s_fv.shown[i].pick.stream == kFeedLyrics) != s_v.pane[i].lyrics ||
-                       (s_fv.shown[i].pick.stream == kFeedTimers) != s_v.pane[i].timers;
+                       (s_fv.shown[i].pick.stream == kFeedTimers) != s_v.pane[i].timers ||
+                       (s_fv.shown[i].pick.stream == kFeedStatus) != s_v.pane[i].status;
     }
     if (s_fv.split != s_v.split || kind_changed) {
         if (!s_v.rebuild_requested) {
@@ -989,6 +1005,7 @@ void caption_view_teardown()
     alert_view_teardown();
     lyrics_view_teardown();
     timers_view_teardown();
+    status_view_teardown();
     if (s_v.timer != nullptr) {
         lv_timer_delete(s_v.timer);
         s_v.timer = nullptr;
@@ -1010,7 +1027,7 @@ void caption_view_report()
     } else {
         for (int i = 0; i < s_v.count; ++i) {
             Pane &p = s_v.pane[i];
-            if (p.service || p.alert || p.lyrics || p.timers) {
+            if (p.service || p.alert || p.lyrics || p.timers || p.status) {
                 continue;   // service_view_report, alert_view_report and the ProPresenter views', below
             }
             ESP_LOGI(TAG, "%s: %s, %d lines, %d px below, jump button %s", i == 0 ? "view" : "view: split, pane 2",
@@ -1021,6 +1038,7 @@ void caption_view_report()
         alert_view_report();
         lyrics_view_report();
         timers_view_report();
+        status_view_report();
         ESP_LOGI(TAG, "view: menu %s, %s", s_v.menu.open ? "open" : "closed",
                  s_v.split ? "two feeds" : "one feed");
     }

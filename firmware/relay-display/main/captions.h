@@ -19,6 +19,7 @@
 #include "caption_format.h"
 #include "esp_err.h"
 #include "pp_format.h"
+#include "status_format.h"
 #include "service_format.h"
 
 constexpr int kCaptionSlots = 2;
@@ -26,7 +27,7 @@ constexpr int kCaptionSlots = 2;
 // Make the two slots and their tasks. Nothing connects until a feed is set.
 esp_err_t captions_start();
 
-// Show `stream` (kFeedTranscription, kFeedTranslation, kFeedService, kFeedAlert, kFeedLyrics or kFeedTimers; kFeedNone turns the slot off) from the Relay
+// Show `stream` (kFeedTranscription, kFeedTranslation, kFeedService, kFeedAlert, kFeedLyrics, kFeedTimers or kFeedStatus; kFeedNone turns the slot off) from the Relay
 // at `relay_url` (`http://host[:port]`) in `slot`. A different feed from the one the slot has starts
 // over with an empty buffer; the same feed again changes nothing. Not saved: the settings are.
 esp_err_t captions_set_feed(int slot, const char *relay_url, uint8_t stream, const char *lang);
@@ -57,6 +58,10 @@ void captions_read_alerts(int slot, void (*fn)(const alert_board *alerts, captio
 // unless the slot is on that feed. The same lock and order as `captions_read`.
 void captions_read_lyrics(int slot, void (*fn)(const lyrics_state *lyrics, caption_state state, void *ctx), void *ctx);
 void captions_read_timers(int slot, void (*fn)(const timers_state *timers, caption_state state, void *ctx), void *ctx);
+
+// Call `fn` with the slot's status (`status_format.h`, #224) under its lock: null unless the slot is on the Status
+// feed. Copy what you need; do not keep the pointer.
+void captions_read_status(int slot, void (*fn)(const status_state *status, caption_state state, void *ctx), void *ctx);
 
 // This panel's id, which the timers feed asks Relay for its own timers by. Call once at boot, before any feed is set.
 void captions_set_panel_id(const char *id);

@@ -1167,6 +1167,7 @@
       if (f.stream === 'alert') return 'Alert buttons';
       if (f.stream === 'lyrics') return 'Lyrics';
       if (f.stream === 'timers') return 'Timers';
+      if (f.stream === 'status') return 'Status';
       const hit = (rows || []).find(function (l) { return l.id === f.lang; });
       return hit ? hit.label : (f.lang || '?');
     }).join(' + ');
@@ -1212,6 +1213,10 @@
       o.value = p[0];
       sel.appendChild(o);
     });
+    // The status view (#224): capture, input level, languages, viewers and the livestream.
+    const st = el('option', '', 'Status');
+    st.value = 'status';
+    sel.appendChild(st);
     sel.value = value || '';
   }
 
@@ -1219,13 +1224,13 @@
     if (!f) return '';
     if (f.stream === 'transcription') return 'transcription';
     if (f.stream === 'service') return 'service:' + f.service_type;
-    if (f.stream === 'alert' || f.stream === 'lyrics' || f.stream === 'timers') return f.stream;
+    if (['alert', 'lyrics', 'timers', 'status'].indexOf(f.stream) !== -1) return f.stream;
     return 'translation:' + f.lang;
   }
 
   function feedFromValue(v) {
     if (v === 'transcription') return { stream: 'transcription' };
-    if (v === 'alert' || v === 'lyrics' || v === 'timers') return { stream: v };
+    if (['alert', 'lyrics', 'timers', 'status'].indexOf(v) !== -1) return { stream: v };
     if (v.indexOf('service:') === 0) return { stream: 'service', service_type: v.slice('service:'.length) };
     return { stream: 'translation', lang: v.slice('translation:'.length) };
   }

@@ -26,7 +26,7 @@ from jinja2 import ChoiceLoader, FileSystemLoader, PrefixLoader
 
 from . import alerts as alertsmod
 from . import announce as announcemod
-from . import config, db, exporting, importdocker, languages, netinfo, overlays, panelfw, panels, redact, schedules, serving, setupcode, tls, users
+from . import config, db, exporting, importdocker, languages, netinfo, overlays, panelfw, panels, redact, schedules, serving, setupcode, streamstatus, tls, users
 from .alerts import alerts
 from . import engine as engine_mod
 from .engine import TRANSCRIPTION_STREAM, TRANSLATION_STREAM, demo_mode, engine
@@ -721,6 +721,13 @@ async def page_screen(request: Request):
     return templates.TemplateResponse(request, "viewer.html", ctx)
 
 
+@app.get("/status", response_class=HTMLResponse)
+async def page_status(request: Request):
+    """The status screen (#224): capture, input, live languages, viewers and the livestream, for the sound desk
+    and the booth. Read-only, from the same feed a panel on the Status feed reads."""
+    return templates.TemplateResponse(request, "status.html", _viewer_ctx(request))
+
+
 def _lyrics_offered() -> bool:
     return LYRICS_STREAM in module_registry.streams()
 
@@ -874,6 +881,12 @@ async def stream(request: Request, stream: str = "translation", lang: str | None
                  finals: int = 0, type: str | None = None):
     if stream == ALERT_STREAM:
         return _alert_sender_stream()
+    if stream == streamstatus.STREAM:
+        return StreamingResponse(
+            streamstatus.frames(),
+            media_type="text/event-stream",
+            headers={"Cache-Control": "no-cache, no-transform", "X-Accel-Buffering": "no"},
+        )
     # A stream a module owns (only while it is on).
     params = dict(request.query_params)
     params.update({k: v for k, v in (("type", type), ("lang", lang)) if v is not None})

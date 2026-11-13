@@ -146,7 +146,7 @@ inline size_t panel_checkin_body(char *out, size_t cap, const panel_status &st)
     for (int i = 0; ok && i < st.feed_count && i < kPanelFeedsMax; ++i) {
         const feed_pick &f = st.feeds[i];
         if (f.stream != kFeedTranscription && f.stream != kFeedTranslation && f.stream != kFeedAlert &&
-            f.stream != kFeedLyrics && f.stream != kFeedTimers && !(f.stream == kFeedService && f.lang[0] != '\0')) {
+            f.stream != kFeedLyrics && f.stream != kFeedTimers && f.stream != kFeedStatus && !(f.stream == kFeedService && f.lang[0] != '\0')) {
             continue;
         }
         ok = raw(any ? "," : "");
@@ -161,6 +161,8 @@ inline size_t panel_checkin_body(char *out, size_t cap, const panel_status &st)
             ok = ok && raw("{\"stream\":\"lyrics\"}");
         } else if (f.stream == kFeedTimers) {
             ok = ok && raw("{\"stream\":\"timers\"}");
+        } else if (f.stream == kFeedStatus) {
+            ok = ok && raw("{\"stream\":\"status\"}");
         } else {
             ok = ok && raw("{\"stream\":\"translation\",\"lang\":\"") && val(f.lang) && raw("\"}");
         }
@@ -355,6 +357,8 @@ inline bool panel_read_set_feed(const char *obj, const char *e, panel_set_feed *
             pick = feed_pick_make(kFeedLyrics, nullptr);
         } else if (strcmp(stream, "timers") == 0) {
             pick = feed_pick_make(kFeedTimers, nullptr);
+        } else if (strcmp(stream, "status") == 0) {
+            pick = feed_pick_make(kFeedStatus, nullptr);
         } else {
             return false;
         }

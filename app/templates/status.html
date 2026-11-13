@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#000000">
+<title>Relay status</title>
+{% include "_brand_head.html" %}
+<link rel="stylesheet" href="{{ static('viewer.css') }}">
+</head><body class="status-page">
+
+<main class="st-grid" aria-live="polite">
+  <section class="st-card st-air" id="airCard">
+    <h2>Livestream</h2>
+    <div class="st-big" id="airText">—</div>
+    <div class="st-sub" id="airSub"></div>
+    <ul class="st-streams" id="streams"></ul>
+  </section>
+  <section class="st-card" id="capCard">
+    <h2>Captions</h2>
+    <div class="st-big" id="capText">—</div>
+    <div class="st-sub" id="capSub"></div>
+  </section>
+  <section class="st-card" id="inCard">
+    <h2>Input</h2>
+    <div class="st-big" id="inText">—</div>
+    <div class="st-sub" id="inSub"></div>
+    <div class="st-meter"><div class="st-meter-fill" id="inFill"></div></div>
+  </section>
+  <section class="st-card" id="viewCard">
+    <h2>Watching</h2>
+    <div class="st-big" id="viewText">—</div>
+    <div class="st-sub" id="viewSub">on Relay's caption pages</div>
+  </section>
+</main>
+<p class="st-foot"><span class="dot" id="connDot" title="Connection to Relay"></span> <span id="connText">Connecting…</span></p>
+
+<script src="{{ static('status.js') }}"></script>
+</body></html>

@@ -75,6 +75,8 @@ ALERT = "alert"
 # stored entry's "timers" block (timer_fields below), because the panel asks for them by its id.
 LYRICS = "lyrics"
 TIMERS = "timers"
+# The status view (#224): {"stream": "status"}, core and always offered, with no setting of its own.
+STATUS = "status"
 MAX_FEEDS = 2
 _FEED_ST_RE = re.compile(r"^\d{1,19}$")
 # What the panel's screen may be turned to (#122), clockwise: 0 and 180 landscape, 90 and 270 upright.
@@ -138,8 +140,8 @@ def clean_feeds(raw: object) -> list[dict[str, str]] | None:
     """One or two feed choices, or None if `raw` is not a valid list of them.
 
     A feed is {"stream": "transcription"}, {"stream": "translation", "lang":
-    "SPANISH"}, {"stream": "service", "service_type": "123"}, {"stream": "alert"}, {"stream": "lyrics"} or
-    {"stream": "timers"} (ProPresenter). The language
+    "SPANISH"}, {"stream": "service", "service_type": "123"}, {"stream": "alert"}, {"stream": "lyrics"},
+    {"stream": "timers"} (ProPresenter) or {"stream": "status"}. The language
     must be one Relay can translate into; whether the service type is one Relay
     follows, and the panel shows the service, is the caller's to check.
     """
@@ -164,7 +166,7 @@ def clean_feeds(raw: object) -> list[dict[str, str]] | None:
             out.append({"stream": SERVICE, "service_type": st})
         elif stream == ALERT:
             out.append({"stream": ALERT})
-        elif stream in (LYRICS, TIMERS):
+        elif stream in (LYRICS, TIMERS, STATUS):
             out.append({"stream": stream})
         else:
             return None
@@ -193,7 +195,7 @@ def _reported_feeds(raw: object) -> list[dict[str, str]]:
                 out.append({"stream": SERVICE, "service_type": st})
         elif stream == ALERT:
             out.append({"stream": ALERT})
-        elif stream in (LYRICS, TIMERS):
+        elif stream in (LYRICS, TIMERS, STATUS):
             out.append({"stream": stream})
     return out
 
@@ -836,7 +838,7 @@ class Registry:
                 clean = clean_feeds(feeds)
                 if clean is None:
                     raise ValueError("feeds must be one or two of transcription, a translation language, "
-                                     "the service, the alert buttons, the lyrics or the timers")
+                                     "the service, the alert buttons, the lyrics, the timers or the status")
                 panel = self.panels.get(pid)
                 if panel is not None and panel.scripts:
                     for feed in clean:

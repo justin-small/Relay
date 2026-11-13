@@ -370,3 +370,32 @@ body.alert-page { display: block; max-width: 560px; margin: 0 auto; padding: 16p
 .lyrics-text { white-space: pre-line; font-size: var(--lyrics-px, 5.2vw); line-height: 1.25; font-weight: 600; max-width: 100%; }
 body.overlay .lyrics { background: transparent; }
 body.overlay .lyrics-text { background: rgba(0, 0, 0, var(--ov-plate, .55)); color: #fff; padding: .3em .6em; border-radius: .2em; }
+
+/* ---- status screen (/status, #224): four cards, read from across a room ---- */
+body.status-page { display: block; padding: 16px; min-height: 100vh; box-sizing: border-box; }
+.st-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 16px; }
+.st-card {
+  background: var(--card-bg); border: 1px solid var(--line); border-left: 6px solid var(--dim);
+  border-radius: 10px; padding: 16px 20px; min-width: 0;
+}
+.st-card h2 { margin: 0 0 6px; font-size: 15px; font-weight: 600; color: var(--dim); text-transform: uppercase; letter-spacing: .06em; }
+.st-big { font-size: clamp(32px, 6vw, 64px); font-weight: 700; line-height: 1.1; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.st-sub { margin-top: 6px; font-size: 18px; color: var(--settled); font-variant-numeric: tabular-nums; min-height: 1.3em; overflow-wrap: anywhere; }
+.st-card.st-ok { border-left-color: var(--accent); }
+.st-card.st-warn { border-left-color: var(--warn); }
+.st-card.st-warn .st-big { color: var(--warn); }
+.st-card.st-err { border-left-color: var(--err); }
+.st-card.st-err .st-big { color: var(--err); }
+.st-card.st-live { border-left-color: var(--err); background: color-mix(in srgb, var(--err) 14%, var(--card-bg)); }
+.st-card.st-live .st-big { color: var(--err); }
+.st-air { grid-column: 1 / -1; }
+.st-meter { margin-top: 12px; height: 10px; border-radius: 5px; background: var(--line); overflow: hidden; }
+.st-meter-fill { height: 100%; width: 0; background: var(--accent); transition: width .4s; }
+.st-card.st-err .st-meter-fill { background: var(--err); }
+.st-card.st-warn .st-meter-fill { background: var(--warn); }
+.st-streams { list-style: none; margin: 12px 0 0; padding: 0; display: grid; gap: 6px; }
+.st-stream { display: flex; justify-content: space-between; gap: 12px; font-size: 17px; padding: 6px 0; border-top: 1px solid var(--line); flex-wrap: wrap; }
+.st-stream span:last-child { color: var(--settled); font-variant-numeric: tabular-nums; }
+.st-stream.st-h-error span:last-child { color: var(--err); }
+.st-stream.st-h-warn span:last-child { color: var(--warn); }
+.st-foot { display: flex; align-items: center; gap: 8px; margin: 16px 0 0; color: var(--dim); font-size: 14px; }
