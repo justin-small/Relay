@@ -59,7 +59,7 @@ check("defaults load", cfg["source_language"] == "ENGLISH")
 check("spanish target present", "SPANISH" in cfg["targets"])
 cfg = config.save({"admin_token": "t0ken", "openai_api_key": "sk-test-1234", "default_font_px": 999})
 check("font clamped to 160", cfg["default_font_px"] == 160, cfg["default_font_px"])
-check("file mode 0600", oct(os.stat(config.CONFIG_PATH).st_mode)[-3:] == "600")
+check("file mode 0600", os.name != "posix" or oct(os.stat(config.CONFIG_PATH).st_mode)[-3:] == "600")  # Windows has no modes
 # A config.json this process does not own (copied in from another machine;
 # Docker Desktop on Windows shows it as root's) refuses chmod. Starting must
 # still work, by rewriting the file rather than crashing on every start.
@@ -698,6 +698,105 @@ finally:
     audio._probe_input_devices, audio.sd.InputStream = _orig_probe, _orig_stream
     audio._device_cache = None
     audio._set_capture_live(False)
+
+print("\nsaved PulseAudio-era devices, blocked microphone")
+_fake_dev = [{"index": 0, "name": "Fake", "hostapi": "Test", "label": "Test: Fake",
+              "channels": 1, "default_samplerate": 44100}]
+audio._probe_input_devices = lambda reinit: list(_fake_dev)
+audio.sd.InputStream = _FakeStream      # never open a real device: a CI Mac's input can kill the process
+audio._device_cache = None
+for _old in ("PulseAudio: Scarlett 2i2", "ALSA: pulse", "default"):
+    check(f"{_old!r} falls back to the default input", audio.resolve_device(_old)["label"] == "Test: Fake")
+    check(f"{_old!r} carries the visible notice", audio.selection_notice(_old) == audio.LEGACY_PULSE_NOTICE)
+check("a real device carries no notice", audio.selection_notice("Test: Fake") is None)
+check("no saved device carries no notice", audio.selection_notice(None) is None)
+check("an unknown name is still unmatched", audio.resolve_device("Nope") is None)
+_loop = asyncio.new_event_loop()
+_c = audio.AudioCapture(_loop)
+_c.start("PulseAudio: Scarlett 2i2")
+check("capture starts on the default and reports the notice", _c.status()["notice"] == audio.LEGACY_PULSE_NOTICE
+      and _c.status()["native_rate"] == 44100)
+_c.stop()
+_c.start("Test: Fake")
+check("no notice for a real selection", _c.status()["notice"] is None)
+_c.stop()
+class _Denied:
+    def __init__(self, **kw): raise OSError("PortAudio said something with a device name in it")
+audio.sd.InputStream = _Denied
+try:
+    _c.start("Test: Fake")
+except RuntimeError:
+    pass
+check("open failure gives a fixed sentence plus the OS hint",
+      _c.error.endswith(audio.mic_blocked_hint()) and "PortAudio said" not in _c.error, _c.error)
+for _plat, _word in (("darwin", "System Settings"), ("win32", "Settings"), ("linux", "sound server")):
+    _real = audio.sys.platform
+    audio.sys.platform = _plat
+    check(f"{_plat} hint names the OS fix", _word in audio.mic_blocked_hint())
+    audio.sys.platform = _real
+audio.sd.InputStream = _FakeStream
+_loop.close()
+audio._probe_input_devices, audio.sd.InputStream = _orig_probe, _orig_stream
+audio._device_cache = None
+audio._set_capture_live(False)
+check("no PulseAudio plumbing left in app/", not [f for f in Path(config.ROOT, "app").rglob("*.py")
+      if any(w in f.read_text(encoding="utf-8") for w in ("PULSE_SERVER", "pulsectl", "asoundrc", "PULSE_SOURCE",
+                                                         "RELAY_NATIVE_RATE"))])
+
+print("\nunplug and replug")
+class _Pluggable:
+    made = []
+    plugged = True
+    def __init__(self, **kw):
+        if not _Pluggable.plugged: raise OSError("no such device")
+        self.cb, self.active = kw["callback"], True
+        _Pluggable.made.append(self)
+    def start(self): pass
+    def stop(self): pass
+    def abort(self): self.active = False
+    def close(self): self.active = False
+_orig_probe, _orig_stream = audio._probe_input_devices, audio.sd.InputStream
+_orig_t = (audio.LOST_AFTER_S, audio.RETRY_EVERY_S)
+audio.LOST_AFTER_S, audio.RETRY_EVERY_S = 0.3, 0.2
+audio._probe_input_devices = lambda reinit: list(_fake_dev) if _Pluggable.plugged else []
+audio.sd.InputStream = _Pluggable
+audio._device_cache = None
+
+def _until(cond, secs=5.0):
+    end = time.time() + secs
+    while time.time() < end:
+        if cond(): return True
+        time.sleep(0.05)
+    return False
+
+_loop = asyncio.new_event_loop()
+_c = audio.AudioCapture(_loop)
+_c.start("Test: Fake", 0)
+_tone = np.full((480, 1), 0.3, dtype=np.float32)
+_Pluggable.made[0].cb(_tone, 480, None, None)
+check("healthy: not reconnecting", _until(lambda: _c.level > 0) and not _c.reconnecting)
+_Pluggable.plugged = False                       # pull the cable
+_Pluggable.made[0].active = False
+check("unplug is noticed", _until(lambda: _c.reconnecting))
+check("…and reported with a fixed sentence", _c.error == audio.INPUT_LOST_SENTENCE and _c.status()["reconnecting"])
+check("…while capture stays 'running' so sessions stay up", _c.running)
+time.sleep(0.6)
+check("it keeps waiting while the device is absent", _c.reconnecting and len(_Pluggable.made) == 1)
+_Pluggable.plugged = True                        # plug it back in
+check("replug opens a new stream with no restart", _until(lambda: len(_Pluggable.made) == 2))
+_Pluggable.made[-1].cb(_tone, 480, None, None)
+check("audio flows again and the error clears", _until(lambda: not _c.reconnecting and _c.error is None))
+check("the meter moves again", _until(lambda: _c.level > 0))
+_c.stop()
+check("stop leaves no reconnect state", not _c.reconnecting and _c._pump is None)
+_n = len(_Pluggable.made)
+_c.start("Test: Fake", 0)
+_c.stop()
+_loop.close()
+audio.LOST_AFTER_S, audio.RETRY_EVERY_S = _orig_t
+audio._probe_input_devices, audio.sd.InputStream = _orig_probe, _orig_stream
+audio._device_cache = None
+audio._set_capture_live(False)
 
 check("mix accepted by config", config.save({"input_channel": "mix"})["input_channel"] == "mix")
 check("MIX is case-insensitive", config.save({"input_channel": " Mix "})["input_channel"] == "mix")

@@ -13,11 +13,15 @@ from typing import Any
 
 from . import languages
 from . import overlays
+from . import paths
 from . import redact
 from . import schedules
 
 ROOT = Path(__file__).resolve().parent.parent
-CONFIG_PATH = Path(os.environ.get("RELAY_CONFIG", ROOT / "config.json"))
+# The per-user state folder (app/paths.py): config.json, relay.db, blocklist.txt, certs/, backups/,
+# recordings/, panel-firmware/. ROOT is where the code and its packaged data are, never written to.
+CONFIG_PATH = paths.config_path()
+STATE_DIR = CONFIG_PATH.parent
 # Container images mount a writable state volume and keep /app read-only, so
 # the blocklist has to live outside the code tree. Same escape hatch as
 # RELAY_CONFIG: when set it wins over the `blocklist_file` config key.
@@ -265,16 +269,16 @@ def read_raw() -> dict:
 
 
 def blocklist_path() -> Path:
-    """Absolute path of the blocklist file (relative entries resolve to ROOT)."""
+    """Absolute path of the blocklist file (relative entries resolve to the state folder)."""
     p = Path(BLOCKLIST_ENV or get().get("blocklist_file") or "blocklist.txt")
-    return p if p.is_absolute() else ROOT / p
+    return p if p.is_absolute() else STATE_DIR / p
 
 
 def recordings_path() -> Path:
     """Absolute path of the recordings directory (relative entries resolve to
-    ROOT). RELAY_RECORDINGS wins over the config key, as with the blocklist."""
+    the state folder). RELAY_RECORDINGS wins over the config key, as with the blocklist."""
     p = Path(RECORDINGS_ENV or get()["recording"]["dir"] or "recordings")
-    return p if p.is_absolute() else ROOT / p
+    return p if p.is_absolute() else STATE_DIR / p
 
 
 def _migrate_blocklist(raw: dict) -> None:
@@ -284,17 +288,21 @@ def _migrate_blocklist(raw: dict) -> None:
         return
     target = Path(BLOCKLIST_ENV or raw.get("blocklist_file") or "blocklist.txt")
     if not target.is_absolute():
-        target = ROOT / target
+        target = STATE_DIR / target
     if not target.exists():
         redact.write_blocklist_file(target, legacy)
 
 
 def ensure_blocklist_file() -> Path:
-    """Create the blocklist file with its format header if it is missing."""
+    """Create the blocklist file if it is missing: a copy of the packaged one, else just the header."""
     path = blocklist_path()
     if not path.exists():
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(redact.FILE_HEADER, encoding="utf-8")
+        paths.make_private_dir(path.parent)
+        packaged = ROOT / "blocklist.txt"
+        if packaged.is_file() and packaged.resolve() != path.resolve():
+            path.write_text(packaged.read_text(encoding="utf-8"), encoding="utf-8")
+        else:
+            path.write_text(redact.FILE_HEADER, encoding="utf-8")
     return path
 
 
@@ -352,7 +360,8 @@ def redacted() -> dict:
 
 
 def ensure_file() -> Path:
-    """Create config.json from the example on first run."""
+    """Create the state folder and config.json from the example on first run."""
+    paths.make_private_dir(STATE_DIR)
     if not CONFIG_PATH.exists():
         CONFIG_PATH.write_text(
             EXAMPLE_PATH.read_text(encoding="utf-8")
@@ -360,7 +369,7 @@ def ensure_file() -> Path:
             else json.dumps(DEFAULTS, indent=2),
             encoding="utf-8",
         )
-        os.chmod(CONFIG_PATH, 0o600)
+        paths.restrict(CONFIG_PATH)
     else:
         _tighten(CONFIG_PATH)
     return CONFIG_PATH

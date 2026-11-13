@@ -29,6 +29,8 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Iterator
 
+from . import paths
+
 log = logging.getLogger("relay.db")
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -77,7 +79,7 @@ def path() -> Path:
     env = (os.environ.get("RELAY_DATABASE") or "").strip()
     if env:
         return Path(env)
-    return Path(os.environ.get("RELAY_CONFIG") or ROOT / "config.json").parent / "relay.db"
+    return paths.state_dir() / "relay.db"
 
 
 def configured() -> bool:
@@ -315,7 +317,7 @@ def backups_dir() -> Path:
     env = (os.environ.get("RELAY_DB_BACKUPS") or "").strip()
     if env:
         return Path(env)
-    return Path(os.environ.get("RELAY_CONFIG") or ROOT / "config.json").parent / "backups"
+    return paths.state_dir() / "backups"
 
 
 def _dumps(directory: Path) -> list[Path]:

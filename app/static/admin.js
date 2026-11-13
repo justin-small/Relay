@@ -61,8 +61,11 @@
   }
 
   /* ---- devices ---- */
-  function renderDevices(list, selected) {
+  function renderDevices(list, selected, notice) {
     devices = list;
+    const nb = $('deviceNotice');
+    nb.textContent = notice || '';
+    nb.hidden = !notice;
     const sel = $('device');
     sel.innerHTML = '';
     if (!list.length) {
@@ -153,7 +156,7 @@
   $('rescan').addEventListener('click', async function () {
     try {
       const body = await api('/api/admin/devices');
-      renderDevices(body.devices, cfg && cfg.audio_device);
+      renderDevices(body.devices, cfg && cfg.audio_device, body.device_notice);
       if (body.note) alertMsg(body.note);
       else okMsg('Devices rescanned.');
     } catch (e) { alertMsg(e.message); }
@@ -1824,7 +1827,9 @@
 
     const a = st.audio || {};
     $('audioDot').className = 'dot ' + (a.error ? 'err' : a.running ? (a.speaking ? 'ok' : 'warn') : '');
-    $('audioState').textContent = a.error
+    $('audioState').textContent = a.reconnecting
+      ? 'Waiting for input'
+      : a.error
       ? 'Error'
       : a.running
         ? (a.speaking ? 'Speaking' : 'Signal quiet') + ' · ' + a.native_rate + ' Hz → ' + a.target_rate + ' Hz'
@@ -2120,7 +2125,7 @@
     try {
       const state = await api('/api/admin/state');
       cfg = state.config;
-      renderDevices(state.devices, cfg.audio_device);
+      renderDevices(state.devices, cfg.audio_device, state.device_notice);
       renderKeyState();
       // Module scripts (app/modules/<id>/static/) start from here.
       document.dispatchEvent(new CustomEvent('relay:config'));

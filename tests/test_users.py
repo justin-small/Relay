@@ -598,8 +598,9 @@ check("every backup returned a path", all(isinstance(p, Path) for p in made), ma
 left = sorted(p.name for p in bdir.iterdir())
 eq("pruned to the newest 7", left, [f"relay-202601{d:02d}-120000.db" for d in range(3, 10)])
 last = made[-1]
-eq("file mode is 0600", stat.S_IMODE(last.stat().st_mode), 0o600)
-eq("directory mode is 0700", stat.S_IMODE(bdir.stat().st_mode), 0o700)
+if os.name == "posix":    # Windows has no modes
+    eq("file mode is 0600", stat.S_IMODE(last.stat().st_mode), 0o600)
+    eq("directory mode is 0700", stat.S_IMODE(bdir.stat().st_mode), 0o700)
 check("no temp files are left", not [p for p in bdir.iterdir() if p.name.startswith(".")])
 check("an old newest backup means a backup is due", db.backup_due())
 now = datetime.now(timezone.utc)
