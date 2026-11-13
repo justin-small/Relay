@@ -394,7 +394,7 @@ inline int32_t status_air_live_s(const status_state &s)
 // One stream's row, after its label: "live 25:20 - healthy - 142 watching". ASCII; `out` at least 64 bytes.
 inline void status_stream_text(const status_stream &st, uint32_t at_ms, uint32_t now_ms, char *out, size_t cap)
 {
-    char when[16];
+    char when[24];   // "live " and the longest elapsed text, with room the compiler can prove
     if (st.air == status_air::on) {
         char t[12];
         status_elapsed_text(status_seconds(st.live_s, at_ms, now_ms), t, sizeof t);
