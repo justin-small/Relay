@@ -26,8 +26,18 @@
   <input id="confirm" type="password" name="confirm" autocomplete="new-password" minlength="8" required>
   <button type="submit">Create the Owner</button>
   {% endif %}
+  {% if notice %}<div class="sub" role="status">{{ notice }}</div>{% endif %}
   {% if error %}<div class="err" role="alert">{{ error }}</div>{% endif %}
 </form>
+{% if not remote %}
+<form method="post" action="/admin/import">
+  <h1>Coming from Relay 2.0?</h1>
+  <p class="sub">Import your settings from the old Docker install. Type the path of the old Relay folder (or the <code>docker-config</code> folder inside it). Nothing in it is changed.</p>
+  <label for="folder">Old Relay folder</label>
+  <input id="folder" type="text" name="folder" autocomplete="off" spellcheck="false" required>
+  <button type="submit">Import from a previous Relay</button>
+</form>
+{% endif %}
 {% elif mode == 'pin' %}
 <form method="post" action="/admin/login/pin">
   <img class="mark" src="/static/brand/relay-mark.svg" width="52" height="52" alt="Relay">
