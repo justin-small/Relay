@@ -1,29 +1,29 @@
 #!/usr/bin/env python3
-"""Announce Relay on the LAN over mDNS / DNS-SD, so caption panels find it.
+"""Announce this Relay on the LAN so caption panels find it (mDNS / DNS-SD, standard library only).
 
-Service  : _relay-captions._tcp.local.
-Instance : the install name (default: this machine's host name)
-Port     : the viewer port (default 80)
-TXT      : v=<Relay version>  name=<install name>  path=/
+The service is `_relay-captions._tcp` on the viewer port, with TXT `v=<version>`, `name=<install name>`,
+`path=/`. It answers PTR, SRV, TXT and A questions for that one service, says so unprompted at start-up and
+whenever the LAN address changes, and says goodbye (TTL 0) when stopped.
 
-This is a small mDNS responder, standard library only. It answers PTR, SRV, TXT
-and A questions for that one service and says so unprompted at start-up and
-whenever the LAN address changes. It says goodbye (TTL 0) when stopped.
+The app starts it on launch (Announcer, below), in a background thread. `RELAY_ANNOUNCE=0` turns it off and
+`RELAY_INSTALL_NAME` names the install. Failing to announce (port 5353 taken, no network) is logged and never
+stops Relay: an unannounced Relay still works at its address.
 
-It has to run on the host itself, so multicast leaves the machine's own network. Relay no longer runs
-in a container, so nothing here depends on the Docker networking it was written around; macOS and
-Windows can also use the system's own DNS-SD (`dns-sd -R`, tools/announce.ps1).
-
-  announce.py [--name NAME] [--port 80] [--ip A.B.C.D] [--version V]
+Standalone: python -m app.announce [--name NAME] [--port 8000] [--ip A.B.C.D]
 """
 import argparse
+import contextlib
+import logging
 import os
 import re
 import signal
 import socket
 import struct
 import sys
+import threading
 import time
+
+log = logging.getLogger("relay.announce")
 
 MDNS_GROUP = "224.0.0.251"
 MDNS_PORT = 5353
@@ -43,15 +43,10 @@ RECHECK_S = 30
 
 
 def lan_ip():
-    """The local address chosen for the default route (nothing is sent)."""
-    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    try:
-        s.connect(("8.8.8.8", 80))
-        return s.getsockname()[0]
-    except OSError:
-        return None
-    finally:
-        s.close()
+    """The address to announce: the first LAN address (app/netinfo.py), or None with no network."""
+    from . import netinfo
+    ips = netinfo.lan_ips()
+    return ips[0] if ips else None
 
 
 def clean_label(text, limit=63):
@@ -209,60 +204,93 @@ def send(sock, data):
     sock.sendto(data, (MDNS_GROUP, MDNS_PORT))
 
 
+class Announcer:
+    """Runs the announcement loop in a daemon thread until stop()."""
+
+    def __init__(self, name, port, version="dev", ip=None):
+        self.name, self.port, self.version, self.fixed_ip = name, port, version, ip
+        self._stop = threading.Event()
+        self._thread = None
+
+    def start(self):
+        self._thread = threading.Thread(target=self._guarded, name="relay-announce", daemon=True)
+        self._thread.start()
+
+    def stop(self):
+        self._stop.set()
+        if self._thread:
+            self._thread.join(timeout=5)
+
+    def _guarded(self):
+        try:
+            self._run()
+        except Exception:
+            log.warning("Panel announcement stopped: %s", sys.exc_info()[1])
+
+    def _run(self):
+        ip = self.fixed_ip or lan_ip()
+        while ip is None:
+            if self._stop.wait(5):
+                return
+            ip = lan_ip()
+        svc = Service(self.name, self.port, ip, self.version)
+        sock = open_socket()
+        try:
+            join(sock, ip)
+            send(sock, svc.announcement())
+            log.info("Announcing %s on the LAN at %s:%d (panels find Relay by this)", svc.instance, svc.ip, svc.port)
+            self._stop.wait(1)
+            send(sock, svc.announcement())
+            sock.settimeout(1.0)
+            next_check = time.monotonic() + RECHECK_S
+            while not self._stop.is_set():
+                try:
+                    data, _addr = sock.recvfrom(9000)
+                    reply = svc.answer_for(data)
+                    if reply:
+                        send(sock, reply)
+                except socket.timeout:
+                    pass
+                except OSError:
+                    self._stop.wait(1)
+                if time.monotonic() >= next_check:
+                    next_check = time.monotonic() + RECHECK_S
+                    now = self.fixed_ip or lan_ip()
+                    if now and now != svc.ip:
+                        send(sock, svc.announcement(ttl_scale=0))
+                        svc.ip = now
+                        with contextlib.suppress(OSError):
+                            join(sock, now)
+                        send(sock, svc.announcement())
+                        log.info("LAN address changed: announcing %s:%d", svc.ip, svc.port)
+            send(sock, svc.announcement(ttl_scale=0))
+        finally:
+            sock.close()
+
+
+def enabled():
+    return (os.environ.get("RELAY_ANNOUNCE") or "1").strip().lower() not in ("0", "false", "no", "off")
+
+
+def install_name():
+    return os.environ.get("RELAY_INSTALL_NAME") or socket.gethostname().split(".")[0]
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
-    ap.add_argument("--name", default=os.environ.get("RELAY_INSTALL_NAME") or socket.gethostname().split(".")[0])
-    ap.add_argument("--port", type=int, default=int(os.environ.get("RELAY_HTTP_PORT") or 80))
-    ap.add_argument("--ip", default=os.environ.get("RELAY_ADMIN_IPS", "").split(",")[0].strip() or None)
-    ap.add_argument("--version", default=os.environ.get("RELAY_VERSION") or "dev")
+    ap.add_argument("--name", default=install_name())
+    ap.add_argument("--port", type=int, default=8000)
+    ap.add_argument("--ip", default=None)
+    ap.add_argument("--version", default="dev")
     args = ap.parse_args(argv)
-
-    ip = args.ip or lan_ip()
-    while ip is None:
-        print("announce: no LAN address yet; waiting", flush=True)
-        time.sleep(5)
-        ip = lan_ip()
-
-    svc = Service(args.name, args.port, ip, args.version)
-    sock = open_socket()
-    join(sock, ip)
-    stop = []
+    logging.basicConfig(level=logging.INFO, format="%(message)s")
+    announcer = Announcer(args.name, args.port, args.version, args.ip)
+    announcer.start()
+    done = threading.Event()
     for sig in (signal.SIGINT, signal.SIGTERM):
-        signal.signal(sig, lambda *_: stop.append(1))
-
-    def say():
-        send(sock, svc.announcement())
-        print("announce: %s -> %s:%d (v=%s)" % (svc.instance, svc.ip, svc.port, svc.version), flush=True)
-
-    say()
-    time.sleep(1)
-    send(sock, svc.announcement())
-    sock.settimeout(1.0)
-    next_check = time.monotonic() + RECHECK_S
-    while not stop:
-        try:
-            data, _addr = sock.recvfrom(9000)
-            reply = svc.answer_for(data)
-            if reply:
-                send(sock, reply)
-        except socket.timeout:
-            pass
-        except OSError:
-            time.sleep(1)
-        if time.monotonic() >= next_check:
-            next_check = time.monotonic() + RECHECK_S
-            if not args.ip:
-                now = lan_ip()
-                if now and now != svc.ip:
-                    send(sock, svc.announcement(ttl_scale=0))
-                    svc.ip = now
-                    try:
-                        join(sock, now)
-                    except OSError:
-                        pass
-                    say()
-    send(sock, svc.announcement(ttl_scale=0))
-    print("announce: stopped", flush=True)
+        signal.signal(sig, lambda *_: done.set())
+    done.wait()
+    announcer.stop()
     return 0
 
 

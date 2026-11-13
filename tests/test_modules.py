@@ -44,15 +44,15 @@ MODULES = APP / "modules"
 
 # Relay's core. A new file here is a new piece of core, not an integration: say why in the pull request.
 CORE_FILES = {
-    "__init__.py", "alerts.py", "audio.py", "config.py", "db.py", "demo.py", "engine.py", "exporting.py", "hub.py",
+    "__init__.py", "alerts.py", "announce.py", "audio.py", "config.py", "db.py", "demo.py", "engine.py", "exporting.py", "hub.py",
     "languages.py", "main.py", "netinfo.py", "overlays.py", "panelfw.py", "panels.py", "paths.py", "realtime.py", "recorder.py", "redact.py",
     "scheduler.py", "schedules.py", "texttranslate.py", "users.py",
 }
 # Network clients, and the core files allowed them: OpenAI (realtime, text translation) and the host's own
-# address for the viewer links (main, netinfo).
+# address for the viewer links (main, netinfo) and Relay announcing itself to its own caption panels (announce).
 NETWORK = {"socket", "ssl", "http.client", "urllib.request", "websockets", "httpx", "aiohttp", "requests",
            "zeroconf", "paho", "pyserial", "serial"}
-CORE_NETWORK = {"main.py": {"socket"}, "netinfo.py": {"socket"}, "realtime.py": {"ssl", "websockets"}, "texttranslate.py": {"urllib.request"}}
+CORE_NETWORK = {"announce.py": {"socket"}, "main.py": {"socket"}, "netinfo.py": {"socket"}, "realtime.py": {"ssl", "websockets"}, "texttranslate.py": {"urllib.request"}}
 
 fails = []
 

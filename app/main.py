@@ -24,6 +24,7 @@ from fastapi.templating import Jinja2Templates
 from jinja2 import ChoiceLoader, FileSystemLoader, PrefixLoader
 
 from . import alerts as alertsmod
+from . import announce as announcemod
 from . import config, db, exporting, languages, netinfo, overlays, panelfw, panels, redact, schedules, users
 from .alerts import alerts
 from . import engine as engine_mod
@@ -197,6 +198,12 @@ async def _startup() -> None:
     app.state.alerts_task = asyncio.create_task(_alert_ticks())
     # Logs a change of LAN address (Wi-Fi switch); the admin page re-reads its viewer links on its own.
     app.state.net_task = asyncio.create_task(netinfo.watch(lambda ips: None))
+    # Tell caption panels on the LAN where Relay is (mDNS, in a background thread). Never stops Relay.
+    app.state.announcer = None
+    if announcemod.enabled():
+        app.state.announcer = announcemod.Announcer(
+            announcemod.install_name(), int(cfg["port"]), os.environ.get("RELAY_VERSION") or "dev")
+        app.state.announcer.start()
     # First tick runs straight away, so a relay started mid-window catches up.
     scheduler.start()
     # The integrations that are switched on (app/modules/). Each idles until it is set up.
@@ -299,6 +306,10 @@ async def _shutdown() -> None:
     with contextlib.suppress(Exception):
         await module_registry.stop_all()
     scheduler.cancel()
+    announcer = getattr(app.state, "announcer", None)
+    if announcer is not None:
+        with contextlib.suppress(Exception):
+            await asyncio.to_thread(announcer.stop)
     for name in ("demo_task", "blocklist_task", "alerts_task", "backup_task", "net_task"):
         task = getattr(app.state, name, None)
         if task is not None:

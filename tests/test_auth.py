@@ -17,6 +17,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
+os.environ["RELAY_ANNOUNCE"] = "0"   # the lifespan test starts the app; never multicast from a test
 os.environ["RELAY_CONFIG"] = os.path.join(tempfile.mkdtemp(), "config.json")
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import _db  # noqa: E402

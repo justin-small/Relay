@@ -649,6 +649,8 @@ app/
   redact.py                  blocklist filtering, incremental-safe
   demo.py                    rehearsal mode
   config.py                  load, validate, atomic save, hot-reload
+  announce.py                announces Relay to caption panels over mDNS, started on launch
+  netinfo.py                 this machine's LAN addresses, for viewer links
   db.py                      SQLite file, migrations, daily backup
   users.py                   accounts, roles, permissions, sessions, trusted devices
   migrations/                core schema, NNNN_name.sql, applied once each
@@ -671,7 +673,6 @@ tests/
   _db.py                     throwaway SQLite file the tests make for themselves
 
 tools/
-  announce.py                mDNS announcement for caption panels (standard library only)
   announce.ps1               Windows: the same, with Windows' own DNS-SD
   setup_caddy.py             panel certificate (and a Caddyfile), for the HTTPS work
   migrate-from-docker.ps1    Windows: copy a Docker install's settings and data to the state folder
@@ -690,7 +691,7 @@ python3 -m venv .venv && .venv/bin/pip install -r requirements.txt httpx2
 .venv/bin/python tests/test_schedules.py  # schedule windows, DST, override rules, admin API
 .venv/bin/python tests/test_users.py   # accounts, roles, sessions, database, backups
 .venv/bin/python tests/test_auth.py    # first run, sign-in, PIN, every admin route per role
-python3 tests/test_announce.py         # panel announcement; standard library only
+python3 tests/test_announce.py         # panel announcement records
 ```
 
 Nothing needs installing for the suites: each test process makes its own
@@ -788,15 +789,13 @@ Nothing else is announced: no address of the operator panel, no key, no
 language list. A panel that finds the announcement then asks the viewer port
 for captions, as any phone would.
 
-The announcement has to be made **from this computer**, so multicast leaves its own
-network. Nothing starts it for you yet:
+Relay starts the announcement itself when it launches (`app/announce.py`, a background
+thread), on the viewer port, and stops it when Relay exits. If the announcement cannot run
+(port 5353 taken, no network) Relay logs it and carries on. On Windows, if another program
+already holds the mDNS port, `tools\announce.ps1` registers with Windows' own DNS-SD
+instead (Windows 10 1809 or later; no Bonjour install; untested on a real Windows host).
 
-- **Any OS:** `python tools/announce.py --port 8000` (standard library only).
-- **macOS:** `dns-sd -R "Relay" _relay-captions._tcp local 8000`.
-- **Windows:** `tools\announce.ps1`, which registers with Windows' own DNS-SD
-  (Windows 10 1809 or later; no Bonjour install). Untested on a real Windows host so far.
-
-**Name this install** with
+**Turn it off:** start with `RELAY_ANNOUNCE=0` (on Windows `set RELAY_ANNOUNCE=0` first). Name this install with
 `RELAY_INSTALL_NAME`. Panels already holding that name stop finding it, and an
 unannounced Relay still works at its address.
 
