@@ -75,7 +75,7 @@ p2.fqdn = "relay.example.org"
 check("an operator's admin_fqdn the certificate lacks gets a new one", p2.refresh() is True)
 check("...with a different fingerprint, reported as changed",
       p2.changed and p2.changed["from"] == info.fingerprint and p2.changed["to"] == p2.info.fingerprint, p2.changed)
-check("...that names the fqdn", "relay.example.org" in p2.info.dns)
+eq("...that names the fqdn", p2.info.dns[0], "relay.example.org")
 fp_fqdn = p2.info.fingerprint
 
 IPS[:] = ["198.51.100.7"]
@@ -152,6 +152,7 @@ check("the server starts", server.started)
 
 def peer_fingerprint(port):
     ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+    ctx.minimum_version = ssl.TLSVersion.TLSv1_2
     ctx.check_hostname = False
     ctx.verify_mode = ssl.CERT_NONE
     with socket.create_connection(("127.0.0.1", port), timeout=5) as raw, ctx.wrap_socket(raw) as tlsock:
@@ -162,6 +163,7 @@ def peer_fingerprint(port):
 
 def https_get(path):
     ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+    ctx.minimum_version = ssl.TLSVersion.TLSv1_2
     ctx.check_hostname = False
     ctx.verify_mode = ssl.CERT_NONE
     c = http.client.HTTPSConnection("127.0.0.1", aport, context=ctx, timeout=5)

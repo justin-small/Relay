@@ -85,7 +85,8 @@ def _why(exc: OSError) -> str:
         return "it is already in use"
     if exc.errno in (errno.EACCES, errno.EPERM) or getattr(exc, "winerror", 0) == 10013:
         return "this account is not permitted to use it"
-    return str(exc)
+    # A fixed sentence, never the exception's own text: this reaches the admin page.
+    return "it could not be opened"
 
 
 def listen(host: str, port: int, what: str) -> tuple[socket.socket, int, str | None]:
