@@ -100,7 +100,40 @@ Every screen is explained, with pictures, in the
 
 ---
 
-## Install
+## Run it natively
+
+Relay runs straight from Python on Windows, macOS and Linux, with no container:
+
+```bash
+pip install -r requirements.txt
+python run.py
+```
+
+Then open <http://127.0.0.1:8001/admin> **on that computer**. The first-run page asks for
+your OpenAI API key (optional here; it can be added later in Settings) and creates the
+first Owner account. Until that account exists the page answers only to the machine
+itself, so nobody else on the network can claim it. Viewer links are worked out from
+the machine's own network addresses and follow a change of network.
+
+Audio comes straight from the sound card through PortAudio (WASAPI, Core Audio,
+ALSA or PipeWire) under the names the OS gives the devices. On Linux install
+`libportaudio2` and run a sound server. If the OS has blocked microphone access, grant
+it to your terminal or Python in the system's privacy settings.
+
+Everything Relay writes lives in one per-user folder, never in the install directory:
+`%APPDATA%\Relay` on Windows, `~/Library/Application Support/Relay` on macOS and
+`$XDG_DATA_HOME/relay` (default `~/.local/share/relay`) on Linux. Set `RELAY_HOME` to move it.
+
+**Relay runs as the logged-in user.** There is no container around it: it can read
+and write whatever you can, and it holds your OpenAI key in `config.json` (owner-only
+permissions) in that folder. Run it from an account you would trust with that key,
+keep the operator panel on `127.0.0.1` (the default), and do not run it as an
+administrator or root.
+
+The Docker route below still works for Linux hosts; on macOS and Windows it no longer
+has microphone access.
+
+## Install (Docker)
 
 Requires [Docker Desktop](https://www.docker.com/products/docker-desktop/) (or
 Docker Engine on Linux). Nothing else: no Python, no virtualenv, no Caddy.
