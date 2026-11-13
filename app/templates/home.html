@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en"><head>
+<title>Relay</title>{% include "_auth_head.html" %}
+<style>
+  .tools { list-style: none; margin: 0; padding: 0; }
+  .tools a { display: block; padding: 14px 16px; margin: 0 0 10px; border: 1px solid var(--line);
+             border-radius: 10px; color: var(--fg); text-decoration: none; }
+  .tools a:hover, .tools a:focus-visible { border-color: var(--accent); }
+  .tools strong { display: block; font-size: 16px; }
+  .tools span { display: block; color: var(--dim); font-size: 14px; margin-top: 2px; }
+  .card + form { margin-top: -6vh; }
+</style>
+</head><body>
+<div class="card">
+  <img class="mark" src="/static/brand/relay-mark.svg" width="52" height="52" alt="Relay">
+  <h1>Hello, {{ user.name }}</h1>
+  {% if tools or admin %}
+  <p class="sub">What you can use in Relay.</p>
+  <ul class="tools">
+    {% for t in tools %}
+    <li><a href="{{ t.path }}"><strong>{{ t.title }}</strong>{% if t.note %}<span>{{ t.note }}</span>{% endif %}</a></li>
+    {% endfor %}
+    {% if admin %}
+    <li><a href="/admin"><strong>Operator panel</strong><span>Control Relay</span></a></li>
+    {% endif %}
+  </ul>
+  {% else %}
+  <p class="sub">Your account has nothing to use in Relay yet. Ask an admin to give it a role that can.</p>
+  {% endif %}
+</div>
+<form method="post" action="/admin/logout">
+  <a class="link" href="/home?password=1">Change my password</a>
+  <button class="link" type="submit">Sign out</button>
+</form>
+</body></html>

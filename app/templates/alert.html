@@ -5,16 +5,21 @@
 <title>Alerts</title>
 {% include "_brand_head.html" %}
 <link rel="stylesheet" href="{{ static('viewer.css') }}">
-</head><body class="alert-page">
+</head><body class="alert-page"{% if account %} data-account="{{ account }}"{% endif %}>
 
 <header class="alert-head">
   <div>
     <h1>Need someone?</h1>
+    {% if account %}
+    <p class="alert-as" id="sendingAs">as <strong id="senderName">{{ account }}</strong> &middot; <a class="linklike" href="/home">home</a></p>
+    {% else %}
     <p class="alert-as" id="sendingAs" hidden>as <strong id="senderName"></strong> &middot; <button type="button" class="linklike" id="changeName">change</button></p>
+    {% endif %}
   </div>
   <span class="dot" id="statusDot" title="Connection"></span>
 </header>
 
+{% if not account %}
 <form class="alert-name" id="nameForm" hidden>
   <label for="nameInput">Who are you?</label>
   <div class="alert-name-row">
@@ -23,6 +28,7 @@
   </div>
   <p class="alert-note">Shown on the screen you flash, so they know who needs them.</p>
 </form>
+{% endif %}
 
 <main class="alert-buttons" id="buttons" aria-live="polite"></main>
 <p class="alert-empty" id="empty" hidden>No alert buttons yet. The operator sets them up in Relay admin, under Alerts.</p>

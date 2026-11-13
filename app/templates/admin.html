@@ -682,6 +682,12 @@ window.relayCan = function (perm) { return window.RELAY_ME.permissions.indexOf(p
         <div class="note">The sender then sees &ldquo;Not seen&rdquo; and can send again. The flash is once a second,
           fixed: well under the rate where flashing becomes a seizure risk.</div>
       </div>
+      <div class="field">
+        <label class="chk chk-inline"><input type="checkbox" id="alertSignin"{% if 'alerts.manage' not in perms %} disabled{% endif %}> Only signed-in people can send</label>
+        <div class="note">The sender page then moves to the operator panel's <span class="mono">https://</span> address
+          and asks for a sign-in. Anyone whose role can send alerts may use it, including a Member, who cannot open
+          this panel. Their account name is shown on the screen they flash. Panels send as they always have.</div>
+      </div>
       {% if 'alerts.manage' in perms %}<button class="primary" type="button" id="alertSave">Save alerts</button>
       <span class="muted" id="alertDirty" style="margin-left:10px" hidden>Unsaved changes</span>{% endif %}
     </section>
@@ -689,7 +695,7 @@ window.relayCan = function (perm) { return window.RELAY_ME.permissions.indexOf(p
       <h3>Where to send from, and what flashes</h3>
       <div id="alertLinks"></div>
       <div class="note">
-        Anyone with the sender link can send, so hand it to the band, not the room. A panel sends from its
+        Unless sending needs a sign-in, anyone with the sender link can send, so hand it to the band, not the room. A panel sends from its
         <em>Alert buttons</em> feed, set on its card under Panels. A browser screen flashes when it is opened as
         <span class="mono">/screen?alert=&lt;name&gt;</span> with a name a button lists; a TV with no touch needs a
         mouse click or key press to acknowledge, or it flashes until the auto-stop.

@@ -36,8 +36,9 @@ from fastapi.testclient import TestClient
 
 from app import config
 from app import modules as modmod
+from app.users import Permission
 from app.main import app
-from app.modules import Manifest, Module, modules as registry
+from app.modules import Manifest, Module, UserPage, modules as registry
 
 APP = ROOT / "app"
 MODULES = APP / "modules"
@@ -269,6 +270,23 @@ eq("a valid module validates", modmod.validate(fake, "fake")[:1], [])  # its tem
 eq("the id must match the package", modmod.validate(fake, "other")[0],
    "other: manifest id 'fake' must equal the package name")
 check("a non-Module is refused", modmod.validate(object(), "x"))
+
+
+class FakeUserPage(Fake):
+    permissions = (Permission("fake.use", "Use it", "Fake", "member"),)
+    user_pages = (UserPage("Fake tool", "/api/fake/tool", "fake.use"),)
+
+
+
+
+good = FakeUserPage()
+check("a user page under the module's prefix with its own permission validates",
+      not [p for p in modmod.validate(good, "fake") if "user page" in p])
+good.user_pages = (UserPage("Out", "/elsewhere", "fake.use"), UserPage("Core perm", "/api/fake/x", "settings.view"))
+eq("a user page outside route_prefixes, or on another's permission, is refused",
+   [p for p in modmod.validate(good, "fake") if "user page" in p],
+   ["fake: user page 'Out' must be under the module's route_prefixes",
+    "fake: user page 'Core perm' needs one of the module's own permissions"])
 
 saved = dict(registry._modules)
 registry._modules = {**saved, "fake": fake}

@@ -13,8 +13,12 @@
   const senderName = document.getElementById('senderName');
   const toastEl = document.getElementById('toast');
 
-  let sender = '';
-  try { sender = localStorage.getItem(NAME_KEY) || ''; } catch (e) { /* private window: ask each visit */ }
+  // With sign-in required (#175) the server names the sender by its account, and there is no name form.
+  const account = document.body.dataset.account || '';
+  let sender = account;
+  if (!account) {
+    try { sender = localStorage.getItem(NAME_KEY) || ''; } catch (e) { /* private window: ask each visit */ }
+  }
   let rows = [];
   let receivedAt = 0;   // when the last state arrived, so ages keep counting between messages
 
@@ -23,13 +27,14 @@
   } catch (e) { /* default dark */ }
 
   function showName() {
+    if (account) return;
     nameForm.hidden = !!sender;
     sendingAs.hidden = !sender;
     senderName.textContent = sender;
     if (!sender) nameInput.focus();
   }
 
-  nameForm.addEventListener('submit', function (ev) {
+  if (!account) nameForm.addEventListener('submit', function (ev) {
     ev.preventDefault();
     const v = nameInput.value.replace(/\s+/g, ' ').trim().slice(0, 32);
     if (!v) return;
@@ -37,7 +42,7 @@
     try { localStorage.setItem(NAME_KEY, v); } catch (e) { /* kept for this visit */ }
     showName();
   });
-  document.getElementById('changeName').addEventListener('click', function () {
+  if (!account) document.getElementById('changeName').addEventListener('click', function () {
     nameInput.value = sender;
     sender = '';
     showName();

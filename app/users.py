@@ -1,8 +1,11 @@
 """Accounts, roles, permissions, sessions and trusted devices (everything lives in app/db.py's SQLite file).
 
-Four fixed roles, ranked viewer < operator < admin < owner, sit on top of named permissions: code asks
+Five fixed roles, ranked member < viewer < operator < admin < owner, sit on top of named permissions: code asks
 `user.can("settings.manage")`, never "is the role at least admin". Today a permission's `min_role` decides who
 has it (`role_permissions`, the only place that does), so a roles table can replace that one function later.
+
+A member never opens the operator panel (it lacks `admin.open`): it signs in only to use the features it is
+granted, such as sending on /alert, and lands on the home page that lists them (#175).
 
 Core registers the permission catalogue below; each module registers its own (`<module id>.<action>`).
 
@@ -26,7 +29,7 @@ from typing import Iterable
 
 from . import db
 
-ROLES = ("viewer", "operator", "admin", "owner")      # rank = index + 1
+ROLES = ("member", "viewer", "operator", "admin", "owner")      # rank = index + 1
 
 PASSWORD_SESSION_SECONDS = 30 * 24 * 3600
 PIN_SESSION_SECONDS = 12 * 3600
@@ -57,6 +60,7 @@ class Permission:
 
 
 _CORE = (
+    Permission("admin.open", "Open the operator panel", "Operator panel", "viewer"),
     Permission("session.view", "See session health and status", "Session", "viewer"),
     Permission("session.control", "Start and stop captions", "Session", "operator"),
     Permission("audio.manage", "Change audio device, input channel and source language", "Audio", "admin"),
@@ -65,6 +69,7 @@ _CORE = (
     Permission("panels.manage", "Change panels, firmware, flash, reboot, forget", "Panels", "admin"),
     Permission("alerts.view", "See alert setup", "Alerts", "viewer"),
     Permission("alerts.manage", "Change alert setup", "Alerts", "admin"),
+    Permission("alerts.send", "Send alerts from /alert when it needs a sign-in", "Alerts", "member"),
     Permission("overlays.view", "See overlays", "Overlays", "viewer"),
     Permission("overlays.manage", "Create, change and delete overlays", "Overlays", "operator"),
     Permission("recordings.view", "List and download recordings", "Recordings", "operator"),

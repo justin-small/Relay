@@ -347,13 +347,14 @@ eq("logging out signed out is harmless", anon().post("/admin/logout", follow_red
 
 # ------------------------------------------------------------------ the roles, signed in
 print("roles")
-ROLE_NAMES = ("viewer", "operator", "admin", "owner")
+ROLE_NAMES = ("member", "viewer", "operator", "admin", "owner")
 RANK = {r: i + 1 for i, r in enumerate(ROLE_NAMES)}
 clients = {role: _db.client(app, role) for role in ROLE_NAMES}
 owner_c, admin_c, op_c, view_c = (clients[r] for r in ("owner", "admin", "operator", "viewer"))
 
 # The catalogue, written out here independently of users.py.
 MIN_ROLE = {
+    "admin.open": "viewer", "alerts.send": "member",
     "session.view": "viewer", "session.control": "operator", "audio.manage": "admin", "targets.manage": "operator",
     "panels.view": "viewer", "panels.manage": "admin", "alerts.view": "viewer", "alerts.manage": "admin",
     "overlays.view": "viewer", "overlays.manage": "operator", "recordings.view": "operator",
@@ -371,8 +372,12 @@ for role in ROLE_NAMES:
     eq(f"{role}: device", me["device"], {"trusted": False, "name": None})
     want = sorted(p for p, mr in MIN_ROLE.items() if RANK[role] >= RANK[mr])
     eq(f"{role}: permissions are exactly the catalogue's", me["permissions"], want)
-    r = clients[role].get("/admin")
-    check(f"{role}: the admin page opens", r.status_code == 200 and '<h1 class="brand">' in r.text, r.status_code)
+    r = clients[role].get("/admin", follow_redirects=False)
+    if role == "member":
+        check("member: /admin sends it to its home page", r.status_code == 303 and r.headers["location"] == "/home",
+              r.status_code)
+    else:
+        check(f"{role}: the admin page opens", r.status_code == 200 and '<h1 class="brand">' in r.text, r.status_code)
 check("every permission registered is in the independent table",
       {p.id for p in users.catalogue()} == set(MIN_ROLE), {p.id for p in users.catalogue()} ^ set(MIN_ROLE))
 
@@ -662,8 +667,9 @@ print("users API")
 r = admin_c.get("/api/admin/users")
 body = r.json()
 eq("the users list has the contract's shape", sorted(body), ["permissions", "roles", "users"])
-eq("roles", body["roles"], [{"id": "viewer", "label": "Viewer", "rank": 1}, {"id": "operator", "label": "Operator", "rank": 2},
-                            {"id": "admin", "label": "Admin", "rank": 3}, {"id": "owner", "label": "Owner", "rank": 4}])
+eq("roles", body["roles"], [{"id": "member", "label": "Member", "rank": 1}, {"id": "viewer", "label": "Viewer", "rank": 2},
+                            {"id": "operator", "label": "Operator", "rank": 3}, {"id": "admin", "label": "Admin", "rank": 4},
+                            {"id": "owner", "label": "Owner", "rank": 5}])
 eq("permissions carry id, label, group, min_role", sorted(body["permissions"][0]), ["group", "id", "label", "min_role"])
 row = next(u for u in body["users"] if u["username"] == "owner")
 eq("a user row", sorted(row), ["created", "disabled", "id", "last_login", "must_change_password", "name", "pin_set",

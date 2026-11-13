@@ -77,7 +77,9 @@ health, its setup guide, a link to its settings and its connection test.
 
 ## Permissions
 
-Relay has users with four ranked roles: viewer, operator, admin, owner. What a
+Relay has users with five ranked roles: member, viewer, operator, admin, owner. A member
+never opens the admin panel (it lacks the core `admin.open`): it signs in to use the features it
+is granted and lands on `/home`, which lists them. What a
 role may do is a list of named permissions, and the server checks one on every admin
 route. A module declares its own; core never names them.
 
@@ -89,7 +91,8 @@ from `app.users`:
 - every module declares at least `<id>.view` and `<id>.manage` (the test checks);
 - `label` is the sentence shown on the Users page, `group` the heading it is listed under;
 - `min_role` is the lowest role that has it, and every higher role has it too. Pick the role
-  that should be allowed to do it: `viewer` for looking, `operator` for live actions during a
+  that should be allowed to do it: `member` for a feature people use outside the admin panel
+  (with a `UserPage`, below), `viewer` for looking, `operator` for live actions during a
   service (ProPresenter's `propresenter.control`), `admin` for setup, `owner` only for what an
   admin must not touch.
 
@@ -104,6 +107,13 @@ purpose (viewer streams, panel routes) carry their own rules instead.
 **Pages.** An `AdminPage` shows in the nav only for a user who holds its `permission`; empty
 means `<module id>.view`. `admin_nav(user)` does the filtering, and a module's scripts are
 loaded only for a user who can see at least one of its pages.
+
+**Features outside the admin panel.** A `UserPage(title, path, permission, note)` in
+`Module.user_pages` lists one of the module's own pages on the home page (`/home`) of a signed-in
+user who holds `permission`, while the module is on. `path` must sit under the module's
+`route_prefixes` and `permission` must be one the module declares (the registry refuses it
+otherwise). The page checks the permission itself with `require(...)`, the same call as an admin
+route, and should serve only on the operator (HTTPS) port, where the sign-in cookie lives.
 
 **Hide controls** in the module's script with `window.relayCan("<id>.<action>")`, which is
 true when the signed-in user holds the permission. It only tidies the screen: the server
