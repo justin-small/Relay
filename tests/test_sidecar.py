@@ -56,20 +56,35 @@ cfg.write_text(json.dumps({"port": 0, "admin_port": 0, "host": "127.0.0.1", "adm
 env = dict(os.environ, RELAY_HOME=state, RELAY_SIDECAR="1", RELAY_ANNOUNCE="0", PYTHONUNBUFFERED="1")
 proc = subprocess.Popen([sys.executable, str(ROOT / "run.py")], env=env, stdin=subprocess.PIPE,
                         stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+import queue
+
+out_lines = queue.Queue()
+collected = []
+
+
+def pump():  # a thread, so a child that never prints cannot block the test
+    for line in proc.stdout:
+        collected.append(line.rstrip())
+        out_lines.put(line)
+
+
+threading.Thread(target=pump, daemon=True).start()
 ready = None
 deadline = time.time() + 60
-while time.time() < deadline:
-    line = proc.stdout.readline()
-    if not line:
-        break
+while time.time() < deadline and ready is None:
+    try:
+        line = out_lines.get(timeout=1)
+    except queue.Empty:
+        if proc.poll() is not None:
+            break
+        continue
     if line.startswith(sidecar.PREFIX):
         ready = json.loads(line[len(sidecar.PREFIX):])
-        break
 check("it reports ready with its ports and certificate fingerprint",
       bool(ready) and ready["event"] == "ready" and ready["viewer_port"] > 0 and len(ready["fingerprint"]) == 95, ready)
 if ready:
     import http.client
-    c = http.client.HTTPConnection("127.0.0.1", ready["viewer_port"], timeout=5)
+    c = http.client.HTTPConnection("127.0.0.1", ready["viewer_port"], timeout=10)
     c.request("GET", "/healthz")
     check("/healthz answers on the viewer port", c.getresponse().status == 200)
 proc.stdin.close()  # the shell crashed: no `quit`, just a closed pipe
@@ -81,6 +96,9 @@ except subprocess.TimeoutExpired:
 check("closing its stdin stops the backend", code is not None, code)
 if proc.poll() is None:
     proc.kill()
+if fails:
+    print("--- backend output ---")
+    print("\n".join(collected[-40:]))
 
 if fails:
     print(f"\n{len(fails)} FAILED")
