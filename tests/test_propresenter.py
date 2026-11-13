@@ -1329,9 +1329,11 @@ async def scenario_panel_feeds():
                        trow("T-B", "Game Timer", "00:01:00", "stopped")]
     check("a started timer is announced", await until(lambda: any(
         t["state"] == "running" for m in frames(q) for t in m["timers"])))
-    for secs in range(298, 292, -1):
+    # One timer-second per real second, as ProPresenter counts: a faster fake would look like someone
+    # changing the timer (TIMER_JUMP_S) on a runner that reads it less often, and that is a new message.
+    for secs in range(298, 295, -1):
         fake.timer_rows[0] = trow("T-A", "Segment Countdown", f"00:0{secs // 60}:{secs % 60:02d}", "running")
-        await asyncio.sleep(0.25)
+        await asyncio.sleep(1.0)
     sent_while_counting = frames(q)
     eq("while it counts down, nothing more is sent (the panel counts itself)", sent_while_counting, [])
 

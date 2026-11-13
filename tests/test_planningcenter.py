@@ -211,7 +211,7 @@ check("not in /api/admin/state", SECRET not in body and APP_ID not in body)
 check("not in any save/test response", SECRET not in admin.post(URL, json={"app_id": APP_ID, "secret": SECRET}).text)
 check("never in a log line", not any(SECRET in l or APP_ID in l for l in log_lines))
 check("it is in config.json, which is 0600", SECRET in config.CONFIG_PATH.read_text()
-      and oct(config.CONFIG_PATH.stat().st_mode & 0o777) == "0o600")
+      and (os.name != "posix" or oct(config.CONFIG_PATH.stat().st_mode & 0o777) == "0o600"))  # Windows has no modes
 check("not reachable on the viewer port",
       TestClient(app, base_url="http://relay.local:8000").get("/api/admin/state").status_code in (403, 404))
 
