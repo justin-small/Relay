@@ -673,6 +673,26 @@ kept in the state folder under `signage/` and copied once into `backups/signage-
 neither the database nor any kept `relay-*.db` snapshot names it. Other modules can add kinds of playlist item
 (`app/modules/signage/sources.py`).
 
+### Signage from Planning Center
+
+With both the Planning Center and Signage modules on (Planning Center → *Plan files on signage screens*): pick one
+followed service type and switch it on. Relay follows that type's current plan (today's, or the next one coming) and:
+
+- **copies the pictures and videos attached to the plan's items, and to the plan itself,** into the media library as
+  files named `Planning Center: <item> <file>`. PDFs, linked files and anything signage cannot play are skipped. A file
+  is downloaded once and again only when it changes in Planning Center; a copy no longer on the plan is deleted, and a
+  file you uploaded or renamed never is;
+- **limits it to plan items whose title holds a word** (such as *Announcements*), if you set one. The plan's own files
+  are left out then;
+- **can make a text slide for each plan item** (a signage item of kind *Planning Center plan item*): the title, with
+  the item note whose category you name. Notes can be private, so none is used unless you name its category;
+- **can keep a signage playlist called *Planning Center plan* in step with all of it**, rewritten each time; an item
+  that stays keeps its time and dates.
+
+It looks again every five minutes and when you press *Sync now*. Off by default. Nothing is fetched while Planning
+Center is unreachable; what is stored keeps playing. Pictures get no preview thumbnail, because Relay makes those
+in the browser at upload.
+
 ### Signage from ProPresenter
 
 With both the ProPresenter and Signage modules on:

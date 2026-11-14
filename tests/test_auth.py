@@ -520,6 +520,9 @@ for method, path, perm in (
     ("GET", PCX + "/rundown", "planning_center.view"),                  # the rundown (#148)
     ("POST", PCX + "/rundown/settings", "planning_center.manage"),
     ("POST", PCX + "/rundown/redraw", "planning_center.control"),
+    ("GET", PCX + "/signage", "planning_center.view"),                 # plan files for signage (#209)
+    ("POST", PCX + "/signage/settings", "planning_center.manage"),
+    ("POST", PCX + "/signage/sync", "planning_center.manage"),          # reaches out to Planning Center
     ("POST", PCX + "/live/{action}", "planning_center.control"),        # Next / Previous from the admin page
     ("GET", PPX, "propresenter.view"),
     ("POST", PPX, "propresenter.manage"),
