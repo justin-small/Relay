@@ -10,6 +10,10 @@ The panel carries the OpenAI key and every account, so it is never served in cle
 speaks TLS (app/tls.py), and admin routes are refused on the viewer port (`_split_admin_port` in
 app/main.py), so the link handed to a room cannot reach the panel.
 
+Modules may add plain-HTTP ports of their own (`Listener`, app/modules/__init__.py), such as signage screens on
+8090: one is opened for each listener of a module that is on, and only that module's routes answer on it. One that
+cannot be opened is a notice on the admin page, not a reason to stop.
+
 If 80 or 443 cannot be opened (in use, or not permitted) Relay falls back to 8080 / 8443, says so on the
 admin page, and every link and the mDNS record carry the port actually in use (app/serving.py).
 
@@ -38,6 +42,30 @@ def _print_identity(info, viewer_port: int, admin_port: int, fqdn: str) -> None:
     print()
 
 
+def _module_listeners(host: str, cfg: dict, taken: set[int]):
+    """Open the plain-HTTP ports of the modules that are on. Returns (sockets, lines to print)."""
+    from app.modules import modules
+
+    socks, lines, published = [], [], {}
+    for mod, lst, port in modules.listeners(cfg):
+        what = f"{mod.manifest.name} ({lst.label})"
+        if port in taken:
+            serving.add_notice(f"{what} is set to port {port}, which Relay already uses, so it is not served. "
+                               f"Choose another port in its settings and restart Relay.")
+            continue
+        try:
+            sock, bound, _ = serving.listen(host, port, what)
+        except SystemExit as exc:
+            serving.add_notice(f"{exc} Choose another port in its settings and restart Relay.")
+            continue
+        taken.add(bound)
+        socks.append(sock)
+        published[bound] = lst.prefixes
+        lines.append(f"{what} -> http://{host}:{bound}   (plain HTTP)")
+    serving.publish_listeners(published)
+    return socks, lines
+
+
 def main() -> None:
     config.ensure_file()
     cfg = config.load()
@@ -56,11 +84,14 @@ def main() -> None:
         raise
     notes = [n for n in (note1, note2) if n]
     serving.publish(viewer_port, admin_port, notes)
+    extra_socks, extra_lines = _module_listeners(host, cfg, {viewer_port, admin_port})
 
     info = tls.panel.start(cfg["admin_fqdn"])
     print(f"Viewer pages   -> http://{host}:{viewer_port}   (plain HTTP)")
     print(f"Operator panel -> https://{admin_host}:{admin_port}   (HTTPS, self-signed)")
-    for n in notes:
+    for line in extra_lines:
+        print(line)
+    for n in serving.notices():
         print(f"  {n}")
     if tls.panel.changed:
         print("  The panel certificate was replaced, so its fingerprint changed. Trust the new one below.")
@@ -74,11 +105,12 @@ def main() -> None:
         sidecar.emit("ready", viewer_port=viewer_port, admin_port=admin_port, fingerprint=info.fingerprint,
                      version=os.environ.get("RELAY_VERSION") or "dev", pid=os.getpid(), ips=list(info.ips))
 
-    server = serving.make_server("app.main:app", [viewer_sock], [admin_sock], tls.panel.context, on_ready=ready)
+    plain = [viewer_sock] + extra_socks
+    server = serving.make_server("app.main:app", plain, [admin_sock], tls.panel.context, on_ready=ready)
     if sidecar.enabled():
         # The desktop shell owns this process: `quit` or its pipe closing is a graceful stop (app/sidecar.py).
         sidecar.watch_parent(lambda: setattr(server, "should_exit", True))
-    server.run(sockets=[viewer_sock, admin_sock])
+    server.run(sockets=plain + [admin_sock])
 
 
 if __name__ == "__main__":

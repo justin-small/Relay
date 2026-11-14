@@ -125,6 +125,25 @@ files in that directory. Each file runs once, in order, and what has run is reco
 module's id, so its tables never collide with core's. `migrate` raises `db.Unavailable` while the
 database is down; the module must cope with that.
 
+## A port of its own
+
+A module whose pages are opened by devices that should reach nothing else (signage on a TV) can ask for a plain-HTTP
+port of its own with `Module.listeners`:
+
+```python
+from app.modules import Listener
+
+listeners = (Listener(name="screens", label="signage screens", port_setting="port", default_port=8090,
+                      prefixes=("/signage",)),)
+```
+
+At startup `run.py` opens one socket for each listener of a module that is on, at the port in the module's own
+setting `port_setting` (or `default_port`). Only the module's routes under `prefixes` answer on that port, and
+those routes answer on no other port. A port that cannot be opened, or that Relay already uses, is a notice on
+the admin page; Relay starts anyway. A change of port, or switching the module on, takes effect at the next start,
+so say so in the module's health. `serving.listener_bound(prefixes)` gives the port really bound. The prefixes must
+be under the module's `route_prefixes`, and the default port 1024 or above.
+
 ## The audit log
 
 Every change made through a module's `/api/admin` route already goes in the audit log (#172),

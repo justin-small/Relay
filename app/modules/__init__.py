@@ -90,6 +90,19 @@ class UserPage:
 
 
 @dataclass(frozen=True)
+class Listener:
+    """A plain-HTTP port of the module's own, opened by run.py at startup while the module is on (#205). Only the
+    module's routes under `prefixes` answer on it, and those routes answer on no other port, so a device pointed at
+    it (a TV) reaches nothing else. The port is the module's setting `port_setting`, or `default_port`. A change
+    takes effect when Relay next starts."""
+    name: str                    # unique within the module
+    label: str                   # what it serves, for the startup lines and the admin page ("signage screens")
+    port_setting: str            # the key in the module's own settings holding the port number
+    default_port: int
+    prefixes: tuple[str, ...]    # each under the module's route_prefixes
+
+
+@dataclass(frozen=True)
 class Health:
     state: str         # one of HEALTH_STATES
     detail: str = ""
@@ -114,6 +127,8 @@ class Module:
     # What the module's users may be allowed to do, as users.Permission("<id>.<action>", label, group, min_role).
     # Every id starts with "<module id>."; the registry registers them at discovery.
     permissions: tuple[Permission, ...] = ()
+    # Ports of its own that only its routes answer on (see Listener).
+    listeners: tuple[Listener, ...] = ()
 
     # ------------------------------------------------------------ settings
     def clean(self, raw: Any) -> dict:
@@ -359,6 +374,22 @@ class Registry:
         """The stream names the modules that are on serve."""
         return {n for mod in self.active() for n in mod.streams}
 
+    def listeners(self, cfg: dict | None = None) -> list[tuple[Module, Listener, int]]:
+        """(module, listener, port) for each listener of the modules that are on, with the port from its settings."""
+        from .. import config
+
+        cfg = cfg if cfg is not None else config.get()
+        out = []
+        for mod in self.active():
+            settings = cfg.get(mod.manifest.settings_key) or {}
+            for lst in mod.listeners:
+                out.append((mod, lst, listener_port(settings, lst)))
+        return out
+
+    def listener_prefixes(self) -> tuple[str, ...]:
+        """Every path prefix a module serves only on a listener of its own, whether the module is on or not."""
+        return tuple(p for mod in self.all() for lst in mod.listeners for p in lst.prefixes)
+
     def health(self, mod: Module) -> Health:
         if not self.enabled(mod.manifest.id):
             return Health("idle", "Off")
@@ -442,6 +473,18 @@ class Registry:
         return out
 
 
+def listener_port(settings: dict, lst: Listener) -> int:
+    try:
+        port = int(settings.get(lst.port_setting) or lst.default_port)
+    except (TypeError, ValueError):
+        return lst.default_port
+    return port if 1 <= port <= 65535 else lst.default_port
+
+
+def under(path: str, prefixes: tuple[str, ...]) -> bool:
+    return any(path == p or path.startswith(p.rstrip("/") + "/") for p in prefixes)
+
+
 def validate(mod: Any, package: str) -> list[str]:
     """What is wrong with a module definition (empty when nothing is). Used by discovery and the tests."""
     problems: list[str] = []
@@ -484,6 +527,18 @@ def validate(mod: Any, package: str) -> list[str]:
             problems.append(f"{package}: user page {page.title!r} needs one of the module's own permissions")
         if not any(page.path == pre or page.path.startswith(pre.rstrip("/") + "/") for pre in mod.route_prefixes):
             problems.append(f"{package}: user page {page.title!r} must be under the module's route_prefixes")
+    names = set()
+    for lst in mod.listeners:
+        if not isinstance(lst, Listener):
+            problems.append(f"{package}: listeners must be Listener values")
+            continue
+        if lst.name in names:
+            problems.append(f"{package}: listener {lst.name!r} is declared twice")
+        names.add(lst.name)
+        if not lst.prefixes or not all(under(p, mod.route_prefixes) for p in lst.prefixes):
+            problems.append(f"{package}: listener {lst.name!r} prefixes must be under the module's route_prefixes")
+        if not 1024 <= lst.default_port <= 65535:
+            problems.append(f"{package}: listener {lst.name!r} default port must be 1024-65535")
     return problems
 
 
