@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
+import os
 from typing import Any
 
 from .. import AdminPage, Health, Listener, Manifest, Module
@@ -30,7 +31,7 @@ class Signage(Module):
         settings_key="signage",
         guide="https://github.com/justin-small/relay#signage",
     )
-    defaults = {"port": DEFAULT_PORT}
+    defaults = {"port": DEFAULT_PORT, "timezone": "", "override_until": "next_change"}
     admin_pages = (AdminPage(
         id="signage", title="Signage", template="admin.html", group="Output",
         icon='<rect x="1.5" y="2.5" width="13" height="9" rx="1"/><path d="M5.5 14h5M8 11.5V14"/>'),)
@@ -53,7 +54,13 @@ class Signage(Module):
             port = int(raw.get("port") or DEFAULT_PORT)
         except (TypeError, ValueError):
             port = DEFAULT_PORT
-        return {"port": port if 1024 <= port <= 65535 else DEFAULT_PORT}
+        from ... import schedules
+
+        tz = raw.get("timezone")
+        until = raw.get("override_until")
+        return {"port": port if 1024 <= port <= 65535 else DEFAULT_PORT,
+                "timezone": tz if tz in schedules.TZ_LABELS else schedules.default_timezone(os.environ.get("TZ")),
+                "override_until": until if until in ("next_change", "cleared") else "next_change"}
 
     def configured(self, settings: dict) -> bool:
         return False  # New: nobody had it before modules, so it starts off.
@@ -93,6 +100,7 @@ class Signage(Module):
                 rows = await asyncio.to_thread(store.media_list)
                 await asyncio.to_thread(media.mirror_missing, rows)
                 await asyncio.to_thread(media.prune_mirror, {r["sha256"] for r in rows})
+                await asyncio.to_thread(store.sweep_overrides)
             except db.Unavailable:
                 pass
             except Exception:

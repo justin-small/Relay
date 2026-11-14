@@ -21,7 +21,7 @@ from pathlib import Path
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 
-from ... import audit, config, db, netinfo, serving
+from ... import audit, config, db, netinfo, schedules, serving
 from .. import HEARTBEAT_S, event_stream, read_limited, require, sse
 from . import live, media, sources, store
 
@@ -98,6 +98,7 @@ async def public_events(slug: str, request: Request):
 
     async def gen():
         last_sent = None
+        last_minute = int(time.time() // 60)
         seen = -1
         beat = time.monotonic()
         while not await request.is_disconnected():
@@ -117,8 +118,11 @@ async def public_events(slug: str, request: Request):
             if time.monotonic() - beat >= HEARTBEAT_S:
                 beat = time.monotonic()
                 yield ": keepalive\n\n"
-            # The date can change what plays: look again at midnight without anything being edited.
-            if last_sent is not None and f'"today": "{store.today()}"' not in last_sent:
+            # The clock can change what plays (a slot starts or ends, an override runs out, the date turns): look
+            # again each minute without anything being edited.
+            minute = int(time.time() // 60)
+            if minute != last_minute:
+                last_minute = minute
                 seen = -1
             await asyncio.sleep(1.0)
 
@@ -181,9 +185,17 @@ def admin_state():
     group_names = {g["id"]: g for g in grps}
     items_by_id = {it["id"]: it for p in lists for it in p["items"]}
     now = time.time()
+    try:
+        slot_rows, over = store.slots(), store.overrides()
+    except db.Unavailable as exc:
+        return _refuse(exc)
     for s in screens:
-        pid, why = store.playing_playlist(s)
-        s["playing_playlist"] = {"id": pid, "name": names.get(pid, ""), "from": why} if pid else None
+        plan = store.resolve(s, _slots=slot_rows, _overrides=over)
+        pid = plan["playlist_id"]
+        s["playing_playlist"] = {"id": pid, "name": names.get(pid, ""), "from": plan["layer"],
+                                 "why": plan["why"], "until": plan["until"]} if pid else None
+        if not pid:
+            s["why"] = plan["why"]
         s["urls"] = _screen_urls(s["slug"])
         rep = live.playing(s["slug"])
         if rep:
@@ -203,6 +215,9 @@ def admin_state():
         "storage": media.disk(),
         "limits": {"image": media.IMAGE_LIMIT, "video": media.VIDEO_LIMIT},
         "sources": [{"kind": s.kind, "label": s.label} for s in sources.kinds()],
+        "slots": slot_rows,
+        "overrides": over,
+        "timezones": [{"id": z, "label": l} for z, l in schedules.US_TIMEZONES],
         "today": store.today(),
     }
 
@@ -246,18 +261,94 @@ def admin_source_choices(kind: str):
 
 @router.put("/api/admin/signage/settings", dependencies=MANAGE)
 def admin_settings(request: Request, payload: dict):
-    try:
-        port = int(payload.get("port"))
-    except (TypeError, ValueError):
-        return JSONResponse({"error": "The port is a number from 1024 to 65535."}, status_code=400)
-    if not 1024 <= port <= 65535:
-        return JSONResponse({"error": "The port is a number from 1024 to 65535."}, status_code=400)
-    cfg = config.get()
-    if port in (serving.viewer_port(cfg["port"]), serving.admin_port(cfg["admin_port"])):
-        return JSONResponse({"error": "Relay already uses that port. Choose another."}, status_code=400)
-    config.save({"signage": {"port": port}})
-    audit.note(request, "signage.settings", "Changed the signage port", detail={"port": port})
+    change: dict = {}
+    if "port" in payload:
+        try:
+            port = int(payload.get("port"))
+        except (TypeError, ValueError):
+            return JSONResponse({"error": "The port is a number from 1024 to 65535."}, status_code=400)
+        if not 1024 <= port <= 65535:
+            return JSONResponse({"error": "The port is a number from 1024 to 65535."}, status_code=400)
+        cfg = config.get()
+        if port in (serving.viewer_port(cfg["port"]), serving.admin_port(cfg["admin_port"])):
+            return JSONResponse({"error": "Relay already uses that port. Choose another."}, status_code=400)
+        change["port"] = port
+    if "timezone" in payload:
+        if payload.get("timezone") not in schedules.TZ_LABELS:
+            return JSONResponse({"error": "Pick a US time zone."}, status_code=400)
+        change["timezone"] = payload["timezone"]
+    if "override_until" in payload:
+        if payload.get("override_until") not in ("next_change", "cleared"):
+            return JSONResponse({"error": "A hand-chosen playlist lasts until the next scheduled change or until cleared."},
+                                status_code=400)
+        change["override_until"] = payload["override_until"]
+    if not change:
+        return JSONResponse({"error": "Nothing to change."}, status_code=400)
+    config.save({"signage": change})
+    live.bump()
+    audit.note(request, "signage.settings", "Changed the signage settings", detail=change)
     return {"settings": _settings(), "port": _port_info()}
+
+
+# ------------------------------------------------------------------ schedule slots and overrides (#206)
+
+@router.post("/api/admin/signage/slots", dependencies=MANAGE)
+def admin_slot_create(request: Request, payload: dict):
+    try:
+        row = store.slot_save(None, payload)
+    except (store.Invalid, db.Unavailable) as exc:
+        return _refuse(exc)
+    audit.note(request, "signage.slot_create", "Added a signage schedule slot", target=str(row.get("id", "")))
+    return row
+
+
+@router.put("/api/admin/signage/slots/{sid}", dependencies=MANAGE)
+def admin_slot_update(sid: str, request: Request, payload: dict):
+    try:
+        row = store.slot_save(_int(sid), payload)
+    except (store.Invalid, db.Unavailable) as exc:
+        return _refuse(exc)
+    audit.note(request, "signage.slot_update", "Changed a signage schedule slot", target=str(row.get("id", "")))
+    return row
+
+
+@router.delete("/api/admin/signage/slots/{sid}", dependencies=MANAGE)
+def admin_slot_delete(sid: str, request: Request):
+    try:
+        store.slot_delete(_int(sid))
+    except (store.Invalid, db.Unavailable) as exc:
+        return _refuse(exc)
+    audit.note(request, "signage.slot_delete", "Deleted a signage schedule slot", target=sid)
+    return {"ok": True}
+
+
+@router.put("/api/admin/signage/override", dependencies=MANAGE)
+def admin_override_set(request: Request, payload: dict):
+    until = payload.get("until") or _settings().get("override_until", "next_change")
+    if until not in ("next_change", "cleared"):
+        return JSONResponse({"error": "A hand-chosen playlist lasts until the next scheduled change or until cleared."},
+                            status_code=400)
+    try:
+        row = store.override_set(str(payload.get("target") or ""), payload.get("target_id") or 0,
+                                 _int(str(payload.get("playlist_id") or 0)), until)
+    except (store.Invalid, db.Unavailable) as exc:
+        return _refuse(exc)
+    except (TypeError, ValueError):
+        return JSONResponse({"error": "Choose a screen or a group."}, status_code=400)
+    audit.note(request, "signage.override_set", "Put a signage playlist on by hand",
+               target=f"{row['target']} {row['target_id']}", detail={"playlist": row["playlist_id"], "until": until})
+    return row
+
+
+@router.delete("/api/admin/signage/override", dependencies=MANAGE)
+def admin_override_clear(request: Request, target: str = "", target_id: int = 0):
+    try:
+        store.override_clear(target if target in ("screen", "group", "all") else "", target_id)
+    except (store.Invalid, db.Unavailable) as exc:
+        return _refuse(exc)
+    audit.note(request, "signage.override_clear", "Cleared a hand-chosen signage playlist",
+               target=f"{target} {target_id}")
+    return {"ok": True}
 
 
 # ------------------------------------------------------------------ media

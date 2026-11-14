@@ -495,6 +495,11 @@ for method, path, perm in (
     ("POST", SGX + "/screens", "signage.manage"),
     ("PUT", SGX + "/screens/{sid}", "signage.manage"),
     ("DELETE", SGX + "/screens/{sid}", "signage.manage"),
+    ("POST", SGX + "/slots", "signage.manage"),
+    ("PUT", SGX + "/slots/{sid}", "signage.manage"),
+    ("DELETE", SGX + "/slots/{sid}", "signage.manage"),
+    ("PUT", SGX + "/override", "signage.manage"),
+    ("DELETE", SGX + "/override", "signage.manage"),
 ):
     route(method, path, perm)
 for method, path, perm in (
