@@ -720,6 +720,27 @@ A playlist put on by a tag is the "tag" layer (above a hand-picked playlist and 
 stays until another tag, a resume tag or a restart of Relay. While Signage is off these tags do nothing and the tag
 panel on the ProPresenter page says so; the panel also lists what tags hold on screens now.
 
+### Signage: web pages and YouTube
+
+A module of its own (**Modules → Signage: web pages and YouTube**; it needs Signage on). Its **Web & YouTube** page
+saves addresses; a saved link is then added to a playlist from the playlist editor's source picker, like an uploaded
+file.
+
+- **Web page:** shown full screen for the item's seconds. When you add it, Relay asks the site whether it allows being
+  shown inside another page. A site that refuses (`X-Frame-Options`, or a `frame-ancestors` rule) is marked in red:
+  its screens would stay blank. **Check again** repeats the question.
+- **YouTube:** a video or playlist link (`watch`, `youtu.be`, `shorts`, `embed` and `playlist` addresses). Relay asks
+  YouTube whether it can be embedded and takes the video's title as the name. It plays through YouTube's privacy
+  embed, **muted unless the screen has Sound on** (and a browser may still refuse sound it wasn't allowed to start).
+  A single video added with **0 seconds** plays to its end; a number of seconds cuts it short. A playlist runs for the
+  seconds you set, looping through its videos.
+- **Offline:** these items need the internet. Each screen checks it can reach the site before showing the item and
+  skips it while it can't, then tries again the next time round, so a TV that loses the internet keeps playing the
+  rest of the playlist. Relay itself is not involved, so one screen's connection problem leaves the others alone.
+
+The address check is made from the computer running Relay, so it needs the internet too; a link added while offline is
+saved and marked "couldn't reach", and **Check again** fixes that later.
+
 ## Security
 
 - The OpenAI key lives only in `config.json` on the host (mode `0600`,

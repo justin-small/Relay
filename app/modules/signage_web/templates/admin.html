@@ -1,0 +1,33 @@
+{# The Web & YouTube admin page, rendered inside admin.html only while the module is on. #}
+    <h2 class="title">Web &amp; YouTube <span class="sumstate" id="swSum"></span></h2>
+    <p class="sub">Save a web page or a YouTube video or playlist here, then add it to a signage playlist like any
+      other item.</p>
+    <p class="note">These items need the internet. A screen skips one while it can't reach the site and shows it again
+      when it can. A YouTube video plays muted unless the screen has Sound on.</p>
+
+    <section>
+      <h3>Add a link</h3>
+      <div class="row">
+        <div class="field">
+          <label for="swUrl">Address</label>
+          <input id="swUrl" placeholder="https://… or a YouTube link" autocomplete="off" spellcheck="false" maxlength="500">
+        </div>
+        <div class="field">
+          <label for="swName">Name (optional)</label>
+          <input id="swName" placeholder="Shown in playlists" autocomplete="off" maxlength="100">
+        </div>
+      </div>
+      <div class="ctl"><button type="button" class="primary" id="swAdd">Add</button></div>
+      <div class="note">Relay checks the address when you add it: a site that refuses to be shown inside another page
+        stays blank on screens, and a YouTube video whose owner turned embedding off can't play.</div>
+    </section>
+    <div class="note err" id="swErr" hidden></div>
+
+    <section>
+      <h3>Saved links</h3>
+      <div id="swList"></div>
+      <p class="note" id="swEmpty">Nothing saved yet.</p>
+      <div class="note">Set a playlist item's seconds to choose how long a web page or a playlist shows. A single
+        YouTube video added with 0 seconds plays to its end; a number cuts it short. Removing a link here makes
+        every playlist that uses it skip it.</div>
+    </section>
