@@ -86,12 +86,14 @@ _CORE = (
     Permission("users.manage", "Create and change users, reset passwords, trust devices", "Users", "admin"),
     Permission("tokens.own", "Create API tokens for your own scripts", "Users", "admin"),
     Permission("tokens.manage", "See and revoke everyone's API tokens", "Users", "owner"),
+    Permission("audit.view", "Read the audit log of sign-ins and changes", "Users", "admin"),
 )
 
 # What an API token never does, whatever its user's role: manage accounts, passwords, devices, tokens or the
-# OpenAI key. A leaked token can then use Relay but cannot take over an account or mint more tokens. The
+# OpenAI key, or read the audit log (who signs in, from where). A leaked token can then use Relay but cannot take over an account or mint more tokens. The
 # signed-in-user routes with no permission of their own (password, PIN, own tokens) refuse tokens in main.py.
-TOKEN_BARRED = frozenset({"users.view", "users.manage", "credentials.manage", "tokens.own", "tokens.manage"})
+TOKEN_BARRED = frozenset({"users.view", "users.manage", "credentials.manage", "tokens.own", "tokens.manage",
+                          "audit.view"})
 
 _PERM_ID = re.compile(r"^[a-z][a-z0-9_]*\.[a-z][a-z0-9_]*$")
 _perm_lock = threading.Lock()
