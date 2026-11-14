@@ -368,7 +368,7 @@ MIN_ROLE = {
 }
 for role in ROLE_NAMES:
     me = clients[role].get("/api/admin/me").json()
-    eq(f"{role}: /me has the contract's shape", sorted(me), ["device", "permissions", "pin_set", "user"])
+    eq(f"{role}: /me has the contract's shape", sorted(me), ["device", "permissions", "pin_set", "prefs", "user"])
     eq(f"{role}: user fields", sorted(me["user"]), ["id", "must_change_password", "name", "role", "username"])
     eq(f"{role}: device", me["device"], {"trusted": False, "name": None})
     want = sorted(p for p, mr in MIN_ROLE.items() if RANK[role] >= RANK[mr])
@@ -459,6 +459,10 @@ route("DELETE", "/api/admin/trusted-devices/{device_id}", "users.manage")
 route("GET", "/api/admin/me/tokens", "tokens.own")
 route("POST", "/api/admin/me/tokens", "tokens.own")
 route("DELETE", "/api/admin/me/tokens/{token_id}", None)
+# Per-user preferences (#173): any signed-in user, their own only
+route("GET", "/api/admin/me/prefs", None)
+route("PUT", "/api/admin/me/prefs/{scope}/{name}", None)
+route("DELETE", "/api/admin/me/prefs/{scope}/{name}", None)
 route("GET", "/api/admin/tokens", "tokens.manage")
 route("DELETE", "/api/admin/tokens/{token_id}", "tokens.manage")
 # The audit log (#172)
@@ -569,7 +573,7 @@ check("each route's dependency asks for the permission in the table", not mismat
 SAFE_GET = {"/api/admin/me", "/api/admin/state", "/api/admin/status", "/api/admin/modules", "/api/admin/alerts",
             "/api/admin/panels", "/api/admin/panels/firmware", "/api/admin/schedules", "/api/admin/overlays",
             "/api/admin/recordings", "/api/admin/users", "/api/admin/trusted-devices",
-            "/api/admin/me/tokens", "/api/admin/tokens",
+            "/api/admin/me/tokens", "/api/admin/tokens", "/api/admin/me/prefs",
             "/api/admin/planning-center/live", "/api/admin/propresenter", "/api/admin/propresenter/lobby",
             "/api/admin/propresenter/live", "/api/admin/propresenter/link"}
 

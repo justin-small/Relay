@@ -152,6 +152,32 @@ itself.
 
 Neither call raises: a database that is down loses the entry and logs a warning.
 
+## Per-user preferences
+
+Each person's own choices (a layout, a default view, a language) are kept per user in the user
+database (#173), so they follow the person to every device. A module keeps its own under its id
+with `app.prefs`:
+
+```python
+from ... import prefs
+
+cols = prefs.get(user.id, "columns", 2, scope="mixer")    # the default when unset
+prefs.set(user.id, "columns", 3, scope="mixer")           # any plain JSON; None removes it
+prefs.scope_prefs(user.id, "mixer")                       # {"columns": 3}
+```
+
+- `scope` is the module's id; core's own are under `"core"`;
+- a name is lowercase, `a-z`, `0-9` and `_`, with up to two dots (`"layout.columns"`);
+- a value is plain JSON of at most 4000 bytes, and a person keeps at most 200 preferences in all;
+  a refusal raises `prefs.Invalid`, whose text is a fixed sentence;
+- they are personal, not configuration: never put a secret in one, and they are not in the audit log;
+- they go when the user is deleted.
+
+A page reads and writes the signed-in user's own through `GET /api/admin/me/prefs` (every scope),
+`PUT /api/admin/me/prefs/<scope>/<name>` with `{"value": ...}`, and `DELETE` on the same path. The
+API accepts `core` and the id of any installed module. `GET /api/admin/me` carries them too, so a
+page has them as it loads. Calls on the database raise `db.Unavailable` while it is down.
+
 ## Livestream status
 
 A module that watches a livestream (OBS, Resi, YouTube, ...) publishes into the shared stream status in core
