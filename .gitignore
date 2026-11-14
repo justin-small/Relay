@@ -28,3 +28,6 @@ panel-firmware/
 
 # Planning Center live-test credentials (tools/check_planningcenter.py)
 planningcenter-test.env
+
+# Local Docker-era runtime config (certs, config, panel firmware). Never commit.
+docker-config/
