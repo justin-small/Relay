@@ -675,6 +675,28 @@ window.relayCan = function (perm) { return window.RELAY_ME.permissions.indexOf(p
       </div>{% endif %}
     </section>
     <section>
+      <h3>Stage messages</h3>
+      <p class="note" style="margin-top:0">Words from the booth to the stage, shown without the red flash and with nothing to tap.
+        A message sits in the middle of the screen; a banner is a strip across the top that stays up longer. They show
+        over whatever a panel or screen is already showing, and end on their own or when someone clears them on the
+        sender page.</p>
+      <div class="plist" id="msgList"></div>
+      {% if 'alerts.manage' in perms %}<div class="ctl" style="margin-top:12px">
+        <button type="button" id="msgAdd">Add message</button>
+      </div>{% endif %}
+      <div class="field" style="margin-top:12px">
+        <label>Typed messages go to</label>
+        <div id="msgFree"></div>
+        <div class="note">The sender page shows a box to type a message once you pick at least one panel or screen here.</div>
+      </div>
+      <div class="ctl">
+        <label for="msgSeconds">A message stays</label>
+        <input id="msgSeconds" type="number" min="3" max="120" style="width:5em"{% if 'alerts.manage' not in perms %} disabled{% endif %}> <span class="muted">seconds</span>
+        <label for="bannerSeconds" style="margin-left:16px">A banner stays</label>
+        <input id="bannerSeconds" type="number" min="30" max="3600" style="width:5em"{% if 'alerts.manage' not in perms %} disabled{% endif %}> <span class="muted">seconds</span>
+      </div>
+    </section>
+    <section>
       <h3>When nobody taps</h3>
       <div class="field">
         <label for="alertAutoStop">Stop flashing after</label>

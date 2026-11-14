@@ -34,6 +34,17 @@
 <p class="alert-empty" id="empty" hidden>No alert buttons yet. The operator sets them up in Relay admin, under Alerts.</p>
 <p class="alert-note alert-foot">Tap a card to flash its screens. Tap it again to stop.</p>
 
+<section class="alert-section" id="msgSection" hidden>
+  <h2>Message the stage</h2>
+  <div class="msg-presets" id="msgPresets"></div>
+  <form class="msg-free" id="msgForm" hidden>
+    <input type="text" id="msgText" maxlength="80" placeholder="Type a message" aria-label="Message">
+    <label><input type="checkbox" id="msgBanner"> Banner</label>
+    <button type="submit">Send</button>
+  </form>
+  <div id="msgLive"></div>
+</section>
+
 <div class="toast" id="toast"></div>
 <script src="{{ static('alert-icons.js') }}"></script>
 <script src="{{ static('alert.js') }}"></script>

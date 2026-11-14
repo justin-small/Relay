@@ -666,7 +666,7 @@ class Registry:
         rotation = self._pending_rotation(pid)
         if rotation:
             q.put_nowait(sse_frame(rotation))
-        for alert in self.alerts_for(pid)[:4]:
+        for alert in self.alerts_for(pid)[:8]:
             q.put_nowait(sse_frame(alert))
         return q
 

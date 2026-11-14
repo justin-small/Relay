@@ -34,5 +34,11 @@ void alert_view_start();
 void alert_view_flash(const alert_flash &alert);
 void alert_view_flash_end(const char *id);
 
+// From the panel link: show a stage message (#214) over whatever is on screen, or take down message `id`. A banner
+// (a strip across the top) and a message (a card in the middle) can be up together; a newer one of the same kind
+// replaces the older. Neither takes a tap.
+void alert_view_message(const alert_message &message);
+void alert_view_message_end(const char *id);
+
 // The console's `view`: the panes, and the flash if one is up.
 void alert_view_report();

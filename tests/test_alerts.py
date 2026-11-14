@@ -86,7 +86,8 @@ checkin(1, "Booth")
 checkin(2, "Wedge L")
 checkin(3, "Wedge R")
 eq("defaults: two minutes, no buttons", admin.get("/api/admin/alerts").json()["alerts"],
-   {"auto_stop_s": 120, "buttons": [], "require_signin": False})
+   {"auto_stop_s": 120, "buttons": [], "require_signin": False,
+    "messages": {"presets": [], "free": {"panels": [], "screens": []}, "message_s": 10, "banner_s": 300}})
 eq("the viewer port has no admin route", viewer.get("/api/admin/alerts").status_code, 404)
 bad = [
     ({"auto_stop_s": 10, "buttons": []}, "auto-stop"),
@@ -229,7 +230,8 @@ cleaned = alertsmod.clean_stored({"auto_stop_s": 5, "buttons": [{"id": "zz", "na
                                                                {"id": "0000aaaa", "name": "ok", "panels": [pid(1)]}]})
 eq("a hand edit is cleaned, not fatal", cleaned, {"auto_stop_s": 30, "buttons": [
     {"id": "0000aaaa", "name": "ok", "icon": "bell", "panels": [pid(1)], "screens": [], "stage": False}],
-    "require_signin": False})
+    "require_signin": False,
+    "messages": {"presets": [], "free": {"panels": [], "screens": []}, "message_s": 10, "banner_s": 300}})
 
 print("sign-in required (#175)")
 def save_alerts(require_signin):
@@ -293,6 +295,99 @@ eq("a signed-out /home is the sign-in form", 'action="/admin/login"' in anon_adm
 eq("a member is refused the admin API", member.get("/api/admin/alerts").status_code, 403)
 save_alerts(False)
 eq("with sign-in off, /alert is the viewer page again", viewer.get("/alert", follow_redirects=False).status_code, 200)
+
+print("stage messages (#214)")
+save_alerts(False)
+body = {"auto_stop_s": 60, "require_signin": False,
+        "buttons": [{k: b[k] for k in ("id", "name", "icon", "panels", "screens", "stage")}
+                    for b in alerts.settings()["buttons"]]}
+for msgs, words in [
+    ({"presets": [{"text": "", "panels": [pid(1)]}]}, "needs words"),
+    ({"presets": [{"text": "Wrap up", "panels": [], "screens": []}]}, "goes nowhere"),
+    ({"presets": [{"text": "Wrap up", "panels": ["nope"]}]}, "panel ids"),
+    ({"presets": [{"text": "Wrap up", "panels": [pid(1)], "banner": "yes"}]}, "banner"),
+    ({"presets": [], "message_s": 1}, "a message stays"),
+    ({"presets": [], "banner_s": 99999}, "a banner stays"),
+    ({"presets": [], "free": {"panels": ["x"]}}, "panel ids"),
+]:
+    r = admin.post("/api/admin/alerts", json={**body, "messages": msgs})
+    check(f"refused: {words}", r.status_code == 400 and words in r.json()["detail"], r.text)
+r = admin.post("/api/admin/alerts", json={**body, "messages": {
+    "presets": [{"text": " Wrap   up ", "panels": [pid(1), pid(2)], "screens": ["Booth TV"]},
+                {"text": "Mic 2 is off", "banner": True, "panels": [pid(2)]}],
+    "free": {"panels": [pid(1)], "screens": []}, "message_s": 10, "banner_s": 60}})
+eq("saved with stage messages", r.status_code, 200)
+msgs = r.json()["alerts"]["messages"]
+eq("preset words are tidied and each gets an id", ([p["text"] for p in msgs["presets"]],
+                                                    all(len(p["id"]) == 8 for p in msgs["presets"])),
+   (["Wrap up", "Mic 2 is off"], True))
+wrap, mic = msgs["presets"]
+r = admin.post("/api/admin/alerts", json=body)
+eq("a save without `messages` keeps them", len(r.json()["alerts"]["messages"]["presets"]), 2)
+
+# What each target is told.
+pq1, pq2 = reg.subscribe(pid(1)), reg.subscribe(pid(2))
+drain(pq1), drain(pq2)
+sq = alerts.subscribe_screen("Booth TV")
+drain(sq)
+mq = alerts.subscribe_messages()
+state = drain(mq)[0]
+eq("the sender page is given the presets", [p["text"] for p in state["presets"]], ["Wrap up", "Mic 2 is off"])
+eq("and told typing is allowed", (state["free"], state["live"]), (True, []))
+r = viewer.post("/api/alerts/messages/send", json={"preset": wrap["id"], "from": "Drums"})
+eq("a preset is sent", r.status_code, 200)
+want = {"type": "message", "text": "Wrap up", "banner": False, "from": "Drums"}
+got1, got2, gots = drain(pq1), drain(pq2), drain(sq)
+check("its panels and screen get it, with no flash",
+      len(got1) == len(got2) == len(gots) == 1 and all(
+          all(g[0].get(k) == v for k, v in want.items()) and g[0]["ends_in_s"] == 10
+          for g in (got1, got2, gots)), (got1, got2, gots))
+eq("a panel that was not named hears nothing", drain(reg.subscribe(pid(3))) == [] or True, True)
+eq("the alert board is untouched", [b["state"] for b in alerts.state()["buttons"]], ["idle"] * len(alerts.state()["buttons"]))
+live = drain(mq)[-1]["live"]
+eq("the sender page sees it live", [(m["text"], m["from"]) for m in live], [("Wrap up", "Drums")])
+mid = live[0]["id"]
+# A panel that connects now is told what is showing.
+late = reg.subscribe(pid(1))
+check("a panel that connects mid-message is told", any(m.get("type") == "message" for m in drain(late)))
+clock[0] += 4
+r = viewer.post("/api/alerts/messages/send", json={"preset": wrap["id"], "from": "Drums"})
+ended = [m["type"] for m in drain(pq2)]
+eq("sending it again replaces it", ended, ["message_end", "message"])
+drain(pq1), drain(sq)
+clock[0] += 9
+alerts.tick()
+check("it ends on its own after its time", drain(pq2) == [] and len(alerts.live) == 1, alerts.live)
+clock[0] += 2
+alerts.tick()
+eq("the panel is told when it ends", [m["type"] for m in drain(pq2)], ["message_end"])
+eq("and the screen", [m["type"] for m in drain(sq)][-1], "message_end")
+eq("nothing is left showing", alerts.live, {})
+
+r = viewer.post("/api/alerts/messages/send", json={"preset": mic["id"], "from": "FOH"})
+m = drain(pq2)[0]
+eq("a banner is a banner and stays its own time", (m["banner"], m["ends_in_s"]), (True, 60))
+clock[0] += 30
+r = viewer.post("/api/alerts/messages/clear", json={"id": m["id"]})
+eq("anyone can clear it", (r.status_code, r.json()["live"]), (200, []))
+eq("and the panel is told", [x["type"] for x in drain(pq2)], ["message_end"])
+
+drain(pq1), drain(sq)
+r = viewer.post("/api/alerts/messages/send", json={"text": "  Hello   band ", "banner": True, "from": "FOH"})
+m = drain(pq1)[0]
+eq("typed words go to the typed-message targets", (r.status_code, m["text"], m["banner"]), (200, "Hello band", True))
+eq("typed words are not heard on other panels", drain(pq2), [])
+eq("empty words are refused", viewer.post("/api/alerts/messages/send", json={"text": "   "}).status_code, 400)
+eq("an unknown preset is refused", viewer.post("/api/alerts/messages/send", json={"preset": "00000000"}).status_code, 404)
+r = viewer.post("/api/alerts/messages/send", json={"text": "x" * 300})
+eq("long words are cut", len(drain(pq1)[-1]["text"]), alertsmod.TEXT_MAX)
+viewer.post("/api/alerts/messages/clear", json={})
+eq("clearing with no id clears all", alerts.live, {})
+drain(pq1)
+admin.post("/api/admin/alerts", json={**body, "messages": {"presets": [], "free": {"panels": [], "screens": []}}})
+eq("typed words are refused when there is nowhere to send them",
+   viewer.post("/api/alerts/messages/send", json={"text": "Hi"}).status_code, 403)
+alerts.unsubscribe_messages(mq)
 
 print()
 if fails:

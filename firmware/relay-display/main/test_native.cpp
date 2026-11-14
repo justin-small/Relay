@@ -2411,6 +2411,27 @@ void check_alerts()
     ev = panel_parse_event(end, strlen(end));
     CHECK(ev.kind == panel_message::alert_end && strcmp(ev.alert_end_id, "00112233aabbccdd") == 0);
 
+    // Stage messages (#214): words over the feed, no flash, no tap.
+    const char *smsg = R"({"type":"message","id":"00112233aabbccdd","from":"Drums","text":"Wrap up","banner":true,"ends_in_s":300})";
+    ev = panel_parse_event(smsg, strlen(smsg));
+    CHECK(ev.kind == panel_message::message && strcmp(ev.message.id, "00112233aabbccdd") == 0 &&
+          strcmp(ev.message.text, "Wrap up") == 0 && strcmp(ev.message.from, "Drums") == 0 && ev.message.banner &&
+          ev.message.ends_in_s == 300);
+    const char *plain = R"({"type":"message","id":"00112233aabbccdd","text":"5 minutes"})";
+    ev = panel_parse_event(plain, strlen(plain));
+    CHECK(ev.kind == panel_message::message && !ev.message.banner && ev.message.from[0] == '\0' &&
+          ev.message.ends_in_s == kMessageEndsMaxS);
+    const char *nowords = R"({"type":"message","id":"00112233aabbccdd","text":""})";
+    CHECK(panel_parse_event(nowords, strlen(nowords)).kind == panel_message::none);
+    const char *noid2 = R"({"type":"message","id":"xyz","text":"Hi"})";
+    CHECK(panel_parse_event(noid2, strlen(noid2)).kind == panel_message::none);
+    const char *mend = R"({"type":"message_end","id":"00112233aabbccdd"})";
+    ev = panel_parse_event(mend, strlen(mend));
+    CHECK(ev.kind == panel_message::message_end && strcmp(ev.message_end_id, "00112233aabbccdd") == 0);
+    alert_message sm;
+    sm.ends_in_s = 10;
+    CHECK(!alert_message_expired(sm, 14999) && alert_message_expired(sm, 15000));
+
     // Red then white, half a period each; a panel that lost Relay stops a little after the auto-stop.
     CHECK(alert_flash_red(0, 1) && alert_flash_red(499, 1) && !alert_flash_red(500, 1) && alert_flash_red(1000, 1));
     CHECK(alert_flash_red(0, 2) && !alert_flash_red(250, 2) && alert_flash_red(500, 2));

@@ -33,6 +33,8 @@ constexpr size_t kAlertFlashIdBytes = 17;  // an alert id: 16 hex
 constexpr size_t kAlertNameBytes = 64;     // up to 32 characters, in UTF-8
 constexpr uint32_t kAlertFlashMaxHz = 2;
 constexpr uint32_t kAlertEndsMaxS = 600;
+constexpr size_t kMessageTextBytes = 161;  // a stage message (#214): up to 80 characters, folded to ASCII for drawing
+constexpr uint32_t kMessageEndsMaxS = 3600;
 
 enum class alert_button_state : uint8_t { idle, on, seen, missed, cancelled };
 
@@ -250,6 +252,56 @@ inline bool alert_flash_parse(const char *obj, const char *e, alert_flash *out)
                : 1;
     *out = f;
     return true;
+}
+
+// A stage message (#214): words from the booth, drawn over the current feed with no flash and nothing to tap. A
+// banner is a strip across the top; a message is a card in the middle. Relay ends it (`message_end`), or the
+// panel does once the time it was told has passed.
+struct alert_message {
+    char id[kAlertFlashIdBytes] = {};
+    char from[kAlertNameBytes] = {};
+    char text[kMessageTextBytes] = {};
+    bool banner = false;
+    uint32_t ends_in_s = 0;
+};
+
+// The `message` object at `obj`. False unless it has a message id and some words.
+inline bool alert_message_parse(const char *obj, const char *e, alert_message *out)
+{
+    alert_message m;
+    size_t n = 0;
+    const char *v = caption_json::get(obj, e, "id");
+    if (v == nullptr || !caption_json::read_string(v, e, m.id, sizeof m.id, &n) ||
+        !alert_hex_ok(m.id, kAlertFlashIdBytes - 1)) {
+        return false;
+    }
+    v = caption_json::get(obj, e, "text");
+    if (v == nullptr || !caption_json::read_string(v, e, m.text, sizeof m.text, &n) || n == 0) {
+        return false;
+    }
+    v = caption_json::get(obj, e, "from");
+    if (v != nullptr) {
+        caption_json::read_string(v, e, m.from, sizeof m.from, &n);
+    }
+    v = caption_json::get(obj, e, "banner");
+    bool banner = false;
+    if (v != nullptr && caption_json::read_bool(v, e, &banner)) {
+        m.banner = banner;
+    }
+    uint64_t num = 0;
+    v = caption_json::get(obj, e, "ends_in_s");
+    m.ends_in_s = v != nullptr && caption_json::read_uint(v, e, &num) && num > 0
+                      ? static_cast<uint32_t>(num > kMessageEndsMaxS ? kMessageEndsMaxS : num)
+                      : kMessageEndsMaxS;
+    *out = m;
+    return true;
+}
+
+// Whether a message shown `elapsed_ms` ago has outlived the time Relay gave it, with a few seconds' grace for a
+// `message_end` on its way. Only for a panel that has lost Relay.
+inline bool alert_message_expired(const alert_message &m, uint32_t elapsed_ms)
+{
+    return elapsed_ms / 1000 >= m.ends_in_s + 5;
 }
 
 // The `alert_end` object's alert id. False when there is none.

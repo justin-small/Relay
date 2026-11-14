@@ -893,7 +893,7 @@
      The operator's buttons are edited here and saved whole. The status stream's `alerts_admin` frame brings the
      saved settings, the browser screens open now and each button's state; while there are unsaved edits only the
      states and hints are repainted, so typing is never undone. */
-  let alertCfg = { auto_stop_s: 120, buttons: [] };
+  let alertCfg = { auto_stop_s: 120, buttons: [], messages: { presets: [], free: { panels: [], screens: [] }, message_s: 10, banner_s: 300 } };
   let alertScreens = [];
   let alertState = [];
   let alertDirty = false;
@@ -912,6 +912,9 @@
       alertCfg = JSON.parse(JSON.stringify(frame.alerts || alertCfg));
       $('alertAutoStop').value = String(alertCfg.auto_stop_s);
       $('alertSignin').checked = !!alertCfg.require_signin;
+      if (!alertCfg.messages) alertCfg.messages = { presets: [], free: { panels: [], screens: [] }, message_s: 10, banner_s: 300 };
+      $('msgSeconds').value = String(alertCfg.messages.message_s);
+      $('bannerSeconds').value = String(alertCfg.messages.banner_s);
     }
     renderAlerts();
   }
@@ -951,7 +954,95 @@
       list.appendChild(el('div', 'muted', 'No alert buttons yet. Add one for each place a musician may need to reach.'));
     }
     alertCfg.buttons.forEach(function (b, i) { list.appendChild(alertCard(b, i)); });
+    renderMessageCards();
     renderAlertLinks();
+  }
+
+  /* Stage messages (#214): preset cards, and where typed words go. Edited with the buttons and saved with them. */
+  function targetPicker(item, editable, label) {
+    const wrap = el('div', 'field');
+    wrap.appendChild(el('label', '', label));
+    const grid = el('div', 'atargets');
+    const known = panelRows.slice();
+    item.panels.forEach(function (pid) {
+      if (!known.some(function (r) { return r.id === pid; })) known.push({ id: pid, name: 'Forgotten panel ' + pid.slice(0, 4), online: false });
+    });
+    if (!known.length) grid.appendChild(el('span', 'muted', 'No panels have checked in yet.'));
+    known.forEach(function (r) {
+      const lab = el('label', 'check');
+      const box = el('input');
+      box.type = 'checkbox';
+      box.checked = item.panels.indexOf(r.id) !== -1;
+      box.disabled = !editable;
+      box.addEventListener('change', function () {
+        item.panels = item.panels.filter(function (x) { return x !== r.id; });
+        if (box.checked) item.panels.push(r.id);
+        alertSetDirty(true);
+      });
+      lab.appendChild(box);
+      lab.appendChild(el('span', '', r.name + (r.online ? '' : ' (offline)')));
+      grid.appendChild(lab);
+    });
+    wrap.appendChild(grid);
+    const screens = el('input');
+    screens.placeholder = 'Browser screens, separated by commas';
+    screens.setAttribute('aria-label', label + ': browser screens');
+    screens.value = item.screens.join(', ');
+    screens.disabled = !editable;
+    screens.style.marginTop = '6px';
+    screens.addEventListener('input', function () {
+      item.screens = screens.value.split(',').map(function (x) { return x.replace(/\s+/g, ' ').trim(); }).filter(Boolean);
+      alertSetDirty(true);
+    });
+    wrap.appendChild(screens);
+    return wrap;
+  }
+
+  function renderMessageCards() {
+    const editable = can('alerts.manage');
+    const msgs = alertCfg.messages;
+    const list = $('msgList');
+    list.innerHTML = '';
+    if (!msgs.presets.length) list.appendChild(el('div', 'muted', 'No preset messages yet. Add the ones you send often: “Wrap up”, “5 minutes”.'));
+    msgs.presets.forEach(function (m, i) {
+      const card = el('div', 'pcard acard');
+      const head = el('div', 'phead');
+      const text = el('input');
+      text.value = m.text;
+      text.maxLength = 80;
+      text.placeholder = '5 minutes';
+      text.setAttribute('aria-label', 'Message');
+      text.style.flex = '1 1 220px';
+      text.disabled = !editable;
+      text.addEventListener('input', function () { m.text = text.value; alertSetDirty(true); });
+      head.appendChild(text);
+      const bl = el('label', 'check');
+      const bb = el('input');
+      bb.type = 'checkbox';
+      bb.checked = !!m.banner;
+      bb.disabled = !editable;
+      bb.addEventListener('change', function () { m.banner = bb.checked; alertSetDirty(true); });
+      bl.appendChild(bb);
+      bl.appendChild(el('span', '', 'Banner'));
+      head.appendChild(bl);
+      if (editable) {
+        const remove = el('button', '', 'Remove');
+        remove.type = 'button';
+        remove.addEventListener('click', function () {
+          msgs.presets.splice(i, 1);
+          alertDirty = false;
+          renderAlerts();
+          alertSetDirty(true);
+        });
+        head.appendChild(remove);
+      }
+      card.appendChild(head);
+      card.appendChild(targetPicker(m, editable, 'Shown on'));
+      list.appendChild(card);
+    });
+    const free = $('msgFree');
+    free.innerHTML = '';
+    free.appendChild(targetPicker(msgs.free, editable, 'Panels and screens'));
   }
 
   function screenHint() {
@@ -1109,6 +1200,17 @@
     const inputs = $('alertList').querySelectorAll('.phead input');
     if (inputs.length) inputs[inputs.length - 1].focus();
   });
+  $('msgAdd').addEventListener('click', function () {
+    alertCfg.messages.presets.push({ text: '', banner: false, panels: [], screens: [] });
+    alertDirty = false;
+    renderAlerts();
+    alertSetDirty(true);
+    const inputs = $('msgList').querySelectorAll('.phead input[type=text], .phead input:not([type])');
+    if (inputs.length) inputs[inputs.length - 1].focus();
+  });
+  ['msgSeconds', 'bannerSeconds'].forEach(function (id) {
+    $(id).addEventListener('input', function () { alertSetDirty(true); });
+  });
   $('alertAutoStop').addEventListener('change', function () {
     alertCfg.auto_stop_s = parseInt($('alertAutoStop').value, 10);
     alertSetDirty(true);
@@ -1122,6 +1224,15 @@
       const frame = await post('/api/admin/alerts', {
         auto_stop_s: parseInt($('alertAutoStop').value, 10),
         require_signin: $('alertSignin').checked,
+        messages: {
+          message_s: parseInt($('msgSeconds').value, 10), banner_s: parseInt($('bannerSeconds').value, 10),
+          free: alertCfg.messages.free,
+          presets: alertCfg.messages.presets.map(function (m) {
+            const out = { text: m.text, banner: !!m.banner, panels: m.panels, screens: m.screens };
+            if (m.id) out.id = m.id;
+            return out;
+          })
+        },
         buttons: alertCfg.buttons.map(function (b) {
           const out = { name: b.name, icon: b.icon || 'bell', panels: b.panels, screens: b.screens,
                         stage: !!b.stage };

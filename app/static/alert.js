@@ -164,6 +164,96 @@
     if (on || (ticks % 10 === 0 && rows.some(function (r) { return r.state !== 'idle'; }))) render();
   }, 1000);
 
+  /* ---- stage messages (#214): presets to tap, typed words, and what is showing now (to clear). Its own stream,
+     whole in each message, so the panels' alert board stays small. ---- */
+  const msgSection = document.getElementById('msgSection');
+  const msgPresets = document.getElementById('msgPresets');
+  const msgForm = document.getElementById('msgForm');
+  const msgText = document.getElementById('msgText');
+  const msgBanner = document.getElementById('msgBanner');
+  const msgLive = document.getElementById('msgLive');
+  let msgState = null;
+
+  function postMessage(url, payload) {
+    return fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    }).then(function (r) {
+      return r.json().then(function (body) {
+        if (!r.ok) throw new Error(body.error || body.detail || 'Relay refused it');
+        if (body.live) { msgState = body; renderMessages(); }
+      });
+    }).catch(function (err) {
+      toast(err && err.message ? err.message : "Couldn't reach Relay");
+    });
+  }
+
+  function sendMessage(payload) {
+    if (!sender) { showName(); toast('Say who you are first'); return Promise.resolve(); }
+    return postMessage('/api/alerts/messages/send', Object.assign({ from: sender }, payload));
+  }
+
+  function renderMessages() {
+    const m = msgState;
+    const show = !!m && (m.presets.length > 0 || m.free || m.live.length > 0);
+    msgSection.hidden = !show;
+    if (!show) return;
+    const showing = {};
+    m.live.forEach(function (l) { showing[l.key] = true; });
+    msgPresets.textContent = '';
+    m.presets.forEach(function (p) {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'msg-btn' + (showing[p.id] ? ' showing' : '');
+      b.textContent = p.text;
+      if (p.banner) {
+        const tag = document.createElement('small');
+        tag.textContent = 'Banner';
+        b.appendChild(tag);
+      }
+      b.addEventListener('click', function () { sendMessage({ preset: p.id }); });
+      msgPresets.appendChild(b);
+    });
+    msgForm.hidden = !m.free;
+    msgLive.textContent = '';
+    m.live.forEach(function (l) {
+      const row = document.createElement('div');
+      row.className = 'msg-live';
+      const words = document.createElement('span');
+      words.textContent = (l.banner ? 'Banner: ' : 'Showing: ') + l.text;
+      const stop = document.createElement('button');
+      stop.type = 'button';
+      stop.className = 'linklike';
+      stop.textContent = 'Clear';
+      stop.addEventListener('click', function () { postMessage('/api/alerts/messages/clear', { id: l.id }); });
+      row.appendChild(words);
+      row.appendChild(stop);
+      msgLive.appendChild(row);
+    });
+  }
+
+  msgForm.addEventListener('submit', function (ev) {
+    ev.preventDefault();
+    const text = msgText.value.replace(/\s+/g, ' ').trim();
+    if (!text) return;
+    sendMessage({ text: text, banner: msgBanner.checked }).then(function () { msgText.value = ''; });
+  });
+
+  let msgEs = null;
+  function connectMessages() {
+    if (msgEs) msgEs.close();
+    msgEs = new EventSource('/api/alerts/messages/stream');
+    msgEs.onmessage = function (ev) {
+      let msg;
+      try { msg = JSON.parse(ev.data); } catch (e) { return; }
+      if (msg.type !== 'messages') return;
+      msgState = msg;
+      renderMessages();
+    };
+  }
+
   showName();
   connect();
+  connectMessages();
 })();

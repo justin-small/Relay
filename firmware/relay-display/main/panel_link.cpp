@@ -336,6 +336,14 @@ void on_event(void *, const caption_sse_event &event)
         ESP_LOGI(TAG, "panel_link: alert %s ended", ev.alert_end_id);
         alert_view_flash_end(ev.alert_end_id);
         break;
+    case panel_message::message:
+        ESP_LOGI(TAG, "panel_link: message %s%s", ev.message.id, ev.message.banner ? " (banner)" : "");
+        alert_view_message(ev.message);
+        break;
+    case panel_message::message_end:
+        ESP_LOGI(TAG, "panel_link: message %s ended", ev.message_end_id);
+        alert_view_message_end(ev.message_end_id);
+        break;
     case panel_message::none:
         break;
     }

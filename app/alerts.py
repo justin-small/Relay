@@ -48,6 +48,16 @@ MAX_SENDER_STREAMS = 64
 MAX_SCREEN_STREAMS = 32
 QUEUE_MAX = 16
 FLASH_HZ = 1
+# Stage messages (#214): short words from the booth to the stage, shown without the flash.
+MAX_PRESETS = 16
+TEXT_MAX = 80
+MESSAGE_DEFAULT_S = 10
+MESSAGE_MIN_S = 3
+MESSAGE_MAX_S = 120
+BANNER_DEFAULT_S = 300
+BANNER_MIN_S = 30
+BANNER_MAX_S = 3600
+MAX_LIVE_MESSAGES = 8
 
 _ID_RE = re.compile(r"^[0-9a-f]{8}$")
 _ALERT_ID_RE = re.compile(r"^[0-9a-f]{16}$")
@@ -73,6 +83,114 @@ def clean_name(value: object) -> str:
         return ""
     text = "".join(ch if ch.isprintable() else " " for ch in value)
     return " ".join(text.split())[:NAME_MAX]
+
+
+def clean_text(value: object) -> str:
+    """A stage message's words: printable, one line, at most TEXT_MAX characters."""
+    if not isinstance(value, str):
+        return ""
+    text = "".join(ch if ch.isprintable() else " " for ch in value)
+    return " ".join(text.split())[:TEXT_MAX]
+
+
+def _seconds(raw: object, default: int, lo: int, hi: int) -> int:
+    try:
+        n = int(raw)
+    except (TypeError, ValueError):
+        return default
+    return max(lo, min(hi, n))
+
+
+def _targets(item: dict) -> tuple[list[str], list[str]]:
+    panels = _unique([p for p in (item.get("panels") if isinstance(item.get("panels"), list) else [])
+                      if isinstance(p, str) and _PANEL_RE.fullmatch(p)])
+    screens = [s for s in _unique([clean_name(s) for s in (item.get("screens") if isinstance(item.get("screens"), list)
+                                                           else [])]) if s]
+    return panels, screens
+
+
+def clean_messages(raw: object) -> dict[str, Any]:
+    """The stage-message settings, malformed parts dropped rather than refused. `presets` are the ready-made
+    messages; `free` says where words typed on the /alert page go (nowhere until the operator picks); a message
+    shows `message_s` seconds, a banner `banner_s`."""
+    raw = raw if isinstance(raw, dict) else {}
+    presets: list[dict[str, Any]] = []
+    seen_ids: set[str] = set()
+    for item in raw.get("presets") if isinstance(raw.get("presets"), list) else []:
+        if not isinstance(item, dict) or len(presets) >= MAX_PRESETS:
+            continue
+        pid, text = item.get("id"), clean_text(item.get("text"))
+        panels, screens = _targets(item)
+        if not isinstance(pid, str) or not _ID_RE.fullmatch(pid) or pid in seen_ids or not text \
+                or len(panels) + len(screens) > MAX_TARGETS:
+            continue
+        seen_ids.add(pid)
+        presets.append({"id": pid, "text": text, "banner": item.get("banner") is True,
+                        "panels": panels, "screens": screens})
+    free = raw.get("free") if isinstance(raw.get("free"), dict) else {}
+    fpanels, fscreens = _targets(free)
+    if len(fpanels) + len(fscreens) > MAX_TARGETS:
+        fpanels, fscreens = [], []
+    return {"presets": presets, "free": {"panels": fpanels, "screens": fscreens},
+            "message_s": _seconds(raw.get("message_s"), MESSAGE_DEFAULT_S, MESSAGE_MIN_S, MESSAGE_MAX_S),
+            "banner_s": _seconds(raw.get("banner_s"), BANNER_DEFAULT_S, BANNER_MIN_S, BANNER_MAX_S)}
+
+
+def validate_messages(raw: object) -> dict[str, Any]:
+    """The stage-message settings from admin, refused with a sentence when something is wrong."""
+    if raw is None:
+        return clean_messages({})
+    if not isinstance(raw, dict):
+        raise ValueError("messages must be an object")
+    for key, lo, hi, label in (("message_s", MESSAGE_MIN_S, MESSAGE_MAX_S, "a message stays"),
+                               ("banner_s", BANNER_MIN_S, BANNER_MAX_S, "a banner stays")):
+        v = raw.get(key, MESSAGE_DEFAULT_S if key == "message_s" else BANNER_DEFAULT_S)
+        if isinstance(v, bool) or not isinstance(v, int) or not lo <= v <= hi:
+            raise ValueError(f"{label} {lo} to {hi} seconds")
+    items = raw.get("presets", [])
+    if not isinstance(items, list):
+        raise ValueError("presets must be a list")
+    if len(items) > MAX_PRESETS:
+        raise ValueError(f"at most {MAX_PRESETS} preset messages")
+    presets = []
+    ids: set[str] = set()
+    for item in items:
+        if not isinstance(item, dict):
+            raise ValueError("each preset must be an object")
+        text = clean_text(item.get("text"))
+        if not text:
+            raise ValueError("every preset message needs words")
+        banner = item.get("banner", False)
+        if not isinstance(banner, bool):
+            raise ValueError(f"{text}: banner must be true or false")
+        pid = item.get("id")
+        if not isinstance(pid, str) or not _ID_RE.fullmatch(pid) or pid in ids:
+            pid = secrets.token_hex(4)
+        ids.add(pid)
+        panels, screens = _checked_targets(item, text)
+        if not panels and not screens:
+            raise ValueError(f"\"{text}\" goes nowhere; pick a panel or a screen")
+        presets.append({"id": pid, "text": text, "banner": banner, "panels": panels, "screens": screens})
+    free = raw.get("free", {})
+    if not isinstance(free, dict):
+        raise ValueError("free text must be an object")
+    fpanels, fscreens = _checked_targets(free, "Typed messages")
+    return {"presets": presets, "free": {"panels": fpanels, "screens": fscreens},
+            "message_s": raw.get("message_s", MESSAGE_DEFAULT_S), "banner_s": raw.get("banner_s", BANNER_DEFAULT_S)}
+
+
+def _checked_targets(item: dict, label: str) -> tuple[list[str], list[str]]:
+    panels = item.get("panels") or []
+    screens = item.get("screens") or []
+    if not isinstance(panels, list) or not all(isinstance(p, str) and _PANEL_RE.fullmatch(p) for p in panels):
+        raise ValueError(f"{label}: panels must be panel ids")
+    if not isinstance(screens, list) or not all(isinstance(s, str) for s in screens):
+        raise ValueError(f"{label}: screens must be names")
+    panels = _unique(panels)
+    screens = [s for s in _unique([clean_name(s) for s in screens]) if s]
+    if len(panels) + len(screens) > MAX_TARGETS:
+        raise ValueError(f"{label}: at most {MAX_TARGETS} panels and screens")
+    return panels, screens
 
 
 def clean_stored(raw: object) -> dict[str, Any]:
@@ -106,7 +224,7 @@ def clean_stored(raw: object) -> dict[str, Any]:
         buttons.append({"id": bid, "name": name, "icon": clean_icon(item.get("icon")), "panels": panels,
                         "screens": screens, "stage": item.get("stage") is True})
     return {"auto_stop_s": max(AUTO_STOP_MIN_S, min(AUTO_STOP_MAX_S, auto)), "buttons": buttons,
-            "require_signin": raw.get("require_signin") is True}
+            "require_signin": raw.get("require_signin") is True, "messages": clean_messages(raw.get("messages"))}
 
 
 def _unique(items: list[str]) -> list[str]:
@@ -169,7 +287,8 @@ def validate(raw: object) -> dict[str, Any]:
             raise ValueError(f"{name}: the icon must be one of {', '.join(ICONS)}")
         buttons.append({"id": bid, "name": name, "icon": icon, "panels": panels, "screens": screens,
                         "stage": stage})
-    return {"auto_stop_s": auto, "buttons": buttons, "require_signin": require_signin}
+    return {"auto_stop_s": auto, "buttons": buttons, "require_signin": require_signin,
+            "messages": validate_messages(raw.get("messages"))}
 
 
 def sse_frame(message: dict) -> bytes:
@@ -187,6 +306,19 @@ class Alert:
     ended: float = 0.0
 
 
+@dataclass
+class Message:
+    id: str
+    key: str              # the preset id it came from, or "free" for typed words
+    text: str
+    banner: bool
+    sender: str
+    started: float
+    seconds: int
+    panels: list[str]
+    screens: list[str]
+
+
 # What a sender, panel or screen is told when an alert request is refused: fixed sentences by key, so a response
 # never carries an exception's own text.
 MESSAGES = {
@@ -198,6 +330,9 @@ MESSAGES = {
     "not_this_screen": "this screen is not flashed by that alert",
     "who_saw": "say which panel or screen saw it",
     "too_many_screens": "too many alert screens are open",
+    "no_preset": "no such message",
+    "no_words": "write the message first",
+    "no_free_targets": "the operator has not chosen where typed messages go",
 }
 
 
@@ -216,6 +351,9 @@ class Alerts:
         # The newest alert per button id, live or ended. Memory only.
         self.latest: dict[str, Alert] = {}
         self._senders: list[asyncio.Queue] = []
+        # Stage messages (#214) showing now, by preset id (or "free"). Memory only, like alerts.
+        self.live: dict[str, Message] = {}
+        self._msg_senders: list[asyncio.Queue] = []
         self._screens: dict[str, list[asyncio.Queue]] = {}   # by lower-cased name
         self._screen_names: dict[str, str] = {}              # lower-cased -> as written
         # Wired by main: push a message onto one panel's event stream (returns how many streams took it), and a
@@ -237,6 +375,9 @@ class Alerts:
         return next((b for b in self.settings()["buttons"] if b["id"] == bid), None)
 
     def save(self, raw: object) -> dict[str, Any]:
+        # A client that sends only the buttons (an older admin page) leaves the stage messages as they are.
+        if isinstance(raw, dict) and "messages" not in raw:
+            raw = {**raw, "messages": self.settings().get("messages")}
         clean = validate(raw)
         # An alert on a button that is gone ends now, while its targets are still known.
         kept = {b["id"] for b in clean["buttons"]}
@@ -246,7 +387,11 @@ class Alerts:
                     self._end(alert, "cancelled")
                 self.latest.pop(bid, None)
         config.save({"alerts": clean}, replace=("alerts",))
+        for key in list(self.live):
+            if key != "free" and not any(p["id"] == key for p in clean["messages"]["presets"]):
+                self._end_message(self.live[key])
         self._broadcast_state()
+        self._broadcast_messages()
         return self.admin_view()
 
     # --------------------------------------------------------------- state
@@ -275,7 +420,11 @@ class Alerts:
         return {"alerts": cfg, "screens": self.screen_names(), "state": self.state()["buttons"],
                 "icons": list(ICONS),
                 "limits": {"buttons": MAX_BUTTONS, "targets": MAX_TARGETS, "name": NAME_MAX,
-                           "auto_stop_min_s": AUTO_STOP_MIN_S, "auto_stop_max_s": AUTO_STOP_MAX_S}}
+                           "auto_stop_min_s": AUTO_STOP_MIN_S, "auto_stop_max_s": AUTO_STOP_MAX_S,
+                           "presets": MAX_PRESETS, "text": TEXT_MAX, "message_min_s": MESSAGE_MIN_S,
+                           "message_max_s": MESSAGE_MAX_S, "banner_min_s": BANNER_MIN_S,
+                           "banner_max_s": BANNER_MAX_S},
+                "live_messages": self.message_state()["live"]}
 
     def screen_names(self) -> list[str]:
         """Browser screens open right now that can be flashed, as they were named."""
@@ -289,6 +438,7 @@ class Alerts:
             alert = self.latest.get(b["id"])
             if alert is not None and alert.state == "on" and pid in b["panels"]:
                 out.append(self._alert_message(alert, b))
+        out.extend(self._message_wire(m) for m in self.live.values() if pid in m.panels)
         return out
 
     def _alert_message(self, alert: Alert, button: dict[str, Any]) -> dict[str, Any]:
@@ -388,11 +538,16 @@ class Alerts:
             elif alert.state != "on" and now - alert.ended >= OUTCOME_KEEP_S:
                 del self.latest[bid]
                 changed = True
+        for msg in list(self.live.values()):
+            if now - msg.started >= msg.seconds:
+                self._end_message(msg)
+                changed = True
         return changed
 
     def tick(self) -> None:
         if self.expire():
             self._broadcast_state()
+            self._broadcast_messages()
 
     def _end(self, alert: Alert, state: str) -> None:
         alert.state = state
@@ -405,6 +560,96 @@ class Alerts:
                 self.push_panel(pid, message)
             for name in button["screens"]:
                 self._push_screen(name, message)
+
+    # ------------------------------------------------------ stage messages
+    def _message_wire(self, msg: Message) -> dict[str, Any]:
+        remaining = msg.seconds - (_now() - msg.started)
+        return {"type": "message", "id": msg.id, "from": msg.sender, "text": msg.text, "banner": msg.banner,
+                "ends_in_s": max(1, round(remaining))}
+
+    def message_state(self) -> dict[str, Any]:
+        """What the /alert page needs for stage messages, whole: the presets to tap, whether typing is allowed, and
+        what is showing now (so it can be cleared). Its own stream, so the panels' alert board stays small."""
+        self.expire()
+        cfg = self.settings()["messages"]
+        now = _now()
+        free = cfg["free"]
+        return {"type": "messages", "free": bool(free["panels"] or free["screens"]), "text_max": TEXT_MAX,
+                "presets": [{"id": p["id"], "text": p["text"], "banner": p["banner"]} for p in cfg["presets"]],
+                "live": [{"id": m.id, "key": m.key, "text": m.text, "banner": m.banner, "from": m.sender,
+                          "ends_in_s": max(0, round(m.seconds - (now - m.started)))}
+                         for m in self.live.values()]}
+
+    def send_message(self, sender: str, *, preset: object = None, text: object = None,
+                     banner: object = False) -> dict[str, Any]:
+        """Show a preset (by id) or typed words on their screens. The same preset, or typed words again, replace
+        what is showing from it. Returns the new message state."""
+        cfg = self.settings()["messages"]
+        if preset is not None:
+            item = next((p for p in cfg["presets"] if p["id"] == preset), None) if isinstance(preset, str) else None
+            if item is None:
+                raise Refused(404, "no_preset")
+            key, words, is_banner = item["id"], item["text"], item["banner"]
+            panels, screens = item["panels"], item["screens"]
+        else:
+            words = clean_text(text)
+            if not words:
+                raise Refused(400, "no_words")
+            panels, screens = cfg["free"]["panels"], cfg["free"]["screens"]
+            if not panels and not screens:
+                raise Refused(403, "no_free_targets")
+            key, is_banner = "free", banner is True
+        self.expire()
+        old = self.live.get(key)
+        if old is not None:
+            self._end_message(old)
+        while len(self.live) >= MAX_LIVE_MESSAGES:
+            self._end_message(next(iter(self.live.values())))
+        msg = Message(secrets.token_hex(8), key, words, is_banner, clean_name(sender), _now(),
+                      cfg["banner_s"] if is_banner else cfg["message_s"], list(panels), list(screens))
+        self.live[key] = msg
+        wire = self._message_wire(msg)
+        for pid in msg.panels:
+            self.push_panel(pid, wire)
+        for name in msg.screens:
+            self._push_screen(name, wire)
+        self._broadcast_messages()
+        return self.message_state()
+
+    def clear_messages(self, message_id: object = None) -> dict[str, Any]:
+        """Take one showing message down (by its id), or every one when no id is given."""
+        for msg in list(self.live.values()):
+            if message_id is None or msg.id == message_id:
+                self._end_message(msg)
+        self._broadcast_messages()
+        return self.message_state()
+
+    def _end_message(self, msg: Message) -> None:
+        if self.live.get(msg.key) is msg:
+            del self.live[msg.key]
+        end = {"type": "message_end", "id": msg.id}
+        for pid in msg.panels:
+            self.push_panel(pid, end)
+        for name in msg.screens:
+            self._push_screen(name, end)
+
+    def subscribe_messages(self) -> asyncio.Queue:
+        q: asyncio.Queue = asyncio.Queue(maxsize=QUEUE_MAX)
+        while len(self._msg_senders) >= MAX_SENDER_STREAMS:
+            self._close(self._msg_senders.pop(0))
+        self._msg_senders.append(q)
+        q.put_nowait(sse_frame(self.message_state()))
+        return q
+
+    def unsubscribe_messages(self, q: asyncio.Queue) -> None:
+        if q in self._msg_senders:
+            self._msg_senders.remove(q)
+
+    def _broadcast_messages(self) -> None:
+        frame = sse_frame(self.message_state())
+        for q in list(self._msg_senders):
+            self._put(q, frame)
+        self._admin_changed()
 
     # ------------------------------------------------------------- streams
     def subscribe_sender(self) -> asyncio.Queue:
@@ -434,6 +679,9 @@ class Alerts:
             alert = self.latest.get(b["id"])
             if alert is not None and alert.state == "on" and key in (s.lower() for s in b["screens"]):
                 q.put_nowait(sse_frame(self._alert_message(alert, b)))
+        for msg in self.live.values():
+            if key in (s.lower() for s in msg.screens):
+                q.put_nowait(sse_frame(self._message_wire(msg)))
         self._admin_changed()
         return q
 
