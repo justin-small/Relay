@@ -125,6 +125,33 @@ files in that directory. Each file runs once, in order, and what has run is reco
 module's id, so its tables never collide with core's. `migrate` raises `db.Unavailable` while the
 database is down; the module must cope with that.
 
+## The audit log
+
+Every change made through a module's `/api/admin` route already goes in the audit log (#172),
+with the person or API token that made it, once it succeeded: core's middleware writes it as
+"`POST /api/admin/<your path>`". To say what happened in words, call `note` from `app.audit`
+inside the route:
+
+```python
+from ... import audit
+
+@router.post("/api/admin/mixer/scene", dependencies=[Depends(require("mixer.manage"))])
+def recall_scene(request: Request, payload: dict):
+    ...
+    audit.note(request, "mixer.scene_recall", "Recalled a mixer scene", target=name)
+```
+
+For the module's own work with no request behind it (an overnight sync, a schedule firing), call
+`audit.record("mixer.sync", "Synced the scene list")`; with no `actor` it is entered as Relay
+itself.
+
+- the action is `<module id>.<what>`; the log's Kind filter lists it under the module's id;
+- `summary` is the sentence people read; `target` names what it acted on;
+- `detail` is a small dict of plain values. Never put a password, token, key or request body in
+  any field: the log is read by every Admin.
+
+Neither call raises: a database that is down loses the entry and logs a warning.
+
 ## Livestream status
 
 A module that watches a livestream (OBS, Resi, YouTube, ...) publishes into the shared stream status in core

@@ -28,7 +28,7 @@ from jinja2 import ChoiceLoader, FileSystemLoader, PrefixLoader
 
 from . import alerts as alertsmod
 from . import announce as announcemod
-from . import config, db, exporting, importdocker, languages, netinfo, overlays, panelfw, panels, redact, schedules, serving, setupcode, streamstatus, tls, users
+from . import audit, config, db, exporting, importdocker, languages, netinfo, overlays, panelfw, panels, redact, schedules, serving, setupcode, streamstatus, tls, users
 from .alerts import alerts
 from . import engine as engine_mod
 from .engine import TRANSCRIPTION_STREAM, TRANSLATION_STREAM, demo_mode, engine
@@ -197,6 +197,83 @@ async def _split_admin_port(request: Request, call_next):
     return await call_next(request)
 
 
+# ----------------------------------------------------- the audit log (#172)
+_AUDIT_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
+
+# What each core admin change is called in the audit log, by route function: (action, summary). Its path
+# parameters become the entry's target. Routes with more to say (users, tokens, devices, settings, modules)
+# also call audit.note, which takes the place of this. A route that is in neither (a module's) is entered as
+# "<METHOD> <path>". tests/test_audit.py fails a core admin route that changes something and is not listed.
+AUDIT_ROUTES = {
+    "admin_module_switch": ("module.switch", "Switched a module on or off"),
+    "admin_module_test": ("module.test", "Ran a module's test"),
+    "admin_config": ("settings.change", "Changed settings"),
+    "admin_target": ("session.target", "Changed a target language"),
+    "admin_start": ("session.start", "Started captions"),
+    "admin_stop": ("session.stop", "Stopped captions"),
+    "admin_alerts_save": ("alerts.change", "Changed the alert setup"),
+    "admin_panel_firmware_upload": ("panels.firmware_upload", "Uploaded panel firmware"),
+    "admin_panel_firmware_delete": ("panels.firmware_delete", "Deleted the uploaded panel firmware"),
+    "admin_panel_firmware_update": ("panels.firmware_update", "Sent a firmware update to panels"),
+    "admin_panel_flash_upload": ("panels.flash_upload", "Uploaded a board flash image"),
+    "admin_panel_flash_delete": ("panels.flash_delete", "Deleted the board flash image"),
+    "admin_panel_update": ("panels.change", "Changed a panel"),
+    "admin_panel_reboot": ("panels.reboot", "Rebooted a panel"),
+    "admin_panel_forget": ("panels.forget", "Forgot a panel"),
+    "admin_schedule_create": ("schedules.create", "Added a schedule"),
+    "admin_schedule_update": ("schedules.change", "Changed a schedule"),
+    "admin_schedule_delete": ("schedules.delete", "Deleted a schedule"),
+    "admin_overlay_create": ("overlays.create", "Added an overlay"),
+    "admin_overlay_update": ("overlays.change", "Changed an overlay"),
+    "admin_overlay_delete": ("overlays.delete", "Deleted an overlay"),
+    "admin_recording_delete": ("recordings.delete", "Deleted a recording"),
+    "admin_me_password": ("account.password", "Changed their own password"),
+    "admin_me_pin": ("account.pin_set", "Set their PIN"),
+    "admin_me_pin_clear": ("account.pin_clear", "Removed their PIN"),
+    "admin_me_token_create": ("token.create", "Made an API token"),
+    "admin_me_token_revoke": ("token.revoke", "Revoked one of their API tokens"),
+    "admin_token_revoke": ("token.revoke", "Revoked an API token"),
+    "admin_user_create": ("user.create", "Added a user"),
+    "admin_user_update": ("user.update", "Changed a user"),
+    "admin_user_password": ("user.password_reset", "Reset a user's password"),
+    "admin_user_signout": ("user.signout", "Signed a user out everywhere"),
+    "admin_user_delete": ("user.delete", "Deleted a user"),
+    "admin_device_trust": ("device.trust", "Trusted a browser for PIN sign-in"),
+    "admin_device_revoke": ("device.revoke", "Forgot a trusted device"),
+}
+
+
+def _audit_default(request: Request) -> dict:
+    """The entry for an admin change whose route noted nothing itself."""
+    route = request.scope.get("route")
+    params = {k: str(v) for k, v in (request.scope.get("path_params") or {}).items()}
+    known = AUDIT_ROUTES.get(getattr(route, "name", ""))
+    if known:
+        return {"action": known[0], "summary": known[1], "target": ", ".join(params.values()), "detail": None}
+    path = request.url.path
+    return {"action": "api.change", "summary": f"{request.method} {path}", "target": "",
+            "detail": {"method": request.method, "path": path}}
+
+
+def _audit_write(notes: list[dict], user: User, ip: str) -> None:
+    for n in notes:
+        audit.record(n["action"], n["summary"], actor=user, target=n.get("target") or "",
+                     detail=n.get("detail"), ip=ip)
+
+
+@app.middleware("http")
+async def _audit_changes(request: Request, call_next):
+    """Every change made through /api/admin goes in the audit log, with who made it, once it succeeded."""
+    response = await call_next(request)
+    if (request.method in _AUDIT_METHODS and request.url.path.startswith("/api/admin/")
+            and response.status_code < 400):
+        user = getattr(request.state, "user", None)
+        if isinstance(user, User):
+            notes = audit.pending(request) or [_audit_default(request)]
+            await asyncio.to_thread(_audit_write, notes, user, _client_ip(request))
+    return response
+
+
 def _on_lan_change(ips) -> None:
     """The LAN address changed: re-mint the panel certificate if its names no longer fit, and tell the
     desktop shell (it pins the fingerprint and builds the viewer link) of both."""
@@ -304,7 +381,10 @@ async def _alert_ticks() -> None:
 
 
 def _backup_if_due() -> None:
-    if db.available() and db.backup_due():
+    if not db.available():
+        return
+    audit.prune()                                   # the audit log keeps audit.KEEP_DAYS days
+    if db.backup_due():
         db.backup()
 
 
@@ -450,9 +530,15 @@ def _login_failed(ip: str) -> None:
 
 async def _fail(ip: str) -> None:
     """Count one failed attempt and make it cost a fixed delay: under a second for an operator who mistyped,
-    and it caps a guesser on the venue LAN long before the lockout bites."""
+    and it caps a guesser on the venue LAN long before the lockout bites. The attempt that starts a lockout
+    is written to the audit log (the ones refused during it are not: they would only fill it)."""
     await asyncio.sleep(LOGIN_FAIL_DELAY_S)
     _login_failed(ip)
+    if _LOGIN_FAILS.get(ip, (0, 0.0))[0] == LOGIN_MAX_FAILS:
+        await asyncio.to_thread(
+            audit.record, "auth.locked",
+            f"Sign-in from this address locked for {int(LOGIN_LOCKOUT_S) // 60} min after "
+            f"{LOGIN_MAX_FAILS} failed attempts", ip=ip)
 
 
 def _locked_sentence(left: float) -> str:
@@ -1419,6 +1505,8 @@ async def admin_setup(request: Request, token: str = Form(""), username: str = F
                 config.save({"admin_token": ""})
             # Setup signs the Owner in without a password check, so stamp the sign-in here.
             db.execute("update users set last_login = ? where id = ?", (db.now(), user.id))
+            audit.record("setup.owner", "Set up Relay and made the first Owner", actor=user, target=user.username,
+                         detail={"openai_key": True} if api_key.strip() else None, ip=ip)
             global _have_users
             _have_users = True
             setupcode.clear()
@@ -1428,6 +1516,8 @@ async def admin_setup(request: Request, token: str = Form(""), username: str = F
         started = await asyncio.to_thread(work)
     except _WebRefused as exc:
         if exc.key in ("bad_token", "bad_code"):
+            await asyncio.to_thread(audit.record, "setup.failed", "First-run setup refused: wrong "
+                                    + ("admin token" if exc.key == "bad_token" else "setup code"), ip=ip)
             await _fail(ip)
         if exc.key == "local_only":
             return await asyncio.to_thread(_login_page, request, error=exc.message, status=403)
@@ -1458,12 +1548,34 @@ async def admin_import(request: Request, folder: str = Form("")):
         except OSError:
             return _login_page(request, error="The old folder could not be read.", status=400)
         config.load()
+        audit.record("setup.import", "Imported the settings of a Docker install", detail={"copied": report.copied},
+                     ip=_client_ip(request))
         parts = ["Imported: " + ", ".join(report.copied or ["nothing new"]) + "."] + report.notes
         fp = tls.panel.describe().get("fingerprint")
         if fp:
             parts.append(f"New certificate fingerprint (SHA-256): {fp}")
         return _login_page(request, notice=" ".join(parts))
     return await asyncio.to_thread(work)
+
+
+# The audit log's sentence for each refused sign-in, by users.Refused key.
+_SIGNIN_REFUSED = {
+    "bad_login": "Failed sign-in: wrong username or password",
+    "disabled": "Sign-in refused: the account is turned off",
+    "wrong_pin": "Failed sign-in: wrong PIN",
+    "pin_cleared": "PIN cleared after too many wrong tries",
+    "no_device": "PIN sign-in refused: not a trusted device",
+}
+
+
+def _audit_failed_signin(key: str, ip: str, who: User | None, way: str, device: str = "") -> None:
+    """A refused sign-in, against the account it named when there is one. What was typed as a username is
+    never written: it is sometimes a password typed in the wrong box."""
+    detail = {"with": way, "reason": key}
+    if device:
+        detail["device"] = device
+    audit.record("auth.failed", _SIGNIN_REFUSED.get(key, "Failed sign-in"),
+                 target=who.username if who else "(unknown username)", detail=detail, ip=ip)
 
 
 @app.post("/admin/login")
@@ -1478,7 +1590,12 @@ async def admin_login(request: Request, username: str = Form(""), password: str 
 
     def work():
         _ready()
-        user = users.authenticate(username, password)
+        try:
+            user = users.authenticate(username, password)
+        except users.Refused as exc:
+            _audit_failed_signin(exc.key, ip, users.get_by_username(username), "password")
+            raise
+        audit.record("auth.password", "Signed in with their password", actor=user, ip=ip)
         return (*users.start_session(user, via="password"), _home_for(user))
 
     try:
@@ -1507,7 +1624,13 @@ async def admin_login_pin(request: Request, user_id: str = Form(""), pin: str = 
     def work():
         _ready()
         device = users.device_for(request.cookies.get(DEVICE_COOKIE) or "")
-        user = users.authenticate_pin(uid, _field(pin, 16), device["id"] if device else None)
+        try:
+            user = users.authenticate_pin(uid, _field(pin, 16), device["id"] if device else None)
+        except users.Refused as exc:
+            _audit_failed_signin(exc.key, ip, users.get(uid) if uid > 0 else None, "PIN",
+                                 device["name"] if device else "")
+            raise
+        audit.record("auth.pin", "Signed in with their PIN", actor=user, detail={"device": device["name"]}, ip=ip)
         return (*users.start_session(user, via="pin", device_id=device["id"]), _home_for(user))
 
     try:
@@ -1541,6 +1664,7 @@ async def admin_password(request: Request, current: str = Form(""), new: str = F
         if new != confirm:
             return _password_page(request, error=WEB_MESSAGES["mismatch"], status=400, voluntary=again)
         users.change_own_password(user, current, new, keep_token=_session_token(request))
+        audit.record("account.password", "Changed their own password", actor=user, ip=ip)
         return _home_for(user)
 
     try:
@@ -1559,10 +1683,18 @@ async def admin_password(request: Request, current: str = Form(""), new: str = F
 async def admin_logout(request: Request):
     token = _session_token(request)
     if token:
+        ip = _client_ip(request)
+
+        def work():
+            user = users.session_user(token)
+            users.end_session(token)
+            if user is not None:
+                audit.record("auth.signout", "Signed out", actor=user, ip=ip)
+
         # Ends it server-side, so a copied cookie is dead too. If the database is down the browser still
         # forgets its cookie.
         with contextlib.suppress(db.Unavailable):
-            await asyncio.to_thread(users.end_session, token)
+            await asyncio.to_thread(work)
     resp = RedirectResponse("/admin", status_code=303)
     resp.delete_cookie(ADMIN_COOKIE, path="/")
     return resp
@@ -1605,14 +1737,17 @@ async def admin_modules():
 
 
 @app.post("/api/admin/modules/{mid}", dependencies=[Depends(require("modules.manage"))])
-async def admin_module_switch(mid: str, payload: dict):
+async def admin_module_switch(mid: str, payload: dict, request: Request):
     """Switch a module on or off. Its pages appear or go once the admin page reloads."""
-    if module_registry.get(mid) is None:
+    mod = module_registry.get(mid)
+    if mod is None:
         raise HTTPException(404, "no such module")
     on = payload.get("enabled")
     if not isinstance(on, bool):
         return JSONResponse({"error": "enabled must be true or false"}, status_code=400)
     await module_registry.set_enabled(mid, on)
+    audit.note(request, "module.switch", f"Switched the {mod.manifest.name} module {'on' if on else 'off'}",
+               target=mid)
     return module_registry.describe(module_registry.get(mid))
 
 
@@ -1731,6 +1866,10 @@ async def admin_config(request: Request, payload: dict):
 
     cfg = config.save(updates)
     hub.history_lines = cfg["history_lines"]
+    # The names of the fields changed, never their values (the OpenAI key is one of them).
+    changed = sorted(f for f in CONFIG_PERMISSIONS if f in payload)
+    audit.note(request, "settings.change", "Changed settings: " + (", ".join(changed) or "nothing"),
+               detail={"fields": changed})
     # Takes effect on the next start: an event already being recorded keeps
     # writing where it began, rather than losing its file mid-run.
     recorder.configure(config.recordings_path(), cfg["recording"]["keep_runs"])
@@ -2294,6 +2433,8 @@ def admin_me_token_create(request: Request, payload: dict):
     """A new API token for the signed-in user. The secret is in this answer only; it is never shown again."""
     secret, row = users.create_token(request.state.user, payload.get("name"),
                                      payload.get("days", users.TOKEN_DEFAULT_DAYS))
+    audit.note(request, "token.create", "Made an API token", target=row["name"],
+               detail={"expires": row["expires"] or "never"})
     return JSONResponse({"token": row, "secret": secret}, headers=_NO_STORE)
 
 
@@ -2301,9 +2442,11 @@ def admin_me_token_create(request: Request, payload: dict):
 def admin_me_token_revoke(token_id: int, request: Request):
     """Revoke one of your own tokens. Allowed whatever your role, so nobody is left unable to revoke theirs."""
     user: User = request.state.user
-    if not any(t["id"] == token_id for t in users.list_tokens(user.id)):
+    mine = next((t for t in users.list_tokens(user.id) if t["id"] == token_id), None)
+    if mine is None:
         raise users.Refused("not_found")
     users.revoke_token(token_id, user)
+    audit.note(request, "token.revoke", "Revoked one of their API tokens", target=mine["name"])
     return {"ok": True}
 
 
@@ -2315,7 +2458,11 @@ def admin_tokens():
 
 @app.delete("/api/admin/tokens/{token_id}", dependencies=[Depends(require("tokens.manage"))])
 def admin_token_revoke(token_id: int, request: Request):
+    had = next((t for t in users.list_tokens() if t["id"] == token_id), None)
     users.revoke_token(token_id, request.state.user)
+    if had is not None:
+        audit.note(request, "token.revoke", f"Revoked {had['user_name']}'s API token", target=had["name"],
+                   detail={"owner": had["username"]})
     return {"ok": True}
 
 
@@ -2333,6 +2480,8 @@ def admin_user_create(request: Request, payload: dict):
     """A new account with a temporary password the person must change at first sign-in."""
     made = users.create(payload.get("username"), payload.get("name"), payload.get("role"),
                         payload.get("password"), temporary=True, actor=request.state.user)
+    audit.note(request, "user.create", f"Added {made.name} as {made.role.title()}", target=made.username,
+               detail={"role": made.role})
     return {"user": asdict(made)}
 
 
@@ -2341,7 +2490,29 @@ def admin_user_update(user_id: int, request: Request, payload: dict):
     changes = {k: payload[k] for k in ("name", "role", "disabled") if k in payload}
     if "disabled" in changes and not isinstance(changes["disabled"], bool):
         raise _bad_request()
-    return {"user": asdict(users.update(user_id, actor=request.state.user, **changes))}
+    before = users.get(user_id)
+    after = users.update(user_id, actor=request.state.user, **changes)
+    _note_user_change(request, before, after)
+    return {"user": asdict(after)}
+
+
+def _note_user_change(request: Request, before: User | None, after: User) -> None:
+    """What changed about a user, from and to: the role change is the one an audit is most often asked for."""
+    changes = {}
+    if before is not None:
+        for k in ("name", "role", "disabled"):
+            if getattr(before, k) != getattr(after, k):
+                changes[k] = [getattr(before, k), getattr(after, k)]
+    words = []
+    if "role" in changes:
+        words.append(f"moved {after.name} from {changes['role'][0].title()} to {after.role.title()}")
+    if "disabled" in changes:
+        words.append(f"turned {after.name} {'off' if after.disabled else 'on'}")
+    if "name" in changes:
+        words.append(f"renamed {changes['name'][0]} to {after.name}")
+    summary = "; ".join(words) if words else f"saved {after.name} unchanged"
+    audit.note(request, "user.update", summary[0].upper() + summary[1:], target=after.username,
+               detail={"changes": changes})
 
 
 @app.post("/api/admin/users/{user_id}/password", dependencies=[Depends(require("users.manage"))])
@@ -2349,6 +2520,9 @@ def admin_user_password(user_id: int, request: Request, payload: dict):
     """Reset a password (a forgotten one): temporary, so they change it at next sign-in. Ends their
     sessions and clears their PIN."""
     users.set_password(user_id, payload.get("password"), temporary=True, actor=request.state.user)
+    who = users.get(user_id)
+    if who is not None:
+        audit.note(request, "user.password_reset", f"Reset {who.name}'s password", target=who.username)
     return {"ok": True}
 
 
@@ -2360,12 +2534,17 @@ def admin_user_signout(user_id: int, request: Request):
     if users.ROLES.index(target.role) > users.ROLES.index(request.state.user.role):
         raise users.Refused("account_above_you")
     users.end_sessions(user_id)
+    audit.note(request, "user.signout", f"Signed {target.name} out everywhere", target=target.username)
     return {"ok": True}
 
 
 @app.delete("/api/admin/users/{user_id}", dependencies=[Depends(require("users.manage"))])
 def admin_user_delete(user_id: int, request: Request):
+    who = users.get(user_id)
     users.delete(user_id, actor=request.state.user)
+    if who is not None:
+        audit.note(request, "user.delete", f"Deleted {who.name} ({who.role.title()})", target=who.username,
+                   detail={"role": who.role})
     return {"ok": True}
 
 
@@ -2382,15 +2561,35 @@ def admin_device_trust(request: Request, payload: dict):
     if user.id <= 0:                       # the setup token has no account to record it against
         raise HTTPException(status_code=403, detail=WEB_MESSAGES["not_allowed"])
     token, row = users.trust_device(payload.get("name"), user)
+    audit.note(request, "device.trust", "Trusted a browser for PIN sign-in", target=row["name"])
     resp = JSONResponse({"device": _iso(row), "this": row["id"]})
     _set_cookie(resp, request, DEVICE_COOKIE, token, DEVICE_COOKIE_MAX_AGE)
     return resp
 
 
 @app.delete("/api/admin/trusted-devices/{device_id}", dependencies=[Depends(require("users.manage"))])
-def admin_device_revoke(device_id: int):
+def admin_device_revoke(device_id: int, request: Request):
+    had = next((d for d in users.list_devices() if d["id"] == device_id), None)
     users.revoke_device(device_id)
+    if had is not None:
+        audit.note(request, "device.revoke", "Forgot a trusted device", target=had["name"])
     return {"ok": True}
+
+
+# ------------------------------------------------------- the audit log (#172)
+@app.get("/api/admin/audit", dependencies=[Depends(require("audit.view"))])
+def admin_audit(who: str = "", kind: str = "", q: str = "", days: int = 0, before: int = 0):
+    """The audit log, newest first, a page at a time (`before`: the last id shown). `who` is a user id or
+    "system"; `kind` an action's area; `q` text to look for; `days` how far back."""
+    if who == "system":
+        actor = "system"
+    elif who.isascii() and who.isdigit() and len(who) < 10:
+        actor = int(who)
+    else:
+        actor = None
+    found = audit.search(actor=actor, kind=kind[:64] or None, q=q.strip()[:100] or None,
+                         days=days if 0 < days <= 3650 else None, before=before if before > 0 else None)
+    return {**found, "people": audit.people(), "kinds": audit.kinds(), "keep_days": audit.KEEP_DAYS}
 
 
 @app.get("/healthz")

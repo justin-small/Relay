@@ -87,9 +87,10 @@ _db.reset()
 check("init() is true with a database", db.init())
 check("available() is true", db.available())
 rows = db.query("select namespace, version from schema_migrations order by version")
-CORE_N = 2
+CORE_N = 3
 eq("core migrations applied once, in order", rows,
-   [{"namespace": "core", "version": "0001_users"}, {"namespace": "core", "version": "0002_api_tokens"}])
+   [{"namespace": "core", "version": "0001_users"}, {"namespace": "core", "version": "0002_api_tokens"},
+    {"namespace": "core", "version": "0003_audit_log"}])
 check("init() again is a no-op", db.init())
 eq("still the same migration rows", db.one("select count(*) as n from schema_migrations")["n"], CORE_N)
 eq("migrate() twice is idempotent", (db.migrate("core", db.CORE_MIGRATIONS), db.migrate("core", db.CORE_MIGRATIONS)),
@@ -230,7 +231,7 @@ CATALOGUE = {
     "recordings.manage": "admin", "schedules.view": "viewer", "schedules.manage": "admin",
     "blocklist.manage": "admin", "settings.view": "viewer", "settings.manage": "admin",
     "credentials.manage": "owner", "modules.view": "viewer", "modules.manage": "admin", "users.view": "admin",
-    "users.manage": "admin", "tokens.own": "admin", "tokens.manage": "owner",
+    "users.manage": "admin", "tokens.own": "admin", "tokens.manage": "owner", "audit.view": "admin",
 }
 eq("the core catalogue is exactly the contract's table",
    {p.id: p.min_role for p in users.catalogue()}, CATALOGUE)

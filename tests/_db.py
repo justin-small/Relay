@@ -38,7 +38,7 @@ def start() -> str:
     return os.environ["RELAY_DATABASE"]
 
 
-TABLES = ("sessions", "trusted_devices", "users")
+TABLES = ("sessions", "trusted_devices", "users", "audit_log")
 
 
 def reset() -> None:

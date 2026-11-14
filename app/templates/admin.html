@@ -442,6 +442,12 @@ window.relayCan = function (perm) { return window.RELAY_ME.permissions.indexOf(p
   .acctform .ctl { margin-top:4px; }
   .rolepill { display:inline-block; font-size:12px; padding:1px 8px; border:1px solid var(--line); border-radius:10px; color:var(--dim); }
   .tablescroll { position:relative; }
+  .auditfilters select, .auditfilters input { width:auto; min-width:0; flex:1 1 140px; max-width:220px; }
+  #auditMoreRow[hidden] { display:none; }
+  table.audit td { vertical-align:top; }
+  table.audit .when { white-space:nowrap; }
+  table.audit .what small, table.audit .who small { display:block; color:var(--dim); }
+  table.audit tr.failed .what { color:var(--err); }
   .sr { position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0 0 0 0); white-space:nowrap; }
   .stat-off { color:#fca5a5; }
   .stat-warn { color:var(--warn); }
@@ -496,12 +502,13 @@ window.relayCan = function (perm) { return window.RELAY_ME.permissions.indexOf(p
     {% if 'schedules.view' in perms or module_nav.get("Automation") %}<div class="grp">Automation</div>{% endif %}
     {% if 'schedules.view' in perms %}<a href="#schedules" data-page="schedules"><span class="ico"><svg viewBox="0 0 16 16" aria-hidden="true"><rect x="2" y="3" width="12" height="11" rx="1.5"/><path d="M2 7h12M5.5 1.5v3M10.5 1.5v3"/></svg></span>Schedules</a>{% endif %}
     {{ module_links("Automation") }}
-    {% if 'blocklist.manage' in perms or 'credentials.manage' in perms or 'settings.manage' in perms or 'modules.view' in perms or 'users.view' in perms or module_nav.get("Settings") %}<div class="grp">Settings</div>{% endif %}
+    {% if 'blocklist.manage' in perms or 'credentials.manage' in perms or 'settings.manage' in perms or 'modules.view' in perms or 'users.view' in perms or 'audit.view' in perms or module_nav.get("Settings") %}<div class="grp">Settings</div>{% endif %}
     {% if 'blocklist.manage' in perms %}<a href="#blocklist" data-page="blocklist"><span class="ico"><svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6"/><path d="M3.8 12.2l8.4-8.4"/></svg></span>Blocked words</a>{% endif %}
     {% if 'credentials.manage' in perms %}<a href="#credentials" data-page="credentials"><span class="ico"><svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="5" cy="10.5" r="2.5"/><path d="M7 9l6-6M11 5l1.5 1.5M9.5 6.5L11 8"/></svg></span>Credentials</a>{% endif %}
     {% if 'settings.manage' in perms %}<a href="#appearance" data-page="appearance"><span class="ico"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 4h12M2 8h12M2 12h12"/><circle cx="5" cy="4" r="1.5" fill="var(--bg)"/><circle cx="10.5" cy="8" r="1.5" fill="var(--bg)"/><circle cx="6.5" cy="12" r="1.5" fill="var(--bg)"/></svg></span>Appearance &amp; tuning</a>{% endif %}
     {{ module_links("Settings") }}
     {% if 'users.view' in perms %}<a href="#users" data-page="users"><span class="ico"><svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="6" cy="5.5" r="2.5"/><path d="M1.5 13.5c.4-2.6 2.2-4 4.5-4s4.1 1.4 4.5 4M10.5 3.2a2.5 2.5 0 0 1 0 4.6M12 9.8c1.3.5 2.2 1.6 2.5 3.7"/></svg></span>Users</a>{% endif %}
+    {% if 'audit.view' in perms %}<a href="#audit" data-page="audit"><span class="ico"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4 1.5h6l3 3v10H4z"/><path d="M10 1.5v3h3M6.5 8h4M6.5 10.5h4M6.5 13h2.5"/></svg></span>Audit log</a>{% endif %}
     {% if 'modules.view' in perms %}<a href="#modules" data-page="modules"><span class="ico"><svg viewBox="0 0 16 16" aria-hidden="true"><rect x="2" y="2" width="5" height="5" rx="1"/><rect x="9" y="2" width="5" height="5" rx="1"/><rect x="2" y="9" width="5" height="5" rx="1"/><path d="M11.5 9v5M9 11.5h5"/></svg></span>Modules</a>{% endif %}
   </nav>
   <main>
@@ -1134,6 +1141,37 @@ window.relayCan = function (perm) { return window.RELAY_ME.permissions.indexOf(p
     </section>
   </div>
 {% endif %}
+{% if 'audit.view' in perms %}
+  <div class="page" id="page-audit" data-page="audit" hidden>
+    <h2 class="title">Audit log</h2>
+    <p class="sub">Who signed in, who tried and failed, and every change made on this page or through the API, newest first.
+      Entries are kept for <span id="auditKeep">90</span> days.</p>
+    <section>
+      <div class="ctl auditfilters">
+        <label class="sr" for="auditWho">Person</label>
+        <select id="auditWho"><option value="">Everyone</option></select>
+        <label class="sr" for="auditKind">Kind</label>
+        <select id="auditKind"><option value="">Everything</option></select>
+        <label class="sr" for="auditDays">When</label>
+        <select id="auditDays">
+          <option value="1">Last 24 hours</option>
+          <option value="7">Last 7 days</option>
+          <option value="30">Last 30 days</option>
+          <option value="" selected>All kept</option>
+        </select>
+        <label class="sr" for="auditQ">Search</label>
+        <input id="auditQ" type="search" maxlength="100" placeholder="Search" autocomplete="off">
+      </div>
+      <div class="tablescroll" style="margin-top:12px">
+        <table class="audit">
+          <thead><tr><th>When</th><th>Who</th><th>What</th><th>From</th></tr></thead>
+          <tbody id="auditList"><tr><td colspan="4" class="muted">Loading&hellip;</td></tr></tbody>
+        </table>
+      </div>
+      <div class="ctl" style="margin-top:12px" id="auditMoreRow" hidden><button type="button" id="auditMore">Show older</button></div>
+    </section>
+  </div>
+{% endif %}
   <div class="page" id="page-account" data-page="account" hidden>
     <h2 class="title">My account</h2>
     <p class="sub" id="acctWho"></p>
@@ -1194,5 +1232,6 @@ window.relayCan = function (perm) { return window.RELAY_ME.permissions.indexOf(p
 <script src="{{ static('modules.js') }}"></script>
 <script src="{{ static('overlay-builder.js') }}"></script>
 <script src="{{ static('users.js') }}"></script>
+<script src="{{ static('audit.js') }}"></script>
 {% for script in module_scripts %}<script src="{{ static('modules/' ~ script) }}"></script>
 {% endfor %}</body></html>

@@ -361,7 +361,7 @@ MIN_ROLE = {
     "recordings.manage": "admin", "schedules.view": "viewer", "schedules.manage": "admin",
     "blocklist.manage": "admin", "settings.view": "viewer", "settings.manage": "admin",
     "credentials.manage": "owner", "modules.view": "viewer", "modules.manage": "admin", "users.view": "admin",
-    "users.manage": "admin", "tokens.own": "admin", "tokens.manage": "owner",
+    "users.manage": "admin", "tokens.own": "admin", "tokens.manage": "owner", "audit.view": "admin",
     "planning_center.view": "viewer", "planning_center.control": "operator", "planning_center.manage": "admin",
     "propresenter.view": "viewer", "propresenter.control": "operator", "propresenter.manage": "admin",
     "remote_access.view": "viewer", "remote_access.manage": "admin",
@@ -461,6 +461,8 @@ route("POST", "/api/admin/me/tokens", "tokens.own")
 route("DELETE", "/api/admin/me/tokens/{token_id}", None)
 route("GET", "/api/admin/tokens", "tokens.manage")
 route("DELETE", "/api/admin/tokens/{token_id}", "tokens.manage")
+# The audit log (#172)
+route("GET", "/api/admin/audit", "audit.view")
 
 # Module routes: one explicit entry for each, with the permission its module declares. A module route added
 # without an entry here fails "EVERY /api/admin route has a permission entry".
@@ -1023,7 +1025,8 @@ r = t.get("/api/admin/me")
 eq("a token acts as its user", (r.status_code, r.json()["user"]["username"]), (200, "admin"))
 eq("…with its role's permissions less the barred ones", r.json()["permissions"],
    sorted(p for p, mr in MIN_ROLE.items() if RANK["admin"] >= RANK[mr]
-          and p not in ("users.view", "users.manage", "credentials.manage", "tokens.own", "tokens.manage")))
+          and p not in ("users.view", "users.manage", "credentials.manage", "tokens.own", "tokens.manage",
+                        "audit.view")))
 eq("it reads status", t.get("/api/admin/status").status_code, 200)
 eq("it may do what the role may", t.post("/api/admin/config", json={"history_lines": 77}).status_code, 200)
 eq("…and not more", (t.post("/api/admin/config", json={"openai_api_key": "sk-x"}).status_code,
@@ -1031,7 +1034,8 @@ eq("…and not more", (t.post("/api/admin/config", json={"openai_api_key": "sk-x
 for m, p in (("GET", "/api/admin/users"), ("POST", "/api/admin/users"), ("GET", "/api/admin/trusted-devices"),
              ("POST", "/api/admin/me/tokens"), ("GET", "/api/admin/me/tokens"),
              ("DELETE", f"/api/admin/me/tokens/{tok['id']}"), ("POST", "/api/admin/me/password"),
-             ("POST", "/api/admin/me/pin"), ("DELETE", "/api/admin/me/pin"), ("POST", f"/api/admin/users/{tok['user_id']}/password")):
+             ("POST", "/api/admin/me/pin"), ("DELETE", "/api/admin/me/pin"), ("POST", f"/api/admin/users/{tok['user_id']}/password"),
+             ("GET", "/api/admin/audit")):
     r = send(t, m, p)
     eq(f"a token cannot {m} {p}", (r.status_code, detail(r)), (403, "Not allowed"))
 eq("…so the token still exists", len(admin_c.get("/api/admin/me/tokens").json()["tokens"]), 2)
