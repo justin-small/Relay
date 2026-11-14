@@ -560,6 +560,7 @@ for method, path, perm in (
     ("GET", PPX + "/link", "propresenter.view"),
     ("GET", PPX + "/link/presentations", "propresenter.view"),
     ("POST", PPX + "/link/refresh", "propresenter.manage"),             # reaches out to ProPresenter
+    ("POST", PPX + "/signage/sync", "propresenter.manage"),            # reaches out to ProPresenter
     ("POST", PPX + "/link/mapping", "propresenter.manage"),
     ("POST", PPX + "/link/playlist", "propresenter.manage"),
 ):
