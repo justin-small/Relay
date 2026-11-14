@@ -2,7 +2,7 @@
 <html lang="en"><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Relay · Intercom admin (mockup, #237)</title>
-<!-- Mockup only. Pages: #live #channels #productions #devices #health #remote (the last needs the intercom-remote module). -->
+<!-- Mockup only. Pages: #live #channels #members #devices #health #remote (the last needs the intercom-remote module). -->
 <style>
   :root { --bg:#0d0e10; --fg:#eceae6; --dim:#9aa0a8; --line:#23252a; --btn:#17181b; --ok:#5fcf8f; --warn:#f2b84b; --err:#f07a7a; }
   * { box-sizing:border-box; }
@@ -48,6 +48,7 @@
   .tl { display:inline-flex; gap:3px; }
   .tl b { font-size:11.5px; font-weight:600; width:22px; height:22px; display:inline-grid; place-items:center; border-radius:4px; border:1px solid var(--line); color:#6d727b; }
   .tl b.t { background:#3a1417; color:#ffc7c9; border-color:#6b2328; }
+  .pr { font-size:11.5px; color:var(--dim); margin-left:5px; }
   .tl b.l { background:#13233d; color:#c4dbff; border-color:#27467a; }
   .legend { font-size:12.5px; color:var(--dim); display:flex; gap:16px; margin-top:10px; flex-wrap:wrap; }
   .log td { font-size:13px; }
@@ -68,7 +69,7 @@
   <a href="#live" data-p="live">Intercom live<span class="badge ok">14</span></a>
   <a href="#health" data-p="health">Intercom health<span class="badge warn">1 warn</span></a>
   <div class="grp">Intercom setup</div>
-  <a href="#productions" data-p="productions">Productions &amp; routing</a>
+  <a href="#members" data-p="members">Channel members</a>
   <a href="#channels" data-p="channels">Channels<span class="badge">6</span></a>
   <a href="#devices" data-p="devices">Signed-in phones<span class="badge">17</span></a>
   <a href="#remote" data-p="remote">Remote crew<span class="badge ok">On</span></a>
@@ -80,17 +81,16 @@
 <!-- LIVE -->
 <div class="page" id="p-live">
   <h2>Intercom live</h2>
-  <p class="sub">Who is on, who is talking and on which channel. Changes here apply now and are logged; they don't change the saved production.</p>
+  <p class="sub">Who is on, who is talking and on which channel. Mutes here apply now and are logged; they don't change channel membership.</p>
   <div class="bar">
-    <label class="muted">Live production</label>
-    <select><option>Sunday 9:00 (Planning Center)</option><option>Sunday 11:00</option><option>Rehearsal</option></select>
+    <span class="muted">Production label</span> <b>Sunday 9:00</b>
     <span class="spacer"></span>
     <button>Release all talk</button><button class="danger">Mute all</button>
   </div>
   <section><h3>Channels now</h3>
   <table>
     <tr><th>Channel</th><th>Mode</th><th>Talking now</th><th class="c">Listening</th><th class="c">Waiting</th><th></th></tr>
-    <tr><td><span class="sw" style="background:#e5484d"></span>Production</td><td>Pre-empt</td><td><span class="pill talk">Jen · Director</span></td><td class="c">12</td><td class="c">–</td><td><button class="sm">Mute channel</button></td></tr>
+    <tr><td><span class="sw" style="background:#e5484d"></span>Main</td><td>Pre-empt</td><td><span class="pill talk">Jen · Director</span></td><td class="c">12</td><td class="c">–</td><td><button class="sm">Mute channel</button></td></tr>
     <tr><td><span class="sw" style="background:#f2b84b"></span>Cameras</td><td>Party line</td><td><span class="pill talk">Sam · Cam 1</span> <span class="pill talk">Lee · Cam 3</span></td><td class="c">5</td><td class="c">–</td><td><button class="sm">Mute channel</button></td></tr>
     <tr><td><span class="sw" style="background:#22c3a6"></span>Pastor IFB</td><td>One at a time</td><td><span class="pill talk">Ana · Producer</span></td><td class="c">1</td><td class="c">1</td><td><button class="sm">Mute channel</button></td></tr>
     <tr><td><span class="sw" style="background:#5b9cf5"></span>Audio</td><td>Party line</td><td class="muted">–</td><td class="c">4</td><td class="c">–</td><td><button class="sm">Mute channel</button></td></tr>
@@ -98,8 +98,8 @@
   <section><h3>Connected</h3>
   <table>
     <tr><th>User</th><th>Phone</th><th>Via</th><th>Talk</th><th>Listen</th><th>Loss</th><th>Jitter</th><th></th></tr>
-    <tr><td>Jen Park <span class="muted">Director · P1</span></td><td>iPhone 15</td><td><span class="dot"></span>Local</td><td>Production</td><td>All 4</td><td>0.1%</td><td>4 ms</td><td><button class="sm">Mute</button> <button class="sm">Sign out</button></td></tr>
-    <tr><td>Sam Ortiz <span class="muted">Cam 1 · P3</span></td><td>Pixel 8</td><td><span class="dot"></span>Local</td><td>Prod, Cameras</td><td>3</td><td>0.4%</td><td>7 ms</td><td><button class="sm">Mute</button> <button class="sm">Sign out</button></td></tr>
+    <tr><td>Jen Park <span class="muted">Director · P1</span></td><td>iPhone 15</td><td><span class="dot"></span>Local</td><td>Main</td><td>All 4</td><td>0.1%</td><td>4 ms</td><td><button class="sm">Mute</button> <button class="sm">Sign out</button></td></tr>
+    <tr><td>Sam Ortiz <span class="muted">Cam 1 · P3</span></td><td>Pixel 8</td><td><span class="dot"></span>Local</td><td>Main, Cameras</td><td>3</td><td>0.4%</td><td>7 ms</td><td><button class="sm">Mute</button> <button class="sm">Sign out</button></td></tr>
     <tr><td>Lee Chen <span class="muted">Cam 3 · P3</span></td><td>iPhone 13</td><td><span class="dot warn"></span>Local</td><td>Cameras</td><td>2</td><td style="color:var(--warn)">3.8%</td><td style="color:var(--warn)">41 ms</td><td><button class="sm">Mute</button> <button class="sm">Sign out</button></td></tr>
     <tr><td>Ana Ruiz <span class="muted">Producer · P2</span></td><td>iPad</td><td><span class="dot"></span>Remote</td><td>Pastor IFB</td><td>2</td><td>0.9%</td><td>18 ms</td><td><button class="sm">Mute</button> <button class="sm">Sign out</button></td></tr>
   </table></section>
@@ -111,13 +111,13 @@
   <p class="sub">Channels belong to Relay, not to LiveKit rooms: renaming or reordering never changes who can talk. Each channel picks how simultaneous talkers are handled.</p>
   <div class="bar"><button class="primary">New channel</button></div>
   <table>
-    <tr><th>Channel</th><th>When two people press talk</th><th>Max talkers</th><th>Lease</th><th>Used in</th><th></th></tr>
-    <tr><td><span class="sw" style="background:#e5484d"></span>Production</td><td><span class="pill">Pre-empt</span> higher priority cuts in</td><td>2</td><td>60 s</td><td>3 productions</td><td><button class="sm">Edit</button></td></tr>
-    <tr><td><span class="sw" style="background:#f2b84b"></span>Cameras</td><td><span class="pill">Party line</span> everyone talks</td><td>8</td><td>60 s</td><td>3 productions</td><td><button class="sm">Edit</button></td></tr>
-    <tr><td><span class="sw" style="background:#22c3a6"></span>Pastor IFB</td><td><span class="pill">One at a time</span> queue by priority</td><td>1</td><td>30 s</td><td>2 productions</td><td><button class="sm">Edit</button></td></tr>
-    <tr><td><span class="sw" style="background:#5b9cf5"></span>Audio</td><td><span class="pill">Party line</span></td><td>8</td><td>60 s</td><td>3 productions</td><td><button class="sm">Edit</button></td></tr>
-    <tr><td><span class="sw" style="background:#a78bfa"></span>Stage</td><td><span class="pill">Party line</span></td><td>8</td><td>60 s</td><td>2 productions</td><td><button class="sm">Edit</button></td></tr>
-    <tr><td><span class="sw" style="background:#9aa0a8"></span>Lighting</td><td><span class="pill">Pre-empt</span></td><td>2</td><td>60 s</td><td>1 production</td><td><button class="sm">Edit</button></td></tr>
+    <tr><th>Channel</th><th>When two people press talk</th><th>Max talkers</th><th>Lease</th><th>Members</th><th></th></tr>
+    <tr><td><span class="sw" style="background:#e5484d"></span>Main</td><td><span class="pill">Pre-empt</span> higher priority cuts in</td><td>2</td><td>60 s</td><td>12</td><td><button class="sm">Edit</button></td></tr>
+    <tr><td><span class="sw" style="background:#f2b84b"></span>Cameras</td><td><span class="pill">Party line</span> everyone talks</td><td>8</td><td>60 s</td><td>12</td><td><button class="sm">Edit</button></td></tr>
+    <tr><td><span class="sw" style="background:#22c3a6"></span>Pastor IFB</td><td><span class="pill">One at a time</span> queue by priority</td><td>1</td><td>30 s</td><td>4</td><td><button class="sm">Edit</button></td></tr>
+    <tr><td><span class="sw" style="background:#5b9cf5"></span>Audio</td><td><span class="pill">Party line</span></td><td>8</td><td>60 s</td><td>12</td><td><button class="sm">Edit</button></td></tr>
+    <tr><td><span class="sw" style="background:#a78bfa"></span>Stage</td><td><span class="pill">Party line</span></td><td>8</td><td>60 s</td><td>4</td><td><button class="sm">Edit</button></td></tr>
+    <tr><td><span class="sw" style="background:#9aa0a8"></span>Lighting</td><td><span class="pill">Pre-empt</span></td><td>2</td><td>60 s</td><td>2</td><td><button class="sm">Edit</button></td></tr>
   </table>
   <section style="margin-top:28px"><h3>Edit · Pastor IFB</h3>
     <div class="kv">
@@ -131,25 +131,29 @@
 </div>
 
 <!-- PRODUCTIONS -->
-<div class="page" id="p-productions">
-  <h2>Productions &amp; routing</h2>
-  <p class="sub">A production is a saved setup: which users are on which channels, with talk and listen rights and a priority. Make one by hand, copy one, or build one from a Planning Center plan. A restart brings back the live production.</p>
+<div class="page" id="p-members">
+  <h2>Channel members</h2>
+  <p class="sub">Who is on each channel. Set it once; it stays the same from service to service until an admin changes it. Members get Talk and/or Listen, and on the phone they choose which of their channels to talk and listen on.</p>
   <div class="bar">
-    <select><option>Sunday 9:00 · Planning Center · Live</option><option>Sunday 11:00</option><option>Youth Wednesday</option><option>Rehearsal (manual)</option></select>
-    <button>Copy to new…</button><button>Import crew from Planning Center plan</button>
-    <span class="spacer"></span><button class="primary">Make live</button>
+    <input placeholder="Search users" style="width:240px"><button>Add user to channels</button>
+    <span class="spacer"></span><span class="muted">Saved · changes reach connected phones within a second</span>
   </div>
-  <div class="callout">From Planning Center: Sunday 9:00, Nov 16. 2 scheduled people have no Relay account (Mark B., Tess K.); they're skipped until an admin makes one.</div>
   <table>
-    <tr><th>User</th><th>Priority</th><th class="c">Production</th><th class="c">Cameras</th><th class="c">Pastor IFB</th><th class="c">Audio</th><th class="c">Stage</th><th class="c">Lighting</th><th>Remote</th></tr>
-    <tr><td>Jen Park <span class="muted">Director</span></td><td>1</td><td class="c"><span class="tl"><b class="t">T</b><b class="l">L</b></span></td><td class="c"><span class="tl"><b class="t">T</b><b class="l">L</b></span></td><td class="c"><span class="tl"><b class="t">T</b><b class="l">L</b></span></td><td class="c"><span class="tl"><b class="t">T</b><b class="l">L</b></span></td><td class="c"><span class="tl"><b class="t">T</b><b class="l">L</b></span></td><td class="c"><span class="tl"><b class="t">T</b><b class="l">L</b></span></td><td class="muted">–</td></tr>
-    <tr><td>Ana Ruiz <span class="muted">Producer</span></td><td>2</td><td class="c"><span class="tl"><b class="t">T</b><b class="l">L</b></span></td><td class="c"><span class="tl"><b>T</b><b>L</b></span></td><td class="c"><span class="tl"><b class="t">T</b><b class="l">L</b></span></td><td class="c"><span class="tl"><b>T</b><b>L</b></span></td><td class="c"><span class="tl"><b>T</b><b>L</b></span></td><td class="c"><span class="tl"><b>T</b><b>L</b></span></td><td><span class="pill ok">Allowed</span></td></tr>
-    <tr><td>Sam Ortiz <span class="muted">Cam 1</span></td><td>3</td><td class="c"><span class="tl"><b class="t">T</b><b class="l">L</b></span></td><td class="c"><span class="tl"><b class="t">T</b><b class="l">L</b></span></td><td class="c"><span class="tl"><b>T</b><b>L</b></span></td><td class="c"><span class="tl"><b>T</b><b class="l">L</b></span></td><td class="c"><span class="tl"><b>T</b><b class="l">L</b></span></td><td class="c"><span class="tl"><b>T</b><b>L</b></span></td><td class="muted">–</td></tr>
-    <tr><td>Lee Chen <span class="muted">Cam 3</span></td><td>3</td><td class="c"><span class="tl"><b>T</b><b class="l">L</b></span></td><td class="c"><span class="tl"><b class="t">T</b><b class="l">L</b></span></td><td class="c"><span class="tl"><b>T</b><b>L</b></span></td><td class="c"><span class="tl"><b>T</b><b>L</b></span></td><td class="c"><span class="tl"><b>T</b><b>L</b></span></td><td class="c"><span class="tl"><b>T</b><b>L</b></span></td><td class="muted">–</td></tr>
-    <tr><td>Rob Diaz <span class="muted">A1</span></td><td>2</td><td class="c"><span class="tl"><b class="t">T</b><b class="l">L</b></span></td><td class="c"><span class="tl"><b>T</b><b>L</b></span></td><td class="c"><span class="tl"><b>T</b><b>L</b></span></td><td class="c"><span class="tl"><b class="t">T</b><b class="l">L</b></span></td><td class="c"><span class="tl"><b class="t">T</b><b class="l">L</b></span></td><td class="c"><span class="tl"><b>T</b><b>L</b></span></td><td class="muted">–</td></tr>
-    <tr><td>Pastor Dan <span class="muted">Talent</span></td><td>4</td><td class="c"><span class="tl"><b>T</b><b>L</b></span></td><td class="c"><span class="tl"><b>T</b><b>L</b></span></td><td class="c"><span class="tl"><b>T</b><b class="l">L</b></span></td><td class="c"><span class="tl"><b>T</b><b>L</b></span></td><td class="c"><span class="tl"><b>T</b><b>L</b></span></td><td class="c"><span class="tl"><b>T</b><b>L</b></span></td><td class="muted">–</td></tr>
+    <tr><th>User</th><th class="c">Main</th><th class="c">Cameras</th><th class="c">Pastor IFB</th><th class="c">Audio</th><th class="c">Stage</th><th class="c">Lighting</th><th></th></tr>
+    <tr><td>Jen Park <span class="muted">Director</span></td><td class="c"><span class="tl"><b class="t">T</b><b class="l">L</b></span><span class="pr">P1</span></td><td class="c"><span class="tl"><b class="t">T</b><b class="l">L</b></span></td><td class="c"><span class="tl"><b class="t">T</b><b class="l">L</b></span><span class="pr">P1</span></td><td class="c"><span class="tl"><b class="t">T</b><b class="l">L</b></span></td><td class="c"><span class="tl"><b class="t">T</b><b class="l">L</b></span></td><td class="c"><span class="tl"><b class="t">T</b><b class="l">L</b></span><span class="pr">P1</span></td><td><button class="sm">Edit</button></td></tr>
+    <tr><td>Ana Ruiz <span class="muted">Producer</span></td><td class="c"><span class="tl"><b class="t">T</b><b class="l">L</b></span><span class="pr">P2</span></td><td class="c"><span class="tl"><b>T</b><b>L</b></span></td><td class="c"><span class="tl"><b class="t">T</b><b class="l">L</b></span><span class="pr">P2</span></td><td class="c"><span class="tl"><b>T</b><b>L</b></span></td><td class="c"><span class="tl"><b>T</b><b>L</b></span></td><td class="c"><span class="tl"><b>T</b><b>L</b></span></td><td><button class="sm">Edit</button></td></tr>
+    <tr><td>Sam Ortiz <span class="muted">Cam 1</span></td><td class="c"><span class="tl"><b class="t">T</b><b class="l">L</b></span><span class="pr">P3</span></td><td class="c"><span class="tl"><b class="t">T</b><b class="l">L</b></span></td><td class="c"><span class="tl"><b>T</b><b>L</b></span></td><td class="c"><span class="tl"><b>T</b><b class="l">L</b></span></td><td class="c"><span class="tl"><b>T</b><b class="l">L</b></span></td><td class="c"><span class="tl"><b>T</b><b>L</b></span></td><td><button class="sm">Edit</button></td></tr>
+    <tr><td>Lee Chen <span class="muted">Cam 3</span></td><td class="c"><span class="tl"><b>T</b><b class="l">L</b></span></td><td class="c"><span class="tl"><b class="t">T</b><b class="l">L</b></span></td><td class="c"><span class="tl"><b>T</b><b>L</b></span></td><td class="c"><span class="tl"><b>T</b><b>L</b></span></td><td class="c"><span class="tl"><b>T</b><b>L</b></span></td><td class="c"><span class="tl"><b>T</b><b>L</b></span></td><td><button class="sm">Edit</button></td></tr>
+    <tr><td>Rob Diaz <span class="muted">A1</span></td><td class="c"><span class="tl"><b class="t">T</b><b class="l">L</b></span><span class="pr">P2</span></td><td class="c"><span class="tl"><b>T</b><b>L</b></span></td><td class="c"><span class="tl"><b>T</b><b>L</b></span></td><td class="c"><span class="tl"><b class="t">T</b><b class="l">L</b></span></td><td class="c"><span class="tl"><b class="t">T</b><b class="l">L</b></span></td><td class="c"><span class="tl"><b>T</b><b>L</b></span></td><td><button class="sm">Edit</button></td></tr>
+    <tr><td>Pastor Dan <span class="muted">Talent</span></td><td class="c"><span class="tl"><b>T</b><b>L</b></span></td><td class="c"><span class="tl"><b>T</b><b>L</b></span></td><td class="c"><span class="tl"><b>T</b><b class="l">L</b></span></td><td class="c"><span class="tl"><b>T</b><b>L</b></span></td><td class="c"><span class="tl"><b>T</b><b>L</b></span></td><td class="c"><span class="tl"><b>T</b><b>L</b></span></td><td><button class="sm">Edit</button></td></tr>
   </table>
-  <div class="legend"><span><span class="tl"><b class="t">T</b></span> may talk</span><span><span class="tl"><b class="l">L</b></span> may listen</span><span>Priority 1 is highest; used by Pre-empt and One-at-a-time channels</span><span>Changes save in one transaction and reach connected phones within a second</span></div>
+  <div class="legend"><span><span class="tl"><b class="t">T</b></span> may talk</span><span><span class="tl"><b class="l">L</b></span> may listen</span><span><span class="pr">P1</span> talk priority on that channel (1 is highest), only used by Pre-empt and One-at-a-time channels</span></div>
+  <section style="margin-top:28px"><h3>Production label</h3>
+    <div class="kv">
+      <span>Shown on phones and in the log</span><span><input value="Sunday 9:00" style="width:220px"> <button class="sm">Use today's Planning Center plan name</button></span>
+      <span>Effect on channels</span><span class="muted">None. The label never changes who is on which channel.</span>
+    </div>
+  </section>
 </div>
 
 <!-- DEVICES -->
@@ -189,12 +193,12 @@
   </section>
   <section><h3>Connection log<span class="r"><select><option>Last 24 hours</option></select><button class="sm">Export CSV</button></span></h3>
   <table class="log">
-    <tr><td>09:14:07</td><td>Talk pre-empted</td><td>Sam Ortiz on Production by Jen Park (priority 1)</td></tr>
+    <tr><td>09:14:07</td><td>Talk pre-empted</td><td>Sam Ortiz on Main by Jen Park (priority 1)</td></tr>
     <tr><td>09:11:52</td><td>Audio warning</td><td>Lee Chen loss 3.8%, jitter 41 ms</td></tr>
     <tr><td>09:03:10</td><td>Permission change</td><td>Ana Ruiz: Talk on Pastor IFB, by Jen Park</td></tr>
     <tr><td>08:59:44</td><td>Remote session</td><td>Ana Ruiz connected via Cloudflare</td></tr>
     <tr><td>08:41:02</td><td>Phone signed in</td><td>Sam Ortiz, Pixel 8</td></tr>
-    <tr><td>08:30:00</td><td>Production live</td><td>Sunday 9:00 restored after restart</td></tr>
+    <tr><td>08:30:00</td><td>Server restart</td><td>Channels and members restored; label Sunday 9:00</td></tr>
   </table></section>
 </div>
 
@@ -212,9 +216,9 @@
   </section>
   <section><h3>Users allowed to connect remotely<span class="r"><button class="sm">Add user</button></span></h3>
   <table>
-    <tr><th>User</th><th>Channels (from the live production)</th><th>Now</th><th></th></tr>
-    <tr><td>Ana Ruiz</td><td>Production, Pastor IFB</td><td><span class="pill ok">Connected · 0.9% loss</span></td><td><button class="sm">Disconnect</button> <button class="sm">Remove</button></td></tr>
-    <tr><td>Rob Diaz</td><td>Production, Audio, Stage</td><td><span class="pill">Not connected</span></td><td><button class="sm">Remove</button></td></tr>
+    <tr><th>User</th><th>Channels (their memberships)</th><th>Now</th><th></th></tr>
+    <tr><td>Ana Ruiz</td><td>Main, Pastor IFB</td><td><span class="pill ok">Connected · 0.9% loss</span></td><td><button class="sm">Disconnect</button> <button class="sm">Remove</button></td></tr>
+    <tr><td>Rob Diaz</td><td>Main, Audio, Stage</td><td><span class="pill">Not connected</span></td><td><button class="sm">Remove</button></td></tr>
   </table></section>
 </div>
 
