@@ -2,7 +2,7 @@
 <html lang="en"><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Relay · Intercom admin (mockup, #237)</title>
-<!-- Mockup only. Pages: #live #channels #members #devices #health #remote (the last needs the intercom-remote module). -->
+<!-- Mockup only. Pages: #live #channels #devices #health #remote (the last needs the intercom-remote module). -->
 <style>
   :root { --bg:#0d0e10; --fg:#eceae6; --dim:#9aa0a8; --line:#23252a; --btn:#17181b; --ok:#5fcf8f; --warn:#f2b84b; --err:#f07a7a; }
   * { box-sizing:border-box; }
@@ -69,7 +69,6 @@
   <a href="#live" data-p="live">Intercom live<span class="badge ok">14</span></a>
   <a href="#health" data-p="health">Intercom health<span class="badge warn">1 warn</span></a>
   <div class="grp">Intercom setup</div>
-  <a href="#members" data-p="members">Channel members</a>
   <a href="#channels" data-p="channels">Channels<span class="badge">6</span></a>
   <a href="#devices" data-p="devices">Signed-in phones<span class="badge">17</span></a>
   <a href="#remote" data-p="remote">Remote crew<span class="badge ok">On</span></a>
@@ -83,7 +82,7 @@
   <h2>Intercom live</h2>
   <p class="sub">Who is on, who is talking and on which channel. Mutes here apply now and are logged; they don't change channel membership.</p>
   <div class="bar">
-    <span class="muted">Production label</span> <b>Sunday 9:00</b>
+    <span class="muted">Production label</span> <input value="Sunday 9:00" style="width:160px"> <button class="sm">Use Planning Center plan name</button>
     <span class="spacer"></span>
     <button>Release all talk</button><button class="danger">Mute all</button>
   </div>
@@ -108,13 +107,13 @@
 <!-- CHANNELS -->
 <div class="page" id="p-channels">
   <h2>Channels</h2>
-  <p class="sub">Channels belong to Relay, not to LiveKit rooms: renaming or reordering never changes who can talk. Each channel picks how simultaneous talkers are handled.</p>
+  <p class="sub">Channels and their members are set once and stay put. Click Edit to change a channel's talk mode or who is on it. Channels belong to Relay, not to LiveKit rooms.</p>
   <div class="bar"><button class="primary">New channel</button></div>
   <table>
     <tr><th>Channel</th><th>When two people press talk</th><th>Max talkers</th><th>Lease</th><th>Members</th><th></th></tr>
     <tr><td><span class="sw" style="background:#e5484d"></span>Main</td><td><span class="pill">Pre-empt</span> higher priority cuts in</td><td>2</td><td>60 s</td><td>12</td><td><button class="sm">Edit</button></td></tr>
     <tr><td><span class="sw" style="background:#f2b84b"></span>Cameras</td><td><span class="pill">Party line</span> everyone talks</td><td>8</td><td>60 s</td><td>12</td><td><button class="sm">Edit</button></td></tr>
-    <tr><td><span class="sw" style="background:#22c3a6"></span>Pastor IFB</td><td><span class="pill">One at a time</span> queue by priority</td><td>1</td><td>30 s</td><td>4</td><td><button class="sm">Edit</button></td></tr>
+    <tr style="background:#16181b"><td><span class="sw" style="background:#22c3a6"></span>Pastor IFB</td><td><span class="pill">One at a time</span> queue by priority</td><td>1</td><td>30 s</td><td>3</td><td><button class="sm">Edit</button></td></tr>
     <tr><td><span class="sw" style="background:#5b9cf5"></span>Audio</td><td><span class="pill">Party line</span></td><td>8</td><td>60 s</td><td>12</td><td><button class="sm">Edit</button></td></tr>
     <tr><td><span class="sw" style="background:#a78bfa"></span>Stage</td><td><span class="pill">Party line</span></td><td>8</td><td>60 s</td><td>4</td><td><button class="sm">Edit</button></td></tr>
     <tr><td><span class="sw" style="background:#9aa0a8"></span>Lighting</td><td><span class="pill">Pre-empt</span></td><td>2</td><td>60 s</td><td>2</td><td><button class="sm">Edit</button></td></tr>
@@ -127,35 +126,20 @@
       <span>Max talkers at once</span><span><input value="1" style="width:80px"></span>
       <span>Talk lease (latched mic)</span><span><input value="30" style="width:80px"> s, renewed while held; expired leases are released by the server</span>
     </div>
+    <h3 style="margin-top:22px">Members<span class="r"><input placeholder="Add a user…" style="width:200px"><button class="sm">Add</button></span></h3>
+    <p class="muted" style="margin:-4px 0 10px;font-size:13px">Set once; stays the same from service to service. Members choose on their phone whether to talk and listen here, within these rights.</p>
+    <table>
+      <tr><th>User</th><th class="c">Talk</th><th class="c">Listen</th><th>Priority</th><th></th></tr>
+      <tr><td>Jen Park <span class="muted">Director</span></td><td class="c"><input type="checkbox" checked></td><td class="c"><input type="checkbox" checked></td><td><select><option>1 (highest)</option></select></td><td><button class="sm">Remove</button></td></tr>
+      <tr><td>Ana Ruiz <span class="muted">Producer</span></td><td class="c"><input type="checkbox" checked></td><td class="c"><input type="checkbox" checked></td><td><select><option>2</option></select></td><td><button class="sm">Remove</button></td></tr>
+      <tr><td>Pastor Dan <span class="muted">Talent</span></td><td class="c"><input type="checkbox"></td><td class="c"><input type="checkbox" checked></td><td class="muted">–</td><td><button class="sm">Remove</button></td></tr>
+    </table>
+    <div class="legend"><span>Priority decides who waits in line on this One-at-a-time channel (1 is highest). It is hidden on Party line channels, where it has no effect.</span></div>
+    <div class="bar" style="margin-top:16px"><button class="primary">Save</button><button>Cancel</button><span class="spacer"></span><button class="danger">Delete channel</button></div>
   </section>
 </div>
 
 <!-- PRODUCTIONS -->
-<div class="page" id="p-members">
-  <h2>Channel members</h2>
-  <p class="sub">Who is on each channel. Set it once; it stays the same from service to service until an admin changes it. Members get Talk and/or Listen, and on the phone they choose which of their channels to talk and listen on.</p>
-  <div class="bar">
-    <input placeholder="Search users" style="width:240px"><button>Add user to channels</button>
-    <span class="spacer"></span><span class="muted">Saved · changes reach connected phones within a second</span>
-  </div>
-  <table>
-    <tr><th>User</th><th class="c">Main</th><th class="c">Cameras</th><th class="c">Pastor IFB</th><th class="c">Audio</th><th class="c">Stage</th><th class="c">Lighting</th><th></th></tr>
-    <tr><td>Jen Park <span class="muted">Director</span></td><td class="c"><span class="tl"><b class="t">T</b><b class="l">L</b></span><span class="pr">P1</span></td><td class="c"><span class="tl"><b class="t">T</b><b class="l">L</b></span></td><td class="c"><span class="tl"><b class="t">T</b><b class="l">L</b></span><span class="pr">P1</span></td><td class="c"><span class="tl"><b class="t">T</b><b class="l">L</b></span></td><td class="c"><span class="tl"><b class="t">T</b><b class="l">L</b></span></td><td class="c"><span class="tl"><b class="t">T</b><b class="l">L</b></span><span class="pr">P1</span></td><td><button class="sm">Edit</button></td></tr>
-    <tr><td>Ana Ruiz <span class="muted">Producer</span></td><td class="c"><span class="tl"><b class="t">T</b><b class="l">L</b></span><span class="pr">P2</span></td><td class="c"><span class="tl"><b>T</b><b>L</b></span></td><td class="c"><span class="tl"><b class="t">T</b><b class="l">L</b></span><span class="pr">P2</span></td><td class="c"><span class="tl"><b>T</b><b>L</b></span></td><td class="c"><span class="tl"><b>T</b><b>L</b></span></td><td class="c"><span class="tl"><b>T</b><b>L</b></span></td><td><button class="sm">Edit</button></td></tr>
-    <tr><td>Sam Ortiz <span class="muted">Cam 1</span></td><td class="c"><span class="tl"><b class="t">T</b><b class="l">L</b></span><span class="pr">P3</span></td><td class="c"><span class="tl"><b class="t">T</b><b class="l">L</b></span></td><td class="c"><span class="tl"><b>T</b><b>L</b></span></td><td class="c"><span class="tl"><b>T</b><b class="l">L</b></span></td><td class="c"><span class="tl"><b>T</b><b class="l">L</b></span></td><td class="c"><span class="tl"><b>T</b><b>L</b></span></td><td><button class="sm">Edit</button></td></tr>
-    <tr><td>Lee Chen <span class="muted">Cam 3</span></td><td class="c"><span class="tl"><b>T</b><b class="l">L</b></span></td><td class="c"><span class="tl"><b class="t">T</b><b class="l">L</b></span></td><td class="c"><span class="tl"><b>T</b><b>L</b></span></td><td class="c"><span class="tl"><b>T</b><b>L</b></span></td><td class="c"><span class="tl"><b>T</b><b>L</b></span></td><td class="c"><span class="tl"><b>T</b><b>L</b></span></td><td><button class="sm">Edit</button></td></tr>
-    <tr><td>Rob Diaz <span class="muted">A1</span></td><td class="c"><span class="tl"><b class="t">T</b><b class="l">L</b></span><span class="pr">P2</span></td><td class="c"><span class="tl"><b>T</b><b>L</b></span></td><td class="c"><span class="tl"><b>T</b><b>L</b></span></td><td class="c"><span class="tl"><b class="t">T</b><b class="l">L</b></span></td><td class="c"><span class="tl"><b class="t">T</b><b class="l">L</b></span></td><td class="c"><span class="tl"><b>T</b><b>L</b></span></td><td><button class="sm">Edit</button></td></tr>
-    <tr><td>Pastor Dan <span class="muted">Talent</span></td><td class="c"><span class="tl"><b>T</b><b>L</b></span></td><td class="c"><span class="tl"><b>T</b><b>L</b></span></td><td class="c"><span class="tl"><b>T</b><b class="l">L</b></span></td><td class="c"><span class="tl"><b>T</b><b>L</b></span></td><td class="c"><span class="tl"><b>T</b><b>L</b></span></td><td class="c"><span class="tl"><b>T</b><b>L</b></span></td><td><button class="sm">Edit</button></td></tr>
-  </table>
-  <div class="legend"><span><span class="tl"><b class="t">T</b></span> may talk</span><span><span class="tl"><b class="l">L</b></span> may listen</span><span><span class="pr">P1</span> talk priority on that channel (1 is highest), only used by Pre-empt and One-at-a-time channels</span></div>
-  <section style="margin-top:28px"><h3>Production label</h3>
-    <div class="kv">
-      <span>Shown on phones and in the log</span><span><input value="Sunday 9:00" style="width:220px"> <button class="sm">Use today's Planning Center plan name</button></span>
-      <span>Effect on channels</span><span class="muted">None. The label never changes who is on which channel.</span>
-    </div>
-  </section>
-</div>
-
 <!-- DEVICES -->
 <div class="page" id="p-devices">
   <h2>Signed-in phones</h2>
