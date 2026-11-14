@@ -1,0 +1,218 @@
+<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Relay · Intercom on the crew page (mockup, #240)</title>
+<!-- Mockup only: static HTML, no LiveKit. Each phone is one state of the crew page's Intercom tab.
+     Open with #signin, #talk, #talking, #remote to show one phone full size. -->
+<style>
+  :root { --bg:#0d0e10; --fg:#eceae6; --dim:#9aa0a8; --line:#23252a; --card:#141518; --btn:#17181b;
+          --ok:#5fcf8f; --warn:#f2b84b; --err:#f07a7a; --talk:#e5484d; --listen:#5b9cf5; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:#07080a; color:var(--fg); font:14px/1.45 ui-sans-serif,-apple-system,"Segoe UI",system-ui,sans-serif;
+         font-feature-settings:"tnum" 1; padding:28px 24px 48px; }
+  h1 { font-size:20px; margin:0 0 4px; letter-spacing:-.01em; }
+  .lead { color:var(--dim); margin:0 0 26px; max-width:80ch; }
+  .board { display:flex; gap:28px; flex-wrap:wrap; align-items:flex-start; }
+  figure { margin:0; }
+  figcaption { color:var(--dim); font-size:13px; margin:12px 4px 0; max-width:340px; }
+  figcaption b { color:var(--fg); font-weight:600; }
+  .phone { width:340px; height:790px; border-radius:44px; border:10px solid #1c1d21; background:var(--bg);
+           box-shadow:0 0 0 1px #2a2c31; overflow:hidden; position:relative; display:flex; flex-direction:column; }
+  .sb { display:flex; justify-content:space-between; padding:10px 22px 4px; font-size:12px; font-weight:600; }
+  .top { padding:6px 16px 10px; border-bottom:1px solid var(--line); }
+  .top .row { display:flex; align-items:center; gap:8px; }
+  .top h2 { font-size:16px; margin:0; flex:1; }
+  .prod { font-size:12px; color:var(--dim); }
+  .chips { display:flex; gap:6px; margin-top:8px; flex-wrap:wrap; }
+  .chip { white-space:nowrap; display:inline-flex; align-items:center; gap:6px; font-size:11.5px; padding:3px 8px; border-radius:4px;
+          border:1px solid var(--line); color:var(--dim); }
+  .chip .d { width:7px; height:7px; border-radius:50%; background:var(--ok); }
+  .chip.ok { color:#bfe9cf; border-color:#21402e; }
+  .chip.warn { color:#f6d899; border-color:#4a3a17; } .chip.warn .d { background:var(--warn); }
+  .chip.err { color:#f6b3b3; border-color:#4d2222; } .chip.err .d { background:var(--err); }
+  .body { flex:1; overflow:hidden; padding:10px 12px; display:flex; flex-direction:column; gap:8px; }
+  .ch { border:1px solid var(--line); border-radius:8px; background:var(--card); padding:10px 11px; }
+  .ch.sel { box-shadow:inset 3px 0 0 var(--talk); }
+  .ch .r1 { display:flex; align-items:center; gap:8px; }
+  .sw { width:10px; height:10px; border-radius:3px; }
+  .ch .nm { font-weight:600; flex:1; }
+  .ch .act { font-size:11.5px; color:var(--dim); margin-top:3px; min-height:16px; }
+  .ch .act.live { color:#ffd0d1; }
+  .eq { display:inline-flex; gap:2px; vertical-align:-1px; margin-right:5px; }
+  .eq i { width:3px; background:var(--talk); border-radius:1px; }
+  .tg { font-size:11.5px; font-weight:600; padding:4px 9px; border-radius:4px; border:1px solid var(--line); background:var(--btn); color:var(--dim); }
+  .tg.t.on { background:#3a1417; color:#ffc7c9; border-color:#6b2328; }
+  .tg.l.on { background:#13233d; color:#c4dbff; border-color:#27467a; }
+  .tg.no { opacity:.35; text-decoration:line-through; }
+  .vol { display:flex; align-items:center; gap:8px; margin-top:8px; font-size:12px; color:var(--dim); }
+  .vol .bar { flex:1; height:4px; border-radius:2px; background:#26282d; position:relative; }
+  .vol .bar i { position:absolute; left:0; top:0; bottom:0; border-radius:2px; background:var(--listen); }
+  .foot { border-top:1px solid var(--line); padding:12px 14px 22px; }
+  .tgt { font-size:12px; color:var(--dim); margin-bottom:9px; display:flex; justify-content:space-between; }
+  .ptt { width:100%; height:112px; border-radius:16px; border:1px solid #3b3d43; background:#1b1c20; color:var(--fg);
+         font:600 19px/1.2 inherit; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:4px; }
+  .ptt small { font-size:12px; color:var(--dim); font-weight:500; }
+  .ptt.on { background:var(--talk); border-color:#ff8b8f; color:#fff; box-shadow:0 0 0 4px rgba(229,72,77,.25); }
+  .ptt.on small { color:#ffe3e4; }
+  .ptt.wait { background:#2a2414; border-color:#5d4c1d; color:#f6d899; }
+  .opts { display:flex; gap:8px; margin-top:10px; }
+  .opts .tg { flex:1; text-align:center; padding:7px 0; }
+  .banner { font-size:12.5px; padding:9px 11px; border-radius:6px; }
+  .banner.err { background:#2a1214; border:1px solid #57242a; color:#ffcfd1; }
+  .banner.warn { background:#2a2414; border:1px solid #5d4c1d; color:#f6d899; }
+  .banner.info { background:#121c2c; border:1px solid #23395c; color:#c4dbff; }
+  .form { padding:28px 22px; display:flex; flex-direction:column; gap:14px; flex:1; }
+  .form label { font-size:12.5px; color:var(--dim); display:block; margin-bottom:5px; }
+  .form input { width:100%; padding:11px 12px; border-radius:6px; border:1px solid var(--line); background:#141518; color:var(--fg); font:inherit; }
+  .btn { padding:12px; border-radius:6px; font:600 15px inherit; border:1px solid var(--line); background:var(--btn); color:var(--fg); text-align:center; }
+  .btn.pri { background:var(--fg); color:#111; border-color:var(--fg); }
+  .logo { font-weight:700; font-size:22px; letter-spacing:-.02em; margin:30px 0 4px; }
+  .fine { font-size:12px; color:var(--dim); }
+  .tabs { display:flex; border-top:1px solid var(--line); }
+  .tabs span { flex:1; text-align:center; font-size:12px; color:var(--dim); padding:8px 0 16px; }
+  .tabs span.on { color:var(--fg); font-weight:600; }
+  .solo .board > figure:not(.show) { display:none; }
+  .solo .lead, .solo h1 { display:none; }
+</style></head><body>
+<h1>Intercom on the crew page</h1>
+<p class="lead">Crew sign in with their own Relay account; channels follow the user to whatever phone they pick up.
+Talk targets are chosen per channel, the big button talks to every channel marked <b>Talk</b>, and each channel's listen volume is separate.</p>
+
+<div class="board">
+
+<!-- 1. Sign in -->
+<figure id="signin">
+<div class="phone">
+  <div class="sb"><span>8:41</span><span>Wi-Fi ▮▮▮</span></div>
+  <div class="form">
+    <div class="logo">Relay</div>
+    <div class="fine">Crew sign-in · relay.local</div>
+    <div><label>Username</label><input value="sam.ortiz"></div>
+    <div><label>Password</label><input type="password" value="xxxxxxxxxx"></div>
+    <label style="display:flex;gap:8px;align-items:center;color:var(--fg);font-size:13px"><input type="checkbox" checked style="width:auto"> Keep this phone signed in</label>
+    <div class="btn pri">Sign in</div>
+    <div class="fine">Signing in gives this phone its own device key. It renews itself every 30 days while you use it; an admin can sign this phone out at any time.</div>
+    <div class="fine" style="margin-top:auto">Works without internet on the church network.</div>
+  </div>
+</div>
+<figcaption><b>Sign in.</b> Relay account (or PIN on a trusted phone). The server issues a per-device credential; LiveKit secrets never reach the phone.</figcaption>
+</figure>
+
+<!-- 2. Idle talk screen -->
+<figure id="talk">
+<div class="phone">
+  <div class="sb"><span>9:02</span><span>Wi-Fi ▮▮▮</span></div>
+  <div class="top">
+    <div class="row"><h2>Intercom</h2><span class="prod">Sunday 9:00 · Live</span></div>
+    <div class="chips">
+      <span class="chip ok"><span class="d"></span>Local · 41 ms</span>
+      <span class="chip ok"><span class="d"></span>Remote online</span>
+      <span class="chip">🎧 AirPods Pro</span>
+    </div>
+  </div>
+  <div class="body">
+    <div class="ch sel">
+      <div class="r1"><span class="sw" style="background:#e5484d"></span><span class="nm">Production</span>
+        <span class="tg t on">Talk</span><span class="tg l on">Listen</span></div>
+      <div class="act live"><span class="eq"><i style="height:9px"></i><i style="height:5px"></i><i style="height:11px"></i></span>Director (Jen) talking</div>
+      <div class="vol">Vol <span class="bar"><i style="width:80%"></i></span> 80</div>
+    </div>
+    <div class="ch sel">
+      <div class="r1"><span class="sw" style="background:#f2b84b"></span><span class="nm">Cameras</span>
+        <span class="tg t on">Talk</span><span class="tg l on">Listen</span></div>
+      <div class="act">Quiet · 4 listening</div>
+      <div class="vol">Vol <span class="bar"><i style="width:65%"></i></span> 65</div>
+    </div>
+    <div class="ch">
+      <div class="r1"><span class="sw" style="background:#5b9cf5"></span><span class="nm">Audio</span>
+        <span class="tg t">Talk</span><span class="tg l on">Listen</span></div>
+      <div class="act">Quiet · 3 listening</div>
+      <div class="vol">Vol <span class="bar"><i style="width:40%"></i></span> 40</div>
+    </div>
+    <div class="ch">
+      <div class="r1"><span class="sw" style="background:#a78bfa"></span><span class="nm">Stage</span>
+        <span class="tg t no" title="Listen only for you">Talk</span><span class="tg l">Listen</span></div>
+      <div class="act">Listen only · muted by you</div>
+    </div>
+  </div>
+  <div class="foot">
+    <div class="tgt"><span>Talks to: <b style="color:var(--fg)">Production, Cameras</b></span><span>Space / volume key</span></div>
+    <div class="ptt">Hold to talk<small>Tap Latch to keep the mic open</small></div>
+    <div class="opts"><span class="tg">Latch</span><span class="tg">Mute all listen</span><span class="tg">Call Director</span></div>
+  </div>
+  <div class="tabs"><span>Plan</span><span>Pages</span><span class="on">Intercom</span><span>Chat</span></div>
+</div>
+<figcaption><b>Idle.</b> Assigned channels only. Talk/Listen are the user's picks inside what the production allows; a struck-through Talk means listen-only rights. Status chips show local latency, remote link and headset.</figcaption>
+</figure>
+
+<!-- 3. Talking / pre-empted / queued -->
+<figure id="talking">
+<div class="phone">
+  <div class="sb"><span>9:14</span><span>Wi-Fi ▮▮▮</span></div>
+  <div class="top">
+    <div class="row"><h2>Intercom</h2><span class="prod">Sunday 9:00 · Live</span></div>
+    <div class="chips"><span class="chip ok"><span class="d"></span>Local · 38 ms</span><span class="chip ok"><span class="d"></span>Remote online</span></div>
+  </div>
+  <div class="body">
+    <div class="banner err"><b>Cut off on Production.</b> Director has priority on this channel. You're still talking on Cameras.</div>
+    <div class="ch sel">
+      <div class="r1"><span class="sw" style="background:#e5484d"></span><span class="nm">Production</span><span class="chip" style="font-size:11.5px">Pre-empt</span>
+        <span class="tg t on">Talk</span><span class="tg l on">Listen</span></div>
+      <div class="act live"><span class="eq"><i style="height:10px"></i><i style="height:6px"></i><i style="height:12px"></i></span>Director (Jen) · priority 1</div>
+    </div>
+    <div class="ch sel">
+      <div class="r1"><span class="sw" style="background:#f2b84b"></span><span class="nm">Cameras</span><span class="chip" style="font-size:11.5px">Party line</span>
+        <span class="tg t on">Talk</span><span class="tg l on">Listen</span></div>
+      <div class="act live"><span class="eq"><i style="height:7px"></i><i style="height:12px"></i><i style="height:5px"></i></span>You and Cam 3 (Lee) talking</div>
+    </div>
+    <div class="ch">
+      <div class="r1"><span class="sw" style="background:#22c3a6"></span><span class="nm">Pastor IFB</span><span class="chip" style="font-size:11.5px">One at a time</span>
+        <span class="tg t on">Talk</span><span class="tg l">Listen</span></div>
+      <div class="act">Producer (Ana) talking · you're 2nd in line</div>
+    </div>
+  </div>
+  <div class="foot">
+    <div class="tgt"><span>Talking: <b style="color:var(--fg)">Cameras</b> · waiting: Pastor IFB</span><span>0:07</span></div>
+    <div class="ptt on">Talking<small>Release to stop · lease renews every 2 s</small></div>
+    <div class="opts"><span class="tg">Latch</span><span class="tg">Mute all listen</span><span class="tg">Call Director</span></div>
+  </div>
+  <div class="tabs"><span>Plan</span><span>Pages</span><span class="on">Intercom</span><span>Chat</span></div>
+</div>
+<figcaption><b>Talking.</b> One press asks the server for a lease on each target channel. Each channel answers by its own priority mode: pre-empted (cut off), party line (talk together) or queued (one at a time).</figcaption>
+</figure>
+
+<!-- 4. Remote crew, internet lost -->
+<figure id="remote">
+<div class="phone">
+  <div class="sb"><span>9:20</span><span>5G ▮▮</span></div>
+  <div class="top">
+    <div class="row"><h2>Intercom</h2><span class="prod">Sunday 9:00 · Remote</span></div>
+    <div class="chips"><span class="chip err"><span class="d"></span>Church offline</span><span class="chip">Remote · Cloudflare</span></div>
+  </div>
+  <div class="body">
+    <div class="banner warn"><b>Lost the link to the church.</b> Their internet is down; crew on site can still talk to each other. Reconnecting in 16 s (try 4).</div>
+    <div class="ch" style="opacity:.45">
+      <div class="r1"><span class="sw" style="background:#e5484d"></span><span class="nm">Production</span><span class="tg t on">Talk</span><span class="tg l on">Listen</span></div>
+      <div class="act">Unavailable while disconnected</div>
+    </div>
+    <div class="ch" style="opacity:.45">
+      <div class="r1"><span class="sw" style="background:#22c3a6"></span><span class="nm">Pastor IFB</span><span class="tg t on">Talk</span><span class="tg l">Listen</span></div>
+      <div class="act">Unavailable while disconnected</div>
+    </div>
+    <div class="banner info">Remote access is set by an admin. Your channels come back as they were when the link returns.</div>
+  </div>
+  <div class="foot">
+    <div class="ptt" style="opacity:.4">Hold to talk<small>Disconnected</small></div>
+    <div class="opts"><span class="tg">Retry now</span></div>
+  </div>
+  <div class="tabs"><span>Plan</span><span>Pages</span><span class="on">Intercom</span><span>Chat</span></div>
+</div>
+<figcaption><b>Remote crew, church internet down.</b> The remote phone sees "disconnected" and retries with backoff; local phones keep talking (their Remote chip turns amber, nothing else changes).</figcaption>
+</figure>
+
+</div>
+<script>
+  const h = location.hash.slice(1);
+  if (h && document.getElementById(h)) { document.body.classList.add('solo'); document.getElementById(h).classList.add('show'); }
+</script>
+</body></html>
