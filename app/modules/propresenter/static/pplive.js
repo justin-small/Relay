@@ -46,11 +46,14 @@
     $('lbInterval').value = lobby.interval_s || 8;
     $('lbLoop').checked = lobby.loop !== false;
     $('svPublic').checked = !!view_.public;
-    const pick = $('lbPlaylist');
+    const pick = $('lbPlaylist'), sgPick = $('sgPlaylist'), sg = settings.signage || {};
     pick.textContent = '';
-    const none = h('option', '', 'Choose a playlist');
-    none.value = '';
-    pick.appendChild(none);
+    sgPick.textContent = '';
+    [pick, sgPick].forEach(function (sel) {
+      const none = h('option', '', 'Choose a playlist');
+      none.value = '';
+      sel.appendChild(none);
+    });
     const tsel = $('svTimer');
     tsel.textContent = '';
     const nt = h('option', '', 'No countdown');
@@ -58,13 +61,15 @@
     tsel.appendChild(nt);
     try {
       const pl = flatten((await call(BASE + '/playlists')).playlists, []);
-      pl.forEach(function (p) { const o = h('option', '', p.name); o.value = p.uuid; pick.appendChild(o); });
+      pl.forEach(function (p) {
+        [pick, sgPick].forEach(function (sel) { const o = h('option', '', p.name); o.value = p.uuid; sel.appendChild(o); });
+      });
     } catch (e) { /* ProPresenter not answering: the list stays empty */ }
     try {
       ((await call(BASE + '/timers')).timers || []).forEach(function (t) { const o = h('option', '', t.name); o.value = t.uuid; tsel.appendChild(o); });
     } catch (e) { /* the same */ }
     // A saved choice that ProPresenter no longer lists is kept visible rather than silently dropped.
-    [[pick, lobby.playlist], [tsel, view_.timer]].forEach(function (pair) {
+    [[pick, lobby.playlist], [sgPick, sg.playlist], [tsel, view_.timer]].forEach(function (pair) {
       if (pair[1] && !Array.prototype.some.call(pair[0].options, function (o) { return o.value === pair[1]; })) {
         const o = h('option', '', 'Saved choice (not found in ProPresenter)');
         o.value = pair[1];
@@ -108,6 +113,25 @@
     say('lbErr', actionErr || l.error, true);
   }
 
+  function renderSignage(g) {
+    const box = $('sgState');
+    box.textContent = '';
+    let line;
+    if (!g.enabled) line = 'Off.';
+    else if (g.error) line = g.error;
+    else if (!g.synced_at) line = 'Waiting for the first copy.';
+    else line = g.slides + ' slide' + (g.slides === 1 ? '' : 's') + ' in the signage playlist "' + g.playlist_name + '", copied '
+      + new Date(g.synced_at * 1000).toLocaleTimeString() + '.';
+    box.appendChild(h('div', 't' + (g.enabled && !g.error ? '' : ' muted'), line));
+    $('sgSum').textContent = g.enabled ? (g.error ? 'needs attention' : 'on') : '';
+    const manage = can('propresenter.manage');
+    ['sgPlaylist', 'sgOn'].forEach(function (id) { if (document.activeElement !== $(id)) $(id).disabled = !manage; });
+    $('sgSave').hidden = !manage;
+    $('sgSync').hidden = !manage;
+    $('sgSync').disabled = !g.enabled;
+    if (document.activeElement !== $('sgOn')) $('sgOn').checked = !!g.enabled;
+  }
+
   async function poll() {
     clearTimeout(timer);
     if (pageOpen()) {
@@ -115,6 +139,7 @@
         body = await call(BASE);
         if (!filled) await fill();
         renderLobby(body.lobby || {});
+        renderSignage(body.signage || {});
         const s = body.state || {};
         $('svSum').textContent = !s.configured ? 'not set up' : !s.connected ? 'waiting for ProPresenter' : '';
       } catch (e) { say('lbErr', e.message, true); }
@@ -140,6 +165,12 @@
 
   $('lbSave').addEventListener('click', function () {
     save('lbMsg', { lobby: { playlist: $('lbPlaylist').value, interval_s: Number($('lbInterval').value), loop: $('lbLoop').checked } });
+  });
+  $('sgSave').addEventListener('click', function () {
+    save('sgMsg', { signage: { enabled: $('sgOn').checked, playlist: $('sgPlaylist').value } });
+  });
+  $('sgSync').addEventListener('click', function () {
+    run(async function () { body = await post('/signage/sync'); say('sgMsg', 'Copied.'); });
   });
   $('svSave').addEventListener('click', function () {
     save('svMsg', { view: { timer: $('svTimer').value, public: $('svPublic').checked } });

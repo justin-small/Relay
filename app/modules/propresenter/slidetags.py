@@ -34,6 +34,7 @@ from collections import OrderedDict, deque
 from typing import Any, Awaitable, Callable, NamedTuple
 
 from ... import languages
+from . import signagetags
 
 log = logging.getLogger("relay.slidetags")
 
@@ -46,6 +47,7 @@ ACTIONS: dict[str, bool] = {
     "lang": True,
     "alert": True,
 }
+ACTIONS.update(signagetags.NAMES)       # signage-screen=..., signage-push, ... (signagetags.py): they act only while signage is on
 
 SETTLE_DEFAULT_S = 1.5
 SETTLE_MIN_S = 0.2

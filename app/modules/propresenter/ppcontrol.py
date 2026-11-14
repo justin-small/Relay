@@ -114,13 +114,18 @@ class Control:
         key = (str(uuid), n, str(rev)[:32]) if q == THUMB_QUALITY else (str(uuid), n, str(rev)[:32], q)
         return await self._cached(key, f"/v1/presentation/{_seg(uuid)}/thumbnail/{n}?quality={q}&thumbnail_type=jpeg")
 
-    async def playlist_thumbnail(self, playlist: str, item: Any, cue: Any, rev: str = "") -> tuple[str, bytes]:
+    async def playlist_thumbnail(self, playlist: str, item: Any, cue: Any, rev: str = "",
+                                 quality: int = THUMB_QUALITY) -> tuple[str, bytes]:
         """A cue of a playlist item. ProPresenter draws it for the item's own arrangement, so a chorus that the
-        arrangement repeats has a thumbnail at each place. Same cache and same rule as presentation thumbnails."""
-        i, c = _index(item), _index(cue)
-        return await self._cached(("playlist", str(playlist), i, c, str(rev)[:32]),
+        arrangement repeats has a thumbnail at each place. Same cache and same rule as presentation thumbnails.
+        `quality` is the longest side in pixels (signage asks for a large one)."""
+        i, c, q = _index(item), _index(cue), int(quality)
+        if not 64 <= q <= 2048:
+            raise ValueError("That size is not allowed.")
+        key = ("playlist", str(playlist), i, c, str(rev)[:32])
+        return await self._cached(key if q == THUMB_QUALITY else (*key, q),
                                   f"/v1/playlist/{_seg(playlist)}/{i}/thumbnail/{c}"
-                                  f"?quality={THUMB_QUALITY}&thumbnail_type=jpeg")
+                                  f"?quality={q}&thumbnail_type=jpeg")
 
     async def _cached(self, key: tuple, path: str) -> tuple[str, bytes]:
         hit = self.thumbs.get(key)

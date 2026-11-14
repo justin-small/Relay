@@ -75,6 +75,14 @@
       box.appendChild(ppKv('Runs for this slide', list(seen.resolved) + (seen.settling && seen.resolved.length ? ' (once it has settled)' : '')));
       (seen.warnings || []).forEach(function (w) { box.appendChild(ppKv('Warning', w, 'err')); });
     }
+    // What tags have put on signage screens (signage-... tags); nothing is listed while signage is off.
+    const sg = body.signage || {}, held = (sg.held || {}).held || [];
+    if (held.length) {
+      box.appendChild(el('div', 'note', 'On signage screens because of tags'));
+      held.forEach(function (h) { box.appendChild(ppKv(h.name, 'plays ' + h.playlist)); });
+    } else if (!(sg.held || {}).on && (seen && (seen.resolved || []).some(function (r) { return r.indexOf('signage-') === 0; }))) {
+      box.appendChild(ppKv('Signage', 'is switched off, so its tags do nothing', 'err'));
+    }
     const fired = tg.fired || [];
     box.appendChild(el('div', 'note', 'What ran'));
     if (!fired.length) box.appendChild(el('div', 'muted', 'Nothing yet.'));
