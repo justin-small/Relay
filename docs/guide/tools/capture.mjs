@@ -4,12 +4,13 @@
 // credentials -- see ../README.md for the exact commands. Nothing here talks
 // to OpenAI, and nothing it captures shows a real key, token or address:
 //
-//  - the viewer links are rewritten to the example address 192.168.1.50;
+//  - the viewer links, and this machine's own LAN addresses and the throwaway state folder's path
+//    anywhere in the panel, are rewritten to 192.168.1.50 and ~/Library/Application Support/Relay;
 //  - the "running" panel shots are fed test data through request
 //    interception, because rehearsal mode never opens a real session;
 //  - the key hint shows the last four characters of the throwaway key.
 //
-//   RELAY_GUIDE_USER=... RELAY_GUIDE_PASSWORD=... RELAY_GUIDE_STATE=/path/to/docker-config \
+//   RELAY_GUIDE_USER=... RELAY_GUIDE_PASSWORD=... RELAY_GUIDE_STATE=/path/to/state-folder \
 //     node capture.mjs [name ...]
 //
 // Sign-in: Relay has per-person accounts, so the script signs in through
@@ -22,7 +23,8 @@
 // (first run only), RELAY_GUIDE_STATE, RELAY_VIEW_URL, RELAY_ADMIN_URL.
 
 import { chromium, request } from 'playwright';
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync, realpathSync, writeFileSync } from 'node:fs';
+import { networkInterfaces } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -33,8 +35,23 @@ const ADMIN = process.env.RELAY_ADMIN_URL || 'https://localhost:18443';
 const TOKEN = process.env.RELAY_GUIDE_TOKEN;
 const USER = process.env.RELAY_GUIDE_USER;
 const PASSWORD = process.env.RELAY_GUIDE_PASSWORD;
-const STATE = process.env.RELAY_GUIDE_STATE; // the instance's docker-config/, for test recordings
+const STATE = process.env.RELAY_GUIDE_STATE; // the instance's state folder (RELAY_HOME), for test recordings
 const EXAMPLE = 'http://192.168.1.50/';
+
+// The instance runs on this machine, so its real LAN addresses and the throwaway state folder's path (which
+// holds the user name) would show in the panel. Every admin API answer is rewritten to the example address
+// and to the macOS state folder the guide names.
+const REAL_IPS = Object.values(networkInterfaces()).flat()
+  .filter((a) => a && !a.internal && a.address !== '192.168.1.50').map((a) => a.address);
+const STATE_PATHS = STATE ? [...new Set([realpathSync(STATE), STATE])].sort((a, b) => b.length - a.length) : [];
+const EXAMPLE_STATE = '~/Library/Application Support/Relay';
+function scrub(text) {
+  for (const p of STATE_PATHS) text = text.split(p).join(EXAMPLE_STATE);
+  for (const ip of REAL_IPS) text = text.split(ip).join('192.168.1.50');
+  // The throwaway instance's own ports: a normal install uses 80 and 443, which links do not show.
+  for (const port of [new URL(VIEW).port, new URL(ADMIN).port].filter(Boolean)) text = text.split(':' + port + '/').join('/');
+  return text;
+}
 const ONLY = process.argv.slice(2);
 
 if (!(USER && PASSWORD) && !TOKEN) {
@@ -285,9 +302,16 @@ async function adminPage(browser, { status = null, width = 1100, height = 900 } 
   // Viewer links: the example address instead of the container's own.
   // Devices: the container has no sound card, so offer two plausible ones.
   // Status: when given, replaces the real (stopped) status everywhere.
+  await page.route('**/api/admin/**', async (route) => {
+    if (route.request().url().includes('stream')) return route.continue();   // endless; cannot be buffered
+    const res = await route.fetch();
+    const type = res.headers()['content-type'] || '';
+    if (!type.includes('json')) return route.fulfill({ response: res });
+    await route.fulfill({ response: res, body: scrub(await res.text()) });
+  });
   await page.route('**/api/admin/state', async (route) => {
     const res = await route.fetch();
-    const body = await res.json();
+    const body = JSON.parse(scrub(await res.text()));
     body.urls = [EXAMPLE];
     body.devices = DEVICES;
     body.config.audio_device = 'USB Audio CODEC';
@@ -299,7 +323,7 @@ async function adminPage(browser, { status = null, width = 1100, height = 900 } 
     if (!status) return route.continue();
     // A one-shot stream: EventSource re-opens it every few seconds, which
     // is enough to keep the panel painted with the same test status.
-    const real = await (await route.fetch({ url: ADMIN + '/api/admin/status' })).json();
+    const real = JSON.parse(scrub(await (await route.fetch({ url: ADMIN + '/api/admin/status' })).text()));
     const st = { ...real, ...status(real) };
     await route.fulfill({
       status: 200, headers: { 'content-type': 'text/event-stream', 'cache-control': 'no-cache' },

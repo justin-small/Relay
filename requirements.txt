@@ -17,7 +17,7 @@ ifaddr==0.2.0
 numpy==2.5.4
 soxr==0.5.0.post1
 websockets==13.1
-certifi==2024.12.14
+certifi==2026.10.18
 # 50.0.0 ships no macOS x86_64 wheel (freeze spike, #179), so the Intel Mac desktop build uses 48.0.1, which does.
 cryptography==50.0.0; sys_platform != "darwin" or platform_machine != "x86_64"
 cryptography==48.0.1; sys_platform == "darwin" and platform_machine == "x86_64"

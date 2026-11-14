@@ -27,7 +27,7 @@ jobs:
       # sounddevice needs the PortAudio library to import (see release.yml for why PulseAudio runs headless).
       - run: sudo apt-get update && sudo apt-get install -y libportaudio2 pulseaudio
       - run: pulseaudio -D --exit-idle-time=-1 --load=module-null-sink && pactl info | head -3
-      # httpx2 is test-only (starlette's TestClient), so it stays out of requirements.txt and the image.
+      # httpx2 is test-only (starlette's TestClient), so it stays out of requirements.txt and the release build.
       - run: pip install -r requirements.txt httpx2==2.13.1
       - name: Module rule (every integration is a switchable module)
         run: python tests/test_modules.py
@@ -69,3 +69,35 @@ jobs:
             python "$t"
             echo "::endgroup::"
           done
+
+  # Known vulnerabilities in what Relay ships: the Python backend (requirements.txt and the hash-pinned
+  # release set) and the desktop shell's Rust crates and npm packages. Runs on every pull request, so a new
+  # advisory against a pinned version shows up before the next release.
+  audit:
+    name: Dependency audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.15'
+      - name: pip-audit
+        run: |
+          pip install pip-audit==2.10.0
+          pip-audit --strict -r requirements.txt
+          pip-audit --strict --require-hashes --disable-pip -r requirements-release.txt
+      - name: The release set matches requirements.txt
+        run: python tests/test_release_lock.py
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+      - name: npm audit
+        working-directory: desktop
+        run: npm audit --audit-level=moderate
+      - uses: dtolnay/rust-toolchain@stable
+      - name: cargo audit
+        working-directory: desktop/src-tauri
+        run: |
+          cargo install cargo-audit --locked --version 0.23.0
+          cargo audit

@@ -1,100 +1,51 @@
 # Troubleshooting the installation {#install-troubleshooting}
 
 This chapter lists the problems people meet while installing and starting
-Relay, and what to do about each one. Most messages below are exactly what the
-scripts print. Find the message you see, then follow the advice next to it.
+Relay, and what to do about each one. Find the message or symptom you see,
+then follow the advice next to it.
 
 Two tools help with almost every problem:
 
-- **The log.** Run `logs.command`, `logs.bat` or `./logs.sh`. It shows what
-  Relay is doing and why it stopped.
-- **Stop, then start.** Run the stop script, then the start script. This
-  clears many problems, especially after a restart or a change of network.
+- **The log.** Choose **Open logs folder** from the Relay menu and open
+  `relay.log`. It shows what Relay is doing and why it stopped. On a service
+  install, run `journalctl -u relay`.
+- **Restart Relay.** Choose **Restart Relay** from the Relay menu. This clears
+  many problems, especially after a change of network or sound card.
 
-## Downloading and opening the scripts
+## Installing and opening Relay
 
 | Symptom | What to do |
 |---|---|
-| macOS: **"setup.command" cannot be opened because it is from an unidentified developer**, or **Apple could not verify "setup.command" is free of malware** | macOS blocks scripts downloaded from the internet. Open **System Settings → Privacy & Security** and click **Open Anyway**. See the macOS chapter's platform notes. |
+| macOS: **"Relay" Not Opened**, or **Apple could not verify "Relay" is free of malware** | Expected the first time, until Relay is signed. Open **System Settings → Privacy & Security** and click **Open Anyway**. See [Opening Relay the first time](#opening-relay-the-first-time). |
+| macOS: **"Relay" is damaged and can't be opened** | The download did not finish, or was changed on the way. Delete it, download it again, and check that you took the right file for your Mac (`aarch64` for Apple silicon, `x64` for Intel). |
 | Windows: **Windows protected your PC** | This is SmartScreen. Click **More info**, then **Run anyway**. |
-| Windows: setup fails with `The build failed - see the output above.`, and the output mentions `no such file or directory` | You probably ran the script from inside the ZIP file. Extract the ZIP first (**Extract All…**), then run the script from the extracted folder. |
-| Linux: `Permission denied` when you run `./setup.sh` or `./start.sh` | The scripts lost their executable mark. Run `chmod +x *.sh tools/*.sh` in the Relay folder. |
-| Windows: errors such as `$'\r': command not found`, `/usr/bin/env: 'bash\r': No such file or directory`, or the relay not coming up with `exec /usr/local/bin/docker-entrypoint.sh: no such file or directory` in the log | Git for Windows changed the line endings in Relay's Linux scripts. Delete the Relay folder (keep a copy of `docker-config` if you have one) and download it again as a ZIP, or clone again with `git clone --config core.autocrlf=false …`. |
-| Windows: `The system cannot find the batch label specified` | The `.bat` file may have the wrong line endings. Download a fresh ZIP. If it happens again, report it on the Relay GitHub page. |
-| Windows: a script fails in an odd way, and your Relay folder path contains an apostrophe or one of `!` `&` `%` `^` | Move the Relay folder to `C:\Relay` and try again. |
-
-## Docker
-
-| Symptom | What to do |
-|---|---|
-| `Docker is not installed.` | Install Docker Desktop (macOS, Windows) or Docker Engine (Linux), then run setup again. |
-| `Docker is installed but not running.` or `Docker is not running. Start Docker Desktop and try again.` | Open Docker Desktop and wait until it says **Engine running**. Then run the script again. |
-| Linux: `Cannot talk to Docker.` | Start Docker with `sudo systemctl start docker`. If you have just installed Docker, add yourself to the `docker` group with `sudo usermod -aG docker $USER`, then log out and back in. |
-| Windows: `Docker is not running, or not installed.` | Open Docker Desktop and wait until it says **Engine running**. If Docker Desktop is not installed, install it (see the Windows chapter), then run setup again. |
-| Windows: Docker Desktop says WSL is missing or needs updating | Open Terminal (Windows 10: PowerShell) as administrator and run `wsl --install --no-distribution`, then `wsl --update`. Restart, open Docker Desktop, and try again. |
-| Windows: Docker Desktop says virtualisation is not enabled or not supported | Virtualisation is turned off in the PC's firmware (BIOS or UEFI). Ask your IT department to turn on **Intel VT-x** or **AMD-V** (sometimes called **SVM**). |
-| Linux: `docker: 'compose' is not a docker command` | The Compose plugin is missing. Install the `docker-compose-plugin` package, following Docker's instructions for your distribution. |
-| `The build failed — see the output above.` | Scroll up and read the first error. The usual causes are no internet connection, a full disk, or Docker not running. Fix the cause and run setup again. |
-| Docker says `no space left on device` | The disk is full. Free some space. In Docker Desktop you can also remove old images under **Images**. |
-
-## Setup
-
-| Symptom | What to do |
-|---|---|
-| `The API key cannot be empty.` | You pressed `Return` without pasting the key. Paste it and press `Return`. Nothing appears on screen while you paste; that is normal. |
-| `Too short — use at least 8 characters.` | Choose a longer admin token (it is used once, to create the first account). |
-| `That token is guessable. Pick another.` | `changeme`, `password`, `admin` and `relay` are refused. Choose a real password. |
-| `Tokens did not match — try again.` | The token and its confirmation were different. Type it carefully twice. |
-| `Could not write docker-config/config.json — see the output above.` | Read the lines above it. Check that the Relay folder is not read-only and not in a cloud-synced folder, then run setup again. |
-| `Could not generate the certificate — see the output above.` | Read the lines above it. Run setup again. If it keeps failing, send the output to whoever supports your Relay installation. |
-| Windows: the admin token is refused when you create the first account, even though you typed it correctly | The token probably contains a symbol that Command Prompt changed, such as `!` or `%`. Run `setup.bat` again, answer `y`, and choose a token made of letters, numbers, `-`, `_` and `.` only. |
-| Windows: you answered `yes` to **Reconfigure the API key and admin token?** but setup skipped the questions | On Windows only a single `y` counts. Run setup again and type `y`. |
-| `Setup did not finish.` (Windows) | One of the steps above failed. Read the message just above this line, and look it up in this chapter. |
-| Setup says `Certifying this machine's LAN address, 127.0.0.1.` | The computer was not connected to a network. That is fine for now: start checks the address again every time. |
-
-## Starting Relay
-
-| Symptom | What to do |
-|---|---|
-| `Not set up yet — docker-config/config.json is missing.` | Run setup first. If you have just updated Relay from a ZIP file, you forgot to copy the old `docker-config` folder into the new Relay folder. Copy it across, or run setup again. |
-| macOS: `PulseAudio is not installed.` | Install it with `brew install pulseaudio`. See the macOS chapter. |
-| macOS: `PulseAudio did not come up. Log: …` | The lines below the message show why. Run `stop.command`, then `start.command`. If it still fails, restart the Mac and try again. |
-| Windows: `PulseAudio is not installed. Run setup.bat first.` | Run `setup.bat`. It downloads PulseAudio. You do not need to re-enter your credentials: answer the first question with `Enter`. |
-| Windows: `Could not install PulseAudio` | Setup could not download PulseAudio. Check that the PC can reach the internet, then run setup again. If the lines above say `Checksum mismatch - refusing to install.`, the download was not the expected file. Do not work around it; ask whoever supports your Relay installation. |
-| Windows: `PulseAudio did not come up. Log: …` | The lines below the message show why. Run `stop.bat`, then `start.bat`. If it still fails, restart the PC and try again. |
-| Windows: `Windows reports no recording devices.` | Windows cannot see any microphone. Plug it in, check it is listed in **Settings → System → Sound** under **Input**, then run `start.bat` again. |
-| Linux: `/dev/snd does not exist, so there is no sound card to hand in.` | Linux cannot see a sound card. Plug in your audio interface. Check with `arecord -l`. |
-| `Audio checks failed -- see the FAIL lines above.` | Read the `FAIL` lines, and look them up in the next table. |
-| `The relay did not come up (container state: …).` followed by `Last lines of its log:` | Relay started but then stopped. The log lines below the message show why. Common causes are in this table; if you cannot tell, send those lines to whoever supports your Relay installation. |
-| Docker says `port is already allocated` or `address already in use` | Another program is already using port 80 or 443 on this computer, such as another web server. Stop that program, then run start again. |
-| The start window closed before you could read it | It closes after 30 seconds only when Relay started correctly. Run the logs script to see what Relay printed. |
-| The addresses start prints use `127.0.0.1` | Start could not find this computer's network address. Check that it is connected to the venue network, then stop and start again. On a Mac, start only looks at the Wi-Fi and built-in Ethernet ports; a USB or Thunderbolt Ethernet adapter is not found. Use Wi-Fi, or ask for help setting `RELAY_ADMIN_IPS`. |
-
-## Audio check failures
-
-These lines come from the audio check that start runs. Each `FAIL` line is
-followed by a line starting `->` with a hint.
-
-| Symptom | What to do |
-|---|---|
-| `FAIL  image 'live-caption-relay' is built` | Relay has not been built. Run setup first. |
-| `FAIL  PulseAudio server reachable at …` (macOS, Windows) | The sound bridge is not running. On a Mac, run `stop.command` and then `start.command`. On Windows, run `stop.bat` and then `start.bat`. |
-| `FAIL  PortAudio input devices` | Relay cannot see any microphone. Check that the microphone is plugged in. On Linux, see the note about the audio group in the Linux chapter. |
-| `FAIL  one second of audio captured` | Relay sees a device but cannot record from it. Plug the microphone in again, close other programs that use it, and run start again. On a Mac, make sure no other copy of PulseAudio is running: run `stop.command` first. |
-| `FAIL  signal is non-silent`, with `digital silence` on the next line | Relay records, but the sound is pure silence. This is almost always microphone permission. **macOS:** turn on **Terminal** in **System Settings → Privacy & Security → Microphone**, then run `stop.command` and `start.command`. **Windows:** in **Settings → Privacy & security → Microphone** (Windows 10: **Settings → Privacy → Microphone**), turn on **Let apps access your microphone** and **Let desktop apps access your microphone** (Windows 10: **Allow apps…** and **Allow desktop apps…**), then run `stop.bat` and `start.bat`. |
-| macOS: audio worked yesterday, but not after a restart | Run `start.command` again. After a restart, Docker brings Relay back but not PulseAudio. |
+| Windows: the browser blocks the download | Choose **Keep** (in Edge: **…**, **Keep**, then **Keep anyway**). |
+| Linux: the AppImage does nothing, or says it needs **FUSE** | Make it executable with `chmod +x`, and install FUSE 2 (`sudo apt install libfuse2t64` on Ubuntu 24.04). |
+| No Relay icon in the tray or menu bar | Relay may be hidden: on Windows, click the **^** arrow by the clock; on a Mac with a full menu bar, close some other menu-bar apps. On GNOME, turn on the **AppIndicator** extension. Relay is still running even when you cannot see the icon. |
+| The window says **Relay could not start** or the status line says **error** | Open the log (see above) and read the last lines. The tables below cover the usual causes. If you cannot tell, send those lines to whoever supports your Relay installation. |
 
 ## Opening the panel and the viewer link
 
 | Symptom | What to do |
 |---|---|
-| The browser warns **Your connection is not private** (or similar) the first time you open the panel | This is expected. The certificate was made on your own computer. Compare the fingerprint the browser shows with the `SHA-256` line from start. If they match, continue. If they do not, stop and find out why. |
-| The fingerprint in the browser does not match what setup printed | If this computer's IP address has changed, start made a new certificate. Compare with the `Panel certificate SHA-256` line that start printed today. If that does not match either, do not continue. |
+| Another computer's browser warns **Your connection is not private** (or similar) | Expected: the certificate was made by Relay itself. Compare the fingerprint with **Show certificate fingerprint** in the Relay menu. If they match, continue. If they do not, stop and find out why. |
+| The fingerprint changed since last week | Relay renews its certificate when the computer's address changes (a different network) or when it is close to expiring. The **Viewer links** page says so. Check the new fingerprint and accept it. |
 | `http://192.168.1.50/admin` shows **404 Not Found** | The panel only works over HTTPS. Type `https://`, not `http://`. |
-| Phones cannot open the viewer link | Check that the phones are on the same Wi-Fi network as the Relay computer, not a guest network or mobile data. Guest networks often stop devices from seeing each other. Check the computer's firewall (on Windows, allow Docker on **Private networks**). Make sure people type `http://`, not `https://`. |
-| The first-run form refuses your admin token | Check for extra spaces and the right capital letters. If you have forgotten it, run setup again and answer `y` to choose a new one. The token only works until the first account exists. |
+| The **Set up Relay** page says to open it on the computer Relay runs on | Until the first account exists, the setup page answers only on that computer. Use the Relay window there. On a service install, use the setup code instead. |
+| Phones cannot open the viewer link | Check that the phones are on the same Wi-Fi network as the Relay computer, not a guest network or mobile data: guest networks often stop devices from seeing each other. Check the computer's firewall (Windows: allow Relay on **Private networks**, and make sure the network is **Private**; macOS: **Local Network** permission). Make sure people type `http://`, not `https://`. |
+| The viewer link has `:8080` in it | Port 80 was taken by another program, or not allowed (Linux). That is fine: the link, the QR codes and the caption panels all carry the port. To use port 80, see your system's chapter. |
 | Nobody can sign in, or you have forgotten the only Owner's password | See [If nobody can sign in](#lockout). |
 | The panel says **The user database is not available** | Captions are not affected. Wait a minute and reload. If it stays, see [The user database](#user-database). |
+
+## Sound
+
+| Symptom | What to do |
+|---|---|
+| The input list is empty | Relay cannot see any sound input. Plug in the microphone or interface, then press **Rescan**. On Linux, check `arecord -l` lists it. |
+| The meter stays flat for every input | The system is blocking the microphone. **macOS:** **System Settings → Privacy & Security → Microphone**, turn on **Relay**. **Windows:** see [Microphone privacy settings](#microphone-privacy-settings). Then choose **Restart Relay**. |
+| The meter is flat on one input only | Wrong device or wrong channel. Try each channel, or **Mix** on a stereo feed. On Windows the same device can appear more than once: try the next one. |
+| The input you used before is gone after a restart | The interface was unplugged, or the system gave it a new name. Plug it in, press **Rescan**, choose it again and press **Start capture**. |
+| Another program has the sound card | Some programs (video calls, recording software) take the input for themselves. Close them, then press **Start capture** again. |
 
 ## Once Relay is running
 
@@ -103,10 +54,10 @@ Later chapters explain the panel in detail.
 
 | Symptom | What to do |
 |---|---|
-| `Incorrect API key provided` | The API key is wrong. Relay stops rather than retrying. Paste the right key in the panel (or run setup again) and press **Start capture** again. |
+| `Incorrect API key provided` | The API key is wrong. Relay stops rather than retrying. Paste the right key in **Settings** and press **Start capture** again. |
 | Sessions say `reconnecting`, and the count climbs | A network problem. Relay reconnects by itself, waiting a little longer each time. Check the computer's internet connection. |
-| The meter is flat while someone speaks | Wrong device or wrong channel. Try each channel, or **Mix** on a stereo feed. Press **Rescan** if you plugged the interface in after starting Relay. |
 | `No input device matched` | The audio interface was unplugged. Plug it in, choose it again and press **Start capture**. |
 | Viewers see **No target language is live** | The language is turned off, or capture is stopped. |
 | The CLIP indicator keeps lighting | The sound is too loud. Turn the gain down at the mixing desk or interface. |
 | The meter moves but stays far to the left | The sound is too quiet. Turn the gain up until the loudest speech reaches the marked band. |
+| Caption panels find an old Relay | A Relay 2.0 container is still running (Docker Desktop starts it again when it opens). Quit Docker Desktop, or remove the old install: see [Upgrading from Relay 2.0](#upgrading). |
