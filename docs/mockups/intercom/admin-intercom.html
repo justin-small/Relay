@@ -1,0 +1,216 @@
+<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Relay · Intercom admin (mockup, #237)</title>
+<!-- Mockup only. Pages: #live #channels #devices #health #remote (the last needs the intercom-remote module). -->
+<style>
+  :root { --bg:#0d0e10; --fg:#eceae6; --dim:#9aa0a8; --line:#23252a; --btn:#17181b; --ok:#5fcf8f; --warn:#f2b84b; --err:#f07a7a; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg); font:14px/1.5 ui-sans-serif,-apple-system,"Segoe UI",system-ui,sans-serif; font-feature-settings:"tnum" 1; }
+  .topbar { display:flex; align-items:center; gap:12px; padding:12px 20px; border-bottom:1px solid var(--line); }
+  .topbar h1 { font-size:17px; margin:0; letter-spacing:-.01em; }
+  .spacer { flex:1; } .muted { color:var(--dim); }
+  button { padding:7px 13px; font:inherit; font-weight:500; border-radius:5px; border:1px solid var(--line); background:var(--btn); color:var(--fg); cursor:pointer; }
+  button.primary { background:var(--fg); border-color:var(--fg); color:#111; font-weight:600; }
+  button.danger { color:#ffc7c9; border-color:#5a2328; background:#24121400; }
+  button.sm { padding:4px 9px; font-size:12.5px; }
+  .layout { display:grid; grid-template-columns:220px 1fr; min-height:calc(100vh - 52px); }
+  nav { border-right:1px solid var(--line); padding:16px 12px; }
+  nav .grp { font-size:12px; color:var(--dim); font-weight:500; padding:16px 10px 4px; }
+  nav a { display:flex; gap:9px; padding:7px 10px; border-radius:5px; color:#c4c7cc; text-decoration:none; }
+  nav a.on { background:#1d1f23; color:#fff; box-shadow:inset 0 0 0 1px #2c2f35; }
+  nav a .badge { margin-left:auto; font-size:12px; color:var(--dim); }
+  nav a .badge.ok { color:var(--ok); } nav a .badge.warn { color:var(--warn); }
+  main { padding:28px 36px 80px; max-width:1060px; }
+  .page { display:none; } .page.on { display:block; }
+  h2 { font-size:22px; letter-spacing:-.015em; margin:0 0 4px; }
+  p.sub { margin:0 0 24px; color:var(--dim); max-width:72ch; }
+  section { border-top:1px solid var(--line); padding:18px 0 4px; margin:0 0 22px; }
+  section h3 { font-size:15px; margin:0 0 12px; font-weight:600; display:flex; align-items:center; gap:10px; }
+  section h3 .r { margin-left:auto; display:flex; gap:8px; }
+  table { width:100%; border-collapse:collapse; }
+  th { text-align:left; font-size:12px; color:var(--dim); font-weight:500; padding:6px 8px; border-bottom:1px solid var(--line); white-space:nowrap; }
+  td { padding:8px; border-bottom:1px solid var(--line); vertical-align:middle; }
+  td.c, th.c { text-align:center; }
+  .sw { display:inline-block; width:10px; height:10px; border-radius:3px; margin-right:7px; vertical-align:-1px; }
+  .pill { font-size:12px; padding:2px 8px; border-radius:4px; border:1px solid var(--line); color:var(--dim); white-space:nowrap; }
+  .pill.ok { color:#bfe9cf; border-color:#21402e; } .pill.warn { color:#f6d899; border-color:#4a3a17; }
+  .pill.err { color:#f6b3b3; border-color:#4d2222; } .pill.talk { color:#ffc7c9; border-color:#6b2328; background:#2a1214; }
+  .dot { display:inline-block; width:8px; height:8px; border-radius:50%; background:var(--ok); margin-right:6px; }
+  .dot.warn { background:var(--warn); } .dot.err { background:var(--err); } .dot.off { background:#555; }
+  .grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(190px,1fr)); gap:12px; }
+  .card { border:1px solid var(--line); border-radius:7px; padding:12px 14px; }
+  .card .k { font-size:12.5px; color:var(--dim); }
+  .card .v { font-size:18px; font-weight:600; margin-top:2px; }
+  .card .s { font-size:12.5px; color:var(--dim); margin-top:4px; }
+  .bar { display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin-bottom:18px; }
+  select, input { padding:7px 10px; font:inherit; border-radius:5px; border:1px solid var(--line); background:#141518; color:var(--fg); }
+  .tl { display:inline-flex; gap:3px; }
+  .tl b { font-size:11.5px; font-weight:600; width:22px; height:22px; display:inline-grid; place-items:center; border-radius:4px; border:1px solid var(--line); color:#6d727b; }
+  .tl b.t { background:#3a1417; color:#ffc7c9; border-color:#6b2328; }
+  .pr { font-size:11.5px; color:var(--dim); margin-left:5px; }
+  .tl b.l { background:#13233d; color:#c4dbff; border-color:#27467a; }
+  .legend { font-size:12.5px; color:var(--dim); display:flex; gap:16px; margin-top:10px; flex-wrap:wrap; }
+  .log td { font-size:13px; }
+  .log td:first-child { color:var(--dim); white-space:nowrap; }
+  .callout { border:1px solid #4a3a17; background:#221d10; color:#f6d899; border-radius:6px; padding:10px 12px; font-size:13px; margin-bottom:16px; }
+  .spark { display:inline-flex; gap:1px; align-items:flex-end; height:16px; vertical-align:-3px; }
+  .spark i { width:3px; background:#3c6f52; }
+  .kv { display:grid; grid-template-columns:200px 1fr; gap:6px 16px; font-size:13.5px; }
+  .kv span:nth-child(odd) { color:var(--dim); }
+</style></head><body>
+<div class="topbar">
+  <h1>Relay</h1><span class="pill ok">INTERCOM LIVE · Sunday 9:00</span>
+  <span class="spacer"></span><span class="muted">14 on intercom · 2 remote</span><button>Sign out</button>
+</div>
+<div class="layout">
+<nav>
+  <div class="grp">Live</div>
+  <a href="#live" data-p="live">Intercom live<span class="badge ok">14</span></a>
+  <a href="#health" data-p="health">Intercom health<span class="badge warn">1 warn</span></a>
+  <div class="grp">Intercom setup</div>
+  <a href="#channels" data-p="channels">Channels<span class="badge">6</span></a>
+  <a href="#devices" data-p="devices">Signed-in phones<span class="badge">17</span></a>
+  <a href="#remote" data-p="remote">Remote crew<span class="badge ok">On</span></a>
+  <div class="grp">Settings</div>
+  <a>Users</a><a>Modules</a>
+</nav>
+<main>
+
+<!-- LIVE -->
+<div class="page" id="p-live">
+  <h2>Intercom live</h2>
+  <p class="sub">Who is on, who is talking and on which channel. Mutes here apply now and are logged; they don't change channel membership.</p>
+  <div class="bar">
+    <span class="muted">Production label</span> <input value="Sunday 9:00" style="width:160px"> <button class="sm">Use Planning Center plan name</button>
+    <span class="spacer"></span>
+    <button>Release all talk</button><button class="danger">Mute all</button>
+  </div>
+  <section><h3>Channels now</h3>
+  <table>
+    <tr><th>Channel</th><th>Mode</th><th>Talking now</th><th class="c">Listening</th><th class="c">Waiting</th><th></th></tr>
+    <tr><td><span class="sw" style="background:#e5484d"></span>Main</td><td>Pre-empt</td><td><span class="pill talk">Jen · Director</span></td><td class="c">12</td><td class="c">–</td><td><button class="sm">Mute channel</button></td></tr>
+    <tr><td><span class="sw" style="background:#f2b84b"></span>Cameras</td><td>Party line</td><td><span class="pill talk">Sam · Cam 1</span> <span class="pill talk">Lee · Cam 3</span></td><td class="c">5</td><td class="c">–</td><td><button class="sm">Mute channel</button></td></tr>
+    <tr><td><span class="sw" style="background:#22c3a6"></span>Pastor IFB</td><td>One at a time</td><td><span class="pill talk">Ana · Producer</span></td><td class="c">1</td><td class="c">1</td><td><button class="sm">Mute channel</button></td></tr>
+    <tr><td><span class="sw" style="background:#5b9cf5"></span>Audio</td><td>Party line</td><td class="muted">–</td><td class="c">4</td><td class="c">–</td><td><button class="sm">Mute channel</button></td></tr>
+  </table></section>
+  <section><h3>Connected</h3>
+  <table>
+    <tr><th>User</th><th>Phone</th><th>Via</th><th>Talk</th><th>Listen</th><th>Loss</th><th>Jitter</th><th></th></tr>
+    <tr><td>Jen Park <span class="muted">Director · P1</span></td><td>iPhone 15</td><td><span class="dot"></span>Local</td><td>Main</td><td>All 4</td><td>0.1%</td><td>4 ms</td><td><button class="sm">Mute</button> <button class="sm">Sign out</button></td></tr>
+    <tr><td>Sam Ortiz <span class="muted">Cam 1 · P3</span></td><td>Pixel 8</td><td><span class="dot"></span>Local</td><td>Main, Cameras</td><td>3</td><td>0.4%</td><td>7 ms</td><td><button class="sm">Mute</button> <button class="sm">Sign out</button></td></tr>
+    <tr><td>Lee Chen <span class="muted">Cam 3 · P3</span></td><td>iPhone 13</td><td><span class="dot warn"></span>Local</td><td>Cameras</td><td>2</td><td style="color:var(--warn)">3.8%</td><td style="color:var(--warn)">41 ms</td><td><button class="sm">Mute</button> <button class="sm">Sign out</button></td></tr>
+    <tr><td>Ana Ruiz <span class="muted">Producer · P2</span></td><td>iPad</td><td><span class="dot"></span>Remote</td><td>Pastor IFB</td><td>2</td><td>0.9%</td><td>18 ms</td><td><button class="sm">Mute</button> <button class="sm">Sign out</button></td></tr>
+  </table></section>
+</div>
+
+<!-- CHANNELS -->
+<div class="page" id="p-channels">
+  <h2>Channels</h2>
+  <p class="sub">Channels and their members are set once and stay put. Click Edit to change a channel's talk mode or who is on it. Channels belong to Relay, not to LiveKit rooms.</p>
+  <div class="bar"><button class="primary">New channel</button></div>
+  <table>
+    <tr><th>Channel</th><th>When two people press talk</th><th>Max talkers</th><th>Lease</th><th>Members</th><th></th></tr>
+    <tr><td><span class="sw" style="background:#e5484d"></span>Main</td><td><span class="pill">Pre-empt</span> higher priority cuts in</td><td>2</td><td>60 s</td><td>12</td><td><button class="sm">Edit</button></td></tr>
+    <tr><td><span class="sw" style="background:#f2b84b"></span>Cameras</td><td><span class="pill">Party line</span> everyone talks</td><td>8</td><td>60 s</td><td>12</td><td><button class="sm">Edit</button></td></tr>
+    <tr style="background:#16181b"><td><span class="sw" style="background:#22c3a6"></span>Pastor IFB</td><td><span class="pill">One at a time</span> queue by priority</td><td>1</td><td>30 s</td><td>3</td><td><button class="sm">Edit</button></td></tr>
+    <tr><td><span class="sw" style="background:#5b9cf5"></span>Audio</td><td><span class="pill">Party line</span></td><td>8</td><td>60 s</td><td>12</td><td><button class="sm">Edit</button></td></tr>
+    <tr><td><span class="sw" style="background:#a78bfa"></span>Stage</td><td><span class="pill">Party line</span></td><td>8</td><td>60 s</td><td>4</td><td><button class="sm">Edit</button></td></tr>
+    <tr><td><span class="sw" style="background:#9aa0a8"></span>Lighting</td><td><span class="pill">Pre-empt</span></td><td>2</td><td>60 s</td><td>2</td><td><button class="sm">Edit</button></td></tr>
+  </table>
+  <section style="margin-top:28px"><h3>Edit · Pastor IFB</h3>
+    <div class="kv">
+      <span>Name</span><span><input value="Pastor IFB"></span>
+      <span>Colour</span><span><span class="sw" style="background:#22c3a6"></span>Teal</span>
+      <span>When two people press talk</span><span><select><option>One at a time — queue by priority</option><option>Pre-empt — higher priority cuts in</option><option>Party line — everyone talks</option></select></span>
+      <span>Max talkers at once</span><span><input value="1" style="width:80px"></span>
+      <span>Talk lease (latched mic)</span><span><input value="30" style="width:80px"> s, renewed while held; expired leases are released by the server</span>
+    </div>
+    <h3 style="margin-top:22px">Members<span class="r"><input placeholder="Add a user…" style="width:200px"><button class="sm">Add</button></span></h3>
+    <p class="muted" style="margin:-4px 0 10px;font-size:13px">Set once; stays the same from service to service. Members choose on their phone whether to talk and listen here, within these rights.</p>
+    <table>
+      <tr><th>User</th><th class="c">Talk</th><th class="c">Listen</th><th>Priority</th><th></th></tr>
+      <tr><td>Jen Park <span class="muted">Director</span></td><td class="c"><input type="checkbox" checked></td><td class="c"><input type="checkbox" checked></td><td><select><option>1 (highest)</option></select></td><td><button class="sm">Remove</button></td></tr>
+      <tr><td>Ana Ruiz <span class="muted">Producer</span></td><td class="c"><input type="checkbox" checked></td><td class="c"><input type="checkbox" checked></td><td><select><option>2</option></select></td><td><button class="sm">Remove</button></td></tr>
+      <tr><td>Pastor Dan <span class="muted">Talent</span></td><td class="c"><input type="checkbox"></td><td class="c"><input type="checkbox" checked></td><td class="muted">–</td><td><button class="sm">Remove</button></td></tr>
+    </table>
+    <div class="legend"><span>Priority decides who waits in line on this One-at-a-time channel (1 is highest). It is hidden on Party line channels, where it has no effect.</span></div>
+    <div class="bar" style="margin-top:16px"><button class="primary">Save</button><button>Cancel</button><span class="spacer"></span><button class="danger">Delete channel</button></div>
+  </section>
+</div>
+
+<!-- PRODUCTIONS -->
+<!-- DEVICES -->
+<div class="page" id="p-devices">
+  <h2>Signed-in phones</h2>
+  <p class="sub">Every phone a user signs in on gets its own key. Keys renew themselves every 30 days while in use and stop after 30 days unused. Signing a phone out ends its intercom session at once.</p>
+  <div class="bar"><input placeholder="Search user or phone" style="width:260px"><span class="spacer"></span><button class="danger">Sign out all phones</button></div>
+  <table>
+    <tr><th>User</th><th>Phone</th><th>Signed in</th><th>Last seen</th><th>Key renews</th><th>Status</th><th></th></tr>
+    <tr><td>Jen Park</td><td>iPhone 15 · Safari</td><td>Oct 2</td><td>now</td><td>in 18 days</td><td><span class="pill ok">On intercom</span></td><td><button class="sm">Sign out</button></td></tr>
+    <tr><td>Jen Park</td><td>MacBook · Chrome</td><td>Sep 21</td><td>Nov 9</td><td>in 7 days</td><td><span class="pill">Idle</span></td><td><button class="sm">Sign out</button></td></tr>
+    <tr><td>Sam Ortiz</td><td>Pixel 8 · Chrome</td><td>Nov 2</td><td>now</td><td>in 28 days</td><td><span class="pill ok">On intercom</span></td><td><button class="sm">Sign out</button></td></tr>
+    <tr><td>Ana Ruiz</td><td>iPad · Safari</td><td>Nov 10</td><td>now</td><td>in 26 days</td><td><span class="pill ok">Remote</span></td><td><button class="sm">Sign out</button></td></tr>
+    <tr><td>Kim Lo</td><td>iPhone 12 · Safari</td><td>Aug 30</td><td>Oct 1</td><td>–</td><td><span class="pill err">Expired</span></td><td><button class="sm">Remove</button></td></tr>
+  </table>
+</div>
+
+<!-- HEALTH -->
+<div class="page" id="p-health">
+  <h2>Intercom health</h2>
+  <p class="sub">The watchdog checks every 5 seconds. A failed check restarts what Relay runs itself (LiveKit), and every change is written to the connection log. Audio is never recorded.</p>
+  <div class="grid">
+    <div class="card"><div class="k"><span class="dot"></span>LiveKit server</div><div class="v">Running</div><div class="s">pid 4412 · up 3 d · 14 rooms</div></div>
+    <div class="card"><div class="k"><span class="dot"></span>Relay app</div><div class="v">OK</div><div class="s">event loop lag 3 ms · 112 MB</div></div>
+    <div class="card"><div class="k"><span class="dot"></span>Database</div><div class="v">OK</div><div class="s">write 2 ms · backup 02:00 today</div></div>
+    <div class="card"><div class="k"><span class="dot"></span>Cloudflare bridge</div><div class="v">Connected</div><div class="s">2 remote sessions · rtt 31 ms</div></div>
+    <div class="card"><div class="k"><span class="dot warn"></span>Audio quality</div><div class="v">1 phone poor</div><div class="s">Lee Chen: loss 3.8%, jitter 41 ms</div></div>
+    <div class="card"><div class="k"><span class="dot"></span>Latency (local)</div><div class="v">38 ms</div><div class="s">p95 72 ms · target &lt; 150 ms</div></div>
+  </div>
+  <section style="margin-top:24px"><h3>Thresholds</h3>
+    <div class="kv">
+      <span>Packet loss</span><span>warn 2% · alert 5% (per phone, 10 s window)</span>
+      <span>Jitter</span><span>warn 30 ms · alert 60 ms</span>
+      <span>PTT grant time</span><span>warn 100 ms (target)</span>
+      <span>LiveKit unhealthy</span><span>restart after 3 failed checks (15 s); give up after 5 restarts in 10 min</span>
+    </div>
+  </section>
+  <section><h3>Connection log<span class="r"><select><option>Last 24 hours</option></select><button class="sm">Export CSV</button></span></h3>
+  <table class="log">
+    <tr><td>09:14:07</td><td>Talk pre-empted</td><td>Sam Ortiz on Main by Jen Park (priority 1)</td></tr>
+    <tr><td>09:11:52</td><td>Audio warning</td><td>Lee Chen loss 3.8%, jitter 41 ms</td></tr>
+    <tr><td>09:03:10</td><td>Permission change</td><td>Ana Ruiz: Talk on Pastor IFB, by Jen Park</td></tr>
+    <tr><td>08:59:44</td><td>Remote session</td><td>Ana Ruiz connected via Cloudflare</td></tr>
+    <tr><td>08:41:02</td><td>Phone signed in</td><td>Sam Ortiz, Pixel 8</td></tr>
+    <tr><td>08:30:00</td><td>Server restart</td><td>Channels and members restored; label Sunday 9:00</td></tr>
+  </table></section>
+</div>
+
+<!-- REMOTE -->
+<div class="page" id="p-remote">
+  <h2>Remote crew</h2>
+  <p class="sub">The <b>intercom-remote</b> module (off by default) lets allowed users talk from outside the building. Their phones connect to Cloudflare's media servers, not to this machine; Relay bridges the channels. If the internet drops, crew on site keep talking.</p>
+  <section><h3>Status</h3>
+    <div class="kv">
+      <span>Bridge</span><span><span class="dot"></span>Connected · 2 channels bridged</span>
+      <span>Address</span><span>https://k7fq2.relaychurchsystems.com (from Remote access)</span>
+      <span>Credentials</span><span>Short-lived Cloudflare session tokens, made per call by Relay's cloud; no keys on phones</span>
+      <span>When the internet drops</span><span>Retry after 1, 2, 4, 8, 16, 30 s, then every 30 s</span>
+    </div>
+  </section>
+  <section><h3>Users allowed to connect remotely<span class="r"><button class="sm">Add user</button></span></h3>
+  <table>
+    <tr><th>User</th><th>Channels (their memberships)</th><th>Now</th><th></th></tr>
+    <tr><td>Ana Ruiz</td><td>Main, Pastor IFB</td><td><span class="pill ok">Connected · 0.9% loss</span></td><td><button class="sm">Disconnect</button> <button class="sm">Remove</button></td></tr>
+    <tr><td>Rob Diaz</td><td>Main, Audio, Stage</td><td><span class="pill">Not connected</span></td><td><button class="sm">Remove</button></td></tr>
+  </table></section>
+</div>
+
+</main></div>
+<script>
+  function show(p){ document.querySelectorAll('.page').forEach(e=>e.classList.toggle('on',e.id==='p-'+p));
+    document.querySelectorAll('nav a[data-p]').forEach(a=>a.classList.toggle('on',a.dataset.p===p)); }
+  addEventListener('hashchange',()=>show(location.hash.slice(1)||'live'));
+  show(location.hash.slice(1)||'live');
+</script>
+</body></html>
