@@ -113,4 +113,3 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sa
 .board .ch { max-width:none; }
 .board .ch .ini { font-size:150px; } .board .ch .name { font-size:30px; padding:12px 14px 2px; } .board .ch .pos { font-size:16px; padding:0 14px 14px; }
 .board .ch .num { font-size:26px; top:12px; left:14px; }
-.board .gap { flex:0 0 24px; }

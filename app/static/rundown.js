@@ -192,12 +192,8 @@
     const box = $('board');
     box.replaceChildren();
     const h = msg.header || {};
-    let last = null;
-    for (const c of msg.mics) {
-      if (last !== null && c.position !== last.position && c.team !== last.team) box.appendChild(el('div', 'gap'));
-      box.appendChild(channel(c, h.song && h.song.leader));
-      last = c;
-    }
+    // Every column the same width and the same distance apart, in mic order.
+    for (const c of msg.mics) box.appendChild(channel(c, h.song && h.song.leader));
     if (!msg.mics.length) box.appendChild(el('div', 'msg', 'No mics mapped to positions yet. Map them on the Planning Center admin page.'));
   }
 
