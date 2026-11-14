@@ -626,6 +626,30 @@ captions themselves are a few bytes a line.
   on the PATH or set `RELAY_CLOUDFLARED`.
 - The enrollment secret and the tunnel token live only in `config.json` and never reach a browser or a log.
 
+## Signage
+
+Any TV with a web browser can be a signage screen. **Signage** is a module, off until you switch it on (Admin page →
+Modules); its page is under Output, with tabs for Screens, Playlists, Media and Settings.
+
+1. **Media**: drop in images (JPEG, PNG, WebP, GIF, up to 25 MB) and videos (MP4, WebM, up to 500 MB). The page
+   shows how much they take and how much disk is free.
+2. **Playlists**: add files in order. Each item has a duration (images; for a video, 0 plays it to the end), optional
+   start and end dates, a cut or fade, and fit (letterbox) or fill (crop). Playlists can be renamed and duplicated.
+3. **Screens**: give each one a name and an address name. Its address is `http://<this computer>:8090/signage/<name>`;
+   open it in the TV's browser (or a kiosk). Pick a default playlist and whether videos play sound.
+4. **Screen groups** ("Lobby"): a group's playlist plays on every screen in it, in place of each screen's default.
+
+Screens are on a **port of their own** (8090, changeable on the Settings tab; restart Relay after changing it). It is
+plain HTTP so a TV needs no login and no certificate, and only the signage pages answer on it: the captions, the
+operator panel and everything else are refused there, and the signage pages are refused on Relay's other ports.
+It is not carried by Remote access. A screen picks up every change within a couple of seconds with no reload, and
+keeps looping what it has loaded if Relay restarts; it cannot load a page while Relay is down.
+
+The Screens tab shows what each screen is playing now and when it was last heard from, with a preview. Files are
+kept in the state folder under `signage/` and copied once into `backups/signage-media/`; a copy is removed once
+neither the database nor any kept `relay-*.db` snapshot names it. Other modules can add kinds of playlist item
+(`app/modules/signage/sources.py`).
+
 ## Security
 
 - The OpenAI key lives only in `config.json` on the host (mode `0600`,

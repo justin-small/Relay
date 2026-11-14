@@ -26,6 +26,26 @@ FALLBACK = {80: 8080, 443: 8443}
 _viewer: int | None = None
 _admin: int | None = None
 _notices: list[str] = []
+# Module listeners (#205): port really bound -> the path prefixes that alone answer on it.
+_listeners: dict[int, tuple[str, ...]] = {}
+
+
+def publish_listeners(listeners: dict[int, tuple[str, ...]]) -> None:
+    global _listeners
+    _listeners = {int(k): tuple(v) for k, v in listeners.items()}
+
+
+def listener_prefixes(port: int | None) -> tuple[str, ...] | None:
+    """The prefixes served on `port` when it is a module listener, else None."""
+    return _listeners.get(port) if port is not None else None
+
+
+def listener_bound(prefixes: tuple[str, ...]) -> int | None:
+    """The port a listener serving `prefixes` was really bound to, or None."""
+    for port, pre in _listeners.items():
+        if tuple(pre) == tuple(prefixes):
+            return port
+    return None
 
 
 def publish(viewer: int, admin: int, notices: list[str] | None = None) -> None:
@@ -35,9 +55,10 @@ def publish(viewer: int, admin: int, notices: list[str] | None = None) -> None:
 
 def reset() -> None:
     """Forget the published ports (tests)."""
-    global _viewer, _admin, _notices
+    global _viewer, _admin, _notices, _listeners
     _viewer = _admin = None
     _notices = []
+    _listeners = {}
 
 
 def published() -> bool:
@@ -50,6 +71,10 @@ def viewer_port(configured: int = DEFAULT_VIEWER_PORT) -> int:
 
 def admin_port(configured: int = DEFAULT_ADMIN_PORT) -> int:
     return _admin if _admin is not None else int(configured)
+
+
+def add_notice(text: str) -> None:
+    _notices.append(text)
 
 
 def notices() -> list[str]:

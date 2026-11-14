@@ -365,6 +365,7 @@ MIN_ROLE = {
     "planning_center.view": "viewer", "planning_center.control": "operator", "planning_center.manage": "admin",
     "propresenter.view": "viewer", "propresenter.control": "operator", "propresenter.manage": "admin",
     "remote_access.view": "viewer", "remote_access.manage": "admin",
+    "signage.view": "viewer", "signage.manage": "admin",
 }
 for role in ROLE_NAMES:
     me = clients[role].get("/api/admin/me").json()
@@ -385,7 +386,7 @@ check("every permission registered is in the independent table",
 # ------------------------------------------------------------------ every /api/admin route, every role
 print("every /api/admin route")
 config.save({"modules": {"propresenter": {"enabled": True}, "planning_center": {"enabled": True},
-                         "remote_access": {"enabled": True}}})
+                         "remote_access": {"enabled": True}, "signage": {"enabled": True}}})
 
 E = {}      # (METHOD, path) -> permission; None = any signed-in user
 
@@ -471,6 +472,31 @@ route("GET", "/api/admin/audit", "audit.view")
 # Module routes: one explicit entry for each, with the permission its module declares. A module route added
 # without an entry here fails "EVERY /api/admin route has a permission entry".
 PCX, PPX, RAX = "/api/admin/planning-center", "/api/admin/propresenter", "/api/admin/remote-access"
+SGX = "/api/admin/signage"
+for method, path, perm in (
+    ("GET", SGX, "signage.view"),
+    ("GET", SGX + "/preview", "signage.view"),
+    ("GET", SGX + "/sources/{kind}", "signage.view"),
+    ("PUT", SGX + "/settings", "signage.manage"),
+    ("POST", SGX + "/media", "signage.manage"),                          # an empty body is refused as not media
+    ("PUT", SGX + "/media/{mid}/thumb", "signage.manage"),
+    ("GET", SGX + "/media/{mid}/thumb", "signage.view"),
+    ("GET", SGX + "/file/{name}", "signage.view"),
+    ("PATCH", SGX + "/media/{mid}", "signage.manage"),
+    ("DELETE", SGX + "/media/{mid}", "signage.manage"),
+    ("POST", SGX + "/playlists", "signage.manage"),
+    ("PATCH", SGX + "/playlists/{pid}", "signage.manage"),
+    ("POST", SGX + "/playlists/{pid}/duplicate", "signage.manage"),
+    ("DELETE", SGX + "/playlists/{pid}", "signage.manage"),
+    ("PUT", SGX + "/playlists/{pid}/items", "signage.manage"),
+    ("POST", SGX + "/groups", "signage.manage"),
+    ("PUT", SGX + "/groups/{gid}", "signage.manage"),
+    ("DELETE", SGX + "/groups/{gid}", "signage.manage"),
+    ("POST", SGX + "/screens", "signage.manage"),
+    ("PUT", SGX + "/screens/{sid}", "signage.manage"),
+    ("DELETE", SGX + "/screens/{sid}", "signage.manage"),
+):
+    route(method, path, perm)
 for method, path, perm in (
     ("GET", RAX, "remote_access.view"),
     ("POST", RAX + "/enroll", "remote_access.manage"),                   # an empty body never reaches the cloud
@@ -636,7 +662,7 @@ eq("an admin may do all three", (not_through(admin_c.post("/api/admin/planning-c
                                   not_through(admin_c.get("/api/admin/propresenter/macros?all=true"))), (True, True, True))
 eq("signed out is 401", anon_c.get("/api/admin/propresenter").status_code, 401)
 config.save({"modules": {"propresenter": {"enabled": False}, "planning_center": {"enabled": False},
-                         "remote_access": {"enabled": False}}})
+                         "remote_access": {"enabled": False}, "signage": {"enabled": False}}})
 eq("a module that is off is still a 404 for everyone", op_c.get("/api/admin/propresenter").status_code, 404)
 
 # ------------------------------------------------------------------ the page routes
@@ -1188,7 +1214,8 @@ for mid, want in (("planning_center", {"planning_center.view": "viewer", "planni
                                        "planning_center.manage": "admin"}),
                   ("propresenter", {"propresenter.view": "viewer", "propresenter.control": "operator",
                                     "propresenter.manage": "admin"}),
-                  ("remote_access", {"remote_access.view": "viewer", "remote_access.manage": "admin"})):
+                  ("remote_access", {"remote_access.view": "viewer", "remote_access.manage": "admin"}),
+                  ("signage", {"signage.view": "viewer", "signage.manage": "admin"})):
     got = {p.id: p.min_role for p in registry.get(mid).permissions}
     eq(f"{mid} declares its permissions", got, want)
 

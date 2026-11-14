@@ -1,0 +1,34 @@
+<!doctype html>
+{# The full-screen signage player (#205), served at /signage/<slug> on the signage port only. #}
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>{{ screen.name }}</title>
+<style>
+  html, body { margin:0; height:100%; background:#000; overflow:hidden; cursor:none; }
+  #stage { position:fixed; inset:0; background:#000; }
+</style>
+</head>
+<body>
+<div id="stage"></div>
+<script src="{{ player_js }}"></script>
+<script>
+(function () {
+  var slug = {{ screen.slug | tojson }};
+  var player = new SignagePlayer(document.getElementById('stage'), {
+    nowUrl: '/signage/_/now/' + slug
+  });
+  player.follow('/signage/_/state/' + slug, '/signage/_/events/' + slug);
+  // Browsers only go full screen after a click or key press; a kiosk browser already is.
+  function full() {
+    var d = document.documentElement, f = d.requestFullscreen || d.webkitRequestFullscreen;
+    if (f && !document.fullscreenElement) { try { f.call(d); } catch (e) { /* not allowed */ } }
+  }
+  document.addEventListener('click', full);
+  document.addEventListener('keydown', full);
+})();
+</script>
+</body>
+</html>

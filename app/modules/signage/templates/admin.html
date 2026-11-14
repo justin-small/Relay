@@ -1,0 +1,175 @@
+{# The Signage admin page (#205), rendered inside admin.html only while the module is on. #}
+    <style>
+      /* Admin styles such as .pill set display, which would otherwise beat the hidden attribute. */
+      #page-signage [hidden] { display:none !important; }
+      .sg-tabs { display:flex; gap:6px; flex-wrap:wrap; margin:0 0 16px; }
+      .sg-tabs button[aria-selected="true"] { background:var(--accent); color:#000; border-color:var(--accent); }
+      .sg-thumb { width:96px; aspect-ratio:16/9; object-fit:cover; border-radius:5px; background:#000;
+                  border:1px solid var(--line); display:block; flex:none; }
+      .sg-thumb.ph { display:flex; align-items:center; justify-content:center; color:var(--dim); font-size:11px; }
+      .sg-grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(170px, 1fr)); gap:12px; }
+      .sg-card { border:1px solid var(--line); border-radius:9px; background:#111216; padding:10px; min-width:0; }
+      .sg-card .sg-thumb { width:100%; }
+      .sg-card .sg-name { font-size:13px; margin:8px 0 2px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+      .sg-card .ctl { margin-top:8px; }
+      .sg-card.pick { cursor:pointer; }
+      .sg-card.pick:hover { border-color:var(--accent); }
+      .sg-row { display:flex; gap:12px; align-items:center; flex-wrap:wrap; }
+      .sg-items { display:flex; flex-direction:column; gap:8px; }
+      .sg-item { display:flex; gap:12px; align-items:center; flex-wrap:wrap; border:1px solid var(--line);
+                 border-radius:9px; background:#111216; padding:8px 10px; }
+      .sg-item.off { opacity:.55; }
+      .sg-item .sg-iname { flex:1 1 160px; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+      .sg-item .field { margin:0; }
+      .sg-item input[type=number] { width:76px; }
+      .sg-item input[type=date] { width:140px; }
+      .sg-plists { display:flex; gap:6px; flex-wrap:wrap; margin-bottom:14px; }
+      .sg-plists button[aria-current="true"] { border-color:var(--accent); color:var(--fg); }
+      .sg-preview { position:fixed; inset:0; background:rgba(0,0,0,.82); z-index:100; display:flex;
+                    flex-direction:column; align-items:center; justify-content:center; padding:16px; gap:12px; }
+      .sg-preview[hidden] { display:none; }
+      .sg-stage { position:relative; width:min(960px, 100%); aspect-ratio:16/9; background:#000; border-radius:6px;
+                  overflow:hidden; border:1px solid var(--line); }
+      .sg-storage { display:flex; gap:16px; flex-wrap:wrap; align-items:center; }
+      .sg-drop { border:1px dashed var(--line); border-radius:9px; padding:16px; text-align:center; color:var(--dim); }
+      .sg-drop.over { border-color:var(--accent); color:var(--fg); }
+      .sg-up { font-size:12px; color:var(--dim); }
+      td .sg-thumb { width:72px; }
+      #sgScreens a { color:var(--accent); overflow-wrap:anywhere; }
+      #sgScreens td:last-child { white-space:nowrap; }
+    </style>
+    <h2 class="title">Signage <span class="sumstate" id="sgSum"></span></h2>
+    <p class="sub">Images and videos on any TV with a web browser. Each screen has its own address.</p>
+    <p class="note warn" id="sgRestart" hidden></p>
+    <p class="note" id="sgAccess" hidden>An admin sets up screens, playlists and media.</p>
+
+    <div class="sg-tabs" role="tablist">
+      <button type="button" role="tab" data-sgtab="screens" aria-selected="true">Screens</button>
+      <button type="button" role="tab" data-sgtab="playlists" aria-selected="false">Playlists</button>
+      <button type="button" role="tab" data-sgtab="media" aria-selected="false">Media</button>
+      <button type="button" role="tab" data-sgtab="settings" aria-selected="false">Settings</button>
+    </div>
+
+    <div data-sgpane="screens">
+      <section>
+        <h3>Screens</h3>
+        <div class="tablescroll">
+          <table>
+            <thead><tr><th>Now</th><th>Screen</th><th>Playing</th><th>Address</th><th></th></tr></thead>
+            <tbody id="sgScreens"></tbody>
+          </table>
+        </div>
+        <p class="note" id="sgNoScreens" hidden>No screens yet. Add one, then open its address in the TV's web browser.</p>
+        <div class="ctl sg-manage"><button type="button" class="primary" id="sgScreenAdd">Add a screen</button></div>
+        <form id="sgScreenForm" hidden style="margin-top:14px">
+          <div class="row">
+            <div class="field"><label for="sgScreenName">Name</label><input id="sgScreenName" maxlength="80" placeholder="Lobby left"></div>
+            <div class="field"><label for="sgScreenSlug">Address name</label><input id="sgScreenSlug" class="mono" maxlength="48" placeholder="lobby-left"></div>
+          </div>
+          <div class="row">
+            <div class="field"><label for="sgScreenGroup">Group</label><select id="sgScreenGroup"></select></div>
+            <div class="field"><label for="sgScreenPlaylist">Default playlist</label><select id="sgScreenPlaylist"></select></div>
+          </div>
+          <label class="check"><input type="checkbox" id="sgScreenSound"> Play video sound on this screen</label>
+          <p class="note">A group's playlist takes the place of the screen's default while the group has one.</p>
+          <div class="ctl">
+            <button type="submit" class="primary" id="sgScreenSave">Save screen</button>
+            <button type="button" id="sgScreenCancel">Cancel</button>
+          </div>
+        </form>
+      </section>
+      <section>
+        <h3>Screen groups</h3>
+        <div class="tablescroll">
+          <table>
+            <thead><tr><th>Group</th><th>Playlist for the whole group</th><th>Screens</th><th></th></tr></thead>
+            <tbody id="sgGroups"></tbody>
+          </table>
+        </div>
+        <p class="note" id="sgNoGroups" hidden>No groups. A group, like "Lobby", plays one playlist on all its screens.</p>
+        <div class="row sg-manage" style="align-items:flex-end">
+          <div class="field"><label for="sgGroupName">New group</label><input id="sgGroupName" maxlength="80" placeholder="Lobby"></div>
+          <div class="ctl"><button type="button" id="sgGroupAdd">Add group</button></div>
+        </div>
+      </section>
+    </div>
+
+    <div data-sgpane="playlists" hidden>
+      <section>
+        <h3>Playlists</h3>
+        <div class="sg-plists" id="sgPlaylists"></div>
+        <div class="row sg-manage" style="align-items:flex-end">
+          <div class="field"><label for="sgPlaylistName">New playlist</label><input id="sgPlaylistName" maxlength="80" placeholder="Sunday lobby"></div>
+          <div class="ctl"><button type="button" id="sgPlaylistAdd">Add playlist</button></div>
+        </div>
+      </section>
+      <section id="sgEditor" hidden>
+        <h3 id="sgEditorTitle"></h3>
+        <div class="row sg-manage" style="align-items:flex-end">
+          <div class="field"><label for="sgRename">Name</label><input id="sgRename" maxlength="80"></div>
+          <div class="ctl">
+            <button type="button" id="sgRenameSave">Rename</button>
+            <button type="button" id="sgDuplicate">Duplicate</button>
+            <button type="button" id="sgPreviewList">Preview</button>
+            <button type="button" class="danger" id="sgPlaylistDelete">Delete</button>
+          </div>
+        </div>
+        <div class="sg-items" id="sgItems"></div>
+        <p class="note" id="sgNoItems" hidden>This playlist is empty. Add images or videos from the library below.</p>
+        <p class="note">Images show for their duration. Videos play to the end; a duration above 0 stops them sooner.
+          Dates turn an item on and off by themselves (both are included).</p>
+        <div class="ctl sg-manage">
+          <button type="button" class="primary" id="sgItemsSave" disabled>Save playlist</button>
+          <span class="muted" id="sgItemsState"></span>
+        </div>
+        <div class="sg-manage">
+          <h3 style="margin-top:20px">Add to this playlist</h3>
+          <div class="row" id="sgSourcePick" hidden style="align-items:flex-end">
+            <div class="field"><label for="sgSource">From</label><select id="sgSource"></select></div>
+          </div>
+          <div class="sg-grid" id="sgPicker"></div>
+        </div>
+      </section>
+    </div>
+
+    <div data-sgpane="media" hidden>
+      <section>
+        <h3>Media library</h3>
+        <div class="sg-storage">
+          <span class="pill" id="sgStorage"></span>
+          <span class="pill err" id="sgLowDisk" hidden>Less than 2 GB free on this disk.</span>
+        </div>
+        <div class="sg-manage" style="margin:14px 0">
+          <div class="sg-drop" id="sgDrop">
+            Drop images or videos here, or
+            <label style="display:inline;color:var(--accent);cursor:pointer">choose files<input type="file" id="sgFile" multiple
+              accept="image/jpeg,image/png,image/webp,image/gif,video/mp4,video/webm" hidden></label>.
+            <div class="note">JPEG, PNG, WebP or GIF up to 25 MB; MP4 or WebM up to 500 MB.</div>
+          </div>
+          <div class="sg-up" id="sgUploads"></div>
+        </div>
+        <div class="sg-grid" id="sgMedia"></div>
+        <p class="note" id="sgNoMedia" hidden>Nothing uploaded yet.</p>
+        <p class="note">Files are kept in Relay's state folder and copied into its backups folder.</p>
+      </section>
+    </div>
+
+    <div data-sgpane="settings" hidden>
+      <section>
+        <h3>Screen port</h3>
+        <div class="row" style="align-items:flex-end">
+          <div class="field"><label for="sgPort">Port</label><input id="sgPort" type="number" min="1024" max="65535"></div>
+          <div class="ctl sg-manage"><button type="button" class="primary" id="sgPortSave">Save</button></div>
+        </div>
+        <p class="note">Screens are served over plain HTTP on this port, so a TV needs no login and no certificate.
+          Only the signage pages answer on it. A change takes effect when Relay restarts.</p>
+        <p class="note" id="sgPortState"></p>
+      </section>
+    </div>
+
+    <div class="note err" id="sgErr" hidden></div>
+
+    <div class="sg-preview" id="sgPreview" hidden>
+      <div class="sg-stage" id="sgStage"></div>
+      <div class="ctl"><span class="muted" id="sgPreviewTitle"></span> <button type="button" id="sgPreviewClose">Close</button></div>
+    </div>

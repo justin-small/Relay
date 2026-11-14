@@ -1,0 +1,533 @@
+/* The Signage admin page (#205): screens and what each plays now, screen groups, playlists and their items, the
+   media library with uploads, and the screen port. Loaded by admin.html only while the module is on.
+   Thumbnails are made here, in the browser, when a file is uploaded: Relay has no image or video library. */
+(function () {
+  const R = window.RelayAdmin;
+  if (!R || !document.getElementById('page-signage')) return;
+  const $ = R.$, api = R.api, post = R.post, el = R.el;
+  function can(perm) { return typeof window.relayCan !== 'function' || !!window.relayCan(perm); }
+
+  const page = document.getElementById('page-signage');
+  let data = null;
+  let tab = 'screens';
+  let editing = null;          // screen id being edited, 0 for a new one, null when the form is closed
+  let current = null;          // playlist id open in the editor
+  let draft = null;            // that playlist's items as edited, not yet saved
+  let dirty = false;
+  let source = 'media';
+  let player = null;
+  let timer = null;
+
+  function showError(text) { $('sgErr').textContent = text || ''; $('sgErr').hidden = !text; }
+  async function call(fn) {
+    showError('');
+    try { return await fn(); } catch (e) { showError(e.message); return null; }
+  }
+  function send(method, path, payload) {
+    return api(path, { method: method, headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload || {}) });
+  }
+  function size(n) {
+    if (n < 0) return 'unknown';
+    if (n === 0) return '0 MB';
+    if (n < 1024 * 1024) return Math.max(1, Math.round(n / 1024)) + ' KB';
+    if (n < 1024 * 1024 * 1024) return (n / 1048576).toFixed(n < 10485760 ? 1 : 0) + ' MB';
+    return (n / 1073741824).toFixed(1) + ' GB';
+  }
+  function thumb(src, label) {
+    if (!src) { const d = el('div', 'sg-thumb ph', label || ''); return d; }
+    const i = el('img', 'sg-thumb'); i.alt = ''; i.loading = 'lazy'; i.src = src; return i;
+  }
+  function option(sel, value, text, selected) {
+    const o = el('option', '', text); o.value = value; if (selected) o.selected = true; sel.appendChild(o);
+  }
+  function playlistSelect(sel, value, none) {
+    sel.textContent = '';
+    option(sel, '', none, !value);
+    for (const p of data.playlists) option(sel, p.id, p.name, p.id === value);
+  }
+  function button(text, cls, onclick) {
+    const b = el('button', cls || '', text); b.type = 'button'; b.onclick = onclick; return b;
+  }
+
+  /* ---------------------------------------------------------------- tabs */
+  function setTab(name) {
+    tab = name;
+    for (const b of page.querySelectorAll('[data-sgtab]')) b.setAttribute('aria-selected', String(b.dataset.sgtab === name));
+    for (const p of page.querySelectorAll('[data-sgpane]')) p.hidden = p.dataset.sgpane !== name;
+  }
+  for (const b of page.querySelectorAll('[data-sgtab]')) b.onclick = function () { setTab(b.dataset.sgtab); };
+
+  /* ---------------------------------------------------------------- render */
+  function render() {
+    const manage = can('signage.manage');
+    for (const n of page.querySelectorAll('.sg-manage')) n.hidden = !manage;
+    $('sgAccess').hidden = manage;
+    const port = data.port;
+    $('sgRestart').hidden = !port.restart;
+    $('sgRestart').textContent = port.bound
+      ? 'Screens are on port ' + port.bound + '. Restart Relay to move them to port ' + port.configured + '.'
+      : 'Restart Relay to open port ' + port.configured + ' for the screens. Until then they cannot be reached.';
+    $('sgSum').textContent = data.screens.length ? data.screens.length + (data.screens.length === 1 ? ' screen' : ' screens') : '';
+    renderScreens();
+    renderGroups();
+    renderPlaylists();
+    renderMedia();
+    if (document.activeElement !== $('sgPort')) $('sgPort').value = data.settings.port;
+    $('sgPortState').textContent = port.bound ? 'Serving screens on port ' + port.bound + ' now.' : '';
+  }
+
+  function renderScreens() {
+    const body = $('sgScreens');
+    body.textContent = '';
+    $('sgNoScreens').hidden = data.screens.length > 0;
+    for (const s of data.screens) {
+      const tr = el('tr');
+      const now = el('td');
+      if (s.now && s.now.seen_s < 90) {
+        now.appendChild(thumb(s.now.thumb, s.now.label));
+        now.appendChild(el('div', 'muted', s.now.label || ''));
+      } else {
+        now.appendChild(thumb('', 'Offline'));
+        now.appendChild(el('div', 'muted', s.now ? 'Last seen ' + R.agoText(s.now.seen_s) : 'Not opened yet'));
+      }
+      tr.appendChild(now);
+      const name = el('td');
+      name.appendChild(el('div', '', s.name));
+      if (s.group_name) name.appendChild(el('div', 'muted', 'Group: ' + s.group_name));
+      if (s.sound) name.appendChild(el('div', 'muted', 'Sound on'));
+      tr.appendChild(name);
+      const pl = s.playing_playlist;
+      tr.appendChild(el('td', pl ? '' : 'muted', pl ? pl.name + (pl.from === 'group' ? ' (from group)' : '') : 'Nothing assigned'));
+      const addr = el('td');
+      for (const u of s.urls.slice(0, 2)) {
+        const a = el('a', 'mono', u); a.href = u; a.target = '_blank'; a.rel = 'noopener';
+        addr.appendChild(a); addr.appendChild(el('br'));
+      }
+      tr.appendChild(addr);
+      const act = el('td');
+      act.appendChild(button('Preview', '', function () { openPreview({ screen: s.slug }, s.name); }));
+      if (can('signage.manage')) {
+        act.appendChild(button('Edit', '', function () { openScreenForm(s); }));
+        act.appendChild(button('Delete', 'danger', function () {
+          if (!confirm('Delete the screen "' + s.name + '"? Its address stops working.')) return;
+          call(async function () { await send('DELETE', '/api/admin/signage/screens/' + s.id); await refresh(); });
+        }));
+      }
+      tr.appendChild(act);
+      body.appendChild(tr);
+    }
+  }
+
+  function openScreenForm(s) {
+    editing = s ? s.id : 0;
+    $('sgScreenForm').hidden = false;
+    $('sgScreenName').value = s ? s.name : '';
+    $('sgScreenSlug').value = s ? s.slug : '';
+    $('sgScreenSlug').dataset.auto = s ? '' : '1';
+    $('sgScreenSound').checked = !!(s && s.sound);
+    const g = $('sgScreenGroup');
+    g.textContent = '';
+    option(g, '', 'No group', !(s && s.group_id));
+    for (const x of data.groups) option(g, x.id, x.name, s && s.group_id === x.id);
+    playlistSelect($('sgScreenPlaylist'), s ? s.playlist_id : null, 'None');
+    $('sgScreenName').focus();
+  }
+  $('sgScreenAdd').onclick = function () { openScreenForm(null); };
+  $('sgScreenCancel').onclick = function () { editing = null; $('sgScreenForm').hidden = true; };
+  $('sgScreenName').oninput = function () {
+    if ($('sgScreenSlug').dataset.auto) {
+      $('sgScreenSlug').value = $('sgScreenName').value.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 48);
+    }
+  };
+  $('sgScreenSlug').oninput = function () { $('sgScreenSlug').dataset.auto = ''; };
+  $('sgScreenForm').onsubmit = function (ev) {
+    ev.preventDefault();
+    const payload = {
+      name: $('sgScreenName').value, slug: $('sgScreenSlug').value, sound: $('sgScreenSound').checked,
+      group_id: $('sgScreenGroup').value ? Number($('sgScreenGroup').value) : null,
+      playlist_id: $('sgScreenPlaylist').value ? Number($('sgScreenPlaylist').value) : null
+    };
+    call(async function () {
+      if (editing) await send('PUT', '/api/admin/signage/screens/' + editing, payload);
+      else await post('/api/admin/signage/screens', payload);
+      editing = null; $('sgScreenForm').hidden = true;
+      await refresh();
+    });
+  };
+
+  function renderGroups() {
+    const body = $('sgGroups');
+    body.textContent = '';
+    $('sgNoGroups').hidden = data.groups.length > 0;
+    for (const g of data.groups) {
+      const tr = el('tr');
+      tr.appendChild(el('td', '', g.name));
+      const td = el('td');
+      const sel = el('select');
+      playlistSelect(sel, g.playlist_id, 'None (each screen plays its own)');
+      sel.disabled = !can('signage.manage');
+      sel.onchange = function () {
+        call(async function () {
+          await send('PUT', '/api/admin/signage/groups/' + g.id, { name: g.name, playlist_id: sel.value ? Number(sel.value) : null });
+          await refresh();
+        });
+      };
+      td.appendChild(sel);
+      tr.appendChild(td);
+      const members = data.screens.filter(function (s) { return s.group_id === g.id; }).map(function (s) { return s.name; });
+      tr.appendChild(el('td', members.length ? '' : 'muted', members.join(', ') || 'None yet'));
+      const act = el('td');
+      if (can('signage.manage')) {
+        act.appendChild(button('Delete', 'danger', function () {
+          if (!confirm('Delete the group "' + g.name + '"? Its screens go back to their own playlists.')) return;
+          call(async function () { await send('DELETE', '/api/admin/signage/groups/' + g.id); await refresh(); });
+        }));
+      }
+      tr.appendChild(act);
+      body.appendChild(tr);
+    }
+  }
+  $('sgGroupAdd').onclick = function () {
+    call(async function () {
+      await post('/api/admin/signage/groups', { name: $('sgGroupName').value });
+      $('sgGroupName').value = '';
+      await refresh();
+    });
+  };
+
+  /* ---------------------------------------------------------------- playlists */
+  function renderPlaylists() {
+    const box = $('sgPlaylists');
+    box.textContent = '';
+    for (const p of data.playlists) {
+      const b = button(p.name + ' (' + p.items.length + ')', '', function () {
+        if (dirty && current !== p.id && !confirm('Leave without saving the changes to this playlist?')) return;
+        openPlaylist(p.id);
+      });
+      b.setAttribute('aria-current', String(p.id === current));
+      box.appendChild(b);
+    }
+    if (current && !data.playlists.some(function (p) { return p.id === current; })) { current = null; draft = null; dirty = false; }
+    if (!current && data.playlists.length) openPlaylist(data.playlists[0].id);
+    else if (current && !dirty) openPlaylist(current);
+    else renderEditor();
+  }
+
+  function openPlaylist(id) {
+    const p = data.playlists.find(function (x) { return x.id === id; });
+    current = id;
+    draft = p.items.map(function (it) { return Object.assign({}, it); });
+    dirty = false;
+    if (document.activeElement !== $('sgRename')) $('sgRename').value = p.name;
+    for (const b of $('sgPlaylists').children) b.setAttribute('aria-current', String(b.textContent.indexOf(p.name + ' (') === 0));
+    renderEditor();
+  }
+
+  function markDirty() {
+    dirty = true;
+    $('sgItemsSave').disabled = false;
+    $('sgItemsState').textContent = 'Not saved yet';
+  }
+
+  function renderEditor() {
+    $('sgEditor').hidden = !current;
+    if (!current) return;
+    const p = data.playlists.find(function (x) { return x.id === current; });
+    $('sgEditorTitle').textContent = p.name;
+    $('sgItemsSave').disabled = !dirty;
+    $('sgItemsState').textContent = dirty ? 'Not saved yet' : '';
+    const box = $('sgItems');
+    box.textContent = '';
+    $('sgNoItems').hidden = draft.length > 0;
+    const manage = can('signage.manage');
+    draft.forEach(function (it, i) {
+      const row = el('div', 'sg-item' + (it.missing ? ' off' : ''));
+      row.appendChild(thumb(it.thumb, it.missing ? 'Off' : ''));
+      const name = el('div', 'sg-iname');
+      name.appendChild(el('div', '', it.name));
+      const out = (it.end_date && it.end_date < data.today) ? 'Ended' : (it.start_date && it.start_date > data.today ? 'Not started' : '');
+      name.appendChild(el('div', 'muted', (it.missing ? 'Not available: ' : '') + (it.source_label || '') + (out ? ' · ' + out : '')));
+      row.appendChild(name);
+      function field(label, input) {
+        const f = el('div', 'field'); const l = el('label', '', label); f.appendChild(l); f.appendChild(input); return f;
+      }
+      const dur = el('input'); dur.type = 'number'; dur.min = '0'; dur.max = '86400'; dur.step = '1'; dur.value = it.duration_s;
+      dur.oninput = function () { it.duration_s = Number(dur.value) || 0; markDirty(); };
+      row.appendChild(field('Seconds', dur));
+      const start = el('input'); start.type = 'date'; start.value = it.start_date || '';
+      start.onchange = function () { it.start_date = start.value; markDirty(); };
+      row.appendChild(field('From', start));
+      const end = el('input'); end.type = 'date'; end.value = it.end_date || '';
+      end.onchange = function () { it.end_date = end.value; markDirty(); };
+      row.appendChild(field('Until', end));
+      const tr = el('select'); option(tr, 'fade', 'Fade', it.transition === 'fade'); option(tr, 'cut', 'Cut', it.transition === 'cut');
+      tr.onchange = function () { it.transition = tr.value; markDirty(); };
+      row.appendChild(field('Transition', tr));
+      const fit = el('select'); option(fit, 'fit', 'Fit (letterbox)', it.fit === 'fit'); option(fit, 'fill', 'Fill (crop)', it.fit === 'fill');
+      fit.onchange = function () { it.fit = fit.value; markDirty(); };
+      row.appendChild(field('Fit', fit));
+      const ctl = el('div', 'ctl');
+      ctl.appendChild(button('Up', '', function () { if (i > 0) { draft.splice(i - 1, 0, draft.splice(i, 1)[0]); markDirty(); renderEditor(); } }));
+      ctl.appendChild(button('Down', '', function () { if (i < draft.length - 1) { draft.splice(i + 1, 0, draft.splice(i, 1)[0]); markDirty(); renderEditor(); } }));
+      ctl.appendChild(button('Remove', 'danger', function () { draft.splice(i, 1); markDirty(); renderEditor(); }));
+      row.appendChild(ctl);
+      for (const x of row.querySelectorAll('input,select,button')) x.disabled = !manage;
+      box.appendChild(row);
+    });
+    renderPicker();
+  }
+
+  function addItem(src, ref, name, thumbUrl, label, kind) {
+    draft.push({ source: src, ref: ref, name: name, thumb: thumbUrl, source_label: label,
+      duration_s: kind === 'video' ? 0 : 10, start_date: '', end_date: '', transition: 'fade', fit: 'fit' });
+    markDirty();
+    renderEditor();
+  }
+
+  async function renderPicker() {
+    const sel = $('sgSource');
+    const others = data.sources.filter(function (s) { return s.kind !== 'media'; });
+    $('sgSourcePick').hidden = others.length === 0;
+    if (sel.options.length !== data.sources.length) {
+      sel.textContent = '';
+      for (const s of data.sources) option(sel, s.kind, s.label, s.kind === source);
+    }
+    const grid = $('sgPicker');
+    grid.textContent = '';
+    if (source === 'media') {
+      if (!data.media.length) { grid.appendChild(el('p', 'note', 'Upload images or videos on the Media tab first.')); return; }
+      for (const m of data.media) {
+        const c = el('div', 'sg-card pick');
+        c.title = 'Add ' + m.name;
+        c.appendChild(thumb(m.has_thumb ? '/api/admin/signage/media/' + m.id + '/thumb' : '', m.kind));
+        c.appendChild(el('div', 'sg-name', m.name));
+        c.appendChild(el('div', 'muted', m.kind === 'video' ? 'Video' : 'Image'));
+        c.onclick = function () {
+          addItem('media', m.id, m.name, m.has_thumb ? '/api/admin/signage/media/' + m.id + '/thumb' : '', 'Uploaded image or video', m.kind);
+        };
+        grid.appendChild(c);
+      }
+      return;
+    }
+    const src = data.sources.find(function (s) { return s.kind === source; });
+    const res = await call(function () { return api('/api/admin/signage/sources/' + encodeURIComponent(source)); });
+    if (!res) return;
+    if (!res.choices.length) grid.appendChild(el('p', 'note', 'Nothing to add from ' + src.label + ' right now.'));
+    for (const ch of res.choices) {
+      const c = el('div', 'sg-card pick');
+      c.appendChild(thumb(ch.thumb || '', src.label));
+      c.appendChild(el('div', 'sg-name', ch.name || ch.ref));
+      c.onclick = function () { addItem(source, ch.ref, ch.name || ch.ref, ch.thumb || '', src.label, ch.kind || ''); };
+      grid.appendChild(c);
+    }
+  }
+  $('sgSource').onchange = function () { source = $('sgSource').value; renderPicker(); };
+
+  $('sgItemsSave').onclick = function () {
+    const items = draft.map(function (it) {
+      return { source: it.source, ref: it.ref, duration_s: it.duration_s, start_date: it.start_date || '',
+        end_date: it.end_date || '', transition: it.transition, fit: it.fit };
+    });
+    call(async function () {
+      await send('PUT', '/api/admin/signage/playlists/' + current + '/items', { items: items });
+      dirty = false;
+      await refresh();
+      $('sgItemsState').textContent = 'Saved';
+    });
+  };
+  $('sgPlaylistAdd').onclick = function () {
+    call(async function () {
+      const p = await post('/api/admin/signage/playlists', { name: $('sgPlaylistName').value });
+      $('sgPlaylistName').value = '';
+      current = p.id; dirty = false;
+      await refresh();
+    });
+  };
+  $('sgRenameSave').onclick = function () {
+    call(async function () { await send('PATCH', '/api/admin/signage/playlists/' + current, { name: $('sgRename').value }); await refresh(); });
+  };
+  $('sgDuplicate').onclick = function () {
+    if (dirty && !confirm('The copy is made from the saved playlist, without your unsaved changes. Go on?')) return;
+    call(async function () {
+      const p = await post('/api/admin/signage/playlists/' + current + '/duplicate', {});
+      current = p.id; dirty = false;
+      await refresh();
+    });
+  };
+  $('sgPlaylistDelete').onclick = function () {
+    const p = data.playlists.find(function (x) { return x.id === current; });
+    if (!confirm('Delete the playlist "' + p.name + '"? Screens and groups playing it will play nothing.')) return;
+    call(async function () { await send('DELETE', '/api/admin/signage/playlists/' + current); current = null; dirty = false; await refresh(); });
+  };
+  $('sgPreviewList').onclick = function () {
+    if (dirty) { showError('Save the playlist to preview your changes.'); }
+    const p = data.playlists.find(function (x) { return x.id === current; });
+    openPreview({ playlist: current }, p.name);
+  };
+
+  /* ---------------------------------------------------------------- media */
+  function renderMedia() {
+    const st = data.storage;
+    $('sgStorage').textContent = size(st.used) + ' used · ' + (st.free >= 0 ? size(st.free) + ' free on this disk' : 'free space unknown');
+    $('sgLowDisk').hidden = !st.low;
+    const grid = $('sgMedia');
+    grid.textContent = '';
+    $('sgNoMedia').hidden = data.media.length > 0;
+    const manage = can('signage.manage');
+    for (const m of data.media) {
+      const c = el('div', 'sg-card');
+      c.appendChild(thumb(m.has_thumb ? '/api/admin/signage/media/' + m.id + '/thumb' : '', m.kind));
+      c.appendChild(el('div', 'sg-name', m.name));
+      const bits = [m.kind === 'video' ? 'Video' : 'Image', size(m.size)];
+      if (m.width && m.height) bits.push(m.width + '×' + m.height);
+      if (m.kind === 'video' && m.duration_s) bits.push(Math.round(m.duration_s) + 's');
+      c.appendChild(el('div', 'muted', bits.join(' · ')));
+      c.appendChild(el('div', 'muted', m.uses ? 'In ' + m.uses + (m.uses === 1 ? ' playlist item' : ' playlist items') : 'Not in a playlist'));
+      if (manage) {
+        const ctl = el('div', 'ctl');
+        ctl.appendChild(button('Rename', '', function () {
+          const name = prompt('Name', m.name);
+          if (name === null) return;
+          call(async function () { await send('PATCH', '/api/admin/signage/media/' + m.id, { name: name }); await refresh(); });
+        }));
+        ctl.appendChild(button('Delete', 'danger', function () {
+          if (!confirm('Delete "' + m.name + '" from the library?')) return;
+          call(async function () { await send('DELETE', '/api/admin/signage/media/' + m.id); await refresh(); });
+        }));
+        c.appendChild(ctl);
+      }
+      grid.appendChild(c);
+    }
+  }
+
+  /* A 320×180 WebP of the image or a frame a second into the video, with its size and length. */
+  function describeFile(file) {
+    return new Promise(function (resolve) {
+      const url = URL.createObjectURL(file);
+      const info = { width: 0, height: 0, duration: 0, thumb: null };
+      function draw(src, w, h) {
+        try {
+          const c = document.createElement('canvas'); c.width = 320; c.height = 180;
+          const g = c.getContext('2d');
+          g.fillStyle = '#000'; g.fillRect(0, 0, 320, 180);
+          const s = Math.max(320 / w, 180 / h), dw = w * s, dh = h * s;
+          g.drawImage(src, (320 - dw) / 2, (180 - dh) / 2, dw, dh);
+          c.toBlob(function (b) { info.thumb = b; done(); }, 'image/webp', 0.8);
+        } catch (e) { done(); }
+      }
+      let finished = false;
+      function done() { if (finished) return; finished = true; URL.revokeObjectURL(url); resolve(info); }
+      setTimeout(done, 15000);
+      if (file.type.indexOf('video/') === 0) {
+        const v = document.createElement('video');
+        v.muted = true; v.preload = 'auto'; v.playsInline = true;
+        v.onloadedmetadata = function () {
+          info.width = v.videoWidth; info.height = v.videoHeight; info.duration = isFinite(v.duration) ? v.duration : 0;
+          v.currentTime = Math.min(1, (v.duration || 0) / 2);
+        };
+        v.onseeked = function () { if (v.videoWidth) draw(v, v.videoWidth, v.videoHeight); else done(); };
+        v.onerror = done;
+        v.src = url;
+      } else {
+        const i = new Image();
+        i.onload = function () { info.width = i.naturalWidth; info.height = i.naturalHeight; draw(i, i.naturalWidth, i.naturalHeight); };
+        i.onerror = done;
+        i.src = url;
+      }
+    });
+  }
+
+  function upload(file, line) {
+    return new Promise(function (resolve, reject) {
+      describeFile(file).then(function (info) {
+        const q = new URLSearchParams({ name: file.name.replace(/\.[^.]+$/, ''), width: info.width, height: info.height,
+          duration: info.duration || 0 });
+        const xhr = new XMLHttpRequest();
+        xhr.open('POST', '/api/admin/signage/media?' + q.toString());
+        xhr.setRequestHeader('Content-Type', 'application/octet-stream');
+        xhr.upload.onprogress = function (ev) {
+          if (ev.lengthComputable) line.textContent = file.name + ': ' + Math.round(100 * ev.loaded / ev.total) + '%';
+        };
+        xhr.onload = async function () {
+          let body = {};
+          try { body = JSON.parse(xhr.responseText); } catch (e) { /* not JSON */ }
+          if (xhr.status !== 200) { reject(new Error(body.error || body.detail || ('HTTP ' + xhr.status))); return; }
+          if (info.thumb) {
+            try { await fetch('/api/admin/signage/media/' + body.id + '/thumb', { method: 'PUT', body: info.thumb }); } catch (e) { /* no thumbnail */ }
+          }
+          resolve(body);
+        };
+        xhr.onerror = function () { reject(new Error('The upload stopped. Check the connection to Relay.')); };
+        xhr.send(file);
+      });
+    });
+  }
+
+  async function uploadAll(files) {
+    const list = $('sgUploads');
+    for (const f of files) {
+      const line = el('div', '', f.name + ': waiting');
+      list.appendChild(line);
+      const limit = f.type.indexOf('video/') === 0 ? data.limits.video : data.limits.image;
+      if (f.size > limit) { line.textContent = f.name + ': too large (' + size(f.size) + ', the limit is ' + size(limit) + ')'; line.className = 'err'; continue; }
+      try {
+        await upload(f, line);
+        line.textContent = f.name + ': uploaded';
+        line.className = 'ok';
+        setTimeout(function () { line.remove(); }, 4000);
+      } catch (e) {
+        line.textContent = f.name + ': ' + e.message;
+        line.className = 'err';
+      }
+      await refresh();
+    }
+  }
+  $('sgFile').onchange = function () { const fs = Array.from($('sgFile').files); $('sgFile').value = ''; uploadAll(fs); };
+  const drop = $('sgDrop');
+  drop.ondragover = function (ev) { ev.preventDefault(); drop.classList.add('over'); };
+  drop.ondragleave = function () { drop.classList.remove('over'); };
+  drop.ondrop = function (ev) { ev.preventDefault(); drop.classList.remove('over'); uploadAll(Array.from(ev.dataTransfer.files)); };
+
+  /* ---------------------------------------------------------------- settings */
+  $('sgPortSave').onclick = function () {
+    call(async function () {
+      await send('PUT', '/api/admin/signage/settings', { port: Number($('sgPort').value) });
+      await refresh();
+    });
+  };
+
+  /* ---------------------------------------------------------------- preview */
+  async function openPreview(q, title) {
+    if (typeof window.SignagePlayer !== 'function') return;
+    const state = await call(function () { return api('/api/admin/signage/preview?' + new URLSearchParams(q).toString()); });
+    if (!state) return;
+    closePreview();
+    $('sgPreview').hidden = false;
+    $('sgPreviewTitle').textContent = title + (state.items.length ? '' : ': nothing to play today');
+    player = new window.SignagePlayer($('sgStage'), { preview: true });
+    player.load(state);
+  }
+  function closePreview() {
+    if (player) { player.stop(); player = null; }
+    $('sgPreview').hidden = true;
+  }
+  $('sgPreviewClose').onclick = closePreview;
+  $('sgPreview').onclick = function (ev) { if (ev.target === $('sgPreview')) closePreview(); };
+  document.addEventListener('keydown', function (ev) { if (ev.key === 'Escape' && player) closePreview(); });
+
+  /* ---------------------------------------------------------------- refresh */
+  async function refresh() {
+    try { data = await api('/api/admin/signage'); render(); showError(''); }
+    catch (e) { showError(e.message); }
+  }
+  function visible() { return !page.closest('.page').hidden && !page.hidden; }
+  function tick() {
+    // Keep "now playing" fresh on the Screens tab, never redrawing under someone filling in the screen form or
+    // editing a playlist.
+    if (visible() && editing === null && tab === 'screens') refresh();
+    timer = setTimeout(tick, 10000);
+  }
+  document.addEventListener('relay:config', function () { refresh(); if (!timer) timer = setTimeout(tick, 10000); });
+  if (R.cfg()) { refresh(); timer = setTimeout(tick, 10000); }
+})();

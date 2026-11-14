@@ -35,7 +35,7 @@ from .engine import TRANSCRIPTION_STREAM, TRANSLATION_STREAM, demo_mode, engine
 from .hub import hub
 from . import modules as modules_pkg
 from . import sidecar
-from .modules import HERE as MODULES_DIR, modules as module_registry
+from .modules import HERE as MODULES_DIR, modules as module_registry, under as _module_under
 from .panels import registry as panel_registry
 from .recorder import recorder
 from .scheduler import scheduler
@@ -192,7 +192,17 @@ async def _permissions_policy(request: Request, call_next):
 
 @app.middleware("http")
 async def _split_admin_port(request: Request, call_next):
-    if _is_admin_path(request.url.path) and not _on_admin_port(request):
+    path = request.url.path
+    # A module's own port (a Listener, #205) answers only that module's routes under its prefixes; those routes
+    # answer on no other port. Until ports are published (tests, scripts) nothing is gated by port.
+    own = serving.listener_prefixes(_request_port(request))
+    if own is not None:
+        if not _module_under(path, own):
+            return JSONResponse({"error": "Not found"}, status_code=404)
+        return await call_next(request)
+    if serving.published() and _module_under(path, module_registry.listener_prefixes()):
+        return JSONResponse({"error": "Not found"}, status_code=404)
+    if _is_admin_path(path) and not _on_admin_port(request):
         return JSONResponse({"error": "Not found"}, status_code=404)
     return await call_next(request)
 
