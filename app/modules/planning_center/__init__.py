@@ -14,30 +14,34 @@ from .. import AdminPage, Health, Manifest, Module
 from ...users import Permission
 
 SERVICE_STREAM = "service"
+# The rundown for /screen (#148): names, mics and notes, so only while the operator has it on, and never through
+# the remote access tunnel.
+RUNDOWN_STREAM = "rundown"
 
 
 class PlanningCenter(Module):
     manifest = Manifest(
         id="planning_center",
         name="Planning Center",
-        version="1.0.0",
-        summary="Shows today's service plan and its LIVE item on caption panels, and lets chosen panels move "
-                "Services LIVE on.",
+        version="1.1.0",
+        summary="Shows today's service plan and its LIVE item on caption panels, lets chosen panels move "
+                "Services LIVE on, and puts the full rundown (clock times, teams, song leaders and mics) on /screen.",
         settings_key="planning_center",
         guide="https://github.com/justin-small/relay#planning-center-services-live",
     )
-    defaults = {"app_id": "", "secret": "", "service_types": [], "plan_overrides": {}, "show_notes": False}
+    defaults = {"app_id": "", "secret": "", "service_types": [], "plan_overrides": {}, "show_notes": False,
+                "rundown": {}}
     admin_pages = (AdminPage(
         id="planningcenter", title="Planning Center", template="admin.html", group="Automation",
         icon='<path d="M3 13V6l5-4 5 4v7zM6.5 13V9h3v4"/>'),)
-    admin_scripts = ("planningcenter.js",)
+    admin_scripts = ("planningcenter.js", "pcrundown.js")
     route_prefixes = ("/api/admin/planning-center", "/api/panels/{panel_id}/service/")
     permissions = (
         Permission("planning_center.view", "See the Planning Center setup and plan", "Planning Center", "viewer"),
         Permission("planning_center.control", "Choose which plan Relay follows today", "Planning Center", "operator"),
         Permission("planning_center.manage", "Change the Planning Center setup", "Planning Center", "admin"),
     )
-    streams = (SERVICE_STREAM,)
+    streams = (SERVICE_STREAM, RUNDOWN_STREAM)
 
     def clean(self, raw: Any) -> dict:
         from .planningcenter import clean_stored
@@ -50,6 +54,7 @@ class PlanningCenter(Module):
             "connected": bool(settings.get("app_id") and settings.get("secret")),
             "service_types": list(settings.get("service_types") or []),
             "show_notes": bool(settings.get("show_notes")),
+            "rundown_screen": bool((settings.get("rundown") or {}).get("screen")),
         }
 
     def configured(self, settings: dict) -> bool:
@@ -124,6 +129,8 @@ class PlanningCenter(Module):
         return {"service": feed.offered()}
 
     def stream(self, name: str, request: Any, params: dict) -> Any:
+        if name == RUNDOWN_STREAM:
+            return self._rundown_stream(request, params)
         if name != SERVICE_STREAM:
             return None
         from fastapi import HTTPException
@@ -136,6 +143,24 @@ class PlanningCenter(Module):
         if not any(o["service_type"] == st for o in feed.offered()):
             raise HTTPException(404, "not a followed service type")
         return _service_stream(st)
+
+    def _rundown_stream(self, request: Any, params: dict) -> Any:
+        import re
+
+        from fastapi import HTTPException
+
+        from ... import config
+        from .routes import _rundown_stream, follower, via_tunnel
+
+        if not config.get()["planning_center"]["rundown"]["screen"]:
+            raise HTTPException(403, "the rundown is not switched on for /screen")
+        if via_tunnel(request):
+            raise HTTPException(403, "the rundown is shown on this network only")
+        st = (params.get("type") or "").strip()
+        if st and st not in follower.tracks:
+            raise HTTPException(404, "not a followed service type")
+        want = (params.get("time") or "").strip()
+        return _rundown_stream(st, want if re.fullmatch(r"\d{4}", want) else "")
 
 
 MODULE = PlanningCenter()

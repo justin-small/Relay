@@ -42,6 +42,7 @@ FAST_S = 2.0            # LIVE poll while a service is near or running
 SLOW_S = 180.0          # LIVE poll the rest of the time
 PLAN_CHECK_S = 300.0    # look for today's plan (and re-read its items) this often
 PLAN_CHECK_FAST_S = 30.0  # ...and this often near or during a service, so plan edits reach panels soon
+TEAM_CHECK_S = 120.0    # who is scheduled (#148): re-read on this slower timer, never on the fast LIVE poll
 ERROR_RETRY_S = 20.0    # after a call fails
 AUTH_RETRY_S = 300.0    # after Planning Center refuses the token: no point hammering
 ZONE_RETRY_S = 300.0
@@ -65,6 +66,9 @@ class Track:
         self.plan: dict | None = None
         self.override: str | None = None   # plan id the operator picked for today
         self.items: list[dict] = []
+        self.team: list[dict] = []         # who is scheduled on the plan (#148)
+        self.needed: list[dict] = []       # positions still to fill
+        self.team_due = 0.0
         self.live: dict | None = None
         self.day: date | None = None
         self.plan_due = 0.0
@@ -243,10 +247,21 @@ class Follower:
             log.info("Planning Center, service type %s: following %s", tr.st,
                      f"plan {chosen['id']} ({chosen['dates'] or 'no date'})" if chosen else "no plan today")
             tr.items, tr.live, tr.live_due, tr.service_start, tr._asked = [], None, 0.0, {}, None
+            tr.team, tr.needed, tr.team_due = [], [], 0.0
             tr.fast = False
         tr.plan = chosen
         if chosen is not None:
             tr.items = await self._call(client.items, tr.st, chosen["id"])
+            if ts >= tr.team_due:
+                tr.team_due = ts + TEAM_CHECK_S
+                try:
+                    tr.team = await self._call(client.team_members, tr.st, chosen["id"])
+                    tr.needed = await self._call(client.needed_positions, tr.st, chosen["id"])
+                except pc.PlanningCenterError as exc:
+                    # The rundown's people are extra: a token that may not see them leaves the plan working.
+                    if exc.kind == "network":
+                        raise
+                    log.info("Planning Center, service type %s: team members not read (%s)", tr.st, exc.kind)
 
     async def _poll_live(self, client, tr: Track, ts: float) -> None:
         plan = tr.plan
@@ -296,7 +311,7 @@ class Follower:
 
     # -- state ----------------------------------------------------------
     def _note_change(self) -> None:
-        sig = json.dumps([self.me_id] + [[t.st, t.plan, t.items, t.live, t.error, t.override,
+        sig = json.dumps([self.me_id] + [[t.st, t.plan, t.items, t.team, t.needed, t.live, t.error, t.override,
                            [p["id"] for p in t.plans]] for t in self.tracks.values()], sort_keys=True)
         if sig != self._sig:
             self._sig = sig

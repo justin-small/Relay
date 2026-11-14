@@ -307,6 +307,59 @@ class Client:
             offset += PAGE_SIZE
         return sorted(out, key=lambda i: i["sequence"])
 
+    def team_members(self, service_type: str, plan_id: str) -> list[dict]:
+        """Who is scheduled on the plan (#148): one row per person per position, with the team, the answer
+        (confirmed, pending, declined), the thumbnail Planning Center hosts, and the plan times they serve
+        (None when Planning Center does not say, which means every time)."""
+        out: list[dict] = []
+        offset = 0
+        for _ in range(MAX_PAGES):
+            doc = self.get(f"/services/v2/service_types/{service_type}/plans/{plan_id}/team_members",
+                           {"include": "team", "per_page": PAGE_SIZE, "offset": offset})
+            rows = doc.get("data") or []
+            inc = _included(doc)
+            for row in rows:
+                a = row.get("attributes") or {}
+                team = (inc.get(("Team", _rel_id(row, "team"))) or {}).get("attributes") or {}
+                rel = (row.get("relationships") or {}).get("times")
+                times = _rel_ids(row, "times") if isinstance(rel, dict) and "data" in rel else None
+                photo = str(a.get("photo_thumbnail") or "")
+                out.append({
+                    "id": str(row.get("id")),
+                    "person": _rel_id(row, "person") or "",
+                    "name": str(a.get("name") or "").strip() or "Someone",
+                    "status": MEMBER_STATUS.get(str(a.get("status") or "")[:1].upper(), "pending"),
+                    "position": str(a.get("team_position_name") or "").strip(),
+                    "team": str(team.get("name") or "").strip(),
+                    # Only a picture Planning Center hosts, over https: the screen shows it as an <img>.
+                    "photo": photo if photo.startswith("https://") else "",
+                    "times": times,
+                })
+            if len(rows) < PAGE_SIZE:
+                break
+            offset += PAGE_SIZE
+        return out
+
+
+    def needed_positions(self, service_type: str, plan_id: str) -> list[dict]:
+        """Positions still to fill on the plan (#148): team, position, how many, and the plan time (None: all)."""
+        doc = self.get(f"/services/v2/service_types/{service_type}/plans/{plan_id}/needed_positions",
+                       {"include": "team", "per_page": PAGE_SIZE})
+        inc = _included(doc)
+        out = []
+        for row in doc.get("data") or []:
+            a = row.get("attributes") or {}
+            team = (inc.get(("Team", _rel_id(row, "team"))) or {}).get("attributes") or {}
+            out.append({"team": str(team.get("name") or "").strip(),
+                        "position": str(a.get("team_position_name") or "").strip(),
+                        "quantity": max(1, min(20, int(a.get("quantity") or 1))),
+                        "time": _rel_id(row, "time")})
+        return out
+
+
+# PlanPerson.status is C, U or D (or spelled out: Confirmed, Unconfirmed, Declined).
+MEMBER_STATUS = {"C": "confirmed", "U": "pending", "D": "declined"}
+
 
 # -- reading JSON:API -------------------------------------------------------
 def parse_time(raw: Any) -> float | None:
@@ -513,6 +566,8 @@ def clean_stored(raw: Any) -> dict:
         if (str(st) in ids and isinstance(o, dict) and re.fullmatch(r"\d{1,20}", str(o.get("plan") or ""))
                 and re.fullmatch(r"\d{4}-\d{2}-\d{2}", str(o.get("day") or ""))):
             overrides[str(st)] = {"plan": str(o["plan"]), "day": str(o["day"])}
+    from .rundown import clean_rundown
+
     return {
         "app_id": str(raw.get("app_id") or "").strip(),
         "secret": str(raw.get("secret") or "").strip(),
@@ -520,6 +575,8 @@ def clean_stored(raw: Any) -> dict:
         "plan_overrides": overrides,
         # Item notes reach panels only when the operator turns this on.
         "show_notes": raw.get("show_notes") is True,
+        # The rundown on /screen, mics by position and the note fields it reads (#148).
+        "rundown": clean_rundown(raw.get("rundown")),
     }
 
 

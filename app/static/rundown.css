@@ -1,0 +1,128 @@
+/* /screen?rundown=... (#148): the production team's rundown. A kiosk: nobody can scroll or click, so the stage is a
+   fixed 1920x1080 scaled to the screen, and every panel fits its box (rundown.js shrinks text that would not). Flat
+   colours, square corners. */
+:root {
+  --bg:#000; --panel:#0b0b0c; --line:#232326; --fg:#f2f2f2; --dim:#8a8a90; --faint:#4a4a50;
+  --live:#e5484d; --warn:#f5b84a; --mic:#5aa9e6; --key:#b39dff;
+  --mono: ui-monospace, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+}
+* { box-sizing:border-box; }
+html, body { margin:0; height:100%; background:#000; overflow:hidden; cursor:none; }
+body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif; color:var(--fg);
+       font-variant-numeric:tabular-nums; -webkit-font-smoothing:antialiased; }
+.stage { position:absolute; top:0; left:0; width:1920px; height:1080px; background:var(--bg); transform-origin:0 0; overflow:hidden;
+         display:flex; flex-direction:column; padding:24px 28px 28px; gap:18px; }
+[hidden] { display:none !important; }
+
+/* header */
+.bar { height:84px; flex:none; display:flex; align-items:stretch; border:1px solid var(--line); background:var(--panel); }
+.bar > div { display:flex; flex-direction:column; justify-content:center; padding:0 24px; border-right:1px solid var(--line); min-width:0; }
+.bar > div:last-child { border-right:0; }
+.lbl { font-size:12px; letter-spacing:.14em; text-transform:uppercase; color:var(--dim); font-weight:500; }
+.bar .now { flex:1; flex-direction:row; align-items:center; justify-content:flex-start; gap:18px; }
+.now .t { font-size:38px; font-weight:700; letter-spacing:-.02em; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.now .s { font-size:18px; color:var(--dim); white-space:nowrap; }
+.livetag { background:var(--live); color:#fff; font-weight:700; font-size:14px; letter-spacing:.1em; padding:6px 10px; }
+.big { font-family:var(--mono); font-size:34px; font-weight:500; line-height:1.05; white-space:nowrap; }
+.big.warn { color:var(--warn); } .big.over { color:var(--live); }
+.left { background:#1a0b0d; } .left .big { font-size:44px; }
+.nx { font-size:22px; font-weight:600; max-width:300px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.key { display:inline-block; font-family:var(--mono); font-weight:500; color:var(--key); border:1px solid #3d3360; padding:1px 7px; }
+.msg { flex:1; display:grid; place-items:center; font-size:34px; color:var(--dim); border:1px solid var(--line); text-align:center; padding:40px; }
+
+/* panels */
+.panel { border:1px solid var(--line); background:var(--panel); display:flex; flex-direction:column; min-height:0; overflow:hidden; }
+.ph { flex:none; display:flex; align-items:baseline; gap:12px; padding:14px 18px 10px; border-bottom:1px solid var(--line); }
+.ph h2 { margin:0; font-size:20px; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.ph .r { margin-left:auto; color:var(--dim); font-size:14px; white-space:nowrap; }
+.fit { flex:1; min-height:0; overflow:hidden; }
+.full { flex:1; min-height:0; display:grid; grid-template-columns:740px 1fr 520px; gap:18px; }
+.mid { display:grid; grid-template-rows:1.15fr 1fr; gap:18px; min-height:0; }
+
+/* rundown rows share the panel's height, so the whole order always fits */
+.rows { display:flex; flex-direction:column; height:100%; }
+.sect { flex:none; font-size:12px; letter-spacing:.14em; text-transform:uppercase; color:var(--faint); padding:8px 18px 4px; }
+.row { flex:1 1 0; min-height:0; max-height:110px; display:grid; grid-template-columns:70px 78px 1fr 70px; gap:12px; align-items:center; padding:0 18px; border-top:1px solid var(--line); overflow:hidden; }
+.sect + .row { border-top:0; }
+.row .pt { font-family:var(--mono); font-size:18px; color:var(--faint); }
+.row .at { font-family:var(--mono); font-size:22px; }
+.row .at.late { color:var(--warn); } .row .at.early { color:#46d18a; }
+.row .t { font-size:22px; font-weight:500; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.row .m { display:flex; gap:8px; margin-top:4px; font-size:15px; color:var(--dim); white-space:nowrap; overflow:hidden; }
+.row .len { font-family:var(--mono); font-size:16px; color:var(--dim); text-align:right; }
+.row.done, .row.done .at, .row.done .t { color:var(--faint); } .row.done .m { display:none; }
+.row.current { background:#1a0b0d; box-shadow:inset 6px 0 0 var(--live); } .row.current .t { font-weight:700; }
+.row.next { box-shadow:inset 6px 0 0 #3a3a40; }
+.row.header .t { color:var(--dim); font-size:16px; letter-spacing:.1em; text-transform:uppercase; }
+.mic { font-family:var(--mono); color:var(--mic); }
+.rd-compact .row.done, .rd-compact .sect { display:none; }
+.rd-compact .row .t { font-size:30px; } .rd-compact .row .m { font-size:18px; } .rd-compact .row .at { font-size:28px; }
+.rd-compact .row { max-height:none; }
+
+/* mic channels */
+.chs { display:grid; gap:10px; padding:12px; height:100%; justify-content:center; }
+.chs .empty { color:var(--dim); font-size:18px; margin:auto; }
+.ch { min-width:0; min-height:0; display:flex; flex-direction:column; border:1px solid var(--line); background:#000; }
+.ch .face { flex:1; min-height:0; position:relative; display:grid; place-items:center; background:#1c1c1f; overflow:hidden; }
+.ch .face img { position:absolute; inset:0; width:100%; height:100%; object-fit:cover; }
+.ch .face { container-type:size; }
+.ch .ini { font-size:min(48cqw, 55cqh); font-weight:600; color:rgba(0,0,0,.3); letter-spacing:-.04em; line-height:1; }
+.ch .num { position:absolute; top:8px; left:10px; font-family:var(--mono); font-size:20px; font-weight:500; color:#fff; background:rgba(0,0,0,.55); padding:0 6px; }
+.ch .lt { position:relative; font-size:26px; font-weight:700; color:#fff; text-align:center; padding:0 10px; }
+.ch .name { flex:none; padding:8px 10px 2px; font-size:22px; font-weight:700; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.ch .pos { flex:none; padding:0 10px 10px; font-size:13px; color:var(--dim); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.ch .lead { color:var(--mic); font-weight:600; }
+.ch.idle .face { filter:grayscale(1) brightness(.4); } .ch.idle .name { opacity:.45; }
+.ch.on { border-color:var(--mic); }
+.ch.spare .face { background:repeating-linear-gradient(135deg,#141416 0 12px,#0b0b0c 12px 24px); } .ch.spare .name { color:var(--faint); font-weight:500; }
+.ch.label .face { background:#2f8fbf; }
+
+/* notes: text shrinks to fit */
+.notes { padding:14px 20px; font-size:22px; line-height:1.45; color:#d8d8dc; white-space:pre-line; }
+.notes.none { color:var(--faint); }
+
+/* roster: shrinks to fit */
+.roster { padding:10px 14px; font-size:18px; }
+.tm { font-size:.62em; letter-spacing:.14em; text-transform:uppercase; color:var(--faint); padding:.5em 0 .35em; }
+.grid { display:grid; grid-template-columns:1fr 1fr; gap:.35em .8em; }
+.p { display:flex; gap:.55em; align-items:center; min-width:0; }
+.pa { width:2.2em; height:2.2em; flex:none; display:grid; place-items:center; font-size:.8em; font-weight:700; color:rgba(0,0,0,.6); overflow:hidden; position:relative; }
+.pa img { position:absolute; inset:0; width:100%; height:100%; object-fit:cover; }
+.pa.empty { background:none; border:1px dashed #555; color:#666; }
+.p .x { min-width:0; flex:1; } .p .n { font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.p .s { font-size:.7em; color:var(--dim); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.tag { font-size:.6em; font-weight:700; letter-spacing:.08em; text-transform:uppercase; padding:1px 5px; flex:none; }
+.tag.pending { background:var(--warn); color:#000; } .tag.declined { border:1px solid #444; color:#777; }
+.p.declined { opacity:.45; } .p.declined .n { text-decoration:line-through; }
+.p.unfilled .n { color:var(--faint); font-weight:500; }
+.p.singing .n { color:var(--mic); }
+.posbox { border:1px solid var(--line); padding:.4em .5em; display:flex; flex-direction:column; gap:.3em; min-width:0; }
+.posbox .h { display:flex; justify-content:space-between; gap:.5em; font-size:.65em; color:var(--dim); text-transform:uppercase; letter-spacing:.1em; }
+
+/* side view */
+.side { flex:1; min-height:0; display:grid; grid-template-columns:1fr 560px; gap:18px; }
+.caps { min-height:0; } .caps iframe { width:100%; height:100%; border:0; background:#000; }
+.nowbox { flex:none; padding:16px 18px; background:#1a0b0d; border-bottom:1px solid var(--line); box-shadow:inset 6px 0 0 var(--live); }
+.nowbox .tt { display:flex; align-items:baseline; gap:12px; font-size:32px; font-weight:700; margin:4px 0 8px; }
+.nowbox .tt span:first-child { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.nowbox .tt span:last-child { margin-left:auto; font-family:var(--mono); font-weight:500; }
+.nowbox .m { font-size:17px; color:var(--dim); display:flex; gap:12px; flex-wrap:wrap; }
+.side .row { flex:none; height:76px; grid-template-columns:86px 1fr; } .side .row .pt, .side .row .len { display:none; }
+
+/* micboard view */
+.board { flex:1; min-height:0; display:grid; gap:12px; }
+.board .ch .name { font-size:30px; padding:12px 14px 2px; } .board .ch .pos { font-size:16px; padding:0 14px 14px; }
+.board .ch .num { font-size:26px; top:12px; left:14px; }
+
+/* More than 8 mics: two rows; 20 or more: three (rundown.js sets data-rows and the column count).
+   Everything in a column scales down with it, and a long name shrinks to fit rather than being cut off. */
+.board[data-rows="2"] .ch .name { font-size:24px; padding:8px 12px 2px; }
+.board[data-rows="2"] .ch .pos { font-size:14px; padding:0 12px 10px; } .board[data-rows="2"] .ch .num { font-size:20px; top:8px; left:10px; }
+.board[data-rows="3"] .ch .name { font-size:20px; padding:6px 10px 1px; }
+.board[data-rows="3"] .ch .pos { font-size:12px; padding:0 10px 6px; } .board[data-rows="3"] .ch .num { font-size:16px; top:6px; left:8px; }
+.board[data-rows="3"] .ch .lt { font-size:20px; }
+.chs[data-rows="2"] .ch .name { font-size:16px; padding:5px 8px 1px; }
+.chs[data-rows="2"] .ch .pos { font-size:11px; padding:0 8px 5px; } .chs[data-rows="2"] .ch .num { font-size:14px; }
+.chs[data-rows="3"] .ch .name { font-size:13px; padding:3px 6px 0; }
+.chs[data-rows="3"] .ch .pos { display:none; } .chs[data-rows="3"] .ch .num { font-size:12px; top:4px; left:4px; }
+.ch .name { text-overflow:clip; }

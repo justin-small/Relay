@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#000000">
+<meta name="robots" content="noindex">
+<title>Rundown</title>
+{% include "_brand_head.html" %}
+<link rel="stylesheet" href="{{ static('rundown.css') }}">
+</head>
+{# /screen?rundown=full|side|micboard (#148): the production team's rundown from a module that offers the
+   "rundown" stream. A kiosk display: a fixed 1920x1080 board scaled to the screen; nothing scrolls, nothing is
+   pressed. The data (and whether it is allowed) comes from the stream; this page only lays it out. #}
+<body class="rd-{{ rundown_view }} rd-{{ rundown_layout }} rd-cards-{{ rundown_cards }}"
+      data-view="{{ rundown_view }}" data-layout="{{ rundown_layout }}" data-cards="{{ rundown_cards }}"
+      data-team="{{ rundown_team }}" data-time="{{ rundown_time }}" data-type="{{ rundown_type }}">
+<div class="stage" id="stage">
+  <div class="bar" id="bar">
+    <div class="now"><span class="livetag" id="hLive" hidden>LIVE</span><span class="t" id="hTitle">Waiting for the plan</span><span class="key" id="hKey" hidden></span><span class="s" id="hLead"></span></div>
+    <div class="left" id="hLeftBox"><span class="lbl">Left</span><span class="big" id="hLeft">–</span></div>
+    <div><span class="lbl">Next</span><span class="nx" id="hNext">–</span></div>
+    <div><span class="lbl">Planned end</span><span class="big" id="hPlanned">–</span></div>
+    <div><span class="lbl">Projected</span><span class="big" id="hProj">–</span></div>
+    <div><span class="lbl">Running</span><span class="big" id="hOver">–</span></div>
+    <div><span class="lbl" id="hSvc">Service</span><span class="big" id="hClock">–</span></div>
+  </div>
+
+  <div class="msg" id="msg" hidden></div>
+
+  {% if rundown_view == 'full' %}
+  <div class="full" id="body">
+    <div class="panel"><div class="ph"><h2>Order of service</h2><span class="r">planned · actual / projected</span></div><div class="fit"><div class="rows" id="rows"></div></div></div>
+    <div class="mid">
+      <div class="panel"><div class="ph"><h2>On the platform</h2><span class="r" id="micsFor"></span></div><div class="fit"><div class="chs" id="mics"></div></div></div>
+      <div class="panel"><div class="ph"><h2 id="notesH">Notes</h2><span class="r" id="notesAt"></span></div><div class="fit"><div class="notes" id="notes"></div></div></div>
+    </div>
+    <div class="panel"><div class="ph"><h2>Scheduled</h2><span class="r" id="teamNote"></span></div><div class="fit"><div class="roster" id="roster"></div></div></div>
+  </div>
+  {% elif rundown_view == 'side' %}
+  <div class="side" id="body">
+    <div class="caps"><iframe src="{{ rundown_captions }}" title="Captions"></iframe></div>
+    <div class="panel">
+      <div class="nowbox"><span class="lbl">Now</span><div class="tt"><span id="sTitle">–</span><span id="sLeft"></span></div><div class="m" id="sMeta"></div></div>
+      <div class="fit"><div class="rows" id="rail"></div></div>
+    </div>
+  </div>
+  {% else %}
+  <div class="board" id="board"></div>
+  {% endif %}
+</div>
+<script src="{{ static('rundown.js') }}"></script>
+</body></html>

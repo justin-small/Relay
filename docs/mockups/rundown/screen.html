@@ -1,0 +1,327 @@
+<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Relay · /screen rundown (mockup, #148)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  /* A kiosk display: nobody can scroll or click. The stage is a fixed 1920x1080 and everything fits in it. */
+  :root {
+    --bg:#000; --panel:#0b0b0c; --line:#232326; --fg:#f2f2f2; --dim:#8a8a90; --faint:#4a4a50;
+    --live:#e5484d; --warn:#f5b84a; --ok:#46d18a; --mic:#5aa9e6; --key:#b39dff;
+  }
+  * { box-sizing:border-box; }
+  html,body { margin:0; height:100%; background:#111; overflow:hidden; }
+  body { font-family:'Geist',system-ui,sans-serif; color:var(--fg); font-feature-settings:"tnum"; -webkit-font-smoothing:antialiased; }
+
+  /* mockup-only controls, outside the screen */
+  .mock { height:40px; display:flex; gap:8px; align-items:center; padding:0 12px; background:#1a1a1c; border-bottom:1px solid #2a2a2e; font-size:12px; color:var(--dim); }
+  .mock select { background:#000; color:var(--fg); border:1px solid #333; padding:4px 6px; font:inherit; }
+  .mock code { font-family:'Geist Mono'; color:var(--mic); margin-left:auto; }
+  .viewport { position:absolute; top:40px; left:0; right:0; bottom:0; display:grid; place-items:center; }
+  body.bare .mock { display:none; } body.bare .viewport { top:0; }
+
+  .stage { width:1920px; height:1080px; background:var(--bg); transform-origin:center; position:relative; overflow:hidden;
+           display:flex; flex-direction:column; padding:24px 28px 28px; gap:18px; flex:none; }
+
+  /* header */
+  .bar { height:84px; flex:none; display:flex; align-items:stretch; gap:0; border:1px solid var(--line); background:var(--panel); }
+  .bar > div { display:flex; flex-direction:column; justify-content:center; padding:0 24px; border-right:1px solid var(--line); }
+  .bar > div:last-child { border-right:0; }
+  .lbl { font-size:12px; letter-spacing:.14em; text-transform:uppercase; color:var(--dim); font-weight:500; }
+  .now { flex:1; flex-direction:row !important; align-items:center !important; justify-content:flex-start !important; gap:18px; }
+  .now .t { font-size:38px; font-weight:700; letter-spacing:-.02em; }
+  .now .s { font-size:18px; color:var(--dim); }
+  .livetag { background:var(--live); color:#fff; font-weight:700; font-size:14px; letter-spacing:.1em; padding:6px 10px; }
+  .big { font-family:'Geist Mono'; font-size:34px; font-weight:500; line-height:1.05; }
+  .big.warn { color:var(--warn); }
+  .left { background:#1a0b0d; } .left .big { font-size:44px; color:#fff; }
+  .key { display:inline-block; font-family:'Geist Mono'; font-weight:500; color:var(--key); border:1px solid #3d3360; padding:1px 7px; }
+
+  /* panels */
+  .panel { border:1px solid var(--line); background:var(--panel); display:flex; flex-direction:column; min-height:0; overflow:hidden; }
+  .ph { flex:none; display:flex; align-items:baseline; gap:12px; padding:14px 18px 10px; border-bottom:1px solid var(--line); }
+  .ph h2 { margin:0; font-size:20px; font-weight:600; }
+  .ph .r { margin-left:auto; color:var(--dim); font-size:14px; }
+  .fit { flex:1; min-height:0; overflow:hidden; }
+
+  .full { flex:1; min-height:0; display:grid; grid-template-columns:740px 1fr 520px; gap:18px; }
+  .mid { display:grid; grid-template-rows:1.15fr 1fr; gap:18px; min-height:0; }
+
+  /* rundown: rows share the height so the whole order always fits */
+  .rows { display:flex; flex-direction:column; height:100%; }
+  .sect { flex:none; font-size:12px; letter-spacing:.14em; text-transform:uppercase; color:var(--faint); padding:8px 18px 4px; }
+  .row { flex:1 1 0; min-height:0; display:grid; grid-template-columns:70px 78px 1fr 70px; gap:12px; align-items:center; padding:0 18px; border-top:1px solid var(--line); }
+  .sect + .row { border-top:0; }
+  .row .pt { font-family:'Geist Mono'; font-size:18px; color:var(--faint); }
+  .row .at { font-family:'Geist Mono'; font-size:22px; }
+  .row .at.late { color:var(--warn); }
+  .row .t { font-size:22px; font-weight:500; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .row .m { display:flex; gap:8px; margin-top:4px; font-size:15px; color:var(--dim); white-space:nowrap; overflow:hidden; }
+  .row .len { font-family:'Geist Mono'; font-size:16px; color:var(--dim); text-align:right; }
+  .row.done { color:var(--faint); } .row.done .at, .row.done .t { color:var(--faint); } .row.done .m { display:none; }
+  .row.cur { background:#1a0b0d; box-shadow:inset 6px 0 0 var(--live); } .row.cur .t { font-weight:700; }
+  .row.next { box-shadow:inset 6px 0 0 #3a3a40; }
+  .mic { font-family:'Geist Mono'; color:var(--mic); }
+  body.l-compact .row.done, body.l-compact .row.far, body.l-compact .sect.done, body.l-compact .sect.far { display:none; }
+  body.l-compact .row .t { font-size:30px; } body.l-compact .row .m { font-size:18px; } body.l-compact .row .at { font-size:28px; }
+
+  /* micboard channel */
+  .chs { display:flex; gap:10px; padding:12px; height:100%; }
+  .ch { flex:1 1 0; min-width:0; display:flex; flex-direction:column; border:1px solid var(--line); background:#000; }
+  .ch .face { flex:1; min-height:0; position:relative; display:grid; place-items:center; }
+  .ch .ini { font-size:84px; font-weight:600; color:rgba(0,0,0,.28); letter-spacing:-.04em; }
+  .ch .num { position:absolute; top:8px; left:10px; font-family:'Geist Mono'; font-size:20px; font-weight:500; color:#fff; text-shadow:0 1px 2px rgba(0,0,0,.6); }
+  .ch .role { position:absolute; top:10px; right:10px; font-size:11px; letter-spacing:.12em; text-transform:uppercase; background:#000; color:#ccc; padding:3px 6px; }
+  .ch .name { flex:none; padding:8px 10px 4px; font-size:22px; font-weight:700; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .ch .pos { flex:none; padding:0 10px 8px; font-size:13px; color:var(--dim); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .ch .lead { color:var(--mic); font-weight:600; }
+  .ch .tel { flex:none; border-top:1px solid var(--line); padding:8px 10px; display:grid; grid-template-columns:1fr auto; gap:6px; font-family:'Geist Mono'; font-size:13px; color:var(--dim); }
+  .meter { grid-column:1/-1; height:8px; background:#1c1c1f; overflow:hidden; }
+  .meter i { display:block; height:100%; transform-origin:left; transform:scaleX(.05); background:var(--ok); transition:transform .15s cubic-bezier(.32,.72,0,1); }
+  .freq { color:#f08a5d; }
+  .bars { display:flex; gap:2px; align-items:flex-end; height:14px; } .bars b { width:4px; background:#2a2a2e; } .bars b.on { background:var(--mic); }
+  .bat { display:flex; gap:2px; align-items:center; } .bat b { width:8px; height:12px; background:#2a2a2e; } .bat b.on { background:#e8e8e8; } .bat.low b.on { background:var(--warn); }
+  .ch.idle .face { filter:grayscale(1) brightness(.4); } .ch.idle .name, .ch.idle .tel { opacity:.45; }
+  .ch.on { border-color:var(--mic); }
+  .ch.spare .face { background:repeating-linear-gradient(135deg,#141416 0 12px,#0b0b0c 12px 24px); } .ch.spare .name { color:var(--faint); font-weight:500; }
+  .ch.label .face { background:#2f8fbf; } .ch.label .face .lt { font-size:28px; font-weight:700; color:#fff; text-align:center; padding:0 10px; }
+
+  /* notes: text shrinks to fit */
+  .notes { padding:14px 20px; font-size:22px; line-height:1.45; color:#d8d8dc; }
+  .notes p { margin:0 0 .55em; } .notes b { color:#fff; }
+  .notes .ref { font-family:'Geist Mono'; font-size:.65em; color:var(--dim); margin-bottom:.6em; }
+  .cue { font-size:.7em; font-weight:600; letter-spacing:.08em; text-transform:uppercase; color:#000; background:var(--warn); padding:1px 6px; white-space:nowrap; }
+
+  /* roster: a grid that shrinks to fit */
+  .roster { padding:10px 14px; font-size:18px; }
+  .tm { font-size:.62em; letter-spacing:.14em; text-transform:uppercase; color:var(--faint); padding:.5em 0 .35em; }
+  .grid { display:grid; grid-template-columns:1fr 1fr; gap:.35em .8em; }
+  .p { display:flex; gap:.55em; align-items:center; min-width:0; }
+  .p .pa { width:2.2em; height:2.2em; flex:none; display:grid; place-items:center; font-size:.8em; font-weight:700; color:rgba(0,0,0,.6); }
+  .p .pa.empty { background:none; border:1px dashed #555; color:#666; }
+  .p .x { min-width:0; } .p .n { font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; } .p .s { font-size:.7em; color:var(--dim); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .p .tag { font-size:.6em; font-weight:700; letter-spacing:.08em; text-transform:uppercase; padding:1px 5px; }
+  .tag.pending { background:var(--warn); color:#000; } .tag.declined { border:1px solid #444; color:#777; }
+  .p.declined { opacity:.45; } .p.declined .n { text-decoration:line-through; }
+  .p.unfilled .n { color:var(--faint); font-weight:500; }
+  .p.sing .n { color:var(--mic); }
+  .posbox { border:1px solid var(--line); padding:.4em .5em; display:flex; flex-direction:column; gap:.3em; }
+  .posbox .h { display:flex; justify-content:space-between; font-size:.65em; color:var(--dim); text-transform:uppercase; letter-spacing:.1em; }
+
+  /* side view */
+  .side { flex:1; min-height:0; display:grid; grid-template-columns:1fr 560px; gap:18px; }
+  .caps { display:flex; flex-direction:column; justify-content:flex-end; padding:20px 30px 40px; font-size:64px; line-height:1.18; font-weight:600; }
+  .caps p { margin:0 0 16px; } .caps p.old { color:#555; }
+  .nowbox { flex:none; padding:16px 18px; background:#1a0b0d; border-bottom:1px solid var(--line); box-shadow:inset 6px 0 0 var(--live); }
+  .nowbox .tt { display:flex; align-items:baseline; font-size:32px; font-weight:700; margin:4px 0 8px; }
+  .nowbox .tt span { margin-left:auto; font-family:'Geist Mono'; font-weight:500; }
+  .nowbox .m { font-size:17px; color:var(--dim); display:flex; gap:12px; flex-wrap:wrap; }
+  .side .row { grid-template-columns:86px 1fr; } .side .row .pt, .side .row .len { display:none; }
+
+  /* micboard view */
+  .board { flex:1; min-height:0; display:flex; gap:12px; }
+  .board .ch .ini { font-size:150px; } .board .ch .name { font-size:30px; padding:12px 14px 4px; } .board .ch .pos { font-size:16px; padding:0 14px 12px; }
+  .board .ch .num { font-size:26px; top:12px; left:14px; } .board .ch .tel { font-size:15px; padding:12px 14px; }
+  .board .gap { flex:0 0 24px; }
+
+  [hidden] { display:none !important; }
+</style></head><body class="l-fit">
+
+<div class="mock">
+  <b style="color:#ccc">Mockup</b> (URL options, not on the screen)
+  <select id="mView"><option value="full">Full rundown</option><option value="side">Captions + rundown</option><option value="micboard">Micboard</option></select>
+  <select id="mLayout"><option value="fit">All items</option><option value="compact">Now + next 3</option></select>
+  <select id="mCards"><option value="person">Per person</option><option value="position">Per position</option></select>
+  <select id="mTeam"><option value="">All teams</option><option>Vocals</option><option>Band</option><option>Production</option></select>
+  <select id="mTime"><option value="auto">Auto · 9:00</option><option value="9">9:00</option><option value="11">11:00</option></select>
+  <code id="mUrl"></code>
+</div>
+
+<div class="viewport"><div class="stage" id="stage">
+  <div class="bar">
+    <div class="now"><span class="livetag">LIVE</span><span class="t">Way Maker</span><span class="key">E</span><span class="s">led by Tom Reyes</span></div>
+    <div class="left"><span class="lbl">Left</span><span class="big">1:48</span></div>
+    <div><span class="lbl">Next</span><span style="font-size:22px;font-weight:600">Announcements</span></div>
+    <div><span class="lbl">Planned end</span><span class="big">10:01</span></div>
+    <div><span class="lbl">Projected</span><span class="big warn">10:03</span></div>
+    <div><span class="lbl">Running</span><span class="big warn">+2:00</span></div>
+    <div><span class="lbl" id="svc">9:00 service</span><span class="big">9:13:22</span></div>
+  </div>
+
+  <!-- FULL -->
+  <div class="full" id="vFull">
+    <div class="panel"><div class="ph"><h2>Order of service</h2><span class="r">planned · actual / projected</span></div><div class="fit"><div class="rows" id="rundown"></div></div></div>
+    <div class="mid">
+      <div class="panel"><div class="ph"><h2>On the platform</h2><span class="r">Way Maker · mics</span></div><div class="fit"><div class="chs" id="mics"></div></div></div>
+      <div class="panel"><div class="ph"><h2>Sermon notes · Rooted</h2><span class="r">9:24</span></div>
+        <div class="fit"><div class="notes" id="notes">
+          <div class="ref">Week 3 · Colossians 2:6–7 · Pastor Dan</div>
+          <p><b>1. Received.</b> We don't start the Christian life one way and finish it another. Slide: verse 6.</p>
+          <p><b>2. Rooted and built up.</b> A tree and a building: both grow from what's underneath. <span class="cue">Video · 14 min</span></p>
+          <p><b>3. Overflowing with thankfulness.</b> Thankfulness is the evidence, not the cause. Story: the garden at the old building.</p>
+          <p><b>Response.</b> Prayer team at the front during Graves Into Gardens. <span class="cue">Band in · end of 3</span></p>
+          <p><b>Next steps.</b> Rooted groups start the 22nd; sign-up card in the seat backs.</p>
+        </div></div></div>
+    </div>
+    <div class="panel"><div class="ph"><h2>Scheduled</h2><span class="r" id="teamNote">9:00 · all teams</span></div><div class="fit"><div class="roster" id="teams"></div></div></div>
+  </div>
+
+  <!-- SIDE -->
+  <div class="side" id="vSide" hidden>
+    <div class="caps"><p class="old">You make a way where there seemed to be no way,</p><p>and you work in the waiting, you never stop.</p></div>
+    <div class="panel">
+      <div class="nowbox"><span class="lbl">Now</span><div class="tt">Way Maker<span>1:48</span></div><div class="m" id="nowMeta"></div></div>
+      <div class="fit"><div class="rows" id="rail"></div></div>
+    </div>
+  </div>
+
+  <!-- MICBOARD -->
+  <div class="board" id="vBoard" hidden></div>
+</div></div>
+
+<script>
+// Flat colours stand in for Planning Center profile photos.
+const P = {
+  sarah:['Sarah Lee','#d9488f'], tom:['Tom Reyes','#8b6cf0'], ana:['Ana Cruz','#2bb3c4'], priya:['Priya Shah','#ee8a4a'],
+  ben:['Ben Ford','#3fbf6f'], kim:['Kim Alvarez','#4f8de8'], dev:['Dev Patel','#a76ae0'], mo:['Mo Hassan','#e0b43a'],
+  jen:['Jen Park','#e85a6e'], luis:['Luis Ortiz','#2fae9c'], eli:['Eli Brooks','#c98a3a'], dan:['Pastor Dan','#7c9a6a'], jo:['Jo Lin','#2f8fbf'],
+};
+const nm = k => P[k][0], col = k => P[k][1], first = k => nm(k).split(' ')[0];
+const ini = k => nm(k).split(' ').map(s=>s[0]).join('').slice(0,2);
+
+const ITEMS = [
+  ['Pre-service','8:55','8:55','done','Countdown · walk-in loop','5:00'],
+  ['Service','9:00','9:01','done','Welcome','2:00'],
+  ['','9:02','9:03','done','Build My Life','5:00',{key:'G',lead:'sarah',mics:[['01','sarah'],['03','ana'],['04','priya']]}],
+  ['','9:07','9:09','cur','Way Maker','6:00',{key:'E',lead:'tom',mics:[['02','tom'],['03','ana'],['04','priya']]}],
+  ['','9:13','9:15','next','Announcements','4:00'],
+  ['','9:17','9:19','','Offering · Goodness of God','5:00',{key:'A',lead:'ana',mics:[['03','ana'],['04','priya']]}],
+  ['','9:22','9:24','','Sermon · Rooted','32:00'],
+  ['','9:54','9:56','far','Response · Graves Into Gardens','5:00',{key:'B',lead:'sarah',mics:[['01','sarah'],['03','ana']]}],
+  ['','9:59','10:01','far','Benediction','2:00'],
+  ['Post-service','10:01','10:03','far','Walk-out loop','10:00'],
+];
+const CH = [
+  ['01','sarah','Worship Leader','Vocal','idle','590.775',5,4],
+  ['02','tom','Acoustic Guitar','Vocal','on','591.550',5,5],
+  ['03','ana','Vocals','Vocal','on','592.575',4,4],
+  ['04','priya','Vocals','Vocal','on','595.725',5,2],
+  ['05',null,'Host · unfilled','','spare','517.450',0,0],
+  null,
+  ['09','dan','Speaker','Headset','idle','609.175',5,5],
+  ['12','jo','Announcements','Handheld','label','612.950',5,3],
+];
+const POS = [
+  ['Vocals','Worship Leader','01',[['sarah','ok']]],
+  ['Vocals','Vocals','03 / 04',[['ana','ok'],['priya','ok'],['eli','declined']]],
+  ['Band','Acoustic Guitar','02',[['tom','ok']]],
+  ['Band','Keys','',[['ben','ok']]],
+  ['Band','Drums','',[['kim','pending']]],
+  ['Band','Bass','',[]],
+  ['Production','Director','',[['jen','ok']]],
+  ['Production','FOH Audio','',[['dev','ok']]],
+  ['Production','ProPresenter','',[['mo','ok']]],
+  ['Production','Camera 1','',[['luis','ok']]],
+  ['Production','Camera 2','',[]],
+];
+const MICOF = {sarah:'01',tom:'02',ana:'03',priya:'04'};
+const SINGING = ['tom','ana','priya'];
+
+const songMeta = (s, mics=true) => s ? `<div class="m"><span class="key">${s.key}</span><span>${nm(s.lead)} leads</span>${mics?s.mics.map(([m,k])=>`<span><span class="mic">${m}</span> ${first(k)}</span>`).join(''):''}</div>` : '';
+const row = ([sect,pt,at,st,t,len,s], mics=true) =>
+  (sect?`<div class="sect ${st}">${sect}</div>`:'') +
+  `<div class="row ${st}"><span class="pt">${pt}</span><span class="at ${pt!==at?'late':''}">${at}</span><div style="min-width:0"><div class="t">${t}</div>${songMeta(s,mics)}</div><span class="len">${len}</span></div>`;
+
+function channel([mic,k,pos,role,st,freq,rf,bat]){
+  const face = st==='label' ? `<div class="face"><div class="lt">${pos}</div>` :
+               st==='spare' ? `<div class="face">` : `<div class="face" style="background:${col(k)}"><span class="ini">${ini(k)}</span>`;
+  const name = st==='label' ? nm(k) : k ? nm(k) : 'Spare';
+  const sub = st==='label' ? 'Host' : (k==='tom' ? '<span class="lead">Leading</span> · ' : '') + pos;
+  return `<div class="ch ${st}">${face}<span class="num">${mic}</span>${role?`<span class="role">${role}</span>`:''}</div>
+    <div class="name">${name}</div><div class="pos">${sub}</div>
+    <div class="tel"><div class="meter"><i data-live="${st==='on'||st==='label'?1:0}"></i></div>
+      <span class="freq">${freq}</span><span>${st==='spare'?'—':'-9 dB'}</span>
+      <span class="bars">${[4,6,8,11,14].map((h,i)=>`<b class="${i<rf?'on':''}" style="height:${h}px"></b>`).join('')}</span>
+      <span class="bat ${bat<=2?'low':''}">${[0,1,2,3,4].map(i=>`<b class="${i<bat?'on':''}"></b>`).join('')}</span></div></div>`;
+}
+
+function teams(){
+  const mode=mCards.value, team=mTeam.value;
+  const pa = k => k ? `<span class="pa" style="background:${col(k)}">${ini(k)}</span>` : `<span class="pa empty">?</span>`;
+  const tag = s => s==='pending'||s==='declined' ? `<span class="tag ${s}">${s}</span>` : '';
+  const mic = k => MICOF[k] ? `<span class="mic" style="font-size:.8em">${MICOF[k]}</span>` : '';
+  let h='';
+  [...new Set(POS.map(p=>p[0]))].filter(t=>!team||t===team).forEach(t=>{
+    h+=`<div class="tm">${t}</div><div class="grid">`;
+    POS.filter(p=>p[0]===t).forEach(([_,pos,m,ppl])=>{
+      if(mode==='position'){
+        h+=`<div class="posbox"><div class="h"><span>${pos}</span>${m?`<span class="mic">${m}</span>`:''}</div>`+
+          (ppl.length?ppl.map(([k,s])=>`<div class="p ${s} ${SINGING.includes(k)?'sing':''}">${pa(k)}<div class="x"><div class="n">${nm(k)}</div></div>${tag(s)}</div>`).join('')
+            :`<div class="p unfilled">${pa(null)}<div class="x"><div class="n">Unfilled</div></div></div>`)+`</div>`;
+      } else if(!ppl.length){
+        h+=`<div class="p unfilled">${pa(null)}<div class="x"><div class="n">Unfilled</div><div class="s">${pos}</div></div></div>`;
+      } else ppl.forEach(([k,s])=>{
+        h+=`<div class="p ${s} ${SINGING.includes(k)?'sing':''}">${pa(k)}<div class="x"><div class="n">${nm(k)}</div><div class="s">${pos}</div></div>${tag(s)}${mic(k)}</div>`;
+      });
+    });
+    h+='</div>';
+  });
+  document.getElementById('teams').innerHTML=h;
+}
+
+// Shrink an element's font until it fits its box: the screen never scrolls.
+function shrinkToFit(el, max, min){
+  const box = el.parentElement; let size = max;
+  el.style.fontSize = size+'px';
+  while(size > min && (el.scrollHeight > box.clientHeight || el.scrollWidth > box.clientWidth)){ size -= 0.5; el.style.fontSize = size+'px'; }
+}
+// The side rail shows as many upcoming items as fit, never a partial row.
+function fillRail(){
+  const rail = document.getElementById('rail'), box = rail.parentElement;
+  const up = ITEMS.filter(i=>!['done','cur'].includes(i[3]));
+  rail.style.height='auto';
+  rail.innerHTML='';
+  for(const it of up){
+    rail.insertAdjacentHTML('beforeend', row([ '', it[1], it[2], it[3]==='next'?'next':'', it[4], it[5], it[6] ], false).replace('class="row','style="flex:none;height:76px" class="row'));
+    if(rail.scrollHeight > box.clientHeight){ rail.lastElementChild.remove(); break; }
+  }
+}
+
+function render(){
+  const v=mView.value, l=mLayout.value, c=mCards.value, t=mTeam.value, tm=mTime.value;
+  document.body.className = (document.body.classList.contains('bare')?'bare ':'') + 'l-'+l;
+  vFull.hidden = v!=='full'; vSide.hidden = v!=='side'; vBoard.hidden = v!=='micboard';
+  [mLayout,mCards,mTeam].forEach(s=>s.hidden = v!=='full');
+  svc.textContent = tm==='11' ? '11:00 service' : '9:00 service';
+  teamNote.textContent = (tm==='11'?'11:00':'9:00') + ' · ' + (t||'all teams');
+  document.getElementById('rundown').innerHTML = ITEMS.map(i=>row(i)).join('');
+  document.getElementById('mics').innerHTML = CH.filter(x=>x&&x[4]==='on').map(channel).join('');
+  document.getElementById('vBoard').innerHTML = CH.map(x=>x?channel(x):'<div class="gap"></div>').join('');
+  const s = ITEMS[3][6];
+  nowMeta.innerHTML = `<span class="key">${s.key}</span><span>${nm(s.lead)} leads</span>` + s.mics.map(([m,k])=>`<span><span class="mic">${m}</span> ${first(k)}</span>`).join('');
+  teams();
+  if(v==='full'){ shrinkToFit(document.getElementById('notes'), 24, 12); shrinkToFit(document.getElementById('teams'), 20, 10); }
+  if(v==='side') fillRail();
+  let q = v==='full' ? `rundown=full&layout=${l}&cards=${c}` : `rundown=${v}`;
+  if(v==='full'&&t) q+=`&team=${t}`; if(tm!=='auto') q+=`&time=${tm==='9'?'0900':'1100'}`;
+  mUrl.textContent='/screen?'+q;
+}
+function scale(){
+  const vp = document.querySelector('.viewport');
+  const k = Math.min(vp.clientWidth/1920, vp.clientHeight/1080);
+  stage.style.transform = `scale(${k})`;
+}
+{ const q=new URLSearchParams(location.search);
+  for(const [k,id] of [['view','mView'],['layout','mLayout'],['cards','mCards'],['team','mTeam']]) if(q.get(k)) document.getElementById(id).value=q.get(k);
+  if(q.get('mock')==='0') document.body.classList.add('bare'); }
+['mView','mLayout','mCards','mTeam','mTime'].forEach(id=>document.getElementById(id).onchange=render);
+addEventListener('resize', scale);
+document.fonts.ready.then(()=>{ render(); scale(); });
+render(); scale();
+setInterval(()=>document.querySelectorAll('.meter i').forEach(m=>{
+  const lv = m.dataset.live==='1' ? .35+Math.random()*.5 : Math.random()*.06;
+  m.style.transform=`scaleX(${lv.toFixed(3)})`;
+}),150);
+</script>
+</body></html>

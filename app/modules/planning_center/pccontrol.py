@@ -63,6 +63,17 @@ REFUSALS = {
 }
 
 
+# How the admin page words a refusal (a panel words the code itself).
+ADMIN_WORDS = {
+    "not_followed": "Relay is not following that service type.",
+    "no_plan": "There is no plan today for that service type.",
+    "not_controlling": "Take control first: Planning Center lets only the person running LIVE move it.",
+    "not_connected": "Connect to Planning Center first.",
+    "unreachable": "Planning Center did not answer. Try again.",
+    "refused": "Planning Center refused that. The log has the reason.",
+}
+
+
 class Refused(Exception):
     def __init__(self, code: str):
         super().__init__(code)
@@ -142,6 +153,31 @@ class Control:
             raise
         self._record(pid, st, action, "ok" if did else "unchanged")
         return self.feed.payload(st)
+
+    async def press_admin(self, st: str, action: str, who: str) -> bool:
+        """The same press from the admin page or /screen's operator (#148): the signed-in user is already checked
+        by the route, so no panel key or gap. Logged with the panels' presses under the user's name."""
+        if action not in ACTIONS:
+            raise ValueError(action)
+        offered = [o["service_type"] for o in self.feed.offered()]
+        if not offered and not self.follower.client():
+            self._record("admin", st, action, "not_connected", name=who)
+            raise Refused("not_connected")
+        if not st and len(offered) == 1:
+            st = offered[0]
+        try:
+            if st not in offered:
+                raise Refused("not_followed")
+            tr = self.follower.tracks.get(st)
+            if tr is None or tr.plan is None:
+                raise Refused("no_plan")
+            async with self._lock:
+                did = await self._press(st, action)
+        except Refused as exc:
+            self._record("admin", st, action, exc.code, name=who)
+            raise
+        self._record("admin", st, action, "ok" if did else "unchanged", name=who)
+        return did
 
     async def _press(self, st: str, action: str) -> bool:
         client = self.follower.client()

@@ -6,6 +6,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse
@@ -15,7 +16,7 @@ from ...scheduler import scheduler
 from ...panels import registry as panel_registry
 from ... import modules as shared
 from .. import event_stream, read_limited, require, sse
-from . import pccontrol, planningcenter as pc
+from . import pccontrol, planningcenter as pc, rundown
 from .pclive import follower
 from .servicefeed import feed
 
@@ -84,11 +85,11 @@ async def admin_planning_center_save(payload: dict):
         return JSONResponse({"error": "Enter both the application ID and the secret."}, status_code=400)
     changed = (app_id, secret) != (saved["app_id"], saved["secret"])
     config.save({"planning_center": {
+        **saved,
         "app_id": app_id,
         "secret": secret,
         "service_types": [] if changed else saved["service_types"],
         "plan_overrides": {} if changed else saved["plan_overrides"],
-        "show_notes": saved["show_notes"],
     }}, replace=("planning_center",))
     log.info("Planning Center token %s", "saved" if changed else "unchanged")
     await follower.poke()
@@ -185,3 +186,136 @@ async def admin_planning_center_disconnect():
 
 
 # --------------------------------------------------------------- ProPresenter (#138)
+
+
+# --------------------------------------------------------------- the rundown (#148)
+RUNDOWN_TICK_S = 1.0
+RUNDOWN_RESEND_S = 5.0
+
+
+def _rundown_track(st: str):
+    """The followed service type the rundown is for: the one asked for, else one LIVE is running, else the first
+    with a plan today."""
+    tracks = follower.tracks
+    if st:
+        return tracks.get(st)
+    with_plan = [t for t in tracks.values() if t.plan is not None]
+    now = rundown.utcnow()
+    return next((t for t in with_plan if pc.running(t.live, now)), with_plan[0] if with_plan else None)
+
+
+def rundown_now(st: str = "", want_time: str = "") -> dict:
+    """The rundown as it stands; a changed mic draw is saved, so it holds across restarts."""
+    tr = _rundown_track(st)
+    settings = config.get()["planning_center"]
+    if tr is None:
+        return {"type": "rundown", "service_type": st or None, "now": rundown.utcnow(), "plan": None, "items": [],
+                "times": [], "time": None, "header": None, "people": [], "mics": [], "notes": None,
+                "live": False, "controller": None}
+    msg, draws = rundown.build(tr, settings, rundown.utcnow(), follower.zone or follower.fallback_zone(), want_time)
+    if draws != settings["rundown"]["draws"]:
+        config.save({"planning_center": {**settings, "rundown": {**settings["rundown"], "draws": draws}}},
+                     replace=("planning_center",))
+    return msg
+
+
+def via_tunnel(request: Request) -> bool:
+    """A request that came in through the remote access tunnel (Cloudflare marks every one it forwards)."""
+    return any(h in request.headers for h in ("cf-ray", "cf-connecting-ip", "cf-visitor"))
+
+
+def _rundown_stream(st: str, want_time: str):
+    async def gen():
+        last, sent_at = "", 0.0
+        while True:
+            msg = rundown_now(st, want_time)
+            sig = rundown.signature(msg)
+            if sig != last or msg["now"] - sent_at >= RUNDOWN_RESEND_S:
+                last, sent_at = sig, msg["now"]
+                yield sse(msg).encode()
+            await asyncio.sleep(RUNDOWN_TICK_S)
+
+    return event_stream(gen())
+
+
+def _who(user) -> str:
+    for attr in ("display_name", "name", "username", "email"):
+        v = getattr(user, attr, None)
+        if isinstance(v, str) and v.strip():
+            return v.strip()[:60]
+    return "Admin page"
+
+
+def _rundown_settings_view() -> dict:
+    rs = config.get()["planning_center"]["rundown"]
+    return {k: v for k, v in rs.items() if k != "draws"}
+
+
+@router.get("/api/admin/planning-center/rundown", dependencies=[Depends(require("planning_center.view"))])
+async def admin_planning_center_rundown(type: str = "", time: str = ""):
+    """The rundown as /screen shows it, the settings behind it, and every team and position on today's plans
+    (for the mic map)."""
+    st = type if type in follower.tracks else ""
+    want = time if re.fullmatch(r"\d{4}", time or "") else ""
+    return {"rundown": rundown_now(st, want), "settings": _rundown_settings_view(),
+            "positions": rundown.positions(list(follower.tracks.values())),
+            "service_types": [{"id": s, "name": follower.names.get(s) or f"Service type {s}"}
+                              for s in follower.tracks],
+            "actions": control.recent()}
+
+
+@router.post("/api/admin/planning-center/rundown/settings", dependencies=[Depends(require("planning_center.manage"))])
+async def admin_planning_center_rundown_settings(payload: dict):
+    """The rundown on /screen (on or off), the note fields it reads, and the mics by position."""
+    saved = config.get()["planning_center"]
+    rs = dict(saved["rundown"])
+    for k in ("leader_note", "leader_position", "sermon_note"):
+        if k in payload:
+            if not isinstance(payload[k], str):
+                return JSONResponse({"error": f"{k} must be text."}, status_code=400)
+            rs[k] = payload[k]
+    if "screen" in payload:
+        if not isinstance(payload["screen"], bool):
+            return JSONResponse({"error": "screen must be true or false."}, status_code=400)
+        rs["screen"] = payload["screen"]
+    if "mics" in payload:
+        if not isinstance(payload["mics"], list):
+            return JSONResponse({"error": "mics must be a list."}, status_code=400)
+        rs["mics"] = payload["mics"]
+    config.save({"planning_center": {**saved, "rundown": rs}}, replace=("planning_center",))
+    log.info("Planning Center rundown settings saved (screen %s)", "on" if rs["screen"] else "off")
+    return {"settings": _rundown_settings_view()}
+
+
+@router.post("/api/admin/planning-center/rundown/redraw", dependencies=[Depends(require("planning_center.control"))])
+async def admin_planning_center_rundown_redraw(payload: dict):
+    """Draw the mics again for one position (or every position) on today's plan and service time."""
+    st, want = str(payload.get("type") or ""), str(payload.get("time") or "")
+    msg = rundown_now(st if st in follower.tracks else "", want if re.fullmatch(r"\d{4}", want) else "")
+    if not msg["plan"] or not msg["time"]:
+        return JSONResponse({"error": "There is no plan and service time to draw for."}, status_code=409)
+    saved = config.get()["planning_center"]
+    team, position = str(payload.get("team") or ""), str(payload.get("position") or "")
+    prefix = f"{msg['plan']['id']}:{msg['time']['id']}:"
+    draws = {k: v for k, v in saved["rundown"]["draws"].items()
+             if not (k.startswith(prefix) and (not position or k == prefix + f"{team}|{position}"))}
+    config.save({"planning_center": {**saved, "rundown": {**saved["rundown"], "draws": draws}}},
+                replace=("planning_center",))
+    log.info("Planning Center mics redrawn for %s", position or "every position")
+    return {"rundown": rundown_now(st if st in follower.tracks else "", want if re.fullmatch(r"\d{4}", want) else "")}
+
+
+@router.post("/api/admin/planning-center/live/{action}")
+async def admin_planning_center_live_action(action: str, payload: dict,
+                                            user=Depends(require("planning_center.control"))):
+    """Next / Previous / Take control / Release from the admin page, with the same rules as a panel's press:
+    Relay presses as the token's owner, and every press is listed with the panels' presses."""
+    if action not in pccontrol.ACTIONS:
+        raise HTTPException(404, "unknown action")
+    st = str(payload.get("type") or "")
+    try:
+        await control.press_admin(st, action, _who(user))
+    except pccontrol.Refused as exc:
+        return JSONResponse({"ok": False, "error": exc.code, "message": pccontrol.ADMIN_WORDS.get(exc.code, "")},
+                            status_code=pccontrol.REFUSALS[exc.code])
+    return {"ok": True, "rundown": rundown_now(st)}

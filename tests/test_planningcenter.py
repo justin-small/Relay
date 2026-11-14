@@ -118,14 +118,14 @@ URL = "/api/admin/planning-center"
 
 print("off until a token is saved")
 st = admin.get("/api/admin/state").json()["config"]["planning_center"]
-eq("state says not connected", st, {"connected": False, "service_types": [], "show_notes": False})
+eq("state says not connected", st, {"connected": False, "service_types": [], "show_notes": False, "rundown_screen": False})
 eq("testing with no token is refused", admin.post(URL + "/test").status_code, 400)
 eq("no request reached Planning Center", seen, [])
 eq("saving only an ID is refused", admin.post(URL, json={"app_id": APP_ID}).status_code, 400)
 
 print("good token")
 r = admin.post(URL, json={"app_id": APP_ID, "secret": SECRET})
-eq("save", (r.status_code, r.json()), (200, {"planning_center": {"connected": True, "service_types": [], "show_notes": False}}))
+eq("save", (r.status_code, r.json()), (200, {"planning_center": {"connected": True, "service_types": [], "show_notes": False, "rundown_screen": False}}))
 r = admin.post(URL + "/test")
 eq("test is ok", r.status_code, 200)
 eq("service types listed by name, archived and deleted left out", [t["name"] for t in r.json()["service_types"]],
@@ -143,7 +143,7 @@ eq("a non-list is refused", admin.post(URL + "/service-types", json={"ids": "7"}
 admin.post(URL, json={"app_id": "", "secret": ""})
 eq("blank fields keep the token and the choice",
    admin.get("/api/admin/state").json()["config"]["planning_center"],
-   {"connected": True, "service_types": ["7", "42"], "show_notes": False})
+   {"connected": True, "service_types": ["7", "42"], "show_notes": False, "rundown_screen": False})
 admin.post(URL, json={"app_id": APP_ID, "secret": SECRET + "x"})
 eq("a different token resets the choice",
    admin.get("/api/admin/state").json()["config"]["planning_center"]["service_types"], [])
@@ -226,7 +226,7 @@ except pc.PlanningCenterError as exc:
 
 print("disconnect")
 r = admin.delete(URL)
-eq("disconnected", r.json()["planning_center"], {"connected": False, "service_types": [], "show_notes": False})
+eq("disconnected", r.json()["planning_center"], {"connected": False, "service_types": [], "show_notes": False, "rundown_screen": False})
 check("secret gone from config.json", SECRET not in config.CONFIG_PATH.read_text())
 before = len(seen)
 eq("test is refused again", admin.post(URL + "/test").status_code, 400)
