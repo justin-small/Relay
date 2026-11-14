@@ -18,6 +18,8 @@
   var FADE_MS = 800;
   var RETRY_MS = 5000;
   var REPORT_MS = 30000;
+  var PROBE_MS = 5000;
+  var SILENT_MS = 20000;
 
   function SignagePlayer(root, opts) {
     this.root = root;
@@ -100,6 +102,7 @@
 
   SignagePlayer.prototype._blank = function () {
     clearTimeout(this.timer);
+    this._unwatch();
     for (var i = 0; i < this.layers.length; i++) { this.layers[i].style.opacity = '0'; this._clear(this.layers[i]); }
     this.current = null;
     this.showing = null;
@@ -116,6 +119,7 @@
   SignagePlayer.prototype.next = function () {
     if (this.stopped) return;
     clearTimeout(this.timer);
+    this._unwatch();
     var order = this._playable();
     if (!order.length) { this._blank(); return; }
     var pos = 0;
@@ -125,7 +129,7 @@
     this._show(this.items[this.index]);
   };
 
-  SignagePlayer.prototype._element = function (item, done) {
+  SignagePlayer.prototype._element = function (item, done, host) {
     var self = this, src = this.url(item.url), fit = item.fit === 'fill' ? 'cover' : 'contain';
     var css = 'position:absolute;inset:0;width:100%;height:100%;object-fit:' + fit + ';border:0;background:#000';
     if (item.type === 'image') {
@@ -153,16 +157,78 @@
       v.src = src;
       v.load();
     } else if (item.type === 'page') {
-      var f = document.createElement('iframe');
-      f.style.cssText = css;
-      f.setAttribute('sandbox', 'allow-scripts allow-same-origin');
-      f.setAttribute('allow', 'autoplay');
-      f.onload = function () { done(f); };
-      f.src = src;
-      setTimeout(function () { done(f); }, 8000);   // a page that never says it loaded still gets shown
+      var go = function () {
+        var f = document.createElement('iframe');
+        f.style.cssText = css;
+        f.setAttribute('sandbox', 'allow-scripts allow-same-origin allow-presentation');
+        f.setAttribute('allow', 'autoplay; encrypted-media; fullscreen');
+        f.setAttribute('referrerpolicy', 'strict-origin-when-cross-origin');
+        f.onload = function () { done(f); };
+        f.src = self.url(self.sound && item.url_sound ? item.url_sound : item.url);
+        if (host) host.appendChild(f);   // a frame only loads once it is in the page; the hidden layer lets it
+        setTimeout(function () { done(f); }, 8000);   // a page that never says it loaded still gets shown
+      };
+      // A page from the internet is skipped while the screen cannot reach it, and tried again on its next turn.
+      if (item.probe) this._reachable(item.probe, function (ok) { if (ok) go(); else done(null); });
+      else go();
     } else {
       done(null);
     }
+  };
+
+  /* Can this device reach `url`? A no-cors request settles on any answer and fails only with no connection. */
+  SignagePlayer.prototype._reachable = function (url, cb) {
+    if (navigator.onLine === false) { cb(false); return; }
+    if (typeof fetch !== 'function') { cb(true); return; }
+    var settled = false, ctl = typeof AbortController === 'function' ? new AbortController() : null;
+    function end(ok) { if (!settled) { settled = true; cb(ok); } }
+    setTimeout(function () { if (ctl) ctl.abort(); end(false); }, PROBE_MS);
+    fetch(url, { mode: 'no-cors', cache: 'no-store', signal: ctl ? ctl.signal : undefined })
+      .then(function () { end(true); }, function () { end(false); });
+  };
+
+  /* A frame that can say when it is finished (a YouTube video): `post_message` asks it to report, and a message
+     from it matching one `end_when` entry ends the item. No message at all for a while counts as a failure. */
+  SignagePlayer.prototype._watchEnd = function (item, el, only) {
+    var self = this, origin;
+    try { origin = new URL(el.src).origin; } catch (e) { return; }
+    var heard = false;
+    function get(o, path) {
+      var parts = path.split('.');
+      for (var i = 0; i < parts.length; i++) { if (o === null || typeof o !== 'object') return undefined; o = o[parts[i]]; }
+      return o;
+    }
+    function matches(m) {
+      for (var i = 0; i < item.end_when.length; i++) {
+        var cond = item.end_when[i], all = true;
+        for (var k in cond) if (get(m, k) !== cond[k]) { all = false; break; }
+        if (all) return true;
+      }
+      return false;
+    }
+    function onMsg(ev) {
+      if (ev.origin !== origin || ev.source !== el.contentWindow) return;
+      var m = ev.data;
+      if (typeof m === 'string') { try { m = JSON.parse(m); } catch (e) { return; } }
+      if (!m || typeof m !== 'object') return;
+      heard = true;
+      if (!matches(m) || self.tk) return;
+      if (only) { try { el.src = el.src; } catch (e) { /* gone */ } self._unwatch(); self._watchEnd(item, el, only); }
+      else self.next();
+    }
+    function tell() {
+      if (!item.post_message) return;
+      try { el.contentWindow.postMessage(JSON.stringify(item.post_message), origin); } catch (e) { /* not ready */ }
+    }
+    window.addEventListener('message', onMsg);
+    tell();
+    var poke = setInterval(function () { if (!heard) tell(); }, 1000);
+    var quiet = setTimeout(function () { if (!heard && !self.tk) self.next(); }, SILENT_MS);
+    this._endWatch = function () { window.removeEventListener('message', onMsg); clearInterval(poke); clearTimeout(quiet); };
+  };
+
+  SignagePlayer.prototype._unwatch = function () {
+    if (this._endWatch) { this._endWatch(); this._endWatch = null; }
   };
 
   SignagePlayer.prototype._show = function (item) {
@@ -183,7 +249,7 @@
         return;
       }
       self.failures = 0;
-      back.appendChild(el);
+      if (el.parentNode !== back) back.appendChild(el);   // moving a loaded frame would reload it
       var fade = item.transition === 'fade' && self.current;
       back.style.transition = fade ? 'opacity ' + FADE_MS + 'ms ease' : 'none';
       var old = self.layers[self.front];
@@ -198,12 +264,13 @@
       self.current = { item: item, el: el };
       self._report(item);
       self._schedule(item, el);
-    });
+    }, back);
   };
 
   SignagePlayer.prototype._schedule = function (item, el) {
     var self = this;
     clearTimeout(this.timer);
+    this._unwatch();
     if (this.tk) return;        // a takeover is up: the playlist waits, and carries on when it ends
     var only = this._playable().length === 1;
     if (item.type === 'video') {
@@ -216,6 +283,7 @@
       if (item.duration_s > 0) this.timer = setTimeout(function () { self.next(); }, item.duration_s * 1000);
       return;
     }
+    if (item.type === 'page' && item.end_when && !(item.duration_s > 0)) { this._watchEnd(item, el, only); return; }
     if (only) return;   // one picture: just leave it up
     var secs = item.duration_s > 0 ? item.duration_s : 10;
     this.timer = setTimeout(function () { self.next(); }, secs * 1000);
@@ -244,6 +312,7 @@
     var self = this, tk = { id: t.id, kind: t.kind, el: null, timer: null, t: t };
     this.tk = tk;
     clearTimeout(this.timer);
+    this._unwatch();
     if (this.current && this.current.item.type === 'video') { try { this.current.el.pause(); } catch (e) { /* gone */ } }
     function finish(playedToEnd) { if (self.tk === tk) self._endTakeover(true, playedToEnd); }
     function untilEnd() {
@@ -320,6 +389,7 @@
   SignagePlayer.prototype.stop = function () {
     this.stopped = true;
     clearTimeout(this.timer);
+    this._unwatch();
     if (this.tk) clearTimeout(this.tk.timer);
     clearInterval(this._reportTimer);
     if (this.source) this.source.close();
