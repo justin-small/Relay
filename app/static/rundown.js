@@ -176,6 +176,23 @@
     ch.appendChild(pos);
     return ch;
   }
+  // Up to 8 mics in one row, 9 to 19 in two, 20 or more in three; columns share the width equally (the strip on
+  // the full view caps a column at 240 px so a few mics do not turn into wide slabs).
+  function rowsFor(n) { return n >= 20 ? 3 : n > 8 ? 2 : 1; }
+  function grid(box, n, cap) {
+    const rows = rowsFor(n), cols = Math.max(1, Math.ceil(n / rows));
+    box.dataset.rows = String(rows);
+    box.style.gridTemplateColumns = `repeat(${cols}, minmax(0, ${cap ? cap + 'px' : '1fr'}))`;
+    box.style.gridTemplateRows = `repeat(${rows}, minmax(0, 1fr))`;
+  }
+  function fitNames(box) {
+    box.querySelectorAll('.ch .name').forEach((n) => {
+      n.style.fontSize = '';
+      let size = parseFloat(getComputedStyle(n).fontSize);
+      while (size > 10 && n.scrollWidth > n.clientWidth) { size -= 0.5; n.style.fontSize = size + 'px'; }
+    });
+  }
+
   function platform() {
     const box = $('mics');
     box.replaceChildren();
@@ -183,17 +200,22 @@
     const on = msg.mics.filter((c) => c.on);
     $('micsFor').textContent = h.current ? `${h.current} · mics` : 'mics';
     if (!on.length) {
+      box.style.gridTemplateColumns = '1fr'; box.style.gridTemplateRows = '1fr'; box.dataset.rows = '1';
       box.appendChild(el('div', 'empty', msg.mics.length ? 'No mics in use for this item' : 'No mics mapped to positions'));
       return;
     }
+    grid(box, on.length, 240);
     for (const c of on) box.appendChild(channel(c, h.song && h.song.leader));
+    fitNames(box);
   }
   function micboard() {
     const box = $('board');
     box.replaceChildren();
     const h = msg.header || {};
     // Every column the same width and the same distance apart, in mic order.
+    grid(box, msg.mics.length, 0);
     for (const c of msg.mics) box.appendChild(channel(c, h.song && h.song.leader));
+    fitNames(box);
     if (!msg.mics.length) box.appendChild(el('div', 'msg', 'No mics mapped to positions yet. Map them on the Planning Center admin page.'));
   }
 

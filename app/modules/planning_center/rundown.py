@@ -30,7 +30,7 @@ from zoneinfo import ZoneInfo
 from . import planningcenter as pc
 
 MAX_MAPPINGS = 64
-MAX_MICS = 8          # per position
+MAX_MICS = 24         # per position (a choir can have many)
 MAX_DRAWS = 200       # stored draws kept, newest last
 NOTE_MAX = 4000       # sermon notes sent, characters
 LABEL_RE = re.compile(r"^[\w .#/+-]{1,12}$")

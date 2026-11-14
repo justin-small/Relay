@@ -1050,7 +1050,8 @@ The production team's display: `/screen?rundown=full` shows the whole order of s
 planned start next to when it really started or is now projected to start, who is scheduled for that service
 time (with photos, and positions still to fill), each song's key, leader and who sings on which mic, and the
 sermon notes. `rundown=side` keeps this /screen's captions and puts the rundown beside them;
-`rundown=micboard` is one tall column per mic. Options: `layout=fit` (every item) or `compact` (now and the
+`rundown=micboard` is one tall column per mic (up to 8 mics in one row, 9 to 19 in two rows, 20 or more in
+three). Options: `layout=fit` (every item) or `compact` (now and the
 next three), `cards=person` or `position`, `team=<name>`, `time=0900` (otherwise the service time LIVE is
 running), and `type=<service type id>` when Relay follows more than one.
 
