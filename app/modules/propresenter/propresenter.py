@@ -102,7 +102,9 @@ def default_settings() -> dict[str, Any]:
             "lobby": default_lobby(),
             # The slide view (stage 7, ppview.py): which timer counts on the slide, and whether the page may be
             # opened without the admin login (/stage). Slide images are licensed content: off by default.
-            "view": default_view()}
+            "view": default_view(),
+            # Announcement slides as signage pictures (#208, signagesync.py): off until the operator switches it on.
+            "signage": default_signage()}
 
 
 LOBBY_INTERVAL_DEFAULT_S = 8.0
@@ -139,6 +141,31 @@ def lobby_fields(raw: object) -> tuple[dict[str, Any], str]:
 
 def clean_lobby_settings(raw: object, base: dict[str, Any]) -> dict[str, Any]:
     return {**default_lobby(), **base, **lobby_fields(raw)[0]}
+
+
+def default_signage() -> dict[str, Any]:
+    return {"enabled": False, "playlist": ""}
+
+
+def signage_fields(raw: object) -> tuple[dict[str, Any], str]:
+    """The announcement-slides-for-signage settings `raw` sets (`enabled`, `playlist` a ProPresenter UUID or empty),
+    each checked, with a fixed sentence for the first thing wrong. A key left out stays out."""
+    raw = raw if isinstance(raw, dict) else {}
+    out: dict[str, Any] = {}
+    problem = ""
+    if raw.get("enabled") is not None:
+        out["enabled"] = raw["enabled"] is True
+    if raw.get("playlist") is not None:
+        v = str(raw["playlist"]).strip()
+        if v and not ID_RE.match(v):
+            problem = "That is not a ProPresenter playlist."
+        else:
+            out["playlist"] = v
+    return out, problem
+
+
+def clean_signage_settings(raw: object, base: dict[str, Any]) -> dict[str, Any]:
+    return {**default_signage(), **base, **signage_fields(raw)[0]}
 
 
 def default_view() -> dict[str, Any]:
@@ -271,6 +298,7 @@ def clean_stored(raw: object) -> dict[str, Any]:
         "tags": clean_tag_settings(raw.get("tags"), base["tags"]),
         "lobby": clean_lobby_settings(raw.get("lobby"), base["lobby"]),
         "view": clean_view_settings(raw.get("view"), base["view"]),
+        "signage": clean_signage_settings(raw.get("signage"), base["signage"]),
         "link": clean_link_settings(raw.get("link"), {**base["link"], "owned": (raw.get("link") or {}).get("owned")
                                                       if isinstance(raw.get("link"), dict) else {}}),
     }

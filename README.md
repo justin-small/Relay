@@ -645,8 +645,8 @@ Order of precedence: takeover, then a slide-note tag, then a playlist put on by 
 schedule, then the default. A screen's own slots come before its group's, then the all-screens ones; a date range beats a
 weekly slot, and of two overlapping slots the later start wins. A playlist put on by hand lasts until the next scheduled
 change or until cleared (Settings tab). Times use the zone chosen on the Settings tab and keep their clock time through
-daylight saving. The Screens tab says why each screen plays what it plays. Slide-note tags arrive with #208 through
-`schedule.register_layer` in `app/modules/signage/schedule.py`.
+daylight saving. The Screens tab says why each screen plays what it plays. ProPresenter slide-note tags put a
+playlist on screens through `schedule.register_layer` (see "Signage from ProPresenter" below).
 
 **Takeovers** (Takeovers tab) put something over a screen's playlist, on a screen, a group or all screens:
 
@@ -658,8 +658,8 @@ daylight saving. The Screens tab says why each screen plays what it plays. Slide
   Planning Center service rundown until you return it. The page is framed from the viewer port, so the screen's
   browser must be able to reach it (the same computer, port 80 or 8080).
 - When several apply, a push beats a live view, a screen's own beats its group's beats all screens. The tab lists
-  what is taken over and has one **Return all to playlist** button. Another module (ProPresenter slide-note tags,
-  #208) can switch screens with `takeover.live_view_set`, `takeover.push_set` and `takeover.clear` in
+  what is taken over and has one **Return all to playlist** button. Another module (ProPresenter slide-note tags)
+  can switch screens with `takeover.live_view_set`, `takeover.push_set` and `takeover.clear` in
   `app/modules/signage/takeover.py`, naming `signage` in its `uses`.
 
 Screens are on a **port of their own** (8090, changeable on the Settings tab; restart Relay after changing it). It is
@@ -672,6 +672,33 @@ The Screens tab shows what each screen is playing now and when it was last heard
 kept in the state folder under `signage/` and copied once into `backups/signage-media/`; a copy is removed once
 neither the database nor any kept `relay-*.db` snapshot names it. Other modules can add kinds of playlist item
 (`app/modules/signage/sources.py`).
+
+### Signage from ProPresenter
+
+With both the ProPresenter and Signage modules on:
+
+- **Announcement slides as pictures** (ProPresenter → Slide view and lobby → *Announcements on signage screens*): pick
+  the announcement playlist (ProPresenter's API cannot say which one it is), switch it on, and Relay copies each slide
+  into the media library as a picture named `ProPresenter: <presentation> <n>` and keeps a signage playlist called
+  *ProPresenter announcements* in step with it. It looks again every two minutes and when you press *Sync now*. A slide
+  that stays keeps its time and dates; a picture no longer in the playlist is deleted, and a file you uploaded or renamed
+  never is. Off by default, because slides are licensed content. Headers, media and hidden items are skipped.
+- **Slide-note tags** follow the existing rules (switched on under Slide-note tags, run once the slide settles). Names
+  are not case-sensitive. A `-screen` or `-group` value is `Name:Thing`; the name may hold colons.
+
+| Tag | Does |
+| --- | --- |
+| `[relay:signage-screen=Lobby TV:Welcome]` | that screen plays the signage playlist Welcome |
+| `[relay:signage-group=Lobby:Welcome]` | every screen in the group plays it |
+| `[relay:signage-all=Welcome]` | every screen plays it |
+| `[relay:signage-push=Poster]`, `-push-screen=Cafe:Poster`, `-push-group=Lobby:Poster` | send one picture (an uploaded file, or an announcement slide by its name) to play once, then the screen returns to its playlist |
+| `[relay:signage-captions]`, `-captions-screen=Cafe`, `-captions-group=Lobby` | show Relay's live captions until a resume tag |
+| `[relay:signage-service]`, `-service-screen=...`, `-service-group=...` | show the service rundown until a resume tag |
+| `[relay:signage-resume]`, `-resume-screen=Cafe`, `-resume-group=Lobby` | end what tags put on those screens; plain `signage-resume` ends every takeover too |
+
+A playlist put on by a tag is the "tag" layer (above a hand-picked playlist and the schedule, below a takeover). It
+stays until another tag, a resume tag or a restart of Relay. While Signage is off these tags do nothing and the tag
+panel on the ProPresenter page says so; the panel also lists what tags hold on screens now.
 
 ## Security
 

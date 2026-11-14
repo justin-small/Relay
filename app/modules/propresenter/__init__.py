@@ -20,12 +20,12 @@ class ProPresenter(Module):
     manifest = Manifest(
         id="propresenter",
         name="ProPresenter",
-        version="1.0.0",
+        version="1.1.0",
         summary="Follows ProPresenter's slides: lyrics and timers on panels and screens, control from this page, "
                 "the slide view and lobby rotation, slide-note tags, and the link to Planning Center.",
         settings_key="propresenter",
         guide="https://github.com/justin-small/relay#propresenter",
-        uses=("planning_center",),
+        uses=("planning_center", "signage"),
     )
     admin_pages = (
         AdminPage(id="ppcontrol", title="ProPresenter control", template="control.html", group="Output",
@@ -73,7 +73,8 @@ class ProPresenter(Module):
         from ...panels import registry as panel_registry
         from ..planning_center.routes import control as pc_control
         from ..planning_center.servicefeed import feed as service_feed
-        from . import propresenter, slidetags
+        from ..signage import schedule as signage_schedule
+        from . import propresenter, signagetags, slidetags
         from .pclink import link as pc_link
         from .propresenter import follower, timers_feed
         from .tagactions import ACTIONS
@@ -81,7 +82,9 @@ class ProPresenter(Module):
         # An alert flashing on the panels is shown on ProPresenter's stage screens too.
         alertsmod.alerts.on_stage = lambda alert_id, text: (follower.alert_ended(alert_id) if text is None
                                                             else follower.alert_started(alert_id, text))
-        slidetags.tags.actions = dict(ACTIONS)
+        slidetags.tags.actions = {**ACTIONS, **signagetags.ACTIONS}
+        # Signage: what a tag put on a screen is the schedule's "tag" layer. The actions refuse while signage is off.
+        signage_schedule.register_layer("tag", signagetags.layer)
         # Panels: the lyrics as a feed, and each panel's own timer settings.
         panel_registry.lyrics_offered = lambda: propresenter.panel_offers()["lyrics"]
         panel_registry.on_timers_change = timers_feed.refresh
@@ -96,10 +99,13 @@ class ProPresenter(Module):
         from ... import alerts as alertsmod
         from ...panels import registry as panel_registry
         from ..planning_center.servicefeed import feed as service_feed
-        from . import slidetags
+        from ..signage import schedule as signage_schedule
+        from . import signagetags, slidetags
         from .pclink import link as pc_link
         from .propresenter import timers_feed
 
+        signage_schedule.unregister_layer("tag")
+        signagetags.forget()
         alertsmod.alerts.on_stage = None
         slidetags.tags.actions = {}
         panel_registry.lyrics_offered = lambda: False
@@ -113,6 +119,7 @@ class ProPresenter(Module):
         from .pclink import link as pc_link
         from .pplobby import lobby
         from .propresenter import follower
+        from .signagesync import sync as signage_sync
 
         # Idle until an address is entered and ProPresenter is switched on on its page.
         follower.start()
@@ -120,15 +127,19 @@ class ProPresenter(Module):
         pc_link.start()
         # Idle until the operator presses Start on the lobby rotation (never started by Relay itself).
         lobby.start()
+        # Idle until announcement slides for signage are switched on and a playlist is picked.
+        signage_sync.start()
 
     async def stop(self) -> None:
         from .pclink import link as pc_link
         from .pplobby import lobby
         from .propresenter import follower
+        from .signagesync import sync as signage_sync
 
         follower.cancel()
         pc_link.cancel()
         lobby.cancel()
+        signage_sync.cancel()
 
     def health(self) -> Health:
         from .propresenter import follower

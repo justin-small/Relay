@@ -31,3 +31,17 @@
       <div class="ppnow" id="lbState"><div class="t muted">Not running.</div></div>
       <div class="note" id="lbMsg"></div>
     </section>
+    <section>
+      <h3>Announcements on signage screens <span class="count" id="sgSum"></span></h3>
+      <p class="note">Copies each slide of a ProPresenter playlist into the signage media library as a picture and keeps a signage playlist called <em>ProPresenter announcements</em> in step with it, so lobby TVs can show them without ProPresenter. Relay looks again every two minutes and after you change the playlist. Slides are licensed content, so this is off until you switch it on. The signage playlist is rewritten each time, but a slide that stays keeps its time and dates. Needs the Signage module.</p>
+      <div class="row">
+        <div class="field"><label for="sgPlaylist">Playlist</label><select id="sgPlaylist"></select></div>
+      </div>
+      <label class="check"><input type="checkbox" id="sgOn"> <span>Keep the signage playlist up to date</span></label>
+      <div class="ppbar" style="margin-top:12px">
+        <button type="button" class="primary" id="sgSave">Save</button>
+        <button type="button" id="sgSync">Sync now</button>
+      </div>
+      <div class="ppnow" id="sgState"><div class="t muted">Off.</div></div>
+      <div class="note" id="sgMsg"></div>
+    </section>

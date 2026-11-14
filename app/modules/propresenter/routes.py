@@ -13,7 +13,7 @@ from ... import config, engine as enginemod, modules as shared
 from ...hub import sse_frame
 from ...panels import timer_fields
 from .. import event_stream, require
-from . import propresenter, slidetags
+from . import propresenter, signagesync, signagetags, slidetags
 from .pclink import MESSAGES as LINK_MESSAGES, LinkError, link as pc_link
 from .ppcontrol import control as pp_control
 from .pplobby import MESSAGES as LOBBY_MESSAGES, LobbyError, lobby as pp_lobby
@@ -73,7 +73,8 @@ def _timers_stream(pid: str):
 def _pp_body() -> dict:
     s = config.get()["propresenter"]
     return {"settings": s, "state": pp_follower.state(), "lyrics_readers": lyrics_feed.viewer_count(),
-            "tags": slidetags.tags.state(), "lobby": pp_lobby.state()}
+            "tags": slidetags.tags.state(), "lobby": pp_lobby.state(),
+            "signage": {**signagesync.sync.state(), "held": signagetags.state()}}
 
 
 _PP_ERRORS = {
@@ -106,7 +107,7 @@ async def admin_propresenter():
 async def admin_propresenter_save(payload: dict):
     """Save the connection and switches. Only the keys sent change. A new address reconnects at once."""
     saved = config.get()["propresenter"]
-    merged = {**saved, **{k: v for k, v in payload.items() if k in saved and k not in ("lyrics", "timers", "tags", "link", "lobby", "view")}}
+    merged = {**saved, **{k: v for k, v in payload.items() if k in saved and k not in ("lyrics", "timers", "tags", "link", "lobby", "view", "signage")}}
     if isinstance(payload.get("lyrics"), dict):
         merged["lyrics"] = {**saved["lyrics"], **payload["lyrics"]}
     if "timers" in payload:
@@ -120,7 +121,8 @@ async def admin_propresenter_save(payload: dict):
             return JSONResponse({"error": problem}, status_code=400)
         merged["tags"] = propresenter.clean_tag_settings(payload["tags"], saved["tags"])
     for key, check, clean in (("lobby", propresenter.lobby_fields, propresenter.clean_lobby_settings),
-                              ("view", propresenter.view_fields, propresenter.clean_view_settings)):
+                              ("view", propresenter.view_fields, propresenter.clean_view_settings),
+                              ("signage", propresenter.signage_fields, propresenter.clean_signage_settings)):
         if key in payload:
             problem = check(payload[key])[1]
             if problem:
@@ -365,6 +367,17 @@ async def _lobby_run(fn, *args):
     except propresenter.ProError as exc:
         return _pp_error(exc)
     return data
+
+
+@router.post("/api/admin/propresenter/signage/sync", dependencies=[Depends(require("propresenter.manage"))])
+async def admin_pp_signage_sync():
+    """Copy the announcement playlist's slides into signage now, even if nothing seems to have changed."""
+    if not config.get()["propresenter"]["signage"]["enabled"]:
+        return JSONResponse({"error": "Switch on announcement slides for signage first."}, status_code=409)
+    out = await signagesync.sync.sync(force=True)
+    if out["error"]:
+        return JSONResponse({"error": out["error"]}, status_code=409)
+    return _pp_body()
 
 
 @router.get("/api/admin/propresenter/lobby", dependencies=[Depends(require("propresenter.view"))])
