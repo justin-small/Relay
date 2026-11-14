@@ -47,6 +47,7 @@
       <button type="button" role="tab" data-sgtab="screens" aria-selected="true">Screens</button>
       <button type="button" role="tab" data-sgtab="playlists" aria-selected="false">Playlists</button>
       <button type="button" role="tab" data-sgtab="schedule" aria-selected="false">Schedule</button>
+      <button type="button" role="tab" data-sgtab="takeover" aria-selected="false">Takeovers</button>
       <button type="button" role="tab" data-sgtab="media" aria-selected="false">Media</button>
       <button type="button" role="tab" data-sgtab="settings" aria-selected="false">Settings</button>
     </div>
@@ -183,6 +184,42 @@
       </section>
     </div>
 
+    <div data-sgpane="takeover" hidden>
+      <section>
+        <h3>Taken over now</h3>
+        <div id="sgTaken"></div>
+        <p class="note" id="sgNoTaken">No screen is taken over. Every screen is playing its playlist.</p>
+        <div class="ctl sg-manage"><button type="button" class="primary" id="sgReturnAll">Return all to playlist</button></div>
+      </section>
+      <section class="sg-manage">
+        <h3>Push a file now</h3>
+        <div class="row" style="align-items:flex-end">
+          <div class="field"><label for="sgPushTarget">To</label><select id="sgPushTarget"></select></div>
+          <div class="field"><label for="sgPushMedia">File</label><select id="sgPushMedia"></select></div>
+          <div class="field"><label for="sgPushMode">Plays</label>
+            <select id="sgPushMode"><option value="once">Once</option><option value="seconds">For a set time</option><option value="cleared">Until cleared</option></select></div>
+          <div class="field" id="sgPushSecsBox" hidden><label for="sgPushSecs">Seconds</label><input id="sgPushSecs" type="number" min="1" max="86400" value="60"></div>
+          <div class="ctl"><button type="button" class="primary" id="sgPushGo">Push</button></div>
+        </div>
+        <p class="note">Once: a video plays to its end and a picture shows for 10 seconds. The screen then goes back to
+          its playlist where it was.</p>
+      </section>
+      <section class="sg-manage">
+        <h3>Live captions or service view</h3>
+        <div class="row" style="align-items:flex-end">
+          <div class="field"><label for="sgLiveTarget">On</label><select id="sgLiveTarget"></select></div>
+          <div class="field"><label for="sgLiveView">Show</label><select id="sgLiveView"></select></div>
+          <div class="ctl"><button type="button" class="primary" id="sgLiveGo">Switch</button></div>
+        </div>
+        <p class="note">The screen shows Relay's own page until you return it to its playlist. The service rundown needs
+          Planning Center; without it the screen shows the captions.</p>
+      </section>
+      <section>
+        <h3>Alerts</h3>
+        <p class="note" id="sgAlertNow"></p>
+      </section>
+    </div>
+
     <div data-sgpane="media" hidden>
       <section>
         <h3>Media library</h3>
@@ -215,6 +252,17 @@
           <div class="ctl sg-manage"><button type="button" class="primary" id="sgSchedSave">Save</button></div>
         </div>
         <p class="note">Slots and dates follow this zone, and keep the same clock time through daylight saving changes.</p>
+      </section>
+      <section>
+        <h3>Alerts on screens</h3>
+        <div class="row" style="align-items:flex-end">
+          <div class="field"><label for="sgAlertMode">Show Relay's alerts on</label>
+            <select id="sgAlertMode"><option value="all">All screens</option><option value="groups">Chosen groups</option><option value="none">No screens</option></select></div>
+          <div class="ctl sg-manage"><button type="button" class="primary" id="sgAlertSave">Save</button></div>
+        </div>
+        <fieldset id="sgAlertGroups" style="border:0;padding:0;margin:8px 0" hidden><legend class="muted">Groups</legend></fieldset>
+        <p class="note">An alert shows as a red banner over whatever the screen is playing and goes away when the alert
+          ends. The playlist is not interrupted.</p>
       </section>
       <section>
         <h3>Screen port</h3>

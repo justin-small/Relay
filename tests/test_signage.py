@@ -23,10 +23,12 @@ _db.reset()
 
 from fastapi.testclient import TestClient  # noqa: E402
 
-from app import config, serving  # noqa: E402
+from app import config, db, serving  # noqa: E402
 from app.main import app  # noqa: E402
 from app.modules import modules as _modules  # noqa: E402
 from app.modules.signage import live, media, schedule, sources, store  # noqa: E402
+from app.modules.signage import takeover as tk  # noqa: E402
+from app.alerts import alerts as relay_alerts  # noqa: E402
 from datetime import datetime, timezone  # noqa: E402
 
 fails = []
@@ -406,6 +408,88 @@ admin.delete(f"/api/admin/signage/groups/{g2['id']}")
 st_admin = admin.get("/api/admin/signage").json()
 check("admin lists why each screen plays what it does", "why" in st_admin["screens"][0]["playing_playlist"])
 eq("admin lists the zones", len(st_admin["timezones"]) > 0, True)
+
+print("takeovers (#207)")
+img = admin.post("/api/admin/signage/media?name=Push image&width=800&height=600", content=PNG + b"1").json()
+vid = admin.post("/api/admin/signage/media?name=Push video&duration=5", content=MP4 + b"1").json()
+def tstate():
+    return tv.get("/signage/_/state/lobby-left").json()
+
+def screen_row():
+    return next(x for x in admin.get("/api/admin/signage").json()["screens"] if x["slug"] == "lobby-left")
+
+eq("nothing taken over to start", (tstate()["takeover"], tstate()["banner"]), (None, None))
+eq("a push needs a file", admin.put("/api/admin/signage/takeover", json={"kind": "push", "target": "screen", "target_id": scr["id"]}).status_code, 404)
+eq("an unknown kind is refused", admin.put("/api/admin/signage/takeover", json={"kind": "x", "target": "all"}).status_code, 400)
+eq("an unknown view is refused", admin.put("/api/admin/signage/takeover", json={"kind": "live", "target": "all", "view": "x"}).status_code, 400)
+eq("a missing screen is refused", admin.put("/api/admin/signage/takeover", json={"kind": "live", "target": "screen", "target_id": 999, "view": "captions"}).status_code, 404)
+eq("a bad time is refused", admin.put("/api/admin/signage/takeover", json={"kind": "push", "target": "all", "media_id": img["id"], "mode": "seconds", "seconds": 0}).status_code, 400)
+eq("a viewer cannot take over", viewer.put("/api/admin/signage/takeover", json={"kind": "live", "target": "all", "view": "captions"}).status_code, 403)
+
+r = admin.put("/api/admin/signage/takeover", json={"kind": "live", "target": "all", "view": "captions"})
+eq("live view on all screens", r.status_code, 200)
+t = tstate()["takeover"]
+eq("player is told to frame captions", (t["kind"], t["view"], t["path"].startswith("/screen")), ("live", "captions", True))
+check("player gets the viewer port", isinstance(t["port"], int))
+eq("admin shows the screen taken over", screen_row()["taken_over"]["label"], "Live captions (translation)")
+
+r = admin.put("/api/admin/signage/takeover", json={"kind": "push", "target": "group", "target_id": grp["id"], "media_id": img["id"], "mode": "once"})
+eq("push to a group", r.status_code, 200)
+t = tstate()["takeover"]
+eq("a push beats a live view", (t["kind"], t["mode"], t["item"]["type"]), ("push", "once", "image"))
+check("the pushed file is served by the player", t["item"]["url"].startswith("/signage/_/media/"))
+eq("the screen reports it done", tv.post("/signage/_/done/lobby-left", json={"id": t["id"]}).status_code, 200)
+eq("a finished once-push goes back to the live view", tstate()["takeover"]["kind"], "live")
+eq("done for an unknown screen 404s", tv.post("/signage/_/done/nope", json={"id": 1}).status_code, 404)
+
+admin.put("/api/admin/signage/takeover", json={"kind": "push", "target": "screen", "target_id": scr["id"], "media_id": vid["id"], "mode": "seconds", "seconds": 30})
+t = tstate()["takeover"]
+eq("a screen's own push beats its group's", (t["item"]["type"], t["mode"], bool(t["until"])), ("video", "seconds", True))
+eq("clear one", admin.delete(f"/api/admin/signage/takeover?target=screen&target_id={scr['id']}").status_code, 200)
+eq("clearing nothing 404s", admin.delete(f"/api/admin/signage/takeover?target=screen&target_id={scr['id']}").status_code, 404)
+
+store.ready()
+db.execute("update signage_takeovers set expires_at = '2000-01-01T00:00:00Z' where target = 'all'")
+eq("an expired takeover is not shown (the group push is done here)", tstate()["takeover"], None)
+tk.sweep()
+eq("sweeping drops what ran out", [x["target"] for x in tk.rows()], ["group"])
+eq("return all", admin.delete("/api/admin/signage/takeovers").json()["cleared"], 1)
+eq("back to the playlist", tstate()["takeover"], None)
+live.forget()
+tk.live_view_set("all", 0, "service")
+eq("another module can switch a view", tstate()["takeover"]["view"], "service")
+tk.clear_all()
+
+print("alert banner")
+port_before = config.get()["signage"]["port"]
+relay_alerts.save({"auto_stop_s": 120, "buttons": [{"name": "Nursery", "panels": [], "screens": ["foyer"]}]})
+bid = relay_alerts.settings()["buttons"][0]["id"]
+tk.reset_cache()
+eq("no alert, no banner", tstate()["banner"], None)
+relay_alerts.press(bid, "Sam")
+tk.reset_cache()
+b = tstate()["banner"]
+eq("an alert shows as a banner", (b["text"], b["count"]), ("Nursery (from Sam)", 1))
+eq("the playlist is untouched", tstate()["takeover"], None)
+check("the state still carries the playlist", "playlist" in tstate())
+eq("admin shows the banner", screen_row()["banner"]["count"], 1)
+admin.put("/api/admin/signage/settings", json={"alert_screens": "groups", "alert_groups": [grp["id"]]})
+tk.reset_cache()
+eq("a chosen group still shows it", tstate()["banner"] is not None, True)
+admin.put("/api/admin/signage/settings", json={"alert_screens": "groups", "alert_groups": []})
+tk.reset_cache()
+eq("an unchosen group does not", tstate()["banner"], None)
+admin.put("/api/admin/signage/settings", json={"alert_screens": "none"})
+tk.reset_cache()
+eq("none shows nothing", tstate()["banner"], None)
+eq("a bad alert mode is refused", admin.put("/api/admin/signage/settings", json={"alert_screens": "some"}).status_code, 400)
+eq("settings keep the port", config.get()["signage"]["port"], port_before)
+admin.put("/api/admin/signage/settings", json={"alert_screens": "all"})
+tk.reset_cache()
+relay_alerts.cancel(bid)
+tk.reset_cache()
+eq("cleared alert, no banner", tstate()["banner"], None)
+eq("the stream signature follows the alerts", (tk.alert_sig(),), ((),))
 
 print("delete screens and groups")
 eq("delete group", admin.delete(f"/api/admin/signage/groups/{grp['id']}").status_code, 200)

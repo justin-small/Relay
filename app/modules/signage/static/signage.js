@@ -73,6 +73,7 @@
     renderGroups();
     renderPlaylists();
     renderSchedule();
+    renderTakeover();
     renderMedia();
     if (document.activeElement !== $('sgPort')) $('sgPort').value = data.settings.port;
     if (document.activeElement !== $('sgZone')) {
@@ -105,6 +106,9 @@
       tr.appendChild(name);
       const pl = s.playing_playlist;
       const play = el('td', pl ? '' : 'muted', pl ? pl.name : 'Nothing assigned');
+      if (s.taken_over) play.appendChild(el('div', '', 'Taken over: ' + s.taken_over.label +
+        (s.taken_over.until ? ' until ' + new Date(s.taken_over.until).toLocaleTimeString() : '')));
+      if (s.banner) play.appendChild(el('div', '', 'Alert banner showing'));
       if (pl && pl.why) play.appendChild(el('div', 'muted', pl.why + (pl.until ? ' until ' + new Date(pl.until).toLocaleString() : '')));
       tr.appendChild(play);
       const addr = el('td');
@@ -630,6 +634,87 @@
       await refresh();
     });
   };
+  /* ---------------------------------------------------------------- takeovers (#207) */
+  function renderTakeover() {
+    const box = $('sgTaken');
+    box.textContent = '';
+    const taken = data.screens.filter(function (s) { return s.taken_over; });
+    $('sgNoTaken').hidden = taken.length > 0;
+    $('sgReturnAll').disabled = data.takeovers.length === 0;
+    for (const t of data.takeovers) {
+      const row = el('div', 'sg-row');
+      const n = data.screens.filter(function (s) { return s.taken_over && s.taken_over.from === t.target; }).length;
+      row.appendChild(el('span', '', targetName(t.target, t.target_id) + ': ' + t.label +
+        (t.kind === 'push' ? (t.mode === 'once' ? ' (once)' : t.expires_at ? ' until ' + new Date(t.expires_at).toLocaleTimeString() : ' until cleared') : ' until cleared') +
+        (n ? '' : ' (no screen shows it now)')));
+      if (can('signage.manage')) {
+        row.appendChild(button('Return to playlist', '', function () {
+          call(async function () {
+            await send('DELETE', '/api/admin/signage/takeover?target=' + t.target + '&target_id=' + t.target_id);
+            await refresh();
+          });
+        }));
+      }
+      box.appendChild(row);
+    }
+    if (document.activeElement !== $('sgPushTarget') && document.activeElement !== $('sgPushMedia') &&
+        document.activeElement !== $('sgLiveTarget') && document.activeElement !== $('sgLiveView')) {
+      targetOptions($('sgPushTarget'), $('sgPushTarget').value);
+      targetOptions($('sgLiveTarget'), $('sgLiveTarget').value);
+      const media = $('sgPushMedia'), keep = media.value;
+      media.textContent = '';
+      option(media, '', 'Choose a file', !keep);
+      for (const m of data.media) option(media, m.id, m.name, m.id === keep);
+      const view = $('sgLiveView'), vkeep = view.value;
+      view.textContent = '';
+      for (const v of data.views) option(view, v.id, v.label, v.id === vkeep);
+    }
+    $('sgPushSecsBox').hidden = $('sgPushMode').value !== 'seconds';
+    const flashing = data.screens.filter(function (s) { return s.banner; }).length;
+    $('sgAlertNow').textContent = flashing ? 'An alert is showing on ' + flashing + (flashing === 1 ? ' screen.' : ' screens.')
+      : 'No alert is showing on a screen.';
+    const mode = $('sgAlertMode');
+    if (document.activeElement !== mode) mode.value = data.settings.alert_screens;
+    const gbox = $('sgAlertGroups');
+    gbox.hidden = mode.value !== 'groups';
+    if (!gbox.contains(document.activeElement)) {
+      for (const n of Array.from(gbox.querySelectorAll('label'))) n.remove();
+      for (const g of data.groups) {
+        const l = el('label', 'check'); const c = el('input'); c.type = 'checkbox'; c.value = g.id;
+        c.checked = data.settings.alert_groups.indexOf(g.id) >= 0;
+        l.appendChild(c); l.appendChild(document.createTextNode(' ' + g.name)); gbox.appendChild(l);
+      }
+    }
+  }
+  $('sgPushMode').onchange = function () { $('sgPushSecsBox').hidden = $('sgPushMode').value !== 'seconds'; };
+  $('sgAlertMode').onchange = function () { $('sgAlertGroups').hidden = $('sgAlertMode').value !== 'groups'; };
+  $('sgPushGo').onclick = function () {
+    const parts = $('sgPushTarget').value.split(':');
+    call(async function () {
+      await send('PUT', '/api/admin/signage/takeover', { kind: 'push', target: parts[0], target_id: Number(parts[1]),
+        media_id: $('sgPushMedia').value, mode: $('sgPushMode').value, seconds: Number($('sgPushSecs').value) || 0 });
+      await refresh();
+    });
+  };
+  $('sgLiveGo').onclick = function () {
+    const parts = $('sgLiveTarget').value.split(':');
+    call(async function () {
+      await send('PUT', '/api/admin/signage/takeover', { kind: 'live', target: parts[0], target_id: Number(parts[1]),
+        view: $('sgLiveView').value });
+      await refresh();
+    });
+  };
+  $('sgReturnAll').onclick = function () {
+    if (!confirm('Return every screen to its playlist?')) return;
+    call(async function () { await send('DELETE', '/api/admin/signage/takeovers'); await refresh(); });
+  };
+  $('sgAlertSave').onclick = function () {
+    const ids = Array.from($('sgAlertGroups').querySelectorAll('input:checked')).map(function (c) { return Number(c.value); });
+    call(async function () {
+      await send('PUT', '/api/admin/signage/settings', { alert_screens: $('sgAlertMode').value, alert_groups: ids });
+      await refresh();
+    });
+  };
   $('sgSchedSave').onclick = function () {
     call(async function () {
       await send('PUT', '/api/admin/signage/settings', { timezone: $('sgZone').value, override_until: $('sgOvUntil').value });
@@ -665,7 +750,7 @@
   function tick() {
     // Keep "now playing" fresh on the Screens tab, never redrawing under someone filling in the screen form or
     // editing a playlist.
-    if (visible() && editing === null && slotEditing === null && (tab === 'screens' || tab === 'schedule')) refresh();
+    if (visible() && editing === null && slotEditing === null && (tab === 'screens' || tab === 'schedule' || tab === 'takeover')) refresh();
     timer = setTimeout(tick, 10000);
   }
   document.addEventListener('relay:config', function () { refresh(); if (!timer) timer = setTimeout(tick, 10000); });

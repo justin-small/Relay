@@ -14,6 +14,7 @@ version = 0
 _lock = threading.Lock()
 _now: dict[str, dict] = {}
 NOW_MAX = 500
+_done: dict[str, int] = {}   # screen slug -> the "once" push it has finished playing (#207)
 
 
 def bump() -> None:
@@ -43,3 +44,21 @@ def forget(slug: str | None = None) -> None:
             _now.clear()
         else:
             _now.pop(slug, None)
+
+
+def done(slug: str, push_id: int) -> None:
+    """A player says it has played a "once" push to its end."""
+    with _lock:
+        if slug in _done or len(_done) < NOW_MAX:
+            _done[slug] = push_id
+    bump()
+
+
+def done_id(slug: str) -> int | None:
+    with _lock:
+        return _done.get(slug)
+
+
+def done_clear() -> None:
+    with _lock:
+        _done.clear()

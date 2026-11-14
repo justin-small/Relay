@@ -18,7 +18,8 @@
 (function () {
   var slug = {{ screen.slug | tojson }};
   var player = new SignagePlayer(document.getElementById('stage'), {
-    nowUrl: '/signage/_/now/' + slug
+    nowUrl: '/signage/_/now/' + slug,
+    doneUrl: '/signage/_/done/' + slug
   });
   player.follow('/signage/_/state/' + slug, '/signage/_/events/' + slug);
   // Browsers only go full screen after a click or key press; a kiosk browser already is.

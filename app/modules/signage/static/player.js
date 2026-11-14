@@ -7,7 +7,11 @@
    It shows one item while the next one loads in a hidden layer, so a change is a cut or a fade with no blank
    frame. Images it has shown are kept decoded in memory and media URLs are cached by the browser for good, so when
    Relay restarts the screen keeps looping what it already has until the stream comes back. Items outside their
-   dates are skipped here too, by Relay's clock, in case Relay is down at midnight. */
+   dates are skipped here too, by Relay's clock, in case Relay is down at midnight.
+
+   Takeovers (#207) sit over the playlist: an alert banner, a file pushed to the screen, or a framed Relay view
+   (live captions, the service rundown). The playlist stops where it is while a push or view is up and carries on
+   from that item when it ends. */
 (function (global) {
   'use strict';
 
@@ -31,6 +35,17 @@
     this.layers = [this._layer(), this._layer()];
     this.front = 0;
     this.stopped = false;
+    this.tk = null;             // the takeover on screen: {id, kind, el, timer}
+    this.endedId = null;        // the last takeover this player finished, so a state still naming it is ignored
+    this.over = document.createElement('div');
+    this.over.style.cssText = 'position:absolute;inset:0;z-index:10;background:#000;display:none;overflow:hidden';
+    this.root.appendChild(this.over);
+    this.bar = document.createElement('div');
+    this.bar.setAttribute('role', 'alert');
+    this.bar.style.cssText = 'position:absolute;left:0;right:0;bottom:0;z-index:20;display:none;padding:2.2vh 3vw;' +
+      'background:#c62828;color:#fff;font:700 6vh/1.15 system-ui,sans-serif;text-align:center;' +
+      'box-shadow:0 -0.6vh 3vh rgba(0,0,0,.6)';
+    this.root.appendChild(this.bar);
   }
 
   SignagePlayer.prototype._layer = function () {
@@ -49,6 +64,7 @@
   SignagePlayer.prototype.load = function (state) {
     if (!state || state.gone) { this.items = []; this._blank(); return; }
     if (typeof state.server_time === 'number') this.offset = state.server_time - Date.now();
+    if (!this.opts.preview) { this._banner(state.banner); this._takeover(state.takeover); }
     this.today = state.today || '';
     this.sound = !!(state.screen && state.screen.sound) && !this.opts.preview;
     // The item on screen, or the one loading to take its place: a new state that still has it carries on.
@@ -188,6 +204,7 @@
   SignagePlayer.prototype._schedule = function (item, el) {
     var self = this;
     clearTimeout(this.timer);
+    if (this.tk) return;        // a takeover is up: the playlist waits, and carries on when it ends
     var only = this._playable().length === 1;
     if (item.type === 'video') {
       el.loop = only && !(item.duration_s > 0);
@@ -202,6 +219,89 @@
     if (only) return;   // one picture: just leave it up
     var secs = item.duration_s > 0 ? item.duration_s : 10;
     this.timer = setTimeout(function () { self.next(); }, secs * 1000);
+  };
+
+  /* ---------------------------------------------------------------- takeovers (#207) */
+  SignagePlayer.prototype._banner = function (b) {
+    if (!b || !b.text) { this.bar.style.display = 'none'; this.bar.textContent = ''; return; }
+    this.bar.textContent = b.text + (b.count > 1 ? '  (+' + (b.count - 1) + ' more)' : '');
+    this.bar.style.display = 'block';
+  };
+
+  SignagePlayer.prototype._takeover = function (t) {
+    if (!t) { this._endTakeover(false); return; }
+    if (this.tk && this.tk.id === t.id) return;      // the one already up
+    if (this.endedId === t.id) return;               // already played and finished on this screen
+    this._endTakeover(false);
+    this._startTakeover(t);
+  };
+
+  SignagePlayer.prototype._relayMs = function (iso) {
+    return iso ? Date.parse(iso) - (Date.now() + this.offset) : 0;
+  };
+
+  SignagePlayer.prototype._startTakeover = function (t) {
+    var self = this, tk = { id: t.id, kind: t.kind, el: null, timer: null, t: t };
+    this.tk = tk;
+    clearTimeout(this.timer);
+    if (this.current && this.current.item.type === 'video') { try { this.current.el.pause(); } catch (e) { /* gone */ } }
+    function finish(playedToEnd) { if (self.tk === tk) self._endTakeover(true, playedToEnd); }
+    function untilEnd() {
+      var ms = self._relayMs(t.until);
+      if (t.until && ms <= 0) { finish(false); return; }
+      if (t.until) tk.timer = setTimeout(function () { finish(false); }, ms);
+    }
+    if (t.kind === 'live') {
+      var f = document.createElement('iframe');
+      f.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;border:0;background:#000';
+      f.setAttribute('sandbox', 'allow-scripts allow-same-origin');
+      f.src = location.protocol + '//' + location.hostname + ':' + t.port + t.path;
+      tk.el = f;
+      this.over.appendChild(f);
+      this.over.style.display = 'block';
+      return;
+    }
+    var item = t.item;
+    this._element(item, function (el) {
+      if (self.tk !== tk) return;
+      if (!el) { finish(false); return; }
+      tk.el = el;
+      self.over.appendChild(el);
+      self.over.style.display = 'block';
+      if (item.type === 'video') {
+        var once = t.mode === 'once';
+        el.loop = !once;
+        el.onended = function () { if (once) finish(true); };
+        var p = el.play();
+        if (p && p.catch) p.catch(function () { el.muted = true; el.play().catch(function () { /* blocked */ }); });
+        if (!once) untilEnd();
+      } else if (t.mode === 'once') {
+        tk.timer = setTimeout(function () { finish(true); }, (t.seconds || 10) * 1000);
+      } else {
+        untilEnd();
+      }
+    });
+  };
+
+  SignagePlayer.prototype._endTakeover = function (remember, playedToEnd) {
+    var tk = this.tk;
+    if (!tk) return;
+    this.tk = null;
+    clearTimeout(tk.timer);
+    if (remember) this.endedId = tk.id;
+    var v = this.over.querySelector('video');
+    if (v) { try { v.pause(); v.removeAttribute('src'); v.load(); } catch (e) { /* gone */ } }
+    this.over.innerHTML = '';
+    this.over.style.display = 'none';
+    if (playedToEnd && tk.t && tk.t.mode === 'once' && this.opts.doneUrl) {
+      try {
+        fetch(this.opts.doneUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ id: tk.id }), keepalive: true }).catch(function () { /* the next state says it */ });
+      } catch (e) { /* old browser */ }
+    }
+    // The playlist picks up where it was.
+    if (this.current) this._schedule(this.current.item, this.current.el);
+    else this.next();
   };
 
   SignagePlayer.prototype._report = function (item) {
@@ -220,10 +320,12 @@
   SignagePlayer.prototype.stop = function () {
     this.stopped = true;
     clearTimeout(this.timer);
+    if (this.tk) clearTimeout(this.tk.timer);
     clearInterval(this._reportTimer);
     if (this.source) this.source.close();
     for (var i = 0; i < this.layers.length; i++) this._clear(this.layers[i]);
     this.root.innerHTML = '';
+    this.tk = null;
   };
 
   /* Follow a screen: the state now, then every change Relay pushes. EventSource reconnects by itself. */
