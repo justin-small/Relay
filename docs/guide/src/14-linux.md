@@ -1,541 +1,191 @@
 # Installing on Linux {#install-linux}
 
-This chapter installs Relay on a Linux computer. You use four scripts, all in
-the Relay folder:
+There are two ways to run Relay on Linux:
 
-| Script | What it does | How often |
-|---|---|---|
-| `./setup.sh` | Builds Relay and asks for your credentials | Once |
-| `./start.sh` | Starts Relay | Before every event |
-| `./stop.sh` | Stops Relay | After every event |
-| `./logs.sh` | Shows what Relay is doing | When something looks wrong |
+- **On a desktop** (a laptop or PC with a screen): the Relay app, exactly as
+  on macOS and Windows. See [On a Linux desktop](#linux-desktop).
+- **On a computer with no screen** (a small server or a Raspberry Pi in a
+  rack): Relay as a **service**, which starts with the computer and has no
+  window. You run it from another device's browser. See
+  [On a computer with no screen](#linux-service).
 
-On Linux you run the scripts from a **terminal**, the window where you type
-commands. Open a terminal, go to the Relay folder, and type the script name:
+## On a Linux desktop {#linux-desktop}
 
-```bash
-cd ~/Relay
-./start.sh
-```
+### Requirements
 
-The `./` at the start means "the script in this folder".
-
-## Requirements
-
-- **A 64-bit Linux system** that Docker Engine supports, such as Ubuntu,
-  Debian or Fedora.
-- **Docker Engine with the Compose plugin.** Docker is the tool that runs
-  Relay in a sealed box, called a **container**, so you do not have to install
-  anything else by hand. The next section installs it.
-- **A sound card that Linux can see.** Relay hands the sound card straight to
-  the container. Linux lists sound devices in a folder called `/dev/snd`, and
-  start checks that it exists.
-- **Free disk space.** Relay's image is about 750 MB, plus the files Docker
-  keeps while it builds it. Have **about 3 GB free** to be comfortable.
-- **4 GB of memory (RAM) or more.** Relay itself is limited to 1 GB.
+- **A 64-bit (x86-64) Linux desktop** from 2024 or later, such as Ubuntu
+  24.04, Debian 13 or Fedora 40. For a Raspberry Pi, use the service install
+  below.
+- **About 500 MB of free disk space**, plus room for recordings if you turn
+  recording on.
+- **A sound input** that Linux can see, and a sound server (PipeWire or
+  PulseAudio; every desktop has one).
 - **A network connection.** The computer must be on the same local network
   (LAN) as the phones and screens that show captions, and it must be able to
   reach the internet, so Relay can talk to OpenAI.
-- **An OpenAI API key.** Part 2 explains how to get one.
+- **An OpenAI API key.** Part 2 explains how to get one. You can add it later.
 
-::: warning
-Use **Docker Engine**, not Docker Desktop for Linux. Docker Desktop runs
-containers inside a virtual machine, so it cannot hand your sound card to
-Relay.
-:::
+### Installing
 
-## Installing Docker Engine
+**The AppImage** works on most distributions. It is one file that you run
+directly:
 
-1. Open <https://docs.docker.com/engine/install/> and click your
-   distribution (for example **Ubuntu**).
-2. Follow the steps under **Install using the apt repository** (or the
-   equivalent for your distribution). They install these packages:
-   `docker-ce`, `docker-ce-cli`, `containerd.io`, `docker-buildx-plugin` and
-   `docker-compose-plugin`.
-
-   The last one, `docker-compose-plugin`, matters: Relay's scripts use the
-   `docker compose` command.
-
-3. Make Docker start when the computer starts:
+1. Open a terminal, the window where you type commands.
+2. Make the file executable, then run it:
 
    ```bash
-   sudo systemctl enable --now docker
+   chmod +x ~/Downloads/Relay_3.0.0_amd64.AppImage
+   ~/Downloads/Relay_3.0.0_amd64.AppImage
    ```
 
-4. Let your own user run Docker without `sudo`, by adding yourself to the
-   `docker` **group** (a list of users who share a permission):
+   Keep the file somewhere permanent, for example a folder called
+   `Applications` in your home folder: Relay runs from it, and updates replace
+   it in place.
 
-   ```bash
-   sudo usermod -aG docker $USER
-   ```
+If it fails with a message about **FUSE**, install the FUSE 2 library
+(`sudo apt install libfuse2t64` on Ubuntu 24.04, `libfuse2` on Debian) and
+try again.
 
-5. **Log out and log back in** (or restart the computer). The group change
-   only takes effect in a new login.
-6. Check that Docker works:
-
-   ```bash
-   docker run hello-world
-   docker compose version
-   ```
-
-   The first command should print `Hello from Docker!` and a short
-   explanation. The second should print a line such as
-   `Docker Compose version v2.29.7`.
-
-::: warning
-Members of the `docker` group can control the whole computer through Docker.
-Only add people you trust.
-:::
-
-## Downloading Relay
-
-Download Relay and put it in your home folder, as described in
-[Downloading from GitHub](#download). If you used the ZIP file, remember to
-make the scripts executable:
+**The `.deb` package** suits Ubuntu and Debian, and adds Relay to the
+applications menu:
 
 ```bash
-cd ~/Relay
-chmod +x *.sh tools/*.sh
+sudo apt install ~/Downloads/Relay_3.0.0_amd64.deb
 ```
 
-## Running setup
+Then open **Relay** from the applications menu.
 
-Setup builds Relay and asks for three things: your OpenAI API key, an admin
-token, and (if you want one) a hostname. It takes a few minutes the first time.
+Either way, a Relay icon appears in the system tray (where your desktop shows
+it; on GNOME this needs the **AppIndicator** extension, which Ubuntu has
+already), and a window opens on the **Set up Relay** page.
 
-Before you start, have your **OpenAI API key** ready (see Part 2), and decide
-on an **admin token**. The admin token is a one-time setup token. You type it once, when you open
-the operator panel for the first time, to create the first account. After
-that you sign in with your own username and password.
+### Creating the first account
 
-1. Open a terminal and type:
+The **Set up Relay** page creates the first account, the **Owner**. Until it
+exists, this page opens only on this computer, so nobody else on the network
+can take it.
 
-   ```bash
-   cd ~/Relay
-   ./setup.sh
-   ```
+1. **OpenAI API key.** Paste your key, or leave it empty and add it later in
+   **Settings**. The key starts with `sk-`.
+2. **Username** and **Your name.** The username is what you sign in with.
+3. **Password**, twice. Use at least 8 characters, and choose a real
+   password, not a word: this account can spend money on your OpenAI account.
+4. Click **Create the Owner**.
 
-   You should see:
+   You are signed in, and the operator panel opens.
 
-   ```
-   Relay — setup
-   =============
+If you used Relay 2.0 before, use **Coming from Relay 2.0?** on the same page
+instead. See [Upgrading from Relay 2.0](#upgrading).
 
-   Docker — ok
-   Building the image (this can take a few minutes the first time)…
-   ```
+The Relay menu in the tray has the same items as on Windows: see
+[The Relay menu](#windows-menu). To open the panel from another computer, and
+check the certificate fingerprint there, see
+[Opening the panel from another computer](#windows-remote-panel).
 
-2. Wait while Docker builds Relay. Many lines scroll past. This can take
-   several minutes the first time, because Docker downloads what Relay needs
-   from the internet. When it finishes, you should see:
+### Ports 8080 and 8443
 
-   ```
-   Image — ok
-   ```
+On Linux an ordinary program may not use ports below 1024, so the Relay app
+serves viewers on port **8080** and the panel on **8443**. The **Viewer
+links** page shows the right link, for example `http://192.168.1.50:8080/`,
+and the QR codes carry it. Caption panels find the port by themselves.
 
-### The API key
-
-Next, setup asks for your API key:
-
-```
-OpenAI API key
-  Create one at https://platform.openai.com/api-keys
-  It is stored only in docker-config/config.json on this machine
-  (permissions 0600). Input is hidden.
-  API key:
-```
-
-3. Paste your API key and press `Enter`. In most terminals, paste with
-   `Ctrl`+`Shift`+`V`.
-
-   Nothing appears while you paste or type. This is normal: the key is hidden
-   so nobody can read it over your shoulder. Paste once only, then press
-   `Enter`.
-
-   If you press `Enter` without pasting anything, setup says
-   `The API key cannot be empty.` and asks again.
-
-### The admin token
-
-```
-Admin token
-  This is the password for the operator panel.
-  Choose something only you know — anyone with it controls the session
-  and can spend against your OpenAI account. Minimum 8 characters.
-  Admin token:
-```
-
-4. Type your admin token and press `Enter`. It is hidden too.
-5. Setup asks you to type it again:
-
-   ```
-     Confirm admin token:
-   ```
-
-   Type the same token again and press `Enter`.
-
-Setup refuses some tokens and asks again:
-
-- `Too short — use at least 8 characters.`
-- `That token is guessable. Pick another.` (for `changeme`, `password`,
-  `admin` or `relay`)
-- `Tokens did not match — try again.` (the two entries were different)
-
-::: warning
-Write the admin token down somewhere safe. You need it once, to create the
-first account in the operator panel. Until that account exists, anyone who
-has the token can create it, so do not share it. After that the token is
-never accepted again, and each person's own password protects the panel,
-which spends money on your OpenAI account. Choose real passwords.
-:::
-
-### The hostname (optional)
-
-```
-Panel hostname (optional)
-  The operator panel is served over HTTPS. Its certificate always covers
-  this machine's LAN address. If you also reach this host by a hostname,
-  type it now so the certificate covers that too.
-  Leave blank to use the IP address only.
-  Hostname (FQDN), or blank:
-```
-
-The operator panel is served over **HTTPS**, the secure form of web address
-that starts with `https://`. HTTPS needs a **certificate**: a small file that
-proves to the browser which computer it is talking to. The certificate must
-name the address you type in the browser.
-
-Every computer on a network has an **IP address**, a number such as
-`192.168.1.50`. The certificate always includes this computer's IP address, so
-most people leave the hostname blank.
-
-6. Press `Enter` to leave it blank. Or, if you reach this computer by a name,
-   such as `relay.local`, type that name and press `Enter`.
-
-### The certificate fingerprint
-
-Setup saves your answers and then creates the certificate. You should see
-something like this. Your numbers will be different:
-
-```
-Wrote /app/config/config.json (permissions 0600).
-Operator panel certificate
-  Certifying this machine's LAN address, 192.168.1.50.
-
-Wrote config/certs/admin.crt and config/certs/admin.key (key 0600).
-Wrote config/Caddyfile.
-
-  Certificate names : relay.local, localhost, 1c9e2b7a4f30, 1c9e2b7a4f30.local, 192.168.1.50, 172.18.0.2, 127.0.0.1
-  SHA-256           : 3F:9A:C2:17:5B:E0:44:8D:…:6A:0F
-
-  Panel   : https://relay.local/admin
-  Viewers : http://192.168.1.50/
-
-  The certificate is self-signed, so the browser will warn once. Check
-  the fingerprint it shows against the SHA-256 above before you accept
-  it -- that check is what makes this connection worth anything.
-
-Setup complete.
-  Next: run ./start.sh to launch Relay.
-  Write down the SHA-256 fingerprint above — you check it against the
-  browser the first time you open the panel.
-  To change the key, the token or the hostname later, open the operator
-  panel or run this again.
-```
-
-The line starting `SHA-256` is the certificate's **fingerprint**: a long code
-that is unique to this certificate. The first time you open the panel, the
-browser warns you that it does not know the certificate. You compare the
-fingerprint the browser shows with this one. If they match, you are talking to
-your own computer, and it is safe to continue.
-
-7. Write down the fingerprint, or take a photo of the screen. Keep it with
-   your admin token.
-
-::: note
-The paths in this output, such as `/app/config/config.json`, are paths
-*inside* the container. On your computer, the same files are in
-`~/Relay/docker-config`.
-:::
-
-## Starting Relay
-
-Do this before every event.
-
-1. Plug in your microphone or audio interface.
-2. Open a terminal and type:
-
-   ```bash
-   cd ~/Relay
-   ./start.sh
-   ```
-
-   First, start checks the audio. You should see something like this:
-
-   ```
-   Live Caption Relay - starting...
-
-   Checking audio...
-   Live Caption Relay -- audio chain check
-   image: live-caption-relay   PULSE_SERVER=<unset, using /dev/snd>
-
-     PASS  image 'live-caption-relay' is built
-     PASS  PortAudio input devices: USB Audio CODEC: - (hw:1,0) default
-     PASS  one second of audio captured (rms 0.00218342)
-     PASS  signal is non-silent (mic permission is granted)
-
-   All checks passed. Pick 'ALSA: pulse' (or your card) in the operator panel.
-   ```
-
-   If a check fails, start shows the `FAIL` lines and asks
-   `Start anyway? [y/N]`. Type `n` and press `Enter` to stop and fix the
-   problem. See [Platform notes](#linux-notes).
-
-3. Wait while Relay starts. You should see:
-
-   ```
-   Building and starting the container...
-   ```
-
-   followed by some lines from Docker, and then:
-
-   ```
-   Waiting for the relay to come up.....
-     Relay is up.
-     Panel certificate SHA-256: 3F:9A:C2:17:5B:E0:44:8D:…:6A:0F
-
-     Viewer link : http://192.168.1.50/            <- share this with the room
-     Panel       : https://192.168.1.50/admin
-
-     The panel's certificate is self-signed, so the browser warns the first
-     time. Check the SHA-256 above against what the browser shows before
-     accepting it.
-
-     The relay runs in the background. Stop it with ./stop.sh; follow its
-     log with ./logs.sh.
-   ```
-
-   There are two web addresses:
-
-   - The **Viewer link** starts with `http://` and has no `/admin`. This is
-     the link you give to the room. It works on any phone, tablet or laptop on
-     the same network.
-   - The **Panel** starts with `https://` and ends in `/admin`. This is the
-     operator panel, where you control Relay. Keep it to yourself.
-
-4. Open the panel address in your browser. On Linux, start does not open it
-   for you. The first time, the browser warns that the connection is not
-   private. Compare the fingerprint, as described later in this
-   guide, before you continue.
-
-Start then returns you to the prompt. Relay runs in the background, inside
-Docker, until you stop it. You can close the terminal; Relay keeps running.
-
-::: note
-The viewer and panel addresses use this computer's current IP address. The
-address can change when you move to a different venue or network. Always use
-the addresses that start prints on the day.
-:::
-
-::: note
-If the IP address has changed since you last started Relay, start makes a new
-certificate for the new address, and the fingerprint changes. The line
-`Panel certificate SHA-256` always shows the current one. Compare the browser
-with that line.
-:::
-
-If something goes wrong, start prints the error and stops. See
-[Troubleshooting the installation](#install-troubleshooting).
-
-## Stopping Relay
-
-Stop Relay after every event.
-
-1. In a terminal, type:
-
-   ```bash
-   cd ~/Relay
-   ./stop.sh
-   ```
-
-   Docker prints a few lines as it stops and removes the container, and then
-   you are back at the prompt.
-
-Your settings and credentials stay in `~/Relay/docker-config` and are there
-the next time you start.
-
-::: tip
-Stopping Relay is not the same as pressing **Stop** in the panel. The
-panel's **Stop** button ends the paid OpenAI session but leaves Relay running.
-`./stop.sh` shuts Relay down completely.
-:::
-
-## Viewing the logs
-
-The **log** is the list of messages Relay writes while it runs. It is useful
-when something is not working, or when someone helping you asks for it.
-
-1. In a terminal, type:
-
-   ```bash
-   cd ~/Relay
-   ./logs.sh
-   ```
-
-   You see the last 200 lines of the log. New lines appear as Relay writes
-   them. For example:
-
-   ```
-   2026-09-23 18:02:11,512 INFO    relay  Viewer socket: 127.0.0.1:8000
-   2026-09-23 18:02:11,513 INFO    relay  Panel socket: 127.0.0.1:8001 (loopback only, HTTPS via the front end)
-   ```
-
-2. Press `Ctrl`+`C` when you have finished. This stops showing the log. It
-   does not stop Relay.
-
-If Relay is not running, you see an error such as
-`No such container: live-caption-relay`.
-
-## Running setup again
-
-Run setup again when you want to:
-
-- change the API key (setup also asks for the admin token again, but that
-  only matters before the first account exists);
-- add, change or remove the hostname;
-- check or renew the panel certificate.
-
-1. Stop Relay with `./stop.sh`.
-2. Run `./setup.sh`.
-
-   Setup builds the image again (much faster this time), then asks:
-
-   ```
-   docker-config/config.json already exists.
-   Reconfigure the API key and admin token? [y/N]
-   ```
-
-3. Type `y` and press `Enter` to enter a new API key, admin token and
-   hostname. All three questions are asked again, and your other settings are
-   kept.
-
-   Or just press `Enter` to keep your credentials. Setup then skips straight
-   to the certificate.
-
-4. Setup prints the certificate details and fingerprint. If the line about
-   the certificate says `Reusing config/certs/admin.crt…`, your certificate
-   is still good and the fingerprint has not changed. If it says
-   `Wrote config/certs/admin.crt…`, setup made a new certificate. Write down
-   the new fingerprint.
-5. Start Relay again with `./start.sh`.
-
-The certificate lasts 397 days. Setup and start only replace it when it has
-fewer than 30 days left, or when it does not cover this computer's current
-address or hostname. You do not normally need to do anything to renew it.
-
-::: tip
-To force a brand-new certificate (for example, if you think someone copied
-it), stop Relay, delete the `certs` folder inside `~/Relay/docker-config`,
-and run setup again. Only delete `certs`, not the whole `docker-config`
-folder.
-:::
-
-You can also change the API key from the operator panel (**Credentials**,
-Owner only), without running setup.
-
-## Platform notes {#linux-notes}
-
-### The docker group
-
-If setup or start says:
-
-```
-  Cannot talk to Docker.
-  Start the daemon (sudo systemctl start docker), and if this is a
-  fresh install add yourself to the docker group:
-      sudo usermod -aG docker "yourname"   # then log out and back in
-```
-
-then either Docker is not running, or your user is not in the `docker` group
-yet.
-
-1. Start Docker: `sudo systemctl start docker`.
-2. Check your groups by typing `groups`. If `docker` is not in the list, run
-   `sudo usermod -aG docker $USER`, then log out and back in.
-
-Do not run the Relay scripts with `sudo`. They are meant to run as your own
-user, so the files in `docker-config` stay yours.
-
-### "Permission denied" when running a script
-
-If `./setup.sh` or `./start.sh` says `Permission denied`, the scripts have
-lost their "executable" mark. This often happens with ZIP files. Fix it with:
+To use the usual ports 80 and 443 (so the link needs no port), let unprivileged
+programs use low ports, then restart Relay:
 
 ```bash
-cd ~/Relay
-chmod +x *.sh tools/*.sh
+echo 'net.ipv4.ip_unprivileged_port_start=80' | sudo tee /etc/sysctl.d/50-relay.conf
+sudo sysctl --system
 ```
-
-### The sound card and the audio group
-
-Relay hands the whole `/dev/snd` folder to the container. You can list the
-capture devices Linux sees with `arecord -l` (from the `alsa-utils` package).
-
-Inside the container, Relay joins the `audio` group so it may open the sound
-card. On Debian and Ubuntu that group has the number 29, which is what Relay
-expects. Some other distributions use a different number. If the audio check
-fails with `FAIL  PortAudio input devices` or `FAIL  one second of audio
-captured` even though `arecord -l` lists your device:
-
-1. Find the group number that owns your sound card:
-
-   ```bash
-   stat -c %g /dev/snd/controlC0
-   ```
-
-   It prints a number, such as `63`.
-
-2. Open `docker/docker-compose.linux.yml` in a text editor, and replace the
-   word `audio` under `group_add:` with that number.
-3. Run `./start.sh` again.
-
-If another program, such as a video-call app or a recording program, is using
-the sound card, Relay may not be able to open it. Close other audio programs
-and try again.
 
 ### Firewall
 
-If phones cannot open the viewer link, check that your firewall allows
-incoming connections on ports 80 and 443.
+If phones cannot open the viewer link, allow Relay's ports in the firewall.
+With `ufw` (Ubuntu):
 
-## Rehearsal mode
+```bash
+sudo ufw allow 8080/tcp
+sudo ufw allow 8443/tcp
+```
 
-**Rehearsal mode** shows made-up captions on the viewer pages. Use it to check
-fonts, the projector and the link on every phone in the room. It does not
-connect to OpenAI, so it costs nothing.
+Use `80/tcp` and `443/tcp` instead if you changed the ports as above.
 
-1. If Relay is running, stop it with `./stop.sh`.
-2. Start Relay with `RELAY_DEMO=1` in front of the command:
+### Rehearsal mode
+
+**Rehearsal mode** shows made-up captions on the viewer pages, without
+connecting to OpenAI. Choose **Quit Relay** from the Relay menu, then start
+Relay from a terminal with `RELAY_DEMO=1` in front:
+
+```bash
+RELAY_DEMO=1 ~/Applications/Relay_3.0.0_amd64.AppImage   # the AppImage
+RELAY_DEMO=1 relay-desktop                               # the .deb
+```
+
+Open the viewer link: sample captions appear. To leave rehearsal mode, quit
+Relay and open it again as usual.
+
+## On a computer with no screen {#linux-service}
+
+The service install runs Relay under its own user account, starts it with the
+computer, and keeps it apart from the rest of the system. It has no window and
+no tray: you use the operator panel from another device's browser.
+
+### Requirements
+
+- **Debian 12 or 13, Ubuntu 24.04 or later, or Raspberry Pi OS (64-bit).**
+- **Python 3.13 or later.** Debian 13 and Ubuntu 24.04 have it. On Debian 12,
+  install one first (for example with `uv python install 3.13`) and add
+  `--python /path/to/python3.13` to the install command.
+- **A sound input** that Linux can see. List them with `arecord -l` (from the
+  `alsa-utils` package).
+- A network connection, and an OpenAI API key, as above.
+
+### Installing the service
+
+1. Download `Relay-v3.0.0.zip` from the release page (see
+   [Downloading Relay](#download)) and unzip it, or clone the project with
+   git:
 
    ```bash
-   cd ~/Relay
-   RELAY_DEMO=1 ./start.sh
+   git clone https://github.com/justin-small/Relay.git
+   cd Relay
    ```
 
-   Start runs as usual and prints the same addresses.
+2. Run the installer:
 
-3. Open the viewer link. You should see sample captions appear.
+   ```bash
+   sudo tools/install-service.sh
+   ```
 
-To check that rehearsal mode is on, run `./logs.sh`. You should see the line:
+   It creates a `relay` user, installs Relay in `/opt/relay`, keeps Relay's
+   state folder in `/var/lib/relay`, and starts the service. At the end it
+   prints the panel address, the certificate fingerprint and a one-time
+   **setup code**.
 
-```
-REHEARSAL MODE: captions are canned. No OpenAI session is open.
-```
+3. On another computer on the same network, open the panel address it
+   printed, for example `https://192.168.1.50/admin`. The browser warns once
+   about the certificate: check that the fingerprint matches the one the
+   installer printed, then continue.
 
-To leave rehearsal mode, run `./stop.sh`, then `./start.sh`. A normal start
-never uses rehearsal mode.
+4. On the **Set up Relay** page, type the setup code, then create the Owner as
+   above. The code works once, and stops working when the Owner exists.
 
-::: warning
-Relay stays in rehearsal mode until you stop it, even after a restart. Always
-stop it after a rehearsal, then start it normally before the event.
-:::
+Lost the setup code? Print it again with
+`sudo tools/install-service.sh setup-code`.
+
+### Looking after the service
+
+| Command | What it does |
+|---|---|
+| `sudo systemctl status relay` | Shows whether Relay is running. |
+| `journalctl -u relay -f` | Shows Relay's log as it happens. Press `Ctrl+C` to stop watching. |
+| `sudo systemctl restart relay` | Restarts Relay. |
+| `sudo tools/install-service.sh update` | Installs a newer Relay. Run `git pull` (or unzip the new release) first. |
+| `sudo tools/install-service.sh reset-owner <username>` | Gives that account a new password and makes it an Owner. See [If nobody can sign in](#lockout). |
+| `sudo tools/install-service.sh uninstall` | Removes Relay but **keeps** `/var/lib/relay`, with your settings and accounts. |
+| `sudo tools/install-service.sh uninstall --purge` | Removes Relay and all its data. |
+
+The service is allowed to use ports 80 and 443 directly, so viewer links need
+no port. Allow both in the firewall if phones cannot connect.
+
+The service install does not update itself. Watch the release page and run
+the `update` command when a new version is out.

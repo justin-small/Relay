@@ -61,13 +61,13 @@ The line under the buttons should turn green and say **Connected**. Under
 as soon as a slide is live.
 
 ::: note
-**Find on this network** cannot see ProPresenter from inside Docker on macOS
-or Windows. Type the address instead.
+**Find on this network** sees only machines on the same network segment as
+Relay. If ProPresenter is on another one, type the address instead.
 :::
 
-## If Relay runs in Docker
+## If Relay cannot reach ProPresenter
 
-The Relay container must be able to reach the ProPresenter machine's address
+The Relay computer must be able to reach the ProPresenter machine's address
 and port. If it cannot, **Test connection** says it could not reach it. Allow
 the port in the firewall of the ProPresenter machine (on a Mac, under
 **System Settings**, **Network**, **Firewall**, allow ProPresenter to accept

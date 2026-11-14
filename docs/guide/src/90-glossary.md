@@ -1,14 +1,9 @@
 # Glossary {#glossary}
 
-**`docker-config`**
-: The folder inside the Relay folder that holds all your settings: API key,
-  admin token, certificate, blocked words, recordings and the daily database
-  backups.
-
 **Admin token**
-: A one-time code you choose during setup. You type it once, the first time you
-  open the operator panel, to create the first account (the Owner). After
-  that, Relay never accepts it again.
+: The shared password Relay 2.0 used for its operator panel. After an upgrade
+  you type it once, to create the first account (the Owner). After that, Relay
+  never accepts it again.
 
 **Role**
 : What a person may do in Relay: Member, Viewer, Operator, Admin or Owner,
@@ -76,10 +71,6 @@
 **Connection (Companion)**
 : One device or program that Companion controls, with its own settings.
 
-**Container**
-: A sealed box that Relay runs in, managed by Docker. It keeps Relay separate
-  from the rest of the computer.
-
 **dBFS**
 : Decibels below full scale: how loud a digital sound is. 0 is the loudest
   possible. Lower numbers, such as −18 or −40, are quieter.
@@ -87,18 +78,6 @@
 **Developer modules path**
 : A Companion setting that points to a folder of modules you add yourself,
   such as the Relay module.
-
-**Docker**
-: Free software that runs programs inside containers. Relay needs it.
-
-**Docker Desktop**
-: The Docker app for macOS and Windows.
-
-**Docker Engine**
-: Docker for Linux, without the desktop app.
-
-**docker group**
-: The Linux user group allowed to run Docker without typing `sudo`.
 
 **Enabled**
 : A target language whose switch is on. It is **armed** while capture is
@@ -122,9 +101,6 @@
 **Hard spend limit**
 : An OpenAI setting that stops requests once your monthly spending reaches
   an amount you choose.
-
-**Homebrew**
-: A free tool for installing programs on a Mac.
 
 **Hostname**
 : A name for a computer, such as `relay.local`, that can be used instead of
@@ -150,7 +126,7 @@
   billed right now.
 
 **Log**
-: The messages Relay writes while it runs. Open them with `logs.*`.
+: The messages Relay writes while it runs. Open them with **Open logs folder** in the Relay menu.
 
 **LTS (long-term support)**
 : The stable version of Node.js that most people should install.
@@ -206,10 +182,6 @@
 **Project**
 : A folder inside an OpenAI organization with its own keys, usage and limits.
 
-**PulseAudio**
-: A sound program. On a Mac or a Windows PC, it carries the microphone into
-  Relay's container.
-
 **QR code**
 : A square barcode that a phone camera turns into a link.
 
@@ -248,6 +220,14 @@
 : The part of Planning Center Services that steps through a plan during the
   service. Whoever is controlling LIVE moves it to the next item.
 
+**Service install**
+: Relay on a Linux computer with no screen, run as a system service that starts
+  with the computer. You use it from another device's browser.
+
+**Setup code**
+: A one-time code a service install prints, used to create the first account
+  (the Owner) from another device. It stops working once the Owner exists.
+
 **Session**
 : One open connection to OpenAI. Relay opens one per live target language.
 
@@ -264,6 +244,17 @@
 **Stream Deck**
 : A small panel of buttons with screens on them, made by Elgato, often used
   with Companion.
+
+**State folder**
+: The folder that holds everything that is yours: API key, settings, user
+  accounts, certificate, blocked words, recordings, backups and logs. It is in
+  your user folder, apart from the app, so updates never touch it. Open it with
+  **Open state folder** in the Relay menu.
+
+**System tray, menu bar**
+: Where Relay's icon and menu live while it runs: the menu bar at the top right
+  of a Mac's screen, or the notification area by the clock on Windows and
+  Linux.
 
 **Target language**
 : A language Relay translates into.
@@ -285,10 +276,6 @@
 **Viewer link, viewer pages**
 : The plain `http://` address you give the room, and the caption pages it
   opens.
-
-**WSL**
-: Windows Subsystem for Linux, which lets Windows run Linux programs. Docker
-  Desktop runs on it.
 
 **ZIP file**
 : One compressed file holding a whole folder of files.
