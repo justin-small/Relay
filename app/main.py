@@ -1206,6 +1206,59 @@ async def page_alert(request: Request):
                                       headers=_NO_STORE)
 
 
+@app.post("/api/alerts/messages/send")
+async def alert_message_send(request: Request):
+    """Show a stage message (#214): `preset` is a preset's id, or `text` is words typed on the /alert page (`banner`
+    keeps them up for the banner time). `from` names the sender, as for an alert."""
+    body = await _alert_body(request)
+    sender = alertsmod.clean_name(body.get("from"))
+    if _alert_signin_required():
+        sender = alertsmod.clean_name((await _alert_account(request)).name)
+    try:
+        return {"ok": True, **alerts.send_message(sender, preset=body.get("preset"), text=body.get("text"),
+                                                  banner=body.get("banner"))}
+    except alertsmod.Refused as exc:
+        return _alert_refused(exc)
+
+
+@app.post("/api/alerts/messages/clear")
+async def alert_message_clear(request: Request):
+    """Take a stage message down (`id`), or all of them when no id is given."""
+    if _alert_signin_required():
+        await _alert_account(request)
+    body = await _alert_body(request)
+    mid = body.get("id")
+    if mid is not None and not isinstance(mid, str):
+        raise HTTPException(400, "id must be a message id")
+    return {"ok": True, **alerts.clear_messages(mid)}
+
+
+@app.get("/api/alerts/messages/stream")
+async def alert_messages_stream():
+    """The /alert page's stage messages: the presets, and what is showing now, whole in each message."""
+    queue = alerts.subscribe_messages()
+
+    async def gen():
+        try:
+            while True:
+                try:
+                    frame = await asyncio.wait_for(queue.get(), timeout=HEARTBEAT_S)
+                except asyncio.TimeoutError:
+                    yield alertsmod.sse_frame(alerts.message_state())
+                    continue
+                if frame is None:
+                    return
+                yield frame
+        finally:
+            alerts.unsubscribe_messages(queue)
+
+    return StreamingResponse(
+        gen(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache, no-transform", "X-Accel-Buffering": "no"},
+    )
+
+
 @app.post("/api/alerts/{button_id}/send")
 async def alert_send(button_id: str, request: Request):
     """Flash a button's screens, or stop the alert it has flashing. `from` names the sender; a panel sends its

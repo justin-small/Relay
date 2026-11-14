@@ -20,6 +20,8 @@
 //   -> data: {"type":"reboot"}         (#122; on the stream only, never in a reply)
 //   -> data: {"type":"alert","id":"<16 hex>","from":"Drums","to":"FOH booth","ends_in_s":120,"hz":1}   (#121)
 //   -> data: {"type":"alert_end","id":"<16 hex>","why":"seen"}   (#121; seen, missed or cancelled)
+//   -> data: {"type":"message","id":"<16 hex>","from":"Drums","text":"Wrap up","banner":false,"ends_in_s":10}   (#214)
+//   -> data: {"type":"message_end","id":"<16 hex>"}   (#214)
 //   -> : ping                          every 15 s of quiet
 //
 // A feed is {"stream":"transcription"}, {"stream":"translation","lang":"SPANISH"} or, since #122,
@@ -435,6 +437,8 @@ enum class panel_message : uint8_t {
     reboot,            // the operator asked the panel to restart (#122)
     alert,             // flash the screen until someone taps it (#121); `alert` is it
     alert_end,         // the alert `alert_end_id` is over: seen elsewhere, not seen in time, or stopped (#121)
+    message,           // show a stage message over the feed, no flash (#214); `message` is it
+    message_end,       // the message `message_end_id` is over (#214)
 };
 
 struct panel_event {
@@ -445,6 +449,8 @@ struct panel_event {
     panel_set_rotation rotation = {};
     alert_flash alert = {};
     char alert_end_id[kAlertFlashIdBytes] = {};
+    alert_message message = {};
+    char message_end_id[kAlertFlashIdBytes] = {};
 };
 
 // One event from the stream (the JSON of a `data:` line).
@@ -482,6 +488,14 @@ inline panel_event panel_parse_event(const char *json, size_t len, uint32_t slot
     } else if (strcmp(type, "alert_end") == 0) {
         if (alert_end_parse(json, e, ev.alert_end_id, sizeof ev.alert_end_id)) {
             ev.kind = panel_message::alert_end;
+        }
+    } else if (strcmp(type, "message") == 0) {
+        if (alert_message_parse(json, e, &ev.message)) {
+            ev.kind = panel_message::message;
+        }
+    } else if (strcmp(type, "message_end") == 0) {
+        if (alert_end_parse(json, e, ev.message_end_id, sizeof ev.message_end_id)) {
+            ev.kind = panel_message::message_end;
         }
     }
     return ev;

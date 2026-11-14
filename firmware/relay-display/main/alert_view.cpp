@@ -303,9 +303,12 @@ void show_flash(const alert_flash &a, uint32_t now_ms)
     ESP_LOGI(TAG, "view: flashing for alert %s", a.id);
 }
 
+void tick_stage(uint32_t now);
+
 void on_flash_tick(lv_timer_t *)
 {
     const uint32_t now = lv_tick_get();
+    tick_stage(now);
     taskENTER_CRITICAL(&s_mux);
     const bool changed = s_flash.changed;
     const bool want = s_flash.want;
@@ -336,6 +339,117 @@ void on_flash_tick(lv_timer_t *)
     const bool red = alert_flash_red(elapsed, a.hz);
     if (red != s_flash.red) {
         paint(red);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Stage messages (#214)
+// ---------------------------------------------------------------------------
+
+// Two slots: the banner (a strip across the top) and the message (a card in the middle). Words are left by the panel
+// link under `s_mux`; the objects are the LVGL task's. Not clickable, so a tap goes through to the feed beneath.
+struct Stage {
+    bool want = false;
+    bool changed = false;
+    alert_message msg;
+    bool shown = false;
+    char shown_id[kAlertFlashIdBytes] = {};
+    uint32_t started_ms = 0;
+    lv_obj_t *box = nullptr;
+    lv_obj_t *from = nullptr;
+    lv_obj_t *words = nullptr;
+};
+
+Stage s_stage[2];   // 0: banner, 1: message
+
+void hide_stage(Stage &st)
+{
+    if (st.box != nullptr) {
+        lv_obj_delete(st.box);
+    }
+    st.box = st.from = st.words = nullptr;
+    st.shown = false;
+    st.shown_id[0] = '\0';
+}
+
+void show_stage(Stage &st, bool banner, const alert_message &m, uint32_t now_ms)
+{
+    if (st.box == nullptr) {
+        lv_obj_t *o = lv_obj_create(lv_layer_top());
+        lv_obj_remove_style_all(o);
+        lv_obj_set_style_bg_opa(o, LV_OPA_COVER, 0);
+        lv_obj_remove_flag(o, LV_OBJ_FLAG_CLICKABLE);
+        lv_obj_remove_flag(o, LV_OBJ_FLAG_SCROLLABLE);
+        lv_obj_set_flex_flow(o, LV_FLEX_FLOW_COLUMN);
+        lv_obj_set_flex_align(o, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+        if (banner) {
+            lv_obj_set_size(o, lv_pct(100), LV_SIZE_CONTENT);
+            lv_obj_align(o, LV_ALIGN_TOP_MID, 0, 0);
+            lv_obj_set_style_bg_color(o, hex(kWarnHex), 0);
+            lv_obj_set_style_pad_hor(o, ui_px(16), 0);
+            lv_obj_set_style_pad_ver(o, ui_px(10), 0);
+        } else {
+            lv_obj_set_size(o, lv_pct(90), LV_SIZE_CONTENT);
+            lv_obj_align(o, LV_ALIGN_CENTER, 0, 0);
+            lv_obj_set_style_bg_color(o, hex(0x1F52C2), 0);
+            lv_obj_set_style_radius(o, ui_px(12), 0);
+            lv_obj_set_style_pad_all(o, ui_px(20), 0);
+            lv_obj_set_style_pad_row(o, ui_px(8), 0);
+        }
+        st.from = text(o, &RELAY_UI_FONT_SMALL, 0xDDDDDD);
+        st.words = text(o, banner ? &RELAY_UI_FONT_MEDIUM : &RELAY_UI_FONT_ALERT, banner ? 0x111111 : 0xFFFFFF);
+        for (lv_obj_t *l : {st.from, st.words}) {
+            lv_obj_set_width(l, lv_pct(100));
+            lv_obj_set_style_text_align(l, LV_TEXT_ALIGN_CENTER, 0);
+            lv_label_set_long_mode(l, LV_LABEL_LONG_WRAP);
+            lv_obj_remove_flag(l, LV_OBJ_FLAG_CLICKABLE);
+        }
+        st.box = o;
+    }
+    char from[kAlertNameBytes + 8];
+    if (!banner && m.from[0] != '\0') {
+        snprintf(from, sizeof from, "From %s", m.from);
+    } else {
+        from[0] = '\0';
+    }
+    set_ascii(st.from, from);
+    if (from[0] == '\0') {
+        lv_obj_add_flag(st.from, LV_OBJ_FLAG_HIDDEN);
+    } else {
+        lv_obj_remove_flag(st.from, LV_OBJ_FLAG_HIDDEN);
+    }
+    set_ascii(st.words, m.text);
+    lv_obj_move_foreground(st.box);
+    snprintf(st.shown_id, sizeof st.shown_id, "%s", m.id);
+    st.started_ms = now_ms;
+    st.shown = true;
+    ESP_LOGI(TAG, "view: showing message %s", m.id);
+}
+
+void tick_stage(uint32_t now)
+{
+    for (int i = 0; i < 2; ++i) {
+        Stage &st = s_stage[i];
+        taskENTER_CRITICAL(&s_mux);
+        const bool changed = st.changed;
+        const bool want = st.want;
+        const alert_message m = st.msg;
+        st.changed = false;
+        taskEXIT_CRITICAL(&s_mux);
+        if (changed) {
+            if (want) {
+                show_stage(st, i == 0, m, now);
+            } else if (st.shown) {
+                hide_stage(st);
+            }
+        }
+        if (st.shown && alert_message_expired(m, now - st.started_ms)) {
+            ESP_LOGW(TAG, "view: message %s ran past its time with no word from Relay", st.shown_id);
+            taskENTER_CRITICAL(&s_mux);
+            st.want = false;
+            taskEXIT_CRITICAL(&s_mux);
+            hide_stage(st);
+        }
     }
 }
 
@@ -438,6 +552,28 @@ void alert_view_flash_end(const char *id)
     if (id != nullptr && strcmp(s_flash.alert.id, id) == 0 && s_flash.want) {
         s_flash.want = false;
         s_flash.changed = true;
+    }
+    taskEXIT_CRITICAL(&s_mux);
+}
+
+void alert_view_message(const alert_message &message)
+{
+    Stage &st = s_stage[message.banner ? 0 : 1];
+    taskENTER_CRITICAL(&s_mux);
+    st.msg = message;
+    st.want = true;
+    st.changed = true;
+    taskEXIT_CRITICAL(&s_mux);
+}
+
+void alert_view_message_end(const char *id)
+{
+    taskENTER_CRITICAL(&s_mux);
+    for (Stage &st : s_stage) {
+        if (id != nullptr && strcmp(st.msg.id, id) == 0 && st.want) {
+            st.want = false;
+            st.changed = true;
+        }
     }
     taskEXIT_CRITICAL(&s_mux);
 }

@@ -47,8 +47,50 @@
       try { msg = JSON.parse(ev.data); } catch (e) { return; }
       if (msg.type === 'alert') show(msg);
       else if (msg.type === 'alert_end') hide(msg.id);
+      else if (msg.type === 'message') showMessage(msg);
+      else if (msg.type === 'message_end') dropMessage(msg.id);
     };
     // EventSource reconnects by itself; the stream opens with any alert still on.
   }
+  /* Stage messages (#214): words over the captions, no flash, nothing to tap. They end on their own timer, or when
+     Relay says so. */
+  const banner = document.getElementById('stageBanner');
+  const card = document.getElementById('stageMessage');
+  const cardFrom = document.getElementById('stageFrom');
+  const cardText = document.getElementById('stageText');
+  const live = {};   // id -> {banner, text, from, timer}
+
+  function paintMessages() {
+    let b = null;
+    let m = null;
+    Object.keys(live).forEach(function (id) {
+      if (live[id].banner) b = live[id]; else m = live[id];
+    });
+    banner.hidden = !b;
+    if (b) banner.textContent = b.text;
+    card.hidden = !m;
+    if (m) {
+      cardFrom.textContent = m.from ? 'From ' + m.from : '';
+      cardText.textContent = m.text;
+    }
+  }
+
+  function dropMessage(id) {
+    if (!live[id]) return;
+    clearTimeout(live[id].timer);
+    delete live[id];
+    paintMessages();
+  }
+
+  function showMessage(msg) {
+    dropMessage(msg.id);
+    live[msg.id] = {
+      banner: !!msg.banner, text: String(msg.text || ''), from: String(msg.from || ''),
+      // The timer is a backstop if Relay's end never arrives.
+      timer: setTimeout(function () { dropMessage(msg.id); }, ((msg.ends_in_s || 10) + 5) * 1000),
+    };
+    paintMessages();
+  }
+
   connect();
 })();

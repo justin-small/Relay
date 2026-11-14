@@ -90,3 +90,23 @@ To control who can send, tick **Only signed-in people can send** under
 - The screen they flash shows their account name, so there is no
   **Who are you?** box.
 - Panels with an Alert buttons feed keep sending as before.
+
+## Stage messages
+
+Not everything needs a red flash. Under **Stage messages** you can write
+the short words you send often ("Wrap up", "5 minutes", "Mic 2 is off") and
+choose which panels and browser screens each one appears on. They show over
+whatever the panel or screen is already showing, with no flash and nothing to
+tap.
+
+- A **message** is a card in the middle of the screen and stays for the time
+  you set (10 seconds by default).
+- Tick **Banner** and it becomes a strip across the top that stays up longer
+  (5 minutes by default), for something like "Mic 2 is off".
+- Pick panels and screens under **Typed messages go to** and the sender page
+  also shows a box to type a message, with a **Banner** tick.
+- The sender page lists what is showing, with **Clear** beside each. A message
+  also ends on its own when its time is up.
+
+Anyone who may send alerts may send messages; with **Only signed-in people can
+send** ticked, messages need the same sign-in.
