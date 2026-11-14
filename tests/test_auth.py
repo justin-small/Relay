@@ -360,7 +360,7 @@ MIN_ROLE = {
     "recordings.manage": "admin", "schedules.view": "viewer", "schedules.manage": "admin",
     "blocklist.manage": "admin", "settings.view": "viewer", "settings.manage": "admin",
     "credentials.manage": "owner", "modules.view": "viewer", "modules.manage": "admin", "users.view": "admin",
-    "users.manage": "admin",
+    "users.manage": "admin", "tokens.own": "admin", "tokens.manage": "owner",
     "planning_center.view": "viewer", "planning_center.control": "operator", "planning_center.manage": "admin",
     "propresenter.view": "viewer", "propresenter.control": "operator", "propresenter.manage": "admin",
 }
@@ -448,6 +448,12 @@ route("DELETE", "/api/admin/users/{user_id}", "users.manage")
 route("GET", "/api/admin/trusted-devices", "users.view")
 route("POST", "/api/admin/trusted-devices", "users.manage")
 route("DELETE", "/api/admin/trusted-devices/{device_id}", "users.manage")
+# API tokens (#174)
+route("GET", "/api/admin/me/tokens", "tokens.own")
+route("POST", "/api/admin/me/tokens", "tokens.own")
+route("DELETE", "/api/admin/me/tokens/{token_id}", None)
+route("GET", "/api/admin/tokens", "tokens.manage")
+route("DELETE", "/api/admin/tokens/{token_id}", "tokens.manage")
 
 # Module routes: one explicit entry for each, with the permission its module declares. A module route added
 # without an entry here fails "EVERY /api/admin route has a permission entry".
@@ -547,6 +553,7 @@ check("each route's dependency asks for the permission in the table", not mismat
 SAFE_GET = {"/api/admin/me", "/api/admin/state", "/api/admin/status", "/api/admin/modules", "/api/admin/alerts",
             "/api/admin/panels", "/api/admin/panels/firmware", "/api/admin/schedules", "/api/admin/overlays",
             "/api/admin/recordings", "/api/admin/users", "/api/admin/trusted-devices",
+            "/api/admin/me/tokens", "/api/admin/tokens",
             "/api/admin/planning-center/live", "/api/admin/propresenter", "/api/admin/propresenter/lobby",
             "/api/admin/propresenter/live", "/api/admin/propresenter/link"}
 
@@ -953,6 +960,135 @@ eq("revoking it again is a 404", admin_c.delete(f"/api/admin/trusted-devices/{de
 eq("an admin's password reset clears the PIN",
    (admin_c.post(f"/api/admin/users/{uid}/password", json={"password": "reset reset 2"}).status_code,
     users.get_by_username("pinuser").pin_set), (200, False))
+fresh()
+
+# ------------------------------------------------------------------ API tokens (#174)
+print("API tokens")
+NO_TOKENS = {("POST", "/api/admin/me/password"), ("POST", "/api/admin/me/pin"), ("DELETE", "/api/admin/me/pin"),
+             ("GET", "/api/admin/me/tokens"), ("POST", "/api/admin/me/tokens"),
+             ("DELETE", "/api/admin/me/tokens/{token_id}")}
+refusing = {(m, p) for m, p, rt in found
+            if any(getattr(d.call, "tokens", True) is False for d in rt.dependant.dependencies)}
+eq("exactly the signed-in user's own password, PIN and token routes refuse tokens", refusing, NO_TOKENS)
+
+
+def bearer(secret, base=ADMIN):
+    return TestClient(app, base_url=base, headers={"Authorization": "Bearer " + secret})
+
+
+r = op_c.post("/api/admin/me/tokens", json={"name": "script"})
+eq("an operator cannot make a token", (r.status_code, detail(r)), (403, "Not allowed"))
+eq("…nor list their own", op_c.get("/api/admin/me/tokens").status_code, 403)
+r = admin_c.get("/api/admin/me/tokens")
+eq("an admin lists their tokens, with the expiry choices",
+   (r.status_code, r.json()["tokens"], r.json()["expiry_days"], r.json()["default_days"]), (200, [], [30, 90, 365, None], 90))
+r = admin_c.post("/api/admin/me/tokens", json={"name": "Stream Deck"})
+eq("an admin makes one", r.status_code, 200)
+made = r.json()
+secret, tok = made["secret"], made["token"]
+check("the secret has the relay_ prefix", secret.startswith("relay_") and len(secret) > 40)
+eq("…and is not cached", r.headers.get("cache-control"), "no-store")
+eq("it is named, hinted and expires in 90 days by default",
+   (tok["name"], secret.startswith("relay_" + tok["hint"]), len(tok["hint"]), tok["expires"] is not None), ("Stream Deck", True, 6, True))
+check("the listing never carries the secret", secret not in json.dumps(admin_c.get("/api/admin/me/tokens").json()))
+stored = db.one("select token_hash from api_tokens where id = ?", (tok["id"],))["token_hash"]
+check("only a hash is stored", secret not in stored and len(stored) == 64)
+for bad_body, key in (({"name": ""}, "bad_token_name"), ({"name": "x" * 81}, "bad_token_name"),
+                      ({"name": "x", "days": 7}, "bad_expiry"), ({"name": "x", "days": True}, "bad_expiry"),
+                      ({"name": "x", "days": "30"}, "bad_expiry")):
+    r = admin_c.post("/api/admin/me/tokens", json=bad_body)
+    eq("refused: " + key, (r.status_code, detail(r)), (400, MSG[key]))
+r = admin_c.post("/api/admin/me/tokens", json={"name": "forever", "days": None})
+eq("a token may never expire", (r.status_code, r.json()["token"]["expires"]), (200, None))
+forever = r.json()
+
+t = bearer(secret)
+r = t.get("/api/admin/me")
+eq("a token acts as its user", (r.status_code, r.json()["user"]["username"]), (200, "admin"))
+eq("…with its role's permissions less the barred ones", r.json()["permissions"],
+   sorted(p for p, mr in MIN_ROLE.items() if RANK["admin"] >= RANK[mr]
+          and p not in ("users.view", "users.manage", "credentials.manage", "tokens.own", "tokens.manage")))
+eq("it reads status", t.get("/api/admin/status").status_code, 200)
+eq("it may do what the role may", t.post("/api/admin/config", json={"history_lines": 77}).status_code, 200)
+eq("…and not more", (t.post("/api/admin/config", json={"openai_api_key": "sk-x"}).status_code,
+                      owner_c.get("/api/admin/me").status_code), (403, 200))
+for m, p in (("GET", "/api/admin/users"), ("POST", "/api/admin/users"), ("GET", "/api/admin/trusted-devices"),
+             ("POST", "/api/admin/me/tokens"), ("GET", "/api/admin/me/tokens"),
+             ("DELETE", f"/api/admin/me/tokens/{tok['id']}"), ("POST", "/api/admin/me/password"),
+             ("POST", "/api/admin/me/pin"), ("DELETE", "/api/admin/me/pin"), ("POST", f"/api/admin/users/{tok['user_id']}/password")):
+    r = send(t, m, p)
+    eq(f"a token cannot {m} {p}", (r.status_code, detail(r)), (403, "Not allowed"))
+eq("…so the token still exists", len(admin_c.get("/api/admin/me/tokens").json()["tokens"]), 2)
+check("its use was noted", db.one("select last_used from api_tokens where id = ?", (tok["id"],))["last_used"])
+
+# Fixed labels: nothing derived from a token reaches print (CodeQL's clear-text logging rule).
+for label, header in (("unknown", "Bearer relay_nope"), ("altered", "Bearer " + secret + "x"), ("empty", "Bearer "),
+                      ("not Bearer", "Basic " + secret), ("no prefix", "Bearer nope")):
+    r = TestClient(app, base_url=ADMIN, headers={"Authorization": header}).get("/api/admin/me")
+    eq("a bad Authorization header is a 401: " + label, (r.status_code, detail(r)),
+       (401, M.WEB_MESSAGES["bad_api_token"]))
+both = TestClient(app, base_url=ADMIN, cookies=dict(owner_c.cookies), headers={"Authorization": "Bearer relay_nope"})
+eq("a bad token never falls back to the cookie", both.get("/api/admin/me").status_code, 401)
+eq("a token is useless on the viewer port", bearer(secret, VIEWER).get("/api/admin/me").status_code, 404)
+eq("a token does not open the admin page", 'action="/admin/login"' in bearer(secret).get("/admin").text, True)
+
+r = owner_c.get("/api/admin/tokens")
+eq("an owner sees everyone's tokens", (r.status_code, sorted(x["name"] for x in r.json()["tokens"])), (200, ["Stream Deck", "forever"]))
+check("…with who holds each and no secret", r.json()["tokens"][0]["username"] == "admin" and secret not in r.text)
+eq("an admin cannot see everyone's", admin_c.get("/api/admin/tokens").status_code, 403)
+eq("an admin cannot revoke through the owners' route", admin_c.delete(f"/api/admin/tokens/{tok['id']}").status_code, 403)
+own = owner_c.post("/api/admin/me/tokens", json={"name": "owner's"}).json()
+eq("an admin cannot revoke an owner's token as their own", admin_c.delete(f"/api/admin/me/tokens/{own['token']['id']}").status_code, 404)
+eq("an owner cannot revoke another's token as their own", owner_c.delete(f"/api/admin/me/tokens/{tok['id']}").status_code, 404)
+
+uid = tok["user_id"]
+eq("turning the user off", owner_c.put(f"/api/admin/users/{uid}", json={"disabled": True}).status_code, 200)
+eq("…stops their token at once", t.get("/api/admin/me").status_code, 401)
+eq("turning them back on", owner_c.put(f"/api/admin/users/{uid}", json={"disabled": False}).status_code, 200)
+eq("…brings it back", t.get("/api/admin/me").status_code, 200)
+admin_c = _db.client(app, "admin")      # turning off ended the admin's sessions
+r = admin_c.delete(f"/api/admin/me/tokens/{tok['id']}")
+eq("the user revokes their own", (r.status_code, r.json()), (200, {"ok": True}))
+eq("…and it stops at once", t.get("/api/admin/me").status_code, 401)
+eq("revoking it again is a 404", admin_c.delete(f"/api/admin/me/tokens/{tok['id']}").status_code, 404)
+eq("an owner revokes someone else's", owner_c.delete(f"/api/admin/tokens/{forever['token']['id']}").status_code, 200)
+eq("…which stops too", bearer(forever["secret"]).get("/api/admin/me").status_code, 401)
+eq("an owner revokes their own through the owners' route", owner_c.delete(f"/api/admin/tokens/{own['token']['id']}").status_code, 200)
+
+again = admin_c.post("/api/admin/me/tokens", json={"name": "again"}).json()
+db.execute("update api_tokens set expires_at = ? where id = ?", (db.later(-1), again["token"]["id"]))
+eq("an expired token is a 401", bearer(again["secret"]).get("/api/admin/me").status_code, 401)
+eq("…and is not listed", admin_c.get("/api/admin/me/tokens").json()["tokens"], [])
+kept = admin_c.post("/api/admin/me/tokens", json={"name": "kept"}).json()
+eq("expired tokens are cleared when the next is made",
+   db.one("select count(*) as n from api_tokens where id = ?", (again["token"]["id"],))["n"], 0)
+pending = owner_c.post(f"/api/admin/users/{uid}/password", json={"password": "reset reset 3"})
+eq("an owner resets the admin's password", pending.status_code, 200)
+eq("…their token waits for the password change", (bearer(kept["secret"]).get("/api/admin/status").status_code,
+                                                 detail(bearer(kept["secret"]).get("/api/admin/status"))),
+   (403, "password_change_required"))
+admin_c = _db.client(app, "admin")
+eq("…and works again after it", bearer(kept["secret"]).get("/api/admin/status").status_code, 200)
+eq("moving the user below admin", owner_c.put(f"/api/admin/users/{uid}", json={"role": "operator"}).status_code, 200)
+eq("…deletes their tokens", (bearer(kept["secret"]).get("/api/admin/me").status_code,
+                             db.one("select count(*) as n from api_tokens where user_id = ?", (uid,))["n"]), (401, 0))
+admin_c = _db.client(app, "admin")
+try:
+    users.create_token(M.SETUP_OWNER, "x", 30)
+    check("the setup token cannot make one", False)
+except users.Refused as e:
+    eq("the setup token cannot make one", e.key, "not_allowed")
+victim = users.create("tokenvictim", "Victim", "admin", "password one", temporary=False)
+vt, _row = users.create_token(victim, "theirs", None)
+eq("a deleted user's token", bearer(vt).get("/api/admin/me").status_code, 200)
+users.delete(victim.id, actor=None)
+eq("…is gone with them", (bearer(vt).get("/api/admin/me").status_code,
+                          db.one("select count(*) as n from api_tokens where hint = ?", (_row["hint"],))["n"]), (401, 0))
+for i in range(users.TOKENS_PER_USER):
+    users.create_token(users.get_by_username("admin"), f"n{i}", 30)
+r = admin_c.post("/api/admin/me/tokens", json={"name": "one too many"})
+eq("a user's tokens are capped", (r.status_code, detail(r)), (400, MSG["too_many_tokens"]))
+db.execute("delete from api_tokens")
 fresh()
 
 # ------------------------------------------------------------------ the viewer port reaches none of it

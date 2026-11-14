@@ -1,4 +1,5 @@
-/* My account (every role) and the Users page: people, trusted devices and what each role can do. Loaded after
+/* My account (every role; API tokens for those who may make them) and the Users page: people, trusted devices,
+   everyone's API tokens (Owners) and what each role can do. Loaded after
    admin.js and uses what it shares (window.RelayAdmin). Everything from the server is set as text. Passwords
    and PINs are read from the form, sent once and cleared; they are never stored, logged or put in an attribute. */
 (function () {
@@ -95,6 +96,133 @@
     });
   }
 
+
+  /* ---- My account: API tokens (#174) ---- */
+  let myTokens = [], expiryDays = [30, 90, 365, null], defaultDays = 90;
+
+  function expiryText(t) { return t.expires ? when(t.expires, false) : 'Never'; }
+
+  function closeTokenPanel() {
+    const p = g('tokenPanel');
+    p.textContent = '';
+    p.hidden = true;
+  }
+
+  function tokenRow(t, withPerson, onRevoke) {
+    const tr = el('tr');
+    const nameTd = el('td');
+    nameTd.appendChild(el('strong', '', t.name));
+    tr.appendChild(nameTd);
+    if (withPerson) tr.appendChild(el('td', '', t.user_name + ' (' + t.username + ')'));
+    tr.appendChild(el('td', 'mono', 'relay_' + t.hint + '…'));
+    if (!withPerson) tr.appendChild(el('td', 'muted', when(t.created, false)));
+    tr.appendChild(el('td', 'muted', expiryText(t)));
+    tr.appendChild(el('td', 'muted', when(t.last_used, true)));
+    const act = el('td', 'userrow-acts');
+    const rm = el('button', '', 'Revoke');
+    rm.type = 'button';
+    rm.setAttribute('aria-label', 'Revoke ' + t.name);
+    rm.addEventListener('click', async function () {
+      const whose = withPerson ? t.user_name + '\'s token ' : 'the token ';
+      if (!window.confirm('Revoke ' + whose + '"' + t.name + '"? Anything using it stops working at once.')) return;
+      try { await onRevoke(t); A.okMsg('Revoked ' + t.name + '.'); } catch (e) { A.alertMsg(e.message); }
+    });
+    act.appendChild(rm);
+    tr.appendChild(act);
+    return tr;
+  }
+
+  function emptyRow(tb, cols, text) {
+    const tr = el('tr');
+    const td = el('td', 'muted', text);
+    td.colSpan = cols;
+    tr.appendChild(td);
+    tb.appendChild(tr);
+  }
+
+  function renderMyTokens() {
+    const tb = g('tokenList');
+    tb.textContent = '';
+    if (!myTokens.length) emptyRow(tb, 6, 'No tokens yet.');
+    myTokens.forEach(function (t) {
+      tb.appendChild(tokenRow(t, false, async function () {
+        await send('DELETE', '/api/admin/me/tokens/' + encodeURIComponent(t.id));
+        await loadMyTokens();
+      }));
+    });
+  }
+
+  async function loadMyTokens() {
+    try {
+      const r = await A.api('/api/admin/me/tokens');
+      myTokens = r.tokens || [];
+      if (r.expiry_days) expiryDays = r.expiry_days;
+      if (r.default_days) defaultDays = r.default_days;
+      renderMyTokens();
+    } catch (e) { A.alertMsg(e.message); }
+  }
+
+  function openNewToken() {
+    hideOnce(g('tokenSecret'));
+    const p = g('tokenPanel');
+    p.textContent = '';
+    p.hidden = false;
+    p.appendChild(el('h4', '', 'New API token'));
+    const form = el('form');
+    form.autocomplete = 'off';
+    const name = input('text', 80);
+    name.placeholder = 'Stream Deck in the booth';
+    name.required = true;
+    const exp = el('select');
+    expiryDays.forEach(function (d) {
+      const o = el('option', '', d ? d + ' days' : 'Never');
+      o.value = d ? String(d) : '';
+      exp.appendChild(o);
+    });
+    exp.value = String(defaultDays);
+    form.appendChild(field('What it is for', name, 'tokenName'));
+    form.appendChild(field('Expires after', exp, 'tokenDays'));
+    form.appendChild(formButtons('Make token', closeTokenPanel));
+    form.addEventListener('submit', async function (ev) {
+      ev.preventDefault();
+      try {
+        const r = await send('POST', '/api/admin/me/tokens', { name: name.value.trim(), days: exp.value ? Number(exp.value) : null });
+        closeTokenPanel();
+        await loadMyTokens();
+        showOnce(g('tokenSecret'), 'Copy this token now and keep it somewhere safe. It is shown once; if it is lost, make a new one.',
+          r.secret, function () { hideOnce(g('tokenSecret')); });
+      } catch (e) { A.alertMsg(e.message); }
+    });
+    p.appendChild(form);
+    name.focus();
+  }
+
+  function initTokens() {
+    g('tokenAdd').addEventListener('click', openNewToken);
+    window.addEventListener('hashchange', function () {
+      if (location.hash === '#account') loadMyTokens();
+      else { hideOnce(g('tokenSecret')); closeTokenPanel(); }
+    });
+    if (location.hash === '#account') loadMyTokens();
+  }
+
+  /* ---- Users page: everyone's API tokens (Owners) ---- */
+  let allTokens = [];
+
+  function renderAllTokens() {
+    const tb = g('allTokenList');
+    if (!tb) return;
+    tb.textContent = '';
+    if (!allTokens.length) emptyRow(tb, 6, 'Nobody has an API token.');
+    allTokens.forEach(function (t) {
+      tb.appendChild(tokenRow(t, true, async function () {
+        await send('DELETE', '/api/admin/tokens/' + encodeURIComponent(t.id));
+        await load();
+        if (t.user_id === ME.user.id && g('tokenList')) await loadMyTokens();
+      }));
+    });
+  }
+
   /* ---- Users ---- */
   let users = [], roles = [], perms = [];
   let devices = [], thisDevice = null;
@@ -137,17 +265,13 @@
 
   function clearSecret() {
     secretText = '';
-    const box = g('userSecret');
-    box.textContent = '';
-    box.hidden = true;
+    hideOnce(g('userSecret'));
   }
 
-  /* A generated password is shown here once, after the account is made or reset, so it can be handed over. */
-  function showSecret(name, text) {
-    secretText = text;
-    const box = g('userSecret');
+  /* A secret shown once in `box` (a .shown div), with Copy and Done, so it can be handed over or pasted. */
+  function showOnce(box, intro, text, onDone) {
     box.textContent = '';
-    box.appendChild(el('div', '', 'Give ' + name + ' this temporary password. It is shown once; they must change it when they sign in.'));
+    box.appendChild(el('div', '', intro));
     const mono = el('div', 'mono', text);
     mono.style.margin = '8px 0';
     box.appendChild(mono);
@@ -156,7 +280,7 @@
     copy.type = 'button';
     copy.addEventListener('click', async function () {
       try {
-        await navigator.clipboard.writeText(secretText);
+        await navigator.clipboard.writeText(text);
         copy.textContent = 'Copied';
       } catch (e) {
         // Plain HTTP on a LAN address has no clipboard: select the text instead.
@@ -170,12 +294,25 @@
     });
     const done = el('button', '', 'Done');
     done.type = 'button';
-    done.addEventListener('click', clearSecret);
+    done.addEventListener('click', onDone);
     ctl.appendChild(copy);
     ctl.appendChild(done);
     box.appendChild(ctl);
     box.hidden = false;
     try { box.scrollIntoView({ block: 'nearest' }); } catch (e) {}
+  }
+
+  function hideOnce(box) {
+    if (!box) return;
+    box.textContent = '';
+    box.hidden = true;
+  }
+
+  /* A generated password is shown here once, after the account is made or reset, so it can be handed over. */
+  function showSecret(name, text) {
+    secretText = text;
+    showOnce(g('userSecret'), 'Give ' + name + ' this temporary password. It is shown once; they must change it when they sign in.',
+      text, clearSecret);
   }
 
   /* A password box with a Generate button. get() is the text; generated() says whether it was made here. */
@@ -558,7 +695,9 @@
 
   async function load() {
     try {
-      const both = await Promise.all([A.api('/api/admin/users'), A.api('/api/admin/trusted-devices')]);
+      const both = await Promise.all([A.api('/api/admin/users'), A.api('/api/admin/trusted-devices'),
+        can('tokens.manage') ? A.api('/api/admin/tokens') : Promise.resolve({ tokens: [] })]);
+      allTokens = both[2].tokens || [];
       users = both[0].users || [];
       roles = both[0].roles || [];
       perms = both[0].permissions || [];
@@ -566,6 +705,7 @@
       thisDevice = both[1].this === undefined ? null : both[1].this;
       renderUsers();
       renderDevices();
+      renderAllTokens();
       renderRoleRef();
     } catch (e) { A.alertMsg(e.message); }
   }
@@ -583,5 +723,6 @@
   }
 
   if (g('page-account')) initAccount();
+  if (g('tokenList')) initTokens();
   if (g('page-users')) initUsers();
 })();

@@ -678,6 +678,37 @@ After five wrong PINs in a row, the PIN is cleared and you sign in with your
 password and set a new one. Removing a trusted device from the list stops PIN
 sign-ins there.
 
+### API tokens {#api-tokens}
+
+An **API token** lets a script or another program, such as a Stream Deck
+button, use Relay's API as you without your password. Admins and Owners can
+make them.
+
+1. Open **My account** and find **API tokens**.
+2. Click **New token**. Say what it is for, and choose when it expires: 30,
+   90 or 365 days, or never. 90 days is chosen for you.
+3. Click **Make token**. Relay shows the token once. Copy it now and keep it
+   somewhere safe. If you lose it, revoke it and make a new one.
+
+The program sends it in a header: `Authorization: Bearer relay_…`. A token
+can do what your role can, except manage users, passwords, trusted devices,
+tokens or the OpenAI key. It works only on the operator panel's address, not
+the viewer address.
+
+- **Revoke** a token in the list to stop it at once. The list shows the first
+  characters of each token, so you can tell which one a program holds.
+- Turning a person off stops their tokens at once. Deleting them, or giving
+  them a role below Admin, deletes their tokens.
+- After an Owner resets your password, your tokens wait until you choose a new
+  one.
+- Owners see everyone's tokens under **Users**, **API tokens**, and can revoke
+  any of them.
+
+::: note
+An API token is not the same as a panel's or a trusted device's sign-in.
+Those are unchanged.
+:::
+
 ### How long you stay signed in
 
 Signing in with a password lasts 30 days on that browser. Signing in with a

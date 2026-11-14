@@ -22,6 +22,10 @@
 : A secret code, like a password, that lets Relay use OpenAI. Everything done
   with it is billed to your OpenAI account.
 
+**API token**
+: A secret code a script or program uses to reach Relay's API as you. It is
+  shown once, can expire, and can be revoked. See [API tokens](#api-tokens).
+
 **Armed**
 : A target language that is switched on while capture is stopped. It goes
   live when you press **Start capture**.
