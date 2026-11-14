@@ -26,7 +26,6 @@ constexpr uint32_t kDimHex = 0x8C8C8C;
 constexpr uint32_t kGoodHex = 0x3DD68C;
 constexpr uint32_t kWarnHex = 0xF5B342;
 constexpr uint32_t kRedHex = 0xE00000;
-constexpr uint32_t kDarkRedHex = 0xB00000;
 constexpr int kPad = kCaptionPadX;
 constexpr int kRowGap = ui_px(8);
 constexpr uint32_t kFlashTickMs = 50;
@@ -223,7 +222,8 @@ struct Flash {
     bool shown = false;
     char shown_id[kAlertFlashIdBytes] = {};
     uint32_t started_ms = 0;
-    bool red = false;
+    bool red = false;   // the lit half of the flash (red, amber or the steady blue)
+    alert_level level = alert_level::urgent;
     lv_obj_t *overlay = nullptr;
     lv_obj_t *from = nullptr;
     lv_obj_t *to = nullptr;
@@ -236,10 +236,10 @@ lv_timer_t *s_timer = nullptr;
 void paint(bool red)
 {
     s_flash.red = red;
-    lv_obj_set_style_bg_color(s_flash.overlay, hex(red ? kRedHex : 0xFFFFFF), 0);
-    const lv_color_t fg = hex(red ? 0xFFFFFF : kDarkRedHex);
-    lv_obj_set_style_text_color(s_flash.from, fg, 0);
-    lv_obj_set_style_text_color(s_flash.to, fg, 0);
+    const alert_look look = alert_level_look(s_flash.level, red);
+    lv_obj_set_style_bg_color(s_flash.overlay, hex(look.bg), 0);
+    lv_obj_set_style_text_color(s_flash.from, hex(look.fg), 0);
+    lv_obj_set_style_text_color(s_flash.to, hex(look.fg), 0);
 }
 
 void hide_flash()
@@ -299,6 +299,7 @@ void show_flash(const alert_flash &a, uint32_t now_ms)
     snprintf(s_flash.shown_id, sizeof s_flash.shown_id, "%s", a.id);
     s_flash.started_ms = now_ms;
     s_flash.shown = true;
+    s_flash.level = a.level;
     paint(true);
     ESP_LOGI(TAG, "view: flashing for alert %s", a.id);
 }
@@ -336,6 +337,10 @@ void on_flash_tick(lv_timer_t *)
         hide_flash();
         return;
     }
+    // Info stays the steady blue it was painted; attention and urgent flash.
+    if (!alert_level_flashes(s_flash.level)) {
+        return;
+    }
     const bool red = alert_flash_red(elapsed, a.hz);
     if (red != s_flash.red) {
         paint(red);
@@ -355,6 +360,8 @@ struct Stage {
     bool shown = false;
     char shown_id[kAlertFlashIdBytes] = {};
     uint32_t started_ms = 0;
+    bool lit = true;   // the lit half of the flash, for a level that flashes
+    alert_level level = alert_level::info;
     lv_obj_t *box = nullptr;
     lv_obj_t *from = nullptr;
     lv_obj_t *words = nullptr;
@@ -372,6 +379,16 @@ void hide_stage(Stage &st)
     st.shown_id[0] = '\0';
 }
 
+// The level's colours on a message: its background, and the words in the colour that reads on it.
+void paint_stage(Stage &st, bool lit)
+{
+    st.lit = lit;
+    const alert_look look = alert_level_look(st.level, lit);
+    lv_obj_set_style_bg_color(st.box, hex(look.bg), 0);
+    lv_obj_set_style_text_color(st.from, hex(look.fg), 0);
+    lv_obj_set_style_text_color(st.words, hex(look.fg), 0);
+}
+
 void show_stage(Stage &st, bool banner, const alert_message &m, uint32_t now_ms)
 {
     if (st.box == nullptr) {
@@ -385,19 +402,17 @@ void show_stage(Stage &st, bool banner, const alert_message &m, uint32_t now_ms)
         if (banner) {
             lv_obj_set_size(o, lv_pct(100), LV_SIZE_CONTENT);
             lv_obj_align(o, LV_ALIGN_TOP_MID, 0, 0);
-            lv_obj_set_style_bg_color(o, hex(kWarnHex), 0);
             lv_obj_set_style_pad_hor(o, ui_px(16), 0);
             lv_obj_set_style_pad_ver(o, ui_px(10), 0);
         } else {
             lv_obj_set_size(o, lv_pct(90), LV_SIZE_CONTENT);
             lv_obj_align(o, LV_ALIGN_CENTER, 0, 0);
-            lv_obj_set_style_bg_color(o, hex(0x1F52C2), 0);
             lv_obj_set_style_radius(o, ui_px(12), 0);
             lv_obj_set_style_pad_all(o, ui_px(20), 0);
             lv_obj_set_style_pad_row(o, ui_px(8), 0);
         }
-        st.from = text(o, &RELAY_UI_FONT_SMALL, 0xDDDDDD);
-        st.words = text(o, banner ? &RELAY_UI_FONT_MEDIUM : &RELAY_UI_FONT_ALERT, banner ? 0x111111 : 0xFFFFFF);
+        st.from = text(o, &RELAY_UI_FONT_SMALL, 0xFFFFFF);
+        st.words = text(o, banner ? &RELAY_UI_FONT_MEDIUM : &RELAY_UI_FONT_ALERT, 0xFFFFFF);
         for (lv_obj_t *l : {st.from, st.words}) {
             lv_obj_set_width(l, lv_pct(100));
             lv_obj_set_style_text_align(l, LV_TEXT_ALIGN_CENTER, 0);
@@ -419,6 +434,8 @@ void show_stage(Stage &st, bool banner, const alert_message &m, uint32_t now_ms)
         lv_obj_remove_flag(st.from, LV_OBJ_FLAG_HIDDEN);
     }
     set_ascii(st.words, m.text);
+    st.level = m.level;
+    paint_stage(st, true);
     lv_obj_move_foreground(st.box);
     snprintf(st.shown_id, sizeof st.shown_id, "%s", m.id);
     st.started_ms = now_ms;
@@ -449,6 +466,13 @@ void tick_stage(uint32_t now)
             st.want = false;
             taskEXIT_CRITICAL(&s_mux);
             hide_stage(st);
+        }
+        // Attention and urgent flash, once a second; info stays as painted.
+        if (st.shown && alert_level_flashes(st.level)) {
+            const bool lit = alert_flash_red(now - st.started_ms, 1);
+            if (lit != st.lit) {
+                paint_stage(st, lit);
+            }
         }
     }
 }

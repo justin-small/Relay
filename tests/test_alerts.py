@@ -87,7 +87,8 @@ checkin(2, "Wedge L")
 checkin(3, "Wedge R")
 eq("defaults: two minutes, no buttons", admin.get("/api/admin/alerts").json()["alerts"],
    {"auto_stop_s": 120, "buttons": [], "require_signin": False,
-    "messages": {"presets": [], "free": {"panels": [], "screens": []}, "message_s": 10, "banner_s": 300}})
+    "messages": {"presets": [], "free": {"panels": [], "screens": [], "level": "info"}, "message_s": 10,
+                 "banner_s": 300}})
 eq("the viewer port has no admin route", viewer.get("/api/admin/alerts").status_code, 404)
 bad = [
     ({"auto_stop_s": 10, "buttons": []}, "auto-stop"),
@@ -229,9 +230,11 @@ eq("an oversized body is refused",
 cleaned = alertsmod.clean_stored({"auto_stop_s": 5, "buttons": [{"id": "zz", "name": "x", "panels": []},
                                                                {"id": "0000aaaa", "name": "ok", "panels": [pid(1)]}]})
 eq("a hand edit is cleaned, not fatal", cleaned, {"auto_stop_s": 30, "buttons": [
-    {"id": "0000aaaa", "name": "ok", "icon": "bell", "panels": [pid(1)], "screens": [], "stage": False}],
+    {"id": "0000aaaa", "name": "ok", "icon": "bell", "panels": [pid(1)], "screens": [], "stage": False,
+     "level": "urgent"}],
     "require_signin": False,
-    "messages": {"presets": [], "free": {"panels": [], "screens": []}, "message_s": 10, "banner_s": 300}})
+    "messages": {"presets": [], "free": {"panels": [], "screens": [], "level": "info"}, "message_s": 10,
+                 "banner_s": 300}})
 
 print("sign-in required (#175)")
 def save_alerts(require_signin):
@@ -388,6 +391,75 @@ admin.post("/api/admin/alerts", json={**body, "messages": {"presets": [], "free"
 eq("typed words are refused when there is nowhere to send them",
    viewer.post("/api/alerts/messages/send", json={"text": "Hi"}).status_code, 403)
 alerts.unsubscribe_messages(mq)
+
+print("levels (#215)")
+lbody = {"auto_stop_s": 60, "require_signin": False, "buttons": [
+    {"name": "Info", "panels": [pid(1)], "level": "info"},
+    {"name": "Attn", "panels": [pid(1)], "level": "attention"},
+    {"name": "Old", "panels": [pid(1)]}],
+    "messages": {"presets": [{"text": "Soft", "panels": [pid(1)]},
+                             {"text": "Loud", "panels": [pid(1)], "level": "urgent"}],
+                 "free": {"panels": [pid(1)], "level": "attention"}, "message_s": 10, "banner_s": 60}}
+r = admin.post("/api/admin/alerts", json=lbody)
+eq("saved with levels", r.status_code, 200)
+saved = r.json()["alerts"]
+eq("a button's level is kept, and urgent is the default", [b["level"] for b in saved["buttons"]],
+   ["info", "attention", "urgent"])
+eq("a message's level is kept, and info is the default",
+   ([p["level"] for p in saved["messages"]["presets"]], saved["messages"]["free"]["level"]),
+   (["info", "urgent"], "attention"))
+eq("the admin page is told the levels", r.json()["levels"], ["info", "attention", "urgent"])
+for label, bad_body in [("button", {**lbody, "buttons": [{"name": "X", "panels": [pid(1)], "level": "loud"}]}),
+                        ("preset", {**lbody, "messages": {"presets": [{"text": "X", "panels": [pid(1)], "level": 3}]}}),
+                        ("typed words", {**lbody, "messages": {"presets": [], "free": {"level": "red"}}})]:
+    r = admin.post("/api/admin/alerts", json=bad_body)
+    check(f"refused: a {label} with an unknown level", r.status_code == 400 and "level" in r.json()["detail"], r.text)
+eq("a hand edit with an unknown level falls back",
+   alertsmod.clean_stored({"buttons": [{"id": "0000aaaa", "name": "a", "panels": [pid(1)], "level": "x"}],
+                           "messages": {"presets": [{"id": "0000bbbb", "text": "t", "panels": [pid(1)],
+                                                     "level": "x"}]}})["buttons"][0]["level"], "urgent")
+lb = {b["name"]: b for b in alerts.settings()["buttons"]}
+lq = reg.subscribe(pid(1))
+drain(lq)
+for name, want_level, want_hz in [("Info", "info", 0), ("Attn", "attention", 1), ("Old", "urgent", 1)]:
+    viewer.post(f"/api/alerts/{lb[name]['id']}/send", json={"from": "Drums"})
+    m = drain(lq)[0]
+    eq(f"{name}: the alert carries its level and whether it flashes", (m["level"], m["hz"]), (want_level, want_hz))
+    viewer.post(f"/api/alerts/{lb[name]['id']}/cancel", json={})
+    drain(lq)
+viewer.post(f"/api/alerts/{lb['Info']['id']}/send", json={"from": "Drums", "level": "urgent"})
+m = drain(lq)[0]
+eq("a sender can pick another level for one alert", (m["level"], m["hz"]), ("urgent", 1))
+viewer.post(f"/api/alerts/{lb['Info']['id']}/cancel", json={})
+drain(lq)
+eq("an unknown level is refused", viewer.post(f"/api/alerts/{lb['Info']['id']}/send",
+                                              json={"from": "D", "level": "nope"}).status_code, 400)
+eq("and starts nothing", drain(lq), [])
+eq("acknowledging still ends any level, first tap everywhere",
+   [viewer.post(f"/api/alerts/{lb['Attn']['id']}/send", json={"from": "D"}).status_code,
+    viewer.post("/api/alerts/ack", json={"id": drain(lq)[0]["id"], "panel": pid(1)}).json()["state"]],
+   [200, "seen"])
+drain(lq)
+lpre = {p["text"]: p for p in alerts.settings()["messages"]["presets"]}
+viewer.post("/api/alerts/messages/send", json={"preset": lpre["Soft"]["id"], "from": "D"})
+m = drain(lq)[0]
+eq("a message is info unless told otherwise", (m["level"], m["hz"]), ("info", 0))
+viewer.post("/api/alerts/messages/send", json={"preset": lpre["Loud"]["id"], "from": "D"})
+m = drain(lq)[0]
+eq("a preset can be urgent and then flashes", (m["level"], m["hz"]), ("urgent", 1))
+viewer.post("/api/alerts/messages/send", json={"text": "hey", "from": "D"})
+m = drain(lq)[0]
+eq("typed words take the typed level", (m["level"], m["hz"]), ("attention", 1))
+viewer.post("/api/alerts/messages/send", json={"text": "hey", "from": "D", "level": "info"})
+m = [x for x in drain(lq) if x["type"] == "message"][0]
+eq("and a sender can override it", (m["level"], m["hz"]), ("info", 0))
+eq("an unknown message level is refused", viewer.post("/api/alerts/messages/send",
+                                                       json={"text": "hey", "level": "x"}).status_code, 400)
+state = alerts.message_state()
+eq("the sender page is told each preset's level and what is showing",
+   ([p["level"] for p in state["presets"]], state["free_level"], [m["level"] for m in state["live"]]),
+   (["info", "urgent"], "attention", ["info", "urgent", "info"][:len(state["live"])]))
+viewer.post("/api/alerts/messages/clear", json={})
 
 print()
 if fails:

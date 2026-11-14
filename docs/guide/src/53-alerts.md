@@ -96,8 +96,9 @@ To control who can send, tick **Only signed-in people can send** under
 Not everything needs a red flash. Under **Stage messages** you can write
 the short words you send often ("Wrap up", "5 minutes", "Mic 2 is off") and
 choose which panels and browser screens each one appears on. They show over
-whatever the panel or screen is already showing, with no flash and nothing to
-tap.
+whatever the panel or screen is already showing, with nothing to tap. How loud
+one is depends on its level (see Levels, below): a message is a steady blue
+unless you say otherwise.
 
 - A **message** is a card in the middle of the screen and stays for the time
   you set (10 seconds by default).
@@ -110,3 +111,28 @@ tap.
 
 Anyone who may send alerts may send messages; with **Only signed-in people can
 send** ticked, messages need the same sign-in.
+
+## Levels
+
+Every alert button and every message has a level. It sets the colour and
+whether the screen flashes:
+
+| Level | Looks like | Flashes |
+|---|---|---|
+| **Info** | Solid blue | No |
+| **Attention** | Amber and dark | Once a second |
+| **Urgent** | Red and white | Once a second |
+
+An alert button is **Urgent** and a message is **Info** until you change it:
+pick the level beside the button or message under **Alerts**, and for typed
+messages under **Typed messages go to**, then **Save alerts**. Buttons you set
+up before levels existed stay Urgent, so nothing changes for them.
+
+On the sender page, **Level** above the buttons lets the sender pick another
+level for the next alert or message they send. Leave it on **Each button's
+own** to use the one you set. It is not remembered between visits.
+
+Whatever the level, the first tap on a flashing screen still stops the alert
+everywhere, and **When nobody taps** still applies. The flash is fixed at
+once a second, under the three a second where flashing becomes a seizure
+risk.

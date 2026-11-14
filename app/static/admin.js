@@ -998,6 +998,23 @@
     return wrap;
   }
 
+  /* Levels (#215): how loud an alert or message is. Info is a steady blue, attention flashes amber, urgent flashes
+     red and white. A button defaults to urgent, a message to info. */
+  const LEVEL_LABELS = { info: 'Info (blue)', attention: 'Attention (amber, flashes)', urgent: 'Urgent (red, flashes)' };
+  function levelPicker(item, editable, fallback, label) {
+    const pick = el('select', 'alevelpick');
+    pick.setAttribute('aria-label', label || 'Level');
+    ['info', 'attention', 'urgent'].forEach(function (lv) {
+      const o = el('option', '', LEVEL_LABELS[lv]);
+      o.value = lv;
+      pick.appendChild(o);
+    });
+    pick.value = item.level || fallback;
+    pick.disabled = !editable;
+    pick.addEventListener('change', function () { item.level = pick.value; alertSetDirty(true); });
+    return pick;
+  }
+
   function renderMessageCards() {
     const editable = can('alerts.manage');
     const msgs = alertCfg.messages;
@@ -1016,6 +1033,7 @@
       text.disabled = !editable;
       text.addEventListener('input', function () { m.text = text.value; alertSetDirty(true); });
       head.appendChild(text);
+      head.appendChild(levelPicker(m, editable, 'info', 'Message level'));
       const bl = el('label', 'check');
       const bb = el('input');
       bb.type = 'checkbox';
@@ -1043,6 +1061,11 @@
     const free = $('msgFree');
     free.innerHTML = '';
     free.appendChild(targetPicker(msgs.free, editable, 'Panels and screens'));
+    const fl = el('div', 'ctl');
+    fl.style.marginTop = '6px';
+    fl.appendChild(el('span', '', 'Typed messages are'));
+    fl.appendChild(levelPicker(msgs.free, editable, 'info', 'Typed message level'));
+    free.appendChild(fl);
   }
 
   function screenHint() {
@@ -1083,6 +1106,7 @@
     name.addEventListener('input', function () { b.name = name.value; alertSetDirty(true); renderAlertLinks(); });
     head.appendChild(name);
     head.appendChild(pick);
+    head.appendChild(levelPicker(b, editable, 'urgent', 'Alert level'));
     const st = alertStateText(b.id);
     const state = el('span', 'astate ' + st.cls, st.text);
     if (b.id) state.dataset.astate = b.id;
@@ -1193,7 +1217,7 @@
   }
 
   $('alertAdd').addEventListener('click', function () {
-    alertCfg.buttons.push({ name: '', panels: [], screens: [] });
+    alertCfg.buttons.push({ name: '', level: 'urgent', panels: [], screens: [] });
     alertDirty = false;
     renderAlerts();
     alertSetDirty(true);
@@ -1201,7 +1225,7 @@
     if (inputs.length) inputs[inputs.length - 1].focus();
   });
   $('msgAdd').addEventListener('click', function () {
-    alertCfg.messages.presets.push({ text: '', banner: false, panels: [], screens: [] });
+    alertCfg.messages.presets.push({ text: '', banner: false, level: 'info', panels: [], screens: [] });
     alertDirty = false;
     renderAlerts();
     alertSetDirty(true);
@@ -1228,14 +1252,15 @@
           message_s: parseInt($('msgSeconds').value, 10), banner_s: parseInt($('bannerSeconds').value, 10),
           free: alertCfg.messages.free,
           presets: alertCfg.messages.presets.map(function (m) {
-            const out = { text: m.text, banner: !!m.banner, panels: m.panels, screens: m.screens };
+            const out = { text: m.text, banner: !!m.banner, level: m.level || 'info', panels: m.panels,
+                          screens: m.screens };
             if (m.id) out.id = m.id;
             return out;
           })
         },
         buttons: alertCfg.buttons.map(function (b) {
           const out = { name: b.name, icon: b.icon || 'bell', panels: b.panels, screens: b.screens,
-                        stage: !!b.stage };
+                        stage: !!b.stage, level: b.level || 'urgent' };
           if (b.id) out.id = b.id;
           return out;
         })

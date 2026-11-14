@@ -20,6 +20,10 @@ by that account, and a panel still sends by its id. What a stray client can do i
 buttons and streams, and an alert is never stored.
 
 The flash is once a second, fixed: well under the 3 per second where flashing becomes a seizure risk.
+
+**Levels (#215)**: every alert and stage message has one. *Info* is a steady blue, *attention* flashes amber, and
+*urgent* flashes red and white, as alerts always did. A button or preset has its own (an alert button is urgent
+and a message is info until the operator says otherwise), and a sender may pick another for one send.
 """
 from __future__ import annotations
 
@@ -63,6 +67,12 @@ _ID_RE = re.compile(r"^[0-9a-f]{8}$")
 _ALERT_ID_RE = re.compile(r"^[0-9a-f]{16}$")
 _PANEL_RE = re.compile(r"^[0-9a-f]{32}$")
 
+# How loud an alert or message is. Each has a colour on every screen; only info is steady.
+LEVELS = ("info", "attention", "urgent")
+LEVEL_FLASHES = {"info": False, "attention": True, "urgent": True}
+DEFAULT_ALERT_LEVEL = "urgent"
+DEFAULT_MESSAGE_LEVEL = "info"
+
 STATES = ("idle", "on", "seen", "missed", "cancelled")
 # The icon a button shows on the /alert page, picked by the operator. The page draws each one; "bell" is the default.
 ICONS = ("bell", "mic", "headphones", "keys", "drums", "guitar", "person", "people", "video", "sliders")
@@ -71,6 +81,17 @@ DEFAULT_ICON = "bell"
 
 def clean_icon(value: object) -> str:
     return value if isinstance(value, str) and value in ICONS else DEFAULT_ICON
+
+
+def clean_level(value: object, default: str) -> str:
+    return value if isinstance(value, str) and value in LEVELS else default
+
+
+def _checked_level(item: dict, label: str, default: str) -> str:
+    level = item.get("level", default)
+    if not isinstance(level, str) or level not in LEVELS:
+        raise ValueError(f"{label}: the level must be one of {', '.join(LEVELS)}")
+    return level
 
 
 def _now() -> float:
@@ -126,12 +147,15 @@ def clean_messages(raw: object) -> dict[str, Any]:
             continue
         seen_ids.add(pid)
         presets.append({"id": pid, "text": text, "banner": item.get("banner") is True,
+                        "level": clean_level(item.get("level"), DEFAULT_MESSAGE_LEVEL),
                         "panels": panels, "screens": screens})
     free = raw.get("free") if isinstance(raw.get("free"), dict) else {}
     fpanels, fscreens = _targets(free)
     if len(fpanels) + len(fscreens) > MAX_TARGETS:
         fpanels, fscreens = [], []
-    return {"presets": presets, "free": {"panels": fpanels, "screens": fscreens},
+    return {"presets": presets,
+            "free": {"panels": fpanels, "screens": fscreens,
+                     "level": clean_level(free.get("level"), DEFAULT_MESSAGE_LEVEL)},
             "message_s": _seconds(raw.get("message_s"), MESSAGE_DEFAULT_S, MESSAGE_MIN_S, MESSAGE_MAX_S),
             "banner_s": _seconds(raw.get("banner_s"), BANNER_DEFAULT_S, BANNER_MIN_S, BANNER_MAX_S)}
 
@@ -170,12 +194,15 @@ def validate_messages(raw: object) -> dict[str, Any]:
         panels, screens = _checked_targets(item, text)
         if not panels and not screens:
             raise ValueError(f"\"{text}\" goes nowhere; pick a panel or a screen")
-        presets.append({"id": pid, "text": text, "banner": banner, "panels": panels, "screens": screens})
+        level = _checked_level(item, text, DEFAULT_MESSAGE_LEVEL)
+        presets.append({"id": pid, "text": text, "banner": banner, "level": level,
+                        "panels": panels, "screens": screens})
     free = raw.get("free", {})
     if not isinstance(free, dict):
         raise ValueError("free text must be an object")
     fpanels, fscreens = _checked_targets(free, "Typed messages")
-    return {"presets": presets, "free": {"panels": fpanels, "screens": fscreens},
+    flevel = _checked_level(free, "Typed messages", DEFAULT_MESSAGE_LEVEL)
+    return {"presets": presets, "free": {"panels": fpanels, "screens": fscreens, "level": flevel},
             "message_s": raw.get("message_s", MESSAGE_DEFAULT_S), "banner_s": raw.get("banner_s", BANNER_DEFAULT_S)}
 
 
@@ -222,7 +249,8 @@ def clean_stored(raw: object) -> dict[str, Any]:
         seen_ids.add(bid)
         seen_names.add(name.lower())
         buttons.append({"id": bid, "name": name, "icon": clean_icon(item.get("icon")), "panels": panels,
-                        "screens": screens, "stage": item.get("stage") is True})
+                        "screens": screens, "stage": item.get("stage") is True,
+                        "level": clean_level(item.get("level"), DEFAULT_ALERT_LEVEL)})
     return {"auto_stop_s": max(AUTO_STOP_MIN_S, min(AUTO_STOP_MAX_S, auto)), "buttons": buttons,
             "require_signin": raw.get("require_signin") is True, "messages": clean_messages(raw.get("messages"))}
 
@@ -285,8 +313,9 @@ def validate(raw: object) -> dict[str, Any]:
         icon = item.get("icon", DEFAULT_ICON)
         if icon not in ICONS:
             raise ValueError(f"{name}: the icon must be one of {', '.join(ICONS)}")
+        level = _checked_level(item, name, DEFAULT_ALERT_LEVEL)
         buttons.append({"id": bid, "name": name, "icon": icon, "panels": panels, "screens": screens,
-                        "stage": stage})
+                        "stage": stage, "level": level})
     return {"auto_stop_s": auto, "buttons": buttons, "require_signin": require_signin,
             "messages": validate_messages(raw.get("messages"))}
 
@@ -304,6 +333,7 @@ class Alert:
     state: str = "on"     # on, seen, missed, cancelled
     seen_on: str = ""     # where it was acknowledged
     ended: float = 0.0
+    level: str = DEFAULT_ALERT_LEVEL
 
 
 @dataclass
@@ -317,6 +347,7 @@ class Message:
     seconds: int
     panels: list[str]
     screens: list[str]
+    level: str = DEFAULT_MESSAGE_LEVEL
 
 
 # What a sender, panel or screen is told when an alert request is refused: fixed sentences by key, so a response
@@ -332,6 +363,7 @@ MESSAGES = {
     "too_many_screens": "too many alert screens are open",
     "no_preset": "no such message",
     "no_words": "write the message first",
+    "bad_level": "level must be info, attention or urgent",
     "no_free_targets": "the operator has not chosen where typed messages go",
 }
 
@@ -418,7 +450,7 @@ class Alerts:
     def admin_view(self) -> dict[str, Any]:
         cfg = self.settings()
         return {"alerts": cfg, "screens": self.screen_names(), "state": self.state()["buttons"],
-                "icons": list(ICONS),
+                "icons": list(ICONS), "levels": list(LEVELS),
                 "limits": {"buttons": MAX_BUTTONS, "targets": MAX_TARGETS, "name": NAME_MAX,
                            "auto_stop_min_s": AUTO_STOP_MIN_S, "auto_stop_max_s": AUTO_STOP_MAX_S,
                            "presets": MAX_PRESETS, "text": TEXT_MAX, "message_min_s": MESSAGE_MIN_S,
@@ -444,14 +476,18 @@ class Alerts:
     def _alert_message(self, alert: Alert, button: dict[str, Any]) -> dict[str, Any]:
         remaining = self.settings()["auto_stop_s"] - (_now() - alert.started)
         return {"type": "alert", "id": alert.id, "from": alert.sender, "to": button["name"],
-                "ends_in_s": max(1, round(remaining)), "hz": FLASH_HZ}
+                "ends_in_s": max(1, round(remaining)), "level": alert.level,
+                "hz": FLASH_HZ if LEVEL_FLASHES[alert.level] else 0}
 
     # ------------------------------------------------------------- presses
-    def press(self, bid: str, sender: str) -> dict[str, Any]:
-        """Start an alert on a button, or cancel the one flashing. Returns the new state."""
+    def press(self, bid: str, sender: str, level: object = None) -> dict[str, Any]:
+        """Start an alert on a button, or cancel the one flashing. `level` overrides the button's for this alert
+        (#215). Returns the new state."""
         button = self.button(bid) if isinstance(bid, str) else None
         if button is None:
             raise Refused(404, "no_button")
+        if level is not None and (not isinstance(level, str) or level not in LEVELS):
+            raise Refused(400, "bad_level")
         self.expire()
         alert = self.latest.get(bid)
         now = _now()
@@ -460,7 +496,8 @@ class Alerts:
                 return self.state()   # a double tap is one press
             self._end(alert, "cancelled")
         else:
-            alert = Alert(secrets.token_hex(8), bid, clean_name(sender), now)
+            alert = Alert(secrets.token_hex(8), bid, clean_name(sender), now,
+                          level=level or clean_level(button.get("level"), DEFAULT_ALERT_LEVEL))
             self.latest[bid] = alert
             message = self._alert_message(alert, button)
             if button.get("stage"):
@@ -565,6 +602,7 @@ class Alerts:
     def _message_wire(self, msg: Message) -> dict[str, Any]:
         remaining = msg.seconds - (_now() - msg.started)
         return {"type": "message", "id": msg.id, "from": msg.sender, "text": msg.text, "banner": msg.banner,
+                "level": msg.level, "hz": FLASH_HZ if LEVEL_FLASHES[msg.level] else 0,
                 "ends_in_s": max(1, round(remaining))}
 
     def message_state(self) -> dict[str, Any]:
@@ -575,22 +613,29 @@ class Alerts:
         now = _now()
         free = cfg["free"]
         return {"type": "messages", "free": bool(free["panels"] or free["screens"]), "text_max": TEXT_MAX,
-                "presets": [{"id": p["id"], "text": p["text"], "banner": p["banner"]} for p in cfg["presets"]],
-                "live": [{"id": m.id, "key": m.key, "text": m.text, "banner": m.banner, "from": m.sender,
+                "free_level": free.get("level", DEFAULT_MESSAGE_LEVEL),
+                "presets": [{"id": p["id"], "text": p["text"], "banner": p["banner"],
+                             "level": p.get("level", DEFAULT_MESSAGE_LEVEL)} for p in cfg["presets"]],
+                "live": [{"id": m.id, "key": m.key, "text": m.text, "banner": m.banner, "level": m.level,
+                          "from": m.sender,
                           "ends_in_s": max(0, round(m.seconds - (now - m.started)))}
                          for m in self.live.values()]}
 
     def send_message(self, sender: str, *, preset: object = None, text: object = None,
-                     banner: object = False) -> dict[str, Any]:
+                     banner: object = False, level: object = None) -> dict[str, Any]:
         """Show a preset (by id) or typed words on their screens. The same preset, or typed words again, replace
-        what is showing from it. Returns the new message state."""
+        what is showing from it. `level` overrides the preset's or the typed words' own (#215). Returns the new
+        message state."""
         cfg = self.settings()["messages"]
+        if level is not None and (not isinstance(level, str) or level not in LEVELS):
+            raise Refused(400, "bad_level")
         if preset is not None:
             item = next((p for p in cfg["presets"] if p["id"] == preset), None) if isinstance(preset, str) else None
             if item is None:
                 raise Refused(404, "no_preset")
             key, words, is_banner = item["id"], item["text"], item["banner"]
             panels, screens = item["panels"], item["screens"]
+            own = item.get("level", DEFAULT_MESSAGE_LEVEL)
         else:
             words = clean_text(text)
             if not words:
@@ -599,6 +644,7 @@ class Alerts:
             if not panels and not screens:
                 raise Refused(403, "no_free_targets")
             key, is_banner = "free", banner is True
+            own = cfg["free"].get("level", DEFAULT_MESSAGE_LEVEL)
         self.expire()
         old = self.live.get(key)
         if old is not None:
@@ -606,7 +652,8 @@ class Alerts:
         while len(self.live) >= MAX_LIVE_MESSAGES:
             self._end_message(next(iter(self.live.values())))
         msg = Message(secrets.token_hex(8), key, words, is_banner, clean_name(sender), _now(),
-                      cfg["banner_s"] if is_banner else cfg["message_s"], list(panels), list(screens))
+                      cfg["banner_s"] if is_banner else cfg["message_s"], list(panels), list(screens),
+                      level or own)
         self.live[key] = msg
         wire = self._message_wire(msg)
         for pid in msg.panels:

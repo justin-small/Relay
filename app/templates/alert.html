@@ -30,6 +30,16 @@
 </form>
 {% endif %}
 
+<div class="alert-level" id="levelRow">
+  <label for="levelPick">Level</label>
+  <select id="levelPick">
+    <option value="">Each button's own</option>
+    <option value="info">Info (blue)</option>
+    <option value="attention">Attention (amber, flashes)</option>
+    <option value="urgent">Urgent (red, flashes)</option>
+  </select>
+</div>
+
 <main class="alert-buttons" id="buttons" aria-live="polite"></main>
 <p class="alert-empty" id="empty" hidden>No alert buttons yet. The operator sets them up in Relay admin, under Alerts.</p>
 <p class="alert-note alert-foot">Tap a card to flash its screens. Tap it again to stop.</p>
