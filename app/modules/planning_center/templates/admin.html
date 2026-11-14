@@ -53,3 +53,68 @@
         <div class="plist" id="pcActionList"></div>
       </div>
     </section>
+    {# The rundown (#148): LIVE from here, mics by position, the note fields it reads, and /screen. #}
+    <section id="rdBox" hidden>
+      <h3>Rundown</h3>
+      <div class="row" style="align-items:flex-end">
+        <div class="field"><label for="rdType">Service type</label><select id="rdType"></select></div>
+        <div class="field"><label for="rdTime">Service time</label><select id="rdTime"></select></div>
+      </div>
+      <div class="ctl" id="rdLive">
+        <span class="pill" id="rdNow"></span>
+        <button type="button" data-live="previous">Previous</button>
+        <button type="button" class="primary" data-live="next">Next</button>
+        <button type="button" data-live="take_control">Take control</button>
+        <button type="button" data-live="release">Release</button>
+      </div>
+      <div class="note" id="rdLiveMsg"></div>
+      <div class="note">Same rules as a panel's press: Relay presses as the person who made the token, Next and
+        Previous work only while that person has control, and every press is listed under "Presses".</div>
+      <div class="tablescroll"><table class="rdtable" id="rdItems"></table></div>
+      <div class="note" id="rdTimes"></div>
+    </section>
+    <section id="rdMicBox" hidden>
+      <h3>Mics by position</h3>
+      <div class="note">Give a position its mics. A position with more than one confirmed person gets one mic per
+        person, drawn at random once per plan and service time and then kept: it changes only when someone confirms
+        or drops out, or when you press Redraw. People past the last mic get none. "Sings" lights the mic on
+        /screen during songs; untick it for a speaking mic (a host or a pastor's headset), which is lit for
+        everything else.</div>
+      <div class="tablescroll"><table class="rdtable" id="rdMics"></table></div>
+      <div class="ctl" id="rdMicCtl">
+        <select id="rdAddPos"></select>
+        <button type="button" id="rdAdd">Add position</button>
+        <button type="button" class="primary" id="rdMicSave" disabled>Save mics</button>
+        <button type="button" id="rdRedrawAll">Redraw all</button>
+      </div>
+      <div class="note" id="rdMicMsg"></div>
+    </section>
+    <section id="rdSetBox" hidden>
+      <h3>Rundown on /screen</h3>
+      <label class="check"><input type="checkbox" id="rdScreen"> <span>Show the rundown on /screen<br>
+        <span class="muted">Off by default. It shows volunteers' names, photos, mics and sermon notes, on this
+        network only: Relay refuses it through remote access, and the panels and audience caption pages never
+        carry any of it.</span></span></label>
+      <div class="row">
+        <div class="field"><label for="rdLeaderNote">Song leader: item note</label><input id="rdLeaderNote" placeholder="Leader"></div>
+        <div class="field"><label for="rdLeaderPos">...or else this position</label><input id="rdLeaderPos" placeholder="Worship Leader"></div>
+        <div class="field"><label for="rdSermonNote">Sermon notes: item note</label><input id="rdSermonNote" placeholder="Sermon Notes"></div>
+      </div>
+      <div class="ctl"><button type="button" class="primary" id="rdSetSave">Save</button></div>
+      <h3 style="margin-top:18px">Link for a screen</h3>
+      <div class="row">
+        <div class="field"><label for="rdLView">View</label><select id="rdLView">
+          <option value="full">Full rundown (replaces captions)</option><option value="side">Beside the captions</option>
+          <option value="micboard">Micboard</option></select></div>
+        <div class="field"><label for="rdLLayout">Order of service</label><select id="rdLLayout">
+          <option value="fit">Every item, fitted to the screen</option><option value="compact">Now and the next three</option></select></div>
+        <div class="field"><label for="rdLCards">People</label><select id="rdLCards">
+          <option value="person">One per person</option><option value="position">One per position</option></select></div>
+        <div class="field"><label for="rdLTeam">Teams</label><select id="rdLTeam"><option value="">All teams</option></select></div>
+        <div class="field"><label for="rdLTime">Service time</label><select id="rdLTime"><option value="">Automatic</option></select></div>
+      </div>
+      <div class="note"><span class="mono" id="rdLink"></span> <button type="button" id="rdCopy">Copy</button></div>
+      <div class="note">/screen is display-only: no scrolling and no buttons. Everything fits one screen; long notes
+        and rosters shrink to fit. Move LIVE from this page or from a panel.</div>
+      <div class="note" id="rdSetMsg"></div>
+    </section>

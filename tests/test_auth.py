@@ -477,6 +477,10 @@ for method, path, perm in (
     ("POST", PCX + "/notes", "planning_center.manage"),
     ("GET", PCX + "/live", "planning_center.view"),
     ("POST", PCX + "/plan", "planning_center.control"),                 # an operator's call during a service
+    ("GET", PCX + "/rundown", "planning_center.view"),                  # the rundown (#148)
+    ("POST", PCX + "/rundown/settings", "planning_center.manage"),
+    ("POST", PCX + "/rundown/redraw", "planning_center.control"),
+    ("POST", PCX + "/live/{action}", "planning_center.control"),        # Next / Previous from the admin page
     ("GET", PPX, "propresenter.view"),
     ("POST", PPX, "propresenter.manage"),
     ("POST", PPX + "/test", "propresenter.manage"),

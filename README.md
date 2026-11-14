@@ -1044,6 +1044,32 @@ to panels in places you trust, on a network you trust.
 read-only, from a git-ignored `planningcenter-test.env`. For operators there is
 a chapter in the user guide (`docs/guide/src/52-planning-center.md`).
 
+### The rundown on /screen
+
+The production team's display: `/screen?rundown=full` shows the whole order of service with each item's
+planned start next to when it really started or is now projected to start, who is scheduled for that service
+time (with photos, and positions still to fill), each song's key, leader and who sings on which mic, and the
+sermon notes. `rundown=side` keeps this /screen's captions and puts the rundown beside them;
+`rundown=micboard` is one tall column per mic. Options: `layout=fit` (every item) or `compact` (now and the
+next three), `cards=person` or `position`, `team=<name>`, `time=0900` (otherwise the service time LIVE is
+running), and `type=<service type id>` when Relay follows more than one.
+
+It is a kiosk: everything fits one screen, nothing scrolls and there are no buttons. Move LIVE from the
+**Rundown** section of the Planning Center page (Previous, Next, Take control, Release, with the same rules as
+a panel) or from a panel.
+
+Set it up on the Planning Center page:
+
+- **Rundown on /screen** is off until you tick it. It shows volunteers' names, photos and notes, so Relay serves
+  it on this network only (never through remote access), and the panels' Service feed and the audience caption
+  pages never carry any of it.
+- **Mics by position**: give a position its mics. A position with several mics and several confirmed people
+  gets one mic per person, drawn at random once per plan and service time and then kept; it changes only when
+  someone confirms or drops out, or when you press **Redraw**. Untick **Sings** for a speaking mic (a host or a
+  pastor's headset), which is lit on the screen for everything but songs.
+- **Song leader** comes from the item note you name (its first line), or else from the position you name.
+  **Sermon notes** come from the item note you name.
+
 ## Alerts
 
 A musician taps a button on `/alert` (viewer port, no login: anyone with the

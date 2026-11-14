@@ -18,6 +18,7 @@ import threading
 import time
 from dataclasses import asdict
 from datetime import datetime
+from urllib.parse import urlencode
 
 from fastapi import Depends, FastAPI, Form, HTTPException, Request, Response
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, StreamingResponse
@@ -698,6 +699,11 @@ async def page_screen(request: Request):
     layout. Not offered on the chooser page -- this is operator setup, not an
     audience choice."""
     qp = request.query_params
+    # ?rundown=full|side|micboard: the production team's rundown from a module that offers the "rundown" stream
+    # (Planning Center, #148), in place of the captions or beside them.
+    view = qp.get("rundown") or ""
+    if view in RUNDOWN_VIEWS and RUNDOWN_STREAM in module_registry.streams():
+        return _rundown_page(request, view)
     stream = qp.get("stream", "translation")
     if stream not in ("transcription", "translation", "both"):
         stream = "translation"
@@ -753,6 +759,27 @@ async def page_status(request: Request):
     """The status screen (#224): capture, input, live languages, viewers and the livestream, for the sound desk
     and the booth. Read-only, from the same feed a panel on the Status feed reads."""
     return templates.TemplateResponse(request, "status.html", _viewer_ctx(request))
+
+
+RUNDOWN_VIEWS = ("full", "side", "micboard")
+
+
+def _rundown_page(request: Request, view: str):
+    """/screen?rundown=...: a fixed 1920x1080 board scaled to the screen; nothing scrolls and nothing is pressed.
+    The side view shows this same /screen's captions (the URL without the rundown options) in a frame."""
+    qp = request.query_params
+    pick = lambda k, allowed, d: qp.get(k) if qp.get(k) in allowed else d  # noqa: E731
+    caps = {k: v for k, v in qp.items() if k not in ("rundown", "layout", "cards", "team", "time", "type")}
+    ctx = _viewer_ctx(request) | {
+        "rundown_view": view,
+        "rundown_layout": pick("layout", ("fit", "compact"), "fit"),
+        "rundown_cards": pick("cards", ("person", "position"), "person"),
+        "rundown_team": (qp.get("team") or "")[:80],
+        "rundown_time": qp.get("time") if (qp.get("time") or "").isdigit() and len(qp.get("time")) == 4 else "",
+        "rundown_type": qp.get("type") if (qp.get("type") or "").isdigit() else "",
+        "rundown_captions": "/screen?" + urlencode(caps) if view == "side" else "",
+    }
+    return templates.TemplateResponse(request, "rundown.html", ctx)
 
 
 def _lyrics_offered() -> bool:
@@ -875,6 +902,8 @@ def _parse_seq(raw: str | None) -> int | None:
 ALERT_STREAM = "alert"
 # Served by a module (ProPresenter) while it is on; the viewer's lyrics.js reads it.
 LYRICS_STREAM = "lyrics"
+# Served by a module (Planning Center) while it is on and the operator allows it; the screen's rundown.js reads it.
+RUNDOWN_STREAM = "rundown"
 
 
 def _alert_sender_stream() -> StreamingResponse:
