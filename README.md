@@ -629,7 +629,7 @@ captions themselves are a few bytes a line.
 ## Signage
 
 Any TV with a web browser can be a signage screen. **Signage** is a module, off until you switch it on (Admin page →
-Modules); its page is under Output, with tabs for Screens, Playlists, Media and Settings.
+Modules); its page is under Output, with tabs for Screens, Playlists, Schedule, Takeovers, Media and Settings.
 
 1. **Media**: drop in images (JPEG, PNG, WebP, GIF, up to 25 MB) and videos (MP4, WebM, up to 500 MB). The page
    shows how much they take and how much disk is free.
@@ -645,8 +645,22 @@ Order of precedence: takeover, then a slide-note tag, then a playlist put on by 
 schedule, then the default. A screen's own slots come before its group's, then the all-screens ones; a date range beats a
 weekly slot, and of two overlapping slots the later start wins. A playlist put on by hand lasts until the next scheduled
 change or until cleared (Settings tab). Times use the zone chosen on the Settings tab and keep their clock time through
-daylight saving. The Screens tab says why each screen plays what it plays. Takeovers and tags arrive with #207 and #208
-through `schedule.register_layer` in `app/modules/signage/schedule.py`.
+daylight saving. The Screens tab says why each screen plays what it plays. Slide-note tags arrive with #208 through
+`schedule.register_layer` in `app/modules/signage/schedule.py`.
+
+**Takeovers** (Takeovers tab) put something over a screen's playlist, on a screen, a group or all screens:
+
+- **Alerts** show as a red banner over whatever is playing, on all screens, on chosen groups or on none (Settings tab →
+  Alerts on screens), and go away when the alert ends. The playlist is not interrupted.
+- **Push a file now**: one image or video from the media library, played once (a video to its end, a picture for 10
+  seconds), for a set time, or until cleared. The screen then goes back to its playlist, at the item it was on.
+- **Live captions or service view**: a screen shows Relay's own caption page (translation or original language) or the
+  Planning Center service rundown until you return it. The page is framed from the viewer port, so the screen's
+  browser must be able to reach it (the same computer, port 80 or 8080).
+- When several apply, a push beats a live view, a screen's own beats its group's beats all screens. The tab lists
+  what is taken over and has one **Return all to playlist** button. Another module (ProPresenter slide-note tags,
+  #208) can switch screens with `takeover.live_view_set`, `takeover.push_set` and `takeover.clear` in
+  `app/modules/signage/takeover.py`, naming `signage` in its `uses`.
 
 Screens are on a **port of their own** (8090, changeable on the Settings tab; restart Relay after changing it). It is
 plain HTTP so a TV needs no login and no certificate, and only the signage pages answer on it: the captions, the

@@ -23,7 +23,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 
 from ... import audit, config, db, netinfo, schedules, serving
 from .. import HEARTBEAT_S, event_stream, read_limited, require, sse
-from . import live, media, sources, store
+from . import live, media, sources, store, takeover
 
 HERE = Path(__file__).resolve().parent
 PLAYER_JS = HERE / "static" / "player.js"
@@ -70,6 +70,8 @@ def _screen_or_404(slug: str) -> dict:
 
 def _state(screen: dict) -> dict:
     out = store.player_state(screen)
+    out["takeover"] = takeover.payload(screen)
+    out["banner"] = takeover.banner(screen)
     out["server_time"] = int(time.time() * 1000)
     return out
 
@@ -101,7 +103,13 @@ async def public_events(slug: str, request: Request):
         last_minute = int(time.time() // 60)
         seen = -1
         beat = time.monotonic()
+        alert_key = takeover.alert_sig()
         while not await request.is_disconnected():
+            # Alerts are Relay's own and change without anything in signage being edited: look each second.
+            key_now = takeover.alert_sig()
+            if key_now != alert_key:
+                alert_key = key_now
+                seen = -1
             if live.version != seen:
                 seen = live.version
                 try:
@@ -140,6 +148,20 @@ async def public_now(slug: str, request: Request):
     item = item if isinstance(item, int) else None
     label = body.get("label") if isinstance(body, dict) and isinstance(body.get("label"), str) else ""
     live.report(slug, item, label)
+    return {"ok": True}
+
+
+@router.post("/signage/_/done/{slug}")
+async def public_done(slug: str, request: Request):
+    """The player saying it has played a "once" push to its end, so this screen goes back to its playlist."""
+    _screen_or_404(slug)
+    try:
+        body = json.loads(await read_limited(request, 256) or b"{}")
+    except ValueError:
+        raise HTTPException(400, "Bad request") from None
+    pid = body.get("id") if isinstance(body, dict) else None
+    if isinstance(pid, int) and not isinstance(pid, bool):
+        live.done(slug, pid)
     return {"ok": True}
 
 
@@ -189,8 +211,16 @@ def admin_state():
         slot_rows, over = store.slots(), store.overrides()
     except db.Unavailable as exc:
         return _refuse(exc)
+    try:
+        taken = takeover.rows()
+    except db.Unavailable as exc:
+        return _refuse(exc)
     for s in screens:
         plan = store.resolve(s, _slots=slot_rows, _overrides=over)
+        tk = takeover.pick(s, taken)
+        s["taken_over"] = {"kind": tk["kind"], "label": tk["label"], "from": tk["target"],
+                           "until": tk["expires_at"]} if tk else None
+        s["banner"] = takeover.banner(s)
         pid = plan["playlist_id"]
         s["playing_playlist"] = {"id": pid, "name": names.get(pid, ""), "from": plan["layer"],
                                  "why": plan["why"], "until": plan["until"]} if pid else None
@@ -217,6 +247,8 @@ def admin_state():
         "sources": [{"kind": s.kind, "label": s.label} for s in sources.kinds()],
         "slots": slot_rows,
         "overrides": over,
+        "takeovers": taken,
+        "views": [{"id": k, "label": v[0]} for k, v in takeover.VIEWS.items()],
         "timezones": [{"id": z, "label": l} for z, l in schedules.US_TIMEZONES],
         "today": store.today(),
     }
@@ -282,6 +314,20 @@ def admin_settings(request: Request, payload: dict):
             return JSONResponse({"error": "A hand-chosen playlist lasts until the next scheduled change or until cleared."},
                                 status_code=400)
         change["override_until"] = payload["override_until"]
+    if "alert_screens" in payload:
+        if payload.get("alert_screens") not in takeover.ALERT_MODES:
+            return JSONResponse({"error": "Alerts show on all screens, on chosen groups, or not at all."},
+                                status_code=400)
+        change["alert_screens"] = payload["alert_screens"]
+    if "alert_groups" in payload:
+        ids = payload.get("alert_groups")
+        if not isinstance(ids, list) or not all(isinstance(i, int) and not isinstance(i, bool) for i in ids):
+            return JSONResponse({"error": "Choose groups from the list."}, status_code=400)
+        try:
+            known = {g["id"] for g in store.groups()}
+        except db.Unavailable as exc:
+            return _refuse(exc)
+        change["alert_groups"] = sorted(set(ids) & known)
     if not change:
         return JSONResponse({"error": "Nothing to change."}, status_code=400)
     config.save({"signage": change})
@@ -349,6 +395,56 @@ def admin_override_clear(request: Request, target: str = "", target_id: int = 0)
     audit.note(request, "signage.override_clear", "Cleared a hand-chosen signage playlist",
                target=f"{target} {target_id}")
     return {"ok": True}
+
+
+# ------------------------------------------------------------------ takeovers (#207)
+
+@router.put("/api/admin/signage/takeover", dependencies=MANAGE)
+def admin_takeover_set(request: Request, payload: dict):
+    kind = payload.get("kind")
+    target = str(payload.get("target") or "")
+    try:
+        target_id = int(payload.get("target_id") or 0)
+        if kind == "push":
+            row = takeover.push_set(target, target_id, str(payload.get("media_id") or ""),
+                                    str(payload.get("mode") or "cleared"), int(payload.get("seconds") or 0))
+        elif kind == "live":
+            row = takeover.live_view_set(target, target_id, str(payload.get("view") or ""))
+        else:
+            return JSONResponse({"error": "Push a file or put a live view on."}, status_code=400)
+    except (store.Invalid, db.Unavailable) as exc:
+        return _refuse(exc)
+    except (TypeError, ValueError):
+        return JSONResponse({"error": "Choose a screen or a group, and a number of seconds."}, status_code=400)
+    audit.note(request, "signage.takeover_set",
+               "Pushed a file to signage screens" if kind == "push" else "Put a live view on signage screens",
+               target=f"{row['target']} {row['target_id']}",
+               detail={"kind": kind, "view": row["view"], "mode": row["mode"], "seconds": row["seconds"]})
+    return row
+
+
+@router.delete("/api/admin/signage/takeover", dependencies=MANAGE)
+def admin_takeover_clear(request: Request, target: str = "", target_id: int = 0):
+    if target not in ("screen", "group", "all"):
+        return JSONResponse({"error": "Choose a screen, a group or all screens."}, status_code=400)
+    try:
+        takeover.clear(target, target_id)
+    except (store.Invalid, db.Unavailable) as exc:
+        return _refuse(exc)
+    audit.note(request, "signage.takeover_clear", "Returned signage screens to their playlist",
+               target=f"{target} {target_id}")
+    return {"ok": True}
+
+
+@router.delete("/api/admin/signage/takeovers", dependencies=MANAGE)
+def admin_takeover_clear_all(request: Request):
+    try:
+        n = takeover.clear_all()
+    except db.Unavailable as exc:
+        return _refuse(exc)
+    audit.note(request, "signage.takeover_clear_all", "Returned every signage screen to its playlist",
+               detail={"cleared": n})
+    return {"ok": True, "cleared": n}
 
 
 # ------------------------------------------------------------------ media

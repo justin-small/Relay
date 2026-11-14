@@ -500,6 +500,9 @@ for method, path, perm in (
     ("DELETE", SGX + "/slots/{sid}", "signage.manage"),
     ("PUT", SGX + "/override", "signage.manage"),
     ("DELETE", SGX + "/override", "signage.manage"),
+    ("PUT", SGX + "/takeover", "signage.manage"),
+    ("DELETE", SGX + "/takeover", "signage.manage"),
+    ("DELETE", SGX + "/takeovers", "signage.manage"),
 ):
     route(method, path, perm)
 for method, path, perm in (
