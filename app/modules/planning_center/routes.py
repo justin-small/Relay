@@ -16,7 +16,7 @@ from ...scheduler import scheduler
 from ...panels import registry as panel_registry
 from ... import modules as shared
 from .. import event_stream, read_limited, require, sse
-from . import pccontrol, planningcenter as pc, rundown
+from . import pccontrol, planningcenter as pc, rundown, signagesync
 from .pclive import follower
 from .servicefeed import feed
 
@@ -319,3 +319,37 @@ async def admin_planning_center_live_action(action: str, payload: dict,
         return JSONResponse({"ok": False, "error": exc.code, "message": pccontrol.ADMIN_WORDS.get(exc.code, "")},
                             status_code=pccontrol.REFUSALS[exc.code])
     return {"ok": True, "rundown": rundown_now(st)}
+
+
+# -- plan files and announcements as signage items (#209, signagesync.py) ----------------------------------
+def _signage_body() -> dict:
+    names = {st: follower.names.get(st) or f"Service type {st}" for st in config.get()["planning_center"]["service_types"]}
+    return {**signagesync.sync.state(), "service_types": [{"id": k, "name": v} for k, v in names.items()]}
+
+
+@router.get("/api/admin/planning-center/signage", dependencies=[Depends(require("planning_center.view"))])
+async def admin_planning_center_signage():
+    return _signage_body()
+
+
+@router.post("/api/admin/planning-center/signage/settings", dependencies=[Depends(require("planning_center.manage"))])
+async def admin_planning_center_signage_settings(payload: dict):
+    """Switch plan files for signage on or off and say which service type, which plan items and what to build."""
+    fields, problem = signagesync.signage_fields(payload)
+    if problem:
+        return JSONResponse({"error": problem}, status_code=400)
+    saved = config.get()["planning_center"]
+    config.save({"planning_center": {**saved, "signage": {**saved["signage"], **fields}}},
+                replace=("planning_center",))
+    signagesync.sync.rev = ""            # a changed choice is looked at again at once
+    await signagesync.sync.sync()
+    return _signage_body()
+
+
+@router.post("/api/admin/planning-center/signage/sync", dependencies=[Depends(require("planning_center.manage"))])
+async def admin_planning_center_signage_sync():
+    """Copy the plan's files into signage now, even if nothing seems to have changed."""
+    if not config.get()["planning_center"]["signage"]["enabled"]:
+        return JSONResponse({"error": "Switch on plan files for signage first."}, status_code=409)
+    await signagesync.sync.sync(force=True)
+    return _signage_body()

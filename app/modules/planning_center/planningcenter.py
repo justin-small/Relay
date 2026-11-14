@@ -49,6 +49,16 @@ RUNNING_STALE_S = 4 * 3600     # an item "live" for longer than this was left op
 _sleep = time.sleep   # a test swaps this so a 429 does not take real seconds
 
 
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    """Answers a redirect as an error so `Client.stream_file` can decide whether the token goes along."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
+
+_NO_REDIRECT = urllib.request.build_opener(_NoRedirect, urllib.request.HTTPSHandler(context=_SSL))
+
+
 class PlanningCenterError(Exception):
     """A call that did not work. `kind` is "auth", "rate", "network" or "http";
     the message is safe to show the operator (it never holds the secret)."""
@@ -306,6 +316,73 @@ class Client:
                 break
             offset += PAGE_SIZE
         return sorted(out, key=lambda i: i["sequence"])
+
+    def _attachments(self, path: str) -> list[dict]:
+        out: list[dict] = []
+        offset = 0
+        for _ in range(MAX_PAGES):
+            doc = self.get(path, {"per_page": PAGE_SIZE, "offset": offset})
+            rows = doc.get("data") or []
+            for row in rows:
+                a = row.get("attributes") or {}
+                out.append({
+                    "id": str(row.get("id")),
+                    "name": str(a.get("display_name") or a.get("filename") or ""),
+                    "filename": str(a.get("filename") or ""),
+                    "content_type": str(a.get("content_type") or "").lower(),
+                    "size": int(a.get("file_size") or 0),
+                    "url": str(a.get("url") or ""),
+                    "linked": bool(a.get("linked_url")),
+                    "updated_at": str(a.get("updated_at") or ""),
+                })
+            if len(rows) < PAGE_SIZE:
+                break
+            offset += PAGE_SIZE
+        return out
+
+    def plan_attachments(self, service_type: str, plan_id: str) -> list[dict]:
+        """Files attached to the plan itself (#209)."""
+        return self._attachments(f"/services/v2/service_types/{service_type}/plans/{plan_id}/attachments")
+
+    def item_attachments(self, service_type: str, plan_id: str, item_id: str) -> list[dict]:
+        """Files attached to one plan item (#209)."""
+        return self._attachments(
+            f"/services/v2/service_types/{service_type}/plans/{plan_id}/items/{item_id}/attachments")
+
+    def stream_file(self, url: str, limit: int):
+        """The bytes of an attachment, in chunks, never more than `limit`. The address comes from Planning Center's
+        own answer, so only https to a named host is followed; the token goes only to Planning Center's hosts and
+        is dropped when a redirect leaves them (the file itself is usually on a signed storage address)."""
+        for _ in range(5):
+            parts = urllib.parse.urlsplit(url)
+            host = (parts.hostname or "").lower()
+            if (parts.scheme != "https" or not host or host == "localhost" or re.fullmatch(r"[\d.:]+|\[.*\]", host)):
+                raise PlanningCenterError("http", "Planning Center gave an address Relay will not fetch.")
+            ours = host == "planningcenteronline.com" or host.endswith(".planningcenteronline.com")
+            headers = self._headers() if ours else {"User-Agent": user_agent()}
+            headers["Accept"] = "*/*"
+            req = urllib.request.Request(url, headers=headers)
+            try:
+                resp = _NO_REDIRECT.open(req, timeout=TIMEOUT_S)
+            except urllib.error.HTTPError as exc:
+                if exc.code in (301, 302, 303, 307, 308) and exc.headers.get("Location"):
+                    url = urllib.parse.urljoin(url, exc.headers["Location"])
+                    continue
+                raise PlanningCenterError("http", f"Planning Center answered HTTP {exc.code} for a file.",
+                                          status=exc.code) from None
+            except (urllib.error.URLError, TimeoutError, OSError):
+                raise PlanningCenterError("network", "Could not download a file from Planning Center.") from None
+            with resp:
+                sent = 0
+                while True:
+                    chunk = resp.read(256 * 1024)
+                    if not chunk:
+                        return
+                    sent += len(chunk)
+                    if sent > limit:
+                        raise PlanningCenterError("http", "A Planning Center file is larger than signage keeps.")
+                    yield chunk
+        raise PlanningCenterError("http", "Planning Center sent a file address that kept redirecting.")
 
     def team_members(self, service_type: str, plan_id: str) -> list[dict]:
         """Who is scheduled on the plan (#148): one row per person per position, with the team, the answer
@@ -567,8 +644,11 @@ def clean_stored(raw: Any) -> dict:
                 and re.fullmatch(r"\d{4}-\d{2}-\d{2}", str(o.get("day") or ""))):
             overrides[str(st)] = {"plan": str(o["plan"]), "day": str(o["day"])}
     from .rundown import clean_rundown
+    from .signagesync import clean_signage_settings
 
     return {
+        # Plan files and announcements as signage items (#209, signagesync.py).
+        "signage": clean_signage_settings(raw.get("signage"), {}),
         "app_id": str(raw.get("app_id") or "").strip(),
         "secret": str(raw.get("secret") or "").strip(),
         "service_types": ids[:200],

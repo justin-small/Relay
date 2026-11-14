@@ -118,3 +118,24 @@
         and rosters shrink to fit. Move LIVE from this page or from a panel.</div>
       <div class="note" id="rdSetMsg"></div>
     </section>
+    {# Plan files and announcements as signage items (#209, signagesync.py). #}
+    <section id="sgBox" hidden>
+      <h3>Plan files on signage screens <span class="count" id="sgSum"></span></h3>
+      <p class="note">Copies the pictures and videos attached to the current or next plan, and to its items, into the signage media library, and can keep a signage playlist called <em>Planning Center plan</em> in step with them. Relay looks again every five minutes and when you press Sync now. A file is downloaded once and again only when it changes in Planning Center. Off until you switch it on. Needs the Signage module.</p>
+      <div class="row">
+        <div class="field"><label for="sgType">Service type</label><select id="sgType"></select></div>
+        <div class="field"><label for="sgMatch">Only plan items whose title has</label><input id="sgMatch" placeholder="Announcements"></div>
+      </div>
+      <label class="check"><input type="checkbox" id="sgItemFiles"> <span>Files attached to plan items</span></label>
+      <label class="check"><input type="checkbox" id="sgPlanFiles"> <span>Files attached to the plan itself<br><span class="muted">Left out while a plan item word is set.</span></span></label>
+      <label class="check"><input type="checkbox" id="sgText"> <span>A text slide for each plan item<br><span class="muted">The item's title, with the item note in the category named below. Notes can be private, so name one only if it is meant for screens.</span></span></label>
+      <div class="row"><div class="field"><label for="sgNote">Note category for text slides</label><input id="sgNote" placeholder="Announcement"></div></div>
+      <label class="check"><input type="checkbox" id="sgPlaylist"> <span>Keep the signage playlist up to date<br><span class="muted">Rewritten each time; an item that stays keeps its time and dates.</span></span></label>
+      <label class="check"><input type="checkbox" id="sgOn"> <span>Copy plan files into signage</span></label>
+      <div class="ctl">
+        <button type="button" class="primary" id="sgSave">Save</button>
+        <button type="button" id="sgSync">Sync now</button>
+      </div>
+      <div class="note" id="sgState"></div>
+      <div class="note" id="sgMsg"></div>
+    </section>

@@ -23,18 +23,19 @@ class PlanningCenter(Module):
     manifest = Manifest(
         id="planning_center",
         name="Planning Center",
-        version="1.1.0",
+        version="1.2.0",
         summary="Shows today's service plan and its LIVE item on caption panels, lets chosen panels move "
                 "Services LIVE on, and puts the full rundown (clock times, teams, song leaders and mics) on /screen.",
         settings_key="planning_center",
         guide="https://github.com/justin-small/relay#planning-center-services-live",
+        uses=("signage",),
     )
     defaults = {"app_id": "", "secret": "", "service_types": [], "plan_overrides": {}, "show_notes": False,
-                "rundown": {}}
+                "rundown": {}, "signage": {}}
     admin_pages = (AdminPage(
         id="planningcenter", title="Planning Center", template="admin.html", group="Automation",
         icon='<path d="M3 13V6l5-4 5 4v7zM6.5 13V9h3v4"/>'),)
-    admin_scripts = ("planningcenter.js", "pcrundown.js")
+    admin_scripts = ("planningcenter.js", "pcrundown.js", "pcsignage.js")
     route_prefixes = ("/api/admin/planning-center", "/api/panels/{panel_id}/service/")
     permissions = (
         Permission("planning_center.view", "See the Planning Center setup and plan", "Planning Center", "viewer"),
@@ -68,30 +69,45 @@ class PlanningCenter(Module):
     def attach(self) -> None:
         from ... import config, engine as enginemod
         from ...panels import registry as panel_registry
+        from ..signage import sources as signage_sources
+        from . import signagesync
         from .servicefeed import feed
 
         # A service type followed or dropped reaches open panel pickers at once.
         feed.on_offered_change = enginemod.engine._push_status
         # The service types a panel may be set to show or control.
         panel_registry.followed_service_types = lambda: list(config.get()["planning_center"]["service_types"])
+        # Plan item text slides (#209) are a kind of signage item; signage skips them while this module is off.
+        signage_sources.register(signage_sources.Source(
+            kind=signagesync.KIND, label="Planning Center plan item", resolve=signagesync.source_resolve,
+            describe=signagesync.source_describe, choices=signagesync.source_choices))
 
     def detach(self) -> None:
         from ...panels import registry as panel_registry
+        from ..signage import sources as signage_sources
+        from . import signagesync
         from .servicefeed import feed
 
         feed.on_offered_change = None
         panel_registry.followed_service_types = lambda: []
+        signage_sources.unregister(signagesync.KIND)
+        signagesync.memory.forget()
 
     async def start(self) -> None:
         from .pclive import follower
+        from .signagesync import sync as signage_sync
 
         # Idle until a token is saved and a service type followed.
         follower.start()
+        # Idle until plan files for signage are switched on and a service type is picked.
+        signage_sync.start()
 
     async def stop(self) -> None:
         from .pclive import follower
+        from .signagesync import sync as signage_sync
 
         follower.cancel()
+        signage_sync.cancel()
 
     def health(self) -> Health:
         from ... import config
