@@ -29,6 +29,7 @@ class Invalid(Exception):
 
     def __init__(self, text: str, status: int = 400):
         super().__init__(text)
+        self.message = text
         self.status = status
 
 

@@ -46,6 +46,7 @@ class Refused(Exception):
 
     def __init__(self, text: str, status: int = 400):
         super().__init__(text)
+        self.message = text
         self.status = status
 
 
@@ -91,17 +92,26 @@ def file_name(sha: str, ext: str) -> str:
     return f"{sha}.{ext}"
 
 
+def _inside(folder: Path, name: str) -> Path | None:
+    """`folder/name` when it is a file directly inside `folder` once links and dots are resolved, else None."""
+    base = os.path.realpath(folder)
+    full = os.path.realpath(os.path.join(base, name))
+    if not full.startswith(base + os.sep) or not os.path.isfile(full):
+        return None
+    return Path(full)
+
+
 def file_path(name: str) -> Path | None:
     """The stored file for a public file name, or None when the name is not one of ours or the file is gone."""
     if not FILE_RE.match(name):
         return None
-    p = media_dir() / name
-    return p if p.is_file() else None
+    return _inside(media_dir(), name)
 
 
 def thumb_path(sha: str) -> Path | None:
-    p = thumbs_dir() / f"{sha}.webp"
-    return p if re.fullmatch(r"[0-9a-f]{64}", sha) and p.is_file() else None
+    if not re.fullmatch(r"[0-9a-f]{64}", sha):
+        return None
+    return _inside(thumbs_dir(), f"{sha}.webp")
 
 
 async def receive(chunks) -> tuple[str, str, int]:

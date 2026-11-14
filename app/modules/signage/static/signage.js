@@ -404,8 +404,10 @@
   /* A 320×180 WebP of the image or a frame a second into the video, with its size and length. */
   function describeFile(file) {
     return new Promise(function (resolve) {
-      const url = URL.createObjectURL(file);
       const info = { width: 0, height: 0, duration: 0, thumb: null };
+      const url = URL.createObjectURL(file);
+      // Only ever a blob: address made here from the chosen file.
+      if (!/^blob:/.test(url)) { resolve(info); return; }
       function draw(src, w, h) {
         try {
           const c = document.createElement('canvas'); c.width = 320; c.height = 180;
@@ -428,12 +430,12 @@
         };
         v.onseeked = function () { if (v.videoWidth) draw(v, v.videoWidth, v.videoHeight); else done(); };
         v.onerror = done;
-        v.src = url;
+        v.src = encodeURI(url);
       } else {
         const i = new Image();
         i.onload = function () { info.width = i.naturalWidth; info.height = i.naturalHeight; draw(i, i.naturalWidth, i.naturalHeight); };
         i.onerror = done;
-        i.src = url;
+        i.src = encodeURI(url);
       }
     });
   }

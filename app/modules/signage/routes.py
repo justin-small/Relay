@@ -42,7 +42,7 @@ def _templates():
 
 def _refuse(exc: Exception) -> JSONResponse:
     if isinstance(exc, (store.Invalid, media.Refused)):
-        return JSONResponse({"error": str(exc)}, status_code=exc.status)
+        return JSONResponse({"error": exc.message}, status_code=exc.status)
     if isinstance(exc, db.Unavailable):
         return JSONResponse({"error": "The database is not available right now. Try again in a moment."},
                             status_code=503)
