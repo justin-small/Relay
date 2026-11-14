@@ -1,0 +1,140 @@
+<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Relay · Planning Center rundown admin (mockup, #148)</title>
+<style>
+  :root { --bg:#000; --fg:#f4f4f5; --dim:#8b93a1; --line:#1f2024; --accent:#4ade80;
+          --warn:#fbbf24; --err:#f87171; --card:#0a0b0d; --btn:#1a1c21; --blue:#2f6df6; --live:#e5484d; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg); font:14px/1.45 -apple-system,system-ui,sans-serif; }
+  .topbar { position:sticky; top:0; z-index:10; background:var(--bg); display:flex; align-items:center; gap:12px; padding:12px 20px; border-bottom:1px solid var(--line); }
+  .topbar h1 { font-size:19px; margin:0; font-weight:600; }
+  .spacer { flex:1; } .muted { color:var(--dim); }
+  button { padding:8px 14px; font:inherit; font-weight:500; border-radius:7px; border:1px solid var(--line); background:var(--btn); color:var(--fg); cursor:pointer; }
+  button:disabled { opacity:.4; cursor:not-allowed; }
+  button.primary { background:var(--blue); border-color:var(--blue); font-weight:600; }
+  button.sm { padding:4px 10px; font-size:12px; }
+  button.danger { color:var(--err); }
+  input, select { background:#0b0c0f; color:var(--fg); border:1px solid #2a2d33; border-radius:7px; padding:7px 10px; font:inherit; }
+  .layout { display:grid; grid-template-columns:220px 1fr; min-height:calc(100vh - 54px); }
+  nav { border-right:1px solid var(--line); padding:14px 10px; }
+  nav .grp { font-size:11px; letter-spacing:.13em; text-transform:uppercase; color:var(--dim); padding:12px 10px 6px; font-weight:600; }
+  nav a { display:flex; align-items:center; gap:9px; padding:8px 10px; border-radius:7px; color:#c9cbd1; text-decoration:none; border-left:2px solid transparent; }
+  nav a.on { background:#15171c; color:#fff; border-left-color:var(--blue); font-weight:600; }
+  nav a .badge { margin-left:auto; font-size:11px; color:var(--dim); }
+  main { padding:22px 28px 80px; max-width:980px; }
+  h2 { margin:0 0 4px; font-size:22px; } .sub { color:var(--dim); margin:0 0 18px; }
+  section { border-top:1px solid var(--line); padding:18px 0 8px; margin-top:8px; }
+  h3 { margin:0 0 12px; font-size:15px; display:flex; align-items:center; gap:10px; } h3 .r { margin-left:auto; font-weight:400; }
+  .pill { display:inline-block; padding:2px 9px; border-radius:99px; font-size:12px; font-weight:600; background:#1a1c21; color:#c9cbd1; }
+  .pill.live { background:var(--live); color:#fff; } .pill.ok { background:#123d22; color:var(--accent); } .pill.warn { background:#3d2f0a; color:var(--warn); }
+  .pill.new { background:#0d1d3d; color:#9ec1ff; }
+  table { width:100%; border-collapse:collapse; }
+  th { text-align:left; font-size:11px; letter-spacing:.1em; text-transform:uppercase; color:var(--dim); font-weight:600; padding:6px 8px; border-bottom:1px solid var(--line); }
+  td { padding:8px; border-bottom:1px solid var(--line); vertical-align:middle; }
+  td.n { font-variant-numeric:tabular-nums; } td.late { color:var(--warn); }
+  tr.done td { opacity:.45; } tr.cur td { background:#1b0e10; } tr.cur td:first-child { box-shadow:inset 3px 0 var(--live); }
+  .chip { display:inline-flex; align-items:center; gap:5px; padding:1px 7px; border-radius:6px; background:#15171c; border:1px solid #23262d; font-size:12px; margin-right:4px; }
+  .chip.key { background:#1e1633; border-color:#3a2a63; color:#c8b6ff; font-weight:700; }
+  .chip.mic { background:#0f2230; border-color:#1d4058; color:#8fd1ff; }
+  .livebar { display:flex; align-items:center; gap:10px; flex-wrap:wrap; background:var(--card); border:1px solid var(--line); border-radius:10px; padding:12px 14px; margin-bottom:14px; }
+  .livebar .big { font-size:26px; font-weight:700; font-variant-numeric:tabular-nums; }
+  .note { color:var(--dim); font-size:13px; margin-top:8px; }
+  .kv { display:grid; grid-template-columns:220px 1fr; gap:10px 16px; align-items:center; }
+  .kv > span:nth-child(odd) { color:var(--dim); }
+  .mics { display:flex; gap:6px; flex-wrap:wrap; align-items:center; }
+  .mics .m { display:inline-flex; align-items:center; gap:4px; background:#0f2230; border:1px solid #1d4058; color:#8fd1ff; border-radius:6px; padding:2px 4px 2px 8px; font-size:12px; }
+  .mics .m b { font-weight:500; cursor:pointer; color:#6b9ec1; padding:0 4px; }
+  code { color:#9ec1ff; background:#0b0c0f; padding:2px 6px; border-radius:5px; }
+  .callout { background:#0d1322; border:1px solid #1e2a4a; border-radius:8px; padding:10px 12px; font-size:13px; color:#c9cbd1; margin:10px 0; }
+</style></head><body>
+<div class="topbar">
+  <h1>Relay</h1><span class="pill live">LIVE · Sunday 9:00</span>
+  <span class="spacer"></span><span class="muted">Jen Park · Operator</span><button>Sign out</button>
+</div>
+<div class="layout">
+<nav>
+  <div class="grp">Live</div><a>Captions</a><a>Panels</a>
+  <div class="grp">Modules</div><a>ProPresenter</a><a class="on">Planning Center<span class="badge" style="color:var(--accent)">On</span></a><a>Alerts</a>
+  <div class="grp">Settings</div><a>Users</a><a>Modules</a>
+</nav>
+<main>
+  <h2>Planning Center <span class="pill ok">Connected</span></h2>
+  <p class="sub">Follow the service plan and show it on panels and <code>/screen</code>.</p>
+
+  <!-- NEW: RUNDOWN + LIVE -->
+  <section>
+    <h3>Rundown <span class="pill new">new</span>
+      <span class="r"><label class="muted">Service time</label> <select><option>Auto · 9:00 (now)</option><option>9:00</option><option>11:00</option></select></span></h3>
+    <div class="livebar">
+      <span class="pill live">LIVE</span>
+      <div><div style="font-weight:600">Way Maker</div><div class="muted" style="font-size:12px">Started 9:09 · planned 9:07 · run by Jen Park (you)</div></div>
+      <span class="big" style="margin-left:14px">1:48</span><span class="muted">left</span>
+      <span class="spacer"></span>
+      <button>Previous</button><button class="primary">Next</button><button>Release</button>
+    </div>
+    <div class="note" style="margin:-6px 0 12px">Same rules as panel presses: runs as the token's owner, Take control is offered when someone else has LIVE, and every press is listed under “Presses”.</div>
+    <table>
+      <tr><th>Planned</th><th>Actual / proj.</th><th>Item</th><th>Leader</th><th>Mics</th><th>Length</th></tr>
+      <tr class="done"><td class="n">8:55</td><td class="n">8:55</td><td><span class="muted">Pre-service ·</span> Countdown + walk-in</td><td></td><td></td><td class="n">5:00</td></tr>
+      <tr class="done"><td class="n">9:00</td><td class="n late">9:01</td><td>Welcome</td><td></td><td></td><td class="n">2:00</td></tr>
+      <tr class="done"><td class="n">9:02</td><td class="n late">9:03</td><td>Build My Life <span class="chip key">G</span></td><td>Sarah Lee</td><td><span class="chip mic">1 Sarah</span><span class="chip mic">3 Ana</span><span class="chip mic">4 Priya</span></td><td class="n">5:00</td></tr>
+      <tr class="cur"><td class="n">9:07</td><td class="n late">9:09 ▶</td><td>Way Maker <span class="chip key">E</span></td><td>Tom Reyes</td><td><span class="chip mic">2 Tom</span><span class="chip mic">3 Ana</span><span class="chip mic">4 Priya</span></td><td class="n">6:00</td></tr>
+      <tr><td class="n">9:13</td><td class="n late">9:15</td><td>Announcements</td><td></td><td></td><td class="n">4:00</td></tr>
+      <tr><td class="n">9:17</td><td class="n late">9:19</td><td>Offering · Goodness of God <span class="chip key">A</span></td><td>Ana Cruz</td><td><span class="chip mic">3 Ana</span><span class="chip mic">4 Priya</span></td><td class="n">5:00</td></tr>
+      <tr><td class="n">9:22</td><td class="n late">9:24</td><td>Sermon · Rooted</td><td></td><td></td><td class="n">32:00</td></tr>
+      <tr><td class="n">9:54</td><td class="n late">9:56</td><td>Response · Graves Into Gardens <span class="chip key">B</span></td><td>Sarah Lee</td><td><span class="chip mic">1 Sarah</span><span class="chip mic">3 Ana</span></td><td class="n">5:00</td></tr>
+      <tr><td class="n">9:59</td><td class="n late">10:01</td><td>Benediction</td><td></td><td></td><td class="n">2:00</td></tr>
+      <tr><td class="n">10:01</td><td class="n late">10:03</td><td><span class="muted">Post-service ·</span> Walk-out loop</td><td></td><td></td><td class="n">10:00</td></tr>
+    </table>
+    <div class="note">Planned times come from the service time and item lengths. Once LIVE starts, everything after the current item is re-projected from when it actually started. Running +2:00, projected end 10:03.</div>
+  </section>
+
+  <!-- NEW: MICS -->
+  <section>
+    <h3>Mics by position <span class="pill new">new</span><span class="r muted">Feeds #150 (names to the desk)</span></h3>
+    <table>
+      <tr><th>Team</th><th>Position</th><th>Mics</th><th>This plan · 9:00</th><th></th></tr>
+      <tr><td>Vocals</td><td>Worship Leader</td><td><div class="mics"><span class="m">Mic 1<b>×</b></span><button class="sm">+ mic</button></div></td><td>Sarah Lee → Mic 1</td><td></td></tr>
+      <tr><td>Vocals</td><td>Vocals</td><td><div class="mics"><span class="m">Mic 3<b>×</b></span><span class="m">Mic 4<b>×</b></span><button class="sm">+ mic</button></div></td>
+        <td>Ana Cruz → Mic 3<br>Priya Shah → Mic 4 <span class="muted" style="font-size:12px">· drawn at random 8:02</span></td><td><button class="sm">Redraw</button></td></tr>
+      <tr><td>Band</td><td>Acoustic Guitar</td><td><div class="mics"><span class="m">Mic 2<b>×</b></span><button class="sm">+ mic</button></div></td><td>Tom Reyes → Mic 2</td><td></td></tr>
+      <tr><td>Band</td><td>Keys</td><td><div class="mics"><button class="sm">+ mic</button></div></td><td class="muted">no mic</td><td></td></tr>
+      <tr><td>Production</td><td>Host</td><td><div class="mics"><span class="m">Mic 5<b>×</b></span><span class="m">Mic 6<b>×</b></span><button class="sm">+ mic</button></div></td>
+        <td><span class="pill warn">1 of 2 filled</span> Jo Lin → Mic 6 <span class="muted" style="font-size:12px">· Mic 5 spare</span></td><td><button class="sm">Redraw</button></td></tr>
+    </table>
+    <div class="callout">A position with more than one accepted person gets one mic per person, drawn at random from that position's mics. The draw is made once per plan and service time and then stays put (it doesn't reshuffle on every refresh). It's redrawn only when someone accepts or drops out, or when you press Redraw. If more people accept than there are mics, the extras show <b>“no mic”</b> with a warning.</div>
+    <div class="note">Positions are read from Planning Center's teams for the service types Relay follows. The list fills itself; you only add mics.</div>
+  </section>
+
+  <!-- NEW: NOTE FIELDS -->
+  <section>
+    <h3>Fields from plan notes <span class="pill new">new</span></h3>
+    <div class="kv">
+      <span>Song leader</span><span><select><option>Item note “Leader”</option><option>Position: Worship Leader</option><option>Item note “Vocal Lead”</option></select> <span class="muted">falls back to the Worship Leader position</span></span>
+      <span>Sermon notes</span><span><select><option>Item note “Sermon Notes”</option><option>Item note “Message Outline”</option><option>Item description</option></select></span>
+      <span>Show on <code>/screen</code></span><span><label><input type="checkbox" checked> Photos</label> &nbsp; <label><input type="checkbox" checked> Pending and declined people</label> &nbsp; <label><input type="checkbox" checked> Unfilled positions</label></span>
+    </div>
+    <div class="note">Names, photos and notes go to <code>/screen</code> only. The panels' Service feed and the audience caption pages never carry them.</div>
+  </section>
+
+  <!-- NEW: SCREEN LINK -->
+  <section>
+    <h3>Rundown on /screen <span class="pill new">new</span></h3>
+    <div class="kv">
+      <span>View</span><span><select><option>Full rundown (replaces captions)</option><option>Side column beside captions</option><option>Micboard</option></select></span>
+      <span>Layout</span><span><select><option>All items (fit to screen)</option><option>Now + next 3</option></select></span>
+      <span>People cards</span><span><select><option>One per person</option><option>One per position</option></select></span>
+      <span>Teams</span><span><select><option>All teams</option><option>Band</option><option>Vocals</option><option>Production</option></select></span>
+      <span>Service time</span><span><select><option>Auto</option><option>9:00</option><option>11:00</option></select></span>
+      <span>Link</span><span><code>/screen?rundown=full&amp;layout=fit&amp;cards=person</code> <button class="sm">Copy</button></span>
+    </div>
+    <div class="note"><code>/screen</code> is display-only: no scrolling, no buttons. Everything fits one screen (long notes and rosters shrink to fit). Previous and Next are driven from here or from a panel.</div>
+  </section>
+
+  <section>
+    <h3 class="muted" style="color:var(--dim)">Connection · Service types · Display · Today · Presses <span class="r">(unchanged)</span></h3>
+  </section>
+</main>
+</div>
+</body></html>
