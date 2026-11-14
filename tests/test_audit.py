@@ -163,10 +163,12 @@ check("a route with no note of its own is recorded from the table when it succee
 core_changes = sorted({rt.name for rt in app.routes if isinstance(rt, APIRoute)
                        and rt.path.startswith("/api/admin/") and rt.methods & {"POST", "PUT", "PATCH", "DELETE"}
                        and rt.endpoint.__module__ == "app.main"})
-missing = [n for n in core_changes if n not in M.AUDIT_ROUTES]
+missing = [n for n in core_changes if n not in M.AUDIT_ROUTES and n not in M.AUDIT_SKIP]
 check("every core admin route that changes something has an audit entry in main.AUDIT_ROUTES", not missing, missing)
 check("…and every entry there is a route that exists", set(M.AUDIT_ROUTES) <= set(core_changes),
       sorted(set(M.AUDIT_ROUTES) - set(core_changes)))
+check("…and every route skipped exists and is not also listed", M.AUDIT_SKIP <= set(core_changes)
+      and not M.AUDIT_SKIP & set(M.AUDIT_ROUTES), sorted(M.AUDIT_SKIP))
 
 # A module's route: nothing in core names it, and it is still recorded.
 from fastapi import APIRouter, Depends, Request  # noqa: E402

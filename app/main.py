@@ -28,7 +28,7 @@ from jinja2 import ChoiceLoader, FileSystemLoader, PrefixLoader
 
 from . import alerts as alertsmod
 from . import announce as announcemod
-from . import audit, config, db, exporting, importdocker, languages, netinfo, overlays, panelfw, panels, redact, schedules, serving, setupcode, streamstatus, tls, users
+from . import audit, config, db, exporting, importdocker, languages, netinfo, overlays, panelfw, panels, prefs, redact, schedules, serving, setupcode, streamstatus, tls, users
 from .alerts import alerts
 from . import engine as engine_mod
 from .engine import TRANSCRIPTION_STREAM, TRANSLATION_STREAM, demo_mode, engine
@@ -242,6 +242,10 @@ AUDIT_ROUTES = {
     "admin_device_revoke": ("device.revoke", "Forgot a trusted device"),
 }
 
+# Core admin routes that change something but are not entered in the audit log: a person's own preferences
+# (#173) are theirs, not a change to Relay, and a page saving a layout would bury the log.
+AUDIT_SKIP = frozenset({"admin_me_pref_set", "admin_me_pref_delete"})
+
 
 def _audit_default(request: Request) -> dict:
     """The entry for an admin change whose route noted nothing itself."""
@@ -266,7 +270,8 @@ async def _audit_changes(request: Request, call_next):
     """Every change made through /api/admin goes in the audit log, with who made it, once it succeeded."""
     response = await call_next(request)
     if (request.method in _AUDIT_METHODS and request.url.path.startswith("/api/admin/")
-            and response.status_code < 400):
+            and response.status_code < 400
+            and getattr(request.scope.get("route"), "name", "") not in AUDIT_SKIP):
         user = getattr(request.state, "user", None)
         if isinstance(user, User):
             notes = audit.pending(request) or [_audit_default(request)]
@@ -1377,6 +1382,7 @@ def _me_payload(request: Request, user: User) -> dict:
         "permissions": sorted(user.permissions()),
         "pin_set": user.pin_set,
         "device": {"trusted": device is not None, "name": device["name"] if device else None},
+        "prefs": prefs.all_prefs(user.id) if user.id else {},
     }
 
 
@@ -2420,6 +2426,42 @@ def admin_me_pin(request: Request, payload: dict):
 def admin_me_pin_clear(request: Request):
     users.clear_pin(request.state.user.id)
     return {"ok": True, "pin_set": False}
+
+
+def _pref_scope(scope: str) -> str:
+    """A scope the API accepts: core's, or a module that exists (its own code may use any scope it likes)."""
+    if scope != prefs.CORE and module_registry.get(scope) is None:
+        raise HTTPException(404, "There is no such preference scope.")
+    return scope
+
+
+@app.get("/api/admin/me/prefs", dependencies=[Depends(require(None))])
+def admin_me_prefs(request: Request):
+    """The signed-in user's own preferences (#173), as {scope: {name: value}}. They follow the person to every
+    device. An API token reads and writes its user's, like everything else it may do."""
+    uid = request.state.user.id
+    return {"prefs": prefs.all_prefs(uid) if uid else {}}
+
+
+@app.put("/api/admin/me/prefs/{scope}/{name}", dependencies=[Depends(require(None))])
+def admin_me_pref_set(request: Request, scope: str, name: str, payload: dict):
+    """Set one of the signed-in user's preferences: {"value": <JSON>}. A null value removes it."""
+    if "value" not in payload:
+        raise HTTPException(400, "Send the preference as {\"value\": ...}.")
+    try:
+        prefs.set(request.state.user.id, name, payload["value"], scope=_pref_scope(scope))
+    except prefs.Invalid as e:
+        raise HTTPException(400, str(e)) from None
+    return {"ok": True, "scope": scope, "name": name, "value": payload["value"]}
+
+
+@app.delete("/api/admin/me/prefs/{scope}/{name}", dependencies=[Depends(require(None))])
+def admin_me_pref_delete(request: Request, scope: str, name: str):
+    try:
+        gone = prefs.delete(request.state.user.id, name, scope=_pref_scope(scope))
+    except prefs.Invalid as e:
+        raise HTTPException(400, str(e)) from None
+    return {"ok": True, "deleted": gone}
 
 
 @app.get("/api/admin/me/tokens", dependencies=[Depends(require("tokens.own", tokens=False))])
