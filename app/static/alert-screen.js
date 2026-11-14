@@ -1,5 +1,5 @@
-/* A /screen opened with ?alert=<name> (#121): flashes red and white, once a second, over everything while an alert
-   for that name is on, until someone taps, clicks or presses a key here, or the alert ends elsewhere. */
+/* A /screen opened with ?alert=<name> (#121): flashes red and white (by level, #215: steady blue for info, amber for
+   attention), once a second, over everything while an alert for that name is on, until someone taps, clicks or presses a key here, or the alert ends elsewhere. */
 (function () {
   'use strict';
 
@@ -10,8 +10,13 @@
   const toEl = document.getElementById('alertTo');
   let current = null;   // the alert flashing now: {id, from, to}
 
+  const LEVELS = { info: 1, attention: 1, urgent: 1 };
+  // Info is steady blue, attention flashes amber, urgent flashes red and white (#215). An alert with none is urgent, a message info.
+  function levelOf(msg, fallback) { return LEVELS[msg.level] ? msg.level : fallback; }
+
   function show(msg) {
     current = msg;
+    overlay.dataset.level = levelOf(msg, 'urgent');
     fromEl.textContent = msg.from || 'Someone';
     toEl.textContent = 'needs ' + (msg.to || name) + ' · tap anywhere';
     overlay.hidden = false;
@@ -58,7 +63,7 @@
   const card = document.getElementById('stageMessage');
   const cardFrom = document.getElementById('stageFrom');
   const cardText = document.getElementById('stageText');
-  const live = {};   // id -> {banner, text, from, timer}
+  const live = {};   // id -> {banner, text, from, level, timer}
 
   function paintMessages() {
     let b = null;
@@ -67,9 +72,10 @@
       if (live[id].banner) b = live[id]; else m = live[id];
     });
     banner.hidden = !b;
-    if (b) banner.textContent = b.text;
+    if (b) { banner.textContent = b.text; banner.dataset.level = b.level; }
     card.hidden = !m;
     if (m) {
+      card.dataset.level = m.level;
       cardFrom.textContent = m.from ? 'From ' + m.from : '';
       cardText.textContent = m.text;
     }
@@ -85,7 +91,7 @@
   function showMessage(msg) {
     dropMessage(msg.id);
     live[msg.id] = {
-      banner: !!msg.banner, text: String(msg.text || ''), from: String(msg.from || ''),
+      banner: !!msg.banner, text: String(msg.text || ''), from: String(msg.from || ''), level: levelOf(msg, 'info'),
       // The timer is a backstop if Relay's end never arrives.
       timer: setTimeout(function () { dropMessage(msg.id); }, ((msg.ends_in_s || 10) + 5) * 1000),
     };

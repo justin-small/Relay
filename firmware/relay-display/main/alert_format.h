@@ -19,6 +19,10 @@
 //
 // The flash rate is Relay's to say but never faster than twice a second, whatever it says: above three a second,
 // flashing is a seizure risk.
+//
+// **Levels (#215).** An alert or a stage message has a level, `"level":"info"|"attention"|"urgent"`, which sets its
+// colour and whether it flashes: info is a steady blue, attention flashes amber and dark, urgent flashes red and
+// white. An alert with no level (an older Relay) is urgent and a message with none is info, as before levels.
 
 #include <cstddef>
 #include <cstdint>
@@ -35,6 +39,54 @@ constexpr uint32_t kAlertFlashMaxHz = 2;
 constexpr uint32_t kAlertEndsMaxS = 600;
 constexpr size_t kMessageTextBytes = 161;  // a stage message (#214): up to 80 characters, folded to ASCII for drawing
 constexpr uint32_t kMessageEndsMaxS = 3600;
+
+enum class alert_level : uint8_t { info, attention, urgent };
+
+// The `level` at `obj`, or `fallback` when it is missing or not one of the three.
+inline alert_level alert_level_parse(const char *obj, const char *e, alert_level fallback)
+{
+    char word[16];
+    size_t n = 0;
+    const char *v = caption_json::get(obj, e, "level");
+    if (v == nullptr || !caption_json::read_string(v, e, word, sizeof word, &n)) {
+        return fallback;
+    }
+    if (strcmp(word, "info") == 0) {
+        return alert_level::info;
+    }
+    if (strcmp(word, "attention") == 0) {
+        return alert_level::attention;
+    }
+    if (strcmp(word, "urgent") == 0) {
+        return alert_level::urgent;
+    }
+    return fallback;
+}
+
+// Only info is steady.
+inline bool alert_level_flashes(alert_level level)
+{
+    return level != alert_level::info;
+}
+
+// A level's two looks as 0xRRGGBB: `lit` is the first half of each flash (and all of a steady one), `dim` the second.
+struct alert_look {
+    uint32_t bg;
+    uint32_t fg;
+};
+
+inline alert_look alert_level_look(alert_level level, bool lit)
+{
+    switch (level) {
+    case alert_level::info:
+        return {0x1F52C2, 0xFFFFFF};
+    case alert_level::attention:
+        return lit ? alert_look{0xF5B342, 0x111111} : alert_look{0x1A1204, 0xF5B342};
+    case alert_level::urgent:
+        break;
+    }
+    return lit ? alert_look{0xE00000, 0xFFFFFF} : alert_look{0xFFFFFF, 0xB00000};
+}
 
 enum class alert_button_state : uint8_t { idle, on, seen, missed, cancelled };
 
@@ -221,6 +273,7 @@ struct alert_flash {
     char to[kAlertNameBytes] = {};
     uint32_t ends_in_s = 0;  // how long until Relay's auto-stop, when it was sent
     uint32_t hz = 1;         // flashes a second: 1 or 2
+    alert_level level = alert_level::urgent;   // #215: an alert with none is urgent
 };
 
 // The `alert` object at `obj` (an event-stream message). False unless it has an alert id; the rest is defaulted.
@@ -250,6 +303,7 @@ inline bool alert_flash_parse(const char *obj, const char *e, alert_flash *out)
     f.hz = v != nullptr && caption_json::read_uint(v, e, &num) && num >= 1
                ? static_cast<uint32_t>(num > kAlertFlashMaxHz ? kAlertFlashMaxHz : num)
                : 1;
+    f.level = alert_level_parse(obj, e, alert_level::urgent);
     *out = f;
     return true;
 }
@@ -263,6 +317,7 @@ struct alert_message {
     char text[kMessageTextBytes] = {};
     bool banner = false;
     uint32_t ends_in_s = 0;
+    alert_level level = alert_level::info;   // #215: a message with none is info
 };
 
 // The `message` object at `obj`. False unless it has a message id and some words.
@@ -293,6 +348,7 @@ inline bool alert_message_parse(const char *obj, const char *e, alert_message *o
     m.ends_in_s = v != nullptr && caption_json::read_uint(v, e, &num) && num > 0
                       ? static_cast<uint32_t>(num > kMessageEndsMaxS ? kMessageEndsMaxS : num)
                       : kMessageEndsMaxS;
+    m.level = alert_level_parse(obj, e, alert_level::info);
     *out = m;
     return true;
 }

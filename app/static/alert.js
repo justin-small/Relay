@@ -19,6 +19,12 @@
   if (!account) {
     try { sender = localStorage.getItem(NAME_KEY) || ''; } catch (e) { /* private window: ask each visit */ }
   }
+  const levelPick = document.getElementById('levelPick');
+  // The level to send at (#215): empty means each button's and message's own. Not kept between visits, so an
+  // urgent pick is never still set the next time someone opens the page.
+  function pickedLevel() {
+    return levelPick.value ? { level: levelPick.value } : {};
+  }
   let rows = [];
   let receivedAt = 0;   // when the last state arrived, so ages keep counting between messages
 
@@ -129,7 +135,7 @@
     fetch('/api/alerts/' + encodeURIComponent(row.id) + '/send', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ from: sender }),
+      body: JSON.stringify(Object.assign({ from: sender }, pickedLevel())),
     }).then(function (r) {
       return r.json().then(function (body) {
         if (!r.ok) throw new Error(body.error || body.detail || 'Relay refused it');
@@ -191,7 +197,7 @@
 
   function sendMessage(payload) {
     if (!sender) { showName(); toast('Say who you are first'); return Promise.resolve(); }
-    return postMessage('/api/alerts/messages/send', Object.assign({ from: sender }, payload));
+    return postMessage('/api/alerts/messages/send', Object.assign({ from: sender }, pickedLevel(), payload));
   }
 
   function renderMessages() {
@@ -205,11 +211,12 @@
     m.presets.forEach(function (p) {
       const b = document.createElement('button');
       b.type = 'button';
-      b.className = 'msg-btn' + (showing[p.id] ? ' showing' : '');
+      b.className = 'msg-btn lvl-' + (p.level || 'info') + (showing[p.id] ? ' showing' : '');
       b.textContent = p.text;
-      if (p.banner) {
+      const kind = [p.banner ? 'Banner' : '', p.level && p.level !== 'info' ? p.level : ''].filter(Boolean).join(' · ');
+      if (kind) {
         const tag = document.createElement('small');
-        tag.textContent = 'Banner';
+        tag.textContent = kind;
         b.appendChild(tag);
       }
       b.addEventListener('click', function () { sendMessage({ preset: p.id }); });

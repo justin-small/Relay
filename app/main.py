@@ -1216,7 +1216,7 @@ async def alert_message_send(request: Request):
         sender = alertsmod.clean_name((await _alert_account(request)).name)
     try:
         return {"ok": True, **alerts.send_message(sender, preset=body.get("preset"), text=body.get("text"),
-                                                  banner=body.get("banner"))}
+                                                  banner=body.get("banner"), level=body.get("level"))}
     except alertsmod.Refused as exc:
         return _alert_refused(exc)
 
@@ -1274,7 +1274,7 @@ async def alert_send(button_id: str, request: Request):
     elif _alert_signin_required():
         sender = alertsmod.clean_name((await _alert_account(request)).name)
     try:
-        return {"ok": True, **alerts.press(button_id, sender)}
+        return {"ok": True, **alerts.press(button_id, sender, body.get("level"))}
     except alertsmod.Refused as exc:
         return _alert_refused(exc)
 

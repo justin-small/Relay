@@ -2432,6 +2432,31 @@ void check_alerts()
     sm.ends_in_s = 10;
     CHECK(!alert_message_expired(sm, 14999) && alert_message_expired(sm, 15000));
 
+    // Levels (#215): info is steady blue, attention flashes amber, urgent flashes red and white.
+    const char *lvl_alert = R"({"type":"alert","id":"00112233aabbccdd","level":"attention","hz":1})";
+    ev = panel_parse_event(lvl_alert, strlen(lvl_alert));
+    CHECK(ev.kind == panel_message::alert && ev.alert.level == alert_level::attention);
+    const char *lvl_info = R"({"type":"alert","id":"00112233aabbccdd","level":"info","hz":0})";
+    ev = panel_parse_event(lvl_info, strlen(lvl_info));
+    CHECK(ev.alert.level == alert_level::info && ev.alert.hz == 1);
+    ev = panel_parse_event(flash, strlen(flash));
+    CHECK(ev.alert.level == alert_level::urgent);   // an older Relay sends none: urgent, as before levels
+    const char *lvl_bad = R"({"type":"alert","id":"00112233aabbccdd","level":"loud"})";
+    CHECK(panel_parse_event(lvl_bad, strlen(lvl_bad)).alert.level == alert_level::urgent);
+    const char *lvl_msg = R"({"type":"message","id":"00112233aabbccdd","text":"Go","level":"urgent"})";
+    ev = panel_parse_event(lvl_msg, strlen(lvl_msg));
+    CHECK(ev.kind == panel_message::message && ev.message.level == alert_level::urgent);
+    ev = panel_parse_event(plain, strlen(plain));
+    CHECK(ev.message.level == alert_level::info);   // a message with none is info
+    CHECK(!alert_level_flashes(alert_level::info) && alert_level_flashes(alert_level::attention) &&
+          alert_level_flashes(alert_level::urgent));
+    CHECK(alert_level_look(alert_level::urgent, true).bg == 0xE00000 &&
+          alert_level_look(alert_level::urgent, false).bg == 0xFFFFFF);
+    CHECK(alert_level_look(alert_level::attention, true).bg == 0xF5B342 &&
+          alert_level_look(alert_level::attention, false).bg != 0xF5B342);
+    CHECK(alert_level_look(alert_level::info, true).bg == 0x1F52C2 &&
+          alert_level_look(alert_level::info, false).bg == 0x1F52C2);
+
     // Red then white, half a period each; a panel that lost Relay stops a little after the auto-stop.
     CHECK(alert_flash_red(0, 1) && alert_flash_red(499, 1) && !alert_flash_red(500, 1) && alert_flash_red(1000, 1));
     CHECK(alert_flash_red(0, 2) && !alert_flash_red(250, 2) && alert_flash_red(500, 2));
