@@ -26,7 +26,8 @@ from fastapi.testclient import TestClient  # noqa: E402
 from app import config, serving  # noqa: E402
 from app.main import app  # noqa: E402
 from app.modules import modules as _modules  # noqa: E402
-from app.modules.signage import live, media, sources, store  # noqa: E402
+from app.modules.signage import live, media, schedule, sources, store  # noqa: E402
+from datetime import datetime, timezone  # noqa: E402
 
 fails = []
 
@@ -275,6 +276,136 @@ check("shared file kept while another upload uses it", stored.is_file())
 eq("delete the last upload of a file", admin.delete(f"/api/admin/signage/media/{img['id']}").status_code, 200)
 check("file deleted with it", not stored.exists())
 check("backup copy stays until pruned", (media.mirror_dir() / stored.name).is_file())
+
+print("schedules (#206)")
+UTC = timezone.utc
+pl3 = admin.post("/api/admin/signage/playlists", json={"name": "Events"}).json()
+def at(y, m, d, h, mi=0):
+    return datetime(y, m, d, h, mi, tzinfo=UTC)
+eq("timezone default", config.get()["signage"]["timezone"], "America/New_York")
+eq("bad timezone refused", admin.put("/api/admin/signage/settings", json={"timezone": "Mars/Base"}).status_code, 400)
+eq("bad override setting refused", admin.put("/api/admin/signage/settings", json={"override_until": "never"}).status_code, 400)
+eq("timezone saved", admin.put("/api/admin/signage/settings", json={"timezone": "America/Chicago"}).status_code, 200)
+eq("override setting saved", admin.put("/api/admin/signage/settings", json={"override_until": "cleared"}).status_code, 200)
+admin.put("/api/admin/signage/settings", json={"override_until": "next_change"})
+scr_now = store.screen_by_slug("lobby-left")
+sun = {"target": "screen", "target_id": scr_now["id"], "playlist_id": pl2["id"], "days": [0], "start_time": "09:00", "end_time": "11:30"}
+for bad, why in (({"target": "tv"}, "bad target"), ({"playlist_id": 0}, "no playlist"), ({"days": []}, "no days or dates"),
+                 ({"days": [7]}, "bad day"), ({"start_time": "9am"}, "bad time"), ({"end_time": "09:00"}, "same start and end"),
+                 ({"start_time": "", "end_time": "09:00"}, "one time only"), ({"target_id": 999}, "unknown screen"),
+                 ({"playlist_id": 999}, "unknown playlist"),
+                 ({"start_date": "2026-12-01"}, "one date only"),
+                 ({"start_date": "2026-12-02", "end_date": "2026-12-01"}, "range backwards")):
+    eq("slot refused: " + why, admin.post("/api/admin/signage/slots", json={**sun, **bad}).status_code in (400, 404), True)
+slot = admin.post("/api/admin/signage/slots", json=sun).json()
+eq("slot summary", slot["id"] > 0 and store.slots()[0]["summary"], "Sun 9:00 AM-11:30 AM")
+# 2026-11-15 is a Sunday; Chicago is UTC-6 then.
+def plays(screen, when):
+    return store.resolve(screen, when)
+r = plays(scr_now, at(2026, 11, 15, 15, 0))
+eq("Sunday 9:00 plays the slot", (r["playlist_id"], r["layer"]), (pl2["id"], "schedule"))
+check("why names the slot", "Sun 9:00 AM-11:30 AM" in r["why"])
+eq("end is exclusive", plays(scr_now, at(2026, 11, 15, 17, 30))["layer"], "screen")
+eq("a weekday falls back to the default", plays(scr_now, at(2026, 11, 16, 15, 0))["playlist_id"], pl["id"])
+eq("the player gets the slot's playlist", store.player_state(scr_now, now=at(2026, 11, 15, 15, 0))["playlist"]["from"], "schedule")
+
+grp_slot = admin.post("/api/admin/signage/slots", json={"target": "all", "playlist_id": pl3["id"], "days": [0, 1],
+                                                          "start_time": "08:00", "end_time": "12:00"}).json()
+eq("a screen's own slot beats the all-screens one", plays(scr_now, at(2026, 11, 15, 15, 0))["playlist_id"], pl2["id"])
+eq("the all-screens slot plays where the screen has none", plays(scr_now, at(2026, 11, 16, 15, 0))["playlist_id"], pl3["id"])
+check("why counts other matches", "1 other slot" in plays(scr_now, at(2026, 11, 15, 15, 0))["why"])
+g2 = admin.post("/api/admin/signage/groups", json={"name": "Hall"}).json()
+admin.put(f"/api/admin/signage/screens/{scr_now['id']}", json={"name": "Lobby left", "slug": "lobby-left", "group_id": g2["id"],
+                                                                "playlist_id": pl["id"]})
+scr_now = store.screen_by_slug("lobby-left")
+gs = admin.post("/api/admin/signage/slots", json={"target": "group", "target_id": g2["id"], "playlist_id": pl["id"], "days": [1],
+                                                    "start_time": "08:00", "end_time": "12:00"}).json()
+eq("a group's slot beats the all-screens one", plays(scr_now, at(2026, 11, 16, 15, 0))["playlist_id"], pl["id"])
+eq("...and the layer says schedule", plays(scr_now, at(2026, 11, 16, 15, 0))["layer"], "schedule")
+rng = admin.post("/api/admin/signage/slots", json={"target": "screen", "target_id": scr_now["id"], "playlist_id": pl3["id"],
+                                                     "start_date": "2026-11-15", "end_date": "2026-11-15"}).json()
+eq("a date range beats a weekly slot", plays(scr_now, at(2026, 11, 15, 15, 0))["playlist_id"], pl3["id"])
+eq("a range with no times covers the whole day", plays(scr_now, at(2026, 11, 15, 7, 0))["playlist_id"], pl3["id"])
+eq("the range ends with its last day", plays(scr_now, at(2026, 11, 16, 7, 0))["layer"] != "schedule" or plays(scr_now, at(2026, 11, 16, 7, 0))["playlist_id"] != pl3["id"], True)
+for sl in (slot, grp_slot, gs, rng):
+    admin.delete(f"/api/admin/signage/slots/{sl['id']}")
+eq("slots gone", store.slots(), [])
+
+late = admin.post("/api/admin/signage/slots", json={"target": "screen", "target_id": scr_now["id"], "playlist_id": pl2["id"],
+                                                      "days": [6], "start_time": "22:00", "end_time": "02:00"}).json()
+eq("a slot may cross midnight: before it", plays(scr_now, at(2026, 11, 15, 5, 0))["playlist_id"], pl2["id"])  # Sat 23:00 Chicago
+admin.delete(f"/api/admin/signage/slots/{late['id']}")
+
+print("layers, overrides and daylight saving")
+a = admin.post("/api/admin/signage/slots", json={"target": "screen", "target_id": scr_now["id"], "playlist_id": pl["id"],
+                                                   "days": [6], "start_time": "20:00", "end_time": "23:00"}).json()
+b = admin.post("/api/admin/signage/slots", json={"target": "screen", "target_id": scr_now["id"], "playlist_id": pl2["id"],
+                                                   "days": [6], "start_time": "21:00", "end_time": "02:00"}).json()
+eq("overlap: the later start wins", plays(scr_now, at(2026, 11, 15, 4, 0))["playlist_id"], pl2["id"])  # Sat 22:00 Chicago
+eq("before the later one starts, the earlier plays", plays(scr_now, at(2026, 11, 15, 2, 30))["playlist_id"], pl["id"])
+eq("after midnight the crossing slot still plays", plays(scr_now, at(2026, 11, 15, 7, 30))["playlist_id"], pl2["id"])  # Sun 01:30
+eq("and ends at 2:00", plays(scr_now, at(2026, 11, 15, 8, 0))["layer"], "screen")
+for sl in (a, b):
+    admin.delete(f"/api/admin/signage/slots/{sl['id']}")
+
+eq("override needs a real playlist", admin.put("/api/admin/signage/override", json={"target": "screen", "target_id": scr_now["id"], "playlist_id": 999}).status_code, 404)
+eq("override cleared by hand lasts", admin.put("/api/admin/signage/override", json={"target": "screen", "target_id": scr_now["id"], "playlist_id": pl3["id"], "until": "cleared"}).json()["expires_at"], "")
+r = plays(scr_now, at(2030, 1, 1, 12))
+eq("override beats the default", (r["playlist_id"], r["layer"]), (pl3["id"], "override"))
+sched = admin.post("/api/admin/signage/slots", json={"target": "screen", "target_id": scr_now["id"], "playlist_id": pl2["id"],
+                                                       "days": [0], "start_time": "09:00", "end_time": "11:30"}).json()
+eq("override beats the schedule", plays(scr_now, at(2026, 11, 15, 15, 0))["layer"], "override")
+eq("clearing it", admin.delete(f"/api/admin/signage/override?target=screen&target_id={scr_now['id']}").status_code, 200)
+eq("clearing nothing is a 404", admin.delete(f"/api/admin/signage/override?target=screen&target_id={scr_now['id']}").status_code, 404)
+eq("schedule plays again", plays(scr_now, at(2026, 11, 15, 15, 0))["layer"], "schedule")
+
+# "until the next scheduled change": from Sunday 8:00 Chicago (14:00 UTC), the slot starts at 9:00.
+rows = store.slots()
+def key(local_now):
+    return (schedule.matching(rows, scr_now, local_now) or [{"id": 0}])[0]["id"]
+eq("next change is when the slot starts", schedule.next_change(key, at(2026, 11, 15, 14, 0), "America/Chicago"), at(2026, 11, 15, 15, 0))
+eq("and the one after, when it ends", schedule.next_change(key, at(2026, 11, 15, 15, 0), "America/Chicago"), at(2026, 11, 15, 17, 30))
+eq("no change inside the horizon is None", schedule.next_change(lambda _t: 1, at(2026, 11, 15, 15, 0), "America/Chicago"), None)
+ov = {"target": "screen", "target_id": scr_now["id"], "playlist_id": pl3["id"], "set_at": "", "expires_at": "2026-11-15T15:00:00Z"}
+eq("an override before it ends", store.resolve(scr_now, at(2026, 11, 15, 14, 59), _overrides=[ov])["layer"], "override")
+eq("an override at its end", store.resolve(scr_now, at(2026, 11, 15, 15, 0), _overrides=[ov])["layer"], "schedule")
+eq("override that ends at the next change is stored", admin.put("/api/admin/signage/override", json={"target": "all", "playlist_id": pl3["id"], "until": "next_change"}).status_code, 200)
+check("it has an end", store.overrides()[0]["expires_at"].endswith("Z"))
+admin.delete("/api/admin/signage/override?target=all&target_id=0")
+admin.delete(f"/api/admin/signage/slots/{sched['id']}")
+
+# Daylight saving, New York: clocks go forward at 02:00 EST (07:00 UTC) on 2026-03-08 and back on 2026-11-01.
+admin.put("/api/admin/signage/settings", json={"timezone": "America/New_York"})
+dst = admin.post("/api/admin/signage/slots", json={"target": "screen", "target_id": scr_now["id"], "playlist_id": pl2["id"],
+                                                     "days": [0], "start_time": "09:00", "end_time": "10:00"}).json()
+eq("9:00 EST Sunday before the change", plays(scr_now, at(2026, 3, 1, 14, 0))["layer"], "schedule")
+eq("9:00 EDT Sunday after the change", plays(scr_now, at(2026, 3, 8, 13, 0))["layer"], "schedule")
+eq("so 14:00 UTC is 10:00 EDT, after it", plays(scr_now, at(2026, 3, 8, 14, 0))["layer"], "screen")
+eq("9:00 EST again after the fall change", plays(scr_now, at(2026, 11, 1, 14, 0))["layer"], "schedule")
+admin.delete(f"/api/admin/signage/slots/{dst['id']}")
+skip = admin.post("/api/admin/signage/slots", json={"target": "screen", "target_id": scr_now["id"], "playlist_id": pl2["id"],
+                                                      "days": [0], "start_time": "02:30", "end_time": "04:00"}).json()
+eq("the skipped hour: nothing at 01:59", plays(scr_now, at(2026, 3, 8, 6, 59))["layer"], "screen")
+eq("the slot starts at the first minute after it", plays(scr_now, at(2026, 3, 8, 7, 0))["layer"], "schedule")
+admin.delete(f"/api/admin/signage/slots/{skip['id']}")
+eq("a player's date follows the signage zone", store.today(at(2026, 11, 15, 3, 0)), "2026-11-14")
+
+def takeover(screen, now):
+    return {"playlist_id": pl3["id"], "why": "Alert"}
+schedule.register_layer("takeover", takeover)
+eq("a takeover beats the rest", plays(scr_now, at(2026, 11, 15, 15, 0))["layer"], "takeover")
+schedule.unregister_layer("takeover")
+try:
+    schedule.register_layer("bogus", takeover)
+    check("an unknown layer is refused", False)
+except ValueError:
+    check("an unknown layer is refused", True)
+admin.put("/api/admin/signage/settings", json={"timezone": "America/Chicago"})
+admin.put(f"/api/admin/signage/screens/{scr_now['id']}", json={"name": "Lobby left", "slug": "lobby-left", "group_id": grp["id"], "playlist_id": pl["id"]})
+admin.delete(f"/api/admin/signage/groups/{g2['id']}")
+st_admin = admin.get("/api/admin/signage").json()
+check("admin lists why each screen plays what it does", "why" in st_admin["screens"][0]["playing_playlist"])
+eq("admin lists the zones", len(st_admin["timezones"]) > 0, True)
 
 print("delete screens and groups")
 eq("delete group", admin.delete(f"/api/admin/signage/groups/{grp['id']}").status_code, 200)

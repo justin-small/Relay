@@ -72,8 +72,14 @@
     renderScreens();
     renderGroups();
     renderPlaylists();
+    renderSchedule();
     renderMedia();
     if (document.activeElement !== $('sgPort')) $('sgPort').value = data.settings.port;
+    if (document.activeElement !== $('sgZone')) {
+      $('sgZone').textContent = '';
+      for (const z of data.timezones) option($('sgZone'), z.id, z.label, z.id === data.settings.timezone);
+      $('sgOvUntil').value = data.settings.override_until;
+    }
     $('sgPortState').textContent = port.bound ? 'Serving screens on port ' + port.bound + ' now.' : '';
   }
 
@@ -98,7 +104,9 @@
       if (s.sound) name.appendChild(el('div', 'muted', 'Sound on'));
       tr.appendChild(name);
       const pl = s.playing_playlist;
-      tr.appendChild(el('td', pl ? '' : 'muted', pl ? pl.name + (pl.from === 'group' ? ' (from group)' : '') : 'Nothing assigned'));
+      const play = el('td', pl ? '' : 'muted', pl ? pl.name : 'Nothing assigned');
+      if (pl && pl.why) play.appendChild(el('div', 'muted', pl.why + (pl.until ? ' until ' + new Date(pl.until).toLocaleString() : '')));
+      tr.appendChild(play);
       const addr = el('td');
       for (const u of s.urls.slice(0, 2)) {
         const a = el('a', 'mono', u); a.href = u; a.target = '_blank'; a.rel = 'noopener';
@@ -499,6 +507,136 @@
     });
   };
 
+
+  /* ---------------------------------------------------------------- schedule */
+  const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+  let slotEditing = null;      // slot id being edited, 0 for a new one, null when the form is closed
+  function zoneLabel() {
+    const z = data.timezones.find(function (x) { return x.id === data.settings.timezone; });
+    return z ? z.label : data.settings.timezone;
+  }
+  function targetOptions(sel, value) {
+    sel.textContent = '';
+    option(sel, 'all:0', 'All screens', value === 'all:0');
+    for (const g of data.groups) option(sel, 'group:' + g.id, 'Group: ' + g.name, value === 'group:' + g.id);
+    for (const s of data.screens) option(sel, 'screen:' + s.id, 'Screen: ' + s.name, value === 'screen:' + s.id);
+  }
+  function targetName(t, id) {
+    if (t === 'all') return 'All screens';
+    const list = t === 'group' ? data.groups : data.screens;
+    const x = list.find(function (y) { return y.id === id; });
+    return (t === 'group' ? 'Group: ' : 'Screen: ') + (x ? x.name : '?');
+  }
+  function planName(id) {
+    const p = data.playlists.find(function (x) { return x.id === id; });
+    return p ? p.name : '?';
+  }
+  function renderSchedule() {
+    $('sgZoneName').textContent = zoneLabel();
+    const body = $('sgSlots');
+    body.textContent = '';
+    $('sgNoSlots').hidden = data.slots.length > 0;
+    for (const sl of data.slots) {
+      const tr = el('tr');
+      tr.appendChild(el('td', '', targetName(sl.target, sl.target_id)));
+      tr.appendChild(el('td', '', sl.summary));
+      tr.appendChild(el('td', '', planName(sl.playlist_id)));
+      const act = el('td');
+      if (can('signage.manage')) {
+        act.appendChild(button('Edit', '', function () { openSlotForm(sl); }));
+        act.appendChild(button('Delete', 'danger', function () {
+          if (!confirm('Delete this time slot?')) return;
+          call(async function () { await send('DELETE', '/api/admin/signage/slots/' + sl.id); await refresh(); });
+        }));
+      }
+      tr.appendChild(act);
+      body.appendChild(tr);
+    }
+    if (document.activeElement !== $('sgOvTarget') && document.activeElement !== $('sgOvPlaylist')) {
+      targetOptions($('sgOvTarget'), $('sgOvTarget').value);
+      playlistSelect($('sgOvPlaylist'), Number($('sgOvPlaylist').value) || null, 'Choose a playlist');
+    }
+    const box = $('sgOverrides');
+    box.textContent = '';
+    for (const o of data.overrides) {
+      const row = el('div', 'sg-row');
+      row.appendChild(el('span', '', targetName(o.target, o.target_id) + ' plays ' + planName(o.playlist_id) +
+        (o.expires_at ? ' until ' + new Date(o.expires_at).toLocaleString() : ' until cleared')));
+      if (can('signage.manage')) {
+        row.appendChild(button('Clear', '', function () {
+          call(async function () {
+            await send('DELETE', '/api/admin/signage/override?target=' + o.target + '&target_id=' + o.target_id);
+            await refresh();
+          });
+        }));
+      }
+      box.appendChild(row);
+    }
+  }
+  function syncSlotForm() {
+    const range = $('sgSlotKind').value === 'range';
+    $('sgSlotFromBox').hidden = !range; $('sgSlotToBox').hidden = !range;
+    $('sgSlotTimes').hidden = $('sgSlotAllDay').checked;
+  }
+  function openSlotForm(sl) {
+    slotEditing = sl ? sl.id : 0;
+    $('sgSlotForm').hidden = false;
+    targetOptions($('sgSlotTarget'), sl ? sl.target + ':' + sl.target_id : '');
+    playlistSelect($('sgSlotPlaylist'), sl ? sl.playlist_id : null, 'Choose a playlist');
+    $('sgSlotKind').value = sl && sl.start_date ? 'range' : 'weekly';
+    $('sgSlotFrom').value = sl ? sl.start_date : '';
+    $('sgSlotTo').value = sl ? sl.end_date : '';
+    const days = $('sgSlotDays');
+    for (const c of days.querySelectorAll('label')) c.remove();
+    const on = sl ? sl.days.split(',').filter(Boolean).map(Number) : [];
+    DAYS.forEach(function (name, i) {
+      const l = el('label', 'check');
+      const c = el('input'); c.type = 'checkbox'; c.value = String(i); c.checked = on.indexOf(i) >= 0;
+      l.appendChild(c); l.appendChild(document.createTextNode(' ' + name));
+      l.style.marginRight = '12px';
+      days.appendChild(l);
+    });
+    $('sgSlotAllDay').checked = !(sl && sl.start_time);
+    $('sgSlotStart').value = sl ? sl.start_time : '09:00';
+    $('sgSlotEnd').value = sl ? sl.end_time : '11:30';
+    syncSlotForm();
+  }
+  $('sgSlotKind').onchange = syncSlotForm;
+  $('sgSlotAllDay').onchange = syncSlotForm;
+  $('sgSlotAdd').onclick = function () { openSlotForm(null); };
+  $('sgSlotCancel').onclick = function () { slotEditing = null; $('sgSlotForm').hidden = true; };
+  $('sgSlotForm').onsubmit = function (ev) {
+    ev.preventDefault();
+    const parts = $('sgSlotTarget').value.split(':');
+    const range = $('sgSlotKind').value === 'range';
+    const allDay = $('sgSlotAllDay').checked;
+    const payload = {
+      target: parts[0], target_id: Number(parts[1]), playlist_id: Number($('sgSlotPlaylist').value) || 0,
+      days: Array.from($('sgSlotDays').querySelectorAll('input:checked')).map(function (c) { return Number(c.value); }),
+      start_date: range ? $('sgSlotFrom').value : '', end_date: range ? $('sgSlotTo').value : '',
+      start_time: allDay ? '' : $('sgSlotStart').value, end_time: allDay ? '' : $('sgSlotEnd').value
+    };
+    call(async function () {
+      if (slotEditing) await send('PUT', '/api/admin/signage/slots/' + slotEditing, payload);
+      else await post('/api/admin/signage/slots', payload);
+      slotEditing = null; $('sgSlotForm').hidden = true;
+      await refresh();
+    });
+  };
+  $('sgOvSet').onclick = function () {
+    const parts = $('sgOvTarget').value.split(':');
+    call(async function () {
+      await send('PUT', '/api/admin/signage/override', { target: parts[0], target_id: Number(parts[1]), playlist_id: Number($('sgOvPlaylist').value) || 0 });
+      await refresh();
+    });
+  };
+  $('sgSchedSave').onclick = function () {
+    call(async function () {
+      await send('PUT', '/api/admin/signage/settings', { timezone: $('sgZone').value, override_until: $('sgOvUntil').value });
+      await refresh();
+    });
+  };
+
   /* ---------------------------------------------------------------- preview */
   async function openPreview(q, title) {
     if (typeof window.SignagePlayer !== 'function') return;
@@ -527,7 +665,7 @@
   function tick() {
     // Keep "now playing" fresh on the Screens tab, never redrawing under someone filling in the screen form or
     // editing a playlist.
-    if (visible() && editing === null && tab === 'screens') refresh();
+    if (visible() && editing === null && slotEditing === null && (tab === 'screens' || tab === 'schedule')) refresh();
     timer = setTimeout(tick, 10000);
   }
   document.addEventListener('relay:config', function () { refresh(); if (!timer) timer = setTimeout(tick, 10000); });

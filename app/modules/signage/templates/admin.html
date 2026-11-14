@@ -46,6 +46,7 @@
     <div class="sg-tabs" role="tablist">
       <button type="button" role="tab" data-sgtab="screens" aria-selected="true">Screens</button>
       <button type="button" role="tab" data-sgtab="playlists" aria-selected="false">Playlists</button>
+      <button type="button" role="tab" data-sgtab="schedule" aria-selected="false">Schedule</button>
       <button type="button" role="tab" data-sgtab="media" aria-selected="false">Media</button>
       <button type="button" role="tab" data-sgtab="settings" aria-selected="false">Settings</button>
     </div>
@@ -132,6 +133,56 @@
       </section>
     </div>
 
+    <div data-sgpane="schedule" hidden>
+      <section>
+        <h3>Schedule</h3>
+        <p class="note">Schedules are optional. A screen with no matching slot plays its default playlist. A screen's own slots
+          come first, then its group's, then the ones for all screens. A date range beats a weekly slot, and when two
+          slots overlap the one that starts later wins. Times are in <span id="sgZoneName"></span>.</p>
+        <div class="tablescroll">
+          <table>
+            <thead><tr><th>Applies to</th><th>When</th><th>Plays</th><th></th></tr></thead>
+            <tbody id="sgSlots"></tbody>
+          </table>
+        </div>
+        <p class="note" id="sgNoSlots" hidden>No time slots yet.</p>
+        <div class="ctl sg-manage"><button type="button" class="primary" id="sgSlotAdd">Add a time slot</button></div>
+        <form id="sgSlotForm" hidden style="margin-top:14px">
+          <div class="row">
+            <div class="field"><label for="sgSlotTarget">Applies to</label><select id="sgSlotTarget"></select></div>
+            <div class="field"><label for="sgSlotPlaylist">Plays</label><select id="sgSlotPlaylist"></select></div>
+          </div>
+          <div class="row">
+            <div class="field"><label for="sgSlotKind">Repeats</label>
+              <select id="sgSlotKind"><option value="weekly">Every week</option><option value="range">Only on certain dates</option></select></div>
+            <div class="field" id="sgSlotFromBox"><label for="sgSlotFrom">First day</label><input id="sgSlotFrom" type="date"></div>
+            <div class="field" id="sgSlotToBox"><label for="sgSlotTo">Last day</label><input id="sgSlotTo" type="date"></div>
+          </div>
+          <fieldset id="sgSlotDays" style="border:0;padding:0;margin:0 0 8px"><legend class="muted">Days (none ticked on a date range means every day)</legend></fieldset>
+          <label class="check"><input type="checkbox" id="sgSlotAllDay" checked> All day</label>
+          <div class="row" id="sgSlotTimes" hidden>
+            <div class="field"><label for="sgSlotStart">From</label><input id="sgSlotStart" type="time"></div>
+            <div class="field"><label for="sgSlotEnd">Until</label><input id="sgSlotEnd" type="time"></div>
+          </div>
+          <p class="note">An end time earlier than the start time runs into the next day.</p>
+          <div class="ctl">
+            <button type="submit" class="primary">Save slot</button>
+            <button type="button" id="sgSlotCancel">Cancel</button>
+          </div>
+        </form>
+      </section>
+      <section>
+        <h3>Put a playlist on by hand</h3>
+        <div class="row sg-manage" style="align-items:flex-end">
+          <div class="field"><label for="sgOvTarget">On</label><select id="sgOvTarget"></select></div>
+          <div class="field"><label for="sgOvPlaylist">Playlist</label><select id="sgOvPlaylist"></select></div>
+          <div class="ctl"><button type="button" id="sgOvSet">Play now</button></div>
+        </div>
+        <div id="sgOverrides"></div>
+        <p class="note">A playlist chosen here beats the schedule and the default. How long it lasts is set on the Settings tab.</p>
+      </section>
+    </div>
+
     <div data-sgpane="media" hidden>
       <section>
         <h3>Media library</h3>
@@ -155,6 +206,16 @@
     </div>
 
     <div data-sgpane="settings" hidden>
+      <section>
+        <h3>Schedule</h3>
+        <div class="row" style="align-items:flex-end">
+          <div class="field"><label for="sgZone">Time zone</label><select id="sgZone"></select></div>
+          <div class="field"><label for="sgOvUntil">A playlist put on by hand lasts</label>
+            <select id="sgOvUntil"><option value="next_change">Until the next scheduled change</option><option value="cleared">Until it is cleared</option></select></div>
+          <div class="ctl sg-manage"><button type="button" class="primary" id="sgSchedSave">Save</button></div>
+        </div>
+        <p class="note">Slots and dates follow this zone, and keep the same clock time through daylight saving changes.</p>
+      </section>
       <section>
         <h3>Screen port</h3>
         <div class="row" style="align-items:flex-end">

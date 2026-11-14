@@ -8,11 +8,11 @@ from __future__ import annotations
 import re
 import secrets
 import threading
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from pathlib import Path
 
-from ... import db
-from . import live, media, sources
+from ... import config, db
+from . import live, media, schedule, sources
 
 MIGRATIONS = Path(__file__).resolve().parent / "migrations"
 SLUG_RE = re.compile(r"^[a-z0-9](?:[a-z0-9-]{0,46}[a-z0-9])?$")
@@ -70,8 +70,19 @@ def _date(v) -> str:
     return text
 
 
-def today() -> str:
-    return datetime.now().date().isoformat()
+def tz_name() -> str:
+    from ...schedules import DEFAULT_TIMEZONE
+
+    return (config.get().get("signage") or {}).get("timezone") or DEFAULT_TIMEZONE
+
+
+def utc_now() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+def today(now: datetime | None = None) -> str:
+    """Today's date in the signage time zone, which is what an item's start and end dates are read in."""
+    return schedule.local(now or utc_now(), tz_name()).date().isoformat()
 
 
 # ------------------------------------------------------------------ media
@@ -372,8 +383,9 @@ def screen_delete(sid: int) -> None:
 
 # ------------------------------------------------------------------ what a screen plays
 
-def playing_playlist(screen: dict) -> tuple[int | None, str]:
-    """(playlist id, why) for a screen: its group's playlist when the group has one, else its own default."""
+def default_playlist(screen: dict) -> tuple[int | None, str]:
+    """(playlist id, why) for a screen with nothing else claiming it: its group's playlist when the group has one,
+    else its own default."""
     if screen.get("group_id"):
         g = db.one("select playlist_id from signage_groups where id = ?", (screen["group_id"],))
         if g and g["playlist_id"]:
@@ -381,6 +393,141 @@ def playing_playlist(screen: dict) -> tuple[int | None, str]:
     if screen.get("playlist_id"):
         return screen["playlist_id"], "screen"
     return None, ""
+
+
+# ------------------------------------------------------------------ schedule slots and overrides (#206)
+
+def slots() -> list[dict]:
+    ready()
+    rows = db.query("select * from signage_slots order by id")
+    for r in rows:
+        r["summary"] = schedule.describe_slot(r)
+    return rows
+
+
+def _check_target(row: dict) -> None:
+    if row["target"] == "screen" and db.one("select id from signage_screens where id = ?", (row["target_id"],)) is None:
+        raise Invalid("That screen does not exist.", 404)
+    if row["target"] == "group" and db.one("select id from signage_groups where id = ?", (row["target_id"],)) is None:
+        raise Invalid("That group does not exist.", 404)
+    if db.one("select id from signage_playlists where id = ?", (row["playlist_id"],)) is None:
+        raise Invalid("That playlist does not exist.", 404)
+
+
+def slot_save(sid: int | None, raw: dict) -> dict:
+    ready()
+    try:
+        row = schedule.clean_slot(raw)
+    except schedule.Refused as exc:
+        raise Invalid(str(exc)) from None
+    _check_target(row)
+    cols = ("target", "target_id", "playlist_id", "days", "start_time", "end_time", "start_date", "end_date")
+    with db.transaction() as tx:
+        if sid is None:
+            tx.execute(f"insert into signage_slots ({', '.join(cols)}) values ({', '.join('?' * len(cols))})",
+                       tuple(row[c] for c in cols))
+            out = tx.one("select * from signage_slots where id = last_insert_rowid()")
+        else:
+            if not tx.execute(f"update signage_slots set {', '.join(c + ' = ?' for c in cols)} where id = ?",
+                              (*[row[c] for c in cols], sid)):
+                raise Invalid("That slot does not exist.", 404)
+            out = tx.one("select * from signage_slots where id = ?", (sid,))
+    live.bump()
+    return out or {}
+
+
+def slot_delete(sid: int) -> None:
+    ready()
+    if not db.execute("delete from signage_slots where id = ?", (sid,)):
+        raise Invalid("That slot does not exist.", 404)
+    live.bump()
+
+
+def overrides() -> list[dict]:
+    ready()
+    return db.query("select * from signage_overrides where expires_at = '' or expires_at > ?", (db.now(),))
+
+
+def _all_screens_for(target: str, target_id: int) -> list[dict]:
+    return [s for s in screens() if target == "all" or (target == "screen" and s["id"] == target_id)
+            or (target == "group" and s["group_id"] == target_id)]
+
+
+def override_set(target: str, target_id: int, playlist_id: int, until: str) -> dict:
+    """Put `playlist_id` on a screen, a group or all screens. `until` is "next_change" (ends when the schedule next
+    changes what any of those screens plays) or "cleared" (stays until an operator clears it)."""
+    ready()
+    if target not in schedule.TARGETS:
+        raise Invalid("Choose a screen, a group or all screens.")
+    target_id = 0 if target == "all" else int(target_id or 0)
+    _check_target({"target": target, "target_id": target_id, "playlist_id": playlist_id})
+    now = utc_now()
+    expires = ""
+    if until == "next_change":
+        rows, tz = slots(), tz_name()
+        targets = _all_screens_for(target, target_id)
+
+        def key(local_now):
+            return tuple(((schedule.matching(rows, s, local_now) or [{"id": 0}])[0]["id"]) for s in targets)
+
+        at = schedule.next_change(key, now, tz) if targets else None
+        expires = at.strftime("%Y-%m-%dT%H:%M:%SZ") if at else ""
+    with db.transaction() as tx:
+        tx.execute("delete from signage_overrides where target = ? and target_id = ?", (target, target_id))
+        tx.execute("insert into signage_overrides (target, target_id, playlist_id, set_at, expires_at)"
+                   " values (?, ?, ?, ?, ?)", (target, target_id, playlist_id, db.now(), expires))
+    live.bump()
+    return {"target": target, "target_id": target_id, "playlist_id": playlist_id, "expires_at": expires}
+
+
+def override_clear(target: str, target_id: int) -> None:
+    ready()
+    target_id = 0 if target == "all" else int(target_id or 0)
+    if not db.execute("delete from signage_overrides where target = ? and target_id = ?", (target, target_id)):
+        raise Invalid("There is no override to clear there.", 404)
+    live.bump()
+
+
+def sweep_overrides() -> None:
+    """Delete overrides that ran out (housekeeping; resolving already ignores them)."""
+    ready()
+    if db.execute("delete from signage_overrides where expires_at != '' and expires_at <= ?", (db.now(),)):
+        live.bump()
+
+
+def resolve(screen: dict, now: datetime | None = None, _slots=None, _overrides=None) -> dict:
+    """What a screen plays and why: {"playlist_id", "layer", "why", "until"} (playlist_id None when nothing is
+    assigned). layer is takeover, tag, override, schedule, group or screen; "until" is when an override ends."""
+    now = now or utc_now()
+    got = schedule.layer_result(screen, now)
+    if got:
+        return {**got, "until": ""}
+    iso = now.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    best = None
+    for o in (_overrides if _overrides is not None else overrides()):
+        if o["expires_at"] and o["expires_at"] <= iso:
+            continue
+        rank = {"screen": 0, "group": 1, "all": 2}[o["target"]]
+        applies = (o["target"] == "all" or (o["target"] == "screen" and o["target_id"] == screen["id"])
+                   or (o["target"] == "group" and screen.get("group_id") == o["target_id"]))
+        if applies and (best is None or rank < best[0]):
+            best = (rank, o)
+    if best:
+        o = best[1]
+        what = {"screen": "this screen", "group": "its group", "all": "all screens"}[o["target"]]
+        return {"playlist_id": o["playlist_id"], "layer": "override", "until": o["expires_at"],
+                "why": f"Put on by hand for {what}"}
+    rows = _slots if _slots is not None else slots()
+    hit = schedule.matching(rows, screen, schedule.local(now, tz_name()))
+    if hit:
+        more = len(hit) - 1
+        return {"playlist_id": hit[0]["playlist_id"], "layer": "schedule", "until": "",
+                "why": "Schedule: " + hit[0]["summary"] + (f" ({more} other slot{'s' if more > 1 else ''} also match)"
+                                                          if more else "")}
+    pid, why = default_playlist(screen)
+    label = {"group": "No schedule matches now; its group's playlist",
+             "screen": "No schedule matches now; the screen's default playlist", "": "Nothing assigned"}[why]
+    return {"playlist_id": pid, "layer": why or "none", "why": label, "until": ""}
 
 
 def in_dates(item: dict, day: str) -> bool:
@@ -402,15 +549,17 @@ def playable_items(pid: int, day: str) -> list[dict]:
     return out
 
 
-def player_state(screen: dict, day: str | None = None) -> dict:
+def player_state(screen: dict, day: str | None = None, now: datetime | None = None) -> dict:
     """What the player at /signage/<slug> needs: the screen, its playlist and each item it can play today."""
-    day = day or today()
-    pid, why = playing_playlist(screen)
+    now = now or utc_now()
+    day = day or today(now)
+    plan = resolve(screen, now)
+    pid = plan["playlist_id"]
     playlist = playlist_get(pid) if pid else None
     items = playable_items(pid, day) if playlist else []
     return {
         "screen": {"slug": screen["slug"], "name": screen["name"], "sound": bool(screen["sound"])},
-        "playlist": {"id": playlist["id"], "name": playlist["name"], "from": why} if playlist else None,
+        "playlist": {"id": playlist["id"], "name": playlist["name"], "from": plan["layer"]} if playlist else None,
         "items": items,
         "today": day,
     }

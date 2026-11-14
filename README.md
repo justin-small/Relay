@@ -639,6 +639,15 @@ Modules); its page is under Output, with tabs for Screens, Playlists, Media and 
    open it in the TV's browser (or a kiosk). Pick a default playlist and whether videos play sound.
 4. **Screen groups** ("Lobby"): a group's playlist plays on every screen in it, in place of each screen's default.
 
+**Schedules are optional.** The Schedule tab holds time slots: weekly ("Sunday 9:00-11:30 plays Welcome") or one-off
+date ranges, each for a screen, a group or all screens. With no matching slot a screen plays its default playlist.
+Order of precedence: takeover, then a slide-note tag, then a playlist put on by hand (Schedule tab → Play now), then the
+schedule, then the default. A screen's own slots come before its group's, then the all-screens ones; a date range beats a
+weekly slot, and of two overlapping slots the later start wins. A playlist put on by hand lasts until the next scheduled
+change or until cleared (Settings tab). Times use the zone chosen on the Settings tab and keep their clock time through
+daylight saving. The Screens tab says why each screen plays what it plays. Takeovers and tags arrive with #207 and #208
+through `schedule.register_layer` in `app/modules/signage/schedule.py`.
+
 Screens are on a **port of their own** (8090, changeable on the Settings tab; restart Relay after changing it). It is
 plain HTTP so a TV needs no login and no certificate, and only the signage pages answer on it: the captions, the
 operator panel and everything else are refused there, and the signage pages are refused on Relay's other ports.
