@@ -53,12 +53,12 @@ that it is safe.
 
 The guide has five parts. Read them in order the first time.
 
-1. **Part 1: Installing Relay.** Download Relay, install Docker, run setup,
-   and start Relay. There is one chapter for each of macOS, Windows and Linux.
+1. **Part 1: Installing Relay.** Download and install Relay, open it, and
+   create your account. There is one chapter for each of macOS, Windows and Linux.
    Read only the one for your computer.
 2. **Part 2: Your OpenAI API key.** Create an account, add credit, set a
-   spending limit and make the key that setup asks for. You can do this
-   before Part 1, so the key is ready when setup asks.
+   spending limit and make the key that Relay asks for. You can do this
+   before Part 1, so the key is ready when Relay asks.
 3. **Part 3: Using Relay.** Every screen, with a picture and an explanation
    of each control: the viewer pages, the operator panel, and rehearsal mode.
 4. **Part 4: Bitfocus Companion and Stream Deck.** Optional. Control Relay
@@ -105,5 +105,5 @@ is speaking. Leaving capture running overnight costs money for nothing.
 
 The screenshots were taken from a test copy of Relay in rehearsal mode, with
 test data. The addresses in them, such as `192.168.1.50`, are examples. Your
-screens show your own addresses. OpenAI and Docker change their screens often,
+screens show your own addresses. OpenAI, Apple and Microsoft change their screens often,
 so their menus may look a little different from the descriptions here.

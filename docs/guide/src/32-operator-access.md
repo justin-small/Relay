@@ -4,8 +4,10 @@ The operator panel is where you control Relay. Its address is the Relay
 computer's LAN IP address with `/admin` on the end, over `https://`. For
 example: `https://192.168.1.50/admin`.
 
-The start script prints this address and opens it for you. You can open it
-from any computer or tablet on the same network, not only the Relay computer.
+On the Relay computer, the Relay app opens the panel in its own window: choose
+**Open panel** from the Relay menu. You can also open it in a browser from any
+computer or tablet on the same network. The **Viewer links** page shows the
+address.
 
 ## The certificate warning
 
@@ -18,16 +20,18 @@ safe.
 `https://` addresses use a **certificate**: a small file that proves to the
 browser which computer it is talking to. Public websites buy theirs from a
 company the browser already trusts. A computer on a venue network cannot do
-that, so Relay makes its own certificate during setup. This is called a
+that, so Relay makes its own certificate the first time it starts. This is called a
 **self-signed** certificate. The browser has never seen it before, so it
 warns you.
 
 The warning protects you from a stranger's computer pretending to be yours.
 The way to rule that out is to compare the certificate's **fingerprint**. A
 fingerprint is a long code, unique to one certificate, like
-`D0:63:EE:F2:04:8C:…`. Setup printed it, and the start script prints it every
-time under **Panel certificate SHA-256**. If the browser shows the same code,
-you are talking to your own Relay computer.
+`D0:63:EE:F2:04:8C:…`. On the Relay computer, choose **Show certificate
+fingerprint** from the Relay menu; the **Viewer links** page in the panel
+shows it too. If the browser shows the same code, you are talking to your own
+Relay computer. (The Relay app's own window checks it for you and never
+warns.)
 
 ::: warning
 Compare the fingerprint before you click through, at least the first time on
@@ -39,8 +43,8 @@ address and are on the right network.
 ::: note
 Relay makes a new certificate, with a new fingerprint, when the computer's
 IP address changes (for example at a new venue) or when the certificate is
-close to expiring. Always compare with the fingerprint from the **latest**
-start window, not an old note.
+close to expiring. Always compare with what **Show certificate fingerprint**
+shows today, not an old note.
 :::
 
 ### Chrome
@@ -52,7 +56,8 @@ start window, not an old note.
 2. To see the fingerprint, click **Not secure** at the left of the address
    bar, then **Certificate is not valid**. The certificate viewer opens.
 3. On the **General** tab, find **Fingerprints**, then **SHA-256
-   Fingerprint**. Compare it with the one from the start window.
+   Fingerprint**. Compare it with the one **Show certificate fingerprint**
+   shows on the Relay computer.
 4. The browser shows the code in pairs separated by spaces; Relay prints it
    with colons. Ignore the spaces and colons, and compare the letters and
    numbers. Checking the first eight and the last eight characters is enough.
@@ -104,14 +109,18 @@ sign-in page.
 
 On a new Relay nobody has an account yet, so the page is **Set up Relay**.
 
-1. Type the **admin token** you chose during setup. The dots hide what you
-   type.
+This page opens only on the Relay computer itself until the Owner exists (a
+service install on Linux asks for its one-time setup code instead, so it can
+be done from another device). If you see **Open this page in a browser on the
+computer Relay runs on**, do that.
+
+1. If the page asks for a **Setup code** (a service install) or an **Admin
+   token** (just after an upgrade from Relay 2.0), type it.
 2. Type a **Username**, **Your name**, and a **Password** twice. The password
    must have at least 8 characters.
 3. Click **Create the Owner**.
 
-You are signed in as the Owner. The admin token is never accepted again, here
-or anywhere else. Add the other people on the **Users** page, see
+You are signed in as the Owner. The setup page never appears again. Add the other people on the **Users** page, see
 [Users](#users).
 
 ### Every other time

@@ -25,8 +25,7 @@ docs/guide/build.sh docx
 ```
 
 Needs [Pandoc](https://pandoc.org) 3.x and [Typst](https://typst.app)
-(`brew install pandoc typst`). Without them, `build.sh` runs the same build in
-the `pandoc/typst` container, so Docker alone is enough. The version on the
+(`brew install pandoc typst`), and `python3`. The version on the
 cover comes from `git describe`; set `GUIDE_VERSION` (and optionally
 `GUIDE_DATE`) to override it for a release:
 
@@ -43,30 +42,30 @@ Every Relay screenshot is produced by `tools/capture.mjs`, annotated, from a
 rehearsal instance with throwaway credentials. After a UI change, retake them
 rather than editing images by hand.
 
-1. Start a throwaway rehearsal instance, on its own ports and state folder, so
-   your real `docker-config/` is never touched:
+1. Start a throwaway rehearsal instance from the checkout, on its own ports and
+   state folder, so your real state folder is never touched:
 
    ```bash
-   S=$(mktemp -d) && git archive HEAD | tar -x -C "$S" && cd "$S"
-   mkdir -p docker-config && chmod 700 docker-config
-   c() { docker compose -p relayguide -f docker/docker-compose.yml "$@"; }
-   c build
-   OPENAI_KEY=sk-guide-rehearsal-key-DEMO ADMIN_TOKEN=guide-demo-token RELAY_ADMIN_FQDN=relay.local \
-     c run --rm --no-deps -e OPENAI_KEY -e ADMIN_TOKEN -e RELAY_ADMIN_FQDN relay python tools/write_config.py
-   RELAY_ADMIN_IPS=127.0.0.1 c run --rm --no-deps -e RELAY_ADMIN_IPS relay python tools/setup_caddy.py
-   RELAY_DEMO=1 RELAY_ADMIN_IPS=127.0.0.1 RELAY_HTTP_PORT=18080 RELAY_HTTPS_PORT=18443 c up -d
+   S=$(mktemp -d) && chmod 700 "$S"
+   cat > "$S/config.json" <<'JSON'
+   {"openai_api_key": "sk-guide-rehearsal-key-DEMO", "admin_token": "guide-demo-token",
+    "admin_fqdn": "relay.local", "host": "127.0.0.1", "admin_host": "127.0.0.1",
+    "port": 18080, "admin_port": 18443, "modules": {"planning_center": {"enabled": true}}}
+   JSON
+   RELAY_HOME="$S" RELAY_DEMO=1 RELAY_ANNOUNCE=0 python run.py
    ```
 
-   The key is fake on purpose: nothing here talks to OpenAI. If a real Relay is
-   already running on this machine, first change `container_name` in the
-   copy's `docker/docker-compose.yml` (in `$S` only), or the names clash.
+   The key is fake on purpose: nothing here talks to OpenAI. The Planning Center
+   module is switched on because its page is captured. `RELAY_ANNOUNCE=0`
+   keeps this copy from announcing itself to caption panels, and the ports keep
+   it clear of a real Relay on the same machine.
 
 2. Capture:
 
    ```bash
    cd docs/guide/tools && npm install && npx playwright install chromium
    RELAY_GUIDE_USER=guide RELAY_GUIDE_PASSWORD=guide-demo-password \
-     RELAY_GUIDE_TOKEN=guide-demo-token RELAY_GUIDE_STATE="$S/docker-config" node capture.mjs
+     RELAY_GUIDE_TOKEN=guide-demo-token RELAY_GUIDE_STATE="$S" node capture.mjs
    node capture.mjs admin-schedules viewer-both   # or just some of them
    ```
 
@@ -78,12 +77,13 @@ rather than editing images by hand.
    three test recordings), then writes `images/*.png`. The certificate warning
    needs a visible browser window for a few seconds.
 
-3. Tear down: `docker compose -p relayguide -f docker/docker-compose.yml down`
-   from `$S`, then delete `$S`.
+3. Tear down: press `Ctrl+C` in the Relay terminal, then delete `$S`.
 
 What keeps secrets and addresses out of the images:
 
-- the viewer links are rewritten to the example address `192.168.1.50`;
+- the viewer links, this machine's real LAN addresses and the throwaway
+  instance's ports are rewritten to the example address `192.168.1.50`, and the
+  state folder's path to `~/Library/Application Support/Relay`;
 - "running" panels are fed test status through request interception, since
   rehearsal mode never opens a session;
 - the key hint shows the last four characters of the fake key (`DEMO`).
@@ -100,7 +100,7 @@ comments at its top.
 
 ## Screens that are not captured
 
-Docker's installers, macOS Gatekeeper, Windows SmartScreen, the browsers'
+Relay's installers, the tray menu, macOS Gatekeeper, Windows SmartScreen, the browsers'
 certificate viewers and OpenAI's dashboard are described in words rather than
 shown. They are outside Relay, change often, and (for OpenAI) cannot be
 captured without a real account. The OpenAI chapter is dated for that reason.

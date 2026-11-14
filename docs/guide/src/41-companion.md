@@ -294,12 +294,11 @@ Within a second or two, the warning sign on the left turns into a green tick.
 See [Reading the connection status](#companion-status).
 
 ::: note
-**Why not 8443?** Inside the Relay container, the operator panel listens on
-port 8443. A normal install publishes it to the network on port 443, which is
-why the panel address has no port number in it. The module's default of 8443
-only matches a Relay that was started with the setting
-`RELAY_HTTPS_PORT=8443`. If your panel address has a port number after the IP
-address, such as `https://192.168.1.50:8443/admin`, use that number instead.
+**443 or 8443?** Relay serves the operator panel on port 443, which is why
+the panel address usually has no port number in it. When 443 is taken or not
+allowed (always on a Linux desktop), it uses 8443 instead, and the address
+shows it, as in `https://192.168.1.50:8443/admin`. Use the port your panel
+address shows: 443 if there is none.
 :::
 
 ### The certificate fingerprint {#companion-fingerprint}
