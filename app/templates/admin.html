@@ -1117,6 +1117,17 @@ window.relayCan = function (perm) { return window.RELAY_ME.permissions.indexOf(p
         <button type="button" id="deviceAdd">Trust this browser</button>
       </div>{% endif %}
     </section>
+    {% if 'tokens.manage' in perms %}<section>
+      <h3>API tokens</h3>
+      <div class="note" style="margin:0 0 12px">Every API token anyone has made. Revoking one stops the script that uses it at once.
+        Turning a person off stops their tokens too.</div>
+      <div class="tablescroll">
+        <table>
+          <thead><tr><th>Token</th><th>Person</th><th>Starts with</th><th>Expires</th><th>Last used</th><th><span class="sr">Actions</span></th></tr></thead>
+          <tbody id="allTokenList"><tr><td colspan="6" class="muted">Loading&hellip;</td></tr></tbody>
+        </table>
+      </div>
+    </section>{% endif %}
     <section>
       <h3>What each role can do</h3>
       <div class="tablescroll" id="roleRef"><div class="muted">Loading&hellip;</div></div>
@@ -1149,6 +1160,20 @@ window.relayCan = function (perm) { return window.RELAY_ME.permissions.indexOf(p
         </div>
       </form>
     </section>
+    {% if 'tokens.own' in perms %}<section>
+      <h3>API tokens</h3>
+      <div class="note" style="margin:0 0 12px">For scripts and other programs that use Relay's API as you. A token can do what your role can,
+        except manage users, passwords, devices, tokens or the OpenAI key. Send it as <span class="mono">Authorization: Bearer &lt;token&gt;</span>.</div>
+      <div class="tablescroll">
+        <table>
+          <thead><tr><th>Name</th><th>Starts with</th><th>Created</th><th>Expires</th><th>Last used</th><th><span class="sr">Actions</span></th></tr></thead>
+          <tbody id="tokenList"><tr><td colspan="6" class="muted">Loading&hellip;</td></tr></tbody>
+        </table>
+      </div>
+      <div class="shown" id="tokenSecret" hidden></div>
+      <div class="userform" id="tokenPanel" hidden></div>
+      <div class="ctl" style="margin-top:12px"><button type="button" id="tokenAdd">New token</button></div>
+    </section>{% endif %}
     <section>
       <h3>This browser</h3>
       <div class="note" style="margin-top:0" id="deviceState"></div>

@@ -84,7 +84,14 @@ _CORE = (
     Permission("modules.manage", "Switch modules on and off, run a module's test", "Modules", "admin"),
     Permission("users.view", "See users and trusted devices", "Users", "admin"),
     Permission("users.manage", "Create and change users, reset passwords, trust devices", "Users", "admin"),
+    Permission("tokens.own", "Create API tokens for your own scripts", "Users", "admin"),
+    Permission("tokens.manage", "See and revoke everyone's API tokens", "Users", "owner"),
 )
+
+# What an API token never does, whatever its user's role: manage accounts, passwords, devices, tokens or the
+# OpenAI key. A leaked token can then use Relay but cannot take over an account or mint more tokens. The
+# signed-in-user routes with no permission of their own (password, PIN, own tokens) refuse tokens in main.py.
+TOKEN_BARRED = frozenset({"users.view", "users.manage", "credentials.manage", "tokens.own", "tokens.manage"})
 
 _PERM_ID = re.compile(r"^[a-z][a-z0-9_]*\.[a-z][a-z0-9_]*$")
 _perm_lock = threading.Lock()
@@ -146,6 +153,21 @@ class User:
     def can(self, perm: str) -> bool:
         return perm in role_permissions(self.role)
 
+    def permissions(self) -> frozenset[str]:
+        return role_permissions(self.role)
+
+
+@dataclass(frozen=True)
+class TokenUser(User):
+    """A user acting through one of their API tokens (#174): their role, less TOKEN_BARRED."""
+    token_id: int = 0
+
+    def can(self, perm: str) -> bool:
+        return perm not in TOKEN_BARRED and super().can(perm)
+
+    def permissions(self) -> frozenset[str]:
+        return role_permissions(self.role) - TOKEN_BARRED
+
 
 # ------------------------------------------------------------------ refusals
 
@@ -181,6 +203,10 @@ MESSAGES: dict[str, str] = {
     "wrong_pin": "That PIN is not right.",
     "pin_cleared": "Too many wrong PINs. Sign in with your password and set a new PIN.",
     "no_device": "This browser is not a trusted device.",
+    "not_allowed": "Not allowed",
+    "bad_token_name": "A token name is 1 to 80 characters.",
+    "bad_expiry": "A token expires after 30, 90 or 365 days, or never.",
+    "too_many_tokens": "You have the most tokens allowed. Revoke one you no longer use first.",
 }
 
 
@@ -344,6 +370,8 @@ def update(user_id, *, name=None, role=None, disabled=None, actor: User | None) 
              cur["id"]))
         if final_disabled:
             tx.execute("delete from sessions where user_id = ?", (cur["id"],))
+        if _rank(final_role) < _rank(TOKEN_MIN_ROLE):
+            tx.execute("delete from api_tokens where user_id = ?", (cur["id"],))     # they could not make them now
     return _user(row)
 
 
@@ -545,3 +573,86 @@ def revoke_device(device_id) -> None:
     """Forget a device; the PIN sessions that came from it end with it (cascade)."""
     if db.execute("delete from trusted_devices where id = ?", (device_id,)) == 0:
         raise Refused("not_found")
+
+
+# ------------------------------------------------------------------ API tokens (#174)
+# A token is for scripts: `Authorization: Bearer relay_…` on /api/admin routes. It acts as its user, minus
+# TOKEN_BARRED, and is checked against the user row on every request, so turning the user off stops it at
+# once and deleting them deletes it. Only the sha256 is stored; the secret is shown once, when it is made.
+# `hint` is the first characters after the prefix, so a person can tell which token a script holds.
+
+TOKEN_PREFIX = "relay_"
+TOKEN_MIN_ROLE = "admin"               # who holds tokens.own; a user moved below it loses their tokens
+TOKEN_EXPIRY_DAYS = (30, 90, 365, None)  # None: never
+TOKEN_DEFAULT_DAYS = 90
+TOKENS_PER_USER = 25
+_HINT_LEN = 6
+
+_TOKEN_COLS = ("t.id, t.name, t.hint, t.created_at as created, t.expires_at as expires, t.last_used,"
+               " t.user_id, u.name as user_name, u.username"
+               " from api_tokens t join users u on u.id = t.user_id")
+
+
+def _token_row(tx, token_id) -> dict | None:
+    return tx.one(f"select {_TOKEN_COLS} where t.id = ?", (token_id,))
+
+
+def create_token(user: User, name, days) -> tuple[str, dict]:
+    """A new token for `user` (a signed-in person, not a token). Returns (secret, row); the secret is never
+    stored or returned again."""
+    if user.id <= 0 or isinstance(user, TokenUser) or not user.can("tokens.own"):
+        raise Refused("not_allowed")
+    name = _clean_name(name, "bad_token_name")
+    if isinstance(days, bool) or days not in TOKEN_EXPIRY_DAYS:
+        raise Refused("bad_expiry")
+    secret = TOKEN_PREFIX + secrets.token_urlsafe(32)
+    expires = db.later(days * 24 * 3600) if days else None
+    with db.transaction() as tx:
+        tx.execute("delete from api_tokens where expires_at is not null and expires_at < ?", (db.now(),))
+        if tx.one("select count(*) as n from api_tokens where user_id = ?", (user.id,))["n"] >= TOKENS_PER_USER:
+            raise Refused("too_many_tokens")
+        new = tx.one("insert into api_tokens (user_id, name, token_hash, hint, expires_at)"
+                     " values (?, ?, ?, ?, ?) returning id",
+                     (user.id, name, _hash_token(secret), secret[len(TOKEN_PREFIX):][:_HINT_LEN], expires))
+        row = _token_row(tx, new["id"])
+    return secret, row
+
+
+def _valid_api_token(secret) -> bool:
+    return isinstance(secret, str) and secret.startswith(TOKEN_PREFIX) and len(secret) <= 200
+
+
+def token_user(secret: str) -> TokenUser | None:
+    """The user a token acts as, or None when it is unknown, expired, or its user is turned off. Notes when
+    it was used, at most once a minute (this runs on every request a script makes)."""
+    if not _valid_api_token(secret):
+        return None
+    row = db.one(f"select {_COLS_U}, t.id as token_id, (t.last_used is null or t.last_used < ?) as stale"
+                 " from api_tokens t join users u on u.id = t.user_id"
+                 " where t.token_hash = ? and (t.expires_at is null or t.expires_at > ?) and not u.disabled",
+                 (db.later(-60), _hash_token(secret), db.now()))
+    if row is None:
+        return None
+    if row["stale"]:
+        db.execute("update api_tokens set last_used = ? where id = ?", (db.now(), row["token_id"]))
+    base = _user(row)
+    return TokenUser(**{**base.__dict__, "token_id": row["token_id"]})
+
+
+def list_tokens(user_id: int | None = None) -> list[dict]:
+    """Tokens that have not expired, newest first: one user's, or everyone's (None)."""
+    where, args = "(t.expires_at is null or t.expires_at > ?)", [db.now()]
+    if user_id is not None:
+        where += " and t.user_id = ?"
+        args.append(user_id)
+    return db.query(f"select {_TOKEN_COLS} where {where} order by t.created_at desc, t.id desc", args)
+
+
+def revoke_token(token_id, actor: User) -> None:
+    """Anyone may revoke their own tokens; only tokens.manage (Owners) may revoke someone else's. A token
+    that is not yours and not revocable by you is "not found", so its existence is not given away."""
+    with db.transaction() as tx:
+        row = tx.one("select user_id from api_tokens where id = ?", (token_id,))
+        if row is None or (row["user_id"] != actor.id and not actor.can("tokens.manage")):
+            raise Refused("not_found")
+        tx.execute("delete from api_tokens where id = ?", (token_id,))

@@ -87,12 +87,14 @@ _db.reset()
 check("init() is true with a database", db.init())
 check("available() is true", db.available())
 rows = db.query("select namespace, version from schema_migrations order by version")
-eq("core 0001_users applied once", rows, [{"namespace": "core", "version": "0001_users"}])
+CORE_N = 2
+eq("core migrations applied once, in order", rows,
+   [{"namespace": "core", "version": "0001_users"}, {"namespace": "core", "version": "0002_api_tokens"}])
 check("init() again is a no-op", db.init())
-eq("still one migration row", db.one("select count(*) as n from schema_migrations")["n"], 1)
+eq("still the same migration rows", db.one("select count(*) as n from schema_migrations")["n"], CORE_N)
 eq("migrate() twice is idempotent", (db.migrate("core", db.CORE_MIGRATIONS), db.migrate("core", db.CORE_MIGRATIONS)),
    (None, None))
-eq("one migration row after re-run", db.one("select count(*) as n from schema_migrations")["n"], 1)
+eq("the same migration rows after re-run", db.one("select count(*) as n from schema_migrations")["n"], CORE_N)
 
 mdir = Path(WORK) / "mig_a"
 mdir.mkdir()
@@ -111,7 +113,7 @@ eq("second namespace is idempotent", db.one("select count(*) as n from modx_thin
 (mdir / "0003_third.sql").write_text("alter table modx_things add column more int default 1;\n")
 db.migrate("modx", mdir)
 check("a new file is picked up later", "more" in db.one("select * from modx_things"))
-eq("core namespace untouched", db.one("select count(*) as n from schema_migrations where namespace = 'core'")["n"], 1)
+eq("core namespace untouched", db.one("select count(*) as n from schema_migrations where namespace = 'core'")["n"], CORE_N)
 
 bad = Path(WORK) / "mig_bad"
 bad.mkdir()
@@ -228,7 +230,7 @@ CATALOGUE = {
     "recordings.manage": "admin", "schedules.view": "viewer", "schedules.manage": "admin",
     "blocklist.manage": "admin", "settings.view": "viewer", "settings.manage": "admin",
     "credentials.manage": "owner", "modules.view": "viewer", "modules.manage": "admin", "users.view": "admin",
-    "users.manage": "admin",
+    "users.manage": "admin", "tokens.own": "admin", "tokens.manage": "owner",
 }
 eq("the core catalogue is exactly the contract's table",
    {p.id: p.min_role for p in users.catalogue()}, CATALOGUE)
@@ -623,7 +625,7 @@ os.environ["RELAY_DATABASE"] = str(restored)
 db.close()
 check("a restored backup opens", db.init())
 eq("…and holds the same accounts", sorted(u["username"] for u in users.list_users()), live_names)
-eq("…and the same migrations", db.one("select count(*) as n from schema_migrations where namespace = 'core'")["n"], 1)
+eq("…and the same migrations", db.one("select count(*) as n from schema_migrations where namespace = 'core'")["n"], CORE_N)
 os.environ["RELAY_DATABASE"] = real_file
 db.close()
 check("the live database is back", db.init())

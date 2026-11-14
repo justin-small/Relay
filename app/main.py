@@ -490,6 +490,7 @@ WEB_MESSAGES = {
     "bad_request": "That request is not valid.",
     "signin_required": "Sign in required",
     "not_allowed": "Not allowed",
+    "bad_api_token": "That API token is not valid, has expired, or its user is turned off.",
 }
 
 
@@ -550,7 +551,17 @@ def _session_user(request: Request) -> User | None:
     return user
 
 
-def require(perm: str | None, *, pending_ok: bool = False):
+def _bearer(request: Request) -> str | None:
+    """The credential of an `Authorization: Bearer …` header, "" for any other Authorization header, None
+    when there is none."""
+    auth = request.headers.get("authorization")
+    if auth is None:
+        return None
+    scheme, _, cred = auth.strip().partition(" ")
+    return cred.strip() if scheme.lower() == "bearer" else ""
+
+
+def require(perm: str | None, *, pending_ok: bool = False, tokens: bool = True):
     """FastAPI dependency factory: the request needs a signed-in user who holds `perm` (None: just signed in).
 
     401 {"detail": "Sign in required"} when not signed in; 403 "password_change_required" while the user must
@@ -558,9 +569,23 @@ def require(perm: str | None, *, pending_ok: bool = False):
     "Not allowed" when the role lacks the permission; 503 when the database is down. `x-admin-token` is
     honoured only while no account exists, and then acts as an Owner. It is a sync dependency, so the database
     calls run in the thread pool. `request.state.user` is the User.
+
+    An `Authorization: Bearer` API token (#174) is used instead of the cookie when one is sent: it acts as its
+    user less users.TOKEN_BARRED, and `tokens=False` refuses it outright (the signed-in user's own password,
+    PIN and tokens, which have no permission of their own to bar). A bad token is a 401, never a fall-back to
+    the cookie.
     """
     def dep(request: Request) -> User:
-        user = _session_user(request)
+        bearer = _bearer(request)
+        if bearer is not None:
+            _ready()
+            user = users.token_user(bearer)
+            if user is None:
+                raise HTTPException(status_code=401, detail=WEB_MESSAGES["bad_api_token"])
+            if not tokens:
+                raise HTTPException(status_code=403, detail=WEB_MESSAGES["not_allowed"])
+        else:
+            user = _session_user(request)
         if user is None:
             supplied = request.headers.get("x-admin-token") or ""
             real = (config.get().get("admin_token") or "").strip()
@@ -576,6 +601,7 @@ def require(perm: str | None, *, pending_ok: bool = False):
         return user
 
     dep.permission = perm        # type: ignore[attr-defined]  (the permission test reads it)
+    dep.tokens = tokens          # type: ignore[attr-defined]
     return dep
 
 
@@ -586,7 +612,7 @@ modules_pkg.templates = templates
 # What a refusal from users.py means as a status. The text sent is always Refused.message.
 _REFUSAL_STATUS = {
     "bad_login": 401, "wrong_pin": 401, "pin_cleared": 401, "no_device": 401,
-    "disabled": 403, "role_too_high": 403, "account_above_you": 403, "self_action": 403, "wrong_password": 403,
+    "disabled": 403, "not_allowed": 403, "role_too_high": 403, "account_above_you": 403, "self_action": 403, "wrong_password": 403,
     "not_found": 404,
     "username_taken": 409, "last_owner": 409,
 }
@@ -1233,7 +1259,7 @@ def _me_payload(request: Request, user: User) -> dict:
     return {
         "user": {"id": user.id, "username": user.username, "name": user.name, "role": user.role,
                  "must_change_password": user.must_change_password},
-        "permissions": sorted(users.role_permissions(user.role)),
+        "permissions": sorted(user.permissions()),
         "pin_set": user.pin_set,
         "device": {"trusted": device is not None, "name": device["name"] if device else None},
     }
@@ -2207,7 +2233,7 @@ def admin_me(request: Request):
     return _me_payload(request, request.state.user)
 
 
-@app.post("/api/admin/me/password", dependencies=[Depends(require(None, pending_ok=True))])
+@app.post("/api/admin/me/password", dependencies=[Depends(require(None, pending_ok=True, tokens=False))])
 def admin_me_password(request: Request, payload: dict):
     """Change the signed-in user's own password. Their other sessions end; this browser's stays."""
     users.change_own_password(request.state.user, payload.get("current"), payload.get("new"),
@@ -2215,17 +2241,53 @@ def admin_me_password(request: Request, payload: dict):
     return {"ok": True}
 
 
-@app.post("/api/admin/me/pin", dependencies=[Depends(require(None))])
+@app.post("/api/admin/me/pin", dependencies=[Depends(require(None, tokens=False))])
 def admin_me_pin(request: Request, payload: dict):
     user: User = request.state.user
     users.set_pin(user, payload.get("password"), payload.get("pin"))
     return {"ok": True, "pin_set": True}
 
 
-@app.delete("/api/admin/me/pin", dependencies=[Depends(require(None))])
+@app.delete("/api/admin/me/pin", dependencies=[Depends(require(None, tokens=False))])
 def admin_me_pin_clear(request: Request):
     users.clear_pin(request.state.user.id)
     return {"ok": True, "pin_set": False}
+
+
+@app.get("/api/admin/me/tokens", dependencies=[Depends(require("tokens.own", tokens=False))])
+def admin_me_tokens(request: Request):
+    return {"tokens": users.list_tokens(request.state.user.id), "expiry_days": list(users.TOKEN_EXPIRY_DAYS),
+            "default_days": users.TOKEN_DEFAULT_DAYS}
+
+
+@app.post("/api/admin/me/tokens", dependencies=[Depends(require("tokens.own", tokens=False))])
+def admin_me_token_create(request: Request, payload: dict):
+    """A new API token for the signed-in user. The secret is in this answer only; it is never shown again."""
+    secret, row = users.create_token(request.state.user, payload.get("name"),
+                                     payload.get("days", users.TOKEN_DEFAULT_DAYS))
+    return JSONResponse({"token": row, "secret": secret}, headers=_NO_STORE)
+
+
+@app.delete("/api/admin/me/tokens/{token_id}", dependencies=[Depends(require(None, tokens=False))])
+def admin_me_token_revoke(token_id: int, request: Request):
+    """Revoke one of your own tokens. Allowed whatever your role, so nobody is left unable to revoke theirs."""
+    user: User = request.state.user
+    if not any(t["id"] == token_id for t in users.list_tokens(user.id)):
+        raise users.Refused("not_found")
+    users.revoke_token(token_id, user)
+    return {"ok": True}
+
+
+@app.get("/api/admin/tokens", dependencies=[Depends(require("tokens.manage"))])
+def admin_tokens():
+    """Everyone's API tokens (Owners): who holds each, never the secret."""
+    return {"tokens": users.list_tokens()}
+
+
+@app.delete("/api/admin/tokens/{token_id}", dependencies=[Depends(require("tokens.manage"))])
+def admin_token_revoke(token_id: int, request: Request):
+    users.revoke_token(token_id, request.state.user)
+    return {"ok": True}
 
 
 @app.get("/api/admin/users", dependencies=[Depends(require("users.view"))])
