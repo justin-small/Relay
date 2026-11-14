@@ -1,5 +1,5 @@
 """Frozen entry point for the spike. `relay --probe` checks what a frozen app can lose, then exits;
-`relay --reset-owner <username>` is lockout recovery; anything else starts the server like run.py. Importing app.main here is also what makes PyInstaller
+anything else starts the server like run.py. Importing app.main here is also what makes PyInstaller
 collect the app (uvicorn imports it by string, which the analysis cannot see)."""
 import sys, traceback
 import app.main  # noqa: F401
@@ -40,22 +40,8 @@ def probe() -> int:
     return 0
 
 
-def reset_owner() -> int:
-    """`relay --reset-owner <username>`: lockout recovery for an installed app, which has no Python of its own
-    to run tools/reset_owner.py with. Same tool, same state folder (RELAY_HOME, else this OS's own)."""
-    from app import db
-    from tools import reset_owner as tool
-    i = sys.argv.index("--reset-owner")
-    try:
-        return tool.main(["relay --reset-owner", *sys.argv[i + 1:i + 2]])
-    finally:
-        db.close()
-
-
 if __name__ == "__main__":
     if "--probe" in sys.argv:
         sys.exit(probe())
-    if "--reset-owner" in sys.argv:
-        sys.exit(reset_owner())
     import run
     run.main()

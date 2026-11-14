@@ -502,8 +502,9 @@ no asterisk and no gap, so nobody notices.
 
 ![Blocked words, with a short list.](images/admin-blocked-words.png){width=100%}
 
-1. **The file.** The list is stored in a file called `blocklist.txt`, in
-   Relay's state folder (**Open state folder** in the Relay menu).
+1. **The file.** The list is stored in a file called `blocklist.txt`. Here it
+   shows the path inside Relay's container; on the Relay computer it is
+   `docker-config/blocklist.txt` in the Relay folder.
 2. **The list.** One word or phrase per line.
 3. **Save to file** saves the list. It takes effect within about two
    seconds. You do not need to restart anything, even mid-event.
@@ -545,8 +546,8 @@ never the sound. **Recording is off until you turn it on.**
 2. **Runs kept.** How many runs to keep. When a new run starts and there are
    more than this, the oldest are deleted. The default is 20.
 3. **Save** stores both settings. Recording starts with the **next** run.
-   The path beside it is the `recordings` folder inside Relay's state folder
-   (**Open state folder** in the Relay menu).
+   The path beside it is inside Relay's container; on the Relay computer it is
+   `docker-config/recordings/` in the Relay folder.
 4. **Run.** When it started. **· recording** marks the run in progress.
    **· cut short** marks a run that ended without **Stop**, for example after a
    power cut. Everything up to that point is still saved.
@@ -583,7 +584,8 @@ runs you no longer need.
 
 ## Credentials {#credentials}
 
-This page changes the OpenAI API key. Only an Owner sees it.
+This page changes the OpenAI API key without running setup again. Only an
+Owner sees it.
 
 ![Credentials.](images/admin-credentials.png){width=100%}
 
@@ -634,10 +636,10 @@ list.
 ### The first account
 
 The first time anyone opens the panel on a new Relay, it shows **Set up
-Relay** instead of a sign-in page. Until the first account exists, that page
-opens only on the Relay computer itself (a service install asks for its
-one-time setup code instead). Type a username, your name and a password (at
-least 8 characters), and click **Create the Owner**. You are signed in. A username is 3 to 32 letters, digits, dots, dashes or
+Relay** instead of a sign-in page. Type the admin token from setup, then a
+username, your name and a password (at least 8 characters), and click
+**Create the Owner**. You are signed in. From then on the admin token is
+never accepted again. A username is 3 to 32 letters, digits, dots, dashes or
 underscores.
 
 ### To add a person
@@ -715,28 +717,24 @@ PIN lasts 12 hours. **Sign out** at the top right ends it now.
 
 ### If nobody can sign in {#lockout}
 
-If the only Owner has forgotten their password, run one of these on the Relay
-computer, in a terminal (**Terminal** on a Mac, **Command Prompt** on
-Windows). Replace `YOURNAME` with the username.
+If the only Owner has forgotten their password, run this on the Relay
+computer, in a terminal:
 
-| Computer | Command |
-|---|---|
-| macOS | `/Applications/Relay.app/Contents/Resources/relay-backend/relay --reset-owner YOURNAME` |
-| Windows | `"%LOCALAPPDATA%\Relay\relay-backend\relay.exe" --reset-owner YOURNAME` |
-| Linux, service install | `sudo tools/install-service.sh reset-owner YOURNAME` (from the Relay folder) |
-| From a source checkout | `python tools/reset_owner.py YOURNAME` |
+```
+docker exec -it live-caption-relay python tools/reset_owner.py YOURNAME
+```
 
-Relay asks you to type a new password twice (it does not show as you type),
-makes that person an Owner (or creates them), ends their sessions and clears
-their PIN. Sign in with that password.
+Replace `YOURNAME` with the username. Relay asks you to type a new password
+twice (it does not show as you type), makes that person an Owner (or creates
+them) and clears their PIN. Sign in with that password.
 
 ### The user database {#user-database}
 
-The accounts are kept in one file, `relay.db`, in Relay's state folder. If
+The accounts are kept in one file, `relay.db`, in the `docker-config` folder. If
 it cannot be opened (a corrupt file, a full disk), captions and the viewer pages
 keep working, but the operator panel says **The user database is not available**
-until it can be. Once a day Relay saves a copy into the `backups` folder beside
-it, and keeps the newest 7. Copying the state folder copies the accounts too. Deleting
+until it can be. Once a day Relay saves a copy into `docker-config/backups`, and
+keeps the newest 7. Copying `docker-config` copies the accounts too. Deleting
 `relay.db` deletes all accounts, and Relay asks for the first Owner again.
 
 ## Appearance & tuning {#appearance}

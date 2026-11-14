@@ -1,51 +1,43 @@
 # Quick reference card {#quick-reference}
 
-## The Relay menu
+## The scripts
 
-Relay lives in the menu bar (macOS) or the system tray (Windows, Linux). Click
-its icon:
+**Setup runs once. Start runs every time.**
 
-| To | Choose |
-|---|---|
-| Open the operator panel | **Open panel** |
-| Copy the link for the room | **Copy viewer link** |
-| Check the certificate from another browser | **Show certificate fingerprint** |
-| See what went wrong | **Open logs folder**, then `relay.log` |
-| Find your settings | **Open state folder** |
-| Clear a problem | **Restart Relay** |
-| Install a new version | **Check for updates** |
-| Start Relay with the computer | tick **Start at login** |
-| Stop Relay and the captions | **Quit Relay** |
+| | macOS | Windows 10 / 11 | Linux |
+|---|---|---|---|
+| **Set up** (once) | double-click `setup.command` | double-click `setup.bat` | `./setup.sh` |
+| **Start** (every event) | double-click `start.command` | double-click `start.bat` | `./start.sh` |
+| **Stop** (after every event) | double-click `stop.command` | double-click `stop.bat` | `./stop.sh` |
+| **Show the log** | double-click `logs.command` | double-click `logs.bat` | `./logs.sh` |
 
-Closing the panel window does **not** stop captions. Only **Quit Relay** does.
+Before you start: Docker must be running (the whale icon on macOS and
+Windows).
 
 ## The two addresses
 
-The **Viewer links** page in the panel shows both. The IP address changes
-with the venue, so use what it shows today.
+Start prints both. The IP address changes with the venue, so use the ones
+printed today.
 
 | | Address | Who uses it |
 |---|---|---|
 | **Viewer link** | `http://192.168.1.50/` | The room. Share it, or show it as a QR code. |
 | **Operator panel** | `https://192.168.1.50/admin` | Operators. Sign in with your own username and password. |
 
-On a Linux desktop, and wherever the usual ports are taken, the addresses
-carry a port: `http://192.168.1.50:8080/` and `https://192.168.1.50:8443/admin`.
-
-The first time you open the panel in a browser, check that the browser's
-certificate fingerprint matches **Show certificate fingerprint**.
+The first time you open the panel, check that the browser's certificate
+fingerprint matches the `SHA-256` line that start printed.
 
 ## Rehearsal mode
 
-Made-up captions, no OpenAI connection, no cost. **Quit Relay** first, then:
+Made-up captions, no OpenAI connection, no cost. Stop Relay first.
 
 | | Type this |
 |---|---|
-| **macOS** (Terminal) | `RELAY_DEMO=1 /Applications/Relay.app/Contents/MacOS/relay-desktop` |
-| **Windows** (Command Prompt) | `set RELAY_DEMO=1`, then `"%LOCALAPPDATA%\Relay\relay-desktop.exe"` |
-| **Linux** (terminal) | `RELAY_DEMO=1` followed by the AppImage's path, or `relay-desktop` |
+| **macOS** (Terminal) | `cd ~/Relay` then `RELAY_DEMO=1 ./start.command` |
+| **Windows** (Command Prompt) | `cd /d C:\Relay`, `set RELAY_DEMO=1`, then `start.bat` |
+| **Linux** (terminal) | `cd ~/Relay` then `RELAY_DEMO=1 ./start.sh` |
 
-To leave rehearsal mode: **Quit Relay**, then open Relay normally.
+To leave rehearsal mode: stop, then start normally.
 
 ## Cost
 
@@ -58,31 +50,24 @@ cost nothing.
 
 ## Where your settings live
 
-Everything that belongs to you is in Relay's **state folder** (**Open state
-folder** in the Relay menu):
-
-| Computer | State folder |
-|---|---|
-| macOS | `~/Library/Application Support/Relay` |
-| Windows | `%APPDATA%\Relay` |
-| Linux desktop | `~/.local/share/relay` |
-| Linux service | `/var/lib/relay` |
+Everything that belongs to you is in the `docker-config` folder inside the
+Relay folder:
 
 | File or folder | What it holds |
 |---|---|
-| `config.json` | Your API key and all panel settings |
-| `relay.db` | The user accounts |
+| `config.json` | Your API key, setup admin token and all panel settings |
 | `blocklist.txt` | Your blocked words |
 | `certs/` | The panel's certificate and its private key |
+| `Caddyfile` | The web server settings, made by setup |
 | `recordings/` | Recorded sessions, if you turned recording on |
-| `backups/` | A copy of the user accounts, made once a day (the newest 7 are kept), and a copy made before each update |
-| `logs/` | Relay's log |
+| `backups/` | A copy of the user accounts, made once a day (the newest 7 are kept) |
 
-Updating or reinstalling Relay never touches this folder. Never share it, and
-never put it in a cloud-synced folder: it holds your API key.
+Keep this folder when you update Relay. Never share it, and never put it in a
+cloud-synced folder: it holds your API key.
 
 ## After a restart
 
-With **Start at login** ticked, Relay starts by itself when you log in. Check
-the Relay menu says **Relay: running**, then open the viewer link on a phone
-before the event.
+- **macOS and Windows:** always run start again. It restarts PulseAudio, the
+  microphone bridge, which does not come back by itself.
+- **Linux:** run start again to check the audio and see the current
+  addresses.

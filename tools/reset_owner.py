@@ -20,7 +20,7 @@ from app import db, users  # noqa: E402
 
 def main(argv: list[str]) -> int:
     if len(argv) != 2 or argv[1].startswith("-"):
-        print(f"Usage: {argv[0]} <username>", file=sys.stderr)
+        print("Usage: python tools/reset_owner.py <username>", file=sys.stderr)
         return 2
     if not db.init():
         print(f"  The user database is not available: {db.path()} cannot be opened or migrated "

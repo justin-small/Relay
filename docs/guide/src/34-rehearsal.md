@@ -17,19 +17,19 @@ All the viewer screenshots in this guide were taken in rehearsal mode.
 ## Turning it on
 
 Rehearsal mode is switched on when you start Relay, with a setting called
-`RELAY_DEMO`. You quit Relay, then start it once from a terminal with that
-setting. The exact command is different on each computer:
+`RELAY_DEMO`. The exact steps are different on each computer:
 
 - **macOS**: see [Installing on macOS](#install-macos), "Rehearsal mode".
 - **Windows**: see [Installing on Windows](#install-windows), "Rehearsal
   mode".
 - **Linux**: see [Installing on Linux](#install-linux), "Rehearsal mode".
 
-On a Mac, for example, choose **Quit Relay** from the Relay menu, then type
-this in **Terminal**:
+In short: stop Relay, then start it again with `RELAY_DEMO=1` in front of the
+start command. On Linux, for example:
 
 ```bash
-RELAY_DEMO=1 /Applications/Relay.app/Contents/MacOS/relay-desktop
+./stop.sh
+RELAY_DEMO=1 ./start.sh
 ```
 
 ## What you should see
@@ -52,11 +52,10 @@ started.**, because no real session is open.
 
 ## Turning it off
 
-Choose **Quit Relay** from the Relay menu, then open Relay again the normal
-way (from **Applications**, the Start menu or the applications menu).
+Stop Relay, then start it again the normal way, without `RELAY_DEMO=1`.
 
-To check which mode Relay is in, choose **Open logs folder** from the Relay
-menu and open `relay.log`. In rehearsal mode you see this line near the start:
+To check which mode Relay is in, open the logs (`logs.command`, `logs.bat` or
+`./logs.sh`). In rehearsal mode you see this line near the start:
 
 ```
 REHEARSAL MODE: captions are canned. No OpenAI session is open.
@@ -67,12 +66,13 @@ REHEARSAL MODE: captions are canned. No OpenAI session is open.
 panel says so and nothing starts. **Schedules** are skipped too: a schedule
 that comes due during a rehearsal does not start a session. Neither can open
 a billed session with your API key. To go live, stop Relay and start it again
-the normal way.
+without `RELAY_DEMO=1`.
 :::
 
 ::: warning
-Rehearsal mode stays on until you quit Relay. Always quit and open Relay the
-normal way after a rehearsal, and check the viewer
+Rehearsal mode stays on until you start Relay again without it. If the
+computer restarts, Docker brings Relay back **in rehearsal mode**. Always
+stop and start Relay the normal way after a rehearsal, and check the viewer
 page before the event: real captions follow what is said in the room, not
 the sample script.
 :::

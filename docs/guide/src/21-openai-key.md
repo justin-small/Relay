@@ -253,22 +253,36 @@ Organization**. Follow the steps. It can take a while to be approved.
 
 ## Adding the key to Relay
 
-There are two ways to give Relay the key. The **Set up Relay** page asks for
-it the first time. After that, you can change it in the admin panel.
+There are two ways to give Relay the key. Setup asks for it the first time.
+After that, you can change it in the admin panel.
 
-### On the Set up Relay page
+### During setup
 
-The first time you open Relay, the **Set up Relay** page has a box called
-**OpenAI API key**.
+When you run setup (`setup.command` on a Mac, `setup.bat` on Windows,
+`./setup.sh` on Linux), it asks for the key. The window, called a **terminal**,
+shows:
 
-1. Click in the box.
-2. Paste the key: `Cmd`+`V` on a Mac, `Ctrl`+`V` on Windows and Linux. The box
-   shows dots instead of the key, so nobody can read it over your shoulder.
-3. Fill in the rest of the page and click **Create the Owner**.
+```
+OpenAI API key
+  Create one at https://platform.openai.com/api-keys
+  It is stored only in docker-config/config.json on this machine
+  (permissions 0600). Input is hidden.
+  API key:
+```
 
-The box is optional. If you leave it empty, add the key later in the admin
-panel, as below. Relay keeps the key only in `config.json` in its state folder
-on this computer, readable by your account alone.
+(On Windows the middle lines may differ slightly.)
+
+1. Click in the terminal window.
+2. Paste the key: `Cmd`+`V` on a Mac, right-click or `Ctrl`+`V` on Windows.
+   **Nothing appears as you paste.** This is normal: the key is hidden so
+   that nobody can read it over your shoulder.
+3. Press `Return` (or `Enter`).
+   Setup should go on to ask for the admin token. If you pressed `Return`
+   without pasting, it says `The API key cannot be empty.` and asks again.
+
+If you run setup again later, it first asks
+`Reconfigure the API key and admin token? [y/N]`. Type `y` and press `Return`
+to enter a new key. Press `Return` alone to keep the current one.
 
 ### In the admin panel
 

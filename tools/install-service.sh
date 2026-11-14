@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Run Relay as a system service on a headless Linux machine (a small server, a Raspberry Pi in a rack).
-# No desktop session. Supported: Debian 12/13, Ubuntu 24.04+, Raspberry Pi OS (arm64).
+# No Docker, no desktop session. Supported: Debian 12/13, Ubuntu 24.04+, Raspberry Pi OS (arm64).
 #
 #   sudo tools/install-service.sh                 install (or repair) and start
 #   sudo tools/install-service.sh update          re-copy this checkout, refresh packages, restart

@@ -218,8 +218,8 @@ def resolve_device(selector, refresh: bool = False) -> dict | None:
     for d in devices:
         if sel in d["label"].lower():
             return d
-    # Saved by a v2.0 install, which reached the sound card through a PulseAudio bridge (an
-    # imported config): those names mean nothing to PortAudio's own host APIs, so use the default input.
+    # Saved by a Relay that ran in Docker and reached the sound card through a PulseAudio
+    # bridge: those names mean nothing to PortAudio's own host APIs, so use the default input.
     if is_legacy_pulse(selector):
         return _default_device(devices)
     return None

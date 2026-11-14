@@ -26,8 +26,9 @@
         In ProPresenter, open Settings &rarr; Network, switch <em>Enable Network</em> on, and copy the port it shows:
         the port is set per install, so Relay assumes none. ProPresenter&rsquo;s API has no password, so Relay only
         ever talks out to the address typed here, and anyone who can reach that port can control ProPresenter: keep
-        it on the production network. The ProPresenter machine&rsquo;s firewall must let this computer reach that
-        port.
+        it on the production network. If Relay runs in Docker, the container must be able to reach that address and
+        port (allow it in the firewall of the ProPresenter machine), and <em>Find on this network</em> cannot see
+        it from inside Docker Desktop: type the address.
       </div>
     </section>
     <section>

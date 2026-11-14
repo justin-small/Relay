@@ -1,5 +1,0 @@
-# The desktop release build (release.yml) installs requirements-release.txt, which pins every package this
-# file pulls in, with hashes, for every platform. Regenerate it after any change to requirements.txt:
-#   uv pip compile requirements-release.in --generate-hashes --universal --python-version 3.15 -o requirements-release.txt
--r requirements.txt
-pyinstaller==6.22.0

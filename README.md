@@ -63,38 +63,9 @@ observed on a clean install.
 
 ---
 
-## Install
+## Run it natively
 
-Download the installer for your computer from the
-[latest release](https://github.com/justin-small/Relay/releases/latest):
-
-| Computer | File |
-|---|---|
-| Windows 10 or 11 (64-bit) | `Relay_<version>_x64-setup.exe` (installs for you only, no administrator needed) |
-| Mac with Apple silicon (M1 or later) | `Relay_<version>_aarch64.dmg` |
-| Mac with an Intel processor | `Relay_<version>_x64.dmg` |
-| Linux desktop (x64) | `Relay_<version>_amd64.AppImage`, or the `.deb` |
-| Linux with no screen (a server, a Raspberry Pi) | the source zip; see [Headless Linux](#headless-linux-relay-as-a-system-service) |
-
-Open Relay like any other app. It sits in the tray (Windows, Linux) or the menu bar (macOS), opens the
-operator panel in its own window, can start at login (tray menu), and tells you when an update is out.
-Nothing else needs installing: no Python, no sound drivers.
-
-The builds are not code-signed yet, so the first launch warns:
-
-- **macOS:** *"Relay" cannot be opened because Apple cannot check it for malicious software.* Open
-  **System Settings → Privacy & Security**, scroll down, press **Open Anyway** next to Relay, and confirm.
-  Once per install.
-- **Windows:** *Windows protected your PC* (SmartScreen). Press **More info**, then **Run anyway**.
-- **Linux AppImage:** mark it executable first (`chmod +x Relay_*.AppImage`), or install the `.deb`.
-
-Updates are offered in the tray menu and on the panel and installed only when you press the button. They are
-signed with Relay's own key and refused if the signature does not match; before each one, the app and your
-settings are backed up, and a version that fails to start is rolled back by itself.
-
-## Run it from source
-
-Relay also runs straight from a checkout, on Windows, macOS and Linux, with Python 3.13 or newer:
+Relay runs straight from Python on Windows, macOS and Linux, with no container:
 
 ```bash
 pip install -r requirements.txt
@@ -123,19 +94,17 @@ and write whatever you can, and it holds your OpenAI key in `config.json` (owner
 permissions) in that folder. Run it from an account you would trust with that key,
 and do not run it as an administrator or root.
 
-**Upgrading from v2.0.** Version 2.0 ran in Docker and kept its settings in `docker-config/` beside its
-scripts. Stop the old Relay (and quit Docker Desktop, or it starts the old one again and caption panels find
-that first). On the new install's first-run page, choose **Import from a previous Relay** and type the path of
-the old `Relay` folder: your key, settings, blocked words, recordings and panel firmware are copied into the
-state folder, and the old folder is not changed. v2.0 had no accounts, only a shared admin token: the
-first-run page asks for that token once, then you create the Owner, and the token is retired. From a terminal the same import is
-`python tools/import_docker.py <old Relay folder> [--to <state folder>] [--force]`. Once captions work,
-the old folder and Docker Desktop can be removed.
+**Moving from a Docker install.** Stop the old Relay, then on Windows run
+`powershell -ExecutionPolicy Bypass -File tools\migrate-from-docker.ps1`. It copies
+`config.json` (your key and settings), `relay.db` (accounts), `blocklist.txt`, `recordings\`,
+`backups\` and `panel-firmware\` from the old `docker-config\` folder (or straight out of the
+container) into the state folder, and leaves the Docker install untouched. Pass `-Source <folder>`
+to name the folder yourself, and `-Force` to replace an existing native config.
 
 ## Headless Linux: Relay as a system service
 
 For a machine with no screen and no desktop session (a small server, a Raspberry Pi in a rack) run
-Relay as a systemd service. Supported: Debian 12 or 13, Ubuntu 24.04 or newer, Raspberry Pi OS
+Relay as a systemd service. No Docker. Supported: Debian 12 or 13, Ubuntu 24.04 or newer, Raspberry Pi OS
 (arm64). It needs Python 3.13 or newer; Debian 13 and Ubuntu 24.04 ship one, Debian 12 does not (install a
 3.13 yourself, for example with `uv python install 3.13`, and pass it with `--python`).
 
@@ -164,7 +133,7 @@ Owner is created. Caption panels find the service over mDNS like any other insta
 | `sudo tools/install-service.sh uninstall` | Removes the service and `/opt/relay`; **keeps** `/var/lib/relay` (settings, accounts). |
 | `sudo tools/install-service.sh uninstall --purge` | Also deletes `/var/lib/relay` and the `relay` user. |
 | `sudo tools/install-service.sh reset-owner <username>` | Lockout recovery: stops the service, runs `tools/reset_owner.py` as `relay`, restarts it. |
-| `journalctl -u relay -f` | The log. |
+| `journalctl -u relay -f` | The log (replaces the container's `logs.sh`). |
 
 ## First run
 
@@ -260,13 +229,9 @@ would come later, as a module.
 If the only Owner is locked out or has forgotten their password, run this on the
 Relay computer:
 
-| Install | Command |
-|---|---|
-| macOS app | `/Applications/Relay.app/Contents/Resources/relay-backend/relay --reset-owner <username>` |
-| Windows app | `"%LOCALAPPDATA%\Relay\relay-backend\relay.exe" --reset-owner <username>` |
-| Linux AppImage / `.deb` | the bundled `relay-backend/relay --reset-owner <username>` (the `.deb` puts it under `/usr/lib/Relay/`) |
-| Headless service | `sudo tools/install-service.sh reset-owner <username>` |
-| Source checkout | `python tools/reset_owner.py <username>` |
+```bash
+python tools/reset_owner.py <username>
+```
 
 It creates `<username>` as an Owner, or, if that account exists, turns it on and
 makes it an Owner. It asks for a new password twice, without showing it, then
@@ -691,7 +656,7 @@ captions themselves are a few bytes a line.
 | A blocked word still appears in a translation | Each feed is filtered independently. Add that language's form to the list as well. |
 | Edited `blocklist.txt` but nothing changed | Give it about 2 s. Check the relay's console output for the line `Blocked words reloaded: N term(s)`, and that the file is the one named in the admin panel. |
 | A blocked word appears inside a longer word | By design: only whole words match. Add the longer word explicitly. |
-| The panel says "The user database is not available" | `relay.db` cannot be opened (a corrupt file, a full or read-only disk, or the wrong owner). Captions and viewer pages are not affected. The panel opens again by itself once the database is back; if it does not, read the log (tray menu → *Open logs folder*, `logs/relay.log` in the state folder; `journalctl -u relay` on a headless install) for lines starting `relay:`. See [Database and backups](#database-and-backups). |
+| The panel says "The user database is not available" | `relay.db` cannot be opened (a corrupt file, a full or read-only disk, or the wrong owner). Captions and viewer pages are not affected. The panel opens again by itself once the database is back; if it does not, read the log (`logs.*`) for lines starting `relay:`. See [Database and backups](#database-and-backups). |
 | Nobody can sign in, or the only Owner is locked out | [Recover with `tools/reset_owner.py`](#if-nobody-can-sign-in). |
 | Captions lag or arrive in long blocks | Phrase boundaries come from the model and are not tunable. Long *lines* are a line-break setting: lower *Caption line break after silence*. Real lag is upstream: check the host's bandwidth. |
 
@@ -700,20 +665,17 @@ captions themselves are a few bytes a line.
 ```
 run.py                       entry point; binds both sockets
 requirements.txt             pinned dependencies
-requirements-release.*       the same, plus PyInstaller, hash-pinned for every platform (release build)
-desktop/                     the Tauri shell: tray, window, updates (desktop/README.md)
 config.example.json          template, used when tests run from a checkout
 blocklist.txt                default blocked words, copied to the state folder on first start
 
-<state folder>/              per-user, outside the install (see "Run it from source");
+<state folder>/              per-user, outside the install (see "Run it natively");
                              git-ignored when it is a checkout's own
   config.json                live config (0600): API key, admin_fqdn
   relay.db                   the user database (0600)
   blocklist.txt              the live list: hot-reloaded, written by the panel
   certs/admin.{crt,key}      operator panel certificate (key 0600)
   recordings/                recorded runs, if recording is enabled
-  backups/                   daily database copies, relay-YYYYMMDD-HHMMSS.db; pre-update backups
-  logs/relay.log             the desktop app's log of the backend
+  backups/                   daily database copies, relay-YYYYMMDD-HHMMSS.db
 
 app/
   main.py                    FastAPI routes, SSE, admin API
@@ -752,7 +714,7 @@ tests/
   _db.py                     throwaway SQLite file the tests make for themselves
 
 tools/
-  import_docker.py           copy a v2.0 install's settings into the state folder (the first-run page does the same)
+  migrate-from-docker.ps1    Windows: copy a Docker install's settings and data to the state folder
   install-service.sh         headless Linux: install, update, uninstall Relay as a systemd service
   relay.service              the systemd unit it installs (sandboxed, state folder only)
   reset_owner.py             lockout recovery: make someone an Owner with a new password
@@ -760,7 +722,8 @@ tools/
 
 ## Tests
 
-The suites run against the source tree, so they need a local virtualenv:
+The suites run against the source tree, not the image, so they need a local
+virtualenv. That is the only reason to create one:
 
 ```bash
 python3 -m venv .venv && .venv/bin/pip install -r requirements.txt httpx2
@@ -786,13 +749,7 @@ switched on and off (see [docs/modules.md](docs/modules.md)). The **Tests** work
 runs it, and every other suite, on each pull request.
 
 `httpx2` is test-only: starlette's `TestClient` needs it, the app does not, so
-it stays out of `requirements.txt` and the release build.
-
-**Dependency audit.** The *Dependency audit* job in the Tests workflow runs `pip-audit` on `requirements.txt`
-and on `requirements-release.txt`, `npm audit` on `desktop/`, and `cargo audit` on `desktop/src-tauri/`, on
-every pull request. The release build installs `requirements-release.txt` with `--require-hashes`, so a
-package that changed on PyPI after it was pinned is refused. After changing `requirements.txt`, regenerate it
-with the command at the top of `requirements-release.in`; `tests/test_release_lock.py` fails until you do.
+it stays out of `requirements.txt` and the image.
 
 ## Releasing
 

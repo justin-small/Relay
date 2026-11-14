@@ -8,14 +8,14 @@ for engineers; this guide is for everyone else.
 
 - Simple English. Short sentences, one idea per sentence, active voice:
   "Click **Start capture**", not "Capture may be started by…".
-- Technical terms are fine (API key, state folder, HTTPS, certificate, LAN IP
+- Technical terms are fine (API key, Docker, HTTPS, certificate, LAN IP
   address, port, fingerprint). Explain each one briefly the first time it
   appears in a chapter, and add it to `src/90-glossary.md`.
 - Number the steps. After each step, say what the reader should see: "The
   meter should move when someone speaks."
 - Name buttons and labels exactly as they appear on screen, in bold:
   **Start capture**, **Save credentials**.
-- Keys and typed text in code: `Return`, `RELAY_DEMO=1`.
+- Keys and typed text in code: `Return`, `./setup.sh`.
 
 ## Markup
 

@@ -23,11 +23,8 @@ works once, for that, and is then removed from the settings.
 
 ## Move your settings across
 
-1. Stop Relay 2.0 (`stop.bat` on Windows, `./stop.sh` on macOS and Linux),
-   then quit Docker Desktop. Docker Desktop starts the old Relay again
-   whenever it opens, and caption panels may then find the old one first.
-2. Install and open the Relay desktop app (see [Downloading Relay](#download))
-   so it creates its own folder.
+1. Stop Relay 2.0 (`stop.bat` on Windows, `./stop.sh` on macOS and Linux).
+2. Install and open the Relay desktop app once so it creates its own folder.
 3. On the first-run page, find **Coming from Relay 2.0?**, type the path of
    your old `Relay` folder (or the `docker-config` folder inside it) and press
    **Import from a previous Relay**.

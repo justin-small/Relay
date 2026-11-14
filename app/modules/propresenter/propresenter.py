@@ -1637,7 +1637,8 @@ def collect(records: list[tuple[str, int, bytes, str]]) -> list[dict]:
 def discover(seconds: float = 2.0) -> list[dict]:
     """Ask the LAN for ProPresenter over multicast DNS and return what answers within `seconds`. Standard library
     only (zeroconf is not in requirements.txt). The question is asked from an ordinary port, so the answer comes
-    straight back to it. Multicast does not cross routers, so a ProPresenter on another subnet is typed in."""
+    straight back to it. Multicast has to leave this machine's own network: from Docker Desktop's VM it never
+    reaches the LAN, so there the address is typed in."""
     query = struct.pack("!6H", 0, 0, 1, 0, 0, 0) + _name(SERVICE.split(".")) + struct.pack("!HH", 12, 1)
     records: list[tuple[str, int, bytes, str]] = []
     asked: set[tuple[int, str]] = set()
