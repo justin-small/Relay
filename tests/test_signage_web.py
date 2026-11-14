@@ -136,14 +136,27 @@ def err(code, headers=None):
 answers = {}
 
 
-def fake_fetch(url, headers=None):
+def fake_fetch(url, hops=3):
     a = answers[url.split("?")[0]] if "oembed" not in url else answers["oembed"]
     if isinstance(a, Exception):
         raise a
     return a
 
 
+real_fetch = links._fetch
 links._fetch = fake_fetch
+
+print("public addresses")
+eq("loopback is private", links.public_host("127.0.0.1"), False)
+eq("a LAN address is private", links.public_host("192.168.1.20"), False)
+eq("link-local is private", links.public_host("169.254.169.254"), False)
+eq("a name that doesn't resolve is refused", links.public_host("nope.invalid"), False)
+eq("a public address is fine", links.public_host("8.8.8.8"), True)
+try:
+    real_fetch("http://127.0.0.1:9/")
+    eq("fetch refuses loopback", True, False)
+except PermissionError:
+    eq("fetch refuses loopback", True, True)
 
 print("checks")
 answers["https://example.org/menu"] = Resp(hdrs(X_Frame_Options="DENY"))
@@ -152,6 +165,8 @@ answers["https://example.org/menu"] = Resp()
 eq("a site that allows it", links.check(web)["state"], "ok")
 answers["https://example.org/menu"] = OSError("down")
 eq("a site that can't be reached", links.check(web)["state"], "offline")
+answers["https://example.org/menu"] = PermissionError("private")
+eq("a private address is not fetched", links.check(web)["state"], "unsure")
 answers["oembed"] = Resp(body=json.dumps({"title": "Welcome"}).encode())
 eq("an embeddable video", links.check(yt)["state"], "ok")
 answers["oembed"] = err(401)

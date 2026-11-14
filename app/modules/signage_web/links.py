@@ -5,10 +5,12 @@ editing a link's address changes every playlist that uses it.
 """
 from __future__ import annotations
 
+import ipaddress
 import json
 import logging
 import re
 import secrets
+import socket
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -37,8 +39,11 @@ class Invalid(ValueError):
 
 def _clean_url(raw: Any) -> str:
     url = str(raw or "").strip()
-    if url and "://" not in url and not re.match(r"[A-Za-z][A-Za-z0-9+.-]*:(?!\d)", url):
-        url = "https://" + url
+    if url and "://" not in url:
+        head, colon, rest = url.partition(":")
+        # "javascript:x" and "mailto:y" name a scheme; "example.org:8080/x" is a host and port.
+        if not (colon and head.isalpha() and not rest[:1].isdigit()):
+            url = "https://" + url
     parts = urllib.parse.urlsplit(url)
     if parts.scheme not in ("http", "https") or not parts.hostname or len(url) > 500 or any(c.isspace() for c in url):
         raise Invalid("Enter a web address starting with http:// or https://.")
@@ -145,10 +150,40 @@ def resolve_youtube(link: dict) -> dict:
 
 # ---------------------------------------------------------------- checks (admin asks; never at play time)
 
-def _fetch(url: str, headers: dict | None = None):
-    req = urllib.request.Request(url, headers={"User-Agent": "Relay-signage-check", **(headers or {})})
-    kw = {"context": _SSL} if url.startswith("https:") else {}
-    return urllib.request.urlopen(req, timeout=TIMEOUT_S, **kw)
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, *a, **kw):
+        return None
+
+
+_HTTPS = urllib.request.HTTPSHandler(context=_SSL)
+_OPENER = urllib.request.build_opener(_NoRedirect, _HTTPS)
+
+
+def public_host(host: str) -> bool:
+    """True when every address `host` resolves to is a public one. The check never reaches into the network Relay
+    runs on: a saved address is fetched from this machine, so it must not be a way to probe it."""
+    try:
+        found = {i[4][0] for i in socket.getaddrinfo(host, None)}
+        return bool(found) and all(ipaddress.ip_address(a.split("%")[0]).is_global for a in found)
+    except (OSError, ValueError):
+        return False
+
+
+def _fetch(url: str, hops: int = 3):
+    """GET `url`, following up to `hops` redirects, each to a public host. Raises PermissionError for a private one."""
+    for _ in range(hops + 1):
+        parts = urllib.parse.urlsplit(url)
+        if parts.scheme not in ("http", "https") or not public_host(parts.hostname or ""):
+            raise PermissionError("not a public address")
+        try:
+            return _OPENER.open(urllib.request.Request(url, headers={"User-Agent": "Relay-signage-check"}),
+                                timeout=TIMEOUT_S)
+        except urllib.error.HTTPError as exc:
+            if exc.code in (301, 302, 303, 307, 308) and exc.headers.get("Location"):
+                url = urllib.parse.urljoin(url, exc.headers["Location"])
+                continue
+            raise
+    raise OSError("too many redirects")
 
 
 def frame_verdict(headers) -> tuple[str, str]:
@@ -176,6 +211,9 @@ def check_web(url: str) -> dict:
         state, note = frame_verdict(exc.headers)
         if state == "ok":
             note = f"The site answered with an error ({exc.code}), but allows framing."
+    except PermissionError:
+        return {"state": "unsure", "note": "This address is on a private network, so Relay doesn't check it. "
+                                           "Add it to a playlist and look at a screen."}
     except Exception:
         return {"state": "offline", "note": "Relay couldn't reach this address to check it."}
     return {"state": state, "note": note}

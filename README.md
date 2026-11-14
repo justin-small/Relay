@@ -739,7 +739,8 @@ file.
   rest of the playlist. Relay itself is not involved, so one screen's connection problem leaves the others alone.
 
 The address check is made from the computer running Relay, so it needs the internet too; a link added while offline is
-saved and marked "couldn't reach", and **Check again** fixes that later.
+saved and marked "couldn't reach", and **Check again** fixes that later. Addresses on a private network (your
+intranet, a device on the LAN) are never fetched by Relay: they are saved unchecked, so look at a screen to see them.
 
 ## Security
 
