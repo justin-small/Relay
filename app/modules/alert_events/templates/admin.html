@@ -1,0 +1,50 @@
+{# The Alert events admin page, rendered inside admin.html only while the module is on. #}
+    <h2 class="title">Alert events <span class="sumstate" id="aeSum"></span></h2>
+    <p class="sub">Tell other products when an alert or stage message is sent, and when an alert is acknowledged
+      (with the reply, if one was picked).</p>
+
+    <section>
+      <h3>Webhook</h3>
+      <div class="field">
+        <label class="chk chk-inline"><input type="checkbox" id="aeHookOn"> Send a webhook</label>
+      </div>
+      <div class="field">
+        <label for="aeHookUrl">Address</label>
+        <input id="aeHookUrl" placeholder="https://…" autocomplete="off" spellcheck="false" maxlength="500">
+        <div class="note">Relay POSTs a JSON body: <span class="mono">event</span> (<span class="mono">alert.sent</span>,
+          <span class="mono">alert.acknowledged</span>, <span class="mono">alert.ended</span> or
+          <span class="mono">message.sent</span>), <span class="mono">button</span>, <span class="mono">from</span>,
+          <span class="mono">level</span>, <span class="mono">targets</span>, and on an acknowledge
+          <span class="mono">seen_on</span>, <span class="mono">seen_after_s</span> and <span class="mono">reply</span>.</div>
+      </div>
+    </section>
+    <section>
+      <h3>OSC</h3>
+      <div class="field">
+        <label class="chk chk-inline"><input type="checkbox" id="aeOscOn"> Send OSC messages</label>
+      </div>
+      <div class="row">
+        <div class="field"><label for="aeOscHost">Address</label>
+          <input id="aeOscHost" placeholder="192.168.1.20" autocomplete="off" spellcheck="false" maxlength="253"></div>
+        <div class="field"><label for="aeOscPort">Port</label>
+          <input id="aeOscPort" type="number" min="1" max="65535" style="width:7em"></div>
+      </div>
+      <div class="note">UDP. <span class="mono">/relay/alert/sent</span> button, from, level &middot;
+        <span class="mono">/relay/alert/acknowledged</span> button, seen on, reply &middot;
+        <span class="mono">/relay/alert/ended</span> button, state (missed or cancelled) &middot;
+        <span class="mono">/relay/message/sent</span> text, from, level.</div>
+    </section>
+    <div class="note err" id="aeErr" hidden></div>
+    <div class="ctl">
+      <button type="button" class="primary" id="aeSave">Save</button>
+      <button type="button" id="aeTest">Send a test event</button>
+      <span class="muted" id="aeMsg"></span>
+    </div>
+    <section>
+      <h3>Bitfocus Companion</h3>
+      <p class="note" style="margin-top:0">Companion reads alert state from <span class="mono">GET /api/admin/alert-events/state</span>
+        with an API token. It returns <span class="mono">variables</span> (<span class="mono">alerts_on</span>, <span class="mono">last_event</span>,
+        <span class="mono">last_reply</span>, and <span class="mono">&lt;button&gt;_state</span>, <span class="mono">_from</span>, <span class="mono">_seen_on</span>,
+        <span class="mono">_reply</span> for each alert button) and <span class="mono">feedbacks</span> (the buttons that are flashing, seen,
+        not seen or replied to), for a Companion button to light on.</p>
+    </section>

@@ -28,7 +28,7 @@ from jinja2 import ChoiceLoader, FileSystemLoader, PrefixLoader
 
 from . import alerts as alertsmod
 from . import announce as announcemod
-from . import audit, config, db, exporting, importdocker, languages, netinfo, overlays, panelfw, panels, prefs, redact, schedules, serving, setupcode, streamstatus, tls, users
+from . import alerthistory, audit, config, db, exporting, importdocker, languages, netinfo, overlays, panelfw, panels, prefs, redact, schedules, serving, setupcode, streamstatus, tls, users
 from .alerts import alerts
 from . import engine as engine_mod
 from .engine import TRANSCRIPTION_STREAM, TRANSLATION_STREAM, demo_mode, engine
@@ -399,6 +399,7 @@ def _backup_if_due() -> None:
     if not db.available():
         return
     audit.prune()                                   # the audit log keeps audit.KEEP_DAYS days
+    alerthistory.prune()                            # alert history keeps alerthistory.KEEP_DAYS days
     if db.backup_due():
         db.backup()
 
@@ -1301,7 +1302,7 @@ async def alert_ack(request: Request):
     if screen is not None and not isinstance(screen, str):
         raise HTTPException(400, "screen must be a name")
     try:
-        return alerts.ack(body.get("id"), panel=panel, screen=screen)
+        return alerts.ack(body.get("id"), panel=panel, screen=screen, reply=body.get("reply"))
     except alertsmod.Refused as exc:
         return _alert_refused(exc)
 
@@ -2067,6 +2068,15 @@ async def admin_alerts_save(payload: dict):
     except ValueError as exc:
         raise HTTPException(400, str(exc))
     return _alerts_frame()
+
+
+@app.get("/api/admin/alerts/history", dependencies=[Depends(require("alerts.history"))])
+async def admin_alerts_history(before: int | None = None, limit: int = alerthistory.PAGE):
+    """Who sent what, when, to which targets, how long until it was seen, and the reply (#217), newest first."""
+    try:
+        return await asyncio.to_thread(alerthistory.search, before=before, limit=limit)
+    except db.Unavailable:
+        raise HTTPException(503, "The database is unavailable, so the history cannot be read.")
 
 
 # A check-in, rename, feed or forget reaches the open operator panels at once,

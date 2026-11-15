@@ -24,6 +24,13 @@ The flash is once a second, fixed: well under the 3 per second where flashing be
 **Levels (#215)**: every alert and stage message has one. *Info* is a steady blue, *attention* flashes amber, and
 *urgent* flashes red and white, as alerts always did. A button or preset has its own (an alert button is urgent
 and a message is info until the operator says otherwise), and a sender may pick another for one send.
+
+**Replies (#216)**: the operator sets a short list ("On my way", "Can't right now"). A panel or screen that
+acknowledges may pick one, so nobody needs a keyboard, and the sender sees it next to "seen on ...".
+
+**History (#217)** is written to the database as each alert ends and each stage message is shown
+(app/alerthistory.py). **Events out (#219)**: anything that happens is also handed to `Alerts.listeners`, callables
+a module adds in `start()` and removes in `stop()`, so core never names the products that listen.
 """
 from __future__ import annotations
 
@@ -35,7 +42,7 @@ import time
 from dataclasses import dataclass
 from typing import Any, Callable
 
-from . import config
+from . import alerthistory, config, db
 
 MAX_BUTTONS = 16
 MAX_TARGETS = 16            # panels plus screens, per button
@@ -62,6 +69,9 @@ BANNER_DEFAULT_S = 300
 BANNER_MIN_S = 30
 BANNER_MAX_S = 3600
 MAX_LIVE_MESSAGES = 8
+# Replies (#216): a short fixed list the operator sets, tapped on a panel or screen when it acknowledges.
+MAX_REPLIES = 6
+REPLY_MAX = 24
 
 _ID_RE = re.compile(r"^[0-9a-f]{8}$")
 _ALERT_ID_RE = re.compile(r"^[0-9a-f]{16}$")
@@ -81,6 +91,45 @@ DEFAULT_ICON = "bell"
 
 def clean_icon(value: object) -> str:
     return value if isinstance(value, str) and value in ICONS else DEFAULT_ICON
+
+
+def clean_reply(value: object) -> str:
+    """One reply: printable, one line, at most REPLY_MAX characters."""
+    if not isinstance(value, str):
+        return ""
+    text = "".join(ch if ch.isprintable() else " " for ch in value)
+    return " ".join(text.split())[:REPLY_MAX]
+
+
+def clean_replies(raw: object) -> list[str]:
+    """The reply list from stored settings: malformed or repeated entries dropped, at most MAX_REPLIES."""
+    out: list[str] = []
+    for item in raw if isinstance(raw, list) else []:
+        text = clean_reply(item)
+        if text and text.lower() not in (o.lower() for o in out) and len(out) < MAX_REPLIES:
+            out.append(text)
+    return out
+
+
+def validate_replies(raw: object) -> list[str]:
+    """The reply list from admin, refused with a sentence when something is wrong."""
+    if raw is None:
+        return []
+    if not isinstance(raw, list) or not all(isinstance(r, str) for r in raw):
+        raise ValueError("replies must be a list of words")
+    if len(raw) > MAX_REPLIES:
+        raise ValueError(f"at most {MAX_REPLIES} replies")
+    out: list[str] = []
+    for item in raw:
+        text = clean_reply(item)
+        if not text:
+            raise ValueError("every reply needs words")
+        if len(" ".join(item.split())) > REPLY_MAX:
+            raise ValueError(f"a reply is at most {REPLY_MAX} characters")
+        if text.lower() in (o.lower() for o in out):
+            raise ValueError(f"two replies say \"{text}\"")
+        out.append(text)
+    return out
 
 
 def clean_level(value: object, default: str) -> str:
@@ -252,7 +301,8 @@ def clean_stored(raw: object) -> dict[str, Any]:
                         "screens": screens, "stage": item.get("stage") is True,
                         "level": clean_level(item.get("level"), DEFAULT_ALERT_LEVEL)})
     return {"auto_stop_s": max(AUTO_STOP_MIN_S, min(AUTO_STOP_MAX_S, auto)), "buttons": buttons,
-            "require_signin": raw.get("require_signin") is True, "messages": clean_messages(raw.get("messages"))}
+            "require_signin": raw.get("require_signin") is True, "messages": clean_messages(raw.get("messages")),
+            "replies": clean_replies(raw.get("replies"))}
 
 
 def _unique(items: list[str]) -> list[str]:
@@ -317,7 +367,7 @@ def validate(raw: object) -> dict[str, Any]:
         buttons.append({"id": bid, "name": name, "icon": icon, "panels": panels, "screens": screens,
                         "stage": stage, "level": level})
     return {"auto_stop_s": auto, "buttons": buttons, "require_signin": require_signin,
-            "messages": validate_messages(raw.get("messages"))}
+            "messages": validate_messages(raw.get("messages")), "replies": validate_replies(raw.get("replies"))}
 
 
 def sse_frame(message: dict) -> bytes:
@@ -334,6 +384,9 @@ class Alert:
     seen_on: str = ""     # where it was acknowledged
     ended: float = 0.0
     level: str = DEFAULT_ALERT_LEVEL
+    reply: str = ""       # the reply picked when it was acknowledged (#216)
+    at: str = ""          # the wall-clock time it started, for the history (#217)
+    targets: tuple[str, ...] = ()   # panel and screen names as they were when it started
 
 
 @dataclass
@@ -364,6 +417,7 @@ MESSAGES = {
     "no_preset": "no such message",
     "no_words": "write the message first",
     "bad_level": "level must be info, attention or urgent",
+    "bad_reply": "that is not one of the replies",
     "no_free_targets": "the operator has not chosen where typed messages go",
 }
 
@@ -397,6 +451,9 @@ class Alerts:
         # ProPresenter's stage display (#138): called with (alert id, text) when an alert on a button with
         # "also show on the stage display" starts, and with (alert id, None) when any alert ends, however.
         self.on_stage: Callable[[str, str | None], None] | None = None
+        # Events out (#219): callables a module adds while it is on. Each is called with one dict, {"event": ...},
+        # on the event loop, and must not block; a listener that raises is skipped.
+        self.listeners: list[Callable[[dict[str, Any]], None]] = []
 
     # ------------------------------------------------------------ settings
     @staticmethod
@@ -408,8 +465,10 @@ class Alerts:
 
     def save(self, raw: object) -> dict[str, Any]:
         # A client that sends only the buttons (an older admin page) leaves the stage messages as they are.
-        if isinstance(raw, dict) and "messages" not in raw:
-            raw = {**raw, "messages": self.settings().get("messages")}
+        if isinstance(raw, dict):
+            keep = {k: self.settings().get(k) for k in ("messages", "replies") if k not in raw}
+            if keep:
+                raw = {**raw, **keep}
         clean = validate(raw)
         # An alert on a button that is gone ends now, while its targets are still known.
         kept = {b["id"] for b in clean["buttons"]}
@@ -440,6 +499,7 @@ class Alerts:
                 row["state"] = alert.state
                 row["from"] = alert.sender
                 row["seen_on"] = alert.seen_on
+                row["reply"] = alert.reply
                 row["age_s"] = round(now - (alert.ended or alert.started))
                 if alert.state == "on":
                     # Until the auto-stop, for the sender's countdown.
@@ -455,7 +515,7 @@ class Alerts:
                            "auto_stop_min_s": AUTO_STOP_MIN_S, "auto_stop_max_s": AUTO_STOP_MAX_S,
                            "presets": MAX_PRESETS, "text": TEXT_MAX, "message_min_s": MESSAGE_MIN_S,
                            "message_max_s": MESSAGE_MAX_S, "banner_min_s": BANNER_MIN_S,
-                           "banner_max_s": BANNER_MAX_S},
+                           "banner_max_s": BANNER_MAX_S, "replies": MAX_REPLIES, "reply": REPLY_MAX},
                 "live_messages": self.message_state()["live"]}
 
     def screen_names(self) -> list[str]:
@@ -475,9 +535,13 @@ class Alerts:
 
     def _alert_message(self, alert: Alert, button: dict[str, Any]) -> dict[str, Any]:
         remaining = self.settings()["auto_stop_s"] - (_now() - alert.started)
-        return {"type": "alert", "id": alert.id, "from": alert.sender, "to": button["name"],
+        wire = {"type": "alert", "id": alert.id, "from": alert.sender, "to": button["name"],
                 "ends_in_s": max(1, round(remaining)), "level": alert.level,
                 "hz": FLASH_HZ if LEVEL_FLASHES[alert.level] else 0}
+        replies = self.settings().get("replies") or []
+        if replies:
+            wire["replies"] = list(replies)
+        return wire
 
     # ------------------------------------------------------------- presses
     def press(self, bid: str, sender: str, level: object = None) -> dict[str, Any]:
@@ -497,8 +561,10 @@ class Alerts:
             self._end(alert, "cancelled")
         else:
             alert = Alert(secrets.token_hex(8), bid, clean_name(sender), now,
-                          level=level or clean_level(button.get("level"), DEFAULT_ALERT_LEVEL))
+                          level=level or clean_level(button.get("level"), DEFAULT_ALERT_LEVEL), at=db.now(),
+                          targets=self._target_names(button))
             self.latest[bid] = alert
+            self._emit("alert.sent", alert, button)
             message = self._alert_message(alert, button)
             if button.get("stage"):
                 self._stage(alert.id, f"{button['name']} (from {alert.sender})" if alert.sender else button["name"])
@@ -534,8 +600,13 @@ class Alerts:
             self._broadcast_state()
         return self.state()
 
-    def ack(self, alert_id: str, *, panel: str | None = None, screen: str | None = None) -> dict[str, Any]:
-        """Someone tapped a flashing screen: the alert ends everywhere, and the sender is told where."""
+    def _target_names(self, item: dict[str, Any]) -> tuple[str, ...]:
+        return tuple([self.panel_name(p) or "a panel" for p in item["panels"]] + list(item["screens"]))
+
+    def ack(self, alert_id: str, *, panel: str | None = None, screen: str | None = None,
+            reply: object = None) -> dict[str, Any]:
+        """Someone tapped a flashing screen: the alert ends everywhere, and the sender is told where. `reply` is
+        one of the operator's replies (#216), taken or refused before anything ends."""
         if not isinstance(alert_id, str) or not _ALERT_ID_RE.fullmatch(alert_id):
             raise Refused(400, "bad_id")
         self.expire()
@@ -556,11 +627,18 @@ class Alerts:
                 raise Refused(403, "not_this_screen")
         else:
             raise Refused(400, "who_saw")
+        chosen = ""
+        if reply is not None and reply != "":
+            chosen = next((r for r in self.settings().get("replies") or []
+                           if isinstance(reply, str) and r.lower() == clean_reply(reply).lower()), "")
+            if not chosen:
+                raise Refused(400, "bad_reply")
         if alert.state == "on":
             alert.seen_on = where
+            alert.reply = chosen
             self._end(alert, "seen")
             self._broadcast_state()
-        return {"ok": True, "state": alert.state, "seen_on": alert.seen_on}
+        return {"ok": True, "state": alert.state, "seen_on": alert.seen_on, "reply": alert.reply}
 
     def expire(self) -> bool:
         """End alerts nobody tapped in time, and forget old outcomes. True when something changed. Called on every
@@ -592,11 +670,45 @@ class Alerts:
         button = self.button(alert.button)
         message = {"type": "alert_end", "id": alert.id, "why": state}
         self._stage(alert.id, None)
+        self._record_alert(alert, button)
+        self._emit("alert.acknowledged" if state == "seen" else "alert.ended", alert, button)
         if button is not None:
             for pid in button["panels"]:
                 self.push_panel(pid, message)
             for name in button["screens"]:
                 self._push_screen(name, message)
+
+    # ------------------------------------------------- history and events out
+    def _record_alert(self, alert: Alert, button: dict[str, Any] | None) -> None:
+        seen = alert.state == "seen"
+        alerthistory.record(kind="alert", at=alert.at or None, name=button["name"] if button else "",
+                            level=alert.level, sender=alert.sender, targets=list(alert.targets),
+                            outcome=alert.state, seen_on=alert.seen_on,
+                            seen_after_s=round(alert.ended - alert.started) if seen else None, reply=alert.reply)
+
+    def _emit(self, event: str, alert: Alert | Message, button: dict[str, Any] | None = None) -> None:
+        """Hand an event to every listener (#219). Never raises, never blocks."""
+        if not self.listeners:
+            return
+        if isinstance(alert, Message):
+            data: dict[str, Any] = {"event": event, "id": alert.id, "text": alert.text, "level": alert.level,
+                                    "banner": alert.banner, "from": alert.sender,
+                                    "targets": [self.panel_name(p) or "a panel" for p in alert.panels]
+                                    + list(alert.screens)}
+        else:
+            data = {"event": event, "id": alert.id, "button": button["name"] if button else "",
+                    "level": alert.level, "from": alert.sender, "targets": list(alert.targets)}
+            if event != "alert.sent":
+                data["state"] = alert.state
+                data["seen_on"] = alert.seen_on
+                data["reply"] = alert.reply
+                if alert.state == "seen":
+                    data["seen_after_s"] = round(alert.ended - alert.started)
+        for fn in list(self.listeners):
+            try:
+                fn(data)
+            except Exception:
+                pass
 
     # ------------------------------------------------------ stage messages
     def _message_wire(self, msg: Message) -> dict[str, Any]:
@@ -655,6 +767,10 @@ class Alerts:
                       cfg["banner_s"] if is_banner else cfg["message_s"], list(panels), list(screens),
                       level or own)
         self.live[key] = msg
+        alerthistory.record(kind="message", text=msg.text, level=msg.level, sender=msg.sender,
+                            targets=[self.panel_name(p) or "a panel" for p in msg.panels] + list(msg.screens),
+                            outcome="shown")
+        self._emit("message.sent", msg)
         wire = self._message_wire(msg)
         for pid in msg.panels:
             self.push_panel(pid, wire)

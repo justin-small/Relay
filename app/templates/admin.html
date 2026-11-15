@@ -697,6 +697,16 @@ window.relayCan = function (perm) { return window.RELAY_ME.permissions.indexOf(p
       </div>
     </section>
     <section>
+      <h3>Replies</h3>
+      <p class="note" style="margin-top:0">A short list a panel or screen can tap when it acknowledges, so nobody needs a keyboard.
+        The sender sees the reply next to &ldquo;Seen&rdquo;. One reply per line, up to 6 of 24 characters. Leave it empty for a
+        plain acknowledge. Tapping anywhere else on the flashing screen still acknowledges with no reply.</p>
+      <div class="field">
+        <label for="alertReplies">Replies</label>
+        <textarea id="alertReplies" rows="4" style="max-width:20em" placeholder="On my way&#10;Can't right now"{% if 'alerts.manage' not in perms %} disabled{% endif %}></textarea>
+      </div>
+    </section>
+    <section>
       <h3>When nobody taps</h3>
       <div class="field">
         <label for="alertAutoStop">Stop flashing after</label>
@@ -720,6 +730,17 @@ window.relayCan = function (perm) { return window.RELAY_ME.permissions.indexOf(p
       {% if 'alerts.manage' in perms %}<button class="primary" type="button" id="alertSave">Save alerts</button>
       <span class="muted" id="alertDirty" style="margin-left:10px" hidden>Unsaved changes</span>{% endif %}
     </section>
+    {% if 'alerts.history' in perms %}<section>
+      <h3>History</h3>
+      <p class="note" style="margin-top:0">Who sent what, to which screens, and how long until someone saw it. Kept for <span id="alertHistKeep">30</span> days.</p>
+      <div class="tablescroll">
+        <table class="audit">
+          <thead><tr><th>When</th><th>Who</th><th>What</th><th>Seen</th></tr></thead>
+          <tbody id="alertHistList"><tr><td colspan="4" class="muted">Loading&hellip;</td></tr></tbody>
+        </table>
+      </div>
+      <div class="ctl" style="margin-top:12px" id="alertHistMoreRow" hidden><button type="button" id="alertHistMore">Show older</button></div>
+    </section>{% endif %}
     <section>
       <h3>Where to send from, and what flashes</h3>
       <div id="alertLinks"></div>

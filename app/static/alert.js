@@ -86,7 +86,7 @@
         parts.push('tap to stop');
         return { cls: 'on', text: parts.join(' · ') };
       }
-      case 'seen': return { cls: 'seen', text: 'Seen on ' + (row.seen_on || 'a screen') + ' · ' + ago(age) };
+      case 'seen': return { cls: 'seen', text: 'Seen on ' + (row.seen_on || 'a screen') + (row.reply ? ' · \u201c' + row.reply + '\u201d' : '') + ' · ' + ago(age) };
       case 'missed': return { cls: 'missed', text: 'Not seen · ' + ago(age) };
       case 'cancelled': return { cls: 'cancelled', text: 'Stopped · ' + ago(age) };
       default: return null;
