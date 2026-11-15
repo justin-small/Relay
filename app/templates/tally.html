@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#000000">
+<title>Relay tally</title>
+{% include "_brand_head.html" %}
+<link rel="stylesheet" href="{{ static('viewer.css') }}">
+</head><body class="tally-page tally-{{ view }}" data-view="{{ view }}" data-camera="{{ camera }}">
+
+{% if view == "board" %}
+<main class="ty-board" id="board" aria-live="polite"></main>
+<p class="ty-foot"><span class="dot" id="connDot" title="Connection to Relay"></span> <span id="connText">Connecting…</span>
+  <button type="button" class="ty-usb" id="usbAll" hidden>Show USB cameras</button></p>
+{% elif view == "operator" %}
+<main class="ty-op" id="op" aria-live="polite">
+  <section class="ty-op-main" id="opMain">
+    <div class="ty-num" id="opNum">{{ camera or "—" }}</div>
+    <div class="ty-name" id="opName"></div>
+    <div class="ty-state" id="opState">Connecting…</div>
+    <video class="ty-video" id="opVideo" autoplay muted playsinline hidden></video>
+    <label class="ty-pick" id="opPick" hidden>USB camera <select id="opSel"></select></label>
+  </section>
+  <section class="ty-op-bar">
+    <div class="ty-slot" id="opLive"><span>Live</span><strong>—</strong></div>
+    <div class="ty-slot" id="opNext"><span>Next</span><strong>—</strong></div>
+  </section>
+</main>
+{% else %}
+<main class="ty-cam" id="cam" aria-live="polite">
+  <div class="ty-num" id="camNum">{{ camera or "—" }}</div>
+  <div class="ty-name" id="camName"></div>
+  <div class="ty-state" id="camState">Connecting…</div>
+</main>
+{% endif %}
+
+<script src="{{ static('tally.js') }}"></script>
+</body></html>

@@ -454,3 +454,39 @@ body.status-page { display: block; padding: 16px; min-height: 100vh; box-sizing:
 .msg-free label { display: flex; align-items: center; gap: 6px; font-size: 14px; color: var(--dim); }
 .msg-live { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 8px; padding: 8px 12px; background: var(--btn-bg); border-radius: 10px; font-size: 14px; }
 .msg-live span { overflow-wrap: anywhere; }
+
+/* ---- tally screens (/tally, #245): red on program, green on preview, read from across a stage ---- */
+body.tally-page { display: block; margin: 0; min-height: 100vh; box-sizing: border-box; background: #111; color: #fff; }
+.tally-page { --ty-live: #d4161c; --ty-next: #129a3c; --ty-idle: #1d1d1f; --ty-lost: #444; }
+.ty-cam, .ty-op-main { display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; background: var(--ty-idle); transition: background .08s; }
+.ty-cam { min-height: 100vh; padding: 4vmin; box-sizing: border-box; }
+.ty-live { background: var(--ty-live); }
+.ty-next { background: var(--ty-next); }
+.ty-lost { background: var(--ty-lost); }
+.ty-num { font-size: 36vmin; font-weight: 800; line-height: 1; font-variant-numeric: tabular-nums; }
+.ty-name { font-size: 7vmin; font-weight: 600; overflow-wrap: anywhere; }
+.ty-state { margin-top: 2vmin; font-size: 8vmin; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; min-height: 1.2em; }
+.ty-op { display: grid; grid-template-rows: 1fr auto; min-height: 100vh; }
+.ty-op-main { padding: 3vmin; }
+.ty-op-main .ty-num { font-size: 26vmin; }
+.ty-op-bar { display: grid; grid-template-columns: 1fr 1fr; background: #000; }
+.ty-slot { padding: 14px 18px; min-width: 0; }
+.ty-slot span { display: block; font-size: 14px; letter-spacing: .08em; text-transform: uppercase; color: #bbb; }
+.ty-slot strong { font-size: 28px; overflow-wrap: anywhere; }
+#opLive strong { color: #ff6b6f; }
+#opNext strong { color: #5fd486; }
+.ty-board { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 12px; padding: 12px; }
+.ty-tile { background: var(--ty-idle); border: 4px solid #333; border-radius: 12px; padding: 12px; min-width: 0; display: grid; gap: 4px; align-content: start; }
+.ty-tile.ty-live { border-color: var(--ty-live); background: color-mix(in srgb, var(--ty-live) 28%, var(--ty-idle)); }
+.ty-tile.ty-next { border-color: var(--ty-next); background: color-mix(in srgb, var(--ty-next) 24%, var(--ty-idle)); }
+.ty-tile.ty-lost { opacity: .55; }
+.ty-tnum { font-size: 44px; font-weight: 800; line-height: 1; }
+.ty-tname { font-size: 18px; overflow-wrap: anywhere; }
+.ty-tstate { font-size: 20px; font-weight: 800; letter-spacing: .08em; min-height: 1.2em; }
+.ty-video { width: 100%; max-height: 40vh; background: #000; border-radius: 8px; object-fit: contain; }
+.ty-op-main .ty-video { max-width: 60vmin; margin-top: 2vmin; }
+.ty-sel, .ty-pick select { font: inherit; max-width: 100%; }
+.ty-pick { margin-top: 2vmin; font-size: 16px; }
+.ty-empty { grid-column: 1 / -1; text-align: center; font-size: 28px; color: #bbb; padding: 10vh 0; }
+.ty-foot { display: flex; align-items: center; gap: 8px; margin: 0; padding: 8px 12px; color: #bbb; font-size: 14px; }
+.ty-usb { margin-left: auto; font: inherit; }

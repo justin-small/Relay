@@ -1,0 +1,28 @@
+{# The Tally Arbiter admin page, rendered inside admin.html only while the module is on. #}
+    <h2 class="title">Tally Arbiter <span class="sumstate" id="taSum"></span></h2>
+    <p class="sub">Listen to a Tally Arbiter server, for switchers Relay does not speak itself (OBS, vMix and
+      others). Each Tally Arbiter device becomes a camera, numbered in the order Tally Arbiter lists them, on the
+      camera screens at <code>/tally</code>.</p>
+
+    <section>
+      <h3>Server</h3>
+      <div class="row">
+        <div class="field">
+          <label for="taHost">Address</label>
+          <input id="taHost" placeholder="192.168.1.50" autocomplete="off" spellcheck="false" maxlength="253">
+        </div>
+        <div class="field">
+          <label for="taPort">Port</label>
+          <input id="taPort" type="number" min="1" max="65535" value="4455">
+        </div>
+      </div>
+      <div class="ctl"><button type="button" class="primary" id="taSave">Save</button></div>
+      <div class="note" id="taStatus"></div>
+    </section>
+    <div class="note err" id="taErr" hidden></div>
+
+    <section>
+      <h3>Cameras</h3>
+      <div id="taList"></div>
+      <p class="note" id="taEmpty">None yet.</p>
+    </section>

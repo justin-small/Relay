@@ -367,6 +367,8 @@ MIN_ROLE = {
     "remote_access.view": "viewer", "remote_access.manage": "admin",
     "signage.view": "viewer", "signage.manage": "admin",
     "signage_web.view": "viewer", "signage_web.manage": "admin",
+    "atem.view": "viewer", "atem.control": "operator", "atem.manage": "admin",
+    "tally_arbiter.view": "viewer", "tally_arbiter.manage": "admin",
 }
 for role in ROLE_NAMES:
     me = clients[role].get("/api/admin/me").json()
@@ -388,7 +390,8 @@ check("every permission registered is in the independent table",
 print("every /api/admin route")
 config.save({"modules": {"propresenter": {"enabled": True}, "planning_center": {"enabled": True},
                          "remote_access": {"enabled": True}, "signage": {"enabled": True},
-                         "signage_web": {"enabled": True}}})
+                         "signage_web": {"enabled": True}, "atem": {"enabled": True},
+                         "tally_arbiter": {"enabled": True}}})
 
 E = {}      # (METHOD, path) -> permission; None = any signed-in user
 
@@ -476,6 +479,8 @@ route("GET", "/api/admin/audit", "audit.view")
 PCX, PPX, RAX = "/api/admin/planning-center", "/api/admin/propresenter", "/api/admin/remote-access"
 SGX = "/api/admin/signage"
 SWX = "/api/admin/signage-web"
+ATX = "/api/admin/atem"
+TAX = "/api/admin/tally-arbiter"
 for method, path, perm in (
     ("GET", SGX, "signage.view"),
     ("GET", SGX + "/preview", "signage.view"),
@@ -511,6 +516,17 @@ for method, path, perm in (
     ("PUT", SWX + "/links/{lid}", "signage_web.manage"),
     ("DELETE", SWX + "/links/{lid}", "signage_web.manage"),
     ("POST", SWX + "/links/{lid}/check", "signage_web.manage"),         # reaches out to the site
+    ("GET", ATX, "atem.view"),
+    ("PUT", ATX + "/settings", "atem.manage"),                           # an empty body clears the address
+    ("POST", ATX + "/cut", "atem.control"),                              # no switcher connected: nothing is sent
+    ("POST", ATX + "/auto", "atem.control"),
+    ("POST", ATX + "/fade-to-black", "atem.control"),
+    ("POST", ATX + "/program", "atem.control"),
+    ("POST", ATX + "/preview", "atem.control"),
+    ("POST", ATX + "/downstream-key", "atem.control"),
+    ("POST", ATX + "/macro", "atem.control"),
+    ("GET", TAX, "tally_arbiter.view"),
+    ("PUT", TAX + "/settings", "tally_arbiter.manage"),                  # an empty body clears the address
 ):
     route(method, path, perm)
 for method, path, perm in (
@@ -683,7 +699,8 @@ eq("an admin may do all three", (not_through(admin_c.post("/api/admin/planning-c
 eq("signed out is 401", anon_c.get("/api/admin/propresenter").status_code, 401)
 config.save({"modules": {"propresenter": {"enabled": False}, "planning_center": {"enabled": False},
                          "remote_access": {"enabled": False}, "signage": {"enabled": False},
-                         "signage_web": {"enabled": False}}})
+                         "signage_web": {"enabled": False}, "atem": {"enabled": False},
+                         "tally_arbiter": {"enabled": False}}})
 eq("a module that is off is still a 404 for everyone", op_c.get("/api/admin/propresenter").status_code, 404)
 
 # ------------------------------------------------------------------ the page routes
@@ -1237,7 +1254,9 @@ for mid, want in (("planning_center", {"planning_center.view": "viewer", "planni
                                     "propresenter.manage": "admin"}),
                   ("remote_access", {"remote_access.view": "viewer", "remote_access.manage": "admin"}),
                   ("signage", {"signage.view": "viewer", "signage.manage": "admin"}),
-                  ("signage_web", {"signage_web.view": "viewer", "signage_web.manage": "admin"})):
+                  ("signage_web", {"signage_web.view": "viewer", "signage_web.manage": "admin"}),
+                  ("atem", {"atem.view": "viewer", "atem.control": "operator", "atem.manage": "admin"}),
+                  ("tally_arbiter", {"tally_arbiter.view": "viewer", "tally_arbiter.manage": "admin"})):
     got = {p.id: p.min_role for p in registry.get(mid).permissions}
     eq(f"{mid} declares its permissions", got, want)
 
