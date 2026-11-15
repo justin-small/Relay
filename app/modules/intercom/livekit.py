@@ -237,7 +237,9 @@ def busy_port(host: str = "127.0.0.1") -> str:
 def ping(port: int, timeout: float = 2.0) -> bool:
     """LiveKit answers GET / with `OK` when it is up. Blocking: call it from a thread."""
     try:
-        with urllib.request.urlopen(f"http://127.0.0.1:{port}/", timeout=timeout) as r:   # noqa: S310
+        # No proxy: an http_proxy in the environment must never carry a check of this computer's own port.
+        opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+        with opener.open(f"http://127.0.0.1:{port}/", timeout=timeout) as r:   # noqa: S310
             return r.read(16).strip() == b"OK"
     except OSError:
         return False
