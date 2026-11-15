@@ -37,7 +37,7 @@ class Intercom(Module):
         icon='<path d="M2.5 9.5v-2a5.5 5.5 0 0 1 11 0v2"/><rect x="1.5" y="9" width="3" height="4.5" rx="1"/>'
              '<rect x="11.5" y="9" width="3" height="4.5" rx="1"/>'),)
     admin_scripts = ("intercom.js",)
-    route_prefixes = ("/api/admin/intercom",)
+    route_prefixes = ("/api/admin/intercom", "/intercom")
     permissions = (
         Permission("intercom.view", "See the intercom media server and its log", "Intercom", "viewer"),
         Permission("intercom.manage", "Restart the intercom media server and change its settings", "Intercom",
