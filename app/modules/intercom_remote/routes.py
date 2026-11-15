@@ -1,8 +1,8 @@
 """Remote crew's routes (#277).
 
 Two groups. The admin routes (`/api/admin/intercom-remote`) answer only on the operator port. The remote routes are
-exactly `REMOTE_ROUTES` and nothing else: the tunnel points at the viewer port, so these two are the whole of what
-remote intercom puts on the internet. tests/test_intercom_remote.py fails when that list and the real routes differ.
+exactly `REMOTE_ROUTES` and nothing else: the tunnel points at the viewer port, so these are the whole of what
+remote intercom puts on the internet: the phone page, its script, the sign-in and the socket. tests/test_intercom_remote.py fails when that list and the real routes differ.
 """
 from __future__ import annotations
 
@@ -11,7 +11,9 @@ import time
 from collections import deque
 
 from fastapi import APIRouter, Depends, Request, WebSocket
-from fastapi.responses import JSONResponse
+from pathlib import Path
+
+from fastapi.responses import FileResponse, JSONResponse
 
 from .. import require
 from ... import users
@@ -22,7 +24,8 @@ from .bridge import bridge
 
 router = APIRouter()
 
-REMOTE_ROUTES = (("POST", "/intercom/remote/api/sign-in"), ("WEBSOCKET", "/intercom/remote/ws"))
+REMOTE_ROUTES = (("GET", "/intercom/remote/"), ("GET", "/intercom/remote/phone.js"),
+                 ("POST", "/intercom/remote/api/sign-in"), ("WEBSOCKET", "/intercom/remote/ws"))
 SIGN_INS_PER_MIN = 10          # per address; #278 adds the shared limiter
 MAX_BODY = 2048
 
@@ -55,6 +58,21 @@ async def _body(request: Request) -> dict:
     except ValueError:
         return {}
     return data if isinstance(data, dict) else {}
+
+
+STATIC = Path(__file__).parent / "static"
+NO_STORE = {"Cache-Control": "no-store"}
+
+
+@router.get("/intercom/remote/", include_in_schema=False)
+async def phone_page():
+    """The remote phone's page: a shell with nothing in it until someone signs in."""
+    return FileResponse(STATIC / "phone.html", media_type="text/html", headers=NO_STORE)
+
+
+@router.get("/intercom/remote/phone.js", include_in_schema=False)
+async def phone_script():
+    return FileResponse(STATIC / "phone.js", media_type="text/javascript", headers=NO_STORE)
 
 
 @router.post("/intercom/remote/api/sign-in")
