@@ -31,6 +31,7 @@ from starlette.websockets import WebSocketDisconnect  # noqa: E402
 from app import config, db, users  # noqa: E402
 from app.main import app  # noqa: E402
 from app.modules.intercom import devices, livekit, rooms, store, webhook  # noqa: E402
+from app.modules.intercom.arbiter import arbiter  # noqa: E402
 from app.modules.intercom.presence import presence  # noqa: E402
 
 fails = []
@@ -345,6 +346,39 @@ with TestClient(app, base_url="http://relay.local:8001") as member:
     while "DeleteRoom" not in methods() and time.time() < end:
         time.sleep(0.02)
     check("deleting a channel closes its room", "DeleteRoom" in methods())
+
+    # ------------------------------------------------------------------ talk leases over the socket (#274)
+    print("talk leases over the socket")
+
+    arbiter.reset()
+    store.set_member(general["id"], alice.id, can_talk=True, can_listen=True)
+    settle()
+    cred2, row2 = devices.create(alice.id)
+    with member.websocket_connect("/intercom/ws") as ws:
+        ws.send_text(json.dumps({"type": "hello", "credential": cred2}))
+        json.loads(ws.receive_text())
+        CALLS.clear()
+        ws.send_text(json.dumps({"type": "talk.request", "channels": [general["id"], stage["id"]], "seq": 4}))
+        got = {}
+        for _ in range(3):                      # a grant, a refusal and the activity broadcast, in any order
+            m = json.loads(ws.receive_text())
+            got[m["type"] + str(m.get("channel"))] = m
+        eq("the channel Alice is on is granted", got[f"talk.granted{general['id']}"]["seq"], 4)
+        eq("one she is not on is refused", got[f"talk.denied{stage['id']}"]["reason"], "not_allowed")
+        eq("listeners are told who talks", [t["name"] for t in got[f"activity{general['id']}"]["talkers"]], ["Alice"])
+        check("the lease is held", arbiter.holds(general["id"], alice.id))
+        ws.send_text(json.dumps({"type": "talk.beat"}))
+        ws.send_text(json.dumps({"type": "talk.release", "channels": [general["id"]]}))
+        m = json.loads(ws.receive_text())
+        eq("releasing tells listeners it is quiet", (m["type"], m["talkers"]), ("activity", []))
+        ws.send_text(json.dumps({"type": "talk.request", "channels": [general["id"]]}))
+        json.loads(ws.receive_text()), json.loads(ws.receive_text())
+        check("held again", arbiter.holds(general["id"], alice.id))
+    end = time.time() + 1
+    while arbiter.holds(general["id"], alice.id) and time.time() < end:
+        time.sleep(0.02)
+    check("closing the socket releases the lease", not arbiter.holds(general["id"], alice.id))
+
 
 # ------------------------------------------------------------------ live permissions
 print("armed phones and talk leases")

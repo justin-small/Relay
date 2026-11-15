@@ -17,6 +17,7 @@ from fastapi import WebSocket, WebSocketDisconnect
 
 from ... import db, serving
 from . import devices, rooms, rtcproxy, store
+from .arbiter import arbiter
 
 log = logging.getLogger("relay.intercom")
 
@@ -108,6 +109,55 @@ class Presence:
     def member_changed(self, user_id: int | None, channel_id: int) -> None:
         """store.member_hooks."""
         self.run(rooms.member_changed(user_id, channel_id))
+        self.run(arbiter.member_changed(user_id, channel_id))
+
+    # -------------------------------------------------------------- talk leases (#274)
+    def bind(self) -> None:
+        """Connect the talk arbiter to the database, the phones' sockets and LiveKit."""
+        arbiter.lookup, arbiter.send, arbiter.apply = self._lookup, self._send_to, self._unmute
+        arbiter.record, arbiter.changed = self._record, self._activity
+
+    @staticmethod
+    async def _lookup(user_id: int, channel_id: int):
+        return await store.run(lambda: (devices.rights(user_id, channel_id), store.channel(channel_id)))
+
+    async def _send_to(self, device_id: int, msg: dict) -> None:
+        conn = self.conns.get(device_id)
+        if conn is not None:
+            try:
+                await self._send(conn.ws, msg)
+            except Exception:      # the phone is going away; its disconnect releases what it held
+                pass
+
+    @staticmethod
+    async def _unmute(channel_id: int, user_id: int, device_id: int, on: bool) -> None:
+        try:
+            await rooms.set_talking(channel_id, user_id, device_id, on)
+        except rooms.RoomError:
+            log.warning("intercom: could not switch a talker in LiveKit")
+
+    @staticmethod
+    async def _record(kind: str, user_id: int, device_id: int, channel_id: int | None, detail: dict) -> None:
+        def write() -> None:
+            with db.transaction() as tx:
+                store.log_event(tx, kind, user_id=user_id, device_id=device_id, channel_id=channel_id, detail=detail)
+        try:
+            await store.run(write)
+        except db.Unavailable:
+            pass
+
+    def activity(self, channel_id: int) -> dict:
+        return {"type": "activity", "channel": channel_id,
+                "talkers": [{"user_id": l.user_id, "name": l.name} for l in arbiter.talkers(channel_id)],
+                "waiting": len(arbiter.queues.get(channel_id, []))}
+
+    async def _activity(self, channel_id: int) -> None:
+        """Tell everyone who listens on the channel who is talking now."""
+        msg = self.activity(channel_id)
+        rows = await store.run(store.members, channel_id)
+        listeners = {r["user_id"] for r in rows if r["can_listen"] or r["can_talk"]}
+        await asyncio.gather(*(self._send_to(c.device_id, msg) for c in list(self.conns.values())
+                               if c.user_id in listeners), return_exceptions=True)
 
     # -------------------------------------------------------------- the socket
     def _too_many_bad(self, ip: str, add: bool) -> bool:
@@ -156,6 +206,7 @@ class Presence:
         finally:
             if self.conns.get(device["id"]) is conn:
                 del self.conns[device["id"]]
+                await arbiter.disconnected(device["id"])
             try:
                 await store.run(self._shut, conn, reason)
             except Exception:
@@ -190,7 +241,8 @@ class Presence:
         out: dict[str, Any] = {
             "type": "welcome", "device": {"id": device["id"], "name": device["name"]}, "org_id": 1,
             "production": label, "user": {"id": user.id, "name": user.name}, "channels": channels,
-            "rtc_path": "/intercom/rtc"}
+            "rtc_path": "/intercom/rtc",
+            "activity": {c["id"]: self.activity(c["id"]) for c in channels}}
         if fresh:
             out["credential"] = fresh        # the phone replaces what it holds
         return out
@@ -242,6 +294,13 @@ class Presence:
                 await self._send(conn.ws, {"type": "error", "for": "choice", "text": exc.message})
             except rooms.RoomError:
                 pass           # LiveKit is not up; the watch loop settles it
+        elif kind == "talk.request":
+            await arbiter.request(conn.user_id, conn.device_id, conn.name, data.get("channels"), data.get("seq"),
+                                  data.get("latched") is True)
+        elif kind == "talk.release":
+            await arbiter.release(conn.user_id, conn.device_id, data.get("channels"))
+        elif kind == "talk.beat":
+            arbiter.beat(conn.device_id)
         return False
 
     async def _send(self, ws: WebSocket, msg: dict) -> None:

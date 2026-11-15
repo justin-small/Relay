@@ -48,6 +48,7 @@ class Intercom(Module):
     def __init__(self) -> None:
         self._task: asyncio.Task | None = None
         self._watch: asyncio.Task | None = None
+        self._leases: asyncio.Task | None = None
 
     def attach(self) -> None:
         from ... import users
@@ -92,7 +93,11 @@ class Intercom(Module):
 
         from . import rooms
 
+        from .arbiter import arbiter
+
         presence.loop = asyncio.get_running_loop()
+        presence.bind()
+        self._leases = asyncio.create_task(arbiter.loop(), name="intercom-talk-leases")
         supervisor.begin(config.get()["intercom"])
         self._task = asyncio.create_task(self._housekeeping())
         self._watch = asyncio.create_task(rooms.watch(), name="intercom-room-watch")
@@ -113,6 +118,14 @@ class Intercom(Module):
             with contextlib.suppress(asyncio.CancelledError, Exception):
                 await self._watch
             self._watch = None
+        from .arbiter import arbiter
+
+        if self._leases is not None:
+            self._leases.cancel()
+            with contextlib.suppress(asyncio.CancelledError, Exception):
+                await self._leases
+            self._leases = None
+        arbiter.reset()
         from . import rtcproxy
 
         await rtcproxy.drop_all()
