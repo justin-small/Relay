@@ -2,7 +2,8 @@
 fixed list of routes the tunnel carries.
 
 Offline: a throwaway database, the app's own lifespan, a fake Cloudflare (relay-cloud) and a fake audio side. The
-audio bridge itself (media.py) is not built, so nothing here moves audio. Run: python tests/test_intercom_remote.py
+audio bridge's helpers (media.py: mixing, down-mixing, the fallback when the libraries are missing) are checked here;
+its livekit and aiortc calls need real sessions and are not. Run: python tests/test_intercom_remote.py
 """
 import asyncio
 import json
@@ -32,7 +33,7 @@ from app.modules.intercom.presence import presence  # noqa: E402
 from app.modules.intercom_remote import bridge as bridge_mod, cloud, remote, routes, store  # noqa: E402
 from app.modules.intercom_remote.bridge import Bridge, backoff, bridge, mic_name, track_name  # noqa: E402
 
-from _harness import check, eq, section  # noqa: E402
+from _harness import check, eq, section, wait_for  # noqa: E402
 
 
 class FakeMedia:
@@ -74,6 +75,19 @@ cloud.tracks_new = lambda sid, body: (CLOUD.append(("tracks_new", sid, body)),
 cloud.renegotiate = lambda sid, body: (CLOUD.append(("renegotiate", sid, body)), {})[1]
 cloud.close_session = lambda sid: CLOUD.append(("close", sid))
 cloud.reachable = lambda: True
+TURN = {"iceServers": [{"urls": ["stun:stun.cloudflare.com:3478"]},
+                       {"urls": ["turns:turn.cloudflare.com:443?transport=tcp"], "username": "u", "credential": "c"}]}
+TURN_CALLS: list[str] = []
+
+
+def _fake_call(method, path, body=None):
+    TURN_CALLS.append(path)
+    if isinstance(TURN, Exception):
+        raise TURN
+    return TURN
+
+
+cloud._call = _fake_call
 
 users.SCRYPT_N = 2 ** 10
 istore.forget()
@@ -100,6 +114,20 @@ def run(coro):
 
 
 # ------------------------------------------------------------------ the bridge's state machine
+with section("TURN for phones on networks that block direct UDP"):
+    eq("Relay's cloud is asked for TURN credentials", (cloud.ice_servers(), TURN_CALLS), (TURN["iceServers"], ["/v1/realtime/turn"]))
+    cloud.ice_servers()
+    eq("they are reused by the install's phones, not fetched for each", len(TURN_CALLS), 1)
+    cloud._turn["until"] = 0
+    TURN = cloud.CloudError("rate_limited", 429)
+    eq("without them a phone still gets Cloudflare's STUN", cloud.ice_servers(), cloud.STUN_ONLY)
+    cloud.ice_servers()
+    eq("and a failure is not retried for every phone", len(TURN_CALLS), 2)
+    TURN = {"iceServers": [{"urls": ["stun:stun.cloudflare.com:3478"]},
+                           {"urls": ["turns:turn.cloudflare.com:443?transport=tcp"], "username": "u", "credential": "c"}]}
+    cloud._turn["until"] = 0
+    check("once the cloud answers again, TURN is back", len(cloud.ice_servers()) == 2)
+
 with section("backoff"):
     eq("1, 2, 4, 8, 16, 30, then every 30 s", [backoff(n) for n in range(9)], [1, 2, 4, 8, 16, 30, 30, 30, 30])
     eq("a channel's track name", track_name(7), "ch7")
@@ -206,12 +234,26 @@ def get(ws):
     return json.loads(ws.receive_text())
 
 
+from app.modules.intercom_remote import media as _media  # noqa: E402
+
+# With livekit and aiortc installed the real audio side would start and run its own connect loop; the test stands in
+# for it, so the lifespan gets one that is never available.
+_media.load = lambda: _media.NoMedia("test")
+
 with TestClient(app, base_url=viewer) as client:
     # The app's own lifespan started the module with no audio side; stand in a working one.
     fm = FakeMedia()
     bridge.media = fm
     bridge.session_id = "bridge001"
     bridge._set("connected", "Connected to Cloudflare")
+
+    with section("the remote phone page may use the microphone, and only it"):
+        r = client.get("/intercom/remote/")
+        eq("the page is served", r.status_code, 200)
+        check("its Permissions-Policy allows the microphone for itself",
+              "microphone=(self)" in r.headers.get("permissions-policy", ""), r.headers.get("permissions-policy"))
+        check("its script does not get it", "microphone=()" in client.get(
+            "/intercom/remote/phone.js").headers.get("permissions-policy", ""))
 
     with section("signing in over the remote address"):
         r = client.post("/intercom/remote/api/sign-in", json={"username": "alice", "password": "correct horse"})
@@ -254,6 +296,8 @@ with TestClient(app, base_url=viewer) as client:
             ws.send_text(json.dumps({"type": "cf.open"}))
             s = get(ws)
             eq("a Cloudflare session of its own", s["type"], "cf.session")
+            check("with TURN servers to connect through", any(
+                u.startswith("turns:") for x in s.get("iceServers", []) for u in x["urls"]), s.get("iceServers"))
             ws.send_text(json.dumps({"type": "cf.pull", "tracks": [{"trackName": "someone-elses"}]}))
             p = get(ws)
             eq("Relay picks what it pulls", p["type"], "cf.pulled")
@@ -268,12 +312,25 @@ with TestClient(app, base_url=viewer) as client:
             eq("pushing the microphone is answered", get(ws)["type"], "cf.pushed")
             pushed = [c for c in CLOUD if c[0] == "tracks_new"][-1]
             eq("under a name Relay chose", pushed[2]["tracks"][0]["trackName"], mic_name(w["device"]["id"]))
-            check("and handed to the audio side for each channel it may talk on",
-                  {c[1] for c in fm.calls if c[0] == "talk"} == {general["id"], stage["id"]})
+            check("nothing is pulled before the phone says its connection is up", not [c for c in fm.calls if c[0] == "talk"])
+            n = len(CLOUD)
+            ws.send_text(json.dumps({"type": "cf.pull"}))
+            check("pulling the mixes before its connection is up is refused at once, without asking Cloudflare",
+                  get(ws)["type"] == "error" and len(CLOUD) == n)
+            ws.send_text(json.dumps({"type": "cf.connected"}))
+            eq("its connection being up is acknowledged", get(ws)["type"], "cf.ack")
+            check("and handed to the audio side, soon after, for each channel it may talk on",
+                  wait_for(lambda: {c[1] for c in fm.calls if c[0] == "talk"} == {general["id"], stage["id"]}, 8.0))
             ws.send_text(json.dumps({"type": "cf.push", "sessionDescription": {"type": "offer", "sdp": ""}, "mid": "0"}))
             eq("a bad offer is refused", get(ws)["type"], "error")
             ws.send_text(json.dumps({"type": "cf.renegotiate", "sessionDescription": {"type": "answer", "sdp": "v=0"}}))
             eq("an answer is passed on", get(ws)["type"], "cf.renegotiated")
+            big = "v=0\r\n" + "a=candidate:1 1 udp 1 203.0.113.1 3478 typ relay raddr 0.0.0.0 rport 0\r\n" * 90
+            check("an answer with many TURN candidates is over the intercom's usual 4 KB", len(big) > 4096)
+            ws.send_text(json.dumps({"type": "cf.renegotiate", "sessionDescription": {"type": "answer", "sdp": big}}))
+            eq("…and still passed on for a remote phone", get(ws)["type"], "cf.renegotiated")
+            ws.send_text(json.dumps({"type": "cf.diag", "ice": "checking", "local": ["host udp v6"] * 50, "pairs": "x" * 999}))
+            eq("why audio did not connect is logged and acknowledged", get(ws)["type"], "cf.ack")
             ws.send_text(json.dumps({"type": "talk.request", "channels": [general["id"]]}))
             msgs = [get(ws) for _ in range(2)]
             check("talking goes through the same arbiter as a local phone",
@@ -328,6 +385,39 @@ with TestClient(app, base_url=viewer) as client:
         check("the phone is signed out", bool(ids))
         r = client.post("/intercom/remote/api/sign-in", json={"username": "alice", "password": "correct horse"})
         eq("and cannot sign in again", r.status_code, 403)
+
+with section("the audio helpers"):
+    import numpy as np
+    from app.modules.intercom_remote import media
+
+    eq("stereo is averaged to mono", media.to_mono(np.array([100, 300, -100, -300], np.int16), 2).tolist(), [200, -200])
+    eq("planar stereo too", media.to_mono(np.array([100, -100, 300, -300], np.int16), 2, True).tolist(), [200, -200])
+    m = media.Mixer()
+    eq("no sources is silence", int(np.abs(m.pull()).sum()), 0)
+    m.add("a", np.full(media.FRAME * 2, 1000, np.int16))
+    m.add("b", np.full(media.FRAME, 2500, np.int16))
+    eq("sources are summed", int(m.pull()[0]), 3500)
+    eq("a source that ran dry adds silence", int(m.pull()[0]), 1000)
+    m.add("c", np.full(media.FRAME, 30000, np.int16))
+    m.add("d", np.full(media.FRAME, 30000, np.int16))
+    eq("the sum is clipped, not wrapped", int(m.pull().max()), 32767)
+    m.drop("c")
+    check("a dropped source is gone", "c" not in m.q)
+    for _ in range(10):
+        m.add("slow", np.ones(media.RATE, np.int16))
+    check("a source that falls behind is trimmed", m.n["slow"] <= media.MAX_BUFFER + media.RATE)
+    n = media.NoMedia("why")
+    eq("the stand-in says why", n.unavailable(), "why")
+    check("and is never alive", not n.alive())
+    live = media.LiveMedia()
+    check("mixes go out and microphones come in on separate Cloudflare links (aiortc renumbers payload types on "
+          "its own offers)", live.out is not live.into)
+    live.out.session, live.into.session = "out1", "in1"
+    eq("phones pull the mixes from the outgoing link's session", live.session, "out1")
+
+    class _NoPerms:
+        local_participant = None
+    check("an SDK without participant permissions just tries to publish", media._can_publish(_NoPerms()))
 
 from _harness import done  # noqa: E402
 

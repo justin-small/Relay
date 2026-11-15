@@ -33,6 +33,7 @@ class IntercomRemote(Module):
         icon='<circle cx="8" cy="8" r="6"/><path d="M2 8h12M8 2c2 2 2.5 4 2.5 6S10 12 8 14M8 2C6 4 5.5 6 5.5 8S6 12 8 14"/>'),)
     admin_scripts = ("remote.js",)
     route_prefixes = ("/api/admin/intercom-remote", "/intercom/remote")
+    microphone_pages = ("/intercom/remote/",)      # the remote phone page talks; Chrome refuses the mic without this
     permissions = (
         Permission("intercom_remote.view", "See who may use the intercom remotely and the link to Cloudflare",
                    "Intercom remote", "viewer"),
