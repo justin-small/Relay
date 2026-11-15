@@ -34,6 +34,7 @@ from collections import deque
 from pathlib import Path
 
 from ... import netinfo, paths
+from . import winjob
 
 log = logging.getLogger("relay.intercom")
 
@@ -184,9 +185,10 @@ def lan_address(configured: str = "") -> str:
     return ips[0] if ips else "127.0.0.1"
 
 
-def config_text(node_ip: str, key: str, secret: str) -> str:
+def config_text(node_ip: str, key: str, secret: str, webhook_url: str = "") -> str:
     """livekit.yaml. JSON strings are valid YAML scalars, so nothing needs escaping by hand."""
     q = json.dumps
+    hook = ["webhook:", f"  api_key: {q(key)}", "  urls:", f"    - {q(webhook_url)}"] if webhook_url else []
     return "\n".join([
         f"port: {SIGNAL_PORT}",
         "bind_addresses:",
@@ -201,10 +203,18 @@ def config_text(node_ip: str, key: str, secret: str) -> str:
         "  empty_timeout: 10",
         "keys:",
         f"  {q(key)}: {q(secret)}",
+        *hook,
         "logging:",
         "  level: info",
         "",
     ])
+
+
+def webhook_url() -> str:
+    """Where LiveKit posts its events: Relay's own plain-HTTP viewer port on this computer, never off it."""
+    from ... import config, serving
+
+    return f"http://127.0.0.1:{serving.viewer_port(config.get()['port'])}/intercom/livekit-webhook"
 
 
 def write_config(node_ip: str) -> Path:
@@ -212,7 +222,7 @@ def write_config(node_ip: str) -> Path:
     folder = state_folder()
     paths.make_private_dir(folder)
     file = folder / "livekit.yaml"
-    write_private(file, config_text(node_ip, key, secret))
+    write_private(file, config_text(node_ip, key, secret, webhook_url()))
     return file
 
 
@@ -376,6 +386,8 @@ class Supervisor:
             self._set("error", "LiveKit would not start. Check that the file is livekit-server for this computer.")
             return False
         self.started_at = time.time()
+        if sys.platform == "win32" and not winjob.attach(self._proc.pid):
+            log.warning("intercom: livekit is not tied to Relay's job object; a hard crash of Relay may leave it")
         _live.add(self)
         asyncio.create_task(self._read(self._proc), name="intercom-livekit-log")
         return True
