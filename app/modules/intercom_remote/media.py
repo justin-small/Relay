@@ -34,6 +34,8 @@ PUBLISH_TRIES = 15                      # the arbiter arms a new participant whe
 PUBLISH_WAIT_S = 0.2
 CONNECT_TRIES = 50                      # 10 s for the bridge's own connection to Cloudflare
 CONNECT_WAIT_S = 0.2
+FLOW_TRIES = 15                         # 3 s for a new track to start sending
+FLOW_WAIT_S = 0.2
 TOKEN_TTL_S = 3600
 LIBS = ("livekit", "aiortc", "av")
 
@@ -214,7 +216,7 @@ class LiveMedia:
                       "canPublish": False, "canPublishData": False, "hidden": True}}, secret)
 
     # ------------------------------------------------------------------ the Cloudflare side
-    async def _push(self, track, name: str) -> str:
+    async def _push(self, track, name: str):
         """Offer a local track on the bridge's Cloudflare session. Returns its mid."""
         from aiortc import RTCSessionDescription
 
@@ -230,7 +232,19 @@ class LiveMedia:
                 "tracks": [{"location": "local", "trackName": name, "mid": t.mid}]})
             answer = out.get("sessionDescription") or {}
             await self.pc.setRemoteDescription(RTCSessionDescription(sdp=answer["sdp"], type="answer"))
-            return t.mid
+            return t.mid, t.sender
+
+    async def _flowing(self, sender) -> None:
+        """Wait until audio is actually being sent on this track: Cloudflare hangs, then refuses, a pull of a track
+        that has been offered but has not sent anything yet."""
+        for _ in range(FLOW_TRIES):
+            try:
+                stats = await sender.getStats()
+            except Exception:
+                return
+            if any(getattr(r, "packetsSent", 0) > 0 for r in stats.values()):
+                return
+            await asyncio.sleep(FLOW_WAIT_S)
 
     async def _connected(self) -> None:
         for _ in range(CONNECT_TRIES):
@@ -305,8 +319,9 @@ class LiveMedia:
 
             await rooms.ensure_room(channel_id)          # rooms are not made on demand
             await room.connect(f"ws://127.0.0.1:{lk.SIGNAL_PORT}", self._bridge_token(channel_id))
-            entry.mid = await self._push(entry.track, name)
+            entry.mid, sender = await self._push(entry.track, name)
             await self._connected()       # a phone can pull the mix only once Cloudflare has media flowing
+            await self._flowing(sender)
         except BaseException:
             await self._stop_listen(channel_id)
             raise
