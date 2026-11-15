@@ -1,0 +1,22 @@
+{# The Crew app admin page, rendered inside admin.html only while the module is on. #}
+    <h2 class="title">Crew app</h2>
+    <p class="sub">An installable page for the people who serve. They sign in with a Relay account made on the Users
+      page (the Member role is enough) and see what their role may use.</p>
+    <section>
+      <h3>The page</h3>
+      <div class="field">
+        <label for="crName">Name on the home screen</label>
+        <input id="crName" maxlength="24" autocomplete="off" style="max-width:20em">
+      </div>
+      <div class="field">
+        <label class="chk chk-inline"><input type="checkbox" id="crPlan"> Show today's plan (from Planning Center, when it is on)</label>
+      </div>
+      <div class="note err" id="crErr" hidden></div>
+      <div class="ctl"><button type="button" class="primary" id="crSave">Save</button> <span class="muted" id="crMsg"></span></div>
+    </section>
+    <section>
+      <h3>Opening it on a phone</h3>
+      <p class="note" style="margin-top:0">Crew open <span class="mono" id="crLink">/crew</span> on this machine's HTTPS
+        address (the one the operator panel uses). The phone has to trust Relay's certificate first, or the browser
+        will not install the page or allow the microphone. The page is never reachable through remote viewer access.</p>
+    </section>

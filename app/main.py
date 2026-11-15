@@ -179,8 +179,15 @@ PERMISSIONS_POLICY = "camera=(), microphone=(), geolocation=(), payment=(), usb=
 FLASH_PERMISSIONS_POLICY = "camera=(), microphone=(), geolocation=(), payment=(), usb=(), serial=(self)"
 
 
+# A page a switched-on module names in `microphone_pages` (the crew page, for the intercom, #240) may use the
+# microphone itself and nothing embedded in it. Every other page keeps microphone=().
+MIC_PERMISSIONS_POLICY = "camera=(), microphone=(self), geolocation=(), payment=(), usb=(), serial=()"
+
+
 def permissions_policy_for(path: str) -> str:
-    return FLASH_PERMISSIONS_POLICY if path == FLASH_PATH else PERMISSIONS_POLICY
+    if path == FLASH_PATH:
+        return FLASH_PERMISSIONS_POLICY
+    return MIC_PERMISSIONS_POLICY if path in module_registry.microphone_pages() else PERMISSIONS_POLICY
 
 
 @app.middleware("http")
@@ -202,7 +209,8 @@ async def _split_admin_port(request: Request, call_next):
         return await call_next(request)
     if serving.published() and _module_under(path, module_registry.listener_prefixes()):
         return JSONResponse({"error": "Not found"}, status_code=404)
-    if _is_admin_path(path) and not _on_admin_port(request):
+    if (_is_admin_path(path) or _module_under(path, module_registry.panel_prefixes())) \
+            and not _on_admin_port(request):
         return JSONResponse({"error": "Not found"}, status_code=404)
     return await call_next(request)
 
@@ -1454,6 +1462,9 @@ def _page_gate(request: Request, perm: str | None = None, *, pw: bool = False):
     if perm and not user.can(perm):
         return _denied_page()
     return user
+
+
+modules_pkg.page_gate = _page_gate
 
 
 def _me_payload(request: Request, user: User) -> dict:

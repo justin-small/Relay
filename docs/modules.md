@@ -171,6 +171,26 @@ gating, reconnecting and the consumers stay in core's pump, so a source only del
 `audio.SourceError` with a fixed sentence (nothing from the network or a library) when it cannot start. An
 `AudioOutput.play(pcm, rate, selector)` takes mono 16-bit PCM, returns at once and raises nothing.
 
+## Pages that need HTTPS
+
+A module whose pages need a secure context (a service worker, the microphone, web push) lists their prefixes in
+`Module.panel_prefixes`, each under `route_prefixes`. Those paths answer only on the HTTPS operator port; on the
+plain-HTTP viewer port, and so through a remote access tunnel (which points at it), they answer 404. The crew app
+(`app/modules/crew/`) is the example. A page that needs a sign-in uses `app.modules.page_gate(request, perm)`
+(through `asyncio.to_thread`), which returns the signed-in user or the response to send instead (the sign-in form,
+or "not allowed"); a route used by a browser that sends no cookie (a web app manifest, a service worker) is public
+on purpose and must carry nothing private.
+
+## Tabs on the crew page
+
+The crew page (`/crew`, the `crew` module, #226) hosts the other crew features as tabs. A `CrewTab(id, title,
+template, permission)` in `Module.crew_tabs` adds one for a signed-in user who holds `permission` (one the module
+declares) while the module is on. The module's template in `templates/` is rendered inside the tab's panel and the
+scripts in `Module.crew_scripts` (from the module's `static/`) are loaded on the page; the page fires a `crew:tab`
+event on `document` when the tab changes. The routes a tab calls check the permission themselves. A tab that needs
+the microphone lists the page in `Module.microphone_pages` (`("/crew",)`): only then, and only while that module is
+on, is the page sent `microphone=(self)` instead of `microphone=()`.
+
 ## The audit log
 
 Every change made through a module's `/api/admin` route already goes in the audit log (#172),
