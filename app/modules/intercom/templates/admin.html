@@ -2,6 +2,35 @@
     <h2 class="title">Intercom <span class="sumstate" id="icSum"></span></h2>
     <p class="sub">The media server behind the crew intercom. Relay runs it on this computer; nothing leaves your network.</p>
 
+    <section id="icLive">
+      <style>#icLive .ic-warn{color:#b45309;font-weight:600}#icLive .ic-bad{color:#b91c1c;font-weight:700}</style>
+      <h3>Live <span class="sumstate" id="icLiveSum"></span></h3>
+      <div class="ctl" id="icLiveBar">
+        <label class="note">Production label
+          <input type="text" id="icLiveLabel" maxlength="80" placeholder="Sunday 9:00" style="margin:0 6px">
+        </label>
+        <button type="button" id="icLiveLabelSave" data-live>Set label</button>
+        <button type="button" id="icLiveLabelPlan" data-live hidden>Use Planning Center plan name</button>
+        <button type="button" id="icReleaseAll" data-live>Release all talk</button>
+        <button type="button" id="icMuteAll" data-live>Mute all</button>
+      </div>
+      <div class="note err" id="icMutedBanner" hidden>Everything is muted by the operator. Nobody can talk until you unmute.</div>
+      <h3>Channels now</h3>
+      <div class="note" id="icLiveChEmpty">No channels yet.</div>
+      <table class="tbl" id="icLiveChTable" hidden>
+        <thead><tr><th>Channel</th><th>Mode</th><th>Talking</th><th>Listening</th><th>Waiting</th><th></th></tr></thead>
+        <tbody id="icLiveCh"></tbody>
+      </table>
+      <h3>Connected</h3>
+      <div class="note" id="icLiveConEmpty">Nobody is on the intercom.</div>
+      <table class="tbl" id="icLiveConTable" hidden>
+        <thead><tr><th>Person</th><th>Role</th><th>Priority</th><th>Phone</th><th>Where</th><th>Talking</th><th>Listening</th><th>Loss</th><th>Jitter</th><th></th></tr></thead>
+        <tbody id="icLiveCon"></tbody>
+      </table>
+      <p class="note">Changes here apply at once and are logged. Mutes are live state: they clear when Relay restarts, and they never change who is on a channel.</p>
+      <div class="note err" id="icLiveErr" hidden></div>
+    </section>
+
     <section>
       <h3>LiveKit</h3>
       <div class="note" id="icState"></div>

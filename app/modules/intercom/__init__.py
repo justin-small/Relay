@@ -36,7 +36,7 @@ class Intercom(Module):
         id="intercom", title="Intercom", template="admin.html", group="Automation",
         icon='<path d="M2.5 9.5v-2a5.5 5.5 0 0 1 11 0v2"/><rect x="1.5" y="9" width="3" height="4.5" rx="1"/>'
              '<rect x="11.5" y="9" width="3" height="4.5" rx="1"/>'),)
-    admin_scripts = ("intercom.js",)
+    admin_scripts = ("intercom.js", "live.js")
     crew_tabs = (CrewTab("intercom", "Intercom", "crew.html", "intercom.use"),)
     crew_scripts = ("livekit-client.umd.js", "crew.js")
     microphone_pages = ("/crew",)
@@ -44,6 +44,8 @@ class Intercom(Module):
     permissions = (
         Permission("intercom.use", "Use the crew intercom on a phone", "Intercom", "member"),
         Permission("intercom.view", "See the intercom media server and its log", "Intercom", "viewer"),
+        Permission("intercom.live", "Mute, release talk and set the production label on the intercom live page",
+                   "Intercom", "operator"),
         Permission("intercom.manage", "Restart the intercom media server and change its settings", "Intercom",
                    "admin"),
     )
@@ -101,8 +103,14 @@ class Intercom(Module):
 
         from .arbiter import arbiter
 
+        from . import live, store
+
         presence.loop = asyncio.get_running_loop()
         presence.bind()
+        try:
+            live.label = await store.run(store.production)
+        except Exception:
+            log.warning("intercom: could not read the production label")
         self._leases = asyncio.create_task(arbiter.loop(), name="intercom-talk-leases")
         supervisor.begin(config.get()["intercom"])
         self._task = asyncio.create_task(self._housekeeping())
@@ -180,6 +188,11 @@ class Intercom(Module):
 
     def status(self) -> dict:
         return {}
+
+    def pills(self) -> list:
+        from . import live
+
+        return live.pills()
 
 
 MODULE = Intercom()

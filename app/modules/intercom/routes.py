@@ -5,11 +5,11 @@ import asyncio
 import json
 
 from fastapi import APIRouter, Depends, Request, WebSocket
-from fastapi.responses import JSONResponse, Response
+from fastapi.responses import JSONResponse, Response, StreamingResponse
 
 from .. import modules as registry, require
 from ... import db, users
-from . import devices, rooms, rtcproxy, store, webhook
+from . import devices, live, rooms, rtcproxy, store, webhook
 from .livekit import supervisor
 from .presence import on_operator_port, presence
 
@@ -237,6 +237,88 @@ async def production_plan():
     if label is None:
         return JSONResponse({"error": "No plan source is switched on."}, status_code=404)
     return {"label": label}
+
+
+# ------------------------------------------------------------------ the live page (#241)
+
+def _sse(data: dict) -> bytes:
+    return b"data: " + json.dumps(data, separators=(",", ":")).encode() + b"\n\n"
+
+
+@router.get("/api/admin/intercom/live", dependencies=[Depends(require("intercom.view"))])
+async def live_view():
+    return await live.snapshot()
+
+
+@router.get("/api/admin/intercom/live/stream", dependencies=[Depends(require("intercom.view"))])
+async def live_stream(request: Request):
+    """The whole live state whenever something changes, and every few seconds anyway (server-sent events)."""
+    ev = live.subscribe()
+
+    async def gen():
+        try:
+            while True:
+                try:
+                    yield _sse(await live.snapshot())
+                except db.Unavailable:
+                    yield b": database unavailable\n\n"
+                if await request.is_disconnected():
+                    return
+                try:
+                    await asyncio.wait_for(ev.wait(), timeout=live.REFRESH_S)
+                    await asyncio.sleep(live.COALESCE_S)      # a press and its release arrive together
+                except asyncio.TimeoutError:
+                    pass
+                ev.clear()
+        finally:
+            live.unsubscribe(ev)
+
+    return StreamingResponse(gen(), media_type="text/event-stream",
+                             headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"})
+
+
+def _on(d: dict) -> bool:
+    return d.get("on", True) is not False
+
+
+@router.post("/api/admin/intercom/live/mute-all")
+async def live_mute_all(request: Request, user: users.User = Depends(require("intercom.live"))):
+    await live.mute_all(_on(await _json(request, 1024)), user.id)
+    return {"ok": True}
+
+
+@router.post("/api/admin/intercom/live/release-all")
+async def live_release_all(user: users.User = Depends(require("intercom.live"))):
+    await live.release_all(user.id)
+    return {"ok": True}
+
+
+@router.post("/api/admin/intercom/live/channels/{channel_id}/mute")
+async def live_mute_channel(channel_id: int, request: Request, user: users.User = Depends(require("intercom.live"))):
+    if await store.run(store.channel, channel_id) is None:
+        return JSONResponse({"error": "That channel does not exist."}, status_code=404)
+    await live.mute_channel(channel_id, _on(await _json(request, 1024)), user.id)
+    return {"ok": True}
+
+
+@router.post("/api/admin/intercom/live/users/{user_id}/mute")
+async def live_mute_user(user_id: int, request: Request, user: users.User = Depends(require("intercom.live"))):
+    if await store.run(lambda: db.one("select 1 from users where id = ?", (user_id,))) is None:
+        return JSONResponse({"error": "That user does not exist."}, status_code=404)
+    await live.mute_user(user_id, _on(await _json(request, 1024)), user.id)
+    return {"ok": True}
+
+
+@router.put("/api/admin/intercom/live/production")
+async def live_production(request: Request, user: users.User = Depends(require("intercom.live"))):
+    """Set the label, or with {"use_plan": true} take today's plan name from the module that follows plans."""
+    d = await _json(request, 1024)
+    text = d.get("label")
+    if d.get("use_plan") is True:
+        text = registry.plan_label()
+        if not text:
+            return JSONResponse({"error": "No plan is available to use."}, status_code=404)
+    return {"label": await store.run(lambda: store.set_production(text, user.id))}
 
 
 @router.websocket("/intercom/ws")
