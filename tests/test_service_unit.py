@@ -2,19 +2,15 @@
 
 Reads the files only; it does not start systemd. Offline. Run: .venv/bin/python tests/test_service_unit.py
 """
+import os
 import re
 import subprocess
 import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-fails = []
-
-
-def check(label, cond, extra=""):
-    print(("  ok   " if cond else "  FAIL ") + label + ((" — " + str(extra)) if extra and not cond else ""))
-    if not cond:
-        fails.append(label)
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from _harness import check, fails  # noqa: E402
 
 
 unit = (ROOT / "tools" / "relay.service").read_text(encoding="utf-8")

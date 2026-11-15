@@ -28,19 +28,8 @@ from app import config
 from app.modules.planning_center import planningcenter as pc
 from app.main import app
 
-fails = []
-
-
-def eq(label, got, want):
-    ok = got == want
-    print(("  ok   " if ok else "  FAIL ") + label)
-    if not ok:
-        print(f"         got  {got!r}\n         want {want!r}")
-        fails.append(label)
-
-
-def check(label, cond, extra=""):
-    eq(label, bool(cond), True) if cond else eq(label + f" ({extra})", False, True)
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from _harness import check, eq, fails  # noqa: E402
 
 
 APP_ID, SECRET = "appid-1234", "s3cret-pat-value"

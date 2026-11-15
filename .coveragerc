@@ -1,0 +1,12 @@
+# Coverage for the Python app, recorded by `python tests/run_all.py --coverage` (one data file per test
+# process) and combined with `coverage combine`. CI fails if the total drops below fail_under.
+[run]
+source = app
+parallel = True
+data_file = .coverage
+
+[report]
+fail_under = 88
+skip_empty = True
+show_missing = False
+sort = Cover

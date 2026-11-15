@@ -32,17 +32,8 @@ _db.start()
 
 from app import config, netinfo, serving, tls  # noqa: E402
 
-fails = []
-
-
-def check(label, cond, extra=""):
-    print(("  ok   " if cond else "  FAIL ") + label + ((" — " + str(extra)) if extra and not cond else ""))
-    if not cond:
-        fails.append(label)
-
-
-def eq(label, got, want):
-    check(label, got == want, f"got {got!r}, want {want!r}")
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from _harness import check, eq, fails  # noqa: E402
 
 
 IPS = ["192.0.2.10"]
@@ -198,7 +189,7 @@ def http_get(port, path):
 eq("the panel presents the fingerprint Relay printed", peer_fingerprint(aport), tls.panel.info.fingerprint)
 r = https_get("/admin")
 check("https://<lan-ip>/admin works", r.status == 200, r.status)
-for h, v in (("x-content-type-options", "nosniff"), ("x-frame-options", "DENY"), ("referrer-policy", "no-referrer"),
+for h, v in (("x-content-type-options", "nosniff"), ("x-frame-options", "SAMEORIGIN"), ("referrer-policy", "no-referrer"),
              ("strict-transport-security", "max-age=34300800")):
     eq(f"the panel sends {h}", r.getheader(h), v)
 

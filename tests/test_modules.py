@@ -57,21 +57,8 @@ NETWORK = {"socket", "ssl", "http.client", "urllib.request", "websockets", "http
 CORE_NETWORK = {"announce.py": {"socket"}, "main.py": {"socket"}, "netinfo.py": {"socket"}, "realtime.py": {"ssl", "websockets"}, "serving.py": {"socket"},
                 "texttranslate.py": {"urllib.request"}, "tls.py": {"socket", "ssl"}}
 
-fails = []
-
-
-def check(label, cond, extra=""):
-    print(("  ok   " if cond else "  FAIL ") + label + ((" — " + str(extra)) if extra and not cond else ""))
-    if not cond:
-        fails.append(label)
-
-
-def eq(label, got, want):
-    ok = got == want
-    print(("  ok   " if ok else "  FAIL ") + label)
-    if not ok:
-        print(f"         got  {got!r}\n         want {want!r}")
-        fails.append(label)
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from _harness import check, eq, fails  # noqa: E402
 
 
 def imports(path: Path) -> list[str]:
@@ -276,8 +263,6 @@ check("a non-Module is refused", modmod.validate(object(), "x"))
 class FakeUserPage(Fake):
     permissions = (Permission("fake.use", "Use it", "Fake", "member"),)
     user_pages = (UserPage("Fake tool", "/api/fake/tool", "fake.use"),)
-
-
 
 
 good = FakeUserPage()

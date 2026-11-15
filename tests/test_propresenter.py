@@ -36,19 +36,8 @@ from app.modules.propresenter import propresenter as pp
 from app.alerts import alerts
 from app.main import app
 
-fails = []
-
-
-def eq(label, got, want):
-    ok = got == want
-    print(("  ok   " if ok else "  FAIL ") + label)
-    if not ok:
-        print(f"         got  {got!r}\n         want {want!r}")
-        fails.append(label)
-
-
-def check(label, cond, extra=""):
-    eq(label + (f" ({extra})" if extra and not cond else ""), bool(cond), True)
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from _harness import check, eq, fails  # noqa: E402
 
 
 # The 46 paths a live install accepted for the stream (docs/reference/propresenter-live-test.md).

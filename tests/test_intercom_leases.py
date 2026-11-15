@@ -2,6 +2,7 @@
 
 No database, no LiveKit, no network. Run: python tests/test_intercom_leases.py
 """
+import os
 import asyncio
 import sys
 import time
@@ -11,19 +12,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from app.modules.intercom import arbiter as arb  # noqa: E402
 
-fails = []
-
-
-def eq(label, got, want):
-    ok = got == want
-    print(("  ok   " if ok else "  FAIL ") + label)
-    if not ok:
-        print(f"         got  {got!r}\n         want {want!r}")
-        fails.append(label)
-
-
-def check(label, cond):
-    eq(label, bool(cond), True)
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from _harness import check, eq, fails  # noqa: E402
 
 
 class World:

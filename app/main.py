@@ -155,7 +155,9 @@ def _on_panel_socket(request: Request) -> bool:
 # What Caddy used to add to every panel response. HSTS is only honoured over HTTPS, so it is only sent there.
 PANEL_HEADERS = {
     "X-Content-Type-Options": "nosniff",
-    "X-Frame-Options": "DENY",
+    # SAMEORIGIN, not DENY: the overlay builder previews the real /overlay page in a frame on the panel itself.
+    # Other sites still cannot frame the panel.
+    "X-Frame-Options": "SAMEORIGIN",
     "Referrer-Policy": "no-referrer",
 }
 HSTS = f"max-age={tls.HSTS_MAX_AGE}"

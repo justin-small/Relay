@@ -32,22 +32,8 @@ from app.users import Permission, Refused  # noqa: E402
 
 users.SCRYPT_N = 2 ** 10      # fast hashing for the suite; test_hash_format checks the stored parameters
 
-fails = []
-
-
-def check(label, cond, extra=""):
-    print(("  ok   " if cond else "  FAIL ") + label + ((" — " + str(extra)) if extra and not cond else ""))
-    if not cond:
-        fails.append(label)
-
-
-def eq(label, got, want):
-    ok = got == want
-    print(("  ok   " if ok else "  FAIL ") + label)
-    if not ok:
-        # The values are not printed: this file compares passwords, PINs and tokens, and a CI log is public.
-        print("         got and want differ (values withheld; re-run locally with a print to see them)")
-        fails.append(label)
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from _harness import check, eq, fails  # noqa: E402
 
 
 def refused(label, key, fn, *a, **kw):

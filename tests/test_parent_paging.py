@@ -29,15 +29,8 @@ from app.modules.parent_paging.paging import pager  # noqa: E402
 from app.modules.planning_center import planningcenter as pc  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
 
-fails = []
-
-
-def eq(label, got, want):
-    ok = got == want
-    print(("  ok   " if ok else "  FAIL ") + label)
-    if not ok:
-        print(f"         got  {got!r}\n         want {want!r}")
-        fails.append(label)
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from _harness import eq, fails  # noqa: E402
 
 
 def run(coro):

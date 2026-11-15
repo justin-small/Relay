@@ -23,7 +23,17 @@ action often breaks a test you did not touch (a new `/api/admin` route must be l
 Running only the tests for your area is not enough. Before each push:
 
 ```bash
-for t in tests/test_*.py tests/smoke_test.py; do .venv/bin/python "$t" >/dev/null 2>&1 || echo "FAILED $t"; done
+.venv/bin/python tests/run_all.py
 ```
 
-Nothing printed means it is safe to push.
+It runs the files several at a time and ends with a line per failing file; exit 0 means it is safe to push.
+`-k <part of a name>` narrows it while you work. CI also runs `node --test tests/js/`, `cargo test` in
+`desktop/src-tauri`, the browser test (`tests/test_browser.py`, skipped locally without Playwright), and fails
+if coverage of `app/` drops below `fail_under` in `.coveragerc`.
+
+## Writing a test
+
+A test is a script in `tests/` named `test_*.py`. Use the shared checks in `tests/_harness.py` (`eq`, `check`,
+`done()`), wrap each part in `with section("..."):` so one exception does not hide the checks after it, poll with
+`wait_for`/`await_for` instead of a fixed `sleep` when waiting for something to happen, and make folders with
+`tmpdir()` so they are removed. A fixed sleep is right only to show that something does *not* happen.

@@ -45,22 +45,8 @@ SETUP_TOKEN = "setup-token-1"
 DB_DOWN = M.DB_DOWN_SENTENCE
 MSG = users.MESSAGES
 
-fails = []
-
-
-def check(label, cond, extra=""):
-    print(("  ok   " if cond else "  FAIL ") + label + ((" — " + str(extra)) if extra and not cond else ""))
-    if not cond:
-        fails.append(label)
-
-
-def eq(label, got, want):
-    ok = got == want
-    print(("  ok   " if ok else "  FAIL ") + label)
-    if not ok:
-        # The values are not printed: this file compares passwords, PINs and tokens, and a CI log is public.
-        print("         got and want differ (values withheld; re-run locally with a print to see them)")
-        fails.append(label)
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from _harness import check, eq, fails  # noqa: E402
 
 
 def anon(base=ADMIN, **kw):

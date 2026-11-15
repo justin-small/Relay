@@ -32,19 +32,8 @@ from app.main import app  # noqa: E402
 from app.modules.intercom import devices, livekit, rooms, rtcproxy, store  # noqa: E402
 from app.modules.intercom.presence import presence  # noqa: E402
 
-fails = []
-
-
-def eq(label, got, want):
-    ok = got == want
-    print(("  ok   " if ok else "  FAIL ") + label)
-    if not ok:
-        print(f"         got  {got!r}\n         want {want!r}")
-        fails.append(label)
-
-
-def check(label, cond):
-    eq(label, bool(cond), True)
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from _harness import check, eq, fails  # noqa: E402
 
 
 # ------------------------------------------------------------------ a fake LiveKit /rtc socket

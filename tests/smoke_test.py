@@ -21,21 +21,8 @@ from app import audio, config, languages, redact
 from app.hub import hub
 from app.main import app
 
-fails = []
-def check(label, cond, extra=""):
-    """Assert `cond` is truthy. `extra` is diagnostic detail shown on failure."""
-    print(("  ok   " if cond else "  FAIL ") + label + ((" — " + str(extra)) if extra and not cond else ""))
-    if not cond:
-        fails.append(label)
-
-
-def eq(label, got, want):
-    """Assert `got == want`, printing both on failure."""
-    ok = got == want
-    print(("  ok   " if ok else "  FAIL ") + label)
-    if not ok:
-        print(f"         got  {got!r}\n         want {want!r}")
-        fails.append(label)
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from _harness import check, eq, fails  # noqa: E402
 
 
 def unframe(item):
@@ -1260,13 +1247,13 @@ check("plain loopback request is not https", not _main._is_https(_req(("127.0.0.
 print("\npanel response headers, viewer port refusal (no proxy)")
 _serving.publish(8000, 8001)
 _pan = TestClient(app, base_url="https://relay.local:8001").get("/")
-for _h, _v in (("x-content-type-options", "nosniff"), ("x-frame-options", "DENY"),
+for _h, _v in (("x-content-type-options", "nosniff"), ("x-frame-options", "SAMEORIGIN"),
                ("referrer-policy", "no-referrer"), ("strict-transport-security", "max-age=34300800")):
     eq(f"panel sends {_h}", _pan.headers.get(_h), _v)
 eq("HSTS is 397 days", 397 * 86400, 34300800)
 _pan_http = TestClient(app, base_url="http://relay.local:8001").get("/")
 check("no HSTS over plain HTTP (browsers ignore it there)", "strict-transport-security" not in _pan_http.headers)
-check("framing headers still sent", _pan_http.headers.get("x-frame-options") == "DENY")
+check("framing headers still sent", _pan_http.headers.get("x-frame-options") == "SAMEORIGIN")
 _view = TestClient(app, base_url="http://relay.local:8000")
 _vr = _view.get("/")
 check("viewer port sends no panel headers",

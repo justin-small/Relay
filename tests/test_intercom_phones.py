@@ -34,19 +34,8 @@ from app.modules.intercom import devices, livekit, rooms, store, webhook  # noqa
 from app.modules.intercom.arbiter import arbiter  # noqa: E402
 from app.modules.intercom.presence import presence  # noqa: E402
 
-fails = []
-
-
-def eq(label, got, want):
-    ok = got == want
-    print(("  ok   " if ok else "  FAIL ") + label)
-    if not ok:
-        print(f"         got  {got!r}\n         want {want!r}")
-        fails.append(label)
-
-
-def check(label, cond):
-    eq(label, bool(cond), True)
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from _harness import check, eq, fails, wait_for  # noqa: E402
 
 
 def raises(label, exc, fn):
@@ -325,9 +314,7 @@ with TestClient(app, base_url="http://relay.local:8001") as member:
     PARTICIPANTS[f"ch-{general['id']}"] = [f"u{bob.id}-d{db_['id']}", f"u{alice.id}-d1"]
     CALLS.clear()
     store.remove_member(general["id"], bob.id)
-    end = time.time() + 1
-    while "RemoveParticipant" not in methods() and time.time() < end:
-        time.sleep(0.02)
+    wait_for(lambda: "RemoveParticipant" in methods(), 1)
     removed = [c[1] for c in CALLS if c[0] == "RemoveParticipant"]
     eq("removing a member removes only their phones, within a second",
        {(c["room"], c["identity"]) for c in removed}, {(f"ch-{general['id']}", f"u{bob.id}-d{db_['id']}")})
@@ -335,16 +322,12 @@ with TestClient(app, base_url="http://relay.local:8001") as member:
     settle()
     CALLS.clear()
     store.set_member(general["id"], bob.id, can_talk=True, can_listen=False)
-    end = time.time() + 1
-    while "UpdateParticipant" not in methods() and time.time() < end:
-        time.sleep(0.02)
+    wait_for(lambda: "UpdateParticipant" in methods(), 1)
     upd = [c[1] for c in CALLS if c[0] == "UpdateParticipant"]
     check("losing Listen turns subscribing off", upd and upd[0]["permission"]["canSubscribe"] is False)
     CALLS.clear()
     store.delete_channel(stage["id"])
-    end = time.time() + 1
-    while "DeleteRoom" not in methods() and time.time() < end:
-        time.sleep(0.02)
+    wait_for(lambda: "DeleteRoom" in methods(), 1)
     check("deleting a channel closes its room", "DeleteRoom" in methods())
 
     # ------------------------------------------------------------------ talk leases over the socket (#274)
@@ -374,9 +357,7 @@ with TestClient(app, base_url="http://relay.local:8001") as member:
         ws.send_text(json.dumps({"type": "talk.request", "channels": [general["id"]]}))
         json.loads(ws.receive_text()), json.loads(ws.receive_text())
         check("held again", arbiter.holds(general["id"], alice.id))
-    end = time.time() + 1
-    while arbiter.holds(general["id"], alice.id) and time.time() < end:
-        time.sleep(0.02)
+    wait_for(lambda: not arbiter.holds(general["id"], alice.id), 1)
     check("closing the socket releases the lease", not arbiter.holds(general["id"], alice.id))
 
 

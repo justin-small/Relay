@@ -1294,7 +1294,9 @@
     return tr;
   }
   async function loadAlertHistory(more) {
-    const list = $('alertHistList');
+    // $() never returns null (it hands back a stand-in), so ask the document: the section is only there
+    // for people with alerts.history.
+    const list = document.getElementById('alertHistList');
     if (!list) return;
     try {
       const r = await fetch('/api/admin/alerts/history' + (more && alertHistLast ? '?before=' + alertHistLast : ''));
@@ -1312,7 +1314,7 @@
       const tr = el('tr'); const td = el('td', 'muted', 'The history could not be read.'); td.colSpan = 4; tr.appendChild(td); list.appendChild(tr);
     }
   }
-  if ($('alertHistList')) {
+  if (document.getElementById('alertHistList')) {
     $('alertHistMore').addEventListener('click', function () { loadAlertHistory(true); });
     window.addEventListener('hashchange', function () { if (location.hash === '#alerts') loadAlertHistory(false); });
     if (location.hash === '#alerts') loadAlertHistory(false);
