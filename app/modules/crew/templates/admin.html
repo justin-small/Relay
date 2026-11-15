@@ -26,6 +26,24 @@
       <div class="ctl"><button type="button" class="primary" id="crPageSend">Send page</button> <span class="muted" id="crPageMsg"></span></div>
       <table class="tbl" id="crPages"><thead><tr><th>Page</th><th>Who</th></tr></thead><tbody></tbody></table>
     </section>
+    <section id="crCallBox">
+      <h3>Call times</h3>
+      <p class="note" style="margin-top:0">Page a Planning Center team on a schedule: minutes before each of today's
+        service times, or at a set day and time. It reaches the people on that team serving today who have a crew
+        account, and buzzes like any page. A call time that Relay misses by a minute is skipped, never sent late.</p>
+      <div class="field"><label for="ctTeam">Team</label>
+        <input id="ctTeam" list="ctTeams" maxlength="80" autocomplete="off" style="max-width:20em"><datalist id="ctTeams"></datalist></div>
+      <div class="field"><label for="ctKind">When</label>
+        <select id="ctKind"><option value="before">Before the service</option><option value="fixed">Day and time</option></select>
+        <span id="ctBefore"><input id="ctMin" type="number" min="0" max="1440" value="60" style="width:5em"> minutes before</span>
+        <span id="ctFixed" hidden><select id="ctDay"><option value="6">Sunday</option><option value="0">Monday</option><option value="1">Tuesday</option><option value="2">Wednesday</option><option value="3">Thursday</option><option value="4">Friday</option><option value="5">Saturday</option></select>
+          <input id="ctClock" type="time" value="08:00"></span></div>
+      <div class="field"><label for="ctMsg">What the page says</label>
+        <input id="ctMsg" maxlength="140" autocomplete="off" style="max-width:32em"></div>
+      <div class="note err" id="ctErr" hidden></div>
+      <div class="ctl"><button type="button" class="primary" id="ctAdd">Add call time</button></div>
+      <table class="tbl" id="ctRules"><thead><tr><th>Team</th><th>When</th><th>Says</th><th>Last</th><th></th></tr></thead><tbody></tbody></table>
+    </section>
     <section>
       <h3>People</h3>
       <p class="note" style="margin-top:0">Give each person the role they fill ("Camera 1"). With Planning Center on,
