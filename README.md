@@ -5,6 +5,26 @@
 
 # Relay
 
+Relay hears the room, knows what's live, and tells everyone who needs to know.
+One app to run a church production, built so a volunteer can run it.
+
+- **Hear.** Live captions and translation from the soundboard feed, read on any
+  phone, on [caption panels](#caption-panels) and on stream overlays.
+- **Know.** The current slide, lyrics and timers from [ProPresenter](#propresenter),
+  and today's service, live, from [Planning Center](#planning-center-services-live).
+- **Tell.** [Alerts](#alerts) in three levels, stage messages and a confidence
+  banner, and [signage](#signage) on any TV in the building.
+- **Act.** Move the service on from a panel, start and stop on a
+  [schedule](#schedules), and alert buttons for the band and the tech team.
+
+Every integration with another product is a module the operator switches on.
+While a module is off, Relay never contacts that product. The same app serves
+the rest of the building too: signage in the lobby, and captions in an overflow
+room or on a visitor's own phone. Intercom, crew pages, parent paging, tally
+and soundboard control are planned; see the open issues.
+
+## Captions and translation
+
 Server-captured, low-latency live captioning and translation for remote
 viewers. One vendor (OpenAI Realtime), native audio capture, text-only output.
 
