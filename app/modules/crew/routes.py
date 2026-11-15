@@ -13,13 +13,14 @@ from fastapi.responses import HTMLResponse, JSONResponse, Response
 
 from ... import audit, config
 from .. import modules as registry, require
-from . import calltimes, paging, people
+from . import calltimes, chat, paging, people
 
 router = APIRouter()
 VIEW = [Depends(require("crew.view"))]
 MANAGE = [Depends(require("crew.manage"))]
 PAGE = [Depends(require("crew.page"))]
 USE = [Depends(require("crew.use"))]
+CHAT = [Depends(require("crew.chat"))]
 
 KEY = "crew"
 HERE = Path(__file__).resolve().parent
@@ -157,6 +158,7 @@ def people_scan(request: Request):
 @router.put("/api/admin/crew/people/{user_id}/role", dependencies=MANAGE)
 def people_role(request: Request, user_id: int, payload: dict):
     role = _people_call(people.set_role, user_id, payload.get("role"))
+    chat.hub.signed_out(user_id)         # their role channel changed: their open chat reconnects and reloads
     audit.note(request, "crew.role", "Set a crew role", target=user_id, detail={"role": role})
     return {"role": role}
 
@@ -276,3 +278,77 @@ def calltimes_delete(request: Request, rule_id: int):
     _people_call(calltimes.delete, rule_id)
     audit.note(request, "crew.calltime_delete", "Removed a call-time page", target=rule_id)
     return calltimes_get()
+
+
+# -- team chat (#230) ---------------------------------------------------------------------------------------------
+@router.get("/crew/api/chat/channels", dependencies=CHAT)
+def chat_channels(request: Request):
+    return {"me": request.state.user.id, "channels": _people_call(chat.channels_for, request.state.user),
+            "moderator": request.state.user.can("crew.moderate")}
+
+
+@router.get("/crew/api/chat/history", dependencies=CHAT)
+def chat_history(request: Request, channel: str, after: int = 0):
+    user = request.state.user
+    if not _people_call(chat.can_read, user, channel):
+        raise HTTPException(403, "You cannot read that channel.")
+    return {"channel": channel, "messages": _people_call(chat.history, channel, chat.MIRROR, max(0, after))}
+
+
+@router.post("/crew/api/chat/send", dependencies=CHAT)
+async def chat_send(request: Request, payload: dict):
+    user = request.state.user
+    msg = await asyncio.to_thread(_people_call, chat.post, user, payload.get("channel"), payload.get("body"))
+    chat.hub.publish(msg["channel"], {"type": "message", "message": msg})
+    watching = chat.hub.watching()
+    asyncio.create_task(asyncio.to_thread(_quiet_notify, msg, watching))
+    return {"message": msg}
+
+
+def _quiet_notify(msg: dict, watching) -> None:
+    try:
+        chat.notify(msg["channel"], msg, watching)
+    except Exception:
+        chat.log.warning("crew: chat notification failed", exc_info=True)
+
+
+@router.delete("/crew/api/chat/message/{message_id}", dependencies=CHAT)
+async def chat_delete(request: Request, message_id: int):
+    msg = await asyncio.to_thread(_people_call, chat.remove, request.state.user, message_id)
+    chat.hub.publish(msg["channel"], {"type": "delete", "channel": msg["channel"], "id": msg["id"]})
+    return {"ok": True}
+
+
+@router.put("/crew/api/chat/push", dependencies=CHAT)
+def chat_push(request: Request, payload: dict):
+    _people_call(chat.set_push, request.state.user, payload.get("channel"), payload.get("on"))
+    return {"channels": _people_call(chat.channels_for, request.state.user)}
+
+
+@router.get("/crew/api/chat/stream", dependencies=CHAT)
+async def chat_stream(request: Request):
+    """Server-sent events for every channel this person may read: {"type": "message" | "delete", ...}. The phone
+    reloads the newest messages whenever the stream (re)connects, so nothing has to be replayed."""
+    from .. import event_stream, sse
+    from .. import modules as shared
+
+    user = request.state.user
+    chat.hub.loop = asyncio.get_running_loop()
+    sub = chat.hub.subscribe(user, await asyncio.to_thread(chat.own_channel, user.id))
+
+    async def gen():
+        try:
+            yield sse({"type": "ready"}).encode()
+            while True:
+                try:
+                    event = await asyncio.wait_for(sub.queue.get(), timeout=shared.HEARTBEAT_S)
+                except asyncio.TimeoutError:
+                    yield sse({"type": "tick"}).encode()
+                    continue
+                if event is None:
+                    return
+                yield sse(event).encode()
+        finally:
+            chat.hub.unsubscribe(sub)
+
+    return event_stream(gen())

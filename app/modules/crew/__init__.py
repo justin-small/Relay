@@ -14,7 +14,7 @@ import contextlib
 import logging
 from typing import Any
 
-from .. import AdminPage, Health, Manifest, Module, UserPage
+from .. import AdminPage, CrewTab, Health, Manifest, Module, UserPage
 from ...users import Permission
 
 log = logging.getLogger("relay.crew")
@@ -26,7 +26,7 @@ class Crew(Module):
     manifest = Manifest(
         id="crew",
         name="Crew app",
-        version="1.3.0",
+        version="1.4.0",
         summary="An installable page for the crew, signed in with a Relay account, that shows the plan and hosts "
                 "the other crew features. Served over HTTPS on this network only.",
         settings_key="crew",
@@ -45,7 +45,11 @@ class Crew(Module):
         Permission("crew.view", "See how the crew page is set up", "Crew app", "viewer"),
         Permission("crew.manage", "Change the crew page's name and what it shows", "Crew app", "admin"),
         Permission("crew.page", "Page the crew and see who has read it", "Crew app", "operator"),
+        Permission("crew.chat", "Use the crew team chat", "Crew app", "member"),
+        Permission("crew.moderate", "Read every role channel and delete anyone's chat message", "Crew app", "operator"),
     )
+    crew_tabs = (CrewTab("chat", "Chat", "chat.html", "crew.chat"),)
+    crew_scripts = ("chat.js",)
     user_pages = (UserPage("Crew", "/crew", "crew.use", "The plan and your team's tools"),)
 
     def clean(self, raw: Any) -> dict:
@@ -68,6 +72,9 @@ class Crew(Module):
         self._task = asyncio.create_task(self._pager(), name="crew-pager")
 
     async def stop(self) -> None:
+        from .chat import hub
+
+        hub.drop_all()
         if self._task is not None:
             self._task.cancel()
             with contextlib.suppress(asyncio.CancelledError, Exception):
@@ -121,13 +128,22 @@ class Crew(Module):
             pass
 
     def attach(self) -> None:
+        from ... import users
         from ..planning_center.pclive import follower
+        from .chat import hub
 
         if self._team_changed not in follower.listeners:
             follower.listeners.append(self._team_changed)
+        if hub.signed_out not in users.signed_out_hooks:
+            users.signed_out_hooks.append(hub.signed_out)
 
     def detach(self) -> None:
+        from ... import users
         from ..planning_center.pclive import follower
+        from .chat import hub
+
+        if hub.signed_out in users.signed_out_hooks:
+            users.signed_out_hooks.remove(hub.signed_out)
 
         if self._team_changed in follower.listeners:
             follower.listeners.remove(self._team_changed)
