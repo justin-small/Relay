@@ -143,6 +143,7 @@ class _Mic:
 class LiveMedia:
     def __init__(self) -> None:
         self.pc = None
+        self.session = ""                      # the Cloudflare session the connection above belongs to
         self.listens: dict[int, _Listen] = {}
         self.mics: dict[int, _Mic] = {}
         self._neg = asyncio.Lock()             # one offer/answer on the Cloudflare connection at a time
@@ -156,10 +157,7 @@ class LiveMedia:
         return ""
 
     async def open(self) -> None:
-        from aiortc import RTCPeerConnection
-
-        self._closed = False
-        self.pc = RTCPeerConnection()
+        self._closed = False        # the connection to Cloudflare is made when the first mix or microphone needs it
 
     async def close(self) -> None:
         self._closed = True
@@ -167,13 +165,37 @@ class LiveMedia:
             await self._stop_listen(channel_id)
         for device_id in list(self.mics):
             await self._stop_mic(device_id)
+        await self._reset()
+
+    async def _ensure(self) -> None:
+        """A connection and session of our own, made when first needed: Cloudflare drops a session that nothing connects
+        to within a few seconds, so one opened at start and used minutes later is refused."""
+        from aiortc import RTCPeerConnection
+
+        from . import cloud
+
+        if self.pc is None:
+            self.session = await cloud.run(cloud.open_session)
+            self.pc = RTCPeerConnection()
+
+    async def _reset(self) -> None:
         pc, self.pc = self.pc, None
+        sid, self.session = self.session, ""
         if pc is not None:
             with contextlib.suppress(Exception):
                 await pc.close()
+        if sid:
+            from . import cloud
+
+            with contextlib.suppress(Exception):
+                await cloud.run(cloud.close_session, sid)
+
+    async def _idle(self) -> None:
+        if not self.listens and not self.mics:
+            await self._reset()
 
     def alive(self) -> bool:
-        if self._closed or self.pc is None or self.pc.connectionState in ("failed", "closed"):
+        if self._closed or (self.pc is not None and self.pc.connectionState in ("failed", "closed")):
             return False
         return all(r.room.isconnected() for r in self.listens.values()) and not any(
             m.task is not None and m.task.done() for m in self.mics.values())
@@ -197,13 +219,13 @@ class LiveMedia:
         from aiortc import RTCSessionDescription
 
         from . import cloud
-        from .bridge import bridge
 
         async with self._neg:
+            await self._ensure()
             t = self.pc.addTransceiver(track, direction="sendonly")
             await self.pc.setLocalDescription(await self.pc.createOffer())
             offer = self.pc.localDescription
-            out = await cloud.run(cloud.tracks_new, bridge.session_id, {
+            out = await cloud.run(cloud.tracks_new, self.session, {
                 "sessionDescription": {"type": "offer", "sdp": offer.sdp},
                 "tracks": [{"location": "local", "trackName": name, "mid": t.mid}]})
             answer = out.get("sessionDescription") or {}
@@ -224,10 +246,10 @@ class LiveMedia:
         from aiortc import RTCSessionDescription
 
         from . import cloud
-        from .bridge import bridge
 
         async with self._neg:
-            out = await cloud.run(cloud.tracks_new, bridge.session_id, {"tracks": [
+            await self._ensure()
+            out = await cloud.run(cloud.tracks_new, self.session, {"tracks": [
                 {"location": "remote", "trackName": name, "sessionId": cf_session_id}]})
             got = [t for t in out.get("tracks", []) if t.get("trackName") == name and t.get("mid")]
             if not got:
@@ -238,7 +260,7 @@ class LiveMedia:
             if offer:
                 await self.pc.setRemoteDescription(RTCSessionDescription(sdp=offer["sdp"], type="offer"))
                 await self.pc.setLocalDescription(await self.pc.createAnswer())
-                await cloud.run(cloud.renegotiate, bridge.session_id, {
+                await cloud.run(cloud.renegotiate, self.session, {
                     "sessionDescription": {"type": "answer", "sdp": self.pc.localDescription.sdp}})
             for t in self.pc.getTransceivers():
                 if t.mid == mid and t.receiver.track is not None:
@@ -247,11 +269,10 @@ class LiveMedia:
 
     async def _close_cf_track(self, mid: str) -> None:
         from . import cloud
-        from .bridge import bridge
 
-        if mid and bridge.session_id:
+        if mid and self.session:
             with contextlib.suppress(Exception):
-                await cloud.run(cloud.tracks_close, bridge.session_id, {"tracks": [{"mid": mid}], "force": True})
+                await cloud.run(cloud.tracks_close, self.session, {"tracks": [{"mid": mid}], "force": True})
 
     # ------------------------------------------------------------------ listening
     async def listen(self, channel_id: int, cf_session_id: str, name: str) -> None:
@@ -319,6 +340,7 @@ class LiveMedia:
         with contextlib.suppress(Exception):
             await entry.room.disconnect()
         await self._close_cf_track(entry.mid)
+        await self._idle()
 
     # ------------------------------------------------------------------ talking
     async def talk(self, channel_id: int, user_id: int, device_id: int, cf_session_id: str, name: str) -> None:
@@ -389,6 +411,7 @@ class LiveMedia:
                 await room.disconnect()
         mic.sources.clear(), mic.rooms.clear()
         await self._close_cf_track(mic.mid)
+        await self._idle()
 
 
 class NoMedia:

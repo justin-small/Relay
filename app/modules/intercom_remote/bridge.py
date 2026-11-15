@@ -174,7 +174,8 @@ class Bridge:
             if self.listening.get(channel_id, 0) == 0:
                 await self.media.listen(channel_id, self.session_id, track_name(channel_id))
             self.listening[channel_id] = self.listening.get(channel_id, 0) + 1
-            out.append({"location": "remote", "trackName": track_name(channel_id), "sessionId": self.session_id})
+            out.append({"location": "remote", "trackName": track_name(channel_id),
+                        "sessionId": getattr(self.media, "session", "") or self.session_id})
         return out
 
     async def release(self, channels: list[int]) -> None:
