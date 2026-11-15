@@ -113,7 +113,8 @@ class Engine:
             assert self.capture is not None
             try:
                 self.capture.gate_silence = bool(cfg["realtime"].get("gate_silence", True))
-                self.capture.start(cfg.get("audio_device"), cfg.get("input_channel", 0))
+                self.capture.start(cfg.get("audio_device"), cfg.get("input_channel", 0),
+                                   cfg.get("audio_source") or "portaudio")
             except RuntimeError:
                 # The capture's own sentence (fixed text naming the device), never the exception's.
                 self.last_error = self.capture.error or "The audio input could not be opened."

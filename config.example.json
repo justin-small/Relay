@@ -2,6 +2,7 @@
   "openai_api_key": "",
   "admin_token": "",
   "audio_device": null,
+  "audio_source": "portaudio",
   "input_channel": 0,
   "source_language": "ENGLISH",
   "targets": {
