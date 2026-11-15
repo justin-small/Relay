@@ -196,6 +196,25 @@ owner_c.post("/api/admin/zzfake/noted")
 e = last()
 eq("a module's own note is what is recorded", (e["action"], e["summary"], e["target"], e["detail"]),
    ("zzfake.build", "Built the thing", "Sunday", {"items": 3}))
+# A module route whose function shares a name with a skipped core route is still recorded (#287): the skip
+# matches the core function itself, not its name.
+twin = APIRouter()
+
+
+def admin_me_pref_set():  # noqa: F811 -- the same name as the core route, on purpose
+    return {"ok": True}
+
+
+twin.add_api_route("/api/admin/zzfake/twin", admin_me_pref_set, methods=["POST"],
+                   dependencies=[Depends(M.require("settings.manage"))])
+app.include_router(twin)
+clear()
+r = owner_c.post("/api/admin/zzfake/twin")
+eq("a module route named like a skipped core route succeeds", r.status_code, 200)
+eq("…and is still recorded", [x["summary"] for x in entries()], ["POST /api/admin/zzfake/twin"])
+clear()
+owner_c.put("/api/admin/me/prefs/user/zz.layout", json={"value": 1})
+eq("the core preference route itself is still left out", entries(), [])
 before = len(entries())
 owner_c.get("/api/admin/status")
 eq("reading changes nothing in the log", len(entries()), before)

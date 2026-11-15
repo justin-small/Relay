@@ -252,9 +252,8 @@ AUDIT_ROUTES = {
     "admin_device_revoke": ("device.revoke", "Forgot a trusted device"),
 }
 
-# Core admin routes that change something but are not entered in the audit log: a person's own preferences
-# (#173) are theirs, not a change to Relay, and a page saving a layout would bury the log.
-AUDIT_SKIP = frozenset({"admin_me_pref_set", "admin_me_pref_delete"})
+# Core admin routes that change something but are not entered in the audit log are listed in AUDIT_SKIP_ENDPOINTS,
+# after the routes themselves (#287).
 
 
 def _audit_default(request: Request) -> dict:
@@ -281,7 +280,7 @@ async def _audit_changes(request: Request, call_next):
     response = await call_next(request)
     if (request.method in _AUDIT_METHODS and request.url.path.startswith("/api/admin/")
             and response.status_code < 400
-            and getattr(request.scope.get("route"), "name", "") not in AUDIT_SKIP):
+            and getattr(request.scope.get("route"), "endpoint", None) not in AUDIT_SKIP_ENDPOINTS):
         user = getattr(request.state, "user", None)
         if isinstance(user, User):
             notes = audit.pending(request) or [_audit_default(request)]
@@ -2555,6 +2554,13 @@ def admin_me_pref_delete(request: Request, scope: str, name: str):
     except prefs.Invalid as e:
         raise HTTPException(400, str(e)) from None
     return {"ok": True, "deleted": gone}
+
+
+# Not entered in the audit log: a person's own preferences (#173) are theirs, not a change to Relay, and a page
+# saving a layout would bury the log. Matched by the function itself, not the route's name, so a module route
+# whose function happens to share a name is still recorded (#287).
+AUDIT_SKIP_ENDPOINTS = frozenset({admin_me_pref_set, admin_me_pref_delete})
+AUDIT_SKIP = frozenset(f.__name__ for f in AUDIT_SKIP_ENDPOINTS)
 
 
 @app.get("/api/admin/me/tokens", dependencies=[Depends(require("tokens.own", tokens=False))])
