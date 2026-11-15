@@ -217,14 +217,16 @@ def write_config(node_ip: str) -> Path:
 
 # ------------------------------------------------------------------ ports
 
-def busy_port() -> str:
-    """A sentence naming the first port LiveKit needs that something else holds, else ''."""
+def busy_port(host: str = "127.0.0.1") -> str:
+    """A sentence naming the first port LiveKit needs that something else holds, else ''.
+
+    Probed on `host` (the address LiveKit advertises), never on every interface."""
     for kind, port in (("tcp", SIGNAL_PORT), ("tcp", TCP_PORT), ("udp", UDP_PORT)):
         s = socket.socket(socket.AF_INET, socket.SOCK_STREAM if kind == "tcp" else socket.SOCK_DGRAM)
         try:
             if kind == "tcp" and sys.platform != "win32":
                 s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)   # connections just closed do not count
-            s.bind(("127.0.0.1" if port == SIGNAL_PORT else "0.0.0.0", port))
+            s.bind(("127.0.0.1" if port == SIGNAL_PORT else host, port))
         except OSError:
             return f"Port {port}/{kind} is already in use by another program. Close it, then restart LiveKit."
         finally:
@@ -347,13 +349,14 @@ class Supervisor:
             return None
 
     async def _launch(self, binary: str) -> bool:
-        busy = await asyncio.to_thread(busy_port)
+        node_ip = lan_address(self.settings.get("node_ip", ""))
+        busy = await asyncio.to_thread(busy_port, node_ip)
         if busy:
             self._set("error", busy)
             return False
         self._set("starting", "Starting LiveKit.")
         self._secret = keys()[1]
-        cfg = write_config(lan_address(self.settings.get("node_ip", "")))
+        cfg = write_config(node_ip)
         kwargs: dict = {}
         if sys.platform == "win32":
             kwargs["creationflags"] = 0x0800_0200   # CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP

@@ -173,7 +173,8 @@ livekit.EXE = "livekit-server"
 path = livekit.download(BASE, ("ok.tar.gz", hashlib.sha256(TAR).hexdigest()))
 eq("download unpacks only livekit-server", sorted(p.name for p in (Path(TMP) / "livekit").iterdir()),
    ["livekit-server"])
-check("it is executable", os.stat(path).st_mode & stat.S_IXUSR)
+POSIX = sys.platform != "win32"      # Windows has no file modes and cannot run a script by its shebang
+check("it is executable", not POSIX or os.stat(path).st_mode & stat.S_IXUSR)
 eq("find_binary finds the downloaded copy", livekit.find_binary(), path)
 raises("a wrong checksum is refused", livekit.LiveKitError, lambda: livekit.download(BASE, ("ok.tar.gz", "0" * 64)))
 raises("an archive without the binary is refused", livekit.LiveKitError,
@@ -188,10 +189,10 @@ check("every pinned build has a 64-hex checksum", all(len(h) == 64 for _, h in l
 # ------------------------------------------------------------------ keys and config
 k1 = livekit.keys()
 eq("the keys are stable", livekit.keys(), k1)
-eq("the keys file is owner-only", stat.S_IMODE(os.stat(Path(TMP) / "livekit" / "keys.json").st_mode), 0o600)
+POSIX and eq("the keys file is owner-only", stat.S_IMODE(os.stat(Path(TMP) / "livekit" / "keys.json").st_mode), 0o600)
 cfg = livekit.write_config("192.168.1.20")
 text = cfg.read_text()
-eq("livekit.yaml is owner-only", stat.S_IMODE(os.stat(cfg).st_mode), 0o600)
+POSIX and eq("livekit.yaml is owner-only", stat.S_IMODE(os.stat(cfg).st_mode), 0o600)
 check("signalling is bound to loopback", 'bind_addresses:\n  - "127.0.0.1"' in text)
 check("one UDP and one TCP port, LAN address, no cloud", "udp_port: 7882" in text and "tcp_port: 7881" in text
       and 'node_ip: "192.168.1.20"' in text and "use_external_ip: false" in text and "turn" not in text.lower()
@@ -289,7 +290,8 @@ async def supervise():
     await gone.end()
 
 
-asyncio.run(supervise())
+if POSIX:
+    asyncio.run(supervise())
 
 print("\nFAILED: " + ", ".join(fails) if fails else "\nall ok")
 sys.exit(1 if fails else 0)
