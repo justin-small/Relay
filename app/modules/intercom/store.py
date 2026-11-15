@@ -107,6 +107,11 @@ def channels() -> list[dict]:
     return db.query("select * from intercom_channels order by sort, id")
 
 
+def channel(channel_id: int) -> dict | None:
+    ready()
+    return db.one("select * from intercom_channels where id = ?", (channel_id,))
+
+
 def create_channel(name: Any, *, mode: str = "preempt", max_talkers: int = 1, latch_seconds: int = 0,
                    colour: str = "", actor_id: int | None = None) -> dict:
     ready()
