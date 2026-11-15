@@ -24,8 +24,8 @@ log = logging.getLogger("relay.intercom_remote")
 CODE_LINK_LOST = 4503           # the bridge is down: the phone shows "Lost the link to the church" and retries
 LINK_LOST_TEXT = "Lost the link to the church"
 MAX_SDP = 12_000
-TALK_TRIES = 15                 # the phone's connection to Cloudflare takes a moment to come up
-TALK_WAIT_S = 1.0
+TALK_TRIES = 3                  # each try is a call to the cloud, which limits an install to about 30 a minute
+TALK_WAIT_S = 2.0
 
 
 def _sdp(v: Any) -> dict | None:
@@ -134,6 +134,7 @@ class RemoteCrew(Remote):
             try:
                 reply = await self._cf(conn, state, kind, data)
             except cloud.CloudError as exc:
+                log.warning("intercom_remote: %s refused by the cloud: %s (%s)", kind, exc.kind, exc.status)
                 reply = {"type": "error", "for": kind, "text": exc.message}
             except devices.Refused as exc:
                 reply = {"type": "error", "for": kind, "text": exc.message}
@@ -160,7 +161,9 @@ class RemoteCrew(Remote):
             state.listening = []
             if not want:
                 return {"type": "cf.pulled", "tracks": [], "sessionDescription": None}
+            log.info("intercom_remote: phone %s pulls channels %s", conn.device_id, want)
             tracks = await bridge.pull_tracks(want)
+            log.info("intercom_remote: mixes ready for %s, asking Cloudflare", want)
             state.listening = want
             out = await cloud.run(cloud.tracks_new, state.cf, {"tracks": tracks})
             return {"type": "cf.pulled", "channels": want, "sessionDescription": out.get("sessionDescription"),
@@ -170,6 +173,9 @@ class RemoteCrew(Remote):
             mid = data.get("mid")
             if offer is None or not isinstance(mid, str) or not 0 < len(mid) <= 32:
                 return {"type": "error", "for": kind, "text": "That offer is not valid."}
+            log.info("intercom_remote: phone %s offer: %d bytes, media %s, user agent %s", conn.device_id, len(offer["sdp"]),
+                     [l for l in offer["sdp"].splitlines() if l.startswith(("m=", "a=group", "a=sendonly", "a=sendrecv", "a=recvonly"))][:6],
+                     getattr(conn.ws, "headers", {}).get("user-agent", "")[:120])
             out = await cloud.run(cloud.tracks_new, state.cf, {
                 "sessionDescription": offer,
                 "tracks": [{"location": "local", "trackName": mic_name(conn.device_id), "mid": mid}]})

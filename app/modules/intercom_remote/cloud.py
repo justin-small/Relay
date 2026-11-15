@@ -24,7 +24,12 @@ def _base_and_secret() -> tuple[str, str]:
 
 def _call(method: str, path: str, body: dict | None = None) -> dict:
     base, secret = _base_and_secret()
-    return rcloud.call(base, method, path, body, secret=secret)
+    try:
+        return rcloud.call(base, method, path, body, secret=secret)
+    except CloudError as exc:
+        if exc.status == 429 and exc.kind != "too_many_sessions":      # whatever the cloud called it, it is busy
+            raise CloudError("rate_limited", 429) from None
+        raise
 
 
 async def run(fn, *args: Any):
