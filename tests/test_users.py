@@ -225,7 +225,7 @@ eq("calls work again", db.query("select 1 as a"), [{"a": 1}])
 # ------------------------------------------------------------------ permissions
 print("\npermissions")
 CATALOGUE = {
-    "admin.open": "viewer", "alerts.send": "member",
+    "admin.open": "viewer", "alerts.send": "member", "crew.use": "member",
     "session.view": "viewer", "session.control": "operator", "audio.manage": "admin", "targets.manage": "operator",
     "panels.view": "viewer", "panels.manage": "admin", "alerts.view": "viewer", "alerts.manage": "admin", "alerts.history": "admin",
     "overlays.view": "viewer", "overlays.manage": "operator", "recordings.view": "operator",

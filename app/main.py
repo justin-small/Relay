@@ -18,6 +18,7 @@ import threading
 import time
 from dataclasses import asdict
 from datetime import datetime
+from pathlib import Path
 from urllib.parse import urlencode
 
 from fastapi import Depends, FastAPI, Form, HTTPException, Request, Response
@@ -126,7 +127,7 @@ BLOCKLIST_POLL_S = 2.0
 # The operator panel lives on its own port. Everything under these prefixes is
 # refused on the viewer port, so a link handed to a room cannot reach the panel
 # -- not even the login form.
-ADMIN_PREFIXES = ("/admin", "/api/admin", "/home")
+ADMIN_PREFIXES = ("/admin", "/api/admin", "/home", "/crew")
 
 
 def _request_port(request: Request) -> int | None:
@@ -1512,6 +1513,7 @@ def _home_for(user: User) -> str:
 # The features a signed-in account can open outside the operator panel: core's, then the modules' (#175).
 # (title, what it is for, path, permission).
 CORE_HOME_TOOLS = (
+    ("Crew", "The plan and the tools for the people serving today", "/crew", "crew.use"),
     ("Alerts", "Flash a screen to get someone's attention", "/alert", "alerts.send"),
 )
 
@@ -1532,6 +1534,54 @@ def home_page(request: Request, password: str = ""):
         return _password_page(request, voluntary=True)
     return _render(request, "home.html", {"user": got, "tools": _home_tools(got),
                                           "admin": got.can("admin.open")})
+
+
+# ------------------------------------------------------------------ the crew page (#226)
+# An installable page for the people serving today, on the operator port only (the HTTPS one in a real install:
+# phones allow the microphone, a service worker and web push in a secure context only). Its manifest and service
+# worker carry nothing private, so they answer without a sign-in; the page and its state need `crew.use`.
+CREW_PATH = "/crew"
+
+
+@app.get(CREW_PATH, response_class=HTMLResponse)
+def crew_page(request: Request):
+    got = _page_gate(request, "crew.use")
+    if not isinstance(got, User):
+        return got
+    return templates.TemplateResponse(request, "crew.html", {
+        "user": got, "admin": got.can("admin.open"), "tabs": module_registry.crew_nav(got),
+        "module_scripts": module_registry.crew_scripts(got), "plan": module_registry.plan_label(),
+    }, headers=_NO_STORE)
+
+
+@app.get("/crew/api/state")
+def crew_state(request: Request):
+    """What the page refreshes: today's plan name (None when no switched-on module follows plans)."""
+    user = _session_user(request)
+    if user is None or not user.can("crew.use"):
+        return JSONResponse({"error": "Sign in again."}, status_code=401, headers=_NO_STORE)
+    return JSONResponse({"plan": module_registry.plan_label()}, headers=_NO_STORE)
+
+
+@app.get("/crew/manifest.webmanifest")
+def crew_manifest():
+    return JSONResponse({
+        "name": "Relay Crew", "short_name": "Crew", "start_url": CREW_PATH, "scope": CREW_PATH,
+        "id": CREW_PATH, "display": "standalone", "background_color": "#000000", "theme_color": "#000000",
+        "icons": [
+            {"src": "/static/brand/icon-192.png", "sizes": "192x192", "type": "image/png"},
+            {"src": "/static/brand/icon-512.png", "sizes": "512x512", "type": "image/png"},
+            {"src": "/static/brand/icon-maskable-512.png", "sizes": "512x512", "type": "image/png",
+             "purpose": "maskable"}],
+    }, media_type="application/manifest+json", headers={"Cache-Control": "no-cache"})
+
+
+@app.get("/crew/sw.js")
+def crew_service_worker():
+    """The service worker. It is served from /crew/ and allowed to control /crew itself."""
+    body = (Path(__file__).parent / "static" / "crew-sw.js").read_text(encoding="utf-8")
+    return Response(body, media_type="text/javascript",
+                    headers={"Cache-Control": "no-cache", "Service-Worker-Allowed": CREW_PATH})
 
 
 def _signed_in(request: Request, started: tuple[str, int, str]) -> RedirectResponse:

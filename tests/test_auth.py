@@ -355,7 +355,7 @@ owner_c, admin_c, op_c, view_c = (clients[r] for r in ("owner", "admin", "operat
 
 # The catalogue, written out here independently of users.py.
 MIN_ROLE = {
-    "admin.open": "viewer", "alerts.send": "member",
+    "admin.open": "viewer", "alerts.send": "member", "crew.use": "member",
     "session.view": "viewer", "session.control": "operator", "audio.manage": "admin", "targets.manage": "operator",
     "panels.view": "viewer", "panels.manage": "admin", "alerts.view": "viewer", "alerts.manage": "admin", "alerts.history": "admin",
     "overlays.view": "viewer", "overlays.manage": "operator", "recordings.view": "operator",

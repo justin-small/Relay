@@ -115,6 +115,15 @@ user who holds `permission`, while the module is on. `path` must sit under the m
 otherwise). The page checks the permission itself with `require(...)`, the same call as an admin
 route, and should serve only on the operator (HTTPS) port, where the sign-in cookie lives.
 
+**Tabs on the crew page.** The crew page (`/crew`, #226) is core's page for the people serving today:
+today's plan, and a tab per module feature. A `CrewTab(id, title, template, permission)` in
+`Module.crew_tabs` adds a tab for a signed-in user who holds `permission` (one the module declares)
+while the module is on. The module's template in `templates/` is rendered inside the tab's panel and
+the scripts in `Module.crew_scripts` (from the module's `static/`) are loaded on the page. The routes
+the tab calls check the permission themselves. Core's page never names a module's routes. A module
+that follows plans can answer `Module.plan_label()` so the page and other modules can show today's plan
+without importing it.
+
 **Hide controls** in the module's script with `window.relayCan("<id>.<action>")`, which is
 true when the signed-in user holds the permission. It only tidies the screen: the server
 enforces the permission whatever the page shows.

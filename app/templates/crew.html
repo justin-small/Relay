@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en"><head>
+<title>Relay Crew</title>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="robots" content="noindex"><meta name="theme-color" content="#000000">
+<link rel="manifest" href="/crew/manifest.webmanifest" crossorigin="use-credentials">
+<link rel="apple-touch-icon" href="/static/brand/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+{% include "_brand_head.html" %}<link rel="stylesheet" href="{{ static('viewer.css') }}">
+<style>
+  body { margin: 0; padding: env(safe-area-inset-top) 0 env(safe-area-inset-bottom); }
+  main { max-width: 640px; margin: 0 auto; padding: 16px; }
+  header { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; }
+  header img { width: 36px; height: 36px; }
+  header h1 { font-size: 18px; margin: 0; }
+  header span { color: var(--dim); font-size: 14px; }
+  .plan { border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; margin-bottom: 16px; }
+  .plan small { display: block; color: var(--dim); font-size: 13px; }
+  .plan strong { font-size: 18px; }
+  .banner { border: 1px solid var(--err); color: var(--err); border-radius: 10px; padding: 10px 14px; margin-bottom: 16px;
+            font-size: 14px; }
+  [role=tablist] { display: flex; gap: 8px; overflow-x: auto; margin-bottom: 12px; }
+  [role=tab] { flex: 0 0 auto; padding: 10px 16px; font: inherit; font-weight: 600; border-radius: 999px;
+               border: 1px solid var(--line); background: none; color: var(--fg); cursor: pointer; }
+  [role=tab][aria-selected=true] { background: var(--accent); color: var(--bg); border-color: var(--accent); }
+  [role=tabpanel] { padding: 4px 0 24px; }
+  .empty { color: var(--dim); }
+  footer { display: flex; gap: 18px; padding-top: 12px; border-top: 1px solid var(--line); font-size: 14px; }
+  footer a, footer button { color: var(--dim); background: none; border: 0; padding: 0; font: inherit;
+                            text-decoration: underline; cursor: pointer; }
+</style>
+</head><body>
+<main id="crew">
+  <header>
+    <img src="/static/brand/relay-mark.svg" alt="">
+    <div><h1>Relay Crew</h1><span>{{ user.name }}</span></div>
+  </header>
+
+  <div class="banner" id="crewInsecure" role="alert" hidden>
+    This page is not on a secure connection, so the microphone, offline use and notifications will not work.
+    Open Relay at its https address.
+  </div>
+  <div class="banner" id="crewOffline" role="status" hidden>Can't reach Relay. Trying again.</div>
+
+  <section class="plan" aria-live="polite">
+    <small>Today</small>
+    <strong id="crewPlan" {% if plan is none %}hidden{% endif %}>{{ plan or "No plan today" }}</strong>
+    <span class="empty" id="crewNoPlan" {% if plan is not none %}hidden{% endif %}>No plan source is switched on.</span>
+  </section>
+
+  {% if tabs %}
+  <div role="tablist" aria-label="Crew tools">
+    {% for t in tabs %}
+    <button role="tab" id="tab-{{ t.id }}" aria-controls="panel-{{ t.id }}" aria-selected="false"
+            tabindex="-1" type="button" data-tab="{{ t.id }}">{{ t.title }}</button>
+    {% endfor %}
+  </div>
+  {% for t in tabs %}
+  <div role="tabpanel" id="panel-{{ t.id }}" aria-labelledby="tab-{{ t.id }}" hidden>
+    {% include t.template %}
+  </div>
+  {% endfor %}
+  {% else %}
+  <p class="empty">Nothing is switched on for the crew yet.</p>
+  {% endif %}
+
+  <footer>
+    {% if admin %}<a href="/admin">Operator panel</a>{% endif %}
+    <a href="/home?password=1">Change my password</a>
+    <form method="post" action="/admin/logout" style="margin:0"><button type="submit">Sign out</button></form>
+  </footer>
+</main>
+<script src="/static/crew.js" defer></script>
+{% for s in module_scripts %}<script src="/static/modules/{{ s }}" defer></script>
+{% endfor %}
+</body></html>
