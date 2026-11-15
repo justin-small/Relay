@@ -159,10 +159,17 @@ Click a panel's name. Its settings open at the side.
 3. **Screen rotation.** **0°**, **90°**, **180°** or **270°**, for a panel
    mounted upright or upside down. A change restarts the panel, which takes
    about half a minute.
-4. **Device.** The panel's board, software, address and Wi-Fi strength.
+4. **At the screen.** Tick **Lock** so nobody at the panel can change its
+   feeds or turn it. The menu still opens, and says it is locked. Give it a
+   **PIN** of 4 to 8 digits to let someone unlock it at the screen: it locks
+   again after the minutes you choose with no touch. Without a PIN, only you
+   can unlock it, from here. Tick **Go back to the feeds set here** and choose
+   the minutes, and a panel someone changed at its screen returns to your
+   feeds (one or two) after that long with no touch.
+5. **Device.** The panel's board, software, address and Wi-Fi strength.
    **Reboot** restarts it. **Update** and **Update now** appear here when a
    newer version is available.
-5. **Save**, **Cancel**, or **Forget** to remove the panel from the list.
+6. **Save**, **Cancel**, or **Forget** to remove the panel from the list.
 
 The panel changes at once. **Showing** tells you what the panel shows now.
 
@@ -171,7 +178,15 @@ Anyone can also change what a panel shows from the panel's own screen: tap the
 menu button at the top right. It can turn the picture too. **The newest change
 wins.** If you set a feed in the operator panel and a person then changes it at
 the screen, their choice stays until you set another. The panel's settings say
-**Feed changed at the screen** or **from admin** so you can tell.
+**Feed changed at the screen** or **from admin** so you can tell. To stop
+changes at the screen, lock the panel; to have it drift back to your choice,
+set it to go back after a while (step 4).
+:::
+
+::: note
+The PIN reaches the panel over the network without encryption, like the
+Planning Center key. It keeps people at the screen out, not someone reading
+the network. Five wrong tries make the panel wait a minute.
 :::
 
 If a language you chose stops being live, the panel shows the transcription

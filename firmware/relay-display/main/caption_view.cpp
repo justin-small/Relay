@@ -11,6 +11,7 @@
 #include "feeds.h"
 #include "esp_log.h"
 #include "panel_link.h"
+#include "panel_lock.h"
 #include "screen.h"
 #include "alert_view.h"
 #include "lyrics_view.h"
@@ -88,6 +89,14 @@ struct Menu {
     lv_obj_t *card = nullptr;
     int turn_armed = -1;        // a rotation tapped once (0, 90, 180, 270); a second tap restarts the panel at it
     feed_pick rows[kFeedOptionsMax + 1];
+    // The operator's lock (#126): the keypad in place of the menu, the digits typed so far, and a short note (a
+    // refused change, a wrong PIN) shown until the card is made again for another reason.
+    bool keypad = false;
+    char entry[kLockPinMax + 1] = {};
+    char note[64] = {};
+    uint32_t lock_rev = 0;
+    bool waiting = false;       // the keypad is counting down after too many wrong PINs
+    uint32_t wait_s = 0;        // the seconds it showed, so the card is made again once a second, not every tick
 };
 
 struct View {
@@ -649,6 +658,9 @@ void menu_close()
 {
     s_v.menu.open = false;
     s_v.menu.turn_armed = -1;
+    s_v.menu.keypad = false;
+    memset(s_v.menu.entry, 0, sizeof s_v.menu.entry);
+    s_v.menu.note[0] = '\0';
     if (s_v.menu.scrim != nullptr) {
         lv_obj_delete_async(s_v.menu.scrim);
     }
@@ -669,10 +681,28 @@ void on_menu_scrim(lv_event_t *e)
     }
 }
 
+// A change at the screen while the operator has locked it (#126): refused, with a note on the card.
+bool locked_out()
+{
+    if (!panel_lock_refuses()) {
+        return false;
+    }
+    Menu &m = s_v.menu;
+    m.turn_armed = -1;
+    snprintf(m.note, sizeof m.note, "%s",
+             panel_lock_has_pin() ? "Locked. Tap Unlock and enter the PIN to change it." : "Locked by the operator.");
+    m.dirty = true;
+    ESP_LOGI(TAG, "view: a change at the screen refused: locked");
+    return true;
+}
+
 // The screen's rotation (#122). A turn restarts the panel, so it takes two taps on the same angle: the first asks,
 // the second turns.
 void on_menu_turn(lv_event_t *e)
 {
+    if (locked_out()) {
+        return;
+    }
     const int deg = static_cast<int>(reinterpret_cast<intptr_t>(lv_event_get_user_data(e)));
     if (deg == display_rotation()) {
         s_v.menu.turn_armed = -1;
@@ -690,6 +720,9 @@ void on_menu_turn(lv_event_t *e)
 
 void on_menu_mode(lv_event_t *e)
 {
+    if (locked_out()) {
+        return;
+    }
     s_v.menu.turn_armed = -1;
     const bool two = lv_event_get_user_data(e) != nullptr;
     s_v.menu.pane = 0;
@@ -706,6 +739,9 @@ void on_menu_pane(lv_event_t *e)
 
 void on_menu_row(lv_event_t *e)
 {
+    if (locked_out()) {
+        return;
+    }
     const feed_pick *pick = static_cast<const feed_pick *>(lv_event_get_user_data(e));
     s_v.menu.turn_armed = -1;
     feeds_choose(s_v.menu.pane, *pick);
@@ -728,6 +764,156 @@ lv_obj_t *menu_button(lv_obj_t *parent, const char *label, int w, int h, bool se
     return b;
 }
 
+// ---------------------------------------------------------------------------
+// The keypad (#126): the operator's PIN unlocks a locked screen until it goes untouched for a while
+// ---------------------------------------------------------------------------
+
+constexpr uint32_t kNoteHex = 0xF2B233;
+
+void on_unlock(lv_event_t *)
+{
+    Menu &m = s_v.menu;
+    m.keypad = true;
+    memset(m.entry, 0, sizeof m.entry);
+    m.note[0] = '\0';
+    m.dirty = true;
+}
+
+void on_keypad_cancel(lv_event_t *)
+{
+    Menu &m = s_v.menu;
+    m.keypad = false;
+    memset(m.entry, 0, sizeof m.entry);
+    m.note[0] = '\0';
+    m.dirty = true;
+}
+
+void on_keypad_digit(lv_event_t *e)
+{
+    Menu &m = s_v.menu;
+    const size_t n = strlen(m.entry);
+    if (n < kLockPinMax) {
+        m.entry[n] = static_cast<char>('0' + static_cast<int>(reinterpret_cast<intptr_t>(lv_event_get_user_data(e))));
+        m.entry[n + 1] = '\0';
+    }
+    m.note[0] = '\0';
+    m.dirty = true;
+}
+
+void on_keypad_back(lv_event_t *)
+{
+    Menu &m = s_v.menu;
+    const size_t n = strlen(m.entry);
+    if (n > 0) {
+        m.entry[n - 1] = '\0';
+    }
+    m.dirty = true;
+}
+
+void on_keypad_ok(lv_event_t *)
+{
+    Menu &m = s_v.menu;
+    const lock_try r = panel_lock_try(m.entry, lv_tick_get());
+    memset(m.entry, 0, sizeof m.entry);
+    switch (r) {
+    case lock_try::unlocked:
+    case lock_try::open:
+        m.keypad = false;
+        snprintf(m.note, sizeof m.note, "%s", "Unlocked. It locks again when left alone.");
+        break;
+    case lock_try::wrong:
+        snprintf(m.note, sizeof m.note, "%s", "That is not the PIN.");
+        break;
+    case lock_try::wait:
+    case lock_try::no_pin:
+        m.note[0] = '\0';  // the countdown, or the lock with no keypad, says it
+        if (r == lock_try::no_pin) {
+            m.keypad = false;
+        }
+        break;
+    }
+    m.dirty = true;
+}
+
+void keypad_build(Menu &m)
+{
+    lv_obj_t *top = plain_box(m.card);
+    lv_obj_set_size(top, lv_pct(100), ui_px(48));
+    lv_obj_t *title = text(top, &RELAY_UI_FONT_MEDIUM, 0xFFFFFF);
+    lv_label_set_text(title, "Enter the PIN");
+    lv_obj_align(title, LV_ALIGN_LEFT_MID, 0, 0);
+    lv_obj_t *cancel = menu_button(top, "Cancel", ui_px(130), ui_px(48), false, on_keypad_cancel, nullptr);
+    lv_obj_set_ext_click_area(cancel, 8);
+    lv_obj_align(cancel, LV_ALIGN_RIGHT_MID, 0, 0);
+
+    const uint32_t wait = panel_lock_wait_left_ms(lv_tick_get());
+    m.waiting = wait > 0;
+    m.wait_s = (wait + 999) / 1000;
+    lv_obj_t *shown = text(m.card, &RELAY_UI_FONT_MEDIUM, m.waiting || m.note[0] ? kNoteHex : 0xFFFFFF);
+    lv_obj_set_width(shown, lv_pct(100));
+    lv_obj_set_style_text_align(shown, LV_TEXT_ALIGN_CENTER, 0);
+    char line[64];
+    if (m.waiting) {
+        snprintf(line, sizeof line, "Too many tries. Wait %u s.", static_cast<unsigned>((wait + 999) / 1000));
+    } else if (m.note[0] != '\0') {
+        snprintf(line, sizeof line, "%s", m.note);
+    } else {
+        // A star for each digit typed: the PIN is never drawn.
+        const size_t n = strlen(m.entry);
+        size_t o = 0;
+        for (size_t i = 0; i < n && o + 2 < sizeof line; ++i) {
+            line[o++] = '*';
+            line[o++] = ' ';
+        }
+        line[o] = '\0';
+        if (n == 0) {
+            snprintf(line, sizeof line, "%s", "-");
+        }
+    }
+    lv_label_set_text(shown, line);
+
+    lv_obj_t *grid = plain_box(m.card);
+    lv_obj_set_width(grid, lv_pct(100));
+    lv_obj_set_flex_grow(grid, 1);
+    lv_obj_set_flex_flow(grid, LV_FLEX_FLOW_ROW_WRAP);
+    lv_obj_set_flex_align(grid, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_style_pad_column(grid, ui_px(12), 0);
+    lv_obj_set_style_pad_row(grid, ui_px(10), 0);
+    const int w = ui_px(170);
+    const int h = ui_px(54);
+    static const char *const kDigits[] = {"1", "2", "3", "4", "5", "6", "7", "8", "9"};
+    for (int i = 0; i < 9; ++i) {
+        menu_button(grid, kDigits[i], w, h, false, on_keypad_digit, reinterpret_cast<void *>(static_cast<intptr_t>(i + 1)));
+    }
+    menu_button(grid, LV_SYMBOL_BACKSPACE, w, h, false, on_keypad_back, nullptr);
+    menu_button(grid, "0", w, h, false, on_keypad_digit, reinterpret_cast<void *>(static_cast<intptr_t>(0)));
+    lv_obj_t *ok = menu_button(grid, "OK", w, h, strlen(m.entry) >= kLockPinMin, on_keypad_ok, nullptr);
+    if (m.waiting || strlen(m.entry) < kLockPinMin) {
+        lv_obj_add_state(ok, LV_STATE_DISABLED);
+        lv_obj_set_style_text_color(lv_obj_get_child(ok, 0), hex(kDimHex), 0);
+    }
+}
+
+// The strip under the card's title while the screen is locked: what is refused, and the way in if there is one.
+void lock_strip(Menu &m)
+{
+    if (!panel_lock_refuses() && m.note[0] == '\0') {
+        return;
+    }
+    lv_obj_t *strip = plain_box(m.card);
+    lv_obj_set_size(strip, lv_pct(100), ui_px(48));
+    lv_obj_t *l = text(strip, &RELAY_UI_FONT_MEDIUM, kNoteHex);
+    lv_label_set_text(l, m.note[0] != '\0' ? m.note : LV_SYMBOL_WARNING "  Locked by the operator");
+    lv_label_set_long_mode(l, LV_LABEL_LONG_DOT);
+    const bool unlock = panel_lock_refuses() && panel_lock_has_pin();
+    lv_obj_set_width(l, unlock ? kCardW - ui_px(32) - ui_px(150) : lv_pct(100));
+    lv_obj_align(l, LV_ALIGN_LEFT_MID, 0, 0);
+    if (unlock) {
+        lv_obj_t *b = menu_button(strip, "Unlock", ui_px(140), ui_px(48), false, on_unlock, nullptr);
+        lv_obj_align(b, LV_ALIGN_RIGHT_MID, 0, 0);
+    }
+}
+
 // The card's contents, made again from the feeds' state. Done from the tick, never from inside a button's own
 // event, so no object is deleted under its own callback.
 void menu_rebuild()
@@ -738,6 +924,13 @@ void menu_rebuild()
     }
     m.dirty = false;
     lv_obj_clean(m.card);
+    m.lock_rev = panel_lock_revision();
+    if (m.keypad && panel_lock_refuses()) {
+        keypad_build(m);
+        return;
+    }
+    m.keypad = false;
+    m.waiting = false;
     if (m.pane >= s_fv.split + 1) {
         m.pane = 0;
     }
@@ -750,6 +943,7 @@ void menu_rebuild()
     lv_obj_t *done = menu_button(top, "Done", ui_px(110), ui_px(48), false, on_menu_close, nullptr);
     lv_obj_set_ext_click_area(done, 8);
     lv_obj_align(done, LV_ALIGN_RIGHT_MID, 0, 0);
+    lock_strip(m);
 
     // The screen's rotation: the one shown is highlighted; another, tapped, turns red and asks for a second tap.
     lv_obj_t *turn = plain_box(m.card);
@@ -861,6 +1055,8 @@ void menu_open()
     lv_obj_add_flag(m.card, LV_OBJ_FLAG_CLICKABLE);
     m.pane = 0;
     m.turn_armed = -1;
+    m.keypad = false;
+    m.note[0] = '\0';
     menu_rebuild();
     ESP_LOGI(TAG, "view: menu opened");
 }
@@ -934,6 +1130,12 @@ void on_tick(lv_timer_t *)
     }
     const uint32_t now = lv_tick_get();
     const bool touching = finger_down();
+    // The lock (#126) relocks after the screen has gone untouched, and the check-in says how long that has been.
+    panel_lock_tick(lv_display_get_inactive_time(nullptr));
+    if (s_v.menu.open && (s_v.menu.lock_rev != panel_lock_revision() ||
+                          (s_v.menu.waiting && (panel_lock_wait_left_ms(now) + 999) / 1000 != s_v.menu.wait_s))) {
+        s_v.menu.dirty = true;   // locked or unlocked from Relay, or the keypad's countdown
+    }
     sync_feeds();
     for (int i = 0; i < s_v.count; ++i) {
         if (touching) {

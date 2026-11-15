@@ -8,9 +8,10 @@
 //   POST /api/panels/checkin          every 30 s: who this panel is and what it shows
 //        {"id":"<32 hex>","name":"Panel 1a2b","version":"0.1.0","board":"crowpanel-adv7","rotation":0,
 //         "scripts":["latin"],"feeds":[{"stream":"translation","lang":"SPANISH"}],"ip":"192.168.1.50",
-//         "uptime_s":42,"rssi":-58,"feed_rev":0,"rotation_rev":0}
+//         "uptime_s":42,"rssi":-58,"feed_rev":0,"rotation_rev":0,"idle_s":75}
 //   -> {"ok":true,"name":"Lobby","interval_s":30,"set_feed":{"type":"set_feed","rev":3,"feeds":[..]},
-//       "set_rotation":{"type":"set_rotation","rev":2,"deg":180}}
+//       "set_rotation":{"type":"set_rotation","rev":2,"deg":180},
+//       "policy":{"type":"panel_policy","lock":true,"pin":"2468","unlock_s":300}}
 //
 //   GET /api/panels/<id>/events       kept open; Relay writes to it the moment the operator acts
 //   -> data: {"type":"set_feed","rev":3,"feeds":[{"stream":"transcription"}]}
@@ -18,6 +19,7 @@
 //   -> data: {"type":"service_mode","mode":"both","service_type":"7","key":"<32 hex>"}   (#81; also in a reply's `service`)
 //   -> data: {"type":"set_rotation","rev":2,"deg":180}   (#122; also in a reply's `set_rotation`)
 //   -> data: {"type":"reboot"}         (#122; on the stream only, never in a reply)
+//   -> data: {"type":"panel_policy","lock":true,"pin":"2468","unlock_s":300}   (#126; also in a reply's `policy`)
 //   -> data: {"type":"alert","id":"<16 hex>","from":"Drums","to":"FOH booth","ends_in_s":120,"hz":1}   (#121)
 //   -> data: {"type":"alert_end","id":"<16 hex>","why":"seen"}   (#121; seen, missed or cancelled)
 //   -> data: {"type":"message","id":"<16 hex>","from":"Drums","text":"Wrap up","banner":false,"ends_in_s":10}   (#214)
@@ -39,6 +41,9 @@
 // `set_feed` only while the panel has not, so a choice made at the screen afterwards is not undone by the next
 // check-in. A `set_feed` the panel has already applied (the same one arrives in a check-in reply and on the
 // stream) is ignored.
+//
+// **The lock and the return (#126)**: `panel_policy` is the operator's lock (`lock_format.h`). `idle_s` is how long the
+// screen has gone untouched, which is all Relay needs to send the operator's feed back after a change at the screen.
 
 #include <cstddef>
 #include <cstdint>
@@ -48,6 +53,7 @@
 #include "alert_format.h"
 #include "caption_format.h"
 #include "feed_format.h"
+#include "lock_format.h"
 #include "settings_format.h"
 #include "update_format.h"
 
@@ -75,6 +81,7 @@ struct panel_status {
     uint32_t rotation_rev;  // the last operator rotation it applied; 0 when none
     int feed_count;      // 0..2, what is shown now
     feed_pick feeds[kPanelFeedsMax];
+    uint32_t idle_s;     // since the screen was last touched (#126)
 };
 
 // The name a panel gives itself until the operator names it in Relay: "Panel" and the first four characters of
@@ -136,7 +143,7 @@ inline size_t panel_checkin_body(char *out, size_t cap, const panel_status &st)
     out[0] = '\0';
     auto raw = [&](const char *s) { return panel_raw_put(out, cap, &o, s); };
     auto val = [&](const char *s) { return panel_json_put(out, cap, &o, s); };
-    char num[64];
+    char num[96];
     bool ok = raw("{\"id\":\"") && val(st.id) && raw("\",\"name\":\"") && val(name) && raw("\",\"version\":\"") &&
               val(st.version) && raw("\"");
     if (ok && st.board[0] != '\0') {
@@ -179,8 +186,9 @@ inline size_t panel_checkin_body(char *out, size_t cap, const panel_status &st)
         snprintf(num, sizeof num, ",\"rssi\":%d", st.rssi);
         ok = raw(num);
     }
-    snprintf(num, sizeof num, ",\"feed_rev\":%lu,\"rotation_rev\":%lu}", static_cast<unsigned long>(st.feed_rev),
-             static_cast<unsigned long>(st.rotation_rev));
+    snprintf(num, sizeof num, ",\"feed_rev\":%lu,\"rotation_rev\":%lu,\"idle_s\":%lu}",
+             static_cast<unsigned long>(st.feed_rev), static_cast<unsigned long>(st.rotation_rev),
+             static_cast<unsigned long>(st.idle_s));
     ok = ok && raw(num);
     return ok ? o : 0;
 }
@@ -439,6 +447,7 @@ enum class panel_message : uint8_t {
     alert_end,         // the alert `alert_end_id` is over: seen elsewhere, not seen in time, or stopped (#121)
     message,           // show a stage message over the feed, no flash (#214); `message` is it
     message_end,       // the message `message_end_id` is over (#214)
+    policy,            // the operator's lock (#126); `policy` is it
 };
 
 struct panel_event {
@@ -451,6 +460,7 @@ struct panel_event {
     char alert_end_id[kAlertFlashIdBytes] = {};
     alert_message message = {};
     char message_end_id[kAlertFlashIdBytes] = {};
+    panel_policy policy = {};
 };
 
 // One event from the stream (the JSON of a `data:` line).
@@ -497,6 +507,10 @@ inline panel_event panel_parse_event(const char *json, size_t len, uint32_t slot
         if (alert_end_parse(json, e, ev.message_end_id, sizeof ev.message_end_id)) {
             ev.kind = panel_message::message_end;
         }
+    } else if (strcmp(type, "panel_policy") == 0) {
+        if (lock_policy_parse(json, e, &ev.policy)) {
+            ev.kind = panel_message::policy;
+        }
     }
     return ev;
 }
@@ -516,6 +530,9 @@ struct panel_reply {
     // The operator's rotation (#122), while the panel has not applied its revision.
     bool has_rotation = false;
     panel_set_rotation rotation = {};
+    // The operator's lock (#126). A Relay from before it sends none, which leaves the lock as it was.
+    bool has_policy = false;
+    panel_policy policy = {};
 };
 
 inline panel_reply panel_parse_reply(const char *json, size_t len, uint32_t slot_bytes = 0x1E0000)
@@ -547,6 +564,8 @@ inline panel_reply panel_parse_reply(const char *json, size_t len, uint32_t slot
     }
     const char *rotation = caption_json::get(json, e, "set_rotation");
     r.has_rotation = rotation != nullptr && panel_read_set_rotation(rotation, e, &r.rotation);
+    const char *policy = caption_json::get(json, e, "policy");
+    r.has_policy = policy != nullptr && lock_policy_parse(policy, e, &r.policy);
     return r;
 }
 

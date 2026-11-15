@@ -363,8 +363,15 @@ keeps the choice and points the two caption slots at it; the menu and the panes 
 * Console: `feeds` logs what each pane has saved and shows and what is offered; `relay <url>` points the feeds at a
   Relay without saving it; `feed <slot> ...` still sets a slot by hand and takes it away from the feeds until `relay`.
 
-Open questions from the issue, not decided here: whether the operator can **lock** a panel so the screen cannot change it,
-and whether a panel **returns to the operator's choice** after a period of no touch.
+* **The operator's lock and return (#126).** Relay's `panel_policy` (in each check-in reply's `policy`, and on the stream
+  when the operator changes it) can lock the screen: the menu still opens, with an amber "Locked by the operator" strip,
+  and a change of feeds, of one feed or two, or of the rotation is refused with a short note. With a PIN set, the strip
+  offers **Unlock** and a keypad (stars, never the digits); the right PIN opens the screen until it goes `unlock_s` with
+  no touch, and five wrong ones make the keypad wait a minute. The policy is saved in NVS (`lock`), so a restart while
+  Relay is away stays locked. **The return is Relay's**: the panel only says how long its screen has gone untouched
+  (`idle_s`, from LVGL's inactivity time) on each check-in, and Relay sends the operator's feed back as a `set_feed`.
+  The rules are in `main/lock_format.h` (native checks); `main/panel_lock.cpp` keeps them; the strip and keypad are in
+  `main/caption_view.cpp`. Not yet tried on a panel: the keypad's layout and touch targets.
 
 ## Service feed
 
@@ -546,6 +553,7 @@ Not proven by any test, and to be done on the board:
 - [ ] Caption view: touch lands where the finger is (the GT911 and the rotation), and Jump to live is easy to hit
 - [ ] Feed picker: the rows (36 px at 65%) and the menu button (29 px, whose touch area is 12 px wider on every side) are easy to hit with a finger, with two feeds as well as one
 - [ ] Feed picker: with two feeds, the half-width panes read well from the back of the room
+- [ ] Lock (#126): a locked panel's menu shows the amber strip and refuses a feed, one feed / two feeds and a turn; Unlock opens the keypad, its keys are easy to hit, the right PIN unlocks and it locks again after the set minutes untouched; five wrong PINs wait a minute
 - [ ] Service feed: the current item, its timer and the next item read from a few metres; the order of service scrolls
       smoothly and a finger on a row with notes opens them without scrolling by mistake
 - [ ] Service feed: a song title and a controller name with accents read right (titles in the caption font, the

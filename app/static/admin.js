@@ -1667,6 +1667,64 @@
     rfield.appendChild(el('div', 'note', rnote));
     form.appendChild(rfield);
 
+    // The lock and the return to the operator's choice (#126). The PIN is never sent back to the page: it shows only
+    // whether there is one, and an empty field leaves it as it is.
+    form.appendChild(el('h3', 'dhead', 'At the screen'));
+    const lockBox = document.createElement('input');
+    lockBox.type = 'checkbox';
+    lockBox.checked = !!row.lock;
+    const lockLab = el('label', 'check');
+    lockLab.appendChild(lockBox);
+    lockLab.appendChild(el('span', '', 'Lock: nobody at the screen can change what it shows'));
+    form.appendChild(lockLab);
+    const lockFields = el('div');
+    const pin = el('input');
+    pin.type = 'password'; pin.inputMode = 'numeric'; pin.maxLength = 8; pin.autocomplete = 'new-password';
+    pin.pattern = '[0-9]{4,8}'; pin.style.maxWidth = '140px';
+    pin.placeholder = row.pin_set ? 'PIN set (unchanged)' : 'No PIN';
+    const pfield = field('PIN to unlock at the screen', pin, 'panelPin-' + row.id);
+    let clearPin = null;
+    if (row.pin_set) {
+      clearPin = document.createElement('input');
+      clearPin.type = 'checkbox';
+      const cl = el('label', 'check');
+      cl.appendChild(clearPin);
+      cl.appendChild(el('span', '', 'Remove the PIN'));
+      pfield.appendChild(cl);
+    }
+    pfield.appendChild(el('div', 'note', '4 to 8 digits. Without one, only you can unlock it, from here. The PIN reaches '
+      + 'the panel over plain HTTP, like the Planning Center key: it stops someone at the screen, not someone reading the network.'));
+    lockFields.appendChild(pfield);
+    const unlockMin = el('input');
+    unlockMin.type = 'number'; unlockMin.min = 1; unlockMin.max = 60; unlockMin.step = 1; unlockMin.style.maxWidth = '90px';
+    unlockMin.value = row.unlock_min || 5;
+    lockFields.appendChild(field('Locks again after this many minutes with no touch', unlockMin, 'panelUnlock-' + row.id));
+    form.appendChild(lockFields);
+    const backBox = document.createElement('input');
+    backBox.type = 'checkbox';
+    backBox.checked = !!row.return_min;
+    const backLab = el('label', 'check');
+    backLab.appendChild(backBox);
+    backLab.appendChild(el('span', '', 'Go back to the feeds set here after a while with no touch'));
+    form.appendChild(backLab);
+    const backFields = el('div');
+    const backMin = el('input');
+    backMin.type = 'number'; backMin.min = 1; backMin.max = 60; backMin.step = 1; backMin.style.maxWidth = '90px';
+    backMin.value = row.return_min || 10;
+    const bfield = field('Minutes with no touch', backMin, 'panelReturn-' + row.id);
+    bfield.appendChild(el('div', 'note', 'Puts back Feed 1 and Feed 2 above, one feed or two, after a change made at the '
+      + 'screen. Needs feeds set here' + (row.idle_s === null || row.idle_s === undefined
+        ? ', and panel firmware that says how long it has gone untouched.' : '.')));
+    backFields.appendChild(bfield);
+    form.appendChild(backFields);
+    const lockSync = function () {
+      lockFields.hidden = !lockBox.checked;
+      backFields.hidden = !backBox.checked;
+      if (clearPin) pin.disabled = clearPin.checked;
+    };
+    [lockBox, backBox].concat(clearPin ? [clearPin] : []).forEach(function (n) { n.addEventListener('change', lockSync); });
+    lockSync();
+
     // ProPresenter's timers (#138): this panel's own thresholds and timers, used instead of the global ones. Shown
     // while a timers feed is chosen here (or the panel already has settings of its own).
     const tmBox = el('div');
@@ -1803,6 +1861,24 @@
         out.feeds = picked;
       }
       if (rotation !== rotNow) out.rotation = rotation;
+      if (lockBox.checked !== !!row.lock) out.lock = lockBox.checked;
+      if (lockBox.checked) {
+        if (clearPin && clearPin.checked) out.pin = null;
+        else if (pin.value) {
+          if (!/^[0-9]{4,8}$/.test(pin.value)) { alertMsg('The PIN must be 4 to 8 digits.'); return; }
+          out.pin = pin.value;
+        }
+        const um = Number(unlockMin.value);
+        if (!Number.isInteger(um) || um < 1 || um > 60) { alertMsg('Locks again after 1 to 60 minutes.'); return; }
+        if (um !== (row.unlock_min || 5)) out.unlock_min = um;
+      }
+      if (backBox.checked) {
+        const bm = Number(backMin.value);
+        if (!Number.isInteger(bm) || bm < 1 || bm > 60) { alertMsg('Go back after 1 to 60 minutes.'); return; }
+        if (bm !== row.return_min) out.return_min = bm;
+      } else if (row.return_min) {
+        out.return_min = null;
+      }
       if (!tmBox.hidden) {
         if (tmOwn.checked) {
           const th = timerThresholds(tmAmber, tmRed);
@@ -1845,6 +1921,8 @@
       kv(dev, 'Feed changed', (row.feeds_changed_by === 'screen' ? 'at the screen' : 'from admin')
         + ' · ' + agoText(row.feeds_changed_ago_s + (Date.now() - panelsAt) / 1000));
     }
+    if (row.lock) kv(dev, 'Screen', 'Locked' + (row.pin_set ? ', PIN to unlock' : ''));
+    if (row.idle_s !== null && row.idle_s !== undefined) kv(dev, 'Last touched', agoText(row.idle_s));
     kv(dev, 'Board', row.board_label || row.board || '—');
     kv(dev, 'Rotation', row.rotation === null || row.rotation === undefined ? '—' : row.rotation + '°');
     kv(dev, 'Firmware', row.version || '—');

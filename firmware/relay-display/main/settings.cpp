@@ -26,6 +26,7 @@ constexpr const char *kRelayNameKey = "relay_name";
 // The newest operator rotation revision applied (#122), its own key so the blob's layout stays as it is.
 constexpr const char *kRotationRevKey = "rot_rev";
 constexpr const char *kUpdateKey = "update";
+constexpr const char *kLockKey = "lock";
 
 // The orientation this build was configured for. It is the defaults' rotation, and it
 // is also what a stored rotation that is neither 0 nor 180 falls back to. The Kconfig
@@ -296,5 +297,38 @@ esp_err_t settings_save_update(const update_record_t &in)
     display_resync();
     nvs_close(handle);
     ESP_RETURN_ON_ERROR(commit, TAG, "write update");
+    return ESP_OK;
+}
+
+bool settings_load_lock(panel_policy *out)
+{
+    nvs_handle_t handle = 0;
+    if (nvs_open(kNamespace, NVS_READONLY, &handle) != ESP_OK) {
+        return false;
+    }
+    lock_blob stored = {};
+    size_t len = sizeof stored;
+    const esp_err_t err = nvs_get_blob(handle, kLockKey, &stored, &len);
+    nvs_close(handle);
+    if (err != ESP_OK || len != sizeof stored || !lock_from_blob(stored, out)) {
+        if (err != ESP_ERR_NVS_NOT_FOUND) {
+            ESP_LOGW(TAG, "lock: stored policy unreadable (%s, %u bytes); none kept", esp_err_to_name(err),
+                     static_cast<unsigned>(len));
+        }
+        return false;
+    }
+    return true;
+}
+
+esp_err_t settings_save_lock(const panel_policy &policy)
+{
+    const lock_blob blob = lock_to_blob(policy);
+    nvs_handle_t handle = 0;
+    ESP_RETURN_ON_ERROR(nvs_open(kNamespace, NVS_READWRITE, &handle), TAG, "open for lock");
+    const esp_err_t set = nvs_set_blob(handle, kLockKey, &blob, sizeof blob);
+    const esp_err_t commit = set == ESP_OK ? nvs_commit(handle) : set;
+    display_resync();
+    nvs_close(handle);
+    ESP_RETURN_ON_ERROR(commit, TAG, "write lock");
     return ESP_OK;
 }

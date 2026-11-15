@@ -23,6 +23,7 @@
 #include "esp_timer.h"
 #include "net.h"
 #include "panel_link.h"
+#include "panel_lock.h"
 #include "service_control.h"
 #include "nvs_flash.h"
 #include "provision.h"
@@ -126,6 +127,8 @@ extern "C" void app_main(void)
     // The panel's name to Relay: made once, on first boot, and kept until a factory reset.
     bool made_id = false;
     ESP_ERROR_CHECK(settings_ensure_panel_id(&settings, &made_id));
+    // The operator's lock (#126), as Relay last sent it: a panel that restarts while Relay is away stays locked.
+    panel_lock_start();
 
     // A panel that will not initialise leaves nothing to show, so that is fatal and
     // the reset is the ESP-IDF default. A test screen that does not finish is not:

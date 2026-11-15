@@ -2240,6 +2240,9 @@ async def admin_panel_update(panel_id: str, payload: dict):
                 raise HTTPException(400, "Relay does not follow that service type")
     if "rotation" in payload:
         kwargs["rotation"] = payload["rotation"]
+    for key in ("lock", "pin", "unlock_min", "return_min"):   # #126; panels.update checks each
+        if key in payload:
+            kwargs[key] = payload[key]
     if "timers" in payload:
         if payload["timers"] is not None:
             problem = panels.timer_fields(payload["timers"])[1]
