@@ -1201,6 +1201,15 @@ Code: `app/alerts.py`, `app/static/alert*.js`, `tests/test_alerts.py`; panel
 side in `firmware/relay-display/main/alert_*`. For operators there is a chapter
 in the user guide (`docs/guide/src/53-alerts.md`).
 
+**Replies (#216)**: a short operator-set list (up to 6 of 24 characters) that a screen shows as buttons on a
+flashing alert; the chosen one is sent with `POST /api/alerts/ack` as `reply` and shown to the sender. **History
+(#217)**: `app/alerthistory.py` writes a row per ended alert and per stage message to the database (table
+`alert_history`), kept 30 days, read at `GET /api/admin/alerts/history` (`alerts.history`, Admins and Owners).
+**Events out (#219)**: core's `Alerts.listeners` hands each event (`alert.sent`, `alert.acknowledged`, `alert.ended`,
+`message.sent`) to the **Alert events** module (`app/modules/alert_events/`), which sends a webhook and OSC and serves
+Companion's variables and feedbacks at `GET /api/admin/alert-events/state`. A sender PIN on `/alert` (#218) is not
+built; the user system (#175) is the route.
+
 ## ProPresenter
 
 Relay follows ProPresenter's current slide (`app/modules/propresenter/propresenter.py`; part of

@@ -69,6 +69,7 @@ _CORE = (
     Permission("panels.manage", "Change panels, firmware, flash, reboot, forget", "Panels", "admin"),
     Permission("alerts.view", "See alert setup", "Alerts", "viewer"),
     Permission("alerts.manage", "Change alert setup", "Alerts", "admin"),
+    Permission("alerts.history", "Read who sent which alerts, and when", "Alerts", "admin"),
     Permission("alerts.send", "Send alerts from /alert when it needs a sign-in", "Alerts", "member"),
     Permission("overlays.view", "See overlays", "Overlays", "viewer"),
     Permission("overlays.manage", "Create, change and delete overlays", "Overlays", "operator"),

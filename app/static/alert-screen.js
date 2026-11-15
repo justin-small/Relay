@@ -8,6 +8,7 @@
   const overlay = document.getElementById('alertFlash');
   const fromEl = document.getElementById('alertFrom');
   const toEl = document.getElementById('alertTo');
+  const repliesEl = document.getElementById('alertReplies');
   let current = null;   // the alert flashing now: {id, from, to}
 
   const LEVELS = { info: 1, attention: 1, urgent: 1 };
@@ -19,6 +20,16 @@
     overlay.dataset.level = levelOf(msg, 'urgent');
     fromEl.textContent = msg.from || 'Someone';
     toEl.textContent = 'needs ' + (msg.to || name) + ' · tap anywhere';
+    // Replies (#216): the operator's short list, one tap each. Tapping anywhere else still acknowledges.
+    repliesEl.textContent = '';
+    (Array.isArray(msg.replies) ? msg.replies : []).forEach(function (text) {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.textContent = String(text);
+      b.addEventListener('pointerdown', function (ev) { ev.preventDefault(); ev.stopPropagation(); ack(String(text)); });
+      repliesEl.appendChild(b);
+    });
+    repliesEl.hidden = !repliesEl.childElementCount;
     overlay.hidden = false;
     overlay.focus();
   }
@@ -29,14 +40,14 @@
     overlay.hidden = true;
   }
 
-  function ack() {
+  function ack(reply) {
     if (!current) return;
     const id = current.id;
     hide(id);   // at once: the tap was the point; the stream's alert_end follows
     fetch('/api/alerts/ack', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id: id, screen: name }),
+      body: JSON.stringify(reply ? { id: id, screen: name, reply: reply } : { id: id, screen: name }),
     }).catch(function () { /* it ends at the auto-stop anyway */ });
   }
 

@@ -329,6 +329,13 @@ body.overlay.overlay-matte .ov-label { color: #fff; }
 .stage-message[data-level="urgent"], .stage-banner[data-level="urgent"] { animation: alert-flash 1s steps(1, end) infinite; }
 .alert-flash-from { font-size: clamp(48px, 14vw, 220px); font-weight: 800; line-height: 1.05; }
 .alert-flash-to { font-size: clamp(20px, 4vw, 64px); font-weight: 600; margin-top: .4em; }
+/* Replies (#216): big tap targets so a panel or touch screen needs no keyboard. Any other tap still acknowledges. */
+.alert-flash-replies { display: flex; flex-wrap: wrap; justify-content: center; gap: 2vh 2vw; margin-top: 5vh; }
+.alert-flash-replies[hidden] { display: none; }
+.alert-flash-replies button {
+  font: inherit; font-size: clamp(20px, 3.4vw, 54px); font-weight: 700; padding: .5em 1em; border-radius: .5em;
+  border: .12em solid currentColor; background: rgba(0, 0, 0, .35); color: #fff; cursor: pointer;
+}
 
 /* Stage messages (#214): words from the booth, nothing to tap, and a flash only at attention or urgent (#215). A message is a card in the middle; a
    banner is a strip across the top that stays up for its set time. Both sit over the captions. */

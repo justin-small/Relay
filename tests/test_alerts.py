@@ -88,7 +88,7 @@ checkin(3, "Wedge R")
 eq("defaults: two minutes, no buttons", admin.get("/api/admin/alerts").json()["alerts"],
    {"auto_stop_s": 120, "buttons": [], "require_signin": False,
     "messages": {"presets": [], "free": {"panels": [], "screens": [], "level": "info"}, "message_s": 10,
-                 "banner_s": 300}})
+                 "banner_s": 300}, "replies": []})
 eq("the viewer port has no admin route", viewer.get("/api/admin/alerts").status_code, 404)
 bad = [
     ({"auto_stop_s": 10, "buttons": []}, "auto-stop"),
@@ -160,7 +160,7 @@ eq("a panel the button does not flash cannot acknowledge", r.status_code, 403)
 r = viewer.post("/api/alerts/ack", json={"id": alert_id, "screen": "Lobby"})
 eq("nor can another screen", r.status_code, 403)
 r = viewer.post("/api/alerts/ack", json={"id": alert_id, "screen": "BOOTH tv"})
-eq("the screen acknowledges", r.json(), {"ok": True, "state": "seen", "seen_on": "Booth TV"})
+eq("the screen acknowledges", r.json(), {"ok": True, "state": "seen", "seen_on": "Booth TV", "reply": ""})
 eq("the panel stops too", drain(booth), [{"type": "alert_end", "id": alert_id, "why": "seen"}])
 eq("so does the screen", drain(screen)[0]["why"], "seen")
 st = row(drain(sender)[-1], "FOH booth")
@@ -234,7 +234,7 @@ eq("a hand edit is cleaned, not fatal", cleaned, {"auto_stop_s": 30, "buttons": 
      "level": "urgent"}],
     "require_signin": False,
     "messages": {"presets": [], "free": {"panels": [], "screens": [], "level": "info"}, "message_s": 10,
-                 "banner_s": 300}})
+                 "banner_s": 300}, "replies": []})
 
 print("sign-in required (#175)")
 def save_alerts(require_signin):
@@ -460,6 +460,97 @@ eq("the sender page is told each preset's level and what is showing",
    ([p["level"] for p in state["presets"]], state["free_level"], [m["level"] for m in state["live"]]),
    (["info", "urgent"], "attention", ["info", "urgent", "info"][:len(state["live"])]))
 viewer.post("/api/alerts/messages/clear", json={})
+
+print("replies (#216)")
+from app import alerthistory, db  # noqa: E402
+
+rbody = {"auto_stop_s": 60, "require_signin": False, "replies": ["On my way", " Can't  right now ", "on my way"],
+         "buttons": [{"name": "Rep", "panels": [pid(1)], "screens": ["Booth TV"]}]}
+eq("a repeated reply is refused", admin.post("/api/admin/alerts", json=rbody).status_code, 400)
+for bad_replies, words in ((["x"] * 7, "at most 6"), (["a" * 25], "at most 24"), ([""], "needs words"),
+                           ("nope", "list of words")):
+    r = admin.post("/api/admin/alerts", json={**rbody, "replies": bad_replies})
+    check(f"refused: {words}", r.status_code == 400 and words in r.json()["detail"], r.text)
+rbody["replies"] = ["On my way", " Can't  right now "]
+r = admin.post("/api/admin/alerts", json=rbody)
+eq("replies saved, tidied", (r.status_code, r.json()["alerts"]["replies"]), (200, ["On my way", "Can't right now"]))
+eq("saving buttons alone keeps the replies", (admin.post("/api/admin/alerts", json={
+    "auto_stop_s": 60, "buttons": rbody["buttons"]}).status_code, alerts.settings()["replies"]),
+   (200, ["On my way", "Can't right now"]))
+rq = alerts.subscribe_sender()
+drain(rq)
+sq = alerts.subscribe_screen("Booth TV")
+rid = button("Rep")["id"]
+viewer.post(f"/api/alerts/{rid}/send", json={"from": "Drums"})
+wire = [m for m in drain(sq) if m.get("type") == "alert"][0]
+eq("the alert carries the replies", wire["replies"], ["On my way", "Can't right now"])
+aid = wire["id"]
+r = viewer.post("/api/alerts/ack", json={"id": aid, "screen": "Booth TV", "reply": "Nope nope"})
+eq("a reply not on the list is refused and nothing ends", (r.status_code, alerts.state()["buttons"][0]["state"]),
+   (400, "on"))
+r = viewer.post("/api/alerts/ack", json={"id": aid, "screen": "Booth TV", "reply": "on my WAY"})
+eq("a reply is matched to the list", r.json(), {"ok": True, "state": "seen", "seen_on": "Booth TV", "reply": "On my way"})
+eq("the sender sees the reply", (row(alerts.state(), "Rep")["state"], row(alerts.state(), "Rep")["reply"]),
+   ("seen", "On my way"))
+viewer.post(f"/api/alerts/{rid}/send", json={"from": "Drums"})
+aid2 = [m for m in drain(sq) if m.get("type") == "alert"][0]["id"]
+r = viewer.post("/api/alerts/ack", json={"id": aid2, "screen": "Booth TV"})
+eq("a plain acknowledge has no reply", (r.json()["state"], r.json()["reply"]), ("seen", ""))
+alerts.unsubscribe_screen("Booth TV", sq)
+alerts.unsubscribe_sender(rq)
+
+print("history (#217)")
+rows = alerthistory.search()["entries"]
+eq("each ended alert is one row, newest first", [(e["kind"], e["name"], e["outcome"], e["reply"]) for e in rows[:2]],
+   [("alert", "Rep", "seen", ""), ("alert", "Rep", "seen", "On my way")])
+e = rows[1]
+eq("who, to where and how long", (e["sender"], e["targets"], e["seen_on"], e["level"], e["seen_after_s"]),
+   ("Drums", ["Booth", "Booth TV"], "Booth TV", "urgent", 0))
+check("it has the time it started", e["at"].endswith("Z"), e["at"])
+viewer.post(f"/api/alerts/{rid}/send", json={"from": "Drums"})
+clock[0] += 61
+alerts.tick()
+viewer.post(f"/api/alerts/{rid}/send", json={"from": "Bass"})
+clock[0] += 5
+viewer.post(f"/api/alerts/{rid}/send", json={"from": "Bass"})
+rows = alerthistory.search()["entries"]
+eq("an alert nobody saw is missed, one the sender stopped is cancelled",
+   [(r_["sender"], r_["outcome"], r_["seen_after_s"]) for r_ in rows[:2]], [("Bass", "cancelled", None), ("Drums", "missed", None)])
+admin.post("/api/admin/alerts", json={**rbody, "buttons": [{**rbody["buttons"][0], "id": rid}], "messages": {"presets": [], "free": {"panels": [pid(1)], "level": "info"},
+                                                            "message_s": 10, "banner_s": 60}})
+viewer.post("/api/alerts/messages/send", json={"text": "hello", "from": "Boss"})
+m = alerthistory.search()["entries"][0]
+eq("a stage message is a row when it is shown", (m["kind"], m["text"], m["sender"], m["outcome"], m["targets"]),
+   ("message", "hello", "Boss", "shown", ["Booth"]))
+viewer.post("/api/alerts/messages/clear", json={})
+r = admin.get("/api/admin/alerts/history?limit=2")
+eq("admin reads it, with a page cursor", (r.status_code, len(r.json()["entries"]), r.json()["more"], r.json()["keep_days"]),
+   (200, 2, True, alerthistory.KEEP_DAYS))
+first = r.json()["entries"][-1]["id"]
+eq("and pages older", admin.get(f"/api/admin/alerts/history?limit=2&before={first}").json()["entries"][0]["id"] < first, True)
+eq("the viewer port has no history", viewer.get("/api/admin/alerts/history").status_code, 404)
+db.execute("update alert_history set at = ? where id = (select min(id) from alert_history)", (db.later(-31 * 86400),))
+n = len(alerthistory.search(limit=500)["entries"])
+eq("history older than the keep time is trimmed", (alerthistory.prune(), len(alerthistory.search(limit=500)["entries"])), (1, n - 1))
+alerts.on_change = None
+
+print("events out (#219)")
+got = []
+alerts.listeners.append(got.append)
+def boom(ev): raise RuntimeError("a bad listener")
+alerts.listeners.append(boom)
+viewer.post(f"/api/alerts/{rid}/send", json={"from": "Drums", "level": "attention"})
+viewer.post("/api/alerts/ack", json={"id": alerts.latest[rid].id, "panel": pid(1), "reply": "Can't right now"})
+viewer.post(f"/api/alerts/{rid}/send", json={"from": "Drums"})
+clock[0] += 61
+alerts.tick()
+eq("sent, acknowledged and ended each reach a listener, and a bad one is skipped",
+   [(g["event"], g["button"]) for g in got], [("alert.sent", "Rep"), ("alert.acknowledged", "Rep"),
+                                              ("alert.sent", "Rep"), ("alert.ended", "Rep")])
+eq("an acknowledge says where, when and the reply", (got[1]["seen_on"], got[1]["reply"], got[1]["seen_after_s"], got[1]["level"]),
+   ("Booth", "Can't right now", 0, "attention"))
+eq("an ended alert says how", (got[3]["state"], got[3]["from"], got[3]["targets"]), ("missed", "Drums", ["Booth", "Booth TV"]))
+alerts.listeners.clear()
 
 print()
 if fails:

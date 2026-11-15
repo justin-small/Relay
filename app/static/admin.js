@@ -912,6 +912,7 @@
       alertCfg = JSON.parse(JSON.stringify(frame.alerts || alertCfg));
       $('alertAutoStop').value = String(alertCfg.auto_stop_s);
       $('alertSignin').checked = !!alertCfg.require_signin;
+      $('alertReplies').value = (alertCfg.replies || []).join('\n');
       if (!alertCfg.messages) alertCfg.messages = { presets: [], free: { panels: [], screens: [] }, message_s: 10, banner_s: 300 };
       $('msgSeconds').value = String(alertCfg.messages.message_s);
       $('bannerSeconds').value = String(alertCfg.messages.banner_s);
@@ -925,6 +926,7 @@
     let text = ALERT_WORDS[row.state] || row.state;
     if (row.state === 'on' && row.from) text += ' · from ' + row.from;
     if (row.state === 'seen' && row.seen_on) text += ' on ' + row.seen_on;
+    if (row.state === 'seen' && row.reply) text += ' \u2014 \u201c' + row.reply + '\u201d';
     return { cls: row.state, text: text };
   }
 
@@ -1239,6 +1241,7 @@
     alertCfg.auto_stop_s = parseInt($('alertAutoStop').value, 10);
     alertSetDirty(true);
   });
+  $('alertReplies').addEventListener('input', function () { alertSetDirty(true); });
   $('alertSignin').addEventListener('change', function () {
     alertCfg.require_signin = $('alertSignin').checked;
     alertSetDirty(true);
@@ -1248,6 +1251,7 @@
       const frame = await post('/api/admin/alerts', {
         auto_stop_s: parseInt($('alertAutoStop').value, 10),
         require_signin: $('alertSignin').checked,
+        replies: $('alertReplies').value.split('\n').map(function (r) { return r.trim(); }).filter(Boolean),
         messages: {
           message_s: parseInt($('msgSeconds').value, 10), banner_s: parseInt($('bannerSeconds').value, 10),
           free: alertCfg.messages.free,
@@ -1271,6 +1275,48 @@
       okMsg('Alerts saved');
     } catch (e) { alertMsg(e.message); }
   });
+
+  /* ---- alert history (#217) ---- */
+  let alertHistLast = 0;     // the oldest row shown, to page from
+  function alertHistRow(e) {
+    const tr = el('tr');
+    const when = el('td', 'when', e.at ? new Date(e.at).toLocaleString() : '');
+    const who = el('td', 'who', e.sender || 'Someone');
+    const what = el('td', 'what', e.kind === 'message' ? e.text : e.name);
+    const kind = e.kind === 'message' ? 'Message' : 'Alert';
+    what.appendChild(el('small', '', [kind, e.level, e.targets.length ? 'to ' + e.targets.join(', ') : ''].filter(Boolean).join(' · ')));
+    let seen = '';
+    if (e.outcome === 'seen') {
+      seen = 'Seen on ' + e.seen_on + ' after ' + e.seen_after_s + ' s' + (e.reply ? ' \u2014 \u201c' + e.reply + '\u201d' : '');
+    } else if (e.outcome === 'missed') seen = 'Not seen';
+    else if (e.outcome === 'cancelled') seen = 'Stopped by the sender';
+    tr.append(when, who, what, el('td', 'what', seen));
+    return tr;
+  }
+  async function loadAlertHistory(more) {
+    const list = $('alertHistList');
+    if (!list) return;
+    try {
+      const r = await fetch('/api/admin/alerts/history' + (more && alertHistLast ? '?before=' + alertHistLast : ''));
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      const data = await r.json();
+      if (!more) list.textContent = '';
+      data.entries.forEach(function (e) { list.appendChild(alertHistRow(e)); alertHistLast = e.id; });
+      if (!list.childElementCount) {
+        const tr = el('tr'); const td = el('td', 'muted', 'Nothing sent yet.'); td.colSpan = 4; tr.appendChild(td); list.appendChild(tr);
+      }
+      $('alertHistKeep').textContent = String(data.keep_days);
+      $('alertHistMoreRow').hidden = !data.more;
+    } catch (e) {
+      list.textContent = '';
+      const tr = el('tr'); const td = el('td', 'muted', 'The history could not be read.'); td.colSpan = 4; tr.appendChild(td); list.appendChild(tr);
+    }
+  }
+  if ($('alertHistList')) {
+    $('alertHistMore').addEventListener('click', function () { loadAlertHistory(true); });
+    window.addEventListener('hashchange', function () { if (location.hash === '#alerts') loadAlertHistory(false); });
+    if (location.hash === '#alerts') loadAlertHistory(false);
+  }
 
   /* ---- panels ---- */
   let panelRows = [];
