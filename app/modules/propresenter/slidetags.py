@@ -197,7 +197,7 @@ def parse_deck(notes: list[str]) -> Deck:
             if t not in tags:
                 tags.append(t)
         warnings += [f"Slide {n}: {w}" for w in got.warnings]
-    sig = hashlib.sha1("\x1f".join(notes).encode("utf-8", "replace")).hexdigest()[:12]
+    sig = hashlib.sha1("\x1f".join(notes).encode("utf-8", "replace"), usedforsecurity=False).hexdigest()[:12]
     return Deck(tuple(tags), tuple(warnings[:MAX_WARNINGS]), sig)
 
 
@@ -243,7 +243,7 @@ class Tags:
     def deck_for(self, uuid: str, notes: list[str]) -> Deck:
         """The deck-wide tags of a presentation, parsed once per (uuid, hash of its notes): the follower reads the
         presentation when it changes, and coming back to one with the same notes costs nothing."""
-        sig = hashlib.sha1("\x1f".join(notes).encode("utf-8", "replace")).hexdigest()[:12]
+        sig = hashlib.sha1("\x1f".join(notes).encode("utf-8", "replace"), usedforsecurity=False).hexdigest()[:12]
         key = (uuid, sig)
         hit = self.decks.get(key)
         if hit is not None:

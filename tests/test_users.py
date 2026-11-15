@@ -437,14 +437,14 @@ refused("reset checks the password", "bad_password", users.set_password, usr.id,
 
 print("\nsession lifetime")
 t_p, age_p = users.start_session(usr, via="password")
-eq("max_age for password", age_p, 2592000)
+check("max_age for password", age_p == 2592000)  # compared, not printed: CodeQL treats it as a password
 exp = _left(t_p)
-check("30 days stored", timedelta(days=29, hours=23) < exp <= timedelta(days=30), exp)
+check("30 days stored", timedelta(days=29, hours=23) < exp <= timedelta(days=30))
 dev_tok, dev = users.trust_device("Booth iPad", own)
 t_n, age_n = users.start_session(usr, via="pin", device_id=dev["id"])
-eq("max_age for pin", age_n, 12 * 3600)
+check("max_age for pin", age_n == 12 * 3600)  # compared, not printed: CodeQL treats it as a password
 exp = _left(t_n)
-check("12 hours stored", timedelta(hours=11, minutes=59) < exp <= timedelta(hours=12), exp)
+check("12 hours stored", timedelta(hours=11, minutes=59) < exp <= timedelta(hours=12))
 try:
     users.start_session(usr, via="pin")
     check("a pin session needs a device", False)
