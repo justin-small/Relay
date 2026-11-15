@@ -34,6 +34,8 @@ PUBLISH_TRIES = 15                      # the arbiter arms a new participant whe
 PUBLISH_WAIT_S = 0.2
 CONNECT_TRIES = 50                      # 10 s for the bridge's own connection to Cloudflare
 CONNECT_WAIT_S = 0.2
+ARM_TRIES = 25                          # 5 s for the arbiter to arm a remote talker
+ARM_WAIT_S = 0.2
 FLOW_TRIES = 15                         # 3 s for a new track to start sending
 FLOW_WAIT_S = 0.2
 TOKEN_TTL_S = 3600
@@ -123,6 +125,13 @@ def _frame_to_mono(frame) -> np.ndarray:
     return to_mono(frame.to_ndarray(), len(frame.layout.channels), planar)
 
 
+def _can_publish(room) -> bool:
+    try:
+        return bool(room.local_participant.permissions.can_publish)
+    except Exception:       # an SDK without the field: just try to publish
+        return True
+
+
 class _Listen:
     """One channel's mix: a room, a mixer and the track pushed to Cloudflare."""
 
@@ -142,14 +151,64 @@ class _Mic:
         self.task: asyncio.Task | None = None
 
 
-class LiveMedia:
+class _Link:
+    """One Cloudflare session and the bridge's connection to it, made when first needed: Cloudflare drops a session
+    that nothing connects to within a few seconds, so one opened at start and used minutes later is refused."""
+
     def __init__(self) -> None:
         self.pc = None
-        self.session = ""                      # the Cloudflare session the connection above belongs to
+        self.session = ""
+        self.neg = asyncio.Lock()              # one offer/answer on this connection at a time
+
+    async def ensure(self) -> None:
+        from aiortc import RTCPeerConnection
+
+        from . import cloud
+
+        if self.pc is None:
+            self.session = await cloud.run(cloud.open_session)
+            self.pc = RTCPeerConnection()
+
+    async def reset(self) -> None:
+        pc, self.pc = self.pc, None
+        sid, self.session = self.session, ""
+        if pc is not None:
+            with contextlib.suppress(Exception):
+                await pc.close()
+        if sid:
+            from . import cloud
+
+            with contextlib.suppress(Exception):
+                await cloud.run(cloud.close_session, sid)
+
+    def failed(self) -> bool:
+        return self.pc is not None and self.pc.connectionState in ("failed", "closed")
+
+    async def close_track(self, mid: str) -> None:
+        from . import cloud
+
+        if mid and self.session:
+            with contextlib.suppress(Exception):
+                await cloud.run(cloud.tracks_close, self.session, {"tracks": [{"mid": mid}], "force": True})
+
+
+class LiveMedia:
+    """Two Cloudflare links: the mixes go out on one, where the bridge makes every offer, and the phones'
+    microphones come in on the other, where Cloudflare makes every offer. On a single connection the bridge's own
+    offers renumber its Opus payload type (aiortc's 96), while Cloudflare goes on forwarding a phone's microphone as
+    the phone sent it (a browser's 111), so aiortc dropped every microphone packet."""
+
+    def __init__(self) -> None:
+        self.out = _Link()                     # the channel mixes, pushed
+        self.into = _Link()                    # remote phones' microphones, pulled
         self.listens: dict[int, _Listen] = {}
         self.mics: dict[int, _Mic] = {}
-        self._neg = asyncio.Lock()             # one offer/answer on the Cloudflare connection at a time
         self._closed = False
+
+    @property
+    def session(self) -> str:
+        """The Cloudflare session the channel mixes live in: phones pull them from here."""
+        return self.out.session
 
     # ------------------------------------------------------------------ life
     def unavailable(self) -> str:
@@ -167,37 +226,17 @@ class LiveMedia:
             await self._stop_listen(channel_id)
         for device_id in list(self.mics):
             await self._stop_mic(device_id)
-        await self._reset()
-
-    async def _ensure(self) -> None:
-        """A connection and session of our own, made when first needed: Cloudflare drops a session that nothing connects
-        to within a few seconds, so one opened at start and used minutes later is refused."""
-        from aiortc import RTCPeerConnection
-
-        from . import cloud
-
-        if self.pc is None:
-            self.session = await cloud.run(cloud.open_session)
-            self.pc = RTCPeerConnection()
-
-    async def _reset(self) -> None:
-        pc, self.pc = self.pc, None
-        sid, self.session = self.session, ""
-        if pc is not None:
-            with contextlib.suppress(Exception):
-                await pc.close()
-        if sid:
-            from . import cloud
-
-            with contextlib.suppress(Exception):
-                await cloud.run(cloud.close_session, sid)
+        await self.out.reset()
+        await self.into.reset()
 
     async def _idle(self) -> None:
-        if not self.listens and not self.mics:
-            await self._reset()
+        if not self.listens:
+            await self.out.reset()
+        if not self.mics:
+            await self.into.reset()
 
     def alive(self) -> bool:
-        if self._closed or (self.pc is not None and self.pc.connectionState in ("failed", "closed")):
+        if self._closed or self.out.failed() or self.into.failed():
             return False
         return all(r.room.isconnected() for r in self.listens.values()) and not any(
             m.task is not None and m.task.done() for m in self.mics.values())
@@ -222,16 +261,17 @@ class LiveMedia:
 
         from . import cloud
 
-        async with self._neg:
-            await self._ensure()
-            t = self.pc.addTransceiver(track, direction="sendonly")
-            await self.pc.setLocalDescription(await self.pc.createOffer())
-            offer = self.pc.localDescription
-            out = await cloud.run(cloud.tracks_new, self.session, {
+        link = self.out
+        async with link.neg:
+            await link.ensure()
+            t = link.pc.addTransceiver(track, direction="sendonly")
+            await link.pc.setLocalDescription(await link.pc.createOffer())
+            offer = link.pc.localDescription
+            out = await cloud.run(cloud.tracks_new, link.session, {
                 "sessionDescription": {"type": "offer", "sdp": offer.sdp},
                 "tracks": [{"location": "local", "trackName": name, "mid": t.mid}]})
             answer = out.get("sessionDescription") or {}
-            await self.pc.setRemoteDescription(RTCSessionDescription(sdp=answer["sdp"], type="answer"))
+            await link.pc.setRemoteDescription(RTCSessionDescription(sdp=answer["sdp"], type="answer"))
             return t.mid, t.sender
 
     async def _flowing(self, sender) -> None:
@@ -247,10 +287,11 @@ class LiveMedia:
             await asyncio.sleep(FLOW_WAIT_S)
 
     async def _connected(self) -> None:
+        pc = self.out.pc
         for _ in range(CONNECT_TRIES):
-            if self.pc is not None and self.pc.connectionState == "connected":
+            if pc is not None and pc.connectionState == "connected":
                 return
-            if self.pc is None or self.pc.connectionState in ("failed", "closed"):
+            if pc is None or pc.connectionState in ("failed", "closed"):
                 break
             await asyncio.sleep(CONNECT_WAIT_S)
         raise ConnectionError("The audio bridge could not connect to Cloudflare.")
@@ -261,9 +302,10 @@ class LiveMedia:
 
         from . import cloud
 
-        async with self._neg:
-            await self._ensure()
-            out = await cloud.run(cloud.tracks_new, self.session, {"tracks": [
+        link = self.into
+        async with link.neg:
+            await link.ensure()
+            out = await cloud.run(cloud.tracks_new, link.session, {"tracks": [
                 {"location": "remote", "trackName": name, "sessionId": cf_session_id}]})
             got = [t for t in out.get("tracks", []) if t.get("trackName") == name and t.get("mid")]
             if not got:
@@ -272,21 +314,14 @@ class LiveMedia:
             mid = got[0]["mid"]
             offer = out.get("sessionDescription")
             if offer:
-                await self.pc.setRemoteDescription(RTCSessionDescription(sdp=offer["sdp"], type="offer"))
-                await self.pc.setLocalDescription(await self.pc.createAnswer())
-                await cloud.run(cloud.renegotiate, self.session, {
-                    "sessionDescription": {"type": "answer", "sdp": self.pc.localDescription.sdp}})
-            for t in self.pc.getTransceivers():
+                await link.pc.setRemoteDescription(RTCSessionDescription(sdp=offer["sdp"], type="offer"))
+                await link.pc.setLocalDescription(await link.pc.createAnswer())
+                await cloud.run(cloud.renegotiate, link.session, {
+                    "sessionDescription": {"type": "answer", "sdp": link.pc.localDescription.sdp}})
+            for t in link.pc.getTransceivers():
                 if t.mid == mid and t.receiver.track is not None:
                     return mid, t.receiver.track
             raise cloud.CloudError("unexpected")
-
-    async def _close_cf_track(self, mid: str) -> None:
-        from . import cloud
-
-        if mid and self.session:
-            with contextlib.suppress(Exception):
-                await cloud.run(cloud.tracks_close, self.session, {"tracks": [{"mid": mid}], "force": True})
 
     # ------------------------------------------------------------------ listening
     async def listen(self, channel_id: int, cf_session_id: str, name: str) -> None:
@@ -354,7 +389,7 @@ class LiveMedia:
             entry.track.stop()
         with contextlib.suppress(Exception):
             await entry.room.disconnect()
-        await self._close_cf_track(entry.mid)
+        await self.out.close_track(entry.mid)
         await self._idle()
 
     # ------------------------------------------------------------------ talking
@@ -378,6 +413,12 @@ class LiveMedia:
         source = rtc.AudioSource(RATE, 1)
         local = rtc.LocalAudioTrack.create_audio_track(name, source)
         options = rtc.TrackPublishOptions(source=rtc.TrackSource.SOURCE_MICROPHONE)
+        # Publishing is off at join until the arbiter arms this participant (from LiveKit's webhook). Asked before
+        # that, LiveKit leaves the request hanging until the SDK gives up about 10 s later, so wait to be armed first.
+        for _ in range(ARM_TRIES):
+            if _can_publish(room):
+                break
+            await asyncio.sleep(ARM_WAIT_S)
         for attempt in range(PUBLISH_TRIES):              # refused until the arbiter has armed this participant
             try:
                 await room.local_participant.publish_track(local, options)
@@ -425,7 +466,7 @@ class LiveMedia:
             with contextlib.suppress(Exception):
                 await room.disconnect()
         mic.sources.clear(), mic.rooms.clear()
-        await self._close_cf_track(mic.mid)
+        await self.into.close_track(mic.mid)
         await self._idle()
 
 

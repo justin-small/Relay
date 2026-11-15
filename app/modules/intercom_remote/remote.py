@@ -43,11 +43,17 @@ class State:
         self.cf = ""                       # the phone's own Cloudflare session
         self.listening: list[int] = []
         self.talking: list[int] = []
+        self.pushed = False                # it offered its microphone on its session...
+        self.up = False                    # ...and said its connection to Cloudflare is up
         self.lock = asyncio.Lock()
         self.starting: asyncio.Task | None = None    # bringing the microphone into the rooms, once the phone is connected
 
 
 class RemoteCrew(Remote):
+    # Session descriptions ride on this socket; with TURN a phone's answer lists several relay candidates and passes
+    # the intercom's usual 4 KB. Each one is still checked against MAX_SDP.
+    max_message = MAX_SDP + 1024
+
     def __init__(self) -> None:
         self.states: dict[int, State] = {}         # device id -> state
         self._tasks: set[asyncio.Task] = set()
@@ -150,10 +156,13 @@ class RemoteCrew(Remote):
         if kind == "cf.open":
             if not state.cf:
                 state.cf = await cloud.run(cloud.open_session)
-            return {"type": "cf.session", "sessionId": state.cf}
+            return {"type": "cf.session", "sessionId": state.cf, "iceServers": await cloud.run(cloud.ice_servers)}
         if not state.cf:
             return {"type": "error", "for": kind, "text": "Open a session first."}
         if kind == "cf.pull":
+            if state.pushed and not state.up:
+                # Cloudflare hangs, then refuses, a pull into a session whose connection is not up yet.
+                return {"type": "error", "for": kind, "text": "Audio is still connecting. Try again."}
             # Relay picks the tracks: the phone's own listening channels, nothing it names itself.
             rows = await istore.run(devices.phone_config, conn.user_id)
             want = [r["id"] for r in rows if r["can_listen"] and r["listen_selected"]]
@@ -179,16 +188,27 @@ class RemoteCrew(Remote):
             out = await cloud.run(cloud.tracks_new, state.cf, {
                 "sessionDescription": offer,
                 "tracks": [{"location": "local", "trackName": mic_name(conn.device_id), "mid": mid}]})
+            state.pushed, state.up = True, False
             rows = await istore.run(devices.phone_config, conn.user_id)
             state.talking = [r["id"] for r in rows if r["can_talk"] and r["talk_selected"]]
             return {"type": "cf.pushed", "sessionDescription": out.get("sessionDescription")}
         if kind == "cf.connected":
             # The phone's own connection to Cloudflare is up, so its microphone is a live track the bridge can pull
             # (asked any earlier, Cloudflare waits for it and then refuses). Bring it into the rooms in the background.
+            state.up = True
             if state.talking and bridge.media is not None:
                 if state.starting is not None:
                     state.starting.cancel()
                 state.starting = asyncio.create_task(self._start_talk(conn, state), name="intercom-remote-talk")
+            return {"type": "cf.ack"}
+        if kind == "cf.diag":
+            # Why a phone's audio did not connect, for the log only. Short, plain fields; nothing is acted on.
+            def clip(v: Any) -> Any:
+                if isinstance(v, list):
+                    return [str(x)[:200] for x in v[:20]]
+                return str(v)[:40]
+            log.warning("intercom_remote: phone %s audio did not connect: %s", conn.device_id, {
+                k: clip(data.get(k)) for k in ("connection", "ice", "gathering", "signaling", "servers", "errors", "local", "pairs", "remote")})
             return {"type": "cf.ack"}
         if kind == "cf.renegotiate":
             answer = _sdp(data.get("sessionDescription"))

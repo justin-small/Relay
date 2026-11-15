@@ -50,6 +50,7 @@ class Remote:
     of the module's own and returns True when it did; `opened(conn)` and `closed(conn)` run around the connection.
     A remote phone never gets a local LiveKit token: `token` is refused for it."""
     via = "remote"
+    max_message = MAX_MESSAGE      # a module whose messages carry more (SDP for remote audio) raises it
 
     async def allow(self, device: dict, user) -> bool:
         return True
@@ -339,7 +340,7 @@ class Presence:
                 return "timeout"
             except (WebSocketDisconnect, RuntimeError):      # RuntimeError: closed from our side meanwhile
                 return "closed"
-            if len(text) > MAX_MESSAGE:
+            if len(text) > (MAX_MESSAGE if conn.remote is None else max(MAX_MESSAGE, conn.remote.max_message)):
                 await self._send(ws, {"type": "error", "text": "Message too large."})
                 continue
             try:
