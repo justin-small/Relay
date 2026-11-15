@@ -11,7 +11,8 @@
     $('crLat').value = fence.lat === undefined ? '' : fence.lat; $('crLon').value = fence.lon === undefined ? '' : fence.lon;
     $('crRad').value = fence.radius_m === undefined ? '' : fence.radius_m;
     const manage = can('crew.manage');
-    ['crName', 'crPlan', 'crSave', 'crLat', 'crLon', 'crRad'].forEach(function (id) { $(id).disabled = !manage; });
+    ['crName', 'crPlan', 'crSave', 'crLat', 'crLon', 'crRad', 'crHosts'].forEach(function (id) { $(id).disabled = !manage; });
+    $('crHosts').value = (cfg.embed_hosts || []).join('\n');
     $('crLink').textContent = location.origin + '/crew';
   }
   // Empty fields mean no geofence; anything typed is sent as numbers and checked by the server.
@@ -25,7 +26,8 @@
     $('crErr').hidden = true; $('crMsg').textContent = '';
     const res = await fetch('/api/admin/crew', { method: 'POST', credentials: 'same-origin',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: $('crName').value, show_plan: $('crPlan').checked, geofence: geofenceValue() }) });
+      body: JSON.stringify({ name: $('crName').value, show_plan: $('crPlan').checked, geofence: geofenceValue(),
+        embed_hosts: $('crHosts').value.split('\n').map(function (h) { return h.trim(); }).filter(Boolean) }) });
     const data = await res.json().catch(function () { return {}; });
     if (!res.ok) { $('crErr').textContent = data.detail || data.error || 'That did not work.'; $('crErr').hidden = false; return; }
     fill(data); $('crMsg').textContent = 'Saved';

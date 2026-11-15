@@ -9,11 +9,11 @@ import asyncio
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Request
-from fastapi.responses import HTMLResponse, JSONResponse, Response
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 
 from ... import audit, config
 from .. import modules as registry, require
-from . import calltimes, chat, checkin, checklists, paging, people
+from . import calltimes, chat, checkin, checklists, paging, people, resources
 
 router = APIRouter()
 VIEW = [Depends(require("crew.view"))]
@@ -23,6 +23,7 @@ USE = [Depends(require("crew.use"))]
 CHAT = [Depends(require("crew.chat"))]
 CHECKIN = [Depends(require("crew.checkin"))]
 CHECKLIST = [Depends(require("crew.checklist"))]
+RESOURCES = [Depends(require("crew.resources"))]
 CHECKLIST_EDIT = [Depends(require("crew.checklist_edit"))]
 
 KEY = "crew"
@@ -126,7 +127,10 @@ def admin_save(request: Request, payload: dict):
         fence = checkin.clean_geofence(payload.get("geofence"))
     except ValueError as exc:
         raise HTTPException(400, str(exc))
-    clean = MODULE.clean({"name": name, "show_plan": show, "geofence": fence})
+    hosts = payload.get("embed_hosts", _settings().get("embed_hosts"))
+    if "embed_hosts" in payload and not isinstance(hosts, list):
+        raise HTTPException(400, "Give the allowed embed sites as a list.")
+    clean = MODULE.clean({"name": name, "show_plan": show, "geofence": fence, "embed_hosts": hosts})
     config.save({KEY: clean}, replace=(KEY,))
     audit.note(request, "crew.change", "Changed the crew page's setup", detail={"show_plan": clean["show_plan"], "geofence": clean["geofence"] is not None})
     return _settings()
@@ -510,3 +514,119 @@ def checklist_leads_remove(request: Request, user_id: int, position: str):
     _people_call(checklists.remove_lead, user_id, position)
     audit.note(request, "crew.checklist_lead_remove", "Removed a checklist lead", target=user_id, detail={"position": position})
     return checklist_leads()
+
+
+# -- resources per position (#233) --------------------------------------------------------------------------------
+def _hosts() -> list[str]:
+    return resources.clean_hosts(_settings().get("embed_hosts"))
+
+
+def _my_resources(user) -> dict:
+    tracks, _ = calltimes._state()
+    operator = user.can("crew.resources_edit")
+    return {"resources": resources.mine(user.id, tracks), "editor": operator or bool(checklists.leads_of(user.id)),
+            "all": operator}
+
+
+@router.get("/crew/api/resources", dependencies=RESOURCES)
+def resources_mine(request: Request):
+    return _people_call(_my_resources, request.state.user)
+
+
+def _res_edit(user, position: str) -> None:
+    if not _people_call(checklists.can_edit, user, position, "crew.resources_edit"):
+        raise HTTPException(403, "You can add resources only for the positions you lead." if position
+                            else "Only an operator adds a resource for everyone.")
+
+
+@router.get("/crew/api/resources/manage", dependencies=RESOURCES)
+def resources_manage(request: Request):
+    user = request.state.user
+    tracks, _ = calltimes._state()
+    leads = _people_call(checklists.leads_of, user.id)
+    if not user.can("crew.resources_edit") and not leads:
+        raise HTTPException(403, "You cannot edit resources.")
+    rows = _people_call(resources.all_rows)
+    return {"resources": [r for r in rows if checklists.can_edit(user, r["position"], "crew.resources_edit")],
+            "positions": sorted(paging.serving(tracks)), "all": user.can("crew.resources_edit"), "leads": leads,
+            "embed_hosts": _hosts(), "limit": resources.FILE_LIMIT}
+
+
+@router.post("/crew/api/resources/link", dependencies=RESOURCES)
+def resources_add_link(request: Request, payload: dict):
+    _res_edit(request.state.user, resources.clean_position(payload.get("position")))
+    rid = _people_call(resources.add_url, request.state.user.id, payload.get("kind"), payload.get("title"),
+                       payload.get("position"), payload.get("url"), _hosts())
+    audit.note(request, "crew.resource_add", "Added a crew resource", target=rid, detail={"kind": payload.get("kind")})
+    return resources_manage(request)
+
+
+@router.post("/crew/api/resources/file", dependencies=RESOURCES)
+async def resources_add_file(request: Request, title: str = "", position: str = ""):
+    """A file, sent as the raw request body. The position is checked before any of it is read."""
+    user = request.state.user
+    pos = _people_call(resources.clean_position, position)
+    _res_edit(user, pos)
+    declared = request.headers.get("content-length")
+    if declared and declared.isdigit() and int(declared) > resources.FILE_LIMIT + 1024:
+        raise HTTPException(413, "That file is too large. Files can be up to 25 MB.")
+    rid = await _people_call_async(resources.add_file, user.id, title, pos, request.stream())
+    audit.note(request, "crew.resource_add", "Added a crew resource", target=rid, detail={"kind": "file"})
+    return await asyncio.to_thread(resources_manage, request)
+
+
+async def _people_call_async(fn, *args):
+    from ... import db
+
+    try:
+        return await fn(*args)
+    except people.Invalid as exc:
+        raise HTTPException(exc.status, exc.message)
+    except db.Unavailable:
+        raise HTTPException(503, "The user database is not available.")
+
+
+@router.put("/crew/api/resources/{rid}", dependencies=RESOURCES)
+def resources_change(request: Request, rid: int, payload: dict):
+    old = _people_call(resources.get, rid)
+    if old is None:
+        raise HTTPException(404, "No such resource.")
+    _res_edit(request.state.user, old["position"])
+    _res_edit(request.state.user, resources.clean_position(payload.get("position")))
+    _people_call(resources.change, rid, payload.get("title"), payload.get("position"), payload.get("url"), _hosts())
+    audit.note(request, "crew.resource_change", "Changed a crew resource", target=rid)
+    return resources_manage(request)
+
+
+@router.delete("/crew/api/resources/{rid}", dependencies=RESOURCES)
+def resources_delete(request: Request, rid: int):
+    old = _people_call(resources.get, rid)
+    if old is None:
+        raise HTTPException(404, "No such resource.")
+    _res_edit(request.state.user, old["position"])
+    _people_call(resources.delete, rid)
+    audit.note(request, "crew.resource_delete", "Removed a crew resource", target=rid, detail={"kind": old["kind"]})
+    return resources_manage(request)
+
+
+@router.get("/crew/api/resources/{rid}/file", dependencies=RESOURCES)
+def resources_file(request: Request, rid: int):
+    """A stored file, for a person it is shared with or who may edit its position. Pictures and text are shown with
+    a locked-down policy; PDFs show in the browser; Office files download."""
+    user = request.state.user
+    row = _people_call(resources.get, rid)
+    tracks, _ = calltimes._state()
+    if row is None or row["kind"] != "file" or not (
+            _people_call(resources.sees, user.id, rid, tracks)
+            or _people_call(checklists.can_edit, user, row["position"], "crew.resources_edit")):
+        raise HTTPException(404, "No such file.")
+    path = resources.file_path(row)
+    if path is None:
+        raise HTTPException(404, "That file is no longer on this machine.")
+    mime, inline = resources.TYPES[row["ext"]]
+    headers = {"Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff"}
+    if row["ext"] != "pdf":
+        headers["Content-Security-Policy"] = "default-src 'none'; style-src 'unsafe-inline'; sandbox"
+    name = "".join(c if c.isalnum() or c in " ._-" else "_" for c in row["title"]).strip() or "file"
+    return FileResponse(path, media_type=mime, headers=headers, filename=f"{name}.{row['ext']}",
+                        content_disposition_type="inline" if inline else "attachment")

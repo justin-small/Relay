@@ -1,0 +1,26 @@
+{# The Resources tab of the crew page (#233). Filled in by resources.js; every word from the server is set as text. #}
+<div id="rs" class="rs">
+  <div class="cr-note" id="rsNote" role="status" aria-live="polite"></div>
+  <div id="rsLists"></div>
+  <section class="cr-card" id="rsEditBox" hidden>
+    <h2>Add or change resources</h2>
+    <div id="rsManage"></div>
+    <div class="cl-form">
+      <label class="chat-lbl" for="rsKind">Kind</label>
+      <select id="rsKind"><option value="file">File from this phone</option><option value="link">Link</option><option value="embed">Embedded page</option></select>
+      <label class="chat-lbl" for="rsTitle">Title</label>
+      <input id="rsTitle" maxlength="80" autocomplete="off">
+      <label class="chat-lbl" for="rsPos">Position</label>
+      <input id="rsPos" list="rsPositions" maxlength="80" autocomplete="off" placeholder="A Planning Center team, or blank for everyone">
+      <datalist id="rsPositions"></datalist>
+      <label class="chat-lbl" for="rsUrl" id="rsUrlLbl">Web address</label>
+      <input id="rsUrl" type="url" maxlength="500" autocomplete="off" inputmode="url">
+      <input id="rsFile" type="file" accept=".pdf,.png,.jpg,.jpeg,.webp,.gif,.txt,.docx,.xlsx,.pptx" hidden>
+      <div class="cr-note" id="rsHint"></div>
+      <div class="cl-btns">
+        <button type="button" id="rsSave">Add</button>
+        <button type="button" id="rsCancel" hidden>Cancel</button>
+      </div>
+    </div>
+  </section>
+</div>

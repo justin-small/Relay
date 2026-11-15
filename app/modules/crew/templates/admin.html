@@ -18,6 +18,10 @@
         <div class="note" style="margin-top:4px">A phone on the church network checks in by itself. Where a location is
           set, a person away from the network can tap Check in inside this radius (20 to 5000 metres, 150 if blank).
           Relay only compares the position with this one and keeps no coordinates.</div></div>
+      <div class="field"><label for="crHosts">Sites whose pages may be shown inside the crew page</label>
+        <textarea id="crHosts" rows="4" style="max-width:24em" autocomplete="off"></textarea>
+        <div class="note" style="margin-top:4px">One site per line (its subdomains count too). Resources can embed a page only
+          from these; any other address is a plain link. Leave it as it is to allow YouTube, Google Docs and Drive, and Vimeo.</div></div>
       <div class="note err" id="crErr" hidden></div>
       <div class="ctl"><button type="button" class="primary" id="crSave">Save</button> <span class="muted" id="crMsg"></span></div>
     </section>
@@ -40,8 +44,8 @@
       <table class="tbl" id="crLists"><thead><tr><th>Name</th><th>Team</th><th>Checklist</th><th>Done</th></tr></thead><tbody></tbody></table>
       <div id="crLeadBox" hidden>
         <h4>Team leads</h4>
-        <p class="note" style="margin-top:0">A team lead writes and edits the checklists for their own position from the
-          crew page. Operators write any.</p>
+        <p class="note" style="margin-top:0">A team lead writes and edits the checklists and resources for their own position
+          from the crew page. Operators write any.</p>
         <div class="ctl"><select id="crLeadUser" aria-label="Person"></select>
           <input id="crLeadPos" maxlength="80" placeholder="Planning Center team" autocomplete="off" style="width:14em">
           <button type="button" id="crLeadAdd">Make lead</button></div>

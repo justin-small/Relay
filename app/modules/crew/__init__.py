@@ -26,14 +26,14 @@ class Crew(Module):
     manifest = Manifest(
         id="crew",
         name="Crew app",
-        version="1.6.0",
+        version="1.7.0",
         summary="An installable page for the crew, signed in with a Relay account, that shows the plan and hosts "
                 "the other crew features. Served over HTTPS on this network only.",
         settings_key="crew",
         guide="https://github.com/justin-small/relay#crew-app",
         uses=("planning_center",),
     )
-    defaults = {"name": DEFAULT_NAME, "show_plan": True, "geofence": None}
+    defaults = {"name": DEFAULT_NAME, "show_plan": True, "geofence": None, "embed_hosts": None}
     admin_pages = (AdminPage(
         id="crew", title="Crew app", template="admin.html", group="Settings",
         icon='<circle cx="6" cy="5" r="2.5"/><circle cx="11.5" cy="6" r="2"/><path d="M1.5 13c0-2.5 2-4 4.5-4s4.5 1.5 4.5 4M10 9.2c2.5-.3 4.5.9 4.5 3.8"/>'),)
@@ -50,11 +50,14 @@ class Crew(Module):
         Permission("crew.checkin", "Check in at the church from the crew page", "Crew app", "member"),
         Permission("crew.checklist", "Tick your position's checklists on the crew page", "Crew app", "member"),
         Permission("crew.checklist_edit", "Write checklists for every position and name team leads", "Crew app", "operator"),
+        Permission("crew.resources", "See your position's resources on the crew page", "Crew app", "member"),
+        Permission("crew.resources_edit", "Add resources for every position", "Crew app", "operator"),
         Permission("crew.moderate", "Read every role channel and delete anyone's chat message", "Crew app", "operator"),
     )
     crew_tabs = (CrewTab("chat", "Chat", "chat.html", "crew.chat"),
-                 CrewTab("checklists", "Checklists", "checklists.html", "crew.checklist"))
-    crew_scripts = ("chat.js", "checklists.js")
+                 CrewTab("checklists", "Checklists", "checklists.html", "crew.checklist"),
+                 CrewTab("resources", "Resources", "resources.html", "crew.resources"))
+    crew_scripts = ("chat.js", "checklists.js", "resources.js")
     user_pages = (UserPage("Crew", "/crew", "crew.use", "The plan and your team's tools"),)
 
     def clean(self, raw: Any) -> dict:
@@ -67,7 +70,10 @@ class Crew(Module):
             fence = clean_geofence(raw.get("geofence"))
         except ValueError:
             fence = None         # a hand edit that does not make sense is no geofence
-        return {"name": name or DEFAULT_NAME, "show_plan": raw.get("show_plan") is not False, "geofence": fence}
+        from .resources import clean_hosts
+
+        return {"name": name or DEFAULT_NAME, "show_plan": raw.get("show_plan") is not False, "geofence": fence,
+                "embed_hosts": clean_hosts(raw.get("embed_hosts"))}
 
     def configured(self, settings: dict) -> bool:
         return False  # New: nobody had it before, so it starts off.
