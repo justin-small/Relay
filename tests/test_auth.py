@@ -373,7 +373,7 @@ MIN_ROLE = {
     "atem.view": "viewer", "atem.control": "operator", "atem.manage": "admin",
     "tally_arbiter.view": "viewer", "tally_arbiter.manage": "admin",
     "parent_paging.view": "viewer", "parent_paging.control": "operator", "parent_paging.manage": "admin",
-    "crew.use": "member", "crew.view": "viewer", "crew.manage": "admin",
+    "crew.use": "member", "crew.view": "viewer", "crew.manage": "admin", "crew.page": "operator",
 }
 for role in ROLE_NAMES:
     me = clients[role].get("/api/admin/me").json()
@@ -557,6 +557,8 @@ for method, path, perm in (
     ("PUT", "/api/admin/crew/people/{user_id}/role", "crew.manage"),
     ("POST", "/api/admin/crew/people/{user_id}/name", "crew.manage"),
     ("DELETE", "/api/admin/crew/people/{user_id}/match", "crew.manage"),
+    ("GET", "/api/admin/crew/pages", "crew.page"),
+    ("POST", "/api/admin/crew/pages", "crew.page"),                       # an empty body is refused
     ("POST", "/api/admin/alert-events/test", "alert_events.manage"),      # sends to nothing until something is on
     ("GET", "/api/admin/alert-events/state", "alert_events.view"),
     ("GET", ATX, "atem.view"),
@@ -1316,7 +1318,7 @@ for mid, want in (("planning_center", {"planning_center.view": "viewer", "planni
                   ("tally_arbiter", {"tally_arbiter.view": "viewer", "tally_arbiter.manage": "admin"}),
                   ("parent_paging", {"parent_paging.view": "viewer", "parent_paging.control": "operator",
                                      "parent_paging.manage": "admin"}),
-                  ("crew", {"crew.use": "member", "crew.view": "viewer", "crew.manage": "admin"})):
+                  ("crew", {"crew.use": "member", "crew.view": "viewer", "crew.manage": "admin", "crew.page": "operator"})):
     got = {p.id: p.min_role for p in registry.get(mid).permissions}
     eq(f"{mid} declares its permissions", got, want)
 

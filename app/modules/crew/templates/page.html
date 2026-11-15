@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="robots" content="noindex"><meta name="theme-color" content="#000000">
+<title>{{ app_name }}</title>
+{% include "_brand_head.html" %}
+<link rel="stylesheet" href="{{ static('viewer.css') }}">
+<link rel="stylesheet" href="{{ static('modules/crew/crew.css') }}">
+</head><body class="crew-page">
+<header class="cr-bar"><img src="/static/brand/relay-mark.svg" width="28" height="28" alt=""><h1>{{ app_name }}</h1></header>
+<main class="cr-main">
+  {% if not found %}
+  <section class="cr-card"><h2>Page</h2><p class="cr-note">This page link is not valid any more.</p></section>
+  {% else %}
+  <section class="cr-card cr-page">
+    <h2>Page</h2>
+    <p class="cr-msg">{{ message }}</p>
+    {% if confirmed %}
+    <p class="cr-ok" role="status">Confirmed. The buzzing has stopped.</p>
+    {% else %}
+    <form method="post"><button type="submit" class="cr-confirm">I have read this</button></form>
+    {% endif %}
+  </section>
+  {% endif %}
+  <p class="cr-note"><a href="/crew">Open the crew page</a></p>
+</main>
+</body></html>

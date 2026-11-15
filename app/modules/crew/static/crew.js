@@ -36,6 +36,50 @@
       });
     } catch (e) { note.textContent = 'The plan could not be loaded.'; }
   }
+  // Pages (#228): turn on web push for this phone. It needs HTTPS and a service worker, which this page has.
+  const card = document.getElementById('crAlerts'), btn = document.getElementById('crAlertsBtn'),
+    anote = document.getElementById('crAlertsNote');
+  function b64(text) {
+    const pad = '='.repeat((4 - text.length % 4) % 4), raw = atob((text + pad).replace(/-/g, '+').replace(/_/g, '/'));
+    return Uint8Array.from(raw, function (c) { return c.charCodeAt(0); });
+  }
+  async function pushJson(method, body) {
+    const res = await fetch('/crew/api/push', { method: method, credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' }, body: body ? JSON.stringify(body) : undefined });
+    return res.ok ? res.json() : null;
+  }
+  async function alertsState() {
+    if (!card || !('serviceWorker' in navigator) || !('PushManager' in window) || !('Notification' in window)) return;
+    card.hidden = false;
+    if (Notification.permission === 'denied') {
+      anote.textContent = 'Pages are blocked for this site. Allow notifications in the browser settings to use them.';
+      btn.hidden = true; return;
+    }
+    const reg = await navigator.serviceWorker.ready, sub = await reg.pushManager.getSubscription();
+    const on = !!sub && Notification.permission === 'granted';
+    btn.textContent = on ? 'Turn off pages' : 'Turn on pages';
+    anote.textContent = on ? 'This phone buzzes when the booth pages you.' : 'Get a buzz on this phone when the booth pages you.';
+    btn.onclick = on ? turnOff : turnOn;
+  }
+  async function turnOn() {
+    try {
+      if (await Notification.requestPermission() !== 'granted') { alertsState(); return; }
+      const key = await (await fetch('/crew/api/push/key', { credentials: 'same-origin' })).json();
+      const reg = await navigator.serviceWorker.ready;
+      const sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64(key.key) });
+      if (!await pushJson('POST', sub.toJSON())) { await sub.unsubscribe(); anote.textContent = 'Relay could not save this phone.'; return; }
+    } catch (e) { anote.textContent = 'This browser could not turn on pages.'; return; }
+    alertsState();
+  }
+  async function turnOff() {
+    try {
+      const reg = await navigator.serviceWorker.ready, sub = await reg.pushManager.getSubscription();
+      if (sub) { await pushJson('DELETE', { endpoint: sub.endpoint }); await sub.unsubscribe(); }
+    } catch (e) { /* stays as it was */ }
+    alertsState();
+  }
+  alertsState();
+
   // Tabs a module adds (arrow keys move; the chosen tab is kept in the #hash). `crew:tab` tells the module's script.
   const tabs = Array.prototype.slice.call(document.querySelectorAll('[role=tab]'));
   function select(tab, focus) {

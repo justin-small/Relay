@@ -59,6 +59,55 @@
   }
   async function peopleRefresh() { try { drawPeople(await api('/api/admin/crew/people')); } catch (e) { /* keeps what it had */ } }
   $('crScan').addEventListener('click', async function () { const d = await send('POST', '/api/admin/crew/people/scan'); if (d) drawPeople(d); });
-  document.addEventListener('relay:config', function () { refresh(); peopleRefresh(); });
-  refresh(); peopleRefresh();
+  // -- pages (#228): who is chosen is kept in two sets; everything shown is text.
+  const picked = { users: new Set(), teams: new Set() };
+  let pageTimer = null;
+  function pmsg(text, bad) { $('crPageErr').textContent = bad ? text : ''; $('crPageErr').hidden = !bad; $('crPageMsg').textContent = bad ? '' : (text || ''); }
+  function chip(set, key, label, title) {
+    const l = document.createElement('label'); l.className = 'chk chk-inline'; l.style.marginRight = '12px';
+    const c = document.createElement('input'); c.type = 'checkbox'; c.checked = set.has(key);
+    c.addEventListener('change', function () { if (c.checked) set.add(key); else set.delete(key); });
+    l.appendChild(c); l.appendChild(document.createTextNode(' ' + label)); if (title) l.title = title; return l;
+  }
+  function drawTargets(t) {
+    const teams = $('crPageTeams'), ppl = $('crPagePeople');
+    teams.textContent = ''; ppl.textContent = '';
+    if (!t.teams.length) teams.textContent = 'None (Planning Center is off or nobody is scheduled).';
+    t.teams.forEach(function (x) { teams.appendChild(chip(picked.teams, x.name, x.name + ' (' + x.reachable + '/' + x.people + ')', x.reachable + ' of ' + x.people + ' have a crew account')); });
+    t.people.forEach(function (x) { ppl.appendChild(chip(picked.users, x.id, x.name + (x.role ? ' \u00b7 ' + x.role : '') + (x.phone ? '' : ' (no phone)'))); });
+  }
+  const LABEL = { confirmed: '\u2713', waiting: '\u2026 waiting', no_phone: 'no phone' };
+  function drawPages(pages) {
+    const body = document.querySelector('#crPages tbody'); body.textContent = '';
+    let live = false;
+    pages.forEach(function (p) {
+      const tr = document.createElement('tr');
+      tr.appendChild(cell(p.message + (p.sender ? ' \u2014 ' + p.sender : '') + (p.buzzing ? ' (buzzing)' : '')));
+      tr.appendChild(cell(p.people.map(function (w) { return w.name + ' ' + LABEL[w.state]; }).join(', ')));
+      body.appendChild(tr); live = live || p.buzzing;
+    });
+    clearTimeout(pageTimer);
+    if (live) pageTimer = setTimeout(pagesRefresh, 3000);   // watch the receipts come in while it is buzzing
+  }
+  async function pagesRefresh() {
+    if (!can('crew.page')) return;
+    $('crPageBox').hidden = false;
+    try { const d = await api('/api/admin/crew/pages'); drawPages(d.pages); drawTargetsOnce(d.targets); } catch (e) { /* keeps what it had */ }
+  }
+  let drawn = false;
+  function drawTargetsOnce(t) { if (!drawn) { drawn = true; drawTargets(t); } }
+  $('crPageSend').addEventListener('click', async function () {
+    pmsg('');
+    const res = await fetch('/api/admin/crew/pages', { method: 'POST', credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message: $('crPageText').value, users: Array.from(picked.users), teams: Array.from(picked.teams) }) });
+    const data = await res.json().catch(function () { return {}; });
+    if (!res.ok) { pmsg(data.detail || data.error || 'That did not work.', true); return; }
+    $('crPageText').value = '';
+    pmsg('Sent to ' + data.people + (data.people === 1 ? ' person' : ' people') +
+      (data.unmatched.length ? '. No crew account for: ' + data.unmatched.join(', ') : ''));
+    pagesRefresh();
+  });
+  document.addEventListener('relay:config', function () { refresh(); peopleRefresh(); drawn = false; pagesRefresh(); });
+  refresh(); peopleRefresh(); pagesRefresh();
 })();

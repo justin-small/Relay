@@ -14,6 +14,18 @@
       <div class="note err" id="crErr" hidden></div>
       <div class="ctl"><button type="button" class="primary" id="crSave">Save</button> <span class="muted" id="crMsg"></span></div>
     </section>
+    <section id="crPageBox" hidden>
+      <h3>Page the crew</h3>
+      <p class="note" style="margin-top:0">A page buzzes each person's phone, and buzzes again for up to two minutes
+        until they confirm on their own link. People turn pages on from the crew page on their phone.</p>
+      <div class="field"><label for="crPageText">What the page says</label>
+        <input id="crPageText" maxlength="140" autocomplete="off" style="max-width:32em"></div>
+      <div class="field"><span class="muted">Teams serving today</span> <span id="crPageTeams"></span></div>
+      <div class="field"><span class="muted">People</span> <span id="crPagePeople"></span></div>
+      <div class="note err" id="crPageErr" hidden></div>
+      <div class="ctl"><button type="button" class="primary" id="crPageSend">Send page</button> <span class="muted" id="crPageMsg"></span></div>
+      <table class="tbl" id="crPages"><thead><tr><th>Page</th><th>Who</th></tr></thead><tbody></tbody></table>
+    </section>
     <section>
       <h3>People</h3>
       <p class="note" style="margin-top:0">Give each person the role they fill ("Camera 1"). With Planning Center on,
