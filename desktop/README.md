@@ -70,3 +70,4 @@ has been launched three times without ever getting ready, Relay restarts and the
 and the old app back (on Windows through a detached PowerShell script, since the running program's files are
 in use) and says so once. The first install of a build that has this code cannot protect itself; the next
 update can. Untested on real machines, like the rest: to try it, build an update whose backend exits at start.
+
