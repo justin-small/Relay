@@ -1,0 +1,18 @@
+.crew-page { margin: 0; padding: env(safe-area-inset-top) 0 env(safe-area-inset-bottom); font: 16px/1.4 system-ui, sans-serif; }
+.cr-bar { display: flex; align-items: center; gap: 10px; padding: 14px 16px; border-bottom: 1px solid var(--line); }
+.cr-bar h1 { font-size: 18px; margin: 0; flex: 1; }
+.cr-who { color: var(--dim); font-size: 14px; }
+.cr-main { max-width: 640px; margin: 0 auto; padding: 16px; }
+.cr-card { border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; margin: 0 0 14px; }
+.cr-card h2 { font-size: 13px; letter-spacing: .06em; text-transform: uppercase; color: var(--dim); margin: 0 0 8px; }
+.cr-note { color: var(--dim); font-size: 14px; margin: 0 0 8px; }
+.cr-items, .cr-tools { list-style: none; margin: 0; padding: 0; }
+.cr-items li { display: flex; gap: 12px; padding: 8px 0; border-top: 1px solid var(--line); }
+.cr-time { color: var(--dim); min-width: 5em; font-variant-numeric: tabular-nums; }
+.cr-done { opacity: .5; }
+.cr-current { color: var(--accent); font-weight: 600; }
+.cr-tools a { display: block; padding: 12px 0; color: var(--fg); text-decoration: none; border-top: 1px solid var(--line); }
+.cr-tools strong { display: block; }
+.cr-tools span { display: block; color: var(--dim); font-size: 14px; }
+.cr-foot { color: var(--warn); font-size: 14px; }
+.cr-out button { background: none; border: 0; color: var(--dim); text-decoration: underline; font: inherit; padding: 8px 0; cursor: pointer; }

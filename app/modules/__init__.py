@@ -129,6 +129,10 @@ class Module:
     permissions: tuple[Permission, ...] = ()
     # Ports of its own that only its routes answer on (see Listener).
     listeners: tuple[Listener, ...] = ()
+    # Prefixes (each under route_prefixes) answered only on the HTTPS operator port, never on the plain-HTTP viewer
+    # port, so a remote access tunnel (which points at the viewer port) never carries them. For pages that need a
+    # secure context: a service worker, the microphone, web push.
+    panel_prefixes: tuple[str, ...] = ()
 
     # ------------------------------------------------------------ settings
     def clean(self, raw: Any) -> dict:
@@ -193,6 +197,9 @@ HEARTBEAT_S = 15.0
 permission_hook: Callable[[str], Callable[..., Any]] | None = None
 # main sets this to its Jinja2Templates; a module's own templates are named "<module id>/<file>".
 templates: Any = None
+# main sets this to its page gate: (request, permission) -> the signed-in User, or the response to send instead
+# (sign-in form, password change, "not allowed"). Blocks (database); call it through asyncio.to_thread.
+page_gate: Callable[..., Any] | None = None
 
 
 def require(perm: str) -> Callable[..., Any]:
@@ -406,6 +413,10 @@ class Registry:
         """Every path prefix a module serves only on a listener of its own, whether the module is on or not."""
         return tuple(p for mod in self.all() for lst in mod.listeners for p in lst.prefixes)
 
+    def panel_prefixes(self) -> tuple[str, ...]:
+        """Every path prefix a module serves only on the HTTPS operator port, whether the module is on or not."""
+        return tuple(p for mod in self.all() for p in mod.panel_prefixes)
+
     def health(self, mod: Module) -> Health:
         if not self.enabled(mod.manifest.id):
             return Health("idle", "Off")
@@ -543,6 +554,9 @@ def validate(mod: Any, package: str) -> list[str]:
             problems.append(f"{package}: user page {page.title!r} needs one of the module's own permissions")
         if not any(page.path == pre or page.path.startswith(pre.rstrip("/") + "/") for pre in mod.route_prefixes):
             problems.append(f"{package}: user page {page.title!r} must be under the module's route_prefixes")
+    for pre in mod.panel_prefixes:
+        if not under(pre, mod.route_prefixes):
+            problems.append(f"{package}: panel prefix {pre!r} must be under the module's route_prefixes")
     names = set()
     for lst in mod.listeners:
         if not isinstance(lst, Listener):

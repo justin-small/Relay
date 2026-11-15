@@ -202,7 +202,8 @@ async def _split_admin_port(request: Request, call_next):
         return await call_next(request)
     if serving.published() and _module_under(path, module_registry.listener_prefixes()):
         return JSONResponse({"error": "Not found"}, status_code=404)
-    if _is_admin_path(path) and not _on_admin_port(request):
+    if (_is_admin_path(path) or _module_under(path, module_registry.panel_prefixes())) \
+            and not _on_admin_port(request):
         return JSONResponse({"error": "Not found"}, status_code=404)
     return await call_next(request)
 
@@ -1454,6 +1455,9 @@ def _page_gate(request: Request, perm: str | None = None, *, pw: bool = False):
     if perm and not user.can(perm):
         return _denied_page()
     return user
+
+
+modules_pkg.page_gate = _page_gate
 
 
 def _me_payload(request: Request, user: User) -> dict:

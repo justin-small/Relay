@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="robots" content="noindex"><meta name="theme-color" content="#000000">
+<title>{{ app_name }}</title>
+{% include "_brand_head.html" %}
+<link rel="manifest" href="/crew/_/manifest.webmanifest">
+<link rel="stylesheet" href="{{ static('viewer.css') }}">
+<link rel="stylesheet" href="{{ static('modules/crew/crew.css') }}">
+</head><body class="crew-page">
+<header class="cr-bar">
+  <img src="/static/brand/relay-mark.svg" width="28" height="28" alt="">
+  <h1>{{ app_name }}</h1>
+  <span class="cr-who">{{ user.name }}</span>
+</header>
+<main class="cr-main">
+  {% if show_plan %}
+  <section class="cr-card" id="crPlan" aria-live="polite">
+    <h2>Plan</h2>
+    <div class="cr-note" id="crPlanNote">Loading…</div>
+    <ol class="cr-items" id="crItems"></ol>
+  </section>
+  {% endif %}
+  {% set others = tools | rejectattr("path", "equalto", "/crew") | list %}
+  {% if others %}
+  <section class="cr-card">
+    <h2>Tools</h2>
+    <ul class="cr-tools">
+      {% for t in others %}<li><a href="{{ t.path }}"><strong>{{ t.title }}</strong>{% if t.note %}<span>{{ t.note }}</span>{% endif %}</a></li>{% endfor %}
+    </ul>
+  </section>
+  {% endif %}
+  <p class="cr-foot" id="crNet" hidden>You are offline. The plan will update when you are back on the network.</p>
+  <form method="post" action="/admin/logout" class="cr-out"><button type="submit">Sign out</button></form>
+</main>
+<script>window.RELAY_CREW = { plan: {{ 'true' if show_plan else 'false' }} };</script>
+<script src="{{ static('modules/crew/crew.js') }}"></script>
+</body></html>

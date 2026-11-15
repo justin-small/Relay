@@ -171,6 +171,16 @@ gating, reconnecting and the consumers stay in core's pump, so a source only del
 `audio.SourceError` with a fixed sentence (nothing from the network or a library) when it cannot start. An
 `AudioOutput.play(pcm, rate, selector)` takes mono 16-bit PCM, returns at once and raises nothing.
 
+## Pages that need HTTPS
+
+A module whose pages need a secure context (a service worker, the microphone, web push) lists their prefixes in
+`Module.panel_prefixes`, each under `route_prefixes`. Those paths answer only on the HTTPS operator port; on the
+plain-HTTP viewer port, and so through a remote access tunnel (which points at it), they answer 404. The crew app
+(`app/modules/crew/`) is the example. A page that needs a sign-in uses `app.modules.page_gate(request, perm)`
+(through `asyncio.to_thread`), which returns the signed-in user or the response to send instead (the sign-in form,
+or "not allowed"); a route used by a browser that sends no cookie (a web app manifest, a service worker) is public
+on purpose and must carry nothing private.
+
 ## The audit log
 
 Every change made through a module's `/api/admin` route already goes in the audit log (#172),

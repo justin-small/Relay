@@ -373,6 +373,7 @@ MIN_ROLE = {
     "atem.view": "viewer", "atem.control": "operator", "atem.manage": "admin",
     "tally_arbiter.view": "viewer", "tally_arbiter.manage": "admin",
     "parent_paging.view": "viewer", "parent_paging.control": "operator", "parent_paging.manage": "admin",
+    "crew.use": "member", "crew.view": "viewer", "crew.manage": "admin",
 }
 for role in ROLE_NAMES:
     me = clients[role].get("/api/admin/me").json()
@@ -396,7 +397,8 @@ config.save({"modules": {"propresenter": {"enabled": True}, "planning_center": {
                          "remote_access": {"enabled": True}, "signage": {"enabled": True},
                          "signage_web": {"enabled": True}, "alert_events": {"enabled": True},
                          "atem": {"enabled": True}, "tally_arbiter": {"enabled": True},
-                         "parent_paging": {"enabled": True}, "intercom": {"enabled": True}}})
+                         "parent_paging": {"enabled": True}, "intercom": {"enabled": True},
+                         "crew": {"enabled": True}}})
 
 E = {}      # (METHOD, path) -> permission; None = any signed-in user
 
@@ -541,6 +543,8 @@ for method, path, perm in (
     ("POST", SWX + "/links/{lid}/check", "signage_web.manage"),         # reaches out to the site
     ("GET", "/api/admin/alert-events", "alert_events.view"),
     ("POST", "/api/admin/alert-events", "alert_events.manage"),           # an empty body is refused as not settings
+    ("GET", "/api/admin/crew", "crew.view"),
+    ("POST", "/api/admin/crew", "crew.manage"),                           # an empty body is refused
     ("POST", "/api/admin/alert-events/test", "alert_events.manage"),      # sends to nothing until something is on
     ("GET", "/api/admin/alert-events/state", "alert_events.view"),
     ("GET", ATX, "atem.view"),
@@ -739,7 +743,8 @@ config.save({"modules": {"propresenter": {"enabled": False}, "planning_center": 
                          "remote_access": {"enabled": False}, "signage": {"enabled": False},
                          "signage_web": {"enabled": False}, "alert_events": {"enabled": False},
                          "atem": {"enabled": False}, "tally_arbiter": {"enabled": False},
-                         "parent_paging": {"enabled": False}, "intercom": {"enabled": False}}})
+                         "parent_paging": {"enabled": False}, "intercom": {"enabled": False},
+                         "crew": {"enabled": False}}})
 eq("a module that is off is still a 404 for everyone", op_c.get("/api/admin/propresenter").status_code, 404)
 
 # ------------------------------------------------------------------ the page routes
@@ -1298,7 +1303,8 @@ for mid, want in (("planning_center", {"planning_center.view": "viewer", "planni
                   ("atem", {"atem.view": "viewer", "atem.control": "operator", "atem.manage": "admin"}),
                   ("tally_arbiter", {"tally_arbiter.view": "viewer", "tally_arbiter.manage": "admin"}),
                   ("parent_paging", {"parent_paging.view": "viewer", "parent_paging.control": "operator",
-                                     "parent_paging.manage": "admin"})):
+                                     "parent_paging.manage": "admin"}),
+                  ("crew", {"crew.use": "member", "crew.view": "viewer", "crew.manage": "admin"})):
     got = {p.id: p.min_role for p in registry.get(mid).permissions}
     eq(f"{mid} declares its permissions", got, want)
 
