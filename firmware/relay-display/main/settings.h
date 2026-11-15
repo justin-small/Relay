@@ -1,5 +1,7 @@
 #pragma once
 
+#include "lock_format.h"
+
 #include <cstddef>
 
 #include "esp_err.h"
@@ -52,6 +54,11 @@ struct update_record_t {
     char pending[48];  // an outcome Relay has not heard yet: "installed 0.2.0" or "rolled_back 0.2.0"
 };
 esp_err_t settings_load_update(update_record_t *out);
+
+// The operator's lock (#126), in its own NVS key. False when none is saved, or the saved one is not readable.
+// The factory reset erases it.
+bool settings_load_lock(panel_policy *out);
+esp_err_t settings_save_lock(const panel_policy &policy);
 esp_err_t settings_save_update(const update_record_t &in);
 
 // Make the panel ID if there is none yet: 16 random bytes from the hardware generator, as

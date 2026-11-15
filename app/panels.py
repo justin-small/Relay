@@ -7,7 +7,7 @@ client can do to this module is bounded:
 
 * the registry holds at most MAX_PANELS entries, and a check-in body is at most
   CHECKIN_MAX_BYTES, so a flood cannot grow memory or config.json;
-* the event stream carries a feed choice, a rotation, a restart and the panel's service mode. A
+* the event stream carries a feed choice, a rotation, a restart, the panel's service mode and its lock (#126). A
   panel allowed to move the Planning Center service on is also sent its
   control key there (and on its check-in reply): plain HTTP, so the key stops
   casual misuse, not someone reading the network. Never the Planning Center
@@ -81,6 +81,13 @@ MAX_FEEDS = 2
 _FEED_ST_RE = re.compile(r"^\d{1,19}$")
 # What the panel's screen may be turned to (#122), clockwise: 0 and 180 landscape, 90 and 270 upright.
 ROTATIONS = (0, 90, 180, 270)
+
+# The operator's lock and return (#126). A locked panel refuses a change made at its screen; a PIN, if set, unlocks it
+# there until it has gone `unlock_min` with no touch. A panel with `return_min` goes back to the operator's feed (one
+# feed or two) once it has gone that long with no touch after a change made at its screen. Minutes, 1 to 60.
+PIN_RE = re.compile(r"^[0-9]{4,8}$")
+POLICY_MIN_RANGE = (1, 60)
+DEFAULT_UNLOCK_MIN = 5
 # What a panel may say about its board: RELAY_BOARD_ID in firmware/relay-display/main/boards/.
 _BOARD_RE = re.compile(r"^[a-z0-9][a-z0-9.-]{0,31}$")
 
@@ -206,6 +213,31 @@ def _int(value: object, low: int, high: int, default: int = 0) -> int:
     return max(low, min(high, int(value)))
 
 
+def _minutes(value: object) -> int | None:
+    """A whole number of minutes in POLICY_MIN_RANGE, or None."""
+    low, high = POLICY_MIN_RANGE
+    if isinstance(value, bool) or not isinstance(value, int) or not low <= value <= high:
+        return None
+    return value
+
+
+def _clean_policy(spec: dict) -> dict[str, Any]:
+    """The lock and return settings of a stored panel entry, validated (#126). Only what is set is kept."""
+    out: dict[str, Any] = {}
+    if spec.get("lock") is True:
+        out["lock"] = True
+    pin = spec.get("pin")
+    if isinstance(pin, str) and PIN_RE.match(pin):
+        out["pin"] = pin
+    unlock = _minutes(spec.get("unlock_min"))
+    if unlock is not None:
+        out["unlock_min"] = unlock
+    back = _minutes(spec.get("return_min"))
+    if back is not None:
+        out["return_min"] = back
+    return out
+
+
 def clean_stored(raw: object) -> dict[str, dict[str, Any]]:
     """The "panels" block of config.json: what the operator set, validated.
     A hand-edited entry that does not validate is dropped, not fatal."""
@@ -229,6 +261,7 @@ def clean_stored(raw: object) -> dict[str, dict[str, Any]]:
         if rotation in ROTATIONS and not isinstance(rotation, bool):
             entry["rotation"] = rotation
         entry["rotation_rev"] = _int(spec.get("rotation_rev"), 0, 2**31 - 1)
+        entry.update(_clean_policy(spec))
         timers = spec.get("timers")
         if isinstance(timers, dict):
             mine = timer_fields(timers)[0]
@@ -273,6 +306,11 @@ class Panel:
     # change is seen: a first check-in is not a change.
     feeds_changed_at: float = 0.0
     feeds_changed_by: str = ""
+    # Whether what it shows now was chosen at its own screen, since Relay last set its feed (#126): what the return to
+    # the operator's choice undoes. False until a change at the screen is seen this run.
+    screen_choice: bool = False
+    # Seconds since its screen was last touched, as it says on each check-in (#126); None from firmware that does not.
+    idle_s: int | None = None
     # A firmware update the operator asked this panel for, and not yet finished: {"version", "now"}.
     # Memory only, like the rest of what a panel is: Relay restarting forgets it, and the panel's own
     # staged image is dropped at its next check-in, which carries no offer.
@@ -380,7 +418,23 @@ class Registry:
             "service_type": stored.get("service_type") or None,
             # This panel's own ProPresenter timer settings (None: it follows the global ones).
             "set_timers": stored.get("timers") or None,
+            # The lock and return (#126). The PIN itself is never shown, only whether there is one.
+            "lock": bool(stored.get("lock")),
+            "pin_set": bool(stored.get("pin")),
+            "unlock_min": stored.get("unlock_min") or DEFAULT_UNLOCK_MIN,
+            "return_min": stored.get("return_min"),
+            "idle_s": panel.idle_s,
         }
+
+    def policy(self, pid: str) -> dict[str, Any]:
+        """What the panel is told about its lock (#126), as a `panel_policy` event: whether its screen is locked,
+        the PIN that unlocks it there ("" for none) and how long it stays unlocked with no touch. The PIN goes
+        over plain HTTP, as the Planning Center control key does: it stops someone at the screen, not someone
+        reading the network. The return to the operator's choice is Relay's to do, so it is not in here."""
+        stored = self.stored().get(pid) or {}
+        locked = bool(stored.get("lock"))
+        return {"type": "panel_policy", "lock": locked, "pin": (stored.get("pin") or "") if locked else "",
+                "unlock_s": int(stored.get("unlock_min") or DEFAULT_UNLOCK_MIN) * 60}
 
     # ------------------------------------------------------- service mode
     def timer_settings(self, pid: str) -> dict[str, Any] | None:
@@ -471,6 +525,12 @@ class Registry:
             # the screen does not.
             panel.feeds_changed_at = time.time()
             panel.feeds_changed_by = "admin" if panel.acked_rev > old_acked else "screen"
+            panel.screen_choice = panel.feeds_changed_by == "screen"
+        elif panel.acked_rev > old_acked:
+            panel.screen_choice = False
+        idle = body.get("idle_s")
+        panel.idle_s = (_int(idle, 0, 2**31 - 1) if isinstance(idle, int) and not isinstance(idle, bool)
+                        else None)
         panel.last_seen = _now()
         self._settle_update(panel)
         reply: dict[str, Any] = {
@@ -478,7 +538,7 @@ class Registry:
             "name": self.display_name(pid),
             "interval_s": CHECKIN_INTERVAL_S,
         }
-        pending = self._pending_feed(pid)
+        pending = self._pending_feed(pid) or self._return_due(panel)
         if pending:
             reply["set_feed"] = pending
         offer = self._update_offer(panel)
@@ -488,8 +548,26 @@ class Registry:
         if rotation:
             reply["set_rotation"] = rotation
         reply["service"] = self.service(pid)
+        reply["policy"] = self.policy(pid)
         self._changed()
         return reply
+
+    def _return_due(self, panel: Panel) -> dict[str, Any] | None:
+        """The operator's feed as a `set_feed`, when this panel is to go back to it now (#126): it has a return
+        time, its operator feed differs from what it shows because of a change made at its screen, and its screen
+        has gone that long with no touch. Sent on the stream as well as in the reply; the panel applies a revision
+        once. A panel showing lyrics or a language because of a slide-note tag is the operator's doing, not the
+        screen's, and is left alone."""
+        stored = self.stored().get(panel.id) or {}
+        minutes, feeds = stored.get("return_min"), stored.get("feeds")
+        if (not minutes or not feeds or not panel.screen_choice or panel.idle_s is None
+                or panel.idle_s < minutes * 60 or panel.feeds == feeds or panel.id in self._swapped):
+            return None
+        rev = self._rev_floor[panel.id] = self._rev_base(panel.id) + 1
+        panel.screen_choice = False
+        message = {"type": "set_feed", "rev": rev, "feeds": feeds}
+        self._push(panel.id, message)
+        return message
 
     # ------------------------------------------------------- firmware updates
     @staticmethod
@@ -666,6 +744,9 @@ class Registry:
         rotation = self._pending_rotation(pid)
         if rotation:
             q.put_nowait(sse_frame(rotation))
+        policy = self.policy(pid)
+        if policy["lock"]:   # unlocked is the default; the check-in reply says it either way
+            q.put_nowait(sse_frame(policy))
         for alert in self.alerts_for(pid)[:8]:
             q.put_nowait(sse_frame(alert))
         return q
@@ -722,6 +803,7 @@ class Registry:
         panel = self.panels.get(pid)
         if sent and panel is not None:
             panel.feeds = [dict(f) for f in feeds]   # what it shows now; its next check-in says it for itself
+            panel.screen_choice = False
         return sent
 
     def _reachable(self) -> list[Panel]:
@@ -807,14 +889,17 @@ class Registry:
 
     def update(self, pid: str, *, name: str | None = None, feeds: Any = ...,
                service_mode: str | None = None, service_type: Any = ...,
-               rotation: Any = ..., timers: Any = ...) -> dict[str, Any]:
+               rotation: Any = ..., timers: Any = ..., lock: Any = ..., pin: Any = ...,
+               unlock_min: Any = ..., return_min: Any = ...) -> dict[str, Any]:
         """Rename a panel, set its feed, its rotation and/or its service mode.
         `feeds=None` clears the operator's feed; leaving `feeds` out changes
         nothing. `rotation` is 0 or 180, or None to leave the panel as it is.
         `service_type=None` lets the panel pick. Pushes `set_feed`,
         `set_rotation` and `service_mode` at once. `timers` is this panel's own ProPresenter timer settings
         ({"amber_s", "red_s", "show"}, any of them), or None to follow the global ones; the panel asks for them
-        when it opens its timers stream, so nothing is pushed. A control mode gets a new
+        when it opens its timers stream, so nothing is pushed. `lock` (true or false), `pin` (4 to 8 digits, or None
+        or "" for none), `unlock_min` (1 to 60) and `return_min` (1 to 60, or None for no return) are #126's; a
+        change to the first three pushes `panel_policy`. A control mode gets a new
         random key when the panel had none; leaving control drops it. A Service
         feed needs a service mode that shows the service.
         Raises KeyError for an unknown panel and ValueError for a bad value."""
@@ -897,6 +982,31 @@ class Registry:
                     entry.pop("timers", None)
             else:
                 raise ValueError("timers must be an object, or null to follow the global settings")
+        policy_before = self._policy_of(entry)
+        if lock is not ...:
+            if not isinstance(lock, bool):
+                raise ValueError("lock must be true or false")
+            if lock:
+                entry["lock"] = True
+            else:
+                entry.pop("lock", None)
+        if pin is not ...:
+            if pin is None or pin == "":
+                entry.pop("pin", None)
+            elif isinstance(pin, str) and PIN_RE.match(pin):
+                entry["pin"] = pin
+            else:
+                raise ValueError("the PIN must be 4 to 8 digits")
+        for key, value in (("unlock_min", unlock_min), ("return_min", return_min)):
+            if value is ...:
+                continue
+            if value is None and key == "return_min":
+                entry.pop(key, None)
+            elif _minutes(value) is not None:
+                entry[key] = value
+            else:
+                raise ValueError("minutes must be a whole number from 1 to 60")
+        policy_push = self._policy_of(entry) != policy_before
         rotation_push = None
         if rotation is not ...:
             if rotation is None:
@@ -910,7 +1020,7 @@ class Registry:
             else:
                 raise ValueError("rotation must be 0, 90, 180 or 270")
         if (not entry.get("name") and not entry.get("feeds") and not entry.get("service_mode")
-                and entry.get("rotation") is None and not entry.get("timers")):
+                and entry.get("rotation") is None and not entry.get("timers") and not _clean_policy(entry)):
             stored.pop(pid, None)
         self._save_stored(stored)
         if push is not None:
@@ -919,8 +1029,15 @@ class Registry:
             self._push(pid, {"type": "service_mode", **self.service(pid)})
         if rotation_push is not None:
             self._push(pid, rotation_push)
+        if policy_push:
+            self._push(pid, self.policy(pid))
         self._changed()
         return self.view(pid)
+
+    @staticmethod
+    def _policy_of(entry: dict[str, Any]) -> tuple:
+        """What a stored entry tells the panel about its lock, to see whether a change needs pushing."""
+        return (bool(entry.get("lock")), entry.get("pin") or "", entry.get("unlock_min") or DEFAULT_UNLOCK_MIN)
 
     def reboot(self, pid: str) -> dict[str, Any]:
         """Restart a panel. Sent on its event stream only, never in a check-in reply, so a panel cannot

@@ -21,6 +21,7 @@
 #include "lwip/sockets.h"
 #include "net.h"
 #include "panel_link_format.h"
+#include "panel_lock.h"
 #include "sdkconfig.h"
 #include "settings.h"
 
@@ -171,6 +172,7 @@ bool checkin(const char *url)
     st.rotation_rev = s_.rotation_rev.load();
     st.uptime_s = static_cast<uint32_t>(esp_timer_get_time() / 1000000);
     st.feed_rev = s_.applied_rev.load();
+    st.idle_s = panel_lock_idle_s();
     int rssi = 0;
     st.has_rssi = net_link_info(st.ip, sizeof st.ip, &rssi);
     st.rssi = rssi;
@@ -229,6 +231,9 @@ bool checkin(const char *url)
                 }
                 if (r.has_rotation) {
                     set_rotation(r.rotation, "check-in");
+                }
+                if (r.has_policy) {
+                    panel_lock_set(r.policy, "check-in");
                 }
                 // The reply is Relay's current word on an update: no `update` is the ask withdrawn. A 200 that
                 // parsed is also the proof a new image needs.
@@ -327,6 +332,9 @@ void on_event(void *, const caption_sse_event &event)
         break;
     case panel_message::reboot:
         restart("Relay's operator asked for it");
+        break;
+    case panel_message::policy:
+        panel_lock_set(ev.policy, "stream");
         break;
     case panel_message::alert:
         ESP_LOGI(TAG, "panel_link: alert %s from %s", ev.alert.id, ev.alert.from);

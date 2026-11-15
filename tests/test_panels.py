@@ -812,6 +812,100 @@ eq("settings that all fail leave the panel on the global ones", reg.view(pid(62)
 eq("the timers are the admin port's: not on the viewer port",
    viewer.post(f"/api/admin/panels/{pid(60)}", json={"timers": None}).status_code, 404)
 
+print("\nlock, PIN and the return to the operator's choice (#126)")
+reg.panels.clear()
+config.save({"panels": {}}, replace=("panels",))
+r = viewer.post("/api/panels/checkin", json=body(70))
+eq("an unlocked panel is told so on each check-in", r.json()["policy"],
+   {"type": "panel_policy", "lock": False, "pin": "", "unlock_s": 300})
+row = reg.view(pid(70))
+eq("the drawer's defaults: unlocked, no PIN, 5 min to relock, no return",
+   (row["lock"], row["pin_set"], row["unlock_min"], row["return_min"], row["idle_s"]), (False, False, 5, None, None))
+for bad, why in (({"lock": "yes"}, "lock must be true or false"), ({"pin": "12"}, "4 to 8 digits"),
+                 ({"pin": "12345678901"}, "4 to 8 digits"), ({"pin": "12a4"}, "4 to 8 digits"), ({"pin": 1234}, "4 to 8 digits"),
+                 ({"unlock_min": 0}, "1 to 60"), ({"unlock_min": 61}, "1 to 60"), ({"return_min": 2.5}, "1 to 60"),
+                 ({"return_min": True}, "1 to 60"), ({"unlock_min": None}, "1 to 60")):
+    r = admin.post(f"/api/admin/panels/{pid(70)}", json=bad)
+    check(f"refused: {bad}", r.status_code == 400 and why in r.json()["detail"], r.text)
+eq("nothing refused was saved", config.get()["panels"].get(pid(70)), None)
+
+
+async def policy_stream():
+    q = reg.subscribe(pid(70))
+    check("an unlocked panel's stream is not told anything on connect", q.empty())
+    view = reg.update(pid(70), lock=True, pin="2468", unlock_min=10)
+    eq("locking pushes the policy at once", json.loads(q.get_nowait()[6:]),
+       {"type": "panel_policy", "lock": True, "pin": "2468", "unlock_s": 600})
+    eq("the view says there is a PIN, never what it is", (view["lock"], view["pin_set"], "2468" in json.dumps(view)),
+       (True, True, False))
+    q2 = reg.subscribe(pid(70))
+    eq("a locked panel is told on connect", json.loads(q2.get_nowait()[6:])["lock"], True)
+    reg.update(pid(70), name="Stage left")
+    check("a change that leaves the lock alone pushes no policy", q.empty())
+    reg.update(pid(70), pin=None)
+    eq("clearing the PIN pushes a lock with none", json.loads(q.get_nowait()[6:])["pin"], "")
+    reg.update(pid(70), lock=False)
+    eq("unlocking pushes it", json.loads(q.get_nowait()[6:]),
+       {"type": "panel_policy", "lock": False, "pin": "", "unlock_s": 600})
+    reg.update(pid(70), pin="1357")
+    eq("a PIN on an unlocked panel is kept but not sent", json.loads(q.get_nowait()[6:])["pin"], "")
+    reg.unsubscribe(pid(70), q)
+    reg.unsubscribe(pid(70), q2)
+
+
+asyncio.run(policy_stream())
+eq("the lock lives in config.json", {k: config.get()["panels"][pid(70)].get(k) for k in ("lock", "pin", "unlock_min")},
+   {"lock": None, "pin": "1357", "unlock_min": 10})
+r = admin.post(f"/api/admin/panels/{pid(70)}", json={"lock": True, "pin": ""})
+eq("over the admin route, an empty PIN clears it", (r.status_code, r.json()["lock"], r.json()["pin_set"]), (200, True, False))
+eq("the lock is the admin port's: not on the viewer port",
+   viewer.post(f"/api/admin/panels/{pid(70)}", json={"lock": False}).status_code, 404)
+config.save({"panels": {pid(71): {"feed_rev": 0, "lock": "yes", "pin": "12", "unlock_min": 0, "return_min": 9}}},
+            replace=("panels",))
+eq("hand-edited lock settings are cleaned when Relay loads them",
+   {k: v for k, v in panels.clean_stored(config.get()["panels"])[pid(71)].items() if not k.endswith("_rev")},
+   {"return_min": 9})
+admin.post(f"/api/admin/panels/{pid(71)}", json={"return_min": None})
+eq("a panel with nothing left set is dropped from the file", pid(71) in config.get()["panels"], False)
+
+print("  return")
+reg.panels.clear()
+config.save({"panels": {}}, replace=("panels",))
+spanish = [{"stream": "translation", "lang": "SPANISH"}]
+two = [{"stream": "transcription"}, {"stream": "translation", "lang": "FRENCH"}]
+viewer.post("/api/panels/checkin", json=body(72, feeds=spanish))
+reg.update(pid(72), feeds=two, return_min=2)
+rev = reg.stored()[pid(72)]["feed_rev"]
+r = viewer.post("/api/panels/checkin", json=body(72, feeds=two, feed_rev=rev, idle_s=500))
+check("a panel on the operator's choice is not sent it again", "set_feed" not in r.json(), r.json())
+viewer.post("/api/panels/checkin", json=body(72, feeds=spanish, feed_rev=rev, idle_s=0))
+eq("a change at the screen is seen as one", reg.panels[pid(72)].screen_choice, True)
+r = viewer.post("/api/panels/checkin", json=body(72, feeds=spanish, feed_rev=rev, idle_s=119))
+check("…and is left alone before the return time", "set_feed" not in r.json(), r.json())
+r = viewer.post("/api/panels/checkin", json=body(72, feeds=spanish, feed_rev=rev, idle_s=120))
+back = r.json().get("set_feed")
+eq("after it, the panel goes back to the operator's choice, both feeds", back and back["feeds"], two)
+check("…with a revision above the operator's", back and back["rev"] > rev, back)
+r = viewer.post("/api/panels/checkin", json=body(72, feeds=spanish, feed_rev=rev, idle_s=150))
+check("…sent once, not on every check-in until applied", "set_feed" not in r.json(), r.json())
+viewer.post("/api/panels/checkin", json=body(72, feeds=two, feed_rev=back["rev"], idle_s=160))
+eq("once applied, the change is the operator's", (reg.view(pid(72))["feeds_changed_by"],
+                                                  reg.panels[pid(72)].screen_choice), ("admin", False))
+viewer.post("/api/panels/checkin", json=body(72, feeds=spanish, feed_rev=back["rev"], idle_s=0))
+r = viewer.post("/api/panels/checkin", json=body(72, feeds=spanish, feed_rev=back["rev"]))
+check("firmware that does not say how long it has been idle is never sent back", "set_feed" not in r.json(), r.json())
+reg.update(pid(72), return_min=None)
+r = viewer.post("/api/panels/checkin", json=body(72, feeds=spanish, feed_rev=back["rev"], idle_s=9999))
+check("with no return time, the screen's choice stays", "set_feed" not in r.json(), r.json())
+viewer.post("/api/panels/checkin", json=body(73, feeds=spanish, idle_s=0))
+reg.update(pid(73), return_min=1)
+viewer.post("/api/panels/checkin", json=body(73, feeds=two, idle_s=0))
+r = viewer.post("/api/panels/checkin", json=body(73, feeds=two, idle_s=600))
+check("with no operator feed, there is nothing to go back to", "set_feed" not in r.json(), r.json())
+eq("idle_s is shown in the drawer", reg.view(pid(73))["idle_s"], 600)
+viewer.post("/api/panels/checkin", json=body(73, feeds=two, idle_s="long"))
+eq("…and a bad one is dropped", reg.view(pid(73))["idle_s"], None)
+
 print("\nfirmware: the panel's words and Relay's are the same")
 fw_source = (Path(__file__).resolve().parent.parent / "firmware" / "relay-display" / "main" / "update_format.h")
 check("the panel's update vocabulary is where this test reads it", fw_source.exists())

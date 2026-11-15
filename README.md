@@ -1131,7 +1131,11 @@ the steps are tested with `node --test tests/js/`.
 **A screen choice is not undone.** The operator's feed carries a revision. The
 panel reports the last one it applied (`feed_rev`) and Relay sends a `set_feed`
 only while it has not, so a feed picked at the screen afterwards stands until
-the operator sets another. **Newest wins, from either side.**
+the operator sets another. **Newest wins, from either side**, unless the
+operator locks the panel or sets it to go back (#126): a `panel_policy`
+(`lock`, a 4 to 8 digit `pin` that unlocks it at the screen, `unlock_s`) rides
+each check-in reply and the stream, and a panel that reports `idle_s` past its
+`return_min` after a change at its screen is sent the operator's feed again.
 
 **What a stray device on the LAN can do.** Anything can check in as a panel or
 read a panel's events: they carry a feed choice and nothing secret. It cannot

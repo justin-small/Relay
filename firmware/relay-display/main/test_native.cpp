@@ -2169,6 +2169,107 @@ void check_discovery()
 }
 
 // The panel's check-in with Relay, and what Relay tells it back (`panel_link_format.h`).
+// The operator's lock (#126): what Relay sends, the keypad's rules and the NVS copy.
+void check_lock()
+{
+    auto parse = [](const char *json, panel_policy *out) { return lock_policy_parse(json, json + strlen(json), out); };
+    panel_policy p;
+    CHECK(parse("{\"type\":\"panel_policy\",\"lock\":true,\"pin\":\"2468\",\"unlock_s\":600}", &p) && p.lock &&
+          strcmp(p.pin, "2468") == 0 && p.unlock_s == 600);
+    CHECK(parse("{\"lock\":false}", &p) && !p.lock && p.pin[0] == '\0' && p.unlock_s == kLockUnlockDefaultS);
+    CHECK(parse("{\"lock\":true,\"pin\":\"\"}", &p) && p.lock && p.pin[0] == '\0');
+    CHECK(parse("{\"lock\":true,\"pin\":\"12345678\",\"unlock_s\":60}", &p) && strcmp(p.pin, "12345678") == 0);
+    // Nothing partial: a bad field leaves the old policy as it was.
+    panel_policy keep;
+    keep.lock = true;
+    snprintf(keep.pin, sizeof keep.pin, "%s", "1111");
+    for (const char *bad : {"{}", "{\"lock\":\"yes\"}", "{\"lock\":1}", "{\"lock\":true,\"pin\":\"123\"}",
+                            "{\"lock\":true,\"pin\":\"123456789\"}", "{\"lock\":true,\"pin\":\"12a4\"}",
+                            "{\"lock\":true,\"pin\":1234}", "{\"lock\":true,\"unlock_s\":59}",
+                            "{\"lock\":true,\"unlock_s\":3601}", "{\"lock\":true,\"unlock_s\":-5}"}) {
+        panel_policy q = keep;
+        CHECK(!parse(bad, &q) && lock_policy_equal(q, keep));
+    }
+    // On the stream and in a check-in reply. An event of a type the panel does not know is still nothing.
+    const char *ev = "{\"type\":\"panel_policy\",\"lock\":true,\"pin\":\"2468\",\"unlock_s\":300}";
+    panel_event e = panel_parse_event(ev, strlen(ev));
+    CHECK(e.kind == panel_message::policy && e.policy.lock && strcmp(e.policy.pin, "2468") == 0);
+    const char *odd = "{\"type\":\"panel_policy\",\"lock\":true,\"pin\":\"24\"}";
+    CHECK(panel_parse_event(odd, strlen(odd)).kind == panel_message::none);
+    const char *reply = "{\"ok\":true,\"name\":\"Lobby\",\"interval_s\":30,\"service\":{\"mode\":\"off\",\"service_type\":null},"
+                        "\"policy\":{\"type\":\"panel_policy\",\"lock\":false,\"pin\":\"\",\"unlock_s\":300}}";
+    panel_reply r = panel_parse_reply(reply, strlen(reply));
+    CHECK(r.ok && r.has_policy && !r.policy.lock);
+    const char *old = "{\"ok\":true,\"name\":\"Lobby\",\"interval_s\":30}";
+    CHECK(!panel_parse_reply(old, strlen(old)).has_policy);
+
+    // The keypad.
+    lock_state st;
+    CHECK(!st.refuses() && st.try_pin("1234", 0) == lock_try::open);
+    panel_policy locked;
+    locked.lock = true;
+    st.set(locked);
+    CHECK(st.refuses() && !st.has_pin() && st.try_pin("1234", 0) == lock_try::no_pin);
+    snprintf(locked.pin, sizeof locked.pin, "%s", "2468");
+    locked.unlock_s = 120;
+    st.set(locked);
+    CHECK(st.refuses() && st.has_pin());
+    CHECK(st.try_pin("2469", 10) == lock_try::wrong && st.refuses());
+    CHECK(st.try_pin("246", 20) == lock_try::wrong && st.try_pin("24680", 30) == lock_try::wrong);
+    CHECK(st.try_pin("2468", 40) == lock_try::unlocked && !st.refuses() && st.wrong == 0);
+    st.tick(119999);
+    CHECK(!st.refuses());
+    st.tick(120000);
+    CHECK(st.refuses());  // locked again after the unlock time with no touch
+    // The same policy again (it comes on every check-in) keeps an unlock; a new PIN ends it.
+    CHECK(st.try_pin("2468", 50) == lock_try::unlocked);
+    st.set(locked);
+    CHECK(!st.refuses());
+    panel_policy longer = locked;
+    longer.unlock_s = 600;
+    st.set(longer);
+    CHECK(!st.refuses() && st.policy.unlock_s == 600);  // only the time changed
+    snprintf(longer.pin, sizeof longer.pin, "%s", "1357");
+    st.set(longer);
+    CHECK(st.refuses());
+    // Five wrong in a row: the keypad waits a minute, even for the right PIN, then starts again.
+    for (int i = 0; i < 4; ++i) {
+        CHECK(st.try_pin("0000", 1000) == lock_try::wrong);
+    }
+    CHECK(st.try_pin("0000", 1000) == lock_try::wait && st.wait_left_ms(1000) == kLockWaitMs);
+    CHECK(st.try_pin("1357", 1000 + kLockWaitMs - 1) == lock_try::wait && st.refuses());
+    CHECK(st.wait_left_ms(1000 + kLockWaitMs) == 0);
+    CHECK(st.try_pin("0000", 1000 + kLockWaitMs) == lock_try::wrong && st.wrong == 1);
+    CHECK(st.try_pin("1357", 1000 + kLockWaitMs) == lock_try::unlocked);
+    // The tick wraps (LVGL's 32-bit milliseconds): the wait still ends.
+    lock_state w;
+    w.set(longer);
+    for (int i = 0; i < 5; ++i) {
+        w.try_pin("0000", 0xFFFFFF00u);
+    }
+    CHECK(w.wait_left_ms(0xFFFFFF00u + kLockWaitMs) == 0);
+    // Unlocking from Relay ends it at once.
+    panel_policy open;
+    st.set(open);
+    CHECK(!st.refuses() && st.try_pin("1357", 0) == lock_try::open);
+
+    // The NVS copy.
+    panel_policy back;
+    CHECK(lock_from_blob(lock_to_blob(longer), &back) && lock_policy_equal(back, longer));
+    lock_blob b = lock_to_blob(longer);
+    b.version = 9;
+    CHECK(!lock_from_blob(b, &back));
+    b = lock_to_blob(longer);
+    b.unlock_s = 5;
+    CHECK(!lock_from_blob(b, &back));
+    b = lock_to_blob(longer);
+    memset(b.pin, '7', sizeof b.pin);
+    CHECK(!lock_from_blob(b, &back));
+    b = lock_to_blob(longer);
+    b.pin[1] = 'x';
+    CHECK(!lock_from_blob(b, &back));
+}
+
 void check_panel_link()
 {
     panel_status st = {};
@@ -2187,7 +2288,7 @@ void check_panel_link()
     CHECK(strcmp(body,
                  "{\"id\":\"0123456789abcdef0123456789abcdef\",\"name\":\"Panel 0123\",\"version\":\"0.1.0\","
                  "\"rotation\":0,\"scripts\":[\"latin\"],\"feeds\":[{\"stream\":\"translation\",\"lang\":\"SPANISH\"}],"
-                 "\"ip\":\"192.168.1.50\",\"uptime_s\":42,\"rssi\":-58,\"feed_rev\":0,\"rotation_rev\":0}") == 0);
+                 "\"ip\":\"192.168.1.50\",\"uptime_s\":42,\"rssi\":-58,\"feed_rev\":0,\"rotation_rev\":0,\"idle_s\":0}") == 0);
     // The body is JSON the readers here understand.
     uint64_t up = 0;
     CHECK(caption_json::read_uint(caption_json::get(body, body + n, "uptime_s"), body + n, &up) && up == 42);
@@ -2202,7 +2303,10 @@ void check_panel_link()
     n = panel_checkin_body(body, sizeof body, st);
     CHECK(strstr(body, "\"feeds\":[{\"stream\":\"transcription\"},{\"stream\":\"translation\",\"lang\":\"FRENCH\"}]") != nullptr);
     CHECK(strstr(body, "\"ip\"") == nullptr && strstr(body, "\"rssi\"") == nullptr);
-    CHECK(strstr(body, "\"feed_rev\":7,\"rotation_rev\":0}") != nullptr);
+    st.idle_s = 4000000000u;
+    n = panel_checkin_body(body, sizeof body, st);
+    CHECK(strstr(body, "\"feed_rev\":7,\"rotation_rev\":0,\"idle_s\":4000000000}") != nullptr);
+    st.idle_s = 0;
     // The board and the rotation (#122), and a Service feed with its type.
     snprintf(st.board, sizeof st.board, "%s", RELAY_BOARD_ID);
     st.rotation = 180;
@@ -3474,6 +3578,7 @@ int main()
     check_targets_request();
     check_settings_split_and_v1();
     check_panel_link();
+    check_lock();
     check_service();
     check_service_control();
     check_alerts();
