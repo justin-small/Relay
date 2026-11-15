@@ -197,6 +197,20 @@ A page reads and writes the signed-in user's own through `GET /api/admin/me/pref
 API accepts `core` and the id of any installed module. `GET /api/admin/me` carries them too, so a
 page has them as it loads. Calls on the database raise `db.Unavailable` while it is down.
 
+**A preference is untrusted input.** Any signed-in user, of any role, and any API token can store any
+plain JSON under `core` or under any installed module's id, so `prefs.get(..., scope="mymodule")` returns
+whatever that person sent through the API, not necessarily something your module wrote (#288):
+
+- check the type and range before using a value: a number is a number within the limits you allow, a
+  choice is one of the strings you expect; otherwise use your default;
+- never let a preference pick a host, port, path, file name, URL or command argument, or anything else
+  the person could not already choose for themselves;
+- show one on a page with `textContent` (or other DOM APIs that make text), or in a template through
+  Jinja's autoescaping; never through `innerHTML`, `outerHTML`, `insertAdjacentHTML`, `document.write`,
+  `|safe` or `Markup` (#289). An API token's holder could otherwise plant script that runs in the
+  person's signed-in admin session. `tests/test_prefs_render.py` refuses a line that sends a preference
+  to one of those; it reads line by line, so it cannot see a value passed through a variable first.
+
 ## Livestream status
 
 A module that watches a livestream (OBS, Resi, YouTube, ...) publishes into the shared stream status in core

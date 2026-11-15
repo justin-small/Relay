@@ -12,6 +12,11 @@ settings, not shared configuration: nothing here is for secrets, and nothing her
 
 Limits keep one person from filling the disk: a value is at most MAX_VALUE bytes of JSON, and a user has at
 most MAX_PER_USER preferences across all scopes. A refusal raises Invalid with a fixed sentence.
+
+A value is untrusted input (#288, #289): the API lets any signed-in user or token store any plain JSON under
+core or any installed module's scope, so a module cannot assume its own code wrote what get() returns. Check
+the type and range before use, never let one pick a host, path, URL, file name or command argument, and show
+one on a page as text (textContent, Jinja autoescape), never as HTML. See docs/modules.md.
 """
 from __future__ import annotations
 
