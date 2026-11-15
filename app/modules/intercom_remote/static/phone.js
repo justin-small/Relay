@@ -11,7 +11,7 @@
   // One request at a time, answered by the reply type Relay sends back.
   const ask = (o, reply) => new Promise((res, rej) => {
     pending[reply] = res; pending.error = (m) => rej(new Error(m.text || "Failed"));
-    send(o); setTimeout(() => rej(new Error("No answer from Relay")), 15000);
+    send(o); setTimeout(() => rej(new Error("No answer from Relay")), 30000);
   }).finally(() => { delete pending[reply]; });
 
   $("login").onsubmit = async (e) => {
