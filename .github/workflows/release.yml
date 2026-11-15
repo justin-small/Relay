@@ -49,8 +49,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-python@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           # The Python the app is developed and tested on.
           python-version: '3.15'
@@ -91,7 +91,7 @@ jobs:
       PANDOC_VERSION: '3.11'
       TYPST_VERSION: '0.15.1'
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Install pandoc, typst and fonts
         run: |
           curl -fsSL -o pandoc.deb \
@@ -109,7 +109,7 @@ jobs:
             export GUIDE_VERSION="${GITHUB_REF_NAME#v}"
           fi
           docs/guide/build.sh
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: guide
           path: |
@@ -124,7 +124,7 @@ jobs:
     # The same container `firmware.yml` builds in, so a release is built the way every push was checked.
     container: espressif/idf:v5.4.4@sha256:9ce51d4ace496845678065dc86f8e55fb9c25fc9f01f45597042afa7ed546926
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
       # **A tag signs; a pull request only proves the build.** The release key is the trust anchor the panels
       # in the field hold the public half of, and an unsigned image is one no panel will install (it is
@@ -156,7 +156,7 @@ jobs:
         run: |
           mkdir -p panel
           cp firmware/relay-display/build/relay-display-app.bin firmware/relay-display/build/relay-display.bin panel/
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: panel-firmware
           path: panel/*.bin
@@ -177,7 +177,7 @@ jobs:
           # Not 22.04: orjson publishes no Python 3.15 wheel for its glibc (the freeze spike, #179, ran on 24.04).
           - { name: linux-x64, os: ubuntu-24.04, bundles: 'appimage,deb' }
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       # **A tag signs the updates; a pull request only proves the build.** Without the key an installed
       # copy could never accept the release, so a tag without it fails here, loudly, as the panel
       # firmware's does. The key never reaches a pull request.
@@ -191,17 +191,19 @@ jobs:
             echo "::error::TAURI_SIGNING_PRIVATE_KEY is not set. A release without it would ship installers no installed Relay can update to." >&2
             exit 1
           fi
-      - uses: actions/setup-python@v7
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: '3.15'
           cache: pip
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: '22'
           cache: npm
           cache-dependency-path: desktop/package-lock.json
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: swatinem/rust-cache@v2
+      - uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca # stable
+        with:
+          toolchain: stable
+      - uses: swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           workspaces: desktop/src-tauri
       - name: Linux libraries
@@ -277,7 +279,7 @@ jobs:
               esac
             done
           fi
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: desktop-${{ matrix.name }}
           path: staged/*
@@ -292,16 +294,16 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/download-artifact@v8
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: guide
           path: dist
-      - uses: actions/download-artifact@v8
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: panel-firmware
           path: dist
-      - uses: actions/download-artifact@v8
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           pattern: desktop-*
           path: dist

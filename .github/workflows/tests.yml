@@ -2,7 +2,8 @@ name: Tests
 
 # Every pull request and every push to main runs the whole suite, including tests/test_modules.py, which
 # enforces that each integration is a module that can be switched on and off (#157, docs/modules.md).
-# Every tests/test_*.py file is picked up by itself, so a new test file needs no change here.
+# Every tests/test_*.py file is picked up by itself (tests/run_all.py), so a new test file needs no change here.
+# run_all.py runs the files several at a time and reports every failing file, not only the first.
 
 on:
   pull_request:
@@ -18,8 +19,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-python@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           # The Python the app is developed and tested on.
           python-version: '3.15'
@@ -27,19 +28,33 @@ jobs:
       # sounddevice needs the PortAudio library to import (see release.yml for why PulseAudio runs headless).
       - run: sudo apt-get update && sudo apt-get install -y libportaudio2 pulseaudio
       - run: pulseaudio -D --exit-idle-time=-1 --load=module-null-sink && pactl info | head -3
-      # httpx2 is test-only (starlette's TestClient), so it stays out of requirements.txt and the release build.
-      - run: pip install -r requirements.txt httpx2==2.13.1
+      # httpx2 (starlette's TestClient), coverage and pytest are test-only, so they stay out of requirements.txt
+      # and the release build.
+      - run: pip install -r requirements.txt httpx2==2.13.1 coverage==7.16.2 pytest==9.2.0
       - name: Module rule (every integration is a switchable module)
         run: python tests/test_modules.py
-      - name: The rest of the suite
+      - name: The whole suite, with coverage
+        run: python tests/run_all.py --coverage --junit test-results.xml
+      # .coveragerc sets fail_under: a change that leaves more of app/ untested than that fails here.
+      - name: Coverage
+        if: ${{ !cancelled() }}
         run: |
-          set -e
-          for t in tests/test_*.py tests/smoke_test.py; do
-            [ "$t" = tests/test_modules.py ] && continue
-            echo "::group::$t"
-            python "$t"
-            echo "::endgroup::"
-          done
+          coverage combine
+          coverage report | tee coverage.txt
+          { echo '### Coverage'; echo '```'; tail -1 coverage.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: ${{ !cancelled() }}
+        with:
+          name: test-results
+          path: |
+            test-results.xml
+            coverage.txt
+      # The browser-side scripts' own tests (node:test, no packages to install).
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version: '22'
+      - name: JavaScript tests
+        run: node --test tests/js/*.test.mjs     # Node 22 takes files, not a folder
 
   # The app now runs natively on each desktop OS (#180), so the suite runs on macOS and Windows too. A separate
   # job, not a matrix on the one above: main's branch protection requires the check named "Tests".
@@ -52,8 +67,8 @@ jobs:
       matrix:
         os: [macos-latest, windows-latest]
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-python@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: '3.15'
           cache: pip
@@ -62,13 +77,45 @@ jobs:
         shell: bash
       - name: The suite
         shell: bash
-        run: |
-          set -e
-          for t in tests/test_*.py tests/smoke_test.py; do
-            echo "::group::$t"
-            python "$t"
-            echo "::endgroup::"
-          done
+        run: python tests/run_all.py
+
+  # The operator and viewer pages in headless Chromium (tests/test_browser.py; skipped in the jobs above, which do
+  # not install Playwright). Its own job so a browser download problem never hides the suite's result.
+  browser:
+    name: Tests (browser)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.15'
+          cache: pip
+      # sounddevice needs PortAudio and a running PulseAudio to import, as in the Tests job above.
+      - run: sudo apt-get update && sudo apt-get install -y libportaudio2 pulseaudio
+      - run: pulseaudio -D --exit-idle-time=-1 --load=module-null-sink && pactl info | head -3
+      - run: pip install -r requirements.txt httpx2==2.13.1 playwright==1.65.2
+      - run: python -m playwright install --with-deps chromium-headless-shell
+      - name: The pages in a browser
+        run: python tests/test_browser.py
+
+  # The desktop shell's own Rust unit tests (desktop/src-tauri). macOS, because on Linux the Tauri crates need
+  # the WebKitGTK development packages just to compile.
+  rust:
+    name: Tests (desktop shell)
+    runs-on: macos-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca # stable
+        with:
+          toolchain: stable
+      - uses: swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          workspaces: desktop/src-tauri
+      - name: cargo test
+        working-directory: desktop/src-tauri
+        run: cargo test --locked
 
   # Known vulnerabilities in what Relay ships: the Python backend (requirements.txt and the hash-pinned
   # release set) and the desktop shell's Rust crates and npm packages. Runs on every pull request, so a new
@@ -78,8 +125,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-python@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: '3.15'
       - name: pip-audit
@@ -89,13 +136,15 @@ jobs:
           pip-audit --strict --require-hashes --disable-pip -r requirements-release.txt
       - name: The release set matches requirements.txt
         run: python tests/test_release_lock.py
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
           node-version: '22'
       - name: npm audit
         working-directory: desktop
         run: npm audit --audit-level=moderate
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca # stable
+        with:
+          toolchain: stable
       - name: cargo audit
         working-directory: desktop/src-tauri
         run: |

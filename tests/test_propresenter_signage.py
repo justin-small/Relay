@@ -32,19 +32,8 @@ from app.modules.propresenter.signagesync import PLAYLIST_NAME, PREFIX, Sync  # 
 from app.modules.propresenter.ppcontrol import Control  # noqa: E402
 from app.modules.signage import schedule, store, takeover  # noqa: E402
 
-fails = []
-
-
-def eq(label, got, want):
-    ok = got == want
-    print(("  ok   " if ok else "  FAIL ") + label)
-    if not ok:
-        print(f"         got  {got!r}\n         want {want!r}")
-        fails.append(label)
-
-
-def check(label, cond):
-    eq(label, bool(cond), True)
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from _harness import check, eq, fails  # noqa: E402
 
 
 def jpeg(tag):

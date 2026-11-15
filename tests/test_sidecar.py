@@ -17,13 +17,8 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 from app import sidecar  # noqa: E402
 
-fails = []
-
-
-def check(label, cond, extra=""):
-    print(("  ok   " if cond else "  FAIL ") + label + ((" — " + str(extra)) if extra and not cond else ""))
-    if not cond:
-        fails.append(label)
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from _harness import check, fails  # noqa: E402
 
 
 print("events")

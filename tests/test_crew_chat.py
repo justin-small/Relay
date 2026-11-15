@@ -23,15 +23,8 @@ from app.main import app  # noqa: E402
 from app.modules.crew import chat, paging, people, webpush  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
 
-fails = []
-
-
-def eq(label, got, want):
-    ok = got == want
-    print(("  ok   " if ok else "  FAIL ") + label)
-    if not ok:
-        print(f"         got  {got!r}\n         want {want!r}")
-        fails.append(label)
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from _harness import eq, fails  # noqa: E402
 
 
 config.ensure_file()

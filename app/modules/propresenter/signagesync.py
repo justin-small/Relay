@@ -145,7 +145,7 @@ class Sync:
             plan.append((it, got, cues))
         rev = hashlib.sha1(json.dumps([playlist, [(it["index"], it["presentation"], got["rev"],
                                                    [c["index"] for c in cues]) for it, got, cues in plan]]
-                                      ).encode()).hexdigest()[:16]
+                                      ).encode(), usedforsecurity=False).hexdigest()[:16]
         if rev == self.rev and not force:
             return
         slides: list[tuple[str, bytes, bytes]] = []

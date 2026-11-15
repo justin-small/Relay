@@ -18,14 +18,8 @@ import numpy as np  # noqa: E402
 from app import audio, config, engine as engine_mod  # noqa: E402
 from app.modules import Manifest, Module  # noqa: E402
 
-fails = []
-
-
-def check(label, cond, detail=""):
-    print(("  ok   " if cond else "  FAIL ") + label)
-    if not cond:
-        print(f"         {detail!r}")
-        fails.append(label)
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from _harness import check, fails  # noqa: E402
 
 
 def until(cond, secs=5.0):

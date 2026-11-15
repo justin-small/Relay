@@ -805,7 +805,8 @@ Two switchers can feed the screens at once: a camera is live when either says so
 - The operator panel is a different matter. It is served only over HTTPS, by Relay itself,
   on its own port (443), with a self-signed certificate whose fingerprint you check once.
   Its responses carry HSTS (397 days), `X-Content-Type-Options: nosniff`,
-  `X-Frame-Options: DENY` and `Referrer-Policy: no-referrer`, and the panel is never
+  `X-Frame-Options: SAMEORIGIN` (only the panel itself may frame its pages, for the overlay
+  builder's preview) and `Referrer-Policy: no-referrer`, and the panel is never
   reachable in cleartext on any interface: the viewer port refuses its routes.
 - If Relay ever sits behind a reverse proxy, the app reads `X-Forwarded-For` and
   `X-Forwarded-Proto`, but **only from a loopback peer**. A direct client on the LAN cannot
@@ -928,6 +929,24 @@ The suites run against the source tree, so they need a local virtualenv:
 
 ```bash
 python3 -m venv .venv && .venv/bin/pip install -r requirements.txt httpx2
+.venv/bin/python tests/run_all.py            # every test file, several at a time; lists every failure
+.venv/bin/python tests/run_all.py -k crew    # only files whose name contains "crew"
+```
+
+`tests/run_all.py --coverage` also records coverage (`pip install coverage`, then
+`coverage combine && coverage report`; CI fails below the floor in `.coveragerc`).
+`python -m pytest tests` runs the same files through pytest, one item per file, and
+collects ordinary pytest tests (top-level `def test_`) written beside them. The
+shared checks (`eq`, `check`, `section`, `wait_for`, `tmpdir`) are in
+`tests/_harness.py`. `tests/test_browser.py` opens the pages in headless Chromium and
+is skipped unless Playwright is installed (`pip install playwright && python -m
+playwright install chromium-headless-shell`). The browser scripts' tests run with
+`node --test tests/js/*.test.mjs`, and the desktop shell's with `cargo test` in
+`desktop/src-tauri`.
+
+Each file also runs on its own:
+
+```bash
 .venv/bin/python tests/smoke_test.py   # config, hub, audio, routes, auth, blocklist, recording
 .venv/bin/python tests/test_redact.py  # blocklist filtering, incl. split-delta cases
 .venv/bin/python tests/test_schedules.py  # schedule windows, DST, override rules, admin API
@@ -1126,7 +1145,7 @@ person presses RESET on the panel, because the CrowPanel does not restart from
 USB. Web Serial is allowed on that one path
 (`Permissions-Policy: serial=(self)`) and denied everywhere else. esptool-js is
 vendored in `app/static/vendor/esptool-js/` (Apache-2.0; `VERSION` says which);
-the steps are tested with `node --test tests/js/`.
+the steps are tested with `node --test tests/js/*.test.mjs`.
 
 **A screen choice is not undone.** The operator's feed carries a revision. The
 panel reports the last one it applied (`feed_rev`) and Relay sends a `set_feed`

@@ -45,22 +45,8 @@ SETUP_TOKEN = "setup-token-1"
 DB_DOWN = M.DB_DOWN_SENTENCE
 MSG = users.MESSAGES
 
-fails = []
-
-
-def check(label, cond, extra=""):
-    print(("  ok   " if cond else "  FAIL ") + label + ((" — " + str(extra)) if extra and not cond else ""))
-    if not cond:
-        fails.append(label)
-
-
-def eq(label, got, want):
-    ok = got == want
-    print(("  ok   " if ok else "  FAIL ") + label)
-    if not ok:
-        # The values are not printed: this file compares passwords, PINs and tokens, and a CI log is public.
-        print("         got and want differ (values withheld; re-run locally with a print to see them)")
-        fails.append(label)
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from _harness import check, eq, fails  # noqa: E402
 
 
 def anon(base=ADMIN, **kw):
@@ -803,7 +789,7 @@ eq("an admin changes the blocklist", admin_c.post("/api/admin/config", json={"bl
 eq("an admin changes the source language", admin_c.post("/api/admin/config", json={"source_language": "ENGLISH"}).status_code, 200)
 r = owner_c.post("/api/admin/config", json={"openai_api_key": "sk-owner-9999"})
 eq("an owner sets the key", r.status_code, 200)
-eq("…and it is saved", config.get()["openai_api_key"], "sk-owner-9999")
+check("…and it is saved", config.get()["openai_api_key"] == "sk-owner-9999")  # compared, not printed: CodeQL treats it as a password
 check("…and never comes back whole", "sk-owner-9999" not in r.text)
 cookie_before = owner_c.cookies.get("relay_admin")
 token_before = config.get().get("admin_token")
@@ -868,7 +854,7 @@ for path in ("/api/admin/status", "/api/admin/state", "/api/admin/me/pin", "/api
     eq(f"pending change: {path} is 403 password_change_required", (r.status_code, detail(r)), (403, "password_change_required"))
 r = nb.get("/api/admin/me")
 eq("…but /me still works", r.status_code, 200)
-eq("…and says a change is pending", r.json()["user"]["must_change_password"], True)
+check("…and says a change is pending", r.json()["user"]["must_change_password"] is True)  # compared, not printed: CodeQL treats it as a password
 nb2 = anon()
 login(nb2, "newbie", "temporary one")                           # a second browser
 r = nb.post("/admin/password", data={"current": "wrong wrong", "new": "my new password", "confirm": "my new password"})
@@ -886,7 +872,7 @@ r = nb.post("/admin/password", data={"current": "temporary one", "new": "my new 
 eq("the form: a good change redirects to /admin", (r.status_code, r.headers["location"]), (303, "/admin"))
 check("…and now the admin page opens", '<h1 class="brand">' in nb.get("/admin").text)
 eq("…and the API", nb.get("/api/admin/status").status_code, 200)
-eq("…and /me says nothing is pending", nb.get("/api/admin/me").json()["user"]["must_change_password"], False)
+check("…and /me says nothing is pending", nb.get("/api/admin/me").json()["user"]["must_change_password"] is False)  # compared, not printed: CodeQL treats it as a password
 eq("their other browser was signed out by the change", nb2.get("/api/admin/me").status_code, 401)
 eq("the old password no longer signs in", login(anon(), "newbie", "temporary one").status_code, 401)
 eq("signed out, the password form posts go to the sign-in",
@@ -964,7 +950,7 @@ eq("an admin resets their password", (r.status_code, r.json()), (200, {"ok": Tru
 eq("…which ends their sessions", tmp_c.get("/api/admin/me").status_code, 401)
 t2 = anon()
 login(t2, "tempop", "reset reset 1")
-eq("…and the new one is temporary", t2.get("/api/admin/me").json()["user"]["must_change_password"], True)
+check("…and the new one is temporary", t2.get("/api/admin/me").json()["user"]["must_change_password"] is True)  # compared, not printed: CodeQL treats it as a password
 tmp_c = _db.client(app, "operator", username="tempop")
 r = admin_c.put(f"/api/admin/users/{tid}", json={"disabled": True})
 eq("an admin turns an operator off", (r.status_code, r.json()["user"]["disabled"]), (200, True))

@@ -8,6 +8,7 @@ not seen: docs/modules.md says how to show one safely, and review covers the res
 
 Offline, no server. Run: .venv/bin/python tests/test_prefs_render.py
 """
+import os
 import re
 import sys
 from pathlib import Path
@@ -20,13 +21,8 @@ PREF = re.compile(r"\bprefs?\b|scope_prefs|\.prefs\b")
 SINKS = re.compile(
     r"\.innerHTML\b|\.outerHTML\b|insertAdjacentHTML|document\.write(ln)?\s*\(|\|\s*safe\b|\bMarkup\s*\(")
 
-fails = []
-
-
-def check(label, cond, extra=""):
-    print(("  ok   " if cond else "  FAIL ") + label + ((" — " + str(extra)) if extra and not cond else ""))
-    if not cond:
-        fails.append(label)
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from _harness import check, fails  # noqa: E402
 
 
 def offending(text):

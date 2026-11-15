@@ -25,13 +25,8 @@ UTC = timezone.utc
 CHI = ZoneInfo("America/Chicago")
 NY = ZoneInfo("America/New_York")
 
-fails = []
-def check(label, got, want):
-    ok = got == want
-    print(("  ok   " if ok else "  FAIL ") + label)
-    if not ok:
-        print(f"         got  {got!r}\n         want {want!r}")
-        fails.append(label)
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from _harness import eq as check, fails  # noqa: E402
 
 
 def raises(label, fn, fragment):

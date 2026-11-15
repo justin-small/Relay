@@ -2,6 +2,7 @@
 
 Run: .venv/bin/python tests/test_redact.py
 """
+import os
 import random
 import sys
 from pathlib import Path
@@ -10,11 +11,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from app.redact import Redactor
 
-fails = []
-def check(label, got, want):
-    ok = got == want
-    print(("  ok   " if ok else "  FAIL ") + label + ("" if ok else f"\n         got  {got!r}\n         want {want!r}"))
-    if not ok: fails.append(label)
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from _harness import eq as check, fails  # noqa: E402
+
 
 def stream(terms, deltas):
     """Feed deltas one at a time; return (visible_at_each_step, final_text)."""

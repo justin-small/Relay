@@ -176,7 +176,7 @@ def clean_list(raw) -> list[dict]:
         sid = str((item or {}).get("id") or "") if isinstance(item, dict) else ""
         if not _ID.match(sid):
             blob = json.dumps(item, sort_keys=True, default=str).encode()
-            sid = hashlib.sha1(blob).hexdigest()[:8]
+            sid = hashlib.sha1(blob, usedforsecurity=False).hexdigest()[:8]
         try:
             s = validate(item, sid=sid)
         except ValueError:

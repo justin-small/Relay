@@ -1,4 +1,5 @@
 """tools/release_tools.py: the version comes from the tag, and latest.json lists only signed artifacts. Offline."""
+import os
 import json
 import sys
 import tempfile
@@ -7,13 +8,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "tools"))
 import release_tools as rt  # noqa: E402
 
-failures = []
-
-
-def check(name, ok):
-    print(("ok   " if ok else "FAIL ") + name)
-    if not ok:
-        failures.append(name)
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from _harness import check, fails as failures  # noqa: E402
 
 
 def refuses(fn, *a, **k):

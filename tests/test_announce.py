@@ -2,6 +2,7 @@
 
 No sockets are opened. Run: python3 tests/test_announce.py
 """
+import os
 import socket
 import struct
 import sys
@@ -11,11 +12,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from app import announce as a
 
-fails = []
-def check(label, got, want):
-    ok = got == want
-    print(("  ok   " if ok else "  FAIL ") + label + ("" if ok else f"\n         got  {got!r}\n         want {want!r}"))
-    if not ok: fails.append(label)
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from _harness import eq as check, fails  # noqa: E402
+
 
 def parse(pkt):
     """(flags, [(name, type, ttl, rdata_parsed)] answers, additional) of a response."""

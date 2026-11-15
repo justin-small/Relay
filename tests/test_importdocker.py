@@ -22,13 +22,8 @@ _db.reset()
 
 from app import config, importdocker  # noqa: E402
 
-fails = []
-
-
-def check(label, cond):
-    print(("  ok   " if cond else "  FAIL ") + label)
-    if not cond:
-        fails.append(label)
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from _harness import check, fails  # noqa: E402
 
 
 def snapshot(folder: Path) -> dict:

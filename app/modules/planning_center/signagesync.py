@@ -271,7 +271,7 @@ class Sync:
                     continue
                 cat = s["note_category"].lower()
                 body = next((n["content"] for n in it["notes"] if cat and n["category"].lower() == cat), "")
-                out.append({"kind": "text", "key": hashlib.sha1(f"{st}:{it['id']}".encode()).hexdigest()[:16],
+                out.append({"kind": "text", "key": hashlib.sha1(f"{st}:{it['id']}".encode(), usedforsecurity=False).hexdigest()[:16],
                             "title": it["title"].strip()[:120], "body": body.strip()[:600]})
         if s["plan_files"] and not s["item_match"]:
             for a in client.plan_attachments(st, plan["id"]):
@@ -301,7 +301,7 @@ class Sync:
             raise SyncError("too_many")
         rev = hashlib.sha1(json.dumps([s, plan["id"], [(x["kind"], x.get("id") or x["key"], x.get("updated_at"),
                                                         x.get("title"), x.get("body")) for x in playable]]
-                                      ).encode()).hexdigest()[:16]
+                                      ).encode(), usedforsecurity=False).hexdigest()[:16]
         if rev == self.rev and not force:
             return
         try:

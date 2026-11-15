@@ -32,22 +32,8 @@ from app.users import Permission, Refused  # noqa: E402
 
 users.SCRYPT_N = 2 ** 10      # fast hashing for the suite; test_hash_format checks the stored parameters
 
-fails = []
-
-
-def check(label, cond, extra=""):
-    print(("  ok   " if cond else "  FAIL ") + label + ((" — " + str(extra)) if extra and not cond else ""))
-    if not cond:
-        fails.append(label)
-
-
-def eq(label, got, want):
-    ok = got == want
-    print(("  ok   " if ok else "  FAIL ") + label)
-    if not ok:
-        # The values are not printed: this file compares passwords, PINs and tokens, and a CI log is public.
-        print("         got and want differ (values withheld; re-run locally with a print to see them)")
-        fails.append(label)
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from _harness import check, eq, fails  # noqa: E402
 
 
 def refused(label, key, fn, *a, **kw):
@@ -296,7 +282,7 @@ for bad_name in ("ab", "x" * 33, "has space", "UPPER!", "a/b", "", None, "tab\tx
     refused(f"username {bad_name!r} refused", "bad_username", users.create, bad_name, "N", "viewer", "password one")
 a = users.create("  Mixed.Case_1-x  ", "  Pat Smith  ", "viewer", "password one")
 eq("username is lowercased and trimmed, name trimmed", (a.username, a.name), ("mixed.case_1-x", "Pat Smith"))
-eq("a new account is temporary by default", a.must_change_password, True)
+check("a new account is temporary by default", a.must_change_password is True)  # compared, not printed: CodeQL treats it as a password
 refused("duplicate username (case-insensitive)", "username_taken", users.create, "MIXED.case_1-x", "N", "viewer",
         "password one")
 for bad_n in ("", "   ", "x" * 81, None, "bell\x07"):
@@ -339,7 +325,7 @@ users.update(dis.id, disabled=True, actor=own)
 refused("disabled user with the right password", "disabled", users.authenticate, "sleepy", "password one")
 refused("disabled user with a wrong password reveals nothing", "bad_login", users.authenticate, "sleepy", "nope nope")
 temp = users.create("newbie", "New B", "viewer", "temp pass 1", actor=own)
-eq("authenticate returns must_change_password", users.authenticate("newbie", "temp pass 1").must_change_password, True)
+check("authenticate returns must_change_password", users.authenticate("newbie", "temp pass 1").must_change_password is True)  # compared, not printed: CodeQL treats it as a password
 check("password_hash is never on a User", not hasattr(au, "password_hash"))
 row = [r for r in users.list_users() if r["username"] == "owner"][0]
 eq("list_users keys", sorted(row), sorted(["id", "username", "name", "role", "disabled", "must_change_password",
@@ -407,7 +393,7 @@ usr = mk("pat", "operator", "first password")
 t_a, age_a = users.start_session(usr, via="password")
 t_b, _ = users.start_session(usr, via="password")
 t_o, _ = users.start_session(own, via="password")
-eq("password sessions last 30 days", age_a, 30 * 24 * 3600)
+check("password sessions last 30 days", age_a == 30 * 24 * 3600)  # compared, not printed: CodeQL treats it as a password
 check("tokens are random and long", t_a != t_b and len(t_a) >= 40)
 check("only the sha256 is stored, not the token",
       db.one("select count(*) as n from sessions where token_hash = ?", (t_a,))["n"] == 0
@@ -444,21 +430,21 @@ got = users.get(usr.id)
 check("reset sets must_change_password", got.must_change_password)
 check("reset ends all the user's sessions", users.session_user(t_a) is None)
 check("reset clears the PIN", not got.pin_set)
-eq("the reset password works", users.authenticate("pat", "reset password 1").must_change_password, True)
+check("the reset password works", users.authenticate("pat", "reset password 1").must_change_password is True)  # compared, not printed: CodeQL treats it as a password
 users.set_password(usr.id, "plain password 1", temporary=False, actor=own)
 check("a non-temporary set clears the flag", not users.get(usr.id).must_change_password)
 refused("reset checks the password", "bad_password", users.set_password, usr.id, "x", temporary=True, actor=own)
 
 print("\nsession lifetime")
 t_p, age_p = users.start_session(usr, via="password")
-eq("max_age for password", age_p, 2592000)
+check("max_age for password", age_p == 2592000)  # compared, not printed: CodeQL treats it as a password
 exp = _left(t_p)
-check("30 days stored", timedelta(days=29, hours=23) < exp <= timedelta(days=30), exp)
+check("30 days stored", timedelta(days=29, hours=23) < exp <= timedelta(days=30))
 dev_tok, dev = users.trust_device("Booth iPad", own)
 t_n, age_n = users.start_session(usr, via="pin", device_id=dev["id"])
-eq("max_age for pin", age_n, 12 * 3600)
+check("max_age for pin", age_n == 12 * 3600)  # compared, not printed: CodeQL treats it as a password
 exp = _left(t_n)
-check("12 hours stored", timedelta(hours=11, minutes=59) < exp <= timedelta(hours=12), exp)
+check("12 hours stored", timedelta(hours=11, minutes=59) < exp <= timedelta(hours=12))
 try:
     users.start_session(usr, via="pin")
     check("a pin session needs a device", False)

@@ -31,19 +31,8 @@ from app.modules.signage import takeover as tk  # noqa: E402
 from app.alerts import alerts as relay_alerts  # noqa: E402
 from datetime import datetime, timezone  # noqa: E402
 
-fails = []
-
-
-def eq(label, got, want):
-    ok = got == want
-    print(("  ok   " if ok else "  FAIL ") + label)
-    if not ok:
-        print(f"         got  {got!r}\n         want {want!r}")
-        fails.append(label)
-
-
-def check(label, cond):
-    eq(label, bool(cond), True)
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from _harness import check, eq, fails  # noqa: E402
 
 
 PNG = b"\x89PNG\r\n\x1a\n" + b"\x00" * 64

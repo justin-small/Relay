@@ -56,7 +56,7 @@ _hex = pp.hex_color
 
 def _rev(*parts: Any) -> str:
     """A short marker that changes when what it was made from does; it keys the thumbnail cache."""
-    return hashlib.sha1(json.dumps(parts, sort_keys=True).encode()).hexdigest()[:10]
+    return hashlib.sha1(json.dumps(parts, sort_keys=True).encode(), usedforsecurity=False).hexdigest()[:10]
 
 
 def _id(obj: Any) -> dict:
