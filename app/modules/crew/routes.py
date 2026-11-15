@@ -108,6 +108,24 @@ def crew_plan():
     }}
 
 
+@router.get("/crew/api/today", dependencies=USE)
+def crew_today(request: Request):
+    """The booth-off screen (#234): is capture running, and this person's call time and position. Only the
+    person's own teams and next call time; nothing about anyone else."""
+    from ...engine import engine
+
+    user = request.state.user
+    tracks, zone = calltimes._state()
+    try:
+        teams = checklists.teams_of(user.id, tracks)
+        call = calltimes.next_for(user.id, tracks, zone)
+        role = people.profile(user.id)["role"]
+    except paging.Invalid:
+        teams, call, role = [], None, ""
+    return {"running": bool(engine.running), "teams": teams, "role": role, "zone": str(zone) if zone else None,
+            "call": call}
+
+
 @router.get("/api/admin/crew", dependencies=VIEW)
 def admin_get():
     return _settings()

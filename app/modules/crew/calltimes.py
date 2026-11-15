@@ -107,6 +107,27 @@ def occasions(rule: dict, tracks, now: float, zone) -> list[tuple[str, float, st
     return [(local.date().isoformat(), at.timestamp(), None)]
 
 
+def next_for(user_id: int, tracks, zone, now: float | None = None) -> dict | None:
+    """The next call time (booth-off screen, #234) for this person: the soonest enabled rule for a team they serve on
+    today whose moment has not passed. {"ts", "team"}, or None. Works from the same rules the pager fires."""
+    from . import checklists
+
+    ts = time.time() if now is None else now
+    if not tracks or zone is None:
+        return None
+    teams = checklists.teams_of(user_id, tracks)
+    pid = checklists._pc_person(user_id)
+    best = None
+    for rule in list_rules():
+        if not rule["enabled"] or rule["team"] not in teams:
+            continue
+        for _occasion, at, time_id in occasions(rule, tracks, ts, zone):
+            serves = any(r["person"] == pid for r in paging.serving(tracks, time_id).get(rule["team"], []))
+            if serves and at >= ts and (best is None or at < best["ts"]):
+                best = {"ts": at, "team": rule["team"]}
+    return best
+
+
 def _state():
     """Today's followed plans and Planning Center's zone, when that module is on."""
     from .. import modules as registry

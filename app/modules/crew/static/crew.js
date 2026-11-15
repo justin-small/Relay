@@ -6,7 +6,7 @@
   }
   const net = document.getElementById('crNet');
   function online() { if (net) net.hidden = navigator.onLine; }
-  window.addEventListener('online', function () { online(); loadPlan(); });
+  window.addEventListener('online', function () { online(); loadPlan(); loadToday(); });
   window.addEventListener('offline', online);
   online();
 
@@ -151,6 +151,33 @@
     const want = location.hash.slice(1);
     select(tabs.find(function (t) { return t.dataset.tab === want; }) || tabs[0], false);
   }
+
+  // Booth-off screen (#234): while capture is not running, the call time and position come first, then the plan,
+  // checklist and chat. While it runs the page is as it always was.
+  const main = document.getElementById('crMain'), today = document.getElementById('crToday');
+  async function loadToday() {
+    if (!today) return;
+    try {
+      const res = await fetch('/crew/api/today', { credentials: 'same-origin', cache: 'no-store' });
+      if (!res.ok) return;
+      const d = await res.json(), off = !d.running;
+      main.classList.toggle('cr-off', off);
+      today.hidden = !off;
+      if (!off) return;
+      const pos = d.teams.length ? d.teams.join(', ') : d.role;
+      document.getElementById('crPos').textContent = pos || 'No position today';
+      document.getElementById('crCall').textContent = d.call
+        ? 'Call time ' + time(d.call.ts, d.zone) + (d.teams.length > 1 ? ' · ' + d.call.team : '')
+        : 'No call time today.';
+      if (!location.hash) {
+        const lists = tabs.find(function (t) { return t.dataset.tab === 'checklists'; });
+        if (lists && lists.getAttribute('aria-selected') !== 'true' && !tabs.some(function (t) { return t.dataset.touched; })) select(lists, false);
+      }
+    } catch (e) { /* offline: the page stays as it was */ }
+  }
+  tabs.forEach(function (t) { t.addEventListener('click', function () { t.dataset.touched = '1'; }); });
+  loadToday();
+  setInterval(loadToday, 30000);
 
   loadPlan();
   setInterval(loadPlan, 30000);
