@@ -136,6 +136,9 @@ class RemoteCrew(Remote):
                 reply = {"type": "error", "for": kind, "text": exc.message}
             except devices.Refused as exc:
                 reply = {"type": "error", "for": kind, "text": exc.message}
+            except Exception:       # LiveKit down or an audio-side failure: the phone is told, its socket stays up
+                log.exception("intercom_remote: %s failed", kind)
+                reply = {"type": "error", "for": kind, "text": "The church's intercom could not do that just now."}
         await presence._send(conn.ws, reply)
         return True
 
