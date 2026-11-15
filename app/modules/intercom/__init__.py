@@ -39,6 +39,7 @@ class Intercom(Module):
     admin_scripts = ("intercom.js",)
     route_prefixes = ("/api/admin/intercom", "/intercom")
     permissions = (
+        Permission("intercom.use", "Use the crew intercom on a phone", "Intercom", "member"),
         Permission("intercom.view", "See the intercom media server and its log", "Intercom", "viewer"),
         Permission("intercom.manage", "Restart the intercom media server and change its settings", "Intercom",
                    "admin"),
@@ -46,6 +47,26 @@ class Intercom(Module):
 
     def __init__(self) -> None:
         self._task: asyncio.Task | None = None
+
+    def attach(self) -> None:
+        from ... import users
+        from . import store
+        from .presence import presence
+
+        if presence.user_signed_out not in users.signed_out_hooks:
+            users.signed_out_hooks.append(presence.user_signed_out)
+        if presence.member_changed not in store.member_hooks:
+            store.member_hooks.append(presence.member_changed)
+
+    def detach(self) -> None:
+        from ... import users
+        from . import store
+        from .presence import presence
+
+        for lst, fn in ((users.signed_out_hooks, presence.user_signed_out), (store.member_hooks,
+                                                                           presence.member_changed)):
+            if fn in lst:
+                lst.remove(fn)
 
     def clean(self, raw: Any) -> dict:
         raw = raw if isinstance(raw, dict) else {}
@@ -66,6 +87,9 @@ class Intercom(Module):
         from ... import config
         from .livekit import supervisor
 
+        from .presence import presence
+
+        presence.loop = asyncio.get_running_loop()
         supervisor.begin(config.get()["intercom"])
         self._task = asyncio.create_task(self._housekeeping())
 
@@ -77,6 +101,11 @@ class Intercom(Module):
             with contextlib.suppress(asyncio.CancelledError, Exception):
                 await self._task
             self._task = None
+        from .presence import presence
+
+        for device_id in list(presence.conns):
+            await presence.drop(device_id, 1001, "server_stopping")
+        presence.loop = None
         await supervisor.end()
 
     async def _housekeeping(self) -> None:
