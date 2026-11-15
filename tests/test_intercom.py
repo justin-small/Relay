@@ -203,7 +203,7 @@ check("the secret is in the config but not in the admin view",
 
 # ------------------------------------------------------------------ the supervisor
 FAKE = f'''#!{sys.executable}
-import http.server, sys
+import http.server, socketserver, sys
 cfg = open(sys.argv[sys.argv.index("--config") + 1]).read()
 port = int(cfg.split("port: ")[1].split()[0])
 class H(http.server.BaseHTTPRequestHandler):
@@ -211,7 +211,11 @@ class H(http.server.BaseHTTPRequestHandler):
     def do_GET(self):
         self.send_response(200); self.end_headers(); self.wfile.write(b"OK")
 print("started with a secret in view: " + cfg.split("keys:")[1].split(":")[1].strip(), flush=True)
-http.server.HTTPServer(("127.0.0.1", port), H).serve_forever()
+class S(http.server.HTTPServer):
+    def server_bind(self):          # HTTPServer looks up this machine's host name here, which can take
+        socketserver.TCPServer.server_bind(self)   # many seconds on a CI runner with no DNS
+        self.server_port = self.server_address[1]
+S(("127.0.0.1", port), H).serve_forever()
 '''
 
 
