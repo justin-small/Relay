@@ -189,7 +189,8 @@ declares) while the module is on. The module's template in `templates/` is rende
 scripts in `Module.crew_scripts` (from the module's `static/`) are loaded on the page; the page fires a `crew:tab`
 event on `document` when the tab changes. The routes a tab calls check the permission themselves. A tab that needs
 the microphone lists the page in `Module.microphone_pages` (`("/crew",)`): only then, and only while that module is
-on, is the page sent `microphone=(self)` instead of `microphone=()`.
+on, is the page sent `microphone=(self)` instead of `microphone=()`. A tab that needs the phone's position (crew
+check-in, #231) lists the page in `Module.geolocation_pages` the same way and is sent `geolocation=(self)`.
 
 ## The audit log
 

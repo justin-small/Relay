@@ -7,16 +7,25 @@
   function fill(cfg) {
     $('crName').value = cfg.name || '';
     $('crPlan').checked = !!cfg.show_plan;
+    const fence = cfg.geofence || {};
+    $('crLat').value = fence.lat === undefined ? '' : fence.lat; $('crLon').value = fence.lon === undefined ? '' : fence.lon;
+    $('crRad').value = fence.radius_m === undefined ? '' : fence.radius_m;
     const manage = can('crew.manage');
-    ['crName', 'crPlan', 'crSave'].forEach(function (id) { $(id).disabled = !manage; });
+    ['crName', 'crPlan', 'crSave', 'crLat', 'crLon', 'crRad'].forEach(function (id) { $(id).disabled = !manage; });
     $('crLink').textContent = location.origin + '/crew';
+  }
+  // Empty fields mean no geofence; anything typed is sent as numbers and checked by the server.
+  function geofenceValue() {
+    const lat = $('crLat').value.trim(), lon = $('crLon').value.trim(), rad = $('crRad').value.trim();
+    if (!lat && !lon && !rad) return null;
+    return { lat: lat === '' ? null : Number(lat), lon: lon === '' ? null : Number(lon), radius_m: rad === '' ? 150 : Number(rad) };
   }
   async function refresh() { try { fill(await api('/api/admin/crew')); } catch (e) { /* keeps what it had */ } }
   $('crSave').addEventListener('click', async function () {
     $('crErr').hidden = true; $('crMsg').textContent = '';
     const res = await fetch('/api/admin/crew', { method: 'POST', credentials: 'same-origin',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: $('crName').value, show_plan: $('crPlan').checked }) });
+      body: JSON.stringify({ name: $('crName').value, show_plan: $('crPlan').checked, geofence: geofenceValue() }) });
     const data = await res.json().catch(function () { return {}; });
     if (!res.ok) { $('crErr').textContent = data.detail || data.error || 'That did not work.'; $('crErr').hidden = false; return; }
     fill(data); $('crMsg').textContent = 'Saved';
@@ -156,6 +165,29 @@
     if (d) { $('ctMsg').value = ''; drawCalls(d); }
   });
   async function callsRefresh() { try { drawCalls(await api('/api/admin/crew/calltimes')); } catch (e) { /* keeps what it had */ } }
-  document.addEventListener('relay:config', function () { refresh(); peopleRefresh(); drawn = false; pagesRefresh(); callsRefresh(); });
-  refresh(); peopleRefresh(); pagesRefresh(); callsRefresh();
+  // -- arrivals (#231): the board is refreshed while the page is open.
+  const STATE = { arrived: 'Arrived', late_arrival: 'Arrived late', waiting: 'Not yet', overdue: 'Overdue', no_account: 'No crew account' };
+  function drawBoard(d) {
+    const body = document.querySelector('#crBoard tbody'); body.textContent = '';
+    $('crBoardCount').textContent = d.arrived + ' of ' + d.total + ' arrived';
+    d.people.forEach(function (p) {
+      const tr = document.createElement('tr');
+      const at = function (ts) { return ts ? new Date(ts * 1000).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : ''; };
+      tr.appendChild(cell(p.name)); tr.appendChild(cell(p.teams.join(', '))); tr.appendChild(cell(at(p.call_ts) || '\u2014'));
+      tr.appendChild(cell(STATE[p.state] + (p.arrived_ts ? ' ' + at(p.arrived_ts) + (p.method === 'geofence' ? ' (location)' : '') : '')));
+      body.appendChild(tr);
+    });
+  }
+  async function boardRefresh() {
+    if (!can('crew.page')) return;
+    $('crBoardBox').hidden = false;
+    try { drawBoard(await api('/api/admin/crew/arrivals')); } catch (e) { /* keeps what it had */ }
+  }
+  $('crBoardClear').addEventListener('click', async function () {
+    const res = await fetch('/api/admin/crew/arrivals', { method: 'DELETE', credentials: 'same-origin' });
+    if (res.ok) drawBoard(await res.json());
+  });
+  setInterval(function () { if (document.getElementById('page-crew') && !document.getElementById('page-crew').hidden) boardRefresh(); }, 15000);
+  document.addEventListener('relay:config', function () { refresh(); peopleRefresh(); drawn = false; pagesRefresh(); callsRefresh(); boardRefresh(); });
+  refresh(); peopleRefresh(); pagesRefresh(); callsRefresh(); boardRefresh();
 })();

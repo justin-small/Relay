@@ -187,7 +187,9 @@ MIC_PERMISSIONS_POLICY = "camera=(), microphone=(self), geolocation=(), payment=
 def permissions_policy_for(path: str) -> str:
     if path == FLASH_PATH:
         return FLASH_PERMISSIONS_POLICY
-    return MIC_PERMISSIONS_POLICY if path in module_registry.microphone_pages() else PERMISSIONS_POLICY
+    policy = MIC_PERMISSIONS_POLICY if path in module_registry.microphone_pages() else PERMISSIONS_POLICY
+    # Likewise a page a switched-on module names in `geolocation_pages` (the crew page, for check-in, #231).
+    return policy.replace("geolocation=()", "geolocation=(self)") if path in module_registry.geolocation_pages() else policy
 
 
 @app.middleware("http")

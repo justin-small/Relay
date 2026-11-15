@@ -13,7 +13,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, Response
 
 from ... import audit, config
 from .. import modules as registry, require
-from . import calltimes, chat, paging, people
+from . import calltimes, chat, checkin, paging, people
 
 router = APIRouter()
 VIEW = [Depends(require("crew.view"))]
@@ -21,6 +21,7 @@ MANAGE = [Depends(require("crew.manage"))]
 PAGE = [Depends(require("crew.page"))]
 USE = [Depends(require("crew.use"))]
 CHAT = [Depends(require("crew.chat"))]
+CHECKIN = [Depends(require("crew.checkin"))]
 
 KEY = "crew"
 HERE = Path(__file__).resolve().parent
@@ -119,9 +120,13 @@ def admin_save(request: Request, payload: dict):
     show = payload.get("show_plan")
     if not isinstance(show, bool):
         raise HTTPException(400, "Choose whether the page shows the plan.")
-    clean = MODULE.clean({"name": name, "show_plan": show})
+    try:
+        fence = checkin.clean_geofence(payload.get("geofence"))
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+    clean = MODULE.clean({"name": name, "show_plan": show, "geofence": fence})
     config.save({KEY: clean}, replace=(KEY,))
-    audit.note(request, "crew.change", "Changed the crew page's setup", detail={"show_plan": clean["show_plan"]})
+    audit.note(request, "crew.change", "Changed the crew page's setup", detail={"show_plan": clean["show_plan"], "geofence": clean["geofence"] is not None})
     return _settings()
 
 
@@ -352,3 +357,51 @@ async def chat_stream(request: Request):
             chat.hub.unsubscribe(sub)
 
     return event_stream(gen())
+
+
+# -- check-in and the arrival board (#231) ------------------------------------------------------------------------
+def _plan_key() -> str:
+    tracks, zone = calltimes._state()
+    return checkin.plan_key(tracks, zone, __import__("time").time())
+
+
+def _my_checkin(user, request: Request) -> dict:
+    key = _plan_key()
+    row = checkin.mine(user.id, key)
+    return {"arrived": row is not None, "ts": row["ts"] if row else None, "method": row["method"] if row else "",
+            "lan": checkin.is_lan(request.client.host if request.client else ""),
+            "geofence": _settings().get("geofence") is not None}
+
+
+@router.get("/crew/api/checkin", dependencies=CHECKIN)
+def checkin_state(request: Request):
+    return _people_call(_my_checkin, request.state.user, request)
+
+
+@router.post("/crew/api/checkin", dependencies=CHECKIN)
+def checkin_now(request: Request, payload: dict):
+    """Mark the signed-in person arrived: from the church network, or with a position inside the geofence. The
+    position is only compared with the church's and then dropped."""
+    user = request.state.user
+    host = request.client.host if request.client else ""
+    if checkin.is_lan(host):
+        method = "network"
+    elif checkin.inside(_settings().get("geofence"), payload.get("lat"), payload.get("lon"), payload.get("accuracy")):
+        method = "geofence"
+    else:
+        raise HTTPException(403, "Relay cannot tell you are at the church.")
+    _people_call(checkin.arrive, user.id, _plan_key(), method)
+    return _people_call(_my_checkin, user, request)
+
+
+@router.get("/api/admin/crew/arrivals", dependencies=PAGE)
+def arrivals_get():
+    tracks, zone = calltimes._state()
+    return _people_call(checkin.board, tracks, zone)
+
+
+@router.delete("/api/admin/crew/arrivals", dependencies=PAGE)
+def arrivals_clear(request: Request):
+    n = _people_call(checkin.clear, _plan_key())
+    audit.note(request, "crew.arrivals_clear", "Cleared the arrival board", detail={"people": n})
+    return arrivals_get()

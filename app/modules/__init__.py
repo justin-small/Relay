@@ -136,6 +136,7 @@ class Module:
     # Exact page paths (of any module) that may use the microphone while this module is on. Everywhere else the
     # browser is told microphone=(); a page that is not listed never gets a prompt.
     microphone_pages: tuple[str, ...] = ()
+    geolocation_pages: tuple[str, ...] = ()      # pages that may ask for the phone's position (crew check-in, #231)
     # Path prefixes of every route the module adds. Core templates and scripts must not name them
     # (tests/test_modules.py), so the only way into a module is through pages it renders itself.
     route_prefixes: tuple[str, ...] = ()
@@ -530,6 +531,10 @@ class Registry:
     def microphone_pages(self) -> tuple[str, ...]:
         """The page paths that may use the microphone: those named by the modules that are on."""
         return tuple(p for mod in self.active() for p in mod.microphone_pages)
+
+    def geolocation_pages(self) -> tuple[str, ...]:
+        """The page paths that may use the location: those named by the modules that are on."""
+        return tuple(p for mod in self.active() for p in mod.geolocation_pages)
 
     def admin_scripts(self, user: User | None = None) -> list[str]:
         """The scripts of the modules that are on. With a `user`, only those of a module with at least one page
