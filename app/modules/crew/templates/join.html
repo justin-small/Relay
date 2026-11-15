@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#000000"><title>Join {{ app_name }}</title>
+<style>
+  body { margin: 0; background: #000; color: #f4f4f5; font: 16px/1.5 system-ui, sans-serif; padding: 24px; }
+  main { max-width: 34em; margin: 0 auto; }
+  h1 { font-size: 1.4em; } h2 { font-size: 1.05em; margin-top: 1.6em; }
+  p, li { color: #d1d5db; }
+  a.btn { display: inline-block; font-weight: 600; padding: 11px 20px; border-radius: 8px; background: #4ade80;
+          color: #000; text-decoration: none; margin: 4px 8px 4px 0; }
+  a.alt { background: #27272a; color: #f4f4f5; }
+</style></head><body><main>
+<h1>Join {{ app_name }}</h1>
+<p>This page is only on the church network. {{ app_name }} is a secure page, and your phone has not been told to
+  trust it yet, so it would show a warning on its own. That is expected: nobody outside this network can read it.
+  Two steps, once per phone.</p>
+<h2>1. Let your phone trust Relay</h2>
+{% if have_cert %}
+<p><a class="btn alt" href="/crew-join/relay.crt">Download the certificate</a></p>
+<ul>
+  <li><b>iPhone or iPad:</b> tap Allow, then open Settings, tap "Profile Downloaded" and Install. Then go to Settings,
+    General, About, Certificate Trust Settings and turn on trust for Relay.</li>
+  <li><b>Android:</b> open Settings, search for "CA certificate" (or Security, Encryption and credentials, Install a
+    certificate), choose CA certificate, and pick the downloaded file.</li>
+</ul>
+{% else %}
+<p>Relay has no certificate yet. Ask whoever runs the booth to open Relay once, then scan again.</p>
+{% endif %}
+<h2>2. Open the crew page</h2>
+{% if crew_url %}
+<p><a class="btn" href="{{ crew_url }}">Open {{ app_name }}</a></p>
+<p>If your phone still shows a warning, you can tap Advanced and continue; that works for this page too, but the
+  app will not install to your home screen until the certificate is trusted.</p>
+{% else %}
+<p>Relay cannot tell what its address is right now. Ask whoever runs the booth.</p>
+{% endif %}
+</main></body></html>

@@ -359,7 +359,7 @@ MIN_ROLE = {
     "atem.view": "viewer", "atem.control": "operator", "atem.manage": "admin",
     "tally_arbiter.view": "viewer", "tally_arbiter.manage": "admin",
     "parent_paging.view": "viewer", "parent_paging.control": "operator", "parent_paging.manage": "admin",
-    "crew.use": "member", "crew.view": "viewer", "crew.manage": "admin", "crew.page": "operator", "crew.chat": "member", "crew.checkin": "member", "crew.checklist": "member", "crew.checklist_edit": "operator", "crew.resources": "member", "crew.resources_edit": "operator", "crew.moderate": "operator",
+    "crew.use": "member", "crew.view": "viewer", "crew.manage": "admin", "crew.page": "operator", "crew.chat": "member", "crew.checkin": "member", "crew.checklist": "member", "crew.checklist_edit": "operator", "crew.resources": "member", "crew.resources_edit": "operator", "crew.moderate": "operator", "crew.activity": "operator",
 }
 for role in ROLE_NAMES:
     me = clients[role].get("/api/admin/me").json()
@@ -539,6 +539,7 @@ for method, path, perm in (
     ("GET", "/api/admin/crew", "crew.view"),
     ("POST", "/api/admin/crew", "crew.manage"),                           # an empty body is refused
     ("GET", "/api/admin/crew/people", "crew.view"),
+    ("GET", "/api/admin/crew/join", "crew.view"),
     ("POST", "/api/admin/crew/people/scan", "crew.manage"),               # refused while Planning Center is off
     ("PUT", "/api/admin/crew/people/{user_id}/role", "crew.manage"),
     ("POST", "/api/admin/crew/people/{user_id}/name", "crew.manage"),
@@ -1315,7 +1316,7 @@ for mid, want in (("planning_center", {"planning_center.view": "viewer", "planni
                   ("parent_paging", {"parent_paging.view": "viewer", "parent_paging.control": "operator",
                                      "parent_paging.manage": "admin"}),
                   ("crew", {"crew.use": "member", "crew.view": "viewer", "crew.manage": "admin", "crew.page": "operator", "crew.chat": "member", "crew.checkin": "member",
-                                      "crew.checklist": "member", "crew.checklist_edit": "operator", "crew.resources": "member", "crew.resources_edit": "operator", "crew.moderate": "operator"})):
+                                      "crew.checklist": "member", "crew.checklist_edit": "operator", "crew.resources": "member", "crew.resources_edit": "operator", "crew.moderate": "operator", "crew.activity": "operator"})):
     got = {p.id: p.min_role for p in registry.get(mid).permissions}
     eq(f"{mid} declares its permissions", got, want)
 

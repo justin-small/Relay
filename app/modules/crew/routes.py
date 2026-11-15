@@ -11,8 +11,8 @@ from pathlib import Path
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 
-from ... import audit, config
-from .. import modules as registry, require
+from ... import audit, config, db, netinfo, serving, tls
+from .. import listener_port, modules as registry, require
 from . import calltimes, chat, checkin, checklists, paging, people, resources
 
 router = APIRouter()
@@ -24,6 +24,7 @@ CHAT = [Depends(require("crew.chat"))]
 CHECKIN = [Depends(require("crew.checkin"))]
 CHECKLIST = [Depends(require("crew.checklist"))]
 RESOURCES = [Depends(require("crew.resources"))]
+ACTIVITY = [Depends(require("crew.activity"))]
 CHECKLIST_EDIT = [Depends(require("crew.checklist_edit"))]
 
 KEY = "crew"
@@ -36,8 +37,23 @@ ICONS = [
 ]
 
 
+
+def _log(request: Request, action: str, summary: str, *, target="", detail: dict | None = None) -> None:
+    """Enter what a crew member did from the crew page (#235). The audit middleware only sees /api/admin, so the
+    /crew/api routes write their own entry, after the work succeeded. Never put a message body or a position in
+    `detail`: only who did what, and to which thing."""
+    audit.record(action, summary, actor=request.state.user, target=target, detail=detail,
+                 ip=request.client.host if request.client else "")
+
+
 def _settings() -> dict:
     return config.get()[KEY]
+
+
+def _pkg_module():
+    from . import MODULE
+
+    return MODULE
 
 
 def _pkg():
@@ -64,6 +80,47 @@ async def crew_page(request: Request):
         "tools": registry.user_nav(got), "tabs": registry.crew_nav(got),
         "module_scripts": registry.crew_scripts(got),
     }, headers=NO_STORE)
+
+
+def _join_addresses(host: str | None = None) -> dict:
+    """The two addresses of the crew page for a phone (#236): the HTTPS one, on Relay's current LAN address and the
+    HTTPS port (not the viewer port), and the plain-HTTP join page the QR code points at, which explains the
+    certificate first. `host` is what the phone itself reached, when it is the one asking."""
+    ips = netinfo.lan_ips()
+    where = host or (ips[0] if ips else "")
+    if ":" in where and not where.startswith("["):
+        where = f"[{where}]"
+    join_port = serving.listener_bound(("/crew-join",)) or listener_port(_settings(), _pkg_module().listeners[0])
+    return {"host": where, "crew_url": serving.link("https", where, serving.admin_port(), "/crew") if where else "",
+            "join_url": serving.link("http", where, join_port, "/crew-join") if where else ""}
+
+
+@router.get("/api/admin/crew/join", dependencies=VIEW)
+def join_get():
+    return _join_addresses()
+
+
+@router.get("/crew-join", response_class=HTMLResponse)
+def join_page(request: Request):
+    """Public, on the join port only: how to trust Relay's certificate, then on to the crew page. Plain HTTP on
+    purpose: a phone that does not trust the certificate cannot show an HTTPS page, only a browser warning."""
+    _, templates = _pkg()
+    raw = request.headers.get("host") or ""
+    host = raw if raw.endswith("]") or raw.count(":") != 1 else raw.split(":", 1)[0]
+    addr = _join_addresses(host or None)
+    return templates.TemplateResponse(request, "crew/join.html", {
+        "app_name": _settings()["name"], "crew_url": addr["crew_url"], "have_cert": tls.cert_path().is_file(),
+    }, headers=NO_STORE)
+
+
+@router.get("/crew-join/relay.crt")
+def join_cert():
+    """Relay's certificate, which is public (the key never leaves the machine), for a phone to install."""
+    path = tls.cert_path()
+    if not path.is_file():
+        raise HTTPException(404, "Relay has no certificate yet.")
+    return Response(path.read_bytes(), media_type="application/x-x509-ca-cert", headers={
+        "Content-Disposition": 'attachment; filename="relay.crt"', "Cache-Control": "no-cache"})
 
 
 @router.get("/crew/_/manifest.webmanifest")
@@ -223,6 +280,19 @@ def _tracks():
     return list(follower.tracks.values())
 
 
+@router.get("/crew/api/activity", dependencies=ACTIVITY)
+def activity(actor: str | None = None, kind: str | None = None, days: int | None = None, before: int | None = None):
+    """The crew activity trail (#235): the crew entries of the audit log, newest first. Shares its storage and
+    its 90-day retention; only people who hold crew.activity read it."""
+    kind = f"crew.{kind}" if kind and "." not in kind else (kind if kind and kind.startswith("crew.") else None)
+    who = actor if actor == "system" else (int(actor) if actor and actor.isdigit() else None)
+    found = audit.search(actor=who, kind=kind or "crew", days=days, before=before)
+    people = db.query("select a.actor_id as id, a.actor_name as name from audit_log a join (select actor_id,"
+                      " max(id) as last from audit_log where action like 'crew.%' and actor_id is not null"
+                      " group by actor_id) m on a.id = m.last order by lower(a.actor_name)")
+    return {**found, "people": people}
+
+
 @router.get("/crew/api/push/key", dependencies=USE)
 def push_key():
     return {"key": _people_call(paging.public_key)}
@@ -329,6 +399,7 @@ async def chat_send(request: Request, payload: dict):
     user = request.state.user
     msg = await asyncio.to_thread(_people_call, chat.post, user, payload.get("channel"), payload.get("body"))
     chat.hub.publish(msg["channel"], {"type": "message", "message": msg})
+    _log(request, "crew.chat_send", "Sent a chat message", target=msg["channel"])
     watching = chat.hub.watching()
     asyncio.create_task(asyncio.to_thread(_quiet_notify, msg, watching))
     return {"message": msg}
@@ -345,6 +416,8 @@ def _quiet_notify(msg: dict, watching) -> None:
 async def chat_delete(request: Request, message_id: int):
     msg = await asyncio.to_thread(_people_call, chat.remove, request.state.user, message_id)
     chat.hub.publish(msg["channel"], {"type": "delete", "channel": msg["channel"], "id": msg["id"]})
+    _log(request, "crew.chat_delete", "Deleted a chat message", target=msg["channel"],
+         detail={"own": msg.get("user_id") == request.state.user.id})
     return {"ok": True}
 
 
@@ -415,6 +488,7 @@ def checkin_now(request: Request, payload: dict):
     else:
         raise HTTPException(403, "Relay cannot tell you are at the church.")
     _people_call(checkin.arrive, user.id, _plan_key(), method)
+    _log(request, "crew.checkin", "Checked in at the church", detail={"method": method})
     return _people_call(_my_checkin, user, request)
 
 
@@ -449,6 +523,8 @@ def checklists_mine(request: Request):
 def checklists_tick(request: Request, item_id: int, payload: dict):
     tracks, _ = calltimes._state()
     _people_call(checklists.tick, request.state.user.id, item_id, payload.get("done"), _plan_key(), tracks)
+    _log(request, "crew.checklist_tick", "Ticked a checklist item" if payload.get("done") else "Unticked a checklist item",
+         target=item_id)
     return _people_call(_my_checklists, request.state.user)
 
 
@@ -479,7 +555,7 @@ def checklists_add(request: Request, payload: dict):
     data = _people_call(checklists.clean, payload)
     _check_edit(request.state.user, data["position"])
     lid = _people_call(checklists.save, data)
-    audit.note(request, "crew.checklist_add", "Added a crew checklist", target=lid, detail={"position": data["position"]})
+    _log(request, "crew.checklist_add", "Added a crew checklist", target=lid, detail={"position": data["position"]})
     return checklists_templates(request)
 
 
@@ -492,7 +568,7 @@ def checklists_change(request: Request, list_id: int, payload: dict):
     _check_edit(request.state.user, old["position"])          # a lead may not take over someone else's list
     _check_edit(request.state.user, data["position"])         # nor move their own onto another position
     _people_call(checklists.save, data, list_id)
-    audit.note(request, "crew.checklist_change", "Changed a crew checklist", target=list_id, detail={"position": data["position"]})
+    _log(request, "crew.checklist_change", "Changed a crew checklist", target=list_id, detail={"position": data["position"]})
     return checklists_templates(request)
 
 
@@ -503,7 +579,7 @@ def checklists_delete(request: Request, list_id: int):
         raise HTTPException(404, "No such checklist.")
     _check_edit(request.state.user, old["position"])
     _people_call(checklists.delete, list_id)
-    audit.note(request, "crew.checklist_delete", "Removed a crew checklist", target=list_id, detail={"position": old["position"]})
+    _log(request, "crew.checklist_delete", "Removed a crew checklist", target=list_id, detail={"position": old["position"]})
     return checklists_templates(request)
 
 
@@ -575,7 +651,7 @@ def resources_add_link(request: Request, payload: dict):
     _res_edit(request.state.user, resources.clean_position(payload.get("position")))
     rid = _people_call(resources.add_url, request.state.user.id, payload.get("kind"), payload.get("title"),
                        payload.get("position"), payload.get("url"), _hosts())
-    audit.note(request, "crew.resource_add", "Added a crew resource", target=rid, detail={"kind": payload.get("kind")})
+    _log(request, "crew.resource_add", "Added a crew resource", target=rid, detail={"kind": payload.get("kind")})
     return resources_manage(request)
 
 
@@ -589,7 +665,7 @@ async def resources_add_file(request: Request, title: str = "", position: str = 
     if declared and declared.isdigit() and int(declared) > resources.FILE_LIMIT + 1024:
         raise HTTPException(413, "That file is too large. Files can be up to 25 MB.")
     rid = await _people_call_async(resources.add_file, user.id, title, pos, request.stream())
-    audit.note(request, "crew.resource_add", "Added a crew resource", target=rid, detail={"kind": "file"})
+    _log(request, "crew.resource_add", "Added a crew resource", target=rid, detail={"kind": "file"})
     return await asyncio.to_thread(resources_manage, request)
 
 
@@ -612,7 +688,7 @@ def resources_change(request: Request, rid: int, payload: dict):
     _res_edit(request.state.user, old["position"])
     _res_edit(request.state.user, resources.clean_position(payload.get("position")))
     _people_call(resources.change, rid, payload.get("title"), payload.get("position"), payload.get("url"), _hosts())
-    audit.note(request, "crew.resource_change", "Changed a crew resource", target=rid)
+    _log(request, "crew.resource_change", "Changed a crew resource", target=rid)
     return resources_manage(request)
 
 
@@ -623,7 +699,7 @@ def resources_delete(request: Request, rid: int):
         raise HTTPException(404, "No such resource.")
     _res_edit(request.state.user, old["position"])
     _people_call(resources.delete, rid)
-    audit.note(request, "crew.resource_delete", "Removed a crew resource", target=rid, detail={"kind": old["kind"]})
+    _log(request, "crew.resource_delete", "Removed a crew resource", target=rid, detail={"kind": old["kind"]})
     return resources_manage(request)
 
 
