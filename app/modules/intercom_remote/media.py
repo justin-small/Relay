@@ -32,6 +32,8 @@ FRAME = RATE // 50                      # 20 ms, what Opus and aiortc work in
 MAX_BUFFER = RATE // 2                  # a source that gets 500 ms behind drops its oldest audio
 PUBLISH_TRIES = 15                      # the arbiter arms a new participant when LiveKit's webhook arrives
 PUBLISH_WAIT_S = 0.2
+CONNECT_TRIES = 50                      # 10 s for the bridge's own connection to Cloudflare
+CONNECT_WAIT_S = 0.2
 TOKEN_TTL_S = 3600
 LIBS = ("livekit", "aiortc", "av")
 
@@ -208,6 +210,15 @@ class LiveMedia:
             await self.pc.setRemoteDescription(RTCSessionDescription(sdp=answer["sdp"], type="answer"))
             return t.mid
 
+    async def _connected(self) -> None:
+        for _ in range(CONNECT_TRIES):
+            if self.pc is not None and self.pc.connectionState == "connected":
+                return
+            if self.pc is None or self.pc.connectionState in ("failed", "closed"):
+                break
+            await asyncio.sleep(CONNECT_WAIT_S)
+        raise ConnectionError("The audio bridge could not connect to Cloudflare.")
+
     async def _pull(self, cf_session_id: str, name: str):
         """Pull another session's track into the bridge's session. Returns (mid, aiortc track)."""
         from aiortc import RTCSessionDescription
@@ -273,6 +284,7 @@ class LiveMedia:
             await rooms.ensure_room(channel_id)          # rooms are not made on demand
             await room.connect(f"ws://127.0.0.1:{lk.SIGNAL_PORT}", self._bridge_token(channel_id))
             entry.mid = await self._push(entry.track, name)
+            await self._connected()       # a phone can pull the mix only once Cloudflare has media flowing
         except BaseException:
             await self._stop_listen(channel_id)
             raise
