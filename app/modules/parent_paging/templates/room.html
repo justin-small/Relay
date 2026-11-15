@@ -1,0 +1,153 @@
+<!doctype html>
+{# A kids room's parent paging page (#220), at /paging/<secret> on the operator (HTTPS) port only. No sign-in: the
+   link is the key. It lists the room's children by first name and initial; only their codes leave this page. #}
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<meta name="referrer" content="no-referrer">
+<title>Page a parent · {{ room.name }}</title>
+<style>
+  :root { --bg:#f6f6f4; --card:#fff; --ink:#1b1b1b; --soft:#666; --line:#e2e2de; --accent:#1f6feb; --warn:#b45309;
+          --ok:#15803d; --btn:#eef2f8; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#141414; --card:#1f1f1f; --ink:#f1f1f1; --soft:#a3a3a3; --line:#333; --accent:#5b9bff;
+            --warn:#f59e0b; --ok:#4ade80; --btn:#2a2f38; }
+  }
+  * { box-sizing:border-box; }
+  html, body { margin:0; background:var(--bg); color:var(--ink);
+               font:16px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  main { max-width:640px; margin:0 auto; padding:16px 16px 48px; }
+  h1 { font-size:1.4em; margin:4px 0 2px; }
+  .sub { color:var(--soft); margin:0 0 16px; }
+  h2 { font-size:1em; text-transform:uppercase; letter-spacing:.06em; color:var(--soft); margin:24px 0 8px; }
+  .list { background:var(--card); border:1px solid var(--line); border-radius:12px; overflow:hidden; }
+  .kid, .page { display:flex; align-items:center; gap:12px; padding:12px 14px; border-top:1px solid var(--line); }
+  .kid:first-child, .page:first-child { border-top:0; }
+  .name { flex:1; min-width:0; font-size:1.1em; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .code { font-weight:700; letter-spacing:.08em; font-variant-numeric:tabular-nums; }
+  .page .code { font-size:1.5em; min-width:4.5em; }
+  .state { flex:1; color:var(--soft); }
+  .state.on { color:var(--ok); } .state.wait { color:var(--warn); }
+  button { font:inherit; border:0; border-radius:10px; padding:10px 14px; min-height:44px; cursor:pointer;
+           background:var(--btn); color:var(--ink); }
+  button.go { background:var(--accent); color:#fff; font-weight:600; }
+  button:disabled { opacity:.5; cursor:default; }
+  .paged { color:var(--ok); font-weight:600; }
+  .empty { padding:16px 14px; color:var(--soft); }
+  .note { color:var(--warn); margin:8px 0; }
+  input[type=search] { width:100%; font:inherit; padding:10px 12px; border-radius:10px; border:1px solid var(--line);
+                       background:var(--card); color:var(--ink); margin-bottom:8px; }
+</style>
+</head>
+<body>
+<main>
+  <h1 id="room">{{ room.name }}</h1>
+  <p class="sub">Tap a child to page their parent. The screen shows only the code on their label.</p>
+  <p class="note" id="note" hidden></p>
+
+  <section id="upBox" hidden>
+    <h2>Paged now</h2>
+    <div class="list" id="pages"></div>
+  </section>
+
+  <h2>Checked in</h2>
+  <input type="search" id="find" placeholder="Find a name or code" autocomplete="off" hidden>
+  <div class="list" id="kids"><div class="empty">Loading…</div></div>
+</main>
+<script>
+(function () {
+  var base = location.pathname.replace(/\/+$/, '');
+  var STATE = { waiting: ['Waiting for the booth', 'wait'], shown: ['On screen', 'on'],
+                sent: ['Sent to ProPresenter', 'on'] };
+  var data = null, confirmId = '';
+
+  function el(tag, cls, text) {
+    var n = document.createElement(tag);
+    if (cls) n.className = cls;
+    if (text !== undefined) n.textContent = text;
+    return n;
+  }
+  function note(text) { var n = document.getElementById('note'); n.textContent = text || ''; n.hidden = !text; }
+
+  function call(path, body) {
+    return fetch(base + path, { method: body === undefined ? 'GET' : 'POST', cache: 'no-store',
+      headers: { 'Content-Type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body) })
+      .then(function (r) {
+        return r.json().catch(function () { return {}; }).then(function (b) {
+          if (r.status === 404 && body === undefined) { location.reload(); }
+          if (!r.ok) throw new Error(b.error || 'That did not work. Try again.');
+          return b;
+        });
+      });
+  }
+
+  function render() {
+    if (!data) return;
+    var pages = document.getElementById('pages');
+    pages.textContent = '';
+    data.pages.forEach(function (p) {
+      var row = el('div', 'page');
+      var st = STATE[p.status] || STATE.waiting;
+      row.append(el('span', 'code', p.code), el('span', 'state ' + st[1], st[0]));
+      var b = el('button', '', 'Parent arrived');
+      b.onclick = function () {
+        b.disabled = true;
+        call('/arrived/' + p.id, {}).then(refresh, function (e) { note(e.message); b.disabled = false; });
+      };
+      row.appendChild(b);
+      pages.appendChild(row);
+    });
+    document.getElementById('upBox').hidden = !data.pages.length;
+
+    var kids = document.getElementById('kids');
+    var q = (document.getElementById('find').value || '').trim().toLowerCase();
+    document.getElementById('find').hidden = data.kids.length < 12;
+    kids.textContent = '';
+    var shown = data.kids.filter(function (k) {
+      return !q || k.name.toLowerCase().indexOf(q) !== -1 || k.code.toLowerCase().indexOf(q) !== -1;
+    });
+    if (!shown.length) kids.appendChild(el('div', 'empty', data.kids.length ? 'Nobody matches.' :
+      'Nobody is checked in to this room right now.'));
+    shown.forEach(function (k) {
+      var row = el('div', 'kid');
+      row.append(el('span', 'name', k.name), el('span', 'code', k.code));
+      if (k.page) {
+        row.appendChild(el('span', 'paged', 'Paged'));
+      } else if (confirmId === k.id) {
+        var yes = el('button', 'go', 'Page ' + k.code);
+        var no = el('button', '', 'Cancel');
+        yes.onclick = function () {
+          yes.disabled = no.disabled = true;
+          call('/page', { kid: k.id }).then(function () { confirmId = ''; refresh(); },
+            function (e) { note(e.message); confirmId = ''; render(); });
+        };
+        no.onclick = function () { confirmId = ''; render(); };
+        row.append(no, yes);
+      } else {
+        var b = el('button', '', 'Page parent');
+        b.onclick = function () { confirmId = k.id; note(''); render(); };
+        row.appendChild(b);
+      }
+      kids.appendChild(row);
+    });
+  }
+
+  function refresh() {
+    return call('/state').then(function (d) {
+      data = d;
+      document.getElementById('room').textContent = d.room;
+      if (d.note) note(d.note);
+      render();
+    }, function (e) { note(e.message); });
+  }
+
+  document.getElementById('find').addEventListener('input', render);
+  refresh();
+  setInterval(function () { if (!document.hidden && !confirmId) refresh(); }, 10000);
+  document.addEventListener('visibilitychange', function () { if (!document.hidden) refresh(); });
+})();
+</script>
+</body>
+</html>

@@ -370,6 +370,7 @@ MIN_ROLE = {
     "alert_events.view": "viewer", "alert_events.manage": "admin",
     "atem.view": "viewer", "atem.control": "operator", "atem.manage": "admin",
     "tally_arbiter.view": "viewer", "tally_arbiter.manage": "admin",
+    "parent_paging.view": "viewer", "parent_paging.control": "operator", "parent_paging.manage": "admin",
 }
 for role in ROLE_NAMES:
     me = clients[role].get("/api/admin/me").json()
@@ -392,7 +393,8 @@ print("every /api/admin route")
 config.save({"modules": {"propresenter": {"enabled": True}, "planning_center": {"enabled": True},
                          "remote_access": {"enabled": True}, "signage": {"enabled": True},
                          "signage_web": {"enabled": True}, "alert_events": {"enabled": True},
-                         "atem": {"enabled": True}, "tally_arbiter": {"enabled": True}}})
+                         "atem": {"enabled": True}, "tally_arbiter": {"enabled": True},
+                         "parent_paging": {"enabled": True}}})
 
 E = {}      # (METHOD, path) -> permission; None = any signed-in user
 
@@ -483,6 +485,7 @@ SGX = "/api/admin/signage"
 SWX = "/api/admin/signage-web"
 ATX = "/api/admin/atem"
 TAX = "/api/admin/tally-arbiter"
+PGX = "/api/admin/parent-paging"
 for method, path, perm in (
     ("GET", SGX, "signage.view"),
     ("GET", SGX + "/preview", "signage.view"),
@@ -531,6 +534,17 @@ for method, path, perm in (
     ("POST", ATX + "/preview", "atem.control"),
     ("POST", ATX + "/downstream-key", "atem.control"),
     ("POST", ATX + "/macro", "atem.control"),
+    ("GET", PGX, "parent_paging.view"),
+    ("PUT", PGX + "/settings", "parent_paging.manage"),                 # an empty body changes nothing
+    ("GET", PGX + "/locations", "parent_paging.manage"),                # Planning Center is not set up: refused
+    ("POST", PGX + "/rooms", "parent_paging.manage"),                   # an empty body is refused as no room
+    ("PUT", PGX + "/rooms/{rid}", "parent_paging.manage"),
+    ("DELETE", PGX + "/rooms/{rid}", "parent_paging.manage"),
+    ("GET", PGX + "/rooms/{rid}/link", "parent_paging.manage"),
+    ("POST", PGX + "/rooms/{rid}/new-link", "parent_paging.manage"),
+    ("POST", PGX + "/pages/{pid}/show", "parent_paging.control"),
+    ("POST", PGX + "/pages/{pid}/clear", "parent_paging.control"),
+    ("POST", PGX + "/pages/clear", "parent_paging.control"),
     ("GET", TAX, "tally_arbiter.view"),
     ("PUT", TAX + "/settings", "tally_arbiter.manage"),                  # an empty body clears the address
 ):
@@ -706,7 +720,8 @@ eq("signed out is 401", anon_c.get("/api/admin/propresenter").status_code, 401)
 config.save({"modules": {"propresenter": {"enabled": False}, "planning_center": {"enabled": False},
                          "remote_access": {"enabled": False}, "signage": {"enabled": False},
                          "signage_web": {"enabled": False}, "alert_events": {"enabled": False},
-                         "atem": {"enabled": False}, "tally_arbiter": {"enabled": False}}})
+                         "atem": {"enabled": False}, "tally_arbiter": {"enabled": False},
+                         "parent_paging": {"enabled": False}}})
 eq("a module that is off is still a 404 for everyone", op_c.get("/api/admin/propresenter").status_code, 404)
 
 # ------------------------------------------------------------------ the page routes
@@ -1263,7 +1278,9 @@ for mid, want in (("planning_center", {"planning_center.view": "viewer", "planni
                   ("signage_web", {"signage_web.view": "viewer", "signage_web.manage": "admin"}),
                   ("alert_events", {"alert_events.view": "viewer", "alert_events.manage": "admin"}),
                   ("atem", {"atem.view": "viewer", "atem.control": "operator", "atem.manage": "admin"}),
-                  ("tally_arbiter", {"tally_arbiter.view": "viewer", "tally_arbiter.manage": "admin"})):
+                  ("tally_arbiter", {"tally_arbiter.view": "viewer", "tally_arbiter.manage": "admin"}),
+                  ("parent_paging", {"parent_paging.view": "viewer", "parent_paging.control": "operator",
+                                     "parent_paging.manage": "admin"})):
     got = {p.id: p.min_role for p in registry.get(mid).permissions}
     eq(f"{mid} declares its permissions", got, want)
 

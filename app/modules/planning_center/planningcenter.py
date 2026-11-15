@@ -35,6 +35,7 @@ log = logging.getLogger("relay.planningcenter")
 
 BASE_URL = "https://api.planningcenteronline.com"
 API_VERSION = "2018-11-01"  # sent as X-PCO-API-Version on every Services request
+CHECK_INS_VERSION = "2025-05-28"  # and this one on Check-Ins requests (parent paging, #220)
 TIMEOUT_S = 15.0
 ATTEMPTS = 3          # tries per call when Planning Center answers 429
 MAX_WAIT_S = 60.0     # never sleep longer than this for one Retry-After
@@ -114,11 +115,11 @@ class Client:
         self.rate: dict[str, int | None] = {"count": None, "limit": None, "period": None}
 
     # -- plumbing -----------------------------------------------------
-    def _headers(self) -> dict[str, str]:
+    def _headers(self, path: str = "") -> dict[str, str]:
         token = base64.b64encode(f"{self._app_id}:{self._secret}".encode("utf-8")).decode("ascii")
         return {
             "Authorization": f"Basic {token}",
-            "X-PCO-API-Version": API_VERSION,
+            "X-PCO-API-Version": CHECK_INS_VERSION if path.startswith("/check-ins/") else API_VERSION,
             "User-Agent": user_agent(),
             "Accept": "application/json",
         }
@@ -153,7 +154,7 @@ class Client:
             if count is not None and limit is not None and count >= limit:
                 _sleep(max(0.0, min(MAX_WAIT_S, float(period or DEFAULT_WAIT_S))))
                 self.rate["count"] = None
-            req = urllib.request.Request(url, headers=self._headers(), method=method,
+            req = urllib.request.Request(url, headers=self._headers(path), method=method,
                                          data=b"" if method == "POST" else None)
             try:
                 kw = {"context": _SSL} if url.startswith("https:") else {}
