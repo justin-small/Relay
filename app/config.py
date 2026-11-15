@@ -35,6 +35,8 @@ DEFAULTS: dict[str, Any] = {
     "openai_api_key": "",
     "admin_token": "",
     "audio_device": None,
+    # Which registered audio source feeds capture (app/audio.py): "portaudio", or the id of a module's source.
+    "audio_source": "portaudio",
     "input_channel": 0,
     "source_language": "ENGLISH",
     "targets": {"SPANISH": {"enabled": True}},
@@ -156,6 +158,7 @@ def _normalise(cfg: dict) -> dict:
     cfg["targets"] = targets
     cfg["default_font_px"] = max(16, min(160, int(cfg.get("default_font_px") or 40)))
     cfg["history_lines"] = max(1, min(500, int(cfg.get("history_lines") or 40)))
+    cfg["audio_source"] = str(cfg.get("audio_source") or "portaudio").strip().lower() or "portaudio"
     # A channel index, or the string "mix" to average every input channel --
     # a stereo board feed is usually better summed than halved.
     _ch = cfg.get("input_channel", 0)

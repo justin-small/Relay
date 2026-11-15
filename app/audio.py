@@ -15,9 +15,12 @@ import collections
 import math
 import os
 import queue
+import re
 import sys
 import threading
 import time
+from dataclasses import dataclass
+from typing import Callable
 
 import numpy as np
 import sounddevice as sd
@@ -225,12 +228,276 @@ def resolve_device(selector, refresh: bool = False) -> dict | None:
     return None
 
 
+# -- sources and outputs ----------------------------------------------------
+# Audio comes in through an AudioSource and goes out through an AudioOutput. Core registers PortAudio for
+# both; a module adds its own (a network stream, a network sender) with register_source / register_output
+# while it is on and removes it again when it is switched off, so core never imports a network client.
+PORTAUDIO = "portaudio"
+
+
+class SourceError(RuntimeError):
+    """A source could not be opened. The message is a fixed sentence fit for the admin page: it must name
+    no secret, and no text from the library or the network."""
+
+
+@dataclass
+class SourceInfo:
+    """What an open source tells the pump: the rate of the blocks it delivers, and what to show."""
+    rate: int                      # samples per second of the blocks passed to `deliver`
+    device: dict                   # at least {"label": str}; PortAudio adds its channel count and index
+    channel: int | str = 0         # the channel in use, or "mix"; shown in the status
+
+
+class AudioSource:
+    """Where capture audio comes from. The pump (AudioCapture) owns resampling, the meter, the silence
+    gate, reconnecting and the consumers; a source only delivers frames.
+
+    `open` starts delivery: from any thread, call `deliver(block)` with each block as a mono float32 numpy
+    array in -1..1 at `SourceInfo.rate`. `deliver` never blocks and drops when the pump is behind, so a
+    source need not buffer for it."""
+
+    id: str = ""
+    label: str = ""
+
+    def open(self, selector, channel: int | str, deliver: Callable[[np.ndarray], None]) -> SourceInfo:
+        """Start delivering. `selector` and `channel` are the saved `audio_device` and `input_channel`.
+        Raises SourceError with a fixed sentence when it cannot start."""
+        raise NotImplementedError
+
+    def close(self) -> None:
+        """Stop delivering. Safe to call when it is not open, and to call again."""
+
+    def alive(self) -> bool:
+        """False when the source knows it has lost its input. A source that cannot tell returns True: the
+        pump also treats LOST_AFTER_S without a block as lost."""
+        return True
+
+    def notice(self, selector) -> str | None:
+        """A fixed sentence when the saved selection cannot be used as named, else None."""
+        return None
+
+
+class AudioOutput:
+    """Where audio Relay plays goes (alert tones, spoken translation): a sound device, or a module's
+    network sender. `play` queues one clip and returns at once."""
+
+    id: str = ""
+    label: str = ""
+
+    def play(self, pcm: bytes, rate: int = TARGET_RATE, selector=None) -> None:
+        """Play mono 16-bit little-endian PCM at `rate` Hz on the device `selector` names (None: the default).
+        Never blocks the caller and raises nothing: a clip that cannot play is logged and dropped."""
+        raise NotImplementedError
+
+    def stop(self) -> None:
+        """Cut off whatever is playing and release the device."""
+
+
+_sources: dict[str, AudioSource] = {}
+_outputs: dict[str, AudioOutput] = {}
+
+
+def _register(table: dict, item, kind: str) -> None:
+    if not item.id or not re.fullmatch(r"[a-z][a-z0-9_]*", item.id):
+        raise ValueError(f"an audio {kind} needs a lower_snake_case id")
+    if item.id == PORTAUDIO and not isinstance(item, (PortAudioSource, PortAudioOutput)):
+        raise ValueError(f"the id {PORTAUDIO!r} belongs to core")
+    table[item.id] = item
+
+
+def register_source(source: AudioSource) -> None:
+    _register(_sources, source, "source")
+
+
+def unregister_source(source_id: str) -> None:
+    if source_id != PORTAUDIO:
+        _sources.pop(source_id, None)
+
+
+def get_source(source_id: str | None) -> AudioSource | None:
+    return _sources.get(source_id or PORTAUDIO)
+
+
+def sources() -> list[AudioSource]:
+    """Every registered source, PortAudio first."""
+    return sorted(_sources.values(), key=lambda s: (s.id != PORTAUDIO, s.id))
+
+
+def register_output(output: AudioOutput) -> None:
+    _register(_outputs, output, "output")
+
+
+def unregister_output(output_id: str) -> None:
+    if output_id != PORTAUDIO:
+        _outputs.pop(output_id, None)
+
+
+def get_output(output_id: str | None) -> AudioOutput | None:
+    return _outputs.get(output_id or PORTAUDIO)
+
+
+def outputs() -> list[AudioOutput]:
+    return sorted(_outputs.values(), key=lambda o: (o.id != PORTAUDIO, o.id))
+
+
+class PortAudioSource(AudioSource):
+    """A PortAudio input device: the only source core registers."""
+
+    id = PORTAUDIO
+    label = "Sound device"
+
+    def __init__(self) -> None:
+        self._stream: sd.InputStream | None = None
+        self._lock = threading.Lock()
+
+    def open(self, selector, channel, deliver) -> SourceInfo:
+        self.close()
+        # Nothing of ours is open here, so a full hardware re-probe is safe and picks up anything plugged in
+        # since the last look.
+        dev = resolve_device(selector, refresh=True)
+        if dev is None:
+            raise SourceError("No input device matched the saved selection.")
+        rate = dev["default_samplerate"] or 48000
+        channels = dev["channels"]
+        # A stereo board feed is usually better summed than halved: taking one
+        # channel discards whatever is only on the other. "mix" averages every
+        # channel -- averaging, not adding, so a correlated pair cannot clip the
+        # downmix that the source channels did not already clip.
+        mix = isinstance(channel, str) and channel.strip().lower() == "mix"
+        if mix and channels < 2:
+            mix = False  # nothing to mix; fall through to channel 0
+        if mix:
+            pick = -1
+        else:
+            try:
+                pick = int(channel)
+            except (TypeError, ValueError):
+                pick = 0
+            pick = min(max(0, pick), channels - 1)
+        blocksize = max(64, int(rate * 0.01))  # ~10 ms; PortAudio may round up
+
+        def callback(indata, frames, time_info, status):
+            if status:
+                log.debug("PortAudio status: %s", status)
+            deliver(indata.mean(axis=1, dtype=np.float32) if mix else indata[:, pick].copy())
+
+        try:
+            stream = sd.InputStream(
+                device=dev["index"],
+                channels=channels,
+                samplerate=rate,
+                blocksize=blocksize,
+                dtype="float32",
+                callback=callback,
+            )
+            stream.start()
+        except Exception as exc:
+            # PortAudio's own text goes to the log; the admin page gets a fixed sentence about the device.
+            log.warning("Could not open %s: %s", dev["label"], exc)
+            raise SourceError(f"Could not open {dev['label']}. Check it is plugged in and not in use by another "
+                              "app. " + mic_blocked_hint()) from exc
+        with self._lock:
+            self._stream = stream
+        _set_capture_live(True)
+        return SourceInfo(rate=int(rate), device=dev, channel="mix" if mix else pick)
+
+    def close(self) -> None:
+        _set_capture_live(False)
+        with self._lock:
+            stream, self._stream = self._stream, None
+        if stream is not None:
+            try:
+                stream.abort()
+            except Exception:
+                pass
+            try:
+                stream.close()
+            except Exception:
+                pass
+
+    def alive(self) -> bool:
+        s = self._stream
+        return s is not None and bool(getattr(s, "active", True))
+
+    def notice(self, selector) -> str | None:
+        return selection_notice(selector)
+
+
+def list_output_devices() -> list[dict]:
+    """Every output-capable PortAudio device. Never re-initialises the backend, so it is safe while a
+    capture is live."""
+    apis = sd.query_hostapis()
+    out = []
+    for idx, dev in enumerate(sd.query_devices()):
+        if dev["max_output_channels"] < 1:
+            continue
+        api = apis[dev["hostapi"]]["name"] if dev["hostapi"] < len(apis) else "?"
+        out.append({"index": idx, "name": dev["name"], "hostapi": api, "label": f"{api}: {dev['name']}",
+                    "channels": dev["max_output_channels"]})
+    return _number_repeats(out)
+
+
+class PortAudioOutput(AudioOutput):
+    """A PortAudio output device: plays each clip on its own short-lived stream, off the caller's thread."""
+
+    id = PORTAUDIO
+    label = "Sound device"
+
+    def __init__(self) -> None:
+        self._playing: set[threading.Thread] = set()
+        self._cut = threading.Event()
+
+    def _device(self, selector) -> int | None:
+        if selector in (None, ""):
+            return None
+        sel = str(selector).strip().lower()
+        devs = list_output_devices()
+        for d in devs:
+            if sel.isdigit() and d["index"] == int(sel):
+                return d["index"]
+        for key in ("label", "name"):
+            for d in devs:
+                if d[key].lower() == sel:
+                    return d["index"]
+        return None
+
+    def play(self, pcm: bytes, rate: int = TARGET_RATE, selector=None) -> None:
+        def run() -> None:
+            try:
+                data = np.frombuffer(pcm, dtype="<i2").reshape(-1, 1)
+                with sd.OutputStream(device=self._device(selector), samplerate=int(rate), channels=1,
+                                     dtype="int16") as stream:
+                    step = max(1, int(rate * 0.05))
+                    for i in range(0, len(data), step):
+                        if self._cut.is_set():
+                            break
+                        stream.write(data[i:i + step])
+            except Exception as exc:
+                log.warning("Could not play audio: %s", exc)
+            finally:
+                self._playing.discard(threading.current_thread())
+
+        self._cut.clear()
+        t = threading.Thread(target=run, name="play", daemon=True)
+        self._playing.add(t)
+        t.start()
+
+    def stop(self) -> None:
+        self._cut.set()
+        for t in list(self._playing):
+            t.join(timeout=1.0)
+
+
+register_source(PortAudioSource())
+register_output(PortAudioOutput())
+
+
 class AudioCapture:
-    """Owns the PortAudio stream and fans identical PCM to every consumer."""
+    """Owns the pump from an AudioSource and fans identical PCM to every consumer."""
 
     def __init__(self, loop: asyncio.AbstractEventLoop):
         self.loop = loop
-        self._stream: sd.InputStream | None = None
+        self.source: AudioSource | None = None
         self._raw: queue.Queue = queue.Queue(maxsize=200)
         self._pump: threading.Thread | None = None
         self._stop = threading.Event()
@@ -276,77 +543,42 @@ class AudioCapture:
         self._consumers.discard(q)
 
     # -- lifecycle ----------------------------------------------------
-    def _open_stream(self, dev: dict, channel) -> tuple[int, bool, int]:
-        """Open and start a PortAudio stream on `dev`; returns (rate, mix, pick). Raises RuntimeError
-        with a fixed sentence in self.error when it cannot be opened."""
-        rate = dev["default_samplerate"] or 48000
-        channels = dev["channels"]
-        # A stereo board feed is usually better summed than halved: taking one
-        # channel discards whatever is only on the other. "mix" averages every
-        # channel -- averaging, not adding, so a correlated pair cannot clip the
-        # downmix that the source channels did not already clip.
-        mix = isinstance(channel, str) and channel.strip().lower() == "mix"
-        if mix and channels < 2:
-            mix = False  # nothing to mix; fall through to channel 0
-        if mix:
-            pick = -1
-        else:
-            try:
-                pick = int(channel)
-            except (TypeError, ValueError):
-                pick = 0
-            pick = min(max(0, pick), channels - 1)
-        blocksize = max(64, int(rate * 0.01))  # ~10 ms; PortAudio may round up
-
-        def callback(indata, frames, time_info, status):
-            if status:
-                log.debug("PortAudio status: %s", status)
-            try:
-                block = (
-                    indata.mean(axis=1, dtype=np.float32)
-                    if mix
-                    else indata[:, pick].copy()
-                )
-                self._raw.put_nowait(block)
-            except queue.Full:
-                self.dropped_capture += 1  # drop rather than block the driver thread
-
+    def _deliver(self, block: "np.ndarray") -> None:
+        """Called by the source, on any thread, with each mono float32 block."""
         try:
-            stream = sd.InputStream(
-                device=dev["index"],
-                channels=channels,
-                samplerate=rate,
-                blocksize=blocksize,
-                dtype="float32",
-                callback=callback,
-            )
-            stream.start()
-        except Exception as exc:
-            # PortAudio's own text goes to the log; the admin page gets a fixed sentence about the device.
-            log.warning("Could not open %s: %s", dev["label"], exc)
-            self.error = (f"Could not open {dev['label']}. Check it is plugged in and not in use by another app. "
-                          + mic_blocked_hint()).strip()
-            raise RuntimeError(self.error) from exc
-        self._stream = stream
-        self._last_block_ts = time.time()
-        return rate, mix, pick
+            self._raw.put_nowait(block)
+        except queue.Full:
+            self.dropped_capture += 1  # drop rather than block the source's thread
 
-    def start(self, selector, channel: int | str = 0) -> dict:
+    def _open_source(self, source: AudioSource, selector, channel) -> SourceInfo:
+        """Open `source`; on failure put its fixed sentence in self.error and raise RuntimeError."""
+        try:
+            info = source.open(selector, channel, self._deliver)
+        except SourceError as exc:
+            self.error = str(exc)
+            raise RuntimeError(self.error) from exc
+        self._last_block_ts = time.time()
+        return info
+
+    def start(self, selector, channel: int | str = 0, source: str = PORTAUDIO) -> dict:
         self.stop()
-        # Nothing is running here (stop() just ran), so a full hardware re-probe
-        # is safe and picks up anything plugged in since the last look.
-        dev = resolve_device(selector, refresh=True)
-        if dev is None:
-            self.error = "No input device matched the saved selection."
+        src = get_source(source)
+        if src is None:
+            self.error = "That audio source is not available. Check its module is switched on."
             raise RuntimeError(self.error)
 
-        self.notice = selection_notice(selector)
+        self.notice = src.notice(selector)
         self._selector, self._channel_arg = selector, channel
-        rate, mix, pick = self._open_stream(dev, channel)
+        self.source = src
+        try:
+            info = self._open_source(src, selector, channel)
+        except RuntimeError:
+            self.source = None
+            raise
 
-        self.device = dev
-        self.native_rate = int(rate)
-        self.channel = "mix" if mix else pick
+        self.device = info.device
+        self.native_rate = int(info.rate)
+        self.channel = info.channel
         self.error = None
         self.dropped_capture = 0
         self.peak = 0.0
@@ -355,32 +587,26 @@ class AudioCapture:
         self.clipped_samples = 0
         self._clip_until = 0.0
         self.running = True
-        _set_capture_live(True)
         self._stop.clear()
         self._pump = threading.Thread(target=self._run_pump, name="resample", daemon=True)
         self._pump.start()
-        log.info(
-            "Capture started on %s @ %d Hz (%s)",
-            dev["label"],
-            rate,
-            "mix of %d ch" % dev["channels"] if mix else "ch %d" % pick,
-        )
-        return dev
+        log.info("Capture started on %s @ %d Hz (%s)", info.device.get("label", src.label), info.rate,
+                 "mix of %d ch" % info.device["channels"] if info.channel == "mix"
+                 else "ch %s" % info.channel)
+        return self.device
 
     def stop(self) -> None:
         self._stop.set()
-        _set_capture_live(False)
         with self._stream_lock:
-            if self._stream is not None:
+            if self.source is not None:
                 try:
-                    self._stream.stop()
-                    self._stream.close()
+                    self.source.close()
                 except Exception:
-                    pass
-                self._stream = None
+                    log.exception("audio source %s did not close cleanly", self.source.id)
         if self._pump is not None:
             self._pump.join(timeout=2.0)
             self._pump = None
+        self.source = None
         while not self._raw.empty():
             try:
                 self._raw.get_nowait()
@@ -456,8 +682,8 @@ class AudioCapture:
     # -- unplug / replug ------------------------------------------------
     def _input_lost(self) -> bool:
         """No audio for LOST_AFTER_S, or PortAudio says the stream stopped: the device went away."""
-        s = self._stream
-        dead = s is None or not getattr(s, "active", True)
+        src = self.source
+        dead = src is None or not src.alive()
         return dead or (time.time() - self._last_block_ts) > LOST_AFTER_S
 
     def _recovered(self) -> None:
@@ -479,31 +705,21 @@ class AudioCapture:
         if self._stop.wait(timeout=RETRY_EVERY_S):
             return False
         with self._stream_lock:
-            old, self._stream = self._stream, None
-            if old is not None:
-                try:
-                    old.abort()
-                    old.close()
-                except Exception:
-                    pass
-            _set_capture_live(False)        # nothing is open, so the backend can be re-probed
+            src = self.source
+            if src is None:
+                return False
+            src.close()                     # nothing is open now, so a PortAudio backend can be re-probed
             try:
-                dev = resolve_device(self._selector, refresh=True)
-                if dev is None:
-                    return False
                 while not self._raw.empty():
                     self._raw.get_nowait()
-                rate, mix, pick = self._open_stream(dev, self._channel_arg)
+                info = self._open_source(src, self._selector, self._channel_arg)
             except (RuntimeError, queue.Empty):
-                self.error = INPUT_LOST_SENTENCE      # _open_stream's own sentence would hide that it is a replug wait
+                self.error = INPUT_LOST_SENTENCE      # the source's own sentence would hide that it is a replug wait
                 return False
             if self._stop.is_set():
-                self._stream.close()
-                self._stream = None
+                src.close()
                 return False
-            self.device, self.native_rate = dev, int(rate)
-            self.channel = "mix" if mix else pick
-            _set_capture_live(True)
+            self.device, self.native_rate, self.channel = info.device, int(info.rate), info.channel
         return True
 
     # -- meter ---------------------------------------------------------

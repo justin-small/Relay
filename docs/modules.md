@@ -144,6 +144,33 @@ the admin page; Relay starts anyway. A change of port, or switching the module o
 so say so in the module's health. `serving.listener_bound(prefixes)` gives the port really bound. The prefixes must
 be under the module's `route_prefixes`, and the default port 1024 or above.
 
+## Audio sources and outputs
+
+Core captures audio from an `AudioSource` and plays audio through an `AudioOutput` (`app/audio.py`); it
+registers PortAudio for both. A module that brings audio in or out (a network stream, a network sender)
+registers its own in `attach()` and removes it in `detach()`, so it exists only while the module is on:
+
+```python
+from app import audio
+
+class Stream(audio.AudioSource):
+    id, label = "mixer_stream", "Mixer network stream"      # lower_snake_case, start with the module id
+    def open(self, selector, channel, deliver):             # start; call deliver(block) from any thread
+        ...                                                  # block: mono float32 in -1..1 at info.rate
+        return audio.SourceInfo(rate=48000, device={"label": "Mixer: ch 1", "channels": 1})
+    def close(self): ...                                     # stop delivering; safe to call twice
+    def alive(self): ...                                     # False when the input is lost (optional)
+
+def attach(self): audio.register_source(Stream()); audio.register_output(Sender())
+def detach(self): audio.unregister_source("mixer_stream"); audio.unregister_output("mixer_stream")
+```
+
+The operator picks the source in `audio_source` (default `"portaudio"`); `audio_device` and `input_channel`
+are passed to the source's `open` as its selector and channel. Resampling to 24 kHz, the meter, silence
+gating, reconnecting and the consumers stay in core's pump, so a source only delivers frames. `open` raises
+`audio.SourceError` with a fixed sentence (nothing from the network or a library) when it cannot start. An
+`AudioOutput.play(pcm, rate, selector)` takes mono 16-bit PCM, returns at once and raises nothing.
+
 ## The audit log
 
 Every change made through a module's `/api/admin` route already goes in the audit log (#172),

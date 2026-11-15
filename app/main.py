@@ -1910,6 +1910,7 @@ async def admin_status_stream(request: Request):
 # What each field of POST /api/admin/config needs. A field that is not here is not applied.
 CONFIG_PERMISSIONS = {
     "audio_device": "audio.manage",
+    "audio_source": "audio.manage",
     "input_channel": "audio.manage",
     "source_language": "audio.manage",
     "default_font_px": "settings.manage",
@@ -1933,6 +1934,7 @@ async def admin_config(request: Request, payload: dict):
     updates: dict = {}
     allowed_scalars = (
         "audio_device",
+        "audio_source",
         "input_channel",
         "source_language",
         "default_font_px",
@@ -1980,7 +1982,7 @@ async def admin_config(request: Request, payload: dict):
     # Changes that alter the audio path or model behaviour need a session cycle.
     needs_restart = any(
         f in updates
-        for f in ("audio_device", "input_channel", "source_language", "realtime")
+        for f in ("audio_device", "audio_source", "input_channel", "source_language", "realtime")
     )
     if needs_restart and engine.running:
         await engine.restart()
