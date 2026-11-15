@@ -109,6 +109,8 @@
     send({ type: "talk.release", channels: talking() });
   }
   const p = $("ptt");
+  p.addEventListener("contextmenu", (e) => e.preventDefault());       // a long press must not open a menu or select text
+  p.addEventListener("selectstart", (e) => e.preventDefault());
   p.addEventListener("pointerdown", (e) => { e.preventDefault(); down(); });
   for (const ev of ["pointerup", "pointercancel", "pointerleave"]) p.addEventListener(ev, up);
 

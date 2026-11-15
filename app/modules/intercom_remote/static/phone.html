@@ -8,8 +8,8 @@ body{margin:0;padding:16px;background:var(--bg);color:var(--fg);font:16px/1.4 sy
 h1{font-size:20px;margin:0 0 4px}p.s{color:var(--mut);margin:0 0 16px}
 input,button{font:inherit;padding:10px 12px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--fg)}
 input{width:100%;box-sizing:border-box;margin-bottom:8px}
-button{cursor:pointer}button.p{background:var(--acc);border-color:var(--acc);color:#fff}
-#ptt{width:100%;height:96px;font-size:20px;margin:12px 0}#ptt.on{background:var(--ok);border-color:var(--ok);color:#fff}
+button{cursor:pointer;-webkit-user-select:none;user-select:none}button.p{background:var(--acc);border-color:var(--acc);color:#fff}
+#ptt{width:100%;height:96px;font-size:20px;margin:12px 0;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none;-webkit-tap-highlight-color:transparent;touch-action:none}#ptt.on{background:var(--ok);border-color:var(--ok);color:#fff}
 .ch{display:flex;gap:12px;align-items:center;padding:8px 0;border-bottom:1px solid var(--line)}.ch b{flex:1}
 .ch label{color:var(--mut);font-size:14px}
 #msg{color:var(--mut);min-height:1.4em;margin:8px 0}#msg.bad{color:var(--bad)}

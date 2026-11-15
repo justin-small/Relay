@@ -268,8 +268,9 @@ class LiveMedia:
         room.on("track_subscribed", on_subscribed)
         room.on("track_unsubscribed", on_unsubscribed)
         try:
-            from ..intercom import livekit as lk
+            from ..intercom import livekit as lk, rooms
 
+            await rooms.ensure_room(channel_id)          # rooms are not made on demand
             await room.connect(f"ws://127.0.0.1:{lk.SIGNAL_PORT}", self._bridge_token(channel_id))
             entry.mid = await self._push(entry.track, name)
         except BaseException:
@@ -322,6 +323,7 @@ class LiveMedia:
         token = rooms.mint_token(key, secret, channel_id=channel_id, user_id=user_id, device_id=device_id,
                                  name="Remote", can_subscribe=False)
         room = rtc.Room()
+        await rooms.ensure_room(channel_id)
         await room.connect(f"ws://127.0.0.1:{lk.SIGNAL_PORT}", token)
         source = rtc.AudioSource(RATE, 1)
         local = rtc.LocalAudioTrack.create_audio_track(name, source)

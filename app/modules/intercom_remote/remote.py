@@ -24,6 +24,8 @@ log = logging.getLogger("relay.intercom_remote")
 CODE_LINK_LOST = 4503           # the bridge is down: the phone shows "Lost the link to the church" and retries
 LINK_LOST_TEXT = "Lost the link to the church"
 MAX_SDP = 12_000
+TALK_TRIES = 15                 # the phone's connection to Cloudflare takes a moment to come up
+TALK_WAIT_S = 1.0
 
 
 def _sdp(v: Any) -> dict | None:
@@ -42,6 +44,7 @@ class State:
         self.listening: list[int] = []
         self.talking: list[int] = []
         self.lock = asyncio.Lock()
+        self.starting: asyncio.Task | None = None    # bringing the microphone into the rooms, once the phone is connected
 
 
 class RemoteCrew(Remote):
@@ -77,7 +80,25 @@ class RemoteCrew(Remote):
             log.exception("intercom_remote: could not record the end of a session")
         await self._release(conn, state)
 
+    async def _start_talk(self, conn: Conn, state: State) -> None:
+        for attempt in range(TALK_TRIES):
+            await asyncio.sleep(TALK_WAIT_S)
+            if bridge.media is None or not state.cf:
+                return
+            try:
+                for channel_id in state.talking:
+                    await bridge.media.talk(channel_id, conn.user_id, conn.device_id, state.cf, mic_name(conn.device_id))
+                return
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                log.warning("intercom_remote: remote microphone not in the rooms yet (try %d): %r", attempt + 1, exc)
+                if attempt == TALK_TRIES - 1:
+                    log.exception("intercom_remote: could not bring a remote microphone into the rooms")
+
     async def _release(self, conn: Conn, state: State) -> None:
+        if state.starting is not None:
+            state.starting.cancel()
         await bridge.release(state.listening)
         if bridge.media is not None:
             for channel_id in state.talking:
@@ -150,9 +171,11 @@ class RemoteCrew(Remote):
                 "tracks": [{"location": "local", "trackName": mic_name(conn.device_id), "mid": mid}]})
             rows = await istore.run(devices.phone_config, conn.user_id)
             state.talking = [r["id"] for r in rows if r["can_talk"] and r["talk_selected"]]
-            if bridge.media is not None:
-                for channel_id in state.talking:
-                    await bridge.media.talk(channel_id, conn.user_id, conn.device_id, state.cf, mic_name(conn.device_id))
+            # The phone has not seen the answer yet, so Cloudflare has no live track to pull: the bridge pulls it
+            # in the background, trying again until the phone's connection is up.
+            if state.starting is not None:
+                state.starting.cancel()
+            state.starting = asyncio.create_task(self._start_talk(conn, state), name="intercom-remote-talk")
             return {"type": "cf.pushed", "sessionDescription": out.get("sessionDescription")}
         if kind == "cf.renegotiate":
             answer = _sdp(data.get("sessionDescription"))

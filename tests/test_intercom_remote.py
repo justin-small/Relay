@@ -33,7 +33,7 @@ from app.modules.intercom.presence import presence  # noqa: E402
 from app.modules.intercom_remote import bridge as bridge_mod, cloud, remote, routes, store  # noqa: E402
 from app.modules.intercom_remote.bridge import Bridge, backoff, bridge, mic_name, track_name  # noqa: E402
 
-from _harness import check, eq, section  # noqa: E402
+from _harness import check, eq, section, wait_for  # noqa: E402
 
 
 class FakeMedia:
@@ -207,6 +207,12 @@ def get(ws):
     return json.loads(ws.receive_text())
 
 
+from app.modules.intercom_remote import media as _media  # noqa: E402
+
+# With livekit and aiortc installed the real audio side would start and run its own connect loop; the test stands in
+# for it, so the lifespan gets one that is never available.
+_media.load = lambda: _media.NoMedia("test")
+
 with TestClient(app, base_url=viewer) as client:
     # The app's own lifespan started the module with no audio side; stand in a working one.
     fm = FakeMedia()
@@ -269,8 +275,9 @@ with TestClient(app, base_url=viewer) as client:
             eq("pushing the microphone is answered", get(ws)["type"], "cf.pushed")
             pushed = [c for c in CLOUD if c[0] == "tracks_new"][-1]
             eq("under a name Relay chose", pushed[2]["tracks"][0]["trackName"], mic_name(w["device"]["id"]))
-            check("and handed to the audio side for each channel it may talk on",
-                  {c[1] for c in fm.calls if c[0] == "talk"} == {general["id"], stage["id"]})
+            # In the background, after a pause: the phone has not yet connected to Cloudflare when it is answered.
+            check("and handed to the audio side, soon after, for each channel it may talk on",
+                  wait_for(lambda: {c[1] for c in fm.calls if c[0] == "talk"} == {general["id"], stage["id"]}, 8.0))
             ws.send_text(json.dumps({"type": "cf.push", "sessionDescription": {"type": "offer", "sdp": ""}, "mid": "0"}))
             eq("a bad offer is refused", get(ws)["type"], "error")
             ws.send_text(json.dumps({"type": "cf.renegotiate", "sessionDescription": {"type": "answer", "sdp": "v=0"}}))
