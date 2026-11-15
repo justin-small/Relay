@@ -164,6 +164,21 @@ def create(message, sender_id, user_ids: list[int], now: float | None = None) ->
     return page["id"]
 
 
+def push_user(key, user_id: int, payload: dict) -> bool:
+    """Push `payload` to every phone this person enabled. True when at least one accepted it."""
+    subs = db.query("select id, endpoint, p256dh, auth from crew_push_subs where user_id = ?", (user_id,))
+    sent = False
+    for s in subs:
+        try:
+            webpush.send(key, s, payload)
+            sent = True
+        except webpush.Gone:
+            db.execute("delete from crew_push_subs where id = ?", (s["id"],))
+        except webpush.Failed as exc:
+            log.info("crew: a push was not delivered (%s)", exc)
+    return sent
+
+
 def _push_one(key, row: dict) -> bool:
     """Push to every phone this person enabled. True when at least one accepted it."""
     subs = db.query("select id, endpoint, p256dh, auth from crew_push_subs where user_id = ?", (row["user_id"],))

@@ -1,7 +1,7 @@
 /* The crew page's service worker (#226). It makes the page installable and shows an offline page when Relay can't be
    reached. It never stores a page that carries a person's data or any /crew/api answer: only the offline page and the
    page's own static files. */
-const VERSION = 'crew-v2';
+const VERSION = 'crew-v3';
 const OFFLINE = '/crew/_/offline';
 const SHELL = [OFFLINE, '/static/modules/crew/crew.css', '/static/modules/crew/crew.js'];
 
@@ -40,10 +40,11 @@ self.addEventListener('fetch', function (e) {
 self.addEventListener('push', function (e) {
   let d = {};
   try { d = e.data ? e.data.json() : {}; } catch (err) { d = {}; }
-  const url = typeof d.url === 'string' && d.url.indexOf('/crew/page/') === 0 ? d.url : '/crew';
+  const url = typeof d.url === 'string' && (d.url.indexOf('/crew/page/') === 0 || d.url === '/crew#chat') ? d.url : '/crew';
   e.waitUntil(self.registration.showNotification(typeof d.title === 'string' ? d.title : 'Page', {
-    body: typeof d.body === 'string' ? d.body : '', tag: typeof d.tag === 'string' ? d.tag : 'page', renotify: true,
-    requireInteraction: true, vibrate: [300, 150, 300, 150, 300], data: { url: url },
+    body: typeof d.body === 'string' ? d.body : '', tag: typeof d.tag === 'string' ? d.tag : 'page',
+    // A page buzzes until read; a chat message (quiet) is one ordinary notification.
+    renotify: !d.quiet, requireInteraction: !d.quiet, vibrate: d.quiet ? [] : [300, 150, 300, 150, 300], data: { url: url },
     icon: '/static/brand/icon-192.png'
   }));
 });

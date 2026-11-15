@@ -99,7 +99,7 @@ print("tabs from modules (#240)")
 from app.modules import CrewTab, modules as registry  # noqa: E402
 
 page = member.get("/crew").text
-eq("no module tab, no tab strip", 'role="tab"' in page, False)
+eq("no other module's tab: only the crew's own chat", ('data-tab="intercom"' in page, 'data-tab="chat"' in page), (False, True))
 other = registry.get("intercom")
 config.save({"modules": {"intercom": {"enabled": True}}})
 page = member.get("/crew").text
@@ -117,7 +117,7 @@ eq("the microphone is allowed on the crew page only while the intercom is on",
     "microphone=()" in member.get("/home").headers["permissions-policy"]), (True, True))
 config.save({"modules": {"intercom": {"enabled": False}}})
 eq("off again, the tab and the microphone are gone",
-   ('role="tab"' in member.get("/crew").text, "microphone=()" in member.get("/crew").headers["permissions-policy"]),
+   ('data-tab="intercom"' in member.get("/crew").text, "microphone=()" in member.get("/crew").headers["permissions-policy"]),
    (False, True))
 mine = other.crew_tabs, other.crew_scripts
 other.crew_tabs = (CrewTab("t", "T", "crew.html", "nope.use"),)
