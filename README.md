@@ -1415,6 +1415,39 @@ the panel views `firmware/relay-display/tests/test_propresenter_view.py`. For
 operators there is a chapter in the user guide
 (`docs/guide/src/54-propresenter.md`).
 
+## Parent paging
+
+A kids worker pages a parent from their room's page, and the child's Planning Center Check-Ins security code (the
+code on the child's label and the parent's tag) goes to a ProPresenter message for the audience screen. The screen
+only ever shows the code; the child's name stays on the room's page.
+
+Switch on **Parent paging** on the Modules page. It needs the **Planning Center** module (its token must be able to
+read Check-Ins) and the **ProPresenter** module.
+
+1. In ProPresenter, make a message such as `Parent of {code}, please come to the kids area` with a text token named
+   `code`. Type the message's name and the token's name on the **Parent paging** admin page, then press **Test** on
+   the Modules page.
+2. Choose what happens when a worker pages a parent:
+   - **Wait here until the operator presses Show**: the page waits on the Parent paging admin page (with a short
+     tone) until the ProPresenter operator presses Show; Relay then shows the message with the code.
+   - **Put the code in the message**: Relay only writes the code into the message's token; the operator shows the
+     message from ProPresenter.
+   - **Show it on screen straight away**.
+3. Under **Rooms**, press **Load rooms**, choose a Check-Ins room and **Add room**. Each room gets its own link and
+   QR code. Anyone with the link can page parents for that room, with no sign-in, so give it only to that room's
+   workers. **New link** stops the old one at once.
+
+The room's page lists the kids checked in to that room today and not yet checked out (first name and initial, and
+their code). A worker taps **Page parent**, then confirms. When several parents are paged at once, the message's
+token holds every code. A page comes down when the operator clears it, the worker taps **Parent arrived**, or after
+the minutes set on the admin page (0 keeps it up until cleared).
+
+- Room pages open only on Relay's HTTPS address on the church network: never on the viewer port and never through
+  remote access, since they list children's names.
+- Relay reads only each child's name, security code and check-in times from Check-Ins, never medical notes or
+  emergency contacts.
+- Pages are kept in memory: restarting Relay ends them, and leaves whatever ProPresenter shows as it was.
+
 ## Not in scope
 
 Spoken output/TTS, browser microphone capture, speaker diarization, audio

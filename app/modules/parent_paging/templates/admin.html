@@ -1,0 +1,69 @@
+{# The Parent paging admin page (#220), rendered inside admin.html only while the module is on. #}
+    <h2 class="title">Parent paging <span class="sumstate" id="ppgSum"></span></h2>
+    <p class="sub">Kids workers page a parent from their room's page. The child's Check-Ins security code goes to a
+      ProPresenter message; the child's name never leaves the room's page.</p>
+    <div class="note err" id="ppgNeeds" hidden></div>
+    <div class="note err" id="ppgErr" hidden></div>
+
+    <section>
+      <h3>Pages up now</h3>
+      <div id="ppgPages"></div>
+      <p class="note" id="ppgNone">No parents are being paged.</p>
+      <p class="note" id="ppgScreen" hidden></p>
+      <div class="ctl"><button type="button" id="ppgClearAll" hidden>Clear all</button></div>
+    </section>
+
+    <section>
+      <h3>ProPresenter</h3>
+      <div class="row">
+        <div class="field">
+          <label for="ppgMode">When a kids worker pages a parent</label>
+          <select id="ppgMode">
+            <option value="queue">Wait here until the operator presses Show</option>
+            <option value="fill">Put the code in the message; the operator shows it from ProPresenter</option>
+            <option value="auto">Show it on screen straight away</option>
+          </select>
+        </div>
+      </div>
+      <div class="row">
+        <div class="field">
+          <label for="ppgMessage">ProPresenter message</label>
+          <input id="ppgMessage" maxlength="100" autocomplete="off" placeholder="Parent Page">
+        </div>
+        <div class="field">
+          <label for="ppgToken">Its text token</label>
+          <input id="ppgToken" maxlength="60" autocomplete="off" placeholder="code">
+        </div>
+        <div class="field">
+          <label for="ppgTimeout">Take a page down after (minutes, 0 for never)</label>
+          <input id="ppgTimeout" type="number" min="0" max="120" step="1">
+        </div>
+      </div>
+      <div class="ctl"><button type="button" class="primary" id="ppgSave">Save</button></div>
+      <div class="note">In ProPresenter, make a message (for example "Parent of {code}, please come to the kids area")
+        with a text token, and type its name and the token's name here. When several parents are paged at once, the
+        token holds every code. The Test button on the Modules page checks both.</div>
+    </section>
+
+    <section>
+      <h3>Rooms</h3>
+      <div id="ppgRooms"></div>
+      <p class="note" id="ppgNoRooms">No rooms yet.</p>
+      <div class="row" id="ppgAddRow">
+        <div class="field">
+          <label for="ppgLoc">Check-Ins room</label>
+          <select id="ppgLoc"><option value="">Load rooms from Planning Center…</option></select>
+        </div>
+        <div class="field">
+          <label for="ppgRoomName">Name on the page (optional)</label>
+          <input id="ppgRoomName" maxlength="80" autocomplete="off">
+        </div>
+      </div>
+      <div class="ctl" id="ppgAddCtl">
+        <button type="button" id="ppgLoad">Load rooms</button>
+        <button type="button" class="primary" id="ppgAdd">Add room</button>
+      </div>
+      <div class="note">Each room gets its own link. Anyone with the link can page parents for that room only, with
+        no sign-in, so hand it to that room's workers (a QR code on the wall works). It opens only on Relay's HTTPS
+        address on this network, never through remote access. "New link" stops the old one at once.</div>
+    </section>
