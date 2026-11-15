@@ -8,7 +8,7 @@ from fastapi.responses import JSONResponse, Response
 
 from .. import require
 from ... import db, users
-from . import devices, rooms, store, webhook
+from . import devices, rooms, rtcproxy, store, webhook
 from .livekit import supervisor
 from .presence import on_operator_port, presence
 
@@ -140,6 +140,12 @@ async def phone_sign_out(device_id: int, user: users.User = Depends(require("int
 async def intercom_socket(ws: WebSocket):
     """The phone's socket. It signs in with its device credential, not a cookie or a password."""
     await presence.serve(ws)
+
+
+@router.websocket(rtcproxy.PATH)
+async def intercom_rtc(ws: WebSocket):
+    """LiveKit's signalling for a phone, relayed to 127.0.0.1. The join token Relay minted is the credential."""
+    await rtcproxy.serve(ws)
 
 
 @router.post(webhook.PATH)
