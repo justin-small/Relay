@@ -48,9 +48,9 @@ eq("off: not on the home page", 'href="/crew"' in member.get("/home").text, Fals
 
 config.save({"modules": {"crew": {"enabled": True}}})
 print("settings")
-eq("defaults", config.get()["crew"], {"name": "Relay crew", "show_plan": True})
+eq("defaults", config.get()["crew"], {"name": "Relay crew", "show_plan": True, "geofence": None})
 eq("a hand edit is cleaned", MODULE.clean({"name": "  A   very long name that goes on and on ", "show_plan": "x"}),
-   {"name": "A very long name that go", "show_plan": True})
+   {"name": "A very long name that go", "show_plan": True, "geofence": None})
 eq("an empty name is the default", MODULE.clean({"name": "  "})["name"], "Relay crew")
 
 print("the page")
@@ -87,11 +87,11 @@ eq("signed out is refused", anon.get("/crew/api/plan").status_code, 401)
 
 print("settings routes")
 eq("a member may not read the setup", member.get("/api/admin/crew").status_code, 403)
-eq("an admin reads it", admin.get("/api/admin/crew").json(), {"name": "Relay crew", "show_plan": True})
+eq("an admin reads it", admin.get("/api/admin/crew").json(), {"name": "Relay crew", "show_plan": True, "geofence": None})
 eq("an empty name is refused", admin.post("/api/admin/crew", json={"name": " ", "show_plan": True}).status_code, 400)
 eq("a non-boolean is refused", admin.post("/api/admin/crew", json={"name": "A", "show_plan": "yes"}).status_code, 400)
 r = admin.post("/api/admin/crew", json={"name": "Booth crew", "show_plan": False})
-eq("saved", (r.status_code, r.json()), (200, {"name": "Booth crew", "show_plan": False}))
+eq("saved", (r.status_code, r.json()), (200, {"name": "Booth crew", "show_plan": False, "geofence": None}))
 eq("the manifest follows the name", anon.get("/crew/_/manifest.webmanifest").json()["name"], "Booth crew")
 eq("the page follows it", "Booth crew" in member.get("/crew").text and 'id="crPlan"' not in member.get("/crew").text, True)
 

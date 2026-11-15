@@ -11,8 +11,23 @@
       <div class="field">
         <label class="chk chk-inline"><input type="checkbox" id="crPlan"> Show today's plan (from Planning Center, when it is on)</label>
       </div>
+      <div class="field"><label>Church location for check-in <span class="muted">(optional)</span></label>
+        <input id="crLat" inputmode="decimal" placeholder="Latitude" style="width:9em" autocomplete="off">
+        <input id="crLon" inputmode="decimal" placeholder="Longitude" style="width:9em" autocomplete="off">
+        <input id="crRad" inputmode="numeric" placeholder="Metres" style="width:6em" autocomplete="off">
+        <div class="note" style="margin-top:4px">A phone on the church network checks in by itself. Where a location is
+          set, a person away from the network can tap Check in inside this radius (20 to 5000 metres, 150 if blank).
+          Relay only compares the position with this one and keeps no coordinates.</div></div>
       <div class="note err" id="crErr" hidden></div>
       <div class="ctl"><button type="button" class="primary" id="crSave">Save</button> <span class="muted" id="crMsg"></span></div>
+    </section>
+    <section id="crBoardBox" hidden>
+      <h3>Arrivals</h3>
+      <p class="note" style="margin-top:0">Who on today's Planning Center plan has arrived, against their team's earliest
+        call time. Arrivals clear by themselves when a new plan takes over.</p>
+      <div class="note err" id="crBoardErr" hidden></div>
+      <div class="ctl"><span id="crBoardCount" class="muted"></span> <button type="button" id="crBoardClear">Clear arrivals</button></div>
+      <table class="tbl" id="crBoard"><thead><tr><th>Name</th><th>Team</th><th>Call time</th><th>Status</th></tr></thead><tbody></tbody></table>
     </section>
     <section id="crPageBox" hidden>
       <h3>Page the crew</h3>

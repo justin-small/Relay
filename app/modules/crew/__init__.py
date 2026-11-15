@@ -26,26 +26,28 @@ class Crew(Module):
     manifest = Manifest(
         id="crew",
         name="Crew app",
-        version="1.4.0",
+        version="1.5.0",
         summary="An installable page for the crew, signed in with a Relay account, that shows the plan and hosts "
                 "the other crew features. Served over HTTPS on this network only.",
         settings_key="crew",
         guide="https://github.com/justin-small/relay#crew-app",
         uses=("planning_center",),
     )
-    defaults = {"name": DEFAULT_NAME, "show_plan": True}
+    defaults = {"name": DEFAULT_NAME, "show_plan": True, "geofence": None}
     admin_pages = (AdminPage(
         id="crew", title="Crew app", template="admin.html", group="Settings",
         icon='<circle cx="6" cy="5" r="2.5"/><circle cx="11.5" cy="6" r="2"/><path d="M1.5 13c0-2.5 2-4 4.5-4s4.5 1.5 4.5 4M10 9.2c2.5-.3 4.5.9 4.5 3.8"/>'),)
     admin_scripts = ("crewadmin.js",)
     route_prefixes = ("/api/admin/crew", "/crew")
     panel_prefixes = ("/crew",)
+    geolocation_pages = ("/crew",)
     permissions = (
         Permission("crew.use", "Open the crew page", "Crew app", "member"),
         Permission("crew.view", "See how the crew page is set up", "Crew app", "viewer"),
         Permission("crew.manage", "Change the crew page's name and what it shows", "Crew app", "admin"),
         Permission("crew.page", "Page the crew and see who has read it", "Crew app", "operator"),
         Permission("crew.chat", "Use the crew team chat", "Crew app", "member"),
+        Permission("crew.checkin", "Check in at the church from the crew page", "Crew app", "member"),
         Permission("crew.moderate", "Read every role channel and delete anyone's chat message", "Crew app", "operator"),
     )
     crew_tabs = (CrewTab("chat", "Chat", "chat.html", "crew.chat"),)
@@ -56,7 +58,13 @@ class Crew(Module):
         raw = raw if isinstance(raw, dict) else {}
         name = raw.get("name")
         name = " ".join(name.split())[:NAME_MAX] if isinstance(name, str) else ""
-        return {"name": name or DEFAULT_NAME, "show_plan": raw.get("show_plan") is not False}
+        from .checkin import clean_geofence
+
+        try:
+            fence = clean_geofence(raw.get("geofence"))
+        except ValueError:
+            fence = None         # a hand edit that does not make sense is no geofence
+        return {"name": name or DEFAULT_NAME, "show_plan": raw.get("show_plan") is not False, "geofence": fence}
 
     def configured(self, settings: dict) -> bool:
         return False  # New: nobody had it before, so it starts off.

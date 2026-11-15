@@ -36,6 +36,50 @@
       });
     } catch (e) { note.textContent = 'The plan could not be loaded.'; }
   }
+  // Check in (#231): arrival is automatic on the church network; elsewhere a tap sends this phone's position, which
+  // Relay only compares with the church's and then drops.
+  const inCard = document.getElementById('crIn'), inNote = document.getElementById('crInNote'),
+    inBtn = document.getElementById('crInBtn');
+  function arrivedText(st) {
+    return 'You are checked in' + (st.ts ? ' at ' + new Date(st.ts * 1000).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : '') + '.';
+  }
+  async function checkinCall(method, body) {
+    const res = await fetch('/crew/api/checkin', { method: method, credentials: 'same-origin', cache: 'no-store',
+      headers: { 'Content-Type': 'application/json' }, body: body ? JSON.stringify(body) : undefined });
+    return { ok: res.ok, status: res.status, data: await res.json().catch(function () { return {}; }) };
+  }
+  function showCheckin(st) {
+    inCard.hidden = false; inBtn.hidden = true;
+    if (st.arrived) { inNote.textContent = arrivedText(st); return; }
+    if (st.geofence) {
+      inNote.textContent = 'Tap to check in when you are at the church.'; inBtn.hidden = false; return;
+    }
+    inNote.textContent = 'Check-in happens by itself when your phone is on the church network.';
+  }
+  async function loadCheckin() {
+    if (!inCard) return;
+    try {
+      const got = await checkinCall('GET');
+      if (got.status === 403 || got.status === 404) return;          // this account may not check in
+      if (!got.ok) return;
+      let st = got.data;
+      if (st.lan && !st.arrived) { const r = await checkinCall('POST', {}); if (r.ok) st = r.data; }
+      showCheckin(st);
+    } catch (e) { /* offline: the card stays hidden */ }
+  }
+  if (inBtn) inBtn.addEventListener('click', function () {
+    if (!navigator.geolocation) { inNote.textContent = 'This browser cannot share a location.'; return; }
+    inBtn.disabled = true; inNote.textContent = 'Finding you\u2026';
+    navigator.geolocation.getCurrentPosition(async function (pos) {
+      const r = await checkinCall('POST', { lat: pos.coords.latitude, lon: pos.coords.longitude, accuracy: pos.coords.accuracy });
+      inBtn.disabled = false;
+      if (r.ok) showCheckin(r.data);
+      else inNote.textContent = r.data.detail || 'Check-in did not work.';
+    }, function () { inBtn.disabled = false; inNote.textContent = 'Allow location for this site to check in, then try again.'; },
+    { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 });
+  });
+  loadCheckin();
+
   // Pages (#228): turn on web push for this phone. It needs HTTPS and a service worker, which this page has.
   const card = document.getElementById('crAlerts'), btn = document.getElementById('crAlertsBtn'),
     anote = document.getElementById('crAlertsNote');
