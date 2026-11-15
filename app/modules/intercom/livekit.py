@@ -58,6 +58,7 @@ UDP_PORT = 7882
 KEY_NAME = "relay"
 HEALTH_EVERY_S = 5
 FAILS_TO_RESTART = 3
+STARTUP_GRACE_S = 15        # a server still starting is not counted as failing
 GIVE_UP_AFTER = 5           # restarts ...
 GIVE_UP_WINDOW_S = 600      # ... in this many seconds
 STOP_WAIT_S = 5
@@ -318,6 +319,9 @@ class Supervisor:
                 if ok:
                     fails = 0
                     self._set("running", "")
+                    continue
+                if self._proc is not None and self._proc.returncode is None and \
+                        time.time() - self.started_at < STARTUP_GRACE_S:
                     continue
                 fails += 1
                 if self._proc is None or self._proc.returncode is not None or fails >= FAILS_TO_RESTART:

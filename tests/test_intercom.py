@@ -225,6 +225,7 @@ def free_port(kind=socket.SOCK_STREAM):
 
 livekit.SIGNAL_PORT, livekit.TCP_PORT, livekit.UDP_PORT = free_port(), free_port(), free_port(socket.SOCK_DGRAM)
 livekit.HEALTH_EVERY_S = 0.2
+livekit.STARTUP_GRACE_S = 5
 livekit.BACKOFF_S = (0.05,)
 fake = Path(TMP) / "fake-livekit"
 fake.write_text(FAKE)
