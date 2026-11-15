@@ -27,7 +27,7 @@ Running only the tests for your area is not enough. Before each push:
 ```
 
 It runs the files several at a time and ends with a line per failing file; exit 0 means it is safe to push.
-`-k <part of a name>` narrows it while you work. CI also runs `node --test tests/js/`, `cargo test` in
+`-k <part of a name>` narrows it while you work. CI also runs `node --test tests/js/*.test.mjs`, `cargo test` in
 `desktop/src-tauri`, the browser test (`tests/test_browser.py`, skipped locally without Playwright), and fails
 if coverage of `app/` drops below `fail_under` in `.coveragerc`.
 

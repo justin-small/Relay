@@ -941,7 +941,7 @@ shared checks (`eq`, `check`, `section`, `wait_for`, `tmpdir`) are in
 `tests/_harness.py`. `tests/test_browser.py` opens the pages in headless Chromium and
 is skipped unless Playwright is installed (`pip install playwright && python -m
 playwright install chromium-headless-shell`). The browser scripts' tests run with
-`node --test tests/js/`, and the desktop shell's with `cargo test` in
+`node --test tests/js/*.test.mjs`, and the desktop shell's with `cargo test` in
 `desktop/src-tauri`.
 
 Each file also runs on its own:
@@ -1145,7 +1145,7 @@ person presses RESET on the panel, because the CrowPanel does not restart from
 USB. Web Serial is allowed on that one path
 (`Permissions-Policy: serial=(self)`) and denied everywhere else. esptool-js is
 vendored in `app/static/vendor/esptool-js/` (Apache-2.0; `VERSION` says which);
-the steps are tested with `node --test tests/js/`.
+the steps are tested with `node --test tests/js/*.test.mjs`.
 
 **A screen choice is not undone.** The operator's feed carries a revision. The
 panel reports the last one it applied (`feed_rev`) and Relay sends a `set_feed`

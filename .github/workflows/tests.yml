@@ -54,7 +54,7 @@ jobs:
         with:
           node-version: '22'
       - name: JavaScript tests
-        run: node --test tests/js/
+        run: node --test tests/js/*.test.mjs     # Node 22 takes files, not a folder
 
   # The app now runs natively on each desktop OS (#180), so the suite runs on macOS and Windows too. A separate
   # job, not a matrix on the one above: main's branch protection requires the check named "Tests".
@@ -91,7 +91,9 @@ jobs:
         with:
           python-version: '3.15'
           cache: pip
-      - run: sudo apt-get update && sudo apt-get install -y libportaudio2
+      # sounddevice needs PortAudio and a running PulseAudio to import, as in the Tests job above.
+      - run: sudo apt-get update && sudo apt-get install -y libportaudio2 pulseaudio
+      - run: pulseaudio -D --exit-idle-time=-1 --load=module-null-sink && pactl info | head -3
       - run: pip install -r requirements.txt httpx2==2.13.1 playwright==1.65.2
       - run: python -m playwright install --with-deps chromium-headless-shell
       - name: The pages in a browser
