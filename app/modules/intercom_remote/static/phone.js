@@ -72,6 +72,7 @@
   async function audio() {
     teardown(); say("Connecting audio…");
     pc = new RTCPeerConnection({ bundlePolicy: "max-bundle", iceServers: [{ urls: "stun:stun.cloudflare.com:3478" }] });
+    pc.onconnectionstatechange = () => { if (pc && pc.connectionState === "connected") send({ type: "cf.connected" }); };
     pc.ontrack = (e) => { $("aud").srcObject = new MediaStream([e.track]); $("aud").play().catch(() => {}); };
     const s = await ask({ type: "cf.open" }, "cf.session");
     if (!s.sessionId) throw new Error("No session");

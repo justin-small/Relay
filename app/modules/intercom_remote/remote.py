@@ -82,7 +82,8 @@ class RemoteCrew(Remote):
 
     async def _start_talk(self, conn: Conn, state: State) -> None:
         for attempt in range(TALK_TRIES):
-            await asyncio.sleep(TALK_WAIT_S)
+            if attempt:
+                await asyncio.sleep(TALK_WAIT_S)
             if bridge.media is None or not state.cf:
                 return
             try:
@@ -174,12 +175,15 @@ class RemoteCrew(Remote):
                 "tracks": [{"location": "local", "trackName": mic_name(conn.device_id), "mid": mid}]})
             rows = await istore.run(devices.phone_config, conn.user_id)
             state.talking = [r["id"] for r in rows if r["can_talk"] and r["talk_selected"]]
-            # The phone has not seen the answer yet, so Cloudflare has no live track to pull: the bridge pulls it
-            # in the background, trying again until the phone's connection is up.
-            if state.starting is not None:
-                state.starting.cancel()
-            state.starting = asyncio.create_task(self._start_talk(conn, state), name="intercom-remote-talk")
             return {"type": "cf.pushed", "sessionDescription": out.get("sessionDescription")}
+        if kind == "cf.connected":
+            # The phone's own connection to Cloudflare is up, so its microphone is a live track the bridge can pull
+            # (asked any earlier, Cloudflare waits for it and then refuses). Bring it into the rooms in the background.
+            if state.talking and bridge.media is not None:
+                if state.starting is not None:
+                    state.starting.cancel()
+                state.starting = asyncio.create_task(self._start_talk(conn, state), name="intercom-remote-talk")
+            return {"type": "cf.ack"}
         if kind == "cf.renegotiate":
             answer = _sdp(data.get("sessionDescription"))
             if answer is None:

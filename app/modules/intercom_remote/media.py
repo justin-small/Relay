@@ -231,6 +231,7 @@ class LiveMedia:
                 {"location": "remote", "trackName": name, "sessionId": cf_session_id}]})
             got = [t for t in out.get("tracks", []) if t.get("trackName") == name and t.get("mid")]
             if not got:
+                log.warning("intercom_remote: Cloudflare did not give a track for %s: %r", name, out.get("tracks"))
                 raise cloud.CloudError("unexpected")
             mid = got[0]["mid"]
             offer = out.get("sessionDescription")

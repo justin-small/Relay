@@ -275,7 +275,9 @@ with TestClient(app, base_url=viewer) as client:
             eq("pushing the microphone is answered", get(ws)["type"], "cf.pushed")
             pushed = [c for c in CLOUD if c[0] == "tracks_new"][-1]
             eq("under a name Relay chose", pushed[2]["tracks"][0]["trackName"], mic_name(w["device"]["id"]))
-            # In the background, after a pause: the phone has not yet connected to Cloudflare when it is answered.
+            check("nothing is pulled before the phone says its connection is up", not [c for c in fm.calls if c[0] == "talk"])
+            ws.send_text(json.dumps({"type": "cf.connected"}))
+            eq("its connection being up is acknowledged", get(ws)["type"], "cf.ack")
             check("and handed to the audio side, soon after, for each channel it may talk on",
                   wait_for(lambda: {c[1] for c in fm.calls if c[0] == "talk"} == {general["id"], stage["id"]}, 8.0))
             ws.send_text(json.dumps({"type": "cf.push", "sessionDescription": {"type": "offer", "sdp": ""}, "mid": "0"}))
