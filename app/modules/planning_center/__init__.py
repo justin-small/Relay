@@ -138,6 +138,23 @@ class PlanningCenter(Module):
         return {"ok": True, "detail": f"Connected. The account has {len(types)} service type"
                                       f"{'s' if len(types) != 1 else ''}."}
 
+    def plan_label(self) -> str | None:
+        from datetime import datetime
+
+        from .pclive import follower
+
+        for st in list(follower.tracks):
+            plan = (follower.state(st) or {}).get("plan")
+            if not plan:
+                continue
+            first = next((t["starts_at"] for t in plan["times"] if t.get("starts_at")), None)
+            if first is None:
+                return plan["title"]
+            at = datetime.fromtimestamp(first, follower.zone or follower.fallback_zone())
+            clock = f"{at.hour % 12 or 12}:{at.minute:02d} {'AM' if at.hour < 12 else 'PM'}"
+            return f"{plan['title']} {clock}".strip()
+        return ""
+
     def status(self) -> dict:
         from .servicefeed import feed
 

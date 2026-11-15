@@ -1,12 +1,13 @@
 """Intercom's admin routes. Mounted by the module registry, so each answers 404 while the module is off."""
 from __future__ import annotations
 
+import asyncio
 import json
 
 from fastapi import APIRouter, Depends, Request, WebSocket
 from fastapi.responses import JSONResponse, Response
 
-from .. import require
+from .. import modules as registry, require
 from ... import db, users
 from . import devices, rooms, rtcproxy, store, webhook
 from .livekit import supervisor
@@ -134,6 +135,108 @@ async def phone_sign_out(device_id: int, user: users.User = Depends(require("int
         return JSONResponse({"error": "That phone is not signed in any more."}, status_code=404)
     await _signed_out(row)
     return {"ok": True}
+
+
+# ------------------------------------------------------------------ channels, members, the label (#275)
+
+def _invalid(exc: store.Invalid) -> JSONResponse:
+    return JSONResponse({"error": exc.message}, status_code=exc.status)
+
+
+async def _json(request: Request, limit: int = 65536) -> dict:
+    raw = await _read_limited(request, limit)
+    try:
+        data = json.loads(raw or b"{}")
+    except ValueError:
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+@router.get("/api/admin/intercom/channels", dependencies=[Depends(require("intercom.manage"))])
+async def channels_list():
+    return {"channels": await store.run(store.channel_table)}
+
+
+@router.post("/api/admin/intercom/channels")
+async def channel_new(request: Request, user: users.User = Depends(require("intercom.manage"))):
+    d = await _json(request)
+    try:
+        row = await store.run(lambda: store.new_channel(
+            d.get("name"), colour=d.get("colour", ""), mode=d.get("mode", "party"), max_talkers=d.get("max_talkers"),
+            latch_seconds=d.get("latch_seconds", 60), actor_id=user.id))
+    except store.Invalid as exc:
+        return _invalid(exc)
+    return {"channel": row}
+
+
+@router.post("/api/admin/intercom/channels/reorder")
+async def channels_reorder(request: Request, user: users.User = Depends(require("intercom.manage"))):
+    d = await _json(request)
+    try:
+        await store.run(lambda: store.reorder_channels(d.get("ids"), user.id))
+    except store.Invalid as exc:
+        return _invalid(exc)
+    return {"ok": True}
+
+
+@router.get("/api/admin/intercom/channels/{channel_id}", dependencies=[Depends(require("intercom.manage"))])
+async def channel_get(channel_id: int):
+    row = await store.run(store.channel_view, channel_id)
+    if row is None:
+        return JSONResponse({"error": "That channel does not exist."}, status_code=404)
+    return {"channel": row}
+
+
+@router.put("/api/admin/intercom/channels/{channel_id}")
+async def channel_save(channel_id: int, request: Request, user: users.User = Depends(require("intercom.manage"))):
+    d = await _json(request)
+    try:
+        row = await store.run(lambda: store.update_channel(
+            channel_id, d.get("version"), name=d.get("name"), colour=d.get("colour", ""), mode=d.get("mode"),
+            max_talkers=d.get("max_talkers"), latch_seconds=d.get("latch_seconds"), members=d.get("members"),
+            actor_id=user.id))
+    except store.Invalid as exc:
+        return _invalid(exc)
+    return {"channel": row}
+
+
+@router.delete("/api/admin/intercom/channels/{channel_id}")
+async def channel_delete(channel_id: int, user: users.User = Depends(require("intercom.manage"))):
+    if not await store.run(lambda: store.remove_channel(channel_id, user.id)):
+        return JSONResponse({"error": "That channel does not exist."}, status_code=404)
+    return {"ok": True}
+
+
+@router.get("/api/admin/intercom/people", dependencies=[Depends(require("intercom.manage"))])
+async def people(q: str = ""):
+    """Relay accounts that may use the intercom, for the Add a user search."""
+    needle = q.strip().lower()[:60]
+    rows = await asyncio.to_thread(users.list_users)
+    out = [{"id": r["id"], "name": r["name"], "username": r["username"]} for r in rows
+           if not r["disabled"] and "intercom.use" in users.role_permissions(r["role"])
+           and (not needle or needle in r["name"].lower() or needle in r["username"].lower())]
+    return {"people": out[:50]}
+
+
+@router.get("/api/admin/intercom/production", dependencies=[Depends(require("intercom.view"))])
+async def production_get():
+    plan = registry.plan_label()
+    return {"label": await store.run(store.production), "plan_available": plan is not None}
+
+
+@router.put("/api/admin/intercom/production")
+async def production_set(request: Request, user: users.User = Depends(require("intercom.manage"))):
+    d = await _json(request, 1024)
+    return {"label": await store.run(lambda: store.set_production(d.get("label"), user.id))}
+
+
+@router.get("/api/admin/intercom/production/plan", dependencies=[Depends(require("intercom.manage"))])
+async def production_plan():
+    """Today's plan name from whichever module follows plans. 404 when none is switched on."""
+    label = registry.plan_label()
+    if label is None:
+        return JSONResponse({"error": "No plan source is switched on."}, status_code=404)
+    return {"label": label}
 
 
 @router.websocket("/intercom/ws")

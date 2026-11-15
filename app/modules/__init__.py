@@ -179,6 +179,11 @@ class Module:
         """A /stream response for a stream this module owns, or None if `name` is not one of its own."""
         return None
 
+    def plan_label(self) -> str | None:
+        """Today's plan as a short title ("Sunday Service 9:00 AM") for modules that follow a plan, "" when there
+        is none today, and None when this module has no plans at all. Other modules ask through the registry."""
+        return None
+
 
 # ------------------------------------------------------------------ what core gives modules
 # A module cannot import app.main (main imports this registry), so the few things its routes need from the
@@ -270,6 +275,17 @@ class Registry:
     def active(self) -> list[Module]:
         """The modules that are switched on, in discovery order."""
         return [m for m in self.all() if self.enabled(m.manifest.id)]
+
+    def plan_label(self) -> str | None:
+        """The first switched-on module's plan label; None when no switched-on module follows plans."""
+        for mod in self.active():
+            try:
+                got = mod.plan_label()
+            except Exception:
+                got = None
+            if got is not None:
+                return got
+        return None
 
     def require_enabled(self, mid: str) -> Callable[[], Awaitable[None]]:
         """A FastAPI dependency: 404 while the module is off, exactly as if its routes were not there."""
