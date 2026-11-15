@@ -448,6 +448,16 @@ asyncio.run(main())
 print("admin")
 pclive.follower.make_client = lambda cfg: FakeClient()
 world.now = at(12, d=10)
+
+
+class _Frozen(datetime):
+    """The admin routes read the real clock; hold it at the fixture's day so the test does not age."""
+    @classmethod
+    def now(cls, tz=None):
+        return datetime.fromtimestamp(world.now, tz)
+
+
+pclive.datetime = _Frozen
 admin = _db.client(app, base_url="http://relay.local:8001")
 URL = "/api/admin/planning-center"
 admin.post(URL, json={"app_id": "id", "secret": "secret"})
