@@ -1,0 +1,8 @@
+# zizmor (GitHub Actions security linter): `python tests/run_security.py -k zizmor`
+rules:
+  cache-poisoning:
+    ignore:
+      # The release build restores pip/npm/cargo caches that a pull request run of the same workflow can also
+      # write. Kept for build time; the shipped Python set is hash-pinned and the installers are signed.
+      # Revisit by disabling the caches when ref_type is a tag.
+      - release.yml

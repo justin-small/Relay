@@ -1,0 +1,59 @@
+name: Security
+
+# The same scans you can run before pushing: `python tests/run_security.py` (tests/run_security.py lists them
+# and what each one covers). This workflow installs the tools and calls that script, so CI and a laptop agree.
+# Dependency audits (pip-audit, npm audit, cargo audit) are the "Dependency audit" job in tests.yml, and CodeQL
+# runs from the repository's default setup, so neither is repeated here.
+# A weekly run catches new advisories and rules without a pull request.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  schedule:
+    - cron: '17 6 * * 1'
+
+permissions:
+  contents: read
+
+jobs:
+  scan:
+    name: Security scans
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0              # gitleaks reads the whole history
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.15'
+      - uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca # v1
+        with:
+          toolchain: stable
+      # Pinned here, and in `python tests/run_security.py --install` for your own machine.
+      - name: Install bandit and zizmor
+        run: pip install bandit==1.9.4 zizmor==1.32.0
+      - name: Install actionlint and gitleaks
+        env:
+          ACTIONLINT: 1.7.12
+          GITLEAKS: 8.30.1
+        run: |
+          set -euo pipefail
+          curl -sSfLO "https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT}/actionlint_${ACTIONLINT}_linux_amd64.tar.gz"
+          curl -sSfLO "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS}/gitleaks_${GITLEAKS}_linux_x64.tar.gz"
+          # Checksums of the two versions above; change them together.
+          echo "8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8  actionlint_${ACTIONLINT}_linux_amd64.tar.gz" | sha256sum -c -
+          echo "551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb  gitleaks_${GITLEAKS}_linux_x64.tar.gz" | sha256sum -c -
+          tar -xzf "actionlint_${ACTIONLINT}_linux_amd64.tar.gz" actionlint
+          tar -xzf "gitleaks_${GITLEAKS}_linux_x64.tar.gz" gitleaks
+          mkdir -p "$HOME/.local/bin" && mv actionlint gitleaks "$HOME/.local/bin/"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+      - name: Install cargo-deny
+        run: cargo install cargo-deny --locked --version 0.20.2
+      - name: Scans
+        env:
+          GH_TOKEN: ${{ github.token }}   # zizmor reads action metadata from the API
+          GITHUB_TOKEN: ${{ github.token }}
+        run: python tests/run_security.py --strict
