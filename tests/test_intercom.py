@@ -252,7 +252,10 @@ async def until(cond, seconds=10):
 async def supervise():
     sup = livekit.Supervisor()
     sup.begin({"binary_path": str(fake), "node_ip": "127.0.0.1"})
-    check("it starts and answers on its port", await until(lambda: sup.state == "running", 30))
+    started = await until(lambda: sup.state == "running", 30)
+    if not started:
+        print("  state", sup.state, sup.detail, "ports", livekit.SIGNAL_PORT, "log:", *list(sup.log)[-15:], sep="\n    ")
+    check("it starts and answers on its port", started)
     pid = sup._proc.pid
     check("the log shows output with the secret hidden",
           await until(lambda: any("started" in l for l in sup.log)) and not any(livekit.keys()[1] in l for l in sup.log))
