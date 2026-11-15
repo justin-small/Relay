@@ -59,6 +59,8 @@ class Intercom(Module):
             users.signed_out_hooks.append(presence.user_signed_out)
         if presence.member_changed not in store.member_hooks:
             store.member_hooks.append(presence.member_changed)
+        if presence.config_changed not in store.config_hooks:
+            store.config_hooks.append(presence.config_changed)
 
     def detach(self) -> None:
         from ... import users
@@ -66,7 +68,8 @@ class Intercom(Module):
         from .presence import presence
 
         for lst, fn in ((users.signed_out_hooks, presence.user_signed_out), (store.member_hooks,
-                                                                           presence.member_changed)):
+                                                                           presence.member_changed),
+                        (store.config_hooks, presence.config_changed)):
             if fn in lst:
                 lst.remove(fn)
 

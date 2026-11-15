@@ -75,7 +75,7 @@ check("every intercom table exists", {"intercom_orgs", "intercom_production", "i
                                       "intercom_channels", "intercom_channel_members", "intercom_user_choices",
                                       "intercom_sessions", "intercom_events"} <= tables)
 check("core users were left alone", db.one("select id from users where username = 'alice'") is not None)
-eq("each migration recorded once", count("schema_migrations where namespace = 'intercom'"), 2)
+eq("each migration recorded once", count("schema_migrations where namespace = 'intercom'"), 3)
 eq("one organisation row", count("intercom_orgs"), 1)
 
 general = store.create_channel("General", actor_id=alice.id)

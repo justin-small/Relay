@@ -15,6 +15,55 @@
       </div>
     </section>
 
+    <section id="icChannelsSection">
+      <h3>Channels</h3>
+      <p class="note">Standing channels with a standing member list. A production never changes who is on which channel.
+        Drag rows to set the order phones show.</p>
+      <label class="note" style="display:block;margin-bottom:12px">Production label
+        <input type="text" id="icLabel" maxlength="80" placeholder="Sunday 9:00" style="margin:0 6px">
+        <button type="button" id="icLabelSave">Save label</button>
+        <button type="button" id="icLabelPlan" hidden>Use Planning Center plan name</button>
+      </label>
+      <div class="note" id="icChannelsEmpty">No channels yet.</div>
+      <table class="tbl" id="icChannelsTable" hidden>
+        <thead><tr><th></th><th>Name</th><th>When two people press talk</th><th>Max talkers</th><th>Latch limit</th><th>Members</th><th></th></tr></thead>
+        <tbody id="icChannels"></tbody>
+      </table>
+      <div class="ctl" style="margin-top:12px">
+        <input type="text" id="icNewName" maxlength="60" placeholder="New channel name">
+        <button type="button" id="icNewChannel">New channel</button>
+      </div>
+
+      <div id="icEdit" hidden style="margin-top:16px;padding:12px;border:1px solid var(--line, #8884);border-radius:8px">
+        <h3 id="icEditTitle">Edit channel</h3>
+        <div class="ctl">
+          <label>Name <input type="text" id="icEName" maxlength="60"></label>
+          <label>Colour <input type="color" id="icEColour" value="#3b82f6"></label>
+          <label>When two people press talk
+            <select id="icEMode"><option value="preempt">Pre-empt</option><option value="party">Party line</option>
+              <option value="queue">One at a time</option></select></label>
+          <label>Max talkers <input type="number" id="icEMax" min="1" max="16" style="width:5em"></label>
+          <label>Latch limit (s, 0 = none) <input type="number" id="icELatch" min="0" max="86400" style="width:6em"></label>
+        </div>
+        <h3>Members</h3>
+        <table class="tbl">
+          <thead><tr><th>Person</th><th>Talk</th><th>Listen</th><th class="icPrio">Priority</th><th></th></tr></thead>
+          <tbody id="icMembers"></tbody>
+        </table>
+        <div class="ctl" style="margin-top:8px">
+          <input type="text" id="icAddQ" placeholder="Add a user…" list="icAddList" autocomplete="off">
+          <datalist id="icAddList"></datalist>
+          <button type="button" id="icAdd">Add</button>
+        </div>
+        <div class="ctl" style="margin-top:12px">
+          <button type="button" id="icESave">Save</button>
+          <button type="button" id="icECancel">Cancel</button>
+          <button type="button" id="icEDelete">Delete channel</button>
+        </div>
+        <div class="note err" id="icEErr" hidden></div>
+      </div>
+    </section>
+
     <section id="icPhonesSection">
       <h3>Signed-in phones</h3>
       <p class="note">Each crew member signs in on their own phone with their own account. Signing a phone out ends its
