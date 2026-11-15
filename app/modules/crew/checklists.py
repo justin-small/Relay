@@ -56,9 +56,10 @@ def leads_of(user_id: int) -> list[str]:
                                             " order by lower(position)", (user_id,))]
 
 
-def can_edit(user, position: str) -> bool:
-    """Operators (crew.checklist_edit) edit everything; a team lead edits only their own positions."""
-    if user.can("crew.checklist_edit"):
+def can_edit(user, position: str, perm: str = "crew.checklist_edit") -> bool:
+    """Operators (`perm`) edit everything; a team lead edits only their own positions. Leads are named once and
+    lead a position's checklists and resources (#233) alike."""
+    if user.can(perm):
         return True
     return bool(position) and any(same(position, p) for p in leads_of(user.id))
 

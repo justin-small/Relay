@@ -50,3 +50,6 @@
 .cl-form { display: grid; gap: 6px; margin-top: 10px; }
 .cl-form input, .cl-form textarea { font: inherit; padding: 8px; }
 .cl-btns { display: flex; gap: 8px; }
+.rs-item { padding: 10px 0; border-top: 1px solid var(--line); }
+.rs-item a { font-weight: 600; word-break: break-word; }
+.rs-frame { display: block; width: 100%; height: 60vh; margin-top: 8px; border: 1px solid var(--line); border-radius: 8px; }

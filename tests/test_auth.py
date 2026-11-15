@@ -373,7 +373,7 @@ MIN_ROLE = {
     "atem.view": "viewer", "atem.control": "operator", "atem.manage": "admin",
     "tally_arbiter.view": "viewer", "tally_arbiter.manage": "admin",
     "parent_paging.view": "viewer", "parent_paging.control": "operator", "parent_paging.manage": "admin",
-    "crew.use": "member", "crew.view": "viewer", "crew.manage": "admin", "crew.page": "operator", "crew.chat": "member", "crew.checkin": "member", "crew.checklist": "member", "crew.checklist_edit": "operator", "crew.moderate": "operator",
+    "crew.use": "member", "crew.view": "viewer", "crew.manage": "admin", "crew.page": "operator", "crew.chat": "member", "crew.checkin": "member", "crew.checklist": "member", "crew.checklist_edit": "operator", "crew.resources": "member", "crew.resources_edit": "operator", "crew.moderate": "operator",
 }
 for role in ROLE_NAMES:
     me = clients[role].get("/api/admin/me").json()
@@ -1329,7 +1329,7 @@ for mid, want in (("planning_center", {"planning_center.view": "viewer", "planni
                   ("parent_paging", {"parent_paging.view": "viewer", "parent_paging.control": "operator",
                                      "parent_paging.manage": "admin"}),
                   ("crew", {"crew.use": "member", "crew.view": "viewer", "crew.manage": "admin", "crew.page": "operator", "crew.chat": "member", "crew.checkin": "member",
-                                      "crew.checklist": "member", "crew.checklist_edit": "operator", "crew.moderate": "operator"})):
+                                      "crew.checklist": "member", "crew.checklist_edit": "operator", "crew.resources": "member", "crew.resources_edit": "operator", "crew.moderate": "operator"})):
     got = {p.id: p.min_role for p in registry.get(mid).permissions}
     eq(f"{mid} declares its permissions", got, want)
 
