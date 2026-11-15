@@ -52,7 +52,7 @@ jobs:
             test-results.xml
             coverage.txt
       # The browser-side scripts' own tests (node:test, no packages to install).
-      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: '22'
       - name: JavaScript tests
@@ -146,7 +146,7 @@ jobs:
           pip-audit --strict --require-hashes --disable-pip -r requirements-release.txt
       - name: The release set matches requirements.txt
         run: python tests/test_release_lock.py
-      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: '22'
       - name: npm audit
