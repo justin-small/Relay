@@ -559,6 +559,10 @@ for method, path, perm in (
     ("DELETE", "/api/admin/crew/people/{user_id}/match", "crew.manage"),
     ("GET", "/api/admin/crew/pages", "crew.page"),
     ("POST", "/api/admin/crew/pages", "crew.page"),                       # an empty body is refused
+    ("GET", "/api/admin/crew/calltimes", "crew.view"),
+    ("POST", "/api/admin/crew/calltimes", "crew.manage"),                 # an empty body is refused
+    ("PUT", "/api/admin/crew/calltimes/{rule_id}", "crew.manage"),
+    ("DELETE", "/api/admin/crew/calltimes/{rule_id}", "crew.manage"),
     ("POST", "/api/admin/alert-events/test", "alert_events.manage"),      # sends to nothing until something is on
     ("GET", "/api/admin/alert-events/state", "alert_events.view"),
     ("GET", ATX, "atem.view"),

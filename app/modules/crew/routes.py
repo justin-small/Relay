@@ -13,7 +13,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, Response
 
 from ... import audit, config
 from .. import modules as registry, require
-from . import paging, people
+from . import calltimes, paging, people
 
 router = APIRouter()
 VIEW = [Depends(require("crew.view"))]
@@ -245,3 +245,34 @@ def pages_send(request: Request, payload: dict):
     page = _people_call(paging.create, payload.get("message"), request.state.user.id, ids)
     audit.note(request, "crew.page", "Paged the crew", target=page, detail={"people": len(ids)})
     return {"id": page, "people": len(ids), "unmatched": unmatched}
+
+
+# -- scheduled call-time pages (#229) -----------------------------------------------------------------------------
+@router.get("/api/admin/crew/calltimes", dependencies=VIEW)
+def calltimes_get():
+    return {"rules": _people_call(calltimes.list_rules),
+            "teams": sorted(paging.serving(_tracks())), "planning_center": registry.enabled("planning_center")}
+
+
+@router.post("/api/admin/crew/calltimes", dependencies=MANAGE)
+def calltimes_add(request: Request, payload: dict):
+    rule = _people_call(calltimes.clean, payload)
+    rid = _people_call(calltimes.save, rule)
+    audit.note(request, "crew.calltime_add", "Added a call-time page", target=rid, detail={"team": rule["team"]})
+    return calltimes_get()
+
+
+@router.put("/api/admin/crew/calltimes/{rule_id}", dependencies=MANAGE)
+def calltimes_change(request: Request, rule_id: int, payload: dict):
+    rule = _people_call(calltimes.clean, payload)
+    _people_call(calltimes.save, rule, rule_id)
+    audit.note(request, "crew.calltime_change", "Changed a call-time page", target=rule_id,
+               detail={"team": rule["team"], "enabled": rule["enabled"]})
+    return calltimes_get()
+
+
+@router.delete("/api/admin/crew/calltimes/{rule_id}", dependencies=MANAGE)
+def calltimes_delete(request: Request, rule_id: int):
+    _people_call(calltimes.delete, rule_id)
+    audit.note(request, "crew.calltime_delete", "Removed a call-time page", target=rule_id)
+    return calltimes_get()

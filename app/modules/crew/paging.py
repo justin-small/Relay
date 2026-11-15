@@ -93,12 +93,14 @@ def subscribed(user_id: int) -> bool:
 
 
 # -- who a page reaches ------------------------------------------------------------------------------------------
-def serving(tracks) -> dict[str, list[dict]]:
-    """Today's plan people by Planning Center team name: [{"person", "name"}], declined answers left out."""
+def serving(tracks, time_id: str | None = None) -> dict[str, list[dict]]:
+    """Today's plan people by Planning Center team name: [{"person", "name"}], declined answers left out. With a
+    plan time, only the people who serve that time (a person with no times listed serves them all)."""
     out: dict[str, list[dict]] = {}
     for tr in tracks:
         for m in tr.team:
-            if m.get("team") and m.get("person") and m.get("status") != "declined":
+            if m.get("team") and m.get("person") and m.get("status") != "declined" and (
+                    time_id is None or m.get("times") is None or time_id in m["times"]):
                 row = {"person": m["person"], "name": m["name"]}
                 if row not in out.setdefault(m["team"], []):
                     out[m["team"]].append(row)
@@ -118,7 +120,7 @@ def targets(tracks) -> dict:
     return {"people": accounts, "teams": teams}
 
 
-def resolve(user_ids, teams, tracks) -> tuple[list[int], list[str]]:
+def resolve(user_ids, teams, tracks, time_id: str | None = None) -> tuple[list[int], list[str]]:
     """The accounts to page, and the names of Planning Center people with no matched account."""
     people.ready()
     want: list[int] = []
@@ -129,7 +131,7 @@ def resolve(user_ids, teams, tracks) -> tuple[list[int], list[str]]:
     if isinstance(teams, list) and teams:
         linked = {r["pc_person"]: r["user_id"] for r in db.query(
             "select user_id, pc_person from crew_profiles where pc_person is not null")}
-        by_team = serving(tracks)
+        by_team = serving(tracks, time_id)
         for t in teams:
             for row in by_team.get(t, []) if isinstance(t, str) else []:
                 uid = linked.get(row["person"])

@@ -108,6 +108,54 @@
       (data.unmatched.length ? '. No crew account for: ' + data.unmatched.join(', ') : ''));
     pagesRefresh();
   });
-  document.addEventListener('relay:config', function () { refresh(); peopleRefresh(); drawn = false; pagesRefresh(); });
-  refresh(); peopleRefresh(); pagesRefresh();
+  // -- call times (#229): scheduled pages for a Planning Center team. Everything shown is text.
+  const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+  function ctMsg(text) { $('ctErr').textContent = text || ''; $('ctErr').hidden = !text; }
+  function ctSend(method, path, body) { return send2(method, path, body, ctMsg); }
+  async function send2(method, path, body, say) {
+    const res = await fetch(path, { method: method, credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' }, body: body ? JSON.stringify(body) : undefined });
+    const data = await res.json().catch(function () { return {}; });
+    if (!res.ok) { say(data.detail || data.error || 'That did not work.'); return null; }
+    say(''); return data;
+  }
+  function whenText(r) { return r.kind === 'before' ? r.minutes + ' min before each service' : DAYS[r.weekday] + ' ' + r.clock; }
+  function lastText(r) {
+    if (!r.last_ts) return 'Not yet';
+    return new Date(r.last_ts * 1000).toLocaleString([], { weekday: 'short', hour: 'numeric', minute: '2-digit' }) +
+      (r.last_people ? ' \u00b7 ' + r.last_people + (r.last_people === 1 ? ' person' : ' people') : ' \u00b7 nobody to page');
+  }
+  function drawCalls(d) {
+    const manage = can('crew.manage'), body = document.querySelector('#ctRules tbody');
+    ['ctTeam', 'ctKind', 'ctMin', 'ctDay', 'ctClock', 'ctMsg', 'ctAdd'].forEach(function (id) { $(id).disabled = !manage; });
+    const list = $('ctTeams'); list.textContent = '';
+    d.teams.forEach(function (t) { const o = document.createElement('option'); o.value = t; list.appendChild(o); });
+    body.textContent = '';
+    d.rules.forEach(function (r) {
+      const tr = document.createElement('tr');
+      tr.appendChild(cell(r.team + (r.enabled ? '' : ' (off)'))); tr.appendChild(cell(whenText(r)));
+      tr.appendChild(cell(r.message)); tr.appendChild(cell(lastText(r)));
+      const act = document.createElement('td');
+      if (manage) {
+        act.appendChild(button(r.enabled ? 'Turn off' : 'Turn on', async function () {
+          const next = await ctSend('PUT', '/api/admin/crew/calltimes/' + r.id, Object.assign({}, r, { enabled: !r.enabled }));
+          if (next) drawCalls(next);
+        }));
+        act.appendChild(button('Remove', async function () { const next = await ctSend('DELETE', '/api/admin/crew/calltimes/' + r.id); if (next) drawCalls(next); }));
+      }
+      tr.appendChild(act); body.appendChild(tr);
+    });
+  }
+  function ctKind() { const b = $('ctKind').value === 'before'; $('ctBefore').hidden = !b; $('ctFixed').hidden = b; }
+  $('ctKind').addEventListener('change', ctKind);
+  $('ctAdd').addEventListener('click', async function () {
+    const before = $('ctKind').value === 'before';
+    const rule = { team: $('ctTeam').value, kind: $('ctKind').value, message: $('ctMsg').value, enabled: true };
+    if (before) rule.minutes = parseInt($('ctMin').value, 10); else { rule.weekday = parseInt($('ctDay').value, 10); rule.clock = $('ctClock').value; }
+    const d = await ctSend('POST', '/api/admin/crew/calltimes', rule);
+    if (d) { $('ctMsg').value = ''; drawCalls(d); }
+  });
+  async function callsRefresh() { try { drawCalls(await api('/api/admin/crew/calltimes')); } catch (e) { /* keeps what it had */ } }
+  document.addEventListener('relay:config', function () { refresh(); peopleRefresh(); drawn = false; pagesRefresh(); callsRefresh(); });
+  refresh(); peopleRefresh(); pagesRefresh(); callsRefresh();
 })();

@@ -26,7 +26,7 @@ class Crew(Module):
     manifest = Manifest(
         id="crew",
         name="Crew app",
-        version="1.2.0",
+        version="1.3.0",
         summary="An installable page for the crew, signed in with a Relay account, that shows the plan and hosts "
                 "the other crew features. Served over HTTPS on this network only.",
         settings_key="crew",
@@ -76,15 +76,19 @@ class Crew(Module):
 
     async def _pager(self) -> None:
         """Fire due pushes once a second. Evaluated here, on the Relay host, never by a phone."""
-        from . import paging
+        from . import calltimes, paging
 
+        beat = 0
         while True:
             try:
                 await asyncio.to_thread(paging.tick)
+                if beat % 5 == 0:         # call times have a minute's grace, so every five seconds is plenty
+                    await asyncio.to_thread(calltimes.run)
             except asyncio.CancelledError:
                 raise
             except Exception:
                 log.warning("crew: paging tick failed", exc_info=True)
+            beat += 1
             await asyncio.sleep(1)
 
     def _scan(self) -> None:
