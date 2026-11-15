@@ -40,6 +40,11 @@ def at(h, m=0, s=0):
     return datetime(2026, 11, 15, h, m, s, tzinfo=NY).timestamp()
 
 
+# The fixture plan is on 15 November 2026, so the real clock must not decide whether it is live: it did, once that
+# day's service hours had passed. Run the whole file at 9:30 on the morning of the plan.
+rundown.utcnow = lambda: at(9, 30)
+
+
 def hm(ts):
     return None if ts is None else datetime.fromtimestamp(ts, NY).strftime("%H:%M")
 

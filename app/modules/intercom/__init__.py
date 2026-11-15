@@ -44,6 +44,9 @@ class Intercom(Module):
     crew_scripts = ("livekit-client.umd.js", "crew.js")
     microphone_pages = ("/crew",)
     route_prefixes = ("/api/admin/intercom", "/intercom")
+    # Never on the plain-HTTP viewer port, so a remote access tunnel carries none of the local intercom (the webhook
+    # LiveKit calls stays there on purpose). Remote crew (intercom_remote, #277) has routes of its own for that.
+    panel_prefixes = ("/intercom/api", "/intercom/ws", "/intercom/rtc")
     permissions = (
         Permission("intercom.use", "Use the crew intercom on a phone", "Intercom", "member"),
         Permission("intercom.view", "See the intercom media server and its log", "Intercom", "viewer"),

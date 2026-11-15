@@ -354,6 +354,7 @@ MIN_ROLE = {
     "remote_access.view": "viewer", "remote_access.manage": "admin",
     "signage.view": "viewer", "signage.manage": "admin",
     "intercom.use": "member", "intercom.view": "viewer", "intercom.live": "operator", "intercom.manage": "admin",
+    "intercom_remote.view": "viewer", "intercom_remote.manage": "admin",
     "signage_web.view": "viewer", "signage_web.manage": "admin",
     "alert_events.view": "viewer", "alert_events.manage": "admin",
     "atem.view": "viewer", "atem.control": "operator", "atem.manage": "admin",
@@ -383,7 +384,7 @@ config.save({"modules": {"propresenter": {"enabled": True}, "planning_center": {
                          "remote_access": {"enabled": True}, "signage": {"enabled": True},
                          "signage_web": {"enabled": True}, "alert_events": {"enabled": True},
                          "atem": {"enabled": True}, "tally_arbiter": {"enabled": True},
-                         "parent_paging": {"enabled": True}, "intercom": {"enabled": True},
+                         "parent_paging": {"enabled": True}, "intercom": {"enabled": True}, "intercom_remote": {"enabled": True},
                          "crew": {"enabled": True}}})
 
 E = {}      # (METHOD, path) -> permission; None = any signed-in user
@@ -499,6 +500,9 @@ for method, path, perm in (
     ("POST", "/api/admin/intercom/live/release-all", "intercom.live"),
     ("POST", "/api/admin/intercom/live/channels/{channel_id}/mute", "intercom.live"),
     ("POST", "/api/admin/intercom/live/users/{user_id}/mute", "intercom.live"),
+    ("GET", "/api/admin/intercom-remote", "intercom_remote.view"),
+    ("POST", "/api/admin/intercom-remote/users/{user_id}/allow", "intercom_remote.manage"),
+    ("POST", "/api/admin/intercom-remote/users/{user_id}/cut", "intercom_remote.manage"),
     ("PUT", "/api/admin/intercom/live/production", "intercom.live"),
     ("GET", SGX, "signage.view"),
     ("GET", SGX + "/preview", "signage.view"),
@@ -754,7 +758,7 @@ config.save({"modules": {"propresenter": {"enabled": False}, "planning_center": 
                          "remote_access": {"enabled": False}, "signage": {"enabled": False},
                          "signage_web": {"enabled": False}, "alert_events": {"enabled": False},
                          "atem": {"enabled": False}, "tally_arbiter": {"enabled": False},
-                         "parent_paging": {"enabled": False}, "intercom": {"enabled": False},
+                         "parent_paging": {"enabled": False}, "intercom": {"enabled": False}, "intercom_remote": {"enabled": False},
                          "crew": {"enabled": False}}})
 eq("a module that is off is still a 404 for everyone", op_c.get("/api/admin/propresenter").status_code, 404)
 
