@@ -16,7 +16,7 @@ from typing import Any
 from fastapi import WebSocket, WebSocketDisconnect
 
 from ... import db, serving
-from . import devices, rooms, rtcproxy, store
+from . import devices, live, rooms, rtcproxy, store
 from .arbiter import arbiter
 
 log = logging.getLogger("relay.intercom")
@@ -131,8 +131,18 @@ class Presence:
         """store.config_hooks: send phones what they may use, within a moment of a change."""
         self.run(self._push_config(users))
 
+    @staticmethod
+    def _changed() -> None:
+        """Who is connected or what the label says changed: the live page and the top bar pill follow."""
+        from .. import modules as registry
+
+        live.notify()
+        registry.on_change()
+
     async def _push_config(self, users: "set[int] | None") -> None:
         label = await store.run(store.production)
+        live.label = label
+        self._changed()
         cache: dict[int, list] = {}
         for conn in list(self.conns.values()):
             if users is not None and conn.user_id not in users:
@@ -184,6 +194,7 @@ class Presence:
 
     async def _activity(self, channel_id: int) -> None:
         """Tell everyone who listens on the channel who is talking now."""
+        live.notify()
         msg = self.activity(channel_id)
         rows = await store.run(store.members, channel_id)
         listeners = {r["user_id"] for r in rows if r["can_listen"] or r["can_talk"]}
@@ -227,6 +238,7 @@ class Presence:
             return
         conn = Conn(ws, device, user, sid)
         self.conns[device["id"]] = conn
+        self._changed()
         reason = "closed"
         try:
             await self._send(ws, await self._welcome(device, user, fresh))
@@ -239,6 +251,7 @@ class Presence:
         finally:
             if self.conns.get(device["id"]) is conn:
                 del self.conns[device["id"]]
+                self._changed()
                 await arbiter.disconnected(device["id"])
             try:
                 await store.run(self._shut, conn, reason)
@@ -335,7 +348,7 @@ class Presence:
         elif kind == "talk.beat":
             arbiter.beat(conn.device_id)
         elif kind == "stats":
-            conn.stats = _stats(data)
+            conn.stats = _stats(data)      # the live page picks it up on its next refresh
         return False
 
     async def _send(self, ws: WebSocket, msg: dict) -> None:

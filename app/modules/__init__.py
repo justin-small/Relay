@@ -196,6 +196,10 @@ class Module:
         """Keys merged into the engine status the admin page and panels read."""
         return {}
 
+    def pills(self) -> list[dict]:
+        """Pills for the admin top bar, shown while the module is on: [{"id", "text", "count", "href"}]."""
+        return []
+
     def stream(self, name: str, request: Any, params: dict) -> Any:
         """A /stream response for a stream this module owns, or None if `name` is not one of its own."""
         return None
@@ -400,6 +404,15 @@ class Registry:
                 out.update(mod.status())
             except Exception:
                 log.exception("module %s status failed", mod.manifest.id)
+        return out
+
+    def pills(self) -> list[dict]:
+        out: list[dict] = []
+        for mod in self.active():
+            try:
+                out.extend(mod.pills())
+            except Exception:
+                log.exception("module %s pills failed", mod.manifest.id)
         return out
 
     def stream(self, name: str, request: Any, params: dict) -> Any:

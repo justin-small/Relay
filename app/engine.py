@@ -436,6 +436,8 @@ class Engine:
             "status": True,
             "running": self.running,
             "font_px": cfg["default_font_px"],
+            # Top bar pills the modules that are on ask for (id, text, count, href).
+            "pills": modules.pills(),
             # Whatever the modules that are on add (app/modules/): they override the empty defaults above.
             **modules.status(),
         }

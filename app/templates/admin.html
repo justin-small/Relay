@@ -478,6 +478,7 @@ window.relayCan = function (perm) { return window.RELAY_ME.permissions.indexOf(p
   <button class="menu" id="navToggle" aria-expanded="false" aria-controls="nav"><svg class="ic" viewBox="0 0 16 16" aria-hidden="true"><path d="M2 4h12M2 8h12M2 12h12"/></svg> Menu</button>
   <h1 class="brand">{% include "_lockup.svg" %}</h1>
   <a href="#health" class="spill off" id="streamPill" title="Open Session health" aria-live="polite"><span class="dot" id="masterDot"></span><span id="pillTxt">STOPPED</span></a>
+  <span id="modulePills" style="display:contents"></span>
   <span class="spacer"></span>
   <span class="muted" id="viewerCount">0 viewers</span>
   <a class="acct" href="#account" id="acctLink" title="My account"><span class="acctname">{{ me.user.name }}</span><span class="acctrole">{{ me.user.role|capitalize }}</span></a>

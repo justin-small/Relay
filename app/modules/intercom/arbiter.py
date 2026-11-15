@@ -91,6 +91,8 @@ class Arbiter:
 
     def reset(self) -> None:
         self.leases.clear(), self.queues.clear(), self._rate.clear(), self._flagged.clear()
+        self.muted_channels.clear(), self.muted_users.clear()
+        self.muted_all = False
 
     # ------------------------------------------------------------------ the synchronous core
     def _full(self, ch: int, channel: dict) -> bool:

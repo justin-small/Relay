@@ -2097,6 +2097,7 @@
     $('stopBtn').disabled = !st.running;
     if (recRunning && !st.running) loadRuns();  // a run just ended: it is downloadable now
     recRunning = !!st.running;
+    paintModulePills(st.pills);
     $('viewerCount').textContent = st.viewers + (st.viewers === 1 ? ' viewer' : ' viewers');
 
     const a = st.audio || {};
@@ -2332,6 +2333,24 @@
   document.addEventListener('keydown', function (e) { if (e.key === 'Escape' && panelDrawer) closeDrawer(); });
 
   /* The stream indicator in the top bar is visible on every page. */
+  // Pills the modules that are on put in the top bar. Everything is set as text.
+  function paintModulePills(list) {
+    const box = $('modulePills');
+    box.textContent = '';
+    (Array.isArray(list) ? list : []).forEach(function (p) {
+      const a = document.createElement('a');
+      a.className = 'spill on';
+      a.href = typeof p.href === 'string' && /^#[a-z0-9_-]+$/i.test(p.href) ? p.href : '#';
+      const dot = document.createElement('span');
+      dot.className = 'dot';
+      const txt = document.createElement('span');
+      txt.textContent = String(p.text || '') + (typeof p.count === 'number' ? ' · ' + p.count : '');
+      a.appendChild(dot);
+      a.appendChild(txt);
+      box.appendChild(a);
+    });
+  }
+
   function paintPill(running) {
     const pill = $('streamPill');
     pill.className = 'spill ' + (running ? 'on' : 'off');
