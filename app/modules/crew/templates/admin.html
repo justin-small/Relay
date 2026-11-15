@@ -25,6 +25,17 @@
       <div class="note err" id="crErr" hidden></div>
       <div class="ctl"><button type="button" class="primary" id="crSave">Save</button> <span class="muted" id="crMsg"></span></div>
     </section>
+    <section id="crJoinBox">
+      <h3>Join by QR code</h3>
+      <p class="note" style="margin-top:0">Put this on a screen or print it. A phone that scans it lands on a plain page
+        that explains how to trust Relay's certificate, then opens the crew page at Relay's current address on the
+        HTTPS port. The join page has its own plain-HTTP port (Relay restarts to change it).</p>
+      <div style="display:flex;gap:16px;align-items:center;flex-wrap:wrap">
+        <div id="crQr" style="width:180px;height:180px;background:#fff" role="img" aria-label="QR code for the crew join page"></div>
+        <div><div class="note">Join page: <span id="crJoinUrl"></span></div>
+          <div class="note">Crew page: <span id="crCrewUrl"></span></div></div>
+      </div>
+    </section>
     <section id="crBoardBox" hidden>
       <h3>Arrivals</h3>
       <p class="note" style="margin-top:0">Who on today's Planning Center plan has arrived, against their team's earliest

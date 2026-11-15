@@ -21,7 +21,20 @@
     if (!lat && !lon && !rad) return null;
     return { lat: lat === '' ? null : Number(lat), lon: lon === '' ? null : Number(lon), radius_m: rad === '' ? 150 : Number(rad) };
   }
-  async function refresh() { try { fill(await api('/api/admin/crew')); } catch (e) { /* keeps what it had */ } }
+  // The QR code (#236) is drawn here with the vendored generator; the addresses come from the server.
+  async function join() {
+    try {
+      const j = await api('/api/admin/crew/join');
+      $('crJoinUrl').textContent = j.join_url || '(no network address yet)';
+      $('crCrewUrl').textContent = j.crew_url || '';
+      const box = $('crQr'); box.textContent = '';
+      if (j.join_url && typeof qrcode === 'function') {
+        const q = qrcode(0, 'M'); q.addData(j.join_url); q.make();
+        box.innerHTML = q.createSvgTag({ cellSize: 4, margin: 3, scalable: true });
+      }
+    } catch (e) { /* the addresses stay as they were */ }
+  }
+  async function refresh() { join(); try { fill(await api('/api/admin/crew')); } catch (e) { /* keeps what it had */ } }
   $('crSave').addEventListener('click', async function () {
     $('crErr').hidden = true; $('crMsg').textContent = '';
     const res = await fetch('/api/admin/crew', { method: 'POST', credentials: 'same-origin',
