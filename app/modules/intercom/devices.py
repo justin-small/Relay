@@ -177,6 +177,15 @@ def membership(user_id: int, channel_id: int) -> dict | None:
                   " where user_id = ? and channel_id = ?", (user_id, channel_id))
 
 
+def rights(user_id: int, channel_id: int) -> dict | None:
+    """A user's rights on a channel with whether they have Talk selected there (None when not a member)."""
+    store.ready()
+    return db.one("select m.can_talk, m.can_listen, m.priority, coalesce(u.talk_selected, 0) as talk_selected"
+                  " from intercom_channel_members m left join intercom_user_choices u"
+                  " on u.channel_id = m.channel_id and u.user_id = m.user_id"
+                  " where m.user_id = ? and m.channel_id = ?", (user_id, channel_id))
+
+
 def set_choice(user_id: int, channel_id: int, *, talk_selected: Any, listen_selected: Any, volume: Any) -> None:
     """Remember what the user picked on a channel, so it follows them to another phone."""
     store.ready()

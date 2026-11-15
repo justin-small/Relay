@@ -47,6 +47,7 @@ class Intercom(Module):
 
     def __init__(self) -> None:
         self._task: asyncio.Task | None = None
+        self._watch: asyncio.Task | None = None
 
     def attach(self) -> None:
         from ... import users
@@ -89,9 +90,12 @@ class Intercom(Module):
 
         from .presence import presence
 
+        from . import rooms
+
         presence.loop = asyncio.get_running_loop()
         supervisor.begin(config.get()["intercom"])
         self._task = asyncio.create_task(self._housekeeping())
+        self._watch = asyncio.create_task(rooms.watch(), name="intercom-room-watch")
 
     async def stop(self) -> None:
         from .livekit import supervisor
@@ -101,8 +105,16 @@ class Intercom(Module):
             with contextlib.suppress(asyncio.CancelledError, Exception):
                 await self._task
             self._task = None
+        from . import rooms
         from .presence import presence
 
+        if self._watch is not None:
+            self._watch.cancel()
+            with contextlib.suppress(asyncio.CancelledError, Exception):
+                await self._watch
+            self._watch = None
+        rooms.armed.clear()
+        rooms.talking.clear()
         for device_id in list(presence.conns):
             await presence.drop(device_id, 1001, "server_stopping")
         presence.loop = None

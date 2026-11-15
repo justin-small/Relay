@@ -236,8 +236,11 @@ class Presence:
                 await store.run(lambda: devices.set_choice(
                     conn.user_id, data.get("channel"), talk_selected=data.get("talk_selected"),
                     listen_selected=data.get("listen_selected"), volume=data.get("volume", 100)))
+                await rooms.apply(conn.user_id, data["channel"])      # Talk selected or cleared: arm or disarm
             except devices.Refused as exc:
                 await self._send(conn.ws, {"type": "error", "for": "choice", "text": exc.message})
+            except rooms.RoomError:
+                pass           # LiveKit is not up; the watch loop settles it
         return False
 
     async def _send(self, ws: WebSocket, msg: dict) -> None:

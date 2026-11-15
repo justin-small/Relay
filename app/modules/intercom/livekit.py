@@ -200,6 +200,7 @@ def config_text(node_ip: str, key: str, secret: str, webhook_url: str = "") -> s
         f"  node_ip: {q(node_ip)}",
         "room:",
         "  auto_create: false",
+        "  enable_remote_unmute: true",       # the server unmutes a talker's track when a lease starts
         "  empty_timeout: 10",
         "keys:",
         f"  {q(key)}: {q(secret)}",

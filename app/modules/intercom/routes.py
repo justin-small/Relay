@@ -8,7 +8,7 @@ from fastapi.responses import JSONResponse, Response
 
 from .. import require
 from ... import db, users
-from . import devices, store, webhook
+from . import devices, rooms, store, webhook
 from .livekit import supervisor
 from .presence import on_operator_port, presence
 
@@ -162,4 +162,5 @@ async def livekit_webhook(request: Request):
             await store.run(webhook.record, event)
         except Exception:        # the database being down must not make LiveKit retry or Relay log a body
             webhook.log.warning("intercom: could not log a LiveKit event")
+        await rooms.event(event)       # keeps armed phones and their tracks in line
     return Response(status_code=200)

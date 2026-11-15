@@ -14,6 +14,7 @@ import hashlib
 import hmac
 import json
 import logging
+import re
 import time
 import urllib.request
 
@@ -113,44 +114,161 @@ def _permission(can_subscribe: bool, can_publish: bool) -> dict:
             "canPublishSources": ["MICROPHONE"]}
 
 
-async def set_publish(channel_id: int, user_id: int, device_id: int, allowed: bool) -> None:
-    """Switch a phone's right to publish in a channel's room, live. This is what a talk lease does."""
-    member = await store.run(devices.membership, user_id, channel_id)
-    if member is None or (allowed and not member["can_talk"]):
-        allowed = False
-    await call("UpdateParticipant", {
-        "room": room_name(channel_id), "identity": identity(user_id, device_id),
-        "permission": _permission(bool(member and member["can_listen"]), allowed)})
+# Pushing to talk has to start audio in well under 100 ms, and a track that is published for the first time takes
+# 400 to 700 ms to reach listeners (the #239 spike). So a phone that has Talk selected on a channel it may talk on is
+# ARMED: it may publish, it does so at once, and Relay keeps its track MUTED. A talk lease only unmutes it (about
+# 70 ms) and its end mutes it again. The cost is that an armed phone could unmute itself, and LiveKit has no event
+# for that, so Relay polls armed rooms and mutes any track that is open without a lease. A phone that is not armed
+# cannot publish at all.
+armed: "set[tuple[int, int]]" = set()          # (channel id, device id) allowed to publish, muted unless leased
+talking: "set[tuple[int, int]]" = set()        # the subset that holds a lease now
+WATCH_EVERY_S = 0.3
+RECONCILE_EVERY_S = 10.0
+_IDENT = re.compile(r"^u(\d{1,9})-d(\d{1,9})$")
+
+
+def _who(ident: str) -> tuple[int, int] | None:
+    m = _IDENT.match(ident or "")
+    return (int(m.group(1)), int(m.group(2))) if m else None
+
+
+def wants_armed(rights: dict | None) -> bool:
+    return bool(rights and rights["can_talk"] and rights.get("talk_selected"))
+
+
+async def _participants(channel_id: int) -> list[dict]:
+    return (await call("ListParticipants", {"room": room_name(channel_id)})).get("participants", [])
+
+
+async def _mute(channel_id: int, ident: str, sid: str, muted: bool) -> None:
+    await call("MutePublishedTrack", {"room": room_name(channel_id), "identity": ident, "trackSid": sid,
+                                      "muted": bool(muted)})
+
+
+def _audio_tracks(p: dict) -> list[dict]:
+    return [t for t in p.get("tracks", []) if t.get("type") in ("AUDIO", 0)]
+
+
+async def apply(user_id: int, channel_id: int) -> None:
+    """Make the user's phones in a channel's room match the database: gone with no rights, listening only, or armed."""
+    rights = await store.run(devices.rights, user_id, channel_id)
+    want_listen = bool(rights and rights["can_listen"])
+    want_armed = wants_armed(rights)
+    for p in await _participants(channel_id):
+        who = _who(p.get("identity", ""))
+        if who is None or who[0] != user_id:
+            continue
+        key = (channel_id, who[1])
+        if rights is None or not (rights["can_listen"] or rights["can_talk"]):
+            armed.discard(key), talking.discard(key)
+            await call("RemoveParticipant", {"room": room_name(channel_id), "identity": p["identity"]})
+            continue
+        have = p.get("permission") or {}
+        if have.get("canSubscribe") != want_listen or have.get("canPublish") != want_armed:
+            await call("UpdateParticipant", {"room": room_name(channel_id), "identity": p["identity"],
+                                             "permission": _permission(want_listen, want_armed)})
+        if want_armed:
+            armed.add(key)
+        else:
+            armed.discard(key), talking.discard(key)
+
+
+async def set_talking(channel_id: int, user_id: int, device_id: int, on: bool) -> None:
+    """A talk lease starts or ends for a phone: unmute or mute its track. If it is not armed yet (the slow path) it
+    is armed first and publishes when it sees that."""
+    key, ident = (channel_id, device_id), identity(user_id, device_id)
+    rights = await store.run(devices.rights, user_id, channel_id)
+    if on and not (rights and rights["can_talk"]):
+        on = False
+    if on:
+        talking.add(key)
+        if key not in armed:
+            armed.add(key)
+            await call("UpdateParticipant", {"room": room_name(channel_id), "identity": ident,
+                                             "permission": _permission(bool(rights["can_listen"]), True)})
+    else:
+        talking.discard(key)
+    for p in await _participants(channel_id):
+        if p.get("identity") == ident:
+            await asyncio.gather(*(_mute(channel_id, ident, t["sid"], not on) for t in _audio_tracks(p)
+                                   if bool(t.get("muted")) == on))
+
+
+async def enforce(channel_id: int, only_device: int | None = None) -> None:
+    """Mute any open track in the room whose phone holds no lease. Muting a muted track is skipped."""
+    mine = {k[1] for k in armed if k[0] == channel_id and k not in talking and (only_device in (None, k[1]))}
+    if not mine:
+        return
+    for p in await _participants(channel_id):
+        who = _who(p.get("identity", ""))
+        if who is None or who[1] not in mine:
+            continue
+        for t in _audio_tracks(p):
+            if not t.get("muted"):
+                await _mute(channel_id, p["identity"], t["sid"], True)
+                log.warning("intercom: muted a track that was open without a talk lease")
+
+
+async def reconcile() -> None:
+    """Heal drift (Relay or LiveKit restarted, a missed change): every phone in every room gets what it should."""
+    for ch in await store.run(store.channels):
+        seen: set[int] = set()
+        for p in await _participants(ch["id"]):
+            who = _who(p.get("identity", ""))
+            if who and who[0] not in seen:
+                seen.add(who[0])
+                await apply(who[0], ch["id"])
+
+
+async def watch() -> None:
+    """The module's background loop: mute open tracks without a lease, and now and then reconcile."""
+    last = 0.0
+    while True:
+        try:
+            if time.monotonic() - last >= RECONCILE_EVERY_S:
+                last = time.monotonic()
+                await reconcile()
+            for channel_id in {k[0] for k in armed}:
+                await enforce(channel_id)
+        except RoomError:
+            pass            # LiveKit is down or restarting; the next pass tries again
+        except Exception:
+            log.exception("intercom: room watch failed")
+        await asyncio.sleep(WATCH_EVERY_S)
+
+
+async def event(ev: dict) -> None:
+    """A LiveKit webhook event, already verified and parsed (webhook.parse): keep armed state and tracks in line."""
+    try:
+        ch, user, dev = ev["channel"], ev["user"], ev["device"]
+        if user is None or dev is None:
+            return
+        if ev["kind"] == "participant_joined":
+            await apply(user, ch)
+        elif ev["kind"] == "participant_left":
+            armed.discard((ch, dev)), talking.discard((ch, dev))
+        elif ev["kind"] == "track_published":
+            await enforce(ch, dev)
+    except RoomError:
+        log.warning("intercom: could not act on a LiveKit event")
+    except Exception:
+        log.exception("intercom: acting on a LiveKit event failed")
 
 
 async def remove_device(device_id: int, user_id: int) -> None:
     """Take one phone out of every channel's room."""
-    rooms = [room_name(c["id"]) for c in await store.run(store.channels)]
+    chans = [c["id"] for c in await store.run(store.channels)]
     ident = identity(user_id, device_id)
-    await asyncio.gather(*(call("RemoveParticipant", {"room": r, "identity": ident}) for r in rooms),
+    for c in chans:
+        armed.discard((c, device_id)), talking.discard((c, device_id))
+    await asyncio.gather(*(call("RemoveParticipant", {"room": room_name(c), "identity": ident}) for c in chans),
                          return_exceptions=True)
 
 
 async def remove_user(user_id: int) -> None:
     """Take every phone of a user out of every room (sign-out, a disabled or deleted account)."""
-    rooms = [room_name(c["id"]) for c in await store.run(store.channels)]
-    await asyncio.gather(*(_sweep(r, user_id, None) for r in rooms), return_exceptions=True)
-
-
-async def _sweep(room: str, user_id: int, member: dict | None) -> None:
-    """Make the user's participants in `room` match `member`: gone with no rights, no subscribing if listening was
-    taken away, otherwise untouched."""
-    got = await call("ListParticipants", {"room": room})
-    prefix = f"u{int(user_id)}-d"
-    for p in got.get("participants", []):
-        ident = p.get("identity", "")
-        if not ident.startswith(prefix):
-            continue
-        if member is None or not (member["can_listen"] or member["can_talk"]):
-            await call("RemoveParticipant", {"room": room, "identity": ident})
-        elif not member["can_listen"]:
-            await call("UpdateParticipant", {"room": room, "identity": ident,
-                                             "permission": _permission(False, False)})
+    chans = [c["id"] for c in await store.run(store.channels)]
+    await asyncio.gather(*(apply(user_id, c) for c in chans), return_exceptions=True)
 
 
 async def member_changed(user_id: int | None, channel_id: int | None) -> None:
@@ -159,10 +277,11 @@ async def member_changed(user_id: int | None, channel_id: int | None) -> None:
         if channel_id is None:
             return
         if user_id is None:
+            for k in [k for k in armed if k[0] == channel_id]:
+                armed.discard(k), talking.discard(k)
             await call("DeleteRoom", {"room": room_name(channel_id)})
             return
-        member = await store.run(devices.membership, user_id, channel_id)
-        await _sweep(room_name(channel_id), user_id, member)
+        await apply(user_id, channel_id)
     except RoomError:
         log.warning("intercom: could not update LiveKit after a membership change")
 

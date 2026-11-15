@@ -61,6 +61,8 @@ def raises(label, exc, fn):
 # ------------------------------------------------------------------ a fake LiveKit room service
 CALLS: list[tuple[str, dict]] = []
 PARTICIPANTS: dict[str, list[str]] = {}
+PERMS: dict[tuple[str, str], dict] = {}          # what Relay last set for a participant
+TRACKS: dict[tuple[str, str], list[dict]] = {}   # a participant's published tracks
 
 
 class Fake(http.server.BaseHTTPRequestHandler):
@@ -74,8 +76,16 @@ class Fake(http.server.BaseHTTPRequestHandler):
         body = json.loads(self.rfile.read(int(self.headers.get("Content-Length", 0))) or b"{}")
         CALLS.append((self.path.rsplit("/", 1)[-1], body, self.headers.get("Authorization", "")))
         out = {}
+        room = body.get("room")
         if self.path.endswith("ListParticipants"):
-            out = {"participants": [{"identity": i} for i in PARTICIPANTS.get(body.get("room"), [])]}
+            out = {"participants": [{"identity": i, "permission": PERMS.get((room, i), {}),
+                                     "tracks": TRACKS.get((room, i), [])} for i in PARTICIPANTS.get(room, [])]}
+        elif self.path.endswith("UpdateParticipant"):
+            PERMS[(room, body["identity"])] = body["permission"]
+        elif self.path.endswith("MutePublishedTrack"):
+            for t in TRACKS.get((room, body["identity"]), []):
+                if t["sid"] == body["trackSid"]:
+                    t["muted"] = body["muted"]
         data = json.dumps(out).encode()
         self.send_response(200)
         self.send_header("Content-Type", "application/json")
@@ -114,6 +124,7 @@ def b64d(part):
 users.SCRYPT_N = 2 ** 10
 store.forget()
 store.ready()
+rooms.WATCH_EVERY_S = rooms.RECONCILE_EVERY_S = 1e9        # the background loop is tested on its own below
 config.save({"admin_token": "t0ken", "port": 8000, "admin_port": 8001, "modules": {"intercom": {"enabled": True}}})
 alice = users.create("alice", "Alice", "member", "correct horse", temporary=False)
 bob = users.create("bob", "Bob", "member", "correct horse", temporary=False)
@@ -336,22 +347,126 @@ with TestClient(app, base_url="http://relay.local:8001") as member:
     check("deleting a channel closes its room", "DeleteRoom" in methods())
 
 # ------------------------------------------------------------------ live permissions
-print("live permissions")
+print("armed phones and talk leases")
 import asyncio  # noqa: E402
 
-CALLS.clear()
+rooms.armed.clear()
+rooms.talking.clear()
+room = f"ch-{general['id']}"
+bob_dev = 5
+ident = f"u{bob.id}-d{bob_dev}"
+key_ = (general["id"], bob_dev)
 store.set_member(general["id"], bob.id, can_talk=True, can_listen=True)
-asyncio.run(rooms.set_publish(general["id"], bob.id, 5, True))
-asyncio.run(rooms.set_publish(general["id"], bob.id, 5, False))
-perms = [c[1]["permission"]["canPublish"] for c in CALLS if c[0] == "UpdateParticipant"]
-eq("a lease switches publishing on, its end off", perms, [True, False])
+settle()
+PARTICIPANTS[room] = [ident]
+PERMS.clear()
+TRACKS[(room, ident)] = [{"sid": "TR_1", "type": "AUDIO", "muted": False}]
+
+
+def publish_flag():
+    return [c[1]["permission"]["canPublish"] for c in CALLS if c[0] == "UpdateParticipant"]
+
+
+CALLS.clear()
+asyncio.run(rooms.apply(bob.id, general["id"]))
+eq("without Talk selected a phone may not publish", (publish_flag(), key_ in rooms.armed), ([False], False))
+devices.set_choice(bob.id, general["id"], talk_selected=True, listen_selected=True, volume=100)
+CALLS.clear()
+asyncio.run(rooms.apply(bob.id, general["id"]))
+eq("with Talk selected it is armed: it may publish", (publish_flag(), key_ in rooms.armed), ([True], True))
+CALLS.clear()
+asyncio.run(rooms.apply(bob.id, general["id"]))
+eq("applying again changes nothing", methods().count("UpdateParticipant"), 0)
+
+CALLS.clear()
+asyncio.run(rooms.enforce(general["id"]))
+mutes = [(c[1]["trackSid"], c[1]["muted"]) for c in CALLS if c[0] == "MutePublishedTrack"]
+eq("an armed phone with an open track and no lease is muted", mutes, [("TR_1", True)])
+CALLS.clear()
+asyncio.run(rooms.enforce(general["id"]))
+eq("and a muted one is left alone", methods().count("MutePublishedTrack"), 0)
+
+CALLS.clear()
+asyncio.run(rooms.set_talking(general["id"], bob.id, bob_dev, True))
+eq("a lease unmutes the track", [(c[1]["trackSid"], c[1]["muted"]) for c in CALLS if c[0] == "MutePublishedTrack"],
+   [("TR_1", False)])
+check("and the phone is marked as talking", key_ in rooms.talking)
+CALLS.clear()
+asyncio.run(rooms.enforce(general["id"]))
+eq("a phone holding a lease is never muted by the watch", methods().count("MutePublishedTrack"), 0)
+CALLS.clear()
+asyncio.run(rooms.set_talking(general["id"], bob.id, bob_dev, False))
+eq("the end of a lease mutes it again", [(c[1]["trackSid"], c[1]["muted"]) for c in CALLS
+                                         if c[0] == "MutePublishedTrack"], [("TR_1", True)])
+check("and it is not talking", key_ not in rooms.talking)
+
+# A phone that unmutes itself is caught by the watch.
+TRACKS[(room, ident)][0]["muted"] = False
+CALLS.clear()
+asyncio.run(rooms.enforce(general["id"]))
+check("a phone that unmutes itself without a lease is muted again", methods().count("MutePublishedTrack") == 1)
+
+# Starting a lease for a phone that is not armed arms it first (the slow path).
+rooms.armed.clear()
+rooms.talking.clear()
+PERMS.clear()
+TRACKS[(room, ident)][0]["muted"] = True
+CALLS.clear()
+asyncio.run(rooms.set_talking(general["id"], bob.id, bob_dev, True))
+eq("a lease on an unarmed phone grants publishing", publish_flag(), [True])
+
+# Rights are enforced: no Talk right means no publishing and no unmuting, whatever was asked.
 store.set_member(general["id"], bob.id, can_talk=False, can_listen=True)
+settle()
+rooms.armed.clear()
+rooms.talking.clear()
+PERMS.clear()
 CALLS.clear()
-asyncio.run(rooms.set_publish(general["id"], bob.id, 5, True))
-eq("a member who cannot talk is never given publishing", [c[1]["permission"]["canPublish"] for c in CALLS], [False])
+asyncio.run(rooms.set_talking(general["id"], bob.id, bob_dev, True))
+unmutes = [c for c in CALLS if c[0] == "MutePublishedTrack" and c[1]["muted"] is False]
+eq("a member who cannot talk gets no lease and nothing is unmuted", (len(unmutes), key_ in rooms.talking), (0, False))
 CALLS.clear()
-asyncio.run(rooms.set_publish(general["id"], 999, 5, True))
-eq("a stranger is never given publishing", [c[1]["permission"]["canPublish"] for c in CALLS], [False])
+asyncio.run(rooms.apply(bob.id, general["id"]))
+eq("and may not publish", publish_flag(), [False])
+CALLS.clear()
+asyncio.run(rooms.set_talking(general["id"], 999, bob_dev, True))
+eq("a stranger gets no lease", [c for c in CALLS if c[0] == "MutePublishedTrack" and c[1]["muted"] is False], [])
+
+print("events and the watch loop")
+store.set_member(general["id"], bob.id, can_talk=True, can_listen=True)
+settle()
+rooms.armed.clear()
+rooms.talking.clear()
+PERMS.clear()
+CALLS.clear()
+asyncio.run(rooms.event({"kind": "participant_joined", "channel": general["id"], "user": bob.id, "device": bob_dev}))
+eq("joining a room applies the phone's rights", (publish_flag(), key_ in rooms.armed), ([True], True))
+TRACKS[(room, ident)][0]["muted"] = False
+CALLS.clear()
+asyncio.run(rooms.event({"kind": "track_published", "channel": general["id"], "user": bob.id, "device": bob_dev}))
+eq("a track published without a lease is muted at once", methods().count("MutePublishedTrack"), 1)
+asyncio.run(rooms.event({"kind": "participant_left", "channel": general["id"], "user": bob.id, "device": bob_dev}))
+check("leaving forgets the phone", key_ not in rooms.armed)
+
+# The loop itself: with a short beat it mutes an open track and, on its reconcile, arms a phone nobody asked about.
+rooms.WATCH_EVERY_S, rooms.RECONCILE_EVERY_S = 0.05, 0.2
+rooms.armed.clear()
+rooms.talking.clear()
+PERMS.clear()
+TRACKS[(room, ident)][0]["muted"] = False
+
+
+async def watch_a_little():
+    task = asyncio.create_task(rooms.watch())
+    await asyncio.sleep(1.0)
+    task.cancel()
+
+
+CALLS.clear()
+asyncio.run(watch_a_little())
+check("the reconcile arms a phone that is in a room", key_ in rooms.armed)
+check("and the watch mutes its open track", TRACKS[(room, ident)][0]["muted"] is True)
+rooms.WATCH_EVERY_S = rooms.RECONCILE_EVERY_S = 1e9
 
 print("\nFAILED: " + ", ".join(fails) if fails else "\nall ok")
 sys.exit(1 if fails else 0)
