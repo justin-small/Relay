@@ -351,6 +351,21 @@ def create(username, name, role, password, *, temporary: bool = True, actor: Use
     return _user(row)
 
 
+# Callables a module holds to learn that every sign-in of a user has ended (password changed or reset, account
+# turned off or deleted, "sign out everywhere"). Core never imports the module; it only calls what was added here.
+signed_out_hooks: list = []
+
+
+def _signed_out(user_id: int) -> None:
+    for hook in list(signed_out_hooks):
+        try:
+            hook(user_id)
+        except Exception:      # a module's cleanup must never undo or fail the account change
+            import logging
+
+            logging.getLogger("relay.users").exception("signed-out hook failed")
+
+
 def update(user_id, *, name=None, role=None, disabled=None, actor: User | None) -> User:
     new_name = _clean_name(name) if name is not None else None
     new_role = _check_role(role) if role is not None else None
@@ -375,6 +390,8 @@ def update(user_id, *, name=None, role=None, disabled=None, actor: User | None) 
             tx.execute("delete from sessions where user_id = ?", (cur["id"],))
         if _rank(final_role) < _rank(TOKEN_MIN_ROLE):
             tx.execute("delete from api_tokens where user_id = ?", (cur["id"],))     # they could not make them now
+    if final_disabled:
+        _signed_out(cur["id"])
     return _user(row)
 
 
@@ -386,6 +403,7 @@ def delete(user_id, *, actor: User | None) -> None:
         if cur["role"] == "owner" and not cur["disabled"] and not _other_owner(tx, cur["id"]):
             raise Refused("last_owner")
         tx.execute("delete from users where id = ?", (cur["id"],))     # sessions go with it (cascade)
+    _signed_out(cur["id"])
 
 
 def set_password(user_id, new_password, *, temporary: bool, actor: User | None = None) -> None:
@@ -401,6 +419,7 @@ def set_password(user_id, new_password, *, temporary: bool, actor: User | None =
             " pin_failures = case when ? then 0 else pin_failures end where id = ?",
             (pw, int(bool(temporary)), db.now(), int(bool(temporary)), int(bool(temporary)), cur["id"]))
         tx.execute("delete from sessions where user_id = ?", (cur["id"],))
+    _signed_out(cur["id"])
 
 
 def change_own_password(user: User, current: str, new: str, *, keep_token: str | None = None) -> None:
@@ -418,6 +437,7 @@ def change_own_password(user: User, current: str, new: str, *, keep_token: str |
         tx.execute("update users set password_hash = ?, must_change_password = 0, updated_at = ?"
                    " where id = ?", (hash_secret(new), db.now(), user.id))
         _end_sessions(tx, user.id, keep_token)
+    _signed_out(user.id)
 
 
 def set_pin(user: User, password: str, pin: str) -> None:
@@ -535,6 +555,7 @@ def _end_sessions(tx, user_id, except_token) -> None:
 def end_sessions(user_id, *, except_token: str | None = None) -> None:
     with db.transaction() as tx:
         _end_sessions(tx, user_id, except_token)
+    _signed_out(user_id)
 
 
 # ------------------------------------------------------------------ trusted devices

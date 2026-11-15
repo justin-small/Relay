@@ -99,6 +99,7 @@ print("config")
 text = livekit.config_text("10.0.0.5", "relay", "s3cret", "http://127.0.0.1:80/intercom/livekit-webhook")
 check("webhook block is written", 'webhook:\n  api_key: "relay"\n  urls:\n    - "http://127.0.0.1:80/intercom/'
       'livekit-webhook"' in text)
+check("a lease can unmute a talker's track", "enable_remote_unmute: true" in text)
 check("no webhook block without a URL", "webhook:" not in livekit.config_text("10.0.0.5", "relay", "s3cret"))
 config.save({"admin_token": "t0ken", "port": 8000, "admin_port": 8001})
 check("the URL is on this computer's viewer port",

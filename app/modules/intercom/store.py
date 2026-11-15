@@ -26,6 +26,18 @@ EVENTS_KEEP_DAYS = 30
 _ready = False
 _lock = threading.Lock()
 
+# Called as hook(user_id, channel_id) after a member's rights on a channel changed or went (user_id None: the
+# channel itself went). The intercom's live side holds one, so a removed member leaves their room at once.
+member_hooks: list[Callable[[int | None, int], None]] = []
+
+
+def _changed(user_id: int | None, channel_id: int) -> None:
+    for hook in list(member_hooks):
+        try:
+            hook(user_id, channel_id)
+        except Exception:      # live cleanup must never undo a saved change
+            pass
+
 
 class Invalid(Exception):
     def __init__(self, text: str, status: int = 400):
@@ -126,7 +138,8 @@ def delete_channel(channel_id: int, actor_id: int | None = None) -> bool:
             return False
         tx.execute("delete from intercom_channels where id = ?", (channel_id,))
         log_event(tx, "channel_deleted", actor_id=actor_id, detail={"name": row["name"]})
-        return True
+    _changed(None, channel_id)
+    return True
 
 
 def set_member(channel_id: int, user_id: int, *, can_talk: bool = True, can_listen: bool = True, priority: int = 5,
@@ -148,6 +161,7 @@ def set_member(channel_id: int, user_id: int, *, can_talk: bool = True, can_list
                       detail={"talk": bool(can_talk), "listen": bool(can_listen), "priority": priority})
     except sqlite3.IntegrityError:
         raise Invalid("That channel or user does not exist.", 404) from None
+    _changed(user_id, channel_id)
 
 
 def remove_member(channel_id: int, user_id: int, actor_id: int | None = None) -> bool:
@@ -158,7 +172,9 @@ def remove_member(channel_id: int, user_id: int, actor_id: int | None = None) ->
         tx.execute("delete from intercom_user_choices where channel_id = ? and user_id = ?", (channel_id, user_id))
         if gone:
             log_event(tx, "member_removed", user_id=user_id, channel_id=channel_id, actor_id=actor_id)
-        return bool(gone)
+    if gone:
+        _changed(user_id, channel_id)
+    return bool(gone)
 
 
 def members(channel_id: int) -> list[dict]:

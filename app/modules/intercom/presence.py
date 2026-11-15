@@ -1,0 +1,278 @@
+"""The phones that are connected right now, and the socket they talk to Relay over (#273, #239).
+
+A phone opens `/intercom/ws` and sends its device credential (never a password or a LiveKit key). Relay answers with
+what that phone may use, and later with LiveKit tokens for the channels it asks to join. The live set is in memory;
+`intercom_sessions` keeps the history. Signing a phone out closes its socket and takes it out of LiveKit at once.
+"""
+from __future__ import annotations
+
+import asyncio
+import json
+import logging
+import time
+from collections import deque
+from typing import Any
+
+from fastapi import WebSocket, WebSocketDisconnect
+
+from ... import db, serving
+from . import devices, rooms, store
+
+log = logging.getLogger("relay.intercom")
+
+HELLO_WAIT_S = 10
+IDLE_S = 90                   # a phone pings every 25 s or so; silence this long is a dead connection
+MAX_MESSAGE = 4096
+TOKENS_PER_MIN = 30           # per device
+BAD_HELLOS_PER_MIN = 10       # per address
+CODE_BAD_CREDENTIAL = 4401
+CODE_SIGNED_OUT = 4403
+CODE_TIMEOUT = 4408
+CODE_REPLACED = 4409
+CODE_RATE = 4429
+CODE_HTTPS = 4426
+
+
+class Conn:
+    def __init__(self, ws: WebSocket, device: dict, user, session_id: int):
+        self.ws, self.device_id, self.user_id, self.name = ws, device["id"], user.id, user.name
+        self.session_id = session_id
+        self.tokens: deque[float] = deque()
+
+    def allow_token(self) -> bool:
+        now = time.monotonic()
+        while self.tokens and now - self.tokens[0] > 60:
+            self.tokens.popleft()
+        if len(self.tokens) >= TOKENS_PER_MIN:
+            return False
+        self.tokens.append(now)
+        return True
+
+
+class Presence:
+    def __init__(self) -> None:
+        self.conns: dict[int, Conn] = {}
+        self.loop: asyncio.AbstractEventLoop | None = None
+        self._bad: dict[str, deque[float]] = {}
+
+    # -------------------------------------------------------------- from other threads
+    def run(self, coro) -> None:
+        """Run `coro` on the server's loop from any thread (the account hooks are plain functions)."""
+        loop = self.loop
+        if loop is None or loop.is_closed():
+            coro.close()
+            return
+        asyncio.run_coroutine_threadsafe(coro, loop)
+
+    # -------------------------------------------------------------- state
+    def online(self, device_id: int) -> bool:
+        return device_id in self.conns
+
+    def count(self) -> int:
+        return len(self.conns)
+
+    async def drop(self, device_id: int, code: int = CODE_SIGNED_OUT, reason: str = "signed_out") -> None:
+        conn = self.conns.get(device_id)
+        if conn is not None:
+            await self._close(conn, code, reason)
+
+    async def drop_user(self, user_id: int) -> None:
+        for conn in [c for c in self.conns.values() if c.user_id == user_id]:
+            await self._close(conn, CODE_SIGNED_OUT, "signed_out")
+
+    async def _close(self, conn: Conn, code: int, reason: str) -> None:
+        try:
+            await conn.ws.close(code=code, reason=reason)
+        except Exception:      # already gone
+            pass
+
+    # -------------------------------------------------------------- the account and phone hooks
+    def user_signed_out(self, user_id: int) -> None:
+        """users.signed_out_hooks: a password change or reset, a turned-off or deleted account, sign out everywhere."""
+        try:
+            devices.revoke_user(user_id, reason="account")
+        except db.Unavailable:
+            pass
+        self.run(self._evict_user(user_id))
+
+    async def _evict_user(self, user_id: int) -> None:
+        await self.drop_user(user_id)
+        await rooms.remove_user(user_id)
+
+    async def revoked(self, row: dict) -> None:
+        """A phone was signed out: close it and take it out of LiveKit, both at once."""
+        await asyncio.gather(self.drop(row["id"]), rooms.remove_device(row["id"], row["user_id"]),
+                             return_exceptions=True)
+
+    def member_changed(self, user_id: int | None, channel_id: int) -> None:
+        """store.member_hooks."""
+        self.run(rooms.member_changed(user_id, channel_id))
+
+    # -------------------------------------------------------------- the socket
+    def _too_many_bad(self, ip: str, add: bool) -> bool:
+        now = time.monotonic()
+        q = self._bad.setdefault(ip, deque())
+        while q and now - q[0] > 60:
+            q.popleft()
+        if add:
+            q.append(now)
+        if not q:
+            self._bad.pop(ip, None)
+        return len(q) >= BAD_HELLOS_PER_MIN
+
+    async def serve(self, ws: WebSocket) -> None:
+        ip = ws.client.host if ws.client else ""
+        await ws.accept()
+        if not on_operator_port(ws):
+            await ws.close(code=CODE_HTTPS, reason="https_only")
+            return
+        if self._too_many_bad(ip, False):
+            await ws.close(code=CODE_RATE, reason="slow_down")
+            return
+        auth = await self._hello(ws, ip)
+        if auth is None:
+            return
+        device, user, fresh = auth
+        old = self.conns.get(device["id"])
+        if old is not None:
+            await self._close(old, CODE_REPLACED, "replaced")
+        try:
+            sid = await store.run(self._open, device, user)
+        except db.Unavailable:
+            await ws.close(code=1013, reason="try_again")
+            return
+        conn = Conn(ws, device, user, sid)
+        self.conns[device["id"]] = conn
+        reason = "closed"
+        try:
+            await self._send(ws, await self._welcome(device, user, fresh))
+            reason = await self._loop(conn)
+        except WebSocketDisconnect:
+            pass
+        except Exception:
+            log.exception("intercom: socket failed")
+            reason = "error"
+        finally:
+            if self.conns.get(device["id"]) is conn:
+                del self.conns[device["id"]]
+            try:
+                await store.run(self._shut, conn, reason)
+            except Exception:
+                pass
+
+    async def _hello(self, ws: WebSocket, ip: str):
+        try:
+            msg = await asyncio.wait_for(ws.receive_text(), HELLO_WAIT_S)
+            data = json.loads(msg) if len(msg) <= MAX_MESSAGE else None
+        except asyncio.TimeoutError:
+            await ws.close(code=CODE_TIMEOUT, reason="timeout")
+            return None
+        except (WebSocketDisconnect, ValueError):
+            return None
+        got = None
+        if isinstance(data, dict) and data.get("type") == "hello":
+            try:
+                got = await store.run(devices.authenticate, data.get("credential"))
+            except db.Unavailable:
+                await ws.close(code=1013, reason="try_again")
+                return None
+        if got is None:
+            self._too_many_bad(ip, True)
+            await ws.close(code=CODE_BAD_CREDENTIAL, reason="sign_in_again")
+            return None
+        return got
+
+    async def _welcome(self, device: dict, user, fresh: str | None) -> dict:
+        channels = await store.run(devices.phone_config, user.id)
+        label = await store.run(lambda: (db.one("select label from intercom_production where org_id = 1") or
+                                         {}).get("label", ""))
+        out: dict[str, Any] = {
+            "type": "welcome", "device": {"id": device["id"], "name": device["name"]}, "org_id": 1,
+            "production": label, "user": {"id": user.id, "name": user.name}, "channels": channels,
+            "rtc_path": "/intercom/rtc"}
+        if fresh:
+            out["credential"] = fresh        # the phone replaces what it holds
+        return out
+
+    async def _loop(self, conn: Conn) -> str:
+        ws = conn.ws
+        while True:
+            try:
+                text = await asyncio.wait_for(ws.receive_text(), IDLE_S)
+            except asyncio.TimeoutError:
+                await self._close(conn, CODE_TIMEOUT, "timeout")
+                return "timeout"
+            except (WebSocketDisconnect, RuntimeError):      # RuntimeError: closed from our side meanwhile
+                return "closed"
+            if len(text) > MAX_MESSAGE:
+                await self._send(ws, {"type": "error", "text": "Message too large."})
+                continue
+            try:
+                data = json.loads(text)
+            except ValueError:
+                data = None
+            if not isinstance(data, dict):
+                continue
+            if await self._handle(conn, data):
+                return "slow_down"
+
+    async def _handle(self, conn: Conn, data: dict) -> bool:
+        """Answer one message. True when the socket was closed because of it."""
+        kind = data.get("type")
+        if kind == "ping":
+            await self._send(conn.ws, {"type": "pong"})
+        elif kind == "token":
+            if not conn.allow_token():
+                await self._send(conn.ws, {"type": "error", "text": "Too many requests. Wait a moment."})
+                await self._close(conn, CODE_RATE, "slow_down")
+                return True
+            try:
+                got = await rooms.issue(conn.user_id, conn.device_id, conn.name, data.get("channel"))
+                await self._send(conn.ws, {"type": "token", **got})
+            except rooms.Refusal as exc:
+                await self._send(conn.ws, {"type": "error", "for": "token", "text": exc.message})
+        elif kind == "choice":
+            try:
+                await store.run(lambda: devices.set_choice(
+                    conn.user_id, data.get("channel"), talk_selected=data.get("talk_selected"),
+                    listen_selected=data.get("listen_selected"), volume=data.get("volume", 100)))
+                await rooms.apply(conn.user_id, data["channel"])      # Talk selected or cleared: arm or disarm
+            except devices.Refused as exc:
+                await self._send(conn.ws, {"type": "error", "for": "choice", "text": exc.message})
+            except rooms.RoomError:
+                pass           # LiveKit is not up; the watch loop settles it
+        return False
+
+    async def _send(self, ws: WebSocket, msg: dict) -> None:
+        await ws.send_text(json.dumps(msg, separators=(",", ":")))
+
+    # -------------------------------------------------------------- history (sync, in a worker thread)
+    @staticmethod
+    def _open(device: dict, user) -> int:
+        with db.transaction() as tx:
+            row = tx.one("insert into intercom_sessions (device_id, user_id, via, started_at) values (?, ?, 'local', ?)"
+                         " returning id", (device["id"], user.id, db.now()))
+            store.log_event(tx, "device_connected", user_id=user.id, device_id=device["id"])
+            return row["id"]
+
+    @staticmethod
+    def _shut(conn: Conn, reason: str) -> None:
+        with db.transaction() as tx:
+            tx.execute("update intercom_sessions set ended_at = ?, end_reason = ? where id = ?",
+                       (db.now(), reason, conn.session_id))
+            if tx.one("select 1 from intercom_devices where id = ?", (conn.device_id,)):
+                store.log_event(tx, "device_disconnected", user_id=conn.user_id, device_id=conn.device_id,
+                                detail={"reason": reason})
+
+
+def on_operator_port(ws: WebSocket) -> bool:
+    """Phones use Relay's HTTPS port. Until ports are published (tests, scripts) nothing is gated by port."""
+    if not serving.published():
+        return True
+    from ... import config
+
+    server = ws.scope.get("server")
+    return bool(server) and server[1] == serving.admin_port(config.get()["admin_port"])
+
+
+presence = Presence()
