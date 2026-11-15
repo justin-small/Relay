@@ -63,7 +63,13 @@ class Presence:
         if loop is None or loop.is_closed():
             coro.close()
             return
-        asyncio.run_coroutine_threadsafe(coro, loop)
+        fut = asyncio.run_coroutine_threadsafe(coro, loop)
+        fut.add_done_callback(self._failed)
+
+    @staticmethod
+    def _failed(fut) -> None:
+        if not fut.cancelled() and fut.exception() is not None:
+            log.error("intercom: a background change failed", exc_info=fut.exception())
 
     # -------------------------------------------------------------- state
     def online(self, device_id: int) -> bool:
@@ -110,6 +116,21 @@ class Presence:
         """store.member_hooks."""
         self.run(rooms.member_changed(user_id, channel_id))
         self.run(arbiter.member_changed(user_id, channel_id))
+
+    def config_changed(self, users: "set[int] | None") -> None:
+        """store.config_hooks: send phones what they may use, within a moment of a change."""
+        self.run(self._push_config(users))
+
+    async def _push_config(self, users: "set[int] | None") -> None:
+        label = await store.run(store.production)
+        cache: dict[int, list] = {}
+        for conn in list(self.conns.values()):
+            if users is not None and conn.user_id not in users:
+                continue
+            if conn.user_id not in cache:
+                cache[conn.user_id] = await store.run(devices.phone_config, conn.user_id)
+            await self._send_to(conn.device_id, {"type": "config", "production": label,
+                                                 "channels": cache[conn.user_id]})
 
     # -------------------------------------------------------------- talk leases (#274)
     def bind(self) -> None:

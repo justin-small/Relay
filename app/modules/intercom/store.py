@@ -31,6 +31,19 @@ _lock = threading.Lock()
 member_hooks: list[Callable[[int | None, int], None]] = []
 
 
+# Called as hook(user_ids) after a change to what phones are shown (channels, order, members, the label):
+# user_ids is a set of user ids, or None for every connected phone.
+config_hooks: list[Callable[[set[int] | None], None]] = []
+
+
+def _config_changed(users: set[int] | None) -> None:
+    for hook in list(config_hooks):
+        try:
+            hook(users)
+        except Exception:
+            pass
+
+
 def _changed(user_id: int | None, channel_id: int) -> None:
     for hook in list(member_hooks):
         try:
@@ -167,6 +180,7 @@ def set_member(channel_id: int, user_id: int, *, can_talk: bool = True, can_list
     except sqlite3.IntegrityError:
         raise Invalid("That channel or user does not exist.", 404) from None
     _changed(user_id, channel_id)
+    _config_changed({user_id})
 
 
 def remove_member(channel_id: int, user_id: int, actor_id: int | None = None) -> bool:
@@ -179,6 +193,7 @@ def remove_member(channel_id: int, user_id: int, actor_id: int | None = None) ->
             log_event(tx, "member_removed", user_id=user_id, channel_id=channel_id, actor_id=actor_id)
     if gone:
         _changed(user_id, channel_id)
+        _config_changed({user_id})
     return bool(gone)
 
 
@@ -186,3 +201,152 @@ def members(channel_id: int) -> list[dict]:
     ready()
     return db.query("select * from intercom_channel_members where channel_id = ? order by priority, user_id",
                     (channel_id,))
+
+
+# ------------------------------------------------------------------ the channels page (#275)
+
+def channel_view(channel_id: int) -> dict | None:
+    """A channel with its members (and their names), for the Edit panel. `version` is what a save must send back."""
+    ready()
+    ch = db.one("select * from intercom_channels where id = ?", (channel_id,))
+    if ch is None:
+        return None
+    ch["members"] = db.query(
+        "select m.user_id, u.name, u.username, m.can_talk, m.can_listen, m.priority from intercom_channel_members m"
+        " join users u on u.id = m.user_id where m.channel_id = ? order by lower(u.name), u.id", (channel_id,))
+    return ch
+
+
+def channel_table() -> list[dict]:
+    ready()
+    return db.query(
+        "select c.*, (select count(*) from intercom_channel_members m where m.channel_id = c.id) as members"
+        " from intercom_channels c order by c.sort, c.id")
+
+
+def _settings(name: Any, mode: Any, max_talkers: Any, latch_seconds: Any, colour: Any) -> tuple:
+    if mode not in MODES:
+        raise Invalid("Pick Pre-empt, Party line or One at a time.")
+    return (_name(name), str(colour or "")[:20], mode, _int(max_talkers, 1, 16, "Talkers"),
+            _int(latch_seconds, 0, 86400, "Latch limit"))
+
+
+def new_channel(name: Any, *, colour: Any = "", mode: Any = "party", max_talkers: Any = None,
+                latch_seconds: Any = 60, actor_id: int | None = None) -> dict:
+    """A channel from the New channel form. Defaults: Party line, 8 talkers (1 for One at a time), 60 s latch."""
+    if max_talkers is None:
+        max_talkers = 1 if mode == "queue" else 8
+    _settings(name, mode, max_talkers, latch_seconds, colour)
+    row = create_channel(name, mode=mode, max_talkers=max_talkers, latch_seconds=latch_seconds,
+                         colour=colour, actor_id=actor_id)
+    _config_changed(set())
+    return row
+
+
+def update_channel(channel_id: int, version: Any, *, name: Any, colour: Any, mode: Any, max_talkers: Any,
+                   latch_seconds: Any, members: Any, actor_id: int | None = None) -> dict:
+    """Save a channel's settings and its whole member list in one transaction.
+
+    `version` is the version the editor loaded; a different one means someone else saved meanwhile and nothing is
+    written. One `permission_change` event is logged per member added, changed or removed."""
+    ready()
+    name, colour, mode, max_talkers, latch_seconds = _settings(name, mode, max_talkers, latch_seconds, colour)
+    if not isinstance(members, list):
+        raise Invalid("The member list is missing.")
+    want: dict[int, tuple[int, int, int]] = {}
+    for m in members:
+        if not isinstance(m, dict) or isinstance(m.get("user_id"), bool) or not isinstance(m.get("user_id"), int):
+            raise Invalid("A member is missing.")
+        talk, listen = bool(m.get("can_talk")), bool(m.get("can_listen"))
+        if not (talk or listen):
+            raise Invalid("A member must be able to talk or listen. Remove them instead.")
+        want[m["user_id"]] = (int(talk), int(listen), _int(m.get("priority", 5), 1, 9, "Priority"))
+    touched: set[int] = set()
+    try:
+        with db.transaction() as tx:
+            cur = tx.one("select * from intercom_channels where id = ?", (channel_id,))
+            if cur is None:
+                raise Invalid("That channel does not exist.", 404)
+            if version != cur["version"]:
+                raise Invalid("This channel was changed by someone else. Reload it and try again.", 409)
+            tx.execute("update intercom_channels set name = ?, colour = ?, mode = ?, max_talkers = ?,"
+                       " latch_seconds = ?, updated_at = ?, version = version + 1 where id = ?",
+                       (name, colour, mode, max_talkers, latch_seconds, db.now(), channel_id))
+            have = {r["user_id"]: (r["can_talk"], r["can_listen"], r["priority"]) for r in
+                    tx.query("select user_id, can_talk, can_listen, priority from intercom_channel_members"
+                             " where channel_id = ?", (channel_id,))}
+            for uid in have.keys() - want.keys():
+                tx.execute("delete from intercom_channel_members where channel_id = ? and user_id = ?",
+                           (channel_id, uid))
+                tx.execute("delete from intercom_user_choices where channel_id = ? and user_id = ?",
+                           (channel_id, uid))
+                log_event(tx, "permission_change", user_id=uid, channel_id=channel_id, actor_id=actor_id,
+                          detail={"removed": True})
+                touched.add(uid)
+            for uid, (talk, listen, prio) in want.items():
+                if have.get(uid) == (talk, listen, prio):
+                    continue
+                tx.execute(
+                    "insert into intercom_channel_members (channel_id, user_id, can_talk, can_listen, priority,"
+                    " added_by, added_at) values (?, ?, ?, ?, ?, ?, ?)"
+                    " on conflict (channel_id, user_id) do update set can_talk = excluded.can_talk,"
+                    " can_listen = excluded.can_listen, priority = excluded.priority",
+                    (channel_id, uid, talk, listen, prio, actor_id, db.now()))
+                log_event(tx, "permission_change", user_id=uid, channel_id=channel_id, actor_id=actor_id,
+                          detail={"talk": bool(talk), "listen": bool(listen), "priority": prio,
+                                  "added": uid not in have})
+                touched.add(uid)
+            settings_changed = (cur["name"], cur["colour"], cur["mode"], cur["max_talkers"],
+                                cur["latch_seconds"]) != (name, colour, mode, max_talkers, latch_seconds)
+            if settings_changed:
+                log_event(tx, "channel_changed", channel_id=channel_id, actor_id=actor_id, detail={"name": name})
+    except sqlite3.IntegrityError:
+        raise Invalid("A channel with that name already exists, or a member no longer exists.", 409) from None
+    for uid in touched:
+        _changed(uid, channel_id)
+    _config_changed(touched | {r["user_id"] for r in members_of(channel_id)} if settings_changed else touched)
+    return channel_view(channel_id)  # type: ignore[return-value]
+
+
+def members_of(channel_id: int) -> list[dict]:
+    return db.query("select user_id from intercom_channel_members where channel_id = ?", (channel_id,))
+
+
+def reorder_channels(ids: Any, actor_id: int | None = None) -> None:
+    """Set the order phones show channels in. `ids` must be every channel, once."""
+    ready()
+    have = [r["id"] for r in db.query("select id from intercom_channels")]
+    if not isinstance(ids, list) or sorted(ids) != sorted(have):
+        raise Invalid("The channel list is out of date. Reload it.", 409)
+    with db.transaction() as tx:
+        for pos, cid in enumerate(ids, 1):
+            tx.execute("update intercom_channels set sort = ? where id = ?", (pos, cid))
+        log_event(tx, "channels_reordered", actor_id=actor_id)
+    _config_changed(None)
+
+
+def remove_channel(channel_id: int, actor_id: int | None = None) -> bool:
+    """Delete a channel (its members and choices go with it) and tell the phones that were on it."""
+    ready()
+    users = {r["user_id"] for r in members_of(channel_id)}
+    gone = delete_channel(channel_id, actor_id)
+    if gone:
+        _config_changed(users)
+    return gone
+
+
+def production() -> str:
+    ready()
+    return (db.one("select label from intercom_production where org_id = 1") or {}).get("label", "")
+
+
+def set_production(label: Any, actor_id: int | None = None) -> str:
+    ready()
+    text = " ".join(str(label or "").split())[:80]
+    with db.transaction() as tx:
+        tx.execute("insert into intercom_production (org_id, label, set_by, set_at) values (1, ?, ?, ?)"
+                   " on conflict (org_id) do update set label = excluded.label, set_by = excluded.set_by,"
+                   " set_at = excluded.set_at", (text, actor_id, db.now()))
+        log_event(tx, "production_label", actor_id=actor_id, detail={"label": text})
+    _config_changed(None)
+    return text
