@@ -267,8 +267,11 @@ the viewer port with no login: put reasons, addresses and keys in `detail`, neve
 4. **Settings stay under its own config key**, cleaned by `clean()`, with secrets stripped by `public()`.
 5. **No background work outside `start()`**, and `stop()` undoes all of it, so switching off at run time
    leaves nothing running.
-6. **Modules ship inside Relay itself** (the desktop app, or the checkout a headless service runs). Nothing is
-   downloaded at run time; a module updates when Relay does. Bump the module's `version` when it changes.
+6. **Modules ship inside Relay itself** (the desktop app, or the checkout a headless service runs). Their code is
+   never downloaded at run time; a module updates when Relay does. Bump the module's `version` when it changes.
+   A module may fetch a third-party program it supervises (intercom's `livekit-server`) once, on first switch-on,
+   pinned to one release and checked against a SHA-256 in the module's source before it is unpacked; after that
+   it runs with no internet.
 7. **Tests**: add `tests/test_<id>.py`. The contract checks in `tests/test_modules.py` cover every
    module automatically.
 

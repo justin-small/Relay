@@ -1,0 +1,22 @@
+{# The Intercom admin page (#238), rendered inside admin.html only while the module is on. #}
+    <h2 class="title">Intercom <span class="sumstate" id="icSum"></span></h2>
+    <p class="sub">The media server behind the crew intercom. Relay runs it on this computer; nothing leaves your network.</p>
+
+    <section>
+      <h3>LiveKit</h3>
+      <div class="note" id="icState"></div>
+      <div class="note" id="icFacts"></div>
+      <div class="ctl" style="margin-top:12px">
+        <button type="button" id="icRestart">Restart LiveKit</button>
+      </div>
+      <div class="note">
+        Phones on the network need these ports open to this computer: <span class="mono" id="icPorts"></span>.
+        On Linux, allow them in the firewall; macOS and Windows ask the first time LiveKit starts.
+      </div>
+    </section>
+
+    <section>
+      <h3>Log</h3>
+      <pre class="mono" id="icLog" style="max-height:260px;overflow:auto;white-space:pre-wrap"></pre>
+    </section>
+    <div class="note err" id="icErr" hidden></div>
