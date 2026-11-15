@@ -762,6 +762,34 @@ The address check is made from the computer running Relay, so it needs the inter
 saved and marked "couldn't reach", and **Check again** fixes that later. Addresses on a private network (your
 intranet, a device on the LAN) are never fetched by Relay: they are saved unchecked, so look at a screen to see them.
 
+## Cameras and tally
+
+Three pieces fit together. A switcher module reads the program and preview from a video switcher, core keeps the
+one shared tally state, and the tally screens read only that state, so they work with whichever module fills it.
+
+- **Blackmagic ATEM** (module, off by default). Enter the switcher's IP address on its admin page. Relay speaks
+  the ATEM network protocol itself (UDP port 9910, written from the protocol description in `atem-connection`, the
+  library Bitfocus Companion uses), so there is nothing to install. It shows the program and preview tally with the
+  switcher's own input names, and a booth operator can cut, auto-transition, set preview or program, mix a downstream
+  key, fade to black and run macros. Control needs the Operator role (`atem.control`). It reconnects by itself, waiting
+  longer after each failed try, and the tally goes dark while the switcher is away.
+- **Tally Arbiter** (module, off by default). For every other switcher (OBS, vMix and the rest), run
+  [Tally Arbiter](https://github.com/josephdadams/TallyArbiter) and give Relay its address (port 4455). Relay listens
+  as a tally listener; each Tally Arbiter device is a camera, numbered in the order Tally Arbiter lists them.
+- **The screens**, on the viewer port with no login, like the status screen:
+  - `/tally?camera=1`: a phone on camera 1. Red and the word LIVE on program, green and NEXT on preview, dark
+    otherwise, grey when Relay can't be reached.
+  - `/tally?view=operator&camera=1`: this camera large, with what is live and what is next along the bottom.
+  - `/tally?view=board`: every camera, for the director.
+- **USB camera tile.** On the operator view and the board, a camera plugged into the computer showing the screen can
+  be shown beside its tally, including a Blackmagic Web Presenter, which a computer sees as a USB camera. A browser
+  allows this only on `https://` or `localhost`, so on a plain-HTTP address the choice is not offered. The choice is
+  remembered in that browser.
+
+Two switchers can feed the screens at once: a camera is live when either says so. The same state is on
+`/stream?stream=tally` as one whole-state message each time it changes. The panel view and NDI are separate issues
+(#246, #247).
+
 ## Security
 
 - The OpenAI key lives only in `config.json` on the host (mode `0600`,

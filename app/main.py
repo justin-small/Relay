@@ -28,7 +28,7 @@ from jinja2 import ChoiceLoader, FileSystemLoader, PrefixLoader
 
 from . import alerts as alertsmod
 from . import announce as announcemod
-from . import alerthistory, audit, config, db, exporting, importdocker, languages, netinfo, overlays, panelfw, panels, prefs, redact, schedules, serving, setupcode, streamstatus, tls, users
+from . import alerthistory, audit, config, db, exporting, importdocker, languages, netinfo, overlays, panelfw, panels, prefs, redact, schedules, serving, setupcode, streamstatus, tally, tls, users
 from .alerts import alerts
 from . import engine as engine_mod
 from .engine import TRANSCRIPTION_STREAM, TRANSLATION_STREAM, demo_mode, engine
@@ -863,6 +863,20 @@ async def page_status(request: Request):
     return templates.TemplateResponse(request, "status.html", _viewer_ctx(request))
 
 
+@app.get("/tally", response_class=HTMLResponse)
+async def page_tally(request: Request):
+    """The tally screens (#245): `?camera=<n>` is a phone on a camera (red on program, green on preview),
+    `?view=operator&camera=<n>` the camera operator's, `?view=board` every camera for the director. All three read
+    the shared tally state, whichever module fills it."""
+    qp = request.query_params
+    view = qp.get("view") if qp.get("view") in tally.VIEWS else "camera"
+    try:
+        camera = max(0, min(999, int(qp.get("camera", "0"))))
+    except (TypeError, ValueError):
+        camera = 0
+    return templates.TemplateResponse(request, "tally.html", _viewer_ctx(request) | {"view": view, "camera": camera})
+
+
 RUNDOWN_VIEWS = ("full", "side", "micboard")
 
 
@@ -1042,6 +1056,12 @@ async def stream(request: Request, stream: str = "translation", lang: str | None
     if stream == streamstatus.STREAM:
         return StreamingResponse(
             streamstatus.frames(),
+            media_type="text/event-stream",
+            headers={"Cache-Control": "no-cache, no-transform", "X-Accel-Buffering": "no"},
+        )
+    if stream == tally.STREAM:
+        return StreamingResponse(
+            tally.frames(),
             media_type="text/event-stream",
             headers={"Cache-Control": "no-cache, no-transform", "X-Accel-Buffering": "no"},
         )
