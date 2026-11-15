@@ -87,10 +87,11 @@ _db.reset()
 check("init() is true with a database", db.init())
 check("available() is true", db.available())
 rows = db.query("select namespace, version from schema_migrations order by version")
-CORE_N = 4
+CORE_N = 5
 eq("core migrations applied once, in order", rows,
    [{"namespace": "core", "version": "0001_users"}, {"namespace": "core", "version": "0002_api_tokens"},
-    {"namespace": "core", "version": "0003_audit_log"}, {"namespace": "core", "version": "0004_user_prefs"}])
+    {"namespace": "core", "version": "0003_audit_log"}, {"namespace": "core", "version": "0004_user_prefs"},
+    {"namespace": "core", "version": "0005_alert_history"}])
 check("init() again is a no-op", db.init())
 eq("still the same migration rows", db.one("select count(*) as n from schema_migrations")["n"], CORE_N)
 eq("migrate() twice is idempotent", (db.migrate("core", db.CORE_MIGRATIONS), db.migrate("core", db.CORE_MIGRATIONS)),
@@ -226,7 +227,7 @@ print("\npermissions")
 CATALOGUE = {
     "admin.open": "viewer", "alerts.send": "member",
     "session.view": "viewer", "session.control": "operator", "audio.manage": "admin", "targets.manage": "operator",
-    "panels.view": "viewer", "panels.manage": "admin", "alerts.view": "viewer", "alerts.manage": "admin",
+    "panels.view": "viewer", "panels.manage": "admin", "alerts.view": "viewer", "alerts.manage": "admin", "alerts.history": "admin",
     "overlays.view": "viewer", "overlays.manage": "operator", "recordings.view": "operator",
     "recordings.manage": "admin", "schedules.view": "viewer", "schedules.manage": "admin",
     "blocklist.manage": "admin", "settings.view": "viewer", "settings.manage": "admin",

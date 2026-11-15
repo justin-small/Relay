@@ -356,7 +356,7 @@ owner_c, admin_c, op_c, view_c = (clients[r] for r in ("owner", "admin", "operat
 MIN_ROLE = {
     "admin.open": "viewer", "alerts.send": "member",
     "session.view": "viewer", "session.control": "operator", "audio.manage": "admin", "targets.manage": "operator",
-    "panels.view": "viewer", "panels.manage": "admin", "alerts.view": "viewer", "alerts.manage": "admin",
+    "panels.view": "viewer", "panels.manage": "admin", "alerts.view": "viewer", "alerts.manage": "admin", "alerts.history": "admin",
     "overlays.view": "viewer", "overlays.manage": "operator", "recordings.view": "operator",
     "recordings.manage": "admin", "schedules.view": "viewer", "schedules.manage": "admin",
     "blocklist.manage": "admin", "settings.view": "viewer", "settings.manage": "admin",
@@ -367,6 +367,7 @@ MIN_ROLE = {
     "remote_access.view": "viewer", "remote_access.manage": "admin",
     "signage.view": "viewer", "signage.manage": "admin",
     "signage_web.view": "viewer", "signage_web.manage": "admin",
+    "alert_events.view": "viewer", "alert_events.manage": "admin",
     "atem.view": "viewer", "atem.control": "operator", "atem.manage": "admin",
     "tally_arbiter.view": "viewer", "tally_arbiter.manage": "admin",
 }
@@ -390,8 +391,8 @@ check("every permission registered is in the independent table",
 print("every /api/admin route")
 config.save({"modules": {"propresenter": {"enabled": True}, "planning_center": {"enabled": True},
                          "remote_access": {"enabled": True}, "signage": {"enabled": True},
-                         "signage_web": {"enabled": True}, "atem": {"enabled": True},
-                         "tally_arbiter": {"enabled": True}}})
+                         "signage_web": {"enabled": True}, "alert_events": {"enabled": True},
+                         "atem": {"enabled": True}, "tally_arbiter": {"enabled": True}}})
 
 E = {}      # (METHOD, path) -> permission; None = any signed-in user
 
@@ -422,6 +423,7 @@ route("POST", "/api/admin/modules/{mid}/test", "modules.manage")
 # alerts
 route("GET", "/api/admin/alerts", "alerts.view")
 route("POST", "/api/admin/alerts", "alerts.manage")
+route("GET", "/api/admin/alerts/history", "alerts.history")
 # panels
 route("GET", "/api/admin/panels", "panels.view")
 route("GET", "/api/admin/panels/firmware", "panels.view")
@@ -516,6 +518,10 @@ for method, path, perm in (
     ("PUT", SWX + "/links/{lid}", "signage_web.manage"),
     ("DELETE", SWX + "/links/{lid}", "signage_web.manage"),
     ("POST", SWX + "/links/{lid}/check", "signage_web.manage"),         # reaches out to the site
+    ("GET", "/api/admin/alert-events", "alert_events.view"),
+    ("POST", "/api/admin/alert-events", "alert_events.manage"),           # an empty body is refused as not settings
+    ("POST", "/api/admin/alert-events/test", "alert_events.manage"),      # sends to nothing until something is on
+    ("GET", "/api/admin/alert-events/state", "alert_events.view"),
     ("GET", ATX, "atem.view"),
     ("PUT", ATX + "/settings", "atem.manage"),                           # an empty body clears the address
     ("POST", ATX + "/cut", "atem.control"),                              # no switcher connected: nothing is sent
@@ -699,8 +705,8 @@ eq("an admin may do all three", (not_through(admin_c.post("/api/admin/planning-c
 eq("signed out is 401", anon_c.get("/api/admin/propresenter").status_code, 401)
 config.save({"modules": {"propresenter": {"enabled": False}, "planning_center": {"enabled": False},
                          "remote_access": {"enabled": False}, "signage": {"enabled": False},
-                         "signage_web": {"enabled": False}, "atem": {"enabled": False},
-                         "tally_arbiter": {"enabled": False}}})
+                         "signage_web": {"enabled": False}, "alert_events": {"enabled": False},
+                         "atem": {"enabled": False}, "tally_arbiter": {"enabled": False}}})
 eq("a module that is off is still a 404 for everyone", op_c.get("/api/admin/propresenter").status_code, 404)
 
 # ------------------------------------------------------------------ the page routes
@@ -1255,6 +1261,7 @@ for mid, want in (("planning_center", {"planning_center.view": "viewer", "planni
                   ("remote_access", {"remote_access.view": "viewer", "remote_access.manage": "admin"}),
                   ("signage", {"signage.view": "viewer", "signage.manage": "admin"}),
                   ("signage_web", {"signage_web.view": "viewer", "signage_web.manage": "admin"}),
+                  ("alert_events", {"alert_events.view": "viewer", "alert_events.manage": "admin"}),
                   ("atem", {"atem.view": "viewer", "atem.control": "operator", "atem.manage": "admin"}),
                   ("tally_arbiter", {"tally_arbiter.view": "viewer", "tally_arbiter.manage": "admin"})):
     got = {p.id: p.min_role for p in registry.get(mid).permissions}

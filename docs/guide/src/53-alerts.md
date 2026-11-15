@@ -136,3 +136,27 @@ Whatever the level, the first tap on a flashing screen still stops the alert
 everywhere, and **When nobody taps** still applies. The flash is fixed at
 once a second, under the three a second where flashing becomes a seizure
 risk.
+
+## Replies
+
+Under **Replies** on the Alerts page you can list up to six short answers,
+such as "On my way" and "Can't right now" (24 characters each, one per
+line). A browser screen that is flashing then shows them as big buttons, and
+tapping one acknowledges the alert and sends that answer to the sender, who
+sees it next to "Seen". Tapping anywhere else still acknowledges with no
+reply, and with the list empty nothing changes. Panels are sent the list too;
+showing the buttons on a panel needs updated panel firmware.
+
+## History
+
+Under **History** on the Alerts page (Admins and Owners) you can see who sent
+each alert or stage message, when, to which panels and screens, how long it
+took until it was seen, and the reply. Relay keeps 30 days and then deletes
+older rows.
+
+## Telling other products
+
+Switch on the **Alert events** module (Modules page) to have Relay send a
+webhook (a JSON POST) or OSC messages when an alert or message is sent, an
+alert is acknowledged (with the reply) or one ends unseen or stopped. It also
+offers the alert state to Bitfocus Companion for variables and feedbacks.
