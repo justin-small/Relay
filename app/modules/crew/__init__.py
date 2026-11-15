@@ -9,11 +9,14 @@ intercom) have one place to live. Core only lends it a page gate and the panel-o
 """
 from __future__ import annotations
 
+import asyncio
+import logging
 from typing import Any
 
 from .. import AdminPage, Health, Manifest, Module, UserPage
 from ...users import Permission
 
+log = logging.getLogger("relay.crew")
 NAME_MAX = 24
 DEFAULT_NAME = "Relay crew"
 
@@ -22,7 +25,7 @@ class Crew(Module):
     manifest = Manifest(
         id="crew",
         name="Crew app",
-        version="1.0.0",
+        version="1.1.0",
         summary="An installable page for the crew, signed in with a Relay account, that shows the plan and hosts "
                 "the other crew features. Served over HTTPS on this network only.",
         settings_key="crew",
@@ -51,6 +54,51 @@ class Crew(Module):
 
     def configured(self, settings: dict) -> bool:
         return False  # New: nobody had it before, so it starts off.
+
+    def __init__(self) -> None:
+        self._seen = ""
+
+    def _scan(self) -> None:
+        """Match accounts to the people on the followed plans (people.py). Blocking: run off the loop."""
+        from ..planning_center.pclive import follower
+        from . import people
+
+        found: dict[str, dict] = {}
+        for tr in follower.tracks.values():
+            for m in tr.team:
+                if m.get("person"):
+                    found[m["person"]] = {"id": m["person"], "name": m["name"]}
+        sig = repr(sorted((i, p["name"]) for i, p in found.items()))
+        if sig == self._seen:
+            return
+        people.scan(list(found.values()))
+        self._seen = sig
+
+    def _team_changed(self) -> None:
+        """Planning Center's follower saw something change: look again when the people did."""
+        async def go() -> None:
+            try:
+                await asyncio.to_thread(self._scan)
+            except Exception:
+                log.warning("crew: could not match names to Planning Center", exc_info=True)
+
+        try:
+            asyncio.get_running_loop().create_task(go())
+        except RuntimeError:
+            pass
+
+    def attach(self) -> None:
+        from ..planning_center.pclive import follower
+
+        if self._team_changed not in follower.listeners:
+            follower.listeners.append(self._team_changed)
+
+    def detach(self) -> None:
+        from ..planning_center.pclive import follower
+
+        if self._team_changed in follower.listeners:
+            follower.listeners.remove(self._team_changed)
+        self._seen = ""
 
     def routers(self) -> list:
         from .routes import router
