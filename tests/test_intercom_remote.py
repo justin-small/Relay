@@ -2,7 +2,8 @@
 fixed list of routes the tunnel carries.
 
 Offline: a throwaway database, the app's own lifespan, a fake Cloudflare (relay-cloud) and a fake audio side. The
-audio bridge itself (media.py) is not built, so nothing here moves audio. Run: python tests/test_intercom_remote.py
+audio bridge's helpers (media.py: mixing, down-mixing, the fallback when the libraries are missing) are checked here;
+its livekit and aiortc calls need real sessions and are not. Run: python tests/test_intercom_remote.py
 """
 import asyncio
 import json
@@ -328,6 +329,30 @@ with TestClient(app, base_url=viewer) as client:
         check("the phone is signed out", bool(ids))
         r = client.post("/intercom/remote/api/sign-in", json={"username": "alice", "password": "correct horse"})
         eq("and cannot sign in again", r.status_code, 403)
+
+with section("the audio helpers"):
+    import numpy as np
+    from app.modules.intercom_remote import media
+
+    eq("stereo is averaged to mono", media.to_mono(np.array([100, 300, -100, -300], np.int16), 2).tolist(), [200, -200])
+    eq("planar stereo too", media.to_mono(np.array([100, -100, 300, -300], np.int16), 2, True).tolist(), [200, -200])
+    m = media.Mixer()
+    eq("no sources is silence", int(np.abs(m.pull()).sum()), 0)
+    m.add("a", np.full(media.FRAME * 2, 1000, np.int16))
+    m.add("b", np.full(media.FRAME, 2500, np.int16))
+    eq("sources are summed", int(m.pull()[0]), 3500)
+    eq("a source that ran dry adds silence", int(m.pull()[0]), 1000)
+    m.add("c", np.full(media.FRAME, 30000, np.int16))
+    m.add("d", np.full(media.FRAME, 30000, np.int16))
+    eq("the sum is clipped, not wrapped", int(m.pull().max()), 32767)
+    m.drop("c")
+    check("a dropped source is gone", "c" not in m.q)
+    for _ in range(10):
+        m.add("slow", np.ones(media.RATE, np.int16))
+    check("a source that falls behind is trimmed", m.n["slow"] <= media.MAX_BUFFER + media.RATE)
+    n = media.NoMedia("why")
+    eq("the stand-in says why", n.unavailable(), "why")
+    check("and is never alive", not n.alive())
 
 from _harness import done  # noqa: E402
 
