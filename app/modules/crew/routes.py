@@ -13,7 +13,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, Response
 
 from ... import audit, config
 from .. import modules as registry, require
-from . import calltimes, chat, checkin, paging, people
+from . import calltimes, chat, checkin, checklists, paging, people
 
 router = APIRouter()
 VIEW = [Depends(require("crew.view"))]
@@ -22,6 +22,8 @@ PAGE = [Depends(require("crew.page"))]
 USE = [Depends(require("crew.use"))]
 CHAT = [Depends(require("crew.chat"))]
 CHECKIN = [Depends(require("crew.checkin"))]
+CHECKLIST = [Depends(require("crew.checklist"))]
+CHECKLIST_EDIT = [Depends(require("crew.checklist_edit"))]
 
 KEY = "crew"
 HERE = Path(__file__).resolve().parent
@@ -405,3 +407,106 @@ def arrivals_clear(request: Request):
     n = _people_call(checkin.clear, _plan_key())
     audit.note(request, "crew.arrivals_clear", "Cleared the arrival board", detail={"people": n})
     return arrivals_get()
+
+
+# -- checklists per position (#232) -------------------------------------------------------------------------------
+def _my_checklists(user) -> dict:
+    tracks, _ = calltimes._state()
+    key = _plan_key()
+    editable = user.can("crew.checklist_edit")
+    return {"plan": key, "lists": checklists.mine(user.id, key, tracks), "editor": editable or bool(checklists.leads_of(user.id)),
+            "all": editable}
+
+
+@router.get("/crew/api/checklists", dependencies=CHECKLIST)
+def checklists_mine(request: Request):
+    return _people_call(_my_checklists, request.state.user)
+
+
+@router.put("/crew/api/checklists/item/{item_id}", dependencies=CHECKLIST)
+def checklists_tick(request: Request, item_id: int, payload: dict):
+    tracks, _ = calltimes._state()
+    _people_call(checklists.tick, request.state.user.id, item_id, payload.get("done"), _plan_key(), tracks)
+    return _people_call(_my_checklists, request.state.user)
+
+
+def _editable(user) -> list[dict]:
+    return [t for t in checklists.templates() if checklists.can_edit(user, t["position"])]
+
+
+@router.get("/crew/api/checklists/templates", dependencies=CHECKLIST)
+def checklists_templates(request: Request):
+    """The templates this person may edit: all of them for an operator, their own positions' for a team lead."""
+    user = request.state.user
+    tracks, _ = calltimes._state()
+    out = _people_call(_editable, user)
+    if not out and not user.can("crew.checklist_edit") and not _people_call(checklists.leads_of, user.id):
+        raise HTTPException(403, "You cannot edit checklists.")
+    return {"templates": out, "positions": sorted(paging.serving(tracks)), "all": user.can("crew.checklist_edit"),
+            "leads": _people_call(checklists.leads_of, user.id)}
+
+
+def _check_edit(user, position: str) -> None:
+    if not _people_call(checklists.can_edit, user, position):
+        raise HTTPException(403, "You can edit checklists only for the positions you lead." if position
+                            else "Only an operator edits the checklist for everyone.")
+
+
+@router.post("/crew/api/checklists/templates", dependencies=CHECKLIST)
+def checklists_add(request: Request, payload: dict):
+    data = _people_call(checklists.clean, payload)
+    _check_edit(request.state.user, data["position"])
+    lid = _people_call(checklists.save, data)
+    audit.note(request, "crew.checklist_add", "Added a crew checklist", target=lid, detail={"position": data["position"]})
+    return checklists_templates(request)
+
+
+@router.put("/crew/api/checklists/templates/{list_id}", dependencies=CHECKLIST)
+def checklists_change(request: Request, list_id: int, payload: dict):
+    data = _people_call(checklists.clean, payload)
+    old = _people_call(checklists.get, list_id)
+    if old is None:
+        raise HTTPException(404, "No such checklist.")
+    _check_edit(request.state.user, old["position"])          # a lead may not take over someone else's list
+    _check_edit(request.state.user, data["position"])         # nor move their own onto another position
+    _people_call(checklists.save, data, list_id)
+    audit.note(request, "crew.checklist_change", "Changed a crew checklist", target=list_id, detail={"position": data["position"]})
+    return checklists_templates(request)
+
+
+@router.delete("/crew/api/checklists/templates/{list_id}", dependencies=CHECKLIST)
+def checklists_delete(request: Request, list_id: int):
+    old = _people_call(checklists.get, list_id)
+    if old is None:
+        raise HTTPException(404, "No such checklist.")
+    _check_edit(request.state.user, old["position"])
+    _people_call(checklists.delete, list_id)
+    audit.note(request, "crew.checklist_delete", "Removed a crew checklist", target=list_id, detail={"position": old["position"]})
+    return checklists_templates(request)
+
+
+@router.get("/api/admin/crew/checklists", dependencies=PAGE)
+def checklists_board(plan: str | None = None):
+    tracks, zone = calltimes._state()
+    return _people_call(checklists.board, tracks, zone, plan or None)
+
+
+@router.get("/api/admin/crew/checklist-leads", dependencies=CHECKLIST_EDIT)
+def checklist_leads():
+    return {"leads": _people_call(checklists.list_leads), "people": [
+        {"id": p["id"], "name": p["name"]} for p in _people_call(people.people_list) if not p["disabled"]]}
+
+
+@router.post("/api/admin/crew/checklist-leads", dependencies=CHECKLIST_EDIT)
+def checklist_leads_add(request: Request, payload: dict):
+    _people_call(checklists.add_lead, payload.get("user_id"), payload.get("position"))
+    audit.note(request, "crew.checklist_lead", "Made someone a checklist lead", target=payload.get("user_id"),
+               detail={"position": payload.get("position")})
+    return checklist_leads()
+
+
+@router.delete("/api/admin/crew/checklist-leads/{user_id}", dependencies=CHECKLIST_EDIT)
+def checklist_leads_remove(request: Request, user_id: int, position: str):
+    _people_call(checklists.remove_lead, user_id, position)
+    audit.note(request, "crew.checklist_lead_remove", "Removed a checklist lead", target=user_id, detail={"position": position})
+    return checklist_leads()

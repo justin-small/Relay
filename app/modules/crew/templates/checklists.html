@@ -1,0 +1,22 @@
+{# The Checklists tab of the crew page (#232). Filled in by checklists.js; every word from the server is set as text. #}
+<div id="cl" class="cl">
+  <div class="cr-note" id="clNote" role="status" aria-live="polite"></div>
+  <div id="clLists"></div>
+  <section class="cr-card" id="clEditBox" hidden>
+    <h2>Edit checklists</h2>
+    <div id="clTemplates"></div>
+    <div class="cl-form">
+      <label class="chat-lbl" for="clTitle">Title</label>
+      <input id="clTitle" maxlength="60" autocomplete="off">
+      <label class="chat-lbl" for="clPos">Position</label>
+      <input id="clPos" list="clPositions" maxlength="80" autocomplete="off" placeholder="A Planning Center team, or blank for everyone">
+      <datalist id="clPositions"></datalist>
+      <label class="chat-lbl" for="clItems">Items, one per line</label>
+      <textarea id="clItems" rows="6"></textarea>
+      <div class="cl-btns">
+        <button type="button" id="clSave">Save checklist</button>
+        <button type="button" id="clCancel" hidden>Cancel</button>
+      </div>
+    </div>
+  </section>
+</div>

@@ -26,7 +26,7 @@ class Crew(Module):
     manifest = Manifest(
         id="crew",
         name="Crew app",
-        version="1.5.0",
+        version="1.6.0",
         summary="An installable page for the crew, signed in with a Relay account, that shows the plan and hosts "
                 "the other crew features. Served over HTTPS on this network only.",
         settings_key="crew",
@@ -48,10 +48,13 @@ class Crew(Module):
         Permission("crew.page", "Page the crew and see who has read it", "Crew app", "operator"),
         Permission("crew.chat", "Use the crew team chat", "Crew app", "member"),
         Permission("crew.checkin", "Check in at the church from the crew page", "Crew app", "member"),
+        Permission("crew.checklist", "Tick your position's checklists on the crew page", "Crew app", "member"),
+        Permission("crew.checklist_edit", "Write checklists for every position and name team leads", "Crew app", "operator"),
         Permission("crew.moderate", "Read every role channel and delete anyone's chat message", "Crew app", "operator"),
     )
-    crew_tabs = (CrewTab("chat", "Chat", "chat.html", "crew.chat"),)
-    crew_scripts = ("chat.js",)
+    crew_tabs = (CrewTab("chat", "Chat", "chat.html", "crew.chat"),
+                 CrewTab("checklists", "Checklists", "checklists.html", "crew.checklist"))
+    crew_scripts = ("chat.js", "checklists.js")
     user_pages = (UserPage("Crew", "/crew", "crew.use", "The plan and your team's tools"),)
 
     def clean(self, raw: Any) -> dict:

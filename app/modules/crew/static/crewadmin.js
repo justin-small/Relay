@@ -187,7 +187,58 @@
     const res = await fetch('/api/admin/crew/arrivals', { method: 'DELETE', credentials: 'same-origin' });
     if (res.ok) drawBoard(await res.json());
   });
-  setInterval(function () { if (document.getElementById('page-crew') && !document.getElementById('page-crew').hidden) boardRefresh(); }, 15000);
-  document.addEventListener('relay:config', function () { refresh(); peopleRefresh(); drawn = false; pagesRefresh(); callsRefresh(); boardRefresh(); });
-  refresh(); peopleRefresh(); pagesRefresh(); callsRefresh(); boardRefresh();
+  // -- checklists (#232): progress per person, refreshed while the page is open. Everything shown is text.
+  let listPlan = '';
+  function drawLists(d) {
+    const body = document.querySelector('#crLists tbody'); body.textContent = '';
+    $('crListCount').textContent = d.done + ' of ' + d.total + ' items done';
+    const sel = $('crListPlan'); sel.textContent = '';
+    const add = function (v, t) { const o = document.createElement('option'); o.value = v; o.textContent = t; sel.appendChild(o); };
+    add('', 'Today');
+    d.plans.forEach(function (p) { if (p.plan !== d.plan || !d.today) add(p.plan, new Date(p.ts * 1000).toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' })); });
+    sel.value = listPlan;
+    d.people.forEach(function (p) {
+      p.lists.forEach(function (l, n) {
+        const tr = document.createElement('tr');
+        tr.appendChild(cell(n ? '' : p.name)); tr.appendChild(cell(n ? '' : p.teams.join(', ')));
+        tr.appendChild(cell(l.title));
+        const td = cell(l.done + ' of ' + l.total + (l.done === l.total ? ' \u2713' : ''));
+        if (l.open.length) td.title = 'Still open: ' + l.open.join('; ');
+        tr.appendChild(td); body.appendChild(tr);
+      });
+    });
+  }
+  async function listsRefresh() {
+    if (!can('crew.page')) return;
+    $('crListBox').hidden = false;
+    try { drawLists(await api('/api/admin/crew/checklists' + (listPlan ? '?plan=' + encodeURIComponent(listPlan) : ''))); } catch (e) { /* keeps what it had */ }
+  }
+  $('crListPlan').addEventListener('change', function () { listPlan = $('crListPlan').value; listsRefresh(); });
+  function leadMsg(text) { $('crListErr').textContent = text || ''; $('crListErr').hidden = !text; }
+  function drawLeads(d) {
+    const body = document.querySelector('#crLeads tbody'); body.textContent = '';
+    const sel = $('crLeadUser'); sel.textContent = '';
+    d.people.forEach(function (p) { const o = document.createElement('option'); o.value = p.id; o.textContent = p.name; sel.appendChild(o); });
+    d.leads.forEach(function (l) {
+      const tr = document.createElement('tr'); tr.appendChild(cell(l.name)); tr.appendChild(cell(l.position));
+      const td = document.createElement('td');
+      td.appendChild(button('Remove', async function () {
+        const r = await send2('DELETE', '/api/admin/crew/checklist-leads/' + l.user_id + '?position=' + encodeURIComponent(l.position), null, leadMsg);
+        if (r) drawLeads(r);
+      }));
+      tr.appendChild(td); body.appendChild(tr);
+    });
+    $('crLeadBox').hidden = false;
+  }
+  async function leadsRefresh() {
+    if (!can('crew.checklist_edit')) return;
+    try { drawLeads(await api('/api/admin/crew/checklist-leads')); } catch (e) { /* keeps what it had */ }
+  }
+  $('crLeadAdd').addEventListener('click', async function () {
+    const r = await send2('POST', '/api/admin/crew/checklist-leads', { user_id: Number($('crLeadUser').value), position: $('crLeadPos').value }, leadMsg);
+    if (r) { $('crLeadPos').value = ''; drawLeads(r); }
+  });
+  setInterval(function () { if (document.getElementById('page-crew') && !document.getElementById('page-crew').hidden) { boardRefresh(); listsRefresh(); } }, 15000);
+  document.addEventListener('relay:config', function () { refresh(); peopleRefresh(); drawn = false; pagesRefresh(); callsRefresh(); boardRefresh(); listsRefresh(); leadsRefresh(); });
+  refresh(); peopleRefresh(); pagesRefresh(); callsRefresh(); boardRefresh(); listsRefresh(); leadsRefresh();
 })();
