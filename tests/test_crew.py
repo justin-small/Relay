@@ -95,6 +95,38 @@ eq("saved", (r.status_code, r.json()), (200, {"name": "Booth crew", "show_plan":
 eq("the manifest follows the name", anon.get("/crew/_/manifest.webmanifest").json()["name"], "Booth crew")
 eq("the page follows it", "Booth crew" in member.get("/crew").text and 'id="crPlan"' not in member.get("/crew").text, True)
 
+print("tabs from modules (#240)")
+from app.modules import CrewTab, modules as registry  # noqa: E402
+
+page = member.get("/crew").text
+eq("no module tab, no tab strip", 'role="tab"' in page, False)
+other = registry.get("intercom")
+config.save({"modules": {"intercom": {"enabled": True}}})
+page = member.get("/crew").text
+eq("a switched-on module adds its tab, panel and scripts in order",
+   ('id="tab-intercom"' in page, 'id="icTalk"' in page,
+    page.index("modules/intercom/livekit-client.umd.js") < page.index("modules/intercom/crew.js")),
+   (True, True, True))
+eq("the intercom module declares its tab for people who may use it",
+   [(t.id, t.permission) for t in other.crew_tabs], [("intercom", "intercom.use")])
+eq("the library is vendored with its licence, no CDN",
+   all((Path(__file__).resolve().parent.parent / "app/modules/intercom/static" / f).is_file()
+       for f in ("livekit-client.umd.js", "livekit-client.LICENSE.txt")) and "cdn" not in page.lower(), True)
+eq("the microphone is allowed on the crew page only while the intercom is on",
+   ("microphone=(self)" in member.get("/crew").headers["permissions-policy"],
+    "microphone=()" in member.get("/home").headers["permissions-policy"]), (True, True))
+config.save({"modules": {"intercom": {"enabled": False}}})
+eq("off again, the tab and the microphone are gone",
+   ('role="tab"' in member.get("/crew").text, "microphone=()" in member.get("/crew").headers["permissions-policy"]),
+   (False, True))
+mine = other.crew_tabs, other.crew_scripts
+other.crew_tabs = (CrewTab("t", "T", "crew.html", "nope.use"),)
+from app.modules import validate  # noqa: E402
+
+eq("a tab needs one of the module's own permissions",
+   any("crew tab" in x for x in validate(other, "intercom")), True)
+other.crew_tabs, other.crew_scripts = mine
+
 if fails:
     print(f"\n{len(fails)} failed")
     sys.exit(1)

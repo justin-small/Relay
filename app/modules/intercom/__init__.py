@@ -10,7 +10,7 @@ import contextlib
 import logging
 from typing import Any
 
-from .. import AdminPage, Health, Manifest, Module
+from .. import AdminPage, CrewTab, Health, Manifest, Module
 from ...users import Permission
 
 log = logging.getLogger("relay.intercom")
@@ -37,6 +37,9 @@ class Intercom(Module):
         icon='<path d="M2.5 9.5v-2a5.5 5.5 0 0 1 11 0v2"/><rect x="1.5" y="9" width="3" height="4.5" rx="1"/>'
              '<rect x="11.5" y="9" width="3" height="4.5" rx="1"/>'),)
     admin_scripts = ("intercom.js",)
+    crew_tabs = (CrewTab("intercom", "Intercom", "crew.html", "intercom.use"),)
+    crew_scripts = ("livekit-client.umd.js", "crew.js")
+    microphone_pages = ("/crew",)
     route_prefixes = ("/api/admin/intercom", "/intercom")
     permissions = (
         Permission("intercom.use", "Use the crew intercom on a phone", "Intercom", "member"),

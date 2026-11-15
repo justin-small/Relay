@@ -36,6 +36,34 @@
       });
     } catch (e) { note.textContent = 'The plan could not be loaded.'; }
   }
+  // Tabs a module adds (arrow keys move; the chosen tab is kept in the #hash). `crew:tab` tells the module's script.
+  const tabs = Array.prototype.slice.call(document.querySelectorAll('[role=tab]'));
+  function select(tab, focus) {
+    tabs.forEach(function (t) {
+      const on = t === tab;
+      t.setAttribute('aria-selected', on ? 'true' : 'false');
+      t.tabIndex = on ? 0 : -1;
+      document.getElementById(t.getAttribute('aria-controls')).hidden = !on;
+    });
+    if (tab && focus) tab.focus();
+    if (tab && history.replaceState) history.replaceState(null, '', '#' + tab.dataset.tab);
+    document.dispatchEvent(new CustomEvent('crew:tab', { detail: tab ? tab.dataset.tab : '' }));
+  }
+  tabs.forEach(function (t, i) {
+    t.addEventListener('click', function () { select(t, false); });
+    t.addEventListener('keydown', function (e) {
+      const to = e.key === 'ArrowRight' ? i + 1 : e.key === 'ArrowLeft' ? i - 1 : e.key === 'Home' ? 0 :
+        e.key === 'End' ? tabs.length - 1 : null;
+      if (to === null) return;
+      e.preventDefault();
+      select(tabs[(to + tabs.length) % tabs.length], true);
+    });
+  });
+  if (tabs.length) {
+    const want = location.hash.slice(1);
+    select(tabs.find(function (t) { return t.dataset.tab === want; }) || tabs[0], false);
+  }
+
   loadPlan();
   setInterval(loadPlan, 30000);
 })();

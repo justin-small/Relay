@@ -34,8 +34,18 @@ CODE_RATE = 4429
 CODE_HTTPS = 4426
 
 
+def _stats(data: dict) -> dict:
+    """A phone's receive statistics (packets lost, jitter, round trip), for the watchdog (#276): numbers only."""
+    out = {}
+    for key in ("packets_lost", "jitter_ms", "rtt_ms", "tracks"):
+        v = data.get(key)
+        out[key] = v if isinstance(v, (int, float)) and not isinstance(v, bool) and 0 <= v < 1e9 else None
+    return out
+
+
 class Conn:
     def __init__(self, ws: WebSocket, device: dict, user, session_id: int):
+        self.stats: dict = {}
         self.ws, self.device_id, self.user_id, self.name = ws, device["id"], user.id, user.name
         self.session_id = session_id
         self.tokens: deque[float] = deque()
@@ -177,6 +187,8 @@ class Presence:
         msg = self.activity(channel_id)
         rows = await store.run(store.members, channel_id)
         listeners = {r["user_id"] for r in rows if r["can_listen"] or r["can_talk"]}
+        hearing = {r["user_id"] for r in rows if r["can_listen"]}
+        msg["listening"] = len({c.user_id for c in self.conns.values() if c.user_id in hearing})
         await asyncio.gather(*(self._send_to(c.device_id, msg) for c in list(self.conns.values())
                                if c.user_id in listeners), return_exceptions=True)
 
@@ -322,6 +334,8 @@ class Presence:
             await arbiter.release(conn.user_id, conn.device_id, data.get("channels"))
         elif kind == "talk.beat":
             arbiter.beat(conn.device_id)
+        elif kind == "stats":
+            conn.stats = _stats(data)
         return False
 
     async def _send(self, ws: WebSocket, msg: dict) -> None:

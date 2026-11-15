@@ -49,7 +49,8 @@ async def crew_page(request: Request):
     s = _settings()
     return templates.TemplateResponse(request, "crew/crew.html", {
         "app_name": s["name"], "show_plan": s["show_plan"], "user": got,
-        "tools": registry.user_nav(got),
+        "tools": registry.user_nav(got), "tabs": registry.crew_nav(got),
+        "module_scripts": registry.crew_scripts(got),
     }, headers=NO_STORE)
 
 

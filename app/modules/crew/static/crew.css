@@ -16,3 +16,8 @@
 .cr-tools span { display: block; color: var(--dim); font-size: 14px; }
 .cr-foot { color: var(--warn); font-size: 14px; }
 .cr-out button { background: none; border: 0; color: var(--dim); text-decoration: underline; font: inherit; padding: 8px 0; cursor: pointer; }
+.cr-tabs { display: flex; gap: 8px; overflow-x: auto; margin: 0 0 12px; }
+.cr-tabs [role=tab] { flex: 0 0 auto; padding: 10px 16px; font: inherit; font-weight: 600; border-radius: 999px;
+  border: 1px solid var(--line); background: none; color: var(--fg); cursor: pointer; }
+.cr-tabs [role=tab][aria-selected=true] { background: var(--accent); color: var(--bg); border-color: var(--accent); }
+.cr-panel { padding: 4px 0 24px; }

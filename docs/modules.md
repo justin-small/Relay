@@ -181,6 +181,16 @@ plain-HTTP viewer port, and so through a remote access tunnel (which points at i
 or "not allowed"); a route used by a browser that sends no cookie (a web app manifest, a service worker) is public
 on purpose and must carry nothing private.
 
+## Tabs on the crew page
+
+The crew page (`/crew`, the `crew` module, #226) hosts the other crew features as tabs. A `CrewTab(id, title,
+template, permission)` in `Module.crew_tabs` adds one for a signed-in user who holds `permission` (one the module
+declares) while the module is on. The module's template in `templates/` is rendered inside the tab's panel and the
+scripts in `Module.crew_scripts` (from the module's `static/`) are loaded on the page; the page fires a `crew:tab`
+event on `document` when the tab changes. The routes a tab calls check the permission themselves. A tab that needs
+the microphone lists the page in `Module.microphone_pages` (`("/crew",)`): only then, and only while that module is
+on, is the page sent `microphone=(self)` instead of `microphone=()`.
+
 ## The audit log
 
 Every change made through a module's `/api/admin` route already goes in the audit log (#172),

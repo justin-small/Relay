@@ -90,6 +90,17 @@ class UserPage:
 
 
 @dataclass(frozen=True)
+class CrewTab:
+    """A tab the module adds to the crew page (/crew, #226), shown to a signed-in user who holds `permission`,
+    while the module is on. The module's template is rendered inside the tab's panel and its `crew_scripts` run on
+    the page. The routes the tab calls check the permission themselves, like an admin route."""
+    id: str            # unique across Relay; the #hash of the tab
+    title: str         # the tab's label
+    template: str      # a template in the module's templates/ directory
+    permission: str    # one of the module's own permissions
+
+
+@dataclass(frozen=True)
 class Listener:
     """A plain-HTTP port of the module's own, opened by run.py at startup while the module is on (#205). Only the
     module's routes under `prefixes` answer on it, and those routes answer on no other port, so a device pointed at
@@ -119,6 +130,12 @@ class Module:
     admin_scripts: tuple[str, ...] = ()
     # Features for accounts that never open the admin panel (a Member's home page).
     user_pages: tuple[UserPage, ...] = ()
+    # Tabs on the crew page, and the scripts in the module's static/ directory that page loads for them.
+    crew_tabs: tuple[CrewTab, ...] = ()
+    crew_scripts: tuple[str, ...] = ()
+    # Exact page paths (of any module) that may use the microphone while this module is on. Everywhere else the
+    # browser is told microphone=(); a page that is not listed never gets a prompt.
+    microphone_pages: tuple[str, ...] = ()
     # Path prefixes of every route the module adds. Core templates and scripts must not name them
     # (tests/test_modules.py), so the only way into a module is through pages it renders itself.
     route_prefixes: tuple[str, ...] = ()
@@ -487,6 +504,20 @@ class Registry:
         return [{"title": p.title, "note": p.note, "path": p.path}
                 for mod in self.active() for p in mod.user_pages if user.can(p.permission)]
 
+    def crew_nav(self, user: User) -> list[dict]:
+        """The crew-page tabs of the modules that are on that `user` may use."""
+        return [{"id": t.id, "title": t.title, "template": f"{mod.manifest.id}/{t.template}"}
+                for mod in self.active() for t in mod.crew_tabs if user.can(t.permission)]
+
+    def crew_scripts(self, user: User) -> list[str]:
+        """The scripts of the modules that are on and have a tab `user` may use."""
+        return [f"{mod.manifest.id}/{s}" for mod in self.active()
+                if any(user.can(t.permission) for t in mod.crew_tabs) for s in mod.crew_scripts]
+
+    def microphone_pages(self) -> tuple[str, ...]:
+        """The page paths that may use the microphone: those named by the modules that are on."""
+        return tuple(p for mod in self.active() for p in mod.microphone_pages)
+
     def admin_scripts(self, user: User | None = None) -> list[str]:
         """The scripts of the modules that are on. With a `user`, only those of a module with at least one page
         they may see (or, for a module with no pages, when they hold its `.view`)."""
@@ -536,6 +567,12 @@ def validate(mod: Any, package: str) -> list[str]:
     for script in mod.admin_scripts:
         if not (HERE / package / "static" / script).is_file():
             problems.append(f"{package}: admin script {script} is missing")
+    for tab in mod.crew_tabs:
+        if not (HERE / package / "templates" / tab.template).is_file():
+            problems.append(f"{package}: crew tab template {tab.template} is missing")
+    for script in mod.crew_scripts:
+        if not (HERE / package / "static" / script).is_file():
+            problems.append(f"{package}: crew script {script} is missing")
     declared = set()
     for perm in mod.permissions:
         if not isinstance(perm, Permission):
@@ -557,6 +594,9 @@ def validate(mod: Any, package: str) -> list[str]:
     for pre in mod.panel_prefixes:
         if not under(pre, mod.route_prefixes):
             problems.append(f"{package}: panel prefix {pre!r} must be under the module's route_prefixes")
+    for tab in mod.crew_tabs:
+        if tab.permission not in declared:
+            problems.append(f"{package}: crew tab {tab.title!r} needs one of the module's own permissions")
     names = set()
     for lst in mod.listeners:
         if not isinstance(lst, Listener):

@@ -30,9 +30,24 @@
     </ul>
   </section>
   {% endif %}
+  {% if tabs %}
+  <div role="tablist" class="cr-tabs" aria-label="Crew tools">
+    {% for t in tabs %}
+    <button role="tab" id="tab-{{ t.id }}" aria-controls="panel-{{ t.id }}" aria-selected="false" tabindex="-1"
+            type="button" data-tab="{{ t.id }}">{{ t.title }}</button>
+    {% endfor %}
+  </div>
+  {% for t in tabs %}
+  <div role="tabpanel" class="cr-panel" id="panel-{{ t.id }}" aria-labelledby="tab-{{ t.id }}" hidden>
+    {% include t.template %}
+  </div>
+  {% endfor %}
+  {% endif %}
   <p class="cr-foot" id="crNet" hidden>You are offline. The plan will update when you are back on the network.</p>
   <form method="post" action="/admin/logout" class="cr-out"><button type="submit">Sign out</button></form>
 </main>
 <script>window.RELAY_CREW = { plan: {{ 'true' if show_plan else 'false' }} };</script>
 <script src="{{ static('modules/crew/crew.js') }}"></script>
+{% for s in module_scripts %}<script src="{{ static('modules/' ~ s) }}" defer></script>
+{% endfor %}
 </body></html>

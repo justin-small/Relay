@@ -179,8 +179,15 @@ PERMISSIONS_POLICY = "camera=(), microphone=(), geolocation=(), payment=(), usb=
 FLASH_PERMISSIONS_POLICY = "camera=(), microphone=(), geolocation=(), payment=(), usb=(), serial=(self)"
 
 
+# A page a switched-on module names in `microphone_pages` (the crew page, for the intercom, #240) may use the
+# microphone itself and nothing embedded in it. Every other page keeps microphone=().
+MIC_PERMISSIONS_POLICY = "camera=(), microphone=(self), geolocation=(), payment=(), usb=(), serial=()"
+
+
 def permissions_policy_for(path: str) -> str:
-    return FLASH_PERMISSIONS_POLICY if path == FLASH_PATH else PERMISSIONS_POLICY
+    if path == FLASH_PATH:
+        return FLASH_PERMISSIONS_POLICY
+    return MIC_PERMISSIONS_POLICY if path in module_registry.microphone_pages() else PERMISSIONS_POLICY
 
 
 @app.middleware("http")
