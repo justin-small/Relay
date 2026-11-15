@@ -79,8 +79,8 @@ class AtemClient:
                 attempt = 0
             except asyncio.CancelledError:
                 raise
-            except OSError as exc:
-                self.error = "Could not reach the switcher" if isinstance(exc, ConnectionError) else f"Network error: {exc.strerror or exc}"
+            except OSError:
+                self.error = "Could not reach the switcher"   # a fixed sentence: the page never shows an exception's text
             except Exception:  # a bad packet must not end the loop
                 log.exception("ATEM session failed")
                 self.error = "Lost the connection"
