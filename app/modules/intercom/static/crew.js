@@ -478,6 +478,37 @@
     send({ type: 'stats', packets_lost: lost, jitter_ms: jitter, rtt_ms: st.rtt, tracks: n });
   }, 5000);
 
+  // ---- my phones (#273): every phone signed in as me, each with a sign-out. Text from the server is set as text.
+  async function myPhones() {
+    const list = $('icMyList');
+    let phones;
+    try {
+      const res = await fetch('/intercom/api/my-phones', { credentials: 'same-origin' });
+      if (!res.ok) return;
+      phones = (await res.json()).phones;
+    } catch (e) { return; }
+    list.textContent = '';
+    phones.forEach(function (p) {
+      const li = doc.createElement('li');
+      li.style.cssText = 'display:flex;gap:8px;align-items:center;justify-content:space-between;padding:4px 0';
+      const label = doc.createElement('span');
+      label.textContent = p.name + (p.last_seen ? ' · last seen ' + p.last_seen.slice(0, 10) : '');
+      const out = doc.createElement('button');
+      out.type = 'button';
+      out.textContent = 'Sign out';
+      out.addEventListener('click', async function () {
+        out.disabled = true;
+        try { await fetch('/intercom/api/my-phones/' + p.id, { method: 'DELETE', credentials: 'same-origin' }); } catch (e) { /* listed again below */ }
+        myPhones();
+      });
+      li.appendChild(label);
+      li.appendChild(out);
+      list.appendChild(li);
+    });
+    $('icMyEmpty').hidden = !!phones.length;
+  }
+  $('icMine').addEventListener('toggle', function () { if ($('icMine').open) myPhones(); });
+
   connect();
   wake();
 })(typeof window !== 'undefined' ? window : globalThis);

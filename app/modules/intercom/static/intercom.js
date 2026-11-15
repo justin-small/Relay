@@ -65,11 +65,14 @@
   }
 
   function fail(e) {
-    $('icErr').textContent = e.message;
-    $('icErr').hidden = false;
+    const box = $('icErr') || $('icPhonesErr');
+    if (!box) return;
+    box.textContent = e.message;
+    box.hidden = false;
   }
 
   async function refreshPhones() {
+    if (!$('icPhonesSection')) return;
     if (!can('intercom.manage')) { $('icPhonesSection').hidden = true; return; }
     try { renderPhones((await api('/api/admin/intercom/phones')).phones); } catch (e) { /* as above */ }
   }
@@ -285,7 +288,12 @@
     refreshChannels();
   }
 
-  function visible() { return !document.getElementById('page-intercom').closest('.page').hidden; }
+  function visible() {
+    return ['page-intercom', 'page-intercom-phones'].some(function (id) {
+      const el = document.getElementById(id);
+      return el && !el.closest('.page').hidden;
+    });
+  }
 
   function tick() {
     if (visible()) refresh();
@@ -300,7 +308,7 @@
     }
   });
 
-  $('icSignOutAll').addEventListener('click', async function () {
+  if ($('icSignOutAll')) $('icSignOutAll').addEventListener('click', async function () {
     if (!window.confirm('Sign out every phone? Each person will have to sign in again.')) return;
     try { await post('/api/admin/intercom/phones/signout-all', {}); } catch (e) { fail(e); }
     refreshPhones();
