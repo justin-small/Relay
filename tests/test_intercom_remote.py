@@ -33,7 +33,7 @@ from app.modules.intercom.presence import presence  # noqa: E402
 from app.modules.intercom_remote import bridge as bridge_mod, cloud, remote, routes, store  # noqa: E402
 from app.modules.intercom_remote.bridge import Bridge, backoff, bridge, mic_name, track_name  # noqa: E402
 
-from _harness import check, eq, section, wait_for  # noqa: E402
+from _harness import capture_log, check, eq, section, wait_for  # noqa: E402
 
 
 class FakeMedia:
@@ -265,12 +265,17 @@ with TestClient(app, base_url=viewer) as client:
         eq("someone not marked remote allowed is refused", r.status_code, 403)
         r = client.post("/intercom/remote/api/sign-in", json={"username": "alice", "password": "nope"})
         eq("a wrong password is refused the same way", r.status_code, 403)
-        routes._tries.clear()
-        for _ in range(routes.SIGN_INS_PER_MIN):
+        routes._tries.clear(), routes._logged.clear()
+        eq("five tries per address in ten minutes (#278)", (routes.SIGN_INS_PER_WINDOW, routes.SIGN_IN_WINDOW_S),
+           (5, 600.0))
+        for _ in range(routes.SIGN_INS_PER_WINDOW):
             client.post("/intercom/remote/api/sign-in", json={"username": "x", "password": "y"})
-        eq("too many tries from one address are slowed", client.post(
-            "/intercom/remote/api/sign-in", json={"username": "alice", "password": "correct horse"}).status_code, 429)
-        routes._tries.clear()
+        with capture_log("relay.intercom_remote") as logged:
+            codes = [client.post("/intercom/remote/api/sign-in",
+                                 json={"username": "alice", "password": "correct horse"}).status_code for _ in range(3)]
+        eq("too many tries from one address are refused, the right password too", codes, [429] * 3)
+        eq("the refusal is logged once per window, not per try", len(logged), 1)
+        routes._tries.clear(), routes._logged.clear()
 
     with section("a local credential is refused on the remote socket"):
         with client.websocket_connect("/intercom/remote/ws") as ws:

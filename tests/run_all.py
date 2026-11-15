@@ -47,6 +47,7 @@ def command(path: Path, coverage: bool) -> list[str]:
 def run(path: Path, coverage: bool, timeout: float) -> dict:
     tmp = tempfile.mkdtemp(prefix=f"relay-{path.stem}-")
     env = dict(os.environ, TMPDIR=tmp, TEMP=tmp, TMP=tmp, PYTHONUNBUFFERED="1")
+    env.setdefault("RELAY_KEY_STORE", "file")      # never the developer's Keychain (app/secretbox.py)
     start = time.monotonic()
     try:
         proc = subprocess.run(command(path, coverage), cwd=ROOT, env=env, capture_output=True, text=True,

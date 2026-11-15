@@ -30,6 +30,7 @@ class PlanningCenter(Module):
         guide="https://github.com/justin-small/relay#planning-center-services-live",
         uses=("signage",),
     )
+    secret_settings = ("secret",)
     defaults = {"app_id": "", "secret": "", "service_types": [], "plan_overrides": {}, "show_notes": False,
                 "rundown": {}, "signage": {}}
     admin_pages = (AdminPage(

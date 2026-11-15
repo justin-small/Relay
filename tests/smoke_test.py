@@ -7,6 +7,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+os.environ.setdefault("RELAY_KEY_STORE", "file")
 os.environ.setdefault("RELAY_CONFIG", os.path.join(tempfile.mkdtemp(), "config.json"))
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import _db  # noqa: E402  (a throwaway SQLite file for the user system; must come before app.main)

@@ -7,6 +7,7 @@ remote intercom puts on the internet: the phone page, its script, the sign-in an
 from __future__ import annotations
 
 import json
+import logging
 import time
 from collections import deque
 
@@ -26,24 +27,35 @@ router = APIRouter()
 
 REMOTE_ROUTES = (("GET", "/intercom/remote/"), ("GET", "/intercom/remote/phone.js"),
                  ("POST", "/intercom/remote/api/sign-in"), ("WEBSOCKET", "/intercom/remote/ws"))
-SIGN_INS_PER_MIN = 10          # per address; #278 adds the shared limiter
+# Sign-ins over the tunnel (#278): 5 tries per address in 10 minutes, right or wrong, then refused until the oldest
+# try is 10 minutes old. Kept in memory. A refused address is logged once per window, not per try.
+SIGN_INS_PER_WINDOW = 5
+SIGN_IN_WINDOW_S = 600.0
 MAX_BODY = 2048
 
+log = logging.getLogger("relay.intercom_remote")
 _tries: dict[str, deque[float]] = {}
+_logged: dict[str, float] = {}
 
 
 def _slow(request: Request) -> bool:
     ip = request.headers.get("cf-connecting-ip") or (request.client.host if request.client else "")
     now = time.monotonic()
     q = _tries.setdefault(ip, deque())
-    while q and now - q[0] > 60:
+    while q and now - q[0] > SIGN_IN_WINDOW_S:
         q.popleft()
-    if len(q) >= SIGN_INS_PER_MIN:
+    if len(q) >= SIGN_INS_PER_WINDOW:
+        if now - _logged.get(ip, -SIGN_IN_WINDOW_S) >= SIGN_IN_WINDOW_S:
+            _logged[ip] = now
+            log.warning("intercom remote: sign-in from %s refused: %d tries in %d minutes",
+                        ip or "an unknown address", SIGN_INS_PER_WINDOW, int(SIGN_IN_WINDOW_S // 60))
         return True
     q.append(now)
     if len(_tries) > 1000:
         for k in [k for k, v in _tries.items() if not v]:
             del _tries[k]
+        for k in [k for k, t in _logged.items() if now - t >= SIGN_IN_WINDOW_S]:
+            del _logged[k]
     return False
 
 
@@ -79,7 +91,7 @@ async def phone_script():
 async def remote_sign_in(request: Request):
     """Sign in from outside the building: a Relay account that an admin marked remote allowed gets its own credential."""
     if _slow(request):
-        return JSONResponse({"error": "Too many tries. Wait a minute."}, status_code=429)
+        return JSONResponse({"error": "Too many tries. Wait 10 minutes."}, status_code=429)
     data = await _body(request)
     try:
         credential, row, user = await istore.run(lambda: store.sign_in(

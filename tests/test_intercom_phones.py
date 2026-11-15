@@ -32,6 +32,7 @@ from app import config, db, users  # noqa: E402
 from app.main import app  # noqa: E402
 from app.modules.intercom import devices, livekit, rooms, store, webhook  # noqa: E402
 from app.modules.intercom.arbiter import arbiter  # noqa: E402
+from app.modules.intercom import presence as presence_mod  # noqa: E402
 from app.modules.intercom.presence import presence  # noqa: E402
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -255,6 +256,13 @@ with TestClient(app, base_url="http://relay.local:8001") as member:
             check("and the socket closes", False)
         except WebSocketDisconnect as e:
             eq("and the socket closes", e.code, 4429)
+    with member.websocket_connect("/intercom/ws") as ws:
+        hello(ws, cred)
+        json.loads(ws.receive_text())
+        ws.send_text(json.dumps({"type": "token", "channel": general["id"]}))
+        eq("a new socket does not reset the count: the limit is per phone (#278)",
+           json.loads(ws.receive_text())["type"], "error")
+    presence_mod._token_times.clear(), presence_mod._token_logged.clear()
 
     check("a closed socket leaves the live set", not presence.online(pid))
     check("the session was recorded", db.one("select ended_at from intercom_sessions where device_id = ?",

@@ -55,7 +55,7 @@ class ScriptFailed(Exception):
 class ScriptItem(pytest.Item):
     def runtest(self):
         tmp = tempfile.mkdtemp(prefix=f"relay-{self.path.stem}-")
-        env = dict(os.environ, TMPDIR=tmp, TEMP=tmp, TMP=tmp, PYTHONUNBUFFERED="1")
+        env = dict(os.environ, TMPDIR=tmp, TEMP=tmp, TMP=tmp, PYTHONUNBUFFERED="1", RELAY_KEY_STORE="file")
         try:
             proc = subprocess.run([sys.executable, str(self.path)], cwd=ROOT, env=env, capture_output=True,
                                   text=True, encoding="utf-8", errors="replace", timeout=300)

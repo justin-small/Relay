@@ -303,6 +303,22 @@
     } catch (e) { alertMsg(e.message); }
   });
 
+  async function saveBackupPass(value) {
+    try {
+      const body = await post('/api/admin/config', { backup_passphrase: value });
+      cfg = body.config;
+      $('backupPass').value = '';
+      renderKeyState();
+      okMsg(value ? 'Passphrase set. The next backup opens with it too.' : 'Passphrase removed. Backups open only on this computer.');
+    } catch (e) { alertMsg(e.message); }
+  }
+  $('saveBackupPass').addEventListener('click', function () {
+    const v = $('backupPass').value;
+    if (v.length < 10) { alertMsg('The passphrase needs at least 10 characters.'); return; }
+    saveBackupPass(v);
+  });
+  $('clearBackupPass').addEventListener('click', function () { saveBackupPass(null); });
+
   $('saveAppearance').addEventListener('click', async function () {
     try {
       const body = await post('/api/admin/config', {
@@ -323,6 +339,10 @@
       ? '· set ' + cfg.openai_api_key_hint
       : '· not set';
     $('keyState').className = cfg && cfg.openai_api_key_set ? 'ok' : 'err';
+    if ($('backupPassState')) {
+      $('backupPassState').textContent = cfg && cfg.backup_passphrase_set ? '· set' : '· not set';
+      $('keyStore').textContent = (cfg && cfg.secret_store) || '';
+    }
   }
 
   /* ---- timer settings: minutes:seconds fields and a timer picker, for a panel's timers (and the ProPresenter

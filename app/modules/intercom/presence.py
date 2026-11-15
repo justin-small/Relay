@@ -65,21 +65,34 @@ class Remote:
         pass
 
 
+_token_times: dict[int, deque[float]] = {}     # device id -> recent token requests
+_token_logged: dict[int, float] = {}
+
+
 class Conn:
     def __init__(self, ws: WebSocket, device: dict, user, session_id: int, remote: Remote | None = None):
         self.remote = remote
         self.stats: dict = {}
         self.ws, self.device_id, self.user_id, self.name = ws, device["id"], user.id, user.name
         self.session_id = session_id
-        self.tokens: deque[float] = deque()
 
     def allow_token(self) -> bool:
+        """30 token requests a minute per device (#278), counted across reconnects, so a phone cannot reset its
+        count by opening a new socket. A refusal is logged once a minute, not per request."""
         now = time.monotonic()
-        while self.tokens and now - self.tokens[0] > 60:
-            self.tokens.popleft()
-        if len(self.tokens) >= TOKENS_PER_MIN:
+        q = _token_times.setdefault(self.device_id, deque())
+        while q and now - q[0] > 60:
+            q.popleft()
+        if len(q) >= TOKENS_PER_MIN:
+            if now - _token_logged.get(self.device_id, -60.0) >= 60:
+                _token_logged[self.device_id] = now
+                log.warning("intercom: phone %s asked for more than %d tokens a minute; refused",
+                            self.device_id, TOKENS_PER_MIN)
             return False
-        self.tokens.append(now)
+        q.append(now)
+        if len(_token_times) > 2000:
+            for k in [k for k, v in _token_times.items() if not v or now - v[-1] > 60]:
+                _token_times.pop(k, None), _token_logged.pop(k, None)
         return True
 
 

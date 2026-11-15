@@ -588,7 +588,7 @@ for day in range(1, 10):
     made.append(db.backup(now=datetime(2026, 1, day, 12, 0, 0, tzinfo=timezone.utc)))
 check("every backup returned a path", all(isinstance(p, Path) for p in made), made)
 left = sorted(p.name for p in bdir.iterdir())
-eq("pruned to the newest 7", left, [f"relay-202601{d:02d}-120000.db" for d in range(3, 10)])
+eq("pruned to the newest 7, encrypted (#278)", left, [f"relay-202601{d:02d}-120000.db.enc" for d in range(3, 10)])
 last = made[-1]
 if os.name == "posix":    # Windows has no modes
     eq("file mode is 0600", stat.S_IMODE(last.stat().st_mode), 0o600)
@@ -601,12 +601,14 @@ check("a fresh backup is taken", fresh is not None and fresh.exists())
 check("then none is due", not db.backup_due())
 check("until 24 hours have passed", db.backup_due(now + timedelta(hours=24, minutes=1))
       and not db.backup_due(now + timedelta(hours=23)))
-eq("still only 7 files", len(list(bdir.glob("relay-*.db"))), 7)
+eq("still only 7 files", len(list(bdir.glob("relay-*.db.enc"))), 7)
 
-# A backup restores to a working database: copy it over a fresh path and open it with the app's own layer.
+# A backup restores to a working database: restore it to a fresh path and open it with the app's own layer.
+from app import backup as backupmod  # noqa: E402
+
 restored = Path(WORK) / "restored" / "relay.db"
 restored.parent.mkdir()
-shutil.copy(fresh, restored)
+backupmod.restore(fresh, restored)
 live_names = sorted(u["username"] for u in users.list_users())
 eq("a backup is one self-contained file", [p.name for p in restored.parent.iterdir()], ["relay.db"])
 os.environ["RELAY_DATABASE"] = str(restored)
@@ -637,7 +639,9 @@ busy = db.backup(now=now + timedelta(seconds=5))
 stop.set()
 wt.join()
 check("a backup taken during writes is written", busy is not None)
-chk = sqlite3.connect(busy)
+busy_plain = Path(WORK) / "busy.db"
+busy_plain.write_bytes(backupmod.decrypt(busy.read_bytes()))
+chk = sqlite3.connect(busy_plain)
 eq("…and passes integrity_check", chk.execute("pragma integrity_check").fetchone()[0], "ok")
 chk.close()
 

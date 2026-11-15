@@ -1066,7 +1066,18 @@ window.relayCan = function (perm) { return window.RELAY_ME.permissions.indexOf(p
       <input id="apikey" type="password" placeholder="sk-… (leave blank to keep current)" autocomplete="off">
     </div>
     <button class="primary" id="saveCreds">Save credentials</button>
-    <div class="note">Stored server-side in <span class="mono">config.json</span> (0600, git-ignored). Never sent to viewer pages.</div>
+    <div class="note">Stored server-side in <span class="mono">config.json</span> (0600), encrypted with a key kept in this computer's keychain (<span id="keyStore" class="mono"></span>). Never sent to viewer pages.</div>
+    </section>
+    <section>
+      <h3>Backup passphrase</h3>
+    <p class="sub">Relay backs up its database every day, encrypted with this computer's key. With a passphrase, a copy can also be restored on another computer. Relay keeps only a key made from it, never the passphrase, so write it down somewhere safe.</p>
+    <div class="field">
+      <label for="backupPass">Passphrase <span id="backupPassState" class="muted"></span></label>
+      <input id="backupPass" type="password" placeholder="10 characters or more" autocomplete="new-password" minlength="10">
+    </div>
+    <button class="primary" id="saveBackupPass">Set passphrase</button>
+    <button id="clearBackupPass">Remove passphrase</button>
+    <div class="note">Applies from the next backup. Restore with <span class="mono">relay --restore-backup &lt;file&gt; --passphrase</span> with Relay stopped.</div>
     </section>
   </div>
 {% endif %}

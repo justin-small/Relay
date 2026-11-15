@@ -7,7 +7,8 @@ fetched, so intercom works with no internet. On macOS the operator installs live
 
 Everything stays on the LAN: no TURN, no STUN, no cloud. LiveKit's signalling port is bound to 127.0.0.1; media
 goes to one UDP port and one TCP port. The API key and secret are made here on first start and kept in the state
-folder (0600); they never reach the admin page or a phone.
+folder (0600), the secret sealed with the machine key (app/secretbox.py, #278). livekit.yaml never holds it: LiveKit
+is given it in its environment (LIVEKIT_KEYS). Neither reaches the admin page or a phone.
 """
 from __future__ import annotations
 
@@ -163,19 +164,33 @@ def write_private(file: Path, text: str) -> None:
 
 
 def keys() -> tuple[str, str]:
-    """The API key and secret, made on first use and kept in the state folder (0600). Never shown or sent out."""
+    """The API key and secret, made on first use and kept in the state folder (0600, the secret sealed). Never shown
+    or sent out. A secret this computer can no longer open is replaced: phones just reconnect with new tokens."""
+    from ... import secretbox
+
     folder = state_folder()
     file = folder / "keys.json"
     try:
         got = json.loads(file.read_text(encoding="utf-8"))
-        if isinstance(got.get("key"), str) and isinstance(got.get("secret"), str) and got["secret"]:
-            return got["key"], got["secret"]
+        stored = got.get("secret")
+        if isinstance(got.get("key"), str) and isinstance(stored, str) and stored:
+            secret = secretbox.unseal(stored, "intercom:livekit-secret")
+            if secret:
+                if not secretbox.is_sealed(stored):          # written before #278: seal it now
+                    write_private(file, json.dumps({"key": got["key"],
+                                                    "secret": secretbox.seal(secret, "intercom:livekit-secret")}))
+                return got["key"], secret
     except (OSError, ValueError, AttributeError):
         pass
     paths.make_private_dir(folder)
-    pair = {"key": KEY_NAME, "secret": secrets.token_urlsafe(32)}
-    write_private(file, json.dumps(pair))
-    return pair["key"], pair["secret"]
+    key, secret = KEY_NAME, secrets.token_urlsafe(32)
+    write_private(file, json.dumps({"key": key, "secret": secretbox.seal(secret, "intercom:livekit-secret")}))
+    return key, secret
+
+
+def env_keys(key: str, secret: str) -> dict[str, str]:
+    """The environment livekit-server reads its key pair from, so the secret is never written into livekit.yaml."""
+    return {"LIVEKIT_KEYS": f"{key}: {secret}"}
 
 
 def lan_address(configured: str = "") -> str:
@@ -185,8 +200,9 @@ def lan_address(configured: str = "") -> str:
     return ips[0] if ips else "127.0.0.1"
 
 
-def config_text(node_ip: str, key: str, secret: str, webhook_url: str = "") -> str:
-    """livekit.yaml. JSON strings are valid YAML scalars, so nothing needs escaping by hand."""
+def config_text(node_ip: str, key: str, webhook_url: str = "") -> str:
+    """livekit.yaml. JSON strings are valid YAML scalars, so nothing needs escaping by hand. No `keys:` block: the
+    secret reaches LiveKit through env_keys(), never this file."""
     q = json.dumps
     hook = ["webhook:", f"  api_key: {q(key)}", "  urls:", f"    - {q(webhook_url)}"] if webhook_url else []
     return "\n".join([
@@ -202,8 +218,6 @@ def config_text(node_ip: str, key: str, secret: str, webhook_url: str = "") -> s
         "  auto_create: false",
         "  enable_remote_unmute: true",       # the server unmutes a talker's track when a lease starts
         "  empty_timeout: 10",
-        "keys:",
-        f"  {q(key)}: {q(secret)}",
         *hook,
         "logging:",
         "  level: info",
@@ -219,11 +233,11 @@ def webhook_url() -> str:
 
 
 def write_config(node_ip: str) -> Path:
-    key, secret = keys()
+    key, _ = keys()
     folder = state_folder()
     paths.make_private_dir(folder)
     file = folder / "livekit.yaml"
-    write_private(file, config_text(node_ip, key, secret, webhook_url()))
+    write_private(file, config_text(node_ip, key, webhook_url()))
     return file
 
 
@@ -372,9 +386,9 @@ class Supervisor:
             self._set("error", busy)
             return False
         self._set("starting", "Starting LiveKit.")
-        self._secret = keys()[1]
+        key, self._secret = keys()
         cfg = write_config(node_ip)
-        kwargs: dict = {}
+        kwargs: dict = {"env": {**os.environ, **env_keys(key, self._secret)}}
         if sys.platform == "win32":
             kwargs["creationflags"] = 0x0800_0200   # CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP
         else:

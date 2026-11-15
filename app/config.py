@@ -16,6 +16,7 @@ from . import overlays
 from . import paths
 from . import redact
 from . import schedules
+from . import secretbox
 
 ROOT = Path(__file__).resolve().parent.parent
 # The per-user state folder (app/paths.py): config.json, relay.db, blocklist.txt, certs/, backups/,
@@ -34,6 +35,8 @@ EXAMPLE_PATH = ROOT / "config.example.json"
 DEFAULTS: dict[str, Any] = {
     "openai_api_key": "",
     "admin_token": "",
+    # The owner's backup passphrase, as the key derived from it (app/backup.py); never the passphrase itself.
+    "backup_key": "",
     "audio_device": None,
     # Which registered audio source feeds capture (app/audio.py): "portaudio", or the id of a module's source.
     "audio_source": "portaudio",
@@ -128,6 +131,12 @@ DEFAULTS: dict[str, Any] = {
 _lock = threading.RLock()
 _data: dict[str, Any] = {}
 _mtime: float = 0.0
+# Secrets kept sealed in config.json (app/secretbox.py, #278) and held as plain text only in memory. Modules add
+# their own with Module.secret_settings. The backup passphrase key is core's (app/backup.py).
+SECRET_KEYS = ("openai_api_key", "admin_token", "backup_key")
+# Sealed values this computer cannot open (its key was lost), kept as stored until a new value replaces them, so a
+# keyring that is locked for one start does not wipe them on the next save.
+_unopened: dict[str, str] = {}
 
 
 def _merge(base: dict, over: dict) -> dict:
@@ -242,6 +251,54 @@ def _normalise(cfg: dict) -> dict:
     return cfg
 
 
+def _secret_fields(cfg: dict):
+    """(dict holding it, key, purpose) for every secret in `cfg`, core's and each module's."""
+    for key in SECRET_KEYS:
+        yield cfg, key, f"config:{key}"
+    from .modules import modules
+
+    for settings_key, field in modules.secret_paths():
+        sub = cfg.get(settings_key)
+        if isinstance(sub, dict):
+            yield sub, field, f"config:{settings_key}.{field}"
+
+
+def _open_secrets(raw: dict) -> bool:
+    """Unseal `raw`'s secrets in place. True when one was still stored as plain text."""
+    plain = False
+    _unopened.clear()
+    for box, key, purpose in list(_secret_fields(raw)):
+        value = box.get(key)
+        if secretbox.is_sealed(value):
+            opened = secretbox.unseal(value, purpose)
+            if opened is None:
+                _unopened[purpose] = value
+            box[key] = opened or ""
+        elif isinstance(value, str) and value.strip():
+            plain = True
+    return plain
+
+
+def _sealed(cfg: dict) -> dict:
+    """A copy of `cfg` as it is written to disk: every secret sealed."""
+    out = json.loads(json.dumps(cfg))
+    for box, key, purpose in list(_secret_fields(out)):
+        value = box.get(key)
+        if isinstance(value, str) and value:
+            box[key] = secretbox.seal(value, purpose)
+        elif not value and purpose in _unopened:
+            box[key] = _unopened[purpose]
+    return out
+
+
+def _write(cfg: dict) -> None:
+    tmp = CONFIG_PATH.with_suffix(".json.tmp")
+    tmp.write_text(json.dumps(_sealed(cfg), indent=2, ensure_ascii=False), encoding="utf-8")
+    os.chmod(tmp, 0o600)
+    os.replace(tmp, CONFIG_PATH)
+    globals()["_mtime"] = CONFIG_PATH.stat().st_mtime
+
+
 def load() -> dict:
     global _data, _mtime
     with _lock:
@@ -253,7 +310,16 @@ def load() -> dict:
             except json.JSONDecodeError as exc:
                 raise SystemExit(f"config.json is not valid JSON: {exc}") from exc
         _migrate_blocklist(raw)
+        plain = _open_secrets(raw) if isinstance(raw, dict) else False
         _data = _normalise(raw)
+        if plain:
+            # A secret typed into config.json by hand (the first admin token) works, and is sealed straight away.
+            try:
+                _write(_data)
+            except Exception as exc:          # pragma: no cover - a read-only state folder: it stays as typed
+                import logging
+
+                logging.getLogger("relay.config").warning("could not seal the secrets in config.json: %s", exc)
         return _data
 
 
@@ -334,11 +400,10 @@ def save(updates: dict, replace: tuple[str, ...] = ()) -> dict:
             if key in updates:
                 base.pop(key, None)
         merged = _normalise(_merge(base, updates))
-        tmp = CONFIG_PATH.with_suffix(".json.tmp")
-        tmp.write_text(json.dumps(merged, indent=2, ensure_ascii=False), encoding="utf-8")
-        os.chmod(tmp, 0o600)
-        os.replace(tmp, CONFIG_PATH)
-        globals()["_mtime"] = CONFIG_PATH.stat().st_mtime
+        for _box, key, purpose in list(_secret_fields(updates)):
+            if _box.get(key):
+                _unopened.pop(purpose, None)          # a new value replaces one that could not be opened
+        _write(merged)
         _data = merged
         return _data
 
@@ -349,6 +414,8 @@ def redacted() -> dict:
     cfg = dict(get())
     key = cfg.pop("openai_api_key", "") or ""
     cfg.pop("admin_token", None)
+    cfg["backup_passphrase_set"] = bool(cfg.pop("backup_key", ""))
+    cfg["secret_store"] = secretbox.where()
     from .modules import modules
 
     modules.redact_config(cfg)

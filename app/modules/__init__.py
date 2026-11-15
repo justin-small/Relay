@@ -125,6 +125,8 @@ class Module:
     manifest: Manifest
     # Settings stored under manifest.settings_key when nothing is saved yet.
     defaults: dict[str, Any] = {}
+    # Keys of those settings that are secrets: config.json keeps them sealed with the machine key (#278).
+    secret_settings: tuple[str, ...] = ()
     # Admin pages, and the scripts in the module's static/ directory the admin page loads for it.
     admin_pages: tuple[AdminPage, ...] = ()
     admin_scripts: tuple[str, ...] = ()
@@ -473,6 +475,10 @@ class Registry:
                 # changes nothing for a church that uses it.
                 switches[m.id] = {"enabled": bool(mod.configured(cfg[m.settings_key]))}
         cfg["modules"] = switches
+
+    def secret_paths(self) -> list[tuple[str, str]]:
+        """(settings key, field) of every module secret config.json keeps sealed, whether the module is on or off."""
+        return [(mod.manifest.settings_key, field) for mod in self.all() for field in mod.secret_settings]
 
     def redact_config(self, cfg: dict) -> None:
         for mod in self.all():

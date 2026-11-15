@@ -147,7 +147,7 @@ You should now see the operator panel. See [The operator panel](#admin-panel).
    again. The password is case-sensitive: `Relay` and `relay` are different.
    Relay does not say which one was wrong.
 
-After five wrong tries in a row, that computer is locked out for five minutes
+After five wrong tries in a row, that computer is locked out for ten minutes
 and the page says **Too many attempts. Try again in … min.** with the number of
 minutes left. Wait, then try
 again.
