@@ -31,6 +31,20 @@ It runs the files several at a time and ends with a line per failing file; exit 
 `desktop/src-tauri`, the browser test (`tests/test_browser.py`, skipped locally without Playwright), and fails
 if coverage of `app/` drops below `fail_under` in `.coveragerc`.
 
+## Run the security scans before every push
+
+CI's Security workflow runs the same scans you can run locally: bandit (Python), gitleaks (secrets), actionlint
+and zizmor (workflows) and cargo-deny (Rust). `python tests/run_security.py --install` prints the install
+commands; `--install-hook` runs them before every `git push`.
+
+```bash
+.venv/bin/python tests/run_security.py
+```
+
+A new bandit finding is fixed, or accepted after review with `--rebaseline` (say why in the pull request).
+Workflow actions are pinned by commit SHA with a version comment (`pinact run` does it). CodeQL runs on GitHub
+only; read its alerts on the pull request.
+
 ## Writing a test
 
 A test is a script in `tests/` named `test_*.py`. Use the shared checks in `tests/_harness.py` (`eq`, `check`,

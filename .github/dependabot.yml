@@ -5,6 +5,8 @@ updates:
     directory: /desktop/src-tauri
     schedule:
       interval: weekly
+    cooldown:
+      default-days: 7
     groups:
       tauri:
         patterns: ['tauri*']
@@ -12,11 +14,23 @@ updates:
     directory: /desktop
     schedule:
       interval: weekly
+    cooldown:
+      default-days: 7
     groups:
       tauri:
         patterns: ['@tauri-apps/*']
+  # The Python backend (requirements.txt). requirements-release.txt is generated with uv (see
+  # requirements-release.in), so bump the pins here and regenerate it.
+  - package-ecosystem: pip
+    directory: /
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
   # The workflows' actions (release.yml, tests.yml, firmware.yml).
   - package-ecosystem: github-actions
     directory: /
     schedule:
       interval: weekly
+    cooldown:
+      default-days: 7
