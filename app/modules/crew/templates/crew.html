@@ -11,7 +11,7 @@
 <header class="cr-bar">
   <img src="/static/brand/relay-mark.svg" width="28" height="28" alt="">
   <h1>{{ app_name }}</h1>
-  <span class="cr-who">{{ user.name }}</span>
+  <span class="cr-who">{{ user.name }}{% if crew_role %} · {{ crew_role }}{% endif %}</span>
 </header>
 <main class="cr-main">
   {% if show_plan %}

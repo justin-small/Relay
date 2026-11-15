@@ -552,6 +552,11 @@ for method, path, perm in (
     ("POST", "/api/admin/alert-events", "alert_events.manage"),           # an empty body is refused as not settings
     ("GET", "/api/admin/crew", "crew.view"),
     ("POST", "/api/admin/crew", "crew.manage"),                           # an empty body is refused
+    ("GET", "/api/admin/crew/people", "crew.view"),
+    ("POST", "/api/admin/crew/people/scan", "crew.manage"),               # refused while Planning Center is off
+    ("PUT", "/api/admin/crew/people/{user_id}/role", "crew.manage"),
+    ("POST", "/api/admin/crew/people/{user_id}/name", "crew.manage"),
+    ("DELETE", "/api/admin/crew/people/{user_id}/match", "crew.manage"),
     ("POST", "/api/admin/alert-events/test", "alert_events.manage"),      # sends to nothing until something is on
     ("GET", "/api/admin/alert-events/state", "alert_events.view"),
     ("GET", ATX, "atem.view"),

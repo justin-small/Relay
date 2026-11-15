@@ -13,6 +13,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, Response
 
 from ... import audit, config
 from .. import modules as registry, require
+from . import people
 
 router = APIRouter()
 VIEW = [Depends(require("crew.view"))]
@@ -47,8 +48,13 @@ async def crew_page(request: Request):
     if isinstance(got, Response):
         return got
     s = _settings()
+    try:
+        role = await asyncio.to_thread(people.profile, got.id)
+        role = role["role"]
+    except Exception:
+        role = ""      # the role is a label: the page works without it
     return templates.TemplateResponse(request, "crew/crew.html", {
-        "app_name": s["name"], "show_plan": s["show_plan"], "user": got,
+        "app_name": s["name"], "show_plan": s["show_plan"], "user": got, "crew_role": role,
         "tools": registry.user_nav(got), "tabs": registry.crew_nav(got),
         "module_scripts": registry.crew_scripts(got),
     }, headers=NO_STORE)
@@ -115,3 +121,61 @@ def admin_save(request: Request, payload: dict):
     config.save({KEY: clean}, replace=(KEY,))
     audit.note(request, "crew.change", "Changed the crew page's setup", detail={"show_plan": clean["show_plan"]})
     return _settings()
+
+
+# -- roles and Planning Center names (#227) --------------------------------------------------------------------
+def _people_call(fn, *args):
+    from ... import db
+
+    try:
+        return fn(*args)
+    except people.Invalid as exc:
+        raise HTTPException(exc.status, exc.message)
+    except db.Unavailable:
+        raise HTTPException(503, "The user database is not available.")
+
+
+@router.get("/api/admin/crew/people", dependencies=VIEW)
+def people_get():
+    return {"people": _people_call(people.people_list),
+            "planning_center": registry.enabled("planning_center")}
+
+
+@router.post("/api/admin/crew/people/scan", dependencies=MANAGE)
+def people_scan(request: Request):
+    """Match names now, instead of waiting for Planning Center to change."""
+    if not registry.enabled("planning_center"):
+        raise HTTPException(400, "Turn Planning Center on to match names.")
+    from . import MODULE
+
+    MODULE._seen = ""
+    _people_call(MODULE._scan)
+    return people_get()
+
+
+@router.put("/api/admin/crew/people/{user_id}/role", dependencies=MANAGE)
+def people_role(request: Request, user_id: int, payload: dict):
+    role = _people_call(people.set_role, user_id, payload.get("role"))
+    audit.note(request, "crew.role", "Set a crew role", target=user_id, detail={"role": role})
+    return {"role": role}
+
+
+@router.post("/api/admin/crew/people/{user_id}/name", dependencies=MANAGE)
+def people_name(request: Request, user_id: int, payload: dict):
+    """Accept or dismiss the Planning Center spelling suggested for a person's name."""
+    action = payload.get("action")
+    if action == "accept":
+        name = _people_call(people.accept_name, user_id, request.state.user)
+        audit.note(request, "crew.name", "Accepted the Planning Center spelling of a name", target=user_id)
+        return {"name": name}
+    if action == "dismiss":
+        _people_call(people.dismiss_name, user_id)
+        return {"ok": True}
+    raise HTTPException(400, "Choose accept or dismiss.")
+
+
+@router.delete("/api/admin/crew/people/{user_id}/match", dependencies=MANAGE)
+def people_unlink(request: Request, user_id: int):
+    _people_call(people.unlink, user_id)
+    audit.note(request, "crew.unmatch", "Removed a Planning Center match", target=user_id)
+    return {"ok": True}

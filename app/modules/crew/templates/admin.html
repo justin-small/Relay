@@ -15,6 +15,15 @@
       <div class="ctl"><button type="button" class="primary" id="crSave">Save</button> <span class="muted" id="crMsg"></span></div>
     </section>
     <section>
+      <h3>People</h3>
+      <p class="note" style="margin-top:0">Give each person the role they fill ("Camera 1"). With Planning Center on,
+        Relay matches a name to the people scheduled there once it is sure, remembers the match, and offers you
+        Planning Center's spelling.</p>
+      <div class="note err" id="crPeopleErr" hidden></div>
+      <div class="ctl"><button type="button" id="crScan" hidden>Match names now</button></div>
+      <table class="tbl" id="crPeople"><thead><tr><th>Name</th><th>Role</th><th>Planning Center</th></tr></thead><tbody></tbody></table>
+    </section>
+    <section>
       <h3>Opening it on a phone</h3>
       <p class="note" style="margin-top:0">Crew open <span class="mono" id="crLink">/crew</span> on this machine's HTTPS
         address (the one the operator panel uses). The phone has to trust Relay's certificate first, or the browser
