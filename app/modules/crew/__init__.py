@@ -10,6 +10,7 @@ intercom) have one place to live. Core only lends it a page gate and the panel-o
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 from typing import Any
 
@@ -25,7 +26,7 @@ class Crew(Module):
     manifest = Manifest(
         id="crew",
         name="Crew app",
-        version="1.1.0",
+        version="1.2.0",
         summary="An installable page for the crew, signed in with a Relay account, that shows the plan and hosts "
                 "the other crew features. Served over HTTPS on this network only.",
         settings_key="crew",
@@ -43,6 +44,7 @@ class Crew(Module):
         Permission("crew.use", "Open the crew page", "Crew app", "member"),
         Permission("crew.view", "See how the crew page is set up", "Crew app", "viewer"),
         Permission("crew.manage", "Change the crew page's name and what it shows", "Crew app", "admin"),
+        Permission("crew.page", "Page the crew and see who has read it", "Crew app", "operator"),
     )
     user_pages = (UserPage("Crew", "/crew", "crew.use", "The plan and your team's tools"),)
 
@@ -57,6 +59,33 @@ class Crew(Module):
 
     def __init__(self) -> None:
         self._seen = ""
+        self._task: asyncio.Task | None = None
+
+    async def start(self) -> None:
+        from . import paging
+
+        paging.pending = True      # a page sent before a restart may still be buzzing
+        self._task = asyncio.create_task(self._pager(), name="crew-pager")
+
+    async def stop(self) -> None:
+        if self._task is not None:
+            self._task.cancel()
+            with contextlib.suppress(asyncio.CancelledError, Exception):
+                await self._task
+            self._task = None
+
+    async def _pager(self) -> None:
+        """Fire due pushes once a second. Evaluated here, on the Relay host, never by a phone."""
+        from . import paging
+
+        while True:
+            try:
+                await asyncio.to_thread(paging.tick)
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                log.warning("crew: paging tick failed", exc_info=True)
+            await asyncio.sleep(1)
 
     def _scan(self) -> None:
         """Match accounts to the people on the followed plans (people.py). Blocking: run off the loop."""

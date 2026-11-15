@@ -21,6 +21,11 @@
     <ol class="cr-items" id="crItems"></ol>
   </section>
   {% endif %}
+  <section class="cr-card cr-alerts" id="crAlerts" hidden>
+    <h2>Pages</h2>
+    <div class="cr-note" id="crAlertsNote">Get a buzz on this phone when the booth pages you.</div>
+    <button type="button" id="crAlertsBtn">Turn on pages</button>
+  </section>
   {% set others = tools | rejectattr("path", "equalto", "/crew") | list %}
   {% if others %}
   <section class="cr-card">

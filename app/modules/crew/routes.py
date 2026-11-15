@@ -13,11 +13,12 @@ from fastapi.responses import HTMLResponse, JSONResponse, Response
 
 from ... import audit, config
 from .. import modules as registry, require
-from . import people
+from . import paging, people
 
 router = APIRouter()
 VIEW = [Depends(require("crew.view"))]
 MANAGE = [Depends(require("crew.manage"))]
+PAGE = [Depends(require("crew.page"))]
 USE = [Depends(require("crew.use"))]
 
 KEY = "crew"
@@ -179,3 +180,68 @@ def people_unlink(request: Request, user_id: int):
     _people_call(people.unlink, user_id)
     audit.note(request, "crew.unmatch", "Removed a Planning Center match", target=user_id)
     return {"ok": True}
+
+
+# -- pages that buzz until read (#228) --------------------------------------------------------------------------
+def _tracks():
+    """Today's followed plans, when Planning Center is on (an empty list otherwise)."""
+    if not registry.enabled("planning_center"):
+        return []
+    from ..planning_center.pclive import follower
+
+    return list(follower.tracks.values())
+
+
+@router.get("/crew/api/push/key", dependencies=USE)
+def push_key():
+    return {"key": _people_call(paging.public_key)}
+
+
+@router.get("/crew/api/push", dependencies=USE)
+def push_state(request: Request):
+    return {"enabled": _people_call(paging.subscribed, request.state.user.id)}
+
+
+@router.post("/crew/api/push", dependencies=USE)
+def push_subscribe(request: Request, payload: dict):
+    _people_call(paging.subscribe, request.state.user.id, payload)
+    return {"enabled": True}
+
+
+@router.delete("/crew/api/push", dependencies=USE)
+def push_unsubscribe(request: Request, payload: dict):
+    _people_call(paging.unsubscribe, request.state.user.id, payload.get("endpoint"))
+    return {"enabled": _people_call(paging.subscribed, request.state.user.id)}
+
+
+def _confirm_page(request: Request, row: dict | None, status: int = 200):
+    _, templates = _pkg()
+    return templates.TemplateResponse(request, "crew/page.html", {
+        "app_name": _settings()["name"], "found": row is not None, "message": (row or {}).get("message", ""),
+        "confirmed": bool(row and row["confirmed_at"])}, status_code=status if row else 404, headers=NO_STORE)
+
+
+@router.get("/crew/page/{token}", response_class=HTMLResponse)
+def page_open(request: Request, token: str):
+    """A person's own confirm link, opened from the push. The token is the proof: no sign-in is needed, because
+    it can do nothing but confirm that one page."""
+    return _confirm_page(request, _people_call(paging.by_token, token))
+
+
+@router.post("/crew/page/{token}", response_class=HTMLResponse)
+def page_confirm(request: Request, token: str):
+    return _confirm_page(request, _people_call(paging.confirm, token))
+
+
+@router.get("/api/admin/crew/pages", dependencies=PAGE)
+def pages_get():
+    return {"pages": _people_call(paging.recent), "targets": _people_call(paging.targets, _tracks()),
+            "planning_center": registry.enabled("planning_center")}
+
+
+@router.post("/api/admin/crew/pages", dependencies=PAGE)
+def pages_send(request: Request, payload: dict):
+    ids, unmatched = _people_call(paging.resolve, payload.get("users"), payload.get("teams"), _tracks())
+    page = _people_call(paging.create, payload.get("message"), request.state.user.id, ids)
+    audit.note(request, "crew.page", "Paged the crew", target=page, detail={"people": len(ids)})
+    return {"id": page, "people": len(ids), "unmatched": unmatched}
