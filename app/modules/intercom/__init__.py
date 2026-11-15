@@ -113,6 +113,9 @@ class Intercom(Module):
             with contextlib.suppress(asyncio.CancelledError, Exception):
                 await self._watch
             self._watch = None
+        from . import rtcproxy
+
+        await rtcproxy.drop_all()
         rooms.armed.clear()
         rooms.talking.clear()
         for device_id in list(presence.conns):

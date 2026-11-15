@@ -16,7 +16,7 @@ from typing import Any
 from fastapi import WebSocket, WebSocketDisconnect
 
 from ... import db, serving
-from . import devices, rooms, store
+from . import devices, rooms, rtcproxy, store
 
 log = logging.getLogger("relay.intercom")
 
@@ -78,6 +78,7 @@ class Presence:
 
     async def drop_user(self, user_id: int) -> None:
         for conn in [c for c in self.conns.values() if c.user_id == user_id]:
+            await rtcproxy.drop_device(conn.device_id)
             await self._close(conn, CODE_SIGNED_OUT, "signed_out")
 
     async def _close(self, conn: Conn, code: int, reason: str) -> None:
@@ -101,7 +102,7 @@ class Presence:
 
     async def revoked(self, row: dict) -> None:
         """A phone was signed out: close it and take it out of LiveKit, both at once."""
-        await asyncio.gather(self.drop(row["id"]), rooms.remove_device(row["id"], row["user_id"]),
+        await asyncio.gather(self.drop(row["id"]), rtcproxy.drop_device(row["id"]), rooms.remove_device(row["id"], row["user_id"]),
                              return_exceptions=True)
 
     def member_changed(self, user_id: int | None, channel_id: int) -> None:
