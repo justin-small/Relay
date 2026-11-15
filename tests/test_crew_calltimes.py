@@ -124,6 +124,18 @@ eq("a team nobody is serving gets nothing", calltimes.occasions({**good, "team":
 eq("Band has no account matched, so the run records nobody", [r["last_people"] for r in calltimes.list_rules()
                                                               if r["team"] == "Band"], [0])
 
+print("the booth-off screen (#234)")
+admin.put(f"/api/admin/crew/calltimes/{rid}", json=good)
+nx = calltimes.next_for(mike.id, TRACKS, ZONE, SUN)
+eq("Mike's next call is an hour before the 9:00", (nx["ts"], nx["team"]), (S1 - 3600, "Camera"))
+eq("after the first call, the 11:00's", calltimes.next_for(mike.id, TRACKS, ZONE, S1 - 3000)["ts"], S2 - 3600)
+eq("Sara serves only the 11:00", calltimes.next_for(sara.id, TRACKS, ZONE, SUN)["ts"], S2 - 3600)
+eq("none once every call has passed", calltimes.next_for(mike.id, TRACKS, ZONE, S2), None)
+eq("none with no plan", calltimes.next_for(mike.id, [], ZONE, SUN), None)
+t = mike_c.get("/crew/api/today")
+eq("today answers a member", (t.status_code, sorted(t.json())), (200, ["call", "role", "running", "teams", "zone"]))
+eq("capture is not running here", t.json()["running"], False)
+
 print("off, and no Planning Center")
 admin.put(f"/api/admin/crew/calltimes/{rid}", json={**good, "enabled": False})
 db.execute("delete from crew_calltime_runs")

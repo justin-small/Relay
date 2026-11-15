@@ -13,7 +13,12 @@
   <h1>{{ app_name }}</h1>
   <span class="cr-who">{{ user.name }}{% if crew_role %} · {{ crew_role }}{% endif %}</span>
 </header>
-<main class="cr-main">
+<main class="cr-main" id="crMain">
+  <section class="cr-card cr-today" id="crToday" hidden aria-live="polite">
+    <h2>Today</h2>
+    <div class="cr-pos" id="crPos"></div>
+    <div class="cr-note" id="crCall"></div>
+  </section>
   {% if show_plan %}
   <section class="cr-card" id="crPlan" aria-live="polite">
     <h2>Plan</h2>
