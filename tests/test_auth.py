@@ -17,6 +17,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
+os.environ["RELAY_LIVEKIT_NO_DOWNLOAD"] = "1"   # never fetch LiveKit from a test
 os.environ["RELAY_ANNOUNCE"] = "0"   # the lifespan test starts the app; never multicast from a test
 os.environ["RELAY_CONFIG"] = os.path.join(tempfile.mkdtemp(), "config.json")
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -366,6 +367,7 @@ MIN_ROLE = {
     "propresenter.view": "viewer", "propresenter.control": "operator", "propresenter.manage": "admin",
     "remote_access.view": "viewer", "remote_access.manage": "admin",
     "signage.view": "viewer", "signage.manage": "admin",
+    "intercom.view": "viewer", "intercom.manage": "admin",
     "signage_web.view": "viewer", "signage_web.manage": "admin",
     "alert_events.view": "viewer", "alert_events.manage": "admin",
     "atem.view": "viewer", "atem.control": "operator", "atem.manage": "admin",
@@ -394,7 +396,7 @@ config.save({"modules": {"propresenter": {"enabled": True}, "planning_center": {
                          "remote_access": {"enabled": True}, "signage": {"enabled": True},
                          "signage_web": {"enabled": True}, "alert_events": {"enabled": True},
                          "atem": {"enabled": True}, "tally_arbiter": {"enabled": True},
-                         "parent_paging": {"enabled": True}}})
+                         "parent_paging": {"enabled": True}, "intercom": {"enabled": True}}})
 
 E = {}      # (METHOD, path) -> permission; None = any signed-in user
 
@@ -487,6 +489,8 @@ ATX = "/api/admin/atem"
 TAX = "/api/admin/tally-arbiter"
 PGX = "/api/admin/parent-paging"
 for method, path, perm in (
+    ("GET", "/api/admin/intercom", "intercom.view"),
+    ("POST", "/api/admin/intercom/restart", "intercom.manage"),
     ("GET", SGX, "signage.view"),
     ("GET", SGX + "/preview", "signage.view"),
     ("GET", SGX + "/sources/{kind}", "signage.view"),
@@ -721,7 +725,7 @@ config.save({"modules": {"propresenter": {"enabled": False}, "planning_center": 
                          "remote_access": {"enabled": False}, "signage": {"enabled": False},
                          "signage_web": {"enabled": False}, "alert_events": {"enabled": False},
                          "atem": {"enabled": False}, "tally_arbiter": {"enabled": False},
-                         "parent_paging": {"enabled": False}}})
+                         "parent_paging": {"enabled": False}, "intercom": {"enabled": False}}})
 eq("a module that is off is still a 404 for everyone", op_c.get("/api/admin/propresenter").status_code, 404)
 
 # ------------------------------------------------------------------ the page routes

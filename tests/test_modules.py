@@ -24,6 +24,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
+os.environ["RELAY_LIVEKIT_NO_DOWNLOAD"] = "1"   # switching every module on must not fetch LiveKit
 os.environ["RELAY_CONFIG"] = os.path.join(tempfile.mkdtemp(), "config.json")
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import _db  # noqa: E402  (a throwaway SQLite file for the user system; must come before app.main)
