@@ -29,6 +29,25 @@
       <div class="ctl"><span id="crBoardCount" class="muted"></span> <button type="button" id="crBoardClear">Clear arrivals</button></div>
       <table class="tbl" id="crBoard"><thead><tr><th>Name</th><th>Team</th><th>Call time</th><th>Status</th></tr></thead><tbody></tbody></table>
     </section>
+    <section id="crListBox" hidden>
+      <h3>Checklists</h3>
+      <p class="note" style="margin-top:0">Progress on the checklists written on the crew page's Checklists tab, for the
+        people on today's plan. Everyone sees the lists for their Planning Center team plus the ones for everyone.
+        Each service starts fresh; earlier ones stay here to look back on.</p>
+      <div class="note err" id="crListErr" hidden></div>
+      <div class="ctl"><label for="crListPlan" class="muted">Service</label> <select id="crListPlan"></select>
+        <span id="crListCount" class="muted"></span></div>
+      <table class="tbl" id="crLists"><thead><tr><th>Name</th><th>Team</th><th>Checklist</th><th>Done</th></tr></thead><tbody></tbody></table>
+      <div id="crLeadBox" hidden>
+        <h4>Team leads</h4>
+        <p class="note" style="margin-top:0">A team lead writes and edits the checklists for their own position from the
+          crew page. Operators write any.</p>
+        <div class="ctl"><select id="crLeadUser" aria-label="Person"></select>
+          <input id="crLeadPos" maxlength="80" placeholder="Planning Center team" autocomplete="off" style="width:14em">
+          <button type="button" id="crLeadAdd">Make lead</button></div>
+        <table class="tbl" id="crLeads"><thead><tr><th>Name</th><th>Position</th><th></th></tr></thead><tbody></tbody></table>
+      </div>
+    </section>
     <section id="crPageBox" hidden>
       <h3>Page the crew</h3>
       <p class="note" style="margin-top:0">A page buzzes each person's phone, and buzzes again for up to two minutes
