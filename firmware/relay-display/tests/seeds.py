@@ -147,7 +147,7 @@ SEEDS: dict[str, dict] = {
     "nvs-bad-magic": dict(**PROVISIONED, rotation=180, magic=MAGIC ^ 0x00000001),
     # The same with a schema this firmware does not read.
     "nvs-bad-schema": dict(**PROVISIONED, rotation=180, schema=SCHEMA + 1),
-    # A stored rotation that is neither 0 nor 180. It falls back to the configured one, which the
+    # A stored rotation that is not 0, 90, 180 or 270. It falls back to the configured one, which the
     # emulator build sets to 180 (`sdkconfig.qemu`), so a fallback to 0 is distinguishable from the
     # right answer.
     "nvs-bad-rotation": dict(**PROVISIONED, rotation=7),

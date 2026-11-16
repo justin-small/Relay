@@ -134,8 +134,9 @@ def test_a_wrong_schema_falls_back_to_the_defaults(boot) -> None:
     assert "would start Wi-Fi" not in uart.text
 
 
-def test_a_stored_rotation_that_is_neither_0_nor_180_falls_back_to_the_configured_one(boot) -> None:
-    """The stored rotation is 7. It falls back to the orientation this build was configured for, which
+def test_a_stored_rotation_that_is_not_a_quarter_turn_falls_back_to_the_configured_one(boot) -> None:
+    """The stored rotation is 7 (0, 90, 180 and 270 are the ones a panel can be turned to). It falls back to the
+    orientation this build was configured for, which
     `sdkconfig.qemu` makes 180. A fallback to a fixed 0 would print `rotation 0` here and fail. The rest
     of the blob is kept: the network it names is still decided on."""
     machine = boot("nvs-bad-rotation")
@@ -143,7 +144,7 @@ def test_a_stored_rotation_that_is_neither_0_nor_180_falls_back_to_the_configure
     uart = machine.uart
     assert uart is not None
     uart.wait_for(
-        r"settings: stored rotation is not 0 or 180; using the configured 180", timeout=BOOT_TIMEOUT
+        r"settings: stored rotation is not 0, 90, 180 or 270; using the configured 180", timeout=BOOT_TIMEOUT
     )
     uart.wait_for(r"panel: QEMU virtual panel 800x480 RGB565, rotation 180", timeout=BOOT_TIMEOUT)
     uart.wait_for(r"would start Wi-Fi for SSID 'Relay-QEMU-Net'", timeout=BOOT_TIMEOUT)

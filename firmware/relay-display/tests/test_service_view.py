@@ -89,10 +89,11 @@ def panel(boot: Callable[[str | None], Board], relay: FakeRelay) -> Board:  # no
 
 
 def choose_service(board: Board) -> None:
-    """Open the menu, pick the Service feed (the last row) and close the menu with Done: the view is built again for
-    the new feed and the menu goes up again over it, so it would take the next tap."""
+    """Open the menu, pick the Service feed (the row before the Alert buttons, which are always last) and close the
+    menu with Done: the view is built again for the new feed and the menu goes up again over it, so it would take the
+    next tap."""
     listed = open_menu(board)
-    tap_and_wait(board, row(listed - 1, split=False), r"feeds: pane 1 shows service 7")
+    tap_and_wait(board, row(listed - 2, split=False), r"feeds: pane 1 shows service 7")
     board.uart.wait_for(r"view: service pane 1 up for slot 0", timeout=45)
     tap_and_wait(board, DONE, r"view: menu closed")
 
@@ -102,7 +103,7 @@ def test_offered_only_while_the_service_mode_allows_it(panel: Board, relay: Fake
     assert not any(o.startswith("service:") for o in wait_report(panel, lambda r: r.known, "known").options)
     relay.set_service_mode("show")
     r = wait_report(panel, lambda r: "service:7" in r.options, "the Service feed offered once the mode is show")
-    assert r.options[-1] == "service:7"
+    assert r.options[-2:] == ["service:7", "alert"], "the Service feed comes after Relay's feeds, before the Alert buttons"
     relay.set_service_mode("off")
     wait_report(panel, lambda r: "service:7" not in r.options, "and gone again when it is off")
 

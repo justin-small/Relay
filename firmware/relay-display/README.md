@@ -148,6 +148,18 @@ docker run --rm -v "$PWD":/p -w /p/firmware/relay-display \
   bash -c '. $IDF_PATH/export.sh && ./build.sh'
 ```
 
+or on the Windows build PC over SSH (WSL2 and Docker running the same pinned container; esptool on Windows for
+the USB port), from this checkout with its uncommitted changes. The images come back into the same build directory:
+
+```bash
+python3 firmware/relay-display/tools/build_windows.py build [--dev | --qemu | --board <name>]
+python3 firmware/relay-display/tools/build_windows.py test            # the emulator suite, 8 at once (--workers N)
+python3 firmware/relay-display/tools/build_windows.py flash --dev     # build, then flash the panel on the PC's USB
+python3 firmware/relay-display/tools/build_windows.py monitor         # its serial console
+```
+
+The release key is not sent to the PC (`--sign` is refused there); signed images come from a release tag.
+
 or, with ESP-IDF installed, `. $IDF_PATH/export.sh` and then:
 
 ```bash
