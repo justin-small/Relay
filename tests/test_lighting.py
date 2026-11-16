@@ -70,8 +70,8 @@ with section("settings and pages are cleaned"):
        [("Worship", [{"id": "b", "name": "Verse"}])])
     check("a page gets an id", s["pages"][0]["id"])
     eq("junk settings are empty", svc.clean_settings("x")["backend"], "")
-    eq("public strips the password", (svc.public(s)["password"], svc.public(s)["has_password"]), ("", True))
-    eq("the module's public() agrees", _modules.get("lighting").public(s)["password"], "")
+    check("public strips the password", svc.public(s)["password"] == "" and svc.public(s)["has_password"] is True)
+    check("the module's public() agrees", _modules.get("lighting").public(s)["password"] == "")
 
 with section("admin routes"):
     config.ensure_file()
@@ -91,10 +91,10 @@ with section("admin routes"):
 
     r = admin.put(A + "/settings", json={"backend": "fake", "host": "10.0.0.5", "port": 1234, "password": "pw"})
     eq("the program is chosen", (r.status_code, r.json()["active"], r.json()["can_list"]), (200, True, True))
-    eq("the password is never sent back", (r.json()["password"], r.json()["has_password"]), ("", True))
-    eq("but it is kept", config.get()["lighting"]["password"], "pw")
+    check("the password is never sent back", r.json()["password"] == "" and r.json()["has_password"] is True)
+    check("but it is kept", config.get()["lighting"]["password"] == "pw")
     r = admin.put(A + "/settings", json={"host": "10.0.0.6"})
-    eq("an empty password leaves the saved one", config.get()["lighting"]["password"], "pw")
+    check("an empty password leaves the saved one", config.get()["lighting"]["password"] == "pw")
     eq("a bad address is a 400", admin.put(A + "/settings", json={"host": "no spaces/please"}).status_code, 400)
     r = admin.get(A)
     eq("listed cues and state", ([c["name"] for c in r.json()["cues"]], r.json()["state"]),
