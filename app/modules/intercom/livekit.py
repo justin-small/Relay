@@ -34,7 +34,7 @@ import zipfile
 from collections import deque
 from pathlib import Path
 
-from ... import netinfo, netroute, paths
+from ... import netinfo, netroute, netsock, paths
 from . import winjob
 
 log = logging.getLogger("relay.intercom")
@@ -108,7 +108,8 @@ def download(base_url: str = BASE_URL, wanted: tuple[str, str] | None = None) ->
         raise LiveKitError("LiveKit publishes no build for this computer. Install livekit-server and give its path.")
     name, want = wanted
     try:
-        with urllib.request.urlopen(base_url + name, timeout=60) as r:    # noqa: S310  (a fixed https URL)
+        with urllib.request.urlopen(base_url + name, timeout=60,    # noqa: S310  (a fixed https URL)
+                                    context=netsock.tls_context()) as r:
             blob = r.read(MAX_DOWNLOAD + 1)
     except OSError:
         raise LiveKitError("Could not download LiveKit. Check the internet connection, then switch intercom on "

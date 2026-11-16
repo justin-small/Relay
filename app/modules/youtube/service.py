@@ -26,8 +26,14 @@ API = "https://www.googleapis.com/youtube/v3"
 SCOPE = "https://www.googleapis.com/auth/youtube.readonly"
 
 # Relay's own Google app ("TVs and Limited Input devices" client, docs/reference/oauth-apps.md). Not confidential by
-# Google's design for this client type; empty until the app exists, and a church may use its own meanwhile.
-BUILTIN = oauth.Client(id="", secret="")
+# Google's design for this client type, but kept out of the public repository: the release workflow writes _client.py
+# (git-ignored) from Actions secrets with `tools/release_tools.py oauth-clients`. A copy run from source has none and
+# uses the church's own app from the module's settings.
+try:
+    from ._client import CLIENT_ID as _ID, CLIENT_SECRET as _SECRET
+except ImportError:
+    _ID = _SECRET = ""
+BUILTIN = oauth.Client(id=_ID, secret=_SECRET)
 
 LIVE_S = (30, 600, 60)          # (least, most, default) seconds between checks while something is on air
 IDLE_S = (120, 3600, 600)       # and otherwise

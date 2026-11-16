@@ -307,4 +307,21 @@ with section("real sockets over loopback"):
           text in (f"Could not connect to {server_at} port {p} through {netsock._name(b)}.",
                    f"Could not connect to {server_at} port {p}.") and (sys.platform == "win32" or "through" in text), text)
 
+with section("HTTPS verifies with certifi's roots when the caller passes no context"):
+    import ssl
+    import certifi
+    ctx = netsock.tls_context()
+    check("verification stays on", ctx.verify_mode == ssl.CERT_REQUIRED and ctx.check_hostname)
+    check("one shared context", netsock.tls_context() is ctx)
+    roots = {c.get("serialNumber") for c in ctx.get_ca_certs()}
+    bundle = ssl.create_default_context(cafile=certifi.where())
+    check("certifi's roots are loaded", {c.get("serialNumber") for c in bundle.get_ca_certs()} <= roots)
+    https = next(h for h in netsock.opener("translation").handlers if isinstance(h, netsock._RoutedHTTPS))
+    check("an opener with no context uses it", https._context is ctx)
+    own = ssl.create_default_context()
+    https = next(h for h in netsock.opener("translation", context=own).handlers if isinstance(h, netsock._RoutedHTTPS))
+    check("a caller's own context is kept", https._context is own)
+    conn = netsock.http_connection("translation", "example.invalid", tls=True)
+    check("an HTTPS connection with no context uses it", conn._context is ctx)
+
 done()
