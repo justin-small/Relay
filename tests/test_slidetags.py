@@ -489,6 +489,48 @@ eq("settle outside 0.2 to 30 s is refused with a sentence", pp2.tag_fields({"set
    "The settle time is a number of seconds from 0.2 to 30.")
 eq("settle in range is kept", pp2.tag_fields({"settle_s": 2})[0], {"settle_s": 2.0})
 
+# ------------------------------------------------------------------------------------------------- light=
+print("light=<cue name> through the lighting hook")
+from app import modules as _reg  # noqa: E402
+from app.modules.propresenter import tagactions as ta  # noqa: E402
+
+eq("light takes a value and is a known tag", st.ACTIONS.get("light"), True)
+eq("the tag parses with a spaced name", slide_of("[relay:light=Walk In]"), [Tag("light", "Walk In")])
+_old_hook = _reg.cue_hook
+_reg.cue_hook = None
+
+
+async def light_tag():
+    try:
+        await ta._tag_light("Walk-in")
+        check("lighting off refuses with a sentence", False)
+    except RuntimeError as exc:
+        eq("lighting off refuses with a sentence", str(exc), "Lighting is off.")
+    try:
+        await ta._tag_light("  ")
+        check("no name is refused", False)
+    except RuntimeError as exc:
+        check("no name is refused", "Name the cue" in str(exc))
+    got = []
+
+    async def hook(cue, request=None, *, by_name=False, source=""):
+        got.append((cue, request, by_name, source))
+        return {"ok": cue == "Walk-in", "error": "No cue with that name is on a lighting page."}
+
+    _reg.cue_hook = hook
+    eq("a cue is fired by name, from a slide tag", await ta._tag_light(" Walk-in "), "Lighting cue Walk-in fired.")
+    eq("…through the core hook with no request", got, [("Walk-in", None, True, "a ProPresenter slide tag")])
+    try:
+        await ta._tag_light("Nope")
+        check("an unknown cue is refused with the hook's sentence", False)
+    except RuntimeError as exc:
+        eq("an unknown cue is refused with the hook's sentence", str(exc), "No cue with that name is on a lighting page.")
+
+
+asyncio.run(light_tag())
+_reg.cue_hook = _old_hook
+eq("the action is wired", "light" in ta.ACTIONS, True)
+
 print()
 print("FAILED: " + ", ".join(fails) if fails else "all passed")
 sys.exit(1 if fails else 0)

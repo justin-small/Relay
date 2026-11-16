@@ -143,6 +143,16 @@ with section("the fire hook"):
     Fake.calls.clear()
     r = asyncio.run(registry_mod.fire_cue("c"))
     eq("a cue not on a page cannot be fired", (r["ok"], Fake.calls), (False, []))
+    eq("a cue is fired by its name, any case", asyncio.run(registry_mod.fire_cue(" verse ", by_name=True,
+                                                                              source="a ProPresenter slide tag")),
+       {"ok": True})
+    eq("…and the program was told its id", Fake.calls, [("press", "b")])
+    r = asyncio.run(registry_mod.fire_cue("Blackout", by_name=True))
+    eq("a name that is not on a page is refused", (r["ok"], "name" in r["error"]), (False, True))
+    texts = [e["summary"] for e in audit.search(kind="lighting")["entries"]]
+    check("a tag press is recorded as coming from the slide tag",
+          "Lighting: Worship, Verse (from a ProPresenter slide tag)" in texts, texts)
+    Fake.calls.clear()
     config.save({"lighting": {**config.get()["lighting"], "backend": "blind"}})
     asyncio.run(svc.service.restart())
     admin.put(A + "/pages", json={"pages": [{"name": "Hand", "cues": [{"id": "g1", "name": "Hand cue"}]}]})

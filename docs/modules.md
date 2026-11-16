@@ -294,9 +294,10 @@ release that changes networking, run the manual [hardware test plan](reference/m
 ## Lighting cues from another module
 
 A module that wants to fire a lighting cue (a ProPresenter slide tag, a schedule) never imports `lighting`. It calls
-core's `app.modules.fire_cue(cue_id, request=None)`, which the lighting module backs with a hook it sets in `attach()`
+core's `app.modules.fire_cue(cue_id, request=None, *, by_name=False, source="")`, which the lighting module backs with a hook it sets in `attach()`
 and clears in `detach()`. The answer is `{"ok": True}` or `{"ok": False, "error": "..."}` (lighting off, the cue is not
-on a cue page, or the program did not answer). Only a cue the operator put on a page can be fired this way, never the
+on a cue page, or the program did not answer). With no `request`, a `source` ("a ProPresenter slide tag") is recorded as a system audit entry saying where the press came
+from, and `by_name=True` takes the cue's name on its page. Only a cue the operator put on a page can be fired this way, never the
 controller's whole list, and a press is sent once: a dropped connection is reported, never retried, because the cue
 may already have happened. A new lighting program is a `Backend` (`app/modules/lighting/backend.py`) registered in
 `BACKENDS`; it gets cue pages, permissions and the audit trail from the module.
