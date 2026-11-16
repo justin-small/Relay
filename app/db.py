@@ -411,15 +411,21 @@ def _drop(p: Path) -> None:
         pass
 
 
-def backup_due(now: datetime | None = None) -> bool:
-    """True when no backup was taken in the last 24 hours."""
+def last_backup_at() -> datetime | None:
+    """When the newest backup was taken (UTC), or None when there is none."""
     dumps = _dumps(backups_dir())
     if not dumps:
-        return True
-    now = now or datetime.now(timezone.utc)
+        return None
     m = _BACKUP_NAME.match(dumps[-1].name)
     try:
-        taken = datetime.strptime(m.group(1), "%Y%m%d-%H%M%S").replace(tzinfo=timezone.utc)
+        return datetime.strptime(m.group(1), "%Y%m%d-%H%M%S").replace(tzinfo=timezone.utc)
     except (ValueError, AttributeError):
-        taken = datetime.fromtimestamp(dumps[-1].stat().st_mtime, timezone.utc)
-    return now - taken >= BACKUP_EVERY
+        return datetime.fromtimestamp(dumps[-1].stat().st_mtime, timezone.utc)
+
+
+def backup_due(now: datetime | None = None) -> bool:
+    """True when no backup was taken in the last 24 hours."""
+    taken = last_backup_at()
+    if taken is None:
+        return True
+    return (now or datetime.now(timezone.utc)) - taken >= BACKUP_EVERY

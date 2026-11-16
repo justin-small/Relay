@@ -70,6 +70,7 @@ class Arbiter:
         self._flagged: set[int] = set()
         self._order = itertools.count(1)
         self._tasks: set[asyncio.Task] = set()
+        self.grants: deque[tuple[float, float]] = deque(maxlen=500)   # (when, press-to-granted ms), for #276
         self.lookup: Callable[[int, int], Awaitable[tuple]] | None = None
         self.send: Callable[[int, dict], Awaitable[None]] | None = None
         self.apply: Callable[[int, int, int, bool], Awaitable[None]] | None = None
@@ -90,6 +91,7 @@ class Arbiter:
         return 0
 
     def reset(self) -> None:
+        self.grants.clear()
         self.leases.clear(), self.queues.clear(), self._rate.clear(), self._flagged.clear()
         self.muted_channels.clear(), self.muted_users.clear()
         self.muted_all = False
@@ -240,6 +242,7 @@ class Arbiter:
     async def request(self, user_id: int, device_id: int, name: str, channels: Any, seq: Any = None,
                       latched: bool = False) -> dict[int, str]:
         """`talk.request`: answer for each channel (each answers independently). Returns {channel: outcome}."""
+        started = self.clock()
         ops: list = []
         if not self._allow(device_id):
             ops.append(("send", device_id, {"type": "error", "for": "talk", "seq": seq,
@@ -258,7 +261,14 @@ class Arbiter:
         for ch, (rights, channel) in zip(wanted, looked):
             out[ch] = self._decide(user_id, device_id, name, ch, rights, channel, bool(latched), seq, ops, dirty)
         await self._run(ops, dirty)
+        if "granted" in out.values():        # measured to the grant being sent, so LiveKit's unmute is included
+            done = self.clock()
+            self.grants.append((done, (done - started) * 1000))
         return out
+
+    def grant_times(self, since: float) -> list[float]:
+        """Press-to-granted times (ms) of requests granted since `since` (this arbiter's clock)."""
+        return [ms for at, ms in self.grants if at >= since]
 
     async def release(self, user_id: int, device_id: int, channels: Any = None) -> None:
         """`talk.release`: let go on some channels (default: all this phone holds or waits for)."""

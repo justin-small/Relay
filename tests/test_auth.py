@@ -480,6 +480,10 @@ PGX = "/api/admin/parent-paging"
 for method, path, perm in (
     ("GET", "/api/admin/intercom", "intercom.view"),
     ("POST", "/api/admin/intercom/restart", "intercom.manage"),
+    ("GET", "/api/admin/intercom/health", "intercom.view"),
+    ("PUT", "/api/admin/intercom/health/thresholds", "intercom.manage"),
+    ("GET", "/api/admin/intercom/events", "intercom.view"),
+    ("GET", "/api/admin/intercom/events.csv", "intercom.view"),
     ("GET", "/api/admin/intercom/phones", "intercom.manage"),
     ("POST", "/api/admin/intercom/phones/signout-all", "intercom.manage"),
     ("POST", "/api/admin/intercom/phones/{device_id}/rename", "intercom.manage"),

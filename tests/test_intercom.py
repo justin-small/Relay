@@ -64,7 +64,7 @@ check("every intercom table exists", {"intercom_orgs", "intercom_production", "i
                                       "intercom_channels", "intercom_channel_members", "intercom_user_choices",
                                       "intercom_sessions", "intercom_events"} <= tables)
 check("core users were left alone", db.one("select id from users where username = 'alice'") is not None)
-eq("each migration recorded once", count("schema_migrations where namespace = 'intercom'"), 3)
+eq("each migration recorded once", count("schema_migrations where namespace = 'intercom'"), 4)
 eq("one organisation row", count("intercom_orgs"), 1)
 
 general = store.create_channel("General", actor_id=alice.id)
@@ -254,6 +254,8 @@ async def until(cond, seconds=10):
 
 async def supervise():
     sup = livekit.Supervisor()
+    restarted = []
+    sup.on_restart = lambda: restarted.append(sup.state)
     sup.begin({"binary_path": str(fake), "node_ip": "127.0.0.1"})
     started = await until(lambda: sup.state == "running", 30)
     if not started:
@@ -265,6 +267,7 @@ async def supervise():
     os.killpg(os.getpgid(pid), 9)
     check("a killed server comes back", await until(lambda: sup._proc and sup._proc.pid != pid
                                                     and sup.state == "running", 15))
+    eq("the restart hook ran once, as it restarted (the watchdog logs livekit_restarted)", restarted, ["restarting"])
     pid = sup._proc.pid
     await sup.end()
     check("switching off leaves no process", not alive(pid) and sup.state == "off")

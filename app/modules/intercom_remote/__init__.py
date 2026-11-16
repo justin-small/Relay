@@ -64,17 +64,21 @@ class IntercomRemote(Module):
         bridge.on_lost = None
 
     async def start(self) -> None:
-        from . import media
+        from . import media, watch
         from .bridge import bridge
 
+        watch.register()            # before begin(), so the first state change is logged
         bridge.begin(media.load())
 
     async def stop(self) -> None:
         from .bridge import bridge
         from .remote import crew
 
+        from . import watch
+
         await crew.drop_all("module_off")
         await bridge.end()
+        watch.unregister()
 
     def health(self) -> Health:
         from ..remote_access.service import enrolled

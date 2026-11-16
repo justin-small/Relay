@@ -37,7 +37,7 @@ CODE_HTTPS = 4426
 def _stats(data: dict) -> dict:
     """A phone's receive statistics (packets lost, jitter, round trip), for the watchdog (#276): numbers only."""
     out = {}
-    for key in ("packets_lost", "jitter_ms", "rtt_ms", "tracks"):
+    for key in ("packets_lost", "packets_received", "jitter_ms", "rtt_ms", "tracks"):
         v = data.get(key)
         out[key] = v if isinstance(v, (int, float)) and not isinstance(v, bool) and 0 <= v < 1e9 else None
     return out

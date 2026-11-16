@@ -82,7 +82,7 @@
       cell(tr, p.where);
       cell(tr, p.talking.join(', ') || '—');
       cell(tr, p.listening.join(', ') || '—');
-      cell(tr, p.packets_lost == null ? '' : String(p.packets_lost), 'ic-' + p.loss_level);
+      cell(tr, p.loss_pct == null ? '' : p.loss_pct.toFixed(1) + ' %', 'ic-' + p.loss_level);
       cell(tr, p.jitter_ms == null ? '' : Math.round(p.jitter_ms) + ' ms', 'ic-' + p.jitter_level);
       const a = document.createElement('td');
       if (canLive) a.appendChild(button(p.user_muted ? 'Unmute' : 'Mute', function () {
