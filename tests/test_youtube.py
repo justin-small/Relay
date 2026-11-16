@@ -233,7 +233,7 @@ with section("refusals: 401, quota, permission, not enabled, other"):
     run(svc.service.check())
     eq("other", svc.service.health(), ("warn", "YouTube did not answer as expected. Relay will try again."))
     run(svc.service.check())       # nothing scripted: cannot reach
-    eq("unreachable", svc.service.health(), ("warn", "Could not reach YouTube."))
+    eq("unreachable", svc.service.health(), ("warn", svc.UNREACHABLE))
     eq("the status view shows the warning", entry()["health"], "warn")
 
 with section("revoked: sign in again"):

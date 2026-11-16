@@ -20,6 +20,7 @@ from ...streamstatus import streams
 log = logging.getLogger("relay.youtube")
 
 KEY = "youtube"
+UNREACHABLE = "Relay could not reach YouTube or got no answer. It will try again."
 SOURCE = "youtube"
 API = "https://www.googleapis.com/youtube/v3"
 SCOPE = "https://www.googleapis.com/auth/youtube.readonly"
@@ -204,8 +205,9 @@ class Service:
                 self._refused(status, d, now)
         except oauth.NeedsSignIn:
             self.broadcasts, self.problem = [], ""
-        except oauth.Problem as e:
-            self.problem = str(e)
+        except oauth.Problem:
+            # A fixed sentence of our own: the exception's text never reaches a page (CodeQL stack-trace exposure).
+            self.problem = UNREACHABLE
         self.publish()
 
     def _broadcasts(self, d: dict) -> list[dict]:
