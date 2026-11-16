@@ -5,6 +5,7 @@
 29c29fb4412569f240f44bf05b6b68f0bd5794a6:firmware/relay-display/main/test_native.cpp:generic-api-key:2538
 29c29fb4412569f240f44bf05b6b68f0bd5794a6:firmware/relay-display/tests/test_service_buttons.py:generic-api-key:26
 e8db3d590d525eb5b8ef9362f8e81fa69af16ed9:tests/test_pclive.py:generic-api-key:276
+f2fcea908f30ab477c5f703058627f1cc3b32d02:tests/test_secrets.py:generic-api-key:120
 
 # The old Docker setup's operator-panel TLS private key (docker-config/certs/admin.key), committed in fd81f66 and
 # removed in 514102e. It is still in git history, and the history is public: treat that key as exposed, never
