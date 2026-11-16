@@ -14,7 +14,7 @@ import contextlib
 import logging
 from typing import Any
 
-from .. import AdminPage, CrewTab, Health, Listener, Manifest, Module, UserPage
+from .. import AdminPage, CrewTab, Health, Listener, Manifest, Module, UserPage, Traffic
 from ...users import Permission
 
 log = logging.getLogger("relay.crew")
@@ -27,12 +27,13 @@ class Crew(Module):
     manifest = Manifest(
         id="crew",
         name="Crew app",
-        version="1.9.0",
+        version="1.10.0",
         summary="An installable page for the crew, signed in with a Relay account, that shows the plan and hosts "
                 "the other crew features. Served over HTTPS on this network only.",
         settings_key="crew",
         guide="https://github.com/justin-small/relay#crew-app",
         uses=("planning_center",),
+        traffic=(Traffic("crew.push", "Crew notifications (web push, over the internet)"),),
     )
     defaults = {"name": DEFAULT_NAME, "show_plan": True, "geofence": None, "embed_hosts": None,
                 "join_port": JOIN_PORT}

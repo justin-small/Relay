@@ -11,7 +11,7 @@ import contextlib
 import logging
 from typing import Any
 
-from .. import AdminPage, CrewTab, Health, Manifest, Module
+from .. import AdminPage, CrewTab, Health, Manifest, Module, Traffic
 from ...users import Permission
 
 log = logging.getLogger("relay.intercom")
@@ -27,10 +27,11 @@ class Intercom(Module):
     manifest = Manifest(
         id="intercom",
         name="Intercom",
-        version="0.1.0",
+        version="0.2.0",
         summary="Crew intercom on phones over the church network, using a media server Relay runs itself.",
         settings_key="intercom",
         guide="https://github.com/justin-small/relay#intercom",
+        traffic=(Traffic("intercom", "Intercom audio (LiveKit media)", media=True),),
     )
     defaults = {"binary_path": "", "node_ip": "", "log_days": 30, "thresholds": {}}
     admin_pages = (AdminPage(
@@ -208,9 +209,20 @@ class Intercom(Module):
             return Health("error", s.detail)
         return Health("idle", "LiveKit is not running")
 
+    def network_changed(self, resolved) -> None:
+        # LiveKit reads its address and interface only when it starts: start it again on the port it goes to now.
+        from .livekit import supervisor
+
+        if supervisor.state != "off":
+            self._net_task = asyncio.get_running_loop().create_task(supervisor.restart(), name="intercom-network")
+
     async def test(self) -> dict:
         from ... import config
-        from .livekit import asset, find_binary
+        from .livekit import asset, find_binary, media_route
+
+        _addr, _iface, problem = media_route(config.get()["intercom"]["node_ip"])
+        if problem:
+            return {"ok": False, "detail": problem}
 
         if find_binary(config.get()["intercom"]["binary_path"]):
             return {"ok": True, "detail": "livekit-server is in place."}

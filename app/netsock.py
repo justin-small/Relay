@@ -20,12 +20,18 @@ whose text is a fixed sentence (never the OS's error text, since it reaches the 
 from __future__ import annotations
 
 import asyncio
+import contextlib
+import http.client
 import ipaddress
 import logging
 import socket
 import struct
 import sys
+import urllib.parse
+import urllib.request
 from typing import Any, Callable
+
+import websockets
 
 from . import netinfo, netroute
 from .netroute import Resolved
@@ -40,8 +46,10 @@ SO_BINDTODEVICE = getattr(socket, "SO_BINDTODEVICE", 25)  # Linux <asm-generic/s
 PROC_CONF = "/proc/sys/net/ipv4/conf"
 
 
-class RouteError(Exception):
-    """A routed socket could not be made. The message is a fixed sentence fit for the admin page."""
+class RouteError(OSError):
+    """A routed socket could not be made. The message is a fixed sentence fit for the admin page.
+
+    An OSError, so a client that already catches OSError around a connection (most do) reports it as one."""
 
 
 # Ports whose interface pin was refused (Linux without CAP_NET_RAW), by port id: they keep the source address only.
@@ -100,6 +108,8 @@ def pin(sock: socket.socket, route: Resolved | str) -> bool:
             sock.setsockopt(socket.IPPROTO_IP, IP_UNICAST_IF, struct.pack("!I", index))
         else:
             return False
+    except RouteError:
+        raise
     except PermissionError:
         if port.id not in _pin_refused:
             _pin_refused.add(port.id)
@@ -129,16 +139,26 @@ def connect_tcp(route: Resolved | str, host: str, port: int, timeout: float = 5.
     """A TCP socket connected to host:port through the route's port (blocking, with a timeout)."""
     r = _resolved(route)
     _require(r)
+    if not _pinned_route(r):
+        # Unrouted or fallen back: an ordinary connection, as before routes existed (IPv6 and all).
+        try:
+            return socket.create_connection((host, int(port)), timeout)
+        except socket.timeout:
+            raise RouteError(f"{host} port {port} did not answer in time.") from None
+        except OSError:
+            raise RouteError(f"Could not connect to {host} port {port}.") from None
     sock = _new(socket.SOCK_STREAM)
     try:
         sock.settimeout(timeout)
-        if _pinned_route(r):
-            pin(sock, r)
-            sock.bind((r.address, 0))
+        pin(sock, r)
+        sock.bind((r.address, 0))
         sock.connect((host, int(port)))
     except RouteError:
         _close(sock)
         raise
+    except socket.timeout:
+        _close(sock)
+        raise RouteError(f"{host} port {port} did not answer in time through {_name(r)}.") from None
     except OSError:
         _close(sock)
         raise RouteError(f"Could not connect to {host} port {port} through {_name(r)}.") from None
@@ -196,6 +216,115 @@ async def start_server(route: Resolved | str, client_connected: Callable[..., An
     sock = listen_tcp(route, port, host=host)
     sock.setblocking(False)
     return await asyncio.start_server(client_connected, sock=sock, **kwargs)
+
+
+# ------------------------------------------------------------------ HTTP and WebSocket clients (#348)
+
+def failure(route: Resolved | str, default: str) -> str:
+    """What to tell the operator when a connection through `route` failed: the route's own reason when its port
+    cannot be used, `default` plus the port it went through when routed, else `default`. Built from the route,
+    never from an exception's text, so it is safe for any page."""
+    try:
+        r = _resolved(route)
+    except KeyError:
+        return default
+    if not r.available:
+        return r.reason or default
+    if _pinned_route(r):
+        return f"{default.rstrip('.')}. It goes out through {_name(r)} ({r.address})."
+    if r.fallback and r.reason:
+        return f"{default.rstrip('.')}. {r.reason}"
+    return default
+
+
+def _timeout(value: Any, default: float = 30.0) -> float:
+    return float(value) if isinstance(value, (int, float)) else default
+
+
+def _creator(route: Resolved | str) -> Callable[..., socket.socket]:
+    """A stand-in for socket.create_connection that connects through the route (http.client calls it)."""
+    def create(address: tuple, timeout: Any = None, source_address: Any = None) -> socket.socket:
+        return connect_tcp(route, address[0], address[1], _timeout(timeout))
+    return create
+
+
+def http_connection(route: Resolved | str, host: str, port: int | None = None, *, tls: bool = False,
+                    timeout: float = 30.0, **kwargs: Any) -> http.client.HTTPConnection:
+    """An http.client connection (HTTPS when `tls`; `kwargs` such as context go to it) whose socket is opened
+    through the route when it connects. The class is resolved again on every connect."""
+    cls = http.client.HTTPSConnection if tls else http.client.HTTPConnection
+    conn = cls(host, port, timeout=timeout, **kwargs)
+    conn._create_connection = _creator(route)  # type: ignore[attr-defined]  # http.client's own hook
+    return conn
+
+
+def _routed_class(route: Resolved | str, base: Callable[..., http.client.HTTPConnection]):
+    def make(host: str, **kwargs: Any) -> http.client.HTTPConnection:
+        conn = base(host, **kwargs)
+        conn._create_connection = _creator(route)  # type: ignore[attr-defined]
+        return conn
+    return make
+
+
+class _RoutedHTTP(urllib.request.HTTPHandler):
+    def __init__(self, route: Resolved | str):
+        super().__init__()
+        self._route = route
+
+    def do_open(self, http_class, req, **kwargs):  # type: ignore[override]
+        return super().do_open(_routed_class(self._route, http_class), req, **kwargs)
+
+
+class _RoutedHTTPS(urllib.request.HTTPSHandler):
+    def __init__(self, route: Resolved | str, context: Any = None):
+        super().__init__(context=context)
+        self._route = route
+
+    def do_open(self, http_class, req, **kwargs):  # type: ignore[override]
+        return super().do_open(_routed_class(self._route, http_class), req, **kwargs)
+
+
+def opener(route: Resolved | str, *handlers: Any, context: Any = None) -> urllib.request.OpenerDirector:
+    """A urllib opener whose http and https requests go out through the route. `handlers` are added as with
+    urllib.request.build_opener (a redirect refuser, a ProxyHandler); pass an SSL context as `context`, never an
+    HTTPSHandler of your own (it would replace the routed one)."""
+    if any(isinstance(h, (urllib.request.HTTPHandler, urllib.request.HTTPSHandler)) or
+           h in (urllib.request.HTTPHandler, urllib.request.HTTPSHandler) for h in handlers):
+        raise ValueError("pass context= to netsock.opener, not an HTTP or HTTPS handler")
+    return urllib.request.build_opener(_RoutedHTTP(route), _RoutedHTTPS(route, context), *handlers)
+
+
+def urlopen(route: Resolved | str, request: urllib.request.Request | str, *, timeout: float = 30.0,
+            context: Any = None):
+    """urllib.request.urlopen through the route."""
+    return opener(route, context=context).open(request, timeout=timeout)
+
+
+async def websocket(route: Resolved | str, url: str, *, open_timeout: float = 10.0, **kwargs: Any):
+    """`await websockets.connect(url, ...)` through the route: the TCP connection is opened by connect_tcp and
+    handed to websockets, which does TLS (wss) and the handshake. Returns the open connection; close it, or use
+    websocket_session."""
+    parts = urllib.parse.urlsplit(url)
+    if parts.scheme not in ("ws", "wss") or not parts.hostname:
+        raise ValueError("a ws:// or wss:// address is needed")
+    port = parts.port or (443 if parts.scheme == "wss" else 80)
+    sock = await asyncio.to_thread(connect_tcp, route, parts.hostname, port, open_timeout)
+    sock.setblocking(False)
+    try:
+        return await websockets.connect(url, sock=sock, open_timeout=open_timeout, **kwargs)
+    except BaseException:
+        _close(sock)
+        raise
+
+
+@contextlib.asynccontextmanager
+async def websocket_session(route: Resolved | str, url: str, **kwargs: Any):
+    """`async with netsock.websocket_session(...) as ws`: websocket(), closed on the way out."""
+    ws = await websocket(route, url, **kwargs)
+    try:
+        yield ws
+    finally:
+        await ws.close()
 
 
 # ------------------------------------------------------------------ UDP and multicast
@@ -290,12 +419,46 @@ def multicast_socket(route: Resolved | str, group: str, port: int, *, ttl: int |
     return sock
 
 
+def multicast_sender(route: Resolved | str, *, ttl: int | None = None, port: int = 0) -> socket.socket:
+    """A UDP socket that sends multicast (an mDNS question) out of the route's port and hears unicast answers on its
+    own port. It joins no group; use multicast_socket to receive a group."""
+    r = _resolved(route)
+    sock = udp_socket(r, port)
+    try:
+        if _pinned_route(r) and r.address:
+            sock.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_IF, socket.inet_aton(r.address))
+        if ttl is not None:
+            sock.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_TTL, max(1, min(255, int(ttl))))
+    except OSError:
+        _close(sock)
+        raise RouteError(f"Could not send multicast through {_name(r)}.") from None
+    return sock
+
+
 async def udp_endpoint(route: Resolved | str, protocol_factory: Callable[[], asyncio.DatagramProtocol],
-                       port: int = 0, **kwargs: Any) -> tuple[asyncio.DatagramTransport, asyncio.DatagramProtocol]:
-    """loop.create_datagram_endpoint on a routed UDP socket. `kwargs` go to udp_socket (broadcast, reuse)."""
+                       port: int = 0, *, remote: tuple[str, int] | None = None,
+                       **kwargs: Any) -> tuple[asyncio.DatagramTransport, asyncio.DatagramProtocol]:
+    """loop.create_datagram_endpoint on a routed UDP socket. `remote` (host, port) connects it, so the transport's
+    sendto() needs no address, as with create_datagram_endpoint(remote_addr=...). `kwargs` go to udp_socket
+    (broadcast, reuse)."""
+    loop = asyncio.get_running_loop()
+    target = None
+    if remote is not None:
+        try:
+            infos = await loop.getaddrinfo(remote[0], int(remote[1]), family=socket.AF_INET, type=socket.SOCK_DGRAM)
+        except OSError:
+            raise RouteError(f"Could not find {remote[0]}.") from None
+        target = infos[0][4]
     sock = udp_socket(route, port, **kwargs)
-    sock.setblocking(False)
-    return await asyncio.get_running_loop().create_datagram_endpoint(protocol_factory, sock=sock)
+    try:
+        if target is not None:
+            sock.connect(target)
+        sock.setblocking(False)
+        return await loop.create_datagram_endpoint(protocol_factory, sock=sock)
+    except OSError:
+        _close(sock)
+        raise RouteError(f"Could not send to {remote[0] if remote else 'that address'} through "
+                         f"{_name(_resolved(route))}.") from None
 
 
 # ------------------------------------------------------------------ what the operator should know

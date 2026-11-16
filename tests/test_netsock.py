@@ -110,8 +110,11 @@ with section("Windows pins with IP_UNICAST_IF, index in network byte order"):
 with section("unrouted and fallen-back classes get ordinary sockets"):
     for label, r in (("no route", DEFAULT), ("fell back to the default", FELL_BACK)):
         sock, new, plat = fake("linux")
-        with new, plat:
-            netsock.connect_tcp(r, "203.0.113.5", 443)
+        plain = mock.patch.object(netsock.socket, "create_connection", return_value="plain")
+        with new, plat, plain as cc:
+            got = netsock.connect_tcp(r, "203.0.113.5", 443)
+        eq(f"{label}: an ordinary connection (IPv6 too), as before routes", (got, cc.call_args.args),
+           ("plain", (("203.0.113.5", 443), 5.0)))
         eq(f"{label}: no pin, no bind", (sock.opts(), sock.named("bind")), ([], []))
     sock, new, plat = fake("linux")
     with new, plat:

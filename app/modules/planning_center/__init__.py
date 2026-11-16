@@ -10,7 +10,7 @@ from __future__ import annotations
 import asyncio
 from typing import Any
 
-from .. import AdminPage, Health, Manifest, Module
+from .. import AdminPage, Health, Manifest, Module, Traffic
 from ...users import Permission
 
 SERVICE_STREAM = "service"
@@ -23,12 +23,13 @@ class PlanningCenter(Module):
     manifest = Manifest(
         id="planning_center",
         name="Planning Center",
-        version="1.2.0",
+        version="1.3.0",
         summary="Shows today's service plan and its LIVE item on caption panels, lets chosen panels move "
                 "Services LIVE on, and puts the full rundown (clock times, teams, song leaders and mics) on /screen.",
         settings_key="planning_center",
         guide="https://github.com/justin-small/relay#planning-center-services-live",
         uses=("signage",),
+        traffic=(Traffic("planning_center", "Planning Center (over the internet)"),),
     )
     secret_settings = ("secret",)
     defaults = {"app_id": "", "secret": "", "service_types": [], "plan_overrides": {}, "show_notes": False,
@@ -124,6 +125,12 @@ class PlanningCenter(Module):
             return Health("error", str(failing[0].error))
         n = len(settings["service_types"])
         return Health("ok", f"Following {n} service type{'s' if n != 1 else ''}")
+
+    def network_changed(self, resolved) -> None:
+        # Every request resolves its port again; ask Planning Center now rather than at the next poll.
+        from .pclive import follower
+
+        self._net_task = asyncio.get_running_loop().create_task(follower.poke(), name="planning-center-network")
 
     async def test(self) -> dict:
         from ... import config

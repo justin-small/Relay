@@ -60,6 +60,7 @@ CORE_TRAFFIC: tuple[Traffic, ...] = (
     Traffic("viewers", "Caption and translation pages (plain HTTP)"),
     Traffic("crew", "Operator panel, sign-in and crew pages (HTTPS)"),
     Traffic("discovery", "Relay's announcement to caption panels (mDNS)"),
+    Traffic("translation", "Translation service (OpenAI, over the internet)"),
 )
 
 
@@ -294,10 +295,11 @@ def module_resolved(module_id: str) -> dict[str, Resolved]:
 
 
 def health_problem(module_id: str) -> str:
-    """A sentence when a routed, strict class of the module cannot run; "" when nothing is wrong."""
+    """A sentence when a routed class of the module cannot use its port: a strict class that cannot run, or one
+    that fell back to the default network (#348: "Dante: USB LAN is down"); "" when nothing is wrong."""
     try:
         problems = [r.reason for r in module_resolved(module_id).values()
-                    if r.routed and r.policy == "strict" and not r.available]
+                    if r.routed and r.reason and ((r.policy == "strict" and not r.available) or r.fallback)]
     except Exception:
         log.exception("could not resolve the network routes of module %s", module_id)
         return ""

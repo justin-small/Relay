@@ -35,7 +35,7 @@ from collections import deque
 from concurrent.futures import ThreadPoolExecutor
 from typing import Callable
 
-from . import languages
+from . import languages, netsock
 from .realtime import _SSL, _is_fatal
 
 log = logging.getLogger("relay.texttranslate")
@@ -223,7 +223,7 @@ class TextTranslator:
                      "Content-Type": "application/json"},
         )
         try:
-            with urllib.request.urlopen(req, timeout=TIMEOUT_S, context=_SSL) as resp:
+            with netsock.urlopen("translation", req, timeout=TIMEOUT_S, context=_SSL) as resp:   # #348: its chosen port
                 data = json.loads(resp.read())
         except urllib.error.HTTPError as exc:
             detail = exc.read().decode("utf-8", "replace")[:300]

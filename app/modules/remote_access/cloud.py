@@ -15,6 +15,10 @@ import urllib.request
 
 import certifi
 
+from ... import netsock
+
+TRAFFIC = "remote_access"   # calls to Relay's cloud and the tunnel go out through this class's port (#348)
+
 TIMEOUT_S = 30
 DEFAULT_URL = "https://cloud.relaychurchsystems.com"
 
@@ -45,6 +49,8 @@ class CloudError(Exception):
 
     @property
     def message(self) -> str:
+        if self.kind == "network":   # names the network port when remote access is routed to one (#348)
+            return netsock.failure(TRAFFIC, MESSAGES["network"])
         return MESSAGES[self.kind]
 
 
@@ -60,7 +66,7 @@ def _call(base: str, method: str, path: str, body: dict | None = None, secret: s
         headers["Authorization"] = f"Bearer {secret}"
     req = urllib.request.Request(base.rstrip("/") + path, data=data, headers=headers, method=method)
     try:
-        with urllib.request.urlopen(req, timeout=TIMEOUT_S, context=_context()) as resp:
+        with netsock.urlopen(TRAFFIC, req, timeout=TIMEOUT_S, context=_context()) as resp:
             raw = resp.read()
     except urllib.error.HTTPError as exc:
         try:
