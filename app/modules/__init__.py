@@ -257,6 +257,12 @@ async def fire_cue(cue_id: str, request: Any = None, *, by_name: bool = False, s
     return await hook(cue_id, request, by_name=by_name, source=source)
 
 
+# A module that serves a page on /screen sets an entry here in attach() and removes it in detach(): the query
+# parameter that asks for it ("lighting" for /screen?lighting=<page>) -> an async (request) -> response, or None to
+# let /screen carry on. Core never names a module; it only asks (#379).
+screen_pages: dict[str, Callable[..., Awaitable[Any]]] = {}
+
+
 def require(perm: str) -> Callable[..., Any]:
     """FastAPI dependency for a module's admin route: the signed-in user must hold permission `perm`
     (`<module id>.view`, `<module id>.manage` or a finer one the module declares). 401 when signed out,

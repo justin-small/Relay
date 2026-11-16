@@ -830,6 +830,12 @@ async def page_screen(request: Request):
     layout. Not offered on the chooser page -- this is operator setup, not an
     audience choice."""
     qp = request.query_params
+    # A page a switched-on module serves on /screen (?lighting=<page>, #379), chosen by its query parameter.
+    for name, hook in list(modules_pkg.screen_pages.items()):
+        if qp.get(name):
+            resp = await hook(request)
+            if resp is not None:
+                return resp
     # ?rundown=full|side|micboard: the production team's rundown from a module that offers the "rundown" stream
     # (Planning Center, #148), in place of the captions or beside them.
     view = qp.get("rundown") or ""

@@ -1,0 +1,25 @@
+{# /screen?lighting=<page>: a page of big cue buttons for a tablet. Served by the lighting module through core's
+   screen hook; its script is /static/modules/lighting/screen.js. #}
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="referrer" content="no-referrer">
+<title>{{ page.name }}</title>
+<link rel="stylesheet" href="/static/modules/lighting/screen.css">
+<style>
+html, body { margin: 0; height: 100%; background: #111; color: #fff; font: 16px/1.2 system-ui, sans-serif; }
+body { -webkit-user-select: none; user-select: none; touch-action: manipulation; }
+#ltScreen { height: 100%; }
+.ltgrid { height: 100%; }
+</style>
+</head>
+<body>
+<main id="ltScreen" class="{{ 'ltfree' if page.free else 'ltgrid' }}" data-page="{{ page.id }}"></main>
+<div id="ltToast" role="status" aria-live="polite" hidden></div>
+<script id="ltData" type="application/json">{{ {"page": page, "key": key} | tojson }}</script>
+<script src="/static/modules/lighting/lighting-buttons.js"></script>
+<script src="/static/modules/lighting/screen.js"></script>
+</body>
+</html>

@@ -302,6 +302,21 @@ controller's whole list, and a press is sent once: a dropped connection is repor
 may already have happened. A new lighting program is a `Backend` (`app/modules/lighting/backend.py`) registered in
 `BACKENDS`; it gets cue pages, permissions and the audit trail from the module.
 
+**Cue pages on a screen** (#379). Each page can have its own browser screen at `/screen?lighting=<page>&key=<key>`,
+a page of big buttons for a tablet. A page holds the cues the operator chose (a cue may sit on several pages), and each
+cue has a look: the text it shows, a shape (rounded, square, pill, circle), a colour and text colour, and a size in grid
+cells, or, on a page set to free placement, a position and size dragged on the page's preview (a percentage of the page).
+Core has no editor for this yet: the form and preview are in the lighting admin page, and
+[#421](https://github.com/justin-small/Relay/issues/421) replaces them with a shared editor in core. `/screen` is plain
+HTTP with no sign-in, so the page's own key is its whole authority: 128 random bits that admin turns on, rotates (the old
+link stops at once) and turns off, one per page, so a leaked link opens one page. The key can press only that page's cues,
+is shown only by a `lighting.manage` route, and never reaches a config read. A wrong key, a page that is off and a page
+that does not exist all answer the same plain 404; wrong keys are counted per address and slowed (429) and never logged,
+and a press (20 per 10 seconds per address) is logged only once the key checked out ("Lighting: Worship, Verse (from the
+Worship screen)"). The screen is told only `unreachable`, `refused` or `slow`, never the program's own text. Core serves
+this through `modules.screen_pages`, a hook a module sets in `attach()` (query parameter -> async handler), the same way
+the cue hook works; core never imports the module. Admin and chosen crew roles still press from signed-in pages.
+
 The first backend is **QLC+ v4** (`qlcplus.py`): start QLC+ with `-w`, then set the host and port (default 9999) on the
 Lighting page. It lists the virtual console buttons, presses one (a toggle button toggles) and reads which are on. It
 also lists sliders (ids like `s14`, set as 0 to 100 percent through `POST /api/admin/lighting/level`) and, when
