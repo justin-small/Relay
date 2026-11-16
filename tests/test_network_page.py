@@ -25,16 +25,13 @@ from app.main import app  # noqa: E402
 from app.netinfo import Port  # noqa: E402
 
 from _harness import check, done, eq, section  # noqa: E402
+from _netfake import WIFI, port  # noqa: E402
 
 LAN = ["192.168.1.20"]
 netinfo.lan_ips = lambda: list(LAN)
-WIFI = Port(id="mac:aa:00:00:00:00:01", name="en0", friendly_name="Wi-Fi", ipv4=("192.168.1.20/24",), up=True,
-            default_route=True, kind="wifi", index=4)
-CREW = Port(id="mac:aa:00:00:00:00:05", name="en5", friendly_name="Crew LAN", ipv4=("10.0.0.5/24",), up=True,
-            kind="ethernet", speed_mbps=1000, index=5)
-DANTE = Port(id="mac:aa:00:00:00:00:06", name="en6", friendly_name="Dante", ipv4=("169.254.3.3/16",), up=True,
-             kind="ethernet", link_local_only=True, index=6)
-OLD = Port(id="mac:aa:00:00:00:00:09", name="en9", friendly_name="Old USB adapter", ipv4=(), up=False, kind="ethernet")
+CREW = port("en5", "10.0.0.5/24", "Crew LAN", mac="05", speed_mbps=1000, index=5)
+DANTE = port("en6", "169.254.3.3/16", "Dante", mac="06", link_local_only=True, index=6)
+OLD = port("en9", (), "Old USB adapter", mac="09", up=False)
 
 config.ensure_file()
 config.save({"admin_token": "t0ken", "port": 8000, "admin_port": 8001})

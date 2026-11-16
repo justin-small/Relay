@@ -23,9 +23,7 @@ from app.netsock import RouteError  # noqa: E402
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from _harness import check, done, eq, section, tmpdir  # noqa: E402
-
-USB = Port(id="mac:aa:00:00:00:00:05", name="en5", friendly_name="USB LAN", ipv4=("10.0.0.5/24",), up=True,
-           kind="ethernet", index=7)
+from _netfake import USB, loopback_route  # noqa: E402
 ROUTED = Resolved("dante", USB.id, USB, "10.0.0.5", True, "", "strict")
 DEFAULT = Resolved("crew", None, None, "192.168.1.20", True, "", "fallback")
 FELL_BACK = Resolved("crew", USB.id, USB, "192.168.1.20", True, "USB LAN is down. Using the default.", "fallback", True)
@@ -220,13 +218,6 @@ with section("notes: reverse-path filtering and two ports on one subnet"):
     check("same-subnet note names the other port", any("TB LAN" in x and "10.0.0.0/24" in x for x in n), n)
     eq("an unrouted class has nothing to note", netsock.notes(DEFAULT), [])
     netroute.update([])
-
-
-def loopback_route(address):
-    name = "lo" if sys.platform.startswith("linux") else "lo0"
-    port = Port(id=f"name:{name}", name=name, friendly_name="Loopback", ipv4=(f"{address}/8",), up=True,
-                index=socket.if_nametoindex(name))
-    return Resolved("test", port.id, port, address, True, "", "strict")
 
 
 with section("real sockets over loopback"):
