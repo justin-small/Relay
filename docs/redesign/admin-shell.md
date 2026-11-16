@@ -1,12 +1,16 @@
-# Operator panel redesign: the admin shell
+# Operator panel redesign: the shell and every screen
 
 Everything needed to apply the new operator-panel look to Relay later, without having to look at the
 reference project or this conversation again.
 
-- **The mockup (the target):** [`docs/mockups/admin-shell/index.html`](../mockups/admin-shell/index.html).
-  One self-contained file, no network, no build. Open it in a browser. It is the visual and behavioural
-  source of truth; the CSS between its `<style>` tags and the script at the bottom are meant to be lifted,
-  not re-drawn.
+- **The mockup (the target):** [`docs/mockups/admin-shell/index.html`](../mockups/admin-shell/index.html) is the
+  shell (tokens, sidebar, header, preferences, menus, palette, components); every one of Relay's screens is a
+  page file in [`docs/mockups/admin-shell/pages/`](../mockups/admin-shell/pages/) (see
+  [Every screen](#every-screen-67)). No build and no network. Serve the folder and open it
+  (`python3 -m http.server --directory docs/mockups/admin-shell`), or open `index.html` directly in a normal
+  browser; embedded previews that block local scripts cannot load the page files. `#screens` lists every
+  standalone screen. The CSS in `index.html` and its script are meant to be lifted, not re-drawn; how the page
+  files work is in [`pages/README.md`](../mockups/admin-shell/pages/README.md).
 - **The reference it came from:** [`arhamkhnz/next-shadcn-admin-dashboard`](https://github.com/arhamkhnz/next-shadcn-admin-dashboard)
   (a Next.js 16 + shadcn/ui admin template, MIT). It was read locally; nothing from it is vendored. What was
   taken is a design method, listed in [What was taken from the reference](#what-was-taken-from-the-reference).
@@ -75,7 +79,11 @@ copied literally.
 | `app/static/shell.js` (**new**) | Preferences, popups (menu/popover/select), tooltips, command palette, sidebar collapse, nav parents, toasts. Source: the mockup's script, minus the fake pages and data. |
 | `app/templates/admin.html` | New header + sidebar + content wrapper markup; keep every `data-page`, id and permission test; link `admin.css` and `shell.js`; remove the inline `<style>`; set `data-*` attributes on `<html>` from the user's preferences. |
 | `app/static/admin.js` | `showPage()`: also open the parent group of the current page, update the breadcrumb, close the mobile drawer. Replace direct `#navToggle` handling with the shell's. Stream pill text/state hooks stay. |
-| `app/static/users.js` (`#users`) | Table restyle; optional sort, filter and pagination from the mockup's data table. |
+| `app/static/*.js` page scripts (`users.js`, `network.js`, `modules.js`, `audit.js`, `overlay-builder.js`, `alert.js`, `status.js`, `rundown.js`, `tally.js`, `flasher.js`, `oauth.js`) | Only where markup they build changes (tables, rows, badges, empty states): they keep their ids and logic. Each per-group spec lists the hooks to preserve. |
+| `app/templates/home.html`, `index.html`, `db_down.html`, `alert.html`, `flash.html`, `rundown.html`, `status.html`, `tally.html` | Standalone screens: link the shared tokens, adopt buttons, inputs, cards and badges; keep their layout. See `screens/screens-operator.md`. |
+| `app/templates/viewer.html`, `app/static/viewer.css`, `viewer.js`, overlay templates | Tokens only (so presets and light/dark apply); reading ergonomics unchanged. Fix the top bar overflow at 375px. See `screens/screens-display.md`. |
+| `app/modules/*/templates/*.html`, `app/modules/*/static/*` | Every module admin page into the new card patterns (rules in `screens/modules-av.md`), and the module's own screens (crew, intercom, parent paging, signage player, lighting/OBS panels, ProPresenter stage) onto the shared tokens. No module name may appear in a core file. |
+| `app/modules/__init__.py` (`AdminPage`) | Optional: `parent` and `badge` for sub-menus (ProPresenter and Intercom have several pages) and a way for a page to be hidden from the sidebar. |
 | `app/templates/login.html`, `password_change.html`, `_auth_head.html` | Split / centred auth layouts from the mockup (`.split`, `.cent`, `.fbox`). **No Register page** (Relay has none) and no social button; "Use a device code" is only a placeholder idea, drop it unless a device-code sign-in exists for users. |
 | `app/templates/_lockup.svg`, `app/static/brand/` | Reuse. The collapsed rail shows the mark; add `_mark.svg` (the `R` glyph, `currentColor` bar + `var(--brand)` accent) beside `_lockup.svg`. The lockup's accent fill becomes `var(--brand)`, a constant `#4ade80`, so the logo never changes with the preset. |
 | `app/main.py` | Read the six preferences for the signed-in user and pass them to `admin.html` so `<html data-…>` is right on first paint (no flash). Allow-list each value. |
@@ -259,24 +267,112 @@ All of it is CSS; nothing animates anything but `opacity`, `transform` and (side
 `@media (prefers-reduced-motion: reduce)` turns every animation and transition off. The reference follows the
 same rules (100–200ms, transform and opacity only, no bounce, charts not animated).
 
-## Page-by-page application
+## Every screen (67)
 
-Every existing page keeps its content, ids and scripts; only the wrapper changes. Each `<section>` becomes a
-`.card`; each `h2.title` + `p.sub` stays as the page heading; two-column pages use `.grid.g2`; stat rows use
-`.grid.g4` / `.g3`.
+The mockup has all of them: **35 pages inside the shell** (listed in the sidebar; "My account" is reached from the account menu) and **32 standalone screens** (listed at `#screens`, opened full page). Each group has its own spec with the route, source files, permission, what is on the screen, the ids and hooks that must stay, and what the real implementation must do:
 
-| Page (`data-page`) | Notes |
-|---|---|
-| `health` | Four stat cards (stream, viewers, latency, languages) above the transcript and control cards, then the sessions table. Needs a latency figure if one is not already reported; otherwise omit that card. |
-| `audio` | Meter card + device card. |
-| `targets` | Switch list (one row per language) + engine card. |
-| `panels` | Stat row + panels table with Identify/Update; the existing drawer keeps working. |
-| `alerts` | Tabs (Buttons, Stage messages, Replies, History) replace the long page; the History tab keeps its `alerts.history` permission test. |
-| `urls` | Links card with Copy buttons + QR card (the QR already exists in `qrcode.min.js`). |
-| `overlay` | Keep the builder's two-column layout and sticky preview; wrap controls in cards. |
-| `recordings`, `schedules`, `blocklist`, `credentials`, `appearance`, `audit`, `network`, `modules` | Card wrap and the shared components. `network` keeps its 5-second refresh and per-class Test results. `modules` becomes the card grid with switches shown in the mockup. |
-| `users` | Table restyle, plus optional sort / filter / pagination (client-side, from the mockup's data table). Keep the existing add / edit / reset flows in `users.js`. |
-| module pages | They inherit tokens and components automatically. They do not need edits unless they use hard-coded colours; grep each module's templates for `#` colours and replace them with tokens. |
+| Group | Mockup file | Spec |
+|---|---|---|
+| Core live and output pages | `pages/core-live-output.js` | [`screens/core-live-output.md`](screens/core-live-output.md) |
+| Core settings pages | `pages/core-settings.js` | [`screens/core-settings.md`](screens/core-settings.md) |
+| AV module pages | `pages/modules-av.js` | [`screens/modules-av.md`](screens/modules-av.md) |
+| People and signage module pages | `pages/modules-people.js` | [`screens/modules-people.md`](screens/modules-people.md) |
+| Sign-in and operator tools | `pages/screens-operator.js` | [`screens/screens-operator.md`](screens/screens-operator.md) |
+| Viewer, overlay, stage and room displays | `pages/screens-display.js` | [`screens/screens-display.md`](screens/screens-display.md) |
+| Crew and phone apps | `pages/screens-crew.js` | [`screens/screens-crew.md`](screens/screens-crew.md) |
+
+### Pages inside the shell
+
+| Page id | Title | Nav group | Module | Spec |
+|---|---|---|---|---|
+| `health` | Session health | Live | core | core-live-output |
+| `audio` | Audio input | Live | core | core-live-output |
+| `targets` | Target languages | Live | core | core-live-output |
+| `panels` | Panels | Output | core | core-live-output |
+| `alerts` | Alerts | Output | core | core-live-output |
+| `urls` | Viewer links | Output | core | core-live-output |
+| `overlay` | Broadcast overlay | Output | core | core-live-output |
+| `recordings` | Recordings & export | Output | core | core-live-output |
+| `schedules` | Schedules | Automation | core | core-settings |
+| `blocklist` | Blocked words | Settings | core | core-settings |
+| `credentials` | Credentials | Settings | core | core-settings |
+| `appearance` | Appearance & tuning | Settings | core | core-settings |
+| `modules` | Modules | Settings | core | core-settings |
+| `network` | Network | Settings | core | core-settings |
+| `users` | Users | Settings | core | core-settings |
+| `audit` | Audit log | Settings | core | core-settings |
+| `account` | My account (account menu) | Settings | core | core-settings |
+| `atem` | ATEM | Output | atem | modules-av |
+| `tallyarbiter` | Tally Arbiter | Output | tally_arbiter | modules-av |
+| `obs` | OBS Studio | Output | obs | modules-av |
+| `youtube` | YouTube | Output | youtube | modules-av |
+| `lighting` | Lighting | Output | lighting | modules-av |
+| `ppcontrol` | Control | Output › ProPresenter | propresenter | modules-av |
+| `pplive` | Slide view and lobby | Output › ProPresenter | propresenter | modules-av |
+| `propresenter` | Settings | Output › ProPresenter | propresenter | modules-av |
+| `planningcenter` | Planning Center | Automation | planning_center | modules-av |
+| `crew` | Crew app | Settings | crew | modules-people |
+| `intercom` | Intercom | Automation › Intercom | intercom | modules-people |
+| `intercom-phones` | Signed-in phones | Automation › Intercom | intercom | modules-people |
+| `intercom-remote` | Remote crew | Automation | intercom_remote | modules-people |
+| `parentpaging` | Parent paging | Live | parent_paging | modules-people |
+| `remoteaccess` | Remote access | Output | remote_access | modules-people |
+| `signage` | Signage | Output | signage | modules-people |
+| `signageweb` | Web & YouTube | Output | signage_web | modules-people |
+| `alertevents` | Alert events | Automation | alert_events | modules-people |
+
+### Standalone screens
+
+| Screen id | Title | Category | Real route |
+|---|---|---|---|
+| `s-login` | Sign in (split) | Sign-in | `/admin` |
+| `s-login-centered` | Sign in (centered) | Sign-in | `/admin` |
+| `s-password-change` | Change password | Sign-in | `/admin/password` |
+| `s-db-down` | Database unavailable | Sign-in | `any page (503) and the 403 page` |
+| `s-landing` | Landing | Sign-in | `/` |
+| `s-home` | Home | Operator tools | `/home` |
+| `s-alert` | Alerts | Operator tools | `/alert` |
+| `s-flash` | Flash a panel | Operator tools | `/admin/flash` |
+| `s-rundown` | Rundown | Operator tools | `/screen?rundown=...` |
+| `s-status` | Status | Operator tools | `/status` |
+| `s-tally` | Tally | Operator tools | `/tally` |
+| `s-viewer-translation` | Viewer: translation | Viewer | `/translation` |
+| `s-viewer-both` | Viewer: both | Viewer | `/both` |
+| `s-viewer-transcription` | Viewer: transcription | Viewer | `/transcription` |
+| `s-viewer-phone` | Viewer: phone (375px) | Viewer | `any viewer mode` |
+| `s-present` | Present (projector) | Viewer | `/present` |
+| `s-screen` | Screen (room display) | Viewer | `/screen` |
+| `s-overlay` | Overlay (broadcast captions) | Viewer | `/overlay, /overlay/{id}` |
+| `s-stage-slides` | Slide view (/stage) | Displays & stage | `/stage` |
+| `s-signage-player` | Signage player | Displays & stage | `/signage/{slug}` |
+| `s-lighting-screen` | Lighting touch panel | Displays & stage | `/screen?lighting=` |
+| `s-obs-screen` | OBS touch panel | Displays & stage | `/screen?obs=` |
+| `s-crew-home` | Crew app: Today | Crew & phones | `/crew` |
+| `s-crew-chat` | Crew app: Chat | Crew & phones | `/crew#chat` |
+| `s-crew-checklists` | Crew app: Checklists | Crew & phones | `/crew#checklists` |
+| `s-crew-resources` | Crew app: Resources | Crew & phones | `/crew#resources` |
+| `s-crew-activity` | Crew app: Activity | Crew & phones | `/crew#activity` |
+| `s-crew-intercom` | Crew app: Intercom | Crew & phones | `/crew#intercom` |
+| `s-crew-join` | Join the crew app | Crew & phones | `/crew-join` |
+| `s-crew-page` | Page confirmation | Crew & phones | `/crew/page/{token}` |
+| `s-crew-offline` | Crew app offline | Crew & phones | `/crew/_/offline` |
+| `s-paging-room` | Parent paging room | Crew & phones | `/paging/{secret}` |
+
+### How the three kinds of screen adopt the design
+
+1. **Operator pages (shell).** Markup moves into the new shell; every id, `data-` hook and permission test stays (the per-group specs list them). Module pages follow the rules in the "Module pages in the new shell" section of [`screens/modules-av.md`](screens/modules-av.md).
+2. **Sign-in, operator tools and crew/phone apps (standalone).** They link the shared token stylesheet and use the same buttons, inputs, cards and badges, but keep their own layout (no sidebar). Modules that serve their own pages (crew, intercom, parent paging, signage) link the shared tokens from core's static path; see [`screens/screens-crew.md`](screens/screens-crew.md) for how and why `join.html` and `offline.html` keep inline CSS.
+3. **Viewer and display screens.** The viewer, present, screen, overlay, stage, signage player and touch panels keep their reading ergonomics (large type, 34ch measure, settled and open line colours). They adopt the *tokens* only, so a preset and light/dark apply, and nothing about their size or contrast changes. [`screens/screens-display.md`](screens/screens-display.md) has the `viewer.css` variable mapping.
+
+### Things in the mockup that are not product
+
+Demo chips ("Demo states", "Demo: view-only role"), state strips, the fake data, decorative QR codes, and the "All screens" gallery exist only to review the design. Do not build them.
+
+### Shell changes made after the screens were written
+
+Done in the mockup shell: `--info`, `--err-fg` and `--faint` tokens, tab contrast fixed for Soft Pop, `.card .d` no longer hits the destructive button, a parent's icon can be set with `picon`, `hidden:true` pages stay out of the sidebar, an `authLayout` helper.
+
+Still open, to build once in `admin.css` rather than per screen (each group spec lists where it was needed): a modal dialog, a side drawer, a disabled-button style, a status row, a form footer, a key-value list, a neutral badge, QR / thumbnail / banner components, a phone-frame wrapper for the crew pages, an API for a screen to choose its own theme and preset (the viewer and crew apps), and allowing a sidebar parent to span two groups (ProPresenter's Settings is under Automation in the app but Output in the mockup).
 
 ## What the mockup invents (do not build)
 
@@ -318,14 +414,24 @@ dashboards (CRM, finance, e-commerce, kanban, calendar, mail, chat), and the lan
    look; move the inline `<style>` out of `admin.html`. Proves the extraction and the CSS cache path.
 2. **Shell.** New header, sidebar (inset, icon collapse), content wrapper, mobile drawer, breadcrumb. Pages keep
    their old inner look. Update `showPage()`; extend `tests/test_browser.py` for phone width.
-3. **Components.** Cards, buttons, inputs, tabs, switches, badges, tables, toasts; restyle page by page
-   (group the pages into two or three pull requests).
-4. **Preferences and presets.** Popover, the six preferences through `/api/admin/me/prefs`, server-rendered
+3. **Shared components.** Cards, buttons, inputs, tabs, switches, badges, tables, toasts, plus the open items
+   under "Shell changes made after the screens were written" (dialog, side drawer, status row, form footer,
+   key-value list, neutral badge, disabled style).
+4. **Core pages** in three pull requests: live and output (`screens/core-live-output.md`), settings
+   (`screens/core-settings.md`, including the users table and account), then the overlay builder on its own.
+5. **Module pages**, one pull request per module family (`screens/modules-av.md`, `screens/modules-people.md`),
+   each following the module-page rules; add `parent` / `badge` support to `AdminPage` first.
+6. **Preferences and presets.** Popover, the preferences through `/api/admin/me/prefs`, server-rendered
    `data-*`, presets, fonts, flat/floating variants, off-canvas collapse, `tests/` for the allow-lists.
-5. **Palette, menus, tooltips, motion.** Popup system, ⌘K from the DOM nav, rail tooltips and flyouts, animation
+7. **Palette, menus, tooltips, motion.** Popup system, ⌘K from the DOM nav, rail tooltips and flyouts, animation
    and reduced-motion.
-6. **Users table and sign-in pages.**
-7. **Guide and screenshots** in `docs/guide/`, and removal of any dead CSS.
+8. **Sign-in and operator tools** (`screens/screens-operator.md`): login, password change, home, alert sender,
+   flasher, rundown, status, tally, database-down.
+9. **Viewer and displays** (`screens/screens-display.md`): tokens into `viewer.css`, overlay, present, screen,
+   stage, signage player, touch panels. Check against real captions and the 375px bar fix.
+10. **Crew and phone apps** (`screens/screens-crew.md`): shared tokens linked from the module, phone layout,
+    offline and join pages keeping inline CSS.
+11. **Guide and screenshots** in `docs/guide/`, and removal of any dead CSS.
 
 ## Acceptance checklist
 
@@ -347,10 +453,12 @@ dashboards (CRM, finance, e-commerce, kanban, calendar, mail, chat), and the lan
 
 ## Known gaps in the mockup
 
-- Static HTML: the sidebar's hash navigation works when the file is opened directly in a browser, but not in
-  embedded previews that block it.
-- Only the Users page has real table behaviour; other tables are static.
-- The `system` theme follows the OS and listens for changes; the Relay preset's light mode was checked less
-  than its dark mode.
-- Light and dark `--hover` for Relay is a tint of `--primary`; the other presets use their own accent colours,
-  which is how the reference does it.
+- The page files were written by reading each real template and script, but not every state of every screen was
+  checked in every preset and both modes; the per-group specs say what each author did and did not look at.
+  Review the screens you care most about in the preferences popover's presets before starting that pull request.
+- Where the mockup differs from the app on purpose (a redesigned crew tab bar, the ProPresenter nav group, extra
+  confirm dialogs, an account Preferences card, a 403 card), the group spec says so; those are design proposals,
+  not existing behaviour.
+- The `system` theme follows the OS and listens for changes. Relay's light mode was checked less than its dark mode.
+- `--hover` for Relay is a tint of `--primary`; the other presets use their own accent colours, as the reference does.
+- The mockup is about 660 KB of script across seven page files. That is fine for documentation; none of it ships.

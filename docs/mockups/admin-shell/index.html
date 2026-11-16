@@ -6,8 +6,8 @@
 <style>
 :root{--brand:#4ade80;--rail:48px;--sbw:272px;--font:ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;--shadow:none;--hover-fg:var(--fg)}
 /* theme presets: same shape as the reference (background, card, border, primary, sidebar, hover/accent, radius) */
-[data-theme=dark]{--ok:#4ade80;--warn:#fbbf24;--err:#f87171}
-[data-theme=light]{--ok:#15803d;--warn:#b45309;--err:#b91c1c}
+[data-theme=dark]{--ok:#4ade80;--warn:#fbbf24;--err:#f87171;--info:#60a5fa;--err-fg:#fff;--faint:#71717a}
+[data-theme=light]{--ok:#15803d;--warn:#b45309;--err:#b91c1c;--info:#1d4ed8;--err-fg:#fff;--faint:#71717a}
 [data-preset=relay][data-theme=dark]{--bg:#09090b;--fg:#fafafa;--muted:#a1a1aa;--card:#111113;--border:#27272a;--primary:#4ade80;--primary-fg:#052e16;--sb:#0c0c0e;--hover:color-mix(in srgb,#4ade80 14%,transparent);--hover-fg:#4ade80;--r:10px}
 [data-preset=relay][data-theme=light]{--bg:#f4f4f5;--fg:#18181b;--muted:#71717a;--card:#fff;--border:#e4e4e7;--primary:#15803d;--primary-fg:#fff;--sb:#fafafa;--hover:color-mix(in srgb,#15803d 12%,transparent);--hover-fg:#15803d;--r:10px}
 [data-preset=softpop][data-theme=light]{--bg:oklch(.9789 .0082 121.6);--fg:#000;--muted:oklch(.3211 0 0);--card:#fff;--border:#000;--primary:oklch(.5106 .2301 276.97);--primary-fg:#fff;--sb:oklch(.9789 .0082 121.6);--hover:oklch(.7686 .1647 70.08);--hover-fg:#000;--r:16px;--shadow:2px 2px 0 0 #000}
@@ -57,7 +57,7 @@ html.cl[data-collapse=icon] .grp{margin-top:-32px;opacity:0;pointer-events:none}
 .subm>div{overflow:hidden;min-height:0}
 .subm ul{list-style:none;margin:2px 0 2px 14px;padding:0 0 0 10px;border-left:1px solid var(--border)}
 .subm a{height:28px;font-size:13px}
-html.cl[data-collapse=icon] .nav .nl,html.cl[data-collapse=icon] .nbadge,html.cl[data-collapse=icon] .chev,html.cl[data-collapse=icon] .subm,html.cl[data-collapse=icon] .supp,html.cl[data-collapse=icon] .uinfo{display:none}
+html.cl[data-collapse=icon] .nl,html.cl[data-collapse=icon] .nbadge,html.cl[data-collapse=icon] .chev,html.cl[data-collapse=icon] .subm,html.cl[data-collapse=icon] .supp,html.cl[data-collapse=icon] .uinfo{display:none}
 html.cl[data-collapse=icon] .qc .go{padding:0;justify-content:center}html.cl[data-collapse=icon] .qc .go .nl{display:none}
 html.cl[data-collapse=icon] .nav a,html.cl[data-collapse=icon] .nav .nb{padding:0;justify-content:center}
 .supp{border:1px solid var(--border);border-radius:var(--r);background:var(--card);padding:12px 14px;font-size:12px;color:var(--muted);box-shadow:var(--shadow)}
@@ -90,7 +90,7 @@ main{flex:1;padding:24px}
 h2.t{font-size:22px;margin:0 0 2px;letter-spacing:-.01em}.sub{color:var(--muted);margin:0 0 18px}
 .grid{display:grid;gap:14px}.g4{grid-template-columns:repeat(4,1fr)}.g3{grid-template-columns:repeat(3,1fr)}.g2{grid-template-columns:2fr 1fr}
 .card{background:var(--card);border:1px solid var(--border);border-radius:var(--r);padding:16px 18px;box-shadow:var(--shadow)}
-.card h3{font-size:14px;margin:0 0 2px}.card .d{color:var(--muted);font-size:12px;margin:0 0 12px}
+.card h3{font-size:14px;margin:0 0 2px}.card .d:not(.btn){color:var(--muted);font-size:12px;margin:0 0 12px}
 .stat .k{color:var(--muted);font-size:12px}.stat .v{font-size:26px;font-weight:700;letter-spacing:-.02em;margin:4px 0 2px}.stat .s{font-size:12px;color:var(--muted)}
 .up{color:var(--ok)}.dn{color:var(--err)}
 .btn{background:var(--card);color:var(--fg);border:1px solid var(--border);border-radius:calc(var(--r) - 2px);padding:6px 13px;font:inherit;font-weight:500;cursor:pointer;transition:background-color .15s,color .15s,border-color .15s,transform .1s}.btn:hover{background:var(--hover);color:var(--hover-fg)}
@@ -100,7 +100,7 @@ h2.t{font-size:22px;margin:0 0 2px;letter-spacing:-.01em}.sub{color:var(--muted)
 .row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
 table{width:100%;border-collapse:collapse}th{font-size:12px;color:var(--muted);text-align:left;font-weight:500;padding:8px 10px;border-bottom:1px solid var(--border)}td{padding:10px;border-bottom:1px solid var(--border)}tr:last-child td{border:0}
 .badge{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--border);border-radius:99px;padding:1px 9px;font-size:11.5px;font-weight:600}.badge.ok{color:var(--ok);border-color:color-mix(in srgb,var(--ok) 35%,transparent)}.badge.warn{color:var(--warn);border-color:color-mix(in srgb,var(--warn) 35%,transparent)}.badge.err{color:var(--err);border-color:color-mix(in srgb,var(--err) 35%,transparent)}
-.tabs{display:inline-flex;background:var(--hover);border-radius:calc(var(--r) - 1px);padding:3px;margin-bottom:14px}.tabs button{background:none;border:0;color:var(--muted);padding:5px 13px;border-radius:calc(var(--r) - 3px);font:inherit;cursor:pointer;transition:background-color .15s,color .15s}.tabs button.on{background:var(--card);color:var(--fg);font-weight:600;box-shadow:0 1px 2px #0005}
+.tabs{display:inline-flex;background:color-mix(in srgb,var(--fg) 8%,var(--bg));border-radius:calc(var(--r) - 1px);padding:3px;margin-bottom:14px}.tabs button{background:none;border:0;color:var(--muted);padding:5px 13px;border-radius:calc(var(--r) - 3px);font:inherit;cursor:pointer;transition:background-color .15s,color .15s}.tabs button.on{background:var(--card);color:var(--fg);font-weight:600;box-shadow:0 1px 2px #0005}
 label{display:block;font-size:12px;color:var(--muted);margin:0 0 5px}
 input,select,textarea{width:100%;padding:7px 10px;border-radius:calc(var(--r) - 2px);border:1px solid var(--border);background:var(--bg);color:var(--fg);font:inherit}
 input[type=range]{accent-color:var(--primary);padding:0}input[type=checkbox]{width:auto;accent-color:var(--primary)}
@@ -159,6 +159,9 @@ html.isauth .auth{display:block}html.isauth .app,html.isauth #pal{display:none}
 html[data-preset=brutalist] .cent,html[data-preset=relay] .cent{background:var(--sb)}
 .cent .card{width:min(400px,100%);padding:28px}
 .orline{display:flex;align-items:center;gap:10px;color:var(--muted);font-size:13px}.orline::before,.orline::after{content:"";flex:1;height:1px;background:var(--border)}
+.gh{font-size:13px;font-weight:600;margin:18px 0 8px;color:var(--muted)}
+.gal{display:block;text-decoration:none;color:inherit}.gal b{display:block;margin-bottom:2px}.gal .d{display:block;margin:0 0 8px}.gal code{font-size:11px;color:var(--muted)}
+.backchip{position:fixed;top:12px;left:12px;z-index:90;background:var(--card);color:var(--fg);border:1px solid var(--border);border-radius:99px;padding:5px 12px;font-size:12px;text-decoration:none;opacity:.85;box-shadow:0 2px 10px #0004}.backchip:hover{opacity:1}
 .scrim{display:none}
 @media(max-width:1100px){.vw{display:none}}
 @media(max-width:900px){
@@ -190,7 +193,7 @@ html[data-sb] .inset{margin:0!important;border:0!important;border-radius:0!impor
 <span class="sp"></span>
 <a class="pill" href="#health" id="streamPill"><span class="dot" id="sdot"></span><span id="stxt">LIVE · 3 languages</span></a>
 <span class="pill vw" style="font-weight:500">24 viewers</span>
-<button class="ib" id="layoutBtn" aria-label="Layout preferences" aria-haspopup="dialog" aria-expanded="false"><svg class="i" viewBox="0 0 16 16"><path d="M2 4.5h7M12 4.5h2M2 11.5h2M7 11.5h7"/><circle cx="10.5" cy="4.5" r="1.5"/><circle cx="5.5" cy="11.5" r="1.5"/></svg></button>
+<button class="ib" id="layoutBtn" aria-label="Layout preferences" aria-haspopup="dialog" aria-expanded="false"><svg class="i" viewBox="0 0 16 16"><circle cx="8" cy="8" r="2.2"/><path d="M8 1.5v1.6M8 12.9v1.6M1.5 8h1.6M12.9 8h1.6M3.4 3.4l1.1 1.1M11.5 11.5l1.1 1.1M3.4 12.6l1.1-1.1M11.5 4.5l1.1-1.1"/></svg></button>
 <button class="ib" id="themeBtn" aria-label="Cycle theme"></button>
 <button class="ib" id="acctBtn" aria-label="Account" aria-haspopup="menu" aria-expanded="false" style="width:auto;border:0"><span class="av" style="width:32px;height:32px">JS</span></button>
 </header>
@@ -203,28 +206,7 @@ const I={pulse:'<path d="M2 8h3l2-5 2 10 2-5h3"/>',mic:'<rect x="6" y="1.5" widt
 
 const bars=n=>'<div class="chart">'+Array.from({length:n},(_,i)=>`<i style="height:${30+Math.abs(Math.sin(i*1.3))*70}%"></i>`).join('')+'</div>';
 const stat=(k,v,s,c)=>`<div class="card stat"><div class="k">${k}</div><div class="v">${v}</div><div class="s ${c||''}">${s}</div></div>`;
-const P={
-health:()=>`<h2 class="t">Session health</h2><p class="sub">Start and stop the stream, watch the live transcript and check each session.</p>
-<div class="grid g4" style="margin-bottom:14px">${stat('Stream','LIVE','since 10:02 · 48 min','up')}${stat('Viewers','24','↑ 6 in the last 10 min','up')}${stat('Latency','1.4 s','speech → caption','')}${stat('Languages','3','es · pt · ko','')}</div>
-<div class="grid g2"><div class="card"><div class="row" style="justify-content:space-between"><div><h3>Live transcript</h3><p class="d">English source with the Spanish line beneath</p></div><span class="badge ok">streaming</span></div><div class="tx"><p><small>10:48:02</small>Grace and peace to you from God our Father.</p><p class="o"><small>es</small>Gracia y paz a ustedes de parte de Dios nuestro Padre.</p><p><small>10:48:09</small>Today we are going to look at the fourth chapter.</p><p class="o"><small>es</small>Hoy vamos a mirar el cuarto capítulo.</p></div></div>
-<div class="card"><h3>Stream control</h3><p class="d">Operator actions</p><div class="row"><button class="btn d" onclick="stream()">Stop stream</button><button class="btn">Mute captions</button></div><p class="d" style="margin-top:14px">Viewers over time</p>${bars(18)}</div></div>
-<div class="card" style="margin-top:14px"><h3>Sessions</h3><p class="d">Each viewer connection</p><table><tr><th>Name</th><th>Language</th><th>Device</th><th>Status</th></tr><tr><td>Lobby TV</td><td>es</td><td>Panel</td><td><span class="badge ok">connected</span></td></tr><tr><td>Nursery</td><td>pt</td><td>Phone</td><td><span class="badge ok">connected</span></td></tr><tr><td>Overflow room</td><td>ko</td><td>Panel</td><td><span class="badge warn">weak wifi</span></td></tr></table></div>`,
-audio:()=>`<h2 class="t">Audio input</h2><p class="sub">Choose the capture device and set the level.</p><div class="grid g2"><div class="card"><h3>Input level</h3><p class="d">Target −18 dBFS</p><div class="meter"><i id="mt"></i></div><div class="row" style="justify-content:space-between"><span class="badge ok">healthy</span><span id="mtv" class="d">−22 dBFS</span></div></div><div class="card"><h3>Capture device</h3><p class="d">&nbsp;</p><label>Device</label><select><option>Behringer X32 · Ch 1–2</option><option>Built-in mic</option></select><div style="margin-top:12px"><button class="btn p">Apply</button></div></div></div>`,
-panels:()=>`<h2 class="t">Panels</h2><p class="sub">Paired caption panels and their firmware.</p><div class="grid g3" style="margin-bottom:14px">${stat('Paired','4','of 4 online','up')}${stat('Firmware','1.8.2','1 panel behind','')}${stat('Alerts sent today','3','last 9:41','')}</div><div class="card"><h3>Paired panels</h3><p class="d">&nbsp;</p><table><tr><th>Name</th><th>Language</th><th>Firmware</th><th>Status</th><th></th></tr><tr><td>Lobby TV</td><td>es</td><td>1.8.2</td><td><span class="badge ok">online</span></td><td><button class="btn">Identify</button></td></tr><tr><td>Nursery</td><td>pt</td><td>1.8.2</td><td><span class="badge ok">online</span></td><td><button class="btn">Identify</button></td></tr><tr><td>Overflow</td><td>ko</td><td>1.7.9</td><td><span class="badge warn">update</span></td><td><button class="btn p">Update</button></td></tr></table></div>`,
-alerts:()=>`<h2 class="t">Alerts</h2><p class="sub">Buttons, stage messages and history.</p><div class="tabs" onclick="tab(event)"><button class="on">Buttons</button><button>Stage messages</button><button>Replies</button><button>History</button></div><div class="grid g3"><div class="card"><h3>Child needs parent</h3><p class="d">Flashes nursery panels</p><button class="btn p">Send</button></div><div class="card"><h3>Wrap up</h3><p class="d">Stage message · 2 min</p><button class="btn p">Send</button></div><div class="card"><h3>Weather</h3><p class="d">All panels</p><button class="btn p">Send</button></div></div>`,
-modules:()=>{const m=[['ATEM','Blackmagic switchers',1],['ProPresenter','Lyrics & slides',1],['Planning Center','Services & people',0],['YouTube','Live status & viewers',1],['OBS','Scene control',0],['Tally Arbiter','Tally lights',0]];return `<h2 class="t">Modules</h2><p class="sub">Integrations you can switch on and off. Each one adds its own pages to the sidebar.</p><div class="grid g3">${m.map(x=>`<div class="card mod"><div class="ic">${x[0][0]}</div><div style="flex:1"><h3>${x[0]}</h3><p class="d" style="margin:0">${x[1]}</p></div><button class="sw ${x[2]?'on':''}" onclick="this.classList.toggle('on')"></button></div>`).join('')}</div>`},
-targets:()=>{const L=[['Spanish','es',1],['Portuguese','pt',1],['Korean','ko',1],['French','fr',0],['Mandarin','zh',0],['Arabic','ar',0]];return `<h2 class="t">Target languages</h2><p class="sub">Pick the translation engine and which languages viewers can choose.</p><div class="grid g2"><div class="card"><div class="row" style="justify-content:space-between"><div><h3>Enabled languages</h3><p class="d">3 of 6 on</p></div><input style="max-width:200px" placeholder="Search…"></div>${L.map(l=>`<div class="row" style="padding:10px 0;border-top:1px solid var(--border)"><span class="badge">${l[1]}</span><span style="flex:1">${l[0]}</span><button class="sw ${l[2]?'on':''}" onclick="this.classList.toggle('on')"></button></div>`).join('')}</div><div class="card"><h3>Translation engine</h3><p class="d">Used for every language</p><label>Engine</label><select><option>Cloud (best quality)</option><option>Local (offline)</option></select><div style="margin-top:12px"><label>Glossary</label><select><option>Church terms</option><option>None</option></select></div><div style="margin-top:14px"><button class="btn p">Save</button></div></div></div>`},
-urls:()=>`<h2 class="t">Viewer links</h2><p class="sub">Share these with the congregation.</p><div class="grid g2"><div class="card"><h3>Viewer page</h3><p class="d">Anyone on this network can open it</p><div class="row"><input readonly value="http://relay.local:8000/"><button class="btn" onclick="this.textContent='Copied'">Copy</button></div><p class="d" style="margin-top:16px">Per language</p>${['es','pt','ko'].map(c=>`<div class="row" style="padding:8px 0;border-top:1px solid var(--border)"><span class="badge">${c}</span><code style="flex:1;color:var(--muted)">/?lang=${c}</code><button class="btn">Copy</button></div>`).join('')}</div><div class="card" style="text-align:center"><h3>QR code</h3><p class="d">Scan to join</p><div style="width:150px;height:150px;margin:8px auto;border-radius:8px;background:repeating-conic-gradient(var(--fg) 0 25%,var(--card) 0 50%) 0 0/20px 20px;opacity:.85"></div><button class="btn">Download</button></div></div>`,
-overlay:()=>`<h2 class="t">Broadcast overlay</h2><p class="sub">Design the caption overlay for OBS, vMix, ProPresenter or ATEM.</p><div class="grid g2"><div class="card"><div style="aspect-ratio:16/9;border-radius:8px;background:linear-gradient(135deg,#334155,#0f172a);position:relative;overflow:hidden"><div id="ovp" style="position:absolute;left:8%;right:8%;bottom:10%;background:#000b;color:#fff;padding:10px 14px;border-radius:6px;font-size:18px;text-align:center">Hoy vamos a mirar el cuarto capítulo.</div></div><p class="d" style="margin-top:10px">Live preview · 1920 × 1080</p></div><div class="card"><h3>Style</h3><p class="d">&nbsp;</p><label>Font size</label><input type="range" min="12" max="32" value="18" oninput="ovp.style.fontSize=this.value+'px'"><div class="row" style="margin-top:12px"><div style="flex:1"><label>Position</label><select onchange="ovp.style.bottom=this.value=='Top'?'80%':'10%'"><option>Bottom</option><option>Top</option></select></div><div style="flex:1"><label>Language</label><select><option>es</option><option>pt</option></select></div></div><div style="margin-top:14px" class="row"><button class="btn p">Save overlay</button><button class="btn">Copy URL</button></div></div></div>`,
-recordings:()=>`<h2 class="t">Recordings &amp; export</h2><p class="sub">Record the service and export transcripts.</p><div class="grid g3" style="margin-bottom:14px">${stat('Recording','Idle','ready','')}${stat('Runs','12','this month','')}${stat('Storage','3.2 GB','of 40 GB','')}</div><div class="card"><div class="row" style="justify-content:space-between"><div><h3>Runs</h3><p class="d">&nbsp;</p></div><button class="btn p">Start recording</button></div><table><tr><th>Date</th><th>Length</th><th>Languages</th><th></th></tr><tr><td>Sun 9 Nov</td><td>1 h 12 m</td><td>es, pt, ko</td><td><button class="btn">Export</button></td></tr><tr><td>Sun 2 Nov</td><td>1 h 05 m</td><td>es, pt</td><td><button class="btn">Export</button></td></tr><tr><td>Wed 29 Oct</td><td>0 h 58 m</td><td>es</td><td><button class="btn">Export</button></td></tr></table></div>`,
-schedules:()=>`<h2 class="t">Schedules</h2><p class="sub">Start and stop the stream automatically.</p><div class="grid g2"><div class="card"><h3>Schedules</h3><p class="d">&nbsp;</p><table><tr><th>Name</th><th>When</th><th>Action</th><th>On</th></tr><tr><td>Sunday service</td><td>Sun 10:00</td><td>Start</td><td><button class="sw on" onclick="this.classList.toggle('on')"></button></td></tr><tr><td>Sunday end</td><td>Sun 11:30</td><td>Stop</td><td><button class="sw on" onclick="this.classList.toggle('on')"></button></td></tr><tr><td>Midweek</td><td>Wed 19:00</td><td>Start</td><td><button class="sw" onclick="this.classList.toggle('on')"></button></td></tr></table></div><div class="card"><h3>New schedule</h3><p class="d">&nbsp;</p><label>Name</label><input><div class="row" style="margin-top:10px"><div style="flex:1"><label>Day</label><select><option>Sunday</option></select></div><div style="flex:1"><label>Time</label><input type="time" value="10:00"></div></div><div style="margin-top:14px"><button class="btn p">Add</button></div></div></div>`,
-blocklist:()=>`<h2 class="t">Blocked words</h2><p class="sub">Words that never appear in captions.</p><div class="grid g2"><div class="card"><h3>Blocklist</h3><p class="d">One per line</p><textarea style="width:100%;min-height:200px;padding:10px;border-radius:8px;border:1px solid var(--border);background:var(--bg);color:var(--fg);font:13px ui-monospace,monospace">word one
-word two</textarea><div style="margin-top:12px"><button class="btn p">Save</button></div></div><div class="card"><h3>How matching works</h3><p class="d">Whole words, any case. Matches are replaced with dashes in every language.</p></div></div>`,
-credentials:()=>`<h2 class="t">Credentials</h2><p class="sub">Keys and the backup passphrase.</p><div class="card" style="margin-bottom:14px"><h3>Keys</h3><p class="d">Stored encrypted</p>${[['Translation API','ok','Saved'],['YouTube','ok','Connected'],['Planning Center','warn','Not set']].map(k=>`<div class="row" style="padding:10px 0;border-top:1px solid var(--border)"><span style="flex:1">${k[0]}</span><span class="badge ${k[1]}">${k[2]}</span><button class="btn">Edit</button></div>`).join('')}</div><div class="card"><h3>Backup passphrase</h3><p class="d">Needed to restore a backup</p><div class="row"><input type="password" value="••••••••••" style="max-width:300px"><button class="btn">Change</button></div></div>`,
-appearance:()=>`<h2 class="t">Appearance &amp; tuning</h2><p class="sub">Viewer display and caption line breaks.</p><div class="grid g2"><div class="card"><h3>Viewer display</h3><p class="d">&nbsp;</p><label>Theme</label><div class="tabs" onclick="tab(event)"><button class="on">Dark</button><button>Light</button><button>Auto</button></div><label>Font size</label><input type="range" min="20" max="64" value="40"><label style="margin-top:12px">Line height</label><input type="range" min="1" max="2" step=".1" value="1.4"></div><div class="card"><h3>Caption line breaks</h3><p class="d">&nbsp;</p><label>Max characters per line</label><input type="number" value="42"><label style="margin-top:12px">Max lines</label><input type="number" value="2"><div style="margin-top:14px"><button class="btn p">Save</button></div></div></div>`,
-audit:()=>`<h2 class="t">Audit log</h2><p class="sub">Who changed what.</p><div class="card"><div class="row" style="margin-bottom:8px"><input style="max-width:260px" placeholder="Filter…"><select style="max-width:160px"><option>All users</option></select></div><table><tr><th>Time</th><th>User</th><th>Action</th></tr><tr><td>10:02</td><td>Justin</td><td>Started stream</td></tr><tr><td>09:41</td><td>Dana</td><td>Sent alert “Child needs parent”</td></tr><tr><td>Yesterday</td><td>Justin</td><td>Enabled module ATEM</td></tr><tr><td>Yesterday</td><td>Sam</td><td>Changed target languages</td></tr></table></div>`,
-network:()=>`<h2 class="t">Network</h2><p class="sub">Ports and traffic.</p><div class="grid g3" style="margin-bottom:14px">${stat('Address','192.168.1.20','relay.local','')}${stat('Inbound','1.2 Mb/s','24 viewers','')}${stat('Ports','5','all open','up')}</div><div class="card"><h3>Ports</h3><p class="d">&nbsp;</p><table><tr><th>Port</th><th>Use</th><th>Status</th></tr><tr><td>8000</td><td>Web</td><td><span class="badge ok">listening</span></td></tr><tr><td>9000</td><td>Panels</td><td><span class="badge ok">listening</span></td></tr><tr><td>9910</td><td>ATEM</td><td><span class="badge warn">no device</span></td></tr></table></div>`,
-};
+const P={},AFTER={},FULL={};
 function generic(id){const f=flat.find(x=>x[0]==id);return `<h2 class="t">${f[1]}</h2><p class="sub">Placeholder: this page keeps its current content and simply drops into the same shell (cards, tabs, tables).</p><div class="grid g2"><div class="card"><h3>Section one</h3><p class="d">Existing controls go here.</p><div class="row"><div style="flex:1"><label>Setting</label><input value="value"></div></div><div style="margin-top:12px"><button class="btn p">Save</button></div></div><div class="card"><h3>How it works</h3><p class="d">Help text moves into a side card.</p></div></div>`}
 
 /* ===================== shell: icons, nav, prefs, popups ===================== */
@@ -235,16 +217,28 @@ const html=document.documentElement;
 const mq=matchMedia('(max-width:900px)'), sysDark=matchMedia('(prefers-color-scheme: dark)');
 const isMobile=()=>mq.matches;
 
-/* nav config: groups, links, a parent with sub-items + badges (reference: sidebar-items.ts) */
-const NAV=[
- {g:'Live',items:[{id:'health',t:'Session health',ic:'pulse'},{id:'audio',t:'Audio input',ic:'mic'},{id:'targets',t:'Target languages',ic:'lang'}]},
- {g:'Output',items:[{id:'panels',t:'Panels',ic:'panel'},{id:'alerts',t:'Alerts',ic:'bell'},{id:'urls',t:'Viewer links',ic:'link'},{id:'overlay',t:'Broadcast overlay',ic:'ovl'},{id:'recordings',t:'Recordings & export',ic:'rec'}]},
- {g:'Automation',items:[{id:'schedules',t:'Schedules',ic:'cal'}]},
- {g:'Integrations',items:[{t:'Integrations',ic:'mod',badge:'new',sub:[{id:'atem',t:'ATEM',badge:'updated'},{id:'propresenter',t:'ProPresenter'},{id:'youtube',t:'YouTube',badge:'new'},{id:'planning',t:'Planning Center',badge:'soon',dis:1}]}]},
- {g:'Settings',items:[{id:'blocklist',t:'Blocked words',ic:'ban'},{id:'credentials',t:'Credentials',ic:'key'},{id:'appearance',t:'Appearance & tuning',ic:'tune'},{id:'users',t:'Users',ic:'users'},{id:'audit',t:'Audit log',ic:'doc'},{id:'network',t:'Network',ic:'net'},{id:'modules',t:'Modules',ic:'mod'}]},
- {g:'Design preview',items:[{t:'Sign-in screens',ic:'key',sub:[{id:'login',t:'Login (split)'},{id:'login-centered',t:'Login (centered)'},{id:'register',t:'Register'}]}]}
-];
-const flat=[]; NAV.forEach(g=>g.items.forEach(it=>{ if(it.sub) it.sub.forEach(s=>flat.push([s.id,s.t,g.g,it.ic,it.t])); else flat.push([it.id,it.t,g.g,it.ic]); }));
+/* page registry: every screen of the app is one entry. Page files (pages/*.js) call reg() and fill P / AFTER / FULL.
+   kind 'page' = rendered inside the shell and listed in the sidebar; kind 'full' = a standalone screen (no shell). */
+const REG=[]; const GROUPS=['Live','Output','Automation','Settings'];
+function reg(o){REG.push(o)}
+const pagesOf=g=>REG.filter(r=>r.kind=='page'&&r.g==g);
+
+const flat=[]; let NAV=[];
+function buildNav(){
+  flat.length=0; NAV=[];
+  GROUPS.forEach(g=>{
+    const items=[],seen={};
+    pagesOf(g).forEach(r=>{
+      if(r.hidden){flat.push([r.id,r.t,g,r.ic]);return}
+      if(r.parent){ if(!seen[r.parent]){seen[r.parent]={t:r.parent,ic:r.picon||r.ic,sub:[],badge:r.pbadge};items.push(seen[r.parent])} seen[r.parent].sub.push({id:r.id,t:r.t,badge:r.badge,dis:r.dis}); flat.push([r.id,r.t,g,r.ic,r.parent]) }
+      else { items.push({id:r.id,t:r.t,ic:r.ic,badge:r.badge}); flat.push([r.id,r.t,g,r.ic]) }
+    });
+    if(items.length) NAV.push({g,items});
+  });
+  NAV.push({g:'Design preview',items:[{id:'screens',t:'All screens',ic:'ovl'}]}); flat.push(['screens','All screens','Design preview','ovl']);
+  REG.filter(r=>r.kind=='full').forEach(r=>flat.push([r.id,r.t,'Screens',r.ic||'ovl']));
+}
+function injectCSS(key,css){let s=document.querySelector(`style[data-k="${key}"]`);if(!s){s=document.createElement('style');s.dataset.k=key;document.head.appendChild(s)}s.textContent=css}
 const openP=new Set();
 const badge=b=>b?`<span class="nbadge ${b}">${b}</span>`:'';
 function renderNav(){
@@ -261,6 +255,7 @@ function renderNav(){
   $('nav').innerHTML=h;
 }
 function markActive(id){
+  document.querySelectorAll('#nav a').forEach(a=>a.toggleAttribute('aria-current',a.dataset.id==id)||0);
   document.querySelectorAll('#nav a').forEach(a=>{ if(a.dataset.id==id) a.setAttribute('aria-current','page'); else a.removeAttribute('aria-current'); });
   document.querySelectorAll('#nav .has').forEach(p=>{const on=!!p.querySelector(`a[data-id="${id}"]`); p.querySelector('.nb').classList.toggle('act',on); if(on){openP.add(p.dataset.p);p.classList.add('open');p.querySelector('.nb').setAttribute('aria-expanded','true')}});
 }
@@ -350,9 +345,9 @@ function setMe(i){me=i;const u=USERS[i];document.querySelectorAll('#acctBtn .av'
 const avHTML=(u,lg)=>`<span class="av${lg?' lg':''}">${ini(u.n)}</span>`;
 function acctItems(){
   return [...USERS.map((u,i)=>({html:`${avHTML(u,1)}<span class="uinfo"><b>${u.n}</b><small style="text-transform:capitalize">${u.r}</small></span>${ic('check').replace('class="i"','class="i ck"')}`,sel:i==me,fn:()=>{setMe(i);toast('Switched to '+u.n)}})),
-   {sep:1},{ic:'user',t:'Account',go:'#users'},{ic:'bell',t:'Notifications',fn:()=>toast('No new notifications')},{sep:1},{ic:'out',t:'Log out',go:'#login'}];
+   {sep:1},{ic:'user',t:'Account',go:'#account'},{ic:'bell',t:'Notifications',fn:()=>toast('No new notifications')},{sep:1},{ic:'out',t:'Log out',go:'#login'}];
 }
-function userItems(){const u=USERS[me];return [{head:`${avHTML(u)}<span class="uinfo"><b>${u.n}</b><small>${u.e}</small></span>`},{sep:1},{ic:'user',t:'Account',go:'#users'},{ic:'bell',t:'Notifications',fn:()=>toast('No new notifications')},{sep:1},{ic:'out',t:'Log out',go:'#login'}]}
+function userItems(){const u=USERS[me];return [{head:`${avHTML(u)}<span class="uinfo"><b>${u.n}</b><small>${u.e}</small></span>`},{sep:1},{ic:'user',t:'Account',go:'#account'},{ic:'bell',t:'Notifications',fn:()=>toast('No new notifications')},{sep:1},{ic:'out',t:'Log out',go:'#login'}]}
 
 /* ---- sidebar / stream state ---- */
 let live=true;
@@ -415,19 +410,24 @@ function dtInit(){
   $('dt').onchange=e=>{ if(e.target.id=='dtall'){const rows=[...document.querySelectorAll('#dt [data-e]')];rows.forEach(c=>e.target.checked?DT.sel.add(c.dataset.e):DT.sel.delete(c.dataset.e))} else if(e.target.dataset.e){e.target.checked?DT.sel.add(e.target.dataset.e):DT.sel.delete(e.target.dataset.e)} dtRender() };
   $('dtpg').onclick=e=>{const b=e.target.closest('[data-pg]');if(b){DT.page=+b.dataset.pg;dtRender();return}const z=e.target.closest('#dtsz');if(z)toggle(z,{side:'top',align:'start',w:64,items:[5,10].map(n=>({t:''+n,ck:1,sel:DT.size==n,fn:()=>{DT.size=n;DT.page=1;dtRender()}}))})};
 }
-const AFTER={users:dtInit};
+AFTER.users=dtInit;
 
-/* ===================== auth screens (reference: auth/v1 and v2) ===================== */
 const LOCK=document.querySelector('.lk').innerHTML;
-const authFields=(reg)=>`<div><label for="a1">${reg?'Name':'Username'}</label><input id="a1" placeholder="${reg?'Dana Reyes':'dana'}" autocomplete="username"></div>${reg?'<div><label for="a2">Email</label><input id="a2" type="email" placeholder="dana@church.org"></div>':''}<div><label for="a3">Password</label><input id="a3" type="password" placeholder="••••••••" autocomplete="${reg?'new-password':'current-password'}"></div>${reg?'<div><label for="a4">Confirm password</label><input id="a4" type="password" placeholder="••••••••"></div>':'<label style="display:flex;gap:8px;align-items:center;font-weight:400"><input type="checkbox" checked> Remember this device for 30 days</label>'}<button class="btn p" data-go="#health">${reg?'Create account':'Sign in'}</button>`;
-const splitAuth=reg=>`<div class="split"><div class="brandp"><span class="lk">${LOCK}</span><div><h2>Captions every seat can read.</h2><p>Run live sessions, panels and alerts from one place.</p></div><div class="helpc"><b>New to Relay?</b>The operator guide gets your first service running in minutes.</div></div><div class="formp"><div class="atop">${reg?'Already have an account?&nbsp;<a href="#login">Sign in</a>':'Need access?&nbsp;<a href="#register">Register</a>'}</div><form class="fbox" onsubmit="return false"><h1>${reg?'Create your account':'Sign in to Relay'}</h1><p class="lead">${reg?'Please enter your details to register.':'Please enter your details to sign in.'}</p>${authFields(reg)}</form><div class="abot"><span>© 2026 Relay</span><span class="row" style="gap:6px">${ic('globe')}ENG</span></div></div></div>`;
-const AUTH={login:()=>splitAuth(0),register:()=>splitAuth(1),'login-centered':()=>`<div class="cent"><div class="card"><form class="fbox" onsubmit="return false"><span class="lk" style="align-self:center">${LOCK}</span><h1>Sign in to Relay</h1><p class="lead">Please enter your details to sign in.</p>${authFields(0)}<div class="orline">Or continue with</div><button class="btn" data-go="#health">Use a device code</button></form></div></div>`};
-
+/* authLayout: the two sign-in layouts from the reference. kind 'split' (brand panel + form) or 'center' (card on a tinted page).
+   body = form fields + button html; top = small html at the top right of the split layout. */
+function authLayout({kind='split',title,lead='',body,top='',foot='© 2026 Relay'}){
+  if(kind=='center') return `<div class="cent"><div class="card"><form class="fbox" onsubmit="return false"><span class="lk" style="align-self:center">${LOCK}</span><h1>${title}</h1><p class="lead">${lead}</p>${body}</form></div></div>`;
+  return `<div class="split"><div class="brandp"><span class="lk">${LOCK}</span><div><h2>Captions every seat can read.</h2><p>Run live sessions, panels and alerts from one place.</p></div><div class="helpc"><b>New to Relay?</b>The operator guide gets your first service running in minutes.</div></div><div class="formp"><div class="atop">${top}</div><form class="fbox" onsubmit="return false"><h1>${title}</h1><p class="lead">${lead}</p>${body}</form><div class="abot"><span>${foot}</span><span class="row" style="gap:6px">${ic('globe')}ENG</span></div></div></div>`;
+}
+/* ===================== screen gallery: every standalone screen, by category ===================== */
+const CATS=['Sign-in','Operator tools','Displays & stage','Crew & phones','Viewer'];
+P.screens=()=>`<h2 class="t">All screens</h2><p class="sub">Every screen outside the operator shell, grouped by who uses it. Each opens full page; use the link at its top left to come back.</p>`+
+ CATS.map(c=>{const l=REG.filter(r=>r.kind=='full'&&r.cat==c);return l.length?`<h3 class="gh">${c}</h3><div class="grid g3" style="margin-bottom:22px">${l.map(r=>`<a class="card gal" href="#${r.id}"><b>${r.t}</b><span class="d">${r.desc||''}</span>${r.path?`<code>${r.path}</code>`:''}</a>`).join('')}</div>`:''}).join('');
 /* ===================== router + wiring ===================== */
 function route(){
   const id=(location.hash||'#health').slice(1);
   closeAll(); document.body.classList.remove('open'); clearInterval(window.mi);
-  if(AUTH[id]){html.classList.add('isauth');$('auth').innerHTML=AUTH[id]();$('auth').onclick=e=>{const b=e.target.closest('[data-go]');if(b)location.hash=b.dataset.go};$('auth').scrollTop=0;return}
+  if(FULL[id]){html.classList.add('isauth');$('auth').innerHTML=FULL[id]()+'<a class="backchip" href="#screens">← All screens</a>';$('auth').onclick=e=>{const b=e.target.closest('[data-go]');if(b)location.hash=b.dataset.go};$('auth').scrollTop=0;AFTER[id]&&AFTER[id]();return}
   html.classList.remove('isauth');
   const f=flat.find(x=>x[0]==id)||flat[0];
   $('pages').innerHTML=(P[f[0]]||(()=>generic(f[0])))(); AFTER[f[0]]&&AFTER[f[0]]();
@@ -435,7 +435,7 @@ function route(){
   $('inset').scrollTop=0;
   const mt=$('mt');if(mt){window.mi=setInterval(()=>{const v=45+Math.random()*30;mt.style.width=v+'%';$('mtv').textContent='−'+Math.round(60-v*.6)+' dBFS'},250)}
 }
-renderNav(); goUpdate(); apply();
+function boot(){ buildNav(); renderNav(); goUpdate(); apply(); addEventListener('hashchange',route); route(); }
 $('nav').addEventListener('click',e=>{
   if(e.target.closest('#goBtn')){stream();return}
   if(e.target.closest('#inbBtn')){location.hash='#alerts';return}
@@ -450,6 +450,13 @@ $('searchBtn').onclick=()=>pal(1); $('themeBtn').onclick=theme;
 $('layoutBtn').onclick=e=>toggle(e.currentTarget,{side:'bottom',align:'end',cls:'pp',render:renderLayout});
 $('acctBtn').onclick=e=>toggle(e.currentTarget,{side:'bottom',align:'end',items:acctItems(),w:224});
 $('userBtn').onclick=e=>toggle(e.currentTarget,{side:isMobile()?'top':'right',align:'end',items:userItems(),w:224});
-addEventListener('hashchange',route); route();
 
-</script></body></html>
+</script>
+<script src="pages/core-live-output.js"></script>
+<script src="pages/core-settings.js"></script>
+<script src="pages/modules-av.js"></script>
+<script src="pages/modules-people.js"></script>
+<script src="pages/screens-operator.js"></script>
+<script src="pages/screens-display.js"></script>
+<script src="pages/screens-crew.js"></script>
+<script>boot()</script></body></html>
