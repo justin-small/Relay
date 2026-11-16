@@ -71,6 +71,9 @@ DEFAULTS: dict[str, Any] = {
     # Which modules are switched on, by module id: {"<id>": {"enabled": bool}} -- see app/modules/. A
     # module with no switch saved is on only if its integration was already set up (Module.configured).
     "modules": {},
+    # Which network port each kind of traffic uses, and the ports Relay has seen -- see netroute.py. No route
+    # means the system default, as before routes existed.
+    "network": {"routes": {}, "policy": {}, "known_ports": {}},
     "host": "0.0.0.0",
     # The operator panel is HTTPS only (app/tls.py), so it can face the network: 443 on every interface.
     # Viewers get plain HTTP on 80. If either cannot be opened Relay uses 8080 / 8443 (app/serving.py).
@@ -245,6 +248,9 @@ def _normalise(cfg: dict) -> dict:
     from .modules import modules
 
     modules.clean_config(cfg)
+    from . import netroute
+
+    cfg["network"] = netroute.clean(cfg.get("network"))
     # The blocklist lives in its own file; config.json only points at it.
     cfg.pop("blocklist", None)
     cfg["blocklist_file"] = str(cfg.get("blocklist_file") or "blocklist.txt")
