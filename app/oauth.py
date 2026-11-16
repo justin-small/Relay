@@ -198,8 +198,10 @@ class Account:
     """One connection of a module to its service: Connect, wait, connected, refresh, disconnect."""
 
     def __init__(self, module_id: str, provider: Provider, *, settings_key: str, field: str = "account",
-                 client: Callable[[], Client], scopes: Callable[[], Iterable[str]] | Iterable[str]) -> None:
+                 client: Callable[[], Client], scopes: Callable[[], Iterable[str]] | Iterable[str],
+                 on_change: Callable[[], None] | None = None) -> None:
         self.module_id = module_id
+        self.on_change = on_change          # called after connecting and disconnecting (check the service now)
         self.provider = provider
         self.settings_key = settings_key
         self.field = field
@@ -338,6 +340,14 @@ class Account:
         audit.record(f"{self.module_id}.connect", f"Connected {self.provider.name}", actor=actor, target=name,
                      detail={"scopes": tokens.scope})
         log.info("oauth: %s connected as %s", self.module_id, name)
+        self._changed()
+
+    def _changed(self) -> None:
+        if self.on_change:
+            try:
+                self.on_change()
+            except Exception:
+                log.exception("oauth: %s on_change failed", self.module_id)
 
     # ---------------------------------------------------------------- use
     def _guard(self) -> asyncio.Lock:
@@ -406,6 +416,7 @@ class Account:
             if request is not None:
                 audit.note(request, f"{self.module_id}.disconnect", f"Disconnected {self.provider.name}",
                            target=name, detail={"revoked": revoked})
+        self._changed()
         return self.status()
 
     async def _revoke_quietly(self, t: Tokens) -> bool:
