@@ -141,19 +141,27 @@ def _services(replies: list[tuple[str, list]], how: str) -> list[dict]:
     return found
 
 
-def mdns_multicast(seconds: float = 3.0) -> list[dict]:
+def local_address(toward: str) -> str:
+    """This computer's address on the network that reaches `toward` (no packet is sent)."""
+    with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+        s.connect((toward, 9))
+        return s.getsockname()[0]
+
+
+def mdns_multicast(local: str, seconds: float = 3.0) -> list[dict]:
     """Ask the local network for NDI and Dante services, as a one-shot (legacy) querier."""
     s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     s.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_TTL, 255)
-    s.bind(("", 0))
+    s.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_IF, socket.inet_aton(local))
+    s.bind((local, 0))  # one network port, not every interface
     s.sendto(_query(list(SERVICES), unicast_reply=True), MDNS)
     return _services(_collect(s, seconds), "mdns")
 
 
-def mdns_unicast(ips: list[str], seconds: float = 1.5) -> list[dict]:
+def mdns_unicast(local: str, ips: list[str], seconds: float = 1.5) -> list[dict]:
     """Send the same query to each IP's port 5353 (RFC 6762 §5.5): crosses VLANs if routed."""
     s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    s.bind(("", 0))
+    s.bind((local, 0))
     q = _query(list(SERVICES), unicast_reply=True)
     for ip in ips:
         try:
@@ -209,18 +217,20 @@ def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--key-file", required=True)
     ap.add_argument("--udm", default="10.10.0.1")
+    ap.add_argument("--bind", help="local address to query from (default: the one that reaches --udm)")
     ap.add_argument("--json", action="store_true")
     args = ap.parse_args()
     with open(args.key_file, encoding="utf-8") as f:
         key = f.read().strip()
+    local = args.bind or local_address(args.udm)
 
     with concurrent.futures.ThreadPoolExecutor() as pool:
         clients_f = pool.submit(unifi, args.udm, key, "stat/sta")
         devices_f = pool.submit(unifi, args.udm, key, "stat/device")
-        multicast_f = pool.submit(mdns_multicast)
+        multicast_f = pool.submit(mdns_multicast, local)
         clients, devices, found = clients_f.result(), devices_f.result(), multicast_f.result()
 
-    found += mdns_unicast(sorted({c["ip"] for c in clients if c.get("ip")}))
+    found += mdns_unicast(local, sorted({c["ip"] for c in clients if c.get("ip")}))
     for c in clients:
         if c.get("mac", "")[:8].lower() in DANTE_OUIS:
             found.append({"kind": "Dante", "how": "oui", "instance": None, "ip": c.get("ip"), "mac": c["mac"]})
