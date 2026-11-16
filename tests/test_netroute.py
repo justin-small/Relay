@@ -20,13 +20,9 @@ from app.netinfo import Port  # noqa: E402
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from _harness import check, done, eq, section  # noqa: E402
+from _netfake import DANTE_NET, WIFI, lan, port, use_ports  # noqa: E402
 
-WIFI = Port(id="mac:aa:00:00:00:00:01", name="en0", friendly_name="Wi-Fi", ipv4=("192.168.1.20/24",),
-            default_route=True, up=True, kind="wifi")
-USB = Port(id="mac:aa:00:00:00:00:05", name="en5", friendly_name="USB 10/100/1000 LAN", ipv4=("10.0.0.5/24",),
-           up=True, kind="ethernet")
-DANTE_NET = Port(id="mac:aa:00:00:00:00:06", name="en6", friendly_name="Thunderbolt Ethernet",
-                 ipv4=("169.254.20.7/16",), up=True, kind="ethernet", link_local_only=True)
+USB = port("en5", "10.0.0.5/24", "USB 10/100/1000 LAN", mac="05")
 
 
 class NetFake(Module):
@@ -55,14 +51,6 @@ FAKE = NetFake()
 modules.all()
 modules._modules["netfake"] = FAKE
 modules._modules["netfake2"] = Exclusive2()
-
-
-def use_ports(*ps):
-    netroute.update(list(ps))
-
-
-def lan(*ips):
-    return mock.patch.object(netinfo, "lan_ips", lambda: list(ips))
 
 
 config.ensure_file()

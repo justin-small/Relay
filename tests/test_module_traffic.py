@@ -24,33 +24,19 @@ os.environ["RELAY_LIVEKIT_NO_DOWNLOAD"] = "1"
 
 import websockets  # noqa: E402
 
-from app import config, netinfo, netroute, netsock  # noqa: E402
+from app import config, netroute, netsock  # noqa: E402
 from app.modules import Health, modules  # noqa: E402
-from app.netinfo import Port  # noqa: E402
 from app.netroute import Resolved  # noqa: E402
 from app.netsock import RouteError  # noqa: E402
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from _harness import check, done, eq, section  # noqa: E402
+from _netfake import USB, WIFI, lan, loopback_route, remember, route, use_ports  # noqa: E402
 
-WIFI = Port(id="mac:aa:00:00:00:00:01", name="en0", friendly_name="Wi-Fi", ipv4=("192.168.1.20/24",),
-            default_route=True, up=True, kind="wifi")
-USB = Port(id="mac:aa:00:00:00:00:05", name="en5", friendly_name="USB LAN", ipv4=("10.0.0.5/24",), up=True,
-           kind="ethernet", index=7)
 GONE = Resolved("atem", USB.id, None, None, False, "ATEM switcher control (UDP): USB LAN is not connected to this "
                 "computer.", "strict")
 
 config.ensure_file()
-
-
-def loopback_route(address="127.0.0.1"):
-    """A class routed to the loopback port: real pinned sockets without a second network card (as test_netsock)."""
-    if sys.platform == "win32":
-        return Resolved("test", None, None, "127.0.0.1", True, "", "fallback")
-    name = "lo" if sys.platform.startswith("linux") else "lo0"
-    port = Port(id=f"name:{name}", name=name, friendly_name="Loopback", ipv4=(f"{address}/8",), up=True,
-                index=socket.if_nametoindex(name))
-    return Resolved("test", port.id, port, address, True, "", "strict")
 
 
 class Hello(http.server.BaseHTTPRequestHandler):
@@ -76,8 +62,8 @@ def http_server():
 
 with section("http_connection: http.client through the route"):
     srv = http_server()
-    route = loopback_route()
-    conn = netsock.http_connection(route, "127.0.0.1", srv.server_address[1], timeout=5)
+    lo = loopback_route()
+    conn = netsock.http_connection(lo, "127.0.0.1", srv.server_address[1], timeout=5)
     conn.request("GET", "/version")
     resp = conn.getresponse()
     eq("answered", (resp.status, json.loads(resp.read())["path"]), (200, "/version"))
@@ -164,7 +150,7 @@ with section("udp_endpoint with a remote, and multicast_sender"):
     s.close()
 
 with section("failure(): a sentence built from the route, never from an exception"):
-    netroute.update([WIFI, USB])
+    use_ports(WIFI, USB)
     routed = Resolved("atem", USB.id, USB, "10.0.0.5", True, "", "fallback")
     eq("routed: the default plus the port it went through", netsock.failure(routed, "Could not reach the switcher"),
        "Could not reach the switcher. It goes out through USB LAN (10.0.0.5).")
@@ -286,7 +272,7 @@ with section("Planning Center: its API through 'planning_center', and the senten
         out = client._request("GET", "/services/v2/service_types", None)
     eq("asked through its class, and answered", (seen, out["path"]), (["planning_center"], "/services/v2/service_types"))
     srv.shutdown()
-    netroute.update([WIFI])
+    use_ports(WIFI)
     with mock.patch.object(netroute, "resolve", lambda cid: Resolved(cid, USB.id, None, None, False,
                                                                      "Planning Center (over the internet): USB LAN "
                                                                      "is not connected to this computer.", "strict")):
@@ -321,7 +307,7 @@ with section("Remote access: the cloud through 'remote_access', and cloudflared 
 with section("Intercom: LiveKit advertises and gathers on the intercom port only"):
     from app.modules.intercom import livekit
 
-    with mock.patch.object(netinfo, "lan_ips", lambda: ["192.168.1.20"]):
+    with lan("192.168.1.20"):
         eq("unrouted: the first LAN address, as before", livekit.media_route(""), ("192.168.1.20", "", ""))
     eq("an address typed under Settings wins", livekit.media_route("10.9.9.9"), ("10.9.9.9", "", ""))
     up = Resolved("intercom", USB.id, USB, "10.0.0.5", True, "", "strict")
@@ -416,18 +402,17 @@ with section("Translation (core): OpenAI through 'translation'"):
 # ------------------------------------------------------------------ health and port changes
 
 with section("health: a fallback route whose port is gone says so"):
-    netroute.update([WIFI])
-    config.save({"modules": {"tally_arbiter": {"enabled": True}},
-                 "network": {"known_ports": {USB.id: {"name": "en5", "friendly_name": "USB LAN", "kind": "ethernet"}},
-                             "routes": {"tally_arbiter": USB.id}}})
+    remember(WIFI, USB)
+    use_ports(WIFI)                      # the USB adapter is unplugged
+    config.save({"modules": {"tally_arbiter": {"enabled": True}}})
+    route(tally_arbiter=USB.id)
     mod = modules.get("tally_arbiter")
-    with mock.patch.object(netinfo, "lan_ips", lambda: ["192.168.1.20"]), \
-            mock.patch.object(type(mod), "health", lambda self: Health("ok", "Connected")):
+    with lan("192.168.1.20"), mock.patch.object(type(mod), "health", lambda self: Health("ok", "Connected")):
         h = modules.health(mod)
     eq("warn, naming the port, then the module's own", (h.state, h.detail),
        ("warn", "Tally Arbiter (WebSocket): USB LAN is not connected to this computer. Using the system's default "
                 "network instead. Connected"))
-    config.save({"network": {"routes": {}}}, replace=("network",))
+    route()
 
 with section("a port change reconnects each module through where it goes now"):
     async def changed():

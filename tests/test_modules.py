@@ -167,6 +167,17 @@ for path in sorted(MODULES.rglob("*.py")):
 for name, allowed in MODULE_SOCKETS.items():
     check(f"{name} still needs its socket exception", bool(opened(MODULES / name) & allowed), name)
 
+# ------------------------------------------------------------------ traffic classes belong to their module (#349)
+print("traffic classes are the module's own")
+from app import netroute  # noqa: E402
+
+owner_of: dict[str, str] = {t.id: "core" for t in netroute.CORE_TRAFFIC}
+for mid in module_ids():
+    for t in registry.get(mid).manifest.traffic:
+        check(f"{mid}: traffic {t.id!r} starts with the module's id", netroute.owns(mid, t.id), t.id)
+        check(f"{mid}: traffic {t.id!r} is declared nowhere else", t.id not in owner_of, owner_of.get(t.id))
+        owner_of.setdefault(t.id, mid)
+
 # ------------------------------------------------------------------ each real module keeps the contract
 print("module contract")
 config.ensure_file()

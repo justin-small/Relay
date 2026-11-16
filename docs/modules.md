@@ -159,11 +159,22 @@ be under the module's `route_prefixes`, and the default port 1024 or above.
 that port's address and 127.0.0.1, and moves by itself when that address changes. For links and QR codes use
 `netroute.link_addresses(traffic)`, never `netinfo.lan_ips()`.
 
-## Network traffic on a port of its own
+## Network traffic
 
 A machine running Relay often has several network ports: the church Wi-Fi, a crew network, a Dante or NDI
 network. A module that talks to devices declares each kind of traffic it sends, and the operator chooses which
-port carries it (`app/netroute.py`):
+port carries it (`app/netroute.py`). The operator's side, with a typical cabling layout and switch settings, is
+the guide's [Using more than one network port](guide/src/36-network-ports.md) chapter.
+
+A module that talks to anything outside Relay does four things:
+
+1. **Declares** each kind of traffic in `Manifest.traffic`, with an id that is the module's id or starts with
+   `"<module id>."`.
+2. **Asks** `netroute.resolve(class_id)` where it goes, and does not start a strict class that is not available.
+3. **Connects** only through the `app/netsock.py` helpers, passing the class id.
+4. **Reconnects** in `network_changed` when the port goes away, comes back or is re-chosen.
+
+`tests/test_modules.py` checks 1 and 3 for every module.
 
 ```python
 from app.modules import Manifest, Traffic
@@ -263,6 +274,22 @@ list (`ndi-config.v1.json`); check what the SDK version supports before writing 
 - Two ports are on the same subnet. Nothing can steer between them reliably.
 
 On Windows, the weak host model can still send replies out of another port; keep each port on its own subnet.
+
+### Dante
+
+A Dante device's primary and secondary (redundant) ports are the device's, not Relay's. Relay joins one Dante
+network, through the port routed to the `dante` class: the primary. Do not declare a second class for the
+secondary network. Dante discovery (mDNS) and control (ARC on UDP 4440 and its neighbours) answer only on the
+network the device shares with Relay, so a Dante module never falls back: its classes are `media=True`. In the
+module's pages and docs, say "works with Dante devices" (Dante is Audinate's trademark), never anything implying
+certification; for NDI, "NDI is a registered trademark of Vizrt NDI AB".
+
+### Testing without a second network card
+
+`tests/_netfake.py` has fake ports (`WIFI`, `USB`, `DANTE_NET`), `use_ports(...)` to make them the machine's
+ports, `lan(...)` for the default network's addresses, `route(...)` to save a route in config, and
+`loopback_route()` for real pinned sockets over loopback. Use it rather than defining ports in each test. Before a
+release that changes networking, run the manual [hardware test plan](reference/multi-nic-hardware-test.md).
 
 ## Audio sources and outputs
 
@@ -424,6 +451,8 @@ the viewer port with no login: put reasons, addresses and keys in `detail`, neve
 - a new `.py` file appears in `app/` outside `app/modules/` without being listed in `CORE_FILES`;
 - a core file imports a network client (`socket`, `http.client`, `urllib.request`, `websockets`, ...)
   that is not allowed for it in `CORE_NETWORK`;
+- a module opens a socket or connection itself instead of through `app/netsock.py` (exceptions, with a reason,
+  in `MODULE_SOCKETS`), or declares a traffic class whose id does not start with its own id;
 - a module's manifest is invalid, its templates or scripts are missing, or it imports a module it does not
   name in `uses`;
 - a module does not declare `<id>.view` and `<id>.manage`, an admin route does not ask for one of

@@ -33,27 +33,17 @@ from app.modules import modules, validate  # noqa: E402
 from app.netinfo import Port  # noqa: E402
 
 from _harness import check, done, eq, section, wait_for  # noqa: E402
+from _netfake import policy, port, route  # noqa: E402
 
 LINUX = sys.platform.startswith("linux")
 LAN = ["192.0.2.10"]
 netinfo.lan_ips = lambda: list(LAN)
-CREW = Port(id="mac:aa:00:00:00:00:0a", name="en5", friendly_name="Crew LAN", ipv4=("10.0.0.5/24",), up=True, index=5)
-GUEST = Port(id="mac:aa:00:00:00:00:0b", name="en6", friendly_name="Guest Wi-Fi", ipv4=("172.16.0.9/16",), up=True, index=6)
-DANTE = Port(id="mac:aa:00:00:00:00:0c", name="en7", friendly_name="Dante", ipv4=("169.254.3.3/16",), up=True, index=7)
+CREW = port("en5", "10.0.0.5/24", "Crew LAN", mac="0a", index=5)
+GUEST = port("en6", "172.16.0.9/16", "Guest Wi-Fi", mac="0b", index=6)
+DANTE = port("en7", "169.254.3.3/16", "Dante", mac="0c", index=7)
 config.ensure_file()
 netroute.update([CREW, GUEST, DANTE])
 netroute.remember([CREW, GUEST, DANTE])
-
-
-def route(**routes):
-    """Set exactly these routes, with every policy at its default."""
-    net = config.get()["network"]
-    config.save({"network": {**net, "routes": routes, "policy": {}}}, replace=("network",))
-
-
-def policy(**policies):
-    net = config.get()["network"]
-    config.save({"network": {**net, "policy": policies}}, replace=("network",))
 
 
 with section("which addresses a listener binds"):
