@@ -329,6 +329,17 @@ then `false` 20 ms later), exactly as the Bitfocus Companion module sends it; nu
 bank 0-100, row 0-11, column 0-59) are refused before anything is sent, because Companion warns they have crashed
 Vista. The test message only proves Relay could send it: Vista does not answer.
 
+The fourth is **Lightkey** (`lightkey.py`), over OSC (UDP, default port 21600; Lightkey also takes TCP, which Relay does not
+use). **Lightkey runs on macOS only, so a church on Windows or Linux cannot use this backend**; the Relay computer can be
+any system, since Relay sends OSC across the network to the Mac. Set the Mac's address, the port and, if you want one, a
+fade time in seconds (blank lets each cue use its own). A cue is added by hand to a cue page with the id `Page:Cue`,
+Lightkey's own spelling with spaces as underscores (`My_Control_Panel:Walk-in`; `selected:` is the page open in Lightkey;
+in Lightkey, control-click a cue and choose External Control > Copy OSC Address to see it). Only letters, digits and
+`_ . -` are allowed, so the OSC wildcards cannot fire every cue. A press sends `/live/<page>/cue/<cue>/activate` and a
+release `.../deactivate`, each with the fade time when one is set. Lightkey lists nothing and reports nothing over OSC
+(its feedback is MIDI), so these cues never show on or off. Lightkey's External Control Log (Window menu, OSC tab) shows
+every message Relay sends and whether it matched a cue.
+
 ## Audio sources and outputs
 
 Core captures audio from an `AudioSource` and plays audio through an `AudioOutput` (`app/audio.py`); it
