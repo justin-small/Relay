@@ -102,6 +102,22 @@
       <div class="ctl"><button type="button" id="crScan" hidden>Match names now</button></div>
       <table class="tbl" id="crPeople"><thead><tr><th>Name</th><th>Role</th><th>Planning Center</th></tr></thead><tbody></tbody></table>
     </section>
+    <section id="crDevBox" hidden>
+      <h3>Wi-Fi check-in</h3>
+      <p class="note" style="margin-top:0">With the UniFi module on, a person is checked in when one of their devices
+        joins the church network. People add their own phone from the crew page; you can add one by its MAC address or
+        the hostname the network shows.</p>
+      <div class="note warn" id="crDevOff" hidden>The UniFi module is off, so nobody is checked in by Wi-Fi.</div>
+      <div class="note err" id="crDevErr" hidden></div>
+      <table class="tbl" id="crDevs"><thead><tr><th>Person</th><th>Device</th><th>Added</th><th></th></tr></thead><tbody></tbody></table>
+      <div class="row" id="crDevAdd" hidden>
+        <div class="field"><label for="crDevWho">Person</label><select id="crDevWho"></select></div>
+        <div class="field"><label for="crDevKind">By</label><select id="crDevKind"><option value="mac">MAC address</option><option value="hostname">Hostname</option></select></div>
+        <div class="field"><label for="crDevValue">Value</label><input id="crDevValue" autocomplete="off" spellcheck="false" maxlength="64" placeholder="3c:22:fb:5e:90:40"></div>
+        <div class="field"><label for="crDevLabel">Label</label><input id="crDevLabel" autocomplete="off" maxlength="40" placeholder="iPhone"></div>
+        <div class="ctl"><button type="button" class="primary" id="crDevAddBtn">Add</button></div>
+      </div>
+    </section>
     <section>
       <h3>Opening it on a phone</h3>
       <p class="note" style="margin-top:0">Crew open <span class="mono" id="crLink">/crew</span> on this machine's HTTPS

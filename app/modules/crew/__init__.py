@@ -27,12 +27,12 @@ class Crew(Module):
     manifest = Manifest(
         id="crew",
         name="Crew app",
-        version="1.10.0",
+        version="1.11.0",
         summary="An installable page for the crew, signed in with a Relay account, that shows the plan and hosts "
                 "the other crew features. Served over HTTPS on this network only.",
         settings_key="crew",
         guide="https://github.com/justin-small/relay#crew-app",
-        uses=("planning_center",),
+        uses=("planning_center", "unifi"),
         traffic=(Traffic("crew.push", "Crew notifications (web push, over the internet)"),),
     )
     defaults = {"name": DEFAULT_NAME, "show_plan": True, "geofence": None, "embed_hosts": None,
@@ -120,12 +120,36 @@ class Crew(Module):
                 await asyncio.to_thread(paging.tick)
                 if beat % 5 == 0:         # call times have a minute's grace, so every five seconds is plenty
                     await asyncio.to_thread(calltimes.run)
+                if beat % 15 == 0:        # UniFi reads the controller every 30 seconds by default
+                    await asyncio.to_thread(self._wifi)
             except asyncio.CancelledError:
                 raise
             except Exception:
                 log.warning("crew: paging tick failed", exc_info=True)
             beat += 1
             await asyncio.sleep(1)
+
+    def _wifi(self) -> None:
+        """Wi-Fi check-in (#356): mark arrived everyone whose device the UniFi module sees on the network. Does
+        nothing while UniFi is off. Blocking: run off the loop."""
+        import time
+
+        from ... import audit, users
+        from .. import modules as registry
+        from . import calltimes, checkin, devices
+
+        if not registry.running("unifi"):
+            return
+        from ..unifi.service import service
+
+        clients = service.presence.online()
+        if not clients:
+            return
+        tracks, zone = calltimes._state()
+        now = time.time()
+        for uid in devices.arrive_present(clients, checkin.plan_key(tracks, zone, now), now):
+            audit.record("crew.checkin", "Checked in at the church", actor=users.get(uid),
+                         detail={"method": "wifi"})
 
     def _scan(self) -> None:
         """Match accounts to the people on the followed plans (people.py). Blocking: run off the loop."""

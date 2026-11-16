@@ -189,10 +189,46 @@
       const tr = document.createElement('tr');
       const at = function (ts) { return ts ? new Date(ts * 1000).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : ''; };
       tr.appendChild(cell(p.name)); tr.appendChild(cell(p.teams.join(', '))); tr.appendChild(cell(at(p.call_ts) || '\u2014'));
-      tr.appendChild(cell(STATE[p.state] + (p.arrived_ts ? ' ' + at(p.arrived_ts) + (p.method === 'geofence' ? ' (location)' : '') : '')));
+      tr.appendChild(cell(STATE[p.state] + (p.arrived_ts ? ' ' + at(p.arrived_ts) + (p.method === 'geofence' ? ' (location)' : p.method === 'wifi' ? ' (Wi-Fi)' : '') : '')));
       body.appendChild(tr);
     });
   }
+  // -- Wi-Fi check-in devices (#356)
+  let devPeople = [];
+  function devSay(t) { $('crDevErr').textContent = t || ''; $('crDevErr').hidden = !t; }
+  function drawDevices(d) {
+    const manage = can('crew.manage'), body = document.querySelector('#crDevs tbody');
+    $('crDevBox').hidden = false;
+    $('crDevOff').hidden = d.wifi;
+    $('crDevAdd').hidden = !manage;
+    body.textContent = '';
+    d.devices.forEach(function (x) {
+      const tr = document.createElement('tr');
+      tr.appendChild(cell(x.name));
+      tr.appendChild(cell((x.label ? x.label + ' \u00b7 ' : '') + x.value));
+      tr.appendChild(cell(x.added_by === 'admin' ? 'by an admin' : 'by them'));
+      const td = document.createElement('td');
+      if (manage) td.appendChild(button('Remove', async function () {
+        const r = await send2('DELETE', '/api/admin/crew/devices/' + x.id, null, devSay); if (r) drawDevices(r);
+      }));
+      tr.appendChild(td); body.appendChild(tr);
+    });
+    const sel = $('crDevWho'), keep = sel.value; sel.textContent = '';
+    devPeople.forEach(function (p) { const o = document.createElement('option'); o.value = p.id; o.textContent = p.name; sel.appendChild(o); });
+    if (keep) sel.value = keep;
+  }
+  async function devicesRefresh() {
+    if (!can('crew.view')) return;
+    try {
+      devPeople = (await api('/api/admin/crew/people')).people || [];
+      drawDevices(await api('/api/admin/crew/devices'));
+    } catch (e) { /* keeps what it had */ }
+  }
+  $('crDevAddBtn').addEventListener('click', async function () {
+    const r = await send2('POST', '/api/admin/crew/devices', { user_id: +$('crDevWho').value, kind: $('crDevKind').value,
+      value: $('crDevValue').value, label: $('crDevLabel').value }, devSay);
+    if (r) { $('crDevValue').value = ''; $('crDevLabel').value = ''; drawDevices(r); }
+  });
   async function boardRefresh() {
     if (!can('crew.page')) return;
     $('crBoardBox').hidden = false;
@@ -255,5 +291,5 @@
   });
   setInterval(function () { if (document.getElementById('page-crew') && !document.getElementById('page-crew').hidden) { boardRefresh(); listsRefresh(); } }, 15000);
   document.addEventListener('relay:config', function () { refresh(); peopleRefresh(); drawn = false; pagesRefresh(); callsRefresh(); boardRefresh(); listsRefresh(); leadsRefresh(); });
-  refresh(); peopleRefresh(); pagesRefresh(); callsRefresh(); boardRefresh(); listsRefresh(); leadsRefresh();
+  refresh(); peopleRefresh(); pagesRefresh(); callsRefresh(); boardRefresh(); listsRefresh(); leadsRefresh(); devicesRefresh();
 })();

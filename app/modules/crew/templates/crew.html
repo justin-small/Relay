@@ -30,6 +30,16 @@
     <h2>Check in</h2>
     <div class="cr-note" id="crInNote" role="status" aria-live="polite"></div>
     <button type="button" class="cr-confirm" id="crInBtn" hidden>Check in</button>
+    <div id="crDev" hidden>
+      <h3>Your devices</h3>
+      <div class="cr-note" id="crDevNote">When one of these joins the church Wi-Fi, you are checked in without opening
+        this page.</div>
+      <ul class="cr-items" id="crDevList"></ul>
+      <button type="button" id="crDevThis" hidden>This is my phone</button>
+      <div class="cr-note" id="crDevPrivate" hidden>This phone uses a private Wi-Fi address. Turn on a fixed address for
+        the church Wi-Fi (on iPhone: Settings, Wi-Fi, the church network, Private Wi-Fi Address: Fixed), or Relay may
+        not know it next time.</div>
+    </div>
   </section>
   <section class="cr-card cr-alerts" id="crAlerts" hidden>
     <h2>Pages</h2>
