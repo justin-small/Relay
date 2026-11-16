@@ -28,7 +28,7 @@ builds (Windows x64, macOS arm64, macOS Intel, Linux x64), then the GitHub relea
 `latest.json` and the source zip. The tag is the only place a version is written (`tools/release_tools.py`
 copies it into `tauri.conf.json` and `Cargo.toml`; the shell passes it on as `RELAY_VERSION`). A tag with a
 hyphen is a pre-release and is not offered to stable installs. Pull requests that touch `desktop/` build the
-installers without signing or publishing.
+installers without signing or publishing, and skip the macOS Intel build (the slowest runner) until a tag.
 
 **Updater key.** Updates are verified with a minisign key pair that is separate from OS code signing. The
 public half is `plugins.updater.pubkey` in `tauri.conf.json`; the private half is the repository secret
