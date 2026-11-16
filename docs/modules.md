@@ -194,6 +194,30 @@ one of its classes resolved again. It runs on the event loop: start work with as
 Routes are chosen from the ports Relay has seen (`known_ports` in config.json), never typed in. A route to a port
 Relay has never seen is dropped with a notice when config loads.
 
+Open sockets through `app/netsock.py`, never `socket` directly. Binding to the port's address alone picks only the
+source address, and the OS may still send through another port. Each helper takes a class id (or a `Resolved`),
+pins the socket to the port (`SO_BINDTODEVICE` on Linux, `IP_BOUND_IF` on macOS, `IP_UNICAST_IF` on Windows), and
+gives an ordinary socket when the class is not routed:
+
+```python
+from app import netsock
+
+reader, writer = await netsock.open_tcp("propresenter", host, port)          # or connect_tcp(...) -> socket
+transport, proto = await netsock.udp_endpoint("atem", AtemProtocol)          # or udp_socket(...) -> socket
+sock = netsock.multicast_socket("aes67", "239.69.1.1", 5004)                 # joined on the port's address
+server = await netsock.start_server("signage", handle, 8090)                 # or listen_tcp(...) -> socket
+```
+
+A helper that cannot do its job raises `netsock.RouteError`, whose message is a fixed sentence safe to show
+on the module's page. `netsock.notes(class_id)` lists what the operator should know about a route:
+
+- Linux refused the pin because Relay lacks `CAP_NET_RAW`. The socket still sends from the port's address,
+  which works for devices on that port's own network.
+- Strict reverse-path filtering (`rp_filter=1`) may drop replies.
+- Two ports are on the same subnet. Nothing can steer between them reliably.
+
+On Windows, the weak host model can still send replies out of another port; keep each port on its own subnet.
+
 ## Audio sources and outputs
 
 Core captures audio from an `AudioSource` and plays audio through an `AudioOutput` (`app/audio.py`); it

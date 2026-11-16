@@ -46,16 +46,17 @@ MODULES = APP / "modules"
 
 # Relay's core. A new file here is a new piece of core, not an integration: say why in the pull request.
 # netroute.py (#344): which network port each kind of traffic uses; core because every module asks it.
+# netsock.py (#345): sockets pinned to a chosen port; core so every module steers traffic the same way.
 CORE_FILES = {
     "__init__.py", "alerthistory.py", "alerts.py", "announce.py", "audio.py", "audit.py", "backup.py", "config.py", "db.py", "demo.py", "engine.py", "exporting.py", "hub.py", "prefs.py",
-    "importdocker.py", "languages.py", "main.py", "netinfo.py", "netroute.py", "overlays.py", "panelfw.py", "panels.py", "paths.py", "realtime.py", "recorder.py", "redact.py",
+    "importdocker.py", "languages.py", "main.py", "netinfo.py", "netroute.py", "netsock.py", "overlays.py", "panelfw.py", "panels.py", "paths.py", "realtime.py", "recorder.py", "redact.py",
     "scheduler.py", "schedules.py", "secretbox.py", "serving.py", "setupcode.py", "sidecar.py", "streamstatus.py", "tally.py", "texttranslate.py", "tls.py", "users.py",
 }
 # Network clients, and the core files allowed them: OpenAI (realtime, text translation) and the host's own
 # address for the viewer links (main, netinfo) and Relay announcing itself to its own caption panels (announce).
 NETWORK = {"socket", "ssl", "http.client", "urllib.request", "websockets", "httpx", "aiohttp", "requests",
            "zeroconf", "paho", "pyserial", "serial"}
-CORE_NETWORK = {"announce.py": {"socket"}, "main.py": {"socket"}, "netinfo.py": {"socket"}, "realtime.py": {"ssl", "websockets"}, "serving.py": {"socket"},
+CORE_NETWORK = {"announce.py": {"socket"}, "main.py": {"socket"}, "netinfo.py": {"socket"}, "netsock.py": {"socket"}, "realtime.py": {"ssl", "websockets"}, "serving.py": {"socket"},
                 "texttranslate.py": {"urllib.request"}, "tls.py": {"socket", "ssl"}}
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
