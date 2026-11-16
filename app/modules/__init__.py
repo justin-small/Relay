@@ -241,6 +241,20 @@ templates: Any = None
 page_gate: Callable[..., Any] | None = None
 
 
+# The lighting module sets this in attach() and clears it in detach() (#377): (cue id, request or None) -> a dict
+# {"ok": bool, "error": str}. Anything that wants to fire a lighting cue calls `fire_cue`, never the module.
+cue_hook: Callable[..., Awaitable[dict]] | None = None
+
+
+async def fire_cue(cue_id: str, request: Any = None) -> dict:
+    """Fire a cue the operator put on a lighting page. {"ok": False, "error": ...} when lighting is off, the cue is
+    not on a page, or the program could not do it. Pass the admin `request` to have the press in the audit trail."""
+    hook = cue_hook
+    if hook is None:
+        return {"ok": False, "error": "Lighting is off."}
+    return await hook(cue_id, request)
+
+
 def require(perm: str) -> Callable[..., Any]:
     """FastAPI dependency for a module's admin route: the signed-in user must hold permission `perm`
     (`<module id>.view`, `<module id>.manage` or a finer one the module declares). 401 when signed out,

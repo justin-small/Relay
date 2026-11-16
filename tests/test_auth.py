@@ -359,6 +359,7 @@ MIN_ROLE = {
     "signage_web.view": "viewer", "signage_web.manage": "admin",
     "alert_events.view": "viewer", "alert_events.manage": "admin",
     "atem.view": "viewer", "atem.control": "operator", "atem.manage": "admin",
+    "lighting.view": "viewer", "lighting.control": "operator", "lighting.manage": "admin",
     "tally_arbiter.view": "viewer", "tally_arbiter.manage": "admin",
     "parent_paging.view": "viewer", "parent_paging.control": "operator", "parent_paging.manage": "admin",
     "crew.use": "member", "crew.view": "viewer", "crew.manage": "admin", "crew.page": "operator", "crew.chat": "member", "crew.checkin": "member", "crew.checklist": "member", "crew.checklist_edit": "operator", "crew.resources": "member", "crew.resources_edit": "operator", "crew.moderate": "operator", "crew.activity": "operator",
@@ -384,7 +385,7 @@ print("every /api/admin route")
 config.save({"modules": {"propresenter": {"enabled": True}, "planning_center": {"enabled": True},
                          "remote_access": {"enabled": True}, "signage": {"enabled": True},
                          "signage_web": {"enabled": True}, "alert_events": {"enabled": True},
-                         "atem": {"enabled": True}, "tally_arbiter": {"enabled": True},
+                         "atem": {"enabled": True}, "lighting": {"enabled": True}, "tally_arbiter": {"enabled": True},
                          "parent_paging": {"enabled": True}, "intercom": {"enabled": True}, "intercom_remote": {"enabled": True},
                          "crew": {"enabled": True}}})
 
@@ -581,6 +582,12 @@ for method, path, perm in (
     ("POST", ATX + "/preview", "atem.control"),
     ("POST", ATX + "/downstream-key", "atem.control"),
     ("POST", ATX + "/macro", "atem.control"),
+    ("GET", "/api/admin/lighting", "lighting.view"),
+    ("PUT", "/api/admin/lighting/settings", "lighting.manage"),         # an empty body changes nothing
+    ("PUT", "/api/admin/lighting/pages", "lighting.manage"),            # an empty body is refused
+    ("POST", "/api/admin/lighting/test", "lighting.manage"),            # no program chosen: nothing is sent
+    ("POST", "/api/admin/lighting/press", "lighting.control"),          # no cue named: refused
+    ("POST", "/api/admin/lighting/release", "lighting.control"),
     ("GET", PGX, "parent_paging.view"),
     ("PUT", PGX + "/settings", "parent_paging.manage"),                 # an empty body changes nothing
     ("GET", PGX + "/locations", "parent_paging.manage"),                # Planning Center is not set up: refused
@@ -767,7 +774,7 @@ eq("signed out is 401", anon_c.get("/api/admin/propresenter").status_code, 401)
 config.save({"modules": {"propresenter": {"enabled": False}, "planning_center": {"enabled": False},
                          "remote_access": {"enabled": False}, "signage": {"enabled": False},
                          "signage_web": {"enabled": False}, "alert_events": {"enabled": False},
-                         "atem": {"enabled": False}, "tally_arbiter": {"enabled": False},
+                         "atem": {"enabled": False}, "lighting": {"enabled": False}, "tally_arbiter": {"enabled": False},
                          "parent_paging": {"enabled": False}, "intercom": {"enabled": False}, "intercom_remote": {"enabled": False},
                          "crew": {"enabled": False}}})
 eq("a module that is off is still a 404 for everyone", op_c.get("/api/admin/propresenter").status_code, 404)
@@ -1326,6 +1333,7 @@ for mid, want in (("planning_center", {"planning_center.view": "viewer", "planni
                   ("signage_web", {"signage_web.view": "viewer", "signage_web.manage": "admin"}),
                   ("alert_events", {"alert_events.view": "viewer", "alert_events.manage": "admin"}),
                   ("atem", {"atem.view": "viewer", "atem.control": "operator", "atem.manage": "admin"}),
+                  ("lighting", {"lighting.view": "viewer", "lighting.control": "operator", "lighting.manage": "admin"}),
                   ("tally_arbiter", {"tally_arbiter.view": "viewer", "tally_arbiter.manage": "admin"}),
                   ("parent_paging", {"parent_paging.view": "viewer", "parent_paging.control": "operator",
                                      "parent_paging.manage": "admin"}),

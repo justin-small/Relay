@@ -337,6 +337,7 @@ def udp_socket(route: Resolved | str, port: int = 0, *, broadcast: bool = False,
     r = _resolved(route)
     _require(r)
     sock = _new(socket.SOCK_DGRAM)
+    no_connreset(sock)
     try:
         if reuse:
             _reuse(sock)
@@ -354,6 +355,21 @@ def udp_socket(route: Resolved | str, port: int = 0, *, broadcast: bool = False,
         _close(sock)
         raise RouteError(f"UDP port {port} on {_name(r)} is already in use or cannot be opened.") from None
     return sock
+
+
+def no_connreset(sock: socket.socket) -> None:
+    """Windows: stop an ICMP "port unreachable" (a peer that closed its socket) from failing the next receive on a
+    UDP socket (SIO_UDP_CONNRESET). Nothing to do elsewhere."""
+    if sys.platform != "win32":
+        return
+    try:
+        import ctypes
+
+        off, got = ctypes.c_ulong(0), ctypes.c_ulong(0)
+        ctypes.windll.ws2_32.WSAIoctl(ctypes.c_size_t(sock.fileno()), 0x9800000C, ctypes.byref(off), 4, None, 0,
+                                      ctypes.byref(got), None, None)
+    except Exception:
+        pass
 
 
 def _reuse(sock: socket.socket) -> None:
@@ -454,7 +470,12 @@ async def udp_endpoint(route: Resolved | str, protocol_factory: Callable[[], asy
         if target is not None:
             sock.connect(target)
         sock.setblocking(False)
-        return await loop.create_datagram_endpoint(protocol_factory, sock=sock)
+        transport, protocol = await loop.create_datagram_endpoint(protocol_factory, sock=sock)
+        if target is not None and getattr(transport, "_address", 0) is None:
+            # Windows' proactor transport does not learn the peer of a socket it is handed, so sendto(data) with no
+            # address passes None to WSASendTo and fails. Telling it the peer makes it send on the connected socket.
+            transport._address = target
+        return transport, protocol
     except OSError:
         _close(sock)
         raise RouteError(f"Could not send to {remote[0] if remote else 'that address'} through "

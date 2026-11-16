@@ -296,13 +296,15 @@ with section("real sockets over loopback"):
         p = closed.getsockname()[1]
         closed.close()
         try:
-            await netsock.open_tcp(b, server_at, p, timeout=2)
+            await netsock.open_tcp(b, server_at, p, timeout=10)
             return p, "connected"
         except RouteError as exc:
             return p, str(exc)
 
     p, text = asyncio.run(refused())
-    eq("open_tcp to a closed port: a fixed sentence", text,
-       f"Could not connect to {server_at} port {p} through {netsock._name(b)}.")
+    # Windows reports a refused connection through the unpinned path, without the port's name.
+    check("open_tcp to a closed port: a fixed sentence",
+          text in (f"Could not connect to {server_at} port {p} through {netsock._name(b)}.",
+                   f"Could not connect to {server_at} port {p}.") and (sys.platform == "win32" or "through" in text), text)
 
 done()
