@@ -9,6 +9,7 @@ import socket
 import struct
 import sys
 import tempfile
+import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -215,7 +216,6 @@ async def run_client():
     transport.close()
 
 
-asyncio.run(run_client())
 
 async def probe_fake():
     """The subnet probe against the fake switcher on localhost: it answers the hello, so it is listed."""
@@ -387,7 +387,7 @@ async def refind():
     config.save({"atem": {"devices": [{"id": "m1", "name": "Main", "host": "10.0.0.5", "uid": "7c2e0d0a1b2c"},
                                       {"id": "m2", "name": "Spare", "host": "10.0.0.9"}]}}, replace=("atem",))
     lost = svc.Device(svc.devices()[0], svc.service.publish)
-    lost.down_since = 1.0                        # down for a long time
+    lost.down_since = time.monotonic() - 1000    # down for a long time
     known = svc.Device(svc.devices()[1], svc.service.publish)
     known.client = FakeClient()                  # connected, and nobody knows its id yet
     svc.service.devices = {"m1": lost, "m2": known}

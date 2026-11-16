@@ -121,7 +121,7 @@ class Device:
         self.client: AtemClient | None = None
         self._on_change = on_change
         self.down_since = time.monotonic()
-        self.last_refind = 0.0
+        self.last_refind = float("-inf")   # never looked yet (monotonic time can be small just after boot)
         self.refound = ""
 
     @property
