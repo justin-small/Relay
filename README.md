@@ -793,7 +793,13 @@ intranet, a device on the LAN) are never fetched by Relay: they are saved unchec
 Three pieces fit together. A switcher module reads the program and preview from a video switcher, core keeps the
 one shared tally state, and the tally screens read only that state, so they work with whichever module fills it.
 
-- **Blackmagic ATEM** (module, off by default). Enter the switcher's IP address on its admin page. Relay speaks
+- **Blackmagic ATEM** (module, off by default). On its admin page, press **Scan** to list the Blackmagic gear on the
+  network (switchers, HyperDecks, Videohubs, cameras and more, found over mDNS; tick "every address on this subnet"
+  where mDNS is blocked) and add a switcher in one click, or add one by its IP address. Add as many switchers as the
+  building has: each connects on its own, can be switched off without being removed, and either drives the tally
+  lights or not. Give each one that drives tally its own **first camera number** (camera 1 on the overflow switcher
+  as tally 101, say) so the screens never mix them up. A switcher found by the scan is followed to a new address if
+  its DHCP lease changes. An existing single-switcher setup becomes the first switcher on upgrade. Relay speaks
   the ATEM network protocol itself (UDP port 9910, written from the protocol description in `atem-connection`, the
   library Bitfocus Companion uses), so there is nothing to install. It shows the program and preview tally with the
   switcher's own input names, and a booth operator can cut, auto-transition, set preview or program, mix a downstream

@@ -9,6 +9,7 @@ import socket
 import struct
 import sys
 import tempfile
+import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -32,6 +33,7 @@ from app.modules.atem.client import AtemClient  # noqa: E402
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from _harness import check, eq, fails  # noqa: E402
+from app.modules.atem import discovery  # noqa: E402
 
 
 def name20(text):
@@ -214,7 +216,45 @@ async def run_client():
     transport.close()
 
 
+
+async def probe_fake():
+    """The subnet probe against the fake switcher on localhost: it answers the hello, so it is listed."""
+    loop = asyncio.get_running_loop()
+    sw = FakeSwitcher()
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    sock.bind(("127.0.0.1", 0))
+    sock.setblocking(False)
+    transport, _ = await loop.create_datagram_endpoint(lambda: sw, sock=sock)
+    port = transport.get_extra_info("sockname")[1]
+    found = await asyncio.to_thread(discovery.probe, 0.5, ["127.0.0.1"], port)
+    transport.close()
+    return found, sw.hellos
+
+
 asyncio.run(run_client())
+
+print("settings: a list of switchers, and the old single address")
+eq("the old setting becomes the first switcher", svc.clean_settings({"host": " 10.0.0.5 ", "port": 9910}),
+   {"devices": [{"id": "main", "name": "Switcher", "host": "10.0.0.5", "port": 9910, "enabled": True, "tally": True,
+                 "tally_offset": 0, "uid": "", "model": ""}]})
+eq("an old setting with no address is no switchers", svc.clean_settings({"host": "", "port": 9910}), {"devices": []})
+eq("junk is no switchers", svc.clean_settings({"host": "a b/c", "port": "x"}), {"devices": []})
+two = svc.clean_settings({"devices": [
+    {"id": "a1", "name": "  Main   room ", "host": "10.0.0.5", "port": 70000, "tally_offset": 5000, "uid": "bad uid!"},
+    {"id": "a1", "host": "10.0.0.6"}, {"id": "BAD", "host": "10.0.0.7"}, "junk",
+    {"id": "b2", "host": "sw.local", "enabled": False, "tally": False, "tally_offset": 100, "uid": "7c2e0d0a1b2c"}]})["devices"]
+eq("bad ids and repeats are dropped", [d["id"] for d in two], ["a1", "b2"])
+eq("a name is tidied, a bad port, first camera and id fall back", (two[0]["name"], two[0]["port"], two[0]["tally_offset"],
+   two[0]["uid"]), ("Main room", 9910, 0, ""))
+eq("switches and the first camera are kept", (two[1]["enabled"], two[1]["tally"], two[1]["tally_offset"], two[1]["uid"]),
+   (False, False, 100, "7c2e0d0a1b2c"))
+eq("at most 16", len(svc.clean_settings({"devices": [{"id": f"d{i}", "host": "10.0.0.1"} for i in range(30)]})["devices"]),
+   svc.MAX_DEVICES)
+a = {"name": "A", "enabled": True, "tally": True, "tally_offset": 0}
+eq("two switchers on the same camera numbers are flagged", len(svc.overlaps([a, dict(a, name="B")])), 1)
+eq("apart by 100 they are not", svc.overlaps([a, dict(a, name="B", tally_offset=100)]), [])
+eq("one that does not drive tally is not", svc.overlaps([a, dict(a, name="B", tally=False)]), [])
+eq("a protocol version reads as major.minor", svc.version_text(p.V8_0_1), "2.29")
 
 print("publishing into the shared tally state")
 tally.tally.reset()
@@ -223,11 +263,12 @@ tally.tally.reset()
 class FakeClient:
     """Stands in for the real client in the service: what the routes talk to."""
 
-    def __init__(self):
+    def __init__(self, cams=None, version=p.V8_0_1):
         self.connected = True
         self.error = ""
         self.sent = []
-        self.state = type("S", (), {"product": "ATEM", "version": p.V8_0_1, "mix_effects": 2, "downstream_keyers": 2,
+        self._cams = cams or [{"n": 1, "name": "Wide", "program": True, "preview": False}]
+        self.state = type("S", (), {"product": "ATEM", "version": version, "mix_effects": 2, "downstream_keyers": 2,
                                     "inputs": {1: {"long": "Wide", "short": "WID"}, 2: {"long": "", "short": "PAS"}},
                                     "program": {0: 1}, "preview": {0: 2}, "macros": {0: "Open"}})()
 
@@ -241,62 +282,250 @@ class FakeClient:
         self.connected = False
 
     def cameras(self):
-        return [{"n": 1, "name": "Wide", "program": True, "preview": False}]
+        return self._cams
 
 
-svc.service.client = FakeClient()
+def fake_device(cfg, client):
+    dev = svc.Device(svc.clean_device(cfg), svc.service.publish)
+    dev.client = client
+    svc.service.devices[dev.cfg["id"]] = dev
+    return dev
+
+
+main_dev = fake_device({"id": "main", "name": "Main", "host": "10.0.0.5"}, FakeClient())
+over_dev = fake_device({"id": "over", "name": "Overflow", "host": "10.0.0.6", "tally_offset": 100},
+                       FakeClient([{"n": 1, "name": "Overflow cam", "program": False, "preview": True},
+                                   {"n": 950, "name": "Too far", "program": True, "preview": False}]))
 svc.service.publish()
-eq("the camera is published", [c["name"] for c in tally.tally.cameras()], ["Wide"])
-svc.service.client.connected = False
+eq("each switcher publishes on its own numbers", [(c["n"], c["name"]) for c in tally.tally.cameras()],
+   [(1, "Wide"), (101, "Overflow cam")])
+over_dev.cfg["tally"] = False
 svc.service.publish()
-eq("a lost switcher leaves nothing", tally.tally.cameras(), [])
-svc.service.client.connected = True
+eq("one that does not drive tally is taken off", [c["n"] for c in tally.tally.cameras()], [1])
+over_dev.cfg["tally"] = True
+main_dev.client.connected = False
+svc.service.publish()
+eq("a lost switcher leaves only the other", [c["n"] for c in tally.tally.cameras()], [101])
+svc.service.clear_tally()
+eq("clearing takes every switcher's tally away", tally.tally.cameras(), [])
+main_dev.client.connected = True
+svc.service.devices.clear()
 
-print("settings")
-eq("an address is kept", svc.clean_settings({"host": " 10.0.0.5 ", "port": 9910}), {"host": "10.0.0.5", "port": 9910})
-eq("junk is dropped", svc.clean_settings({"host": "a b/c", "port": "x"}), {"host": "", "port": 9910})
-eq("a bad port falls back", svc.clean_settings({"host": "sw.local", "port": 70000})["port"], 9910)
+print("finding Blackmagic gear: the mDNS answer")
+
+
+def rr(name, rtype, rdata):
+    return discovery._name(name.split(".")) + struct.pack("!HHIH", rtype, 1, 120, len(rdata)) + rdata
+
+
+def txt(*items):
+    return b"".join(bytes([len(i.encode())]) + i.encode() for i in items)
+
+
+def srv(port, target):
+    return struct.pack("!HHH", 0, 0, port) + discovery._name(target.split("."))
+
+
+records = [
+    rr("_blackmagic._tcp.local", 12, discovery._name("ATEM Mini Pro._blackmagic._tcp.local".split("."))),
+    rr("ATEM Mini Pro._blackmagic._tcp.local", 33, srv(9910, "atem-mini.local")),
+    rr("ATEM Mini Pro._blackmagic._tcp.local", 16, txt("class=AtemSwitcher", "name=Blackmagic ATEM Mini Pro",
+                                                      "unique id=7c2e0d0a1b2c", "internal version=9.4")),
+    rr("atem-mini.local", 1, socket.inet_aton("192.168.1.240")),
+    rr("_hyperdeck_ctrl._tcp.local", 12, discovery._name("HyperDeck Studio._hyperdeck_ctrl._tcp.local".split("."))),
+    rr("HyperDeck Studio._hyperdeck_ctrl._tcp.local", 33, srv(9993, "hd.local")),
+    rr("hd.local", 1, socket.inet_aton("192.168.1.50")),
+    rr("_blackmagic._tcp.local", 12, discovery._name("Pocket 6K._blackmagic._tcp.local".split("."))),
+    rr("Pocket 6K._blackmagic._tcp.local", 16, txt("name=Blackmagic Pocket Cinema Camera 6K", "unique id=99aa")),
+]
+msg = struct.pack("!6H", 0, 0x8400, 0, len(records), 0, 0) + b"".join(records)
+parsed = discovery.parse_records(msg)
+eq("every record parses", len(parsed), len(records))
+found = discovery.collect(parsed, set(discovery.SERVICES))
+eq("three devices, the switcher first", [f["family"] for f in found], ["atem", "camera", "hyperdeck"])
+atem = found[0]
+eq("the switcher's address, id, model and firmware", (atem["address"], atem["uid"], atem["model"], atem["firmware"],
+   atem["atem"]), ("192.168.1.240", "7c2e0d0a1b2c", "Blackmagic ATEM Mini Pro", "9.4", True))
+eq("a device that did not say its address has none", found[1]["address"], "")
+eq("the HyperDeck is listed but not an ATEM", (found[2]["kind"], found[2]["atem"], found[2]["port"]),
+   ("HyperDeck recorder", False, 9993))
+eq("TXT keys are read without case", discovery.parse_txt(txt("Unique ID=x1", "flag")), {"unique id": "x1", "flag": ""})
+eq("families by their words", [discovery.family(t)[0] for t in ("Videohub 20x20", "Teranex Mini", "Web Presenter HD",
+   "Cloud Store Mini", "URSA Broadcast", "Something")],
+   ["videohub", "teranex", "streaming", "storage", "camera", "other"])
+try:
+    discovery.parse_records(msg[:40])
+    eq("a cut-off message is refused", "parsed", "refused")
+except ValueError:
+    eq("a cut-off message is refused", 1, 1)
+eq("a question is a PTR for the name", discovery.question("_blackmagic._tcp.local", 12)[-4:], struct.pack("!HH", 12, 1))
+
+print("finding: the subnet probe")
+probed, hellos = asyncio.run(probe_fake())
+eq("the fake switcher answers the probe", [(f["address"], f["atem"]) for f in probed], [("127.0.0.1", True)])
+eq("with one hello", hellos, 1)
+eq("no addresses, no probe", discovery.probe(0.1, []), [])
+
+
+def targets_for(cidr):
+    port = type("P", (), {"loopback": False, "vpn": False, "ipv4": (cidr,), "default_route": True})()
+    from unittest import mock
+    with mock.patch.object(discovery.netroute, "resolve", side_effect=KeyError("atem")), \
+            mock.patch.object(discovery.netinfo, "interfaces", lambda: [port]):
+        return discovery.probe_targets()
+
+
+t = targets_for("10.1.2.3/16")
+eq("a /16 becomes this /24 without this computer", (len(t), t[0], "10.1.2.3" in t), (253, "10.1.2.1", False))
+eq("a /28 stays a /28", len(targets_for("192.168.5.20/28")), 13)
+
+print("following a switcher that moved")
+
+
+async def refind():
+    svc.service.devices.clear()
+    config.save({"atem": {"devices": [{"id": "m1", "name": "Main", "host": "10.0.0.5", "uid": "7c2e0d0a1b2c"},
+                                      {"id": "m2", "name": "Spare", "host": "10.0.0.9"}]}}, replace=("atem",))
+    lost = svc.Device(svc.devices()[0], svc.service.publish)
+    lost.down_since = time.monotonic() - 1000    # down for a long time
+    known = svc.Device(svc.devices()[1], svc.service.publish)
+    known.client = FakeClient()                  # connected, and nobody knows its id yet
+    svc.service.devices = {"m1": lost, "m2": known}
+    svc.service._running = False                 # sync must not open real clients
+    answer = [{"uid": "7c2e0d0a1b2c", "address": "10.0.0.77", "atem": True, "model": "ATEM Mini Pro"},
+              {"uid": "55ee", "address": "10.0.0.9", "atem": True, "model": "ATEM 1 M/E"}]
+    changed = await svc.service._refind_once(lambda: answer)
+    again = await svc.service._refind_once(lambda: answer)
+    return changed, again, svc.devices()
+
+
+changed, again, after = asyncio.run(refind())
+check("a setting changed", changed)
+eq("the lost switcher follows its id to the new address", after[0]["host"], "10.0.0.77")
+eq("the connected one learns its id and model", (after[1]["uid"], after[1]["model"]), ("55ee", "ATEM 1 M/E"))
+check("and nobody asks again straight away", not again)
+svc.service.devices.clear()
 
 print("the admin routes")
 config.ensure_file()
-config.save({"admin_token": "t0ken", "port": 8000, "admin_port": 8001, "modules": {"atem": {"enabled": True}}})
+config.save({"admin_token": "t0ken", "port": 8000, "admin_port": 8001, "modules": {"atem": {"enabled": True}},
+             "atem": {"host": "10.0.0.5", "port": 9910}}, replace=("atem",))
 _modules.attach("atem")
+eq("an old single-address setting loads as one switcher", [d["host"] for d in svc.devices()], ["10.0.0.5"])
 admin = _db.client(app, base_url="http://relay.local:8001")
 viewer = _db.client(app, role="viewer", username="viewer1", base_url="http://relay.local:8001")
 operator = _db.client(app, role="operator", username="operator1", base_url="http://relay.local:8001")
 
+svc.service._running = False                     # the routes' syncs must not open real clients
+svc.service.devices.clear()
+fake = FakeClient()
+fake_device({"id": "main", "name": "Main", "host": "10.0.0.5"}, fake)
+
 res = admin.get("/api/admin/atem")
-eq("the state", (res.status_code, res.json()["connected"], res.json()["product"]), (200, True, "ATEM"))
-eq("inputs are named, an unnamed one by its short name", [i["name"] for i in res.json()["inputs"]], ["Wide", "PAS"])
-eq("each mix effect says what is on", res.json()["mix_effects"][0], {"me": 0, "program": 1, "preview": 2})
-eq("macros", res.json()["macros"], [{"slot": 0, "name": "Open"}])
+dev0 = res.json()["devices"][0]
+eq("the state", (res.status_code, dev0["connected"], dev0["product"], dev0["version"]), (200, True, "ATEM", "2.29"))
+eq("inputs are named, an unnamed one by its short name", [i["name"] for i in dev0["inputs"]], ["Wide", "PAS"])
+eq("each mix effect says what is on", dev0["mix_effects"][0], {"me": 0, "program": 1, "preview": 2})
+eq("macros", dev0["macros"], [{"slot": 0, "name": "Open"}])
+eq("new firmware is not flagged", dev0["old_firmware"], False)
 eq("a viewer can look", viewer.get("/api/admin/atem").status_code, 200)
 eq("a viewer cannot cut", viewer.post("/api/admin/atem/cut", json={"me": 0}).status_code, 403)
-eq("an operator cuts", operator.post("/api/admin/atem/cut", json={"me": 0}).status_code, 200)
-eq("an operator cannot change the address",
-   operator.put("/api/admin/atem/settings", json={"host": "10.0.0.9"}).status_code, 403)
-eq("the cut was sent", svc.service.client.sent[-1], p.cut(0))
-eq("auto", admin.post("/api/admin/atem/auto", json={"me": 1}).status_code, 200)
-eq("auto was sent for that mix effect", svc.service.client.sent[-1], p.auto(1))
+eq("an operator cuts the first switcher with no device named",
+   operator.post("/api/admin/atem/cut", json={"me": 0}).status_code, 200)
+eq("an operator cannot add a switcher",
+   operator.post("/api/admin/atem/devices", json={"host": "10.0.0.9"}).status_code, 403)
+eq("an operator cannot scan", operator.post("/api/admin/atem/scan", json={}).status_code, 403)
+eq("the cut was sent", fake.sent[-1], p.cut(0))
+eq("auto", admin.post("/api/admin/atem/auto", json={"device": "main", "me": 1}).status_code, 200)
+eq("auto was sent for that mix effect", fake.sent[-1], p.auto(1))
+eq("a switcher that is not in the list",
+   admin.post("/api/admin/atem/cut", json={"device": "nope", "me": 0}).status_code, 404)
 eq("a mix effect that does not exist", admin.post("/api/admin/atem/cut", json={"me": 5}).status_code, 400)
 eq("fade to black", admin.post("/api/admin/atem/fade-to-black", json={"me": 0}).status_code, 200)
 eq("program", admin.post("/api/admin/atem/program", json={"me": 0, "source": 2}).status_code, 200)
-eq("sent", svc.service.client.sent[-1], p.set_program(0, 2))
+eq("sent", fake.sent[-1], p.set_program(0, 2))
 eq("preview", admin.post("/api/admin/atem/preview", json={"me": 0, "source": 1}).status_code, 200)
 eq("a source that is not a number", admin.post("/api/admin/atem/preview", json={"me": 0, "source": "x"}).status_code, 400)
 eq("a downstream key goes on air", admin.post("/api/admin/atem/downstream-key", json={"keyer": 1, "action": "on"}).status_code, 200)
-eq("sent as on air", svc.service.client.sent[-1], p.downstream_on_air(1, True))
+eq("sent as on air", fake.sent[-1], p.downstream_on_air(1, True))
 eq("a downstream key mixes", admin.post("/api/admin/atem/downstream-key", json={"keyer": 0, "action": "auto"}).status_code, 200)
-eq("sent as auto for this version", svc.service.client.sent[-1], p.downstream_auto(0, p.V8_0_1))
+eq("sent as auto for this version", fake.sent[-1], p.downstream_auto(0, p.V8_0_1))
 eq("a key that does not exist", admin.post("/api/admin/atem/downstream-key", json={"keyer": 9, "action": "on"}).status_code, 400)
 eq("a macro runs", admin.post("/api/admin/atem/macro", json={"slot": 0, "action": "run"}).status_code, 200)
-eq("sent", svc.service.client.sent[-1], p.macro_run(0))
+eq("sent", fake.sent[-1], p.macro_run(0))
 eq("a macro stops", admin.post("/api/admin/atem/macro", json={"action": "stop"}).status_code, 200)
-svc.service.client.connected = False
+
+# A second switcher, controlled on its own.
+res = admin.post("/api/admin/atem/devices", json={"name": "Overflow", "host": "10.0.0.6", "uid": "abc", "model": "ATEM"})
+eq("a second switcher is added", (res.status_code, [d["name"] for d in res.json()["devices"]]), (200, ["Switcher", "Overflow"]))
+over = res.json()["devices"][1]
+eq("it gets the next hundred for tally, and keeps its id", (over["tally_offset"], over["uid"]), (100, "abc"))
+eq("the same switcher twice is refused",
+   admin.post("/api/admin/atem/devices", json={"host": "10.0.0.6"}).status_code, 409)
+eq("an address is needed", admin.post("/api/admin/atem/devices", json={}).status_code, 400)
+eq("a bad address is a 400", admin.post("/api/admin/atem/devices", json={"host": "no spaces/please"}).status_code, 400)
+eq("a bad port is a 400", admin.post("/api/admin/atem/devices", json={"host": "10.0.0.8", "port": 0}).status_code, 400)
+other = FakeClient()
+fake_device(over, other)                         # the sync opened nothing (not running): stand in for its client
+eq("a cut on the second switcher", admin.post("/api/admin/atem/cut", json={"device": over["id"], "me": 0}).status_code, 200)
+eq("goes to that one only", (other.sent[-1:], fake.sent[-1]), ([p.cut(0)], p.macro_stop()))
+
+res = admin.put(f"/api/admin/atem/devices/{over['id']}", json={"name": "Overflow room", "tally": False, "tally_offset": 200})
+eq("edited", (res.status_code, res.json()["devices"][1]["name"], res.json()["devices"][1]["tally"],
+   res.json()["devices"][1]["tally_offset"]), (200, "Overflow room", False, 200))
+check("a name-only edit keeps the connection", svc.service.devices[over["id"]].client is other)
+eq("a bad first camera is a 400",
+   admin.put(f"/api/admin/atem/devices/{over['id']}", json={"tally_offset": -1}).status_code, 400)
+eq("a flag that is not true or false is a 400",
+   admin.put(f"/api/admin/atem/devices/{over['id']}", json={"enabled": "yes"}).status_code, 400)
+eq("an empty name is a 400", admin.put(f"/api/admin/atem/devices/{over['id']}", json={"name": " "}).status_code, 400)
+eq("editing one that is not there", admin.put("/api/admin/atem/devices/nope", json={}).status_code, 404)
+res = admin.put(f"/api/admin/atem/devices/{over['id']}", json={"enabled": False})
+check("switching one off drops its connection", over["id"] not in svc.service.devices or
+      svc.service.devices[over["id"]].client is not other)
+eq("and it says so", res.json()["devices"][1]["enabled"], False)
+
+calls = []
+from unittest import mock  # noqa: E402
+with mock.patch.object(discovery, "discover", lambda: calls.append("mdns") or [
+        {"name": "ATEM Mini", "model": "ATEM Mini", "family": "atem", "kind": "ATEM switcher", "atem": True,
+         "service": "_blackmagic._tcp", "host": "m.local", "address": "10.0.0.5", "port": 9910, "uid": "", "firmware": ""},
+        {"name": "Deck", "model": "", "family": "hyperdeck", "kind": "HyperDeck recorder", "atem": False,
+         "service": "_hyperdeck_ctrl._tcp", "host": "", "address": "10.0.0.50", "port": 9993, "uid": "", "firmware": ""}]), \
+        mock.patch.object(discovery, "probe", lambda: calls.append("probe") or [
+            {"name": "ATEM at 10.0.0.5", "address": "10.0.0.5", "atem": True, "uid": ""},
+            {"name": "ATEM at 10.0.0.60", "address": "10.0.0.60", "atem": True, "uid": ""}]):
+    res = admin.post("/api/admin/atem/scan", json={})
+    eq("a scan asks mDNS only", (res.status_code, calls, len(res.json()["found"])), (200, ["mdns"], 2))
+    eq("one already in the list is marked", [f["added"] for f in res.json()["found"]], ["main", None])
+    calls.clear()
+    res = admin.post("/api/admin/atem/scan", json={"probe": True})
+    eq("with the probe, both, and an address mDNS found is not listed twice",
+       (calls, [f["address"] for f in res.json()["found"]]), (["mdns", "probe"], ["10.0.0.5", "10.0.0.50", "10.0.0.60"]))
+
+res = admin.delete(f"/api/admin/atem/devices/{over['id']}")
+eq("removed", (res.status_code, [d["id"] for d in res.json()["devices"]]), (200, ["main"]))
+eq("removing one that is not there", admin.delete(f"/api/admin/atem/devices/{over['id']}").status_code, 404)
+
+fake.connected = False
 res = admin.post("/api/admin/atem/cut", json={"me": 0})
 eq("with no switcher a cut says so", (res.status_code, "not connected" in res.json()["error"]), (409, True))
-res = admin.put("/api/admin/atem/settings", json={"host": "no spaces/please"})
-eq("a bad address is a 400", res.status_code, 400)
+fake.connected = True
+fake.state.version = 0x0002001B
+eq("a switcher older than 8.0.1 is flagged", admin.get("/api/admin/atem").json()["devices"][0]["old_firmware"], True)
+
+print("health with several switchers")
+svc.service.devices.clear()
+fake_device({"id": "main", "name": "Main", "host": "10.0.0.5"}, FakeClient())
+config.save({"atem": {"devices": [{"id": "main", "name": "Main", "host": "10.0.0.5"},
+                                  {"id": "b", "name": "Overflow", "host": "10.0.0.6"}]}}, replace=("atem",))
+h = _modules.get("atem").health()
+eq("one down is a warning naming it", (h.state, "Overflow" in h.detail), ("warn", True))
+fake_device({"id": "b", "name": "Overflow", "host": "10.0.0.6"}, FakeClient())
+eq("all up", _modules.get("atem").health().detail, "All 2 switchers connected")
+t = asyncio.run(_modules.get("atem").test())
+eq("the test names each", (t["ok"], "Main: connected" in t["detail"], "Overflow: connected" in t["detail"]),
+   (True, True, True))
 
 print("switched off")
 asyncio.run(svc.service.stop())

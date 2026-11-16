@@ -576,7 +576,10 @@ for method, path, perm in (
     ("POST", "/api/admin/alert-events/test", "alert_events.manage"),      # sends to nothing until something is on
     ("GET", "/api/admin/alert-events/state", "alert_events.view"),
     ("GET", ATX, "atem.view"),
-    ("PUT", ATX + "/settings", "atem.manage"),                           # an empty body clears the address
+    ("POST", ATX + "/devices", "atem.manage"),                           # an empty body is refused
+    ("PUT", ATX + "/devices/{device_id}", "atem.manage"),                # no such switcher: 404
+    ("DELETE", ATX + "/devices/{device_id}", "atem.manage"),
+    ("POST", ATX + "/scan", "atem.manage"),                              # mDNS only: asks, never connects
     ("POST", ATX + "/cut", "atem.control"),                              # no switcher connected: nothing is sent
     ("POST", ATX + "/auto", "atem.control"),
     ("POST", ATX + "/fade-to-black", "atem.control"),

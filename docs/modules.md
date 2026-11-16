@@ -248,7 +248,7 @@ Each module's classes, and what happens when the port changes (`network_changed`
 
 | Module | Class | Goes through | On a port change |
 |---|---|---|---|
-| ATEM | `atem` | `udp_endpoint` | the session starts again |
+| ATEM | `atem` | `udp_endpoint`; `multicast_sender` and `udp_socket` (discovery) | every switcher's session starts again |
 | ProPresenter (and its Planning Center link) | `propresenter` | `http_connection`, `multicast_sender` (discovery) | the live connection opens again |
 | Tally Arbiter | `tally_arbiter` | `websocket_session` | connects again |
 | Planning Center | `planning_center` | `urlopen`, `opener` | asks again now |
