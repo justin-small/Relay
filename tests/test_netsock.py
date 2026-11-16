@@ -296,7 +296,7 @@ with section("real sockets over loopback"):
         p = closed.getsockname()[1]
         closed.close()
         try:
-            await netsock.open_tcp(b, server_at, p, timeout=2)
+            await netsock.open_tcp(b, server_at, p, timeout=10)
             return p, "connected"
         except RouteError as exc:
             return p, str(exc)

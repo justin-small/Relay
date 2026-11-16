@@ -454,7 +454,12 @@ async def udp_endpoint(route: Resolved | str, protocol_factory: Callable[[], asy
         if target is not None:
             sock.connect(target)
         sock.setblocking(False)
-        return await loop.create_datagram_endpoint(protocol_factory, sock=sock)
+        transport, protocol = await loop.create_datagram_endpoint(protocol_factory, sock=sock)
+        if target is not None and getattr(transport, "_address", 0) is None:
+            # Windows' proactor transport does not learn the peer of a socket it is handed, so sendto(data) with no
+            # address passes None to WSASendTo and fails. Telling it the peer makes it send on the connected socket.
+            transport._address = target
+        return transport, protocol
     except OSError:
         _close(sock)
         raise RouteError(f"Could not send to {remote[0] if remote else 'that address'} through "
