@@ -60,6 +60,26 @@ with tempfile.TemporaryDirectory() as d:
 with tempfile.TemporaryDirectory() as d:
     check("no artifacts fails loudly", refuses(rt.latest_json, Path(d), "v1.2.0", "acme/Relay"))
 
+# oauth-clients: Relay's Google client goes into the build from Actions secrets, never into git.
+with tempfile.TemporaryDirectory() as d:
+    dest = Path(d) / "_client.py"
+    said = rt.oauth_clients({}, dest)
+    check("no secrets (a fork's build): nothing written", not dest.exists() and "own app" in said)
+    cid, sec = "123456-abcdef.apps.googleusercontent.com", "FAKE_value-for-tests_0123"
+    said = rt.oauth_clients({"YOUTUBE_CLIENT_ID": f" {cid}\n", "YOUTUBE_CLIENT_SECRET": sec}, dest)
+    ns: dict = {}
+    exec(dest.read_text(), ns)  # noqa: S102  (the file this test just wrote)
+    check("the client is written as two constants", (ns["CLIENT_ID"], ns["CLIENT_SECRET"]) == (cid, sec))
+    check("what it says never holds the values", cid not in said and sec not in said)
+    check("a secret without an id is refused",
+          refuses(rt.oauth_clients, {"YOUTUBE_CLIENT_SECRET": sec}, Path(d) / "x.py"))
+    check("an id that is not Google's is refused",
+          refuses(rt.oauth_clients, {"YOUTUBE_CLIENT_ID": "nope", "YOUTUBE_CLIENT_SECRET": sec}, Path(d) / "x.py"))
+    check("a secret that could break out of the string is refused",
+          refuses(rt.oauth_clients, {"YOUTUBE_CLIENT_ID": cid, "YOUTUBE_CLIENT_SECRET": "abcdefghij'\nimport os"},
+                  Path(d) / "x.py"))
+    check("the build file is git-ignored", "app/modules/youtube/_client.py" in (rt.ROOT / ".gitignore").read_text())
+
 if failures:
     print(f"\n{len(failures)} failed")
     sys.exit(1)

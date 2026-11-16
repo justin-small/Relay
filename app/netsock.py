@@ -25,6 +25,7 @@ import http.client
 import ipaddress
 import logging
 import socket
+import ssl
 import struct
 import sys
 import urllib.error
@@ -169,6 +170,8 @@ def connect_tcp(route: Resolved | str, host: str, port: int, timeout: float = 5.
 async def open_tcp(route: Resolved | str, host: str, port: int, timeout: float = 5.0,
                    **kwargs: Any) -> tuple[asyncio.StreamReader, asyncio.StreamWriter]:
     """asyncio streams to host:port through the route's port. `kwargs` go to asyncio.open_connection (ssl, ...)."""
+    if kwargs.get("ssl") is True:
+        kwargs["ssl"] = tls_context()
     sock = await asyncio.to_thread(connect_tcp, route, host, port, timeout)
     sock.setblocking(False)
     if kwargs.get("ssl") and "server_hostname" not in kwargs:
@@ -249,11 +252,34 @@ def _creator(route: Resolved | str) -> Callable[..., socket.socket]:
     return create
 
 
+_tls: ssl.SSLContext | None = None
+
+
+def tls_context() -> ssl.SSLContext:
+    """The context Relay verifies servers with when a caller passes none: the system's roots plus certifi's.
+
+    Without certifi, a Python with no root store of its own (python.org's macOS build before its Install
+    Certificates script runs, some minimal Linux images) fails every HTTPS request with CERTIFICATE_VERIFY_FAILED,
+    and YouTube, Google sign-in and Relay's cloud all read as "could not reach". Verification stays on."""
+    global _tls
+    if _tls is None:
+        ctx = ssl.create_default_context()
+        try:
+            import certifi
+            ctx.load_verify_locations(certifi.where())
+        except (ImportError, OSError):
+            log.warning("certifi is missing; HTTPS uses only this computer's own certificate store")
+        _tls = ctx
+    return _tls
+
+
 def http_connection(route: Resolved | str, host: str, port: int | None = None, *, tls: bool = False,
                     timeout: float = 30.0, **kwargs: Any) -> http.client.HTTPConnection:
     """An http.client connection (HTTPS when `tls`; `kwargs` such as context go to it) whose socket is opened
     through the route when it connects. The class is resolved again on every connect."""
     cls = http.client.HTTPSConnection if tls else http.client.HTTPConnection
+    if tls and kwargs.get("context") is None:
+        kwargs["context"] = tls_context()
     conn = cls(host, port, timeout=timeout, **kwargs)
     conn._create_connection = _creator(route)  # type: ignore[attr-defined]  # http.client's own hook
     return conn
@@ -288,11 +314,11 @@ class _RoutedHTTPS(urllib.request.HTTPSHandler):
 def opener(route: Resolved | str, *handlers: Any, context: Any = None) -> urllib.request.OpenerDirector:
     """A urllib opener whose http and https requests go out through the route. `handlers` are added as with
     urllib.request.build_opener (a redirect refuser, a ProxyHandler); pass an SSL context as `context`, never an
-    HTTPSHandler of your own (it would replace the routed one)."""
+    HTTPSHandler of your own (it would replace the routed one). With no context, tls_context() is used."""
     if any(isinstance(h, (urllib.request.HTTPHandler, urllib.request.HTTPSHandler)) or
            h in (urllib.request.HTTPHandler, urllib.request.HTTPSHandler) for h in handlers):
         raise ValueError("pass context= to netsock.opener, not an HTTP or HTTPS handler")
-    return urllib.request.build_opener(_RoutedHTTP(route), _RoutedHTTPS(route, context), *handlers)
+    return urllib.request.build_opener(_RoutedHTTP(route), _RoutedHTTPS(route, context or tls_context()), *handlers)
 
 
 def urlopen(route: Resolved | str, request: urllib.request.Request | str, *, timeout: float = 30.0,
@@ -327,6 +353,8 @@ async def websocket(route: Resolved | str, url: str, *, open_timeout: float = 10
     if parts.scheme not in ("ws", "wss") or not parts.hostname:
         raise ValueError("a ws:// or wss:// address is needed")
     port = parts.port or (443 if parts.scheme == "wss" else 80)
+    if parts.scheme == "wss" and kwargs.get("ssl") in (None, True):
+        kwargs["ssl"] = tls_context()
     sock = await asyncio.to_thread(connect_tcp, route, parts.hostname, port, open_timeout)
     sock.setblocking(False)
     try:

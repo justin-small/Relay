@@ -56,7 +56,7 @@ CORE_FILES = {
 # address for the viewer links (main, netinfo) and Relay announcing itself to its own caption panels (announce).
 NETWORK = {"socket", "ssl", "http.client", "urllib.request", "websockets", "httpx", "aiohttp", "requests",
            "zeroconf", "paho", "pyserial", "serial"}
-CORE_NETWORK = {"announce.py": {"socket"}, "main.py": {"socket"}, "netinfo.py": {"socket"}, "netsock.py": {"socket", "http.client", "urllib.request", "websockets"}, "realtime.py": {"ssl"}, "serving.py": {"socket"},
+CORE_NETWORK = {"announce.py": {"socket"}, "main.py": {"socket"}, "netinfo.py": {"socket"}, "netsock.py": {"socket", "ssl", "http.client", "urllib.request", "websockets"}, "realtime.py": {"ssl"}, "serving.py": {"socket"},
                 "texttranslate.py": {"urllib.request"}, "tls.py": {"socket", "ssl"}}
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))

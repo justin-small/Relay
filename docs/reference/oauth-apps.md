@@ -36,7 +36,7 @@ differently, follow its meaning.
 4. Open **Clients → Create client** and choose the application type **TVs and Limited Input devices**. Name it
    "Relay". Copy the **client ID** and **client secret**. Google says this type's secret is not confidential: it
    ships inside every copy of the app, and the device flow is built for that. Even so, keep it out of chat and
-   commit it only where the YouTube module reads it (PR 2 decides that place).
+   out of the repository: store both as Actions secrets (see *What goes where in Relay* below).
 5. **Publish:** on **Audience**, press **Publish app** to move it from *Testing* to *In production*. While it
    is in Testing, only listed test users can sign in, and **their refresh tokens expire after 7 days**. A church
    would have to sign in again every week.
@@ -84,6 +84,18 @@ changes their password. Relay then shows "Facebook needs signing in again".
 |---|---|---|
 | Google | client ID and client secret of the *TVs and Limited Input devices* client | no, by Google's design for this client type |
 | Meta | App ID and Client token | no; the **App secret** is, and is never used |
+
+They are not confidential, but they stay out of this public repository so they cannot be lifted from it, gitleaks
+has nothing to flag, and they can be replaced without a commit (the same as OBS Studio does for its YouTube app).
+
+- **Google:** the repository's Actions secrets `YOUTUBE_CLIENT_ID` and `YOUTUBE_CLIENT_SECRET`. Before PyInstaller
+  runs, the Release workflow runs `tools/release_tools.py oauth-clients`, which writes them into
+  `app/modules/youtube/_client.py` (git-ignored), and the YouTube module uses that as its built-in app. A build
+  without the secrets (a fork) and a copy run from source, including a headless install made with
+  `tools/install-service.sh`, have no built-in app: the church enters its own under the module's Settings.
+- To set or replace them, pipe each value in so it never sits on a command line:
+  `gh secret set YOUTUBE_CLIENT_ID` (paste, then Ctrl-D), then the same for `YOUTUBE_CLIENT_SECRET`. The next release
+  carries the new values.
 
 Never put an App secret, a personal access token, or any refresh or access token in the repository or in an
 issue. gitleaks runs on every push (`tests/run_security.py`).

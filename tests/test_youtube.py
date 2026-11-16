@@ -306,4 +306,24 @@ with section("the module's connection test and stop"):
     eq("stop clears the status view", entry(), None)
     check("stop ends the task", svc.service.task is None)
 
+with section("the built-in client comes from the build's _client.py, else none"):
+    import importlib
+    import types
+    name = "app.modules.youtube._client"
+    real = sys.modules.pop(name, None)
+    fake = types.ModuleType(name)
+    fake.CLIENT_ID, fake.CLIENT_SECRET = "42-built.apps.googleusercontent.com", "built-in-test-value"
+    sys.modules[name] = fake
+    try:
+        importlib.reload(svc)
+        eq("a build with _client.py uses it", (svc.BUILTIN.id, svc.BUILTIN.secret),
+           ("42-built.apps.googleusercontent.com", "built-in-test-value"))
+    finally:
+        sys.modules.pop(name, None)
+        if real is not None:
+            sys.modules[name] = real
+        importlib.reload(svc)
+    if real is None:
+        eq("a copy run from source has no built-in client", svc.BUILTIN.id, "")
+
 done()
