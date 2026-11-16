@@ -37,6 +37,9 @@ _paths = modules.secret_paths
 modules.secret_paths = lambda: _paths() + [("fakesvc", "account")]
 
 
+SHOWN = ("client_id", "scope", "grant_type", "device_code", "refresh_token", "token")
+
+
 class Fake(oauth.Provider):
     """A service that answers from a script: each URL has a list of (status, body) replies, used in turn."""
     id, name = "fake", "FakeTube"
@@ -48,6 +51,7 @@ class Fake(oauth.Provider):
         super().__init__("fakesvc")
         self.replies: dict[str, list] = {}
         self.sent: list[tuple[str, dict | None, str]] = []
+        self.client_key_sent: list[bool] = []
         self.who = {"id": "UC123", "name": "Grace Church"}
 
     def script(self, url, *replies):
@@ -56,7 +60,9 @@ class Fake(oauth.Provider):
     async def call(self, url, form=None, *, token=""):
         if not url.startswith("https://"):
             raise oauth.Problem("not set up")
-        self.sent.append((url, form, token))
+        # Only the fields a check prints: CodeQL flags a client secret reaching the harness's printed output.
+        self.client_key_sent.append(bool(form) and form.get("client_secret") == CLIENT["secret"])
+        self.sent.append((url, {k: form[k] for k in SHOWN if k in form} if form is not None else None, token))
         queue = self.replies.get(url) or []
         if not queue:
             raise oauth.Problem("Could not reach FakeTube.")
@@ -126,7 +132,7 @@ with section("connect: code, pending, slow down, yes"):
     run(connect())
     eq("asked with the client id and scopes", FAKE.sent[0], (FAKE.device_url, {"client_id": "client-id", "scope": "read more"}, ""))
     eq("polled with the device grant", FAKE.sent[1][1]["grant_type"], oauth.DEVICE_GRANT)
-    eq("polled with the secret", FAKE.sent[1][1]["client_secret"], "client-not-secret")
+    check("polled with the client's secret", FAKE.client_key_sent[1])
     eq("three polls", sum(1 for u, *_ in FAKE.sent if u == FAKE.token_url), 3)
     s = ACC.status()
     eq("account name", s["account"], "Grace Church")
