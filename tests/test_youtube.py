@@ -35,18 +35,24 @@ API = svc.API
 LIST = f"{API}/liveBroadcasts?part=id,snippet,status&broadcastStatus=active&broadcastType=all&maxResults=5"
 
 
+SHOWN = ("client_id", "scope", "grant_type", "device_code", "refresh_token", "token")
+
+
 class FakeGoogle:
     """Answers PROVIDER.call by URL prefix from a script; records what was asked."""
 
     def __init__(self):
         self.replies: dict[str, list] = {}
         self.sent: list[tuple[str, dict | None, str]] = []
+        self.church_key_sent: list[bool] = []
 
     def script(self, url, *replies):
         self.replies.setdefault(url, []).extend(replies)
 
     async def call(self, url, form=None, *, token=""):
-        self.sent.append((url, form, token))
+        # Only the fields a check prints: CodeQL flags a client secret reaching the harness's printed output.
+        self.church_key_sent.append(bool(form) and form.get("client_secret") == "church-app-secret")
+        self.sent.append((url, {k: form[k] for k in SHOWN if k in form} if form is not None else None, token))
         for prefix, queue in self.replies.items():
             if url.startswith(prefix) and queue:
                 return queue.pop(0)
@@ -100,7 +106,7 @@ with section("settings: cleaned, and the browser never sees a secret"):
     eq("defaults", svc.clean_settings(None), svc.DEFAULTS)
     pub = svc.public({**svc.DEFAULTS, "account": "{tokens}", "client_secret": "shh"})
     check("no account, no secret", "account" not in pub and "client_secret" not in pub)
-    eq("only whether a secret is set", pub["client_secret_set"], True)
+    check("only whether a secret is set", pub["client_secret_set"] is True)
     eq("module defaults match the service's", registry.get("youtube").defaults, svc.DEFAULTS)
 
 with section("not connected"):
@@ -128,7 +134,7 @@ with section("connect: the church's own app, the channel's name"):
     eq("scope", st["scopes"], [svc.SCOPE])
     eq("asked with the church's client id", FAKE.sent[0][1]["client_id"], "church.apps.googleusercontent.com")
     eq("asked for read-only", FAKE.sent[0][1]["scope"], svc.SCOPE)
-    eq("the token exchange used the secret", FAKE.sent[1][1]["client_secret"], "church-app-secret")
+    check("the token exchange used the church's secret", FAKE.church_key_sent[1])
     eq("channel read with the new token", FAKE.sent[2][2], "yt-access")
     check("connecting asks the service to check now", poked)
     disk = Path(os.environ["RELAY_CONFIG"]).read_text()
@@ -261,12 +267,12 @@ with section("routes: read, settings, the account"):
     r = admin.put(A + "/settings", json={"live_s": 45, "idle_s": 900, "client_id": "church.apps.googleusercontent.com",
                                          "client_secret": ""})
     eq("saved", (r.status_code, r.json()["settings"]["live_s"], r.json()["settings"]["idle_s"]), (200, 45, 900))
-    eq("a blank secret keeps the saved one", svc.settings()["client_secret"], "church-app-secret")
+    check("a blank secret keeps the saved one", svc.settings()["client_secret"] == "church-app-secret")
     r = admin.put(A + "/settings", json={"client_id": "not-a-google-id"})
     eq("not a Google client id", (r.status_code, r.json()["error"]),
        (400, "That is not a Google client ID: it ends in .apps.googleusercontent.com."))
     r = admin.put(A + "/settings", json={"clear_client": True})
-    eq("back to Relay's app", (svc.settings()["client_id"], svc.settings()["client_secret"]), ("", ""))
+    check("back to Relay's app", svc.settings()["client_id"] == "" and svc.settings()["client_secret"] == "")
     eq("Relay's app is not there yet", r.json()["builtin"], False)
     r = admin.post(A + "/account/connect")
     eq("connect without any app: a sentence", (r.json()["ok"], r.json()["error"]),
