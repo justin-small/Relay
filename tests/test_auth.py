@@ -348,6 +348,7 @@ MIN_ROLE = {
     "recordings.manage": "admin", "schedules.view": "viewer", "schedules.manage": "admin",
     "blocklist.manage": "admin", "settings.view": "viewer", "settings.manage": "admin",
     "credentials.manage": "owner", "modules.view": "viewer", "modules.manage": "admin", "users.view": "admin",
+    "network.view": "viewer", "network.manage": "admin",
     "users.manage": "admin", "tokens.own": "admin", "tokens.manage": "owner", "audit.view": "admin",
     "planning_center.view": "viewer", "planning_center.control": "operator", "planning_center.manage": "admin",
     "propresenter.view": "viewer", "propresenter.control": "operator", "propresenter.manage": "admin",
@@ -413,6 +414,11 @@ route("POST", "/api/admin/stop", "session.control")
 route("GET", "/api/admin/modules", "modules.view")
 route("POST", "/api/admin/modules/{mid}", "modules.manage")
 route("POST", "/api/admin/modules/{mid}/test", "modules.manage")
+# network ports (#347)
+route("GET", "/api/admin/network", "network.view")
+route("POST", "/api/admin/network/classes/{cid}", "network.manage")
+route("POST", "/api/admin/network/classes/{cid}/test", "network.manage")
+route("POST", "/api/admin/network/ports/{pid}/forget", "network.manage")
 # alerts
 route("GET", "/api/admin/alerts", "alerts.view")
 route("POST", "/api/admin/alerts", "alerts.manage")
@@ -693,7 +699,7 @@ for m, p, rt in found:
 check("each route's dependency asks for the permission in the table", not mismatch, mismatch[:5])
 
 # GETs that are safe to run for real (no hardware, no side effects), to see "allowed" really allowed.
-SAFE_GET = {"/api/admin/me", "/api/admin/state", "/api/admin/status", "/api/admin/modules", "/api/admin/alerts",
+SAFE_GET = {"/api/admin/me", "/api/admin/state", "/api/admin/status", "/api/admin/modules", "/api/admin/network", "/api/admin/alerts",
             "/api/admin/panels", "/api/admin/panels/firmware", "/api/admin/schedules", "/api/admin/overlays",
             "/api/admin/recordings", "/api/admin/users", "/api/admin/trusted-devices",
             "/api/admin/me/tokens", "/api/admin/tokens", "/api/admin/me/prefs",

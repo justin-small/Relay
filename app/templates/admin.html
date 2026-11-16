@@ -444,6 +444,18 @@ window.relayCan = function (perm) { return window.RELAY_ME.permissions.indexOf(p
   .tablescroll { position:relative; }
   .auditfilters select, .auditfilters input { width:auto; min-width:0; flex:1 1 140px; max-width:220px; }
   #auditMoreRow[hidden] { display:none; }
+  .nettable td { vertical-align:top; }
+  .nettable small { display:block; color:var(--dim); font-size:11px; margin-top:2px; }
+  .nettable select { width:auto; min-width:150px; }
+  .nettable tr.gone td { color:var(--dim); }
+  .netchip { display:inline-block; padding:1px 8px; border-radius:10px; font-size:11px; font-weight:600;
+             border:1px solid var(--line); color:var(--dim); white-space:nowrap; }
+  .netchip.ok { color:var(--accent); border-color:var(--accent); }
+  .netchip.down, .netchip.missing { color:var(--err); border-color:var(--err); }
+  .netchip.fallback, .netchip.changed { color:#e0b04a; border-color:#e0b04a; }
+  .netwarn { border:1px solid #e0b04a; border-radius:8px; padding:10px 12px; margin:0 0 16px; font-size:13px; }
+  .netwarn p { margin:4px 0; }
+  .nettest { font-size:12px; margin-top:4px; }
   table.audit td { vertical-align:top; }
   table.audit .when { white-space:nowrap; }
   table.audit .what small, table.audit .who small { display:block; color:var(--dim); }
@@ -503,13 +515,14 @@ window.relayCan = function (perm) { return window.RELAY_ME.permissions.indexOf(p
     {% if 'schedules.view' in perms or module_nav.get("Automation") %}<div class="grp">Automation</div>{% endif %}
     {% if 'schedules.view' in perms %}<a href="#schedules" data-page="schedules"><span class="ico"><svg viewBox="0 0 16 16" aria-hidden="true"><rect x="2" y="3" width="12" height="11" rx="1.5"/><path d="M2 7h12M5.5 1.5v3M10.5 1.5v3"/></svg></span>Schedules</a>{% endif %}
     {{ module_links("Automation") }}
-    {% if 'blocklist.manage' in perms or 'credentials.manage' in perms or 'settings.manage' in perms or 'modules.view' in perms or 'users.view' in perms or 'audit.view' in perms or module_nav.get("Settings") %}<div class="grp">Settings</div>{% endif %}
+    {% if 'blocklist.manage' in perms or 'credentials.manage' in perms or 'settings.manage' in perms or 'modules.view' in perms or 'network.view' in perms or 'users.view' in perms or 'audit.view' in perms or module_nav.get("Settings") %}<div class="grp">Settings</div>{% endif %}
     {% if 'blocklist.manage' in perms %}<a href="#blocklist" data-page="blocklist"><span class="ico"><svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6"/><path d="M3.8 12.2l8.4-8.4"/></svg></span>Blocked words</a>{% endif %}
     {% if 'credentials.manage' in perms %}<a href="#credentials" data-page="credentials"><span class="ico"><svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="5" cy="10.5" r="2.5"/><path d="M7 9l6-6M11 5l1.5 1.5M9.5 6.5L11 8"/></svg></span>Credentials</a>{% endif %}
     {% if 'settings.manage' in perms %}<a href="#appearance" data-page="appearance"><span class="ico"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 4h12M2 8h12M2 12h12"/><circle cx="5" cy="4" r="1.5" fill="var(--bg)"/><circle cx="10.5" cy="8" r="1.5" fill="var(--bg)"/><circle cx="6.5" cy="12" r="1.5" fill="var(--bg)"/></svg></span>Appearance &amp; tuning</a>{% endif %}
     {{ module_links("Settings") }}
     {% if 'users.view' in perms %}<a href="#users" data-page="users"><span class="ico"><svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="6" cy="5.5" r="2.5"/><path d="M1.5 13.5c.4-2.6 2.2-4 4.5-4s4.1 1.4 4.5 4M10.5 3.2a2.5 2.5 0 0 1 0 4.6M12 9.8c1.3.5 2.2 1.6 2.5 3.7"/></svg></span>Users</a>{% endif %}
     {% if 'audit.view' in perms %}<a href="#audit" data-page="audit"><span class="ico"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4 1.5h6l3 3v10H4z"/><path d="M10 1.5v3h3M6.5 8h4M6.5 10.5h4M6.5 13h2.5"/></svg></span>Audit log</a>{% endif %}
+    {% if 'network.view' in perms %}<a href="#network" data-page="network"><span class="ico"><svg viewBox="0 0 16 16" aria-hidden="true"><rect x="6" y="1.5" width="4" height="3.5" rx=".6"/><rect x="1.5" y="11" width="4" height="3.5" rx=".6"/><rect x="10.5" y="11" width="4" height="3.5" rx=".6"/><path d="M8 5v3M3.5 11V8h9v3"/></svg></span>Network</a>{% endif %}
     {% if 'modules.view' in perms %}<a href="#modules" data-page="modules"><span class="ico"><svg viewBox="0 0 16 16" aria-hidden="true"><rect x="2" y="2" width="5" height="5" rx="1"/><rect x="9" y="2" width="5" height="5" rx="1"/><rect x="2" y="9" width="5" height="5" rx="1"/><path d="M11.5 9v5M9 11.5h5"/></svg></span>Modules</a>{% endif %}
   </nav>
   <main>
@@ -1137,6 +1150,34 @@ window.relayCan = function (perm) { return window.RELAY_ME.permissions.indexOf(p
     </section>
   </div>
 {% endif %}
+{% if 'network.view' in perms %}
+  <div class="page" id="page-network" data-page="network" hidden>
+    <h2 class="title">Network</h2>
+    <p class="sub">This computer&rsquo;s network ports, and which one each kind of Relay traffic uses. Traffic with no
+      port chosen uses the system&rsquo;s default network, as Relay always has.</p>
+    {{ viewonly('network.manage') }}
+    <div id="netWarnings" class="netwarn" hidden></div>
+    <section>
+      <h3>Ports</h3>
+      <table class="nettable">
+        <thead><tr><th>Port</th><th>Address</th><th>Link</th><th>Speed</th><th>Traffic on it</th><th></th></tr></thead>
+        <tbody id="netPorts"><tr><td colspan="6" class="muted">Loading&hellip;</td></tr></tbody>
+      </table>
+      <div class="note">Updates by itself when a cable is pulled or an adapter plugged in.</div>
+    </section>
+    <section>
+      <h3>Traffic</h3>
+      <table class="nettable">
+        <thead><tr><th>Traffic</th><th>Network port</th><th>If the port is missing</th><th>Status</th><th></th></tr></thead>
+        <tbody id="netClasses"><tr><td colspan="5" class="muted">Loading&hellip;</td></tr></tbody>
+      </table>
+      <div class="note">A change applies at once: Relay moves its pages and tells each module. The operator panel
+        always answers on this computer too (127.0.0.1), and a change that would take it off the address you are
+        using is refused; make it on this computer instead.</div>
+      <div class="err" id="netError" hidden></div>
+    </section>
+  </div>
+{% endif %}
 {% for group in module_nav.values() %}{% for p in group %}
   <div class="page" id="page-{{ p.id }}" data-page="{{ p.id }}" hidden>
 {% include p.template %}
@@ -1285,6 +1326,7 @@ window.relayCan = function (perm) { return window.RELAY_ME.permissions.indexOf(p
 <script src="{{ static('alert-icons.js') }}"></script>
 <script src="{{ static('admin.js') }}"></script>
 <script src="{{ static('modules.js') }}"></script>
+<script src="{{ static('network.js') }}"></script>
 <script src="{{ static('overlay-builder.js') }}"></script>
 <script src="{{ static('users.js') }}"></script>
 <script src="{{ static('audit.js') }}"></script>

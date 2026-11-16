@@ -36,7 +36,7 @@ from .engine import TRANSCRIPTION_STREAM, TRANSLATION_STREAM, demo_mode, engine
 from .hub import hub
 from . import modules as modules_pkg
 from . import sidecar
-from .modules import HERE as MODULES_DIR, modules as module_registry, under as _module_under
+from .modules import HERE as MODULES_DIR, Module, modules as module_registry, under as _module_under
 from .panels import registry as panel_registry
 from .recorder import recorder
 from .scheduler import scheduler
@@ -230,6 +230,9 @@ _AUDIT_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
 AUDIT_ROUTES = {
     "admin_module_switch": ("module.switch", "Switched a module on or off"),
     "admin_module_test": ("module.test", "Ran a module's test"),
+    "admin_network_route": ("network.route", "Changed which network port some traffic uses"),
+    "admin_network_test": ("network.test", "Tested a traffic route"),
+    "admin_network_forget": ("network.forget", "Forgot a network port"),
     "admin_config": ("settings.change", "Changed settings"),
     "admin_target": ("session.target", "Changed a target language"),
     "admin_start": ("session.start", "Started captions"),
@@ -1883,6 +1886,72 @@ async def admin_module_test(mid: str):
         log.exception("module %s test failed", mid)
         result = {"ok": False, "detail": f"The test failed: {type(exc).__name__}"}
     return {"ok": bool(result.get("ok")), "detail": str(result.get("detail") or "")}
+
+
+# --------------------------------------------------------------- network ports (#347)
+def _browsing_from(request: Request) -> str | None:
+    """The address of this machine the browser connected to (which network the admin is using)."""
+    server = request.scope.get("server")
+    return str(server[0]) if server and server[0] else None
+
+
+@app.get("/api/admin/network", dependencies=[Depends(require("network.view"))])
+async def admin_network(request: Request):
+    """Every network port Relay has seen, every kind of traffic with its route and status, and warnings."""
+    out = await asyncio.to_thread(netroute.overview)
+    out["browsing_from"] = _browsing_from(request)
+    return out
+
+
+@app.post("/api/admin/network/classes/{cid}", dependencies=[Depends(require("network.manage"))])
+async def admin_network_route(cid: str, payload: dict, request: Request):
+    """Put a kind of traffic on a network port (port_id null: the system default) and set its policy."""
+    port_id = payload.get("port_id")
+    policy = payload.get("policy")
+    if port_id is not None and not isinstance(port_id, str) or policy is not None and not isinstance(policy, str):
+        return JSONResponse({"error": "port_id and policy must be text or null"}, status_code=400)
+    try:
+        r = await asyncio.to_thread(netroute.change, cid, port_id, policy, _browsing_from(request))
+    except netroute.RouteRefused as exc:
+        return JSONResponse({"error": exc.message}, status_code=409)
+    label = netroute.classes()[cid][1].label
+    where = (r.port.friendly_name or r.port.name) if r.port else ("the chosen network port" if r.routed else
+                                                                  "the system's default network")
+    audit.note(request, "network.route", f"Put {label} on {where} ({r.policy})", target=cid,
+               detail={"port_id": r.port_id, "policy": r.policy})
+    return await asyncio.to_thread(netroute.overview)
+
+
+@app.post("/api/admin/network/classes/{cid}/test", dependencies=[Depends(require("network.manage"))])
+async def admin_network_test(cid: str):
+    """Where this traffic would leave from now, and the owning module's own connection test when it has one."""
+    from . import netsock
+
+    cls = netroute.classes()
+    if cid not in cls:
+        raise HTTPException(404, "no such traffic")
+    out = await asyncio.to_thread(netsock.probe, cid)
+    owner = cls[cid][0]
+    mod = module_registry.get(owner) if owner else None
+    if mod is not None and module_registry.enabled(owner) and type(mod).test is not Module.test:
+        try:
+            got = await mod.test()
+            out["module"] = {"ok": bool(got.get("ok")), "detail": str(got.get("detail") or "")}
+        except Exception as exc:
+            log.exception("module %s test failed", owner)
+            out["module"] = {"ok": False, "detail": f"The test failed: {type(exc).__name__}"}
+    return out
+
+
+@app.post("/api/admin/network/ports/{pid}/forget", dependencies=[Depends(require("network.manage"))])
+async def admin_network_forget(pid: str, request: Request):
+    """Forget a network port that is gone and carries no traffic."""
+    try:
+        await asyncio.to_thread(netroute.forget, pid)
+    except netroute.RouteRefused as exc:
+        return JSONResponse({"error": exc.message}, status_code=409)
+    audit.note(request, "network.forget", "Forgot a network port", target=pid)
+    return await asyncio.to_thread(netroute.overview)
 
 
 @app.get("/api/admin/devices", dependencies=[Depends(require("session.view"))])
