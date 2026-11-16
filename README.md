@@ -1017,8 +1017,10 @@ from the tag, and publishes a GitHub release with `Relay-v1.2.0.zip` (a
 `git archive` of the tag, so nothing gitignored ships),
 `Relay-User-Guide.pdf` and `Relay-User-Guide.docx`. A tag with a hyphen
 (`v1.2.0-rc.1`) becomes a pre-release, which `releases/latest` skips. Pull
-requests that touch the workflow or `docs/guide/` run everything but the
-publish.
+requests that touch the workflow or `desktop/` run everything but the
+publish and the Intel Mac installer, which is built on tags only (push a
+`-rc` tag to see all four first). A pull request that changes only
+`docs/guide/` builds just the guide (`.github/workflows/guide.yml`).
 
 The Companion module releases the same way from its own repo, with the tag
 checked against `package.json` and `companion/manifest.json`.
