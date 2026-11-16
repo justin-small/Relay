@@ -7,7 +7,7 @@ import uuid
 from typing import Any
 
 from ... import config
-from . import qlcplus  # noqa: F401  (registers the QLC+ backend)
+from . import qlcplus, thelightingcontroller  # noqa: F401  (each registers its backend)
 from .backend import BACKENDS, Backend, BackendError, Cue
 
 KEY = "lighting"
