@@ -21,7 +21,7 @@ from pathlib import Path
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 
-from ... import audit, config, db, netinfo, schedules, serving
+from ... import audit, config, db, netroute, schedules, serving
 from .. import HEARTBEAT_S, event_stream, read_limited, require, sse
 from . import live, media, sources, store, takeover
 
@@ -191,7 +191,10 @@ def _port_info() -> dict:
 def _screen_urls(slug: str) -> list[str]:
     info = _port_info()
     port = info["bound"] or info["configured"]
-    return [serving.link("http", ip, port, f"/signage/{slug}") for ip in netinfo.lan_ips()]
+    from . import MODULE
+
+    ips = netroute.link_addresses(MODULE.listeners[0].traffic)   # the screens' network when routed (#346)
+    return [serving.link("http", ip, port, f"/signage/{slug}") for ip in ips]
 
 
 @router.get("/api/admin/signage", dependencies=VIEW)

@@ -304,13 +304,20 @@ async def _audit_changes(request: Request, call_next):
 def _on_lan_change(change: netinfo.Change) -> None:
     """The network changed. When the LAN addresses did: re-mint the panel certificate if its names no longer
     fit, and tell the desktop shell (it pins the fingerprint and builds the viewer link) of both. Every change
-    goes to the traffic routes, which tell the modules whose port moved (app/netroute.py)."""
+    goes to the traffic routes, which tell the modules whose port moved (app/netroute.py), moves any listener whose
+    routed port changed address (app/serving.py), and checks the certificate still names every HTTPS address."""
     netroute.on_network_change(change.ports)
-    if not change.ips_changed:
-        return
+    if serving.groups():
+        task = asyncio.get_running_loop().create_task(serving.rebind())
+        _rebinds.add(task)
+        task.add_done_callback(_rebinds.discard)
     if tls.panel.refresh() and tls.panel.info:
         sidecar.emit("fingerprint", fingerprint=tls.panel.info.fingerprint)
-    sidecar.emit("network", ips=list(change.ips))
+    if change.ips_changed:
+        sidecar.emit("network", ips=list(change.ips))
+
+
+_rebinds: set = set()   # running rebind tasks, held so they are not collected mid-flight
 
 
 async def _startup() -> None:
@@ -458,9 +465,10 @@ def _urls(port: int) -> list[str]:
     """The viewer links the panel shows (and turns into QR codes).
 
     Relay serves viewers itself, so the links are this machine's own network addresses (app/netinfo.py)
-    on the viewer port, which is left out of the link when it is 80.
+    on the viewer port, which is left out of the link when it is 80. With the viewers routed to a network port
+    (app/netroute.py), only that port's address.
     """
-    ips = netinfo.lan_ips() or ["127.0.0.1"]
+    ips = netroute.link_addresses("viewers") or ["127.0.0.1"]
     return [serving.link("http", ip, port) for ip in ips] + [serving.link("http", "127.0.0.1", port)]
 
 
@@ -468,7 +476,7 @@ def _serving_info() -> dict:
     """What the admin page shows about how Relay is reachable: ports, notices, panel links, fingerprint."""
     cfg = config.get()
     admin_port = serving.admin_port(cfg["admin_port"])
-    ips = netinfo.lan_ips() or ["127.0.0.1"]
+    ips = netroute.link_addresses("crew") or ["127.0.0.1"]
     hosts = ([cfg["admin_fqdn"]] if cfg.get("admin_fqdn") else []) + ips
     return {
         "viewer_port": serving.viewer_port(cfg["port"]),

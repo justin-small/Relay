@@ -38,9 +38,10 @@ RECHECK_S = 30
 
 
 def lan_ip():
-    """The address to announce: the first LAN address (app/netinfo.py), or None with no network."""
-    from . import netinfo
-    ips = netinfo.lan_ips()
+    """The address to announce: the "discovery" class's port when it is routed (app/netroute.py, #346), else the
+    first LAN address (app/netinfo.py); None with no network, or while a strict route's port is missing."""
+    from . import netroute
+    ips = netroute.link_addresses("discovery")
     return ips[0] if ips else None
 
 
@@ -195,6 +196,11 @@ def join(sock, ip):
     sock.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_IF, socket.inet_aton(ip))
 
 
+def leave(sock, ip):
+    """Stop listening for the group on a port Relay no longer announces on."""
+    sock.setsockopt(socket.IPPROTO_IP, socket.IP_DROP_MEMBERSHIP, socket.inet_aton(MDNS_GROUP) + socket.inet_aton(ip))
+
+
 def send(sock, data):
     sock.sendto(data, (MDNS_GROUP, MDNS_PORT))
 
@@ -241,7 +247,7 @@ class Announcer:
             while not self._stop.is_set():
                 try:
                     data, _addr = sock.recvfrom(9000)
-                    reply = svc.answer_for(data)
+                    reply = svc.answer_for(data) if svc.ip else None
                     if reply:
                         send(sock, reply)
                 except socket.timeout:
@@ -251,14 +257,23 @@ class Announcer:
                 if time.monotonic() >= next_check:
                     next_check = time.monotonic() + RECHECK_S
                     now = self.fixed_ip or lan_ip()
+                    if now != svc.ip and svc.ip is not None:
+                        # Goodbye first, still sent from the old port, so panels there forget this address.
+                        with contextlib.suppress(OSError):
+                            send(sock, svc.announcement(ttl_scale=0))
+                        with contextlib.suppress(OSError):
+                            leave(sock, svc.ip)
                     if now and now != svc.ip:
-                        send(sock, svc.announcement(ttl_scale=0))
                         svc.ip = now
                         with contextlib.suppress(OSError):
                             join(sock, now)
                         send(sock, svc.announcement())
-                        log.info("LAN address changed: announcing %s:%d", svc.ip, svc.port)
-            send(sock, svc.announcement(ttl_scale=0))
+                        log.info("Announcing %s:%d (the network changed)", svc.ip, svc.port)
+                    elif not now and svc.ip is not None:
+                        svc.ip = None
+                        log.info("Not announcing: the discovery network port is not available")
+            if svc.ip:
+                send(sock, svc.announcement(ttl_scale=0))
         finally:
             sock.close()
 

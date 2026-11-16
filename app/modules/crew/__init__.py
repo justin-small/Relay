@@ -42,7 +42,7 @@ class Crew(Module):
     admin_scripts = ("crewadmin.js",)
     route_prefixes = ("/api/admin/crew", "/crew", "/crew-join")
     listeners = (Listener(name="join", label="the crew join page", port_setting="join_port", default_port=JOIN_PORT,
-                          prefixes=("/crew-join",)),)
+                          prefixes=("/crew-join",), traffic="crew"),)  # phones join on the crew network
     panel_prefixes = ("/crew",)
     geolocation_pages = ("/crew",)
     permissions = (
