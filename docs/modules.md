@@ -291,6 +291,16 @@ ports, `lan(...)` for the default network's addresses, `route(...)` to save a ro
 `loopback_route()` for real pinned sockets over loopback. Use it rather than defining ports in each test. Before a
 release that changes networking, run the manual [hardware test plan](reference/multi-nic-hardware-test.md).
 
+## Lighting cues from another module
+
+A module that wants to fire a lighting cue (a ProPresenter slide tag, a schedule) never imports `lighting`. It calls
+core's `app.modules.fire_cue(cue_id, request=None)`, which the lighting module backs with a hook it sets in `attach()`
+and clears in `detach()`. The answer is `{"ok": True}` or `{"ok": False, "error": "..."}` (lighting off, the cue is not
+on a cue page, or the program did not answer). Only a cue the operator put on a page can be fired this way, never the
+controller's whole list, and a press is sent once: a dropped connection is reported, never retried, because the cue
+may already have happened. A new lighting program is a `Backend` (`app/modules/lighting/backend.py`) registered in
+`BACKENDS`; it gets cue pages, permissions and the audit trail from the module.
+
 ## Audio sources and outputs
 
 Core captures audio from an `AudioSource` and plays audio through an `AudioOutput` (`app/audio.py`); it

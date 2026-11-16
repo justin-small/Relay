@@ -1,0 +1,48 @@
+{# The lighting admin page, rendered inside admin.html only while the module is on. #}
+    <h2 class="title">Lighting <span class="sumstate" id="ltSum"></span></h2>
+    <p class="sub">Fire your lighting program's cues from Relay. Group the cues you want into pages; only a cue on a
+      page can be fired from a screen or panel.</p>
+
+    <section>
+      <h3>Lighting program</h3>
+      <div class="row">
+        <div class="field">
+          <label for="ltBackend">Program</label>
+          <select id="ltBackend"></select>
+        </div>
+        <div class="field">
+          <label for="ltHost">Address</label>
+          <input id="ltHost" placeholder="192.168.1.50" autocomplete="off" spellcheck="false" maxlength="253">
+        </div>
+        <div class="field">
+          <label for="ltPort">Port</label>
+          <input id="ltPort" type="number" min="0" max="65535">
+        </div>
+        <div class="field">
+          <label for="ltPass">Password</label>
+          <input id="ltPass" type="password" autocomplete="new-password" maxlength="200">
+        </div>
+      </div>
+      <div class="ctl">
+        <button type="button" class="primary" id="ltSave">Save</button>
+        <button type="button" id="ltTest">Test connection</button>
+      </div>
+      <div class="note" id="ltStatus"></div>
+      <div class="note">A cue that is fired is sent once. If the connection drops, Relay does not try again, because
+        the cue may already have happened.</div>
+    </section>
+    <div class="note err" id="ltErr" hidden></div>
+
+    <section>
+      <h3>Cue pages</h3>
+      <div id="ltPages"></div>
+      <div class="ctl" id="ltPageCtl">
+        <button type="button" id="ltAddPage">Add page</button>
+        <button type="button" class="primary" id="ltSavePages">Save pages</button>
+      </div>
+      <div id="ltAll" hidden>
+        <h3>All</h3>
+        <p class="note">Cues the program lists that are not on any page.</p>
+        <div id="ltAllCues"></div>
+      </div>
+    </section>
