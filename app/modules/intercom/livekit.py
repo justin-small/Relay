@@ -282,6 +282,8 @@ class Supervisor:
         self.since = 0.0
         self.started_at = 0.0
         self.restarts: deque[float] = deque()
+        self.fails = 0           # health checks failed in a row, for the watchdog's card (#276)
+        self.on_restart = None   # called with no arguments each time Relay restarts a LiveKit that stopped
         self.log: deque[str] = deque(maxlen=LOG_LINES)
         self.settings: dict = {}
         self._task: asyncio.Task | None = None
@@ -308,6 +310,7 @@ class Supervisor:
                 await task
         await self._kill()
         self.restarts.clear()
+        self.fails = 0
         self._set("off")
 
     async def restart(self) -> None:
@@ -325,7 +328,7 @@ class Supervisor:
                 binary = await self._fetch()
                 if binary is None:
                     return
-            fails = 0
+            self.fails = fails = 0
             while True:
                 if self._proc is None or self._proc.returncode is not None:
                     if self._gave_up():
@@ -337,22 +340,28 @@ class Supervisor:
                     if not await self._launch(binary):
                         return
                     self.restarts.append(time.monotonic())
-                    fails = 0
+                    self.fails = fails = 0
                 await asyncio.sleep(HEALTH_EVERY_S)
                 ok = self._proc is not None and self._proc.returncode is None and await asyncio.to_thread(
                     ping, SIGNAL_PORT)
                 if ok:
-                    fails = 0
+                    self.fails = fails = 0
                     self._set("running", "")
                     continue
                 if self._proc is not None and self._proc.returncode is None and \
                         time.time() - self.started_at < STARTUP_GRACE_S:
                     continue
                 fails += 1
+                self.fails = fails
                 if self._proc is None or self._proc.returncode is not None or fails >= FAILS_TO_RESTART:
                     log.warning("intercom: livekit_restarted")
                     self._set("restarting", "LiveKit stopped answering. Starting it again.")
                     await self._kill()
+                    if self.on_restart is not None:
+                        try:
+                            self.on_restart()
+                        except Exception:
+                            log.exception("intercom: livekit restart hook failed")
         except asyncio.CancelledError:
             await self._kill()
             raise

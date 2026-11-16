@@ -464,18 +464,18 @@
   // ---- receive statistics for the watchdog (#276), every 5 s while connected
   root.setInterval(async function () {
     if (!st.online) return;
-    let lost = 0, jitter = 0, n = 0;
+    let lost = 0, received = 0, jitter = 0, n = 0;
     for (const slot of st.rooms.values()) {
       if (!slot.room) continue;
       for (const p of slot.room.remoteParticipants.values()) {
         for (const pub of p.audioTrackPublications.values()) {
           if (!pub.track || !pub.track.getReceiverStats) continue;
           const s = await pub.track.getReceiverStats().catch(function () { return null; });
-          if (s) { lost += s.packetsLost || 0; jitter = Math.max(jitter, Math.round((s.jitter || 0) * 1000)); n++; }
+          if (s) { lost += s.packetsLost || 0; received += s.packetsReceived || 0; jitter = Math.max(jitter, Math.round((s.jitter || 0) * 1000)); n++; }
         }
       }
     }
-    send({ type: 'stats', packets_lost: lost, jitter_ms: jitter, rtt_ms: st.rtt, tracks: n });
+    send({ type: 'stats', packets_lost: lost, packets_received: received, jitter_ms: jitter, rtt_ms: st.rtt, tracks: n });
   }, 5000);
 
   // ---- my phones (#273): every phone signed in as me, each with a sign-out. Text from the server is set as text.

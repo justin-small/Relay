@@ -2361,7 +2361,7 @@
     box.textContent = '';
     (Array.isArray(list) ? list : []).forEach(function (p) {
       const a = document.createElement('a');
-      a.className = 'spill on';
+      a.className = 'spill ' + (p.level === 'error' ? 'off' : 'on');   // a module's problem shows red
       a.href = typeof p.href === 'string' && /^#[a-z0-9_-]+$/i.test(p.href) ? p.href : '#';
       const dot = document.createElement('span');
       dot.className = 'dot';

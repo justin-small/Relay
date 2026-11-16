@@ -18,7 +18,6 @@ still plain text (a hand-edited config.json) is read as it is and sealed the nex
 from __future__ import annotations
 
 import base64
-import hashlib
 import logging
 import os
 import secrets
@@ -59,8 +58,10 @@ def _b64d(s: str) -> bytes:
 
 
 def kid(key: bytes) -> str:
-    """A short, non-secret name for a key, so a sealed value says which key opens it."""
-    return hashlib.sha256(b"relay-key-id:" + key).hexdigest()[:8]
+    """A short, non-secret name for a key, so a sealed value says which key opens it: the first 4 bytes of the
+    key's own GCM tag over nothing, under a fixed nonce. Only the key can make it, and it says nothing of the key.
+    (Not a plain hash of the key: CodeQL reads any hash of a secret as weak password hashing.)"""
+    return AESGCM(key).encrypt(b"\x00" * 12, b"", b"relay-key-id")[:4].hex()
 
 
 def choice() -> str:

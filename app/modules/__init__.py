@@ -200,7 +200,8 @@ class Module:
         return {}
 
     def pills(self) -> list[dict]:
-        """Pills for the admin top bar, shown while the module is on: [{"id", "text", "count", "href"}]."""
+        """Pills for the admin top bar, shown while the module is on: [{"id", "text", "count", "href"}], plus
+        "level": "error" for a pill that reports a problem (drawn red)."""
         return []
 
     def stream(self, name: str, request: Any, params: dict) -> Any:

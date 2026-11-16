@@ -107,6 +107,17 @@ def events(limit: int = 100) -> list[dict]:
     return db.query("select * from intercom_events order by id desc limit ?", (max(1, min(limit, 500)),))
 
 
+def events_since(since: str, limit: int = 5000) -> list[dict]:
+    """The connection log from `since` (UTC ISO) on, newest first, with the names the page and the export show."""
+    ready()
+    return db.query(
+        "select e.id, e.at, e.kind, e.detail, e.user_id, u.name as user, d.name as device, c.name as channel,"
+        " a.name as actor from intercom_events e left join users u on u.id = e.user_id"
+        " left join intercom_devices d on d.id = e.device_id left join intercom_channels c on c.id = e.channel_id"
+        " left join users a on a.id = e.actor_id where e.at >= ? order by e.id desc limit ?",
+        (since, max(1, min(limit, 50000))))
+
+
 def prune_events(days: int = EVENTS_KEEP_DAYS, now: datetime | None = None) -> int:
     ready()
     cutoff = ((now or datetime.now(timezone.utc)) - timedelta(days=days)).strftime("%Y-%m-%dT%H:%M:%SZ")
