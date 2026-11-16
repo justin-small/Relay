@@ -203,7 +203,8 @@ async def start_server(route: Resolved | str, client_connected: Callable[..., An
 def udp_socket(route: Resolved | str, port: int = 0, *, broadcast: bool = False, reuse: bool = False,
                host: str | None = None) -> socket.socket:
     """A UDP socket bound to the route's address and `port` (0: any), pinned to its interface. An unrouted class
-    is left unbound for port 0 (the OS picks, as before), else bound like listen_tcp."""
+    with port 0 and no `host` is left unbound (a sender: the OS binds it on the first send, as before); otherwise
+    it is bound like listen_tcp, so a receiver passes `host` or a port."""
     r = _resolved(route)
     _require(r)
     sock = _new(socket.SOCK_DGRAM)
@@ -215,7 +216,7 @@ def udp_socket(route: Resolved | str, port: int = 0, *, broadcast: bool = False,
         if _pinned_route(r):
             pin(sock, r)
             sock.bind((r.address, int(port)))
-        elif port:
+        elif port or host is not None:
             sock.bind((_unrouted_host(r, host), int(port)))
     except RouteError:
         _close(sock)

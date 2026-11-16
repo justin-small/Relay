@@ -125,6 +125,10 @@ with section("unrouted and fallen-back classes get ordinary sockets"):
     with new, plat:
         netsock.udp_socket(DEFAULT)
     eq("an unrouted port-0 UDP socket is left for the OS to bind", sock.named("bind"), [])
+    sock, new, plat = fake("win32")
+    with new, plat:
+        netsock.udp_socket(DEFAULT, 0, host="127.0.0.1")
+    eq("an unrouted receiver with a host is bound, so it has a port on Windows", sock.named("bind"), [(("127.0.0.1", 0),)])
     sock, new, plat = fake("freebsd13")
     with new, plat:
         netsock.connect_tcp(ROUTED, "10.0.0.40", 80)
@@ -243,7 +247,7 @@ with section("real sockets over loopback"):
         eq("TCP: left from the client route's address", peer[0], client_at)
     for s in (cli, conn, srv):
         s.close()
-    rx = netsock.udp_socket(a, 0)
+    rx = netsock.udp_socket(a, 0, host=server_at)   # a receiver: bound even when unrouted (Windows)
     rx.settimeout(5)
     tx = netsock.udp_socket(b)
     tx.sendto(b"dgram", (server_at, rx.getsockname()[1]))
@@ -281,7 +285,7 @@ with section("real sockets over loopback"):
                 if not self.q.done():
                     self.q.set_result(d)
 
-        transport, proto = await netsock.udp_endpoint(a, Proto)
+        transport, proto = await netsock.udp_endpoint(a, Proto, host=server_at)
         tx = netsock.udp_socket(b)
         tx.sendto(b"async", (server_at, transport.get_extra_info("sockname")[1]))
         dgram = await asyncio.wait_for(proto.q, 5)
