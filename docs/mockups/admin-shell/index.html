@@ -425,12 +425,15 @@ P.screens=()=>`<h2 class="t">All screens</h2><p class="sub">Every screen outside
  CATS.map(c=>{const l=REG.filter(r=>r.kind=='full'&&r.cat==c);return l.length?`<h3 class="gh">${c}</h3><div class="grid g3" style="margin-bottom:22px">${l.map(r=>`<a class="card gal" href="#${r.id}"><b>${r.t}</b><span class="d">${r.desc||''}</span>${r.path?`<code>${r.path}</code>`:''}</a>`).join('')}</div>`:''}).join('');
 /* ===================== router + wiring ===================== */
 function route(){
-  const id=(location.hash||'#health').slice(1);
+  /* the id comes from the URL: only ever use an id that is in the registry (or the gallery), never the raw string */
+  const want=(location.hash||'#health').slice(1);
+  const known=REG.find(r=>r.id===want);
+  const id=known?known.id:want==='screens'?'screens':'health';
   closeAll(); document.body.classList.remove('open'); clearInterval(window.mi);
-  if(FULL[id]){html.classList.add('isauth');$('auth').innerHTML=FULL[id]()+'<a class="backchip" href="#screens">← All screens</a>';$('auth').onclick=e=>{const b=e.target.closest('[data-go]');if(b)location.hash=b.dataset.go};$('auth').scrollTop=0;AFTER[id]&&AFTER[id]();return}
+  if(known&&known.kind==='full'&&typeof FULL[id]==='function'){html.classList.add('isauth');$('auth').innerHTML=FULL[id]()+'<a class="backchip" href="#screens">← All screens</a>';$('auth').onclick=e=>{const b=e.target.closest('[data-go]');if(b)location.hash=b.dataset.go};$('auth').scrollTop=0;typeof AFTER[id]==='function'&&AFTER[id]();return}
   html.classList.remove('isauth');
   const f=flat.find(x=>x[0]==id)||flat[0];
-  $('pages').innerHTML=(P[f[0]]||(()=>generic(f[0])))(); AFTER[f[0]]&&AFTER[f[0]]();
+  $('pages').innerHTML=(typeof P[f[0]]==='function'?P[f[0]]:()=>generic(f[0]))(); typeof AFTER[f[0]]==='function'&&AFTER[f[0]]();
   markActive(f[0]); $('crumb').innerHTML=`${f[4]?f[2]+' <span>/</span> '+f[4]:f[2]} <span>/</span> <b>${f[1]}</b>`;
   $('inset').scrollTop=0;
   const mt=$('mt');if(mt){window.mi=setInterval(()=>{const v=45+Math.random()*30;mt.style.width=v+'%';$('mtv').textContent='−'+Math.round(60-v*.6)+' dBFS'},250)}
