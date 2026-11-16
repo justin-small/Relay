@@ -361,6 +361,7 @@ MIN_ROLE = {
     "atem.view": "viewer", "atem.control": "operator", "atem.manage": "admin",
     "lighting.view": "viewer", "lighting.control": "operator", "lighting.manage": "admin",
     "obs.view": "viewer", "obs.control": "operator", "obs.manage": "admin",
+    "youtube.view": "viewer", "youtube.manage": "admin",
     "tally_arbiter.view": "viewer", "tally_arbiter.manage": "admin",
     "parent_paging.view": "viewer", "parent_paging.control": "operator", "parent_paging.manage": "admin",
     "crew.use": "member", "crew.view": "viewer", "crew.manage": "admin", "crew.page": "operator", "crew.chat": "member", "crew.checkin": "member", "crew.checklist": "member", "crew.checklist_edit": "operator", "crew.resources": "member", "crew.resources_edit": "operator", "crew.moderate": "operator", "crew.activity": "operator",
@@ -386,7 +387,7 @@ print("every /api/admin route")
 config.save({"modules": {"propresenter": {"enabled": True}, "planning_center": {"enabled": True},
                          "remote_access": {"enabled": True}, "signage": {"enabled": True},
                          "signage_web": {"enabled": True}, "alert_events": {"enabled": True},
-                         "atem": {"enabled": True}, "lighting": {"enabled": True}, "obs": {"enabled": True}, "tally_arbiter": {"enabled": True},
+                         "atem": {"enabled": True}, "lighting": {"enabled": True}, "obs": {"enabled": True}, "youtube": {"enabled": True}, "tally_arbiter": {"enabled": True},
                          "parent_paging": {"enabled": True}, "intercom": {"enabled": True}, "intercom_remote": {"enabled": True},
                          "crew": {"enabled": True}}})
 
@@ -592,6 +593,13 @@ for method, path, perm in (
     ("POST", "/api/admin/lighting/press", "lighting.control"),          # no cue named: refused
     ("POST", "/api/admin/lighting/release", "lighting.control"),
     ("POST", "/api/admin/lighting/level", "lighting.control"),           # no cue named: refused
+    ("GET", "/api/admin/youtube", "youtube.view"),
+    ("PUT", "/api/admin/youtube/settings", "youtube.manage"),             # an empty body changes nothing
+    ("POST", "/api/admin/youtube/check", "youtube.manage"),               # not connected: nothing is sent
+    ("GET", "/api/admin/youtube/account", "youtube.view"),
+    ("POST", "/api/admin/youtube/account/connect", "youtube.manage"),     # no Google app set: refused, nothing sent
+    ("POST", "/api/admin/youtube/account/cancel", "youtube.manage"),
+    ("POST", "/api/admin/youtube/account/disconnect", "youtube.manage"),  # not connected: nothing to revoke
     ("GET", "/api/admin/obs", "obs.view"),
     ("PUT", "/api/admin/obs/settings", "obs.manage"),                     # an empty body is refused
     ("POST", "/api/admin/obs/test", "obs.manage"),                        # no computer named: nothing is sent
@@ -789,7 +797,7 @@ eq("signed out is 401", anon_c.get("/api/admin/propresenter").status_code, 401)
 config.save({"modules": {"propresenter": {"enabled": False}, "planning_center": {"enabled": False},
                          "remote_access": {"enabled": False}, "signage": {"enabled": False},
                          "signage_web": {"enabled": False}, "alert_events": {"enabled": False},
-                         "atem": {"enabled": False}, "lighting": {"enabled": False}, "obs": {"enabled": False}, "tally_arbiter": {"enabled": False},
+                         "atem": {"enabled": False}, "lighting": {"enabled": False}, "obs": {"enabled": False}, "youtube": {"enabled": False}, "tally_arbiter": {"enabled": False},
                          "parent_paging": {"enabled": False}, "intercom": {"enabled": False}, "intercom_remote": {"enabled": False},
                          "crew": {"enabled": False}}})
 eq("a module that is off is still a 404 for everyone", op_c.get("/api/admin/propresenter").status_code, 404)
@@ -1350,6 +1358,7 @@ for mid, want in (("planning_center", {"planning_center.view": "viewer", "planni
                   ("atem", {"atem.view": "viewer", "atem.control": "operator", "atem.manage": "admin"}),
                   ("lighting", {"lighting.view": "viewer", "lighting.control": "operator", "lighting.manage": "admin"}),
                   ("obs", {"obs.view": "viewer", "obs.control": "operator", "obs.manage": "admin"}),
+                  ("youtube", {"youtube.view": "viewer", "youtube.manage": "admin"}),
                   ("tally_arbiter", {"tally_arbiter.view": "viewer", "tally_arbiter.manage": "admin"}),
                   ("parent_paging", {"parent_paging.view": "viewer", "parent_paging.control": "operator",
                                      "parent_paging.manage": "admin"}),

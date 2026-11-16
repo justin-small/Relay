@@ -1,9 +1,10 @@
 /* The Connect card a module puts on its admin page for an account it signs in to (#304, app/oauth.py):
    who is connected, a Connect button that shows the code to enter at the service's address, and Disconnect.
 
-     RelayOAuth.mount(container, '/api/admin/youtube/account', { manage: 'youtube.manage', onChange: fn })
+     RelayOAuth.mount(container, '/api/admin/<module>/account', { manage: '<module>.manage', onChange: fn })
 
-   The module's page names its own route; this script knows no service. Built from the admin page's own pieces
+   The module's page names its own route; this script knows no service. `scopeNames` maps a scope to the words
+   shown for it. Built from the admin page's own pieces
    (.pcard, .phead, dl, .pactions, .spill, .note) and everything from the server is set as text. While a code is
    waiting the card asks again every three seconds; otherwise it reads once and when told to (`refresh()`). */
 (function () {
@@ -67,7 +68,7 @@
         function row(k, v) { if (!v) return; dl.appendChild(el('dt', '', k)); dl.appendChild(el('dd', '', v)); }
         row('Account', s.account);
         row('Connected', when(s.connected_at) + (s.connected_by ? ' by ' + s.connected_by : ''));
-        row('Access', (s.scopes || []).join(', '));
+        row('Access', (s.scopes || []).map(function (x) { return (opts.scopeNames || {})[x] || x; }).join(', '));
         card.appendChild(dl);
         if (s.state === 'sign_in') {
           card.appendChild(el('div', 'note err', s.service + ' stopped accepting Relay. Press Connect to sign in again.'));
@@ -130,7 +131,7 @@
     const s = document.createElement('style');
     s.textContent = '.oauthcard .oauthcode{font:600 28px/1.2 ui-monospace,Menlo,Consolas,monospace;letter-spacing:.12em;' +
       'margin:8px 0;user-select:all}.oauthcard .oauthsteps{margin:10px 0 0}.oauthcard a{color:var(--fg)}' +
-      '.oauthcard .phead .spill{padding:3px 9px;font-size:11px}.oauthcard .spill .dot{border-radius:50%;display:inline-block;background:var(--dim)}' +
+      '.oauthcard .phead .spill{padding:3px 9px;font-size:11px}.oauthcard .spill .dot{border-radius:50%;display:inline-block}.oauthcard .spill:not(.on) .dot{background:var(--dim)}' +
       '.oauthcard .spill.idle{color:var(--dim)}.oauthcard .spill.warn{color:#fcd34d;border-color:#5b4a14}.oauthcard .spill.warn .dot{background:#fcd34d}';
     document.head.appendChild(s);
   })();

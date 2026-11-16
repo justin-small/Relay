@@ -1527,6 +1527,31 @@ The computer's `<id>` is in `GET /api/admin/obs` (`machines[].id`). Companion mu
 the certificate fingerprint as described in the Companion chapter of the guide. Only admin accounts hold tokens, and a
 token acts as its user: turning that user off stops the token at once.
 
+## YouTube
+
+Switch on **YouTube** on the Modules page, then open **Output > YouTube** and press **Connect**. Relay shows a code; on
+any phone or computer go to google.com/device, enter it, and sign in with the Google account that owns the church's
+channel. Relay asks only to read the channel (`youtube.readonly`): it can never change, publish or delete anything.
+
+The page then shows the channel's live broadcast: its state (live, testing), how long it has been live, how many are
+watching, and links to its watch page and to YouTube Studio. It is also an entry on the status view (`/status`): **live**
+with the viewer count while the channel is on air, **needs a look** when YouTube stops accepting Relay's sign-in or
+cannot be read, **standing by** otherwise. Broadcast titles stay on the admin page; the status view shows only "YouTube".
+
+- **How often.** Every Relay shares one daily YouTube allowance, so it checks rarely: every minute while YouTube or
+  another stream Relay follows (OBS, say) is on air, and every 10 minutes otherwise. Both can be changed in Settings.
+  If the allowance runs out, the page says so and status comes back after midnight Pacific time.
+- **Signing in again.** If the account's password changes or someone removes Relay's access, the page and the module's
+  health say "YouTube needs signing in again". Press **Connect again**.
+- **Disconnect** forgets the account and asks Google to remove Relay's access. To check, open the Google account's
+  Security page, then "Your connections to third-party apps & services".
+- **Your own Google app.** Until Relay's own Google app is published, a church can make its own (a "TVs and Limited
+  Input devices" client with the YouTube Data API switched on, see `docs/reference/oauth-apps.md`) and enter its client
+  ID and secret under Settings.
+- Only Admins and Owners connect, disconnect or change settings; viewers and operators see the status. Connecting and
+  disconnecting are in the audit log. The token is kept encrypted in config.json, like the OpenAI key, and never sent to
+  a browser.
+
 ## Parent paging
 
 A kids worker pages a parent from their room's page, and the child's Planning Center Check-Ins security code (the

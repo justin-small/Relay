@@ -493,6 +493,13 @@ sender. Health is fixed: error when OBS cannot be reached or the stream stopped 
 (for ten minutes, or until it starts again); warn while reconnecting or when over 1% of frames were dropped (network),
 skipped (encoding) or lagged (rendering) in the last minute; ok while streaming or recording; idle otherwise.
 
+**YouTube** (`app/modules/youtube/`, #252) publishes one entry, `youtube`, labelled "YouTube": on air while the
+channel has a broadcast whose lifecycle is `live`, with the summed concurrent viewers and the earliest start. It signs
+in with core's device sign-in (below) and checks through the YouTube Data API, whose daily quota every install shares,
+so it waits `live_s` (60 s) while it or any other entry in the stream status is on air and `idle_s` (600 s) otherwise,
+and stops asking until after midnight Pacific when the quota is used up. Health: warn when the sign-in is refused or
+the channel cannot be read, ok while live, idle otherwise. Broadcast titles go in `detail` only.
+
 **Scenes from another module.** A module that wants to switch a video scene (a ProPresenter slide tag) never imports
 `obs`: it calls core's `app.modules.switch_scene(name, source="...")`, which the OBS module backs with `scene_hook`,
 set in `attach()` and cleared in `detach()`. Every connected OBS computer that has a scene of that name (any case)
