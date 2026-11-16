@@ -243,16 +243,18 @@ page_gate: Callable[..., Any] | None = None
 
 # The lighting module sets this in attach() and clears it in detach() (#377): (cue id, request or None) -> a dict
 # {"ok": bool, "error": str}. Anything that wants to fire a lighting cue calls `fire_cue`, never the module.
-cue_hook: Callable[..., Awaitable[dict]] | None = None
+cue_hook: Callable[..., Awaitable[dict]] | None = None   # (cue, request, *, by_name, source)
 
 
-async def fire_cue(cue_id: str, request: Any = None) -> dict:
+async def fire_cue(cue_id: str, request: Any = None, *, by_name: bool = False, source: str = "") -> dict:
     """Fire a cue the operator put on a lighting page. {"ok": False, "error": ...} when lighting is off, the cue is
-    not on a page, or the program could not do it. Pass the admin `request` to have the press in the audit trail."""
+    not on a page, or the program could not do it. Pass the admin `request` to have the press in the audit trail, or
+    (with no request) a `source` such as "a ProPresenter slide tag" to have it recorded as a system entry that says
+    where it came from. `by_name` takes the cue's name on the page (any case) instead of the program's cue id."""
     hook = cue_hook
     if hook is None:
         return {"ok": False, "error": "Lighting is off."}
-    return await hook(cue_id, request)
+    return await hook(cue_id, request, by_name=by_name, source=source)
 
 
 def require(perm: str) -> Callable[..., Any]:

@@ -118,6 +118,17 @@ class Service:
                     return p, c
         return None
 
+    def page_cue_named(self, name: str) -> tuple[dict, dict] | None:
+        """(page, cue) for the first cue called `name` (any case, spaces squeezed) on any page, in page order."""
+        want = " ".join(name.split()).casefold()
+        if not want:
+            return None
+        for p in self.settings()["pages"]:
+            for c in p["cues"]:
+                if " ".join(c["name"].split()).casefold() == want:
+                    return p, c
+        return None
+
     async def listed(self) -> list[Cue]:
         b = self.backend
         if b is None or not b.can_list:

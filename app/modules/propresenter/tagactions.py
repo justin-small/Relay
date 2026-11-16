@@ -50,5 +50,20 @@ async def _tag_alert(value: str | None) -> str:
         raise RuntimeError(str(exc))
 
 
+async def _tag_light(value: str | None) -> str:
+    """Fire the lighting cue called `value` on a lighting page, through core's hook: this module never imports
+    lighting, and the tag does nothing (and says so) while lighting is off."""
+    from .. import fire_cue
+
+    name = (value or "").strip()
+    if not name:
+        raise RuntimeError("Name the cue after light=, like [relay:light=Walk-in].")
+    r = await fire_cue(name, by_name=True, source="a ProPresenter slide tag")
+    if not r.get("ok"):
+        raise RuntimeError(str(r.get("error") or "The cue was not fired."))
+    return f"Lighting cue {name} fired."
+
+
 ACTIONS = {"capture-start": _tag_capture_start, "capture-stop": _tag_capture_stop,
-           "lyrics": _tag_lyrics, "captions": _tag_captions, "lang": _tag_lang, "alert": _tag_alert}
+           "lyrics": _tag_lyrics, "captions": _tag_captions, "lang": _tag_lang, "alert": _tag_alert,
+           "light": _tag_light}

@@ -19,10 +19,17 @@ def _bad(text: str, status: int = 400) -> JSONResponse:
     return JSONResponse({"error": text}, status_code=status)
 
 
-async def _do(verb: str, cue_id, request, *, page_only: bool, args: tuple = (), detail: str = "") -> dict:
-    """Press or release one cue, once. The audit note names the page and the cue ("Lighting: Worship, Verse")."""
+async def _do(verb: str, cue_id, request, *, page_only: bool, args: tuple = (), detail: str = "",
+              by_name: bool = False, source: str = "") -> dict:
+    """Press or release one cue, once. The audit note names the page and the cue ("Lighting: Worship, Verse"); with
+    no request, `source` says where a system press came from ("... (from a ProPresenter slide tag)")."""
     if not isinstance(cue_id, str):
         return {"ok": False, "error": "Choose a cue.", "status": 400}
+    if by_name:
+        named = service.page_cue_named(cue_id)
+        if named is None:
+            return {"ok": False, "error": "No cue with that name is on a lighting page.", "status": 404}
+        cue_id = named[1]["id"]
     found = await service.find(cue_id, page_only=page_only)
     if found is None:
         return {"ok": False, "error": "That cue is not on a lighting page.", "status": 404}
@@ -33,13 +40,15 @@ async def _do(verb: str, cue_id, request, *, page_only: bool, args: tuple = (), 
         return {"ok": False, "error": str(e), "status": 502}
     if request is not None:
         audit.note(request, f"lighting.{verb}", f"Lighting: {label}{detail}", target=cue_id)
+    elif source:
+        audit.record(f"lighting.{verb}", f"Lighting: {label}{detail} (from {source})", target=cue_id)
     return {"ok": True}
 
 
-async def fire(cue_id: str, request=None) -> dict:
+async def fire(cue_id: str, request=None, *, by_name: bool = False, source: str = "") -> dict:
     """The hook other modules reach through `app.modules.fire_cue`: only a cue on a page, never the controller's
     whole list."""
-    r = await _do("press", cue_id, request, page_only=True)
+    r = await _do("press", cue_id, request, page_only=True, by_name=by_name, source=source)
     r.pop("status", None)
     return r
 
