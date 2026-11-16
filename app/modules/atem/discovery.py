@@ -5,10 +5,15 @@ products announce, and for the list of every service type, following any that lo
 whole range (switchers, HyperDecks, Videohubs, Teranex, cameras, Web Presenters, Cloud Store, ...) so the operator
 sees what is there; only ATEMs can be added here. Control of the others is for their own modules.
 
-Not yet checked on real hardware: which service type and TXT keys each product announces. `_blackmagic._tcp` is the
-one Blackmagic's own setup utilities browse; `_hyperdeck_ctrl._tcp` and `_videohub._tcp` are asked for too, and the
-service-type list catches anything else with "blackmagic" in its name. A product is told apart by the words in its
-service type, its TXT `class` and `name`, and its instance name.
+Checked on real hardware (2026-11-16): an ATEM Television Studio HD III (8.1.1) announces `_blackmagic._tcp` on 9910
+with TXT `name`, `class=AtemSwitcher`, `release version` and `unique id`. An ATEM 2 M/E Constellation HD (9.6.2) does
+not: it announces `_switcher_ctrl._udp` on 9910 (TXT: only `unique id`) and `_videohub._tcp` on 9990 (its router, no TXT),
+and `_http._tcp` on 80 under the same instance name, whose TXT carries `device name`, `release version` and `unique id`
+(uppercase).
+The control service's TXT has only a lowercase `unique id`, so every instance fills the keys its own TXT lacks from its
+`_http._tcp` twin, and ids are compared lowercase. `_hyperdeck_ctrl._tcp` is asked for
+too, and the service-type list catches anything else with a Blackmagic word in its name. A product is told apart by
+the words in its service type, its TXT `class` and `name`, and its instance name.
 
 `probe()` is the fallback where mDNS is blocked or the switcher is on a VLAN that does not pass it: it sends the
 ATEM's "hello" to every address in this computer's /24 and lists the ones that answer. A switcher holds a session
@@ -33,7 +38,8 @@ log = logging.getLogger("relay.atem")
 TRAFFIC = "atem"
 MDNS_GROUP, MDNS_PORT = "224.0.0.251", 5353
 META = "_services._dns-sd._udp.local"
-SERVICES = ("_blackmagic._tcp.local", "_hyperdeck_ctrl._tcp.local", "_videohub._tcp.local")
+SERVICES = ("_blackmagic._tcp.local", "_switcher_ctrl._udp.local", "_hyperdeck_ctrl._tcp.local", "_videohub._tcp.local")
+HTTP = "_http._tcp.local"  # where a Constellation keeps the TXT its other services leave out
 _BMD_WORDS = ("blackmagic", "bmd", "atem", "hyperdeck", "videohub", "teranex", "ultimatte")
 MAX_FOUND = 200
 MAX_PROBE_NETS = 2
@@ -42,7 +48,7 @@ PTR, TXT, SRV, A = 12, 16, 33, 1
 
 # (family, label, words that mark it), checked in order.
 FAMILIES = (
-    ("atem", "ATEM switcher", ("atem",)),
+    ("atem", "ATEM switcher", ("atem", "switcher_ctrl")),
     ("hyperdeck", "HyperDeck recorder", ("hyperdeck",)),
     ("videohub", "Videohub router", ("videohub",)),
     ("teranex", "Teranex converter", ("teranex",)),
@@ -145,7 +151,7 @@ def _looks_blackmagic(service: str) -> bool:
 def _uid(txt: dict[str, str], instance: str) -> str:
     for key in _UID_KEYS:
         if txt.get(key):
-            return _UID_OK.sub("", txt[key])[:64]
+            return _UID_OK.sub("", txt[key])[:64].lower()  # a Constellation sends its id in both cases
     return ("n:" + _UID_OK.sub("-", instance))[:64] if instance else ""
 
 
@@ -161,24 +167,32 @@ def collect(records: list[tuple[str, int, bytes, str]], services: set[str]) -> l
             continue
         instance = full[: -len(service) - 1] if full.lower().endswith("." + service) else full
         port, host = srv.get(full.lower(), (0, ""))
-        t = txt.get(full.lower(), {})
-        model = t.get("name") or t.get("model") or instance
+        t = {**txt.get(f"{instance}.{HTTP}".lower(), {}), **txt.get(full.lower(), {})} if service != HTTP \
+            else txt.get(full.lower(), {})
+        model = t.get("name") or t.get("model") or t.get("device name") or instance
         fid, label = family(service, t.get("class", ""), t.get("name", ""), instance)
         found[full.lower()] = {
             "name": instance[:60], "model": model[:60], "family": fid, "kind": label, "atem": fid == "atem",
             "service": service.removesuffix(".local"), "host": host.rstrip("."),
             "address": addr.get(host.lower().rstrip("."), ""), "port": port, "uid": _uid(t, instance),
-            "firmware": (t.get("internal version") or t.get("version") or t.get("protocol version") or "")[:40],
+            "firmware": (t.get("release version") or t.get("internal version") or t.get("version") or "")[:40],
         }
         if len(found) >= MAX_FOUND:
             break
-    # One device may announce several service types: keep one entry per unique id, preferring one with an address.
+    # One device may announce several service types: keep one entry per unique id. An ATEM entry beats any other, then
+    # the one on the switcher's control port (a Constellation's router also says ATEM), then one with an address; an
+    # address the kept entry lacks is taken from the one dropped.
+    def rank(f: dict) -> tuple[bool, bool, bool]:
+        return f["atem"], f["atem"] and f["port"] == p.PORT, bool(f["address"])
+
     out: dict[str, dict] = {}
     for f in found.values():
         key = f["uid"] or f["address"] or f["name"]
         have = out.get(key)
-        if have is None or (not have["address"] and f["address"]) or (f["atem"] and not have["atem"]):
-            out[key] = f
+        keep, drop = (f, have) if have is None or rank(f) > rank(have) else (have, f)
+        if drop and not keep["address"] and drop["address"] and drop["host"] in ("", keep["host"]):
+            keep = {**keep, "address": drop["address"]}
+        out[key] = keep
     return sorted(out.values(), key=lambda f: (not f["atem"], f["kind"], f["name"].lower()))
 
 
@@ -222,6 +236,8 @@ def discover(seconds: float = 2.5) -> list[dict]:
                 wants = []
                 if ty == PTR and n.lower() in services and t:
                     wants = [(SRV, t), (TXT, t)]
+                    if n.lower() != HTTP and t.lower().endswith("." + n.lower()):
+                        wants.append((TXT, f"{t[: -len(n) - 1]}.{HTTP}"))
                 elif ty == SRV and t:
                     wants = [(A, t)]
                 for want in wants:

@@ -140,7 +140,7 @@ def admin_scan(request: Request, payload: dict | None = None):
         found += [f for f in discovery.probe() if f["address"] not in have]
     items = devices()
     for f in found:
-        f["added"] = next((d["id"] for d in items if (f["uid"] and d["uid"] == f["uid"])
+        f["added"] = next((d["id"] for d in items if (f["uid"] and d["uid"].lower() == f["uid"].lower())
                            or (f["address"] and d["host"] == f["address"])), None)
     audit.note(request, "atem.scan", "Looked for Blackmagic devices on the network",
                detail={"found": len(found), "probe": probed})
