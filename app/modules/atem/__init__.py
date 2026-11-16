@@ -5,9 +5,10 @@ goes into core's shared tally state, which the tally screens read. For any other
 """
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 
-from .. import AdminPage, Health, Manifest, Module
+from .. import AdminPage, Health, Manifest, Module, Traffic
 from ...users import Permission
 
 
@@ -15,11 +16,12 @@ class Atem(Module):
     manifest = Manifest(
         id="atem",
         name="Blackmagic ATEM",
-        version="1.0.0",
         summary="Shows the switcher's program and preview tally on camera screens, and lets the booth cut, take, "
                 "fade to black and run macros.",
         settings_key="atem",
         guide="https://github.com/justin-small/relay#cameras-and-tally",
+        version="1.1.0",
+        traffic=(Traffic("atem", "ATEM switcher control (UDP)"),),
     )
     defaults = {"host": "", "port": 9910}
     admin_pages = (AdminPage(
@@ -70,6 +72,12 @@ class Atem(Module):
         if s["connected"]:
             return Health("ok", "Connected" + (f" to {s['product']}" if s["product"] else ""))
         return Health("error" if s["error"] else "warn", s["error"] or "Connecting")
+
+    def network_changed(self, resolved) -> None:
+        # Its port went away, came back or was re-chosen: open the session again through where it goes now.
+        from .service import service
+
+        self._net_task = asyncio.get_running_loop().create_task(service.restart(), name="atem-network")
 
     async def test(self) -> dict:
         from .service import service

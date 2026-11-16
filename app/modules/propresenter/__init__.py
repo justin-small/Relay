@@ -7,9 +7,11 @@ The link to Planning Center (pclink.py) works only while the Planning Center mod
 """
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 
-from .. import AdminPage, Health, Manifest, Module
+from ... import netsock
+from .. import AdminPage, Health, Manifest, Module, Traffic
 from ...users import Permission
 
 LYRICS_STREAM = "lyrics"
@@ -20,12 +22,13 @@ class ProPresenter(Module):
     manifest = Manifest(
         id="propresenter",
         name="ProPresenter",
-        version="1.1.0",
+        version="1.2.0",
         summary="Follows ProPresenter's slides: lyrics and timers on panels and screens, control from this page, "
                 "the slide view and lobby rotation, slide-note tags, and the link to Planning Center.",
         settings_key="propresenter",
         guide="https://github.com/justin-small/relay#propresenter",
         uses=("planning_center", "signage"),
+        traffic=(Traffic("propresenter", "ProPresenter (its network API)"),),
     )
     admin_pages = (
         AdminPage(id="ppcontrol", title="ProPresenter control", template="control.html", group="Output",
@@ -153,6 +156,12 @@ class ProPresenter(Module):
             return Health("warn", "Connecting")
         return Health("error", s["error"] or "Not connected")
 
+    def network_changed(self, resolved) -> None:
+        # Its port went away, came back or was re-chosen: open the live connection again through where it goes now.
+        from .propresenter import follower
+
+        self._net_task = asyncio.get_running_loop().create_task(follower.reconnect(), name="propresenter-network")
+
     async def test(self) -> dict:
         from ... import config
         from . import propresenter
@@ -165,7 +174,9 @@ class ProPresenter(Module):
         try:
             info = await follower.call(client.version)
         except propresenter.ProError:
-            return {"ok": False, "detail": "Could not reach ProPresenter at the saved address and port."}
+            # Names the network port when ProPresenter's traffic is routed to one (#348).
+            return {"ok": False, "detail": netsock.failure(propresenter.TRAFFIC,
+                                                           "Could not reach ProPresenter at the saved address and port.")}
         name = info.get("name") if isinstance(info, dict) else ""
         return {"ok": True, "detail": "Connected" + (f" to {name}." if name else ".")}
 

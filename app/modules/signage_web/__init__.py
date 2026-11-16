@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from .. import AdminPage, Health, Manifest, Module
+from .. import AdminPage, Health, Manifest, Module, Traffic
 from ...users import Permission
 
 WEB_KIND = "web_page"
@@ -18,12 +18,13 @@ class SignageWeb(Module):
     manifest = Manifest(
         id="signage_web",
         name="Signage: web pages and YouTube",
-        version="1.0.0",
+        version="1.1.0",
         summary="Adds web pages and YouTube videos or playlists to signage playlists. They need the internet and "
                 "are skipped while a screen can't reach it.",
         settings_key="signage_web",
         guide="https://github.com/justin-small/relay#signage-web-pages-and-youtube",
         uses=("signage",),
+        traffic=(Traffic("signage_web", "Signage web page checks (over the internet)"),),
     )
     defaults = {"links": []}
     admin_pages = (AdminPage(

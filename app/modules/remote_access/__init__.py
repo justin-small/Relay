@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from .. import AdminPage, Health, Manifest, Module
+from .. import AdminPage, Health, Manifest, Module, Traffic
 from ...users import Permission
 
 
@@ -21,10 +21,11 @@ class RemoteAccess(Module):
     manifest = Manifest(
         id="remote_access",
         name="Remote access",
-        version="1.0.0",
+        version="1.1.0",
         summary="Gives the viewer links an internet address, so people off the venue's Wi-Fi can follow along.",
         settings_key="remote_access",
         guide="https://github.com/justin-small/relay#remote-access",
+        traffic=(Traffic("remote_access", "Remote access (Relay's cloud and the tunnel, over the internet)"),),
     )
     secret_settings = ("secret", "tunnel_token", "pending_secret")
     defaults = {"cloud_url": "", "install_id": "", "hostname": "", "secret": "", "tunnel_token": "",
@@ -88,6 +89,14 @@ class RemoteAccess(Module):
         if tunnel.state == "retrying":
             return Health("error", "Can't reach Cloudflare")
         return Health("warn", "Connecting")
+
+    def network_changed(self, resolved) -> None:
+        # Its port went away, came back or was re-chosen: cloudflared binds its address only when it starts.
+        import asyncio
+
+        from .tunnel import tunnel
+
+        self._net_task = asyncio.get_running_loop().create_task(tunnel.restart(), name="remote-access-network")
 
     async def test(self) -> dict:
         import asyncio

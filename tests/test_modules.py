@@ -56,7 +56,7 @@ CORE_FILES = {
 # address for the viewer links (main, netinfo) and Relay announcing itself to its own caption panels (announce).
 NETWORK = {"socket", "ssl", "http.client", "urllib.request", "websockets", "httpx", "aiohttp", "requests",
            "zeroconf", "paho", "pyserial", "serial"}
-CORE_NETWORK = {"announce.py": {"socket"}, "main.py": {"socket"}, "netinfo.py": {"socket"}, "netsock.py": {"socket"}, "realtime.py": {"ssl", "websockets"}, "serving.py": {"socket"},
+CORE_NETWORK = {"announce.py": {"socket"}, "main.py": {"socket"}, "netinfo.py": {"socket"}, "netsock.py": {"socket", "http.client", "urllib.request", "websockets"}, "realtime.py": {"ssl"}, "serving.py": {"socket"},
                 "texttranslate.py": {"urllib.request"}, "tls.py": {"socket", "ssl"}}
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -121,6 +121,51 @@ for name in sorted(CORE_FILES & top):
     used = {i for i in used if i in NETWORK}
     extra = sorted(used - CORE_NETWORK.get(name, set()))
     check(f"{name} opens no network connection of its own (integrations go in modules)", not extra, extra)
+
+# ------------------------------------------------------------------ modules open sockets through app/netsock.py
+# A module's traffic leaves through the network port the operator chose for it (#348), so a module never opens a
+# connection itself. The exceptions are this computer's own ports, and LiveKit's one-time download on the system
+# default (the intercom class may be routed to an audio network with no internet).
+OPENERS = {"socket.socket", "socket.create_connection", "urllib.request.urlopen", "urllib.request.build_opener",
+           "http.client.HTTPConnection", "http.client.HTTPSConnection", "websockets.connect", "websockets.serve",
+           "asyncio.open_connection", "asyncio.start_server", "create_datagram_endpoint", "create_connection",
+           "create_server", "open_connection"}
+MODULE_SOCKETS = {
+    "intercom/livekit.py": {"socket.socket", "urllib.request.urlopen", "urllib.request.build_opener"},
+    "intercom/rooms.py": {"urllib.request.build_opener"},       # LiveKit's room service on 127.0.0.1
+    "intercom/rtcproxy.py": {"websockets.connect"},             # LiveKit's signalling on 127.0.0.1
+}
+
+
+def opened(path: Path) -> set[str]:
+    """Every call in a file that opens a connection or socket by itself, by its dotted name (or method name)."""
+    out = set()
+    for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+        if not isinstance(node, ast.Call):
+            continue
+        parts, f = [], node.func
+        while isinstance(f, ast.Attribute):
+            parts.insert(0, f.attr)
+            f = f.value
+        if isinstance(f, ast.Name):
+            parts.insert(0, f.id)
+        dotted = ".".join(parts)
+        if dotted in OPENERS:
+            out.add(dotted)
+        elif parts and parts[-1] in OPENERS and isinstance(node.func, ast.Attribute):
+            out.add(parts[-1])          # loop.create_datagram_endpoint(...), and the like
+    return out
+
+
+print("modules open sockets only through app/netsock.py")
+for path in sorted(MODULES.rglob("*.py")):
+    rel = path.relative_to(MODULES)
+    if len(rel.parts) < 2 or "__pycache__" in rel.parts:
+        continue
+    extra = sorted(opened(path) - MODULE_SOCKETS.get(rel.as_posix(), set()))
+    check(f"{rel.as_posix()} opens no socket of its own (use app/netsock.py with its traffic class)", not extra, extra)
+for name, allowed in MODULE_SOCKETS.items():
+    check(f"{name} still needs its socket exception", bool(opened(MODULES / name) & allowed), name)
 
 # ------------------------------------------------------------------ each real module keeps the contract
 print("module contract")

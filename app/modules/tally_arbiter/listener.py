@@ -22,7 +22,7 @@ from typing import Callable
 
 import websockets
 
-from ... import tally
+from ... import netsock, tally
 
 log = logging.getLogger("relay.tally_arbiter")
 
@@ -144,8 +144,8 @@ class Listener:
             except asyncio.CancelledError:
                 raise
             except (OSError, websockets.WebSocketException, asyncio.TimeoutError) as exc:
-                self.error = "Could not reach Tally Arbiter" if not isinstance(exc, websockets.ConnectionClosed) \
-                    else "Tally Arbiter closed the connection"
+                self.error = netsock.failure("tally_arbiter", "Could not reach Tally Arbiter") \
+                    if not isinstance(exc, websockets.ConnectionClosed) else "Tally Arbiter closed the connection"
             except Exception:
                 log.exception("Tally Arbiter listener failed")
                 self.error = "Lost the connection"
@@ -159,7 +159,9 @@ class Listener:
 
     async def _once(self) -> None:
         url = f"ws://{self.host}:{self.port}/socket.io/?EIO=4&transport=websocket"
-        async with websockets.connect(url, max_size=MAX_FRAME, open_timeout=5, ping_interval=None) as ws:
+        # Through the port the operator chose for Tally Arbiter (#348); the system default when there is none.
+        async with netsock.websocket_session("tally_arbiter", url, max_size=MAX_FRAME, open_timeout=5,
+                                             ping_interval=None) as ws:
             heard = time.monotonic()
             next_refresh = 0.0
             greeted = False

@@ -11,7 +11,7 @@ import asyncio
 import logging
 from typing import Any
 
-from .. import AdminPage, Health, Manifest, Module
+from .. import AdminPage, Health, Manifest, Module, Traffic
 from ...users import Permission
 
 log = logging.getLogger("relay.alert_events")
@@ -23,11 +23,12 @@ class AlertEvents(Module):
     manifest = Manifest(
         id="alert_events",
         name="Alert events out",
-        version="1.0.0",
+        version="1.1.0",
         summary="Sends a webhook or an OSC message when an alert or stage message is sent or an alert is "
                 "acknowledged, and shows alert state to Bitfocus Companion.",
         settings_key="alert_events",
         guide="https://github.com/justin-small/relay#alert-events-out",
+        traffic=(Traffic("alert_events", "Alert webhooks and OSC messages"),),
     )
     defaults = {"webhook": {"enabled": False, "url": ""}, "osc": {"enabled": False, "host": "", "port": 8000}}
     admin_pages = (AdminPage(

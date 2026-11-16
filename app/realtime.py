@@ -28,9 +28,8 @@ import ssl
 import time
 from typing import Any, Callable
 
-import websockets
 
-from . import languages
+from . import languages, netsock
 
 log = logging.getLogger("relay.realtime")
 
@@ -125,10 +124,11 @@ _SSL = _ssl_context()
 async def _connect(url: str, headers: dict[str, str]):
     """websockets renamed extra_headers -> additional_headers in v14."""
     kw = {"max_size": 1 << 24, "ping_interval": 20, "ssl": _SSL}
+    # Through the port the operator chose for translation (#348); the system default when there is none.
     try:
-        return await websockets.connect(url, additional_headers=headers, **kw)
+        return await netsock.websocket("translation", url, additional_headers=headers, **kw)
     except TypeError:
-        return await websockets.connect(url, extra_headers=headers, **kw)
+        return await netsock.websocket("translation", url, extra_headers=headers, **kw)
 
 
 class RealtimeSession:

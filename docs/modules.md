@@ -211,10 +211,51 @@ reader, writer = await netsock.open_tcp("propresenter", host, port)          # o
 transport, proto = await netsock.udp_endpoint("atem", AtemProtocol)          # or udp_socket(...) -> socket
 sock = netsock.multicast_socket("aes67", "239.69.1.1", 5004)                 # joined on the port's address
 server = await netsock.start_server("signage", handle, 8090)                 # or listen_tcp(...) -> socket
+
+conn = netsock.http_connection("propresenter", host, port, timeout=5)        # http.client, HTTPS with tls=True
+with netsock.urlopen("planning_center", request, timeout=30, context=ctx):   # urllib
+opener = netsock.opener("crew.push", NoRedirect)                             # urllib with handlers; context=, not
+                                                                             # an HTTPSHandler of your own
+async with netsock.websocket_session("tally_arbiter", url) as ws:            # or ws = await netsock.websocket(...)
+transport, proto = await netsock.udp_endpoint("atem", Proto, remote=(host, 9910))   # connected, like remote_addr
+sock = netsock.multicast_sender("propresenter", ttl=255)                     # an mDNS question, no group joined
 ```
 
-A helper that cannot do its job raises `netsock.RouteError`, whose message is a fixed sentence safe to show
-on the module's page. `netsock.notes(class_id)` lists what the operator should know about a route:
+**A module never opens a socket itself** (#348). `tests/test_modules.py` fails on a module that calls
+`socket.socket`, `urllib.request.urlopen` or `build_opener`, `http.client.HTTPConnection`, `websockets.connect`,
+`create_datagram_endpoint` and the like. The exceptions, listed in `MODULE_SOCKETS` there, are this computer's own
+ports (LiveKit on 127.0.0.1) and LiveKit's one-time download.
+
+A helper that cannot do its job raises `netsock.RouteError`, an `OSError` whose message is a fixed sentence, so a
+client that already catches `OSError` keeps working. For the module's page and its connection test, use
+`netsock.failure(class_id, "Could not reach the switcher")`: the route's own reason when its port is missing or
+down, your sentence plus the port it went through when routed, and your sentence alone when not. It is built from
+the route, never from the exception (CodeQL flags exception text reaching a page). Core adds a routed class's
+missing port to the module's health, for a strict class and for one that fell back to the default network.
+
+Each module's classes, and what happens when the port changes (`network_changed`):
+
+| Module | Class | Goes through | On a port change |
+|---|---|---|---|
+| ATEM | `atem` | `udp_endpoint` | the session starts again |
+| ProPresenter (and its Planning Center link) | `propresenter` | `http_connection`, `multicast_sender` (discovery) | the live connection opens again |
+| Tally Arbiter | `tally_arbiter` | `websocket_session` | connects again |
+| Planning Center | `planning_center` | `urlopen`, `opener` | asks again now |
+| Remote access | `remote_access` | `urlopen`; cloudflared gets `--edge-bind-address` | cloudflared restarts |
+| Intercom | `intercom` (media, strict) | LiveKit's `rtc.node_ip`, `rtc.interfaces` and `rtc.ips` | LiveKit restarts |
+| Crew | `crew.push` | `opener` (web push) | next push |
+| Signage web | `signage_web` | `opener` (link checks) | next check |
+| Alert events | `alert_events` | `urlopen` (webhook), `udp_socket` (OSC) | next event |
+| Core translation | `translation` | `websocket` (realtime), `urlopen` (text) | next connection |
+
+Not steered yet: the remote intercom bridge's media (aiortc gathers on every interface), the phones' LiveKit
+signalling (it arrives on the crew port), and LiveKit's download (the system default, since the intercom port may
+have no internet). Dante, AES67 and NDI are built on this from the start: Dante discovery and control join and send
+on the `dante` port with `multicast_socket`; Dante Virtual Soundcard and Dante Via choose their own network card in
+their own app, so set the same one there. AES67 sends and joins with `multicast_socket`. NDI reads its own adapter
+list (`ndi-config.v1.json`); check what the SDK version supports before writing it per run.
+
+`netsock.notes(class_id)` lists what the operator should know about a route:
 
 - Linux refused the pin because Relay lacks `CAP_NET_RAW`. The socket still sends from the port's address,
   which works for devices on that port's own network.

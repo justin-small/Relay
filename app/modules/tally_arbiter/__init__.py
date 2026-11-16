@@ -5,9 +5,10 @@ shared tally state, which the tally screens read. For a Blackmagic ATEM, the ATE
 """
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 
-from .. import AdminPage, Health, Manifest, Module
+from .. import AdminPage, Health, Manifest, Module, Traffic
 from ...users import Permission
 
 
@@ -15,10 +16,11 @@ class TallyArbiter(Module):
     manifest = Manifest(
         id="tally_arbiter",
         name="Tally Arbiter",
-        version="1.0.0",
+        version="1.1.0",
         summary="Shows the tally Tally Arbiter serves (ATEM, OBS, vMix and others) on Relay's camera screens.",
         settings_key="tally_arbiter",
         guide="https://github.com/justin-small/relay#cameras-and-tally",
+        traffic=(Traffic("tally_arbiter", "Tally Arbiter (WebSocket)"),),
     )
     defaults = {"host": "", "port": 4455}
     admin_pages = (AdminPage(
@@ -69,6 +71,12 @@ class TallyArbiter(Module):
             n = len(s["cameras"])
             return Health("ok", f"Connected, {n} camera{'s' if n != 1 else ''}")
         return Health("error" if s["error"] else "warn", s["error"] or "Connecting")
+
+    def network_changed(self, resolved) -> None:
+        # Its port went away, came back or was re-chosen: connect again through where it goes now.
+        from .listener import service
+
+        self._net_task = asyncio.get_running_loop().create_task(service.restart(), name="tally-arbiter-network")
 
     async def test(self) -> dict:
         from .listener import service

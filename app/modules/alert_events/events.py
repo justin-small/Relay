@@ -5,13 +5,16 @@ Every error text here is a fixed sentence, never an exception's own, since it re
 from __future__ import annotations
 
 import json
-import socket
 import struct
 import urllib.error
 import urllib.parse
 import urllib.request
 from datetime import datetime, timezone
 from typing import Any
+
+from ... import netsock
+
+TRAFFIC = "alert_events"   # webhooks and OSC go out through this class's port (#348)
 
 WEBHOOK_TIMEOUT_S = 5
 URL_MAX = 500
@@ -129,23 +132,24 @@ def send_webhook(url: str, event: dict) -> str:
     req = urllib.request.Request(url, data=body(event), method="POST",
                                  headers={"Content-Type": "application/json", "User-Agent": "Relay"})
     try:
-        with urllib.request.urlopen(req, timeout=WEBHOOK_TIMEOUT_S) as resp:   # noqa: S310 (http and https only)
+        # Through the port the operator chose for alert events (#348); the system default when there is none.
+        with netsock.urlopen(TRAFFIC, req, timeout=WEBHOOK_TIMEOUT_S) as resp:   # http and https only
             resp.read(1024)
         return ""
     except urllib.error.HTTPError:
         return "The webhook answered with an error."
     except (urllib.error.URLError, OSError, ValueError):
-        return "The webhook could not be reached."
+        return netsock.failure(TRAFFIC, "The webhook could not be reached.")
 
 
 def send_osc(host: str, port: int, event: dict) -> str:
     try:
-        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+        with netsock.udp_socket(TRAFFIC) as s:
             s.settimeout(WEBHOOK_TIMEOUT_S)
             s.sendto(osc_for(event), (host, port))
         return ""
     except (OSError, ValueError):
-        return "The OSC message could not be sent."
+        return netsock.failure(TRAFFIC, "The OSC message could not be sent.")
 
 
 def deliver(cfg: dict, event: dict) -> list[str]:

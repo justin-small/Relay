@@ -34,7 +34,7 @@ import zipfile
 from collections import deque
 from pathlib import Path
 
-from ... import netinfo, paths
+from ... import netinfo, netroute, paths
 from . import winjob
 
 log = logging.getLogger("relay.intercom")
@@ -193,6 +193,9 @@ def env_keys(key: str, secret: str) -> dict[str, str]:
     return {"LIVEKIT_KEYS": f"{key}: {secret}"}
 
 
+TRAFFIC = "intercom"   # LiveKit's media: the port the operator chose for it (#348)
+
+
 def lan_address(configured: str = "") -> str:
     if configured:
         return configured
@@ -200,11 +203,30 @@ def lan_address(configured: str = "") -> str:
     return ips[0] if ips else "127.0.0.1"
 
 
-def config_text(node_ip: str, key: str, webhook_url: str = "") -> str:
+def media_route(configured: str = "") -> tuple[str, str, str]:
+    """(address LiveKit advertises, interface it gathers on or "", why it cannot start or "").
+
+    An address typed under Settings wins. Otherwise the intercom class's port when it is routed there: LiveKit
+    then advertises that port's address and gathers candidates on that interface only. A strict route whose port
+    is missing or down gives the reason instead, and LiveKit does not start. Unrouted: the first LAN address."""
+    if configured:
+        return configured, "", ""
+    r = netroute.resolve(TRAFFIC)
+    if r.routed and not r.fallback:
+        if not r.available or not r.address:
+            return "", "", r.reason or "Intercom's network port cannot be used right now."
+        return r.address, r.port.name if r.port else "", ""
+    return lan_address(), "", ""
+
+
+def config_text(node_ip: str, key: str, webhook_url: str = "", interface: str = "") -> str:
     """livekit.yaml. JSON strings are valid YAML scalars, so nothing needs escaping by hand. No `keys:` block: the
     secret reaches LiveKit through env_keys(), never this file."""
     q = json.dumps
     hook = ["webhook:", f"  api_key: {q(key)}", "  urls:", f"    - {q(webhook_url)}"] if webhook_url else []
+    # Routed (#348): gather ICE candidates on the chosen port only, so media never leaves by another one.
+    only = ["  interfaces:", "    includes:", f"      - {q(interface)}",
+            "  ips:", "    includes:", f"      - {q(node_ip + '/32')}"] if interface else []
     return "\n".join([
         f"port: {SIGNAL_PORT}",
         "bind_addresses:",
@@ -214,6 +236,7 @@ def config_text(node_ip: str, key: str, webhook_url: str = "") -> str:
         f"  udp_port: {UDP_PORT}",
         "  use_external_ip: false",
         f"  node_ip: {q(node_ip)}",
+        *only,
         "room:",
         "  auto_create: false",
         "  enable_remote_unmute: true",       # the server unmutes a talker's track when a lease starts
@@ -232,12 +255,12 @@ def webhook_url() -> str:
     return f"http://127.0.0.1:{serving.viewer_port(config.get()['port'])}/intercom/livekit-webhook"
 
 
-def write_config(node_ip: str) -> Path:
+def write_config(node_ip: str, interface: str = "") -> Path:
     key, _ = keys()
     folder = state_folder()
     paths.make_private_dir(folder)
     file = folder / "livekit.yaml"
-    write_private(file, config_text(node_ip, key, webhook_url()))
+    write_private(file, config_text(node_ip, key, webhook_url(), interface))
     return file
 
 
@@ -389,14 +412,17 @@ class Supervisor:
             return None
 
     async def _launch(self, binary: str) -> bool:
-        node_ip = lan_address(self.settings.get("node_ip", ""))
+        node_ip, interface, problem = media_route(self.settings.get("node_ip", ""))
+        if problem:
+            self._set("error", problem)   # a strict route's port is missing or down: never on another network
+            return False
         busy = await asyncio.to_thread(busy_port, node_ip)
         if busy:
             self._set("error", busy)
             return False
         self._set("starting", "Starting LiveKit.")
         key, self._secret = keys()
-        cfg = write_config(node_ip)
+        cfg = write_config(node_ip, interface)
         kwargs: dict = {"env": {**os.environ, **env_keys(key, self._secret)}}
         if sys.platform == "win32":
             kwargs["creationflags"] = 0x0800_0200   # CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP
@@ -441,7 +467,7 @@ class Supervisor:
     def view(self) -> dict:
         return {"state": self.state, "detail": self.detail,
                 "uptime_s": int(time.time() - self.started_at) if self.state == "running" and self.started_at else 0,
-                "node_ip": lan_address(self.settings.get("node_ip", "")),
+                "node_ip": media_route(self.settings.get("node_ip", ""))[0],
                 "ports": {"signal": SIGNAL_PORT, "tcp": TCP_PORT, "udp": UDP_PORT},
                 "version": VERSION, "binary": bool(find_binary(self.settings.get("binary_path", ""))),
                 "can_download": asset() is not None, "log": list(self.log)}

@@ -29,6 +29,7 @@ from datetime import date, datetime, timedelta, timezone
 from typing import Any
 from zoneinfo import ZoneInfo
 
+from ... import netsock
 from ...realtime import _SSL
 
 log = logging.getLogger("relay.planningcenter")
@@ -57,7 +58,8 @@ class _NoRedirect(urllib.request.HTTPRedirectHandler):
         return None
 
 
-_NO_REDIRECT = urllib.request.build_opener(_NoRedirect, urllib.request.HTTPSHandler(context=_SSL))
+TRAFFIC = "planning_center"   # every call to Planning Center goes out through this class's port (#348)
+_NO_REDIRECT = netsock.opener(TRAFFIC, _NoRedirect, context=_SSL)
 
 
 class PlanningCenterError(Exception):
@@ -80,8 +82,8 @@ def operator_message(exc: PlanningCenterError) -> str:
                 "Services." if exc.status == 403 else "Planning Center did not accept that application ID and secret.")
     if exc.kind == "rate":
         return "Planning Center is rate limiting this account. Try again in a minute."
-    if exc.kind == "network":
-        return "Could not reach Planning Center. Check this machine's internet connection."
+    if exc.kind == "network":   # names the network port when Planning Center's traffic is routed to one (#348)
+        return netsock.failure(TRAFFIC, "Could not reach Planning Center. Check this machine's internet connection.")
     if exc.status:
         return f"Planning Center refused the request (HTTP {int(exc.status)})."
     return "Planning Center sent something Relay could not read."
@@ -157,8 +159,7 @@ class Client:
             req = urllib.request.Request(url, headers=self._headers(path), method=method,
                                          data=b"" if method == "POST" else None)
             try:
-                kw = {"context": _SSL} if url.startswith("https:") else {}
-                with urllib.request.urlopen(req, timeout=TIMEOUT_S, **kw) as resp:
+                with netsock.urlopen(TRAFFIC, req, timeout=TIMEOUT_S, context=_SSL) as resp:
                     self._note_rate(resp.headers)
                     return json.loads(resp.read())
             except urllib.error.HTTPError as exc:
