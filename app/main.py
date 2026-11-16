@@ -301,12 +301,15 @@ async def _audit_changes(request: Request, call_next):
     return response
 
 
-def _on_lan_change(ips) -> None:
-    """The LAN address changed: re-mint the panel certificate if its names no longer fit, and tell the
-    desktop shell (it pins the fingerprint and builds the viewer link) of both."""
+def _on_lan_change(change: netinfo.Change) -> None:
+    """The network changed. When the LAN addresses did: re-mint the panel certificate if its names no longer
+    fit, and tell the desktop shell (it pins the fingerprint and builds the viewer link) of both. A port that
+    only came, went or changed link state is logged by netinfo.watch."""
+    if not change.ips_changed:
+        return
     if tls.panel.refresh() and tls.panel.info:
         sidecar.emit("fingerprint", fingerprint=tls.panel.info.fingerprint)
-    sidecar.emit("network", ips=list(ips))
+    sidecar.emit("network", ips=list(change.ips))
 
 
 async def _startup() -> None:
