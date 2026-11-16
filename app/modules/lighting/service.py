@@ -2,7 +2,9 @@
 from __future__ import annotations
 
 import asyncio
+import hmac
 import re
+import secrets
 import uuid
 from typing import Any
 
@@ -21,8 +23,43 @@ def _text(value: Any, limit: int) -> str:
     return " ".join(value.split())[:limit] if isinstance(value, str) else ""
 
 
-def clean_pages(raw: Any) -> list[dict]:
-    """Pages as [{"id", "name", "cues": [{"id", "name"}]}]: bounded, unique page ids, a cue once per page."""
+SHAPES = ("rounded", "rect", "pill", "circle")
+_COLOR_RE = re.compile(r"#[0-9a-fA-F]{6}")
+_KEY_RE = re.compile(r"[0-9a-f]{32}")
+MAX_SPAN = 6
+
+
+def _color(value: Any, default: str) -> str:
+    return value.lower() if isinstance(value, str) and _COLOR_RE.fullmatch(value) else default
+
+
+def _int(value: Any, lo: int, hi: int, default: int) -> int:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return default
+    return max(lo, min(hi, int(value)))
+
+
+def clean_style(c: dict) -> dict:
+    """How one cue's button looks: the label it shows, its shape, colours and size. `w` and `h` are grid cells (1 to
+    6); `x`, `y`, `fw`, `fh` are a percentage of the page, used only when the page is free-positioned. Always safe
+    to put in a style attribute: a colour is #rrggbb and every number is bounded."""
+    fw = _int(c.get("fw"), 4, 100, 25)
+    fh = _int(c.get("fh"), 4, 100, 20)
+    return {"label": _text(c.get("label"), 60), "shape": c.get("shape") if c.get("shape") in SHAPES else "rounded",
+            "color": _color(c.get("color"), "#2b5fd9"), "text_color": _color(c.get("text_color"), "#ffffff"),
+            "w": _int(c.get("w"), 1, MAX_SPAN, 1), "h": _int(c.get("h"), 1, MAX_SPAN, 1),
+            "x": _int(c.get("x"), 0, 100 - fw, 0), "y": _int(c.get("y"), 0, 100 - fh, 0), "fw": fw, "fh": fh}
+
+
+def new_key() -> str:
+    """A page's screen key: 128 random bits, as 32 hex digits."""
+    return secrets.token_hex(16)
+
+
+def clean_pages(raw: Any, keys: dict[str, str] | None = None) -> list[dict]:
+    """Pages as [{"id", "name", "free", "key_on", "key", "cues": [{"id", "name", + clean_style}]}]: bounded, unique
+    page ids, a cue once per page. A page's key is never taken from `raw` when `keys` (the saved ones, by page id)
+    is given: only the key routes change it."""
     out: list[dict] = []
     seen: set[str] = set()
     for p in (raw if isinstance(raw, list) else [])[:MAX_PAGES]:
@@ -35,6 +72,8 @@ def clean_pages(raw: Any) -> list[dict]:
         if not pid or pid in seen:
             pid = uuid.uuid4().hex[:8]
         seen.add(pid)
+        key = (keys or {}).get(pid, "") if keys is not None else p.get("key")
+        key = key if isinstance(key, str) and _KEY_RE.fullmatch(key) else ""
         cues: list[dict] = []
         ids: set[str] = set()
         for c in (p.get("cues") if isinstance(p.get("cues"), list) else [])[:MAX_CUES]:
@@ -45,8 +84,9 @@ def clean_pages(raw: Any) -> list[dict]:
             if not _ID_RE.fullmatch(cid) or cid in ids:
                 continue
             ids.add(cid)
-            cues.append({"id": cid, "name": _text(c.get("name"), 60) or cid})
-        out.append({"id": pid, "name": name, "cues": cues})
+            cues.append({"id": cid, "name": _text(c.get("name"), 60) or cid, **clean_style(c)})
+        out.append({"id": pid, "name": name, "free": p.get("free") is True, "key_on": bool(key) and p.get("key_on") is True,
+                    "key": key, "cues": cues})
     return out
 
 
@@ -74,6 +114,8 @@ def public(settings: dict) -> dict:
     s = clean_settings(settings)
     s["has_password"] = bool(s["password"])
     s["password"] = ""
+    for p in s["pages"]:     # a key reaches only its own route (manage), never a viewer or a config read
+        p["has_key"] = bool(p.pop("key"))
     return s
 
 
@@ -115,6 +157,15 @@ class Service:
                 pass
 
     # ------------------------------------------------------------------------------------------ cues
+    def screen_page(self, page_id: str, key: str) -> dict | None:
+        """The page whose screen key is `key`, else None. The key is checked in constant time, and only while the
+        page's screen is switched on."""
+        for p in self.settings()["pages"]:
+            if p["id"] == page_id:
+                ok = p["key_on"] and bool(p["key"]) and hmac.compare_digest(p["key"].encode(), str(key).encode())
+                return p if ok else None
+        return None
+
     def page_cue(self, cue_id: str) -> tuple[dict, dict] | None:
         """(page, cue) for the first page holding `cue_id`: only these may be fired from a screen or panel."""
         for p in self.settings()["pages"]:

@@ -585,6 +585,8 @@ for method, path, perm in (
     ("GET", "/api/admin/lighting", "lighting.view"),
     ("PUT", "/api/admin/lighting/settings", "lighting.manage"),         # an empty body changes nothing
     ("PUT", "/api/admin/lighting/pages", "lighting.manage"),            # an empty body is refused
+    ("PUT", "/api/admin/lighting/pages/{page_id}/screen", "lighting.manage"),   # no such page: 404
+    ("GET", "/api/admin/lighting/pages/{page_id}/link", "lighting.manage"),     # no such page: 404
     ("POST", "/api/admin/lighting/test", "lighting.manage"),            # no program chosen: nothing is sent
     ("POST", "/api/admin/lighting/press", "lighting.control"),          # no cue named: refused
     ("POST", "/api/admin/lighting/release", "lighting.control"),

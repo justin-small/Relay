@@ -73,8 +73,8 @@ with section("settings and pages are cleaned"):
                             "pages": [{"name": " Worship  ", "cues": [{"id": "b", "name": "Verse"}, {"id": "b"}, {"id": "bad id"}]},
                                       {"name": ""}, "junk"]})
     eq("host trimmed, bad port dropped", (s["host"], s["port"]), ("10.0.0.5", 0))
-    eq("one named page, duplicate and bad cue ids dropped", [(p["name"], p["cues"]) for p in s["pages"]],
-       [("Worship", [{"id": "b", "name": "Verse"}])])
+    eq("one named page, duplicate and bad cue ids dropped", [(p["name"], [(c["id"], c["name"]) for c in p["cues"]]) for p in s["pages"]],
+       [("Worship", [("b", "Verse")])])
     check("a page gets an id", s["pages"][0]["id"])
     eq("junk settings are empty", svc.clean_settings("x")["backend"], "")
     check("public strips the password", svc.public(s)["password"] == "" and svc.public(s)["has_password"] is True)

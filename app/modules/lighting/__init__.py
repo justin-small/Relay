@@ -20,7 +20,7 @@ class Lighting(Module):
         summary="Fires a lighting program's cues (walk-in, worship, message) from cue pages, without the lighting PC.",
         settings_key="lighting",
         guide="/docs/lighting",
-        version="1.1.0",
+        version="1.2.0",
         traffic=(Traffic("lighting", "Lighting program control (QLC+ web API)"),),
     )
     defaults = {"backend": "", "host": "", "port": 0, "password": "", "functions": False, "console": "EX", "fade": "", "pages": []}
@@ -28,8 +28,8 @@ class Lighting(Module):
     admin_pages = (AdminPage(
         id="lighting", title="Lighting", template="lighting.html", group="Output",
         icon='<circle cx="8" cy="6" r="3"/><path d="M6.5 10.5h3M7 13h2"/>'),)
-    admin_scripts = ("lighting.js",)
-    route_prefixes = ("/api/admin/lighting",)
+    admin_scripts = ("lighting-buttons.js", "lighting.js")
+    route_prefixes = ("/api/admin/lighting", "/lighting")
     permissions = (
         Permission("lighting.view", "See the lighting cue pages", "Lighting", "viewer"),
         Permission("lighting.control", "Fire lighting cues", "Lighting", "operator"),
@@ -57,14 +57,16 @@ class Lighting(Module):
     # The fire hook is a hook into core, so it is set in attach() and removed in detach().
     def attach(self) -> None:
         from ... import modules as registry
-        from .routes import fire
+        from .routes import fire, screen_page
 
         registry.cue_hook = fire
+        registry.screen_pages["lighting"] = screen_page
 
     def detach(self) -> None:
         from ... import modules as registry
 
         registry.cue_hook = None
+        registry.screen_pages.pop("lighting", None)
 
     async def start(self) -> None:
         from .service import service
