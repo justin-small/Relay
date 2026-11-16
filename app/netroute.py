@@ -275,6 +275,16 @@ def resolve(class_id: str) -> Resolved:
     return Resolved(class_id, pid, port, None, False, problem, policy)
 
 
+def link_addresses(class_id: str) -> list[str]:
+    """The addresses to put in links and QR codes for a class's pages (#346): its routed port's address while that
+    port is up; none while a strict route's port is missing (only this computer reaches it then); every LAN
+    address, default route's first, when the class follows the system default."""
+    r = resolve(class_id)
+    if r.routed and not r.fallback:
+        return [r.address] if r.available and r.address else []
+    return netinfo.lan_ips()
+
+
 def module_resolved(module_id: str) -> dict[str, Resolved]:
     """resolve() for every class a module declares."""
     from .modules import modules

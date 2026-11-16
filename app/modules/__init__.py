@@ -116,6 +116,9 @@ class Listener:
     port_setting: str            # the key in the module's own settings holding the port number
     default_port: int
     prefixes: tuple[str, ...]    # each under the module's route_prefixes
+    # The traffic class whose network port it listens on (app/netroute.py): a core class ("viewers", "crew") or one
+    # the module declares in manifest.traffic. Unrouted, it listens on every interface as before.
+    traffic: str = "viewers"
 
 
 @dataclass(frozen=True)
@@ -657,6 +660,10 @@ def validate(mod: Any, package: str) -> list[str]:
             problems.append(f"{package}: listener {lst.name!r} default port must be 1024-65535")
     from .. import netroute
 
+    own_traffic = {t.id for t in m.traffic if isinstance(t, Traffic)}
+    for lst in mod.listeners:
+        if isinstance(lst, Listener) and lst.traffic not in own_traffic | {t.id for t in netroute.CORE_TRAFFIC}:
+            problems.append(f"{package}: listener {lst.name!r} traffic {lst.traffic!r} must be a core class or its own")
     seen_traffic = set()
     for t in m.traffic:
         if not isinstance(t, Traffic):

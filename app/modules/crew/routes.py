@@ -11,7 +11,7 @@ from pathlib import Path
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 
-from ... import audit, config, db, netinfo, serving, tls
+from ... import audit, config, db, netroute, serving, tls
 from .. import listener_port, modules as registry, require
 from . import calltimes, chat, checkin, checklists, paging, people, resources
 
@@ -86,7 +86,7 @@ def _join_addresses(host: str | None = None) -> dict:
     """The two addresses of the crew page for a phone (#236): the HTTPS one, on Relay's current LAN address and the
     HTTPS port (not the viewer port), and the plain-HTTP join page the QR code points at, which explains the
     certificate first. `host` is what the phone itself reached, when it is the one asking."""
-    ips = netinfo.lan_ips()
+    ips = netroute.link_addresses("crew")   # the crew network's address when the crew pages are routed (#346)
     where = host or (ips[0] if ips else "")
     if ":" in where and not where.startswith("["):
         where = f"[{where}]"

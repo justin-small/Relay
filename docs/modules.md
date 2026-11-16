@@ -154,6 +154,11 @@ the admin page; Relay starts anyway. A change of port, or switching the module o
 so say so in the module's health. `serving.listener_bound(prefixes)` gives the port really bound. The prefixes must
 be under the module's `route_prefixes`, and the default port 1024 or above.
 
+`traffic` names the class whose network port the listener uses (default `"viewers"`; the crew join page uses
+`"crew"`, and a module may name one of its own classes). Unrouted, it listens as before. Routed, it listens only on
+that port's address and 127.0.0.1, and moves by itself when that address changes. For links and QR codes use
+`netroute.link_addresses(traffic)`, never `netinfo.lan_ips()`.
+
 ## Network traffic on a port of its own
 
 A machine running Relay often has several network ports: the church Wi-Fi, a crew network, a Dante or NDI

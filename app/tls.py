@@ -54,10 +54,21 @@ def key_path() -> Path:
     return cert_dir() / "admin.key"
 
 
+def _https_addresses() -> list[str]:
+    """Addresses the panel listens on because the crew pages are routed to a network port (#346), which
+    lan_ips() may leave out (a link-local-only crew network)."""
+    try:
+        from . import netroute
+
+        return netroute.link_addresses("crew")
+    except Exception:
+        return []
+
+
 def names(fqdn: str = "") -> tuple[list[str], list[str]]:
     """(DNS names, IP addresses) the certificate must name: what an operator could type into a browser."""
     ips: list[str] = []
-    for ip in [*netinfo.lan_ips(), "127.0.0.1"]:
+    for ip in [*netinfo.lan_ips(), *_https_addresses(), "127.0.0.1"]:
         if ip not in ips:
             ips.append(ip)
     dns: list[str] = ["localhost"]

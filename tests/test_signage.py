@@ -218,10 +218,12 @@ probe.bind(("127.0.0.1", 0))
 free = probe.getsockname()[1]
 probe.close()
 socks, lines = run._module_listeners("127.0.0.1", {**config.get(), "signage": {"port": free}}, {8000, 8001})
-eq("one socket opened", len(socks), 1)
+eq("one listener opened", len(socks), 1)
 eq("published with its prefixes", serving.listener_prefixes(free), ("/signage",))
-for sk in socks:
-    sk.close()
+eq("unrouted, it binds the given host as before (#346)", list(socks[0].socks), ["127.0.0.1"])
+for group in socks:
+    for sk in group.socks.values():
+        sk.close()
 socks, _ = run._module_listeners("127.0.0.1", {**config.get(), "signage": {"port": 8001}}, {8000, 8001})
 eq("a port Relay uses is skipped", len(socks), 0)
 check("and said on the admin page", any("already uses" in n for n in serving.notices()))

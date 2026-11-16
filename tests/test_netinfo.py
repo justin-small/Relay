@@ -327,12 +327,13 @@ with section("watch reports address changes and port changes"):
     eq("link-local port plugged in", ([p.name for p in seen[2].added], seen[2].ports), (["en6"], [p1, p2]))
     eq("adapter unplugged", [p.name for p in seen[3].removed], ["en5"])
 
-with section("main's handler reacts only to an address change"):
+with section("main's handler tells the desktop shell only of an address change"):
     from app import main
     with mock.patch.object(main.tls.panel, "refresh", return_value=False) as refresh, \
             mock.patch.object(main.sidecar, "emit") as emit:
         main._on_lan_change(netinfo.Change(["10.1.1.7"], [], ips_changed=False, removed=[p0]))
-        eq("port change alone: certificate and desktop shell untouched", (refresh.call_count, emit.call_count), (0, 0))
+        eq("port change alone: certificate checked (a routed crew port may be link-local), desktop shell untouched",
+           (refresh.call_count, emit.call_count), (1, 0))
         main._on_lan_change(netinfo.Change(["10.1.1.7"], [], ips_changed=True))
         eq("address change: desktop shell told", emit.call_args.kwargs, {"ips": ["10.1.1.7"]})
 
