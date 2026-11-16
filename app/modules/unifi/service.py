@@ -29,6 +29,9 @@ POLL_S = (10, 300, 30)          # (least, most, default) seconds between client 
 AWAY_S = (60, 3600, 300)        # how long a client may be missing before it counts as gone
 EVERY = {"internet": 60, "gear": 60, "neighbours": 600, "av": 120, "changes": 300, "speedtests": 1800, "fold": 3600}
 AV_WINDOW_S = 300
+UNREADABLE = "Relay could not read this from the console."
+UNTRUSTED = ("The controller's certificate is not one this computer trusts. Check the fingerprint matches the "
+             "console's, then trust it.")
 EVENT_KINDS = ("sta:sync", "client:sync", "events")      # stream messages that mean a client came or went
 DEFAULTS = {"host": "", "port": 443, "site": "default", "api_key": "", "fingerprint": "", "username": "",
             "password": "", "probe_target": "1.1.1.1", "poll_s": POLL_S[2], "away_s": AWAY_S[2]}
@@ -166,11 +169,11 @@ class Service:
             if not self.site.get("id"):
                 self.site = await asyncio.to_thread(ctl.find_site)
             found = await asyncio.to_thread(ctl.clients)
-        except Untrusted as e:
-            self.untrusted, self.problem = e.fingerprint, str(e)
+        except Untrusted:
+            self.untrusted, self.problem = ctl.untrusted_fp, UNTRUSTED
             return
-        except Problem as e:
-            self.problem, self.untrusted = str(e), ""
+        except Problem:
+            self.problem, self.untrusted = ctl.error or UNREADABLE, ""
             return
         self.problem, self.untrusted, self.api, self.checked_at = "", "", ctl.api, now
         self.clients = found
@@ -191,11 +194,11 @@ class Service:
                 await getattr(self, "_" + part)(ctl, s, now)
                 self.part_problems.pop(part, None)
                 self.part_at[part] = now
-            except Problem as e:
-                self.part_problems[part] = str(e)
+            except Problem:
+                self.part_problems[part] = ctl.error or UNREADABLE
             except Exception:
                 log.warning("unifi: reading %s failed", part, exc_info=True)
-                self.part_problems[part] = "Relay could not read this from the console."
+                self.part_problems[part] = UNREADABLE
 
     async def _internet(self, ctl: Controller, s: dict, now: float) -> None:
         net = readings.internet(await asyncio.to_thread(ctl.health))
@@ -261,7 +264,8 @@ class Service:
                         sslobj = ws.transport.get_extra_info("ssl_object")
                         der = sslobj.getpeercert(binary_form=True) if sslobj else None
                         if not der or fingerprint_of(der) != s["fingerprint"]:
-                            raise Problem("The event stream showed a different certificate.")
+                            ctl.error = "The event stream showed a different certificate."
+                            raise Problem(ctl.error)
                     self.stream.update(state="live", detail="", since=time.time())
                     backoff = 5.0
                     last_poke = 0.0
@@ -284,8 +288,8 @@ class Service:
                 if cookie:
                     await asyncio.to_thread(ctl.logout, cookie)
                 raise
-            except Problem as e:
-                self.stream.update(state="error", detail=str(e))
+            except Problem:
+                self.stream.update(state="error", detail=ctl.error or "The console refused the event stream.")
             except Exception:
                 log.info("unifi: event stream closed; reconnecting", exc_info=True)
                 self.stream.update(state="error", detail="The event stream closed. Relay reconnects by itself.")

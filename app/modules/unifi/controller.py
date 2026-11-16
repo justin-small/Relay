@@ -95,7 +95,15 @@ class Controller:
         self.host, self.port, self.api_key = host, port, api_key
         self.fingerprint, self.site = fingerprint, site or "default"
         self.site_id = ""            # the integration API's id for the site, found on first use
-        self.api = ""                # "integration" or "legacy": which one answered the client list
+        self.api = ""                # "v2", "legacy" or "integration": which one answered the client list
+        # The last failure, as a fixed sentence of our own, and the fingerprint of an untrusted certificate. The
+        # page reads these, never an exception's text (CodeQL: information exposure through an exception).
+        self.error = ""
+        self.untrusted_fp = ""
+
+    def _fail(self, text: str) -> "Problem":
+        self.error = text
+        return Problem(text)
 
     # ---------------------------------------------------------------- transport
     def _connect(self) -> http.client.HTTPSConnection:
@@ -106,10 +114,12 @@ class Controller:
             conn.connect()
         except ssl.SSLCertVerificationError:
             conn.close()
-            raise Untrusted(self.peer_fingerprint()) from None
+            self.untrusted_fp = self.peer_fingerprint()
+            self.error = "The controller's certificate is not one this computer trusts."
+            raise Untrusted(self.untrusted_fp) from None
         except (OSError, ssl.SSLError):
             conn.close()
-            raise Problem(netsock.failure(TRAFFIC, f"Relay could not reach the controller at {self.host}.")) from None
+            raise self._fail(netsock.failure(TRAFFIC, f"Relay could not reach the controller at {self.host}.")) from None
         if pinned:
             self._check_pin(conn)
         return conn
@@ -118,7 +128,7 @@ class Controller:
         der = conn.sock.getpeercert(binary_form=True) if conn.sock else None
         if not der or fingerprint_of(der) != self.fingerprint:
             conn.close()
-            raise Problem("The controller's certificate changed since it was trusted. If the console was replaced "
+            raise self._fail("The controller's certificate changed since it was trusted. If the console was replaced "
                           "or its certificate renewed, trust the new one; otherwise something else is answering.")
 
     def peer_fingerprint(self) -> str:
@@ -129,11 +139,11 @@ class Controller:
             conn.connect()
             der = conn.sock.getpeercert(binary_form=True) if conn.sock else None
         except (OSError, ssl.SSLError):
-            raise Problem(netsock.failure(TRAFFIC, f"Relay could not reach the controller at {self.host}.")) from None
+            raise self._fail(netsock.failure(TRAFFIC, f"Relay could not reach the controller at {self.host}.")) from None
         finally:
             conn.close()
         if not der:
-            raise Problem("The controller did not show a certificate.")
+            raise self._fail("The controller did not show a certificate.")
         return fingerprint_of(der)
 
     def get(self, path: str) -> tuple[int, Any]:
@@ -164,7 +174,7 @@ class Controller:
             status = resp.status
             hdrs = {k.lower(): v for k, v in resp.getheaders()}
         except (OSError, http.client.HTTPException):
-            raise Problem(f"The controller at {self.host} stopped answering.") from None
+            raise self._fail(f"The controller at {self.host} stopped answering.") from None
         finally:
             conn.close()
         try:
@@ -179,7 +189,7 @@ class Controller:
                                         {"username": username, "password": password, "rememberMe": False}, key=False)
         cookie = (hdrs.get("set-cookie") or "").split(";")[0]
         if status != 200 or not cookie:
-            raise Problem("The console refused the local user. Check the name and password, and that it is a local "
+            raise self._fail("The console refused the local user. Check the name and password, and that it is a local "
                           "account, not a UI.com one.")
         return cookie
 
@@ -255,12 +265,12 @@ class Controller:
 
     def _refused(self, status: int) -> Problem:
         if status in (401, 403):
-            return Problem("The controller refused the API key. Make a new one under Control Plane, Integrations, "
+            return self._fail("The controller refused the API key. Make a new one under Control Plane, Integrations, "
                            "and paste it in the settings.")
         if status == 404:
-            return Problem("This does not look like a UniFi OS console (no Network application answered). Check the "
+            return self._fail("This does not look like a UniFi OS console (no Network application answered). Check the "
                            "address.")
-        return Problem(f"The controller answered with an error (HTTP {status}).")
+        return self._fail(f"The controller answered with an error (HTTP {int(status)}).")
 
     # ---------------------------------------------------------------- sites
     def find_site(self) -> dict:
@@ -275,7 +285,7 @@ class Controller:
                 return {"id": self.site_id, "name": str(s.get("name") or self.site)[:80],
                         "ref": str(s.get("internalReference") or self.site)[:80]}
         names = ", ".join(str(s.get("internalReference") or s.get("name")) for s in sites[:5])
-        raise Problem(f"The controller has no site called {self.site!r}. It has: {names or 'none'}.")
+        raise self._fail(f"The controller has no site called {self.site!r}. It has: {names or 'none'}.")
 
     # ---------------------------------------------------------------- clients and devices
     def clients(self) -> list[dict]:
