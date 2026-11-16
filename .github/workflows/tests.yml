@@ -28,7 +28,9 @@ jobs:
           python-version: '3.15'
           cache: pip
       # sounddevice needs the PortAudio library to import (see release.yml for why PulseAudio runs headless).
+      # A mirror outage makes apt retry every package until the job's limit; fail fast instead.
       - run: sudo apt-get update && sudo apt-get install -y libportaudio2 pulseaudio
+        timeout-minutes: 3
       - run: pulseaudio -D --exit-idle-time=-1 --load=module-null-sink && pactl info | head -3
       # httpx2 (starlette's TestClient), coverage and pytest are test-only, so they stay out of requirements.txt
       # and the release build.
@@ -98,7 +100,9 @@ jobs:
           python-version: '3.15'
           cache: pip
       # sounddevice needs PortAudio and a running PulseAudio to import, as in the Tests job above.
+      # A mirror outage makes apt retry every package until the job's limit; fail fast instead.
       - run: sudo apt-get update && sudo apt-get install -y libportaudio2 pulseaudio
+        timeout-minutes: 3
       - run: pulseaudio -D --exit-idle-time=-1 --load=module-null-sink && pactl info | head -3
       - run: pip install -r requirements.txt httpx2==2.13.1 playwright==1.65.2
       - run: python -m playwright install --with-deps chromium-headless-shell

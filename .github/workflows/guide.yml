@@ -29,6 +29,7 @@ jobs:
         with:
           persist-credentials: false
       - name: Install pandoc, typst and fonts
+        timeout-minutes: 5
         run: |
           curl -fsSL -o pandoc.deb \
             "https://github.com/jgm/pandoc/releases/download/${PANDOC_VERSION}/pandoc-${PANDOC_VERSION}-1-amd64.deb"
