@@ -362,3 +362,158 @@ def on_network_change(ports_now: list[Port]) -> None:
     except Exception:
         log.exception("could not remember the network ports")
     refresh()
+
+
+# ------------------------------------------------------------------ the Network page (#347)
+
+def _status(cid: str, r: Resolved, owner: str | None) -> tuple[str, str]:
+    """(chip, sentence) for a class: default, ok, changed, fallback, down or missing."""
+    if not r.routed:
+        return "default", "Uses the system's default network."
+    if r.fallback:
+        return "fallback", r.reason
+    if not r.available:
+        return ("missing" if r.port is None else "down"), r.reason
+    from . import serving
+
+    served = [g for g in serving.groups() if g.traffic == cid]
+    if any(r.address not in g.hosts for g in served):
+        return "changed", f"{r.address} is new; Relay is moving its listener there."
+    told = _last.get(owner or "", {}).get(cid)
+    if told is not None and told[2] != r.address:
+        return "changed", f"{r.address} is new; the module is being told."
+    return "ok", ""
+
+
+def _port_label(pid: str, known: dict) -> str:
+    port = next((p for p in ports() if p.id == pid), None)
+    if port:
+        return port.friendly_name or port.name
+    info = known.get(pid) or {}
+    return info.get("friendly_name") or info.get("name") or pid
+
+
+def overview() -> dict:
+    """Everything the Network page shows: every port seen (present or not), every class of core and of the modules
+    that are on with its route, policy and status, and warnings. Port ids and names only; nothing free text."""
+    from . import netsock
+    from .modules import Module, modules
+
+    net = _network_cfg()
+    known = net.get("known_ports") or {}
+    routes = net.get("routes") or {}
+    now = {p.id: p for p in ports()}
+    cls = classes()
+    on_classes = [(cid, owner, t) for cid, (owner, t) in cls.items() if owner is None or modules.enabled(owner)]
+
+    port_rows = []
+    for pid in list(now) + [k for k in known if k not in now]:
+        p = now.get(pid)
+        info = known.get(pid) or {}
+        row = p.as_dict() if p else {"id": pid, "name": info.get("name") or "", "friendly_name": info.get("friendly_name") or "",
+                                     "kind": info.get("kind") or "other", "ipv4": [], "up": None, "mac": None}
+        row["present"] = p is not None
+        row["known"] = pid in known
+        row["classes"] = [cid for cid, _o, _t in on_classes if routes.get(cid) == pid]
+        port_rows.append(row)
+
+    class_rows, warnings = [], []
+    for cid, owner, t in on_classes:
+        r = resolve(cid)
+        chip, sentence = _status(cid, r, owner)
+        mod = modules.get(owner) if owner else None
+        class_rows.append({
+            "id": cid, "label": t.label, "owner": mod.manifest.name if mod else "Relay", "module": owner,
+            "media": t.media, "exclusive": t.exclusive, "port_id": routes.get(cid),
+            "policy": r.policy, "default_policy": t.default_policy, "status": chip, "detail": sentence,
+            "address": r.address, "has_module_test": bool(mod and type(mod).test is not Module.test),
+        })
+        if r.routed and r.port is not None and r.port.link_local_only:
+            warnings.append(f"{t.label} is on {_port_label(r.port_id or '', known)}, which has only a self-assigned "
+                            "(169.254) address: only devices on that same network without DHCP can reach it.")
+        if r.routed and not r.fallback:
+            warnings.extend(netsock.notes(r))
+    for a, b, network in netsock.overlapping(list(now.values())):
+        warnings.append(f"{a.friendly_name or a.name} and {b.friendly_name or b.name} are both on {network}: this "
+                        "computer cannot reliably choose between them. Put them on different networks.")
+    for p in now.values():
+        if not p.ipv4 and p.up is not False and not p.virtual:
+            warnings.append(f"{p.friendly_name or p.name} is connected but has no address.")
+    return {"ports": port_rows, "classes": class_rows, "warnings": list(dict.fromkeys(warnings)),
+            "notices": notices(), "policies": list(POLICIES)}
+
+
+def _panel_hosts(port_id: str | None, policy: str) -> list[str] | None:
+    """The addresses the operator panel would answer on with this crew route, or None for "as configured"."""
+    if not port_id:
+        return None
+    port = next((p for p in ports() if p.id == port_id), None)
+    if port is not None and port.up is not False and port.addresses:
+        return [*port.addresses, "127.0.0.1"]
+    return ["127.0.0.1"] if policy == "strict" else None
+
+
+class RouteRefused(ValueError):
+    """A route change that cannot be saved; the message is a fixed sentence for the page."""
+
+
+def change(class_id: str, port_id: str | None, policy: str | None, browsing_from: str | None) -> Resolved:
+    """Route a class to a port (None: the system default) and set its policy, as the Network page asks.
+
+    Refuses an unknown class, a port Relay has never seen, an exclusive clash, and any change that would take the
+    operator panel off the address the admin is using (#347: make that change from this computer or from a browser
+    on the new network). Applies at once: modules are told and listeners move (app/serving.py)."""
+    from . import config, serving
+
+    cls = classes()
+    if class_id not in cls:
+        raise RouteRefused("There is no such traffic.")
+    traffic = cls[class_id][1]
+    net = _network_cfg()
+    known = net.get("known_ports") or {}
+    routes = dict(net.get("routes") or {})
+    policies = dict(net.get("policy") or {})
+    if port_id:
+        if port_id not in known:
+            present = next((p for p in ports() if p.id == port_id), None)
+            if present is None:
+                raise RouteRefused("Choose one of the network ports listed on this page.")
+            remember([present])
+            net = _network_cfg()
+            known = net.get("known_ports") or {}
+        routes[class_id] = port_id
+    else:
+        routes.pop(class_id, None)
+    if policy is not None:
+        if policy not in POLICIES:
+            raise RouteRefused("Choose strict or use the default network.")
+        policies[class_id] = policy
+    problems = route_problems(routes, known, cls)
+    if class_id in problems:
+        raise RouteRefused(problems[class_id])
+    if class_id == "crew" and browsing_from and not browsing_from.startswith("127."):
+        hosts = _panel_hosts(routes.get("crew"), policies.get("crew") or traffic.default_policy)
+        if hosts is not None and browsing_from not in hosts:
+            raise RouteRefused(f"This would take the operator panel off {browsing_from}, the address you are using. "
+                               "Make this change on this computer (https://127.0.0.1/admin) or from a browser on "
+                               "the new network.")
+    config.save({"network": {**net, "routes": routes, "policy": policies}}, replace=("network",))
+    refresh()
+    serving.rebind_soon()
+    return resolve(class_id)
+
+
+def forget(port_id: str) -> None:
+    """Forget a port that is not connected and carries no route."""
+    from . import config
+
+    net = _network_cfg()
+    known = dict(net.get("known_ports") or {})
+    if port_id not in known:
+        raise RouteRefused("Relay does not know that network port.")
+    if any(p.id == port_id for p in ports()):
+        raise RouteRefused("That network port is connected; only one that is gone can be forgotten.")
+    if port_id in (net.get("routes") or {}).values():
+        raise RouteRefused("Move the traffic on that network port elsewhere first.")
+    known.pop(port_id)
+    config.save({"network": {**net, "known_ports": known}}, replace=("network",))

@@ -83,6 +83,8 @@ _CORE = (
     Permission("credentials.manage", "Change the OpenAI API key and the backup passphrase", "Settings", "owner"),
     Permission("modules.view", "See which modules exist and their health", "Modules", "viewer"),
     Permission("modules.manage", "Switch modules on and off, run a module's test", "Modules", "admin"),
+    Permission("network.view", "See this computer's network ports and which traffic uses each", "Network", "viewer"),
+    Permission("network.manage", "Choose which network port each kind of traffic uses", "Network", "admin"),
     Permission("users.view", "See users and trusted devices", "Users", "admin"),
     Permission("users.manage", "Create and change users, reset passwords, trust devices", "Users", "admin"),
     Permission("tokens.own", "Create API tokens for your own scripts", "Users", "admin"),

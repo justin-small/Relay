@@ -349,3 +349,42 @@ def notes(route: Resolved | str) -> list[str]:
             out.append(f"{_name(r)} and {other.friendly_name or other.name} are both on {net}: this computer "
                        "cannot reliably choose between them. Put them on different networks.")
     return out
+
+
+# ------------------------------------------------------------------ the Network page's Test button (#347)
+
+def probe(route: Resolved | str) -> dict:
+    """Where a class's traffic would leave from, without sending anything: a pinned UDP socket connect()ed to an
+    address on the port's own network (or a public one for an unrouted class) makes the OS choose its route and
+    source address, which getsockname() then reports."""
+    r = _resolved(route)
+    if not r.available:
+        return {"ok": False, "detail": r.reason or "The chosen network port cannot be used right now.",
+                "source": None, "pinned": False, "notes": []}
+    if _pinned_route(r) and r.port is not None and r.port.ipv4:
+        net = ipaddress.IPv4Interface(r.port.ipv4[0]).network
+        hosts = [h for h in (net.network_address + 1, net.network_address + 2) if str(h) != r.address]
+        target = str(hosts[0]) if net.num_addresses > 2 and hosts else r.address
+    else:
+        target = "192.0.2.1"   # TEST-NET-1: any routed destination makes the OS pick the default route
+    try:
+        sock = udp_socket(r)
+    except RouteError:
+        return {"ok": False, "detail": f"Relay could not open a socket on {_name(r)} at {r.address}.",
+                "source": None, "pinned": False, "notes": []}
+    try:
+        pinned = (_pinned_route(r) and r.port is not None and r.port.id not in _pin_refused
+                  and (sys.platform.startswith("linux") or sys.platform in ("darwin", "win32")))
+        sock.connect((target, 9))
+        source = sock.getsockname()[0]
+    except (OSError, RouteError):
+        return {"ok": False, "detail": f"This computer has no route out through {_name(r)}.", "source": None,
+                "pinned": False, "notes": notes(r)}
+    finally:
+        _close(sock)
+    expected = r.address if _pinned_route(r) else None
+    ok = expected is None or source == expected
+    where = _name(r) if _pinned_route(r) else "the system's default network"
+    detail = (f"Leaves from {source} on {where}." if ok
+              else f"Left from {source}, not {expected}: the OS sent it another way.")
+    return {"ok": ok, "detail": detail, "source": source, "pinned": pinned, "notes": notes(r)}
