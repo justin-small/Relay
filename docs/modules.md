@@ -311,6 +311,14 @@ connection per read. It uses the `lighting` traffic class, so it follows the net
 MIDI routes are not used, and its web API has no command for frames, pages or a blackout (make a blackout a button in
 the QLC+ project).
 
+The second backend is **ShowXpress / TheLightingController** (`thelightingcontroller.py`; also sold as Showtec QuickDMX
+and Sweetlight Controller): its Live API over TCP port 7348. Set the address, port and the Live API password. It lists the
+buttons (a cue id is `b` plus ten hex digits of the button's name, since the API knows buttons only by name, so a
+rename is a new cue), presses one (a toggle button toggles, a flash button is pressed and let go), releases, and lists
+the faders as sliders (`s<index>`, 0 to 100 percent is -100 to 0 on the controller). A held connection follows the
+controller's pushes and re-reads the list when its interface changes, reconnecting with a growing wait; a press is
+sent once and never retried. Buttons whose name holds a `|` or a line break cannot be addressed and are left out.
+
 ## Audio sources and outputs
 
 Core captures audio from an `AudioSource` and plays audio through an `AudioOutput` (`app/audio.py`); it
