@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from .. import AdminPage, Health, Manifest, Module
+from .. import AdminPage, Health, Manifest, Module, Traffic
 from ...users import Permission
 
 
@@ -20,9 +20,10 @@ class Lighting(Module):
         summary="Fires a lighting program's cues (walk-in, worship, message) from cue pages, without the lighting PC.",
         settings_key="lighting",
         guide="/docs/lighting",
-        version="1.0.0",
+        version="1.1.0",
+        traffic=(Traffic("lighting", "Lighting program control (QLC+ web API)"),),
     )
-    defaults = {"backend": "", "host": "", "port": 0, "password": "", "pages": []}
+    defaults = {"backend": "", "host": "", "port": 0, "password": "", "functions": False, "pages": []}
     secret_settings = ("password",)
     admin_pages = (AdminPage(
         id="lighting", title="Lighting", template="lighting.html", group="Output",

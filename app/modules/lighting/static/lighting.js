@@ -32,7 +32,28 @@
     };
     return b;
   }
+  function kindOf(id) {
+    const c = ((data && data.cues) || []).filter(function (x) { return x.id === id; })[0];
+    return c ? c.kind : /^s\d+$/.test(id) ? 'slider' : 'button';
+  }
+  function levelControl(cue) {
+    const box = el('span');
+    box.appendChild(el('span', cue.name + ' '));
+    const slider = el('input');
+    slider.type = 'range'; slider.min = 0; slider.max = 100; slider.disabled = !can('lighting.control');
+    slider.value = data && data.levels && data.levels[cue.id] !== undefined ? data.levels[cue.id] : 0;
+    const out = el('span', slider.value + '%');
+    slider.oninput = function () { out.textContent = slider.value + '%'; };
+    slider.onchange = async function () {
+      showError('');
+      try { await send('POST', '/api/admin/lighting/level', { cue: cue.id, level: parseInt(slider.value, 10) }); }
+      catch (e) { showError(e.message); }
+    };
+    box.appendChild(slider); box.appendChild(out);
+    return box;
+  }
   function fireButtons(cue) {
+    if (kindOf(cue.id) === 'slider') return levelControl(cue);
     const box = el('span');
     if (can('lighting.control')) {
       box.appendChild(button(cue.name, function () { return send('POST', '/api/admin/lighting/press', { cue: cue.id }); },
@@ -116,9 +137,10 @@
       const o = el('option', b.label); o.value = b.id; if (b.id === d.backend) o.selected = true; sel.appendChild(o);
     });
     $('ltHost').value = d.host || ''; $('ltPort').value = d.port || ''; $('ltPass').value = '';
+    $('ltFunctions').checked = !!d.functions;
     $('ltPass').placeholder = d.has_password ? '(saved)' : '';
     const manage = can('lighting.manage');
-    ['ltBackend', 'ltHost', 'ltPort', 'ltPass', 'ltSave', 'ltTest'].forEach(function (id) { $(id).disabled = !manage; });
+    ['ltBackend', 'ltHost', 'ltPort', 'ltPass', 'ltFunctions', 'ltSave', 'ltTest'].forEach(function (id) { $(id).disabled = !manage; });
     $('ltSum').textContent = d.active ? 'ready' : 'not set up';
     $('ltStatus').textContent = d.error || '';
     renderPages();
@@ -129,7 +151,7 @@
     showError('');
     try {
       render(await send('PUT', '/api/admin/lighting/settings', { backend: $('ltBackend').value,
-        host: $('ltHost').value, port: parseInt($('ltPort').value || '0', 10), password: $('ltPass').value }));
+        host: $('ltHost').value, functions: $('ltFunctions').checked, port: parseInt($('ltPort').value || '0', 10), password: $('ltPass').value }));
     } catch (e) { showError(e.message); }
   };
   $('ltTest').onclick = async function () {

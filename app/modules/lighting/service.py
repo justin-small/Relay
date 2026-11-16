@@ -7,6 +7,7 @@ import uuid
 from typing import Any
 
 from ... import config
+from . import qlcplus  # noqa: F401  (registers the QLC+ backend)
 from .backend import BACKENDS, Backend, BackendError, Cue
 
 KEY = "lighting"
@@ -60,7 +61,8 @@ def clean_settings(raw: Any) -> dict:
         port = 0
     password = raw.get("password") if isinstance(raw.get("password"), str) else ""
     return {"backend": backend if _ID_RE.fullmatch(backend) else "", "host": host, "port": port,
-            "password": password[:200], "pages": clean_pages(raw.get("pages"))}
+            "password": password[:200], "functions": raw.get("functions") is True,
+            "pages": clean_pages(raw.get("pages"))}
 
 
 def public(settings: dict) -> dict:
@@ -140,13 +142,13 @@ class Service:
                 return c.name, cue_id
         return None
 
-    async def act(self, verb: str, cue_id: str) -> None:
+    async def act(self, verb: str, cue_id: str, *args: Any) -> None:
         """One try, never repeated: a dropped connection may already have done it."""
         b = self.backend
         if b is None:
             raise BackendError("No lighting program is connected.")
         try:
-            await getattr(b, verb)(cue_id)
+            await getattr(b, verb)(cue_id, *args)
         except BackendError:
             raise
         except asyncio.CancelledError:
@@ -160,9 +162,14 @@ class Service:
         out = public(s)
         out.update(backends=[{"id": k, "label": v.label or k} for k, v in sorted(BACKENDS.items())],
                    active=bool(b), can_list=bool(b and b.can_list), can_report_state=bool(b and b.can_report_state),
-                   cues=[], state={}, error=self.error)
+                   can_set_level=bool(b and b.can_set_level), cues=[], state={}, levels={}, error=self.error)
         if b is not None:
-            out["cues"] = [{"id": c.id, "name": c.name} for c in await self.listed()]
+            out["cues"] = [{"id": c.id, "name": c.name, "kind": c.kind} for c in await self.listed()]
+            if b.can_set_level:
+                try:
+                    out["levels"] = {str(k): int(v) for k, v in (await b.levels()).items()}
+                except Exception:
+                    out["error"] = out["error"] or "The lighting program did not report its levels."
             if b.can_report_state:
                 try:
                     out["state"] = {str(k): bool(v) for k, v in (await b.state()).items()}

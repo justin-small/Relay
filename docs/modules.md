@@ -301,6 +301,15 @@ controller's whole list, and a press is sent once: a dropped connection is repor
 may already have happened. A new lighting program is a `Backend` (`app/modules/lighting/backend.py`) registered in
 `BACKENDS`; it gets cue pages, permissions and the audit trail from the module.
 
+The first backend is **QLC+ v4** (`qlcplus.py`): start QLC+ with `-w`, then set the host and port (default 9999) on the
+Lighting page. It lists the virtual console buttons, presses one (a toggle button toggles) and reads which are on. It
+also lists sliders (ids like `s14`, set as 0 to 100 percent through `POST /api/admin/lighting/level`) and, when
+"Also list the program's functions" is on, scenes and chases (ids like `f12`, toggled by pressing). State comes from one
+held connection that re-reads on QLC+'s function pushes and every few seconds, so the page shows lit cues without a
+connection per read. It uses the `lighting` traffic class, so it follows the network port chosen for it. QLC+'s OSC and
+MIDI routes are not used, and its web API has no command for frames, pages or a blackout (make a blackout a button in
+the QLC+ project).
+
 ## Audio sources and outputs
 
 Core captures audio from an `AudioSource` and plays audio through an `AudioOutput` (`app/audio.py`); it

@@ -588,6 +588,7 @@ for method, path, perm in (
     ("POST", "/api/admin/lighting/test", "lighting.manage"),            # no program chosen: nothing is sent
     ("POST", "/api/admin/lighting/press", "lighting.control"),          # no cue named: refused
     ("POST", "/api/admin/lighting/release", "lighting.control"),
+    ("POST", "/api/admin/lighting/level", "lighting.control"),           # no cue named: refused
     ("GET", PGX, "parent_paging.view"),
     ("PUT", PGX + "/settings", "parent_paging.manage"),                 # an empty body changes nothing
     ("GET", PGX + "/locations", "parent_paging.manage"),                # Planning Center is not set up: refused
