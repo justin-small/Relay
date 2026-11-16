@@ -80,6 +80,53 @@
   });
   loadCheckin();
 
+  // Wi-Fi check-in (#356): this person's devices, seen by the UniFi module. Shown only while UniFi is on.
+  const devBox = document.getElementById('crDev'), devList = document.getElementById('crDevList'),
+    devThis = document.getElementById('crDevThis'), devPrivate = document.getElementById('crDevPrivate'),
+    devNote = document.getElementById('crDevNote');
+  async function devCall(method, path, body) {
+    const res = await fetch(path, { method: method, credentials: 'same-origin', cache: 'no-store',
+      headers: { 'Content-Type': 'application/json' }, body: body ? JSON.stringify(body) : undefined });
+    return { ok: res.ok, status: res.status, data: await res.json().catch(function () { return {}; }) };
+  }
+  function showDevices(d) {
+    if (!devBox) return;
+    devBox.hidden = !d.wifi && !d.devices.length;
+    devList.textContent = '';
+    d.devices.forEach(function (x) {
+      const li = document.createElement('li');
+      const name = document.createElement('span');
+      name.textContent = (x.label || (x.kind === 'mac' ? 'Phone' : x.value)) + (x.kind === 'mac' ? ' \u00b7 ' + x.value : '');
+      const rm = document.createElement('button');
+      rm.type = 'button'; rm.textContent = 'Remove';
+      rm.addEventListener('click', async function () {
+        rm.disabled = true;
+        const r = await devCall('DELETE', '/crew/api/devices/' + x.id);
+        if (r.ok) showDevices(r.data); else { rm.disabled = false; devNote.textContent = r.data.detail || 'That did not work.'; }
+      });
+      li.append(name, ' ', rm);
+      devList.appendChild(li);
+    });
+    devThis.hidden = !(d.this && !d.this.yours);
+    devPrivate.hidden = !(d.this && d.this.private);
+    if (!d.wifi) devNote.textContent = 'Wi-Fi check-in is off at the moment.';
+  }
+  async function loadDevices() {
+    if (!devBox) return;
+    try {
+      const r = await devCall('GET', '/crew/api/devices');
+      if (r.ok) showDevices(r.data);
+    } catch (e) { /* offline: stays hidden */ }
+  }
+  if (devThis) devThis.addEventListener('click', async function () {
+    devThis.disabled = true;
+    const r = await devCall('POST', '/crew/api/devices/this', {});
+    devThis.disabled = false;
+    if (r.ok) { showDevices(r.data); loadCheckin(); }
+    else devNote.textContent = r.data.detail || 'That did not work.';
+  });
+  loadDevices();
+
   // Pages (#228): turn on web push for this phone. It needs HTTPS and a service worker, which this page has.
   const card = document.getElementById('crAlerts'), btn = document.getElementById('crAlertsBtn'),
     anote = document.getElementById('crAlertsNote');

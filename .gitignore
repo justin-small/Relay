@@ -40,3 +40,6 @@ test-results.xml
 
 # Relay's own Google client, written at build time from Actions secrets (tools/release_tools.py oauth-clients).
 app/modules/youtube/_client.py
+
+# UniFi live-test credentials (tools/check_unifi.py)
+unifi-test.env

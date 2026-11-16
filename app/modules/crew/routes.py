@@ -13,7 +13,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 
 from ... import audit, config, db, netroute, serving, tls
 from .. import listener_port, modules as registry, require
-from . import calltimes, chat, checkin, checklists, paging, people, resources
+from . import calltimes, chat, checkin, checklists, devices, paging, people, resources
 
 router = APIRouter()
 VIEW = [Depends(require("crew.view"))]
@@ -503,6 +503,95 @@ def arrivals_clear(request: Request):
     n = _people_call(checkin.clear, _plan_key())
     audit.note(request, "crew.arrivals_clear", "Cleared the arrival board", detail={"people": n})
     return arrivals_get()
+
+
+# -- Wi-Fi check-in: a person's own devices, seen by the UniFi module (#356) ---------------------------------------
+def _wifi_client(request: Request) -> dict | None:
+    """The UniFi client this request came from, when UniFi is on and sees the address."""
+    if not registry.running("unifi"):
+        return None
+    from ..unifi.service import service
+
+    return service.presence.by_ip(request.client.host if request.client else "")
+
+
+def _device_view(row: dict) -> dict:
+    return {"id": row["id"], "kind": row["kind"], "value": row["value"], "label": row["label"],
+            "added_by": row["added_by"]}
+
+
+def _my_devices(user, request: Request) -> dict:
+    mine = [_device_view(r) for r in devices.mine(user.id)]
+    here = _wifi_client(request)
+    this = None
+    if here:
+        owned = any(d["kind"] == "mac" and d["value"] == here["mac"] for d in mine)
+        this = {"name": here.get("name") or here.get("hostname") or "", "hostname": here.get("hostname") or "",
+                "private": bool(here.get("private")), "yours": owned}
+    return {"devices": mine, "wifi": registry.running("unifi"), "this": this}
+
+
+@router.get("/crew/api/devices", dependencies=CHECKIN)
+def devices_get(request: Request):
+    return _people_call(_my_devices, request.state.user, request)
+
+
+@router.post("/crew/api/devices/this", dependencies=CHECKIN)
+def devices_this(request: Request, payload: dict):
+    """"This is my phone": add the network client the request came from, and check in now."""
+    user = request.state.user
+    here = _wifi_client(request)
+    if here is None:
+        raise HTTPException(409, "Relay cannot see this phone on the church Wi-Fi. Join the Wi-Fi and try again.")
+    _people_call(devices.add, user.id, "mac", here["mac"], payload.get("label") or here.get("name") or "")
+    tracks, zone = calltimes._state()
+    now = __import__("time").time()
+    key = checkin.plan_key(tracks, zone, now)
+    if _people_call(checkin.mine, user.id, key) is None:
+        _people_call(checkin.arrive, user.id, key, "wifi", now)
+    _log(request, "crew.device_add", "Added a phone for Wi-Fi check-in", detail={"kind": "mac", "how": "this"})
+    return _people_call(_my_devices, user, request)
+
+
+@router.post("/crew/api/devices", dependencies=CHECKIN)
+def devices_add(request: Request, payload: dict):
+    user = request.state.user
+    _people_call(devices.add, user.id, payload.get("kind"), payload.get("value"), payload.get("label"))
+    _log(request, "crew.device_add", "Added a device for Wi-Fi check-in", detail={"kind": payload.get("kind")})
+    return _people_call(_my_devices, user, request)
+
+
+@router.delete("/crew/api/devices/{device_id}", dependencies=CHECKIN)
+def devices_remove(request: Request, device_id: int):
+    user = request.state.user
+    if not _people_call(devices.remove, device_id, user.id):
+        raise HTTPException(404, "That device is not on your list.")
+    _log(request, "crew.device_remove", "Removed a device from Wi-Fi check-in")
+    return _people_call(_my_devices, user, request)
+
+
+@router.get("/api/admin/crew/devices", dependencies=VIEW)
+def admin_devices():
+    return {"devices": _people_call(devices.everyone), "wifi": registry.running("unifi")}
+
+
+@router.post("/api/admin/crew/devices", dependencies=MANAGE)
+def admin_devices_add(request: Request, payload: dict):
+    uid = payload.get("user_id")
+    if isinstance(uid, bool) or not isinstance(uid, int) or not db.one("select id from users where id = ?", (uid,)):
+        raise HTTPException(400, "Pick a person.")
+    row = _people_call(devices.add, uid, payload.get("kind"), payload.get("value"), payload.get("label"), "admin")
+    audit.note(request, "crew.device_add", "Added a device for Wi-Fi check-in", target=uid,
+               detail={"kind": row["kind"]})
+    return admin_devices()
+
+
+@router.delete("/api/admin/crew/devices/{device_id}", dependencies=MANAGE)
+def admin_devices_remove(request: Request, device_id: int):
+    if not _people_call(devices.remove, device_id):
+        raise HTTPException(404, "No such device.")
+    audit.note(request, "crew.device_remove", "Removed a device from Wi-Fi check-in", target=device_id)
+    return admin_devices()
 
 
 # -- checklists per position (#232) -------------------------------------------------------------------------------
