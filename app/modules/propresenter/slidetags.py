@@ -47,6 +47,7 @@ ACTIONS: dict[str, bool] = {
     "lang": True,
     "alert": True,
     "light": True,          # light=Walk-in: fires the lighting cue of that name on a lighting page (needs Lighting on)
+    "obs": True,            # obs=Message: switches every OBS computer that has a scene of that name (needs OBS on)
 }
 ACTIONS.update(signagetags.NAMES)       # signage-screen=..., signage-push, ... (signagetags.py): they act only while signage is on
 

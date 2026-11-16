@@ -336,7 +336,7 @@ inline const char *status_health_words(status_health h)
     case status_health::error: return "trouble";
     case status_health::idle: break;
     }
-    return "not connected";
+    return "standing by";
 }
 
 // The pane's colours: on air red, a problem amber or red, fine green, nothing going grey.

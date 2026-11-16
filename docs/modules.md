@@ -486,6 +486,29 @@ The source is the module's id. Publish from the module's own background work whe
 `streams.clear("<id>")` in `detach()`, so a module switched off leaves nothing on the screen. The status view is on
 the viewer port with no login: put reasons, addresses and keys in `detail`, never in `label`.
 
+**OBS Studio** (`app/modules/obs/`, #250) publishes one entry per OBS computer it follows (up to four: a stream PC
+and a record PC, say), with the source `obs_<computer id>`. It holds one obs-websocket 5 connection per computer and
+does everything over it: following the scene and the outputs, switching scenes, the admin preview and the caption
+sender. Health is fixed: error when OBS cannot be reached or the stream stopped without passing through "stopping"
+(for ten minutes, or until it starts again); warn while reconnecting or when over 1% of frames were dropped (network),
+skipped (encoding) or lagged (rendering) in the last minute; ok while streaming or recording; idle otherwise.
+
+**Scenes from another module.** A module that wants to switch a video scene (a ProPresenter slide tag) never imports
+`obs`: it calls core's `app.modules.switch_scene(name, source="...")`, which the OBS module backs with `scene_hook`,
+set in `attach()` and cleared in `detach()`. Every connected OBS computer that has a scene of that name (any case)
+switches; the answer is `{"ok": True}` or `{"ok": False, "error": "..."}`. When an operator maps scenes to camera
+numbers, the OBS module also publishes into core's tally (`app/tally.py`) as `obs_<computer id>`.
+
+## Captions from another module
+
+Core hands every committed line, after the blocklist, to the recorder (`hub.line_sink`, set by the engine) and then to
+each sink in `hub.line_sinks`. A module adds one with `hub.add_line_sink(fn)` in `attach()` and removes it with
+`hub.remove_line_sink(fn)` in `detach()`. `fn(stream, lang, seq, text, started, ended)` may be called off the event
+loop and must not block: queue the line and send it from the module's own task. A sink that raises is ignored, so a
+sender can never cost viewers a line. The OBS module's caption sender is the first: per computer, a switch and a
+language (the source captions or one translation), finished lines only, split to 32 characters for CEA-608, sent with
+`SendStreamCaption` and only while that OBS is streaming.
+
 ## Rules
 
 1. **Imports go one way.** A module may import core (`app.config`, `app.hub`, `app.engine`, `app.panels`,
