@@ -19,7 +19,7 @@ def _bad(text: str, status: int = 400) -> JSONResponse:
     return JSONResponse({"error": text}, status_code=status)
 
 
-async def _do(verb: str, cue_id, request, *, page_only: bool) -> dict:
+async def _do(verb: str, cue_id, request, *, page_only: bool, args: tuple = (), detail: str = "") -> dict:
     """Press or release one cue, once. The audit note names the page and the cue ("Lighting: Worship, Verse")."""
     if not isinstance(cue_id, str):
         return {"ok": False, "error": "Choose a cue.", "status": 400}
@@ -28,11 +28,11 @@ async def _do(verb: str, cue_id, request, *, page_only: bool) -> dict:
         return {"ok": False, "error": "That cue is not on a lighting page.", "status": 404}
     label, cue_id = found
     try:
-        await service.act(verb, cue_id)
+        await service.act(verb, cue_id, *args)
     except BackendError as e:
         return {"ok": False, "error": str(e), "status": 502}
     if request is not None:
-        audit.note(request, f"lighting.{verb}", f"Lighting: {label}", target=cue_id)
+        audit.note(request, f"lighting.{verb}", f"Lighting: {label}{detail}", target=cue_id)
     return {"ok": True}
 
 
@@ -58,7 +58,7 @@ async def admin_state():
 @router.put("/api/admin/lighting/settings", dependencies=MANAGE)
 async def admin_settings(request: Request, payload: dict):
     cur = service.settings()
-    new = clean_settings({**cur, **{k: payload[k] for k in ("backend", "host", "port") if k in payload},
+    new = clean_settings({**cur, **{k: payload[k] for k in ("backend", "host", "port", "functions") if k in payload},
                           "password": payload["password"] if isinstance(payload.get("password"), str)
                           and payload["password"] else cur["password"]})
     if isinstance(payload.get("host"), str) and payload["host"].strip() and not new["host"]:
@@ -98,3 +98,12 @@ async def admin_press(request: Request, payload: dict):
 @router.post("/api/admin/lighting/release", dependencies=CONTROL)
 async def admin_release(request: Request, payload: dict):
     return _reply(await _do("release", payload.get("cue"), request, page_only=False))
+
+
+@router.post("/api/admin/lighting/level", dependencies=CONTROL)
+async def admin_level(request: Request, payload: dict):
+    level = payload.get("level")
+    if isinstance(level, bool) or not isinstance(level, int) or not 0 <= level <= 100:
+        return _bad("Choose a level from 0 to 100.")
+    return _reply(await _do("set_level", payload.get("cue"), request, page_only=False, args=(level,),
+                            detail=f" to {level}%"))

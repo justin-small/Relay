@@ -32,11 +32,18 @@ class Fake(be.Backend):
     id, label = "fake", "Fake program"
     can_list = True
     can_report_state = True
+    can_set_level = True
     calls: list = []
     drop = False
 
     async def list_cues(self):
-        return [be.Cue("a", "Walk-in"), be.Cue("b", "Verse"), be.Cue("c", "Blackout")]
+        return [be.Cue("a", "Walk-in"), be.Cue("b", "Verse"), be.Cue("c", "Blackout"), be.Cue("s9", "House", "slider")]
+
+    async def set_level(self, cue_id, percent):
+        Fake.calls.append(("level", cue_id, percent))
+
+    async def levels(self):
+        return {"s9": 40}
 
     async def press(self, cue_id):
         Fake.calls.append(("press", cue_id))
@@ -85,7 +92,7 @@ with section("admin routes"):
 
     r = admin.get(A)
     eq("no program yet: nothing active", (r.status_code, r.json()["active"], r.json()["cues"]), (200, False, []))
-    eq("the programs are listed", [b["id"] for b in r.json()["backends"]], ["blind", "fake"])
+    eq("the programs are listed", [b["id"] for b in r.json()["backends"]], ["blind", "fake", "qlcplus"])
     eq("an operator cannot choose the program", operator.put(A + "/settings", json={"backend": "fake"}).status_code, 403)
     eq("a viewer cannot fire", viewer.post(A + "/press", json={"cue": "a"}).status_code, 403)
 
@@ -98,7 +105,9 @@ with section("admin routes"):
     eq("a bad address is a 400", admin.put(A + "/settings", json={"host": "no spaces/please"}).status_code, 400)
     r = admin.get(A)
     eq("listed cues and state", ([c["name"] for c in r.json()["cues"]], r.json()["state"]),
-       (["Walk-in", "Verse", "Blackout"], {"a": True}))
+       (["Walk-in", "Verse", "Blackout", "House"], {"a": True}))
+    eq("a slider's level is listed", (r.json()["can_set_level"], r.json()["levels"], r.json()["cues"][3]["kind"]),
+       (True, {"s9": 40}, "slider"))
     eq("the connection test", admin.post(A + "/test").json(), {"ok": True, "detail": "Fake is fine."})
 
     eq("pages must be a list", admin.put(A + "/pages", json={}).status_code, 400)
@@ -112,6 +121,16 @@ with section("admin routes"):
     eq("no cue is a 400", admin.post(A + "/press", json={}).status_code, 400)
     eq("release", admin.post(A + "/release", json={"cue": "b"}).status_code, 200)
     eq("the program was told once each", Fake.calls, [("press", "b"), ("press", "c"), ("release", "b")])
+
+    Fake.calls.clear()
+    eq("a viewer cannot set a level", viewer.post(A + "/level", json={"cue": "s9", "level": 5}).status_code, 403)
+    eq("an operator sets a level", operator.post(A + "/level", json={"cue": "s9", "level": 70}).status_code, 200)
+    eq("a level over 100 is refused", admin.post(A + "/level", json={"cue": "s9", "level": 101}).status_code, 400)
+    eq("a text level is refused", admin.post(A + "/level", json={"cue": "s9", "level": "5"}).status_code, 400)
+    eq("a level on an unknown cue is 404", admin.post(A + "/level", json={"cue": "zzz", "level": 5}).status_code, 404)
+    eq("the program was told once", Fake.calls, [("level", "s9", 70)])
+    eq("the functions setting is saved", admin.put(A + "/settings", json={"functions": True}).json()["functions"], True)
+    admin.put(A + "/settings", json={"functions": False})
 
 with section("audit trail"):
     from app import audit

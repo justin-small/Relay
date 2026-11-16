@@ -16,8 +16,9 @@ class BackendError(Exception):
 
 @dataclass(frozen=True)
 class Cue:
-    id: str      # the program's own id for the button; opaque to Relay
+    id: str      # the program's own id for the cue; opaque to Relay
     name: str
+    kind: str = "button"   # "button" (press it), "slider" (set a level), "function" (a scene or chase, toggled)
 
 
 class Backend:
@@ -25,6 +26,7 @@ class Backend:
     label = ""                     # shown in the admin page's list of programs
     can_list = False               # list_cues() returns the program's own buttons
     can_report_state = False       # state() says which cues are on
+    can_set_level = False          # set_level() moves the program's sliders; levels() reads them
 
     def __init__(self, settings: dict) -> None:
         self.settings = settings   # the module's cleaned settings (host, port, password, ...)
@@ -39,6 +41,14 @@ class Backend:
     async def release(self, cue_id: str) -> None:
         """Let go of a cue that stays on while held. Backends with nothing to release leave this alone."""
         raise BackendError("This lighting program has nothing to release.")
+
+    async def set_level(self, cue_id: str, percent: int) -> None:
+        """Move a slider cue to `percent` (0 to 100), when `can_set_level`."""
+        raise BackendError("This lighting program has no levels to set.")
+
+    async def levels(self) -> dict[str, int]:
+        """slider cue id -> percent (0 to 100), when `can_set_level`."""
+        return {}
 
     async def state(self) -> dict[str, bool]:
         """cue id -> is it on, when `can_report_state`."""
