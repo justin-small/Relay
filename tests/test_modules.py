@@ -45,9 +45,10 @@ APP = ROOT / "app"
 MODULES = APP / "modules"
 
 # Relay's core. A new file here is a new piece of core, not an integration: say why in the pull request.
+# netroute.py (#344): which network port each kind of traffic uses; core because every module asks it.
 CORE_FILES = {
     "__init__.py", "alerthistory.py", "alerts.py", "announce.py", "audio.py", "audit.py", "backup.py", "config.py", "db.py", "demo.py", "engine.py", "exporting.py", "hub.py", "prefs.py",
-    "importdocker.py", "languages.py", "main.py", "netinfo.py", "overlays.py", "panelfw.py", "panels.py", "paths.py", "realtime.py", "recorder.py", "redact.py",
+    "importdocker.py", "languages.py", "main.py", "netinfo.py", "netroute.py", "overlays.py", "panelfw.py", "panels.py", "paths.py", "realtime.py", "recorder.py", "redact.py",
     "scheduler.py", "schedules.py", "secretbox.py", "serving.py", "setupcode.py", "sidecar.py", "streamstatus.py", "tally.py", "texttranslate.py", "tls.py", "users.py",
 }
 # Network clients, and the core files allowed them: OpenAI (realtime, text translation) and the host's own

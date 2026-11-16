@@ -154,6 +154,46 @@ the admin page; Relay starts anyway. A change of port, or switching the module o
 so say so in the module's health. `serving.listener_bound(prefixes)` gives the port really bound. The prefixes must
 be under the module's `route_prefixes`, and the default port 1024 or above.
 
+## Network traffic on a port of its own
+
+A machine running Relay often has several network ports: the church Wi-Fi, a crew network, a Dante or NDI
+network. A module that talks to devices declares each kind of traffic it sends, and the operator chooses which
+port carries it (`app/netroute.py`):
+
+```python
+from app.modules import Manifest, Traffic
+
+manifest = Manifest(
+    id="dante", ...,
+    traffic=(Traffic("dante", "Dante control and discovery", media=True),
+             Traffic("dante.audio", "Dante audio", media=True, exclusive=True)),
+)
+```
+
+- Each id is the module's id or starts with `"<module id>."`, like permissions. Core has `viewers`, `crew` and
+  `discovery`.
+- `media=True` (audio, video): when the chosen port is missing or down the class does **not** run, and the
+  module's health shows a warning naming the port. Core adds that warning; the module writes nothing. Other
+  classes use the system's default network instead. The operator can change either per class.
+- `exclusive=True`: the class needs a port no other exclusive class is on.
+
+Ask where to send, never read `config["network"]`:
+
+```python
+from app import netroute
+
+r = netroute.resolve("dante")      # r.address, r.port, r.available, r.reason, r.fallback
+if not r.available:
+    ...                            # do not start; r.reason is a sentence for the module's page
+```
+
+A class with no route follows the system default, as before routes existed. When a class's port goes away, comes
+back, changes address or is re-chosen, core calls `network_changed(resolved)` on the running module with every
+one of its classes resolved again. It runs on the event loop: start work with asyncio, never block.
+
+Routes are chosen from the ports Relay has seen (`known_ports` in config.json), never typed in. A route to a port
+Relay has never seen is dropped with a notice when config loads.
+
 ## Audio sources and outputs
 
 Core captures audio from an `AudioSource` and plays audio through an `AudioOutput` (`app/audio.py`); it

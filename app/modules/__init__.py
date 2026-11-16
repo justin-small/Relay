@@ -35,8 +35,10 @@ import json
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse
 
+from ..netroute import Resolved, Traffic
 from ..users import Permission, User
 from .. import users as users_mod
+
 
 log = logging.getLogger("relay.modules")
 
@@ -64,6 +66,9 @@ class Manifest:
     guide: str = ""
     # Other modules this one does more with when they are on too. Only these may be imported from it.
     uses: tuple[str, ...] = ()
+    # Kinds of network traffic the operator can put on a port of their own (app/netroute.py, #344). Each id is the
+    # module's id or starts with "<module id>.": Traffic("dante", "Dante control and discovery", media=True).
+    traffic: tuple[Traffic, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -193,6 +198,12 @@ class Module:
     async def test(self) -> dict:
         """Test the connection with the saved settings: {"ok": bool, "detail": str}."""
         return {"ok": False, "detail": "This module has no connection test."}
+
+    def network_changed(self, resolved: dict[str, Resolved]) -> None:
+        """A class in `manifest.traffic` now resolves differently: its port went away, came back, changed address,
+        or the operator routed it elsewhere. `resolved` has every class of the module, by id
+        (app.netroute.resolve). Called only while the module is running, from the event loop: start work with
+        asyncio, do not block."""
 
     # ------------------------------------------------------------ hooks into core
     def status(self) -> dict:
@@ -455,10 +466,20 @@ class Registry:
         if not self.enabled(mod.manifest.id):
             return Health("idle", "Off")
         try:
-            return mod.health()
+            health = mod.health()
         except Exception as exc:
             log.exception("module %s health failed", mod.manifest.id)
             return Health("error", f"Health check failed: {type(exc).__name__}")
+        # A strict traffic class whose chosen network port is missing or down (app/netroute.py): say so for every
+        # module, so none has to write the sentence itself.
+        if mod.manifest.traffic:
+            from .. import netroute
+
+            problem = netroute.health_problem(mod.manifest.id)
+            if problem:
+                state = "error" if health.state == "error" else "warn"
+                return Health(state, " ".join(x for x in (problem, health.detail) if x))
+        return health
 
     # ------------------------------------------------------------ config
     def clean_config(self, cfg: dict) -> None:
@@ -634,6 +655,20 @@ def validate(mod: Any, package: str) -> list[str]:
             problems.append(f"{package}: listener {lst.name!r} prefixes must be under the module's route_prefixes")
         if not 1024 <= lst.default_port <= 65535:
             problems.append(f"{package}: listener {lst.name!r} default port must be 1024-65535")
+    from .. import netroute
+
+    seen_traffic = set()
+    for t in m.traffic:
+        if not isinstance(t, Traffic):
+            problems.append(f"{package}: traffic must be Traffic values")
+            continue
+        if not netroute.owns(m.id, t.id) or not netroute._CLASS_RE.match(t.id):
+            problems.append(f"{package}: traffic {t.id!r} must be {m.id!r} or start with {m.id + '.'!r}")
+        if t.id in seen_traffic:
+            problems.append(f"{package}: traffic {t.id!r} is declared twice")
+        if not t.label.strip():
+            problems.append(f"{package}: traffic {t.id!r} needs a label")
+        seen_traffic.add(t.id)
     return problems
 
 
