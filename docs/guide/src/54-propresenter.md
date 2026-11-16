@@ -200,6 +200,7 @@ matter, and anything else in the notes is ignored.
 | `[relay:lang=es]` | Panels showing captions show them in this language. Write a code (`es`) or a name (`Spanish`) from the languages Relay offers. The language must be switched on under Languages. |
 | `[relay:alert=Sound desk]` | Raises the alert on the Alerts button with that name (not case-sensitive), like a tap on it, and does nothing if it is already flashing. The text must match a button. |
 | `[relay:light=Walk-in]` | Fires the lighting cue with that name (not case-sensitive) from your lighting cue pages, once, like a tap on it. Needs the **Lighting** module on and the cue placed on a page; a cue that is not on a page, or a lighting program that does not answer, is listed as a warning and nothing is retried. The audit trail records it as "from a ProPresenter slide tag". If two pages hold a cue with the same name, the first page's wins. |
+| `[relay:obs=Message]` | Switches every connected OBS computer that has a scene with that name (not case-sensitive) to it, once. Needs the **OBS Studio** module on; a scene no OBS computer has, or an OBS that does not answer, is listed as a warning and nothing is retried. The audit trail records it as "from a ProPresenter slide tag". |
 | `[relay-deck:action]` | Any of the above, written in **any** slide's notes, as a default for every slide of that presentation that has no `[relay:...]` tag of its own. |
 
 **`capture-start` and `capture-stop` are Relay's captioning, not ProPresenter's

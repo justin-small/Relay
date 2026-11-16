@@ -257,6 +257,21 @@ async def fire_cue(cue_id: str, request: Any = None, *, by_name: bool = False, s
     return await hook(cue_id, request, by_name=by_name, source=source)
 
 
+# The OBS module sets this in attach() and clears it in detach() (#250): (scene name, *, source) -> a dict
+# {"ok": bool, "error": str}. Anything that wants to switch a video scene calls `switch_scene`, never the module.
+scene_hook: Callable[..., Awaitable[dict]] | None = None
+
+
+async def switch_scene(name: str, *, source: str = "") -> dict:
+    """Switch every connected OBS computer that has a scene called `name` (any case) to it. {"ok": False, "error":
+    ...} when OBS is off, no computer has that scene, or OBS refused. `source` ("a ProPresenter slide tag") is recorded
+    as a system audit entry saying where the switch came from."""
+    hook = scene_hook
+    if hook is None:
+        return {"ok": False, "error": "The OBS module is off."}
+    return await hook(name, source=source)
+
+
 # A module that serves a page on /screen sets an entry here in attach() and removes it in detach(): the query
 # parameter that asks for it ("lighting" for /screen?lighting=<page>) -> an async (request) -> response, or None to
 # let /screen carry on. Core never names a module; it only asks (#379).

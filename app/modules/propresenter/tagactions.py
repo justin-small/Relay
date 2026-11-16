@@ -64,6 +64,20 @@ async def _tag_light(value: str | None) -> str:
     return f"Lighting cue {name} fired."
 
 
+async def _tag_obs(value: str | None) -> str:
+    """Switch OBS to the scene called `value`, through core's hook: this module never imports obs, and the tag does
+    nothing (and says so) while the OBS module is off."""
+    from .. import switch_scene
+
+    name = (value or "").strip()
+    if not name:
+        raise RuntimeError("Name the scene after obs=, like [relay:obs=Message].")
+    r = await switch_scene(name, source="a ProPresenter slide tag")
+    if not r.get("ok"):
+        raise RuntimeError(str(r.get("error") or "OBS did not switch."))
+    return f"OBS switched to {name}."
+
+
 ACTIONS = {"capture-start": _tag_capture_start, "capture-stop": _tag_capture_stop,
            "lyrics": _tag_lyrics, "captions": _tag_captions, "lang": _tag_lang, "alert": _tag_alert,
-           "light": _tag_light}
+           "light": _tag_light, "obs": _tag_obs}

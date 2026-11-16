@@ -1466,6 +1466,67 @@ the panel views `firmware/relay-display/tests/test_propresenter_view.py`. For
 operators there is a chapter in the user guide
 (`docs/guide/src/54-propresenter.md`).
 
+## OBS Studio
+
+Switch on **OBS Studio** on the Modules page, then open **Output > OBS Studio**. In OBS, open Tools > WebSocket Server
+Settings, switch the server on and note its port (4455) and password. Add each OBS computer Relay should follow (up to
+four, such as a stream PC and a record PC) with its address, port and password, and Save. Each computer keeps one
+connection to OBS for everything below.
+
+For each computer the page shows the program scene, whether it is streaming and recording and for how long, dropped
+frames, the last minute's dropped (network), skipped (encoding) and lagged (rendering) frames, CPU, memory, frame rate,
+free disk, and a chart of the last 15 minutes' bitrate and dropped frames. Each computer is also an entry on the
+status view (`/status`): **trouble** (error) when OBS cannot be reached or the stream stopped by itself, **needs a
+look** (warn) while reconnecting, over 1% bad frames in the last minute, or a watched microphone muted while live,
+**healthy** while streaming or recording, **standing by** otherwise.
+
+- **Stream, recording and replay.** Operators start and stop the stream (Relay asks first) and the recording, pause
+  and resume it, and start the replay buffer and save the last moments. Pause does nothing in OBS's Simple output
+  mode with Recording Quality "Same as stream"; Relay says so. The replay buffer needs switching on in OBS (Settings >
+  Output > Replay Buffer). Each press is sent once and never retried.
+- **Scenes and studio mode.** Operators switch scenes from the page. With studio mode on, a tap puts a scene in
+  preview and **Take** sends it to program. **Turn screen on** gives a link (`/screen?obs=...&key=...`) for a tablet
+  with one big button per scene; the key is the link's only authority, works for that computer only, and **New link**
+  stops the old one at once.
+- **Audio.** Tick the inputs to watch to see their meters and mute or unmute them; tick "warn if muted while live" for
+  a microphone that must never be muted on air.
+- **Alerts.** Pick one of your alert buttons to raise when a computer is in trouble, and one for when it needs a look.
+  Each is raised once per problem. "Cannot be reached" raises only after Relay was connected to it, so a computer
+  switched off all week stays quiet.
+- **Tally.** Give scenes camera numbers and the tally screens (`/tally`) and the panels' tally view light that camera
+  red while its scene is on air, and green while it is in preview.
+- **Preview.** Tick "Show a preview" to see the program scene on the page, refreshed about once a second while the page
+  is open. It is never sent to viewers.
+- **Captions.** Tick "Send captions into this stream" and pick the language. Finished lines are sent as CEA-608
+  captions with OBS's `SendStreamCaption`, split to 32 characters, only while OBS is streaming. Set a delay in seconds
+  if OBS delays the stream. Viewers on YouTube and Twitch can switch them on; Vimeo does not show them, and Resi is
+  untested.
+- **YouTube.** When OBS streams to YouTube with your account connected in OBS, the page shows which broadcast OBS
+  picked with links to it in YouTube Studio and on YouTube. OBS's WebSocket cannot change a broadcast's title, privacy
+  or schedule; do that in YouTube Studio. Relay never reads OBS's stream key.
+- **Slide tags.** `[relay:obs=Message]` on a ProPresenter slide switches every connected OBS computer that has a
+  scene of that name.
+
+### OBS from Companion or a script
+
+Every action above is an admin route, so a Stream Deck can press it through Companion's **Generic HTTP** module with an
+API token. Make a token on the **Users** page (an admin's account), then send it as `Authorization: Bearer relay_...`
+to the operator panel's address (`https://<relay>:<admin port>`), with `Content-Type: application/json`:
+
+| Button | Request | Body |
+|---|---|---|
+| Switch scene | `POST /api/admin/obs/scene` | `{"machine": "<id>", "scene": "Message"}` |
+| Start / stop stream | `POST /api/admin/obs/output` | `{"machine": "<id>", "output": "stream", "action": "start"}` (or `"stop"`) |
+| Recording | `POST /api/admin/obs/output` | `{"machine": "<id>", "output": "record", "action": "start"}` (`stop`, `pause`, `resume`) |
+| Save replay | `POST /api/admin/obs/output` | `{"machine": "<id>", "output": "replay", "action": "save"}` |
+| Studio mode | `POST /api/admin/obs/studio` | `{"machine": "<id>", "action": "take"}` (`on`, `off`, or `preview` with `"scene"`) |
+| Mute | `POST /api/admin/obs/mute` | `{"machine": "<id>", "input": "Pastor mic", "muted": true}` |
+| Read state | `GET /api/admin/obs` | |
+
+The computer's `<id>` is in `GET /api/admin/obs` (`machines[].id`). Companion must trust Relay's certificate, or use
+the certificate fingerprint as described in the Companion chapter of the guide. Only admin accounts hold tokens, and a
+token acts as its user: turning that user off stops the token at once.
+
 ## Parent paging
 
 A kids worker pages a parent from their room's page, and the child's Planning Center Check-Ins security code (the
