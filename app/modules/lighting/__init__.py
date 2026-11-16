@@ -23,7 +23,7 @@ class Lighting(Module):
         version="1.1.0",
         traffic=(Traffic("lighting", "Lighting program control (QLC+ web API)"),),
     )
-    defaults = {"backend": "", "host": "", "port": 0, "password": "", "functions": False, "pages": []}
+    defaults = {"backend": "", "host": "", "port": 0, "password": "", "functions": False, "console": "EX", "pages": []}
     secret_settings = ("password",)
     admin_pages = (AdminPage(
         id="lighting", title="Lighting", template="lighting.html", group="Output",

@@ -319,6 +319,16 @@ the faders as sliders (`s<index>`, 0 to 100 percent is -100 to 0 on the controll
 controller's pushes and re-reads the list when its interface changes, reconnecting with a growing wait; a press is
 sent once and never retried. Buttons whose name holds a `|` or a line break cannot be addressed and are left out.
 
+The third is **Chroma-Q Vista** (`vista.py`), over OSC (UDP, Vista 3 R5 or later). In Vista, switch on File >
+Preferences > OSC > OSC Server Enabled and add this computer as an OSC client; in Relay set the console's address,
+the port (8000 unless changed) and the console type (`EX`). Vista has no OSC "jump to cue", so a cue is a playback
+button or action grid cell that runs the cuelist, added by hand to a cue page with the id
+`<type>.<console>.<panel>.<bank>.<row>.<column>` (`EX.1.0.1.0.0`, or `1.0.1.0.0` to use the console type setting).
+Vista lists nothing and reports nothing, so these cues never show on or off. A press is a tap (the OSC strings `true`,
+then `false` 20 ms later), exactly as the Bitfocus Companion module sends it; numbers outside Vista's limits (panel 0-10,
+bank 0-100, row 0-11, column 0-59) are refused before anything is sent, because Companion warns they have crashed
+Vista. The test message only proves Relay could send it: Vista does not answer.
+
 ## Audio sources and outputs
 
 Core captures audio from an `AudioSource` and plays audio through an `AudioOutput` (`app/audio.py`); it

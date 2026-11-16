@@ -92,7 +92,7 @@ with section("admin routes"):
 
     r = admin.get(A)
     eq("no program yet: nothing active", (r.status_code, r.json()["active"], r.json()["cues"]), (200, False, []))
-    eq("the programs are listed", [b["id"] for b in r.json()["backends"]], ["blind", "fake", "qlcplus", "thelightingcontroller"])
+    eq("the programs are listed", [b["id"] for b in r.json()["backends"]], ["blind", "fake", "qlcplus", "thelightingcontroller", "vista"])
     eq("an operator cannot choose the program", operator.put(A + "/settings", json={"backend": "fake"}).status_code, 403)
     eq("a viewer cannot fire", viewer.post(A + "/press", json={"cue": "a"}).status_code, 403)
 
