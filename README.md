@@ -498,33 +498,59 @@ The file is created with mode `0600`. It runs in WAL mode, so `relay.db-wal` and
 **Daily backups.** Relay checks a minute after it starts and then every hour, and
 takes a backup if none was taken in the last 24 hours. It uses SQLite's online
 backup, so the copy is consistent while Relay is running, written to a temporary
-name and renamed into place, as one self-contained file named
-`relay-YYYYMMDD-HHMMSS.db` (the time is UTC, mode `0600`). The newest 7 are kept
+name and renamed into place, as one encrypted file named
+`relay-YYYYMMDD-HHMMSS.db.enc` (the time is UTC, mode `0600`). The newest 7 are kept
 and older ones are deleted. A backup that fails is logged and tried again an hour
-later.
+later. A plain `relay-…db` left by an older version is encrypted at the next backup.
 
-**Backing up.** Copy the state folder: it holds the database, the backups and the
-API key, so it is a complete backup. To take one on demand,
-for example before an upgrade:
+**Secrets and backups are encrypted (#278).** The secrets Relay keeps (the OpenAI
+key, the admin token, the Planning Center secret, the remote-access enrollment
+secret and tunnel token, the intercom's LiveKit secret, the crew push key) are
+stored encrypted with AES-256-GCM, in `config.json`, `relay.db` and
+`intercom/keys.json`. So is every backup. The key is kept outside the state folder
+where the system has a place for it:
+
+| System | Where the key is |
+|---|---|
+| macOS | the login Keychain, as **Relay** |
+| Windows | Windows Credential Manager, as **Relay** |
+| Linux | `secret.key` in the state folder, `0600`, owned by the service user |
+
+`RELAY_KEY_STORE=file` keeps it in `secret.key` on any system. **Credentials** in
+the operator panel shows which is in use. Losing the key loses those secrets, not
+the data: enter the OpenAI key again, enroll remote access again, and Relay makes a
+new LiveKit key by itself (phones just reconnect). A secret typed into
+`config.json` by hand (the first admin token) works and is encrypted at once.
+
+**Backup passphrase.** A backup opens only on the computer that made it, unless
+an Owner sets a **backup passphrase** on the **Credentials** page. From the next
+backup on, each one also opens with that passphrase, on any computer. Relay keeps
+a key derived from it, never the passphrase, so write it down.
+
+**Backing up.** Copy the state folder. On Linux that is complete, key included.
+On macOS and Windows the key stays in the Keychain or Credential Manager, so a copy
+moved to another computer needs the backup passphrase to restore its backups,
+and its secrets are entered again. To take a backup on demand, for example before
+an upgrade:
 
 ```bash
-python -c "from app import db; print(db.backup())"
+python -c "from app import db, config; print(db.backup(passphrase_key=config.get()['backup_key']))"
 ```
 
-A name that does not look like `relay-YYYYMMDD-HHMMSS.db` is never deleted by the
-daily cleanup.
+A name that does not look like `relay-YYYYMMDD-HHMMSS.db.enc` is never deleted by
+the daily cleanup.
 
-**Restoring a backup by hand.** This replaces the accounts with what the backup
-held, so everyone's accounts and sessions go back to that moment. Stop Relay,
-then:
+**Restoring a backup.** This replaces the accounts with what the backup held, so
+everyone's accounts and sessions go back to that moment. Stop Relay, then run
+(the installed app):
 
 ```bash
-cd <the state folder>
-rm -f relay.db relay.db-wal relay.db-shm
-cp backups/relay-20261112-030000.db relay.db
+relay --restore-backup <the state folder>/backups/relay-20261112-030000.db.enc
 ```
 
-then start Relay again.
+or, from a source checkout, `python tools/restore_backup.py <file>`. Add
+`--passphrase` on another computer; it asks for the backup passphrase. The
+database it replaces is kept as `relay.db.before-restore`. Then start Relay again.
 
 **Starting over.** Stop Relay, delete `relay.db` in the state folder (and any
 `relay.db-wal` and `relay.db-shm`), then start Relay. It starts with an empty
@@ -830,8 +856,8 @@ Two switchers can feed the screens at once: a camera is live when either says so
 - The server checks a permission on every admin API route, not only in the
   menus. See [Users and roles](#users-and-roles).
 - Failed sign-ins, PINs and first-run attempts are delayed and logged, and an IP
-  is locked out for five minutes after five failures in a row.
-- The Planning Center token is stored only in `config.json` and is never
+  is locked out for ten minutes after five failures in a row.
+- The Planning Center token is stored only in `config.json` (encrypted) and is never
   sent to a browser, a panel or a log. Panels on the viewer port can read the
   Service feed with no login, and a panel the operator allows to control sends
   a key over plain HTTP: see *Planning Center Services LIVE*.

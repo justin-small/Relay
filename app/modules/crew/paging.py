@@ -14,7 +14,7 @@ import secrets
 import time
 from concurrent.futures import ThreadPoolExecutor
 
-from ... import db
+from ... import db, secretbox
 from . import people, webpush
 
 log = logging.getLogger("relay.crew")
@@ -45,15 +45,26 @@ def clean_message(raw) -> str:
 
 
 # -- keys and subscriptions -----------------------------------------------------------------------------------
+VAPID_PURPOSE = "crew:vapid-key"
+
+
 def vapid_key():
+    """The key that signs pushes. relay.db keeps it sealed with the machine key (#278); one stored before that is
+    sealed on first read, and one this computer can no longer open is replaced (phones re-subscribe)."""
     people.ready()
     row = db.one("select private_pem from crew_vapid where id = 1")
     if row:
-        return webpush.key_from_pem(row["private_pem"])
+        pem = secretbox.unseal(row["private_pem"], VAPID_PURPOSE)
+        if pem:
+            if not secretbox.is_sealed(row["private_pem"]):
+                db.execute("update crew_vapid set private_pem = ? where id = 1", (secretbox.seal(pem, VAPID_PURPOSE),))
+            return webpush.key_from_pem(pem)
+        db.execute("delete from crew_vapid where id = 1")
     key = webpush.new_key()
     db.execute("insert into crew_vapid (id, private_pem, public_key) values (1, ?, ?) on conflict do nothing",
-               (webpush.key_to_pem(key), webpush.b64e(webpush.public_bytes(key))))
-    return webpush.key_from_pem(db.one("select private_pem from crew_vapid where id = 1")["private_pem"])
+               (secretbox.seal(webpush.key_to_pem(key), VAPID_PURPOSE), webpush.b64e(webpush.public_bytes(key))))
+    stored = db.one("select private_pem from crew_vapid where id = 1")["private_pem"]
+    return webpush.key_from_pem(secretbox.unseal(stored, VAPID_PURPOSE))
 
 
 def public_key() -> str:

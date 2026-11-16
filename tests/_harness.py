@@ -24,6 +24,9 @@ import time
 import traceback
 
 fails: list[str] = []
+# Tests keep the at-rest key (app/secretbox.py) in a file in their own temp state folder, never in the developer's
+# Keychain or Credential Manager.
+os.environ.setdefault("RELAY_KEY_STORE", "file")
 SKIP_MARK = "SKIPPED:"          # tests/run_all.py and tests/conftest.py look for this line
 
 
@@ -45,6 +48,25 @@ def eq(label, got, want) -> bool:
 def check(label, cond, extra="") -> bool:
     """Pass when cond is truthy. `extra` is shown on failure."""
     return _report(bool(cond), label, f"         {extra!r}" if extra != "" and not cond else "")
+
+
+@contextlib.contextmanager
+def capture_log(name: str, level: int = 30):
+    """Collect the messages logger `name` writes at `level` (WARNING) or above while the block runs."""
+    import logging
+
+    got: list[str] = []
+
+    class _Keep(logging.Handler):
+        def emit(self, record):
+            got.append(record.getMessage())
+
+    handler, logger = _Keep(level), logging.getLogger(name)
+    logger.addHandler(handler)
+    try:
+        yield got
+    finally:
+        logger.removeHandler(handler)
 
 
 @contextlib.contextmanager

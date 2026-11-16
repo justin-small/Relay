@@ -583,7 +583,10 @@ runs you no longer need.
 
 ## Credentials {#credentials}
 
-This page changes the OpenAI API key. Only an Owner sees it.
+This page changes the OpenAI API key and the backup passphrase. Only an Owner
+sees it. Relay stores both encrypted, with a key kept in this computer's Keychain
+(macOS), Credential Manager (Windows) or a private key file (Linux); the note
+under **Save credentials** names which.
 
 ![Credentials.](images/admin-credentials.png){width=100%}
 
@@ -593,6 +596,12 @@ This page changes the OpenAI API key. Only an Owner sees it.
 2. **OpenAI API key.** Paste a new key here. Leave it blank to keep the
    current one.
 3. **Save credentials** saves the key.
+
+4. **Backup passphrase.** Relay's daily backups open only on this computer.
+   Type a passphrase of 10 characters or more and click **Set passphrase**, and
+   from the next backup on each one also opens with it, on any computer. Relay
+   keeps only a key made from the passphrase, so write it down: it cannot be
+   shown again. **Remove passphrase** goes back to this computer only.
 
 ### To change the API key
 
@@ -735,8 +744,11 @@ their PIN. Sign in with that password.
 The accounts are kept in one file, `relay.db`, in Relay's state folder. If
 it cannot be opened (a corrupt file, a full disk), captions and the viewer pages
 keep working, but the operator panel says **The user database is not available**
-until it can be. Once a day Relay saves a copy into the `backups` folder beside
-it, and keeps the newest 7. Copying the state folder copies the accounts too. Deleting
+until it can be. Once a day Relay saves an encrypted copy into the `backups`
+folder beside it, and keeps the newest 7. A copy opens only on this computer,
+unless an Owner sets a backup passphrase on the **Credentials** page; then it also
+opens with that passphrase anywhere. To restore one, stop Relay and run
+`relay --restore-backup <file>` (add `--passphrase` on another computer). Deleting
 `relay.db` deletes all accounts, and Relay asks for the first Owner again.
 
 ## Appearance & tuning {#appearance}

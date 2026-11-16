@@ -80,7 +80,7 @@ _CORE = (
     Permission("blocklist.manage", "Edit blocked words", "Settings", "admin"),
     Permission("settings.view", "Read the configuration (secrets hidden)", "Settings", "viewer"),
     Permission("settings.manage", "Change appearance, tuning and realtime settings", "Settings", "admin"),
-    Permission("credentials.manage", "Change the OpenAI API key", "Settings", "owner"),
+    Permission("credentials.manage", "Change the OpenAI API key and the backup passphrase", "Settings", "owner"),
     Permission("modules.view", "See which modules exist and their health", "Modules", "viewer"),
     Permission("modules.manage", "Switch modules on and off, run a module's test", "Modules", "admin"),
     Permission("users.view", "See users and trusted devices", "Users", "admin"),

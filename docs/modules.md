@@ -49,6 +49,7 @@ class Mixer(Module):
         Permission("mixer.manage", "Change the console setup", "Mixing console", "admin"),
     )
 
+    secret_settings = ("password",)        # settings config.json keeps encrypted (app/secretbox.py)
     def clean(self, raw): ...              # normalise stored settings (runs on every config load)
     def public(self, settings): ...        # what the admin browser may see: strip secrets
     def configured(self, settings): ...    # was it set up before modules? decides its first switch
@@ -74,6 +75,15 @@ What the registry (`app/modules/__init__.py`) does with it:
 
 The operator switches modules on the admin page's **Modules** page, which also shows each module's
 health, its setup guide, a link to its settings and its connection test.
+
+## Secrets
+
+A setting that is a password, token or key goes in `secret_settings`. config.json keeps it encrypted with the
+machine key (`app/secretbox.py`, #278); in memory, `clean()` and the module see plain text, and `public()` must
+still strip it. A secret a module keeps elsewhere (a file, a database row) is sealed with
+`secretbox.seal(text, "<module id>:<what>")` and opened with `secretbox.unseal(value, same purpose)`, which
+returns None when this computer's key no longer opens it. Never write a secret to a file another program reads:
+pass it in that program's environment, as the intercom does for LiveKit.
 
 ## Permissions
 

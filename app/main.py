@@ -27,6 +27,7 @@ from fastapi.templating import Jinja2Templates
 from jinja2 import ChoiceLoader, FileSystemLoader, PrefixLoader
 
 from . import alerts as alertsmod
+from . import backup as backupmod
 from . import announce as announcemod
 from . import alerthistory, audit, config, db, exporting, importdocker, languages, netinfo, overlays, panelfw, panels, prefs, redact, schedules, serving, setupcode, streamstatus, tally, tls, users
 from .alerts import alerts
@@ -119,7 +120,7 @@ BACKUP_FIRST_DELAY_S = 60.0      # after start-up, so the dump does not compete 
 BACKUP_EVERY_S = 3600.0
 LOGIN_FAIL_DELAY_S = 0.75
 LOGIN_MAX_FAILS = 5
-LOGIN_LOCKOUT_S = 300.0
+LOGIN_LOCKOUT_S = 600.0              # 10 minutes (#278)
 HEARTBEAT_S = 15.0
 BLOCKLIST_POLL_S = 2.0
 
@@ -412,7 +413,7 @@ def _backup_if_due() -> None:
     audit.prune()                                   # the audit log keeps audit.KEEP_DAYS days
     alerthistory.prune()                            # alert history keeps alerthistory.KEEP_DAYS days
     if db.backup_due():
-        db.backup()
+        db.backup(passphrase_key=config.get().get("backup_key") or "")
 
 
 async def _backup_loop() -> None:
@@ -604,6 +605,7 @@ WEB_MESSAGES = {
     "bad_request": "That request is not valid.",
     "signin_required": "Sign in required",
     "not_allowed": "Not allowed",
+    "backup_passphrase_short": "The backup passphrase needs at least 10 characters.",
     "bad_api_token": "That API token is not valid, has expired, or its user is turned off.",
 }
 
@@ -1933,6 +1935,7 @@ CONFIG_PERMISSIONS = {
     "history_lines": "settings.manage",
     "realtime": "settings.manage",
     "openai_api_key": "credentials.manage",
+    "backup_passphrase": "credentials.manage",
     "recording": "recordings.manage",
     "blocklist": "blocklist.manage",
 }
@@ -1963,6 +1966,14 @@ async def admin_config(request: Request, payload: dict):
     key = payload.get("openai_api_key")
     if isinstance(key, str) and key.strip():
         updates["openai_api_key"] = key.strip()
+
+    if "backup_passphrase" in payload:
+        # Only the key derived from it is kept (app/backup.py); null or "" removes it.
+        phrase = payload["backup_passphrase"]
+        try:
+            updates["backup_key"] = backupmod.passphrase_setting(phrase if isinstance(phrase, str) else "")
+        except ValueError:
+            raise HTTPException(status_code=400, detail=WEB_MESSAGES["backup_passphrase_short"]) from None
 
     if isinstance(payload.get("realtime"), dict):
         updates["realtime"] = payload["realtime"]

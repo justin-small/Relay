@@ -199,7 +199,9 @@ body = json.dumps(admin.get("/api/admin/state").json())
 check("not in /api/admin/state", SECRET not in body and APP_ID not in body)
 check("not in any save/test response", SECRET not in admin.post(URL, json={"app_id": APP_ID, "secret": SECRET}).text)
 check("never in a log line", not any(SECRET in l or APP_ID in l for l in log_lines))
-check("it is in config.json, which is 0600", SECRET in config.CONFIG_PATH.read_text()
+check("config.json holds it encrypted (#278), and is 0600", SECRET not in config.CONFIG_PATH.read_text()
+      and json.loads(config.CONFIG_PATH.read_text())["planning_center"]["secret"].startswith("enc:v1:")
+      and config.get()["planning_center"]["secret"] == SECRET
       and (os.name != "posix" or oct(config.CONFIG_PATH.stat().st_mode & 0o777) == "0o600"))  # Windows has no modes
 check("not reachable on the viewer port",
       TestClient(app, base_url="http://relay.local:8000").get("/api/admin/state").status_code in (403, 404))

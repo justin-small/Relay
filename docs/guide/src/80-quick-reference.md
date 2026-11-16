@@ -75,7 +75,8 @@ folder** in the Relay menu):
 | `blocklist.txt` | Your blocked words |
 | `certs/` | The panel's certificate and its private key |
 | `recordings/` | Recorded sessions, if you turned recording on |
-| `backups/` | A copy of the user accounts, made once a day (the newest 7 are kept), and a copy made before each update |
+| `backups/` | An encrypted copy of the user accounts, made once a day (the newest 7 are kept), and a copy made before each update |
+| `secret.key` | On Linux, the key that encrypts Relay's secrets and backups (macOS and Windows keep it in the Keychain or Credential Manager) |
 | `logs/` | Relay's log |
 
 Updating or reinstalling Relay never touches this folder. Never share it, and

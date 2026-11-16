@@ -26,6 +26,7 @@ class RemoteAccess(Module):
         settings_key="remote_access",
         guide="https://github.com/justin-small/relay#remote-access",
     )
+    secret_settings = ("secret", "tunnel_token", "pending_secret")
     defaults = {"cloud_url": "", "install_id": "", "hostname": "", "secret": "", "tunnel_token": "",
                 "pending_secret": ""}
     admin_pages = (AdminPage(
