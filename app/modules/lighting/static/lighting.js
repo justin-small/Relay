@@ -137,10 +137,10 @@
       const o = el('option', b.label); o.value = b.id; if (b.id === d.backend) o.selected = true; sel.appendChild(o);
     });
     $('ltHost').value = d.host || ''; $('ltPort').value = d.port || ''; $('ltPass').value = '';
-    $('ltFunctions').checked = !!d.functions; $('ltConsole').value = d.console || 'EX';
+    $('ltFunctions').checked = !!d.functions; $('ltConsole').value = d.console || 'EX'; $('ltFade').value = d.fade === '' || d.fade == null ? '' : d.fade;
     $('ltPass').placeholder = d.has_password ? '(saved)' : '';
     const manage = can('lighting.manage');
-    ['ltBackend', 'ltHost', 'ltPort', 'ltPass', 'ltFunctions', 'ltConsole', 'ltSave', 'ltTest'].forEach(function (id) { $(id).disabled = !manage; });
+    ['ltBackend', 'ltHost', 'ltPort', 'ltPass', 'ltFunctions', 'ltConsole', 'ltFade', 'ltSave', 'ltTest'].forEach(function (id) { $(id).disabled = !manage; });
     $('ltSum').textContent = d.active ? 'ready' : 'not set up';
     $('ltStatus').textContent = d.error || '';
     renderPages();
@@ -151,7 +151,7 @@
     showError('');
     try {
       render(await send('PUT', '/api/admin/lighting/settings', { backend: $('ltBackend').value,
-        host: $('ltHost').value, functions: $('ltFunctions').checked, console: $('ltConsole').value, port: parseInt($('ltPort').value || '0', 10), password: $('ltPass').value }));
+        host: $('ltHost').value, functions: $('ltFunctions').checked, console: $('ltConsole').value, fade: $('ltFade').value === '' ? '' : parseFloat($('ltFade').value), port: parseInt($('ltPort').value || '0', 10), password: $('ltPass').value }));
     } catch (e) { showError(e.message); }
   };
   $('ltTest').onclick = async function () {

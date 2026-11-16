@@ -7,7 +7,7 @@ import uuid
 from typing import Any
 
 from ... import config
-from . import qlcplus, thelightingcontroller, vista  # noqa: F401  (each registers its backend)
+from . import lightkey, qlcplus, thelightingcontroller, vista  # noqa: F401  (each registers its backend)
 from .backend import BACKENDS, Backend, BackendError, Cue
 
 KEY = "lighting"
@@ -60,10 +60,13 @@ def clean_settings(raw: Any) -> dict:
     if isinstance(port, bool) or not isinstance(port, int) or not 0 <= port <= 65535:
         port = 0
     password = raw.get("password") if isinstance(raw.get("password"), str) else ""
+    fade = raw.get("fade")
+    fade = round(float(fade), 3) if isinstance(fade, (int, float)) and not isinstance(fade, bool) \
+        and 0 <= fade <= 3600 else ""
     console = raw.get("console") if isinstance(raw.get("console"), str) else ""
     console = console.strip() if re.fullmatch(r"[A-Za-z0-9]{1,8}", console.strip()) else "EX"
     return {"backend": backend if _ID_RE.fullmatch(backend) else "", "host": host, "port": port,
-            "password": password[:200], "functions": raw.get("functions") is True, "console": console,
+            "password": password[:200], "functions": raw.get("functions") is True, "console": console, "fade": fade,
             "pages": clean_pages(raw.get("pages"))}
 
 

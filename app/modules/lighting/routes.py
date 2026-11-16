@@ -67,7 +67,7 @@ async def admin_state():
 @router.put("/api/admin/lighting/settings", dependencies=MANAGE)
 async def admin_settings(request: Request, payload: dict):
     cur = service.settings()
-    new = clean_settings({**cur, **{k: payload[k] for k in ("backend", "host", "port", "functions", "console") if k in payload},
+    new = clean_settings({**cur, **{k: payload[k] for k in ("backend", "host", "port", "functions", "console", "fade") if k in payload},
                           "password": payload["password"] if isinstance(payload.get("password"), str)
                           and payload["password"] else cur["password"]})
     if isinstance(payload.get("host"), str) and payload["host"].strip() and not new["host"]:

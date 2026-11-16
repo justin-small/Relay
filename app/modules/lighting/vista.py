@@ -21,6 +21,7 @@ import asyncio
 import re
 
 from ... import netsock
+from . import osc
 from .backend import Backend, BackendError, register
 
 TRAFFIC = "lighting"
@@ -31,16 +32,9 @@ _TYPE_RE = re.compile(r"[A-Za-z0-9]{1,8}")
 LIMITS = (("console", 1, 9), ("panel", 0, 10), ("bank", 0, 100), ("row", 0, 11), ("col", 0, 59))
 
 
-def _pad(b: bytes) -> bytes:
-    return b + b"\0" * (4 - len(b) % 4)
-
-
 def osc_message(address: str, *strings: str) -> bytes:
     """An OSC 1.0 message whose arguments are all strings."""
-    out = _pad(address.encode("ascii")) + _pad(("," + "s" * len(strings)).encode("ascii"))
-    for s in strings:
-        out += _pad(s.encode("utf-8"))
-    return out
+    return osc.message(address, *strings)
 
 
 def address_for(cue_id: str, default_type: str = DEFAULT_TYPE) -> str:
