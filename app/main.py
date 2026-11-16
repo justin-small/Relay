@@ -29,7 +29,7 @@ from jinja2 import ChoiceLoader, FileSystemLoader, PrefixLoader
 from . import alerts as alertsmod
 from . import backup as backupmod
 from . import announce as announcemod
-from . import alerthistory, audit, config, db, exporting, importdocker, languages, netinfo, overlays, panelfw, panels, prefs, redact, schedules, serving, setupcode, streamstatus, tally, tls, users
+from . import alerthistory, audit, config, db, exporting, importdocker, languages, netinfo, netroute, overlays, panelfw, panels, prefs, redact, schedules, serving, setupcode, streamstatus, tally, tls, users
 from .alerts import alerts
 from . import engine as engine_mod
 from .engine import TRANSCRIPTION_STREAM, TRANSLATION_STREAM, demo_mode, engine
@@ -303,8 +303,9 @@ async def _audit_changes(request: Request, call_next):
 
 def _on_lan_change(change: netinfo.Change) -> None:
     """The network changed. When the LAN addresses did: re-mint the panel certificate if its names no longer
-    fit, and tell the desktop shell (it pins the fingerprint and builds the viewer link) of both. A port that
-    only came, went or changed link state is logged by netinfo.watch."""
+    fit, and tell the desktop shell (it pins the fingerprint and builds the viewer link) of both. Every change
+    goes to the traffic routes, which tell the modules whose port moved (app/netroute.py)."""
+    netroute.on_network_change(change.ports)
     if not change.ips_changed:
         return
     if tls.panel.refresh() and tls.panel.info:
@@ -336,6 +337,7 @@ async def _startup() -> None:
     app.state.alerts_task = asyncio.create_task(_alert_ticks())
     # A change of LAN address (Wi-Fi switch): mint a certificate that names the new address if the current
     # one does not; the admin page re-reads its viewer links and the fingerprint on its own.
+    await asyncio.to_thread(netroute.startup)
     app.state.net_task = asyncio.create_task(netinfo.watch(_on_lan_change))
     # Tell caption panels on the LAN where Relay is (mDNS, in a background thread). Never stops Relay.
     app.state.announcer = None
