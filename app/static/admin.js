@@ -2339,17 +2339,12 @@
     });
     $('acctLink').classList.toggle('on', name === 'account');
     if (name === 'account') $('acctLink').setAttribute('aria-current', 'page'); else $('acctLink').removeAttribute('aria-current');
-    $('nav').classList.remove('open');
-    $('navToggle').setAttribute('aria-expanded', 'false');
+    if (window.RelayShell) window.RelayShell.page(name);   // breadcrumb, open parent, close the phone drawer (shell.js)
     if (panelDrawer && name !== 'panels') closeDrawer();
     feedSync(name === 'health');
-    try { window.scrollTo(0, 0); } catch (e) {}
+    try { window.scrollTo(0, 0); $('inset').scrollTop = 0; } catch (e) {}
   }
   window.addEventListener('hashchange', function () { showPage(location.hash.slice(1)); });
-  $('navToggle').addEventListener('click', function () {
-    const open = $('nav').classList.toggle('open');
-    $('navToggle').setAttribute('aria-expanded', open ? 'true' : 'false');
-  });
   $('drawerBg').addEventListener('click', closeDrawer);
   $('dClose').addEventListener('click', closeDrawer);
   document.addEventListener('keydown', function (e) { if (e.key === 'Escape' && panelDrawer) closeDrawer(); });
