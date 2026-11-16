@@ -57,6 +57,7 @@ class Port:
     vpn: bool = False
     loopback: bool = False
     link_local_only: bool = False  # only 169.254.x.x: no DHCP, as a Dante or NDI network often is
+    index: int | None = None       # the OS's interface index, for pinning a socket to the port (app/netsock.py)
 
     @property
     def addresses(self) -> list[str]:
@@ -74,6 +75,7 @@ class _Adapter:
     key: str
     nice_name: str
     ipv4: tuple[tuple[str, int], ...]
+    index: int | None = None
 
 
 @dataclass(frozen=True)
@@ -127,7 +129,9 @@ def _adapters() -> list[_Adapter]:
             if pair not in ips:
                 ips.append(pair)
         name = str(getattr(adapter, "name", "") or "")
-        out.append(_Adapter(name, str(getattr(adapter, "nice_name", "") or name), tuple(ips)))
+        index = getattr(adapter, "index", None)
+        out.append(_Adapter(name, str(getattr(adapter, "nice_name", "") or name), tuple(ips),
+                            index if isinstance(index, int) else None))
     return out
 
 
@@ -449,7 +453,8 @@ def _links(adapters: list[_Adapter]) -> list[_Link]:
     return []
 
 
-def _port(key: str, nice: str, ipv4: tuple[tuple[str, int], ...], link: _Link | None, default_ip: str | None) -> Port:
+def _port(key: str, nice: str, ipv4: tuple[tuple[str, int], ...], link: _Link | None, default_ip: str | None,
+          index: int | None = None) -> Port:
     if link:
         name, friendly = link.name, link.friendly_name
         kind, virtual, vpn = link.kind, link.virtual, link.vpn
@@ -467,6 +472,7 @@ def _port(key: str, nice: str, ipv4: tuple[tuple[str, int], ...], link: _Link | 
         up=link.up if link else None, speed_mbps=link.speed_mbps if link else None,
         kind=kind, virtual=virtual, vpn=vpn, loopback=loopback,
         link_local_only=bool(ips) and all(ipaddress.ip_address(ip).is_link_local for ip in ips),
+        index=index,
     )
 
 
@@ -508,7 +514,7 @@ def interfaces(include_hidden: bool = False) -> list[Port]:
     seen: set[str] = set()
     for a in adapters:
         seen.add(a.key)
-        ports.append(_port(a.key, a.nice_name, a.ipv4, links.get(a.key), default_ip))
+        ports.append(_port(a.key, a.nice_name, a.ipv4, links.get(a.key), default_ip, a.index))
     for key, link in links.items():
         if key not in seen:
             ports.append(_port(key, link.friendly_name, (), link, default_ip))
