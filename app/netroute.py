@@ -454,7 +454,12 @@ def _panel_hosts(port_id: str | None, policy: str) -> list[str] | None:
 
 
 class RouteRefused(ValueError):
-    """A route change that cannot be saved; the message is a fixed sentence for the page."""
+    """A route change that cannot be saved. `message` is the fixed sentence for the page, the only text that may
+    reach a browser (never str() of the exception: CodeQL treats that as exposing exception details)."""
+
+    def __init__(self, message: str):
+        super().__init__("route refused")
+        self.message = message
 
 
 def change(class_id: str, port_id: str | None, policy: str | None, browsing_from: str | None) -> Resolved:

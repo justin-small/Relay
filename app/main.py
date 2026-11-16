@@ -1913,7 +1913,7 @@ async def admin_network_route(cid: str, payload: dict, request: Request):
     try:
         r = await asyncio.to_thread(netroute.change, cid, port_id, policy, _browsing_from(request))
     except netroute.RouteRefused as exc:
-        return JSONResponse({"error": str(exc)}, status_code=409)
+        return JSONResponse({"error": exc.message}, status_code=409)
     label = netroute.classes()[cid][1].label
     where = (r.port.friendly_name or r.port.name) if r.port else ("the chosen network port" if r.routed else
                                                                   "the system's default network")
@@ -1949,7 +1949,7 @@ async def admin_network_forget(pid: str, request: Request):
     try:
         await asyncio.to_thread(netroute.forget, pid)
     except netroute.RouteRefused as exc:
-        return JSONResponse({"error": str(exc)}, status_code=409)
+        return JSONResponse({"error": exc.message}, status_code=409)
     audit.note(request, "network.forget", "Forgot a network port", target=pid)
     return await asyncio.to_thread(netroute.overview)
 
