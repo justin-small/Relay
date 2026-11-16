@@ -197,7 +197,8 @@ async def run_client():
     eq("and nothing is sent while it is down", client.send(p.cut(0)), False)
     sw.answer = True
     check("it says hello again", await wait_for(lambda: sw.hellos >= 2, 5.0))
-    check("and reconnects", await wait_for(lambda: client.connected, 5.0))
+    check("and reconnects", await wait_for(lambda: client.connected, 5.0),
+          (client.error, sw.hellos, sw.client, client_mod.QUIET_S))
     await client.close()
     eq("closed", client.connected, False)
     transport.close()
