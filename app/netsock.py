@@ -337,6 +337,7 @@ def udp_socket(route: Resolved | str, port: int = 0, *, broadcast: bool = False,
     r = _resolved(route)
     _require(r)
     sock = _new(socket.SOCK_DGRAM)
+    no_connreset(sock)
     try:
         if reuse:
             _reuse(sock)
@@ -354,6 +355,21 @@ def udp_socket(route: Resolved | str, port: int = 0, *, broadcast: bool = False,
         _close(sock)
         raise RouteError(f"UDP port {port} on {_name(r)} is already in use or cannot be opened.") from None
     return sock
+
+
+def no_connreset(sock: socket.socket) -> None:
+    """Windows: stop an ICMP "port unreachable" (a peer that closed its socket) from failing the next receive on a
+    UDP socket (SIO_UDP_CONNRESET). Nothing to do elsewhere."""
+    if sys.platform != "win32":
+        return
+    try:
+        import ctypes
+
+        off, got = ctypes.c_ulong(0), ctypes.c_ulong(0)
+        ctypes.windll.ws2_32.WSAIoctl(ctypes.c_size_t(sock.fileno()), 0x9800000C, ctypes.byref(off), 4, None, 0,
+                                      ctypes.byref(got), None, None)
+    except Exception:
+        pass
 
 
 def _reuse(sock: socket.socket) -> None:
