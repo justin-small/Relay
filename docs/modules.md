@@ -499,6 +499,55 @@ set in `attach()` and cleared in `detach()`. Every connected OBS computer that h
 switches; the answer is `{"ok": True}` or `{"ok": False, "error": "..."}`. When an operator maps scenes to camera
 numbers, the OBS module also publishes into core's tally (`app/tally.py`) as `obs_<computer id>`.
 
+## Signing in to another service
+
+A module whose service needs a signed-in account (YouTube, Facebook) uses core's `app/oauth.py` (#304) instead of
+asking the operator to paste a token. The operator presses **Connect**, the page shows a short code and an address
+(google.com/device, facebook.com/device), and they sign in there on any phone or computer. This is OAuth device
+authorization (RFC 8628): it needs no address the service sends the browser back to, which Relay, on a church's own
+computer, does not have. Services that only do browser redirects (Restream) are not covered yet.
+
+```python
+from ... import oauth
+from .. import require
+
+class Google(oauth.Provider):                  # RFC 8628 defaults; override what the service does differently
+    id, name = "google", "YouTube"
+    device_url = "https://oauth2.googleapis.com/device/code"
+    token_url = "https://oauth2.googleapis.com/token"
+    revoke_url = "https://oauth2.googleapis.com/revoke"
+    async def identity(self, tokens): ...      # {"id", "name"} of the channel or Page; may fill tokens.extra
+
+ACCOUNT = oauth.Account("youtube", Google("youtube"), settings_key="youtube",
+                        client=lambda: oauth.Client(id=..., secret=...), scopes=("…/auth/youtube.readonly",))
+oauth.add_routes(router, "/api/admin/youtube/account", ACCOUNT,
+                 view=require("youtube.view"), manage=require("youtube.manage"))
+```
+
+- **Keep it sealed.** The account is one JSON value in the module's own settings (`"account"`, or the `field` you
+  pass). Put it in `defaults` as `""` and in `secret_settings`, and drop it in `public()`. A refreshed access token
+  stays in memory; config.json is written only on connect, disconnect and a rotated refresh token.
+- **Use it.** `await ACCOUNT.token()` gives a current access token, refreshed shortly before it runs out. It raises
+  `oauth.NeedsSignIn` when the service no longer accepts Relay (revoked, password changed, Page role lost) and
+  `oauth.Problem` when the service could not be asked; both carry a fixed sentence. When the service answers 401 to a
+  token, call `ACCOUNT.refused()` and try again later.
+- **Health.** `ACCOUNT.health()` is `("warn", "YouTube needs signing in again.")` while the operator must sign in
+  again, else None. Return it from the module's `health()`.
+- **Stop.** `await ACCOUNT.close()` in `stop()` ends a wait for a code.
+- **The page.** `RelayOAuth.mount(container, '/api/admin/youtube/account', {manage: 'youtube.manage'})` (core's
+  `app/static/oauth.js`) draws the Connect card from the panel's own pieces. Connect, Cancel and Disconnect need
+  the module's `manage` permission (Admin and up); the card shows only the account's name, its scopes and who
+  connected it, never a token.
+- **Audit.** Connecting (with who did it), disconnecting and the service refusing Relay's sign-in are recorded as
+  `<id>.connect`, `<id>.disconnect` and `<id>.signed_out`, with the account's name, never a token.
+- The calls go out through `netsock.fetch` on the provider's traffic class (the module's own), so they follow the
+  network port the operator chose. Only `https://` addresses are called.
+- Disconnect asks the service to revoke Relay's access; if it does not confirm, the card tells the operator to remove
+  it from the account's own security page.
+
+The client IDs Relay signs in with, and how to make them, are in
+[reference/oauth-apps.md](reference/oauth-apps.md).
+
 ## Captions from another module
 
 Core hands every committed line, after the blocklist, to the recorder (`hub.line_sink`, set by the engine) and then to

@@ -27,6 +27,7 @@ import logging
 import socket
 import struct
 import sys
+import urllib.error
 import urllib.parse
 import urllib.request
 from typing import Any, Callable
@@ -298,6 +299,24 @@ def urlopen(route: Resolved | str, request: urllib.request.Request | str, *, tim
             context: Any = None):
     """urllib.request.urlopen through the route."""
     return opener(route, context=context).open(request, timeout=timeout)
+
+
+def fetch(route: Resolved | str, url: str, *, form: dict | None = None, headers: dict | None = None,
+          timeout: float = 15.0, limit: int = 1_000_000) -> tuple[int, bytes]:
+    """One HTTP request through the route: a POST of `form` (url-encoded) when given, else a GET. Returns the status
+    and at most `limit` bytes of the body, for an error status too (an OAuth server answers 400 with JSON). A
+    connection that fails raises OSError (RouteError when the route is the cause). Blocking: run it in a thread."""
+    data = urllib.parse.urlencode(form).encode("ascii") if form is not None else None
+    req = urllib.request.Request(url, data=data, headers=dict(headers or {}), method="POST" if data is not None else "GET")
+    if data is not None:
+        req.add_header("Content-Type", "application/x-www-form-urlencoded")
+    req.add_header("Accept", "application/json")
+    try:
+        with urlopen(route, req, timeout=timeout) as resp:
+            return resp.status, resp.read(limit)
+    except urllib.error.HTTPError as e:
+        with contextlib.closing(e):
+            return e.code, e.read(limit)
 
 
 async def websocket(route: Resolved | str, url: str, *, open_timeout: float = 10.0, **kwargs: Any):
