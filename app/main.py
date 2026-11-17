@@ -2068,8 +2068,8 @@ async def admin_metering_calibrate(request: Request, payload: dict):
     signal to read."""
     try:
         cal = await asyncio.to_thread(metering.meter.calibrate, payload.get("reference_db"))
-    except ValueError as exc:
-        return JSONResponse({"error": str(exc)}, status_code=409)
+    except metering.CalibrateError as exc:
+        return JSONResponse({"error": metering.CALIBRATE_SENTENCES[exc.reason]}, status_code=409)
     cfg = config.save({"metering": {**config.get()["metering"], "calibration_db": cal, "calibrated": True}},
                       replace=("metering",))["metering"]
     audit.note(request, "audio.metering", "Calibrated the sound meter", detail={"calibration_db": cal})

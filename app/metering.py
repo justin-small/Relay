@@ -205,6 +205,23 @@ class Analyzer:
 
 
 # -- the service -------------------------------------------------------------------------------------------------
+# What the calibrate route may say, by reason. The route answers from this table, never from the exception's text.
+CALIBRATE_SENTENCES = {
+    "reference": "Enter the level the calibrator says, in dB, between 30 and 140.",
+    "off": "Switch the meter on first.",
+    "no_signal": "No sound is arriving on that lane. Patch the measurement mic and play the calibrator.",
+    "too_quiet": "The calibrator is too quiet to read. Raise the mic gain or move it closer.",
+}
+
+
+class CalibrateError(ValueError):
+    """A refusal; `reason` is a key of CALIBRATE_SENTENCES."""
+
+    def __init__(self, reason: str) -> None:
+        super().__init__(CALIBRATE_SENTENCES[reason])
+        self.reason = reason
+
+
 class Metering:
     """Taps one lane on the bus and keeps the Analyzer current from a worker thread."""
 
@@ -291,15 +308,15 @@ class Metering:
         `reference_db`. Needs a signal; raises ValueError with a sentence fit for the page when there is none."""
         ref = _num(reference_db, 30.0, 140.0, math.nan)
         if math.isnan(ref):
-            raise ValueError("Enter the level the calibrator says, in dB, between 30 and 140.")
+            raise CalibrateError("reference")
         with self._lock:
             if self._thread is None:
-                raise ValueError("Switch the meter on first.")
+                raise CalibrateError("off")
             if time.time() - self.last_block > SILENT_S:
-                raise ValueError("No sound is arriving on that lane. Patch the measurement mic and play the calibrator.")
+                raise CalibrateError("no_signal")
             ms = self.analyzer._ms["a_slow"]
             if ms <= 1e-12:
-                raise ValueError("The calibrator is too quiet to read. Raise the mic gain or move it closer.")
+                raise CalibrateError("too_quiet")
             cal = max(CAL_MIN, min(CAL_MAX, ref - 10.0 * math.log10(ms)))
             self.analyzer.calibration_db = round(cal, 1)
             self.config = {**self.config, "calibration_db": round(cal, 1), "calibrated": True}
