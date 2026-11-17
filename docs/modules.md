@@ -431,7 +431,7 @@ with hooks set in `attach()` and cleared in `detach()`.
 Discovery is mDNS (`_ndi._tcp`) plus extra addresses asked directly; a BirdDog converter's `_birddog._tcp` adds what it
 is set to. The NDI runtime and `cyndilib` are installed separately (NDI's licence does not let Relay bundle them,
 `app/modules/ndi/runtime.py`): without them the module says so on its page and stays off. Board widgets: `ndi.summary`,
-`ndi.sources`, `ndi.source`. Discovery Server settings are #295.
+`ndi.sources`, `ndi.source`. Discovery servers (#295) are set on its page and written to an NDI config in Relay's state folder; see `docs/ndi-discovery-server.md`.
 
 ## Recording and presentation hooks
 

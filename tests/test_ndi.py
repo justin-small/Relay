@@ -25,6 +25,7 @@ _db.reset()
 
 import app.main as main  # noqa: E402,F401
 from app import modules as registry  # noqa: E402
+from app import config  # noqa: E402
 from app.modules.ndi import discovery, runtime  # noqa: E402
 from app.modules.ndi import MODULE  # noqa: E402
 from app.modules.ndi import service as svc  # noqa: E402
@@ -84,6 +85,9 @@ class FakeBackend:
         self.opened.append(name)
         return FakeConn(self, name)
 
+    def find(self, seconds=3.0):
+        return [{"name": "SERVERPC (Studio Cam)", "address": "10.9.0.4"}]
+
     def open_sender(self, name):
         s = type("S", (), {"sent": [], "send": lambda self, f: self.sent.append(f), "close": lambda self: None})()
         self.senders.append(s)
@@ -113,7 +117,7 @@ with section("collect"):
 
 with section("settings"):
     eq("clean drops junk", svc.clean_settings({"extra_ips": ["10.0.0.1", "x", "10.0.0.1"], "groups": ["A", "a", "bad!"],
-                                                "interval": 1}), {"extra_ips": ["10.0.0.1"], "groups": ["A"], "interval": 5})
+                                                "interval": 1}), {"servers": [], "mdns": True, "extra_ips": ["10.0.0.1"], "groups": ["A"], "interval": 5})
     check("defaults", svc.clean_settings(None)["interval"] == 15)
 
 with section("without the runtime"):
@@ -171,6 +175,38 @@ with section("hooks through core"):
     check("closed output frees the name", registry.ndi_register_output("Program") is not None)
     MODULE.detach()
     eq("hooks cleared", (registry.ndi_sources(), registry.ndi_subscribe("x", print)), ([], None))
+
+with section("discovery server"):
+    cs = svc.clean_server
+    eq("host and default port", (cs("10.0.0.2"), cs("10.0.0.2:5959"), cs("ndi.lan:6000")), ("10.0.0.2", "10.0.0.2", "ndi.lan:6000"))
+    eq("junk refused", (cs("a b"), cs("10.0.0.2:0"), cs("10.0.0.2:x"), cs(5)), ("", "", "", ""))
+    st = svc.clean_settings({"servers": ["10.0.0.2", "10.0.0.2:5959", "bad host"], "mdns": False})
+    eq("servers kept once, mdns off", (st["servers"], st["mdns"]), (["10.0.0.2"], False))
+    eq("mdns on by default", svc.clean_settings(None)["mdns"], True)
+    cfg = runtime.sdk_config({"servers": ["10.0.0.2", "ndi.lan:6000"], "mdns": False, "groups": ["A"], "extra_ips": ["10.0.0.9"]})["ndi"]
+    eq("sdk config", (cfg["networks"], cfg["mdns"], cfg["groups"]),
+       ({"ips": "10.0.0.9", "discovery": "10.0.0.2,ndi.lan:6000"}, {"enable": False}, {"recv": "A"}))
+    lis = socket.socket()
+    lis.bind(("127.0.0.1", 0))
+    lis.listen(1)
+    port = lis.getsockname()[1]
+    dead = socket.socket()
+    dead.bind(("127.0.0.1", 0))
+    dead_port = dead.getsockname()[1]
+    dead.close()
+    got = svc.check_servers([f"127.0.0.1:{port}", f"127.0.0.1:{dead_port}"])
+    eq("a listening server is reachable, a closed one is not", [g["reachable"] for g in got], [True, False])
+    lis.close()
+    s = svc.Service()
+    runtime.install(FakeBackend())
+    asyncio.run(s.start())
+    config.save({"ndi": {"servers": [f"127.0.0.1:{port}"], "mdns": False}})
+    asyncio.run(s.scan())
+    check("server-reported sources are listed", [x["machine"] for x in s.sources()] == ["SERVERPC"])
+    eq("and counted", s.via_server, 1)
+    check("status says unreachable once the listener is gone", s.snapshot()["servers"][0]["reachable"] is False)
+    asyncio.run(s.stop())
+    config.save({"ndi": {}})
 
 with section("wait_change"):
     async def go():

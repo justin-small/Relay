@@ -37,6 +37,18 @@
     });
     if (document.activeElement !== $('ndiGroups')) $('ndiGroups').value = s.settings.groups.join(', ');
     if (document.activeElement !== $('ndiIps')) $('ndiIps').value = s.settings.extra_ips.join(', ');
+    const st = $('ndiServerStatus');
+    st.textContent = '';
+    (s.servers || []).forEach(function (x) {
+      const p = document.createElement('p');
+      p.className = 'note' + (x.reachable ? '' : ' warn');
+      p.textContent = x.server + ': ' + (x.reachable ? 'connected, ' + s.via_server + ' source' + (s.via_server === 1 ? '' : 's') + ' reported' : (x.error || 'not answering'));
+      st.appendChild(p);
+    });
+    $('ndiRestart').hidden = !s.restart_needed;
+    if (document.activeElement !== $('ndiServers')) $('ndiServers').value = s.settings.servers.join(', ');
+    $('ndiMdns').checked = s.settings.mdns;
+    $('ndiServers').disabled = $('ndiMdns').disabled = !can('ndi.manage');
     $('ndiScan').disabled = !s.running || !can('ndi.manage');
     $('ndiSave').disabled = !can('ndi.manage');
   }
@@ -57,7 +69,7 @@
   };
   $('ndiSave').onclick = async function () {
     showError('');
-    try { draw(await send('PUT', '/api/admin/ndi/settings', { groups: list($('ndiGroups').value), extra_ips: list($('ndiIps').value) })); }
+    try { draw(await send('PUT', '/api/admin/ndi/settings', { servers: list($('ndiServers').value), mdns: $('ndiMdns').checked, groups: list($('ndiGroups').value), extra_ips: list($('ndiIps').value) })); }
     catch (e) { showError(e.message); }
   };
   poll();

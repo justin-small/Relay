@@ -25,7 +25,7 @@ class Ndi(Module):
         version="1.0.0",
         traffic=(Traffic("ndi", "NDI discovery (multicast DNS) and video"),),
     )
-    defaults = {"extra_ips": [], "groups": [], "interval": 15}
+    defaults = {"servers": [], "mdns": True, "extra_ips": [], "groups": [], "interval": 15}
     admin_pages = (AdminPage(
         id="ndi", title="NDI", template="ndi.html", group="Output",
         icon='<rect x="2" y="4" width="12" height="8" rx="1"/><path d="M5 7v2.5M5 7l2 2.5V7M10 7h1.5M10 9.5h1.5"/>'),)
@@ -90,6 +90,9 @@ class Ndi(Module):
             return Health("warn", service.error or "Off")
         src = service.sources()
         online = sum(1 for s in src if s["online"])
+        down = [x["server"] for x in service.servers if not x["reachable"]]
+        if down:
+            return Health("warn", "Discovery server not answering: " + ", ".join(down))
         return Health("ok", f"{online} source{'s' if online != 1 else ''} online" if src else "No sources found yet")
 
     async def test(self) -> dict:

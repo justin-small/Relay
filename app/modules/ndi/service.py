@@ -29,6 +29,9 @@ MAX_GROUPS = 20
 MIN_INTERVAL, MAX_INTERVAL = 5, 300
 GONE_AFTER = 2           # scans without an answer before a source shows as offline
 _GROUP = re.compile(r"[A-Za-z0-9 _.\-]{1,40}")
+_HOST = re.compile(r"[A-Za-z0-9]([A-Za-z0-9.\-]{0,251}[A-Za-z0-9])?")
+MAX_SERVERS = 4
+SERVER_PORT = 5959       # NDI Discovery Service's port
 
 
 def clean_ip(value: Any) -> str:
@@ -36,6 +39,25 @@ def clean_ip(value: Any) -> str:
         return str(ipaddress.ip_address(value.strip())) if isinstance(value, str) else ""
     except ValueError:
         return ""
+
+
+def clean_server(value: Any) -> str:
+    """`host` or `host:port` (an IPv4 address or a name), else ''. The default port is left off."""
+    if not isinstance(value, str):
+        return ""
+    host, _, port = value.strip().partition(":")
+    if not _HOST.fullmatch(host):
+        return ""
+    if port:
+        if not port.isdigit() or not 1 <= int(port) <= 65535:
+            return ""
+        return host if int(port) == SERVER_PORT else f"{host}:{int(port)}"
+    return host
+
+
+def split_server(server: str) -> tuple[str, int]:
+    host, _, port = server.partition(":")
+    return host, int(port) if port else SERVER_PORT
 
 
 def clean_settings(raw: Any) -> dict:
@@ -52,7 +74,32 @@ def clean_settings(raw: Any) -> dict:
             groups.append(g)
     iv = raw.get("interval")
     iv = iv if isinstance(iv, int) and not isinstance(iv, bool) else 15
-    return {"extra_ips": ips[:MAX_EXTRA], "groups": groups[:MAX_GROUPS], "interval": max(MIN_INTERVAL, min(MAX_INTERVAL, iv))}
+    servers: list[str] = []
+    for v in raw.get("servers") if isinstance(raw.get("servers"), list) else []:
+        sv = clean_server(v)
+        if sv and sv not in servers:
+            servers.append(sv)
+    mdns = raw.get("mdns") if isinstance(raw.get("mdns"), bool) else True
+    return {"servers": servers[:MAX_SERVERS], "mdns": mdns, "extra_ips": ips[:MAX_EXTRA], "groups": groups[:MAX_GROUPS], "interval": max(MIN_INTERVAL, min(MAX_INTERVAL, iv))}
+
+
+def check_servers(servers: list[str]) -> list[dict]:
+    """Is each discovery server answering on its TCP port? (Blocking; run in a thread.)"""
+    from ... import netsock
+
+    out = []
+    for sv in servers:
+        host, port = split_server(sv)
+        ok, err = False, ""
+        try:
+            netsock.connect_tcp(discovery.TRAFFIC, host, port, timeout=1.5).close()
+            ok = True
+        except netsock.RouteError as exc:
+            err = str(exc)[:120]
+        except OSError:
+            err = "Nothing answered on that address."
+        out.append({"server": sv, "reachable": ok, "error": err})
+    return out
 
 
 class Lease:
@@ -173,6 +220,8 @@ class Service:
         self.last_scan = 0.0
         self.scanning = False
         self.running = False
+        self.servers: list[dict] = []     # per discovery server: {"server", "reachable", "error"}
+        self.via_server = 0               # sources the SDK reports through its finder
 
     def settings(self) -> dict:
         return clean_settings(config.get().get(KEY))
@@ -225,6 +274,7 @@ class Service:
 
     # ------------------------------------------------------------------------------------------ life cycle
     async def start(self) -> None:
+        runtime.configure(self.settings(), config.STATE_DIR / "ndi")
         if runtime.load() is None:
             self.error = runtime.reason()
             self.running = False
@@ -249,6 +299,7 @@ class Service:
             o.close()
         self.outputs.clear()
         self._seen.clear()
+        self.servers = []
         self._bump()
 
     async def _loop_scan(self) -> None:
@@ -266,12 +317,36 @@ class Service:
         self.scanning = True
         self._bump()
         try:
-            found = await asyncio.to_thread(discovery.scan, 2.5, s["extra_ips"])
+            found = await asyncio.to_thread(discovery.scan, 2.5, s["extra_ips"]) if s["mdns"] else []
+            found = discovery.visible(found, s["groups"])
+            self.servers = await asyncio.to_thread(check_servers, s["servers"])
+            reported = await asyncio.to_thread(self._find_via_sdk) if (s["servers"] or not s["mdns"]) else []
         finally:
             self.scanning = False
-        self.merge(discovery.visible(found, s["groups"]))
+        self.via_server = len(reported)
+        have = {f["name"] for f in found}
+        found += [r for r in reported if r["name"] not in have]
+        self.merge(found)
         self.last_scan = time.time()
         self._bump()
+
+    def _find_via_sdk(self) -> list[dict]:
+        """Sources the NDI runtime reports (it talks to the discovery servers), in the same shape as mDNS finds."""
+        backend = runtime.load()
+        finder = getattr(backend, "find", None)
+        if finder is None:
+            return []
+        try:
+            got = finder(3.0)
+        except Exception:
+            log.info("NDI finder failed", exc_info=True)
+            return []
+        out = []
+        for g in got[:discovery.MAX_FOUND]:
+            machine, source = discovery.split_instance(str(g.get("name", "")))
+            out.append({"name": str(g["name"])[:160], "machine": machine, "source": source, "host": "",
+                        "address": str(g.get("address", ""))[:45], "port": 0, "groups": [], "converter": None})
+        return out
 
     def merge(self, found: list[dict]) -> None:
         names = set()
@@ -298,7 +373,9 @@ class Service:
     def snapshot(self) -> dict:
         return {"version": self.version, "available": runtime.load() is not None, "error": self.error or runtime.reason(),
                 "running": self.running, "scanning": self.scanning, "last_scan": self.last_scan,
-                "sources": self.sources(), "settings": self.settings(), "outputs": sorted(self.outputs)}
+                "sources": self.sources(), "settings": self.settings(), "outputs": sorted(self.outputs),
+                "servers": self.servers, "via_server": self.via_server,
+                "restart_needed": runtime.restart_needed(self.settings())}
 
     # ------------------------------------------------------------------------------------------------ hooks
     def hook_sources(self) -> list[dict]:
