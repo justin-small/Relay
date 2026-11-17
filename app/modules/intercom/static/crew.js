@@ -485,7 +485,7 @@
     list.textContent = '';
     phones.forEach(function (p) {
       const li = doc.createElement('li');
-      li.style.cssText = 'display:flex;gap:8px;align-items:center;justify-content:space-between;padding:4px 0';
+      li.className = 'lrow tight';
       const label = doc.createElement('span');
       label.textContent = p.name + (p.last_seen ? ' · last seen ' + p.last_seen.slice(0, 10) : '');
       const out = doc.createElement('button');

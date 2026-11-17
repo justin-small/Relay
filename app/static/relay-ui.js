@@ -17,6 +17,21 @@
      confirm(text, opts)           a promise for the operator's yes or no. The native dialog for now, so a styled
                                    one can replace it here once. opts.danger marks a destructive question.
 
+   The shared controls (#463), drawn by the classes in components.css so a script never styles one itself:
+
+     button(text, fn, opts)        a type=button button. opts is a class name ('primary', 'danger', 'quiet', 'sm',
+                                   or several) or { cls, error }. With error (a function given the message, or '' to
+                                   clear it), a click clears it, disables the button while fn runs, and shows what
+                                   fn threw; without, fn is a plain click listener.
+     field(label, control, id)     a .field: the label above the control, joined to it (the id is set when given).
+     pill(text, cls)               a status pill with its dot: cls is 'on', 'warn', 'err', 'idle' or ''.
+     link(text, href)              a link that opens in a new tab, without handing the page to it.
+     buttons(error)                button with { error } fixed: buttons(showError)(text, fn, cls).
+     note(target)                  a function that shows an error line in target (an element or its id), and
+                                   hides it while there is none.
+     kv(dl, term, value)           a dt/dd pair added to a <dl>, skipped when the value is empty.
+     shown(node)                   is node on screen: its tab panel (if any) open and the page in front.
+
    Do not copy one of these into a module script: use it from here, and add what is missing here
    (tests/test_ui_contract.py enforces this). Loaded before every script that uses it. */
 (function (root) {
@@ -85,5 +100,50 @@
 
   function confirm(text) { return Promise.resolve(!!root.confirm(text)); }
 
-  root.relayUI = { can: can, api: api, client: client, el: el, say: say, confirm: confirm };
+  function button(text, fn, opts) {
+    const o = typeof opts === 'string' || !opts ? { cls: opts || '' } : opts;
+    const b = el('button', o.cls || '', text);
+    b.type = 'button';
+    if (typeof o.error === 'function') {
+      b.onclick = async function () {
+        o.error(''); b.disabled = true;
+        try { await fn(); } catch (e) { o.error(e.message); }
+        b.disabled = false;
+      };
+    } else if (fn) b.addEventListener('click', fn);
+    return b;
+  }
+
+  function buttons(error) { return function (text, fn, cls) { return button(text, fn, { cls: cls, error: error }); }; }
+
+  function note(target) { return function (text) { say(target, text, true, { plain: true, hide: true }); }; }
+
+  function field(label, control, id) {
+    const l = el('label', '', label);
+    if (id) control.id = id;
+    if (control.id) l.htmlFor = control.id;
+    return el('div', 'field', l, control);
+  }
+
+  function pill(text, cls) { return el('span', 'spill ' + (cls || ''), el('span', 'dot'), text); }
+
+  function link(text, href) {
+    const a = el('a', '', text);
+    a.href = href; a.target = '_blank'; a.rel = 'noopener noreferrer';
+    return a;
+  }
+
+  function kv(dl, term, value) {
+    if (!value) return;
+    dl.appendChild(el('dt', '', term));
+    dl.appendChild(el('dd', '', value));
+  }
+
+  function shown(node) {
+    const panel = node.closest('[role=tabpanel]');
+    return !(panel && panel.hidden) && root.document.visibilityState === 'visible';
+  }
+
+  root.relayUI = { can: can, api: api, client: client, el: el, say: say, confirm: confirm,
+    button: button, buttons: buttons, note: note, field: field, pill: pill, link: link, kv: kv, shown: shown };
 })(typeof window !== 'undefined' ? window : globalThis);

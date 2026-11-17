@@ -5,8 +5,11 @@
 <title>{{ app_name }}</title>
 {% include "_brand_head.html" %}
 <link rel="manifest" href="/crew/_/manifest.webmanifest">
-<link rel="stylesheet" href="{{ static('viewer.css') }}">
+<link rel="stylesheet" href="{{ static('viewer.css') }}"><link rel="stylesheet" href="{{ static('tokens.css') }}">
+<link rel="stylesheet" href="{{ static('components.css') }}">
 <link rel="stylesheet" href="{{ static('modules/crew/crew.css') }}">
+{% for style in module_styles %}<link rel="stylesheet" href="{{ static('modules/' ~ style) }}">{% endfor %}
+<script src="{{ static('look.js') }}"></script>
 </head><body class="crew-page">
 <header class="cr-bar">
   <img src="/static/brand/relay-mark.svg" width="28" height="28" alt="">
@@ -69,7 +72,7 @@
   {% endfor %}
   {% endif %}
   <p class="cr-foot" id="crNet" hidden>You are offline. The plan will update when you are back on the network.</p>
-  <form method="post" action="/admin/logout" class="cr-out"><button type="submit">Sign out</button></form>
+  <form method="post" action="/admin/logout" class="cr-out"><button class="link" type="submit">Sign out</button></form>
 </main>
 <script>window.RELAY_CREW = { plan: {{ 'true' if show_plan else 'false' }} };</script>
 <script src="{{ static('relay-ui.js') }}"></script>

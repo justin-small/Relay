@@ -21,7 +21,7 @@ app/modules/<id>/
   __init__.py        defines MODULE = <YourModule>(), a subclass of app.modules.Module
   *.py               the integration itself: client, follower, routes
   templates/         its admin pages (included in admin.html only while it is on)
-  static/            its admin scripts and styles, served at /static/modules/<id>/
+  static/            its admin scripts and stylesheets (admin_styles), served at /static/modules/<id>/
 ```
 
 `<id>` is lower_snake_case and is also the module's key under `"modules"` in config.json.
@@ -750,12 +750,41 @@ every standalone page whose script uses it load it first; a new page that uses i
 | `el(tag, attrs, ...children)` | An element. `attrs` is a class name or an object of properties (`text` sets the text); children are nodes or text. Never markup. |
 | `say(target, text, bad, opts)` | A status line (element or id), marked `err` or `ok`. `opts`: `plain`, `hide` (hidden while empty), `ms` (a toast that hides itself). |
 | `confirm(text)` | A promise for the operator's yes or no: `if (!(await relayUI.confirm('Delete it?'))) return;`. |
+| `button(text, fn, opts)` | A `type=button` button. `opts` is a class (`'primary'`, `'danger'`, `'quiet'`, `'sm'`) or `{ cls, error }`; with `error` a click clears it, disables the button while `fn` runs and shows what `fn` threw. |
+| `buttons(error)` | `button` with the error line fixed: `const button = relayUI.buttons(showError);`. |
+| `field(label, control, id)` | A `.field`: the label above the control, joined to it. |
+| `pill(text, cls)` | A status pill with its dot (`'on'`, `'warn'`, `'err'`, `'idle'`). |
+| `link(text, href)` | A link that opens in a new tab without handing the page to it. |
+| `kv(dl, term, value)` | A `dt`/`dd` pair added to a `<dl>`, skipped when the value is empty. |
+| `note(target)` | A function that shows an error line in `target` and hides it while empty. |
+| `shown(node)` | True while the node's tab panel is open and the page is in front. |
 
 Use them by alias (`const el = relayUI.el;`), never by copying. A helper core lacks is added to `relay-ui.js`, not
 written into the module. `tests/test_ui_contract.py` fails on a module script that defines its own `can`, `api`,
 `el`, `say` or `confirm`, on any direct `confirm()` call, on a page that loads a `relayUI` script without
 `relay-ui.js` before it, and on any function body of more than 60 characters copied between two scripts. The copies
 that were already there are listed in `tests/ui_contract_baseline.txt`, which may only shrink.
+
+## Shared styles for module pages
+
+Every control is drawn by `app/static/components.css` (#463) on the tokens in `app/static/tokens.css`: buttons
+(`button`, with `.primary`, `.danger`, `.quiet`, `.sm` and `.icon`), fields (one height per size: 34px, or 28px with
+`.sm`), `.badge`, `.pill`/`.spill`, `.tabs` (mark the chosen tab with `aria-selected=true` or `.on`), `.seg`, tables
+(`table` or `.tbl`), `.note`, `.notice`, cards (`main section`, `.pcard`), `.lrow` list rows and the switch. A module
+places these; it does not redraw them.
+
+- A module's styles live in its `static/*.css`, named in `admin_styles` (loaded by the operator panel while the module
+  is on, for a user who may see one of its pages) or `crew_styles` (loaded by the crew page with its tab).
+- Sizes, colours and radii come from the tokens: `var(--fs-sm)`, `var(--ctl-h)`, `var(--r-ctl)`, `var(--ok)`,
+  `var(--danger)`, `var(--inset)`, `var(--font)`, `var(--mono)` and the rest in `tokens.css`.
+- No `<style>` in an admin template, no CSS written from a script (`style.textContent`, `insertRule`, a `<style>`
+  element, `cssText`), and no font stack outside `tokens.css`.
+
+`tests/test_style_contract.py` enforces this with a ratchet: the literal px font sizes, hex/rgb colours and px radii
+in each file may only go down from `tests/style_contract_baseline.txt`. `tests/test_browser.py` checks the drawn
+result: on every operator page, in every preset, buttons are 34, 28 or 32px tall and text sits on the type scale.
+The pages that keep their own sizes (the viewer pages, overlay, rundown, signage, boards and cue canvases, tally,
+stage, the crew phone pages) are listed in `docs/ui-audit/standardization-spec.md`.
 
 ## Rules
 

@@ -1,49 +1,10 @@
 {# The Signage admin page (#205), rendered inside admin.html only while the module is on. #}
-    <style>
-      /* Admin styles such as .pill set display, which would otherwise beat the hidden attribute. */
-      #page-signage [hidden] { display:none !important; }
-      .sg-tabs { display:flex; gap:6px; flex-wrap:wrap; margin:0 0 16px; }
-      .sg-tabs button[aria-selected="true"] { background:var(--accent); color:#000; border-color:var(--accent); }
-      .sg-thumb { width:96px; aspect-ratio:16/9; object-fit:cover; border-radius:5px; background:#000;
-                  border:1px solid var(--line); display:block; flex:none; }
-      .sg-thumb.ph { display:flex; align-items:center; justify-content:center; color:var(--dim); font-size:11px; }
-      .sg-grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(170px, 1fr)); gap:12px; }
-      .sg-card { border:1px solid var(--line); border-radius:9px; background:#111216; padding:10px; min-width:0; }
-      .sg-card .sg-thumb { width:100%; }
-      .sg-card .sg-name { font-size:13px; margin:8px 0 2px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-      .sg-card .ctl { margin-top:8px; }
-      .sg-card.pick { cursor:pointer; }
-      .sg-card.pick:hover { border-color:var(--accent); }
-      .sg-row { display:flex; gap:12px; align-items:center; flex-wrap:wrap; }
-      .sg-items { display:flex; flex-direction:column; gap:8px; }
-      .sg-item { display:flex; gap:12px; align-items:center; flex-wrap:wrap; border:1px solid var(--line);
-                 border-radius:9px; background:#111216; padding:8px 10px; }
-      .sg-item.off { opacity:.55; }
-      .sg-item .sg-iname { flex:1 1 160px; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-      .sg-item .field { margin:0; }
-      .sg-item input[type=number] { width:76px; }
-      .sg-item input[type=date] { width:140px; }
-      .sg-plists { display:flex; gap:6px; flex-wrap:wrap; margin-bottom:14px; }
-      .sg-plists button[aria-current="true"] { border-color:var(--accent); color:var(--fg); }
-      .sg-preview { position:fixed; inset:0; background:rgba(0,0,0,.82); z-index:100; display:flex;
-                    flex-direction:column; align-items:center; justify-content:center; padding:16px; gap:12px; }
-      .sg-preview[hidden] { display:none; }
-      .sg-stage { position:relative; width:min(960px, 100%); aspect-ratio:16/9; background:#000; border-radius:6px;
-                  overflow:hidden; border:1px solid var(--line); }
-      .sg-storage { display:flex; gap:16px; flex-wrap:wrap; align-items:center; }
-      .sg-drop { border:1px dashed var(--line); border-radius:9px; padding:16px; text-align:center; color:var(--dim); }
-      .sg-drop.over { border-color:var(--accent); color:var(--fg); }
-      .sg-up { font-size:12px; color:var(--dim); }
-      td .sg-thumb { width:72px; }
-      #sgScreens a { color:var(--accent); overflow-wrap:anywhere; }
-      #sgScreens td:last-child { white-space:nowrap; }
-    </style>
     <h2 class="title">Signage <span class="sumstate" id="sgSum"></span></h2>
     <p class="sub">Images and videos on any TV with a web browser. Each screen has its own address.</p>
     <p class="note warn" id="sgRestart" hidden></p>
     <p class="note" id="sgAccess" hidden>An admin sets up screens, playlists and media.</p>
 
-    <div class="sg-tabs" role="tablist">
+    <div class="tabs" role="tablist">
       <button type="button" role="tab" data-sgtab="screens" aria-selected="true">Screens</button>
       <button type="button" role="tab" data-sgtab="playlists" aria-selected="false">Playlists</button>
       <button type="button" role="tab" data-sgtab="schedule" aria-selected="false">Schedule</button>

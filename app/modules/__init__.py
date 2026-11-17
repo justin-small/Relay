@@ -141,11 +141,15 @@ class Module:
     # Admin pages, and the scripts in the module's static/ directory the admin page loads for it.
     admin_pages: tuple[AdminPage, ...] = ()
     admin_scripts: tuple[str, ...] = ()
+    # Stylesheets in static/ the admin page loads for it (#463). They place the shared controls in components.css
+    # and use the tokens in tokens.css; tests/test_style_contract.py keeps literal sizes and colours out.
+    admin_styles: tuple[str, ...] = ()
     # Features for accounts that never open the admin panel (a Member's home page).
     user_pages: tuple[UserPage, ...] = ()
     # Tabs on the crew page, and the scripts in the module's static/ directory that page loads for them.
     crew_tabs: tuple[CrewTab, ...] = ()
     crew_scripts: tuple[str, ...] = ()
+    crew_styles: tuple[str, ...] = ()
     # Exact page paths (of any module) that may use the microphone while this module is on. Everywhere else the
     # browser is told microphone=(); a page that is not listed never gets a prompt.
     microphone_pages: tuple[str, ...] = ()
@@ -782,6 +786,11 @@ class Registry:
         return [f"{mod.manifest.id}/{s}" for mod in self.active()
                 if any(user.can(t.permission) for t in mod.crew_tabs) for s in mod.crew_scripts]
 
+    def crew_styles(self, user: User) -> list[str]:
+        """The stylesheets of the modules that are on and have a tab `user` may use."""
+        return [f"{mod.manifest.id}/{s}" for mod in self.active()
+                if any(user.can(t.permission) for t in mod.crew_tabs) for s in mod.crew_styles]
+
     def microphone_pages(self) -> tuple[str, ...]:
         """The page paths that may use the microphone: those named by the modules that are on."""
         return tuple(p for mod in self.active() for p in mod.microphone_pages)
@@ -790,17 +799,24 @@ class Registry:
         """The page paths that may use the location: those named by the modules that are on."""
         return tuple(p for mod in self.active() for p in mod.geolocation_pages)
 
-    def admin_scripts(self, user: User | None = None) -> list[str]:
-        """The scripts of the modules that are on. With a `user`, only those of a module with at least one page
-        they may see (or, for a module with no pages, when they hold its `.view`)."""
+    def _admin_files(self, attr: str, user: User | None) -> list[str]:
         out: list[str] = []
         for mod in self.active():
             if user is not None:
                 pages = [self._page_permission(mod, p) for p in mod.admin_pages] or [f"{mod.manifest.id}.view"]
                 if not any(user.can(perm) for perm in pages):
                     continue
-            out += [f"{mod.manifest.id}/{s}" for s in mod.admin_scripts]
+            out += [f"{mod.manifest.id}/{s}" for s in getattr(mod, attr)]
         return out
+
+    def admin_scripts(self, user: User | None = None) -> list[str]:
+        """The scripts of the modules that are on. With a `user`, only those of a module with at least one page
+        they may see (or, for a module with no pages, when they hold its `.view`)."""
+        return self._admin_files("admin_scripts", user)
+
+    def admin_styles(self, user: User | None = None) -> list[str]:
+        """The stylesheets of the modules that are on, chosen as admin_scripts are (#463)."""
+        return self._admin_files("admin_styles", user)
 
 
 def listener_port(settings: dict, lst: Listener) -> int:
@@ -841,6 +857,9 @@ def validate(mod: Any, package: str) -> list[str]:
     for script in mod.admin_scripts:
         if not (HERE / package / "static" / script).is_file():
             problems.append(f"{package}: admin script {script} is missing")
+    for style in (*mod.admin_styles, *mod.crew_styles):
+        if not style.endswith(".css") or not (HERE / package / "static" / style).is_file():
+            problems.append(f"{package}: stylesheet {style} is missing")
     for tab in mod.crew_tabs:
         if not (HERE / package / "templates" / tab.template).is_file():
             problems.append(f"{package}: crew tab template {tab.template} is missing")

@@ -42,6 +42,7 @@ class Obs(Module):
         id="obs", title="OBS Studio", template="obs.html", group="Output",
         icon='<circle cx="8" cy="8" r="5.5"/><circle cx="8" cy="8" r="1.5"/>'),)
     admin_scripts = ("obs.js",)
+    admin_styles = ("obs.css",)
     route_prefixes = ("/api/admin/obs", "/obs")
     permissions = (
         Permission("obs.view", "See OBS's scene, outputs and preview", "OBS Studio", "viewer"),

@@ -28,6 +28,7 @@ class ParentPaging(Module):
         id="parentpaging", title="Parent paging", template="admin.html", group="Live",
         icon='<path d="M8 2a3 3 0 0 1 3 3v2l1.5 3h-9L5 7V5a3 3 0 0 1 3-3zM6.5 12a1.5 1.5 0 0 0 3 0"/>'),)
     admin_scripts = ("parentpaging.js",)
+    admin_styles = ("parentpaging.css",)
     route_prefixes = ("/api/admin/parent-paging", "/paging")
     permissions = (
         Permission("parent_paging.view", "See the parent pages that are up", "Parent paging", "viewer"),

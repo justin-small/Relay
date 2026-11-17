@@ -23,7 +23,7 @@
     const text = document.createElement('div'); text.className = 'chat-body'; text.textContent = m.body;
     li.appendChild(who); li.appendChild(text);
     if (m.user_id === me || moderator) {
-      const del = document.createElement('button'); del.type = 'button'; del.className = 'chat-del'; del.textContent = 'Delete';
+      const del = document.createElement('button'); del.type = 'button'; del.className = 'link sm chat-del'; del.textContent = 'Delete';
       del.setAttribute('aria-label', 'Delete message from ' + m.author);
       del.addEventListener('click', function () { writing('DELETE', '/crew/api/chat/message/' + m.id); });
       li.appendChild(del);
@@ -74,7 +74,7 @@
     };
   }
   function close() { clearTimeout(timer); if (source) { source.close(); source = null; } }
-  function active() { return !root.closest('[role=tabpanel]').hidden && document.visibilityState === 'visible'; }
+  function active() { return relayUI.shown(root); }
   async function wake() {
     if (!active()) { close(); return; }
     if (await loadChannels()) open();

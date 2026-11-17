@@ -20,8 +20,7 @@
     $('taEmpty').hidden = state.cameras.length > 0;
     state.cameras.forEach(function (c) {
       const row = document.createElement('div');
-      row.className = 'row';
-      row.style.cssText = 'gap:12px;padding:6px 0;border-top:1px solid var(--line, #8883)';
+      row.className = 'lrow';
       const t = document.createElement('span');
       t.textContent = c.n + '. ' + c.name + (c.program ? ' · on program' : (c.preview ? ' · on preview' : ''));
       row.appendChild(t);

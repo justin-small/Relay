@@ -69,7 +69,7 @@
   });
   $('clCancel').addEventListener('click', reset);
 
-  function active() { return !root.closest('[role=tabpanel]').hidden && document.visibilityState === 'visible'; }
+  function active() { return relayUI.shown(root); }
   function wake() { clearInterval(timer); if (active()) { load(); timer = setInterval(load, 30000); } }
   document.addEventListener('crew:tab', wake);
   document.addEventListener('visibilitychange', wake);

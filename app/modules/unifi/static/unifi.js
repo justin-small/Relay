@@ -6,25 +6,6 @@
   const R = window.RelayAdmin;
   if (!R || !document.getElementById('page-unifi')) return;
   const $ = R.$;
-  (function () {
-    const s = document.createElement('style');
-    s.textContent = [
-      '#page-unifi .ufcards{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:12px;align-items:start}',
-      '@media (max-width:900px){#page-unifi .ufcards{grid-template-columns:minmax(0,1fr)}}',
-      '#page-unifi .pcard h4{margin:0;font-size:13px;font-weight:600}',
-      '#page-unifi .pcard .phead .spill{padding:3px 9px;font-size:11px}',
-      '#page-unifi .ufgear{display:flex;flex-direction:column;gap:12px}',
-      '#page-unifi .ufchart{display:block;width:100%;height:90px;margin-top:6px}',
-      '#page-unifi .ufchart text{font-size:10px;fill:var(--dim)}',
-      '#page-unifi .ufchart .a{stroke:var(--accent)}#page-unifi .ufchart .b{stroke:var(--dim)}#page-unifi .ufchart .c{stroke:var(--err)}',
-      '#page-unifi .uflegend{font-size:12px;color:var(--dim);margin-top:2px}',
-      '#page-unifi .uflegend i{display:inline-block;width:14px;height:2px;vertical-align:middle;margin:0 4px 0 10px}',
-      '#page-unifi td.warn{color:var(--err)}',
-      '#page-unifi #ufRange button.primary{pointer-events:none}',
-      '#page-unifi #ufWarn ul{margin:4px 0 0 18px;padding:0}',
-    ].join('');
-    document.head.appendChild(s);
-  })();
 
   let last = null;
   let filled = false;

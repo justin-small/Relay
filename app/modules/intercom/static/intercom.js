@@ -85,13 +85,7 @@
 
   function cell(text) { const td = document.createElement('td'); td.textContent = text; return td; }
 
-  function btn(label, fn) {
-    const b = document.createElement('button');
-    b.type = 'button';
-    b.textContent = label;
-    b.addEventListener('click', fn);
-    return b;
-  }
+  const btn = relayUI.button;
 
   function editError(msg) { $('icEErr').textContent = msg || ''; $('icEErr').hidden = !msg; }
 
@@ -105,7 +99,8 @@
       tr.dataset.id = c.id;
       const dot = document.createElement('td');
       const sw = document.createElement('span');
-      sw.style.cssText = 'display:inline-block;width:12px;height:12px;border-radius:50%;background:' + (/^#[0-9a-fA-F]{3,8}$/.test(c.colour) ? c.colour : '#888');
+      sw.className = 'swatch';
+      if (/^#[0-9a-fA-F]{3,8}$/.test(c.colour)) sw.style.background = c.colour;   // the operator's own colour for the channel
       dot.appendChild(sw);
       tr.appendChild(dot);
       [c.name, MODES[c.mode] || c.mode, String(c.max_talkers), c.latch_seconds ? c.latch_seconds + ' s' : 'none',

@@ -31,12 +31,12 @@
 
   function pageRow(p, mode, control) {
     const d = document.createElement('div');
-    d.style.cssText = 'display:flex;align-items:center;gap:12px;padding:8px 0;border-top:1px solid var(--line, #8883)';
+    d.className = 'lrow';
     const code = document.createElement('div');
     code.textContent = p.code;
-    code.style.cssText = 'font-size:1.6em;font-weight:700;letter-spacing:.08em;min-width:5em';
+    code.className = 'ppcode';
     const info = document.createElement('div');
-    info.style.cssText = 'flex:1;min-width:8em';
+    info.className = 'grow';
     const room = document.createElement('div');
     room.textContent = p.room;
     const meta = document.createElement('div');
@@ -56,13 +56,13 @@
 
   function roomRow(r, manage) {
     const d = document.createElement('div');
-    d.style.cssText = 'padding:10px 0;border-top:1px solid var(--line, #8883)';
+    d.className = 'lrow stack';
     const top = document.createElement('div');
-    top.style.cssText = 'display:flex;align-items:center;gap:8px;flex-wrap:wrap';
+    top.className = 'ctl';
     const info = document.createElement('div');
-    info.style.cssText = 'flex:1;min-width:0';
+    info.className = 'grow';
     const name = document.createElement('div');
-    name.textContent = r.name; name.style.fontWeight = '600';
+    name.textContent = r.name; name.className = 'strong';
     const meta = document.createElement('div');
     meta.className = 'note';
     meta.textContent = r.event ? 'Check-Ins: ' + r.event : 'Check-Ins room ' + r.location_id;
@@ -70,11 +70,11 @@
     top.appendChild(info);
     const linkBox = document.createElement('div');
     linkBox.hidden = true;
-    linkBox.style.cssText = 'margin-top:8px;display:flex;gap:12px;align-items:center;flex-wrap:wrap';
+    linkBox.className = 'ctl ppbox';
     function showLink(data) {
       linkBox.textContent = '';
       const qr = document.createElement('div');
-      qr.style.cssText = 'width:120px;height:120px;background:#fff';
+      qr.className = 'qrbox';
       try {
         if (typeof qrcode === 'function') {
           const q = qrcode(0, 'M'); q.addData(data.url); q.make();

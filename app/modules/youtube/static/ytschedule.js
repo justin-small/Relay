@@ -5,22 +5,6 @@
   const R = window.RelayAdmin;
   if (!R || !document.getElementById('page-youtube')) return;
   const $ = R.$;
-  (function () {
-    const s = document.createElement('style');
-    s.textContent = [
-      '#page-youtube .ytlist{list-style:none;margin:8px 0 0;padding:0}',
-      '#page-youtube .ytlist li{padding:8px 0;border-top:1px solid var(--line);display:flex;flex-wrap:wrap;gap:4px 12px;align-items:baseline}',
-      '#page-youtube .ytlist li .t{font-weight:600;flex:1 1 200px;overflow-wrap:anywhere}',
-      '#page-youtube .ytlist li .m{color:var(--dim);font-size:12px}',
-      '#page-youtube .ytrule{display:flex;flex-wrap:wrap;gap:8px;align-items:end;margin-top:6px}',
-      '#page-youtube .ytrule .field{flex:1 1 120px;margin:0}',
-      '#page-youtube .yttypes label{display:flex;gap:6px;align-items:center;font-weight:400;margin:4px 0}',
-      '#page-youtube .ytlink + .ytlink{margin-top:12px;padding-top:12px;border-top:1px solid var(--line)}',
-      '#page-youtube .ytlink h4{margin:0;font-size:13px;font-weight:600;overflow-wrap:anywhere}',
-      '#page-youtube .ytsub{margin:14px 0 4px;font-size:12px;text-transform:uppercase;letter-spacing:.04em;color:var(--dim)}',
-    ].join('');
-    document.head.appendChild(s);
-  })();
 
   const canManage = window.relayCan('youtube.manage');
   const canSend = window.relayCan('youtube.publish');
@@ -32,15 +16,12 @@
   let streams = null;
 
   const el = relayUI.el;
-  function err(text) { $('ytErr').textContent = text || ''; $('ytErr').hidden = !text; }
+  const err = relayUI.note('ytErr');
   function when(t) {
     if (!t) return '';
     return new Date(t * 1000).toLocaleString([], { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
   }
-  function link(text, href) {
-    const a = el('a', '', text); a.href = href; a.target = '_blank'; a.rel = 'noopener noreferrer';
-    return a;
-  }
+  const link = relayUI.link;
   function field(label, input, help) {
     const f = el('div', 'field');
     const l = el('label', '', label);
@@ -210,7 +191,7 @@
       const box = el('div', 'ytlink');
       box.appendChild(el('h4', '', (x.episode || 'Episode') + (x.channel ? ' · ' + x.channel : '')));
       const dl = el('dl');
-      function row(k, v) { if (!v) return; dl.appendChild(el('dt', '', k)); dl.appendChild(el('dd', '', v)); }
+      function row(k, v) { relayUI.kv(dl, k, v); }
       row('Broadcast', MATCH[x.match]);
       row('Now', x.target ? (x.target.title || x.target.id) + (x.target.start ? ' · ' + when(x.target.start) : '') : 'No broadcast matches yet');
       row('Sent', x.pushed ? (x.target && x.target.id === x.pushed ? 'Yes, ' : 'An earlier one, ') + R.agoText(Date.now() / 1000 - x.pushed_at) : 'Not yet');

@@ -27,6 +27,7 @@ class YouTube(Module):
         id="youtube", title="YouTube", template="youtube.html", group="Output",
         icon='<rect x="1.5" y="3.5" width="13" height="9" rx="2.5"/><path d="M6.5 6v4l3.5-2z"/>'),)
     admin_scripts = ("youtube.js", "ytschedule.js")
+    admin_styles = ("youtube.css", "ytschedule.css")
     route_prefixes = ("/api/admin/youtube",)
     permissions = (
         Permission("youtube.view", "See whether YouTube is live and how many are watching", "YouTube", "viewer"),

@@ -31,6 +31,7 @@ class UniFi(Module):
         icon='<circle cx="8" cy="3" r="1.6"/><circle cx="3" cy="12.5" r="1.6"/><circle cx="13" cy="12.5" r="1.6"/>'
              '<circle cx="8" cy="12.5" r="1.6"/><path d="M8 4.6v6.3M7 4.3l-3.2 6.8M9 4.3l3.2 6.8"/>'),)
     admin_scripts = ("unifi.js",)
+    admin_styles = ("unifi.css",)
     route_prefixes = ("/api/admin/unifi",)
     permissions = (
         Permission("unifi.view", "See who is on the church network and when they joined", "UniFi", "viewer"),

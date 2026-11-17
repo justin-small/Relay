@@ -11,16 +11,7 @@
 
   const send = relayUI.api;
   const el = relayUI.el;
-  function button(text, fn, cls) {
-    const b = el('button', cls, text);
-    b.type = 'button';
-    b.onclick = async function () {
-      showError(''); b.disabled = true;
-      try { await fn(); } catch (e) { showError(e.message); }
-      b.disabled = false;
-    };
-    return b;
-  }
+  const button = relayUI.buttons(showError);
   function kindOf(id) {
     const c = ((data && data.cues) || []).filter(function (x) { return x.id === id; })[0];
     return c ? c.kind : /^s\d+$/.test(id) ? 'slider' : 'button';
@@ -90,8 +81,7 @@
   }
   function layoutFor(page, pi, holder) {
     if (!can('lighting.manage')) {
-      const box = el('div'); box.style.cssText = 'background:#111;padding:10px;border-radius:8px;aspect-ratio:4/3;max-width:560px;display:flex';
-      const g = el('div'); g.style.cssText = 'flex:1;contain:size'; box.appendChild(g); holder.appendChild(box);
+      const box = el('div', 'cuebox'); const g = el('div', 'cuegrid'); box.appendChild(g); holder.appendChild(box);
       const drawn = window.RelayLayout.draw(g, { cols: page.cols, rows: page.rows, items: page.cues.map(toItem) },
         can('lighting.control') ? function (it) { send('POST', '/api/admin/lighting/press', { cue: it.props.cue }).catch(function (e) { showError(e.message); }); } : null);
       Object.keys(drawn).forEach(function (id) { window.RelayLayout.update(drawn[id], { lit: !!(data && data.state && data.state[id]) }); });

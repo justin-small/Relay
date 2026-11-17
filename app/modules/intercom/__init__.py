@@ -42,8 +42,10 @@ class Intercom(Module):
                   icon='<rect x="4.5" y="1.5" width="7" height="13" rx="1.5"/><path d="M7 12.5h2"/>',
                   permission="intercom.manage"))
     admin_scripts = ("intercom.js", "live.js", "health.js")
+    admin_styles = ("intercom.css",)
     crew_tabs = (CrewTab("intercom", "Intercom", "crew.html", "intercom.use"),)
     crew_scripts = ("livekit-client.umd.js", "crew.js")
+    crew_styles = ("crew.css",)
     microphone_pages = ("/crew",)
     route_prefixes = ("/api/admin/intercom", "/intercom")
     # Never on the plain-HTTP viewer port, so a remote access tunnel carries none of the local intercom (the webhook

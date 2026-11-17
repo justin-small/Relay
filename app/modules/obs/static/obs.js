@@ -6,39 +6,6 @@
   const R = window.RelayAdmin;
   if (!R || !document.getElementById('page-obs')) return;
   const $ = R.$;
-  (function () {
-    const s = document.createElement('style');
-    s.textContent = [
-      '#page-obs a{color:var(--fg)}',
-      '#page-obs .obscards{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:12px;align-items:start}',
-      '@media (max-width:900px){#page-obs .obscards{grid-template-columns:minmax(0,1fr)}}',
-      '#page-obs .obsstack{display:flex;flex-direction:column;gap:12px;margin-bottom:12px}',
-      '#page-obs .pcard h4{margin:0;font-size:13px;font-weight:600}',
-      '#page-obs .pcard .phead .spill{padding:3px 9px;font-size:11px}',
-      '#page-obs .spill .dot{border-radius:50%;display:inline-block;background:var(--dim)}',
-      '#page-obs .spill.idle{color:var(--dim)}',
-      '#page-obs .obspreview{display:block;width:100%;aspect-ratio:16/9;object-fit:contain;background:#000;border-radius:6px;margin-top:10px}',
-      '#page-obs .obschart{display:block;width:100%;height:64px;margin-top:10px;color:var(--accent)}',
-      '#page-obs .obschart text{font-size:10px;fill:var(--dim)}',
-      '#page-obs .obsscenes{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}',
-      '#page-obs .obsscenes button.preview{box-shadow:inset 0 0 0 2px var(--accent)}',
-      '#page-obs .obsaudio .meterwrap{align-items:center;margin-top:10px}',
-      '#page-obs .obsaudio .meter{background:#1d1f24}',
-      '#page-obs .obsaudio .meterside{flex:0 0 auto;flex-direction:row;align-items:center;gap:10px}',
-      '#page-obs .obsaudio .obsname{flex:0 0 140px;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
-      '#page-obs .obsaudio .meterread{min-width:56px;text-align:right}',
-      '#page-obs .obsaudio .meterread.mutedread{color:var(--err);font-weight:700}',
-      '#page-obs .obsmachine > h3 .count{font-weight:400;font-size:13px;color:var(--dim);margin-left:6px}',
-      '#page-obs details.sect{margin-top:12px}',
-      '#page-obs details.sect h4{font-size:13px;font-weight:600;margin:18px 0 8px}',
-      '#page-obs .obslist{display:flex;flex-direction:column;gap:2px}',
-      '#page-obs .obslist .row{align-items:center}',
-      '#page-obs .obslist .row > *{flex:0 1 auto}',
-      '#page-obs .obslist input[type=number]{width:90px}',
-      '#page-obs .obslist select{width:auto;min-width:180px}',
-    ].join('');
-    document.head.appendChild(s);
-  })();
   const can = relayUI.can;
   function showError(text) { $('obsErr').textContent = text || ''; $('obsErr').hidden = !text; }
   let data = null;
@@ -48,23 +15,8 @@
 
   const send = relayUI.api;
   const el = relayUI.el;
-  function button(text, fn, cls) {
-    const b = el('button', cls, text);
-    b.type = 'button';
-    b.onclick = async function () {
-      showError(''); b.disabled = true;
-      try { await fn(); } catch (e) { showError(e.message); }
-      b.disabled = false;
-    };
-    return b;
-  }
-  function field(label, control) {
-    const f = el('div', 'field');
-    const l = el('label', '', label);
-    if (control.id) l.htmlFor = control.id;
-    f.appendChild(l); f.appendChild(control);
-    return f;
-  }
+  const button = relayUI.buttons(showError);
+  const field = relayUI.field;
   let uid = 0;
   function input(m, key, attrs) {
     const i = el('input');
@@ -103,16 +55,8 @@
   function pct(a, b) { return b ? (a * 100 / b).toFixed(2) + '%' : '0%'; }
   function live(id) { return ((data && data.machines) || []).filter(function (x) { return x.id === id; })[0] || {}; }
   function act(path, body) { return send('POST', '/api/admin/obs/' + path, body).then(refresh); }
-  function pill(text, cls) {
-    const p = el('span', 'spill ' + cls);
-    p.appendChild(el('span', 'dot'));
-    p.appendChild(document.createTextNode(text));
-    return p;
-  }
-  function link(text, href) {
-    const a = el('a', '', text); a.href = href; a.target = '_blank'; a.rel = 'noopener noreferrer';
-    return a;
-  }
+  const pill = relayUI.pill;
+  const link = relayUI.link;
   const HEALTH = { ok: 'Healthy', warn: 'Needs a look', error: 'Trouble', idle: 'Standing by' };
 
   // ------------------------------------------------------------------------------------------ the live part

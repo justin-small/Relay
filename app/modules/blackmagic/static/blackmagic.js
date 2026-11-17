@@ -6,21 +6,13 @@
   const $ = R.$;
   const KINDS = { atem: 'ATEM switcher', hyperdeck: 'HyperDeck', videohub: 'Videohub' };
   const DEFAULT_PORT = { atem: 9910, hyperdeck: 9993, videohub: 9990 };
-  const LINE = 'border-top:1px solid var(--line, #8883)';
+  const LINE = 'border-top:1px solid var(--border)';
   const can = relayUI.can;
   function showError(text) { $('bmErr').textContent = text || ''; $('bmErr').hidden = !text; }
 
   const send = relayUI.api;
   const el = relayUI.el;
-  function button(text, fn, cls) {
-    const b = el('button', { type: 'button', textContent: text, className: cls || '' });
-    b.onclick = async function () {
-      showError(''); b.disabled = true;
-      try { await fn(); } catch (e) { showError(e.message); }
-      b.disabled = false;
-    };
-    return b;
-  }
+  const button = relayUI.buttons(showError);
   function select(inputs, value) {
     const s = el('select');
     inputs.forEach(function (i) {
