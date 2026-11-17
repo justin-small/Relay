@@ -339,6 +339,7 @@ with section("router (#298)"):
     r.remove_output(two["id"])
     r.delete_salvo(sv["id"])
     eq("all gone", (s.settings()["routes"], s.settings()["salvos"]), ([], []))
+    s._seen.clear()                     # a scan may have run during the restart
     s.merge(found)                      # the restart cleared the list: put back what the next section expects
     s.merge([found[0]])
     s.merge([found[0]])
