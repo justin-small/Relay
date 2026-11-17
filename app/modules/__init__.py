@@ -305,6 +305,36 @@ async def switch_scene(name: str, *, source: str = "") -> dict:
     return await hook(name, source=source)
 
 
+# The REAPER module sets this in attach() and clears it in detach() (#413): (command, value, *, source) -> a dict
+# {"ok": bool, "error": str}. Anything that wants to start or stop a recording or drop a marker calls
+# `control_recording`, never the module.
+recording_hook: Callable[..., Awaitable[dict]] | None = None
+
+
+async def control_recording(command: str, value: str = "", *, source: str = "") -> dict:
+    """Tell every recorder that answers to `record`, `stop`, add a `marker` (named `value`) or run an `action` (a
+    command id). {"ok": False, "error": ...} when no recorder module is on or none answered. `source` ("a ProPresenter
+    slide tag") is recorded as a system audit entry saying where it came from."""
+    hook = recording_hook
+    if hook is None:
+        return {"ok": False, "error": "The REAPER module is off."}
+    return await hook(command, value, source=source)
+
+
+# Called with a presentation's name each time a new one is up in ProPresenter (#413). The ProPresenter module calls
+# `announce_presentation`; a module that wants to know (REAPER's markers) appends a callable in attach() and removes
+# it in detach(). Called on the event loop; a listener must not block.
+presentation_listeners: list[Callable[[str], None]] = []
+
+
+def announce_presentation(name: str) -> None:
+    for fn in list(presentation_listeners):
+        try:
+            fn(name)
+        except Exception:
+            logging.getLogger("relay.modules").exception("presentation listener failed")
+
+
 # A module that serves a page on /screen sets an entry here in attach() and removes it in detach(): the query
 # parameter that asks for it ("lighting" for /screen?lighting=<page>) -> an async (request) -> response, or None to
 # let /screen carry on. Core never names a module; it only asks (#379).

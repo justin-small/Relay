@@ -361,6 +361,7 @@ MIN_ROLE = {
     "blackmagic.view": "viewer", "blackmagic.control": "operator", "blackmagic.manage": "admin",
     "lighting.view": "viewer", "lighting.control": "operator", "lighting.manage": "admin",
     "obs.view": "viewer", "obs.control": "operator", "obs.manage": "admin",
+    "reaper.view": "viewer", "reaper.control": "operator", "reaper.manage": "admin",
     "youtube.view": "viewer", "youtube.manage": "admin",
     "unifi.view": "viewer", "unifi.manage": "admin",
     "tally_arbiter.view": "viewer", "tally_arbiter.manage": "admin",
@@ -390,7 +391,7 @@ print("every /api/admin route")
 config.save({"modules": {"propresenter": {"enabled": True}, "planning_center": {"enabled": True},
                          "remote_access": {"enabled": True}, "signage": {"enabled": True},
                          "signage_web": {"enabled": True}, "alert_events": {"enabled": True},
-                         "blackmagic": {"enabled": True}, "lighting": {"enabled": True}, "obs": {"enabled": True}, "youtube": {"enabled": True}, "unifi": {"enabled": True}, "tally_arbiter": {"enabled": True}, "open_sound_meter": {"enabled": True}, "prodmesh_rta": {"enabled": True},
+                         "blackmagic": {"enabled": True}, "lighting": {"enabled": True}, "obs": {"enabled": True}, "reaper": {"enabled": True}, "youtube": {"enabled": True}, "unifi": {"enabled": True}, "tally_arbiter": {"enabled": True}, "open_sound_meter": {"enabled": True}, "prodmesh_rta": {"enabled": True},
                          "parent_paging": {"enabled": True}, "intercom": {"enabled": True}, "intercom_remote": {"enabled": True},
                          "crew": {"enabled": True}}})
 
@@ -651,6 +652,14 @@ for method, path, perm in (
     ("POST", "/api/admin/obs/studio", "obs.control"),
     ("POST", "/api/admin/obs/mute", "obs.control"),
     ("GET", "/api/admin/obs/audio/{machine_id}", "obs.view"),             # no such computer: 404
+    ("GET", "/api/admin/reaper", "reaper.view"),
+    ("PUT", "/api/admin/reaper/settings", "reaper.manage"),               # an empty body is refused
+    ("POST", "/api/admin/reaper/test", "reaper.manage"),                  # no computer named: nothing is sent
+    ("POST", "/api/admin/reaper/record", "reaper.control"),               # no computer answers: 502
+    ("POST", "/api/admin/reaper/stop", "reaper.control"),
+    ("POST", "/api/admin/reaper/marker", "reaper.control"),
+    ("POST", "/api/admin/reaper/action", "reaper.control"),               # no action number: refused
+    ("POST", "/api/admin/reaper/track", "reaper.control"),                # no computer named: 404
     ("GET", PGX, "parent_paging.view"),
     ("PUT", PGX + "/settings", "parent_paging.manage"),                 # an empty body changes nothing
     ("GET", PGX + "/locations", "parent_paging.manage"),                # Planning Center is not set up: refused
@@ -841,7 +850,7 @@ eq("signed out is 401", anon_c.get("/api/admin/propresenter").status_code, 401)
 config.save({"modules": {"propresenter": {"enabled": False}, "planning_center": {"enabled": False},
                          "remote_access": {"enabled": False}, "signage": {"enabled": False},
                          "signage_web": {"enabled": False}, "alert_events": {"enabled": False},
-                         "blackmagic": {"enabled": False}, "lighting": {"enabled": False}, "obs": {"enabled": False}, "youtube": {"enabled": False}, "unifi": {"enabled": False}, "tally_arbiter": {"enabled": False}, "open_sound_meter": {"enabled": False}, "prodmesh_rta": {"enabled": False},
+                         "blackmagic": {"enabled": False}, "lighting": {"enabled": False}, "obs": {"enabled": False}, "reaper": {"enabled": False}, "youtube": {"enabled": False}, "unifi": {"enabled": False}, "tally_arbiter": {"enabled": False}, "open_sound_meter": {"enabled": False}, "prodmesh_rta": {"enabled": False},
                          "parent_paging": {"enabled": False}, "intercom": {"enabled": False}, "intercom_remote": {"enabled": False},
                          "crew": {"enabled": False}}})
 eq("a module that is off is still a 404 for everyone", op_c.get("/api/admin/propresenter").status_code, 404)
@@ -1402,6 +1411,7 @@ for mid, want in (("planning_center", {"planning_center.view": "viewer", "planni
                   ("blackmagic", {"blackmagic.view": "viewer", "blackmagic.control": "operator", "blackmagic.manage": "admin"}),
                   ("lighting", {"lighting.view": "viewer", "lighting.control": "operator", "lighting.manage": "admin"}),
                   ("obs", {"obs.view": "viewer", "obs.control": "operator", "obs.manage": "admin"}),
+                  ("reaper", {"reaper.view": "viewer", "reaper.control": "operator", "reaper.manage": "admin"}),
                   ("youtube", {"youtube.view": "viewer", "youtube.manage": "admin"}),
                   ("unifi", {"unifi.view": "viewer", "unifi.manage": "admin"}),
                   ("tally_arbiter", {"tally_arbiter.view": "viewer", "tally_arbiter.manage": "admin"}),

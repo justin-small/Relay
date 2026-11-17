@@ -251,6 +251,7 @@ Each module's classes, and what happens when the port changes (`network_changed`
 | Blackmagic (ATEM, HyperDeck, Videohub) | `blackmagic` | `udp_endpoint` (ATEM), `open_tcp` (HyperDeck, Videohub); `multicast_sender` and `udp_socket` (discovery) | every device's connection starts again |
 | ProPresenter (and its Planning Center link) | `propresenter` | `http_connection`, `multicast_sender` (discovery) | the live connection opens again |
 | Tally Arbiter | `tally_arbiter` | `websocket_session` | connects again |
+| REAPER | `reaper` | `udp_endpoint` (bound to Relay's listen port; 127.0.0.1 when REAPER is on this computer) | every computer's socket opens again |
 | Planning Center | `planning_center` | `urlopen`, `opener` | asks again now |
 | Remote access | `remote_access` | `urlopen`; cloudflared gets `--edge-bind-address` | cloudflared restarts |
 | Intercom | `intercom` (media, strict) | LiveKit's `rtc.node_ip`, `rtc.interfaces` and `rtc.ips` | LiveKit restarts |
@@ -411,6 +412,18 @@ async def board_press(self, item, request) -> dict:   # a press on one of your b
 - Core checks the press: someone signed in on the operator port who holds `press_permission`, even on a public board,
   at most 20 presses per 10 seconds per address. Core writes the `audit.note`s the module makes.
 - While the module is off its widgets stay on boards, drawn as off, and its presses are refused.
+
+## Recording and presentation hooks
+
+A module that wants a recorder to start, stop, drop a marker or run an action never imports `reaper`. It calls core's
+`app.modules.control_recording(command, value="", *, source="")` (`record`, `stop`, `marker` with the marker's name,
+`action` with a REAPER command id), which the REAPER module backs with a hook it sets in `attach()` and clears in
+`detach()` (#413). The answer is `{"ok": True, "done": [names]}` or `{"ok": False, "error": "..."}`; with a `source` the
+REAPER module writes a system audit entry saying where it came from.
+
+`app.modules.announce_presentation(name)` is called by the ProPresenter module each time a new presentation is up. A
+module that wants to know appends a callable to `app.modules.presentation_listeners` in `attach()` and removes it in
+`detach()`; it runs on the event loop and must not block. REAPER uses it for its song markers.
 
 ## Audio sources and outputs
 

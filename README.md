@@ -1549,6 +1549,45 @@ The computer's `<id>` is in `GET /api/admin/obs` (`machines[].id`). Companion mu
 the certificate fingerprint as described in the Companion chapter of the guide. Only admin accounts hold tokens, and a
 token acts as its user: turning that user off stops the token at once.
 
+## REAPER
+
+The **REAPER** module (#413, off until switched on under Modules) records the service in REAPER over its OSC control
+surface. Relay follows up to four REAPER computers.
+
+**Set REAPER up.** In REAPER open Settings > Control/OSC/web, click Add and choose OSC (Open Sound Control):
+
+| REAPER setting | Value |
+|---|---|
+| Mode | Configure device IP + local port |
+| Device IP | the Relay computer's address (`127.0.0.1` when REAPER runs on the Relay computer) |
+| Device port | Relay's listen port for this computer (9001) |
+| Local listen port | the port Relay sends to (8000) |
+| Pattern config | Default |
+
+Click OK, then Apply. A device IP of `0.0.0.0` sends nothing back. Also switch off Settings > Recording > "Prompt to save/delete/rename new
+files" (or answer it each time): while that prompt is open REAPER answers nothing, so Relay cannot see that it
+stopped and says so. On Relay's REAPER page add the computer with its
+address and the two ports, save, and press Test connection.
+
+**What it does:**
+- **Transport.** Record, stop, a named marker at the play cursor, and any REAPER action by its number (Actions list,
+  Command ID). A computer already recording is left alone. Every command is sent once and never retried.
+- **Auto-record.** Record while the stream is on air (OBS, YouTube and other stream sources) and/or during schedule
+  windows; stop a set number of seconds after it ends. Relay only stops a recording it started. If someone stops the
+  recording while the service is live, Relay does not start it again and reports an error.
+- **Markers.** One for each new ProPresenter presentation, named after it (on by default), and one for each stage
+  message (off by default), while recording.
+- **Tracks.** Each track's name, arm, mute and level; arm and mute from the page. Relay follows the first 64 tracks.
+- **Checks and alarms.** Warnings: no track armed, a named track missing or not armed, an armed track silent for the
+  set time while recording. Errors: REAPER stopped answering, or not recording while the service is live. Each
+  computer can raise one Alerts button on an error and another on a warning, once per problem.
+- **Slide tags.** `[relay:reaper=record]`, `stop`, `marker`, `marker=Sermon`, `action=40157` (see ProPresenter).
+- **Boards.** Record (lit while recording), Stop, Marker, REAPER action, a recording status tile and armed-track
+  meters.
+
+REAPER's OSC reports neither free disk space nor the project's name, so Relay cannot warn about either. Showing
+recording on the status view and caption panels is #450.
+
 ## YouTube
 
 Switch on **YouTube** on the Modules page, then open **Output > YouTube** and press **Connect**, then **Open YouTube

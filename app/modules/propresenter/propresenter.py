@@ -678,6 +678,7 @@ class Follower:
         self.error = ""
         self.version: dict | None = None
         self.presentation: dict | None = None   # {uuid, name, path, library, groups: [(name, count)]}
+        self._announced: str | None = None      # the presentation last told to core's presentation listeners
         self.slide_index: int | None = None
         self.current = _slide_side(None)
         self.next = _slide_side(None)
@@ -1311,6 +1312,7 @@ class Follower:
             self._observe_tags()
         except Exception:
             log.exception("slide tag check failed")
+        self._announce_presentation()
         sig = json.dumps([self.up, self.connecting, self.error, self.presentation, self.slide_index,
                           self.current, self.next, self.stage_message, self.data, self.lyrics(),
                           self.timer_kinds, self.announcement, self.announcement_index],
@@ -1323,6 +1325,18 @@ class Follower:
                     fn()
                 except Exception:
                     log.exception("ProPresenter listener failed")
+
+    def _announce_presentation(self) -> None:
+        """Tell core's presentation listeners (REAPER's song markers, #413) when a new presentation is up."""
+        pres = self.presentation if self.up else None
+        uuid = pres["uuid"] if pres else None
+        if uuid == self._announced:
+            return
+        self._announced = uuid
+        if pres and pres.get("name"):
+            from .. import announce_presentation
+
+            announce_presentation(pres["name"])
 
     # -- stage message -----------------------------------------------------------------------------------------
     @staticmethod
