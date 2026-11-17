@@ -24,10 +24,11 @@ window.relayCan = function (perm) { return window.RELAY_ME.permissions.indexOf(p
   <div class="sbhead"><h1 class="brand"><span class="lk">{% include "_lockup.svg" %}</span><span class="mk">{% include "_mark.svg" %}</span></h1></div>
   <nav id="nav" class="nav sbscroll" aria-label="Settings areas">
     {% if 'session.control' in perms %}<div class="qc"><button type="button" class="go" id="goBtn" data-tip="Start stream"><svg class="i" viewBox="0 0 16 16" aria-hidden="true"><path d="M4.5 3l8 5-8 5z"/></svg><span class="nl">Start stream</span></button>{% if 'alerts.view' in perms %}<a class="inb" href="#alerts" data-tip="Alerts" aria-label="Alerts"><svg class="i" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 11V7a4 4 0 0 1 8 0v4l1.5 1.5h-11zM6.5 14h3"/></svg></a>{% endif %}</div>{% endif %}
-    {% if 'session.view' in perms or 'audio.manage' in perms or 'targets.manage' in perms or module_nav.get("Live") %}<div class="grp">Live</div>{% endif %}
+    {% if 'session.view' in perms or 'audio.manage' in perms or 'targets.manage' in perms or 'network.view' in perms or module_nav.get("Live") %}<div class="grp">Live</div>{% endif %}
     {% if 'session.view' in perms %}<a href="#health" data-page="health" data-tip="Session health"><svg class="i" viewBox="0 0 16 16" aria-hidden="true"><path d="M2 8h3l2-5 2 10 2-5h3"/></svg><span class="nl">Session health</span></a>{% endif %}
     {% if 'audio.manage' in perms %}<a href="#audio" data-page="audio" data-tip="Audio input"><svg class="i" viewBox="0 0 16 16" aria-hidden="true"><rect x="6" y="1.5" width="4" height="8" rx="2"/><path d="M3.5 7.5a4.5 4.5 0 0 0 9 0M8 12v2.5"/></svg><span class="nl">Audio input</span></a>{% endif %}
     {% if 'targets.manage' in perms %}<a href="#targets" data-page="targets" data-tip="Target languages"><svg class="i" viewBox="0 0 16 16" aria-hidden="true"><path d="M2 4h7M5.5 2v2M3.5 4c.5 3 2.5 5 5 6M8 4c-.5 3-2.5 5-5.5 6.5M9 14l3-7 3 7M10 12h4"/></svg><span class="nl">Target languages</span></a>{% endif %}
+    {% if 'network.view' in perms %}<a href="#network_map" data-page="network_map" data-tip="Network map"><svg class="i" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="3" r="1.6"/><circle cx="3" cy="12.5" r="1.6"/><circle cx="13" cy="12.5" r="1.6"/><path d="M8 4.6v3.4M8 8L3.6 11M8 8l4.4 3"/></svg><span class="nl">Network map</span></a>{% endif %}
     {{ module_links("Live") }}
     {% if 'panels.view' in perms or 'alerts.view' in perms or 'overlays.view' in perms or 'recordings.view' in perms or module_nav.get("Output") %}<div class="grp">Output</div>{% endif %}
     {% if 'panels.view' in perms %}<a href="#panels" data-page="panels" data-tip="Panels"><svg class="i" viewBox="0 0 16 16" aria-hidden="true"><rect x="1.5" y="3" width="13" height="9" rx="1.5"/><path d="M5.5 14.5h5"/></svg><span class="nl">Panels</span></a>{% endif %}
@@ -694,6 +695,33 @@ window.relayCan = function (perm) { return window.RELAY_ME.permissions.indexOf(p
   </div>
 {% endif %}
 {% if 'network.view' in perms %}
+  <div class="page" id="page-network_map" data-page="network_map" hidden>
+    <h2 class="title">Network map</h2>
+    <p class="sub">Every device Relay can see, and which ones carry NDI video or Dante audio.</p>
+    <div class="ctl" style="margin-bottom:14px"><span class="muted" id="nmStatus" aria-live="polite">Loading&hellip;</span><span class="spacer"></span><button type="button" id="nmRefresh">Refresh</button></div>
+    <div class="nmstats" id="nmStats"></div>
+    <section>
+      <div class="ctl nmbar">
+        <div class="seg" id="nmTabs" role="group" aria-label="View"><button type="button" data-v="map">Map</button><button type="button" data-v="table">Table</button></div>
+        <div class="seg" id="nmFilter" role="group" aria-label="Show"><button type="button" data-v="all">All</button><button type="button" data-v="av">AV only</button><button type="button" data-v="ndi">NDI</button><button type="button" data-v="dante">Dante</button></div>
+        <input type="search" id="nmSearch" placeholder="Find name, IP or MAC" aria-label="Find name, IP or MAC" autocomplete="off" style="max-width:240px">
+        <span class="nmkey"><i class="nmk ndi"></i>NDI <i class="nmk dante"></i>Dante</span>
+      </div>
+      <div class="nmframe" id="nmMap" tabindex="0" aria-label="Network map"></div>
+      <div class="tablescroll" id="nmTable" hidden></div>
+    </section>
+    <div class="nmcols">
+      <section><h3>Selected device</h3><div id="nmDetail"></div></section>
+      <section><h3>Ports</h3><div id="nmPorts"></div></section>
+    </div>
+    <section>
+      <h3>Sources</h3>
+      <div id="nmSources"></div>
+      <p class="note"><a href="#modules">Modules</a> adds more sources. Turning a module off removes only what it added.</p>
+    </section>
+  </div>
+{% endif %}
+{% if 'network.view' in perms %}
   <div class="page" id="page-network" data-page="network" hidden>
     <h2 class="title">Network</h2>
     <p class="sub">This computer&rsquo;s network ports, and which one each kind of Relay traffic uses. Traffic with no
@@ -875,6 +903,7 @@ window.relayCan = function (perm) { return window.RELAY_ME.permissions.indexOf(p
 <script src="{{ static('admin.js') }}"></script>
 <script src="{{ static('modules.js') }}"></script>
 <script src="{{ static('network.js') }}"></script>
+<script src="{{ static('network_map.js') }}"></script>
 <script src="{{ static('overlay-builder.js') }}"></script>
 <script src="{{ static('users.js') }}"></script>
 <script src="{{ static('audit.js') }}"></script>

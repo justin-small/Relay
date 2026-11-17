@@ -15,6 +15,17 @@ from .. import AdminPage, Health, Manifest, Module, Traffic
 from ...users import Permission
 
 
+def _addr(host: Any) -> dict:
+    """A configured address as the network map's `ip` (when it is one) or `host` (a name)."""
+    import ipaddress
+
+    h = host.strip() if isinstance(host, str) else ""
+    try:
+        return {"ip": str(ipaddress.ip_address(h))}
+    except ValueError:
+        return {"host": h} if h else {}
+
+
 class Atem(Module):
     manifest = Manifest(
         id="atem",
@@ -27,6 +38,7 @@ class Atem(Module):
         traffic=(Traffic("atem", "ATEM switcher control (UDP)"),),
     )
     defaults = {"devices": []}
+    network_map_adds = "Names each switcher it is connected to."
     admin_pages = (AdminPage(
         id="atem", title="ATEM", template="atem.html", group="Output",
         icon='<rect x="2" y="4" width="12" height="8" rx="1"/><path d="M5 7h2M9 7h2M5 9.5h6"/>'),)
@@ -65,6 +77,12 @@ class Atem(Module):
         from .service import service
 
         await service.stop()
+
+    def network_map(self) -> list[dict]:
+        from .service import devices
+
+        return [{**_addr(d.get("host")), "name": d.get("name") or "ATEM switcher", "kind": "av", "tags": ["ATEM"]}
+                for d in devices() if d.get("host")]
 
     def health(self) -> Health:
         from .service import service

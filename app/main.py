@@ -29,7 +29,7 @@ from jinja2 import ChoiceLoader, FileSystemLoader, PrefixLoader
 from . import alerts as alertsmod
 from . import backup as backupmod
 from . import announce as announcemod
-from . import alerthistory, audit, config, db, exporting, importdocker, languages, netinfo, netroute, overlays, panelfw, panels, prefs, redact, schedules, serving, setupcode, streamstatus, tally, tls, users
+from . import alerthistory, audit, config, db, exporting, importdocker, languages, netinfo, network_map, netroute, overlays, panelfw, panels, prefs, redact, schedules, serving, setupcode, streamstatus, tally, tls, users
 from .alerts import alerts
 from . import engine as engine_mod
 from .engine import TRANSCRIPTION_STREAM, TRANSLATION_STREAM, demo_mode, engine
@@ -1908,6 +1908,13 @@ async def admin_network(request: Request):
     out = await asyncio.to_thread(netroute.overview)
     out["browsing_from"] = _browsing_from(request)
     return out
+
+
+@app.get("/api/admin/network/map", dependencies=[Depends(require("network.view"))])
+async def admin_network_map(refresh: int = 0):
+    """The network map (#437): every device Relay can see, merged from its own ports, mDNS discovery of NDI and Dante,
+    and every module that is on and adds to the map. Core imports no module; see app/network_map.py."""
+    return await network_map.snapshot(module_registry, force=bool(refresh))
 
 
 @app.post("/api/admin/network/classes/{cid}", dependencies=[Depends(require("network.manage"))])

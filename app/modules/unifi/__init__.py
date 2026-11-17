@@ -24,6 +24,8 @@ class UniFi(Module):
         traffic=(Traffic("unifi", "UniFi controller"),),
     )
     secret_settings = ("api_key", "password")
+    network_map_adds = ("Switches, access points and the gateway, which port each device is on, link speed, PoE and "
+                        "errors, and which devices carry NDI or Dante by the console's traffic flows.")
     admin_pages = (AdminPage(
         id="unifi", title="UniFi", template="unifi.html", group="Settings",
         icon='<circle cx="8" cy="3" r="1.6"/><circle cx="3" cy="12.5" r="1.6"/><circle cx="13" cy="12.5" r="1.6"/>'
@@ -70,6 +72,11 @@ class UniFi(Module):
         from .service import service
 
         service.poke()
+
+    def network_map(self) -> list[dict]:
+        from .service import service
+
+        return service.map_devices()
 
     def pills(self) -> list[dict]:
         from .service import service

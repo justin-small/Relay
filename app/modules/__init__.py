@@ -213,6 +213,16 @@ class Module:
         """Keys merged into the engine status the admin page and panels read."""
         return {}
 
+    # What this module adds to the network map (#437), one sentence for the map's Sources card; "" when it adds nothing.
+    network_map_adds: str = ""
+
+    def network_map(self) -> list[dict]:
+        """Devices this module knows, for the core network map (#437): a list of dicts as app/network_map.py describes
+        (mac, ip, host, name, kind, ndi, dante, uplink_mac, uplink_port, tags, ports ...). Called only while the module
+        is on, from the event loop: read what is already in memory, do no network work, and send no secrets. Core
+        merges these with what it sees itself; a module that does not override this adds nothing."""
+        return []
+
     def pills(self) -> list[dict]:
         """Pills for the admin top bar, shown while the module is on: [{"id", "text", "count", "href"}], plus
         "level": "error" for a pill that reports a problem (drawn red)."""

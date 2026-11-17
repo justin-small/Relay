@@ -18,7 +18,19 @@ LYRICS_STREAM = "lyrics"
 TIMERS_STREAM = "pptimers"
 
 
+def _addr(host: Any) -> dict:
+    """A configured address as the network map's `ip` (when it is one) or `host` (a name)."""
+    import ipaddress
+
+    h = host.strip() if isinstance(host, str) else ""
+    try:
+        return {"ip": str(ipaddress.ip_address(h))}
+    except ValueError:
+        return {"host": h} if h else {}
+
+
 class ProPresenter(Module):
+    network_map_adds = "Marks the computer it controls as running ProPresenter."
     manifest = Manifest(
         id="propresenter",
         name="ProPresenter",
@@ -143,6 +155,12 @@ class ProPresenter(Module):
         pc_link.cancel()
         lobby.cancel()
         signage_sync.cancel()
+
+    def network_map(self) -> list[dict]:
+        from ... import config
+
+        host = (config.get().get("propresenter") or {}).get("host")
+        return [{**_addr(host), "name": "ProPresenter computer", "kind": "computer", "tags": ["ProPresenter"]}] if host else []
 
     def health(self) -> Health:
         from .propresenter import follower
