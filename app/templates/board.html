@@ -27,6 +27,7 @@ body{display:flex;flex-direction:column;overflow:hidden}
 <div id="board"></div>
 <div id="toast" role="status" aria-live="polite" hidden></div>
 <script id="boardData" type="application/json">{{ data | tojson }}</script>
+<script src="{{ static('relay-ui.js') }}"></script>
 <script src="{{ static('layout-render.js') }}"></script>
 {% if data.can_edit %}<script src="{{ static('layout-editor.js') }}"></script>{% endif %}
 <script src="{{ static('board.js') }}"></script>

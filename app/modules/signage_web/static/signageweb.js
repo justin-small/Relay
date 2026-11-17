@@ -4,18 +4,12 @@
   const R = window.RelayAdmin;
   if (!R || !document.getElementById('page-signageweb')) return;
   const $ = R.$, api = R.api, post = R.post;
-  function can(perm) { return typeof window.relayCan !== 'function' || !!window.relayCan(perm); }
+  const can = relayUI.can;
   function showError(text) { $('swErr').textContent = text || ''; $('swErr').hidden = !text; }
 
   const KIND = { web: 'Web page', youtube: 'YouTube' };
 
-  async function send(method, path, body) {
-    const res = await fetch(path, { method: method, headers: { 'Content-Type': 'application/json' },
-      body: body === undefined ? undefined : JSON.stringify(body), credentials: 'same-origin' });
-    const data = await res.json().catch(function () { return {}; });
-    if (!res.ok) throw new Error(data.error || data.detail || 'That did not work.');
-    return data;
-  }
+  const send = relayUI.api;
 
   function row(link, manage) {
     const d = document.createElement('div');
@@ -56,7 +50,7 @@
       const del = document.createElement('button');
       del.type = 'button'; del.className = 'forget'; del.textContent = 'Remove';
       del.onclick = async function () {
-        if (!confirm('Remove "' + link.name + '"? Playlists that use it will skip it.')) return;
+        if (!(await relayUI.confirm('Remove "' + link.name + '"? Playlists that use it will skip it.'))) return;
         showError('');
         try { await send('DELETE', '/api/admin/signage-web/links/' + link.id); await refresh(); }
         catch (e) { showError(e.message); }

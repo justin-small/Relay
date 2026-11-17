@@ -3,7 +3,7 @@
   const R = window.RelayAdmin;
   if (!R || !document.getElementById('page-crew')) return;
   const $ = R.$, api = R.api;
-  function can(perm) { return typeof window.relayCan !== 'function' || !!window.relayCan(perm); }
+  const can = relayUI.can;
   function fill(cfg) {
     $('crName').value = cfg.name || '';
     $('crPlan').checked = !!cfg.show_plan;

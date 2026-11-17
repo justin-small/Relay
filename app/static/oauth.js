@@ -110,7 +110,7 @@
 
     async function act(path, btn) {
       if (busy) return;
-      if (path === '/disconnect' && !window.confirm('Disconnect this account? Relay forgets it and asks the service to remove its access.')) return;
+      if (path === '/disconnect' && !(await relayUI.confirm('Disconnect this account? Relay forgets it and asks the service to remove its access.'))) return;
       busy = true;
       btn.disabled = true;
       try {

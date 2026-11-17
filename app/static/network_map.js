@@ -117,7 +117,7 @@
   /* ---- the page ---- */
   var doc = root.document;
   function $(id) { return doc.getElementById(id); }
-  function el(tag, cls, text) { var e = doc.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; }
+  var el = root.relayUI.el;
   var SVG = 'http://www.w3.org/2000/svg';
   function sv(tag, attrs, text) {
     var e = doc.createElementNS(SVG, tag);

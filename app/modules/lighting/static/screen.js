@@ -7,13 +7,7 @@
   const toast = document.getElementById('ltToast');
   const SAYS = { unreachable: 'The lighting program did not answer.', refused: 'That button does not work.',
                  slow: 'Too many taps. Wait a moment.' };
-  let timer = 0;
-  function say(code) {
-    toast.textContent = SAYS[code] || 'That did not work.';
-    toast.hidden = false;
-    clearTimeout(timer);
-    timer = setTimeout(function () { toast.hidden = true; }, 4000);
-  }
+  const TOAST = { plain: true, ms: 4000 };
   const items = page.cues.map(function (c) {
     return { id: c.id, kind: 'button', title: c.name, x: c.x, y: c.y, w: c.w, h: c.h, style: c.style };
   });
@@ -22,8 +16,8 @@
       try {
         const res = await fetch('/lighting/_/press/' + encodeURIComponent(page.id) + q, {
           method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ cue: it.id }) });
-        if (!res.ok) { const out = await res.json().catch(function () { return {}; }); say(out.error); }
-      } catch (e) { say('unreachable'); }
+        if (!res.ok) { const out = await res.json().catch(function () { return {}; }); relayUI.say(toast, SAYS[out.error] || 'That did not work.', false, TOAST); }
+      } catch (e) { relayUI.say(toast, SAYS.unreachable, false, TOAST); }
     });
   async function poll() {
     try {

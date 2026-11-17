@@ -15,24 +15,10 @@
   const results = {};   // the last Test result per class, kept across the 5-second redraws
   let timer = null;
 
-  function h(tag, cls, text) {
-    const n = document.createElement(tag);
-    if (cls) n.className = cls;
-    if (text !== undefined && text !== null) n.textContent = text;
-    return n;
-  }
-  async function call(path, opts) {
-    const res = await fetch(path, Object.assign({ cache: 'no-store' }, opts || {}));
-    const data = await res.json().catch(function () { return {}; });
-    if (!res.ok) {
-      if (window.RelayAdmin) window.RelayAdmin.sessionEnded(res, data);
-      throw new Error(data.error || data.detail || ('HTTP ' + res.status));
-    }
-    return data;
-  }
-  function post(path, body) {
-    return call(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body || {}) });
-  }
+  const h = relayUI.el;
+  const request = relayUI.client({ cache: 'no-store', status: true, session: true });
+  function call(path) { return request('GET', path); }
+  function post(path, body) { return request('POST', path, body || {}); }
   function showError(text) {
     const e = $('netError');
     e.textContent = text || '';

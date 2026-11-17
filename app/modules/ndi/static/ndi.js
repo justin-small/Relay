@@ -4,15 +4,9 @@
   if (!R || !document.getElementById('page-ndi')) return;
   const $ = R.$;
   let version = -1, polling = false;
-  function can(perm) { return typeof window.relayCan !== 'function' || !!window.relayCan(perm); }
+  const can = relayUI.can;
   function showError(t) { $('ndiErr').textContent = t || ''; $('ndiErr').hidden = !t; }
-  async function send(method, path, body) {
-    const res = await fetch(path, { method: method, headers: { 'Content-Type': 'application/json' },
-      body: body === undefined ? undefined : JSON.stringify(body), credentials: 'same-origin' });
-    const data = await res.json().catch(function () { return {}; });
-    if (!res.ok) throw new Error(data.error || data.detail || 'That did not work.');
-    return data;
-  }
+  const send = relayUI.api;
   function cell(tr, text) { const td = document.createElement('td'); td.textContent = text; tr.appendChild(td); }
   function draw(s) {
     version = s.version;
@@ -106,39 +100,36 @@
   // ---- multiviews (#297)
   const LAYOUTS = { '2x2': [4, '2 x 2'], '3x3': [9, '3 x 3'], '4x4': [16, '4 x 4'], '1+5': [6, '1 big, 5 small'], '1+7': [8, '1 big, 7 small'] };
   let mvs = [], cur = -1, lastSources = [];
-  function el(tag, text, attrs) {
-    const e = document.createElement(tag); if (text) e.textContent = text;
-    Object.keys(attrs || {}).forEach(function (k) { e[k] = attrs[k]; }); return e;
-  }
+  const el = relayUI.el;
   function drawMvList(s) {
     lastSources = s.sources;
     if ($('ndiMvEdit').hidden) mvs = JSON.parse(JSON.stringify(s.settings.multiviews || []));
     const list = $('ndiMvList'); list.textContent = '';
     mvs.forEach(function (m, i) {
-      const row = el('p', ''); row.className = 'note';
-      const a = el('a', m.name, { href: '/ndi/multiview/' + encodeURIComponent(m.id), target: '_blank', rel: 'noopener' });
+      const row = el('p'); row.className = 'note';
+      const a = el('a', { href: '/ndi/multiview/' + encodeURIComponent(m.id), target: '_blank', rel: 'noopener' }, m.name);
       row.appendChild(a); row.appendChild(document.createTextNode(' (' + (LAYOUTS[m.layout] || ['', m.layout])[1] + ') '));
-      const b = el('button', 'Edit', { type: 'button' }); b.onclick = function () { openMv(i); }; row.appendChild(b);
+      const b = el('button', { type: 'button' }, 'Edit'); b.onclick = function () { openMv(i); }; row.appendChild(b);
       list.appendChild(row);
     });
     $('ndiMvNew').disabled = !can('ndi.manage');
   }
   function boxRow(i, b) {
     const tr = el('tr'); tr.dataset.i = i;
-    tr.appendChild(el('td', String(i + 1)));
-    const kind = el('select'); [['empty', 'Nothing'], ['source', 'NDI source'], ['clock', 'Clock'], ['timer', 'Countdown']].forEach(function (k) { kind.appendChild(el('option', k[1], { value: k[0] })); });
+    tr.appendChild(el('td', '', String(i + 1)));
+    const kind = el('select'); [['empty', 'Nothing'], ['source', 'NDI source'], ['clock', 'Clock'], ['timer', 'Countdown']].forEach(function (k) { kind.appendChild(el('option', { value: k[0] }, k[1])); });
     kind.value = b.kind; kind.className = 'mvKind';
     const td = el('td'); td.appendChild(kind); tr.appendChild(td);
     const what = el('td'); what.className = 'mvWhat';
-    const src = el('select'); src.className = 'mvSrc'; src.appendChild(el('option', 'Choose a source', { value: '' }));
+    const src = el('select'); src.className = 'mvSrc'; src.appendChild(el('option', { value: '' }, 'Choose a source'));
     const names = lastSources.map(function (x) { return x.name; }); if (b.source && names.indexOf(b.source) < 0) names.push(b.source);
-    names.forEach(function (n) { src.appendChild(el('option', n, { value: n })); }); src.value = b.source;
-    const mode = el('select'); mode.className = 'mvMode'; [['time', 'Time of day'], ['service', 'Next service']].forEach(function (k) { mode.appendChild(el('option', k[1], { value: k[0] })); }); mode.value = b.mode;
-    const at = el('input', '', { type: 'time', value: b.at }); at.className = 'mvAt';
+    names.forEach(function (n) { src.appendChild(el('option', { value: n }, n)); }); src.value = b.source;
+    const mode = el('select'); mode.className = 'mvMode'; [['time', 'Time of day'], ['service', 'Next service']].forEach(function (k) { mode.appendChild(el('option', { value: k[0] }, k[1])); }); mode.value = b.mode;
+    const at = el('input', { type: 'time', value: b.at }); at.className = 'mvAt';
     what.appendChild(src); what.appendChild(mode); what.appendChild(at); tr.appendChild(what);
-    const lab = el('input', '', { value: b.label, maxLength: 40 }); lab.className = 'mvLabel';
+    const lab = el('input', { value: b.label, maxLength: 40 }); lab.className = 'mvLabel';
     const t3 = el('td'); t3.appendChild(lab); tr.appendChild(t3);
-    const meter = el('input', '', { type: 'checkbox', checked: !!b.meter }); meter.className = 'mvMeter';
+    const meter = el('input', { type: 'checkbox', checked: !!b.meter }); meter.className = 'mvMeter';
     const t4 = el('td'); t4.appendChild(meter); tr.appendChild(t4);
     const sync = function () {
       src.hidden = kind.value !== 'source'; meter.hidden = kind.value !== 'source';
@@ -152,7 +143,7 @@
     cur = i; const m = mvs[i];
     $('ndiMvEdit').hidden = false; $('ndiMvName').value = m.name;
     const sel = $('ndiMvLayout'); sel.textContent = '';
-    Object.keys(LAYOUTS).forEach(function (k) { sel.appendChild(el('option', LAYOUTS[k][1], { value: k })); });
+    Object.keys(LAYOUTS).forEach(function (k) { sel.appendChild(el('option', { value: k }, LAYOUTS[k][1])); });
     sel.value = m.layout; sel.onchange = function () { m.boxes = readBoxes(sel.value); paintBoxes(m.boxes, sel.value); };
     paintBoxes(m.boxes, m.layout);
     $('ndiMvDelete').hidden = !m.id;

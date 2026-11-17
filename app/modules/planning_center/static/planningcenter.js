@@ -7,7 +7,7 @@
   const $ = R.$, el = R.el, api = R.api, post = R.post, okMsg = R.okMsg, alertMsg = R.alertMsg, agoText = R.agoText;
   function C() { return R.cfg(); }
   // What this user may do here. Without the admin page's relayCan the server still refuses, so assume yes.
-  function can(perm) { return typeof window.relayCan !== 'function' || !!window.relayCan(perm); }
+  const can = relayUI.can;
   function paintAccess() {
     const manage = can('planning_center.manage'), control = can('planning_center.control');
     // The token, the service types and the notes switch are changes to the setup: only for who manages it.

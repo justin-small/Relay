@@ -102,12 +102,7 @@
     s.innerHTML = ICONS[n] || '';   // a fixed table above, never page or stored data
     return s;
   }
-  function el(tag, cls, text) {
-    var e = doc.createElement(tag);
-    if (cls) e.className = cls;
-    if (text != null) e.textContent = text;
-    return e;
-  }
+  var el = root.relayUI.el;
 
   /* ---- the look ---- */
   var S = cleanLook(null);

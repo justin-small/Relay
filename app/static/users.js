@@ -124,7 +124,7 @@
     rm.setAttribute('aria-label', 'Revoke ' + t.name);
     rm.addEventListener('click', async function () {
       const whose = withPerson ? t.user_name + '\'s token ' : 'the token ';
-      if (!window.confirm('Revoke ' + whose + '"' + t.name + '"? Anything using it stops working at once.')) return;
+      if (!(await relayUI.confirm('Revoke ' + whose + '"' + t.name + '"? Anything using it stops working at once.'))) return;
       try { await onRevoke(t); A.okMsg('Revoked ' + t.name + '.'); } catch (e) { A.alertMsg(e.message); }
     });
     act.appendChild(rm);
@@ -497,7 +497,7 @@
       const del = el('button', 'danger', 'Delete');
       del.type = 'button';
       del.addEventListener('click', async function () {
-        if (!window.confirm('Delete ' + u.name + ' (' + u.username + ')? They are signed out at once and the account cannot be brought back.')) return;
+        if (!(await relayUI.confirm('Delete ' + u.name + ' (' + u.username + ')? They are signed out at once and the account cannot be brought back.'))) return;
         try {
           await send('DELETE', '/api/admin/users/' + encodeURIComponent(u.id));
           closePanel();
@@ -658,7 +658,7 @@
         rm.type = 'button';
         rm.setAttribute('aria-label', 'Remove ' + d.name);
         rm.addEventListener('click', async function () {
-          if (!window.confirm('Remove ' + d.name + '? A PIN will stop working there.')) return;
+          if (!(await relayUI.confirm('Remove ' + d.name + '? A PIN will stop working there.'))) return;
           try {
             await send('DELETE', '/api/admin/trusted-devices/' + encodeURIComponent(d.id));
             if (d.id === thisDevice) { ME.device = { trusted: false, name: null }; paintAccount(); }

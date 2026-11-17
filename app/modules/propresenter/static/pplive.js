@@ -6,32 +6,15 @@
   if (!$('page-pplive')) return;
   const BASE = '/api/admin/propresenter';
   // What this user may do here. Without the admin page's relayCan the server still refuses, so assume yes.
-  function can(perm) { return typeof window.relayCan !== 'function' || !!window.relayCan(perm); }
+  const can = relayUI.can;
   let view = null, body = null, filled = false, timer = null, busy = false, actionErr = '';
 
-  function h(tag, cls, text) {
-    const n = document.createElement(tag);
-    if (cls) n.className = cls;
-    if (text !== undefined) n.textContent = text;
-    return n;
-  }
-  async function call(path, opts) {
-    const res = await fetch(path, Object.assign({ cache: 'no-store' }, opts || {}));
-    const data = await res.json().catch(function () { return {}; });
-    if (!res.ok) throw new Error(data.error || data.detail || ('HTTP ' + res.status));
-    return data;
-  }
-  function post(path, payload) {
-    return call(BASE + path, { method: 'POST', headers: { 'Content-Type': 'application/json' },
-                               body: JSON.stringify(payload || {}) });
-  }
+  const h = relayUI.el;
+  const request = relayUI.client({ cache: 'no-store', status: true });
+  function call(path) { return request('GET', path); }
+  function post(path, payload) { return request('POST', BASE + path, payload || {}); }
   function pageOpen() { return !$('page-pplive').hidden; }
-  function say(id, msg, bad) {
-    const n = $(id);
-    n.textContent = msg || '';
-    n.className = 'note' + (bad ? ' err' : msg ? ' ok' : '');
-    if (id === 'lbErr') n.hidden = !msg;
-  }
+  const say = relayUI.say;
 
   function flatten(items, out) {
     (items || []).forEach(function (p) {
@@ -110,7 +93,7 @@
     $('lbStop').disabled = !l.running || !can('propresenter.control');
     $('lbStopClear').disabled = !on;
     $('lbMsg').textContent = l.view_only ? 'View-only mode is on, so the rotation cannot change anything in ProPresenter.' : '';
-    say('lbErr', actionErr || l.error, true);
+    say('lbErr', actionErr || l.error, true, { hide: true });
   }
 
   function renderSignage(g) {
@@ -142,7 +125,7 @@
         renderSignage(body.signage || {});
         const s = body.state || {};
         $('svSum').textContent = !s.configured ? 'not set up' : !s.connected ? 'waiting for ProPresenter' : '';
-      } catch (e) { say('lbErr', e.message, true); }
+      } catch (e) { say('lbErr', e.message, true, { hide: true }); }
     }
     timer = setTimeout(poll, pageOpen() ? 1000 : 4000);
   }

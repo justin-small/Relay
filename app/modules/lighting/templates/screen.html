@@ -19,6 +19,7 @@ body { -webkit-user-select: none; user-select: none; touch-action: manipulation;
 <main id="ltScreen" data-page="{{ page.id }}"></main>
 <div id="ltToast" role="status" aria-live="polite" hidden></div>
 <script id="ltData" type="application/json">{{ {"page": page, "key": key} | tojson }}</script>
+<script src="/static/relay-ui.js"></script>
 <script src="/static/layout-render.js"></script>
 <script src="/static/modules/lighting/screen.js"></script>
 </body>

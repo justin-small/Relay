@@ -1,0 +1,33 @@
+# Functions copied word for word between scripts when tests/test_ui_contract.py came in (#461).
+# This list may only shrink. Move a helper into app/static/relay-ui.js, delete its lines here.
+# name  body-hash  file
+button 24d716082e app/modules/crew/static/crewadmin.js
+btn 24d716082e app/modules/intercom/static/intercom.js
+button 24d716082e app/modules/intercom/static/live.js
+field 2c7ee65b71 app/modules/obs/static/obs.js
+field 2c7ee65b71 app/modules/reaper/static/reaper.js
+row 46cd6c22a5 app/modules/youtube/static/ytschedule.js
+row 46cd6c22a5 app/static/oauth.js
+field 5572b91b5a app/static/admin.js
+field 5572b91b5a app/static/users.js
+button 5cc4da2cf8 app/modules/lighting/static/lighting.js
+button 5cc4da2cf8 app/modules/obs/static/obs.js
+button 5cc4da2cf8 app/modules/reaper/static/reaper.js
+active 677025f92f app/modules/crew/static/chat.js
+active 677025f92f app/modules/crew/static/checklists.js
+active 677025f92f app/modules/crew/static/resources.js
+showError 80783beabd app/modules/youtube/static/youtube.js
+err 80783beabd app/modules/youtube/static/ytschedule.js
+pill 916544a7f8 app/modules/obs/static/obs.js
+pill 916544a7f8 app/modules/reaper/static/reaper.js
+pill 916544a7f8 app/modules/youtube/static/youtube.js
+link ac5a4f187f app/modules/obs/static/obs.js
+link ac5a4f187f app/modules/youtube/static/youtube.js
+link ac5a4f187f app/modules/youtube/static/ytschedule.js
+onclick b3d3f85ae3 app/modules/blackmagic/static/blackmagic.js
+onclick b3d3f85ae3 app/modules/lighting/static/lighting.js
+onclick b3d3f85ae3 app/modules/obs/static/obs.js
+onclick b3d3f85ae3 app/modules/reaper/static/reaper.js
+onclick b3d3f85ae3 app/static/boards.js
+check ee29eeef70 app/modules/obs/static/obs.js
+check ee29eeef70 app/modules/reaper/static/reaper.js

@@ -20,7 +20,7 @@
     }
     return out;
   }
-  function el(tag, cls, text) { const n = document.createElement(tag); if (cls) n.className = cls; if (text !== undefined) n.textContent = text; return n; }
+  const el = relayUI.el;
   function button(text, fn, cls) {
     const b = el('button', cls || '', text); b.type = 'button';
     b.onclick = async function () { showError(''); b.disabled = true; try { await fn(); } catch (e) { showError(e.message); } b.disabled = false; };
@@ -47,7 +47,7 @@
       const pub = el('td'); const cb = el('input'); cb.type = 'checkbox'; cb.checked = !!b.public; cb.disabled = !canManage;
       cb.setAttribute('aria-label', b.name + ' is public');
       cb.onchange = async function () {
-        if (cb.checked && !window.confirm('Anyone who can reach Relay, on the viewer network too, will be able to open "' + b.name + '". Continue?')) { cb.checked = false; return; }
+        if (cb.checked && !(await relayUI.confirm('Anyone who can reach Relay, on the viewer network too, will be able to open "' + b.name + '". Continue?'))) { cb.checked = false; return; }
         showError(''); try { load(await call('PUT', '/api/admin/boards/' + encodeURIComponent(b.id), { public: cb.checked })); } catch (e) { showError(e.message); cb.checked = !cb.checked; }
       };
       pub.appendChild(cb); tr.appendChild(pub);
@@ -63,7 +63,7 @@
         setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
       }));
       if (canManage) box.appendChild(button('Delete', async function () {
-        if (!window.confirm('Delete the board "' + b.name + '"? Its address stops working.')) return;
+        if (!(await relayUI.confirm('Delete the board "' + b.name + '"? Its address stops working.'))) return;
         load(await call('DELETE', '/api/admin/boards/' + encodeURIComponent(b.id)));
       }, 'danger'));
       act.appendChild(box); tr.appendChild(act);

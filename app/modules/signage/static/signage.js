@@ -5,7 +5,7 @@
   const R = window.RelayAdmin;
   if (!R || !document.getElementById('page-signage')) return;
   const $ = R.$, api = R.api, post = R.post, el = R.el;
-  function can(perm) { return typeof window.relayCan !== 'function' || !!window.relayCan(perm); }
+  const can = relayUI.can;
 
   const page = document.getElementById('page-signage');
   let data = null;
@@ -121,8 +121,8 @@
       act.appendChild(button('Preview', '', function () { openPreview({ screen: s.slug }, s.name); }));
       if (can('signage.manage')) {
         act.appendChild(button('Edit', '', function () { openScreenForm(s); }));
-        act.appendChild(button('Delete', 'danger', function () {
-          if (!confirm('Delete the screen "' + s.name + '"? Its address stops working.')) return;
+        act.appendChild(button('Delete', 'danger', async function () {
+          if (!(await relayUI.confirm('Delete the screen "' + s.name + '"? Its address stops working.'))) return;
           call(async function () { await send('DELETE', '/api/admin/signage/screens/' + s.id); await refresh(); });
         }));
       }
@@ -191,8 +191,8 @@
       tr.appendChild(el('td', members.length ? '' : 'muted', members.join(', ') || 'None yet'));
       const act = el('td');
       if (can('signage.manage')) {
-        act.appendChild(button('Delete', 'danger', function () {
-          if (!confirm('Delete the group "' + g.name + '"? Its screens go back to their own playlists.')) return;
+        act.appendChild(button('Delete', 'danger', async function () {
+          if (!(await relayUI.confirm('Delete the group "' + g.name + '"? Its screens go back to their own playlists.'))) return;
           call(async function () { await send('DELETE', '/api/admin/signage/groups/' + g.id); await refresh(); });
         }));
       }
@@ -213,8 +213,8 @@
     const box = $('sgPlaylists');
     box.textContent = '';
     for (const p of data.playlists) {
-      const b = button(p.name + ' (' + p.items.length + ')', '', function () {
-        if (dirty && current !== p.id && !confirm('Leave without saving the changes to this playlist?')) return;
+      const b = button(p.name + ' (' + p.items.length + ')', '', async function () {
+        if (dirty && current !== p.id && !(await relayUI.confirm('Leave without saving the changes to this playlist?'))) return;
         openPlaylist(p.id);
       });
       b.setAttribute('aria-current', String(p.id === current));
@@ -359,17 +359,17 @@
   $('sgRenameSave').onclick = function () {
     call(async function () { await send('PATCH', '/api/admin/signage/playlists/' + current, { name: $('sgRename').value }); await refresh(); });
   };
-  $('sgDuplicate').onclick = function () {
-    if (dirty && !confirm('The copy is made from the saved playlist, without your unsaved changes. Go on?')) return;
+  $('sgDuplicate').onclick = async function () {
+    if (dirty && !(await relayUI.confirm('The copy is made from the saved playlist, without your unsaved changes. Go on?'))) return;
     call(async function () {
       const p = await post('/api/admin/signage/playlists/' + current + '/duplicate', {});
       current = p.id; dirty = false;
       await refresh();
     });
   };
-  $('sgPlaylistDelete').onclick = function () {
+  $('sgPlaylistDelete').onclick = async function () {
     const p = data.playlists.find(function (x) { return x.id === current; });
-    if (!confirm('Delete the playlist "' + p.name + '"? Screens and groups playing it will play nothing.')) return;
+    if (!(await relayUI.confirm('Delete the playlist "' + p.name + '"? Screens and groups playing it will play nothing.'))) return;
     call(async function () { await send('DELETE', '/api/admin/signage/playlists/' + current); current = null; dirty = false; await refresh(); });
   };
   $('sgPreviewList').onclick = function () {
@@ -403,8 +403,8 @@
           if (name === null) return;
           call(async function () { await send('PATCH', '/api/admin/signage/media/' + m.id, { name: name }); await refresh(); });
         }));
-        ctl.appendChild(button('Delete', 'danger', function () {
-          if (!confirm('Delete "' + m.name + '" from the library?')) return;
+        ctl.appendChild(button('Delete', 'danger', async function () {
+          if (!(await relayUI.confirm('Delete "' + m.name + '" from the library?'))) return;
           call(async function () { await send('DELETE', '/api/admin/signage/media/' + m.id); await refresh(); });
         }));
         c.appendChild(ctl);
@@ -548,8 +548,8 @@
       const act = el('td');
       if (can('signage.manage')) {
         act.appendChild(button('Edit', '', function () { openSlotForm(sl); }));
-        act.appendChild(button('Delete', 'danger', function () {
-          if (!confirm('Delete this time slot?')) return;
+        act.appendChild(button('Delete', 'danger', async function () {
+          if (!(await relayUI.confirm('Delete this time slot?'))) return;
           call(async function () { await send('DELETE', '/api/admin/signage/slots/' + sl.id); await refresh(); });
         }));
       }
@@ -704,8 +704,8 @@
       await refresh();
     });
   };
-  $('sgReturnAll').onclick = function () {
-    if (!confirm('Return every screen to its playlist?')) return;
+  $('sgReturnAll').onclick = async function () {
+    if (!(await relayUI.confirm('Return every screen to its playlist?'))) return;
     call(async function () { await send('DELETE', '/api/admin/signage/takeovers'); await refresh(); });
   };
   $('sgAlertSave').onclick = function () {

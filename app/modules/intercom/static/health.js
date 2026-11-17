@@ -5,7 +5,7 @@
   if (!R || !document.getElementById('icHealth')) return;
   const $ = R.$;
   const BASE = '/api/admin/intercom';
-  function can(perm) { return typeof window.relayCan !== 'function' || !!window.relayCan(perm); }
+  const can = relayUI.can;
   let timer = null;
   let thDrawn = false;
   let last = null;
@@ -15,12 +15,7 @@
     $('icHealthErr').hidden = false;
   }
 
-  function el(tag, text, cls) {
-    const n = document.createElement(tag);
-    if (text !== undefined) n.textContent = text;
-    if (cls) n.className = cls;
-    return n;
-  }
+  const el = relayUI.el;
 
   const WORD = { ok: 'OK', warn: 'Warning', error: 'Problem', idle: 'Idle' };
 
@@ -28,10 +23,10 @@
     const box = $('icCards');
     box.textContent = '';
     v.cards.forEach(function (c) {
-      const card = el('div', undefined, 'ic-card ' + c.state);
-      card.appendChild(el('b', c.title));
-      card.appendChild(el('div', WORD[c.state] || c.state, 'st'));
-      card.appendChild(el('div', c.detail, 'note'));
+      const card = el('div', 'ic-card ' + c.state, undefined);
+      card.appendChild(el('b', '', c.title));
+      card.appendChild(el('div', 'st', WORD[c.state] || c.state));
+      card.appendChild(el('div', 'note', c.detail));
       box.appendChild(card);
     });
     $('icHealthSum').textContent = v.cards.length ? (WORD[v.state] || v.state).toLowerCase() : 'starting';
@@ -45,7 +40,7 @@
     const edit = can('intercom.manage');
     Object.keys(v.labels).forEach(function (k) {
       const lab = el('label');
-      lab.appendChild(el('span', v.labels[k]));
+      lab.appendChild(el('span', '', v.labels[k]));
       const inp = document.createElement('input');
       inp.type = 'number';
       inp.step = 'any';
@@ -102,7 +97,7 @@
       got.events.forEach(function (e) {
         const tr = document.createElement('tr');
         [when(e.at), e.kind, e.user, e.device, e.channel, e.actor, detailText(e.detail)].forEach(function (v) {
-          tr.appendChild(el('td', v));
+          tr.appendChild(el('td', '', v));
         });
         body.appendChild(tr);
       });

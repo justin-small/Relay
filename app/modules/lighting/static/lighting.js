@@ -4,26 +4,15 @@
   const R = window.RelayAdmin;
   if (!R || !document.getElementById('page-lighting')) return;
   const $ = R.$;
-  function can(perm) { return typeof window.relayCan !== 'function' || !!window.relayCan(perm); }
+  const can = relayUI.can;
   function showError(text) { $('ltErr').textContent = text || ''; $('ltErr').hidden = !text; }
   let data = null;
   let pages = [];
 
-  async function send(method, path, body) {
-    const res = await fetch(path, { method: method, headers: { 'Content-Type': 'application/json' },
-      body: body === undefined ? undefined : JSON.stringify(body), credentials: 'same-origin' });
-    const out = await res.json().catch(function () { return {}; });
-    if (!res.ok) throw new Error(out.error || out.detail || 'That did not work.');
-    return out;
-  }
-  function el(tag, text, cls) {
-    const e = document.createElement(tag);
-    if (text) e.textContent = text;
-    if (cls) e.className = cls;
-    return e;
-  }
+  const send = relayUI.api;
+  const el = relayUI.el;
   function button(text, fn, cls) {
-    const b = el('button', text, cls);
+    const b = el('button', cls, text);
     b.type = 'button';
     b.onclick = async function () {
       showError(''); b.disabled = true;
@@ -38,11 +27,11 @@
   }
   function levelControl(cue) {
     const box = el('span');
-    box.appendChild(el('span', cue.name + ' '));
+    box.appendChild(el('span', '', cue.name + ' '));
     const slider = el('input');
     slider.type = 'range'; slider.min = 0; slider.max = 100; slider.disabled = !can('lighting.control');
     slider.value = data && data.levels && data.levels[cue.id] !== undefined ? data.levels[cue.id] : 0;
-    const out = el('span', slider.value + '%');
+    const out = el('span', '', slider.value + '%');
     slider.oninput = function () { out.textContent = slider.value + '%'; };
     slider.onchange = async function () {
       showError('');
@@ -59,7 +48,7 @@
       box.appendChild(button(cue.name, function () { return send('POST', '/api/admin/lighting/press', { cue: cue.id }); },
         data && data.state && data.state[cue.id] ? 'primary' : ''));
     } else {
-      box.appendChild(el('span', cue.name));
+      box.appendChild(el('span', '', cue.name));
     }
     return box;
   }
@@ -127,21 +116,21 @@
     });
   }
   async function screenControls(page) {
-    const box = el('div', '', 'ctl');
+    const box = el('div', 'ctl');
     const on = !!page.key_on;
     const link = el('input'); link.readOnly = true; link.size = 40; link.hidden = true;
     async function show() {
       const r = await send('GET', '/api/admin/lighting/pages/' + encodeURIComponent(page.id) + '/link');
       link.value = r.link; link.hidden = !r.link;
     }
-    if (!page.id) { box.appendChild(el('span', 'Save the pages first to get this screen\'s link.')); return box; }
+    if (!page.id) { box.appendChild(el('span', '', 'Save the pages first to get this screen\'s link.')); return box; }
     box.appendChild(button(on ? 'Turn screen off' : 'Turn screen on', async function () {
       await send('PUT', '/api/admin/lighting/pages/' + encodeURIComponent(page.id) + '/screen', { on: !on });
       await load();
     }));
     if (on) {
       box.appendChild(button('New key', async function () {
-        if (!window.confirm('The old link stops working. Continue?')) return;
+        if (!(await relayUI.confirm('The old link stops working. Continue?'))) return;
         await send('PUT', '/api/admin/lighting/pages/' + encodeURIComponent(page.id) + '/screen', { on: true, rotate: true });
         await load();
       }));
@@ -157,8 +146,8 @@
     editors.length = 0;
     const manage = can('lighting.manage');
     pages.forEach(function (page, pi) {
-      const card = el('div', '', 'card');
-      const head = el('div', '', 'ctl');
+      const card = el('div', 'card');
+      const head = el('div', 'ctl');
       const name = el('input');
       name.value = page.name; name.maxLength = 40; name.disabled = !manage; name.setAttribute('aria-label', 'Page name'); name.style.maxWidth = '260px';
       name.oninput = function () { page.name = name.value; };
@@ -166,14 +155,14 @@
       if (manage) {
         head.appendChild(button('Up', function () { collect(); move(pages, pi, -1); renderPages(); }));
         head.appendChild(button('Down', function () { collect(); move(pages, pi, 1); renderPages(); }));
-        head.appendChild(button('Delete page', function () {
-          if (!window.confirm('Delete the page "' + page.name + '"? Its screen link stops working once you save.')) return;
+        head.appendChild(button('Delete page', async function () {
+          if (!(await relayUI.confirm('Delete the page "' + page.name + '"? Its screen link stops working once you save.'))) return;
           collect(); pages.splice(pi, 1); renderPages();
         }));
       }
       card.appendChild(head);
       const sliders = page.cues.filter(function (c) { return kindOf(c.id) === 'slider'; });
-      if (sliders.length) { const sl = el('div', '', 'row'); sliders.forEach(function (c) { sl.appendChild(fireButtons(c)); }); card.appendChild(sl); }
+      if (sliders.length) { const sl = el('div', 'row'); sliders.forEach(function (c) { sl.appendChild(fireButtons(c)); }); card.appendChild(sl); }
       const holder = el('div'); holder.style.marginTop = '10px';
       card.appendChild(holder);
       layoutFor(page, pi, holder);
@@ -200,7 +189,7 @@
     const root = $('ltAllCues');
     root.textContent = '';
     rest.forEach(function (c) {
-      const row = el('div', '', 'row');
+      const row = el('div', 'row');
       row.appendChild(fireButtons(c));
       if (can('lighting.manage')) {
         row.appendChild(button('Add to first page', function () {
@@ -216,9 +205,9 @@
     data = d; pages = JSON.parse(JSON.stringify(d.pages || []));
     const sel = $('ltBackend');
     sel.textContent = '';
-    const none = el('option', 'Choose a program'); none.value = ''; sel.appendChild(none);
+    const none = el('option', '', 'Choose a program'); none.value = ''; sel.appendChild(none);
     (d.backends || []).forEach(function (b) {
-      const o = el('option', b.label); o.value = b.id; if (b.id === d.backend) o.selected = true; sel.appendChild(o);
+      const o = el('option', '', b.label); o.value = b.id; if (b.id === d.backend) o.selected = true; sel.appendChild(o);
     });
     $('ltHost').value = d.host || ''; $('ltPort').value = d.port || ''; $('ltPass').value = '';
     $('ltFunctions').checked = !!d.functions; $('ltConsole').value = d.console || 'EX'; $('ltFade').value = d.fade === '' || d.fade == null ? '' : d.fade;

@@ -8,23 +8,17 @@
   document.getElementById('obsName').textContent = data.machine.name;
   const SAYS = { unreachable: 'OBS did not answer.', refused: 'That scene is not in OBS any more.',
                  slow: 'Too many taps. Wait a moment.' };
-  let timer = 0;
   let shown = '';
-  function say(code) {
-    toast.textContent = SAYS[code] || 'That did not work.';
-    toast.hidden = false;
-    clearTimeout(timer);
-    timer = setTimeout(function () { toast.hidden = true; }, 4000);
-  }
+  const TOAST = { plain: true, ms: 4000 };
   async function pick(scene, b) {
     b.classList.add('sent');
     setTimeout(function () { b.classList.remove('sent'); }, 250);
     try {
       const res = await fetch('/obs/_/scene/' + mid + q, { method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ scene: scene }) });
-      if (!res.ok) { const out = await res.json().catch(function () { return {}; }); say(out.error); }
+      if (!res.ok) { const out = await res.json().catch(function () { return {}; }); relayUI.say(toast, SAYS[out.error] || 'That did not work.', false, TOAST); }
       poll();
-    } catch (e) { say('unreachable'); }
+    } catch (e) { relayUI.say(toast, SAYS.unreachable, false, TOAST); }
   }
   function draw(st) {
     const sig = JSON.stringify(st.scenes);

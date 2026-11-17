@@ -109,7 +109,7 @@
     ws: null, online: false, tries: 0, retry: null, rtt: null, pingAt: 0, channels: [], production: '', activity: {},
     rooms: new Map(),                 // channel id -> { room, joining, pub: LocalAudioTrack|null }
     results: {}, seq: 0, latched: false, pressed: false, beat: null, mic: null, muteAll: false, wake: null,
-    live: '', lastCut: ''
+    lastCut: ''
   };
 
   function store() { return $('icKeep').checked ? root.localStorage : root.sessionStorage; }
@@ -122,7 +122,7 @@
       if (v) store().setItem(KEY, v);
     } catch (e) { /* private browsing: the credential then lasts only until the next page load */ }
   }
-  function say(text) { if (text !== st.live) { st.live = text; $('icLive').textContent = text; } }
+  function announce(text) { relayUI.say($('icLive'), text, false, { plain: true }); }
 
   // ---- credential: made once from the signed-in crew session
   async function ensureCredential() {
@@ -175,10 +175,10 @@
     if (!on) {
       st.results = {}; st.pressed = false; st.latched = false; stopBeat(); muteLocal();
       $('icDown').hidden = false;
-      say('Intercom disconnected');
+      announce('Intercom disconnected');
     } else {
       $('icDown').hidden = true;
-      say('Intercom connected');
+      announce('Intercom connected');
     }
     render();
   }
@@ -198,11 +198,11 @@
       case 'activity': st.activity[m.channel] = m; render(); break;
       case 'pong': st.rtt = Math.round(root.performance.now() - st.pingAt); setOnline(true); break;
       case 'token': joinWith(m); break;
-      case 'error': if (m.for === 'talk') say(m.text); break;
+      case 'error': if (m.for === 'talk') announce(m.text); break;
       case 'talk.warning': {
         const c = chan(m.channel);
         $('icLatchWarn').textContent = 'Latch ends in ' + m.seconds_left + ' s' + (c ? ' on ' + c.name : '') + '.';
-        $('icLatchWarn').hidden = false; say($('icLatchWarn').textContent);
+        $('icLatchWarn').hidden = false; announce($('icLatchWarn').textContent);
         break;
       }
       default:
@@ -217,7 +217,7 @@
     else setTrack(m.channel, false);
     if (m.type === 'talk.preempted') {
       st.lastCut = 'Cut off on ' + name + '. ' + m.by + ' has priority.';
-      $('icCut').textContent = st.lastCut; $('icCut').hidden = false; say(st.lastCut);
+      $('icCut').textContent = st.lastCut; $('icCut').hidden = false; announce(st.lastCut);
     }
     if (m.type === 'talk.released' && m.reason === 'latch_limit') { st.latched = false; }
     if (!busy(st.results) && st.pressed === false) stopBeat();
@@ -353,12 +353,7 @@
   function stopBeat() { clearInterval(st.beat); st.beat = null; }
 
   // ---- drawing
-  function el(tag, props, kids) {
-    const e = doc.createElement(tag);
-    Object.keys(props || {}).forEach(function (k) { if (k === 'text') e.textContent = props[k]; else e[k] = props[k]; });
-    (kids || []).forEach(function (k) { e.appendChild(k); });
-    return e;
-  }
+  const el = relayUI.el;
   function choose(c, patch) {
     Object.assign(c, patch);
     send({ type: 'choice', channel: c.id, talk_selected: !!c.talk_selected, listen_selected: !!c.listen_selected, volume: c.volume });
@@ -411,7 +406,7 @@
     latch.setAttribute('aria-pressed', st.latched ? 'true' : 'false');
     $('icMuteAll').setAttribute('aria-pressed', st.muteAll ? 'true' : 'false');
     const states = Object.keys(st.results).map(function (id) { const c = chan(Number(id)); return (c ? c.name + ': ' : '') + resultText(st.results[id]); });
-    if (states.length) say(states.join('. '));
+    if (states.length) announce(states.join('. '));
   }
 
   $('icTalk').addEventListener('pointerdown', function (e) { e.preventDefault(); press(false); });
