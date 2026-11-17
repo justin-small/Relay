@@ -8,7 +8,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, Response, StreamingRes
 
 from ... import audit, config
 from .. import require
-from . import multiview, viewer
+from . import multiview, outputs, viewer
 from .service import KEY, VIEW_LIMITS, clean_ip, clean_server, clean_settings, service
 
 router = APIRouter()
@@ -71,6 +71,77 @@ async def admin_settings(request: Request, payload: dict):
     if service.running:
         await service.scan()
     return service.snapshot()
+
+
+# ------------------------------------------------------------------------------------------------ outputs (#299)
+@router.put("/api/admin/ndi/outputs", dependencies=MANAGE)
+async def admin_outputs(request: Request, payload: dict):
+    """Which page outputs are on, and their size and frame rate."""
+    cur = service.settings()
+    on = payload.get("on", cur["out_on"])
+    if not isinstance(on, list) or any(not isinstance(v, str) for v in on) or len(set(on)) > outputs.MAX_ON:
+        return _bad(f"Switch on at most {outputs.MAX_ON} outputs.")
+    known = {d["id"] for d in service.pages.defs()}
+    if any(v not in known for v in on):
+        return _bad("One of those outputs does not exist.")
+    if "size" in payload and payload["size"] not in outputs.SIZES:
+        return _bad("The size is 1280x720 or 1920x1080.")
+    fps = payload.get("fps", cur["out_fps"])
+    if isinstance(fps, bool) or not isinstance(fps, int) or not 5 <= fps <= 30:
+        return _bad("Frames per second is a whole number from 5 to 30.")
+    service.save_settings({"out_on": on, "out_size": payload.get("size", cur["out_size"]), "out_fps": fps})
+    audit.note(request, "ndi.outputs", "Changed which pages Relay sends as NDI")
+    if service.running:
+        await asyncio.to_thread(service.pages.sync)
+    return service.snapshot()
+
+
+# ------------------------------------------------------------------------------------------------ router (#298)
+def _router_done(request: Request, what: str, err):
+    if err:
+        return _bad(err if isinstance(err, str) else "That did not work.", 409)
+    audit.note(request, "ndi.router", what)
+    return service.snapshot()
+
+
+@router.post("/api/admin/ndi/router/outputs", dependencies=MANAGE)
+async def router_add(request: Request, payload: dict):
+    got = await asyncio.to_thread(service.router.add_output, payload.get("name"))
+    return _router_done(request, "Added a routed NDI output", got if isinstance(got, str) else "")
+
+
+@router.delete("/api/admin/ndi/router/outputs/{oid}", dependencies=MANAGE)
+async def router_remove(oid: str, request: Request):
+    ok = await asyncio.to_thread(service.router.remove_output, oid)
+    return _router_done(request, "Removed a routed NDI output", "" if ok else "That output does not exist.")
+
+
+@router.put("/api/admin/ndi/router/outputs/{oid}/source", dependencies=MANAGE)
+async def router_route(oid: str, request: Request, payload: dict):
+    src = payload.get("source", "")
+    if not isinstance(src, str):
+        return _bad("A source is a name, or empty for none.")
+    err = await asyncio.to_thread(service.router.route, oid, src)
+    return _router_done(request, "Routed an NDI output", err)
+
+
+@router.post("/api/admin/ndi/router/salvos", dependencies=MANAGE)
+async def router_salvo_save(request: Request, payload: dict):
+    sid = payload.get("id", "")
+    got = await asyncio.to_thread(service.router.save_salvo, payload.get("name"), sid if isinstance(sid, str) else "")
+    return _router_done(request, "Saved an NDI preset", got if isinstance(got, str) else "")
+
+
+@router.delete("/api/admin/ndi/router/salvos/{sid}", dependencies=MANAGE)
+async def router_salvo_delete(sid: str, request: Request):
+    ok = await asyncio.to_thread(service.router.delete_salvo, sid)
+    return _router_done(request, "Deleted an NDI preset", "" if ok else "That preset does not exist.")
+
+
+@router.post("/api/admin/ndi/router/salvos/{sid}/take", dependencies=MANAGE)
+async def router_salvo_take(sid: str, request: Request):
+    err = await asyncio.to_thread(service.router.take, sid)
+    return _router_done(request, "Took an NDI preset", err)
 
 
 # ------------------------------------------------------------------------------------------------ viewer (#296)

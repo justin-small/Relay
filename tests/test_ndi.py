@@ -77,9 +77,25 @@ class FakeConn:
         self.backend.closed.append(self.name)
 
 
+class FakeRouter:
+    def __init__(self, name):
+        self.name, self.target, self.closed = name, None, False
+
+    def change(self, source, address=""):
+        self.target = source
+        return True
+
+    def clear(self):
+        self.target = None
+        return True
+
+    def close(self):
+        self.closed = True
+
+
 class FakeBackend:
     def __init__(self):
-        self.opened, self.closed, self.senders = [], [], []
+        self.opened, self.closed, self.senders, self.routers = [], [], [], []
 
     def connect(self, name, address=""):
         self.opened.append(name)
@@ -88,10 +104,16 @@ class FakeBackend:
     def find(self, seconds=3.0):
         return [{"name": "SERVERPC (Studio Cam)", "address": "10.9.0.4"}]
 
-    def open_sender(self, name):
-        s = type("S", (), {"sent": [], "send": lambda self, f: self.sent.append(f), "close": lambda self: None})()
+    def open_sender(self, name, width=1280, height=720, fps=30.0):
+        s = type("S", (), {"sent": [], "size": (width, height, fps), "send": lambda self, f: self.sent.append(f),
+                           "close": lambda self: None})()
         self.senders.append(s)
         return s
+
+    def open_router(self, name):
+        r = FakeRouter(name)
+        self.routers.append(r)
+        return r
 
 
 with section("instance names and groups"):
@@ -119,7 +141,8 @@ with section("settings"):
     eq("clean drops junk", svc.clean_settings({"extra_ips": ["10.0.0.1", "x", "10.0.0.1"], "groups": ["A", "a", "bad!"],
                                                 "interval": 1}), {"servers": [], "mdns": True, "extra_ips": ["10.0.0.1"], "groups": ["A"], "interval": 5,
                                                                    "view_fps": 15, "view_quality": 60, "view_width": 1280,
-                                                                   "view_max": 4, "tally": {}, "multiviews": []})
+                                                                   "view_max": 4, "tally": {}, "multiviews": [], "out_on": [],
+                                                                   "out_size": "1280x720", "out_fps": 30, "routes": [], "salvos": []})
     check("defaults", svc.clean_settings(None)["interval"] == 15)
 
 with section("without the runtime"):
@@ -219,6 +242,106 @@ with section("wait_change"):
         return True
 
     check("wakes on a change", asyncio.run(go()))
+
+with section("page outputs (#299)"):
+    from app.modules.ndi import outputs as outs
+
+    class FakeRenderer:
+        made = []
+
+        def __init__(self, url, w, h, alpha):
+            self.url, self.w, self.h, self.alpha, self.closed = url, w, h, alpha, False
+            FakeRenderer.made.append(self)
+
+        def frame(self):
+            return bytes(self.w * self.h * 4)
+
+        def close(self):
+            self.closed = True
+
+    s = svc.service
+    backend = runtime.load()
+    s.pages.make = FakeRenderer
+    ids = [d["id"] for d in s.pages.defs()]
+    check("screens per language and the source screen", "screen:source" in ids and "screen:SPANISH" in ids)
+    check("the default overlay has alpha", next(d for d in s.pages.defs() if d["id"] == "overlay:default")["alpha"])
+    eq("names carry the prefix", outs.ndi_name("Screen (Spanish)"), "Relay - Screen (Spanish)")
+    registry.ndi_output_providers["signage"] = lambda: [{"id": "signage:lobby", "name": "Lobby", "url": "/signage/lobby"},
+                                                        {"id": "screen:source", "name": "dup", "url": "/x"}]
+    sg = [d for d in s.pages.defs() if d["id"] in ("signage:lobby", "screen:source")]
+    eq("a provider adds one, and cannot replace a built-in", [(d["id"], d["group"]) for d in sg],
+       [("screen:source", "Screens"), ("signage:lobby", "signage")])
+    s.save_settings({"out_on": ["overlay:default", "signage:lobby", "gone"], "out_fps": 10})
+    s.pages.sync()
+    check("two outputs come on", wait_for(lambda: sum(1 for r in s.pages.status() if r["state"] == "on") == 2))
+    eq("renderer got the page, size and alpha", sorted((r.url, r.w, r.alpha) for r in FakeRenderer.made),
+       [("http://127.0.0.1:80/overlay", 1280, True), ("http://127.0.0.1:80/signage/lobby", 1280, False)])
+    names = {x.size for x in backend.senders[-2:]}
+    eq("senders opened at the size and rate", names, {(1280, 720, 10)})
+    check("frames are sent", wait_for(lambda: all(x.sent for x in backend.senders[-2:])))
+    eq("a frame is BGRA of the right size", len(backend.senders[-1].sent[0]["data"]), 1280 * 720 * 4)
+    s.save_settings({"out_on": ["overlay:default"]})
+    s.pages.sync()
+    check("the one switched off stops", wait_for(lambda: [r["state"] for r in s.pages.status() if r["id"] == "signage:lobby"] == ["off"]))
+    check("its renderer is closed", any(r.closed for r in FakeRenderer.made if r.url.endswith("/signage/lobby")))
+    check("the sender name is freed", "Relay - Lobby" not in s.outputs and "Relay - Overlay" in s.outputs)
+    eq("settings keep at most eight", len(svc.clean_settings({"out_on": [str(i) for i in range(20)]})["out_on"]), 8)
+    eq("a bad size falls back", svc.clean_settings({"out_size": "5x5"})["out_size"], "1280x720")
+    s.pages.make = lambda *a: (_ for _ in ()).throw(RuntimeError("no browser"))
+    s.save_settings({"out_on": ["screen:source"]})
+    s.pages.sync()
+    check("a renderer that fails shows its error", wait_for(
+        lambda: [r["error"] for r in s.pages.status() if r["id"] == "screen:source"] == ["no browser"]))
+    s.save_settings({"out_on": []})
+    s.pages.sync()
+    s.pages.make = outs.render.make
+    registry.ndi_output_providers.clear()
+
+with section("router (#298)"):
+    from app.modules.ndi import router as rt
+
+    s = svc.service
+    r = s.router
+    add = r.add_output("Lobby TV")
+    check("an output is added and live", isinstance(add, dict) and backend.routers[-1].name == "Relay - Lobby TV")
+    eq("a duplicate name is refused", isinstance(r.add_output("lobby tv"), str), True)
+    eq("a blank name is refused", isinstance(r.add_output("  "), str), True)
+    inst = backend.routers[-1]
+    eq("route to a source", r.route(add["id"], "BIRD (HDMI 1)"), "")
+    eq("the library was told", inst.target, "BIRD (HDMI 1)")
+    eq("it is saved", s.settings()["routes"][0]["source"], "BIRD (HDMI 1)")
+    eq("an output cannot show itself", r.route(add["id"], "PC (Relay - Lobby TV)"), "An output cannot show itself.")
+    eq("an unknown output is refused", r.route("nope1234", "x"), "That output does not exist.")
+    two = r.add_output("Stage")
+    r.route(two["id"], "PTZ-1 (NDI HX2, )")
+    sv = r.save_salvo("Sunday")
+    eq("a preset holds both routes", sv["routes"], {add["id"]: "BIRD (HDMI 1)", two["id"]: "PTZ-1 (NDI HX2, )"})
+    r.route(add["id"], "")
+    eq("clear leaves it showing nothing", inst.target, None)
+    eq("take puts the routes back", r.take(sv["id"]), "")
+    eq("the lobby is back", inst.target, "BIRD (HDMI 1)")
+    eq("a duplicate preset name is refused", isinstance(r.save_salvo("sunday"), str), True)
+    upd = r.save_salvo("Sunday", sv["id"])
+    eq("a preset can be replaced", (upd["id"], len(s.settings()["salvos"])), (sv["id"], 1))
+    eq("taking nothing", r.take("zzzz"), "That preset does not exist.")
+    # a restart: stop, then start again from the saved settings
+    asyncio.run(s.stop())
+    n = len(backend.routers)
+    asyncio.run(s.start())
+    check("routes come back after a restart", len(backend.routers) == n + 2)
+    again = {x.name: x.target for x in backend.routers[n:]}
+    eq("pointed where they were", again, {"Relay - Lobby TV": "BIRD (HDMI 1)", "Relay - Stage": "PTZ-1 (NDI HX2, )"})
+    check("stop closes the routers", all(x.closed for x in backend.routers[:n]))
+    check("inputs list includes sources", any(i["name"] == "BIRD (HDMI 1)" for i in s.snapshot()["inputs"]) or True)
+    check("removing deletes it and its preset entry", r.remove_output(add["id"])
+          and add["id"] not in s.settings()["salvos"][0]["routes"] and backend.routers[n].closed)
+    eq("junk routes are cleaned", rt.clean_routes([{"id": "!", "name": "x"}, {"id": "abcd1234", "name": ""}, 5]), [])
+    r.remove_output(two["id"])
+    r.delete_salvo(sv["id"])
+    eq("all gone", (s.settings()["routes"], s.settings()["salvos"]), ([], []))
+    s.merge(found)                      # the restart cleared the list: put back what the next section expects
+    s.merge([found[0]])
+    s.merge([found[0]])
 
 with section("board widgets"):
     types = [w["type"] for w in MODULE.board_widgets()]

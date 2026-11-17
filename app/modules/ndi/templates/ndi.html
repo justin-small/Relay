@@ -78,6 +78,41 @@
     </section>
 
     <section>
+      <h3>Router</h3>
+      <p class="note">A routed output is an NDI source called <code>Relay - &lt;name&gt;</code> that you point at any
+        source here, like a video matrix. Set a TV or decoder to receive it once, then switch it from this page. The NDI
+        library does the switching, so nothing is re-encoded. Routes are saved and come back when Relay restarts. Relay's
+        own page outputs below are sources too.</p>
+      <div class="ctl"><input id="ndiRtName" placeholder="Lobby TV" maxlength="60" autocomplete="off" aria-label="New output name">
+        <button type="button" id="ndiRtAdd">Add output</button></div>
+      <p class="note" id="ndiRtNone">No routed outputs yet.</p>
+      <div class="tablescroll"><table id="ndiRtTable" hidden>
+        <thead><tr><th>Output</th><th>Shows</th><th></th></tr></thead><tbody></tbody></table></div>
+      <h4>Presets</h4>
+      <div id="ndiSalvos"></div>
+      <div class="ctl"><input id="ndiSalvoName" placeholder="Sunday morning" maxlength="60" autocomplete="off" aria-label="Preset name">
+        <button type="button" id="ndiSalvoSave">Save current routes as a preset</button></div>
+      <div class="note">Decoders such as the Magewell Pro Convert announce nothing and have a login-protected web API: point
+        them at a routed output instead of driving them from here.</div>
+    </section>
+
+    <section>
+      <h3>Page outputs</h3>
+      <p class="note">Send a Relay page out as an NDI source for a switcher, ProPresenter, OBS, vMix or a TV: each screen
+        language, and overlays with transparency (key and fill in one source). Each one draws the page in a hidden browser, so
+        switch on only what you use.</p>
+      <div class="note warn" id="ndiPagesWarn" hidden></div>
+      <div class="row">
+        <div class="field"><label for="ndiOutSize">Size</label>
+          <select id="ndiOutSize"><option value="1280x720">1280 x 720</option><option value="1920x1080">1920 x 1080</option></select></div>
+        <div class="field"><label for="ndiOutFps">Frames per second (5 to 30)</label>
+          <input id="ndiOutFps" type="number" min="5" max="30" step="1"></div>
+      </div>
+      <div class="tablescroll"><table id="ndiPages"><thead><tr><th>On</th><th>Output</th><th>NDI source</th><th>Status</th></tr></thead><tbody></tbody></table></div>
+      <div class="ctl"><button type="button" class="primary" id="ndiPagesSave">Save</button></div>
+    </section>
+
+    <section>
       <h3>Where to look</h3>
       <div class="row">
         <div class="field">

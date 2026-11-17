@@ -631,6 +631,13 @@ for method, path, perm in (
     ("GET", "/api/admin/ndi", "ndi.view"),
     ("PUT", "/api/admin/ndi/settings", "ndi.manage"),                   # an empty body changes nothing
     ("POST", "/api/admin/ndi/scan", "ndi.manage"),                      # not running: refused, nothing is sent
+    ("PUT", "/api/admin/ndi/outputs", "ndi.manage"),                    # an empty body changes nothing
+    ("POST", "/api/admin/ndi/router/outputs", "ndi.manage"),            # no name: refused
+    ("DELETE", "/api/admin/ndi/router/outputs/{oid}", "ndi.manage"),    # no such output: refused
+    ("PUT", "/api/admin/ndi/router/outputs/{oid}/source", "ndi.manage"),
+    ("POST", "/api/admin/ndi/router/salvos", "ndi.manage"),             # no name: refused
+    ("DELETE", "/api/admin/ndi/router/salvos/{sid}", "ndi.manage"),
+    ("POST", "/api/admin/ndi/router/salvos/{sid}/take", "ndi.manage"),
     ("GET", "/api/admin/youtube", "youtube.view"),
     ("PUT", "/api/admin/youtube/settings", "youtube.manage"),             # an empty body changes nothing
     ("POST", "/api/admin/youtube/check", "youtube.manage"),               # not connected: nothing is sent
