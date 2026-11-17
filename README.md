@@ -793,18 +793,34 @@ intranet, a device on the LAN) are never fetched by Relay: they are saved unchec
 Three pieces fit together. A switcher module reads the program and preview from a video switcher, core keeps the
 one shared tally state, and the tally screens read only that state, so they work with whichever module fills it.
 
-- **Blackmagic ATEM** (module, off by default). On its admin page, press **Scan** to list the Blackmagic gear on the
-  network (switchers, HyperDecks, Videohubs, cameras and more, found over mDNS; tick "every address on this subnet"
-  where mDNS is blocked) and add a switcher in one click, or add one by its IP address. Add as many switchers as the
-  building has: each connects on its own, can be switched off without being removed, and either drives the tally
-  lights or not. Give each one that drives tally its own **first camera number** (camera 1 on the overflow switcher
-  as tally 101, say) so the screens never mix them up. A switcher found by the scan is followed to a new address if
-  its DHCP lease changes. An existing single-switcher setup becomes the first switcher on upgrade. Relay speaks
-  the ATEM network protocol itself (UDP port 9910, written from the protocol description in `atem-connection`, the
-  library Bitfocus Companion uses), so there is nothing to install. It shows the program and preview tally with the
-  switcher's own input names, and a booth operator can cut, auto-transition, set preview or program, mix a downstream
-  key, fade to black and run macros. Control needs the Operator role (`atem.control`). It reconnects by itself, waiting
-  longer after each failed try, and the tally goes dark while the switcher is away.
+- **Blackmagic** (module, off by default; before 2026-11-17 it was the ATEM module, and its settings, switch and
+  network port move over on upgrade). One module for the Blackmagic gear a church runs: ATEM switchers, HyperDeck
+  recorders and Videohub routers, any number of each. On its admin page, press **Scan** to list the Blackmagic gear on
+  the network (found over mDNS; tick "every address on this subnet" where mDNS is blocked, which finds switchers only)
+  and add a device in one click, or add one by its IP address and kind. Each device connects on its own, can be
+  switched off without being removed, and is followed to a new address if its DHCP lease changes. Control needs the
+  Operator role (`blackmagic.control`); adding, removing, renaming labels, locking outputs and saving presets need Admin
+  (`blackmagic.manage`).
+  - **ATEM switcher.** Relay speaks the ATEM network protocol itself (UDP port 9910, written from the protocol
+    description in `atem-connection`, the library Bitfocus Companion uses), so there is nothing to install. It shows
+    the program and preview tally with the switcher's own input names, and a booth operator can cut, auto-transition,
+    set preview or program, mix a downstream key, fade to black and run macros. Add as many switchers as the building
+    has; each either drives the tally lights or not, and each one that does gets its own **first camera number**
+    (camera 1 on the overflow switcher as tally 101, say) so the screens never mix them up. It reconnects by itself,
+    waiting longer after each failed try, and the tally goes dark while the switcher is away.
+  - **HyperDeck recorder.** Over its text protocol (TCP port 9993). The page shows whether it is recording, playing
+    or stopped, the current clip and timecode, each slot's disk and the recording time left, and the latest clips,
+    with **Record**, **Stop** and **Play** buttons. The deck's remote control must be on (it is by default).
+  - **Videohub router.** Over its text protocol (TCP port 9990). The page lists every output with the input it takes,
+    changes a route from a drop-down, and keeps **route presets** (save what the router does now as "Program to
+    overflow", recall it with one press; an output another control surface has locked is left out). Admins can rename
+    inputs and outputs (the router's own labels) and lock or unlock an output. A lock Relay takes is held by Relay's
+    connection and is released by the router when the connection closes; Relay never forces another surface's lock.
+    An ATEM Constellation has a Videohub router inside: add it again as a Videohub, by its address, to route it.
+  The HyperDeck and Videohub parts were written from Blackmagic's protocol documents and tested against fakes. The
+  Videohub's reading side (the prelude, labels, routing, locks, ping) has been checked against an ATEM 2 M/E
+  Constellation HD's built-in router (protocol 2.7, 45 inputs, 16 outputs); changing routes, labels and locks, and the
+  whole HyperDeck, have not yet been run on real hardware.
 - **Tally Arbiter** (module, off by default). For every other switcher (OBS, vMix and the rest), run
   [Tally Arbiter](https://github.com/josephdadams/TallyArbiter) and give Relay its address (port 4455). Relay listens
   as a tally listener; each Tally Arbiter device is a camera, numbered in the order Tally Arbiter lists them.

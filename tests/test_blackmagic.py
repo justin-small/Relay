@@ -1,7 +1,7 @@
-"""ATEM module (#243): the wire format, a client against a fake switcher on localhost UDP (handshake, packets
+"""Blackmagic module, the ATEM part (#243, #386): the wire format, a client against a fake switcher on localhost UDP (handshake, packets
 arriving out of order, tally, reliable sends, a switcher that goes quiet), publishing into the shared tally state, and
 the admin routes with the module on and off. No real switcher: the fake speaks the same protocol from protocol.py.
-Run: python tests/test_atem.py
+Run: python tests/test_blackmagic.py
 """
 import asyncio
 import os
@@ -27,13 +27,13 @@ import app.main as main  # noqa: E402,F401
 from app import config, netsock, tally  # noqa: E402
 from app.main import app  # noqa: E402
 from app.modules import modules as _modules  # noqa: E402
-from app.modules.atem import protocol as p  # noqa: E402
-from app.modules.atem import service as svc  # noqa: E402
-from app.modules.atem.client import AtemClient  # noqa: E402
+from app.modules.blackmagic import atem_protocol as p  # noqa: E402
+from app.modules.blackmagic import service as svc  # noqa: E402
+from app.modules.blackmagic.atem_client import AtemClient  # noqa: E402
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from _harness import check, eq, fails  # noqa: E402
-from app.modules.atem import discovery  # noqa: E402
+from app.modules.blackmagic import discovery  # noqa: E402
 
 
 def name20(text):
@@ -196,7 +196,7 @@ async def run_client():
     check("it gets through once the switcher answers", await wait_for(lambda: ("DAut", bytes([0, 0, 0, 0])) in sw.got))
 
     # the switcher goes quiet for good: the client gives up and starts again
-    from app.modules.atem import client as client_mod
+    from app.modules.blackmagic import atem_client as client_mod
     client_mod.QUIET_S = 0.4
     sw.answer = False
     check("a quiet switcher is dropped", await wait_for(lambda: not client.connected, 3.0))
@@ -235,8 +235,8 @@ asyncio.run(run_client())
 
 print("settings: a list of switchers, and the old single address")
 eq("the old setting becomes the first switcher", svc.clean_settings({"host": " 10.0.0.5 ", "port": 9910}),
-   {"devices": [{"id": "main", "name": "Switcher", "host": "10.0.0.5", "port": 9910, "enabled": True, "tally": True,
-                 "tally_offset": 0, "uid": "", "model": ""}]})
+   {"devices": [{"id": "main", "kind": "atem", "name": "Switcher", "host": "10.0.0.5", "port": 9910, "enabled": True,
+                 "uid": "", "model": "", "tally": True, "tally_offset": 0}]})
 eq("an old setting with no address is no switchers", svc.clean_settings({"host": "", "port": 9910}), {"devices": []})
 eq("junk is no switchers", svc.clean_settings({"host": "a b/c", "port": "x"}), {"devices": []})
 two = svc.clean_settings({"devices": [
@@ -404,7 +404,7 @@ eq("no addresses, no probe", discovery.probe(0.1, []), [])
 def targets_for(cidr):
     port = type("P", (), {"loopback": False, "vpn": False, "ipv4": (cidr,), "default_route": True})()
     from unittest import mock
-    with mock.patch.object(discovery.netroute, "resolve", side_effect=KeyError("atem")), \
+    with mock.patch.object(discovery.netroute, "resolve", side_effect=KeyError("blackmagic")), \
             mock.patch.object(discovery.netinfo, "interfaces", lambda: [port]):
         return discovery.probe_targets()
 
@@ -418,16 +418,16 @@ print("following a switcher that moved")
 
 async def refind():
     svc.service.devices.clear()
-    config.save({"atem": {"devices": [{"id": "m1", "name": "Main", "host": "10.0.0.5", "uid": "7c2e0d0a1b2c"},
-                                      {"id": "m2", "name": "Spare", "host": "10.0.0.9"}]}}, replace=("atem",))
+    config.save({"blackmagic": {"devices": [{"id": "m1", "name": "Main", "host": "10.0.0.5", "uid": "7c2e0d0a1b2c"},
+                                      {"id": "m2", "name": "Spare", "host": "10.0.0.9"}]}}, replace=("blackmagic",))
     lost = svc.Device(svc.devices()[0], svc.service.publish)
     lost.down_since = time.monotonic() - 1000    # down for a long time
     known = svc.Device(svc.devices()[1], svc.service.publish)
     known.client = FakeClient()                  # connected, and nobody knows its id yet
     svc.service.devices = {"m1": lost, "m2": known}
     svc.service._running = False                 # sync must not open real clients
-    answer = [{"uid": "7c2e0d0a1b2c", "address": "10.0.0.77", "atem": True, "model": "ATEM Mini Pro"},
-              {"uid": "55ee", "address": "10.0.0.9", "atem": True, "model": "ATEM 1 M/E"}]
+    answer = [{"uid": "7c2e0d0a1b2c", "address": "10.0.0.77", "atem": True, "family": "atem", "addable": True, "model": "ATEM Mini Pro"},
+              {"uid": "55ee", "address": "10.0.0.9", "atem": True, "family": "atem", "addable": True, "model": "ATEM 1 M/E"}]
     changed = await svc.service._refind_once(lambda: answer)
     again = await svc.service._refind_once(lambda: answer)
     return changed, again, svc.devices()
@@ -442,9 +442,9 @@ svc.service.devices.clear()
 
 print("the admin routes")
 config.ensure_file()
-config.save({"admin_token": "t0ken", "port": 8000, "admin_port": 8001, "modules": {"atem": {"enabled": True}},
-             "atem": {"host": "10.0.0.5", "port": 9910}}, replace=("atem",))
-_modules.attach("atem")
+config.save({"admin_token": "t0ken", "port": 8000, "admin_port": 8001, "modules": {"blackmagic": {"enabled": True}},
+             "blackmagic": {"host": "10.0.0.5", "port": 9910}}, replace=("blackmagic",))
+_modules.attach("blackmagic")
 eq("an old single-address setting loads as one switcher", [d["host"] for d in svc.devices()], ["10.0.0.5"])
 admin = _db.client(app, base_url="http://relay.local:8001")
 viewer = _db.client(app, role="viewer", username="viewer1", base_url="http://relay.local:8001")
@@ -455,66 +455,66 @@ svc.service.devices.clear()
 fake = FakeClient()
 fake_device({"id": "main", "name": "Main", "host": "10.0.0.5"}, fake)
 
-res = admin.get("/api/admin/atem")
+res = admin.get("/api/admin/blackmagic")
 dev0 = res.json()["devices"][0]
 eq("the state", (res.status_code, dev0["connected"], dev0["product"], dev0["version"]), (200, True, "ATEM", "2.29"))
 eq("inputs are named, an unnamed one by its short name", [i["name"] for i in dev0["inputs"]], ["Wide", "PAS"])
 eq("each mix effect says what is on", dev0["mix_effects"][0], {"me": 0, "program": 1, "preview": 2})
 eq("macros", dev0["macros"], [{"slot": 0, "name": "Open"}])
 eq("new firmware is not flagged", dev0["old_firmware"], False)
-eq("a viewer can look", viewer.get("/api/admin/atem").status_code, 200)
-eq("a viewer cannot cut", viewer.post("/api/admin/atem/cut", json={"me": 0}).status_code, 403)
+eq("a viewer can look", viewer.get("/api/admin/blackmagic").status_code, 200)
+eq("a viewer cannot cut", viewer.post("/api/admin/blackmagic/cut", json={"me": 0}).status_code, 403)
 eq("an operator cuts the first switcher with no device named",
-   operator.post("/api/admin/atem/cut", json={"me": 0}).status_code, 200)
+   operator.post("/api/admin/blackmagic/cut", json={"me": 0}).status_code, 200)
 eq("an operator cannot add a switcher",
-   operator.post("/api/admin/atem/devices", json={"host": "10.0.0.9"}).status_code, 403)
-eq("an operator cannot scan", operator.post("/api/admin/atem/scan", json={}).status_code, 403)
+   operator.post("/api/admin/blackmagic/devices", json={"host": "10.0.0.9"}).status_code, 403)
+eq("an operator cannot scan", operator.post("/api/admin/blackmagic/scan", json={}).status_code, 403)
 eq("the cut was sent", fake.sent[-1], p.cut(0))
-eq("auto", admin.post("/api/admin/atem/auto", json={"device": "main", "me": 1}).status_code, 200)
+eq("auto", admin.post("/api/admin/blackmagic/auto", json={"device": "main", "me": 1}).status_code, 200)
 eq("auto was sent for that mix effect", fake.sent[-1], p.auto(1))
 eq("a switcher that is not in the list",
-   admin.post("/api/admin/atem/cut", json={"device": "nope", "me": 0}).status_code, 404)
-eq("a mix effect that does not exist", admin.post("/api/admin/atem/cut", json={"me": 5}).status_code, 400)
-eq("fade to black", admin.post("/api/admin/atem/fade-to-black", json={"me": 0}).status_code, 200)
-eq("program", admin.post("/api/admin/atem/program", json={"me": 0, "source": 2}).status_code, 200)
+   admin.post("/api/admin/blackmagic/cut", json={"device": "nope", "me": 0}).status_code, 404)
+eq("a mix effect that does not exist", admin.post("/api/admin/blackmagic/cut", json={"me": 5}).status_code, 400)
+eq("fade to black", admin.post("/api/admin/blackmagic/fade-to-black", json={"me": 0}).status_code, 200)
+eq("program", admin.post("/api/admin/blackmagic/program", json={"me": 0, "source": 2}).status_code, 200)
 eq("sent", fake.sent[-1], p.set_program(0, 2))
-eq("preview", admin.post("/api/admin/atem/preview", json={"me": 0, "source": 1}).status_code, 200)
-eq("a source that is not a number", admin.post("/api/admin/atem/preview", json={"me": 0, "source": "x"}).status_code, 400)
-eq("a downstream key goes on air", admin.post("/api/admin/atem/downstream-key", json={"keyer": 1, "action": "on"}).status_code, 200)
+eq("preview", admin.post("/api/admin/blackmagic/preview", json={"me": 0, "source": 1}).status_code, 200)
+eq("a source that is not a number", admin.post("/api/admin/blackmagic/preview", json={"me": 0, "source": "x"}).status_code, 400)
+eq("a downstream key goes on air", admin.post("/api/admin/blackmagic/downstream-key", json={"keyer": 1, "action": "on"}).status_code, 200)
 eq("sent as on air", fake.sent[-1], p.downstream_on_air(1, True))
-eq("a downstream key mixes", admin.post("/api/admin/atem/downstream-key", json={"keyer": 0, "action": "auto"}).status_code, 200)
+eq("a downstream key mixes", admin.post("/api/admin/blackmagic/downstream-key", json={"keyer": 0, "action": "auto"}).status_code, 200)
 eq("sent as auto for this version", fake.sent[-1], p.downstream_auto(0, p.V8_0_1))
-eq("a key that does not exist", admin.post("/api/admin/atem/downstream-key", json={"keyer": 9, "action": "on"}).status_code, 400)
-eq("a macro runs", admin.post("/api/admin/atem/macro", json={"slot": 0, "action": "run"}).status_code, 200)
+eq("a key that does not exist", admin.post("/api/admin/blackmagic/downstream-key", json={"keyer": 9, "action": "on"}).status_code, 400)
+eq("a macro runs", admin.post("/api/admin/blackmagic/macro", json={"slot": 0, "action": "run"}).status_code, 200)
 eq("sent", fake.sent[-1], p.macro_run(0))
-eq("a macro stops", admin.post("/api/admin/atem/macro", json={"action": "stop"}).status_code, 200)
+eq("a macro stops", admin.post("/api/admin/blackmagic/macro", json={"action": "stop"}).status_code, 200)
 
 # A second switcher, controlled on its own.
-res = admin.post("/api/admin/atem/devices", json={"name": "Overflow", "host": "10.0.0.6", "uid": "abc", "model": "ATEM"})
+res = admin.post("/api/admin/blackmagic/devices", json={"name": "Overflow", "host": "10.0.0.6", "uid": "abc", "model": "ATEM"})
 eq("a second switcher is added", (res.status_code, [d["name"] for d in res.json()["devices"]]), (200, ["Switcher", "Overflow"]))
 over = res.json()["devices"][1]
 eq("it gets the next hundred for tally, and keeps its id", (over["tally_offset"], over["uid"]), (100, "abc"))
 eq("the same switcher twice is refused",
-   admin.post("/api/admin/atem/devices", json={"host": "10.0.0.6"}).status_code, 409)
-eq("an address is needed", admin.post("/api/admin/atem/devices", json={}).status_code, 400)
-eq("a bad address is a 400", admin.post("/api/admin/atem/devices", json={"host": "no spaces/please"}).status_code, 400)
-eq("a bad port is a 400", admin.post("/api/admin/atem/devices", json={"host": "10.0.0.8", "port": 0}).status_code, 400)
+   admin.post("/api/admin/blackmagic/devices", json={"host": "10.0.0.6"}).status_code, 409)
+eq("an address is needed", admin.post("/api/admin/blackmagic/devices", json={}).status_code, 400)
+eq("a bad address is a 400", admin.post("/api/admin/blackmagic/devices", json={"host": "no spaces/please"}).status_code, 400)
+eq("a bad port is a 400", admin.post("/api/admin/blackmagic/devices", json={"host": "10.0.0.8", "port": 0}).status_code, 400)
 other = FakeClient()
 fake_device(over, other)                         # the sync opened nothing (not running): stand in for its client
-eq("a cut on the second switcher", admin.post("/api/admin/atem/cut", json={"device": over["id"], "me": 0}).status_code, 200)
+eq("a cut on the second switcher", admin.post("/api/admin/blackmagic/cut", json={"device": over["id"], "me": 0}).status_code, 200)
 eq("goes to that one only", (other.sent[-1:], fake.sent[-1]), ([p.cut(0)], p.macro_stop()))
 
-res = admin.put(f"/api/admin/atem/devices/{over['id']}", json={"name": "Overflow room", "tally": False, "tally_offset": 200})
+res = admin.put(f"/api/admin/blackmagic/devices/{over['id']}", json={"name": "Overflow room", "tally": False, "tally_offset": 200})
 eq("edited", (res.status_code, res.json()["devices"][1]["name"], res.json()["devices"][1]["tally"],
    res.json()["devices"][1]["tally_offset"]), (200, "Overflow room", False, 200))
 check("a name-only edit keeps the connection", svc.service.devices[over["id"]].client is other)
 eq("a bad first camera is a 400",
-   admin.put(f"/api/admin/atem/devices/{over['id']}", json={"tally_offset": -1}).status_code, 400)
+   admin.put(f"/api/admin/blackmagic/devices/{over['id']}", json={"tally_offset": -1}).status_code, 400)
 eq("a flag that is not true or false is a 400",
-   admin.put(f"/api/admin/atem/devices/{over['id']}", json={"enabled": "yes"}).status_code, 400)
-eq("an empty name is a 400", admin.put(f"/api/admin/atem/devices/{over['id']}", json={"name": " "}).status_code, 400)
-eq("editing one that is not there", admin.put("/api/admin/atem/devices/nope", json={}).status_code, 404)
-res = admin.put(f"/api/admin/atem/devices/{over['id']}", json={"enabled": False})
+   admin.put(f"/api/admin/blackmagic/devices/{over['id']}", json={"enabled": "yes"}).status_code, 400)
+eq("an empty name is a 400", admin.put(f"/api/admin/blackmagic/devices/{over['id']}", json={"name": " "}).status_code, 400)
+eq("editing one that is not there", admin.put("/api/admin/blackmagic/devices/nope", json={}).status_code, 404)
+res = admin.put(f"/api/admin/blackmagic/devices/{over['id']}", json={"enabled": False})
 check("switching one off drops its connection", over["id"] not in svc.service.devices or
       svc.service.devices[over["id"]].client is not other)
 eq("and it says so", res.json()["devices"][1]["enabled"], False)
@@ -527,45 +527,45 @@ with mock.patch.object(discovery, "discover", lambda: calls.append("mdns") or [
         {"name": "Deck", "model": "", "family": "hyperdeck", "kind": "HyperDeck recorder", "atem": False,
          "service": "_hyperdeck_ctrl._tcp", "host": "", "address": "10.0.0.50", "port": 9993, "uid": "", "firmware": ""}]), \
         mock.patch.object(discovery, "probe", lambda: calls.append("probe") or [
-            {"name": "ATEM at 10.0.0.5", "address": "10.0.0.5", "atem": True, "uid": ""},
-            {"name": "ATEM at 10.0.0.60", "address": "10.0.0.60", "atem": True, "uid": ""}]):
-    res = admin.post("/api/admin/atem/scan", json={})
+            {"name": "ATEM at 10.0.0.5", "address": "10.0.0.5", "atem": True, "family": "atem", "uid": ""},
+            {"name": "ATEM at 10.0.0.60", "address": "10.0.0.60", "atem": True, "family": "atem", "uid": ""}]):
+    res = admin.post("/api/admin/blackmagic/scan", json={})
     eq("a scan asks mDNS only", (res.status_code, calls, len(res.json()["found"])), (200, ["mdns"], 2))
     eq("one already in the list is marked", [f["added"] for f in res.json()["found"]], ["main", None])
     calls.clear()
-    res = admin.post("/api/admin/atem/scan", json={"probe": True})
+    res = admin.post("/api/admin/blackmagic/scan", json={"probe": True})
     eq("with the probe, both, and an address mDNS found is not listed twice",
        (calls, [f["address"] for f in res.json()["found"]]), (["mdns", "probe"], ["10.0.0.5", "10.0.0.50", "10.0.0.60"]))
 
-res = admin.delete(f"/api/admin/atem/devices/{over['id']}")
+res = admin.delete(f"/api/admin/blackmagic/devices/{over['id']}")
 eq("removed", (res.status_code, [d["id"] for d in res.json()["devices"]]), (200, ["main"]))
-eq("removing one that is not there", admin.delete(f"/api/admin/atem/devices/{over['id']}").status_code, 404)
+eq("removing one that is not there", admin.delete(f"/api/admin/blackmagic/devices/{over['id']}").status_code, 404)
 
 fake.connected = False
-res = admin.post("/api/admin/atem/cut", json={"me": 0})
+res = admin.post("/api/admin/blackmagic/cut", json={"me": 0})
 eq("with no switcher a cut says so", (res.status_code, "not connected" in res.json()["error"]), (409, True))
 fake.connected = True
 fake.state.version = 0x0002001B
-eq("a switcher older than 8.0.1 is flagged", admin.get("/api/admin/atem").json()["devices"][0]["old_firmware"], True)
+eq("a switcher older than 8.0.1 is flagged", admin.get("/api/admin/blackmagic").json()["devices"][0]["old_firmware"], True)
 
 print("health with several switchers")
 svc.service.devices.clear()
 fake_device({"id": "main", "name": "Main", "host": "10.0.0.5"}, FakeClient())
-config.save({"atem": {"devices": [{"id": "main", "name": "Main", "host": "10.0.0.5"},
-                                  {"id": "b", "name": "Overflow", "host": "10.0.0.6"}]}}, replace=("atem",))
-h = _modules.get("atem").health()
+config.save({"blackmagic": {"devices": [{"id": "main", "name": "Main", "host": "10.0.0.5"},
+                                  {"id": "b", "name": "Overflow", "host": "10.0.0.6"}]}}, replace=("blackmagic",))
+h = _modules.get("blackmagic").health()
 eq("one down is a warning naming it", (h.state, "Overflow" in h.detail), ("warn", True))
 fake_device({"id": "b", "name": "Overflow", "host": "10.0.0.6"}, FakeClient())
-eq("all up", _modules.get("atem").health().detail, "All 2 switchers connected")
-t = asyncio.run(_modules.get("atem").test())
+eq("all up", _modules.get("blackmagic").health().detail, "All 2 devices connected")
+t = asyncio.run(_modules.get("blackmagic").test())
 eq("the test names each", (t["ok"], "Main: connected" in t["detail"], "Overflow: connected" in t["detail"]),
    (True, True, True))
 
 print("switched off")
 asyncio.run(svc.service.stop())
-config.save({"modules": {"atem": {"enabled": False}}})
-_modules.get("atem").detach()
-eq("the routes answer 404", admin.get("/api/admin/atem").status_code, 404)
+config.save({"modules": {"blackmagic": {"enabled": False}}})
+_modules.get("blackmagic").detach()
+eq("the routes answer 404", admin.get("/api/admin/blackmagic").status_code, 404)
 eq("and the tally is gone", tally.tally.cameras(), [])
 
 print()

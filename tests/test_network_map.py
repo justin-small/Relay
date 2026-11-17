@@ -228,13 +228,13 @@ with section("what the modules add"):
     eq("through the merge the client sits under its switch", by["Stage box 1"]["parent"], by["Core"]["id"])
     eq("the gateway is a gateway", by["Gateway"]["kind"], "gateway")
 
-    config.save({"atem": {"devices": [{"id": "main", "name": "Main room", "host": "192.168.1.240", "port": 9910},
+    config.save({"blackmagic": {"devices": [{"id": "main", "name": "Main room", "host": "192.168.1.240", "port": 9910},
                                       {"id": "b", "name": "Overflow", "host": "atem-b.local", "port": 9910}]},
                  "obs": {"machines": [{"id": "m1", "name": "Stream PC", "host": "192.168.1.31", "port": 4455}]},
-                 "propresenter": {"host": "192.168.1.50", "port": 1025}}, replace=("atem", "obs", "propresenter"))
+                 "propresenter": {"host": "192.168.1.50", "port": 1025}}, replace=("blackmagic", "obs", "propresenter"))
     from app.modules import discover
     mods = discover()
-    atem = mods["atem"].network_map()
+    atem = mods["blackmagic"].network_map()
     eq("ATEM names each switcher, by address or by name", [(d.get("ip"), d.get("host"), d["name"]) for d in atem],
        [("192.168.1.240", None, "Main room"), (None, "atem-b.local", "Overflow")])
     eq("OBS marks its machines", [(d["ip"], d["tags"]) for d in mods["obs"].network_map()], [("192.168.1.31", ["OBS Studio"])])

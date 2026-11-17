@@ -69,6 +69,9 @@ class Manifest:
     # Kinds of network traffic the operator can put on a port of their own (app/netroute.py, #344). Each id is the
     # module's id or starts with "<module id>.": Traffic("dante", "Dante control and discovery", media=True).
     traffic: tuple[Traffic, ...] = ()
+    # The id this module had before it was renamed. config.json's settings key, on/off switch and network routes
+    # saved under the old id move to the new one when config loads, once (#432, #433: "atem" became "blackmagic").
+    renamed_from: str = ""
 
 
 @dataclass(frozen=True)
@@ -605,6 +608,9 @@ class Registry:
     def clean_config(self, cfg: dict) -> None:
         """Normalise each module's settings and its switch, in place (config._normalise)."""
         stored = cfg.get("modules") if isinstance(cfg.get("modules"), dict) else {}
+        for mod in self.all():
+            if mod.manifest.renamed_from:
+                stored = self._move_renamed(cfg, stored, mod.manifest)
         switches: dict[str, dict] = {}
         for mod in self.all():
             m = mod.manifest
@@ -617,6 +623,27 @@ class Registry:
                 # changes nothing for a church that uses it.
                 switches[m.id] = {"enabled": bool(mod.configured(cfg[m.settings_key]))}
         cfg["modules"] = switches
+
+    @staticmethod
+    def _move_renamed(cfg: dict, stored: dict, m: Manifest) -> dict:
+        """A renamed module's settings, switch and network routes saved under its old id, moved to the new one. Nothing
+        is overwritten: what is already under the new id wins. Returns the module switches as they now are."""
+        old, new = m.renamed_from, m.id
+        if old != m.settings_key and old in cfg and m.settings_key not in cfg:
+            cfg[m.settings_key] = cfg.pop(old)
+        stored = dict(stored)
+        if old in stored:
+            moved = stored.pop(old)
+            stored.setdefault(new, moved)
+        net = cfg.get("network")
+        if isinstance(net, dict):
+            for part in ("routes", "policy"):
+                table = net.get(part)
+                if isinstance(table, dict):
+                    for cid in [c for c in table if c == old or c.startswith(old + ".")]:
+                        table.setdefault(new + cid[len(old):], table[cid])
+                        del table[cid]
+        return stored
 
     def secret_paths(self) -> list[tuple[str, str]]:
         """(settings key, field) of every module secret config.json keeps sealed, whether the module is on or off."""
@@ -727,6 +754,8 @@ def validate(mod: Any, package: str) -> list[str]:
         problems.append(f"{package}: name and summary are required")
     if not m.settings_key or m.settings_key == "modules":
         problems.append(f"{package}: settings_key must name the module's own config key")
+    if m.renamed_from and (not _ID_RE.match(m.renamed_from) or m.renamed_from == m.id):
+        problems.append(f"{package}: renamed_from must be a different lower_snake_case id")
     for page in mod.admin_pages:
         if not (HERE / package / "templates" / page.template).is_file():
             problems.append(f"{package}: admin page template {page.template} is missing")

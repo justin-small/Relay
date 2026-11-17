@@ -1,11 +1,14 @@
-"""Runs one ATEM client per configured switcher and publishes their tally into core's shared state (#243, #386).
+"""Runs one client per configured Blackmagic device and publishes the switchers' tally into core's shared state
+(#243, #386, #432, #433).
 
-Settings are a list of switchers, each with its own address, an on/off switch, whether it drives the tally lights,
-and the number its camera 1 becomes on the tally screens (so camera 1 on the overflow switcher can be tally 101).
-A setting from before #386 (`{"host", "port"}`) becomes the first switcher, named "Switcher", on load.
+Settings are a list of devices of three kinds: an ATEM switcher, a HyperDeck recorder or a Videohub router. Each has
+its own address, an on/off switch and a kind; a switcher also says whether it drives the tally lights and the number its
+camera 1 becomes on the tally screens (so camera 1 on the overflow switcher can be tally 101), and a Videohub keeps its
+saved route presets. A device saved before #432 has no kind and is a switcher. A setting from before #386
+(`{"host", "port"}`) becomes the first switcher, named "Switcher", on load.
 
 Each switcher that drives tally publishes as its own tally source (`atem_<id>`), so core merges them the same way it
-merges any two sources. A switcher found by discovery keeps its mDNS unique id: when it stops answering, Relay looks
+merges any two sources. A device found by discovery keeps its mDNS unique id: when it stops answering, Relay looks
 for that id on the LAN and follows it to its new address (a DHCP lease that changed).
 """
 from __future__ import annotations
@@ -17,12 +20,20 @@ import secrets
 import time
 
 from ... import config, tally
-from . import protocol as p
-from .client import AtemClient
+from . import atem_protocol as p
+from . import hyperdeck, videohub
+from .atem_client import AtemClient
+from .hyperdeck import HyperDeckClient
+from .videohub import VideohubClient
 
-log = logging.getLogger("relay.atem")
+log = logging.getLogger("relay.blackmagic")
 
-KEY = "atem"
+KEY = "blackmagic"
+KINDS = ("atem", "hyperdeck", "videohub")
+KIND_NAMES = {"atem": "ATEM switcher", "hyperdeck": "HyperDeck", "videohub": "Videohub"}
+DEFAULT_NAME = {"atem": "Switcher", "hyperdeck": "HyperDeck", "videohub": "Videohub"}
+DEFAULT_PORT = {"atem": p.PORT, "hyperdeck": hyperdeck.PORT, "videohub": videohub.PORT}
+MAX_PRESETS = 20
 MAX_DEVICES = 16
 NAME_MAX = 40
 MAX_OFFSET = 900
@@ -42,9 +53,13 @@ def clean_host(value) -> str:
     return host if _HOST_RE.fullmatch(host) else ""
 
 
-def clean_port(value) -> int:
+def clean_kind(value) -> str:
+    return value if value in KINDS else "atem"
+
+
+def clean_port(value, kind: str = "atem") -> int:
     if isinstance(value, bool) or not isinstance(value, int) or not 1 <= value <= 65535:
-        return p.PORT
+        return DEFAULT_PORT[clean_kind(kind)]
     return value
 
 
@@ -58,18 +73,47 @@ def new_id() -> str:
     return secrets.token_hex(4)
 
 
+def clean_presets(raw) -> list[dict]:
+    """A Videohub's saved route presets: a name and the input each listed output takes (outputs and inputs from 0)."""
+    out: list[dict] = []
+    if not isinstance(raw, list):
+        return out
+    seen: set[str] = set()
+    for item in raw:
+        if not isinstance(item, dict) or not isinstance(item.get("id"), str) or not _ID_RE.fullmatch(item["id"]):
+            continue
+        name = videohub.clean_label(item.get("name"))
+        routes = item.get("routes") if isinstance(item.get("routes"), dict) else {}
+        clean: dict[str, int] = {}
+        for o, i in routes.items():
+            if (isinstance(o, str) and o.isdigit() and 0 <= int(o) < videohub.MAX_PORTS and isinstance(i, int)
+                    and not isinstance(i, bool) and 0 <= i < videohub.MAX_PORTS):
+                clean[str(int(o))] = i
+        if name and clean and item["id"] not in seen and len(out) < MAX_PRESETS:
+            seen.add(item["id"])
+            out.append({"id": item["id"], "name": name, "routes": clean})
+    return out
+
+
 def clean_device(raw, fallback_id: str = "") -> dict | None:
-    """One switcher, or None when it has no usable id."""
+    """One device, or None when it has no usable id."""
     if not isinstance(raw, dict):
         return None
     did = raw.get("id") if isinstance(raw.get("id"), str) else fallback_id
     if not _ID_RE.fullmatch(did or ""):
         return None
+    kind = clean_kind(raw.get("kind"))
     uid = raw.get("uid") if isinstance(raw.get("uid"), str) else ""
-    return {"id": did, "name": _str(raw.get("name"), NAME_MAX) or "Switcher", "host": clean_host(raw.get("host")),
-            "port": clean_port(raw.get("port")), "enabled": raw.get("enabled") is not False,
-            "tally": raw.get("tally") is not False, "tally_offset": clean_offset(raw.get("tally_offset")),
-            "uid": uid if _UID_RE.fullmatch(uid) else "", "model": _str(raw.get("model"), 60)}
+    out = {"id": did, "kind": kind, "name": _str(raw.get("name"), NAME_MAX) or DEFAULT_NAME[kind],
+           "host": clean_host(raw.get("host")), "port": clean_port(raw.get("port"), kind),
+           "enabled": raw.get("enabled") is not False, "uid": uid if _UID_RE.fullmatch(uid) else "",
+           "model": _str(raw.get("model"), 60)}
+    if kind == "atem":
+        out["tally"] = raw.get("tally") is not False
+        out["tally_offset"] = clean_offset(raw.get("tally_offset"))
+    elif kind == "videohub":
+        out["presets"] = clean_presets(raw.get("presets"))
+    return out
 
 
 def clean_settings(raw) -> dict:
@@ -99,7 +143,7 @@ def save_devices(items: list[dict]) -> None:
 def overlaps(items: list[dict]) -> list[str]:
     """Sentences for switchers whose tally numbers collide (both drive tally and their 1..40 ranges overlap)."""
     out = []
-    live = [d for d in items if d["enabled"] and d["tally"]]
+    live = [d for d in items if d.get("kind", "atem") == "atem" and d["enabled"] and d["tally"]]
     for i, a in enumerate(live):
         for b in live[i + 1:]:
             if abs(a["tally_offset"] - b["tally_offset"]) < p.MAX_CAMERA_INPUT:
@@ -114,11 +158,11 @@ def version_text(version: int) -> str:
 
 
 class Device:
-    """One switcher's running connection."""
+    """One device's running connection."""
 
     def __init__(self, cfg: dict, on_change) -> None:
         self.cfg = cfg
-        self.client: AtemClient | None = None
+        self.client: AtemClient | HyperDeckClient | VideohubClient | None = None
         self._on_change = on_change
         self.down_since = time.monotonic()
         self.last_refind = float("-inf")   # never looked yet (monotonic time can be small just after boot)
@@ -130,7 +174,8 @@ class Device:
 
     def open(self) -> None:
         if self.cfg["enabled"] and self.cfg["host"]:
-            self.client = AtemClient(self.cfg["host"], self.cfg["port"], on_change=self._on_change)
+            make = {"atem": AtemClient, "hyperdeck": HyperDeckClient, "videohub": VideohubClient}[self.cfg["kind"]]
+            self.client = make(self.cfg["host"], self.cfg["port"], on_change=self._on_change)
             self.client.start()
         self.down_since = time.monotonic()
 
@@ -160,7 +205,7 @@ class Service:
                 dev.down_since = 0.0
             elif not dev.down_since:
                 dev.down_since = time.monotonic()
-            if not (dev.cfg["tally"] and dev.connected):
+            if not (dev.cfg["kind"] == "atem" and dev.cfg["tally"] and dev.connected):
                 continue
             offset = dev.cfg["tally_offset"]
             cams = [dict(c, n=c["n"] + offset) for c in dev.client.cameras() if c["n"] + offset <= 999]
@@ -180,7 +225,7 @@ class Service:
         self._running = True
         self._open_all()
         if self._watch is None:
-            self._watch = asyncio.get_running_loop().create_task(self._refind_loop(), name="atem-refind")
+            self._watch = asyncio.get_running_loop().create_task(self._refind_loop(), name="blackmagic-refind")
 
     async def stop(self) -> None:
         self._running = False
@@ -204,14 +249,14 @@ class Service:
         await asyncio.gather(*(d.close() for d in devs), return_exceptions=True)
 
     async def restart(self) -> None:
-        """Every switcher again, from the settings as they are now."""
+        """Every device again, from the settings as they are now."""
         async with self._lock:
             await self._close_all()
             self.publish()
             self._open_all()
 
     async def sync(self) -> None:
-        """Bring the running switchers in line with the settings, reopening only the ones that changed."""
+        """Bring the running devices in line with the settings, reopening only the ones that changed."""
         async with self._lock:
             want = {d["id"]: d for d in devices()}
             for did in list(self.devices):
@@ -241,10 +286,10 @@ class Service:
             except asyncio.CancelledError:
                 raise
             except Exception:  # never let a bad answer end the loop
-                log.exception("ATEM re-find failed")
+                log.exception("Blackmagic re-find failed")
 
     async def _refind_once(self, discover) -> bool:
-        """Look for any lost switcher by its unique id, and learn the id of a connected one that has none.
+        """Look for any lost device by its unique id, and learn the id of a connected one that has none.
         True when a setting changed."""
         now = time.monotonic()
         lost = [d for d in self.devices.values() if d.cfg["enabled"] and d.cfg["uid"] and not d.connected
@@ -256,8 +301,8 @@ class Service:
         for d in lost + unknown:
             d.last_refind = now
         found = await asyncio.to_thread(discover)
-        by_uid = {f["uid"].lower(): f for f in found if f.get("uid") and f.get("atem")}
-        by_addr = {f["address"]: f for f in found if f.get("uid") and f.get("atem")}
+        by_uid = {(f["family"], f["uid"].lower()): f for f in found if f.get("uid") and f.get("addable")}
+        by_addr = {(f["family"], f["address"]): f for f in found if f.get("uid") and f.get("addable")}
         items = devices()
         changed = False
         moved: dict[str, str] = {}
@@ -266,14 +311,14 @@ class Service:
             if dev is None:
                 continue
             if dev in lost:
-                hit = by_uid.get(item["uid"].lower())
+                hit = by_uid.get((item["kind"], item["uid"].lower()))
                 if hit and hit["address"] and hit["address"] != item["host"]:
-                    log.info("ATEM %s moved from %s to %s", item["name"], item["host"], hit["address"])
+                    log.info("Blackmagic %s moved from %s to %s", item["name"], item["host"], hit["address"])
                     moved[item["id"]] = f"Found again at {hit['address']} (it was at {item['host']})."
                     item["host"] = hit["address"]
                     changed = True
             elif dev in unknown:
-                hit = by_addr.get(item["host"])
+                hit = by_addr.get((item["kind"], item["host"]))
                 if hit:
                     item["uid"] = hit["uid"]
                     item["model"] = item["model"] or hit.get("model", "")
@@ -301,30 +346,58 @@ class Service:
         dev = self.devices.get(cfg["id"])
         c = dev.client if dev else None
         out = dict(cfg, configured=bool(cfg["host"]), connected=False, error=c.error if c else "",
-                   refound=dev.refound if dev else "", product="", version="", old_firmware=False,
-                   inputs=[], mix_effects=[], macros=[], downstream_keyers=0)
+                   refound=dev.refound if dev else "", product="")
+        if cfg["kind"] == "atem":
+            out.update(version="", old_firmware=False, inputs=[], mix_effects=[], macros=[], downstream_keyers=0)
+        elif cfg["kind"] == "hyperdeck":
+            out["hyperdeck"] = {}
+        else:
+            out["videohub"] = {}
         if c is None or not c.connected:
             return out
-        st = c.state
-        out.update(connected=True, product=st.product, downstream_keyers=st.downstream_keyers,
-                   version=version_text(st.version), old_firmware=bool(st.version) and st.version < p.V8_0_1,
-                   inputs=[{"id": i, "name": v["long"] or v["short"] or f"Input {i}"}
-                           for i, v in sorted(st.inputs.items()) if i <= 40 or i in (1000, 2001, 2002)],
-                   mix_effects=[{"me": m, "program": st.program.get(m), "preview": st.preview.get(m)}
-                                for m in range(st.mix_effects)],
-                   macros=[{"slot": k, "name": v} for k, v in sorted(st.macros.items())])
+        out["connected"] = True
+        if cfg["kind"] == "atem":
+            st = c.state
+            out.update(product=st.product, downstream_keyers=st.downstream_keyers,
+                       version=version_text(st.version), old_firmware=bool(st.version) and st.version < p.V8_0_1,
+                       inputs=[{"id": i, "name": v["long"] or v["short"] or f"Input {i}"}
+                               for i, v in sorted(st.inputs.items()) if i <= 40 or i in (1000, 2001, 2002)],
+                       mix_effects=[{"me": m, "program": st.program.get(m), "preview": st.preview.get(m)}
+                                    for m in range(st.mix_effects)],
+                       macros=[{"slot": k, "name": v} for k, v in sorted(st.macros.items())])
+        elif cfg["kind"] == "hyperdeck":
+            out.update(product=c.state.model, hyperdeck=self._hyperdeck_snapshot(c))
+        else:
+            out.update(product=c.state.model, videohub=self._videohub_snapshot(c))
         return out
+
+    @staticmethod
+    def _hyperdeck_snapshot(c: HyperDeckClient) -> dict:
+        st = c.state
+        clip = c.current_clip()
+        return {"protocol": st.protocol, "status": st.status, "slot": st.slot, "timecode": st.timecode,
+                "video_format": st.video_format, "loop": st.loop, "remote_enabled": st.remote_enabled,
+                "clip": {"id": st.clip_id, "name": clip["name"] if clip else ""} if st.clip_id else None,
+                "slots": [dict(v) for _, v in sorted(st.slots.items())], "clips": list(st.clips), "notice": st.notice}
+
+    @staticmethod
+    def _videohub_snapshot(c: VideohubClient) -> dict:
+        st = c.state
+        return {"version": st.version, "notice": st.notice, "present": st.present,
+                "inputs": [{"n": n, "label": st.input_labels.get(n, "")} for n in range(st.inputs)],
+                "outputs": [{"n": n, "label": st.output_labels.get(n, ""), "input": st.routing.get(n),
+                             "lock": st.locks.get(n, "U")} for n in range(st.outputs)]}
 
     # ------------------------------------------------------------------------------------------ control
     def device(self, did) -> Device | None:
-        """The switcher with that id; with none given, the first one."""
+        """The device with that id; with none given, the first switcher (a page written for one switcher keeps working)."""
         if did is None:
-            return next(iter(self.devices.values()), None)
+            return next((d for d in self.devices.values() if d.cfg["kind"] == "atem"), None)
         return self.devices.get(did) if isinstance(did, str) else None
 
     @staticmethod
     def _send(dev: Device, *cmds: bytes) -> bool:
-        return bool(dev.client and dev.client.send(*cmds))
+        return bool(dev.cfg["kind"] == "atem" and dev.client and dev.client.send(*cmds))
 
     def cut(self, dev: Device, me: int) -> bool:
         return self._send(dev, p.cut(me))
@@ -342,7 +415,7 @@ class Service:
         return self._send(dev, p.set_preview(me, source))
 
     def downstream(self, dev: Device, keyer: int, action: str) -> bool:
-        version = dev.client.state.version if dev.client else 0
+        version = dev.client.state.version if dev.client and dev.cfg["kind"] == "atem" else 0
         if action == "auto":
             return self._send(dev, p.downstream_auto(keyer, version))
         return self._send(dev, p.downstream_on_air(keyer, action == "on"))
@@ -350,14 +423,38 @@ class Service:
     def macro(self, dev: Device, slot: int, action: str) -> bool:
         return self._send(dev, p.macro_run(slot) if action == "run" else p.macro_stop())
 
+    # ---- HyperDeck
+    @staticmethod
+    def deck(dev: Device, action: str) -> bool:
+        c = dev.client
+        if dev.cfg["kind"] != "hyperdeck" or c is None or not c.connected:
+            return False
+        return {"record": c.record, "stop": c.stop, "play": c.play}[action]()
+
+    # ---- Videohub
+    @staticmethod
+    def hub(dev: Device) -> VideohubClient | None:
+        c = dev.client
+        return c if dev.cfg["kind"] == "videohub" and c is not None and c.connected else None
+
+    def route(self, dev: Device, pairs: dict[int, int]) -> tuple[int, int]:
+        """Send routes the router would take; leave out any output another control surface holds. (sent, left out)"""
+        c = self.hub(dev)
+        if c is None:
+            return 0, len(pairs)
+        ok = {o: i for o, i in pairs.items() if 0 <= o < c.state.outputs and 0 <= i < c.state.inputs and c.can_route(o)}
+        if ok and not c.route(ok):
+            return 0, len(pairs)
+        return len(ok), len(pairs) - len(ok)
+
     @staticmethod
     def limits(dev: Device | None) -> dict:
-        st = dev.client.state if dev and dev.client else None
+        st = dev.client.state if dev and dev.cfg["kind"] == "atem" and dev.client else None
         return {"mix_effects": st.mix_effects if st else 0, "keyers": st.downstream_keyers if st else 0}
 
 
 def _connection(cfg: dict) -> tuple:
-    return cfg["host"], cfg["port"], cfg["enabled"]
+    return cfg["kind"], cfg["host"], cfg["port"], cfg["enabled"]
 
 
 service = Service()

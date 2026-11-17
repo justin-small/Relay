@@ -1,0 +1,59 @@
+{# The Blackmagic admin page, rendered inside admin.html only while the module is on. #}
+    <h2 class="title">Blackmagic <span class="sumstate" id="bmSum"></span></h2>
+    <p class="sub">Connect Relay to Blackmagic gear on the same network: ATEM switchers (their program and preview tally
+      shows on the camera screens at <code>/tally</code>, and the booth can cut and take from here), HyperDeck
+      recorders (record, stop and play) and Videohub routers (see and change what goes where).</p>
+    <div class="note err" id="bmErr" hidden></div>
+    <div class="note warn" id="bmWarn" hidden></div>
+
+    <section>
+      <h3>Devices</h3>
+      <div id="bmDevices"></div>
+      <p class="note" id="bmNone">No devices yet. Find one on the network below, or add it by its address.</p>
+      <div class="note">Relay joins each device as one more control app, and reconnects by itself. A device added from
+        the network list is followed to a new address if its DHCP lease changes. An ATEM Constellation also has a
+        Videohub router inside it: add it again as a Videohub, by its address, to route it.</div>
+    </section>
+
+    <section id="bmFind">
+      <h3>Find on the network</h3>
+      <p class="note">Lists Blackmagic gear that announces itself on this network: switchers, HyperDecks, Videohubs,
+        cameras and more. Switchers, HyperDecks and Videohubs can be added here.</p>
+      <div class="ctl" style="display:flex;gap:12px;align-items:center;flex-wrap:wrap">
+        <button type="button" class="primary" id="bmScan">Scan</button>
+        <label class="chk chk-inline"><input type="checkbox" id="bmProbe"> Also try every address on this subnet (finds ATEM switchers only)</label>
+      </div>
+      <p class="note" id="bmScanNote" hidden></p>
+      <div class="tablescroll"><table id="bmFound" hidden>
+        <thead><tr><th>Device</th><th>Kind</th><th>Address</th><th>Firmware</th><th></th></tr></thead>
+        <tbody></tbody>
+      </table></div>
+    </section>
+
+    <section id="bmAdd">
+      <h3>Add by address</h3>
+      <p class="note">For a device the scan does not find, for example on another VLAN.</p>
+      <div class="row">
+        <div class="field">
+          <label for="bmKind">Kind</label>
+          <select id="bmKind">
+            <option value="atem">ATEM switcher</option>
+            <option value="hyperdeck">HyperDeck recorder</option>
+            <option value="videohub">Videohub router</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="bmName">Name</label>
+          <input id="bmName" placeholder="Main room" autocomplete="off" maxlength="40">
+        </div>
+        <div class="field">
+          <label for="bmHost">Address</label>
+          <input id="bmHost" placeholder="192.168.1.240" autocomplete="off" spellcheck="false" maxlength="253">
+        </div>
+        <div class="field">
+          <label for="bmPort">Port</label>
+          <input id="bmPort" type="number" min="1" max="65535" value="9910">
+        </div>
+      </div>
+      <div class="ctl"><button type="button" class="primary" id="bmAddBtn">Add device</button></div>
+    </section>

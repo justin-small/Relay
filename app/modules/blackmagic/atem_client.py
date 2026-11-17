@@ -13,9 +13,9 @@ import time
 from typing import Callable
 
 from ... import netsock
-from . import protocol as p
+from . import atem_protocol as p
 
-log = logging.getLogger("relay.atem")
+log = logging.getLogger("relay.blackmagic")
 
 QUIET_S = 5.0            # nothing heard from the switcher for this long: start again
 RESEND_S = 0.06
@@ -82,7 +82,7 @@ class AtemClient:
                 raise
             except OSError:
                 # A fixed sentence (the page never shows an exception's text), naming the chosen port (#348).
-                self.error = netsock.failure("atem", "Could not reach the switcher")
+                self.error = netsock.failure("blackmagic", "Could not reach the switcher")
             except Exception:  # a bad packet must not end the loop
                 log.exception("ATEM session failed")
                 self.error = "Lost the connection"
@@ -98,7 +98,7 @@ class AtemClient:
         loop = asyncio.get_running_loop()
         self._reset()
         # Through the port the operator chose for the switcher (#348); the system default when there is none.
-        transport, _ = await netsock.udp_endpoint("atem", lambda: _Proto(self), remote=(self.host, self.port))
+        transport, _ = await netsock.udp_endpoint("blackmagic", lambda: _Proto(self), remote=(self.host, self.port))
         self._transport = transport
         self._heard = time.monotonic()
         hello_at = 0.0

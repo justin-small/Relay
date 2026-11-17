@@ -219,7 +219,7 @@ gives an ordinary socket when the class is not routed:
 from app import netsock
 
 reader, writer = await netsock.open_tcp("propresenter", host, port)          # or connect_tcp(...) -> socket
-transport, proto = await netsock.udp_endpoint("atem", AtemProtocol)          # or udp_socket(...) -> socket
+transport, proto = await netsock.udp_endpoint("blackmagic", AtemProtocol)          # or udp_socket(...) -> socket
 sock = netsock.multicast_socket("aes67", "239.69.1.1", 5004)                 # joined on the port's address
 server = await netsock.start_server("signage", handle, 8090)                 # or listen_tcp(...) -> socket
 
@@ -228,7 +228,7 @@ with netsock.urlopen("planning_center", request, timeout=30, context=ctx):   # u
 opener = netsock.opener("crew.push", NoRedirect)                             # urllib with handlers; context=, not
                                                                              # an HTTPSHandler of your own
 async with netsock.websocket_session("tally_arbiter", url) as ws:            # or ws = await netsock.websocket(...)
-transport, proto = await netsock.udp_endpoint("atem", Proto, remote=(host, 9910))   # connected, like remote_addr
+transport, proto = await netsock.udp_endpoint("blackmagic", Proto, remote=(host, 9910))   # connected, like remote_addr
 sock = netsock.multicast_sender("propresenter", ttl=255)                     # an mDNS question, no group joined
 ```
 
@@ -248,7 +248,7 @@ Each module's classes, and what happens when the port changes (`network_changed`
 
 | Module | Class | Goes through | On a port change |
 |---|---|---|---|
-| ATEM | `atem` | `udp_endpoint`; `multicast_sender` and `udp_socket` (discovery) | every switcher's session starts again |
+| Blackmagic (ATEM, HyperDeck, Videohub) | `blackmagic` | `udp_endpoint` (ATEM), `open_tcp` (HyperDeck, Videohub); `multicast_sender` and `udp_socket` (discovery) | every device's connection starts again |
 | ProPresenter (and its Planning Center link) | `propresenter` | `http_connection`, `multicast_sender` (discovery) | the live connection opens again |
 | Tally Arbiter | `tally_arbiter` | `websocket_session` | connects again |
 | Planning Center | `planning_center` | `urlopen`, `opener` | asks again now |
@@ -705,6 +705,15 @@ language (the source captions or one translation), finished lines only, split to
 - a module's route is outside its `route_prefixes`, or answers while the module is off;
 - a module adds an admin page or status while it is off;
 - a core template or script names a module's route.
+
+## Renaming a module
+
+A module that changes its id sets `Manifest.renamed_from` to the old one (`renamed_from="atem"` on `blackmagic`, #432). When
+config loads, the registry moves what was saved under the old id to the new one, once: the module's settings key, its
+on/off switch, and any network route or policy for its traffic classes (`atem` and `atem.x` become `blackmagic` and
+`blackmagic.x`). Nothing under the new id is overwritten. The module also renames its permissions (`atem.view` is
+`blackmagic.view`) and its routes; roles come from each permission's `min_role`, so no stored grant has to move, but an API
+token or script that called the old routes needs the new address.
 
 ## Upgrades
 

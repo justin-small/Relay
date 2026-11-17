@@ -3,7 +3,7 @@
 `discover()` asks the LAN over mDNS (standard library only, like core's announcer) for the service types Blackmagic
 products announce, and for the list of every service type, following any that look like Blackmagic's. It lists the
 whole range (switchers, HyperDecks, Videohubs, Teranex, cameras, Web Presenters, Cloud Store, ...) so the operator
-sees what is there; only ATEMs can be added here. Control of the others is for their own modules.
+sees what is there; ATEMs, HyperDecks and Videohubs can be added (`addable`), the others are only listed.
 
 Checked on real hardware (2026-11-16): an ATEM Television Studio HD III (8.1.1) announces `_blackmagic._tcp` on 9910
 with TXT `name`, `class=AtemSwitcher`, `release version` and `unique id`. An ATEM 2 M/E Constellation HD (9.6.2) does
@@ -19,7 +19,7 @@ the words in its service type, its TXT `class` and `name`, and its instance name
 ATEM's "hello" to every address in this computer's /24 and lists the ones that answer. A switcher holds a session
 open for a few seconds for each hello it answers, so the probe runs only when the operator asks for it.
 
-Both go out through the module's traffic class ("atem"), so they use the network port the operator chose for it.
+Both go out through the module's traffic class ("blackmagic"), so they use the network port the operator chose for it.
 """
 from __future__ import annotations
 
@@ -31,11 +31,11 @@ import struct
 import time
 
 from ... import netinfo, netroute, netsock
-from . import protocol as p
+from . import atem_protocol as p
 
-log = logging.getLogger("relay.atem")
+log = logging.getLogger("relay.blackmagic")
 
-TRAFFIC = "atem"
+TRAFFIC = "blackmagic"
 MDNS_GROUP, MDNS_PORT = "224.0.0.251", 5353
 META = "_services._dns-sd._udp.local"
 SERVICES = ("_blackmagic._tcp.local", "_switcher_ctrl._udp.local", "_hyperdeck_ctrl._tcp.local", "_videohub._tcp.local")
@@ -47,6 +47,7 @@ MAX_PROBE_NETS = 2
 PTR, TXT, SRV, A = 12, 16, 33, 1
 
 # (family, label, words that mark it), checked in order.
+ADDABLE = ("atem", "hyperdeck", "videohub")
 FAMILIES = (
     ("atem", "ATEM switcher", ("atem", "switcher_ctrl")),
     ("hyperdeck", "HyperDeck recorder", ("hyperdeck",)),
@@ -172,7 +173,7 @@ def collect(records: list[tuple[str, int, bytes, str]], services: set[str]) -> l
         model = t.get("name") or t.get("model") or t.get("device name") or instance
         fid, label = family(service, t.get("class", ""), t.get("name", ""), instance)
         found[full.lower()] = {
-            "name": instance[:60], "model": model[:60], "family": fid, "kind": label, "atem": fid == "atem",
+            "name": instance[:60], "model": model[:60], "family": fid, "kind": label, "atem": fid == "atem", "addable": fid in ADDABLE,
             "service": service.removesuffix(".local"), "host": host.rstrip("."),
             "address": addr.get(host.lower().rstrip("."), ""), "port": port, "uid": _uid(t, instance),
             "firmware": (t.get("release version") or t.get("internal version") or t.get("version") or "")[:40],
@@ -287,7 +288,7 @@ def probe(seconds: float = 1.5, targets: list[str] | None = None, port: int = p.
     try:
         sock = netsock.udp_socket(TRAFFIC)
     except netsock.RouteError as exc:
-        log.info("ATEM probe not possible: %s", exc)
+        log.info("Blackmagic probe not possible: %s", exc)
         return []
     found: dict[str, dict] = {}
     try:
@@ -311,7 +312,7 @@ def probe(seconds: float = 1.5, targets: list[str] | None = None, port: int = p.
                 continue
             if head["flags"] & p.NEW_SESSION and addr in targets and addr not in found:
                 found[addr] = {"name": f"ATEM at {addr}", "model": "", "family": "atem", "kind": "ATEM switcher",
-                               "atem": True, "service": "probe", "host": "", "address": addr, "port": port,
+                               "atem": True, "addable": True, "service": "probe", "host": "", "address": addr, "port": port,
                                "uid": "", "firmware": ""}
     finally:
         sock.close()

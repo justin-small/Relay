@@ -358,7 +358,7 @@ MIN_ROLE = {
     "intercom_remote.view": "viewer", "intercom_remote.manage": "admin",
     "signage_web.view": "viewer", "signage_web.manage": "admin",
     "alert_events.view": "viewer", "alert_events.manage": "admin",
-    "atem.view": "viewer", "atem.control": "operator", "atem.manage": "admin",
+    "blackmagic.view": "viewer", "blackmagic.control": "operator", "blackmagic.manage": "admin",
     "lighting.view": "viewer", "lighting.control": "operator", "lighting.manage": "admin",
     "obs.view": "viewer", "obs.control": "operator", "obs.manage": "admin",
     "youtube.view": "viewer", "youtube.manage": "admin",
@@ -390,7 +390,7 @@ print("every /api/admin route")
 config.save({"modules": {"propresenter": {"enabled": True}, "planning_center": {"enabled": True},
                          "remote_access": {"enabled": True}, "signage": {"enabled": True},
                          "signage_web": {"enabled": True}, "alert_events": {"enabled": True},
-                         "atem": {"enabled": True}, "lighting": {"enabled": True}, "obs": {"enabled": True}, "youtube": {"enabled": True}, "unifi": {"enabled": True}, "tally_arbiter": {"enabled": True}, "open_sound_meter": {"enabled": True}, "prodmesh_rta": {"enabled": True},
+                         "blackmagic": {"enabled": True}, "lighting": {"enabled": True}, "obs": {"enabled": True}, "youtube": {"enabled": True}, "unifi": {"enabled": True}, "tally_arbiter": {"enabled": True}, "open_sound_meter": {"enabled": True}, "prodmesh_rta": {"enabled": True},
                          "parent_paging": {"enabled": True}, "intercom": {"enabled": True}, "intercom_remote": {"enabled": True},
                          "crew": {"enabled": True}}})
 
@@ -503,7 +503,7 @@ route("GET", "/api/admin/audit", "audit.view")
 PCX, PPX, RAX = "/api/admin/planning-center", "/api/admin/propresenter", "/api/admin/remote-access"
 SGX = "/api/admin/signage"
 SWX = "/api/admin/signage-web"
-ATX = "/api/admin/atem"
+ATX = "/api/admin/blackmagic"
 TAX = "/api/admin/tally-arbiter"
 PGX = "/api/admin/parent-paging"
 for method, path, perm in (
@@ -598,18 +598,25 @@ for method, path, perm in (
     ("DELETE", "/api/admin/crew/calltimes/{rule_id}", "crew.manage"),
     ("POST", "/api/admin/alert-events/test", "alert_events.manage"),      # sends to nothing until something is on
     ("GET", "/api/admin/alert-events/state", "alert_events.view"),
-    ("GET", ATX, "atem.view"),
-    ("POST", ATX + "/devices", "atem.manage"),                           # an empty body is refused
-    ("PUT", ATX + "/devices/{device_id}", "atem.manage"),                # no such switcher: 404
-    ("DELETE", ATX + "/devices/{device_id}", "atem.manage"),
-    ("POST", ATX + "/scan", "atem.manage"),                              # mDNS only: asks, never connects
-    ("POST", ATX + "/cut", "atem.control"),                              # no switcher connected: nothing is sent
-    ("POST", ATX + "/auto", "atem.control"),
-    ("POST", ATX + "/fade-to-black", "atem.control"),
-    ("POST", ATX + "/program", "atem.control"),
-    ("POST", ATX + "/preview", "atem.control"),
-    ("POST", ATX + "/downstream-key", "atem.control"),
-    ("POST", ATX + "/macro", "atem.control"),
+    ("GET", ATX, "blackmagic.view"),
+    ("POST", ATX + "/devices", "blackmagic.manage"),                           # an empty body is refused
+    ("PUT", ATX + "/devices/{device_id}", "blackmagic.manage"),                # no such switcher: 404
+    ("DELETE", ATX + "/devices/{device_id}", "blackmagic.manage"),
+    ("POST", ATX + "/scan", "blackmagic.manage"),                              # mDNS only: asks, never connects
+    ("POST", ATX + "/cut", "blackmagic.control"),                              # no switcher connected: nothing is sent
+    ("POST", ATX + "/auto", "blackmagic.control"),
+    ("POST", ATX + "/fade-to-black", "blackmagic.control"),
+    ("POST", ATX + "/program", "blackmagic.control"),
+    ("POST", ATX + "/preview", "blackmagic.control"),
+    ("POST", ATX + "/downstream-key", "blackmagic.control"),
+    ("POST", ATX + "/macro", "blackmagic.control"),
+    ("POST", ATX + "/hyperdeck/{action}", "blackmagic.control"),               # record, stop or play; no deck: nothing is sent
+    ("POST", ATX + "/videohub/route", "blackmagic.control"),                   # no Videohub connected: nothing is sent
+    ("POST", ATX + "/videohub/labels", "blackmagic.manage"),
+    ("POST", ATX + "/videohub/lock", "blackmagic.manage"),
+    ("POST", ATX + "/videohub/presets", "blackmagic.manage"),
+    ("DELETE", ATX + "/videohub/presets/{device_id}/{preset_id}", "blackmagic.manage"),
+    ("POST", ATX + "/videohub/presets/apply", "blackmagic.control"),
     ("GET", "/api/admin/lighting", "lighting.view"),
     ("PUT", "/api/admin/lighting/settings", "lighting.manage"),         # an empty body changes nothing
     ("PUT", "/api/admin/lighting/pages", "lighting.manage"),            # an empty body is refused
@@ -834,7 +841,7 @@ eq("signed out is 401", anon_c.get("/api/admin/propresenter").status_code, 401)
 config.save({"modules": {"propresenter": {"enabled": False}, "planning_center": {"enabled": False},
                          "remote_access": {"enabled": False}, "signage": {"enabled": False},
                          "signage_web": {"enabled": False}, "alert_events": {"enabled": False},
-                         "atem": {"enabled": False}, "lighting": {"enabled": False}, "obs": {"enabled": False}, "youtube": {"enabled": False}, "unifi": {"enabled": False}, "tally_arbiter": {"enabled": False}, "open_sound_meter": {"enabled": False}, "prodmesh_rta": {"enabled": False},
+                         "blackmagic": {"enabled": False}, "lighting": {"enabled": False}, "obs": {"enabled": False}, "youtube": {"enabled": False}, "unifi": {"enabled": False}, "tally_arbiter": {"enabled": False}, "open_sound_meter": {"enabled": False}, "prodmesh_rta": {"enabled": False},
                          "parent_paging": {"enabled": False}, "intercom": {"enabled": False}, "intercom_remote": {"enabled": False},
                          "crew": {"enabled": False}}})
 eq("a module that is off is still a 404 for everyone", op_c.get("/api/admin/propresenter").status_code, 404)
@@ -1392,7 +1399,7 @@ for mid, want in (("planning_center", {"planning_center.view": "viewer", "planni
                   ("signage", {"signage.view": "viewer", "signage.manage": "admin"}),
                   ("signage_web", {"signage_web.view": "viewer", "signage_web.manage": "admin"}),
                   ("alert_events", {"alert_events.view": "viewer", "alert_events.manage": "admin"}),
-                  ("atem", {"atem.view": "viewer", "atem.control": "operator", "atem.manage": "admin"}),
+                  ("blackmagic", {"blackmagic.view": "viewer", "blackmagic.control": "operator", "blackmagic.manage": "admin"}),
                   ("lighting", {"lighting.view": "viewer", "lighting.control": "operator", "lighting.manage": "admin"}),
                   ("obs", {"obs.view": "viewer", "obs.control": "operator", "obs.manage": "admin"}),
                   ("youtube", {"youtube.view": "viewer", "youtube.manage": "admin"}),
