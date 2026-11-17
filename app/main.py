@@ -21,7 +21,7 @@ from datetime import datetime
 from urllib.parse import urlencode
 
 from fastapi import Depends, FastAPI, Form, HTTPException, Request, Response
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, StreamingResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from jinja2 import ChoiceLoader, FileSystemLoader, PrefixLoader
@@ -29,7 +29,7 @@ from jinja2 import ChoiceLoader, FileSystemLoader, PrefixLoader
 from . import alerts as alertsmod
 from . import backup as backupmod
 from . import announce as announcemod
-from . import alerthistory, audiobus, audit, boards, config, db, exporting, importdocker, languages, netinfo, network_map, netroute, overlays, panelfw, panels, prefs, redact, schedules, serving, setupcode, streamstatus, tally, tls, users
+from . import alerthistory, audiobus, audit, boards, config, db, exporting, importdocker, languages, metering, mixreport, netinfo, network_map, netroute, overlays, panelfw, panels, prefs, redact, schedules, serving, setupcode, streamstatus, tally, tls, users
 from .alerts import alerts
 from . import engine as engine_mod
 from .engine import TRANSCRIPTION_STREAM, TRANSLATION_STREAM, demo_mode, engine
@@ -235,6 +235,9 @@ AUDIT_ROUTES = {
     "admin_network_forget": ("network.forget", "Forgot a network port"),
     "admin_config": ("settings.change", "Changed settings"),
     "admin_audiobus_save": ("audio.bus", "Changed the audio bus"),
+    "admin_metering_save": ("audio.metering", "Changed the sound meter"),
+    "admin_mixreport_save": ("audio.mixreport", "Changed the stream-mix report"),
+    "admin_metering_calibrate": ("audio.metering", "Calibrated the sound meter"),
     "admin_target": ("session.target", "Changed a target language"),
     "admin_start": ("session.start", "Started captions"),
     "admin_stop": ("session.stop", "Stopped captions"),
@@ -355,6 +358,16 @@ async def _startup() -> None:
             await asyncio.to_thread(audiobus.bus.apply, cfg["audio_bus"])
         except Exception:
             log.exception("The audio bus could not start")
+    if cfg["metering"]["enabled"]:
+        try:
+            await asyncio.to_thread(metering.meter.apply, cfg["metering"])
+        except Exception:
+            log.exception("The sound meter could not start")
+    if cfg["mixreport"]["enabled"]:
+        try:
+            await asyncio.to_thread(mixreport.recorder.apply, cfg["mixreport"])
+        except Exception:
+            log.exception("The stream-mix report could not start")
     app.state.blocklist_task = asyncio.create_task(_watch_blocklist())
     app.state.alerts_task = asyncio.create_task(_alert_ticks())
     # A change of LAN address (Wi-Fi switch): mint a certificate that names the new address if the current
@@ -472,6 +485,10 @@ async def _shutdown() -> None:
             task.cancel()
     with contextlib.suppress(Exception):
         await engine.stop()
+    with contextlib.suppress(Exception):
+        await asyncio.to_thread(metering.meter.stop)
+    with contextlib.suppress(Exception):
+        await asyncio.to_thread(mixreport.recorder.stop)
     with contextlib.suppress(Exception):
         await asyncio.to_thread(audiobus.bus.stop)
     with contextlib.suppress(Exception):
@@ -1099,12 +1116,12 @@ def _alert_sender_stream() -> StreamingResponse:
 
 @app.get("/stream")
 async def stream(request: Request, stream: str = "translation", lang: str | None = None,
-                 finals: int = 0, type: str | None = None):
+                 finals: int = 0, type: str | None = None, sound: int = 0):
     if stream == ALERT_STREAM:
         return _alert_sender_stream()
     if stream == streamstatus.STREAM:
         return StreamingResponse(
-            streamstatus.frames(),
+            streamstatus.frames(sound=bool(sound)),
             media_type="text/event-stream",
             headers={"Cache-Control": "no-cache, no-transform", "X-Accel-Buffering": "no"},
         )
@@ -2022,6 +2039,81 @@ async def admin_audiobus_save(request: Request, payload: dict):
         "enabled": cfg["enabled"], "lanes": len(cfg["lanes"]), "outputs": len(cfg["outputs"]),
         "crosspoints": len(cfg["matrix"])})
     return {"config": cfg, "status": audiobus.bus.status()}
+
+
+@app.get("/api/admin/metering", dependencies=[Depends(require("session.view"))])
+async def admin_metering():
+    """The sound meter (app/metering.py): its saved setting and the live reading."""
+    return {"config": config.get()["metering"], "status": metering.meter.snapshot(), "lanes": audiobus.LANES}
+
+
+@app.post("/api/admin/metering", dependencies=[Depends(require("audio.manage"))])
+async def admin_metering_save(request: Request, payload: dict):
+    """Save the meter's setting and apply it. What the body leaves out is kept; setting a different calibration by
+    hand (against a reference meter) counts as calibrated."""
+    cur = config.get()["metering"]
+    body = metering.normalize({**cur, **payload})
+    if "calibration_db" in payload and body["calibration_db"] != cur["calibration_db"] and "calibrated" not in payload:
+        body["calibrated"] = True
+    cfg = config.save({"metering": body}, replace=("metering",))["metering"]
+    await asyncio.to_thread(metering.meter.apply, cfg)
+    audit.note(request, "audio.metering", "Changed the sound meter", detail={
+        "enabled": cfg["enabled"], "lane": cfg["lane"], "kind": cfg["kind"]})
+    return {"config": cfg, "status": metering.meter.snapshot()}
+
+
+@app.post("/api/admin/metering/calibrate", dependencies=[Depends(require("audio.manage"))])
+async def admin_metering_calibrate(request: Request, payload: dict):
+    """Set the calibration from a reference tone: body {"reference_db": 94}. Answers a sentence when there is no
+    signal to read."""
+    try:
+        cal = await asyncio.to_thread(metering.meter.calibrate, payload.get("reference_db"))
+    except ValueError as exc:
+        return JSONResponse({"error": str(exc)}, status_code=409)
+    cfg = config.save({"metering": {**config.get()["metering"], "calibration_db": cal, "calibrated": True}},
+                      replace=("metering",))["metering"]
+    audit.note(request, "audio.metering", "Calibrated the sound meter", detail={"calibration_db": cal})
+    return {"config": cfg, "status": metering.meter.snapshot()}
+
+
+@app.get("/api/admin/mixreport", dependencies=[Depends(require("session.view"))])
+async def admin_mixreport():
+    """The stream-mix report (app/mixreport.py): its setting, what it is doing now and the saved sessions."""
+    return {"config": config.get()["mixreport"], "status": mixreport.recorder.status(),
+            "sessions": await asyncio.to_thread(mixreport.list_sessions), "lanes": audiobus.LANES}
+
+
+@app.post("/api/admin/mixreport", dependencies=[Depends(require("audio.manage"))])
+async def admin_mixreport_save(request: Request, payload: dict):
+    """Save the report's setting and apply it. What the body leaves out is kept."""
+    body = mixreport.normalize({**config.get()["mixreport"], **payload})
+    cfg = config.save({"mixreport": body}, replace=("mixreport",))["mixreport"]
+    await asyncio.to_thread(mixreport.recorder.apply, cfg)
+    audit.note(request, "audio.mixreport", "Changed the stream-mix report", detail={
+        "enabled": cfg["enabled"], "left": cfg["left"], "right": cfg["right"], "rehearsal": cfg["rehearsal"]})
+    return {"config": cfg, "status": mixreport.recorder.status()}
+
+
+@app.get("/api/admin/mixreport/sessions/{sid}", dependencies=[Depends(require("session.view"))])
+async def admin_mixreport_session(sid: str, rehearsal: int = 0):
+    """One saved session, judged against the report's targets. Rehearsal seconds are left out unless asked for."""
+    got = await asyncio.to_thread(mixreport.read_session, sid)
+    if got is None:
+        return JSONResponse({"error": "That report is not there."}, status_code=404)
+    head, rows = got
+    kept = [r for r in rows if rehearsal or not r.get("r")]
+    return {"id": sid, "started": head.get("started"), "label": head.get("label", ""),
+            "rehearsal_seconds": len(rows) - len([r for r in rows if not r.get("r")]),
+            "report": mixreport.judge(kept, config.get()["mixreport"]), "series": mixreport.series(kept)}
+
+
+@app.get("/api/admin/mixreport/sessions/{sid}/csv", dependencies=[Depends(require("session.view"))])
+async def admin_mixreport_csv(sid: str):
+    got = await asyncio.to_thread(mixreport.read_session, sid)
+    if got is None:
+        return JSONResponse({"error": "That report is not there."}, status_code=404)
+    return Response(mixreport.csv_text(got[1]), media_type="text/csv",
+                    headers={"Content-Disposition": f'attachment; filename="stream-mix-{sid}.csv"'})
 
 
 @app.get("/api/admin/status", dependencies=[Depends(require("session.view"))])

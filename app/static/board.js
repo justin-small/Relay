@@ -80,7 +80,7 @@
     };
   }
   function openStatus() {
-    statusEs = new EventSource('/stream?stream=status');
+    statusEs = new EventSource('/stream?stream=status&sound=1');
     statusEs.onmessage = function (ev) {
       let m; try { m = JSON.parse(ev.data); } catch (e) { return; }
       const on = (m.streams || []).filter(function (s) { return s.on_air; });
@@ -88,14 +88,17 @@
       const viewers = on.map(function (s) { return s.viewers; }).filter(function (v) { return typeof v === 'number'; });
       const d = { on_air: m.on_air, live_since: since.length ? Math.min.apply(null, since) : 0,
         viewers: viewers.length ? viewers.reduce(function (a, b) { return a + b; }, 0) : null };
-      items.forEach(function (it) { if (it.type === 'stream') apply(it.id, d); });
+      items.forEach(function (it) {
+        if (it.type === 'stream') apply(it.id, d);
+        if (it.type === 'spl' || it.type === 'rta') apply(it.id, { sound: m.sound || null });
+      });
     };
   }
   function wanted() {
     const langs = {}; let status = false, mod = false;
     items.forEach(function (it) {
       if (it.type === 'captions') langs[(it.props || {}).lang || 'SOURCE'] = true;
-      if (it.type === 'stream') status = true;
+      if (it.type === 'stream' || it.type === 'spl' || it.type === 'rta') status = true;
       if (it.type.indexOf('.') > 0) mod = true;
     });
     return { langs: langs, status: status, mod: mod };

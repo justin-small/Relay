@@ -105,3 +105,6 @@
 .rl-pv{height:120px;display:flex;background:#000;border-radius:8px;padding:8px}
 .rl-df{display:flex;gap:8px;justify-content:flex-end;padding:12px 16px;border-top:1px solid var(--rl-line)}
 @media (max-width:600px){.rl-db{grid-template-columns:1fr}}
+.rl-note{margin-top:auto;opacity:.7}
+.rl-rta{flex:1;min-height:0;width:100%;margin-top:4cqh;image-rendering:pixelated;border-radius:6px;background:rgba(255,255,255,.04)}
+.rl-w.rl-green .rl-bigx{color:#4ade80}.rl-w.rl-amber .rl-bigx{color:#fbbf24}.rl-w.rl-red .rl-bigx{color:#f87171}

@@ -152,6 +152,56 @@ window.relayCan = function (perm) { return window.RELAY_ME.permissions.indexOf(p
     </div>
     <div class="note" id="audioNote"></div>
   </section>
+    <section>
+      <h3>Sound level and spectrum</h3>
+      <p class="note" style="margin-top:0">A calibrated sound meter (A- and C-weighted) and a 1/3-octave spectrum, read from one lane of the audio bus at its full 48 kHz. Patch a measurement mic to the lane for room SPL; a desk feed measures the mix only.</p>
+      <div class="row">
+        <label><input type="checkbox" id="mtOn"> Meter on</label>
+        <label>Lane <input type="number" id="mtLane" min="1" max="32" value="1"></label>
+        <label>Input is <select id="mtKind"><option value="room">A measurement mic in the room</option><option value="mix">The desk's mix (not room SPL)</option></select></label>
+      </div>
+      <div class="row">
+        <label>Warn at (dB) <input type="number" id="mtWarn" min="40" max="140" step="1"></label>
+        <label>Limit at (dB) <input type="number" id="mtLimit" min="40" max="140" step="1"></label>
+        <label>Calibration: 0 dBFS = (dB SPL) <input type="number" id="mtCal" min="60" max="160" step="0.1"></label>
+      </div>
+      <div class="row">
+        <button id="mtSave" class="primary" type="button">Save</button>
+        <label>Calibrator reads (dB) <input type="number" id="mtRef" min="30" max="140" step="0.1" value="94"></label>
+        <button id="mtCalibrate" type="button">Set calibration from the tone now playing</button>
+      </div>
+      <div class="pill" style="margin-top:9px"><span class="dot" id="mtDot"></span><span id="mtState">Off</span></div>
+      <div class="meterread" id="mtRead" style="margin-top:6px">—</div>
+      <canvas id="mtRta" width="620" height="140" style="width:100%;max-width:620px;height:140px;margin-top:8px" role="img" aria-label="Spectrum in third-octave bands"></canvas>
+      <canvas id="mtWf" width="300" height="31" style="width:100%;max-width:620px;height:140px;margin-top:8px;image-rendering:pixelated;background:#000" role="img" aria-label="Spectrogram: time runs left to right, low frequencies at the bottom"></canvas>
+      <div class="note" id="mtNote"></div>
+    </section>
+    <section>
+      <h3>Stream mix report</h3>
+      <p class="note" style="margin-top:0">While the stream mix carries sound, Relay saves a row a second (loudness, peak, left/right correlation, octave bands) for each captions session, then judges it against your targets. Patch the mix's left and right to two lanes from the same device.</p>
+      <div class="row">
+        <label><input type="checkbox" id="mrOn"> Record the stream mix</label>
+        <label>Left lane <input type="number" id="mrLeft" min="1" max="32"></label>
+        <label>Right lane <input type="number" id="mrRight" min="1" max="32"></label>
+        <label><input type="checkbox" id="mrRehearsal"> This is a rehearsal</label>
+      </div>
+      <div class="row">
+        <label>Target (LUFS) <input type="number" id="mrTarget" min="-40" max="-5" step="0.5"></label>
+        <label>Within (LU) <input type="number" id="mrTol" min="0.5" max="10" step="0.5"></label>
+        <label>Peak limit (dBFS) <input type="number" id="mrPeak" min="-20" max="0" step="0.5"></label>
+        <label>Silence below (dBFS) <input type="number" id="mrSilence" min="-90" max="-10" step="1"></label>
+      </div>
+      <div class="row"><button id="mrSave" class="primary" type="button">Save</button></div>
+      <div class="note" id="mrState"></div>
+      <div class="row" style="margin-top:10px">
+        <label>Session <select id="mrSessions"></select></label>
+        <label><input type="checkbox" id="mrIncl"> Include rehearsal</label>
+        <button id="mrShow" type="button">Show report</button>
+        <a id="mrCsv" class="btnlink" href="#" hidden>Download CSV</a>
+      </div>
+      <div id="mrReport"></div>
+      <canvas id="mrGraph" width="620" height="120" style="width:100%;max-width:620px;height:120px;margin-top:8px" role="img" aria-label="Loudness over the session" hidden></canvas>
+    </section>
   </div>
 {% endif %}
 {% if 'targets.manage' in perms %}

@@ -44,6 +44,10 @@ DEFAULTS: dict[str, Any] = {
     # The 32-lane audio bus (app/audiobus.py): inputs patched to lanes, a crosspoint matrix, outputs. Off until
     # switched on; the main capture above does not depend on it.
     "audio_bus": {"enabled": False, "lanes": [], "outputs": [], "matrix": []},
+    "mixreport": {"enabled": False, "left": 1, "right": 2, "silence_dbfs": -50.0, "target_lufs": -16.0,
+                  "tolerance_lu": 2.0, "peak_limit_dbfs": -1.0, "rehearsal": False},
+    "metering": {"enabled": False, "lane": 1, "kind": "room", "calibration_db": 110.0, "calibrated": False,
+                 "warn_db": 85.0, "limit_db": 95.0},
     "source_language": "ENGLISH",
     "targets": {"SPANISH": {"enabled": True}},
     "default_font_px": 40,
@@ -178,6 +182,10 @@ def _normalise(cfg: dict) -> dict:
     cfg["audio_source"] = str(cfg.get("audio_source") or "portaudio").strip().lower() or "portaudio"
     from . import audiobus  # here, not at the top: it loads the sound library, which config must not need
     cfg["audio_bus"] = audiobus.normalize(cfg.get("audio_bus"))
+    from . import metering  # the same reason: it imports the bus
+    cfg["metering"] = metering.normalize(cfg.get("metering"))
+    from . import mixreport  # the same reason
+    cfg["mixreport"] = mixreport.normalize(cfg.get("mixreport"))
     # A channel index, or the string "mix" to average every input channel --
     # a stereo board feed is usually better summed than halved.
     _ch = cfg.get("input_channel", 0)
