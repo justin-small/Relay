@@ -45,10 +45,12 @@ APP = ROOT / "app"
 MODULES = APP / "modules"
 
 # Relay's core. A new file here is a new piece of core, not an integration: say why in the pull request.
+# audiobus.py (#92): the 32-lane audio bus and matrix. Core because every module that brings audio in or out
+# registers with it through app/audio.py; it opens no network connection of its own.
 # netroute.py (#344): which network port each kind of traffic uses; core because every module asks it.
 # netsock.py (#345): sockets pinned to a chosen port; core so every module steers traffic the same way.
 CORE_FILES = {
-    "__init__.py", "alerthistory.py", "alerts.py", "announce.py", "audio.py", "audit.py", "backup.py", "config.py", "db.py", "demo.py", "engine.py", "exporting.py", "hub.py", "prefs.py",
+    "__init__.py", "alerthistory.py", "alerts.py", "announce.py", "audio.py", "audiobus.py", "audit.py", "backup.py", "config.py", "db.py", "demo.py", "engine.py", "exporting.py", "hub.py", "prefs.py",
     "importdocker.py", "languages.py", "main.py", "mdns.py", "netinfo.py", "netroute.py", "netsock.py", "network_map.py", "oauth.py", "overlays.py", "panelfw.py", "panels.py", "paths.py", "realtime.py", "recorder.py", "redact.py",
     "scheduler.py", "schedules.py", "secretbox.py", "serving.py", "setupcode.py", "sidecar.py", "streamstatus.py", "tally.py", "texttranslate.py", "tls.py", "users.py",
 }

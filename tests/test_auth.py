@@ -410,6 +410,8 @@ route("GET", "/api/admin/urls", "settings.view")
 route("GET", "/api/admin/status", "session.view")
 route("GET", "/api/admin/status/stream", "session.view")
 route("GET", "/api/admin/devices", "session.view")
+route("GET", "/api/admin/audiobus", "session.view")
+route("POST", "/api/admin/audiobus", "audio.manage")
 route("POST", "/api/admin/config", "settings.view")        # then per field, below
 route("POST", "/api/admin/target/{target}", "targets.manage")
 route("POST", "/api/admin/start", "session.control")

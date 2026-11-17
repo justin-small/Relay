@@ -382,6 +382,51 @@ gating, reconnecting and the consumers stay in core's pump, so a source only del
 `audio.SourceError` with a fixed sentence (nothing from the network or a library) when it cannot start. An
 `AudioOutput.play(pcm, rate, selector)` takes mono 16-bit PCM, returns at once and raises nothing.
 
+### The 32-lane audio bus
+
+Beside the main capture, core has a bus of 32 mono **lanes** at 48 kHz (`app/audiobus.py`, #92). Any
+device of any registered source can be patched to any lane; a crosspoint **matrix** routes lanes to
+**outputs** of up to 32 channels. It is off until `audio_bus.enabled` is set, and the main capture does not
+depend on it. The operator's setting, saved in `audio_bus` and edited through `GET`/`POST /api/admin/audiobus`:
+
+```json
+{"enabled": true,
+ "lanes":   [{"lane": 1, "name": "Pastor", "source": "portaudio", "device": "Core Audio: Scarlett", "channel": 0},
+             {"lane": 9, "source": "mixer_stream", "device": "ch 9", "channel": "mix"}],
+ "outputs": [{"id": "monitor", "output": "portaudio", "device": "Core Audio: Speakers", "channels": 2, "latency_ms": 60}],
+ "matrix":  [{"in": 1, "out": "monitor", "ch": 1, "gain_db": -6}]}
+```
+
+A device is opened once however many lanes use it, and changing one lane, input or output leaves the others
+running. A module takes part with the two hooks it already has, plus an optional second one:
+
+```python
+class Stream(audio.AudioSource):
+    def lane_input(self): return MyInput()      # default: your `open` as one mono lane
+
+class MyInput(audio.LaneInput):
+    def open(self, selector, deliver):          # deliver(float32 block shaped (frames, channels)), never blocking
+        return audio.SourceInfo(rate=48000, device={"label": "Mixer", "channels": 32}, channel="all")
+    def close(self): ...
+    def alive(self): ...                        # False when the input is lost: the bus reconnects it
+
+class Sender(audio.AudioOutput):
+    def lane_sink(self, selector, channels): return MySink()   # raise audio.SourceError with a fixed sentence
+
+class MySink(audio.LaneSink):                   # paced by the sender's own clock
+    rate = 48000                                # any rate: the bus resamples to it
+    def free(self): ...                         # frames write() takes now
+    def queued(self): ...                       # frames waiting to play
+    def write(self, block): ...                 # float32 (frames, channels); returns the frames taken
+```
+
+Consume a lane from core or a module with `audiobus.bus.lane(n).subscribe(callback)` (called on the input's
+thread, so it must not block; any number of subscribers share a lane) or `subscribe_queue(loop)` for async
+code. The engine can take a lane as its input with `audio_source: "lane"` and `audio_device: "<lane>"`, and
+Relay's own sounds can be played into a bus output through `audio.get_output("bus").play(pcm, rate,
+"<output id>:3,4")`. Outputs follow each lane's clock with a resampler trimmed by at most 0.5%, so two devices
+on different clocks do not click; the cost is the output's `latency_ms` (default 60) of passthrough delay.
+
 ## Pages that need HTTPS
 
 A module whose pages need a secure context (a service worker, the microphone, web push) lists their prefixes in

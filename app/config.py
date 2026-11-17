@@ -41,6 +41,9 @@ DEFAULTS: dict[str, Any] = {
     # Which registered audio source feeds capture (app/audio.py): "portaudio", or the id of a module's source.
     "audio_source": "portaudio",
     "input_channel": 0,
+    # The 32-lane audio bus (app/audiobus.py): inputs patched to lanes, a crosspoint matrix, outputs. Off until
+    # switched on; the main capture above does not depend on it.
+    "audio_bus": {"enabled": False, "lanes": [], "outputs": [], "matrix": []},
     "source_language": "ENGLISH",
     "targets": {"SPANISH": {"enabled": True}},
     "default_font_px": 40,
@@ -171,6 +174,8 @@ def _normalise(cfg: dict) -> dict:
     cfg["default_font_px"] = max(16, min(160, int(cfg.get("default_font_px") or 40)))
     cfg["history_lines"] = max(1, min(500, int(cfg.get("history_lines") or 40)))
     cfg["audio_source"] = str(cfg.get("audio_source") or "portaudio").strip().lower() or "portaudio"
+    from . import audiobus  # here, not at the top: it loads the sound library, which config must not need
+    cfg["audio_bus"] = audiobus.normalize(cfg.get("audio_bus"))
     # A channel index, or the string "mix" to average every input channel --
     # a stereo board feed is usually better summed than halved.
     _ch = cfg.get("input_channel", 0)
