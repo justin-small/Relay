@@ -12,7 +12,7 @@ signed in to Relay (`boards.view`, every role) on the operator port, or by anyon
 `public`; it is changed only by `boards.manage` (admin).
 
 Widgets. Core's are below (WIDGETS): captions in any language, a clock, a countdown, text, a link to another board and
-the livestream's status. A module adds its own by overriding `Module.board_widgets()`; its widget types start with the
+the livestream's status, and the room's sound level and spectrum (app/metering.py). A module adds its own by overriding `Module.board_widgets()`; its widget types start with the
 module's id ("lighting.cue"), and core asks the module for their live data and presses (`board_data`,
 `board_press`) without importing it. A widget whose module is off stays on the board, drawn as off, and comes back when
 the module does.
@@ -39,7 +39,7 @@ _TYPE = re.compile(r"[a-z][a-z0-9_]{0,31}(?:\.[a-z][a-z0-9_]{0,31})?")
 _PROP_KEY = re.compile(r"[a-z][a-z0-9_]{0,31}")
 _TIME = re.compile(r"([01]?\d|2[0-3]):[0-5]\d")
 RATIOS = {"16:9": (12, 8), "4:3": (8, 6), "9:16": (6, 10)}
-KINDS = ("button", "captions", "clock", "countdown", "text", "status", "lines", "list")
+KINDS = ("button", "captions", "clock", "countdown", "text", "status", "lines", "list", "spl", "rta")
 FIELD_TYPES = ("text", "area", "select", "check", "time", "number", "note", "ro")
 SOURCE = "SOURCE"            # the captions widget's value for the original speech
 
@@ -55,6 +55,13 @@ def _languages() -> list[list[str]]:
     src = config.get().get("source_language", "ENGLISH")
     label = languages.SOURCE_LANGUAGES.get(src, {}).get("label", "Original")
     return [[SOURCE, f"{label} (original speech)"]] + [[k, v["label"]] for k, v in languages.TARGETS.items()]
+
+
+def _sound_sources() -> list[list[str]]:
+    """Where a sound widget can read: Relay's own meter, then each module's registered source (#149)."""
+    from . import metering
+
+    return [["", "Relay's own meter"]] + [[k, v] for k, v in metering.sources()]
 
 
 def core_widgets() -> list[dict]:
@@ -80,6 +87,20 @@ def core_widgets() -> list[dict]:
          "style": {"icon": "cam"},
          "fields": [{"key": "_", "label": "On air when any stream Relay watches is live (OBS, YouTube...).",
                      "type": "note"}]},
+        {"type": "spl", "name": "Sound level", "group": "Sound", "kind": "spl", "w": 3, "h": 2,
+         "style": {"icon": "mic"},
+         "fields": [{"key": "weighting", "label": "Weighting", "type": "select", "default": "A",
+                     "options": [["A", "Sound level, A-weighted"], ["C", "Sound level, C-weighted"]]},
+                    {"key": "response", "label": "Response", "type": "select", "default": "slow",
+                     "options": [["slow", "Slow (1 s)"], ["fast", "Fast (125 ms)"], ["leq", "Average, last minute (A)"]]},
+                    {"key": "source", "label": "Read from", "type": "select", "default": "",
+                     "options": _sound_sources()}]},
+        {"type": "rta", "name": "Spectrum", "group": "Sound", "kind": "rta", "w": 6, "h": 3,
+         "style": {"icon": "mic"},
+         "fields": [{"key": "view", "label": "Shown as", "type": "select", "default": "bars",
+                     "options": [["bars", "Room spectrum (RTA)"], ["waterfall", "Spectrogram"]]},
+                    {"key": "source", "label": "Read from", "type": "select", "default": "",
+                     "options": _sound_sources()}]},
     ]
 
 

@@ -364,6 +364,8 @@ MIN_ROLE = {
     "youtube.view": "viewer", "youtube.manage": "admin",
     "unifi.view": "viewer", "unifi.manage": "admin",
     "tally_arbiter.view": "viewer", "tally_arbiter.manage": "admin",
+    "open_sound_meter.view": "viewer", "open_sound_meter.manage": "admin",
+    "prodmesh_rta.view": "viewer", "prodmesh_rta.manage": "admin",
     "parent_paging.view": "viewer", "parent_paging.control": "operator", "parent_paging.manage": "admin",
     "crew.use": "member", "crew.view": "viewer", "crew.manage": "admin", "crew.page": "operator", "crew.chat": "member", "crew.checkin": "member", "crew.checklist": "member", "crew.checklist_edit": "operator", "crew.resources": "member", "crew.resources_edit": "operator", "crew.moderate": "operator", "crew.activity": "operator",
 }
@@ -388,7 +390,7 @@ print("every /api/admin route")
 config.save({"modules": {"propresenter": {"enabled": True}, "planning_center": {"enabled": True},
                          "remote_access": {"enabled": True}, "signage": {"enabled": True},
                          "signage_web": {"enabled": True}, "alert_events": {"enabled": True},
-                         "atem": {"enabled": True}, "lighting": {"enabled": True}, "obs": {"enabled": True}, "youtube": {"enabled": True}, "unifi": {"enabled": True}, "tally_arbiter": {"enabled": True},
+                         "atem": {"enabled": True}, "lighting": {"enabled": True}, "obs": {"enabled": True}, "youtube": {"enabled": True}, "unifi": {"enabled": True}, "tally_arbiter": {"enabled": True}, "open_sound_meter": {"enabled": True}, "prodmesh_rta": {"enabled": True},
                          "parent_paging": {"enabled": True}, "intercom": {"enabled": True}, "intercom_remote": {"enabled": True},
                          "crew": {"enabled": True}}})
 
@@ -412,6 +414,13 @@ route("GET", "/api/admin/status/stream", "session.view")
 route("GET", "/api/admin/devices", "session.view")
 route("GET", "/api/admin/audiobus", "session.view")
 route("POST", "/api/admin/audiobus", "audio.manage")
+route("GET", "/api/admin/metering", "session.view")
+route("POST", "/api/admin/metering", "audio.manage")
+route("POST", "/api/admin/metering/calibrate", "audio.manage")
+route("GET", "/api/admin/mixreport", "session.view")
+route("POST", "/api/admin/mixreport", "audio.manage")
+route("GET", "/api/admin/mixreport/sessions/{sid}", "session.view")
+route("GET", "/api/admin/mixreport/sessions/{sid}/csv", "session.view")
 route("POST", "/api/admin/config", "settings.view")        # then per field, below
 route("POST", "/api/admin/target/{target}", "targets.manage")
 route("POST", "/api/admin/start", "session.control")
@@ -648,6 +657,10 @@ for method, path, perm in (
     ("POST", PGX + "/pages/clear", "parent_paging.control"),
     ("GET", TAX, "tally_arbiter.view"),
     ("PUT", TAX + "/settings", "tally_arbiter.manage"),                  # an empty body clears the address
+    ("GET", "/api/admin/open-sound-meter", "open_sound_meter.view"),
+    ("PUT", "/api/admin/open-sound-meter/settings", "open_sound_meter.manage"),
+    ("GET", "/api/admin/prodmesh-rta", "prodmesh_rta.view"),
+    ("PUT", "/api/admin/prodmesh-rta/settings", "prodmesh_rta.manage"),
 ):
     route(method, path, perm)
 for method, path, perm in (
@@ -821,7 +834,7 @@ eq("signed out is 401", anon_c.get("/api/admin/propresenter").status_code, 401)
 config.save({"modules": {"propresenter": {"enabled": False}, "planning_center": {"enabled": False},
                          "remote_access": {"enabled": False}, "signage": {"enabled": False},
                          "signage_web": {"enabled": False}, "alert_events": {"enabled": False},
-                         "atem": {"enabled": False}, "lighting": {"enabled": False}, "obs": {"enabled": False}, "youtube": {"enabled": False}, "unifi": {"enabled": False}, "tally_arbiter": {"enabled": False},
+                         "atem": {"enabled": False}, "lighting": {"enabled": False}, "obs": {"enabled": False}, "youtube": {"enabled": False}, "unifi": {"enabled": False}, "tally_arbiter": {"enabled": False}, "open_sound_meter": {"enabled": False}, "prodmesh_rta": {"enabled": False},
                          "parent_paging": {"enabled": False}, "intercom": {"enabled": False}, "intercom_remote": {"enabled": False},
                          "crew": {"enabled": False}}})
 eq("a module that is off is still a 404 for everyone", op_c.get("/api/admin/propresenter").status_code, 404)
@@ -1385,6 +1398,8 @@ for mid, want in (("planning_center", {"planning_center.view": "viewer", "planni
                   ("youtube", {"youtube.view": "viewer", "youtube.manage": "admin"}),
                   ("unifi", {"unifi.view": "viewer", "unifi.manage": "admin"}),
                   ("tally_arbiter", {"tally_arbiter.view": "viewer", "tally_arbiter.manage": "admin"}),
+                  ("open_sound_meter", {"open_sound_meter.view": "viewer", "open_sound_meter.manage": "admin"}),
+                  ("prodmesh_rta", {"prodmesh_rta.view": "viewer", "prodmesh_rta.manage": "admin"}),
                   ("parent_paging", {"parent_paging.view": "viewer", "parent_paging.control": "operator",
                                      "parent_paging.manage": "admin"}),
                   ("crew", {"crew.use": "member", "crew.view": "viewer", "crew.manage": "admin", "crew.page": "operator", "crew.chat": "member", "crew.checkin": "member",

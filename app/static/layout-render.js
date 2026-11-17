@@ -103,6 +103,22 @@
       const a = el('div', 'rl-air', 'Off air'); const v = el('div', 'rl-ln');
       w.appendChild(a); w.appendChild(v); w._rl.air = a; w._rl.airText = v;
     },
+    spl: function (w, it, s) {
+      const p = it.props || {};
+      w.appendChild(head(s, it.title));
+      const v = el('div', 'rl-bigx', '--'); const u = el('div', 'rl-ln'); const n = el('div', 'rl-ln rl-note');
+      w.appendChild(v); w.appendChild(u); w.appendChild(n);
+      w._rl.spl = { v: v, u: u, n: n, src: p.source || '', key: p.response === 'leq' ? 'leq_a' : (p.weighting === 'C' ? 'c' : 'a') + '_' + (p.response === 'fast' ? 'fast' : 'slow'),
+        unit: p.response === 'leq' ? 'Leq dB(A), 1 min' : 'dB(' + (p.weighting === 'C' ? 'C' : 'A') + ') ' + (p.response === 'fast' ? 'Fast' : 'Slow') };
+    },
+    rta: function (w, it, s) {
+      w.appendChild(head(s, it.title));
+      const c = document.createElement('canvas'); c.className = 'rl-rta';
+      const wf = (it.props || {}).view === 'waterfall';
+      c.width = wf ? 240 : 310; c.height = wf ? 31 : 120;
+      const n = el('div', 'rl-ln rl-note');
+      w.appendChild(c); w.appendChild(n); w._rl.rta = { c: c, n: n, wf: wf, src: (it.props || {}).source || '' };
+    },
     lines: function (w, it, s) {
       w.appendChild(head(s, it.title));
       const c = el('div', 'rl-cap rl-center'); w.appendChild(c); w._rl.lines = c;
@@ -138,12 +154,64 @@
       w._rl.list.textContent = '';
       d.rows.slice(0, 12).forEach(function (r) { w._rl.list.appendChild(el('div', r && r.current ? 'rl-cur' : '', String(r && r.text || ''))); });
     }
+    if (d.sound !== undefined) {
+      if (w._rl.spl) paintSpl(w, d.sound);
+      if (w._rl.rta) paintRta(w, d.sound);
+    }
     if (w._rl.air && d.on_air !== undefined) {
       w._rl.air.textContent = d.on_air ? 'On air' : (d.on_air === false ? 'Off air' : 'No stream set up');
       w._rl.air.classList.toggle('rl-on', !!d.on_air);
       w._rl.airSince = d.on_air ? d.live_since : 0;
       w._rl.airViewers = d.viewers;
       w._rl.airText.textContent = airLine(w);
+    }
+  }
+  // Sound: the status feed's `sound` block. Levels are set as text and drawn on a canvas, never as markup.
+  const BAR_MIN = 20, BAR_MAX = 120;
+  function levelClass(db, snd) { return db >= snd.limit_db ? 'rl-red' : (db >= snd.warn_db ? 'rl-amber' : 'rl-green'); }
+  function soundNote(snd) {
+    if (!snd) return 'Sound meter is off';
+    if (snd.state === 'no_input') return 'No signal on the meter input';
+    const parts = [];
+    if (snd.kind === 'mix') parts.push('Mix level, not room SPL');
+    if (!snd.calibrated) parts.push('Not calibrated');
+    return parts.join(' · ');
+  }
+  // The reading a widget shows: Relay's own, or a module's source it was told to read from.
+  function pickSound(snd, src) {
+    if (!src) return snd;
+    const x = snd && snd.sources && snd.sources[src];
+    return x ? Object.assign({ warn_db: snd.warn_db || 85, limit_db: snd.limit_db || 95 }, x) : null;
+  }
+  function paintSpl(w, snd) {
+    const s = w._rl.spl; snd = pickSound(snd, s.src);
+    const val = snd && snd.state !== 'no_input' ? snd[s.key] : undefined;
+    s.v.textContent = typeof val === 'number' ? String(Math.round(val)) : '--';
+    s.u.textContent = s.unit; s.n.textContent = soundNote(snd);
+    w.classList.remove('rl-green', 'rl-amber', 'rl-red');
+    if (typeof val === 'number') w.classList.add(levelClass(val, snd));
+  }
+  function paintRta(w, snd) {
+    const r = w._rl.rta, c = r.c, g = c.getContext('2d'); snd = pickSound(snd, r.src);
+    r.n.textContent = soundNote(snd);
+    const bands = snd && snd.state !== 'no_input' && Array.isArray(snd.bands) ? snd.bands : null;
+    const frac = function (db) { return Math.max(0, Math.min(1, (db - BAR_MIN) / (BAR_MAX - BAR_MIN))); };
+    if (r.wf) {
+      g.drawImage(c, -1, 0);
+      for (let i = 0; i < 31; i++) {
+        const db = bands ? +bands[i] : 0;
+        g.fillStyle = bands ? 'hsl(' + Math.round(240 - 240 * frac(db)) + ',90%,' + Math.round(8 + 52 * frac(db)) + '%)' : '#000';
+        g.fillRect(c.width - 1, 30 - i, 1, 1);
+      }
+      return;
+    }
+    g.clearRect(0, 0, c.width, c.height);
+    if (!bands) return;
+    const bw = c.width / 31;
+    for (let i = 0; i < 31; i++) {
+      const db = +bands[i], h = Math.round(frac(db) * c.height);
+      g.fillStyle = db >= snd.limit_db ? '#dc2626' : (db >= snd.warn_db ? '#f59e0b' : '#22c55e');
+      g.fillRect(i * bw + 1, c.height - h, bw - 2, h);
     }
   }
   function airLine(w) {

@@ -2328,6 +2328,143 @@
   }
 
   /* ---- navigation: one settings area at a time, chosen from the sidebar ---- */
+  /* ---- sound level and spectrum (#149): settings, a live reading and the RTA, on the Audio input page ---- */
+  (function metering() {
+    if (!$('mtOn')) return;
+    let busy = false;
+    function fill(cfg) {
+      $('mtOn').checked = !!cfg.enabled; $('mtLane').value = cfg.lane; $('mtKind').value = cfg.kind;
+      $('mtWarn').value = cfg.warn_db; $('mtLimit').value = cfg.limit_db; $('mtCal').value = cfg.calibration_db;
+    }
+    function draw(st) {
+      const c = $('mtRta'), g = c.getContext('2d'); g.clearRect(0, 0, c.width, c.height);
+      const on = st.state === 'ok';
+      $('mtDot').className = 'dot' + (on ? ' ok' : '');
+      $('mtState').textContent = st.state === 'off' ? 'Off' : (on ? 'Measuring' : 'No signal on lane ' + st.lane);
+      const num = function (v) { return typeof v === 'number' ? v.toFixed(1) : '—'; };
+      $('mtRead').textContent = on ? 'A ' + num(st.a_slow) + ' slow · ' + num(st.a_fast) + ' fast   C ' + num(st.c_slow) + ' slow   Leq(A) 1 min ' + num(st.leq_a) + ' dB' : '—';
+      const notes = [];
+      if (st.state !== 'off' && st.kind === 'mix') notes.push('This is the mix level, not the SPL in the room.');
+      if (st.state !== 'off' && !st.calibrated) notes.push('Not calibrated: levels are relative until you set the calibration.');
+      if (st.dropped) notes.push(st.dropped + ' analysis blocks were skipped to keep the captions on time.');
+      $('mtNote').textContent = notes.join(' ');
+      // The spectrogram: each reading adds a column on the right, low bands at the bottom.
+      const wf = $('mtWf'), wg = wf.getContext('2d');
+      wg.drawImage(wf, -1, 0);
+      for (let i = 0; i < 31; i++) {
+        const f = on && Array.isArray(st.bands) ? Math.max(0, Math.min(1, (+st.bands[i] - 20) / 100)) : 0;
+        wg.fillStyle = on && Array.isArray(st.bands) ? 'hsl(' + Math.round(240 - 240 * f) + ',90%,' + Math.round(8 + 52 * f) + '%)' : '#000';
+        wg.fillRect(wf.width - 1, 30 - i, 1, 1);
+      }
+      if (!on || !Array.isArray(st.bands)) return;
+      const bw = c.width / 31;
+      for (let i = 0; i < 31; i++) {
+        const db = +st.bands[i], h = Math.round(Math.max(0, Math.min(1, (db - 20) / 100)) * (c.height - 14));
+        g.fillStyle = db >= st.limit_db ? '#dc2626' : (db >= st.warn_db ? '#f59e0b' : '#22c55e');
+        g.fillRect(i * bw + 1, c.height - 14 - h, bw - 2, h);
+      }
+      g.fillStyle = getComputedStyle(document.body).color; g.font = '11px system-ui,sans-serif';
+      (st.labels || []).forEach(function (t, i) { if (i % 3 === 1) g.fillText(t, i * bw, c.height - 2); });
+    }
+    async function load() { const r = await api('/api/admin/metering'); fill(r.config); draw(r.status); }
+    async function save(extra) {
+      const body = { enabled: $('mtOn').checked, lane: +$('mtLane').value, kind: $('mtKind').value,
+        warn_db: +$('mtWarn').value, limit_db: +$('mtLimit').value, calibration_db: +$('mtCal').value };
+      const r = await post('/api/admin/metering', Object.assign(body, extra || {}));
+      fill(r.config); draw(r.status);
+    }
+    $('mtSave').addEventListener('click', function () { save().catch(function (e) { alertMsg(e.message); }); });
+    $('mtCalibrate').addEventListener('click', async function () {
+      try {
+        const r = await post('/api/admin/metering/calibrate', { reference_db: +$('mtRef').value });
+        fill(r.config); draw(r.status);
+      } catch (e) { alertMsg(e.message); }
+    });
+    load().catch(function () {});
+    setInterval(async function () {
+      const pg = $('page-audio');
+      if (busy || document.hidden || !pg || pg.hidden) return;
+      busy = true;
+      try { draw((await api('/api/admin/metering')).status); } catch (e) { /* the next tick tries again */ } finally { busy = false; }
+    }, 1000);
+  })();
+
+  /* ---- stream mix report (#149): the setting, the saved sessions and each one's verdicts ---- */
+  (function mixreport() {
+    if (!$('mrOn')) return;
+    const IDS = ['mrOn', 'mrLeft', 'mrRight', 'mrRehearsal', 'mrTarget', 'mrTol', 'mrPeak', 'mrSilence'];
+    function fill(c) {
+      $('mrOn').checked = !!c.enabled; $('mrLeft').value = c.left; $('mrRight').value = c.right;
+      $('mrRehearsal').checked = !!c.rehearsal; $('mrTarget').value = c.target_lufs; $('mrTol').value = c.tolerance_lu;
+      $('mrPeak').value = c.peak_limit_dbfs; $('mrSilence').value = c.silence_dbfs;
+    }
+    function state(st) {
+      const l = st.latest;
+      $('mrState').textContent = !st.running ? 'Not recording.' : (st.error || (l
+        ? 'Recording: ' + (l.m === null ? '—' : l.m) + ' LUFS momentary, peak ' + l.pk + ' dBFS, ' + st.rows + ' seconds saved.'
+        : 'Recording, waiting for sound on the stream mix.'));
+    }
+    function sessions(list, keep) {
+      const sel = $('mrSessions'); sel.textContent = '';
+      list.forEach(function (s) {
+        const o = document.createElement('option'); o.value = s.id;
+        o.textContent = (s.started ? new Date(s.started * 1000).toLocaleString() : s.id) + ' · ' + s.seconds + ' s';
+        sel.appendChild(o);
+      });
+      if (keep && list.some(function (s) { return s.id === keep; })) sel.value = keep;
+    }
+    async function load() {
+      const r = await api('/api/admin/mixreport');
+      fill(r.config); state(r.status); sessions(r.sessions, $('mrSessions').value);
+    }
+    $('mrSave').addEventListener('click', async function () {
+      try {
+        const r = await post('/api/admin/mixreport', {
+          enabled: $('mrOn').checked, left: +$('mrLeft').value, right: +$('mrRight').value,
+          rehearsal: $('mrRehearsal').checked, target_lufs: +$('mrTarget').value, tolerance_lu: +$('mrTol').value,
+          peak_limit_dbfs: +$('mrPeak').value, silence_dbfs: +$('mrSilence').value });
+        fill(r.config); state(r.status);
+      } catch (e) { alertMsg(e.message); }
+    });
+    function graph(series) {
+      const c = $('mrGraph'), g = c.getContext('2d'); g.clearRect(0, 0, c.width, c.height);
+      const pts = series.filter(function (p) { return typeof p.m === 'number'; });
+      c.hidden = pts.length < 2;
+      if (c.hidden) return;
+      const lo = -40, hi = 0, x = function (i) { return i / (pts.length - 1) * (c.width - 2) + 1; };
+      const y = function (v) { return c.height - 4 - Math.max(0, Math.min(1, (v - lo) / (hi - lo))) * (c.height - 8); };
+      g.strokeStyle = getComputedStyle(document.body).color; g.globalAlpha = 0.5; g.lineWidth = 1;
+      g.beginPath(); pts.forEach(function (p, i) { i ? g.lineTo(x(i), y(p.m)) : g.moveTo(x(i), y(p.m)); }); g.stroke();
+      g.globalAlpha = 1; g.strokeStyle = '#22c55e'; g.lineWidth = 2;
+      g.beginPath(); pts.forEach(function (p, i) { const v = typeof p.s === 'number' ? p.s : p.m; i ? g.lineTo(x(i), y(v)) : g.moveTo(x(i), y(v)); }); g.stroke();
+    }
+    $('mrShow').addEventListener('click', async function () {
+      const id = $('mrSessions').value; if (!id) return;
+      const box = $('mrReport'); box.textContent = '';
+      try {
+        const r = await api('/api/admin/mixreport/sessions/' + encodeURIComponent(id) + '?rehearsal=' + ($('mrIncl').checked ? 1 : 0));
+        const rep = r.report, num = function (v, u) { return typeof v === 'number' ? v + ' ' + u : '—'; };
+        const head = document.createElement('div'); head.className = 'meterread';
+        head.textContent = 'Overall: ' + rep.overall.toUpperCase() + ' · ' + rep.seconds + ' s of sound · integrated ' + num(rep.integrated_lufs, 'LUFS') +
+          ' · peak ' + num(rep.peak_dbfs, 'dBFS') + (r.rehearsal_seconds && !$('mrIncl').checked ? ' · ' + r.rehearsal_seconds + ' s of rehearsal left out' : '');
+        box.appendChild(head);
+        rep.verdicts.forEach(function (v) {
+          const d = document.createElement('div'); d.className = 'note';
+          d.textContent = (v.status === 'pass' ? '✓ ' : (v.status === 'warn' ? '! ' : '✗ ')) + v.check + ': ' + v.text;
+          box.appendChild(d);
+        });
+        graph(r.series);
+        $('mrCsv').href = '/api/admin/mixreport/sessions/' + encodeURIComponent(id) + '/csv'; $('mrCsv').hidden = false;
+      } catch (e) { box.textContent = e.message; }
+    });
+    load().catch(function () {});
+    setInterval(async function () {
+      const pg = $('page-audio');
+      if (document.hidden || !pg || pg.hidden) return;
+      try { state((await api('/api/admin/mixreport')).status); } catch (e) { /* the next tick tries again */ }
+    }, 3000);
+  })();
+
   const PAGES = Array.prototype.map.call(document.querySelectorAll('.page[data-page]'), function (n) { return n.dataset.page; });
 
   function showPage(name) {
