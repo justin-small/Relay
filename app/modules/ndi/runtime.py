@@ -22,6 +22,41 @@ log = logging.getLogger("relay.ndi")
 _backend: Any = None
 _reason = ""
 _tried = False
+_applied: dict | None = None     # the network settings the SDK was loaded with
+
+
+def sdk_config(net: dict) -> dict:
+    """The NDI SDK's own config (ndi-config.v1.json) for Relay's network settings: discovery servers, mDNS on or off,
+    and the groups to receive. Written to Relay's state folder and pointed at with NDI_CONFIG_DIR, so Relay never
+    touches the machine's own NDI config. Key names follow NDI's config documentation; unverified on a real install."""
+    return {"ndi": {"networks": {"ips": ",".join(net.get("extra_ips", [])), "discovery": ",".join(net.get("servers", []))},
+                    "mdns": {"enable": bool(net.get("mdns", True))},
+                    "groups": {"recv": ",".join(net.get("groups", []))}}}
+
+
+def configure(net: dict, folder: Any) -> None:
+    """Write the SDK config and point the SDK at it. Must run before the first `load()`: the SDK reads it once, when
+    it starts, so a later change shows as `restart_needed`."""
+    import json
+    import os
+    from pathlib import Path
+
+    global _applied
+    if _tried:
+        return
+    folder = Path(folder)
+    folder.mkdir(parents=True, exist_ok=True)
+    (folder / "ndi-config.v1.json").write_text(json.dumps(sdk_config(net), indent=2), encoding="utf-8")
+    os.environ["NDI_CONFIG_DIR"] = str(folder)
+    _applied = {k: list(net.get(k, [])) if isinstance(net.get(k), list) else net.get(k) for k in ("servers", "mdns", "groups", "extra_ips")}
+
+
+def restart_needed(net: dict) -> bool:
+    """True when the settings differ from what the loaded SDK started with."""
+    if _applied is None:
+        return False
+    now = {k: list(net.get(k, [])) if isinstance(net.get(k), list) else net.get(k) for k in _applied}
+    return now != _applied
 
 
 def load() -> Any:
@@ -54,8 +89,8 @@ def install(backend: Any) -> None:
 
 
 def reset() -> None:
-    global _backend, _reason, _tried
-    _backend, _reason, _tried = None, "", False
+    global _backend, _reason, _tried, _applied
+    _backend, _reason, _tried, _applied = None, "", False, None
 
 
 class CyndiBackend:
@@ -64,6 +99,26 @@ class CyndiBackend:
 
     def open_sender(self, name: str) -> "_Sender":
         return _Sender(name)
+
+    def find(self, seconds: float = 3.0) -> list[dict]:
+        """Every source the SDK sees (through a discovery server, extra addresses, groups and mDNS): [{"name",
+        "address"}]."""
+        from cyndilib.finder import Finder
+
+        finder = Finder()
+        finder.open()
+        try:
+            finder.wait_for_sources(seconds)
+            out = []
+            for name in finder.get_source_names():
+                src = finder.get_source(name)
+                out.append({"name": str(name), "address": str(getattr(src, "host_name", "") or "")})
+            return out
+        finally:
+            try:
+                finder.close()
+            except Exception:
+                pass
 
 
 class _Connection:

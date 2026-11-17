@@ -18,6 +18,22 @@
     </section>
 
     <section>
+      <h3>Discovery server</h3>
+      <p class="note">A discovery server finds NDI sources across subnets and where multicast DNS is blocked. Point every
+        NDI machine in the building at the same one (see the guide). Relay does not run one: NDI's licence does not
+        allow bundling it, so install NDI Tools from <a href="https://ndi.video/tools" target="_blank"
+        rel="noopener noreferrer">ndi.video/tools</a> on a computer that is always on.</p>
+      <div class="field">
+        <label for="ndiServers">Discovery server addresses (comma separated, port 5959 unless given)</label>
+        <input id="ndiServers" placeholder="192.168.1.20" autocomplete="off" spellcheck="false" maxlength="300">
+      </div>
+      <label class="chk"><input type="checkbox" id="ndiMdns"> Also look with multicast DNS</label>
+      <div id="ndiServerStatus"></div>
+      <div class="note warn" id="ndiRestart" hidden>The NDI runtime reads these settings when Relay starts. Restart Relay
+        to apply the change.</div>
+    </section>
+
+    <section>
       <h3>Where to look</h3>
       <div class="row">
         <div class="field">

@@ -6,7 +6,7 @@ from fastapi.responses import JSONResponse
 
 from ... import audit, config
 from .. import require
-from .service import KEY, clean_ip, clean_settings, service
+from .service import KEY, clean_ip, clean_server, clean_settings, service
 
 router = APIRouter()
 VIEW = [Depends(require("ndi.view"))]
@@ -40,7 +40,14 @@ async def admin_settings(request: Request, payload: dict):
     ips = payload.get("extra_ips", cur["extra_ips"])
     if not isinstance(ips, list) or any(not clean_ip(v) for v in ips):
         return _bad("Extra addresses must be IP addresses, like 192.168.20.5.")
-    new = clean_settings({**cur, **{k: payload[k] for k in ("extra_ips", "groups", "interval") if k in payload}})
+    servers = payload.get("servers", cur["servers"])
+    if not isinstance(servers, list) or any(not clean_server(v) for v in servers):
+        return _bad("A discovery server is an address like 192.168.1.20 or 192.168.1.20:5959.")
+    if "mdns" in payload and not isinstance(payload["mdns"], bool):
+        return _bad("Multicast DNS is on or off.")
+    new = clean_settings({**cur, **{k: payload[k] for k in ("servers", "mdns", "extra_ips", "groups", "interval") if k in payload}})
+    if not new["mdns"] and not new["servers"] and not new["extra_ips"]:
+        return _bad("With multicast DNS off, add a discovery server or an extra address, or nothing can be found.")
     config.save({KEY: new})
     audit.note(request, "ndi.settings", "Changed the NDI search settings")
     if service.running:
