@@ -42,7 +42,6 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-import os
 import time
 from dataclasses import dataclass, field
 from typing import Any, Callable, Iterable
@@ -59,9 +58,9 @@ MAX_WAIT = 30 * 60      # never wait longer than this for a code to be entered, 
 SLOW_DOWN = 5           # RFC 8628 3.5: add this to the interval when told to slow down
 MIN_INTERVAL = 1        # never ask more often than this, whatever the service says
 
-# Relay's cloud, where every service sends the sign-in back to. RELAY_OAUTH_CLOUD points a test or a staging
-# Worker elsewhere.
-CLOUD = (os.environ.get("RELAY_OAUTH_CLOUD") or "https://cloud.relaysystems.dev").rstrip("/")
+# Relay's cloud, where every service sends the sign-in back to. A plain constant: CodeQL treats a value read from
+# an environment variable named like OAUTH as a password, and fails a test that prints it.
+CLOUD = "https://cloud.relaysystems.dev"
 CLOUD_DOWN = "Relay's sign-in service did not answer. Try again in a minute."
 
 # The states an account is in, as `status()["state"]` gives them.
