@@ -346,6 +346,80 @@ with section("a stored value that is not JSON"):
         eq("disconnected", ACC.status()["state"], "disconnected")
     check("logged", logged)
 
+with section("Relay's own app: a link through relay-cloud, tokens collected once, refreshed through it"):
+    FAKE.cloud = "fake"
+    CACC = oauth.Account("fakesvc", FAKE, settings_key="fakesvc", field="cloud_account",
+                         client=lambda: oauth.Client(""), scopes=("read",))
+    START, RESULT, REFRESH = (FAKE.cloud_url(s) for s in ("start", "result", "refresh"))
+    eq("relay-cloud's address", START, oauth.CLOUD + "/v1/oauth/fake/start")
+    S, POLL = "s" * 43, "p" * 43
+    link = "https://fake.example/authorize?state=" + S
+    FAKE.script(START, (201, {"session": S, "poll": POLL, "url": link, "expires_in": 900, "interval": 0.01}))
+    FAKE.script(RESULT, (200, {"status": "pending"}), (502, {}), (200, {"status": "done", "tokens": {
+        "access_token": "cloud-access", "refresh_token": "cloud-refresh", "expires_in": 3600, "scope": "read"}}))
+    FAKE.sent.clear()
+    FAKE.client_key_sent.clear()
+
+    async def via_cloud():
+        s = await CACC.connect(Person())
+        eq("waiting with a link, no code", (s["state"], s["code"], s["url"]), ("waiting", "", link))
+        check("the poll secret never reaches the page", POLL not in json.dumps(s))
+        check("connected in the end", await wait_state_of(CACC, "connected"))
+
+    async def wait_state_of(acc, state, timeout=3.0):
+        end = time.time() + timeout
+        while time.time() < end:
+            if acc.status()["state"] == state:
+                return True
+            await asyncio.sleep(0.01)
+        return False
+
+    run(via_cloud())
+    eq("asked relay-cloud, then polled it (a failed poll is asked again)",
+       [u for u, *_ in FAKE.sent if u != "identity"], [START, RESULT, RESULT, RESULT])
+    check("no client secret ever sent from Relay", not any(FAKE.client_key_sent))
+    eq("remembered as connected through relay-cloud", json.loads(config.get()["fakesvc"]["cloud_account"])["via"], "cloud")
+    eq("token", run(CACC.token()), "cloud-access")
+
+    CACC._tokens.expires_at = 1.0
+    FAKE.script(REFRESH, (200, {"access_token": "cloud-access-2", "expires_in": 3600}))
+    eq("refreshed through relay-cloud", run(CACC.token()), "cloud-access-2")
+    eq("sent the refresh token there", FAKE.sent[-1][:2], (REFRESH, {"refresh_token": "cloud-refresh"}))
+    CACC._tokens.expires_at = 1.0
+    FAKE.script(REFRESH, (400, {"error": "invalid_grant"}))
+    try:
+        run(CACC.token())
+        check("refused", False)
+    except oauth.NeedsSignIn:
+        eq("revoked at the service: sign in again", CACC.status()["state"], "sign_in")
+
+    FAKE.script(START, (201, {"session": S, "poll": POLL, "url": link, "interval": 0.01}))
+    FAKE.script(RESULT, (200, {"status": "denied"}))
+    run(CACC.connect(Person()))
+    run(wait_state_of(CACC, "sign_in"))
+    eq("declined", CACC.status()["message"], "Sign-in was declined.")
+    FAKE.script(START, (201, {"session": S, "poll": POLL, "url": link, "interval": 0.01}))
+    FAKE.script(RESULT, (200, {"status": "failed"}))
+    run(CACC.connect(Person()))
+    run(wait_state_of(CACC, "sign_in"))
+    eq("relay-cloud could not finish", CACC.status()["message"], "FakeTube did not finish the sign-in. Press Connect to try again.")
+    FAKE.script(START, (201, {"session": S, "poll": POLL, "url": "http://not-https.example/", "interval": 0.01}))
+    try:
+        run(CACC.connect(Person()))
+        check("refused", False)
+    except oauth.Problem as e:
+        eq("a link that is not https is refused", str(e), oauth.CLOUD_DOWN)
+
+    # An account from an app this copy no longer has (an old built-in client) asks for a new sign-in.
+    config.save({"fakesvc": {"cloud_account": json.dumps({"tokens": {"access_token": "old", "refresh_token": "old-r",
+                                                                      "expires_at": 1.0}, "name": "Grace"})}})
+    try:
+        run(CACC.token())
+        check("refused", False)
+    except oauth.NeedsSignIn:
+        eq("no app to refresh with: sign in again", CACC.status()["state"], "sign_in")
+    FAKE.cloud = ""
+
 with section("Provider.call: only https, and through the module's traffic class"):
     p = oauth.Provider("fakesvc")
     p.name = "Thing"
@@ -360,7 +434,8 @@ with section("Provider.call: only https, and through the module's traffic class"
     try:
         eq("status and JSON", run(p.call("https://x.example/t", {"a": "1"}, token="tok")), (400, {"error": "invalid_grant"}))
         eq("routed by class", got[0][0], "fakesvc")
-        eq("bearer header", got[0][2]["headers"], {"Authorization": "Bearer tok"})
+        eq("bearer header, and a User-Agent Cloudflare lets through", got[0][2]["headers"],
+           {"User-Agent": "Relay", "Authorization": "Bearer tok"})
         netsock.fetch = lambda route, url, **kw: (200, b"<html>")
         eq("not JSON is an empty object", run(p.call("https://x.example/t")), (200, {}))
 

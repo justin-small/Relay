@@ -1,6 +1,7 @@
 """YouTube live status (#252): whether the church's channel is live, since when, and how many are watching.
 
-Relay signs in to the channel with core's device sign-in (`app/oauth.py`, #304) and reads it with the read-only scope.
+Relay signs in to the channel with core's sign-in (`app/oauth.py`, #304: through relay-cloud with Relay's Google app,
+or a device code with the church's own) and reads it with the read-only scope.
 Every check costs quota from one daily allowance (10,000 units) that every Relay install shares through Relay's Google
 app, so it asks rarely: every `live_s` seconds while YouTube or another stream Relay follows (OBS, say) is on air,
 and every `idle_s` seconds otherwise. A check is one `liveBroadcasts.list` (1 unit), plus one `videos.list` (1 unit)
@@ -24,16 +25,6 @@ UNREACHABLE = "Relay could not reach YouTube or got no answer. It will try again
 SOURCE = "youtube"
 API = "https://www.googleapis.com/youtube/v3"
 SCOPE = "https://www.googleapis.com/auth/youtube.readonly"
-
-# Relay's own Google app ("TVs and Limited Input devices" client, docs/reference/oauth-apps.md). Not confidential by
-# Google's design for this client type, but kept out of the public repository: the release workflow writes _client.py
-# (git-ignored) from Actions secrets with `tools/release_tools.py oauth-clients`. A copy run from source has none and
-# uses the church's own app from the module's settings.
-try:
-    from ._client import CLIENT_ID as _ID, CLIENT_SECRET as _SECRET
-except ImportError:
-    _ID = _SECRET = ""
-BUILTIN = oauth.Client(id=_ID, secret=_SECRET)
 
 LIVE_S = (30, 600, 60)          # (least, most, default) seconds between checks while something is on air
 IDLE_S = (120, 3600, 600)       # and otherwise
@@ -75,14 +66,15 @@ def settings() -> dict:
 
 
 def client() -> oauth.Client:
+    """The church's own Google app, when it set one ("TVs and Limited Input devices" client, device sign-in).
+    Otherwise empty: Relay's own app, through relay-cloud (docs/reference/oauth-apps.md)."""
     s = settings()
-    if s["client_id"]:
-        return oauth.Client(s["client_id"], s["client_secret"])
-    return BUILTIN
+    return oauth.Client(s["client_id"], s["client_secret"])
 
 
 class Google(oauth.Provider):
     id, name = "google", "YouTube"
+    cloud = "google"
     device_url = "https://oauth2.googleapis.com/device/code"
     token_url = "https://oauth2.googleapis.com/token"
     revoke_url = "https://oauth2.googleapis.com/revoke"
@@ -293,7 +285,7 @@ class Service:
         level, detail = self.health()
         return {"health": {"level": level, "detail": detail}, "broadcasts": self.broadcasts, "live": self.live(),
                 "checked_at": self.checked_at or None, "settings": public(settings()),
-                "builtin": bool(BUILTIN.id), "account": ACCOUNT.status()}
+                "account": ACCOUNT.status()}
 
 
 service = Service()

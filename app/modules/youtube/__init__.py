@@ -1,6 +1,6 @@
 """YouTube live status (#252): whether the church's channel is live, since when and how many are watching, in the
 shared stream status (`app/streamstatus.py`) the status view shows. Relay signs in to the channel with the Connect
-button (core's device sign-in, `app/oauth.py`, #304), read-only.
+button (core's sign-in, `app/oauth.py`, #304, through relay-cloud), read-only.
 """
 from __future__ import annotations
 

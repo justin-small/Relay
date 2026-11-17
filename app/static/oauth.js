@@ -1,5 +1,6 @@
 /* The Connect card a module puts on its admin page for an account it signs in to (#304, app/oauth.py):
-   who is connected, a Connect button that shows the code to enter at the service's address, and Disconnect.
+   who is connected, a Connect button, and Disconnect. Connect shows a link to the service's sign-in (through
+   relay-cloud), or, when the church uses its own app, the code to enter at the service's address.
 
      RelayOAuth.mount(container, '/api/admin/<module>/account', { manage: '<module>.manage', onChange: fn })
 
@@ -48,7 +49,21 @@
       head.appendChild(pill);
       card.appendChild(head);
 
-      if (s.state === 'waiting') {
+      if (s.state === 'waiting' && !s.code) {
+        // Through relay-cloud: the operator signs in at the service and it sends them back to Relay's cloud.
+        card.appendChild(el('p', 'oauthsteps', 'Sign in with the church\'s ' + (s.service || '') + ' account. The sign-in opens in a new tab; this card updates by itself once you have signed in.'));
+        const go = el('div', 'pactions');
+        const a = el('a', 'oauthgo', 'Open ' + (s.service || 'the') + ' sign-in');
+        a.href = /^https:\/\//.test(s.url || '') ? s.url : '#';
+        a.target = '_blank';
+        a.rel = 'noopener noreferrer';
+        go.appendChild(a);
+        card.appendChild(go);
+        if (s.expires_at) {
+          const mins = Math.max(0, Math.round((s.expires_at * 1000 - Date.now()) / 60000));
+          card.appendChild(el('div', 'note', 'The link works for about ' + mins + ' more minute' + (mins === 1 ? '' : 's') + '. To sign in on another device, copy the link there.'));
+        }
+      } else if (s.state === 'waiting') {
         const p = el('p', 'oauthsteps');
         p.appendChild(document.createTextNode('On any phone or computer, go to '));
         const a = el('a', '', s.url || '');
@@ -131,6 +146,8 @@
     const s = document.createElement('style');
     s.textContent = '.oauthcard .oauthcode{font:600 28px/1.2 ui-monospace,Menlo,Consolas,monospace;letter-spacing:.12em;' +
       'margin:8px 0;user-select:all}.oauthcard .oauthsteps{margin:10px 0 0}.oauthcard a{color:var(--fg)}' +
+      '.oauthcard a.oauthgo{display:inline-block;padding:6px 14px;border-radius:8px;text-decoration:none;font-weight:500;' +
+      'background:var(--primary);border:1px solid var(--primary);color:var(--primary-fg)}' +
       '.oauthcard .phead .spill{padding:3px 9px;font-size:11px}.oauthcard .spill .dot{border-radius:50%;display:inline-block}.oauthcard .spill:not(.on) .dot{background:var(--dim)}' +
       '.oauthcard .spill.idle{color:var(--dim)}.oauthcard .spill.warn{color:#fcd34d;border-color:#5b4a14}.oauthcard .spill.warn .dot{background:#fcd34d}';
     document.head.appendChild(s);

@@ -1551,9 +1551,9 @@ token acts as its user: turning that user off stops the token at once.
 
 ## YouTube
 
-Switch on **YouTube** on the Modules page, then open **Output > YouTube** and press **Connect**. Relay shows a code; on
-any phone or computer go to google.com/device, enter it, and sign in with the Google account that owns the church's
-channel. Relay asks only to read the channel (`youtube.readonly`): it can never change, publish or delete anything.
+Switch on **YouTube** on the Modules page, then open **Output > YouTube** and press **Connect**, then **Open YouTube
+sign-in**, and sign in with the Google account that owns the church's channel (the link also works on another phone or
+computer). Google sends the sign-in back through Relay's cloud (cloud.relaysystems.dev), which passes it to this Relay. Relay asks only to read the channel (`youtube.readonly`): it can never change, publish or delete anything.
 
 The page then shows the channel's live broadcast: its state (live, testing), how long it has been live, how many are
 watching, and links to its watch page and to YouTube Studio. It is also an entry on the status view (`/status`): **live**
@@ -1567,9 +1567,9 @@ cannot be read, **standing by** otherwise. Broadcast titles stay on the admin pa
   health say "YouTube needs signing in again". Press **Connect again**.
 - **Disconnect** forgets the account and asks Google to remove Relay's access. To check, open the Google account's
   Security page, then "Your connections to third-party apps & services".
-- **Your own Google app.** Until Relay's own Google app is published, a church can make its own (a "TVs and Limited
+- **Your own Google app.** To keep the sign-in off Relay's cloud, a church can make its own (a "TVs and Limited
   Input devices" client with the YouTube Data API switched on, see `docs/reference/oauth-apps.md`) and enter its client
-  ID and secret under Settings.
+  ID and secret under Settings. Connect then shows a code to enter at google.com/device.
 - Only Admins and Owners connect, disconnect or change settings; viewers and operators see the status. Connecting and
   disconnecting are in the audit log. The token is kept encrypted in config.json, like the OpenAI key, and never sent to
   a browser.

@@ -1,13 +1,16 @@
 """Signing Relay in to another service (#304): YouTube, Facebook and whatever comes next.
 
-The operator presses **Connect** on a module's page; Relay asks the service for a short code, the page shows it
-with the address to enter it at (google.com/device, facebook.com/device), and the operator signs in there on any
-phone or computer. Relay waits for the service to say yes, keeps the token, refreshes it before it runs out, and
-says on the module's page and in its health whether the account is still connected.
+The operator presses **Connect** on a module's page and gets a link to the service's own sign-in. Relay, on a
+church's own computer, has no address the service can send the browser back to, so the service sends it to Relay's
+cloud (relay-cloud, `CLOUD`, at `/oauth/<service>/callback`), which holds Relay's app secrets, swaps the sign-in for
+tokens and keeps them until this install, polling with a secret only it was given, collects them once. Refreshing
+needs the app secret too, so it goes through relay-cloud as well. Relay keeps the tokens, refreshes them before they
+run out, and says on the module's page and in its health whether the account is still connected.
 
-This is OAuth 2.0 device authorization (RFC 8628). It needs no address the service can send the browser back to,
-which Relay, on a church's own computer, does not have. Services that only do browser redirects (Restream) will
-need relay-cloud to pass the sign-in back; that is not built yet.
+A church that uses its own app instead (the module's settings, "bring your own app") signs in with OAuth 2.0 device
+authorization (RFC 8628): the page shows a short code to enter at the service's address (google.com/device) on any
+phone or computer, and Relay talks to the service directly with the church's client. An account remembers which way
+it was connected ("via": "cloud"), since its refresh token only works with the app that issued it.
 
 Nothing here knows any one service. A module describes its service as a `Provider` (the defaults follow the RFC,
 which Google does; a module overrides what its service does differently) and keeps one `Account` per connection:
@@ -16,13 +19,14 @@ which Google does; a module overrides what its service does differently) and kee
 
     class Google(oauth.Provider):
         id, name = "google", "YouTube"
+        cloud = "google"                                 # its name at relay-cloud
         device_url = "https://oauth2.googleapis.com/device/code"
         token_url = "https://oauth2.googleapis.com/token"
         revoke_url = "https://oauth2.googleapis.com/revoke"
         async def identity(self, tokens): ...           # {"id": ..., "name": ...}, the account signed in
 
     ACCOUNT = oauth.Account("youtube", Google("youtube"), settings_key="youtube",
-                            client=lambda: oauth.Client(id=..., secret=...), scopes=("...youtube.readonly",))
+                            client=church_client, scopes=("...youtube.readonly",))   # Client("") means Relay's app
     oauth.add_routes(router, "/api/admin/youtube/account", ACCOUNT,
                      view=require("youtube.view"), manage=require("youtube.manage"))
 
@@ -54,6 +58,11 @@ MAX_WAIT = 30 * 60      # never wait longer than this for a code to be entered, 
 SLOW_DOWN = 5           # RFC 8628 3.5: add this to the interval when told to slow down
 MIN_INTERVAL = 1        # never ask more often than this, whatever the service says
 
+# Relay's cloud, where every service sends the sign-in back to. A plain constant: CodeQL treats a value read from
+# an environment variable named like OAUTH as a password, and fails a test that prints it.
+CLOUD = "https://cloud.relaysystems.dev"
+CLOUD_DOWN = "Relay's sign-in service did not answer. Try again in a minute."
+
 # The states an account is in, as `status()["state"]` gives them.
 DISCONNECTED, WAITING, CONNECTED, SIGN_IN = "disconnected", "waiting", "connected", "sign_in"
 
@@ -68,22 +77,24 @@ class NeedsSignIn(Problem):
 
 @dataclass(frozen=True)
 class Client:
-    """The app Relay signs in as. Google's "TVs and limited input devices" clients and Facebook's client token are
-    not confidential by design (they ship inside every copy), so a built-in one is fine; an operator may use their
-    own (bring your own app)."""
+    """The church's own app (bring your own app), used with the device flow. An empty id means Relay's own app,
+    whose secret only relay-cloud holds."""
     id: str
     secret: str = ""
 
 
 @dataclass
 class Code:
-    """What the operator is shown while Relay waits: enter `user_code` at `url`."""
+    """What the operator is shown while Relay waits: enter `user_code` at `url` (device flow), or, through relay-cloud
+    (`session` set), open `url` and sign in. `poll` is the secret that collects the tokens; it never leaves Relay."""
     device_code: str
     user_code: str
     url: str
     expires_at: float
     interval: float
     url_complete: str = ""
+    session: str = ""
+    poll: str = ""
 
 
 @dataclass
@@ -103,6 +114,7 @@ class Provider:
     `netsock.fetch` on the module's traffic class, so it follows the network port the operator chose."""
     id = ""                 # lower_snake_case, for the log and the audit entry ("google")
     name = ""               # what the operator reads ("YouTube")
+    cloud = ""              # its name at relay-cloud ("google"); "" when it signs in only with the church's own app
     device_url = ""
     token_url = ""
     revoke_url = ""
@@ -116,7 +128,8 @@ class Provider:
         """POST `form` (or GET when None) to `url`; (status, JSON object). A connection that fails is a Problem."""
         if not url.startswith("https://"):
             raise Problem(f"{self.name} sign-in is not set up in this copy of Relay.")
-        headers = {"Authorization": f"Bearer {token}"} if token else None
+        # Cloudflare (in front of relay-cloud) refuses Python's default User-Agent with a 403, so name Relay.
+        headers = {"User-Agent": "Relay"} | ({"Authorization": f"Bearer {token}"} if token else {})
         try:
             status, body = await asyncio.to_thread(netsock.fetch, self.traffic, url, form=form, headers=headers)
         except OSError:
@@ -175,12 +188,56 @@ class Provider:
             raise NeedsSignIn(f"{self.name} needs signing in again.")
         form = self.client_form(client) | {"refresh_token": tokens.refresh_token, "grant_type": "refresh_token"}
         status, d = await self.call(self.token_url, form)
+        return self._refreshed(status, d, tokens)
+
+    def _refreshed(self, status: int, d: dict, tokens: Tokens) -> Tokens:
         if status == 200 and d.get("access_token"):
             return self.tokens(d, tokens)
         if _err(d) in ("invalid_grant", "unauthorized_client", "invalid_client") or status == 401:
             raise NeedsSignIn(f"{self.name} needs signing in again.")
         log.warning("oauth: %s refused a refresh (HTTP %s, %s)", self.id, status, _err(d))
         raise Problem(f"{self.name} did not answer as expected. Relay will try again.")
+
+    # ---------------------------------------------------------------- through relay-cloud
+    def cloud_url(self, step: str) -> str:
+        return f"{CLOUD}/v1/oauth/{self.cloud}/{step}"
+
+    async def cloud_start(self, scopes: Iterable[str]) -> Code:
+        """Ask relay-cloud for a sign-in link; the operator opens it and the service comes back to relay-cloud."""
+        try:
+            status, d = await self.call(self.cloud_url("start"), {"scopes": " ".join(scopes)})
+        except Problem:
+            raise Problem(CLOUD_DOWN) from None
+        url, session, poll = str(d.get("url") or ""), str(d.get("session") or ""), str(d.get("poll") or "")
+        if status != 201 or not url.startswith("https://") or not session or not poll:
+            log.warning("oauth: relay-cloud did not start a %s sign-in (HTTP %s, %s)", self.id, status, _err(d))
+            raise Problem(CLOUD_DOWN)
+        return Code(device_code="", user_code="", url=url, session=session, poll=poll,
+                    expires_at=time.time() + min(_num(d.get("expires_in"), 900), MAX_WAIT),
+                    interval=max(_num(d.get("interval"), 2), MIN_INTERVAL))
+
+    async def cloud_poll(self, code: Code) -> Tokens | str:
+        """Like poll(): tokens once the operator has signed in, else "pending", "denied" or "expired". A failed
+        request is "pending" (asked again), so a moment without network does not end the sign-in."""
+        try:
+            status, d = await self.call(self.cloud_url("result"), {"session": code.session, "poll": code.poll})
+        except Problem:
+            return "pending"
+        state = d.get("status") if status == 200 else ""
+        t = d.get("tokens")
+        if state == "done" and isinstance(t, dict) and t.get("access_token"):
+            return self.tokens(t)
+        if state in ("denied", "expired"):
+            return state
+        if state == "failed":
+            raise Problem(f"{self.name} did not finish the sign-in. Press Connect to try again.")
+        return "pending"
+
+    async def cloud_refresh(self, tokens: Tokens) -> Tokens:
+        if not tokens.refresh_token:
+            raise NeedsSignIn(f"{self.name} needs signing in again.")
+        status, d = await self.call(self.cloud_url("refresh"), {"refresh_token": tokens.refresh_token})
+        return self._refreshed(status, d, tokens)
 
     async def revoke(self, client: Client, tokens: Tokens) -> bool:
         """Ask the service to forget Relay's access. Best effort: True when it said so."""
@@ -278,13 +335,17 @@ class Account:
 
     # ---------------------------------------------------------------- connect
     async def connect(self, actor: Any = None) -> dict:
-        """Ask for a code and start waiting for the operator to enter it. Replaces a wait already running."""
+        """Start a sign-in (a link through relay-cloud, or a device code with the church's own app) and wait for
+        the operator to finish it. Replaces a wait already running."""
         await self.cancel()
         self._message = ""
         client = self.client()
-        if not client.id:
+        if client.id:
+            self._code = await self.provider.device_code(client, self.scopes())
+        elif self.provider.cloud:
+            self._code = await self.provider.cloud_start(self.scopes())
+        else:
             raise Problem(f"{self.provider.name} sign-in is not set up in this copy of Relay.")
-        self._code = await self.provider.device_code(client, self.scopes())
         self._task = asyncio.create_task(self._wait(self._code, client, actor))
         return self.status()
 
@@ -307,7 +368,7 @@ class Account:
             while time.time() < code.expires_at:
                 await asyncio.sleep(interval)
                 try:
-                    got = await self.provider.poll(client, code)
+                    got = await (self.provider.cloud_poll(code) if code.session else self.provider.poll(client, code))
                 except Problem as e:
                     self._message = str(e)
                     return
@@ -319,14 +380,15 @@ class Account:
                 elif got == "expired":
                     break
                 elif isinstance(got, Tokens):
-                    await self._connected(got, actor)
+                    await self._connected(got, actor, via="cloud" if code.session else "device")
                     return
-            self._message = "The code ran out before it was entered. Press Connect for a new one."
+            self._message = ("The sign-in link ran out before it was used. Press Connect for a new one."
+                             if code.session else "The code ran out before it was entered. Press Connect for a new one.")
         finally:
             if self._code is code:
                 self._code = None
 
-    async def _connected(self, tokens: Tokens, actor: Any) -> None:
+    async def _connected(self, tokens: Tokens, actor: Any, via: str = "device") -> None:
         try:
             who = await self.provider.identity(tokens)
         except Problem as e:
@@ -334,7 +396,7 @@ class Account:
             await self._revoke_quietly(tokens)
             return
         name = str(who.get("name") or who.get("id") or "")
-        self._store({"tokens": tokens.__dict__, "id": str(who.get("id") or ""), "name": name,
+        self._store({"tokens": tokens.__dict__, "id": str(who.get("id") or ""), "name": name, "via": via,
                      "connected_at": int(time.time()), "connected_by": str(getattr(actor, "name", "") or "")})
         self._message = ""
         audit.record(f"{self.module_id}.connect", f"Connected {self.provider.name}", actor=actor, target=name,
@@ -372,7 +434,13 @@ class Account:
                 self._signed_out()
                 raise NeedsSignIn(f"{self.provider.name} needs signing in again.")
             try:
-                new = await self.provider.refresh(self.client(), t)
+                # A refresh token works only with the app that issued it: Relay's (through relay-cloud) or the church's.
+                if self._record.get("via") == "cloud":
+                    new = await self.provider.cloud_refresh(t)
+                elif self.client().id:
+                    new = await self.provider.refresh(self.client(), t)
+                else:       # the church's app was removed (or the account came from an app this copy no longer has)
+                    raise NeedsSignIn(f"{self.provider.name} needs signing in again.")
             except NeedsSignIn:
                 self._signed_out()
                 raise
