@@ -8,15 +8,7 @@
   const note = $('clNote'), box = $('clLists');
   let editing = null, timer = null;
 
-  async function api(method, path, body) {
-    const res = await fetch(path, { method: method, credentials: 'same-origin', cache: 'no-store',
-      headers: { 'Content-Type': 'application/json' }, body: body ? JSON.stringify(body) : undefined });
-    if (res.status === 401) { location.reload(); return null; }
-    const data = await res.json().catch(function () { return {}; });
-    if (!res.ok) { note.textContent = data.detail || 'That did not work.'; return null; }
-    note.textContent = '';
-    return data;
-  }
+  const request = relayUI.client({ cache: 'no-store', note: note, reload: [401] });
   function draw(d) {
     box.textContent = '';
     if (!d.lists.length) note.textContent = 'No checklists for you at this service.';
@@ -29,7 +21,7 @@
         c.type = 'checkbox'; c.checked = !!i.done_ts;
         c.addEventListener('change', async function () {
           c.disabled = true;
-          const r = await api('PUT', '/crew/api/checklists/item/' + i.id, { done: c.checked });
+          const r = await request('PUT', '/crew/api/checklists/item/' + i.id, { done: c.checked });
           if (r) draw(r); else { c.checked = !c.checked; c.disabled = false; }
         });
         lab.appendChild(c); lab.appendChild(document.createTextNode(' ' + i.text));
@@ -42,7 +34,7 @@
     if (d.editor && !loadedTemplates) loadTemplates();
   }
   let loadedTemplates = false;
-  async function load() { const d = await api('GET', '/crew/api/checklists'); if (d) draw(d); }
+  async function load() { const d = await request('GET', '/crew/api/checklists'); if (d) draw(d); }
 
   function reset() { editing = null; $('clTitle').value = ''; $('clPos').value = ''; $('clItems').value = ''; $('clCancel').hidden = true; }
   function drawTemplates(d) {
@@ -60,19 +52,19 @@
       });
       const del = document.createElement('button'); del.type = 'button'; del.textContent = 'Delete';
       del.addEventListener('click', async function () {
-        if (!confirm('Delete the checklist “' + t.title + '”?')) return;
-        const r = await api('DELETE', '/crew/api/checklists/templates/' + t.id);
+        if (!(await relayUI.confirm('Delete the checklist “' + t.title + '”?'))) return;
+        const r = await request('DELETE', '/crew/api/checklists/templates/' + t.id);
         if (r) { if (editing === t.id) reset(); drawTemplates(r); load(); }
       });
       row.appendChild(name); row.appendChild(edit); row.appendChild(del); out.appendChild(row);
     });
   }
-  async function loadTemplates() { const d = await api('GET', '/crew/api/checklists/templates'); if (d) drawTemplates(d); }
+  async function loadTemplates() { const d = await request('GET', '/crew/api/checklists/templates'); if (d) drawTemplates(d); }
 
   $('clSave').addEventListener('click', async function () {
     const body = { title: $('clTitle').value, position: $('clPos').value, items: $('clItems').value.split('\n') };
-    const r = editing === null ? await api('POST', '/crew/api/checklists/templates', body)
-      : await api('PUT', '/crew/api/checklists/templates/' + editing, body);
+    const r = editing === null ? await request('POST', '/crew/api/checklists/templates', body)
+      : await request('PUT', '/crew/api/checklists/templates/' + editing, body);
     if (r) { reset(); drawTemplates(r); load(); }
   });
   $('clCancel').addEventListener('click', reset);

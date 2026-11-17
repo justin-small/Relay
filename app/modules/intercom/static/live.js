@@ -5,7 +5,7 @@
   if (!R || !document.getElementById('icLive')) return;
   const $ = R.$;
   const BASE = '/api/admin/intercom/live';
-  function can(perm) { return typeof window.relayCan !== 'function' || !!window.relayCan(perm); }
+  const can = relayUI.can;
   const canLive = can('intercom.live');
   let es = null;
   let state = null;

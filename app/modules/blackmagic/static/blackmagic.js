@@ -7,22 +7,11 @@
   const KINDS = { atem: 'ATEM switcher', hyperdeck: 'HyperDeck', videohub: 'Videohub' };
   const DEFAULT_PORT = { atem: 9910, hyperdeck: 9993, videohub: 9990 };
   const LINE = 'border-top:1px solid var(--line, #8883)';
-  function can(perm) { return typeof window.relayCan !== 'function' || !!window.relayCan(perm); }
+  const can = relayUI.can;
   function showError(text) { $('bmErr').textContent = text || ''; $('bmErr').hidden = !text; }
 
-  async function send(method, path, body) {
-    const res = await fetch(path, { method: method, headers: { 'Content-Type': 'application/json' },
-      body: body === undefined ? undefined : JSON.stringify(body), credentials: 'same-origin' });
-    const data = await res.json().catch(function () { return {}; });
-    if (!res.ok) throw new Error(data.error || data.detail || 'That did not work.');
-    return data;
-  }
-  function el(tag, props, kids) {
-    const e = document.createElement(tag);
-    Object.assign(e, props || {});
-    (kids || []).forEach(function (k) { if (k) e.append(k); });
-    return e;
-  }
+  const send = relayUI.api;
+  const el = relayUI.el;
   function button(text, fn, cls) {
     const b = el('button', { type: 'button', textContent: text, className: cls || '' });
     b.onclick = async function () {
@@ -198,7 +187,7 @@
       }
       if (manage) {
         line.append(button('Delete', async function () {
-          if (!window.confirm('Delete the preset "' + p.name + '"?')) return;
+          if (!(await relayUI.confirm('Delete the preset "' + p.name + '"?'))) return;
           draw(await send('DELETE', '/api/admin/blackmagic/videohub/presets/' + encodeURIComponent(dev.id) + '/' + encodeURIComponent(p.id)));
         }));
       }
@@ -308,7 +297,7 @@
           return save(dev, changes);
         }, 'primary'),
         button('Remove', async function () {
-          if (!window.confirm('Remove ' + dev.name + ' from Relay? The device itself is not changed.')) return;
+          if (!(await relayUI.confirm('Remove ' + dev.name + ' from Relay? The device itself is not changed.'))) return;
           draw(await send('DELETE', '/api/admin/blackmagic/devices/' + encodeURIComponent(dev.id)));
         }));
       details.append(acts);

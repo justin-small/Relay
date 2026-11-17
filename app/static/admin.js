@@ -10,7 +10,7 @@
       return n;
     })();
   };
-  const can = function (perm) { return window.relayCan(perm); };
+  const can = relayUI.can;
   let devices = [];
   let cfg = null;
   let lastTargetsKey = '';
@@ -231,7 +231,7 @@
       return t.enabled !== enabled && (!enabled || text || !t.text_only);
     });
     if (!todo.length) return;
-    if (enabled && !text && !window.confirm('Turn on ' + todo.length + ' languages? Each is a separate, continuously-billed session while capture runs.')) return;
+    if (enabled && !text && !(await relayUI.confirm('Turn on ' + todo.length + ' languages? Each is a separate, continuously-billed session while capture runs.'))) return;
     for (let i = 0; i < todo.length; i++) await setTarget(todo[i].target, enabled);
   }
   $('targetsAll').addEventListener('click', function () { setAllTargets(true); });
@@ -499,8 +499,8 @@
   }
 
   async function deleteRun(runId, started) {
-    if (!window.confirm('Delete the recording from ' + fmtWhen(started)
-        + '? The transcript cannot be recovered.')) return;
+    if (!(await relayUI.confirm('Delete the recording from ' + fmtWhen(started)
+        + '? The transcript cannot be recovered.'))) return;
     try {
       await api('/api/admin/recordings/' + encodeURIComponent(runId), { method: 'DELETE' });
       okMsg('Recording deleted.');
@@ -766,7 +766,7 @@
   }
 
   async function schedDelete(item) {
-    if (!window.confirm('Delete the schedule "' + (item.name || item.summary) + '"?')) return;
+    if (!(await relayUI.confirm('Delete the schedule "' + (item.name || item.summary) + '"?'))) return;
     try {
       const body = await api('/api/admin/schedules/' + encodeURIComponent(item.id), { method: 'DELETE' });
       if (schedEditing === item.id) closeSchedForm();
@@ -1346,12 +1346,7 @@
   let panelDirty = false;
   let panelBoards = [];      // one row per kind of panel: {board, label, firmware, online, outdated}
 
-  function el(tag, cls, text) {
-    const n = document.createElement(tag);
-    if (cls) n.className = cls;
-    if (text !== undefined) n.textContent = text;
-    return n;
-  }
+  const el = relayUI.el;
 
   function agoText(sec) {
     if (sec === null || sec === undefined) return 'never';
@@ -1540,7 +1535,7 @@
       rm.type = 'button';
       rm.hidden = !f;
       rm.addEventListener('click', async function () {
-        if (!confirm('Remove the ' + b.label + ' firmware held by Relay?')) return;
+        if (!(await relayUI.confirm('Remove the ' + b.label + ' firmware held by Relay?'))) return;
         try { await api('/api/admin/panels/firmware?board=' + encodeURIComponent(b.board), { method: 'DELETE' }); alertMsg(''); }
         catch (e) { alertMsg(e.message); }
       });
@@ -1867,7 +1862,7 @@
 
     cancel.addEventListener('click', closeDrawer);
     forget.addEventListener('click', async function () {
-      if (!confirm('Forget ' + row.name + '? A panel that is still on will reappear, unnamed.')) return;
+      if (!(await relayUI.confirm('Forget ' + row.name + '? A panel that is still on will reappear, unnamed.'))) return;
       try { await api('/api/admin/panels/' + row.id, { method: 'DELETE' }); alertMsg(''); closeDrawer(); }
       catch (e) { alertMsg(e.message); }
     });
@@ -1918,7 +1913,7 @@
       if (!Object.keys(out).length) { closeDrawer(); return; }
       save.disabled = true;
       if (out.rotation !== undefined && row.online
-          && !confirm('Turning the screen restarts ' + row.name + '. Its captions stop for about half a minute.')) {
+          && !(await relayUI.confirm('Turning the screen restarts ' + row.name + '. Its captions stop for about half a minute.'))) {
         return;
       }
       try {
@@ -1961,8 +1956,8 @@
       later.addEventListener('click', function () { askUpdate(row.id, false); });
       const now = el('button', '', 'Update now');
       now.type = 'button';
-      now.addEventListener('click', function () {
-        if (confirm('Restart ' + row.name + ' now? Its captions stop for about half a minute.')) askUpdate(row.id, true);
+      now.addEventListener('click', async function () {
+        if (await relayUI.confirm('Restart ' + row.name + ' now? Its captions stop for about half a minute.')) askUpdate(row.id, true);
       });
       actions.appendChild(later);
       actions.appendChild(now);
@@ -1975,7 +1970,7 @@
       reboot.disabled = !row.can_reboot;
       if (!row.can_reboot) reboot.title = 'The panel is not connected to Relay right now, or its firmware is too old to restart from here';
       reboot.addEventListener('click', async function () {
-        if (!confirm('Restart ' + row.name + ' now? Its captions stop for about half a minute.')) return;
+        if (!(await relayUI.confirm('Restart ' + row.name + ' now? Its captions stop for about half a minute.'))) return;
         try { await post('/api/admin/panels/' + row.id + '/reboot', {}); okMsg(row.name + ' is restarting.'); }
         catch (e) { alertMsg(e.message); }
       });

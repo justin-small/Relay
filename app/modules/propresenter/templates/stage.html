@@ -8,6 +8,7 @@
 <style>body { display:block; padding:16px; margin:0; } #sv { max-width:1400px; margin:0 auto; }</style>
 </head><body>
 <div id="sv"></div>
+<script src="{{ static('relay-ui.js') }}"></script>
 <script src="{{ static('modules/propresenter/slideview.js') }}"></script>
 <script>RelaySlideView.create(document.getElementById('sv'), { base: '/api/stage/live' });</script>
 </body></html>

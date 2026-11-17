@@ -28,12 +28,7 @@
   const SHAPES = ['rounded', 'rect', 'pill', 'circle'];
   const HEX = /^#[0-9a-fA-F]{6}$/;
 
-  function el(tag, cls, text) {
-    const n = document.createElement(tag);
-    if (cls) n.className = cls;
-    if (text !== undefined) n.textContent = text;
-    return n;
-  }
+  const el = relayUI.el;
   function icon(name) {
     if (!Object.prototype.hasOwnProperty.call(ICONS, name)) return null;
     const s = document.createElementNS('http://www.w3.org/2000/svg', 'svg');

@@ -21,12 +21,7 @@
 
   let msg = null, skew = 0, zone = undefined;
 
-  function el(tag, cls, text) {
-    const e = document.createElement(tag);
-    if (cls) e.className = cls;
-    if (text !== undefined && text !== null) e.textContent = text;
-    return e;
-  }
+  const el = relayUI.el;
   function colour(name) {
     let h = 0;
     for (const c of name || '') h = (h * 31 + c.charCodeAt(0)) >>> 0;

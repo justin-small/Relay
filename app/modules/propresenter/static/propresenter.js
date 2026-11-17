@@ -8,7 +8,7 @@
   const clockText = R.clockText, timerPicker = R.timerPicker, timerPickerValue = R.timerPickerValue,
     timerThresholds = R.timerThresholds;
   // What this user may do here. Without the admin page's relayCan the server still refuses, so assume yes.
-  function can(perm) { return typeof window.relayCan !== 'function' || !!window.relayCan(perm); }
+  const can = relayUI.can;
 
   /* Everything on this page but the stage message changes the setup, so it is for who holds propresenter.manage;
      the stage message is live control (propresenter.control). Fields are disabled and their buttons hidden for

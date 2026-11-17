@@ -9,15 +9,7 @@
   const note = $('rsNote');
   let editing = null, loaded = false, hosts = [], limit = 0;
 
-  async function api(method, path, body) {
-    const res = await fetch(path, { method: method, credentials: 'same-origin', cache: 'no-store',
-      headers: { 'Content-Type': 'application/json' }, body: body ? JSON.stringify(body) : undefined });
-    if (res.status === 401) { location.reload(); return null; }
-    const data = await res.json().catch(function () { return {}; });
-    if (!res.ok) { note.textContent = data.detail || 'That did not work.'; return null; }
-    note.textContent = '';
-    return data;
-  }
+  const request = relayUI.client({ cache: 'no-store', note: note, reload: [401] });
   function safe(url) { return typeof url === 'string' && /^https?:\/\//i.test(url) ? url : ''; }
   function mb(n) { return n >= 1048576 ? (n / 1048576).toFixed(1) + ' MB' : Math.max(1, Math.round(n / 1024)) + ' KB'; }
 
@@ -59,7 +51,7 @@
     $('rsEditBox').hidden = !d.editor;
     if (d.editor && !loaded) loadManage();
   }
-  async function load() { const d = await api('GET', '/crew/api/resources'); if (d) draw(d); }
+  async function load() { const d = await request('GET', '/crew/api/resources'); if (d) draw(d); }
 
   function kindChanged() {
     const k = $('rsKind').value, file = k === 'file';
@@ -88,21 +80,21 @@
       });
       const del = document.createElement('button'); del.type = 'button'; del.textContent = 'Delete';
       del.addEventListener('click', async function () {
-        if (!confirm('Delete \u201c' + r.title + '\u201d?')) return;
-        const x = await api('DELETE', '/crew/api/resources/' + r.id);
+        if (!(await relayUI.confirm('Delete \u201c' + r.title + '\u201d?'))) return;
+        const x = await request('DELETE', '/crew/api/resources/' + r.id);
         if (x) { if (editing === r.id) reset(); drawManage(x); load(); }
       });
       row.appendChild(name); row.appendChild(edit); row.appendChild(del); out.appendChild(row);
     });
     kindChanged();
   }
-  async function loadManage() { const d = await api('GET', '/crew/api/resources/manage'); if (d) drawManage(d); }
+  async function loadManage() { const d = await request('GET', '/crew/api/resources/manage'); if (d) drawManage(d); }
 
   $('rsKind').addEventListener('change', kindChanged);
   $('rsSave').addEventListener('click', async function () {
     const kind = $('rsKind').value, title = $('rsTitle').value, position = $('rsPos').value;
     let r;
-    if (editing !== null) r = await api('PUT', '/crew/api/resources/' + editing, { title: title, position: position, url: $('rsUrl').value });
+    if (editing !== null) r = await request('PUT', '/crew/api/resources/' + editing, { title: title, position: position, url: $('rsUrl').value });
     else if (kind === 'file') {
       const f = $('rsFile').files[0];
       if (!f) { note.textContent = 'Choose a file first.'; return; }
@@ -114,7 +106,7 @@
       const data = await res.json().catch(function () { return {}; });
       if (!res.ok) { note.textContent = data.detail || 'The upload did not work.'; return; }
       note.textContent = ''; r = data;
-    } else r = await api('POST', '/crew/api/resources/link', { kind: kind, title: title, position: position, url: $('rsUrl').value });
+    } else r = await request('POST', '/crew/api/resources/link', { kind: kind, title: title, position: position, url: $('rsUrl').value });
     if (r) { reset(); drawManage(r); load(); }
   });
   $('rsCancel').addEventListener('click', reset);

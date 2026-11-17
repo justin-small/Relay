@@ -22,12 +22,7 @@
   const R = window.RelayLayout;
   if (!R) return;
   let uid = 0;
-  function el(tag, cls, text) {
-    const n = document.createElement(tag);
-    if (cls) n.className = cls;
-    if (text !== undefined) n.textContent = text;
-    return n;
-  }
+  const el = relayUI.el;
   function btn(text, cls, fn) {
     const b = el('button', cls, text); b.type = 'button';
     if (fn) b.onclick = fn;

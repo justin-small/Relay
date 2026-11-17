@@ -4,7 +4,7 @@
   const R = window.RelayAdmin;
   if (!R || !document.getElementById('page-intercom')) return;
   const $ = R.$, api = R.api, post = R.post;
-  function can(perm) { return typeof window.relayCan !== 'function' || !!window.relayCan(perm); }
+  const can = relayUI.can;
 
   let last = null;
   let timer = null;
@@ -251,7 +251,7 @@
     if (!editing) return;
     const names = editing.members.map(function (m) { return m.name; });
     const who = names.length ? ' These people will lose it: ' + names.join(', ') + '.' : '';
-    if (!window.confirm('Delete ' + $('icEName').value + '?' + who + ' This cannot be undone.')) return;
+    if (!(await relayUI.confirm('Delete ' + $('icEName').value + '?' + who + ' This cannot be undone.'))) return;
     try {
       await api('/api/admin/intercom/channels/' + editing.id, { method: 'DELETE' });
       $('icEdit').hidden = true;
@@ -309,7 +309,7 @@
   });
 
   if ($('icSignOutAll')) $('icSignOutAll').addEventListener('click', async function () {
-    if (!window.confirm('Sign out every phone? Each person will have to sign in again.')) return;
+    if (!(await relayUI.confirm('Sign out every phone? Each person will have to sign in again.'))) return;
     try { await post('/api/admin/intercom/phones/signout-all', {}); } catch (e) { fail(e); }
     refreshPhones();
   });

@@ -125,8 +125,8 @@ user who holds `permission`, while the module is on. `path` must sit under the m
 otherwise). The page checks the permission itself with `require(...)`, the same call as an admin
 route, and should serve only on the operator (HTTPS) port, where the sign-in cookie lives.
 
-**Hide controls** in the module's script with `window.relayCan("<id>.<action>")`, which is
-true when the signed-in user holds the permission. It only tidies the screen: the server
+**Hide controls** in the module's script with `relayUI.can("<id>.<action>")` (see "Shared helpers for module
+scripts"), which is true when the signed-in user holds the permission. It only tidies the screen: the server
 enforces the permission whatever the page shows.
 
 **Tables of its own.** A module that needs database tables calls
@@ -735,6 +735,27 @@ loop and must not block: queue the line and send it from the module's own task. 
 sender can never cost viewers a line. The OBS module's caption sender is the first: per computer, a switch and a
 language (the source captions or one translation), finished lines only, split to 32 characters for CEA-608, sent with
 `SendStreamCaption` and only while that OBS is streaming.
+
+## Shared helpers for module scripts
+
+Core's `app/static/relay-ui.js` (#461) gives every script `window.relayUI`. The operator panel, the crew page and
+every standalone page whose script uses it load it first; a new page that uses it adds
+`<script src="{{ static('relay-ui.js') }}"></script>` before its own script.
+
+| Helper | What it does |
+|---|---|
+| `can(perm)` | True when the signed-in user holds the permission (true on a page with no permission check). |
+| `api(method, path, body, opts)` | One JSON request. Throws an `Error` carrying the server's sentence (or "That did not work."), `.status` and `.data`. `opts`: `cache: 'no-store'`; `session: true` sends an ended panel session to the sign-in page; `note: element` writes the error there and answers `null`; `reload: [401]` reloads the page on those statuses; `status: true` makes the fallback "HTTP 500". |
+| `client(opts)` | `api` with those options fixed: `const send = relayUI.client({ cache: 'no-store', session: true })`. |
+| `el(tag, attrs, ...children)` | An element. `attrs` is a class name or an object of properties (`text` sets the text); children are nodes or text. Never markup. |
+| `say(target, text, bad, opts)` | A status line (element or id), marked `err` or `ok`. `opts`: `plain`, `hide` (hidden while empty), `ms` (a toast that hides itself). |
+| `confirm(text)` | A promise for the operator's yes or no: `if (!(await relayUI.confirm('Delete it?'))) return;`. |
+
+Use them by alias (`const el = relayUI.el;`), never by copying. A helper core lacks is added to `relay-ui.js`, not
+written into the module. `tests/test_ui_contract.py` fails on a module script that defines its own `can`, `api`,
+`el`, `say` or `confirm`, on any direct `confirm()` call, on a page that loads a `relayUI` script without
+`relay-ui.js` before it, and on any function body of more than 60 characters copied between two scripts. The copies
+that were already there are listed in `tests/ui_contract_baseline.txt`, which may only shrink.
 
 ## Rules
 

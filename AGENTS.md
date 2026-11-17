@@ -16,6 +16,13 @@ operator can switch on and off. Never add an integration to core (`app/*.py`, `a
 If it fails, fix the design; do not add the new file to `CORE_FILES` or `CORE_NETWORK` to make it pass
 unless the file really is core, and say why in the pull request.
 
+## Shared UI helpers come from relay-ui.js (enforced)
+
+Shared UI helpers come from `app/static/relay-ui.js` (`window.relayUI`: `can`, `api`, `client`, `el`, `say`,
+`confirm`). Do not copy a helper into a module script; if core lacks one, add it to core. `tests/test_ui_contract.py`
+enforces this, and its baseline of older copies (`tests/ui_contract_baseline.txt`) may only shrink. See
+"Shared helpers for module scripts" in `docs/modules.md`.
+
 ## Run the whole suite before every push
 
 CI runs every `tests/test_*.py` plus `tests/smoke_test.py` on three platforms, and a new route, setting or module

@@ -72,6 +72,7 @@
   <form method="post" action="/admin/logout" class="cr-out"><button type="submit">Sign out</button></form>
 </main>
 <script>window.RELAY_CREW = { plan: {{ 'true' if show_plan else 'false' }} };</script>
+<script src="{{ static('relay-ui.js') }}"></script>
 <script src="{{ static('modules/crew/crew.js') }}"></script>
 {% for s in module_scripts %}<script src="{{ static('modules/' ~ s) }}" defer></script>
 {% endfor %}

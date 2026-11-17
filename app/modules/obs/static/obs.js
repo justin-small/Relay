@@ -39,28 +39,17 @@
     ].join('');
     document.head.appendChild(s);
   })();
-  function can(perm) { return typeof window.relayCan !== 'function' || !!window.relayCan(perm); }
+  const can = relayUI.can;
   function showError(text) { $('obsErr').textContent = text || ''; $('obsErr').hidden = !text; }
   let data = null;
   let machines = [];          // the form's copy; live state comes from `data`
   let dirty = false;
   let shownSettings = '';
 
-  async function send(method, path, body) {
-    const res = await fetch(path, { method: method, headers: { 'Content-Type': 'application/json' },
-      body: body === undefined ? undefined : JSON.stringify(body), credentials: 'same-origin' });
-    const out = await res.json().catch(function () { return {}; });
-    if (!res.ok) throw new Error(out.error || out.detail || 'That did not work.');
-    return out;
-  }
-  function el(tag, text, cls) {
-    const e = document.createElement(tag);
-    if (text) e.textContent = text;
-    if (cls) e.className = cls;
-    return e;
-  }
+  const send = relayUI.api;
+  const el = relayUI.el;
   function button(text, fn, cls) {
-    const b = el('button', text, cls);
+    const b = el('button', cls, text);
     b.type = 'button';
     b.onclick = async function () {
       showError(''); b.disabled = true;
@@ -70,8 +59,8 @@
     return b;
   }
   function field(label, control) {
-    const f = el('div', '', 'field');
-    const l = el('label', label);
+    const f = el('div', 'field');
+    const l = el('label', '', label);
     if (control.id) l.htmlFor = control.id;
     f.appendChild(l); f.appendChild(control);
     return f;
@@ -91,7 +80,7 @@
     return i;
   }
   function check(m, key, label) {
-    const l = el('label', '', 'check');
+    const l = el('label', 'check');
     l.appendChild(input(m, key, { type: 'checkbox' }));
     l.appendChild(document.createTextNode(label));
     return l;
@@ -100,7 +89,7 @@
     const s = el('select');
     s.id = 'obsF' + (++uid);
     options.forEach(function (o) {
-      const opt = el('option', o.label); opt.value = o.id; opt.selected = o.id === value; s.appendChild(opt);
+      const opt = el('option', '', o.label); opt.value = o.id; opt.selected = o.id === value; s.appendChild(opt);
     });
     s.onchange = function () { onchange(s.value); dirty = true; };
     return s;
@@ -115,13 +104,13 @@
   function live(id) { return ((data && data.machines) || []).filter(function (x) { return x.id === id; })[0] || {}; }
   function act(path, body) { return send('POST', '/api/admin/obs/' + path, body).then(refresh); }
   function pill(text, cls) {
-    const p = el('span', '', 'spill ' + cls);
-    p.appendChild(el('span', '', 'dot'));
+    const p = el('span', 'spill ' + cls);
+    p.appendChild(el('span', 'dot'));
     p.appendChild(document.createTextNode(text));
     return p;
   }
   function link(text, href) {
-    const a = el('a', text); a.href = href; a.target = '_blank'; a.rel = 'noopener noreferrer';
+    const a = el('a', '', text); a.href = href; a.target = '_blank'; a.rel = 'noopener noreferrer';
     return a;
   }
   const HEALTH = { ok: 'Healthy', warn: 'Needs a look', error: 'Trouble', idle: 'Standing by' };
@@ -129,7 +118,7 @@
   // ------------------------------------------------------------------------------------------ the live part
   function chart(history) {
     // Bitrate (line) and intervals that dropped frames (bars) over the last 15 minutes.
-    if (!history || history.length < 2) return el('p', 'The bitrate chart shows here while OBS streams.', 'note');
+    if (!history || history.length < 2) return el('p', 'note', 'The bitrate chart shows here while OBS streams.');
     const NS = 'http://www.w3.org/2000/svg';
     const svg = document.createElementNS(NS, 'svg');
     svg.setAttribute('class', 'obschart'); svg.setAttribute('viewBox', '0 0 480 64'); svg.setAttribute('preserveAspectRatio', 'none');
@@ -158,26 +147,26 @@
   }
 
   function statusCard(m, lv) {
-    const card = el('div', '', 'pcard mcard obsstatus');
-    const head = el('div', '', 'phead');
+    const card = el('div', 'pcard mcard obsstatus');
+    const head = el('div', 'phead');
     const s = lv.stream || {}, r = lv.record || {};
     head.appendChild(pill(s.active ? 'LIVE ' + clock(s.duration_ms) : 'Off air', s.active ? 'off' : 'idle'));
     if (r.active) head.appendChild(pill((r.paused ? 'Paused ' : 'REC ') + clock(r.duration_ms), r.paused ? 'idle' : 'off'));
-    const state = el('span', HEALTH[lv.health] || lv.health, 'pstate mhealth ' + lv.health);
+    const state = el('span', 'pstate mhealth ' + lv.health, HEALTH[lv.health] || lv.health);
     head.appendChild(state);
     card.appendChild(head);
-    if (lv.health !== 'ok' && lv.health !== 'idle' || lv.state !== 'connected') card.appendChild(el('p', lv.detail, 'note'));
+    if (lv.health !== 'ok' && lv.health !== 'idle' || lv.state !== 'connected') card.appendChild(el('p', 'note', lv.detail));
     if (lv.state !== 'connected') return card;
     const st = lv.stats;
     const dl = el('dl');
     function row(name, value) {
-      dl.appendChild(el('dt', name));
+      dl.appendChild(el('dt', '', name));
       const dd = el('dd');
       if (typeof value === 'string') dd.textContent = value; else dd.appendChild(value);
       dl.appendChild(dd);
     }
     row('Program', lv.program + (lv.studio && lv.preview_scene ? '  ·  preview: ' + lv.preview_scene : ''));
-    const to = el('span', lv.service || 'Not set in OBS');
+    const to = el('span', '', lv.service || 'Not set in OBS');
     if (lv.youtube) {
       to.appendChild(document.createTextNode(' · '));
       to.appendChild(link('Open in YouTube Studio', lv.youtube.studio));
@@ -203,23 +192,23 @@
   }
 
   function outputs(m, lv) {
-    const box = el('div', '', 'pactions');
+    const box = el('div', 'pactions');
     const s = lv.stream, r = lv.record, rp = lv.replay;
     const out = function (which, action) { return act('output', { machine: m.id, output: which, action: action }); };
     box.appendChild(s.active
-      ? button('Stop stream', function () {
-          if (!window.confirm('Stop the stream on ' + m.name + '? Viewers will see it end.')) return Promise.resolve();
+      ? button('Stop stream', async function () {
+          if (!(await relayUI.confirm('Stop the stream on ' + m.name + '? Viewers will see it end.'))) return Promise.resolve();
           return out('stream', 'stop');
         }, 'danger')
-      : button('Start stream', function () {
-          if (!window.confirm('Start streaming from ' + m.name + '? It goes live wherever OBS is set to stream'
-            + (lv.service ? ' (' + lv.service + ')' : '') + '.')) return Promise.resolve();
+      : button('Start stream', async function () {
+          if (!(await relayUI.confirm('Start streaming from ' + m.name + '? It goes live wherever OBS is set to stream'
+            + (lv.service ? ' (' + lv.service + ')' : '') + '.'))) return Promise.resolve();
           return out('stream', 'start');
         }, 'primary'));
     if (r.active) {
       box.appendChild(button(r.paused ? 'Resume recording' : 'Pause recording', function () { return out('record', r.paused ? 'resume' : 'pause'); }));
-      box.appendChild(button('Stop recording', function () {
-        if (!window.confirm('Stop the recording on ' + m.name + '?')) return Promise.resolve();
+      box.appendChild(button('Stop recording', async function () {
+        if (!(await relayUI.confirm('Stop the recording on ' + m.name + '?'))) return Promise.resolve();
         return out('record', 'stop');
       }));
     } else {
@@ -237,12 +226,12 @@
   }
 
   function sideCard(m, lv) {
-    const card = el('div', '', 'pcard obsside');
-    const head = el('div', '', 'phead');
-    head.appendChild(el('h4', m.preview ? 'Program' : 'Bitrate'));
+    const card = el('div', 'pcard obsside');
+    const head = el('div', 'phead');
+    head.appendChild(el('h4', '', m.preview ? 'Program' : 'Bitrate'));
     card.appendChild(head);
     if (m.preview) {
-      const img = el('img', '', 'obspreview');
+      const img = el('img', 'obspreview');
       img.alt = 'Preview of ' + lv.program;
       img.dataset.machine = m.id;
       card.appendChild(img);
@@ -252,11 +241,11 @@
   }
 
   function scenesCard(m, lv) {
-    const card = el('div', '', 'pcard obsscenecard');
-    const head = el('div', '', 'phead');
-    head.appendChild(el('h4', 'Scenes'));
+    const card = el('div', 'pcard obsscenecard');
+    const head = el('div', 'phead');
+    head.appendChild(el('h4', '', 'Scenes'));
     if (can('obs.control')) {
-      const right = el('span', '', 'pstate');
+      const right = el('span', 'pstate');
       if (lv.studio) {
         right.appendChild(button('Take' + (lv.preview_scene ? ': ' + lv.preview_scene : ''), function () {
           return act('studio', { machine: m.id, action: 'take' });
@@ -269,8 +258,8 @@
       head.appendChild(right);
     }
     card.appendChild(head);
-    if (lv.studio) card.appendChild(el('p', 'Studio mode: tap a scene to put it in preview, then Take.', 'note'));
-    const row = el('div', '', 'obsscenes');
+    if (lv.studio) card.appendChild(el('p', 'note', 'Studio mode: tap a scene to put it in preview, then Take.'));
+    const row = el('div', 'obsscenes');
     lv.scenes.forEach(function (name) {
       const cls = name === lv.program ? 'primary' : name === lv.preview_scene ? 'preview' : '';
       const b = button(name, function () {
@@ -286,24 +275,24 @@
   }
 
   function audioCard(m) {
-    const card = el('div', '', 'pcard obsaudio');
+    const card = el('div', 'pcard obsaudio');
     card.dataset.machine = m.id;
-    const head = el('div', '', 'phead');
-    head.appendChild(el('h4', 'Audio'));
+    const head = el('div', 'phead');
+    head.appendChild(el('h4', '', 'Audio'));
     card.appendChild(head);
     (m.audio || []).forEach(function (a) {
-      const wrap = el('div', '', 'meterwrap');
+      const wrap = el('div', 'meterwrap');
       wrap.dataset.input = a.name;
-      const name = el('span', a.name, 'obsname'); name.title = a.name;
+      const name = el('span', 'obsname', a.name); name.title = a.name;
       wrap.appendChild(name);
-      const col = el('div', '', 'metercol');
-      const meter = el('div', '', 'meter'); meter.appendChild(el('i')); meter.appendChild(el('b'));
+      const col = el('div', 'metercol');
+      const meter = el('div', 'meter'); meter.appendChild(el('i')); meter.appendChild(el('b'));
       col.appendChild(meter);
       wrap.appendChild(col);
-      const side = el('div', '', 'meterside');
-      side.appendChild(el('span', '', 'meterread'));
+      const side = el('div', 'meterside');
+      side.appendChild(el('span', 'meterread'));
       if (can('obs.control')) {
-        const b = el('button', 'Mute'); b.type = 'button'; b.className = 'obsmute';
+        const b = el('button', '', 'Mute'); b.type = 'button'; b.className = 'obsmute';
         b.onclick = async function () {
           showError('');
           try { await send('POST', '/api/admin/obs/mute', { machine: m.id, input: a.name, muted: b.dataset.muted !== '1' }); }
@@ -318,15 +307,15 @@
   }
 
   function liveBox(m) {
-    const box = el('div', '', 'obslive');
+    const box = el('div', 'obslive');
     const lv = live(m.id).live;
-    if (!lv) { box.appendChild(el('p', 'Save to connect.', 'note')); return box; }
+    if (!lv) { box.appendChild(el('p', 'note', 'Save to connect.')); return box; }
     if (lv.state !== 'connected') { box.appendChild(statusCard(m, lv)); return box; }
-    const grid = el('div', '', 'obscards');
+    const grid = el('div', 'obscards');
     grid.appendChild(statusCard(m, lv));
     grid.appendChild(sideCard(m, lv));
     box.appendChild(grid);
-    const stack = el('div', '', 'obsstack');
+    const stack = el('div', 'obsstack');
     stack.style.marginTop = '12px';
     stack.appendChild(scenesCard(m, lv));
     if ((m.audio || []).length) stack.appendChild(audioCard(m));
@@ -339,24 +328,24 @@
     const box = el('div');
     if (!m.id || !can('obs.manage')) return box;
     const r = await send('GET', '/api/admin/obs/screen/' + encodeURIComponent(m.id));
-    box.appendChild(el('h4', 'Scene screen for a tablet'));
-    box.appendChild(el('p', 'A page of big scene buttons for this computer. The link is its only key: anyone with it '
-      + 'can switch scenes, and a new link stops the old one.', 'note'));
-    const ctl = el('div', '', 'ctl');
+    box.appendChild(el('h4', '', 'Scene screen for a tablet'));
+    box.appendChild(el('p', 'note', 'A page of big scene buttons for this computer. The link is its only key: anyone with it '
+      + 'can switch scenes, and a new link stops the old one.'));
+    const ctl = el('div', 'ctl');
     ctl.appendChild(button(r.on ? 'Turn screen off' : 'Turn screen on', async function () {
       await send('PUT', '/api/admin/obs/screen/' + encodeURIComponent(m.id), { on: !r.on });
       render(true);
     }));
     if (r.on) {
       ctl.appendChild(button('New link', async function () {
-        if (!window.confirm('The old link stops working. Continue?')) return;
+        if (!(await relayUI.confirm('The old link stops working. Continue?'))) return;
         await send('PUT', '/api/admin/obs/screen/' + encodeURIComponent(m.id), { on: true, rotate: true });
         render(true);
       }));
-      const linkBox = el('input', '', 'grow mono'); linkBox.readOnly = true; linkBox.value = r.link;
+      const linkBox = el('input', 'grow mono'); linkBox.readOnly = true; linkBox.value = r.link;
       linkBox.setAttribute('aria-label', 'Scene screen link');
       linkBox.onfocus = function () { linkBox.select(); };
-      const g = el('span', '', 'grow'); g.appendChild(linkBox);
+      const g = el('span', 'grow'); g.appendChild(linkBox);
       ctl.appendChild(g);
     }
     box.appendChild(ctl);
@@ -365,14 +354,14 @@
 
   function audioSettings(m) {
     const box = el('div');
-    box.appendChild(el('h4', 'Audio to watch'));
+    box.appendChild(el('h4', '', 'Audio to watch'));
     const inputs = ((live(m.id).live || {}).inputs || []).slice();
     (m.audio || []).forEach(function (a) { if (inputs.indexOf(a.name) < 0) inputs.push(a.name); });
-    if (!inputs.length) { box.appendChild(el('p', 'Connect to OBS to list its audio inputs.', 'note')); return box; }
-    const list = el('div', '', 'obslist');
+    if (!inputs.length) { box.appendChild(el('p', 'note', 'Connect to OBS to list its audio inputs.')); return box; }
+    const list = el('div', 'obslist');
     inputs.forEach(function (name) {
       const cur = (m.audio || []).filter(function (a) { return a.name === name; })[0];
-      const row = el('div', '', 'row');
+      const row = el('div', 'row');
       const on = el('input'); on.type = 'checkbox'; on.checked = !!cur;
       const warn = el('input'); warn.type = 'checkbox'; warn.checked = !!(cur && cur.warn_muted); warn.disabled = !cur;
       on.onchange = function () {
@@ -383,8 +372,8 @@
       warn.onchange = function () {
         (m.audio || []).forEach(function (a) { if (a.name === name) a.warn_muted = warn.checked; }); dirty = true;
       };
-      const l1 = el('label', '', 'check'); l1.appendChild(on); l1.appendChild(document.createTextNode(name));
-      const l2 = el('label', '', 'check'); l2.appendChild(warn); l2.appendChild(document.createTextNode('Warn if muted while live'));
+      const l1 = el('label', 'check'); l1.appendChild(on); l1.appendChild(document.createTextNode(name));
+      const l2 = el('label', 'check'); l2.appendChild(warn); l2.appendChild(document.createTextNode('Warn if muted while live'));
       row.appendChild(l1); row.appendChild(l2);
       list.appendChild(row);
     });
@@ -394,20 +383,20 @@
 
   function tallySettings(m) {
     const box = el('div');
-    box.appendChild(el('h4', 'Tally'));
-    box.appendChild(el('p', 'Give a scene a camera number: that camera\'s tally shows red while the scene is on air, '
-      + 'and green while it is in preview.', 'note'));
+    box.appendChild(el('h4', '', 'Tally'));
+    box.appendChild(el('p', 'note', 'Give a scene a camera number: that camera\'s tally shows red while the scene is on air, '
+      + 'and green while it is in preview.'));
     const scenesList = ((live(m.id).live || {}).scenes || []);
     m.tally = m.tally || [];
-    const list = el('div', '', 'obslist');
+    const list = el('div', 'obslist');
     m.tally.forEach(function (t, i) {
-      const row = el('div', '', 'row');
+      const row = el('div', 'row');
       const n = el('input'); n.type = 'number'; n.min = 1; n.max = 999; n.value = t.n;
       n.setAttribute('aria-label', 'Camera number');
       n.oninput = function () { t.n = parseInt(n.value || '0', 10); dirty = true; };
-      row.appendChild(el('span', 'Camera'));
+      row.appendChild(el('span', '', 'Camera'));
       row.appendChild(n);
-      row.appendChild(el('span', 'is scene'));
+      row.appendChild(el('span', '', 'is scene'));
       const opts = scenesList.map(function (s) { return { id: s, label: s }; });
       if (t.scene && scenesList.indexOf(t.scene) < 0) opts.push({ id: t.scene, label: t.scene + ' (not in OBS now)' });
       const sel = select(opts, t.scene, function (v) { t.scene = v; });
@@ -418,7 +407,7 @@
     });
     box.appendChild(list);
     if (scenesList.length && m.tally.length < 16) {
-      const ctl = el('div', '', 'ctl');
+      const ctl = el('div', 'ctl');
       ctl.style.marginTop = '8px';
       ctl.appendChild(button('Add camera', async function () {
         const used = m.tally.map(function (t) { return t.n; });
@@ -431,35 +420,35 @@
   }
 
   function settings(m, i) {
-    const set = el('details', '', 'sect');
+    const set = el('details', 'sect');
     set.open = !m.id;
-    const sum = el('summary', 'Settings');
+    const sum = el('summary', '', 'Settings');
     set.appendChild(sum);
-    const row = el('div', '', 'row');
+    const row = el('div', 'row');
     row.appendChild(field('Name', input(m, 'name', { maxlength: 24, placeholder: 'Stream PC' })));
     row.appendChild(field('Address', input(m, 'host', { maxlength: 253, placeholder: '192.168.1.60', autocomplete: 'off', spellcheck: 'false' })));
     set.appendChild(row);
-    const row2 = el('div', '', 'row');
+    const row2 = el('div', 'row');
     row2.appendChild(field('Port', input(m, 'port', { type: 'number', min: 1, max: 65535 })));
     row2.appendChild(field(m.has_password ? 'Password (saved; leave blank to keep it)' : 'Password',
       input(m, 'password', { type: 'password', maxlength: 200, autocomplete: 'new-password' })));
     set.appendChild(row2);
     set.appendChild(check(m, 'preview', 'Show a preview of the program scene on this page'));
 
-    set.appendChild(el('h4', 'Captions into the stream'));
+    set.appendChild(el('h4', '', 'Captions into the stream'));
     set.appendChild(check(m, 'captions', 'Send Relay\'s captions into this stream (CEA-608)'));
-    const cap = el('div', '', 'row');
+    const cap = el('div', 'row');
     cap.appendChild(field('Language', select(data.languages || [], m.caption_lang, function (v) { m.caption_lang = v; })));
     cap.appendChild(field('Delay in seconds, to match a delayed stream', input(m, 'caption_delay', { type: 'number', min: 0, max: 30, step: 0.5 })));
     set.appendChild(cap);
 
-    set.appendChild(el('h4', 'Alerts'));
+    set.appendChild(el('h4', '', 'Alerts'));
     const buttons = [{ id: '', label: 'None' }].concat((data.alert_buttons || []).map(function (b) { return { id: b.id, label: b.name }; }));
-    const al = el('div', '', 'row');
+    const al = el('div', 'row');
     al.appendChild(field('When this OBS is in trouble, raise', select(buttons, m.alert_error, function (v) { m.alert_error = v; })));
     al.appendChild(field('When it needs a look, raise', select(buttons, m.alert_warn, function (v) { m.alert_warn = v; })));
     set.appendChild(al);
-    if (!(data.alert_buttons || []).length) set.appendChild(el('p', 'Add alert buttons on the Alerts page to choose them here.', 'note'));
+    if (!(data.alert_buttons || []).length) set.appendChild(el('p', 'note', 'Add alert buttons on the Alerts page to choose them here.'));
 
     set.appendChild(audioSettings(m));
     set.appendChild(tallySettings(m));
@@ -468,9 +457,9 @@
     if (m.id && data.machines.some(function (x) { return x.id === m.id; })) {
       screenControls(m).then(function (x) { holder.appendChild(x); }).catch(function () {});
     }
-    set.appendChild(el('h4', 'This computer'));
-    const ctl = el('div', '', 'ctl');
-    const status = el('div', '', 'note');
+    set.appendChild(el('h4', '', 'This computer'));
+    const ctl = el('div', 'ctl');
+    const status = el('div', 'note');
     ctl.appendChild(button('Test connection', async function () {
       const r = await send('POST', '/api/admin/obs/test', { machine: m.id });
       status.textContent = r.detail;
@@ -479,16 +468,16 @@
     ctl.appendChild(button('Remove computer', async function () { machines.splice(i, 1); dirty = true; render(); }, 'danger'));
     set.appendChild(ctl);
     set.appendChild(status);
-    set.appendChild(el('p', 'Changes take effect when you press Save at the bottom of the page.', 'note'));
+    set.appendChild(el('p', 'note', 'Changes take effect when you press Save at the bottom of the page.'));
     return set;
   }
 
   function card(m, i) {
-    const c = el('section', '', 'obsmachine');
-    const h = el('h3', m.name || 'OBS');
+    const c = el('section', 'obsmachine');
+    const h = el('h3', '', m.name || 'OBS');
     const lv = live(m.id).live;
-    if (lv && lv.version) h.appendChild(el('span', m.host + ' · OBS ' + lv.version, 'count'));
-    else if (m.host) h.appendChild(el('span', m.host, 'count'));
+    if (lv && lv.version) h.appendChild(el('span', 'count', m.host + ' · OBS ' + lv.version));
+    else if (m.host) h.appendChild(el('span', 'count', m.host));
     c.appendChild(h);
     c.appendChild(liveBox(m));
     if (can('obs.manage')) c.appendChild(settings(m, i));
@@ -509,7 +498,7 @@
     });
     if (!machines.length) {
       const s = el('section');
-      s.appendChild(el('p', 'No OBS computer yet. Add the computer that runs OBS.', 'note'));
+      s.appendChild(el('p', 'note', 'No OBS computer yet. Add the computer that runs OBS.'));
       box.appendChild(s);
     }
     $('obsAdd').hidden = $('obsSave').hidden = !can('obs.manage');
@@ -558,7 +547,7 @@
     const onAir = ups.some(function (m) { return m.live.stream && m.live.stream.active; });
     const sum = $('obsSum');
     sum.textContent = '';
-    if (onAir) sum.appendChild(el('span', 'on air', 'live'));
+    if (onAir) sum.appendChild(el('span', 'live', 'on air'));
     else if (worst) sum.textContent = (HEALTH[worst] || worst).toLowerCase();
     // The settings part is rebuilt only when the saved settings changed; otherwise only the live part is.
     const settingsSig = JSON.stringify(data.machines.map(function (m) { const x = Object.assign({}, m); delete x.live; return x; }));

@@ -4,10 +4,7 @@
   if (!N || !R || !document.getElementById('ndiRtTable')) return;
   const $ = R.$;
   let state = null;
-  function el(tag, text, attrs) {
-    const e = document.createElement(tag); if (text) e.textContent = text;
-    Object.keys(attrs || {}).forEach(function (k) { e[k] = attrs[k]; }); return e;
-  }
+  const el = relayUI.el;
   async function act(method, path, body) {
     N.showError('');
     try { window.RelayNdiMore(await N.send(method, path, body)); } catch (e) { N.showError(e.message); }
@@ -19,21 +16,21 @@
     if (!body.contains(document.activeElement)) {
       body.textContent = '';
       rt.forEach(function (r) {
-        const tr = el('tr'); tr.appendChild(el('td', r.ndi));
-        const sel = el('select', '', { disabled: !can }); sel.setAttribute('aria-label', 'Source for ' + r.name);
-        sel.appendChild(el('option', 'Nothing', { value: '' }));
+        const tr = el('tr'); tr.appendChild(el('td', '', r.ndi));
+        const sel = el('select', { disabled: !can }); sel.setAttribute('aria-label', 'Source for ' + r.name);
+        sel.appendChild(el('option', { value: '' }, 'Nothing'));
         const have = {};
         s.inputs.forEach(function (i) {
           if (i.name.indexOf('(' + r.ndi + ')') >= 0 || i.name === r.ndi) return;   // not itself
-          have[i.name] = 1; sel.appendChild(el('option', i.label + (i.online ? '' : ' (offline)'), { value: i.name }));
+          have[i.name] = 1; sel.appendChild(el('option', { value: i.name }, i.label + (i.online ? '' : ' (offline)')));
         });
-        if (r.source && !have[r.source]) sel.appendChild(el('option', r.source + ' (not seen)', { value: r.source }));
+        if (r.source && !have[r.source]) sel.appendChild(el('option', { value: r.source }, r.source + ' (not seen)'));
         sel.value = r.source;
         sel.onchange = function () { act('PUT', '/api/admin/ndi/router/outputs/' + r.id + '/source', { source: sel.value }); };
         const td = el('td'); td.appendChild(sel);
-        if (r.error) td.appendChild(el('span', ' ' + r.error));
+        if (r.error) td.appendChild(el('span', '', ' ' + r.error));
         tr.appendChild(td);
-        const rm = el('button', 'Remove', { type: 'button', disabled: !can });
+        const rm = el('button', { type: 'button', disabled: !can }, 'Remove');
         rm.onclick = function () { act('DELETE', '/api/admin/ndi/router/outputs/' + r.id); };
         const t3 = el('td'); t3.appendChild(rm); tr.appendChild(t3); body.appendChild(tr);
       });
@@ -42,13 +39,13 @@
     const list = $('ndiSalvos'); list.textContent = '';
     s.router.salvos.forEach(function (v) {
       const p = el('p'); p.className = 'note';
-      p.appendChild(el('strong', v.name + ' '));
+      p.appendChild(el('strong', '', v.name + ' '));
       p.appendChild(document.createTextNode(Object.keys(v.routes).map(function (k) { return (names[k] || '?') + ' → ' + (v.routes[k] || 'nothing'); }).join(', ') + ' '));
-      const take = el('button', 'Take', { type: 'button', disabled: !can }); take.className = 'primary';
+      const take = el('button', { type: 'button', disabled: !can }, 'Take'); take.className = 'primary';
       take.onclick = function () { act('POST', '/api/admin/ndi/router/salvos/' + v.id + '/take'); };
-      const upd = el('button', 'Update to current', { type: 'button', disabled: !can });
+      const upd = el('button', { type: 'button', disabled: !can }, 'Update to current');
       upd.onclick = function () { act('POST', '/api/admin/ndi/router/salvos', { id: v.id, name: v.name }); };
-      const del = el('button', 'Delete', { type: 'button', disabled: !can });
+      const del = el('button', { type: 'button', disabled: !can }, 'Delete');
       del.onclick = function () { act('DELETE', '/api/admin/ndi/router/salvos/' + v.id); };
       [take, upd, del].forEach(function (b) { p.appendChild(b); });
       list.appendChild(p);
@@ -64,14 +61,14 @@
       body.textContent = '';
       let group = '';
       s.pages.forEach(function (d) {
-        if (d.group !== group) { group = d.group; const g = el('tr'); const c = el('th', group, { colSpan: 4 }); g.appendChild(c); body.appendChild(g); }
+        if (d.group !== group) { group = d.group; const g = el('tr'); const c = el('th', { colSpan: 4 }, group); g.appendChild(c); body.appendChild(g); }
         const tr = el('tr');
-        const box = el('input', '', { type: 'checkbox', checked: !!d.on, disabled: !can }); box.dataset.id = d.id;
+        const box = el('input', { type: 'checkbox', checked: !!d.on, disabled: !can }); box.dataset.id = d.id;
         box.setAttribute('aria-label', 'Send ' + d.name + ' as NDI');
         const c1 = el('td'); c1.appendChild(box); tr.appendChild(c1);
-        tr.appendChild(el('td', d.name + (d.alpha ? ' (with transparency)' : '')));
-        tr.appendChild(el('td', d.ndi));
-        tr.appendChild(el('td', d.state === 'on' ? 'Sending, ' + d.fps + ' fps, ' + d.cpu + '% of a core' :
+        tr.appendChild(el('td', '', d.name + (d.alpha ? ' (with transparency)' : '')));
+        tr.appendChild(el('td', '', d.ndi));
+        tr.appendChild(el('td', '', d.state === 'on' ? 'Sending, ' + d.fps + ' fps, ' + d.cpu + '% of a core' :
           d.state === 'error' ? d.error : d.state === 'starting' ? 'Starting' : 'Off'));
         body.appendChild(tr);
       });

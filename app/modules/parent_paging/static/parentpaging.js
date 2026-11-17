@@ -6,7 +6,7 @@
   const $ = R.$, api = R.api, post = R.post;
   const BASE = '/api/admin/parent-paging';
   const STATUS = { waiting: 'Waiting for you', shown: 'On screen', sent: 'In the ProPresenter message' };
-  function can(perm) { return typeof window.relayCan !== 'function' || !!window.relayCan(perm); }
+  const can = relayUI.can;
   function showError(text) { $('ppgErr').textContent = text || ''; $('ppgErr').hidden = !text; }
   function ago(s) { return s < 60 ? s + ' s ago' : Math.floor(s / 60) + ' min ago'; }
 
@@ -94,7 +94,7 @@
         showLink(await api(BASE + '/rooms/' + r.id + '/link'));
       }));
       top.appendChild(button('New link', '', async function () {
-        if (!confirm('Make a new link for ' + r.name + '? The old link stops working at once.')) return;
+        if (!(await relayUI.confirm('Make a new link for ' + r.name + '? The old link stops working at once.'))) return;
         showLink(await post(BASE + '/rooms/' + r.id + '/new-link'));
       }));
       top.appendChild(button('Rename', '', async function () {
@@ -103,7 +103,7 @@
         render(await send('PUT', BASE + '/rooms/' + r.id, { name: n }));
       }));
       top.appendChild(button('Remove', 'forget', async function () {
-        if (!confirm('Remove ' + r.name + '? Its link stops working and its pages come down.')) return;
+        if (!(await relayUI.confirm('Remove ' + r.name + '? Its link stops working and its pages come down.'))) return;
         render(await send('DELETE', BASE + '/rooms/' + r.id));
       }));
     }
@@ -185,7 +185,7 @@
     } catch (e) { showError(e.message); }
   };
   $('ppgClearAll').onclick = async function () {
-    if (!confirm('Take every parent page down?')) return;
+    if (!(await relayUI.confirm('Take every parent page down?'))) return;
     try { render(await post(BASE + '/pages/clear')); } catch (e) { showError(e.message); }
   };
   $('ppgLoad').onclick = async function () {

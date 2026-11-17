@@ -4,7 +4,7 @@
   const R = window.RelayAdmin;
   if (!R || !document.getElementById('rdBox')) return;
   const $ = R.$, el = R.el, api = R.api, post = R.post;
-  function can(perm) { return typeof window.relayCan !== 'function' || !!window.relayCan(perm); }
+  const can = relayUI.can;
   function C() { return R.cfg(); }
 
   let data = null;          // the last GET /rundown
@@ -16,7 +16,7 @@
     return new Date(ts * 1000).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', timeZone: zone || undefined });
   }
   function len(s) { return s ? Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0') : ''; }
-  function say(id, text, bad) { const n = $(id); n.textContent = text || ''; n.className = 'note' + (bad ? ' err' : text ? ' ok' : ''); }
+  const say = relayUI.say;
   function query() {
     const q = new URLSearchParams();
     if ($('rdType').value) q.set('type', $('rdType').value);
