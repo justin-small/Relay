@@ -536,6 +536,42 @@
     form.querySelector('input').focus();
   }
 
+  /* The people table: filter, sort by a column and page through, in the browser (a church has tens of people). */
+  const view = { q: '', key: 'name', dir: 1, page: 1, size: 10 };
+  function visibleUsers() {
+    const q = view.q.trim().toLowerCase();
+    const rows = users.filter(function (u) { return !q || (u.name + ' ' + u.username + ' ' + roleLabel(u.role)).toLowerCase().indexOf(q) !== -1; });
+    rows.forEach(function (u) { u.status = statusOf(u).text; });
+    return window.RelayShell ? window.RelayShell.sortRows(rows, view.key, view.dir) : rows;
+  }
+  function renderPager(total) {
+    const box = g('userPager');
+    const pages = Math.max(1, Math.ceil(total / view.size));
+    box.hidden = total <= view.size;
+    box.textContent = '';
+    if (box.hidden) return;
+    view.page = Math.min(view.page, pages);
+    box.appendChild(el('span', '', 'Page ' + view.page + ' of ' + pages));
+    const nav = el('span', 'pgn');
+    function btn(label, n, cls, off) {
+      const b = el('button', cls || '', label);
+      b.type = 'button'; b.disabled = !!off;
+      b.addEventListener('click', function () { view.page = n; renderUsers(); });
+      nav.appendChild(b);
+    }
+    btn('\u2039 Prev', view.page - 1, '', view.page < 2);
+    window.RelayShell.pageNums(view.page, pages).forEach(function (n) { btn(String(n), n, n === view.page ? 'cur' : '', false); });
+    btn('Next \u203a', view.page + 1, '', view.page >= pages);
+    box.appendChild(nav);
+  }
+  function paintSortHeads() {
+    document.querySelectorAll('#page-users th [data-sort]').forEach(function (b) {
+      const on = b.dataset.sort === view.key;
+      b.closest('th').setAttribute('aria-sort', on ? (view.dir > 0 ? 'ascending' : 'descending') : 'none');
+      b.textContent = b.textContent.replace(/ [\u25b2\u25bc]$/, '') + (on ? (view.dir > 0 ? ' \u25b2' : ' \u25bc') : '');
+    });
+  }
+
   function renderUsers() {
     const tb = g('userList');
     tb.textContent = '';
@@ -546,10 +582,22 @@
       td.colSpan = 7;
       tr.appendChild(td);
       tb.appendChild(tr);
+      renderPager(0);
       return;
     }
     const manage = can('users.manage');
-    users.forEach(function (u) {
+    const all = visibleUsers();
+    renderPager(all.length);
+    paintSortHeads();
+    if (!all.length) {
+      const tr = el('tr');
+      const td = el('td', 'muted', 'No people match.');
+      td.colSpan = 7;
+      tr.appendChild(td);
+      tb.appendChild(tr);
+      return;
+    }
+    all.slice((view.page - 1) * view.size, view.page * view.size).forEach(function (u) {
       const tr = el('tr');
       const nameTd = el('td');
       nameTd.appendChild(el('strong', '', u.name));
@@ -715,6 +763,15 @@
     if (add) add.addEventListener('click', function () { if (!roles.length) return; closeDevicePanel(); openAdd(); });
     const trust = g('deviceAdd');
     if (trust) trust.addEventListener('click', function () { closePanel(); openTrust(); });
+    const filter = g('userFilter');
+    if (filter) filter.addEventListener('input', function () { view.q = filter.value; view.page = 1; renderUsers(); });
+    document.querySelectorAll('#page-users th [data-sort]').forEach(function (b) {
+      b.addEventListener('click', function () {
+        view.dir = view.key === b.dataset.sort ? -view.dir : 1;
+        view.key = b.dataset.sort; view.page = 1;
+        renderUsers();
+      });
+    });
     window.addEventListener('hashchange', function () {
       if (location.hash === '#users') load();
       else { clearSecret(); closePanel(); closeDevicePanel(); }

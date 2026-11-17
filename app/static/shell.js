@@ -53,7 +53,29 @@
     return items.filter(function (i) { return !q || (i.t + ' ' + i.g).toLowerCase().indexOf(q) !== -1; });
   }
 
-  var api = { CHOICES: CHOICES, DEFAULTS: DEFAULTS, FONTS: FONTS, cleanLook: cleanLook, placePop: placePop, filterItems: filterItems };
+  /* A table's page numbers: a window of three around the current page. */
+  function pageNums(cur, count) {
+    var out = [], i;
+    if (count <= 3) { for (i = 1; i <= count; i++) out.push(i); return out; }
+    if (cur <= 2) return [1, 2, 3];
+    if (cur >= count - 1) return [count - 2, count - 1, count];
+    return [cur - 1, cur, cur + 1];
+  }
+
+  /* Rows sorted by a key (dir 1 up, -1 down): text without regard to case, numbers as numbers, stable. */
+  function sortRows(rows, key, dir) {
+    var d = dir < 0 ? -1 : 1;
+    return rows.map(function (r, i) { return [r, i]; }).sort(function (a, b) {
+      var x = a[0][key], y = b[0][key];
+      if (typeof x === 'string') x = x.toLowerCase();
+      if (typeof y === 'string') y = y.toLowerCase();
+      if (x == null) x = '';
+      if (y == null) y = '';
+      return (x > y ? 1 : x < y ? -1 : 0) * d || a[1] - b[1];
+    }).map(function (p) { return p[0]; });
+  }
+
+  var api = { pageNums: pageNums, sortRows: sortRows, CHOICES: CHOICES, DEFAULTS: DEFAULTS, FONTS: FONTS, cleanLook: cleanLook, placePop: placePop, filterItems: filterItems };
   if (typeof module !== 'undefined' && module.exports) { module.exports = api; return; }
   if (!root.document) return;
 
@@ -100,6 +122,7 @@
     d.theme = resolved(); d.mode = S.ui_mode; d.preset = S.ui_preset; d.layout = S.ui_layout; d.navbar = S.ui_navbar;
     d.sb = S.ui_sidebar; d.collapse = S.ui_collapse; d.font = S.ui_font;
     html.classList.toggle('cl', !!S.ui_collapsed && !isMobile());
+    try { root.localStorage.setItem('relayLook', JSON.stringify(S)); } catch (e) {}   // so look.js can match it on other pages
     html.style.setProperty('--font', FONTS[S.ui_font] || FONTS.system);
     var t = $('themeBtn');
     if (t) {
@@ -440,6 +463,6 @@
     if (hint && !/Mac|iPhone|iPad/.test(root.navigator.platform || '')) hint.textContent = 'Ctrl K';
   }
 
-  root.RelayShell = { page: pageChanged, toast: toast, closeAll: closeAll, state: function () { return cleanLook(S); } };
+  root.RelayShell = { pageNums: pageNums, sortRows: sortRows, filterItems: filterItems, page: pageChanged, toast: toast, closeAll: closeAll, state: function () { return cleanLook(S); } };
   if (doc.readyState === 'loading') doc.addEventListener('DOMContentLoaded', init); else init();
 })(typeof window !== 'undefined' ? window : globalThis);

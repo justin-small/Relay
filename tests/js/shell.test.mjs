@@ -59,3 +59,30 @@ describe("filterItems", () => {
   });
   it("finds nothing for nonsense", () => assert.equal(S.filterItems(items, "zzz").length, 0));
 });
+
+describe("pageNums", () => {
+  it("shows every page when there are three or fewer", () => {
+    assert.deepEqual(S.pageNums(1, 1), [1]);
+    assert.deepEqual(S.pageNums(2, 3), [1, 2, 3]);
+  });
+  it("is a window of three that follows the current page", () => {
+    assert.deepEqual(S.pageNums(1, 9), [1, 2, 3]);
+    assert.deepEqual(S.pageNums(2, 9), [1, 2, 3]);
+    assert.deepEqual(S.pageNums(5, 9), [4, 5, 6]);
+    assert.deepEqual(S.pageNums(8, 9), [7, 8, 9]);
+    assert.deepEqual(S.pageNums(9, 9), [7, 8, 9]);
+  });
+});
+
+describe("sortRows", () => {
+  const rows = [{ n: "bob", a: 3 }, { n: "Alice", a: 10 }, { n: "carol", a: 3 }];
+  it("sorts text without regard to case", () => assert.deepEqual(S.sortRows(rows, "n", 1).map(r => r.n), ["Alice", "bob", "carol"]));
+  it("sorts descending", () => assert.deepEqual(S.sortRows(rows, "n", -1).map(r => r.n), ["carol", "bob", "Alice"]));
+  it("sorts numbers as numbers", () => assert.deepEqual(S.sortRows(rows, "a", 1).map(r => r.a), [3, 3, 10]));
+  it("keeps equal rows in their order, both ways", () => {
+    assert.deepEqual(S.sortRows(rows, "a", 1).map(r => r.n), ["bob", "carol", "Alice"]);
+    assert.deepEqual(S.sortRows(rows, "a", -1).map(r => r.n), ["Alice", "bob", "carol"]);
+  });
+  it("puts a missing value first", () => assert.deepEqual(S.sortRows([{ n: "b" }, {}], "n", 1).map(r => r.n), [undefined, "b"]));
+  it("does not change the list it is given", () => { const c = rows.slice(); S.sortRows(rows, "n", 1); assert.deepEqual(rows, c); });
+});

@@ -124,6 +124,20 @@ try:
                 clean(path, r, seen)
                 page.close()
 
+        with section("viewer pages at phone width"):
+            pctx = browser.new_context(viewport={"width": 375, "height": 812})
+            for path in PUBLIC:
+                if path.startswith("/overlay"):
+                    continue
+                page, r, seen = visit(pctx, path)
+                if page.locator("[data-font=up]").count():
+                    check(f"{path}: A+ and A- stay on a 375px screen", page.evaluate(
+                        "() => ['up', 'down'].every(k => { const b = document.querySelector('[data-font=' + k + ']'); "
+                        "const r = b.getBoundingClientRect(); return r.left >= 0 && r.right <= innerWidth; })"))
+                check(f"{path}: no sideways scroll at 375px", page.evaluate("() => document.documentElement.scrollWidth <= innerWidth"))
+                page.close()
+            pctx.close()
+
         for role in users.ROLES:
             allowed = users.role_permissions(role)
             ctx = browser.new_context()

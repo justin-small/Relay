@@ -2,7 +2,7 @@
 {% set look = look|default({}) %}
 <html lang="en" data-theme="{{ 'dark' if look.get('ui_mode', 'dark') == 'system' else look.get('ui_mode', 'dark') }}" data-mode="{{ look.get('ui_mode', 'dark') }}" data-preset="{{ look.get('ui_preset', 'relay') }}" data-sb="{{ look.get('ui_sidebar', 'inset') }}" data-collapse="{{ look.get('ui_collapse', 'icon') }}" data-layout="{{ look.get('ui_layout', 'centered') }}" data-navbar="{{ look.get('ui_navbar', 'sticky') }}" data-font="{{ look.get('ui_font', 'system') }}"{% if look.get('ui_collapsed') %} class="cl"{% endif %}><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Relay &middot; Operator</title>{% include "_brand_head.html" %}<link rel="stylesheet" href="{{ static('viewer.css') }}"><link rel="stylesheet" href="{{ static('admin.css') }}">
+<title>Relay &middot; Operator</title>{% include "_brand_head.html" %}<link rel="stylesheet" href="{{ static('viewer.css') }}"><link rel="stylesheet" href="{{ static('tokens.css') }}"><link rel="stylesheet" href="{{ static('admin.css') }}">
 <script>
 /* Before first paint: "system" follows the device, and the chosen font applies (both are allow-listed words). */
 (function () {
@@ -734,12 +734,14 @@ window.relayCan = function (perm) { return window.RELAY_ME.permissions.indexOf(p
     {{ viewonly('users.manage') }}
     <section>
       <h3>People</h3>
+      <div class="dtbar"><input type="search" id="userFilter" placeholder="Filter people&hellip;" aria-label="Filter people" autocomplete="off" style="max-width:260px"></div>
       <div class="tablescroll">
-        <table>
-          <thead><tr><th>Name</th><th>Username</th><th>Role</th><th>Status</th><th>PIN</th><th>Last sign-in</th><th><span class="sr">Actions</span></th></tr></thead>
+        <table class="dt">
+          <thead><tr><th><button type="button" class="sort" data-sort="name">Name</button></th><th><button type="button" class="sort" data-sort="username">Username</button></th><th><button type="button" class="sort" data-sort="role">Role</button></th><th><button type="button" class="sort" data-sort="status">Status</button></th><th>PIN</th><th><button type="button" class="sort" data-sort="last_login">Last sign-in</button></th><th><span class="sr">Actions</span></th></tr></thead>
           <tbody id="userList"><tr><td colspan="7" class="muted">Loading&hellip;</td></tr></tbody>
         </table>
       </div>
+      <div class="pg" id="userPager" hidden></div>
       <div class="shown" id="userSecret" hidden></div>
       <div class="userform" id="userPanel" hidden></div>
       {% if 'users.manage' in perms %}<div class="ctl" style="margin-top:12px">
