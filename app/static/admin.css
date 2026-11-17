@@ -550,3 +550,22 @@ table.audit tr.failed .what { color:var(--err); }
 /* The panel drawer slides over the content and uses the card surface. */
 #drawer{background:var(--card);border-left:1px solid var(--border);z-index:30}
 #drawerBg{z-index:25;background:#0008}
+
+/* Network map (#437): the SVG is drawn from these classes only, so it follows every preset and both themes. */
+.nmstats { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:10px; margin:0 0 14px; }
+.nmstats .card { border:1px solid var(--border); border-radius:9px; background:var(--card); padding:12px 14px; }
+.nmstats .k { color:var(--muted); font-size:12px; } .nmstats .v { font-size:24px; font-weight:700; margin:2px 0; } .nmstats .s { color:var(--muted); font-size:12px; min-height:1em; }
+.nmbar { margin-bottom:12px; }
+.nmkey { margin-left:auto; display:inline-flex; align-items:center; gap:6px; font-size:12px; color:var(--muted); }
+.nmk { display:inline-block; width:14px; height:3px; border-radius:2px; background:var(--muted); } .nmk.ndi { background:var(--info,#60a5fa); } .nmk.dante { background:var(--accent); }
+.nmframe { overflow:auto; max-height:560px; border:1px solid var(--border); border-radius:7px; padding:8px; }
+.nmframe svg { display:block; min-width:100%; }
+.nm-link { fill:none; stroke:var(--border); stroke-width:1.5; } .nm-link.ndi { stroke:var(--info,#60a5fa); stroke-width:2; } .nm-link.dante { stroke:var(--accent); stroke-width:2; }
+.nm-node { cursor:pointer; } .nm-node rect { fill:var(--card-bg,#0a0b0d); stroke:var(--border); stroke-width:1.5; }
+.nm-node.infra rect { fill:var(--btn-bg,#17181c); } .nm-node.ndi rect { stroke:var(--info,#60a5fa); } .nm-node.dante rect { stroke:var(--accent); }
+.nm-node.sel rect, .nm-node:focus-visible rect { stroke:var(--fg); stroke-width:2.5; } .nm-node:focus-visible { outline:none; }
+.nm-node.stale { opacity:.45; }
+.nm-name { fill:var(--fg); font-size:12px; font-weight:600; } .nm-sub { fill:var(--muted); font-size:11px; }
+.nmcols { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1.4fr); gap:14px; } @media (max-width:900px) { .nmcols { grid-template-columns:minmax(0,1fr); } }
+#nmDetail h4 { margin:0 0 8px; font-size:15px; } #nmDetail .kv, #nmSources .kv { display:flex; justify-content:space-between; gap:16px; padding:6px 0; border-bottom:1px solid var(--border); font-size:13px; }
+#nmSources .kv .note { margin:2px 0 0; } #nmTable tr[role=button] { cursor:pointer; }

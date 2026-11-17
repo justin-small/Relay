@@ -420,6 +420,7 @@ route("POST", "/api/admin/modules/{mid}", "modules.manage")
 route("POST", "/api/admin/modules/{mid}/test", "modules.manage")
 # network ports (#347)
 route("GET", "/api/admin/network", "network.view")
+route("GET", "/api/admin/network/map", "network.view")
 route("POST", "/api/admin/network/classes/{cid}", "network.manage")
 route("POST", "/api/admin/network/classes/{cid}/test", "network.manage")
 route("POST", "/api/admin/network/ports/{pid}/forget", "network.manage")
@@ -743,7 +744,7 @@ for m, p, rt in found:
 check("each route's dependency asks for the permission in the table", not mismatch, mismatch[:5])
 
 # GETs that are safe to run for real (no hardware, no side effects), to see "allowed" really allowed.
-SAFE_GET = {"/api/admin/me", "/api/admin/state", "/api/admin/status", "/api/admin/modules", "/api/admin/network", "/api/admin/alerts",
+SAFE_GET = {"/api/admin/me", "/api/admin/state", "/api/admin/status", "/api/admin/modules", "/api/admin/network", "/api/admin/network/map", "/api/admin/alerts",
             "/api/admin/panels", "/api/admin/panels/firmware", "/api/admin/schedules", "/api/admin/overlays",
             "/api/admin/recordings", "/api/admin/users", "/api/admin/trusted-devices",
             "/api/admin/me/tokens", "/api/admin/tokens", "/api/admin/me/prefs",

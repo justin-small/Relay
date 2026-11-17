@@ -13,6 +13,17 @@ from .. import AdminPage, Health, Manifest, Module, Traffic
 from ...users import Permission
 
 
+def _addr(host: Any) -> dict:
+    """A configured address as the network map's `ip` (when it is one) or `host` (a name)."""
+    import ipaddress
+
+    h = host.strip() if isinstance(host, str) else ""
+    try:
+        return {"ip": str(ipaddress.ip_address(h))}
+    except ValueError:
+        return {"host": h} if h else {}
+
+
 class Obs(Module):
     manifest = Manifest(
         id="obs",
@@ -26,6 +37,7 @@ class Obs(Module):
     )
     defaults = {"machines": [], "passwords": ""}
     secret_settings = ("passwords",)
+    network_map_adds = "Marks the computers it controls as running OBS Studio."
     admin_pages = (AdminPage(
         id="obs", title="OBS Studio", template="obs.html", group="Output",
         icon='<circle cx="8" cy="8" r="5.5"/><circle cx="8" cy="8" r="1.5"/>'),)
@@ -81,6 +93,13 @@ class Obs(Module):
         from .service import service
 
         await service.stop()     # also clears each machine's stream status and tally
+
+    def network_map(self) -> list[dict]:
+        from ... import config
+
+        machines = config.get().get("obs", {}).get("machines") or []
+        return [{**_addr(m.get("host")), "name": m.get("name") or "", "kind": "computer", "tags": ["OBS Studio"]}
+                for m in machines if isinstance(m, dict) and m.get("host")]
 
     def health(self) -> Health:
         from .service import service

@@ -356,6 +356,33 @@ class Service:
             return f"{name or 'switch'} port {c['port']}" if c.get("port") is not None else name
         return " · ".join(x for x in (name, c.get("ssid") or "") if x)
 
+    def map_devices(self) -> list[dict]:
+        """What this console knows, for the core network map (#437): the gear with its ports, the clients with the
+        switch and port each is on, and which clients carry NDI or Dante. Read from what is already in memory."""
+        by_mac = {g["mac"]: g for g in self.parts.get("gear") or []}
+        av = {a["mac"]: a for a in (self.parts.get("av") or {}).get("devices") or []}
+        out = []
+        for g in by_mac.values():
+            up = g.get("uplink") or {}
+            parent = next((m for m, o in by_mac.items() if o["name"] == up.get("to")), "") if up.get("to") else ""
+            out.append({"mac": g["mac"], "ip": g.get("ip"), "name": g["name"],
+                        "kind": g.get("kind") if g.get("kind") in ("gateway", "switch", "ap") else "switch",
+                        "uplink_mac": parent, "speed": up.get("speed"), "poe_w": g.get("poe_w"),
+                        "tags": [t for t in (g.get("model"),) if t], "ports": g.get("ports") or []})
+        ports = {(g["mac"], p["port"]): p for g in by_mac.values() for p in g.get("ports") or []}
+        for c in self.presence.online():
+            flows = av.get(c["mac"])
+            uplink = c.get("uplink")
+            port = ports.get((uplink, c.get("port"))) if c.get("wired") else None
+            out.append({"mac": c["mac"], "ip": c.get("ip"), "host": c.get("hostname"), "name": c.get("name") or c.get("hostname") or "",
+                        "uplink_mac": uplink if uplink in by_mac else "", "uplink_port": c.get("port") if c.get("wired") else None,
+                        "port_name": (port or {}).get("name") or "", "speed": (port or {}).get("speed"),
+                        "poe_w": (port or {}).get("poe_w"), "errors": (port or {}).get("errors"),
+                        "ndi": ("ndi" in flows["kinds"]) if flows else None,
+                        "dante": ("dante" in flows["kinds"]) if flows else None,
+                        "identified_by": ["traffic flows"] if flows else []})
+        return out
+
     def snapshot(self) -> dict:
         s = settings()
         level, detail = self.health()
