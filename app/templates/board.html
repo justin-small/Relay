@@ -1,0 +1,33 @@
+<!doctype html>
+{# /board/<slug> (#156): a board, drawn by the shared renderer (#421). An admin on the operator port also gets the
+   shared editor, over the live board. Everything the page needs is in boardData; board.js draws it. #}
+<html lang="en"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#000000">
+<meta name="referrer" content="no-referrer">
+<title>{{ title }}</title>
+{% include "_brand_head.html" %}
+<link rel="stylesheet" href="{{ static('tokens.css') }}"><link rel="stylesheet" href="{{ static('layout.css') }}"><script src="{{ static('look.js') }}"></script>
+<style>
+html,body{margin:0;height:100%;background:#000;color:#fafafa;font-family:var(--font,system-ui,sans-serif)}
+body{display:flex;flex-direction:column;overflow:hidden}
+#board{flex:1;min-height:0;display:flex}
+#board>.rl-ed{flex:1;min-height:0}
+#board .rl-body{flex:1;min-height:0}
+#board .rl-stage{display:flex;align-items:center;justify-content:center}
+#board .rl-canvas{flex:none}
+#boardView{flex:1;min-height:0;padding:1vmin;box-sizing:border-box;display:flex;align-items:center;justify-content:center}
+#boardView .rl-grid{flex:none;contain:size}
+#editBtn{position:fixed;right:14px;bottom:14px;z-index:20;min-height:36px;padding:0 14px;border-radius:8px;border:1px solid var(--primary,#4ade80);background:var(--primary,#4ade80);color:var(--primary-fg,#052e16);font:inherit;font-weight:500;cursor:pointer;opacity:.25;transition:opacity .2s}
+#editBtn:hover,#editBtn:focus-visible{opacity:1}
+#toast{position:fixed;left:50%;bottom:20px;transform:translateX(-50%);background:#7a1f1f;color:#fff;padding:10px 18px;border-radius:8px;font-size:16px;z-index:30}
+.empty{margin:auto;color:#a1a1aa;text-align:center;padding:24px}
+</style>
+</head><body>
+<div id="board"></div>
+<div id="toast" role="status" aria-live="polite" hidden></div>
+<script id="boardData" type="application/json">{{ data | tojson }}</script>
+<script src="{{ static('layout-render.js') }}"></script>
+{% if data.can_edit %}<script src="{{ static('layout-editor.js') }}"></script>{% endif %}
+<script src="{{ static('board.js') }}"></script>
+</body></html>

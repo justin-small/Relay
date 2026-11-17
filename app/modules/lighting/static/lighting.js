@@ -64,82 +64,70 @@
     return box;
   }
 
-  const picked = {};           // page index -> index of the cue whose look is being edited
-  function field(label, input) {
-    const l = el('label', label + ' ');
-    l.appendChild(input);
-    return l;
+  // Each page is laid out with core's shared editor (#421), the same drawing as its tablet screen. A person who may
+  // not edit pages sees the drawing only, and presses fire cues when they may fire them.
+  const editors = [];
+  function toItem(c) {
+    return { id: c.id, kind: 'button', type: 'cue', title: c.name, x: c.x, y: c.y, w: c.w, h: c.h, style: c.style || {}, props: { cue: c.id } };
   }
-  function styleForm(page, pi) {
-    const c = page.cues[picked[pi]];
-    const box = el('div', '', 'row');
-    if (!c) return box;
-    function bind(input, key, num) {
-      input.oninput = function () { c[key] = num ? parseInt(input.value || '0', 10) : input.value; renderPreview(page, pi); };
-      return input;
-    }
-    const label = el('input'); label.maxLength = 60; label.value = c.label || ''; label.placeholder = c.name;
-    box.appendChild(field('Text', bind(label, 'label')));
-    const shape = el('select');
-    [['rounded', 'Rounded'], ['rect', 'Square corners'], ['pill', 'Pill'], ['circle', 'Circle']].forEach(function (s) {
-      const o = el('option', s[1]); o.value = s[0]; if (c.shape === s[0]) o.selected = true; shape.appendChild(o);
-    });
-    shape.onchange = function () { c.shape = shape.value; renderPreview(page, pi); };
-    box.appendChild(field('Shape', shape));
-    [['color', 'Colour'], ['text_color', 'Text colour']].forEach(function (k) {
-      const i = el('input'); i.type = 'color'; i.value = c[k[0]] || '#2b5fd9'; box.appendChild(field(k[1], bind(i, k[0])));
-    });
-    if (!page.free) {
-      [['w', 'Wide'], ['h', 'Tall']].forEach(function (k) {
-        const i = el('input'); i.type = 'number'; i.min = 1; i.max = 6; i.value = c[k[0]] || 1; i.style.width = '4em';
-        box.appendChild(field(k[1] + ' (cells)', bind(i, k[0], true)));
-      });
-    }
-    return box;
+  function fromItem(it, page) {
+    const id = (it.props && it.props.cue) || it.id;
+    const old = page.cues.filter(function (c) { return c.id === id; })[0];
+    return { id: id, name: old ? old.name : (it.title || id), x: it.x, y: it.y, w: it.w, h: it.h, style: it.style };
   }
-  // The preview draws with the same code as /screen. In a free page a button drags and its corner resizes (percent
-  // of the page, kept inside it); in a grid page tapping picks the cue whose look the form below edits.
-  function renderPreview(page, pi) {
-    const root = page._preview;
-    root.className = page.free ? 'ltfree' : 'ltgrid';
-    root.style.cssText = page.free ? 'position:relative;aspect-ratio:16/10;background:#111;border-radius:8px' : 'background:#111;padding:8px;border-radius:8px';
-    const drawn = window.LightingButtons.draw(root, page, function (c) { picked[pi] = page.cues.indexOf(c); renderPreview(page, pi); });
-    page.cues.forEach(function (c, ci) {
-      const b = drawn.buttons[c.id];
-      if (ci === picked[pi]) b.classList.add('picked');
-      if (!page.free || !can('lighting.manage')) return;
-      b.style.touchAction = 'none';
-      b.onpointerdown = function (ev) {
-        if (ev.target !== b) return;
-        picked[pi] = ci; b.setPointerCapture(ev.pointerId);
-        const r = root.getBoundingClientRect(), sx = ev.clientX, sy = ev.clientY, ox = c.x, oy = c.y;
-        b.onpointermove = function (e) {
-          c.x = Math.max(0, Math.min(100 - c.fw, Math.round(ox + (e.clientX - sx) / r.width * 100)));
-          c.y = Math.max(0, Math.min(100 - c.fh, Math.round(oy + (e.clientY - sy) / r.height * 100)));
-          drawn.place(b, c, true);
-        };
-        b.onpointerup = function () { b.onpointermove = null; b.onpointerup = null; renderPreview(page, pi); };
-      };
-      if (ci === picked[pi]) {
-        const h = el('span', '', 'ltresize');
-        h.onpointerdown = function (ev) {
-          ev.stopPropagation(); h.setPointerCapture(ev.pointerId);
-          const r = root.getBoundingClientRect(), sx = ev.clientX, sy = ev.clientY, ow = c.fw, oh = c.fh;
-          h.onpointermove = function (e) {
-            c.fw = Math.max(4, Math.min(100 - c.x, Math.round(ow + (e.clientX - sx) / r.width * 100)));
-            c.fh = Math.max(4, Math.min(100 - c.y, Math.round(oh + (e.clientY - sy) / r.height * 100)));
-            drawn.place(b, c, true);
-          };
-          h.onpointerup = function () { h.onpointermove = null; h.onpointerup = null; renderPreview(page, pi); };
-        };
-        b.appendChild(h);
+  const CUE_LOOK = { shape: 'rounded', bg: '#2b5fd9', fg: '#ffffff', pressed: '#5b8bff', icon: '' };
+  function palette(page) {
+    const on = {};
+    page.cues.forEach(function (c) { on[c.id] = true; });
+    return ((data && data.cues) || []).filter(function (c) { return !on[c.id] && kindOf(c.id) !== 'slider'; }).map(function (c) {
+      return { group: 'From the lighting program', name: c.name, title: c.name, kind: 'button', type: 'cue', w: 1, h: 1,
+        props: { cue: c.id }, style: CUE_LOOK };
+    });
+  }
+  function collect() {
+    // What every page's editor holds now, so a save never loses a layout not yet saved on its own.
+    editors.forEach(function (ed, pi) {
+      if (!ed || !pages[pi]) return;
+      const st = ed.get();
+      pages[pi].cols = st.cols; pages[pi].rows = st.rows;
+      pages[pi].cues = st.items.map(function (it) { return fromItem(it, pages[pi]); });
+    });
+  }
+  async function savePages() {
+    collect();
+    render(await send('PUT', '/api/admin/lighting/pages', { pages: pages.map(function (p) {
+      return { id: p.id, name: p.name, key_on: p.key_on, cols: p.cols, rows: p.rows, cues: p.cues };
+    }) }));
+  }
+  function layoutFor(page, pi, holder) {
+    if (!can('lighting.manage')) {
+      const box = el('div'); box.style.cssText = 'background:#111;padding:10px;border-radius:8px;aspect-ratio:4/3;max-width:560px;display:flex';
+      const g = el('div'); g.style.cssText = 'flex:1;contain:size'; box.appendChild(g); holder.appendChild(box);
+      const drawn = window.RelayLayout.draw(g, { cols: page.cols, rows: page.rows, items: page.cues.map(toItem) },
+        can('lighting.control') ? function (it) { send('POST', '/api/admin/lighting/press', { cue: it.props.cue }).catch(function (e) { showError(e.message); }); } : null);
+      Object.keys(drawn).forEach(function (id) { window.RelayLayout.update(drawn[id], { lit: !!(data && data.state && data.state[id]) }); });
+      return;
+    }
+    editors[pi] = window.RelayLayout.edit(holder, {
+      title: page.name, noun: 'page', paletteName: 'Cues', inline: true, gap: 8, ratio: '4/3', saveLabel: 'Save page',
+      cols: page.cols, rows: page.rows, sizes: [[4, 3], [6, 4], [3, 2], [8, 6], [5, 4]],
+      items: page.cues.map(toItem), palette: palette(page),
+      fields: function (it) { return [{ key: 'cue', label: 'Cue id in the lighting program', type: 'ro' },
+        { type: 'note', label: 'A press is sent once and never retried.' }]; },
+      addById: { label: 'Add by id', placeholder: 'Cue id (Vista: EX.1.0.1.0.0)',
+        make: function (id) { return { name: id, title: id, kind: 'button', type: 'cue', w: 1, h: 1, props: { cue: id }, style: CUE_LOOK }; } },
+      onSave: function () { return savePages(); },
+      onDraw: function (nodes) {
+        Object.keys(nodes).forEach(function (id) {
+          const it = editors[pi] ? editors[pi].get().items.filter(function (i) { return i.id === id; })[0] : null;
+          const cue = it ? it.props.cue : id;
+          window.RelayLayout.update(nodes[id], { lit: !!(data && data.state && data.state[cue]) });
+        });
       }
     });
-    const f = page._form;
-    if (f) { f.textContent = ''; if (picked[pi] !== undefined) f.appendChild(styleForm(page, pi)); }
   }
   async function screenControls(page) {
-    const box = el('div', '', 'row');
+    const box = el('div', '', 'ctl');
     const on = !!page.key_on;
     const link = el('input'); link.readOnly = true; link.size = 40; link.hidden = true;
     async function show() {
@@ -166,70 +154,38 @@
   function renderPages() {
     const root = $('ltPages');
     root.textContent = '';
+    editors.length = 0;
     const manage = can('lighting.manage');
     pages.forEach(function (page, pi) {
       const card = el('div', '', 'card');
+      const head = el('div', '', 'ctl');
       const name = el('input');
-      name.value = page.name; name.maxLength = 40; name.disabled = !manage;
+      name.value = page.name; name.maxLength = 40; name.disabled = !manage; name.setAttribute('aria-label', 'Page name'); name.style.maxWidth = '260px';
       name.oninput = function () { page.name = name.value; };
-      card.appendChild(name);
-      const list = el('div');
-      page.cues.forEach(function (cue, ci) {
-        const row = el('div', '', 'row');
-        row.appendChild(fireButtons(cue));
-        if (manage) {
-          row.appendChild(button('Look', function () { picked[pi] = ci; renderPreview(page, pi); }));
-          row.appendChild(button('Up', function () { move(page.cues, ci, -1); renderPages(); }));
-          row.appendChild(button('Down', function () { move(page.cues, ci, 1); renderPages(); }));
-          row.appendChild(button('Remove', function () { page.cues.splice(ci, 1); delete picked[pi]; renderPages(); }));
-        }
-        list.appendChild(row);
-      });
-      card.appendChild(list);
+      head.appendChild(name);
       if (manage) {
-        const id = el('input'); id.placeholder = 'Cue id'; id.maxLength = 64;
-        const nm = el('input'); nm.placeholder = 'Name'; nm.maxLength = 60;
-        card.appendChild(id); card.appendChild(nm);
-        card.appendChild(button('Add cue', function () {
-          if (!id.value.trim()) throw new Error('Enter the cue id from your lighting program.');
-          page.cues.push(newCue(id.value.trim(), nm.value.trim() || id.value.trim(), page)); renderPages();
+        head.appendChild(button('Up', function () { collect(); move(pages, pi, -1); renderPages(); }));
+        head.appendChild(button('Down', function () { collect(); move(pages, pi, 1); renderPages(); }));
+        head.appendChild(button('Delete page', function () {
+          if (!window.confirm('Delete the page "' + page.name + '"? Its screen link stops working once you save.')) return;
+          collect(); pages.splice(pi, 1); renderPages();
         }));
-        card.appendChild(button('Up', function () { move(pages, pi, -1); renderPages(); }));
-        card.appendChild(button('Down', function () { move(pages, pi, 1); renderPages(); }));
-        card.appendChild(button('Delete page', function () { pages.splice(pi, 1); renderPages(); }));
-        const free = el('input'); free.type = 'checkbox'; free.checked = !!page.free;
-        free.onchange = function () { page.free = free.checked; if (page.free) arrange(page); renderPages(); };
-        card.appendChild(field('Place buttons freely (drag and resize)', free));
       }
-      page._preview = el('div');
-      page._form = el('div');
-      card.appendChild(el('h4', 'How it looks on the screen'));
-      card.appendChild(page._preview);
-      card.appendChild(page._form);
+      card.appendChild(head);
+      const sliders = page.cues.filter(function (c) { return kindOf(c.id) === 'slider'; });
+      if (sliders.length) { const sl = el('div', '', 'row'); sliders.forEach(function (c) { sl.appendChild(fireButtons(c)); }); card.appendChild(sl); }
+      const holder = el('div'); holder.style.marginTop = '10px';
+      card.appendChild(holder);
+      layoutFor(page, pi, holder);
       if (manage) {
-        const holder = el('div');
-        card.appendChild(holder);
-        screenControls(page).then(function (c) { holder.appendChild(c); });
+        const sc = el('div');
+        card.appendChild(sc);
+        screenControls(page).then(function (c) { sc.appendChild(c); });
       }
       root.appendChild(card);
-      renderPreview(page, pi);
     });
     $('ltPageCtl').hidden = !manage;
     renderAll();
-  }
-  function newCue(id, name, page) {
-    const c = { id: id, name: name, label: '', shape: 'rounded', color: '#2b5fd9', text_color: '#ffffff', w: 1, h: 1, x: 0, y: 0, fw: 25, fh: 20 };
-    if (page.free) arrange(page, c);
-    return c;
-  }
-  // Lay free buttons out in rows of four the first time a page is made free, or when a cue is added to one.
-  function arrange(page, only) {
-    page.cues.forEach(function (c, i) {
-      if (only && c !== only) return;
-      if (!only && (c.x || c.y)) return;
-      c.fw = c.fw || 25; c.fh = c.fh || 20;
-      c.x = (i % 4) * 25; c.y = Math.floor(i / 4) * 22 % 80;
-    });
   }
   function move(list, i, d) {
     const j = i + d;
@@ -249,7 +205,7 @@
       if (can('lighting.manage')) {
         row.appendChild(button('Add to first page', function () {
           if (!pages.length) throw new Error('Add a page first.');
-          pages[0].cues.push(newCue(c.id, c.name, pages[0])); renderPages();
+          collect(); pages[0].cues.push({ id: c.id, name: c.name, x: 0, y: 0, w: 1, h: 1, style: CUE_LOOK }); renderPages();
         }));
       }
       root.appendChild(row);
@@ -273,7 +229,6 @@
     $('ltStatus').textContent = d.error || '';
     renderPages();
   }
-  (function () { const l = document.createElement('link'); l.rel = 'stylesheet'; l.href = '/static/modules/lighting/screen.css'; document.head.appendChild(l); })();
   async function load() { render(await send('GET', '/api/admin/lighting')); }
 
   $('ltSave').onclick = async function () {
@@ -288,10 +243,10 @@
     try { const r = await send('POST', '/api/admin/lighting/test'); $('ltStatus').textContent = r.detail || ''; }
     catch (e) { showError(e.message); }
   };
-  $('ltAddPage').onclick = function () { pages.push({ id: '', name: 'New page', free: false, key_on: false, cues: [] }); renderPages(); };
+  $('ltAddPage').onclick = function () { collect(); pages.push({ id: '', name: 'New page', key_on: false, cols: 4, rows: 3, cues: [] }); renderPages(); };
   $('ltSavePages').onclick = async function () {
     showError('');
-    try { render(await send('PUT', '/api/admin/lighting/pages', { pages: pages.map(function (p) { const o = {}; Object.keys(p).forEach(function (k) { if (k[0] !== '_') o[k] = p[k]; }); return o; }) })); } catch (e) { showError(e.message); }
+    try { await savePages(); } catch (e) { showError(e.message); }
   };
   window.addEventListener('hashchange', function () { if (location.hash === '#lighting') load().catch(function (e) { showError(e.message); }); });
   if (location.hash === '#lighting') load().catch(function (e) { showError(e.message); });

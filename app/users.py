@@ -73,6 +73,8 @@ _CORE = (
     Permission("alerts.send", "Send alerts from /alert when it needs a sign-in", "Alerts", "member"),
     Permission("overlays.view", "See overlays", "Overlays", "viewer"),
     Permission("overlays.manage", "Create, change and delete overlays", "Overlays", "operator"),
+    Permission("boards.view", "Open boards that are not public", "Boards", "member"),
+    Permission("boards.manage", "Create, lay out, change and delete boards", "Boards", "admin"),
     Permission("recordings.view", "List and download recordings", "Recordings", "operator"),
     Permission("recordings.manage", "Delete recordings and change recording settings", "Recordings", "admin"),
     Permission("schedules.view", "See schedules", "Schedules", "viewer"),
