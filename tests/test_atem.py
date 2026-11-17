@@ -349,6 +349,40 @@ eq("the switcher's address, id, model and firmware", (atem["address"], atem["uid
 eq("a device that did not say its address has none", found[1]["address"], "")
 eq("the HyperDeck is listed but not an ATEM", (found[2]["kind"], found[2]["atem"], found[2]["port"]),
    ("HyperDeck recorder", False, 9993))
+print("finding Blackmagic gear: records as real switchers sent them (2026-11-16)")
+C = "ATEM 2 M/E Constellation HD"
+real = [
+    # A Television Studio HD III: _blackmagic._tcp with its TXT; firmware is the release version, not the protocol's.
+    rr("_blackmagic._tcp.local", 12, discovery._name("ATEM Television Studio HD._blackmagic._tcp.local".split("."))),
+    rr("ATEM Television Studio HD._blackmagic._tcp.local", 33, srv(9910, "ATEM-HDA-7c2e0da3bf65.local")),
+    rr("ATEM Television Studio HD._blackmagic._tcp.local", 16, txt(
+        "txtvers=1", "name=Blackmagic ATEM Television Studio HD III", "class=AtemSwitcher", "protocol version=0.0",
+        "release version=8.1.1", "device version=256", "unique id=7c2e0da3bf65")),
+    rr("ATEM-HDA-7c2e0da3bf65.local", 1, socket.inet_aton("10.0.0.24")),
+    # A Constellation: no _blackmagic._tcp. The router's entry comes first and has the address; the control entry
+    # has none. The control entry's TXT is only its id, lowercase; the rest is on the _http._tcp twin, id uppercase.
+    rr("_videohub._tcp.local", 12, discovery._name(f"{C}._videohub._tcp.local".split("."))),
+    rr(f"{C}._videohub._tcp.local", 33, srv(9990, "ATEM-2-ME-Constellation-HD.local")),
+    rr("ATEM-2-ME-Constellation-HD.local", 1, socket.inet_aton("10.0.0.25")),
+    rr("_switcher_ctrl._udp.local", 12, discovery._name(f"{C}._switcher_ctrl._udp.local".split("."))),
+    rr(f"{C}._switcher_ctrl._udp.local", 33, srv(9910, "ATEM-2-ME-Constellation-HD.local")),
+    rr(f"{C}._switcher_ctrl._udp.local", 16, txt("unique id=5d13021dbd1b4b2598ae477dacd2de6a")),
+    rr(f"{C}._http._tcp.local", 16, txt(
+        "txtvers=1", f"device name={C}", "hw version=0100", "product id=BE7F", "release version=9.6.2",
+        "sw version=FD8544FE", "unique id=5D13021DBD1B4B2598AE477DACD2DE6A")),
+]
+msg2 = struct.pack("!6H", 0, 0x8400, 0, len(real), 0, 0) + b"".join(real)
+found2 = {f["name"]: f for f in discovery.collect(discovery.parse_records(msg2), set(discovery.SERVICES))}
+eq("one entry per switcher, the router's not listed apart", sorted(found2), [C, "ATEM Television Studio HD"])
+tvs, con = found2["ATEM Television Studio HD"], found2[C]
+eq("the Television Studio's firmware is its release version", (tvs["firmware"], tvs["uid"], tvs["atem"]),
+   ("8.1.1", "7c2e0da3bf65", True))
+eq("the Constellation is the switcher on its control port, with the router's address",
+   (con["atem"], con["service"], con["port"], con["address"]), (True, "_switcher_ctrl._udp", 9910, "10.0.0.25"))
+eq("the Constellation's id, model and firmware come from its _http._tcp TXT", (con["uid"], con["model"], con["firmware"]),
+   ("5d13021dbd1b4b2598ae477dacd2de6a", C, "9.6.2"))
+eq("_switcher_ctrl alone marks an ATEM", discovery.family("_switcher_ctrl._udp.local", "", "", "Switcher")[0], "atem")
+
 eq("TXT keys are read without case", discovery.parse_txt(txt("Unique ID=x1", "flag")), {"unique id": "x1", "flag": ""})
 eq("families by their words", [discovery.family(t)[0] for t in ("Videohub 20x20", "Teranex Mini", "Web Presenter HD",
    "Cloud Store Mini", "URSA Broadcast", "Something")],

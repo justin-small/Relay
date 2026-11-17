@@ -256,7 +256,7 @@ class Service:
         for d in lost + unknown:
             d.last_refind = now
         found = await asyncio.to_thread(discover)
-        by_uid = {f["uid"]: f for f in found if f.get("uid") and f.get("atem")}
+        by_uid = {f["uid"].lower(): f for f in found if f.get("uid") and f.get("atem")}
         by_addr = {f["address"]: f for f in found if f.get("uid") and f.get("atem")}
         items = devices()
         changed = False
@@ -266,7 +266,7 @@ class Service:
             if dev is None:
                 continue
             if dev in lost:
-                hit = by_uid.get(item["uid"])
+                hit = by_uid.get(item["uid"].lower())
                 if hit and hit["address"] and hit["address"] != item["host"]:
                     log.info("ATEM %s moved from %s to %s", item["name"], item["host"], hit["address"])
                     moved[item["id"]] = f"Found again at {hit['address']} (it was at {item['host']})."
