@@ -1,7 +1,7 @@
 """Remote access (#50): viewers off the venue's network open the caption and translation links over the internet.
 
 Switched on, this install enrolls once with an enrollment code and gets its own address,
-https://<random>.relaychurchsystems.com, made by Relay's cloud (relay-cloud). cloudflared then keeps an outbound-only
+https://<random>.cloud.relaysystems.dev, made by Relay's cloud (relay-cloud). cloudflared then keeps an outbound-only
 tunnel from this machine to Cloudflare: no port forwarding, no router changes. The tunnel reaches the viewer port
 only; the operator panel is never on it. Switched off, cloudflared stops and the address is kept for next time.
 """

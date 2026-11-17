@@ -405,7 +405,7 @@ reg({ kind: 'page', id: 'remoteaccess', t: 'Remote access', g: 'Output', ic: 'mo
 P.remoteaccess = () => {
   const linkBox = () => card('Remote viewer link', '', `
     <div class="mp-flex" style="margin-bottom:4px"><div class="mp-qr" id="raQr" style="width:120px;height:120px;padding:6px">${qr(25, 9)}</div>
-      <div><a class="mp-m" id="raUrl" href="#remoteaccess" onclick="return false" style="text-decoration:underline">https://q7k2m9x4.relaychurchsystems.com</a>
+      <div><a class="mp-m" id="raUrl" href="#remoteaccess" onclick="return false" style="text-decoration:underline">https://q7k2m9x4.cloud.relaysystems.dev</a>
       <div class="mp-ctl" style="margin-top:8px">${btn('Copy link', '', 'id="raCopy" data-copy="Copy link"')}</div></div></div>
     ${pn('ra', 'live', 'live', note('Connected. Viewers anywhere can open the link.', 'ok', 'id="raState"'))}${pn('ra', 'retry', 'live', note('Lost the connection to Cloudflare. Trying again…', 'err', 'id="raState"'))}${pn('ra', 'missing', 'live', note('cloudflared is missing from this install of Relay, so the tunnel can\'t run. Reinstall Relay.', 'err', 'id="raState"'))}
     ${note('This link opens the same viewer pages as the room\'s link: the captions, the translations and the presentation screens. The operator panel is never reachable through it. Anyone who has the link can watch, so share it the way you\'d share a livestream link.')}
@@ -414,7 +414,7 @@ P.remoteaccess = () => {
   const enroll = `<div class="mp-manage" id="raEnrollBox">${card('Enroll this install', '', `
       <div class="mp-row">${fld('raCode', 'Enrollment code', inp('raCode', 'class="mp-m" placeholder="XXXX-XXXX-XXXX" spellcheck="false" maxlength="40" style="font-family:ui-monospace,monospace"'), '', 'm')}</div>
       <div class="mp-ctl" style="margin-top:0">${btn('Enroll', 'p', 'id="raEnroll" data-req="#raCode" data-fail="Enter the enrollment code you were given." data-toast="Enrolled. Connecting to Cloudflare…"')}</div>
-      ${note('Enrolling gives this install its own address on ' + m('relaychurchsystems.com') + '. Relay connects out to Cloudflare, so nothing changes on your router or firewall. The audio never leaves this computer; only the viewer pages are served through the link.')}`)}</div>`;
+      ${note('Enrolling gives this install its own address on ' + m('cloud.relaysystems.dev') + '. Relay connects out to Cloudflare, so nothing changes on your router or firewall. The audio never leaves this computer; only the viewer pages are served through the link.')}`)}</div>`;
   return head('Remote access', pn('ra', 'live', 'live', sum('ok', 'live', 'id="raSum"'), 'span') + pn('ra', 'retry missing', 'live', sum('err', 'not connected'), 'span'), 'An internet link to the captions and translations, for people who aren\'t on this network.') +
     page(bar(sub('ra', [['live', 'Connected'], ['retry', 'Reconnecting'], ['missing', 'cloudflared missing'], ['enroll', 'Not enrolled']], 'live').replace('class="mp-sub"', 'style="margin:0"'), []) +
       `<div class="mp-stack">${pn('ra', 'enroll', 'live', note('An admin enrolls this install to give it a remote link.', 'mp-onlyro', 'id="raAccessNote" style="margin:0"'))}

@@ -1,6 +1,6 @@
-"""The calls this install makes to Relay's cloud (relay-cloud, a Cloudflare Worker at cloud.relaychurchsystems.com).
+"""The calls this install makes to Relay's cloud (relay-cloud, a Cloudflare Worker at cloud.relaysystems.dev).
 
-Enrolling spends an enrollment code and gives this install a tunnel and a viewer address <slug>.relaychurchsystems.com.
+Enrolling spends an enrollment code and gives this install a tunnel and a viewer address <slug>.cloud.relaysystems.dev.
 The install makes its own secret, sends it once, and proves itself with it afterwards; the cloud stores only a hash.
 The cloud holds the Cloudflare API token; this install only ever holds its own tunnel's token.
 
@@ -20,7 +20,7 @@ from ... import netsock
 TRAFFIC = "remote_access"   # calls to Relay's cloud and the tunnel go out through this class's port (#348)
 
 TIMEOUT_S = 30
-DEFAULT_URL = "https://cloud.relaychurchsystems.com"
+DEFAULT_URL = "https://cloud.relaysystems.dev"
 
 # What the operator reads for each kind of failure.
 MESSAGES = {
