@@ -117,7 +117,9 @@ with section("collect"):
 
 with section("settings"):
     eq("clean drops junk", svc.clean_settings({"extra_ips": ["10.0.0.1", "x", "10.0.0.1"], "groups": ["A", "a", "bad!"],
-                                                "interval": 1}), {"servers": [], "mdns": True, "extra_ips": ["10.0.0.1"], "groups": ["A"], "interval": 5})
+                                                "interval": 1}), {"servers": [], "mdns": True, "extra_ips": ["10.0.0.1"], "groups": ["A"], "interval": 5,
+                                                                   "view_fps": 15, "view_quality": 60, "view_width": 1280,
+                                                                   "view_max": 4, "tally": {}})
     check("defaults", svc.clean_settings(None)["interval"] == 15)
 
 with section("without the runtime"):
@@ -220,7 +222,7 @@ with section("wait_change"):
 
 with section("board widgets"):
     types = [w["type"] for w in MODULE.board_widgets()]
-    eq("three widgets", types, ["ndi.summary", "ndi.sources", "ndi.source"])
+    eq("four widgets", types, ["ndi.summary", "ndi.sources", "ndi.source", "ndi.view"])
     items = [{"id": "a", "type": "ndi.summary"}, {"id": "b", "type": "ndi.sources"},
              {"id": "c", "type": "ndi.source", "props": {"source": "BIRD (HDMI 1)"}},
              {"id": "d", "type": "ndi.source", "props": {}}]

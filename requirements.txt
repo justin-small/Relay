@@ -15,6 +15,8 @@ sounddevice==0.5.6
 # Pure Python; lists the machine's network interfaces on Windows, macOS and Linux (app/netinfo.py).
 ifaddr==0.2.0
 numpy==2.5.4
+# JPEG encoding for the NDI viewer's MJPEG stream (app/modules/ndi/viewer.py, #296).
+pillow==12.3.0
 soxr==0.5.0.post1
 websockets==13.1
 certifi==2026.10.18

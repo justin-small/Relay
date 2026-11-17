@@ -10,7 +10,7 @@
       <div class="ctl"><button type="button" class="primary" id="ndiScan">Scan now</button></div>
       <p class="note" id="ndiNone">No sources found yet.</p>
       <div class="tablescroll"><table id="ndiTable" hidden>
-        <thead><tr><th>Source</th><th>Machine</th><th>Size</th><th>Groups</th><th>Address</th><th>Status</th><th>In use</th></tr></thead>
+        <thead><tr><th>Source</th><th>Machine</th><th>Size</th><th>Groups</th><th>Address</th><th>Status</th><th>In use</th><th>Watch</th></tr></thead>
         <tbody></tbody>
       </table></div>
       <div class="note">A source in a custom group only shows if that group is watched below. Size and rate appear
@@ -31,6 +31,30 @@
       <div id="ndiServerStatus"></div>
       <div class="note warn" id="ndiRestart" hidden>The NDI runtime reads these settings when Relay starts. Restart Relay
         to apply the change.</div>
+    </section>
+
+    <section>
+      <h3>Watching in a browser</h3>
+      <p class="note">Each source has a page at <code>/ndi/view/&lt;source&gt;</code> (the Watch link above) that plays it
+        as a motion JPEG stream: on a booth laptop, a phone or a TV on this network. Anyone signed in who may see NDI can open
+        it. Everyone watching one source shares one receiver. These limits keep a busy service from slowing Relay down.</p>
+      <div class="row">
+        <div class="field"><label for="ndiFps">Frames per second (1 to 30)</label>
+          <input id="ndiFps" type="number" min="1" max="30" step="1"></div>
+        <div class="field"><label for="ndiQuality">Picture quality (20 to 90)</label>
+          <input id="ndiQuality" type="number" min="20" max="90" step="1"></div>
+        <div class="field"><label for="ndiWidth">Widest picture, pixels (320 to 1920)</label>
+          <input id="ndiWidth" type="number" min="320" max="1920" step="10"></div>
+        <div class="field"><label for="ndiMax">Sources watched at once (1 to 8)</label>
+          <input id="ndiMax" type="number" min="1" max="8" step="1"></div>
+      </div>
+      <div class="field">
+        <label for="ndiTally">Tally border: one source per line as <code>source name = camera number</code></label>
+        <textarea id="ndiTally" rows="3" spellcheck="false" maxlength="4000" placeholder="PTZ-1 (NDI HX2) = 1"></textarea>
+      </div>
+      <div class="note">A source with a camera number gets a red border on air and a green one on preview, from the tally
+        state that ATEM, OBS and Tally Arbiter fill. Without the NDI runtime's audio, the level meter stays empty.</div>
+      <div class="ctl"><button type="button" class="primary" id="ndiViewSave">Save</button></div>
     </section>
 
     <section>

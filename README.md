@@ -707,6 +707,8 @@ playlist on screens through `schedule.register_layer` (see "Signage from ProPres
   what is taken over and has one **Return all to playlist** button. Another module (ProPresenter slide-note tags)
   can switch screens with `takeover.live_view_set`, `takeover.push_set` and `takeover.clear` in
   `app/modules/signage/takeover.py`, naming `signage` in its `uses`.
+- On a **board** (Boards page), the **Signage takeovers** widget lists which screens or groups are taken over and by
+  what, and **Return signage to playlist** (needs `signage.manage`, lit while anything is taken over) ends them all.
 
 Screens are on a **port of their own** (8090, changeable on the Settings tab; restart Relay after changing it). It is
 plain HTTP so a TV needs no login and no certificate, and only the signage pages answer on it: the captions, the

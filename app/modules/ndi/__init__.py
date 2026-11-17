@@ -24,13 +24,16 @@ class Ndi(Module):
         guide="/docs/ndi",
         version="1.0.0",
         traffic=(Traffic("ndi", "NDI discovery (multicast DNS) and video"),),
+        uses=("blackmagic", "obs", "tally_arbiter"),     # their tally state gives the viewer its on-air border
     )
-    defaults = {"servers": [], "mdns": True, "extra_ips": [], "groups": [], "interval": 15}
+    defaults = {"servers": [], "mdns": True, "extra_ips": [], "groups": [], "interval": 15, "view_fps": 15,
+                "view_quality": 60, "view_width": 1280, "view_max": 4, "tally": {}}
     admin_pages = (AdminPage(
         id="ndi", title="NDI", template="ndi.html", group="Output",
         icon='<rect x="2" y="4" width="12" height="8" rx="1"/><path d="M5 7v2.5M5 7l2 2.5V7M10 7h1.5M10 9.5h1.5"/>'),)
     admin_scripts = ("ndi.js",)
-    route_prefixes = ("/api/admin/ndi",)
+    route_prefixes = ("/api/admin/ndi", "/ndi")
+    panel_prefixes = ("/ndi",)       # the viewer (#296) stays on the HTTPS operator port, behind ndi.view
     permissions = (
         Permission("ndi.view", "See the NDI sources found on the network", "NDI", "viewer"),
         Permission("ndi.manage", "Scan for NDI sources and set the extra addresses and groups to search",
@@ -120,6 +123,12 @@ class Ndi(Module):
             {"type": "ndi.source", "name": "NDI source", "group": "NDI", "kind": "lines", "w": 3, "h": 2,
              "style": {"icon": "cam"},
              "fields": [{"key": "source", "label": "Source", "type": "select", "options": names, "default": ""}]},
+            {"type": "ndi.view", "name": "NDI picture", "group": "NDI", "kind": "frame", "w": 4, "h": 3,
+             "style": {"icon": "cam"},
+             "fields": [{"key": "source", "label": "Source", "type": "select", "options": names, "default": ""},
+                        {"key": "_", "type": "note", "label": "Plays the source live. Only people signed in on this "
+                         "network see it (a public board shows nothing). A red or green border follows the tally when "
+                         "the source has a camera number on the NDI page."}]},
         ]
 
     async def board_data(self, items: list[dict]) -> dict[str, dict]:
@@ -136,12 +145,33 @@ class Ndi(Module):
             elif t == "ndi.sources":
                 out[it["id"]] = {"rows": [{"text": _line(s), "current": s["online"]} for s in src]
                                  or [{"text": "No sources found"}]}
+            elif t == "ndi.view":
+                out[it["id"]] = _picture((it.get("props") or {}).get("source"), src)
             elif t == "ndi.source":
                 name = (it.get("props") or {}).get("source")
                 s = next((x for x in src if x["name"] == name), None)
                 out[it["id"]] = {"lines": ([s["source"] or s["machine"], "Online" if s["online"] else "Offline", _size(s)]
                                            if s else ["Choose a source" if not name else "Not found"])}
         return out
+
+
+def _picture(name: Any, src: list[dict]) -> dict:
+    """What a picture tile shows: the viewer's stream address (nothing private: no addresses), a note and the tally."""
+    from urllib.parse import quote
+
+    from ...tally import tally
+
+    s = next((x for x in src if x["name"] == name), None) if isinstance(name, str) and name else None
+    if s is None:
+        return {"image": "", "note": "Choose a source" if not name else "Not found", "tally": ""}
+    if not s["online"]:
+        return {"image": "", "note": "Offline", "tally": ""}
+    from .service import service
+
+    cam = service.settings()["tally"].get(s["name"], 0)
+    c = next((x for x in tally.cameras() if x["n"] == cam), None) if cam else None
+    return {"image": "/ndi/stream/" + quote(s["name"], safe=""), "note": "",
+            "tally": "program" if c and c["program"] else ("preview" if c and c["preview"] else "")}
 
 
 def _size(s: dict) -> str:

@@ -128,6 +128,16 @@ class _Connection:
         from cyndilib.video_frame import VideoRecvFrame
 
         self._kind = ReceiveFrameType.recv_video
+        self._audio = None
+        self._audio_kind = None
+        try:       # Audio is for the viewer's level meter. Not proved on real NDI: any trouble just means no meter.
+            from cyndilib.audio_frame import AudioRecvFrame
+
+            self._audio = AudioRecvFrame()
+            self._audio_kind = ReceiveFrameType.recv_audio
+            self._want = self._kind | self._audio_kind
+        except Exception:
+            self._audio = None
         self._finder = Finder()
         self._finder.open()
         self._finder.wait_for_sources(5.0)
@@ -138,10 +148,17 @@ class _Connection:
         self._frame = VideoRecvFrame()
         self._recv = Receiver()
         self._recv.set_video_frame(self._frame)
+        if self._audio is not None:
+            try:
+                self._recv.set_audio_frame(self._audio)
+            except Exception:
+                self._audio = None
         self._recv.set_source(src)
 
     def receive(self, timeout_ms: int) -> dict | None:
-        got = self._recv.receive(self._kind, timeout_ms)
+        got = self._recv.receive(self._want if self._audio is not None else self._kind, timeout_ms)
+        if self._audio is not None and got == self._audio_kind:
+            return self._audio_level()
         if got != self._kind:
             return None
         f = self._frame
@@ -149,6 +166,20 @@ class _Connection:
         rate = f.get_frame_rate()
         return {"width": int(w), "height": int(h), "fps": round(float(rate), 3) if rate else 0.0,
                 "fourcc": str(f.get_fourcc()), "data": bytes(f)}
+
+    def _audio_level(self) -> dict | None:
+        """The peak of the audio just received, in dBFS: {"audio_db": -18.2}. Never raises."""
+        try:
+            import math
+
+            import numpy as np
+
+            arr = np.asarray(self._audio.get_array() if hasattr(self._audio, "get_array") else self._audio, dtype=np.float32)
+            peak = float(np.max(np.abs(arr))) if arr.size else 0.0
+            return {"audio_db": round(20 * math.log10(peak), 1) if peak > 1e-6 else -120.0}
+        except Exception:
+            self._audio = None      # a build whose audio frame reads differently: stop trying, keep the video
+            return None
 
     def close(self) -> None:
         for obj in (self._recv, self._finder):

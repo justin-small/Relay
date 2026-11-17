@@ -33,6 +33,14 @@
       cell(tr, x.address ? x.address + (x.port ? ':' + x.port : '') : '—');
       cell(tr, (x.online ? 'Online' : 'Offline') + (x.converter ? ' · converter set to ' + (x.converter.source || x.converter.source_ip) : ''));
       cell(tr, x.listeners ? String(x.listeners) : '—');
+      const w = document.createElement('td');
+      if (x.online) {
+        const link = document.createElement('a');
+        link.href = '/ndi/view/' + encodeURIComponent(x.name);
+        link.target = '_blank'; link.rel = 'noopener'; link.textContent = 'Watch';
+        w.appendChild(link);
+      }
+      tr.appendChild(w);
       body.appendChild(tr);
     });
     if (document.activeElement !== $('ndiGroups')) $('ndiGroups').value = s.settings.groups.join(', ');
@@ -48,6 +56,14 @@
     $('ndiRestart').hidden = !s.restart_needed;
     if (document.activeElement !== $('ndiServers')) $('ndiServers').value = s.settings.servers.join(', ');
     $('ndiMdns').checked = s.settings.mdns;
+    [['ndiFps', 'view_fps'], ['ndiQuality', 'view_quality'], ['ndiWidth', 'view_width'], ['ndiMax', 'view_max']].forEach(function (p) {
+      if (document.activeElement !== $(p[0])) $(p[0]).value = s.settings[p[1]];
+      $(p[0]).disabled = !can('ndi.manage');
+    });
+    if (document.activeElement !== $('ndiTally')) {
+      $('ndiTally').value = Object.keys(s.settings.tally || {}).map(function (k) { return k + ' = ' + s.settings.tally[k]; }).join('\n');
+    }
+    $('ndiTally').disabled = $('ndiViewSave').disabled = !can('ndi.manage');
     $('ndiServers').disabled = $('ndiMdns').disabled = !can('ndi.manage');
     $('ndiScan').disabled = !s.running || !can('ndi.manage');
     $('ndiSave').disabled = !can('ndi.manage');
@@ -71,6 +87,18 @@
     showError('');
     try { draw(await send('PUT', '/api/admin/ndi/settings', { servers: list($('ndiServers').value), mdns: $('ndiMdns').checked, groups: list($('ndiGroups').value), extra_ips: list($('ndiIps').value) })); }
     catch (e) { showError(e.message); }
+  };
+  $('ndiViewSave').onclick = async function () {
+    showError('');
+    const tally = {};
+    $('ndiTally').value.split('\n').forEach(function (line) {
+      const i = line.lastIndexOf('=');
+      if (i > 0) tally[line.slice(0, i).trim()] = parseInt(line.slice(i + 1), 10);
+    });
+    try {
+      draw(await send('PUT', '/api/admin/ndi/settings', { view_fps: +$('ndiFps').value, view_quality: +$('ndiQuality').value,
+        view_width: +$('ndiWidth').value, view_max: +$('ndiMax').value, tally: tally }));
+    } catch (e) { showError(e.message); }
   };
   poll();
 })();

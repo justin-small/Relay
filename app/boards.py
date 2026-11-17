@@ -39,7 +39,7 @@ _TYPE = re.compile(r"[a-z][a-z0-9_]{0,31}(?:\.[a-z][a-z0-9_]{0,31})?")
 _PROP_KEY = re.compile(r"[a-z][a-z0-9_]{0,31}")
 _TIME = re.compile(r"([01]?\d|2[0-3]):[0-5]\d")
 RATIOS = {"16:9": (12, 8), "4:3": (8, 6), "9:16": (6, 10)}
-KINDS = ("button", "captions", "clock", "countdown", "text", "status", "lines", "list", "spl", "rta")
+KINDS = ("button", "captions", "clock", "countdown", "text", "status", "lines", "list", "spl", "rta", "frame")
 FIELD_TYPES = ("text", "area", "select", "check", "time", "number", "note", "ro")
 SOURCE = "SOURCE"            # the captions widget's value for the original speech
 
