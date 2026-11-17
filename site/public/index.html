@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Relay: one app to run your whole production</title>
-<meta name="description" content="Relay hears the room, knows what's live, and tells everyone who needs to know. Captions, translation, alerts, signage and the tools in your booth, in one app a volunteer can run.">
+<title>Relay: one pane of glass for your whole production</title>
+<meta name="description" content="Relay connects your switcher, stream, slides, service plan, lighting, intercom and network, and puts them on one screen a volunteer can run. Live captions and translation included.">
 <meta name="theme-color" content="#050505">
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <link rel="alternate icon" href="/favicon.ico">
@@ -130,29 +130,85 @@ html{scroll-behavior:smooth}
 @keyframes mq{to{transform:translateX(-50%)}}
 @keyframes roll{to{transform:translateY(-50%)}}
 @keyframes pulse{0%{background:#dc2626;color:#fff}50%{background:#f4f4f5;color:#7f1d1d}}
+
+/* the glass: a mock of the status view */
+.gl{padding:14px;display:flex;flex-direction:column;gap:10px;font-size:13px;line-height:1.35}
+.gbar{display:flex;flex-wrap:wrap;align-items:center;gap:6px 14px;padding:4px 6px 6px;color:#a1a1aa}
+.gbar b{color:#f4f4f5;font-size:15px}
+.onair{margin-left:auto;display:flex;align-items:center;gap:8px;padding:5px 12px;border-radius:999px;background:rgba(220,38,38,.16);color:#fca5a5;font-weight:700;font-variant-numeric:tabular-nums}
+.onair::before{content:"";width:8px;height:8px;border-radius:50%;background:#ef4444}
+.gg{display:grid;grid-template-columns:repeat(12,minmax(0,1fr));gap:10px}
+.t{background:#0b0c0e;border-radius:14px;box-shadow:inset 0 0 0 1px rgba(255,255,255,.07);padding:14px;display:flex;flex-direction:column;gap:10px;min-width:0;box-sizing:border-box}
+.t h4{margin:0;display:flex;justify-content:space-between;gap:8px;font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:#a1a1aa}
+.t h4 i{font-style:normal;font-weight:400;letter-spacing:0;text-transform:none;color:#8b8b93}
+.g3{grid-column:span 3}.g4{grid-column:span 4}.g5{grid-column:span 5}.g7{grid-column:span 7}.g12{grid-column:1/-1}
+@media (max-width:760px){.gg>*{grid-column:1/-1}}
+.cams{display:flex;gap:8px}
+.cam{flex:1;aspect-ratio:4/3;border-radius:8px;background:#1a1c20;color:#a1a1aa;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:18px}
+.cam.pgm{background:#dc2626;color:#fff}.cam.pvw{background:#16a34a;color:#fff}
+.row{display:flex;align-items:center;justify-content:space-between;gap:10px;color:#c9cbd1}
+.row b{color:#f4f4f5;font-variant-numeric:tabular-nums}
+.ok{display:inline-block;width:7px;height:7px;border-radius:50%;background:#4ade80;margin-right:8px}
+.big{font-size:17px;line-height:1.25;color:#fff}
+.live{font-size:10px;font-weight:700;letter-spacing:.06em;color:#04130a;background:#4ade80;border-radius:4px;padding:2px 6px}
+.cues{display:flex;flex-wrap:wrap;gap:6px}
+.cue{padding:8px 12px;border-radius:9px;background:#1a1c20;color:#c9cbd1}
+.cue.on{background:rgba(74,222,128,.14);color:#4ade80;box-shadow:inset 0 0 0 1px rgba(74,222,128,.5)}
+.bars{display:inline-flex;align-items:flex-end;gap:2px;height:12px;margin-right:8px}
+.bars i{width:3px;height:100%;background:#4ade80;border-radius:1px;transform-origin:bottom;transform:scaleY(.5)}
+.cap{display:flex;gap:16px;height:104px;font-size:15px}
+.cap>div{flex:1;min-width:0;display:flex;flex-direction:column}
+
+/* the hub: systems in, people and screens out */
+.hubl{display:flex;justify-content:space-between;gap:16px;padding-bottom:14px;font-size:13px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:#a1a1aa}
+.hub{display:grid;grid-template-columns:minmax(0,1.15fr) minmax(40px,1fr) auto minmax(40px,1fr) minmax(0,1.15fr);align-items:stretch}
+.hc{display:grid;grid-auto-rows:1fr;margin:0;padding:0;list-style:none}
+.hc li{display:flex;align-items:center;padding:5px 0}
+.chip{flex:1;display:flex;justify-content:space-between;align-items:baseline;gap:10px;padding:12px 16px;border-radius:14px;background:#0b0c0e;box-shadow:inset 0 0 0 1px rgba(255,255,255,.09);font-size:16px;min-width:0}
+.chip small{color:#a1a1aa;font-size:13px;text-align:right}
+.hwr{position:relative}
+.hw{position:absolute;inset:0;width:100%;height:100%}
+.hw path{fill:none;vector-effect:non-scaling-stroke;stroke:rgba(255,255,255,.13);stroke-width:1.5}
+.hw path.fl{stroke:#4ade80;stroke-width:2;stroke-linecap:round;stroke-dasharray:3 19}
+.hm{align-self:center;width:128px;height:128px;border-radius:36px;background:#0b0c0e;display:flex;align-items:center;justify-content:center;box-shadow:inset 0 0 0 1px rgba(74,222,128,.45),0 0 90px rgba(74,222,128,.18)}
+@media (max-width:860px){.hub{grid-template-columns:1fr;gap:18px}.hwr{display:none}.hm{justify-self:center}.hubl span:last-child{display:none}}
+
+/* grouped switchboard */
+.grp{font-size:13px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:#4ade80;padding-bottom:6px}
+.c4 .mod{font-size:17px}
+
+
+@media (prefers-reduced-motion: no-preference){
+.k1{animation:k1 12s steps(1) infinite}.k2{animation:k2 12s steps(1) infinite}.k3{animation:k3 12s steps(1) infinite}
+.bars i{animation:bar .9s ease-in-out infinite alternate}
+.bars i:nth-child(2){animation-delay:-.3s}.bars i:nth-child(3){animation-delay:-.6s}.bars i:nth-child(4){animation-delay:-.15s}
+.hw path.fl{animation:flow 1.5s linear infinite}
+}
+@keyframes k1{0%{background:#dc2626;color:#fff}33%{background:#1a1c20;color:#a1a1aa}66%{background:#16a34a;color:#fff}}
+@keyframes k2{0%{background:#16a34a;color:#fff}33%{background:#dc2626;color:#fff}66%{background:#1a1c20;color:#a1a1aa}}
+@keyframes k3{0%{background:#1a1c20;color:#a1a1aa}33%{background:#16a34a;color:#fff}66%{background:#dc2626;color:#fff}}
+@keyframes bar{from{transform:scaleY(.25)}to{transform:scaleY(1)}}
+@keyframes flow{to{stroke-dashoffset:-22}}
 </style>
 <div class="pg">
 
-<!-- Floating nav -->
 <header class="nav">
-<a href="#top" aria-label="Relay home" style="display: flex; align-items: center">
-<svg role="img" aria-label="Relay" xmlns="http://www.w3.org/2000/svg" width="99" height="29" viewBox="0 0 219.3 64"><g transform="translate(-15.3 -14.55) scale(1.4545)"><rect x="11.5" y="14" width="9" height="36.4" rx="4.5" fill="#f4f4f5"/><path fill-rule="evenodd" fill="#4ade80" d="M33.5 14H44.5A9 9 0 0 1 53.5 23V30A9 9 0 0 1 49 37.8L52.6 48.2Q53.6 51.4 50.4 50.2L37 39H33.5A9 9 0 0 1 24.5 30V23A9 9 0 0 1 33.5 14ZM32.5 20.8H45.5A2 2 0 0 1 47.5 22.8V22.8A2 2 0 0 1 45.5 24.8H32.5A2 2 0 0 1 30.5 22.8V22.8A2 2 0 0 1 32.5 20.8ZM32.5 28.3H39.0A2 2 0 0 1 41.0 30.3V30.3A2 2 0 0 1 39.0 32.3H32.5A2 2 0 0 1 30.5 30.3V30.3A2 2 0 0 1 32.5 28.3Z"/></g><path transform="translate(84.29 19.6) scale(0.62)" d="M0 40V0M0 18A18 18 0 0 1 18 0M33 20H73A20 20 0 1 0 67.14 34.14M92 -24V40M151 20A20 20 0 1 0 151 20.01M151 0V40M170 0V20A20 20 0 0 0 210 20M210 0V44A16 16 0 0 1 194 60H186" fill="none" stroke="#f4f4f5" stroke-width="9" stroke-linecap="round" stroke-linejoin="round"/></svg>
-</a>
+<a href="#top" aria-label="Relay home" style="display: flex; align-items: center"><svg role="img" aria-label="Relay" xmlns="http://www.w3.org/2000/svg" width="99" height="29" viewBox="0 0 219.3 64"><g transform="translate(-15.3 -14.55) scale(1.4545)"><rect x="11.5" y="14" width="9" height="36.4" rx="4.5" fill="#f4f4f5"/><path fill-rule="evenodd" fill="#4ade80" d="M33.5 14H44.5A9 9 0 0 1 53.5 23V30A9 9 0 0 1 49 37.8L52.6 48.2Q53.6 51.4 50.4 50.2L37 39H33.5A9 9 0 0 1 24.5 30V23A9 9 0 0 1 33.5 14ZM32.5 20.8H45.5A2 2 0 0 1 47.5 22.8V22.8A2 2 0 0 1 45.5 24.8H32.5A2 2 0 0 1 30.5 22.8V22.8A2 2 0 0 1 32.5 20.8ZM32.5 28.3H39.0A2 2 0 0 1 41.0 30.3V30.3A2 2 0 0 1 39.0 32.3H32.5A2 2 0 0 1 30.5 30.3V30.3A2 2 0 0 1 32.5 28.3Z"/></g><path transform="translate(84.29 19.6) scale(0.62)" d="M0 40V0M0 18A18 18 0 0 1 18 0M33 20H73A20 20 0 1 0 67.14 34.14M92 -24V40M151 20A20 20 0 1 0 151 20.01M151 0V40M170 0V20A20 20 0 0 0 210 20M210 0V44A16 16 0 0 1 194 60H186" fill="none" stroke="#f4f4f5" stroke-width="9" stroke-linecap="round" stroke-linejoin="round"/></svg></a>
 <nav class="nl" aria-label="Main">
-<a href="#what">What it does</a>
-<a href="#one">One app</a>
+<a href="#connects">What it connects</a>
+<a href="#glass">One screen</a>
+<a href="#hear">Captions</a>
 <a href="#building">Whole building</a>
-<a href="#panels">Caption panels</a>
 <a href="#cost">Cost</a>
 </nav>
 <a class="btn s" href="#get"><span>Get Relay</span><span class="ic"><svg aria-hidden="true" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 11.5l7-7M5.5 4.5h6v6"/></svg></span></a>
 <details class="mnav">
 <summary aria-label="Menu"><span class="ln l1"></span><span class="ln l2"></span></summary>
 <nav class="sheet" aria-label="Mobile">
-<a href="#what">What it does</a>
-<a href="#one">One app</a>
+<a href="#connects">What it connects</a>
+<a href="#glass">One screen</a>
+<a href="#hear">Captions</a>
 <a href="#building">Whole building</a>
-<a href="#panels">Caption panels</a>
 <a href="#cost">Cost</a>
 <a href="#get" style="color: #4ade80">Get Relay</a>
 </nav>
@@ -160,82 +216,165 @@ html{scroll-behavior:smooth}
 </header>
 
 <!-- Hero -->
-<section id="top" class="wrap hero">
-<div class="orb" aria-hidden="true"></div>
-<div style="position: relative; flex: 1 1 520px; min-width: 0; display: flex; flex-direction: column; gap: 32px">
-<p class="eyb">Hear. Know. Tell. Act.</p>
-<h1 class="d" style="font-size: clamp(38px, 4.9vw, 68px); line-height: 1">Relay hears the room, knows what's live, and tells everyone who needs to know.</h1>
-<p class="mut" style="font-size: clamp(19px, 1.7vw, 22px); max-width: 520px">One app to run your whole production, built for the volunteer on their second Sunday. Captions and translation, alerts, signage and the tools already in your booth.</p>
-<div style="display: flex; flex-wrap: wrap; gap: 14px">
+<section id="top" class="wrap hero" style="flex-direction: column; align-items: stretch; flex-wrap: nowrap; gap: 72px">
+<div class="orb" aria-hidden="true" style="right: 15%; top: 18%"></div>
+<div style="position: relative; display: flex; flex-direction: column; align-items: center; text-align: center; gap: 28px; max-width: 900px; margin: 0 auto">
+<p class="eyb">The connecting piece</p>
+<h1 class="d" style="font-size: clamp(40px, 5.8vw, 84px); line-height: 1">Relay connects everything in your production.</h1>
+<p class="mut" style="font-size: clamp(19px, 1.7vw, 22px); max-width: 620px">Your systems on one side, your people and screens on the other. Relay sits in the middle, keeps them in step and puts all of it on one pane of glass.</p>
+<div style="display: flex; flex-wrap: wrap; justify-content: center; gap: 14px">
 <a class="btn" href="#get"><span>Get Relay</span><span class="ic"><svg aria-hidden="true" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 11.5l7-7M5.5 4.5h6v6"/></svg></span></a>
-<a class="btn g" href="#what"><span>See what it does</span><span class="ic"><svg aria-hidden="true" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3.5v9M4 8.5l4 4 4-4"/></svg></span></a>
+<a class="btn g" href="#connects"><span>See what it connects</span><span class="ic"><svg aria-hidden="true" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3.5v9M4 8.5l4 4 4-4"/></svg></span></a>
 </div>
 <p class="dim" style="font-size: 16px">Runs on Windows, macOS and Linux, on a computer you already own.</p>
 </div>
-
-<div class="stage">
-<div class="bz pnl">
-<div class="core" style="padding: 10px">
-<div class="scr" style="aspect-ratio: 5 / 3; padding: 7% 30% 5% 7%; box-sizing: border-box; display: flex; flex-direction: column; justify-content: flex-end; gap: 4%; font-size: clamp(15px, 1.45vw, 21px); line-height: 1.3">
+<div style="position: relative"><div class="hubl"><span>Your systems</span><span>Your people and screens</span></div>
+<div class="hub">
+<ul class="hc"><li><span class="chip"><span>Soundboard feed</span><small>audio in</small></span></li><li><span class="chip"><span>ProPresenter</span><small>slides, timers</small></span></li><li><span class="chip"><span>Planning Center</span><small>today's plan</small></span></li><li><span class="chip"><span>Blackmagic ATEM</span><small>tally, cuts</small></span></li><li><span class="chip"><span>OBS Studio</span><small>stream, scenes</small></span></li><li><span class="chip"><span>YouTube</span><small>live status</small></span></li><li><span class="chip"><span>Lighting</span><small>cues</small></span></li><li><span class="chip"><span>UniFi network</span><small>health</small></span></li></ul>
+<div class="hwr" aria-hidden="true"><svg class="hw" viewBox="0 0 100 100" preserveAspectRatio="none"><path d="M0 6.25C50 6.25 50 50 100 50"/><path class="fl" d="M0 6.25C50 6.25 50 50 100 50" style="animation-delay:-0.00s"/><path d="M0 18.75C50 18.75 50 50 100 50"/><path class="fl" d="M0 18.75C50 18.75 50 50 100 50" style="animation-delay:-0.19s"/><path d="M0 31.25C50 31.25 50 50 100 50"/><path class="fl" d="M0 31.25C50 31.25 50 50 100 50" style="animation-delay:-0.38s"/><path d="M0 43.75C50 43.75 50 50 100 50"/><path class="fl" d="M0 43.75C50 43.75 50 50 100 50" style="animation-delay:-0.57s"/><path d="M0 56.25C50 56.25 50 50 100 50"/><path class="fl" d="M0 56.25C50 56.25 50 50 100 50" style="animation-delay:-0.76s"/><path d="M0 68.75C50 68.75 50 50 100 50"/><path class="fl" d="M0 68.75C50 68.75 50 50 100 50" style="animation-delay:-0.95s"/><path d="M0 81.25C50 81.25 50 50 100 50"/><path class="fl" d="M0 81.25C50 81.25 50 50 100 50" style="animation-delay:-1.14s"/><path d="M0 93.75C50 93.75 50 50 100 50"/><path class="fl" d="M0 93.75C50 93.75 50 50 100 50" style="animation-delay:-1.33s"/></svg></div>
+<div class="hm"><svg aria-hidden="true" viewBox="0 0 64 64" width="72" height="72"><g transform="translate(-15.3 -14.55) scale(1.4545)"><rect x="11.5" y="14" width="9" height="36.4" rx="4.5" fill="#f4f4f5"/><path fill-rule="evenodd" fill="#4ade80" d="M33.5 14H44.5A9 9 0 0 1 53.5 23V30A9 9 0 0 1 49 37.8L52.6 48.2Q53.6 51.4 50.4 50.2L37 39H33.5A9 9 0 0 1 24.5 30V23A9 9 0 0 1 33.5 14ZM32.5 20.8H45.5A2 2 0 0 1 47.5 22.8V22.8A2 2 0 0 1 45.5 24.8H32.5A2 2 0 0 1 30.5 22.8V22.8A2 2 0 0 1 32.5 20.8ZM32.5 28.3H39.0A2 2 0 0 1 41.0 30.3V30.3A2 2 0 0 1 39.0 32.3H32.5A2 2 0 0 1 30.5 30.3V30.3A2 2 0 0 1 32.5 28.3Z"/></g></svg></div>
+<div class="hwr" aria-hidden="true"><svg class="hw" viewBox="0 0 100 100" preserveAspectRatio="none"><path d="M0 50C50 50 50 6.25 100 6.25"/><path class="fl" d="M0 50C50 50 50 6.25 100 6.25" style="animation-delay:-0.00s"/><path d="M0 50C50 50 50 18.75 100 18.75"/><path class="fl" d="M0 50C50 50 50 18.75 100 18.75" style="animation-delay:-0.19s"/><path d="M0 50C50 50 50 31.25 100 31.25"/><path class="fl" d="M0 50C50 50 50 31.25 100 31.25" style="animation-delay:-0.38s"/><path d="M0 50C50 50 50 43.75 100 43.75"/><path class="fl" d="M0 50C50 50 50 43.75 100 43.75" style="animation-delay:-0.57s"/><path d="M0 50C50 50 50 56.25 100 56.25"/><path class="fl" d="M0 50C50 50 50 56.25 100 56.25" style="animation-delay:-0.76s"/><path d="M0 50C50 50 50 68.75 100 68.75"/><path class="fl" d="M0 50C50 50 50 68.75 100 68.75" style="animation-delay:-0.95s"/><path d="M0 50C50 50 50 81.25 100 81.25"/><path class="fl" d="M0 50C50 50 50 81.25 100 81.25" style="animation-delay:-1.14s"/><path d="M0 50C50 50 50 93.75 100 93.75"/><path class="fl" d="M0 50C50 50 50 93.75 100 93.75" style="animation-delay:-1.33s"/></svg></div>
+<ul class="hc"><li><span class="chip"><span>Operator panel</span><small>the booth</small></span></li><li><span class="chip"><span>Crew phones</span><small>plan, chat</small></span></li><li><span class="chip"><span>Intercom</span><small>talk</small></span></li><li><span class="chip"><span>Caption panels</span><small>walls, stage</small></span></li><li><span class="chip"><span>Camera screens</span><small>tally</small></span></li><li><span class="chip"><span>Stream overlays</span><small>captions</small></span></li><li><span class="chip"><span>Lobby TVs</span><small>signage</small></span></li><li><span class="chip"><span>Visitors' phones</span><small>12 languages</small></span></li></ul>
+</div></div>
+</section>
+<!-- Systems marquee -->
+<section aria-label="Works with" class="hair" style="border-bottom: 1px solid rgba(255,255,255,.08)">
+<div class="mqw"><div class="mq" style="animation-duration: 54s"><span><span>ProPresenter</span><span>Planning Center</span><span>Blackmagic ATEM</span><span>OBS Studio</span><span>YouTube</span><span>Tally Arbiter</span><span>vMix</span><span>QLC+</span><span>Lightkey</span><span>Vista by Chroma-Q</span><span>ShowXpress</span><span>UniFi</span><span>Bitfocus Companion</span><span>OSC</span></span><span class="dup" aria-hidden="true"><span>ProPresenter</span><span>Planning Center</span><span>Blackmagic ATEM</span><span>OBS Studio</span><span>YouTube</span><span>Tally Arbiter</span><span>vMix</span><span>QLC+</span><span>Lightkey</span><span>Vista by Chroma-Q</span><span>ShowXpress</span><span>UniFi</span><span>Bitfocus Companion</span><span>OSC</span></span></div></div>
+</section>
+<!-- One screen -->
+<section class="hair" style="background: #000">
+<div class="wrap sec">
+<div class="rv" style="display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 24px 64px; padding-bottom: 80px">
+<h2 class="d" style="flex: 1 1 480px; font-size: clamp(38px, 5.4vw, 76px)">One screen shows the whole production.</h2>
+<p class="mut" style="flex: 0 1 380px">Cameras, stream, slides, the service plan, lighting, intercom, the network and the captions. No more walking the booth to find out what is wrong.</p>
+</div>
+<div class="rv"><div class="bz" id="glass" role="img" aria-label="Relay's status view: cameras, stream, slides, service plan, lighting, intercom, network and captions on one screen">
+<div class="core" style="padding: 10px"><div class="scr gl" aria-hidden="true">
+<div class="gbar"><b>Sunday 10:00</b><span>Item 3 of 9 · Worship set</span><span class="onair">On air <span data-clock>01:12:44</span></span></div>
+<div class="gg">
+<div class="t g5"><h4>Cameras <i>ATEM</i></h4><div class="cams"><span class="cam pgm k1">1</span><span class="cam pvw k2">2</span><span class="cam k3">3</span><span class="cam">4</span></div><div class="row"><span>Red is on air, green is next</span></div></div>
+<div class="t g7"><h4>Stream <i>OBS · YouTube</i></h4><div class="row"><span><span class="ok"></span>OBS streaming and recording</span><b>0 dropped</b></div><div class="row"><span><span class="ok"></span>YouTube is live</span><b>214 watching</b></div><div class="row"><span><span class="ok"></span>Captions in the stream</span><b>English</b></div></div>
+<div class="t g7"><h4>Slides <i>ProPresenter</i></h4><p class="big">We are so glad you are here with us today.</p><div class="row"><span>Next: Announcements</span><b>Slide 14 of 32</b></div></div>
+<div class="t g5"><h4>Service <i>Planning Center</i></h4><div class="row"><span>Worship set</span><span class="live">LIVE</span></div><div class="row"><span>Announcements</span><b>3:00</b></div><div class="row"><span>Message</span><b>35:00</b></div></div>
+<div class="t g4"><h4>Lighting <i>QLC+</i></h4><div class="cues"><span class="cue">Walk-in</span><span class="cue on">Worship</span><span class="cue">Message</span></div></div>
+<div class="t g4"><h4>Intercom <i>7 on</i></h4><div class="row"><span><span class="bars"><i></i><i></i><i></i><i></i></span>Sam on Production</span></div><div class="row"><span>Band</span><b>3 listening</b></div></div>
+<div class="t g4"><h4>Network <i>UniFi</i></h4><div class="row"><span><span class="ok"></span>Internet</span><b>18 ms</b></div><div class="row"><span><span class="ok"></span>Dante and NDI</span><b>Healthy</b></div></div>
+<div class="t g12"><h4>Captions <i>English · Español · 38 reading</i></h4><div class="cap"><div><div class="feed"><div class="roll"><p>Good morning, and welcome.</p><p>We are so glad you are here with us today.</p><p>Please stand with us as we sing.</p><p>Let us pray together.</p><p>Please be seated.</p><p aria-hidden="true">Good morning, and welcome.</p><p aria-hidden="true">We are so glad you are here with us today.</p><p aria-hidden="true">Please stand with us as we sing.</p><p aria-hidden="true">Let us pray together.</p><p aria-hidden="true">Please be seated.</p></div></div></div><div lang="es"><div class="feed"><div class="roll"><p>Buenos días y bienvenidos.</p><p>Nos alegra mucho que estén aquí con nosotros hoy.</p><p>Por favor, pónganse de pie mientras cantamos.</p><p>Oremos juntos.</p><p>Pueden sentarse.</p><p aria-hidden="true">Buenos días y bienvenidos.</p><p aria-hidden="true">Nos alegra mucho que estén aquí con nosotros hoy.</p><p aria-hidden="true">Por favor, pónganse de pie mientras cantamos.</p><p aria-hidden="true">Oremos juntos.</p><p aria-hidden="true">Pueden sentarse.</p></div></div></div></div></div>
+</div>
+</div></div>
+</div></div>
+</div>
+</section>
+<!-- What it connects -->
+<section id="connects" class="wrap sec">
+<div class="rv" style="display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 24px 64px; padding-bottom: 80px">
+<h2 class="d" style="flex: 1 1 480px; font-size: clamp(38px, 5.4vw, 76px)">It connects what you already own.</h2>
+<p class="mut" style="flex: 0 1 380px">Every integration is a module you switch on. While it is off, Relay never contacts that product. Everything marked Soon is on the way; everything else works today.</p>
+</div>
+<div class="bento">
+<div class="bz c4 rv"><div class="core pad" style="gap: 4px"><p class="grp">Video and stream</p><div class="mod"><span>Blackmagic ATEM</span><span class="tg" aria-hidden="true"><i></i></span></div><div class="mod"><span>OBS Studio</span><span class="tg" aria-hidden="true"><i></i></span></div><div class="mod"><span>Tally Arbiter, for vMix and others</span><span class="tg" aria-hidden="true"><i></i></span></div><div class="mod"><span>YouTube live status</span><span class="tg" aria-hidden="true"><i></i></span></div><div class="mod"><span class="dim">Facebook Live</span><span class="soon">Soon</span></div></div></div>
+<div class="bz c4 rv"><div class="core pad" style="gap: 4px"><p class="grp">Words</p><div class="mod"><span>Captions</span><span class="tg" aria-hidden="true"><i></i></span></div><div class="mod"><span>Translation</span><span class="tg" aria-hidden="true"><i></i></span></div><div class="mod"><span>ProPresenter</span><span class="tg" aria-hidden="true"><i></i></span></div><div class="mod"><span>Caption panels</span><span class="tg" aria-hidden="true"><i></i></span></div><div class="mod"><span class="dim">Spoken translation</span><span class="soon">Soon</span></div></div></div>
+<div class="bz c4 rv"><div class="core pad" style="gap: 4px"><p class="grp">Plan and people</p><div class="mod"><span>Planning Center</span><span class="tg" aria-hidden="true"><i></i></span></div><div class="mod"><span>Crew app</span><span class="tg" aria-hidden="true"><i></i></span></div><div class="mod"><span>Intercom</span><span class="tg" aria-hidden="true"><i></i></span></div><div class="mod"><span>Intercom from off site</span><span class="tg" aria-hidden="true"><i></i></span></div><div class="mod"><span>Parent paging</span><span class="tg" aria-hidden="true"><i></i></span></div></div></div>
+<div class="bz c4 rv"><div class="core pad" style="gap: 4px"><p class="grp">Lighting</p><div class="mod"><span>QLC+</span><span class="tg" aria-hidden="true"><i></i></span></div><div class="mod"><span>Lightkey</span><span class="tg" aria-hidden="true"><i></i></span></div><div class="mod"><span>Vista by Chroma-Q</span><span class="tg" aria-hidden="true"><i></i></span></div><div class="mod"><span>ShowXpress</span><span class="tg" aria-hidden="true"><i></i></span></div><div class="mod"><span>Cues from a slide</span><span class="tg" aria-hidden="true"><i></i></span></div></div></div>
+<div class="bz c4 rv"><div class="core pad" style="gap: 4px"><p class="grp">Building</p><div class="mod"><span>Signage</span><span class="tg" aria-hidden="true"><i></i></span></div><div class="mod"><span>Web pages and YouTube on signage</span><span class="tg" aria-hidden="true"><i></i></span></div><div class="mod"><span>UniFi network</span><span class="tg" aria-hidden="true"><i></i></span></div><div class="mod"><span>Remote access</span><span class="tg" aria-hidden="true"><i></i></span></div><div class="mod"><span class="dim">More than one campus</span><span class="soon">Soon</span></div></div></div>
+<div class="bz c4 rv"><div class="core pad" style="gap: 4px"><p class="grp">In and out</p><div class="mod"><span>Alerts</span><span class="tg" aria-hidden="true"><i></i></span></div><div class="mod"><span>Webhooks and OSC</span><span class="tg" aria-hidden="true"><i></i></span></div><div class="mod"><span>Bitfocus Companion</span><span class="tg" aria-hidden="true"><i></i></span></div><div class="mod"><span class="dim">Soundboard control</span><span class="soon">Soon</span></div><div class="mod"><span class="dim">Mic batteries</span><span class="soon">Soon</span></div></div></div>
+</div>
+</section>
+<!-- Hear. Know. Tell. Act. -->
+<section id="what" class="hair"><div class="wrap sec">
+<div class="rv" style="display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 24px 64px; padding-bottom: 80px">
+<h2 class="d" style="flex: 1 1 480px; font-size: clamp(38px, 5.4vw, 76px)">Hear. Know.<br>Tell. Act.</h2>
+<p class="mut" style="flex: 0 1 380px">Four jobs, one app.</p>
+</div>
+<div class="bento">
+<div class="bz c6 rv"><div class="core pad" style="padding: 44px; gap: 16px">
+<h3 class="d" style="font-size: clamp(56px, 6.4vw, 92px); color: #4ade80">Hear</h3>
+<p style="font-size: 22px; line-height: 1.35; max-width: 440px">Relay listens to the room so nobody misses a word.</p>
+<ul class="pl"><li><span>Live captions from your soundboard</span></li><li><span>Translation into twelve languages</span></li><li><span>Captions in your OBS stream, on overlays and on screens</span></li><li class="dim"><span>Spoken translation</span><span class="soon">Soon</span></li><li class="dim"><span>Speaker names</span><span class="soon">Soon</span></li></ul>
+</div></div>
+<div class="bz c6 rv"><div class="core pad" style="padding: 44px; gap: 16px">
+<h3 class="d" style="font-size: clamp(56px, 6.4vw, 92px); color: #4ade80">Know</h3>
+<p style="font-size: 22px; line-height: 1.35; max-width: 440px">One screen shows what is live right now.</p>
+<ul class="pl"><li><span>The current slide, lyrics and timers from ProPresenter</span></li><li><span>Today's service, live, from Planning Center</span></li><li><span>Camera tally from ATEM, OBS, vMix and more</span></li><li><span>Stream health from OBS and YouTube</span></li><li><span>Internet, switch ports, NDI and Dante from UniFi</span></li><li class="dim"><span>Mic batteries and audio levels</span><span class="soon">Soon</span></li></ul>
+</div></div>
+<div class="bz c6 rv"><div class="core pad" style="padding: 44px; gap: 16px">
+<h3 class="d" style="font-size: clamp(56px, 6.4vw, 92px); color: #4ade80">Tell</h3>
+<p style="font-size: 22px; line-height: 1.35; max-width: 440px">The right message reaches the right person or screen.</p>
+<ul class="pl"><li><span>Alerts in three levels, flashing until acknowledged</span></li><li><span>Intercom on the phones your team already carries</span></li><li><span>Crew pages with the plan, call times, chat and checklists</span></li><li><span>Stage messages and a confidence banner</span></li><li><span>Signage on any TV, and parent paging for kids rooms</span></li></ul>
+</div></div>
+<div class="bz c6 rv"><div class="core pad" style="padding: 44px; gap: 16px">
+<h3 class="d" style="font-size: clamp(56px, 6.4vw, 92px); color: #4ade80">Act</h3>
+<p style="font-size: 22px; line-height: 1.35; max-width: 440px">Fix it from where you are standing.</p>
+<ul class="pl"><li><span>Cut, take, fade and run macros on your ATEM</span></li><li><span>Switch scenes and start the stream in OBS</span></li><li><span>Fire lighting cues from a button or a slide</span></li><li><span>Move the service on from a panel</span></li><li><span>Send alerts out to Companion, OSC and webhooks</span></li><li class="dim"><span>Soundboard control</span><span class="soon">Soon</span></li></ul>
+</div></div>
+</div>
+</div></section>
+<!-- Captions intro -->
+<section id="hear" class="hair"><div class="wrap sec" style="padding-bottom: 96px">
+<div class="rv" style="display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 24px 64px; padding-bottom: 0">
+<h2 class="d" style="flex: 1 1 480px; font-size: clamp(38px, 5.4vw, 76px)">It still starts by hearing the room.</h2>
+<p class="mut" style="flex: 0 1 380px">Live captions and translation are where Relay began, and they are still in the box. One service, read in up to twelve languages on a phone, a wall panel or your stream.</p>
+</div>
+</div></section>
+<!-- Caption panels -->
+<section id="panels" class="hair" style="background: #000">
+<div class="wrap sec" style="display: flex; flex-wrap: wrap; align-items: center; gap: 72px">
+<div class="bz rv" style="flex: 1 1 540px; min-width: 0">
+<div class="core" style="padding: 12px">
+<div class="scr" style="aspect-ratio: 5 / 3; display: flex; font-size: clamp(14px, 1.7vw, 22px); line-height: 1.3">
+<div style="flex: 1; min-width: 0; min-height: 0; padding: 0 5% 6%; display: flex; flex-direction: column; border-right: 1px solid rgba(255,255,255,.08)">
 <div class="feed"><div class="roll">
-<p>Good morning, and welcome.</p>
-<p>We are so glad you are here with us today.</p>
-<p>Please stand with us as we sing.</p>
-<p>If you are visiting, there is a welcome card in the seat in front of you.</p>
 <p>Let us pray together.</p>
 <p>Thank you for this day and for everyone gathered here.</p>
 <p>Be with those who could not join us this morning.</p>
 <p>Please be seated.</p>
-<p aria-hidden="true">Good morning, and welcome.</p>
-<p aria-hidden="true">We are so glad you are here with us today.</p>
-<p aria-hidden="true">Please stand with us as we sing.</p>
-<p aria-hidden="true">If you are visiting, there is a welcome card in the seat in front of you.</p>
+<p>Good morning, and welcome.</p>
+<p>We are so glad you are here with us today.</p>
+<p>Please stand with us as we sing.</p>
+<p>If you are visiting, there is a welcome card in the seat in front of you.</p>
 <p aria-hidden="true">Let us pray together.</p>
 <p aria-hidden="true">Thank you for this day and for everyone gathered here.</p>
 <p aria-hidden="true">Be with those who could not join us this morning.</p>
 <p aria-hidden="true">Please be seated.</p>
+<p aria-hidden="true">Good morning, and welcome.</p>
+<p aria-hidden="true">We are so glad you are here with us today.</p>
+<p aria-hidden="true">Please stand with us as we sing.</p>
+<p aria-hidden="true">If you are visiting, there is a welcome card in the seat in front of you.</p>
 </div></div>
-<div style="display: flex; justify-content: space-between; align-items: center; padding-top: 3%; font-size: 14px; color: #a1a1aa">
-<span style="display: flex; align-items: center; gap: 8px"><span aria-hidden="true" style="width: 8px; height: 8px; border-radius: 50%; background: #4ade80"></span>English</span>
-<span style="box-shadow: inset 0 0 0 1px rgba(255,255,255,.18); border-radius: 999px; padding: 6px 14px; color: #f4f4f5">Jump to live</span>
 </div>
-</div>
-</div>
-</div>
-<div class="bz ph" style="border-radius: 40px">
-<div class="core" style="border-radius: 34px; padding: 8px">
-<div class="scr" style="border-radius: 26px; height: 400px; display: flex; flex-direction: column; overflow: hidden">
-<div style="display: flex; gap: 4px; padding: 10px; font-size: 12px; font-weight: 700; border-bottom: 1px solid rgba(255,255,255,.07)">
-<span style="flex: 1; text-align: center; padding: 7px 0; border-radius: 9px; color: #a1a1aa">English</span>
-<span style="flex: 1; text-align: center; padding: 7px 0; border-radius: 9px; background: #24262c; color: #f4f4f5">Español</span>
-<span style="flex: 1; text-align: center; padding: 7px 0; border-radius: 9px; color: #a1a1aa">Both</span>
-</div>
-<div lang="es" style="flex: 1; min-height: 0; padding: 0 16px; display: flex; flex-direction: column; font-size: 18px; line-height: 1.3">
+<div lang="es" style="flex: 1; min-width: 0; min-height: 0; padding: 0 5% 6%; display: flex; flex-direction: column">
 <div class="feed"><div class="roll">
-<p>Buenos días y bienvenidos.</p>
-<p>Nos alegra mucho que estén aquí con nosotros hoy.</p>
-<p>Por favor, pónganse de pie mientras cantamos.</p>
-<p>Si nos visita, hay una tarjeta de bienvenida en el asiento frente a usted.</p>
 <p>Oremos juntos.</p>
 <p>Gracias por este día y por todos los que están reunidos aquí.</p>
 <p>Acompaña a quienes no pudieron estar con nosotros esta mañana.</p>
 <p>Pueden sentarse.</p>
-<p aria-hidden="true">Buenos días y bienvenidos.</p>
-<p aria-hidden="true">Nos alegra mucho que estén aquí con nosotros hoy.</p>
-<p aria-hidden="true">Por favor, pónganse de pie mientras cantamos.</p>
-<p aria-hidden="true">Si nos visita, hay una tarjeta de bienvenida en el asiento frente a usted.</p>
+<p>Buenos días y bienvenidos.</p>
+<p>Nos alegra mucho que estén aquí con nosotros hoy.</p>
+<p>Por favor, pónganse de pie mientras cantamos.</p>
+<p>Si nos visita, hay una tarjeta de bienvenida en el asiento frente a usted.</p>
 <p aria-hidden="true">Oremos juntos.</p>
 <p aria-hidden="true">Gracias por este día y por todos los que están reunidos aquí.</p>
 <p aria-hidden="true">Acompaña a quienes no pudieron estar con nosotros esta mañana.</p>
 <p aria-hidden="true">Pueden sentarse.</p>
+<p aria-hidden="true">Buenos días y bienvenidos.</p>
+<p aria-hidden="true">Nos alegra mucho que estén aquí con nosotros hoy.</p>
+<p aria-hidden="true">Por favor, pónganse de pie mientras cantamos.</p>
+<p aria-hidden="true">Si nos visita, hay una tarjeta de bienvenida en el asiento frente a usted.</p>
 </div></div>
 </div>
-<div style="display: flex; align-items: center; gap: 8px; padding: 10px 16px; border-top: 1px solid rgba(255,255,255,.07); font-size: 13px; color: #a1a1aa">
-<span aria-hidden="true" style="width: 7px; height: 7px; border-radius: 50%; background: #4ade80"></span>
-<span>Live</span>
 </div>
 </div>
 </div>
+<div class="rv" style="flex: 1 1 400px; min-width: 0; display: flex; flex-direction: column; gap: 28px">
+<h2 class="d" style="font-size: clamp(38px, 4.6vw, 64px)">Captions on the wall, no phone needed.</h2>
+<p class="mut">A small touch screen for a wall, a desk or the stage. It joins your Wi-Fi, finds Relay by itself and follows the live text. Scroll back to reread, then tap Jump to live.</p>
+<ul style="margin: 0; padding: 0; list-style: none">
+<li style="padding: 16px 0; border-top: 1px solid rgba(255,255,255,.09)">Captions, one translation, or two feeds side by side</li>
+<li style="padding: 16px 0; border-top: 1px solid rgba(255,255,255,.09)">Song lyrics and timers from ProPresenter</li>
+<li style="padding: 16px 0; border-top: 1px solid rgba(255,255,255,.09)">Today's order of service from Planning Center</li>
+<li style="padding: 16px 0; border-top: 1px solid rgba(255,255,255,.09); border-bottom: 1px solid rgba(255,255,255,.09)">Alert buttons for the band and the tech team</li>
+</ul>
+<p class="dim" style="font-size: 16px">Runs on the Elecrow CrowPanel Advance 7.0". Updates install from the Relay admin page.</p>
 </div>
 </div>
 </section>
@@ -247,138 +386,6 @@ html{scroll-behavior:smooth}
 <span><span lang="es">Español</span><span lang="pt">Português</span><span lang="fr">Français</span><span lang="de">Deutsch</span><span lang="it">Italiano</span><span lang="ru">Русский</span><span lang="zh">中文</span><span lang="ja">日本語</span><span lang="ko">한국어</span><span lang="hi">हिन्दी</span><span lang="id">Bahasa Indonesia</span><span lang="vi">Tiếng Việt</span></span>
 <span class="dup" aria-hidden="true"><span>Español</span><span>Português</span><span>Français</span><span>Deutsch</span><span>Italiano</span><span>Русский</span><span>中文</span><span>日本語</span><span>한국어</span><span>हिन्दी</span><span>Bahasa Indonesia</span><span>Tiếng Việt</span></span>
 </div>
-</div>
-</section>
-
-<!-- Hear. Know. Tell. Act. -->
-<section id="what" class="wrap sec">
-<div class="rv" style="display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 24px 64px; padding-bottom: 80px">
-<h2 class="d" style="flex: 1 1 480px; font-size: clamp(38px, 5.4vw, 76px)">Hear. Know.<br>Tell. Act.</h2>
-<p class="mut" style="flex: 0 1 380px">Four jobs, one app. Everything marked Soon is on the way; everything else works today.</p>
-</div>
-<div class="bento">
-<div class="bz c6 rv"><div class="core pad" style="padding: 44px; gap: 16px">
-<h3 class="d" style="font-size: clamp(56px, 6.4vw, 92px); color: #4ade80">Hear</h3>
-<p style="font-size: 22px; line-height: 1.35; max-width: 440px">Relay listens to the room so nobody misses a word.</p>
-<ul class="pl">
-<li><span>Live captions from your soundboard</span></li>
-<li><span>Translation into twelve languages</span></li>
-<li><span>Captions on your stream and on screens</span></li>
-<li class="dim"><span>Spoken translation</span><span class="soon">Soon</span></li>
-<li class="dim"><span>Speaker names</span><span class="soon">Soon</span></li>
-</ul>
-</div></div>
-<div class="bz c6 rv"><div class="core pad" style="padding: 44px; gap: 16px">
-<h3 class="d" style="font-size: clamp(56px, 6.4vw, 92px); color: #4ade80">Know</h3>
-<p style="font-size: 22px; line-height: 1.35; max-width: 440px">One screen shows what is live right now.</p>
-<ul class="pl">
-<li><span>The current slide, lyrics and timers from ProPresenter</span></li>
-<li><span>Today's service, live, from Planning Center</span></li>
-<li class="dim"><span>Camera tally and stream health</span><span class="soon">Soon</span></li>
-<li class="dim"><span>Mic batteries and audio levels</span><span class="soon">Soon</span></li>
-</ul>
-</div></div>
-<div class="bz c6 rv"><div class="core pad" style="padding: 44px; gap: 16px">
-<h3 class="d" style="font-size: clamp(56px, 6.4vw, 92px); color: #4ade80">Tell</h3>
-<p style="font-size: 22px; line-height: 1.35; max-width: 440px">The right message reaches the right person or screen.</p>
-<ul class="pl">
-<li><span>Alerts in three levels, flashing until acknowledged</span></li>
-<li><span>Stage messages and a confidence banner</span></li>
-<li><span>Signage on any TV in the building</span></li>
-<li class="dim"><span>Crew pages and team chat</span><span class="soon">Soon</span></li>
-<li class="dim"><span>Intercom on the phones your team already carries</span><span class="soon">Soon</span></li>
-</ul>
-</div></div>
-<div class="bz c6 rv"><div class="core pad" style="padding: 44px; gap: 16px">
-<h3 class="d" style="font-size: clamp(56px, 6.4vw, 92px); color: #4ade80">Act</h3>
-<p style="font-size: 22px; line-height: 1.35; max-width: 440px">Fix it from where you are standing.</p>
-<ul class="pl">
-<li><span>Move the service on from a panel</span></li>
-<li><span>Start and stop on a schedule</span></li>
-<li><span>Alert buttons for the band and the tech team</span></li>
-<li class="dim"><span>Soundboard and lighting control</span><span class="soon">Soon</span></li>
-<li class="dim"><span>Button surfaces and your own screens</span><span class="soon">Soon</span></li>
-</ul>
-</div></div>
-</div>
-</section>
-
-<!-- One app -->
-<section id="one" class="hair" style="background: #000">
-<div class="wrap sec">
-<div class="rv" style="display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 24px 64px; padding-bottom: 80px">
-<h2 class="d" style="flex: 1 1 480px; font-size: clamp(38px, 5.4vw, 76px)">One app in the booth instead of nine tabs.</h2>
-<p class="mut" style="flex: 0 1 380px">One place and one sign-in for the whole production. Every integration is a module you switch on. While it is off, Relay never contacts that product.</p>
-</div>
-<div class="bento">
-<div class="bz rv" style="grid-column: 1 / -1"><div class="core pad" style="padding: 44px; gap: 28px">
-<div class="mods">
-<div class="mod"><span>Captions</span><span class="tg" aria-hidden="true"><i></i></span></div>
-<div class="mod"><span>Translation</span><span class="tg" aria-hidden="true"><i></i></span></div>
-<div class="mod"><span>Alerts</span><span class="tg" aria-hidden="true"><i></i></span></div>
-<div class="mod"><span>Signage</span><span class="tg" aria-hidden="true"><i></i></span></div>
-<div class="mod"><span>Caption panels</span><span class="tg" aria-hidden="true"><i></i></span></div>
-<div class="mod"><span>ProPresenter</span><span class="tg" aria-hidden="true"><i></i></span></div>
-<div class="mod"><span>Planning Center</span><span class="tg" aria-hidden="true"><i></i></span></div>
-<div class="mod"><span>Remote access</span><span class="tg" aria-hidden="true"><i></i></span></div>
-<div class="mod"><span class="dim">Intercom</span><span class="soon">Soon</span></div>
-<div class="mod"><span class="dim">Crew pages</span><span class="soon">Soon</span></div>
-<div class="mod"><span class="dim">Soundboard</span><span class="soon">Soon</span></div>
-<div class="mod"><span class="dim">Lighting</span><span class="soon">Soon</span></div>
-</div>
-<div style="display: flex; flex-direction: column; gap: 10px">
-<h3 class="d" style="font-size: 32px; letter-spacing: -0.025em">Switch on only what you own</h3>
-<p class="mut" style="max-width: 520px">Start with captions. Add signage, alerts or your presentation software when you are ready. Nothing you do not use gets in the way.</p>
-</div>
-</div></div>
-<div class="bz c6 rv"><div class="core pad" style="padding: 44px; gap: 16px; min-height: 260px">
-<h3 class="d" style="font-size: 40px; letter-spacing: -0.03em">ProPresenter</h3>
-<p class="mut" style="margin-top: auto">Relay follows the current slide and sends lyrics, timers and stage messages to your panels, screens and overlays. A view-only switch keeps it from changing anything.</p>
-</div></div>
-<div class="bz c6 rv"><div class="core pad" style="padding: 44px; gap: 16px; min-height: 260px">
-<h3 class="d" style="font-size: 40px; letter-spacing: -0.03em">Planning Center Services</h3>
-<p class="mut" style="margin-top: auto">Show today's service on a panel: the current and next item with timers, song keys and who is running LIVE. Allow a panel to move the service on, or keep it read-only.</p>
-</div></div>
-</div>
-</div>
-</section>
-
-<!-- Volunteers -->
-<section id="how" class="wrap sec">
-<div class="rv" style="display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 24px 64px; padding-bottom: 80px">
-<h2 class="d" style="flex: 1 1 480px; font-size: clamp(38px, 5.4vw, 76px)">Built for the volunteer on their second Sunday.</h2>
-<p class="mut" style="flex: 0 1 380px">Set up once, then it is one button. If they can open a link, they can run it.</p>
-</div>
-<ol style="margin: 0; padding: 0; list-style: none">
-<li class="step rv">
-<span class="d" aria-hidden="true" style="flex: 0 0 120px; font-size: clamp(72px, 9vw, 128px); color: #4ade80">1</span>
-<h3 class="d" style="flex: 1 1 280px; font-size: clamp(26px, 2.6vw, 36px); letter-spacing: -0.025em">Connect your soundboard</h3>
-<p class="mut" style="flex: 1 1 320px; max-width: 420px">Send a feed from the soundboard to the computer's audio input and pick it in Relay.</p>
-</li>
-<li class="step s2 rv">
-<span class="d" aria-hidden="true" style="flex: 0 0 120px; font-size: clamp(72px, 9vw, 128px); color: #4ade80">2</span>
-<h3 class="d" style="flex: 1 1 280px; font-size: clamp(26px, 2.6vw, 36px); letter-spacing: -0.025em">Press Start</h3>
-<p class="mut" style="flex: 1 1 320px; max-width: 420px">Or add a schedule and Relay starts and stops by itself, every Sunday or on a single date.</p>
-</li>
-<li class="step s3 rv" style="border-bottom: 1px solid rgba(255,255,255,.08)">
-<span class="d" aria-hidden="true" style="flex: 0 0 120px; font-size: clamp(72px, 9vw, 128px); color: #4ade80">3</span>
-<h3 class="d" style="flex: 1 1 280px; font-size: clamp(26px, 2.6vw, 36px); letter-spacing: -0.025em">Share the link</h3>
-<p class="mut" style="flex: 1 1 320px; max-width: 420px">People open it on their own phone and choose captions, a translation, or both side by side.</p>
-</li>
-</ol>
-<div class="bento" style="padding-top: 72px">
-<div class="bz c4 rv"><div class="core pad">
-<h3 class="d" style="font-size: 26px; letter-spacing: -0.02em">Nothing to install on a phone</h3>
-<p class="mut">No app, no account, no microphone permission. Scan the code or open the link.</p>
-</div></div>
-<div class="bz c4 rv"><div class="core pad">
-<h3 class="d" style="font-size: 26px; letter-spacing: -0.02em">A sign-in that fits the job</h3>
-<p class="mut">Each volunteer gets their own sign-in and a role, so they only see what they need.</p>
-</div></div>
-<div class="bz c4 rv"><div class="core pad">
-<h3 class="d" style="font-size: 26px; letter-spacing: -0.02em">Practise before Sunday</h3>
-<p class="mut">Rehearsal mode lets a new volunteer try every screen without starting a billed session.</p>
-</div></div>
 </div>
 </section>
 
@@ -459,68 +466,44 @@ html{scroll-behavior:smooth}
 </div>
 </section>
 
-<!-- Caption panels -->
-<section id="panels" class="hair" style="background: #000">
-<div class="wrap sec" style="display: flex; flex-wrap: wrap; align-items: center; gap: 72px">
-<div class="bz rv" style="flex: 1 1 540px; min-width: 0">
-<div class="core" style="padding: 12px">
-<div class="scr" style="aspect-ratio: 5 / 3; display: flex; font-size: clamp(14px, 1.7vw, 22px); line-height: 1.3">
-<div style="flex: 1; min-width: 0; min-height: 0; padding: 0 5% 6%; display: flex; flex-direction: column; border-right: 1px solid rgba(255,255,255,.08)">
-<div class="feed"><div class="roll">
-<p>Let us pray together.</p>
-<p>Thank you for this day and for everyone gathered here.</p>
-<p>Be with those who could not join us this morning.</p>
-<p>Please be seated.</p>
-<p>Good morning, and welcome.</p>
-<p>We are so glad you are here with us today.</p>
-<p>Please stand with us as we sing.</p>
-<p>If you are visiting, there is a welcome card in the seat in front of you.</p>
-<p aria-hidden="true">Let us pray together.</p>
-<p aria-hidden="true">Thank you for this day and for everyone gathered here.</p>
-<p aria-hidden="true">Be with those who could not join us this morning.</p>
-<p aria-hidden="true">Please be seated.</p>
-<p aria-hidden="true">Good morning, and welcome.</p>
-<p aria-hidden="true">We are so glad you are here with us today.</p>
-<p aria-hidden="true">Please stand with us as we sing.</p>
-<p aria-hidden="true">If you are visiting, there is a welcome card in the seat in front of you.</p>
+<!-- Volunteers -->
+<section id="how" class="hair"><div class="wrap sec">
+<div class="rv" style="display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 24px 64px; padding-bottom: 80px">
+<h2 class="d" style="flex: 1 1 480px; font-size: clamp(38px, 5.4vw, 76px)">Built for the volunteer on their second Sunday.</h2>
+<p class="mut" style="flex: 0 1 380px">Set up once by whoever knows the gear. After that it is one screen and one sign-in for the person on the rota.</p>
+</div>
+<ol style="margin: 0; padding: 0; list-style: none">
+<li class="step rv">
+<span class="d" aria-hidden="true" style="flex: 0 0 120px; font-size: clamp(72px, 9vw, 128px); color: #4ade80">1</span>
+<h3 class="d" style="flex: 1 1 280px; font-size: clamp(26px, 2.6vw, 36px); letter-spacing: -0.025em">Switch on what you own</h3>
+<p class="mut" style="flex: 1 1 320px; max-width: 420px">Each product is a module. Turn on ProPresenter, your switcher or your lighting program and leave the rest off.</p>
+</li>
+<li class="step s2 rv">
+<span class="d" aria-hidden="true" style="flex: 0 0 120px; font-size: clamp(72px, 9vw, 128px); color: #4ade80">2</span>
+<h3 class="d" style="flex: 1 1 280px; font-size: clamp(26px, 2.6vw, 36px); letter-spacing: -0.025em">Let Relay find it</h3>
+<p class="mut" style="flex: 1 1 320px; max-width: 420px">ATEM switchers and caption panels are found on the network by themselves. The rest take an address or a sign-in, once.</p>
+</li>
+<li class="step s3 rv" style="border-bottom: 1px solid rgba(255,255,255,.08)">
+<span class="d" aria-hidden="true" style="flex: 0 0 120px; font-size: clamp(72px, 9vw, 128px); color: #4ade80">3</span>
+<h3 class="d" style="flex: 1 1 280px; font-size: clamp(26px, 2.6vw, 36px); letter-spacing: -0.025em">Give everyone their screen</h3>
+<p class="mut" style="flex: 1 1 320px; max-width: 420px">The booth gets the operator panel. Crew, cameras, the stage, the lobby and visitors each get the page made for them.</p>
+</li>
+</ol>
+<div class="bento" style="padding-top: 72px">
+<div class="bz c4 rv"><div class="core pad">
+<h3 class="d" style="font-size: 26px; letter-spacing: -0.02em">Nothing to install on a phone</h3>
+<p class="mut">No app, no account, no microphone permission. Scan the code or open the link.</p>
+</div></div>
+<div class="bz c4 rv"><div class="core pad">
+<h3 class="d" style="font-size: 26px; letter-spacing: -0.02em">A sign-in that fits the job</h3>
+<p class="mut">Each volunteer gets their own sign-in and a role, so they only see what they need.</p>
+</div></div>
+<div class="bz c4 rv"><div class="core pad">
+<h3 class="d" style="font-size: 26px; letter-spacing: -0.02em">Practise before Sunday</h3>
+<p class="mut">Rehearsal mode lets a new volunteer try every screen without starting a billed session.</p>
 </div></div>
 </div>
-<div lang="es" style="flex: 1; min-width: 0; min-height: 0; padding: 0 5% 6%; display: flex; flex-direction: column">
-<div class="feed"><div class="roll">
-<p>Oremos juntos.</p>
-<p>Gracias por este día y por todos los que están reunidos aquí.</p>
-<p>Acompaña a quienes no pudieron estar con nosotros esta mañana.</p>
-<p>Pueden sentarse.</p>
-<p>Buenos días y bienvenidos.</p>
-<p>Nos alegra mucho que estén aquí con nosotros hoy.</p>
-<p>Por favor, pónganse de pie mientras cantamos.</p>
-<p>Si nos visita, hay una tarjeta de bienvenida en el asiento frente a usted.</p>
-<p aria-hidden="true">Oremos juntos.</p>
-<p aria-hidden="true">Gracias por este día y por todos los que están reunidos aquí.</p>
-<p aria-hidden="true">Acompaña a quienes no pudieron estar con nosotros esta mañana.</p>
-<p aria-hidden="true">Pueden sentarse.</p>
-<p aria-hidden="true">Buenos días y bienvenidos.</p>
-<p aria-hidden="true">Nos alegra mucho que estén aquí con nosotros hoy.</p>
-<p aria-hidden="true">Por favor, pónganse de pie mientras cantamos.</p>
-<p aria-hidden="true">Si nos visita, hay una tarjeta de bienvenida en el asiento frente a usted.</p>
-</div></div>
-</div>
-</div>
-</div>
-</div>
-<div class="rv" style="flex: 1 1 400px; min-width: 0; display: flex; flex-direction: column; gap: 28px">
-<h2 class="d" style="font-size: clamp(38px, 4.6vw, 64px)">Captions on the wall, no phone needed.</h2>
-<p class="mut">A small touch screen for a wall, a desk or the stage. It joins your Wi-Fi, finds Relay by itself and follows the live text. Scroll back to reread, then tap Jump to live.</p>
-<ul style="margin: 0; padding: 0; list-style: none">
-<li style="padding: 16px 0; border-top: 1px solid rgba(255,255,255,.09)">Captions, one translation, or two feeds side by side</li>
-<li style="padding: 16px 0; border-top: 1px solid rgba(255,255,255,.09)">Song lyrics and timers from ProPresenter</li>
-<li style="padding: 16px 0; border-top: 1px solid rgba(255,255,255,.09)">Today's order of service from Planning Center</li>
-<li style="padding: 16px 0; border-top: 1px solid rgba(255,255,255,.09); border-bottom: 1px solid rgba(255,255,255,.09)">Alert buttons for the band and the tech team</li>
-</ul>
-<p class="dim" style="font-size: 16px">Runs on the Elecrow CrowPanel Advance 7.0". Updates install from the Relay admin page.</p>
-</div>
-</div>
-</section>
+</div></section>
 
 <!-- Whole building -->
 <section id="building" class="wrap sec">
@@ -530,10 +513,11 @@ html{scroll-behavior:smooth}
 </div>
 <div style="border-bottom: 1px solid rgba(255,255,255,.09)">
 <div class="area rv"><h3 class="d">Lobby and hallways</h3><p class="mut">Signage on any TV: playlists of images and video, web pages, YouTube, and files from your Planning Center plan.</p><span class="now">Today</span></div>
-<div class="area rv"><h3 class="d">Overflow rooms and access</h3><p class="mut">Captions and translation in any room, on a wall panel, or on a visitor's own phone.</p><span class="now">Today</span></div>
-<div class="area rv"><h3 class="d">Kids ministry</h3><p class="mut">Parent paging puts a child's number on the screens in the room without stopping the service.</p><span class="soon">Soon</span></div>
-<div class="area rv"><h3 class="d">Safety team</h3><p class="mut">A private intercom channel on the phones your team already carries, and urgent alerts that flash until someone acknowledges.</p><span class="soon">Soon</span></div>
-<div class="area rv"><h3 class="d">Ushers, greeters and hosts</h3><p class="mut">Crew pages, call times and check-in, matched to the positions in Planning Center.</p><span class="soon">Soon</span></div>
+<div class="area rv"><h3 class="d">Overflow rooms and access</h3><p class="mut">Captions and translation in any room, on a wall panel, or on a visitor's own phone, in the building or at home.</p><span class="now">Today</span></div>
+<div class="area rv"><h3 class="d">Kids ministry</h3><p class="mut">Parent paging: a kids worker taps a child and the Check-Ins code goes to the screens in the room, without stopping the service.</p><span class="now">Today</span></div>
+<div class="area rv"><h3 class="d">Safety team</h3><p class="mut">A private intercom channel on the phones your team already carries, and alerts that flash until someone acknowledges.</p><span class="now">Today</span></div>
+<div class="area rv"><h3 class="d">Ushers, greeters and hosts</h3><p class="mut">Crew pages with the plan, call times, checklists and resources for each position, and check-in when they join the Wi-Fi.</p><span class="now">Today</span></div>
+<div class="area rv"><h3 class="d">The person who looks after the network</h3><p class="mut">Internet health, switch ports, Wi-Fi and a map of the network, read from UniFi without changing anything.</p><span class="now">Today</span></div>
 <div class="area rv"><h3 class="d">More than one campus</h3><p class="mut">See every site from one dashboard.</p><span class="soon">Soon</span></div>
 </div>
 <p class="d rv" style="font-size: clamp(28px, 3.4vw, 48px); line-height: 1.08; padding-top: 72px; max-width: 900px">Production bought it. <span style="color: #4ade80">The whole church uses it.</span></p>
@@ -605,7 +589,7 @@ html{scroll-behavior:smooth}
 <div class="wrap" style="padding-top: 40px; padding-bottom: 56px; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 20px; font-size: 16px; color: #a1a1aa">
 <span>Relay Church Systems</span>
 <div style="display: flex; flex-wrap: wrap; gap: 8px 30px">
-<a href="#what" style="padding: 12px 0">What it does</a>
+<a href="#connects" style="padding: 12px 0">What it connects</a>
 <a href="#building" style="padding: 12px 0">Whole building</a>
 <a href="#cost" style="padding: 12px 0">Cost</a>
 <a href="/privacy" style="padding: 12px 0">Privacy</a>
@@ -615,11 +599,21 @@ html{scroll-behavior:smooth}
 </div>
 </footer>
 
+
 </div>
 <script>
 document.querySelectorAll(".sheet a").forEach(function (a) {
   a.addEventListener("click", function () { a.closest("details").removeAttribute("open"); });
 });
+(function () {
+  var t = 1 * 3600 + 12 * 60 + 44;
+  function p(n) { return (n < 10 ? "0" : "") + n; }
+  setInterval(function () {
+    t += 1;
+    var s = p(Math.floor(t / 3600)) + ":" + p(Math.floor(t / 60) % 60) + ":" + p(t % 60);
+    document.querySelectorAll("[data-clock]").forEach(function (el) { el.textContent = s; });
+  }, 1000);
+})();
 </script>
 </body>
 </html>
