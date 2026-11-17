@@ -496,6 +496,37 @@ The overlay link also takes `?lyrics=1`, to show ProPresenter's lyrics in
 place of the captions. See the ProPresenter chapter.
 :::
 
+## Boards {#boards}
+
+A board is a screen you build yourself from widgets: live captions in any language, a clock, a countdown, a line of
+text, the livestream's status, a button that opens another board, and widgets from the modules you have switched on
+(Lighting adds a button for each cue on a cue page). Each board has its own address, `/board/<name>`, for a TV in the
+lobby or a tablet at the sound desk. The address stays the same when you rename the board.
+
+### To make a board
+
+1. Open **Boards** (under Output), type a name, choose the screen's shape (16:9 TV, 4:3 tablet or 9:16 portrait) and
+   press **New board**.
+2. Press **Edit** beside it. The board opens with the widget list beside it, and the board keeps running underneath.
+3. Click a widget in the list to add it, or drag it onto the board. Drag a widget to move it; drag its edges or corners
+   to make it bigger or smaller. Widgets snap to the grid and never cover each other.
+4. Double-click a widget (or select it and press Enter) for its settings: **Settings** holds what it shows (the caption
+   language, the countdown's time, the text) and **Look** its label, shape, colours and icon.
+5. Press **Save**. **Cancel** puts the board back as it was; **Undo** and **Redo** step through your changes.
+
+With the keyboard: arrow keys move the selected widget, Shift and an arrow resize it, Delete removes it, and Ctrl+Z
+(Cmd+Z on a Mac) undoes.
+
+### Who can open a board
+
+Anyone signed in to Relay can open a board on the operator address. Tick **Public** to let anyone open it without
+signing in, on the viewer network too; use it for a lobby TV, never for a board with anything private on it. Only
+Admins and Owners can make, change and delete boards. A button that does something (a lighting cue) needs someone
+signed in who may do that, even on a public board.
+
+**Export** saves a board as a file and **Import** reads one back as a new board, so you can copy a layout to another
+Relay. A widget whose module you switch off stays on the board, greyed out, and works again when the module is back on.
+
 ## Blocked words {#blocked-words}
 
 Blocked words are removed from the captions before anyone sees them. There is

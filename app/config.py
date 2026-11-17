@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any
 
 from . import languages
-from . import overlays
+from . import boards, overlays
 from . import paths
 from . import redact
 from . import schedules
@@ -66,6 +66,8 @@ DEFAULTS: dict[str, Any] = {
     "schedules": [],
     # Named broadcast overlays (/overlay/<id>) -- see overlays.py for the shape.
     "overlays": [],
+    # Boards (/board/<slug>, #156): screens built from widgets -- see boards.py for the shape.
+    "boards": [],
     # Caption panels the operator has named or given a feed, by panel id --
     # see panels.py. Panels themselves are never written here by a check-in.
     "panels": {},
@@ -242,6 +244,7 @@ def _normalise(cfg: dict) -> dict:
     # A hand-edited schedule that does not validate is dropped, not fatal.
     cfg["schedules"] = schedules.clean_list(cfg.get("schedules"))
     cfg["overlays"] = overlays.clean_list(cfg.get("overlays"), languages.TARGETS)
+    cfg["boards"] = boards.clean_list(cfg.get("boards"))
     # Imported here: panels.py reads config, so the module-level import would loop.
     from . import panels
 

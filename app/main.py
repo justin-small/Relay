@@ -29,7 +29,7 @@ from jinja2 import ChoiceLoader, FileSystemLoader, PrefixLoader
 from . import alerts as alertsmod
 from . import backup as backupmod
 from . import announce as announcemod
-from . import alerthistory, audiobus, audit, config, db, exporting, importdocker, languages, netinfo, network_map, netroute, overlays, panelfw, panels, prefs, redact, schedules, serving, setupcode, streamstatus, tally, tls, users
+from . import alerthistory, audiobus, audit, boards, config, db, exporting, importdocker, languages, netinfo, network_map, netroute, overlays, panelfw, panels, prefs, redact, schedules, serving, setupcode, streamstatus, tally, tls, users
 from .alerts import alerts
 from . import engine as engine_mod
 from .engine import TRANSCRIPTION_STREAM, TRANSLATION_STREAM, demo_mode, engine
@@ -253,6 +253,11 @@ AUDIT_ROUTES = {
     "admin_overlay_create": ("overlays.create", "Added an overlay"),
     "admin_overlay_update": ("overlays.change", "Changed an overlay"),
     "admin_overlay_delete": ("overlays.delete", "Deleted an overlay"),
+    "admin_board_create": ("boards.create", "Added a board"),
+    "admin_board_update": ("boards.change", "Changed a board"),
+    "admin_board_duplicate": ("boards.create", "Duplicated a board"),
+    "admin_board_import": ("boards.create", "Imported a board"),
+    "admin_board_delete": ("boards.delete", "Deleted a board"),
     "admin_recording_delete": ("recordings.delete", "Deleted a recording"),
     "admin_me_password": ("account.password", "Changed their own password"),
     "admin_me_pin": ("account.pin_set", "Set their PIN"),
@@ -2555,6 +2560,210 @@ async def admin_overlay_delete(oid: str):
         raise HTTPException(404, "unknown overlay")
     config.save({"overlays": kept})
     return _overlays_frame()
+
+
+# ---------------------------------------------------------------- boards (#156)
+# A board is a screen built from widgets at /board/<slug> (app/boards.py), laid out with the shared editor (#421).
+# Not an admin path, so it answers on both ports: a public board opens for anyone, on either; any other opens only on
+# the operator port, for someone signed in with boards.view (every role). Its widgets' data comes from the existing
+# feeds (/stream) and, for a module's widget, from /board/<slug>/_/data, which asks the module through the registry.
+BOARD_PRESS_WINDOW_S = 10.0
+BOARD_MAX_PRESSES = 20
+_board_presses: dict[str, list[float]] = {}
+
+
+def _board_catalogue() -> dict[str, dict]:
+    return boards.catalogue(module_registry.board_widgets(), config.get()["boards"])
+
+
+def _board_or_404(bid: str) -> dict:
+    board = boards.find(config.get()["boards"], bid)
+    if board is None:
+        raise HTTPException(404, "Not Found")
+    return board
+
+
+def _board_viewer(request: Request, board: dict, perm: str = "boards.view"):
+    """(user or None, None) when this request may open the board, else (None, the response to send). A public board
+    needs nobody signed in; any other needs the operator port and `perm`. Blocks (database)."""
+    if board["public"] and perm == "boards.view":
+        return (_session_user(request) if _on_admin_port(request) else None), None
+    if not _on_admin_port(request):
+        return None, HTMLResponse("Not found", status_code=404)
+    got = _page_gate(request, perm)
+    return (got, None) if isinstance(got, User) else (None, got)
+
+
+def _board_items_for_page(board: dict, cat: dict[str, dict]) -> list[dict]:
+    """The board's items with what the page draws them by: the kind and the title, or a note when the widget's
+    module is off."""
+    out = []
+    for it in board["items"]:
+        d = cat.get(it["type"])
+        extra = {"kind": d["kind"], "title": boards.item_title(d, it["props"])} if d else \
+            {"kind": "text", "title": "", "off": "This widget's module is off."}
+        out.append({**it, **extra})
+    return out
+
+
+@app.get("/board/{bid}", response_class=HTMLResponse)
+def page_board(request: Request, bid: str, edit: int = 0):
+    board = _board_or_404(bid)
+    user, resp = _board_viewer(request, board, "boards.manage" if edit else "boards.view")
+    if resp is not None:
+        return resp
+    cat = _board_catalogue()
+    can_edit = bool(user and user.can("boards.manage") and _on_admin_port(request))
+    perms = user.permissions() if user else set()
+    page = {"id": board["id"], "name": board["name"], "ratio": board["ratio"], "cols": board["cols"],
+            "rows": board["rows"], "items": _board_items_for_page(board, cat), "public": board["public"]}
+    # Which widget types this person may press (a module's buttons need its permission; a board link needs nothing).
+    press = sorted(t for t, d in cat.items() if d["kind"] == "button" and (not d["press_permission"]
+                                                                            or d["press_permission"] in perms))
+    ctx = {"board": page, "press": press, "can_edit": can_edit, "edit": bool(edit and can_edit),
+           "catalogue": list(cat.values()) if can_edit else [],
+           "boards": [{"id": b["id"], "name": b["name"]} for b in config.get()["boards"]] if can_edit else []}
+    return templates.TemplateResponse(request, "board.html", {"data": ctx, "title": board["name"]},
+                                      headers={"Cache-Control": "no-store", "Referrer-Policy": "no-referrer"})
+
+
+@app.get("/board/{bid}/_/data")
+async def board_data(request: Request, bid: str):
+    """Live data for the board's module widgets, by item id. Same access as the board."""
+    board = _board_or_404(bid)
+    _, resp = await asyncio.to_thread(_board_viewer, request, board)
+    if resp is not None:
+        return JSONResponse({"error": "Not found"}, status_code=404)
+    data = await module_registry.board_data(board["items"])
+    return JSONResponse({"items": data}, headers={"Cache-Control": "no-store"})
+
+
+@app.post("/board/{bid}/_/press/{item_id}")
+async def board_press(request: Request, bid: str, item_id: str):
+    """Press a module's button widget on a board. Needs someone signed in on the operator port who holds the widget's
+    press permission, even on a public board. Answers {"ok": true} or {"error": "<a fixed sentence>"}."""
+    board = _board_or_404(bid)
+    item = next((i for i in board["items"] if i["id"] == item_id), None)
+    if item is None:
+        return JSONResponse({"error": "That button is not on this board."}, status_code=404)
+    d = _board_catalogue().get(item["type"])
+    mod = module_registry.board_owner(item["type"])
+    if d is None or mod is None or d["kind"] != "button":
+        return JSONResponse({"error": "That button is off."}, status_code=409)
+    user = await asyncio.to_thread(_session_user, request) if _on_admin_port(request) else None
+    if user is None or (not board["public"] and not user.can("boards.view")) \
+            or (d["press_permission"] and not user.can(d["press_permission"])):
+        return JSONResponse({"error": "Sign in with an account that may press this."}, status_code=403)
+    if _rate_limited(_board_presses, _client_ip(request), BOARD_MAX_PRESSES, BOARD_PRESS_WINDOW_S):
+        return JSONResponse({"error": "Too many presses. Wait a moment."}, status_code=429)
+    request.state.user = user
+    try:
+        got = await mod.board_press(item, request)
+    except Exception:
+        log.exception("board press failed")
+        got = {"ok": False, "error": "That did not work."}
+    if isinstance(got, dict) and got.get("ok"):
+        # Not under /api/admin, so the audit middleware does not see it: write the module's notes here.
+        notes = audit.pending(request) or [{"action": "boards.press", "summary": f"Pressed {d['name']} on the board "
+                                            f"{board['name']}", "target": item["id"], "detail": None}]
+        await asyncio.to_thread(_audit_write, notes, user, _client_ip(request))
+        return {"ok": True}
+    err = got.get("error") if isinstance(got, dict) and isinstance(got.get("error"), str) else "That did not work."
+    return JSONResponse({"error": err[:200]}, status_code=502)
+
+
+def _rate_limited(table: dict[str, list[float]], who: str, limit: int, window: float) -> bool:
+    now = time.monotonic()
+    if len(table) > 2000:
+        for k in [k for k, v in table.items() if not v or now - v[-1] > window]:
+            table.pop(k, None)
+    recent = [t for t in table.get(who, []) if now - t < window]
+    if len(recent) >= limit:
+        table[who] = recent
+        return True
+    table[who] = recent + [now]
+    return False
+
+
+def _boards_frame() -> dict:
+    cat = _board_catalogue()
+    return {"boards": config.get()["boards"], "catalogue": list(cat.values())}
+
+
+def _board_error(exc: boards.BoardError) -> JSONResponse:
+    return JSONResponse({"error": str(exc)}, status_code=400)
+
+
+@app.get("/api/admin/boards", dependencies=[Depends(require("boards.view"))])
+async def admin_boards():
+    return _boards_frame()
+
+
+@app.post("/api/admin/boards", dependencies=[Depends(require("boards.manage"))])
+async def admin_board_create(payload: dict):
+    items = list(config.get()["boards"])
+    try:
+        new = boards.create(items, payload, _board_catalogue())
+    except boards.BoardError as exc:
+        return _board_error(exc)
+    config.save({"boards": items + [new]})
+    return _boards_frame() | {"saved": new["id"]}
+
+
+@app.put("/api/admin/boards/{bid}", dependencies=[Depends(require("boards.manage"))])
+async def admin_board_update(bid: str, payload: dict):
+    items = list(config.get()["boards"])
+    idx = next((i for i, b in enumerate(items) if b["id"] == bid), None)
+    if idx is None:
+        raise HTTPException(404, "unknown board")
+    try:
+        items[idx] = boards.update(items[idx], payload, _board_catalogue())
+    except boards.BoardError as exc:
+        return _board_error(exc)
+    config.save({"boards": items})
+    return _boards_frame() | {"saved": bid, "board": items[idx]}
+
+
+@app.post("/api/admin/boards/{bid}/duplicate", dependencies=[Depends(require("boards.manage"))])
+async def admin_board_duplicate(bid: str):
+    items = list(config.get()["boards"])
+    board = boards.find(items, bid)
+    if board is None:
+        raise HTTPException(404, "unknown board")
+    try:
+        new = boards.create(items, {**board, "name": f"{board['name']} copy"[:boards.NAME_MAX]}, _board_catalogue())
+    except boards.BoardError as exc:
+        return _board_error(exc)
+    config.save({"boards": items + [new]})
+    return _boards_frame() | {"saved": new["id"]}
+
+
+@app.get("/api/admin/boards/{bid}/export", dependencies=[Depends(require("boards.view"))])
+async def admin_board_export(bid: str):
+    board = _board_or_404(bid)
+    return JSONResponse(boards.export(board), headers={
+        "Content-Disposition": f'attachment; filename="{board["id"]}.relayboard.json"'})
+
+
+@app.post("/api/admin/boards/import", dependencies=[Depends(require("boards.manage"))])
+async def admin_board_import(payload: dict):
+    items = list(config.get()["boards"])
+    try:
+        new = boards.import_board(items, payload, _board_catalogue())
+    except boards.BoardError as exc:
+        return _board_error(exc)
+    config.save({"boards": items + [new]})
+    return _boards_frame() | {"saved": new["id"]}
+
+
+@app.delete("/api/admin/boards/{bid}", dependencies=[Depends(require("boards.manage"))])
+async def admin_board_delete(bid: str):
+    items = list(config.get()["boards"])
+    kept = [b for b in items if b["id"] != bid]
+    if len(kept) == len(items):
+        raise HTTPException(404, "unknown board")
+    config.save({"boards": kept})
+    return _boards_frame()
 
 
 # ---------------------------------------------------------------- recordings

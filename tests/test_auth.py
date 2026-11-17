@@ -344,7 +344,7 @@ MIN_ROLE = {
     "admin.open": "viewer", "alerts.send": "member",
     "session.view": "viewer", "session.control": "operator", "audio.manage": "admin", "targets.manage": "operator",
     "panels.view": "viewer", "panels.manage": "admin", "alerts.view": "viewer", "alerts.manage": "admin", "alerts.history": "admin",
-    "overlays.view": "viewer", "overlays.manage": "operator", "recordings.view": "operator",
+    "overlays.view": "viewer", "overlays.manage": "operator", "boards.view": "member", "boards.manage": "admin", "recordings.view": "operator",
     "recordings.manage": "admin", "schedules.view": "viewer", "schedules.manage": "admin",
     "blocklist.manage": "admin", "settings.view": "viewer", "settings.manage": "admin",
     "credentials.manage": "owner", "modules.view": "viewer", "modules.manage": "admin", "users.view": "admin",
@@ -453,6 +453,13 @@ route("GET", "/api/admin/overlays", "overlays.view")
 route("POST", "/api/admin/overlays", "overlays.manage")
 route("PUT", "/api/admin/overlays/{oid}", "overlays.manage")
 route("DELETE", "/api/admin/overlays/{oid}", "overlays.manage")
+route("GET", "/api/admin/boards", "boards.view")
+route("POST", "/api/admin/boards", "boards.manage")
+route("PUT", "/api/admin/boards/{bid}", "boards.manage")
+route("DELETE", "/api/admin/boards/{bid}", "boards.manage")
+route("POST", "/api/admin/boards/{bid}/duplicate", "boards.manage")
+route("GET", "/api/admin/boards/{bid}/export", "boards.view")
+route("POST", "/api/admin/boards/import", "boards.manage")
 # recordings
 route("GET", "/api/admin/recordings", "recordings.view")
 route("GET", "/api/admin/recordings/{run_id}", "recordings.view")

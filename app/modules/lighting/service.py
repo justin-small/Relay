@@ -8,7 +8,7 @@ import secrets
 import uuid
 from typing import Any
 
-from ... import config
+from ... import config, layout
 from . import lightkey, qlcplus, thelightingcontroller, vista  # noqa: F401  (each registers its backend)
 from .backend import BACKENDS, Backend, BackendError, Cue
 
@@ -23,32 +23,11 @@ def _text(value: Any, limit: int) -> str:
     return " ".join(value.split())[:limit] if isinstance(value, str) else ""
 
 
-SHAPES = ("rounded", "rect", "pill", "circle")
-_COLOR_RE = re.compile(r"#[0-9a-fA-F]{6}")
 _KEY_RE = re.compile(r"[0-9a-f]{32}")
-MAX_SPAN = 6
-
-
-def _color(value: Any, default: str) -> str:
-    return value.lower() if isinstance(value, str) and _COLOR_RE.fullmatch(value) else default
-
-
-def _int(value: Any, lo: int, hi: int, default: int) -> int:
-    if isinstance(value, bool) or not isinstance(value, (int, float)):
-        return default
-    return max(lo, min(hi, int(value)))
-
-
-def clean_style(c: dict) -> dict:
-    """How one cue's button looks: the label it shows, its shape, colours and size. `w` and `h` are grid cells (1 to
-    6); `x`, `y`, `fw`, `fh` are a percentage of the page, used only when the page is free-positioned. Always safe
-    to put in a style attribute: a colour is #rrggbb and every number is bounded."""
-    fw = _int(c.get("fw"), 4, 100, 25)
-    fh = _int(c.get("fh"), 4, 100, 20)
-    return {"label": _text(c.get("label"), 60), "shape": c.get("shape") if c.get("shape") in SHAPES else "rounded",
-            "color": _color(c.get("color"), "#2b5fd9"), "text_color": _color(c.get("text_color"), "#ffffff"),
-            "w": _int(c.get("w"), 1, MAX_SPAN, 1), "h": _int(c.get("h"), 1, MAX_SPAN, 1),
-            "x": _int(c.get("x"), 0, 100 - fw, 0), "y": _int(c.get("y"), 0, 100 - fh, 0), "fw": fw, "fh": fh}
+# A cue button's look when nothing is set: the colours the cue pages had before #421.
+CUE_STYLE = {"shape": "rounded", "bg": "#2b5fd9", "fg": "#ffffff", "pressed": "#5b8bff", "icon": ""}
+GRID = (4, 3)            # a new page's grid
+FREE_GRID = (8, 6)       # the grid a page saved with free placement (#379) moves onto: fine enough to keep its shape
 
 
 def new_key() -> str:
@@ -56,10 +35,28 @@ def new_key() -> str:
     return secrets.token_hex(16)
 
 
+def _legacy_places(p: dict, cues: list[dict]) -> tuple[int, int, list[dict]]:
+    """(cols, rows, cues placed) for a page saved before #421, which has no grid of its own. A free page's buttons
+    (x/y/fw/fh, percent of the page) go to the nearest cells of FREE_GRID; a grid page's (w/h cell spans, laid out by
+    the browser in reading order) go one after another into four columns, as many rows as they need."""
+    raws = {c.get("id"): c for c in (p.get("cues") if isinstance(p.get("cues"), list) else []) if isinstance(c, dict)}
+    if p.get("free") is True:
+        cols, rows = FREE_GRID
+        placed = [{**c, **layout.from_percent(raws[c["id"]].get("x"), raws[c["id"]].get("y"), raws[c["id"]].get("fw", 25),
+                                                raws[c["id"]].get("fh", 20), cols, rows)} for c in cues]
+        return cols, rows, layout.place(placed, cols, rows)
+    cols = GRID[0]
+    spans = [{**c, "x": 0, "y": 0, "w": layout.number(raws[c["id"]].get("w"), 1, cols, 1),
+              "h": layout.number(raws[c["id"]].get("h"), 1, layout.MAX_CELLS, 1)} for c in cues]
+    placed = layout.place(spans, cols, layout.MAX_CELLS)
+    rows = max([GRID[1]] + [c["y"] + c["h"] for c in placed])
+    return cols, rows, placed
+
+
 def clean_pages(raw: Any, keys: dict[str, str] | None = None) -> list[dict]:
-    """Pages as [{"id", "name", "free", "key_on", "key", "cues": [{"id", "name", + clean_style}]}]: bounded, unique
-    page ids, a cue once per page. A page's key is never taken from `raw` when `keys` (the saved ones, by page id)
-    is given: only the key routes change it."""
+    """Pages as [{"id", "name", "key_on", "key", "cols", "rows", "cues": [{"id", "name", "x", "y", "w", "h",
+    "style"}]}]: bounded, unique page ids, a cue once per page, laid out on the page's grid (app/layout.py). A page's
+    key is never taken from `raw` when `keys` (the saved ones, by page id) is given: only the key routes change it."""
     out: list[dict] = []
     seen: set[str] = set()
     for p in (raw if isinstance(raw, list) else [])[:MAX_PAGES]:
@@ -84,9 +81,17 @@ def clean_pages(raw: Any, keys: dict[str, str] | None = None) -> list[dict]:
             if not _ID_RE.fullmatch(cid) or cid in ids:
                 continue
             ids.add(cid)
-            cues.append({"id": cid, "name": _text(c.get("name"), 60) or cid, **clean_style(c)})
-        out.append({"id": pid, "name": name, "free": p.get("free") is True, "key_on": bool(key) and p.get("key_on") is True,
-                    "key": key, "cues": cues})
+            # Before #421 a cue kept its look flat on itself (label, shape, color, text_color).
+            style = layout.clean_style(c.get("style") if isinstance(c.get("style"), dict) else c, CUE_STYLE)
+            cues.append({"id": cid, "name": _text(c.get("name"), 60) or cid, "x": c.get("x"), "y": c.get("y"),
+                         "w": c.get("w"), "h": c.get("h"), "style": style})
+        if "cols" in p or "rows" in p:
+            cols, rows = layout.clean_grid(p.get("cols"), p.get("rows"), GRID)
+            cues = layout.place(cues, cols, rows)
+        else:
+            cols, rows, cues = _legacy_places(p, cues)
+        out.append({"id": pid, "name": name, "key_on": bool(key) and p.get("key_on") is True, "key": key,
+                    "cols": cols, "rows": rows, "cues": cues})
     return out
 
 

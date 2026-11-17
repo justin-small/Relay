@@ -303,11 +303,11 @@ may already have happened. A new lighting program is a `Backend` (`app/modules/l
 `BACKENDS`; it gets cue pages, permissions and the audit trail from the module.
 
 **Cue pages on a screen** (#379). Each page can have its own browser screen at `/screen?lighting=<page>&key=<key>`,
-a page of big buttons for a tablet. A page holds the cues the operator chose (a cue may sit on several pages), and each
-cue has a look: the text it shows, a shape (rounded, square, pill, circle), a colour and text colour, and a size in grid
-cells, or, on a page set to free placement, a position and size dragged on the page's preview (a percentage of the page).
-Core has no editor for this yet: the form and preview are in the lighting admin page, and
-[#421](https://github.com/justin-small/Relay/issues/421) replaces them with a shared editor in core. `/screen` is plain
+a page of big buttons for a tablet. A page holds the cues the operator chose (a cue may sit on several pages) on a grid
+of its own, laid out with core's shared layout editor (#421, see [Boards and the shared layout
+editor](#boards-and-the-shared-layout-editor)): each cue is a button with a place in whole cells and a look (text,
+shape, colours, icon). Pages saved before #421 with free placement were moved once to the nearest cells of an 8 x 6 grid.
+`/screen` is plain
 HTTP with no sign-in, so the page's own key is its whole authority: 128 random bits that admin turns on, rotates (the old
 link stops at once) and turns off, one per page, so a leaked link opens one page. The key can press only that page's cues,
 is shown only by a `lighting.manage` route, and never reaches a config read. A wrong key, a page that is off and a page
@@ -354,6 +354,63 @@ in Lightkey, control-click a cue and choose External Control > Copy OSC Address 
 release `.../deactivate`, each with the fade time when one is set. Lightkey lists nothing and reports nothing over OSC
 (its feedback is MIDI), so these cues never show on or off. Lightkey's External Control Log (Window menu, OSC tab) shows
 every message Relay sends and whether it matched a cue.
+
+## Boards and the shared layout editor
+
+Core has one editor for laying items out on a grid (#421): `app/static/layout-editor.js`, drawn by
+`app/static/layout-render.js` with `app/static/layout.css`, and checked by `app/layout.py`. Boards (`app/boards.py`,
+`/board/<slug>`, #156) and the lighting module's cue pages use it; any later surface that lays out buttons or widgets
+(panel button surfaces #223, crew pages) must use it too rather than build its own.
+
+**The schema** (`app/layout.py`). A grid is `cols` x `rows` whole cells (1 to 24). An item has `x`, `y`, `w`, `h` in
+cells and a `style`: `label`, `shape` (rounded, rect, pill, circle), `bg`, `fg`, `pressed` (`#rrggbb` only) and `icon`
+(from a fixed list). Store your items next to your own data and pass them through `layout.clean_style(raw,
+your_defaults)` and `layout.place(items, cols, rows)`, which keeps them inside the grid and never overlapping. Never
+send raw CSS to a page.
+
+**In a page.** Load `layout-render.js`, `layout-editor.js` and `layout.css` (the operator panel already does), then:
+
+```js
+const ed = RelayLayout.edit(holder, {
+  title: 'Worship', noun: 'page', paletteName: 'Cues', inline: true,           // inline: always editing, list beside
+  cols: 4, rows: 3, sizes: [[4, 3], [6, 4]], ratio: '4/3',
+  items: [{id, kind: 'button', title, x, y, w, h, style, props}],
+  palette: [{group, name, kind, type, w, h, props, style}],
+  fields: function (item) { return [{key, label, type: 'text' | 'select' | 'check' | 'time' | 'ro' | 'note', options}]; },
+  addById: {label, placeholder, make: function (id) { return paletteEntry; }},
+  onSave: async function (state) { /* PUT it; throw an Error to keep editing */ },
+});
+RelayLayout.draw(root, {cols, rows, items}, onPress);   // the same drawing, no editor (a screen)
+```
+
+`kind` picks the drawing: `button`, `captions`, `clock`, `countdown`, `text`, `status`, `lines`, `list`.
+`RelayLayout.update(element, data)` feeds an item live data (`{lit}`, `{lines}`, `{rows}`, `{on_air, live_since,
+viewers}`).
+
+**Widgets on boards from a module.** Override three methods; core never imports the module:
+
+```python
+def board_widgets(self) -> list[dict]:          # while on: what the board's widget list offers
+    return [{"type": "lighting.cue", "name": "Lighting cue", "group": "Lighting", "kind": "button", "w": 2, "h": 1,
+             "style": {...}, "press_permission": "lighting.control",
+             "fields": [{"key": "cue", "label": "Cue", "type": "select", "options": [["walk", "Walk-in"]]}],
+             "presets": [{"name": "Walk-in", "props": {"cue": "walk"}}]}]
+
+async def board_data(self, items) -> dict:      # live data for your items on a board, by item id
+    return {item["id"]: {"lit": True} for item in items}
+
+async def board_press(self, item, request) -> dict:   # a press on one of your buttons
+    audit.note(request, "lighting.press", "Lighting: Walk-in")
+    return {"ok": True}                         # or {"ok": False, "error": "a fixed sentence"}
+```
+
+- A widget type starts with the module's id; a `press_permission` must be one the module declares. The registry leaves
+  out a definition that breaks either rule.
+- Settings are checked against `fields`: a `select` keeps only an offered value, text is cut, unknown keys are dropped.
+- A board may be public, on the viewer port: `board_data` sends nothing private, no addresses and no error text.
+- Core checks the press: someone signed in on the operator port who holds `press_permission`, even on a public board,
+  at most 20 presses per 10 seconds per address. Core writes the `audit.note`s the module makes.
+- While the module is off its widgets stay on boards, drawn as off, and its presses are refused.
 
 ## Audio sources and outputs
 
