@@ -656,7 +656,7 @@ over the internet. **Remote access** is a module, off until you switch it on (Ad
 
 1. Switch on **Remote access** and open its page (under Output).
 2. Enter the **enrollment code** you were given and press **Enroll**. Each code works once.
-3. Relay gets its own address, `https://<random>.relaychurchsystems.com`, with a QR code to put on a slide.
+3. Relay gets its own address, `https://<random>.cloud.relaysystems.dev`, with a QR code to put on a slide.
 
 How it works: Relay's cloud (the `relay-cloud` Worker, a separate repository) makes a Cloudflare Tunnel and a DNS
 name for this install. Relay then runs `cloudflared`, which connects **out** to Cloudflare, so nothing changes on
