@@ -3,8 +3,8 @@
 The operator panel has a **menu down the left side**. Click an item to open
 its page. The panel remembers the page you were on. At the top, a coloured
 pill shows whether capture is running, and **Start capture** and **Stop** are
-on the **Session health** page. On a phone or a narrow window, the menu is
-behind a **Menu** button.
+on the **Session health** page. On a phone or a narrow window, the menu slides in
+when you tap the **sidebar button** at the top left.
 
 ## Overview
 
@@ -20,8 +20,9 @@ behind a **Menu** button.
 5. **Settings.** **Blocked words**, **Credentials**, **Appearance &
    tuning** and **Users**.
 6. **Start capture.** See [Starting and stopping](#start-stop).
-7. **Viewers.** How many people have a viewer page open, next to **Sign
-   out**.
+7. **Viewers.** How many people have a viewer page open.
+8. **Your name.** At the bottom of the menu, and the round button at the top
+   right: **Account** and **Sign out**.
 
 Each page is described in this chapter, except **Panels**, **Alerts** and
 **Planning Center**, which are in Part 5.
@@ -788,6 +789,37 @@ connection, not these settings.
 Relay's colours are fixed: dark by default, with the light / dark button on
 each viewer page. The overlay's colours, font and background are set on
 the [Broadcast overlay](#broadcast-overlay) page.
+:::
+
+## Customize the panel {#customize}
+
+The gear button at the top right opens **Preferences**. Each choice applies
+at once and is saved for you, so it follows you to every device you sign in
+on. It changes nobody else's panel.
+
+1. **Theme Preset.** **Relay** (green, the default), **Soft Pop**,
+   **Tangerine** or **Brutalist**. Each has a light and a dark version.
+2. **Fonts.** The type for the panel: **System UI**, **Rounded**, **Serif**
+   or **Monospace**. These come from your computer, so they work with no
+   internet.
+3. **Theme Mode.** **Light**, **Dark**, or **System** to follow your
+   computer. The sun and moon button next to the gear cycles the three.
+4. **Page Layout.** **Centered** keeps pages a readable width. **Full
+   Width** uses the whole window.
+5. **Navbar Behavior.** **Sticky** keeps the top bar in view as you scroll.
+   **Scroll** lets it scroll away.
+6. **Sidebar Style.** **Inset** (the default), **Sidebar** or **Floating**.
+7. **Sidebar Collapse Mode.** **Icon** shrinks the menu to a column of
+   icons; point at one to see its name. **OffCanvas** hides the menu
+   completely.
+
+**Restore Defaults** puts everything back. Press `Ctrl K` (`Cmd K` on a Mac)
+anywhere to search every page and a few actions, such as starting the stream
+or changing the theme.
+
+::: note
+The viewer pages, the overlay and the screens in the room do not follow
+these choices. They keep the large, high-contrast look the audience needs.
 :::
 
 ## Modules {#modules}
