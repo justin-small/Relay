@@ -33,7 +33,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from _harness import check, done, eq, section  # noqa: E402
 from _netfake import USB, WIFI, lan, loopback_route, remember, route, use_ports  # noqa: E402
 
-GONE = Resolved("atem", USB.id, None, None, False, "ATEM switcher control (UDP): USB LAN is not connected to this "
+GONE = Resolved("blackmagic", USB.id, None, None, False, "ATEM switcher control (UDP): USB LAN is not connected to this "
                 "computer.", "strict")
 
 config.ensure_file()
@@ -88,7 +88,7 @@ with section("urlopen and opener: urllib through the route"):
     with netsock.opener(loopback_route(), NoRedirect).open(url, timeout=5) as resp:
         eq("an opener with extra handlers answered", resp.status, 200)
     try:
-        netsock.opener("atem", urllib.request.HTTPSHandler())
+        netsock.opener("blackmagic", urllib.request.HTTPSHandler())
         check("an HTTPS handler of one's own is refused (it would replace the routed one)", False)
     except ValueError:
         check("an HTTPS handler of one's own is refused (it would replace the routed one)", True)
@@ -120,7 +120,7 @@ with section("websocket: websockets through the route"):
 
     eq("a frame there and back", asyncio.run(ws_round_trip()), "echo 40")
     try:
-        asyncio.run(netsock.websocket("atem", "http://example.com/"))
+        asyncio.run(netsock.websocket("blackmagic", "http://example.com/"))
         check("only ws:// and wss://", False)
     except ValueError:
         check("only ws:// and wss://", True)
@@ -151,16 +151,16 @@ with section("udp_endpoint with a remote, and multicast_sender"):
 
 with section("failure(): a sentence built from the route, never from an exception"):
     use_ports(WIFI, USB)
-    routed = Resolved("atem", USB.id, USB, "10.0.0.5", True, "", "fallback")
+    routed = Resolved("blackmagic", USB.id, USB, "10.0.0.5", True, "", "fallback")
     eq("routed: the default plus the port it went through", netsock.failure(routed, "Could not reach the switcher"),
        "Could not reach the switcher. It goes out through USB LAN (10.0.0.5).")
     eq("unusable: the route's reason", netsock.failure(GONE, "Could not reach the switcher"), GONE.reason)
-    fell = Resolved("atem", USB.id, None, "192.168.1.20", True, "USB LAN is gone. Using the system's default "
+    fell = Resolved("blackmagic", USB.id, None, "192.168.1.20", True, "USB LAN is gone. Using the system's default "
                     "network instead.", "fallback", True)
     eq("fell back: says so", netsock.failure(fell, "Could not reach the switcher."),
        "Could not reach the switcher. USB LAN is gone. Using the system's default network instead.")
     eq("unrouted: the default as it was",
-       netsock.failure(Resolved("atem", None, None, "192.168.1.20", True), "Could not reach the switcher"),
+       netsock.failure(Resolved("blackmagic", None, None, "192.168.1.20", True), "Could not reach the switcher"),
        "Could not reach the switcher")
     eq("a class nobody declared: the default", netsock.failure("nosuch", "No."), "No.")
 
@@ -168,7 +168,7 @@ with section("failure(): a sentence built from the route, never from an exceptio
 
 with section("every module that talks to something outside Relay declares a class"):
     cls = netroute.classes()
-    want = {"translation": None, "atem": "atem", "propresenter": "propresenter", "tally_arbiter": "tally_arbiter",
+    want = {"translation": None, "blackmagic": "blackmagic", "propresenter": "propresenter", "tally_arbiter": "tally_arbiter",
             "planning_center": "planning_center", "remote_access": "remote_access", "intercom": "intercom",
             "crew.push": "crew", "signage_web": "signage_web", "alert_events": "alert_events"}
     eq("the classes and their owners", {c: cls[c][0] for c in want if c in cls}, want)
@@ -178,8 +178,8 @@ with section("every module that talks to something outside Relay declares a clas
 
 # ------------------------------------------------------------------ and goes through the helper with it
 
-with section("ATEM: UDP to the switcher through 'atem'"):
-    from app.modules.atem.client import AtemClient
+with section("Blackmagic: UDP to an ATEM through 'blackmagic'"):
+    from app.modules.blackmagic.atem_client import AtemClient
 
     async def atem():
         c = AtemClient("10.0.0.40", 9910)
@@ -200,7 +200,7 @@ with section("ATEM: UDP to the switcher through 'atem'"):
         return seen, c.error
 
     seen, error = asyncio.run(atem())
-    eq("its class and the switcher", seen, {"route": "atem", "remote": ("10.0.0.40", 9910)})
+    eq("its class and the switcher", seen, {"route": "blackmagic", "remote": ("10.0.0.40", 9910)})
     eq("the page says why, from the route", error, GONE.reason)
 
 with section("Tally Arbiter: its WebSocket through 'tally_arbiter'"):
@@ -421,20 +421,20 @@ with section("a port change reconnects each module through where it goes now"):
         async def note(name):
             calls.append(name)
 
-        from app.modules.atem import service as atem_service
+        from app.modules.blackmagic import service as atem_service
         from app.modules.propresenter import propresenter as pp_mod
         from app.modules.remote_access import tunnel as ra_tunnel
         from app.modules.tally_arbiter import listener as ta
 
-        with mock.patch.object(atem_service.service, "restart", lambda: note("atem")), \
+        with mock.patch.object(atem_service.service, "restart", lambda: note("blackmagic")), \
                 mock.patch.object(ta.service, "restart", lambda: note("tally_arbiter")), \
                 mock.patch.object(pp_mod.follower, "reconnect", lambda: note("propresenter")), \
                 mock.patch.object(ra_tunnel.tunnel, "restart", lambda: note("remote_access")):
-            for mid in ("atem", "tally_arbiter", "propresenter", "remote_access"):
+            for mid in ("blackmagic", "tally_arbiter", "propresenter", "remote_access"):
                 modules.get(mid).network_changed({})
             await asyncio.sleep(0.05)
         return sorted(calls)
 
-    eq("each one reconnected", asyncio.run(changed()), ["atem", "propresenter", "remote_access", "tally_arbiter"])
+    eq("each one reconnected", asyncio.run(changed()), ["blackmagic", "propresenter", "remote_access", "tally_arbiter"])
 
 done()
