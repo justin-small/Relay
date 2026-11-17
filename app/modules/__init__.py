@@ -360,11 +360,17 @@ def ndi_subscribe(source: str, on_frame: Callable[[dict], None]) -> Callable[[],
     return fn(source, on_frame) if fn else None
 
 
-def ndi_register_output(name: str) -> Any:
-    """Register an NDI output called `name` (#299). Returns an object with `send(frame)` and `close()`, or None while
-    NDI is off or the runtime is missing."""
+def ndi_register_output(name: str, width: int = 1280, height: int = 720, fps: float = 30.0) -> Any:
+    """Register an NDI output called `name` (#299), sending BGRA frames of width x height at `fps`. Returns an object
+    with `send({"data": bytes})` and `close()`, or None while NDI is off or the runtime is missing."""
     fn = ndi_hooks.get("register_output")
-    return fn(name) if fn else None
+    return fn(name, width, height, fps) if fn else None
+
+
+# A module with a page worth sending as NDI (signage, boards) sets an entry here in attach() and removes it in detach():
+# a function returning [{"id", "name", "url" (a path on this server), "alpha" (bool), "group"}]. The NDI module lists them
+# on its Outputs page for the operator to switch on; the provider never imports it (#299).
+ndi_output_providers: dict[str, Callable[[], list[dict]]] = {}
 
 
 # A module that serves a page on /screen sets an entry here in attach() and removes it in detach(): the query

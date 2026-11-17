@@ -65,6 +65,7 @@
     }
     $('ndiTally').disabled = $('ndiViewSave').disabled = !can('ndi.manage');
     drawMvList(s);
+    if (window.RelayNdiMore) window.RelayNdiMore(s);
     $('ndiServers').disabled = $('ndiMdns').disabled = !can('ndi.manage');
     $('ndiScan').disabled = !s.running || !can('ndi.manage');
     $('ndiSave').disabled = !can('ndi.manage');
@@ -101,6 +102,7 @@
         view_width: +$('ndiWidth').value, view_max: +$('ndiMax').value, tally: tally }));
     } catch (e) { showError(e.message); }
   };
+  window.RelayNdi = { send: send, showError: showError, can: can };
   // ---- multiviews (#297)
   const LAYOUTS = { '2x2': [4, '2 x 2'], '3x3': [9, '3 x 3'], '4x4': [16, '4 x 4'], '1+5': [6, '1 big, 5 small'], '1+7': [8, '1 big, 7 small'] };
   let mvs = [], cur = -1, lastSources = [];

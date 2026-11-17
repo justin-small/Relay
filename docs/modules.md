@@ -425,8 +425,13 @@ with hooks set in `attach()` and cleared in `detach()`.
 - `ndi_subscribe(source, on_frame)` returns a function that stops listening (or None while NDI is off or the runtime is
   missing). There is one receiver per source however many subscribe, closed when the last one leaves. `on_frame`
   gets `{"width", "height", "fps", "fourcc", "data"}` on the receiver's thread and must not block.
-- `ndi_register_output(name)` returns an object with `send(frame)` and `close()`, or None (off, missing runtime, or the
-  name is taken). Used by the NDI output (#299).
+- `ndi_register_output(name, width=1280, height=720, fps=30)` returns an object with `send({"data": BGRA bytes})` and
+  `close()`, or None (off, missing runtime, or the name is taken).
+- `ndi_output_providers[<your id>] = fn` (set in `attach()`, removed in `detach()`) offers pages as NDI outputs (#299): `fn()`
+  returns `[{"id", "name", "url" (a path on this server), "alpha", "group"}]`. The NDI page lists them for the operator to
+  switch on; the NDI module renders each in a hidden browser and sends it. Signage and boards use this, never `ndi`.
+
+The router (#298) and page outputs are in `docs/ndi-router-and-outputs.md`.
 
 Discovery is mDNS (`_ndi._tcp`) plus extra addresses asked directly; a BirdDog converter's `_birddog._tcp` adds what it
 is set to. The NDI runtime and `cyndilib` are installed separately (NDI's licence does not let Relay bundle them,

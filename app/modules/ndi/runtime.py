@@ -8,7 +8,8 @@ says so on its page and stays off; Relay itself starts. NOT yet proved here: sen
 macOS, Windows and the headless Linux service. The calls below follow cyndilib's documented API and are covered only
 against a fake backend (tests/test_ndi.py), so check them against a real source before relying on them.
 
-A backend has `connect(name, address) -> connection` and `open_sender(name) -> sender`. A connection has
+A backend has `connect(name, address) -> connection`, `open_sender(name, width, height, fps) -> sender` and
+`open_router(name) -> router` (`change(source)`, `clear()`, `close()`: the NDI routing API through ctypes, #298). A connection has
 `receive(timeout_ms) -> frame dict | None` and `close()`; a frame is {"width", "height", "fps", "fourcc", "data"}. A
 sender has `send(frame)` and `close()`. Tests replace `load`.
 """
@@ -97,8 +98,11 @@ class CyndiBackend:
     def connect(self, name: str, address: str = "") -> "_Connection":
         return _Connection(name)
 
-    def open_sender(self, name: str) -> "_Sender":
-        return _Sender(name)
+    def open_sender(self, name: str, width: int = 1280, height: int = 720, fps: float = 30.0) -> "_Sender":
+        return _Sender(name, width, height, fps)
+
+    def open_router(self, name: str) -> "_Router":
+        return _Router(name)
 
     def find(self, seconds: float = 3.0) -> list[dict]:
         """Every source the SDK sees (through a discovery server, extra addresses, groups and mDNS): [{"name",
@@ -190,17 +194,105 @@ class _Connection:
 
 
 class _Sender:
-    def __init__(self, name: str) -> None:
+    """An NDI source Relay publishes. `send` takes {"data": BGRA bytes of width x height x 4}; the size is fixed when
+    the sender opens (cyndilib refuses to open one with no video frame attached)."""
+
+    def __init__(self, name: str, width: int = 1280, height: int = 720, fps: float = 30.0) -> None:
         from cyndilib.sender import Sender
+        from cyndilib.video_frame import VideoSendFrame
+        from cyndilib.wrapper.ndi_structs import FourCC
 
         self._sender = Sender(name)
+        frame = VideoSendFrame()
+        frame.set_resolution(width, height)
+        frame.set_frame_rate(fps)
+        frame.set_fourcc(FourCC.BGRA)
+        self._sender.set_video_frame(frame)
         self._sender.open()
 
     def send(self, frame: dict) -> None:
-        self._sender.write_video(frame["data"])
+        data = frame["data"]
+        # cyndilib wants a writable buffer (bytes is refused with "Object is not writable"): found sending real frames.
+        self._sender.write_video(bytearray(data) if isinstance(data, bytes) else data)
 
     def close(self) -> None:
         try:
             self._sender.close()
         except Exception:
             pass
+
+
+def _libndi() -> Any:
+    """The NDI library as a ctypes handle: the NDI runtime's if NDI_RUNTIME_DIR_V6 names one, else the copy cyndilib
+    ships. cyndilib wraps no routing calls, so the router talks to the library directly."""
+    import ctypes
+    import os
+    import sys
+    from pathlib import Path
+
+    names = {"darwin": "libndi.dylib", "win32": "Processing.NDI.Lib.x64.dll"}.get(sys.platform, "libndi.so.6")
+    spots = []
+    if os.environ.get("NDI_RUNTIME_DIR_V6"):
+        spots.append(Path(os.environ["NDI_RUNTIME_DIR_V6"]) / names)
+    try:
+        import cyndilib
+
+        spots.append(Path(cyndilib.__file__).parent / "wrapper" / "bin" / names)
+    except ImportError:
+        pass
+    last: Exception | None = None
+    for spot in spots:
+        try:
+            return ctypes.CDLL(str(spot))
+        except OSError as exc:
+            last = exc
+    if sys.platform not in ("darwin", "win32"):
+        return ctypes.CDLL(names)
+    raise OSError(str(last) if last else "The NDI library was not found.")
+
+
+class _Router:
+    """A routed NDI output (#298): a source on the network that shows whatever it is pointed at, switched inside the
+    NDI library with no decoding or re-encoding. Proved on macOS 2026-11-17: the router appeared as a source, `change`
+    pointed it at a sender, and a receiver on the router got that sender's video."""
+
+    def __init__(self, name: str) -> None:
+        import ctypes
+
+        class Create(ctypes.Structure):
+            _fields_ = [("name", ctypes.c_char_p), ("groups", ctypes.c_char_p)]
+
+        class Source(ctypes.Structure):
+            _fields_ = [("name", ctypes.c_char_p), ("url", ctypes.c_char_p)]
+
+        self._Source = Source
+        self._lib = lib = _libndi()
+        lib.NDIlib_initialize.restype = ctypes.c_bool
+        if not lib.NDIlib_initialize():
+            raise OSError("This computer cannot run NDI.")
+        lib.NDIlib_routing_create.restype = ctypes.c_void_p
+        lib.NDIlib_routing_create.argtypes = [ctypes.POINTER(Create)]
+        lib.NDIlib_routing_change.restype = ctypes.c_bool
+        lib.NDIlib_routing_change.argtypes = [ctypes.c_void_p, ctypes.POINTER(Source)]
+        lib.NDIlib_routing_clear.restype = ctypes.c_bool
+        lib.NDIlib_routing_clear.argtypes = [ctypes.c_void_p]
+        lib.NDIlib_routing_destroy.argtypes = [ctypes.c_void_p]
+        self._h = lib.NDIlib_routing_create(ctypes.byref(Create(name.encode(), None)))
+        if not self._h:
+            raise OSError("NDI would not create the output.")
+
+    def change(self, source: str, address: str = "") -> bool:
+        import ctypes
+
+        if not self._h:
+            return False
+        src = self._Source(source.encode(), address.encode() if address else None)
+        return bool(self._lib.NDIlib_routing_change(self._h, ctypes.byref(src)))
+
+    def clear(self) -> bool:
+        return bool(self._h and self._lib.NDIlib_routing_clear(self._h))
+
+    def close(self) -> None:
+        h, self._h = self._h, None
+        if h:
+            self._lib.NDIlib_routing_destroy(h)

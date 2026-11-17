@@ -19,7 +19,7 @@ import time
 from typing import Any, Callable
 
 from ... import config
-from . import discovery, multiview, runtime, viewer
+from . import discovery, multiview, outputs, render, router, runtime, viewer
 
 log = logging.getLogger("relay.ndi")
 
@@ -97,6 +97,16 @@ def clean_settings(raw: Any) -> dict:
                 tally[name] = n
     out["tally"] = tally
     out["multiviews"] = multiview.clean_multiviews(raw.get("multiviews"))
+    on: list[str] = []
+    for v in raw.get("out_on") if isinstance(raw.get("out_on"), list) else []:
+        if isinstance(v, str) and 0 < len(v) <= 80 and v not in on:
+            on.append(v)
+    out["out_on"] = on[:outputs.MAX_ON]
+    out["out_size"] = raw.get("out_size") if raw.get("out_size") in outputs.SIZES else "1280x720"
+    fps = raw.get("out_fps")
+    out["out_fps"] = max(5, min(30, fps)) if isinstance(fps, int) and not isinstance(fps, bool) else 30
+    out["routes"] = router.clean_routes(raw.get("routes"))
+    out["salvos"] = router.clean_salvos(raw.get("salvos"), out["routes"])
     return out
 
 
@@ -255,6 +265,8 @@ class Service:
                                                _service_start)
         self.pool.address_of = lambda s: self._seen.get(s, {}).get("address", "")
         self.outputs: dict[str, Any] = {}
+        self.pages = outputs.Outputs(self.hook_output, self.settings, config.get, _providers, _base, self._bump)
+        self.router = router.Router(runtime.load, self.settings, self.save_settings, self._bump, lambda: self.running)
         self.error = ""
         self.last_scan = 0.0
         self.scanning = False
@@ -264,6 +276,9 @@ class Service:
 
     def settings(self) -> dict:
         return clean_settings(config.get().get(KEY))
+
+    def save_settings(self, changes: dict) -> None:
+        config.save({KEY: clean_settings({**self.settings(), **changes})})
 
     # --------------------------------------------------------------------------------------------- changes
     def _bump(self) -> None:
@@ -331,6 +346,8 @@ class Service:
         self._loop = asyncio.get_running_loop()
         self._waiters = []
         self._task = asyncio.create_task(self._loop_scan(), name="ndi-scan")
+        await asyncio.to_thread(self.router.start)
+        await asyncio.to_thread(self.pages.sync)
 
     async def stop(self) -> None:
         self.running = False
@@ -341,6 +358,8 @@ class Service:
             except (asyncio.CancelledError, Exception):
                 pass
             self._task = None
+        await asyncio.to_thread(self.pages.close)
+        await asyncio.to_thread(self.router.stop)
         await asyncio.to_thread(self.viewers.close_all)
         await asyncio.to_thread(self.multiviews.close_all)
         await asyncio.to_thread(self.pool.close_all)
@@ -420,12 +439,23 @@ class Service:
             out.append(r)
         return sorted(out, key=lambda r: (r["machine"].lower(), r["source"].lower()))
 
+    def inputs(self) -> list[dict]:
+        """What a routed output can be pointed at: every source seen, plus Relay's own page outputs that are on."""
+        out = [{"name": s["name"], "label": s["source"] and f"{s['machine']} ({s['source']})" or s["name"],
+                "online": s["online"]} for s in self.sources()]
+        have = {o["name"] for o in out}
+        for name in sorted(self.outputs):
+            if not any(n.endswith("(" + name + ")") for n in have) and name not in have:
+                out.append({"name": name, "label": name, "online": True})
+        return out
+
     def snapshot(self) -> dict:
         return {"version": self.version, "available": runtime.load() is not None, "error": self.error or runtime.reason(),
                 "running": self.running, "scanning": self.scanning, "last_scan": self.last_scan,
                 "sources": self.sources(), "settings": self.settings(), "outputs": sorted(self.outputs),
                 "servers": self.servers, "via_server": self.via_server,
-                "restart_needed": runtime.restart_needed(self.settings())}
+                "pages": self.pages.status(), "pages_error": render.available(), "router": self.router.snapshot(),
+                "inputs": self.inputs(), "restart_needed": runtime.restart_needed(self.settings())}
 
     # ------------------------------------------------------------------------------------------------ hooks
     def hook_sources(self) -> list[dict]:
@@ -434,13 +464,13 @@ class Service:
     def hook_subscribe(self, source: str, on_frame: Callable[[dict], None]) -> Callable[[], None] | None:
         return self.pool.acquire(source, on_frame) if self.running else None
 
-    def hook_output(self, name: str) -> Any:
+    def hook_output(self, name: str, width: int = 1280, height: int = 720, fps: float = 30.0) -> Any:
         backend = runtime.load()
         name = " ".join(name.split())[:80] if isinstance(name, str) else ""
         if not self.running or backend is None or not name or name in self.outputs:
             return None
         try:
-            out = backend.open_sender(name)
+            out = backend.open_sender(name, width, height, fps)
         except Exception:
             log.exception("NDI output %s could not open", name)
             return None
@@ -460,6 +490,17 @@ class Service:
         self.outputs[name] = o
         self._bump()
         return o
+
+
+def _providers() -> dict:
+    from ... import modules as registry
+
+    return registry.ndi_output_providers
+
+
+def _base() -> str:
+    """Where the renderer loads Relay's pages: this server's viewer port, on this machine."""
+    return f"http://127.0.0.1:{config.get().get('port') or 80}"
 
 
 service = Service()
