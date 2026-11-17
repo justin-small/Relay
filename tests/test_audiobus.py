@@ -362,19 +362,30 @@ def run_matrix(rate_a=RATE, seconds=1.5, out_rate=RATE):
         "matrix": [{"in": 1, "out": "main", "ch": 1, "gain_db": -6.0206},
                    {"in": 1, "out": "main", "ch": 2, "gain_db": 0},
                    {"in": 2, "out": "main", "ch": 2, "gain_db": 0}]})
-    t0 = time.time()
     n = int(RATE * 0.01)
-    i = 0
+
+    def block_at(k):
+        b = np.zeros((n, 8), dtype=np.float32)
+        b[:, 0] = tone(440, 0.01, RATE, 0.4, start=k * n)
+        b[:, 1] = tone(1500, 0.01, RATE, 0.4, start=k * n)
+        return b
+
+    first = block_at(0)             # built before the clock starts: a cold first call must not delay the feed
+    SRC.push("A", first)
+    t0 = time.time()
+    i = 1
+    sink = OUT.sinks[0]
+    warm = None
     # feed at `rate_a` times real time so the input clock runs a little fast or slow against the output's
     while time.time() - t0 < seconds:
-        block = np.zeros((n, 8), dtype=np.float32)
-        block[:, 0] = tone(440, 0.01, RATE, 0.4, start=i * n)
-        block[:, 1] = tone(1500, 0.01, RATE, 0.4, start=i * n)
-        SRC.push("A", block)
+        SRC.push("A", block_at(i))
         i += 1
+        if warm is None and time.time() - t0 > 0.5:
+            warm = sink.underruns   # starting up is not starving: the check counts from here
         target = t0 + i * 0.01 / (rate_a / RATE)
         time.sleep(max(0.0, target - time.time()))
-    return OUT.sinks[0]
+    sink.warm_underruns = warm or 0
+    return sink
 
 
 def settled(run, ok, tries=3):
@@ -390,14 +401,15 @@ def settled(run, ok, tries=3):
 
 
 with section("the crosspoint matrix sums lanes with gains"):
-    sink = settled(run_matrix, lambda k: k.underruns <= 2)
+    sink = settled(run_matrix, lambda k: k.underruns - k.warm_underruns <= 2)
     a = sink.audio()
     tail = a[RATE // 2:]
     check("audio reached the output", len(a) > RATE, str(len(a)))
     check("channel 1 is lane 1 at -6 dB", abs(peak(tail[:, 0]) - 0.2) < 0.02, str(peak(tail[:, 0])))
     check("channel 2 is lane 1 plus lane 2", 0.5 < peak(tail[:, 1]) <= 0.8 + 1e-6, str(peak(tail[:, 1])))
     check("channel 3 has no crosspoint, so silence", peak(tail[:, 2]) == 0.0)
-    check("the output was never starved once running", sink.underruns <= 2, str(sink.underruns))
+    check("the output was never starved once running", sink.underruns - sink.warm_underruns <= 2,
+          f"{sink.underruns} total, {sink.warm_underruns} while starting")
     st = audiobus.bus.status()["outputs"][0]
     eq("the output reports open", st["state"], "open")
     check("output meters read each channel", st["meters"][0]["peak_dbfs"] > -20 and st["meters"][2]["peak_dbfs"] <= -60,
