@@ -86,7 +86,7 @@ def connect():
     FAKE.script(P.device_url, (200, {"device_code": "d", "user_code": "WXYZ-1234", "verification_url": "https://www.google.com/device",
                                      "expires_in": 600, "interval": 0.01}))
     FAKE.script(P.token_url, (200, {"access_token": "yt-access", "refresh_token": "yt-refresh", "expires_in": 3600,
-                                    "scope": svc.SCOPE}))
+                                    "scope": svc.DEVICE_SCOPE}))
     FAKE.script(f"{API}/channels", CHANNEL)
 
     async def go():
@@ -133,9 +133,9 @@ with section("connect: the church's own app, the channel's name"):
     st = svc.ACCOUNT.status()
     eq("connected", st["state"], "connected")
     eq("channel", st["account"], "Grace Church")
-    eq("scope", st["scopes"], [svc.SCOPE])
+    eq("scope", st["scopes"], [svc.DEVICE_SCOPE])
     eq("asked with the church's client id", FAKE.sent[0][1]["client_id"], "church.apps.googleusercontent.com")
-    eq("asked for read-only", FAKE.sent[0][1]["scope"], svc.SCOPE)
+    eq("device sign-in asks for the scope Google allows there that can schedule", FAKE.sent[0][1]["scope"], svc.DEVICE_SCOPE)
     check("the token exchange used the church's secret", FAKE.church_key_sent[1])
     eq("channel read with the new token", FAKE.sent[2][2], "yt-access")
     check("connecting asks the service to check now", poked)

@@ -58,6 +58,7 @@ class _NoRedirect(urllib.request.HTTPRedirectHandler):
         return None
 
 
+EPISODES = 25                 # a channel's newest episodes offered for linking (#411)
 TRAFFIC = "planning_center"   # every call to Planning Center goes out through this class's port (#348)
 _NO_REDIRECT = netsock.opener(TRAFFIC, _NoRedirect, context=_SSL)
 
@@ -145,7 +146,12 @@ class Client:
         since it may have."""
         return self._request("POST", path, params)
 
-    def _request(self, method: str, path: str, params: dict[str, Any] | None) -> dict:
+    def patch(self, path: str, body: dict) -> dict:
+        """Change a record (a Publishing episode time's video link, #411). A 429 is retried: Planning Center did not
+        make the change."""
+        return self._request("PATCH", path, None, body)
+
+    def _request(self, method: str, path: str, params: dict[str, Any] | None, body: dict | None = None) -> dict:
         url = self.base_url + path
         if params:
             url += "?" + urllib.parse.urlencode(params)
@@ -156,8 +162,12 @@ class Client:
             if count is not None and limit is not None and count >= limit:
                 _sleep(max(0.0, min(MAX_WAIT_S, float(period or DEFAULT_WAIT_S))))
                 self.rate["count"] = None
-            req = urllib.request.Request(url, headers=self._headers(path), method=method,
-                                         data=b"" if method == "POST" else None)
+            headers = self._headers(path)
+            if body is not None:
+                headers["Content-Type"] = "application/json"
+            req = urllib.request.Request(url, headers=headers, method=method,
+                                         data=json.dumps(body).encode("utf-8") if body is not None
+                                         else b"" if method == "POST" else None)
             try:
                 with netsock.urlopen(TRAFFIC, req, timeout=TIMEOUT_S, context=_SSL) as resp:
                     self._note_rate(resp.headers)
@@ -192,6 +202,55 @@ class Client:
         raise PlanningCenterError("rate", "Planning Center is rate limiting this account.")  # pragma: no cover
 
     # -- calls ---------------------------------------------------------
+    # -- Publishing (#411): the Church Center channels, their episodes, and each episode time's video link ----
+    def channels(self) -> list[dict]:
+        """Publishing channels that are not archived, in Planning Center's order."""
+        doc = self.get("/publishing/v2/channels", {"per_page": PAGE_SIZE})
+        out = []
+        for row in doc.get("data") or []:
+            a = row.get("attributes") or {}
+            if a.get("archived"):
+                continue
+            out.append({"id": str(row.get("id")), "name": str(a.get("name") or "")[:120],
+                        "watch_live": bool(a.get("enable_watch_live")),
+                        "url": str(a.get("church_center_url") or "")[:300]})
+        return out
+
+    def episodes(self, channel_id: str) -> list[dict]:
+        """A channel's latest episodes (newest live date first), each with its times and their video links."""
+        cid = _pid(channel_id)
+        doc = self.get(f"/publishing/v2/channels/{cid}/episodes",
+                       {"per_page": EPISODES, "order": "-published_live_at", "include": "episode_times"})
+        inc = _included(doc)
+        out = []
+        for row in doc.get("data") or []:
+            a = row.get("attributes") or {}
+            ids = _rel_ids(row, "episode_times")
+            times = [inc.get(("EpisodeTime", i)) for i in ids] if ids else \
+                self.get(f"/publishing/v2/episodes/{_pid(str(row.get('id')))}/episode_times").get("data") or []
+            out.append({"id": str(row.get("id")), "title": str(a.get("title") or "")[:200],
+                        "live_at": parse_time(a.get("published_live_at")),
+                        "url": str(a.get("church_center_url") or "")[:300],
+                        "times": [_episode_time(t) for t in times if t]})
+        return out
+
+    def episode_times(self, episode_id: str) -> list[dict]:
+        doc = self.get(f"/publishing/v2/episodes/{_pid(episode_id)}/episode_times")
+        return [_episode_time(t) for t in doc.get("data") or []]
+
+    def set_episode_video(self, episode_id: str, video_url: str) -> list[dict]:
+        """Put `video_url` on every time of the episode that does not have it already; Planning Center makes the
+        embed itself. Returns the episode's times as they are now."""
+        out = []
+        for t in self.episode_times(episode_id):
+            if t["video_url"] != video_url:
+                doc = self.patch(f"/publishing/v2/episodes/{_pid(episode_id)}/episode_times/{_pid(t['id'])}",
+                                 {"data": {"type": "EpisodeTime", "id": t["id"],
+                                           "attributes": {"video_url": video_url}}})
+                t = _episode_time(doc.get("data") or {}) if doc.get("data") else dict(t, video_url=video_url)
+            out.append(t)
+        return out
+
     def service_types(self) -> list[dict[str, str]]:
         """Every service type on the account as {"id", "name"}, by name. Archived
         and deleted ones are left out: there is nothing live to follow in them."""
@@ -441,6 +500,20 @@ MEMBER_STATUS = {"C": "confirmed", "U": "pending", "D": "declined"}
 
 
 # -- reading JSON:API -------------------------------------------------------
+def _pid(raw: str) -> str:
+    """A Planning Center id goes into a path: digits only, so nothing the browser sends can change the address."""
+    if not re.fullmatch(r"\d{1,20}", raw or ""):
+        raise PlanningCenterError("http", "That is not a Planning Center id.")
+    return raw
+
+
+def _episode_time(row: dict) -> dict:
+    a = row.get("attributes") or {}
+    return {"id": str(row.get("id")), "starts_at": parse_time(a.get("starts_at")),
+            "ends_at": parse_time(a.get("ends_at")), "video_url": str(a.get("video_url") or "")[:300],
+            "service": str(a.get("streaming_service") or "")[:40], "state": str(a.get("current_state") or "")[:20]}
+
+
 def parse_time(raw: Any) -> float | None:
     """An ISO time from Planning Center as epoch seconds, or None."""
     if not raw or not isinstance(raw, str):

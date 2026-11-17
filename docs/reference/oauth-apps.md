@@ -34,9 +34,10 @@ differently, follow its meaning.
      terms. Add the authorized domains `relaychurchsystems.com` and `relaysystems.dev`. Prove you own each in
      Google Search Console with the same account (`relaysystems.dev` is a DNS TXT record on its Cloudflare zone).
    - **Audience:** choose **External**.
-   - **Data access:** add the scope `https://www.googleapis.com/auth/youtube.readonly`. This is the only scope the
-     live status needs. Add more only when a feature that needs them ships. For example, looking up the caption
-     ingestion URL (#140) would need `youtube.force-ssl`.
+   - **Data access:** add the scopes `https://www.googleapis.com/auth/youtube.readonly` (live status) and
+     `https://www.googleapis.com/auth/youtube.force-ssl` (scheduling live streams, #411; Relay asks for this one).
+     relay-cloud allows only these two. A church's own "TVs and Limited Input devices" client cannot ask for
+     `youtube.force-ssl` (Google's device flow refuses it), so Relay asks that path for `youtube` instead.
 4. Open **Clients → Create client** and choose the application type **Web application**. Name it "Relay (web)" and
    add the authorized redirect URI `https://cloud.relaysystems.dev/oauth/google/callback`. Download the JSON and put
    its client ID and secret on relay-cloud (see *What goes where* below), never in chat or the repository.
@@ -45,11 +46,12 @@ differently, follow its meaning.
    would have to sign in again every week.
 6. **Verification:** `youtube.readonly` is a *sensitive* scope, so Google asks to verify the app. Submit from
    **Verification Center**. Include the scope justification ("show the church's own live broadcast status and
-   concurrent viewers to its production team"), the demo video and the privacy policy. Until it is verified, the
+   concurrent viewers to its production team, and schedule the church's upcoming live streams"), the demo video and the privacy policy. Until it is verified, the
    consent screen shows "Google hasn't verified this app" and the app is capped at 100 users. That is fine for
    testing with a few churches.
 7. **Quota:** the YouTube Data API allows 10,000 units a day per project, shared by every Relay install. A
-   `videos.list` or `liveBroadcasts.list` call costs 1 unit. The YouTube module must poll slowly (about once a
+   `videos.list` or `liveBroadcasts.list` call costs 1 unit; creating a broadcast (`liveBroadcasts.insert`) and
+   binding it to a stream key cost 50 each. The YouTube module must poll slowly (about once a
    minute while live, rarely otherwise). Request more quota before many churches use it.
 
 To try it before the app exists: in the module's advanced settings, a church can use its own client (bring your

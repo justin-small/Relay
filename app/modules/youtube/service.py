@@ -24,11 +24,20 @@ KEY = "youtube"
 UNREACHABLE = "Relay could not reach YouTube or got no answer. It will try again."
 SOURCE = "youtube"
 API = "https://www.googleapis.com/youtube/v3"
-SCOPE = "https://www.googleapis.com/auth/youtube.readonly"
+READ_SCOPE = "https://www.googleapis.com/auth/youtube.readonly"   # what installs connected before #411 granted
+# Scheduling broadcasts (#411) needs a scope that may write. relay-cloud allows youtube.force-ssl; Google's device
+# sign-in (a church's own "TVs and Limited Input devices" app) allows only youtube and youtube.readonly.
+CLOUD_SCOPE = "https://www.googleapis.com/auth/youtube.force-ssl"
+DEVICE_SCOPE = "https://www.googleapis.com/auth/youtube"
+WRITE_SCOPES = (CLOUD_SCOPE, DEVICE_SCOPE)
 
 LIVE_S = (30, 600, 60)          # (least, most, default) seconds between checks while something is on air
 IDLE_S = (120, 3600, 600)       # and otherwise
-DEFAULTS = {"account": "", "client_id": "", "client_secret": "", "live_s": LIVE_S[2], "idle_s": IDLE_S[2]}
+# Scheduled streams (#411, schedule.py): off until the operator turns it on.
+SCHEDULE = {"on": False, "privacy": "public", "stream_id": "", "stream_name": "", "title": "{name} · {date}",
+            "description": "", "days_ahead": 7, "plan_types": [], "rules": []}
+DEFAULTS = {"account": "", "client_id": "", "client_secret": "", "live_s": LIVE_S[2], "idle_s": IDLE_S[2],
+            "schedule": SCHEDULE, "links": [], "created": {}}     # the last three: schedule.py (#411)
 
 
 def _clamp(v: Any, bounds: tuple[int, int, int]) -> int:
@@ -51,12 +60,34 @@ def clean_settings(raw: Any) -> dict:
         "client_secret": secret.strip()[:200] if isinstance(secret, str) else "",
         "live_s": _clamp(raw.get("live_s"), LIVE_S),
         "idle_s": _clamp(raw.get("idle_s"), IDLE_S),
+        "schedule": clean_schedule(raw.get("schedule")),
+        "links": clean_links(raw.get("links")),
+        "created": clean_created(raw.get("created")),
     }
+
+
+def clean_schedule(raw: Any) -> dict:
+    from .schedule import clean_schedule as clean
+
+    return clean(raw)
+
+
+def clean_links(raw: Any) -> list:
+    from .schedule import clean_links as clean
+
+    return clean(raw)
+
+
+def clean_created(raw: Any) -> dict:
+    from .schedule import clean_created as clean
+
+    return clean(raw)
 
 
 def public(settings: dict) -> dict:
     s = dict(settings)
-    s.pop("account", None)
+    for k in ("account", "schedule", "links", "created"):    # the schedule has its own read, /schedule
+        s.pop(k, None)
     s["client_secret_set"] = bool(s.pop("client_secret", ""))
     return s
 
@@ -92,8 +123,26 @@ class Google(oauth.Provider):
 
 
 PROVIDER = Google("youtube")
-ACCOUNT = oauth.Account("youtube", PROVIDER, settings_key=KEY, client=client, scopes=(SCOPE,),
-                        on_change=lambda: service.poke())
+
+
+def scopes() -> tuple[str, ...]:
+    return (DEVICE_SCOPE,) if settings()["client_id"] else (CLOUD_SCOPE,)
+
+
+def can_write() -> bool:
+    """Whether the connected account was granted a scope that can schedule broadcasts (connected after #411)."""
+    return bool(set(ACCOUNT.status().get("scopes") or ()) & set(WRITE_SCOPES))
+
+
+ACCOUNT = oauth.Account("youtube", PROVIDER, settings_key=KEY, client=client, scopes=scopes,
+                        on_change=lambda: _changed())
+
+
+def _changed() -> None:
+    service.poke()
+    from .schedule import planner
+
+    planner.poke()
 
 
 def _when(text: Any) -> float | None:

@@ -1592,7 +1592,7 @@ recording on the status view and caption panels is #450.
 
 Switch on **YouTube** on the Modules page, then open **Output > YouTube** and press **Connect**, then **Open YouTube
 sign-in**, and sign in with the Google account that owns the church's channel (the link also works on another phone or
-computer). Google sends the sign-in back through Relay's cloud (cloud.relaysystems.dev), which passes it to this Relay. Relay asks only to read the channel (`youtube.readonly`): it can never change, publish or delete anything.
+computer). Google sends the sign-in back through Relay's cloud (cloud.relaysystems.dev), which passes it to this Relay. Relay asks to manage the channel (`youtube.force-ssl`) so it can schedule live streams; it never uploads videos and never changes or deletes a broadcast it did not create. A channel connected before scheduling existed is read-only until someone presses **Connect again**.
 
 The page then shows the channel's live broadcast: its state (live, testing), how long it has been live, how many are
 watching, and links to its watch page and to YouTube Studio. It is also an entry on the status view (`/status`): **live**
@@ -1609,7 +1609,22 @@ cannot be read, **standing by** otherwise. Broadcast titles stay on the admin pa
 - **Your own Google app.** To keep the sign-in off Relay's cloud, a church can make its own (a "TVs and Limited
   Input devices" client with the YouTube Data API switched on, see `docs/reference/oauth-apps.md`) and enter its client
   ID and secret under Settings. Connect then shows a code to enter at google.com/device.
-- Only Admins and Owners connect, disconnect or change settings; viewers and operators see the status. Connecting and
+- **Scheduled streams.** Under **Scheduled streams → Schedule settings**, turn on *Create the live streams ahead of
+  time* and say when the services are: weekly (a name, a day and a time, in Relay's time zone) and/or from the plans of
+  Planning Center service types Relay follows. Relay creates each one's broadcast up to *Days ahead* before it (a week
+  by default), with the title (`{name}`, `{title}`, `{date}`, `{time}`), description and privacy you set, and binds it to
+  the **stream key** you pick (press *Load stream keys*), so it starts and stops with your encoder. A broadcast already
+  scheduled in YouTube Studio within 45 minutes of a service counts as that service's; Relay makes no second one.
+  Each broadcast costs 100 units of the shared allowance, so Relay checks for upcoming ones every 30 minutes, and only
+  while a schedule or an episode is set up.
+- **Planning Center Publishing.** Under **Planning Center Publishing**, pick a channel (such as *Live*), then an
+  episode, and how to choose its broadcast: *by the episode's day and time* (a weekly episode whose time was last
+  Sunday at 10:00 gets the next Sunday-at-10:00 broadcast), *the next broadcast*, or *one I pick*. Relay writes the
+  broadcast's watch link into each of the episode's times, so Church Center shows the stream there. It sends as soon
+  as the broadcast is scheduled (unless you untick *Send by itself*), and again whenever someone presses **Send now**.
+  Planning Center must be on and connected, and its token's person must be able to edit Publishing.
+- Only Admins and Owners connect, disconnect, change settings, the schedule and the linked episodes; Operators can also
+  press **Send now**; viewers see the status. Connecting and
   disconnecting are in the audit log. The token is kept encrypted in config.json, like the OpenAI key, and never sent to
   a browser.
 

@@ -23,7 +23,7 @@ class PlanningCenter(Module):
     manifest = Manifest(
         id="planning_center",
         name="Planning Center",
-        version="1.3.0",
+        version="1.4.0",
         summary="Shows today's service plan and its LIVE item on caption panels, lets chosen panels move "
                 "Services LIVE on, and puts the full rundown (clock times, teams, song leaders and mics) on /screen.",
         settings_key="planning_center",

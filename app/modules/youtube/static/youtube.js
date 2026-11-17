@@ -198,7 +198,11 @@
   window.RelayOAuth.mount($('ytAccount'), '/api/admin/youtube/account', {
     manage: 'youtube.manage',
     intro: 'Connect the church\'s YouTube channel. Relay only reads it: whether it is live and how many are watching.',
-    scopeNames: { 'https://www.googleapis.com/auth/youtube.readonly': 'Read the channel (read only)' },
+    scopeNames: {
+      'https://www.googleapis.com/auth/youtube.readonly': 'Read the channel (read only)',
+      'https://www.googleapis.com/auth/youtube.force-ssl': 'Read the channel and schedule its live streams',
+      'https://www.googleapis.com/auth/youtube': 'Read the channel and schedule its live streams',
+    },
     onChange: refresh,
   });
   refresh();
