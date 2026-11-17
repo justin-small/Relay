@@ -218,10 +218,9 @@ async def screen_page(request: Request):
     page, err = _checked(request, request.query_params.get("lighting", ""), request.query_params.get("key", ""))
     if page is None:
         return err if err.status_code == 429 else HTMLResponse("Not found", status_code=404)
-    cues = [{k: c[k] for k in ("id", "name", "label", "shape", "color", "text_color", "w", "h", "x", "y", "fw", "fh")}
-            for c in page["cues"]]
+    cues = [{k: c[k] for k in ("id", "name", "x", "y", "w", "h", "style")} for c in page["cues"]]
     return templates.TemplateResponse(request, "lighting/screen.html", {
-        "page": {"id": page["id"], "name": page["name"], "free": page["free"], "cues": cues},
+        "page": {"id": page["id"], "name": page["name"], "cols": page["cols"], "rows": page["rows"], "cues": cues},
         "key": page["key"]}, headers={"Cache-Control": "no-store", "Referrer-Policy": "no-referrer"})
 
 

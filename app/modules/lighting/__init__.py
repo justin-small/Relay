@@ -20,7 +20,7 @@ class Lighting(Module):
         summary="Fires a lighting program's cues (walk-in, worship, message) from cue pages, without the lighting PC.",
         settings_key="lighting",
         guide="/docs/lighting",
-        version="1.2.0",
+        version="1.3.0",
         traffic=(Traffic("lighting", "Lighting program control (QLC+ web API)"),),
     )
     defaults = {"backend": "", "host": "", "port": 0, "password": "", "functions": False, "console": "EX", "fade": "", "pages": []}
@@ -28,7 +28,7 @@ class Lighting(Module):
     admin_pages = (AdminPage(
         id="lighting", title="Lighting", template="lighting.html", group="Output",
         icon='<circle cx="8" cy="6" r="3"/><path d="M6.5 10.5h3M7 13h2"/>'),)
-    admin_scripts = ("lighting-buttons.js", "lighting.js")
+    admin_scripts = ("lighting.js",)
     route_prefixes = ("/api/admin/lighting", "/lighting")
     permissions = (
         Permission("lighting.view", "See the lighting cue pages", "Lighting", "viewer"),
@@ -77,6 +77,44 @@ class Lighting(Module):
         from .service import service
 
         await service.stop()
+
+    # ------------------------------------------------------------------ boards (#156)
+    def board_widgets(self) -> list[dict]:
+        """A cue button for boards: one palette entry per cue on a cue page (only those may be fired from a screen)."""
+        from .service import CUE_STYLE, service
+
+        seen: dict[str, dict] = {}
+        for p in service.settings()["pages"]:
+            for c in p["cues"]:
+                seen.setdefault(c["id"], {"name": c["name"], "style": c["style"]})
+        return [{"type": "lighting.cue", "name": "Lighting cue", "group": "Lighting", "kind": "button", "w": 2, "h": 1,
+                 "style": CUE_STYLE, "press_permission": "lighting.control",
+                 "fields": [{"key": "cue", "label": "Cue (from a cue page)", "type": "select",
+                             "options": [[cid, v["name"]] for cid, v in seen.items()]},
+                            {"key": "_", "type": "note", "label": "A press is sent once and never retried. Pressing "
+                             "needs someone signed in who may fire lighting cues."}],
+                 "presets": [{"name": v["name"], "props": {"cue": cid}, "style": v["style"]} for cid, v in seen.items()]}]
+
+    async def board_data(self, items: list[dict]) -> dict[str, dict]:
+        from .service import service
+
+        b = service.backend
+        if b is None or not b.can_report_state:
+            return {}
+        try:
+            lit = await b.state()
+        except Exception:
+            return {}
+        return {i["id"]: {"lit": bool(lit.get((i.get("props") or {}).get("cue")))} for i in items}
+
+    async def board_press(self, item: dict, request) -> dict:
+        from .routes import fire
+
+        cue = (item.get("props") or {}).get("cue")
+        if not isinstance(cue, str) or not cue:
+            return {"ok": False, "error": "Choose the cue for this button."}
+        r = await fire(cue, request)
+        return r if r.get("ok") else {"ok": False, "error": "The lighting program did not take that press."}
 
     def health(self) -> Health:
         from .service import service

@@ -2,7 +2,7 @@
 {% set look = look|default({}) %}
 <html lang="en" data-theme="{{ 'dark' if look.get('ui_mode', 'dark') == 'system' else look.get('ui_mode', 'dark') }}" data-mode="{{ look.get('ui_mode', 'dark') }}" data-preset="{{ look.get('ui_preset', 'relay') }}" data-sb="{{ look.get('ui_sidebar', 'inset') }}" data-collapse="{{ look.get('ui_collapse', 'icon') }}" data-layout="{{ look.get('ui_layout', 'centered') }}" data-navbar="{{ look.get('ui_navbar', 'sticky') }}" data-font="{{ look.get('ui_font', 'system') }}"{% if look.get('ui_collapsed') %} class="cl"{% endif %}><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Relay &middot; Operator</title>{% include "_brand_head.html" %}<link rel="stylesheet" href="{{ static('viewer.css') }}"><link rel="stylesheet" href="{{ static('tokens.css') }}"><link rel="stylesheet" href="{{ static('admin.css') }}">
+<title>Relay &middot; Operator</title>{% include "_brand_head.html" %}<link rel="stylesheet" href="{{ static('viewer.css') }}"><link rel="stylesheet" href="{{ static('tokens.css') }}"><link rel="stylesheet" href="{{ static('admin.css') }}"><link rel="stylesheet" href="{{ static('layout.css') }}">
 <script>
 /* Before first paint: "system" follows the device, and the chosen font applies (both are allow-listed words). */
 (function () {
@@ -30,11 +30,12 @@ window.relayCan = function (perm) { return window.RELAY_ME.permissions.indexOf(p
     {% if 'targets.manage' in perms %}<a href="#targets" data-page="targets" data-tip="Target languages"><svg class="i" viewBox="0 0 16 16" aria-hidden="true"><path d="M2 4h7M5.5 2v2M3.5 4c.5 3 2.5 5 5 6M8 4c-.5 3-2.5 5-5.5 6.5M9 14l3-7 3 7M10 12h4"/></svg><span class="nl">Target languages</span></a>{% endif %}
     {% if 'network.view' in perms %}<a href="#network_map" data-page="network_map" data-tip="Network map"><svg class="i" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="3" r="1.6"/><circle cx="3" cy="12.5" r="1.6"/><circle cx="13" cy="12.5" r="1.6"/><path d="M8 4.6v3.4M8 8L3.6 11M8 8l4.4 3"/></svg><span class="nl">Network map</span></a>{% endif %}
     {{ module_links("Live") }}
-    {% if 'panels.view' in perms or 'alerts.view' in perms or 'overlays.view' in perms or 'recordings.view' in perms or module_nav.get("Output") %}<div class="grp">Output</div>{% endif %}
+    {% if 'panels.view' in perms or 'alerts.view' in perms or 'overlays.view' in perms or 'boards.view' in perms or 'recordings.view' in perms or module_nav.get("Output") %}<div class="grp">Output</div>{% endif %}
     {% if 'panels.view' in perms %}<a href="#panels" data-page="panels" data-tip="Panels"><svg class="i" viewBox="0 0 16 16" aria-hidden="true"><rect x="1.5" y="3" width="13" height="9" rx="1.5"/><path d="M5.5 14.5h5"/></svg><span class="nl">Panels</span></a>{% endif %}
     {% if 'alerts.view' in perms %}<a href="#alerts" data-page="alerts" data-tip="Alerts"><svg class="i" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 11V7a4 4 0 0 1 8 0v4l1.5 1.5h-11zM6.5 14h3"/></svg><span class="nl">Alerts</span></a>{% endif %}
     {% if 'session.view' in perms %}<a href="#urls" data-page="urls" data-tip="Viewer links"><svg class="i" viewBox="0 0 16 16" aria-hidden="true"><path d="M6.5 9.5a3 3 0 0 0 4 0l2-2a3 3 0 0 0-4-4l-1 1M9.5 6.5a3 3 0 0 0-4 0l-2 2a3 3 0 0 0 4 4l1-1"/></svg><span class="nl">Viewer links</span></a>{% endif %}
     {% if 'overlays.view' in perms %}<a href="#overlay" data-page="overlay" data-tip="Broadcast overlay"><svg class="i" viewBox="0 0 16 16" aria-hidden="true"><rect x="1.5" y="2.5" width="13" height="11" rx="1.5"/><path d="M4 10.5h8M5 8.5h6"/></svg><span class="nl">Broadcast overlay</span></a>{% endif %}
+    {% if 'boards.view' in perms %}<a href="#boards" data-page="boards" data-tip="Boards"><svg class="i" viewBox="0 0 16 16" aria-hidden="true"><rect x="1.5" y="2.5" width="13" height="11" rx="1.5"/><path d="M1.5 7.5h8M9.5 2.5v11"/></svg><span class="nl">Boards</span></a>{% endif %}
     {% if 'recordings.view' in perms %}<a href="#recordings" data-page="recordings" data-tip="Recordings &amp; export"><svg class="i" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6"/><circle cx="8" cy="8" r="2" fill="currentColor"/></svg><span class="nl">Recordings &amp; export</span></a>{% endif %}
     {{ module_links("Output") }}
     {% if 'schedules.view' in perms or module_nav.get("Automation") %}<div class="grp">Automation</div>{% endif %}
@@ -443,6 +444,31 @@ window.relayCan = function (perm) { return window.RELAY_ME.permissions.indexOf(p
           <li>Turn the key on for program. Keep the computer’s screen saver and notifications off.</li></ol></div>
       </div>
     </div>
+  </div>
+{% endif %}
+{% if 'boards.view' in perms %}
+  <div class="page" id="page-boards" data-page="boards" hidden>
+    <h2 class="title">Boards</h2>
+    <p class="sub">Screens you build from widgets: captions, a clock, the livestream, lighting cues and more. Each board has
+      its own address for a TV or tablet. Anyone signed in to Relay can open a board; a <b>public</b> board opens for
+      anyone, on the viewer network too.</p>
+    {{ viewonly('boards.manage') }}
+    <section>
+      {% if 'boards.manage' in perms %}<div class="ctl">
+        <input id="bdName" placeholder="New board's name" maxlength="60" aria-label="New board's name" style="max-width:260px">
+        <select id="bdRatio" aria-label="Screen shape"><option value="16:9">16:9 TV</option><option value="4:3">4:3 tablet</option><option value="9:16">9:16 portrait</option></select>
+        <button type="button" class="primary" id="bdNew">New board</button>
+        <span class="spacer"></span>
+        <label class="btnlink" for="bdImport">Import&hellip;</label><input type="file" id="bdImport" accept=".json,application/json" hidden>
+      </div>{% endif %}
+      <div class="note err" id="bdErr" hidden></div>
+      <div class="tablescroll"><table>
+        <thead><tr><th>Name</th><th>Address</th><th>Public</th><th>Grid</th><th></th></tr></thead>
+        <tbody id="bdRows"><tr><td colspan="5" class="muted">Loading&hellip;</td></tr></tbody>
+      </table></div>
+      <p class="note">Edit opens the board with the widget list beside it, so you lay it out over the real thing.
+        A widget from a module that is switched off stays on the board and comes back when the module does.</p>
+    </section>
   </div>
 {% endif %}
 {% if 'recordings.view' in perms %}
@@ -899,12 +925,15 @@ window.relayCan = function (perm) { return window.RELAY_ME.permissions.indexOf(p
 <div id="pal" role="dialog" aria-label="Search pages and actions"><div class="box"><input id="q" placeholder="Search pages and actions…" autocomplete="off" aria-label="Search pages and actions"><div id="res" role="listbox"></div></div></div>
 <script src="{{ static('qrcode.min.js') }}"></script>
 <script src="{{ static('alert-icons.js') }}"></script>
+<script src="{{ static('layout-render.js') }}"></script>
+<script src="{{ static('layout-editor.js') }}"></script>
 <script src="{{ static('shell.js') }}"></script>
 <script src="{{ static('admin.js') }}"></script>
 <script src="{{ static('modules.js') }}"></script>
 <script src="{{ static('network.js') }}"></script>
 <script src="{{ static('network_map.js') }}"></script>
 <script src="{{ static('overlay-builder.js') }}"></script>
+<script src="{{ static('boards.js') }}"></script>
 <script src="{{ static('users.js') }}"></script>
 <script src="{{ static('audit.js') }}"></script>
 <script src="{{ static('oauth.js') }}"></script>

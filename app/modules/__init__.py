@@ -223,6 +223,26 @@ class Module:
         merges these with what it sees itself; a module that does not override this adds nothing."""
         return []
 
+    def board_widgets(self) -> list[dict]:
+        """Widgets this module adds to boards (#156), as app/boards.py describes a definition: {"type":
+        "<module id>.<name>", "name", "group", "kind" (one of boards.KINDS, drawn by core), "w", "h", "style",
+        "fields", "presets", "press_permission"}. A pressable widget ("kind": "button") names the permission (one this
+        module declares) a signed-in person needs to press it; nobody presses it from a public board signed out.
+        Called only while the module is on; read what is in memory."""
+        return []
+
+    async def board_data(self, items: list[dict]) -> dict[str, dict]:
+        """Live data for this module's widgets on a board, by item id: {"lit": bool} for a button, {"lines": [...]},
+        {"rows": [{"text", "current"}]}, {"on_air", "live_since", "viewers"}. `items` are only this module's own.
+        Boards may be public: send nothing private, no addresses and no error text."""
+        return {}
+
+    async def board_press(self, item: dict, request: Any) -> dict:
+        """Someone pressed one of this module's button widgets on a board: {"ok": True} or {"ok": False, "error":
+        "<a fixed sentence>"}. Core has already checked the widget's press_permission. Say what happened with
+        `audit.note(request, ...)` as in an admin route; core writes it with the person who pressed once it succeeded."""
+        return {"ok": False, "error": "That button does nothing."}
+
     def pills(self) -> list[dict]:
         """Pills for the admin top bar, shown while the module is on: [{"id", "text", "count", "href"}], plus
         "level": "error" for a pill that reports a problem (drawn red)."""
@@ -469,6 +489,56 @@ class Registry:
                 out.update(mod.status())
             except Exception:
                 log.exception("module %s status failed", mod.manifest.id)
+        return out
+
+    def board_widgets(self) -> list[dict]:
+        """Every switched-on, running module's board widgets (#156), cleaned (app/boards.py). A definition whose type
+        does not start with the module's id, or whose press permission the module does not declare, is left out."""
+        from .. import boards
+
+        out: list[dict] = []
+        for mod in self.active():
+            if not self.running(mod.manifest.id):
+                continue
+            mid = mod.manifest.id
+            try:
+                raw = mod.board_widgets()
+            except Exception:
+                log.exception("module %s: board_widgets failed", mid)
+                continue
+            own = {p.id for p in mod.permissions}
+            for r in raw if isinstance(raw, list) else []:
+                d = boards.clean_definition(r, owner=mid)
+                if d is None or (d["press_permission"] and d["press_permission"] not in own):
+                    log.warning("module %s: a board widget was left out (bad type or permission)", mid)
+                    continue
+                out.append(d)
+        return out
+
+    def board_owner(self, wtype: str) -> Module | None:
+        """The running module whose board widget type this is, else None."""
+        mid = wtype.split(".", 1)[0] if "." in wtype else ""
+        mod = self.get(mid) if mid else None
+        return mod if mod is not None and self.enabled(mid) and self.running(mid) else None
+
+    async def board_data(self, items: list[dict]) -> dict[str, dict]:
+        """Live data for every module widget in `items`, by item id. A module that fails adds nothing."""
+        by_mod: dict[str, list[dict]] = {}
+        for it in items:
+            if "." in it["type"]:
+                by_mod.setdefault(it["type"].split(".", 1)[0], []).append(it)
+        out: dict[str, dict] = {}
+        for mid, its in by_mod.items():
+            mod = self.board_owner(its[0]["type"])
+            if mod is None:
+                continue
+            try:
+                got = await mod.board_data(its)
+            except Exception:
+                log.exception("module %s: board_data failed", mid)
+                continue
+            ids = {i["id"] for i in its}
+            out.update({k: v for k, v in (got or {}).items() if k in ids and isinstance(v, dict)})
         return out
 
     def pills(self) -> list[dict]:

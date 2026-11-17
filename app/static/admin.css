@@ -569,3 +569,8 @@ table.audit tr.failed .what { color:var(--err); }
 .nmcols { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1.4fr); gap:14px; } @media (max-width:900px) { .nmcols { grid-template-columns:minmax(0,1fr); } }
 #nmDetail h4 { margin:0 0 8px; font-size:15px; } #nmDetail .kv, #nmSources .kv { display:flex; justify-content:space-between; gap:16px; padding:6px 0; border-bottom:1px solid var(--border); font-size:13px; }
 #nmSources .kv .note { margin:2px 0 0; } #nmTable tr[role=button] { cursor:pointer; }
+
+/* Boards (#156) */
+#page-boards a{color:var(--fg)}
+#page-boards .ctl input,#page-boards .ctl select{width:auto;flex:0 1 auto}
+#page-boards .ctl #bdName{flex:1 1 200px;max-width:280px}

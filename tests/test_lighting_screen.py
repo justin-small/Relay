@@ -47,14 +47,32 @@ class Fake(be.Backend):
 
 be.register(Fake)
 
-with section("a button's look is cleaned"):
-    c = svc.clean_style({"label": "  Walk  in ", "shape": "triangle", "color": "red", "text_color": "#ABCDEF",
-                         "w": 99, "h": 0, "x": 90, "y": -5, "fw": 30, "fh": "x"})
-    eq("unknown shape, bad colour and out-of-range numbers fall back", (c["shape"], c["color"], c["text_color"], c["w"], c["h"]),
-       ("rounded", "#2b5fd9", "#abcdef", 6, 1))
-    eq("the label is tidied and a free box stays inside the page", (c["label"], c["x"], c["y"], c["fw"], c["fh"]),
-       ("Walk in", 70, 0, 30, 20))
-    check("a colour can never carry css", "{" not in svc.clean_style({"color": "#fff;}x{"})["color"])
+with section("a button's look is cleaned by core's layout schema (#421)"):
+    pages = svc.clean_pages([{"id": "p", "name": "P", "cols": 4, "rows": 3, "cues": [
+        {"id": "a", "name": "A", "x": 0, "y": 0, "w": 99, "h": 0,
+         "style": {"label": "  Walk  in ", "shape": "triangle", "bg": "red", "fg": "#ABCDEF"}}]}])
+    c = pages[0]["cues"][0]
+    eq("unknown shape and bad colour fall back to the cue look", (c["style"]["shape"], c["style"]["bg"], c["style"]["fg"]),
+       ("rounded", "#2b5fd9", "#abcdef"))
+    eq("the label is tidied and the place stays inside the grid", (c["style"]["label"], c["w"], c["h"]), ("Walk in", 4, 1))
+    eq("a colour can never carry css", svc.clean_pages([{"name": "P", "cues": [
+        {"id": "a", "style": {"bg": "#fff;}x{"}}]}])[0]["cues"][0]["style"]["bg"], "#2b5fd9")
+
+with section("a page saved before #421 moves onto the grid"):
+    old = svc.clean_pages([{"id": "g", "name": "Grid", "cues": [
+        {"id": "a", "name": "A", "label": "AAA", "shape": "circle", "color": "#112233", "text_color": "#445566", "w": 2, "h": 1},
+        {"id": "b", "name": "B", "w": 1, "h": 2}, {"id": "c", "name": "C"}]}])[0]
+    eq("its flat look is kept", (old["cues"][0]["style"]["label"], old["cues"][0]["style"]["shape"],
+                                 old["cues"][0]["style"]["bg"], old["cues"][0]["style"]["fg"]), ("AAA", "circle", "#112233", "#445566"))
+    eq("a grid page lays out in four columns, in order", [(c["x"], c["y"], c["w"], c["h"]) for c in old["cues"]],
+       [(0, 0, 2, 1), (2, 0, 1, 2), (3, 0, 1, 1)])
+    eq("its grid is four by at least three", (old["cols"], old["rows"]), (4, 3))
+    free = svc.clean_pages([{"id": "f", "name": "Free", "free": True, "cues": [
+        {"id": "a", "name": "A", "x": 50, "y": 50, "fw": 25, "fh": 50}, {"id": "b", "name": "B", "x": 50, "y": 50}]}])[0]
+    eq("a free page goes to the nearest cells of an eight by six grid", (free["cols"], free["rows"],
+       [(c["x"], c["y"], c["w"], c["h"]) for c in free["cues"]][0]), (8, 6, (4, 3, 2, 3)))
+    check("two free buttons on the same spot do not overlap after", free["cues"][1]["x"] != 4 or free["cues"][1]["y"] != 3)
+    check("the free option is gone", "free" not in free)
 
 with section("a page's key"):
     pages = svc.clean_pages([{"id": "p1", "name": "Worship", "key": "a" * 32, "key_on": True,
@@ -75,12 +93,15 @@ operator = _db.client(app, role="operator", username="operator1", base_url="http
 A = "/api/admin/lighting"
 admin.put(A + "/settings", json={"backend": "fakescreen"})
 r = admin.put(A + "/pages", json={"pages": [
-    {"id": "p1", "name": "Worship", "cues": [{"id": "a", "name": "Walk-in", "label": "WALK IN", "shape": "circle", "color": "#112233"},
-                                              {"id": "b", "name": "Verse"}]},
-    {"id": "p2", "name": "Kids", "free": True, "cues": [{"id": "c", "name": "Games", "x": 10, "y": 10, "fw": 40, "fh": 30}]}]})
+    {"id": "p1", "name": "Worship", "cols": 4, "rows": 3, "cues": [
+        {"id": "a", "name": "Walk-in", "x": 0, "y": 0, "w": 2, "h": 1, "style": {"label": "WALK IN", "shape": "circle", "bg": "#112233"}},
+        {"id": "b", "name": "Verse", "x": 2, "y": 0, "w": 1, "h": 1}]},
+    {"id": "p2", "name": "Kids", "cols": 6, "rows": 4, "cues": [{"id": "c", "name": "Games", "x": 1, "y": 1, "w": 2, "h": 2}]}]})
 eq("two pages saved, each with its own cues", [(p["id"], [c["id"] for c in p["cues"]]) for p in r.json()["pages"]],
    [("p1", ["a", "b"]), ("p2", ["c"])])
-eq("a look is saved", (r.json()["pages"][0]["cues"][0]["shape"], r.json()["pages"][0]["cues"][0]["label"]), ("circle", "WALK IN"))
+eq("a look is saved", (r.json()["pages"][0]["cues"][0]["style"]["shape"], r.json()["pages"][0]["cues"][0]["style"]["label"]), ("circle", "WALK IN"))
+eq("a place and a grid are saved", (r.json()["pages"][1]["cols"], r.json()["pages"][1]["rows"],
+   [(c["x"], c["y"], c["w"], c["h"]) for c in r.json()["pages"][1]["cues"]]), (6, 4, [(1, 1, 2, 2)]))
 tv = TestClient(app, base_url="http://relay.local:8000")      # a tablet: the plain viewer port, no sign-in
 
 with section("the screen is off until switched on"):
@@ -103,8 +124,9 @@ with section("the screen is off until switched on"):
 with section("the page"):
     r = tv.get(f"/screen?lighting=p1&key={KEY1}")
     eq("it opens with the right key", r.status_code, 200)
-    check("it holds this page's buttons, not another's", "WALK IN" in r.text and "Games" not in r.text and "ltgrid" in r.text)
-    check("the free page is drawn free", "ltfree" in tv.get(f"/screen?lighting=p2&key={KEY2}").text)
+    check("it holds this page's buttons, not another's", "WALK IN" in r.text and "Games" not in r.text)
+    check("it is drawn by core's shared renderer", "/static/layout-render.js" in r.text and "/static/layout.css" in r.text)
+    check("the shared renderer answers on the plain viewer port", tv.get("/static/layout-render.js").status_code == 200)
     eq("another page's key does not open it", tv.get(f"/screen?lighting=p1&key={KEY2}").status_code, 404)
     eq("no key", tv.get("/screen?lighting=p1").status_code, 404)
     eq("a wrong key is the same plain 404 as a missing page", (tv.get("/screen?lighting=p1&key=bad").text, tv.get("/screen?lighting=zz&key=bad").text),
