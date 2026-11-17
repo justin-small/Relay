@@ -446,6 +446,16 @@ empty and the picture is unaffected). WebRTC would add lower latency and audio; 
 widget is a tile drawn by core's `frame` kind (`{"image": "/path", "tally", "note"}`): it shows only for people signed in
 on the operator port, since it reads the same stream.
 
+**Multiview** (#297, `app/modules/ndi/multiview.py`): saved multiviews (`multiviews` in the NDI settings, up to 20) are
+a layout (2x2, 3x3, 4x4, or 1 big with 5 or 7 small) and one box each: an NDI source (label, audio meter, tally border
+from the source's camera number), a clock, or a countdown (to a time of day, or to the next service start). Each has a
+page, `/ndi/multiview/<id>`, and a stream, `/ndi/multiview/<id>/stream`, on the operator port behind `ndi.view` like the
+single-source viewer. Relay composes the picture once with Pillow, at most `view_fps` times a second, however many
+browsers watch it, holds one pool lease per source while anyone watches and releases them all after the last leaves.
+`view_max` does not apply (a 4x4 holds up to 16 receivers). The service countdown asks core's
+`modules.service_starts_at()`, which a module that knows service times (Planning Center) backs by overriding
+`Module.service_starts_at`. **Not built:** sending the composed picture out as an NDI source (#299 has no output yet).
+
 ## Recording and presentation hooks
 
 A module that wants a recorder to start, stop, drop a marker or run an action never imports `reaper`. It calls core's

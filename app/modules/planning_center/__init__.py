@@ -163,6 +163,20 @@ class PlanningCenter(Module):
             return f"{plan['title']} {clock}".strip()
         return ""
 
+    def service_starts_at(self) -> float | None:
+        import time
+
+        from .pclive import follower
+
+        now, best = time.time(), None
+        for st in list(follower.tracks):
+            plan = (follower.state(st) or {}).get("plan") or {}
+            for t in plan.get("times") or []:
+                at = t.get("starts_at")
+                if at and at > now and (best is None or at < best):
+                    best = at
+        return best
+
     def status(self) -> dict:
         from .servicefeed import feed
 

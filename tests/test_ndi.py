@@ -119,7 +119,7 @@ with section("settings"):
     eq("clean drops junk", svc.clean_settings({"extra_ips": ["10.0.0.1", "x", "10.0.0.1"], "groups": ["A", "a", "bad!"],
                                                 "interval": 1}), {"servers": [], "mdns": True, "extra_ips": ["10.0.0.1"], "groups": ["A"], "interval": 5,
                                                                    "view_fps": 15, "view_quality": 60, "view_width": 1280,
-                                                                   "view_max": 4, "tally": {}})
+                                                                   "view_max": 4, "tally": {}, "multiviews": []})
     check("defaults", svc.clean_settings(None)["interval"] == 15)
 
 with section("without the runtime"):

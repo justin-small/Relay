@@ -58,6 +58,26 @@
     </section>
 
     <section>
+      <h3>Multiviews</h3>
+      <p class="note">A multiview shows several sources at once on one page, <code>/ndi/multiview/&lt;name&gt;</code>, for a
+        monitor or a TV on this network. Relay draws it once on the server however many people watch. Each box is a
+        source (with a label, an audio meter and the tally border), a clock, or a countdown.</p>
+      <div id="ndiMvList"></div>
+      <div class="ctl"><button type="button" id="ndiMvNew">New multiview</button></div>
+      <div id="ndiMvEdit" hidden>
+        <div class="row">
+          <div class="field"><label for="ndiMvName">Name</label><input id="ndiMvName" maxlength="60" autocomplete="off"></div>
+          <div class="field"><label for="ndiMvLayout">Layout</label><select id="ndiMvLayout"></select></div>
+        </div>
+        <div class="tablescroll"><table><thead><tr><th>Box</th><th>Shows</th><th>Source, time or mode</th><th>Label</th><th>Meter</th></tr></thead>
+          <tbody id="ndiMvBoxes"></tbody></table></div>
+        <div class="ctl"><button type="button" class="primary" id="ndiMvSave">Save multiview</button>
+          <button type="button" id="ndiMvDelete">Delete</button></div>
+      </div>
+      <div class="note">The tally border uses the camera numbers set above. The service countdown needs Planning Center.</div>
+    </section>
+
+    <section>
       <h3>Where to look</h3>
       <div class="row">
         <div class="field">

@@ -19,7 +19,7 @@ import time
 from typing import Any, Callable
 
 from ... import config
-from . import discovery, runtime, viewer
+from . import discovery, multiview, runtime, viewer
 
 log = logging.getLogger("relay.ndi")
 
@@ -96,6 +96,7 @@ def clean_settings(raw: Any) -> dict:
                     and 1 <= n <= 999 and len(tally) < MAX_TALLY:
                 tally[name] = n
     out["tally"] = tally
+    out["multiviews"] = multiview.clean_multiviews(raw.get("multiviews"))
     return out
 
 
@@ -116,6 +117,18 @@ def check_servers(servers: list[str]) -> list[dict]:
             err = "Nothing answered on that address."
         out.append({"server": sv, "reachable": ok, "error": err})
     return out
+
+
+def _cameras() -> list[dict]:
+    from ...tally import tally
+
+    return tally.cameras()
+
+
+def _service_start() -> float | None:
+    from ... import modules as registry
+
+    return registry.modules.service_starts_at()
 
 
 class Lease:
@@ -238,6 +251,8 @@ class Service:
         self._audio: dict[str, tuple[float, float]] = {}   # source -> (peak dBFS, when)
         self.pool = Pool(self._info, self._bump, self._level)
         self.viewers = viewer.Viewers(self.hook_subscribe, self.settings)
+        self.multiviews = multiview.Multiviews(self.hook_subscribe, self.settings, self.audio_level, _cameras,
+                                               _service_start)
         self.pool.address_of = lambda s: self._seen.get(s, {}).get("address", "")
         self.outputs: dict[str, Any] = {}
         self.error = ""
@@ -327,6 +342,7 @@ class Service:
                 pass
             self._task = None
         await asyncio.to_thread(self.viewers.close_all)
+        await asyncio.to_thread(self.multiviews.close_all)
         await asyncio.to_thread(self.pool.close_all)
         self._audio.clear()
         for o in list(self.outputs.values()):
