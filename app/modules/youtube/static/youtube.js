@@ -135,9 +135,7 @@
     box.appendChild(el('p', 'Every Relay shares one daily YouTube allowance, so it checks rarely. A check costs 1 unit, or 2 while live.', 'note'));
 
     box.appendChild(el('h4', 'Your own Google app'));
-    box.appendChild(el('p', data.builtin
-      ? 'Relay signs in with its own Google app. To use your own instead, enter its client ID and secret ("TVs and Limited Input devices" client in Google Cloud).'
-      : 'This copy of Relay has no Google app of its own yet. Make one in Google Cloud ("TVs and Limited Input devices" client, YouTube Data API v3 switched on) and enter its client ID and secret, then press Connect.', 'note'));
+    box.appendChild(el('p', 'Relay signs in with its own Google app, through Relay\'s cloud. To use your own app instead, so the sign-in goes straight between this computer and Google, enter its client ID and secret ("TVs and Limited Input devices" client in Google Cloud, YouTube Data API v3 switched on); Connect then shows a code to enter at google.com/device.', 'note'));
     const row2 = el('div', '', 'ytrow');
     const fid = el('div', '', 'field');
     const lid = el('label', 'Client ID'); lid.htmlFor = 'ytCid';
@@ -154,7 +152,6 @@
     const ctl = el('div', '', 'ctl');
     if (s.client_id) {
       const clear = el('button', 'Use Relay\'s app'); clear.type = 'button';
-      clear.disabled = !data.builtin;
       clear.onclick = function () { save({ clear_client: true }); };
       ctl.appendChild(clear);
     }
@@ -165,7 +162,7 @@
     };
     ctl.appendChild(b);
     box.appendChild(ctl);
-    box.appendChild(el('p', 'Changing the app does not change an account already connected: press Connect again to sign in with it.', 'note'));
+    box.appendChild(el('p', 'After changing the app, press Connect again to sign in with it.', 'note'));
   }
 
   async function save(body) {

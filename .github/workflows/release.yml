@@ -201,14 +201,6 @@ jobs:
         if: github.ref_type == 'tag'
         shell: bash
         run: python tools/release_tools.py version "$GITHUB_REF_NAME"
-      # Relay's own Google client lives in Actions secrets, not the public repository (docs/reference/oauth-apps.md).
-      # Google treats this client type's secret as not confidential, so it may ship inside the app.
-      - name: Add Relay's Google client
-        shell: bash
-        env:
-          YOUTUBE_CLIENT_ID: ${{ secrets.YOUTUBE_CLIENT_ID }}
-          YOUTUBE_CLIENT_SECRET: ${{ secrets.YOUTUBE_CLIENT_SECRET }}
-        run: python tools/release_tools.py oauth-clients
       - name: Freeze the backend
         shell: bash
         run: |

@@ -10,17 +10,12 @@
       the release and the contents of its .sig (the updater's own signature, made with the key in the
       repository secret). An artifact with no .sig is an error, not a gap: a release that quietly could not
       update some platform would be worse than one that does not publish.
-
-  release_tools.py oauth-clients
-      Write Relay's own Google client into app/modules/youtube/_client.py (git-ignored) from the environment's
-      YOUTUBE_CLIENT_ID and YOUTUBE_CLIENT_SECRET, before PyInstaller runs. Without them nothing is written.
 """
 from __future__ import annotations
 
 import argparse
 import datetime
 import json
-import os
 import re
 import sys
 from pathlib import Path
@@ -102,29 +97,9 @@ def latest_json(directory: Path, tag: str, repo: str, notes: str = "", pub_date:
     }
 
 
-_GOOGLE_ID_RE = re.compile(r"[0-9]+-[a-z0-9]+\.apps\.googleusercontent\.com")
-_SECRET_RE = re.compile(r"[A-Za-z0-9_-]{10,100}")
-YOUTUBE_CLIENT_FILE = ROOT / "app" / "modules" / "youtube" / "_client.py"
-
-
-def oauth_clients(env: dict, dest: Path = YOUTUBE_CLIENT_FILE) -> str:
-    """Write Relay's own Google client into the YouTube module from YOUTUBE_CLIENT_ID and YOUTUBE_CLIENT_SECRET (the
-    release workflow's Actions secrets). With neither set (a fork, a pull request from one) nothing is written and the
-    build falls back to each church's own app. Returns what it did, never the values."""
-    cid, secret = (env.get("YOUTUBE_CLIENT_ID") or "").strip(), (env.get("YOUTUBE_CLIENT_SECRET") or "").strip()
-    if not cid and not secret:
-        return "no YouTube client in this build: churches use their own app"
-    if not _GOOGLE_ID_RE.fullmatch(cid) or not _SECRET_RE.fullmatch(secret):
-        raise SystemExit("YOUTUBE_CLIENT_ID or YOUTUBE_CLIENT_SECRET does not look like a Google client")
-    dest.write_text("# Written by tools/release_tools.py oauth-clients at build time. Not in git.\n"
-                    f"CLIENT_ID = {cid!r}\nCLIENT_SECRET = {secret!r}\n")
-    return "YouTube client written into the build"
-
-
 def main(argv: list[str]) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="cmd", required=True)
-    sub.add_parser("oauth-clients")
     v = sub.add_parser("version")
     v.add_argument("tag")
     j = sub.add_parser("latest-json")
@@ -133,9 +108,7 @@ def main(argv: list[str]) -> int:
     j.add_argument("--repo", required=True)
     j.add_argument("--notes", type=Path)
     a = ap.parse_args(argv)
-    if a.cmd == "oauth-clients":
-        print(oauth_clients(dict(os.environ)))
-    elif a.cmd == "version":
+    if a.cmd == "version":
         set_version(version_from_tag(a.tag))
         print(version_from_tag(a.tag))
     else:

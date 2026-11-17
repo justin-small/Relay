@@ -117,8 +117,10 @@ with section("not connected"):
         run(svc.ACCOUNT.connect())
         check("refused", False)
     except oauth.Problem as e:
-        eq("no Google app in this copy", str(e), "YouTube sign-in is not set up in this copy of Relay.")
-    eq("nothing was sent", FAKE.sent, [])
+        eq("relay-cloud unreachable: a fixed sentence", str(e), oauth.CLOUD_DOWN)
+    eq("without the church's app, Connect asks relay-cloud", [u for u, *_ in FAKE.sent], [P.cloud_url("start")])
+    FAKE.sent.clear()
+    FAKE.church_key_sent.clear()
 
 config.save({"youtube": {"client_id": "church.apps.googleusercontent.com", "client_secret": "church-app-secret"}})
 
@@ -273,10 +275,18 @@ with section("routes: read, settings, the account"):
        (400, "That is not a Google client ID: it ends in .apps.googleusercontent.com."))
     r = admin.put(A + "/settings", json={"clear_client": True})
     check("back to Relay's app", svc.settings()["client_id"] == "" and svc.settings()["client_secret"] == "")
-    eq("Relay's app is not there yet", r.json()["builtin"], False)
+    check("no built-in client in what the page reads", "builtin" not in r.json())
     r = admin.post(A + "/account/connect")
-    eq("connect without any app: a sentence", (r.json()["ok"], r.json()["error"]),
-       (False, "YouTube sign-in is not set up in this copy of Relay."))
+    eq("relay-cloud not answering: a sentence", (r.json()["ok"], r.json()["error"]), (False, oauth.CLOUD_DOWN))
+    FAKE.script(P.cloud_url("start"), (201, {"session": "S" * 43, "poll": "P" * 43, "expires_in": 900, "interval": 2,
+                                             "url": "https://accounts.google.com/o/oauth2/v2/auth?state=x"}))
+    r = admin.post(A + "/account/connect")
+    eq("connect with Relay's app: a link through relay-cloud",
+       (r.json()["ok"], r.json()["state"], r.json()["code"], r.json()["url"]),
+       (True, "waiting", "", "https://accounts.google.com/o/oauth2/v2/auth?state=x"))
+    eq("asked relay-cloud", FAKE.sent[-1][0], P.cloud_url("start"))
+    check("the poll secret is not in what the page reads", "P" * 43 not in r.text)
+    admin.post(A + "/account/cancel")
 
     FAKE.script(P.revoke_url, (200, {}))
     r = admin.post(A + "/account/disconnect")
@@ -305,25 +315,5 @@ with section("the module's connection test and stop"):
     run(lifecycle())
     eq("stop clears the status view", entry(), None)
     check("stop ends the task", svc.service.task is None)
-
-with section("the built-in client comes from the build's _client.py, else none"):
-    import importlib
-    import types
-    name = "app.modules.youtube._client"
-    real = sys.modules.pop(name, None)
-    fake = types.ModuleType(name)
-    fake.CLIENT_ID, fake.CLIENT_SECRET = "42-built.apps.googleusercontent.com", "built-in-test-value"
-    sys.modules[name] = fake
-    try:
-        importlib.reload(svc)
-        eq("a build with _client.py uses it", (svc.BUILTIN.id, svc.BUILTIN.secret),
-           ("42-built.apps.googleusercontent.com", "built-in-test-value"))
-    finally:
-        sys.modules.pop(name, None)
-        if real is not None:
-            sys.modules[name] = real
-        importlib.reload(svc)
-    if real is None:
-        eq("a copy run from source has no built-in client", svc.BUILTIN.id, "")
 
 done()

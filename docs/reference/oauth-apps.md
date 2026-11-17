@@ -4,17 +4,21 @@ Relay signs in to YouTube and Facebook as **Relay's own app**. Each service asks
 that app, so the app needs a name, a logo, a privacy policy and the service's review. This page tells the owner of
 the Relay project how to make each app, once. Churches never do this: they press **Connect**.
 
-Relay signs in with the device flow (`app/oauth.py`, #304). The operator is shown a code and enters it at
-google.com/device or facebook.com/device. There is no redirect address, so neither app needs one.
+Relay signs in through **relay-cloud** (`app/oauth.py`, #304). The operator presses Connect and opens the
+service's sign-in; the service sends the browser back to `https://cloud.relaysystems.dev/oauth/<service>/callback`,
+the one redirect registered with each app. relay-cloud holds each app's secret, swaps the sign-in for tokens and
+keeps them until the church's Relay collects them (at most 15 minutes); refreshing goes through it too. A church
+that uses its own app instead signs in with the device flow (a code at google.com/device) and never touches
+relay-cloud.
 
 **What you need first, for both services:**
 - A public **privacy policy** at a stable address on relaychurchsystems.com. It must say what Relay reads (channel
-  or Page name, live broadcast status, viewer counts) and that it stays on the church's own computer and is never
-  sent to Relay.
+  or Page name, live broadcast status, viewer counts), that it stays on the church's own computer, and that the
+  sign-in passes through Relay's cloud only to be exchanged and renewed.
 - A **terms of service** page and a **data deletion** page. For data deletion, explain Disconnect, and how to
   remove Relay from the Google account's security page or Facebook's Business Integrations.
 - An app **logo**, 120×120 px or larger.
-- A **demo video** (unlisted YouTube is fine). Show pressing Connect in Relay, entering the code, the consent
+- A **demo video** (unlisted YouTube is fine). Show pressing Connect in Relay, opening the sign-in, the consent
   screen with the permissions, and where Relay then uses them (the live status).
 
 Both reviews take days to weeks, so start them early. Dashboard labels change often. If a step below is named
@@ -27,16 +31,15 @@ differently, follow its meaning.
 2. Open **APIs & Services → Library** and enable **YouTube Data API v3**.
 3. Open **Google Auth Platform** (formerly *OAuth consent screen*):
    - **Branding:** set the app name "Relay", a support email, the logo, the home page, the privacy policy and the
-     terms. Add the authorized domain `relaychurchsystems.com`. Prove you own it in Google Search Console with
-     the same account.
+     terms. Add the authorized domains `relaychurchsystems.com` and `relaysystems.dev`. Prove you own each in
+     Google Search Console with the same account (`relaysystems.dev` is a DNS TXT record on its Cloudflare zone).
    - **Audience:** choose **External**.
    - **Data access:** add the scope `https://www.googleapis.com/auth/youtube.readonly`. This is the only scope the
      live status needs. Add more only when a feature that needs them ships. For example, looking up the caption
      ingestion URL (#140) would need `youtube.force-ssl`.
-4. Open **Clients → Create client** and choose the application type **TVs and Limited Input devices**. Name it
-   "Relay". Copy the **client ID** and **client secret**. Google says this type's secret is not confidential: it
-   ships inside every copy of the app, and the device flow is built for that. Even so, keep it out of chat and
-   out of the repository: store both as Actions secrets (see *What goes where in Relay* below).
+4. Open **Clients → Create client** and choose the application type **Web application**. Name it "Relay (web)" and
+   add the authorized redirect URI `https://cloud.relaysystems.dev/oauth/google/callback`. Download the JSON and put
+   its client ID and secret on relay-cloud (see *What goes where* below), never in chat or the repository.
 5. **Publish:** on **Audience**, press **Publish app** to move it from *Testing* to *In production*. While it
    is in Testing, only listed test users can sign in, and **their refresh tokens expire after 7 days**. A church
    would have to sign in again every week.
@@ -50,7 +53,8 @@ differently, follow its meaning.
    minute while live, rarely otherwise). Request more quota before many churches use it.
 
 To try it before the app exists: in the module's advanced settings, a church can use its own client (bring your
-own app, PR 2). Follow steps 1–4 in its own Google account, keep the app in Testing, and add itself as a test user.
+own app). Follow steps 1–3 in its own Google account, then create a **TVs and Limited Input devices** client (the
+device flow needs no redirect), keep the app in Testing, and add itself as a test user.
 
 ## Meta (Facebook Pages)
 
@@ -58,13 +62,14 @@ own app, PR 2). Follow steps 1–4 in its own Google account, keep the app in Te
    Under **Business settings**, make a Meta Business portfolio for Relay. Business verification needs it later.
 2. **My Apps → Create app**. When asked for a use case, pick the one for managing Pages or for Facebook Login
    (**Other** if neither is listed). Pick the app type **Business**, and link the Relay business portfolio.
-3. Add the **Facebook Login for Business** product (on older dashboards, **Facebook Login**). In its settings,
-   switch on **Login from Devices**. Leave web OAuth login off, since Relay does not use a redirect.
-4. **App settings → Basic:** fill in the display name "Relay", the icon, the privacy policy, the terms, the data
-   deletion instructions URL, the category and the contact email. Copy the **App ID**.
-5. **App settings → Advanced → Security:** copy the **Client token**. The device flow sends `APP_ID|CLIENT_TOKEN`.
-   Like Google's secret, it is built to ship inside the app, but it is not the **App secret**. The App secret
-   never goes into Relay.
+3. In **Facebook Login for Business → Settings**, keep **Client OAuth login**, **Web OAuth login**, **Enforce
+   HTTPS** and **Strict Mode** on, and add the valid OAuth redirect URI
+   `https://cloud.relaysystems.dev/oauth/facebook/callback`. Leave **Login from Devices** off.
+4. **App settings → Basic:** fill in the display name "Relay", the app domains `relaysystems.dev` and
+   `relaychurchsystems.com`, the icon, the privacy policy, the terms, the data deletion instructions URL, the
+   category and the contact email. Copy the **App ID**.
+5. **App settings → Basic → App secret:** relay-cloud needs it to swap the sign-in for a token. It goes only on
+   relay-cloud, never into Relay or the repository.
 6. **Permissions:** the live status needs `pages_show_list` (to choose the church's Page) and
    `pages_read_engagement` (its live videos and viewer counts). `public_profile` comes with login. Do not ask for
    anything that publishes.
@@ -74,28 +79,27 @@ own app, PR 2). Follow steps 1–4 in its own Google account, keep the app in Te
    app (admins, developers, testers) can connect, which is enough for testing.
 8. Switch the app to **Live** mode once review passes.
 
-Facebook gives the device flow a long-lived user token. The Facebook module (PR 3) exchanges it for a Page token,
+relay-cloud swaps Facebook's short-lived user token for a long-lived one. The Facebook module (PR 3) exchanges it for a Page token,
 which does not expire. Meta revokes that token when the person who connected loses their role on the Page or
 changes their password. Relay then shows "Facebook needs signing in again".
 
-## What goes where in Relay
+## What goes where
 
-| Service | Relay needs | Confidential? |
+| Service | relay-cloud Worker secrets | Relay |
 |---|---|---|
-| Google | client ID and client secret of the *TVs and Limited Input devices* client | no, by Google's design for this client type |
-| Meta | App ID and Client token | no; the **App secret** is, and is never used |
+| Google | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` (the *Web application* client) | nothing |
+| Meta | `FACEBOOK_APP_ID`, `FACEBOOK_APP_SECRET` | nothing |
 
-They are not confidential, but they stay out of this public repository so they cannot be lifted from it, gitleaks
-has nothing to flag, and they can be replaced without a commit (the same as OBS Studio does for its YouTube app).
+Relay itself carries no app credentials: a release, a fork's build and a copy run from source all sign in through
+relay-cloud. Set or replace a secret from a terminal that is signed in to Cloudflare (`npx wrangler login`), piping
+the value in so it never sits on a command line or in the shell history, for example from Google's downloaded JSON:
 
-- **Google:** the repository's Actions secrets `YOUTUBE_CLIENT_ID` and `YOUTUBE_CLIENT_SECRET`. Before PyInstaller
-  runs, the Release workflow runs `tools/release_tools.py oauth-clients`, which writes them into
-  `app/modules/youtube/_client.py` (git-ignored), and the YouTube module uses that as its built-in app. A build
-  without the secrets (a fork) and a copy run from source, including a headless install made with
-  `tools/install-service.sh`, have no built-in app: the church enters its own under the module's Settings.
-- To set or replace them, pipe each value in so it never sits on a command line:
-  `gh secret set YOUTUBE_CLIENT_ID` (paste, then Ctrl-D), then the same for `YOUTUBE_CLIENT_SECRET`. The next release
-  carries the new values.
+```bash
+python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["web"]["client_secret"],end="")' client_secret_….json | npx wrangler secret put GOOGLE_CLIENT_SECRET --name relay-cloud
+```
+
+Until a service's pair is set, relay-cloud answers its Connect with "not configured" and Relay says its sign-in
+service did not answer.
 
 Never put an App secret, a personal access token, or any refresh or access token in the repository or in an
 issue. gitleaks runs on every push (`tests/run_security.py`).
