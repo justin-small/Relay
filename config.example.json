@@ -4,6 +4,12 @@
   "audio_device": null,
   "audio_source": "portaudio",
   "input_channel": 0,
+  "audio_bus": {
+    "enabled": false,
+    "lanes": [],
+    "outputs": [],
+    "matrix": []
+  },
   "source_language": "ENGLISH",
   "targets": {
     "SPANISH": {

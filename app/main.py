@@ -29,7 +29,7 @@ from jinja2 import ChoiceLoader, FileSystemLoader, PrefixLoader
 from . import alerts as alertsmod
 from . import backup as backupmod
 from . import announce as announcemod
-from . import alerthistory, audit, boards, config, db, exporting, importdocker, languages, netinfo, network_map, netroute, overlays, panelfw, panels, prefs, redact, schedules, serving, setupcode, streamstatus, tally, tls, users
+from . import alerthistory, audiobus, audit, boards, config, db, exporting, importdocker, languages, netinfo, network_map, netroute, overlays, panelfw, panels, prefs, redact, schedules, serving, setupcode, streamstatus, tally, tls, users
 from .alerts import alerts
 from . import engine as engine_mod
 from .engine import TRANSCRIPTION_STREAM, TRANSLATION_STREAM, demo_mode, engine
@@ -234,6 +234,7 @@ AUDIT_ROUTES = {
     "admin_network_test": ("network.test", "Tested a traffic route"),
     "admin_network_forget": ("network.forget", "Forgot a network port"),
     "admin_config": ("settings.change", "Changed settings"),
+    "admin_audiobus_save": ("audio.bus", "Changed the audio bus"),
     "admin_target": ("session.target", "Changed a target language"),
     "admin_start": ("session.start", "Started captions"),
     "admin_stop": ("session.stop", "Stopped captions"),
@@ -348,6 +349,12 @@ async def _startup() -> None:
     # written until a run starts, and only if recording is enabled.
     recorder.configure(config.recordings_path(), cfg["recording"]["keep_runs"])
     engine.bind(asyncio.get_running_loop())
+    if cfg["audio_bus"]["enabled"]:
+        # Opening devices can take a moment, and a device that is not there yet is retried by the bus itself.
+        try:
+            await asyncio.to_thread(audiobus.bus.apply, cfg["audio_bus"])
+        except Exception:
+            log.exception("The audio bus could not start")
     app.state.blocklist_task = asyncio.create_task(_watch_blocklist())
     app.state.alerts_task = asyncio.create_task(_alert_ticks())
     # A change of LAN address (Wi-Fi switch): mint a certificate that names the new address if the current
@@ -465,6 +472,8 @@ async def _shutdown() -> None:
             task.cancel()
     with contextlib.suppress(Exception):
         await engine.stop()
+    with contextlib.suppress(Exception):
+        await asyncio.to_thread(audiobus.bus.stop)
     with contextlib.suppress(Exception):
         await asyncio.to_thread(db.close)
 
@@ -1984,6 +1993,35 @@ async def admin_devices():
         "full_rescan": not live,
         "note": RESCAN_LIVE_NOTE if live else None,
     }
+
+
+@app.get("/api/admin/audiobus", dependencies=[Depends(require("session.view"))])
+async def admin_audiobus():
+    """The 32-lane audio bus (app/audiobus.py): its saved setting, the live state of every lane, input and
+    output, and what can be patched (devices and registered sources and outputs)."""
+    from . import audio as audiomod
+
+    return {
+        "config": config.get()["audio_bus"],
+        "status": audiobus.bus.status(),
+        "lanes": audiobus.LANES,
+        "sources": [{"id": s.id, "label": s.label} for s in audiomod.sources()],
+        "outputs": [{"id": o.id, "label": o.label} for o in audiomod.outputs()],
+        "input_devices": audiomod.list_input_devices(),
+        "output_devices": await asyncio.to_thread(audiomod.list_output_devices),
+    }
+
+
+@app.post("/api/admin/audiobus", dependencies=[Depends(require("audio.manage"))])
+async def admin_audiobus_save(request: Request, payload: dict):
+    """Save the bus setting and apply it. Only what changed is touched: a device or output that is the same as
+    before keeps running."""
+    cfg = config.save({"audio_bus": payload}, replace=("audio_bus",))["audio_bus"]
+    await asyncio.to_thread(audiobus.bus.apply, cfg)
+    audit.note(request, "audio.bus", "Changed the audio bus", detail={
+        "enabled": cfg["enabled"], "lanes": len(cfg["lanes"]), "outputs": len(cfg["outputs"]),
+        "crosspoints": len(cfg["matrix"])})
+    return {"config": cfg, "status": audiobus.bus.status()}
 
 
 @app.get("/api/admin/status", dependencies=[Depends(require("session.view"))])

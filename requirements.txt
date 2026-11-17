@@ -11,7 +11,7 @@ httptools==0.9.0
 jinja2==3.1.6
 orjson==3.13.0
 python-multipart==0.0.31
-sounddevice==0.5.1
+sounddevice==0.5.6
 # Pure Python; lists the machine's network interfaces on Windows, macOS and Linux (app/netinfo.py).
 ifaddr==0.2.0
 numpy==2.5.4
