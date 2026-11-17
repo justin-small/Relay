@@ -1,0 +1,35 @@
+{# The NDI admin page, rendered inside admin.html only while the module is on. #}
+    <h2 class="title">NDI <span class="sumstate" id="ndiSum"></span></h2>
+    <p class="sub">NDI video sources Relay can see on the network: cameras, converters and software. Everything in
+      Relay that uses NDI shares one receiver per source.</p>
+    <div class="note err" id="ndiErr" hidden></div>
+    <div class="note warn" id="ndiNoRuntime" hidden></div>
+
+    <section>
+      <h3>Sources</h3>
+      <div class="ctl"><button type="button" class="primary" id="ndiScan">Scan now</button></div>
+      <p class="note" id="ndiNone">No sources found yet.</p>
+      <div class="tablescroll"><table id="ndiTable" hidden>
+        <thead><tr><th>Source</th><th>Machine</th><th>Size</th><th>Groups</th><th>Address</th><th>Status</th><th>In use</th></tr></thead>
+        <tbody></tbody>
+      </table></div>
+      <div class="note">A source in a custom group only shows if that group is watched below. Size and rate appear
+        while something is receiving the source.</div>
+    </section>
+
+    <section>
+      <h3>Where to look</h3>
+      <div class="row">
+        <div class="field">
+          <label for="ndiGroups">Groups to watch (comma separated; blank shows every group)</label>
+          <input id="ndiGroups" placeholder="BirdDog-Comms" autocomplete="off" spellcheck="false" maxlength="300">
+        </div>
+        <div class="field">
+          <label for="ndiIps">Extra addresses to search (comma separated)</label>
+          <input id="ndiIps" placeholder="192.168.20.5" autocomplete="off" spellcheck="false" maxlength="400">
+        </div>
+      </div>
+      <div class="ctl"><button type="button" class="primary" id="ndiSave">Save</button></div>
+      <div class="note">Multicast does not cross VLANs. Add the address of a machine on another VLAN, or turn on
+        mDNS forwarding in your router, to see its sources. The NDI runtime is installed separately from ndi.video.</div>
+    </section>

@@ -413,6 +413,26 @@ async def board_press(self, item, request) -> dict:   # a press on one of your b
   at most 20 presses per 10 seconds per address. Core writes the `audit.note`s the module makes.
 - While the module is off its widgets stay on boards, drawn as off, and its presses are refused.
 
+## NDI sources, receivers and outputs
+
+The `ndi` module (#294) finds NDI sources and owns every NDI receiver. A module that wants video from an NDI
+source (a viewer, multiview, router) never opens its own receiver and never imports `ndi`; it calls core's
+`app.modules.ndi_sources()`, `ndi_subscribe(source, on_frame)` and `ndi_register_output(name)`, which the module backs
+with hooks set in `attach()` and cleared in `detach()`.
+
+- `ndi_sources()` lists `{name, machine, source, address, port, groups, converter, online, width, height, fps,
+  listeners}`; empty while NDI is off. A source in a custom group is listed only if that group is watched.
+- `ndi_subscribe(source, on_frame)` returns a function that stops listening (or None while NDI is off or the runtime is
+  missing). There is one receiver per source however many subscribe, closed when the last one leaves. `on_frame`
+  gets `{"width", "height", "fps", "fourcc", "data"}` on the receiver's thread and must not block.
+- `ndi_register_output(name)` returns an object with `send(frame)` and `close()`, or None (off, missing runtime, or the
+  name is taken). Used by the NDI output (#299).
+
+Discovery is mDNS (`_ndi._tcp`) plus extra addresses asked directly; a BirdDog converter's `_birddog._tcp` adds what it
+is set to. The NDI runtime and `cyndilib` are installed separately (NDI's licence does not let Relay bundle them,
+`app/modules/ndi/runtime.py`): without them the module says so on its page and stays off. Board widgets: `ndi.summary`,
+`ndi.sources`, `ndi.source`. Discovery Server settings are #295.
+
 ## Recording and presentation hooks
 
 A module that wants a recorder to start, stop, drop a marker or run an action never imports `reaper`. It calls core's

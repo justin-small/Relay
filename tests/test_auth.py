@@ -360,6 +360,7 @@ MIN_ROLE = {
     "alert_events.view": "viewer", "alert_events.manage": "admin",
     "blackmagic.view": "viewer", "blackmagic.control": "operator", "blackmagic.manage": "admin",
     "lighting.view": "viewer", "lighting.control": "operator", "lighting.manage": "admin",
+    "ndi.view": "viewer", "ndi.manage": "admin",
     "obs.view": "viewer", "obs.control": "operator", "obs.manage": "admin",
     "reaper.view": "viewer", "reaper.control": "operator", "reaper.manage": "admin",
     "youtube.view": "viewer", "youtube.publish": "operator", "youtube.manage": "admin",
@@ -391,7 +392,7 @@ print("every /api/admin route")
 config.save({"modules": {"propresenter": {"enabled": True}, "planning_center": {"enabled": True},
                          "remote_access": {"enabled": True}, "signage": {"enabled": True},
                          "signage_web": {"enabled": True}, "alert_events": {"enabled": True},
-                         "blackmagic": {"enabled": True}, "lighting": {"enabled": True}, "obs": {"enabled": True}, "reaper": {"enabled": True}, "youtube": {"enabled": True}, "unifi": {"enabled": True}, "tally_arbiter": {"enabled": True}, "open_sound_meter": {"enabled": True}, "prodmesh_rta": {"enabled": True},
+                         "blackmagic": {"enabled": True}, "lighting": {"enabled": True}, "ndi": {"enabled": True}, "obs": {"enabled": True}, "reaper": {"enabled": True}, "youtube": {"enabled": True}, "unifi": {"enabled": True}, "tally_arbiter": {"enabled": True}, "open_sound_meter": {"enabled": True}, "prodmesh_rta": {"enabled": True},
                          "parent_paging": {"enabled": True}, "intercom": {"enabled": True}, "intercom_remote": {"enabled": True},
                          "crew": {"enabled": True}}})
 
@@ -627,6 +628,9 @@ for method, path, perm in (
     ("POST", "/api/admin/lighting/press", "lighting.control"),          # no cue named: refused
     ("POST", "/api/admin/lighting/release", "lighting.control"),
     ("POST", "/api/admin/lighting/level", "lighting.control"),           # no cue named: refused
+    ("GET", "/api/admin/ndi", "ndi.view"),
+    ("PUT", "/api/admin/ndi/settings", "ndi.manage"),                   # an empty body changes nothing
+    ("POST", "/api/admin/ndi/scan", "ndi.manage"),                      # not running: refused, nothing is sent
     ("GET", "/api/admin/youtube", "youtube.view"),
     ("PUT", "/api/admin/youtube/settings", "youtube.manage"),             # an empty body changes nothing
     ("POST", "/api/admin/youtube/check", "youtube.manage"),               # not connected: nothing is sent
@@ -858,7 +862,7 @@ eq("signed out is 401", anon_c.get("/api/admin/propresenter").status_code, 401)
 config.save({"modules": {"propresenter": {"enabled": False}, "planning_center": {"enabled": False},
                          "remote_access": {"enabled": False}, "signage": {"enabled": False},
                          "signage_web": {"enabled": False}, "alert_events": {"enabled": False},
-                         "blackmagic": {"enabled": False}, "lighting": {"enabled": False}, "obs": {"enabled": False}, "reaper": {"enabled": False}, "youtube": {"enabled": False}, "unifi": {"enabled": False}, "tally_arbiter": {"enabled": False}, "open_sound_meter": {"enabled": False}, "prodmesh_rta": {"enabled": False},
+                         "blackmagic": {"enabled": False}, "lighting": {"enabled": False}, "ndi": {"enabled": False}, "obs": {"enabled": False}, "reaper": {"enabled": False}, "youtube": {"enabled": False}, "unifi": {"enabled": False}, "tally_arbiter": {"enabled": False}, "open_sound_meter": {"enabled": False}, "prodmesh_rta": {"enabled": False},
                          "parent_paging": {"enabled": False}, "intercom": {"enabled": False}, "intercom_remote": {"enabled": False},
                          "crew": {"enabled": False}}})
 eq("a module that is off is still a 404 for everyone", op_c.get("/api/admin/propresenter").status_code, 404)
@@ -1418,6 +1422,7 @@ for mid, want in (("planning_center", {"planning_center.view": "viewer", "planni
                   ("alert_events", {"alert_events.view": "viewer", "alert_events.manage": "admin"}),
                   ("blackmagic", {"blackmagic.view": "viewer", "blackmagic.control": "operator", "blackmagic.manage": "admin"}),
                   ("lighting", {"lighting.view": "viewer", "lighting.control": "operator", "lighting.manage": "admin"}),
+                  ("ndi", {"ndi.view": "viewer", "ndi.manage": "admin"}),
                   ("obs", {"obs.view": "viewer", "obs.control": "operator", "obs.manage": "admin"}),
                   ("reaper", {"reaper.view": "viewer", "reaper.control": "operator", "reaper.manage": "admin"}),
                   ("youtube", {"youtube.view": "viewer", "youtube.publish": "operator", "youtube.manage": "admin"}),

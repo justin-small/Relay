@@ -335,6 +335,34 @@ def announce_presentation(name: str) -> None:
             logging.getLogger("relay.modules").exception("presentation listener failed")
 
 
+# The NDI module sets this in attach() and clears it in detach() (#294): a dict of the functions other modules use,
+# `sources() -> list[dict]`, `subscribe(source, on_frame) -> unsubscribe()` and `register_output(name) -> output`.
+# Callers use `ndi_sources`, `ndi_subscribe` and `ndi_register_output`, never the module.
+ndi_hooks: dict[str, Callable[..., Any]] = {}
+
+
+def ndi_sources() -> list[dict]:
+    """The NDI sources found on the network: name, machine, source, address, groups, online, width, height, fps.
+    Empty while the NDI module is off."""
+    fn = ndi_hooks.get("sources")
+    return fn() if fn else []
+
+
+def ndi_subscribe(source: str, on_frame: Callable[[dict], None]) -> Callable[[], None] | None:
+    """Receive the frames of an NDI source through the module's shared receiver (one per source, however many
+    listeners). `on_frame` gets {"width", "height", "fps", "fourcc", "data"} on the receiver's thread and must not
+    block. Returns the function that stops listening, or None while NDI is off or the runtime is missing."""
+    fn = ndi_hooks.get("subscribe")
+    return fn(source, on_frame) if fn else None
+
+
+def ndi_register_output(name: str) -> Any:
+    """Register an NDI output called `name` (#299). Returns an object with `send(frame)` and `close()`, or None while
+    NDI is off or the runtime is missing."""
+    fn = ndi_hooks.get("register_output")
+    return fn(name) if fn else None
+
+
 # A module that serves a page on /screen sets an entry here in attach() and removes it in detach(): the query
 # parameter that asks for it ("lighting" for /screen?lighting=<page>) -> an async (request) -> response, or None to
 # let /screen carry on. Core never names a module; it only asks (#379).
