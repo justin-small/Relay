@@ -1,5 +1,6 @@
 /*
- * The shared UI helpers (#461): can, api, client, el, say and confirm, against a small stand-in for the browser.
+ * The shared UI helpers (#461, #463): can, api, client, el, say, confirm and the control builders, against a small
+ * stand-in for the browser.
  *
  * Run: node --test tests/js/
  */
@@ -13,6 +14,8 @@ class Node_ {
   constructor(tag) { this.tagName = tag; this.childNodes = []; this.className = ""; this.hidden = false; this._text = ""; }
   get nodeType() { return 1; }
   appendChild(n) { this.childNodes.push(n); return n; }
+  addEventListener(type, fn) { (this.listeners ||= {})[type] = fn; }
+  closest(sel) { return this.panel && sel === "[role=tabpanel]" ? this.panel : null; }
   get textContent() { return this._text + this.childNodes.map((c) => c.textContent).join(""); }
   set textContent(v) { this._text = String(v); this.childNodes = []; }
   get classList() {
@@ -149,5 +152,79 @@ describe("confirm", () => {
     assert.equal(await ui.confirm("yes?"), true);
     assert.equal(await ui.confirm("no?"), false);
     assert.deepEqual(asked, ["yes?", "no?"]);
+  });
+});
+
+describe("button", () => {
+  it("is a type=button with the class and a plain click listener", () => {
+    const { ui } = load();
+    let n = 0;
+    const b = ui.button("Save", () => { n++; }, "primary sm");
+    assert.equal(b.type, "button");
+    assert.equal(b.className, "primary sm");
+    assert.equal(b.textContent, "Save");
+    b.listeners.click();
+    assert.equal(n, 1);
+  });
+  it("with an error line, clears it, waits for the work and shows what it threw", async () => {
+    const { ui } = load();
+    const said = [];
+    const b = ui.buttons((t) => said.push(t))("Go", async () => { assert.equal(b.disabled, true); throw new Error("Nope."); }, "danger");
+    assert.equal(b.className, "danger");
+    await b.onclick();
+    assert.deepEqual(said, ["", "Nope."]);
+    assert.equal(b.disabled, false);
+  });
+});
+
+describe("field, pill, link, kv", () => {
+  it("joins a label to its control", () => {
+    const { ui } = load();
+    const input = new Node_("input");
+    const f = ui.field("Name", input, "nm");
+    assert.equal(f.className, "field");
+    assert.equal(input.id, "nm");
+    assert.equal(f.childNodes[0].htmlFor, "nm");
+  });
+  it("draws a pill with its dot", () => {
+    const p = load().ui.pill("Live", "on");
+    assert.equal(p.className, "spill on");
+    assert.equal(p.childNodes[0].className, "dot");
+    assert.equal(p.textContent, "Live");
+  });
+  it("opens a link in a new tab without handing the page over", () => {
+    const a = load().ui.link("Docs", "https://example.com/");
+    assert.equal(a.target, "_blank");
+    assert.equal(a.rel, "noopener noreferrer");
+  });
+  it("adds a term only when it has a value", () => {
+    const { ui } = load();
+    const dl = new Node_("dl");
+    ui.kv(dl, "Code", "ABCD");
+    ui.kv(dl, "Empty", "");
+    assert.equal(dl.childNodes.length, 2);
+  });
+});
+
+describe("note and shown", () => {
+  it("shows an error line and hides it when empty", () => {
+    const { ui, byId } = load();
+    byId.e = new Node_("div"); byId.e.className = "note err";
+    const show = ui.note("e");
+    show("Broken.");
+    assert.equal(byId.e.hidden, false);
+    assert.equal(byId.e.className, "note err");
+    show("");
+    assert.equal(byId.e.hidden, true);
+  });
+  it("is false while the tab panel is closed or the page is behind", () => {
+    const { ui, win } = load();
+    win.document.visibilityState = "visible";
+    const n = new Node_("div"); n.panel = { hidden: false };
+    assert.equal(ui.shown(n), true);
+    n.panel.hidden = true;
+    assert.equal(ui.shown(n), false);
+    n.panel.hidden = false; win.document.visibilityState = "hidden";
+    assert.equal(ui.shown(n), false);
   });
 });

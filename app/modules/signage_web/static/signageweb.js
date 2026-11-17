@@ -13,17 +13,16 @@
 
   function row(link, manage) {
     const d = document.createElement('div');
-    d.className = 'row';
-    d.style.cssText = 'align-items:center;gap:12px;padding:8px 0;border-top:1px solid var(--line, #8883)';
+    d.className = 'lrow';
     const info = document.createElement('div');
-    info.style.cssText = 'flex:1;min-width:0';
+    info.className = 'grow';
     const name = document.createElement('div');
     name.textContent = link.name;
-    name.style.fontWeight = '600';
+    name.className = 'strong';
     const meta = document.createElement('div');
     meta.className = 'note';
     meta.textContent = KIND[link.kind] + ' · ' + link.url;
-    meta.style.cssText = 'overflow:hidden;text-overflow:ellipsis;white-space:nowrap';
+    meta.classList.add('ellip');
     const c = link.check || {};
     const state = document.createElement('div');
     state.className = 'note ' + (c.state === 'ok' ? 'ok' : (c.state === 'blocked' || c.state === 'gone' ? 'err' : ''));

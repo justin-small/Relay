@@ -1550,6 +1550,7 @@ def admin_page(request: Request, pw: str = ""):
         "me": _me_payload(request, got),
         "module_nav": module_registry.admin_nav(got),
         "module_scripts": module_registry.admin_scripts(got),
+        "module_styles": module_registry.admin_styles(got),
         "look": prefs.shell_view(prefs.scope_prefs(got.id) if got.id else {}),
     }, headers=_NO_STORE)
 

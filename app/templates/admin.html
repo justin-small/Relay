@@ -2,7 +2,7 @@
 {% set look = look|default({}) %}
 <html lang="en" data-theme="{{ 'dark' if look.get('ui_mode', 'dark') == 'system' else look.get('ui_mode', 'dark') }}" data-mode="{{ look.get('ui_mode', 'dark') }}" data-preset="{{ look.get('ui_preset', 'relay') }}" data-sb="{{ look.get('ui_sidebar', 'inset') }}" data-collapse="{{ look.get('ui_collapse', 'icon') }}" data-layout="{{ look.get('ui_layout', 'centered') }}" data-navbar="{{ look.get('ui_navbar', 'sticky') }}" data-font="{{ look.get('ui_font', 'system') }}"{% if look.get('ui_collapsed') %} class="cl"{% endif %}><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Relay &middot; Operator</title>{% include "_brand_head.html" %}<link rel="stylesheet" href="{{ static('viewer.css') }}"><link rel="stylesheet" href="{{ static('tokens.css') }}"><link rel="stylesheet" href="{{ static('admin.css') }}"><link rel="stylesheet" href="{{ static('layout.css') }}">
+<title>Relay &middot; Operator</title>{% include "_brand_head.html" %}<link rel="stylesheet" href="{{ static('viewer.css') }}"><link rel="stylesheet" href="{{ static('tokens.css') }}"><link rel="stylesheet" href="{{ static('components.css') }}"><link rel="stylesheet" href="{{ static('admin.css') }}"><link rel="stylesheet" href="{{ static('layout.css') }}">{% for style in module_styles %}<link rel="stylesheet" href="{{ static('modules/' ~ style) }}">{% endfor %}
 <script>
 /* Before first paint: "system" follows the device, and the chosen font applies (both are allow-listed words). */
 (function () {
@@ -173,7 +173,7 @@ window.relayCan = function (perm) { return window.RELAY_ME.permissions.indexOf(p
       <div class="pill" style="margin-top:9px"><span class="dot" id="mtDot"></span><span id="mtState">Off</span></div>
       <div class="meterread" id="mtRead" style="margin-top:6px">—</div>
       <canvas id="mtRta" width="620" height="140" style="width:100%;max-width:620px;height:140px;margin-top:8px" role="img" aria-label="Spectrum in third-octave bands"></canvas>
-      <canvas id="mtWf" width="300" height="31" style="width:100%;max-width:620px;height:140px;margin-top:8px;image-rendering:pixelated;background:#000" role="img" aria-label="Spectrogram: time runs left to right, low frequencies at the bottom"></canvas>
+      <canvas id="mtWf" width="300" height="31" style="width:100%;max-width:620px;height:140px;margin-top:8px;image-rendering:pixelated;background:var(--video-bg)" role="img" aria-label="Spectrogram: time runs left to right, low frequencies at the bottom"></canvas>
       <div class="note" id="mtNote"></div>
     </section>
     <section>

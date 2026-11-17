@@ -29,6 +29,7 @@ class Lighting(Module):
         id="lighting", title="Lighting", template="lighting.html", group="Output",
         icon='<circle cx="8" cy="6" r="3"/><path d="M6.5 10.5h3M7 13h2"/>'),)
     admin_scripts = ("lighting.js",)
+    admin_styles = ("lighting.css",)
     route_prefixes = ("/api/admin/lighting", "/lighting")
     permissions = (
         Permission("lighting.view", "See the lighting cue pages", "Lighting", "viewer"),

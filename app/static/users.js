@@ -19,14 +19,7 @@
     return A.api(path, opts);
   }
 
-  function field(label, control, id) {
-    const f = el('div', 'field');
-    const l = el('label', '', label);
-    if (id) { control.id = id; l.htmlFor = id; }
-    f.appendChild(l);
-    f.appendChild(control);
-    return f;
-  }
+  const field = relayUI.field;
 
   function input(type, max) {
     const i = el('input');

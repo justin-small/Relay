@@ -23,6 +23,14 @@ Shared UI helpers come from `app/static/relay-ui.js` (`window.relayUI`: `can`, `
 enforces this, and its baseline of older copies (`tests/ui_contract_baseline.txt`) may only shrink. See
 "Shared helpers for module scripts" in `docs/modules.md`.
 
+## Shared styles come from components.css and tokens.css (enforced)
+
+Operator and module pages use the components in `app/static/components.css` and the tokens in `app/static/tokens.css`;
+no literal sizes or colours, no `<style>` in module templates and no CSS written from a script. A module's styles go
+in its `static/*.css`, listed in `admin_styles` or `crew_styles`. `tests/test_style_contract.py` enforces this, and its
+baseline (`tests/style_contract_baseline.txt`) may only go down; `tests/test_browser.py` checks the drawn sizes. See
+"Shared styles for module pages" in `docs/modules.md` and the exceptions in `docs/ui-audit/standardization-spec.md`.
+
 ## Run the whole suite before every push
 
 CI runs every `tests/test_*.py` plus `tests/smoke_test.py` on three platforms, and a new route, setting or module

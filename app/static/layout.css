@@ -4,7 +4,7 @@
 .rl-cell{position:relative;display:flex;min-width:0;min-height:0}
 .rl-w{flex:1;min-width:0;min-height:0;box-sizing:border-box;container-type:size;display:flex;flex-direction:column;overflow:hidden;
   padding:clamp(6px,1vw,14px) clamp(8px,1.2vw,16px);position:relative;user-select:none;-webkit-user-select:none;border-radius:14px;text-align:left;
-  font-family:var(--font,system-ui,sans-serif)}
+  font-family:var(--font,var(--font))}
 .rl-w[data-shape=rect]{border-radius:0}
 .rl-w[data-shape=pill]{border-radius:999px;padding-inline:clamp(14px,2vw,28px)}
 .rl-w[data-shape=circle]{border-radius:50%;flex:none;height:100%;aspect-ratio:1;margin:auto;max-width:100%}
@@ -31,7 +31,7 @@
 
 /* ---------- the editor ---------- */
 .rl-ed{--rl-line:var(--border,#27272a);--rl-acc:var(--primary,#4ade80);--rl-card:var(--card,#111113);--rl-bg:var(--bg,#09090b);--rl-fg:var(--fg,#fafafa);--rl-mut:var(--muted,#a1a1aa);
-  position:relative;display:flex;flex-direction:column;color:var(--rl-fg);font-family:var(--font,system-ui,sans-serif)}
+  position:relative;display:flex;flex-direction:column;color:var(--rl-fg);font-family:var(--font,var(--font))}
 .rl-tools{display:flex;gap:6px;align-items:center;flex-wrap:wrap;padding:8px;background:var(--rl-card);border-bottom:1px solid var(--rl-line)}
 .rl-tools[hidden],.rl-hint[hidden],.rl-msg[hidden]{display:none}
 .rl-name{font-weight:600;padding:0 6px}
@@ -85,7 +85,7 @@
 
 /* ---------- the settings dialog ---------- */
 .rl-dlg{--rl-line:var(--border,#27272a);--rl-acc:var(--primary,#4ade80);--rl-bg:var(--bg,#09090b);--rl-mut:var(--muted,#a1a1aa);
-  background:var(--card,#111113);color:var(--fg,#fafafa);border:1px solid var(--rl-line);border-radius:14px;padding:0;width:min(580px,94vw);font-family:var(--font,system-ui,sans-serif)}
+  background:var(--card,#111113);color:var(--fg,#fafafa);border:1px solid var(--rl-line);border-radius:14px;padding:0;width:min(580px,94vw);font-family:var(--font,var(--font))}
 .rl-dlg::backdrop{background:rgba(0,0,0,.65)}
 .rl-dh{display:flex;align-items:center;gap:8px;padding:14px 16px;border-bottom:1px solid var(--rl-line)}
 .rl-dtabs{display:flex;gap:4px;padding:8px 16px 0}

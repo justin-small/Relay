@@ -43,7 +43,9 @@ test-results.xml
 unifi-test.env
 
 # UI audit findings, screenshots and demo harness (local only)
-docs/ui-audit/
+docs/ui-audit/*
+# The shared-style exceptions (#463) are committed; the rest of the audit stays local.
+!docs/ui-audit/standardization-spec.md
 
 # Mixing console snapshots and site mockups (local only)
 board configs/

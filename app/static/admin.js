@@ -1589,14 +1589,7 @@
     renderPanels();
   }
 
-  function field(label, control, id) {
-    const f = el('div', 'field');
-    const l = el('label', '', label);
-    if (id) { control.id = id; l.htmlFor = id; }
-    f.appendChild(l);
-    f.appendChild(control);
-    return f;
-  }
+  const field = relayUI.field;
 
   function radioRow(name, options, value, onchange) {
     const wrap = el('div', 'radios');
@@ -2430,7 +2423,7 @@
       const y = function (v) { return c.height - 4 - Math.max(0, Math.min(1, (v - lo) / (hi - lo))) * (c.height - 8); };
       g.strokeStyle = getComputedStyle(document.body).color; g.globalAlpha = 0.5; g.lineWidth = 1;
       g.beginPath(); pts.forEach(function (p, i) { i ? g.lineTo(x(i), y(p.m)) : g.moveTo(x(i), y(p.m)); }); g.stroke();
-      g.globalAlpha = 1; g.strokeStyle = '#22c55e'; g.lineWidth = 2;
+      g.globalAlpha = 1; g.strokeStyle = getComputedStyle(document.documentElement).getPropertyValue('--ok').trim(); g.lineWidth = 2;
       g.beginPath(); pts.forEach(function (p, i) { const v = typeof p.s === 'number' ? p.s : p.m; i ? g.lineTo(x(i), y(v)) : g.moveTo(x(i), y(v)); }); g.stroke();
     }
     $('mrShow').addEventListener('click', async function () {

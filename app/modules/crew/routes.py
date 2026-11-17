@@ -79,6 +79,7 @@ async def crew_page(request: Request):
         "app_name": s["name"], "show_plan": s["show_plan"], "user": got, "crew_role": role,
         "tools": registry.user_nav(got), "tabs": registry.crew_nav(got),
         "module_scripts": registry.crew_scripts(got),
+        "module_styles": registry.crew_styles(got),
     }, headers=NO_STORE)
 
 

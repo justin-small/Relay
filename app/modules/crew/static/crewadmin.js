@@ -55,7 +55,7 @@
     if (!res.ok) { msg(data.detail || data.error || 'That did not work.'); return null; }
     msg(''); return data;
   }
-  function button(label, fn) { const b = document.createElement('button'); b.type = 'button'; b.textContent = label; b.addEventListener('click', fn); return b; }
+  const button = relayUI.button;
   function drawPeople(data) {
     const manage = can('crew.manage'), body = document.querySelector('#crPeople tbody');
     $('crScan').hidden = !manage || !data.planning_center;

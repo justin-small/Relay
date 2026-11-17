@@ -21,11 +21,7 @@
     return out;
   }
   const el = relayUI.el;
-  function button(text, fn, cls) {
-    const b = el('button', cls || '', text); b.type = 'button';
-    b.onclick = async function () { showError(''); b.disabled = true; try { await fn(); } catch (e) { showError(e.message); } b.disabled = false; };
-    return b;
-  }
+  const button = relayUI.buttons(showError);
 
   function render() {
     const rows = $('bdRows'); rows.textContent = '';

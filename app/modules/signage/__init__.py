@@ -37,6 +37,7 @@ class Signage(Module):
         id="signage", title="Signage", template="admin.html", group="Output",
         icon='<rect x="1.5" y="2.5" width="13" height="9" rx="1"/><path d="M5.5 14h5M8 11.5V14"/>'),)
     admin_scripts = ("signage.js", "player.js")
+    admin_styles = ("signage.css",)
     route_prefixes = ("/signage", "/api/admin/signage")
     listeners = (Listener(name="screens", label="signage screens", port_setting="port", default_port=DEFAULT_PORT,
                           prefixes=("/signage",)),)

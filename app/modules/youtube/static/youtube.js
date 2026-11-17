@@ -5,26 +5,6 @@
   const R = window.RelayAdmin;
   if (!R || !document.getElementById('page-youtube')) return;
   const $ = R.$;
-  (function () {
-    const s = document.createElement('style');
-    s.textContent = [
-      '#page-youtube a{color:var(--fg)}',
-      '#page-youtube .ytcards{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:12px;align-items:start;margin-bottom:12px}',
-      '@media (max-width:900px){#page-youtube .ytcards{grid-template-columns:minmax(0,1fr)}}',
-      '#page-youtube .pcard .phead .spill{padding:3px 9px;font-size:11px}',
-      '#page-youtube .spill .dot{border-radius:50%;display:inline-block}',
-      '#page-youtube .spill:not(.on) .dot{background:var(--dim)}',
-      '#page-youtube .spill.idle{color:var(--dim)}',
-      '#page-youtube .spill.warn{color:#fcd34d;border-color:#5b4a14}',
-      '#page-youtube .spill.warn .dot{background:#fcd34d}',
-      '#page-youtube .ytbc + .ytbc{margin-top:12px;padding-top:12px;border-top:1px solid var(--line)}',
-      '#page-youtube .ytbc h4{margin:10px 0 0;font-size:13px;font-weight:600;overflow-wrap:anywhere}',
-      '#page-youtube details.sect{margin-top:12px}',
-      '#page-youtube .ytrow{display:flex;flex-wrap:wrap;gap:12px}',
-      '#page-youtube .ytrow .field{flex:1 1 220px}',
-    ].join('');
-    document.head.appendChild(s);
-  })();
 
   const canManage = window.relayCan('youtube.manage');
   const STATE = { live: 'Live', testing: 'Testing', liveStarting: 'Starting', testStarting: 'Starting test', ready: 'Ready', created: 'Created', complete: 'Ended' };
@@ -34,17 +14,9 @@
   let formShown = false;
 
   const el = relayUI.el;
-  function showError(text) { $('ytErr').textContent = text || ''; $('ytErr').hidden = !text; }
-  function pill(text, cls) {
-    const p = el('span', 'spill ' + cls);
-    p.appendChild(el('span', 'dot'));
-    p.appendChild(document.createTextNode(text));
-    return p;
-  }
-  function link(text, href) {
-    const a = el('a', '', text); a.href = href; a.target = '_blank'; a.rel = 'noopener noreferrer';
-    return a;
-  }
+  const showError = relayUI.note('ytErr');
+  const pill = relayUI.pill;
+  const link = relayUI.link;
   function since(t) {
     if (!t) return '';
     const s = Math.max(0, Math.floor(Date.now() / 1000 - t));

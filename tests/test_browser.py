@@ -21,6 +21,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from _harness import check, done, eq, section, skip, tmpdir  # noqa: E402
+from _style_probe import EXEMPT, PROBE  # noqa: E402
 
 try:
     from playwright.sync_api import Error as PlaywrightError, sync_playwright
@@ -221,6 +222,25 @@ try:
                     eq(f"{label} #{name}: no script or console error", (seen["errors"], seen["console"]), ([], []))
                 check(f"{label}: the page does not scroll sideways", page.evaluate(
                     "() => document.documentElement.scrollWidth <= innerWidth"))
+                octx.close()
+
+        # Shared styles (#463): on every page the Owner can open, in each preset, the buttons, fields and text are
+        # drawn at the sizes of the token scale (tests/_style_probe.py lists what is left out and why).
+        for preset, theme in (("relay", "dark"), ("softpop", "light"), ("tangerine", "dark"), ("brutalist", "light")):
+            with section(f"shared styles: {preset} {theme}"):
+                octx, page, seen = owner_page()
+                page.evaluate("l => { document.documentElement.dataset.preset = l[0]; document.documentElement.dataset.theme = l[1]; }",
+                              [preset, theme])
+                for name in page.eval_on_selector_all("nav a[data-page]", "as => as.map(a => a.dataset.page)"):
+                    page.evaluate("n => { location.hash = n }", name)
+                    page.wait_for_timeout(250)
+                    eq(f"{preset} #{name}: controls and text on the token scale", page.evaluate(PROBE, EXEMPT), [])
+                for path in ("/home", "/admin/flash"):
+                    p2 = octx.new_page()
+                    p2.goto(BASE + path, wait_until="load")
+                    p2.wait_for_timeout(300)
+                    eq(f"{preset} {path}: controls and text on the token scale", p2.evaluate(PROBE, EXEMPT), [])
+                    p2.close()
                 octx.close()
 
         with section("shell: phone width"):

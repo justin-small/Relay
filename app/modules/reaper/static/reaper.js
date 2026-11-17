@@ -5,30 +5,6 @@
   const R = window.RelayAdmin;
   if (!R || !document.getElementById('page-reaper')) return;
   const $ = R.$;
-  (function () {
-    const s = document.createElement('style');
-    s.textContent = [
-      '#page-reaper .rpcards{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:12px;align-items:start}',
-      '@media (max-width:900px){#page-reaper .rpcards{grid-template-columns:minmax(0,1fr)}}',
-      '#page-reaper .pcard h4{margin:0 0 8px;font-size:13px;font-weight:600}',
-      '#page-reaper .pcard .phead .spill{padding:3px 9px;font-size:11px}',
-      '#page-reaper .spill .dot{border-radius:50%;display:inline-block;background:var(--dim)}',
-      '#page-reaper .spill.idle{color:var(--dim)}',
-      '#page-reaper .rpbtns{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px;align-items:center}',
-      '#page-reaper .rpbtns input{width:auto;flex:1 1 140px;min-width:0}',
-      '#page-reaper .rptrack{display:grid;grid-template-columns:minmax(0,120px) minmax(40px,1fr) auto auto;gap:8px;align-items:center;margin:4px 0}',
-      '#page-reaper .rptrack .rpname{font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
-      '#page-reaper .rpmeter{height:8px;background:#1d1f24;border-radius:4px;overflow:hidden}',
-      '#page-reaper .rpmeter i{display:block;height:100%;background:var(--ok)}',
-      '#page-reaper .rptrack button{width:auto;padding:3px 10px;font-size:12px;min-width:64px}',
-      '#page-reaper .rptrack button.on{background:var(--err);color:#fff}',
-      '#page-reaper .rpmachine > h3 .count{font-weight:400;font-size:13px;color:var(--dim);margin-left:6px}',
-      '#page-reaper details.sect{margin-top:12px}',
-      '#page-reaper details.sect h4{font-size:13px;font-weight:600;margin:18px 0 8px}',
-      '#page-reaper .rpprobs{margin:8px 0 0;padding-left:18px}',
-    ].join('');
-    document.head.appendChild(s);
-  })();
   const can = relayUI.can;
   function showError(text) { $('rpErr').textContent = text || ''; $('rpErr').hidden = !text; }
   let data = null;
@@ -39,23 +15,8 @@
 
   const send = relayUI.api;
   const el = relayUI.el;
-  function button(text, fn, cls) {
-    const b = el('button', cls, text);
-    b.type = 'button';
-    b.onclick = async function () {
-      showError(''); b.disabled = true;
-      try { await fn(); } catch (e) { showError(e.message); }
-      b.disabled = false;
-    };
-    return b;
-  }
-  function field(label, control) {
-    const f = el('div', 'field');
-    const l = el('label', '', label);
-    if (control.id) l.htmlFor = control.id;
-    f.appendChild(l); f.appendChild(control);
-    return f;
-  }
+  const button = relayUI.buttons(showError);
+  const field = relayUI.field;
   let uid = 0;
   function input(m, key, attrs) {
     const i = el('input');
@@ -90,12 +51,7 @@
     const h = Math.floor(s / 3600), m = Math.floor(s / 60) % 60, x = s % 60;
     return (h ? h + ':' + String(m).padStart(2, '0') : m) + ':' + String(x).padStart(2, '0');
   }
-  function pill(text, cls) {
-    const p = el('span', 'spill ' + cls);
-    p.appendChild(el('span', 'dot'));
-    p.appendChild(document.createTextNode(text));
-    return p;
-  }
+  const pill = relayUI.pill;
   function live(id) { return (((data && data.machines) || []).filter(function (x) { return x.id === id; })[0] || {}).state; }
   function act(path, body) { return send('POST', '/api/admin/reaper/' + path, body).then(refresh); }
 

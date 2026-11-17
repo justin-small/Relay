@@ -55,7 +55,7 @@
       const shown = it.actual || it.projected || it.planned;
       tr.appendChild(el('td', 'mono', clock(it.planned, zone)));
       const at = el('td', 'mono', clock(shown, zone) + (it.state === 'current' ? ' ▶' : ''));
-      if (shown && it.planned && shown - it.planned >= 60) at.style.color = 'var(--warn, #fbbf24)';
+      if (shown && it.planned && shown - it.planned >= 60) at.style.color = 'var(--warn)';
       tr.appendChild(at);
       tr.appendChild(el('td', '', it.title + (it.song && it.song.key ? '  (' + it.song.key + ')' : '')));
       tr.appendChild(el('td', '', it.song ? it.song.leader : ''));

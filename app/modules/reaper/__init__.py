@@ -49,6 +49,7 @@ class Reaper(Module):
         id="reaper", title="REAPER", template="reaper.html", group="Output",
         icon='<circle cx="8" cy="8" r="5.5"/><circle cx="8" cy="8" r="2.5" fill="currentColor"/>'),)
     admin_scripts = ("reaper.js",)
+    admin_styles = ("reaper.css",)
     route_prefixes = ("/api/admin/reaper",)
     permissions = (
         Permission("reaper.view", "See whether REAPER is recording, its tracks and alarms", "REAPER", "viewer"),

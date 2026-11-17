@@ -1,0 +1,165 @@
+/* The one definition of each shared control (#463): buttons, fields, badges and pills, tabs, tables, notes,
+   cards, the switch. Built on tokens.css only. Loaded by the operator panel, the sign-in and tool pages, the crew
+   page and the module pages that draw controls. A module's stylesheet places these controls; it does not redraw
+   them. tests/test_style_contract.py stops literal sizes and colours coming back. */
+button,input,select,textarea{font-family:inherit}
+:focus-visible{outline:none;box-shadow:var(--focus-ring)}
+::selection{background:color-mix(in srgb,var(--primary) 30%,transparent);color:inherit}
+
+/* ---------- buttons: regular 34px, .sm 28px, icon 32px ---------- */
+button,.btn,.btnlink{display:inline-block;min-height:var(--ctl-h);padding:6px 13px;
+  font:inherit;font-size:var(--fs-base);line-height:20px;font-weight:500;border-radius:var(--r-ctl);border:1px solid var(--border);
+  background:var(--card);color:var(--fg);cursor:pointer;text-decoration:none;
+  transition:background-color .15s,color .15s,border-color .15s,transform .1s}
+button:hover,.btn:hover,.btnlink:hover{background:var(--hover);color:var(--hover-fg)}
+button:active{transform:translateY(1px)}
+/* Primary: the preset's colour, ringed in the text colour so it reads on every preset (Justin, #463 option B). */
+button.primary,.btn.primary{background:var(--primary);border-color:var(--fg);color:var(--primary-fg)}
+button.primary:hover,.btn.primary:hover{background:color-mix(in srgb,var(--primary) 90%,var(--fg));color:var(--primary-fg)}
+button.danger,.btn.danger{background:var(--danger);border-color:var(--danger);color:var(--danger-fg)}
+button.danger:hover,.btn.danger:hover{background:var(--danger-hover);border-color:var(--danger-hover);color:var(--danger-fg)}
+button.quiet,.btn.quiet{background:none;border-color:transparent;color:var(--muted)}
+button.quiet:hover,.btn.quiet:hover{background:var(--hover);color:var(--hover-fg)}
+button.sm,.btn.sm,.btnlink.sm{min-height:var(--ctl-h-sm);padding:3px 10px;font-size:var(--fs-sm)}
+button.icon,.btn.icon{min-height:var(--ctl-h-icon);width:var(--ctl-h-icon);padding:0}
+/* A button drawn as a link or a card, not a control. */
+button.link{min-height:0;padding:0;border:0;background:none;color:var(--muted);font-weight:400;text-decoration:underline}
+button.link:hover{background:none;color:var(--fg)}
+button:disabled,.btn[aria-disabled=true]{opacity:.45;cursor:not-allowed;transform:none}
+
+/* ---------- fields: one height per size ---------- */
+label{display:block;font-size:var(--fs-sm);font-weight:500;color:var(--muted);margin:0 0 5px}
+input,select,textarea{width:100%;padding:6px 10px;font:inherit;font-size:var(--fs-base);line-height:20px;border-radius:var(--r-ctl);
+  border:1px solid var(--border);background:var(--bg);color:var(--fg)}
+input,select{min-height:var(--ctl-h)}
+select{height:var(--ctl-h)}
+input.sm,select.sm{min-height:var(--ctl-h-sm);height:var(--ctl-h-sm);padding:3px 8px;font-size:var(--fs-sm)}
+textarea{resize:vertical;line-height:1.5;font-family:var(--mono);font-size:var(--fs-md)}
+textarea.prose{font-family:inherit;font-size:var(--fs-base)}
+input[type=range],.rng input{accent-color:var(--primary);padding:0;min-height:0;border:0;background:none}
+input[type=checkbox],input[type=radio]{width:auto;min-height:0;accent-color:var(--primary)}
+input[type=color]{width:52px;height:var(--ctl-h);padding:3px}
+input[type=file]{min-height:0;padding:4px}
+.row{display:flex;gap:10px;flex-wrap:wrap}.row>*{flex:1 1 200px;min-width:0}
+.row>button,.row>.btn{flex:0 1 auto;align-self:flex-end}
+.field{margin-bottom:12px}
+.ctl{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+
+/* ---------- text ---------- */
+.muted{color:var(--muted)}.err{color:var(--err)}.ok{color:var(--ok)}.warn{color:var(--warn)}
+.note{font-size:var(--fs-sm);color:var(--muted);margin-top:8px;line-height:1.5}
+.note.warn{color:var(--warn)}.note.err{color:var(--err)}
+.mono{font-family:var(--mono);font-size:var(--fs-sm)}
+small{font-size:var(--fs-xs)}
+code,kbd{font-family:var(--mono)}
+
+/* ---------- badges and pills ---------- */
+.badge{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--border);border-radius:var(--r-pill);padding:1px 9px;font-size:var(--fs-xs);font-weight:600}
+.badge.ok{color:var(--ok);border-color:color-mix(in srgb,var(--ok) 35%,transparent)}
+.badge.warn{color:var(--warn);border-color:color-mix(in srgb,var(--warn) 35%,transparent)}
+.badge.err{color:var(--err);border-color:color-mix(in srgb,var(--err) 35%,transparent)}
+.badge.info{color:var(--info);border-color:color-mix(in srgb,var(--info) 35%,transparent)}
+.badge.muted{color:var(--muted)}
+.pill,.spill{display:inline-flex;align-items:center;gap:7px;border:1px solid var(--border);border-radius:var(--r-pill);padding:3px 11px;font-size:var(--fs-sm);font-weight:600;background:var(--card);white-space:nowrap;color:inherit;text-decoration:none}
+.pill.ok,.spill.on{color:var(--ok);border-color:color-mix(in srgb,var(--ok) 40%,var(--border))}
+.pill.warn{color:var(--warn);border-color:color-mix(in srgb,var(--warn) 40%,var(--border))}
+.pill.err{color:var(--err);border-color:color-mix(in srgb,var(--err) 40%,var(--border))}
+.pill.off,.spill.off{color:var(--muted)}
+.dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--faint);flex:none}
+.dot.ok,.spill.on .dot,.pill.ok .dot{background:var(--ok)}
+.dot.warn,.pill.warn .dot{background:var(--warn)}.dot.err,.spill.off.err .dot,.pill.err .dot{background:var(--err)}
+.spill.on .dot{animation:ping 2s ease-out infinite}
+@keyframes ping{0%{box-shadow:0 0 0 0 color-mix(in srgb,var(--ok) 40%,transparent)}100%{box-shadow:0 0 0 8px transparent}}
+@keyframes pulse{50%{opacity:.3}}
+.rolepill{display:inline-block;font-size:var(--fs-sm);padding:1px 8px;border:1px solid var(--border);border-radius:var(--r-pill);color:var(--muted)}
+
+/* ---------- cards ---------- */
+main section,details.sect,.pcard,.userform,.card{background:var(--card);border:1px solid var(--border);border-radius:var(--r);box-shadow:var(--shadow)}
+main section,details.sect{padding:16px 18px;margin:0 0 14px}
+main section:hover,details.sect:hover{border-color:color-mix(in srgb,var(--primary) 35%,var(--border))}
+main section h3,main form.formsec h3{font-size:var(--fs-base);color:var(--fg);font-weight:600;margin:0 0 12px}
+main form.formsec{background:var(--card);border:1px solid var(--border);border-radius:var(--r);box-shadow:var(--shadow);padding:16px 18px;margin:0 0 14px}
+details.sect>summary{font-size:var(--fs-base);font-weight:600;color:var(--fg);letter-spacing:0;text-transform:none;margin:0;cursor:pointer;list-style:none;display:flex;align-items:center;gap:8px}
+details.sect>summary::-webkit-details-marker{display:none}
+details.sect>summary::before{content:"";flex:0 0 auto;width:0;height:0;border-left:5px solid var(--muted);border-top:4px solid transparent;border-bottom:4px solid transparent;transition:transform .12s ease}
+details.sect[open]>summary::before{transform:rotate(90deg)}
+details.sect[open]>summary{margin-bottom:13px}
+details.sect>summary .sumstate{text-transform:none;letter-spacing:0;font-size:var(--fs-sm);font-weight:500;color:var(--muted)}
+details.sect>summary .sumstate .live{color:var(--ok)}
+
+/* ---------- switch: 36x20, thumb slides 150ms, on = --primary ---------- */
+.switch{position:relative;display:inline-block;width:36px;height:20px;flex:0 0 auto}
+.switch input{opacity:0;width:0;height:0;min-height:0}
+.slider{position:absolute;inset:0;background:color-mix(in srgb,var(--fg) 25%,var(--bg));border-radius:var(--r-pill);transition:background-color .15s;cursor:pointer}
+.slider:before{content:"";position:absolute;height:16px;width:16px;left:2px;top:2px;background:var(--knob);border-radius:50%;transition:left .15s ease-out}
+.switch input:checked+.slider{background:var(--primary)}
+.switch input:checked+.slider:before{left:18px}
+.switch input:focus-visible+.slider{box-shadow:var(--focus-ring)}
+
+/* ---------- tabs: a pill group 34px tall; the chosen one sits on the card surface ----------
+   Mark the chosen tab with aria-selected=true (role=tab) or .on. */
+.tabs,.ovtabs{display:inline-flex;flex-wrap:wrap;background:color-mix(in srgb,var(--fg) 8%,var(--bg));border-radius:var(--r-ctl);padding:3px;margin:0 0 14px;gap:0;border:0}
+.tabs button,.ovtabs button{min-height:var(--ctl-h-sm);background:none;border:0;color:var(--muted);padding:4px 13px;border-radius:var(--r-ctl);font-size:var(--fs-base)}
+.tabs button:hover,.ovtabs button:hover{background:none;color:var(--fg)}
+.tabs button.on,.ovtabs button.on,.tabs [aria-selected=true]{background:var(--card);color:var(--fg);font-weight:600;box-shadow:var(--shadow-tab)}
+.seg{display:flex;border:1px solid var(--border);border-radius:var(--r-ctl);overflow:hidden}
+.seg button{flex:1;min-height:var(--ctl-h-icon);white-space:nowrap;border:0;border-radius:0;background:var(--bg);color:var(--muted);padding:6px;font-size:var(--fs-md)}
+.seg button+button{border-left:1px solid var(--border)}
+.seg button.on,.seg button[aria-pressed=true]{background:var(--hover);color:var(--hover-fg)}
+
+/* ---------- tables: .tbl (and the plain table in a panel page) ---------- */
+table,.tbl{width:100%;border-collapse:collapse}
+td,th{text-align:left;padding:10px 8px;border-bottom:1px solid var(--border);font-size:var(--fs-md);vertical-align:middle}
+th{color:var(--muted);font-weight:500;font-size:var(--fs-sm);text-transform:none;letter-spacing:0}
+tbody tr:hover{background:color-mix(in srgb,var(--fg) 3%,transparent)}
+tr:last-child td{border-bottom:0}
+.tbl.top td{vertical-align:top}
+.tbl small{display:block;color:var(--muted);font-size:var(--fs-xs);margin-top:2px}
+.tablescroll{overflow-x:auto;-webkit-overflow-scrolling:touch;position:relative}
+.dtbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:12px}
+.dt th{padding:12px 8px;font-weight:400;white-space:nowrap}
+.dt td{border-color:color-mix(in srgb,var(--border) 60%,transparent)}
+.sort{background:none;border:0;color:inherit;font:inherit;cursor:pointer;display:inline-flex;align-items:center;gap:4px;padding:0;min-height:0;border-radius:var(--r-sm)}
+.sort:hover{background:none;color:var(--fg)}
+th[aria-sort=ascending] .sort,th[aria-sort=descending] .sort{color:var(--fg);font-weight:600}
+.pg{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-top:12px;color:var(--muted);font-size:var(--fs-md)}
+.pg[hidden]{display:none}
+.pgn{display:flex;gap:4px;align-items:center}
+.pgn button{min-width:var(--ctl-h-icon);min-height:var(--ctl-h-icon);height:var(--ctl-h-icon);padding:0 8px;border:1px solid transparent;background:none;color:var(--fg)}
+.pgn button:hover{background:var(--hover);color:var(--hover-fg)}
+.pgn button.cur{border-color:var(--border)}
+.pgn button:disabled{opacity:.4;pointer-events:none}
+
+/* ---------- inline notices ---------- */
+.notice{border:1px solid var(--border);border-radius:var(--r-ctl);padding:10px 12px;margin:0 0 14px;font-size:var(--fs-md);background:var(--inset)}
+.notice.warn{border-color:var(--warn)}.notice.err{border-color:var(--err)}.notice.ok{border-color:var(--ok)}.notice.info{border-color:var(--info)}
+.notice p{margin:4px 0}
+.meter{height:11px;border-radius:var(--r-ctl);background:var(--hover);position:relative;overflow:hidden}
+.meter>i{background:var(--ok)}
+
+/* ---------- status pills in a card head (module pages) ---------- */
+.pcard h4{font-size:var(--fs-md);font-weight:600}
+.pcard .phead .spill{padding:3px 9px;font-size:var(--fs-xs)}
+.spill .dot{border-radius:50%;display:inline-block}
+.spill:not(.on) .dot:not(.ok):not(.warn):not(.err){background:var(--dim)}
+.spill.idle{color:var(--dim)}
+.spill.warn{color:var(--warn);border-color:color-mix(in srgb,var(--warn) 40%,var(--border))}
+.spill.warn .dot{background:var(--warn)}
+.spill.err{color:var(--err);border-color:color-mix(in srgb,var(--err) 40%,var(--border))}
+.spill.err .dot{background:var(--err)}
+
+/* ---------- the Connect card for an OAuth sign-in (oauth.js) ---------- */
+.oauthcard .oauthcode{font:600 var(--fs-3xl)/1.2 var(--mono);letter-spacing:.12em;margin:8px 0;user-select:all}
+.oauthcard .oauthsteps{margin:10px 0 0}
+.oauthcard a{color:var(--fg)}
+.oauthcard a.btn{color:var(--primary-fg)}
+
+/* ---------- list rows a script builds (one item per row, divided by a line) ---------- */
+.lrow{display:flex;align-items:center;gap:12px;padding:8px 0;border-top:1px solid var(--border)}
+.lrow.stack{display:block;padding:10px 0}
+.lrow.tight{gap:8px;justify-content:space-between;padding:4px 0;border-top:0}
+.grow{flex:1;min-width:0}
+.strong{font-weight:600}
+.ellip{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.swatch{display:inline-block;width:12px;height:12px;border-radius:50%;background:var(--faint)}
+.qrbox{width:120px;height:120px;background:var(--qr-bg)}
