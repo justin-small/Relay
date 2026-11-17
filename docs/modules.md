@@ -431,7 +431,20 @@ with hooks set in `attach()` and cleared in `detach()`.
 Discovery is mDNS (`_ndi._tcp`) plus extra addresses asked directly; a BirdDog converter's `_birddog._tcp` adds what it
 is set to. The NDI runtime and `cyndilib` are installed separately (NDI's licence does not let Relay bundle them,
 `app/modules/ndi/runtime.py`): without them the module says so on its page and stays off. Board widgets: `ndi.summary`,
-`ndi.sources`, `ndi.source`. Discovery servers (#295) are set on its page and written to an NDI config in Relay's state folder; see `docs/ndi-discovery-server.md`.
+`ndi.sources`, `ndi.source`, `ndi.view`. Discovery servers (#295) are set on its page and written to an NDI config in Relay's state folder; see `docs/ndi-discovery-server.md`.
+
+**The single-source viewer** (#296, `app/modules/ndi/viewer.py`): `/ndi/view/<source>` plays one source in a browser as
+MJPEG (`/ndi/stream/<source>`), on the HTTPS operator port only (`panel_prefixes`) and behind `ndi.view`, so it stays on
+the LAN. A source is a **feed**: one lease on the shared pool, one JPEG encode at most `view_fps` times a second (Pillow),
+sent to every browser watching it; nothing is encoded with no viewer, and the lease is given back with the last one.
+`view_fps` (1-30, 15), `view_quality` (20-90, 60), `view_width` (320-1920, 1280) and `view_max` (1-8, 4 sources at once;
+the next is a 503) are settings. A source with a camera number in `tally` (source name -> number) gets a red or green
+border from core's tally state (`app/tally.py`, filled by the ATEM, OBS and Tally Arbiter modules, which NDI lists in
+`uses`). The audio meter reads a peak level the receiver sends alongside video (`audio_db`, in `runtime.py`; written
+from cyndilib's documentation and **not proved on real NDI**: if the audio frame reads differently, the meter stays
+empty and the picture is unaffected). WebRTC would add lower latency and audio; it is not built. The `ndi.view` board
+widget is a tile drawn by core's `frame` kind (`{"image": "/path", "tally", "note"}`): it shows only for people signed in
+on the operator port, since it reads the same stream.
 
 ## Recording and presentation hooks
 

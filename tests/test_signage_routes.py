@@ -179,6 +179,30 @@ async def stream_scenario():
         routes.asyncio, routes.HEARTBEAT_S = real_asyncio, real_beat
 
 
+with section("board widgets (#156)"):
+    from app.modules import signage as sg_pkg
+    mod = sg_pkg.MODULE
+    wd = {w["type"]: w for w in mod.board_widgets()}
+    eq("two widgets", sorted(wd), ["signage.return", "signage.takeovers"])
+    eq("the button needs signage.manage", wd["signage.return"]["press_permission"], "signage.manage")
+    eq("the list is a list", wd["signage.takeovers"]["kind"], "list")
+    items = [{"id": "t", "type": "signage.takeovers"}, {"id": "b", "type": "signage.return"}]
+    d = asyncio.run(mod.board_data(items))
+    eq("idle: say so", d["t"]["rows"], [{"text": "Every screen is playing its playlist"}])
+    eq("idle: the button is not lit", d["b"]["lit"], False)
+    admin.put("/api/admin/signage/takeover", json={"kind": "live", "target": "screen", "target_id": scr["id"], "view": "captions"})
+    d = asyncio.run(mod.board_data(items))
+    check("a takeover is listed with its screen", d["t"]["rows"][0]["text"].startswith("Lobby: "))
+    eq("and the button lights", d["b"]["lit"], True)
+
+    class Req:
+        class state:
+            audit = None
+
+    eq("a wrong item is refused", asyncio.run(mod.board_press({"type": "signage.takeovers"}, Req()))["ok"], False)
+    eq("pressing returns screens to their playlists", asyncio.run(mod.board_press({"type": "signage.return"}, Req())), {"ok": True})
+    eq("nothing is taken over now", asyncio.run(mod.board_data(items))["b"]["lit"], False)
+
 with section("a screen's event stream"):
     asyncio.run(stream_scenario())
     eq("an unknown screen has no stream", public.get("/signage/_/events/nope").status_code, 404)

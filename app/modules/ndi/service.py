@@ -19,7 +19,7 @@ import time
 from typing import Any, Callable
 
 from ... import config
-from . import discovery, runtime
+from . import discovery, runtime, viewer
 
 log = logging.getLogger("relay.ndi")
 
@@ -31,7 +31,12 @@ GONE_AFTER = 2           # scans without an answer before a source shows as offl
 _GROUP = re.compile(r"[A-Za-z0-9 _.\-]{1,40}")
 _HOST = re.compile(r"[A-Za-z0-9]([A-Za-z0-9.\-]{0,251}[A-Za-z0-9])?")
 MAX_SERVERS = 4
+MAX_TALLY = 64
+AUDIO_FRESH_S = 2.0      # an audio level older than this is "no audio"
 SERVER_PORT = 5959       # NDI Discovery Service's port
+# The viewer's limits (#296): key -> (lowest, highest, default).
+VIEW_LIMITS = {"view_fps": (1, 30, 15), "view_quality": (20, 90, 60), "view_width": (320, 1920, 1280),
+               "view_max": (1, 8, 4)}
 
 
 def clean_ip(value: Any) -> str:
@@ -80,7 +85,18 @@ def clean_settings(raw: Any) -> dict:
         if sv and sv not in servers:
             servers.append(sv)
     mdns = raw.get("mdns") if isinstance(raw.get("mdns"), bool) else True
-    return {"servers": servers[:MAX_SERVERS], "mdns": mdns, "extra_ips": ips[:MAX_EXTRA], "groups": groups[:MAX_GROUPS], "interval": max(MIN_INTERVAL, min(MAX_INTERVAL, iv))}
+    out = {"servers": servers[:MAX_SERVERS], "mdns": mdns, "extra_ips": ips[:MAX_EXTRA], "groups": groups[:MAX_GROUPS], "interval": max(MIN_INTERVAL, min(MAX_INTERVAL, iv))}
+    for key, (lo, hi, default) in VIEW_LIMITS.items():
+        v = raw.get(key)
+        out[key] = max(lo, min(hi, v)) if isinstance(v, int) and not isinstance(v, bool) else default
+    tally: dict[str, int] = {}
+    if isinstance(raw.get("tally"), dict):
+        for name, n in raw["tally"].items():
+            if isinstance(name, str) and name and len(name) <= 160 and isinstance(n, int) and not isinstance(n, bool) \
+                    and 1 <= n <= 999 and len(tally) < MAX_TALLY:
+                tally[name] = n
+    out["tally"] = tally
+    return out
 
 
 def check_servers(servers: list[str]) -> list[dict]:
@@ -126,10 +142,12 @@ class _Entry:
 
 
 class Pool:
-    def __init__(self, on_info: Callable[[str, dict], None], on_change: Callable[[], None]) -> None:
+    def __init__(self, on_info: Callable[[str, dict], None], on_change: Callable[[], None],
+                 on_audio: Callable[[str, float], None] | None = None) -> None:
         self._entries: dict[str, _Entry] = {}
         self._lock = threading.Lock()
         self._on_info, self._on_change = on_info, on_change
+        self._on_audio = on_audio
         self.address_of: Callable[[str], str] = lambda s: ""
 
     def acquire(self, source: str, cb: Callable[[dict], None]) -> Lease | None:
@@ -174,6 +192,10 @@ class Pool:
                 frame = conn.receive(500)
                 if not frame:
                     continue
+                if "data" not in frame:      # an audio level, not a picture: nobody but the viewer's meter wants it
+                    if self._on_audio is not None and isinstance(frame.get("audio_db"), (int, float)):
+                        self._on_audio(e.source, float(frame["audio_db"]))
+                    continue
                 self._on_info(e.source, {"width": frame.get("width", 0), "height": frame.get("height", 0),
                                          "fps": frame.get("fps", 0)})
                 with self._lock:
@@ -213,7 +235,9 @@ class Service:
         self.version = 0
         self._seen: dict[str, dict] = {}      # source name -> record (with "missed", "width", "height", "fps")
         self._task: asyncio.Task | None = None
-        self.pool = Pool(self._info, self._bump)
+        self._audio: dict[str, tuple[float, float]] = {}   # source -> (peak dBFS, when)
+        self.pool = Pool(self._info, self._bump, self._level)
+        self.viewers = viewer.Viewers(self.hook_subscribe, self.settings)
         self.pool.address_of = lambda s: self._seen.get(s, {}).get("address", "")
         self.outputs: dict[str, Any] = {}
         self.error = ""
@@ -266,6 +290,14 @@ class Service:
             if fut in self._waiters:
                 self._waiters.remove(fut)
 
+    def _level(self, source: str, db: float) -> None:
+        self._audio[source] = (db, time.monotonic())
+
+    def audio_level(self, source: str) -> float | None:
+        """The source's latest audio peak in dBFS, or None when it has sent none lately."""
+        got = self._audio.get(source)
+        return got[0] if got and time.monotonic() - got[1] < AUDIO_FRESH_S else None
+
     def _info(self, source: str, info: dict) -> None:
         rec = self._seen.get(source)
         if rec is not None and any(rec.get(k) != info[k] for k in info):
@@ -294,7 +326,9 @@ class Service:
             except (asyncio.CancelledError, Exception):
                 pass
             self._task = None
+        await asyncio.to_thread(self.viewers.close_all)
         await asyncio.to_thread(self.pool.close_all)
+        self._audio.clear()
         for o in list(self.outputs.values()):
             o.close()
         self.outputs.clear()

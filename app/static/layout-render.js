@@ -126,6 +126,15 @@
     list: function (w, it, s) {
       w.appendChild(head(s, it.title));
       const c = el('div', 'rl-list'); w.appendChild(c); w._rl.list = c;
+    },
+    // A live picture from a module: data {"image": "/path"} is a motion JPEG or a still on this site, {"tally":
+    // "program" | "preview" | ""} puts a red or green border round it, {"note"} is a line over its corner.
+    frame: function (w, it) {
+      w.classList.add('rl-frame');
+      const i = document.createElement('img'); i.alt = it.title || ''; i.hidden = true;
+      i.onerror = function () { i.removeAttribute('data-src'); };   // the next data tick starts it again
+      const n = el('div', 'rl-fnote');
+      w.appendChild(i); w.appendChild(n); w._rl.frame = { i: i, n: n };
     }
   };
 
@@ -153,6 +162,17 @@
     if (w._rl.list && Array.isArray(d.rows)) {
       w._rl.list.textContent = '';
       d.rows.slice(0, 12).forEach(function (r) { w._rl.list.appendChild(el('div', r && r.current ? 'rl-cur' : '', String(r && r.text || ''))); });
+    }
+    if (w._rl.frame) {
+      const f = w._rl.frame;
+      if (typeof d.image === 'string') {
+        const ok = d.image.charAt(0) === '/' && d.image.charAt(1) !== '/';   // this site only, never another address
+        if (ok && f.i.getAttribute('data-src') !== d.image) { f.i.setAttribute('data-src', d.image); f.i.src = d.image; }
+        f.i.hidden = !ok;
+        if (!ok) { f.i.removeAttribute('data-src'); f.i.removeAttribute('src'); }
+      }
+      if (typeof d.note === 'string') f.n.textContent = d.note;
+      if (typeof d.tally === 'string') w.dataset.tally = d.tally;
     }
     if (d.sound !== undefined) {
       if (w._rl.spl) paintSpl(w, d.sound);

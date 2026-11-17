@@ -115,6 +115,54 @@ class Signage(Module):
                 log.exception("signage housekeeping failed")
             await asyncio.sleep(PRUNE_EVERY_S)
 
+    # ------------------------------------------------------------------ boards (#156)
+    def board_widgets(self) -> list[dict]:
+        return [
+            {"type": "signage.takeovers", "name": "Signage takeovers", "group": "Signage", "kind": "list", "w": 4,
+             "h": 2, "style": {"icon": "play", "label": "Signage"},
+             "fields": [{"key": "_", "type": "note", "label": "Which signage screens or groups are showing an alert "
+                         "push, a pushed picture or video, or a live view instead of their playlist."}]},
+            {"type": "signage.return", "name": "Return signage to playlist", "group": "Signage", "kind": "button",
+             "w": 3, "h": 1, "style": {"icon": "arrow", "label": "Return to playlist", "bg": "#1e3a8a", "pressed": "#3b5bdb"},
+             "press_permission": "signage.manage",
+             "fields": [{"key": "_", "type": "note", "label": "Ends every takeover. Lit while something is taken over."}]},
+        ]
+
+    async def board_data(self, items: list[dict]) -> dict[str, dict]:
+        from ... import db
+        from . import store, takeover
+
+        def look() -> tuple[list[dict], dict, dict]:
+            return (takeover.rows(), {s["id"]: s["name"] for s in store.screens()},
+                    {g["id"]: g["name"] for g in store.groups()})
+
+        try:
+            taken, screens, groups = await asyncio.to_thread(look)
+        except db.Unavailable:
+            taken, screens, groups = [], {}, {}
+        out: dict[str, dict] = {}
+        for it in items:
+            if it.get("type") == "signage.takeovers":
+                rows = [{"text": f"{_where(r, screens, groups)}: {r['label']}", "current": True} for r in taken]
+                out[it["id"]] = {"rows": rows or [{"text": "Every screen is playing its playlist"}]}
+            elif it.get("type") == "signage.return":
+                out[it["id"]] = {"lit": bool(taken)}
+        return out
+
+    async def board_press(self, item: dict, request) -> dict:
+        from ... import audit, db
+        from . import takeover
+
+        if item.get("type") != "signage.return":
+            return {"ok": False, "error": "That button is off."}
+        try:
+            n = await asyncio.to_thread(takeover.clear_all)
+        except db.Unavailable:
+            return {"ok": False, "error": "Signage could not reach its database."}
+        audit.note(request, "signage.takeover_clear_all", "Returned every signage screen to its playlist from a board",
+                   detail={"cleared": n})
+        return {"ok": True}
+
     def health(self) -> Health:
         from ... import serving
         from ... import config
@@ -128,6 +176,15 @@ class Signage(Module):
         if bound != port:
             return Health("warn", f"Screens are on port {bound}; restart Relay to move them to {port}")
         return Health("ok", f"Screens on port {bound}")
+
+
+def _where(r: dict, screens: dict, groups: dict) -> str:
+    """Which screens a takeover row covers, as words."""
+    if r["target"] == "all":
+        return "All screens"
+    if r["target"] == "group":
+        return "Group " + str(groups.get(r["target_id"], "(gone)"))
+    return str(screens.get(r["target_id"], "(gone)"))
 
 
 MODULE = Signage()
