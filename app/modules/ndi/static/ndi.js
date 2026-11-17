@@ -64,6 +64,7 @@
       $('ndiTally').value = Object.keys(s.settings.tally || {}).map(function (k) { return k + ' = ' + s.settings.tally[k]; }).join('\n');
     }
     $('ndiTally').disabled = $('ndiViewSave').disabled = !can('ndi.manage');
+    drawMvList(s);
     $('ndiServers').disabled = $('ndiMdns').disabled = !can('ndi.manage');
     $('ndiScan').disabled = !s.running || !can('ndi.manage');
     $('ndiSave').disabled = !can('ndi.manage');
@@ -100,5 +101,83 @@
         view_width: +$('ndiWidth').value, view_max: +$('ndiMax').value, tally: tally }));
     } catch (e) { showError(e.message); }
   };
+  // ---- multiviews (#297)
+  const LAYOUTS = { '2x2': [4, '2 x 2'], '3x3': [9, '3 x 3'], '4x4': [16, '4 x 4'], '1+5': [6, '1 big, 5 small'], '1+7': [8, '1 big, 7 small'] };
+  let mvs = [], cur = -1, lastSources = [];
+  function el(tag, text, attrs) {
+    const e = document.createElement(tag); if (text) e.textContent = text;
+    Object.keys(attrs || {}).forEach(function (k) { e[k] = attrs[k]; }); return e;
+  }
+  function drawMvList(s) {
+    lastSources = s.sources;
+    if ($('ndiMvEdit').hidden) mvs = JSON.parse(JSON.stringify(s.settings.multiviews || []));
+    const list = $('ndiMvList'); list.textContent = '';
+    mvs.forEach(function (m, i) {
+      const row = el('p', ''); row.className = 'note';
+      const a = el('a', m.name, { href: '/ndi/multiview/' + encodeURIComponent(m.id), target: '_blank', rel: 'noopener' });
+      row.appendChild(a); row.appendChild(document.createTextNode(' (' + (LAYOUTS[m.layout] || ['', m.layout])[1] + ') '));
+      const b = el('button', 'Edit', { type: 'button' }); b.onclick = function () { openMv(i); }; row.appendChild(b);
+      list.appendChild(row);
+    });
+    $('ndiMvNew').disabled = !can('ndi.manage');
+  }
+  function boxRow(i, b) {
+    const tr = el('tr'); tr.dataset.i = i;
+    tr.appendChild(el('td', String(i + 1)));
+    const kind = el('select'); [['empty', 'Nothing'], ['source', 'NDI source'], ['clock', 'Clock'], ['timer', 'Countdown']].forEach(function (k) { kind.appendChild(el('option', k[1], { value: k[0] })); });
+    kind.value = b.kind; kind.className = 'mvKind';
+    const td = el('td'); td.appendChild(kind); tr.appendChild(td);
+    const what = el('td'); what.className = 'mvWhat';
+    const src = el('select'); src.className = 'mvSrc'; src.appendChild(el('option', 'Choose a source', { value: '' }));
+    const names = lastSources.map(function (x) { return x.name; }); if (b.source && names.indexOf(b.source) < 0) names.push(b.source);
+    names.forEach(function (n) { src.appendChild(el('option', n, { value: n })); }); src.value = b.source;
+    const mode = el('select'); mode.className = 'mvMode'; [['time', 'Time of day'], ['service', 'Next service']].forEach(function (k) { mode.appendChild(el('option', k[1], { value: k[0] })); }); mode.value = b.mode;
+    const at = el('input', '', { type: 'time', value: b.at }); at.className = 'mvAt';
+    what.appendChild(src); what.appendChild(mode); what.appendChild(at); tr.appendChild(what);
+    const lab = el('input', '', { value: b.label, maxLength: 40 }); lab.className = 'mvLabel';
+    const t3 = el('td'); t3.appendChild(lab); tr.appendChild(t3);
+    const meter = el('input', '', { type: 'checkbox', checked: !!b.meter }); meter.className = 'mvMeter';
+    const t4 = el('td'); t4.appendChild(meter); tr.appendChild(t4);
+    const sync = function () {
+      src.hidden = kind.value !== 'source'; meter.hidden = kind.value !== 'source';
+      mode.hidden = at.hidden = kind.value !== 'timer'; at.hidden = kind.value !== 'timer' || mode.value !== 'time';
+      lab.hidden = kind.value === 'empty';
+    };
+    kind.onchange = mode.onchange = sync; sync();
+    return tr;
+  }
+  function openMv(i) {
+    cur = i; const m = mvs[i];
+    $('ndiMvEdit').hidden = false; $('ndiMvName').value = m.name;
+    const sel = $('ndiMvLayout'); sel.textContent = '';
+    Object.keys(LAYOUTS).forEach(function (k) { sel.appendChild(el('option', LAYOUTS[k][1], { value: k })); });
+    sel.value = m.layout; sel.onchange = function () { m.boxes = readBoxes(sel.value); paintBoxes(m.boxes, sel.value); };
+    paintBoxes(m.boxes, m.layout);
+    $('ndiMvDelete').hidden = !m.id;
+  }
+  function paintBoxes(boxes, layout) {
+    const body = $('ndiMvBoxes'); body.textContent = '';
+    for (let i = 0; i < LAYOUTS[layout][0]; i++) body.appendChild(boxRow(i, boxes[i] || { kind: 'empty', source: '', label: '', meter: false, mode: 'time', at: '10:30' }));
+  }
+  function readBoxes() {
+    return Array.prototype.map.call($('ndiMvBoxes').children, function (tr) {
+      const q = function (c) { return tr.querySelector(c); };
+      return { kind: q('.mvKind').value, source: q('.mvSrc').value, label: q('.mvLabel').value, meter: q('.mvMeter').checked, mode: q('.mvMode').value, at: q('.mvAt').value || '10:30' };
+    });
+  }
+  async function saveMvs(list) {
+    showError('');
+    try { const s = await send('PUT', '/api/admin/ndi/settings', { multiviews: list }); cur = -1; $('ndiMvEdit').hidden = true; draw(s); }
+    catch (e) { showError(e.message); }
+  }
+  $('ndiMvNew').onclick = function () {
+    mvs.push({ id: '', name: 'Multiview ' + (mvs.length + 1), layout: '2x2', boxes: [] }); openMv(mvs.length - 1);
+  };
+  $('ndiMvSave').onclick = function () {
+    const m = mvs[cur]; if (!m) return;
+    m.name = $('ndiMvName').value; m.layout = $('ndiMvLayout').value; m.boxes = readBoxes();
+    saveMvs(mvs);
+  };
+  $('ndiMvDelete').onclick = function () { mvs.splice(cur, 1); saveMvs(mvs); };
   poll();
 })();

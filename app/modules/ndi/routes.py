@@ -8,7 +8,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, Response, StreamingRes
 
 from ... import audit, config
 from .. import require
-from . import viewer
+from . import multiview, viewer
 from .service import KEY, VIEW_LIMITS, clean_ip, clean_server, clean_settings, service
 
 router = APIRouter()
@@ -60,7 +60,9 @@ async def admin_settings(request: Request, payload: dict):
         if not isinstance(t, dict) or any(not isinstance(n, int) or isinstance(n, bool) or not 1 <= n <= 999
                                           for n in t.values()):
             return _bad("A camera number is a whole number from 1 to 999.")
-    keys = ("servers", "mdns", "extra_ips", "groups", "interval", "tally", *VIEW_LIMITS)
+    if "multiviews" in payload and not isinstance(payload["multiviews"], list):
+        return _bad("Multiviews are a list.")
+    keys = ("servers", "mdns", "extra_ips", "groups", "interval", "tally", "multiviews", *VIEW_LIMITS)
     new = clean_settings({**cur, **{k: payload[k] for k in keys if k in payload}})
     if not new["mdns"] and not new["servers"] and not new["extra_ips"]:
         return _bad("With multicast DNS off, add a discovery server or an extra address, or nothing can be found.")
@@ -125,3 +127,35 @@ async def view_level(source: str):
         return JSONResponse({"error": "That NDI source is not available."}, status_code=404)
     return JSONResponse({"db": service.audio_level(source), "width": src["width"], "height": src["height"],
                          "fps": src["fps"]}, headers=NO_STORE)
+
+
+# ------------------------------------------------------------------------------------------------ multiview (#297)
+@router.get("/ndi/multiview/{mid}", response_class=HTMLResponse)
+async def multiview_page(mid: str, request: Request):
+    from .. import page_gate, templates
+
+    got = await asyncio.to_thread(page_gate, request, "ndi.view")
+    if isinstance(got, Response):
+        return got
+    mv = service.multiviews.get(mid)
+    if not service.running or mv is None:
+        return HTMLResponse("That multiview is not available.", status_code=404, headers=NO_STORE)
+    return templates.TemplateResponse(request, "ndi/multiview.html", {"data": {"id": mv["id"], "title": mv["name"]}},
+                                      headers=NO_STORE)
+
+
+@router.get("/ndi/multiview/{mid}/stream", dependencies=VIEW)
+async def multiview_stream(mid: str):
+    comp = await asyncio.to_thread(service.multiviews.open, mid) if service.running else None
+    if comp is None:
+        return JSONResponse({"error": "That multiview is not available."}, status_code=404)
+
+    async def body():
+        try:
+            async for part in viewer.mjpeg(comp):
+                yield part
+        finally:
+            await asyncio.to_thread(service.multiviews.close, comp)
+
+    return StreamingResponse(body(), media_type=f"multipart/x-mixed-replace; boundary={viewer.BOUNDARY}",
+                             headers={**NO_STORE, "X-Accel-Buffering": "no"})

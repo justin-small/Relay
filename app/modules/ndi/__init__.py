@@ -27,7 +27,7 @@ class Ndi(Module):
         uses=("blackmagic", "obs", "tally_arbiter"),     # their tally state gives the viewer its on-air border
     )
     defaults = {"servers": [], "mdns": True, "extra_ips": [], "groups": [], "interval": 15, "view_fps": 15,
-                "view_quality": 60, "view_width": 1280, "view_max": 4, "tally": {}}
+                "view_quality": 60, "view_width": 1280, "view_max": 4, "tally": {}, "multiviews": []}
     admin_pages = (AdminPage(
         id="ndi", title="NDI", template="ndi.html", group="Output",
         icon='<rect x="2" y="4" width="12" height="8" rx="1"/><path d="M5 7v2.5M5 7l2 2.5V7M10 7h1.5M10 9.5h1.5"/>'),)

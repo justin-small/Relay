@@ -255,6 +255,10 @@ class Module:
         """A /stream response for a stream this module owns, or None if `name` is not one of its own."""
         return None
 
+    def service_starts_at(self) -> float | None:
+        """When the next service starts, as a Unix time, or None when this module does not know one."""
+        return None
+
     def plan_label(self) -> str | None:
         """Today's plan as a short title ("Sunday Service 9:00 AM") for modules that follow a plan, "" when there
         is none today, and None when this module has no plans at all. Other modules ask through the registry."""
@@ -455,6 +459,17 @@ class Registry:
         for mod in self.active():
             try:
                 got = mod.plan_label()
+            except Exception:
+                got = None
+            if got is not None:
+                return got
+        return None
+
+    def service_starts_at(self) -> float | None:
+        """The next service start from the first switched-on module that knows one (Planning Center)."""
+        for mod in self.active():
+            try:
+                got = mod.service_starts_at()
             except Exception:
                 got = None
             if got is not None:
