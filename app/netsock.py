@@ -23,6 +23,7 @@ import asyncio
 import contextlib
 import http.client
 import ipaddress
+import json
 import logging
 import socket
 import ssl
@@ -328,14 +329,22 @@ def urlopen(route: Resolved | str, request: urllib.request.Request | str, *, tim
 
 
 def fetch(route: Resolved | str, url: str, *, form: dict | None = None, headers: dict | None = None,
-          timeout: float = 15.0, limit: int = 1_000_000) -> tuple[int, bytes]:
-    """One HTTP request through the route: a POST of `form` (url-encoded) when given, else a GET. Returns the status
-    and at most `limit` bytes of the body, for an error status too (an OAuth server answers 400 with JSON). A
-    connection that fails raises OSError (RouteError when the route is the cause). Blocking: run it in a thread."""
-    data = urllib.parse.urlencode(form).encode("ascii") if form is not None else None
-    req = urllib.request.Request(url, data=data, headers=dict(headers or {}), method="POST" if data is not None else "GET")
+          timeout: float = 15.0, limit: int = 1_000_000, json_body: Any = None,
+          method: str | None = None) -> tuple[int, bytes]:
+    """One HTTP request through the route: a POST of `form` (url-encoded) or of `json_body` when given, else a GET;
+    `method` overrides the verb (PUT, DELETE). Returns the status and at most `limit` bytes of the body, for an error
+    status too (an OAuth server answers 400 with JSON). A connection that fails raises OSError (RouteError when the
+    route is the cause). Blocking: run it in a thread."""
+    if json_body is not None:
+        data: bytes | None = json.dumps(json_body).encode("utf-8")
+        kind = "application/json"
+    else:
+        data = urllib.parse.urlencode(form).encode("ascii") if form is not None else None
+        kind = "application/x-www-form-urlencoded"
+    verb = method or ("POST" if data is not None else "GET")
+    req = urllib.request.Request(url, data=data, headers=dict(headers or {}), method=verb)
     if data is not None:
-        req.add_header("Content-Type", "application/x-www-form-urlencoded")
+        req.add_header("Content-Type", kind)
     req.add_header("Accept", "application/json")
     try:
         with urlopen(route, req, timeout=timeout) as resp:

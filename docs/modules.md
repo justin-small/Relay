@@ -615,6 +615,14 @@ so it waits `live_s` (60 s) while it or any other entry in the stream status is 
 and stops asking until after midnight Pacific when the quota is used up. Health: warn when the sign-in is refused or
 the channel cannot be read, ok while live, idle otherwise. Broadcast titles go in `detail` only.
 
+**Scheduled streams and Planning Center Publishing** (`app/modules/youtube/schedule.py`, #411): the YouTube module
+`uses` Planning Center. Its planner lists upcoming broadcasts every 30 minutes (only while a schedule or a linked
+episode is set up), creates and binds one broadcast per service (weekly rules and followed service types' plans,
+remembered under `created` so none is made twice), and writes the matching broadcast's watch link into each linked
+Publishing episode's times through the Planning Center client (`channels`, `episodes`, `set_episode_video`). Creating
+needs a scope that can write: `youtube.force-ssl` through relay-cloud, `youtube` with a church's own device-flow app.
+Refusals are looked up in `schedule.WORDS`, never an exception's text.
+
 **Scenes from another module.** A module that wants to switch a video scene (a ProPresenter slide tag) never imports
 `obs`: it calls core's `app.modules.switch_scene(name, source="...")`, which the OBS module backs with `scene_hook`,
 set in `attach()` and cleared in `detach()`. Every connected OBS computer that has a scene of that name (any case)

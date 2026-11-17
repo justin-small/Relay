@@ -1,11 +1,15 @@
 """YouTube admin routes (#252). Mounted by the module registry, so each answers 404 while the module is off."""
 from __future__ import annotations
 
+import asyncio
+import re
+
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse
 
 from ... import audit, config, oauth
 from .. import require
+from .schedule import NO_PC, Problem, clean_links, clean_schedule, pc_client, planner, stored, words
 from .service import ACCOUNT, KEY, clean_settings, service, settings
 
 router = APIRouter()
@@ -53,3 +57,113 @@ async def admin_check() -> dict:
     """Check now (costs quota, so only for the people who set it up)."""
     await service.check()
     return service.snapshot()
+
+
+# ---------------------------------------------------------------- scheduled streams and Publishing links (#411)
+PUBLISH = require("youtube.publish")
+
+
+def _problem(text: str, status: int = 400) -> JSONResponse:
+    return JSONResponse({"error": text}, status_code=status)
+
+
+@router.get("/api/admin/youtube/schedule", dependencies=[Depends(VIEW)])
+async def schedule_state() -> dict:
+    return planner.snapshot()
+
+
+@router.put("/api/admin/youtube/schedule", dependencies=[Depends(MANAGE)])
+async def schedule_save(request: Request, payload: dict):
+    """The schedule's settings: on, privacy, stream key, title, days ahead, plan service types and weekly rules."""
+    cur = stored()["schedule"]
+    new = clean_schedule({**cur, **{k: v for k, v in payload.items() if k in cur}})
+    config.save({KEY: {"schedule": new}})
+    if new["on"] != cur["on"]:
+        audit.note(request, "youtube.schedule", "Turned scheduled YouTube streams " + ("on" if new["on"] else "off"))
+    elif new != cur:
+        audit.note(request, "youtube.schedule", "Changed the YouTube stream schedule")
+    planner.poke()
+    return planner.snapshot()
+
+
+@router.post("/api/admin/youtube/schedule/check", dependencies=[Depends(MANAGE)])
+async def schedule_check() -> dict:
+    """Check now: list upcoming broadcasts, create any that are due, and send changed links."""
+    await planner.run(asked=True)
+    return planner.snapshot()
+
+
+@router.get("/api/admin/youtube/streams", dependencies=[Depends(MANAGE)])
+async def stream_keys():
+    """The channel's stream keys, to bind new broadcasts to (1 unit of quota)."""
+    try:
+        return {"streams": await planner.list_streams()}
+    except (Problem, oauth.Problem) as exc:
+        return _problem(words(exc))
+
+
+async def _pc(fn, *args):
+    from ..planning_center import planningcenter as pcm
+
+    client = pc_client()
+    if client is None:
+        return _problem(NO_PC, 409)
+    try:
+        return await asyncio.to_thread(getattr(client, fn), *args)
+    except pcm.PlanningCenterError as exc:
+        return _problem(pcm.operator_message(exc), 502)
+
+
+@router.get("/api/admin/youtube/publishing", dependencies=[Depends(MANAGE)])
+async def publishing_channels():
+    """Planning Center's Publishing channels, and the service types Relay follows (for scheduling from plans)."""
+    channels = await _pc("channels")
+    if isinstance(channels, JSONResponse):
+        return channels
+    types = await _pc("service_types")
+    followed = set((config.get().get("planning_center") or {}).get("service_types") or [])
+    types = [] if isinstance(types, JSONResponse) else [t for t in types if t["id"] in followed]
+    return {"channels": channels, "service_types": types}
+
+
+@router.get("/api/admin/youtube/publishing/{channel_id}/episodes", dependencies=[Depends(MANAGE)])
+async def publishing_episodes(channel_id: str):
+    if not re.fullmatch(r"\d{1,20}", channel_id):
+        return _problem("That is not a Planning Center channel.", 404)
+    eps = await _pc("episodes", channel_id)
+    return eps if isinstance(eps, JSONResponse) else {"episodes": eps}
+
+
+@router.put("/api/admin/youtube/links", dependencies=[Depends(MANAGE)])
+async def links_save(request: Request, payload: dict):
+    """The episodes Relay keeps the stream link in. What was last sent is kept for links that stay."""
+    old = {x["id"]: x for x in stored()["links"]}
+    raw = payload.get("links") if isinstance(payload.get("links"), list) else []
+    for r in raw:
+        if isinstance(r, dict) and r.get("id") in old:
+            prev = old[r["id"]]
+            same = (r.get("episode_id"), r.get("match"), r.get("video")) == \
+                (prev["episode_id"], prev["match"], prev["video"])
+            r["pushed"], r["pushed_at"] = (prev["pushed"], prev["pushed_at"]) if same else ("", 0.0)
+        elif isinstance(r, dict):
+            r["pushed"], r["pushed_at"] = "", 0.0
+    links = clean_links(raw)
+    config.save({KEY: {"links": links}})
+    audit.note(request, "youtube.links", "Changed which Planning Center episodes get the YouTube link",
+               detail={"episodes": [x["episode"] for x in links]})
+    planner.poke()
+    return planner.snapshot()
+
+
+@router.post("/api/admin/youtube/links/{link_id}/send", dependencies=[Depends(PUBLISH)])
+async def link_send(request: Request, link_id: str):
+    """Send the link's broadcast to its episode now, even if it was sent already."""
+    if not re.fullmatch(r"[a-z0-9]{1,16}", link_id):
+        return _problem("That link is gone. Reload the page.", 404)
+    out = await planner.push(link_id)
+    if not out.get("ok"):
+        return _problem(out["error"], 409)
+    link = next((x for x in stored()["links"] if x["id"] == link_id), {})
+    audit.note(request, "youtube.send", "Sent the YouTube link to Planning Center",
+               target=link.get("episode", ""), detail={"video": out["video"]})
+    return {**planner.snapshot(), "sent": out}

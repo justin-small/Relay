@@ -362,7 +362,7 @@ MIN_ROLE = {
     "lighting.view": "viewer", "lighting.control": "operator", "lighting.manage": "admin",
     "obs.view": "viewer", "obs.control": "operator", "obs.manage": "admin",
     "reaper.view": "viewer", "reaper.control": "operator", "reaper.manage": "admin",
-    "youtube.view": "viewer", "youtube.manage": "admin",
+    "youtube.view": "viewer", "youtube.publish": "operator", "youtube.manage": "admin",
     "unifi.view": "viewer", "unifi.manage": "admin",
     "tally_arbiter.view": "viewer", "tally_arbiter.manage": "admin",
     "open_sound_meter.view": "viewer", "open_sound_meter.manage": "admin",
@@ -634,6 +634,14 @@ for method, path, perm in (
     ("POST", "/api/admin/youtube/account/connect", "youtube.manage"),     # no Google app set: refused, nothing sent
     ("POST", "/api/admin/youtube/account/cancel", "youtube.manage"),
     ("POST", "/api/admin/youtube/account/disconnect", "youtube.manage"),  # not connected: nothing to revoke
+    ("GET", "/api/admin/youtube/schedule", "youtube.view"),
+    ("PUT", "/api/admin/youtube/schedule", "youtube.manage"),             # an empty body changes nothing
+    ("POST", "/api/admin/youtube/schedule/check", "youtube.manage"),      # not connected: nothing is sent
+    ("GET", "/api/admin/youtube/streams", "youtube.manage"),              # not connected: refused, nothing sent
+    ("GET", "/api/admin/youtube/publishing", "youtube.manage"),           # Planning Center not connected: refused
+    ("GET", "/api/admin/youtube/publishing/{channel_id}/episodes", "youtube.manage"),
+    ("PUT", "/api/admin/youtube/links", "youtube.manage"),                # an empty body: no links
+    ("POST", "/api/admin/youtube/links/{link_id}/send", "youtube.publish"),       # no such link: nothing sent
     ("GET", "/api/admin/unifi", "unifi.view"),
     ("PUT", "/api/admin/unifi/settings", "unifi.manage"),                 # no console set: nothing is sent
     ("POST", "/api/admin/unifi/trust", "unifi.manage"),                   # nothing shown to trust: refused
@@ -1412,7 +1420,7 @@ for mid, want in (("planning_center", {"planning_center.view": "viewer", "planni
                   ("lighting", {"lighting.view": "viewer", "lighting.control": "operator", "lighting.manage": "admin"}),
                   ("obs", {"obs.view": "viewer", "obs.control": "operator", "obs.manage": "admin"}),
                   ("reaper", {"reaper.view": "viewer", "reaper.control": "operator", "reaper.manage": "admin"}),
-                  ("youtube", {"youtube.view": "viewer", "youtube.manage": "admin"}),
+                  ("youtube", {"youtube.view": "viewer", "youtube.publish": "operator", "youtube.manage": "admin"}),
                   ("unifi", {"unifi.view": "viewer", "unifi.manage": "admin"}),
                   ("tally_arbiter", {"tally_arbiter.view": "viewer", "tally_arbiter.manage": "admin"}),
                   ("open_sound_meter", {"open_sound_meter.view": "viewer", "open_sound_meter.manage": "admin"}),

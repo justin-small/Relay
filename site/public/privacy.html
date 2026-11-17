@@ -39,23 +39,25 @@
 <p>Relay talks to other services only when you connect them, using your church's own account with that service. Their own privacy policies apply to what they receive.</p>
 <ul>
 <li><strong>OpenAI</strong>, for captions and translation. While capture is running, Relay sends the room's audio to OpenAI under your church's OpenAI account and shows the text it returns.</li>
-<li><strong>Planning Center</strong>, to read your service plans, people and schedules.</li>
-<li><strong>YouTube</strong>, to show whether your stream is live. See the next section.</li>
+<li><strong>Planning Center</strong>, to read your service plans, people and schedules, and, if you choose, to put your live stream's YouTube link on the Church Center episodes you pick.</li>
+<li><strong>YouTube</strong>, to show whether your stream is live and, if you turn it on, to schedule your live streams. See the next section.</li>
 <li><strong>Facebook</strong>, to show the live status of your church's Page, when that feature is available.</li>
 <li>Equipment on your network, such as ProPresenter, OBS, lighting and cameras. That traffic stays inside your building.</li>
 </ul>
 
 <h2>YouTube and Google</h2>
-<p>When you press <strong>Connect</strong> for YouTube, you sign in with Google and approve Relay's request to <strong>view your YouTube account</strong> (the read-only scope <code>youtube.readonly</code>). Relay uses it only to read:</p>
+<p>When you press <strong>Connect</strong> for YouTube, you sign in with Google and approve Relay's request to <strong>see, edit and manage your YouTube account</strong> (the scope <code>youtube.force-ssl</code>, or <code>youtube</code> when your church uses its own Google app). Accounts connected before scheduling existed have the read-only scope <code>youtube.readonly</code> and can only be read. Relay uses this access only to:</p>
 <ul>
-<li>your channel's name, so you can see which channel is connected,</li>
-<li>whether your channel is live, the live broadcast's title, and when it started,</li>
-<li>the number of people watching, while you are live.</li>
+<li>read your channel's name, so you can see which channel is connected,</li>
+<li>read whether your channel is live, the live broadcast's title, and when it started,</li>
+<li>read the number of people watching, while you are live,</li>
+<li>read your upcoming live broadcasts and your channel's stream keys' names (never the keys themselves),</li>
+<li>only if you turn on scheduling: create the upcoming live broadcasts you set up in Relay, with the title, description and privacy you chose, and attach them to the stream key you picked.</li>
 </ul>
-<p>Relay shows this to your production team inside Relay. It does not upload, change or delete anything on YouTube.</p>
+<p>Relay shows this to your production team inside Relay. It never uploads videos, and never changes or deletes a video or broadcast it did not create. If you link a Planning Center Publishing episode, Relay sends that episode the broadcast's public watch address (youtube.com/watch?v=…) and nothing else.</p>
 <p>Google sends the sign-in back to Relay's cloud (cloud.relaysystems.dev, below), which uses Relay's app key to turn it into the access Relay needs and passes that to your church's computer. Relay's cloud holds it only until your computer collects it, at most 15 minutes, never logs it, and also renews it for your computer when it runs out. On your computer it is stored encrypted. We never read your YouTube data. We do not sell it, share it, use it for advertising or use it to train AI models. Relay's use and transfer of information received from Google APIs adheres to the <a href="https://developers.google.com/terms/api-services-user-data-policy">Google API Services User Data Policy</a>, including the Limited Use requirements.</p>
 <p>Relay uses YouTube API Services. By connecting YouTube you agree to the <a href="https://www.youtube.com/t/terms">YouTube Terms of Service</a>, and Google's use of your data is covered by the <a href="https://policies.google.com/privacy">Google Privacy Policy</a>.</p>
-<p>To stop Relay reading YouTube, press <strong>Disconnect</strong> in Relay, which asks Google to revoke Relay's access and deletes the stored sign-in, or remove Relay at <a href="https://myaccount.google.com/connections">your Google account's connections page</a>. Either one works on its own.</p>
+<p>To stop Relay reading YouTube or scheduling streams, press <strong>Disconnect</strong> in Relay, which asks Google to revoke Relay's access and deletes the stored sign-in, or remove Relay at <a href="https://myaccount.google.com/connections">your Google account's connections page</a>. Either one works on its own.</p>
 
 <h2>Relay's cloud</h2>
 <p>A few optional features need a small service we run, cloud.relaysystems.dev, on Cloudflare.</p>
