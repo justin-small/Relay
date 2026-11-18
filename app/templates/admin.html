@@ -17,39 +17,46 @@ window.relayCan = function (perm) { return window.RELAY_ME.permissions.indexOf(p
 </head><body>
 {% set perms = me.permissions %}
 {% macro viewonly(perm) %}{% if perm not in perms %}<p class="note viewonly">You can view this page but not change it.</p>{% endif %}{% endmacro %}
-{% macro module_links(group) %}{% for p in module_nav.get(group, []) %}
-    <a href="#{{ p.id }}" data-page="{{ p.id }}" data-tip="{{ p.title }}"><svg class="i" viewBox="0 0 16 16" aria-hidden="true">{{ p.icon|safe }}</svg><span class="nl">{{ p.title }}</span></a>{% endfor %}{% endmacro %}
+{% set chev %}<svg class="i chev" viewBox="0 0 16 16" aria-hidden="true"><path d="M6 4l4 4-4 4"/></svg>{% endset %}
+{% set health_words = {"ok": "Working", "warn": "Needs attention", "error": "Not working", "idle": "Not in use"} %}
+{% macro ndot(m) %}<span class="ndot {{ m.health }}" data-mod-dot="{{ m.id }}" role="img" aria-label="{{ health_words.get(m.health, m.health) }}" title="{{ m.detail or health_words.get(m.health, m.health) }}"></span>{% endmacro %}
+{% macro sub(id, title) %}<li><a href="#{{ id }}" data-page="{{ id }}"><span class="nl">{{ title }}</span></a></li>{% endmacro %}
 <div class="app">
 <aside id="aside"><div class="sbin">
   <div class="sbhead"><h1 class="brand"><span class="lk">{% include "_lockup.svg" %}</span><span class="mk">{% include "_mark.svg" %}</span></h1></div>
   <nav id="nav" class="nav sbscroll" aria-label="Settings areas">
     {% if 'session.control' in perms %}<div class="qc"><button type="button" class="go" id="goBtn" data-tip="Start stream"><svg class="i" viewBox="0 0 16 16" aria-hidden="true"><path d="M4.5 3l8 5-8 5z"/></svg><span class="nl">Start stream</span></button>{% if 'alerts.view' in perms %}<a class="inb" href="#alerts" data-tip="Alerts" aria-label="Alerts"><svg class="i" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 11V7a4 4 0 0 1 8 0v4l1.5 1.5h-11zM6.5 14h3"/></svg></a>{% endif %}</div>{% endif %}
-    {% if 'session.view' in perms or 'audio.manage' in perms or 'targets.manage' in perms or 'network.view' in perms or module_nav.get("Live") %}<div class="grp">Live</div>{% endif %}
-    {% if 'session.view' in perms %}<a href="#health" data-page="health" data-tip="Session health"><svg class="i" viewBox="0 0 16 16" aria-hidden="true"><path d="M2 8h3l2-5 2 10 2-5h3"/></svg><span class="nl">Session health</span></a>{% endif %}
-    {% if 'audio.manage' in perms %}<a href="#audio" data-page="audio" data-tip="Audio input"><svg class="i" viewBox="0 0 16 16" aria-hidden="true"><rect x="6" y="1.5" width="4" height="8" rx="2"/><path d="M3.5 7.5a4.5 4.5 0 0 0 9 0M8 12v2.5"/></svg><span class="nl">Audio input</span></a>{% endif %}
-    {% if 'targets.manage' in perms %}<a href="#targets" data-page="targets" data-tip="Target languages"><svg class="i" viewBox="0 0 16 16" aria-hidden="true"><path d="M2 4h7M5.5 2v2M3.5 4c.5 3 2.5 5 5 6M8 4c-.5 3-2.5 5-5.5 6.5M9 14l3-7 3 7M10 12h4"/></svg><span class="nl">Target languages</span></a>{% endif %}
-    {% if 'network.view' in perms %}<a href="#network_map" data-page="network_map" data-tip="Network map"><svg class="i" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="3" r="1.6"/><circle cx="3" cy="12.5" r="1.6"/><circle cx="13" cy="12.5" r="1.6"/><path d="M8 4.6v3.4M8 8L3.6 11M8 8l4.4 3"/></svg><span class="nl">Network map</span></a>{% endif %}
-    {{ module_links("Live") }}
-    {% if 'panels.view' in perms or 'alerts.view' in perms or 'overlays.view' in perms or 'boards.view' in perms or 'recordings.view' in perms or module_nav.get("Output") %}<div class="grp">Output</div>{% endif %}
+    {% if 'session.view' in perms or 'audio.manage' in perms or 'targets.manage' in perms or 'blocklist.manage' in perms or 'overlays.view' in perms or 'recordings.view' in perms %}
+    <div class="has" data-group="translation"><button type="button" class="nb" data-tip="Transcription &amp; translation" aria-expanded="false"><svg class="i" viewBox="0 0 16 16" aria-hidden="true"><path d="M2 4h7M5.5 2v2M3.5 4c.5 3 2.5 5 5 6M8 4c-.5 3-2.5 5-5.5 6.5M9 14l3-7 3 7M10 12h4"/></svg><span class="nl">Transcription &amp; translation</span>{% if 'session.view' in perms %}<span class="ndot idle" id="navStreamDot" role="img" aria-label="Stream stopped" title="Stream stopped"></span>{% endif %}{{ chev }}</button><div class="subm"><div><ul>
+      {% if 'session.view' in perms %}{{ sub("health", "Session health") }}{% endif %}
+      {% if 'audio.manage' in perms %}{{ sub("audio", "Audio input") }}{% endif %}
+      {% if 'targets.manage' in perms %}{{ sub("targets", "Target languages") }}{% endif %}
+      {% if 'blocklist.manage' in perms %}{{ sub("blocklist", "Blocked words") }}{% endif %}
+      {% if 'session.view' in perms %}{{ sub("urls", "Viewer links") }}{% endif %}
+      {% if 'overlays.view' in perms %}{{ sub("overlay", "Broadcast overlay") }}{% endif %}
+      {% if 'recordings.view' in perms %}{{ sub("recordings", "Recordings & export") }}{% endif %}
+    </ul></div></div></div>
+    {% endif %}
+    {% if 'panels.view' in perms or 'alerts.view' in perms or 'boards.view' in perms or 'schedules.view' in perms %}<div class="grp">Output</div>{% endif %}
     {% if 'panels.view' in perms %}<a href="#panels" data-page="panels" data-tip="Panels"><svg class="i" viewBox="0 0 16 16" aria-hidden="true"><rect x="1.5" y="3" width="13" height="9" rx="1.5"/><path d="M5.5 14.5h5"/></svg><span class="nl">Panels</span></a>{% endif %}
     {% if 'alerts.view' in perms %}<a href="#alerts" data-page="alerts" data-tip="Alerts"><svg class="i" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 11V7a4 4 0 0 1 8 0v4l1.5 1.5h-11zM6.5 14h3"/></svg><span class="nl">Alerts</span></a>{% endif %}
-    {% if 'session.view' in perms %}<a href="#urls" data-page="urls" data-tip="Viewer links"><svg class="i" viewBox="0 0 16 16" aria-hidden="true"><path d="M6.5 9.5a3 3 0 0 0 4 0l2-2a3 3 0 0 0-4-4l-1 1M9.5 6.5a3 3 0 0 0-4 0l-2 2a3 3 0 0 0 4 4l1-1"/></svg><span class="nl">Viewer links</span></a>{% endif %}
-    {% if 'overlays.view' in perms %}<a href="#overlay" data-page="overlay" data-tip="Broadcast overlay"><svg class="i" viewBox="0 0 16 16" aria-hidden="true"><rect x="1.5" y="2.5" width="13" height="11" rx="1.5"/><path d="M4 10.5h8M5 8.5h6"/></svg><span class="nl">Broadcast overlay</span></a>{% endif %}
     {% if 'boards.view' in perms %}<a href="#boards" data-page="boards" data-tip="Boards"><svg class="i" viewBox="0 0 16 16" aria-hidden="true"><rect x="1.5" y="2.5" width="13" height="11" rx="1.5"/><path d="M1.5 7.5h8M9.5 2.5v11"/></svg><span class="nl">Boards</span></a>{% endif %}
-    {% if 'recordings.view' in perms %}<a href="#recordings" data-page="recordings" data-tip="Recordings &amp; export"><svg class="i" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6"/><circle cx="8" cy="8" r="2" fill="currentColor"/></svg><span class="nl">Recordings &amp; export</span></a>{% endif %}
-    {{ module_links("Output") }}
-    {% if 'schedules.view' in perms or module_nav.get("Automation") %}<div class="grp">Automation</div>{% endif %}
     {% if 'schedules.view' in perms %}<a href="#schedules" data-page="schedules" data-tip="Schedules"><svg class="i" viewBox="0 0 16 16" aria-hidden="true"><rect x="2" y="3" width="12" height="11" rx="1.5"/><path d="M2 7h12M5.5 1.5v3M10.5 1.5v3"/></svg><span class="nl">Schedules</span></a>{% endif %}
-    {{ module_links("Automation") }}
-    {% if 'blocklist.manage' in perms or 'credentials.manage' in perms or 'settings.manage' in perms or 'modules.view' in perms or 'network.view' in perms or 'users.view' in perms or 'audit.view' in perms or module_nav.get("Settings") %}<div class="grp">Settings</div>{% endif %}
-    {% if 'blocklist.manage' in perms %}<a href="#blocklist" data-page="blocklist" data-tip="Blocked words"><svg class="i" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6"/><path d="M3.8 12.2l8.4-8.4"/></svg><span class="nl">Blocked words</span></a>{% endif %}
-    {% if 'credentials.manage' in perms %}<a href="#credentials" data-page="credentials" data-tip="Credentials"><svg class="i" viewBox="0 0 16 16" aria-hidden="true"><circle cx="5" cy="10.5" r="2.5"/><path d="M7 9l6-6M11 5l1.5 1.5M9.5 6.5L11 8"/></svg><span class="nl">Credentials</span></a>{% endif %}
-    {% if 'settings.manage' in perms %}<a href="#appearance" data-page="appearance" data-tip="Appearance &amp; tuning"><svg class="i" viewBox="0 0 16 16" aria-hidden="true"><path d="M2 4h12M2 8h12M2 12h12"/><circle cx="5" cy="4" r="1.5" fill="var(--bg)"/><circle cx="10.5" cy="8" r="1.5" fill="var(--bg)"/><circle cx="6.5" cy="12" r="1.5" fill="var(--bg)"/></svg><span class="nl">Appearance &amp; tuning</span></a>{% endif %}
-    {{ module_links("Settings") }}
-    {% if 'users.view' in perms %}<a href="#users" data-page="users" data-tip="Users"><svg class="i" viewBox="0 0 16 16" aria-hidden="true"><circle cx="6" cy="5.5" r="2.5"/><path d="M1.5 13.5c.4-2.6 2.2-4 4.5-4s4.1 1.4 4.5 4M10.5 3.2a2.5 2.5 0 0 1 0 4.6M12 9.8c1.3.5 2.2 1.6 2.5 3.7"/></svg><span class="nl">Users</span></a>{% endif %}
-    {% if 'audit.view' in perms %}<a href="#audit" data-page="audit" data-tip="Audit log"><svg class="i" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 1.5h6l3 3v10H4z"/><path d="M10 1.5v3h3M6.5 8h4M6.5 10.5h4M6.5 13h2.5"/></svg><span class="nl">Audit log</span></a>{% endif %}
-    {% if 'network.view' in perms %}<a href="#network" data-page="network" data-tip="Network"><svg class="i" viewBox="0 0 16 16" aria-hidden="true"><rect x="6" y="1.5" width="4" height="3.5" rx=".6"/><rect x="1.5" y="11" width="4" height="3.5" rx=".6"/><rect x="10.5" y="11" width="4" height="3.5" rx=".6"/><path d="M8 5v3M3.5 11V8h9v3"/></svg><span class="nl">Network</span></a>{% endif %}
-    {% if 'modules.view' in perms %}<a href="#modules" data-page="modules" data-tip="Modules"><svg class="i" viewBox="0 0 16 16" aria-hidden="true"><rect x="2" y="2" width="5" height="5" rx="1"/><rect x="9" y="2" width="5" height="5" rx="1"/><rect x="2" y="9" width="5" height="5" rx="1"/><path d="M11.5 9v5M9 11.5h5"/></svg><span class="nl">Modules</span></a>{% endif %}
+    {% for m in module_nav %}{% if loop.first or m.section != loop.previtem.section %}<div class="grp">{{ m.section }}</div>{% endif %}
+    {% if m.pages|length == 1 %}{% set p = m.pages[0] %}<a href="#{{ p.id }}" data-page="{{ p.id }}" data-mod="{{ m.id }}" data-tip="{{ p.title }}"><svg class="i" viewBox="0 0 16 16" aria-hidden="true">{{ p.icon|safe }}</svg><span class="nl">{{ p.title }}</span>{{ ndot(m) }}</a>
+    {% else %}<div class="has" data-mod="{{ m.id }}"><button type="button" class="nb" data-tip="{{ m.name }}" aria-expanded="false"><svg class="i" viewBox="0 0 16 16" aria-hidden="true">{{ m.icon|safe }}</svg><span class="nl">{{ m.name }}</span>{{ ndot(m) }}{{ chev }}</button><div class="subm"><div><ul>{% for p in m.pages %}{{ sub(p.id, p.title) }}{% endfor %}</ul></div></div></div>
+    {% endif %}{% endfor %}
+    {% if 'modules.view' in perms or 'users.view' in perms or 'credentials.manage' in perms or 'network.view' in perms or 'settings.manage' in perms or 'audit.view' in perms %}
+    <div class="grp">Settings</div>
+    <div class="has" data-group="system"><button type="button" class="nb" data-tip="System" aria-expanded="false"><svg class="i" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="2.2"/><path d="M8 1.5v1.6M8 12.9v1.6M1.5 8h1.6M12.9 8h1.6M3.4 3.4l1.1 1.1M11.5 11.5l1.1 1.1M3.4 12.6l1.1-1.1M11.5 4.5l1.1-1.1"/></svg><span class="nl">System</span>{{ chev }}</button><div class="subm"><div><ul>
+      {% if 'modules.view' in perms %}{{ sub("modules", "Modules") }}{% endif %}
+      {% if 'users.view' in perms %}{{ sub("users", "Users") }}{% endif %}
+      {% if 'credentials.manage' in perms %}{{ sub("credentials", "Credentials") }}{% endif %}
+      {% if 'network.view' in perms %}{{ sub("network", "Network") }}{{ sub("network_map", "Network map") }}{% endif %}
+      {% if 'settings.manage' in perms %}{{ sub("appearance", "Appearance & tuning") }}{% endif %}
+      {% if 'audit.view' in perms %}{{ sub("audit", "Audit log") }}{% endif %}
+    </ul></div></div></div>
+    {% endif %}
   </nav>
   <button type="button" class="user" id="userBtn" aria-haspopup="menu" aria-expanded="false" aria-label="Account menu"><span class="av">{{ me.user.name[:1] }}</span><span class="uinfo"><b>{{ me.user.name }}</b><small>{{ me.user.role }}</small></span></button>
 </div></aside>
@@ -825,7 +832,7 @@ window.relayCan = function (perm) { return window.RELAY_ME.permissions.indexOf(p
     </section>
   </div>
 {% endif %}
-{% for group in module_nav.values() %}{% for p in group %}
+{% for m in module_nav %}{% for p in m.pages %}
   <div class="page" id="page-{{ p.id }}" data-page="{{ p.id }}" hidden>
 {% include p.template %}
     <p class="note modfoot">{{ p.module }} module v{{ p.version }}{% if p.guide %} &middot; <a href="{{ p.guide }}" target="_blank" rel="noopener">Setup guide</a>{% endif %} &middot; <a href="#modules">Switch it off on the Modules page</a></p>

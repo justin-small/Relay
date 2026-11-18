@@ -29,12 +29,13 @@ class Signage(Module):
         version="1.1.0",
         summary="Plays your images and videos on any TV with a web browser, each screen at its own address.",
         settings_key="signage",
+        section="Screens",
         guide="https://github.com/justin-small/relay#signage",
     )
     defaults = {"port": DEFAULT_PORT, "timezone": "", "override_until": "next_change", "alert_screens": "all",
                 "alert_groups": []}
     admin_pages = (AdminPage(
-        id="signage", title="Signage", template="admin.html", group="Output",
+        id="signage", title="Signage", template="admin.html",
         icon='<rect x="1.5" y="2.5" width="13" height="9" rx="1"/><path d="M5.5 14h5M8 11.5V14"/>'),)
     admin_scripts = ("signage.js", "player.js")
     admin_styles = ("signage.css",)

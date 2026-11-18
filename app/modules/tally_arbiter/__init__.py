@@ -19,12 +19,13 @@ class TallyArbiter(Module):
         version="1.1.0",
         summary="Shows the tally Tally Arbiter serves (ATEM, OBS, vMix and others) on Relay's camera screens.",
         settings_key="tally_arbiter",
+        section="Crew",
         guide="https://github.com/justin-small/relay#cameras-and-tally",
         traffic=(Traffic("tally_arbiter", "Tally Arbiter (WebSocket)"),),
     )
     defaults = {"host": "", "port": 4455}
     admin_pages = (AdminPage(
-        id="tallyarbiter", title="Tally Arbiter", template="tally_arbiter.html", group="Output",
+        id="tallyarbiter", title="Tally Arbiter", template="tally_arbiter.html",
         icon='<circle cx="8" cy="8" r="5"/><circle cx="8" cy="8" r="1.6"/>'),)
     admin_scripts = ("tally_arbiter.js",)
     route_prefixes = ("/api/admin/tally-arbiter",)

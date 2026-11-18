@@ -1375,8 +1375,8 @@ class Fake(Module):
     manifest = Manifest(id="fake", name="Fake", version="1.0.0", summary="Made up for this test.", settings_key="fake_s")
     permissions = (users.Permission("fake.view", "See it", "Fake", "viewer"),
                    users.Permission("fake.manage", "Change it", "Fake", "admin"))
-    admin_pages = (modmod.AdminPage(id="fakeview", title="Fake", template="x.html", group="Output"),
-                   modmod.AdminPage(id="fakeset", title="Fake settings", template="y.html", group="Settings",
+    admin_pages = (modmod.AdminPage(id="fakeview", title="Fake", template="x.html"),
+                   modmod.AdminPage(id="fakeset", title="Fake settings", template="y.html",
                                     permission="fake.manage"))
     admin_scripts = ("fake.js",)
 
@@ -1388,11 +1388,11 @@ Fake.permissions = (users.Permission("other.view", "x", "x", "viewer"),)
 check("a permission outside the module's id is rejected", any("must start with 'fake.'" in p for p in modmod.validate(Fake(), "fake")))
 Fake.permissions = (users.Permission("fake.view", "See it", "Fake", "viewer"),
                     users.Permission("fake.manage", "Change it", "Fake", "admin"))
-Fake.admin_pages = (modmod.AdminPage(id="fakeview", title="Fake", template="x.html", group="Output", permission="fake.nope"),)
+Fake.admin_pages = (modmod.AdminPage(id="fakeview", title="Fake", template="x.html", permission="fake.nope"),)
 check("a page needing an undeclared permission is rejected", any("fake.nope" in p for p in modmod.validate(Fake(), "fake")))
 Fake.admin_pages = fake.admin_pages = (
-    modmod.AdminPage(id="fakeview", title="Fake", template="x.html", group="Output"),
-    modmod.AdminPage(id="fakeset", title="Fake settings", template="y.html", group="Settings", permission="fake.manage"))
+    modmod.AdminPage(id="fakeview", title="Fake", template="x.html"),
+    modmod.AdminPage(id="fakeset", title="Fake settings", template="y.html", permission="fake.manage"))
 users.register(Fake.permissions)
 eq("registered with users", {"fake.view", "fake.manage"} <= {p.id for p in users.catalogue()}, True)
 eq("…at the right ranks", (users.User(0, "a", "A", "viewer", False, False, False).can("fake.view"),
@@ -1405,14 +1405,15 @@ registry.enabled = lambda mid: mid == "fake"
 try:
     def U(role):
         return users.User(0, role, role, role, False, False, False)
-    eq("viewer: only the page it may see",
-       {g: [p["id"] for p in ps] for g, ps in registry.admin_nav(U("viewer")).items()}, {"Output": ["fakeview"]})
-    eq("admin: both pages", sorted(p["id"] for ps in registry.admin_nav(U("admin")).values() for p in ps), ["fakeset", "fakeview"])
-    eq("no user: everything (for code without one)", sorted(p["id"] for ps in registry.admin_nav().values() for p in ps),
+    eq("viewer: one entry, with only the page it may see",
+       [(m["id"], [p["id"] for p in m["pages"]]) for m in registry.admin_nav(U("viewer"))], [("fake", ["fakeview"])])
+    eq("admin: both pages under the one entry", [sorted(p["id"] for p in m["pages"]) for m in registry.admin_nav(U("admin"))],
+       [["fakeset", "fakeview"]])
+    eq("no user: everything (for code without one)", sorted(p["id"] for m in registry.admin_nav() for p in m["pages"]),
        ["fakeset", "fakeview"])
+    eq("no section: listed under Modules", registry.admin_nav()[0]["section"], "Modules")
     eq("viewer: the module's script, since a page is visible", registry.admin_scripts(U("viewer")), ["fake/fake.js"])
-    Fake.admin_pages = fake.admin_pages = (modmod.AdminPage(id="fakeset", title="Fake settings", template="y.html",
-                                                            group="Settings", permission="fake.manage"),)
+    Fake.admin_pages = fake.admin_pages = (modmod.AdminPage(id="fakeset", title="Fake settings", template="y.html", permission="fake.manage"),)
     eq("viewer: no visible page, no script", registry.admin_scripts(U("viewer")), [])
     eq("admin: the script", registry.admin_scripts(U("admin")), ["fake/fake.js"])
 finally:

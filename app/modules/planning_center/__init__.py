@@ -27,6 +27,7 @@ class PlanningCenter(Module):
         summary="Shows today's service plan and its LIVE item on caption panels, lets chosen panels move "
                 "Services LIVE on, and puts the full rundown (clock times, teams, song leaders and mics) on /screen.",
         settings_key="planning_center",
+        section="Show",
         guide="https://github.com/justin-small/relay#planning-center-services-live",
         uses=("signage",),
         traffic=(Traffic("planning_center", "Planning Center (over the internet)"),),
@@ -35,7 +36,7 @@ class PlanningCenter(Module):
     defaults = {"app_id": "", "secret": "", "service_types": [], "plan_overrides": {}, "show_notes": False,
                 "rundown": {}, "signage": {}}
     admin_pages = (AdminPage(
-        id="planningcenter", title="Planning Center", template="admin.html", group="Automation",
+        id="planningcenter", title="Planning Center", template="admin.html",
         icon='<path d="M3 13V6l5-4 5 4v7zM6.5 13V9h3v4"/>'),)
     admin_scripts = ("planningcenter.js", "pcrundown.js", "pcsignage.js")
     route_prefixes = ("/api/admin/planning-center", "/api/panels/{panel_id}/service/")

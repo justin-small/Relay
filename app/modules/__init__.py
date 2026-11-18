@@ -26,6 +26,7 @@ import importlib
 import logging
 import pkgutil
 import re
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Awaitable, Callable
@@ -50,6 +51,8 @@ def _suppress():
 _ID_RE = re.compile(r"^[a-z][a-z0-9_]{1,31}$")
 _VERSION_RE = re.compile(r"^\d+\.\d+\.\d+$")
 HEALTH_STATES = ("ok", "warn", "error", "idle")
+# The headings of the module entries in the admin sidebar, in order (Manifest.section).
+NAV_SECTIONS = ("Show", "Crew", "Screens", "Sound", "Building", "Modules")
 
 
 @dataclass(frozen=True)
@@ -72,6 +75,9 @@ class Manifest:
     # The id this module had before it was renamed. config.json's settings key, on/off switch and network routes
     # saved under the old id move to the new one when config loads, once (#432, #433: "atem" became "blackmagic").
     renamed_from: str = ""
+    # The heading the module is listed under in the admin sidebar, one of NAV_SECTIONS. Each module is one entry
+    # there, with its admin pages under it; one with no section is listed under "Modules".
+    section: str = ""
 
 
 @dataclass(frozen=True)
@@ -80,8 +86,7 @@ class AdminPage:
     id: str            # the #hash and data-page name; unique across Relay
     title: str         # the nav label
     template: str      # a template in the module's templates/ directory
-    group: str         # the nav group it is listed under: "Live", "Output", "Automation" or "Settings"
-    icon: str = ""     # inner SVG for the 16x16 nav icon
+    icon: str = ""     # inner SVG for the 16x16 nav icon; the module's entry uses its first page's
     # The permission needed to see the page's nav link; empty means "<module id>.view".
     permission: str = ""
 
@@ -438,6 +443,7 @@ def event_stream(gen: Any) -> StreamingResponse:
 # ------------------------------------------------------------------ registry
 class Registry:
     def __init__(self) -> None:
+        self._health_cache: tuple[float, dict[str, str]] | None = None
         self._modules: dict[str, Module] | None = None
         self._running: set[str] = set()
         # Called after a module is switched on or off (main pushes a status update).
@@ -756,20 +762,38 @@ class Registry:
     def _page_permission(mod: Module, page: AdminPage) -> str:
         return page.permission or f"{mod.manifest.id}.view"
 
-    def admin_nav(self, user: User | None = None) -> dict[str, list[dict]]:
-        """The admin pages of the modules that are on, by nav group, for admin.html. With a `user`, only the
-        pages that user may see; with None, all of them (for code that has no user)."""
-        groups: dict[str, list[dict]] = {}
+    def admin_nav(self, user: User | None = None) -> list[dict]:
+        """The sidebar entries of the modules that are on, for admin.html: one per module, in NAV_SECTIONS order,
+        each with the admin pages under it. With a `user`, only the pages that user may see, and no entry for a
+        module with none; with None, all of them (for code that has no user)."""
+        entries: list[dict] = []
         for mod in self.active():
-            for p in mod.admin_pages:
-                if user is not None and not user.can(self._page_permission(mod, p)):
-                    continue
-                groups.setdefault(p.group, []).append({
-                    "id": p.id, "title": p.title, "icon": p.icon,
-                    "template": f"{mod.manifest.id}/{p.template}",
-                    "module": mod.manifest.name, "version": mod.manifest.version, "guide": mod.manifest.guide,
-                })
-        return groups
+            m = mod.manifest
+            pages = [{
+                "id": p.id, "title": p.title, "icon": p.icon,
+                "template": f"{m.id}/{p.template}",
+                "module": m.name, "version": m.version, "guide": m.guide,
+            } for p in mod.admin_pages if user is None or user.can(self._page_permission(mod, p))]
+            if not pages:
+                continue
+            health = self.health(mod)
+            section = m.section if m.section in NAV_SECTIONS else "Modules"
+            entries.append({"id": m.id, "name": m.name, "section": section, "icon": pages[0]["icon"],
+                            "health": health.state, "detail": health.detail, "pages": pages})
+        entries.sort(key=lambda e: NAV_SECTIONS.index(e["section"]))
+        return entries
+
+    def health_states(self, max_age: float = 5.0) -> dict[str, str]:
+        """{module id: health state} for the modules that are on, for the sidebar's dots. Kept for `max_age`
+        seconds, because the status it rides on is pushed on every change. The detail stays out: the status goes
+        to every admin page, and only someone who may see a module's page reads why."""
+        now = time.monotonic()
+        cached = self._health_cache
+        if cached is not None and now - cached[0] < max_age:
+            return cached[1]
+        out = {mod.manifest.id: self.health(mod).state for mod in self.active()}
+        self._health_cache = (now, out)
+        return out
 
     def user_nav(self, user: User) -> list[dict]:
         """The home-page links of the modules that are on that `user` may use."""

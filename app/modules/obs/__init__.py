@@ -31,6 +31,7 @@ class Obs(Module):
         summary="Shows whether OBS is streaming and recording and how healthy it is, switches scenes, and sends "
                 "captions into the stream.",
         settings_key="obs",
+        section="Show",
         guide="https://github.com/justin-small/relay#obs-studio",
         version="1.1.0",
         traffic=(Traffic("obs", "OBS Studio (obs-websocket)"),),
@@ -39,7 +40,7 @@ class Obs(Module):
     secret_settings = ("passwords",)
     network_map_adds = "Marks the computers it controls as running OBS Studio."
     admin_pages = (AdminPage(
-        id="obs", title="OBS Studio", template="obs.html", group="Output",
+        id="obs", title="OBS Studio", template="obs.html",
         icon='<circle cx="8" cy="8" r="5.5"/><circle cx="8" cy="8" r="1.5"/>'),)
     admin_scripts = ("obs.js",)
     admin_styles = ("obs.css",)

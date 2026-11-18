@@ -41,6 +41,7 @@ class Blackmagic(Module):
                 "recorders (record, stop, play, clip and time left) and Videohub routers (routing, labels, presets). "
                 "Finds Blackmagic gear on the network.",
         settings_key="blackmagic",
+        section="Show",
         guide="https://github.com/justin-small/relay#cameras-and-tally",
         version="2.0.0",
         traffic=(Traffic("blackmagic", "Blackmagic device control (ATEM over UDP, HyperDeck and Videohub over TCP)"),),
@@ -49,7 +50,7 @@ class Blackmagic(Module):
     defaults = {"devices": []}
     network_map_adds = "Names each Blackmagic device it is connected to."
     admin_pages = (AdminPage(
-        id="blackmagic", title="Blackmagic", template="blackmagic.html", group="Output",
+        id="blackmagic", title="Blackmagic", template="blackmagic.html",
         icon='<rect x="2" y="4" width="12" height="8" rx="1"/><path d="M5 7h2M9 7h2M5 9.5h6"/>'),)
     admin_scripts = ("blackmagic.js",)
     route_prefixes = ("/api/admin/blackmagic",)

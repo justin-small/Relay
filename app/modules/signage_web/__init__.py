@@ -22,13 +22,14 @@ class SignageWeb(Module):
         summary="Adds web pages and YouTube videos or playlists to signage playlists. They need the internet and "
                 "are skipped while a screen can't reach it.",
         settings_key="signage_web",
+        section="Screens",
         guide="https://github.com/justin-small/relay#signage-web-pages-and-youtube",
         uses=("signage",),
         traffic=(Traffic("signage_web", "Signage web page checks (over the internet)"),),
     )
     defaults = {"links": []}
     admin_pages = (AdminPage(
-        id="signageweb", title="Web & YouTube", template="admin.html", group="Output",
+        id="signageweb", title="Web & YouTube", template="admin.html",
         icon='<circle cx="8" cy="8" r="6"/><path d="M2 8h12M8 2c2 2 2 10 0 12M8 2c-2 2-2 10 0 12"/>'),)
     admin_scripts = ("signageweb.js",)
     route_prefixes = ("/api/admin/signage-web",)

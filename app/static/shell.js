@@ -300,7 +300,10 @@
   /* ---- navigation: breadcrumb, active parent, drawer ---- */
   function navLinks() { return Array.prototype.slice.call(doc.querySelectorAll('#nav a[data-page]')); }
   function groupOf(a) {
-    var n = a.closest('.has') || a;
+    var parent = a.closest('.has');
+    var label = parent && parent.querySelector('.nb .nl');
+    if (label) return label.textContent.trim();   // a page under an entry: the entry's name (a module, System)
+    var n = a;
     while (n && n.previousElementSibling) { n = n.previousElementSibling; if (n.classList.contains('grp')) return n.textContent; }
     return '';
   }
@@ -319,7 +322,8 @@
       var on = !!p.querySelector('a[aria-current=page]');
       var nb = p.querySelector('.nb');
       if (nb) nb.classList.toggle('act', on);
-      if (on) { p.classList.add('open'); if (nb) nb.setAttribute('aria-expanded', 'true'); }
+      p.classList.toggle('open', on);   // one entry open at a time: the one holding the page
+      if (nb) nb.setAttribute('aria-expanded', String(on));
     });
     doc.body.classList.remove('open');
     var inset = $('inset');
@@ -419,7 +423,15 @@
           return { t: a.textContent.trim(), go: a.getAttribute('href'), dis: a.classList.contains('dis') }; }) });
         return;
       }
-      nb.setAttribute('aria-expanded', String(p.classList.toggle('open')));
+      var opening = !p.classList.contains('open');
+      if (opening) doc.querySelectorAll('#nav .has.open').forEach(function (o) {
+        if (o === p) return;
+        o.classList.remove('open');
+        var ob = o.querySelector('.nb');
+        if (ob) ob.setAttribute('aria-expanded', 'false');
+      });
+      p.classList.toggle('open', opening);
+      nb.setAttribute('aria-expanded', String(opening));
     });
     /* A link in the drawer closes it. */
     if (nav) nav.addEventListener('click', function (e) { if (e.target.closest('a')) doc.body.classList.remove('open'); });

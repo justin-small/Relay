@@ -21,11 +21,12 @@ class ParentPaging(Module):
         summary="Kids workers page a parent from their room's page: the child's Check-Ins security code goes to a "
                 "ProPresenter message, never the child's name.",
         settings_key="parent_paging",
+        section="Crew",
         guide="https://github.com/justin-small/relay#parent-paging",
         uses=("planning_center", "propresenter"),
     )
     admin_pages = (AdminPage(
-        id="parentpaging", title="Parent paging", template="admin.html", group="Live",
+        id="parentpaging", title="Parent paging", template="admin.html",
         icon='<path d="M8 2a3 3 0 0 1 3 3v2l1.5 3h-9L5 7V5a3 3 0 0 1 3-3zM6.5 12a1.5 1.5 0 0 0 3 0"/>'),)
     admin_scripts = ("parentpaging.js",)
     admin_styles = ("parentpaging.css",)

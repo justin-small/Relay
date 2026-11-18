@@ -2108,6 +2108,7 @@
     if (recRunning && !st.running) loadRuns();  // a run just ended: it is downloadable now
     recRunning = !!st.running;
     paintModulePills(st.pills);
+    paintNavHealth(st.module_health);
     $('viewerCount').textContent = st.viewers + (st.viewers === 1 ? ' viewer' : ' viewers');
 
     const a = st.audio || {};
@@ -2493,10 +2494,29 @@
     });
   }
 
+  // The dots beside the sidebar's module entries, and the stream's beside Transcription & translation.
+  const HEALTH_WORDS = { ok: 'Working', warn: 'Needs attention', error: 'Not working', idle: 'Not in use' };
+  function paintNavHealth(states) {
+    if (!states || typeof states !== 'object') return;
+    document.querySelectorAll('#nav [data-mod-dot]').forEach(function (d) {
+      const st = states[d.dataset.modDot];
+      if (!Object.prototype.hasOwnProperty.call(HEALTH_WORDS, st) || d.classList.contains(st)) return;
+      d.className = 'ndot ' + st;
+      d.setAttribute('aria-label', HEALTH_WORDS[st]);
+      d.title = HEALTH_WORDS[st];
+    });
+  }
+
   function paintPill(running) {
     const pill = $('streamPill');
     pill.className = 'spill ' + (running ? 'on' : 'off');
     $('pillTxt').textContent = running ? 'STREAMING' : 'STOPPED';
+    const dot = $('navStreamDot');
+    if (dot) {
+      dot.className = 'ndot ' + (running ? 'ok' : 'idle');
+      dot.title = running ? 'Streaming' : 'Stream stopped';
+      dot.setAttribute('aria-label', dot.title);
+    }
   }
 
   /* ---- live transcript on Session health: the same /stream the viewers use ---- */

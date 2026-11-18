@@ -39,9 +39,10 @@ class Mixer(Module):
         settings_key="mixer",          # config.json key for its own settings
         guide="/docs/mixer",           # setup guide, shown next to its settings
         uses=(),                       # other modules it does more with, if they are on
+        section="Sound",               # its heading in the admin sidebar (see below)
     )
     defaults = {"host": "", "port": 0}
-    admin_pages = (AdminPage(id="mixer", title="Mixing console", template="mixer.html", group="Automation"),)
+    admin_pages = (AdminPage(id="mixer", title="Mixing console", template="mixer.html"),)
     admin_scripts = ("mixer.js",)
     route_prefixes = ("/api/admin/mixer",)
     permissions = (
@@ -63,6 +64,12 @@ class Mixer(Module):
 
 MODULE = Mixer()
 ```
+
+**In the admin sidebar** each module that is on is one entry, under the heading named by `section`: one of
+`NAV_SECTIONS` in `app/modules/__init__.py` (Show, Crew, Screens, Sound, Building), else "Modules". A module with
+one admin page is a link straight to it, named by the page's `title`; one with several is an entry named by the
+module's `name` that opens to its pages, so give those pages short titles that read well under it ("Control",
+"Settings"). The entry's icon is its first page's `icon`, and a dot beside it shows `health()`.
 
 What the registry (`app/modules/__init__.py`) does with it:
 

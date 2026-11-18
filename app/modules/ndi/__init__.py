@@ -21,6 +21,7 @@ class Ndi(Module):
         summary="Finds NDI video sources on the network (cameras, converters, software) and shares one receiver per "
                 "source with everything in Relay that uses NDI.",
         settings_key="ndi",
+        section="Show",
         guide="/docs/ndi",
         version="1.0.0",
         traffic=(Traffic("ndi", "NDI discovery (multicast DNS) and video"),),
@@ -30,7 +31,7 @@ class Ndi(Module):
                 "view_quality": 60, "view_width": 1280, "view_max": 4, "tally": {}, "multiviews": [],
                 "out_on": [], "out_size": "1280x720", "out_fps": 30, "routes": [], "salvos": []}
     admin_pages = (AdminPage(
-        id="ndi", title="NDI", template="ndi.html", group="Output",
+        id="ndi", title="NDI", template="ndi.html",
         icon='<rect x="2" y="4" width="12" height="8" rx="1"/><path d="M5 7v2.5M5 7l2 2.5V7M10 7h1.5M10 9.5h1.5"/>'),)
     admin_scripts = ("ndi.js", "ndi-router.js")
     route_prefixes = ("/api/admin/ndi", "/ndi")

@@ -30,15 +30,16 @@ class Intercom(Module):
         version="0.2.0",
         summary="Crew intercom on phones over the church network, using a media server Relay runs itself.",
         settings_key="intercom",
+        section="Crew",
         guide="https://github.com/justin-small/relay#intercom",
         traffic=(Traffic("intercom", "Intercom audio (LiveKit media)", media=True),),
     )
     defaults = {"binary_path": "", "node_ip": "", "log_days": 30, "thresholds": {}}
     admin_pages = (AdminPage(
-        id="intercom", title="Intercom", template="admin.html", group="Automation",
+        id="intercom", title="Channels", template="admin.html",
         icon='<path d="M2.5 9.5v-2a5.5 5.5 0 0 1 11 0v2"/><rect x="1.5" y="9" width="3" height="4.5" rx="1"/>'
              '<rect x="11.5" y="9" width="3" height="4.5" rx="1"/>'),
-        AdminPage(id="intercom-phones", title="Signed-in phones", template="phones.html", group="Automation",
+        AdminPage(id="intercom-phones", title="Signed-in phones", template="phones.html",
                   icon='<rect x="4.5" y="1.5" width="7" height="13" rx="1.5"/><path d="M7 12.5h2"/>',
                   permission="intercom.manage"))
     admin_scripts = ("intercom.js", "live.js", "health.js")

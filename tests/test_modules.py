@@ -239,7 +239,7 @@ for mid in ids:
     async def nav_for(user):
         await registry.set_enabled(mid, True)
         try:
-            return [pg["id"] for groups in registry.admin_nav(user).values() for pg in groups]
+            return [pg["id"] for entry in registry.admin_nav(user) for pg in entry["pages"]]
         finally:
             await registry.set_enabled(mid, False)
     for pg in mod.admin_pages:

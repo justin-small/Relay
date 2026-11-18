@@ -95,6 +95,13 @@ def watch(page):
     return seen
 
 
+
+def nav_click(page, name):
+    """Click a page's sidebar link, opening the entry it sits under first (one module, or System)."""
+    page.evaluate("n => { const a = document.querySelector(`#nav a[data-page='${n}']`); const h = a && a.closest('.has'); "
+                  "if (h && !h.classList.contains('open')) h.querySelector('.nb').click(); }", name)
+    page.click(f"nav a[data-page='{name}']")
+
 def visit(context, path):
     page = context.new_page()
     seen = watch(page)
@@ -181,7 +188,7 @@ try:
             with section(f"{role}: every page in the menu"):
                 for name in sorted(shown):
                     seen["errors"].clear(); seen["console"].clear(); seen["failed"].clear()
-                    page.click(f"nav a[data-page='{name}']")
+                    nav_click(page, name)
                     page.wait_for_timeout(400)
                     eq(f"{role} #{name}: no script error", seen["errors"], [])
                     eq(f"{role} #{name}: no console error", seen["console"], [])
@@ -251,7 +258,7 @@ try:
             page.wait_for_timeout(300)
             check("phone: the toggle opens the drawer", page.evaluate(
                 "() => document.getElementById('aside').getBoundingClientRect().left >= 0"))
-            page.click("nav a[data-page='audio']")
+            nav_click(page, "audio")
             page.wait_for_timeout(300)
             check("phone: choosing a page closes the drawer", page.evaluate(
                 "() => document.getElementById('aside').getBoundingClientRect().right <= 0"))
