@@ -42,6 +42,7 @@ class Crew(Module):
         id="crew", title="Crew app", template="admin.html",
         icon='<circle cx="6" cy="5" r="2.5"/><circle cx="11.5" cy="6" r="2"/><path d="M1.5 13c0-2.5 2-4 4.5-4s4.5 1.5 4.5 4M10 9.2c2.5-.3 4.5.9 4.5 3.8"/>'),)
     admin_scripts = ("crewadmin.js",)
+    admin_styles = ("crewadmin.css",)
     route_prefixes = ("/api/admin/crew", "/crew", "/crew-join")
     listeners = (Listener(name="join", label="the crew join page", port_setting="join_port", default_port=JOIN_PORT,
                           prefixes=("/crew-join",), traffic="crew"),)  # phones join on the crew network

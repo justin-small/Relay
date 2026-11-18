@@ -124,6 +124,13 @@ def join_cert():
         "Content-Disposition": 'attachment; filename="relay.crt"', "Cache-Control": "no-cache"})
 
 
+@router.get("/crew-join/mark.svg")
+def join_mark():
+    """Relay's mark for the join page, which is on its own port and cannot reach /static."""
+    path = HERE.parent.parent / "static" / "brand" / "relay-mark.svg"
+    return Response(path.read_bytes(), media_type="image/svg+xml", headers={"Cache-Control": "max-age=86400"})
+
+
 @router.get("/crew/_/manifest.webmanifest")
 def crew_manifest():
     name = _settings()["name"]
@@ -320,6 +327,7 @@ def _confirm_page(request: Request, row: dict | None, status: int = 200):
     _, templates = _pkg()
     return templates.TemplateResponse(request, "crew/page.html", {
         "app_name": _settings()["name"], "found": row is not None, "message": (row or {}).get("message", ""),
+        "sender": (row or {}).get("sender") or "", "sent_ts": int((row or {}).get("sent_ts") or 0),
         "confirmed": bool(row and row["confirmed_at"])}, status_code=status if row else 404, headers=NO_STORE)
 
 

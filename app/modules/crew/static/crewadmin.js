@@ -4,6 +4,15 @@
   if (!R || !document.getElementById('page-crew')) return;
   const $ = R.$, api = R.api;
   const can = relayUI.can;
+  // -- tabs: Live board first, then Call times, Checklists, People and Setup. The sidebar can open one by name.
+  function showTab(name) {
+    const tabs = $('crTabs').querySelectorAll('[data-crtab]');
+    if (!Array.prototype.some.call(tabs, function (b) { return b.dataset.crtab === name; })) name = 'live';
+    tabs.forEach(function (b) { b.setAttribute('aria-selected', String(b.dataset.crtab === name)); });
+    document.querySelectorAll('#page-crew [data-crpane]').forEach(function (p) { p.hidden = p.dataset.crpane !== name; });
+  }
+  $('crTabs').addEventListener('click', function (e) { const b = e.target.closest('[data-crtab]'); if (b) showTab(b.dataset.crtab); });
+  $('page-crew').addEventListener('relay:tab', function (e) { showTab(e.detail || 'live'); });
   function fill(cfg) {
     $('crName').value = cfg.name || '';
     $('crPlan').checked = !!cfg.show_plan;
@@ -88,10 +97,16 @@
   let pageTimer = null;
   function pmsg(text, bad) { $('crPageErr').textContent = bad ? text : ''; $('crPageErr').hidden = !bad; $('crPageMsg').textContent = bad ? '' : (text || ''); }
   function chip(set, key, label, title) {
-    const l = document.createElement('label'); l.className = 'chk chk-inline'; l.style.marginRight = '12px';
-    const c = document.createElement('input'); c.type = 'checkbox'; c.checked = set.has(key);
-    c.addEventListener('change', function () { if (c.checked) set.add(key); else set.delete(key); });
-    l.appendChild(c); l.appendChild(document.createTextNode(' ' + label)); if (title) l.title = title; return l;
+    const b = button(label, function () {
+      if (set.has(key)) set.delete(key); else set.add(key);
+      b.setAttribute('aria-pressed', String(set.has(key))); sendLabel();
+    });
+    b.classList.add('sm'); b.setAttribute('aria-pressed', String(set.has(key))); if (title) b.title = title; return b;
+  }
+  function sendLabel() {
+    const n = picked.teams.size + picked.users.size;
+    $('crPageSend').textContent = n ? 'Send page' + (picked.teams.size ? ' to ' + Array.from(picked.teams).join(', ') : '') +
+      (picked.users.size ? (picked.teams.size ? ' and ' : ' to ') + picked.users.size + (picked.users.size === 1 ? ' person' : ' people') : '') : 'Send page';
   }
   function drawTargets(t) {
     const teams = $('crPageTeams'), ppl = $('crPagePeople');
@@ -99,16 +114,20 @@
     if (!t.teams.length) teams.textContent = 'None (Planning Center is off or nobody is scheduled).';
     t.teams.forEach(function (x) { teams.appendChild(chip(picked.teams, x.name, x.name + ' (' + x.reachable + '/' + x.people + ')', x.reachable + ' of ' + x.people + ' have a crew account')); });
     t.people.forEach(function (x) { ppl.appendChild(chip(picked.users, x.id, x.name + (x.role ? ' \u00b7 ' + x.role : '') + (x.phone ? '' : ' (no phone)'))); });
+    sendLabel();
   }
   const LABEL = { confirmed: '\u2713', waiting: '\u2026 waiting', no_phone: 'no phone' };
+  function clock(ts) { return ts ? new Date(ts * 1000).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : ''; }
   function drawPages(pages) {
-    const body = document.querySelector('#crPages tbody'); body.textContent = '';
+    const box = $('crPages'); box.textContent = '';
     let live = false;
     pages.forEach(function (p) {
-      const tr = document.createElement('tr');
-      tr.appendChild(cell(p.message + (p.sender ? ' \u2014 ' + p.sender : '') + (p.buzzing ? ' (buzzing)' : '')));
-      tr.appendChild(cell(p.people.map(function (w) { return w.name + ' ' + LABEL[w.state]; }).join(', ')));
-      body.appendChild(tr); live = live || p.buzzing;
+      const read = p.people.filter(function (w) { return w.state === 'confirmed'; }).length;
+      const row = relayUI.el('div', '', relayUI.el('span', '', clock(p.sent_ts)),
+        relayUI.el('span', '', p.message + (p.sender ? ' \u2014 ' + p.sender : '') + (p.buzzing ? ' (buzzing)' : '')),
+        relayUI.el('span', 'badge ' + (read === p.people.length ? 'ok' : 'warn'), read + '/' + p.people.length));
+      row.title = p.people.map(function (w) { return w.name + ' ' + LABEL[w.state]; }).join(', ');
+      box.appendChild(row); live = live || p.buzzing;
     });
     clearTimeout(pageTimer);
     if (live) pageTimer = setTimeout(pagesRefresh, 3000);   // watch the receipts come in while it is buzzing
@@ -127,7 +146,7 @@
       body: JSON.stringify({ message: $('crPageText').value, users: Array.from(picked.users), teams: Array.from(picked.teams) }) });
     const data = await res.json().catch(function () { return {}; });
     if (!res.ok) { pmsg(data.detail || data.error || 'That did not work.', true); return; }
-    $('crPageText').value = '';
+    $('crPageText').value = ''; picked.users.clear(); picked.teams.clear(); drawn = false; sendLabel();
     pmsg('Sent to ' + data.people + (data.people === 1 ? ' person' : ' people') +
       (data.unmatched.length ? '. No crew account for: ' + data.unmatched.join(', ') : ''));
     pagesRefresh();
@@ -182,16 +201,80 @@
   async function callsRefresh() { try { drawCalls(await api('/api/admin/crew/calltimes')); } catch (e) { /* keeps what it had */ } }
   // -- arrivals (#231): the board is refreshed while the page is open.
   const STATE = { arrived: 'Arrived', late_arrival: 'Arrived late', waiting: 'Not yet', overdue: 'Overdue', no_account: 'No crew account' };
+  // The live board: one column per Planning Center team (or per call time), a line per person with how far their
+  // checklist is, and a Page button beside anyone overdue.
+  let board = null, group = 'team', progress = {};
+  const METHOD = { geofence: ' \u00b7 location', wifi: ' \u00b7 Wi-Fi', tap: ' \u00b7 tapped' };
+  function initials(name) { return (name || '?').split(/\s+/).map(function (w) { return w.charAt(0); }).join('').slice(0, 2).toUpperCase(); }
+  function since(ts) { return Math.max(1, Math.round((Date.now() / 1000 - ts) / 60)); }
+  function personLine(p) {
+    const late = p.state === 'overdue', el = relayUI.el;
+    let sub = p.teams.join(', ');
+    if (p.arrived_ts) sub = 'in ' + clock(p.arrived_ts) + (METHOD[p.method] || '') + (p.state === 'late_arrival' ? ' \u00b7 late' : '');
+    else if (late) sub = 'late ' + since(p.call_ts) + ' min';
+    else if (p.state === 'no_account') sub = 'no crew account';
+    else if (p.call_ts) sub = 'due ' + clock(p.call_ts);
+    const row = el('div', 'crp' + (late ? ' late' : '') + (p.arrived_ts || late ? '' : ' out'),
+      el('span', 'crav', initials(p.name)), el('span', 'who', el('b', '', p.name), el('small', '', sub)));
+    const pr = progress[p.name];
+    if (late && can('crew.page') && p.user_id) {
+      row.appendChild(button('Page', function () { picked.users.clear(); picked.teams.clear(); picked.users.add(p.user_id); drawn = false; pagesRefresh().then(function () { $('crPageText').focus(); }); }));
+      row.lastChild.classList.add('sm');
+    } else if (pr && pr.total) {
+      const bar = el('span', 'crprog'), fill = el('i'); fill.style.width = Math.round(100 * pr.done / pr.total) + '%';
+      bar.title = pr.done + ' of ' + pr.total + ' checklist items'; bar.appendChild(fill); row.appendChild(bar);
+    }
+    return row;
+  }
   function drawBoard(d) {
-    const body = document.querySelector('#crBoard tbody'); body.textContent = '';
-    $('crBoardCount').textContent = d.arrived + ' of ' + d.total + ' arrived';
+    if (d) board = d;
+    d = board; if (!d) return;
+    const box = $('crBoard'); box.textContent = '';
+    const late = d.people.filter(function (p) { return p.state === 'overdue'; }).length;
+    const waiting = d.people.filter(function (p) { return p.state === 'waiting'; }).length;
+    $('crBoardIn').textContent = d.arrived + ' of ' + d.total + ' in';
+    $('crBoardLate').hidden = !late; $('crBoardLate').textContent = late + ' late';
+    $('crBoardWait').hidden = !waiting; $('crBoardWait').textContent = waiting + ' not yet due';
+    $('crBoardCount').textContent = d.people.length ? '' : 'Nobody is on today\u2019s plan, or Planning Center is off.';
+    const groups = new Map();
     d.people.forEach(function (p) {
-      const tr = document.createElement('tr');
-      const at = function (ts) { return ts ? new Date(ts * 1000).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : ''; };
-      tr.appendChild(cell(p.name)); tr.appendChild(cell(p.teams.join(', '))); tr.appendChild(cell(at(p.call_ts) || '\u2014'));
-      tr.appendChild(cell(STATE[p.state] + (p.arrived_ts ? ' ' + at(p.arrived_ts) + (p.method === 'geofence' ? ' (location)' : p.method === 'wifi' ? ' (Wi-Fi)' : '') : '')));
-      body.appendChild(tr);
+      const keys = group === 'team' ? (p.teams.length ? p.teams : ['No team']) : [p.call_ts ? 'Call ' + clock(p.call_ts) : 'No call time'];
+      keys.forEach(function (k) { if (!groups.has(k)) groups.set(k, []); groups.get(k).push(p); });
     });
+    groups.forEach(function (people, name) {
+      const inn = people.filter(function (p) { return p.arrived_ts; }).length;
+      const call = people.map(function (p) { return p.call_ts; }).filter(Boolean).sort()[0];
+      const col = relayUI.el('section', 'crteam', relayUI.el('header', '', relayUI.el('b', '', name),
+        relayUI.el('span', '', (group === 'team' && call ? 'call ' + clock(call) + ' \u00b7 ' : '') + inn + ' of ' + people.length + ' in')));
+      people.forEach(function (p) { col.appendChild(personLine(p)); });
+      if (group === 'team' && can('crew.page') && name !== 'No team') {
+        const b = button('Page ' + name, function () { picked.users.clear(); picked.teams.clear(); picked.teams.add(name); drawn = false; pagesRefresh().then(function () { $('crPageText').focus(); }); });
+        b.classList.add('sm', 'quiet', 'crfoot'); col.appendChild(b);
+      }
+      box.appendChild(col);
+    });
+  }
+  document.querySelectorAll('[data-crgroup]').forEach(function (b) {
+    b.addEventListener('click', function () {
+      group = b.dataset.crgroup;
+      document.querySelectorAll('[data-crgroup]').forEach(function (x) { x.setAttribute('aria-pressed', String(x === b)); });
+      drawBoard();
+    });
+  });
+  // -- activity beside the board: the last few things people did on the crew page.
+  async function activityRefresh() {
+    if (!can('crew.activity')) return;
+    $('crActBox').hidden = false;
+    try {
+      const d = await api('/crew/api/activity?days=1');
+      const box = $('crAct'); box.textContent = '';
+      d.entries.slice(0, 8).forEach(function (e) {
+        const at = new Date(e.at);
+        box.appendChild(relayUI.el('div', '', relayUI.el('span', '', isNaN(at) ? '' : at.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })),
+          relayUI.el('span', '', (e.actor_name || e.token_name || 'Relay') + ': ' + e.summary), relayUI.el('span')));
+      });
+      if (!d.entries.length) box.appendChild(relayUI.el('p', 'note', 'Nothing yet today.'));
+    } catch (e) { /* keeps what it had */ }
   }
   // -- Wi-Fi check-in devices (#356)
   let devPeople = [];
@@ -230,7 +313,7 @@
     if (r) { $('crDevValue').value = ''; $('crDevLabel').value = ''; drawDevices(r); }
   });
   async function boardRefresh() {
-    if (!can('crew.page')) return;
+    if (!can('crew.page')) { $('crBoardNone').hidden = false; return; }
     $('crBoardBox').hidden = false;
     try { drawBoard(await api('/api/admin/crew/arrivals')); } catch (e) { /* keeps what it had */ }
   }
@@ -243,6 +326,15 @@
   function drawLists(d) {
     const body = document.querySelector('#crLists tbody'); body.textContent = '';
     $('crListCount').textContent = d.done + ' of ' + d.total + ' items done';
+    if (!listPlan) {                       // today's progress, for the bars on the live board
+      progress = {};
+      d.people.forEach(function (p) {
+        const t = { done: 0, total: 0 };
+        p.lists.forEach(function (l) { t.done += l.done; t.total += l.total; });
+        progress[p.name] = t;
+      });
+      drawBoard();
+    }
     const sel = $('crListPlan'); sel.textContent = '';
     const add = function (v, t) { const o = document.createElement('option'); o.value = v; o.textContent = t; sel.appendChild(o); };
     add('', 'Today');
@@ -289,7 +381,7 @@
     const r = await send2('POST', '/api/admin/crew/checklist-leads', { user_id: Number($('crLeadUser').value), position: $('crLeadPos').value }, leadMsg);
     if (r) { $('crLeadPos').value = ''; drawLeads(r); }
   });
-  setInterval(function () { if (document.getElementById('page-crew') && !document.getElementById('page-crew').hidden) { boardRefresh(); listsRefresh(); } }, 15000);
-  document.addEventListener('relay:config', function () { refresh(); peopleRefresh(); drawn = false; pagesRefresh(); callsRefresh(); boardRefresh(); listsRefresh(); leadsRefresh(); });
-  refresh(); peopleRefresh(); pagesRefresh(); callsRefresh(); boardRefresh(); listsRefresh(); leadsRefresh(); devicesRefresh();
+  setInterval(function () { if (document.getElementById('page-crew') && !document.getElementById('page-crew').hidden) { boardRefresh(); listsRefresh(); activityRefresh(); } }, 15000);
+  document.addEventListener('relay:config', function () { refresh(); peopleRefresh(); drawn = false; pagesRefresh(); callsRefresh(); boardRefresh(); listsRefresh(); leadsRefresh(); activityRefresh(); });
+  refresh(); peopleRefresh(); pagesRefresh(); callsRefresh(); boardRefresh(); listsRefresh(); leadsRefresh(); devicesRefresh(); activityRefresh();
 })();

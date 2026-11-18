@@ -1,7 +1,7 @@
 /* The crew page's service worker (#226). It makes the page installable and shows an offline page when Relay can't be
    reached. It never stores a page that carries a person's data or any /crew/api answer: only the offline page and the
    page's own static files. */
-const VERSION = 'crew-v3';
+const VERSION = 'crew-v4';
 const OFFLINE = '/crew/_/offline';
 const SHELL = [OFFLINE, '/static/modules/crew/crew.css', '/static/modules/crew/crew.js'];
 
