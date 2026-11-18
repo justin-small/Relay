@@ -910,19 +910,29 @@
   });
 
   /* ---- alerts (#121) ----
-     The operator's buttons are edited here and saved whole. The status stream's `alerts_admin` frame brings the
-     saved settings, the browser screens open now and each button's state; while there are unsaved edits only the
-     states and hints are repainted, so typing is never undone. */
+     One routing grid: each row is something the band can send (an alert button, a stage message, or words typed on
+     the sender page), each column a panel or browser screen, and a ticked square sends that row there. Edits go
+     straight into alertCfg and are saved whole. The status stream's `alerts_admin` frame brings the saved settings,
+     the browser screens open now and each button's state; while there are unsaved edits it never replaces alertCfg.
+     The grid is rebuilt only when its rows or columns change, never under a field being typed in, so a click or a
+     keystroke is never lost to a redraw. */
   let alertCfg = { auto_stop_s: 120, buttons: [], messages: { presets: [], free: { panels: [], screens: [] }, message_s: 10, banner_s: 300 } };
   let alertScreens = [];
   let alertState = [];
   let alertDirty = false;
   let viewerHosts = [];
+  let alertExtraScreens = [];   // screens added or unticked here, kept as columns until the page reloads
+  let alertOpenRow = '';        // the row whose options are open: 'b<i>', 'm<i>' or 'free'
+  let alertSig = '';
   const ALERT_WORDS = { on: 'Flashing', seen: 'Seen', missed: 'Not seen', cancelled: 'Stopped' };
+  const LEVEL_LABELS = { info: 'Info (blue)', attention: 'Attention (amber, flashes)', urgent: 'Urgent (red, flashes)' };
+  const LEVEL_SHORT = { info: 'Info', attention: 'Attention', urgent: 'Urgent' };
+  const AUTOSTOP_WORDS = { 30: '30 s', 60: '1 min', 120: '2 min', 180: '3 min', 300: '5 min', 600: '10 min' };
 
   function alertSetDirty(on) {
     alertDirty = on;
     $('alertDirty').hidden = !on;
+    renderAlertSetSum();
   }
 
   function applyAlerts(frame) {
@@ -930,12 +940,13 @@
     alertState = frame.state || [];
     if (!alertDirty) {
       alertCfg = JSON.parse(JSON.stringify(frame.alerts || alertCfg));
+      if (!alertCfg.messages) alertCfg.messages = { presets: [], free: { panels: [], screens: [] }, message_s: 10, banner_s: 300 };
       $('alertAutoStop').value = String(alertCfg.auto_stop_s);
       $('alertSignin').checked = !!alertCfg.require_signin;
       $('alertReplies').value = (alertCfg.replies || []).join('\n');
-      if (!alertCfg.messages) alertCfg.messages = { presets: [], free: { panels: [], screens: [] }, message_s: 10, banner_s: 300 };
       $('msgSeconds').value = String(alertCfg.messages.message_s);
       $('bannerSeconds').value = String(alertCfg.messages.banner_s);
+      renderAlertSetSum();
     }
     renderAlerts();
   }
@@ -946,83 +957,130 @@
     let text = ALERT_WORDS[row.state] || row.state;
     if (row.state === 'on' && row.from) text += ' · from ' + row.from;
     if (row.state === 'seen' && row.seen_on) text += ' on ' + row.seen_on;
-    if (row.state === 'seen' && row.reply) text += ' \u2014 \u201c' + row.reply + '\u201d';
+    if (row.state === 'seen' && row.reply) text += ' — “' + row.reply + '”';
     return { cls: row.state, text: text };
   }
 
   function renderAlertSum() {
     const on = alertState.filter(function (r) { return r.state === 'on'; }).length;
     const n = alertCfg.buttons.length;
-    $('alertsSum').innerHTML = on ? '<span class="live">' + on + ' flashing</span>'
-      : n ? n + (n === 1 ? ' button' : ' buttons') : '';
+    const m = alertCfg.messages.presets.length;
+    $('alertsSum').innerHTML = '';
+    if (on) { $('alertsSum').appendChild(el('span', 'live', on + ' flashing')); return; }
+    const parts = [];
+    if (n) parts.push(n + (n === 1 ? ' button' : ' buttons'));
+    if (m) parts.push(m + (m === 1 ? ' message' : ' messages'));
+    $('alertsSum').textContent = parts.join(' · ');
+  }
+
+  function renderAlertSetSum() {
+    const replies = $('alertReplies').value.split('\n').filter(function (r) { return r.trim(); }).length;
+    $('alertSetSum').textContent = [
+      'stops after ' + (AUTOSTOP_WORDS[$('alertAutoStop').value] || $('alertAutoStop').value + ' s'),
+      replies ? replies + (replies === 1 ? ' reply' : ' replies') : 'no replies',
+      $('alertSignin').checked ? 'sign-in to send' : 'anyone with the link sends'
+    ].join(' · ');
+  }
+
+  // Every row of the grid, in order, with how to show and edit it.
+  function alertRows() {
+    const rows = [];
+    alertCfg.buttons.forEach(function (b, i) { rows.push({ key: 'b' + i, kind: 'button', item: b, index: i }); });
+    alertCfg.messages.presets.forEach(function (m, i) { rows.push({ key: 'm' + i, kind: 'message', item: m, index: i }); });
+    rows.push({ key: 'free', kind: 'free', item: alertCfg.messages.free });
+    return rows;
+  }
+
+  // Every column: the panels that have checked in (and any a row still names), then the browser screens a row
+  // names, that are open now, or that were added here.
+  function alertColumns() {
+    const items = alertRows().map(function (r) { return r.item; });
+    const cols = panelRows.map(function (r) { return { kind: 'panel', id: r.id, name: r.name, online: !!r.online }; });
+    items.forEach(function (it) {
+      (it.panels || []).forEach(function (pid) {
+        if (!cols.some(function (c) { return c.kind === 'panel' && c.id === pid; })) {
+          cols.push({ kind: 'panel', id: pid, name: 'Forgotten panel ' + pid.slice(0, 4), online: false });
+        }
+      });
+    });
+    const seen = {};
+    const screens = [];
+    function addScreen(name) {
+      const key = name.toLowerCase();
+      if (!name || seen[key]) return;
+      seen[key] = true;
+      screens.push(name);
+    }
+    items.forEach(function (it) { (it.screens || []).forEach(addScreen); });
+    alertScreens.forEach(addScreen);
+    alertExtraScreens.forEach(addScreen);
+    screens.sort(function (a, b) { return a.toLowerCase() < b.toLowerCase() ? -1 : 1; });
+    const open = alertScreens.map(function (s) { return s.toLowerCase(); });
+    screens.forEach(function (name) {
+      cols.push({ kind: 'screen', id: name, name: name, online: open.indexOf(name.toLowerCase()) !== -1 });
+    });
+    return cols;
+  }
+
+  function alertHas(item, col) {
+    if (col.kind === 'panel') return (item.panels || []).indexOf(col.id) !== -1;
+    const key = col.id.toLowerCase();
+    return (item.screens || []).some(function (s) { return s.toLowerCase() === key; });
+  }
+
+  function alertSetHas(item, col, on) {
+    if (col.kind === 'panel') {
+      item.panels = (item.panels || []).filter(function (x) { return x !== col.id; });
+      if (on) item.panels.push(col.id);
+      return;
+    }
+    const key = col.id.toLowerCase();
+    item.screens = (item.screens || []).filter(function (s) { return s.toLowerCase() !== key; });
+    if (on) item.screens.push(col.id);
+    else if (alertExtraScreens.indexOf(col.id) === -1) alertExtraScreens.push(col.id);   // keep its column
+  }
+
+  function viewerBase() {
+    // The viewer hosts end in "/" (they are joined to "translation" and the like); these paths start with one.
+    return (viewerHosts[0] || location.origin).replace(/\/+$/, '');
   }
 
   function renderAlerts() {
     renderAlertSum();
-    const list = $('alertList');
-    // Never rebuild under the operator's cursor, or while edits wait: repaint the states only.
-    if (alertDirty || list.contains(document.activeElement)) {
-      list.querySelectorAll('[data-astate]').forEach(function (n) {
+    renderAlertLinks();
+    const table = $('alertList');
+    const cols = alertColumns();
+    const rows = alertRows();
+    const sig = JSON.stringify([cols, rows.map(function (r) { return r.key; }), alertOpenRow,
+      !!(window.RelayAdmin && window.RelayAdmin.panelHooks.stageDisplay)]);
+    const typing = table.contains(document.activeElement) &&
+      /^(INPUT|SELECT|TEXTAREA)$/.test(document.activeElement.tagName) && document.activeElement.type !== 'checkbox';
+    if (sig === alertSig || typing) {
+      // Only the live parts: each button's state.
+      table.querySelectorAll('[data-astate]').forEach(function (n) {
         const st = alertStateText(n.dataset.astate);
         n.className = 'astate ' + st.cls;
         n.textContent = st.text;
       });
-      list.querySelectorAll('[data-ahint]').forEach(function (n) { n.textContent = screenHint(); });
-      renderAlertLinks();
       return;
     }
-    list.innerHTML = '';
-    if (!alertCfg.buttons.length) {
-      list.appendChild(el('div', 'muted', 'No alert buttons yet. Add one for each place a musician may need to reach.'));
-    }
-    alertCfg.buttons.forEach(function (b, i) { list.appendChild(alertCard(b, i)); });
-    renderMessageCards();
-    renderAlertLinks();
+    alertSig = sig;
+    buildAlertGrid(table, rows, cols);
   }
 
-  /* Stage messages (#214): preset cards, and where typed words go. Edited with the buttons and saved with them. */
-  function targetPicker(item, editable, label) {
-    const wrap = el('div', 'field');
-    wrap.appendChild(el('label', '', label));
-    const grid = el('div', 'atargets');
-    const known = panelRows.slice();
-    item.panels.forEach(function (pid) {
-      if (!known.some(function (r) { return r.id === pid; })) known.push({ id: pid, name: 'Forgotten panel ' + pid.slice(0, 4), online: false });
-    });
-    if (!known.length) grid.appendChild(el('span', 'muted', 'No panels have checked in yet.'));
-    known.forEach(function (r) {
-      const lab = el('label', 'check');
-      const box = el('input');
-      box.type = 'checkbox';
-      box.checked = item.panels.indexOf(r.id) !== -1;
-      box.disabled = !editable;
-      box.addEventListener('change', function () {
-        item.panels = item.panels.filter(function (x) { return x !== r.id; });
-        if (box.checked) item.panels.push(r.id);
-        alertSetDirty(true);
-      });
-      lab.appendChild(box);
-      lab.appendChild(el('span', '', r.name + (r.online ? '' : ' (offline)')));
-      grid.appendChild(lab);
-    });
-    wrap.appendChild(grid);
-    const screens = el('input');
-    screens.placeholder = 'Browser screens, separated by commas';
-    screens.setAttribute('aria-label', label + ': browser screens');
-    screens.value = item.screens.join(', ');
-    screens.disabled = !editable;
-    screens.style.marginTop = '6px';
-    screens.addEventListener('input', function () {
-      item.screens = screens.value.split(',').map(function (x) { return x.replace(/\s+/g, ' ').trim(); }).filter(Boolean);
-      alertSetDirty(true);
-    });
-    wrap.appendChild(screens);
-    return wrap;
+  function forceAlerts() {
+    alertSig = '';
+    renderAlerts();
   }
 
-  /* Levels (#215): how loud an alert or message is. Info is a steady blue, attention flashes amber, urgent flashes
-     red and white. A button defaults to urgent, a message to info. */
-  const LEVEL_LABELS = { info: 'Info (blue)', attention: 'Attention (amber, flashes)', urgent: 'Urgent (red, flashes)' };
+  function levelSwatch(level) {
+    const sw = el('span', 'alv ' + level);
+    sw.title = LEVEL_LABELS[level];
+    sw.setAttribute('role', 'img');
+    sw.setAttribute('aria-label', LEVEL_SHORT[level]);
+    return sw;
+  }
+
   function levelPicker(item, editable, fallback, label) {
     const pick = el('select', 'alevelpick');
     pick.setAttribute('aria-label', label || 'Level');
@@ -1033,227 +1091,257 @@
     });
     pick.value = item.level || fallback;
     pick.disabled = !editable;
-    pick.addEventListener('change', function () { item.level = pick.value; alertSetDirty(true); });
+    pick.addEventListener('change', function () { item.level = pick.value; alertSetDirty(true); forceAlerts(); });
     return pick;
   }
 
-  function renderMessageCards() {
+  function buildAlertGrid(table, rows, cols) {
     const editable = can('alerts.manage');
-    const msgs = alertCfg.messages;
-    const list = $('msgList');
-    list.innerHTML = '';
-    if (!msgs.presets.length) list.appendChild(el('div', 'muted', 'No preset messages yet. Add the ones you send often: “Wrap up”, “5 minutes”.'));
-    msgs.presets.forEach(function (m, i) {
-      const card = el('div', 'pcard acard');
-      const head = el('div', 'phead');
-      const text = el('input');
-      text.value = m.text;
-      text.maxLength = 80;
-      text.placeholder = '5 minutes';
-      text.setAttribute('aria-label', 'Message');
-      text.style.flex = '1 1 220px';
-      text.disabled = !editable;
-      text.addEventListener('input', function () { m.text = text.value; alertSetDirty(true); });
-      head.appendChild(text);
-      head.appendChild(levelPicker(m, editable, 'info', 'Message level'));
-      const bl = el('label', 'check');
-      const bb = el('input');
-      bb.type = 'checkbox';
-      bb.checked = !!m.banner;
-      bb.disabled = !editable;
-      bb.addEventListener('change', function () { m.banner = bb.checked; alertSetDirty(true); });
-      bl.appendChild(bb);
-      bl.appendChild(el('span', '', 'Banner'));
-      head.appendChild(bl);
-      if (editable) {
-        const remove = el('button', '', 'Remove');
-        remove.type = 'button';
-        remove.addEventListener('click', function () {
-          msgs.presets.splice(i, 1);
-          alertDirty = false;
-          renderAlerts();
-          alertSetDirty(true);
-        });
-        head.appendChild(remove);
-      }
-      card.appendChild(head);
-      card.appendChild(targetPicker(m, editable, 'Shown on'));
-      list.appendChild(card);
-    });
-    const free = $('msgFree');
-    free.innerHTML = '';
-    free.appendChild(targetPicker(msgs.free, editable, 'Panels and screens'));
-    const fl = el('div', 'ctl');
-    fl.style.marginTop = '6px';
-    fl.appendChild(el('span', '', 'Typed messages are'));
-    fl.appendChild(levelPicker(msgs.free, editable, 'info', 'Typed message level'));
-    free.appendChild(fl);
-  }
+    const span = Math.max(cols.length, 1) + 2;
+    table.innerHTML = '';
 
-  function screenHint() {
-    return alertScreens.length ? 'Open now: ' + alertScreens.join(', ') : 'No alert screen is open right now.';
-  }
-
-  function alertCard(b, i) {
-    const editable = can('alerts.manage');
-    const card = el('div', 'pcard acard');
-    const head = el('div', 'phead');
-    // The icon the /alert page shows for it (look C): a preview and a picker.
-    const icons = window.RelayAlertIcons;
-    const preview = el('span', 'aicon');
-    const pick = el('select', 'aiconpick');
-    pick.setAttribute('aria-label', 'Icon');
-    if (!b.icon) b.icon = 'bell';
-    if (icons) {
-      icons.names.forEach(function (n) {
-        const o = el('option', '', icons.label(n));
-        o.value = n;
-        pick.appendChild(o);
-      });
-      pick.value = b.icon;
-      preview.innerHTML = icons.svg(b.icon);
+    const head = el('thead');
+    const hr = el('tr');
+    hr.appendChild(el('th', 'aname', 'Send'));
+    if (!cols.length) {
+      hr.appendChild(el('th', 'acolnone', 'No panels or screens yet. A panel appears here when it checks in; add a browser screen below for a TV or laptop.'));
     }
-    pick.addEventListener('change', function () {
-      b.icon = pick.value;
-      if (icons) preview.innerHTML = icons.svg(b.icon);
-      alertSetDirty(true);
+    cols.forEach(function (c) {
+      const th = el('th', 'acol');
+      th.scope = 'col';
+      const name = el('span', 'acolname');
+      const dot = el('span', 'dot' + (c.online ? ' ok' : ''));
+      dot.setAttribute('role', 'img');
+      dot.setAttribute('aria-label', c.online ? 'Connected' : 'Not connected');
+      dot.title = c.online ? 'Connected now' : 'Not connected now';
+      name.append(dot, el('span', '', c.name));
+      th.appendChild(name);
+      if (c.kind === 'panel') th.appendChild(el('span', 'acolkind', 'panel'));
+      else {
+        const link = relayUI.link('screen link', viewerBase() + '/screen?alert=' + encodeURIComponent(c.name));
+        link.className = 'acolkind';
+        link.title = 'Open this on the TV or laptop, so it joins as “' + c.name + '”';
+        th.appendChild(link);
+      }
+      hr.appendChild(th);
     });
-    head.appendChild(preview);
-    const name = el('input');
-    name.value = b.name;
-    name.maxLength = 32;
-    name.placeholder = 'FOH booth';
-    name.setAttribute('aria-label', 'Button name');
-    name.style.flex = '1 1 180px';
-    name.addEventListener('input', function () { b.name = name.value; alertSetDirty(true); renderAlertLinks(); });
-    head.appendChild(name);
-    head.appendChild(pick);
-    head.appendChild(levelPicker(b, editable, 'urgent', 'Alert level'));
-    const st = alertStateText(b.id);
-    const state = el('span', 'astate ' + st.cls, st.text);
-    if (b.id) state.dataset.astate = b.id;
-    head.appendChild(state);
-    if (!editable) { name.disabled = true; pick.disabled = true; }
-    const remove = el('button', '', 'Remove');
-    remove.type = 'button';
-    remove.addEventListener('click', function () {
-      alertCfg.buttons.splice(i, 1);
-      alertSetDirty(true);
-      alertDirty = false;   // rebuild now; the flag is set again just below
-      renderAlerts();
-      alertSetDirty(true);
-    });
-    if (editable) head.appendChild(remove);
-    card.appendChild(head);
+    hr.appendChild(el('th', 'aopt'));
+    head.appendChild(hr);
+    table.appendChild(head);
 
-    const pf = el('div', 'field');
-    pf.appendChild(el('label', '', 'Panels it flashes'));
-    const grid = el('div', 'atargets');
-    const known = panelRows.slice();
-    b.panels.forEach(function (pid) {
-      if (!known.some(function (r) { return r.id === pid; })) known.push({ id: pid, name: 'Forgotten panel ' + pid.slice(0, 4), online: false });
-    });
-    if (!known.length) grid.appendChild(el('span', 'muted', 'No panels have checked in yet.'));
-    known.forEach(function (r) {
-      const lab = el('label', 'check');
-      const box = el('input');
-      box.type = 'checkbox';
-      box.checked = b.panels.indexOf(r.id) !== -1;
-      box.disabled = !editable;
-      box.addEventListener('change', function () {
-        b.panels = b.panels.filter(function (x) { return x !== r.id; });
-        if (box.checked) b.panels.push(r.id);
-        alertSetDirty(true);
+    const body = el('tbody');
+    function group(text, note) {
+      const tr = el('tr', 'agroup');
+      const td = el('th');
+      td.colSpan = span;
+      const words = el('span', '', text);
+      if (note) words.appendChild(el('span', 'muted', ' — ' + note));
+      td.appendChild(words);
+      tr.appendChild(td);
+      body.appendChild(tr);
+    }
+    let lastKind = '';
+    rows.forEach(function (r) {
+      if (r.kind !== lastKind) {
+        if (r.kind === 'button') group('Alert buttons', 'flash until someone there taps the screen');
+        if (r.kind === 'message') group('Stage messages', 'words over the screen, nothing to tap');
+        if (r.kind === 'free' && lastKind !== 'message') group('Stage messages', 'words over the screen, nothing to tap');
+        lastKind = r.kind;
+      }
+      const tr = el('tr', 'arow');
+      const nameCell = el('th', 'aname');
+      nameCell.scope = 'row';
+      let label = '';
+      if (r.kind === 'button') {
+        const b = r.item;
+        if (!b.icon) b.icon = 'bell';
+        const icons = window.RelayAlertIcons;
+        const ic = el('span', 'aicon');
+        if (icons) ic.innerHTML = icons.svg(b.icon);
+        const name = el('input');
+        name.value = b.name;
+        name.maxLength = 32;
+        name.placeholder = 'FOH booth';
+        name.setAttribute('aria-label', 'Alert button name');
+        name.disabled = !editable;
+        name.addEventListener('input', function () { b.name = name.value; alertSetDirty(true); });
+        const st = alertStateText(b.id);
+        const state = el('span', 'astate ' + st.cls, st.text);
+        if (b.id) state.dataset.astate = b.id;
+        nameCell.append(ic, name, levelSwatch(b.level || 'urgent'), state);
+        label = b.name || 'New alert button';
+      } else if (r.kind === 'message') {
+        const m = r.item;
+        const text = el('input');
+        text.value = m.text;
+        text.maxLength = 80;
+        text.placeholder = '5 minutes';
+        text.setAttribute('aria-label', 'Stage message');
+        text.disabled = !editable;
+        text.addEventListener('input', function () { m.text = text.value; alertSetDirty(true); });
+        nameCell.append(text, levelSwatch(m.level || 'info'));
+        if (m.banner) nameCell.appendChild(el('span', 'atag', 'banner'));
+        label = m.text || 'New message';
+      } else {
+        nameCell.append(el('span', 'afree', 'Anything typed on the sender page'), levelSwatch(r.item.level || 'info'));
+        label = 'Typed messages';
+      }
+      tr.appendChild(nameCell);
+      if (!cols.length) tr.appendChild(el('td', 'acell'));
+      cols.forEach(function (c) {
+        const td = el('td', 'acell');
+        const box = el('input');
+        box.type = 'checkbox';
+        box.checked = alertHas(r.item, c);
+        box.disabled = !editable;
+        box.setAttribute('aria-label', label + ' on ' + c.name);
+        box.addEventListener('change', function () { alertSetHas(r.item, c, box.checked); alertSetDirty(true); });
+        td.appendChild(box);
+        tr.appendChild(td);
       });
-      lab.appendChild(box);
-      lab.appendChild(el('span', '', r.name + (r.online ? '' : ' (offline)')));
-      grid.appendChild(lab);
+      const opt = el('td', 'aopt');
+      const open = alertOpenRow === r.key;
+      const ob = relayUI.button(open ? 'Close' : 'Options', function () {
+        alertOpenRow = open ? '' : r.key;
+        forceAlerts();
+      }, 'sm quiet');
+      ob.setAttribute('aria-expanded', open ? 'true' : 'false');
+      opt.appendChild(ob);
+      tr.appendChild(opt);
+      body.appendChild(tr);
+      if (open) body.appendChild(alertOptions(r, span, editable));
     });
-    pf.appendChild(grid);
-    card.appendChild(pf);
+    table.appendChild(body);
 
-    const sf = el('div', 'field');
-    const sid = 'alertScreens' + i;
-    const sl = el('label', '', 'Browser screens it flashes (names, separated by commas)');
-    sl.htmlFor = sid;
-    sf.appendChild(sl);
-    const screens = el('input');
-    screens.id = sid;
-    screens.placeholder = 'Booth TV';
-    screens.value = b.screens.join(', ');
-    screens.disabled = !editable;
-    screens.addEventListener('input', function () {
-      b.screens = screens.value.split(',').map(function (x) { return x.replace(/\s+/g, ' ').trim(); })
-        .filter(Boolean);
-      alertSetDirty(true);
-      renderAlertLinks();
+    const foot = el('tfoot');
+    const fr = el('tr');
+    fr.appendChild(el('th', 'aname muted', cols.length ? 'Check a screen' : ''));
+    if (!cols.length) fr.appendChild(el('td'));
+    cols.forEach(function (c) {
+      const td = el('td', 'acell');
+      const tb = relayUI.button('Test', function () { testAlertTarget(c, tb); }, 'sm');
+      tb.disabled = !editable;
+      tb.setAttribute('aria-label', 'Test ' + c.name);
+      td.appendChild(tb);
+      fr.appendChild(td);
     });
-    sf.appendChild(screens);
-    const hint = el('div', 'note', screenHint());
-    hint.dataset.ahint = '1';
-    sf.appendChild(hint);
-    card.appendChild(sf);
+    fr.appendChild(el('td'));
+    foot.appendChild(fr);
+    table.appendChild(foot);
+  }
 
-    const stageRow = el('label', 'check');
-    const stageBox = el('input');
-    stageBox.type = 'checkbox';
-    stageBox.checked = !!b.stage;
-    stageBox.disabled = !editable;
-    stageBox.addEventListener('change', function () { b.stage = stageBox.checked; alertSetDirty(true); });
-    stageRow.appendChild(stageBox);
-    stageRow.appendChild(el('span', '', 'Also show on the ProPresenter stage display (cleared when acknowledged)'));
-    // Only while the ProPresenter module is on (its script sets the hook); the saved choice is kept either way.
-    if (window.RelayAdmin && window.RelayAdmin.panelHooks.stageDisplay) card.appendChild(stageRow);
-    return card;
+  // The options under a row: what does not fit in the grid itself.
+  function alertOptions(r, span, editable) {
+    const tr = el('tr', 'aoptrow');
+    const td = el('td');
+    td.colSpan = span;
+    const box = el('div', 'ctl');
+    if (r.kind === 'button') {
+      const b = r.item;
+      const icons = window.RelayAlertIcons;
+      if (icons) {
+        const pick = el('select', 'aiconpick');
+        pick.setAttribute('aria-label', 'Icon on the sender page');
+        icons.names.forEach(function (n) {
+          const o = el('option', '', icons.label(n));
+          o.value = n;
+          pick.appendChild(o);
+        });
+        pick.value = b.icon || 'bell';
+        pick.disabled = !editable;
+        pick.addEventListener('change', function () { b.icon = pick.value; alertSetDirty(true); forceAlerts(); });
+        box.append(el('span', 'muted', 'Icon'), pick);
+      }
+      box.append(el('span', 'muted', 'Level'), levelPicker(b, editable, 'urgent', 'Alert level'));
+      if (window.RelayAdmin && window.RelayAdmin.panelHooks.stageDisplay) {
+        const lab = el('label', 'check');
+        const cb = el('input');
+        cb.type = 'checkbox';
+        cb.checked = !!b.stage;
+        cb.disabled = !editable;
+        cb.addEventListener('change', function () { b.stage = cb.checked; alertSetDirty(true); });
+        lab.append(cb, el('span', '', 'Also on the ProPresenter stage display'));
+        box.appendChild(lab);
+      }
+    } else if (r.kind === 'message') {
+      const m = r.item;
+      box.append(el('span', 'muted', 'Level'), levelPicker(m, editable, 'info', 'Message level'));
+      const lab = el('label', 'check');
+      const cb = el('input');
+      cb.type = 'checkbox';
+      cb.checked = !!m.banner;
+      cb.disabled = !editable;
+      cb.addEventListener('change', function () { m.banner = cb.checked; alertSetDirty(true); forceAlerts(); });
+      lab.append(cb, el('span', '', 'Banner (a strip across the top that stays longer)'));
+      box.appendChild(lab);
+    } else {
+      box.append(el('span', 'muted', 'Typed messages are'), levelPicker(r.item, editable, 'info', 'Typed message level'));
+      td.appendChild(box);
+      td.appendChild(el('div', 'note', 'The sender page shows a box to type in once this row goes to at least one panel or screen.'));
+      tr.appendChild(td);
+      return tr;
+    }
+    if (editable) {
+      box.appendChild(relayUI.button('Remove', function () {
+        if (r.kind === 'button') alertCfg.buttons.splice(r.index, 1);
+        else alertCfg.messages.presets.splice(r.index, 1);
+        alertOpenRow = '';
+        alertSetDirty(true);
+        forceAlerts();
+      }, 'sm danger'));
+    }
+    td.appendChild(box);
+    tr.appendChild(td);
+    return tr;
+  }
+
+  async function testAlertTarget(c, btn) {
+    btn.disabled = true;
+    try {
+      const res = await post('/api/admin/alerts/test', c.kind === 'panel' ? { panel: c.id } : { screen: c.name });
+      if (res.delivered) okMsg('Test sent to ' + c.name + '. It shows for a few seconds.');
+      else alertMsg(c.name + ' is not connected, so the test showed nowhere. ' +
+        (c.kind === 'panel' ? 'Check that the panel is on and on the network.' : 'Open its screen link on that TV or laptop first.'));
+    } catch (e) { alertMsg(e.message); }
+    btn.disabled = false;
   }
 
   function renderAlertLinks() {
     const box = $('alertLinks');
     if (!box) return;
-    // The viewer hosts end in "/" (they are joined to "translation" and the like); these paths start with one.
-    const host = (viewerHosts[0] || location.origin).replace(/\/+$/, '');
     // With sign-in required the sender page lives on the operator panel's own https:// address, this one.
-    const rows = [['Sender page (phones)', '/alert', alertCfg.require_signin ? location.origin : host]];
-    const seen = {};
-    alertCfg.buttons.forEach(function (b) {
-      b.screens.forEach(function (sname) {
-        const key = sname.toLowerCase();
-        if (seen[key]) return;
-        seen[key] = true;
-        rows.push(['Screen “' + sname + '”', '/screen?alert=' + encodeURIComponent(sname)]);
-      });
-    });
+    const url = (alertCfg.require_signin ? location.origin : viewerBase()) + '/alert';
+    if (box.dataset.url === url) return;
+    box.dataset.url = url;
     box.innerHTML = '';
-    rows.forEach(function (r) {
-      const line = el('div', 'ctl');
-      line.style.marginBottom = '6px';
-      line.appendChild(el('span', '', r[0] + ':'));
-      const base = r[2] || host;
-      const a = el('a', 'mono', base + r[1]);
-      a.href = base + r[1];
-      a.target = '_blank';
-      a.rel = 'noopener';
-      line.appendChild(a);
-      box.appendChild(line);
-    });
+    box.append(el('span', 'muted', 'Sender page for the band’s phones'), relayUI.link(url, url));
   }
 
   $('alertAdd').addEventListener('click', function () {
-    alertCfg.buttons.push({ name: '', level: 'urgent', panels: [], screens: [] });
-    alertDirty = false;
-    renderAlerts();
+    alertCfg.buttons.push({ name: '', icon: 'bell', level: 'urgent', panels: [], screens: [] });
     alertSetDirty(true);
-    const inputs = $('alertList').querySelectorAll('.phead input');
+    forceAlerts();
+    const inputs = $('alertList').querySelectorAll('input[aria-label="Alert button name"]');
     if (inputs.length) inputs[inputs.length - 1].focus();
   });
   $('msgAdd').addEventListener('click', function () {
     alertCfg.messages.presets.push({ text: '', banner: false, level: 'info', panels: [], screens: [] });
-    alertDirty = false;
-    renderAlerts();
     alertSetDirty(true);
-    const inputs = $('msgList').querySelectorAll('.phead input[type=text], .phead input:not([type])');
+    forceAlerts();
+    const inputs = $('alertList').querySelectorAll('input[aria-label="Stage message"]');
     if (inputs.length) inputs[inputs.length - 1].focus();
   });
+  function addAlertScreen() {
+    const name = $('alertScreenName').value.replace(/\s+/g, ' ').trim();
+    if (!name) { $('alertScreenName').focus(); return; }
+    const taken = alertColumns().some(function (c) { return c.kind === 'screen' && c.name.toLowerCase() === name.toLowerCase(); });
+    if (!taken) alertExtraScreens.push(name);
+    $('alertScreenName').value = '';
+    forceAlerts();
+    okMsg(taken ? 'There is already a screen called ' + name + '.' : 'Added ' + name + '. Tick its squares, then open its screen link on that TV or laptop.');
+  }
+  $('alertScreenAdd').addEventListener('click', addAlertScreen);
+  $('alertScreenName').addEventListener('keydown', function (e) { if (e.key === 'Enter') { e.preventDefault(); addAlertScreen(); } });
   ['msgSeconds', 'bannerSeconds'].forEach(function (id) {
     $(id).addEventListener('input', function () { alertSetDirty(true); });
   });
@@ -1265,6 +1353,7 @@
   $('alertSignin').addEventListener('change', function () {
     alertCfg.require_signin = $('alertSignin').checked;
     alertSetDirty(true);
+    renderAlertLinks();
   });
   $('alertSave').addEventListener('click', async function () {
     try {
@@ -1292,6 +1381,7 @@
       alertSetDirty(false);
       if (document.activeElement && $('alertList').contains(document.activeElement)) document.activeElement.blur();
       applyAlerts(frame);
+      forceAlerts();
       okMsg('Alerts saved');
     } catch (e) { alertMsg(e.message); }
   });

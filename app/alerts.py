@@ -69,6 +69,8 @@ BANNER_DEFAULT_S = 300
 BANNER_MIN_S = 30
 BANNER_MAX_S = 3600
 MAX_LIVE_MESSAGES = 8
+# What the admin page's Test button shows on one panel or screen.
+TEST_TEXT = "Test from Relay"
 # Replies (#216): a short fixed list the operator sets, tapped on a panel or screen when it acknowledges.
 MAX_REPLIES = 6
 REPLY_MAX = 24
@@ -419,6 +421,7 @@ MESSAGES = {
     "bad_level": "level must be info, attention or urgent",
     "bad_reply": "that is not one of the replies",
     "no_free_targets": "the operator has not chosen where typed messages go",
+    "no_test_target": "say which panel or screen to test",
 }
 
 
@@ -778,6 +781,34 @@ class Alerts:
             self._push_screen(name, wire)
         self._broadcast_messages()
         return self.message_state()
+
+    def test(self, *, panel: object = None, screen: object = None) -> int:
+        """Show "Test from Relay" on one panel or browser screen for a message's time, so the operator can check
+        it before a service. Steady info blue: nothing flashes, nothing to tap, nothing in the history. Returns
+        how many streams took it (0 when the panel or screen is not connected)."""
+        if isinstance(panel, str) and _PANEL_RE.match(panel):
+            panels, screens, key = [panel], [], "test:panel:" + panel
+        elif isinstance(screen, str) and clean_name(screen):
+            name = clean_name(screen)
+            panels, screens, key = [], [name], "test:screen:" + name.lower()
+        else:
+            raise Refused(400, "no_test_target")
+        self.expire()
+        old = self.live.get(key)
+        if old is not None:
+            self._end_message(old)
+        while len(self.live) >= MAX_LIVE_MESSAGES:
+            self._end_message(next(iter(self.live.values())))
+        msg = Message(secrets.token_hex(8), key, TEST_TEXT, False, "Relay", _now(),
+                      self.settings()["messages"]["message_s"], panels, screens, "info")
+        self.live[key] = msg
+        wire = self._message_wire(msg)
+        took = sum(self.push_panel(pid, wire) for pid in panels)
+        for name in screens:
+            took += len(self._screens.get(name.lower(), []))
+            self._push_screen(name, wire)
+        self._broadcast_messages()
+        return took
 
     def clear_messages(self, message_id: object = None) -> dict[str, Any]:
         """Take one showing message down (by its id), or every one when no id is given."""

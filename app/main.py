@@ -242,6 +242,7 @@ AUDIT_ROUTES = {
     "admin_start": ("session.start", "Started captions"),
     "admin_stop": ("session.stop", "Stopped captions"),
     "admin_alerts_save": ("alerts.change", "Changed the alert setup"),
+    "admin_alerts_test": ("alerts.test", "Sent a test to a panel or screen"),
     "admin_panel_firmware_upload": ("panels.firmware_upload", "Uploaded panel firmware"),
     "admin_panel_firmware_delete": ("panels.firmware_delete", "Deleted the uploaded panel firmware"),
     "admin_panel_firmware_update": ("panels.firmware_update", "Sent a firmware update to panels"),
@@ -2347,6 +2348,17 @@ async def admin_alerts_save(payload: dict):
     except ValueError as exc:
         raise HTTPException(400, str(exc))
     return _alerts_frame()
+
+
+@app.post("/api/admin/alerts/test", dependencies=[Depends(require("alerts.manage"))])
+async def admin_alerts_test(payload: dict):
+    """Show "Test from Relay" on one panel ({"panel": id}) or browser screen ({"screen": name}) for a message's
+    time. Answers how many of its streams took it; 0 means it is not connected."""
+    try:
+        took = alerts.test(panel=payload.get("panel"), screen=payload.get("screen"))
+    except alertsmod.Refused as exc:
+        raise HTTPException(exc.status, alertsmod.MESSAGES[exc.key])
+    return {"ok": True, "delivered": took}
 
 
 @app.get("/api/admin/alerts/history", dependencies=[Depends(require("alerts.history"))])

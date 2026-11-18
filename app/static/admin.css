@@ -225,15 +225,59 @@ label.check { display:flex; align-items:center; gap:8px; font-weight:normal; min
 .fwbox { border:1px solid var(--line); border-radius:var(--r-ctl); background:var(--inset); padding:12px 14px; margin-top:12px; }
 .fwbox .fwrow { display:flex; flex-wrap:wrap; align-items:center; gap:8px; margin-top:8px; }
 .pcard form .field { margin-bottom:10px; }
-/* Alerts (#121). */
-.acard .atargets { display:grid; grid-template-columns:repeat(auto-fill,minmax(180px,1fr)); gap:0 16px; }
-.acard .astate { font-size:var(--fs-sm); color:var(--dim); margin-left:auto; }
-.acard .astate.on { color:var(--err); font-weight:600; }
-.acard .astate.seen { color:var(--ok); }
-.acard .field { margin:10px 0 0; }
-.acard .aicon { width:28px; height:28px; flex:0 0 auto; color:var(--dim); }
-.acard .aicon svg { width:100%; height:100%; display:block; }
-.acard select.aiconpick, .acard select.alevelpick { width:auto; flex:0 0 auto; }
+/* Alerts (#121): one routing grid, rows sent to columns. The name column stays put while the screens scroll. */
+.abar { display:flex; flex-wrap:wrap; align-items:center; gap:var(--sp-2) var(--sp-3); margin:0 0 var(--sp-3); }
+.abar [hidden] { display:none; }
+.abar-link { display:flex; flex-wrap:wrap; align-items:baseline; gap:var(--sp-2); margin-right:auto; min-width:0; font-size:var(--fs-md); }
+.abar-link a { color:var(--fg); font-family:var(--mono); font-size:var(--fs-sm); overflow-wrap:anywhere; }
+table.apatch { border-collapse:separate; border-spacing:0; width:100%; font-size:var(--fs-md); }
+table.apatch th, table.apatch td { border-bottom:1px solid var(--line); padding:var(--sp-2); text-align:center; vertical-align:middle; }
+table.apatch thead th { font-weight:500; color:var(--muted); vertical-align:bottom; }
+table.apatch .aname { text-align:left; position:sticky; left:0; z-index:1; background:var(--card); min-width:260px; font-weight:400; }
+table.apatch th.aname > * { vertical-align:middle; }
+table.apatch .aname input { width:auto; max-width:180px; min-height:var(--ctl-h-sm); height:var(--ctl-h-sm); padding:3px 8px; font-size:var(--fs-md); }
+table.apatch .acol { min-width:84px; }
+table.apatch .acolname { display:inline-flex; align-items:center; gap:6px; color:var(--fg); font-weight:500; }
+table.apatch .acolkind { display:block; font-size:var(--fs-xs); color:var(--dim); font-weight:400; margin-top:2px; }
+table.apatch a.acolkind { color:var(--dim); text-decoration:underline; }
+table.apatch a.acolkind:hover { color:var(--fg); }
+table.apatch .acolnone { text-align:left; font-weight:400; color:var(--muted); }
+table.apatch .acell input[type=checkbox] { width:18px; height:18px; margin:0; accent-color:var(--primary); cursor:pointer; }
+table.apatch .acell input[type=checkbox]:disabled { cursor:default; }
+table.apatch tr.agroup th { text-align:left; position:static; background:var(--inset); color:var(--fg); font-size:var(--fs-xs); font-weight:600; letter-spacing:.06em; text-transform:uppercase; padding:6px var(--sp-2); }
+table.apatch tr.agroup th .muted { text-transform:none; letter-spacing:0; font-weight:400; }
+table.apatch tr.arow:hover > * { background:var(--inset); }
+table.apatch .aopt { text-align:right; white-space:nowrap; width:1%; }
+table.apatch tr.aoptrow td { text-align:left; background:var(--inset); }
+table.apatch tr.aoptrow .ctl { gap:var(--sp-2) var(--sp-3); }
+table.apatch tr.aoptrow select { width:auto; }
+table.apatch tr.aoptrow .check { margin:0; }
+table.apatch tfoot th, table.apatch tfoot td { border-bottom:0; }
+table.apatch .aicon { display:inline-block; width:22px; height:22px; color:var(--dim); margin-right:6px; }
+table.apatch .aicon svg { width:100%; height:100%; display:block; }
+table.apatch .afree { font-style:italic; color:var(--muted); }
+table.apatch .alv { display:inline-block; width:10px; height:10px; border-radius:var(--r-sm); margin:0 6px 0 8px; }
+.alv.info { background:var(--info); } .alv.attention { background:var(--warn); } .alv.urgent { background:var(--err); }
+table.apatch .atag { font-size:var(--fs-xs); color:var(--dim); border:1px solid var(--line); border-radius:var(--r-pill); padding:1px 7px; }
+table.apatch .astate { font-size:var(--fs-sm); color:var(--dim); margin-left:4px; }
+table.apatch .astate.on { color:var(--err); font-weight:600; }
+table.apatch .astate.seen { color:var(--ok); }
+.apatch-add { margin-top:var(--sp-3); flex-wrap:wrap; }
+.apatch-screen { display:inline-flex; gap:var(--sp-2); align-items:center; flex-wrap:wrap; }
+.apatch-screen input { width:12em; }
+#alertSettings textarea { max-width:24em; }
+#alertSettings .row .field { flex:1 1 200px; }
+#alertSettings input[type=number] { width:7em; }
+@media (max-width:600px) {
+  table.apatch .aname { min-width:0; max-width:46vw; }
+  table.apatch .aname input { max-width:28vw; }
+  table.apatch .aicon, table.apatch .astate { display:none; }
+  table.apatch .acol { min-width:64px; }
+  table.apatch tr.aoptrow .ctl, table.apatch tr.aoptrow .note, table.apatch tr.agroup th > span { position:sticky; left:var(--sp-2); }
+  table.apatch tr.agroup th > span { display:inline-block; }
+  table.apatch tr.aoptrow .ctl { flex-wrap:wrap; max-width:calc(100vw - 72px); }
+  table.apatch tr.agroup th .muted { display:none; }
+}
 /* Session health's five columns scroll inside the section on a phone, not the page. */
 /* Schedules. Days are chips, not a column of checkboxes; the date field is a
      US-format text box with the browser's own calendar behind a button, so the
