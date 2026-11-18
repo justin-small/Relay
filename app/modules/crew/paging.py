@@ -237,8 +237,9 @@ def by_token(token) -> dict | None:
     if not isinstance(token, str) or not 20 <= len(token) <= 60:
         return None
     people.ready()
-    return db.one("select r.page_id, r.user_id, r.confirmed_at, p.message from crew_page_recipients r"
-                  " join crew_pages p on p.id = r.page_id where r.token = ?", (token,))
+    return db.one("select r.page_id, r.user_id, r.confirmed_at, p.message, p.sent_ts, u.name as sender"
+                  " from crew_page_recipients r join crew_pages p on p.id = r.page_id"
+                  " left join users u on u.id = p.sent_by where r.token = ?", (token,))
 
 
 def confirm(token) -> dict | None:

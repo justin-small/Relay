@@ -65,7 +65,8 @@ eq("an admin sets a role", (r.status_code, r.json()), (200, {"role": "Camera 1"}
 eq("a member may not", member.put(f"/api/admin/crew/people/{mike.id}/role", json={"role": "X"}).status_code, 403)
 eq("a long role is refused", admin.put(f"/api/admin/crew/people/{mike.id}/role", json={"role": "x" * 41}).status_code, 400)
 eq("an unknown person is refused", admin.put("/api/admin/crew/people/99999/role", json={"role": "A"}).status_code, 404)
-eq("the crew page shows it", "Mike Smith · Camera 1" in member.get("/crew").text, True)
+page = member.get("/crew").text   # the person's sheet: their name, then the role they fill
+eq("the crew page shows it", ('id="crMeName">Mike Smith<' in page, 'id="crMeRole">Camera 1<' in page), (True, True))
 row = [p for p in admin.get("/api/admin/crew/people").json()["people"] if p["id"] == mike.id][0]
 eq("listed", (row["role"], row["linked"], row["suggested_name"]), ("Camera 1", False, ""))
 

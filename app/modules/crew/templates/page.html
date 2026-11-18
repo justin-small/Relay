@@ -5,23 +5,44 @@
 <title>{{ app_name }}</title>
 {% include "_brand_head.html" %}
 <link rel="stylesheet" href="{{ static('tokens.css') }}"><link rel="stylesheet" href="{{ static('viewer.css') }}">
+<link rel="stylesheet" href="{{ static('components.css') }}">
 <link rel="stylesheet" href="{{ static('modules/crew/crew.css') }}">
+<script src="{{ static('look.js') }}"></script>
 </head><body class="crew-page">
-<header class="cr-bar"><img src="/static/brand/relay-mark.svg" width="28" height="28" alt=""><h1>{{ app_name }}</h1></header>
-<main class="cr-main">
-  {% if not found %}
-  <section class="cr-card"><h2>Page</h2><p class="cr-note">This page link is not valid any more.</p></section>
-  {% else %}
-  <section class="cr-card cr-page">
-    <h2>Page</h2>
-    <p class="cr-msg">{{ message }}</p>
+{#- A page (#228), opened from the person's own link: it fills the screen while it buzzes, and the one button is at
+    the bottom under the thumb. -#}
+{% if not found %}
+<main class="cr-full">
+  <div class="cr-top">
+    <div class="cr-row"><img src="/static/brand/relay-mark.svg" width="26" height="26" alt=""><b>{{ app_name }}</b></div>
+    <h1 class="cr-msg">This page link is not valid any more.</h1>
+  </div>
+  <a class="cr-confirm cr-center" href="/crew">Open the crew page</a>
+</main>
+{% else %}
+<main class="cr-full{% if not confirmed %} urgent{% endif %}">
+  <div class="cr-top">
+    <div class="cr-row"><img src="/static/brand/relay-mark.svg" width="26" height="26" alt="">
+      <span class="badge {{ 'ok' if confirmed else 'warn' }}">{{ 'READ' if confirmed else 'PAGE' }}</span>
+      <span class="grow"></span><time class="cr-note" id="crSent" data-ts="{{ sent_ts }}"></time></div>
+    <p class="cr-note">From {{ sender or 'the booth' }}</p>
+    <h1 class="cr-msg">{{ message }}</h1>
+  </div>
+  <div class="cr-top">
     {% if confirmed %}
     <p class="cr-ok" role="status">Confirmed. The buzzing has stopped.</p>
+    <a class="cr-confirm cr-center" href="/crew">Open the crew page</a>
     {% else %}
-    <form method="post"><button type="submit" class="cr-confirm">I have read this</button></form>
+    <form method="post"><button type="submit" class="cr-confirm">Got it</button></form>
+    <p class="cr-note cr-center">Your phone buzzes again until you tap Got it.</p>
     {% endif %}
-  </section>
-  {% endif %}
-  <p class="cr-note"><a href="/crew">Open the crew page</a></p>
+  </div>
 </main>
+{% endif %}
+<script>
+  (function () {                       // the time it was sent, in this phone's own clock
+    var t = document.getElementById('crSent'), ts = t && Number(t.dataset.ts);
+    if (ts) t.textContent = new Date(ts * 1000).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  })();
+</script>
 </body></html>
