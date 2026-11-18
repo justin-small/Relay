@@ -250,4 +250,8 @@
     try { ppRender(await api('/api/admin/propresenter/stage', { method: 'DELETE' })); alertMsg(''); }
     catch (e) { alertMsg(e.message); }
   });
+  // The section list beside the page jumps to a section; buttons, not links, so the page's address stays put.
+  document.querySelectorAll('.ppsnav button[data-job]').forEach(function (b) {
+    b.addEventListener('click', function () { $(b.dataset.job).scrollIntoView({ behavior: 'smooth', block: 'start' }); });
+  });
 })();

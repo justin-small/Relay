@@ -51,3 +51,49 @@
 #ppDock .dl { font-size:var(--fs-xs); letter-spacing:.1em; text-transform:uppercase; color:var(--dim); margin-right:4px; }
 #ppDock button.lit { background:color-mix(in srgb,var(--err) 18%,var(--card)); border-color:var(--err); color:var(--fg); }
 @media (max-width: 860px) { #ppDock { left:0; } }
+
+/* The redesigned pages: control, slide view and lobby, settings. Components, sizes and colours come from the shared
+   stylesheets; only the layout of these pages is here. */
+.ppgrow { flex:1 1 auto; }
+.ppcols { display:grid; grid-template-columns:minmax(0,7fr) minmax(0,5fr); gap:var(--sp-4); align-items:start; }
+@media (max-width: 1200px) { .ppcols { grid-template-columns:1fr; } }
+.pptabs .tabs { display:flex; margin:calc(var(--sp-4) * -1) calc(var(--sp-4) * -1) var(--sp-3); border-radius:var(--r) var(--r) 0 0; }
+.pptabs .tabs button { flex:1 1 auto; }
+.pptab[hidden] { display:none; }
+.pph { margin:var(--sp-4) 0 var(--sp-2); font-size:var(--fs-sm); letter-spacing:.06em; text-transform:uppercase; color:var(--muted); font-weight:600; }
+.pph:first-child { margin-top:0; }
+.ppsecs { width:120px; }
+.ppmacropick { margin-top:var(--sp-3); }
+.ppmacrolist { margin:var(--sp-2) 0; }
+.ppcols .sv { margin-bottom:var(--sp-3); }
+#ppDock { position:sticky; bottom:0; margin-top:var(--sp-3); z-index:9; background:var(--card); border:1px solid var(--border);
+          border-radius:var(--r); box-shadow:var(--shadow-pop); padding:var(--sp-2) var(--sp-3); }
+#ppDock .dl { margin-right:var(--sp-2); }
+.ppjobs { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:var(--sp-3); margin-bottom:var(--sp-4); }
+@media (max-width: 1100px) { .ppjobs { grid-template-columns:1fr; } }
+.ppjobtile { display:grid; grid-template-columns:auto 1fr; gap:var(--sp-1) var(--sp-3); align-items:center; text-align:left; padding:var(--sp-3);
+             height:auto; border-radius:var(--r); font-weight:400; }
+.ppjobtile b { font-weight:600; }
+.ppjobtile .muted, .ppjobtile .badge { grid-column:2; justify-self:start; }
+.ppnum { grid-row:span 3; width:26px; height:26px; border-radius:50%; border:1px solid var(--border); display:grid; place-items:center;
+         font-size:var(--fs-md); font-weight:600; color:var(--muted); flex:none; }
+.ppnum.on { background:var(--primary); color:var(--primary-fg); border-color:var(--primary); grid-row:auto; }
+main section.ppjob { padding:0; overflow:hidden; scroll-margin-top:var(--sp-5); }
+.ppjobhead { display:flex; gap:var(--sp-3); padding:var(--sp-4); border-bottom:1px solid var(--border); align-items:flex-start; }
+.ppjobhead h3 { margin:0 0 var(--sp-1); font-size:var(--fs-xl); }
+.ppjobhead .what { margin:0; color:var(--muted); max-width:75ch; }
+.ppjobbody { display:grid; grid-template-columns:minmax(0,1.3fr) minmax(0,1fr); gap:var(--sp-5); padding:var(--sp-4); align-items:start; }
+@media (max-width: 1100px) { .ppjobbody { grid-template-columns:1fr; } }
+.ppstatus { background:var(--inset); border:1px solid var(--border); border-radius:var(--r-ctl); padding:var(--sp-3); }
+.ppstatus .ppnow { margin-bottom:var(--sp-3); }
+.ppflow { display:flex; flex-wrap:wrap; align-items:center; gap:var(--sp-2); margin-bottom:var(--sp-4); font-size:var(--fs-sm); }
+.ppflow .arr { color:var(--muted); }
+.ppsave { margin-top:var(--sp-3); }
+.ppsettings { display:grid; grid-template-columns:190px minmax(0,1fr); gap:var(--sp-5); align-items:start; }
+@media (max-width: 1100px) { .ppsettings { grid-template-columns:1fr; } .ppsnav { position:static; flex-direction:row; flex-wrap:wrap; } }
+.ppsnav { position:sticky; top:var(--sp-5); display:flex; flex-direction:column; gap:var(--sp-1); }
+.ppsnav button { text-align:left; }
+.ppsbody section { scroll-margin-top:var(--sp-5); }
+.ppbar [hidden] { display:none; }
+.pptabs .tabs { flex-wrap:nowrap; }
+.pptabs .tabs button { padding:4px var(--sp-2); font-size:var(--fs-md); white-space:nowrap; }

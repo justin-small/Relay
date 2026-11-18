@@ -123,6 +123,14 @@
         if (!filled) await fill();
         renderLobby(body.lobby || {});
         renderSignage(body.signage || {});
+        const settings = body.settings || {};
+        [['jobSv', (settings.view || {}).public ? 'Public' : 'Admin only', !!(settings.view || {}).public],
+          ['jobLb', $('lbSum').textContent || 'Off', $('lbSum').textContent === 'running'],
+          ['jobSg', $('sgSum').textContent || 'Off', $('sgSum').textContent === 'on']].forEach(function (r) {
+          $(r[0]).textContent = r[1];
+          $(r[0]).classList.toggle('ok', r[2]);
+          $(r[0]).classList.toggle('muted', !r[2]);
+        });
         const s = body.state || {};
         $('svSum').textContent = !s.configured ? 'not set up' : !s.connected ? 'waiting for ProPresenter' : '';
       } catch (e) { say('lbErr', e.message, true, { hide: true }); }
@@ -171,6 +179,10 @@
   $('lbResume').addEventListener('click', function () { run(function () { return post('/lobby/resume'); }); });
   $('lbStop').addEventListener('click', function () { run(function () { return post('/lobby/stop', { clear: false }); }); });
   $('lbStopClear').addEventListener('click', function () { run(function () { return post('/lobby/stop', { clear: true }); }); });
+  // The three tiles at the top jump to their section; a button, not a link, so the page's address stays put.
+  document.querySelectorAll('.ppjobtile').forEach(function (t) {
+    t.addEventListener('click', function () { $(t.dataset.job).scrollIntoView({ behavior: 'smooth', block: 'start' }); });
+  });
   window.addEventListener('hashchange', function () { if (pageOpen()) { filled = false; poll(); } });
   view = window.RelaySlideView.create($('svRoot'), { base: BASE + '/live', active: pageOpen });
   poll();
