@@ -42,6 +42,14 @@ REFIND_EVERY_S = 60.0     # and not more often than this per switcher
 _HOST_RE = re.compile(r"[A-Za-z0-9]([A-Za-z0-9.\-]{0,251}[A-Za-z0-9])?")
 _ID_RE = re.compile(r"[a-z0-9]{1,16}")
 _UID_RE = re.compile(r"[A-Za-z0-9:._\-]{1,64}")
+# The rack redesign: which drawing a device gets (empty: picked from its product name), where it sits, the operator's
+# note on each connector, and the cables between connectors that Relay cannot see. Drawing ids match bmdraw.js.
+DRAWINGS = ("tvs-hd8", "atem-rack", "mini-extreme", "mini-pro", "hyperdeck-studio", "videohub")
+PLACES = ("rack", "shelf")
+PORT_RE = re.compile(r"[a-z0-9]{1,12}")
+NOTE_MAX = 120
+MAX_NOTES = 96
+MAX_CABLES = 200
 
 
 def _str(value, limit: int) -> str:
@@ -95,6 +103,43 @@ def clean_presets(raw) -> list[dict]:
     return out
 
 
+def clean_notes(raw) -> dict[str, str]:
+    """The operator's note on each connector of one device, by the drawing's connector id."""
+    out: dict[str, str] = {}
+    if isinstance(raw, dict):
+        for k, v in raw.items():
+            text = _str(v, NOTE_MAX)
+            if isinstance(k, str) and PORT_RE.fullmatch(k) and text and len(out) < MAX_NOTES:
+                out[k] = text
+    return out
+
+
+def _end(raw) -> list[str] | None:
+    if (isinstance(raw, list) and len(raw) == 2 and all(isinstance(x, str) for x in raw)
+            and _ID_RE.fullmatch(raw[0]) and PORT_RE.fullmatch(raw[1])):
+        return [raw[0], raw[1]]
+    return None
+
+
+def clean_cables(raw, ids: set[str]) -> list[dict]:
+    """Cables between two connectors, each end [device id, connector id]. A cable to a device no longer in the list
+    goes, and so does a second cable on the same pair of connectors."""
+    out: list[dict] = []
+    seen: set[tuple] = set()
+    for item in raw if isinstance(raw, list) else []:
+        if not isinstance(item, dict) or not isinstance(item.get("id"), str) or not _ID_RE.fullmatch(item["id"]):
+            continue
+        a, b = _end(item.get("a")), _end(item.get("b"))
+        if not a or not b or a == b or a[0] not in ids or b[0] not in ids:
+            continue
+        pair = tuple(sorted((tuple(a), tuple(b))))
+        if pair in seen or len(out) >= MAX_CABLES:
+            continue
+        seen.add(pair)
+        out.append({"id": item["id"], "a": a, "b": b})
+    return out
+
+
 def clean_device(raw, fallback_id: str = "") -> dict | None:
     """One device, or None when it has no usable id."""
     if not isinstance(raw, dict):
@@ -107,7 +152,10 @@ def clean_device(raw, fallback_id: str = "") -> dict | None:
     out = {"id": did, "kind": kind, "name": _str(raw.get("name"), NAME_MAX) or DEFAULT_NAME[kind],
            "host": clean_host(raw.get("host")), "port": clean_port(raw.get("port"), kind),
            "enabled": raw.get("enabled") is not False, "uid": uid if _UID_RE.fullmatch(uid) else "",
-           "model": _str(raw.get("model"), 60)}
+           "model": _str(raw.get("model"), 60),
+           "drawing": raw.get("drawing") if raw.get("drawing") in DRAWINGS else "",
+           "place": raw.get("place") if raw.get("place") in PLACES else "",
+           "notes": clean_notes(raw.get("notes"))}
     if kind == "atem":
         out["tally"] = raw.get("tally") is not False
         out["tally_offset"] = clean_offset(raw.get("tally_offset"))
@@ -129,15 +177,21 @@ def clean_settings(raw) -> dict:
     elif clean_host(raw.get("host")):
         # Before #386: one switcher, {"host", "port"}. It becomes the first in the list.
         devices.append(clean_device({"host": raw.get("host"), "port": raw.get("port"), "name": "Switcher"}, "main"))
-    return {"devices": devices}
+    return {"devices": devices, "cables": clean_cables(raw.get("cables"), {d["id"] for d in devices})}
 
 
 def devices() -> list[dict]:
     return clean_settings(config.get().get(KEY))["devices"]
 
 
-def save_devices(items: list[dict]) -> None:
-    config.save({KEY: {"devices": items}}, replace=(KEY,))
+def cables() -> list[dict]:
+    return clean_settings(config.get().get(KEY))["cables"]
+
+
+def save_devices(items: list[dict], wires: list[dict] | None = None) -> None:
+    """Save the device list (in rack order) and the cables; cables to a device that went are dropped."""
+    wires = cables() if wires is None else wires
+    config.save({KEY: {"devices": items, "cables": clean_cables(wires, {d["id"] for d in items})}}, replace=(KEY,))
 
 
 def overlaps(items: list[dict]) -> list[str]:
@@ -334,7 +388,7 @@ class Service:
     # ------------------------------------------------------------------------------------------ what the page shows
     def snapshot(self) -> dict:
         items = devices()
-        return {"devices": [self.device_snapshot(d) for d in items], "warnings": overlaps(items),
+        return {"devices": [self.device_snapshot(d) for d in items], "cables": cables(), "warnings": overlaps(items),
                 "configured": any(d["host"] for d in items),
                 "connected": sum(1 for d in items if self._connected(d["id"]))}
 

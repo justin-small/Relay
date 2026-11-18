@@ -1,0 +1,79 @@
+<!doctype html><html lang="en" data-theme="dark" data-preset="relay"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<link rel="stylesheet" href="../../../app/static/tokens.css"><link rel="stylesheet" href="../../../app/static/components.css"><link rel="stylesheet" href="common.css">
+<title>Blackmagic C · Signal flow</title></head><body>
+<div class="top"><b>Blackmagic</b><span class="spill on"><i class="dot ok"></i>4 of 4 connected</span><span class="sp"></span><span class="muted">Ana Ruiz · manage</span></div>
+<div class="wrap stack">
+<div class="tabs" id="tabs" role="tablist"><button type="button" data-p="live" class="on">Live</button><button type="button" data-p="wiring">Wiring</button><button type="button" data-p="setup">Devices</button></div>
+
+<div class="pane on" id="live"><div class="stack">
+<div class="card"><div class="between"><h3 style="margin:0">On air now</h3><span class="muted">From camera to recording, as Relay sees it</span></div>
+<div class="chain" id="chain" style="margin-top:var(--sp-3)"></div></div>
+<div class="legend"><span><i class="pgm"></i>Program / recording</span><span><i class="pvw"></i>Preview / playing</span><span><i class="dis"></i>Not from Relay (hover for why)</span></div>
+<div class="surface" id="surface"></div>
+</div></div>
+
+<div class="pane" id="wiring"><div class="split">
+<div class="card"><div class="between" style="margin-bottom:var(--sp-3)"><div><h3 style="margin:0">Back panels and cables</h3><span class="muted">Green: signal on the cable. Red: what is on program. Hover a connector to follow its cable.</span></div>
+<button type="button" class="sm" id="addCable">Add a cable</button></div>
+<div class="wiring" id="wire"></div></div>
+<div class="stack drawer"><div class="card" id="insp"></div>
+<div class="card"><h4>How cables get here</h4><p class="hint" style="margin-top:0">Relay cannot see a cable. It suggests one when a Videohub output label matches a switcher input (ATEM 1 → IN 1), and you confirm it, or click two connectors to add one yourself.</p>
+<div class="gap"><button type="button" class="sm primary">Confirm 2 suggestions</button></div></div></div>
+</div></div>
+
+<div class="pane" id="setup"><div class="stack">
+<div class="card"><h3>Devices</h3><table class="dt"><thead><tr><th>Name</th><th>Model</th><th>Address</th><th>Firmware</th><th>Status</th><th></th></tr></thead><tbody id="drows"></tbody></table>
+<div class="ctl" style="margin-top:var(--sp-3)"><button type="button" class="primary">Scan the network</button><button type="button">Add by address</button></div></div></div></div>
+</div>
+<nav class="mocknav"><a href="index.html">Index</a><a href="a-devices.html">A</a><a href="b-rack.html">B</a><a href="c-flow.html" aria-current="page">C</a></nav>
+<script src="devices.js"></script>
+<script>
+(function(){
+var BM=window.BM,h=BM.h,s=BM.s;
+var picked=null,hot=null;
+BM.tabs('tabs',function(p){if(p==='wiring')cables();});
+
+function chain(){var c=document.getElementById('chain');c.textContent='';
+  var m=BM.dev('main'),hub=BM.dev('hub'),deck=BM.dev('deck'),src=m.state.pgm;
+  var hubIn=hub.state.routes[src-1];
+  [[hub.state.inputs[hubIn-1],''],['Router '+hubIn+' → '+src,''],['Main switcher: '+m.state.inputs[src],'pgm'],['PGM out → Router in 9',''],[hub.state.outputs[8]+' (router out 9)',''],[deck.name+(deck.state.mode==='rec'?' ● recording':''),deck.state.mode==='rec'?'pgm':'']]
+    .forEach(function(x,i){if(i)h('i','',c,'→');h('span',x[1],c,x[0]);});}
+
+function surface(){var g=document.getElementById('surface');g.textContent='';
+  ['main','youth','deck','hub'].forEach(function(id){var d=BM.dev(id),m=BM.model(d),c=h('div','card',g);
+    var hd=h('div','between',c);var t=h('div','',hd);h('b','',t,d.name);h('span','muted',t,'  '+m.name);h('span','badge ok',hd,'Connected');
+    c.appendChild(document.createElement('div')).style.height='var(--sp-2)';
+    var svg=BM.draw(d,'front');c.appendChild(svg);BM.wire(svg);});}
+
+function wiring(){var w=document.getElementById('wire');w.textContent='';
+  ['hub','main','deck','youth'].forEach(function(id){var d=BM.dev(id),m=BM.model(d),r=h('div','row',w);
+    var nm=h('div','nm',r);h('b','',nm,d.name);h('small','',nm,m.name);
+    var svg=BM.draw(d,'back',{selPort:picked&&picked[0]===id?picked[1]:null});r.appendChild(svg);
+    BM.wire(svg,function(dd,pid){picked=[id,pid];wiring();inspect();});
+    svg.addEventListener('mouseover',function(e){var p=e.target.closest('[data-port]');var k=p?id+':'+p.dataset.port:null;if(k!==hot){hot=k;highlight();}});
+    svg.addEventListener('mouseleave',function(){hot=null;highlight();});});
+  s('svg',{'class':'cables'},w);cables();}
+
+function centre(id,pid,box){var g=document.querySelector('.wiring svg.hw[data-dev="'+id+'"] [data-port="'+pid+'"]');if(!g)return null;
+  var r=g.getBoundingClientRect();return {x:r.left+r.width/2-box.left,y:r.top+r.height/2-box.top-4};}
+function cables(){var w=document.getElementById('wire'),cs=w.querySelector('svg.cables');if(!cs||!w.offsetParent)return;cs.textContent='';
+  var box=w.getBoundingClientRect(),m=BM.dev('main');
+  BM.CABLES.forEach(function(c){var a=centre(c.a[0],c.a[1],box),b=centre(c.b[0],c.b[1],box);if(!a||!b)return;
+    var dy=Math.max(40,Math.abs(b.y-a.y)/2);
+    var p=s('path',{d:'M'+a.x+','+a.y+' C'+a.x+','+(a.y+dy)+' '+b.x+','+(b.y-dy)+' '+b.x+','+b.y},cs);
+    var ia=BM.portInfo(BM.dev(c.a[0]),BM.findPort(BM.dev(c.a[0]),c.a[1]));
+    var onPgm=(c.b[0]==='main'&&c.b[1]==='in'+m.state.pgm)||(c.a[0]==='main'&&c.a[1]==='out0')||(c.b[0]==='deck');
+    p.setAttribute('class',(ia.live?'live':'')+(onPgm?' pgm':''));p.dataset.k=c.a.join(':')+'|'+c.b.join(':');});
+  highlight();}
+function highlight(){document.querySelectorAll('.cables path').forEach(function(p){var ks=p.dataset.k.split('|');p.classList.toggle('hot',!!hot&&ks.indexOf(hot)>=0);});}
+
+function inspect(){var c=document.getElementById('insp');c.textContent='';h('h4','',c,'Connector');BM.inspector(c,picked?BM.dev(picked[0]):null,picked?picked[1]:null);}
+
+function setup(){var tb=document.getElementById('drows');tb.textContent='';BM.DEVICES.forEach(function(d){var tr=h('tr','',tb);h('td','',tr,d.name);h('td','',tr,BM.model(d).name);h('td','mono',tr,d.host);h('td','mono',tr,d.firmware);var st=h('td','',tr);h('span','badge ok',st,'Connected');var e=h('td','',tr);var b=h('button','sm',e,'Edit');b.type='button';});}
+
+document.getElementById('addCable').addEventListener('click',function(){BM.toast('Click the two ends of the cable on the back panels');});
+window.addEventListener('resize',cables);
+chain();surface();wiring();inspect();setup();
+BM.onChange(function(d,said){chain();surface();wiring();inspect();BM.toast(said);});
+})();
+</script></body></html>

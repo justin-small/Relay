@@ -13,8 +13,9 @@ from fastapi.responses import JSONResponse
 from ... import audit
 from .. import require
 from . import discovery, videohub
-from .service import (DEFAULT_NAME, DEFAULT_PORT as DEFAULT_PORTS, KIND_NAMES, KINDS, MAX_DEVICES, MAX_PRESETS, NAME_MAX, clean_device, clean_host,
-                      clean_offset, devices, new_id, save_devices, service)
+from .service import (DEFAULT_NAME, DEFAULT_PORT as DEFAULT_PORTS, DRAWINGS, KIND_NAMES, KINDS, MAX_CABLES, MAX_DEVICES,
+                      MAX_PRESETS, NAME_MAX, NOTE_MAX, PLACES, PORT_RE, cables, clean_device, clean_host, clean_offset,
+                      devices, new_id, save_devices, service)
 
 router = APIRouter()
 VIEW = [Depends(require("blackmagic.view"))]
@@ -76,6 +77,14 @@ def _apply(item: dict, payload: dict) -> str:
             if _int(payload.get("tally_offset"), 0, 900) is None:
                 return "The first camera number is from 1 to 901."
             item["tally_offset"] = clean_offset(payload["tally_offset"])
+    if "drawing" in payload:
+        if payload.get("drawing") not in DRAWINGS + ("",):
+            return "Choose a drawing from the list, or Automatic."
+        item["drawing"] = payload["drawing"]
+    if "place" in payload:
+        if payload.get("place") not in PLACES + ("",):
+            return "A device sits in the rack or on the shelf."
+        item["place"] = payload["place"]
     for text in ("uid", "model"):
         if isinstance(payload.get(text), str):
             item[text] = payload[text]
@@ -141,6 +150,79 @@ async def admin_remove(request: Request, device_id: str):
     save_devices([d for d in items if d["id"] != device_id])
     await service.sync()
     audit.note(request, "blackmagic.device_remove", f"Removed a Blackmagic {KIND_NAMES[item['kind']]}", target=item["name"])
+    return service.snapshot()
+
+
+# ---------------------------------------------------------------------------------------------- the rack
+@router.post("/api/admin/blackmagic/order", dependencies=MANAGE)
+async def admin_order(request: Request, payload: dict):
+    """Put the devices in a new order (the order the rack is drawn in): `{"ids": [...]}`, every device once."""
+    items = devices()
+    ids = payload.get("ids")
+    if not isinstance(ids, list) or sorted(map(str, ids)) != sorted(d["id"] for d in items):
+        return _bad("List every device once, in the new order.")
+    by_id = {d["id"]: d for d in items}
+    save_devices([by_id[i] for i in ids])
+    audit.note(request, "blackmagic.order", "Changed the order of the Blackmagic rack")
+    return service.snapshot()
+
+
+@router.post("/api/admin/blackmagic/notes", dependencies=MANAGE)
+async def admin_note(request: Request, payload: dict):
+    """The note on one connector: `{"device", "port", "text"}`. Empty text removes it."""
+    items = devices()
+    item = next((d for d in items if d["id"] == payload.get("device")), None)
+    if item is None:
+        return _bad("That device is not in the list.", 404)
+    port, text = payload.get("port"), payload.get("text", "")
+    if not isinstance(port, str) or not PORT_RE.fullmatch(port):
+        return _bad("Which connector is the note for?")
+    if not isinstance(text, str) or len(text) > NOTE_MAX:
+        return _bad(f"A note is up to {NOTE_MAX} characters.")
+    notes = dict(item.get("notes") or {})
+    if text.strip():
+        notes[port] = text
+    else:
+        notes.pop(port, None)
+    item["notes"] = notes
+    save_devices([clean_device(d) for d in items])
+    audit.note(request, "blackmagic.note", "Changed a note on a Blackmagic connector", target=item["name"],
+               detail={"port": port})
+    return service.snapshot()
+
+
+@router.post("/api/admin/blackmagic/cables", dependencies=MANAGE)
+async def admin_cable_add(request: Request, payload: dict):
+    """A cable between two connectors: `{"a": [device, port], "b": [device, port]}`."""
+    items, wires = devices(), cables()
+    ids = {d["id"] for d in items}
+    ends = []
+    for key in ("a", "b"):
+        end = payload.get(key)
+        if not (isinstance(end, list) and len(end) == 2 and end[0] in ids and isinstance(end[1], str)
+                and PORT_RE.fullmatch(end[1])):
+            return _bad("Pick a connector on a device in the list for each end.")
+        ends.append([end[0], end[1]])
+    if ends[0] == ends[1]:
+        return _bad("A cable joins two different connectors.")
+    pair = sorted(map(tuple, ends))
+    if any(sorted((tuple(c["a"]), tuple(c["b"]))) == pair for c in wires):
+        return _bad("That cable is already there.", 409)
+    if len(wires) >= MAX_CABLES:
+        return _bad(f"Relay keeps at most {MAX_CABLES} cables.")
+    save_devices(items, wires + [{"id": new_id(), "a": ends[0], "b": ends[1]}])
+    audit.note(request, "blackmagic.cable_add", "Added a cable between Blackmagic connectors",
+               detail={"a": ends[0], "b": ends[1]})
+    return service.snapshot()
+
+
+@router.delete("/api/admin/blackmagic/cables/{cable_id}", dependencies=MANAGE)
+async def admin_cable_remove(request: Request, cable_id: str):
+    wires = cables()
+    if not any(c["id"] == cable_id for c in wires):
+        return _bad("That cable is not in the list.", 404)
+    save_devices(devices(), [c for c in wires if c["id"] != cable_id])
+    audit.note(request, "blackmagic.cable_remove", "Removed a cable between Blackmagic connectors")
     return service.snapshot()
 
 
