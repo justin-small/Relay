@@ -31,6 +31,15 @@ in its `static/*.css`, listed in `admin_styles` or `crew_styles`. `tests/test_st
 baseline (`tests/style_contract_baseline.txt`) may only go down; `tests/test_browser.py` checks the drawn sizes. See
 "Shared styles for module pages" in `docs/modules.md` and the exceptions in `docs/ui-audit/standardization-spec.md`.
 
+## Tests wait on events and run real code (enforced)
+
+Python tests do not add fixed sleeps (use `wait_for`/`await_for`), `unittest.mock` or `monkeypatch`, hand-written
+swaps of a module's functions (`routes.fetch = fake`), timeouts above the harness's 5 seconds, or loops that catch
+`AssertionError` and retry. `tests/test_honest_tests.py` enforces this with a per-file count in
+`tests/honest_tests_baseline.txt` that may only go down. A use that is right is marked on its line with a reason, e.g.
+`# allow-sleep: shows no second push arrives` (a sleep only shows that something does *not* happen; a mock or
+patch only stands in for a seam a test cannot reach, such as the OS network stack).
+
 ## Run the whole suite before every push
 
 CI runs every `tests/test_*.py` plus `tests/smoke_test.py` on three platforms, and a new route, setting or module
