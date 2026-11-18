@@ -18,5 +18,5 @@ app/static/admin.css 0 13 0
 app/static/layout.css 20 45 16
 app/static/rundown.css 38 31 0
 app/static/viewer.css 47 82 18
-app/templates/board.html 1 8 2
+app/templates/board.html 1 5 1
 app/templates/flash.html 0 1 0

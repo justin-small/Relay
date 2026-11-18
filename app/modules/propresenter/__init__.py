@@ -199,6 +199,26 @@ class ProPresenter(Module):
         name = info.get("name") if isinstance(info, dict) else ""
         return {"ok": True, "detail": "Connected" + (f" to {name}." if name else ".")}
 
+    def board_follow(self) -> dict | None:
+        """What a board page set to follow ProPresenter reads: the presentation up now, the slide's group and its
+        label, and names to pick from (this presentation's groups and labels, and presentations seen since start)."""
+        from .propresenter import follower
+
+        pres, idx = follower.presentation, follower.slide_index
+        label = ""
+        if pres and idx is not None and 0 <= idx < len(pres.get("cues") or []):
+            label = str(pres["cues"][idx].get("label") or "").strip()
+        name = str(pres.get("name") or "").strip() if pres else ""
+        if name:
+            self._seen_presentations = ([name] + [n for n in getattr(self, "_seen_presentations", []) if n != name])[:100]
+        groups = list(dict.fromkeys(n for n, _ in (pres or {}).get("groups") or [] if n))
+        labels = list(dict.fromkeys(str(c.get("label") or "").strip() for c in (pres or {}).get("cues") or []
+                                    if str(c.get("label") or "").strip()))
+        return {"name": "ProPresenter", "connected": bool(follower.up),
+                "now": {"presentation": name, "group": follower.group_name(), "label": label},
+                "suggest": {"presentation": list(getattr(self, "_seen_presentations", [])), "group": groups,
+                            "label": labels}}
+
     def status(self) -> dict:
         from . import propresenter
 

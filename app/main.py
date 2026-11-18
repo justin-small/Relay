@@ -8,6 +8,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import functools
+import hashlib
 import json
 import logging
 import os
@@ -262,6 +263,9 @@ AUDIT_ROUTES = {
     "admin_board_duplicate": ("boards.create", "Duplicated a board"),
     "admin_board_import": ("boards.create", "Imported a board"),
     "admin_board_delete": ("boards.delete", "Deleted a board"),
+    "admin_board_screen_name": ("boards.change", "Named a screen showing a board"),
+    "admin_board_reload": ("boards.reload", "Reloaded every screen showing a board"),
+    "admin_board_page": ("boards.page", "Chose the page a board shows"),
     "admin_recording_delete": ("recordings.delete", "Deleted a recording"),
     "admin_me_password": ("account.password", "Changed their own password"),
     "admin_me_pin": ("account.pin_set", "Set their PIN"),
@@ -2672,9 +2676,18 @@ async def admin_overlay_delete(oid: str):
 # Not an admin path, so it answers on both ports: a public board opens for anyone, on either; any other opens only on
 # the operator port, for someone signed in with boards.view (every role). Its widgets' data comes from the existing
 # feeds (/stream) and, for a module's widget, from /board/<slug>/_/data, which asks the module through the registry.
+# That poll also says which page to show (boards.current), names the screen asking (so the Boards page lists the
+# screens showing each board), and carries the board's revision and a reload count, so a saved change or "Reload all
+# screens" reaches every screen without anyone touching it.
 BOARD_PRESS_WINDOW_S = 10.0
 BOARD_MAX_PRESSES = 20
+BOARD_SCREEN_GONE_S = 15.0       # a screen that has not asked for this long is no longer showing the board
+BOARD_MAX_LIVE_SCREENS = 100
 _board_presses: dict[str, list[float]] = {}
+_board_live: dict[str, dict] = {}   # board id -> {"screens": {id: {first, last, ip}}, "reload", "override", "last"}
+# Refusals the board routes answer with: fixed sentences, looked up by key.
+BOARD_REFUSALS = {"no_page": "That page is not on this board.", "no_screen": "That is not a screen.",
+                  "too_many_names": "This board has too many named screens."}
 
 
 def _board_catalogue() -> dict[str, dict]:
@@ -2699,16 +2712,57 @@ def _board_viewer(request: Request, board: dict, perm: str = "boards.view"):
     return (got, None) if isinstance(got, User) else (None, got)
 
 
-def _board_items_for_page(board: dict, cat: dict[str, dict]) -> list[dict]:
-    """The board's items with what the page draws them by: the kind and the title, or a note when the widget's
-    module is off."""
+def _board_items_for_page(items: list[dict], cat: dict[str, dict]) -> list[dict]:
+    """Items with what the page draws them by: the kind and the title, or a note when the widget's module is off."""
     out = []
-    for it in board["items"]:
+    for it in items:
         d = cat.get(it["type"])
         extra = {"kind": d["kind"], "title": boards.item_title(d, it["props"])} if d else \
             {"kind": "text", "title": "", "off": "This widget's module is off."}
         out.append({**it, **extra})
     return out
+
+
+def _board_rev(board: dict) -> str:
+    """Changes whenever what a screen draws changes (not the screen names)."""
+    body = json.dumps({k: board[k] for k in ("name", "ratio", "cols", "rows", "pages", "rotation")}, sort_keys=True)
+    return hashlib.sha256(body.encode()).hexdigest()[:12]
+
+
+def _board_live_for(bid: str) -> dict:
+    return _board_live.setdefault(bid, {"screens": {}, "reload": 0, "override": None, "last": None})
+
+
+def _board_state(board: dict, follow: dict[str, dict] | None = None) -> dict:
+    """Which page the board shows now, as boards.current decides it, unless someone chose one by hand from the Boards
+    page: that holds until what decides the page changes (the schedule moves on, ProPresenter shows something else)."""
+    live = _board_live_for(board["id"])
+    rot = board["rotation"]
+    now_pp = None
+    if rot["mode"] == "follow":
+        src = (follow if follow is not None else module_registry.board_follow()).get(rot["follow"]["source"])
+        now_pp = src["now"] if src and src["connected"] else None
+    cur = boards.current(board, datetime.now(), now_pp, live["last"])
+    ov = live["override"]
+    ids = [p["id"] for p in board["pages"]]
+    if ov and (ov["key"] != cur["key"] or ov["page"] not in ids):
+        live["override"] = ov = None
+    if ov:
+        cur = {**cur, "page": ov["page"], "rotate": None, "override": True,
+               "why": f"Chosen by hand: {boards.show_label(board, ov['page'], True)}, until the next change"}
+    if not cur["rotate"]:
+        live["last"] = cur["page"]
+    return cur
+
+
+def _board_screens(bid: str, names: dict[str, str]) -> list[dict]:
+    live = _board_live_for(bid)
+    now = time.time()
+    for sid in [s for s, v in live["screens"].items() if now - v["last"] > BOARD_SCREEN_GONE_S]:
+        live["screens"].pop(sid, None)
+    rows = [{"id": sid, "name": names.get(sid, ""), "ip": v["ip"], "since": v["first"]}
+            for sid, v in live["screens"].items()]
+    return sorted(rows, key=lambda r: (not r["name"], r["name"].lower(), r["since"]))
 
 
 @app.get("/board/{bid}", response_class=HTMLResponse)
@@ -2717,30 +2771,43 @@ def page_board(request: Request, bid: str, edit: int = 0):
     user, resp = _board_viewer(request, board, "boards.manage" if edit else "boards.view")
     if resp is not None:
         return resp
+    if edit:
+        # Boards are laid out on the Boards page now; an old ?edit=1 link goes there.
+        return RedirectResponse("/admin#boards", status_code=303)
     cat = _board_catalogue()
-    can_edit = bool(user and user.can("boards.manage") and _on_admin_port(request))
     perms = user.permissions() if user else set()
     page = {"id": board["id"], "name": board["name"], "ratio": board["ratio"], "cols": board["cols"],
-            "rows": board["rows"], "items": _board_items_for_page(board, cat), "public": board["public"]}
+            "rows": board["rows"], "public": board["public"], "rev": _board_rev(board),
+            "pages": [{"id": p["id"], "name": p["name"], "items": _board_items_for_page(p["items"], cat)}
+                      for p in board["pages"]]}
     # Which widget types this person may press (a module's buttons need its permission; a board link needs nothing).
     press = sorted(t for t, d in cat.items() if d["kind"] == "button" and (not d["press_permission"]
                                                                             or d["press_permission"] in perms))
-    ctx = {"board": page, "press": press, "can_edit": can_edit, "edit": bool(edit and can_edit),
-           "catalogue": list(cat.values()) if can_edit else [],
-           "boards": [{"id": b["id"], "name": b["name"]} for b in config.get()["boards"]] if can_edit else []}
+    ctx = {"board": page, "press": press, "state": _board_state(board)}
     return templates.TemplateResponse(request, "board.html", {"data": ctx, "title": board["name"]},
                                       headers={"Cache-Control": "no-store", "Referrer-Policy": "no-referrer"})
 
 
 @app.get("/board/{bid}/_/data")
-async def board_data(request: Request, bid: str):
-    """Live data for the board's module widgets, by item id. Same access as the board."""
+async def board_data(request: Request, bid: str, screen: str = ""):
+    """Live data for the board's module widgets (every page's), by item id, the page to show now, and the board's
+    revision and reload count. `screen` is the asking screen's own id. Same access as the board."""
     board = _board_or_404(bid)
     _, resp = await asyncio.to_thread(_board_viewer, request, board)
     if resp is not None:
         return JSONResponse({"error": "Not found"}, status_code=404)
-    data = await module_registry.board_data(board["items"])
-    return JSONResponse({"items": data}, headers={"Cache-Control": "no-store"})
+    live = _board_live_for(bid)
+    if boards.SCREEN_ID.fullmatch(screen or ""):
+        now = time.time()
+        row = live["screens"].get(screen)
+        if row is not None:
+            row["last"] = now
+        elif len(live["screens"]) < BOARD_MAX_LIVE_SCREENS:
+            live["screens"][screen] = {"first": now, "last": now, "ip": _client_ip(request)}
+    data = await module_registry.board_data(boards.all_items(board))
+    st = _board_state(board)
+    return JSONResponse({"items": data, "page": st["page"], "rotate": st["rotate"], "now": time.time(),
+                         "rev": _board_rev(board), "reload": live["reload"]}, headers={"Cache-Control": "no-store"})
 
 
 @app.post("/board/{bid}/_/press/{item_id}")
@@ -2748,7 +2815,7 @@ async def board_press(request: Request, bid: str, item_id: str):
     """Press a module's button widget on a board. Needs someone signed in on the operator port who holds the widget's
     press permission, even on a public board. Answers {"ok": true} or {"error": "<a fixed sentence>"}."""
     board = _board_or_404(bid)
-    item = next((i for i in board["items"] if i["id"] == item_id), None)
+    item = boards.find_item(board, item_id)
     if item is None:
         return JSONResponse({"error": "That button is not on this board."}, status_code=404)
     d = _board_catalogue().get(item["type"])
@@ -2790,9 +2857,23 @@ def _rate_limited(table: dict[str, list[float]], who: str, limit: int, window: f
     return False
 
 
+def _boards_live() -> dict:
+    """What the Boards page shows live: per board, the page up now and why, and the screens showing it; and the follow
+    sources a board can follow (ProPresenter)."""
+    follow = module_registry.board_follow()
+    out = {}
+    for b in config.get()["boards"]:
+        st = _board_state(b, follow)
+        out[b["id"]] = {"page": st["page"], "rotate": st["rotate"], "why": st["why"], "override": bool(st.get("override")),
+                        "screens": _board_screens(b["id"], b["screen_names"])}
+    return {"live": out, "follow": follow, "now": time.time()}
+
+
 def _boards_frame() -> dict:
     cat = _board_catalogue()
-    return {"boards": config.get()["boards"], "catalogue": list(cat.values())}
+    return {"boards": config.get()["boards"], "catalogue": list(cat.values()), "templates": boards.templates(cat),
+            "days": boards.DAYS, "matches": boards.MATCHES, "max_pages": boards.MAX_PAGES,
+            "swatches": boards.SWATCHES} | _boards_live()
 
 
 def _board_error(exc: boards.BoardError) -> JSONResponse:
@@ -2802,6 +2883,11 @@ def _board_error(exc: boards.BoardError) -> JSONResponse:
 @app.get("/api/admin/boards", dependencies=[Depends(require("boards.view"))])
 async def admin_boards():
     return _boards_frame()
+
+
+@app.get("/api/admin/boards/live", dependencies=[Depends(require("boards.view"))])
+async def admin_boards_live():
+    return _boards_live()
 
 
 @app.post("/api/admin/boards", dependencies=[Depends(require("boards.manage"))])
@@ -2827,6 +2913,48 @@ async def admin_board_update(bid: str, payload: dict):
         return _board_error(exc)
     config.save({"boards": items})
     return _boards_frame() | {"saved": bid, "board": items[idx]}
+
+
+@app.put("/api/admin/boards/{bid}/screens/{sid}", dependencies=[Depends(require("boards.manage"))])
+async def admin_board_screen_name(bid: str, sid: str, payload: dict):
+    """Name one of the screens showing a board (Foyer TV left), or clear its name with ""."""
+    items = list(config.get()["boards"])
+    idx = next((i for i, b in enumerate(items) if b["id"] == bid), None)
+    if idx is None:
+        raise HTTPException(404, "unknown board")
+    if not boards.SCREEN_ID.fullmatch(sid):
+        return JSONResponse({"error": BOARD_REFUSALS["no_screen"]}, status_code=400)
+    if payload.get("name") and sid not in items[idx]["screen_names"] \
+            and len(items[idx]["screen_names"]) >= boards.MAX_SCREENS:
+        return JSONResponse({"error": BOARD_REFUSALS["too_many_names"]}, status_code=400)
+    items[idx] = boards.name_screen(items[idx], sid, payload.get("name"))
+    config.save({"boards": items})
+    return _boards_frame()
+
+
+@app.post("/api/admin/boards/{bid}/reload", dependencies=[Depends(require("boards.manage"))])
+async def admin_board_reload(bid: str):
+    """Every screen showing the board loads it again within a few seconds."""
+    _board_or_404(bid)
+    _board_live_for(bid)["reload"] += 1
+    return _boards_live()
+
+
+@app.post("/api/admin/boards/{bid}/page", dependencies=[Depends(require("boards.manage"))])
+async def admin_board_page(bid: str, payload: dict):
+    """Show one page now, by hand ({"page": id}), until what decides the page changes; {"page": ""} goes back to it."""
+    board = _board_or_404(bid)
+    want = payload.get("page") if isinstance(payload.get("page"), str) else ""
+    live = _board_live_for(bid)
+    if not want:
+        live["override"] = None
+        return _boards_live()
+    if want not in [p["id"] for p in board["pages"]]:
+        return JSONResponse({"error": BOARD_REFUSALS["no_page"]}, status_code=400)
+    live["override"] = None
+    key = _board_state(board)["key"]
+    live["override"] = {"page": want, "key": key}
+    return _boards_live()
 
 
 @app.post("/api/admin/boards/{bid}/duplicate", dependencies=[Depends(require("boards.manage"))])
@@ -2868,6 +2996,7 @@ async def admin_board_delete(bid: str):
     if len(kept) == len(items):
         raise HTTPException(404, "unknown board")
     config.save({"boards": kept})
+    _board_live.pop(bid, None)
     return _boards_frame()
 
 
