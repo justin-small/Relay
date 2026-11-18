@@ -99,3 +99,38 @@ describe("age", () => {
     assert.equal(M.age(7200), "2 h ago");
   });
 });
+
+describe("closets", () => {
+  const gear = [dev("sw2", { kind: "switch", name: "Stage" }), dev("ap1", { kind: "ap", name: "AP" }), dev("gw", { kind: "gateway", name: "Gateway" }),
+                dev("sw1", { kind: "switch", name: "Booth" }), dev("cam")];
+  it("with no places, one closet: gateway, switches by name, access points", () => {
+    assert.deepEqual(M.closets(gear, []).map((c) => [c.name, c.gear.map((g) => g.id)]), [["Network gear", ["gw", "sw1", "sw2", "ap1"]]]);
+  });
+  it("draws saved places in order and puts the rest in Not placed", () => {
+    const got = M.closets(gear, [{ name: "Stage closet", gear: ["sw2", "gone"] }, { name: "Booth rack", gear: ["gw", "sw1", "sw2"] }]);
+    assert.deepEqual(got.map((c) => [c.name, c.gear.map((g) => g.id), c.unplaced]),
+      [["Stage closet", ["sw2"], false], ["Booth rack", ["gw", "sw1"], false], ["Not placed", ["ap1"], true]]);
+  });
+  it("draws nothing without gear", () => assert.deepEqual(M.closets([dev("cam")], []), []));
+});
+
+describe("portInfo and keepPort", () => {
+  const cam = dev("cam", { mac: "aa:aa:aa:aa:aa:31", name: "Wide", ndi: true });
+  const by = { "aa:aa:aa:aa:aa:31": cam };
+  it("names the device on a port by its MAC and marks what it carries", () => {
+    const i = M.portInfo({ port: 5, up: true, speed: 100, poe_w: 9.6, warn: "Slow", client: "old name", client_mac: cam.mac }, by);
+    assert.equal(i.client, "Wide");
+    assert.equal(i.cls, "nmport slow ndi poe");
+    assert.equal(M.keepPort(i, "ndi"), true);
+    assert.equal(M.keepPort(i, "dante"), false);
+    assert.equal(M.keepPort(i, "check"), true);
+  });
+  it("an unknown client keeps the switch's name for it", () => {
+    const i = M.portInfo({ port: 2, up: true, client: "Phone" }, by);
+    assert.equal(i.client, "Phone");
+    assert.equal(i.cls, "nmport up");
+    assert.equal(M.keepPort(i, "poe"), false);
+  });
+  it("counts ports by the highest number", () => assert.equal(M.portCount({ ports: [{ port: 3 }, { port: 16 }] }), 16));
+  it("says speeds plainly", () => { assert.equal(M.speedText(1000), "1 Gb/s"); assert.equal(M.speedText(100), "100 Mb/s"); assert.equal(M.speedText(null), ""); });
+});

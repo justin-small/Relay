@@ -80,6 +80,9 @@ class Manifest:
     section: str = ""
 
 
+TAB_PAGES = ("network",)
+
+
 @dataclass(frozen=True)
 class AdminPage:
     """A page the module adds to the admin panel, rendered only while the module is on."""
@@ -89,6 +92,10 @@ class AdminPage:
     icon: str = ""     # inner SVG for the 16x16 nav icon; the module's entry uses its first page's
     # The permission needed to see the page's nav link; empty means "<module id>.view".
     permission: str = ""
+    # A core page this one is a tab of, instead of a sidebar entry of its own: "network" puts it on the Network
+    # page's tab bar after core's tabs. Core renders the template in the tab's panel; the module's scripts run as
+    # for any page. The only core page that takes tabs is TAB_PAGES.
+    tab_of: str = ""
 
 
 @dataclass(frozen=True)
@@ -803,7 +810,7 @@ class Registry:
                 "id": p.id, "title": p.title, "icon": p.icon,
                 "template": f"{m.id}/{p.template}",
                 "module": m.name, "version": m.version, "guide": m.guide,
-            } for p in mod.admin_pages if user is None or user.can(self._page_permission(mod, p))]
+            } for p in mod.admin_pages if not p.tab_of and (user is None or user.can(self._page_permission(mod, p)))]
             if not pages:
                 continue
             health = self.health(mod)
@@ -812,6 +819,19 @@ class Registry:
                             "health": health.state, "detail": health.detail, "pages": pages})
         entries.sort(key=lambda e: NAV_SECTIONS.index(e["section"]))
         return entries
+
+    def admin_tabs(self, user: User | None = None) -> dict[str, list[dict]]:
+        """{core page id: [tab, ...]}: the admin pages of the modules that are on that are tabs of a core page, in
+        module order, each only where `user` may see it."""
+        out: dict[str, list[dict]] = {}
+        for mod in self.active():
+            m = mod.manifest
+            for p in mod.admin_pages:
+                if p.tab_of in TAB_PAGES and (user is None or user.can(self._page_permission(mod, p))):
+                    out.setdefault(p.tab_of, []).append({
+                        "id": p.id, "title": p.title, "template": f"{m.id}/{p.template}", "module": m.name,
+                        "module_id": m.id, "version": m.version, "guide": m.guide})
+        return out
 
     def health_states(self, max_age: float = 5.0) -> dict[str, str]:
         """{module id: health state} for the modules that are on, for the sidebar's dots. Kept for `max_age`

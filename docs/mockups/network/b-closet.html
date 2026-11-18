@@ -1,0 +1,63 @@
+<!doctype html><html lang="en" data-theme="dark" data-preset="relay"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<link rel="stylesheet" href="../../../app/static/tokens.css"><link rel="stylesheet" href="../../../app/static/components.css"><link rel="stylesheet" href="network.css">
+<title>Network B · The closets</title></head><body>
+<div class="top"><b>Network</b><span class="spill on"><i class="dot ok"></i>4 of 4 switches up</span><span class="sp"></span><span class="muted">Ana Ruiz · manage</span></div>
+<div class="wrap stack">
+<div class="tabs" id="tabs" role="tablist"><button type="button" data-p="racks" class="on">Racks</button><button type="button" data-p="map">Map</button><button type="button" data-p="ports">Ports and notes</button><button type="button" data-p="computer">This computer</button><button type="button" data-p="sources">Find and add</button></div>
+
+<div class="pane on" id="racks"><div class="split">
+<div class="stack">
+<div class="card between"><div><b>Every switch, drawn where it hangs</b><span class="muted" style="margin-left:var(--sp-2)">Click a port to see what is plugged in. Hover for link, PoE and your note.</span></div>
+<div class="seg" id="hl" style="min-width:320px"><button type="button" class="on" data-v="all">All</button><button type="button" data-v="ndi">NDI</button><button type="button" data-v="dante">Dante</button><button type="button" data-v="poe">PoE</button><button type="button" data-v="check">Problems</button></div></div>
+<div class="legend"><span><i class="ok"></i>Link up</span><span><i class="warn"></i>Slow or errors</span><span><i class="poe"></i>Powered (PoE)</span><span><i class="ndi"></i>NDI</span><span><i class="dante"></i>Dante</span></div>
+<div class="closets" id="closets"></div>
+</div>
+<div class="stack drawer" id="drawer"></div>
+</div></div>
+
+<div class="pane" id="map"><div class="split"><div class="stack">
+<div class="toolbar"><div class="seg" id="mf"><button type="button" class="on" data-v="all">All</button><button type="button" data-v="av">AV only</button><button type="button" data-v="ndi">NDI</button><button type="button" data-v="dante">Dante</button></div><span class="grow"></span><span class="legend"><span><i class="ndi"></i>NDI</span><span><i class="dante"></i>Dante</span><span><i class="warn"></i>Slow link</span></span></div>
+<div class="mapframe" id="mframe"></div></div><div class="stack drawer" id="mdet"></div></div></div>
+
+<div class="pane" id="ports"><div class="card"><h3>Every device and the port it is on</h3>
+<p class="lede">One row per device Relay can see. Where it is plugged in comes from UniFi; the name and note are yours. Rename a device here to call it what your team calls it; the new name shows everywhere in Relay (map, racks, alerts) but the device and UniFi keep their own.</p>
+<div id="ptable"></div></div></div>
+
+<div class="pane" id="computer"></div>
+<div class="pane" id="sources"><div id="srcs"></div>
+<div class="card" style="margin-top:var(--sp-3)"><h3>Racks and closets</h3><p class="lede">Which closet each switch is drawn in, top to bottom. A switch UniFi finds later lands in Unplaced until you give it one.</p>
+<table class="dt"><thead><tr><th></th><th>Name</th><th>Model</th><th>Address</th><th>Where</th></tr></thead><tbody id="place"></tbody></table></div></div>
+</div>
+<nav class="mocknav"><a href="index.html">Index</a><a href="a-tabs.html">A</a><a href="b-closet.html" aria-current="page">B</a><a href="c-health.html">C</a></nav>
+<script src="net.js"></script><script src="shared.js"></script>
+<script>
+(function(){
+var N=NET,h=N.h,hl='all',pick={sw:'sw2',port:5};
+var PLACES=[['Booth rack',['gw','sw1']],['Stage left closet',['sw2']],['Lobby cabinet',['sw3','ap2']],['Ceiling',['ap1']]];
+function keep(i){if(hl==='all')return true;if(hl==='ndi')return i.ndi;if(hl==='dante')return i.dante;if(hl==='poe')return i.poe>0;if(hl==='check')return !!i.warn||i.errors>100;}
+function racks(){var root=document.getElementById('closets');root.textContent='';
+  PLACES.forEach(function(pl){var c=h('div','stack',root);h('b','',c,pl[0]);var r=h('div','rack',c);
+    pl[1].forEach(function(id){var g=N.gear(id),u=h('div','unit'+(pick.sw===id?' on':''),r);h('span','cap',u,g.model+' · '+g.ip);
+      u.appendChild(g.ports?N.drawSwitch(g,{sel:pick,filter:keep}):N.apCard(g));
+      u.addEventListener('click',function(e){if(!e.target.closest('.hw-port')){pick={sw:id,port:null};racks();}});});});
+  drawer();}
+function drawer(){var dr=document.getElementById('drawer');
+  if(pick.port){var i=N.portInfo(pick.sw,pick.port);
+    if(i.dev){N.detail(dr,i.dev.id);var c=dr.firstChild;var p=h('p','hint',c,'On '+N.gear(pick.sw).name+', port '+pick.port+'.');c.insertBefore(p,c.children[2]);}
+    else{dr.textContent='';var c2=h('div','card',dr);h('b','',c2,N.gear(pick.sw).name+' · port '+pick.port);h('p','muted',c2,'Nothing plugged in.');var f=h('div','field',c2);h('label','',f,'Note');var t=h('textarea','',f);t.rows=2;t.style.width='100%';t.placeholder='Wall plate B4, spare';}}
+  else N.detail(dr,pick.sw);
+  var g=N.gear(pick.sw);if(g.poe_budget){var c3=h('div','card',dr);h('h4','',c3,'Power over Ethernet');var m=h('div','meter'+(g.poe_used/g.poe_budget>.85?' warn':''),c3);h('i','',m).style.width=Math.round(100*g.poe_used/g.poe_budget)+'%';
+    h('p','hint',c3,g.poe_used+' of '+g.poe_budget+' W in use'+(g.poe_used/g.poe_budget>.85?'. Another powered camera here may not start.':'.'));}}
+N.seg(document.getElementById('hl'),function(v){hl=v;racks();});
+N.hoverTips(document.getElementById('closets'),function(s,p){pick={sw:s,port:p};racks();});
+racks();
+var mfilter='all';function mf(d){if(d.kind&&d.kind!=='client')return true;if(mfilter==='av')return d.ndi||d.dante;if(mfilter==='ndi')return d.ndi;if(mfilter==='dante')return d.dante;return true;}
+var msel='dm7';function map(){N.drawMap(document.getElementById('mframe'),{sel:msel,filter:mf,onPick:function(id){msel=id;map();}});N.detail(document.getElementById('mdet'),msel);}
+N.seg(document.getElementById('mf'),function(v){mfilter=v;map();});map();
+NETUI.deviceTable(document.getElementById('ptable'),{notes:true});
+NETUI.thisComputer(document.getElementById('computer'));NETUI.sources(document.getElementById('srcs'));
+var pt=document.getElementById('place');N.GEAR.forEach(function(g,i){var r=h('tr','',pt);h('td','muted',r,'⋮⋮');h('td','',r).appendChild(h('b','',null,g.name));h('td','muted',r,g.model);h('td','mono',r,g.ip);
+  var s=h('select','',h('td','',r));['Booth rack','Stage left closet','Lobby cabinet','Ceiling','Unplaced'].forEach(function(p){var o=h('option','',s,p);if(p===g.place||(g.kind==='ap'&&g.id==='ap1'&&p==='Ceiling'))o.selected=true;});});
+N.tabs('tabs');
+})();
+</script></body></html>

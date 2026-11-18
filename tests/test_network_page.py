@@ -182,4 +182,27 @@ with section("a port connected but not yet remembered can be chosen"):
     eq("saved, and remembered", (r.status_code, fresh.id in config.get()["network"]["known_ports"]), (200, True))
     local.post("/api/admin/network/classes/viewers", json={"port_id": None})
 
+with section("one Network page with tabs, and a module's tabs on it"):
+    page = admin.get("/admin").text
+    net = page.split('id="page-network"')[1].split('<div class="page"')[0]
+    for tab in ("racks", "map", "ports", "computer", "find"):
+        check(f"core's {tab} tab and its panel", f'data-tab="{tab}"' in net and f'data-pane="{tab}"' in net)
+    check("the old map page is gone, and its hash opens the Map tab", 'id="page-network_map"' not in page and 'data-alias="network_map"' in net)
+    check("one sidebar entry", page.count('href="#network"') == 1 and 'href="#network_map"' not in page)
+    check("This computer keeps the ports and traffic tables", 'id="netPorts"' in net and 'id="netClasses"' in net)
+    from app.modules import modules as registry
+    config.save({"modules": {"unifi": {"enabled": True}}})
+    try:
+        page = admin.get("/admin").text
+        net = page.split('id="page-network"')[1].split('<div class="page"')[0]
+        eq("UniFi adds its tabs after core's, in order",
+           [t for t in ("racks", "find", "unifi", "unifi_wifi", "unifi_av", "unifi_console") if f'data-tab="{t}"' in net],
+           ["racks", "find", "unifi", "unifi_wifi", "unifi_av", "unifi_console"])
+        check("…with their panels, and no sidebar entry of their own", 'data-pane="unifi_console"' in net and 'href="#unifi"' not in page)
+        eq("a tab is not a sidebar page", [p["id"] for m in registry.admin_nav() for p in m["pages"] if p["id"].startswith("unifi")], [])
+        eq("the registry lists them as tabs of the Network page", [t["id"] for t in registry.admin_tabs()["network"]],
+           ["unifi", "unifi_wifi", "unifi_av", "unifi_console"])
+    finally:
+        config.save({"modules": {"unifi": {"enabled": False}}})
+
 done()

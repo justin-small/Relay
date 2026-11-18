@@ -237,9 +237,11 @@ for mid in ids:
             return perm in self.perms
 
     async def nav_for(user):
+        """The pages the user reaches: sidebar entries, and tabs a module adds to a core page (AdminPage.tab_of)."""
         await registry.set_enabled(mid, True)
         try:
-            return [pg["id"] for entry in registry.admin_nav(user) for pg in entry["pages"]]
+            return [pg["id"] for entry in registry.admin_nav(user) for pg in entry["pages"]] + \
+                [t["id"] for tabs in registry.admin_tabs(user).values() for t in tabs]
         finally:
             await registry.set_enabled(mid, False)
     for pg in mod.admin_pages:
@@ -274,7 +276,8 @@ for mid in ids:
         return page
     page = asyncio.run(on_then_off())
     check(f"{mid}: admin pages, nav links and scripts rendered while on",
-          all(f'data-page="{p.id}"' in page and f'href="#{p.id}"' in page for p in mod.admin_pages)
+          all((f'data-tab="{p.id}"' in page and f'data-pane="{p.id}"' in page) if p.tab_of else
+              (f'data-page="{p.id}"' in page and f'href="#{p.id}"' in page) for p in mod.admin_pages)
           and all(f"/static/modules/{mid}/{s}" in page for s in mod.admin_scripts))
 
 # ------------------------------------------------------------------ the registry, with a module made up here

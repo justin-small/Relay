@@ -1,4 +1,4 @@
-/* The Network page (#347): this computer's network ports, and which port each kind of traffic uses. Routes are
+/* The Network page's This computer tab (#347): this computer's network ports, and which port each kind of traffic uses. Routes are
    chosen from the listed ports only (never typed), and every change goes through the server, which refuses what it
    must and applies the rest at once. The page re-reads every 5 seconds while open, so a pulled cable shows.
    Everything from the server is set as text. */
@@ -60,9 +60,16 @@
       const addr = h('td', 'mono', (p.ipv4 || []).join(', ') || (p.present ? 'No address' : '—'));
       if (p.link_local_only) addr.appendChild(h('small', '', 'self-assigned (169.254)'));
       tr.appendChild(addr);
-      tr.appendChild(h('td', '', !p.present ? 'Not connected' : p.up === true ? 'Up' : p.up === false ? 'Down' : 'Unknown'));
+      const link = h('td');
+      link.appendChild(h('span', 'badge ' + (!p.present ? '' : p.up === true ? 'ok' : p.up === false ? 'err' : ''),
+        !p.present ? 'Not connected' : p.up === true ? 'Up' : p.up === false ? 'Down' : 'Unknown'));
+      tr.appendChild(link);
       tr.appendChild(h('td', '', p.speed_mbps ? (p.speed_mbps >= 1000 ? (p.speed_mbps / 1000) + ' Gbit/s' : p.speed_mbps + ' Mbit/s') : '—'));
-      tr.appendChild(h('td', '', (p.classes || []).map(classLabel).join(', ') || '—'));
+      const on = h('td');
+      const tags = h('div', 'nmtags');
+      (p.classes || []).forEach(function (id) { tags.appendChild(h('span', 'nmtag', classLabel(id))); });
+      on.appendChild((p.classes || []).length ? tags : document.createTextNode('—'));
+      tr.appendChild(on);
       const act = h('td');
       if (canManage && !p.present && p.known && !(p.classes || []).length) {
         const b = h('button', '', 'Forget');
@@ -206,7 +213,7 @@
     }
   }
 
-  function onPage() { return location.hash === '#network'; }
+  function onPage() { const pg = $('page-network'); return !!pg && !pg.hidden; }
   function sync() {
     if (onPage()) {
       load();
@@ -217,5 +224,6 @@
     }
   }
   window.addEventListener('hashchange', sync);
+  $('page-network').addEventListener('relay:tab', sync);   // the page opened (admin.js showPage)
   sync();
 })();

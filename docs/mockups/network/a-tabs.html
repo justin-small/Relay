@@ -1,0 +1,65 @@
+<!doctype html><html lang="en" data-theme="dark" data-preset="relay"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<link rel="stylesheet" href="../../../app/static/tokens.css"><link rel="stylesheet" href="../../../app/static/components.css"><link rel="stylesheet" href="network.css">
+<title>Network A · Tabs by what you look at</title></head><body>
+<div class="top"><b>Network</b><span class="spill on"><i class="dot ok"></i>27 devices</span><span class="spill warn"><i class="dot warn"></i>2 need a look</span><span class="sp"></span><span class="muted">Ana Ruiz · manage</span></div>
+<div class="wrap stack">
+<div class="tabs" id="tabs" role="tablist"><button type="button" data-p="map" class="on">Map</button><button type="button" data-p="devices">Devices<small>22</small></button><button type="button" data-p="switches">Switches<small>4</small></button><button type="button" data-p="computer">This computer</button><button type="button" data-p="sources">Sources<small>4 of 5</small></button></div>
+
+<div class="pane on" id="map"><div class="split">
+<div class="stack">
+<div class="toolbar"><input type="search" placeholder="Find name, IP or MAC" aria-label="Find name, IP or MAC" id="mq"><div class="seg" id="mf"><button type="button" class="on" data-v="all">All</button><button type="button" data-v="av">AV only</button><button type="button" data-v="ndi">NDI</button><button type="button" data-v="dante">Dante</button></div><span class="grow"></span>
+<span class="legend"><span><i class="ndi"></i>NDI</span><span><i class="dante"></i>Dante</span><span><i class="warn"></i>Check</span></span></div>
+<div class="mapframe" id="mframe"></div>
+<p class="hint">Drawn from UniFi (switches and which port each device is on), mDNS discovery and the Blackmagic module. Click a device to see it.</p>
+</div>
+<div class="stack drawer" id="mdet"></div>
+</div></div>
+
+<div class="pane" id="devices"><div class="split"><div class="card" id="dtable"></div><div class="stack drawer" id="ddet"></div></div></div>
+
+<div class="pane" id="switches"><div class="stack">
+<div class="toolbar"><div class="seg" id="swpick"></div><span class="grow"></span><span class="legend"><span><i class="ok"></i>Link up</span><span><i class="warn"></i>Slow link</span><span><i class="poe"></i>PoE</span><span><i class="ndi"></i>NDI</span><span><i class="dante"></i>Dante</span></span></div>
+<div class="split"><div class="stack">
+<div class="card" id="swhead"></div>
+<div class="card" id="swfront"></div>
+<div class="card"><h3>Ports</h3><div class="tablescroll"><table class="dt"><thead><tr><th>Port</th><th>Device</th><th>Link</th><th>PoE</th><th>Errors</th><th>Note</th></tr></thead><tbody id="swrows"></tbody></table></div></div>
+</div><div class="stack drawer" id="swdet"></div></div>
+</div></div>
+
+<div class="pane" id="computer"></div>
+<div class="pane" id="sources"></div>
+</div>
+<nav class="mocknav"><a href="index.html">Index</a><a href="a-tabs.html" aria-current="page">A</a><a href="b-closet.html">B</a><a href="c-health.html">C</a></nav>
+<script src="net.js"></script><script src="shared.js"></script>
+<script>
+(function(){
+var N=NET,h=N.h,sel='cam3',filter='all',cur='sw1',pport=null;
+function f(d){if(d.kind&&d.kind!=='client')return true;var q=document.getElementById('mq').value.toLowerCase();
+  if(filter==='av'&&!(d.ndi||d.dante))return false;if(filter==='ndi'&&!d.ndi)return false;if(filter==='dante'&&!d.dante)return false;
+  return !q||(d.name+' '+d.ip).toLowerCase().indexOf(q)>=0;}
+function map(){N.drawMap(document.getElementById('mframe'),{sel:sel,filter:f,onPick:function(id){sel=id;map();}});N.detail(document.getElementById('mdet'),sel);}
+N.seg(document.getElementById('mf'),function(v){filter=v;map();});document.getElementById('mq').addEventListener('input',map);
+map();
+NETUI.deviceTable(document.getElementById('dtable'),{onPick:function(id){N.detail(document.getElementById('ddet'),id);}});
+N.detail(document.getElementById('ddet'),'cam3');
+
+var pick=document.getElementById('swpick');
+N.GEAR.forEach(function(g){if(!g.ports)return;var b=h('button',g.id===cur?'on':'',pick,g.name);b.type='button';b.dataset.v=g.id;});
+N.seg(pick,function(v){cur=v;pport=null;sw();});
+function sw(){var g=N.gear(cur);
+  var hd=document.getElementById('swhead');hd.textContent='';var b=h('div','between',hd);var l=h('div','',b);h('b','',l,g.name);h('span','muted',l,'  '+g.model+' · '+g.ip+' · '+g.place);
+  var r=h('div','gap',b);if(g.poe_budget){h('span','tag'+(g.poe_used/g.poe_budget>.85?' warn':''),r,'PoE '+g.poe_used+' of '+g.poe_budget+' W');}if(g.up)h('span','tag',r,'Uplink: '+N.gear(g.up).name+' port '+g.up_port);
+  var fr=document.getElementById('swfront');fr.textContent='';fr.appendChild(N.drawSwitch(g,{sel:pport?{sw:cur,port:pport}:null}));
+  var tb=document.getElementById('swrows');tb.textContent='';
+  for(var p=1;p<=g.ports+(g.sfp||0);p++){var i=N.portInfo(cur,p),tr=h('tr','',tb);h('td','mono',tr,p>g.ports?'SFP'+(p-g.ports):p);
+    h('td','',tr,i.dev?i.dev.name:'—');var lk=h('td','',tr,i.dev?N.speed(i.speed):'');if(i.warn)lk.style.color='var(--warn)';h('td','',tr,i.poe?i.poe+' W':'');h('td','',tr,i.errors||'');
+    var inp=h('input','',h('td','',tr));inp.value=i.note;inp.placeholder='Add a note';inp.setAttribute('aria-label','Note for port '+p);}
+  var det=document.getElementById('swdet');if(pport){var i2=N.portInfo(cur,pport);if(i2.dev)N.detail(det,i2.dev.id);else{det.textContent='';var c=h('div','card',det);h('b','',c,'Port '+pport);h('p','muted',c,'Nothing plugged in.');}}
+  else {N.detail(det,cur);}
+}
+N.hoverTips(document.getElementById('swfront'),function(s,p){pport=p;sw();});
+sw();
+NETUI.thisComputer(document.getElementById('computer'));NETUI.sources(document.getElementById('sources'));
+N.tabs('tabs');
+})();
+</script></body></html>

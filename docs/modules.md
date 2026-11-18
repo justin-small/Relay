@@ -125,6 +125,14 @@ purpose (viewer streams, panel routes) carry their own rules instead.
 means `<module id>.view`. `admin_nav(user)` does the filtering, and a module's scripts are
 loaded only for a user who can see at least one of its pages.
 
+**Tabs on a core page.** An `AdminPage` with `tab_of="network"` is not a sidebar entry: it is a tab on
+the Network page, after core's own tabs (Racks, Map, Ports and notes, This computer, Find and add),
+with the same permission rule. Core renders its template in the tab's panel (`data-pane="<page id>"`),
+and `#<page id>` or `#network/<page id>` opens it. The UniFi module's Internet, Wi-Fi and who's on,
+NDI and Dante, and UniFi console are tabs this way. `registry.admin_tabs(user)` lists them;
+`TAB_PAGES` names the core pages that take tabs. A module that knows devices adds them to the map
+itself through `network_map()`, not through a tab.
+
 **Features outside the admin panel.** A `UserPage(title, path, permission, note)` in
 `Module.user_pages` lists one of the module's own pages on the home page (`/home`) of a signed-in
 user who holds `permission`, while the module is on. `path` must sit under the module's

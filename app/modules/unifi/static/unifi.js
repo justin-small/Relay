@@ -4,7 +4,7 @@
    console goes on the page as text. The live parts hold no buttons, so a redraw never eats a click. */
 (function () {
   const R = window.RelayAdmin;
-  if (!R || !document.getElementById('page-unifi')) return;
+  if (!R || !document.getElementById('ufLive')) return;   // its tabs are on the Network page
   const $ = R.$;
 
   let last = null;
@@ -301,6 +301,7 @@
     $('ufForget').hidden = !s.fingerprint;
     const live = !!d.checked_at && !d.problem;
     ['ufLive', 'ufHist', 'ufGearSect', 'ufClientsSect', 'ufEventsSect'].forEach(function (id) { $(id).hidden = !live; });
+    document.querySelectorAll('.ufnotlive').forEach(function (n) { n.hidden = live || !!d.untrusted; });
     if (!d.configured && !$('ufSettings').open) $('ufSettings').open = true;
     if (!live) { $('ufWifiSect').hidden = true; $('ufAvSect').hidden = true; $('ufChangesSect').hidden = true; $('ufSpeedSect').hidden = true; return; }
     drawConn(d); drawNet(d); drawWarn(d); drawGear(d); drawWifi(d); drawAv(d);
@@ -339,5 +340,5 @@
   if (!can('unifi.manage')) $('ufSettings').hidden = true;
 
   refresh();
-  setInterval(function () { if (!document.hidden && !document.getElementById('page-unifi').hidden) refresh(); }, 5000);
+  setInterval(function () { const pg = document.getElementById('page-network'); if (!document.hidden && pg && !pg.hidden) refresh(); }, 5000);
 })();

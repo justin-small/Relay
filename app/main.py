@@ -234,6 +234,8 @@ AUDIT_ROUTES = {
     "admin_network_route": ("network.route", "Changed which network port some traffic uses"),
     "admin_network_test": ("network.test", "Tested a traffic route"),
     "admin_network_forget": ("network.forget", "Forgot a network port"),
+    "admin_network_labels": ("network.labels", "Changed device names or notes on the network map"),
+    "admin_network_places": ("network.places", "Changed where the network gear is"),
     "admin_config": ("settings.change", "Changed settings"),
     "admin_audiobus_save": ("audio.bus", "Changed the audio bus"),
     "admin_metering_save": ("audio.metering", "Changed the sound meter"),
@@ -1554,6 +1556,7 @@ def admin_page(request: Request, pw: str = ""):
     return templates.TemplateResponse(request, "admin.html", {
         "me": _me_payload(request, got),
         "module_nav": module_registry.admin_nav(got),
+        "module_tabs": module_registry.admin_tabs(got),
         "module_scripts": module_registry.admin_scripts(got),
         "module_styles": module_registry.admin_styles(got),
         "look": prefs.shell_view(prefs.scope_prefs(got.id) if got.id else {}),
@@ -1952,6 +1955,30 @@ async def admin_network_map(refresh: int = 0):
     """The network map (#437): every device Relay can see, merged from its own ports, mDNS discovery of NDI and Dante,
     and every module that is on and adds to the map. Core imports no module; see app/network_map.py."""
     return await network_map.snapshot(module_registry, force=bool(refresh))
+
+
+@app.post("/api/admin/network/map/labels", dependencies=[Depends(require("network.manage"))])
+async def admin_network_labels(payload: dict, request: Request):
+    """Set or clear the names Relay shows for devices and the notes on devices and switch ports. A name changes only
+    what Relay shows; nothing is sent to the device. {"names": {id: text}, "notes": {id or "switch#port": text}}."""
+    names, notes = payload.get("names"), payload.get("notes")
+    if names is not None and not isinstance(names, dict) or notes is not None and not isinstance(notes, dict):
+        return JSONResponse({"error": "names and notes must be objects"}, status_code=400)
+    saved = await asyncio.to_thread(network_map.save_labels, names, notes)
+    audit.note(request, "network.labels", f"Changed {len(names or {})} device names and {len(notes or {})} notes on the network map",
+               detail={"names": sorted((names or {}).keys())[:20], "notes": sorted((notes or {}).keys())[:20]})
+    return saved
+
+
+@app.post("/api/admin/network/map/places", dependencies=[Depends(require("network.manage"))])
+async def admin_network_places(payload: dict, request: Request):
+    """Replace the closets and racks, each with its switches top to bottom: {"places": [{"name", "gear": [id]}]}."""
+    if not isinstance(payload.get("places"), list):
+        return JSONResponse({"error": "places must be a list"}, status_code=400)
+    saved = await asyncio.to_thread(network_map.save_places, payload["places"])
+    audit.note(request, "network.places", f"Set {len(saved['places'])} places for the network gear",
+               detail={"places": [p["name"] for p in saved["places"]]})
+    return saved
 
 
 @app.post("/api/admin/network/classes/{cid}", dependencies=[Depends(require("network.manage"))])
