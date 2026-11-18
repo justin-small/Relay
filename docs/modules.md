@@ -403,6 +403,12 @@ const ed = RelayLayout.edit(holder, {
 RelayLayout.draw(root, {cols, rows, items}, onPress);   // the same drawing, no editor (a screen)
 ```
 
+Options for a surface laid out in place on an admin page (the Boards page uses them): `bar: {title, note}` (a bar of
+title, note, Undo, Cancel and Save instead of the toolbar), `between` (an element under the bar, such as page tabs),
+`tray: true` (the widgets in a row of groups above the grid; a tap drops one in the first free space), `card: true`
+(the selected item's settings in a card beside it, with `swatches` for its background), `canvasClass` and `hintText`.
+`ed.setBar(bar)` changes the bar's words.
+
 `kind` picks the drawing: `button`, `captions`, `clock`, `countdown`, `text`, `status`, `lines`, `list`.
 `RelayLayout.update(element, data)` feeds an item live data (`{lit}`, `{lines}`, `{rows}`, `{on_air, live_since,
 viewers}`).
@@ -431,6 +437,23 @@ async def board_press(self, item, request) -> dict:   # a press on one of your b
 - Core checks the press: someone signed in on the operator port who holds `press_permission`, even on a public board,
   at most 20 presses per 10 seconds per address. Core writes the `audit.note`s the module makes.
 - While the module is off its widgets stay on boards, drawn as off, and its presses are refused.
+
+**Pages, places and what a screen shows.** A board has pages (each its own layout on the board's grid) and a place
+(Foyer, Stage) the Boards page groups by. Which page shows is decided in core (`boards.current`): one page, a rotation
+every N seconds (each screen turns it from the clock, so screens agree), a schedule by day and time, or following
+another program. A module offers something to follow by overriding `board_follow()`:
+
+```python
+def board_follow(self) -> dict | None:    # called every few seconds while on: read what is in memory
+    return {"name": "ProPresenter", "connected": True,
+            "now": {"presentation": "Sunday", "group": "Sermon", "label": "POINT 1"},
+            "suggest": {"presentation": [...], "group": [...], "label": [...]}}
+```
+
+A board's rules match the presentation, slide group or slide label (any case) and pick a page. A page chosen by hand
+on the Boards page holds until what decides the page changes. Each screen polls `/board/<slug>/_/data` with its own id,
+so the Boards page lists and names the screens showing a board, and reloads them when the board is saved or when
+"Reload all screens" is pressed.
 
 ## NDI sources, receivers and outputs
 

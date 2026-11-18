@@ -36,11 +36,11 @@
 .rl-tools[hidden],.rl-hint[hidden],.rl-msg[hidden]{display:none}
 .rl-name{font-weight:600;padding:0 6px}
 .rl-spacer{flex:1}
-.rl-ed button,.rl-dlg button{min-height:32px;padding:0 12px;border:1px solid var(--rl-line,#27272a);border-radius:8px;background:var(--rl-bg,#09090b);color:inherit;font:inherit;cursor:pointer;width:auto;margin:0}
-.rl-ed button.primary,.rl-dlg button.primary{background:var(--rl-acc,#4ade80);border-color:var(--rl-acc,#4ade80);color:var(--primary-fg,#052e16);font-weight:500}
+.rl-ed:not(.rl-trayed) button,.rl-dlg button{min-height:32px;padding:0 12px;border:1px solid var(--rl-line,#27272a);border-radius:8px;background:var(--rl-bg,#09090b);color:inherit;font:inherit;cursor:pointer;width:auto;margin:0}
+.rl-ed:not(.rl-trayed) button.primary,.rl-dlg button.primary{background:var(--rl-acc,#4ade80);border-color:var(--rl-acc,#4ade80);color:var(--primary-fg,#052e16);font-weight:500}
 .rl-ed button.rl-ghost{background:none;border-color:transparent}
 .rl-ed button:disabled{opacity:.4;cursor:default}
-.rl-ed select,.rl-ed input,.rl-dlg select,.rl-dlg input,.rl-dlg textarea{min-height:32px;box-sizing:border-box;background:var(--rl-bg,#09090b);color:inherit;border:1px solid var(--rl-line,#27272a);border-radius:8px;padding:0 8px;font:inherit;width:auto;margin:0}
+.rl-ed:not(.rl-trayed) select,.rl-ed:not(.rl-trayed) input,.rl-dlg select,.rl-dlg input,.rl-dlg textarea{min-height:32px;box-sizing:border-box;background:var(--rl-bg,#09090b);color:inherit;border:1px solid var(--rl-line,#27272a);border-radius:8px;padding:0 8px;font:inherit;width:auto;margin:0}
 .rl-body{position:relative;display:flex;overflow:hidden;background:#000}
 .rl-stage{flex:1;min-width:0;padding:12px}
 .rl-canvas{width:100%;margin:0 auto;contain:size}
@@ -112,3 +112,33 @@
 .rl-frame[data-tally=program]{outline:max(4px,2cqmin) solid #e03131;outline-offset:calc(-1 * max(4px,2cqmin))}
 .rl-frame[data-tally=preview]{outline:max(4px,2cqmin) solid #2f9e44;outline-offset:calc(-1 * max(4px,2cqmin))}
 .rl-fnote{position:absolute;left:6px;bottom:4px;right:6px;font-size:max(11px,6cqh);color:#fff;text-shadow:0 0 4px #000}
+
+/* ---------- the tray, the settings card and the editing bar (a board on the Boards page) ----------
+   The page's own buttons and fields (components.css) draw the controls here; only the layout is set. */
+.rl-edbar{display:flex;gap:var(--sp-2);align-items:center;flex-wrap:wrap;padding:var(--sp-2) var(--sp-3);border:1px solid var(--primary);border-radius:var(--r);background:var(--card);margin-bottom:var(--sp-3)}
+.rl-edbar[hidden],.rl-tray[hidden]{display:none}
+.rl-mut{color:var(--muted)}
+.rl-tray{display:flex;gap:var(--sp-2);overflow-x:auto;padding:var(--sp-2) var(--sp-3);background:var(--card);border:1px solid var(--border);border-radius:var(--r);margin-bottom:var(--sp-3)}
+.rl-tgrp{display:flex;gap:var(--sp-2);align-items:center;padding-right:var(--sp-3);border-right:1px solid var(--border);flex:none}
+.rl-tgrp:last-child{border-right:0}
+.rl-tlab{font-size:var(--fs-xs);color:var(--muted);text-transform:uppercase;letter-spacing:.05em}
+.rl-ed .rl-titem{display:flex;align-items:center;gap:var(--sp-2);min-height:0;padding:6px var(--sp-2);border:1px solid var(--border);border-radius:var(--r-ctl);background:var(--bg);color:var(--fg);cursor:grab;font-size:var(--fs-sm);font-weight:400;flex:none}
+.rl-ed .rl-titem:hover:not(:disabled){border-color:var(--primary)}
+.rl-tic{width:22px;height:22px;border-radius:var(--r-sm);background:var(--inset);display:grid;place-items:center;font-size:var(--fs-xs);color:var(--muted)}
+.rl-tic .rl-ico{width:14px;height:14px}
+.rl-trayed .rl-body{overflow:visible;background:none}
+.rl-trayed .rl-stage{padding:0}
+.rl-trayed .rl-hint{background:none;border:0;padding:var(--sp-2) 0 0;font-size:var(--fs-sm)}
+.rl-trayed .rl-msg{background:none;border:0;padding:var(--sp-2) 0 0}
+.rl-card{position:absolute;top:calc(100% + 6px);left:0;z-index:8;width:250px;max-width:80vw;box-sizing:border-box;display:flex;flex-direction:column;gap:var(--sp-2);
+  background:var(--card);color:var(--fg);border:1px solid var(--border);border-radius:var(--r);padding:var(--sp-3);box-shadow:var(--shadow-pop);font-size:var(--fs-sm);cursor:default;text-align:left}
+.rl-card.rl-right{left:auto;right:0}
+.rl-card.rl-up{top:auto;bottom:calc(100% + 6px)}
+.rl-card .check{margin:0}
+.rl-cfld label{display:block;margin-bottom:3px;color:var(--muted)}
+.rl-cfld select,.rl-cfld input:not([type=checkbox]),.rl-cfld textarea{width:100%;box-sizing:border-box}
+.rl-crow{display:flex;gap:var(--sp-2);align-items:center;flex-wrap:wrap}
+.rl-swatches{display:flex;gap:6px}
+.rl-ed .rl-swatch{width:24px;height:24px;min-height:0;padding:0;border-radius:var(--r-pill);border:2px solid transparent}
+.rl-ed .rl-swatch.on{border-color:var(--fg)}
+.rl-editing.rl-trayed .rl-canvas .rl-cell.rl-sel{z-index:6}

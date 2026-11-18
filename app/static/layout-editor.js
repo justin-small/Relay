@@ -11,8 +11,18 @@
      addById: {label, placeholder, make: function (id) { return paletteEntry; }},
      onSave: async function (state) {}, // state = {cols, rows, items}; throw to keep editing
      onCancel: function () {},
+     bar: {title, note},               // optional: a bar of title, note, Undo, Cancel and Save instead of the toolbar
+     between: element,                 // optional: shown under the bar (a board's page tabs)
+     tray: true,                       // optional: the palette is a row of groups above the grid, not a side list
+     card: true,                       // optional: the selected item's settings open in a card beside it
+     canvasClass: 'bd-tv', hintText,   // optional: a class for the grid and the line under it
+     swatches: ['#rrggbb', ...],       // with `card`: the background colours it offers
    });
    ed.get() -> {cols, rows, items}; ed.set(state); ed.enter(); ed.redraw();
+
+   With `card`, clicking an item opens its settings in a small card next to it (its own fields, a background colour,
+   Duplicate, Remove, and More for the full look), so the grid stays full size; the tray suits a tablet: tap a widget to
+   drop it in the first free space, then drag it.
 
    Places are whole cells and items never overlap: a move or resize onto another item is refused, as app/layout.py
    refuses it on save. Drag to move, drag an edge or corner to resize, double-click or Enter for settings, arrows move,
@@ -34,16 +44,21 @@
   function edit(host, opts) {
     const st = { cols: opts.cols, rows: opts.rows, items: copy(opts.items || []), sel: null, lines: true };
     let undo = [], redo = [], editing = !!opts.inline, saved = null, busy = false;
-    const root = el('div', 'rl-ed' + (opts.inline ? ' rl-inline' : ''));
-    const tools = el('div', 'rl-tools');
+    const root = el('div', 'rl-ed' + (opts.inline ? ' rl-inline' : '') + (opts.tray ? ' rl-trayed' : ''));
+    const tools = el('div', opts.bar ? 'rl-edbar' : 'rl-tools');
     const body = el('div', 'rl-body');
     const stage = el('div', 'rl-stage');
-    const grid = el('div', 'rl-grid rl-canvas');
+    const grid = el('div', 'rl-grid rl-canvas' + (opts.canvasClass ? ' ' + opts.canvasClass : ''));
     const pal = el('div', 'rl-pal'); const palIn = el('div', 'rl-palin'); pal.appendChild(palIn);
     const msg = el('div', 'rl-msg'); msg.setAttribute('role', 'status'); msg.setAttribute('aria-live', 'polite');
     const hint = el('div', 'rl-hint');
-    stage.appendChild(grid); body.appendChild(stage); body.appendChild(pal);
-    root.appendChild(tools); root.appendChild(body); root.appendChild(msg); root.appendChild(hint);
+    if (opts.tray) pal.className = 'rl-tray';
+    stage.appendChild(grid); body.appendChild(stage);
+    if (!opts.tray) body.appendChild(pal);
+    root.appendChild(tools);
+    if (opts.between) root.appendChild(opts.between);
+    if (opts.tray) root.appendChild(pal);
+    root.appendChild(body); root.appendChild(msg); root.appendChild(hint);
     host.appendChild(root);
 
     function snap() { return JSON.stringify({ c: st.cols, r: st.rows, i: st.items }); }
@@ -86,7 +101,18 @@
     function drawTools() {
       tools.textContent = '';
       tools.hidden = !editing; hint.hidden = !editing;
+      if (opts.between) opts.between.hidden = !editing;
+      if (opts.tray) pal.hidden = !editing;
       if (!editing) return;
+      if (opts.bar) {
+        tools.appendChild(el('b', '', opts.bar.title || ''));
+        if (opts.bar.note) tools.appendChild(el('span', 'rl-mut', opts.bar.note));
+        tools.appendChild(el('span', 'rl-spacer'));
+        const ub = btn('Undo', '', doUndo); ub.disabled = !undo.length; tools.appendChild(ub);
+        tools.appendChild(btn('Cancel', '', cancel));
+        const sb = btn(busy ? 'Saving…' : (opts.saveLabel || 'Save'), 'primary', save); sb.disabled = busy; tools.appendChild(sb);
+        return;
+      }
       tools.appendChild(el('span', 'rl-name', opts.title || ''));
       if (opts.sizes && opts.sizes.length) {
         const sz = el('select'); sz.setAttribute('aria-label', 'Grid size');
@@ -128,7 +154,27 @@
     function doUndo() { if (!undo.length) return; redo.push(snap()); load(undo.pop()); st.sel = null; draw(); }
     function doRedo() { if (!redo.length) return; undo.push(snap()); load(redo.pop()); st.sel = null; draw(); }
 
+    function drawTray() {
+      pal.textContent = '';
+      let grp = null;
+      (opts.palette || []).forEach(function (p, idx) {
+        if (!grp || grp.dataset.g !== (p.group || '')) {
+          grp = el('div', 'rl-tgrp'); grp.dataset.g = p.group || '';
+          grp.appendChild(el('span', 'rl-tlab', p.group || '')); pal.appendChild(grp);
+        }
+        const b = btn('', 'rl-titem', function () { add(p); });
+        const ic = el('span', 'rl-tic'); const svg = R.icon((p.style || {}).icon || '');
+        if (svg) ic.appendChild(svg); else ic.textContent = (p.name || '?').charAt(0);
+        b.appendChild(ic); b.appendChild(el('span', '', p.name));
+        b.title = p.name + ', ' + p.w + ' × ' + p.h + ' cells';
+        b.disabled = !!p.disabled; b.draggable = !p.disabled;
+        b.ondragstart = function (e) { e.dataTransfer.setData('text/plain', 'rl:' + idx); };
+        grp.appendChild(b);
+      });
+      if (!pal.childNodes.length) pal.appendChild(el('span', 'rl-note', 'Nothing to add.'));
+    }
     function drawPalette() {
+      if (opts.tray) { drawTray(); return; }
       palIn.textContent = '';
       palIn.appendChild(el('div', 'rl-pcat', 'Click to add, or drag onto the ' + (opts.noun || 'page')));
       const q = el('input'); q.type = 'search'; q.placeholder = 'Search ' + opts.paletteName.toLowerCase();
@@ -219,7 +265,8 @@
       drawTools();
       if (editing) drawPalette();
       hint.textContent = '';
-      if (editing) {
+      if (editing && opts.hintText) hint.textContent = opts.hintText;
+      else if (editing) {
         [['Drag', 'to move'], ['Edges and corners', 'resize'], ['Double-click', 'settings'], ['Arrows', 'move'],
          ['Shift+arrows', 'resize'], ['Delete', 'removes'], ['Ctrl+Z', 'undo']].forEach(function (k, i) {
           if (i) hint.appendChild(document.createTextNode(' · '));
@@ -235,11 +282,70 @@
         const h = el('span', 'rl-h'); h.dataset.d = d; h.onpointerdown = function (ev) { startResize(ev, it, cell, d); };
         cell.appendChild(h);
       });
+      if (opts.card) { cell.appendChild(card(it, cell)); return; }
       const mb = el('div', 'rl-mini');
       [['Settings', function () { settings(it); }], ['Duplicate', function () { dup(it); }], ['Delete', function () { del(it); }]].forEach(function (a) {
         const b = btn(a[0], '', function (e) { e.stopPropagation(); a[1](); }); mb.appendChild(b);
       });
       cell.appendChild(mb);
+    }
+    // The selected item's settings, in a card under it (over it near the bottom of the grid). A change shows at once
+    // on the item; it joins the undo list when the field is left.
+    function card(it, cell) {
+      const c = el('div', 'rl-card' + (it.y + it.h > st.rows / 2 && it.y >= it.h ? ' rl-up' : '') + (it.x + it.w / 2 > st.cols / 2 ? ' rl-right' : ''));
+      c.onpointerdown = function (e) { e.stopPropagation(); };
+      c.onkeydown = function (e) { e.stopPropagation(); };
+      c.ondblclick = function (e) { e.stopPropagation(); };
+      c.appendChild(el('b', '', it.title || it.kind));
+      let before = null;
+      function begin() { if (before === null) before = snap(); }
+      function commit() { if (before !== null) { const b = before; before = null; push(b); } }
+      function show() {
+        const w = R.item(it); const old = cell.querySelector('.rl-w');
+        if (old) cell.replaceChild(w, old);
+        if (opts.onDraw) { const ns = {}; grid.querySelectorAll('.rl-cell').forEach(function (n) { ns[n.dataset.id] = n.querySelector('.rl-w'); }); opts.onDraw(ns, editing); }
+      }
+      it.props = it.props || {}; it.style = it.style || {};
+      (opts.fields ? opts.fields(it) : []).forEach(function (f, n) {
+        const id = 'rlC' + n;
+        if (f.type === 'note') { c.appendChild(el('div', 'rl-note', f.label)); return; }
+        let input;
+        if (f.type === 'check') {
+          input = el('input'); input.type = 'checkbox'; input.checked = !!it.props[f.key]; input.id = id;
+          input.onchange = function () { begin(); it.props[f.key] = input.checked; show(); commit(); };
+          const l = el('label', 'check', input, ' ' + f.label); c.appendChild(l); return;
+        }
+        if (f.type === 'select') {
+          input = el('select');
+          (f.options || []).forEach(function (o) { const opt = el('option', '', o[1]); opt.value = o[0]; if (String(it.props[f.key]) === String(o[0])) opt.selected = true; input.appendChild(opt); });
+          input.onchange = function () { begin(); it.props[f.key] = input.value; show(); commit(); };
+        } else if (f.type === 'area') {
+          input = el('textarea'); input.maxLength = f.max || 200; input.value = it.props[f.key] || '';
+          input.oninput = function () { begin(); it.props[f.key] = input.value; show(); };
+          input.onchange = commit;
+        } else {
+          input = el('input'); input.type = f.type === 'time' ? 'time' : (f.type === 'number' ? 'number' : 'text');
+          if (f.max) input.maxLength = f.max;
+          input.value = it.props[f.key] === undefined ? '' : it.props[f.key]; input.readOnly = f.type === 'ro';
+          input.oninput = function () { begin(); it.props[f.key] = f.type === 'number' ? +input.value : input.value; show(); };
+          input.onchange = commit;
+        }
+        input.id = id;
+        const l = el('label', '', f.label); l.htmlFor = id;
+        c.appendChild(el('div', 'rl-cfld', l, input));
+      });
+      const sw = el('div', 'rl-swatches'); sw.setAttribute('role', 'group'); sw.setAttribute('aria-label', 'Colour');
+      const cur = R.look(it).bg;
+      (opts.swatches || []).forEach(function (hex) {
+        const b = btn('', 'rl-swatch' + (cur === hex ? ' on' : ''), function () { const bf = snap(); it.style.bg = hex; push(bf); draw(); focusSel(); });
+        b.style.background = hex; b.setAttribute('aria-label', 'Colour ' + hex); b.setAttribute('aria-pressed', String(cur === hex));
+        sw.appendChild(b);
+      });
+      if (sw.childNodes.length) c.appendChild(el('div', 'rl-crow', el('span', 'rl-mut', 'Colour'), sw));
+      c.appendChild(el('div', 'rl-crow',
+        btn('Duplicate', '', function () { dup(it); }), btn('Remove', 'danger', function () { del(it); }),
+        btn('More…', 'rl-ghost', function () { settings(it); })));
+      return c;
     }
     function focusSel() {
       const n = st.sel && grid.querySelector('.rl-cell[data-id="' + CSS.escape(st.sel) + '"]');
@@ -319,6 +425,7 @@
     drawTools();
     draw();
     return {
+      setBar: function (b) { opts.bar = b; drawTools(); },
       get: function () { return { cols: st.cols, rows: st.rows, items: copy(st.items) }; },
       set: function (s) { st.cols = s.cols; st.rows = s.rows; st.items = copy(s.items || []); st.sel = null; undo = []; redo = []; saved = snap(); draw(); },
       enter: enter,

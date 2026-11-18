@@ -1,0 +1,129 @@
+<!doctype html><html lang="en" data-theme="dark" data-preset="relay"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<link rel="stylesheet" href="../../../app/static/tokens.css"><link rel="stylesheet" href="../../../app/static/components.css"><link rel="stylesheet" href="common.css">
+<title>Boards A · Gallery</title>
+<style>
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(270px,1fr));gap:var(--sp-4)}
+.bcard{padding:0;overflow:hidden;display:flex;flex-direction:column}
+.bcard .tv{border-radius:0}
+.bcard .meta{padding:var(--sp-3) var(--sp-4);display:flex;flex-direction:column;gap:6px}
+.bcard .meta b{font-size:var(--fs-lg)}
+.bcard .acts{display:flex;gap:var(--sp-2);padding:0 var(--sp-4) var(--sp-3)}
+.new{border:1px dashed var(--border);background:none;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:var(--sp-2);min-height:260px;color:var(--muted)}
+.ed{display:grid;grid-template-columns:240px minmax(0,1fr) 280px;height:calc(100vh - 92px);min-height:560px}
+.ed>aside{background:var(--card);border-right:1px solid var(--border);padding:var(--sp-3);overflow:auto}
+.ed>aside.r{border-right:0;border-left:1px solid var(--border)}
+.ed .stage{display:flex;flex-direction:column;gap:var(--sp-3);padding:var(--sp-4);background:var(--bg);overflow:auto}
+.ed .stage .tv{width:100%;max-width:1000px;margin:0 auto}
+.edbar{display:flex;align-items:center;gap:var(--sp-2);padding:var(--sp-2) var(--sp-4);border-bottom:1px solid var(--border);background:var(--sb);flex-wrap:wrap}
+.full{background:#000;min-height:calc(100vh - 92px);display:flex;align-items:center;justify-content:center;padding:var(--sp-4)}
+.full .tv{width:min(100%,calc((100vh - 140px)*16/9))}
+@media(max-width:900px){.ed{grid-template-columns:1fr;height:auto}.ed>aside{border:0;border-bottom:1px solid var(--border)}}
+</style></head><body>
+<div class="top"><b>Boards</b><span class="muted">Direction A · Gallery: see every screen at a glance, edit full-screen</span><span class="sp"></span><span class="muted">Ana Ruiz · admin</span></div>
+<div class="screens"><span>Screen:</span><button data-s="list" class="on">Boards list</button><button data-s="edit">Editor</button><button data-s="view">On the TV</button></div>
+
+<!-- ===== LIST ===== -->
+<div class="scr on" id="list"><div class="wrap stack">
+<div class="between"><div><h2 style="margin:0">Boards</h2><p class="lede" style="margin:4px 0 0">Screens you build from widgets. Each has its own address for a TV or tablet. The preview is live.</p></div>
+<div class="gap"><input placeholder="Search boards" aria-label="Search boards" style="width:200px"><button>Import…</button><button class="primary">New board</button></div></div>
+<div class="grid">
+ <div class="card bcard">
+  <div class="tv" style="--c:12;--rw:8">
+   <div class="w" style="grid-area:1/1/3/9"><small>Welcome</small><div class="mid">Welcome to Sunday Worship</div></div>
+   <div class="w" style="grid-area:1/9/3/13"><small>Time</small><div class="big">9:41</div></div>
+   <div class="w air" style="grid-area:3/9/5/13"><small>Livestream</small><div class="mid">● On air</div></div>
+   <div class="w meter" style="grid-area:3/1/6/9"><small>Room</small><div class="bars"><i style="height:40%"></i><i style="height:62%"></i><i style="height:80%"></i><i style="height:70%"></i><i style="height:55%"></i><i style="height:48%"></i><i style="height:30%"></i></div></div>
+   <div class="w cap" style="grid-area:6/1/9/9"><p>so we gather around one table</p><p>and every seat is set for you</p></div>
+   <div class="w" style="grid-area:5/9/9/13"><small>Starts in</small><div class="big">0:00</div></div>
+  </div>
+  <div class="meta"><div class="between"><b>Lobby</b><span class="chip ok"><i></i>2 screens</span></div>
+   <span class="muted mono" style="font-size:var(--fs-sm)">/board/lobby</span>
+   <div class="gap"><span class="chip">16:9 TV</span><span class="chip warn">Public</span><span class="chip">6 widgets</span></div></div>
+  <div class="acts"><button class="primary" data-go="edit">Edit</button><button>Open</button><button>Copy link</button><span class="sp"></span><button class="quiet" aria-label="More">⋯</button></div>
+ </div>
+ <div class="card bcard">
+  <div class="tv" style="--c:12;--rw:8">
+   <div class="w" style="grid-area:1/1/3/7"><small>Now</small><div class="mid">Sermon</div></div>
+   <div class="w" style="grid-area:1/7/3/13"><small>Remaining</small><div class="big">22:18</div></div>
+   <div class="w cap" style="grid-area:3/1/9/13"><p>and he said, come and eat</p><p>there is room for all of you</p></div>
+  </div>
+  <div class="meta"><div class="between"><b>Stage confidence</b><span class="chip ok"><i></i>1 screen</span></div>
+   <span class="muted mono" style="font-size:var(--fs-sm)">/board/stage</span>
+   <div class="gap"><span class="chip">16:9 TV</span><span class="chip">Signed in</span><span class="chip">3 widgets</span></div></div>
+  <div class="acts"><button class="primary" data-go="edit">Edit</button><button>Open</button><button>Copy link</button><span class="sp"></span><button class="quiet" aria-label="More">⋯</button></div>
+ </div>
+ <div class="card bcard">
+  <div class="tv p43" style="--c:8;--rw:6">
+   <div class="w btn lit" style="grid-area:1/1/3/3">Walk-in</div><div class="w btn" style="grid-area:1/3/3/5">Worship</div><div class="w btn" style="grid-area:1/5/3/7">Sermon</div><div class="w btn" style="grid-area:1/7/3/9">Blackout</div>
+   <div class="w off" style="grid-area:3/1/5/5"><small>ProPresenter</small><div class="mid">Module off</div></div>
+   <div class="w" style="grid-area:3/5/5/9"><small>Time</small><div class="big">9:41</div></div>
+   <div class="w air" style="grid-area:5/1/7/9"><small>Livestream</small><div class="mid">● On air · 214 watching</div></div>
+  </div>
+  <div class="meta"><div class="between"><b>Booth tablet</b><span class="chip"><i></i>Not open</span></div>
+   <span class="muted mono" style="font-size:var(--fs-sm)">/board/booth</span>
+   <div class="gap"><span class="chip">4:3 tablet</span><span class="chip">Signed in</span><span class="chip warn">1 widget off</span></div></div>
+  <div class="acts"><button class="primary" data-go="edit">Edit</button><button>Open</button><button>Copy link</button><span class="sp"></span><button class="quiet" aria-label="More">⋯</button></div>
+ </div>
+ <button class="card new"><span style="font-size:28px">+</span><b style="color:var(--fg)">New board</b><span style="font-size:var(--fs-sm)">Pick a shape: 16:9 TV, 4:3 tablet, 9:16 portrait</span></button>
+</div>
+<p class="note">⋯ holds Rename, Duplicate, Export, Make public and Delete. "2 screens" counts browsers that have the board open now.</p>
+</div></div>
+
+<!-- ===== EDITOR ===== -->
+<div class="scr" id="edit">
+<div class="edbar"><button class="quiet" data-go="list">← Boards</button><b>Lobby</b><span class="chip">16:9 · 12 × 8</span><span class="chip ok"><i></i>Live on 2 screens</span><span class="sp"></span><button>Undo</button><button>Preview</button><button>Discard</button><button class="primary">Save</button></div>
+<div class="ed">
+ <aside><input placeholder="Find a widget" aria-label="Find a widget" style="width:100%;margin-bottom:var(--sp-3)">
+  <div class="lib">
+   <h4>Captions</h4><div class="li"><span class="ic">CC</span>Captions<small>8×3</small></div>
+   <h4>Clock and text</h4><div class="li"><span class="ic">◷</span>Clock<small>3×2</small></div><div class="li"><span class="ic">◷</span>Countdown<small>3×2</small></div><div class="li"><span class="ic">T</span>Text<small>4×1</small></div><div class="li"><span class="ic">→</span>Board link<small>2×1</small></div>
+   <h4>Status</h4><div class="li"><span class="ic">●</span>Livestream<small>3×2</small></div>
+   <h4>Sound</h4><div class="li"><span class="ic">▮</span>Sound level<small>3×2</small></div><div class="li"><span class="ic">▮</span>Spectrum<small>6×3</small></div>
+   <h4>Lighting</h4><div class="li"><span class="ic">✦</span>Lighting cue<small>2×1</small></div>
+   <h4>ProPresenter</h4><div class="li off"><span class="ic">▶</span>Slide<small>off</small></div>
+  </div>
+  <p class="hint">Drag onto the board, or click to drop in the first free space.</p>
+ </aside>
+ <div class="stage">
+  <div class="tv edit" style="--c:12;--rw:8">
+   <div class="w" style="grid-area:1/1/3/9"><small>Welcome</small><div class="mid">Welcome to Sunday Worship</div></div>
+   <div class="w" style="grid-area:1/9/3/13"><small>Time</small><div class="big">9:41</div></div>
+   <div class="w air" style="grid-area:3/9/5/13"><small>Livestream</small><div class="mid">● On air</div></div>
+   <div class="w meter" style="grid-area:3/1/6/9"><small>Room</small><div class="bars"><i style="height:40%"></i><i style="height:62%"></i><i style="height:80%"></i><i style="height:70%"></i><i style="height:55%"></i><i style="height:48%"></i><i style="height:30%"></i></div></div>
+   <div class="w cap sel" style="grid-area:6/1/9/9"><p>so we gather around one table</p><p>and every seat is set for you</p><span class="handle"></span></div>
+   <div class="w" style="grid-area:5/9/9/13"><small>Starts in</small><div class="big">0:00</div></div>
+  </div>
+  <p class="hint" style="text-align:center">The widgets show live data while you edit. Arrow keys nudge the selected widget; Shift+arrows resize it.</p>
+ </div>
+ <aside class="r">
+  <div class="between" style="margin-bottom:var(--sp-3)"><b>Captions</b><button class="quiet sm danger">Remove</button></div>
+  <div class="field"><label>Language</label><select><option>English (original speech)</option><option>Spanish</option><option>Korean</option></select></div>
+  <div class="field"><label>Lines shown</label><select><option>2</option><option selected>3</option><option>4</option></select></div>
+  <h4 class="muted" style="font-size:var(--fs-xs);text-transform:uppercase;letter-spacing:.06em;margin:var(--sp-4) 0 var(--sp-2)">Look</h4>
+  <div class="field"><label>Background</label><div class="swatches"><i class="on" style="background:#0b0b0d"></i><i style="background:#1e3a8a"></i><i style="background:#14532d"></i><i style="background:#7f1d1d"></i><i style="background:#3f3f46"></i></div></div>
+  <div class="field"><label>Shape</label><div class="seg"><button class="on">Rounded</button><button>Square</button></div></div>
+  <h4 class="muted" style="font-size:var(--fs-xs);text-transform:uppercase;letter-spacing:.06em;margin:var(--sp-4) 0 var(--sp-2)">Place</h4>
+  <div class="gap"><div class="field" style="width:60px"><label>X</label><input value="0"></div><div class="field" style="width:60px"><label>Y</label><input value="5"></div><div class="field" style="width:60px"><label>W</label><input value="8"></div><div class="field" style="width:60px"><label>H</label><input value="3"></div></div>
+  <hr style="border:0;border-top:1px solid var(--border);margin:var(--sp-4) 0">
+  <b>Board</b>
+  <div class="field" style="margin-top:var(--sp-2)"><label>Name</label><input value="Lobby"></div>
+  <div class="field"><label>Shape</label><select><option>16:9 TV</option><option>4:3 tablet</option><option>9:16 portrait</option></select></div>
+  <label class="check"><input type="checkbox" checked> Public: opens for anyone, on the viewer network too</label>
+ </aside>
+</div></div>
+
+<!-- ===== VIEW ===== -->
+<div class="scr" id="view"><div class="full">
+ <div class="tv" style="--c:12;--rw:8">
+   <div class="w" style="grid-area:1/1/3/9"><small>Welcome</small><div class="mid">Welcome to Sunday Worship</div></div>
+   <div class="w" style="grid-area:1/9/3/13"><small>Time</small><div class="big">9:41</div></div>
+   <div class="w air" style="grid-area:3/9/5/13"><small>Livestream</small><div class="mid">● On air</div></div>
+   <div class="w meter" style="grid-area:3/1/6/9"><small>Room</small><div class="bars"><i style="height:40%"></i><i style="height:62%"></i><i style="height:80%"></i><i style="height:70%"></i><i style="height:55%"></i><i style="height:48%"></i><i style="height:30%"></i></div></div>
+   <div class="w cap" style="grid-area:6/1/9/9"><p>so we gather around one table</p><p>and every seat is set for you</p></div>
+   <div class="w" style="grid-area:5/9/9/13"><small>Starts in</small><div class="big">0:00</div></div>
+ </div>
+</div><p class="note wrap" style="padding-top:0">Nothing but the board. An admin sees a faint Edit button on mouse-move only; it hides after 3 seconds.</p></div>
+
+<nav class="mocknav"><a href="a-gallery.html" aria-current>A Gallery</a><a href="b-workspace.html">B Workspace</a><a href="c-places.html">C Places</a><a href="index.html">Index</a></nav>
+<script src="mock.js"></script>
+</body></html>

@@ -249,6 +249,13 @@ class Module:
         Boards may be public: send nothing private, no addresses and no error text."""
         return {}
 
+    def board_follow(self) -> dict | None:
+        """What a board set to follow this module reads (#156 pages): None when the module offers nothing to follow,
+        else {"name": "ProPresenter", "connected": bool, "now": {"presentation", "group", "label"} (what shows now,
+        "" for none), "suggest": {"presentation": [...], "group": [...], "label": [...]}} (names the operator can
+        pick). Called from the event loop every few seconds: read what is in memory."""
+        return None
+
     async def board_press(self, item: dict, request: Any) -> dict:
         """Someone pressed one of this module's button widgets on a board: {"ok": True} or {"ok": False, "error":
         "<a fixed sentence>"}. Core has already checked the widget's press_permission. Say what happened with
@@ -605,6 +612,29 @@ class Registry:
                     log.warning("module %s: a board widget was left out (bad type or permission)", mid)
                     continue
                 out.append(d)
+        return out
+
+    def board_follow(self) -> dict[str, dict]:
+        """Every switched-on, running module's follow source for board pages, by module id, bounded."""
+        out: dict[str, dict] = {}
+        for mod in self.active():
+            mid = mod.manifest.id
+            if not self.running(mid):
+                continue
+            try:
+                got = mod.board_follow()
+            except Exception:
+                log.exception("module %s: board_follow failed", mid)
+                continue
+            if not isinstance(got, dict):
+                continue
+            now = got.get("now") if isinstance(got.get("now"), dict) else {}
+            sug = got.get("suggest") if isinstance(got.get("suggest"), dict) else {}
+            keys = ("presentation", "group", "label")
+            out[mid] = {"name": str(got.get("name") or mid)[:40], "connected": got.get("connected") is True,
+                        "now": {k: str(now.get(k) or "")[:80] for k in keys},
+                        "suggest": {k: [str(v)[:80] for v in (sug.get(k) if isinstance(sug.get(k), list) else [])
+                                        if isinstance(v, str) and v.strip()][:200] for k in keys}}
         return out
 
     def board_owner(self, wtype: str) -> Module | None:

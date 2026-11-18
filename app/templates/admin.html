@@ -2,7 +2,7 @@
 {% set look = look|default({}) %}
 <html lang="en" data-theme="{{ 'dark' if look.get('ui_mode', 'dark') == 'system' else look.get('ui_mode', 'dark') }}" data-mode="{{ look.get('ui_mode', 'dark') }}" data-preset="{{ look.get('ui_preset', 'relay') }}" data-sb="{{ look.get('ui_sidebar', 'inset') }}" data-collapse="{{ look.get('ui_collapse', 'icon') }}" data-layout="{{ look.get('ui_layout', 'centered') }}" data-navbar="{{ look.get('ui_navbar', 'sticky') }}" data-font="{{ look.get('ui_font', 'system') }}"{% if look.get('ui_collapsed') %} class="cl"{% endif %}><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Relay &middot; Operator</title>{% include "_brand_head.html" %}<link rel="stylesheet" href="{{ static('viewer.css') }}"><link rel="stylesheet" href="{{ static('tokens.css') }}"><link rel="stylesheet" href="{{ static('components.css') }}"><link rel="stylesheet" href="{{ static('admin.css') }}"><link rel="stylesheet" href="{{ static('layout.css') }}">{% for style in module_styles %}<link rel="stylesheet" href="{{ static('modules/' ~ style) }}">{% endfor %}
+<title>Relay &middot; Operator</title>{% include "_brand_head.html" %}<link rel="stylesheet" href="{{ static('viewer.css') }}"><link rel="stylesheet" href="{{ static('tokens.css') }}"><link rel="stylesheet" href="{{ static('components.css') }}"><link rel="stylesheet" href="{{ static('admin.css') }}"><link rel="stylesheet" href="{{ static('layout.css') }}"><link rel="stylesheet" href="{{ static('boards.css') }}">{% for style in module_styles %}<link rel="stylesheet" href="{{ static('modules/' ~ style) }}">{% endfor %}
 <script>
 /* Before first paint: "system" follows the device, and the chosen font applies (both are allow-listed words). */
 (function () {
@@ -492,27 +492,16 @@ window.relayCan = function (perm) { return window.RELAY_ME.permissions.indexOf(p
 {% endif %}
 {% if 'boards.view' in perms %}
   <div class="page" id="page-boards" data-page="boards" hidden>
-    <h2 class="title">Boards</h2>
-    <p class="sub">Screens you build from widgets: captions, a clock, the livestream, lighting cues and more. Each board has
-      its own address for a TV or tablet. Anyone signed in to Relay can open a board; a <b>public</b> board opens for
-      anyone, on the viewer network too.</p>
+    {# Boards (#156): screens built from widgets, each at its own address. boards.js draws the page: boards by place
+       down the side, the chosen board beside (its live preview, the screens showing it, its pages and what decides
+       which one shows, editing in place), a new board from a template, and its buttons to press. #}
     {{ viewonly('boards.manage') }}
-    <section>
-      {% if 'boards.manage' in perms %}<div class="ctl">
-        <input id="bdName" placeholder="New board's name" maxlength="60" aria-label="New board's name" style="max-width:260px">
-        <select id="bdRatio" aria-label="Screen shape"><option value="16:9">16:9 TV</option><option value="4:3">4:3 tablet</option><option value="9:16">9:16 portrait</option></select>
-        <button type="button" class="primary" id="bdNew">New board</button>
-        <span class="spacer"></span>
-        <label class="btnlink" for="bdImport">Import&hellip;</label><input type="file" id="bdImport" accept=".json,application/json" hidden>
-      </div>{% endif %}
-      <div class="note err" id="bdErr" hidden></div>
-      <div class="tablescroll"><table>
-        <thead><tr><th>Name</th><th>Address</th><th>Public</th><th>Grid</th><th></th></tr></thead>
-        <tbody id="bdRows"><tr><td colspan="5" class="muted">Loading&hellip;</td></tr></tbody>
-      </table></div>
-      <p class="note">Edit opens the board with the widget list beside it, so you lay it out over the real thing.
-        A widget from a module that is switched off stays on the board and comes back when the module does.</p>
-    </section>
+    <div class="note err" id="bdErr" hidden></div>
+    <div class="bd bp">
+      <nav class="blist" id="bdList" aria-label="Boards"></nav>
+      <div id="bdMain"><p class="muted">Loading&hellip;</p></div>
+    </div>
+    <input type="file" id="bdImport" accept=".json,application/json" hidden>
   </div>
 {% endif %}
 {% if 'recordings.view' in perms %}
@@ -972,6 +961,7 @@ window.relayCan = function (perm) { return window.RELAY_ME.permissions.indexOf(p
 <script src="{{ static('alert-icons.js') }}"></script>
 <script src="{{ static('layout-render.js') }}"></script>
 <script src="{{ static('layout-editor.js') }}"></script>
+<script src="{{ static('board-live.js') }}"></script>
 <script src="{{ static('shell.js') }}"></script>
 <script src="{{ static('admin.js') }}"></script>
 <script src="{{ static('modules.js') }}"></script>
