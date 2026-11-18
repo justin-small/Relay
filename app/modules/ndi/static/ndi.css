@@ -1,0 +1,91 @@
+/* The NDI admin page (#294): its tabs' layout only. Controls come from components.css, values from tokens.css. */
+#page-ndi .hint { display:block; margin-top:var(--sp-1); font-size:var(--fs-sm); color:var(--muted); font-weight:400; overflow-wrap:anywhere; }
+#page-ndi code.hint { font-family:var(--mono); }
+#page-ndi a { color:var(--fg); }
+#page-ndi [hidden] { display:none !important; }
+#page-ndi .ctl > input { flex:0 1 16rem; width:16rem; max-width:100%; }
+.ndihead { display:flex; align-items:flex-start; justify-content:space-between; gap:var(--sp-3); flex-wrap:wrap; }
+.ndihead > div:first-child { flex:1 1 30rem; }
+
+/* Overview: in -> screens -> out, then the checklist and what needs a look */
+.ndiflow { display:grid; grid-template-columns:minmax(0,1fr) auto minmax(0,1fr) auto minmax(0,1fr); gap:var(--sp-3); align-items:stretch; margin:0 0 var(--sp-4); }
+.ndistage { display:flex; flex-direction:column; align-items:flex-start; text-align:left; gap:var(--sp-1); min-height:0; height:auto;
+            padding:var(--sp-4); background:var(--card); color:var(--fg); border:1px solid var(--border); border-radius:var(--r); }
+.ndistage:hover { border-color:var(--primary); background:var(--card); }
+.ndistage > b { font-size:var(--fs-lg); }
+.ndibig { margin-top:var(--sp-2); font-size:var(--fs-xl); font-weight:600; }
+.ndiarrow { display:flex; align-items:center; color:var(--muted); font-size:var(--fs-lg); }
+.ndicols { display:grid; grid-template-columns:repeat(auto-fit,minmax(20rem,1fr)); gap:var(--sp-4); align-items:start; }
+.ndicols > section { margin:0; }
+.ndisteps { list-style:none; margin:0; padding:0; }
+.ndisteps li { display:flex; align-items:center; gap:var(--sp-3); padding:var(--sp-3) 0; border-bottom:1px solid var(--border); }
+.ndisteps li:last-child { border-bottom:0; }
+.ndisteps li > div { flex:1; min-width:0; }
+.ndisteps .n { flex:0 0 1.75rem; height:1.75rem; display:flex; align-items:center; justify-content:center; border-radius:var(--r-pill);
+               background:var(--hover); color:var(--hover-fg); font-size:var(--fs-sm); font-weight:600; }
+.ndisteps li.done .n { background:var(--ok); color:var(--bg); }
+.ndiissue { display:flex; align-items:center; gap:var(--sp-3); padding:var(--sp-3) 0; border-bottom:1px solid var(--border); }
+.ndiissue:last-child { border-bottom:0; }
+.ndiissue > div { flex:1; min-width:0; }
+
+/* Coming in */
+#ndiTable .ndicam { width:6rem; }
+#ndiTable td { vertical-align:middle; }
+
+/* Screens: multiview cards and the editor */
+.ndimvlist { display:grid; grid-template-columns:repeat(auto-fill,minmax(14rem,1fr)); gap:var(--sp-3); margin:var(--sp-3) 0; }
+.ndimvcard { display:flex; flex-direction:column; gap:var(--sp-2); padding:var(--sp-3); background:var(--inset); border:1px solid var(--border); border-radius:var(--r); }
+.ndithumb { display:grid; gap:2px; aspect-ratio:16/9; padding:2px; background:var(--bg); border:1px solid var(--border); border-radius:var(--r-sm); }
+.ndithumb i { background:var(--border); border-radius:var(--r-sm); }
+.ndimved { display:grid; grid-template-columns:minmax(0,1fr) 18rem; gap:var(--sp-4); align-items:start; margin-top:var(--sp-3); }
+.ndicanvas { display:grid; gap:var(--sp-1); aspect-ratio:16/9; padding:var(--sp-1); background:var(--bg); border:1px solid var(--border); border-radius:var(--r); }
+.ndibox { position:relative; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:var(--sp-1);
+          min-height:0; height:auto; padding:var(--sp-2); background:var(--card); color:var(--fg); border:1px solid var(--border);
+          border-radius:var(--r-sm); font-size:var(--fs-sm); text-align:center; overflow:hidden; }
+.ndibox:hover { background:var(--card); border-color:var(--primary); }
+.ndibox.empty { color:var(--muted); border-style:dashed; background:var(--inset); }
+.ndibox.sel { border-color:var(--primary); box-shadow:inset 0 0 0 2px var(--primary); }
+.ndibox.over { background:var(--hover); color:var(--hover-fg); }
+.ndibn { position:absolute; left:var(--sp-2); top:var(--sp-1); font-size:var(--fs-xs); color:var(--muted); font-family:var(--mono); }
+.ndibw { font-weight:600; overflow-wrap:anywhere; }
+.ndibl { font-size:var(--fs-xs); color:var(--muted); }
+.ndiside { display:flex; flex-direction:column; gap:var(--sp-4); }
+.ndipalette { display:flex; flex-direction:column; gap:var(--sp-1); max-height:22rem; overflow:auto; padding:var(--sp-3);
+              background:var(--inset); border:1px solid var(--border); border-radius:var(--r); }
+.ndipalette > b { margin-bottom:var(--sp-1); }
+.ndichip { justify-content:flex-start; text-align:left; min-height:var(--ctl-h-sm); padding:2px var(--sp-3); font-size:var(--fs-sm); cursor:grab; }
+.ndichip.clock, .ndichip.timer, .ndichip.empty { color:var(--muted); }
+#ndiMvBox { display:flex; flex-direction:column; gap:var(--sp-3); }
+#ndiMvBox .field { margin:0; }
+.ndilinks { display:flex; flex-direction:column; }
+.ndilink { display:flex; align-items:center; gap:var(--sp-3); flex-wrap:wrap; padding:var(--sp-2) 0; border-bottom:1px solid var(--border); }
+.ndilink:last-child { border-bottom:0; }
+.ndilink b { flex:0 1 14rem; }
+.ndilink code { flex:1 1 14rem; color:var(--muted); font-size:var(--fs-sm); overflow-wrap:anywhere; }
+
+/* Going out: the router grid, presets and page feeds */
+.ndimx { width:auto; border-collapse:separate; border-spacing:var(--sp-1); margin:var(--sp-2) 0 var(--sp-3); }
+.ndimx thead th { height:9rem; vertical-align:bottom; padding:0 0 var(--sp-1); font-weight:500; color:var(--muted); font-size:var(--fs-sm); }
+.ndimx thead th span { display:inline-block; writing-mode:vertical-rl; transform:rotate(180deg); white-space:nowrap; max-height:9rem; overflow:hidden; text-overflow:ellipsis; }
+.ndimx thead th.off { opacity:.55; }
+.ndimx tbody th { text-align:left; padding:var(--sp-1) var(--sp-3) var(--sp-1) 0; white-space:nowrap; font-weight:400; }
+.ndimx td { padding:0; }
+.ndixp { width:2.25rem; height:2.25rem; min-height:0; padding:0; background:var(--bg); border:1px solid var(--border); border-radius:var(--r-sm); }
+.ndixp:hover:not(:disabled) { border-color:var(--primary); background:var(--hover); }
+.ndixp.on, .ndixp.on:hover { background:var(--primary); border-color:var(--primary); }
+.ndipreset { display:flex; align-items:center; justify-content:space-between; gap:var(--sp-3); flex-wrap:wrap; padding:var(--sp-3);
+             margin:0 0 var(--sp-2); background:var(--inset); border:1px solid var(--border); border-radius:var(--r); }
+.ndipreset > div:first-child { flex:1 1 16rem; min-width:0; }
+#ndiPages h4 { margin:var(--sp-3) 0 var(--sp-1); color:var(--muted); font-size:var(--fs-sm); font-weight:500; }
+.ndioutrow { display:grid; grid-template-columns:auto minmax(0,1fr) minmax(0,16rem); gap:var(--sp-3); align-items:center;
+             padding:var(--sp-2) 0; border-bottom:1px solid var(--border); }
+.ndistate { font-size:var(--fs-sm); color:var(--muted); }
+.ndistate.ok { color:var(--ok); } .ndistate.warn { color:var(--warn); } .ndistate.err { color:var(--err); }
+
+@media (max-width:900px) {
+  .ndiflow { grid-template-columns:minmax(0,1fr); }
+  .ndiarrow { display:none; }
+  .ndimved { grid-template-columns:minmax(0,1fr); }
+  .ndioutrow { grid-template-columns:auto minmax(0,1fr); }
+  .ndioutrow .ndistate { grid-column:2; }
+}
