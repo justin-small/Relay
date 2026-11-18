@@ -511,6 +511,19 @@
   window.addEventListener('hashchange', function () {
     if (pageOpen()) { loadedOnce = false; slidesFor = ''; poll(); }
   });
+  // The live and next slide as pictures, the same view the Slide view page shows.
+  if (window.RelaySlideView) window.RelaySlideView.create($('pcView'), { base: BASE + '/live', active: pageOpen });
+  // The tabs beside the slide grid: one panel shows at a time.
+  $('pcTabs').addEventListener('click', function (ev) {
+    const t = ev.target.closest('button[data-tab]');
+    if (!t) return;
+    $('pcTabs').querySelectorAll('button[data-tab]').forEach(function (b) {
+      const on = b === t;
+      b.classList.toggle('on', on);
+      b.setAttribute('aria-selected', on ? 'true' : 'false');
+      $(b.dataset.tab).hidden = !on;
+    });
+  });
 
   /* Arrow keys and Page Up / Page Down step the slide; Shift + the same keys step the playlist item. Only while
      this page is open and nothing is being typed. */
