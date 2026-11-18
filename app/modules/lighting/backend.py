@@ -24,6 +24,9 @@ class Cue:
 class Backend:
     id = ""                        # lower_snake_case, the value of the `backend` setting
     label = ""                     # shown in the admin page's list of programs
+    about = ""                     # one line under the label: what the program needs to be reached
+    fields = ("host", "port")      # the settings the admin page asks for: host, port, password, functions, console, fade
+    default_port = 0               # the port used when the setting is 0, shown as the field's placeholder
     can_list = False               # list_cues() returns the program's own buttons
     can_report_state = False       # state() says which cues are on
     can_set_level = False          # set_level() moves the program's sliders; levels() reads them

@@ -93,7 +93,14 @@ with section("admin routes"):
     r = admin.get(A)
     eq("no program yet: nothing active", (r.status_code, r.json()["active"], r.json()["cues"]), (200, False, []))
     eq("the programs are listed", [b["id"] for b in r.json()["backends"]], ["blind", "fake", "lightkey", "qlcplus", "thelightingcontroller", "vista"])
-    eq("an operator cannot choose the program", operator.put(A + "/settings", json={"backend": "fake"}).status_code, 403)
+    progs = {b["id"]: b for b in r.json()["backends"]}
+    eq("each program says which fields it needs",
+       {k: (progs[k]["fields"], progs[k]["default_port"]) for k in ("qlcplus", "lightkey", "vista", "thelightingcontroller", "fake")},
+       {"qlcplus": (["host", "port", "functions"], 9999), "lightkey": (["host", "port", "fade"], 21600),
+        "vista": (["host", "port", "console"], 8000), "thelightingcontroller": (["host", "port", "password"], 7348),
+        "fake": (["host", "port"], 0)})
+    check("a real program says what it needs", all(progs[k]["about"] for k in ("qlcplus", "lightkey", "vista", "thelightingcontroller")))
+    eq("an operator cannot choose the program",operator.put(A + "/settings", json={"backend": "fake"}).status_code, 403)
     eq("a viewer cannot fire", viewer.post(A + "/press", json={"cue": "a"}).status_code, 403)
 
     r = admin.put(A + "/settings", json={"backend": "fake", "host": "10.0.0.5", "port": 1234, "password": "pw"})

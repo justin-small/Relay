@@ -105,6 +105,9 @@ def percent(raw: int) -> int:
 class TheLightingController(Backend):
     id = "thelightingcontroller"
     label = "ShowXpress / TheLightingController (Live API)"
+    about = "The Live API on, with its password if one is set."
+    fields = ("host", "port", "password")
+    default_port = DEFAULT_PORT
     can_list = True
     can_report_state = True
     can_set_level = True
