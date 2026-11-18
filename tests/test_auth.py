@@ -609,7 +609,11 @@ for method, path, perm in (
     ("POST", ATX + "/devices", "blackmagic.manage"),                           # an empty body is refused
     ("PUT", ATX + "/devices/{device_id}", "blackmagic.manage"),                # no such switcher: 404
     ("DELETE", ATX + "/devices/{device_id}", "blackmagic.manage"),
-    ("POST", ATX + "/scan", "blackmagic.manage"),                              # mDNS only: asks, never connects
+    ("POST", ATX + "/scan", "blackmagic.manage"),
+    ("POST", ATX + "/order", "blackmagic.manage"),                             # not every device listed: 400
+    ("POST", ATX + "/notes", "blackmagic.manage"),                             # no such device: 404
+    ("POST", ATX + "/cables", "blackmagic.manage"),                            # no ends: 400
+    ("DELETE", ATX + "/cables/{cable_id}", "blackmagic.manage"),               # no such cable: 404                              # mDNS only: asks, never connects
     ("POST", ATX + "/cut", "blackmagic.control"),                              # no switcher connected: nothing is sent
     ("POST", ATX + "/auto", "blackmagic.control"),
     ("POST", ATX + "/fade-to-black", "blackmagic.control"),

@@ -43,16 +43,17 @@ class Blackmagic(Module):
         settings_key="blackmagic",
         section="Show",
         guide="https://github.com/justin-small/relay#cameras-and-tally",
-        version="2.0.0",
+        version="2.1.0",
         traffic=(Traffic("blackmagic", "Blackmagic device control (ATEM over UDP, HyperDeck and Videohub over TCP)"),),
         renamed_from="atem",
     )
-    defaults = {"devices": []}
+    defaults = {"devices": [], "cables": []}
     network_map_adds = "Names each Blackmagic device it is connected to."
     admin_pages = (AdminPage(
         id="blackmagic", title="Blackmagic", template="blackmagic.html",
         icon='<rect x="2" y="4" width="12" height="8" rx="1"/><path d="M5 7h2M9 7h2M5 9.5h6"/>'),)
-    admin_scripts = ("blackmagic.js",)
+    admin_scripts = ("bmdraw.js", "blackmagic.js")
+    admin_styles = ("blackmagic.css",)
     route_prefixes = ("/api/admin/blackmagic",)
     permissions = (
         Permission("blackmagic.view", "See Blackmagic devices' connection, inputs, tally, recording and routing",
