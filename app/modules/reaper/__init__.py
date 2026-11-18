@@ -39,6 +39,7 @@ class Reaper(Module):
         summary="Starts and stops REAPER recording with the service, drops a marker for each song, and warns when a "
                 "track is not armed or goes silent.",
         settings_key="reaper",
+        section="Show",
         guide="https://github.com/justin-small/relay#reaper",
         version="1.0.0",
         traffic=(Traffic("reaper", "REAPER (OSC)"),),
@@ -46,7 +47,7 @@ class Reaper(Module):
     defaults = {"machines": []}
     network_map_adds = "Marks the computers it records on as running REAPER."
     admin_pages = (AdminPage(
-        id="reaper", title="REAPER", template="reaper.html", group="Output",
+        id="reaper", title="REAPER", template="reaper.html",
         icon='<circle cx="8" cy="8" r="5.5"/><circle cx="8" cy="8" r="2.5" fill="currentColor"/>'),)
     admin_scripts = ("reaper.js",)
     admin_styles = ("reaper.css",)

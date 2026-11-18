@@ -38,18 +38,19 @@ class ProPresenter(Module):
         summary="Follows ProPresenter's slides: lyrics and timers on panels and screens, control from this page, "
                 "the slide view and lobby rotation, slide-note tags, and the link to Planning Center.",
         settings_key="propresenter",
+        section="Show",
         guide="https://github.com/justin-small/relay#propresenter",
         uses=("planning_center", "signage"),
         traffic=(Traffic("propresenter", "ProPresenter (its network API)"),),
     )
     admin_pages = (
-        AdminPage(id="ppcontrol", title="ProPresenter control", template="control.html", group="Output",
+        AdminPage(id="ppcontrol", title="Control", template="control.html",
                   icon='<rect x="2" y="2.5" width="12" height="8" rx="1"/><path d="M6.5 5l3 1.5-3 1.5z" '
                        'fill="currentColor"/><path d="M4 13.5h8"/>'),
-        AdminPage(id="pplive", title="Slide view and lobby", template="live.html", group="Output",
+        AdminPage(id="pplive", title="Slide view and lobby", template="live.html",
                   icon='<rect x="1.5" y="3" width="9" height="6.5" rx="1"/><rect x="8" y="7" width="6.5" '
                        'height="5.5" rx="1" fill="#0a0b0d"/><rect x="8" y="7" width="6.5" height="5.5" rx="1"/>'),
-        AdminPage(id="propresenter", title="ProPresenter", template="settings.html", group="Automation",
+        AdminPage(id="propresenter", title="Settings", template="settings.html",
                   icon='<rect x="2" y="2.5" width="12" height="8" rx="1"/><path d="M5 13.5h6M8 10.5v3"/>'),
     )
     admin_scripts = ("propresenter.js", "slideview.js", "ppcontrol.js", "pplive.js", "pclink.js")

@@ -20,12 +20,13 @@ class OpenSoundMeter(Module):
         version="1.0.0",
         summary="Shows the level Open Sound Meter measures in the room, next to Relay's own meter.",
         settings_key="open_sound_meter",
+        section="Sound",
         guide="https://github.com/justin-small/relay#sound-level",
         traffic=(Traffic("open_sound_meter", "Open Sound Meter (UDP)"),),
     )
     defaults = {"group": "", "port": 9999, "weighting": "A", "response": "slow", "warn_db": 85.0, "limit_db": 95.0}
     admin_pages = (AdminPage(
-        id="opensoundmeter", title="Open Sound Meter", template="open_sound_meter.html", group="Output",
+        id="opensoundmeter", title="Open Sound Meter", template="open_sound_meter.html",
         icon='<path d="M2 11l2-5 2 8 2-10 2 9 2-4 2 3"/>'),)
     admin_scripts = ("open_sound_meter.js",)
     route_prefixes = ("/api/admin/open-sound-meter",)

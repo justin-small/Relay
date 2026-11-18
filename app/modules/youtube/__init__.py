@@ -17,6 +17,7 @@ class YouTube(Module):
         summary="Shows whether the church's YouTube channel is live and how many are watching, schedules its live "
                 "streams ahead of time, and puts each stream's link in Planning Center Publishing.",
         settings_key="youtube",
+        section="Show",
         guide="https://github.com/justin-small/relay#youtube",
         version="1.1.0",
         uses=("planning_center",),
@@ -24,7 +25,7 @@ class YouTube(Module):
     )
     secret_settings = ("account", "client_secret")
     admin_pages = (AdminPage(
-        id="youtube", title="YouTube", template="youtube.html", group="Output",
+        id="youtube", title="YouTube", template="youtube.html",
         icon='<rect x="1.5" y="3.5" width="13" height="9" rx="2.5"/><path d="M6.5 6v4l3.5-2z"/>'),)
     admin_scripts = ("youtube.js", "ytschedule.js")
     admin_styles = ("youtube.css", "ytschedule.css")

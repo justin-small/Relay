@@ -19,6 +19,7 @@ class Lighting(Module):
         name="Lighting cues",
         summary="Fires a lighting program's cues (walk-in, worship, message) from cue pages, without the lighting PC.",
         settings_key="lighting",
+        section="Show",
         guide="/docs/lighting",
         version="1.3.0",
         traffic=(Traffic("lighting", "Lighting program control (QLC+ web API)"),),
@@ -26,7 +27,7 @@ class Lighting(Module):
     defaults = {"backend": "", "host": "", "port": 0, "password": "", "functions": False, "console": "EX", "fade": "", "pages": []}
     secret_settings = ("password",)
     admin_pages = (AdminPage(
-        id="lighting", title="Lighting", template="lighting.html", group="Output",
+        id="lighting", title="Lighting", template="lighting.html",
         icon='<circle cx="8" cy="6" r="3"/><path d="M6.5 10.5h3M7 13h2"/>'),)
     admin_scripts = ("lighting.js",)
     admin_styles = ("lighting.css",)

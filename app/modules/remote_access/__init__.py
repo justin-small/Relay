@@ -24,6 +24,7 @@ class RemoteAccess(Module):
         version="1.1.0",
         summary="Gives the viewer links an internet address, so people off the venue's Wi-Fi can follow along.",
         settings_key="remote_access",
+        section="Building",
         guide="https://github.com/justin-small/relay#remote-access",
         traffic=(Traffic("remote_access", "Remote access (Relay's cloud and the tunnel, over the internet)"),),
     )
@@ -31,7 +32,7 @@ class RemoteAccess(Module):
     defaults = {"cloud_url": "", "install_id": "", "hostname": "", "secret": "", "tunnel_token": "",
                 "pending_secret": ""}
     admin_pages = (AdminPage(
-        id="remoteaccess", title="Remote access", template="admin.html", group="Output",
+        id="remoteaccess", title="Remote access", template="admin.html",
         icon='<circle cx="8" cy="8" r="6"/><path d="M2 8h12M8 2c2 2 2.5 4 2.5 6S10 12 8 14M8 2C6 4 5.5 6 5.5 8S6 12 8 14"/>'),)
     admin_styles = ("remote_access.css",)
     admin_scripts = ("remoteaccess.js",)

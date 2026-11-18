@@ -438,6 +438,8 @@ class Engine:
             "font_px": cfg["default_font_px"],
             # Top bar pills the modules that are on ask for (id, text, count, href).
             "pills": modules.pills(),
+            # Each module's health state for the sidebar's dots ({id: state}), refreshed every few seconds.
+            "module_health": modules.health_states(),
             # Whatever the modules that are on add (app/modules/): they override the empty defaults above.
             **modules.status(),
         }

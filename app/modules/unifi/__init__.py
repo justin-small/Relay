@@ -19,6 +19,7 @@ class UniFi(Module):
         summary="Reads the church's UniFi network, read-only: internet health, switch ports and PoE, Wi-Fi, NDI and "
                 "Dante traffic, firmware, the console's change log, and who is on the network.",
         settings_key="unifi",
+        section="Building",
         guide="https://github.com/justin-small/relay#unifi",
         version="1.1.0",
         traffic=(Traffic("unifi", "UniFi controller"),),
@@ -27,7 +28,7 @@ class UniFi(Module):
     network_map_adds = ("Switches, access points and the gateway, which port each device is on, link speed, PoE and "
                         "errors, and which devices carry NDI or Dante by the console's traffic flows.")
     admin_pages = (AdminPage(
-        id="unifi", title="UniFi", template="unifi.html", group="Settings",
+        id="unifi", title="UniFi", template="unifi.html",
         icon='<circle cx="8" cy="3" r="1.6"/><circle cx="3" cy="12.5" r="1.6"/><circle cx="13" cy="12.5" r="1.6"/>'
              '<circle cx="8" cy="12.5" r="1.6"/><path d="M8 4.6v6.3M7 4.3l-3.2 6.8M9 4.3l3.2 6.8"/>'),)
     admin_scripts = ("unifi.js",)

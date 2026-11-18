@@ -31,6 +31,7 @@ class Crew(Module):
         summary="An installable page for the crew, signed in with a Relay account, that shows the plan and hosts "
                 "the other crew features. Served over HTTPS on this network only.",
         settings_key="crew",
+        section="Crew",
         guide="https://github.com/justin-small/relay#crew-app",
         uses=("planning_center", "unifi"),
         traffic=(Traffic("crew.push", "Crew notifications (web push, over the internet)"),),
@@ -38,7 +39,7 @@ class Crew(Module):
     defaults = {"name": DEFAULT_NAME, "show_plan": True, "geofence": None, "embed_hosts": None,
                 "join_port": JOIN_PORT}
     admin_pages = (AdminPage(
-        id="crew", title="Crew app", template="admin.html", group="Settings",
+        id="crew", title="Crew app", template="admin.html",
         icon='<circle cx="6" cy="5" r="2.5"/><circle cx="11.5" cy="6" r="2"/><path d="M1.5 13c0-2.5 2-4 4.5-4s4.5 1.5 4.5 4M10 9.2c2.5-.3 4.5.9 4.5 3.8"/>'),)
     admin_scripts = ("crewadmin.js",)
     route_prefixes = ("/api/admin/crew", "/crew", "/crew-join")
