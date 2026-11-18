@@ -507,24 +507,97 @@ table.audit tr.failed .what { color:var(--err); }
 #drawer{background:var(--card);border-left:1px solid var(--border);z-index:30}
 #drawerBg{z-index:25;background:var(--scrim)}
 
-/* Network map (#437): the SVG is drawn from these classes only, so it follows every preset and both themes. */
-.nmstats { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:10px; margin:0 0 14px; }
-.nmstats .card { border:1px solid var(--border); border-radius:var(--r-ctl); background:var(--card); padding:12px 14px; }
-.nmstats .k { color:var(--muted); font-size:var(--fs-sm); } .nmstats .v { font-size:var(--fs-3xl); font-weight:700; margin:2px 0; } .nmstats .s { color:var(--muted); font-size:var(--fs-sm); min-height:1em; }
-.nmbar { margin-bottom:12px; }
-.nmkey { margin-left:auto; display:inline-flex; align-items:center; gap:6px; font-size:var(--fs-sm); color:var(--muted); }
-.nmk { display:inline-block; width:14px; height:3px; border-radius:var(--r-sm); background:var(--muted); } .nmk.ndi { background:var(--info); } .nmk.dante { background:var(--accent); }
-.nmframe { overflow:auto; max-height:560px; border:1px solid var(--border); border-radius:var(--r-ctl); padding:8px; }
-.nmframe svg { display:block; min-width:100%; }
-.nm-link { fill:none; stroke:var(--border); stroke-width:1.5; } .nm-link.ndi { stroke:var(--info); stroke-width:2; } .nm-link.dante { stroke:var(--accent); stroke-width:2; }
+/* The Network page (#437, the closets redesign: docs/mockups/network/b-closet.html). The switches and the map are drawn
+   in SVG from these classes only, so they follow every preset and both themes. */
+#page-network .tabs { display:flex; margin:0 0 var(--sp-3); }
+.nmpane { display:none; } .nmpane.on { display:block; }
+.nmsplit { display:grid; grid-template-columns:minmax(0,1fr) 330px; gap:var(--sp-4); align-items:start; }
+@media (max-width:980px) { .nmsplit { grid-template-columns:minmax(0,1fr); } }
+.nmstack { display:flex; flex-direction:column; gap:var(--sp-3); min-width:0; }
+.nmstack > section, .nmdrawer > section { margin:0; }
+.nmdrawer { position:sticky; top:var(--sp-4); }
+.nmbetween { display:flex; align-items:center; justify-content:space-between; gap:var(--sp-3); flex-wrap:wrap; }
+.nmbetween h3 { margin:0; }
+.nmtoolbar { display:flex; align-items:center; gap:var(--sp-2); flex-wrap:wrap; margin:0 0 var(--sp-3); }
+.nmtoolbar input[type=search] { width:240px; }
+.nmgrow { flex:1; }
+.nmhl { min-width:320px; }
+.nmwhat { padding:var(--sp-3) var(--sp-4); background:var(--card); border:1px solid var(--border); border-radius:var(--r); margin:0 0 var(--sp-3); }
+.nmwhat b { display:block; margin-bottom:2px; } .nmwhat p { margin:0; color:var(--muted); max-width:90ch; }
+.nmlegend { display:flex; gap:var(--sp-4); flex-wrap:wrap; font-size:var(--fs-sm); color:var(--muted); align-items:center; }
+.nmlegend i { display:inline-block; width:10px; height:10px; border-radius:var(--r-sm); margin-right:6px; vertical-align:-1px; background:var(--muted); }
+.nmlegend i.ok { background:var(--ok); } .nmlegend i.warn { background:var(--warn); } .nmlegend i.ndi { background:var(--info); } .nmlegend i.dante { background:var(--accent); }
+.nmlegend i.poe { background:none; border:2px solid var(--warn); }
+.nmclosets { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,560px),1fr)); gap:var(--sp-4); }
+.nmrack { background:var(--inset); border:1px solid var(--border); border-radius:var(--r); padding:var(--sp-5) var(--sp-2) var(--sp-3); display:flex; flex-direction:column; gap:26px; }
+.nmunit { position:relative; border-radius:var(--r-sm); cursor:pointer; outline:2px solid transparent; outline-offset:2px; }
+.nmunit.on { outline-color:var(--primary); }
+.nmunit .cap { position:absolute; left:30px; top:-1px; transform:translateY(-100%); font-size:var(--fs-xs); color:var(--muted); }
+.nmcard { display:flex; flex-direction:column; gap:var(--sp-2); }
+.nmcard p { margin:0; } .nmcard h4 { margin:0; font-size:var(--fs-base); }
+.nmcard textarea { width:100%; font:inherit; }
+.nmtags { display:flex; gap:var(--sp-2); flex-wrap:wrap; }
+.nmtag { font-size:var(--fs-xs); border:1px solid var(--border); border-radius:var(--r-pill); padding:0 8px; color:var(--muted); white-space:nowrap; }
+.nmtag.ndi { border-color:var(--info); color:var(--info); } .nmtag.dante { border-color:var(--accent); color:var(--accent); }
+.nmkv { display:grid; grid-template-columns:max-content 1fr; gap:4px var(--sp-3); margin:var(--sp-2) 0; font-size:var(--fs-sm); }
+.nmkv dt { color:var(--muted); } .nmkv dd { margin:0; overflow-wrap:anywhere; }
+.nmmeter { height:6px; border-radius:var(--r-pill); background:var(--border); overflow:hidden; }
+.nmmeter i { display:block; height:100%; background:var(--ok); } .nmmeter.warn i { background:var(--warn); }
+.nmissue { display:grid; grid-template-columns:auto 1fr auto; gap:var(--sp-3); align-items:start; padding:var(--sp-3) 0; border-bottom:1px solid var(--border); }
+.nmissue:last-child { border-bottom:0; }
+.nmissue p { margin:2px 0 0; color:var(--muted); font-size:var(--fs-sm); }
+.nmissue .sev { width:10px; height:10px; border-radius:50%; margin-top:5px; background:var(--warn); }
+.nmissue .sev.err { background:var(--err); } .nmissue .sev.info { background:var(--info); }
+.nmsrc { display:grid; grid-template-columns:auto 1fr auto auto; gap:var(--sp-3); align-items:center; padding:var(--sp-3) 0; border-bottom:1px solid var(--border); }
+.nmsrc:last-child { border-bottom:0; } .nmsrc small { display:block; color:var(--muted); }
+.nmorder { white-space:nowrap; }
+.nmaddplace { margin:var(--sp-3) 0 0; } .nmaddplace input { width:220px; }
+.nmsave { margin-top:var(--sp-3); }
+.nmdevs td, .nmdevs th { font-size:var(--fs-sm); }
+.nmdevs td.warn { color:var(--warn); }
+.nmdevs .nmnote { min-height:var(--ctl-h-sm); padding:2px 8px; font-size:var(--fs-sm); width:100%; min-width:160px; }
+.nmdevs button.nmname { background:none; border:1px solid transparent; border-radius:var(--r-ctl); padding:2px 6px; margin-left:-7px; min-height:0; font-weight:600; color:var(--fg); text-align:left; cursor:text; }
+.nmdevs button.nmname:hover, .nmdevs button.nmname:focus-visible { border-color:var(--border); background:var(--inset); }
+.nmdevs .nmnameedit { min-height:var(--ctl-h-sm); padding:2px 8px; font-size:var(--fs-sm); font-weight:600; min-width:180px; }
+.nmdevs .badge { margin-left:var(--sp-2); }
+.nmdevs td > small { display:block; color:var(--muted); font-size:var(--fs-xs); }
+.nmtip { position:fixed; z-index:30; display:none; width:270px; background:var(--card); border:1px solid var(--border); border-radius:var(--r); box-shadow:var(--shadow-pop); padding:var(--sp-3); font-size:var(--fs-sm); pointer-events:none; }
+.nmtip dl { display:grid; grid-template-columns:max-content 1fr; gap:2px var(--sp-2); margin:var(--sp-2) 0 0; } .nmtip dt { color:var(--muted); } .nmtip dd { margin:0; }
+/* a switch's front panel */
+.nmhw { display:block; width:100%; height:auto; user-select:none; }
+.nmhw text { font-family:var(--font); }
+.nmhw-body { fill:color-mix(in srgb,var(--fg) 7%,var(--card)); stroke:color-mix(in srgb,var(--fg) 22%,transparent); stroke-width:1.5; }
+.nmhw-ear { fill:color-mix(in srgb,var(--fg) 12%,var(--card)); stroke:color-mix(in srgb,var(--fg) 22%,transparent); }
+.nmhw-screw { fill:var(--bg); stroke:color-mix(in srgb,var(--fg) 25%,transparent); }
+.nmhw-ring { fill:var(--info); }
+.nmhw-brand { font-size:var(--fs-xs); fill:var(--faint); font-weight:600; letter-spacing:.04em; }
+.nmhw-name { font-size:var(--fs-sm); fill:var(--fg); font-weight:600; }
+.nmhw-lcd rect { fill:var(--video-bg); stroke:color-mix(in srgb,var(--fg) 25%,transparent); }
+.nmhw-lcd text { font-size:var(--fs-xs); fill:var(--fg); font-family:var(--mono); }
+.nmhw-pn { font-size:var(--fs-xs); fill:var(--muted); }
+.nmport { cursor:pointer; }
+.nmport .jack { fill:var(--bg); stroke:color-mix(in srgb,var(--fg) 40%,transparent); stroke-width:1.2; }
+.nmport .tab { fill:color-mix(in srgb,var(--fg) 25%,transparent); }
+.nmport .led { fill:color-mix(in srgb,var(--fg) 15%,transparent); }
+.nmport .poe { fill:none; }
+.nmport.up .led { fill:var(--ok); } .nmport.slow .led { fill:var(--warn); }
+.nmport.ndi .jack { stroke:var(--info); stroke-width:2; } .nmport.dante .jack { stroke:var(--accent); stroke-width:2; }
+.nmport.poe .poe { fill:var(--warn); }
+.nmport:hover .jack, .nmport:focus-visible .jack { stroke:var(--primary); stroke-width:2.5; }
+.nmport.sel .jack { stroke:var(--primary); stroke-width:3; }
+.nmport.dim { opacity:.25; } .nmport:focus { outline:none; }
+/* the map */
+.nmframe { overflow:auto; max-height:640px; border:1px solid var(--border); border-radius:var(--r); background:var(--inset); padding:var(--sp-2); min-height:420px; }
+.nmframe svg { display:block; }
+.nm-link { fill:none; stroke:color-mix(in srgb,var(--fg) 25%,transparent); stroke-width:1.5; }
+.nm-link.ndi { stroke:var(--info); stroke-width:2.5; } .nm-link.dante { stroke:var(--accent); stroke-width:2.5; }
+.nm-link.slow { stroke:var(--warn); stroke-dasharray:5 4; }
 .nm-node { cursor:pointer; } .nm-node rect { fill:var(--card); stroke:var(--border); stroke-width:1.5; }
-.nm-node.infra rect { fill:var(--inset); } .nm-node.ndi rect { stroke:var(--info); } .nm-node.dante rect { stroke:var(--accent); }
+.nm-node.infra rect { fill:color-mix(in srgb,var(--fg) 8%,var(--card)); }
+.nm-node.ndi rect { stroke:var(--info); } .nm-node.dante rect { stroke:var(--accent); } .nm-node.warn rect { stroke:var(--warn); stroke-width:2; }
 .nm-node.sel rect, .nm-node:focus-visible rect { stroke:var(--fg); stroke-width:2.5; } .nm-node:focus-visible { outline:none; }
 .nm-node.stale { opacity:.45; }
 .nm-name { fill:var(--fg); font-size:var(--fs-sm); font-weight:600; } .nm-sub { fill:var(--muted); font-size:var(--fs-xs); }
-.nmcols { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1.4fr); gap:14px; } @media (max-width:900px) { .nmcols { grid-template-columns:minmax(0,1fr); } }
-#nmDetail h4 { margin:0 0 8px; font-size:var(--fs-lg); } #nmDetail .kv, #nmSources .kv { display:flex; justify-content:space-between; gap:16px; padding:6px 0; border-bottom:1px solid var(--border); font-size:var(--fs-md); }
-#nmSources .kv .note { margin:2px 0 0; } #nmTable tr[role=button] { cursor:pointer; }
 
 /* Boards (#156) */
 #page-boards a{color:var(--fg)}

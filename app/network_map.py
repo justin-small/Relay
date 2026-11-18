@@ -89,6 +89,7 @@ def clean_device(raw: Any) -> dict | None:
          "uplink_mac": _mac(raw.get("uplink_mac")),
          "uplink_port": _int(raw.get("uplink_port")),
          "port_name": _text(raw.get("port_name"), 40), "speed": _num(raw.get("speed")), "poe_w": _num(raw.get("poe_w")),
+         "model": _text(raw.get("model"), 60), "poe_budget_w": _num(raw.get("poe_budget_w")),
          "errors": _int(raw.get("errors")),
          "tags": [_text(t, 40) for t in raw.get("tags", []) if _text(t, 40)][:8] if isinstance(raw.get("tags"), list) else [],
          "identified_by": [_text(t, 40) for t in raw.get("identified_by", []) if _text(t, 40)][:6]
@@ -124,6 +125,7 @@ def merge(sources: list[dict]) -> list[dict]:
             if dev is None:
                 dev = {"id": "", "mac": "", "ips": [], "host": "", "name": "", "kind": "", "ndi": None, "dante": None,
                        "uplink_mac": "", "uplink_port": None, "port_name": "", "speed": None, "poe_w": None, "errors": None,
+                       "model": "", "poe_budget_w": None,
                        "tags": [], "identified_by": [], "ports": [], "seen_by": [], "stale_by": [], "notes": [], "_says": {}}
                 out.append(dev)
             _fold(dev, d, src)
@@ -158,10 +160,10 @@ def merge(sources: list[dict]) -> list[dict]:
 
 def _fold(dev: dict, d: dict, src: dict) -> None:
     sid = src["id"]
-    for key in ("mac", "host", "name", "kind", "uplink_mac", "port_name"):
+    for key in ("mac", "host", "name", "kind", "uplink_mac", "port_name", "model"):
         if not dev[key] and d[key]:
             dev[key] = d[key]
-    for key in ("uplink_port", "speed", "poe_w", "errors"):
+    for key in ("uplink_port", "speed", "poe_w", "errors", "poe_budget_w"):
         if dev[key] is None and d[key] is not None:
             dev[key] = d[key]
     for ip in d["ips"]:
@@ -253,7 +255,7 @@ async def snapshot(registry: Any, force: bool = False) -> dict:
 
     now = time.time()
     if not force and _cache["result"] is not None and now - _cache["at"] < FRESH_S:
-        return _cache["result"]
+        return labelled(_cache["result"])
     ports = await asyncio.to_thread(netinfo.interfaces)
     relay_ports = [p.as_dict() for p in ports if not p.virtual and p.addresses]
     sources: list[dict] = _module_sources(registry)
@@ -287,7 +289,133 @@ async def snapshot(registry: Any, force: bool = False) -> dict:
         "has_switch_source": any(d["kind"] in ("switch", "gateway", "ap") for d in devices),
     }
     _cache.update(at=now, result=result)
-    return result
+    return labelled(result)
+
+
+# ------------------------------------------------------------------ what the operator adds: names, notes, closets
+# Kept in config under KEY, by the device's map id (its MAC when it has one, so a name survives a new address). A name
+# changes only what Relay shows: nothing is sent to the device or to the module that found it. A note on an empty
+# switch port is kept by "<switch id>#<port>". A place is a closet or rack with the switches in it, top to bottom.
+KEY = "network_map"
+NAME_MAX, NOTE_MAX, PLACE_MAX = 60, 300, 40
+MAX_LABELS, MAX_PLACES, MAX_GEAR = 2000, 30, 200
+_KEY_RE = re.compile(r"^[0-9a-z:.\-]{1,90}\+*(#\d{1,4})?$")
+DEFAULT_STORED: dict = {"names": {}, "notes": {}, "places": []}
+POE_NEAR = 0.85              # a switch past this share of its PoE budget is listed under Needs a look
+
+
+def _key(v: Any) -> str:
+    return v if isinstance(v, str) and _KEY_RE.match(v) else ""
+
+
+def clean_stored(raw: Any) -> dict:
+    """The saved names, notes and places, tidied: unknown keys, empty text and repeats go."""
+    raw = raw if isinstance(raw, dict) else {}
+    out: dict = {"names": {}, "notes": {}, "places": []}
+    for field, cap in (("names", NAME_MAX), ("notes", NOTE_MAX)):
+        items = raw.get(field) if isinstance(raw.get(field), dict) else {}
+        for k, v in items.items():
+            text = " ".join(_text(v, cap).split()) if field == "names" else _text(v, cap)
+            if _key(k) and text and len(out[field]) < MAX_LABELS and (field == "notes" or "#" not in k):
+                out[field][k] = text
+    seen_names: set[str] = set()
+    seen_gear: set[str] = set()
+    for p in raw.get("places") if isinstance(raw.get("places"), list) else []:
+        if not isinstance(p, dict):
+            continue
+        name = " ".join(_text(p.get("name"), PLACE_MAX).split())
+        if not name or name.lower() in seen_names or len(out["places"]) >= MAX_PLACES:
+            continue
+        seen_names.add(name.lower())
+        gear = []
+        for g in p.get("gear") if isinstance(p.get("gear"), list) else []:
+            if _key(g) and "#" not in g and g not in seen_gear and len(seen_gear) < MAX_GEAR:
+                seen_gear.add(g)
+                gear.append(g)
+        out["places"].append({"name": name, "gear": gear})
+    return out
+
+
+def stored() -> dict:
+    from . import config
+
+    return clean_stored(config.get().get(KEY))
+
+
+def save_labels(names: Any = None, notes: Any = None) -> dict:
+    """Set or clear (empty text) names and notes; the rest stay. Returns what is saved."""
+    from . import config
+
+    cur = stored()
+    for field, given in (("names", names), ("notes", notes)):
+        for k, v in (given.items() if isinstance(given, dict) else []):
+            if not _key(k):
+                continue
+            if isinstance(v, str) and v.strip():
+                cur[field][k] = v
+            else:
+                cur[field].pop(k, None)
+    config.save({KEY: clean_stored(cur)}, replace=(KEY,))
+    return stored()
+
+
+def save_places(places: Any) -> dict:
+    """Replace the list of places (closets and racks) and the switches in each, in order."""
+    from . import config
+
+    cur = stored()
+    cur["places"] = places if isinstance(places, list) else []
+    config.save({KEY: clean_stored(cur)}, replace=(KEY,))
+    return stored()
+
+
+def issues(devices: list[dict], sources: list[dict]) -> list[dict]:
+    """What is worth a look, worst first: [{"level": "err"|"warn"|"info", "title", "detail", "device", "port"}].
+    Only from what the sources report; Relay itself never probes a device."""
+    out: list[dict] = []
+    by_mac = {d["mac"]: d for d in devices if d["mac"]}
+    for g in devices:
+        if g["kind"] not in ("gateway", "switch", "ap"):
+            continue
+        for p in g["ports"]:
+            if p.get("warn"):
+                who = by_mac.get(p.get("client_mac") or "")
+                title = f"{who['name'] if who else (p.get('client') or 'Port ' + str(p['port']))}: {g['name']} port {p['port']}"
+                out.append({"level": "warn", "title": title, "detail": p["warn"], "device": who["id"] if who else g["id"],
+                            "port": p["port"], "switch": g["id"]})
+        if g["poe_budget_w"] and g["poe_w"] and g["poe_w"] >= POE_NEAR * g["poe_budget_w"]:
+            out.append({"level": "warn", "title": f"{g['name']} is near its PoE limit",
+                        "detail": f"{g['poe_w']:g} of {g['poe_budget_w']:g} W in use. Another powered device on it may not start.",
+                        "device": g["id"], "port": None, "switch": g["id"]})
+    for d in devices:
+        if (d["ndi"] or d["dante"]) and d["seen_by"] and set(d["seen_by"]) <= set(d["stale_by"]):
+            out.append({"level": "err", "title": f"{d['name']} is not answering",
+                        "detail": "Every source that saw it is showing an older read.", "device": d["id"], "port": None,
+                        "switch": d["parent"] or ""})
+        for n in d["notes"]:
+            out.append({"level": "info", "title": d["name"], "detail": n, "device": d["id"], "port": None, "switch": d["parent"] or ""})
+    for s in sources:
+        if s["on"] and s["error"]:
+            out.append({"level": "err", "title": f"{s['label']} is not answering", "detail": s["error"], "device": "",
+                        "port": None, "switch": ""})
+    rank = {"err": 0, "warn": 1, "info": 2}
+    return sorted(out, key=lambda i: rank[i["level"]])
+
+
+def labelled(result: dict) -> dict:
+    """The snapshot with the operator's names applied (the device's own name kept in own_name), the notes and places,
+    and what needs a look. A copy: the cached snapshot is left as the sources gave it."""
+    st = stored()
+    devices = []
+    for d in result["devices"]:
+        d = dict(d)
+        d["own_name"] = d["name"]
+        d["name"] = st["names"].get(d["id"]) or d["name"]
+        devices.append(d)
+    out = dict(result)
+    out.update(devices=devices, names=st["names"], notes=st["notes"], places=st["places"],
+               issues=issues(devices, result["sources"]))
+    return out
 
 
 def reset() -> None:

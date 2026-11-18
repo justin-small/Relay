@@ -52,7 +52,7 @@ window.relayCan = function (perm) { return window.RELAY_ME.permissions.indexOf(p
       {% if 'modules.view' in perms %}{{ sub("modules", "Modules") }}{% endif %}
       {% if 'users.view' in perms %}{{ sub("users", "Users") }}{% endif %}
       {% if 'credentials.manage' in perms %}{{ sub("credentials", "Credentials") }}{% endif %}
-      {% if 'network.view' in perms %}{{ sub("network", "Network") }}{{ sub("network_map", "Network map") }}{% endif %}
+      {% if 'network.view' in perms %}{{ sub("network", "Network") }}{% endif %}
       {% if 'settings.manage' in perms %}{{ sub("appearance", "Appearance & tuning") }}{% endif %}
       {% if 'audit.view' in perms %}{{ sub("audit", "Audit log") }}{% endif %}
     </ul></div></div></div>
@@ -754,39 +754,79 @@ window.relayCan = function (perm) { return window.RELAY_ME.permissions.indexOf(p
   </div>
 {% endif %}
 {% if 'network.view' in perms %}
-  <div class="page" id="page-network_map" data-page="network_map" hidden>
-    <h2 class="title">Network map</h2>
-    <p class="sub">Every device Relay can see, and which ones carry NDI video or Dante audio.</p>
-    <div class="ctl" style="margin-bottom:14px"><span class="muted" id="nmStatus" aria-live="polite">Loading&hellip;</span><span class="spacer"></span><button type="button" id="nmRefresh">Refresh</button></div>
-    <div class="nmstats" id="nmStats"></div>
-    <section>
-      <div class="ctl nmbar">
-        <div class="seg" id="nmTabs" role="group" aria-label="View"><button type="button" data-v="map">Map</button><button type="button" data-v="table">Table</button></div>
-        <div class="seg" id="nmFilter" role="group" aria-label="Show"><button type="button" data-v="all">All</button><button type="button" data-v="av">AV only</button><button type="button" data-v="ndi">NDI</button><button type="button" data-v="dante">Dante</button></div>
-        <input type="search" id="nmSearch" placeholder="Find name, IP or MAC" aria-label="Find name, IP or MAC" autocomplete="off" style="max-width:240px">
-        <span class="nmkey"><i class="nmk ndi"></i>NDI <i class="nmk dante"></i>Dante</span>
-      </div>
-      <div class="nmframe" id="nmMap" tabindex="0" aria-label="Network map"></div>
-      <div class="tablescroll" id="nmTable" hidden></div>
-    </section>
-    <div class="nmcols">
-      <section><h3>Selected device</h3><div id="nmDetail"></div></section>
-      <section><h3>Ports</h3><div id="nmPorts"></div></section>
-    </div>
-    <section>
-      <h3>Sources</h3>
-      <div id="nmSources"></div>
-      <p class="note"><a href="#modules">Modules</a> adds more sources. Turning a module off removes only what it added.</p>
-    </section>
-  </div>
-{% endif %}
-{% if 'network.view' in perms %}
+  {# The Network page (the closets redesign, docs/mockups/network/b-closet.html): every switch drawn where it hangs,
+     the map, every device with the name Relay shows and a note, this computer's ports and traffic, and the sources
+     and closets. Modules add tabs after core's (AdminPage.tab_of). network_map.js draws the first three and the
+     last; network.js This computer. #}
   <div class="page" id="page-network" data-page="network" hidden>
-    <h2 class="title">Network</h2>
-    <p class="sub">This computer&rsquo;s network ports, and which one each kind of Relay traffic uses. Traffic with no
-      port chosen uses the system&rsquo;s default network, as Relay always has.</p>
+    <h2 class="title">Network <span class="sumstate" id="nmSum"></span></h2>
     {{ viewonly('network.manage') }}
-    <div id="netWarnings" class="netwarn" hidden></div>
+    <div class="tabs nmtabs" role="tablist" id="nmTabs">
+      <button type="button" role="tab" data-tab="racks" aria-selected="true">Racks</button>
+      <button type="button" role="tab" data-tab="map" data-alias="network_map" aria-selected="false">Map</button>
+      <button type="button" role="tab" data-tab="ports" aria-selected="false">Ports and notes</button>
+      <button type="button" role="tab" data-tab="computer" aria-selected="false">This computer</button>
+      <button type="button" role="tab" data-tab="find" aria-selected="false">Find and add</button>
+      {% for t in module_tabs.get('network', []) %}<button type="button" role="tab" data-tab="{{ t.id }}" aria-selected="false">{{ t.title }}</button>
+      {% endfor %}
+    </div>
+
+    <div class="nmpane on" data-pane="racks" role="tabpanel">
+      <div class="nmsplit">
+        <div class="nmstack">
+          <section class="nmlook" id="nmLook" hidden>
+            <div class="nmbetween"><h3>Needs a look</h3><span class="muted" id="nmChecked"></span></div>
+            <div id="nmIssues"></div>
+          </section>
+          <section class="nmbetween">
+            <div><b>Every switch, drawn where it hangs</b> <span class="muted">Click a port to see what is plugged in. Hover for link, PoE and your note.</span></div>
+            <div class="seg nmhl" id="nmHl" role="group" aria-label="Show"><button type="button" data-v="all">All</button><button type="button" data-v="ndi">NDI</button><button type="button" data-v="dante">Dante</button><button type="button" data-v="poe">PoE</button><button type="button" data-v="check">Problems</button></div>
+          </section>
+          <div class="nmlegend"><span><i class="ok"></i>Link up</span><span><i class="warn"></i>Slow or errors</span><span><i class="poe"></i>Powered (PoE)</span><span><i class="ndi"></i>NDI</span><span><i class="dante"></i>Dante</span></div>
+          <div class="nmclosets" id="nmClosets"></div>
+          <p class="note" id="nmNoGear" hidden>Switches are drawn from a module that reads them, such as UniFi. Turn one on in <a href="#modules">Modules</a>; the map and the device list work without one.</p>
+        </div>
+        <div class="nmstack nmdrawer" id="nmDrawer"></div>
+      </div>
+    </div>
+
+    <div class="nmpane" data-pane="map" role="tabpanel">
+      <div class="nmsplit">
+        <div class="nmstack">
+          <div class="nmtoolbar">
+            <div class="seg" id="nmFilter" role="group" aria-label="Show"><button type="button" data-v="all">All</button><button type="button" data-v="av">AV only</button><button type="button" data-v="ndi">NDI</button><button type="button" data-v="dante">Dante</button></div>
+            <span class="nmgrow"></span>
+            <span class="nmlegend"><span><i class="ndi"></i>NDI</span><span><i class="dante"></i>Dante</span><span><i class="warn"></i>Slow link</span></span>
+          </div>
+          <div class="nmframe" id="nmMap" tabindex="0" aria-label="Network map"></div>
+        </div>
+        <div class="nmstack nmdrawer" id="nmMapDetail"></div>
+      </div>
+    </div>
+
+    <div class="nmpane" data-pane="ports" role="tabpanel">
+      <section>
+        <h3>Every device and the port it is on</h3>
+        <p class="note">One row per device Relay can see. Where it is plugged in comes from the switches; the name and note are yours. Click a name to call it what your team calls it: the new name shows everywhere in Relay, but the device and the module that found it keep their own.</p>
+        <div class="nmtoolbar">
+          <input type="search" id="nmSearch" placeholder="Find name, IP or MAC" aria-label="Find name, IP or MAC" autocomplete="off">
+          <div class="seg" id="nmPortFilter" role="group" aria-label="Show"><button type="button" data-v="all">All</button><button type="button" data-v="av">AV only</button><button type="button" data-v="ndi">NDI</button><button type="button" data-v="dante">Dante</button><button type="button" data-v="check">Needs a look</button></div>
+          <span class="nmgrow"></span>
+          <select id="nmSwitch" aria-label="Switch"><option value="">Every switch</option></select>
+        </div>
+        <div class="tablescroll"><table class="dt nmdevs">
+          <thead><tr><th>Name in Relay</th><th>What</th><th>Address</th><th>Plugged into</th><th>Link</th><th>PoE</th><th>Carries</th><th>Note</th></tr></thead>
+          <tbody id="nmRows"><tr><td colspan="8" class="muted">Loading&hellip;</td></tr></tbody>
+        </table></div>
+        <div class="ctl nmsave"><button type="button" class="primary" id="nmSaveNotes">Save notes</button><span class="muted">A name is saved when you press Enter. Names and notes are kept with the device&rsquo;s MAC, so they survive a new address; nothing is sent to the device.</span></div>
+        <div class="err" id="nmErr" hidden></div>
+      </section>
+    </div>
+
+    <div class="nmpane" data-pane="computer" role="tabpanel">
+      <div class="nmwhat"><b>This computer&rsquo;s network ports, and which one each kind of Relay traffic uses</b>
+        <p>Traffic with no port chosen uses the system&rsquo;s default network. A change applies at once; one that would take the panel off the address you are using is refused.</p></div>
+      <div id="netWarnings" class="netwarn" hidden></div>
     <section>
       <h3>Ports</h3>
       <table class="nettable">
@@ -806,6 +846,29 @@ window.relayCan = function (perm) { return window.RELAY_ME.permissions.indexOf(p
         using is refused; make it on this computer instead.</div>
       <div class="err" id="netError" hidden></div>
     </section>
+    </div>
+
+    <div class="nmpane" data-pane="find" role="tabpanel">
+      <div class="nmwhat"><b>Where the map comes from</b>
+        <p>Relay merges what each source sees: a device seen by two sources is drawn once. Modules add more; turning one off removes only what it added.</p></div>
+      <section><div id="nmSources"></div></section>
+      <div class="ctl"><button type="button" id="nmRefresh">Look again now</button><span class="muted" id="nmStatus" aria-live="polite">Loading&hellip;</span></div>
+      <section>
+        <h3>Racks and closets</h3>
+        <p class="note">Which closet each switch is drawn in, top to bottom. A switch found later lands in Not placed until you give it one. A place with no switches in it goes when you save.</p>
+        <div class="tablescroll"><table class="dt">
+          <thead><tr><th>Order</th><th>Name</th><th>Model</th><th>Address</th><th>Where</th></tr></thead>
+          <tbody id="nmPlaceRows"></tbody>
+        </table></div>
+        <div class="nmtoolbar nmaddplace"><input type="text" id="nmNewPlace" maxlength="40" placeholder="Booth rack" aria-label="New place"><button type="button" id="nmAddPlace">Add a place</button><span class="nmgrow"></span><button type="button" class="primary" id="nmSavePlaces">Save places</button></div>
+      </section>
+    </div>
+    {% for t in module_tabs.get('network', []) %}
+    <div class="nmpane" data-pane="{{ t.id }}" role="tabpanel">
+{% include t.template %}
+      <p class="note modfoot">{{ t.module }} module v{{ t.version }}{% if t.guide %} &middot; <a href="{{ t.guide }}" target="_blank" rel="noopener">Setup guide</a>{% endif %} &middot; <a href="#modules">Switch it off on the Modules page</a></p>
+    </div>
+    {% endfor %}
   </div>
 {% endif %}
 {% for m in module_nav %}{% for p in m.pages %}

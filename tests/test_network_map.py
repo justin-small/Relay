@@ -332,4 +332,59 @@ with section("the route"):
     member = _db.client(app, "member", base_url=ADMIN)
     eq("a member may not", member.get("/api/admin/network/map").status_code, 403)
 
+# ------------------------------------------------------------------ names, notes and closets (the closets redesign)
+SW, CAM = "aa:aa:aa:aa:aa:10", "aa:aa:aa:aa:aa:31"
+
+with section("what is kept"):
+    got = network_map.clean_stored({
+        "names": {CAM: "  Wide   (back wall) ", "not a key!": "x", SW + "#4": "a name on a port", CAM + "+": ""},
+        "notes": {SW + "#4": "Wall plate B4", CAM: "x" * 400},
+        "places": [{"name": "Booth rack", "gear": [SW, SW, "bad key!"]}, {"name": "booth RACK", "gear": []}, {"name": " "}, "x"]})
+    eq("a name is tidied; a bad key, a port key and empty text go", got["names"], {CAM: "Wide (back wall)"})
+    eq("a note may be on a switch port, and is cut to length", (got["notes"][SW + "#4"], len(got["notes"][CAM])), ("Wall plate B4", 300))
+    eq("a place keeps its switches once, and a second place of the same name goes", got["places"], [{"name": "Booth rack", "gear": [SW]}])
+    eq("nothing saved is nothing", network_map.clean_stored(None), {"names": {}, "notes": {}, "places": []})
+
+with section("what needs a look"):
+    devs = network_map.merge([src("unifi", "UniFi", [
+        {"mac": SW, "name": "Stage switch", "kind": "switch", "poe_w": 41, "poe_budget_w": 45, "model": "USW-Lite-16-PoE",
+         "ports": [{"port": 5, "up": True, "speed": 100, "warn": "Linked at 100 Mbps.", "client_mac": CAM}]},
+        {"mac": CAM, "ip": "10.0.0.42", "name": "Wide Shot", "uplink_mac": SW, "uplink_port": 5}])])
+    found = network_map.issues(devs, [{"label": "UniFi", "on": True, "error": ""}, {"label": "Fake", "on": True, "error": "This source could not be read."}])
+    eq("worst first: a source that is not answering, then the port, then PoE",
+       [i["title"] for i in found], ["Fake is not answering", "Wide Shot: Stage switch port 5", "Stage switch is near its PoE limit"])
+    eq("the port's own sentence is the detail, and it points at the camera and its port",
+       (found[1]["detail"], found[1]["device"], found[1]["port"], found[1]["switch"]), ("Linked at 100 Mbps.", CAM, 5, SW))
+    eq("model and PoE budget come through the merge", ([d for d in devs if d["mac"] == SW][0]["model"], [d for d in devs if d["mac"] == SW][0]["poe_budget_w"]),
+       ("USW-Lite-16-PoE", 45.0))
+    quiet = network_map.merge([src("unifi", "UniFi", [{"mac": SW, "name": "S", "kind": "switch", "poe_w": 10, "poe_budget_w": 45, "ports": []}])])
+    eq("a switch well inside its budget is not listed", network_map.issues(quiet, []), [])
+
+with section("names, notes and places through the routes"):
+    network_map.reset()                                  # discovery still finds nothing, as in "the route"
+    admin = _db.client(app, "admin", base_url=ADMIN)
+    viewer = _db.client(app, "viewer", base_url=ADMIN)
+    fake = FakeModule()
+    fake.broken = False
+    eq("a viewer may not rename", viewer.post("/api/admin/network/map/labels", json={"names": {SW: "x"}}).status_code, 403)
+    eq("nor move a switch", viewer.post("/api/admin/network/map/places", json={"places": []}).status_code, 403)
+    eq("names must be an object", admin.post("/api/admin/network/map/labels", json={"names": ["x"]}).status_code, 400)
+    eq("places must be a list", admin.post("/api/admin/network/map/places", json={"places": "x"}).status_code, 400)
+    r = admin.post("/api/admin/network/map/labels", json={"names": {SW: "Booth core"}, "notes": {SW: "Top of the rack", SW + "#3": "Spare"}})
+    eq("an admin renames and notes", (r.status_code, r.json()["names"], r.json()["notes"]),
+       (200, {SW: "Booth core"}, {SW: "Top of the rack", SW + "#3": "Spare"}))
+    snap = asyncio.run(network_map.snapshot(FakeRegistry(fake, True), force=True))
+    me = [d for d in snap["devices"] if d["mac"] == SW][0]
+    eq("the map shows the name Relay was given, and keeps the device's own", (me["name"], me["own_name"]), ("Booth core", "Fake switch"))
+    eq("the notes come with the map", snap["notes"][SW + "#3"], "Spare")
+    again = asyncio.run(network_map.snapshot(FakeRegistry(fake, True)))
+    eq("a cached read still carries the name", [d["name"] for d in again["devices"] if d["mac"] == SW], ["Booth core"])
+    r = admin.post("/api/admin/network/map/labels", json={"names": {SW: ""}, "notes": {SW + "#3": "  "}})
+    eq("empty text clears a name and a note; the rest stay", (r.json()["names"], r.json()["notes"]), ({}, {SW: "Top of the rack"}))
+    r = admin.post("/api/admin/network/map/places", json={"places": [{"name": "Booth rack", "gear": [SW]}, {"name": "Lobby", "gear": []}]})
+    eq("places are saved in order", r.json()["places"], [{"name": "Booth rack", "gear": [SW]}, {"name": "Lobby", "gear": []}])
+    eq("kept in config", config.get()["network_map"]["places"][0]["name"], "Booth rack")
+    from app import audit
+    eq("both are audited", [e["action"] for e in audit.search(kind="network")["entries"][:2]], ["network.places", "network.labels"])
+
 done()

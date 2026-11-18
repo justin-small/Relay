@@ -27,10 +27,13 @@ class UniFi(Module):
     secret_settings = ("api_key", "password")
     network_map_adds = ("Switches, access points and the gateway, which port each device is on, link speed, PoE and "
                         "errors, and which devices carry NDI or Dante by the console's traffic flows.")
-    admin_pages = (AdminPage(
-        id="unifi", title="UniFi", template="unifi.html",
-        icon='<circle cx="8" cy="3" r="1.6"/><circle cx="3" cy="12.5" r="1.6"/><circle cx="13" cy="12.5" r="1.6"/>'
-             '<circle cx="8" cy="12.5" r="1.6"/><path d="M8 4.6v6.3M7 4.3l-3.2 6.8M9 4.3l3.2 6.8"/>'),)
+    # Tabs of the core Network page, after its own (Racks, Map, Ports and notes, This computer, Find and add).
+    admin_pages = (
+        AdminPage(id="unifi", title="Internet", template="unifi_internet.html", tab_of="network"),
+        AdminPage(id="unifi_wifi", title="Wi-Fi and who's on", template="unifi_wifi.html", tab_of="network"),
+        AdminPage(id="unifi_av", title="NDI and Dante", template="unifi_av.html", tab_of="network"),
+        AdminPage(id="unifi_console", title="UniFi console", template="unifi_console.html", tab_of="network"),
+    )
     admin_scripts = ("unifi.js",)
     admin_styles = ("unifi.css",)
     route_prefixes = ("/api/admin/unifi",)

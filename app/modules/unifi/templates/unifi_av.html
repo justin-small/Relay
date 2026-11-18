@@ -1,0 +1,12 @@
+{# A tab of the Network page (#358, the network redesign): NDI and Dante traffic the console sees, and who each device talks to. unifi.js fills it; the panel's own pieces only. #}
+    <p class="note ufnotlive" hidden>UniFi is not connected yet. Set it up on the UniFi console tab.</p>
+    <section id="ufAvSect" hidden>
+      <h3>NDI and Dante</h3>
+      <p class="note">From the console's traffic flows over the last five minutes: NDI on TCP and UDP 5960 to 5999,
+        Dante on UDP 4440, 4444, 4455, 8700 to 8708, 8800 and 14336 to 14600, and PTP clocking on 319 and 320.</p>
+      <div class="tablescroll"><table class="tbl" id="ufAv">
+        <thead><tr><th>Device</th><th>Carries</th><th>Where</th><th>Traffic</th><th>Talking to</th></tr></thead>
+        <tbody></tbody>
+      </table></div>
+      <p class="note" id="ufAvNone"></p>
+    </section>

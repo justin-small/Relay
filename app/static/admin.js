@@ -2546,7 +2546,23 @@
 
   const PAGES = Array.prototype.map.call(document.querySelectorAll('.page[data-page]'), function (n) { return n.dataset.page; });
 
-  function showPage(name) {
+  /* A hash can name a tab of a page: "#network/map". A tab's own id or its old page id ("#unifi", "#network_map")
+     opens the page it is on. The page hears which tab through a "relay:tab" event; '' means its first. */
+  function where(hash) {
+    const parts = String(hash || '').split('/');
+    let name = parts[0], tab = parts[1] || '';
+    if (PAGES.indexOf(name) === -1 && name) {
+      const t = Array.prototype.find.call(document.querySelectorAll('.page[data-page] [role=tab][data-tab]'), function (b) {
+        return b.dataset.tab === name || b.dataset.alias === name;
+      });
+      if (t) { tab = t.dataset.tab; name = t.closest('.page[data-page]').dataset.page; }
+    }
+    return { name: name, tab: tab };
+  }
+
+  function showPage(hash) {
+    const w = where(hash);
+    let name = w.name;
     if (PAGES.indexOf(name) === -1) name = PAGES[0];
     document.querySelectorAll('.page[data-page]').forEach(function (n) { n.hidden = n.dataset.page !== name; });
     document.querySelectorAll('nav a[data-page]').forEach(function (a) {
@@ -2558,6 +2574,8 @@
     if (window.RelayShell) window.RelayShell.page(name);   // breadcrumb, open parent, close the phone drawer (shell.js)
     if (panelDrawer && name !== 'panels') closeDrawer();
     feedSync(name === 'health');
+    const pg = $('page-' + name);
+    if (pg) pg.dispatchEvent(new CustomEvent('relay:tab', { detail: name === w.name ? w.tab : '' }));
     try { window.scrollTo(0, 0); $('inset').scrollTop = 0; } catch (e) {}
   }
   window.addEventListener('hashchange', function () { showPage(location.hash.slice(1)); });
