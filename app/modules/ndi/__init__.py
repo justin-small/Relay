@@ -34,6 +34,7 @@ class Ndi(Module):
         id="ndi", title="NDI", template="ndi.html",
         icon='<rect x="2" y="4" width="12" height="8" rx="1"/><path d="M5 7v2.5M5 7l2 2.5V7M10 7h1.5M10 9.5h1.5"/>'),)
     admin_scripts = ("ndi.js", "ndi-router.js")
+    admin_styles = ("ndi.css",)
     route_prefixes = ("/api/admin/ndi", "/ndi")
     panel_prefixes = ("/ndi",)       # the viewer (#296) stays on the HTTPS operator port, behind ndi.view
     permissions = (
