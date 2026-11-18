@@ -1,0 +1,39 @@
+<!doctype html><html lang="en" data-theme="dark" data-preset="relay"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<link rel="stylesheet" href="../../../app/static/tokens.css"><link rel="stylesheet" href="../../../app/static/components.css"><link rel="stylesheet" href="common.css"><title>Planning Center B · Console</title><style>.shell{display:grid;grid-template-columns:minmax(0,1fr) 340px;gap:var(--sp-4)}@media(max-width:860px){.shell{grid-template-columns:1fr}}.drawer{position:fixed;top:0;right:0;bottom:0;width:440px;max-width:100%;background:var(--card);border-left:1px solid var(--border);padding:var(--sp-5);overflow:auto;box-shadow:var(--shadow-pop);transform:translateX(100%);transition:transform .2s}.drawer.on{transform:none}.setrow[data-d]{cursor:pointer}</style></head><body>
+<div class="top"><b>Planning Center</b><span class="spill on"><i class="dot ok"></i>Connected</span><span class="sp"></span><div class="gap"><select><option>Sunday Worship</option></select><select><option>9:00 AM</option></select></div></div>
+<div class="wrap shell">
+<div class="stack">
+<div class="card stack"><div class="between"><span class="badge ok">LIVE · you have control</span><span class="num">Service clock 38:12</span></div>
+<div class="muted">Now</div><div class="big">Sermon: Mercy at the Table</div><div class="muted">Next: Offering · 4:00 · Media</div>
+<div class="gap"><button class="primary" style="min-width:160px;min-height:52px;font-size:var(--fs-xl)">Next</button><button style="min-height:52px">Previous</button><button>Release</button></div></div>
+<div class="card"><h3>Order of service</h3><div class="item done"><span class="num">1</span><span>Welcome and countdown</span><span class="num">2:00</span><span class="tag">Media</span></div>
+<div class="item done"><span class="num">2</span><span>Song: Goodness of God</span><span class="num">5:30</span><span class="tag">Ana · Worship Leader</span></div>
+<div class="item done"><span class="num">3</span><span>Announcements</span><span class="num">3:00</span><span class="tag">Sam</span></div>
+<div class="item now"><span class="num">4</span><span>Sermon: Mercy at the Table</span><span class="num">32:00</span><span class="tag">Pastor Lee</span></div>
+<div class="item"><span class="num">5</span><span>Offering</span><span class="num">4:00</span><span class="tag">Media</span></div>
+<div class="item"><span class="num">6</span><span>Song: Great Are You Lord</span><span class="num">5:00</span><span class="tag">Ana · Worship Leader</span></div>
+<div class="item"><span class="num">7</span><span>Benediction</span><span class="num">1:00</span><span class="tag">Pastor Lee</span></div></div></div>
+<div class="stack">
+<div class="card"><h3>Mics</h3><table class="dt"><thead><tr><th>Position</th><th>Mic</th><th>Person</th><th>Sings</th></tr></thead><tbody>
+<tr><td>Worship Leader</td><td>Mic 1</td><td>Ana Ruiz</td><td><label class="switch"><input type="checkbox" checked><span class="slider"></span></label></td></tr>
+<tr><td>Vocals</td><td>Mic 2</td><td>Jo Park</td><td><label class="switch"><input type="checkbox" checked><span class="slider"></span></label></td></tr>
+<tr><td>Vocals</td><td>Mic 3</td><td>Dee Cole</td><td><label class="switch"><input type="checkbox" checked><span class="slider"></span></label></td></tr>
+<tr><td>Pastor</td><td>Mic 5</td><td>Lee Moran</td><td><label class="switch"><input type="checkbox"><span class="slider"></span></label></td></tr></tbody></table></div>
+<div class="card"><h3>Settings</h3>
+<div class="setrow" data-d="conn"><span>Connection<small>Ana Ruiz · token saved</small></span><span class="muted">›</span></div>
+<div class="setrow" data-d="types"><span>Service types<small>Sunday Worship, Youth Night</small></span><span class="muted">›</span></div>
+<div class="setrow" data-d="screens"><span>Rundown on /screen<small>On · full rundown</small></span><span class="muted">›</span></div>
+<div class="setrow" data-d="signage"><span>Signage sync<small>Off</small></span><span class="muted">›</span></div></div>
+<div class="card"><h3>Presses today</h3><p class="note">14 · last Next from Foyer panel, 9:41</p></div></div></div>
+<aside class="drawer" id="drawer"><div class="between"><h3 id="dt" style="margin:0"></h3><button class="icon quiet" id="dx" aria-label="Close">×</button></div><div id="db" style="margin-top:var(--sp-4)"></div></aside>
+<template id="t-conn"><div class="row"><div class="field"><label>Application ID</label><input type="password" placeholder="(leave blank to keep current)"></div><div class="field"><label>Secret</label><input type="password" placeholder="(leave blank to keep current)"></div></div>
+<div class="ctl"><button class="primary">Save</button><button>Test connection</button><button class="danger">Disconnect</button></div>
+<p class="note">Make a Personal Access Token at <span class="mono">api.planningcenteronline.com/personal_access_tokens</span>. Relay acts as the person who made it. The secret is stored on the server and never shown again.</p></template><template id="t-types"><label class="check"><input type="checkbox" checked> Sunday Worship</label><label class="check"><input type="checkbox" checked> Youth Night</label><label class="check"><input type="checkbox"> Wednesday Prayer</label><div class="ctl"><button class="primary">Save selection</button></div></template><template id="t-screens"><div class="setrow"><span>Show the rundown on /screen<small>Names, photos, mics and sermon notes. This network only.</small></span><label class="switch"><input type="checkbox" checked><span class="slider"></span></label></div>
+<div class="row"><div class="field"><label>View</label><select><option>Full rundown</option><option>Beside the captions</option><option>Micboard</option></select></div><div class="field"><label>Order of service</label><select><option>Every item, fitted</option><option>Now and the next three</option></select></div><div class="field"><label>Teams</label><select><option>All teams</option></select></div></div>
+<div class="note"><span class="mono">http://relay.local/screen?view=full&amp;layout=fit</span> <button class="sm">Copy</button></div></template><template id="t-signage"><div class="setrow"><span>Copy plan files into signage<small>Checks every five minutes. Needs the Signage module.</small></span><label class="switch"><input type="checkbox"><span class="slider"></span></label></div>
+<div class="row"><div class="field"><label>Only items whose title has</label><input placeholder="Announcements"></div><div class="field"><label>Note category for text slides</label><input placeholder="Announcement"></div></div>
+<label class="check"><input type="checkbox" checked> Files attached to plan items</label><label class="check"><input type="checkbox"> A text slide for each plan item</label><label class="check"><input type="checkbox" checked> Keep the signage playlist up to date</label>
+<div class="ctl"><button class="primary">Save</button><button>Sync now</button></div></template>
+<nav class="mocknav"><a href="a-tabs.html" >A Tabs</a><a href="b-console.html" aria-current>B Console</a><a href="c-board.html" >C Board</a><a href="index.html">Index</a></nav>
+<script>var T={conn:'Connection',types:'Service types',screens:'Rundown on /screen',signage:'Signage sync'};var d=document.getElementById('drawer');
+document.addEventListener('click',function(e){var r=e.target.closest('[data-d]');if(r&&Object.prototype.hasOwnProperty.call(T,r.dataset.d)){document.getElementById('dt').textContent=T[r.dataset.d];var b=document.getElementById('db');b.innerHTML='';b.appendChild(document.getElementById('t-'+r.dataset.d).content.cloneNode(true));d.classList.add('on')}else if(e.target.id==='dx'){d.classList.remove('on')}});</script></body></html>

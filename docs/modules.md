@@ -299,6 +299,18 @@ ports, `lan(...)` for the default network's addresses, `route(...)` to save a ro
 `loopback_route()` for real pinned sockets over loopback. Use it rather than defining ports in each test. Before a
 release that changes networking, run the manual [hardware test plan](reference/multi-nic-hardware-test.md).
 
+## Soundboard channels for Planning Center
+
+A module that reads a mixing console can offer its input channels to the Planning Center page's Team and mics tab.
+It defines `mixer_channels(self) -> list[dict]` on its `Module`, returning `{"id", "number", "name"}` for each
+channel (the id must stay the same for a channel across reads). While the module is on, those channels appear in the
+tab's "Add channel" list; the operator adds the ones they want to the board and assigns each to positions of any
+service type. Planning Center asks every active module for the method and ignores a module without it or one that
+raises. Until a module offers channels the operator types them in by hand. The board is saved as
+`planning_center.rundown.channels` (`{id, number, name, positions: [{service_type, team, position}]}`), and the
+rundown turns it into the older position-to-mics shape in `rundown.effective_mics`, so the draw of who holds which
+channel is unchanged.
+
 ## Lighting cues from another module
 
 A module that wants to fire a lighting cue (a ProPresenter slide tag, a schedule) never imports `lighting`. It calls

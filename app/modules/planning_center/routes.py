@@ -251,14 +251,41 @@ def _rundown_settings_view() -> dict:
     return {k: v for k, v in rs.items() if k != "draws"}
 
 
+def channel_catalog() -> tuple[list[dict], str]:
+    """Soundboard channels offered by whichever module provides them. A module opts in with a method
+    `mixer_channels()` returning [{"id", "number", "name"}]; none exists yet, so the list is empty and the admin
+    page lets the operator type a channel in. Returns the channels and the names of the modules that gave them."""
+    out: list[dict] = []
+    sources: list[str] = []
+    for mod in shared.modules.active():
+        fn = getattr(mod, "mixer_channels", None)
+        if not callable(fn):
+            continue
+        try:
+            found = fn()
+        except Exception:  # a soundboard that is down must not break this page
+            log.exception("channel list from module %s failed", getattr(mod.manifest, "id", "?"))
+            continue
+        for c in found or []:
+            if isinstance(c, dict) and (c.get("name") or c.get("number")):
+                out.append({"id": str(c.get("id") or c.get("number") or c.get("name")),
+                            "number": str(c.get("number") or ""), "name": str(c.get("name") or "")})
+                if mod.manifest.name not in sources:
+                    sources.append(mod.manifest.name)
+    return out, ", ".join(sources)
+
+
 @router.get("/api/admin/planning-center/rundown", dependencies=[Depends(require("planning_center.view"))])
 async def admin_planning_center_rundown(type: str = "", time: str = ""):
     """The rundown as /screen shows it, the settings behind it, and every team and position on today's plans
-    (for the mic map)."""
+    (for the channel assignments), plus the channels a soundboard module offers."""
     st = type if type in follower.tracks else ""
     want = time if re.fullmatch(r"\d{4}", time or "") else ""
+    catalog, catalog_source = channel_catalog()
     return {"rundown": rundown_now(st, want), "settings": _rundown_settings_view(),
             "positions": rundown.positions(list(follower.tracks.values())),
+            "type_positions": rundown.type_positions(list(follower.tracks.values())),
+            "catalog": catalog, "catalog_source": catalog_source,
             "service_types": [{"id": s, "name": follower.names.get(s) or f"Service type {s}"}
                               for s in follower.tracks],
             "actions": control.recent()}
@@ -266,7 +293,7 @@ async def admin_planning_center_rundown(type: str = "", time: str = ""):
 
 @router.post("/api/admin/planning-center/rundown/settings", dependencies=[Depends(require("planning_center.manage"))])
 async def admin_planning_center_rundown_settings(payload: dict):
-    """The rundown on /screen (on or off), the note fields it reads, and the mics by position."""
+    """The rundown on /screen (on or off), the note fields it reads, and the channels with their positions."""
     saved = config.get()["planning_center"]
     rs = dict(saved["rundown"])
     for k in ("leader_note", "leader_position", "sermon_note"):
@@ -282,6 +309,10 @@ async def admin_planning_center_rundown_settings(payload: dict):
         if not isinstance(payload["mics"], list):
             return JSONResponse({"error": "mics must be a list."}, status_code=400)
         rs["mics"] = payload["mics"]
+    if "channels" in payload:
+        if not isinstance(payload["channels"], list):
+            return JSONResponse({"error": "channels must be a list."}, status_code=400)
+        rs["channels"] = rundown.clean_channels(payload["channels"])
     config.save({"planning_center": {**saved, "rundown": rs}}, replace=("planning_center",))
     log.info("Planning Center rundown settings saved (screen %s)", "on" if rs["screen"] else "off")
     return {"settings": _rundown_settings_view()}

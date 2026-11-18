@@ -38,7 +38,8 @@ class PlanningCenter(Module):
     admin_pages = (AdminPage(
         id="planningcenter", title="Planning Center", template="admin.html",
         icon='<path d="M3 13V6l5-4 5 4v7zM6.5 13V9h3v4"/>'),)
-    admin_scripts = ("planningcenter.js", "pcrundown.js", "pcsignage.js")
+    admin_scripts = ("planningcenter.js", "pcrundown.js", "pcchannels.js", "pcsignage.js")
+    admin_styles = ("planningcenter.css",)
     route_prefixes = ("/api/admin/planning-center", "/api/panels/{panel_id}/service/")
     permissions = (
         Permission("planning_center.view", "See the Planning Center setup and plan", "Planning Center", "viewer"),

@@ -293,6 +293,46 @@ check("an operator may redraw", r.status_code == 200)
 check("...and the redraw keeps the other positions' draws",
       "700:900:Vocals|Worship Leader" in config.get()["planning_center"]["rundown"]["draws"])
 
+# -- channels: soundboard inputs assigned to positions of any service type -----------------------------------------
+print("channels")
+ch = rundown.clean_channels([
+    {"id": "a", "number": "03", "name": "Vocal 1", "positions": [
+        {"service_type": "7", "team": "Vocals", "position": "Vocals"},
+        {"service_type": "7", "team": "Vocals", "position": "Vocals"},          # a repeat: dropped
+        {"service_type": "8", "team": "Youth", "position": "Vocals"},
+        {"service_type": "", "team": "Vocals", "position": "Vocals"}]},        # no service type: dropped
+    {"id": "a", "number": "04", "name": "Same id"},                             # a repeated id: dropped
+    {"number": "", "name": ""},                                                 # nothing to show: dropped
+    {"id": "b", "number": "04", "name": "Vocal 2", "positions": [{"service_type": "7", "team": "Vocals", "position": "Vocals"}]},
+    "junk"])
+eq("channels cleaned: repeats and empty ones dropped", [(c["id"], len(c["positions"])) for c in ch], [("a", 2), ("b", 1)])
+eq("a channel's label is its number", rundown.channel_label({"number": "03", "name": "Vocal 1"}), "03")
+eq("...else the start of its name", rundown.channel_label({"number": "", "name": "A very long channel name"}), "A very long")
+rs_ch = rundown.clean_rundown({"channels": ch})
+eq("a service type gets only the channels assigned to it",
+   [(m["position"], m["mics"], m["names"]) for m in rundown.effective_mics(rs_ch, "7")],
+   [("Vocals", ["03", "04"], {"03": "Vocal 1", "04": "Vocal 2"})])
+eq("...so another type's position has just its own", [m["mics"] for m in rundown.effective_mics(rs_ch, "8")], [["03"]])
+eq("...and a type with none has none", rundown.effective_mics(rs_ch, "9"), [])
+old = rundown.clean_rundown({"mics": [{"team": "Vocals", "position": "Vocals", "mics": ["09"]}], "channels": ch})
+eq("an older per-position list still counts and is not doubled",
+   [(m["position"], m["mics"]) for m in rundown.effective_mics(old, "7")], [("Vocals", ["09"])])
+ch_settings = {"rundown": rundown.clean_rundown({"channels": [
+    {"id": "w", "number": "01", "name": "Ana Vox", "positions": [{"service_type": "7", "team": "Vocals", "position": "Worship Leader"}]},
+    {"id": "v1", "number": "03", "name": "Vocal 1", "positions": [{"service_type": "7", "team": "Vocals", "position": "Vocals"}]},
+    {"id": "v2", "number": "04", "name": "Vocal 2", "positions": [{"service_type": "7", "team": "Vocals", "position": "Vocals"}]}]})}
+cmsg, cdraws = rundown.build(tr, ch_settings, now, NY, rng=random.Random(3))
+eq("a position's people take its channels' labels", sorted(c["mic"] for c in cmsg["mics"]), ["01", "03", "04"])
+eq("a mic on the rundown carries its channel's name", {c["mic"]: c["label"] for c in cmsg["mics"]}["01"], "Ana Vox")
+eq("the worship leader holds the leader's channel", {c["mic"]: (c["person"] or {}).get("name") for c in cmsg["mics"]}["01"], "Sarah Lee")
+r = owner.post("/api/admin/planning-center/rundown/settings", json={"channels": ch})
+check("the owner saves the channels", r.status_code == 200 and [c["id"] for c in r.json()["settings"]["channels"]] == ["a", "b"])
+eq("channels must be a list", owner.post("/api/admin/planning-center/rundown/settings", json={"channels": "x"}).status_code, 400)
+eq("an operator may not change them", operator.post("/api/admin/planning-center/rundown/settings", json={"channels": []}).status_code, 403)
+r = viewer_role.get("/api/admin/planning-center/rundown")
+check("the admin read lists positions with their service types and the channel catalog",
+      {"service_type": "7", "team": "Band", "position": "Bass"} in r.json()["type_positions"] and r.json()["catalog"] == [])
+
 
 class LiveFake(pc.Client):
     def __init__(self):
