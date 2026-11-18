@@ -232,7 +232,8 @@ class Service:
         s = self.settings()
         b = self.backend
         out = public(s)
-        out.update(backends=[{"id": k, "label": v.label or k} for k, v in sorted(BACKENDS.items())],
+        out.update(backends=[{"id": k, "label": v.label or k, "about": v.about, "fields": list(v.fields),
+                             "default_port": v.default_port} for k, v in sorted(BACKENDS.items())],
                    active=bool(b), can_list=bool(b and b.can_list), can_report_state=bool(b and b.can_report_state),
                    can_set_level=bool(b and b.can_set_level), cues=[], state={}, levels={}, error=self.error)
         if b is not None:

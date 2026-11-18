@@ -60,6 +60,9 @@ def address_for(cue_id: str, default_type: str = DEFAULT_TYPE) -> str:
 class Vista(Backend):
     id = "vista"
     label = "Chroma-Q Vista (OSC)"
+    about = "Vista with OSC on."
+    fields = ("host", "port", "console")
+    default_port = DEFAULT_PORT
 
     def _target(self) -> tuple[str, int]:
         host = self.settings.get("host") or ""
