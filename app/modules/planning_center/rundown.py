@@ -8,6 +8,8 @@ and who is scheduled. Nothing here calls Planning Center.
   items already played show when they really started, and everything after the current item is re-projected from
   the current item's actual start, so the rest of the rundown says when things will really happen.
 - People. Who is scheduled for that service time, on which team and position, and whether they confirmed.
+- Channels. The operator adds channels (from a soundboard module that offers them, else by name) and assigns each
+  to positions of one or more service types; see "channels" below. Older per-position mic lists still count.
 - Mics. The operator maps positions to mics in admin. A position with several mics and several confirmed people
   gives each person one of its mics, drawn at random once per plan and service time and then kept: the draw only
   changes when someone confirms or drops out, or when the operator presses Redraw. People past the last mic get
@@ -31,11 +33,13 @@ from . import planningcenter as pc
 
 MAX_MAPPINGS = 64
 MAX_MICS = 24         # per position (a choir can have many)
+MAX_CHANNELS = 96     # on the board
+MAX_ASSIGNMENTS = 32  # positions one channel serves
 MAX_DRAWS = 200       # stored draws kept, newest last
 NOTE_MAX = 4000       # sermon notes sent, characters
 LABEL_RE = re.compile(r"^[\w .#/+-]{1,12}$")
 DEFAULTS = {"screen": False, "leader_note": "Leader", "leader_position": "Worship Leader",
-            "sermon_note": "Sermon Notes", "mics": [], "draws": {}}
+            "sermon_note": "Sermon Notes", "mics": [], "channels": [], "draws": {}}
 
 
 def _text(v: Any, n: int) -> str:
@@ -61,6 +65,7 @@ def clean_rundown(raw: Any) -> dict:
         seen.add((team, pos))
         mics.append({"team": team, "position": pos, "mics": labels[:MAX_MICS], "sings": m.get("sings") is not False,
                      "label": _text(m.get("label"), 24)})
+    channels = clean_channels(raw.get("channels"))
     draws: dict[str, dict[str, str]] = {}
     src = raw.get("draws")
     for k, v in (list(src.items())[-MAX_DRAWS:] if isinstance(src, dict) else ()):
@@ -72,8 +77,65 @@ def clean_rundown(raw: Any) -> dict:
         "leader_position": _text(raw.get("leader_position", DEFAULTS["leader_position"]), 80),
         "sermon_note": _text(raw.get("sermon_note", DEFAULTS["sermon_note"]), 60),
         "mics": mics,
+        "channels": channels,
         "draws": draws,
     }
+
+
+# -- channels ------------------------------------------------------------------------------------------------------
+# A channel is one input on the soundboard that the operator put on the board. It is assigned to any number of
+# positions, each on one service type, so a mic shared between Sunday and Youth is set up once. The draw below
+# still decides which confirmed person holds which channel when a position has several of each.
+def clean_channels(raw: Any) -> list[dict]:
+    out: list[dict] = []
+    seen: set[str] = set()
+    for c in raw if isinstance(raw, list) else []:
+        if not isinstance(c, dict) or len(out) >= MAX_CHANNELS:
+            continue
+        name, number = _text(c.get("name"), 40), _text(c.get("number"), 12)
+        cid = _text(c.get("id"), 40) or f"c{len(out) + 1}"
+        if not (name or number) or cid in seen:
+            continue
+        seen.add(cid)
+        keys: set[tuple[str, str, str]] = set()
+        positions = []
+        for a in c.get("positions") or []:
+            if not isinstance(a, dict) or len(positions) >= MAX_ASSIGNMENTS:
+                continue
+            k = (_text(a.get("service_type"), 40), _text(a.get("team"), 80), _text(a.get("position"), 80))
+            if k[0] and k[2] and k not in keys:
+                keys.add(k)
+                positions.append({"service_type": k[0], "team": k[1], "position": k[2]})
+        out.append({"id": cid, "name": name, "number": number, "positions": positions})
+    return out
+
+
+def channel_label(channel: dict) -> str:
+    """The short mic label shown on /screen: the console number, else the first characters of the name."""
+    for text in (channel["number"], channel["name"]):
+        label = re.sub(r"[^\w .#/+-]", "", text).strip()[:12].strip()
+        if label and LABEL_RE.match(label):
+            return label
+    return ""
+
+
+def effective_mics(rs: dict, service_type: str) -> list[dict]:
+    """The position-to-mics mappings for one service type: the older per-position lists, plus one mapping per
+    position that has channels assigned (each channel contributing its label as a mic)."""
+    out = [dict(m, names={}) for m in rs["mics"]]
+    by_position: dict[tuple[str, str], dict] = {}
+    for ch in rs.get("channels") or []:
+        label = channel_label(ch)
+        for a in ch["positions"]:
+            if a["service_type"] != service_type or not label:
+                continue
+            mp = by_position.setdefault((a["team"], a["position"]), {
+                "team": a["team"], "position": a["position"], "mics": [], "sings": True, "label": "", "names": {}})
+            if label not in mp["mics"] and len(mp["mics"]) < MAX_MICS:
+                mp["mics"].append(label)
+                mp["names"][label] = ch["name"]
+    covered = {(m["team"], m["position"]) for m in out}
+    return out + [m for k, m in by_position.items() if k not in covered]
 
 
 # -- service time ------------------------------------------------------------------------------------------------
@@ -225,7 +287,8 @@ def build(track: Any, settings: dict, now: float, zone: ZoneInfo, want_time: str
     members = [m for m in track.team if _serves(m, tid)]
     mic_of: dict[str, str] = {}
     mapping_of: dict[str, dict] = {}
-    for mp in rs["mics"]:
+    mappings = effective_mics(rs, track.st)
+    for mp in mappings:
         people = [m for m in members if _matches(mp, m)]
         key = draw_key(plan["id"], tid, mp)
         got = draw_mics(mp, people, draws.get(key, {}), rng)
@@ -297,12 +360,12 @@ def build(track: Any, settings: dict, now: float, zone: ZoneInfo, want_time: str
 
     # Mic channels, in mic order: who holds each mic, and whether it is in use for the item that is up.
     channels = []
-    for mp in rs["mics"]:
+    for mp in mappings:
         holders = {mic: mid for mid, mic in draws.get(draw_key(plan["id"], tid, mp), {}).items()}
         for mic in mp["mics"]:
             m = next((x for x in members if x["id"] == holders.get(mic)), None)
             on = bool(cur_item and m and ((cur_item["type"] == "song") == mp["sings"]))
-            channels.append({"mic": mic, "label": mp["label"], "position": mp["position"], "team": mp["team"],
+            channels.append({"mic": mic, "label": mp["names"].get(mic) or mp["label"], "position": mp["position"], "team": mp["team"],
                              "person": person(m) if m else None, "on": on})
     channels.sort(key=lambda c: _mic_sort(c["mic"]))
     out["mics"] = channels
@@ -344,6 +407,16 @@ def positions(tracks: list[Any]) -> list[dict]:
             if m["position"]:
                 seen[k] = seen.get(k, 0) + 1
     return [{"team": t, "position": p} for t, p in sorted(seen)]
+
+
+def type_positions(tracks: list[Any]) -> list[dict]:
+    """Every team and position on today's plans with its service type, for assigning channels in admin."""
+    seen: set[tuple[str, str, str]] = set()
+    for tr in tracks:
+        for m in list(tr.team) + list(tr.needed):
+            if m["position"]:
+                seen.add((tr.st, m["team"], m["position"]))
+    return [{"service_type": st, "team": t, "position": p} for st, t, p in sorted(seen)]
 
 
 def signature(msg: dict) -> str:

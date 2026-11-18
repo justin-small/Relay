@@ -1,5 +1,5 @@
-/* The Planning Center rundown in admin (#148): today's rundown with LIVE buttons, mics by position, the note fields
-   the rundown reads, and the link a screen opens. Loaded by admin.html only while the module is on. */
+/* The Planning Center rundown in admin (#148): today's order of service with LIVE buttons, the note fields the
+   rundown reads, and the link a screen opens. The channel assignments are in pcchannels.js, which reads this poll. Loaded by admin.html only while the module is on. */
 (function () {
   const R = window.RelayAdmin;
   if (!R || !document.getElementById('rdBox')) return;
@@ -8,7 +8,6 @@
   function C() { return R.cfg(); }
 
   let data = null;          // the last GET /rundown
-  let mics = null;          // the mic map being edited (null: not touched since the last save)
   let busy = false;
 
   function clock(ts, zone) {
@@ -69,103 +68,6 @@
         + ', projected ' + clock(h.projected_end, zone) + '.';
   }
 
-  // -- mics by position -------------------------------------------------------------------------------------------
-  function currentMics() { return mics || (data && data.settings.mics) || []; }
-  function holders() {
-    const out = {};
-    ((data && data.rundown.mics) || []).forEach(function (c) {
-      out[c.team + '|' + c.position + '|' + c.mic] = c.person ? c.person.name : '';
-    });
-    return out;
-  }
-  function renderMics() {
-    const manage = can('planning_center.manage'), control = can('planning_center.control');
-    const t = $('rdMics');
-    t.innerHTML = '';
-    const hd = el('tr');
-    ['Team', 'Position', 'Mics', 'Sings', 'Label', 'This service', ''].forEach(function (x) { hd.appendChild(el('th', '', x)); });
-    t.appendChild(hd);
-    const who = holders();
-    currentMics().forEach(function (m, i) {
-      const tr = el('tr');
-      tr.appendChild(el('td', '', m.team || 'Any team'));
-      tr.appendChild(el('td', '', m.position));
-      const micIn = el('input'); micIn.value = m.mics.join(', '); micIn.placeholder = '03, 04'; micIn.disabled = !manage;
-      micIn.addEventListener('input', function () {
-        edit()[i].mics = micIn.value.split(/[,\s]+/).filter(Boolean);
-        $('rdMicSave').disabled = false;
-      });
-      const c1 = el('td'); c1.appendChild(micIn); tr.appendChild(c1);
-      const sing = el('input'); sing.type = 'checkbox'; sing.checked = m.sings !== false; sing.disabled = !manage;
-      sing.addEventListener('change', function () { edit()[i].sings = sing.checked; $('rdMicSave').disabled = false; });
-      const c2 = el('td'); c2.appendChild(sing); tr.appendChild(c2);
-      const lab = el('input'); lab.value = m.label || ''; lab.placeholder = 'e.g. Announcements'; lab.disabled = !manage;
-      lab.addEventListener('input', function () { edit()[i].label = lab.value; $('rdMicSave').disabled = false; });
-      const c3 = el('td'); c3.appendChild(lab); tr.appendChild(c3);
-      tr.appendChild(el('td', '', m.mics.map(function (x) {
-        const k = m.team + '|' + m.position + '|' + x;
-        return x + ' → ' + (who[k] || 'spare');
-      }).join(' · ')));
-      const act = el('td');
-      if (control) {
-        const rd = el('button', 'sm', 'Redraw'); rd.type = 'button';
-        rd.addEventListener('click', function () { redraw(m.team, m.position); });
-        act.appendChild(rd);
-      }
-      if (manage) {
-        const rm = el('button', 'sm forget', 'Remove'); rm.type = 'button';
-        rm.addEventListener('click', function () { edit().splice(i, 1); $('rdMicSave').disabled = false; renderMics(); });
-        act.appendChild(rm);
-      }
-      tr.appendChild(act);
-      t.appendChild(tr);
-    });
-    if (!currentMics().length) {
-      const tr = el('tr'); const td = el('td', 'muted', 'No positions have mics yet. Add one below.');
-      td.colSpan = 7; tr.appendChild(td); t.appendChild(tr);
-    }
-    const mapped = currentMics().map(function (m) { return m.team + '|' + m.position; });
-    fillSelect($('rdAddPos'), [['', 'Pick a team and position…']].concat((data ? data.positions : [])
-      .filter(function (p) { return mapped.indexOf(p.team + '|' + p.position) < 0; })
-      .map(function (p) { return [p.team + '|' + p.position, (p.team ? p.team + ' · ' : '') + p.position]; })));
-    $('rdMicCtl').querySelectorAll('select, #rdAdd, #rdMicSave').forEach(function (n) { n.hidden = !manage; });
-    $('rdRedrawAll').hidden = !control;
-  }
-  function edit() {
-    if (mics === null) mics = JSON.parse(JSON.stringify((data && data.settings.mics) || []));
-    return mics;
-  }
-  $('rdAdd').addEventListener('click', function () {
-    const v = $('rdAddPos').value;
-    if (!v) return;
-    const parts = v.split('|');
-    edit().push({ team: parts[0], position: parts.slice(1).join('|'), mics: [], sings: true, label: '' });
-    $('rdMicSave').disabled = false;
-    renderMics();
-  });
-  $('rdMicSave').addEventListener('click', async function () {
-    const empty = edit().filter(function (m) { return !m.mics.length; });
-    if (empty.length) { say('rdMicMsg', 'Give ' + empty[0].position + ' at least one mic, or remove it.', true); return; }
-    try {
-      const res = await post('/api/admin/planning-center/rundown/settings', { mics: edit() });
-      data.settings = res.settings; mics = null;
-      $('rdMicSave').disabled = true;
-      say('rdMicMsg', 'Saved.');
-      load();
-    } catch (e) { say('rdMicMsg', e.message, true); }
-  });
-  async function redraw(team, position) {
-    try {
-      const q = query();
-      const res = await post('/api/admin/planning-center/rundown/redraw',
-        { type: q.get('type') || '', time: q.get('time') || '', team: team || '', position: position || '' });
-      data.rundown = res.rundown;
-      renderRundown(); renderMics();
-      say('rdMicMsg', 'Drawn again' + (position ? ' for ' + position : '') + '.');
-    } catch (e) { say('rdMicMsg', e.message, true); }
-  }
-  $('rdRedrawAll').addEventListener('click', function () { redraw('', ''); });
-
   // -- LIVE ----------------------------------------------------------------------------------------------------
   $('rdLive').querySelectorAll('button').forEach(function (b) {
     b.addEventListener('click', async function () {
@@ -198,7 +100,45 @@
     })));
     link();
   }
+  // The view, order and people picks are drawn as cards and segmented buttons; the selects behind them hold the value.
+  const VIEWS = {
+    full: ['Order of service and people. Replaces the captions on that screen.', ['', '', '']],
+    side: ['A narrow rundown next to the live captions.', ['a', '']],
+    micboard: ['Only who holds which mic, as big cards.', ['', '', '', '']]
+  };
+  function drawChoices() {
+    const cards = $('rdViewCards');
+    [...$('rdLView').options].forEach(function (o) {
+      const b = el('button', 'pcview'); b.type = 'button'; b.dataset.v = o.value;
+      const thumb = el('div', 'pcthumb');
+      (VIEWS[o.value] ? VIEWS[o.value][1] : ['']).forEach(function (c) { thumb.appendChild(el('i', c)); });
+      b.appendChild(thumb);
+      b.appendChild(el('b', '', o.textContent));
+      b.appendChild(el('span', '', VIEWS[o.value] ? VIEWS[o.value][0] : ''));
+      b.addEventListener('click', function () { $('rdLView').value = o.value; $('rdLView').dispatchEvent(new Event('change')); });
+      cards.appendChild(b);
+    });
+    [['rdLLayout', 'rdLLayoutSeg'], ['rdLCards', 'rdLCardsSeg']].forEach(function (p) {
+      [...$(p[0]).options].forEach(function (o) {
+        const b = el('button', '', o.textContent); b.type = 'button'; b.dataset.v = o.value;
+        b.addEventListener('click', function () { $(p[0]).value = o.value; $(p[0]).dispatchEvent(new Event('change')); });
+        $(p[1]).appendChild(b);
+      });
+    });
+  }
+  function paintChoices() {
+    [['rdLView', 'rdViewCards', 'on'], ['rdLLayout', 'rdLLayoutSeg', 'on'], ['rdLCards', 'rdLCardsSeg', 'on']].forEach(function (p) {
+      $(p[1]).querySelectorAll('[data-v]').forEach(function (b) { b.classList.toggle(p[2], b.dataset.v === $(p[0]).value); });
+    });
+    const full = $('rdLView').value === 'full';      // order and people apply to the full rundown only
+    $('rdLLayoutSeg').closest('.field').hidden = !full;
+    $('rdLCardsSeg').closest('.field').hidden = !full;
+    $('rdLTeam').closest('.field').hidden = !full;
+  }
+  drawChoices();
+
   function link() {
+    paintChoices();
     const q = new URLSearchParams({ rundown: $('rdLView').value });
     if ($('rdLView').value === 'full') { q.set('layout', $('rdLLayout').value); q.set('cards', $('rdLCards').value); }
     if ($('rdLView').value === 'full' && $('rdLTeam').value) q.set('team', $('rdLTeam').value);
@@ -211,6 +151,10 @@
     const pc = C() && C().viewer_url;
     const text = (pc || '') + $('rdLink').textContent;
     if (navigator.clipboard) navigator.clipboard.writeText(text).then(function () { say('rdSetMsg', 'Copied.'); });
+  });
+  $('rdOpen').addEventListener('click', function () {
+    const base = C() && C().viewer_url;
+    if (base) window.open(base + $('rdLink').textContent, '_blank', 'noopener');
   });
   $('rdSetSave').addEventListener('click', async function () {
     try {
@@ -227,18 +171,19 @@
   async function load() {
     const pc = C() && C().planning_center;
     const on = pc && pc.connected && pc.service_types.length && !$('page-planningcenter').hidden;
-    ['rdBox', 'rdMicBox', 'rdSetBox'].forEach(function (id) { $(id).hidden = !on; });
+    ['rdBox', 'pcChBox', 'rdSetBox'].forEach(function (id) { $(id).hidden = !on; });
     if (!on) return;
     try {
       data = await api('/api/admin/planning-center/rundown?' + query().toString());
     } catch (e) { return; }
     renderRundown();
-    if (mics === null) renderMics();
     renderSettings();
+    document.dispatchEvent(new CustomEvent('pc:rundown', { detail: data }));
   }
   $('rdType').addEventListener('change', function () { $('rdTime').value = ''; load(); });
   $('rdTime').addEventListener('change', load);
   window.addEventListener('hashchange', load);
   document.addEventListener('relay:config', load);
+  document.addEventListener('pc:poll', load);
   setInterval(load, 3000);
 })();
