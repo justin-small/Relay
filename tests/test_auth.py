@@ -440,6 +440,7 @@ route("POST", "/api/admin/network/ports/{pid}/forget", "network.manage")
 # alerts
 route("GET", "/api/admin/alerts", "alerts.view")
 route("POST", "/api/admin/alerts", "alerts.manage")
+route("POST", "/api/admin/alerts/test", "alerts.manage")
 route("GET", "/api/admin/alerts/history", "alerts.history")
 # panels
 route("GET", "/api/admin/panels", "panels.view")
