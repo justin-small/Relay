@@ -21,7 +21,7 @@ from datetime import date, datetime, timedelta, timezone
 from typing import Callable
 from zoneinfo import ZoneInfo
 
-from ... import modules as core, timewin
+from ... import modules as core, schedules, timewin
 
 TARGETS = ("screen", "group", "all")
 DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
@@ -75,6 +75,10 @@ def zone(name: str) -> ZoneInfo:
         return ZoneInfo("America/New_York")
 
 
+# Whether a named schedule ("schedule:relay:<id>") is open at a naive wall-clock time in the Relay zone.
+OpenRef = Callable[[str, datetime], bool]
+
+
 def local(now_utc: datetime, tz: str) -> datetime:
     """`now_utc` as a naive wall-clock datetime in the signage zone."""
     if now_utc.tzinfo is None:
@@ -105,6 +109,12 @@ def clean_slot(raw: dict) -> dict:
         raise Refused("Choose a playlist.") from None
     if playlist_id <= 0:
         raise Refused("Choose a playlist.")
+    named = str(raw.get("schedule_ref") or "").strip()
+    if named:
+        if not schedules.ref_id(named):
+            raise Refused("Choose one of the named schedules.")
+        return {"target": target, "target_id": target_id, "playlist_id": playlist_id, "days": "", "start_time": "",
+                "end_time": "", "start_date": "", "end_date": "", "schedule_ref": named}
     start_date = str(raw.get("start_date") or "").strip()
     end_date = str(raw.get("end_date") or "").strip()
     for d in (start_date, end_date):
@@ -139,15 +149,19 @@ def clean_slot(raw: dict) -> dict:
         raise Refused("Choose the days of the week, or a range of dates.")
     return {"target": target, "target_id": target_id, "playlist_id": playlist_id,
             "days": ",".join(str(d) for d in sorted(days)), "start_time": start_time, "end_time": end_time,
-            "start_date": start_date, "end_date": end_date}
+            "start_date": start_date, "end_date": end_date, "schedule_ref": ""}
 
 
 def is_range(slot: dict) -> bool:
-    return bool(slot["start_date"])
+    return bool(slot["start_date"]) and not slot.get("schedule_ref")
 
 
-def _occurrence_start(slot: dict, now: datetime) -> datetime | None:
-    """When the run of `slot` that covers wall-clock `now` began, or None if it does not cover it."""
+def _occurrence_start(slot: dict, now: datetime, open_ref: OpenRef | None = None) -> datetime | None:
+    """When the run of `slot` that covers wall-clock `now` began, or None if it does not cover it. A slot that
+    names a schedule is covered while that schedule is open (its start is `now`: the schedule's own windows are
+    merged, and slots only compare starts to break ties)."""
+    if slot.get("schedule_ref"):
+        return now if open_ref is not None and open_ref(slot["schedule_ref"], now) else None
     days = {int(d) for d in slot["days"].split(",") if d != ""}
     timed = bool(slot["start_time"])
     starts, ends = (timewin.minutes(slot["start_time"]), timewin.minutes(slot["end_time"])) if timed else (0, 0)
@@ -168,14 +182,14 @@ def _level(slot: dict, screen: dict) -> int | None:
     return 2
 
 
-def matching(slots: list[dict], screen: dict, now: datetime) -> list[dict]:
+def matching(slots: list[dict], screen: dict, now: datetime, open_ref: OpenRef | None = None) -> list[dict]:
     """The slots that apply to `screen` at wall-clock `now`, best first."""
     found = []
     for s in slots:
         level = _level(s, screen)
         if level is None:
             continue
-        began = _occurrence_start(s, now)
+        began = _occurrence_start(s, now, open_ref)
         if began is None:
             continue
         found.append(((level, 0 if is_range(s) else 1, -began.timestamp(), s["id"]), s))
@@ -183,8 +197,10 @@ def matching(slots: list[dict], screen: dict, now: datetime) -> list[dict]:
     return [s for _, s in found]
 
 
-def describe_slot(slot: dict) -> str:
-    """"Sun, Wed 9:00 AM-11:30 AM", "Dec 20-Jan 3 all day", for the admin page."""
+def describe_slot(slot: dict, names: dict[str, str] | None = None) -> str:
+    """"Sun, Wed 9:00 AM-11:30 AM", "Dec 20-Jan 3 all day", or the named schedule, for the admin page."""
+    if slot.get("schedule_ref"):
+        return "Schedule: " + (names or {}).get(slot["schedule_ref"], "(deleted)")
     when = f"{timewin.us_clock(slot['start_time'])}-{timewin.us_clock(slot['end_time'])}" if slot["start_time"] else "all day"
     if is_range(slot):
         span = slot["start_date"] if slot["start_date"] == slot["end_date"] else f"{slot['start_date']} to {slot['end_date']}"

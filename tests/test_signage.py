@@ -275,10 +275,10 @@ UTC = timezone.utc
 pl3 = admin.post("/api/admin/signage/playlists", json={"name": "Events"}).json()
 def at(y, m, d, h, mi=0):
     return datetime(y, m, d, h, mi, tzinfo=UTC)
-eq("timezone default", config.get()["signage"]["timezone"], "America/New_York")
-eq("bad timezone refused", admin.put("/api/admin/signage/settings", json={"timezone": "Mars/Base"}).status_code, 400)
+eq("signage keeps no zone of its own since #526", "timezone" in config.get()["signage"], False)
+eq("signage reads the Relay zone", store.tz_name(), config.timezone())
 eq("bad override setting refused", admin.put("/api/admin/signage/settings", json={"override_until": "never"}).status_code, 400)
-eq("timezone saved", admin.put("/api/admin/signage/settings", json={"timezone": "America/Chicago"}).status_code, 200)
+config.save({"timezone": "America/Chicago"})
 eq("override setting saved", admin.put("/api/admin/signage/settings", json={"override_until": "cleared"}).status_code, 200)
 admin.put("/api/admin/signage/settings", json={"override_until": "next_change"})
 scr_now = store.screen_by_slug("lobby-left")
@@ -368,7 +368,7 @@ admin.delete("/api/admin/signage/override?target=all&target_id=0")
 admin.delete(f"/api/admin/signage/slots/{sched['id']}")
 
 # Daylight saving, New York: clocks go forward at 02:00 EST (07:00 UTC) on 2026-03-08 and back on 2026-11-01.
-admin.put("/api/admin/signage/settings", json={"timezone": "America/New_York"})
+config.save({"timezone": "America/New_York"})
 dst = admin.post("/api/admin/signage/slots", json={"target": "screen", "target_id": scr_now["id"], "playlist_id": pl2["id"],
                                                      "days": [0], "start_time": "09:00", "end_time": "10:00"}).json()
 eq("9:00 EST Sunday before the change", plays(scr_now, at(2026, 3, 1, 14, 0))["layer"], "schedule")
@@ -381,7 +381,34 @@ skip = admin.post("/api/admin/signage/slots", json={"target": "screen", "target_
 eq("the skipped hour: nothing at 01:59", plays(scr_now, at(2026, 3, 8, 6, 59))["layer"], "screen")
 eq("the slot starts at the first minute after it", plays(scr_now, at(2026, 3, 8, 7, 0))["layer"], "schedule")
 admin.delete(f"/api/admin/signage/slots/{skip['id']}")
-eq("a player's date follows the signage zone", store.today(at(2026, 11, 15, 3, 0)), "2026-11-14")
+eq("a player's date follows the Relay zone", store.today(at(2026, 11, 15, 3, 0)), "2026-11-14")
+
+# A slot may pick a named schedule from the Schedules page (#526) instead of keeping its own days and times.
+from app import schedules as named_schedules
+config.save({"timezone": "America/Chicago"})
+svc = named_schedules.validate({"name": "Sunday services", "windows": [{"repeat": "weekly", "days": [0], "start_time": "09:00", "stop_time": "11:30"}]})
+config.save({"schedules": [svc]})
+ref = named_schedules.ref(svc["id"])
+eq("a slot naming a schedule that does not exist is refused", admin.post("/api/admin/signage/slots", json={
+    "target": "screen", "target_id": scr_now["id"], "playlist_id": pl2["id"], "schedule_ref": "schedule:relay:nope"}).status_code, 404)
+eq("a slot may not name something that is not a ref", admin.post("/api/admin/signage/slots", json={
+    "target": "screen", "target_id": scr_now["id"], "playlist_id": pl2["id"], "schedule_ref": "bogus"}).status_code, 400)
+named = admin.post("/api/admin/signage/slots", json={"target": "screen", "target_id": scr_now["id"], "playlist_id": pl2["id"],
+                                                       "schedule_ref": ref, "days": [3], "start_time": "01:00", "end_time": "02:00"}).json()
+eq("its own days and times are not kept", (named["days"], named["start_time"], named["schedule_ref"]), ("", "", ref))
+eq("the slot reads as the schedule", store.slots()[0]["summary"], "Schedule: Sunday services")
+eq("it plays while the schedule is open", plays(scr_now, at(2026, 11, 15, 15, 0))["layer"], "schedule")
+eq("and not outside it", plays(scr_now, at(2026, 11, 15, 18, 0))["layer"], "screen")
+eq("the Schedules page is told where it is used", store.schedule_users(ref), [{"where": "Signage", "what": f"Slot on screen {scr_now['name']}"}])
+config.save({"schedules": [dict(svc, windows=[dict(svc["windows"][0], start_time="10:00", stop_time="12:00")])]})
+eq("moving the schedule moves the slot", (plays(scr_now, at(2026, 11, 15, 15, 30))["layer"], plays(scr_now, at(2026, 11, 15, 16, 30))["layer"]),
+   ("screen", "schedule"))
+config.save({"schedules": [dict(svc, enabled=False)]})
+eq("a schedule that is off covers nothing", plays(scr_now, at(2026, 11, 15, 16, 30))["layer"], "screen")
+config.save({"schedules": []})
+eq("a deleted schedule covers nothing, and reads as deleted", (plays(scr_now, at(2026, 11, 15, 16, 30))["layer"],
+                                                                store.slots()[0]["summary"]), ("screen", "Schedule: (deleted)"))
+admin.delete(f"/api/admin/signage/slots/{named['id']}")
 
 def takeover(screen, now):
     return {"playlist_id": pl3["id"], "why": "Alert"}
@@ -393,7 +420,7 @@ try:
     check("an unknown layer is refused", False)
 except ValueError:
     check("an unknown layer is refused", True)
-admin.put("/api/admin/signage/settings", json={"timezone": "America/Chicago"})
+config.save({"timezone": "America/Chicago"})
 admin.put(f"/api/admin/signage/screens/{scr_now['id']}", json={"name": "Lobby left", "slug": "lobby-left", "group_id": grp["id"], "playlist_id": pl["id"]})
 admin.delete(f"/api/admin/signage/groups/{g2['id']}")
 st_admin = admin.get("/api/admin/signage").json()

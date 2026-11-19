@@ -11,9 +11,10 @@ from __future__ import annotations
 
 import logging
 import time
-from datetime import datetime, time as dtime
+from datetime import datetime, time as dtime, timedelta
+from zoneinfo import ZoneInfo
 
-from ... import audit, db, directory, timewin
+from ... import audit, config, db, directory, schedules, timewin
 from . import paging, people, refs
 
 log = logging.getLogger("relay.crew")
@@ -33,13 +34,18 @@ def clean(raw) -> dict:
     except people.Invalid as exc:
         raise paging.Invalid(exc.message) from None
     out = {"team": team, "team_ref": ref, "message": paging.clean_message(raw.get("message")),
-           "enabled": raw.get("enabled") is not False, "minutes": None, "weekday": None, "clock": None}
+           "enabled": raw.get("enabled") is not False, "minutes": None, "weekday": None, "clock": None,
+           "schedule_ref": ""}
     kind = raw.get("kind")
     if kind == "before":
         m = raw.get("minutes")
         if isinstance(m, bool) or not isinstance(m, int) or not 0 <= m <= MAX_BEFORE_MIN:
             raise paging.Invalid(f"Minutes before the service is a whole number from 0 to {MAX_BEFORE_MIN}.")
         out["minutes"] = m
+        named = str(raw.get("schedule_ref") or "").strip()
+        if named and schedules.find(config.get()["schedules"], named) is None:
+            raise paging.Invalid("Choose one of the named schedules.")
+        out["schedule_ref"] = named
     elif kind == "fixed":
         d, c = raw.get("weekday"), raw.get("clock")
         if isinstance(d, bool) or not isinstance(d, int) or not 0 <= d <= 6:
@@ -56,14 +62,16 @@ def clean(raw) -> dict:
 def list_rules() -> list[dict]:
     people.ready()
     rows = db.query(
-        "select c.id, c.team, c.team_ref, c.kind, c.minutes, c.weekday, c.clock, c.message, c.enabled,"
+        "select c.id, c.team, c.team_ref, c.kind, c.minutes, c.weekday, c.clock, c.message, c.enabled, c.schedule_ref,"
         " (select r.fired_ts from crew_calltime_runs r where r.rule_id = c.id order by r.fired_ts desc limit 1) as last_ts,"
         " (select r.people from crew_calltime_runs r where r.rule_id = c.id order by r.fired_ts desc limit 1) as last_people"
         " from crew_calltimes c order by lower(c.team), c.id")
     out = []
     for r in rows:
         f = refs.flags(r["team_ref"], r["team"])
+        named = schedules.find(config.get()["schedules"], r["schedule_ref"]) if r["schedule_ref"] else None
         out.append({**r, "enabled": bool(r["enabled"]), "team": f["name"], "missing": f["missing"],
+                    "schedule_name": named["name"] if named else ("(deleted)" if r["schedule_ref"] else ""),
                     "unmatched": f["unmatched"]})
     return out
 
@@ -71,14 +79,14 @@ def list_rules() -> list[dict]:
 def save(rule: dict, rule_id: int | None = None) -> int:
     people.ready()
     cols = (rule["team"], rule.get("team_ref", ""), rule["kind"], rule["minutes"], rule["weekday"], rule["clock"], rule["message"],
-            int(rule["enabled"]))
+            int(rule["enabled"]), rule.get("schedule_ref", ""))
     if rule_id is None:
         if db.one("select count(*) as n from crew_calltimes")["n"] >= MAX_RULES:
             raise paging.Invalid(f"At most {MAX_RULES} call times.")
         return db.one("insert into crew_calltimes (team, team_ref, kind, minutes, weekday, clock, message, enabled,"
-                      " created_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?) returning id", cols + (db.now(),))["id"]
+                      " schedule_ref, created_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) returning id", cols + (db.now(),))["id"]
     if not db.execute("update crew_calltimes set team = ?, team_ref = ?, kind = ?, minutes = ?, weekday = ?, clock = ?,"
-                      " message = ?, enabled = ? where id = ?", cols + (rule_id,)):
+                      " message = ?, enabled = ?, schedule_ref = ? where id = ?", cols + (rule_id,)):
         raise paging.Invalid("No such call time.", 404)
     return rule_id
 
@@ -95,6 +103,8 @@ def occasions(rule: dict, tracks, now: float, zone) -> list[tuple[str, float, st
     team_today = paging.serving_for(tracks, rule.get("team_ref", ""), rule["team"])
     if not team_today:
         return []              # nobody on that team is serving today
+    if rule["kind"] == "before" and rule.get("schedule_ref"):
+        return _schedule_occasions(rule, now)
     if rule["kind"] == "before":
         out = []
         for tr in tracks:
@@ -109,6 +119,29 @@ def occasions(rule: dict, tracks, now: float, zone) -> list[tuple[str, float, st
     mins = timewin.minutes(rule["clock"])
     at = datetime.combine(local.date(), dtime(mins // 60, mins % 60), tzinfo=zone)
     return [(local.date().isoformat(), at.timestamp(), None)]
+
+
+def _schedule_occasions(rule: dict, now: float) -> list[tuple[str, float, str | None]]:
+    """Each window of the rule's named schedule that starts today (Relay zone), `minutes` before it. A schedule that
+    is gone or off has none, so its call times go quiet rather than fire at the wrong time."""
+    from ... import modules
+
+    sched = schedules.find(config.get()["schedules"], rule["schedule_ref"])
+    if sched is None or not sched["enabled"]:
+        return []
+    tz = ZoneInfo(config.timezone())
+    day = datetime.fromtimestamp(now, tz).date()
+    frm = schedules.localize(day, dtime(0, 0), tz)
+    to = schedules.localize(day + timedelta(days=1), dtime(0, 0), tz)
+    wins = schedules.windows([sched], frm, to, config.timezone(), modules.using("schedules.plan_times"))
+    return [(f"{rule['schedule_ref']}:{w.start.isoformat()}", w.start.timestamp() - rule["minutes"] * 60, None)
+            for w in wins if frm <= w.start < to]
+
+
+def schedule_users(ref: str) -> list[dict]:
+    """The call-time rules aimed at named schedule `ref`, for the Schedules page's "used by"."""
+    return [{"where": "Crew", "what": f"Call time for {r['team']}, {r['minutes']} min before"}
+            for r in list_rules() if r["schedule_ref"] == ref]
 
 
 def next_for(user_id: int, tracks, zone, now: float | None = None) -> dict | None:

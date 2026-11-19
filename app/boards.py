@@ -9,6 +9,8 @@ kept in config.json under "boards", so a backup carries it:
                            "style": {...app/layout.py...}, "props": {"lang": "SOURCE", "lines": 3}}]}],
      "rotation": {"mode": "one" | "rotate" | "schedule" | "follow", "every": 20, "pages": ["p1", "p2"],
                   "schedule": [{"days": "all", "from": "09:00", "to": "10:30", "show": "p2" | "rotate"}],
+              (a row may instead carry "schedule": "schedule:relay:<id>", a named schedule: it covers the board
+              while that schedule is open, and its own days and times are not used)
                   "other": "p1",
                   "follow": {"source": "propresenter", "rules": [{"match": "group", "value": "Sermon", "page": "p3"}],
                              "none": "keep" | "p1"}},
@@ -37,9 +39,10 @@ from __future__ import annotations
 import re
 import uuid
 from datetime import datetime
+from collections.abc import Callable
 from typing import Any, Iterable
 
-from . import layout, text, timewin
+from . import layout, schedules, text, timewin
 
 MAX_BOARDS = 50
 MAX_ITEMS = 100
@@ -302,8 +305,10 @@ def clean_rotation(raw: Any, page_ids: list[str]) -> dict:
     schedule = []
     for r in (raw.get("schedule") if isinstance(raw.get("schedule"), list) else [])[:MAX_RULES]:
         if isinstance(r, dict):
+            named = r.get("schedule")
             schedule.append({"days": r.get("days") if r.get("days") in DAYS else "all",
                              "from": _hhmm(r.get("from"), "09:00"), "to": _hhmm(r.get("to"), "10:00"),
+                             "schedule": named if schedules.ref_id(named) else "",
                              "show": show(r.get("show"))})
     follow = raw.get("follow") if isinstance(raw.get("follow"), dict) else {}
     rules = []
@@ -371,10 +376,26 @@ def _day_ok(days: str, weekday: int) -> bool:
         or (days == "weekends" and weekday in timewin.WEEKEND) or DAY_NUMBERS.get(days) == weekday
 
 
-def schedule_row(board: dict, now: datetime) -> int | None:
+OpenRef = Callable[[str, datetime], bool]
+
+
+def schedule_users(ref: str) -> list[dict]:
+    """The board rows that use named schedule `ref`, for the Schedules page's "used by"."""
+    from . import config
+
+    return [{"where": "Boards", "what": f"{b['name']}: schedule row {i + 1}"}
+            for b in config.get()["boards"] for i, r in enumerate(b["rotation"]["schedule"]) if r.get("schedule") == ref]
+
+
+def schedule_row(board: dict, now: datetime, is_open: OpenRef | None = None) -> int | None:
     """The index of the first schedule row that covers `now` (local time), else None. A row whose end is before its
-    start runs past midnight; then the day it started on is the one checked."""
+    start runs past midnight; then the day it started on is the one checked. A row that names a schedule covers
+    `now` while `is_open(ref, now)` says that schedule is open (a schedule that is gone never covers it)."""
     for i, r in enumerate(board["rotation"]["schedule"]):
+        if r.get("schedule"):
+            if is_open is not None and is_open(r["schedule"], now):
+                return i
+            continue
         days = r["days"]
         if timewin.window_start(now, timewin.minutes(r["from"]), timewin.minutes(r["to"]),
                                 lambda d, days=days: _day_ok(days, timewin.weekday(d))):
@@ -400,7 +421,8 @@ def _rotate(board: dict) -> dict:
             [board["pages"][0]["id"]], "every": rot["every"]}
 
 
-def current(board: dict, now: datetime, follow: dict | None = None, last: str | None = None) -> dict:
+def current(board: dict, now: datetime, follow: dict | None = None, last: str | None = None,
+            is_open: OpenRef | None = None) -> dict:
     """Which page the board shows now: {"page": id, "rotate": {"pages", "every"} or None, "key": what decided it,
     "why": a line for the operator}. A rotation is turned by each screen from the clock, so every screen showing the
     board turns together. `follow` is what the follow source shows now ({"presentation", "group", "label"}), `last`
@@ -418,11 +440,15 @@ def current(board: dict, now: datetime, follow: dict | None = None, last: str | 
     if mode == "rotate":
         return out(ROTATE, "rotate", show_label(board, ROTATE))
     if mode == "schedule":
-        i = schedule_row(board, now)
+        i = schedule_row(board, now, is_open)
         if i is not None:
             row = rot["schedule"][i]
+            if row.get("schedule"):
+                then = show_label(board, rot["other"], True)
+                return out(row["show"], f"s{i}", f"Schedule: {show_label(board, row['show'], True)} while the named "
+                                                 f"schedule is open, then {then}")
             after = now.replace(hour=int(row["to"][:2]), minute=int(row["to"][3:]), second=0, microsecond=0)
-            nxt = schedule_row(board, after)
+            nxt = schedule_row(board, after, is_open)
             then = show_label(board, rot["schedule"][nxt]["show"] if nxt is not None else rot["other"], True)
             return out(row["show"], f"s{i}",
                        f"Schedule: {show_label(board, row['show'], True)} until {row['to']}, then {then}")

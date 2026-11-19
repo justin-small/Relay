@@ -603,3 +603,17 @@ table.audit tr.failed .what { color:var(--err); }
 #page-boards a{color:var(--fg)}
 #page-boards .ctl input,#page-boards .ctl select{width:auto;flex:0 1 auto}
 #page-boards .ctl #bdName{flex:1 1 200px;max-width:280px}
+/* A window of a named schedule in the editor (#526). */
+.schedwin { border-top:1px solid var(--line); padding:var(--sp-3) 0; display:grid; grid-template-columns:repeat(3, minmax(0, 1fr));
+            gap:var(--sp-3); align-items:start; }
+.schedwin .days, .schedwin > button { grid-column:1 / -1; }
+.schedwin > button { justify-self:start; }
+.schedwin .hint { grid-column:span 1; align-self:center; }
+.schedwin .field, .schedwin .datefield { min-width:0; }
+.schedwin .datefield input[type=text] { min-width:0; }
+@media (max-width:700px) { .schedwin { grid-template-columns:1fr; } .schedwin .hint { grid-column:1 / -1; } }
+/* The schedule editor is a card like the sections around it; the flush .formsec rule above gave it no padding. */
+main form#schedForm { background:var(--card); border:1px solid var(--border); border-radius:var(--r); box-shadow:var(--shadow);
+                      padding:var(--sp-4) var(--sp-5); margin:0 0 var(--sp-4); }
+main form#schedForm h3 { margin:0 0 var(--sp-3); }
+main form#schedForm h4 { margin:var(--sp-4) 0 var(--sp-2); }

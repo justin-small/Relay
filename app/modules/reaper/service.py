@@ -120,10 +120,10 @@ def stream_on_air() -> bool:
 
 
 def schedule_open() -> bool:
-    from ...scheduler import Scheduler
+    from ...scheduler import Scheduler, engine_schedules, plan_source
 
     try:
-        return schedules.current_window(config.get().get("schedules") or [], Scheduler.now()) is not None
+        return schedules.current_window(engine_schedules(), Scheduler.now(), config.timezone(), plan_source()) is not None
     except Exception:
         return False
 

@@ -11,7 +11,7 @@ from pathlib import Path
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 
-from ... import audit, config, db, directory, netroute, serving, tls
+from ... import audit, config, db, directory, netroute, schedules, serving, tls
 from .. import listener_port, modules as registry, require, using
 from . import calltimes, chat, checkin, checklists, devices, paging, people, resources
 
@@ -378,6 +378,7 @@ def pages_send(request: Request, payload: dict):
 @router.get("/api/admin/crew/calltimes", dependencies=VIEW)
 def calltimes_get():
     return {"rules": _people_call(calltimes.list_rules), "teams": _people_call(_teams),
+            "schedules": [{"ref": schedules.ref(x["id"]), "name": x["name"]} for x in config.get()["schedules"]],
             "planning_center": registry.enabled("planning_center")}
 
 

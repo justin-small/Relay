@@ -564,9 +564,16 @@
     const sb = el('tbody');
     r.schedule.forEach(function (row, i) {
       const tr = el('tr', r.mode === 'schedule' && currentRow(r.schedule) === i ? 'now' : '');
-      const d = select(days, row.days, 'Days'); d.onchange = function () { row.days = d.value; };
+      // A row takes its own days and times, or follows a named schedule from the Schedules page (#526).
+      const named = (F.schedules || []).map(function (n) { return [n.ref, 'Schedule: ' + n.name]; });
+      const d = select(days.concat(named), row.schedule || row.days, 'Days');
+      d.onchange = function () {
+        if (d.value.indexOf('schedule:') === 0) row.schedule = d.value; else { row.schedule = ''; row.days = d.value; }
+        render();
+      };
       const f = el('input'); f.type = 'time'; f.value = row.from; f.setAttribute('aria-label', 'From'); f.onchange = function () { row.from = f.value; };
       const t = el('input'); t.type = 'time'; t.value = row.to; t.setAttribute('aria-label', 'To'); t.onchange = function () { row.to = t.value; };
+      f.disabled = t.disabled = !!row.schedule;
       const s = select(pageOpts([['rotate', rotLabel()]]), row.show, 'Show'); s.onchange = function () { row.show = s.value; render(); };
       const x = button('×', function () { r.schedule.splice(i, 1); render(); }, 'quiet'); x.setAttribute('aria-label', 'Remove');
       tr.appendChild(el('td', '', d)); tr.appendChild(el('td', '', f)); tr.appendChild(el('td', '', t)); tr.appendChild(el('td', '', s)); tr.appendChild(el('td', '', x));
@@ -578,7 +585,7 @@
     st.appendChild(sb);
     dc.appendChild(st);
     dc.appendChild(el('div', 'gap', button('+ Time', function () {
-      r.schedule.push({ days: 'all', from: '09:00', to: '10:00', show: rot.pages[0].id }); render();
+      r.schedule.push({ days: 'all', from: '09:00', to: '10:00', schedule: '', show: rot.pages[0].id }); render();
     }), el('span', 'hint', 'Rows are read from the top; the first that covers the time decides. A row that ends before it starts runs past midnight.')));
     // Follow ProPresenter
     dc.appendChild(sec('Follow ProPresenter', 'follow'));
@@ -630,6 +637,7 @@
     const num = { sun: 0, mon: 1, tue: 2, wed: 3, thu: 4, fri: 5, sat: 6 };
     const mins = function (s) { const p = s.split(':'); return +p[0] * 60 + +p[1]; };
     for (let i = 0; i < rows.length; i++) {
+      if (rows[i].schedule) continue;       // a named schedule is open or not by the server's reckoning
       const a = mins(rows[i].from), z = mins(rows[i].to);
       let hit, day = wd;
       if (a === z) hit = true; else if (a < z) hit = a <= m && m < z; else { hit = m >= a || m < z; day = m >= a ? wd : (wd + 6) % 7; }

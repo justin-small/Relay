@@ -10,7 +10,6 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
-import os
 from typing import Any
 
 from .. import AdminPage, Health, Listener, Manifest, Module
@@ -32,7 +31,7 @@ class Signage(Module):
         section="Screens",
         guide="https://github.com/justin-small/relay#signage",
     )
-    defaults = {"port": DEFAULT_PORT, "timezone": "", "override_until": "next_change", "alert_screens": "all",
+    defaults = {"port": DEFAULT_PORT, "override_until": "next_change", "alert_screens": "all",
                 "alert_groups": []}
     admin_pages = (AdminPage(
         id="signage", title="Signage", template="admin.html",
@@ -57,9 +56,6 @@ class Signage(Module):
             port = int(raw.get("port") or DEFAULT_PORT)
         except (TypeError, ValueError):
             port = DEFAULT_PORT
-        from ... import schedules
-
-        tz = raw.get("timezone")
         until = raw.get("override_until")
         groups = raw.get("alert_groups")
         groups = sorted({g for g in groups if isinstance(g, int) and not isinstance(g, bool) and g > 0}
@@ -68,7 +64,6 @@ class Signage(Module):
         return {"port": port if 1024 <= port <= 65535 else DEFAULT_PORT,
                 "alert_screens": alert if alert in ("all", "groups", "none") else "all",
                 "alert_groups": groups[:200],
-                "timezone": tz if tz in schedules.TZ_LABELS else schedules.default_timezone(os.environ.get("TZ")),
                 "override_until": until if until in ("next_change", "cleared") else "next_change"}
 
     def configured(self, settings: dict) -> bool:
@@ -86,6 +81,8 @@ class Signage(Module):
         from . import live, media, schedule, sources, store, takeover
 
         sources.register(store.MEDIA_SOURCE)
+        # The Schedules page asks every module which of its slots pick a named schedule (#526).
+        modules.provide("schedules.used.signage", store.schedule_users)
         # What other modules reach signage through (#523): "signage.content" holds the library, the live state and the
         # schedule they read and change. They ask for it while signage is on and cope with None while it is off.
         modules.provide("signage.content", SimpleNamespace(store=store, media=media, live=live, takeover=takeover,
@@ -97,6 +94,7 @@ class Signage(Module):
 
         sources.unregister("media")
         modules.withdraw("signage.content")
+        modules.withdraw("schedules.used.signage")
 
     async def start(self) -> None:
         self._task = asyncio.create_task(self._housekeeping())

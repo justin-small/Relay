@@ -63,6 +63,9 @@
           <div class="field"><label for="ctKind">When</label>
             <select id="ctKind"><option value="before">Before the service</option><option value="fixed">Day and time</option></select></div>
           <div class="field" id="ctBefore"><label for="ctMin">Minutes before</label><input id="ctMin" type="number" min="0" max="1440" value="60"></div>
+          <div class="field" id="ctSchedBox"><label for="ctSched">Before</label>
+            <select id="ctSched"><option value="">Each service time of today's plan</option></select>
+            <span class="hint">Or the start of a named schedule from the Schedules page.</span></div>
           <div class="field" id="ctFixed" hidden><label for="ctDay">Day and time</label>
             <div class="ctl"><select id="ctDay"><option value="0">Sunday</option><option value="1">Monday</option><option value="2">Tuesday</option><option value="3">Wednesday</option><option value="4">Thursday</option><option value="5">Friday</option><option value="6">Saturday</option></select>
             <input id="ctClock" type="time" value="08:00"></div></div>

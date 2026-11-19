@@ -186,7 +186,10 @@ class Crew(Module):
         from ... import modules, users
         from .chat import hub
 
+        from . import calltimes
+
         modules.listen("plan.changed", self._team_changed)
+        modules.provide("schedules.used.crew", calltimes.schedule_users)
         if hub.signed_out not in users.signed_out_hooks:
             users.signed_out_hooks.append(hub.signed_out)
 
@@ -198,6 +201,7 @@ class Crew(Module):
             users.signed_out_hooks.remove(hub.signed_out)
 
         modules.unlisten("plan.changed", self._team_changed)
+        modules.withdraw("schedules.used.crew")
         self._seen = ""
 
     def routers(self) -> list:

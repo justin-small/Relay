@@ -252,7 +252,10 @@ def admin_state():
         "overrides": over,
         "takeovers": taken,
         "views": [{"id": k, "label": v[0]} for k, v in takeover.VIEWS.items()],
+        "timezone": config.timezone(),
         "timezones": [{"id": z, "label": l} for z, l in schedules.US_TIMEZONES],
+        "named_schedules": [{"ref": schedules.ref(s["id"]), "name": s["name"], "summary": schedules.summary(s)}
+                            for s in config.get()["schedules"]],
         "today": store.today(),
     }
 
@@ -308,10 +311,6 @@ def admin_settings(request: Request, payload: dict):
         if port in (serving.viewer_port(cfg["port"]), serving.admin_port(cfg["admin_port"])):
             return JSONResponse({"error": "Relay already uses that port. Choose another."}, status_code=400)
         change["port"] = port
-    if "timezone" in payload:
-        if payload.get("timezone") not in schedules.TZ_LABELS:
-            return JSONResponse({"error": "Pick a US time zone."}, status_code=400)
-        change["timezone"] = payload["timezone"]
     if "override_until" in payload:
         if payload.get("override_until") not in ("next_change", "cleared"):
             return JSONResponse({"error": "A hand-chosen playlist lasts until the next scheduled change or until cleared."},

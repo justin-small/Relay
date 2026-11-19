@@ -15,14 +15,13 @@ import asyncio
 import datetime as dt
 import json
 import logging
-import os
 import re
 import time
 import uuid
 from typing import Any
 from zoneinfo import ZoneInfo
 
-from ... import config, netsock, oauth, schedules, timewin
+from ... import config, netsock, oauth, timewin
 from .service import ACCOUNT, API, KEY, PROVIDER, SCHEDULE, _quota_reset, _reasons, _when, can_write, service
 
 log = logging.getLogger("relay.youtube")
@@ -149,7 +148,7 @@ def stored() -> dict:
 
 
 def zone() -> ZoneInfo:
-    return ZoneInfo(schedules.default_timezone(os.environ.get("TZ")))
+    return ZoneInfo(config.timezone())
 
 
 def watch(vid: str) -> str:

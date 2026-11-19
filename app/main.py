@@ -19,6 +19,7 @@ import threading
 import time
 from dataclasses import asdict
 from datetime import datetime
+from zoneinfo import ZoneInfo
 from urllib.parse import urlencode
 
 from fastapi import Depends, FastAPI, Form, HTTPException, Request, Response
@@ -40,7 +41,8 @@ from . import sidecar
 from .modules import HERE as MODULES_DIR, Module, modules as module_registry, under as _module_under
 from .panels import registry as panel_registry
 from .recorder import recorder
-from .scheduler import scheduler
+from . import scheduler as scheduler_mod
+from .scheduler import plan_source as scheduler_plan_source, scheduler
 from .users import User
 
 logging.basicConfig(
@@ -1896,6 +1898,7 @@ async def admin_state():
         "device_notice": selection_notice(config.get().get("audio_device")),
         "urls": _urls(serving.viewer_port(config.get()["port"])),
         "serving": _serving_info(),
+        "timezones": [{"id": z, "label": label} for z, label in schedules.US_TIMEZONES],
     }
 
 
@@ -2197,6 +2200,7 @@ CONFIG_PERMISSIONS = {
     "default_font_px": "settings.manage",
     "speaking_indicator_vad": "settings.manage",
     "history_lines": "settings.manage",
+    "timezone": "settings.manage",
     "realtime": "settings.manage",
     "openai_api_key": "credentials.manage",
     "backup_passphrase": "credentials.manage",
@@ -2227,6 +2231,12 @@ async def admin_config(request: Request, payload: dict):
         if field in payload:
             updates[field] = payload[field]
 
+    if "timezone" in payload:
+        # The one Relay time zone: every schedule, signage slot, board row and call time reads it.
+        if payload["timezone"] not in schedules.TZ_LABELS:
+            raise HTTPException(status_code=400, detail=schedules.MESSAGES["zone"])
+        updates["timezone"] = payload["timezone"]
+
     key = payload.get("openai_api_key")
     if isinstance(key, str) and key.strip():
         updates["openai_api_key"] = key.strip()
@@ -2247,6 +2257,8 @@ async def admin_config(request: Request, payload: dict):
 
     cfg = config.save(updates)
     hub.history_lines = cfg["history_lines"]
+    if "timezone" in updates:
+        await scheduler.poke()
     # The names of the fields changed, never their values (the OpenAI key is one of them).
     changed = sorted(f for f in CONFIG_PERMISSIONS if f in payload)
     audit.note(request, "settings.change", "Changed settings: " + (", ".join(changed) or "nothing"),
@@ -2587,11 +2599,23 @@ def _schedule_error(exc: ValueError) -> JSONResponse:
     return JSONResponse({"error": schedules.MESSAGES.get(key, "That schedule is not valid.")}, status_code=400)
 
 
-async def _save_schedules(items: list[dict]) -> dict:
-    config.save({"schedules": items})
+async def _save_schedules(items: list[dict], engine_refs: list[str] | None = None) -> dict:
+    updates: dict = {"schedules": items}
+    if engine_refs is not None:
+        updates["engine_schedules"] = engine_refs
+    config.save(updates)
     await scheduler.poke()
     engine._push_status()
     return scheduler.listing()
+
+
+def _engine_refs(sid: str, payload: dict) -> list[str]:
+    """The engine's picked schedules after a save, with `sid` in or out as the payload's `engine` says (unchanged
+    when it does not say)."""
+    refs = [r for r in config.get()["engine_schedules"] if r != schedules.ref(sid)]
+    if payload.get("engine", schedules.ref(sid) in config.get()["engine_schedules"]):
+        refs.append(schedules.ref(sid))
+    return refs
 
 
 @app.get("/api/admin/schedules", dependencies=[Depends(require("schedules.view"))])
@@ -2610,7 +2634,7 @@ async def admin_schedule_create(payload: dict):
     while new["id"] in taken:
         new["id"] = secrets.token_hex(4)
     items.append(new)
-    return await _save_schedules(items)
+    return await _save_schedules(items, _engine_refs(new["id"], payload))
 
 
 @app.put("/api/admin/schedules/{sid}", dependencies=[Depends(require("schedules.manage"))])
@@ -2623,7 +2647,7 @@ async def admin_schedule_update(sid: str, payload: dict):
         items[idx] = schedules.validate(payload, sid=sid)
     except ValueError as exc:
         return _schedule_error(exc)
-    return await _save_schedules(items)
+    return await _save_schedules(items, _engine_refs(sid, payload))
 
 
 @app.delete("/api/admin/schedules/{sid}", dependencies=[Depends(require("schedules.manage"))])
@@ -2632,6 +2656,10 @@ async def admin_schedule_delete(sid: str):
     kept = [s for s in items if s["id"] != sid]
     if len(kept) == len(items):
         raise HTTPException(404, "unknown schedule")
+    # A schedule something still picks is not deleted out from under it: the page lists where it is used.
+    users = scheduler_mod.used_by(sid)
+    if users:
+        return JSONResponse({"error": schedules.MESSAGES["in_use"], "used_by": users}, status_code=409)
     return await _save_schedules(kept)
 
 
@@ -2760,6 +2788,18 @@ def _board_live_for(bid: str) -> dict:
     return _board_live.setdefault(bid, {"screens": {}, "reload": 0, "override": None, "last": None})
 
 
+def _local_now() -> datetime:
+    """Now as naive wall-clock time in the one Relay zone (Settings > System)."""
+    return datetime.now(ZoneInfo(config.timezone())).replace(tzinfo=None)
+
+
+def _schedule_open(ref: str, local_now: datetime) -> bool:
+    """Whether the named schedule `ref` is enabled and open at `local_now` (a board row that names a schedule)."""
+    sched = schedules.find(config.get()["schedules"], ref)
+    return bool(sched and sched["enabled"]
+                and schedules.is_open_local(sched, local_now, config.timezone(), scheduler_plan_source()))
+
+
 def _board_state(board: dict, follow: dict[str, dict] | None = None) -> dict:
     """Which page the board shows now, as boards.current decides it, unless someone chose one by hand from the Boards
     page: that holds until what decides the page changes (the schedule moves on, ProPresenter shows something else)."""
@@ -2769,7 +2809,7 @@ def _board_state(board: dict, follow: dict[str, dict] | None = None) -> dict:
     if rot["mode"] == "follow":
         src = (follow if follow is not None else module_registry.board_follow()).get(rot["follow"]["source"])
         now_pp = src["now"] if src and src["connected"] else None
-    cur = boards.current(board, datetime.now(), now_pp, live["last"])
+    cur = boards.current(board, _local_now(), now_pp, live["last"], _schedule_open)
     ov = live["override"]
     ids = [p["id"] for p in board["pages"]]
     if ov and (ov["key"] != cur["key"] or ov["page"] not in ids):
@@ -2900,6 +2940,7 @@ def _boards_frame() -> dict:
     cat = _board_catalogue()
     return {"boards": config.get()["boards"], "catalogue": list(cat.values()), "templates": boards.templates(cat),
             "days": boards.DAYS, "matches": boards.MATCHES, "max_pages": boards.MAX_PAGES,
+            "schedules": [{"ref": schedules.ref(x["id"]), "name": x["name"]} for x in config.get()["schedules"]],
             "swatches": boards.SWATCHES} | _boards_live()
 
 

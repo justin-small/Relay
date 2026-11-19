@@ -162,7 +162,7 @@
     if (!res.ok) { say(data.detail || data.error || 'That did not work.'); return null; }
     say(''); return data;
   }
-  function whenText(r) { return r.kind === 'before' ? r.minutes + ' min before each service' : DAYS[r.weekday] + ' ' + r.clock; }
+  function whenText(r) { return r.kind === 'before' ? r.minutes + ' min before ' + (r.schedule_ref ? 'the start of \u201c' + r.schedule_name + '\u201d' : 'each service') : DAYS[r.weekday] + ' ' + r.clock; }
   function lastText(r) {
     if (!r.last_ts) return 'Not yet';
     return new Date(r.last_ts * 1000).toLocaleString([], { weekday: 'short', hour: 'numeric', minute: '2-digit' }) +
@@ -170,11 +170,14 @@
   }
   function drawCalls(d) {
     const manage = can('crew.manage'), body = document.querySelector('#ctRules tbody');
-    ['ctTeam', 'ctKind', 'ctMin', 'ctDay', 'ctClock', 'ctMsg', 'ctAdd'].forEach(function (id) { $(id).disabled = !manage; });
+    ['ctTeam', 'ctKind', 'ctMin', 'ctSched', 'ctDay', 'ctClock', 'ctMsg', 'ctAdd'].forEach(function (id) { $(id).disabled = !manage; });
     const pick = $('ctTeam'), was = pick.value; pick.textContent = '';
     d.teams.forEach(function (t) { if (t.missing) return; const o = document.createElement('option'); o.value = t.ref; o.textContent = t.name; pick.appendChild(o); });
     if (was) pick.value = was;
     if (!pick.options.length) { const o = document.createElement('option'); o.value = ''; o.textContent = 'No teams yet: Planning Center is off or has not been read'; pick.appendChild(o); }
+    const sp = $('ctSched'), sw = sp.value; sp.length = 1;
+    (d.schedules || []).forEach(function (x) { const o = document.createElement('option'); o.value = x.ref; o.textContent = 'The start of \u201c' + x.name + '\u201d'; sp.appendChild(o); });
+    sp.value = sw;
     body.textContent = '';
     d.rules.forEach(function (r) {
       const tr = document.createElement('tr');
@@ -191,12 +194,12 @@
       tr.appendChild(act); body.appendChild(tr);
     });
   }
-  function ctKind() { const b = $('ctKind').value === 'before'; $('ctBefore').hidden = !b; $('ctFixed').hidden = b; }
+  function ctKind() { const b = $('ctKind').value === 'before'; $('ctBefore').hidden = !b; $('ctSchedBox').hidden = !b; $('ctFixed').hidden = b; }
   $('ctKind').addEventListener('change', ctKind);
   $('ctAdd').addEventListener('click', async function () {
     const before = $('ctKind').value === 'before';
     const rule = { team_ref: $('ctTeam').value, kind: $('ctKind').value, message: $('ctMsg').value, enabled: true };
-    if (before) rule.minutes = parseInt($('ctMin').value, 10); else { rule.weekday = parseInt($('ctDay').value, 10); rule.clock = $('ctClock').value; }
+    if (before) { rule.minutes = parseInt($('ctMin').value, 10); rule.schedule_ref = $('ctSched').value; } else { rule.weekday = parseInt($('ctDay').value, 10); rule.clock = $('ctClock').value; }
     const d = await ctSend('POST', '/api/admin/crew/calltimes', rule);
     if (d) { $('ctMsg').value = ''; drawCalls(d); }
   });

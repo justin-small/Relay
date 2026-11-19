@@ -76,11 +76,7 @@
     renderTakeover();
     renderMedia();
     if (document.activeElement !== $('sgPort')) $('sgPort').value = data.settings.port;
-    if (document.activeElement !== $('sgZone')) {
-      $('sgZone').textContent = '';
-      for (const z of data.timezones) option($('sgZone'), z.id, z.label, z.id === data.settings.timezone);
-      $('sgOvUntil').value = data.settings.override_until;
-    }
+    if (document.activeElement !== $('sgOvUntil')) $('sgOvUntil').value = data.settings.override_until;
     $('sgPortState').textContent = port.bound ? 'Serving screens on port ' + port.bound + ' now.' : '';
   }
 
@@ -516,8 +512,8 @@
   const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
   let slotEditing = null;      // slot id being edited, 0 for a new one, null when the form is closed
   function zoneLabel() {
-    const z = data.timezones.find(function (x) { return x.id === data.settings.timezone; });
-    return z ? z.label : data.settings.timezone;
+    const z = data.timezones.find(function (x) { return x.id === data.timezone; });
+    return z ? z.label : data.timezone;
   }
   function targetOptions(sel, value) {
     sel.textContent = '';
@@ -578,8 +574,9 @@
     }
   }
   function syncSlotForm() {
-    const range = $('sgSlotKind').value === 'range';
+    const kind = $('sgSlotKind').value, range = kind === 'range', named = kind === 'named';
     $('sgSlotFromBox').hidden = !range; $('sgSlotToBox').hidden = !range;
+    $('sgSlotNamedBox').hidden = !named; $('sgSlotOwn').hidden = named;
     $('sgSlotTimes').hidden = $('sgSlotAllDay').checked;
   }
   function openSlotForm(sl) {
@@ -587,7 +584,10 @@
     $('sgSlotForm').hidden = false;
     targetOptions($('sgSlotTarget'), sl ? sl.target + ':' + sl.target_id : '');
     playlistSelect($('sgSlotPlaylist'), sl ? sl.playlist_id : null, 'Choose a playlist');
-    $('sgSlotKind').value = sl && sl.start_date ? 'range' : 'weekly';
+    const named = $('sgSlotNamed');
+    named.textContent = '';
+    for (const n of data.named_schedules) option(named, n.ref, n.name, sl && sl.schedule_ref === n.ref);
+    $('sgSlotKind').value = sl && sl.schedule_ref ? 'named' : sl && sl.start_date ? 'range' : 'weekly';
     $('sgSlotFrom').value = sl ? sl.start_date : '';
     $('sgSlotTo').value = sl ? sl.end_date : '';
     const days = $('sgSlotDays');
@@ -613,8 +613,10 @@
     ev.preventDefault();
     const parts = $('sgSlotTarget').value.split(':');
     const range = $('sgSlotKind').value === 'range';
+    const named = $('sgSlotKind').value === 'named';
     const allDay = $('sgSlotAllDay').checked;
     const payload = {
+      schedule_ref: named ? $('sgSlotNamed').value : '',
       target: parts[0], target_id: Number(parts[1]), playlist_id: Number($('sgSlotPlaylist').value) || 0,
       days: Array.from($('sgSlotDays').querySelectorAll('input:checked')).map(function (c) { return Number(c.value); }),
       start_date: range ? $('sgSlotFrom').value : '', end_date: range ? $('sgSlotTo').value : '',
@@ -717,7 +719,7 @@
   };
   $('sgSchedSave').onclick = function () {
     call(async function () {
-      await send('PUT', '/api/admin/signage/settings', { timezone: $('sgZone').value, override_until: $('sgOvUntil').value });
+      await send('PUT', '/api/admin/signage/settings', { override_until: $('sgOvUntil').value });
       await refresh();
     });
   };

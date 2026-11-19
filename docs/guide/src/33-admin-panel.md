@@ -283,8 +283,8 @@ Schedules start and stop capture automatically, for example every Sunday from
 1. **Status line.** What happens next, for example **Next start: Wed
    09/23/2026 8:00 PM CDT (Wednesday night).** With no schedules, it says
    capture only starts when you press **Start capture**.
-2. **Schedule.** Its name, and under it a summary: which days, the times and
-   the time zone.
+2. **Schedule.** Its name, and under it a summary of its windows and where it
+   is used.
 3. **Next start.** When it will next start capture. **off** if the schedule
    is switched off.
 4. **On.** Switch a schedule off to skip it without deleting it, for example
@@ -296,22 +296,28 @@ Schedules start and stop capture automatically, for example every Sunday from
 
 ![The form for a new schedule.](images/admin-schedule-form.png){width=100%}
 
-1. **Name (optional).** A label such as *Sunday evening*.
-2. **Repeats.** **Every week**, or **One time only** for a single date.
-3. **Days.** For a weekly schedule, click each day it runs. Selected days turn
-   green.
-4. **Starting on / Ending on (optional).** For a weekly schedule, limit it to
-   a date range, such as a term or a season. Type the date as MM/DD/YYYY, or
-   click the calendar button. For a one-time schedule, this is the date it
-   runs.
-5. **Start time** and **Stop time.** Pick the hour, the minutes and AM or PM.
+1. **Name.** A label such as *Sunday services*. Other pages pick the schedule
+   by this name.
+2. **Windows.** Each window is **Every week** (click each day it runs, and
+   optionally a first and last date, typed as MM/DD/YYYY or picked with the
+   calendar button) or **One date**, with a **start time** and a **stop time**.
    If the stop time is earlier than the start time, it stops the next day, so
-   11:00 PM to 1:00 AM works. The form tells you when that happens.
-6. **Time zone.** Eastern, Central, Mountain, Arizona, Pacific, Alaska or
-   Hawaii. Times follow this zone, including daylight saving: 10:00 AM stays
-   10:00 AM all year.
-7. Click **Add schedule** (or **Save schedule** when editing). **Cancel**
+   11:00 PM to 1:00 AM works. **Add a window** adds another, for example the
+   evening service.
+3. **Also open.** Tick **Around each service time in today's Planning Center
+   plan** to add a window around every service time, with the minutes before
+   and after you choose. It adds nothing while the Planning Center module is off.
+4. **Capture starts and stops on this schedule.** Tick it for the schedules that
+   should start and stop capture. Signage slots, board rotation rows and crew
+   call times pick a schedule by name in their own pages.
+5. **Used by.** When you edit a schedule, the places that use it are listed. Delete
+   is refused while any are listed; pick another schedule there first.
+6. Click **Add schedule** (or **Save changes** when editing). **Cancel**
    closes the form without saving.
+
+Times follow Relay's one time zone, set under **Settings > System**, including
+daylight saving: 10:00 AM stays 10:00 AM all year. Change a schedule here and
+the engine, signage, boards and call times that use it move together.
 
 You should see the new schedule in the list, with its next start time.
 

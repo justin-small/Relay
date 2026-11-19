@@ -65,9 +65,14 @@ DEFAULTS: dict[str, Any] = {
         # machine left running a season of events cannot fill its disk.
         "keep_runs": 20,
     },
-    # Scheduled start/stop windows -- see schedules.py for the shape. Empty by
-    # default: nothing starts on its own until the operator sets a schedule.
+    # The one Relay time zone (#526): signage, Planning Center, YouTube, call times and every schedule use it.
+    # Empty means "not chosen yet": load fills it from the host's TZ (or the zone an older schedule carried).
+    "timezone": "",
+    # Named schedules -- see schedules.py for the shape. Empty by default: nothing starts on its own until the
+    # operator sets a schedule and picks it for the engine.
     "schedules": [],
+    # (`engine_schedules`, the refs "schedule:relay:<id>" that start and stop the engine, is not defaulted here: a
+    # config from before #526 has none, and then every schedule drove the engine, which load keeps.)
     # Named broadcast overlays (/overlay/<id>) -- see overlays.py for the shape.
     "overlays": [],
     # Boards (/board/<slug>, #156): screens built from widgets -- see boards.py for the shape.
@@ -252,8 +257,16 @@ def _normalise(cfg: dict) -> dict:
         "keep_runs": max(1, min(500, int(rec.get("keep_runs") or 20))),
     }
     cfg["recording"] = rec
+    # The one Relay time zone: an older config kept a zone per schedule and one for signage; carry the first over.
+    legacy = schedules.legacy_zone(cfg.get("schedules")) or (cfg.get("signage") or {}).get("timezone")
+    cfg["timezone"] = schedules.clean_zone(cfg.get("timezone") or legacy, os.environ.get("TZ"))
     # A hand-edited schedule that does not validate is dropped, not fatal.
+    had_engine = "engine_schedules" in cfg
     cfg["schedules"] = schedules.clean_list(cfg.get("schedules"))
+    chosen = cfg.get("engine_schedules") if had_engine and isinstance(cfg.get("engine_schedules"), list) else \
+        [schedules.ref(s["id"]) for s in cfg["schedules"]]
+    cfg["engine_schedules"] = [r for r in dict.fromkeys(chosen)
+                               if schedules.find(cfg["schedules"], r) is not None]
     cfg["overlays"] = overlays.clean_list(cfg.get("overlays"), languages.TARGETS)
     cfg["boards"] = boards.clean_list(cfg.get("boards"))
     # Imported here: panels.py reads config, so the module-level import would loop.
@@ -396,6 +409,11 @@ def ensure_blocklist_file() -> Path:
         else:
             path.write_text(redact.FILE_HEADER, encoding="utf-8")
     return path
+
+
+def timezone() -> str:
+    """The Relay time zone (an IANA name from the US list)."""
+    return get()["timezone"]
 
 
 def get() -> dict:
