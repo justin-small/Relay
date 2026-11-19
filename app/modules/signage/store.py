@@ -5,13 +5,15 @@ reload. Calls raise db.Unavailable while the database is down; routes turn that 
 """
 from __future__ import annotations
 
+import json
 import re
 import secrets
 import threading
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
-from ... import config, db
+from ... import config, db, schedules
 from . import live, media, schedule, sources
 
 MIGRATIONS = Path(__file__).resolve().parent / "migrations"
@@ -71,9 +73,8 @@ def _date(v) -> str:
 
 
 def tz_name() -> str:
-    from ...schedules import DEFAULT_TIMEZONE
-
-    return (config.get().get("signage") or {}).get("timezone") or DEFAULT_TIMEZONE
+    """The Relay time zone: signage has no zone of its own since #526."""
+    return config.timezone()
 
 
 def utc_now() -> datetime:
@@ -400,9 +401,50 @@ def default_playlist(screen: dict) -> tuple[int | None, str]:
 def slots() -> list[dict]:
     ready()
     rows = db.query("select * from signage_slots order by id")
+    names = {schedules.ref(s["id"]): s["name"] for s in config.get()["schedules"]}
     for r in rows:
-        r["summary"] = schedule.describe_slot(r)
+        r["summary"] = schedule.describe_slot(r, names)
     return rows
+
+
+def schedule_users(ref: str) -> list[dict]:
+    """The slots that pick named schedule `ref`, for the Schedules page's "used by"."""
+    ready()
+    return [{"where": "Signage", "what": f"Slot on {_target_label(r)}"} for r in slots() if r["schedule_ref"] == ref]
+
+
+def _target_label(slot: dict) -> str:
+    if slot["target"] == "all":
+        return "all screens"
+    if slot["target"] == "screen":
+        row = db.one("select name from signage_screens where id = ?", (slot["target_id"],))
+    else:
+        row = db.one("select name from signage_groups where id = ?", (slot["target_id"],))
+    return f"{slot['target']} {row['name']}" if row else slot["target"]
+
+
+_ref_cache: dict[str, tuple[float, str, list[tuple[datetime, datetime]]]] = {}
+
+
+def open_ref(ref: str, local_now: datetime) -> bool:
+    """Whether named schedule `ref` is enabled and open at naive Relay-zone wall-clock `local_now`.
+
+    Resolving a screen steps minute by minute across a week (`next_change`), so a schedule's windows are worked out
+    once for a few weeks around now and kept for a minute, rather than on every step."""
+    from ... import modules
+
+    sched = schedules.find(config.get()["schedules"], ref)
+    if sched is None or not sched["enabled"]:
+        return False
+    tz, now = config.timezone(), utc_now()
+    stamp = json.dumps([sched, tz], sort_keys=True)
+    held = _ref_cache.get(ref)
+    if held is None or held[1] != stamp or now.timestamp() - held[0] > 60:
+        span = timedelta(days=schedule.HORIZON_DAYS + 3)
+        wins = schedules.windows([sched], now - span, now + span, tz, modules.using("schedules.plan_times"))
+        held = _ref_cache[ref] = (now.timestamp(), stamp, [(w.start, w.stop) for w in wins])
+    at = schedules.localize(local_now.date(), local_now.time().replace(second=0, microsecond=0), ZoneInfo(tz))
+    return any(a <= at < b for a, b in held[2])
 
 
 def _check_target(row: dict) -> None:
@@ -421,7 +463,10 @@ def slot_save(sid: int | None, raw: dict) -> dict:
     except schedule.Refused as exc:
         raise Invalid(str(exc)) from None
     _check_target(row)
-    cols = ("target", "target_id", "playlist_id", "days", "start_time", "end_time", "start_date", "end_date")
+    if row["schedule_ref"] and schedules.find(config.get()["schedules"], row["schedule_ref"]) is None:
+        raise Invalid("That schedule does not exist.", 404)
+    cols = ("target", "target_id", "playlist_id", "days", "start_time", "end_time", "start_date", "end_date",
+            "schedule_ref")
     with db.transaction() as tx:
         if sid is None:
             tx.execute(f"insert into signage_slots ({', '.join(cols)}) values ({', '.join('?' * len(cols))})",
@@ -468,7 +513,7 @@ def override_set(target: str, target_id: int, playlist_id: int, until: str) -> d
         targets = _all_screens_for(target, target_id)
 
         def key(local_now):
-            return tuple(((schedule.matching(rows, s, local_now) or [{"id": 0}])[0]["id"]) for s in targets)
+            return tuple(((schedule.matching(rows, s, local_now, open_ref) or [{"id": 0}])[0]["id"]) for s in targets)
 
         at = schedule.next_change(key, now, tz) if targets else None
         expires = at.strftime("%Y-%m-%dT%H:%M:%SZ") if at else ""
@@ -518,7 +563,7 @@ def resolve(screen: dict, now: datetime | None = None, _slots=None, _overrides=N
         return {"playlist_id": o["playlist_id"], "layer": "override", "until": o["expires_at"],
                 "why": f"Put on by hand for {what}"}
     rows = _slots if _slots is not None else slots()
-    hit = schedule.matching(rows, screen, schedule.local(now, tz_name()))
+    hit = schedule.matching(rows, screen, schedule.local(now, tz_name()), open_ref)
     if hit:
         more = len(hit) - 1
         return {"playlist_id": hit[0]["playlist_id"], "layer": "schedule", "until": "",

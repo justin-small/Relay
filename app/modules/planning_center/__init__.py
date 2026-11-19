@@ -89,6 +89,8 @@ class PlanningCenter(Module):
         modules.provide("plan.starts_at", self._service_starts_at)
         modules.provide("plan.api", planningcenter)
         modules.provide("plan.follower", follower)
+        # Today's service times, for a named schedule that is also open around them (#526).
+        modules.provide("schedules.plan_times", self._service_times)
         modules.provide("plan.rundown_now", rundown_now)
         modules.provide("plan.control", control)
         modules.provide("plan.feed", feed)
@@ -120,10 +122,28 @@ class PlanningCenter(Module):
         if modules.announce_plan_changed in follower.listeners:
             follower.listeners.remove(modules.announce_plan_changed)
         for name in ("plan.service_types", "plan.label", "plan.starts_at", "plan.api", "plan.follower",
-                     "plan.rundown_now", "plan.control", "plan.feed", "directory.pco", "directory.pco.teams"):
+                     "plan.rundown_now", "plan.control", "plan.feed", "directory.pco", "directory.pco.teams",
+                     "schedules.plan_times"):
             modules.withdraw(name)
         modules.withdraw("signage.source." + signagesync.KIND)
         signagesync.memory.forget()
+
+    @staticmethod
+    def _service_times(frm, to) -> list:
+        """The service times of the followed plans that start in [frm, to), as (start, start) UTC pairs."""
+        from datetime import datetime, timezone
+
+        from .pclive import follower
+
+        out = []
+        for tr in follower.tracks.values():
+            for t in (tr.plan or {}).get("times") or []:
+                at = t.get("starts_at")
+                if t.get("type") == "service" and at is not None:
+                    when = datetime.fromtimestamp(at, timezone.utc)
+                    if frm <= when < to:
+                        out.append((when, when))
+        return out
 
     async def start(self) -> None:
         from .pclive import follower

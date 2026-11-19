@@ -116,10 +116,13 @@
           </div>
           <div class="row">
             <div class="field"><label for="sgSlotKind">Repeats</label>
-              <select id="sgSlotKind"><option value="weekly">Every week</option><option value="range">Only on certain dates</option></select></div>
+              <select id="sgSlotKind"><option value="weekly">Every week</option><option value="range">Only on certain dates</option><option value="named">A named schedule</option></select></div>
+            <div class="field" id="sgSlotNamedBox"><label for="sgSlotNamed">Schedule</label><select id="sgSlotNamed"></select>
+              <span class="hint">Made on the Schedules page; change it there and this slot moves with it.</span></div>
             <div class="field" id="sgSlotFromBox"><label for="sgSlotFrom">First day</label><input id="sgSlotFrom" type="date"></div>
             <div class="field" id="sgSlotToBox"><label for="sgSlotTo">Last day</label><input id="sgSlotTo" type="date"></div>
           </div>
+          <div id="sgSlotOwn">
           <fieldset id="sgSlotDays" style="border:0;padding:0;margin:0 0 8px"><legend class="muted">Days (none ticked on a date range means every day)</legend></fieldset>
           <label class="check"><input type="checkbox" id="sgSlotAllDay" checked> All day</label>
           <div class="row" id="sgSlotTimes" hidden>
@@ -127,6 +130,7 @@
             <div class="field"><label for="sgSlotEnd">Until</label><input id="sgSlotEnd" type="time"></div>
           </div>
           <p class="note">An end time earlier than the start time runs into the next day.</p>
+          </div>
           <div class="ctl">
             <button type="submit" class="primary">Save slot</button>
             <button type="button" id="sgSlotCancel">Cancel</button>
@@ -207,12 +211,11 @@
       <section>
         <h3>Schedule</h3>
         <div class="row" style="align-items:flex-end">
-          <div class="field"><label for="sgZone">Time zone</label><select id="sgZone"></select></div>
           <div class="field"><label for="sgOvUntil">A playlist put on by hand lasts</label>
             <select id="sgOvUntil"><option value="next_change">Until the next scheduled change</option><option value="cleared">Until it is cleared</option></select></div>
           <div class="ctl sg-manage"><button type="button" class="primary" id="sgSchedSave">Save</button></div>
         </div>
-        <p class="note">Slots and dates follow this zone, and keep the same clock time through daylight saving changes.</p>
+        <p class="note">Slots and dates follow Relay's time zone (Settings, System), and keep the same clock time through daylight saving changes.</p>
       </section>
       <section>
         <h3>Alerts on screens</h3>

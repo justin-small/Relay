@@ -65,7 +65,7 @@ for uid, pid, name in ((mike.id, "501", "Mike Smith"), (sara.id, "502", "Sara Le
 print("checking a rule")
 good = {"team": "Camera", "kind": "before", "minutes": 60, "message": "Camera call time"}
 eq("a rule is cleaned", calltimes.clean(good), {"team": "Camera", "team_ref": "", "message": "Camera call time", "enabled": True,
-                                                "minutes": 60, "weekday": None, "clock": None, "kind": "before"})
+                                                "minutes": 60, "weekday": None, "clock": None, "schedule_ref": "", "kind": "before"})
 for label, bad in (("no team", {**good, "team": " "}), ("no words", {**good, "message": ""}),
                    ("too long", {**good, "message": "x" * 141}), ("minutes as text", {**good, "minutes": "60"}),
                    ("minutes as a bool", {**good, "minutes": True}), ("minutes too big", {**good, "minutes": 1441}),
@@ -110,6 +110,39 @@ eq("both serve the 11:00", sorted(r["user_id"] for r in db.query(
 eq("the rehearsal is not a service", db.one("select count(*) as n from crew_pages")["n"] - sent_before, 2)
 last = [r for r in calltimes.list_rules() if r["id"] == rid][0]
 eq("the list shows the last run", (last["last_people"], last["last_ts"] is not None), (2, True))
+
+print("minutes before a named schedule (#526)")
+from app import schedules as sched_mod  # noqa: E402
+from app.modules.crew import MODULE as _crew  # noqa: E402,F401
+
+config.save({"timezone": "America/New_York"})
+svc = sched_mod.validate({"name": "Sunday services", "windows": [
+    {"repeat": "weekly", "days": [0], "start_time": "09:00", "stop_time": "10:30"},
+    {"repeat": "weekly", "days": [0], "start_time": "11:00", "stop_time": "12:30"}]})
+config.save({"schedules": [svc]})
+ref = sched_mod.ref(svc["id"])
+named = calltimes.clean({**good, "schedule_ref": ref})
+eq("a rule may name a schedule", (named["kind"], named["schedule_ref"]), ("before", ref))
+try:
+    calltimes.clean({**good, "schedule_ref": "schedule:relay:nope"})
+    eq("a schedule that is not there is refused", False, True)
+except paging.Invalid:
+    eq("a schedule that is not there is refused", True, True)
+nid = calltimes.save(named)
+rule = [r for r in calltimes.list_rules() if r["id"] == nid][0]
+eq("the list names the schedule", (rule["schedule_ref"], rule["schedule_name"]), (ref, "Sunday services"))
+eq("each window of today starts a call time, minutes before it",
+   [(round(at - SUN), tid) for _o, at, tid in calltimes.occasions(rule, TRACKS, SUN, ZONE)], [(0, None), (7200, None)])
+eq("the call times of a schedule are reported to the Schedules page", calltimes.schedule_users(ref),
+   [{"where": "Crew", "what": f"Call time for {rule['team']}, 60 min before"}])
+eq("a day the schedule has no window is quiet", calltimes.occasions(rule, TRACKS, SUN + 86400, ZONE), [])
+config.save({"schedules": [dict(svc, windows=[dict(svc["windows"][0], start_time="10:00", stop_time="11:00")])]})
+eq("moving the schedule moves the call time",
+   [round(at - SUN) for _o, at, _t in calltimes.occasions(rule, TRACKS, SUN, ZONE)], [3600])
+config.save({"schedules": [dict(svc, enabled=False)]})
+eq("a schedule that is off pages nobody", calltimes.occasions(rule, TRACKS, SUN, ZONE), [])
+calltimes.delete(nid)
+config.save({"schedules": []})
 
 print("a fixed day and time")
 at = datetime(2026, 11, 15, 8, 30, tzinfo=ZONE).timestamp()

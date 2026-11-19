@@ -319,11 +319,24 @@
   });
   $('clearBackupPass').addEventListener('click', function () { saveBackupPass(null); });
 
+  // The one Relay time zone (#526), set under System.
+  function relayZoneOptions(zones) {
+    const sel = $('relayZone');
+    sel.textContent = '';
+    zones.forEach(function (z) {
+      const o = document.createElement('option');
+      o.value = z.id; o.textContent = z.label;
+      sel.appendChild(o);
+    });
+    sel.value = cfg.timezone;
+  }
+
   $('saveAppearance').addEventListener('click', async function () {
     try {
       const body = await post('/api/admin/config', {
         default_font_px: parseInt($('font').value, 10),
         history_lines: parseInt($('history').value, 10),
+        timezone: $('relayZone').value,
         realtime: {
           segment_idle_s: parseFloat($('segIdle').value),
           segment_max_idle_s: parseFloat($('segMaxIdle').value)
@@ -533,18 +546,18 @@
     } catch (e) { alertMsg(e.message); }
   });
 
-  /* ---- schedules ----
-     Stored ISO (YYYY-MM-DD) and 24-hour (HH:MM) on the server; shown and typed
-     here in US formats only -- MM/DD/YYYY and h:mm AM/PM -- whatever locale the
-     browser is set to. The server formats every instant it reports, in the
-     schedule's own zone, so the panel never does time-zone maths itself. */
+  /* ---- schedules (#526) ----
+     Named schedules: each a set of weekly windows and one-off dates, optionally also open around the Planning Center
+     plan times. Stored ISO (YYYY-MM-DD) and 24-hour (HH:MM) on the server; shown and typed here in US formats only --
+     MM/DD/YYYY and h:mm AM/PM -- whatever locale the browser is set to. The server formats every instant it reports,
+     in Relay's one time zone, so the panel never does time-zone maths itself. */
   const DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-  let schedTimezones = [];
-  let schedDefaultTz = 'America/New_York';
   let schedEditing = null;   // id being edited, '' for a new one, null when closed
   let schedItems = [];
   let schedSig = '';
   let schedStatus = null;
+  let schedWindows = [];     // the editor's window rows: { read(), box }
+  let schedPlanOn = true;    // whether the Planning Center module can supply plan times
 
   function usToIso(text) {
     const m = /^\s*(\d{1,2})\/(\d{1,2})\/(\d{4})\s*$/.exec(text || '');
@@ -560,123 +573,160 @@
     return m ? m[2] + '/' + m[3] + '/' + m[1] : '';
   }
 
-  // Three selects per time: hour 1-12, minute in 5s, AM/PM. A minute that is
-  // not a multiple of five (a hand-edited config) is added so it round-trips.
-  function buildTimePicker(box) {
-    const opts = function (list) {
-      const sel = document.createElement('select');
-      list.forEach(function (o) {
-        const el = document.createElement('option');
-        el.value = o[0]; el.textContent = o[1];
-        sel.appendChild(el);
-      });
-      return sel;
-    };
-    const hours = [];
-    for (let h = 1; h <= 12; h++) hours.push([String(h), String(h)]);
-    const mins = [];
-    for (let m = 0; m < 60; m += 5) mins.push([String(m).padStart(2, '0'), ':' + String(m).padStart(2, '0')]);
-    const h = opts(hours), m = opts(mins), ap = opts([['AM', 'AM'], ['PM', 'PM']]);
-    h.setAttribute('aria-label', 'Hour');
-    m.setAttribute('aria-label', 'Minute');
-    ap.setAttribute('aria-label', 'AM or PM');
-    box.appendChild(h); box.appendChild(m); box.appendChild(ap);
+  // A US-format time ("9:30 AM") typed in a text box, with the browser's own clock picker behind a button, like the
+  // date fields: the format never follows the browser's locale. The value is "HH:MM", 24-hour.
+  function timeToText(hhmm) {
+    const m = /^(\d{2}):(\d{2})$/.exec(hhmm || '');
+    if (!m) return '';
+    const h = parseInt(m[1], 10);
+    return ((h % 12) || 12) + ':' + m[2] + ' ' + (h < 12 ? 'AM' : 'PM');
+  }
+  function textToTime(text) {
+    const m = /^\s*(\d{1,2})(?::(\d{2}))?\s*([ap])?\.?m?\.?\s*$/i.exec(text || '');
+    if (!m) return null;
+    let h = parseInt(m[1], 10);
+    const min = m[2] === undefined ? 0 : parseInt(m[2], 10);
+    if (min > 59) return null;
+    if (m[3]) {
+      if (h < 1 || h > 12) return null;
+      h = (h % 12) + (m[3].toLowerCase() === 'p' ? 12 : 0);
+    } else if (h > 23) return null;
+    return String(h).padStart(2, '0') + ':' + String(min).padStart(2, '0');
+  }
+  function buildTimeField(label) {
+    const el = relayUI.el;
+    const text = el('input'); text.type = 'text'; text.maxLength = 8; text.placeholder = 'h:mm AM';
+    text.setAttribute('aria-label', label);
+    const native = el('input', 'nativedate'); native.type = 'time'; native.tabIndex = -1; native.setAttribute('aria-hidden', 'true');
+    const btn = el('button', 'datepick', '\u{1F552}'); btn.type = 'button'; btn.setAttribute('aria-label', 'Pick a time');
+    btn.addEventListener('click', function () {
+      native.value = textToTime(text.value) || '';
+      try { if (native.showPicker) native.showPicker(); else native.click(); } catch (e) { text.focus(); }
+    });
+    const listeners = [];
+    const changed = function () { listeners.forEach(function (fn) { fn(); }); };
+    native.addEventListener('change', function () { if (native.value) { text.value = timeToText(native.value); changed(); } });
+    // Tidy "930a" or "21:30" into "9:30 AM" once the operator leaves the field.
+    text.addEventListener('blur', function () { const t = textToTime(text.value); if (t) text.value = timeToText(t); changed(); });
     return {
-      set: function (hhmm) {
-        const parts = (hhmm || '10:00').split(':');
-        const hh = parseInt(parts[0], 10), mm = parts[1];
-        h.value = String((hh % 12) || 12);
-        if (![].some.call(m.options, function (o) { return o.value === mm; })) {
-          const el = document.createElement('option');
-          el.value = mm; el.textContent = ':' + mm;
-          m.appendChild(el);
-        }
-        m.value = mm;
-        ap.value = hh < 12 ? 'AM' : 'PM';
-      },
-      get: function () {
-        let hh = parseInt(h.value, 10) % 12;
-        if (ap.value === 'PM') hh += 12;
-        return String(hh).padStart(2, '0') + ':' + m.value;
-      },
-      onChange: function (fn) { [h, m, ap].forEach(function (el) { el.addEventListener('change', fn); }); }
+      box: el('div', 'datefield', text, btn, native),
+      set: function (hhmm) { text.value = timeToText(hhmm || '10:00'); },
+      get: function () { return textToTime(text.value); },
+      onChange: function (fn) { listeners.push(fn); }
     };
   }
 
-  const startPicker = buildTimePicker($('schedStart'));
-  const stopPicker = buildTimePicker($('schedStop'));
-
-  function checkOvernight() {
-    $('schedOvernight').hidden = !(stopPicker.get() < startPicker.get());
-  }
-  startPicker.onChange(checkOvernight);
-  stopPicker.onChange(checkOvernight);
-
-  // The day chips.
-  DAY_NAMES.forEach(function (name, i) {
-    const lab = document.createElement('label');
-    lab.innerHTML = '<input type="checkbox" value="' + i + '"><span>' + name + '</span>';
-    $('schedDays').appendChild(lab);
-  });
-
-  // The calendar button opens the browser's own date picker and writes the
-  // choice back in US format.
-  document.querySelectorAll('.datepick').forEach(function (btn) {
-    const text = $(btn.dataset.for);
-    const native = btn.parentNode.querySelector('.nativedate');
+  // A US-format text date with the browser's own calendar behind a button, so the format never follows the locale.
+  function buildDateField(label, optional) {
+    const el = relayUI.el;
+    const text = el('input'); text.type = 'text'; text.inputMode = 'numeric'; text.maxLength = 10; text.placeholder = 'MM/DD/YYYY';
+    const native = el('input', 'nativedate'); native.type = 'date'; native.tabIndex = -1; native.setAttribute('aria-hidden', 'true');
+    const btn = el('button', 'datepick', '\u{1F4C5}'); btn.type = 'button'; btn.setAttribute('aria-label', 'Pick a date');
     btn.addEventListener('click', function () {
       native.value = usToIso(text.value) || '';
-      try {
-        if (native.showPicker) native.showPicker(); else native.click();
-      } catch (e) { text.focus(); }
+      try { if (native.showPicker) native.showPicker(); else native.click(); } catch (e) { text.focus(); }
     });
-    native.addEventListener('change', function () {
-      if (native.value) text.value = isoToUs(native.value);
-    });
+    native.addEventListener('change', function () { if (native.value) text.value = isoToUs(native.value); });
     // Tidy 1/5/2027 into 01/05/2027 once the operator leaves the field.
-    text.addEventListener('blur', function () {
-      const iso = usToIso(text.value);
-      if (iso) text.value = isoToUs(iso);
-    });
-  });
-
-  function syncRepeat() {
-    const once = $('schedRepeat').value === 'once';
-    $('schedDaysField').hidden = once;
-    $('schedEndDateField').hidden = once;
-    $('schedStartDateLabel').textContent = once ? 'Date' : 'Starting on (optional)';
+    text.addEventListener('blur', function () { const iso = usToIso(text.value); if (iso) text.value = isoToUs(iso); });
+    text.setAttribute('aria-label', label + (optional ? ' (optional)' : ''));
+    return { box: el('div', 'datefield', text, btn, native), text: text };
   }
-  $('schedRepeat').addEventListener('change', syncRepeat);
 
-  function renderTzOptions() {
-    const sel = $('schedTz');
-    sel.innerHTML = '';
-    schedTimezones.forEach(function (z) {
-      const o = document.createElement('option');
-      o.value = z.id; o.textContent = z.label;
-      sel.appendChild(o);
+  // One window of the editor: weekly (days, optional first and last date) or one date, and its start and stop time.
+  function buildWindowRow(w) {
+    const el = relayUI.el;
+    const repeat = el('select');
+    [['weekly', 'Every week'], ['once', 'One date']].forEach(function (o) {
+      const op = el('option', '', o[1]); op.value = o[0]; repeat.appendChild(op);
     });
+    repeat.value = w.repeat; repeat.setAttribute('aria-label', 'Repeats');
+    const days = el('div', 'days');
+    DAY_NAMES.forEach(function (name, i) {
+      const lab = el('label'), cb = el('input'); cb.type = 'checkbox'; cb.value = String(i);
+      cb.checked = (w.days || []).indexOf(i) !== -1;
+      lab.appendChild(cb); lab.appendChild(el('span', '', name)); days.appendChild(lab);
+    });
+    const from = buildDateField('Starting on', true), until = buildDateField('Ending on', true);
+    from.text.value = isoToUs(w.start_date); until.text.value = isoToUs(w.end_date);
+    const start = buildTimeField('Start time'), stop = buildTimeField('Stop time');
+    start.set(w.start_time); stop.set(w.stop_time);
+    const overnight = el('span', 'hint');
+    const sync = function () {
+      const once = repeat.value === 'once';
+      days.hidden = once; untilField.hidden = once;
+      fromField.firstChild.textContent = once ? 'Date' : 'Starting on (optional)';
+      // The words are added and taken away (a hidden .hint would still be drawn: components.css sets its display).
+      overnight.textContent = start.get() && stop.get() && stop.get() < start.get() ? 'The stop time is earlier than the start time, so it stops the next day.' : '';
+    };
+    repeat.addEventListener('change', sync); start.onChange(sync); stop.onChange(sync);
+    const remove = el('button', 'quiet danger', 'Remove this window'); remove.type = 'button';
+    const f = relayUI.field;
+    const fromField = f('Starting on', from.box), untilField = f('Ending on', until.box);
+    const box = el('div', 'schedwin',
+      f('Repeats', repeat), fromField, untilField,
+      days,
+      f('Start time', start.box), f('Stop time', stop.box), overnight,
+      remove);
+    const row = {
+      box: box,
+      read: function () {
+        const once = repeat.value === 'once';
+        const out = { repeat: repeat.value, start_time: start.get(), stop_time: stop.get(), days: [], start_date: null, end_date: null };
+        if (!out.start_time || !out.stop_time) throw new Error('Enter the times like 9:30 AM.');
+        const a = from.text.value.trim(), z = until.text.value.trim();
+        if (a) { out.start_date = usToIso(a); if (!out.start_date) throw new Error('Enter the date as MM/DD/YYYY.'); }
+        if (once) {
+          if (!out.start_date) throw new Error('Pick the date this runs, as MM/DD/YYYY.');
+        } else {
+          days.querySelectorAll('input:checked').forEach(function (cb) { out.days.push(parseInt(cb.value, 10)); });
+          if (!out.days.length) throw new Error('Pick at least one day.');
+          if (z) { out.end_date = usToIso(z); if (!out.end_date) throw new Error('Enter the end date as MM/DD/YYYY.'); }
+        }
+        if (out.start_time === out.stop_time) throw new Error('Start and stop time must differ.');
+        return out;
+      }
+    };
+    remove.addEventListener('click', function () {
+      schedWindows = schedWindows.filter(function (r) { return r !== row; });
+      box.remove();
+    });
+    sync();
+    return row;
   }
+
+  function addWindowRow(w) {
+    const row = buildWindowRow(w || { repeat: 'weekly', days: [0], start_date: null, end_date: null, start_time: '10:00', stop_time: '12:00' });
+    schedWindows.push(row);
+    $('schedWindows').appendChild(row.box);
+  }
+
+  function syncPlan() {
+    $('schedPlanTimes').hidden = !$('schedPlan').checked;
+    $('schedPlanOff').hidden = !($('schedPlan').checked && !schedPlanOn);
+  }
+  $('schedPlan').addEventListener('change', syncPlan);
+  $('schedAddWindow').addEventListener('click', function () { addWindowRow(); });
 
   function openSchedForm(item) {
     schedEditing = item ? item.id : '';
-    const s = item || {
-      name: '', repeat: 'weekly', days: [0], start_date: null, end_date: null,
-      start_time: '10:00', stop_time: '12:00', timezone: lastTz(), enabled: true
-    };
-    $('schedName').value = s.name || '';
-    $('schedRepeat').value = s.repeat;
-    $('schedDays').querySelectorAll('input').forEach(function (cb) {
-      cb.checked = s.days.indexOf(parseInt(cb.value, 10)) !== -1;
+    $('schedName').value = item ? item.name : '';
+    $('schedWindows').textContent = '';
+    schedWindows = [];
+    (item ? item.windows : [null]).forEach(function (w) { addWindowRow(w); });
+    $('schedPlan').checked = !!(item && item.plan_times);
+    $('schedPlanBefore').value = item ? item.plan_before : 30;
+    $('schedPlanAfter').value = item ? item.plan_after : 120;
+    $('schedEngine').checked = item ? !!item.engine : true;
+    const used = $('schedUsed');
+    used.textContent = '';
+    ((item && item.used_by) || []).forEach(function (u) {
+      const li = document.createElement('li'); li.textContent = u.where + ': ' + u.what; used.appendChild(li);
     });
-    $('schedStartDate').value = isoToUs(s.start_date);
-    $('schedEndDate').value = isoToUs(s.end_date);
-    startPicker.set(s.start_time);
-    stopPicker.set(s.stop_time);
-    $('schedTz').value = s.timezone;
+    $('schedUsedBox').hidden = !(item && item.used_by && item.used_by.length);
+    $('schedFormTitle').textContent = item ? 'Edit ' + item.name : 'New schedule';
     $('schedSave').textContent = item ? 'Save changes' : 'Add schedule';
-    syncRepeat();
-    checkOvernight();
+    syncPlan();
     $('schedForm').hidden = false;
     $('schedAdd').hidden = true;
     $('schedName').focus();
@@ -688,43 +738,17 @@
     $('schedAdd').hidden = false;
   }
 
-  // A new schedule starts on the zone the operator used last.
-  function lastTz() {
-    return schedItems.length ? schedItems[schedItems.length - 1].timezone : schedDefaultTz;
-  }
-
   function readSchedForm() {
-    const repeat = $('schedRepeat').value;
-    const payload = {
-      name: $('schedName').value.trim(),
-      repeat: repeat,
-      start_time: startPicker.get(),
-      stop_time: stopPicker.get(),
-      timezone: $('schedTz').value,
-      days: [],
-      start_date: null,
-      end_date: null
+    const name = $('schedName').value.trim();
+    if (!name) throw new Error('Give the schedule a name.');
+    return {
+      name: name,
+      windows: schedWindows.map(function (r) { return r.read(); }),
+      plan_times: $('schedPlan').checked,
+      plan_before: parseInt($('schedPlanBefore').value, 10),
+      plan_after: parseInt($('schedPlanAfter').value, 10),
+      engine: $('schedEngine').checked
     };
-    const startText = $('schedStartDate').value.trim();
-    const endText = $('schedEndDate').value.trim();
-    if (startText) {
-      payload.start_date = usToIso(startText);
-      if (!payload.start_date) throw new Error('Enter the date as MM/DD/YYYY.');
-    }
-    if (repeat === 'once') {
-      if (!payload.start_date) throw new Error('Pick the date this runs, as MM/DD/YYYY.');
-    } else {
-      $('schedDays').querySelectorAll('input:checked').forEach(function (cb) {
-        payload.days.push(parseInt(cb.value, 10));
-      });
-      if (!payload.days.length) throw new Error('Pick at least one day.');
-      if (endText) {
-        payload.end_date = usToIso(endText);
-        if (!payload.end_date) throw new Error('Enter the end date as MM/DD/YYYY.');
-      }
-    }
-    if (payload.start_time === payload.stop_time) throw new Error('Start and stop time must differ.');
-    return payload;
   }
 
   $('schedAdd').addEventListener('click', function () { openSchedForm(null); });
@@ -735,12 +759,8 @@
     let payload;
     try { payload = readSchedForm(); } catch (e) { alertMsg(e.message); return; }
     const editing = schedEditing;
-    if (editing) {
-      const prev = schedItems.filter(function (s) { return s.id === editing; })[0];
-      payload.enabled = prev ? prev.enabled : true;
-    } else {
-      payload.enabled = true;
-    }
+    const prev = editing ? schedItems.filter(function (s) { return s.id === editing; })[0] : null;
+    payload.enabled = prev ? prev.enabled : true;
     try {
       const body = await api(editing ? '/api/admin/schedules/' + encodeURIComponent(editing)
                                      : '/api/admin/schedules', {
@@ -766,7 +786,7 @@
   }
 
   async function schedDelete(item) {
-    if (!(await relayUI.confirm('Delete the schedule "' + (item.name || item.summary) + '"?'))) return;
+    if (!(await relayUI.confirm('Delete the schedule "' + item.name + '"?'))) return;
     try {
       const body = await api('/api/admin/schedules/' + encodeURIComponent(item.id), { method: 'DELETE' });
       if (schedEditing === item.id) closeSchedForm();
@@ -775,13 +795,17 @@
     } catch (e) { alertMsg(e.message); }
   }
 
+  function usedText(list) {
+    const by = {};
+    list.forEach(function (u) { by[u.where] = (by[u.where] || 0) + 1; });
+    return Object.keys(by).map(function (k) { return by[k] > 1 ? k + ' (' + by[k] + ')' : k; }).join(', ');
+  }
+
   function renderSchedules(info) {
-    if (info.timezones && !schedTimezones.length) {
-      schedTimezones = info.timezones;
-      renderTzOptions();
-    }
-    if (info.default_timezone) schedDefaultTz = info.default_timezone;
     schedItems = info.schedules || [];
+    schedPlanOn = !!info.plan_times;
+    const zone = (info.timezones || []).filter(function (z) { return z.id === info.timezone; })[0];
+    $('schedZone').textContent = zone ? zone.label : (info.timezone || '');
     if (info.status) renderSchedStatus(info.status);
 
     const tb = $('schedList');
@@ -796,16 +820,18 @@
       const what = document.createElement('td');
       const name = document.createElement('div');
       name.className = 'schedname';
-      name.textContent = s.name || s.summary;
+      name.textContent = s.name;
       if (s.live && s.enabled) name.insertAdjacentHTML('beforeend', ' <span class="ok">· live window</span>');
       else if (s.expired) name.insertAdjacentHTML('beforeend', ' <span class="muted">· finished</span>');
       what.appendChild(name);
-      if (s.name) {
-        const sum = document.createElement('div');
-        sum.className = 'schedsum';
-        sum.textContent = s.summary;
-        what.appendChild(sum);
-      }
+      const sum = document.createElement('div');
+      sum.className = 'schedsum';
+      sum.textContent = s.summary;
+      what.appendChild(sum);
+      const use = document.createElement('div');
+      use.className = 'schedsum';
+      use.textContent = s.used_by.length ? 'Used by: ' + usedText(s.used_by) : 'Not used anywhere yet';
+      what.appendChild(use);
       tr.appendChild(what);
 
       const next = document.createElement('td');
@@ -2743,6 +2769,7 @@
       document.dispatchEvent(new CustomEvent('relay:config'));
       $('font').value = cfg.default_font_px;
       $('history').value = cfg.history_lines;
+      relayZoneOptions(state.timezones || []);
       $('segIdle').value = cfg.realtime.segment_idle_s;
       $('segMaxIdle').value = cfg.realtime.segment_max_idle_s;
       $('noise').value = cfg.realtime.noise_reduction || '';

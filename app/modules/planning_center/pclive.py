@@ -27,12 +27,11 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-import os
 from datetime import date, datetime, time as dtime, timedelta, timezone
 from typing import Any, Callable
 from zoneinfo import ZoneInfo
 
-from ... import config, schedules
+from ... import config
 from . import planningcenter as pc
 
 log = logging.getLogger("relay.pclive")
@@ -138,7 +137,7 @@ class Follower:
         return await asyncio.get_running_loop().run_in_executor(None, fn, *args)
 
     def fallback_zone(self) -> ZoneInfo:
-        return ZoneInfo(schedules.default_timezone(os.environ.get("TZ")))
+        return ZoneInfo(config.timezone())
 
     def next_due(self) -> float:
         """Epoch of the next call this follower wants to make (for tests and pacing)."""

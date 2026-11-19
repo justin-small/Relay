@@ -230,6 +230,16 @@ with section("what decides the page shown"):
        boards.current(b, datetime(2026, 11, 23, 1, 0))["page"]), (True, "p3"))
     rotating = boards.current(b, datetime(2026, 11, 23, 23, 0))
     eq("a rotating row turns through its pages", rotating["rotate"], {"pages": ["p2", "p1"], "every": 5})
+    # A row may name a schedule from the Schedules page (#526) instead of its own days and times.
+    ref = "schedule:relay:svc1"
+    named = {**b, "rotation": {**rot, "mode": "schedule", "schedule": [{"days": "all", "from": "09:00", "to": "10:00", "schedule": ref, "show": "p2"}]}}
+    open_now = lambda r, at: r == ref and at.hour == 11
+    got = boards.current(named, sun11, None, None, open_now)
+    eq("a row naming a schedule shows its page while that schedule is open", (got["page"], got["key"]), ("p2", "s0"))
+    eq("and the other page outside it", boards.current(named, sun930, None, None, open_now)["page"], "p3")
+    eq("with no way to ask, a named row never covers", boards.current(named, sun11)["page"], "p3")
+    eq("a ref that is not one is dropped when saved", boards.clean_rotation(
+        {"mode": "schedule", "schedule": [{"schedule": "bogus", "show": "p1"}, {"schedule": ref, "show": "p1"}]}, ["p1"])["schedule"][0]["schedule"], "")
     b["rotation"]["mode"] = "follow"
     eq("following: a rule matches whatever the case and spaces", boards.current(b, sun11, {"group": "sermon"})["page"], "p2")
     eq("nothing matches: the page stays", boards.current(b, sun11, {"group": "Worship"}, last="p3")["page"], "p3")

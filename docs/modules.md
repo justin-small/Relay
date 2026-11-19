@@ -856,6 +856,26 @@ Import the function (`from ...text import same_name`) rather than the module whe
 import store`: use `modules.using("signage.content")`, see [Reaching another module](#reaching-another-module)); a use that is right is marked `# allow-shared: <why>` on its
 line. Its baseline, `tests/shared_concepts_baseline.txt`, may only shrink.
 
+## Named schedules and the Relay time zone
+
+One time zone, set under **Settings > System** (config `timezone`, `config.timezone()`), is read by every schedule,
+signage slot, board row, call time, YouTube rule and Planning Center fallback (#526, part of #521). A module has no zone
+setting of its own; an older one is carried over on load.
+
+A **named schedule** (`app/schedules.py`, config `schedules`) is a name plus weekly windows and one-off dates, and can also
+be open around each service time of today's Planning Center plan (`plan_times`, with minutes before and after). The
+Schedules page edits them. A feature that runs on a schedule stores a **ref**, `schedule:relay:<id>` (`schedules.ref(id)`,
+`ref_id`, `find`), in place of its own days and times, and asks `schedules.is_open_local(...)` or `schedules.windows(...)`:
+
+- the engine's start and stop (`engine_schedules`, a list of refs), a signage slot (`signage_slots.schedule_ref`), a
+  board rotation row (`schedule`) and a crew call time (`crew_calltimes.schedule_ref`, N minutes before each window
+  starting today) pick one. Each keeps its own runner and rules for what to do when the window starts.
+- The plan times come from Planning Center as `modules.provide("schedules.plan_times", fn)` (`fn(frm, to)` gives UTC
+  `(start, start)` pairs); core passes `scheduler.plan_source()` and copes with None while the module is off.
+- A module that picks schedules says where, so the Schedules page can list it and refuse to delete one in use: provide
+  `schedules.used.<module>` (a function taking the ref and returning `[{"where", "what"}]`) in `attach()` and withdraw it
+  in `detach()`. Core's own users (the engine, boards) are listed by `scheduler.used_by`.
+
 ## Who a person is in another product
 
 `users` is the one person record, and `app/directory.py` (#524, part of the shared-concepts epic #521) says which person
