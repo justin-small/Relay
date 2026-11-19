@@ -201,7 +201,7 @@
     $('nmRefresh').disabled = true;
     root.fetch('/api/admin/network/map' + (force ? '?refresh=1' : ''), { cache: 'no-store' })
       .then(function (r) { if (!r.ok) throw new Error('refused'); return r.json(); })
-      .then(function (d) { data = d; paint(); })
+      .then(function (d) { data = d; paint(); if (canManage) loadPicks(); })
       .catch(function () { $('nmStatus').textContent = 'The map could not be read. Try Look again now.'; })
       .then(function () { loading = false; $('nmRefresh').disabled = false; });
   }
@@ -221,6 +221,7 @@
     paintRacks();
     paintMap();
     paintRows();
+    paintCables();
     if (!places) paintPlaces();
   }
 
@@ -512,6 +513,15 @@
         sv('path', { d: 'M' + x1 + ' ' + y1 + 'C' + x1 + ' ' + ym + ' ' + x2 + ' ' + ym + ' ' + x2 + ' ' + y2,
                      'class': 'nm-link' + (l.ndi ? ' ndi' : '') + (l.dante ? ' dante' : '') + (slow ? ' slow' : '') }, svg);
       });
+      (data.cables || []).forEach(function (c) {              // a cable between two devices drawn here, apart from the tree
+        var a = at[c.a.device], b = at[c.b.device];
+        if (!a || !b || a === b) return;
+        var tree = lay.links.some(function (l) { return (l.from === a.id && l.to === b.id) || (l.from === b.id && l.to === a.id); });
+        if (tree && c.reported) return;                         // a reported uplink is the line already drawn
+        var p = sv('path', { d: 'M' + (a.x + a.w / 2) + ' ' + (a.y + a.h / 2) + 'L' + (b.x + b.w / 2) + ' ' + (b.y + b.h / 2),
+                             'class': 'nm-cable' + (c.missing ? ' missing' : '') }, svg);
+        sv('title', {}, p, cableText(c));
+      });
       lay.nodes.forEach(function (n) {
         var d = n.ref, warn = d && portOf(d) && portOf(d).warn;
         var cls = 'nm-node ' + n.cls + (d && d.ndi ? ' ndi' : '') + (d && d.dante ? ' dante' : '') + (warn ? ' warn' : '') +
@@ -609,6 +619,68 @@
       body.appendChild(tr);
     });
     if (!body.children.length) { var r = el('tr'), c = el('td', 'muted', 'No devices match.'); c.colSpan = 8; r.appendChild(c); body.appendChild(r); }
+  }
+
+  /* ---------------------------------------------------------------- Cables */
+  var gearPicks = null;                   // the gear with its ports, to pick the ends of a new cable from
+  function cableEnd(e) { return (e.gear ? e.gear + ' · ' : '') + e.shown; }
+  function cableText(c) { return cableEnd(c.a) + ' to ' + cableEnd(c.b) + (c.note ? ' (' + c.note + ')' : ''); }
+  function sourceLabel(id) {
+    var s = (data.sources || []).filter(function (x) { return x.id === id; })[0];
+    return s ? s.label : id;
+  }
+  function cableErr(t) { $('nmCableErr').textContent = t || ''; $('nmCableErr').hidden = !t; }
+  function paintCables() {
+    var body = $('nmCableRows');
+    if (!body) return;
+    body.textContent = '';
+    (data.cables || []).forEach(function (c) {
+      var tr = el('tr');
+      tr.appendChild(el('td', '', cableEnd(c.a)));
+      tr.appendChild(el('td', '', cableEnd(c.b)));
+      var by = el('td', 'muted', c.reported ? sourceLabel(c.by) : 'An operator');
+      if (c.missing) by.appendChild(el('span', 'badge err', 'Not reported now'));
+      tr.appendChild(by);
+      var nt = el('td'), inp = el('input', 'nmnote');
+      inp.value = c.note || ''; inp.placeholder = 'Add a note'; inp.maxLength = 300; inp.disabled = !canManage;
+      inp.setAttribute('aria-label', 'Note for the cable ' + cableText({ a: c.a, b: c.b }));
+      inp.addEventListener('change', function () {
+        cableErr('');
+        send('POST', '/api/admin/network/cables/' + c.id + '/note', { text: inp.value.trim() })
+          .then(function (r) { data.cables = r.cables; paintCables(); }).catch(function (e) { cableErr(e.message); });
+      });
+      nt.appendChild(inp); tr.appendChild(nt);
+      var act = el('td');
+      if (canManage && !c.reported) {
+        var rm = el('button', '', 'Remove'); rm.type = 'button';
+        rm.addEventListener('click', function () {
+          cableErr('');
+          send('DELETE', '/api/admin/network/cables/' + c.id).then(function (r) { data.cables = r.cables; paintCables(); paintMap(); })
+            .catch(function (e) { cableErr(e.message); });
+        });
+        act.appendChild(rm);
+      }
+      tr.appendChild(act);
+      body.appendChild(tr);
+    });
+    if (!body.children.length) { var r = el('tr'), c0 = el('td', 'muted', 'No cables recorded yet.'); c0.colSpan = 5; r.appendChild(c0); body.appendChild(r); }
+  }
+  function paintPicks() {
+    ['nmCableA', 'nmCableB'].forEach(function (id) {
+      var sel = $(id), cur = sel.value;
+      sel.textContent = '';
+      sel.appendChild(el('option', { value: '', text: id === 'nmCableA' ? 'One end…' : 'The other end…' }));
+      (gearPicks || []).forEach(function (g) {
+        var grp = el('optgroup'); grp.label = g.name;
+        g.ports.forEach(function (p) { grp.appendChild(el('option', { value: p.ref, text: p.shown + (p.missing ? ' (not reported now)' : '') })); });
+        sel.appendChild(grp);
+      });
+      sel.value = cur;
+    });
+  }
+  function loadPicks() {
+    send('GET', '/api/admin/network/cables').then(function (r) { gearPicks = r.gear; data.cables = r.cables; paintPicks(); paintCables(); paintMap(); })
+      .catch(function () { /* the list on the page still shows what the last read had */ });
   }
 
   function showErr(t) { $('nmErr').textContent = t || ''; $('nmErr').hidden = !t; }
@@ -731,6 +803,15 @@
       if (!Object.keys(body.notes).length) return;
       send('POST', '/api/admin/network/map/labels', body).then(function (st) { data.notes = st.notes; notesDirty = {}; paintRows(); })
         .catch(function (e) { showErr(e.message); });
+    });
+    ['nmCableA', 'nmCableB', 'nmCableNote', 'nmAddCable'].forEach(function (id) { $(id).disabled = !canManage; });
+    $('nmAddCable').addEventListener('click', function () {
+      cableErr('');
+      var a = $('nmCableA').value, b = $('nmCableB').value;
+      if (!a || !b) { cableErr('Pick a port for each end of the cable.'); return; }
+      send('POST', '/api/admin/network/cables', { a: a, b: b, note: $('nmCableNote').value.trim() })
+        .then(function (r) { data.cables = r.cables; $('nmCableA').value = $('nmCableB').value = $('nmCableNote').value = ''; paintCables(); paintMap(); })
+        .catch(function (e) { cableErr(e.message); });
     });
     $('nmAddPlace').disabled = $('nmSavePlaces').disabled = $('nmNewPlace').disabled = !canManage;
     $('nmAddPlace').addEventListener('click', function () {

@@ -13,12 +13,13 @@ from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse
 
 from ... import audit, db
+from ... import cables as core_cables
 from ...text import same_name
 from .. import require
 from . import discovery, videohub
-from .service import (DEFAULT_NAME, DEFAULT_PORT as DEFAULT_PORTS, DRAWINGS, KIND_NAMES, KINDS, MAX_CABLES, MAX_DEVICES,
-                      MAX_PRESETS, NAME_MAX, NOTE_MAX, PLACES, PORT_RE, cables, clean_device, clean_host, clean_offset,
-                      devices, new_id, save_devices, service, set_note)
+from .service import (DEFAULT_NAME, DEFAULT_PORT as DEFAULT_PORTS, DRAWINGS, KIND_NAMES, KINDS, MAX_DEVICES,
+                      MAX_PRESETS, NAME_MAX, NOTE_MAX, PLACES, PORT_RE, clean_device, clean_host, clean_offset,
+                      connector, devices, new_id, save_devices, service, set_note)
 
 router = APIRouter()
 VIEW = [Depends(require("blackmagic.view"))]
@@ -193,8 +194,9 @@ async def admin_note(request: Request, payload: dict):
 
 @router.post("/api/admin/blackmagic/cables", dependencies=MANAGE)
 async def admin_cable_add(request: Request, payload: dict):
-    """A cable between two connectors: `{"a": [device, port], "b": [device, port]}`."""
-    items, wires = devices(), cables()
+    """A cable between two connectors: `{"a": [device, port], "b": [device, port]}`. It is a core cable (app/cables.py), so
+    the Network page shows it too."""
+    items = devices()
     ids = {d["id"] for d in items}
     ends = []
     for key in ("a", "b"):
@@ -203,25 +205,28 @@ async def admin_cable_add(request: Request, payload: dict):
                 and PORT_RE.fullmatch(end[1])):
             return _bad("Pick a connector on a device in the list for each end.")
         ends.append([end[0], end[1]])
-    if ends[0] == ends[1]:
-        return _bad("A cable joins two different connectors.")
-    pair = sorted(map(tuple, ends))
-    if any(sorted((tuple(c["a"]), tuple(c["b"]))) == pair for c in wires):
-        return _bad("That cable is already there.", 409)
-    if len(wires) >= MAX_CABLES:
-        return _bad(f"Relay keeps at most {MAX_CABLES} cables.")
-    save_devices(items, wires + [{"id": new_id(), "a": ends[0], "b": ends[1]}])
+    try:
+        rows = [await asyncio.to_thread(connector, items, e) for e in ends]
+        if not all(rows):
+            return _bad("Pick a connector on a device in the list for each end.")
+        await asyncio.to_thread(core_cables.add, rows[0]["id"], rows[1]["id"])
+    except core_cables.Refused as exc:
+        return _bad(str(exc), 409 if exc.key == "exists" else 400)
+    except db.Unavailable:
+        return _bad("The database is down, so cables cannot be saved right now.", 503)
     audit.note(request, "blackmagic.cable_add", "Added a cable between Blackmagic connectors",
                detail={"a": ends[0], "b": ends[1]})
     return service.snapshot()
 
 
 @router.delete("/api/admin/blackmagic/cables/{cable_id}", dependencies=MANAGE)
-async def admin_cable_remove(request: Request, cable_id: str):
-    wires = cables()
-    if not any(c["id"] == cable_id for c in wires):
-        return _bad("That cable is not in the list.", 404)
-    save_devices(devices(), [c for c in wires if c["id"] != cable_id])
+async def admin_cable_remove(request: Request, cable_id: int):
+    try:
+        await asyncio.to_thread(core_cables.remove, cable_id)
+    except core_cables.Refused as exc:
+        return _bad(str(exc), 404 if exc.key == "no_cable" else 409)
+    except db.Unavailable:
+        return _bad("The database is down, so cables cannot be removed right now.", 503)
     audit.note(request, "blackmagic.cable_remove", "Removed a cable between Blackmagic connectors")
     return service.snapshot()
 

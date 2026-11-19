@@ -814,6 +814,21 @@ window.relayCan = function (perm) { return window.RELAY_ME.permissions.indexOf(p
         <div class="ctl nmsave"><button type="button" class="primary" id="nmSaveNotes">Save notes</button><span class="muted">A name is saved when you press Enter. Names and notes are kept with the device&rsquo;s MAC, so they survive a new address; nothing is sent to the device.</span></div>
         <div class="err" id="nmErr" hidden></div>
       </section>
+      <section id="nmCables">
+        <h3>Cables</h3>
+        <p class="note">A cable joins any two ports on any gear, and every page that draws cables draws this list: one recorded on the Blackmagic page shows here, and the other way round. A cable a module reports, such as a device on a UniFi switch port, cannot be removed here; add a note to it instead.</p>
+        <div class="tablescroll"><table class="dt nmcables">
+          <thead><tr><th>One end</th><th>The other end</th><th>Recorded by</th><th>Note</th><th></th></tr></thead>
+          <tbody id="nmCableRows"><tr><td colspan="5" class="muted">Loading&hellip;</td></tr></tbody>
+        </table></div>
+        <div class="nmtoolbar nmaddcable">
+          <select id="nmCableA" aria-label="One end of the new cable"></select>
+          <select id="nmCableB" aria-label="The other end of the new cable"></select>
+          <input type="text" id="nmCableNote" maxlength="300" placeholder="Note (optional)" aria-label="Note for the new cable">
+          <button type="button" class="primary" id="nmAddCable">Add cable</button>
+        </div>
+        <div class="err" id="nmCableErr" hidden></div>
+      </section>
     </div>
 
     <div class="nmpane" data-pane="computer" role="tabpanel">

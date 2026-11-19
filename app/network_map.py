@@ -28,9 +28,9 @@ import ipaddress
 import logging
 import re
 import time
-from typing import Any, Callable
+from typing import Any, Callable, Iterable
 
-from . import db, gear, mdns, netinfo, ports, screens
+from . import cables, db, gear, mdns, netinfo, ports, screens
 
 log = logging.getLogger("relay")
 
@@ -283,7 +283,8 @@ async def snapshot(registry: Any, force: bool = False) -> dict:
     devices = merge([{"id": s["id"], "label": s["label"], "stale": s["stale"], "devices": s["devices"]} for s in live])
     assign_ports(devices, relay_ports)
     try:
-        await asyncio.to_thread(adopt_devices, devices)
+        await asyncio.to_thread(adopt_devices, devices, [s["id"] for s in sources if s["on"] and s["kind"] == "module"
+                                                         and not s["error"] and not s["stale"]])
     except db.Unavailable:
         log.warning("network map: the database is down, so gear was not recorded")
     result = {
@@ -387,9 +388,9 @@ def reported_ports(d: dict) -> list[dict]:
             for p in d.get("ports", [])]
 
 
-def adopt_devices(devices: list[dict]) -> None:
-    """Every device heard from just now is gear (made the first time, found again by its MAC or address), and a switch's
-    ports are its core ports."""
+def adopt_devices(devices: list[dict], live: Iterable[str] = ()) -> None:
+    """Every device heard from just now is gear (made the first time, found again by its MAC or address), a switch's
+    ports are its core ports, and the cables the modules in `live` report (a device on a switch port) are core cables."""
     for d in devices:
         keys = device_keys(d)
         if not keys or d.get("stale_by"):
@@ -401,6 +402,45 @@ def adopt_devices(devices: list[dict]) -> None:
                 ports.sync(g["id"], reported_ports(d))
         except (gear.Refused, ports.Refused):
             log.warning("network map: too much gear to keep %s", d["name"])
+    try:
+        sync_cables(devices, list(live))
+    except (gear.Refused, ports.Refused, cables.Refused):
+        log.warning("network map: too many cables to keep")
+
+
+UPLINK_KEY = "eth"           # the one network port of a device that reports no ports of its own
+
+
+def _uplink_port(d: dict, g: dict) -> dict | None:
+    """The port a device is cabled by: the one its source flags as the uplink when it lists ports, else its one network port."""
+    if d["kind"] in SWITCHES and d.get("ports"):
+        flagged = next((p for p in d["ports"] if p.get("uplink")), None)
+        return ports.by_key(g["id"], str(flagged["port"])) if flagged else None
+    return ports.adopt(g["id"], UPLINK_KEY, kind="eth", direction="both", gear_name="Ethernet")
+
+
+def sync_cables(devices: list[dict], live: list[str]) -> None:
+    """A module that says which switch port a device is on reports a cable from that port to the device. It is made the
+    first time and marked missing when the module stops saying so; an operator can add a note to it, not remove it."""
+    if not live:
+        return
+    every = gear.by_keys()
+    by_id = {d.get("id"): d for d in devices}
+    found: dict[str, list[tuple[int, int]]] = {s: [] for s in live}
+    for d in devices:
+        by = next((s for s in d.get("seen_by", []) if s in found and s not in d.get("stale_by", [])), "")
+        parent = by_id.get(d.get("parent") or "")
+        if not by or parent is None or d.get("uplink_port") is None:
+            continue
+        pg = next((every[k] for k in device_keys(parent) if k in every), None)
+        cg = next((every[k] for k in device_keys(d) if k in every), None)
+        if pg is None or cg is None:
+            continue
+        top, mine = ports.by_key(pg["id"], str(d["uplink_port"])), _uplink_port(d, cg)
+        if top and mine:
+            found[by].append((top["id"], mine["id"]))
+    for by, pairs in found.items():
+        cables.sync(by, pairs)
 
 
 def _gear_for(map_id: str) -> dict | None:
@@ -573,6 +613,39 @@ def stored_ports(live: list[dict], rows: list[dict]) -> list[dict]:
     return out
 
 
+def cable_rows() -> list[dict]:
+    """Every core cable as the page draws it. Each end names its port, the gear it is on and, when the Network page knows
+    that gear, its map id (`device`)."""
+    names, ids = {}, {}
+    for g in gear.listing():
+        names[g["id"]] = g["name"]
+        ids[g["id"]] = _map_id(g["keys"])
+    out = []
+    for c in cables.listing():
+        ends = {side: {"ref": c[side]["ref"], "key": c[side]["key"], "shown": c[side]["shown"], "gear": names.get(c[side]["gear"], ""),
+                       "gear_ref": c[side]["gear_ref"], "device": ids.get(c[side]["gear"], "")} for side in ("a", "b")}
+        out.append({"id": c["id"], "ref": c["ref"], "by": c["by"], "reported": c["reported"], "note": c["note"],
+                    "missing": c["missing"], **ends})
+    return out
+
+
+def cabling_gear() -> list[dict]:
+    """The gear that has ports, each with its ports: what an operator picks from to record a cable."""
+    rows = gear.listing()
+    listed = ports.of_gears(g["id"] for g in rows)
+    return [{"ref": g["ref"], "name": g["name"], "kind": g["kind"],
+             "ports": [{"ref": p["ref"], "key": p["key"], "shown": p["shown"], "kind": p["kind"], "missing": p["missing"]}
+                       for p in listed[g["id"]]]} for g in rows if listed.get(g["id"])]
+
+
+def add_cable(a: Any, b: Any, note: Any = "") -> dict:
+    """An operator's cable between two port refs. Refused (cables.Refused) when either is not a port."""
+    pa, pb = ports.by_ref(a), ports.by_ref(b)
+    if pa is None or pb is None:
+        raise cables.Refused("no_port")
+    return cables.add(pa["id"], pb["id"], note=note)
+
+
 def labelled(result: dict) -> dict:
     """The snapshot with the operator's names applied (the device's own name kept in own_name), the notes and closets,
     and what needs a look. A copy: the cached snapshot is left as the sources gave it."""
@@ -594,7 +667,7 @@ def labelled(result: dict) -> dict:
         devices.append(d)
     out = dict(result)
     out.update(devices=devices, names=st["names"], notes=st["notes"], places=st["places"],
-               issues=issues(devices, result["sources"]))
+               issues=issues(devices, result["sources"]), cables=cable_rows())
     return out
 
 

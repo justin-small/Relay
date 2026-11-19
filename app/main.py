@@ -32,7 +32,7 @@ from jinja2 import ChoiceLoader, FileSystemLoader, PrefixLoader
 from . import alerts as alertsmod
 from . import backup as backupmod
 from . import announce as announcemod
-from . import alerthistory, audiobus, audit, boards, config, db, devices, exporting, importdocker, languages, metering, mixreport, netinfo, network_map, netroute, overlays, panelfw, panels, prefs, redact, schedules, screens, serving, setupcode, streamstatus, tally, tls, users
+from . import alerthistory, audiobus, audit, boards, cables, config, db, devices, exporting, importdocker, languages, metering, mixreport, netinfo, network_map, netroute, overlays, panelfw, panels, prefs, redact, schedules, screens, serving, setupcode, streamstatus, tally, tls, users
 from .alerts import alerts
 from . import engine as engine_mod
 from .engine import TRANSCRIPTION_STREAM, TRANSLATION_STREAM, demo_mode, engine
@@ -236,6 +236,9 @@ AUDIT_ROUTES = {
     "admin_module_test": ("module.test", "Ran a module's test"),
     "admin_network_route": ("network.route", "Changed which network port some traffic uses"),
     "admin_network_test": ("network.test", "Tested a traffic route"),
+    "admin_network_cable_add": ("network.cable_add", "Recorded a cable between two ports"),
+    "admin_network_cable_note": ("network.cable_note", "Changed a note on a cable"),
+    "admin_network_cable_remove": ("network.cable_remove", "Removed a cable between two ports"),
     "admin_network_forget": ("network.forget", "Forgot a network port"),
     "admin_network_labels": ("network.labels", "Changed device names or notes on the network map"),
     "admin_network_places": ("network.places", "Changed where the network gear is"),
@@ -2018,6 +2021,61 @@ async def admin_network_places(payload: dict, request: Request):
     audit.note(request, "network.places", f"Set {len(saved['places'])} places for the network gear",
                detail={"places": [p["name"] for p in saved["places"]]})
     return saved
+
+
+@app.get("/api/admin/network/cables", dependencies=[Depends(require("network.view"))])
+async def admin_network_cables():
+    """Every cable between two ports, and the gear with its ports to pick from. A cable is core (app/cables.py): the
+    Network page and a module's page that records one show the same list."""
+    def read():
+        return {"cables": network_map.cable_rows(), "gear": network_map.cabling_gear()}
+    try:
+        return await asyncio.to_thread(read)
+    except db.Unavailable:
+        return JSONResponse({"error": "The database is down, so cables cannot be read right now."}, status_code=503)
+
+
+@app.post("/api/admin/network/cables", dependencies=[Depends(require("network.manage"))])
+async def admin_network_cable_add(payload: dict, request: Request):
+    """Record a cable between two ports: {"a": "port:relay:1", "b": "port:relay:2", "note": ""}."""
+    try:
+        made = await asyncio.to_thread(network_map.add_cable, payload.get("a"), payload.get("b"), payload.get("note", ""))
+    except cables.Refused as exc:
+        return JSONResponse({"error": str(exc)}, status_code=409 if exc.key == "exists" else 400)
+    except db.Unavailable:
+        return JSONResponse({"error": "The database is down, so cables cannot be saved right now."}, status_code=503)
+    audit.note(request, "network.cable_add", "Recorded a cable between two ports",
+               detail={"a": made["a"]["ref"], "b": made["b"]["ref"]})
+    return {"cable": made["ref"], "cables": network_map.cable_rows()}
+
+
+@app.post("/api/admin/network/cables/{cid}/note", dependencies=[Depends(require("network.manage"))])
+async def admin_network_cable_note(cid: int, payload: dict, request: Request):
+    """The note on a cable, one an operator recorded or one a module reports. Empty text clears it."""
+    text = payload.get("text", "")
+    if not isinstance(text, str) or len(text) > cables.NOTE_MAX:
+        return JSONResponse({"error": f"A note is up to {cables.NOTE_MAX} characters."}, status_code=400)
+    try:
+        await asyncio.to_thread(cables.set_note, cid, text)
+    except cables.Refused as exc:
+        return JSONResponse({"error": str(exc)}, status_code=404)
+    except db.Unavailable:
+        return JSONResponse({"error": "The database is down, so notes cannot be saved right now."}, status_code=503)
+    audit.note(request, "network.cable_note", "Changed a note on a cable", target=cables.ref(cid))
+    return {"cables": network_map.cable_rows()}
+
+
+@app.delete("/api/admin/network/cables/{cid}", dependencies=[Depends(require("network.manage"))])
+async def admin_network_cable_remove(cid: int, request: Request):
+    """Remove a cable an operator recorded. A cable a module reports (UniFi's uplinks) cannot be removed here."""
+    try:
+        await asyncio.to_thread(cables.remove, cid)
+    except cables.Refused as exc:
+        return JSONResponse({"error": str(exc)}, status_code=404 if exc.key == "no_cable" else 409)
+    except db.Unavailable:
+        return JSONResponse({"error": "The database is down, so cables cannot be removed right now."}, status_code=503)
+    audit.note(request, "network.cable_remove", "Removed a cable between two ports", target=cables.ref(cid))
+    return {"cables": network_map.cable_rows()}
 
 
 @app.post("/api/admin/network/classes/{cid}", dependencies=[Depends(require("network.manage"))])

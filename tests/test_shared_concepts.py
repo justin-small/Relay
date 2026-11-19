@@ -85,6 +85,10 @@ GEAR_TABLE = re.compile(r"^\s*create\s+table\s+(?:if\s+not\s+exists\s+)?\w*(?:ge
 # (app/ports.py, migration 0012_ports.sql) on the device's gear, whichever module reports it.
 PORT_TABLE = re.compile(r"^\s*create\s+table\s+(?:if\s+not\s+exists\s+)?\w*(?:ports?|connectors?)\s*\(", re.I)
 CONNECTOR_JS = re.compile(r"""\bport\(\s*['"][\w-]+['"]\s*,\s*['"](?:eth|sfp|sdi|hdmi|xlr|trs|mini|usb|iec|barrel|dc)['"]""")
+# A module table or page script that is its own list of cables (#541): a cable is one core cable (app/cables.py, migration
+# 0013_cables.sql) between two core ports, whoever records it; a module records or reports one, it keeps no list.
+CABLE_TABLE = re.compile(r"^\s*create\s+table\s+(?:if\s+not\s+exists\s+)?\w*(?:cables?|wires?|wiring)\s*\(", re.I)
+CABLE_LIST = re.compile(r"""['"](?:cables|wires)['"]\s*:\s*\[\s*\]""")
 EPOCH_COLUMN = re.compile(r"^\s*(?:alter\s+table\s+\w+\s+add\s+column\s+)?(?:\w+_(?:ts|epoch)\s+\w+|\w+_at\s+(?:real|integer|int|numeric|float)\b)", re.I)
 CREATE_TABLE = re.compile(r"create\s+table\s+(\w+)\s*\((.*?)\n\)\s*;", re.I | re.S)
 
@@ -138,6 +142,8 @@ def hits() -> dict[tuple[str, str], list[int]]:
                     out.setdefault((rule, rel), []).append(n)
             if other_module(p, code):
                 out.setdefault(("import", rel), []).append(n)
+            if MODULES in p.parents and CABLE_LIST.search(code):
+                out.setdefault(("cable", rel), []).append(n)
     for p in sorted((APP / "migrations").glob("*.sql")) + module_sql():
         rel = p.relative_to(ROOT).as_posix()
         for n, line in enumerate(p.read_text(encoding="utf-8").splitlines(), 1):
@@ -160,6 +166,8 @@ def hits() -> dict[tuple[str, str], list[int]]:
                 out.setdefault(("gear", rel), []).append(n)
             if "allow-shared:" not in line and PORT_TABLE.match(line):
                 out.setdefault(("port", rel), []).append(n)
+            if "allow-shared:" not in line and CABLE_TABLE.match(line):
+                out.setdefault(("cable", rel), []).append(n)
     for p in sorted(MODULES.glob("*/static/*.js")):
         rel = p.relative_to(ROOT).as_posix()
         for n, line in enumerate(p.read_text(encoding="utf-8").splitlines(), 1):
@@ -288,6 +296,11 @@ def main() -> None:
         check("a table that only mentions ports is fine", not PORT_TABLE.match("create table port_notes ("))
         check("a page script listing connectors is found", bool(CONNECTOR_JS.search("b.push(port('in1', 'sdi', 40, 56, 'IN 1'))")))
         check("drawing a connector the server sent is fine", not CONNECTOR_JS.search("if (k === 'sdi') { svgEl('circle') }"))
+        check("a module table of cables is found", bool(CABLE_TABLE.match("create table bm_cables (")))
+        check("so is a wiring table", bool(CABLE_TABLE.match("create table if not exists wiring(")))
+        check("a table that only mentions cables is fine", not CABLE_TABLE.match("create table cable_notes ("))
+        check("a module's own list of cables is found", bool(CABLE_LIST.search('defaults = {"devices": [], "cables": []}')))
+        check("a cable the server sent is fine", not CABLE_LIST.search('return {"cables": cables(items)}'))
         check("a devices table is found", bool(DEVICE_TABLE.match("create table crew_devices (")))
         check("so is a push subscriptions table", bool(DEVICE_TABLE.match("create table x_push_subs (")))
         check("a table that only mentions devices is fine", not DEVICE_TABLE.match("create table device_log ("))
