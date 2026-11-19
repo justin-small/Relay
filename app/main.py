@@ -32,7 +32,7 @@ from jinja2 import ChoiceLoader, FileSystemLoader, PrefixLoader
 from . import alerts as alertsmod
 from . import backup as backupmod
 from . import announce as announcemod
-from . import alerthistory, audiobus, audit, boards, cables, channels, config, db, devices, exporting, importdocker, languages, metering, mixreport, netinfo, network_map, netroute, overlays, panelfw, panels, prefs, redact, schedules, screens, serving, setupcode, streamstatus, tally, tls, users
+from . import alerthistory, audiobus, audit, boards, cables, channels, config, db, devices, exporting, importdocker, languages, metering, mixreport, netinfo, network_map, netroute, overlays, panelfw, panels, ports, prefs, redact, schedules, screens, serving, setupcode, streamstatus, tally, tls, users
 from .alerts import alerts
 from . import engine as engine_mod
 from .engine import TRANSCRIPTION_STREAM, TRANSLATION_STREAM, demo_mode, engine
@@ -240,6 +240,7 @@ AUDIT_ROUTES = {
     "admin_network_cable_note": ("network.cable_note", "Changed a note on a cable"),
     "admin_network_cable_remove": ("network.cable_remove", "Removed a cable between two ports"),
     "admin_network_channel_rename": ("network.channel_rename", "Renamed a channel"),
+    "admin_network_port_rename": ("network.port_rename", "Renamed a port in Relay only"),
     "admin_network_channel_note": ("network.channel_note", "Changed a note on a channel"),
     "admin_network_channel_merge": ("network.channel_merge", "Joined two channels into one"),
     "admin_network_channel_split": ("network.channel_split", "Split a channel apart"),
@@ -2098,7 +2099,7 @@ async def _channel_change(fn, *args):
         await asyncio.to_thread(fn, *args)
         return await asyncio.to_thread(_channels_view)
     except channels.Refused as exc:
-        return JSONResponse({"error": channels.REFUSALS[exc.key]}, status_code=409 if exc.key in ("kind", "present", "same") else 404)
+        return JSONResponse({"error": channels.REFUSALS[exc.key]}, status_code=409 if exc.key in ("kind", "present", "same", "device", "no_device") else 404)
     except db.Unavailable:
         return JSONResponse({"error": "The database is down, so channels cannot be changed right now."}, status_code=503)
 
@@ -2147,13 +2148,41 @@ async def admin_network_channel_decline(payload: dict, request: Request):
 
 @app.post("/api/admin/network/channels/{cid}/rename", dependencies=[Depends(require("network.manage"))])
 async def admin_network_channel_rename(cid: int, payload: dict, request: Request):
-    """A Relay-only name for a channel. Empty text shows the reporting gear's own name again."""
+    """Rename a channel. {"name": "...", "device": false}: a Relay-only name (empty shows the gear's own name again), or
+    with "device": true the new name is sent to the gear and shown from there (#543)."""
     name = payload.get("name", "")
     if not isinstance(name, str) or len(name) > channels.NAME_MAX:
         return JSONResponse({"error": f"A name is up to {channels.NAME_MAX} characters."}, status_code=400)
+    if payload.get("device") is True:
+        out = await _channel_change(channels.rename_on_device, cid, name)
+        if isinstance(out, JSONResponse):
+            return out
+        audit.note(request, "network.channel_rename_device", "Renamed a channel on the gear", target=channels.ref(cid),
+                   detail={"name": name})
+        return out
     out = await _channel_change(channels.rename, cid, name)
-    audit.note(request, "network.channel_rename", "Renamed a channel", target=channels.ref(cid))
+    if isinstance(out, JSONResponse):
+        return out
+    audit.note(request, "network.channel_rename", "Renamed a channel in Relay only", target=channels.ref(cid),
+               detail={"name": name})
     return out
+
+
+@app.post("/api/admin/network/ports/relay/{pid}/rename", dependencies=[Depends(require("network.manage"))])
+async def admin_network_port_rename(pid: int, payload: dict, request: Request):
+    """A Relay-only name for a core port; the gear's own name is kept and returned beside it. Empty text clears it."""
+    name = payload.get("name", "")
+    if not isinstance(name, str) or len(name) > ports.NAME_MAX:
+        return JSONResponse({"error": f"A name is up to {ports.NAME_MAX} characters."}, status_code=400)
+    try:
+        await asyncio.to_thread(ports.rename, pid, name)
+        row = await asyncio.to_thread(ports.get, pid)
+    except ports.Refused as exc:
+        return JSONResponse({"error": ports.REFUSALS[exc.key]}, status_code=404)
+    except db.Unavailable:
+        return JSONResponse({"error": "The database is down, so ports cannot be changed right now."}, status_code=503)
+    audit.note(request, "network.port_rename", "Renamed a port in Relay only", target=ports.ref(pid), detail={"name": name})
+    return {"port": row, "device_updated": False}
 
 
 @app.post("/api/admin/network/channels/{cid}/note", dependencies=[Depends(require("network.manage"))])

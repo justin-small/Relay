@@ -214,6 +214,53 @@ with section("two same-named channels are not guessed"):
     rundown.refresh_saved(rs)
     eq("more than one match leaves it name only", rs["channels"][0]["channel_ref"], "")
 
+with section("a rename goes to the gear only when its module can (#543)"):
+    from app import modules as _mods  # noqa: E402
+    from app import ports as _ports  # noqa: E402
+
+    class Gear:  # a stand-in provider with real behaviour: it keeps names like a router would
+        def __init__(self):
+            self.names = {"r1": "Router in A"}
+
+        def can_rename(self, key):
+            return key in self.names
+
+        def rename(self, key, name):
+            if name == "refuse":
+                raise ValueError("no")
+            self.names[key] = name
+
+    box = Gear()
+    _mods.provide("gear.testgear", {"can_rename": box.can_rename, "rename": box.rename}, owner="testgear")
+    channels.sync("testgear", [{"key": "r1", "kind": "video", "gear_name": "Router in A"},
+                               {"key": "fixed", "kind": "video", "gear_name": "Router fixed"}])
+    ch = next(c for c in channels.listing("video") if c["gear_name"] == "Router in A")
+    fx = next(c for c in channels.listing("video") if c["gear_name"] == "Router fixed")
+    eq("which can be renamed on the gear", (ch["can_device"], fx["can_device"]), (True, False))
+    eq("a gear that cannot is refused", refused(channels.rename_on_device, fx["id"], "X"), "no_device")
+    eq("an empty name is refused", refused(channels.rename_on_device, ch["id"], " "), "name")
+    eq("a gear that refuses leaves Relay alone", (refused(channels.rename_on_device, ch["id"], "refuse"),
+                                                  channels.get(ch["id"])["shown"]), ("device", "Router in A"))
+    channels.rename(ch["id"], "Relay name")
+    channels.rename_on_device(ch["id"], "Cam A")
+    got = channels.get(ch["id"])
+    eq("the gear took it and Relay shows it", (box.names["r1"], got["shown"], got["name"]), ("Cam A", "Cam A", ""))
+    channels.rename(ch["id"], "Relay name")
+    channels.sync("testgear", [{"key": "r1", "kind": "video", "gear_name": "Renamed at the router"},
+                               {"key": "fixed", "kind": "video", "gear_name": "Router fixed"}])
+    got = channels.get(ch["id"])
+    eq("a rename made on the gear shows beside a Relay-only name, which stays",
+       (got["shown"], got["gear_name"]), ("Relay name", "Renamed at the router"))
+    _mods.withdraw("gear.testgear")
+    eq("a module that is off cannot rename", channels.get(ch["id"])["can_device"], False)
+    g = gear.adopt(["test:p1"], name="Box")
+    p = _ports.adopt(g["id"], "1", gear_name="Port 1")
+    res = admin.post(f"/api/admin/network/ports/relay/{p['id']}/rename", json={"name": "Stage in"})
+    body = res.json()
+    eq("a port is renamed in Relay only and the gear's name is kept", (res.status_code, body["device_updated"],
+       body["port"]["shown"], body["port"]["gear_name"]), (200, False, "Stage in", "Port 1"))
+    eq("a port that is not there", admin.post("/api/admin/network/ports/relay/9999/rename", json={"name": "x"}).status_code, 404)
+
 with section("the Network page's API"):
     res = admin.get("/api/admin/network/channels")
     body = res.json()

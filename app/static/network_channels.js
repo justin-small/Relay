@@ -51,7 +51,16 @@
       change('POST', '/api/admin/network/channels/' + c.id + '/rename', { name: name.value.trim() });
     });
     nm.appendChild(name);
-    if (c.missing) nm.appendChild(el('span', 'badge err', 'Not reported now'));
+    if (c.name && c.gear_name && c.gear_name !== c.name) nm.appendChild(el('div', 'muted', 'Gear calls it ' + c.gear_name));
+    if (canManage && c.can_device) {
+      nm.appendChild(root.relayUI.button('Rename on the device', function () {
+        var text = (name.value || c.shown).trim();
+        return change('POST', '/api/admin/network/channels/' + c.id + '/rename', { name: text, device: true });
+      }, 'quiet sm'));
+      nm.appendChild(el('div', 'muted', 'Typing a name changes Relay only.'));
+    } else if (canManage) {
+      nm.appendChild(el('div', 'muted', 'Relay only: this gear is not renamed from here.'));
+    }
     tr.appendChild(nm);
     tr.appendChild(el('td', '', KIND[c.kind] || c.kind));
     var ends = el('td', 'muted');

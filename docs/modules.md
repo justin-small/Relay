@@ -1116,6 +1116,7 @@ provide:
 | `lighting.cues` | lighting | `async (cue, request, *, by_name, source) -> {"ok", "error"}`; core's `fire_cue` calls it |
 | `obs.scenes` | obs | `async (name, *, source) -> {"ok", "error"}`; core's `switch_scene` calls it |
 | `reaper.recording` | reaper | `async (command, value, *, source) -> {"ok", "error"}`; core's `control_recording` calls it |
+| `gear.<module id>` | blackmagic | `{"can_rename": fn(key) -> bool, "rename": fn(key, name)}` for the channel ends a module can rename on its gear (core's rename flow, #543: a Videohub label goes to the router; a module without it is "Rename in Relay only"); `rename` raises ValueError when the gear refuses |
 | `ndi` | ndi | `{"sources", "subscribe", "register_output"}`; core's `ndi_sources`, `ndi_subscribe`, `ndi_register_output` call them |
 | `screen_pages.<query>` | lighting, obs | `async (request) -> response or None`; `/screen` asks each |
 | `plan.label`, `plan.starts_at` | planning_center | today's plan title; when the next service starts (core's `plan_label()` and `service_starts_at()`) |

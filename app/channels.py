@@ -19,7 +19,7 @@ import re
 import sqlite3
 from typing import Any, Iterable
 
-from . import db
+from . import db, modules
 from .text import same_name
 
 log = logging.getLogger("relay.channels")
@@ -39,7 +39,9 @@ GENERIC = re.compile(r"^(?:input|output|in|out|channel|ch|source|src|camera inpu
 
 REFUSALS = {"no_channel": "That channel does not exist.", "no_end": "That channel end does not exist.",
             "same": "A channel cannot be joined to itself.", "kind": "Only channels of the same kind can be joined.",
-            "name": "Name the channel.", "too_many": "That is as many channels as Relay keeps.",
+            "name": "Name the channel.", "device": "The gear did not take the new name, so nothing was changed. Check that it is connected and try again.",
+            "no_device": "That channel's gear cannot be renamed from Relay.",
+            "too_many": "That is as many channels as Relay keeps.",
             "present": "That channel is still reported; only a missing one can be forgotten.",
             "only_end": "That is the only end of its channel; there is nothing to split."}
 
@@ -125,9 +127,27 @@ def _build(r: dict, ends: list[dict]) -> dict:
     lead = (live or ends or [None])[0]
     return {"id": r["id"], "ref": ref(r["id"]), "kind": r["kind"], "name": r["name"], "note": r["note"],
             "shown": r["name"] or (_end_name(lead) if lead else f"Channel {r['id']}"),
+            "gear_name": _end_name(lead) if lead else "",
+            "can_device": any(_renamable(e) for e in ends),
             "missing": not live, "ends": ends, "providers": sorted({e["provider"] for e in ends}),
             "direction": lead["direction"] if lead else "source", "number": lead["number"] if lead else None,
             "gear_ref": lead["gear_ref"] if lead else ""}
+
+
+def _gear_api(provider: str) -> dict | None:
+    """What a module offers for naming on its gear: `modules.provide("gear.<id>", {"can_rename": fn(key), "rename": fn(key,
+    name)})`. None while that module is off."""
+    api = modules.using(f"gear.{provider}")
+    return api if isinstance(api, dict) and callable(api.get("rename")) and callable(api.get("can_rename")) else None
+
+
+def _renamable(e: dict) -> bool:
+    api = _gear_api(e["provider"])
+    try:
+        return bool(api and not e["missing"] and api["can_rename"](e["key"]))
+    except Exception:  # a module's own check must not break the list
+        log.exception("channels: %s could not say whether %s can be renamed", e["provider"], e["key"])
+        return False
 
 
 def _roots(kind: str = "", only: int = 0) -> list[dict]:
@@ -272,6 +292,31 @@ def rename(cid: int, name: Any) -> None:
     root = _root_id(cid)
     if root is None or not db.execute("update channels set name = ? where id = ?", (_text(name, NAME_MAX), root)):
         raise Refused("no_channel")
+    _touch()
+
+
+def rename_on_device(cid: int, name: Any) -> None:
+    """Send a new name to the gear for every end of this channel whose module can rename it, then show the gear's name
+    (a Relay-only name is cleared, so the two cannot disagree). Nothing changes in Relay when the gear refuses."""
+    text = _text(name, NAME_MAX)
+    got = get(cid)
+    if got is None:
+        raise Refused("no_channel")
+    if not text:
+        raise Refused("name")
+    ends = [e for e in got["ends"] if _renamable(e)]
+    if not ends:
+        raise Refused("no_device")
+    for e in ends:
+        try:
+            _gear_api(e["provider"])["rename"](e["key"], text)  # type: ignore[index]
+        except ValueError as exc:
+            log.info("channels: %s refused the name for %s: %s", e["provider"], e["key"], exc)
+            raise Refused("device") from exc
+    with db.transaction() as tx:
+        for e in ends:
+            tx.execute("update channel_ends set gear_name = ? where id = ?", (text, e["id"]))
+        tx.execute("update channels set name = '' where id = ?", (got["id"],))
     _touch()
 
 
