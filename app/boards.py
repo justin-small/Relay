@@ -59,6 +59,7 @@ SOURCE = "SOURCE"            # the captions widget's value for the original spee
 MAX_PAGES = 12
 PAGE_NAME_MAX = 40
 PLACE_MAX = 40
+_PLACE_REF = re.compile(r"place:relay:\d{1,9}")   # the core place (app/screens.py) this board hangs in
 MAX_RULES = 30
 RULE_VALUE_MAX = 80
 MAX_SCREENS = 50
@@ -344,6 +345,8 @@ def clean_board(raw: Any, cat: dict[str, dict] | None = None, *, board_id: str |
     pages = clean_pages(raw.get("pages"), raw.get("items"), cat, cols, rows)
     return {"id": bid if isinstance(bid, str) and _SLUG.fullmatch(bid) else "",
             "name": layout.text(raw.get("name"), NAME_MAX) or "Board", "place": layout.text(raw.get("place"), PLACE_MAX),
+            "place_ref": raw.get("place_ref") if isinstance(raw.get("place_ref"), str)
+            and _PLACE_REF.fullmatch(raw["place_ref"]) else "",
             "public": raw.get("public") is True, "ratio": ratio, "cols": cols, "rows": rows, "pages": pages,
             "rotation": clean_rotation(raw.get("rotation"), [p["id"] for p in pages]),
             "screen_names": _clean_screen_names(raw.get("screen_names"))}
@@ -531,7 +534,7 @@ def create(boards: list[dict], payload: Any, cat: dict[str, dict]) -> dict:
     ratio = payload.get("ratio") if payload.get("ratio") in RATIOS else "16:9"
     if "cols" not in payload or tpl is not None:
         payload = {**payload, "cols": RATIOS[ratio][0], "rows": RATIOS[ratio][1]}
-    payload = {k: v for k, v in payload.items() if k != "screen_names"}
+    payload = {k: v for k, v in payload.items() if k not in ("screen_names", "place_ref")}
     return clean_board({**payload, "name": name, "ratio": ratio}, cat,
                        board_id=slug_for(name, {b["id"] for b in boards}))
 

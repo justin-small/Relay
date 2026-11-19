@@ -502,6 +502,14 @@ The overlay link also takes `?lyrics=1`, to show ProPresenter's lyrics in
 place of the captions. See the ProPresenter chapter.
 :::
 
+## Screens {#screens}
+
+Every TV, tablet and panel is one **screen** with one name and one place. The Screens page (under Output) is a live wall: a tile per screen, grouped by place, showing what is on it now and whether it was heard from lately.
+
+A browser appears by itself the first time it opens a board, a signage address or an alert link, and a panel appears when it checks in. Under **Edit** you set a screen's name, its place, and what it shows: a board or a signage playlist **normally**, and another **during** a schedule from the Schedules page. **Show now** holds one on the screen until you press **Back to schedule**. With Signage switched off, a screen set to a playlist shows its board instead.
+
+If two pages knew the same TV by different names, give one of them the other's name: they become one screen. **Flash** shows a test message on a screen, and **Flash all** on a place does it for every screen there. An alert button can also target a whole place, and the old addresses (`/signage/<name>`, board links, `/screen?alert=`) keep working.
+
 ## Boards {#boards}
 
 A board is a screen you build yourself from widgets: live captions in any language, a clock, a countdown, a line of

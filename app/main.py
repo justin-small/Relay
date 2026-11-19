@@ -12,6 +12,7 @@ import hashlib
 import json
 import logging
 import os
+import re
 import secrets
 import socket
 import sys
@@ -31,7 +32,7 @@ from jinja2 import ChoiceLoader, FileSystemLoader, PrefixLoader
 from . import alerts as alertsmod
 from . import backup as backupmod
 from . import announce as announcemod
-from . import alerthistory, audiobus, audit, boards, config, db, exporting, importdocker, languages, metering, mixreport, netinfo, network_map, netroute, overlays, panelfw, panels, prefs, redact, schedules, serving, setupcode, streamstatus, tally, tls, users
+from . import alerthistory, audiobus, audit, boards, config, db, exporting, importdocker, languages, metering, mixreport, netinfo, network_map, netroute, overlays, panelfw, panels, prefs, redact, schedules, screens, serving, setupcode, streamstatus, tally, tls, users
 from .alerts import alerts
 from . import engine as engine_mod
 from .engine import TRANSCRIPTION_STREAM, TRANSLATION_STREAM, demo_mode, engine
@@ -259,6 +260,15 @@ AUDIT_ROUTES = {
     "admin_schedule_create": ("schedules.create", "Added a schedule"),
     "admin_schedule_update": ("schedules.change", "Changed a schedule"),
     "admin_schedule_delete": ("schedules.delete", "Deleted a schedule"),
+    "admin_screen_update": ("screens.change", "Changed a screen"),
+    "admin_screen_delete": ("screens.delete", "Deleted a screen"),
+    "admin_screen_hold": ("screens.hold", "Put something on a screen by hand"),
+    "admin_screen_hold_clear": ("screens.hold", "Returned a screen to its schedule"),
+    "admin_screen_flash": ("screens.flash", "Flashed a screen"),
+    "admin_place_create": ("screens.place_create", "Added a place"),
+    "admin_place_update": ("screens.place_change", "Renamed a place"),
+    "admin_place_delete": ("screens.place_delete", "Deleted a place"),
+    "admin_place_flash": ("screens.flash", "Flashed every screen in a place"),
     "admin_overlay_create": ("overlays.create", "Added an overlay"),
     "admin_overlay_update": ("overlays.change", "Changed an overlay"),
     "admin_overlay_delete": ("overlays.delete", "Deleted an overlay"),
@@ -1191,6 +1201,17 @@ async def stream(request: Request, stream: str = "translation", lang: str | None
 _read_limited = modules_pkg.read_limited
 
 
+def _panel_screen(pid, panel) -> None:
+    """A panel that checks in is a screen of type panel (app/screens.py), named as the Panels page names it."""
+    if panel is None:
+        return
+    try:
+        core = screens.adopt("panel:" + pid, name=panel.name, kind="panel", address=panel.ip)
+        screens.sync_panel_name(core["id"], panel.name)
+    except (db.Unavailable, screens.Refused):
+        log.warning("A panel checked in but could not be listed as a screen")   # the check-in itself still succeeds
+
+
 @app.post("/api/panels/checkin")
 async def panel_checkin(request: Request):
     raw = await _read_limited(request, panels.CHECKIN_MAX_BYTES)
@@ -1202,7 +1223,9 @@ async def panel_checkin(request: Request):
         raise HTTPException(400, "body must be a JSON object")
     peer = request.client.host if request.client else ""
     try:
-        return panel_registry.checkin(body, peer)
+        reply = panel_registry.checkin(body, peer)
+        await asyncio.to_thread(_panel_screen, body.get("id"), panel_registry.panels.get(body.get("id")))
+        return reply
     except ValueError as exc:
         raise HTTPException(400, str(exc))
     except panels.RegistryFull:
@@ -1412,6 +1435,11 @@ async def alert_screen_stream(name: str = ""):
         queue = alerts.subscribe_screen(name)
     except alertsmod.Refused as exc:
         raise HTTPException(exc.status, alertsmod.MESSAGES.get(exc.key, "Refused."))
+    # An alert screen is a core screen (#527): the one called this name, or a new one, so every page lists it once.
+    try:
+        await asyncio.to_thread(screens.adopt, "alert:" + name.lower(), name=name)
+    except (db.Unavailable, screens.Refused):
+        log.warning("An alert screen opened but could not be listed as a screen")
 
     async def gen():
         try:
@@ -2663,6 +2691,185 @@ async def admin_schedule_delete(sid: str):
     return await _save_schedules(kept)
 
 
+# ---------------------------------------------------------------- screens and places (#527)
+# One record per physical display (app/screens.py); the Screens page is the live wall: what each screen shows now,
+# grouped by place, with what it should show, a hand-held override and a flash.
+
+def _screens_frame() -> dict:
+    """The Screens page: places and their screens with what each shows, plus the boards, playlists and schedules a
+    screen can be set to."""
+    signage = modules_pkg.using("signage.content")
+    cfg_boards = {b["id"]: b["name"] for b in config.get()["boards"]}
+    lists = {"board": cfg_boards, "signage": {}}
+    if signage is not None:
+        lists["signage"] = {str(p["id"]): p["name"] for p in signage.store.playlists()}
+    now, rows = time.time(), []
+    for r in screens.listing():
+        shows = _screen_showing(r)
+        slug = signage.store.core_screen_slug(r["id"]) if signage is not None else ""
+        rows.append({
+            "id": r["id"], "ref": r["ref"], "name": r["name"], "kind": r["kind"], "place_id": r["place_id"],
+            "place": r["place"], "address": r["address"], "last_seen": r["last_seen"],
+            "online": screens.online(r, now),
+            "normal": {"kind": r["normal_kind"], "ref": r["normal_ref"]},
+            "during": {"kind": r["during_kind"], "ref": r["during_ref"]}, "schedule": r["during_schedule"],
+            "hold": {"kind": r["hold_kind"], "ref": r["hold_ref"]},
+            "now": {**shows, "label": lists.get(shows["kind"], {}).get(shows["ref"], "")},
+            "links": ([signage.store.player_path(slug)] if slug else [])
+            + [f"/screen?alert={k[6:]}" for k in r["keys"] if k.startswith("alert:")]})
+    return {"places": screens.places(), "screens": rows, "signage_on": signage is not None,
+            "boards": [{"id": i, "name": n} for i, n in lists["board"].items()],
+            "playlists": [{"id": i, "name": n} for i, n in lists["signage"].items()],
+            "schedules": [{"ref": schedules.ref(x["id"]), "name": x["name"]} for x in config.get()["schedules"]],
+            "limits": {"name": screens.NAME_MAX}, "now": now}
+
+
+def _screens_error(exc: screens.Refused) -> JSONResponse:
+    return JSONResponse({"error": screens.REFUSALS[exc.key]}, status_code=404 if exc.key.startswith("no_") else 400)
+
+
+def _shows_pair(raw) -> tuple | None:
+    """("board", "lobby") from {"kind", "ref"}; None when the body does not mention it."""
+    if not isinstance(raw, dict):
+        return None
+    return str(raw.get("kind") or ""), str(raw.get("ref") or "")
+
+
+def _apply_screen_changes(sid: int, payload: dict) -> int:
+    """Make the changes in `payload` ({name, place_id, normal, during, schedule}); the id of the screen that results
+    (a name another screen has merges the two)."""
+    if "place_id" in payload:
+        place = payload["place_id"]
+        screens.set_place(sid, place if isinstance(place, int) and not isinstance(place, bool) else None)
+    if any(k in payload for k in ("normal", "during", "schedule")):
+        screens.set_shows(sid, normal=_shows_pair(payload.get("normal")), during=_shows_pair(payload.get("during")),
+                          schedule=payload.get("schedule") if isinstance(payload.get("schedule"), str) else None)
+    if "name" in payload:
+        sid = screens.rename(sid, payload["name"])
+    _prepare_signage(sid)
+    return sid
+
+
+def _prepare_signage(sid: int) -> None:
+    """A screen set to show a playlist needs a signage screen to play it: make one when it has none."""
+    signage = modules_pkg.using("signage.content")
+    core = screens.get(sid)
+    if signage is None or core is None:
+        return
+    wants = "signage" in (core["normal_kind"], core["during_kind"], core["hold_kind"])
+    if wants:
+        signage.store.ensure_screen(core)
+
+
+@app.get("/api/admin/screens", dependencies=[Depends(require("screens.view"))])
+async def admin_screens():
+    return await asyncio.to_thread(_screens_frame)
+
+
+@app.put("/api/admin/screens/{sid}", dependencies=[Depends(require("screens.manage"))])
+async def admin_screen_update(sid: int, payload: dict):
+    try:
+        await asyncio.to_thread(_apply_screen_changes, sid, payload)
+    except screens.Refused as exc:
+        return _screens_error(exc)
+    return await asyncio.to_thread(_screens_frame)
+
+
+@app.delete("/api/admin/screens/{sid}", dependencies=[Depends(require("screens.manage"))])
+async def admin_screen_delete(sid: int):
+    try:
+        await asyncio.to_thread(screens.delete, sid)
+    except screens.Refused as exc:
+        return _screens_error(exc)
+    return await asyncio.to_thread(_screens_frame)
+
+
+@app.put("/api/admin/screens/{sid}/hold", dependencies=[Depends(require("screens.manage"))])
+async def admin_screen_hold(sid: int, payload: dict):
+    """Put a board or signage playlist on the screen now; it stays until cleared."""
+    pair = _shows_pair(payload) or ("", "")
+    try:
+        await asyncio.to_thread(screens.set_hold, sid, *pair)
+        await asyncio.to_thread(_prepare_signage, sid)
+    except screens.Refused as exc:
+        return _screens_error(exc)
+    return await asyncio.to_thread(_screens_frame)
+
+
+@app.delete("/api/admin/screens/{sid}/hold", dependencies=[Depends(require("screens.manage"))])
+async def admin_screen_hold_clear(sid: int):
+    try:
+        await asyncio.to_thread(screens.set_hold, sid)
+    except screens.Refused as exc:
+        return _screens_error(exc)
+    return await asyncio.to_thread(_screens_frame)
+
+
+def _flash_screen(core: dict) -> int:
+    """Show "Test from Relay" on a screen that listens for alerts: a panel by its id, a browser by its alert name."""
+    took = 0
+    for key in screens.keys(core["id"]):
+        if key.startswith("panel:"):
+            took += alerts.test(panel=key[6:])
+    took += alerts.test(screen=core["name"]) if core["kind"] == "browser" else 0
+    return took
+
+
+@app.post("/api/admin/screens/{sid}/flash", dependencies=[Depends(require("screens.manage"))])
+async def admin_screen_flash(sid: int):
+    core = await asyncio.to_thread(screens.get, sid)
+    if core is None:
+        return _screens_error(screens.Refused("no_screen"))
+    return {"took": await asyncio.to_thread(_flash_screen, core)}
+
+
+@app.post("/api/admin/places", dependencies=[Depends(require("screens.manage"))])
+async def admin_place_create(payload: dict):
+    try:
+        await asyncio.to_thread(screens.place_add, payload.get("name"))
+    except screens.Refused as exc:
+        return _screens_error(exc)
+    return await asyncio.to_thread(_screens_frame)
+
+
+@app.put("/api/admin/places/{pid}", dependencies=[Depends(require("screens.manage"))])
+async def admin_place_update(pid: int, payload: dict):
+    try:
+        await asyncio.to_thread(screens.place_rename, pid, payload.get("name"))
+    except screens.Refused as exc:
+        return _screens_error(exc)
+    # A board keeps the place's name as it was saved: carry the new one over.
+    new = next((p["name"] for p in screens.places() if p["id"] == pid), "")
+    ref = screens.place_ref(pid)
+    kept = [{**b, "place": new} if b["place_ref"] == ref else b for b in config.get()["boards"]]
+    if kept != config.get()["boards"]:
+        config.save({"boards": kept})
+    return await asyncio.to_thread(_screens_frame)
+
+
+@app.delete("/api/admin/places/{pid}", dependencies=[Depends(require("screens.manage"))])
+async def admin_place_delete(pid: int):
+    try:
+        await asyncio.to_thread(screens.place_delete, pid)
+    except screens.Refused as exc:
+        return _screens_error(exc)
+    kept = [{**b, "place": "", "place_ref": ""} if b["place_ref"] == screens.place_ref(pid) else b
+            for b in config.get()["boards"]]
+    if kept != config.get()["boards"]:
+        config.save({"boards": kept})
+    return await asyncio.to_thread(_screens_frame)
+
+
+@app.post("/api/admin/places/{pid}/flash", dependencies=[Depends(require("screens.manage"))])
+async def admin_place_flash(pid: int):
+    found = await asyncio.to_thread(screens.in_place, pid)
+    took = 0
+    for r in found:
+        core = await asyncio.to_thread(screens.get, r["id"])
+        took += await asyncio.to_thread(_flash_screen, core) if core else 0
+    return {"took": took}
+
+
 # ---------------------------------------------------------------- overlays
 
 def _overlays_frame() -> dict:
@@ -2822,14 +3029,69 @@ def _board_state(board: dict, follow: dict[str, dict] | None = None) -> dict:
     return cur
 
 
-def _board_screens(bid: str, names: dict[str, str]) -> list[dict]:
+def _board_screens(bid: str) -> list[dict]:
+    """The screens asking for this board, named from the core screen each one is (app/screens.py)."""
     live = _board_live_for(bid)
     now = time.time()
     for sid in [s for s, v in live["screens"].items() if now - v["last"] > BOARD_SCREEN_GONE_S]:
         live["screens"].pop(sid, None)
+    try:
+        names = screens.names_by_key("board:")
+    except db.Unavailable:
+        names = {}
     rows = [{"id": sid, "name": names.get(sid, ""), "ip": v["ip"], "since": v["first"]}
             for sid, v in live["screens"].items()]
     return sorted(rows, key=lambda r: (not r["name"], r["name"].lower(), r["since"]))
+
+
+BOARD_CORE_SCREEN = re.compile(r"screen-(\d{1,9})")
+BOARD_SCREEN_REFRESH_S = 15.0   # how often a polling board screen tells the database it is still there
+
+
+def _board_screen_key(sid: str) -> str:
+    return "board:" + sid
+
+
+def _signage_on() -> bool:
+    return modules_pkg.using("signage.content") is not None
+
+
+def _screen_showing(screen: dict) -> dict:
+    """What a core screen shows now (app/screens.py `showing_now`)."""
+    return screens.showing_now(screen, signage_on=_signage_on())
+
+
+def _board_screen_goto(request: Request, board: dict, sid: str, row: dict) -> str:
+    """Tell the database this browser is showing the board, then say where it should go instead, when its screen is
+    set to show a signage playlist or another board ("" to stay). A browser opened from a screen's own link
+    (`screen-<id>`, see below) is that screen; any other is adopted by its random id, named by what the board last
+    called it."""
+    try:
+        if row.get("core") is None or time.time() - row.get("synced", 0) > BOARD_SCREEN_REFRESH_S:
+            m = BOARD_CORE_SCREEN.fullmatch(sid)
+            core = screens.get(int(m.group(1))) if m else None
+            if core is None:
+                core = screens.adopt(_board_screen_key(sid), name=board["screen_names"].get(sid, ""),
+                                     address=row["ip"], board=board["id"])
+            else:
+                screens.touch(core["id"], address=row["ip"], board=board["id"])
+            row["core"], row["synced"] = core["id"], time.time()
+        core = screens.get(row["core"])
+    except db.Unavailable:
+        return ""
+    if core is None:
+        row["core"] = None
+        return ""
+    shows = _screen_showing(core)
+    if shows["kind"] == "board" and shows["ref"] and shows["ref"] != board["id"] \
+            and boards.find(config.get()["boards"], shows["ref"]):
+        return f"/board/{shows['ref']}?screen=screen-{core['id']}"
+    signage = modules_pkg.using("signage.content")
+    if shows["kind"] == "signage" and signage is not None:
+        slug = signage.store.core_screen_slug(core["id"])
+        if slug:
+            return signage.store.player_address(request.url.hostname or "", slug)
+    return ""
 
 
 @app.get("/board/{bid}", response_class=HTMLResponse)
@@ -2864,17 +3126,21 @@ async def board_data(request: Request, bid: str, screen: str = ""):
     if resp is not None:
         return JSONResponse({"error": "Not found"}, status_code=404)
     live = _board_live_for(bid)
+    goto = ""
     if boards.SCREEN_ID.fullmatch(screen or ""):
         now = time.time()
         row = live["screens"].get(screen)
         if row is not None:
             row["last"] = now
         elif len(live["screens"]) < BOARD_MAX_LIVE_SCREENS:
-            live["screens"][screen] = {"first": now, "last": now, "ip": _client_ip(request)}
+            row = live["screens"][screen] = {"first": now, "last": now, "ip": _client_ip(request)}
+        if row is not None:
+            goto = await asyncio.to_thread(_board_screen_goto, request, board, screen, row)
     data = await module_registry.board_data(boards.all_items(board))
     st = _board_state(board)
     return JSONResponse({"items": data, "page": st["page"], "rotate": st["rotate"], "now": time.time(),
-                         "rev": _board_rev(board), "reload": live["reload"]}, headers={"Cache-Control": "no-store"})
+                         "rev": _board_rev(board), "reload": live["reload"], "goto": goto},
+                        headers={"Cache-Control": "no-store"})
 
 
 @app.post("/board/{bid}/_/press/{item_id}")
@@ -2932,11 +3198,31 @@ def _boards_live() -> dict:
     for b in config.get()["boards"]:
         st = _board_state(b, follow)
         out[b["id"]] = {"page": st["page"], "rotate": st["rotate"], "why": st["why"], "override": bool(st.get("override")),
-                        "screens": _board_screens(b["id"], b["screen_names"])}
+                        "screens": _board_screens(b["id"])}
     return {"live": out, "follow": follow, "now": time.time()}
 
 
+def _link_board_places(items: list[dict]) -> list[dict]:
+    """Each board's `place` text is a core place (app/screens.py, #527): make the place when it is new and keep its ref
+    and its current name on the board. The same list back when nothing changed."""
+    changed, out = False, []
+    for b in items:
+        if b["place"] and not b["place_ref"]:
+            try:
+                found = screens.place_add(b["place"])
+            except (db.Unavailable, screens.Refused):
+                out.append(b)
+                continue
+            b, changed = {**b, "place": found["name"], "place_ref": found["ref"]}, True
+        out.append(b)
+    return out if changed else items
+
+
 def _boards_frame() -> dict:
+    stored = config.get()["boards"]
+    linked = _link_board_places(stored)
+    if linked is not stored:
+        config.save({"boards": linked})
     cat = _board_catalogue()
     return {"boards": config.get()["boards"], "catalogue": list(cat.values()), "templates": boards.templates(cat),
             "days": boards.DAYS, "matches": boards.MATCHES, "max_pages": boards.MAX_PAGES,
@@ -2965,7 +3251,7 @@ async def admin_board_create(payload: dict):
         new = boards.create(items, payload, _board_catalogue())
     except boards.BoardError as exc:
         return _board_error(exc)
-    config.save({"boards": items + [new]})
+    config.save({"boards": _link_board_places(items + [new])})
     return _boards_frame() | {"saved": new["id"]}
 
 
@@ -2979,6 +3265,9 @@ async def admin_board_update(bid: str, payload: dict):
         items[idx] = boards.update(items[idx], payload, _board_catalogue())
     except boards.BoardError as exc:
         return _board_error(exc)
+    if "place" in payload:
+        items[idx] = {**items[idx], "place_ref": ""}   # a new place text is looked up again below
+    items = _link_board_places(items)
     config.save({"boards": items})
     return _boards_frame() | {"saved": bid, "board": items[idx]}
 
@@ -2986,17 +3275,18 @@ async def admin_board_update(bid: str, payload: dict):
 @app.put("/api/admin/boards/{bid}/screens/{sid}", dependencies=[Depends(require("boards.manage"))])
 async def admin_board_screen_name(bid: str, sid: str, payload: dict):
     """Name one of the screens showing a board (Foyer TV left), or clear its name with ""."""
-    items = list(config.get()["boards"])
-    idx = next((i for i, b in enumerate(items) if b["id"] == bid), None)
-    if idx is None:
-        raise HTTPException(404, "unknown board")
+    _board_or_404(bid)
     if not boards.SCREEN_ID.fullmatch(sid):
         return JSONResponse({"error": BOARD_REFUSALS["no_screen"]}, status_code=400)
-    if payload.get("name") and sid not in items[idx]["screen_names"] \
-            and len(items[idx]["screen_names"]) >= boards.MAX_SCREENS:
-        return JSONResponse({"error": BOARD_REFUSALS["too_many_names"]}, status_code=400)
-    items[idx] = boards.name_screen(items[idx], sid, payload.get("name"))
-    config.save({"boards": items})
+    name = boards.layout.text(payload.get("name"), boards.SCREEN_NAME_MAX)
+    if not name:
+        return JSONResponse({"error": screens.REFUSALS["name"]}, status_code=400)
+    try:
+        core = await asyncio.to_thread(screens.adopt, _board_screen_key(sid))
+        await asyncio.to_thread(screens.rename, core["id"], name)
+    except screens.Refused as exc:
+        return JSONResponse({"error": screens.REFUSALS[exc.key]}, status_code=400)
+    _board_live_for(bid)["screens"].get(sid, {}).pop("core", None)
     return _boards_frame()
 
 
@@ -3035,7 +3325,7 @@ async def admin_board_duplicate(bid: str):
         new = boards.create(items, {**board, "name": f"{board['name']} copy"[:boards.NAME_MAX]}, _board_catalogue())
     except boards.BoardError as exc:
         return _board_error(exc)
-    config.save({"boards": items + [new]})
+    config.save({"boards": _link_board_places(items + [new])})
     return _boards_frame() | {"saved": new["id"]}
 
 
@@ -3053,7 +3343,7 @@ async def admin_board_import(payload: dict):
         new = boards.import_board(items, payload, _board_catalogue())
     except boards.BoardError as exc:
         return _board_error(exc)
-    config.save({"boards": items + [new]})
+    config.save({"boards": _link_board_places(items + [new])})
     return _boards_frame() | {"saved": new["id"]}
 
 
@@ -3065,6 +3355,8 @@ async def admin_board_delete(bid: str):
         raise HTTPException(404, "unknown board")
     config.save({"boards": kept})
     _board_live.pop(bid, None)
+    with contextlib.suppress(db.Unavailable):
+        await asyncio.to_thread(screens.forget_board, bid)
     return _boards_frame()
 
 
