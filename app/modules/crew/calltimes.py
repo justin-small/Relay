@@ -13,7 +13,7 @@ import logging
 import time
 from datetime import datetime, time as dtime
 
-from ... import audit, db, timewin
+from ... import audit, db, directory, timewin
 from . import paging, people
 
 log = logging.getLogger("relay.crew")
@@ -114,7 +114,7 @@ def next_for(user_id: int, tracks, zone, now: float | None = None) -> dict | Non
     if not tracks or zone is None:
         return None
     teams = checklists.teams_of(user_id, tracks)
-    pid = checklists._pc_person(user_id)
+    pid = directory.external_id(user_id, directory.PCO)
     best = None
     for rule in list_rules():
         if not rule["enabled"] or rule["team"] not in teams:

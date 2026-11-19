@@ -1,6 +1,6 @@
 # Hand-written name tidying, Monday-first weekdays and HH:MM patterns outside app/text.py and
 # app/timewin.py when tests/test_shared_concepts.py came in (#522), and modules that import another
-# module's package (#523). This list may only shrink: fix one, lower its count here (or run the test
+# module's package (#523), and a module column holding a person as text (#524). This list may only shrink: fix one, lower its count here (or run the test
 # with --rebaseline).
 # intercom_remote -> intercom stays: the remote intercom is the same feature as the intercom (its rooms, its
 # devices, its presence, its watchdog), not an add-on that has to cope with the intercom being off.

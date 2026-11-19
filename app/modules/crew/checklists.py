@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import time
 
-from ... import db
+from ... import db, directory
 from ...text import same_name
 from . import checkin, paging, people
 
@@ -142,15 +142,10 @@ def delete(list_id: int) -> None:
 
 
 # -- what a person sees ------------------------------------------------------------------------------------------
-def _pc_person(user_id: int) -> str | None:
-    row = db.one("select pc_person from crew_profiles where user_id = ?", (user_id,))
-    return row["pc_person"] if row else None
-
-
 def teams_of(user_id: int, tracks) -> list[str]:
     """The Planning Center teams this person serves on today (none when they are not matched to Planning Center)."""
     people.ready()
-    pid = _pc_person(user_id)
+    pid = directory.external_id(user_id, directory.PCO)
     if not pid:
         return []
     return sorted(t for t, rows in paging.serving(tracks).items() if any(r["person"] == pid for r in rows))
@@ -214,8 +209,7 @@ def board(tracks, zone, plan: str | None = None, now: float | None = None) -> di
     names = {r["id"]: r["name"] for r in db.query("select id, name from users")}
     who: dict[int, list[str]] = {}
     if key == today:
-        linked = {r["pc_person"]: r["user_id"] for r in db.query(
-            "select user_id, pc_person from crew_profiles where pc_person is not null")}
+        linked = directory.links(directory.PCO)
         for team, rows in paging.serving(tracks).items():
             for row in rows:
                 uid = linked.get(row["person"])

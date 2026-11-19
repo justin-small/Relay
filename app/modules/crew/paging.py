@@ -14,7 +14,7 @@ import secrets
 import time
 from concurrent.futures import ThreadPoolExecutor
 
-from ... import db, secretbox
+from ... import db, directory, secretbox
 from . import people, webpush
 
 log = logging.getLogger("relay.crew")
@@ -121,8 +121,7 @@ def serving(tracks, time_id: str | None = None) -> dict[str, list[dict]]:
 def targets(tracks) -> dict:
     """What the admin page offers: crew accounts, and the teams serving today with how many have accounts."""
     people.ready()
-    linked = {r["pc_person"]: r["user_id"] for r in db.query(
-        "select user_id, pc_person from crew_profiles where pc_person is not null")}
+    linked = directory.links(directory.PCO)
     subs = {r["user_id"] for r in db.query("select distinct user_id from crew_push_subs")}
     accounts = [{"id": p["id"], "name": p["name"], "role": p["role"], "phone": p["id"] in subs}
                 for p in people.people_list() if not p["disabled"]]
@@ -140,8 +139,7 @@ def resolve(user_ids, teams, tracks, time_id: str | None = None) -> tuple[list[i
             want.append(u)
     unmatched: list[str] = []
     if isinstance(teams, list) and teams:
-        linked = {r["pc_person"]: r["user_id"] for r in db.query(
-            "select user_id, pc_person from crew_profiles where pc_person is not null")}
+        linked = directory.links(directory.PCO)
         by_team = serving(tracks, time_id)
         for t in teams:
             for row in by_team.get(t, []) if isinstance(t, str) else []:

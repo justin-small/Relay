@@ -856,6 +856,25 @@ Import the function (`from ...text import same_name`) rather than the module whe
 import store`: use `modules.using("signage.content")`, see [Reaching another module](#reaching-another-module)); a use that is right is marked `# allow-shared: <why>` on its
 line. Its baseline, `tests/shared_concepts_baseline.txt`, may only shrink.
 
+## Who a person is in another product
+
+`users` is the one person record, and `app/directory.py` (#524, part of the shared-concepts epic #521) says which person
+in a provider's system a user is. The link lives in core (`person_links`: user, provider, the provider's id, the saved
+name, how it was matched and who confirmed it; one link per user and provider, one user per provider id), so it works
+whichever modules are on:
+
+- `directory.user_for("pco", id)`: the Relay user for a Planning Center person, or None.
+- `directory.links("pco")`: `{Planning Center id: user id}`; `directory.external_id(user_id, "pco")` goes the other way;
+  `directory.person(user_id)` gives the user and every link they have.
+- A person is named by a ref: `person:relay:<user id>` or `person:pco:<Planning Center id>` (`directory.ref`,
+  `parse_ref`, `user_from_ref`). A module that stores a person stores a ref in a `*_ref` column; it does not add a
+  `pc_person` or `person_id` text column (`tests/test_shared_concepts.py` fails on one).
+- A provider module offers the people it knows with `modules.provide("directory.<provider>", fn)` (`fn()` returns
+  `{"id", "name"}` dicts); Planning Center provides `directory.pco`, and `directory.people("pco")` is `[]` while it is off.
+- Matching names to people stays in Crew (`people.scan`, fuzzy and confident only); it writes links with
+  `directory.link()`, and the admin accept, dismiss and unlink actions go through the directory too. With Crew off,
+  existing links keep answering for intercom, the rundown and parent paging; new ones are made when Crew is on.
+
 ## Reaching another module
 
 One pattern for a module to give core or another module something, and for them to ask for it (#523, part of the

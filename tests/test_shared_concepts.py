@@ -39,6 +39,10 @@ MODULES = APP / "modules"
 # and the absolute spelling.
 SIBLING = re.compile(r"^\s*(?:from\s+\.\.(\w+)\b|from\s+app\.modules\.(\w+)\b|import\s+app\.modules\.(\w+)\b)")
 
+# A module column that holds a person as free text (a Planning Center id or a name): the link lives in core's
+# person_links (app/directory.py, #524) and a module stores a ref (person:pco:<id>) in a column named *_ref.
+PERSON_COLUMN = re.compile(r"^\s*(?:pc_person|person_id)\s+text\b", re.I)
+
 RULES: dict[str, re.Pattern] = {
     "name": re.compile(r"\.casefold\(\)|unicodedata\.normalize\(|\[\^a-z0-9\]"),
     "weekday": re.compile(r"\.(?:iso)?weekday\(\)"),
@@ -52,6 +56,11 @@ from _harness import check, done, eq, section  # noqa: E402
 def sources() -> list[Path]:
     return [p for p in sorted(APP.rglob("*.py"))
             if "__pycache__" not in p.parts and p.relative_to(ROOT).as_posix() not in SHARED]
+
+
+def module_sql() -> list[Path]:
+    """Every module migration: where a module's tables are made."""
+    return sorted(MODULES.glob("*/migrations/*.sql"))
 
 
 def code_part(line: str) -> str:
@@ -83,6 +92,11 @@ def hits() -> dict[tuple[str, str], list[int]]:
                     out.setdefault((rule, rel), []).append(n)
             if other_module(p, code):
                 out.setdefault(("import", rel), []).append(n)
+    for p in module_sql():
+        rel = p.relative_to(ROOT).as_posix()
+        for n, line in enumerate(p.read_text(encoding="utf-8").splitlines(), 1):
+            if "allow-shared:" not in line and PERSON_COLUMN.match(line):
+                out.setdefault(("person", rel), []).append(n)
     return out
 
 
@@ -103,7 +117,7 @@ def read_baseline() -> dict[tuple[str, str], int]:
 def write_baseline(rows: dict[tuple[str, str], int]) -> None:
     head = ("# Hand-written name tidying, Monday-first weekdays and HH:MM patterns outside app/text.py and\n"
             "# app/timewin.py when tests/test_shared_concepts.py came in (#522), and modules that import another\n"
-            "# module's package (#523). This list may only shrink: fix one, lower its count here (or run the test\n"
+            "# module's package (#523), and a module column holding a person as text (#524). This list may only shrink: fix one, lower its count here (or run the test\n"
             "# with --rebaseline).\n"
             "# intercom_remote -> intercom stays: the remote intercom is the same feature as the intercom (its rooms, its\n"
             "# devices, its presence, its watchdog), not an add-on that has to cope with the intercom being off.\n"
@@ -137,6 +151,10 @@ def main() -> None:
         eq("isoweekday", found("d.isoweekday()"), ["weekday"])
         eq("clock pattern", found('re.compile(r"([01]\\d|2[0-3]):[0-5]\\d")'), ["clock"])
         eq("a comment is not code", found("x = 1  # the old .weekday() counted from Monday"), [])
+        check("a pc_person text column is found", bool(PERSON_COLUMN.match("    pc_person       text unique,")))
+        check("so is person_id", bool(PERSON_COLUMN.match("  person_id text not null,")))
+        check("a ref column is fine", not PERSON_COLUMN.match("    person_ref      text not null,"))
+        check("a person id column of numbers is fine", not PERSON_COLUMN.match("    person_id integer,"))
         eq("helpers are fine", found("if timewin.weekday(d) in days and same_name(a, b):"), [])
 
         def sibling(rel: str, line: str) -> bool:
