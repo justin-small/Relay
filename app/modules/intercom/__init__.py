@@ -68,10 +68,15 @@ class Intercom(Module):
         self._logging: set[asyncio.Task] = set()
 
     def attach(self) -> None:
-        from ... import users
-        from . import store
+        from ... import devices as core_devices, users
+        from . import devices, store
         from .presence import presence
 
+        def forget_phone(core_id: int) -> None:
+            for row in devices.revoke_core(core_id):
+                presence.run(presence.revoked(row))
+
+        core_devices.register(devices.PART, "Intercom", "intercom_devices", forget_phone, devices.describe_core)
         if presence.user_signed_out not in users.signed_out_hooks:
             users.signed_out_hooks.append(presence.user_signed_out)
         if presence.member_changed not in store.member_hooks:
@@ -80,10 +85,11 @@ class Intercom(Module):
             store.config_hooks.append(presence.config_changed)
 
     def detach(self) -> None:
-        from ... import users
-        from . import store
+        from ... import devices as core_devices, users
+        from . import devices, store
         from .presence import presence
 
+        core_devices.unregister(devices.PART)
         for lst, fn in ((users.signed_out_hooks, presence.user_signed_out), (store.member_hooks,
                                                                            presence.member_changed),
                         (store.config_hooks, presence.config_changed)):

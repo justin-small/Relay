@@ -11,6 +11,9 @@ shared files themselves (app/text.py and app/timewin.py) and counts, per file:
 * clock    a hand-written HH:MM pattern (`2[0-3]`). Use `timewin.is_clock`, `clean_clock`, `minutes` or `us_clock`;
 * screen   a module's own table of screens (`create table <x>_screens`): a display is one core screen
            (app/screens.py); a module attaches to it by key (`screens.adopt("<module>:<id>")`);
+* device   a module table of phones or devices (`create table <x>_devices`, `_phones`, `_push_subs`) that is not a part of
+           a core device: it needs a `device_id` that references `devices (id)` (app/devices.py, #528), so forgetting a phone
+           ends it with the rest;
 * import   a module importing another module's package (`from ..signage import store`, `from app.modules.x import`).
            A module offers what others need with `modules.provide("<area>.<what>", impl)` in `attach()` and others ask
            with `modules.using(...)` and cope with None (docs/modules.md, "Reaching another module").
@@ -55,6 +58,13 @@ PLACE_COLUMN = re.compile(r"^\s*(team|position)\s+text\b", re.I)
 # keep a registry of displays. `signage_screens` is baselined: it keeps what signage adds to a screen (its address,
 # sound and playlist), and its name and place are the core screen's.
 SCREEN_TABLE = re.compile(r"^\s*create\s+table\s+\w*screens?\s*\(", re.I)
+# A module table that holds something of a person's phone (#528): a credential, a MAC address, a push subscription.
+# It is a part of a core device (app/devices.py, migration 0009_devices.sql): it has a `device_id` that references
+# `devices (id)`, made in its create table or by a later `alter table ... add column device_id`, so the phone's other
+# parts and its revoke find it. `intercom_remote_devices` is baselined: it flags an intercom credential as remote and is
+# keyed by that credential's row, which is the part.
+DEVICE_TABLE = re.compile(r"^\s*create\s+table\s+(\w*(?:devices?|phones?|push_subs?))\s*\(", re.I)
+DEVICE_REF = re.compile(r"\bdevice_id\b[^,;]*\breferences\s+devices\s*\(", re.I)
 CREATE_TABLE = re.compile(r"create\s+table\s+(\w+)\s*\((.*?)\n\)\s*;", re.I | re.S)
 
 RULES: dict[str, re.Pattern] = {
@@ -116,6 +126,8 @@ def hits() -> dict[tuple[str, str], list[int]]:
         for n, line in enumerate(p.read_text(encoding="utf-8").splitlines(), 1):
             if "allow-shared:" not in line and SCREEN_TABLE.match(line):
                 out.setdefault(("screen", rel), []).append(n)
+        for n in device_lines(p):
+            out.setdefault(("device", rel), []).append(n)
     return out
 
 
@@ -139,6 +151,24 @@ def place_lines(p: Path) -> list[int]:
             col = PLACE_COLUMN.match(line)
             if col and "allow-shared:" not in line and not has_ref(everything, table, col.group(1).lower(), body):
                 bad.append(text[:m.start(2)].count("\n") + 1 + n)
+    return bad
+
+
+def device_lines(p: Path) -> list[int]:
+    """Line numbers in a module migration of a devices/phones table that is not a part of a core device."""
+    text = p.read_text(encoding="utf-8")
+    everything = "\n".join(q.read_text(encoding="utf-8") for q in sorted(p.parent.glob("*.sql")))
+    bad: list[int] = []
+    for n, line in enumerate(text.splitlines(), 1):
+        m = DEVICE_TABLE.match(line)
+        if not m or "allow-shared:" in line:
+            continue
+        table = m.group(1)
+        body = next((b for t, b in CREATE_TABLE.findall(text) if t == table), "")
+        later = re.search(rf"alter\s+table\s+{table}\s+add\s+column\s+device_id\b[^;]*\breferences\s+devices\s*\(",
+                          everything, re.I)
+        if not DEVICE_REF.search(body) and not later:
+            bad.append(n)
     return bad
 
 
@@ -207,6 +237,11 @@ def main() -> None:
         check("a module table of screens is found", bool(SCREEN_TABLE.match("create table lobby_screens (")))
         check("so is a plain screens table", bool(SCREEN_TABLE.match("create table screens(")))
         check("a table that only mentions screens is fine", not SCREEN_TABLE.match("create table screen_sources ("))
+        check("a devices table is found", bool(DEVICE_TABLE.match("create table crew_devices (")))
+        check("so is a push subscriptions table", bool(DEVICE_TABLE.match("create table x_push_subs (")))
+        check("a table that only mentions devices is fine", not DEVICE_TABLE.match("create table device_log ("))
+        check("a reference to core devices is a part", bool(DEVICE_REF.search("device_id integer references devices (id) on delete cascade")))
+        check("a reference to another table is not", not DEVICE_REF.search("device_id integer references intercom_devices (id)"))
         eq("helpers are fine", found("if timewin.weekday(d) in days and same_name(a, b):"), [])
 
         def sibling(rel: str, line: str) -> bool:

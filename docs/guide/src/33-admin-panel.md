@@ -732,6 +732,18 @@ After five wrong PINs in a row, the PIN is cleared and you sign in with your
 password and set a new one. Removing a trusted device from the list stops PIN
 sign-ins there.
 
+### Phones {#phones}
+
+Each phone or computer is listed once, under **My account** (yours) and on the
+**Users** page (everyone's), with everything it is set up for: PIN sign-in, the
+intercom, Wi-Fi check-in and crew page alerts. **Forget** ends all of them at
+once: the phone is signed out of the intercom, stops getting crew pages, is
+taken off check-in and loses its PIN sign-in. **Rename** changes the name shown
+here. Phones set up before this list existed show once for each thing they were
+set up for; if two entries are the same phone, an Admin opens **Join…** on one
+and picks the other, and their parts become one phone. New things you set up
+join your phone's entry when the browser is the same one.
+
 ### API tokens {#api-tokens}
 
 An **API token** lets a script or another program, such as a Stream Deck

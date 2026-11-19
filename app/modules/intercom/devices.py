@@ -13,6 +13,7 @@ import secrets
 from typing import Any
 
 from ... import db, users
+from ... import devices as core_devices
 from . import store
 
 ROTATE_DAYS = 30
@@ -21,6 +22,7 @@ GRACE_S = 600
 NAME_MAX = 60
 UA_MAX = 200
 PLATFORMS = ("web", "ios", "android")
+PART = "intercom"          # the kind of device part this module registers with core (app/devices.py)
 DAY = 86400
 
 
@@ -47,18 +49,24 @@ def default_name(user_agent: str) -> str:
     return "Browser"
 
 
-def create(user_id: int, *, name: str = "", user_agent: str = "", platform: str = "web") -> tuple[str, dict]:
-    """Make a device for `user_id`. Returns (credential, row); the credential is not kept and not shown again."""
+def create(user_id: int, *, name: str = "", user_agent: str = "", platform: str = "web",
+           device: int | None = None) -> tuple[str, dict]:
+    """Make a device for `user_id`. Returns (credential, row); the credential is not kept and not shown again.
+
+    The credential is a part of a core device (app/devices.py, #528): `device` when the phone says which it is, else
+    the user's device with the same user agent that has no intercom part yet, else a new one."""
     store.ready()
     user_agent = " ".join(str(user_agent or "").split())[:UA_MAX]
     name = " ".join(str(name or "").split())[:NAME_MAX] or default_name(user_agent)
     platform = platform if platform in PLATFORMS else "web"
     credential = _new_credential()
     with db.transaction() as tx:
+        core = core_devices.for_part(user_id, PART, "intercom_devices", device=device, name=name, platform=platform,
+                                     user_agent=user_agent, q=tx)
         row = tx.one("insert into intercom_devices (user_id, name, platform, user_agent, credential_hash, issued_at,"
-                     " rotates_at, last_seen_at) values (?, ?, ?, ?, ?, ?, ?, ?) returning *",
+                     " rotates_at, last_seen_at, device_id) values (?, ?, ?, ?, ?, ?, ?, ?, ?) returning *",
                      (user_id, name, platform, user_agent, _hash(credential), db.now(),
-                      db.later(ROTATE_DAYS * DAY), db.now()))
+                      db.later(ROTATE_DAYS * DAY), db.now(), core))
         store.log_event(tx, "device_signed_in", user_id=user_id, device_id=row["id"], detail={"platform": platform})
     return credential, row
 
@@ -94,6 +102,7 @@ def authenticate(credential: Any) -> tuple[dict, users.User, str | None] | None:
             store.log_event(tx, "device_rotated", user_id=row["user_id"], device_id=row["id"])
         else:
             tx.execute("update intercom_devices set last_seen_at = ? where id = ?", (now, row["id"]))
+        core_devices.seen(row["device_id"], now, tx)
         return tx.one("select * from intercom_devices where id = ?", (row["id"],)), user, fresh
 
 
@@ -146,6 +155,22 @@ def revoke_all(actor_id: int | None = None) -> list[tuple[int, int]]:
             tx.execute("update intercom_devices set revoked_at = ? where id = ?", (db.now(), r["id"]))
             store.log_event(tx, "device_revoked", user_id=r["user_id"], device_id=r["id"], actor_id=actor_id)
         return [(r["id"], r["user_id"]) for r in rows]
+
+
+def revoke_core(core_id: int) -> list[dict]:
+    """Sign out the intercom part of a core device (it is being forgotten). Returns the rows, so their sockets can be cut."""
+    store.ready()
+    ids = [r["id"] for r in db.query("select id from intercom_devices where device_id = ? and revoked_at is null",
+                                     (core_id,))]
+    return [row for row in (revoke(i) for i in ids) if row]
+
+
+def describe_core(core_id: int) -> list[str]:
+    """What the intercom holds for a core device, for the phones list."""
+    store.ready()
+    rows = db.query("select last_seen_at from intercom_devices where device_id = ? and revoked_at is null", (core_id,))
+    return ["Signed in to the intercom" + (f", last heard {r['last_seen_at']}" if r["last_seen_at"] else "")
+            for r in rows]
 
 
 def listing(user_id: int | None = None) -> list[dict]:

@@ -330,7 +330,7 @@ def push_state(request: Request):
 
 @router.post("/crew/api/push", dependencies=USE)
 def push_subscribe(request: Request, payload: dict):
-    _people_call(paging.subscribe, request.state.user.id, payload)
+    _people_call(paging.subscribe, request.state.user.id, payload, request.headers.get("user-agent", ""))
     return {"enabled": True}
 
 
@@ -569,7 +569,8 @@ def devices_this(request: Request, payload: dict):
     here = _wifi_client(request)
     if here is None:
         raise HTTPException(409, "Relay cannot see this phone on the church Wi-Fi. Join the Wi-Fi and try again.")
-    _people_call(devices.add, user.id, "mac", here["mac"], payload.get("label") or here.get("name") or "")
+    _people_call(devices.add, user.id, "mac", here["mac"], payload.get("label") or here.get("name") or "", "self",
+                 request.headers.get("user-agent", ""))
     tracks, zone = calltimes._state()
     now = __import__("time").time()
     key = checkin.plan_key(tracks, zone, now)

@@ -183,20 +183,26 @@ class Crew(Module):
             pass
 
     def attach(self) -> None:
-        from ... import modules, users
+        from ... import devices as core_devices, modules, users
         from .chat import hub
 
-        from . import calltimes
+        from . import calltimes, devices, paging
 
+        core_devices.register(devices.PART, "Wi-Fi check-in", "crew_devices", lambda _id: None, devices.describe_core)
+        core_devices.register(paging.PART, "Crew page alerts", "crew_push_subs", lambda _id: None, paging.describe_core)
         modules.listen("plan.changed", self._team_changed)
         modules.provide("schedules.used.crew", calltimes.schedule_users)
         if hub.signed_out not in users.signed_out_hooks:
             users.signed_out_hooks.append(hub.signed_out)
 
     def detach(self) -> None:
-        from ... import modules, users
+        from ... import devices as core_devices, modules, users
         from .chat import hub
 
+        from . import devices, paging
+
+        core_devices.unregister(devices.PART)
+        core_devices.unregister(paging.PART)
         if hub.signed_out in users.signed_out_hooks:
             users.signed_out_hooks.remove(hub.signed_out)
 

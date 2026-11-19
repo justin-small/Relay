@@ -274,5 +274,7 @@ recording actions all register the same way, and a module stops importing anothe
    board or a signage playlist from one combined schedule (H3, M3, L3). Mockup first. Built (#527): boards, signage,
    alert screens and panels attach; the Screens page is the live wall (mockup A). Tally screens are a phone on a camera,
    not a display, and stay as they are.
-7. Core `devices` with credentials as parts (M1).
+7. Core `devices` with credentials as parts (M1). Built (#528): sign-in trust, the intercom credential, Wi-Fi check-in and
+   web push are parts; forgetting a phone ends them all. Existing rows became one device each (no row carried a user agent
+   beside another kind of part, so none could be joined with certainty); an admin joins the ones that are one phone.
 8. Cleanups: merge intercom remote sessions, convert crew timestamps, rename crew pages (M2, M6, L2).

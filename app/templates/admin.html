@@ -894,6 +894,18 @@ window.relayCan = function (perm) { return window.RELAY_ME.permissions.indexOf(p
         Forgotten passwords are reset here: there is no email.</div>
     </section>
     <section>
+      <h3>Phones</h3>
+      <div class="note">Each phone or computer once, with everything it is set up for: PIN sign-in, the intercom, Wi-Fi check-in and crew
+        page alerts. Forgetting a phone ends all of them: it is signed out of the intercom, stops getting pages, is taken off check-in
+        and loses its PIN. If one phone shows up twice, join the two.</div>
+      <div class="tablescroll">
+        <table>
+          <thead><tr><th>Phone</th><th>Person</th><th>Set up for</th><th>Last seen</th><th><span class="sr">Actions</span></th></tr></thead>
+          <tbody id="phoneList"><tr><td colspan="5" class="muted">Loading&hellip;</td></tr></tbody>
+        </table>
+      </div>
+    </section>
+    <section>
       <h3>Trusted devices</h3>
       <div class="note" style="margin:0 0 12px">People who have set a PIN can sign in with it on a trusted device only,
         such as the sound booth iPad. Everywhere else they use their password.</div>
@@ -981,6 +993,17 @@ window.relayCan = function (perm) { return window.RELAY_ME.permissions.indexOf(p
           <button type="button" id="pinRemove" hidden>Remove PIN</button>
         </div>
       </form>
+    </section>
+    <section>
+      <h3>My phones</h3>
+      <div class="note">The phones and computers you have set up, with what each is set up for. Forgetting one signs it out of the intercom,
+        stops its crew page alerts, takes it off check-in and ends its PIN sign-in.</div>
+      <div class="tablescroll">
+        <table>
+          <thead><tr><th>Phone</th><th>Set up for</th><th>Last seen</th><th><span class="sr">Actions</span></th></tr></thead>
+          <tbody id="myPhoneList"><tr><td colspan="4" class="muted">Loading&hellip;</td></tr></tbody>
+        </table>
+      </div>
     </section>
     {% if 'tokens.own' in perms %}<section>
       <h3>API tokens</h3>
