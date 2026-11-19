@@ -60,22 +60,23 @@
       : k === 'embed' ? 'Pages from these sites can be shown here: ' + (hosts.join(', ') || 'none allowed') + '. YouTube watch addresses work.'
       : 'Opens in a new tab.';
   }
+  // The team or position is chosen from what Planning Center lists, never typed (see checklists.js).
+  let lastPicks = [];
   function reset() {
-    editing = null; $('rsTitle').value = ''; $('rsPos').value = ''; $('rsUrl').value = ''; $('rsFile').value = '';
+    editing = null; $('rsTitle').value = ''; relayUI.picker($('rsPos'), lastPicks, null, 'Everyone serving'); $('rsUrl').value = ''; $('rsFile').value = '';
     $('rsKind').disabled = false; $('rsSave').textContent = 'Add'; $('rsCancel').hidden = true; kindChanged();
   }
   function drawManage(d) {
     loaded = true; hosts = d.embed_hosts; limit = d.limit;
     const out = $('rsManage'); out.textContent = '';
-    const dl = $('rsPositions'); dl.textContent = '';
-    (d.all ? d.positions : d.leads).forEach(function (p) { const o = document.createElement('option'); o.value = p; dl.appendChild(o); });
+    lastPicks = d.picks; relayUI.picker($('rsPos'), lastPicks, editing === null ? null : (d.resources.filter(function (x) { return x.id === editing; })[0] || {}).pick || null, 'Everyone serving');
     d.resources.forEach(function (r) {
       const row = document.createElement('div'); row.className = 'cl-tpl';
-      const name = document.createElement('span'); name.textContent = r.title + ' \u00b7 ' + (r.position || 'Everyone') + ' \u00b7 ' + r.kind;
+      const name = document.createElement('span'); name.textContent = r.title + ' \u00b7 ' + (r.position || 'Everyone') + (r.missing ? ' (no longer in Planning Center)' : '') + (r.unmatched ? ' (not matched to Planning Center)' : '') + ' \u00b7 ' + r.kind;
       const edit = document.createElement('button'); edit.type = 'button'; edit.textContent = 'Edit';
       edit.addEventListener('click', function () {
         editing = r.id; $('rsKind').value = r.kind; $('rsKind').disabled = true; kindChanged();
-        $('rsTitle').value = r.title; $('rsPos').value = r.position; $('rsUrl').value = r.url || '';
+        $('rsTitle').value = r.title; relayUI.picker($('rsPos'), lastPicks, r.pick, 'Everyone serving'); $('rsUrl').value = r.url || '';
         $('rsFile').hidden = true; $('rsSave').textContent = 'Save'; $('rsCancel').hidden = false;
       });
       const del = document.createElement('button'); del.type = 'button'; del.textContent = 'Delete';
@@ -92,21 +93,21 @@
 
   $('rsKind').addEventListener('change', kindChanged);
   $('rsSave').addEventListener('click', async function () {
-    const kind = $('rsKind').value, title = $('rsTitle').value, position = $('rsPos').value;
+    const kind = $('rsKind').value, title = $('rsTitle').value, position = relayUI.pickedName($('rsPos')), positionRef = $('rsPos').value;
     let r;
-    if (editing !== null) r = await request('PUT', '/crew/api/resources/' + editing, { title: title, position: position, url: $('rsUrl').value });
+    if (editing !== null) r = await request('PUT', '/crew/api/resources/' + editing, { title: title, position: position, position_ref: positionRef, url: $('rsUrl').value });
     else if (kind === 'file') {
       const f = $('rsFile').files[0];
       if (!f) { note.textContent = 'Choose a file first.'; return; }
       if (limit && f.size > limit) { note.textContent = 'That file is too large. Files can be up to ' + mb(limit) + '.'; return; }
       $('rsSave').disabled = true; note.textContent = 'Uploading\u2026';
-      const res = await fetch('/crew/api/resources/file?title=' + encodeURIComponent(title) + '&position=' + encodeURIComponent(position),
+      const res = await fetch('/crew/api/resources/file?title=' + encodeURIComponent(title) + '&position=' + encodeURIComponent(position) + '&position_ref=' + encodeURIComponent(positionRef),
         { method: 'POST', credentials: 'same-origin', body: f });
       $('rsSave').disabled = false;
       const data = await res.json().catch(function () { return {}; });
       if (!res.ok) { note.textContent = data.detail || 'The upload did not work.'; return; }
       note.textContent = ''; r = data;
-    } else r = await request('POST', '/crew/api/resources/link', { kind: kind, title: title, position: position, url: $('rsUrl').value });
+    } else r = await request('POST', '/crew/api/resources/link', { kind: kind, title: title, position: position, position_ref: positionRef, url: $('rsUrl').value });
     if (r) { reset(); drawManage(r); load(); }
   });
   $('rsCancel').addEventListener('click', reset);

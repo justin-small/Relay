@@ -38,7 +38,7 @@ anon = TestClient(app, base_url="http://relay.local:8001")
 viewer_port = TestClient(app, base_url="http://relay.local:8000")
 U = {n: users.get_by_username(n) for n in ("cam1", "cam2", "audio", "booth")}
 for n, uid in (("cam1", "Camera 1"), ("cam2", "camera  1"), ("audio", "Audio")):
-    admin.put(f"/api/admin/crew/people/{U[n].id}/role", json={"role": uid})
+    admin.put(f"/api/admin/crew/people/{U[n].id}/role", json={"crew_role": uid})
 
 print("channels")
 ch = lambda c: [(x["id"], x["title"]) for x in c.get("/crew/api/chat/channels").json()["channels"]]

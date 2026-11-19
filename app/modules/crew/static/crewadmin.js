@@ -73,8 +73,8 @@
       const tr = document.createElement('tr');
       tr.appendChild(cell(p.name + (p.disabled ? ' (off)' : '')));
       const rt = document.createElement('td'), inp = document.createElement('input');
-      inp.maxLength = 40; inp.value = p.role; inp.disabled = !manage; inp.setAttribute('aria-label', 'Role for ' + p.name);
-      inp.addEventListener('change', async function () { if (await send('PUT', '/api/admin/crew/people/' + p.id + '/role', { role: inp.value })) peopleRefresh(); });
+      inp.maxLength = 40; inp.value = p.crew_role_set; inp.placeholder = p.usual_position; inp.disabled = !manage; inp.setAttribute('aria-label', 'Crew role for ' + p.name);
+      inp.addEventListener('change', async function () { if (await send('PUT', '/api/admin/crew/people/' + p.id + '/role', { crew_role: inp.value })) peopleRefresh(); });
       rt.appendChild(inp); tr.appendChild(rt);
       const pc = document.createElement('td');
       if (p.suggested_name) {
@@ -171,12 +171,14 @@
   function drawCalls(d) {
     const manage = can('crew.manage'), body = document.querySelector('#ctRules tbody');
     ['ctTeam', 'ctKind', 'ctMin', 'ctDay', 'ctClock', 'ctMsg', 'ctAdd'].forEach(function (id) { $(id).disabled = !manage; });
-    const list = $('ctTeams'); list.textContent = '';
-    d.teams.forEach(function (t) { const o = document.createElement('option'); o.value = t; list.appendChild(o); });
+    const pick = $('ctTeam'), was = pick.value; pick.textContent = '';
+    d.teams.forEach(function (t) { if (t.missing) return; const o = document.createElement('option'); o.value = t.ref; o.textContent = t.name; pick.appendChild(o); });
+    if (was) pick.value = was;
+    if (!pick.options.length) { const o = document.createElement('option'); o.value = ''; o.textContent = 'No teams yet: Planning Center is off or has not been read'; pick.appendChild(o); }
     body.textContent = '';
     d.rules.forEach(function (r) {
       const tr = document.createElement('tr');
-      tr.appendChild(cell(r.team + (r.enabled ? '' : ' (off)'))); tr.appendChild(cell(whenText(r)));
+      tr.appendChild(cell(r.team + (r.enabled ? '' : ' (off)') + (r.missing ? ' (no longer in Planning Center)' : '') + (r.unmatched ? ' (not matched to a Planning Center team: remove it and add it again from the list)' : ''))); tr.appendChild(cell(whenText(r)));
       tr.appendChild(cell(r.message)); tr.appendChild(cell(lastText(r)));
       const act = document.createElement('td');
       if (manage) {
@@ -193,7 +195,7 @@
   $('ctKind').addEventListener('change', ctKind);
   $('ctAdd').addEventListener('click', async function () {
     const before = $('ctKind').value === 'before';
-    const rule = { team: $('ctTeam').value, kind: $('ctKind').value, message: $('ctMsg').value, enabled: true };
+    const rule = { team_ref: $('ctTeam').value, kind: $('ctKind').value, message: $('ctMsg').value, enabled: true };
     if (before) rule.minutes = parseInt($('ctMin').value, 10); else { rule.weekday = parseInt($('ctDay').value, 10); rule.clock = $('ctClock').value; }
     const d = await ctSend('POST', '/api/admin/crew/calltimes', rule);
     if (d) { $('ctMsg').value = ''; drawCalls(d); }
@@ -362,11 +364,14 @@
     const body = document.querySelector('#crLeads tbody'); body.textContent = '';
     const sel = $('crLeadUser'); sel.textContent = '';
     d.people.forEach(function (p) { const o = document.createElement('option'); o.value = p.id; o.textContent = p.name; sel.appendChild(o); });
+    const pos = $('crLeadPos'); pos.textContent = '';
+    d.picks.forEach(function (p) { const o = document.createElement('option'); o.value = p.ref; o.textContent = p.label; pos.appendChild(o); });
     d.leads.forEach(function (l) {
-      const tr = document.createElement('tr'); tr.appendChild(cell(l.name)); tr.appendChild(cell(l.position));
+      const tr = document.createElement('tr'); tr.appendChild(cell(l.name));
+      tr.appendChild(cell(l.position + (l.missing ? ' (no longer in Planning Center)' : '') + (l.unmatched ? ' (not matched to Planning Center)' : '')));
       const td = document.createElement('td');
       td.appendChild(button('Remove', async function () {
-        const r = await send2('DELETE', '/api/admin/crew/checklist-leads/' + l.user_id + '?position=' + encodeURIComponent(l.position), null, leadMsg);
+        const r = await send2('DELETE', '/api/admin/crew/checklist-leads/' + l.user_id + '?position=' + encodeURIComponent(l.position) + '&position_ref=' + encodeURIComponent(l.position_ref), null, leadMsg);
         if (r) drawLeads(r);
       }));
       tr.appendChild(td); body.appendChild(tr);
@@ -378,8 +383,8 @@
     try { drawLeads(await api('/api/admin/crew/checklist-leads')); } catch (e) { /* keeps what it had */ }
   }
   $('crLeadAdd').addEventListener('click', async function () {
-    const r = await send2('POST', '/api/admin/crew/checklist-leads', { user_id: Number($('crLeadUser').value), position: $('crLeadPos').value }, leadMsg);
-    if (r) { $('crLeadPos').value = ''; drawLeads(r); }
+    const r = await send2('POST', '/api/admin/crew/checklist-leads', { user_id: Number($('crLeadUser').value), position_ref: $('crLeadPos').value }, leadMsg);
+    if (r) drawLeads(r);
   });
   setInterval(function () { if (document.getElementById('page-crew') && !document.getElementById('page-crew').hidden) { boardRefresh(); listsRefresh(); activityRefresh(); } }, 15000);
   document.addEventListener('relay:config', function () { refresh(); peopleRefresh(); drawn = false; pagesRefresh(); callsRefresh(); boardRefresh(); listsRefresh(); leadsRefresh(); activityRefresh(); });

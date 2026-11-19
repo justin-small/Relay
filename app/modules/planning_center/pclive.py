@@ -42,6 +42,7 @@ FAST_S = 2.0            # LIVE poll while a service is near or running
 SLOW_S = 180.0          # LIVE poll the rest of the time
 PLAN_CHECK_S = 300.0    # look for today's plan (and re-read its items) this often
 PLAN_CHECK_FAST_S = 30.0  # ...and this often near or during a service, so plan edits reach panels soon
+CATALOG_CHECK_S = 1800.0  # the teams and positions Planning Center has (#525): they change rarely
 TEAM_CHECK_S = 120.0    # who is scheduled (#148): re-read on this slower timer, never on the fast LIVE poll
 ERROR_RETRY_S = 20.0    # after a call fails
 AUTH_RETRY_S = 300.0    # after Planning Center refuses the token: no point hammering
@@ -69,6 +70,8 @@ class Track:
         self.team: list[dict] = []         # who is scheduled on the plan (#148)
         self.needed: list[dict] = []       # positions still to fill
         self.team_due = 0.0
+        self.catalog: list[dict] = []      # every team with its positions and ids (#525)
+        self.catalog_due = 0.0
         self.live: dict | None = None
         self.day: date | None = None
         self.plan_due = 0.0
@@ -250,6 +253,15 @@ class Follower:
             tr.team, tr.needed, tr.team_due = [], [], 0.0
             tr.fast = False
         tr.plan = chosen
+        if ts >= tr.catalog_due:
+            tr.catalog_due = ts + CATALOG_CHECK_S
+            try:
+                tr.catalog = await self._call(client.teams, tr.st)
+            except pc.PlanningCenterError as exc:
+                if exc.kind == "network":
+                    raise
+                tr.catalog_due = ts + ERROR_RETRY_S * 6
+                log.info("Planning Center, service type %s: teams not read (%s)", tr.st, exc.kind)
         if chosen is not None:
             tr.items = await self._call(client.items, tr.st, chosen["id"])
             if ts >= tr.team_due:
@@ -257,6 +269,8 @@ class Follower:
                 try:
                     tr.team = await self._call(client.team_members, tr.st, chosen["id"])
                     tr.needed = await self._call(client.needed_positions, tr.st, chosen["id"])
+                    pc.tag_positions(tr.team, tr.catalog)
+                    pc.tag_positions(tr.needed, tr.catalog)
                 except pc.PlanningCenterError as exc:
                     # The rundown's people are extra: a token that may not see them leaves the plan working.
                     if exc.kind == "network":
@@ -311,7 +325,7 @@ class Follower:
 
     # -- state ----------------------------------------------------------
     def _note_change(self) -> None:
-        sig = json.dumps([self.me_id] + [[t.st, t.plan, t.items, t.team, t.needed, t.live, t.error, t.override,
+        sig = json.dumps([self.me_id] + [[t.st, t.plan, t.items, t.team, t.needed, t.catalog, t.live, t.error, t.override,
                            [p["id"] for p in t.plans]] for t in self.tracks.values()], sort_keys=True)
         if sig != self._sig:
             self._sig = sig

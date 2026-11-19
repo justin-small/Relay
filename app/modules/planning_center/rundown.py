@@ -29,6 +29,7 @@ from datetime import datetime, timezone
 from typing import Any
 from zoneinfo import ZoneInfo
 
+from ... import directory
 from ...text import same_name
 from . import planningcenter as pc
 
@@ -47,24 +48,62 @@ def _text(v: Any, n: int) -> str:
     return re.sub(r"\s+", " ", str(v or "")).strip()[:n]
 
 
+def _ref(raw: Any, kind: str) -> str:
+    """A team or position ref as saved (#525), or "" for anything that is not one."""
+    parsed = directory.parse_item(raw)
+    return raw if parsed and parsed[0] == kind and parsed[1] == directory.PCO else ""
+
+
+def _pick(entry: dict, team: str, pos: str, live: bool = False) -> tuple[str, str, str, str]:
+    """(team ref, team, position ref, position) for a saved team and position. Reading settings keeps what was saved
+    and never asks the directory. With `live`, a ref is given the directory's current name, and a name with no ref is
+    matched to one (text.same_name) and stays a name when nothing matches."""
+    tref, pref = _ref(entry.get("team_ref"), directory.TEAM), _ref(entry.get("position_ref"), directory.POSITION)
+    if not live:
+        return tref, team, pref, pos
+    if not pref and pos:
+        found = [p for p in directory.positions() if not p["missing"] and same_name(p["name"], pos)
+                 and (not team or same_name(p["team"], team))]
+        if len(found) == 1:
+            pref = found[0]["ref"]
+    if pref and not tref:
+        tref = directory.team_of(pref) or ""
+    team = directory.describe(tref, team)["name"] if tref else team
+    pos = directory.describe(pref, pos)["name"] if pref else pos
+    return tref, team, pref, pos
+
+
+def refresh_saved(rs: dict) -> bool:
+    """Bring the saved refs and names of the mic mappings and channel assignments up to date with the directory:
+    adopt a ref for a name that now matches, and rewrite a name Planning Center renamed. True when anything changed."""
+    changed = False
+    for entry in list(rs.get("mics") or []) + [a for c in rs.get("channels") or [] for a in c.get("positions") or []]:
+        tref, team, pref, pos = _pick(entry, entry.get("team", ""), entry.get("position", ""), live=True)
+        new = {"team_ref": tref, "team": team, "position_ref": pref, "position": pos}
+        if any(entry.get(k) != v for k, v in new.items()):
+            entry.update(new)
+            changed = True
+    return changed
+
+
 def clean_rundown(raw: Any) -> dict:
     """The "rundown" settings under "planning_center" in config.json."""
     raw = raw if isinstance(raw, dict) else {}
     mics: list[dict] = []
-    seen: set[tuple[str, str]] = set()
+    seen: set[Any] = set()
     for m in raw.get("mics") or []:
         if not isinstance(m, dict) or len(mics) >= MAX_MAPPINGS:
             continue
-        team, pos = _text(m.get("team"), 80), _text(m.get("position"), 80)
+        tref, team, pref, pos = _pick(m, _text(m.get("team"), 80), _text(m.get("position"), 80))
         labels = []
         for x in m.get("mics") or []:
             x = _text(x, 12)
             if LABEL_RE.match(x) and x not in labels:
                 labels.append(x)
-        if not pos or (team, pos) in seen or not labels:
+        if not pos or (pref or (team, pos)) in seen or not labels:
             continue
-        seen.add((team, pos))
-        mics.append({"team": team, "position": pos, "mics": labels[:MAX_MICS], "sings": m.get("sings") is not False,
+        seen.add(pref or (team, pos))
+        mics.append({"team": team, "team_ref": tref, "position": pos, "position_ref": pref, "mics": labels[:MAX_MICS], "sings": m.get("sings") is not False,
                      "label": _text(m.get("label"), 24)})
     channels = clean_channels(raw.get("channels"))
     draws: dict[str, dict[str, str]] = {}
@@ -98,15 +137,18 @@ def clean_channels(raw: Any) -> list[dict]:
         if not (name or number) or cid in seen:
             continue
         seen.add(cid)
-        keys: set[tuple[str, str, str]] = set()
+        keys: set[Any] = set()
         positions = []
         for a in c.get("positions") or []:
             if not isinstance(a, dict) or len(positions) >= MAX_ASSIGNMENTS:
                 continue
-            k = (_text(a.get("service_type"), 40), _text(a.get("team"), 80), _text(a.get("position"), 80))
-            if k[0] and k[2] and k not in keys:
+            st = _text(a.get("service_type"), 40)
+            tref, team, pref, pos = _pick(a, _text(a.get("team"), 80), _text(a.get("position"), 80))
+            k = (st, pref or team, pos)
+            if st and pos and k not in keys:
                 keys.add(k)
-                positions.append({"service_type": k[0], "team": k[1], "position": k[2]})
+                positions.append({"service_type": st, "team": team, "team_ref": tref, "position": pos,
+                                  "position_ref": pref})
         out.append({"id": cid, "name": name, "number": number, "positions": positions})
     return out
 
@@ -130,12 +172,13 @@ def effective_mics(rs: dict, service_type: str) -> list[dict]:
         for a in ch["positions"]:
             if a["service_type"] != service_type or not label:
                 continue
-            mp = by_position.setdefault((a["team"], a["position"]), {
-                "team": a["team"], "position": a["position"], "mics": [], "sings": True, "label": "", "names": {}})
+            mp = by_position.setdefault((a["position_ref"] or a["team"], a["position"]), {
+                "team": a["team"], "team_ref": a["team_ref"], "position": a["position"],
+                "position_ref": a["position_ref"], "mics": [], "sings": True, "label": "", "names": {}})
             if label not in mp["mics"] and len(mp["mics"]) < MAX_MICS:
                 mp["mics"].append(label)
                 mp["names"][label] = ch["name"]
-    covered = {(m["team"], m["position"]) for m in out}
+    covered = {(m["position_ref"] or m["team"], m["position"]) for m in out}
     return out + [m for k, m in by_position.items() if k not in covered]
 
 
@@ -178,10 +221,15 @@ def _serves(member: dict, time_id: str) -> bool:
 
 
 def _key(m: dict) -> str:
-    return f"{m['team']}|{m['position']}"
+    return m.get("position_ref") or f"{m['team']}|{m['position']}"
 
 
 def _matches(mapping: dict, member: dict) -> bool:
+    """Whether a plan member holds the mapped position: by Planning Center's ids when the mapping has them (so a
+    rename there changes nothing), else by name."""
+    if mapping.get("position_ref"):
+        return (directory.position_ref(directory.PCO, member.get("team_id") or "", member.get("position_id") or "")
+                == mapping["position_ref"])
     return (same_name(member["position"], mapping["position"])
             and (not mapping["team"] or same_name(member["team"], mapping["team"])))
 
@@ -398,25 +446,33 @@ def _mic_sort(mic: str | None) -> tuple:
     return (0, int(m.group(1)), mic) if m else (1, 0, mic or "")
 
 
+def _refs_of(m: dict) -> tuple[str, str]:
+    """(team ref, position ref) of a plan row, "" for what Planning Center gave no id for."""
+    tid, pid = m.get("team_id") or "", m.get("position_id") or ""
+    return (directory.team_ref(directory.PCO, tid) if tid else "",
+            directory.position_ref(directory.PCO, tid, pid) if tid and pid else "")
+
+
 def positions(tracks: list[Any]) -> list[dict]:
     """Every team and position on today's plans (scheduled or still to fill), for the mic map in admin."""
     seen: dict[tuple[str, str], int] = {}
     for tr in tracks:
         for m in list(tr.team) + list(tr.needed):
-            k = (m["team"], m["position"])
             if m["position"]:
+                k = (m["team"], m["position"], *_refs_of(m))
                 seen[k] = seen.get(k, 0) + 1
-    return [{"team": t, "position": p} for t, p in sorted(seen)]
+    return [{"team": t, "position": p, "team_ref": tr_, "position_ref": pr_} for t, p, tr_, pr_ in sorted(seen)]
 
 
 def type_positions(tracks: list[Any]) -> list[dict]:
     """Every team and position on today's plans with its service type, for assigning channels in admin."""
-    seen: set[tuple[str, str, str]] = set()
+    seen: set[tuple[str, str, str, str, str]] = set()
     for tr in tracks:
         for m in list(tr.team) + list(tr.needed):
             if m["position"]:
-                seen.add((tr.st, m["team"], m["position"]))
-    return [{"service_type": st, "team": t, "position": p} for st, t, p in sorted(seen)]
+                seen.add((tr.st, m["team"], m["position"], *_refs_of(m)))
+    return [{"service_type": st, "team": t, "position": p, "team_ref": tr_, "position_ref": pr_}
+            for st, t, p, tr_, pr_ in sorted(seen)]
 
 
 def signature(msg: dict) -> str:

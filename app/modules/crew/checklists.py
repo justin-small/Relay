@@ -12,11 +12,12 @@ import time
 
 from ... import db, directory
 from ...text import same_name
-from . import checkin, paging, people
+from . import checkin, paging, people, refs
 
 TITLE_MAX, ITEM_MAX, POSITION_MAX = 60, 140, 80
 ITEMS_MAX, LISTS_MAX = 40, 100
 KEEP_DAYS = 180
+PICK = (directory.TEAM, directory.POSITION)    # a checklist is for a team or for one position of it
 Invalid = people.Invalid
 
 
@@ -42,8 +43,9 @@ def clean(payload) -> dict:
         raise Invalid("A checklist needs at least one item.")
     if len(items) > ITEMS_MAX:
         raise Invalid(f"A checklist has at most {ITEMS_MAX} items.")
-    return {"title": _text(payload.get("title"), TITLE_MAX, "Title"),
-            "position": _text(payload.get("position"), POSITION_MAX, "Position", required=False), "items": items}
+    ref, name = refs.clean_pick(payload.get("position_ref"), payload.get("position"), PICK, POSITION_MAX, "Position")
+    return {"title": _text(payload.get("title"), TITLE_MAX, "Title"), "position": name, "position_ref": ref,
+            "items": items}
 
 
 def same(a: str, b: str) -> bool:
@@ -51,52 +53,64 @@ def same(a: str, b: str) -> bool:
 
 
 # -- who may edit ------------------------------------------------------------------------------------------------
-def leads_of(user_id: int) -> list[str]:
+def lead_rows(user_id: int) -> list[dict]:
+    """The teams and positions this person leads: {"ref", "name"} (the name is Planning Center's current one)."""
     people.ready()
-    return [r["position"] for r in db.query("select position from crew_checklist_leads where user_id = ?"
-                                            " order by lower(position)", (user_id,))]
+    return [{"ref": r["position_ref"], "name": directory.describe(r["position_ref"], r["position"])["name"]}
+            for r in db.query("select position, position_ref from crew_checklist_leads where user_id = ?", (user_id,))]
 
 
-def can_edit(user, position: str, perm: str = "crew.checklist_edit") -> bool:
+def leads_of(user_id: int) -> list[str]:
+    return sorted((r["name"] for r in lead_rows(user_id)), key=str.lower)
+
+
+def can_edit(user, position: str, perm: str = "crew.checklist_edit", position_ref: str = "") -> bool:
     """Operators (`perm`) edit everything; a team lead edits only their own positions. Leads are named once and
     lead a position's checklists and resources (#233) alike."""
     if user.can(perm):
         return True
-    return bool(position) and any(same(position, p) for p in leads_of(user.id))
+    return bool(position or position_ref) and any(
+        directory.same_item(position_ref, position, l["ref"], l["name"]) for l in lead_rows(user.id))
 
 
 def list_leads() -> list[dict]:
     people.ready()
-    return [{"user_id": r["user_id"], "name": r["name"], "position": r["position"]} for r in db.query(
-        "select l.user_id, u.name, l.position from crew_checklist_leads l join users u on u.id = l.user_id"
-        " order by lower(l.position), lower(u.name)")]
+    return [{"user_id": r["user_id"], "name": r["name"], "position": f["name"], "position_ref": r["position_ref"],
+             "missing": f["missing"], "unmatched": f["unmatched"]}
+            for r in db.query(
+                "select l.user_id, u.name, l.position, l.position_ref from crew_checklist_leads l"
+                " join users u on u.id = l.user_id order by lower(l.position), lower(u.name)")
+            for f in [refs.flags(r["position_ref"], r["position"])]]
 
 
-def add_lead(user_id, position) -> None:
-    pos = _text(position, POSITION_MAX, "Position")
+def add_lead(user_id, position, position_ref="") -> None:
+    ref, name = refs.clean_pick(position_ref, position, PICK, POSITION_MAX, "Position", required=True)
     people.ready()
     if not isinstance(user_id, int) or isinstance(user_id, bool) or db.one(
             "select id from users where id = ?", (user_id,)) is None:
         raise Invalid("No such person.", 404)
-    db.execute("insert into crew_checklist_leads (user_id, position) values (?, ?) on conflict do nothing",
-               (user_id, pos))
+    db.execute("insert into crew_checklist_leads (user_id, position, position_ref) values (?, ?, ?)"
+               " on conflict do nothing", (user_id, name, ref))
 
 
-def remove_lead(user_id: int, position: str) -> None:
+def remove_lead(user_id: int, position: str, position_ref: str = "") -> None:
     people.ready()
-    db.execute("delete from crew_checklist_leads where user_id = ? and position = ?", (user_id, position))
+    db.execute("delete from crew_checklist_leads where user_id = ? and position_ref = ? and (? != '' or position = ?)",
+               (user_id, position_ref, position_ref, position))
 
 
 # -- templates ---------------------------------------------------------------------------------------------------
 def templates() -> list[dict]:
     people.ready()
-    lists = db.query("select id, title, position from crew_checklists order by position = '' desc, lower(position),"
-                     " lower(title), id")
+    lists = db.query("select id, title, position, position_ref from crew_checklists order by position = '' desc,"
+                     " lower(position), lower(title), id")
     items: dict[int, list[dict]] = {}
     for r in db.query("select id, checklist_id, text from crew_checklist_items order by checklist_id, sort, id"):
         items.setdefault(r["checklist_id"], []).append({"id": r["id"], "text": r["text"]})
-    return [{"id": c["id"], "title": c["title"], "position": c["position"], "items": items.get(c["id"], [])}
-            for c in lists]
+    return [{"id": c["id"], "title": c["title"], "items": items.get(c["id"], []), "position_ref": c["position_ref"],
+             "pick": {"ref": c["position_ref"], "name": f["name"]},
+             **{"position": f["name"], "missing": f["missing"], "unmatched": f["unmatched"]}}
+            for c in lists for f in [refs.flags(c["position_ref"], c["position"])]]
 
 
 def get(list_id: int) -> dict | None:
@@ -111,14 +125,15 @@ def save(data: dict, list_id: int | None = None) -> int:
         if list_id is None:
             if tx.one("select count(*) as n from crew_checklists")["n"] >= LISTS_MAX:
                 raise Invalid(f"There can be at most {LISTS_MAX} checklists.")
-            list_id = tx.one("insert into crew_checklists (title, position, updated_at) values (?, ?, ?) returning id",
-                             (data["title"], data["position"], db.now()))["id"]
+            list_id = tx.one("insert into crew_checklists (title, position, position_ref, updated_at)"
+                             " values (?, ?, ?, ?) returning id",
+                             (data["title"], data["position"], data["position_ref"], db.now()))["id"]
             old: list[dict] = []
         else:
             if tx.one("select id from crew_checklists where id = ?", (list_id,)) is None:
                 raise Invalid("No such checklist.", 404)
-            tx.execute("update crew_checklists set title = ?, position = ?, updated_at = ? where id = ?",
-                       (data["title"], data["position"], db.now(), list_id))
+            tx.execute("update crew_checklists set title = ?, position = ?, position_ref = ?, updated_at = ? where id = ?",
+                       (data["title"], data["position"], data["position_ref"], db.now(), list_id))
             old = tx.query("select id, text from crew_checklist_items where checklist_id = ? order by sort, id",
                            (list_id,))
         keep: list[int] = []
@@ -142,17 +157,26 @@ def delete(list_id: int) -> None:
 
 
 # -- what a person sees ------------------------------------------------------------------------------------------
-def teams_of(user_id: int, tracks) -> list[str]:
-    """The Planning Center teams this person serves on today (none when they are not matched to Planning Center)."""
+def held(user_id: int, tracks) -> list[dict]:
+    """The plan rows (team and position, with their ids) this person is scheduled in today; none when they are not
+    matched to Planning Center."""
     people.ready()
     pid = directory.external_id(user_id, directory.PCO)
     if not pid:
         return []
-    return sorted(t for t, rows in paging.serving(tracks).items() if any(r["person"] == pid for r in rows))
+    return [m for m in paging.active_members(tracks) if m["person"] == pid]
 
 
-def applies(template: dict, teams: list[str]) -> bool:
-    return not template["position"] or any(same(template["position"], t) for t in teams)
+def teams_of(user_id: int, tracks) -> list[str]:
+    """The Planning Center teams this person serves on today, by name, for showing."""
+    return sorted({m["team"] for m in held(user_id, tracks)})
+
+
+def applies(template: dict, mine_today: list[dict]) -> bool:
+    """A template (or resource) is for everyone, or for a team or position this person holds today (`held`)."""
+    if not template["position"] and not template.get("position_ref"):
+        return True
+    return any(paging.holds(m, template.get("position_ref", ""), template["position"]) for m in mine_today)
 
 
 def _forget_old(now: float) -> None:
@@ -162,7 +186,7 @@ def _forget_old(now: float) -> None:
 def mine(user_id: int, key: str, tracks) -> list[dict]:
     """This person's checklists for the plan, each item with when they ticked it (None while open)."""
     people.ready()
-    teams = teams_of(user_id, tracks)
+    teams = held(user_id, tracks)
     done = {r["item_id"]: r["done_ts"] for r in db.query(
         "select item_id, done_ts from crew_checklist_done where plan_id = ? and user_id = ?", (key, user_id))}
     return [{"id": t["id"], "title": t["title"], "position": t["position"],
@@ -207,16 +231,15 @@ def board(tracks, zone, plan: str | None = None, now: float | None = None) -> di
     for r in db.query("select user_id, item_id, done_ts from crew_checklist_done where plan_id = ?", (key,)):
         done.setdefault(r["user_id"], {})[r["item_id"]] = r["done_ts"]
     names = {r["id"]: r["name"] for r in db.query("select id, name from users")}
-    who: dict[int, list[str]] = {}
+    who: dict[int, list[dict]] = {}
     if key == today:
         linked = directory.links(directory.PCO)
-        for team, rows in paging.serving(tracks).items():
-            for row in rows:
-                uid = linked.get(row["person"])
-                if uid:
-                    who.setdefault(uid, []).append(team)
+        for m in paging.active_members(tracks):
+            uid = linked.get(m["person"])
+            if uid:
+                who.setdefault(uid, []).append(m)
     for uid in done:
-        who.setdefault(uid, teams_of(uid, tracks) if key == today else [])
+        who.setdefault(uid, held(uid, tracks) if key == today else [])
     out = []
     for uid, teams in who.items():
         lists = []
@@ -228,7 +251,7 @@ def board(tracks, zone, plan: str | None = None, now: float | None = None) -> di
                               "last_ts": max(ticked) if ticked else None,
                               "open": [i["text"] for i in t["items"] if i["id"] not in done.get(uid, {})]})
         if lists:
-            out.append({"user_id": uid, "name": names.get(uid, "Someone"), "teams": sorted(teams), "lists": lists})
+            out.append({"user_id": uid, "name": names.get(uid, "Someone"), "teams": sorted({m["team"] for m in teams}), "lists": lists})
     out.sort(key=lambda r: r["name"].lower())
     return {"plan": key, "today": key == today, "people": out, "plans": plans(),
             "done": sum(l["done"] for r in out for l in r["lists"]), "total": sum(l["total"] for r in out for l in r["lists"])}

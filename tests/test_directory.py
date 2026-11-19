@@ -55,9 +55,9 @@ with section("links from before the move survive the Crew migration"):
        ("Michael Smith", "Michael Smith", "person:pco:501"))
     eq("a refused spelling is kept", directory.dismissed(sara.id, "pco"), "Sarah Lee")
     eq("nobody else is linked", directory.links("pco"), {"501": mike.id})
-    eq("the roles stayed", (people.profile(mike.id)["role"], people.profile(sara.id)["role"]), ("Camera 1", "Audio"))
+    eq("the roles stayed", (people.profile(mike.id)["crew_role"], people.profile(sara.id)["crew_role"]), ("Camera 1", "Audio"))
     cols = {r["name"] for r in db.query("pragma table_info(crew_profiles)")}
-    eq("crew_profiles no longer holds the link", cols, {"user_id", "role", "updated_at"})
+    eq("crew_profiles no longer holds the link, and its role is the crew role", cols, {"user_id", "crew_role", "updated_at"})
 
 with section("reading"):
     eq("user_for", directory.user_for("pco", 501), mike.id)

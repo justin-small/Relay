@@ -31,6 +31,11 @@
                                    hides it while there is none.
      kv(dl, term, value)           a dt/dd pair added to a <dl>, skipped when the value is empty.
      shown(node)                   is node on screen: its tab panel (if any) open and the page in front.
+     picker(select, picks, saved, noneLabel)
+                                   fills a <select> with Planning Center teams or positions to choose from (#525):
+                                   picks are { ref, label, name? }, saved is { ref, name } or null, and an empty first
+                                   option says noneLabel. A saved name with no ref gets an option of its own.
+     pickedName(select)            the name kept with the chosen option, "" for a listed one (the ref is the value).
 
    Do not copy one of these into a module script: use it from here, and add what is missing here
    (tests/test_ui_contract.py enforces this). Loaded before every script that uses it. */
@@ -144,6 +149,24 @@
     return !(panel && panel.hidden) && root.document.visibilityState === 'visible';
   }
 
+  function picker(select, picks, saved, noneLabel) {
+    select.textContent = '';
+    const none = el('option', '', noneLabel || 'None'); none.value = ''; select.appendChild(none);
+    picks.forEach(function (p) {
+      const o = el('option', '', p.label); o.value = p.ref; o.dataset.name = p.name || ''; select.appendChild(o);
+    });
+    if (saved && !saved.ref && saved.name) {
+      const o = el('option', '', saved.name + ' (not matched to Planning Center)');
+      o.value = ''; o.dataset.name = saved.name; select.appendChild(o); o.selected = true;
+    } else select.value = saved ? saved.ref : '';
+  }
+
+  function pickedName(select) {
+    const o = select.options[select.selectedIndex];
+    return o ? (o.dataset.name || '') : '';
+  }
+
   root.relayUI = { can: can, api: api, client: client, el: el, say: say, confirm: confirm,
-    button: button, buttons: buttons, note: note, field: field, pill: pill, link: link, kv: kv, shown: shown };
+    button: button, buttons: buttons, note: note, field: field, pill: pill, link: link, kv: kv, shown: shown,
+    picker: picker, pickedName: pickedName };
 })(typeof window !== 'undefined' ? window : globalThis);

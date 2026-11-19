@@ -50,7 +50,7 @@ def clean_body(raw) -> str:
 
 
 def own_channel(user_id: int) -> str | None:
-    return role_channel(people.profile(user_id)["role"])
+    return role_channel(people.profile(user_id)["crew_role"])
 
 
 def can_read(user, channel) -> bool:
@@ -70,9 +70,9 @@ def channels_for(user) -> list[dict]:
     out = [{"id": TEAM, "title": "Team", "push": TEAM in on}]
     seen = set()
     mine = own_channel(user.id)
-    rows = db.query("select distinct role from crew_profiles where role != ''") if user.can("crew.moderate") else []
-    wanted = [(mine, people.profile(user.id)["role"])] if mine else []
-    wanted += [(role_channel(r["role"]), r["role"]) for r in rows]
+    roles = sorted({p["crew_role"] for p in people.people_list() if p["crew_role"]}) if user.can("crew.moderate") else []
+    wanted = [(mine, people.profile(user.id)["crew_role"])] if mine else []
+    wanted += [(role_channel(r), r) for r in roles]
     for cid, title in wanted:
         if cid and cid not in seen:
             seen.add(cid)
@@ -115,7 +115,7 @@ def post(user, channel: str, body, now: float | None = None) -> dict:
         raise Refused("You cannot post in that channel.", 403)
     if not _rate_ok(user.id, ts):
         raise Refused("Slow down: a few messages at a time.", 429)
-    role = people.profile(user.id)["role"]
+    role = people.profile(user.id)["crew_role"]
     row = db.one("insert into crew_chat_messages (channel, user_id, author, role, body, created_ts)"
                  " values (?, ?, ?, ?, ?, ?) returning *", (channel, user.id, user.name, role, text, ts))
     db.execute("delete from crew_chat_messages where created_ts < ?", (ts - KEEP_DAYS * 86400,))

@@ -8,10 +8,13 @@ Signed in with a Personal Access Token saved on its admin page. The token is sto
 from __future__ import annotations
 
 import asyncio
+import logging
 from typing import Any
 
 from .. import AdminPage, Health, Manifest, Module, Traffic
 from ...users import Permission
+
+log = logging.getLogger("relay.planningcenter")
 
 SERVICE_STREAM = "service"
 # The rundown for /screen (#148): names, mics and notes, so only while the operator has it on, and never through
@@ -91,6 +94,12 @@ class PlanningCenter(Module):
         modules.provide("plan.feed", feed)
         # The people on the followed plans, for core's directory (app/directory.py) to match accounts against.
         modules.provide("directory.pco", lambda: self._people(follower))
+        # Its teams and positions with Planning Center's ids, so saved call times, checklists and mic mappings can
+        # point at them and still work when one is renamed (#525).
+        modules.provide("directory.pco.teams", lambda: self._teams(follower))
+        # Its teams and positions reach the directory as they change, and a rename there reaches the saved names here.
+        modules.listen("plan.changed", self._plan_changed)
+        modules.listen("directory.changed", self._directory_changed)
         # Whoever listens (crew, the ProPresenter link) hears when the followed plans change.
         if modules.announce_plan_changed not in follower.listeners:
             follower.listeners.append(modules.announce_plan_changed)
@@ -106,10 +115,12 @@ class PlanningCenter(Module):
         from .servicefeed import feed
 
         feed.on_offered_change = None
+        modules.unlisten("plan.changed", self._plan_changed)
+        modules.unlisten("directory.changed", self._directory_changed)
         if modules.announce_plan_changed in follower.listeners:
             follower.listeners.remove(modules.announce_plan_changed)
         for name in ("plan.service_types", "plan.label", "plan.starts_at", "plan.api", "plan.follower",
-                     "plan.rundown_now", "plan.control", "plan.feed", "directory.pco"):
+                     "plan.rundown_now", "plan.control", "plan.feed", "directory.pco", "directory.pco.teams"):
             modules.withdraw(name)
         modules.withdraw("signage.source." + signagesync.KIND)
         signagesync.memory.forget()
@@ -173,6 +184,47 @@ class PlanningCenter(Module):
             for m in tr.team:
                 if m.get("person") and m.get("name"):
                     found[m["person"]] = {"id": m["person"], "name": m["name"]}
+        return list(found.values())
+
+    def _plan_changed(self) -> None:
+        """The followed plans changed: give the directory Planning Center's teams and positions (off the loop)."""
+        from ... import directory
+
+        async def go() -> None:
+            try:
+                await asyncio.to_thread(directory.sync, directory.PCO)
+            except Exception:
+                log.warning("planning center: could not update the directory", exc_info=True)
+
+        try:
+            asyncio.get_running_loop().create_task(go())
+        except RuntimeError:
+            pass
+
+    @staticmethod
+    def _directory_changed(provider: str) -> None:
+        """A team or position was renamed or deleted in Planning Center: update the names saved in the mic mappings."""
+        from ... import config
+        from .rundown import refresh_saved
+
+        if provider != "pco":
+            return
+        saved = config.get()["planning_center"]
+        rs = {**saved["rundown"], "mics": [dict(m) for m in saved["rundown"]["mics"]],
+              "channels": [{**c, "positions": [dict(a) for a in c["positions"]]} for c in saved["rundown"]["channels"]]}
+        if refresh_saved(rs):
+            config.save({"planning_center": {**saved, "rundown": rs}}, replace=("planning_center",))
+
+    @staticmethod
+    def _teams(follower) -> list[dict]:
+        """Every team of the followed service types with its positions: [{"id", "name", "positions": [{"id", "name"}]}].
+        Empty until Planning Center has been read, so the directory keeps what it knew."""
+        found: dict[str, dict] = {}
+        for tr in follower.tracks.values():
+            for t in tr.catalog:
+                mine = found.setdefault(t["id"], {"id": t["id"], "name": t["name"], "positions": []})
+                known = {p["id"] for p in mine["positions"]}
+                mine["positions"] += [p for p in t["positions"] if p["id"] not in known]
         return list(found.values())
 
     @staticmethod

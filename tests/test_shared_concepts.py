@@ -43,6 +43,13 @@ SIBLING = re.compile(r"^\s*(?:from\s+\.\.(\w+)\b|from\s+app\.modules\.(\w+)\b|im
 # person_links (app/directory.py, #524) and a module stores a ref (person:pco:<id>) in a column named *_ref.
 PERSON_COLUMN = re.compile(r"^\s*(?:pc_person|person_id)\s+text\b", re.I)
 
+# A module column that holds a team or position as free text (#525): teams and positions are stored as a core directory
+# ref (team:pco:<id>, position:pco:<team id>/<position id>, app/directory.py) in a column named *_ref, and the typed
+# name stays beside it only as the saved name. So a `team` or `position` text column is fine only when the same table
+# also has `team_ref` / `position_ref`, made in its create table or by a later `alter table ... add column`.
+PLACE_COLUMN = re.compile(r"^\s*(team|position)\s+text\b", re.I)
+CREATE_TABLE = re.compile(r"create\s+table\s+(\w+)\s*\((.*?)\n\)\s*;", re.I | re.S)
+
 RULES: dict[str, re.Pattern] = {
     "name": re.compile(r"\.casefold\(\)|unicodedata\.normalize\(|\[\^a-z0-9\]"),
     "weekday": re.compile(r"\.(?:iso)?weekday\(\)"),
@@ -97,7 +104,32 @@ def hits() -> dict[tuple[str, str], list[int]]:
         for n, line in enumerate(p.read_text(encoding="utf-8").splitlines(), 1):
             if "allow-shared:" not in line and PERSON_COLUMN.match(line):
                 out.setdefault(("person", rel), []).append(n)
+        for n in place_lines(p):
+            out.setdefault(("place", rel), []).append(n)
     return out
+
+
+def has_ref(module_sql_text: str, table: str, column: str, body: str) -> bool:
+    """Whether `table` gets a `<column>_ref` column: in its own create table, by a later alter table, or in the
+    `<table>_new` it was rebuilt into."""
+    ref = rf"\b{column}_ref\b"
+    return bool(re.search(ref, body, re.I)
+                or re.search(rf"alter\s+table\s+{table}\s+add\s+column\s+{column}_ref\b", module_sql_text, re.I)
+                or any(re.search(ref, b, re.I) for t, b in CREATE_TABLE.findall(module_sql_text) if t == f"{table}_new"))
+
+
+def place_lines(p: Path) -> list[int]:
+    """Line numbers in a module migration of a `team` or `position` text column that has no ref beside it."""
+    text = p.read_text(encoding="utf-8")
+    everything = "\n".join(q.read_text(encoding="utf-8") for q in sorted(p.parent.glob("*.sql")))
+    bad: list[int] = []
+    for m in CREATE_TABLE.finditer(text):
+        table, body = m.group(1), m.group(2)
+        for n, line in enumerate(body.splitlines()):
+            col = PLACE_COLUMN.match(line)
+            if col and "allow-shared:" not in line and not has_ref(everything, table, col.group(1).lower(), body):
+                bad.append(text[:m.start(2)].count("\n") + 1 + n)
+    return bad
 
 
 def counts() -> dict[tuple[str, str], int]:
@@ -155,6 +187,13 @@ def main() -> None:
         check("so is person_id", bool(PERSON_COLUMN.match("  person_id text not null,")))
         check("a ref column is fine", not PERSON_COLUMN.match("    person_ref      text not null,"))
         check("a person id column of numbers is fine", not PERSON_COLUMN.match("    person_id integer,"))
+        check("a team text column is found", bool(PLACE_COLUMN.match("    team        text    not null,")))
+        check("so is position", bool(PLACE_COLUMN.match("    position    text not null default '',")))
+        check("a ref column is fine for a team", not PLACE_COLUMN.match("    team_ref    text not null default '',"))
+        t = CREATE_TABLE.findall("create table x (\n    team text not null\n);")[0]
+        check("a table with a team and no ref is caught", not has_ref("create table x (\n    team text\n);", "x", "team", t[1]))
+        check("a ref in its own table is enough", has_ref("", "x", "team", "team text,\n team_ref text"))
+        check("so is a later alter table", has_ref("alter table x add column team_ref text", "x", "team", "team text"))
         eq("helpers are fine", found("if timewin.weekday(d) in days and same_name(a, b):"), [])
 
         def sibling(rel: str, line: str) -> bool:

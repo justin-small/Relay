@@ -59,7 +59,7 @@
           minute is skipped, never sent late.</p>
         <div class="crform">
           <div class="field"><label for="ctTeam">Team</label>
-            <input id="ctTeam" list="ctTeams" maxlength="80" autocomplete="off"><datalist id="ctTeams"></datalist></div>
+            <select id="ctTeam"></select></div>
           <div class="field"><label for="ctKind">When</label>
             <select id="ctKind"><option value="before">Before the service</option><option value="fixed">Day and time</option></select></div>
           <div class="field" id="ctBefore"><label for="ctMin">Minutes before</label><input id="ctMin" type="number" min="0" max="1440" value="60"></div>
@@ -90,7 +90,7 @@
         <p class="note">A team lead writes and edits the checklists and resources for their own position from the crew
           page. Operators write any.</p>
         <div class="ctl"><select id="crLeadUser" aria-label="Person"></select>
-          <input id="crLeadPos" maxlength="80" placeholder="Planning Center team" autocomplete="off" aria-label="Position">
+          <select id="crLeadPos" aria-label="Team or position"></select>
           <button type="button" id="crLeadAdd">Make lead</button></div>
         <table class="tbl" id="crLeads"><thead><tr><th>Name</th><th>Position</th><th></th></tr></thead><tbody></tbody></table>
       </section>
@@ -99,11 +99,13 @@
     <div data-crpane="people" hidden>
       <section>
         <h3>People</h3>
-        <p class="note">Give each person the role they fill ("Camera 1"). With Planning Center on, Relay matches a name
-          to the people scheduled there once it is sure, remembers the match, and offers you Planning Center's spelling.</p>
+        <p class="note">A person's crew role is the role they fill ("Camera 1"). Until you set one it is their usual
+          Planning Center position, learned from the plans they are scheduled on; type one to use your own instead, and
+          clear it to go back. With Planning Center on, Relay matches a name to the people scheduled there once it is
+          sure, remembers the match, and offers you Planning Center's spelling.</p>
         <div class="note err" id="crPeopleErr" hidden></div>
         <div class="ctl"><button type="button" id="crScan" hidden>Match names now</button></div>
-        <table class="tbl" id="crPeople"><thead><tr><th>Name</th><th>Role</th><th>Planning Center</th></tr></thead><tbody></tbody></table>
+        <table class="tbl" id="crPeople"><thead><tr><th>Name</th><th>Crew role</th><th>Planning Center</th></tr></thead><tbody></tbody></table>
       </section>
       <section id="crDevBox" hidden>
         <h3>Wi-Fi check-in</h3>

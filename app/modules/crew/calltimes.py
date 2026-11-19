@@ -14,7 +14,7 @@ import time
 from datetime import datetime, time as dtime
 
 from ... import audit, db, directory, timewin
-from . import paging, people
+from . import paging, people, refs
 
 log = logging.getLogger("relay.crew")
 
@@ -27,11 +27,12 @@ MAX_BEFORE_MIN = 24 * 60
 def clean(raw) -> dict:
     """A rule from the admin page, checked. Raises Invalid with a sentence the page shows."""
     raw = raw if isinstance(raw, dict) else {}
-    team = raw.get("team")
-    team = " ".join(team.split()) if isinstance(team, str) else ""
-    if not team or len(team) > TEAM_MAX:
-        raise paging.Invalid("Name the Planning Center team to page.")
-    out = {"team": team, "message": paging.clean_message(raw.get("message")),
+    try:
+        ref, team = refs.clean_pick(raw.get("team_ref"), raw.get("team"), (directory.TEAM,), TEAM_MAX,
+                                    "team to page", required=True)
+    except people.Invalid as exc:
+        raise paging.Invalid(exc.message) from None
+    out = {"team": team, "team_ref": ref, "message": paging.clean_message(raw.get("message")),
            "enabled": raw.get("enabled") is not False, "minutes": None, "weekday": None, "clock": None}
     kind = raw.get("kind")
     if kind == "before":
@@ -55,23 +56,28 @@ def clean(raw) -> dict:
 def list_rules() -> list[dict]:
     people.ready()
     rows = db.query(
-        "select c.id, c.team, c.kind, c.minutes, c.weekday, c.clock, c.message, c.enabled,"
+        "select c.id, c.team, c.team_ref, c.kind, c.minutes, c.weekday, c.clock, c.message, c.enabled,"
         " (select r.fired_ts from crew_calltime_runs r where r.rule_id = c.id order by r.fired_ts desc limit 1) as last_ts,"
         " (select r.people from crew_calltime_runs r where r.rule_id = c.id order by r.fired_ts desc limit 1) as last_people"
         " from crew_calltimes c order by lower(c.team), c.id")
-    return [{**r, "enabled": bool(r["enabled"])} for r in rows]
+    out = []
+    for r in rows:
+        f = refs.flags(r["team_ref"], r["team"])
+        out.append({**r, "enabled": bool(r["enabled"]), "team": f["name"], "missing": f["missing"],
+                    "unmatched": f["unmatched"]})
+    return out
 
 
 def save(rule: dict, rule_id: int | None = None) -> int:
     people.ready()
-    cols = (rule["team"], rule["kind"], rule["minutes"], rule["weekday"], rule["clock"], rule["message"],
+    cols = (rule["team"], rule.get("team_ref", ""), rule["kind"], rule["minutes"], rule["weekday"], rule["clock"], rule["message"],
             int(rule["enabled"]))
     if rule_id is None:
         if db.one("select count(*) as n from crew_calltimes")["n"] >= MAX_RULES:
             raise paging.Invalid(f"At most {MAX_RULES} call times.")
-        return db.one("insert into crew_calltimes (team, kind, minutes, weekday, clock, message, enabled, created_at)"
-                      " values (?, ?, ?, ?, ?, ?, ?, ?) returning id", cols + (db.now(),))["id"]
-    if not db.execute("update crew_calltimes set team = ?, kind = ?, minutes = ?, weekday = ?, clock = ?,"
+        return db.one("insert into crew_calltimes (team, team_ref, kind, minutes, weekday, clock, message, enabled,"
+                      " created_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?) returning id", cols + (db.now(),))["id"]
+    if not db.execute("update crew_calltimes set team = ?, team_ref = ?, kind = ?, minutes = ?, weekday = ?, clock = ?,"
                       " message = ?, enabled = ? where id = ?", cols + (rule_id,)):
         raise paging.Invalid("No such call time.", 404)
     return rule_id
@@ -86,7 +92,7 @@ def delete(rule_id: int) -> None:
 # -- when a rule is due ----------------------------------------------------------------------------------------------
 def occasions(rule: dict, tracks, now: float, zone) -> list[tuple[str, float, str | None]]:
     """(occasion key, epoch to fire at, plan time id or None) for each moment this rule is aimed at today."""
-    team_today = paging.serving(tracks).get(rule["team"])
+    team_today = paging.serving_for(tracks, rule.get("team_ref", ""), rule["team"])
     if not team_today:
         return []              # nobody on that team is serving today
     if rule["kind"] == "before":
@@ -113,14 +119,14 @@ def next_for(user_id: int, tracks, zone, now: float | None = None) -> dict | Non
     ts = time.time() if now is None else now
     if not tracks or zone is None:
         return None
-    teams = checklists.teams_of(user_id, tracks)
+    mine = checklists.held(user_id, tracks)
     pid = directory.external_id(user_id, directory.PCO)
     best = None
     for rule in list_rules():
-        if not rule["enabled"] or rule["team"] not in teams:
+        if not rule["enabled"] or not any(paging.holds(m, rule.get("team_ref", ""), rule["team"]) for m in mine):
             continue
         for _occasion, at, time_id in occasions(rule, tracks, ts, zone):
-            serves = any(r["person"] == pid for r in paging.serving(tracks, time_id).get(rule["team"], []))
+            serves = any(r["person"] == pid for r in paging.serving_for(tracks, rule.get("team_ref", ""), rule["team"], time_id))
             if serves and at >= ts and (best is None or at < best["ts"]):
                 best = {"ts": at, "team": rule["team"]}
     return best
@@ -154,7 +160,7 @@ def run(now: float | None = None, tracks=None, zone=None) -> int:
             if not db.execute("insert into crew_calltime_runs (rule_id, occasion, fired_ts) values (?, ?, ?)"
                               " on conflict do nothing", (rule["id"], occasion, ts)):
                 continue          # already fired for this occasion
-            ids, _ = paging.resolve([], [rule["team"]], tracks, time_id=time_id)
+            ids, _ = paging.resolve([], [{"ref": rule.get("team_ref", ""), "name": rule["team"]}], tracks, time_id=time_id)
             page = None
             if ids:
                 try:

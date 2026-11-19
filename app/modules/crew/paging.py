@@ -15,6 +15,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 
 from ... import db, directory, secretbox
+from ...text import same_name
 from . import people, webpush
 
 log = logging.getLogger("relay.crew")
@@ -104,17 +105,48 @@ def subscribed(user_id: int) -> bool:
 
 
 # -- who a page reaches ------------------------------------------------------------------------------------------
-def serving(tracks, time_id: str | None = None) -> dict[str, list[dict]]:
-    """Today's plan people by Planning Center team name: [{"person", "name"}], declined answers left out. With a
-    plan time, only the people who serve that time (a person with no times listed serves them all)."""
-    out: dict[str, list[dict]] = {}
+def active_members(tracks, time_id: str | None = None):
+    """The people on today's plan with a Planning Center id, declined answers left out. With a plan time, only the
+    people who serve that time (a person with no times listed serves them all)."""
     for tr in tracks:
         for m in tr.team:
             if m.get("team") and m.get("person") and m.get("status") != "declined" and (
                     time_id is None or m.get("times") is None or time_id in m["times"]):
-                row = {"person": m["person"], "name": m["name"]}
-                if row not in out.setdefault(m["team"], []):
-                    out[m["team"]].append(row)
+                yield m
+
+
+def holds(member: dict, ref: str, name: str) -> bool:
+    """Whether this plan member is on the saved team or position. By ref when there is one (a team ref is the whole
+    team, a position ref one position of it), else by name against the team's and the position's name (text.same_name)."""
+    if not ref:
+        return bool(name) and (same_name(member.get("team"), name) or same_name(member.get("position"), name))
+    parsed = directory.parse_item(ref)
+    if parsed is None:
+        return False
+    kind, provider, ident = parsed
+    if kind == directory.TEAM:
+        return bool(member.get("team_id")) and directory.team_ref(provider, member["team_id"]) == ref
+    team_id, _, pos_id = ident.partition("/")
+    return member.get("team_id") == team_id and member.get("position_id") == pos_id
+
+
+def serving(tracks, time_id: str | None = None) -> dict[str, list[dict]]:
+    """Today's plan people by Planning Center team name: [{"person", "name"}], declined answers left out."""
+    out: dict[str, list[dict]] = {}
+    for m in active_members(tracks, time_id):
+        row = {"person": m["person"], "name": m["name"]}
+        if row not in out.setdefault(m["team"], []):
+            out[m["team"]].append(row)
+    return out
+
+
+def serving_for(tracks, ref: str, name: str, time_id: str | None = None) -> list[dict]:
+    """The people on today's plan who are on one saved team or position (see `holds`): [{"person", "name"}]."""
+    out: list[dict] = []
+    for m in active_members(tracks, time_id):
+        row = {"person": m["person"], "name": m["name"]}
+        if holds(m, ref, name) and row not in out:
+            out.append(row)
     return out
 
 
@@ -123,7 +155,7 @@ def targets(tracks) -> dict:
     people.ready()
     linked = directory.links(directory.PCO)
     subs = {r["user_id"] for r in db.query("select distinct user_id from crew_push_subs")}
-    accounts = [{"id": p["id"], "name": p["name"], "role": p["role"], "phone": p["id"] in subs}
+    accounts = [{"id": p["id"], "name": p["name"], "role": p["crew_role"], "phone": p["id"] in subs}
                 for p in people.people_list() if not p["disabled"]]
     teams = [{"name": name, "people": len(rows), "reachable": sum(1 for r in rows if r["person"] in linked)}
              for name, rows in sorted(serving(tracks).items())]
@@ -140,9 +172,9 @@ def resolve(user_ids, teams, tracks, time_id: str | None = None) -> tuple[list[i
     unmatched: list[str] = []
     if isinstance(teams, list) and teams:
         linked = directory.links(directory.PCO)
-        by_team = serving(tracks, time_id)
         for t in teams:
-            for row in by_team.get(t, []) if isinstance(t, str) else []:
+            ref, name = (t.get("ref", ""), t.get("name", "")) if isinstance(t, dict) else ("", t)
+            for row in serving_for(tracks, ref, name, time_id) if isinstance(name, str) else []:
                 uid = linked.get(row["person"])
                 if uid is None:
                     if row["name"] not in unmatched:

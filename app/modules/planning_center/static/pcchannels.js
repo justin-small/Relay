@@ -74,7 +74,7 @@
   function chip(ch, a, i) {
     const c = el('span', 'pcchip');
     c.appendChild(el('i', '', typeName(a.service_type) + ' ·'));
-    c.appendChild(document.createTextNode(' ' + a.position));
+    c.appendChild(document.createTextNode(' ' + a.position + (a.missing ? ' (no longer in Planning Center)' : '') + (a.unmatched ? ' (not matched to Planning Center)' : '')));
     if (can('planning_center.manage')) {
       const x = el('button', '', '×'); x.type = 'button';
       x.setAttribute('aria-label', 'Remove ' + a.position + ' from this channel');
@@ -92,23 +92,28 @@
     sel.setAttribute('aria-label', 'Assign ' + (ch.name || ch.number) + ' to a position');
     const first = el('option', '', 'Assign to a position…'); first.value = '';
     sel.appendChild(first);
-    const have = ch.positions.map(function (a) { return a.service_type + '|' + a.team + '|' + a.position; });
+    // A position is assigned by Planning Center's ids when it has them, so renaming it there changes nothing here;
+    // a saved one is the same position when the refs match, else when the names do.
+    function same(a, p) {
+      return a.service_type === p.service_type &&
+        (a.position_ref && p.position_ref ? a.position_ref === p.position_ref : a.team === p.team && a.position === p.position);
+    }
+    const choices = (data && data.type_positions) || [];
     const groups = {};
-    ((data && data.type_positions) || []).forEach(function (p) {
-      const k = p.service_type + '|' + p.team + '|' + p.position;
-      if (have.indexOf(k) >= 0) return;
+    choices.forEach(function (p, i) {
+      if (ch.positions.some(function (a) { return same(a, p); })) return;
       const g = groups[p.service_type] || (groups[p.service_type] = el('optgroup'));
       g.label = typeName(p.service_type);
       const o = el('option', '', (p.team ? p.team + ' · ' : '') + p.position);
-      o.value = k;
+      o.value = String(i);
       g.appendChild(o);
     });
     Object.keys(groups).forEach(function (k) { sel.appendChild(groups[k]); });
     sel.addEventListener('change', function () {
       if (!sel.value) return;
-      const parts = sel.value.split('|');
+      const p = choices[Number(sel.value)];
       edit().filter(function (b) { return b.id === ch.id; })[0].positions.push(
-        { service_type: parts[0], team: parts[1], position: parts.slice(2).join('|') });
+        { service_type: p.service_type, team: p.team, team_ref: p.team_ref, position: p.position, position_ref: p.position_ref });
       dirty(true); render();
     });
     return sel;
@@ -162,8 +167,8 @@
         let ch = list.filter(function (c) { return c.number === label && !c.name; })[0];
         if (!ch) { ch = { id: 'c' + Date.now().toString(36) + list.length, number: label, name: '', positions: [] }; list.push(ch); }
         types.forEach(function (st) {
-          if (!ch.positions.some(function (a) { return a.service_type === st && a.team === m.team && a.position === m.position; })) {
-            ch.positions.push({ service_type: st, team: m.team, position: m.position });
+          if (!ch.positions.some(function (a) { return a.service_type === st && (m.position_ref && a.position_ref ? a.position_ref === m.position_ref : a.team === m.team && a.position === m.position); })) {
+            ch.positions.push({ service_type: st, team: m.team, team_ref: m.team_ref || '', position: m.position, position_ref: m.position_ref || '' });
           }
         });
       });

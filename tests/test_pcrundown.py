@@ -98,7 +98,7 @@ eq("team names from the include", [m["team"] for m in team], ["Vocals", "Band", 
 eq("times: listed, unsaid (None) and none", [m["times"] for m in team], [["900"], None, []])
 eq("only an https photo is kept", [m["photo"] for m in team], ["https://avatars.example/sarah.jpg", "", ""])
 eq("needed positions", fake.needed_positions("7", "700"),
-   [{"team": "Band", "position": "Bass", "quantity": 2, "time": None}])
+   [{"team": "Band", "team_id": "t2", "position": "Bass", "quantity": 2, "time": None}])
 
 # -- settings -----------------------------------------------------------------------------------------------------
 print("settings")
@@ -264,7 +264,7 @@ owner = _db.client(app, role="owner")
 r = viewer_role.get("/api/admin/planning-center/rundown")
 check("a viewer may look at the rundown in admin", r.status_code == 200 and r.json()["rundown"]["plan"]["id"] == "700")
 check("...with every team and position for the mic map",
-      {"team": "Band", "position": "Bass"} in r.json()["positions"])
+      {"team": "Band", "position": "Bass", "team_ref": "", "position_ref": ""} in r.json()["positions"])
 eq("a viewer may not change the settings",
    viewer_role.post("/api/admin/planning-center/rundown/settings", json={"screen": True}).status_code, 403)
 eq("an operator may not either", operator.post("/api/admin/planning-center/rundown/settings",
@@ -331,7 +331,7 @@ eq("channels must be a list", owner.post("/api/admin/planning-center/rundown/set
 eq("an operator may not change them", operator.post("/api/admin/planning-center/rundown/settings", json={"channels": []}).status_code, 403)
 r = viewer_role.get("/api/admin/planning-center/rundown")
 check("the admin read lists positions with their service types and the channel catalog",
-      {"service_type": "7", "team": "Band", "position": "Bass"} in r.json()["type_positions"] and r.json()["catalog"] == [])
+      {"service_type": "7", "team": "Band", "position": "Bass", "team_ref": "", "position_ref": ""} in r.json()["type_positions"] and r.json()["catalog"] == [])
 
 
 class LiveFake(pc.Client):
