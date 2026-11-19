@@ -65,9 +65,9 @@ class Blackmagic(Module):
     )
 
     def clean(self, raw: Any) -> dict:
-        from .service import clean_settings
+        from .service import clean_config
 
-        return clean_settings(raw)
+        return clean_config(raw)
 
     def configured(self, settings: dict) -> bool:
         return False  # New: nobody had it before, so it starts off.

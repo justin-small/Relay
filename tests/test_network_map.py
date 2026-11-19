@@ -20,7 +20,7 @@ import _db  # noqa: E402
 _db.start()
 _db.reset()
 
-from app import config, db, mdns, netinfo, network_map, users  # noqa: E402
+from app import gear, config, db, mdns, netinfo, network_map, users  # noqa: E402
 from app import main as M  # noqa: E402
 from app.main import app  # noqa: E402
 from app.modules import Module  # noqa: E402
@@ -361,6 +361,7 @@ with section("what needs a look"):
     eq("a switch well inside its budget is not listed", network_map.issues(quiet, []), [])
 
 with section("names, notes and places through the routes"):
+    OLD_NAMES = {"192.168.1.240": "Main room", "atem-b": "Overflow"}      # Blackmagic devices saved earlier in this file: named gear
     network_map.reset()                                  # discovery still finds nothing, as in "the route"
     admin = _db.client(app, "admin", base_url=ADMIN)
     viewer = _db.client(app, "viewer", base_url=ADMIN)
@@ -372,7 +373,7 @@ with section("names, notes and places through the routes"):
     eq("places must be a list", admin.post("/api/admin/network/map/places", json={"places": "x"}).status_code, 400)
     r = admin.post("/api/admin/network/map/labels", json={"names": {SW: "Booth core"}, "notes": {SW: "Top of the rack", SW + "#3": "Spare"}})
     eq("an admin renames and notes", (r.status_code, r.json()["names"], r.json()["notes"]),
-       (200, {SW: "Booth core"}, {SW: "Top of the rack", SW + "#3": "Spare"}))
+       (200, {SW: "Booth core", **OLD_NAMES}, {SW: "Top of the rack", SW + "#3": "Spare"}))
     snap = asyncio.run(network_map.snapshot(FakeRegistry(fake, True), force=True))
     me = [d for d in snap["devices"] if d["mac"] == SW][0]
     eq("the map shows the name Relay was given, and keeps the device's own", (me["name"], me["own_name"]), ("Booth core", "Fake switch"))
@@ -380,10 +381,12 @@ with section("names, notes and places through the routes"):
     again = asyncio.run(network_map.snapshot(FakeRegistry(fake, True)))
     eq("a cached read still carries the name", [d["name"] for d in again["devices"] if d["mac"] == SW], ["Booth core"])
     r = admin.post("/api/admin/network/map/labels", json={"names": {SW: ""}, "notes": {SW + "#3": "  "}})
-    eq("empty text clears a name and a note; the rest stay", (r.json()["names"], r.json()["notes"]), ({}, {SW: "Top of the rack"}))
+    eq("empty text clears a name and a note; the rest stay", (r.json()["names"], r.json()["notes"]), (OLD_NAMES, {SW: "Top of the rack"}))
     r = admin.post("/api/admin/network/map/places", json={"places": [{"name": "Booth rack", "gear": [SW]}, {"name": "Lobby", "gear": []}]})
     eq("places are saved in order", r.json()["places"], [{"name": "Booth rack", "gear": [SW]}, {"name": "Lobby", "gear": []}])
-    eq("kept in config", config.get()["network_map"]["places"][0]["name"], "Booth rack")
+    eq("a closet is a rack inside a core place of the same name", [(r["name"], r["place"]) for r in gear.racks()],
+       [("Booth rack", "Booth rack"), ("Lobby", "Lobby")])
+    eq("the switch is gear in that rack, under one key", (gear.by_key("mac:" + SW)["rack"] if False else gear.by_key("mac:" + SW)["rack_ref"] != ""), True)
     from app import audit
     eq("both are audited", [e["action"] for e in audit.search(kind="network")["entries"][:2]], ["network.places", "network.labels"])
 

@@ -14,12 +14,14 @@ for that id on the LAN and follows it to its new address (a DHCP lease that chan
 from __future__ import annotations
 
 import asyncio
+import ipaddress
 import logging
 import re
 import secrets
 import time
 
-from ... import config, tally
+from ... import config, db, gear, screens, tally
+from ...text import same_name
 from . import atem_protocol as p
 from . import hyperdeck, videohub
 from .atem_client import AtemClient
@@ -180,18 +182,121 @@ def clean_settings(raw) -> dict:
     return {"devices": devices, "cables": clean_cables(raw.get("cables"), {d["id"] for d in devices})}
 
 
+# What Relay shows for a device (its name, model, drawing and where it sits) is core gear (app/gear.py, #547) under the key
+# "blackmagic:<id>"; the module keeps what it needs to reach the device and what it adds (its address, kind, switch,
+# tally, presets, connector notes). A device saved before #547 has its name, model, drawing and place in config: they move
+# onto gear the first time the list is read. `place` is "rack" for gear in a rack, "shelf" for gear in a room outside any
+# rack and "" for neither. Where the order of the devices is a rack's top-to-bottom order, it is the gear's position.
+GEAR_KEY = "blackmagic:"
+IDENTITY = ("name", "model", "drawing", "place")
+ROOM, DEFAULT_RACK = "Equipment room", "Rack 1"
+
+
+def _net_keys(dev: dict) -> list[str]:
+    host = clean_host(dev.get("host")).lower().rstrip(".")
+    if not host:
+        return []
+    try:
+        return ["ip:" + str(ipaddress.ip_address(host))]
+    except ValueError:
+        return ["host:" + (host[:-6] if host.endswith(".local") else host)]
+
+
+def drawn_place(g: dict) -> str:
+    return "rack" if g["rack_id"] else ("shelf" if g["place_id"] else "")
+
+
+def _set_place(gid: int, place: str) -> None:
+    if place == "rack":
+        if not gear.get(gid)["rack_id"]:
+            rack = gear.rack_in_place(DEFAULT_RACK, ROOM)
+            gear.set_rack(gid, rack["id"], gear.next_position(rack["id"]))
+    else:
+        gear.set_rack(gid, None)
+        gear.set_place(gid, screens.place_add(ROOM)["id"] if place == "shelf" else None)
+
+
+def _write_gear(dev: dict, position: int | None = None) -> dict:
+    """The device's gear, made if it is new, with what the module knows about it written in."""
+    fresh = gear.by_key(GEAR_KEY + dev["id"]) is None
+    keys = [GEAR_KEY + dev["id"]]
+    for net in _net_keys(dev):                 # an address another Blackmagic device holds (one box, two services) stays apart
+        held = gear.by_key(net)
+        if held is None or not any(k.startswith(GEAR_KEY) and k != keys[0] for k in gear.keys(held["id"])):
+            keys.append(net)
+    g = gear.adopt(keys, name=dev["name"], kind=dev["kind"], heard=False)
+    if fresh and position is None and not g["rack_id"] and g["position"] == 0:
+        position = gear.next_position(None)    # a new device goes at the end of the list
+    if not g["named"] or not same_name(g["name"], dev["name"]):
+        gear.rename(g["id"], dev["name"])
+    gear.set_details(g["id"], kind=dev["kind"], model=dev["model"] or None, drawing=dev["drawing"])
+    if dev["place"] != drawn_place(g):
+        _set_place(g["id"], dev["place"])
+    if position is not None:
+        gear.set_position(g["id"], position)
+    return gear.get(g["id"])  # type: ignore[return-value]
+
+
+def _overlay(dev: dict, g: dict) -> dict:
+    return {**dev, "name": g["name"], "model": g["model"], "drawing": g["drawing"], "place": drawn_place(g),
+            "position": g["position"]}
+
+
+def _stored_form(dev: dict) -> dict:
+    return {k: v for k, v in dev.items() if k not in IDENTITY and k != "position"}
+
+
+def clean_config(raw) -> dict:
+    """`clean_settings` for the config file: a device that has no name, model, drawing or place saved there stays without."""
+    out = clean_settings(raw)
+    given = {d.get("id"): d for d in (raw.get("devices") if isinstance(raw, dict) and isinstance(raw.get("devices"), list) else [])
+             if isinstance(d, dict)}
+    for dev in out["devices"]:
+        for k in IDENTITY:
+            if k not in given.get(dev["id"], {}):
+                dev.pop(k, None)
+    return out
+
+
 def devices() -> list[dict]:
-    return clean_settings(config.get().get(KEY))["devices"]
+    """The devices in rack order, with their gear's name, model, drawing and place."""
+    raw = config.get().get(KEY)
+    items = clean_settings(raw)["devices"]
+    legacy = any(isinstance(d, dict) and any(k in d for k in IDENTITY)
+                 for d in (raw.get("devices") if isinstance(raw, dict) and isinstance(raw.get("devices"), list) else []))
+    try:
+        known = gear.by_keys()
+        out = []
+        for dev in items:
+            g = known.get(GEAR_KEY + dev["id"])
+            out.append(_overlay(dev, g if g is not None else _write_gear(dev)))
+        if legacy:
+            save_devices(out)                  # the identity is on gear now: take it out of config
+    except db.Unavailable:
+        return items
+    return [d for _, d in sorted(enumerate(out), key=lambda t: (t[1]["position"], t[0]))]
 
 
 def cables() -> list[dict]:
     return clean_settings(config.get().get(KEY))["cables"]
 
 
-def save_devices(items: list[dict], wires: list[dict] | None = None) -> None:
-    """Save the device list (in rack order) and the cables; cables to a device that went are dropped."""
+def save_devices(items: list[dict], wires: list[dict] | None = None, reorder: bool = False) -> None:
+    """Save the devices and the cables; cables to a device that went are dropped. A device's name, model, drawing and place
+    go to its gear, and with `reorder` so does its place in the list (the position the rack is drawn in)."""
     wires = cables() if wires is None else wires
-    config.save({KEY: {"devices": items, "cables": clean_cables(wires, {d["id"] for d in items})}}, replace=(KEY,))
+    kept = [d["id"] for d in items]
+    stored_items = list(items)
+    try:
+        before = {d["id"] for d in clean_settings(config.get().get(KEY))["devices"]}
+        for i, dev in enumerate(items):
+            _write_gear(dev, i if reorder else None)
+        stored_items = [_stored_form(d) for d in items]
+        for gone in before - set(kept):
+            gear.forget_key(GEAR_KEY + gone)
+    except db.Unavailable:
+        stored_items = list(items)             # without the database the identity stays in config
+    config.save({KEY: {"devices": stored_items, "cables": clean_cables(wires, set(kept))}}, replace=(KEY,))
 
 
 def overlaps(items: list[dict]) -> list[str]:

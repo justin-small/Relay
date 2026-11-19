@@ -407,6 +407,31 @@ keeps its identity across the move.
 every panel and browser screen in that place. Boards keep the place's name beside its ref (`place_ref`), and renaming a
 place carries over.
 
+## Gear and racks
+
+A piece of equipment (a switch, an ATEM, a Dante stage box, this computer) is one core **gear** record (`app/gear.py`, tables
+in `app/migrations/0011_gear_racks.sql`, #547, part of the gear/ports/channels epic #539), with one name, one **rack** and one
+place. A rack is inside a core place (Booth > Rack A); gear sits in a rack, or straight in a place. The network map and
+Blackmagic attach to it; a module never keeps its own list of equipment, racks or places (`tests/test_shared_concepts.py`
+counts a module table named `*_gear`, `*_equipment`, `*_racks` or `*_places`, and its baseline may only shrink).
+
+**Attach by key.** Call `gear.adopt(["<module>:<your id>", ...], name=..., kind=..., model=..., heard=False)` when your
+feature learns of a box. Every key you pass is the same box: keys that two records hold merge them, so a box seen first by
+address and later by MAC is one record, and a name, a note and a rack survive a new IP address. Add the network keys with
+`gear.net_keys(mac, ips, host)`: a record that has a MAC is known by it alone and drops its `ip:` and `host:` keys. Do not put
+an address key on two devices of your own that are not one box. Refs are `gear:relay:<id>` and `rack:relay:<id>`.
+
+**Names.** The gear's name is what Relay shows. It follows what the source reports until an operator names it
+(`gear.rename`); after that it stays, and nothing is sent to the device. Show the core name, never a copy of your own.
+Blackmagic keeps a device's connection settings (address, port, kind, tally, presets, connector notes, cables) in its own
+config and its name, model, drawing and place on gear (`blackmagic:<id>`); the rack-or-shelf place is "in a rack" or "in a
+room outside any rack", and the list order is the gear's `position`.
+
+**The network map.** It stores what it merges as gear on every fresh read (Dante boxes from mDNS discovery are gear of kind
+`dante`, keyed `dante:<host name>` too). A closet on the Network page is a rack inside a core place of the same name. Names, notes
+and closets saved in config before #547 move onto gear the first time they are read; notes on a switch port stay in config until
+core ports (#540).
+
 ## Phones and computers
 
 A phone or computer a person carries is one core **device** (`app/devices.py`, tables in `app/migrations/0009_devices.sql`,
