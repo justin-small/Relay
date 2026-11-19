@@ -20,6 +20,11 @@ TMP = tempfile.mkdtemp()
 os.environ["RELAY_CONFIG"] = os.path.join(TMP, "config.json")
 os.environ["RELAY_CERT_DIR"] = os.path.join(TMP, "certs")
 os.environ["RELAY_ANNOUNCE"] = "0"
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import _db  # noqa: E402
+
+_db.start()
+_db.reset()
 os.environ["RELAY_LIVEKIT_NO_DOWNLOAD"] = "1"
 
 import websockets  # noqa: E402

@@ -87,7 +87,7 @@ DEFAULTS: dict[str, Any] = {
     "modules": {},
     # Which network port each kind of traffic uses, and the ports Relay has seen -- see netroute.py. No route
     # means the system default, as before routes existed.
-    "network": {"routes": {}, "policy": {}, "known_ports": {}},
+    "network": {"routes": {}, "policy": {}},
     # What the operator adds to the network map: a name Relay shows for a device, notes on devices and switch ports,
     # and the closets the switches hang in -- see network_map.py. Nothing here is sent to a device.
     "network_map": {"names": {}, "notes": {}, "places": []},

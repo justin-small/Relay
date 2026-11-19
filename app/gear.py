@@ -2,7 +2,8 @@
 
 A piece of gear is a switch, an ATEM, a Dante stage box, this computer: one name, one rack, one place. The network map
 and Blackmagic attach to it instead of keeping names, notes and racks of their own, so the same box is one row that every
-page lists under one name. Tables: app/migrations/0011_gear_racks.sql. Phones are core devices (app/devices.py), not gear.
+page lists under one name. Tables: app/migrations/0011_gear_racks.sql. Phones are core devices (app/devices.py), not gear. Its connectors are
+ports (app/ports.py, #540).
 
 A ref names one: `gear:relay:<id>` and `rack:relay:<id>`. A rack is inside a core place (app/screens.py: Booth > Rack A);
 gear sits in a rack, or straight in a place.
@@ -216,6 +217,14 @@ def _merge(tx, into: int, other: int) -> None:
     """`other` is the same box as `into`: it keeps its keys, and fills what `into` has blank."""
     a, b = tx.one("select * from gear where id = ?", (into,)), tx.one("select * from gear where id = ?", (other,))
     tx.execute("update gear_keys set gear_id = ? where gear_id = ?", (into, other))
+    for port in tx.query("select * from ports where gear_id = ?", (other,)):    # its ports (#540) come along
+        mine = tx.one("select id from ports where gear_id = ? and key = ?", (into, port["key"]))
+        if mine is None:
+            tx.execute("update ports set gear_id = ? where id = ?", (into, port["id"]))
+            continue
+        tx.execute("update ports set note = case when note = '' then ? else note end,"
+                   " name = case when name = '' then ? else name end where id = ?", (port["note"], port["name"], mine["id"]))
+        tx.execute("delete from ports where id = ?", (port["id"],))
     keep = a if (a["named"] or not b["named"]) else b
     tx.execute("update gear set name = ?, named = ?, kind = ?, model = ?, drawing = ?, notes = ?,"
                " place_id = coalesce(place_id, ?), rack_id = coalesce(rack_id, ?), position = ?,"

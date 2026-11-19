@@ -27,6 +27,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import _db  # noqa: E402
 
 _db.start()
+_db.reset()
 
 from app import announce, config, netinfo, netroute, serving, tls  # noqa: E402
 from app.modules import modules, validate  # noqa: E402

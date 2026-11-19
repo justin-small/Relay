@@ -30,7 +30,7 @@ import re
 import time
 from typing import Any, Callable
 
-from . import db, gear, mdns, netinfo, screens
+from . import db, gear, mdns, netinfo, ports, screens
 
 log = logging.getLogger("relay")
 
@@ -300,9 +300,9 @@ async def snapshot(registry: Any, force: bool = False) -> dict:
 # A device is core gear (app/gear.py, #547): one stored record found again by its MAC (else its address or host name), so a
 # name, a note and a rack survive a new IP address. A name changes only what Relay shows: nothing is sent to the device or to
 # the module that found it. The Network page still speaks in map ids (the MAC when a device has one, else its address or host
-# name), and a closet is a rack, inside a core place of the same name. What stays in config under KEY is the note on an empty
-# switch port ("<switch id>#<port>"), which waits for core ports (#540); names, device notes and closets saved there before
-# #547 are moved onto gear the first time they are read.
+# name), and a closet is a rack, inside a core place of the same name. A switch's ports are core ports (app/ports.py, #540),
+# keyed by their number, and a note on one ("<switch id>#<port>" on the page) is the port's note. Names, notes and closets
+# saved in config under KEY before #547 and #540 are moved onto gear and ports the first time they are read.
 KEY = "network_map"
 NAME_MAX, NOTE_MAX, PLACE_MAX = 60, 300, 40
 MAX_LABELS, MAX_PLACES, MAX_GEAR = 2000, 30, 200
@@ -373,16 +373,33 @@ def _map_id(keys: list[str]) -> str:
     return ""
 
 
+SWITCHES = ("gateway", "switch", "ap")
+
+
+def _port_kind(p: dict) -> str:
+    return "sfp" if "sfp" in p.get("name", "").lower() else "eth"
+
+
+def reported_ports(d: dict) -> list[dict]:
+    """A switch's ports as core ports report them: key "<number>", with what the source says of its link."""
+    return [{"key": str(p["port"]), "kind": _port_kind(p), "direction": "both", "gear_name": p.get("name", ""),
+             "link_up": p.get("up"), "speed_mbps": p.get("speed"), "poe_w": p.get("poe_w"), "errors": p.get("errors")}
+            for p in d.get("ports", [])]
+
+
 def adopt_devices(devices: list[dict]) -> None:
-    """Every device heard from just now is gear (made the first time, found again by its MAC or address)."""
+    """Every device heard from just now is gear (made the first time, found again by its MAC or address), and a switch's
+    ports are its core ports."""
     for d in devices:
         keys = device_keys(d)
         if not keys or d.get("stale_by"):
             continue
         kind = "dante" if d.get("dante") and d["kind"] in ("av", "client", "other") else d["kind"]
         try:
-            gear.adopt(keys, name=d["name"], kind=kind, model=d.get("model", ""))
-        except gear.Refused:
+            g = gear.adopt(keys, name=d["name"], kind=kind, model=d.get("model", ""))
+            if d["kind"] in SWITCHES and d.get("ports"):
+                ports.sync(g["id"], reported_ports(d))
+        except (gear.Refused, ports.Refused):
             log.warning("network map: too much gear to keep %s", d["name"])
 
 
@@ -394,16 +411,22 @@ def _gear_for(map_id: str) -> dict | None:
     return gear.by_key(key) or gear.adopt([key], heard=False)
 
 
-def _port_notes(raw: Any) -> dict:
-    return {k: v for k, v in clean_stored(raw)["notes"].items() if "#" in k}
+def _port_for(note_key: str) -> dict | None:
+    """The core port a page key "<switch id>#<number>" names, made when Relay has not listed it yet."""
+    switch, _, num = note_key.partition("#")
+    g = _gear_for(switch)
+    if g is None or not num.isdigit():
+        return None
+    return ports.by_key(g["id"], str(int(num))) or ports.adopt(g["id"], str(int(num)), heard=False)
 
 
 def _import_legacy() -> None:
-    """Names, device notes and closets saved in config before #547 move onto gear, once: they are gone from config after."""
+    """Names, notes and closets saved in config before #547 and #540 move onto gear and ports, once: they are gone from
+    config after."""
     from . import config
 
     old = clean_stored(config.get().get(KEY))
-    if not (old["names"] or old["places"] or any("#" not in k for k in old["notes"])):
+    if not (old["names"] or old["places"] or old["notes"]):
         return
     try:
         for k, v in old["names"].items():
@@ -411,14 +434,18 @@ def _import_legacy() -> None:
             if g:
                 gear.rename(g["id"], v)
         for k, v in old["notes"].items():
-            g = _gear_for(k) if "#" not in k else None
+            if "#" in k:
+                p = _port_for(k)
+                if p:
+                    ports.set_note(p["id"], v)
+                continue
+            g = _gear_for(k)
             if g:
                 gear.set_notes(g["id"], v)
         _write_racks(old["places"])
-    except (gear.Refused, screens.Refused):
+    except (gear.Refused, ports.Refused, screens.Refused):
         log.warning("network map: could not move every saved name, note and closet onto gear", exc_info=True)
-    config.save({KEY: {"names": {}, "notes": {k: v for k, v in old["notes"].items() if "#" in k}, "places": []}},
-                replace=(KEY,))
+    config.save({KEY: {"names": {}, "notes": {}, "places": []}}, replace=(KEY,))
 
 
 def _write_racks(places: list[dict]) -> None:
@@ -440,9 +467,7 @@ def _write_racks(places: list[dict]) -> None:
 
 def stored() -> dict:
     """{"names": {map id: name}, "notes": {map id or "switch#port": text}, "places": [{"name", "gear": [map id]}]}: names an
-    operator typed, notes, and the racks with the gear in each, top to bottom."""
-    from . import config
-
+    operator typed, notes on gear and on its ports, and the racks with the gear in each, top to bottom."""
     _import_legacy()
     names: dict[str, str] = {}
     notes: dict[str, str] = {}
@@ -456,7 +481,10 @@ def stored() -> dict:
             names[did] = g["name"]
         if g["notes"]:
             notes[did] = g["notes"]
-    notes.update(_port_notes(config.get().get(KEY)))
+    for gid, rows in ports.of_gears(ids).items():
+        for p in rows:
+            if p["note"] and p["key"].isdigit():
+                notes[f"{ids[gid]}#{p['key']}"] = p["note"]
     places, seen = [], set()
     for r in gear.racks():
         if r["name"].lower() in seen:
@@ -468,31 +496,23 @@ def stored() -> dict:
 
 def save_labels(names: Any = None, notes: Any = None) -> dict:
     """Set or clear (empty text) names and notes; the rest stay. Returns what is saved."""
-    from . import config
-
     _import_legacy()
     for k, v in (names.items() if isinstance(names, dict) else []):
         g = _gear_for(k) if _key(k) and "#" not in k else None
         if g:
             gear.rename(g["id"], " ".join(v.split())[:NAME_MAX] if isinstance(v, str) else "")
-    ports = _port_notes(config.get().get(KEY))
-    port_changed = False
     for k, v in (notes.items() if isinstance(notes, dict) else []):
         if not _key(k):
             continue
         text = _text(v, NOTE_MAX)
         if "#" in k:
-            port_changed = True
-            if text:
-                ports[k] = text
-            else:
-                ports.pop(k, None)
+            p = _port_for(k)
+            if p:
+                ports.set_note(p["id"], text)
         else:
             g = _gear_for(k)
             if g:
                 gear.set_notes(g["id"], text)
-    if port_changed:
-        config.save({KEY: {"names": {}, "notes": ports, "places": []}}, replace=(KEY,))
     return stored()
 
 
@@ -537,18 +557,40 @@ def issues(devices: list[dict], sources: list[dict]) -> list[dict]:
     return sorted(out, key=lambda i: rank[i["level"]])
 
 
+def stored_ports(live: list[dict], rows: list[dict]) -> list[dict]:
+    """A switch's ports as the page draws them, from its core ports: what Relay keeps (a missing one too, with no link), with
+    what the source says now about each one that is there (who is plugged in, how busy it is, any warning)."""
+    now = {str(p["port"]): p for p in live}
+    out = []
+    for r in rows:
+        if not r["key"].isdigit():
+            continue
+        p = now.get(r["key"], {})
+        out.append({**p, "port": int(r["key"]), "name": r["name"] or r["gear_name"], "up": bool(r["link_up"]),
+                    "link": r["link_up"], "speed": r["speed_mbps"], "poe_w": r["poe_w"], "errors": r["errors"] or 0,
+                    "ref": r["ref"], "missing": r["missing"], "client": p.get("client", ""), "client_mac": p.get("client_mac", ""),
+                    "use": p.get("use"), "warn": p.get("warn", ""), "uplink": bool(p.get("uplink"))})
+    return out
+
+
 def labelled(result: dict) -> dict:
     """The snapshot with the operator's names applied (the device's own name kept in own_name), the notes and closets,
     and what needs a look. A copy: the cached snapshot is left as the sources gave it."""
     st = stored()
-    by_key = {k: g for k, g in gear.by_keys().items() if g["named"]}
+    every = gear.by_keys()
+    by_key = {k: g for k, g in every.items() if g["named"]}
+    switch_gear = {i: next((every[k]["id"] for k in device_keys(d) if k in every), None)
+                   for i, d in enumerate(result["devices"]) if d["kind"] in SWITCHES}
+    kept = ports.of_gears(g for g in switch_gear.values() if g is not None)
     devices = []
-    for d in result["devices"]:
+    for i, d in enumerate(result["devices"]):
         d = dict(d)
         d["own_name"] = d["name"]
         hit = next((by_key[k] for k in device_keys(d) if k in by_key), None)
         if hit:
             d["name"] = hit["name"]
+        if kept.get(switch_gear.get(i)):
+            d["ports"] = stored_ports(d["ports"], kept[switch_gear[i]])
         devices.append(d)
     out = dict(result)
     out.update(devices=devices, names=st["names"], notes=st["notes"], places=st["places"],

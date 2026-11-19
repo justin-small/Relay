@@ -48,7 +48,7 @@ patch 4 tests/test_net_serving.py
 timeout 1 tests/test_net_serving.py
 mock 21 tests/test_netinfo.py
 sleep 1 tests/test_netinfo.py
-mock 8 tests/test_netroute.py
+mock 6 tests/test_netroute.py
 mock 9 tests/test_netsock.py
 patch 5 tests/test_network_map.py
 mock 5 tests/test_network_page.py

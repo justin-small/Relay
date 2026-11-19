@@ -1,7 +1,7 @@
-/* Blackmagic drawings (the rack redesign): each device's front and back drawn from a model spec, live from the page's
-   state. A spec lists buttons, screens and connectors with their places; a button Relay can press carries an action,
-   the rest are drawn dimmed and say why. Drawing ids match DRAWINGS in service.py.
-   Loaded before blackmagic.js; exposes window.BMDraw. */
+/* Blackmagic drawings (the rack redesign): each device's front and back, live from the page's state. The server builds
+   each face from the device's model (app/modules/blackmagic/drawings.py), so it knows every connector, which are core
+   ports (#540); this file only draws a face it is given. A button Relay can press carries an action, the rest are drawn
+   dimmed and say why. Loaded before blackmagic.js; exposes window.BMDraw. */
 (function () {
   'use strict';
   const NS = 'http://www.w3.org/2000/svg';
@@ -13,180 +13,9 @@
     if (parent) parent.appendChild(e);
     return e;
   }
-  function btn(id, x, y, w, h, label, act, extra) { return Object.assign({ t: 'btn', id: id, x: x, y: y, w: w, h: h, label: label, act: act || null }, extra || {}); }
-  function port(id, kind, x, y, label, dir, extra) { return Object.assign({ t: 'port', id: id, kind: kind, x: x, y: y, label: label, dir: dir || '' }, extra || {}); }
-  function cap(x, y, label, anchor) { return { t: 'text', x: x, y: y, label: label, anchor: anchor || 'start', cls: 'hw-cap' }; }
-  const NOT_AUDIO = 'Audio is mixed on the switcher; Relay does not change it.';
-
-  // ------------------------------------------------------------------------------------------- ATEM
-  function sourceRows(items, x0, step, w, yP, yV, srcs) {
-    items.push(cap(x0 - 10, yP + 21, 'PROGRAM', 'end'), cap(x0 - 10, yV + 21, 'PREVIEW', 'end'));
-    srcs.forEach(function (src, i) {
-      items.push(btn('pgm' + src.n, x0 + i * step, yP, w, 32, src.k, 'pgm:' + src.n, { src: src.n }));
-      items.push(btn('pvw' + src.n, x0 + i * step, yV, w, 32, src.k, 'pvw:' + src.n, { src: src.n, name: 1 }));
-    });
-  }
-  function atemSources(v, count, extra) {
-    const out = [];
-    for (let n = 1; n <= count; n++) out.push({ n: n, k: String(n) });
-    out.push({ n: 0, k: 'BLK' });
-    if (v.inputs[extra.id] !== undefined) out.push({ n: extra.id, k: extra.k });
-    return out;
-  }
-  function dskButtons(items, v, x, y1, y2) {
-    if (v.dsk >= 1) items.push(btn('dsk1', x, y1, 46, 32, 'DSK 1', 'dsk:0', { tipText: 'Downstream key 1: take it on or off with its own transition' }));
-    else items.push(btn('dsk1', x, y1, 46, 32, 'DSK', null, { why: 'This switcher has no downstream key.' }));
-    if (v.dsk >= 2) items.push(btn('dsk2', x, y2, 46, 32, 'DSK 2', 'dsk:1', { tipText: 'Downstream key 2: take it on or off with its own transition' }));
-  }
-  function macroButtons(items, v, x0, y, step, w, h, count) {
-    for (let m = 0; m < count; m++) {
-      const mac = v.macros[m];
-      items.push(btn('mac' + m, x0 + m * step, y, w, h, String(m + 1), mac ? 'macro:' + mac.slot : null,
-        mac ? { tipText: 'Run macro ' + (mac.slot + 1) + ': ' + (mac.name || 'Macro') } : { why: 'No macro recorded in this slot.' }));
-    }
-  }
-  function tvs(v, inputs, title) {
-    const f = [], b = [];
-    const n = Math.min(inputs, 12);
-    const step = n > 10 ? 36 : 44, bw = step - 6;
-    f.push({ t: 'lcd', x: 40, y: 22, w: 168, h: 98, key: 'atem' });
-    const srcs = atemSources(v, n, { id: 3010, k: 'MP1' });
-    sourceRows(f, 300, step, bw, 26, 70, srcs);
-    const xr = 300 + srcs.length * step + 14;
-    dskButtons(f, v, xr, 26, 70);
-    f.push(btn('cut', xr + 62, 26, 56, 32, 'CUT', 'cut', { big: 1 }));
-    f.push(btn('auto', xr + 62, 70, 56, 32, 'AUTO', 'auto', { big: 1 }));
-    f.push(cap(290, 142, 'MACRO', 'end'));
-    macroButtons(f, v, 300, 124, 44, 38, 28, 6);
-    f.push(btn('ftb', 588, 124, 56, 28, 'FTB', 'ftb'));
-    f.push(btn('rec', 656, 124, 46, 28, 'REC', null, { why: 'Recording is started on the switcher or in ATEM Software Control.' }));
-    f.push(btn('stream', 712, 124, 60, 28, 'STREAM', null, { why: 'Streaming is started on the switcher.' }));
-    f.push({ t: 'text', x: 40, y: 150, label: title, cls: 'hw-brand' });
-    const bstep = n > 8 ? 34 : 50;
-    for (let i = 1; i <= n; i++) b.push(port('in' + i, 'sdi', 40 + i * bstep, 56, 'IN ' + i, 'in', { input: i }));
-    ['PGM', 'AUX 1', 'AUX 2', 'AUX 3', 'AUX 4'].forEach(function (l, k) { b.push(port('out' + k, 'sdi', 90 + k * 50, 128, l, 'out', { out: k })); });
-    const xa = Math.max(490, 40 + (n + 1) * bstep);
-    b.push(port('mv', 'hdmi', 380, 128, 'MULTIVIEW', 'out'));
-    b.push(port('ref', 'sdi', xa, 56, 'REF IN', 'in'));
-    b.push(port('xlr1', 'xlr', xa + 70, 56, 'AUDIO 1', 'in'));
-    b.push(port('xlr2', 'xlr', xa + 120, 56, 'AUDIO 2', 'in'));
-    b.push(port('tb', 'eth', 560, 128, 'TALKBACK', ''));
-    b.push(port('eth', 'eth', Math.max(680, xa + 190), 56, 'ETHERNET', '', { net: 1 }));
-    b.push(port('usb', 'usb', Math.max(740, xa + 250), 56, 'USB-C', ''));
-    b.push(port('pwr', 'iec', 870, 88, 'AC 100–240V', '', { power: 1 }));
-    b.push({ t: 'zone', x: 52, y: 22, w: xa - 72, h: 152, label: 'VIDEO' });
-    return { form: 'rack', u: 2, front: { w: 960, h: 176, items: f }, back: { w: 960, h: 176, items: b } };
-  }
-  function mini(v, inputs, title) {
-    const f = [], b = [];
-    f.push({ t: 'zone', x: 24, y: 28, w: 236, h: 230, label: 'AUDIO' });
-    const ch = ['M1', 'M2'];
-    for (let i = 1; i <= inputs; i++) ch.push(String(i));
-    ch.forEach(function (c, i) {
-      const col = i % 5, row = Math.floor(i / 5);
-      f.push(btn('a' + c, 40 + col * 42, 56 + row * 96, 34, 22, c, null, { small: 1, why: NOT_AUDIO }));
-      f.push(btn('afv' + c, 40 + col * 42, 84 + row * 96, 34, 22, 'AFV', null, { small: 1, why: NOT_AUDIO }));
-    });
-    f.push({ t: 'lcd', x: 300, y: 28, w: 140, h: 62, key: 'atem' });
-    sourceRows(f, 370, 40, 34, 112, 160, atemSources(v, inputs, { id: 6000, k: 'SS' }));
-    f.push(cap(360, 236, 'TRANSITION', 'end'));
-    ['MIX', 'DIP', 'WIPE', 'DVE', 'STING'].forEach(function (l, i) {
-      f.push(btn('tr' + l, 370 + i * 46, 216, 40, 28, l, null, { small: 1, why: 'Relay uses the transition already chosen on the switcher.' }));
-    });
-    dskButtons(f, v, 790, 112, 160);
-    f.push(btn('cut', 850, 112, 58, 32, 'CUT', 'cut', { big: 1 }));
-    f.push(btn('auto', 850, 160, 58, 32, 'AUTO', 'auto', { big: 1 }));
-    f.push(btn('ftb', 850, 216, 58, 28, 'FTB', 'ftb'));
-    const mac = v.macros[0];
-    f.push(btn('macro', 790, 216, 46, 28, 'MACRO', mac ? 'macro:' + mac.slot : null,
-      mac ? { tipText: 'Run macro ' + (mac.slot + 1) + ': ' + (mac.name || 'Macro') } : { why: 'No macro recorded on the switcher.' }));
-    f.push({ t: 'knob', x: 660, y: 58, r: 30, why: 'Moves the DVE; not from Relay.' });
-    f.push(btn('rec', 720, 34, 56, 26, 'REC', null, { why: 'Recording is started on the switcher.' }));
-    f.push(btn('onair', 786, 34, 56, 26, 'ON AIR', null, { why: 'Streaming is started on the switcher.' }));
-    f.push(btn('stream', 852, 34, 56, 26, 'STREAM', null, { why: 'Streaming is started on the switcher.' }));
-    f.push({ t: 'text', x: 24, y: 300, label: title, cls: 'hw-brand' });
-    const step = inputs > 4 ? 50 : 60;
-    for (let i = 1; i <= inputs; i++) b.push(port('in' + i, 'hdmi', 14 + i * step, 54, 'HDMI ' + i, 'in', { input: i }));
-    b.push(port('out0', 'hdmi', 490, 54, 'OUT 1', 'out', { out: 0 }));
-    if (inputs > 4) b.push(port('out1', 'hdmi', 545, 54, 'OUT 2', 'out', { out: 1 }));
-    b.push(port('mic1', 'mini', 610, 54, 'MIC 1', 'in'));
-    b.push(port('mic2', 'mini', 660, 54, 'MIC 2', 'in'));
-    if (inputs > 4) b.push(port('hs', 'mini', 714, 54, 'HEADSET', ''));
-    b.push(port('eth', 'eth', 776, 54, 'ETHERNET', '', { net: 1 }));
-    b.push(port('usb1', 'usb', 834, 54, 'USB-C 1', ''));
-    if (inputs > 4) b.push(port('usb2', 'usb', 882, 54, 'USB-C 2', ''));
-    b.push(port('pwr', 'barrel', 930, 54, '12V', '', { power: 1 }));
-    return { form: 'desk', front: { w: 960, h: 320, items: f }, back: { w: 960, h: 110, items: b } };
-  }
-
-  // ------------------------------------------------------------------------------------------- HyperDeck
-  function deck(v) {
-    const f = [], b = [];
-    const elsewhere = 'Relay records, stops and plays; pick clips on the deck.';
-    f.push({ t: 'lcd', x: 40, y: 12, w: 168, h: 64, key: 'deck' });
-    f.push({ t: 'slot', x: 228, y: 18, w: 128, h: 14, label: 'SLOT 1', slot: 1 });
-    f.push({ t: 'slot', x: 228, y: 48, w: 128, h: 14, label: 'SLOT 2', slot: 2 });
-    f.push(btn('prev', 420, 26, 46, 34, '⏮', null, { why: elsewhere }));
-    f.push(btn('rec', 476, 26, 46, 34, 'REC', 'record', { tone: 'rec' }));
-    f.push(btn('stop', 532, 26, 46, 34, 'STOP', 'stop'));
-    f.push(btn('play', 588, 26, 46, 34, 'PLAY', 'play'));
-    f.push(btn('next', 644, 26, 46, 34, '⏭', null, { why: elsewhere }));
-    f.push(btn('rem', 712, 26, 46, 34, 'REM', null, { why: v.remote ? 'Remote is on, so Relay can control the deck.' : 'Remote is off on the deck: Relay can look but not control it.', lit: v.remote }));
-    f.push({ t: 'knob', x: 860, y: 44, r: 30, why: 'Jog and shuttle are on the deck.' });
-    f.push({ t: 'text', x: 228, y: 80, label: v.product || 'HyperDeck', cls: 'hw-brand' });
-    b.push(port('sdiin', 'sdi', 90, 44, 'SDI IN', 'in', { rec: 1 }));
-    b.push(port('sdiout', 'sdi', 140, 44, 'SDI OUT', 'out'));
-    b.push(port('hdmiin', 'hdmi', 210, 44, 'HDMI IN', 'in'));
-    b.push(port('hdmiout', 'hdmi', 270, 44, 'HDMI OUT', 'out'));
-    b.push(port('ref', 'sdi', 340, 44, 'REF IN', 'in'));
-    b.push(port('tcin', 'xlr', 400, 44, 'TC IN', 'in'));
-    b.push(port('tcout', 'xlr', 450, 44, 'TC OUT', 'out'));
-    b.push(port('eth', 'eth', 560, 44, 'ETHERNET', '', { net: 1 }));
-    b.push(port('usb', 'usb', 620, 44, 'USB-C', ''));
-    b.push(port('pwr', 'iec', 860, 44, 'AC', '', { power: 1 }));
-    return { form: 'rack', u: 1, front: { w: 960, h: 88, items: f }, back: { w: 960, h: 88, items: b } };
-  }
-
-  // ------------------------------------------------------------------------------------------- Videohub
-  function hub(v) {
-    const f = [], b = [];
-    const nin = Math.max(1, v.inputs.length), nout = Math.max(1, v.outputs.length);
-    const cols = nout > 12 ? 10 : 12, step = nout > 12 ? 44 : 38, x0 = 250;
-    const rows = Math.ceil(nout / cols);
-    const u = Math.max(rows > 2 ? Math.ceil((rows * 40 + 24) / 88) : 1, Math.max(nin, nout) > 12 ? 2 : 1);
-    const H = 88 * u;
-    f.push({ t: 'lcd', x: 40, y: 12, w: 160, h: H - 24, key: 'hub' });
-    f.push(cap(x0 - 8, 32, 'OUT', 'end'));
-    for (let i = 1; i <= nout; i++) {
-      const row = Math.floor((i - 1) / cols), col = (i - 1) % cols;
-      f.push(btn('dst' + i, x0 + col * step, 12 + row * 40, step - 6, 30, String(i), 'dst:' + i, { dst: i }));
-    }
-    const x1 = x0 + cols * step + 18;
-    f.push(btn('take', x1, 12, 56, 30, 'TAKE', 'take', { big: 1 }));
-    f.push(btn('lock', x1, 52, 56, 30, 'LOCK', 'lock', { manage: 1 }));
-    f.push({ t: 'knob', x: Math.min(x1 + 110, 900), y: H / 2, r: 26, why: 'Choose the input in Relay: click it on the back, or pick it in the side panel.' });
-    const bx0 = 70, bstep = Math.min(40, 760 / Math.max(nin, nout)), compact = bstep < 30;
-    for (let k = 1; k <= nin; k++) b.push(port('in' + k, 'sdi', bx0 + (k - 1) * bstep, H * 0.3, String(k), 'in', { input: k, compact: 1, tiny: compact }));
-    for (let k = 1; k <= nout; k++) b.push(port('out' + k, 'sdi', bx0 + (k - 1) * bstep, H * 0.74, String(k), 'out', { out: k, compact: 1, tiny: compact }));
-    b.push(cap(40, H * 0.3 + 4, 'IN', 'end'), cap(40, H * 0.74 + 4, 'OUT', 'end'));
-    b.push(port('ref', 'sdi', 860, H * 0.3, 'REF', 'in', { compact: 1 }));
-    b.push(port('eth', 'eth', 860, H * 0.74, 'ETH', '', { compact: 1, net: 1 }));
-    b.push(port('pwr', 'iec', 920, H / 2, 'AC', '', { compact: 1, power: 1 }));
-    return { form: 'rack', u: u, front: { w: 960, h: H, items: f }, back: { w: 960, h: H, items: b } };
-  }
-
-  // ------------------------------------------------------------------------------------------- picking a drawing
-  const NAMES = { 'tvs-hd8': 'ATEM Television Studio HD8', 'atem-rack': 'ATEM rack switcher', 'mini-extreme': 'ATEM Mini Extreme',
-    'mini-pro': 'ATEM Mini / Mini Pro', 'hyperdeck-studio': 'HyperDeck Studio', videohub: 'Videohub' };
-  function auto(dev) {
-    const text = ((dev.product || '') + ' ' + (dev.model || '')).toLowerCase();
-    if (dev.kind === 'hyperdeck') return 'hyperdeck-studio';
-    if (dev.kind === 'videohub') return 'videohub';
-    if (/television studio hd8|tvs hd8/.test(text)) return 'tvs-hd8';
-    if (/mini extreme/.test(text)) return 'mini-extreme';
-    if (/atem mini/.test(text)) return 'mini-pro';
-    return 'atem-rack';
-  }
+  /* The drawing names, from the server (GET /api/admin/blackmagic `drawings`); blackmagic.js fills them in. */
+  const NAMES = {};
+  function auto(dev) { return dev.auto_drawing || 'atem-rack'; }
   function drawingOf(dev) { return dev.drawing && NAMES[dev.drawing] ? dev.drawing : auto(dev); }
 
   /* What the drawing needs to know about one device, from the page's state (GET /api/admin/blackmagic). */
@@ -215,22 +44,9 @@
     }
     return v;
   }
-  const cache = {};
-  function spec(v) {
-    const key = v.drawing + '|' + (v.kind === 'atem' ? v.external + '|' + v.dsk + '|' + v.macros.length + '|' + (v.inputs[3010] !== undefined) + (v.inputs[6000] !== undefined)
-      : v.kind === 'videohub' ? v.inputs.length + 'x' + v.outputs.length : v.product);
-    if (!cache[v.id] || cache[v.id].key !== key) {
-      let s;
-      if (v.drawing === 'tvs-hd8') s = tvs(v, 8, 'ATEM Television Studio HD8');
-      else if (v.drawing === 'atem-rack') s = tvs(v, Math.max(4, Math.min(v.external || 8, 12)), v.product || 'ATEM switcher');
-      else if (v.drawing === 'mini-extreme') s = mini(v, 8, 'ATEM Mini Extreme');
-      else if (v.drawing === 'mini-pro') s = mini(v, 4, v.product || 'ATEM Mini');
-      else if (v.drawing === 'hyperdeck-studio') s = deck(v);
-      else s = hub(v);
-      cache[v.id] = { key: key, spec: s };
-    }
-    return cache[v.id].spec;
-  }
+  const BLANK = { form: 'rack', u: 1, front: { w: 960, h: 88, items: [] }, back: { w: 960, h: 88, items: [] } };
+  /* Both faces of a device, as the server drew them from what the device reports (drawings.py). */
+  function spec(v) { return (v.dev && v.dev.face) || BLANK; }
   function findPort(v, pid) {
     return spec(v).back.items.find(function (i) { return i.t === 'port' && i.id === pid; }) || null;
   }

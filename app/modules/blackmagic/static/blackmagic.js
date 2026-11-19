@@ -716,6 +716,7 @@
   }
   function draw(next) {
     state = next;
+    Object.assign(D.NAMES, next.drawings || {});
     last = JSON.stringify(next);
     const on = state.devices.filter(function (d) { return d.enabled && d.host; });
     const text = !on.length ? 'not set up' : state.connected + ' of ' + on.length + ' connected';

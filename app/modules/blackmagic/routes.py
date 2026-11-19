@@ -7,16 +7,18 @@ switcher, so a page or tool written for one switcher keeps working. Every device
 """
 from __future__ import annotations
 
+import asyncio
+
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse
 
-from ... import audit
+from ... import audit, db
 from ...text import same_name
 from .. import require
 from . import discovery, videohub
 from .service import (DEFAULT_NAME, DEFAULT_PORT as DEFAULT_PORTS, DRAWINGS, KIND_NAMES, KINDS, MAX_CABLES, MAX_DEVICES,
                       MAX_PRESETS, NAME_MAX, NOTE_MAX, PLACES, PORT_RE, cables, clean_device, clean_host, clean_offset,
-                      devices, new_id, save_devices, service)
+                      devices, new_id, save_devices, service, set_note)
 
 router = APIRouter()
 VIEW = [Depends(require("blackmagic.view"))]
@@ -180,13 +182,10 @@ async def admin_note(request: Request, payload: dict):
         return _bad("Which connector is the note for?")
     if not isinstance(text, str) or len(text) > NOTE_MAX:
         return _bad(f"A note is up to {NOTE_MAX} characters.")
-    notes = dict(item.get("notes") or {})
-    if text.strip():
-        notes[port] = text
-    else:
-        notes.pop(port, None)
-    item["notes"] = notes
-    save_devices([clean_device(d) for d in items])
+    try:
+        await asyncio.to_thread(set_note, item, port, text)
+    except db.Unavailable:
+        return _bad("The database is down, so notes cannot be saved right now.", 503)
     audit.note(request, "blackmagic.note", "Changed a note on a Blackmagic connector", target=item["name"],
                detail={"port": port})
     return service.snapshot()

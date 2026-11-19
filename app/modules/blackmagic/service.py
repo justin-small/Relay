@@ -20,10 +20,10 @@ import re
 import secrets
 import time
 
-from ... import config, db, gear, screens, tally
+from ... import config, db, gear, ports, screens, tally
 from ...text import same_name
 from . import atem_protocol as p
-from . import hyperdeck, videohub
+from . import drawings, hyperdeck, videohub
 from .atem_client import AtemClient
 from .hyperdeck import HyperDeckClient
 from .videohub import VideohubClient
@@ -44,12 +44,13 @@ REFIND_EVERY_S = 60.0     # and not more often than this per switcher
 _HOST_RE = re.compile(r"[A-Za-z0-9]([A-Za-z0-9.\-]{0,251}[A-Za-z0-9])?")
 _ID_RE = re.compile(r"[a-z0-9]{1,16}")
 _UID_RE = re.compile(r"[A-Za-z0-9:._\-]{1,64}")
-# The rack redesign: which drawing a device gets (empty: picked from its product name), where it sits, the operator's
-# note on each connector, and the cables between connectors that Relay cannot see. Drawing ids match bmdraw.js.
-DRAWINGS = ("tvs-hd8", "atem-rack", "mini-extreme", "mini-pro", "hyperdeck-studio", "videohub")
+# The rack redesign: which drawing a device gets (empty: picked from its product name, drawings.py), where it sits, and the
+# cables between connectors that Relay cannot see. A connector is a core port (app/ports.py, #540) on the device's gear,
+# keyed by its drawing id ("in1"), and its note is the port's note; notes saved in config before #540 move there.
+DRAWINGS = drawings.DRAWINGS
 PLACES = ("rack", "shelf")
 PORT_RE = re.compile(r"[a-z0-9]{1,12}")
-NOTE_MAX = 120
+NOTE_MAX = ports.NOTE_MAX
 MAX_NOTES = 96
 MAX_CABLES = 200
 
@@ -106,7 +107,7 @@ def clean_presets(raw) -> list[dict]:
 
 
 def clean_notes(raw) -> dict[str, str]:
-    """The operator's note on each connector of one device, by the drawing's connector id."""
+    """The operator's note on each connector of one device, by the drawing's connector id (in config only before #540)."""
     out: dict[str, str] = {}
     if isinstance(raw, dict):
         for k, v in raw.items():
@@ -239,11 +240,26 @@ def _write_gear(dev: dict, position: int | None = None) -> dict:
 
 def _overlay(dev: dict, g: dict) -> dict:
     return {**dev, "name": g["name"], "model": g["model"], "drawing": g["drawing"], "place": drawn_place(g),
-            "position": g["position"]}
+            "position": g["position"], "notes": ports.notes(g["id"]), "gear_id": g["id"]}
 
 
 def _stored_form(dev: dict) -> dict:
-    return {k: v for k, v in dev.items() if k not in IDENTITY and k != "position"}
+    return {k: v for k, v in dev.items() if k not in IDENTITY and k not in ("position", "notes", "gear_id")}
+
+
+def _move_notes(gid: int, notes: dict[str, str]) -> None:
+    """Connector notes saved in config before #540 become the notes of the device's ports."""
+    for key, text in notes.items():
+        row = ports.by_key(gid, key) or ports.adopt(gid, key, heard=False)
+        if not row["note"]:
+            ports.set_note(row["id"], text)
+
+
+def set_note(dev: dict, key: str, text: str) -> None:
+    """The note on one connector of a device (empty text clears it)."""
+    g = gear.by_key(GEAR_KEY + dev["id"]) or _write_gear(dev)
+    row = ports.by_key(g["id"], key) or ports.adopt(g["id"], key, heard=False)
+    ports.set_note(row["id"], text)
 
 
 def clean_config(raw) -> dict:
@@ -255,6 +271,8 @@ def clean_config(raw) -> dict:
         for k in IDENTITY:
             if k not in given.get(dev["id"], {}):
                 dev.pop(k, None)
+        if not dev["notes"]:
+            dev.pop("notes")                   # connector notes are ports now (#540); config keeps one only before then
     return out
 
 
@@ -262,14 +280,17 @@ def devices() -> list[dict]:
     """The devices in rack order, with their gear's name, model, drawing and place."""
     raw = config.get().get(KEY)
     items = clean_settings(raw)["devices"]
-    legacy = any(isinstance(d, dict) and any(k in d for k in IDENTITY)
+    legacy = any(isinstance(d, dict) and (any(k in d for k in IDENTITY) or d.get("notes"))
                  for d in (raw.get("devices") if isinstance(raw, dict) and isinstance(raw.get("devices"), list) else []))
     try:
         known = gear.by_keys()
         out = []
         for dev in items:
             g = known.get(GEAR_KEY + dev["id"])
-            out.append(_overlay(dev, g if g is not None else _write_gear(dev)))
+            g = g if g is not None else _write_gear(dev)
+            if dev["notes"]:
+                _move_notes(g["id"], dev["notes"])
+            out.append(_overlay(dev, g))
         if legacy:
             save_devices(out)                  # the identity is on gear now: take it out of config
     except db.Unavailable:
@@ -355,6 +376,7 @@ class Service:
         self._running = False
         self._watch: asyncio.Task | None = None
         self._lock = asyncio.Lock()
+        self._ported: dict[str, tuple] = {}      # device id -> the connectors last recorded as its ports
 
     # ------------------------------------------------------------------------------------------ tally
     def publish(self) -> None:
@@ -494,8 +516,25 @@ class Service:
     def snapshot(self) -> dict:
         items = devices()
         return {"devices": [self.device_snapshot(d) for d in items], "cables": cables(), "warnings": overlaps(items),
-                "configured": any(d["host"] for d in items),
+                "configured": any(d["host"] for d in items), "drawings": dict(drawings.NAMES),
                 "connected": sum(1 for d in items if self._connected(d["id"]))}
+
+    def _faced(self, out: dict) -> dict:
+        """The snapshot with the device's drawing (both faces, from what it reports) and its connectors recorded as core
+        ports. Connectors are recorded only while the device is connected: an unreachable Videohub does not say how many
+        inputs it has, and its ports must not all turn missing."""
+        out["auto_drawing"] = drawings.auto(out)
+        out["face"] = drawings.spec(out)
+        if out["connected"] and out.get("gear_id"):
+            found = drawings.connectors(out["face"])
+            sig = (out["gear_id"], tuple((c["key"], c["kind"], c["direction"], c["gear_name"]) for c in found))
+            if self._ported.get(out["id"]) != sig:
+                try:
+                    ports.sync(out["gear_id"], found)
+                    self._ported[out["id"]] = sig
+                except (db.Unavailable, ports.Refused):
+                    log.warning("Blackmagic: could not record the connectors of %s", out["name"])
+        return out
 
     def _connected(self, did: str) -> bool:
         dev = self.devices.get(did)
@@ -513,7 +552,7 @@ class Service:
         else:
             out["videohub"] = {}
         if c is None or not c.connected:
-            return out
+            return self._faced(out)
         out["connected"] = True
         if cfg["kind"] == "atem":
             st = c.state
@@ -528,7 +567,7 @@ class Service:
             out.update(product=c.state.model, hyperdeck=self._hyperdeck_snapshot(c))
         else:
             out.update(product=c.state.model, videohub=self._videohub_snapshot(c))
-        return out
+        return self._faced(out)
 
     @staticmethod
     def _hyperdeck_snapshot(c: HyperDeckClient) -> dict:
