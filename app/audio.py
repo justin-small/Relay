@@ -157,7 +157,22 @@ def list_input_devices(refresh: bool = False) -> list[dict]:
     if _device_cache is not None and not refresh:
         return _device_cache
     _device_cache = _probe_input_devices(reinit=not capture_is_live())
+    _report_input_channels(_device_cache)
     return _device_cache
+
+
+MAX_CHANNELS_PER_DEVICE = 32
+
+
+def _report_input_channels(devices: list[dict]) -> None:
+    """Each input channel of each device PortAudio lists is an audio source channel in core (#542). A device that is gone
+    turns missing there, with any name an operator gave it."""
+    from . import channels
+
+    found = [{"key": f"{d['label']}#{n}", "kind": "audio", "direction": "source", "number": n,
+              "gear_name": f"{d['name']} {n}"}
+             for d in devices for n in range(1, min(d["channels"], MAX_CHANNELS_PER_DEVICE) + 1)]
+    channels.report("portaudio", found)
 
 
 def _default_device(devices: list[dict]) -> dict:

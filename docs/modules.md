@@ -475,6 +475,33 @@ cables of your own: `tests/test_shared_concepts.py` counts a module table named 
 default `"cables": []`, with a shrink-only baseline. Cables saved in Blackmagic config before #541 move onto core cables the first
 time they are read.
 
+## Channels
+
+A channel is one audio, video or talk signal an operator thinks of as one thing, such as "Camera 2" (`app/channels.py`, tables in
+`app/migrations/0014_channels.sql`, #542). A ref is `channel:relay:<id>`. A channel is made of **ends**: what each module
+reports (NDI's `BOOTH (Camera 2)`, a Videohub input, an ATEM input, a tally camera). Every page shows the channel under one name:
+the one an operator typed, else the first reporting end's own.
+
+**Report, do not keep.** A module that has channels calls `channels.report("<module id>", [{"key", "kind", "direction", "number",
+"gear_name"}, ...], gear_id)` (or `channels.sync`, which raises while the database is down) with every channel it sees now. `kind` is
+`audio`, `video` or `talk`; `direction` is `source` or `destination`; `key` is the module's own stable id for it, kept per module
+(put the device id in it when the module has several devices, as Blackmagic does). One it no longer reports is marked `missing`, not
+dropped, so its name and note stay; `within="<key prefix>"` limits that to one machine when a module reports one at a time (OBS).
+Report only while the source is readable. Today NDI (sources and Relay's outputs), Blackmagic (ATEM inputs, Videohub inputs and
+outputs), OBS (scenes), the audio bus (patched lanes and outputs), PortAudio input channels, sound-level sources and the intercom
+(talk) report theirs.
+
+**Joins are the operator's.** Relay never joins two ends by itself. `channels.suggestions()` lists likely pairs (the same name, or the
+same number on one gear; a name a device gives everything, like "Input 3", is not a reason) and the Network page's Channels section
+lets an operator join them, say they differ, or split an end back out. After a join the old ref still works: `channels.by_ref` follows it.
+
+**Pick by ref.** A page that lets an operator choose a channel saves its ref beside the typed name and reads it back with
+`channels.describe(ref, typed_name)`, which says `found` False for a name-only channel so the page can flag it. The rundown's board
+channels and mic labels do this (`channel_ref`, `mic_refs`): a typed name that matches exactly one present audio channel adopts its ref
+once. A tally camera may carry `"channel"`, the ref of its video channel, and shows that channel's name. Keep no list of channels of
+your own: `tests/test_shared_concepts.py` counts a module table named `*channels` and a module default `"channels": []`, with a
+shrink-only baseline (the intercom keeps its talk settings on its table, and the rundown keeps each channel's positions).
+
 ## Phones and computers
 
 A phone or computer a person carries is one core **device** (`app/devices.py`, tables in `app/migrations/0009_devices.sql`,

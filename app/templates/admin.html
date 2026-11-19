@@ -829,6 +829,16 @@ window.relayCan = function (perm) { return window.RELAY_ME.permissions.indexOf(p
         </div>
         <div class="err" id="nmCableErr" hidden></div>
       </section>
+      <section id="nmChannels">
+        <h3>Channels</h3>
+        <p class="note">A channel is one audio, video or talk signal, such as &ldquo;Camera 2&rdquo;. Each module reports its own: NDI a source, Blackmagic a switcher input, the audio bus a lane. Relay never joins two by itself; where two look like one it suggests the join and you decide. A name you type here shows on every page that uses the channel.</p>
+        <div id="nmChanSuggest"></div>
+        <div class="tablescroll"><table class="dt nmchannels">
+          <thead><tr><th>Name</th><th>Kind</th><th>Reported by</th><th>Note</th><th></th></tr></thead>
+          <tbody id="nmChanRows"><tr><td colspan="5" class="muted">Loading&hellip;</td></tr></tbody>
+        </table></div>
+        <div class="err" id="nmChanErr" hidden></div>
+      </section>
     </div>
 
     <div class="nmpane" data-pane="computer" role="tabpanel">
@@ -1061,6 +1071,7 @@ window.relayCan = function (perm) { return window.RELAY_ME.permissions.indexOf(p
 <script src="{{ static('modules.js') }}"></script>
 <script src="{{ static('network.js') }}"></script>
 <script src="{{ static('network_map.js') }}"></script>
+<script src="{{ static('network_channels.js') }}"></script>
 <script src="{{ static('overlay-builder.js') }}"></script>
 <script src="{{ static('boards.js') }}"></script>
 <script src="{{ static('screens.js') }}"></script>

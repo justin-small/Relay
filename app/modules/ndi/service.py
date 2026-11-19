@@ -18,7 +18,7 @@ import threading
 import time
 from typing import Any, Callable
 
-from ... import config
+from ... import channels, config
 from . import discovery, multiview, outputs, render, router, runtime, viewer
 
 log = logging.getLogger("relay.ndi")
@@ -397,6 +397,7 @@ class Service:
         found += [r for r in reported if r["name"] not in have]
         self.merge(found)
         self.last_scan = time.time()
+        self.report_channels()
         self._bump()
 
     def _find_via_sdk(self) -> list[dict]:
@@ -427,6 +428,15 @@ class Service:
         for n, rec in list(self._seen.items()):
             if n not in names:
                 rec["missed"] += 1
+
+    def report_channels(self) -> None:
+        """Tell core which video channels NDI has (#542): every source seen online (a source) and each of Relay's own
+        outputs that is on (a destination). A source that went offline turns missing there, with its name kept."""
+        found = [{"key": "src:" + s["name"], "kind": "video", "direction": "source",
+                  "gear_name": s["source"] or s["name"]} for s in self.sources() if s["online"]]
+        found += [{"key": "out:" + n, "kind": "video", "direction": "destination", "gear_name": n}
+                  for n in sorted(self.outputs)]
+        channels.report("ndi", found)
 
     # ----------------------------------------------------------------------------------------------- reads
     def sources(self) -> list[dict]:
@@ -483,11 +493,13 @@ class Service:
             def close(self) -> None:
                 if svc.outputs.get(name) is self:
                     del svc.outputs[name]
+                    svc.report_channels()
                     svc._bump()
                 out.close()
 
         o = Output()
         self.outputs[name] = o
+        self.report_channels()
         self._bump()
         return o
 
