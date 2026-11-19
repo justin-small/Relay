@@ -24,6 +24,7 @@
   }
 
   // -- the rundown ---------------------------------------------------------------------------------------------
+  const TYPED = '=typed';       // the leader's position as a name typed before it was picked from a list
   function fillSelect(sel, options, keep) {
     const was = keep !== undefined ? keep : sel.value;
     const sig = JSON.stringify(options);
@@ -84,11 +85,24 @@
   // -- settings and the link ---------------------------------------------------------------------------------------
   let settingsShown = '';
   function renderSettings() {
-    const s = data.settings, sig = JSON.stringify([s.screen, s.leader_note, s.leader_position, s.sermon_note]);
+    const s = data.settings, sig = JSON.stringify([s.screen, s.leader_note, s.leader_position, s.leader_position_ref,
+      s.sermon_note, data.all_positions]);
     if (sig !== settingsShown) {
       settingsShown = sig;
       $('rdScreen').checked = !!s.screen;
-      $('rdLeaderNote').value = s.leader_note; $('rdLeaderPos').value = s.leader_position; $('rdSermonNote').value = s.sermon_note;
+      $('rdLeaderNote').value = s.leader_note; $('rdSermonNote').value = s.sermon_note;
+      // The leader's position is picked from Planning Center's list (#521); a name typed before stays until replaced.
+      const opts = [['', 'Nobody']].concat((data.all_positions || []).map(function (p) {
+        return [p.ref, p.team ? p.name + ' (' + p.team + ')' : p.name];
+      }));
+      if (s.leader_position && !s.leader_position_ref) opts.push([TYPED, s.leader_position + ' (not matched to Planning Center)']);
+      if (s.leader_position_ref && !opts.some(function (o) { return o[0] === s.leader_position_ref; })) {
+        opts.push([s.leader_position_ref, s.leader_position + ' (no longer in Planning Center)']);
+      }
+      fillSelect($('rdLeaderPos'), opts, s.leader_position_ref || (s.leader_position ? TYPED : ''));
+      $('rdLeaderPosHint').textContent = s.leader_missing ? 'Planning Center no longer lists this position. Pick another.'
+        : s.leader_unmatched ? 'This name is not a position in Planning Center. Pick one from the list.'
+          : 'Used when a song has no leader note.';
     }
     const manage = can('planning_center.manage');
     ['rdScreen', 'rdLeaderNote', 'rdLeaderPos', 'rdSermonNote', 'rdSetSave'].forEach(function (id) { $(id).disabled = !manage; });
@@ -158,9 +172,9 @@
   });
   $('rdSetSave').addEventListener('click', async function () {
     try {
-      const res = await post('/api/admin/planning-center/rundown/settings', {
-        screen: $('rdScreen').checked, leader_note: $('rdLeaderNote').value,
-        leader_position: $('rdLeaderPos').value, sermon_note: $('rdSermonNote').value });
+      const body = { screen: $('rdScreen').checked, leader_note: $('rdLeaderNote').value, sermon_note: $('rdSermonNote').value };
+      if ($('rdLeaderPos').value !== TYPED) body.leader_position_ref = $('rdLeaderPos').value;
+      const res = await post('/api/admin/planning-center/rundown/settings', body);
       data.settings = res.settings; settingsShown = '';
       say('rdSetMsg', res.settings.screen ? 'Saved. The rundown is on for /screen.' : 'Saved. The rundown is off for /screen.');
       load();

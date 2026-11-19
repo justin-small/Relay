@@ -139,6 +139,9 @@ with section("who opens a board"):
     eq("made public", r.json()["board"]["public"], True)
     eq("a public board opens on the viewer port", tv.get("/board/lobby-tv").status_code, 200)
     check("and signed out on the operator port", "boardData" in nobody.get("/board/lobby-tv").text)
+    from app.modules.ndi.outputs import builtin_defs
+    eq("a public board is offered as an NDI output, on the viewer port",
+       [(d["id"], d["url"]) for d in builtin_defs(config.get()) if d["group"] == "Boards"], [("board:lobby-tv", "/board/lobby-tv")])
     r = member.get("/board/lobby-tv")
     check("the page is not cached and sends no referrer", r.headers["cache-control"] == "no-store"
           and r.headers["referrer-policy"] == "no-referrer")

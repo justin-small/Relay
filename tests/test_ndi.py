@@ -266,16 +266,19 @@ with section("page outputs (#299)"):
     check("screens per language and the source screen", "screen:source" in ids and "screen:SPANISH" in ids)
     check("the default overlay has alpha", next(d for d in s.pages.defs() if d["id"] == "overlay:default")["alpha"])
     eq("names carry the prefix", outs.ndi_name("Screen (Spanish)"), "Relay - Screen (Spanish)")
-    registry.ndi_output_providers["signage"] = lambda: [{"id": "signage:lobby", "name": "Lobby", "url": "/signage/lobby"},
-                                                        {"id": "screen:source", "name": "dup", "url": "/x"}]
+    registry.provide("ndi.outputs.signage", lambda: [
+        {"id": "signage:lobby", "name": "Lobby", "url": "http://127.0.0.1:8090/signage/lobby"},
+        {"id": "screen:source", "name": "dup", "url": "/x"},
+        {"id": "signage:away", "name": "Elsewhere", "url": "http://example.com/x"}], owner="signage")
     sg = [d for d in s.pages.defs() if d["id"] in ("signage:lobby", "screen:source")]
     eq("a provider adds one, and cannot replace a built-in", [(d["id"], d["group"]) for d in sg],
        [("screen:source", "Screens"), ("signage:lobby", "signage")])
+    check("a page on another machine is not rendered", all(d["id"] != "signage:away" for d in s.pages.defs()))
     s.save_settings({"out_on": ["overlay:default", "signage:lobby", "gone"], "out_fps": 10})
     s.pages.sync()
     check("two outputs come on", wait_for(lambda: sum(1 for r in s.pages.status() if r["state"] == "on") == 2))
     eq("renderer got the page, size and alpha", sorted((r.url, r.w, r.alpha) for r in FakeRenderer.made),
-       [("http://127.0.0.1:80/overlay", 1280, True), ("http://127.0.0.1:80/signage/lobby", 1280, False)])
+       [("http://127.0.0.1:80/overlay", 1280, True), ("http://127.0.0.1:8090/signage/lobby", 1280, False)])
     names = {x.size for x in backend.senders[-2:]}
     eq("senders opened at the size and rate", names, {(1280, 720, 10)})
     check("frames are sent", wait_for(lambda: all(x.sent for x in backend.senders[-2:])))
@@ -295,7 +298,7 @@ with section("page outputs (#299)"):
     s.save_settings({"out_on": []})
     s.pages.sync()
     s.pages.make = outs.render.make
-    registry.ndi_output_providers.clear()
+    registry.withdraw("ndi.outputs.signage")
 
 with section("router (#298)"):
     from app.modules.ndi import router as rt

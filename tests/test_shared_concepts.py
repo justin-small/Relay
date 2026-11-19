@@ -4,8 +4,9 @@ another module.
 This file is the rule's enforcement, run in CI on every pull request. It reads every app/**/*.py except the two
 shared files themselves (app/text.py and app/timewin.py) and counts, per file:
 
-* name     tidying a name by hand: `.casefold()`, `unicodedata.normalize(` or a `[^a-z0-9]` slug pattern. Use
-           app/text.py (`fold`, `same_name`, `plain`, `strip_accents`, `slug`);
+* name     tidying a name by hand: `.casefold()`, `unicodedata.normalize(` or a `[^a-z0-9]` slug pattern, lower-casing
+           and squeezing it (`" ".join(x.lower().split())`) or comparing two names lower-cased (`a.lower() == b.lower()`).
+           Use app/text.py (`fold`, `same_name`, `plain`, `strip_accents`, `slug`);
 * weekday  `.weekday()` or `.isoweekday()`, which count from Monday. Relay counts days from Sunday = 0: use
            `timewin.weekday(d)`;
 * clock    a hand-written HH:MM pattern (`2[0-3]`). Use `timewin.is_clock`, `clean_clock`, `minutes` or `us_clock`;
@@ -73,7 +74,8 @@ EPOCH_COLUMN = re.compile(r"^\s*(?:alter\s+table\s+\w+\s+add\s+column\s+)?(?:\w+
 CREATE_TABLE = re.compile(r"create\s+table\s+(\w+)\s*\((.*?)\n\)\s*;", re.I | re.S)
 
 RULES: dict[str, re.Pattern] = {
-    "name": re.compile(r"\.casefold\(\)|unicodedata\.normalize\(|\[\^a-z0-9\]"),
+    "name": re.compile(r"\.casefold\(\)|unicodedata\.normalize\(|\[\^a-z0-9\]"
+                       r"|join\([^()]*\.lower\(\)\.split\(\)\)|\.lower\(\)\s*==\s*[\w.\[\]\"']+\.lower\(\)"),
     "weekday": re.compile(r"\.(?:iso)?weekday\(\)"),
     "clock": re.compile(r"2\[0-3\]"),
 }

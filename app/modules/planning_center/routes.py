@@ -259,6 +259,8 @@ def _rundown_settings_view() -> dict:
     out = {k: v for k, v in rs.items() if k != "draws"}
     out["mics"] = [flagged(m) for m in rs["mics"]]
     out["channels"] = [{**c, "positions": [flagged(a) for a in c["positions"]]} for c in rs["channels"]]
+    got = directory.describe(rs.get("leader_position_ref", ""), rs.get("leader_position", ""))
+    out["leader_missing"], out["leader_unmatched"] = got["missing"], got["unmatched"]
     return out
 
 
@@ -290,11 +292,15 @@ def channel_catalog() -> tuple[list[dict], str]:
 async def admin_planning_center_rundown(type: str = "", time: str = ""):
     """The rundown as /screen shows it, the settings behind it, and every team and position on today's plans
     (for the channel assignments), plus the channels a soundboard module offers."""
+    from ... import directory
+
     st = type if type in follower.tracks else ""
     want = time if re.fullmatch(r"\d{4}", time or "") else ""
     catalog, catalog_source = channel_catalog()
     return {"rundown": rundown_now(st, want), "settings": _rundown_settings_view(),
             "positions": rundown.positions(list(follower.tracks.values())),
+            "all_positions": [{"ref": p["ref"], "name": p["name"], "team": p["team"]}
+                              for p in directory.positions() if not p["missing"]],
             "type_positions": rundown.type_positions(list(follower.tracks.values())),
             "catalog": catalog, "catalog_source": catalog_source,
             "service_types": [{"id": s, "name": follower.names.get(s) or f"Service type {s}"}
@@ -316,6 +322,17 @@ async def admin_planning_center_rundown_settings(payload: dict):
         if not isinstance(payload["screen"], bool):
             return JSONResponse({"error": "screen must be true or false."}, status_code=400)
         rs["screen"] = payload["screen"]
+    if "leader_position_ref" in payload:
+        # Picked from the list (#521): the position's name comes from the directory; "" picks none.
+        from ... import directory
+        try:
+            ref = directory.clean_ref(directory.POSITION, payload["leader_position_ref"])
+        except ValueError:
+            return JSONResponse({"error": "Pick a position Planning Center lists."}, status_code=400)
+        rs["leader_position_ref"] = ref
+        rs["leader_position"] = directory.describe(ref)["name"] if ref else ""
+    elif "leader_position" in payload:
+        rs["leader_position_ref"] = ""      # a typed name is matched to a position on the next refresh
     if "mics" in payload:
         if not isinstance(payload["mics"], list):
             return JSONResponse({"error": "mics must be a list."}, status_code=400)

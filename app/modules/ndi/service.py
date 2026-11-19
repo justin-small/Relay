@@ -495,7 +495,7 @@ class Service:
 def _providers() -> dict:
     from ... import modules as registry
 
-    return registry.ndi_output_providers
+    return registry.using_all("ndi.outputs.")
 
 
 def _base() -> str:

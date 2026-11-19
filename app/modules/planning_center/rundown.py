@@ -40,7 +40,7 @@ MAX_ASSIGNMENTS = 32  # positions one channel serves
 MAX_DRAWS = 200       # stored draws kept, newest last
 NOTE_MAX = 4000       # sermon notes sent, characters
 LABEL_RE = re.compile(r"^[\w .#/+-]{1,12}$")
-DEFAULTS = {"screen": False, "leader_note": "Leader", "leader_position": "Worship Leader",
+DEFAULTS = {"screen": False, "leader_note": "Leader", "leader_position": "Worship Leader", "leader_position_ref": "",
             "sermon_note": "Sermon Notes", "mics": [], "channels": [], "draws": {}}
 
 
@@ -83,7 +83,21 @@ def refresh_saved(rs: dict) -> bool:
         if any(entry.get(k) != v for k, v in new.items()):
             entry.update(new)
             changed = True
+    # The song leader's position (#521): matched to a ref like the mic mappings, and renamed with Planning Center.
+    _, _, pref, pos = _pick({"position_ref": rs.get("leader_position_ref")}, "", rs.get("leader_position", ""), live=True)
+    if (rs.get("leader_position_ref", ""), rs.get("leader_position", "")) != (pref, pos):
+        rs["leader_position_ref"], rs["leader_position"] = pref, pos
+        changed = True
     return changed
+
+
+def is_leader(rs: dict, member: dict) -> bool:
+    """Whether a plan member holds the song leader's position: by Planning Center's ids when it was picked from the
+    list (a rename there changes nothing), else by the typed name."""
+    ref = rs.get("leader_position_ref")
+    if ref:
+        return directory.position_ref(directory.PCO, member.get("team_id") or "", member.get("position_id") or "") == ref
+    return bool(rs.get("leader_position")) and same_name(member["position"], rs["leader_position"])
 
 
 def clean_rundown(raw: Any) -> dict:
@@ -115,6 +129,7 @@ def clean_rundown(raw: Any) -> dict:
         "screen": raw.get("screen") is True,
         "leader_note": _text(raw.get("leader_note", DEFAULTS["leader_note"]), 60),
         "leader_position": _text(raw.get("leader_position", DEFAULTS["leader_position"]), 80),
+        "leader_position_ref": _ref(raw.get("leader_position_ref"), directory.POSITION),
         "sermon_note": _text(raw.get("sermon_note", DEFAULTS["sermon_note"]), 60),
         "mics": mics,
         "channels": channels,
@@ -352,8 +367,7 @@ def build(track: Any, settings: dict, now: float, zone: ZoneInfo, want_time: str
     if len(draws) > MAX_DRAWS:
         draws = dict(list(draws.items())[-MAX_DRAWS:])
 
-    leader_default = next((m for m in members if same_name(m["position"], rs["leader_position"])
-                           and m["status"] != "declined"), None)
+    leader_default = next((m for m in members if is_leader(rs, m) and m["status"] != "declined"), None)
 
     def person(m: dict) -> dict:
         return {"id": m["id"], "name": m["name"], "status": m["status"], "photo": m["photo"],

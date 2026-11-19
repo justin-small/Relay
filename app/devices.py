@@ -18,7 +18,8 @@ the same user with the same, non-empty user agent that has no part of this kind 
 be told apart (no user agent) are separate devices, and `merge` joins two of one user's.
 
 `revoke` forgets a device: every registered part ends, then the device row goes and takes every part row with it,
-which also ends the PIN sessions that came from its sign-in part. Core never imports a module: it holds this registry
+which also ends the PIN sessions that came from its sign-in part, and the owner's password sessions from the same
+browser (a session keeps the user agent it signed in with; a device with none signs nothing out). Core never imports a module: it holds this registry
 the way `users.signed_out_hooks` holds the account hooks.
 """
 from __future__ import annotations
@@ -38,6 +39,7 @@ UA_MAX = 200
 MAX_PER_USER = 50
 PLATFORMS = ("web", "ios", "android")
 SIGNIN = "signin"
+SESSION = "session"
 SIGNIN_TABLE = "trusted_devices"
 _TABLE = re.compile(r"^[a-z][a-z0-9_]{0,60}$")
 
@@ -70,7 +72,7 @@ _parts: dict[str, Part] = {}
 def register(kind: str, label: str, table: str, revoke: Callable[[int], None],
              describe: Callable[[int], list[str]]) -> None:
     """A module offers a part of a device (in `attach`). A second registration of the same kind replaces the first."""
-    if not _TABLE.match(table or "") or not kind or kind == SIGNIN:
+    if not _TABLE.match(table or "") or not kind or kind in (SIGNIN, SESSION):
         raise ValueError("bad device part")
     _parts[kind] = Part(kind, label, table, revoke, describe)
 
@@ -197,6 +199,8 @@ def _describe(row: dict) -> list[dict]:
     n = db.one("select count(*) n from trusted_devices where device_id = ?", (row["id"],))
     if n and n["n"]:
         out.append({"kind": SIGNIN, "label": "Sign-in", "detail": ["Signs in with a PIN"]})
+    if signed_in(row):
+        out.append({"kind": SESSION, "label": "Signed in", "detail": ["Signed in to Relay in this browser"]})
     for p in _parts.values():
         try:
             lines = [str(t) for t in p.describe(row["id"])]
@@ -208,15 +212,25 @@ def _describe(row: dict) -> list[dict]:
     return out
 
 
+def signed_in(row: dict) -> bool:
+    """Whether the device's owner is signed in with a password in the device's browser: a session of theirs with the
+    same user agent (users.start_session keeps it). Forgetting the device ends those sessions."""
+    if not row.get("user_agent"):
+        return False
+    return db.one("select 1 x from sessions where user_id = ? and user_agent = ? and expires_at > ?",
+                  (row["user_id"], row["user_agent"], db.now())) is not None
+
+
 def listing(user_id: int | None = None) -> list[dict]:
     """Every device (or one user's) with its owner and the parts it holds:
     {"id", "ref", "user_id", "user", "name", "platform", "last_seen", "created", "parts": [{"kind", "label", "detail"}]}."""
-    sql = ("select d.id, d.user_id, u.name as user, d.name, d.platform, d.last_seen, d.created_at as created"
+    sql = ("select d.id, d.user_id, u.name as user, d.name, d.platform, d.user_agent, d.last_seen, d.created_at as created"
            " from devices d join users u on u.id = d.user_id")
     rows = db.query(sql + (" where d.user_id = ?" if user_id is not None else "")
                     + " order by lower(u.name), coalesce(d.last_seen, d.created_at) desc, d.id",
                     (user_id,) if user_id is not None else ())
-    return [{**r, "ref": ref(r["id"]), "parts": _describe(r)} for r in rows]
+    return [{**{k: v for k, v in r.items() if k != "user_agent"}, "ref": ref(r["id"]), "parts": _describe(r)}
+            for r in rows]
 
 
 def get(device: int, user_id: int | None = None) -> dict | None:
@@ -252,6 +266,8 @@ def revoke(device: int, *, user_id: int | None = None) -> dict | None:
             log.exception("revoking device part %s", p.kind)
     with db.transaction() as tx:
         tx.execute("delete from trusted_devices where device_id = ?", (device,))     # sign-in trust outlives a person
+        if row["user_agent"]:      # its password sign-ins: the same person in the same browser (see signed_in)
+            tx.execute("delete from sessions where user_id = ? and user_agent = ?", (row["user_id"], row["user_agent"]))
         tx.execute("delete from devices where id = ?", (device,))
     return {**row, "parts": kinds}
 

@@ -1714,7 +1714,8 @@ async def admin_setup(request: Request, token: str = Form(""), username: str = F
             global _have_users
             _have_users = True
             setupcode.clear()
-        return (*users.start_session(user, via="password"), _home_for(user))
+        ua = request.headers.get("user-agent", "")
+        return (*users.start_session(user, via="password", user_agent=ua), _home_for(user))
 
     try:
         started = await asyncio.to_thread(work)
@@ -1800,7 +1801,8 @@ async def admin_login(request: Request, username: str = Form(""), password: str 
             _audit_failed_signin(exc.key, ip, users.get_by_username(username), "password")
             raise
         audit.record("auth.password", "Signed in with their password", actor=user, ip=ip)
-        return (*users.start_session(user, via="password"), _home_for(user))
+        ua = request.headers.get("user-agent", "")
+        return (*users.start_session(user, via="password", user_agent=ua), _home_for(user))
 
     try:
         started = await asyncio.to_thread(work)
@@ -1835,7 +1837,8 @@ async def admin_login_pin(request: Request, user_id: str = Form(""), pin: str = 
                                  device["name"] if device else "")
             raise
         audit.record("auth.pin", "Signed in with their PIN", actor=user, detail={"device": device["name"]}, ip=ip)
-        return (*users.start_session(user, via="pin", device_id=device["id"]), _home_for(user))
+        return (*users.start_session(user, via="pin", device_id=device["id"],
+                                     user_agent=request.headers.get("user-agent", "")), _home_for(user))
 
     try:
         started = await asyncio.to_thread(work)

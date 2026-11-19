@@ -3,13 +3,14 @@
 An **output definition** is {"id", "name", "group", "url", "alpha"}: a page path on this server, drawn off screen at the
 chosen size and frame rate and published as the NDI source "Relay - <name>". Screens (each language, plus the source
 language) and overlays (the default and every saved one, with alpha) are built in; another module adds its own through
-core's `ndi_output_providers` (signage, boards), so nothing here imports it. The operator switches each output on in
+what they provide as "ndi.outputs.<id>" (signage, boards), so nothing here imports it. The operator switches each output on in
 admin; `on` is saved, so outputs come back after a restart. Each running output has a thread that renders a frame,
 sends it, and sleeps to its frame rate; the status carries the rate it achieved and the CPU time Relay spent on it.
 """
 from __future__ import annotations
 
 import logging
+import re
 import threading
 import time
 from typing import Any, Callable
@@ -28,7 +29,8 @@ def ndi_name(name: str) -> str:
 
 
 def builtin_defs(cfg: dict) -> list[dict]:
-    """Screens and overlays from the operator's configuration."""
+    """Screens, overlays and public boards from the operator's configuration. A board that needs a sign-in is left out:
+    the renderer has no account."""
     from ... import languages
 
     out = [{"id": "screen:source", "name": "Screen (source language)", "group": "Screens",
@@ -42,7 +44,24 @@ def builtin_defs(cfg: dict) -> list[dict]:
         if isinstance(o, dict) and o.get("id"):
             out.append({"id": "overlay:" + str(o["id"]), "name": "Overlay (" + str(o.get("name") or o["id"]) + ")",
                         "group": "Overlays", "url": "/overlay/" + str(o["id"]), "alpha": True})
+    for b in cfg.get("boards") or []:
+        if isinstance(b, dict) and b.get("id") and b.get("public"):
+            out.append({"id": "board:" + str(b["id"]), "name": "Board (" + str(b.get("name") or b["id"]) + ")",
+                        "group": "Boards", "url": "/board/" + str(b["id"]), "alpha": False})
     return out
+
+
+_LOCAL = re.compile(r"^http://127\.0\.0\.1:\d{1,5}/")
+
+
+def _page(url) -> bool:
+    """A page Relay serves: a path on the viewer port, or this machine's own address on another port (signage)."""
+    return isinstance(url, str) and (url.startswith("/") and not url.startswith("//") or bool(_LOCAL.match(url)))
+
+
+def page_url(base: str, url: str) -> str:
+    """Where the renderer loads a page: a path goes after the viewer port's `base`; a local address is used as it is."""
+    return url if _LOCAL.match(url) else base + url
 
 
 class _Run:
@@ -70,7 +89,7 @@ class Outputs:
         for key, fn in list(self._providers().items()):
             try:
                 for d in fn() or []:
-                    if isinstance(d, dict) and d.get("id") and d.get("url") and d["id"] not in seen:
+                    if isinstance(d, dict) and d.get("id") and _page(d.get("url")) and d["id"] not in seen:
                         out.append({"id": str(d["id"]), "name": str(d.get("name") or d["id"]),
                                     "group": str(d.get("group") or key), "url": str(d["url"]),
                                     "alpha": bool(d.get("alpha"))})
@@ -129,7 +148,7 @@ class Outputs:
             why = render.available() if self.make is render.make else ""
             if why:
                 raise RuntimeError(why)
-            renderer = self.make(self._base() + run.d["url"], run.w, run.h, run.d["alpha"])
+            renderer = self.make(page_url(self._base(), run.d["url"]), run.w, run.h, run.d["alpha"])
             out = self._open_output(ndi_name(run.d["name"]), run.w, run.h, run.fps)
             if out is None:
                 raise RuntimeError("NDI would not open this output (is the name already in use?).")

@@ -520,8 +520,9 @@ def _valid_token(token) -> bool:
     return isinstance(token, str) and 0 < len(token) <= 200
 
 
-def start_session(user: User, *, via: str, device_id: int | None = None) -> tuple[str, int]:
-    """Returns (cookie token, max_age seconds). A "pin" session needs the trusted device it came from."""
+def start_session(user: User, *, via: str, device_id: int | None = None, user_agent: str = "") -> tuple[str, int]:
+    """Returns (cookie token, max_age seconds). A "pin" session needs the trusted device it came from. `user_agent` is
+    the browser's, kept so that forgetting the phone it belongs to (devices.revoke) signs it out too."""
     if via not in ("password", "pin"):
         raise ValueError("via must be 'password' or 'pin'")
     if via == "pin" and device_id is None:
@@ -530,9 +531,10 @@ def start_session(user: User, *, via: str, device_id: int | None = None) -> tupl
     token = secrets.token_urlsafe(32)
     with db.transaction() as tx:
         tx.execute("delete from sessions where expires_at < ?", (db.now(),))      # housekeeping, no timer needed
-        tx.execute("insert into sessions (user_id, token_hash, via, device_id, expires_at)"
-                   " values (?, ?, ?, ?, ?)",
-                   (user.id, _hash_token(token), via, device_id if via == "pin" else None, db.later(age)))
+        tx.execute("insert into sessions (user_id, token_hash, via, device_id, user_agent, expires_at)"
+                   " values (?, ?, ?, ?, ?, ?)",
+                   (user.id, _hash_token(token), via, device_id if via == "pin" else None,
+                    devices.agent(user_agent), db.later(age)))
     return token, age
 
 
