@@ -505,6 +505,13 @@ route("DELETE", "/api/admin/users/{user_id}", "users.manage")
 route("GET", "/api/admin/trusted-devices", "users.view")
 route("POST", "/api/admin/trusted-devices", "users.manage")
 route("DELETE", "/api/admin/trusted-devices/{device_id}", "users.manage")
+route("GET", "/api/admin/phones", "users.view")
+route("PUT", "/api/admin/phones/{phone_id}", "users.manage")
+route("DELETE", "/api/admin/phones/{phone_id}", "users.manage")
+route("POST", "/api/admin/phones/{phone_id}/merge", "users.manage")
+route("GET", "/api/admin/me/phones", None)
+route("PUT", "/api/admin/me/phones/{phone_id}", None)
+route("DELETE", "/api/admin/me/phones/{phone_id}", None)
 # API tokens (#174)
 route("GET", "/api/admin/me/tokens", "tokens.own")
 route("POST", "/api/admin/me/tokens", "tokens.own")
@@ -1245,10 +1252,11 @@ fresh()
 print("API tokens")
 NO_TOKENS = {("POST", "/api/admin/me/password"), ("POST", "/api/admin/me/pin"), ("DELETE", "/api/admin/me/pin"),
              ("GET", "/api/admin/me/tokens"), ("POST", "/api/admin/me/tokens"),
-             ("DELETE", "/api/admin/me/tokens/{token_id}")}
+             ("DELETE", "/api/admin/me/tokens/{token_id}"), ("GET", "/api/admin/me/phones"),
+             ("PUT", "/api/admin/me/phones/{phone_id}"), ("DELETE", "/api/admin/me/phones/{phone_id}")}
 refusing = {(m, p) for m, p, rt in found
             if any(getattr(d.call, "tokens", True) is False for d in rt.dependant.dependencies)}
-eq("exactly the signed-in user's own password, PIN and token routes refuse tokens", refusing, NO_TOKENS)
+eq("exactly the signed-in user's own password, PIN, token and phone routes refuse tokens", refusing, NO_TOKENS)
 
 
 def bearer(secret, base=ADMIN):

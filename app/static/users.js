@@ -56,6 +56,7 @@
 
   function initAccount() {
     paintAccount();
+    loadMyPhones();
     g('pwForm').addEventListener('submit', async function (ev) {
       ev.preventDefault();
       const cur = g('pwCurrent'), nw = g('pwNew'), again = g('pwConfirm');
@@ -218,7 +219,7 @@
 
   /* ---- Users ---- */
   let users = [], roles = [], perms = [];
-  let devices = [], thisDevice = null;
+  let devices = [], thisDevice = null, allPhones = [];
   let secretText = '';
 
   // 16 characters from an alphabet without look-alikes (no 0/O, 1/l/I), drawn without bias, in groups of four.
@@ -618,6 +619,116 @@
     });
   }
 
+  /* ---- Phones (#528): one core device per phone, with sign-in, intercom, check-in and push as parts ---- */
+  function partsText(p) {
+    return p.parts.length ? p.parts.map(function (x) { return x.label; }).join(', ') : 'Nothing yet';
+  }
+
+  function renderPhones(tb, phones, base, withPerson) {
+    tb.textContent = '';
+    const cols = withPerson ? 5 : 4;
+    if (!phones.length) emptyRow(tb, cols, 'No phones yet.');
+    const manage = base === '/api/admin/me/phones' || can('users.manage');
+    phones.forEach(function (p) {
+      const tr = el('tr');
+      const nameTd = el('td');
+      nameTd.appendChild(el('strong', '', p.name || 'Phone'));
+      tr.appendChild(nameTd);
+      if (withPerson) tr.appendChild(el('td', 'muted', p.user));
+      const holds = el('td');
+      p.parts.forEach(function (x) { holds.appendChild(el('div', 'muted', x.label + ': ' + x.detail.join('; '))); });
+      if (!p.parts.length) holds.appendChild(el('span', 'muted', 'Nothing yet'));
+      tr.appendChild(holds);
+      tr.appendChild(el('td', 'muted', when(p.last_seen, true)));
+      const act = el('td', 'userrow-acts');
+      if (manage) {
+        const rn = el('button', '', 'Rename');
+        rn.type = 'button';
+        rn.setAttribute('aria-label', 'Rename ' + p.name);
+        rn.addEventListener('click', function () { editPhoneName(nameTd, p, base, tb, withPerson); });
+        act.appendChild(rn);
+        const same = phones.filter(function (o) { return o.id !== p.id && o.user_id === p.user_id; });
+        if (base === '/api/admin/phones' && same.length) {
+          const join = el('button', '', 'Join…');
+          join.type = 'button';
+          join.setAttribute('aria-label', 'Join ' + p.name + ' with another phone of ' + p.user);
+          join.addEventListener('click', function () { pickPhoneToJoin(act, p, same, tb, withPerson); });
+          act.appendChild(join);
+        }
+        const rm = el('button', '', 'Forget');
+        rm.type = 'button';
+        rm.setAttribute('aria-label', 'Forget ' + p.name);
+        rm.addEventListener('click', async function () {
+          if (!(await relayUI.confirm('Forget ' + p.name + '? It is signed out of everything it is set up for: ' + partsText(p) + '.'))) return;
+          try {
+            const r = await send('DELETE', base + '/' + encodeURIComponent(p.id));
+            A.okMsg('Forgot ' + p.name + '.');
+            paintPhones(tb, r.phones, base, withPerson);
+            if (base !== '/api/admin/me/phones') await load();
+          } catch (e) { A.alertMsg(e.message); }
+        });
+        act.appendChild(rm);
+      }
+      tr.appendChild(act);
+      tb.appendChild(tr);
+    });
+  }
+
+  function paintPhones(tb, phones, base, withPerson) {
+    if (tb === g('phoneList')) allPhones = phones || [];
+    renderPhones(tb, phones || [], base, withPerson);
+  }
+
+  function editPhoneName(cell, p, base, tb, withPerson) {
+    cell.textContent = '';
+    const name = input('text', 60);
+    name.value = p.name || '';
+    name.setAttribute('aria-label', 'Name for this phone');
+    cell.appendChild(name);
+    const save = el('button', '', 'Save');
+    save.type = 'button';
+    save.addEventListener('click', async function () {
+      try {
+        const r = await send('PUT', base + '/' + encodeURIComponent(p.id), { name: name.value.trim() });
+        paintPhones(tb, r.phones, base, withPerson);
+      } catch (e) { A.alertMsg(e.message); }
+    });
+    cell.appendChild(save);
+    name.focus();
+  }
+
+  function pickPhoneToJoin(cell, p, others, tb, withPerson) {
+    cell.textContent = '';
+    const sel = el('select');
+    sel.setAttribute('aria-label', 'Join ' + p.name + ' into');
+    others.forEach(function (o) {
+      const opt = el('option', '', o.name);
+      opt.value = String(o.id);
+      sel.appendChild(opt);
+    });
+    cell.appendChild(sel);
+    const go = el('button', '', 'Join into this one');
+    go.type = 'button';
+    go.addEventListener('click', async function () {
+      const into = others.filter(function (o) { return String(o.id) === sel.value; })[0];
+      if (!into || !(await relayUI.confirm('Join ' + p.name + ' into ' + into.name + '? They are the same phone, so its parts move to ' + into.name + '.'))) return;
+      try {
+        const r = await send('POST', '/api/admin/phones/' + encodeURIComponent(p.id) + '/merge', { into: into.id });
+        paintPhones(tb, r.phones, '/api/admin/phones', withPerson);
+      } catch (e) { A.alertMsg(e.message); }
+    });
+    cell.appendChild(go);
+  }
+
+  async function loadMyPhones() {
+    const tb = g('myPhoneList');
+    if (!tb) return;
+    try {
+      const r = await A.api('/api/admin/me/phones');
+      paintPhones(tb, r.phones, '/api/admin/me/phones', false);
+    } catch (e) { A.alertMsg(e.message); }
+  }
+
   /* ---- Trusted devices ---- */
   function closeDevicePanel() {
     const p = g('devicePanel');
@@ -737,7 +848,8 @@
   async function load() {
     try {
       const both = await Promise.all([A.api('/api/admin/users'), A.api('/api/admin/trusted-devices'),
-        can('tokens.manage') ? A.api('/api/admin/tokens') : Promise.resolve({ tokens: [] })]);
+        can('tokens.manage') ? A.api('/api/admin/tokens') : Promise.resolve({ tokens: [] }),
+        A.api('/api/admin/phones')]);
       allTokens = both[2].tokens || [];
       users = both[0].users || [];
       roles = both[0].roles || [];
@@ -746,6 +858,7 @@
       thisDevice = both[1].this === undefined ? null : both[1].this;
       renderUsers();
       renderDevices();
+      paintPhones(g('phoneList'), both[3].phones, '/api/admin/phones', true);
       renderAllTokens();
       renderRoleRef();
     } catch (e) { A.alertMsg(e.message); }

@@ -407,6 +407,38 @@ keeps its identity across the move.
 every panel and browser screen in that place. Boards keep the place's name beside its ref (`place_ref`), and renaming a
 place carries over.
 
+## Phones and computers
+
+A phone or computer a person carries is one core **device** (`app/devices.py`, tables in `app/migrations/0009_devices.sql`,
+#528): a name, a platform, its user and when it was last seen. A ref is `device:relay:<id>`. What it can do is a **part**,
+and each part stays in the table of the feature that owns it, with a `device_id` that references `devices (id)`:
+
+| Part | Table | Owner |
+| --- | --- | --- |
+| Sign-in trust (a PIN works there) | `trusted_devices` | core |
+| Intercom credential | `intercom_devices` | Intercom |
+| Wi-Fi check-in (MAC address or hostname) | `crew_devices` | Crew |
+| Web push for crew pages | `crew_push_subs` | Crew |
+
+A module that holds a part does three things (`tests/test_shared_concepts.py` fails a module table of devices, phones or
+push subscriptions that has no `device_id` referencing `devices`):
+
+- its migration adds `device_id integer references devices (id) on delete cascade`, so the part goes when the device does,
+  even while the module is switched off, and attaches the rows it already holds (one device each);
+- it asks core for the device when it makes a part: `devices.for_part(user_id, "<kind>", "<table>", user_agent=..., q=tx)`
+  returns the device it was told (`device=`), else the same user's device with the same non-empty user agent that has no part
+  of this kind yet, else a new device. A part made without a user agent is a device of its own; an admin joins two with
+  **Join…** (`devices.merge`);
+- `attach()` registers it with `devices.register(kind, label, table, revoke, describe)` and `detach()` calls
+  `devices.unregister(kind)`. `revoke(device_id)` ends the part's live side (the intercom closes the phone's socket);
+  `describe(device_id)` returns the short sentences the phones list shows for it. Core holds this registry the way
+  `users.signed_out_hooks` holds the account hooks, so it never imports a module.
+
+`devices.revoke(id)` is "forget this phone": every registered part's `revoke` runs, then the device row goes and takes every
+part row with it (sign-in trust is deleted by hand, because it outlives the admin who trusted it; PIN sessions from it end
+with it). The routes are `GET /api/admin/phones`, `PUT|DELETE /api/admin/phones/{id}`, `POST /api/admin/phones/{id}/merge`
+and the signed-in user's own `/api/admin/me/phones`. A module's own "sign this phone out" still ends only its part.
+
 ## Boards and the shared layout editor
 
 Core has one editor for laying items out on a grid (#421): `app/static/layout-editor.js`, drawn by

@@ -15,6 +15,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 
 from ... import db, directory, secretbox
+from ... import devices as core_devices
 from ...text import same_name
 from . import people, webpush
 
@@ -72,7 +73,12 @@ def public_key() -> str:
     return webpush.b64e(webpush.public_bytes(vapid_key()))
 
 
-def subscribe(user_id: int, sub) -> None:
+PART = "crew_push"          # the kind of device part this module registers with core (app/devices.py, #528)
+
+
+def subscribe(user_id: int, sub, user_agent: str = "") -> None:
+    """Keep a browser's push subscription. It is a part of a core device (app/devices.py, #528): the user's device with
+    the same `user_agent` when it has no push part yet, else a new one. A browser that subscribes again keeps its device."""
     if not isinstance(sub, dict) or not webpush.allowed(sub.get("endpoint")):
         raise Invalid("This browser's push service is not supported.")
     keys = sub.get("keys")
@@ -88,9 +94,16 @@ def subscribe(user_id: int, sub) -> None:
     if count >= 10:
         db.execute("delete from crew_push_subs where id = (select min(id) from crew_push_subs where user_id = ?)",
                    (user_id,))
-    db.execute("insert into crew_push_subs (user_id, endpoint, p256dh, auth, created_at) values (?, ?, ?, ?, ?)"
-               " on conflict (endpoint) do update set user_id = excluded.user_id, p256dh = excluded.p256dh,"
-               " auth = excluded.auth", (user_id, sub["endpoint"], p256, auth, db.now()))
+    with db.transaction() as tx:
+        held = tx.one("select user_id, device_id from crew_push_subs where endpoint = ?", (sub["endpoint"],))
+        core = held["device_id"] if held and held["user_id"] == user_id and held["device_id"] else core_devices.for_part(
+            user_id, PART, "crew_push_subs", name="Browser alerts" if not user_agent else "", user_agent=user_agent, q=tx)
+        tx.execute("insert into crew_push_subs (user_id, endpoint, p256dh, auth, created_at, device_id)"
+                   " values (?, ?, ?, ?, ?, ?)"
+                   " on conflict (endpoint) do update set user_id = excluded.user_id, p256dh = excluded.p256dh,"
+                   " auth = excluded.auth, device_id = excluded.device_id",
+                   (user_id, sub["endpoint"], p256, auth, db.now(), core))
+        core_devices.seen(core, None, tx)
 
 
 def unsubscribe(user_id: int, endpoint) -> None:
@@ -303,3 +316,10 @@ def recent(now: float | None = None) -> list[dict]:
         out.append({"id": p["id"], "message": p["message"], "sender": p["sender"] or "", "sent_ts": p["sent_ts"],
                     "buzzing": waiting > 0 and ts < p["sent_ts"] + SCHEDULE_S[-1] + 1, "people": who})
     return out
+
+
+def describe_core(core_id: int) -> list[str]:
+    """What paging holds for a core device, for the phones list."""
+    people.ready()
+    n = db.one("select count(*) n from crew_push_subs where device_id = ?", (core_id,))["n"]
+    return ["Crew page alerts on this browser"] if n else []

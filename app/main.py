@@ -32,7 +32,7 @@ from jinja2 import ChoiceLoader, FileSystemLoader, PrefixLoader
 from . import alerts as alertsmod
 from . import backup as backupmod
 from . import announce as announcemod
-from . import alerthistory, audiobus, audit, boards, config, db, exporting, importdocker, languages, metering, mixreport, netinfo, network_map, netroute, overlays, panelfw, panels, prefs, redact, schedules, screens, serving, setupcode, streamstatus, tally, tls, users
+from . import alerthistory, audiobus, audit, boards, config, db, devices, exporting, importdocker, languages, metering, mixreport, netinfo, network_map, netroute, overlays, panelfw, panels, prefs, redact, schedules, screens, serving, setupcode, streamstatus, tally, tls, users
 from .alerts import alerts
 from . import engine as engine_mod
 from .engine import TRANSCRIPTION_STREAM, TRANSLATION_STREAM, demo_mode, engine
@@ -294,6 +294,11 @@ AUDIT_ROUTES = {
     "admin_user_delete": ("user.delete", "Deleted a user"),
     "admin_device_trust": ("device.trust", "Trusted a browser for PIN sign-in"),
     "admin_device_revoke": ("device.revoke", "Forgot a trusted device"),
+    "admin_phone_rename": ("phone.rename", "Renamed a phone"),
+    "admin_phone_revoke": ("phone.revoke", "Forgot a phone: signed it out of sign-in, intercom, check-in and push"),
+    "admin_phone_merge": ("phone.merge", "Joined two phones that are the same one"),
+    "admin_me_phone_rename": ("phone.rename", "Renamed one of their phones"),
+    "admin_me_phone_revoke": ("phone.revoke", "Forgot one of their phones: signed it out of sign-in, intercom, check-in and push"),
 }
 
 # Core admin routes that change something but are not entered in the audit log are listed in AUDIT_SKIP_ENDPOINTS,
@@ -3669,7 +3674,7 @@ def admin_device_trust(request: Request, payload: dict):
     user: User = request.state.user
     if user.id <= 0:                       # the setup token has no account to record it against
         raise HTTPException(status_code=403, detail=WEB_MESSAGES["not_allowed"])
-    token, row = users.trust_device(payload.get("name"), user)
+    token, row = users.trust_device(payload.get("name"), user, request.headers.get("user-agent", ""))
     audit.note(request, "device.trust", "Trusted a browser for PIN sign-in", target=row["name"])
     resp = JSONResponse({"device": _iso(row), "this": row["id"]})
     _set_cookie(resp, request, DEVICE_COOKIE, token, DEVICE_COOKIE_MAX_AGE)
@@ -3683,6 +3688,78 @@ def admin_device_revoke(device_id: int, request: Request):
     if had is not None:
         audit.note(request, "device.revoke", "Forgot a trusted device", target=had["name"])
     return {"ok": True}
+
+
+# ------------------------------------------------------- phones: one core device with its parts (#528)
+def _phones_error(exc: devices.Refused) -> JSONResponse:
+    return JSONResponse({"error": devices.REFUSALS[exc.key]}, status_code=404 if exc.key == "no_device" else 400)
+
+
+def _phones(user_id: int | None) -> dict:
+    return {"phones": [_iso(d) for d in devices.listing(user_id)]}
+
+
+@app.get("/api/admin/phones", dependencies=[Depends(require("users.view"))])
+async def admin_phones():
+    """Every phone and computer, with the parts each holds (sign-in, intercom, check-in, push)."""
+    return await asyncio.to_thread(_phones, None)
+
+
+@app.put("/api/admin/phones/{phone_id}", dependencies=[Depends(require("users.manage"))])
+async def admin_phone_rename(phone_id: int, payload: dict):
+    try:
+        await asyncio.to_thread(devices.rename, phone_id, payload.get("name"))
+    except devices.Refused as exc:
+        return _phones_error(exc)
+    return await asyncio.to_thread(_phones, None)
+
+
+@app.delete("/api/admin/phones/{phone_id}", dependencies=[Depends(require("users.manage"))])
+async def admin_phone_revoke(phone_id: int, request: Request):
+    """Forget a phone: its intercom session, push pages, check-in and sign-in trust all end."""
+    gone = await asyncio.to_thread(devices.revoke, phone_id)
+    if gone is None:
+        return _phones_error(devices.Refused("no_device"))
+    audit.note(request, "phone.revoke", "Forgot a phone: signed it out of sign-in, intercom, check-in and push",
+               target=gone["name"], detail={"parts": gone["parts"]})
+    return await asyncio.to_thread(_phones, None)
+
+
+@app.post("/api/admin/phones/{phone_id}/merge", dependencies=[Depends(require("users.manage"))])
+async def admin_phone_merge(phone_id: int, payload: dict):
+    """Two entries that are the same phone: `into` keeps its name and takes the other's parts."""
+    into = payload.get("into")
+    if isinstance(into, bool) or not isinstance(into, int):
+        return _phones_error(devices.Refused("no_device"))
+    try:
+        await asyncio.to_thread(devices.merge, into, phone_id)
+    except devices.Refused as exc:
+        return _phones_error(exc)
+    return await asyncio.to_thread(_phones, None)
+
+
+@app.get("/api/admin/me/phones", dependencies=[Depends(require(None, tokens=False))])
+async def admin_me_phones(request: Request):
+    return await asyncio.to_thread(_phones, request.state.user.id)
+
+
+@app.put("/api/admin/me/phones/{phone_id}", dependencies=[Depends(require(None, tokens=False))])
+async def admin_me_phone_rename(phone_id: int, request: Request, payload: dict):
+    try:
+        await asyncio.to_thread(lambda: devices.rename(phone_id, payload.get("name"), user_id=request.state.user.id))
+    except devices.Refused as exc:
+        return _phones_error(exc)
+    return await asyncio.to_thread(_phones, request.state.user.id)
+
+
+@app.delete("/api/admin/me/phones/{phone_id}", dependencies=[Depends(require(None, tokens=False))])
+async def admin_me_phone_revoke(phone_id: int, request: Request):
+    gone = await asyncio.to_thread(lambda: devices.revoke(phone_id, user_id=request.state.user.id))
+    if gone is None:
+        return _phones_error(devices.Refused("no_device"))
+    audit.note(request, "phone.revoke", "Forgot one of their phones: signed it out of sign-in, intercom, check-in and push",
+               target=gone["name"], detail={"parts": gone["parts"]})
+    return await asyncio.to_thread(_phones, request.state.user.id)
 
 
 # ------------------------------------------------------- the audit log (#172)
