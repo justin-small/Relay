@@ -20,7 +20,7 @@ _db.start()
 _db.reset()
 
 import app.main as main  # noqa: E402
-from app import audit, config, netinfo, netroute, netsock  # noqa: E402
+from app import audit, config, netinfo, netroute, netsock, ports  # noqa: E402
 from app.main import app  # noqa: E402
 from app.netinfo import Port  # noqa: E402
 
@@ -48,14 +48,24 @@ def by_id(rows):
     return {r["id"]: r for r in rows}
 
 
+def by_key(rows):
+    return {r["key"]: r for r in rows}
+
+
+def ref(p):
+    """The core port ref (#540) of one of this computer's adapters."""
+    return ports.by_key(netroute.relay_gear()["id"], p.id)["ref"]
+
+
 with section("viewers see the page; changing it needs network.manage"):
     r = viewer.get("/api/admin/network")
     eq("a viewer reads it", r.status_code, 200)
     data = r.json()
-    eq("ports seen now first, then remembered ones", [p["id"] for p in data["ports"]], [WIFI.id, CREW.id, DANTE.id, OLD.id])
-    gone = by_id(data["ports"])[OLD.id]
+    eq("every port Relay keeps, in the order it saw them", [p["key"] for p in data["ports"]], [WIFI.id, CREW.id, DANTE.id, OLD.id])
+    eq("each is a core port, by ref", [p["id"] for p in data["ports"]], [ref(x) for x in (WIFI, CREW, DANTE, OLD)])
+    gone = by_key(data["ports"])[OLD.id]
     eq("a remembered port that is gone", (gone["present"], gone["friendly_name"], gone["ipv4"]), (False, "Old USB adapter", []))
-    eq("speed and link carried", (by_id(data["ports"])[CREW.id]["speed_mbps"], by_id(data["ports"])[CREW.id]["up"]), (1000, True))
+    eq("speed and link carried", (by_key(data["ports"])[CREW.id]["speed_mbps"], by_key(data["ports"])[CREW.id]["up"]), (1000, True))
     classes = by_id(data["classes"])
     eq("core's classes, owned by Relay", [classes[c]["owner"] for c in ("viewers", "crew", "discovery")], ["Relay"] * 3)
     eq("nothing routed: every class on the default", {c["status"] for c in data["classes"]}, {"default"})
@@ -69,11 +79,11 @@ with section("viewers see the page; changing it needs network.manage"):
           page.split('id="page-network"')[1].split('class="page"')[0])
 
 with section("routing a class"):
-    r = admin.post("/api/admin/network/classes/viewers", json={"port_id": CREW.id})
+    r = admin.post("/api/admin/network/classes/viewers", json={"port_id": ref(CREW)})
     eq("saved", r.status_code, 200)
-    eq("the answer is the new page state", by_id(r.json()["classes"])["viewers"]["port_id"], CREW.id)
-    eq("stored in config", config.get()["network"]["routes"], {"viewers": CREW.id})
-    eq("the port lists its traffic", by_id(r.json()["ports"])[CREW.id]["classes"], ["viewers"])
+    eq("the answer is the new page state", by_id(r.json()["classes"])["viewers"]["port_id"], ref(CREW))
+    eq("stored in config, by ref and adapter id", config.get()["network"]["routes"], {"viewers": {"port": ref(CREW), "key": CREW.id}})
+    eq("the port lists its traffic", by_id(r.json()["ports"])[ref(CREW)]["classes"], ["viewers"])
     with mock.patch.object(main.serving, "groups", return_value=[]):
         eq("status ok", by_id(admin.get("/api/admin/network").json()["classes"])["viewers"]["status"], "ok")
     entries = audit.search(kind="network")["entries"]
@@ -164,13 +174,14 @@ with section("Test reports where the traffic leaves from"):
 
 with section("forgetting a port that is gone"):
     eq("a connected port cannot be forgotten",
-       admin.post(f"/api/admin/network/ports/{CREW.id}/forget").json()["error"],
+       admin.post(f"/api/admin/network/ports/{ref(CREW)}/forget").json()["error"],
        "That network port is connected; only one that is gone can be forgotten.")
     local.post("/api/admin/network/classes/discovery", json={"port_id": OLD.id})
-    eq("one carrying traffic cannot be forgotten", admin.post(f"/api/admin/network/ports/{OLD.id}/forget").status_code, 409)
+    OLD_REF = ref(OLD)
+    eq("one carrying traffic cannot be forgotten", admin.post(f"/api/admin/network/ports/{OLD_REF}/forget").status_code, 409)
     local.post("/api/admin/network/classes/discovery", json={"port_id": None})
-    r = admin.post(f"/api/admin/network/ports/{OLD.id}/forget")
-    eq("forgotten", (r.status_code, OLD.id in config.get()["network"]["known_ports"]), (200, False))
+    r = admin.post(f"/api/admin/network/ports/{OLD_REF}/forget")
+    eq("forgotten", (r.status_code, ports.by_key(netroute.relay_gear()["id"], OLD.id)), (200, None))
     eq("an unknown id", admin.post("/api/admin/network/ports/mac:zz/forget").status_code, 409)
     entries = audit.search(kind="network")["entries"]
     check("audited", any(e["action"] == "network.forget" for e in entries))
@@ -179,7 +190,8 @@ with section("a port connected but not yet remembered can be chosen"):
     fresh = Port(id="mac:aa:00:00:00:00:0f", name="en15", friendly_name="New adapter", ipv4=("10.9.0.2/24",), up=True)
     netroute.update([WIFI, CREW, DANTE, fresh])
     r = admin.post("/api/admin/network/classes/viewers", json={"port_id": fresh.id})
-    eq("saved, and remembered", (r.status_code, fresh.id in config.get()["network"]["known_ports"]), (200, True))
+    eq("saved, and kept as a core port", (r.status_code, ports.by_key(netroute.relay_gear()["id"], fresh.id) is not None),
+       (200, True))
     local.post("/api/admin/network/classes/viewers", json={"port_id": None})
 
 with section("one Network page with tabs, and a module's tabs on it"):

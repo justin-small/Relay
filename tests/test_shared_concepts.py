@@ -23,6 +23,10 @@ shared files themselves (app/text.py and app/timewin.py) and counts, per file:
            `gear`, `racks` or `places`: a piece of equipment is one core gear record (app/gear.py, #547), a rack sits inside a
            core place, and a module attaches to the gear by key (`gear.adopt(["<module>:<id>", ...])`) and keeps only what it
            adds (its address, its connection settings). Core's own tables are in app/migrations;
+* port     a module table of ports or connectors (`create table <x>_ports`, `_connectors`), or a module page script that
+           lists a device's connectors itself (`port('in1', 'sdi', ...)`): every physical connector is one core port on its
+           gear (app/ports.py, #540). A module reports what its gear has with `ports.sync(gear_id, [...])` and keeps
+           nothing of its own; a page draws the connectors the server sends;
 * import   a module importing another module's package (`from ..signage import store`, `from app.modules.x import`).
            A module offers what others need with `modules.provide("<area>.<what>", impl)` in `attach()` and others ask
            with `modules.using(...)` and cope with None (docs/modules.md, "Reaching another module").
@@ -77,6 +81,10 @@ DEVICE_REF = re.compile(r"\bdevice_id\b[^,;]*\breferences\s+devices\s*\(", re.I)
 # A module table that is its own list of equipment, racks or places (#547): equipment is one core gear record whichever
 # feature lists it, so a module attaches to it by the key "<module>:<id>" and does not keep a registry of boxes.
 GEAR_TABLE = re.compile(r"^\s*create\s+table\s+(?:if\s+not\s+exists\s+)?\w*(?:gear|equipment|racks?|places?)\s*\(", re.I)
+# A module table or page script that is its own list of a device's connectors (#540): a connector is one core port
+# (app/ports.py, migration 0012_ports.sql) on the device's gear, whichever module reports it.
+PORT_TABLE = re.compile(r"^\s*create\s+table\s+(?:if\s+not\s+exists\s+)?\w*(?:ports?|connectors?)\s*\(", re.I)
+CONNECTOR_JS = re.compile(r"""\bport\(\s*['"][\w-]+['"]\s*,\s*['"](?:eth|sfp|sdi|hdmi|xlr|trs|mini|usb|iec|barrel|dc)['"]""")
 EPOCH_COLUMN = re.compile(r"^\s*(?:alter\s+table\s+\w+\s+add\s+column\s+)?(?:\w+_(?:ts|epoch)\s+\w+|\w+_at\s+(?:real|integer|int|numeric|float)\b)", re.I)
 CREATE_TABLE = re.compile(r"create\s+table\s+(\w+)\s*\((.*?)\n\)\s*;", re.I | re.S)
 
@@ -150,6 +158,13 @@ def hits() -> dict[tuple[str, str], list[int]]:
         for n, line in enumerate(p.read_text(encoding="utf-8").splitlines(), 1):
             if "allow-shared:" not in line and GEAR_TABLE.match(line):
                 out.setdefault(("gear", rel), []).append(n)
+            if "allow-shared:" not in line and PORT_TABLE.match(line):
+                out.setdefault(("port", rel), []).append(n)
+    for p in sorted(MODULES.glob("*/static/*.js")):
+        rel = p.relative_to(ROOT).as_posix()
+        for n, line in enumerate(p.read_text(encoding="utf-8").splitlines(), 1):
+            if "allow-shared:" not in line and CONNECTOR_JS.search(line):
+                out.setdefault(("port", rel), []).append(n)
     return out
 
 
@@ -268,6 +283,11 @@ def main() -> None:
         check("so is a racks table", bool(GEAR_TABLE.match("create table racks(")))
         check("and a places table", bool(GEAR_TABLE.match("create table if not exists signage_places (")))
         check("a table that only mentions racks is fine", not GEAR_TABLE.match("create table rack_notes ("))
+        check("a module table of ports is found", bool(PORT_TABLE.match("create table bm_ports (")))
+        check("so is one of connectors", bool(PORT_TABLE.match("create table if not exists hub_connectors (")))
+        check("a table that only mentions ports is fine", not PORT_TABLE.match("create table port_notes ("))
+        check("a page script listing connectors is found", bool(CONNECTOR_JS.search("b.push(port('in1', 'sdi', 40, 56, 'IN 1'))")))
+        check("drawing a connector the server sent is fine", not CONNECTOR_JS.search("if (k === 'sdi') { svgEl('circle') }"))
         check("a devices table is found", bool(DEVICE_TABLE.match("create table crew_devices (")))
         check("so is a push subscriptions table", bool(DEVICE_TABLE.match("create table x_push_subs (")))
         check("a table that only mentions devices is fine", not DEVICE_TABLE.match("create table device_log ("))

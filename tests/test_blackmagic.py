@@ -559,7 +559,7 @@ eq("a note is kept on its connector", (res.status_code, next(d for d in res.json
    (200, {"in3": "Cam 3 tie line"}))
 eq("a note on a device that is not there", admin.post("/api/admin/blackmagic/notes", json={"device": "nope", "port": "in1", "text": "x"}).status_code, 404)
 eq("a connector id that is not one", admin.post("/api/admin/blackmagic/notes", json={"device": hub["id"], "port": "IN 1!", "text": "x"}).status_code, 400)
-eq("a note that is too long", admin.post("/api/admin/blackmagic/notes", json={"device": hub["id"], "port": "in1", "text": "x" * 121}).status_code, 400)
+eq("a note that is too long", admin.post("/api/admin/blackmagic/notes", json={"device": hub["id"], "port": "in1", "text": "x" * 301}).status_code, 400)
 res = admin.post("/api/admin/blackmagic/notes", json={"device": hub["id"], "port": "in3", "text": "  "})
 eq("an empty note removes it", next(d for d in res.json()["devices"] if d["id"] == hub["id"])["notes"], {})
 
@@ -597,10 +597,39 @@ eq("cables are cleaned: bad ends, unknown devices and repeats go",
                      {"id": "BAD", "a": ["d1", "out3"], "b": ["d2", "in3"]}, "junk"], {"d1", "d2"}),
    [{"id": "a1", "a": ["d1", "out1"], "b": ["d2", "in1"]}])
 eq("notes are cleaned: bad ids and empty text go, long text is cut",
-   svc.clean_notes({"in1": "  a   note ", "IN 2": "x", "in3": "", "in4": "y" * 200}), {"in1": "a note", "in4": "y" * 120})
+   svc.clean_notes({"in1": "  a   note ", "IN 2": "x", "in3": "", "in4": "y" * 400}), {"in1": "a note", "in4": "y" * 300})
+
+print("connectors are core ports (#540)")
+from app import gear as core_gear, ports as core_ports  # noqa: E402
+from app.modules.blackmagic import drawings  # noqa: E402
 drawn = (Path(__file__).resolve().parent.parent / "app/modules/blackmagic/static/bmdraw.js").read_text()
-eq("every drawing the server accepts is one the page draws",
-   [d for d in svc.DRAWINGS if f"'{d}': '" not in drawn and f" {d}: '" not in drawn], [])
+check("the page lists no connectors of its own: the server sends each face", "port('" not in drawn and "function tvs" not in drawn)
+for d in svc.DRAWINGS:
+    face = drawings.spec({"kind": "videohub" if d == "videohub" else "hyperdeck" if d.startswith("hyper") else "atem",
+                          "drawing": d, "videohub": {"inputs": [{"n": 0}] * 12, "outputs": [{"n": 0}] * 12}})
+    found = drawings.connectors(face)
+    check(f"{d}: every connector has a core port kind and a name",
+          found and all(c["kind"] in core_ports.KINDS and c["gear_name"] for c in found), found)
+eq("a 3.5 mm jack is a TRS port and 12 V is DC power", [(c["key"], c["kind"]) for c in drawings.connectors(
+   drawings.spec({"kind": "atem", "drawing": "mini-pro"})) if c["key"] in ("mic1", "pwr")], [("mic1", "trs"), ("pwr", "dc")])
+snap = admin.get("/api/admin/blackmagic").json()
+main_dev = next(d for d in snap["devices"] if d["id"] == "main")
+eq("the snapshot carries the face and the drawing names", (main_dev["face"]["form"], snap["drawings"]["videohub"]),
+   ("rack", "Videohub"))
+g = core_gear.by_key("blackmagic:main")
+rows = {r["key"]: r for r in core_ports.of_gear(g["id"])}
+eq("a connected switcher's connectors are ports on its gear", (rows["in1"]["kind"], rows["in1"]["direction"],
+   rows["in1"]["gear_name"], rows["eth"]["direction"]), ("sdi", "in", "IN 1", "both"))
+eq("Relay does not know if a connector has signal: link unknown", rows["in1"]["link_up"], None)
+res = admin.post("/api/admin/blackmagic/notes", json={"device": "main", "port": "in2", "text": "Pulpit camera"})
+eq("a connector's note is its port's note", core_ports.by_key(g["id"], "in2")["note"], "Pulpit camera")
+eq("and comes back with the device", next(d for d in res.json()["devices"] if d["id"] == "main")["notes"], {"in2": "Pulpit camera"})
+raw = config.get()["blackmagic"]
+raw["devices"][0]["notes"] = {"in5": "Old note from config", "in2": "loses to the port's note"}
+config.save({"blackmagic": raw}, replace=("blackmagic",))
+eq("notes saved in config before #540 move onto ports, once",
+   (svc.devices()[0]["notes"], [d.get("notes") for d in config.get()["blackmagic"]["devices"]]),
+   ({"in2": "Pulpit camera", "in5": "Old note from config"}, [None]))
 
 print("health with several switchers")
 svc.service.devices.clear()

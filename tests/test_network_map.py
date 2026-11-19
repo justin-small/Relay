@@ -20,7 +20,7 @@ import _db  # noqa: E402
 _db.start()
 _db.reset()
 
-from app import gear, config, db, mdns, netinfo, network_map, users  # noqa: E402
+from app import gear, config, db, mdns, netinfo, network_map, ports, users  # noqa: E402
 from app import main as M  # noqa: E402
 from app.main import app  # noqa: E402
 from app.modules import Module  # noqa: E402
@@ -389,5 +389,41 @@ with section("names, notes and places through the routes"):
     eq("the switch is gear in that rack, under one key", (gear.by_key("mac:" + SW)["rack"] if False else gear.by_key("mac:" + SW)["rack_ref"] != ""), True)
     from app import audit
     eq("both are audited", [e["action"] for e in audit.search(kind="network")["entries"][:2]], ["network.places", "network.labels"])
+
+with section("a switch's ports are core ports (#540), and every saved port note is still there"):
+    PORTED = "aa:aa:aa:aa:aa:30"
+    config.save({"network_map": {"names": {}, "notes": {PORTED + "#7": "Wall plate B7"}, "places": []}}, replace=("network_map",))
+
+    class PortedSwitch(FakeModule):
+        live = [{"port": 1, "name": "Uplink SFP+", "up": True, "speed": 10000, "uplink": True},
+                {"port": 7, "name": "Port 7", "up": False, "poe_w": 0.0, "errors": 3},
+                {"port": 8, "name": "Booth", "up": True, "speed": 1000, "poe_w": 4.26, "client": "Stage box", "warn": "Many errors"}]
+
+        def network_map(self):
+            return [{"mac": PORTED, "ip": "10.0.0.30", "name": "Ported switch", "kind": "switch", "ports": self.live}]
+
+    sw = PortedSwitch()
+    network_map.reset()
+    snap = asyncio.run(network_map.snapshot(FakeRegistry(sw, True), force=True))
+    g = gear.by_key("mac:" + PORTED)
+    rows = {r["key"]: r for r in ports.of_gear(g["id"])}
+    eq("each switch port is a core port, keyed by its number", sorted(rows), ["1", "7", "8"])
+    eq("an SFP cage is told apart from Ethernet", (rows["1"]["kind"], rows["8"]["kind"]), ("sfp", "eth"))
+    eq("the link as the switch says it", (rows["1"]["link_up"], rows["7"]["link_up"], rows["8"]["poe_w"]), (True, False, 4.3))
+    eq("a note saved in config before #540 moved onto its port", (rows["7"]["note"], config.get()["network_map"]["notes"]),
+       ("Wall plate B7", {}))
+    eq("and still shows on the page", snap["notes"][PORTED + "#7"], "Wall plate B7")
+    shown = {p["port"]: p for d in snap["devices"] if d["mac"] == PORTED for p in d["ports"]}
+    eq("the map draws the kept ports with what the switch says now",
+       (shown[8]["ref"], shown[8]["client"], shown[8]["warn"], shown[7]["up"]), (rows["8"]["ref"], "Stage box", "Many errors", False))
+    sw.live = sw.live[:2]
+    network_map.reset()
+    snap = asyncio.run(network_map.snapshot(FakeRegistry(sw, True), force=True))
+    gone = {p["port"]: p for d in snap["devices"] if d["mac"] == PORTED for p in d["ports"]}[8]
+    eq("a port the switch stops reporting is kept, missing, with no link", (gone["missing"], gone["up"], gone["link"]), (True, False, None))
+    network_map.save_labels(notes={PORTED + "#12": "Future camera"})
+    eq("a note on a port the switch has not listed makes its port", ports.by_key(g["id"], "12")["note"], "Future camera")
+    network_map.save_labels(notes={PORTED + "#12": ""})
+    eq("empty text clears it", ports.by_key(g["id"], "12")["note"], "")
 
 done()

@@ -155,7 +155,19 @@ with section("names and notes saved on the network map before #547 move onto gea
     seen = network_map.stored()
     eq("the name and note", (seen["names"]["10.9.9.9"], seen["notes"]["10.9.9.9"]), ("Old switch", "Closet 2"))
     eq("the closet and its gear", [p for p in seen["places"] if p["name"] == "Closet 2"], [{"name": "Closet 2", "gear": ["10.9.9.9"]}])
-    eq("a port note stays in config until ports move (#540)", config.get()["network_map"],
-       {"names": {}, "notes": {"10.9.9.9#4": "Wall B4"}, "places": []})
+    eq("a port note moved onto the switch's port (#540), and config is empty", (seen["notes"]["10.9.9.9#4"],
+       config.get()["network_map"]), ("Wall B4", {"names": {}, "notes": {}, "places": []}))
+
+with section("merging two records keeps their ports and notes (#540)"):
+    from app import ports
+    a = gear.adopt(["ip:10.7.7.7"], name="Before MAC")
+    b = gear.adopt(["mac:aa:bb:cc:00:07:07"], name="After MAC")
+    ports.set_note(ports.adopt(a["id"], "4", heard=False)["id"], "Wall B4")
+    ports.set_note(ports.adopt(a["id"], "5", heard=False)["id"], "kept from the first")
+    ports.adopt(b["id"], "5", kind="eth")
+    ports.adopt(b["id"], "6", kind="eth")
+    joined = gear.adopt(["mac:aa:bb:cc:00:07:07", "ip:10.7.7.7"])
+    got = {p["key"]: p["note"] for p in ports.of_gear(joined["id"])}
+    eq("one record, every port once, each note kept", got, {"4": "Wall B4", "5": "kept from the first", "6": ""})
 
 done()

@@ -423,14 +423,38 @@ an address key on two devices of your own that are not one box. Refs are `gear:r
 
 **Names.** The gear's name is what Relay shows. It follows what the source reports until an operator names it
 (`gear.rename`); after that it stays, and nothing is sent to the device. Show the core name, never a copy of your own.
-Blackmagic keeps a device's connection settings (address, port, kind, tally, presets, connector notes, cables) in its own
-config and its name, model, drawing and place on gear (`blackmagic:<id>`); the rack-or-shelf place is "in a rack" or "in a
-room outside any rack", and the list order is the gear's `position`.
+Blackmagic keeps a device's connection settings (address, port, kind, tally, presets, cables) in its own config and its name,
+model, drawing and place on gear (`blackmagic:<id>`); the rack-or-shelf place is "in a rack" or "in a room outside any rack",
+and the list order is the gear's `position`.
 
 **The network map.** It stores what it merges as gear on every fresh read (Dante boxes from mDNS discovery are gear of kind
 `dante`, keyed `dante:<host name>` too). A closet on the Network page is a rack inside a core place of the same name. Names, notes
-and closets saved in config before #547 move onto gear the first time they are read; notes on a switch port stay in config until
-core ports (#540).
+and closets saved in config before #547 move onto gear the first time they are read.
+
+## Ports
+
+Every physical connector is one core **port** on its gear (`app/ports.py`, table in `app/migrations/0012_ports.sql`, #540): a
+switch's Ethernet or SFP cage, an SDI input, an XLR, a USB socket, a mains inlet, this computer's network adapter. A ref is
+`port:relay:<id>`. A TCP port number is not a port; it stays a field of a host address (`"port": 9910`). Each port has a `key`
+(the gear's own name for it: `"12"` on a switch, `"in1"` on a Blackmagic device, the adapter id on this computer), a kind
+(`eth`, `sfp`, `sdi`, `hdmi`, `xlr`, `trs`, `usb`, `iec`, `dc`, `other`), a direction (`in`, `out`, `both`), the gear's name for
+it, a Relay-only name, a note, and network fields (link, speed, PoE, errors) that are `None` when the source does not say.
+`link_up` None is "unknown" and stays apart from False ("no link", "no signal"): never show a connector as live unless the
+device reports it.
+
+**Report, do not keep.** A module calls `ports.sync(gear_id, [{"key", "kind", "direction", "gear_name", ...}, ...])` with every
+port its gear has now; a port it no longer reports is marked `missing`, not dropped, so its note stays. Report only while you
+can see the device (a Videohub that is not connected does not say how many inputs it has). A note or a name on a port the
+source has not listed yet goes through `ports.adopt(gear_id, key, heard=False)`. Keep no list of ports or connectors of your
+own, in a table, in config or in a page script: `tests/test_shared_concepts.py` counts a module table named `*_ports` or
+`*_connectors` and a module script that lists connectors (`port('in1', 'sdi', ...)`), with a shrink-only baseline.
+
+Who reports what: the network map syncs each switch's ports (keyed by number) from what its sources merge; the traffic routes
+(`app/netroute.py`) sync this computer's hardware adapters on gear `relay:this`, and a route is saved as
+`{"port": "port:relay:<id>", "key": "<adapter id>"}` so it still resolves while the database is down; Blackmagic builds each
+model's faces on the server (`drawings.py`) and syncs their connectors while the device is connected. Port notes saved in
+config before #540 (network map `"<switch>#<port>"`, Blackmagic `notes`) and traffic routes' `known_ports` move onto ports the
+first time they are read.
 
 ## Phones and computers
 
