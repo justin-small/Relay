@@ -19,6 +19,10 @@ shared files themselves (app/text.py and app/timewin.py) and counts, per file:
            real or integer. Core and every module store time as `<name>_at text` written by `db.now()` or `db.iso(ts)`
            (`2027-01-15T08:00:00Z`), so a join across modules needs no conversion; `db.epoch(text)` gives seconds when
            arithmetic is needed;
+* gear     a module table of equipment, racks or places (`create table <x>_gear`, `_equipment`, `_racks`, `_places`), or one named
+           `gear`, `racks` or `places`: a piece of equipment is one core gear record (app/gear.py, #547), a rack sits inside a
+           core place, and a module attaches to the gear by key (`gear.adopt(["<module>:<id>", ...])`) and keeps only what it
+           adds (its address, its connection settings). Core's own tables are in app/migrations;
 * import   a module importing another module's package (`from ..signage import store`, `from app.modules.x import`).
            A module offers what others need with `modules.provide("<area>.<what>", impl)` in `attach()` and others ask
            with `modules.using(...)` and cope with None (docs/modules.md, "Reaching another module").
@@ -70,6 +74,9 @@ SCREEN_TABLE = re.compile(r"^\s*create\s+table\s+\w*screens?\s*\(", re.I)
 # keyed by that credential's row, which is the part.
 DEVICE_TABLE = re.compile(r"^\s*create\s+table\s+(\w*(?:devices?|phones?|push_subs?))\s*\(", re.I)
 DEVICE_REF = re.compile(r"\bdevice_id\b[^,;]*\breferences\s+devices\s*\(", re.I)
+# A module table that is its own list of equipment, racks or places (#547): equipment is one core gear record whichever
+# feature lists it, so a module attaches to it by the key "<module>:<id>" and does not keep a registry of boxes.
+GEAR_TABLE = re.compile(r"^\s*create\s+table\s+(?:if\s+not\s+exists\s+)?\w*(?:gear|equipment|racks?|places?)\s*\(", re.I)
 EPOCH_COLUMN = re.compile(r"^\s*(?:alter\s+table\s+\w+\s+add\s+column\s+)?(?:\w+_(?:ts|epoch)\s+\w+|\w+_at\s+(?:real|integer|int|numeric|float)\b)", re.I)
 CREATE_TABLE = re.compile(r"create\s+table\s+(\w+)\s*\((.*?)\n\)\s*;", re.I | re.S)
 
@@ -140,6 +147,9 @@ def hits() -> dict[tuple[str, str], list[int]]:
                 out.setdefault(("screen", rel), []).append(n)
         for n in device_lines(p):
             out.setdefault(("device", rel), []).append(n)
+        for n, line in enumerate(p.read_text(encoding="utf-8").splitlines(), 1):
+            if "allow-shared:" not in line and GEAR_TABLE.match(line):
+                out.setdefault(("gear", rel), []).append(n)
     return out
 
 
@@ -254,6 +264,10 @@ def main() -> None:
         check("a module table of screens is found", bool(SCREEN_TABLE.match("create table lobby_screens (")))
         check("so is a plain screens table", bool(SCREEN_TABLE.match("create table screens(")))
         check("a table that only mentions screens is fine", not SCREEN_TABLE.match("create table screen_sources ("))
+        check("a module table of gear is found", bool(GEAR_TABLE.match("create table rack_gear (")))
+        check("so is a racks table", bool(GEAR_TABLE.match("create table racks(")))
+        check("and a places table", bool(GEAR_TABLE.match("create table if not exists signage_places (")))
+        check("a table that only mentions racks is fine", not GEAR_TABLE.match("create table rack_notes ("))
         check("a devices table is found", bool(DEVICE_TABLE.match("create table crew_devices (")))
         check("so is a push subscriptions table", bool(DEVICE_TABLE.match("create table x_push_subs (")))
         check("a table that only mentions devices is fine", not DEVICE_TABLE.match("create table device_log ("))

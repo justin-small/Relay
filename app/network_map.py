@@ -30,7 +30,7 @@ import re
 import time
 from typing import Any, Callable
 
-from . import mdns, netinfo
+from . import db, gear, mdns, netinfo, screens
 
 log = logging.getLogger("relay")
 
@@ -282,6 +282,10 @@ async def snapshot(registry: Any, force: bool = False) -> dict:
     live = [s for s in sources if s["on"]]
     devices = merge([{"id": s["id"], "label": s["label"], "stale": s["stale"], "devices": s["devices"]} for s in live])
     assign_ports(devices, relay_ports)
+    try:
+        await asyncio.to_thread(adopt_devices, devices)
+    except db.Unavailable:
+        log.warning("network map: the database is down, so gear was not recorded")
     result = {
         "generated_at": now, "devices": devices, "relay_ports": relay_ports,
         "sources": [{"id": s["id"], "label": s["label"], "kind": s["kind"], "on": s["on"], "adds": s["adds"], "error": s["error"],
@@ -292,10 +296,13 @@ async def snapshot(registry: Any, force: bool = False) -> dict:
     return labelled(result)
 
 
-# ------------------------------------------------------------------ what the operator adds: names, notes, closets
-# Kept in config under KEY, by the device's map id (its MAC when it has one, so a name survives a new address). A name
-# changes only what Relay shows: nothing is sent to the device or to the module that found it. A note on an empty
-# switch port is kept by "<switch id>#<port>". A place is a closet or rack with the switches in it, top to bottom.
+# ------------------------------------------------------------------ what the operator adds: names, notes, racks
+# A device is core gear (app/gear.py, #547): one stored record found again by its MAC (else its address or host name), so a
+# name, a note and a rack survive a new IP address. A name changes only what Relay shows: nothing is sent to the device or to
+# the module that found it. The Network page still speaks in map ids (the MAC when a device has one, else its address or host
+# name), and a closet is a rack, inside a core place of the same name. What stays in config under KEY is the note on an empty
+# switch port ("<switch id>#<port>"), which waits for core ports (#540); names, device notes and closets saved there before
+# #547 are moved onto gear the first time they are read.
 KEY = "network_map"
 NAME_MAX, NOTE_MAX, PLACE_MAX = 60, 300, 40
 MAX_LABELS, MAX_PLACES, MAX_GEAR = 2000, 30, 200
@@ -309,7 +316,8 @@ def _key(v: Any) -> str:
 
 
 def clean_stored(raw: Any) -> dict:
-    """The saved names, notes and places, tidied: unknown keys, empty text and repeats go."""
+    """The names, notes and closets saved in config (port notes now, the rest only before #547), tidied: unknown keys,
+    empty text and repeats go."""
     raw = raw if isinstance(raw, dict) else {}
     out: dict = {"names": {}, "notes": {}, "places": []}
     for field, cap in (("names", NAME_MAX), ("notes", NOTE_MAX)):
@@ -327,45 +335,172 @@ def clean_stored(raw: Any) -> dict:
         if not name or name.lower() in seen_names or len(out["places"]) >= MAX_PLACES:
             continue
         seen_names.add(name.lower())
-        gear = []
+        gear_ids = []
         for g in p.get("gear") if isinstance(p.get("gear"), list) else []:
             if _key(g) and "#" not in g and g not in seen_gear and len(seen_gear) < MAX_GEAR:
                 seen_gear.add(g)
-                gear.append(g)
-        out["places"].append({"name": name, "gear": gear})
+                gear_ids.append(g)
+        out["places"].append({"name": name, "gear": gear_ids})
     return out
 
 
-def stored() -> dict:
+def device_keys(d: dict) -> list[str]:
+    """The gear keys of a merged device: its MAC, else its addresses and host name; Dante and Relay's own computer too."""
+    out = gear.net_keys(d.get("mac", ""), d.get("ips", []), d.get("host", ""))
+    if d.get("kind") == "relay":
+        out.append("relay:this")
+    if d.get("dante") and d.get("host"):
+        out.append("dante:" + d["host"])
+    return out
+
+
+def id_key(map_id: Any) -> str:
+    """The gear key a map id stands for ("" for an id that is not one)."""
+    text = _key(map_id).rstrip("+") if isinstance(map_id, str) else ""
+    if not text or "#" in text:
+        return ""
+    if _MAC.match(text):
+        return "mac:" + text
+    return ("ip:" if _ip(text) else "host:") + text
+
+
+def _map_id(keys: list[str]) -> str:
+    """The id the Network page uses for gear: the MAC, else an address, else a host name."""
+    for head in ("mac:", "ip:", "host:"):
+        for k in keys:
+            if k.startswith(head):
+                return k[len(head):]
+    return ""
+
+
+def adopt_devices(devices: list[dict]) -> None:
+    """Every device heard from just now is gear (made the first time, found again by its MAC or address)."""
+    for d in devices:
+        keys = device_keys(d)
+        if not keys or d.get("stale_by"):
+            continue
+        kind = "dante" if d.get("dante") and d["kind"] in ("av", "client", "other") else d["kind"]
+        try:
+            gear.adopt(keys, name=d["name"], kind=kind, model=d.get("model", ""))
+        except gear.Refused:
+            log.warning("network map: too much gear to keep %s", d["name"])
+
+
+def _gear_for(map_id: str) -> dict | None:
+    """The gear a map id names, made when Relay has not seen it yet."""
+    key = id_key(map_id)
+    if not key:
+        return None
+    return gear.by_key(key) or gear.adopt([key], heard=False)
+
+
+def _port_notes(raw: Any) -> dict:
+    return {k: v for k, v in clean_stored(raw)["notes"].items() if "#" in k}
+
+
+def _import_legacy() -> None:
+    """Names, device notes and closets saved in config before #547 move onto gear, once: they are gone from config after."""
     from . import config
 
-    return clean_stored(config.get().get(KEY))
+    old = clean_stored(config.get().get(KEY))
+    if not (old["names"] or old["places"] or any("#" not in k for k in old["notes"])):
+        return
+    try:
+        for k, v in old["names"].items():
+            g = _gear_for(k)
+            if g:
+                gear.rename(g["id"], v)
+        for k, v in old["notes"].items():
+            g = _gear_for(k) if "#" not in k else None
+            if g:
+                gear.set_notes(g["id"], v)
+        _write_racks(old["places"])
+    except (gear.Refused, screens.Refused):
+        log.warning("network map: could not move every saved name, note and closet onto gear", exc_info=True)
+    config.save({KEY: {"names": {}, "notes": {k: v for k, v in old["notes"].items() if "#" in k}, "places": []}},
+                replace=(KEY,))
+
+
+def _write_racks(places: list[dict]) -> None:
+    """A closet is a rack in a core place of the same name; gear goes in it top to bottom. A rack no longer listed goes,
+    and its gear stays in the place."""
+    keep: set[int] = set()
+    for pos, p in enumerate(places):
+        rack = gear.rack_by_name(p["name"]) or gear.rack_in_place(p["name"], p["name"])
+        keep.add(rack["id"])
+        gear.rack_set_position(rack["id"], pos)
+        for i, gid_text in enumerate(p["gear"]):
+            g = _gear_for(gid_text)
+            if g:
+                gear.set_rack(g["id"], rack["id"], i)
+    for r in gear.racks():
+        if r["id"] not in keep:
+            gear.rack_delete(r["id"])
+
+
+def stored() -> dict:
+    """{"names": {map id: name}, "notes": {map id or "switch#port": text}, "places": [{"name", "gear": [map id]}]}: names an
+    operator typed, notes, and the racks with the gear in each, top to bottom."""
+    from . import config
+
+    _import_legacy()
+    names: dict[str, str] = {}
+    notes: dict[str, str] = {}
+    ids: dict[int, str] = {}
+    for g in gear.listing():
+        did = _map_id(g["keys"])
+        if not did:
+            continue
+        ids[g["id"]] = did
+        if g["named"]:
+            names[did] = g["name"]
+        if g["notes"]:
+            notes[did] = g["notes"]
+    notes.update(_port_notes(config.get().get(KEY)))
+    places, seen = [], set()
+    for r in gear.racks():
+        if r["name"].lower() in seen:
+            continue
+        seen.add(r["name"].lower())
+        places.append({"name": r["name"], "gear": [ids[g["id"]] for g in gear.in_rack(r["id"]) if g["id"] in ids]})
+    return {"names": names, "notes": notes, "places": places}
 
 
 def save_labels(names: Any = None, notes: Any = None) -> dict:
     """Set or clear (empty text) names and notes; the rest stay. Returns what is saved."""
     from . import config
 
-    cur = stored()
-    for field, given in (("names", names), ("notes", notes)):
-        for k, v in (given.items() if isinstance(given, dict) else []):
-            if not _key(k):
-                continue
-            if isinstance(v, str) and v.strip():
-                cur[field][k] = v
+    _import_legacy()
+    for k, v in (names.items() if isinstance(names, dict) else []):
+        g = _gear_for(k) if _key(k) and "#" not in k else None
+        if g:
+            gear.rename(g["id"], " ".join(v.split())[:NAME_MAX] if isinstance(v, str) else "")
+    ports = _port_notes(config.get().get(KEY))
+    port_changed = False
+    for k, v in (notes.items() if isinstance(notes, dict) else []):
+        if not _key(k):
+            continue
+        text = _text(v, NOTE_MAX)
+        if "#" in k:
+            port_changed = True
+            if text:
+                ports[k] = text
             else:
-                cur[field].pop(k, None)
-    config.save({KEY: clean_stored(cur)}, replace=(KEY,))
+                ports.pop(k, None)
+        else:
+            g = _gear_for(k)
+            if g:
+                gear.set_notes(g["id"], text)
+    if port_changed:
+        config.save({KEY: {"names": {}, "notes": ports, "places": []}}, replace=(KEY,))
     return stored()
 
 
 def save_places(places: Any) -> dict:
-    """Replace the list of places (closets and racks) and the switches in each, in order."""
-    from . import config
-
-    cur = stored()
-    cur["places"] = places if isinstance(places, list) else []
-    config.save({KEY: clean_stored(cur)}, replace=(KEY,))
+    """Replace the list of closets (racks) and the switches in each, in order."""
+    _import_legacy()
+    clean = clean_stored({"places": places})["places"]
+    _write_racks(clean)
     return stored()
 
 
@@ -403,14 +538,17 @@ def issues(devices: list[dict], sources: list[dict]) -> list[dict]:
 
 
 def labelled(result: dict) -> dict:
-    """The snapshot with the operator's names applied (the device's own name kept in own_name), the notes and places,
+    """The snapshot with the operator's names applied (the device's own name kept in own_name), the notes and closets,
     and what needs a look. A copy: the cached snapshot is left as the sources gave it."""
     st = stored()
+    by_key = {k: g for k, g in gear.by_keys().items() if g["named"]}
     devices = []
     for d in result["devices"]:
         d = dict(d)
         d["own_name"] = d["name"]
-        d["name"] = st["names"].get(d["id"]) or d["name"]
+        hit = next((by_key[k] for k in device_keys(d) if k in by_key), None)
+        if hit:
+            d["name"] = hit["name"]
         devices.append(d)
     out = dict(result)
     out.update(devices=devices, names=st["names"], notes=st["notes"], places=st["places"],

@@ -605,8 +605,8 @@ eq("every drawing the server accepts is one the page draws",
 print("health with several switchers")
 svc.service.devices.clear()
 fake_device({"id": "main", "name": "Main", "host": "10.0.0.5"}, FakeClient())
-config.save({"blackmagic": {"devices": [{"id": "main", "name": "Main", "host": "10.0.0.5"},
-                                  {"id": "b", "name": "Overflow", "host": "10.0.0.6"}]}}, replace=("blackmagic",))
+svc.save_devices([svc.clean_device({"id": "main", "name": "Main", "host": "10.0.0.5"}),
+                  svc.clean_device({"id": "b", "name": "Overflow", "host": "10.0.0.6"})])
 h = _modules.get("blackmagic").health()
 eq("one down is a warning naming it", (h.state, "Overflow" in h.detail), ("warn", True))
 fake_device({"id": "b", "name": "Overflow", "host": "10.0.0.6"}, FakeClient())

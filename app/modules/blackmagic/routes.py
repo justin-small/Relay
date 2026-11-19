@@ -163,7 +163,7 @@ async def admin_order(request: Request, payload: dict):
     if not isinstance(ids, list) or sorted(map(str, ids)) != sorted(d["id"] for d in items):
         return _bad("List every device once, in the new order.")
     by_id = {d["id"]: d for d in items}
-    save_devices([by_id[i] for i in ids])
+    save_devices([by_id[i] for i in ids], reorder=True)
     audit.note(request, "blackmagic.order", "Changed the order of the Blackmagic rack")
     return service.snapshot()
 
