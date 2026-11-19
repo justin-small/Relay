@@ -20,7 +20,7 @@ import re
 import secrets
 import time
 
-from ... import config, db, gear, ports, screens, tally
+from ... import cables as core_cables, config, db, gear, ports, screens, tally
 from ...text import same_name
 from . import atem_protocol as p
 from . import drawings, hyperdeck, videohub
@@ -46,7 +46,8 @@ _ID_RE = re.compile(r"[a-z0-9]{1,16}")
 _UID_RE = re.compile(r"[A-Za-z0-9:._\-]{1,64}")
 # The rack redesign: which drawing a device gets (empty: picked from its product name, drawings.py), where it sits, and the
 # cables between connectors that Relay cannot see. A connector is a core port (app/ports.py, #540) on the device's gear,
-# keyed by its drawing id ("in1"), and its note is the port's note; notes saved in config before #540 move there.
+# keyed by its drawing id ("in1"), and its note is the port's note; notes saved in config before #540 move there. A cable is
+# a core cable (app/cables.py, #541) between two ports, whoever recorded it; cables saved in config before #541 move there.
 DRAWINGS = drawings.DRAWINGS
 PLACES = ("rack", "shelf")
 PORT_RE = re.compile(r"[a-z0-9]{1,12}")
@@ -273,6 +274,8 @@ def clean_config(raw) -> dict:
                 dev.pop(k, None)
         if not dev["notes"]:
             dev.pop("notes")                   # connector notes are ports now (#540); config keeps one only before then
+    if not out["cables"]:
+        out.pop("cables")                  # cables are core cables now (#541); config keeps them only until they move
     return out
 
 
@@ -282,6 +285,7 @@ def devices() -> list[dict]:
     items = clean_settings(raw)["devices"]
     legacy = any(isinstance(d, dict) and (any(k in d for k in IDENTITY) or d.get("notes"))
                  for d in (raw.get("devices") if isinstance(raw, dict) and isinstance(raw.get("devices"), list) else []))
+    old_cables = isinstance(raw, dict) and bool(raw.get("cables"))
     try:
         known = gear.by_keys()
         out = []
@@ -293,19 +297,59 @@ def devices() -> list[dict]:
             out.append(_overlay(dev, g))
         if legacy:
             save_devices(out)                  # the identity is on gear now: take it out of config
+        if old_cables:
+            _move_cables(out)
     except db.Unavailable:
         return items
     return [d for _, d in sorted(enumerate(out), key=lambda t: (t[1]["position"], t[0]))]
 
 
-def cables() -> list[dict]:
-    return clean_settings(config.get().get(KEY))["cables"]
+def _move_cables(items: list[dict]) -> None:
+    """Cables saved in config before #541 become core cables between the two connectors' ports, once: they are gone from
+    config after. A cable to a device that is not in the list goes, as it did before."""
+    legacy = clean_settings(config.get().get(KEY))["cables"]
+    if not legacy:
+        return
+    gears = {d["id"]: d.get("gear_id") for d in items}
+    for c in legacy:
+        ends = []
+        for did, key in (c["a"], c["b"]):
+            if not gears.get(did):
+                break
+            row = ports.by_key(gears[did], key) or ports.adopt(gears[did], key, heard=False)
+            ends.append(row["id"])
+        else:
+            try:
+                core_cables.add(ends[0], ends[1])
+            except core_cables.Refused:
+                pass                           # the same pair is already cabled
+    save_devices(items)
 
 
-def save_devices(items: list[dict], wires: list[dict] | None = None, reorder: bool = False) -> None:
-    """Save the devices and the cables; cables to a device that went are dropped. A device's name, model, drawing and place
-    go to its gear, and with `reorder` so does its place in the list (the position the rack is drawn in)."""
-    wires = cables() if wires is None else wires
+def cables(items: list[dict] | None = None) -> list[dict]:
+    """The core cables with both ends on Blackmagic devices, as the page draws them: each end is [device id, connector id]."""
+    items = devices() if items is None else items
+    by_gear = {d["gear_id"]: d["id"] for d in items if d.get("gear_id")}
+    try:
+        rows = core_cables.of_gears(by_gear)
+    except db.Unavailable:
+        return []
+    return [{"id": c["id"], "ref": c["ref"], "a": [by_gear[c["a"]["gear"]], c["a"]["key"]],
+             "b": [by_gear[c["b"]["gear"]], c["b"]["key"]], "by": c["by"], "reported": c["reported"], "note": c["note"]}
+            for c in rows if c["a"]["gear"] in by_gear and c["b"]["gear"] in by_gear]
+
+
+def connector(items: list[dict], end) -> dict | None:
+    """The core port for [device id, connector id], made when Relay has not listed it yet; None when the device is not there."""
+    dev = next((d for d in items if d["id"] == end[0]), None)
+    if dev is None or not dev.get("gear_id"):
+        return None
+    return ports.by_key(dev["gear_id"], end[1]) or ports.adopt(dev["gear_id"], end[1], heard=False)
+
+
+def save_devices(items: list[dict], reorder: bool = False) -> None:
+    """Save the devices. A device's name, model, drawing and place go to its gear, and with `reorder` so does its place in
+    the list (the position the rack is drawn in). Its cables go with it: they are core cables on its ports."""
     kept = [d["id"] for d in items]
     stored_items = list(items)
     try:
@@ -317,7 +361,7 @@ def save_devices(items: list[dict], wires: list[dict] | None = None, reorder: bo
             gear.forget_key(GEAR_KEY + gone)
     except db.Unavailable:
         stored_items = list(items)             # without the database the identity stays in config
-    config.save({KEY: {"devices": stored_items, "cables": clean_cables(wires, set(kept))}}, replace=(KEY,))
+    config.save({KEY: {"devices": stored_items}}, replace=(KEY,))
 
 
 def overlaps(items: list[dict]) -> list[str]:
@@ -515,7 +559,7 @@ class Service:
     # ------------------------------------------------------------------------------------------ what the page shows
     def snapshot(self) -> dict:
         items = devices()
-        return {"devices": [self.device_snapshot(d) for d in items], "cables": cables(), "warnings": overlaps(items),
+        return {"devices": [self.device_snapshot(d) for d in items], "cables": cables(items), "warnings": overlaps(items),
                 "configured": any(d["host"] for d in items), "drawings": dict(drawings.NAMES),
                 "connected": sum(1 for d in items if self._connected(d["id"]))}
 

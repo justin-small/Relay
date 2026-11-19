@@ -456,6 +456,25 @@ model's faces on the server (`drawings.py`) and syncs their connectors while the
 config before #540 (network map `"<switch>#<port>"`, Blackmagic `notes`) and traffic routes' `known_ports` move onto ports the
 first time they are read.
 
+## Cables
+
+A cable joins two core ports (`app/cables.py`, table in `app/migrations/0013_cables.sql`, #541) on any gear: an ATEM's SDI out
+to a Videohub input, an ATEM's Ethernet to a switch port, a device to the switch port UniFi says it is on. A ref is
+`cable:relay:<id>`. Each cable says who said so (`by`): `"operator"` for one a person recorded, or the id of the module that
+reports it. An operator can remove their own cable and add a note to any cable; a reported cable cannot be removed
+(`cables.remove` refuses it), only annotated, because its source owns it. A port may have more than one cable (a patch panel,
+a split), but the same two ports are one cable whichever way round they were entered.
+
+**Report, do not keep.** A module that knows what is plugged into what calls `cables.sync("<module id>", [(port id, port id),
+...])` with every cable it sees now; one it no longer reports is marked `missing`, not dropped, so its note stays, and a pair an
+operator already cabled stays theirs. Call it only while the source is readable. UniFi's uplinks go through the network map
+(`network_map.sync_cables`): a device's `uplink_port` is the switch port, and the device's own end is its uplink port or a
+port `eth` made on it. A module that lets an operator record cables calls `cables.add(port id, port id)`; the Blackmagic page
+does, so a cable recorded there shows on the Network page's Cables list and Map, and the other way round. Keep no list of
+cables of your own: `tests/test_shared_concepts.py` counts a module table named `*_cables`, `*_wires` or `wiring`, and a module
+default `"cables": []`, with a shrink-only baseline. Cables saved in Blackmagic config before #541 move onto core cables the first
+time they are read.
+
 ## Phones and computers
 
 A phone or computer a person carries is one core **device** (`app/devices.py`, tables in `app/migrations/0009_devices.sql`,

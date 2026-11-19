@@ -631,6 +631,43 @@ eq("notes saved in config before #540 move onto ports, once",
    (svc.devices()[0]["notes"], [d.get("notes") for d in config.get()["blackmagic"]["devices"]]),
    ({"in2": "Pulpit camera", "in5": "Old note from config"}, [None]))
 
+print("cables are core cables (#541)")
+from app import cables as core_cables, network_map  # noqa: E402
+res = admin.post("/api/admin/blackmagic/devices", json={"kind": "videohub", "name": "Tie", "host": "10.0.0.71"})
+tie = next(d for d in res.json()["devices"] if d["name"] == "Tie")
+res = admin.post("/api/admin/blackmagic/cables", json={"a": ["main", "in1"], "b": [tie["id"], "out1"]})
+eq("a cable recorded here shows on the Network page", [(c["a"]["gear"], c["a"]["key"], c["b"]["gear"], c["by"])
+   for c in network_map.cable_rows() if c["b"]["key"] == "out1"], [("Switcher", "in1", "Tie", "operator")])
+net = admin.get("/api/admin/network/cables").json()
+eq("and in its picker", {g["name"] for g in net["gear"]} >= {"Switcher", "Tie"}, True)
+def conn(device: str, key: str) -> dict:
+    gid = core_gear.by_key("blackmagic:" + device)["id"]
+    return core_ports.by_key(gid, key) or core_ports.adopt(gid, key, heard=False)
+
+
+res = admin.post("/api/admin/network/cables", json={"a": conn("main", "in3")["ref"], "b": conn(tie["id"], "out3")["ref"]})
+snap = svc.service.snapshot()
+eq("a cable recorded on the Network page shows on the Blackmagic page", sorted((tuple(c["a"]), tuple(c["b"])) for c in snap["cables"]),
+   sorted([(("main", "in1"), (tie["id"], "out1")), (("main", "in3"), (tie["id"], "out3"))]))
+sw = core_gear.adopt(["mac:aa:bb:cc:00:00:61"], name="Wall switch", kind="switch")["id"]
+core_ports.sync(sw, [{"key": "4", "kind": "eth"}])
+core_cables.add(conn("main", "eth")["id"], core_ports.by_key(sw, "4")["id"])
+eq("a cable to gear that is not Blackmagic stays off the Wiring tab", len(svc.service.snapshot()["cables"]), 2)
+core_cables.sync("unifi", [(conn("main", "in4")["id"], core_ports.by_key(sw, "4")["id"])])
+rep = next(c for c in core_cables.listing() if c["by"] == "unifi")
+res = admin.delete(f"/api/admin/blackmagic/cables/{rep['id']}")
+eq("a reported cable cannot be removed from the Blackmagic page", res.status_code, 409)
+raw = config.get()["blackmagic"]
+raw["cables"] = [{"id": "c1", "a": ["main", "in5"], "b": [tie["id"], "out5"]}, {"id": "c2", "a": ["main", "in1"], "b": [tie["id"], "out1"]}]
+config.save({"blackmagic": raw}, replace=("blackmagic",))
+svc.devices()
+eq("cables saved in config before #541 become core cables, once", sorted((c["a"][1], c["b"][1]) for c in svc.cables()),
+   sorted([("in1", "out1"), ("in3", "out3"), ("in5", "out5")]))
+eq("and are gone from config", "cables" in config.get()["blackmagic"], False)
+res = admin.delete(f"/api/admin/blackmagic/devices/{tie['id']}")
+eq("removing a device takes its cables with it", [c["b"][0] for c in res.json()["cables"]], [])
+eq("the other end's gear keeps its own cables", len([c for c in core_cables.listing() if c["by"] == "unifi"]), 1)
+
 print("health with several switchers")
 svc.service.devices.clear()
 fake_device({"id": "main", "name": "Main", "host": "10.0.0.5"}, FakeClient())

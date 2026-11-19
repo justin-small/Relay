@@ -592,6 +592,8 @@ table.audit tr.failed .what { color:var(--err); }
 .nm-link { fill:none; stroke:color-mix(in srgb,var(--fg) 25%,transparent); stroke-width:1.5; }
 .nm-link.ndi { stroke:var(--info); stroke-width:2.5; } .nm-link.dante { stroke:var(--accent); stroke-width:2.5; }
 .nm-link.slow { stroke:var(--warn); stroke-dasharray:5 4; }
+.nm-cable { fill:none; stroke:var(--accent); stroke-width:2; stroke-dasharray:6 4; } .nm-cable.missing { stroke:var(--muted); }
+.nmcables .nmnote { width:100%; }
 .nm-node { cursor:pointer; } .nm-node rect { fill:var(--card); stroke:var(--border); stroke-width:1.5; }
 .nm-node.infra rect { fill:color-mix(in srgb,var(--fg) 8%,var(--card)); }
 .nm-node.ndi rect { stroke:var(--info); } .nm-node.dante rect { stroke:var(--accent); } .nm-node.warn rect { stroke:var(--warn); stroke-width:2; }

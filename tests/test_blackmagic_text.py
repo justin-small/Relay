@@ -455,7 +455,7 @@ with section("The rename from atem: settings, switch and network route move to b
        cfg2["modules"]["blackmagic"], cfg2["network"]["routes"]), (["new"], {"enabled": False}, {"blackmagic": "mac:cc"}))
     cfg3 = {"modules": {"atem": {"enabled": False}}}
     _modules.clean_config(cfg3)
-    eq("with no settings the switch still moves", (cfg3["modules"]["blackmagic"], cfg3["blackmagic"]), ({"enabled": False}, {"devices": [], "cables": []}))
+    eq("with no settings the switch still moves", (cfg3["modules"]["blackmagic"], cfg3["blackmagic"]), ({"enabled": False}, {"devices": []}))
     from app.modules import validate
     eq("a module may not be renamed from itself", validate(type(mod)(), "blackmagic"), [])
 

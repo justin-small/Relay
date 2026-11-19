@@ -47,7 +47,7 @@ class Blackmagic(Module):
         traffic=(Traffic("blackmagic", "Blackmagic device control (ATEM over UDP, HyperDeck and Videohub over TCP)"),),
         renamed_from="atem",
     )
-    defaults = {"devices": [], "cables": []}
+    defaults = {"devices": []}
     network_map_adds = "Names each Blackmagic device it is connected to."
     admin_pages = (AdminPage(
         id="blackmagic", title="Blackmagic", template="blackmagic.html",
