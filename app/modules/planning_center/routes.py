@@ -247,8 +247,19 @@ def _who(user) -> str:
 
 
 def _rundown_settings_view() -> dict:
+    """The settings for the admin page. Each mic mapping and channel assignment says whether Planning Center no longer
+    lists its position ("missing") or it was never matched to one ("unmatched"), so neither is silently ignored (#525)."""
+    from ... import directory
+
+    def flagged(entry: dict) -> dict:
+        got = directory.describe(entry.get("position_ref", ""), entry.get("position", ""))
+        return {**entry, "missing": got["missing"], "unmatched": got["unmatched"]}
+
     rs = config.get()["planning_center"]["rundown"]
-    return {k: v for k, v in rs.items() if k != "draws"}
+    out = {k: v for k, v in rs.items() if k != "draws"}
+    out["mics"] = [flagged(m) for m in rs["mics"]]
+    out["channels"] = [{**c, "positions": [flagged(a) for a in c["positions"]]} for c in rs["channels"]]
+    return out
 
 
 def channel_catalog() -> tuple[list[dict], str]:
@@ -313,6 +324,8 @@ async def admin_planning_center_rundown_settings(payload: dict):
         if not isinstance(payload["channels"], list):
             return JSONResponse({"error": "channels must be a list."}, status_code=400)
         rs["channels"] = rundown.clean_channels(payload["channels"])
+    rs = {**rs, **{k: rundown.clean_rundown(rs)[k] for k in ("mics", "channels")}}
+    rundown.refresh_saved(rs)        # a ref for each name that matches one, and Planning Center's current names (#525)
     config.save({"planning_center": {**saved, "rundown": rs}}, replace=("planning_center",))
     log.info("Planning Center rundown settings saved (screen %s)", "on" if rs["screen"] else "off")
     return {"settings": _rundown_settings_view()}

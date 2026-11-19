@@ -64,7 +64,7 @@ for uid, pid, name in ((mike.id, "501", "Mike Smith"), (sara.id, "502", "Sara Le
 
 print("checking a rule")
 good = {"team": "Camera", "kind": "before", "minutes": 60, "message": "Camera call time"}
-eq("a rule is cleaned", calltimes.clean(good), {"team": "Camera", "message": "Camera call time", "enabled": True,
+eq("a rule is cleaned", calltimes.clean(good), {"team": "Camera", "team_ref": "", "message": "Camera call time", "enabled": True,
                                                 "minutes": 60, "weekday": None, "clock": None, "kind": "before"})
 for label, bad in (("no team", {**good, "team": " "}), ("no words", {**good, "message": ""}),
                    ("too long", {**good, "message": "x" * 141}), ("minutes as text", {**good, "minutes": "60"}),

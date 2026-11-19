@@ -154,6 +154,8 @@ class FakeClient(pc.Client):
             return {"data": {"type": "Person", "id": "5", "attributes": {"full_name": "Dana Ortiz"}}}
         if path == "/services/v2/service_types":
             return {"data": [{"type": "ServiceType", "id": i, "attributes": {"name": n}} for i, n in NAMES.items()]}
+        if re.fullmatch(r"/services/v2/service_types/\d+/teams", path):   # teams and positions (#525): none, here
+            return {"data": [], "included": []}
         m = re.fullmatch(r"/services/v2/service_types/(\d+)/plans(?:/(\d+)(?:/(live|items|plan_times|team_members|needed_positions))?)?", path)
         st, pid, leaf = m.groups()
         if leaf in ("team_members", "needed_positions"):   # who is scheduled (#148): nobody, here

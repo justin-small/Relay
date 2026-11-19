@@ -173,7 +173,7 @@ source registry (`signage_sources.register`), which is the pattern to copy.
 
 ## Low confidence (naming)
 
-- **L1** `users.role` is a permission role; `crew_profiles.role` is a job. Rename the crew one to `job` or link it to positions (H2).
+- **L1** `users.role` is a permission role; `crew_profiles.role` is a job. Done in #525: the crew one is `crew_role`, defaulting from the person's usual Planning Center position (H2).
 - **L2** "Page" means a crew notification (`crew_pages`), a board page, a lighting cue page and a parent page.
 - **L3** Board `screen_names` vs `signage_screens.name`: same idea, two stores (falls out of H3).
 - **L4** `intercom_orgs` is a multi-tenant placeholder nothing else uses.

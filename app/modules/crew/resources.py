@@ -21,7 +21,7 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 
 from ... import db, paths
-from . import checklists, people
+from . import checklists, people, refs
 
 MB = 1024 * 1024
 FILE_LIMIT = 25 * MB
@@ -90,13 +90,9 @@ def clean_title(raw) -> str:
     return text
 
 
-def clean_position(raw) -> str:
-    if raw is not None and not isinstance(raw, str):
-        raise Invalid("The position is text.")
-    text = " ".join((raw or "").split())
-    if len(text) > checklists.POSITION_MAX:
-        raise Invalid(f"The position is at most {checklists.POSITION_MAX} characters.")
-    return text
+def clean_position(raw, raw_ref=None) -> tuple[str, str]:
+    """(ref, name) for the team or position a resource is for; ("", "") is everyone serving."""
+    return refs.clean_pick(raw_ref, raw, checklists.PICK, checklists.POSITION_MAX, "Position")
 
 
 def clean_hosts(raw) -> list[str]:
@@ -152,14 +148,16 @@ def clean_url(raw, kind: str, allowed: list[str]) -> str:
 
 # -- rows --------------------------------------------------------------------------------------------------------
 def _row(r: dict) -> dict:
-    return {"id": r["id"], "position": r["position"], "kind": r["kind"], "title": r["title"], "url": r["url"],
+    f = refs.flags(r["position_ref"], r["position"])
+    return {"id": r["id"], "position": f["name"], "position_ref": r["position_ref"], "pick": {"ref": r["position_ref"], "name": f["name"]}, "missing": f["missing"],
+            "unmatched": f["unmatched"], "kind": r["kind"], "title": r["title"], "url": r["url"],
             "ext": r["ext"], "size": r["size"], "inline": bool(r["ext"] and TYPES[r["ext"]][1])}
 
 
 def all_rows() -> list[dict]:
     people.ready()
     return [_row(r) for r in db.query(
-        "select id, position, kind, title, url, ext, size from crew_resources"
+        "select id, position, position_ref, kind, title, url, ext, size from crew_resources"
         " order by position = '' desc, lower(position), lower(title), id")]
 
 
@@ -169,38 +167,39 @@ def get(rid: int) -> dict | None:
 
 
 def mine(user_id: int, tracks) -> list[dict]:
-    teams = checklists.teams_of(user_id, tracks)
-    return [r for r in all_rows() if checklists.applies(r, teams)]
+    today = checklists.held(user_id, tracks)
+    return [r for r in all_rows() if checklists.applies(r, today)]
 
 
 def sees(user_id: int, rid: int, tracks) -> bool:
     return any(r["id"] == rid for r in mine(user_id, tracks))
 
 
-def _room(position: str) -> None:
+def _room(position: str, position_ref: str = "") -> None:
     n = db.one("select count(*) as n from crew_resources")["n"]
     if n >= TOTAL_MAX:
         raise Invalid(f"There can be at most {TOTAL_MAX} resources.")
-    if db.one("select count(*) as n from crew_resources where lower(position) = lower(?)", (position,))["n"] >= PER_POSITION_MAX:
+    if db.one("select count(*) as n from crew_resources where position_ref = ? and (? != '' or lower(position) = lower(?))",
+              (position_ref, position_ref, position))["n"] >= PER_POSITION_MAX:
         raise Invalid(f"A position can have at most {PER_POSITION_MAX} resources.")
 
 
-def add_url(user_id: int, kind: str, title, position, url, allowed: list[str]) -> int:
+def add_url(user_id: int, kind: str, title, position, url, allowed: list[str], position_ref=None) -> int:
     if kind not in ("link", "embed"):
         raise Invalid("Choose a link or an embedded page.")
-    t, p, u = clean_title(title), clean_position(position), clean_url(url, kind, allowed)
+    t, (pr, p), u = clean_title(title), clean_position(position, position_ref), clean_url(url, kind, allowed)
     people.ready()
-    _room(p)
-    return db.one("insert into crew_resources (position, kind, title, url, created_by, created_ts)"
-                  " values (?, ?, ?, ?, ?, ?) returning id", (p, kind, t, u, user_id, time.time()))["id"]
+    _room(p, pr)
+    return db.one("insert into crew_resources (position, position_ref, kind, title, url, created_by, created_ts)"
+                  " values (?, ?, ?, ?, ?, ?, ?) returning id", (p, pr, kind, t, u, user_id, time.time()))["id"]
 
 
-async def add_file(user_id: int, title, position, chunks) -> int:
+async def add_file(user_id: int, title, position, chunks, position_ref=None) -> int:
     """Keep an upload arriving as an async iterator of byte chunks. Refused past the size cap as soon as it is
     passed, without keeping the rest; written beside its place and moved in once checked."""
-    t, p = clean_title(title), clean_position(position)
+    t, (pr, p) = clean_title(title), clean_position(position, position_ref)
     people.ready()
-    _room(p)
+    _room(p, pr)
     base = folder()
     paths.make_private_dir(base)
     fd, tmp = tempfile.mkstemp(prefix=".upload-", dir=base)
@@ -227,18 +226,18 @@ async def add_file(user_id: int, title, position, chunks) -> int:
         except OSError:
             pass
         raise
-    return db.one("insert into crew_resources (position, kind, title, stored, ext, size, created_by, created_ts)"
-                  " values (?, 'file', ?, ?, ?, ?, ?, ?) returning id", (p, t, stored, ext, size, user_id, time.time()))["id"]
+    return db.one("insert into crew_resources (position, position_ref, kind, title, stored, ext, size, created_by, created_ts)"
+                  " values (?, ?, 'file', ?, ?, ?, ?, ?, ?) returning id", (p, pr, t, stored, ext, size, user_id, time.time()))["id"]
 
 
-def change(rid: int, title, position, url, allowed: list[str]) -> None:
+def change(rid: int, title, position, url, allowed: list[str], position_ref=None) -> None:
     row = get(rid)
     if row is None:
         raise Invalid("No such resource.", 404)
-    t, p = clean_title(title), clean_position(position)
+    t, (pr, p) = clean_title(title), clean_position(position, position_ref)
     u = clean_url(url, row["kind"], allowed) if row["kind"] != "file" else None
-    db.execute("update crew_resources set title = ?, position = ?, url = ? where id = ?",
-               (t, p, u if row["kind"] != "file" else row["url"], rid))
+    db.execute("update crew_resources set title = ?, position = ?, position_ref = ?, url = ? where id = ?",
+               (t, p, pr, u if row["kind"] != "file" else row["url"], rid))
 
 
 def delete(rid: int) -> None:

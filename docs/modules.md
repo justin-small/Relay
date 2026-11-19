@@ -875,6 +875,31 @@ whichever modules are on:
   `directory.link()`, and the admin accept, dismiss and unlink actions go through the directory too. With Crew off,
   existing links keep answering for intercom, the rundown and parent paging; new ones are made when Crew is on.
 
+### Teams and positions
+
+Teams and positions (#525, step 4 of the epic) are named the same way: `team:pco:<id>` and
+`position:pco:<team id>/<position id>` (`directory.team_ref`, `position_ref`, `parse_item`, `team_of`). A module that
+stores one keeps the ref in a `*_ref` column and the name it had when saved in the column beside it; it does not add a
+free-text `team` or `position` column on its own (`tests/test_shared_concepts.py` fails on one that has no `*_ref`).
+
+- A provider module offers its teams with `modules.provide("directory.<provider>.teams", fn)` (`fn()` returns
+  `{"id", "name", "positions": [{"id", "name"}]}` dicts, and `[]` until it has read them). Planning Center provides
+  `directory.pco.teams` from its followed service types.
+- `directory.sync("pco")` caches them in `directory_items`, announces `directory.changed` when one was added, renamed
+  or went missing, and does nothing while the list is empty, so what was cached stays. `directory.teams()`,
+  `positions()` and `item(ref)` read the cache, so a saved name still shows with Planning Center off.
+- `directory.describe(ref, saved_name)` gives `{"ref", "name", "missing", "unmatched"}`: the current name, a ref the
+  provider no longer lists, or a name that never matched one. Show those; never ignore them.
+- `directory.match_name(kind, text)` finds the ref for a typed name (`text.same_name`, and only when exactly one
+  matches); `directory.same_item(...)` compares saved ones by ref, else by name. A module rewrites its own saved names
+  after a rename when it hears `directory.changed` (Crew: `refs.refresh`; the rundown: `refresh_saved`).
+- Admin pages pick from the list and the server checks the pick (`crew/refs.py: clean_pick`); a typed name from before
+  is matched when Planning Center's teams arrive (`refs.adopt`) and otherwise stays a name and is flagged on the page.
+- Crew call times, checklists, leads and resources, and the rundown's mic mapping and channel assignments, are saved this
+  way. A team ref is everyone on the team; a position ref is that position only. Crew's `crew_role` (the job a person
+  fills, no longer called `role`) defaults to their usual Planning Center position, learned from the plans they are
+  scheduled on, and an admin's own role replaces it.
+
 ## Reaching another module
 
 One pattern for a module to give core or another module something, and for them to ask for it (#523, part of the

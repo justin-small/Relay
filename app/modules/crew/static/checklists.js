@@ -36,18 +36,20 @@
   let loadedTemplates = false;
   async function load() { const d = await request('GET', '/crew/api/checklists'); if (d) draw(d); }
 
-  function reset() { editing = null; $('clTitle').value = ''; $('clPos').value = ''; $('clItems').value = ''; $('clCancel').hidden = true; }
+  // The team or position is chosen from what Planning Center lists, never typed. A list saved with a name Relay could
+  // not match to one keeps that name as its own option, so it is still shown and can be re-chosen.
+  let lastPicks = [];
+  function reset() { editing = null; $('clTitle').value = ''; relayUI.picker($('clPos'), lastPicks, null, 'Everyone serving'); $('clItems').value = ''; $('clCancel').hidden = true; }
   function drawTemplates(d) {
     loadedTemplates = true;
     const out = $('clTemplates'); out.textContent = '';
-    const dl = $('clPositions'); dl.textContent = '';
-    (d.all ? d.positions : d.leads).forEach(function (p) { const o = document.createElement('option'); o.value = p; dl.appendChild(o); });
+    lastPicks = d.picks; relayUI.picker($('clPos'), lastPicks, editing === null ? null : (d.templates.filter(function (x) { return x.id === editing; })[0] || {}).pick || null, 'Everyone serving');
     d.templates.forEach(function (t) {
       const row = document.createElement('div'); row.className = 'cl-tpl';
-      const name = document.createElement('span'); name.textContent = t.title + ' · ' + (t.position || 'Everyone') + ' (' + t.items.length + ')';
+      const name = document.createElement('span'); name.textContent = t.title + ' · ' + (t.position || 'Everyone') + (t.missing ? ' (no longer in Planning Center)' : '') + (t.unmatched ? ' (not matched to Planning Center)' : '') + ' (' + t.items.length + ')';
       const edit = document.createElement('button'); edit.type = 'button'; edit.textContent = 'Edit';
       edit.addEventListener('click', function () {
-        editing = t.id; $('clTitle').value = t.title; $('clPos').value = t.position;
+        editing = t.id; $('clTitle').value = t.title; relayUI.picker($('clPos'), lastPicks, t.pick, 'Everyone serving');
         $('clItems').value = t.items.map(function (i) { return i.text; }).join('\n'); $('clCancel').hidden = false;
       });
       const del = document.createElement('button'); del.type = 'button'; del.textContent = 'Delete';
@@ -62,7 +64,7 @@
   async function loadTemplates() { const d = await request('GET', '/crew/api/checklists/templates'); if (d) drawTemplates(d); }
 
   $('clSave').addEventListener('click', async function () {
-    const body = { title: $('clTitle').value, position: $('clPos').value, items: $('clItems').value.split('\n') };
+    const body = { title: $('clTitle').value, position_ref: $('clPos').value, position: relayUI.pickedName($('clPos')), items: $('clItems').value.split('\n') };
     const r = editing === null ? await request('POST', '/crew/api/checklists/templates', body)
       : await request('PUT', '/crew/api/checklists/templates/' + editing, body);
     if (r) { reset(); drawTemplates(r); load(); }

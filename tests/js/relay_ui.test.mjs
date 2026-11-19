@@ -11,7 +11,7 @@ import { describe, it } from "node:test";
 import vm from "node:vm";
 
 class Node_ {
-  constructor(tag) { this.tagName = tag; this.childNodes = []; this.className = ""; this.hidden = false; this._text = ""; }
+  constructor(tag) { this.tagName = tag; this.childNodes = []; this.className = ""; this.hidden = false; this._text = ""; this.dataset = {}; }
   get nodeType() { return 1; }
   appendChild(n) { this.childNodes.push(n); return n; }
   addEventListener(type, fn) { (this.listeners ||= {})[type] = fn; }
@@ -226,5 +226,45 @@ describe("note and shown", () => {
     assert.equal(ui.shown(n), false);
     n.panel.hidden = false; win.document.visibilityState = "hidden";
     assert.equal(ui.shown(n), false);
+  });
+});
+
+describe("picker and pickedName", () => {
+  // A <select> as far as the helpers use one: its options, its chosen index and its value.
+  function select(ui) {
+    const sel = new Node_("select");
+    Object.defineProperty(sel, "options", { get() { return this.childNodes; } });
+    sel.selectedIndex = 0;
+    Object.defineProperty(sel, "value", {
+      get() { return (this.childNodes[this.selectedIndex] || {}).value || ""; },
+      set(v) { const i = this.childNodes.findIndex((o) => o.value === v); this.selectedIndex = i < 0 ? 0 : i; },
+    });
+    return sel;
+  }
+  const picks = [{ ref: "team:pco:1", label: "Camera" }, { ref: "position:pco:1/2", label: "Camera \u00b7 Camera 1" }];
+
+  it("offers the none option, then each pick, and selects the saved ref", () => {
+    const { ui } = load();
+    const sel = select(ui);
+    ui.picker(sel, picks, { ref: "position:pco:1/2", name: "Camera 1" }, "Everyone serving");
+    assert.deepEqual(sel.childNodes.map((o) => o.textContent), ["Everyone serving", "Camera", "Camera \u00b7 Camera 1"]);
+    assert.equal(sel.value, "position:pco:1/2");
+    assert.equal(ui.pickedName(sel), "");
+  });
+  it("starts on none when nothing is saved", () => {
+    const { ui } = load();
+    const sel = select(ui);
+    ui.picker(sel, picks, null);
+    assert.equal(sel.value, "");
+    assert.equal(sel.childNodes[0].textContent, "None");
+  });
+  it("gives a saved name with no ref an option of its own, kept and chosen", () => {
+    const { ui } = load();
+    const sel = select(ui);
+    ui.picker(sel, picks, { ref: "", name: "Lights" }, "Everyone serving");
+    assert.equal(sel.childNodes.length, 4);
+    assert.equal(sel.childNodes[3].textContent, "Lights (not matched to Planning Center)");
+    sel.selectedIndex = 3;
+    assert.equal(ui.pickedName(sel), "Lights");
   });
 });
