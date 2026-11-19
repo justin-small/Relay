@@ -22,7 +22,7 @@ import uuid
 from typing import Any
 from zoneinfo import ZoneInfo
 
-from ... import config, netsock, oauth, schedules
+from ... import config, netsock, oauth, schedules, timewin
 from .service import ACCOUNT, API, KEY, PROVIDER, SCHEDULE, _quota_reset, _reasons, _when, can_write, service
 
 log = logging.getLogger("relay.youtube")
@@ -69,8 +69,14 @@ def _rid(v: Any) -> str:
     return v if isinstance(v, str) and re.fullmatch(r"[a-z0-9]{1,16}", v) else uuid.uuid4().hex[:8]
 
 
+# Rule days count from Sunday = 0 (#522, app/timewin.py). Settings saved before that counted from Monday = 0 and have
+# no DAYS_FROM key, so their days are renumbered as they are read; the next save stores them renumbered with the key.
+DAYS_FROM = "sunday"
+
+
 def clean_schedule(raw: Any) -> dict:
     raw = raw if isinstance(raw, dict) else {}
+    monday_first = raw.get("days_from") != DAYS_FROM
     try:
         days = max(DAYS[0], min(DAYS[1], int(raw.get("days_ahead"))))
     except (TypeError, ValueError):
@@ -79,16 +85,15 @@ def clean_schedule(raw: Any) -> dict:
     for r in (raw.get("rules") if isinstance(raw.get("rules"), list) else [])[:MAX_RULES]:
         if not isinstance(r, dict):
             continue
-        t = r.get("time") if isinstance(r.get("time"), str) else ""
-        m = re.fullmatch(r"([01]?\d|2[0-3]):([0-5]\d)", t.strip())
+        clock = timewin.clean_clock(r.get("time"), loose=True)
         try:
             day = int(r.get("day"))
         except (TypeError, ValueError):
             continue
-        if not m or not 0 <= day <= 6:
+        if not clock or not 0 <= day <= 6:
             continue
-        rules.append({"id": _rid(r.get("id")), "name": _text(r.get("name"), 80) or "Service", "day": day,
-                      "time": f"{int(m.group(1)):02d}:{m.group(2)}"})
+        rules.append({"id": _rid(r.get("id")), "name": _text(r.get("name"), 80) or "Service",
+                      "day": timewin.from_monday_first(day) if monday_first else day, "time": clock})
     stream = raw.get("stream_id")
     return {
         "on": raw.get("on") is True,
@@ -102,6 +107,7 @@ def clean_schedule(raw: Any) -> dict:
         "plan_types": [p for p in (raw.get("plan_types") if isinstance(raw.get("plan_types"), list) else [])
                        if _pid(p)][:MAX_TYPES],
         "rules": rules,
+        "days_from": DAYS_FROM,
     }
 
 
@@ -170,10 +176,11 @@ def rule_times(rules: list[dict], now: float, days: int, tz: ZoneInfo) -> list[d
     out = []
     today = dt.datetime.fromtimestamp(now, tz).date()
     for r in rules:
-        h, m = (int(x) for x in r["time"].split(":"))
+        mins = timewin.minutes(r["time"])
+        h, m = mins // 60, mins % 60
         for i in range(days + 1):
             day = today + dt.timedelta(days=i)
-            if day.weekday() != r["day"]:
+            if timewin.weekday(day) != r["day"]:
                 continue
             start = dt.datetime(day.year, day.month, day.day, h, m, tzinfo=tz).timestamp()
             if now < start <= now + days * 86400:
@@ -201,7 +208,7 @@ def same_slot(start: float, slot: float, tz: ZoneInfo, now: float) -> bool:
     if slot > now - 3600:
         return abs(start - slot) <= SAME_SLOT_S
     a, b = dt.datetime.fromtimestamp(start, tz), dt.datetime.fromtimestamp(slot, tz)
-    if a.weekday() != b.weekday():
+    if timewin.weekday(a) != timewin.weekday(b):
         return False
     mins = abs((a.hour * 60 + a.minute) - (b.hour * 60 + b.minute))
     return min(mins, 1440 - mins) * 60 <= SAME_SLOT_S

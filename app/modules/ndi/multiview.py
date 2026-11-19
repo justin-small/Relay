@@ -18,6 +18,8 @@ import threading
 import time
 from typing import Any, Callable
 
+from ... import timewin
+from ...text import slug
 from . import viewer
 
 log = logging.getLogger("relay.ndi.multiview")
@@ -33,7 +35,6 @@ LAYOUTS: dict[str, tuple[int, int, tuple[int, int, int, int] | None]] = {
 LAYOUT_NAMES = {"2x2": "2 x 2", "3x3": "3 x 3", "4x4": "4 x 4", "1+5": "1 big, 5 small", "1+7": "1 big, 7 small"}
 KINDS = ("empty", "source", "clock", "timer")
 _ID = re.compile(r"[a-z0-9][a-z0-9\-]{0,39}")
-_TIME = re.compile(r"([01]\d|2[0-3]):[0-5]\d")
 
 
 def cells(layout: str) -> list[tuple[int, int, int, int]]:
@@ -58,7 +59,7 @@ def clean_box(raw: Any) -> dict:
             "label": " ".join(label.split())[:40] if isinstance(label, str) else "",
             "meter": raw.get("meter") is True,
             "mode": raw.get("mode") if raw.get("mode") in ("time", "service") else "time",
-            "at": at if isinstance(at, str) and _TIME.fullmatch(at) else "10:30"}
+            "at": at if timewin.is_clock(at) else "10:30"}
 
 
 def clean_multiview(raw: Any) -> dict | None:
@@ -84,7 +85,7 @@ def clean_multiviews(raw: Any) -> list[dict]:
         mv = clean_multiview(r)
         if mv is None or len(out) >= MAX_MULTIVIEWS:
             continue
-        base = mv["id"] or re.sub(r"[^a-z0-9]+", "-", mv["name"].lower()).strip("-")[:30] or "multiview"
+        base = mv["id"] or slug(mv["name"], limit=30, fallback="multiview")
         mid, n = base, 2
         while mid in used:
             mid, n = f"{base}-{n}", n + 1

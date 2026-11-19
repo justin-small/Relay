@@ -27,6 +27,8 @@ from dataclasses import dataclass, field
 from datetime import date, datetime, time, timedelta, timezone
 from zoneinfo import ZoneInfo
 
+from . import timewin
+
 UTC = timezone.utc
 
 # US zones only, in the order the dropdown lists them. Arizona is its own entry
@@ -43,11 +45,10 @@ US_TIMEZONES: list[tuple[str, str]] = [
 TZ_LABELS = dict(US_TIMEZONES)
 DEFAULT_TIMEZONE = "America/New_York"
 
-DAY_ABBR = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
+DAY_ABBR = list(timewin.DAY_ABBR)
 REPEATS = ("weekly", "once")
 NAME_MAX = 60
 _ID = re.compile(r"[A-Za-z0-9_-]{1,32}\Z")
-_TIME = re.compile(r"([01]\d|2[0-3]):([0-5]\d)\Z")
 # How far ahead the panel looks for the next start. A weekly schedule always
 # recurs inside 8 days; a one-off can be further out, up to a year.
 LOOKAHEAD_DAYS = 8
@@ -103,10 +104,10 @@ def _parse_date(raw, what: str) -> date | None:
 
 
 def _parse_time(raw, what: str) -> str:
-    m = _TIME.match(str(raw or "").strip())
-    if not m:
+    clock = timewin.clean_clock(str(raw or ""))
+    if not clock:
         raise ScheduleError(_field_key("time", what))
-    return m.group(0)
+    return clock
 
 
 def validate(raw: dict, *, sid: str | None = None) -> dict:
@@ -201,8 +202,8 @@ class Window:
 
 
 def _hm(s: str) -> time:
-    h, m = s.split(":")
-    return time(int(h), int(m))
+    mins = timewin.minutes(s)
+    return time(mins // 60, mins % 60)
 
 
 def localize(d: date, t: time, tz: ZoneInfo) -> datetime:
@@ -242,7 +243,7 @@ def occurrences(s: dict, frm: datetime, to: datetime) -> list[Window]:
         days = set(s["days"])
         dates = []
         while d <= end:
-            if (d.weekday() + 1) % 7 in days \
+            if timewin.weekday(d) in days \
                     and (first is None or d >= first) and (last is None or d <= last):
                 dates.append(d)
             d += timedelta(days=1)
@@ -319,14 +320,13 @@ def fmt_date(iso: str | None) -> str:
 
 def fmt_time(hhmm: str) -> str:
     """HH:MM (24-hour) -> h:mm AM/PM."""
-    h, m = (int(x) for x in hhmm.split(":"))
-    return f"{(h % 12) or 12}:{m:02d} {'AM' if h < 12 else 'PM'}"
+    return timewin.us_clock(hhmm)
 
 
 def fmt_instant(dt: datetime, tz: str) -> str:
     """A UTC instant as US wall-clock in `tz`: 'Sun 09/27/2026 10:00 AM CDT'."""
     loc = dt.astimezone(ZoneInfo(tz))
-    day = DAY_ABBR[(loc.weekday() + 1) % 7]
+    day = DAY_ABBR[timewin.weekday(loc)]
     return (f"{day} {loc.month:02d}/{loc.day:02d}/{loc.year} "
             f"{fmt_time(f'{loc.hour:02d}:{loc.minute:02d}')} {loc.tzname()}")
 

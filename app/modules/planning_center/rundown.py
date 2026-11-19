@@ -29,6 +29,7 @@ from datetime import datetime, timezone
 from typing import Any
 from zoneinfo import ZoneInfo
 
+from ...text import same_name
 from . import planningcenter as pc
 
 MAX_MAPPINGS = 64
@@ -181,8 +182,8 @@ def _key(m: dict) -> str:
 
 
 def _matches(mapping: dict, member: dict) -> bool:
-    return (member["position"].lower() == mapping["position"].lower()
-            and (not mapping["team"] or member["team"].lower() == mapping["team"].lower()))
+    return (same_name(member["position"], mapping["position"])
+            and (not mapping["team"] or same_name(member["team"], mapping["team"])))
 
 
 def draw_mics(mapping: dict, people: list[dict], kept: dict[str, str], rng: random.Random | None = None) -> dict:
@@ -210,7 +211,7 @@ def _note(item: dict, category: str) -> str:
     if not category:
         return ""
     for n in item.get("notes") or []:
-        if n["category"].strip().lower() == category.lower() and n["content"].strip():
+        if same_name(n["category"], category) and n["content"].strip():
             return n["content"].strip()
     return ""
 
@@ -303,9 +304,8 @@ def build(track: Any, settings: dict, now: float, zone: ZoneInfo, want_time: str
     if len(draws) > MAX_DRAWS:
         draws = dict(list(draws.items())[-MAX_DRAWS:])
 
-    leader_pos = rs["leader_position"].lower()
-    leader_default = next((m for m in members if m["position"].lower() == leader_pos and m["status"] != "declined"),
-                          None)
+    leader_default = next((m for m in members if same_name(m["position"], rs["leader_position"])
+                           and m["status"] != "declined"), None)
 
     def person(m: dict) -> dict:
         return {"id": m["id"], "name": m["name"], "status": m["status"], "photo": m["photo"],

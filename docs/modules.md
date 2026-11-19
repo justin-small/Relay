@@ -836,6 +836,22 @@ result: on every operator page, in every preset, buttons are 34, 28 or 32px tall
 The pages that keep their own sizes (the viewer pages, overlay, rundown, signage, boards and cue canvases, tally,
 stage, the crew phone pages) are listed in `docs/ui-audit/standardization-spec.md`.
 
+## Shared names, slugs, days and clock times
+
+Core and every module compare names, make slugs and read days and times through two core files (#522, part of the
+shared-concepts epic #521, audit in `docs/reference/shared-concepts-audit.md`):
+
+- `app/text.py`: `same_name(a, b)` and `fold()` (case and spacing ignored) for matching a scene, cue, team, position or
+  tag by name; `plain()` and `strip_accents()` for fuzzy matching; `slug(name, taken)` for a new address.
+- `app/timewin.py`: **days count from Sunday = 0** everywhere (`weekday(d)`, never Python's `d.weekday()`, which
+  counts from Monday); `is_clock`, `clean_clock`, `minutes` and `us_clock` for "HH:MM"; `window_start(now, start,
+  end, day_ok)` for a daily window, including one past midnight.
+
+Import the function (`from ...text import same_name`) rather than the module where a function has a local named `text`.
+`tests/test_shared_concepts.py` fails on a new `.casefold()`, `unicodedata.normalize(`, `[^a-z0-9]` slug pattern,
+`.weekday()` or HH:MM pattern outside those two files; a use that is right is marked `# allow-shared: <why>` on its
+line. Its baseline, `tests/shared_concepts_baseline.txt`, may only shrink.
+
 ## Rules
 
 1. **Imports go one way.** A module may import core (`app.config`, `app.hub`, `app.engine`, `app.panels`,

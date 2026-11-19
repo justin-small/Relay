@@ -8,7 +8,7 @@
 
   const canManage = window.relayCan('youtube.manage');
   const canSend = window.relayCan('youtube.publish');
-  const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+  const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];   // Sunday = 0 (app/timewin.py)
   const MATCH = { date: 'By the episode\'s day and time', next: 'The next broadcast', manual: 'One I pick' };
   const PRIVACY = { public: 'Public', unlisted: 'Unlisted', private: 'Private' };
   let data = null, shown = '', formShown = false;
@@ -139,7 +139,7 @@
     function ruleRow(r) {
       const d = el('div', 'ytrule');
       const name = el('input'); name.value = r.name || ''; name.maxLength = 80; name.placeholder = 'Sunday Morning';
-      const day = select(DAYS.map(function (n, i) { return [i, n]; }), r.day === undefined ? 6 : r.day);
+      const day = select(DAYS.map(function (n, i) { return [i, n]; }), r.day === undefined ? 0 : r.day);
       const t = el('input'); t.type = 'time'; t.value = r.time || '10:00';
       d.appendChild(field('Name', name)); d.appendChild(field('Day', day)); d.appendChild(field('Time (' + data.zone + ')', t));
       d.appendChild(button('Remove', '', async function () { d.remove(); }));

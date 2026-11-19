@@ -31,6 +31,13 @@ in its `static/*.css`, listed in `admin_styles` or `crew_styles`. `tests/test_st
 baseline (`tests/style_contract_baseline.txt`) may only go down; `tests/test_browser.py` checks the drawn sizes. See
 "Shared styles for module pages" in `docs/modules.md` and the exceptions in `docs/ui-audit/standardization-spec.md`.
 
+## Names, slugs, days and clock times come from text.py and timewin.py (enforced)
+
+Compare names with `app/text.py` (`same_name`, `fold`, `plain`) and make slugs with its `slug`; read days and clock
+times with `app/timewin.py`, where **days count from Sunday = 0** (`timewin.weekday(d)`, never `d.weekday()`).
+`tests/test_shared_concepts.py` enforces this, and its baseline (`tests/shared_concepts_baseline.txt`) may only
+shrink. See "Shared names, slugs, days and clock times" in `docs/modules.md`.
+
 ## Tests wait on events and run real code (enforced)
 
 Python tests do not add fixed sleeps (use `wait_for`/`await_for`), `unittest.mock` or `monkeypatch`, hand-written

@@ -21,8 +21,9 @@ from datetime import date, datetime, timedelta, timezone
 from typing import Callable
 from zoneinfo import ZoneInfo
 
+from ... import timewin
+
 TARGETS = ("screen", "group", "all")
-TIME_RE = re.compile(r"^([01]\d|2[0-3]):([0-5]\d)$")
 DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 DAY_NAMES = ("Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat")
 HORIZON_DAYS = 8
@@ -79,12 +80,6 @@ def local(now_utc: datetime, tz: str) -> datetime:
     return now_utc.astimezone(zone(tz)).replace(tzinfo=None)
 
 
-def _minutes(hhmm: str) -> int:
-    return int(hhmm[:2]) * 60 + int(hhmm[3:])
-
-
-def _sunday_index(d: date) -> int:
-    return (d.weekday() + 1) % 7
 
 
 # ------------------------------------------------------------------ slots
@@ -127,7 +122,7 @@ def clean_slot(raw: dict) -> dict:
     if bool(start_time) != bool(end_time):
         raise Refused("Give both a start and an end time, or neither for the whole day.")
     for t in (start_time, end_time):
-        if t and not TIME_RE.match(t):
+        if t and not timewin.is_clock(t):
             raise Refused("Times are written HH:MM, 24-hour.")
     if start_time and start_time == end_time:
         raise Refused("The start and end time must differ.")
@@ -153,19 +148,14 @@ def _occurrence_start(slot: dict, now: datetime) -> datetime | None:
     """When the run of `slot` that covers wall-clock `now` began, or None if it does not cover it."""
     days = {int(d) for d in slot["days"].split(",") if d != ""}
     timed = bool(slot["start_time"])
-    starts, ends = (_minutes(slot["start_time"]), _minutes(slot["end_time"])) if timed else (0, 24 * 60)
-    crossing = timed and ends <= starts
-    candidates = [now.date()] + ([now.date() - timedelta(days=1)] if crossing else [])
-    for d in candidates:
-        if days and _sunday_index(d) not in days:
-            continue
-        if slot["start_date"] and not slot["start_date"] <= d.isoformat() <= slot["end_date"]:
-            continue
-        begin = datetime(d.year, d.month, d.day) + timedelta(minutes=starts)
-        finish = datetime(d.year, d.month, d.day) + timedelta(minutes=ends + (24 * 60 if crossing else 0))
-        if begin <= now < finish:
-            return begin
-    return None
+    starts, ends = (timewin.minutes(slot["start_time"]), timewin.minutes(slot["end_time"])) if timed else (0, 0)
+
+    def day_ok(d: date) -> bool:
+        if days and timewin.weekday(d) not in days:
+            return False
+        return not slot["start_date"] or slot["start_date"] <= d.isoformat() <= slot["end_date"]
+
+    return timewin.window_start(now, starts, ends, day_ok)
 
 
 def _level(slot: dict, screen: dict) -> int | None:
@@ -193,11 +183,7 @@ def matching(slots: list[dict], screen: dict, now: datetime) -> list[dict]:
 
 def describe_slot(slot: dict) -> str:
     """"Sun, Wed 9:00 AM-11:30 AM", "Dec 20-Jan 3 all day", for the admin page."""
-    def clock(t: str) -> str:
-        h, m = int(t[:2]), int(t[3:])
-        return f"{h % 12 or 12}:{m:02d} {'AM' if h < 12 else 'PM'}"
-
-    when = f"{clock(slot['start_time'])}-{clock(slot['end_time'])}" if slot["start_time"] else "all day"
+    when = f"{timewin.us_clock(slot['start_time'])}-{timewin.us_clock(slot['end_time'])}" if slot["start_time"] else "all day"
     if is_range(slot):
         span = slot["start_date"] if slot["start_date"] == slot["end_date"] else f"{slot['start_date']} to {slot['end_date']}"
         days = ""

@@ -11,6 +11,7 @@ from __future__ import annotations
 import time
 
 from ... import db
+from ...text import same_name
 from . import checkin, paging, people
 
 TITLE_MAX, ITEM_MAX, POSITION_MAX = 60, 140, 80
@@ -46,7 +47,7 @@ def clean(payload) -> dict:
 
 
 def same(a: str, b: str) -> bool:
-    return a.strip().casefold() == b.strip().casefold()
+    return same_name(a, b)
 
 
 # -- who may edit ------------------------------------------------------------------------------------------------

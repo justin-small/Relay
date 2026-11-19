@@ -39,7 +39,7 @@ import uuid
 from datetime import datetime
 from typing import Any, Iterable
 
-from . import layout
+from . import layout, text, timewin
 
 MAX_BOARDS = 50
 MAX_ITEMS = 100
@@ -49,7 +49,6 @@ _SLUG = re.compile(r"[a-z0-9](?:[a-z0-9-]{0,38}[a-z0-9])?")
 _ITEM_ID = re.compile(r"[A-Za-z0-9_-]{1,40}")
 _TYPE = re.compile(r"[a-z][a-z0-9_]{0,31}(?:\.[a-z][a-z0-9_]{0,31})?")
 _PROP_KEY = re.compile(r"[a-z][a-z0-9_]{0,31}")
-_TIME = re.compile(r"([01]?\d|2[0-3]):[0-5]\d")
 RATIOS = {"16:9": (12, 8), "4:3": (8, 6), "9:16": (6, 10)}
 KINDS = ("button", "captions", "clock", "countdown", "text", "status", "lines", "list", "spl", "rta", "frame")
 FIELD_TYPES = ("text", "area", "select", "check", "time", "number", "note", "ro")
@@ -69,7 +68,8 @@ ROTATE = "rotate"            # a schedule row that shows the rotation
 KEEP = "keep"                # following: when nothing matches, the page stays
 DAYS = {"all": "Every day", "weekdays": "Weekdays", "weekends": "Weekends", "mon": "Monday", "tue": "Tuesday",
         "wed": "Wednesday", "thu": "Thursday", "fri": "Friday", "sat": "Saturday", "sun": "Sunday"}
-DAY_NUMBERS = {"mon": 0, "tue": 1, "wed": 2, "thu": 3, "fri": 4, "sat": 5, "sun": 6}
+# Each one-day choice as its weekday number (Sunday = 0, see app/timewin.py).
+DAY_NUMBERS = {k: i for i, k in enumerate(timewin.DAY_KEYS)}
 # The background colours a widget's settings card offers (the full look has a colour picker).
 SWATCHES = ("#18181b", "#1e3a8a", "#14532d", "#7f1d1d", "#713f12", "#3f3f46")
 MATCHES = {"presentation": "Presentation", "group": "Slide group", "label": "Slide label"}
@@ -229,8 +229,8 @@ def clean_props(raw: Any, definition: dict | None) -> dict:
         elif kind == "check":
             value = value is True
         elif kind == "time":
-            value = value if isinstance(value, str) and _TIME.fullmatch(value) else \
-                (f["default"] if isinstance(f["default"], str) and _TIME.fullmatch(f["default"]) else "")
+            value = value if timewin.clean_clock(value, loose=True) else \
+                (f["default"] if timewin.clean_clock(f["default"], loose=True) else "")
         elif kind == "number":
             value = layout.number(value, -1_000_000, 1_000_000, f["default"] if isinstance(f["default"], int) else 0)
         elif kind == "area":
@@ -286,10 +286,7 @@ def clean_pages(raw_pages: Any, raw_items: Any, cat: dict[str, dict] | None, col
 
 
 def _hhmm(value: Any, default: str) -> str:
-    if isinstance(value, str) and _TIME.fullmatch(value):
-        h, m = value.split(":")
-        return f"{int(h):02d}:{m}"
-    return default
+    return timewin.clean_clock(value, loose=True) or default
 
 
 def clean_rotation(raw: Any, page_ids: list[str]) -> dict:
@@ -368,29 +365,19 @@ def clean_list(raw: Any) -> list[dict]:
 
 
 # --------------------------------------------------------------------------------------------- which page shows now
-def _minutes(hhmm: str) -> int:
-    h, m = hhmm.split(":")
-    return int(h) * 60 + int(m)
-
-
 def _day_ok(days: str, weekday: int) -> bool:
-    return days == "all" or (days == "weekdays" and weekday < 5) or (days == "weekends" and weekday >= 5) \
-        or DAY_NUMBERS.get(days) == weekday
+    """Whether a row's `days` choice includes `weekday` (Sunday = 0)."""
+    return days == "all" or (days == "weekdays" and weekday in timewin.WEEKDAYS) \
+        or (days == "weekends" and weekday in timewin.WEEKEND) or DAY_NUMBERS.get(days) == weekday
 
 
 def schedule_row(board: dict, now: datetime) -> int | None:
     """The index of the first schedule row that covers `now` (local time), else None. A row whose end is before its
     start runs past midnight; then the day it started on is the one checked."""
-    m, wd = now.hour * 60 + now.minute, now.weekday()
     for i, r in enumerate(board["rotation"]["schedule"]):
-        a, b = _minutes(r["from"]), _minutes(r["to"])
-        if a == b:
-            hit, day = True, wd
-        elif a < b:
-            hit, day = a <= m < b, wd
-        else:
-            hit, day = (m >= a or m < b), (wd if m >= a else (wd - 1) % 7)
-        if hit and _day_ok(r["days"], day):
+        days = r["days"]
+        if timewin.window_start(now, timewin.minutes(r["from"]), timewin.minutes(r["to"]),
+                                lambda d, days=days: _day_ok(days, timewin.weekday(d))):
             return i
     return None
 
@@ -495,12 +482,7 @@ def templates(cat: dict[str, dict]) -> list[dict]:
 # --------------------------------------------------------------------------------------------- changes
 def slug_for(name: str, taken: set[str]) -> str:
     """A new board's address from its name: lowercase words joined by hyphens, numbered when already taken."""
-    base = re.sub(r"[^a-z0-9]+", "-", (name or "").lower()).strip("-")[:32].strip("-") or "board"
-    slug, n = base, 2
-    while slug in taken:
-        slug = f"{base}-{n}"
-        n += 1
-    return slug
+    return text.slug(name, taken, limit=32, fallback="board")
 
 
 def find(boards: list[dict], bid: str) -> dict | None:

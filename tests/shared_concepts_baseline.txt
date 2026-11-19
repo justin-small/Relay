@@ -1,0 +1,4 @@
+# Hand-written name tidying, Monday-first weekdays and HH:MM patterns outside app/text.py and
+# app/timewin.py when tests/test_shared_concepts.py came in (#522). This list may only shrink: fix one,
+# lower its count here (or run the test with --rebaseline).
+# rule  count  file
