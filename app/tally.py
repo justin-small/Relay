@@ -7,7 +7,9 @@ Modules that read a video switcher (ATEM, Tally Arbiter, ...) publish into this 
 The tally screens (`/tally`) and the panel view read only this state, whichever module filled it, so
 core never names a switcher. Core never imports a module.
 
-A camera is `{"n": 1, "name": "Camera 1", "program": True, "preview": False}`. `n` is the number a phone
+A camera is `{"n": 1, "name": "Camera 1", "program": True, "preview": False}`, and may carry `"channel"`: the ref of the core
+video channel (app/channels.py, #542) it points at. The name shown is then that channel's name, so the tally screen, the NDI
+page and the Blackmagic page call it the same thing. `n` is the number a phone
 asks for (`/tally?camera=1`). Two sources may publish at once (a main switcher and a streaming one): a camera
 is on program or preview when any source says so, and the first source to name a number names it.
 
@@ -23,6 +25,7 @@ import re
 import time
 from typing import AsyncIterator
 
+from . import channels
 from .hub import sse_frame
 
 STREAM = "tally"
@@ -47,8 +50,12 @@ def clean_camera(raw: object) -> dict | None:
     n = raw.get("n")
     if isinstance(n, bool) or not isinstance(n, int) or not 1 <= n <= 999:
         return None
-    return {"n": n, "name": _name(raw.get("name"), n), "program": raw.get("program") is True,
-            "preview": raw.get("preview") is True}
+    cam = {"n": n, "name": _name(raw.get("name"), n), "program": raw.get("program") is True,
+           "preview": raw.get("preview") is True}
+    link = raw.get("channel")
+    if isinstance(link, str) and channels.channel_id(link) is not None:
+        cam["channel"] = link
+    return cam
 
 
 class Tally:
@@ -88,7 +95,15 @@ class Tally:
                 else:
                     have["program"] = have["program"] or cam["program"]
                     have["preview"] = have["preview"] or cam["preview"]
-        return [merged[n] for n in sorted(merged)][:MAX_CAMERAS]
+                    if "channel" not in have and "channel" in cam:
+                        have["channel"] = cam["channel"]
+        out = [merged[n] for n in sorted(merged)][:MAX_CAMERAS]
+        if any("channel" in c for c in out):
+            shown = channels.names()
+            for cam in out:
+                if shown.get(cam.get("channel", "")):
+                    cam["name"] = shown[cam["channel"]][:NAME_MAX]
+        return out
 
     def payload(self) -> dict:
         cams = self.cameras()
@@ -102,7 +117,7 @@ class Tally:
         }
 
     def version(self) -> int:
-        return self._version
+        return self._version + channels.generation()
 
 
 tally = Tally()

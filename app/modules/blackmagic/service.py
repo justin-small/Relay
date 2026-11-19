@@ -20,7 +20,7 @@ import re
 import secrets
 import time
 
-from ... import cables as core_cables, config, db, gear, ports, screens, tally
+from ... import cables as core_cables, channels, config, db, gear, ports, screens, tally
 from ...text import same_name
 from . import atem_protocol as p
 from . import drawings, hyperdeck, videohub
@@ -421,6 +421,8 @@ class Service:
         self._watch: asyncio.Task | None = None
         self._lock = asyncio.Lock()
         self._ported: dict[str, tuple] = {}      # device id -> the connectors last recorded as its ports
+        self._chan_sig: dict[str, tuple] = {}    # device id -> the video channels last reported to core
+        self._chan_refs: dict[str, dict[str, str]] = {}   # device id -> {channel key: core channel ref}
 
     # ------------------------------------------------------------------------------------------ tally
     def publish(self) -> None:
@@ -433,7 +435,9 @@ class Service:
             if not (dev.cfg["kind"] == "atem" and dev.cfg["tally"] and dev.connected):
                 continue
             offset = dev.cfg["tally_offset"]
-            cams = [dict(c, n=c["n"] + offset) for c in dev.client.cameras() if c["n"] + offset <= 999]
+            refs = self._chan_refs.get(dev.cfg["id"], {})
+            cams = [dict(c, n=c["n"] + offset, **({"channel": refs[key]} if (key := f"{dev.cfg['id']}:in{c['n']}") in refs else {}))
+                    for c in dev.client.cameras() if c["n"] + offset <= 999]
             tally.tally.publish(dev.source, cams)
             live.add(dev.source)
         for gone in self._published - live:
@@ -578,7 +582,36 @@ class Service:
                     self._ported[out["id"]] = sig
                 except (db.Unavailable, ports.Refused):
                     log.warning("Blackmagic: could not record the connectors of %s", out["name"])
+        self._report_channels(out)
         return out
+
+    @staticmethod
+    def _video_channels(out: dict) -> list[dict]:
+        """The video channels a device has, as core channels (app/channels.py, #542): a switcher's inputs and a Videohub's
+        inputs (sources) and outputs (destinations). The key is the device id and the device's own number, so a
+        rename on the device keeps the channel."""
+        if out["kind"] == "atem":
+            return [{"key": f"{out['id']}:in{i['id']}", "kind": "video", "direction": "source", "number": i["id"],
+                     "gear_name": i["name"]} for i in out.get("inputs", [])]
+        hub = out.get("videohub") or {}
+        return ([{"key": f"{out['id']}:vin{i['n']}", "kind": "video", "direction": "source", "number": i["n"] + 1,
+                  "gear_name": i["label"]} for i in hub.get("inputs", [])]
+                + [{"key": f"{out['id']}:vout{o['n']}", "kind": "video", "direction": "destination", "number": o["n"] + 1,
+                    "gear_name": o["label"]} for o in hub.get("outputs", [])])
+
+    def _report_channels(self, out: dict) -> None:
+        """Tell core which video channels this device has, only while it is connected (an unreachable one does not say
+        what it has, and its channels must not all turn missing), and only when they changed."""
+        if not (out["connected"] and out.get("gear_id")) or out["kind"] == "hyperdeck":
+            return
+        found = self._video_channels(out)
+        sig = (out["gear_id"], tuple((c["key"], c["number"], c["gear_name"]) for c in found))
+        if self._chan_sig.get(out["id"]) == sig:
+            return
+        refs = channels.report("blackmagic", found, out["gear_id"])
+        if refs is not None:
+            self._chan_refs[out["id"]] = refs
+            self._chan_sig[out["id"]] = sig
 
     def _connected(self, did: str) -> bool:
         dev = self.devices.get(did)

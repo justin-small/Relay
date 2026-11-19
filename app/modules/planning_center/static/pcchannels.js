@@ -40,9 +40,9 @@
     return hit;
   }
 
-  function addChannel(number, name, id) {
+  function addChannel(number, name, id, ref) {
     if (!number && !name) return;
-    edit().push({ id: id || 'c' + Date.now().toString(36), number: number, name: name, positions: [] });
+    edit().push({ id: id || 'c' + Date.now().toString(36), number: number, name: name, channel_ref: ref || '', positions: [] });
     dirty(true);
     render();
   }
@@ -125,6 +125,8 @@
     const nm = el('div', 'nm');
     if (ch.number) nm.appendChild(el('span', 'num', ch.number));
     if (ch.name) nm.appendChild(el('span', 'name', ch.name));
+    if (ch.channel_missing) nm.appendChild(el('span', 'note', ' (its channel is no longer reported)'));
+    else if (ch.name_only) nm.appendChild(el('span', 'note', ' (name only: not tied to a Relay channel)'));
     r.appendChild(nm);
     const asg = el('div', 'asg');
     ch.positions.forEach(function (a, i) { asg.appendChild(chip(ch, a, i)); });
@@ -202,7 +204,7 @@
   $('pcChAdd').addEventListener('click', function () {
     const picked = [...$('pcChPickList').querySelectorAll('input:checked:not(:disabled)')].map(function (b) { return b.value; });
     ((data && data.catalog) || []).filter(function (c) { return picked.indexOf(c.id) >= 0; }).forEach(function (c) {
-      addChannel(c.number, c.name, c.id);
+      addChannel(c.number, c.name, c.id, c.ref);
     });
   });
   $('pcChRefresh').addEventListener('click', function () { document.dispatchEvent(new Event('pc:poll')); });

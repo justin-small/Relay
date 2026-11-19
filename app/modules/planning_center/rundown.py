@@ -29,7 +29,7 @@ from datetime import datetime, timezone
 from typing import Any
 from zoneinfo import ZoneInfo
 
-from ... import directory
+from ... import channels as core_channels, db, directory
 from ...text import same_name
 from . import planningcenter as pc
 
@@ -83,11 +83,50 @@ def refresh_saved(rs: dict) -> bool:
         if any(entry.get(k) != v for k, v in new.items()):
             entry.update(new)
             changed = True
+    changed = _refresh_channels(rs) or changed
     # The song leader's position (#521): matched to a ref like the mic mappings, and renamed with Planning Center.
     _, _, pref, pos = _pick({"position_ref": rs.get("leader_position_ref")}, "", rs.get("leader_position", ""), live=True)
     if (rs.get("leader_position_ref", ""), rs.get("leader_position", "")) != (pref, pos):
         rs["leader_position_ref"], rs["leader_position"] = pref, pos
         changed = True
+    return changed
+
+
+def _match_channel(name: str) -> str:
+    """The ref of the one present core audio channel that has this name, or "" when none or several do (#542)."""
+    if not name:
+        return ""
+    found = [c for c in core_channels.listing("audio") if not c["missing"] and same_name(c["shown"], name)]
+    return found[0]["ref"] if len(found) == 1 else ""
+
+
+def _refresh_channels(rs: dict) -> bool:
+    """Bring each channel on the board, and each mic label, up to date with core channels (#542): a typed name that matches
+    one present channel adopts its ref once, and a linked channel takes its current name and number. A channel that is
+    gone keeps its saved name and is flagged on the page. True when anything changed."""
+    changed = False
+    try:
+        for ch in rs.get("channels") or []:
+            got = core_channels.by_ref(ch.get("channel_ref"))
+            ref = got["ref"] if got else _match_channel(ch.get("name", ""))
+            got = got or core_channels.by_ref(ref)
+            new = {"channel_ref": ref if got else ""}
+            if got and not got["missing"]:
+                new["name"] = _text(got["shown"], 40)
+                if got["number"] is not None:
+                    new["number"] = _text(got["number"], 12)
+            if any(ch.get(k) != v for k, v in new.items()):
+                ch.update(new)
+                changed = True
+        for mp in rs.get("mics") or []:
+            refs = mp.setdefault("mic_refs", {})
+            for label in mp["mics"]:
+                got = core_channels.by_ref(refs.get(label)) or core_channels.by_ref(_match_channel(label))
+                if got and refs.get(label) != got["ref"]:
+                    refs[label] = got["ref"]
+                    changed = True
+    except db.Unavailable:
+        return changed
     return changed
 
 
@@ -117,8 +156,10 @@ def clean_rundown(raw: Any) -> dict:
         if not pos or (pref or (team, pos)) in seen or not labels:
             continue
         seen.add(pref or (team, pos))
+        refs = m.get("mic_refs") if isinstance(m.get("mic_refs"), dict) else {}
         mics.append({"team": team, "team_ref": tref, "position": pos, "position_ref": pref, "mics": labels[:MAX_MICS], "sings": m.get("sings") is not False,
-                     "label": _text(m.get("label"), 24)})
+                     "label": _text(m.get("label"), 24),
+                     "mic_refs": {x: refs[x] for x in labels[:MAX_MICS] if core_channels.channel_id(refs.get(x)) is not None}})
     channels = clean_channels(raw.get("channels"))
     draws: dict[str, dict[str, str]] = {}
     src = raw.get("draws")
@@ -164,7 +205,8 @@ def clean_channels(raw: Any) -> list[dict]:
                 keys.add(k)
                 positions.append({"service_type": st, "team": team, "team_ref": tref, "position": pos,
                                   "position_ref": pref})
-        out.append({"id": cid, "name": name, "number": number, "positions": positions})
+        link = c.get("channel_ref") if core_channels.channel_id(c.get("channel_ref")) is not None else ""
+        out.append({"id": cid, "name": name, "number": number, "channel_ref": link, "positions": positions})
     return out
 
 

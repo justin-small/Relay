@@ -32,7 +32,7 @@ from jinja2 import ChoiceLoader, FileSystemLoader, PrefixLoader
 from . import alerts as alertsmod
 from . import backup as backupmod
 from . import announce as announcemod
-from . import alerthistory, audiobus, audit, boards, cables, config, db, devices, exporting, importdocker, languages, metering, mixreport, netinfo, network_map, netroute, overlays, panelfw, panels, prefs, redact, schedules, screens, serving, setupcode, streamstatus, tally, tls, users
+from . import alerthistory, audiobus, audit, boards, cables, channels, config, db, devices, exporting, importdocker, languages, metering, mixreport, netinfo, network_map, netroute, overlays, panelfw, panels, prefs, redact, schedules, screens, serving, setupcode, streamstatus, tally, tls, users
 from .alerts import alerts
 from . import engine as engine_mod
 from .engine import TRANSCRIPTION_STREAM, TRANSLATION_STREAM, demo_mode, engine
@@ -239,6 +239,12 @@ AUDIT_ROUTES = {
     "admin_network_cable_add": ("network.cable_add", "Recorded a cable between two ports"),
     "admin_network_cable_note": ("network.cable_note", "Changed a note on a cable"),
     "admin_network_cable_remove": ("network.cable_remove", "Removed a cable between two ports"),
+    "admin_network_channel_rename": ("network.channel_rename", "Renamed a channel"),
+    "admin_network_channel_note": ("network.channel_note", "Changed a note on a channel"),
+    "admin_network_channel_merge": ("network.channel_merge", "Joined two channels into one"),
+    "admin_network_channel_split": ("network.channel_split", "Split a channel apart"),
+    "admin_network_channel_decline": ("network.channel_decline", "Said two channels are not the same"),
+    "admin_network_channel_forget": ("network.channel_forget", "Forgot a channel"),
     "admin_network_forget": ("network.forget", "Forgot a network port"),
     "admin_network_labels": ("network.labels", "Changed device names or notes on the network map"),
     "admin_network_places": ("network.places", "Changed where the network gear is"),
@@ -2076,6 +2082,97 @@ async def admin_network_cable_remove(cid: int, request: Request):
         return JSONResponse({"error": "The database is down, so cables cannot be removed right now."}, status_code=503)
     audit.note(request, "network.cable_remove", "Removed a cable between two ports", target=cables.ref(cid))
     return {"cables": network_map.cable_rows()}
+
+
+def _channels_view() -> dict:
+    """Every channel with its ends, and the pairs Relay suggests are one channel (never joined on its own)."""
+    def slim(c: dict) -> dict:
+        return {"id": c["id"], "ref": c["ref"], "shown": c["shown"], "kind": c["kind"], "providers": c["providers"]}
+    return {"channels": channels.listing(),
+            "suggestions": [{"a": slim(x["a"]), "b": slim(x["b"]), "why": x["why"]} for x in channels.suggestions()]}
+
+
+async def _channel_change(fn, *args):
+    """Run one channel change off the event loop and answer with the whole view, or a fixed sentence for a refusal."""
+    try:
+        await asyncio.to_thread(fn, *args)
+        return await asyncio.to_thread(_channels_view)
+    except channels.Refused as exc:
+        return JSONResponse({"error": channels.REFUSALS[exc.key]}, status_code=409 if exc.key in ("kind", "present", "same") else 404)
+    except db.Unavailable:
+        return JSONResponse({"error": "The database is down, so channels cannot be changed right now."}, status_code=503)
+
+
+@app.get("/api/admin/network/channels", dependencies=[Depends(require("network.view"))])
+async def admin_network_channels():
+    """Every audio, video and talk channel, however many modules report it, and the joins Relay suggests."""
+    try:
+        return await asyncio.to_thread(_channels_view)
+    except db.Unavailable:
+        return JSONResponse({"error": "The database is down, so channels cannot be read right now."}, status_code=503)
+
+
+@app.post("/api/admin/network/channels/merge", dependencies=[Depends(require("network.manage"))])
+async def admin_network_channel_merge(payload: dict, request: Request):
+    """Join two channels an operator says are one: {"keep": "channel:relay:1", "other": "channel:relay:2"}."""
+    keep, other = channels.channel_id(payload.get("keep")), channels.channel_id(payload.get("other"))
+    if keep is None or other is None:
+        return JSONResponse({"error": channels.REFUSALS["no_channel"]}, status_code=400)
+    out = await _channel_change(channels.merge, keep, other)
+    audit.note(request, "network.channel_merge", "Joined two channels into one", detail={"keep": channels.ref(keep), "other": channels.ref(other)})
+    return out
+
+
+@app.post("/api/admin/network/channels/split", dependencies=[Depends(require("network.manage"))])
+async def admin_network_channel_split(payload: dict, request: Request):
+    """Take one end out of a channel: {"end": 12}."""
+    end = payload.get("end")
+    if not isinstance(end, int) or isinstance(end, bool):
+        return JSONResponse({"error": channels.REFUSALS["no_end"]}, status_code=400)
+    out = await _channel_change(channels.split, end)
+    audit.note(request, "network.channel_split", "Split a channel apart", detail={"end": end})
+    return out
+
+
+@app.post("/api/admin/network/channels/decline", dependencies=[Depends(require("network.manage"))])
+async def admin_network_channel_decline(payload: dict, request: Request):
+    """Say two channels are not the same, so they are not suggested again: {"a": "channel:relay:1", "b": "channel:relay:2"}."""
+    a, b = channels.channel_id(payload.get("a")), channels.channel_id(payload.get("b"))
+    if a is None or b is None:
+        return JSONResponse({"error": channels.REFUSALS["no_channel"]}, status_code=400)
+    out = await _channel_change(channels.decline, a, b)
+    audit.note(request, "network.channel_decline", "Said two channels are not the same", detail={"a": channels.ref(a), "b": channels.ref(b)})
+    return out
+
+
+@app.post("/api/admin/network/channels/{cid}/rename", dependencies=[Depends(require("network.manage"))])
+async def admin_network_channel_rename(cid: int, payload: dict, request: Request):
+    """A Relay-only name for a channel. Empty text shows the reporting gear's own name again."""
+    name = payload.get("name", "")
+    if not isinstance(name, str) or len(name) > channels.NAME_MAX:
+        return JSONResponse({"error": f"A name is up to {channels.NAME_MAX} characters."}, status_code=400)
+    out = await _channel_change(channels.rename, cid, name)
+    audit.note(request, "network.channel_rename", "Renamed a channel", target=channels.ref(cid))
+    return out
+
+
+@app.post("/api/admin/network/channels/{cid}/note", dependencies=[Depends(require("network.manage"))])
+async def admin_network_channel_note(cid: int, payload: dict, request: Request):
+    """The note on a channel. Empty text clears it."""
+    text = payload.get("text", "")
+    if not isinstance(text, str) or len(text) > channels.NOTE_MAX:
+        return JSONResponse({"error": f"A note is up to {channels.NOTE_MAX} characters."}, status_code=400)
+    out = await _channel_change(channels.set_note, cid, text)
+    audit.note(request, "network.channel_note", "Changed a note on a channel", target=channels.ref(cid))
+    return out
+
+
+@app.delete("/api/admin/network/channels/{cid}", dependencies=[Depends(require("network.manage"))])
+async def admin_network_channel_forget(cid: int, request: Request):
+    """Forget a channel that no module reports any more."""
+    out = await _channel_change(channels.forget, cid)
+    audit.note(request, "network.channel_forget", "Forgot a channel", target=channels.ref(cid))
+    return out
 
 
 @app.post("/api/admin/network/classes/{cid}", dependencies=[Depends(require("network.manage"))])

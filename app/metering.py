@@ -38,7 +38,7 @@ import time
 
 import numpy as np
 
-from . import audiobus
+from . import audiobus, channels
 
 log = logging.getLogger("relay.metering")
 
@@ -361,15 +361,23 @@ def _db(v) -> float | None:
     return round(max(-20.0, min(200.0, n)), 1) if not math.isnan(n) and not math.isinf(n) else None
 
 
+def _report_sources() -> None:
+    """The registered sound-level sources are audio channels in core (#542): a source is a channel you can meter."""
+    found = [{"key": k, "kind": "audio", "direction": "source", "gear_name": label} for k, label in sources()]
+    channels.report("metering", found)
+
+
 def register_source(source_id: str, label: str) -> None:
     with _ext_lock:
         if source_id in _sources or len(_sources) < MAX_SOURCES:
             _sources[source_id] = {"label": str(label)[:40], "reading": None, "ts": 0.0}
+    _report_sources()
 
 
 def unregister_source(source_id: str) -> None:
     with _ext_lock:
         _sources.pop(source_id, None)
+    _report_sources()
 
 
 def sources() -> list[tuple[str, str]]:

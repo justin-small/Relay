@@ -28,6 +28,7 @@ import base64
 import contextlib
 import hmac
 import json
+import logging
 import math
 import posixpath
 import re
@@ -37,12 +38,14 @@ import uuid
 from collections import deque
 from typing import Any
 
-from ... import audit, config, languages, tally
+from ... import audit, channels, config, languages, tally
 from ...alerts import alerts
 from ...hub import hub
 from ...streamstatus import streams
 from ...text import same_name
 from .client import DEFAULT_PORT, EVENTS, METERS, Connection, ObsError
+
+log = logging.getLogger("relay.obs")
 
 KEY = "obs"
 MAX_MACHINES = 4
@@ -344,6 +347,14 @@ class Machine:
         self.scenes = [s["sceneName"] for s in scenes][:200]
         self.program = d.get("currentProgramSceneName") or ""
         self.preview_scene = d.get("currentPreviewSceneName") or ""
+        self._report_channels()
+
+    def _report_channels(self) -> None:
+        """Each OBS scene is a video source channel in core (#542), so a scene and the camera it shows can be named
+        once. Reported only while OBS answers: a computer that is off does not say what scenes it has."""
+        found = [{"key": f"{self.cfg['id']}:{n}", "kind": "video", "direction": "source", "gear_name": n}
+                 for n in self.scenes]
+        channels.report("obs", found, within=f"{self.cfg['id']}:")
 
     async def _read_replay(self, conn: Connection) -> None:
         try:

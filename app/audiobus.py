@@ -31,7 +31,7 @@ from typing import Callable
 import numpy as np
 import soxr
 
-from . import audio
+from . import audio, channels
 from .audio import LANE_RATE as RATE, MAX_LANES as LANES
 
 log = logging.getLogger("relay.audiobus")
@@ -127,6 +127,16 @@ def normalize(raw) -> dict:
         matrix.append({"in": lane, "out": oid, "ch": ch, "gain_db": round(max(GAIN_MIN_DB, min(GAIN_MAX_DB, gain)), 2)})
     matrix.sort(key=lambda x: (x["out"], x["ch"], x["in"]))
     return {"enabled": bool(raw.get("enabled")), "lanes": lanes, "outputs": outputs, "matrix": matrix}
+
+
+def report_channels(cfg: dict) -> None:
+    """Tell core which audio channels the bus has (#542): each patched lane is a source and each output a destination, so
+    the console, the intercom and a rundown can pick one by ref instead of a typed name and number."""
+    found = [{"key": f"lane{s['lane']}", "kind": "audio", "direction": "source", "number": s["lane"],
+              "gear_name": s["name"] or f"Lane {s['lane']}"} for s in cfg["lanes"]]
+    found += [{"key": "out:" + o["id"], "kind": "audio", "direction": "destination", "gear_name": o["name"] or o["id"]}
+              for o in cfg["outputs"]]
+    channels.report("audiobus", found)
 
 
 def db_to_gain(db: float) -> float:
@@ -553,6 +563,7 @@ class Bus:
         """Make the bus match `cfg`, touching only what changed: a device or output that is the same as before
         keeps running, so changing one feed does not disturb another."""
         cfg = normalize(cfg)
+        report_channels(cfg)
         with self._lock:
             self.config = cfg
             if not cfg["enabled"]:

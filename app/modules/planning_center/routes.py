@@ -11,7 +11,7 @@ import re
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse
 
-from ... import config, panels
+from ... import channels as core_channels, config, db, panels
 from ...scheduler import scheduler
 from ...panels import registry as panel_registry
 from ... import modules as shared
@@ -246,6 +246,16 @@ def _who(user) -> str:
     return "Admin page"
 
 
+def _link_flag(ref) -> dict:
+    """Whether a channel or mic label is tied to a core channel (#542). `name_only` is a typed name with no channel behind
+    it, shown on the page so it is not mistaken for one; `channel_missing` is a channel its gear no longer has."""
+    try:
+        got = core_channels.by_ref(ref)
+    except db.Unavailable:
+        return {"name_only": not ref, "channel_missing": False}
+    return {"name_only": got is None, "channel_missing": bool(got and got["missing"])}
+
+
 def _rundown_settings_view() -> dict:
     """The settings for the admin page. Each mic mapping and channel assignment says whether Planning Center no longer
     lists its position ("missing") or it was never matched to one ("unmatched"), so neither is silently ignored (#525)."""
@@ -257,8 +267,10 @@ def _rundown_settings_view() -> dict:
 
     rs = config.get()["planning_center"]["rundown"]
     out = {k: v for k, v in rs.items() if k != "draws"}
-    out["mics"] = [flagged(m) for m in rs["mics"]]
-    out["channels"] = [{**c, "positions": [flagged(a) for a in c["positions"]]} for c in rs["channels"]]
+    out["mics"] = [{**flagged(m), "mic_flags": {x: _link_flag(m.get("mic_refs", {}).get(x)) for x in m["mics"]}}
+                   for m in rs["mics"]]
+    out["channels"] = [{**c, "positions": [flagged(a) for a in c["positions"]], **_link_flag(c.get("channel_ref"))}
+                       for c in rs["channels"]]
     got = directory.describe(rs.get("leader_position_ref", ""), rs.get("leader_position", ""))
     out["leader_missing"], out["leader_unmatched"] = got["missing"], got["unmatched"]
     return out
@@ -270,6 +282,15 @@ def channel_catalog() -> tuple[list[dict], str]:
     page lets the operator type a channel in. Returns the channels and the names of the modules that gave them."""
     out: list[dict] = []
     sources: list[str] = []
+    try:
+        for c in core_channels.listing("audio"):
+            if not c["missing"] and c["direction"] == "source":
+                out.append({"id": c["ref"], "ref": c["ref"], "number": str(c["number"] if c["number"] is not None else ""),
+                            "name": c["shown"]})
+        if out:
+            sources.append("Relay channels")
+    except db.Unavailable:
+        log.info("the database is down, so Relay's own channels are not offered")
     for mod in shared.modules.active():
         fn = getattr(mod, "mixer_channels", None)
         if not callable(fn):

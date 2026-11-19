@@ -12,6 +12,8 @@
 # which is the device part; it is not a second device.
 # time: the old crew migrations 0002-0008 made epoch columns; 0014_iso_times_and_notifications.sql converts them (#529).
 # They stay as history (a saved migration is never edited); nothing new may add one.
+# intercom_channels stays (#542): it keeps the talk settings (mode, talkers, latch) of a channel; core holds the channel as a talk
+# channel. The rundown's board channels stay: each keeps its assignments to positions and points at a core channel by channel_ref.
 # rule  count  file
 import 2 app/modules/intercom_remote/__init__.py
 import 2 app/modules/intercom_remote/cloud.py
@@ -29,3 +31,5 @@ time 1 app/modules/crew/migrations/0005_checkin.sql
 time 1 app/modules/crew/migrations/0006_checklists.sql
 time 1 app/modules/crew/migrations/0007_resources.sql
 time 2 app/modules/crew/migrations/0008_devices.sql
+channel 1 app/modules/intercom/migrations/0001_intercom.sql
+channel 1 app/modules/planning_center/rundown.py
