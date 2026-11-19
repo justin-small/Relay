@@ -42,7 +42,7 @@
       "</div></div></div>",
 
     hub:
-      '<div class="hubl"><span>The systems you already run</span><span>The people and screens that need to know</span></div><div class="hub">' +
+      '<div class="hub">' +
       chips([["Soundboard feed", "audio in"], ["ProPresenter", "slides, timers"], ["Planning Center", "today's plan"], ["Blackmagic ATEM", "tally, cuts"], ["OBS Studio", "stream, scenes"], ["YouTube", "live status"], ["Lighting software", "cues"], ["UniFi network", "health"]]) +
       '<div class="hwr" aria-hidden="true">' + lines("in") + '</div><div class="hm">' + '<svg aria-hidden="true" viewBox="0 0 64 64" width="72" height="72">' + MARK + "</svg>" + '</div><div class="hwr" aria-hidden="true">' + lines("out") + "</div>" +
       chips([["Operator panel", "the booth"], ["Crew phones", "plan, chat"], ["Intercom", "talk"], ["Caption panels", "walls, stage"], ["Camera screens", "tally"], ["Stream overlays", "captions"], ["Lobby TVs", "signage"], ["Visitors' phones", "12 languages"]]) +
