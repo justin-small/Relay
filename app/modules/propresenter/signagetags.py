@@ -45,7 +45,18 @@ _picks: dict[tuple[str, int], int] = {}
 def _signage_on() -> bool:
     from ... import modules
 
-    return modules.modules.enabled("signage")
+    return modules.using("signage.content") is not None
+
+
+def _content():
+    """What signage provides ("signage.content": store, media, live, takeover, schedule, sources); an action stops
+    with a sentence while signage is off."""
+    from ... import modules
+
+    got = modules.using("signage.content")
+    if got is None:
+        raise RuntimeError(OFF)
+    return got
 
 
 def layer(screen: dict, now_utc: datetime) -> dict | None:
@@ -61,7 +72,7 @@ def state() -> dict[str, Any]:
     """What tags have put on screens now, for the tag panel: [{target, name, playlist}]."""
     if not _picks or not _signage_on():
         return {"on": _signage_on(), "held": []}
-    from ..signage import store
+    store = _content().store
 
     try:
         screens = {s["id"]: s["name"] for s in store.screens()}
@@ -116,7 +127,7 @@ def _target(kind: str, value: str | None, rows_of: dict[str, list[dict]], takes_
 
 
 def _playlist(name: str) -> dict:
-    from ..signage import store
+    store = _content().store
 
     row = _named(store.playlists(), name)
     if row is None:
@@ -125,7 +136,7 @@ def _playlist(name: str) -> dict:
 
 
 def _media(name: str) -> dict:
-    from ..signage import store
+    store = _content().store
 
     rows = [m for m in store.media_list() if m["kind"] == "image"]
     row = _named(rows, name)
@@ -141,13 +152,14 @@ def _media(name: str) -> dict:
 
 # ------------------------------------------------------------------ the actions (sync; run off the event loop)
 def _tables() -> dict[str, list[dict]]:
-    from ..signage import store
+    store = _content().store
 
     return {"screen": store.screens(), "group": store.groups()}
 
 
 def _do(action: str, value: str | None) -> str:
-    from ..signage import live, store, takeover
+    content = _content()
+    live, store, takeover = content.live, content.store, content.takeover
 
     if not _signage_on():
         raise RuntimeError(OFF)
@@ -190,7 +202,7 @@ def _do(action: str, value: str | None) -> str:
 
 def _action(name: str):
     async def run(value: str | None) -> str:
-        from ..signage import store
+        store = _content().store
 
         try:
             return await asyncio.to_thread(_do, name, value)

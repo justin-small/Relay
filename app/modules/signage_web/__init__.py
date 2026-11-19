@@ -53,19 +53,19 @@ class SignageWeb(Module):
         return [router]
 
     def attach(self) -> None:
-        from ..signage import sources
+        from ... import modules
         from . import sourcing
 
         for kind, label in ((WEB_KIND, "Web page"), (YOUTUBE_KIND, "YouTube video or playlist")):
-            sources.register(sources.Source(
-                kind=kind, label=label, resolve=sourcing.resolver(kind), describe=sourcing.describer(kind),
-                choices=sourcing.chooser(kind)))
+            modules.provide("signage.source." + kind, {
+                "label": label, "resolve": sourcing.resolver(kind), "describe": sourcing.describer(kind),
+                "choices": sourcing.chooser(kind)})
 
     def detach(self) -> None:
-        from ..signage import sources
+        from ... import modules
 
-        sources.unregister(WEB_KIND)
-        sources.unregister(YOUTUBE_KIND)
+        modules.withdraw("signage.source." + WEB_KIND)
+        modules.withdraw("signage.source." + YOUTUBE_KIND)
 
     def health(self) -> Health:
         from ... import config

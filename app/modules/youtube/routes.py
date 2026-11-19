@@ -104,10 +104,11 @@ async def stream_keys():
 
 
 async def _pc(fn, *args):
-    from ..planning_center import planningcenter as pcm
+    from .. import using
 
     client = pc_client()
-    if client is None:
+    pcm = using("plan.api")
+    if client is None or pcm is None:
         return _problem(NO_PC, 409)
     try:
         return await asyncio.to_thread(getattr(client, fn), *args)

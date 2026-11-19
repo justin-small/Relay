@@ -72,29 +72,44 @@ class PlanningCenter(Module):
 
     def attach(self) -> None:
         from ... import config, engine as enginemod
-        from ...panels import registry as panel_registry
-        from ..signage import sources as signage_sources
-        from . import signagesync
+        from ... import modules
+        from . import planningcenter, signagesync
+        from .pclive import follower
+        from .routes import control, rundown_now
         from .servicefeed import feed
 
         # A service type followed or dropped reaches open panel pickers at once.
         feed.on_offered_change = enginemod.engine._push_status
-        # The service types a panel may be set to show or control.
-        panel_registry.followed_service_types = lambda: list(config.get()["planning_center"]["service_types"])
+        # What core and other modules ask for by name (#523). The service types a panel may be set to show or control:
+        modules.provide("plan.service_types", lambda: list(config.get()["planning_center"]["service_types"]))
+        modules.provide("plan.label", self._plan_label)
+        modules.provide("plan.starts_at", self._service_starts_at)
+        modules.provide("plan.api", planningcenter)
+        modules.provide("plan.follower", follower)
+        modules.provide("plan.rundown_now", rundown_now)
+        modules.provide("plan.control", control)
+        modules.provide("plan.feed", feed)
+        # Whoever listens (crew, the ProPresenter link) hears when the followed plans change.
+        if modules.announce_plan_changed not in follower.listeners:
+            follower.listeners.append(modules.announce_plan_changed)
         # Plan item text slides (#209) are a kind of signage item; signage skips them while this module is off.
-        signage_sources.register(signage_sources.Source(
-            kind=signagesync.KIND, label="Planning Center plan item", resolve=signagesync.source_resolve,
-            describe=signagesync.source_describe, choices=signagesync.source_choices))
+        modules.provide("signage.source." + signagesync.KIND, {
+            "label": "Planning Center plan item", "resolve": signagesync.source_resolve,
+            "describe": signagesync.source_describe, "choices": signagesync.source_choices})
 
     def detach(self) -> None:
-        from ...panels import registry as panel_registry
-        from ..signage import sources as signage_sources
+        from ... import modules
         from . import signagesync
+        from .pclive import follower
         from .servicefeed import feed
 
         feed.on_offered_change = None
-        panel_registry.followed_service_types = lambda: []
-        signage_sources.unregister(signagesync.KIND)
+        if modules.announce_plan_changed in follower.listeners:
+            follower.listeners.remove(modules.announce_plan_changed)
+        for name in ("plan.service_types", "plan.label", "plan.starts_at", "plan.api", "plan.follower",
+                     "plan.rundown_now", "plan.control", "plan.feed"):
+            modules.withdraw(name)
+        modules.withdraw("signage.source." + signagesync.KIND)
         signagesync.memory.forget()
 
     async def start(self) -> None:
@@ -148,7 +163,8 @@ class PlanningCenter(Module):
         return {"ok": True, "detail": f"Connected. The account has {len(types)} service type"
                                       f"{'s' if len(types) != 1 else ''}."}
 
-    def plan_label(self) -> str | None:
+    @staticmethod
+    def _plan_label() -> str | None:
         from datetime import datetime
 
         from .pclive import follower
@@ -165,7 +181,8 @@ class PlanningCenter(Module):
             return f"{plan['title']} {clock}".strip()
         return ""
 
-    def service_starts_at(self) -> float | None:
+    @staticmethod
+    def _service_starts_at() -> float | None:
         import time
 
         from .pclive import follower

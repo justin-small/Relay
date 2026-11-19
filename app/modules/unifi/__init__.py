@@ -63,6 +63,17 @@ class UniFi(Module):
 
         return [router]
 
+    def attach(self) -> None:
+        from ... import modules
+        from .service import service
+
+        modules.provide("unifi.service", service)       # the crew's Wi-Fi check-in reads who is on the network
+
+    def detach(self) -> None:
+        from ... import modules
+
+        modules.withdraw("unifi.service")
+
     async def start(self) -> None:
         from .service import service
 

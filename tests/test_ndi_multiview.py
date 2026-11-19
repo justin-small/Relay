@@ -171,18 +171,12 @@ with section("the routes"):
 
 with section("the next service time"):
     eq("nothing knows it", registry.service_starts_at(), None)
-    from app.modules import Module
+    from app import modules as core
 
-    class Knows(Module):
-        manifest = MODULE.manifest
-
-        def service_starts_at(self):
-            return 123.0
-
-    real = registry.active
-    registry.active = lambda: [Knows()]
-    eq("the first module that knows answers", registry.service_starts_at(), 123.0)
-    registry.active = real
+    core.provide("plan.starts_at", lambda: 123.0, owner="planning_center")      # what Planning Center provides
+    eq("the module that knows answers", registry.service_starts_at(), 123.0)
+    core.withdraw("plan.starts_at")
+    eq("and nothing does once it is gone", registry.service_starts_at(), None)
 
 MODULE.detach()
 asyncio.run(svc.service.stop())

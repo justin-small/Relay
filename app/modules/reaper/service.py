@@ -500,7 +500,7 @@ service = Service()
 def attach_hooks() -> None:
     from ... import modules as registry
 
-    registry.recording_hook = service.control
+    registry.provide("reaper.recording", service.control)
     if service.presentation not in registry.presentation_listeners:
         registry.presentation_listeners.append(service.presentation)
     if service.alert_event not in alerts.listeners:
@@ -510,7 +510,7 @@ def attach_hooks() -> None:
 def detach_hooks() -> None:
     from ... import modules as registry
 
-    registry.recording_hook = None
+    registry.withdraw("reaper.recording")
     with contextlib.suppress(ValueError):
         registry.presentation_listeners.remove(service.presentation)
     with contextlib.suppress(ValueError):

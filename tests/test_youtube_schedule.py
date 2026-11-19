@@ -126,6 +126,7 @@ svc.ACCOUNT.status = lambda: {"state": "connected", "service": "YouTube", "messa
 config.ensure_file()
 config.save({"modules": {"youtube": {"enabled": True}}})
 registry.attach("youtube")
+registry.attach("planning_center")          # YouTube asks Planning Center for its client by name (#523)
 P = sch.planner
 P.lock = asyncio.Lock()
 NOW = time.time()

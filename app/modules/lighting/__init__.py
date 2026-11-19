@@ -56,19 +56,19 @@ class Lighting(Module):
 
         return [router]
 
-    # The fire hook is a hook into core, so it is set in attach() and removed in detach().
+    # The cue and its screen page are provided to core in attach() and removed in detach().
     def attach(self) -> None:
         from ... import modules as registry
         from .routes import fire, screen_page
 
-        registry.cue_hook = fire
-        registry.screen_pages["lighting"] = screen_page
+        registry.provide("lighting.cues", fire)
+        registry.provide("screen_pages.lighting", screen_page)
 
     def detach(self) -> None:
         from ... import modules as registry
 
-        registry.cue_hook = None
-        registry.screen_pages.pop("lighting", None)
+        registry.withdraw("lighting.cues")
+        registry.withdraw("screen_pages.lighting")
 
     async def start(self) -> None:
         from .service import service

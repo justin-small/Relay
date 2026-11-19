@@ -157,17 +157,17 @@ def watch(vid: str) -> str:
 
 
 def _pc_on() -> bool:
-    from .. import modules as registry
-    from ..planning_center import planningcenter as pcm
+    from .. import modules as registry, using
 
-    return registry.running("planning_center") and pcm.connected(config.get())
+    pcm = using("plan.api")           # Planning Center provides it while it is on (#523)
+    return pcm is not None and registry.running("planning_center") and pcm.connected(config.get())
 
 
 def pc_client():
     """Planning Center's client while that module is on and connected, else None."""
-    from ..planning_center import planningcenter as pcm
+    from .. import using
 
-    return pcm.client_from(config.get()) if _pc_on() else None
+    return using("plan.api").client_from(config.get()) if _pc_on() else None
 
 
 # ---------------------------------------------------------------- when services are
@@ -469,8 +469,9 @@ class Planner:
         if client is None:
             self.link_errors[link_id] = NO_PC
             return {"ok": False, "error": NO_PC}
-        from ..planning_center import planningcenter as pcm
+        from .. import using
 
+        pcm = using("plan.api")
         try:
             await asyncio.to_thread(client.set_episode_video, link["episode_id"], watch(b["id"]))
         except pcm.PlanningCenterError as exc:

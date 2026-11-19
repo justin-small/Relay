@@ -60,13 +60,13 @@ class Ndi(Module):
         from ... import modules as registry
         from .service import service
 
-        registry.ndi_hooks.update({"sources": service.hook_sources, "subscribe": service.hook_subscribe,
-                                   "register_output": service.hook_output})
+        registry.provide("ndi", {"sources": service.hook_sources, "subscribe": service.hook_subscribe,
+                                 "register_output": service.hook_output})
 
     def detach(self) -> None:
         from ... import modules as registry
 
-        registry.ndi_hooks.clear()
+        registry.withdraw("ndi")
 
     async def start(self) -> None:
         from .service import service

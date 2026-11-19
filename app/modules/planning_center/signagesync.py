@@ -162,6 +162,16 @@ def source_choices() -> list[dict]:
             for k, v in memory.load()["texts"].items() if isinstance(v, dict)]
 
 
+def _content():
+    """What signage provides ("signage.content"), or the sync stops: it needs signage on."""
+    from ... import modules
+
+    got = modules.using("signage.content")
+    if got is None:
+        raise SyncError("off")
+    return got
+
+
 class SyncError(Exception):
     def __init__(self, key: str):
         super().__init__(key)
@@ -216,7 +226,7 @@ class Sync:
     def _signage_on() -> bool:
         from ... import modules
 
-        return modules.modules.enabled("signage")
+        return modules.using("signage.content") is not None
 
     # -- one pass ----------------------------------------------------------------------------------------
     async def sync(self, force: bool = False) -> dict:
@@ -319,7 +329,7 @@ class Sync:
         log.info("Plan files sync: %d file(s), %d text slide(s) from plan %s", self.files, self.texts, plan["id"])
 
     async def _download(self, client, x: dict):
-        from ..signage import media
+        media = _content().media
 
         limit = media.IMAGE_LIMIT if x["content_type"].startswith("image/") else media.VIDEO_LIMIT
         gen = client.stream_file(x["url"], limit)
@@ -336,7 +346,7 @@ class Sync:
             return None
 
     async def _store(self, client, playable: list[dict], s: dict) -> list[tuple[str, str]]:
-        from ..signage import store
+        store = _content().store
 
         mem = memory.load()
         rows = {m["id"]: m for m in await asyncio.to_thread(store.media_list) if m["name"].startswith(PREFIX)}
@@ -373,7 +383,7 @@ class Sync:
 
     @staticmethod
     def _finish(refs: list[tuple[str, str]], playlist: bool) -> None:
-        from ..signage import store
+        store = _content().store
 
         if playlist:
             lists = [p for p in store.playlists() if p["name"] == PLAYLIST_NAME]

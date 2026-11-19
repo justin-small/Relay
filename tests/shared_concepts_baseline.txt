@@ -1,4 +1,16 @@
 # Hand-written name tidying, Monday-first weekdays and HH:MM patterns outside app/text.py and
-# app/timewin.py when tests/test_shared_concepts.py came in (#522). This list may only shrink: fix one,
-# lower its count here (or run the test with --rebaseline).
+# app/timewin.py when tests/test_shared_concepts.py came in (#522), and modules that import another
+# module's package (#523). This list may only shrink: fix one, lower its count here (or run the test
+# with --rebaseline).
+# intercom_remote -> intercom stays: the remote intercom is the same feature as the intercom (its rooms, its
+# devices, its presence, its watchdog), not an add-on that has to cope with the intercom being off.
+# intercom_remote -> remote_access stays: it reads the enrolment and the cloud client that module holds even
+# while the tunnel (remote access) is off, so asking by name would stop the remote intercom when it is.
 # rule  count  file
+import 2 app/modules/intercom_remote/__init__.py
+import 2 app/modules/intercom_remote/cloud.py
+import 3 app/modules/intercom_remote/media.py
+import 2 app/modules/intercom_remote/remote.py
+import 2 app/modules/intercom_remote/routes.py
+import 1 app/modules/intercom_remote/store.py
+import 1 app/modules/intercom_remote/watch.py

@@ -855,11 +855,11 @@ def attach_hooks() -> None:
     from ... import modules as registry
 
     hub.add_line_sink(service.line_sink)
-    registry.scene_hook = service.switch_scene
+    registry.provide("obs.scenes", service.switch_scene)
 
 
 def detach_hooks() -> None:
     from ... import modules as registry
 
     hub.remove_line_sink(service.line_sink)
-    registry.scene_hook = None
+    registry.withdraw("obs.scenes")

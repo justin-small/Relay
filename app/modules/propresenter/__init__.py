@@ -87,9 +87,7 @@ class ProPresenter(Module):
     def attach(self) -> None:
         from ... import alerts as alertsmod
         from ...panels import registry as panel_registry
-        from ..planning_center.routes import control as pc_control
-        from ..planning_center.servicefeed import feed as service_feed
-        from ..signage import schedule as signage_schedule
+        from ... import modules
         from . import propresenter, signagetags, slidetags
         from .pclink import link as pc_link
         from .propresenter import follower, timers_feed
@@ -100,36 +98,35 @@ class ProPresenter(Module):
                                                             else follower.alert_started(alert_id, text))
         slidetags.tags.actions = {**ACTIONS, **signagetags.ACTIONS}
         # Signage: what a tag put on a screen is the schedule's "tag" layer. The actions refuse while signage is off.
-        signage_schedule.register_layer("tag", signagetags.layer)
+        modules.provide("signage.layer.tag", signagetags.layer)
         # Panels: the lyrics as a feed, and each panel's own timer settings.
         panel_registry.lyrics_offered = lambda: propresenter.panel_offers()["lyrics"]
         panel_registry.on_timers_change = timers_feed.refresh
         timers_feed.panel_settings = panel_registry.timer_settings
-        # The Planning Center link: ProPresenter moves Services LIVE through the same press path as a panel, and tells
-        # the Service feed which plan item it has up. Inert while the Planning Center module is off.
-        pc_link.pc_control = pc_control
-        pc_link.on_change = service_feed.refresh
-        service_feed.extra = pc_link.feed_extra
+        # The Planning Center link: ProPresenter moves Services LIVE through the same press path as a panel (it asks
+        # for "plan.control"), and tells the Service feed which plan item it has up. Inert while Planning Center is off.
+        modules.provide("propresenter.feed_extra", pc_link.feed_extra)
+        # The ProPresenter follower, for the modules that page through it (parent paging).
+        modules.provide("propresenter.follower", propresenter.follower)
+        modules.provide("propresenter.api", propresenter)
 
     def detach(self) -> None:
         from ... import alerts as alertsmod
         from ...panels import registry as panel_registry
-        from ..planning_center.servicefeed import feed as service_feed
-        from ..signage import schedule as signage_schedule
+        from ... import modules
         from . import signagetags, slidetags
-        from .pclink import link as pc_link
         from .propresenter import timers_feed
 
-        signage_schedule.unregister_layer("tag")
+        modules.withdraw("signage.layer.tag")
+        modules.withdraw("propresenter.feed_extra")
+        modules.withdraw("propresenter.follower")
+        modules.withdraw("propresenter.api")
         signagetags.forget()
         alertsmod.alerts.on_stage = None
         slidetags.tags.actions = {}
         panel_registry.lyrics_offered = lambda: False
         panel_registry.on_timers_change = lambda: None
         timers_feed.panel_settings = lambda pid: None
-        pc_link.pc_control = None
-        pc_link.on_change = None
-        service_feed.extra = None
 
     async def start(self) -> None:
         from .pclink import link as pc_link
