@@ -912,6 +912,11 @@ Import the function (`from ...text import same_name`) rather than the module whe
 import store`: use `modules.using("signage.content")`, see [Reaching another module](#reaching-another-module)); a use that is right is marked `# allow-shared: <why>` on its
 line. Its baseline, `tests/shared_concepts_baseline.txt`, may only shrink.
 
+**Time columns are ISO UTC text** (#529): a new column is `<name>_at text`, written with `db.now()` or `db.iso(ts)`
+(`2027-01-15T08:00:00Z`) and read with `db.epoch(text)` when arithmetic or a page counting in seconds needs a number.
+The test fails on a new `*_ts` or `*_epoch` column or an `_at` column typed real or integer. A session of the remote
+intercom is a row of `intercom_sessions` with `via = 'remote'`, not a table of its own.
+
 ## Named schedules and the Relay time zone
 
 One time zone, set under **Settings > System** (config `timezone`, `config.timezone()`), is read by every schedule,

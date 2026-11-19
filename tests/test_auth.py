@@ -608,8 +608,8 @@ for method, path, perm in (
     ("PUT", "/api/admin/crew/people/{user_id}/role", "crew.manage"),
     ("POST", "/api/admin/crew/people/{user_id}/name", "crew.manage"),
     ("DELETE", "/api/admin/crew/people/{user_id}/match", "crew.manage"),
-    ("GET", "/api/admin/crew/pages", "crew.page"),
-    ("POST", "/api/admin/crew/pages", "crew.page"),                       # an empty body is refused
+    ("GET", "/api/admin/crew/notifications", "crew.page"),
+    ("POST", "/api/admin/crew/notifications", "crew.page"),                       # an empty body is refused
     ("GET", "/api/admin/crew/arrivals", "crew.page"),
     ("DELETE", "/api/admin/crew/arrivals", "crew.page"),
     ("GET", "/api/admin/crew/devices", "crew.view"),

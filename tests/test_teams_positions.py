@@ -21,7 +21,7 @@ import app.main as main  # noqa: E402,F401
 from app import config, db, directory, users  # noqa: E402
 from app.main import app  # noqa: E402
 from app.modules import modules  # noqa: E402
-from app.modules.crew import MODULE, calltimes, chat, checklists, paging, people, refs, resources  # noqa: E402
+from app.modules.crew import MODULE, calltimes, chat, checklists, notifications, people, refs, resources  # noqa: E402
 from app.modules.planning_center import MODULE as PC, planningcenter as pc, rundown  # noqa: E402
 from app.modules.planning_center.pclive import Track, follower  # noqa: E402
 
@@ -89,7 +89,7 @@ with section("saved names from before get a ref, and what cannot be matched is f
                " values ('camera', 'before', 60, 'Cameras', 1, ?), ('Lights', 'before', 30, 'Lights', 1, ?)", (db.now(), db.now()))
     db.execute("insert into crew_checklists (title, position, updated_at) values ('Setup', 'Mixer', ?), ('All', '', ?)",
                (db.now(), db.now()))
-    db.execute("insert into crew_resources (position, kind, title, url, created_by, created_ts)"
+    db.execute("insert into crew_resources (position, kind, title, url, created_by, created_at)"
                " values ('Sound', 'link', 'Guide', 'https://x.example/g', 1, 0)")
     db.execute("insert into crew_checklist_leads (user_id, position) values (?, 'Camera 2')", (mike.id,))
     refs.adopt()
@@ -145,7 +145,7 @@ with section("a rename in Planning Center keeps everything working and updates t
     sat = datetime(2026, 11, 15, 7, 0, tzinfo=ZONE).timestamp()
     rule = {**rules["Cameras"], "kind": "fixed", "weekday": 0, "clock": "07:00"}
     eq("the call time still reaches the people on the renamed team",
-       [r["person"] for r in paging.serving_for([tr], rule["team_ref"], rule["team"])], ["501"])
+       [r["person"] for r in notifications.serving_for([tr], rule["team_ref"], rule["team"])], ["501"])
     eq("and still fires for them", [o[1] for o in calltimes.occasions(rule, [tr], sat, ZONE)], [sat])
     eq("the checklist still applies to who holds the position",
        checklists.applies({"position": "Camera 1", "position_ref": "position:pco:12/34"}, checklists.held(mike.id, [tr])), True)

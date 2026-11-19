@@ -15,7 +15,6 @@ import os
 import re
 import secrets
 import tempfile
-import time
 import zipfile
 from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
@@ -190,8 +189,8 @@ def add_url(user_id: int, kind: str, title, position, url, allowed: list[str], p
     t, (pr, p), u = clean_title(title), clean_position(position, position_ref), clean_url(url, kind, allowed)
     people.ready()
     _room(p, pr)
-    return db.one("insert into crew_resources (position, position_ref, kind, title, url, created_by, created_ts)"
-                  " values (?, ?, ?, ?, ?, ?, ?) returning id", (p, pr, kind, t, u, user_id, time.time()))["id"]
+    return db.one("insert into crew_resources (position, position_ref, kind, title, url, created_by, created_at)"
+                  " values (?, ?, ?, ?, ?, ?, ?) returning id", (p, pr, kind, t, u, user_id, db.now()))["id"]
 
 
 async def add_file(user_id: int, title, position, chunks, position_ref=None) -> int:
@@ -226,8 +225,8 @@ async def add_file(user_id: int, title, position, chunks, position_ref=None) -> 
         except OSError:
             pass
         raise
-    return db.one("insert into crew_resources (position, position_ref, kind, title, stored, ext, size, created_by, created_ts)"
-                  " values (?, ?, 'file', ?, ?, ?, ?, ?, ?) returning id", (p, pr, t, stored, ext, size, user_id, time.time()))["id"]
+    return db.one("insert into crew_resources (position, position_ref, kind, title, stored, ext, size, created_by, created_at)"
+                  " values (?, ?, 'file', ?, ?, ?, ?, ?, ?) returning id", (p, pr, t, stored, ext, size, user_id, db.now()))["id"]
 
 
 def change(rid: int, title, position, url, allowed: list[str], position_ref=None) -> None:

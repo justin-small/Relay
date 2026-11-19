@@ -1,4 +1,4 @@
-"""Remote crew's tables (#277): who may connect from outside, and the credentials and sessions that came of it.
+"""Remote crew's tables (#277): who may connect from outside, and the credentials that came of it. Its sessions are rows of `intercom_sessions` with via = 'remote' (#529).
 
 Synchronous: call through `intercom.store.run`. Texts raised are fixed sentences.
 """
@@ -89,7 +89,7 @@ def sign_in(username, password, *, name: str = "", user_agent: str = "") -> tupl
 def open_session(device_id: int, user_id: int) -> int:
     ready()
     with db.transaction() as tx:
-        row = tx.one("insert into intercom_remote_sessions (device_id, user_id, started_at) values (?, ?, ?)"
+        row = tx.one("insert into intercom_sessions (device_id, user_id, via, started_at) values (?, ?, 'remote', ?)"
                      " returning id", (device_id, user_id, db.now()))
         istore.log_event(tx, "remote_session_started", user_id=user_id, device_id=device_id)
         return row["id"]
@@ -98,7 +98,7 @@ def open_session(device_id: int, user_id: int) -> int:
 def close_session(session_id: int, device_id: int, user_id: int, reason: str) -> None:
     ready()
     with db.transaction() as tx:
-        tx.execute("update intercom_remote_sessions set ended_at = ?, end_reason = ? where id = ?",
+        tx.execute("update intercom_sessions set ended_at = ?, end_reason = ? where id = ? and via = 'remote'",
                    (db.now(), reason, session_id))
         istore.log_event(tx, "remote_session_ended", user_id=user_id, device_id=device_id,
                          detail={"reason": reason})
@@ -108,7 +108,7 @@ def sessions(limit: int = 50) -> list[dict]:
     ready()
     return db.query(
         "select s.id, s.user_id, u.name as user_name, s.started_at, s.ended_at, s.end_reason"
-        " from intercom_remote_sessions s join users u on u.id = s.user_id order by s.id desc limit ?",
+        " from intercom_sessions s join users u on u.id = s.user_id where s.via = 'remote' order by s.id desc limit ?",
         (max(1, min(limit, 200)),))
 
 

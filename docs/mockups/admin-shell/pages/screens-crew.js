@@ -669,7 +669,7 @@
   def('s-crew-activity', 'Crew app: Activity', 'Operator-only log of who did what, filtered by person, kind and time.', '/crew#activity', 'crew', 'activity', { role: 'operator' });
   def('s-crew-intercom', 'Crew app: Intercom', 'Talk and listen on your channels: hold to talk, latch, mute all, connection and microphone states.', '/crew#intercom', 'crew', 'intercom');
   def('s-crew-join', 'Join the crew app', 'Plain-HTTP page the QR code opens: install the certificate, then open the crew page.', '/crew-join', 'join', '');
-  def('s-crew-page', 'Page confirmation', 'The link in a page notification: read the message, confirm and stop the buzzing.', '/crew/page/{token}', 'page', '');
+  def('s-crew-page', 'Page confirmation', 'The link in a page notification: read the message, confirm and stop the buzzing.', '/crew/notification/{token}', 'page', '');
   def('s-crew-offline', 'Crew app offline', 'What the service worker shows when the phone cannot reach Relay.', '/crew/_/offline', 'offline', '');
   def('s-paging-room', 'Parent paging room', 'A kids room\'s page: tap a checked-in child to page their parent; no sign-in, the link is the key.', '/paging/{secret}', 'paging', '');
 })();

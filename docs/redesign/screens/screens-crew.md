@@ -223,8 +223,8 @@ gets the sign-in form, a role without `crew.use` gets "not allowed".
 * **Implement**: stays self-contained with an inline token block (see the stylesheet section, item 7). Optional new
   step 3 "Add to home screen" shown only once the page is opened over HTTPS (not mocked).
 
-### s-crew-page: Page confirmation (`/crew/page/{token}`)
-* **Files**: `templates/page.html`, routes `GET`/`POST /crew/page/{token}`; reached from the web push notification
+### s-crew-page: Page confirmation (`/crew/notification/{token}`)
+* **Files**: `templates/notification.html`, routes `GET`/`POST /crew/notification/{token}`; reached from the web push notification
   (`url` in `sw.js` `notificationclick`), so the person is signed in on that phone.
 * **On it**: header, card "Page" with the message (`.cr-msg`, 22px), form with `.cr-confirm` "I have read this" or
   `.cr-ok` "Confirmed. The buzzing has stopped." (`role=status`), invalid token "This page link is not valid any

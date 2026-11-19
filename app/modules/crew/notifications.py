@@ -1,11 +1,11 @@
-"""Pages that buzz until read (#228).
+"""Crew notifications that buzz until read (#228; called "pages" until #529).
 
-A page goes to chosen crew accounts, or to a Planning Center team (the people on today's plan whose accounts
+A notification goes to chosen crew accounts, or to a Planning Center team (the people on today's plan whose accounts
 matched, #227). Each person's phone gets a web push, and the push fires again on a front-loaded schedule for at
 most two minutes, stopping for that person the moment they confirm on their own link. The sender sees who has
 confirmed and who is still waiting.
 
-The schedule is worked out on this host from the page's send time (never by a phone), and survives a restart.
+The schedule is worked out on this host from the notification's send time (never by a phone), and survives a restart.
 """
 from __future__ import annotations
 
@@ -27,7 +27,7 @@ MAX_RECIPIENTS = 100
 KEEP_DAYS = 30
 RECENT = 10
 
-pending = True           # something may be due: set when a page is sent, cleared when nothing is open
+pending = True           # something may be due: set when a notification is sent, cleared when nothing is open
 _pool = ThreadPoolExecutor(4, thread_name_prefix="crew-push")
 
 
@@ -37,12 +37,12 @@ class Invalid(people.Invalid):
 
 def clean_message(raw) -> str:
     if not isinstance(raw, str) or any(ord(c) < 32 and c != "\n" or ord(c) == 127 for c in raw):
-        raise Invalid("Write the page as text.")
+        raise Invalid("Write the notification as text.")
     text = " ".join(raw.split())
     if not text:
-        raise Invalid("Write what the page says.")
+        raise Invalid("Write what the notification says.")
     if len(text) > MESSAGE_MAX:
-        raise Invalid(f"A page is at most {MESSAGE_MAX} characters.")
+        raise Invalid(f"A notification is at most {MESSAGE_MAX} characters.")
     return text
 
 
@@ -117,7 +117,7 @@ def subscribed(user_id: int) -> bool:
     return db.one("select 1 as x from crew_push_subs where user_id = ? limit 1", (user_id,)) is not None
 
 
-# -- who a page reaches ------------------------------------------------------------------------------------------
+# -- who a notification reaches ------------------------------------------------------------------------------------------
 def active_members(tracks, time_id: str | None = None):
     """The people on today's plan with a Planning Center id, declined answers left out. With a plan time, only the
     people who serve that time (a person with no times listed serves them all)."""
@@ -203,19 +203,19 @@ def create(message, sender_id, user_ids: list[int], now: float | None = None) ->
     global pending
     text = clean_message(message)
     if not user_ids:
-        raise Invalid("Choose who to page.")
+        raise Invalid("Choose who to notify.")
     if len(user_ids) > MAX_RECIPIENTS:
-        raise Invalid(f"A page goes to at most {MAX_RECIPIENTS} people.")
+        raise Invalid(f"A notification goes to at most {MAX_RECIPIENTS} people.")
     ts = time.time() if now is None else now
     with db.transaction() as tx:
-        tx.execute("delete from crew_pages where sent_ts < ?", (ts - KEEP_DAYS * 86400,))
-        page = tx.one("insert into crew_pages (message, sent_by, sent_ts, created_at) values (?, ?, ?, ?)"
-                      " returning id", (text, sender_id if sender_id and sender_id > 0 else None, ts, db.now()))
+        tx.execute("delete from crew_notifications where created_at < ?", (db.iso(ts - KEEP_DAYS * 86400),))
+        note = tx.one("insert into crew_notifications (message, sent_by, created_at) values (?, ?, ?)"
+                      " returning id", (text, sender_id if sender_id and sender_id > 0 else None, db.iso(ts)))
         for u in user_ids:
-            tx.execute("insert into crew_page_recipients (page_id, user_id, token) values (?, ?, ?)",
-                       (page["id"], u, secrets.token_urlsafe(24)))
+            tx.execute("insert into crew_notification_recipients (notification_id, user_id, token) values (?, ?, ?)",
+                       (note["id"], u, secrets.token_urlsafe(24)))
     pending = True
-    return page["id"]
+    return note["id"]
 
 
 def push_user(key, user_id: int, payload: dict) -> bool:
@@ -237,8 +237,8 @@ def _push_one(key, row: dict) -> bool:
     """Push to every phone this person enabled. True when at least one accepted it."""
     subs = db.query("select id, endpoint, p256dh, auth from crew_push_subs where user_id = ?", (row["user_id"],))
     sent = False
-    payload = {"title": "Page", "body": row["message"], "url": "/crew/page/" + row["token"],
-               "tag": f"page-{row['page_id']}"}
+    payload = {"title": "Notification", "body": row["message"], "url": "/crew/notification/" + row["token"],
+               "tag": f"notification-{row['notification_id']}"}
     for s in subs:
         try:
             webpush.send(key, s, payload)
@@ -258,20 +258,20 @@ def tick(now: float | None = None) -> int:
     people.ready()
     ts = time.time() if now is None else now
     rows = db.query(
-        "select r.page_id, r.user_id, r.token, r.pushes, p.message, p.sent_ts from crew_page_recipients r"
-        " join crew_pages p on p.id = r.page_id where r.confirmed_at is null and r.pushes < ?"
-        " and p.sent_ts > ?", (len(SCHEDULE_S), ts - SCHEDULE_S[-1] - 60))
+        "select r.notification_id, r.user_id, r.token, r.pushes, p.message, p.created_at from crew_notification_recipients r"
+        " join crew_notifications p on p.id = r.notification_id where r.confirmed_at is null and r.pushes < ?"
+        " and p.created_at > ?", (len(SCHEDULE_S), db.iso(ts - SCHEDULE_S[-1] - 60)))
     if not rows:
         pending = False
         return 0
-    due = [r for r in rows if r["sent_ts"] + SCHEDULE_S[r["pushes"]] <= ts]
+    due = [r for r in rows if db.epoch(r["created_at"]) + SCHEDULE_S[r["pushes"]] <= ts]
     if not due:
         return 0
     key = vapid_key()
     results = list(_pool.map(lambda r: _push_one(key, r), due))
     for r, ok in zip(due, results):
-        db.execute("update crew_page_recipients set pushes = pushes + 1, delivered = delivered + ?"
-                   " where page_id = ? and user_id = ?", (1 if ok else 0, r["page_id"], r["user_id"]))
+        db.execute("update crew_notification_recipients set pushes = pushes + 1, delivered = delivered + ?"
+                   " where notification_id = ? and user_id = ?", (1 if ok else 0, r["notification_id"], r["user_id"]))
     return len(due)
 
 
@@ -280,9 +280,12 @@ def by_token(token) -> dict | None:
     if not isinstance(token, str) or not 20 <= len(token) <= 60:
         return None
     people.ready()
-    return db.one("select r.page_id, r.user_id, r.confirmed_at, p.message, p.sent_ts, u.name as sender"
-                  " from crew_page_recipients r join crew_pages p on p.id = r.page_id"
-                  " left join users u on u.id = p.sent_by where r.token = ?", (token,))
+    row = db.one("select r.notification_id, r.user_id, r.confirmed_at, p.message, p.created_at, u.name as sender"
+                 " from crew_notification_recipients r join crew_notifications p on p.id = r.notification_id"
+                 " left join users u on u.id = p.sent_by where r.token = ?", (token,))
+    if row:
+        row["sent_ts"] = int(db.epoch(row["created_at"]))       # the page counts in epoch seconds
+    return row
 
 
 def confirm(token) -> dict | None:
@@ -290,31 +293,32 @@ def confirm(token) -> dict | None:
     if row is None:
         return None
     if row["confirmed_at"] is None:
-        db.execute("update crew_page_recipients set confirmed_at = ? where page_id = ? and user_id = ?"
-                   " and confirmed_at is null", (db.now(), row["page_id"], row["user_id"]))
+        db.execute("update crew_notification_recipients set confirmed_at = ? where notification_id = ? and user_id = ?"
+                   " and confirmed_at is null", (db.now(), row["notification_id"], row["user_id"]))
         row["confirmed_at"] = "now"
     return row
 
 
 def recent(now: float | None = None) -> list[dict]:
-    """The last pages with each person's state: confirmed, waiting, or no phone. Tokens are never included."""
+    """The last notifications with each person's state: confirmed, waiting, or no phone. Tokens are never included."""
     people.ready()
     ts = time.time() if now is None else now
-    pages = db.query("select p.id, p.message, p.sent_ts, u.name as sender from crew_pages p"
+    notes = db.query("select p.id, p.message, p.created_at, u.name as sender from crew_notifications p"
                      " left join users u on u.id = p.sent_by order by p.id desc limit ?", (RECENT,))
     out = []
-    for p in pages:
+    for p in notes:
         rec = db.query("select r.user_id, u.name, r.pushes, r.delivered, r.confirmed_at,"
                        " (select count(*) from crew_push_subs s where s.user_id = r.user_id) as phones"
-                       " from crew_page_recipients r join users u on u.id = r.user_id"
-                       " where r.page_id = ? order by lower(u.name)", (p["id"],))
+                       " from crew_notification_recipients r join users u on u.id = r.user_id"
+                       " where r.notification_id = ? order by lower(u.name)", (p["id"],))
         who = []
         for r in rec:
             state = "confirmed" if r["confirmed_at"] else ("no_phone" if not r["phones"] else "waiting")
             who.append({"id": r["user_id"], "name": r["name"], "state": state})
         waiting = sum(1 for w in who if w["state"] == "waiting")
-        out.append({"id": p["id"], "message": p["message"], "sender": p["sender"] or "", "sent_ts": p["sent_ts"],
-                    "buzzing": waiting > 0 and ts < p["sent_ts"] + SCHEDULE_S[-1] + 1, "people": who})
+        sent = db.epoch(p["created_at"])
+        out.append({"id": p["id"], "message": p["message"], "sender": p["sender"] or "", "sent_ts": sent,
+                    "buzzing": waiting > 0 and ts < sent + SCHEDULE_S[-1] + 1, "people": who})
     return out
 
 
@@ -322,4 +326,4 @@ def describe_core(core_id: int) -> list[str]:
     """What paging holds for a core device, for the phones list."""
     people.ready()
     n = db.one("select count(*) n from crew_push_subs where device_id = ?", (core_id,))["n"]
-    return ["Crew page alerts on this browser"] if n else []
+    return ["Crew notifications on this browser"] if n else []

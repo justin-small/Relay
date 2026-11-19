@@ -14,13 +14,17 @@ shared files themselves (app/text.py and app/timewin.py) and counts, per file:
 * device   a module table of phones or devices (`create table <x>_devices`, `_phones`, `_push_subs`) that is not a part of
            a core device: it needs a `device_id` that references `devices (id)` (app/devices.py, #528), so forgetting a phone
            ends it with the rest;
+* time     a time column that is not ISO UTC text (#529): a column named `*_ts` or `*_epoch`, or a `*_at` column typed
+           real or integer. Core and every module store time as `<name>_at text` written by `db.now()` or `db.iso(ts)`
+           (`2027-01-15T08:00:00Z`), so a join across modules needs no conversion; `db.epoch(text)` gives seconds when
+           arithmetic is needed;
 * import   a module importing another module's package (`from ..signage import store`, `from app.modules.x import`).
            A module offers what others need with `modules.provide("<area>.<what>", impl)` in `attach()` and others ask
            with `modules.using(...)` and cope with None (docs/modules.md, "Reaching another module").
 
 Each count is checked against tests/shared_concepts_baseline.txt, which may only shrink: a file over its count
 fails, and a file under its count fails until the line is lowered (run with --rebaseline, which refuses to raise
-any count). Later steps of #521 add their rules here (free-text team and position columns).
+any count). Later steps of #521 add their rules here.
 
 A use that is right goes on a line with a reason: `x.casefold()  # allow-shared: offsets must match the original`.
 
@@ -65,6 +69,7 @@ SCREEN_TABLE = re.compile(r"^\s*create\s+table\s+\w*screens?\s*\(", re.I)
 # keyed by that credential's row, which is the part.
 DEVICE_TABLE = re.compile(r"^\s*create\s+table\s+(\w*(?:devices?|phones?|push_subs?))\s*\(", re.I)
 DEVICE_REF = re.compile(r"\bdevice_id\b[^,;]*\breferences\s+devices\s*\(", re.I)
+EPOCH_COLUMN = re.compile(r"^\s*(?:alter\s+table\s+\w+\s+add\s+column\s+)?(?:\w+_(?:ts|epoch)\s+\w+|\w+_at\s+(?:real|integer|int|numeric|float)\b)", re.I)
 CREATE_TABLE = re.compile(r"create\s+table\s+(\w+)\s*\((.*?)\n\)\s*;", re.I | re.S)
 
 RULES: dict[str, re.Pattern] = {
@@ -116,6 +121,11 @@ def hits() -> dict[tuple[str, str], list[int]]:
                     out.setdefault((rule, rel), []).append(n)
             if other_module(p, code):
                 out.setdefault(("import", rel), []).append(n)
+    for p in sorted((APP / "migrations").glob("*.sql")) + module_sql():
+        rel = p.relative_to(ROOT).as_posix()
+        for n, line in enumerate(p.read_text(encoding="utf-8").splitlines(), 1):
+            if "allow-shared:" not in line and not line.lstrip().startswith("--") and EPOCH_COLUMN.match(line):
+                out.setdefault(("time", rel), []).append(n)
     for p in module_sql():
         rel = p.relative_to(ROOT).as_posix()
         for n, line in enumerate(p.read_text(encoding="utf-8").splitlines(), 1):
@@ -223,6 +233,11 @@ def main() -> None:
         eq("isoweekday", found("d.isoweekday()"), ["weekday"])
         eq("clock pattern", found('re.compile(r"([01]\\d|2[0-3]):[0-5]\\d")'), ["clock"])
         eq("a comment is not code", found("x = 1  # the old .weekday() counted from Monday"), [])
+        check("an epoch column is found", bool(EPOCH_COLUMN.match("    arrived_ts  real    not null,")))
+        check("so is an integer _at", bool(EPOCH_COLUMN.match("    seen_at integer,")))
+        check("so is an added epoch column", bool(EPOCH_COLUMN.match("alter table x add column done_ts real")))
+        check("an ISO text column is fine", not EPOCH_COLUMN.match("    created_at  text    not null,"))
+        check("a duration is fine", not EPOCH_COLUMN.match("    duration_s  real    not null default 10,"))
         check("a pc_person text column is found", bool(PERSON_COLUMN.match("    pc_person       text unique,")))
         check("so is person_id", bool(PERSON_COLUMN.match("  person_id text not null,")))
         check("a ref column is fine", not PERSON_COLUMN.match("    person_ref      text not null,"))

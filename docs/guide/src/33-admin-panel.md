@@ -736,7 +736,7 @@ sign-ins there.
 
 Each phone or computer is listed once, under **My account** (yours) and on the
 **Users** page (everyone's), with everything it is set up for: PIN sign-in, the
-intercom, Wi-Fi check-in and crew page alerts. **Forget** ends all of them at
+intercom, Wi-Fi check-in and crew notifications. **Forget** ends all of them at
 once: the phone is signed out of the intercom, stops getting crew pages, is
 taken off check-in and loses its PIN sign-in. **Rename** changes the name shown
 here. Phones set up before this list existed show once for each thing they were

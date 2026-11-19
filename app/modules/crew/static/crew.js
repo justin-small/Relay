@@ -236,7 +236,7 @@
     else devNote.textContent = r.data.detail || 'That did not work.';
   });
 
-  // Pages (#228): turn on web push for this phone. It needs HTTPS and a service worker, which this page has.
+  // Notifications (#228): turn on web push for this phone. It needs HTTPS and a service worker, which this page has.
   const card = $('crAlerts'), sw = $('crAlertsBtn'), anote = $('crAlertsNote');
   function b64(text) {
     const pad = '='.repeat((4 - text.length % 4) % 4), raw = atob((text + pad).replace(/-/g, '+').replace(/_/g, '/'));
@@ -257,7 +257,7 @@
     const reg = await navigator.serviceWorker.ready, sub = await reg.pushManager.getSubscription();
     const on = !!sub && Notification.permission === 'granted';
     sw.checked = on; sw.disabled = false;
-    anote.textContent = on ? 'This phone buzzes until you confirm.' : 'Off. Turn on to get a buzz when the booth pages you.';
+    anote.textContent = on ? 'This phone buzzes until you confirm.' : 'Off. Turn on to get a buzz when the booth notifies you.';
   }
   async function turnOn() {
     try {
@@ -266,7 +266,7 @@
       const reg = await navigator.serviceWorker.ready;
       const sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64(key.key) });
       if (!await pushJson('POST', sub.toJSON())) { await sub.unsubscribe(); anote.textContent = 'Relay could not save this phone.'; sw.checked = false; return; }
-    } catch (e) { anote.textContent = 'This browser could not turn on pages.'; sw.checked = false; return; }
+    } catch (e) { anote.textContent = 'This browser could not turn on notifications.'; sw.checked = false; return; }
     alertsState();
   }
   async function turnOff() {

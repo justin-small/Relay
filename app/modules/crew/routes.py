@@ -13,7 +13,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 
 from ... import audit, config, db, directory, netroute, schedules, serving, tls
 from .. import listener_port, modules as registry, require, using
-from . import calltimes, chat, checkin, checklists, devices, paging, people, resources
+from . import calltimes, chat, checkin, checklists, devices, notifications, people, resources
 
 router = APIRouter()
 VIEW = [Depends(require("crew.view"))]
@@ -184,7 +184,7 @@ def crew_today(request: Request):
         teams = checklists.teams_of(user.id, tracks)
         call = calltimes.next_for(user.id, tracks, zone)
         role = people.profile(user.id)["crew_role"]
-    except paging.Invalid:
+    except notifications.Invalid:
         teams, call, role = [], None, ""
     return {"running": bool(engine.running), "teams": teams, "role": role, "zone": str(zone) if zone else None,
             "call": call}
@@ -296,7 +296,7 @@ def people_unlink(request: Request, user_id: int):
     return {"ok": True}
 
 
-# -- pages that buzz until read (#228) --------------------------------------------------------------------------
+# -- notifications that buzz until read (#228) --------------------------------------------------------------------------
 def _tracks():
     """Today's followed plans, when Planning Center is on (an empty list otherwise)."""
     follower = using("plan.follower")
@@ -320,61 +320,64 @@ def activity(actor: str | None = None, kind: str | None = None, days: int | None
 
 @router.get("/crew/api/push/key", dependencies=USE)
 def push_key():
-    return {"key": _people_call(paging.public_key)}
+    return {"key": _people_call(notifications.public_key)}
 
 
 @router.get("/crew/api/push", dependencies=USE)
 def push_state(request: Request):
-    return {"enabled": _people_call(paging.subscribed, request.state.user.id)}
+    return {"enabled": _people_call(notifications.subscribed, request.state.user.id)}
 
 
 @router.post("/crew/api/push", dependencies=USE)
 def push_subscribe(request: Request, payload: dict):
-    _people_call(paging.subscribe, request.state.user.id, payload, request.headers.get("user-agent", ""))
+    _people_call(notifications.subscribe, request.state.user.id, payload, request.headers.get("user-agent", ""))
     return {"enabled": True}
 
 
 @router.delete("/crew/api/push", dependencies=USE)
 def push_unsubscribe(request: Request, payload: dict):
-    _people_call(paging.unsubscribe, request.state.user.id, payload.get("endpoint"))
-    return {"enabled": _people_call(paging.subscribed, request.state.user.id)}
+    _people_call(notifications.unsubscribe, request.state.user.id, payload.get("endpoint"))
+    return {"enabled": _people_call(notifications.subscribed, request.state.user.id)}
 
 
-def _confirm_page(request: Request, row: dict | None, status: int = 200):
+def _confirm_notification(request: Request, row: dict | None, status: int = 200):
     _, templates = _pkg()
-    return templates.TemplateResponse(request, "crew/page.html", {
+    return templates.TemplateResponse(request, "crew/notification.html", {
         "app_name": _settings()["name"], "found": row is not None, "message": (row or {}).get("message", ""),
         "sender": (row or {}).get("sender") or "", "sent_ts": int((row or {}).get("sent_ts") or 0),
         "confirmed": bool(row and row["confirmed_at"])}, status_code=status if row else 404, headers=NO_STORE)
 
 
-@router.get("/crew/page/{token}", response_class=HTMLResponse)
-def page_open(request: Request, token: str):
+# /crew/page/<token> is the address a notification had before #529: a push sent just before an update still carries it.
+@router.get("/crew/notification/{token}", response_class=HTMLResponse)
+@router.get("/crew/page/{token}", response_class=HTMLResponse, include_in_schema=False)
+def notification_open(request: Request, token: str):
     """A person's own confirm link, opened from the push. The token is the proof: no sign-in is needed, because
-    it can do nothing but confirm that one page."""
-    return _confirm_page(request, _people_call(paging.by_token, token))
+    it can do nothing but confirm that one notification."""
+    return _confirm_notification(request, _people_call(notifications.by_token, token))
 
 
-@router.post("/crew/page/{token}", response_class=HTMLResponse)
-def page_confirm(request: Request, token: str):
-    return _confirm_page(request, _people_call(paging.confirm, token))
+@router.post("/crew/notification/{token}", response_class=HTMLResponse)
+@router.post("/crew/page/{token}", response_class=HTMLResponse, include_in_schema=False)
+def notification_confirm(request: Request, token: str):
+    return _confirm_notification(request, _people_call(notifications.confirm, token))
 
 
-@router.get("/api/admin/crew/pages", dependencies=PAGE)
-def pages_get():
-    return {"pages": _people_call(paging.recent), "targets": _people_call(paging.targets, _tracks()),
+@router.get("/api/admin/crew/notifications", dependencies=PAGE)
+def notifications_get():
+    return {"notifications": _people_call(notifications.recent), "targets": _people_call(notifications.targets, _tracks()),
             "planning_center": registry.enabled("planning_center")}
 
 
-@router.post("/api/admin/crew/pages", dependencies=PAGE)
-def pages_send(request: Request, payload: dict):
-    ids, unmatched = _people_call(paging.resolve, payload.get("users"), payload.get("teams"), _tracks())
-    page = _people_call(paging.create, payload.get("message"), request.state.user.id, ids)
-    audit.note(request, "crew.page", "Paged the crew", target=page, detail={"people": len(ids)})
-    return {"id": page, "people": len(ids), "unmatched": unmatched}
+@router.post("/api/admin/crew/notifications", dependencies=PAGE)
+def notifications_send(request: Request, payload: dict):
+    ids, unmatched = _people_call(notifications.resolve, payload.get("users"), payload.get("teams"), _tracks())
+    note = _people_call(notifications.create, payload.get("message"), request.state.user.id, ids)
+    audit.note(request, "crew.page", "Notified the crew", target=note, detail={"people": len(ids)})
+    return {"id": note, "people": len(ids), "unmatched": unmatched}
 
 
-# -- scheduled call-time pages (#229) -----------------------------------------------------------------------------
+# -- scheduled call-time notifications (#229) -----------------------------------------------------------------------------
 @router.get("/api/admin/crew/calltimes", dependencies=VIEW)
 def calltimes_get():
     return {"rules": _people_call(calltimes.list_rules), "teams": _people_call(_teams),
@@ -386,7 +389,7 @@ def calltimes_get():
 def calltimes_add(request: Request, payload: dict):
     rule = _people_call(calltimes.clean, payload)
     rid = _people_call(calltimes.save, rule)
-    audit.note(request, "crew.calltime_add", "Added a call-time page", target=rid, detail={"team": rule["team"]})
+    audit.note(request, "crew.calltime_add", "Added a call-time notification", target=rid, detail={"team": rule["team"]})
     return calltimes_get()
 
 
@@ -394,7 +397,7 @@ def calltimes_add(request: Request, payload: dict):
 def calltimes_change(request: Request, rule_id: int, payload: dict):
     rule = _people_call(calltimes.clean, payload)
     _people_call(calltimes.save, rule, rule_id)
-    audit.note(request, "crew.calltime_change", "Changed a call-time page", target=rule_id,
+    audit.note(request, "crew.calltime_change", "Changed a call-time notification", target=rule_id,
                detail={"team": rule["team"], "enabled": rule["enabled"]})
     return calltimes_get()
 
@@ -402,7 +405,7 @@ def calltimes_change(request: Request, rule_id: int, payload: dict):
 @router.delete("/api/admin/crew/calltimes/{rule_id}", dependencies=MANAGE)
 def calltimes_delete(request: Request, rule_id: int):
     _people_call(calltimes.delete, rule_id)
-    audit.note(request, "crew.calltime_delete", "Removed a call-time page", target=rule_id)
+    audit.note(request, "crew.calltime_delete", "Removed a call-time notification", target=rule_id)
     return calltimes_get()
 
 

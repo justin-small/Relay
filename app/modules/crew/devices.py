@@ -40,14 +40,14 @@ def _label(raw) -> str:
 
 def mine(user_id: int) -> list[dict]:
     people.ready()
-    return db.query("select id, kind, value, label, added_ts, added_by from crew_devices where user_id = ?"
-                    " order by added_ts", (user_id,))
+    return db.query("select id, kind, value, label, added_at, added_by from crew_devices where user_id = ?"
+                    " order by added_at", (user_id,))
 
 
 def everyone() -> list[dict]:
     people.ready()
-    return db.query("select d.id, d.user_id, u.name, d.kind, d.value, d.label, d.added_ts, d.added_by"
-                    " from crew_devices d join users u on u.id = d.user_id order by lower(u.name), d.added_ts")
+    return db.query("select d.id, d.user_id, u.name, d.kind, d.value, d.label, d.added_at, d.added_by"
+                    " from crew_devices d join users u on u.id = d.user_id order by lower(u.name), d.added_at")
 
 
 def add(user_id: int, kind: str, value: str, label: str = "", by: str = "self", user_agent: str = "") -> dict:
@@ -73,10 +73,10 @@ def add(user_id: int, kind: str, value: str, label: str = "", by: str = "self", 
         raise people.Invalid(f"You can add {PER_PERSON} devices. Remove one first.")
     with db.transaction() as tx:
         core = core_devices.for_part(user_id, PART, "crew_devices", name=_label(label), user_agent=user_agent, q=tx)
-        tx.execute("insert into crew_devices (user_id, kind, value, label, added_ts, added_by, device_id)"
+        tx.execute("insert into crew_devices (user_id, kind, value, label, added_at, added_by, device_id)"
                    " values (?, ?, ?, ?, ?, ?, ?)",
-                   (user_id, kind, value, _label(label), time.time(), "admin" if by == "admin" else "self", core))
-    return db.one("select id, kind, value, label, added_ts, added_by from crew_devices where kind = ? and value = ?",
+                   (user_id, kind, value, _label(label), db.now(), "admin" if by == "admin" else "self", core))
+    return db.one("select id, kind, value, label, added_at, added_by from crew_devices where kind = ? and value = ?",
                   (kind, value))
 
 
