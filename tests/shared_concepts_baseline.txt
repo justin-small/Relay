@@ -10,6 +10,8 @@
 # core screen's.
 # intercom_remote_devices stays (#528): it flags an intercom credential as remote and is keyed by that credential's row,
 # which is the device part; it is not a second device.
+# time: the old crew migrations 0002-0008 made epoch columns; 0014_iso_times_and_notifications.sql converts them (#529).
+# They stay as history (a saved migration is never edited); nothing new may add one.
 # rule  count  file
 import 2 app/modules/intercom_remote/__init__.py
 import 2 app/modules/intercom_remote/cloud.py
@@ -20,3 +22,10 @@ import 1 app/modules/intercom_remote/store.py
 import 1 app/modules/intercom_remote/watch.py
 screen 1 app/modules/signage/migrations/0001_signage.sql
 device 1 app/modules/intercom_remote/migrations/0001_remote.sql
+time 1 app/modules/crew/migrations/0002_paging.sql
+time 1 app/modules/crew/migrations/0003_calltimes.sql
+time 1 app/modules/crew/migrations/0004_chat.sql
+time 1 app/modules/crew/migrations/0005_checkin.sql
+time 1 app/modules/crew/migrations/0006_checklists.sql
+time 1 app/modules/crew/migrations/0007_resources.sql
+time 2 app/modules/crew/migrations/0008_devices.sql

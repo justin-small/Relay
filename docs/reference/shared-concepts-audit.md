@@ -26,7 +26,7 @@ things). Core has no place where "a person", "a team", "a screen" or "a place" l
 | H5 | Name normalising / fuzzy matching | High | 7 implementations |
 | H6 | Weekday numbering | High | Sunday=0 and Monday=0 both in use |
 | M1 | A person's phone / devices | Medium | 6 device tables or registries |
-| M2 | Sessions | Medium | `intercom_remote_sessions` mirrors `intercom_sessions` |
+| M2 | Sessions | Medium | Done in #529: remote sessions are `intercom_sessions` rows with `via = 'remote'` |
 | M3 | Places and groups | Medium | board `place`, `signage_groups`, `intercom_orgs` |
 | M4 | Time windows and schedules | Medium | 5 schedule engines, 4 HH:MM parsers |
 | M5 | Cross-module seams | Medium | 10+ registry/hook patterns, plus imports of module internals |
@@ -159,9 +159,9 @@ the only way to share people/teams/screens today, which is why each consumer re-
 
 ### M6. Timestamps
 
-Core and intercom store ISO text (`created_at text`); crew stores epoch `real` (`arrived_ts`, `sent_ts`,
-`done_ts`); some crew tables have both (`crew_pages.sent_ts` and `created_at`). Joins across modules need
-conversion.
+Core and intercom store ISO text (`created_at text`); crew stored epoch `real` (`arrived_ts`, `sent_ts`,
+`done_ts`); some crew tables had both (`crew_pages.sent_ts` and `created_at`). Done in #529: crew migration
+0014 made them ISO text (`arrived_at`, `done_at`, `fired_at`, `added_at`, `created_at`) and dropped the duplicate.
 
 ### M7. Items
 
@@ -174,7 +174,7 @@ source registry (`signage_sources.register`), which is the pattern to copy.
 ## Low confidence (naming)
 
 - **L1** `users.role` is a permission role; `crew_profiles.role` is a job. Done in #525: the crew one is `crew_role`, defaulting from the person's usual Planning Center position (H2).
-- **L2** "Page" means a crew notification (`crew_pages`), a board page, a lighting cue page and a parent page.
+- **L2** "Page" meant a crew notification (`crew_pages`), a board page, a lighting cue page and a parent page. Done in #529: the crew one is a notification (`crew_notifications`, `crew/notifications.py`, `/api/admin/crew/notifications`, `/crew/notification/<token>`; the old `/crew/page/<token>` still answers for pushes already sent). The `crew.page` permission id and the `crew.page` audit action keep their names so saved roles and the activity history read the same.
 - **L3** Board `screen_names` vs `signage_screens.name`: same idea, two stores (falls out of H3).
 - **L4** `intercom_orgs` is a multi-tenant placeholder nothing else uses.
 
@@ -277,4 +277,4 @@ recording actions all register the same way, and a module stops importing anothe
 7. Core `devices` with credentials as parts (M1). Built (#528): sign-in trust, the intercom credential, Wi-Fi check-in and
    web push are parts; forgetting a phone ends them all. Existing rows became one device each (no row carried a user agent
    beside another kind of part, so none could be joined with certainty); an admin joins the ones that are one phone.
-8. Cleanups: merge intercom remote sessions, convert crew timestamps, rename crew pages (M2, M6, L2).
+8. Cleanups: merge intercom remote sessions, convert crew timestamps, rename crew pages (M2, M6, L2). Built (#529).

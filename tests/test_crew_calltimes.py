@@ -21,7 +21,7 @@ _db.reset()
 import app.main as main  # noqa: E402,F401
 from app import directory, config, db, users  # noqa: E402
 from app.main import app  # noqa: E402
-from app.modules.crew import MODULE, calltimes, paging  # noqa: E402
+from app.modules.crew import MODULE, calltimes, notifications  # noqa: E402
 from app.modules.planning_center.pclive import Track  # noqa: E402
 
 fails = []
@@ -76,7 +76,7 @@ for label, bad in (("no team", {**good, "team": " "}), ("no words", {**good, "me
     try:
         calltimes.clean(bad)
         eq(f"refused: {label}", False, True)
-    except paging.Invalid:
+    except notifications.Invalid:
         eq(f"refused: {label}", True, True)
 
 print("the admin page")
@@ -94,20 +94,20 @@ eq("fixed rule is cleaned and kept", admin.post("/api/admin/crew/calltimes", jso
     "team": "Band", "kind": "fixed", "weekday": 0, "clock": "08:30", "message": "Band soundcheck"}).status_code, 200)
 
 print("minutes before each service")
-sent_before = db.one("select count(*) as n from crew_pages")["n"]
+sent_before = db.one("select count(*) as n from crew_notifications")["n"]
 eq("early: nothing", calltimes.run(S1 - 3600 - 5, TRACKS, ZONE), 0)
 eq("at 8:00 (an hour before 9:00) Camera is paged, only those serving the 9:00", calltimes.run(S1 - 3600, TRACKS, ZONE), 1)
-page = db.one("select id, message from crew_pages order by id desc limit 1")
+page = db.one("select id, message from crew_notifications order by id desc limit 1")
 eq("with the rule's words", page["message"], "Camera call time")
 eq("to the person serving that time only", [r["user_id"] for r in db.query(
-    "select user_id from crew_page_recipients where page_id = ?", (page["id"],))], [mike.id])
+    "select user_id from crew_notification_recipients where notification_id = ?", (page["id"],))], [mike.id])
 eq("not twice for the same service", calltimes.run(S1 - 3600 + 30, TRACKS, ZONE), 0)
 eq("never late: a minute after is skipped", calltimes.run(S1 - 3600 + 61, TRACKS, ZONE), 0)
 eq("the 11:00 service has its own call, for both people", calltimes.run(S2 - 3600, TRACKS, ZONE), 1)
-p2 = db.one("select id from crew_pages order by id desc limit 1")["id"]
+p2 = db.one("select id from crew_notifications order by id desc limit 1")["id"]
 eq("both serve the 11:00", sorted(r["user_id"] for r in db.query(
-    "select user_id from crew_page_recipients where page_id = ?", (p2,))), sorted([mike.id, sara.id]))
-eq("the rehearsal is not a service", db.one("select count(*) as n from crew_pages")["n"] - sent_before, 2)
+    "select user_id from crew_notification_recipients where notification_id = ?", (p2,))), sorted([mike.id, sara.id]))
+eq("the rehearsal is not a service", db.one("select count(*) as n from crew_notifications")["n"] - sent_before, 2)
 last = [r for r in calltimes.list_rules() if r["id"] == rid][0]
 eq("the list shows the last run", (last["last_people"], last["last_ts"] is not None), (2, True))
 
@@ -126,7 +126,7 @@ eq("a rule may name a schedule", (named["kind"], named["schedule_ref"]), ("befor
 try:
     calltimes.clean({**good, "schedule_ref": "schedule:relay:nope"})
     eq("a schedule that is not there is refused", False, True)
-except paging.Invalid:
+except notifications.Invalid:
     eq("a schedule that is not there is refused", True, True)
 nid = calltimes.save(named)
 rule = [r for r in calltimes.list_rules() if r["id"] == nid][0]

@@ -21,7 +21,7 @@ _db.reset()
 from app import config, db, devices, users  # noqa: E402
 from app.main import app  # noqa: E402
 from app.modules import modules  # noqa: E402
-from app.modules.crew import devices as crew_devices, paging, webpush  # noqa: E402
+from app.modules.crew import devices as crew_devices, notifications, webpush  # noqa: E402
 from app.modules.intercom import devices as intercom_devices  # noqa: E402
 
 from _harness import check, done, eq, section  # noqa: E402
@@ -54,7 +54,7 @@ with section("parts of one phone join by user and user agent"):
     core = row["device_id"]
     check("the intercom credential is a part of a core device", core is not None)
     crew_devices.add(owner.id, "mac", "3c:22:fb:5e:90:40", "", "self", IPHONE)
-    paging.subscribe(owner.id, subscription("a"), IPHONE)
+    notifications.subscribe(owner.id, subscription("a"), IPHONE)
     listed = devices.listing(owner.id)
     eq("one device holds the intercom, check-in and push parts", [parts_of(d) for d in listed],
        [{"intercom", "crew_checkin", "crew_push"}])
@@ -69,7 +69,7 @@ with section("parts of one phone join by user and user agent"):
     eq("no user agent, no join: its own device", len(devices.listing(owner.id)), 3)
 
 with section("a browser that subscribes again keeps its device"):
-    paging.subscribe(owner.id, subscription("a"), "another browser")
+    notifications.subscribe(owner.id, subscription("a"), "another browser")
     eq("same endpoint, same device", db.one("select device_id from crew_push_subs where endpoint like '%/a'")["device_id"],
        core)
 

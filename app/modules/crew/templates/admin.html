@@ -28,19 +28,19 @@
           <p class="note">Who on today's Planning Center plan has arrived, against their team's earliest call time.
             Arrivals clear by themselves when a new plan takes over.</p>
         </section>
-        <section id="crBoardNone" hidden><p class="note">The live board needs the Page the crew permission.</p></section>
+        <section id="crBoardNone" hidden><p class="note">The live board needs the Notify the crew permission.</p></section>
       </div>
       <div class="crrail">
-        <section id="crPageBox" hidden>
-          <h3>Page</h3>
-          <div class="field"><label for="crPageText">What the page says</label>
-            <textarea id="crPageText" maxlength="140" rows="3" autocomplete="off"></textarea>
+        <section id="crNoteBox" hidden>
+          <h3>Notify</h3>
+          <div class="field"><label for="crNoteText">What the notification says</label>
+            <textarea id="crNoteText" maxlength="140" rows="3" autocomplete="off"></textarea>
             <span class="hint">Buzzes each phone, and again for up to two minutes until they confirm.</span></div>
-          <div class="field"><label>Teams serving today</label><div class="crchips" id="crPageTeams"></div></div>
-          <details class="crmore"><summary>Or pick people</summary><div class="crchips" id="crPagePeople"></div></details>
-          <div class="note err" id="crPageErr" hidden></div>
-          <div class="ctl"><button type="button" class="primary" id="crPageSend">Send page</button> <span class="muted" id="crPageMsg"></span></div>
-          <div class="crlog" id="crPages"></div>
+          <div class="field"><label>Teams serving today</label><div class="crchips" id="crNoteTeams"></div></div>
+          <details class="crmore"><summary>Or pick people</summary><div class="crchips" id="crNotePeople"></div></details>
+          <div class="note err" id="crNoteErr" hidden></div>
+          <div class="ctl"><button type="button" class="primary" id="crNoteSend">Send notification</button> <span class="muted" id="crNoteMsg"></span></div>
+          <div class="crlog" id="crNotes"></div>
         </section>
         <section id="crActBox" hidden>
           <h3>Activity</h3>
@@ -53,9 +53,9 @@
     <div data-crpane="calls" hidden>
       <section id="crCallBox">
         <h3>Call times</h3>
-        <p class="note">Page a Planning Center team on a schedule: minutes before each of today's service times, or at a
+        <p class="note">Notify a Planning Center team on a schedule: minutes before each of today's service times, or at a
           set day and time. It reaches the people on that team serving today who have a crew account, and buzzes like
-          any page. Its time also says when someone counts as late on the live board. A call time Relay misses by a
+          any notification. Its time also says when someone counts as late on the live board. A call time Relay misses by a
           minute is skipped, never sent late.</p>
         <div class="crform">
           <div class="field"><label for="ctTeam">Team</label>
@@ -69,7 +69,7 @@
           <div class="field" id="ctFixed" hidden><label for="ctDay">Day and time</label>
             <div class="ctl"><select id="ctDay"><option value="0">Sunday</option><option value="1">Monday</option><option value="2">Tuesday</option><option value="3">Wednesday</option><option value="4">Thursday</option><option value="5">Friday</option><option value="6">Saturday</option></select>
             <input id="ctClock" type="time" value="08:00"></div></div>
-          <div class="field"><label for="ctMsg">What the page says</label><input id="ctMsg" maxlength="140" autocomplete="off"></div>
+          <div class="field"><label for="ctMsg">What the notification says</label><input id="ctMsg" maxlength="140" autocomplete="off"></div>
         </div>
         <div class="note err" id="ctErr" hidden></div>
         <div class="ctl"><button type="button" class="primary" id="ctAdd">Add call time</button></div>

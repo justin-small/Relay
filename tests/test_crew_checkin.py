@@ -108,7 +108,7 @@ eq("on the network the state says so", sara_c.get("/crew/api/checkin").json()["l
 r = sara_c.post("/crew/api/checkin", json={})
 eq("on the network no position is needed", (r.status_code, r.json()["method"]), (200, "network"))
 eq("no coordinates are kept", sorted(c["name"] for c in db.query("pragma table_info(crew_arrivals)")),
-   ["arrived_ts", "method", "plan_id", "user_id"])
+   ["arrived_at", "method", "plan_id", "user_id"])
 checkin.is_lan = lambda host: False
 
 print("the board")

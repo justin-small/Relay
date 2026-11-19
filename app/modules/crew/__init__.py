@@ -52,7 +52,7 @@ class Crew(Module):
         Permission("crew.use", "Open the crew page", "Crew app", "member"),
         Permission("crew.view", "See how the crew page is set up", "Crew app", "viewer"),
         Permission("crew.manage", "Change the crew page's name and what it shows", "Crew app", "admin"),
-        Permission("crew.page", "Page the crew and see who has read it", "Crew app", "operator"),
+        Permission("crew.page", "Notify the crew and see who has read it", "Crew app", "operator"),
         Permission("crew.chat", "Use the crew team chat", "Crew app", "member"),
         Permission("crew.checkin", "Check in at the church from the crew page", "Crew app", "member"),
         Permission("crew.checklist", "Tick your position's checklists on the crew page", "Crew app", "member"),
@@ -97,9 +97,9 @@ class Crew(Module):
         self._task: asyncio.Task | None = None
 
     async def start(self) -> None:
-        from . import paging
+        from . import notifications
 
-        paging.pending = True      # a page sent before a restart may still be buzzing
+        notifications.pending = True      # a notification sent before a restart may still be buzzing
         self._task = asyncio.create_task(self._pager(), name="crew-pager")
 
     async def stop(self) -> None:
@@ -114,12 +114,12 @@ class Crew(Module):
 
     async def _pager(self) -> None:
         """Fire due pushes once a second. Evaluated here, on the Relay host, never by a phone."""
-        from . import calltimes, paging
+        from . import calltimes, notifications
 
         beat = 0
         while True:
             try:
-                await asyncio.to_thread(paging.tick)
+                await asyncio.to_thread(notifications.tick)
                 if beat % 5 == 0:         # call times have a minute's grace, so every five seconds is plenty
                     await asyncio.to_thread(calltimes.run)
                 if beat % 15 == 0:        # UniFi reads the controller every 30 seconds by default
@@ -127,7 +127,7 @@ class Crew(Module):
             except asyncio.CancelledError:
                 raise
             except Exception:
-                log.warning("crew: paging tick failed", exc_info=True)
+                log.warning("crew: notifications tick failed", exc_info=True)
             beat += 1
             await asyncio.sleep(1)
 
@@ -186,10 +186,10 @@ class Crew(Module):
         from ... import devices as core_devices, modules, users
         from .chat import hub
 
-        from . import calltimes, devices, paging
+        from . import calltimes, devices, notifications
 
         core_devices.register(devices.PART, "Wi-Fi check-in", "crew_devices", lambda _id: None, devices.describe_core)
-        core_devices.register(paging.PART, "Crew page alerts", "crew_push_subs", lambda _id: None, paging.describe_core)
+        core_devices.register(notifications.PART, "Crew notifications", "crew_push_subs", lambda _id: None, notifications.describe_core)
         modules.listen("plan.changed", self._team_changed)
         modules.provide("schedules.used.crew", calltimes.schedule_users)
         if hub.signed_out not in users.signed_out_hooks:
@@ -199,10 +199,10 @@ class Crew(Module):
         from ... import devices as core_devices, modules, users
         from .chat import hub
 
-        from . import devices, paging
+        from . import devices, notifications
 
         core_devices.unregister(devices.PART)
-        core_devices.unregister(paging.PART)
+        core_devices.unregister(notifications.PART)
         if hub.signed_out in users.signed_out_hooks:
             users.signed_out_hooks.remove(hub.signed_out)
 

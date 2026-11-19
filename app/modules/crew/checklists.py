@@ -12,7 +12,7 @@ import time
 
 from ... import db, directory
 from ...text import same_name
-from . import checkin, paging, people, refs
+from . import checkin, notifications, people, refs
 
 TITLE_MAX, ITEM_MAX, POSITION_MAX = 60, 140, 80
 ITEMS_MAX, LISTS_MAX = 40, 100
@@ -164,7 +164,7 @@ def held(user_id: int, tracks) -> list[dict]:
     pid = directory.external_id(user_id, directory.PCO)
     if not pid:
         return []
-    return [m for m in paging.active_members(tracks) if m["person"] == pid]
+    return [m for m in notifications.active_members(tracks) if m["person"] == pid]
 
 
 def teams_of(user_id: int, tracks) -> list[str]:
@@ -176,19 +176,19 @@ def applies(template: dict, mine_today: list[dict]) -> bool:
     """A template (or resource) is for everyone, or for a team or position this person holds today (`held`)."""
     if not template["position"] and not template.get("position_ref"):
         return True
-    return any(paging.holds(m, template.get("position_ref", ""), template["position"]) for m in mine_today)
+    return any(notifications.holds(m, template.get("position_ref", ""), template["position"]) for m in mine_today)
 
 
 def _forget_old(now: float) -> None:
-    db.execute("delete from crew_checklist_done where done_ts < ?", (now - KEEP_DAYS * 86400,))
+    db.execute("delete from crew_checklist_done where done_at < ?", (db.iso(now - KEEP_DAYS * 86400),))
 
 
 def mine(user_id: int, key: str, tracks) -> list[dict]:
     """This person's checklists for the plan, each item with when they ticked it (None while open)."""
     people.ready()
     teams = held(user_id, tracks)
-    done = {r["item_id"]: r["done_ts"] for r in db.query(
-        "select item_id, done_ts from crew_checklist_done where plan_id = ? and user_id = ?", (key, user_id))}
+    done = {r["item_id"]: db.epoch(r["done_at"]) for r in db.query(
+        "select item_id, done_at from crew_checklist_done where plan_id = ? and user_id = ?", (key, user_id))}
     return [{"id": t["id"], "title": t["title"], "position": t["position"],
              "items": [{"id": i["id"], "text": i["text"], "done_ts": done.get(i["id"])} for i in t["items"]]}
             for t in templates() if applies(t, teams)]
@@ -204,8 +204,8 @@ def tick(user_id: int, item_id: int, on, key: str, tracks, now: float | None = N
         raise Invalid("That item is not on your checklists.", 404)
     _forget_old(ts)
     if on:
-        db.execute("insert into crew_checklist_done (plan_id, item_id, user_id, done_ts) values (?, ?, ?, ?)"
-                   " on conflict do nothing", (key, item_id, user_id, ts))
+        db.execute("insert into crew_checklist_done (plan_id, item_id, user_id, done_at) values (?, ?, ?, ?)"
+                   " on conflict do nothing", (key, item_id, user_id, db.iso(ts)))
     else:
         db.execute("delete from crew_checklist_done where plan_id = ? and item_id = ? and user_id = ?",
                    (key, item_id, user_id))
@@ -215,8 +215,8 @@ def tick(user_id: int, item_id: int, on, key: str, tracks, now: float | None = N
 def plans() -> list[dict]:
     """Services that have ticks kept, newest first: {plan, ts}."""
     people.ready()
-    return [{"plan": r["plan_id"], "ts": r["ts"]} for r in db.query(
-        "select plan_id, max(done_ts) as ts from crew_checklist_done group by plan_id order by ts desc limit 30")]
+    return [{"plan": r["plan_id"], "ts": db.epoch(r["at"])} for r in db.query(
+        "select plan_id, max(done_at) as at from crew_checklist_done group by plan_id order by at desc limit 30")]
 
 
 def board(tracks, zone, plan: str | None = None, now: float | None = None) -> dict:
@@ -228,13 +228,13 @@ def board(tracks, zone, plan: str | None = None, now: float | None = None) -> di
     key = plan or today
     tpls = templates()
     done: dict[int, dict[int, float]] = {}
-    for r in db.query("select user_id, item_id, done_ts from crew_checklist_done where plan_id = ?", (key,)):
-        done.setdefault(r["user_id"], {})[r["item_id"]] = r["done_ts"]
+    for r in db.query("select user_id, item_id, done_at from crew_checklist_done where plan_id = ?", (key,)):
+        done.setdefault(r["user_id"], {})[r["item_id"]] = db.epoch(r["done_at"])
     names = {r["id"]: r["name"] for r in db.query("select id, name from users")}
     who: dict[int, list[dict]] = {}
     if key == today:
         linked = directory.links(directory.PCO)
-        for m in paging.active_members(tracks):
+        for m in notifications.active_members(tracks):
             uid = linked.get(m["person"])
             if uid:
                 who.setdefault(uid, []).append(m)

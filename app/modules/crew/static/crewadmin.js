@@ -92,10 +92,10 @@
   }
   async function peopleRefresh() { try { drawPeople(await api('/api/admin/crew/people')); } catch (e) { /* keeps what it had */ } }
   $('crScan').addEventListener('click', async function () { const d = await send('POST', '/api/admin/crew/people/scan'); if (d) drawPeople(d); });
-  // -- pages (#228): who is chosen is kept in two sets; everything shown is text.
+  // -- notifications (#228): who is chosen is kept in two sets; everything shown is text.
   const picked = { users: new Set(), teams: new Set() };
-  let pageTimer = null;
-  function pmsg(text, bad) { $('crPageErr').textContent = bad ? text : ''; $('crPageErr').hidden = !bad; $('crPageMsg').textContent = bad ? '' : (text || ''); }
+  let noteTimer = null;
+  function pmsg(text, bad) { $('crNoteErr').textContent = bad ? text : ''; $('crNoteErr').hidden = !bad; $('crNoteMsg').textContent = bad ? '' : (text || ''); }
   function chip(set, key, label, title) {
     const b = button(label, function () {
       if (set.has(key)) set.delete(key); else set.add(key);
@@ -105,11 +105,11 @@
   }
   function sendLabel() {
     const n = picked.teams.size + picked.users.size;
-    $('crPageSend').textContent = n ? 'Send page' + (picked.teams.size ? ' to ' + Array.from(picked.teams).join(', ') : '') +
-      (picked.users.size ? (picked.teams.size ? ' and ' : ' to ') + picked.users.size + (picked.users.size === 1 ? ' person' : ' people') : '') : 'Send page';
+    $('crNoteSend').textContent = n ? 'Send notification' + (picked.teams.size ? ' to ' + Array.from(picked.teams).join(', ') : '') +
+      (picked.users.size ? (picked.teams.size ? ' and ' : ' to ') + picked.users.size + (picked.users.size === 1 ? ' person' : ' people') : '') : 'Send notification';
   }
   function drawTargets(t) {
-    const teams = $('crPageTeams'), ppl = $('crPagePeople');
+    const teams = $('crNoteTeams'), ppl = $('crNotePeople');
     teams.textContent = ''; ppl.textContent = '';
     if (!t.teams.length) teams.textContent = 'None (Planning Center is off or nobody is scheduled).';
     t.teams.forEach(function (x) { teams.appendChild(chip(picked.teams, x.name, x.name + ' (' + x.reachable + '/' + x.people + ')', x.reachable + ' of ' + x.people + ' have a crew account')); });
@@ -118,8 +118,8 @@
   }
   const LABEL = { confirmed: '\u2713', waiting: '\u2026 waiting', no_phone: 'no phone' };
   function clock(ts) { return ts ? new Date(ts * 1000).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : ''; }
-  function drawPages(pages) {
-    const box = $('crPages'); box.textContent = '';
+  function drawNotifications(pages) {
+    const box = $('crNotes'); box.textContent = '';
     let live = false;
     pages.forEach(function (p) {
       const read = p.people.filter(function (w) { return w.state === 'confirmed'; }).length;
@@ -129,27 +129,27 @@
       row.title = p.people.map(function (w) { return w.name + ' ' + LABEL[w.state]; }).join(', ');
       box.appendChild(row); live = live || p.buzzing;
     });
-    clearTimeout(pageTimer);
-    if (live) pageTimer = setTimeout(pagesRefresh, 3000);   // watch the receipts come in while it is buzzing
+    clearTimeout(noteTimer);
+    if (live) noteTimer = setTimeout(notificationsRefresh, 3000);   // watch the receipts come in while it is buzzing
   }
-  async function pagesRefresh() {
+  async function notificationsRefresh() {
     if (!can('crew.page')) return;
-    $('crPageBox').hidden = false;
-    try { const d = await api('/api/admin/crew/pages'); drawPages(d.pages); drawTargetsOnce(d.targets); } catch (e) { /* keeps what it had */ }
+    $('crNoteBox').hidden = false;
+    try { const d = await api('/api/admin/crew/notifications'); drawNotifications(d.notifications); drawTargetsOnce(d.targets); } catch (e) { /* keeps what it had */ }
   }
   let drawn = false;
   function drawTargetsOnce(t) { if (!drawn) { drawn = true; drawTargets(t); } }
-  $('crPageSend').addEventListener('click', async function () {
+  $('crNoteSend').addEventListener('click', async function () {
     pmsg('');
-    const res = await fetch('/api/admin/crew/pages', { method: 'POST', credentials: 'same-origin',
+    const res = await fetch('/api/admin/crew/notifications', { method: 'POST', credentials: 'same-origin',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ message: $('crPageText').value, users: Array.from(picked.users), teams: Array.from(picked.teams) }) });
+      body: JSON.stringify({ message: $('crNoteText').value, users: Array.from(picked.users), teams: Array.from(picked.teams) }) });
     const data = await res.json().catch(function () { return {}; });
     if (!res.ok) { pmsg(data.detail || data.error || 'That did not work.', true); return; }
-    $('crPageText').value = ''; picked.users.clear(); picked.teams.clear(); drawn = false; sendLabel();
+    $('crNoteText').value = ''; picked.users.clear(); picked.teams.clear(); drawn = false; sendLabel();
     pmsg('Sent to ' + data.people + (data.people === 1 ? ' person' : ' people') +
       (data.unmatched.length ? '. No crew account for: ' + data.unmatched.join(', ') : ''));
-    pagesRefresh();
+    notificationsRefresh();
   });
   // -- call times (#229): scheduled pages for a Planning Center team. Everything shown is text.
   const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];   // Sunday = 0 (app/timewin.py)
@@ -166,7 +166,7 @@
   function lastText(r) {
     if (!r.last_ts) return 'Not yet';
     return new Date(r.last_ts * 1000).toLocaleString([], { weekday: 'short', hour: 'numeric', minute: '2-digit' }) +
-      (r.last_people ? ' \u00b7 ' + r.last_people + (r.last_people === 1 ? ' person' : ' people') : ' \u00b7 nobody to page');
+      (r.last_people ? ' \u00b7 ' + r.last_people + (r.last_people === 1 ? ' person' : ' people') : ' \u00b7 nobody to notify');
   }
   function drawCalls(d) {
     const manage = can('crew.manage'), body = document.querySelector('#ctRules tbody');
@@ -223,7 +223,7 @@
       el('span', 'crav', initials(p.name)), el('span', 'who', el('b', '', p.name), el('small', '', sub)));
     const pr = progress[p.name];
     if (late && can('crew.page') && p.user_id) {
-      row.appendChild(button('Page', function () { picked.users.clear(); picked.teams.clear(); picked.users.add(p.user_id); drawn = false; pagesRefresh().then(function () { $('crPageText').focus(); }); }));
+      row.appendChild(button('Notify', function () { picked.users.clear(); picked.teams.clear(); picked.users.add(p.user_id); drawn = false; notificationsRefresh().then(function () { $('crNoteText').focus(); }); }));
       row.lastChild.classList.add('sm');
     } else if (pr && pr.total) {
       const bar = el('span', 'crprog'), fill = el('i'); fill.style.width = Math.round(100 * pr.done / pr.total) + '%';
@@ -253,7 +253,7 @@
         relayUI.el('span', '', (group === 'team' && call ? 'call ' + clock(call) + ' \u00b7 ' : '') + inn + ' of ' + people.length + ' in')));
       people.forEach(function (p) { col.appendChild(personLine(p)); });
       if (group === 'team' && can('crew.page') && name !== 'No team') {
-        const b = button('Page ' + name, function () { picked.users.clear(); picked.teams.clear(); picked.teams.add(name); drawn = false; pagesRefresh().then(function () { $('crPageText').focus(); }); });
+        const b = button('Notify ' + name, function () { picked.users.clear(); picked.teams.clear(); picked.teams.add(name); drawn = false; notificationsRefresh().then(function () { $('crNoteText').focus(); }); });
         b.classList.add('sm', 'quiet', 'crfoot'); col.appendChild(b);
       }
       box.appendChild(col);
@@ -390,6 +390,6 @@
     if (r) drawLeads(r);
   });
   setInterval(function () { if (document.getElementById('page-crew') && !document.getElementById('page-crew').hidden) { boardRefresh(); listsRefresh(); activityRefresh(); } }, 15000);
-  document.addEventListener('relay:config', function () { refresh(); peopleRefresh(); drawn = false; pagesRefresh(); callsRefresh(); boardRefresh(); listsRefresh(); leadsRefresh(); activityRefresh(); });
-  refresh(); peopleRefresh(); pagesRefresh(); callsRefresh(); boardRefresh(); listsRefresh(); leadsRefresh(); devicesRefresh(); activityRefresh();
+  document.addEventListener('relay:config', function () { refresh(); peopleRefresh(); drawn = false; notificationsRefresh(); callsRefresh(); boardRefresh(); listsRefresh(); leadsRefresh(); activityRefresh(); });
+  refresh(); peopleRefresh(); notificationsRefresh(); callsRefresh(); boardRefresh(); listsRefresh(); leadsRefresh(); devicesRefresh(); activityRefresh();
 })();

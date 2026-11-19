@@ -23,7 +23,7 @@ patch 2 tests/test_crew_chat.py
 sleep 1 tests/test_crew_chat.py
 patch 3 tests/test_crew_checkin.py
 patch 1 tests/test_crew_checklists.py
-patch 1 tests/test_crew_paging.py
+patch 1 tests/test_crew_notifications.py
 patch 1 tests/test_crew_resources.py
 patch 1 tests/test_intercom.py
 sleep 1 tests/test_intercom.py

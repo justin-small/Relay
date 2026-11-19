@@ -9,13 +9,13 @@
 <link rel="stylesheet" href="{{ static('modules/crew/crew.css') }}">
 <script src="{{ static('look.js') }}"></script>
 </head><body class="crew-page">
-{#- A page (#228), opened from the person's own link: it fills the screen while it buzzes, and the one button is at
+{#- A notification (#228), opened from the person's own link: it fills the screen while it buzzes, and the one button is at
     the bottom under the thumb. -#}
 {% if not found %}
 <main class="cr-full">
   <div class="cr-top">
     <div class="cr-row"><img src="/static/brand/relay-mark.svg" width="26" height="26" alt=""><b>{{ app_name }}</b></div>
-    <h1 class="cr-msg">This page link is not valid any more.</h1>
+    <h1 class="cr-msg">This notification link is not valid any more.</h1>
   </div>
   <a class="cr-confirm cr-center" href="/crew">Open the crew page</a>
 </main>
@@ -23,7 +23,7 @@
 <main class="cr-full{% if not confirmed %} urgent{% endif %}">
   <div class="cr-top">
     <div class="cr-row"><img src="/static/brand/relay-mark.svg" width="26" height="26" alt="">
-      <span class="badge {{ 'ok' if confirmed else 'warn' }}">{{ 'READ' if confirmed else 'PAGE' }}</span>
+      <span class="badge {{ 'ok' if confirmed else 'warn' }}">{{ 'READ' if confirmed else 'NOTIFICATION' }}</span>
       <span class="grow"></span><time class="cr-note" id="crSent" data-ts="{{ sent_ts }}"></time></div>
     <p class="cr-note">From {{ sender or 'the booth' }}</p>
     <h1 class="cr-msg">{{ message }}</h1>

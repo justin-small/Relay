@@ -144,14 +144,14 @@ with section("config.json"):
           and config.get()["planning_center"]["secret"] == "new-pc-secret")
 
 with section("the crew push key in relay.db"):
-    from app.modules.crew import paging
-    key = paging.vapid_key()
+    from app.modules.crew import notifications
+    key = notifications.vapid_key()
     stored = db.one("select private_pem from crew_vapid where id = 1")["private_pem"]
     check("relay.db keeps it sealed", secretbox.is_sealed(stored) and "PRIVATE KEY" not in stored)
-    eq("and it opens as the same key", paging.public_key(), paging.public_key())
+    eq("and it opens as the same key", notifications.public_key(), notifications.public_key())
     from app.modules.crew import webpush
     db.execute("update crew_vapid set private_pem = ? where id = 1", (webpush.key_to_pem(key),))
-    pub = paging.public_key()
+    pub = notifications.public_key()
     check("a key stored before #278 is sealed on first use, unchanged",
           secretbox.is_sealed(db.one("select private_pem from crew_vapid where id = 1")["private_pem"])
           and pub == webpush.b64e(webpush.public_bytes(key)))

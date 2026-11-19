@@ -15,7 +15,7 @@ import time
 from datetime import datetime
 
 from ... import db, directory
-from . import calltimes, paging, people
+from . import calltimes, notifications, people
 
 RADIUS_DEFAULT_M = 150
 RADIUS_MIN_M, RADIUS_MAX_M = 20, 5000
@@ -90,15 +90,16 @@ def arrive(user_id: int, key: str, method: str, now: float | None = None) -> flo
     people.ready()
     ts = time.time() if now is None else now
     _forget_old(key)
-    db.execute("insert into crew_arrivals (plan_id, user_id, arrived_ts, method) values (?, ?, ?, ?)"
-               " on conflict do nothing", (key, user_id, ts, method))
-    return db.one("select arrived_ts from crew_arrivals where plan_id = ? and user_id = ?", (key, user_id))["arrived_ts"]
+    db.execute("insert into crew_arrivals (plan_id, user_id, arrived_at, method) values (?, ?, ?, ?)"
+               " on conflict do nothing", (key, user_id, db.iso(ts), method))
+    return db.epoch(db.one("select arrived_at from crew_arrivals where plan_id = ? and user_id = ?",
+                           (key, user_id))["arrived_at"])
 
 
 def mine(user_id: int, key: str) -> dict | None:
     people.ready()
-    return db.one("select arrived_ts as ts, method from crew_arrivals where plan_id = ? and user_id = ?",
-                  (key, user_id))
+    row = db.one("select arrived_at, method from crew_arrivals where plan_id = ? and user_id = ?", (key, user_id))
+    return {"ts": db.epoch(row["arrived_at"]), "method": row["method"]} if row else None
 
 
 def clear(key: str) -> int:
@@ -111,7 +112,7 @@ def _call_time(held: list[dict], rules: list[dict], tracks, now: float, zone) ->
     """The earliest call time today across the rules for this person's teams (None when no rule applies)."""
     at = []
     for rule in rules:
-        if rule["enabled"] and any(paging.holds(m, rule.get("team_ref", ""), rule["team"]) for m in held):
+        if rule["enabled"] and any(notifications.holds(m, rule.get("team_ref", ""), rule["team"]) for m in held):
             at += [t for _, t, _ in calltimes.occasions(rule, tracks, now, zone)]
     return min(at) if at else None
 
@@ -122,13 +123,13 @@ def board(tracks, zone, now: float | None = None) -> dict:
     ts = time.time() if now is None else now
     key = plan_key(tracks, zone, ts)
     _forget_old(key)
-    arrivals = {r["user_id"]: r for r in db.query(
-        "select user_id, arrived_ts, method from crew_arrivals where plan_id = ?", (key,))}
+    arrivals = {r["user_id"]: {"arrived_ts": db.epoch(r["arrived_at"]), "method": r["method"]} for r in db.query(
+        "select user_id, arrived_at, method from crew_arrivals where plan_id = ?", (key,))}
     linked = directory.links(directory.PCO)
     names = {r["id"]: r["name"] for r in db.query("select id, name from users")}
     rules = calltimes.list_rules()
     by_person: dict[str, dict] = {}
-    for m in paging.active_members(tracks):
+    for m in notifications.active_members(tracks):
         p = by_person.setdefault(m["person"], {"name": m["name"], "teams": [], "held": []})
         if m["team"] not in p["teams"]:
             p["teams"].append(m["team"])
