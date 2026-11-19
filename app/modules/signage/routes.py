@@ -204,6 +204,15 @@ def _port_info() -> dict:
     return {"configured": configured, "bound": bound, "restart": serving.published() and bound != configured}
 
 
+def ndi_outputs() -> list[dict]:
+    """Each signage screen as a page the NDI module can send (provided as "ndi.outputs.signage"): the player on this
+    machine's signage port, so a TV fed by NDI plays the same loop as one with a browser."""
+    info = _port_info()
+    port = info["bound"] or info["configured"]
+    return [{"id": "signage:" + s["slug"], "name": "Signage (" + s["name"] + ")", "group": "Signage",
+             "url": f"http://127.0.0.1:{port}" + store.player_path(s["slug"]), "alpha": False} for s in store.screens()]
+
+
 def _screen_urls(slug: str) -> list[str]:
     info = _port_info()
     port = info["bound"] or info["configured"]

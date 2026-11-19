@@ -16,6 +16,7 @@ import time
 from collections import deque
 
 from ... import db
+from ...text import fold
 from . import notifications, people
 
 log = logging.getLogger("relay.crew")
@@ -32,7 +33,7 @@ class Refused(people.Invalid):
 
 
 def role_channel(role: str) -> str | None:
-    text = " ".join((role or "").lower().split())
+    text = fold(role)
     return f"role:{text}" if text else None
 
 

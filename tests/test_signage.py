@@ -64,6 +64,12 @@ scr = admin.post("/api/admin/signage/screens", json={"name": "Lobby left", "slug
                                                       "playlist_id": pl["id"], "sound": True}).json()
 eq("screen made", scr["slug"], "lobby-left")
 eq("sound kept", scr["sound"], True)
+from app import modules as _registry  # noqa: E402
+ndi_signage = _registry.using("ndi.outputs.signage")
+check("signage offers its screens as NDI outputs while on", ndi_signage is not None)
+eq("each screen is the player on this machine's signage port",
+   [(d["id"], d["url"].split("/", 3)[-1], d["url"].startswith("http://127.0.0.1:")) for d in ndi_signage()],
+   [("signage:lobby-left", "signage/lobby-left", True)])
 eq("duplicate slug refused", admin.post("/api/admin/signage/screens", json={"name": "B", "slug": "lobby-left"}).status_code, 409)
 eq("unknown playlist refused", admin.post("/api/admin/signage/screens", json={"name": "B", "slug": "b", "playlist_id": 999}).status_code, 404)
 

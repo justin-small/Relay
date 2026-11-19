@@ -414,18 +414,10 @@ async def control_recording(command: str, value: str = "", *, source: str = "") 
     return await hook(command, value, source=source)
 
 
-# Called with a presentation's name each time a new one is up in ProPresenter (#413). The ProPresenter module calls
-# `announce_presentation`; a module that wants to know (REAPER's markers) appends a callable in attach() and removes it
-# in detach(). Called on the event loop; a listener must not block.
-presentation_listeners: list[Callable[[str], None]] = []
-
-
 def announce_presentation(name: str) -> None:
-    for fn in list(presentation_listeners):
-        try:
-            fn(name)
-        except Exception:
-            logging.getLogger("relay.modules").exception("presentation listener failed")
+    """A new presentation is up in ProPresenter (#413), which calls this with its name: `listen("presentation.up", fn)`
+    to hear (REAPER's song markers). Called on the event loop; a listener must not block."""
+    announce("presentation.up", name)
 
 
 # The NDI module provides "ndi": a dict of the functions other modules use, `sources() -> list[dict]`,
@@ -458,10 +450,9 @@ def ndi_register_output(name: str, width: int = 1280, height: int = 720, fps: fl
     return fn(name, width, height, fps) if fn else None
 
 
-# A module with a page worth sending as NDI (signage, boards) sets an entry here in attach() and removes it in detach():
-# a function returning [{"id", "name", "url" (a path on this server), "alpha" (bool), "group"}]. The NDI module lists them
-# on its Outputs page for the operator to switch on; the provider never imports it (#299).
-ndi_output_providers: dict[str, Callable[[], list[dict]]] = {}
+# A module with a page worth sending as NDI provides "ndi.outputs.<its id>" (#299): a function returning
+# [{"id", "name", "url", "alpha", "group"}], where `url` is a path on the viewer port or http://127.0.0.1:<port>/... for
+# a page served on a port of its own. The NDI module lists them on its Outputs page (`using_all("ndi.outputs.")`).
 
 
 def plan_label() -> str | None:

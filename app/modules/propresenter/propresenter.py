@@ -38,6 +38,7 @@ import urllib.parse
 from typing import Any, Callable
 
 from ... import config, netsock
+from ...text import same_name
 # A panel's own timer settings are the panel's (panels.py); ProPresenter's global ones use the same check.
 from ...panels import MAX_THRESHOLD_S, MAX_TIMERS_SHOWN, TIMER_ID_RE, timer_fields
 from . import plmatch, slidetags
@@ -1118,7 +1119,7 @@ class Follower:
         if not pres:
             return False
         lib = settings().get("songs_library") or ""
-        if lib and pres["library"].lower() == lib.lower():
+        if lib and same_name(pres["library"], lib):
             return True
         return any(SONG_GROUPS.match(n) for n, _ in pres["groups"])
 

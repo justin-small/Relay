@@ -223,4 +223,28 @@ with section("the rundown's mic mapping follows ids"):
     r = admin.get("/api/admin/planning-center/rundown")
     eq("the admin read answers", r.status_code, 200)
 
+with section("the song leader's position is picked from the list and follows a rename"):
+    tr.catalog = [{"id": "20", "name": "Band", "positions": [{"id": "60", "name": "Worship Leader"}, {"id": "61", "name": "Keys"}]}]
+    directory.sync("pco")
+    old = rundown.clean_rundown({})
+    eq("a typed name from before has no ref", (old["leader_position"], old["leader_position_ref"]), ("Worship Leader", ""))
+    check("refresh_saved adopts the one position with that name", rundown.refresh_saved(old))
+    eq("so the leader is found by id", old["leader_position_ref"], "position:pco:20/60")
+    leader = {"team_id": "20", "position_id": "60", "position": "Renamed", "team": "Band"}
+    check("a member holding it is the leader whatever the names say", rundown.is_leader(old, leader))
+    check("someone in another position is not", not rundown.is_leader(old, {**leader, "position_id": "61", "position": "Worship Leader"}))
+    tr.catalog = [{"id": "20", "name": "Band", "positions": [{"id": "60", "name": "Song Leader"}, {"id": "61", "name": "Keys"}]}]
+    directory.sync("pco")
+    check("a rename reaches the saved name", rundown.refresh_saved(old) and old["leader_position"] == "Song Leader")
+    r = admin.get("/api/admin/planning-center/rundown").json()
+    check("the page gets the positions to pick from", {"ref": "position:pco:20/61", "name": "Keys", "team": "Band"} in r["all_positions"])
+    save = "/api/admin/planning-center/rundown/settings"
+    r = admin.post(save, json={"leader_position_ref": "position:pco:20/61"})
+    eq("picking one saves its ref and name", (r.status_code, r.json()["settings"]["leader_position_ref"],
+                                             r.json()["settings"]["leader_position"]), (200, "position:pco:20/61", "Keys"))
+    eq("a made-up position is refused", admin.post(save, json={"leader_position_ref": "position:pco:1/2"}).status_code, 400)
+    r = admin.post(save, json={"leader_position_ref": ""})
+    eq("nobody clears it", (r.json()["settings"]["leader_position_ref"], r.json()["settings"]["leader_position"]), ("", ""))
+    check("and finds no leader", not rundown.is_leader(r.json()["settings"], leader))
+
 done()

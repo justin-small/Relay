@@ -93,6 +93,20 @@ with section("a PIN session from a forgotten phone ends with it"):
     devices.revoke(db.one("select device_id from trusted_devices where id = ?", (dev["id"],))["device_id"])
     eq("it is signed out", users.session_user(session), None)
 
+with section("a password sign-in in a forgotten phone's browser ends with it"):
+    phone_ua = "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X)"
+    _, cred_row = intercom_devices.create(owner.id, user_agent=phone_ua)
+    phone = cred_row["device_id"]
+    on_phone, _ = users.start_session(owner, via="password", user_agent=phone_ua)
+    on_laptop, _ = users.start_session(owner, via="password", user_agent="Mozilla/5.0 (Macintosh)")
+    no_agent, _ = users.start_session(owner, via="password")
+    eq("the phone lists that it is signed in", [parts_of(d) for d in devices.listing(owner.id) if d["id"] == phone],
+       [{"session", "intercom"}])
+    eq("forgetting it says so", set(devices.revoke(phone)["parts"]), {"session", "intercom"})
+    eq("the phone is signed out", users.session_user(on_phone), None)
+    check("the laptop stays signed in", users.session_user(on_laptop) is not None)
+    check("a session that named no browser stays signed in", users.session_user(no_agent) is not None)
+
 with section("a part of a module that is off goes too, and a merge keeps it"):
     devices.unregister("intercom")           # what switching the module off does
     _, a = intercom_devices.create(owner.id, user_agent="x1")

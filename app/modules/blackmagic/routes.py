@@ -11,6 +11,7 @@ from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse
 
 from ... import audit
+from ...text import same_name
 from .. import require
 from . import discovery, videohub
 from .service import (DEFAULT_NAME, DEFAULT_PORT as DEFAULT_PORTS, DRAWINGS, KIND_NAMES, KINDS, MAX_CABLES, MAX_DEVICES,
@@ -238,7 +239,8 @@ def admin_scan(request: Request, payload: dict | None = None):
     items = devices()
     for f in found:
         f["added"] = next((d["id"] for d in items if d["kind"] == f["family"] and (
-            (f["uid"] and d["uid"].lower() == f["uid"].lower()) or (f["address"] and d["host"] == f["address"]))), None)
+            (f["uid"] and d["uid"].lower() == f["uid"].lower())  # allow-shared: a hex device id, not a name
+            or (f["address"] and d["host"] == f["address"]))), None)
     audit.note(request, "blackmagic.scan", "Looked for Blackmagic devices on the network",
                detail={"found": len(found), "probe": probed})
     return {"found": found, "probed": probed}
@@ -472,7 +474,7 @@ def admin_hub_preset_save(request: Request, payload: dict):
     if item is None:
         return _bad("That Videohub is not in the list.", 404)
     presets = item.get("presets", [])
-    same = next((p for p in presets if p["name"].lower() == name.lower()), None)
+    same = next((p for p in presets if same_name(p["name"], name)), None)
     if same is None and len(presets) >= MAX_PRESETS:
         return _bad(f"A Videohub keeps at most {MAX_PRESETS} presets.")
     if same is not None:

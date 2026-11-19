@@ -533,9 +533,11 @@ with hooks set in `attach()` and cleared in `detach()`.
   gets `{"width", "height", "fps", "fourcc", "data"}` on the receiver's thread and must not block.
 - `ndi_register_output(name, width=1280, height=720, fps=30)` returns an object with `send({"data": BGRA bytes})` and
   `close()`, or None (off, missing runtime, or the name is taken).
-- `ndi_output_providers[<your id>] = fn` (set in `attach()`, removed in `detach()`) offers pages as NDI outputs (#299): `fn()`
-  returns `[{"id", "name", "url" (a path on this server), "alpha", "group"}]`. The NDI page lists them for the operator to
-  switch on; the NDI module renders each in a hidden browser and sends it. Signage and boards use this, never `ndi`.
+- `modules.provide("ndi.outputs.<your id>", fn)` in `attach()` offers pages as NDI outputs (#299): `fn()` returns
+  `[{"id", "name", "url", "alpha", "group"}]`, where `url` is a path on the viewer port or `http://127.0.0.1:<port>/...` for
+  a page on a port of its own (anything else is ignored). The NDI page lists them for the operator to switch on; the NDI
+  module renders each in a hidden browser and sends it. Signage offers each signage screen this way, never importing `ndi`;
+  the NDI module lists core's screens, overlays and public boards itself (a board that needs a sign-in cannot be rendered).
 
 The router (#298) and page outputs are in `docs/ndi-router-and-outputs.md`.
 
@@ -575,8 +577,8 @@ A module that wants a recorder to start, stop, drop a marker or run an action ne
 REAPER module writes a system audit entry saying where it came from.
 
 `app.modules.announce_presentation(name)` is called by the ProPresenter module each time a new presentation is up. A
-module that wants to know appends a callable to `app.modules.presentation_listeners` in `attach()` and removes it in
-`detach()`; it runs on the event loop and must not block. REAPER uses it for its song markers.
+module that wants to know calls `modules.listen("presentation.up", fn)` in `attach()` and `unlisten` in `detach()`; `fn(name)`
+runs on the event loop and must not block. REAPER uses it for its song markers.
 
 ## Audio sources and outputs
 

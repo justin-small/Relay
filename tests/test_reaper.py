@@ -359,7 +359,7 @@ async def live_tests():
         with section("module off"):
             _modules.get("reaper").detach()
             eq("hook cleared", registry.using("reaper.recording"), None)
-            check("no presentation listener", svc.service.presentation not in registry.presentation_listeners)
+            check("no presentation listener", svc.service.presentation not in registry._listeners.get("presentation.up", []))
             check("no alert listener", svc.service.alert_event not in alerts.listeners)
             r = await registry.control_recording("record")
             eq("the hook says it is off", r, {"ok": False, "error": "The REAPER module is off."})

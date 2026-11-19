@@ -83,6 +83,9 @@ class Signage(Module):
         sources.register(store.MEDIA_SOURCE)
         # The Schedules page asks every module which of its slots pick a named schedule (#526).
         modules.provide("schedules.used.signage", store.schedule_users)
+        # Each signage screen can be sent as NDI (#299) while the NDI module is on; signage never imports it.
+        from .routes import ndi_outputs
+        modules.provide("ndi.outputs.signage", ndi_outputs)
         # What other modules reach signage through (#523): "signage.content" holds the library, the live state and the
         # schedule they read and change. They ask for it while signage is on and cope with None while it is off.
         modules.provide("signage.content", SimpleNamespace(store=store, media=media, live=live, takeover=takeover,
@@ -95,6 +98,7 @@ class Signage(Module):
         sources.unregister("media")
         modules.withdraw("signage.content")
         modules.withdraw("schedules.used.signage")
+        modules.withdraw("ndi.outputs.signage")
 
     async def start(self) -> None:
         self._task = asyncio.create_task(self._housekeeping())

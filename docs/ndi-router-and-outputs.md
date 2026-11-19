@@ -27,7 +27,7 @@ Pages are drawn in a hidden Chromium browser, which needs Playwright: `pip insta
 `playwright install chromium`. The page says so when it is missing. Each output shows its frame rate and the share of one
 core Relay spends on it; switch on only what you use (at most eight). Pick 1280 x 720 unless a switcher needs 1080.
 
-Other modules (signage, boards) add their own pages through core's `ndi_output_providers`; see `docs/modules.md`.
+Signage adds its screens as `ndi.outputs.signage` (`modules.provide`); public boards are listed with the screens and overlays. See `docs/modules.md`.
 
 ## Not covered yet
 
