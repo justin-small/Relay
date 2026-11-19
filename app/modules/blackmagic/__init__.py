@@ -77,9 +77,18 @@ class Blackmagic(Module):
 
         return [router]
 
-    def detach(self) -> None:
+    def attach(self) -> None:
+        from ... import modules as registry
         from .service import service
 
+        # Core's rename flow (#543) asks for this: which channel ends this module can rename on the gear, and how.
+        registry.provide("gear.blackmagic", {"can_rename": service.can_rename, "rename": service.rename_end})
+
+    def detach(self) -> None:
+        from ... import modules as registry
+        from .service import service
+
+        registry.withdraw("gear.blackmagic")
         service.clear_tally()
 
     async def start(self) -> None:

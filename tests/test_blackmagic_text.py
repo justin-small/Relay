@@ -549,6 +549,31 @@ with section("The admin routes for a HyperDeck and a Videohub"):
     eq("an empty label", admin.post(f"{B}/videohub/labels", json={"device": hub_cfg["id"], "kind": "input", "labels": {"0": "  "}}).status_code, 400)
     eq("a kind that is neither", admin.post(f"{B}/videohub/labels", json={"device": hub_cfg["id"], "kind": "serial", "labels": {"0": "X"}}).status_code, 400)
 
+    # Renaming through core's one flow (#543): the Videohub takes the label; the channel then shows the router's name.
+    from app import channels as core_channels  # noqa: E402
+    admin.get(B)
+    inp = next(c for c in core_channels.listing("video") if any(e["key"] == f"{hub_cfg['id']}:vin2" for e in c["ends"]))
+    eq("the page is told a Videohub input can be renamed on the device", inp["can_device"], True)
+    url = f"/api/admin/network/channels/{inp['id']}/rename"
+    eq("an operator cannot rename", operator.post(url, json={"name": "X", "device": True}).status_code, 403)
+    res = admin.post(url, json={"name": "Camera  3", "device": True})
+    eq("renaming input 3 on the device sends the label", (res.status_code, rec_hub.sent[-1]), (200, "INPUT LABELS:\n2 Camera 3\n\n"))
+    again = core_channels.get(inp["id"])
+    eq("Relay shows the router's name and keeps no Relay-only one", (again["shown"], again["name"], again["gear_name"]),
+       ("Camera 3", "", "Camera 3"))
+    sent_before = len(rec_hub.sent)
+    res = admin.post(url, json={"name": "", "device": True})
+    eq("an empty name is refused and nothing is sent", (res.status_code, len(rec_hub.sent)), (404, sent_before))
+    hc.connected = False
+    res = admin.post(url, json={"name": "Lost", "device": True})
+    eq("a Videohub that is not connected is refused with Relay's name unchanged",
+       (res.status_code, core_channels.get(inp["id"])["shown"]), (409, "Camera 3"))
+    hc.connected = True
+    res = admin.post(url, json={"name": "Wide"})
+    eq("a Relay-only name sends nothing to the router", (res.status_code, len(rec_hub.sent)), (200, sent_before))
+    shown = core_channels.get(inp["id"])
+    eq("and the router's name stays beside it", (shown["shown"], shown["gear_name"]), ("Wide", "Camera 3"))
+
     eq("an operator cannot lock", operator.post(f"{B}/videohub/lock", json={"device": hub_cfg["id"], "output": 0, "action": "lock"}).status_code, 403)
     res = admin.post(f"{B}/videohub/lock", json={"device": hub_cfg["id"], "output": 0, "action": "lock"})
     eq("an admin locks an output", (res.status_code, rec_hub.sent[-1]), (200, "VIDEO OUTPUT LOCKS:\n0 O\n\n"))

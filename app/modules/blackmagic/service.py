@@ -712,6 +712,34 @@ class Service:
         c = dev.client
         return c if dev.cfg["kind"] == "videohub" and c is not None and c.connected else None
 
+    # ------------------------------------------------------------------------------------------ rename (#543)
+    def _hub_end(self, key: str):
+        """(hub client, "input" or "output", number) for a channel end key "<device id>:vin<n>" or ":vout<n>", else None."""
+        did, _, tail = key.rpartition(":")
+        m = re.fullmatch(r"v(in|out)(\d+)", tail)
+        dev = self.devices.get(did)
+        if not m or dev is None:
+            return None
+        hub = self.hub(dev)
+        return None if hub is None else (hub, "input" if m.group(1) == "in" else "output", int(m.group(2)))
+
+    def can_rename(self, key: str) -> bool:
+        """Only a connected Videohub takes a new label; an ATEM's input names are not sent from here."""
+        return self._hub_end(key) is not None
+
+    def rename_end(self, key: str, name: str) -> None:
+        """Send a new label to the Videohub. Raises ValueError with a sentence the operator can read."""
+        got = self._hub_end(key)
+        if got is None:
+            raise ValueError("The Videohub is not connected, so its label was not changed.")
+        hub, kind, n = got
+        limit = hub.state.outputs if kind == "output" else hub.state.inputs
+        label = videohub.clean_label(name)
+        if not label or n >= limit:
+            raise ValueError("The Videohub has no such port, or the name is empty.")
+        if not hub.set_labels(kind, {n: label}):
+            raise ValueError("The Videohub is not connected, so its label was not changed.")
+
     def route(self, dev: Device, pairs: dict[int, int]) -> tuple[int, int]:
         """Send routes the router would take; leave out any output another control surface holds. (sent, left out)"""
         c = self.hub(dev)
