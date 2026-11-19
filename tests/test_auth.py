@@ -345,7 +345,7 @@ MIN_ROLE = {
     "session.view": "viewer", "session.control": "operator", "audio.manage": "admin", "targets.manage": "operator",
     "panels.view": "viewer", "panels.manage": "admin", "alerts.view": "viewer", "alerts.manage": "admin", "alerts.history": "admin",
     "overlays.view": "viewer", "overlays.manage": "operator", "boards.view": "member", "boards.manage": "admin", "recordings.view": "operator",
-    "recordings.manage": "admin", "schedules.view": "viewer", "schedules.manage": "admin",
+    "recordings.manage": "admin", "schedules.view": "viewer", "schedules.manage": "admin", "screens.view": "viewer", "screens.manage": "admin",
     "blocklist.manage": "admin", "settings.view": "viewer", "settings.manage": "admin",
     "credentials.manage": "owner", "modules.view": "viewer", "modules.manage": "admin", "users.view": "admin",
     "network.view": "viewer", "network.manage": "admin",
@@ -462,6 +462,17 @@ route("GET", "/api/admin/schedules", "schedules.view")
 route("POST", "/api/admin/schedules", "schedules.manage")
 route("PUT", "/api/admin/schedules/{sid}", "schedules.manage")
 route("DELETE", "/api/admin/schedules/{sid}", "schedules.manage")
+# screens and places
+route("GET", "/api/admin/screens", "screens.view")
+route("PUT", "/api/admin/screens/{sid}", "screens.manage")
+route("DELETE", "/api/admin/screens/{sid}", "screens.manage")
+route("PUT", "/api/admin/screens/{sid}/hold", "screens.manage")
+route("DELETE", "/api/admin/screens/{sid}/hold", "screens.manage")
+route("POST", "/api/admin/screens/{sid}/flash", "screens.manage")
+route("POST", "/api/admin/places", "screens.manage")
+route("PUT", "/api/admin/places/{pid}", "screens.manage")
+route("DELETE", "/api/admin/places/{pid}", "screens.manage")
+route("POST", "/api/admin/places/{pid}/flash", "screens.manage")
 # overlays
 route("GET", "/api/admin/overlays", "overlays.view")
 route("POST", "/api/admin/overlays", "overlays.manage")

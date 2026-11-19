@@ -24,7 +24,7 @@ _db.start()
 _db.reset()
 
 import app.main as main  # noqa: E402,F401
-from app import audit, boards, config  # noqa: E402
+from app import audit, boards, config, screens  # noqa: E402
 from app.main import app  # noqa: E402
 from app.modules import modules as _modules  # noqa: E402
 from app.modules.lighting import backend as be  # noqa: E402
@@ -286,8 +286,8 @@ with section("screens showing a board"):
     eq("Reload all screens: the count the screens watch moves", tv.get("/board/lobby-tv/_/data").json()["reload"], n + 1)
     admin.put(f"{B}/lobby-tv", json={"name": "Lobby again"})
     check("a saved change moves the revision, so the screens load it", tv.get("/board/lobby-tv/_/data").json()["rev"] != rev)
-    admin.put(f"{B}/lobby-tv/screens/{sid}", json={"name": ""})
-    eq("a name cleared", boards.find(config.get()["boards"], "lobby-tv")["screen_names"], {})
+    eq("a name cannot be cleared: a screen always has one", admin.put(f"{B}/lobby-tv/screens/{sid}", json={"name": ""}).status_code, 400)
+    eq("the name is the core screen's", screens.by_key(f"board:{sid}")["name"], "Foyer TV left")
 
 with section("places and templates"):
     frame = admin.get(B).json()

@@ -6,6 +6,8 @@
 # devices, its presence, its watchdog), not an add-on that has to cope with the intercom being off.
 # intercom_remote -> remote_access stays: it reads the enrolment and the cloud client that module holds even
 # while the tunnel (remote access) is off, so asking by name would stop the remote intercom when it is.
+# signage_screens stays (#527): it keeps what signage adds to a screen (address, sound, playlist); the name and place are the
+# core screen's.
 # rule  count  file
 import 2 app/modules/intercom_remote/__init__.py
 import 2 app/modules/intercom_remote/cloud.py
@@ -14,3 +16,4 @@ import 2 app/modules/intercom_remote/remote.py
 import 2 app/modules/intercom_remote/routes.py
 import 1 app/modules/intercom_remote/store.py
 import 1 app/modules/intercom_remote/watch.py
+screen 1 app/modules/signage/migrations/0001_signage.sql

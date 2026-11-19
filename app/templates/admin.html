@@ -37,9 +37,10 @@ window.relayCan = function (perm) { return window.RELAY_ME.permissions.indexOf(p
       {% if 'recordings.view' in perms %}{{ sub("recordings", "Recordings & export") }}{% endif %}
     </ul></div></div></div>
     {% endif %}
-    {% if 'panels.view' in perms or 'alerts.view' in perms or 'boards.view' in perms or 'schedules.view' in perms %}<div class="grp">Output</div>{% endif %}
+    {% if 'panels.view' in perms or 'alerts.view' in perms or 'boards.view' in perms or 'schedules.view' in perms or 'screens.view' in perms %}<div class="grp">Output</div>{% endif %}
     {% if 'panels.view' in perms %}<a href="#panels" data-page="panels" data-tip="Panels"><svg class="i" viewBox="0 0 16 16" aria-hidden="true"><rect x="1.5" y="3" width="13" height="9" rx="1.5"/><path d="M5.5 14.5h5"/></svg><span class="nl">Panels</span></a>{% endif %}
     {% if 'alerts.view' in perms %}<a href="#alerts" data-page="alerts" data-tip="Alerts"><svg class="i" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 11V7a4 4 0 0 1 8 0v4l1.5 1.5h-11zM6.5 14h3"/></svg><span class="nl">Alerts</span></a>{% endif %}
+    {% if 'screens.view' in perms %}<a href="#screens" data-page="screens" data-tip="Screens"><svg class="i" viewBox="0 0 16 16" aria-hidden="true"><rect x="1.5" y="2.5" width="13" height="9" rx="1.5"/><path d="M5.5 14h5M8 11.5V14"/></svg><span class="nl">Screens</span></a>{% endif %}
     {% if 'boards.view' in perms %}<a href="#boards" data-page="boards" data-tip="Boards"><svg class="i" viewBox="0 0 16 16" aria-hidden="true"><rect x="1.5" y="2.5" width="13" height="11" rx="1.5"/><path d="M1.5 7.5h8M9.5 2.5v11"/></svg><span class="nl">Boards</span></a>{% endif %}
     {% if 'schedules.view' in perms %}<a href="#schedules" data-page="schedules" data-tip="Schedules"><svg class="i" viewBox="0 0 16 16" aria-hidden="true"><rect x="2" y="3" width="12" height="11" rx="1.5"/><path d="M2 7h12M5.5 1.5v3M10.5 1.5v3"/></svg><span class="nl">Schedules</span></a>{% endif %}
     {% for m in module_nav %}{% if loop.first or m.section != loop.previtem.section %}<div class="grp">{{ m.section }}</div>{% endif %}
@@ -488,6 +489,19 @@ window.relayCan = function (perm) { return window.RELAY_ME.permissions.indexOf(p
           <li>Turn the key on for program. Keep the computer’s screen saver and notifications off.</li></ol></div>
       </div>
     </div>
+  </div>
+{% endif %}
+{% if 'screens.view' in perms %}
+  <div class="page" id="page-screens" data-page="screens" hidden>
+    {# Screens (#527): every physical display once, grouped by place, with what each shows now. screens.js draws it. #}
+    <h2 class="title">Screens</h2>
+    <p class="sub">Every TV, tablet and panel, once, with one name and one place. A screen shows a board or a signage playlist, and flashes for alerts.</p>
+    {{ viewonly('screens.manage') }}
+    <div class="note err" id="scErr" hidden></div>
+    <div class="note ok" id="scMsg" hidden></div>
+    <div class="ctl"><button type="button" id="scAddPlace">Add place</button></div>
+    <div id="scMain"><p class="muted">Loading&hellip;</p></div>
+    <section class="sc-edit" id="scEdit" hidden></section>
   </div>
 {% endif %}
 {% if 'boards.view' in perms %}
@@ -1011,6 +1025,7 @@ window.relayCan = function (perm) { return window.RELAY_ME.permissions.indexOf(p
 <script src="{{ static('network_map.js') }}"></script>
 <script src="{{ static('overlay-builder.js') }}"></script>
 <script src="{{ static('boards.js') }}"></script>
+<script src="{{ static('screens.js') }}"></script>
 <script src="{{ static('users.js') }}"></script>
 <script src="{{ static('audit.js') }}"></script>
 <script src="{{ static('oauth.js') }}"></script>

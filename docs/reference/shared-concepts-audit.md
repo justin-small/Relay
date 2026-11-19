@@ -271,6 +271,8 @@ recording actions all register the same way, and a module stops importing anothe
 5. Central named Schedules page and Relay time zone; the engine, signage, board rotation and call times pick a
    named schedule (M4). Mockup first.
 6. Core `screens` + `places`, panels as a screen type; boards, signage, alerts and tally attach; a screen shows a
-   board or a signage playlist from one combined schedule (H3, M3, L3). Mockup first.
+   board or a signage playlist from one combined schedule (H3, M3, L3). Mockup first. Built (#527): boards, signage,
+   alert screens and panels attach; the Screens page is the live wall (mockup A). Tally screens are a phone on a camera,
+   not a display, and stay as they are.
 7. Core `devices` with credentials as parts (M1).
 8. Cleanups: merge intercom remote sessions, convert crew timestamps, rename crew pages (M2, M6, L2).

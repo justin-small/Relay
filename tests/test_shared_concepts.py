@@ -9,6 +9,8 @@ shared files themselves (app/text.py and app/timewin.py) and counts, per file:
 * weekday  `.weekday()` or `.isoweekday()`, which count from Monday. Relay counts days from Sunday = 0: use
            `timewin.weekday(d)`;
 * clock    a hand-written HH:MM pattern (`2[0-3]`). Use `timewin.is_clock`, `clean_clock`, `minutes` or `us_clock`;
+* screen   a module's own table of screens (`create table <x>_screens`): a display is one core screen
+           (app/screens.py); a module attaches to it by key (`screens.adopt("<module>:<id>")`);
 * import   a module importing another module's package (`from ..signage import store`, `from app.modules.x import`).
            A module offers what others need with `modules.provide("<area>.<what>", impl)` in `attach()` and others ask
            with `modules.using(...)` and cope with None (docs/modules.md, "Reaching another module").
@@ -48,6 +50,11 @@ PERSON_COLUMN = re.compile(r"^\s*(?:pc_person|person_id)\s+text\b", re.I)
 # name stays beside it only as the saved name. So a `team` or `position` text column is fine only when the same table
 # also has `team_ref` / `position_ref`, made in its create table or by a later `alter table ... add column`.
 PLACE_COLUMN = re.compile(r"^\s*(team|position)\s+text\b", re.I)
+# A module table that is its own list of screens (#527): a display is one core screen (app/screens.py, migration
+# 0008_screens_places.sql) whichever features show on it, so a module attaches to it by the key "<module>:<id>" and does not
+# keep a registry of displays. `signage_screens` is baselined: it keeps what signage adds to a screen (its address,
+# sound and playlist), and its name and place are the core screen's.
+SCREEN_TABLE = re.compile(r"^\s*create\s+table\s+\w*screens?\s*\(", re.I)
 CREATE_TABLE = re.compile(r"create\s+table\s+(\w+)\s*\((.*?)\n\)\s*;", re.I | re.S)
 
 RULES: dict[str, re.Pattern] = {
@@ -106,6 +113,9 @@ def hits() -> dict[tuple[str, str], list[int]]:
                 out.setdefault(("person", rel), []).append(n)
         for n in place_lines(p):
             out.setdefault(("place", rel), []).append(n)
+        for n, line in enumerate(p.read_text(encoding="utf-8").splitlines(), 1):
+            if "allow-shared:" not in line and SCREEN_TABLE.match(line):
+                out.setdefault(("screen", rel), []).append(n)
     return out
 
 
@@ -194,6 +204,9 @@ def main() -> None:
         check("a table with a team and no ref is caught", not has_ref("create table x (\n    team text\n);", "x", "team", t[1]))
         check("a ref in its own table is enough", has_ref("", "x", "team", "team text,\n team_ref text"))
         check("so is a later alter table", has_ref("alter table x add column team_ref text", "x", "team", "team text"))
+        check("a module table of screens is found", bool(SCREEN_TABLE.match("create table lobby_screens (")))
+        check("so is a plain screens table", bool(SCREEN_TABLE.match("create table screens(")))
+        check("a table that only mentions screens is fine", not SCREEN_TABLE.match("create table screen_sources ("))
         eq("helpers are fine", found("if timewin.weekday(d) in days and same_name(a, b):"), [])
 
         def sibling(rel: str, line: str) -> bool:

@@ -14,6 +14,8 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from ... import config, db, schedules
+from ... import screens as core_screens
+from ...text import same_name, slug as text_slug
 from . import live, media, schedule, sources
 
 MIGRATIONS = Path(__file__).resolve().parent / "migrations"
@@ -322,12 +324,21 @@ def group_delete(gid: int) -> None:
 
 # ------------------------------------------------------------------ screens
 
+SCREEN_KEY = "signage:"
+
+
+def _core_screen(row: dict) -> dict:
+    """A signage screen is a core screen (app/screens.py, #527): the display's name is the core one, and a screen
+    that has none yet is linked here, joining the core screen of the same name when there is one."""
+    key = SCREEN_KEY + row["slug"]
+    core = core_screens.by_key(key) or core_screens.adopt(key, name=row["name"], heard=False)
+    return {**row, "sound": bool(row["sound"]), "name": core["name"], "core_id": core["id"]}
+
+
 def screens() -> list[dict]:
     ready()
-    rows = db.query("select * from signage_screens order by name collate nocase, id")
-    for r in rows:
-        r["sound"] = bool(r["sound"])
-    return rows
+    rows = [_core_screen(r) for r in db.query("select * from signage_screens order by name collate nocase, id")]
+    return sorted(rows, key=lambda r: (r["name"].lower(), r["id"]))
 
 
 def screen_by_slug(slug: str) -> dict | None:
@@ -335,9 +346,49 @@ def screen_by_slug(slug: str) -> dict | None:
         return None
     ready()
     row = db.one("select * from signage_screens where slug = ?", (slug,))
-    if row:
-        row["sound"] = bool(row["sound"])
-    return row
+    return _core_screen(row) if row else None
+
+
+def player_path(slug: str) -> str:
+    """The path a TV opens for this screen (on the signage port)."""
+    return f"/signage/{slug}"
+
+
+def player_address(host: str, slug: str) -> str:
+    """The address a TV opens for this screen, on the signage port of `host`."""
+    from ... import serving
+
+    return serving.link("http", f"[{host}]" if ":" in host else host, config.get()["signage"]["port"],
+                        player_path(slug))
+
+
+def core_screen_slug(core_id: int) -> str:
+    """The signage address of a core screen, or "" when none of its signage screens exists yet."""
+    return next((k[len(SCREEN_KEY):] for k in core_screens.keys(core_id) if k.startswith(SCREEN_KEY)), "")
+
+
+def ensure_screen(core: dict) -> dict:
+    """The signage screen for a core screen, made (with an address from its name) when it has none: what the Screens
+    page needs before it can set a playlist on a display."""
+    ready()
+    slug = core_screen_slug(core["id"])
+    if slug:
+        return screen_by_slug(slug) or {}
+    taken = {r["slug"] for r in db.query("select slug from signage_screens")}
+    new = text_slug(core["name"], taken, fallback="screen")
+    db.execute("insert into signage_screens (slug, name, sound, created_at) values (?, ?, 0, ?)",
+               (new, core["name"], db.now()))
+    core_screens.adopt(SCREEN_KEY + new, name=core["name"], heard=False)
+    row = db.one("select * from signage_screens where slug = ?", (new,))
+    return _core_screen(row)
+
+
+def set_default_playlist(core_id: int, playlist_id: int | None) -> None:
+    """The playlist a core screen plays when nothing above it in the schedule picks one."""
+    slug = core_screen_slug(core_id)
+    if slug and db.execute("update signage_screens set playlist_id = ? where slug = ?",
+                           (playlist_id, slug)):
+        live.bump()
 
 
 def screen_save(sid: int | None, raw: dict) -> dict:
@@ -359,6 +410,7 @@ def screen_save(sid: int | None, raw: dict) -> dict:
     clash = db.one("select id from signage_screens where slug = ?", (slug,))
     if clash and clash["id"] != sid:
         raise Invalid("Another screen already uses that address.", 409)
+    old = db.one("select slug from signage_screens where id = ?", (sid,)) if sid is not None else None
     with db.transaction() as tx:
         if sid is None:
             tx.execute("insert into signage_screens (slug, name, sound, playlist_id, group_id, created_at)"
@@ -369,16 +421,25 @@ def screen_save(sid: int | None, raw: dict) -> dict:
                               " group_id = ? where id = ?", (slug, name, sound, pid, gid, sid)):
                 raise Invalid("That screen does not exist.", 404)
             row = tx.one("select * from signage_screens where id = ?", (sid,))
+    if old:
+        core_screens.move_key(SCREEN_KEY + old["slug"], SCREEN_KEY + slug)
+    core = core_screens.by_key(SCREEN_KEY + slug) or core_screens.adopt(SCREEN_KEY + slug, name=name, heard=False)
+    if not same_name(core["name"], name):
+        try:
+            core_screens.rename(core["id"], name, panel_ok=True)
+        except core_screens.Refused as exc:
+            raise Invalid(core_screens.REFUSALS[exc.key]) from None
     live.bump()
-    if row:
-        row["sound"] = bool(row["sound"])
-    return row or {}
+    return _core_screen(row) if row else {}
 
 
 def screen_delete(sid: int) -> None:
     ready()
+    row = db.one("select slug from signage_screens where id = ?", (sid,))
     if not db.execute("delete from signage_screens where id = ?", (sid,)):
         raise Invalid("That screen does not exist.", 404)
+    if row:
+        core_screens.forget_key(SCREEN_KEY + row["slug"])
     live.bump()
 
 

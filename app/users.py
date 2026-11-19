@@ -79,6 +79,8 @@ _CORE = (
     Permission("recordings.manage", "Delete recordings and change recording settings", "Recordings", "admin"),
     Permission("schedules.view", "See schedules", "Schedules", "viewer"),
     Permission("schedules.manage", "Change schedules", "Schedules", "admin"),
+    Permission("screens.view", "See screens and places", "Screens", "viewer"),
+    Permission("screens.manage", "Name, place and set what screens show, and flash them", "Screens", "admin"),
     Permission("blocklist.manage", "Edit blocked words", "Settings", "admin"),
     Permission("settings.view", "Read the configuration (secrets hidden)", "Settings", "viewer"),
     Permission("settings.manage", "Change appearance, tuning and realtime settings", "Settings", "admin"),

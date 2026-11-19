@@ -26,6 +26,9 @@
   function screenId() {
     const key = 'relay.board.screen';
     let id = '';
+    // A link from a screen's own address (Screens page, a signage player handing over) names the screen: "screen-<id>".
+    const linked = new URLSearchParams(location.search).get('screen') || '';
+    if (/^screen-[0-9]{1,9}$/.test(linked)) return linked;
     try { id = localStorage.getItem(key) || ''; } catch (e) { id = ''; }
     if (!/^[A-Za-z0-9_-]{8,40}$/.test(id)) {
       const a = new Uint8Array(12); crypto.getRandomValues(a);
@@ -94,6 +97,7 @@
     base: base, screen: screenId(), apply: apply,
     items: function () { return shown ? page(shown).items : []; },
     onPoll: function (got) {
+      if (got.goto) { location.replace(got.goto); return; }   // this screen is set to show something else now (#527)
       if (got.rev && got.rev !== board.rev) { location.reload(); return; }
       if (reloadSeen === null) reloadSeen = got.reload;
       else if (got.reload !== reloadSeen) { location.reload(); return; }

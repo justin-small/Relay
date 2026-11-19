@@ -383,6 +383,30 @@ release `.../deactivate`, each with the fade time when one is set. Lightkey list
 (its feedback is MIDI), so these cues never show on or off. Lightkey's External Control Log (Window menu, OSC tab) shows
 every message Relay sends and whether it matched a cue.
 
+## Screens and places
+
+A physical display is one core **screen** (`app/screens.py`, tables in `app/migrations/0008_screens_places.sql`, #527), with
+one name, one **place** (Foyer, Stage, Kids) and an address. Boards, signage, alerts and panels attach to it; a module
+never keeps its own list of displays (`tests/test_shared_concepts.py` counts a module table named `*_screens` and its
+baseline may only shrink).
+
+**Attach by key.** Call `screens.adopt("<module>:<your id>", name=..., heard=False)` when your feature learns of a display
+(`heard=False` records it without saying it was seen). The same name is the same screen: adopting a key whose name another
+screen already has joins that screen, and renaming a screen to another's name merges the two (`screens.rename`). Show
+the core name (`screens.names_by_key("<module>:")`), never a copy of your own. Signage does exactly this: `signage_screens`
+keeps what signage adds (address, sound, default playlist) and its name and place are the core screen's.
+
+**What a screen shows.** A screen shows one board or one signage playlist: `normal_*`, or `during_*` while a named schedule
+is open, or `hold_*` put on by hand from the Screens page until cleared. `screens.showing_now(screen, signage_on=...)`
+decides; while Signage is off a signage choice falls back to the board it last showed. A browser opened on a board or a
+signage address is sent to the right one: the board poll answers `goto`, and the signage state carries `board` with a
+port and path (the player follows it). A link from a screen's own address uses `?screen=screen-<id>` so the screen
+keeps its identity across the move.
+
+**Alerts and places.** An alert button's `screens` list may hold a place ref (`place:relay:3`); `alerts.targets_of` turns it into
+every panel and browser screen in that place. Boards keep the place's name beside its ref (`place_ref`), and renaming a
+place carries over.
+
 ## Boards and the shared layout editor
 
 Core has one editor for laying items out on a grid (#421): `app/static/layout-editor.js`, drawn by

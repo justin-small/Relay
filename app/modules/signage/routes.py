@@ -21,7 +21,8 @@ from pathlib import Path
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 
-from ... import audit, config, db, netroute, schedules, serving
+from ... import audit, boards, config, db, netroute, schedules, serving
+from ... import screens as core_screens
 from .. import HEARTBEAT_S, event_stream, read_limited, require, sse
 from . import live, media, sources, store, takeover
 
@@ -69,6 +70,18 @@ def _screen_or_404(slug: str) -> dict:
 
 
 def _state(screen: dict) -> dict:
+    """What a player needs. The screen's core record (#527) can decide it shows a board instead, or a playlist of its
+    own choosing: that is the `board` redirect and the `playlist_id` the schedule layers sit on."""
+    core = core_screens.get(screen["core_id"])
+    shows = core_screens.showing_now(core, signage_on=True) if core else {"kind": ""}
+    if shows["kind"] == "board" and shows["ref"] and boards.find(config.get()["boards"], shows["ref"]):
+        return {"screen": {"slug": screen["slug"], "name": screen["name"], "sound": bool(screen["sound"])},
+                "playlist": None, "items": [], "today": "", "server_time": int(time.time() * 1000),
+                "takeover": None, "banner": None,
+                "board": {"port": serving.viewer_port(config.get()["port"]),
+                          "path": f"/board/{shows['ref']}?screen=screen-{core['id']}"}}
+    if shows["kind"] == "signage" and shows["ref"].isdigit() and store.playlist_get(int(shows["ref"])):
+        screen = {**screen, "playlist_id": int(shows["ref"]), "group_id": None}
     out = store.player_state(screen)
     out["takeover"] = takeover.payload(screen)
     out["banner"] = takeover.banner(screen)
@@ -148,6 +161,9 @@ async def public_now(slug: str, request: Request):
     item = item if isinstance(item, int) else None
     label = body.get("label") if isinstance(body, dict) and isinstance(body.get("label"), str) else ""
     live.report(slug, item, label)
+    core = core_screens.by_key(store.SCREEN_KEY + slug)
+    if core:
+        core_screens.touch(core["id"], address=request.client.host if request.client else "")
     return {"ok": True}
 
 
