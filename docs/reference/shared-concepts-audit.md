@@ -264,7 +264,7 @@ recording actions all register the same way, and a module stops importing anothe
 1. Core `app/text.py` (fold, slug) and `app/timewin.py` (Sunday = 0, HH:MM, windows, Relay time zone); fix weekday
    numbering with migrations; add `tests/test_shared_concepts.py` and its baseline (H4, H5, H6).
 2. `modules.provide()` / `using()` registry, so the following steps use it (M5).
-3. Core `person_links` + `app/directory.py`; migrate `crew_profiles.pc_person`; `directory.user_for()` replaces the
+3. (done, #524) Core `person_links` + `app/directory.py`; migrate `crew_profiles.pc_person`; `directory.user_for()` replaces the
    four SQL maps (H1).
 4. Planning Center provides teams and positions; crew call times, checklists, resources and the rundown mic mapping
    store refs plus a saved name; crew role defaults from position and is renamed (H2, L1).

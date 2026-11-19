@@ -89,6 +89,8 @@ class PlanningCenter(Module):
         modules.provide("plan.rundown_now", rundown_now)
         modules.provide("plan.control", control)
         modules.provide("plan.feed", feed)
+        # The people on the followed plans, for core's directory (app/directory.py) to match accounts against.
+        modules.provide("directory.pco", lambda: self._people(follower))
         # Whoever listens (crew, the ProPresenter link) hears when the followed plans change.
         if modules.announce_plan_changed not in follower.listeners:
             follower.listeners.append(modules.announce_plan_changed)
@@ -107,7 +109,7 @@ class PlanningCenter(Module):
         if modules.announce_plan_changed in follower.listeners:
             follower.listeners.remove(modules.announce_plan_changed)
         for name in ("plan.service_types", "plan.label", "plan.starts_at", "plan.api", "plan.follower",
-                     "plan.rundown_now", "plan.control", "plan.feed"):
+                     "plan.rundown_now", "plan.control", "plan.feed", "directory.pco"):
             modules.withdraw(name)
         modules.withdraw("signage.source." + signagesync.KIND)
         signagesync.memory.forget()
@@ -162,6 +164,16 @@ class PlanningCenter(Module):
             return {"ok": False, "detail": pc.operator_message(exc)}
         return {"ok": True, "detail": f"Connected. The account has {len(types)} service type"
                                       f"{'s' if len(types) != 1 else ''}."}
+
+    @staticmethod
+    def _people(follower) -> list[dict]:
+        """Everyone scheduled on the followed plans, once each: {"id": Planning Center person id, "name"}."""
+        found: dict[str, dict] = {}
+        for tr in follower.tracks.values():
+            for m in tr.team:
+                if m.get("person") and m.get("name"):
+                    found[m["person"]] = {"id": m["person"], "name": m["name"]}
+        return list(found.values())
 
     @staticmethod
     def _plan_label() -> str | None:

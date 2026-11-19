@@ -19,7 +19,7 @@ _db.start()
 _db.reset()
 
 import app.main as main  # noqa: E402,F401
-from app import config, db, users  # noqa: E402
+from app import directory, config, db, users  # noqa: E402
 from app.main import app  # noqa: E402
 from app.modules.crew import MODULE, calltimes, paging  # noqa: E402
 from app.modules.planning_center.pclive import Track  # noqa: E402
@@ -60,8 +60,7 @@ TRACKS = [tr]
 from app.modules.crew import people  # noqa: E402
 people.ready()
 for uid, pid, name in ((mike.id, "501", "Mike Smith"), (sara.id, "502", "Sara Lee")):
-    db.execute("insert into crew_profiles (user_id, pc_person, pc_name, updated_at) values (?, ?, ?, ?)"
-               " on conflict (user_id) do update set pc_person = excluded.pc_person", (uid, pid, name, db.now()))
+    directory.link(uid, directory.PCO, pid, name)
 
 print("checking a rule")
 good = {"team": "Camera", "kind": "before", "minutes": 60, "message": "Camera call time"}

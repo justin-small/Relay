@@ -154,21 +154,14 @@ class Crew(Module):
 
     def _scan(self) -> None:
         """Match accounts to the people on the followed plans (people.py). Blocking: run off the loop."""
-        from ... import modules
+        from ... import directory
         from . import people
 
-        follower = modules.using("plan.follower")
-        if follower is None:
+        found = directory.people(directory.PCO)         # the people on the followed plans; [] while Planning Center is off
+        sig = repr(sorted((p["id"], p["name"]) for p in found))
+        if not found or sig == self._seen:
             return
-        found: dict[str, dict] = {}
-        for tr in follower.tracks.values():
-            for m in tr.team:
-                if m.get("person"):
-                    found[m["person"]] = {"id": m["person"], "name": m["name"]}
-        sig = repr(sorted((i, p["name"]) for i, p in found.items()))
-        if sig == self._seen:
-            return
-        people.scan(list(found.values()))
+        people.scan(found)
         self._seen = sig
 
     def _team_changed(self) -> None:

@@ -21,7 +21,7 @@ _db.start()
 _db.reset()
 
 import app.main as main  # noqa: E402,F401
-from app import config, db, users  # noqa: E402
+from app import directory, config, db, users  # noqa: E402
 from app.main import app  # noqa: E402
 from app.modules.crew import calltimes, people, resources  # noqa: E402
 from app.modules.planning_center.pclive import Track  # noqa: E402
@@ -93,8 +93,7 @@ tr.team = [{"person": "501", "name": "Mike", "team": "Camera", "status": "confir
 calltimes._state = lambda: ([tr], ZONE)
 people.ready()
 for uid, pid in ((mike.id, "501"), (sara.id, "502")):
-    db.execute("insert into crew_profiles (user_id, pc_person, pc_name, updated_at) values (?, ?, ?, ?)"
-               " on conflict (user_id) do update set pc_person = excluded.pc_person", (uid, pid, "x", db.now()))
+    directory.link(uid, directory.PCO, pid, "x")
 
 print("the setting")
 eq("defaults to the common sites", config.get()["crew"]["embed_hosts"], H)

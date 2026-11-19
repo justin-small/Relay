@@ -3,14 +3,15 @@
 A person's role is free text ("Camera 1"), set by an admin. Planning Center's spelling of their name is found by
 matching the account's name against the people scheduled on the followed plans. A match is only made when it is
 confident: one person is clearly the closest, and no other account already holds that person. The match stores the
-Planning Center person id and, when the spelling differs, suggests the name; an admin accepts or dismisses it.
+Planning Center person id in core's directory (app/directory.py, so the link outlives Crew being off) and, when the
+spelling differs, suggests the name; an admin accepts or dismisses it.
 """
 from __future__ import annotations
 
 import difflib
 import logging
 
-from ... import audit, db, users
+from ... import audit, db, directory, users
 from ...text import plain
 
 log = logging.getLogger("relay.crew")
@@ -118,19 +119,21 @@ def best_match(name: str, people: list[dict], taken: set[str]) -> dict | None:
 def people_list() -> list[dict]:
     ready()
     rows = db.query(
-        "select u.id, u.username, u.name, u.role as account_role, u.disabled, p.role, p.pc_person, p.pc_name,"
-        " p.suggested_name from users u left join crew_profiles p on p.user_id = u.id"
-        " order by lower(u.name), u.id")
+        "select u.id, u.username, u.name, u.role as account_role, u.disabled, p.role from users u"
+        " left join crew_profiles p on p.user_id = u.id order by lower(u.name), u.id")
+    linked = directory.link_rows(directory.PCO)
     return [{"id": r["id"], "username": r["username"], "name": r["name"], "account_role": r["account_role"],
-             "disabled": bool(r["disabled"]), "role": r["role"] or "", "linked": bool(r["pc_person"]),
-             "pc_name": r["pc_name"] or "", "suggested_name": r["suggested_name"] or ""} for r in rows]
+             "disabled": bool(r["disabled"]), "role": r["role"] or "", "linked": r["id"] in linked,
+             "pc_name": (linked.get(r["id"]) or {}).get("name", ""),
+             "suggested_name": (linked.get(r["id"]) or {}).get("suggested_name", "")} for r in rows]
 
 
 def profile(user_id: int) -> dict:
     ready()
-    row = db.one("select role, pc_person, pc_name, suggested_name from crew_profiles where user_id = ?", (user_id,))
-    return {"role": (row or {}).get("role") or "", "linked": bool((row or {}).get("pc_person")),
-            "pc_name": (row or {}).get("pc_name") or ""}
+    row = db.one("select role from crew_profiles where user_id = ?", (user_id,))
+    found = directory.link_of(user_id, directory.PCO)
+    return {"role": (row or {}).get("role") or "", "linked": found is not None,
+            "pc_name": (found or {}).get("name", "")}
 
 
 def set_role(user_id: int, raw) -> str:
@@ -145,56 +148,47 @@ def set_role(user_id: int, raw) -> str:
 
 
 def accept_name(user_id: int, actor) -> str:
-    ready()
-    row = db.one("select suggested_name from crew_profiles where user_id = ?", (user_id,))
-    name = (row or {}).get("suggested_name")
+    name = directory.suggestion(user_id, directory.PCO)
     if not name:
         raise Invalid("There is no name to accept.", 404)
     try:
         users.update(user_id, name=name, actor=actor)
     except users.Refused as exc:
         raise Invalid("You cannot change that account's name.", 403) from exc
-    db.execute("update crew_profiles set suggested_name = null, updated_at = ? where user_id = ?",
-               (db.now(), user_id))
+    directory.clear_suggestion(user_id, directory.PCO, confirmed_by=getattr(actor, "id", None))
     return name
 
 
 def dismiss_name(user_id: int) -> None:
-    ready()
-    db.execute("update crew_profiles set dismissed_name = suggested_name, suggested_name = null, updated_at = ?"
-               " where user_id = ? and suggested_name is not null", (db.now(), user_id))
+    directory.clear_suggestion(user_id, directory.PCO, dismiss=True)
 
 
 def unlink(user_id: int) -> None:
     """Forget a Planning Center match (a wrong one), so the next scan may try again."""
-    ready()
-    db.execute("update crew_profiles set pc_person = null, pc_name = null, suggested_name = null,"
-               " dismissed_name = pc_name, updated_at = ? where user_id = ?", (db.now(), user_id))
+    directory.unlink(user_id, directory.PCO)
 
 
 def scan(people: list[dict]) -> int:
     """Match accounts with no link yet against `people` (dicts with "id" and "name", from Planning Center).
     Returns how many were linked. Never moves an existing link."""
-    ready()
     people = [p for p in people if p.get("id") and p.get("name")]
     if not people:
         return 0
     linked = 0
-    rows = db.query("select u.id, u.name, p.pc_person, p.dismissed_name from users u"
-                    " left join crew_profiles p on p.user_id = u.id where u.disabled = 0")
-    taken = {r["pc_person"] for r in db.query("select pc_person from crew_profiles where pc_person is not null")}
-    for r in rows:
-        if r["pc_person"]:
+    held = directory.links(directory.PCO)
+    taken = set(held)
+    mine = set(held.values())
+    for r in db.query("select id, name from users where disabled = 0"):
+        if r["id"] in mine:
             continue
         person = best_match(r["name"], people, taken)
         if person is None:
             continue
-        differs = person["name"].strip() != r["name"].strip() and person["name"] != r["dismissed_name"]
-        db.execute("insert into crew_profiles (user_id, pc_person, pc_name, suggested_name, updated_at)"
-                   " values (?, ?, ?, ?, ?) on conflict (user_id) do update set pc_person = excluded.pc_person,"
-                   " pc_name = excluded.pc_name, suggested_name = excluded.suggested_name,"
-                   " updated_at = excluded.updated_at",
-                   (r["id"], person["id"], person["name"], person["name"] if differs else None, db.now()))
+        differs = person["name"].strip() != r["name"].strip() and person["name"] != directory.dismissed(
+            r["id"], directory.PCO)
+        if not directory.link(r["id"], directory.PCO, person["id"], person["name"], matched_by="name",
+                              suggested_name=person["name"] if differs else None):
+            continue
         taken.add(person["id"])
         linked += 1
         audit.record("crew.match", "Matched a crew account to Planning Center", target=r["id"],

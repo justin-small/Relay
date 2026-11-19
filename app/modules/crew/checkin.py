@@ -14,7 +14,7 @@ import math
 import time
 from datetime import datetime
 
-from ... import db
+from ... import db, directory
 from . import calltimes, paging, people
 
 RADIUS_DEFAULT_M = 150
@@ -124,8 +124,7 @@ def board(tracks, zone, now: float | None = None) -> dict:
     _forget_old(key)
     arrivals = {r["user_id"]: r for r in db.query(
         "select user_id, arrived_ts, method from crew_arrivals where plan_id = ?", (key,))}
-    linked = {r["pc_person"]: r["user_id"] for r in db.query(
-        "select user_id, pc_person from crew_profiles where pc_person is not null")}
+    linked = directory.links(directory.PCO)
     names = {r["id"]: r["name"] for r in db.query("select id, name from users")}
     rules = calltimes.list_rules()
     by_person: dict[str, dict] = {}
