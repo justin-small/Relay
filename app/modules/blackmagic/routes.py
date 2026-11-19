@@ -211,7 +211,7 @@ async def admin_cable_add(request: Request, payload: dict):
             return _bad("Pick a connector on a device in the list for each end.")
         await asyncio.to_thread(core_cables.add, rows[0]["id"], rows[1]["id"])
     except core_cables.Refused as exc:
-        return _bad(str(exc), 409 if exc.key == "exists" else 400)
+        return _bad(core_cables.REFUSALS[exc.key], 409 if exc.key == "exists" else 400)
     except db.Unavailable:
         return _bad("The database is down, so cables cannot be saved right now.", 503)
     audit.note(request, "blackmagic.cable_add", "Added a cable between Blackmagic connectors",
@@ -224,7 +224,7 @@ async def admin_cable_remove(request: Request, cable_id: int):
     try:
         await asyncio.to_thread(core_cables.remove, cable_id)
     except core_cables.Refused as exc:
-        return _bad(str(exc), 404 if exc.key == "no_cable" else 409)
+        return _bad(core_cables.REFUSALS[exc.key], 404 if exc.key == "no_cable" else 409)
     except db.Unavailable:
         return _bad("The database is down, so cables cannot be removed right now.", 503)
     audit.note(request, "blackmagic.cable_remove", "Removed a cable between Blackmagic connectors")

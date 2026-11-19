@@ -2041,7 +2041,7 @@ async def admin_network_cable_add(payload: dict, request: Request):
     try:
         made = await asyncio.to_thread(network_map.add_cable, payload.get("a"), payload.get("b"), payload.get("note", ""))
     except cables.Refused as exc:
-        return JSONResponse({"error": str(exc)}, status_code=409 if exc.key == "exists" else 400)
+        return JSONResponse({"error": cables.REFUSALS[exc.key]}, status_code=409 if exc.key == "exists" else 400)
     except db.Unavailable:
         return JSONResponse({"error": "The database is down, so cables cannot be saved right now."}, status_code=503)
     audit.note(request, "network.cable_add", "Recorded a cable between two ports",
@@ -2058,7 +2058,7 @@ async def admin_network_cable_note(cid: int, payload: dict, request: Request):
     try:
         await asyncio.to_thread(cables.set_note, cid, text)
     except cables.Refused as exc:
-        return JSONResponse({"error": str(exc)}, status_code=404)
+        return JSONResponse({"error": cables.REFUSALS[exc.key]}, status_code=404)
     except db.Unavailable:
         return JSONResponse({"error": "The database is down, so notes cannot be saved right now."}, status_code=503)
     audit.note(request, "network.cable_note", "Changed a note on a cable", target=cables.ref(cid))
@@ -2071,7 +2071,7 @@ async def admin_network_cable_remove(cid: int, request: Request):
     try:
         await asyncio.to_thread(cables.remove, cid)
     except cables.Refused as exc:
-        return JSONResponse({"error": str(exc)}, status_code=404 if exc.key == "no_cable" else 409)
+        return JSONResponse({"error": cables.REFUSALS[exc.key]}, status_code=404 if exc.key == "no_cable" else 409)
     except db.Unavailable:
         return JSONResponse({"error": "The database is down, so cables cannot be removed right now."}, status_code=503)
     audit.note(request, "network.cable_remove", "Removed a cable between two ports", target=cables.ref(cid))
