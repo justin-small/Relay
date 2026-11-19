@@ -30,7 +30,7 @@ html{scrollbar-color:#123a22 var(--bg)}
 .hero{padding:120px 0 40px;text-align:center}
 .hero h1{font-size:clamp(42px,6.4vw,96px);max-width:1120px;margin:0 auto}
 .hero .sub{font-size:clamp(19px,1.7vw,22px);max-width:660px;margin:28px auto 0}
-.ctas{display:flex;flex-wrap:wrap;justify-content:center;gap:14px;margin-top:36px}
+.ctas{display:flex;flex-wrap:wrap;justify-content:center;gap:16px;margin-top:36px}
 
 /* the run of service: lanes under a moving playhead */
 .run{position:relative;margin:72px auto 0;max-width:1400px;padding:0 40px}
@@ -49,7 +49,6 @@ html{scrollbar-color:#123a22 var(--bg)}
 .grid .alertbox{padding:4px 8px;font-size:12px;border-radius:6px}
 .grid>.ph{position:absolute;top:0;bottom:0;left:150px;width:2px;padding:0;border:0;min-height:0;display:block;background:var(--g);z-index:2;pointer-events:none}
 .ph b{position:absolute;top:8px;left:8px;white-space:nowrap;font-size:12px;font-weight:700;color:var(--g-ink);background:var(--g);border-radius:999px;padding:3px 10px;font-variant-numeric:tabular-nums}
-.ph::after{content:"";position:absolute;top:0;bottom:0;right:2px;width:60px;background:linear-gradient(270deg,rgba(74,222,128,.12),transparent)}
 .runnote{display:flex;flex-wrap:wrap;justify-content:space-between;gap:8px 24px;font-size:14px;color:var(--faint);padding-top:14px}
 @media (prefers-reduced-motion: no-preference){.ph{animation:sweep 28s linear infinite}}
 @keyframes sweep{from{left:150px}to{left:calc(100% - 2px)}}
@@ -59,15 +58,15 @@ html{scrollbar-color:#123a22 var(--bg)}
 
 .glass-wrap{background:var(--bg2)}
 .jobs{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:20px}
-.job{background:var(--panel);border-radius:22px;padding:30px;display:flex;flex-direction:column;gap:14px;box-shadow:inset 0 0 0 1px var(--line)}
+.job{background:var(--panel);border-radius:22px;padding:32px;display:flex;flex-direction:column;gap:16px;box-shadow:inset 0 0 0 1px var(--line)}
 .job h3{font-size:clamp(28px,2.5vw,38px);color:var(--g)}
 .job>p{font-size:18px;line-height:1.35}
 .job ul{list-style:none;margin:auto 0 0;padding:8px 0 0;font-size:16px}
-.job li{display:flex;justify-content:space-between;gap:10px;padding:11px 0;border-top:1px solid var(--line)}
+.job li{display:flex;justify-content:space-between;gap:10px;padding:12px 0;border-top:1px solid var(--line)}
 @media (max-width:1060px){.jobs{grid-template-columns:1fr 1fr}}@media (max-width:620px){.jobs{grid-template-columns:1fr}}
 
 .cap2{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.2fr);gap:64px;align-items:center}
-.phone{justify-self:center;width:min(300px,100%);aspect-ratio:9/18;border-radius:42px;background:#000;box-shadow:0 0 0 10px #0c1f14,0 0 0 11px var(--line2),0 50px 90px -40px rgba(0,0,0,.9);padding:44px 22px 30px;box-sizing:border-box;display:flex;flex-direction:column;gap:12px;font-size:17px;line-height:1.35}
+.phone{justify-self:center;width:min(300px,100%);aspect-ratio:9/18;border-radius:42px;background:#000;box-shadow:0 0 0 10px #0c1f14,0 0 0 11px var(--line2),0 50px 90px -40px rgba(0,0,0,.9);padding:44px 24px 32px;box-sizing:border-box;display:flex;flex-direction:column;gap:12px;font-size:17px;line-height:1.35}
 .phone .lng{display:flex;gap:8px;font-size:13px}
 .phone .lng span{padding:4px 10px;border-radius:999px;box-shadow:inset 0 0 0 1px var(--line2);color:var(--mut)}
 .phone .lng span.on{background:var(--g);color:var(--g-ink);box-shadow:none;font-weight:700}
@@ -75,7 +74,7 @@ html{scrollbar-color:#123a22 var(--bg)}
 
 .sb .mod{border-color:var(--line)}
 .team{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:20px}
-.team div{background:var(--panel);border-radius:22px;padding:30px;box-shadow:inset 0 0 0 1px var(--line)}
+.team div{background:var(--panel);border-radius:22px;padding:32px;box-shadow:inset 0 0 0 1px var(--line)}
 .team h3{font-family:var(--d);font-size:24px;letter-spacing:-0.02em;padding-bottom:8px}
 @media (max-width:900px){.team{grid-template-columns:1fr}}
 .own{display:flex;flex-wrap:wrap;gap:12px}
@@ -87,7 +86,7 @@ footer nav{display:flex;flex-wrap:wrap;gap:8px 30px}footer a{padding:12px 0}
 
 .alertflow{display:grid;grid-template-columns:minmax(0,1.4fr) minmax(0,1fr);gap:56px;align-items:center}
 .steps3{list-style:none;margin:0;padding:0}
-.steps3 li{padding:20px 0 20px 28px;border-top:1px solid var(--line);position:relative;color:var(--mut)}
+.steps3 li{padding:20px 0 20px 24px;border-top:1px solid var(--line);position:relative;color:var(--mut)}
 .steps3 li::before{content:"";position:absolute;left:0;top:27px;width:10px;height:10px;border-radius:50%;background:var(--g)}
 .steps3 li.warn::before{background:#f59e0b}
 .steps3 li b{display:block;color:var(--fg);font-family:var(--d);font-size:20px;letter-spacing:-0.01em;padding-bottom:4px}
@@ -185,16 +184,16 @@ footer nav{display:flex;flex-wrap:wrap;gap:8px 30px}footer a{padding:12px 0}
 <div class="ph"><b>Live · <span data-clock>01:12:44</span></b></div>
 </div>
 </div>
-<div class="runnote"><span><span class="gr">Green</span>: a handoff Relay made between systems. An example service; names, times and numbers are made up.</span><span>Scroll sideways on a phone.</span></div>
+<div class="runnote"><span><span class="gr">Green</span>: a handoff Relay made between systems. An example service; names, times and numbers are made up.</span></div>
 </div>
 
-<section aria-label="Works with" style="margin-top:96px;border-top:1px solid var(--line);border-bottom:1px solid var(--line)"><div data-part="systems"></div></section>
+<div style="margin-top:96px"></div>
 
 
 <section class="sec glass-wrap" id="glass"><div class="wrap">
-<div class="lede rv"><h2 class="d h2">When something needs a look, the booth knows first.</h2><p class="mut">A system that stops answering shows up on the status view in plain words, so you can fix it before anyone in the room notices.</p></div>
+<div class="lede rv"><h2 class="d h2">Relay flags a system that stops answering.</h2><p class="mut">It shows up on the status view in plain words, so you can fix it before anyone in the room notices.</p></div>
 <div class="alertflow">
-<div class="rv flag"><div data-part="glass"></div><p class="illus" style="color:var(--faint)">Illustration of Relay's status view. Names and numbers are examples.</p></div>
+<div class="rv flag"><div data-part="glass"></div><p class="illus" style="color:var(--faint)">Example names and numbers.</p></div>
 <ol class="steps3 rv">
 <li><b>Live</b>The stream is on air and YouTube shows who's watching.</li>
 <li class="warn"><b>Needs a look</b>YouTube stopped accepting Relay's sign-in. The tile says so, in those words.</li>
@@ -205,7 +204,7 @@ footer nav{display:flex;flex-wrap:wrap;gap:8px 30px}footer a{padding:12px 0}
 </div></section>
 
 <section class="sec" id="greenroom"><div class="wrap">
-<div class="lede rv"><h2 class="d h2">The green room sees the plan, not a printout.</h2><p class="mut">Relay draws today's Planning Center plan on a screen for the green room or the side of the stage. Each item is as tall as its minutes, the plan sits beside what really happened, and everyone can see how far behind it's running and who's on which mic.</p></div>
+<div class="lede rv"><h2 class="d h2">Today's plan on a green room screen.</h2><p class="mut">Relay draws today's Planning Center plan on a screen for the green room or the side of the stage. Each item is as tall as its minutes. The plan sits beside what really happened, and everyone can see how far behind it's running and who's on which mic.</p></div>
 <div class="rv">
 <div class="gr-tabs" role="tablist" aria-label="Green room screen views">
 <button role="tab" id="t-pb" aria-controls="v-pb" aria-selected="true">Full rundown</button>
@@ -217,16 +216,16 @@ footer nav{display:flex;flex-wrap:wrap;gap:8px 30px}footer a{padding:12px 0}
 <iframe class="view" role="tabpanel" id="v-mb" aria-labelledby="t-mb" src="/assets/rundown/micboard.html" title="Micboard, as the green room screen shows it" tabindex="-1" hidden></iframe>
 <iframe class="view" role="tabpanel" id="v-sd" aria-labelledby="t-sd" src="/assets/rundown/side.html" title="Captions beside the rundown" tabindex="-1" hidden></iframe>
 </div>
-<div class="grnote"><span>Shown on your own network only, never through remote access, because it carries volunteers' names and photos. The screen itself has no buttons; the service moves from Services LIVE, a panel or the operator page.</span><span>The real screen, with an example plan. Names and songs are made up.</span></div>
+<div class="grnote"><span>Shown on your own network only, never through remote access, because it carries volunteers' names and photos. The screen itself has no buttons; the service moves from Services LIVE, a panel or the operator page.</span><span>The real screen, with an example plan.</span></div>
 </div>
 </div></section>
 <section id="fits" class="wrap sec">
-<div class="lede rv"><h2 class="d h2">Relay sits between your systems. It doesn't replace them.</h2><p class="mut">ProPresenter stays ProPresenter, your switcher stays your switcher. Relay reads what they're doing, passes it on, and acts through them when you ask.</p></div>
+<div class="lede rv"><h2 class="d h2">Relay sits between your systems.</h2><p class="mut">ProPresenter stays ProPresenter, your switcher stays your switcher. Relay reads what they're doing, passes it on, and acts through them when you ask.</p></div>
 <div class="rv"><div data-part="hub"></div></div>
 </section>
 
 <section class="wrap sec" style="padding-top:0">
-<div class="lede rv"><h2 class="d h2">Four jobs.</h2><p class="mut">Available now unless it says Planned.</p></div>
+<div class="lede rv"><h2 class="d h2">What Relay does</h2></div>
 <div class="jobs rv">
 <div class="job"><h3 class="d">Connect</h3><p>Switch on the systems you own.</p><ul><li>One module per product</li><li>Finds ATEM and caption panels</li><li>Network map from UniFi</li><li class="dim"><span>Cables, ports, routes</span><span class="soon">Planned</span></li></ul></div>
 <div class="job"><h3 class="d">See</h3><p>What's live, what's next, what needs a look.</p><ul><li>Status view and boards</li><li>Tally, stream, sound level</li><li>Every screen on one wall</li><li class="dim"><span>Wireless mics</span><span class="soon">Planned</span></li></ul></div>
@@ -242,7 +241,7 @@ footer nav{display:flex;flex-wrap:wrap;gap:8px 30px}footer a{padding:12px 0}
 <section aria-label="Languages" style="border-top:1px solid var(--line);border-bottom:1px solid var(--line)"><div data-part="langs"></div></section>
 
 <section id="integrations" class="wrap sec" style="padding-top:40px">
-<div class="lede rv"><h2 class="d h2">Switch on what you own.</h2><p class="mut">Each integration is a module. While it's off, Relay never contacts that product. A green switch works today; Planned is on the list, not shipped.</p></div>
+<div class="lede rv"><h2 class="d h2">Switch on what you own.</h2><p class="mut">Each integration is a module. While it's off, Relay never contacts that product.</p></div>
 <div data-part="switchboard"></div>
 </section>
 
