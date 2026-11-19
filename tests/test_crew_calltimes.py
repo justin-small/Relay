@@ -92,7 +92,7 @@ r = admin.put(f"/api/admin/crew/calltimes/{rid}", json={**good, "enabled": False
 eq("turned off", r.json()["rules"][0]["enabled"], False)
 admin.put(f"/api/admin/crew/calltimes/{rid}", json=good)
 eq("fixed rule is cleaned and kept", admin.post("/api/admin/crew/calltimes", json={
-    "team": "Band", "kind": "fixed", "weekday": 6, "clock": "08:30", "message": "Band soundcheck"}).status_code, 200)
+    "team": "Band", "kind": "fixed", "weekday": 0, "clock": "08:30", "message": "Band soundcheck"}).status_code, 200)
 
 print("minutes before each service")
 sent_before = db.one("select count(*) as n from crew_pages")["n"]
@@ -119,7 +119,7 @@ eq("Band at 08:30 Sunday has nobody with an account: no page", calltimes.run(at,
 eq("and it is not retried that day", calltimes.run(at + 20, TRACKS, ZONE), 0)
 monday = datetime(2026, 11, 16, 8, 30, tzinfo=ZONE).timestamp()
 eq("not on another weekday", calltimes.run(monday, TRACKS, ZONE), 0)
-eq("a team nobody is serving gets nothing", calltimes.occasions({**good, "team": "Lights", "kind": "fixed", "weekday": 6,
+eq("a team nobody is serving gets nothing", calltimes.occasions({**good, "team": "Lights", "kind": "fixed", "weekday": 0,
                                                                   "clock": "08:30"}, TRACKS, at, ZONE), [])
 eq("Band has no account matched, so the run records nobody", [r["last_people"] for r in calltimes.list_rules()
                                                               if r["team"] == "Band"], [0])

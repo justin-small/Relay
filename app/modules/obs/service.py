@@ -41,6 +41,7 @@ from ... import audit, config, languages, tally
 from ...alerts import alerts
 from ...hub import hub
 from ...streamstatus import streams
+from ...text import same_name
 from .client import DEFAULT_PORT, EVENTS, METERS, Connection, ObsError
 
 KEY = "obs"
@@ -585,8 +586,7 @@ class Machine:
         """OBS's own spelling of the scene called `name`, exact first, then any case; "" when there is none."""
         if name in self.scenes:
             return name
-        want = " ".join(name.split()).casefold()
-        return next((s for s in self.scenes if " ".join(s.split()).casefold() == want), "")
+        return next((s for s in self.scenes if same_name(s, name)), "")
 
     async def set_scene(self, scene: str) -> None:
         conn = self._connected()

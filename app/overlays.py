@@ -24,6 +24,8 @@ from __future__ import annotations
 import re
 from typing import Any, Mapping
 
+from . import text
+
 NAME_MAX = 60
 ID_MAX = 40
 _ID = re.compile(r"[a-z0-9](?:[a-z0-9-]{0,38}[a-z0-9])?\Z")
@@ -223,8 +225,7 @@ def query(settings: Mapping[str, Any]) -> dict[str, str]:
 # ------------------------------------------------------------- named overlays
 
 def slug(name: str) -> str:
-    s = re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")
-    return s[:ID_MAX].strip("-") or "overlay"
+    return text.slug(name, limit=ID_MAX, fallback="overlay")
 
 
 def validate(payload: Mapping[str, Any], targets: Mapping[str, Any], taken: set[str],

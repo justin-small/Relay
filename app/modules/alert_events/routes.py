@@ -2,11 +2,10 @@
 from __future__ import annotations
 
 import asyncio
-import re
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 
-from ... import audit, config
+from ... import audit, config, text
 from ...alerts import alerts
 from .. import require
 from . import events
@@ -45,7 +44,8 @@ async def admin_test(request: Request):
 
 
 def _slug(name: str) -> str:
-    return re.sub(r"[^a-z0-9]+", "_", name.lower()).strip("_") or "button"
+    # Underscores, unlike other slugs: these names are already saved in Companion and Stream Deck buttons.
+    return text.slug(name, sep="_", limit=None, fallback="button")
 
 
 @router.get("/api/admin/alert-events/state", dependencies=VIEW)

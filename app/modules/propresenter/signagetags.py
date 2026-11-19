@@ -23,6 +23,8 @@ import logging
 from datetime import datetime
 from typing import Any
 
+from ...text import fold
+
 log = logging.getLogger("relay.signagetags")
 
 TARGETS = (("screen", "-screen"), ("group", "-group"), ("all", ""))
@@ -80,13 +82,9 @@ def forget() -> None:
 
 
 # ------------------------------------------------------------------ finding things by name
-def _fold(text: str) -> str:
-    return " ".join(str(text or "").split()).casefold()
-
-
 def _named(rows: list[dict], name: str) -> dict | None:
-    want = _fold(name)
-    hits = [r for r in rows if _fold(r["name"]) == want]
+    want = fold(name)
+    hits = [r for r in rows if fold(r["name"]) == want]
     return hits[0] if len(hits) == 1 else None
 
 

@@ -40,7 +40,7 @@ class YouTube(Module):
     defaults = {"account": "", "client_id": "", "client_secret": "", "live_s": 60, "idle_s": 600,
                 "schedule": {"on": False, "privacy": "public", "stream_id": "", "stream_name": "",
                              "title": "{name} · {date}", "description": "", "days_ahead": 7, "plan_types": [],
-                             "rules": []},
+                             "rules": [], "days_from": "sunday"},
                 "links": [], "created": {}}   # service.DEFAULTS
 
     def clean(self, raw: Any) -> dict:

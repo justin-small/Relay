@@ -152,7 +152,7 @@
     pagesRefresh();
   });
   // -- call times (#229): scheduled pages for a Planning Center team. Everything shown is text.
-  const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+  const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];   // Sunday = 0 (app/timewin.py)
   function ctMsg(text) { $('ctErr').textContent = text || ''; $('ctErr').hidden = !text; }
   function ctSend(method, path, body) { return send2(method, path, body, ctMsg); }
   async function send2(method, path, body, say) {

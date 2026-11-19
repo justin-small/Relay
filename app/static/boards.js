@@ -625,15 +625,16 @@
   // Which schedule row covers now, by the same rule as boards.schedule_row (for the highlighted row only; the server
   // decides the page).
   function currentRow(rows) {
-    const now = new Date(), m = now.getHours() * 60 + now.getMinutes(), wd = (now.getDay() + 6) % 7;
-    const num = { mon: 0, tue: 1, wed: 2, thu: 3, fri: 4, sat: 5, sun: 6 };
+    // Days count from Sunday = 0 (app/timewin.py), as getDay() does.
+    const now = new Date(), m = now.getHours() * 60 + now.getMinutes(), wd = now.getDay();
+    const num = { sun: 0, mon: 1, tue: 2, wed: 3, thu: 4, fri: 5, sat: 6 };
     const mins = function (s) { const p = s.split(':'); return +p[0] * 60 + +p[1]; };
     for (let i = 0; i < rows.length; i++) {
       const a = mins(rows[i].from), z = mins(rows[i].to);
       let hit, day = wd;
       if (a === z) hit = true; else if (a < z) hit = a <= m && m < z; else { hit = m >= a || m < z; day = m >= a ? wd : (wd + 6) % 7; }
       const dd = rows[i].days;
-      const okDay = dd === 'all' || (dd === 'weekdays' && day < 5) || (dd === 'weekends' && day >= 5) || num[dd] === day;
+      const okDay = dd === 'all' || (dd === 'weekdays' && day >= 1 && day <= 5) || (dd === 'weekends' && (day === 0 || day === 6)) || num[dd] === day;
       if (hit && okDay) return i;
     }
     return -1;

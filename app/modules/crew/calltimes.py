@@ -10,11 +10,10 @@ that was unreachable at the call time skips it. Each rule fires once per occasio
 from __future__ import annotations
 
 import logging
-import re
 import time
 from datetime import datetime, time as dtime
 
-from ... import audit, db
+from ... import audit, db, timewin
 from . import paging, people
 
 log = logging.getLogger("relay.crew")
@@ -23,7 +22,6 @@ GRACE_S = 60
 MAX_RULES = 50
 TEAM_MAX = 80
 MAX_BEFORE_MIN = 24 * 60
-_CLOCK = re.compile(r"^([01]\d|2[0-3]):[0-5]\d$")
 
 
 def clean(raw) -> dict:
@@ -45,7 +43,7 @@ def clean(raw) -> dict:
         d, c = raw.get("weekday"), raw.get("clock")
         if isinstance(d, bool) or not isinstance(d, int) or not 0 <= d <= 6:
             raise paging.Invalid("Choose a day of the week.")
-        if not isinstance(c, str) or not _CLOCK.match(c):
+        if not timewin.is_clock(c):
             raise paging.Invalid("Give the time as HH:MM, for example 08:00.")
         out["weekday"], out["clock"] = d, c
     else:
@@ -100,10 +98,10 @@ def occasions(rule: dict, tracks, now: float, zone) -> list[tuple[str, float, st
                     out.append((f"{plan.get('id')}:{t['id']}", t["starts_at"] - rule["minutes"] * 60, t["id"]))
         return out
     local = datetime.fromtimestamp(now, zone)
-    if local.weekday() != rule["weekday"]:
+    if timewin.weekday(local.date()) != rule["weekday"]:   # Sunday = 0
         return []
-    h, m = int(rule["clock"][:2]), int(rule["clock"][3:])
-    at = datetime.combine(local.date(), dtime(h, m), tzinfo=zone)
+    mins = timewin.minutes(rule["clock"])
+    at = datetime.combine(local.date(), dtime(mins // 60, mins % 60), tzinfo=zone)
     return [(local.date().isoformat(), at.timestamp(), None)]
 
 

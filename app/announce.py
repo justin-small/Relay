@@ -11,12 +11,13 @@ stops Relay: an unannounced Relay still works at its address.
 import contextlib
 import logging
 import os
-import re
 import socket
 import struct
 import sys
 import threading
 import time
+
+from .text import slug
 
 log = logging.getLogger("relay.announce")
 
@@ -53,8 +54,7 @@ def clean_label(text, limit=63):
 
 def host_label(name):
     """A host name for the A record: letters, digits, hyphens."""
-    slug = re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")
-    return "relay-" + (slug[:40] or "install")
+    return "relay-" + slug(name, limit=40, fallback="install")
 
 
 def encode_name(name):

@@ -9,10 +9,9 @@ from __future__ import annotations
 
 import difflib
 import logging
-import re
-import unicodedata
 
 from ... import audit, db, users
+from ...text import plain
 
 log = logging.getLogger("relay.crew")
 
@@ -73,9 +72,7 @@ def clean_role(raw) -> str:
 # -- matching -----------------------------------------------------------------------------------------------
 def norm(name: str) -> str:
     """Lowercase, no accents or punctuation, single spaces."""
-    text = unicodedata.normalize("NFKD", name or "")
-    text = "".join(c for c in text if not unicodedata.combining(c)).lower()
-    return " ".join(re.sub(r"[^a-z0-9 ]+", " ", text).split())
+    return plain(name)
 
 
 def _first_score(a: str, b: str) -> float:
