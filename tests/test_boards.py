@@ -7,6 +7,7 @@ Run: python tests/test_boards.py
 import asyncio
 import os
 from datetime import datetime
+from zoneinfo import ZoneInfo
 import sys
 import tempfile
 from pathlib import Path
@@ -248,7 +249,7 @@ with section("what decides the page shown"):
     eq("one page: always the first", boards.current(b, sun930)["page"], "p1")
     eq("a board that is not public tells the viewer port nothing", tv.get("/board/lobby-tv-2/_/data").status_code, 404)
     eq("(signed in) the page it shows now", member.get("/board/lobby-tv-2/_/data").json()["page"],
-       boards.current(boards.find(config.get()["boards"], "lobby-tv-2"), datetime.now())["page"])
+       boards.current(boards.find(config.get()["boards"], "lobby-tv-2"), datetime.now(ZoneInfo(config.timezone())).replace(tzinfo=None))["page"])
 
 with section("a page chosen by hand"):
     admin.put(f"{B}/lobby-tv-2", json={"rotation": {"mode": "one"}})
