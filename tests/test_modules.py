@@ -397,6 +397,64 @@ try:
 finally:
     registry._modules = saved
 
+# ------------------------------------------------------------------ provide() and using() (#523)
+print("provide and using")
+check("nothing is on offer to begin with", modmod.provided() == {}, modmod.provided())
+eq("asking for what is not there gives None", modmod.using("lighting.cues"), None)
+eq("or the default", modmod.using("lighting.cues", "off"), "off")
+modmod.provide("test.thing", 7, owner="fake")
+eq("a provided capability is asked for by name", modmod.using("test.thing"), 7)
+eq("and listed with its owner", modmod.provided(), {"test.thing": "fake"})
+modmod.provide("test.other", 8, owner="fake")
+modmod.provide("kept.thing", 9, owner="someone")
+eq("a prefix finds the family", modmod.using_all("test."), {"thing": 7, "other": 8})
+modmod.withdraw_all("fake")
+eq("turning a module off takes everything it provided", (modmod.using("test.thing"), modmod.using("test.other")),
+   (None, None))
+eq("and leaves what others provided", modmod.using("kept.thing"), 9)
+modmod.withdraw("kept.thing")
+modmod.withdraw("kept.thing")
+eq("withdrawing twice is harmless", modmod.using("kept.thing"), None)
+for bad in ("Lighting.cues", "lighting.", ".cues", "lighting cues", "", "a..b"):
+    try:
+        modmod.provide(bad, 1, owner="x")
+        check(f"{bad!r} is not a capability name", False)
+    except ValueError:
+        check(f"{bad!r} is not a capability name", True)
+modmod.provide("ndi", {"a": 1}, owner="ndi")
+eq("a bare area is a name too", modmod.using("ndi"), {"a": 1})
+modmod.withdraw("ndi")
+here: dict = {"__name__": "app.modules.crew.fake", "modmod": modmod}
+exec(compile("modmod.provide('crew.thing', 1)", "fake.py", "exec"), here)      # as if called from crew's own code
+eq("the owner is the module the call came from", modmod.provided(), {"crew.thing": "crew"})
+modmod.withdraw_all("crew")
+heard: list = []
+modmod.listen("test.topic", heard.append)
+modmod.listen("test.topic", heard.append)
+modmod.announce("test.topic", 1)
+eq("a listener hears an announcement, once however often it listened", heard, [1])
+modmod.unlisten("test.topic", heard.append)
+modmod.announce("test.topic", 2)
+eq("and stops after unlisten", heard, [1])
+modmod.listen("test.topic", lambda *a: 1 / 0)
+modmod.announce("test.topic", 3)
+check("a listener that fails does not stop the announcer", True)
+modmod._listeners.clear()
+
+for mid in ids:
+    mod = registry.get(mid)
+    before = {n for n, who in modmod.provided().items() if who == mid}
+    mod.attach()
+    mod.attach()
+    on = {n for n, who in modmod.provided().items() if who == mid}
+    mod.detach()
+    left = sorted(n for n, who in modmod.provided().items() if who == mid)
+    eq(f"{mid}: switching it off takes back what it provided ({', '.join(sorted(on)) or 'nothing'})", left, [])
+    mod.attach()
+    eq(f"{mid}: and on again gives it back", {n for n, who in modmod.provided().items() if who == mid}, on)
+    mod.detach()
+    check(f"{mid}: only names of the form area.what", all(re.match(r"^[a-z][a-z0-9_]*(\.[a-z0-9_-]+)*$", n) for n in on))
+
 if fails:
     print(f"\n{len(fails)} FAILED")
     sys.exit(1)

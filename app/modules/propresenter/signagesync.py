@@ -43,6 +43,15 @@ MESSAGES = {
 }
 
 
+def _content():
+    from ... import modules
+
+    got = modules.using("signage.content")
+    if got is None:
+        raise SyncError("off")
+    return got
+
+
 class SyncError(Exception):
     def __init__(self, key: str):
         super().__init__(key)
@@ -96,7 +105,7 @@ class Sync:
     def _signage_on() -> bool:
         from ... import modules
 
-        return modules.modules.enabled("signage")
+        return modules.using("signage.content") is not None
 
     # -- one pass ----------------------------------------------------------------------------------------
     async def sync(self, force: bool = False) -> dict:
@@ -166,7 +175,8 @@ class Sync:
         log.info("Announcement sync: %d slide(s) from %d presentation(s)", len(slides), len(plan))
 
     async def _store(self, slides: list[tuple[str, bytes, bytes]]) -> None:
-        from ..signage import media, store
+        content = _content()
+        media, store = content.media, content.store
 
         async def chunks(data: bytes):
             yield data
@@ -188,7 +198,7 @@ class Sync:
 
     @staticmethod
     def _set_playlist(refs: list[str]) -> None:
-        from ..signage import store
+        store = _content().store
 
         lists = [p for p in store.playlists() if p["name"] == PLAYLIST_NAME]
         pl = lists[0] if lists else store.playlist_create(PLAYLIST_NAME)

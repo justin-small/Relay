@@ -77,14 +77,14 @@ class Obs(Module):
         from .service import attach_hooks
 
         attach_hooks()              # the caption sink and the scene hook (slide tags)
-        registry.screen_pages["obs"] = screen_page
+        registry.provide("screen_pages.obs", screen_page)
 
     def detach(self) -> None:
         from ... import modules as registry
         from .service import detach_hooks
 
         detach_hooks()
-        registry.screen_pages.pop("obs", None)
+        registry.withdraw("screen_pages.obs")
 
     async def start(self) -> None:
         from .service import service

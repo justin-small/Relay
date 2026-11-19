@@ -869,7 +869,7 @@ async def page_screen(request: Request):
     audience choice."""
     qp = request.query_params
     # A page a switched-on module serves on /screen (?lighting=<page>, #379), chosen by its query parameter.
-    for name, hook in list(modules_pkg.screen_pages.items()):
+    for name, hook in modules_pkg.using_all("screen_pages.").items():
         if qp.get(name):
             resp = await hook(request)
             if resp is not None:
@@ -2529,7 +2529,7 @@ async def admin_panel_update(panel_id: str, payload: dict):
             raise HTTPException(400, "service_mode must be a string")
         kwargs["service_mode"] = payload["service_mode"]
     # Empty while the Planning Center module is off: no panel can be set to a service then.
-    followed = panel_registry.followed_service_types()
+    followed = (modules_pkg.using("plan.service_types") or (lambda: []))()
     if "service_type" in payload:
         st = payload["service_type"]
         if st not in (None, "") and str(st) not in followed:

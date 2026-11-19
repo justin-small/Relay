@@ -59,16 +59,23 @@ class ParentPaging(Module):
         return [router]
 
     def attach(self) -> None:
-        from ..propresenter.propresenter import follower
+        from ... import modules
         from .paging import pager
 
+        # ProPresenter provides "propresenter.follower" and "propresenter.api" (#523); asked at each call, so the
+        # order the two came on in does not matter, and nothing is paged while it is off.
         def client():
-            from ..propresenter import propresenter as pp
+            follower, pp = modules.using("propresenter.follower"), modules.using("propresenter.api")
+            return follower.client if follower is not None and pp.configured() else None
 
-            return follower.client if pp.configured() else None
+        async def call(*args, **kwargs):
+            follower = modules.using("propresenter.follower")
+            if follower is None:
+                raise RuntimeError("ProPresenter is off.")
+            return await follower.call(*args, **kwargs)
 
         pager.client_for = client
-        pager.call = follower.call
+        pager.call = call
 
     def detach(self) -> None:
         from .paging import pager
@@ -112,10 +119,11 @@ class ParentPaging(Module):
         import urllib.parse
 
         from ... import config
-        from ..planning_center import planningcenter as pc
+        from ... import modules
         from . import checkins, paging
 
-        client = pc.client_from(config.get())
+        pc = modules.using("plan.api")
+        client = pc.client_from(config.get()) if pc is not None else None
         if client is None:
             return {"ok": False, "detail": "Planning Center is not set up."}
         try:

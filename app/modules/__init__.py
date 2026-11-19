@@ -12,9 +12,10 @@ the admin page's Modules page, and a module that is off carries none of its code
 * it adds nothing to the status, the panel feeds or the caption streams.
 
 The direction of imports is one way: a module may import core (config, hub, engine, panels, alerts, ...);
-core never imports a module. Core reaches modules only through this registry and the hooks below. A module
-that works with another one (the ProPresenter link to Planning Center) names it in `Manifest.uses` and must
-cope with it being off. tests/test_modules.py enforces all of this; docs/modules.md is the guide.
+core never imports a module. Core reaches modules only through this registry and what modules provide by name
+(`provide` and `using`, below), and a module reaches another the same way: it never imports it. A module that works
+with another one (the ProPresenter link to Planning Center) names it in `Manifest.uses` and must cope with
+`using()` returning None while it is off. tests/test_modules.py enforces all of this; docs/modules.md is the guide.
 
 The registry itself is core and imports each module package to read its manifest. Importing a module runs
 nothing: work starts only in `start`, which is called only while the module is on.
@@ -26,6 +27,7 @@ import importlib
 import logging
 import pkgutil
 import re
+import sys
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -67,7 +69,8 @@ class Manifest:
     settings_key: str
     # Where the setup guide is: a README anchor or a docs/ path, shown next to the module's settings.
     guide: str = ""
-    # Other modules this one does more with when they are on too. Only these may be imported from it.
+    # Other modules this one does more with when they are on too. It asks for what they provide by name
+    # (`using()`) and copes with None; it imports none of them (tests/test_shared_concepts.py).
     uses: tuple[str, ...] = ()
     # Kinds of network traffic the operator can put on a port of their own (app/netroute.py, #344). Each id is the
     # module's id or starts with "<module id>.": Traffic("dante", "Dante control and discovery", media=True).
@@ -278,15 +281,6 @@ class Module:
         """A /stream response for a stream this module owns, or None if `name` is not one of its own."""
         return None
 
-    def service_starts_at(self) -> float | None:
-        """When the next service starts, as a Unix time, or None when this module does not know one."""
-        return None
-
-    def plan_label(self) -> str | None:
-        """Today's plan as a short title ("Sunday Service 9:00 AM") for modules that follow a plan, "" when there
-        is none today, and None when this module has no plans at all. Other modules ask through the registry."""
-        return None
-
 
 # ------------------------------------------------------------------ what core gives modules
 # A module cannot import app.main (main imports this registry), so the few things its routes need from the
@@ -301,56 +295,128 @@ templates: Any = None
 page_gate: Callable[..., Any] | None = None
 
 
-# The lighting module sets this in attach() and clears it in detach() (#377): (cue id, request or None) -> a dict
-# {"ok": bool, "error": str}. Anything that wants to fire a lighting cue calls `fire_cue`, never the module.
-cue_hook: Callable[..., Awaitable[dict]] | None = None   # (cue, request, *, by_name, source)
+# ------------------------------------------------------------------ capabilities (#523)
+# One way for a module to offer something to core or to another module, and for them to ask for it: a module that is
+# on provides a named capability in `attach()` (`modules.provide("lighting.cues", fire)`), and anything that wants it
+# asks by name (`modules.using("lighting.cues")`) and copes with None, which is what it gets while the provider is off.
+# Nothing imports another module. Turning a module off withdraws everything it provided (the registry does it after
+# `detach`, and a module may call `withdraw` itself). The names Relay's own modules provide are in docs/modules.md.
+_NAME_RE = re.compile(r"^[a-z][a-z0-9_]*(\.[a-z0-9_-]+)*$")
+_provided: dict[str, tuple[str, Any]] = {}          # name -> (module id, what it provides)
+_listeners: dict[str, list[Callable[..., Any]]] = {}
+
+
+def _owner_of_caller(depth: int = 2) -> str:
+    """The id of the module whose code called `provide`: the package under app/modules/ its file belongs to, else ''."""
+    name = sys._getframe(depth).f_globals.get("__name__", "")
+    if name.startswith(__name__ + "."):
+        return name[len(__name__) + 1:].split(".", 1)[0]
+    return ""
+
+
+def provide(name: str, impl: Any, *, owner: str | None = None) -> None:
+    """Offer `impl` (a function, an object, anything the asker needs) under `name` ("<area>" or "<area>.<what>", such as
+    "ndi", "lighting.cues" or "screen_pages.obs"). The owner is the module this is called from, so turning that module off
+    takes it away again; pass `owner` only from code that is not inside a module's package. Providing a name that
+    another module already holds replaces it, and is logged."""
+    if not isinstance(name, str) or not _NAME_RE.match(name):
+        raise ValueError(f"a capability is named <area> or <area>.<what> in lower case, not {name!r}")
+    who = _owner_of_caller() if owner is None else owner
+    held = _provided.get(name)
+    if held is not None and held[0] != who:
+        log.warning("capability %s: %s replaces %s", name, who or "code outside a module", held[0] or "code outside a module")
+    _provided[name] = (who, impl)
+
+
+def withdraw(name: str) -> None:
+    """Take back what `provide` offered under `name`. Harmless when nothing is there."""
+    _provided.pop(name, None)
+
+
+def withdraw_all(owner: str) -> None:
+    """Take back everything `owner` provided: the registry calls it when a module is switched off."""
+    for name in [n for n, (who, _) in _provided.items() if who == owner]:
+        del _provided[name]
+
+
+def using(name: str, default: Any = None) -> Any:
+    """What `name` stands for, or `default` (None) while no module that is on provides it."""
+    held = _provided.get(name)
+    return default if held is None else held[1]
+
+
+def using_all(prefix: str) -> dict[str, Any]:
+    """Every capability whose name starts with `prefix` (such as "screen_pages."), by the rest of the name."""
+    return {n[len(prefix):]: impl for n, (_, impl) in sorted(_provided.items()) if n.startswith(prefix)}
+
+
+def provided() -> dict[str, str]:
+    """Every capability on offer, by name, with the id of the module that provides it (for tests and the guide)."""
+    return {n: who for n, (who, _) in sorted(_provided.items())}
+
+
+def listen(topic: str, fn: Callable[..., Any]) -> None:
+    """Be called when `announce(topic, ...)` is: a module that wants to hear about another's events (the followed
+    plan changed) listens in `attach()`, with no import and no matter which of the two came on first. `unlisten`
+    in `detach()`. Called on the event loop; a listener must not block."""
+    if fn not in _listeners.setdefault(topic, []):
+        _listeners[topic].append(fn)
+
+
+def unlisten(topic: str, fn: Callable[..., Any]) -> None:
+    if fn in _listeners.get(topic, []):
+        _listeners[topic].remove(fn)
+
+
+def announce(topic: str, *args: Any) -> None:
+    for fn in list(_listeners.get(topic, [])):
+        try:
+            fn(*args)
+        except Exception:
+            log.exception("listener for %s failed", topic)
+
+
+def announce_plan_changed() -> None:
+    """The followed plans changed (Planning Center's follower calls it): `listen("plan.changed", fn)` to hear."""
+    announce("plan.changed")
 
 
 async def fire_cue(cue_id: str, request: Any = None, *, by_name: bool = False, source: str = "") -> dict:
     """Fire a cue the operator put on a lighting page. {"ok": False, "error": ...} when lighting is off, the cue is
     not on a page, or the program could not do it. Pass the admin `request` to have the press in the audit trail, or
     (with no request) a `source` such as "a ProPresenter slide tag" to have it recorded as a system entry that says
-    where it came from. `by_name` takes the cue's name on the page (any case) instead of the program's cue id."""
-    hook = cue_hook
+    where it came from. `by_name` takes the cue's name on the page (any case) instead of the program's cue id.
+    Lighting provides "lighting.cues": (cue, request, *, by_name, source) -> {"ok": bool, "error": str}."""
+    hook = using("lighting.cues")
     if hook is None:
         return {"ok": False, "error": "Lighting is off."}
     return await hook(cue_id, request, by_name=by_name, source=source)
 
 
-# The OBS module sets this in attach() and clears it in detach() (#250): (scene name, *, source) -> a dict
-# {"ok": bool, "error": str}. Anything that wants to switch a video scene calls `switch_scene`, never the module.
-scene_hook: Callable[..., Awaitable[dict]] | None = None
-
-
 async def switch_scene(name: str, *, source: str = "") -> dict:
     """Switch every connected OBS computer that has a scene called `name` (any case) to it. {"ok": False, "error":
     ...} when OBS is off, no computer has that scene, or OBS refused. `source` ("a ProPresenter slide tag") is recorded
-    as a system audit entry saying where the switch came from."""
-    hook = scene_hook
+    as a system audit entry saying where the switch came from. OBS provides "obs.scenes": (name, *, source) -> dict."""
+    hook = using("obs.scenes")
     if hook is None:
         return {"ok": False, "error": "The OBS module is off."}
     return await hook(name, source=source)
 
 
-# The REAPER module sets this in attach() and clears it in detach() (#413): (command, value, *, source) -> a dict
-# {"ok": bool, "error": str}. Anything that wants to start or stop a recording or drop a marker calls
-# `control_recording`, never the module.
-recording_hook: Callable[..., Awaitable[dict]] | None = None
-
-
 async def control_recording(command: str, value: str = "", *, source: str = "") -> dict:
     """Tell every recorder that answers to `record`, `stop`, add a `marker` (named `value`) or run an `action` (a
     command id). {"ok": False, "error": ...} when no recorder module is on or none answered. `source` ("a ProPresenter
-    slide tag") is recorded as a system audit entry saying where it came from."""
-    hook = recording_hook
+    slide tag") is recorded as a system audit entry saying where it came from. REAPER provides "reaper.recording":
+    (command, value, *, source) -> {"ok": bool, "error": str}."""
+    hook = using("reaper.recording")
     if hook is None:
         return {"ok": False, "error": "The REAPER module is off."}
     return await hook(command, value, source=source)
 
 
 # Called with a presentation's name each time a new one is up in ProPresenter (#413). The ProPresenter module calls
-# `announce_presentation`; a module that wants to know (REAPER's markers) appends a callable in attach() and removes
-# it in detach(). Called on the event loop; a listener must not block.
+# `announce_presentation`; a module that wants to know (REAPER's markers) appends a callable in attach() and removes it
+# in detach(). Called on the event loop; a listener must not block.
 presentation_listeners: list[Callable[[str], None]] = []
 
 
@@ -362,16 +428,18 @@ def announce_presentation(name: str) -> None:
             logging.getLogger("relay.modules").exception("presentation listener failed")
 
 
-# The NDI module sets this in attach() and clears it in detach() (#294): a dict of the functions other modules use,
-# `sources() -> list[dict]`, `subscribe(source, on_frame) -> unsubscribe()` and `register_output(name) -> output`.
-# Callers use `ndi_sources`, `ndi_subscribe` and `ndi_register_output`, never the module.
-ndi_hooks: dict[str, Callable[..., Any]] = {}
+# The NDI module provides "ndi": a dict of the functions other modules use, `sources() -> list[dict]`,
+# `subscribe(source, on_frame) -> unsubscribe()` and `register_output(name) -> output` (#294). Callers use `ndi_sources`,
+# `ndi_subscribe` and `ndi_register_output`, never the module.
+def _ndi(name: str) -> Callable[..., Any] | None:
+    hooks = using("ndi")
+    return hooks.get(name) if isinstance(hooks, dict) else None
 
 
 def ndi_sources() -> list[dict]:
     """The NDI sources found on the network: name, machine, source, address, groups, online, width, height, fps.
     Empty while the NDI module is off."""
-    fn = ndi_hooks.get("sources")
+    fn = _ndi("sources")
     return fn() if fn else []
 
 
@@ -379,14 +447,14 @@ def ndi_subscribe(source: str, on_frame: Callable[[dict], None]) -> Callable[[],
     """Receive the frames of an NDI source through the module's shared receiver (one per source, however many
     listeners). `on_frame` gets {"width", "height", "fps", "fourcc", "data"} on the receiver's thread and must not
     block. Returns the function that stops listening, or None while NDI is off or the runtime is missing."""
-    fn = ndi_hooks.get("subscribe")
+    fn = _ndi("subscribe")
     return fn(source, on_frame) if fn else None
 
 
 def ndi_register_output(name: str, width: int = 1280, height: int = 720, fps: float = 30.0) -> Any:
     """Register an NDI output called `name` (#299), sending BGRA frames of width x height at `fps`. Returns an object
     with `send({"data": bytes})` and `close()`, or None while NDI is off or the runtime is missing."""
-    fn = ndi_hooks.get("register_output")
+    fn = _ndi("register_output")
     return fn(name, width, height, fps) if fn else None
 
 
@@ -396,10 +464,24 @@ def ndi_register_output(name: str, width: int = 1280, height: int = 720, fps: fl
 ndi_output_providers: dict[str, Callable[[], list[dict]]] = {}
 
 
-# A module that serves a page on /screen sets an entry here in attach() and removes it in detach(): the query
-# parameter that asks for it ("lighting" for /screen?lighting=<page>) -> an async (request) -> response, or None to
-# let /screen carry on. Core never names a module; it only asks (#379).
-screen_pages: dict[str, Callable[..., Awaitable[Any]]] = {}
+def plan_label() -> str | None:
+    """Today's plan as a short title ("Sunday Service 9:00 AM"), "" when there is none today, and None when no module
+    that follows plans is on. Planning Center provides "plan.label": () -> str."""
+    fn = using("plan.label")
+    try:
+        return fn() if fn else None
+    except Exception:
+        return None
+
+
+def service_starts_at() -> float | None:
+    """When the next service starts, as a Unix time, or None when no module that knows one is on. Planning Center
+    provides "plan.starts_at": () -> float | None."""
+    fn = using("plan.starts_at")
+    try:
+        return fn() if fn else None
+    except Exception:
+        return None
 
 
 def require(perm: str) -> Callable[..., Any]:
@@ -485,26 +567,10 @@ class Registry:
         return [m for m in self.all() if self.enabled(m.manifest.id)]
 
     def plan_label(self) -> str | None:
-        """The first switched-on module's plan label; None when no switched-on module follows plans."""
-        for mod in self.active():
-            try:
-                got = mod.plan_label()
-            except Exception:
-                got = None
-            if got is not None:
-                return got
-        return None
+        return plan_label()
 
     def service_starts_at(self) -> float | None:
-        """The next service start from the first switched-on module that knows one (Planning Center)."""
-        for mod in self.active():
-            try:
-                got = mod.service_starts_at()
-            except Exception:
-                got = None
-            if got is not None:
-                return got
-        return None
+        return service_starts_at()
 
     def require_enabled(self, mid: str) -> Callable[[], Awaitable[None]]:
         """A FastAPI dependency: 404 while the module is off, exactly as if its routes were not there."""
@@ -559,6 +625,7 @@ class Registry:
             log.exception("module %s failed to start", mid)
             with _suppress():
                 mod.detach()
+            withdraw_all(mid)
             return
         self._running.add(mid)
         log.info("Module on: %s %s", mod.manifest.name, mod.manifest.version)
@@ -575,6 +642,7 @@ class Registry:
         if detach:
             with _suppress():
                 mod.detach()
+            withdraw_all(mid)
         log.info("Module off: %s", mod.manifest.name)
 
     def attach(self, mid: str) -> None:

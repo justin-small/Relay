@@ -12,7 +12,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 
 from ... import audit, config, db, netroute, serving, tls
-from .. import listener_port, modules as registry, require
+from .. import listener_port, modules as registry, require, using
 from . import calltimes, chat, checkin, checklists, devices, paging, people, resources
 
 router = APIRouter()
@@ -157,10 +157,9 @@ def crew_offline():
 def crew_plan():
     """Today's plan for the page, from Planning Center when that module is on and the setting allows it. Titles
     and times only: the people, mics and notes stay on the production team's screen."""
-    if not _settings()["show_plan"] or not registry.enabled("planning_center"):
+    rundown_now = using("plan.rundown_now")
+    if not _settings()["show_plan"] or rundown_now is None:
         return {"available": False, "plan": None}
-    from ..planning_center.routes import rundown_now
-
     msg = rundown_now("", "")
     if not msg.get("plan"):
         return {"available": True, "plan": None}
@@ -281,10 +280,9 @@ def people_unlink(request: Request, user_id: int):
 # -- pages that buzz until read (#228) --------------------------------------------------------------------------
 def _tracks():
     """Today's followed plans, when Planning Center is on (an empty list otherwise)."""
-    if not registry.enabled("planning_center"):
+    follower = using("plan.follower")
+    if follower is None:
         return []
-    from ..planning_center.pclive import follower
-
     return list(follower.tracks.values())
 
 
@@ -517,10 +515,9 @@ def arrivals_clear(request: Request):
 # -- Wi-Fi check-in: a person's own devices, seen by the UniFi module (#356) ---------------------------------------
 def _wifi_client(request: Request) -> dict | None:
     """The UniFi client this request came from, when UniFi is on and sees the address."""
-    if not registry.running("unifi"):
+    service = using("unifi.service")
+    if service is None:
         return None
-    from ..unifi.service import service
-
     return service.presence.by_ip(request.client.host if request.client else "")
 
 

@@ -137,13 +137,12 @@ class Crew(Module):
         import time
 
         from ... import audit, users
-        from .. import modules as registry
+        from ... import modules
         from . import calltimes, checkin, devices
 
-        if not registry.running("unifi"):
+        service = modules.using("unifi.service")
+        if service is None:
             return
-        from ..unifi.service import service
-
         clients = service.presence.online()
         if not clients:
             return
@@ -155,9 +154,12 @@ class Crew(Module):
 
     def _scan(self) -> None:
         """Match accounts to the people on the followed plans (people.py). Blocking: run off the loop."""
-        from ..planning_center.pclive import follower
+        from ... import modules
         from . import people
 
+        follower = modules.using("plan.follower")
+        if follower is None:
+            return
         found: dict[str, dict] = {}
         for tr in follower.tracks.values():
             for m in tr.team:
@@ -183,25 +185,21 @@ class Crew(Module):
             pass
 
     def attach(self) -> None:
-        from ... import users
-        from ..planning_center.pclive import follower
+        from ... import modules, users
         from .chat import hub
 
-        if self._team_changed not in follower.listeners:
-            follower.listeners.append(self._team_changed)
+        modules.listen("plan.changed", self._team_changed)
         if hub.signed_out not in users.signed_out_hooks:
             users.signed_out_hooks.append(hub.signed_out)
 
     def detach(self) -> None:
-        from ... import users
-        from ..planning_center.pclive import follower
+        from ... import modules, users
         from .chat import hub
 
         if hub.signed_out in users.signed_out_hooks:
             users.signed_out_hooks.remove(hub.signed_out)
 
-        if self._team_changed in follower.listeners:
-            follower.listeners.remove(self._team_changed)
+        modules.unlisten("plan.changed", self._team_changed)
         self._seen = ""
 
     def routers(self) -> list:

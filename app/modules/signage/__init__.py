@@ -80,14 +80,23 @@ class Signage(Module):
         return [router]
 
     def attach(self) -> None:
-        from . import sources, store
+        from types import SimpleNamespace
+
+        from ... import modules
+        from . import live, media, schedule, sources, store, takeover
 
         sources.register(store.MEDIA_SOURCE)
+        # What other modules reach signage through (#523): "signage.content" holds the library, the live state and the
+        # schedule they read and change. They ask for it while signage is on and cope with None while it is off.
+        modules.provide("signage.content", SimpleNamespace(store=store, media=media, live=live, takeover=takeover,
+                                                          schedule=schedule, sources=sources))
 
     def detach(self) -> None:
+        from ... import modules
         from . import sources
 
         sources.unregister("media")
+        modules.withdraw("signage.content")
 
     async def start(self) -> None:
         self._task = asyncio.create_task(self._housekeeping())

@@ -382,6 +382,7 @@ with section("crew Wi-Fi check-in (#356)"):
     mike, sara = users.get_by_username("mike"), users.get_by_username("sara")
     asyncio.run(service.check())
     registry._running.add("unifi")
+    registry.attach("unifi")                      # the crew asks the UniFi module for who is on the network (#523)
     r = admin.post("/api/admin/crew/devices", json={"user_id": mike.id, "kind": "mac", "value": "AA-BB-CC-00-00-01"})
     eq("an admin adds a phone by MAC", (r.status_code, r.json()["devices"][0]["value"]), (200, PHONE))
     eq("someone else's device is refused",
@@ -402,6 +403,7 @@ with section("crew Wi-Fi check-in (#356)"):
     r = mike_c.post("/crew/api/devices/this", json={})
     eq("This is my phone", (r.status_code, r.json()["this"]["yours"]), (200, True))
     registry._running.discard("unifi")
+    registry.get("unifi").detach()
     eq("with UniFi off it cannot see the phone", mike_c.post("/crew/api/devices/this", json={}).status_code, 409)
     eq("and the crew loop does nothing", crew._wifi(), None)
 

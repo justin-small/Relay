@@ -18,6 +18,7 @@ _db.reset()
 import app.main as main  # noqa: E402,F401
 from app import config, users  # noqa: E402
 from app.main import app  # noqa: E402
+from app.modules import modules  # noqa: E402
 from app.modules.crew import MODULE, people  # noqa: E402
 from app.modules.planning_center.pclive import follower, Track  # noqa: E402
 
@@ -28,6 +29,7 @@ from _harness import eq, fails  # noqa: E402
 config.ensure_file()
 config.save({"admin_token": "t0ken", "port": 8000, "admin_port": 8001,
              "modules": {"crew": {"enabled": True}, "planning_center": {"enabled": True}}})
+modules.attach("planning_center")        # the crew asks Planning Center for the followed plans by name (#523)
 
 print("similarity")
 eq("exact once normalised", people.similarity("  José  Núñez ", "jose nunez"), 1.0)
@@ -98,6 +100,7 @@ MODULE._scan()
 eq("a removed match is relinked only by a new scan", [p for p in admin.get("/api/admin/crew/people").json()["people"]
                                                       if p["id"] == sara.id][0]["linked"], True)
 config.save({"modules": {"planning_center": {"enabled": False}}})
+modules.get("planning_center").detach()
 eq("scan refused while it is off", admin.post("/api/admin/crew/people/scan").status_code, 400)
 
 print("account removal")

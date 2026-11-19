@@ -1,4 +1,5 @@
-"""Shared concepts (#521, #522): one way to compare names, make slugs and handle days and clock times.
+"""Shared concepts (#521, #522, #523): one way to compare names, make slugs, handle days and clock times, and reach
+another module.
 
 This file is the rule's enforcement, run in CI on every pull request. It reads every app/**/*.py except the two
 shared files themselves (app/text.py and app/timewin.py) and counts, per file:
@@ -7,12 +8,14 @@ shared files themselves (app/text.py and app/timewin.py) and counts, per file:
            app/text.py (`fold`, `same_name`, `plain`, `strip_accents`, `slug`);
 * weekday  `.weekday()` or `.isoweekday()`, which count from Monday. Relay counts days from Sunday = 0: use
            `timewin.weekday(d)`;
-* clock    a hand-written HH:MM pattern (`2[0-3]`). Use `timewin.is_clock`, `clean_clock`, `minutes` or `us_clock`.
+* clock    a hand-written HH:MM pattern (`2[0-3]`). Use `timewin.is_clock`, `clean_clock`, `minutes` or `us_clock`;
+* import   a module importing another module's package (`from ..signage import store`, `from app.modules.x import`).
+           A module offers what others need with `modules.provide("<area>.<what>", impl)` in `attach()` and others ask
+           with `modules.using(...)` and cope with None (docs/modules.md, "Reaching another module").
 
 Each count is checked against tests/shared_concepts_baseline.txt, which may only shrink: a file over its count
 fails, and a file under its count fails until the line is lowered (run with --rebaseline, which refuses to raise
-any count). Later steps of #521 add their rules here (free-text team and position columns, imports of another
-module's internals).
+any count). Later steps of #521 add their rules here (free-text team and position columns).
 
 A use that is right goes on a line with a reason: `x.casefold()  # allow-shared: offsets must match the original`.
 
@@ -31,6 +34,10 @@ APP = ROOT / "app"
 BASELINE = HERE / "shared_concepts_baseline.txt"
 SHARED = {"app/text.py", "app/timewin.py"}
 ALLOW = "# allow-shared:"
+MODULES = APP / "modules"
+# `from ..<other> import` or `from ..<other>.x import` inside app/modules/<id>/ (two dots: a sibling module; three are core),
+# and the absolute spelling.
+SIBLING = re.compile(r"^\s*(?:from\s+\.\.(\w+)\b|from\s+app\.modules\.(\w+)\b|import\s+app\.modules\.(\w+)\b)")
 
 RULES: dict[str, re.Pattern] = {
     "name": re.compile(r"\.casefold\(\)|unicodedata\.normalize\(|\[\^a-z0-9\]"),
@@ -52,6 +59,16 @@ def code_part(line: str) -> str:
     return line.split("#", 1)[0] if "#" in line else line
 
 
+def other_module(p: Path, code: str) -> bool:
+    """Whether this line, in a file of one module's package, imports a different module's package."""
+    rel = p.relative_to(MODULES).parts if MODULES in p.parents else ()
+    if len(rel) < 2:                     # app/modules/__init__.py is the registry; only <id>/... files are modules
+        return False
+    m = SIBLING.match(code)
+    name = next((g for g in m.groups() if g), "") if m else ""
+    return bool(name) and name != rel[0] and (MODULES / name).is_dir()
+
+
 def hits() -> dict[tuple[str, str], list[int]]:
     """(rule, file) -> line numbers of every use not marked allow-shared."""
     out: dict[tuple[str, str], list[int]] = {}
@@ -64,6 +81,8 @@ def hits() -> dict[tuple[str, str], list[int]]:
             for rule, pattern in RULES.items():
                 if pattern.search(code):
                     out.setdefault((rule, rel), []).append(n)
+            if other_module(p, code):
+                out.setdefault(("import", rel), []).append(n)
     return out
 
 
@@ -83,8 +102,13 @@ def read_baseline() -> dict[tuple[str, str], int]:
 
 def write_baseline(rows: dict[tuple[str, str], int]) -> None:
     head = ("# Hand-written name tidying, Monday-first weekdays and HH:MM patterns outside app/text.py and\n"
-            "# app/timewin.py when tests/test_shared_concepts.py came in (#522). This list may only shrink: fix one,\n"
-            "# lower its count here (or run the test with --rebaseline).\n"
+            "# app/timewin.py when tests/test_shared_concepts.py came in (#522), and modules that import another\n"
+            "# module's package (#523). This list may only shrink: fix one, lower its count here (or run the test\n"
+            "# with --rebaseline).\n"
+            "# intercom_remote -> intercom stays: the remote intercom is the same feature as the intercom (its rooms, its\n"
+            "# devices, its presence, its watchdog), not an add-on that has to cope with the intercom being off.\n"
+            "# intercom_remote -> remote_access stays: it reads the enrolment and the cloud client that module holds even\n"
+            "# while the tunnel (remote access) is off, so asking by name would stop the remote intercom when it is.\n"
             "# rule  count  file\n")
     body = "".join(f"{rule} {n} {rel}\n" for (rule, rel), n in sorted(rows.items(), key=lambda kv: (kv[0][1], kv[0][0])))
     BASELINE.write_text(head + body)
@@ -114,6 +138,16 @@ def main() -> None:
         eq("clock pattern", found('re.compile(r"([01]\\d|2[0-3]):[0-5]\\d")'), ["clock"])
         eq("a comment is not code", found("x = 1  # the old .weekday() counted from Monday"), [])
         eq("helpers are fine", found("if timewin.weekday(d) in days and same_name(a, b):"), [])
+
+        def sibling(rel: str, line: str) -> bool:
+            return other_module(MODULES / rel, line)
+        check("another module's package is found", sibling("crew/routes.py", "    from ..planning_center import x"))
+        check("deeper in it too", sibling("crew/routes.py", "from ..signage.store import y"))
+        check("the absolute spelling too", sibling("crew/routes.py", "from app.modules.unifi.service import z"))
+        check("a module's own package is fine", not sibling("crew/routes.py", "from ..crew import people"))
+        check("core is three dots", not sibling("crew/routes.py", "from ... import audit"))
+        check("the registry is fine", not sibling("crew/routes.py", "from .. import using"))
+        check("the registry file is not a module", not sibling("__init__.py", "from ..netroute import Resolved"))
 
     with section("the shared files exist and are left out"):
         check("app/text.py exists", (ROOT / "app/text.py").exists())

@@ -20,6 +20,7 @@ _db.reset()
 import app.main as main  # noqa: E402,F401
 from app import config, db, users  # noqa: E402
 from app.main import app  # noqa: E402
+from app.modules import modules  # noqa: E402
 from app.modules.crew import MODULE, paging, people, webpush  # noqa: E402
 from app.modules.planning_center.pclive import Track, follower  # noqa: E402
 from cryptography.hazmat.primitives import hashes  # noqa: E402
@@ -65,6 +66,7 @@ for url, want in (("https://fcm.googleapis.com/fcm/send/x", True), ("https://upd
 config.ensure_file()
 config.save({"admin_token": "t0ken", "port": 8000, "admin_port": 8001,
              "modules": {"crew": {"enabled": True}, "planning_center": {"enabled": True}}})
+modules.attach("planning_center")        # what the page asks Planning Center for, it asks by name (#523)
 admin = _db.client(app, base_url="http://relay.local:8001")
 operator = _db.client(app, role="operator", base_url="http://relay.local:8001", username="booth")
 viewer = _db.client(app, role="viewer", base_url="http://relay.local:8001", username="watcher")

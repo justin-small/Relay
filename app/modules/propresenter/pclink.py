@@ -30,18 +30,24 @@ from typing import Any, Callable
 
 from ... import config
 from . import plmatch, propresenter as pp
-from .. import modules
-from ..planning_center import planningcenter as pc
+from .. import listen, modules, using
 from .ppcontrol import _seg
-from ..planning_center.pclive import follower as pc_follower
 from .propresenter import follower as pp_follower
 
 log = logging.getLogger("relay.pclink")
 
 
 def _pc_on() -> bool:
-    """Planning Center is usable: its module is on (it is a separate module, #157) and a token is saved."""
-    return modules.enabled("planning_center") and pc.connected(config.get())
+    """Planning Center is usable: its module is on (it is a separate module, #157, and provides "plan.api") and a
+    token is saved."""
+    api = using("plan.api")
+    return api is not None and modules.enabled("planning_center") and api.connected(config.get())
+
+
+class _NoPlans:
+    """Stands in for Planning Center's follower while that module is off: it follows nothing."""
+    tracks: dict = {}
+    names: dict = {}
 
 TICK_S = 0.5
 CACHE_S = 120.0            # ProPresenter's lists are read again after this long while the link is on
@@ -129,9 +135,6 @@ def _entries(body: Any) -> list[dict]:
 class Link:
     def __init__(self) -> None:
         self.pp = pp_follower
-        self.pc = pc_follower
-        self.pc_control: Any = None                  # pccontrol.Control, set by the module (attach)
-        self.on_change: Callable[[], None] | None = None   # the Service feed's refresh, set by the module (attach)
         self.clock = time.monotonic                  # a test swaps this
         self.now = time.time
         # what was read from ProPresenter
@@ -162,7 +165,22 @@ class Link:
         self.last: dict | None = None
         self._task: asyncio.Task | None = None
         self.pp.listeners.append(self._pp_changed)
-        self.pc.listeners.append(self._pc_changed)
+        listen("plan.changed", self._pc_changed)
+
+    # What Planning Center provides (#523): its follower, its LIVE control and the Service feed, none while it is off.
+    @property
+    def pc(self) -> Any:
+        return using("plan.follower") or _NoPlans
+
+    @property
+    def pc_control(self) -> Any:
+        return using("plan.control")
+
+    def on_change(self) -> None:
+        """Tell the Service feed which plan item ProPresenter has up."""
+        feed = using("plan.feed")
+        if feed is not None:
+            feed.refresh()
 
     # -- lifecycle --------------------------------------------------------------------------------------
     def start(self) -> None:
@@ -342,7 +360,7 @@ class Link:
 
     def _changed(self) -> None:
         """Tell the Service feed when the item ProPresenter has up changed."""
-        if not self.active() or self.on_change is None:
+        if not self.active():
             return
         try:
             item = (self.follow()["pp_item"] or {}).get("id")

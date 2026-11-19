@@ -128,12 +128,11 @@ def next_for(user_id: int, tracks, zone, now: float | None = None) -> dict | Non
 
 def _state():
     """Today's followed plans and Planning Center's zone, when that module is on."""
-    from .. import modules as registry
+    from ... import modules
 
-    if not registry.enabled("planning_center"):
+    follower = modules.using("plan.follower")
+    if follower is None:
         return [], None
-    from ..planning_center.pclive import follower
-
     return list(follower.tracks.values()), follower.zone or follower.fallback_zone()
 
 

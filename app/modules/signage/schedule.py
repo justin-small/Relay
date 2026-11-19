@@ -2,8 +2,8 @@
 
 Pure functions only; store.py reads the rows and calls in here. The order of precedence, highest first:
 
-    takeover        another module forcing the screen (alerts, live service; #207). Registered with `register_layer`.
-    tag             a slide-note tag naming a playlist (#208). Registered the same way.
+    takeover        another module forcing the screen (alerts, live service; #207). Registered with `register_layer`, or provided as "signage.layer.takeover".
+    tag             a slide-note tag naming a playlist (#208). ProPresenter provides it as "signage.layer.tag".
     override        a playlist an operator chose by hand, until cleared or until the next scheduled change.
     schedule        the time slot that matches now: a screen's own slots, else its group's, else the all-screens ones.
                     Within one level a one-off date range beats a weekly slot, and the later start wins a tie.
@@ -21,7 +21,7 @@ from datetime import date, datetime, timedelta, timezone
 from typing import Callable
 from zoneinfo import ZoneInfo
 
-from ... import timewin
+from ... import modules as core, timewin
 
 TARGETS = ("screen", "group", "all")
 DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
@@ -30,7 +30,9 @@ HORIZON_DAYS = 8
 TAKEOVER, TAG = "takeover", "tag"
 LAYER_ORDER = (TAKEOVER, TAG)
 
-# name -> fn(screen: dict, now_utc: datetime) -> {"playlist_id": int, "why": str} | None
+# name -> fn(screen: dict, now_utc: datetime) -> {"playlist_id": int, "why": str} | None. Another module provides its
+# layer as the capability "signage.layer.<name>" (#523); `register_layer` is for signage's own.
+LAYER = "signage.layer."
 _layers: dict[str, Callable[[dict, datetime], dict | None]] = {}
 
 
@@ -52,7 +54,7 @@ def unregister_layer(name: str) -> None:
 def layer_result(screen: dict, now_utc: datetime) -> dict | None:
     """The first registered layer, in precedence order, that claims `screen`: {"layer", "playlist_id", "why"}."""
     for name in LAYER_ORDER:
-        fn = _layers.get(name)
+        fn = _layers.get(name) or core.using(LAYER + name)
         if fn is None:
             continue
         try:

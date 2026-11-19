@@ -38,7 +38,7 @@ class Mixer(Module):
         summary="Follows the console's scenes and mutes.",
         settings_key="mixer",          # config.json key for its own settings
         guide="/docs/mixer",           # setup guide, shown next to its settings
-        uses=(),                       # other modules it does more with, if they are on
+        uses=(),                       # other modules it does more with, if they are on (it asks for them by name)
         section="Sound",               # its heading in the admin sidebar (see below)
     )
     defaults = {"host": "", "port": 0}
@@ -322,8 +322,8 @@ channel is unchanged.
 ## Lighting cues from another module
 
 A module that wants to fire a lighting cue (a ProPresenter slide tag, a schedule) never imports `lighting`. It calls
-core's `app.modules.fire_cue(cue_id, request=None, *, by_name=False, source="")`, which the lighting module backs with a hook it sets in `attach()`
-and clears in `detach()`. The answer is `{"ok": True}` or `{"ok": False, "error": "..."}` (lighting off, the cue is not
+core's `app.modules.fire_cue(cue_id, request=None, *, by_name=False, source="")`, which asks for the capability `lighting.cues` that the lighting module
+provides in `attach()` (see [Reaching another module](#reaching-another-module)). The answer is `{"ok": True}` or `{"ok": False, "error": "..."}` (lighting off, the cue is not
 on a cue page, or the program did not answer). With no `request`, a `source` ("a ProPresenter slide tag") is recorded as a system audit entry saying where the press came
 from, and `by_name=True` takes the cue's name on its page. Only a cue the operator put on a page can be fired this way, never the
 controller's whole list, and a press is sent once: a dropped connection is reported, never retried, because the cue
@@ -342,8 +342,8 @@ is shown only by a `lighting.manage` route, and never reaches a config read. A w
 that does not exist all answer the same plain 404; wrong keys are counted per address and slowed (429) and never logged,
 and a press (20 per 10 seconds per address) is logged only once the key checked out ("Lighting: Worship, Verse (from the
 Worship screen)"). The screen is told only `unreachable`, `refused` or `slow`, never the program's own text. Core serves
-this through `modules.screen_pages`, a hook a module sets in `attach()` (query parameter -> async handler), the same way
-the cue hook works; core never imports the module. Admin and chosen crew roles still press from signed-in pages.
+this through the capabilities named `screen_pages.<query parameter>`, each an async handler a module provides in `attach()`
+(`modules.using_all("screen_pages.")`), the same way the cue capability works; core never imports the module. Admin and chosen crew roles still press from signed-in pages.
 
 The first backend is **QLC+ v4** (`qlcplus.py`): start QLC+ with `-w`, then set the host and port (default 9999) on the
 Lighting page. It lists the virtual console buttons, presses one (a toggle button toggles) and reads which are on. It
@@ -508,15 +508,14 @@ page, `/ndi/multiview/<id>`, and a stream, `/ndi/multiview/<id>/stream`, on the 
 single-source viewer. Relay composes the picture once with Pillow, at most `view_fps` times a second, however many
 browsers watch it, holds one pool lease per source while anyone watches and releases them all after the last leaves.
 `view_max` does not apply (a 4x4 holds up to 16 receivers). The service countdown asks core's
-`modules.service_starts_at()`, which a module that knows service times (Planning Center) backs by overriding
-`Module.service_starts_at`. **Not built:** sending the composed picture out as an NDI source (#299 has no output yet).
+`modules.service_starts_at()`, which asks for `plan.starts_at`, the capability a module that knows service times (Planning
+Center) provides. **Not built:** sending the composed picture out as an NDI source (#299 has no output yet).
 
-## Recording and presentation hooks
+## Recording and presentation hooks (and reaching another module)
 
 A module that wants a recorder to start, stop, drop a marker or run an action never imports `reaper`. It calls core's
 `app.modules.control_recording(command, value="", *, source="")` (`record`, `stop`, `marker` with the marker's name,
-`action` with a REAPER command id), which the REAPER module backs with a hook it sets in `attach()` and clears in
-`detach()` (#413). The answer is `{"ok": True, "done": [names]}` or `{"ok": False, "error": "..."}`; with a `source` the
+`action` with a REAPER command id), which asks for `reaper.recording`, provided by the REAPER module while it is on (#413). The answer is `{"ok": True, "done": [names]}` or `{"ok": False, "error": "..."}`; with a `source` the
 REAPER module writes a system audit entry saying where it came from.
 
 `app.modules.announce_presentation(name)` is called by the ProPresenter module each time a new presentation is up. A
@@ -722,8 +721,8 @@ needs a scope that can write: `youtube.force-ssl` through relay-cloud, `youtube`
 Refusals are looked up in `schedule.WORDS`, never an exception's text.
 
 **Scenes from another module.** A module that wants to switch a video scene (a ProPresenter slide tag) never imports
-`obs`: it calls core's `app.modules.switch_scene(name, source="...")`, which the OBS module backs with `scene_hook`,
-set in `attach()` and cleared in `detach()`. Every connected OBS computer that has a scene of that name (any case)
+`obs`: it calls core's `app.modules.switch_scene(name, source="...")`, which asks for `obs.scenes`, provided by the OBS
+module while it is on. Every connected OBS computer that has a scene of that name (any case)
 switches; the answer is `{"ok": True}` or `{"ok": False, "error": "..."}`. When an operator maps scenes to camera
 numbers, the OBS module also publishes into core's tally (`app/tally.py`) as `obs_<computer id>`.
 
@@ -815,6 +814,10 @@ written into the module. `tests/test_ui_contract.py` fails on a module script th
 `relay-ui.js` before it, and on any function body of more than 60 characters copied between two scripts. The copies
 that were already there are listed in `tests/ui_contract_baseline.txt`, which may only shrink.
 
+These helpers are for a module's browser scripts. The server side has one pattern of its own for reaching core and
+other modules, `modules.provide()` and `modules.using()` (see [Reaching another module](#reaching-another-module)); a
+script never calls another module's routes by name either, since core pages and scripts do not name a module's routes.
+
 ## Shared styles for module pages
 
 Every control is drawn by `app/static/components.css` (#463) on the tokens in `app/static/tokens.css`: buttons
@@ -849,17 +852,78 @@ shared-concepts epic #521, audit in `docs/reference/shared-concepts-audit.md`):
 
 Import the function (`from ...text import same_name`) rather than the module where a function has a local named `text`.
 `tests/test_shared_concepts.py` fails on a new `.casefold()`, `unicodedata.normalize(`, `[^a-z0-9]` slug pattern,
-`.weekday()` or HH:MM pattern outside those two files; a use that is right is marked `# allow-shared: <why>` on its
+`.weekday()` or HH:MM pattern outside those two files, and on a new import of another module's package (`from ..signage
+import store`: use `modules.using("signage.content")`, see [Reaching another module](#reaching-another-module)); a use that is right is marked `# allow-shared: <why>` on its
 line. Its baseline, `tests/shared_concepts_baseline.txt`, may only shrink.
+
+## Reaching another module
+
+One pattern for a module to give core or another module something, and for them to ask for it (#523, part of the
+shared-concepts epic #521). Nothing imports a module: not core, and not another module.
+
+```python
+from app import modules                      # core's registry package
+
+# In the module that has the thing, in attach(); the registry takes it back when the module is switched off,
+# and detach() may call withdraw() too:
+modules.provide("lighting.cues", fire)
+modules.withdraw("lighting.cues")
+
+# Anywhere that wants it, at the moment it needs it (not at import and not in attach(), so it does not matter which
+# module came on first):
+fire = modules.using("lighting.cues")        # None while the provider is off
+if fire is None:
+    return {"ok": False, "error": "Lighting is off."}
+```
+
+A name is `<area>` or `<area>.<what>`, lower case. The owner is the module the `provide` call is made from, so turning
+that module off removes everything it provided (the registry calls `withdraw_all(owner)` after `detach`). Providing a
+name another module holds replaces it, and is logged. `modules.using_all("screen_pages.")` returns every capability
+under a prefix, by the rest of the name. `modules.provided()` lists them all with their owners (tests).
+
+To hear about something instead of asking for it, `modules.listen(topic, fn)` in `attach()`, `modules.unlisten(topic, fn)`
+in `detach()`; the provider calls `modules.announce(topic, *args)`. Planning Center announces `plan.changed` when the
+followed plans change (the crew's people matching and the ProPresenter link listen); neither imports it.
+
+A provider offers a function (`lighting.cues`), a small object (`ndi` is a dict of functions) or a namespace
+(`signage.content`). It never has to offer a whole package: offer what an asker needs. The names Relay's own modules
+provide:
+
+| Name | Provided by | What it is |
+| --- | --- | --- |
+| `lighting.cues` | lighting | `async (cue, request, *, by_name, source) -> {"ok", "error"}`; core's `fire_cue` calls it |
+| `obs.scenes` | obs | `async (name, *, source) -> {"ok", "error"}`; core's `switch_scene` calls it |
+| `reaper.recording` | reaper | `async (command, value, *, source) -> {"ok", "error"}`; core's `control_recording` calls it |
+| `ndi` | ndi | `{"sources", "subscribe", "register_output"}`; core's `ndi_sources`, `ndi_subscribe`, `ndi_register_output` call them |
+| `screen_pages.<query>` | lighting, obs | `async (request) -> response or None`; `/screen` asks each |
+| `plan.label`, `plan.starts_at` | planning_center | today's plan title; when the next service starts (core's `plan_label()` and `service_starts_at()`) |
+| `plan.service_types` | planning_center | the service types a panel may show or control |
+| `plan.api` | planning_center | the client code (`client_from`, `connected`, `PlanningCenterError`, `operator_message`) |
+| `plan.follower`, `plan.feed`, `plan.control`, `plan.rundown_now` | planning_center | the followed plans, the Service feed, LIVE control and today's rundown |
+| `propresenter.follower`, `propresenter.api` | propresenter | the connection and its helpers (`configured`) |
+| `propresenter.feed_extra` | propresenter | adds the plan item ProPresenter has up to the Service feed |
+| `signage.content` | signage | a namespace: `store`, `media`, `live`, `takeover`, `schedule`, `sources` |
+| `signage.source.<kind>` | planning_center, signage_web | a kind of playlist item: a dict of `label`, `resolve`, `describe`, `choices` (signage's `sources.py`) |
+| `signage.layer.tag` | propresenter | the schedule's "tag" layer: `(screen, now) -> {"playlist_id", "why"} or None` |
+| `unifi.service` | unifi | who is on the network (the crew's Wi-Fi check-in) |
+
+**Copes with it being off.** `using()` is None while a module is off, and a module that works with another (it names it
+in `uses`) says what it does then: shows nothing, refuses with a sentence, or waits. Do not keep what `using()` returned
+in a variable that lives past the call, since the provider can be switched off in between.
+
+**When two modules are one feature.** A module that is the other half of another (the remote intercom is the same
+feature as the intercom: its rooms, devices, presence and watchdog) may import it, listing it in `uses`. Such a use goes
+on the baseline in `tests/shared_concepts_baseline.txt` with the reason; the baseline may only shrink.
 
 ## Rules
 
-1. **Imports go one way.** A module may import core (`app.config`, `app.hub`, `app.engine`, `app.panels`,
-   `app.alerts`, ...). Core never imports a module: it reaches modules only through the registry's hooks.
-   If core needs to call into a module, add a hook (a callable core holds, set in `start()` and cleared in
-   `stop()`), or a method on `Module` that the registry calls for every module that is on.
-2. **A module that works with another names it in `uses`** and copes with it being off. It may import only
-   the modules it names.
+1. **Imports go one way, and never sideways.** A module may import core (`app.config`, `app.hub`, `app.engine`,
+   `app.panels`, `app.alerts`, ...). Core never imports a module: it reaches modules only through the registry and
+   what modules provide by name. If core needs to call into a module, the module provides a capability (`provide` in
+   `attach()`), or it is a method on `Module` that the registry calls for every module that is on. A module never imports another
+   module's package: it asks for what it needs with `using()` (see above).
+2. **A module that works with another names it in `uses`** and copes with it being off (`using()` gives None). It
+   may import only the modules it names, and `tests/test_shared_concepts.py` allows no new such import.
 3. **Its routes are under its `route_prefixes`.** Core templates and scripts never name them; the way in
    is the module's own admin pages.
 4. **Settings stay under its own config key**, cleaned by `clean()`, with secrets stripped by `public()`.
@@ -884,7 +948,8 @@ line. Its baseline, `tests/shared_concepts_baseline.txt`, may only shrink.
 - a module opens a socket or connection itself instead of through `app/netsock.py` (exceptions, with a reason,
   in `MODULE_SOCKETS`), or declares a traffic class whose id does not start with its own id;
 - a module's manifest is invalid, its templates or scripts are missing, or it imports a module it does not
-  name in `uses`;
+  name in `uses` (and `tests/test_shared_concepts.py` fails on any import of another module's package that is not on its
+  baseline);
 - a module does not declare `<id>.view` and `<id>.manage`, an admin route does not ask for one of
   the module's own permissions, or a page needs a permission nobody declares;
 - a module's route is outside its `route_prefixes`, or answers while the module is off;
