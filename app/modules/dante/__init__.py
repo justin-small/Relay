@@ -57,11 +57,13 @@ class Dante(Module):
         from .service import service
 
         registry.provide("gear.dante", {"list": service.gear_list})
+        registry.provide("audio.input_labels", service.input_labels)
 
     def detach(self) -> None:
         from ... import modules as registry
 
         registry.withdraw("gear.dante")
+        registry.withdraw("audio.input_labels")
 
     async def start(self) -> None:
         from ... import db

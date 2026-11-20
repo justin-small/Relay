@@ -79,7 +79,7 @@
     list.forEach(function (d) {
       const o = document.createElement('option');
       o.value = d.label;
-      o.textContent = d.label + '  (' + d.channels + ' ch, ' + d.default_samplerate + ' Hz'
+      o.textContent = d.label + (d.kind ? '  [' + d.kind + ']' : '') + '  (' + d.channels + ' ch, ' + d.default_samplerate + ' Hz'
         + (d.default ? ', system default' : '') + ')';
       sel.appendChild(o);
     });
@@ -110,13 +110,27 @@
     sel.value = (want === 'mix' && n > 1)
       ? 'mix'
       : String(Math.min(parseInt(want, 10) || 0, n - 1));
+    renderFeed();
+  }
+
+  /* What feeds the chosen channel, when a module that knows (Dante) says. */
+  function renderFeed() {
+    const dev = devices.filter(function (d) { return d.label === $('device').value; })[0];
+    const feeds = dev && dev.feeds ? dev.feeds : [];
+    const ch = $('channel').value;
+    const text = ch === 'mix'
+      ? feeds.filter(Boolean).join(', ')
+      : (feeds[parseInt(ch, 10) || 0] || '');
+    const box = $('deviceFeed');
+    box.textContent = text ? 'Fed by: ' + text : '';
+    box.hidden = !text;
   }
 
   $('device').addEventListener('change', function () {
     renderChannels();
     saveDevice();
   });
-  $('channel').addEventListener('change', saveDevice);
+  $('channel').addEventListener('change', function () { renderFeed(); saveDevice(); });
   $('noise').addEventListener('change', saveDevice);
 
   function renderMode() {

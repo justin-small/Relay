@@ -201,6 +201,23 @@ def is_legacy_pulse(selector) -> bool:
     return sel.startswith("pulseaudio:") or sel in _LEGACY_PULSE_NAMES
 
 
+def label_inputs(devices: list[dict]) -> list[dict]:
+    """The devices, each with `kind` ("Dante", "AES67" or "") and `feeds` (for each channel, what feeds it, as text, or
+    ""), from whatever module provides "audio.input_labels" (the Dante module, #264). Core names no module: with none
+    on, every device has an empty kind and no feeds. The saved `label` is never changed."""
+    from .modules import using
+
+    fn = using("audio.input_labels")
+    notes: dict = {}
+    if fn is not None:
+        try:
+            notes = fn(devices) or {}
+        except Exception:  # noqa: BLE001
+            log.warning("input labels failed", exc_info=True)
+    return [{**d, "kind": (notes.get(d["index"]) or {}).get("kind", ""),
+             "feeds": (notes.get(d["index"]) or {}).get("feeds", [])} for d in devices]
+
+
 def selection_notice(selector, refresh: bool = False) -> str | None:
     """LEGACY_PULSE_NOTICE when `selector` is a PulseAudio-era name that no real device carries,
     so capture would fall back to the default input; None otherwise."""
