@@ -29,7 +29,7 @@ class SignageWeb(Module):
     )
     defaults = {"links": []}
     admin_pages = (AdminPage(
-        id="signageweb", title="Web & YouTube", template="admin.html",
+        id="signageweb", title="Web & YouTube", template="admin.html", tab_of="signage",
         icon='<circle cx="8" cy="8" r="6"/><path d="M2 8h12M8 2c2 2 2 10 0 12M8 2c-2 2-2 10 0 12"/>'),)
     admin_scripts = ("signageweb.js",)
     route_prefixes = ("/api/admin/signage-web",)

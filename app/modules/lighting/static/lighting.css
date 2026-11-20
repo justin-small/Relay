@@ -1,7 +1,6 @@
 /* The Lighting admin page: its tabs' layout only (docs/mockups/lighting/a-tabs.html). Controls come from
    components.css. A cue page is drawn on a stage-dark backing so the cue colours read as they will on the screen. */
 #page-lighting [hidden] { display:none !important; }
-#page-lighting .tabs { display:flex; margin:0 0 var(--sp-3); }
 .cuebox { background:var(--video-bg); padding:var(--sp-2); border-radius:var(--r-ctl); aspect-ratio:4/3; display:flex; }
 .cuegrid { flex:1; contain:size; }
 .ltlede { margin:0; max-width:80ch; }

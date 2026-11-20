@@ -53,6 +53,7 @@ class ProPresenter(Module):
         AdminPage(id="propresenter", title="Settings", template="settings.html",
                   icon='<rect x="2" y="2.5" width="12" height="8" rx="1"/><path d="M5 13.5h6M8 10.5v3"/>'),
     )
+    admin_tabbed = True
     admin_scripts = ("propresenter.js", "slideview.js", "ppcontrol.js", "pplive.js", "pclink.js")
     route_prefixes = ("/api/admin/propresenter", "/api/stage/live", "/stage")
     permissions = (

@@ -200,7 +200,7 @@ with section("one Network page with tabs, and a module's tabs on it"):
     for tab in ("racks", "map", "ports", "computer", "find"):
         check(f"core's {tab} tab and its panel", f'data-tab="{tab}"' in net and f'data-pane="{tab}"' in net)
     check("the old map page is gone, and its hash opens the Map tab", 'id="page-network_map"' not in page and 'data-alias="network_map"' in net)
-    check("one sidebar entry", page.count('href="#network"') == 1 and 'href="#network_map"' not in page)
+    check("one sidebar entry", page.count('["network", "Network"]') == 1 and 'href="#network_map"' not in page)
     check("This computer keeps the ports and traffic tables", 'id="netPorts"' in net and 'id="netClasses"' in net)
     from app.modules import modules as registry
     config.save({"modules": {"unifi": {"enabled": True}}})

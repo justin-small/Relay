@@ -754,8 +754,8 @@ panel on the ProPresenter page says so; the panel also lists what tags hold on s
 
 ### Signage: web pages and YouTube
 
-A module of its own (**Modules → Signage: web pages and YouTube**; it needs Signage on). Its **Web & YouTube** page
-saves addresses; a saved link is then added to a playlist from the playlist editor's source picker, like an uploaded
+A module of its own (**Modules → Signage: web pages and YouTube**; it needs Signage on). Its **Web & YouTube** tab on the
+Signage page saves addresses; a saved link is then added to a playlist from the playlist editor's source picker, like an uploaded
 file.
 
 - **Web page:** shown full screen for the item's seconds. When you add it, Relay asks the site whether it allows being

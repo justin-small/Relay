@@ -272,14 +272,20 @@ for mid in ids:
 
     # On: its pages are rendered, then it is switched off again.
     async def on_then_off():
+        host = "signage" if any(p.tab_of == "signage" for p in mod.admin_pages) else ""   # the page that draws the tab
+        if host:
+            await registry.set_enabled(host, True)
         await registry.set_enabled(mid, True)
         page = admin.get("/admin").text
         await registry.set_enabled(mid, False)
+        if host:
+            await registry.set_enabled(host, False)
         return page
     page = asyncio.run(on_then_off())
     check(f"{mid}: admin pages, nav links and scripts rendered while on",
-          all((f'data-tab="{p.id}"' in page and f'data-pane="{p.id}"' in page) if p.tab_of else
-              (f'data-page="{p.id}"' in page and f'href="#{p.id}"' in page) for p in mod.admin_pages)
+          all((f'data-tab="{p.id}"' in page and (f'data-pane="{p.id}"' in page or f'data-sgpane="{p.id}"' in page)) if p.tab_of else
+              (f'data-page="{p.id}"' in page and (f'"{p.id}"' in page if mod.admin_tabbed else f'href="#{p.id}"' in page))
+              for p in mod.admin_pages)
           and all(f"/static/modules/{mid}/{s}" in page for s in mod.admin_scripts))
 
 # ------------------------------------------------------------------ the registry, with a module made up here

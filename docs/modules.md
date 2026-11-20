@@ -130,8 +130,13 @@ the Network page, after core's own tabs (Racks, Map, Ports and notes, This compu
 with the same permission rule. Core renders its template in the tab's panel (`data-pane="<page id>"`),
 and `#<page id>` or `#network/<page id>` opens it. The UniFi module's Internet, Wi-Fi and who's on,
 NDI and Dante, and UniFi console are tabs this way. `registry.admin_tabs(user)` lists them;
-`TAB_PAGES` names the core pages that take tabs. A module that knows devices adds them to the map
+`TAB_PAGES` names the core pages that take tabs (Network, and Signage, whose template draws them: Signage web's
+Web & YouTube is a tab on it, `#signage/signageweb`). A module that knows devices adds them to the map
 itself through `gear.<id>` (see Gear, ports and channels), not through a tab.
+
+**Pages as tabs.** A module with `admin_tabbed = True` and several pages gets one sidebar entry, and each of its pages
+shows the same bar of tabs under its title (ProPresenter does; so does System, #591). Page tab bars are `.page > .tabs`
+in admin.css: full width, one height on every page.
 
 **Features outside the admin panel.** A `UserPage(title, path, permission, note)` in
 `Module.user_pages` lists one of the module's own pages on the home page (`/home`) of a signed-in

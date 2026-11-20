@@ -307,17 +307,44 @@
     while (n && n.previousElementSibling) { n = n.previousElementSibling; if (n.classList.contains('grp')) return n.textContent; }
     return '';
   }
+  /* An entry whose pages are tabs (System, ProPresenter: data-pages, data-tabs) is one sidebar link; each of its pages
+     gets the same bar of tabs under its title (#591). */
+  function tabsOf(a) { try { return JSON.parse(a.dataset.tabs || '[]'); } catch (e) { return []; } }
+  function tabBar(name, tabs) {
+    var page = $('page-' + name);
+    if (!page) return;
+    var old = page.querySelector(':scope > .pagetabs');
+    if (old) old.remove();
+    if (tabs.length < 2) return;
+    var bar = el('div', 'tabs pagetabs');
+    bar.setAttribute('role', 'tablist');
+    tabs.forEach(function (t) {
+      var b = el('button', '', t[1]);
+      b.type = 'button';
+      b.setAttribute('role', 'tab');
+      b.setAttribute('aria-selected', String(t[0] === name));
+      b.onclick = function () { root.location.hash = t[0]; };
+      bar.appendChild(b);
+    });
+    var after = page.querySelector(':scope > .title');
+    while (after && after.nextElementSibling && after.nextElementSibling.classList.contains('sub')) after = after.nextElementSibling;
+    if (after) after.after(bar); else page.prepend(bar);
+  }
   function pageChanged(name) {
-    var link = navLinks().filter(function (a) { return a.dataset.page === name; })[0];
+    var link = navLinks().filter(function (a) { return a.dataset.page === name || (a.dataset.pages || '').split(' ').indexOf(name) !== -1; })[0];
     var crumb = $('crumb');
+    var tabs = link ? tabsOf(link) : [];
     if (crumb) {
       crumb.textContent = '';
       if (link) {
         var g = groupOf(link);
         if (g) { crumb.appendChild(doc.createTextNode(g + ' / ')); }
-        crumb.appendChild(el('b', '', link.textContent.trim()));
+        var mine = tabs.filter(function (t) { return t[0] === name; })[0];
+        if (mine) crumb.appendChild(doc.createTextNode(link.textContent.trim() + ' / '));
+        crumb.appendChild(el('b', '', mine ? mine[1] : link.textContent.trim()));
       } else if (name === 'account') crumb.appendChild(el('b', '', 'My account'));
     }
+    if (link) tabBar(name, tabs);
     doc.querySelectorAll('#nav .has').forEach(function (p) {
       var on = !!p.querySelector('a[aria-current=page]');
       var nb = p.querySelector('.nb');
@@ -334,10 +361,13 @@
   /* ---- command palette (Ctrl/Cmd K), built from the sidebar so module pages appear and hidden ones do not ---- */
   var palIdx = 0, palItems = [];
   function pageItems() {
-    return navLinks().filter(function (a) { return !a.classList.contains('dis'); }).map(function (a) {
-      var ic = a.querySelector('svg');
-      return { g: groupOf(a) || 'Pages', t: a.textContent.trim(), svg: ic ? ic.innerHTML : ICONS.page, go: '#' + a.dataset.page };
+    var out = [];
+    navLinks().filter(function (a) { return !a.classList.contains('dis'); }).forEach(function (a) {
+      var ic = a.querySelector('svg'), tabs = tabsOf(a), svg = ic ? ic.innerHTML : ICONS.page;
+      if (tabs.length) tabs.forEach(function (t) { out.push({ g: a.textContent.trim(), t: t[1], svg: svg, go: '#' + t[0] }); });
+      else out.push({ g: groupOf(a) || 'Pages', t: a.textContent.trim(), svg: svg, go: '#' + a.dataset.page });
     });
+    return out;
   }
   function actionItems() {
     var acts = [], go = $('goBtn');

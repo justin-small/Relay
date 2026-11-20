@@ -2213,7 +2213,6 @@
     if (recRunning && !st.running) loadRuns();  // a run just ended: it is downloadable now
     recRunning = !!st.running;
     paintModulePills(st.pills);
-    paintNavHealth(st.module_health);
     $('viewerCount').textContent = st.viewers + (st.viewers === 1 ? ' viewer' : ' viewers');
 
     const a = st.audio || {};
@@ -2582,8 +2581,9 @@
     if (PAGES.indexOf(name) === -1) name = PAGES[0];
     document.querySelectorAll('.page[data-page]').forEach(function (n) { n.hidden = n.dataset.page !== name; });
     document.querySelectorAll('nav a[data-page]').forEach(function (a) {
-      if (a.dataset.page === name) a.setAttribute('aria-current', 'page'); else a.removeAttribute('aria-current');
-      a.classList.toggle('on', a.dataset.page === name);
+      const here = a.dataset.page === name || (a.dataset.pages || '').split(' ').indexOf(name) !== -1;   // an entry whose pages are tabs holds them all
+      if (here) a.setAttribute('aria-current', 'page'); else a.removeAttribute('aria-current');
+      a.classList.toggle('on', here);
     });
     $('acctLink').classList.toggle('on', name === 'account');
     if (name === 'account') $('acctLink').setAttribute('aria-current', 'page'); else $('acctLink').removeAttribute('aria-current');
@@ -2618,29 +2618,10 @@
     });
   }
 
-  // The dots beside the sidebar's module entries, and the stream's beside Transcription & translation.
-  const HEALTH_WORDS = { ok: 'Working', warn: 'Needs attention', error: 'Not working', idle: 'Not in use' };
-  function paintNavHealth(states) {
-    if (!states || typeof states !== 'object') return;
-    document.querySelectorAll('#nav [data-mod-dot]').forEach(function (d) {
-      const st = states[d.dataset.modDot];
-      if (!Object.prototype.hasOwnProperty.call(HEALTH_WORDS, st) || d.classList.contains(st)) return;
-      d.className = 'ndot ' + st;
-      d.setAttribute('aria-label', HEALTH_WORDS[st]);
-      d.title = HEALTH_WORDS[st];
-    });
-  }
-
   function paintPill(running) {
     const pill = $('streamPill');
     pill.className = 'spill ' + (running ? 'on' : 'off');
     $('pillTxt').textContent = running ? 'STREAMING' : 'STOPPED';
-    const dot = $('navStreamDot');
-    if (dot) {
-      dot.className = 'ndot ' + (running ? 'ok' : 'idle');
-      dot.title = running ? 'Streaming' : 'Stream stopped';
-      dot.setAttribute('aria-label', dot.title);
-    }
   }
 
   /* ---- live transcript on Session health: the same /stream the viewers use ---- */
