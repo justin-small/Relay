@@ -26,7 +26,7 @@ This is optional. Relay works fully without it.
 2. Press **Enroll**.
 
 After a few seconds the page shows your link, for example
-`https://k7m2p9qa.relaychurchsystems.com`, with a QR code. When it says
+`https://k7m2p9qa.cloud.relaysystems.dev`, with a QR code. When it says
 **Connected**, the link works from anywhere.
 
 Put the link or the QR code on a slide, in your livestream description or in
@@ -58,3 +58,19 @@ Your audio and your OpenAI key never leave this computer.
 
 While Remote access is off, or while the internet is down, the room's own link
 keeps working as normal.
+
+## Remote intercom (Intercom remote module)
+
+The **Intercom remote** module (off by default; it needs Intercom and Remote access) lets crew you choose talk on the
+intercom from outside the building. On the **Remote crew** page an admin marks each person *remote allowed*;
+everyone else is refused from outside even with a valid account. Allowed people sign in at your remote address with
+their own Relay login and get the same channels and rights as on site.
+
+Remote phones connect to Cloudflare, not to this computer. Relay's cloud holds the Cloudflare key, so it is never on
+this computer or on a phone, and the connection is outbound only. If the internet goes down, remote phones see "Lost
+the link to the church" and Relay retries on its own (1, 2, 4, 8, 16, then every 30 seconds); local phones are not
+touched. Through the remote address the module reaches only its own sign-in and socket; the rest of the intercom and
+the admin panel stay off it.
+
+The audio bridge between the local intercom and Cloudflare is not part of this version yet, so the module reports
+"The audio bridge is not installed" and no remote phone can connect until it is.

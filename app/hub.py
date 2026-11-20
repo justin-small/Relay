@@ -89,6 +89,17 @@ class Hub:
         # committed line, after redaction. None the rest of the time, which is
         # the default -- recording is opt-in.
         self.line_sink: Callable[[str, str, int, str, float, float], None] | None = None
+        # Modules that take every committed line too (the OBS caption sender, #140/#250): added in a module's
+        # attach() and removed in its detach(). Called after the recorder; one that raises never stops the line.
+        self.line_sinks: list[Callable[[str, str, int, str, float, float], None]] = []
+
+    def add_line_sink(self, sink: Callable[[str, str, int, str, float, float], None]) -> None:
+        if sink not in self.line_sinks:
+            self.line_sinks.append(sink)
+
+    def remove_line_sink(self, sink: Callable[[str, str, int, str, float, float], None]) -> None:
+        if sink in self.line_sinks:
+            self.line_sinks.remove(sink)
 
     def set_blocklist(self, terms) -> None:
         """Apply a blocklist to every channel, current and future.
@@ -184,6 +195,12 @@ class Hub:
             self.line_sink(stream, lang, self._seq, final_text,
                            started if started is not None else ch.last_delta_ts,
                            ch.last_delta_ts)
+        for sink in list(self.line_sinks):
+            try:
+                sink(stream, lang, self._seq, final_text,
+                     started if started is not None else ch.last_delta_ts, ch.last_delta_ts)
+            except Exception:
+                pass  # a module's sender must never cost viewers the line
         self._fanout(
             ch,
             {

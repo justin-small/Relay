@@ -52,10 +52,20 @@ def reset_owner() -> int:
         db.close()
 
 
+def restore_backup() -> int:
+    """`relay --restore-backup <file> [--passphrase] [--to <relay.db>]`: the installed app's way to run
+    tools/restore_backup.py (#278). Same state folder (RELAY_HOME, else this OS's own)."""
+    from app import backup
+    i = sys.argv.index("--restore-backup")
+    return backup.main(["relay --restore-backup", *sys.argv[i + 1:]])
+
+
 if __name__ == "__main__":
     if "--probe" in sys.argv:
         sys.exit(probe())
     if "--reset-owner" in sys.argv:
         sys.exit(reset_owner())
+    if "--restore-backup" in sys.argv:
+        sys.exit(restore_backup())
     import run
     run.main()

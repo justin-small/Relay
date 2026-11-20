@@ -10,24 +10,10 @@
   const $ = function (id) { return document.getElementById(id) || document.createElement('div'); };
   const canManage = window.relayCan('overlays.manage');
 
-  async function call(path, opts) {
-    const res = await fetch(path, Object.assign({ cache: 'no-store' }, opts || {}));
-    const data = await res.json().catch(function () { return {}; });
-    if (!res.ok) {
-      if (window.RelayAdmin) window.RelayAdmin.sessionEnded(res, data);
-      throw new Error(data.error || data.detail || ('HTTP ' + res.status));
-    }
-    return data;
-  }
-  function send(method, path, body) {
-    return call(path, { method: method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body || {}) });
-  }
-  function h(tag, cls, text) {
-    const n = document.createElement(tag);
-    if (cls) n.className = cls;
-    if (text !== undefined) n.textContent = text;
-    return n;
-  }
+  const request = relayUI.client({ cache: 'no-store', status: true, session: true });
+  function call(path) { return request('GET', path); }
+  function send(method, path, body) { return request(method, path, body || {}); }
+  const h = relayUI.el;
 
   let info = null;          // GET /api/admin/overlays
   let S = null;             // the overlay being built: every option, resolved
@@ -303,7 +289,7 @@
   }
 
   async function remove(o) {
-    if (!confirm('Delete the overlay “' + o.name + '”? Any browser source using /overlay/' + o.id + ' will stop showing captions.')) return;
+    if (!(await relayUI.confirm('Delete the overlay “' + o.name + '”? Any browser source using /overlay/' + o.id + ' will stop showing captions.'))) return;
     try {
       info = await send('DELETE', '/api/admin/overlays/' + encodeURIComponent(o.id));
       if (editing === o.id) stopEditing();

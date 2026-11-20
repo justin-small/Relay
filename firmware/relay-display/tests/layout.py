@@ -32,7 +32,10 @@ _card_x, _card_y = (WIDTH - CARD_W) // 2, (HEIGHT - CARD_H) // 2
 _pad, _gap = ui_px(16), ui_px(10)
 _title_h, _mode_h, _tab_h, _row_h, _row_gap = ui_px(48), ui_px(52), ui_px(44), ui_px(56), ui_px(8)
 _title_y = _card_y + _pad
-_mode_y = _title_y + _title_h + _gap
+# Under the title, the rotation row (0, 90, 180, 270); the "Locked" strip, when it shows, is above that and moves the
+# rest down, which none of the menu's tap positions here allow for.
+_turn_h = ui_px(48)
+_mode_y = _title_y + _title_h + _gap + _turn_h + _gap
 _tabs_y = _mode_y + _mode_h + _gap
 DONE = (_card_x + CARD_W - _pad - ui_px(110) // 2, _title_y + _title_h // 2)
 _mode_w, _tab_w, _col_gap = ui_px(200), ui_px(140), ui_px(12)

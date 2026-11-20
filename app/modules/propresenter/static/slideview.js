@@ -5,12 +5,7 @@
    ProPresenter. Everything from the server is set as text or as an image URL under `base`, never as markup. */
 (function () {
   'use strict';
-  function h(tag, cls, text) {
-    const n = document.createElement(tag);
-    if (cls) n.className = cls;
-    if (text !== undefined) n.textContent = text;
-    return n;
-  }
+  const h = relayUI.el;
   function clock(sec) {
     const neg = sec < 0;
     let s = Math.floor(Math.abs(sec));

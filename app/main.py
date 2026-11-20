@@ -8,9 +8,11 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import functools
+import hashlib
 import json
 import logging
 import os
+import re
 import secrets
 import socket
 import sys
@@ -18,27 +20,30 @@ import threading
 import time
 from dataclasses import asdict
 from datetime import datetime
+from zoneinfo import ZoneInfo
 from urllib.parse import urlencode
 
 from fastapi import Depends, FastAPI, Form, HTTPException, Request, Response
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, StreamingResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from jinja2 import ChoiceLoader, FileSystemLoader, PrefixLoader
 
 from . import alerts as alertsmod
+from . import backup as backupmod
 from . import announce as announcemod
-from . import alerthistory, audit, config, db, exporting, importdocker, languages, netinfo, overlays, panelfw, panels, prefs, redact, schedules, serving, setupcode, streamstatus, tally, tls, users
+from . import alerthistory, audiobus, audit, boards, cables, channels, config, db, devices, exporting, importdocker, languages, metering, mixreport, netinfo, network_map, netroute, overlays, panelfw, panels, ports, prefs, redact, routing, schedules, screens, serving, setupcode, streamstatus, tally, tls, users
 from .alerts import alerts
 from . import engine as engine_mod
 from .engine import TRANSCRIPTION_STREAM, TRANSLATION_STREAM, demo_mode, engine
 from .hub import hub
 from . import modules as modules_pkg
 from . import sidecar
-from .modules import HERE as MODULES_DIR, modules as module_registry, under as _module_under
+from .modules import HERE as MODULES_DIR, Module, modules as module_registry, under as _module_under
 from .panels import registry as panel_registry
 from .recorder import recorder
-from .scheduler import scheduler
+from . import scheduler as scheduler_mod
+from .scheduler import plan_source as scheduler_plan_source, scheduler
 from .users import User
 
 logging.basicConfig(
@@ -119,7 +124,7 @@ BACKUP_FIRST_DELAY_S = 60.0      # after start-up, so the dump does not compete 
 BACKUP_EVERY_S = 3600.0
 LOGIN_FAIL_DELAY_S = 0.75
 LOGIN_MAX_FAILS = 5
-LOGIN_LOCKOUT_S = 300.0
+LOGIN_LOCKOUT_S = 600.0              # 10 minutes (#278)
 HEARTBEAT_S = 15.0
 BLOCKLIST_POLL_S = 2.0
 
@@ -229,11 +234,36 @@ _AUDIT_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
 AUDIT_ROUTES = {
     "admin_module_switch": ("module.switch", "Switched a module on or off"),
     "admin_module_test": ("module.test", "Ran a module's test"),
+    "admin_network_route": ("network.route", "Changed which network port some traffic uses"),
+    "admin_network_test": ("network.test", "Tested a traffic route"),
+    "admin_network_cable_add": ("network.cable_add", "Recorded a cable between two ports"),
+    "admin_network_cable_note": ("network.cable_note", "Changed a note on a cable"),
+    "admin_network_cable_remove": ("network.cable_remove", "Removed a cable between two ports"),
+    "admin_network_channel_rename": ("network.channel_rename", "Renamed a channel"),
+    "admin_network_port_rename": ("network.port_rename", "Renamed a port in Relay only"),
+    "admin_network_channel_note": ("network.channel_note", "Changed a note on a channel"),
+    "admin_network_channel_merge": ("network.channel_merge", "Joined two channels into one"),
+    "admin_network_channel_split": ("network.channel_split", "Split a channel apart"),
+    "admin_network_channel_decline": ("network.channel_decline", "Said two channels are not the same"),
+    "admin_network_channel_forget": ("network.channel_forget", "Forgot a channel"),
+    "admin_routes_set": ("routes.set", "Routed a source to a destination"),
+    "admin_routes_clear": ("routes.clear", "Took a destination off a source"),
+    "admin_routes_salvo_save": ("routes.salvo_save", "Saved a route preset"),
+    "admin_routes_salvo_take": ("routes.salvo_take", "Took a route preset"),
+    "admin_routes_salvo_delete": ("routes.salvo_delete", "Deleted a route preset"),
+    "admin_network_forget": ("network.forget", "Forgot a network port"),
+    "admin_network_labels": ("network.labels", "Changed device names or notes on the network map"),
+    "admin_network_places": ("network.places", "Changed where the network gear is"),
     "admin_config": ("settings.change", "Changed settings"),
+    "admin_audiobus_save": ("audio.bus", "Changed the audio bus"),
+    "admin_metering_save": ("audio.metering", "Changed the sound meter"),
+    "admin_mixreport_save": ("audio.mixreport", "Changed the stream-mix report"),
+    "admin_metering_calibrate": ("audio.metering", "Calibrated the sound meter"),
     "admin_target": ("session.target", "Changed a target language"),
     "admin_start": ("session.start", "Started captions"),
     "admin_stop": ("session.stop", "Stopped captions"),
     "admin_alerts_save": ("alerts.change", "Changed the alert setup"),
+    "admin_alerts_test": ("alerts.test", "Sent a test to a panel or screen"),
     "admin_panel_firmware_upload": ("panels.firmware_upload", "Uploaded panel firmware"),
     "admin_panel_firmware_delete": ("panels.firmware_delete", "Deleted the uploaded panel firmware"),
     "admin_panel_firmware_update": ("panels.firmware_update", "Sent a firmware update to panels"),
@@ -245,9 +275,26 @@ AUDIT_ROUTES = {
     "admin_schedule_create": ("schedules.create", "Added a schedule"),
     "admin_schedule_update": ("schedules.change", "Changed a schedule"),
     "admin_schedule_delete": ("schedules.delete", "Deleted a schedule"),
+    "admin_screen_update": ("screens.change", "Changed a screen"),
+    "admin_screen_delete": ("screens.delete", "Deleted a screen"),
+    "admin_screen_hold": ("screens.hold", "Put something on a screen by hand"),
+    "admin_screen_hold_clear": ("screens.hold", "Returned a screen to its schedule"),
+    "admin_screen_flash": ("screens.flash", "Flashed a screen"),
+    "admin_place_create": ("screens.place_create", "Added a place"),
+    "admin_place_update": ("screens.place_change", "Renamed a place"),
+    "admin_place_delete": ("screens.place_delete", "Deleted a place"),
+    "admin_place_flash": ("screens.flash", "Flashed every screen in a place"),
     "admin_overlay_create": ("overlays.create", "Added an overlay"),
     "admin_overlay_update": ("overlays.change", "Changed an overlay"),
     "admin_overlay_delete": ("overlays.delete", "Deleted an overlay"),
+    "admin_board_create": ("boards.create", "Added a board"),
+    "admin_board_update": ("boards.change", "Changed a board"),
+    "admin_board_duplicate": ("boards.create", "Duplicated a board"),
+    "admin_board_import": ("boards.create", "Imported a board"),
+    "admin_board_delete": ("boards.delete", "Deleted a board"),
+    "admin_board_screen_name": ("boards.change", "Named a screen showing a board"),
+    "admin_board_reload": ("boards.reload", "Reloaded every screen showing a board"),
+    "admin_board_page": ("boards.page", "Chose the page a board shows"),
     "admin_recording_delete": ("recordings.delete", "Deleted a recording"),
     "admin_me_password": ("account.password", "Changed their own password"),
     "admin_me_pin": ("account.pin_set", "Set their PIN"),
@@ -262,6 +309,11 @@ AUDIT_ROUTES = {
     "admin_user_delete": ("user.delete", "Deleted a user"),
     "admin_device_trust": ("device.trust", "Trusted a browser for PIN sign-in"),
     "admin_device_revoke": ("device.revoke", "Forgot a trusted device"),
+    "admin_phone_rename": ("phone.rename", "Renamed a phone"),
+    "admin_phone_revoke": ("phone.revoke", "Forgot a phone: signed it out of sign-in, intercom, check-in and push"),
+    "admin_phone_merge": ("phone.merge", "Joined two phones that are the same one"),
+    "admin_me_phone_rename": ("phone.rename", "Renamed one of their phones"),
+    "admin_me_phone_revoke": ("phone.revoke", "Forgot one of their phones: signed it out of sign-in, intercom, check-in and push"),
 }
 
 # Core admin routes that change something but are not entered in the audit log are listed in AUDIT_SKIP_ENDPOINTS,
@@ -300,12 +352,23 @@ async def _audit_changes(request: Request, call_next):
     return response
 
 
-def _on_lan_change(ips) -> None:
-    """The LAN address changed: re-mint the panel certificate if its names no longer fit, and tell the
-    desktop shell (it pins the fingerprint and builds the viewer link) of both."""
+def _on_lan_change(change: netinfo.Change) -> None:
+    """The network changed. When the LAN addresses did: re-mint the panel certificate if its names no longer
+    fit, and tell the desktop shell (it pins the fingerprint and builds the viewer link) of both. Every change
+    goes to the traffic routes, which tell the modules whose port moved (app/netroute.py), moves any listener whose
+    routed port changed address (app/serving.py), and checks the certificate still names every HTTPS address."""
+    netroute.on_network_change(change.ports)
+    if serving.groups():
+        task = asyncio.get_running_loop().create_task(serving.rebind())
+        _rebinds.add(task)
+        task.add_done_callback(_rebinds.discard)
     if tls.panel.refresh() and tls.panel.info:
         sidecar.emit("fingerprint", fingerprint=tls.panel.info.fingerprint)
-    sidecar.emit("network", ips=list(ips))
+    if change.ips_changed:
+        sidecar.emit("network", ips=list(change.ips))
+
+
+_rebinds: set = set()   # running rebind tasks, held so they are not collected mid-flight
 
 
 async def _startup() -> None:
@@ -328,10 +391,27 @@ async def _startup() -> None:
     # written until a run starts, and only if recording is enabled.
     recorder.configure(config.recordings_path(), cfg["recording"]["keep_runs"])
     engine.bind(asyncio.get_running_loop())
+    if cfg["audio_bus"]["enabled"]:
+        # Opening devices can take a moment, and a device that is not there yet is retried by the bus itself.
+        try:
+            await asyncio.to_thread(audiobus.bus.apply, await asyncio.to_thread(audiobus.runtime_config, cfg["audio_bus"]))
+        except Exception:
+            log.exception("The audio bus could not start")
+    if cfg["metering"]["enabled"]:
+        try:
+            await asyncio.to_thread(metering.meter.apply, cfg["metering"])
+        except Exception:
+            log.exception("The sound meter could not start")
+    if cfg["mixreport"]["enabled"]:
+        try:
+            await asyncio.to_thread(mixreport.recorder.apply, cfg["mixreport"])
+        except Exception:
+            log.exception("The stream-mix report could not start")
     app.state.blocklist_task = asyncio.create_task(_watch_blocklist())
     app.state.alerts_task = asyncio.create_task(_alert_ticks())
     # A change of LAN address (Wi-Fi switch): mint a certificate that names the new address if the current
     # one does not; the admin page re-reads its viewer links and the fingerprint on its own.
+    await asyncio.to_thread(netroute.startup)
     app.state.net_task = asyncio.create_task(netinfo.watch(_on_lan_change))
     # Tell caption panels on the LAN where Relay is (mDNS, in a background thread). Never stops Relay.
     app.state.announcer = None
@@ -412,7 +492,7 @@ def _backup_if_due() -> None:
     audit.prune()                                   # the audit log keeps audit.KEEP_DAYS days
     alerthistory.prune()                            # alert history keeps alerthistory.KEEP_DAYS days
     if db.backup_due():
-        db.backup()
+        db.backup(passphrase_key=config.get().get("backup_key") or "")
 
 
 async def _backup_loop() -> None:
@@ -445,6 +525,12 @@ async def _shutdown() -> None:
     with contextlib.suppress(Exception):
         await engine.stop()
     with contextlib.suppress(Exception):
+        await asyncio.to_thread(metering.meter.stop)
+    with contextlib.suppress(Exception):
+        await asyncio.to_thread(mixreport.recorder.stop)
+    with contextlib.suppress(Exception):
+        await asyncio.to_thread(audiobus.bus.stop)
+    with contextlib.suppress(Exception):
         await asyncio.to_thread(db.close)
 
 
@@ -452,9 +538,10 @@ def _urls(port: int) -> list[str]:
     """The viewer links the panel shows (and turns into QR codes).
 
     Relay serves viewers itself, so the links are this machine's own network addresses (app/netinfo.py)
-    on the viewer port, which is left out of the link when it is 80.
+    on the viewer port, which is left out of the link when it is 80. With the viewers routed to a network port
+    (app/netroute.py), only that port's address.
     """
-    ips = netinfo.lan_ips() or ["127.0.0.1"]
+    ips = netroute.link_addresses("viewers") or ["127.0.0.1"]
     return [serving.link("http", ip, port) for ip in ips] + [serving.link("http", "127.0.0.1", port)]
 
 
@@ -462,7 +549,7 @@ def _serving_info() -> dict:
     """What the admin page shows about how Relay is reachable: ports, notices, panel links, fingerprint."""
     cfg = config.get()
     admin_port = serving.admin_port(cfg["admin_port"])
-    ips = netinfo.lan_ips() or ["127.0.0.1"]
+    ips = netroute.link_addresses("crew") or ["127.0.0.1"]
     hosts = ([cfg["admin_fqdn"]] if cfg.get("admin_fqdn") else []) + ips
     return {
         "viewer_port": serving.viewer_port(cfg["port"]),
@@ -604,6 +691,7 @@ WEB_MESSAGES = {
     "bad_request": "That request is not valid.",
     "signin_required": "Sign in required",
     "not_allowed": "Not allowed",
+    "backup_passphrase_short": "The backup passphrase needs at least 10 characters.",
     "bad_api_token": "That API token is not valid, has expired, or its user is turned off.",
 }
 
@@ -812,6 +900,12 @@ async def page_screen(request: Request):
     layout. Not offered on the chooser page -- this is operator setup, not an
     audience choice."""
     qp = request.query_params
+    # A page a switched-on module serves on /screen (?lighting=<page>, #379), chosen by its query parameter.
+    for name, hook in modules_pkg.using_all("screen_pages.").items():
+        if qp.get(name):
+            resp = await hook(request)
+            if resp is not None:
+                return resp
     # ?rundown=full|side|micboard: the production team's rundown from a module that offers the "rundown" stream
     # (Planning Center, #148), in place of the captions or beside them.
     view = qp.get("rundown") or ""
@@ -1061,12 +1155,12 @@ def _alert_sender_stream() -> StreamingResponse:
 
 @app.get("/stream")
 async def stream(request: Request, stream: str = "translation", lang: str | None = None,
-                 finals: int = 0, type: str | None = None):
+                 finals: int = 0, type: str | None = None, sound: int = 0):
     if stream == ALERT_STREAM:
         return _alert_sender_stream()
     if stream == streamstatus.STREAM:
         return StreamingResponse(
-            streamstatus.frames(),
+            streamstatus.frames(sound=bool(sound)),
             media_type="text/event-stream",
             headers={"Cache-Control": "no-cache, no-transform", "X-Accel-Buffering": "no"},
         )
@@ -1127,6 +1221,17 @@ async def stream(request: Request, stream: str = "translation", lang: str | None
 _read_limited = modules_pkg.read_limited
 
 
+def _panel_screen(pid, panel) -> None:
+    """A panel that checks in is a screen of type panel (app/screens.py), named as the Panels page names it."""
+    if panel is None:
+        return
+    try:
+        core = screens.adopt("panel:" + pid, name=panel.name, kind="panel", address=panel.ip)
+        screens.sync_panel_name(core["id"], panel.name)
+    except (db.Unavailable, screens.Refused):
+        log.warning("A panel checked in but could not be listed as a screen")   # the check-in itself still succeeds
+
+
 @app.post("/api/panels/checkin")
 async def panel_checkin(request: Request):
     raw = await _read_limited(request, panels.CHECKIN_MAX_BYTES)
@@ -1138,7 +1243,9 @@ async def panel_checkin(request: Request):
         raise HTTPException(400, "body must be a JSON object")
     peer = request.client.host if request.client else ""
     try:
-        return panel_registry.checkin(body, peer)
+        reply = panel_registry.checkin(body, peer)
+        await asyncio.to_thread(_panel_screen, body.get("id"), panel_registry.panels.get(body.get("id")))
+        return reply
     except ValueError as exc:
         raise HTTPException(400, str(exc))
     except panels.RegistryFull:
@@ -1348,6 +1455,11 @@ async def alert_screen_stream(name: str = ""):
         queue = alerts.subscribe_screen(name)
     except alertsmod.Refused as exc:
         raise HTTPException(exc.status, alertsmod.MESSAGES.get(exc.key, "Refused."))
+    # An alert screen is a core screen (#527): the one called this name, or a new one, so every page lists it once.
+    try:
+        await asyncio.to_thread(screens.adopt, "alert:" + name.lower(), name=name)
+    except (db.Unavailable, screens.Refused):
+        log.warning("An alert screen opened but could not be listed as a screen")
 
     async def gen():
         try:
@@ -1494,7 +1606,10 @@ def admin_page(request: Request, pw: str = ""):
     return templates.TemplateResponse(request, "admin.html", {
         "me": _me_payload(request, got),
         "module_nav": module_registry.admin_nav(got),
+        "module_tabs": module_registry.admin_tabs(got),
         "module_scripts": module_registry.admin_scripts(got),
+        "module_styles": module_registry.admin_styles(got),
+        "look": prefs.shell_view(prefs.scope_prefs(got.id) if got.id else {}),
     }, headers=_NO_STORE)
 
 
@@ -1614,7 +1729,8 @@ async def admin_setup(request: Request, token: str = Form(""), username: str = F
             global _have_users
             _have_users = True
             setupcode.clear()
-        return (*users.start_session(user, via="password"), _home_for(user))
+        ua = request.headers.get("user-agent", "")
+        return (*users.start_session(user, via="password", user_agent=ua), _home_for(user))
 
     try:
         started = await asyncio.to_thread(work)
@@ -1700,7 +1816,8 @@ async def admin_login(request: Request, username: str = Form(""), password: str 
             _audit_failed_signin(exc.key, ip, users.get_by_username(username), "password")
             raise
         audit.record("auth.password", "Signed in with their password", actor=user, ip=ip)
-        return (*users.start_session(user, via="password"), _home_for(user))
+        ua = request.headers.get("user-agent", "")
+        return (*users.start_session(user, via="password", user_agent=ua), _home_for(user))
 
     try:
         started = await asyncio.to_thread(work)
@@ -1735,7 +1852,8 @@ async def admin_login_pin(request: Request, user_id: str = Form(""), pin: str = 
                                  device["name"] if device else "")
             raise
         audit.record("auth.pin", "Signed in with their PIN", actor=user, detail={"device": device["name"]}, ip=ip)
-        return (*users.start_session(user, via="pin", device_id=device["id"]), _home_for(user))
+        return (*users.start_session(user, via="pin", device_id=device["id"],
+                                     user_agent=request.headers.get("user-agent", "")), _home_for(user))
 
     try:
         started = await asyncio.to_thread(work)
@@ -1820,17 +1938,18 @@ async def admin_urls():
 
 @app.get("/api/admin/state", dependencies=[Depends(require("settings.view"))])
 async def admin_state():
-    from .audio import list_input_devices, selection_notice
+    from .audio import label_inputs, list_input_devices, selection_notice
 
     # Cached read: opening the panel must never re-initialise PortAudio, which
     # would close a live capture stream out from under the event.
     return {
         "config": config.redacted(),
         "status": engine.status(),
-        "devices": list_input_devices(),
+        "devices": label_inputs(list_input_devices()),
         "device_notice": selection_notice(config.get().get("audio_device")),
         "urls": _urls(serving.viewer_port(config.get()["port"])),
         "serving": _serving_info(),
+        "timezones": [{"id": z, "label": label} for z, label in schedules.US_TIMEZONES],
     }
 
 
@@ -1870,17 +1989,507 @@ async def admin_module_test(mid: str):
     return {"ok": bool(result.get("ok")), "detail": str(result.get("detail") or "")}
 
 
+# --------------------------------------------------------------- network ports (#347)
+def _browsing_from(request: Request) -> str | None:
+    """The address of this machine the browser connected to (which network the admin is using)."""
+    server = request.scope.get("server")
+    return str(server[0]) if server and server[0] else None
+
+
+@app.get("/api/admin/network", dependencies=[Depends(require("network.view"))])
+async def admin_network(request: Request):
+    """Every network port Relay has seen, every kind of traffic with its route and status, and warnings."""
+    out = await asyncio.to_thread(netroute.overview)
+    out["browsing_from"] = _browsing_from(request)
+    return out
+
+
+@app.get("/api/admin/network/map", dependencies=[Depends(require("network.view"))])
+async def admin_network_map(refresh: int = 0):
+    """The network map (#437): every device Relay can see, merged from its own ports, mDNS discovery of NDI and Dante,
+    and every module that is on and adds to the map. Core imports no module; see app/network_map.py."""
+    return await network_map.snapshot(module_registry, force=bool(refresh))
+
+
+@app.post("/api/admin/network/map/labels", dependencies=[Depends(require("network.manage"))])
+async def admin_network_labels(payload: dict, request: Request):
+    """Set or clear the names Relay shows for devices and the notes on devices and switch ports. A name changes only
+    what Relay shows; nothing is sent to the device. {"names": {id: text}, "notes": {id or "switch#port": text}}."""
+    names, notes = payload.get("names"), payload.get("notes")
+    if names is not None and not isinstance(names, dict) or notes is not None and not isinstance(notes, dict):
+        return JSONResponse({"error": "names and notes must be objects"}, status_code=400)
+    saved = await asyncio.to_thread(network_map.save_labels, names, notes)
+    audit.note(request, "network.labels", f"Changed {len(names or {})} device names and {len(notes or {})} notes on the network map",
+               detail={"names": sorted((names or {}).keys())[:20], "notes": sorted((notes or {}).keys())[:20]})
+    return saved
+
+
+@app.post("/api/admin/network/map/places", dependencies=[Depends(require("network.manage"))])
+async def admin_network_places(payload: dict, request: Request):
+    """Replace the closets and racks, each with its switches top to bottom: {"places": [{"name", "gear": [id]}]}."""
+    if not isinstance(payload.get("places"), list):
+        return JSONResponse({"error": "places must be a list"}, status_code=400)
+    saved = await asyncio.to_thread(network_map.save_places, payload["places"])
+    audit.note(request, "network.places", f"Set {len(saved['places'])} places for the network gear",
+               detail={"places": [p["name"] for p in saved["places"]]})
+    return saved
+
+
+@app.get("/api/admin/network/cables", dependencies=[Depends(require("network.view"))])
+async def admin_network_cables():
+    """Every cable between two ports, and the gear with its ports to pick from. A cable is core (app/cables.py): the
+    Network page and a module's page that records one show the same list."""
+    def read():
+        return {"cables": network_map.cable_rows(), "gear": network_map.cabling_gear()}
+    try:
+        return await asyncio.to_thread(read)
+    except db.Unavailable:
+        return JSONResponse({"error": "The database is down, so cables cannot be read right now."}, status_code=503)
+
+
+@app.post("/api/admin/network/cables", dependencies=[Depends(require("network.manage"))])
+async def admin_network_cable_add(payload: dict, request: Request):
+    """Record a cable between two ports: {"a": "port:relay:1", "b": "port:relay:2", "note": ""}."""
+    try:
+        made = await asyncio.to_thread(network_map.add_cable, payload.get("a"), payload.get("b"), payload.get("note", ""))
+    except cables.Refused as exc:
+        return JSONResponse({"error": str(exc)}, status_code=409 if exc.key == "exists" else 400)
+    except db.Unavailable:
+        return JSONResponse({"error": "The database is down, so cables cannot be saved right now."}, status_code=503)
+    audit.note(request, "network.cable_add", "Recorded a cable between two ports",
+               detail={"a": made["a"]["ref"], "b": made["b"]["ref"]})
+    return {"cable": made["ref"], "cables": network_map.cable_rows()}
+
+
+@app.post("/api/admin/network/cables/{cid}/note", dependencies=[Depends(require("network.manage"))])
+async def admin_network_cable_note(cid: int, payload: dict, request: Request):
+    """The note on a cable, one an operator recorded or one a module reports. Empty text clears it."""
+    text = payload.get("text", "")
+    if not isinstance(text, str) or len(text) > cables.NOTE_MAX:
+        return JSONResponse({"error": f"A note is up to {cables.NOTE_MAX} characters."}, status_code=400)
+    try:
+        await asyncio.to_thread(cables.set_note, cid, text)
+    except cables.Refused as exc:
+        return JSONResponse({"error": str(exc)}, status_code=404)
+    except db.Unavailable:
+        return JSONResponse({"error": "The database is down, so notes cannot be saved right now."}, status_code=503)
+    audit.note(request, "network.cable_note", "Changed a note on a cable", target=cables.ref(cid))
+    return {"cables": network_map.cable_rows()}
+
+
+@app.delete("/api/admin/network/cables/{cid}", dependencies=[Depends(require("network.manage"))])
+async def admin_network_cable_remove(cid: int, request: Request):
+    """Remove a cable an operator recorded. A cable a module reports (UniFi's uplinks) cannot be removed here."""
+    try:
+        await asyncio.to_thread(cables.remove, cid)
+    except cables.Refused as exc:
+        return JSONResponse({"error": str(exc)}, status_code=404 if exc.key == "no_cable" else 409)
+    except db.Unavailable:
+        return JSONResponse({"error": "The database is down, so cables cannot be removed right now."}, status_code=503)
+    audit.note(request, "network.cable_remove", "Removed a cable between two ports", target=cables.ref(cid))
+    return {"cables": network_map.cable_rows()}
+
+
+def _channels_view() -> dict:
+    """Every channel with its ends, and the pairs Relay suggests are one channel (never joined on its own)."""
+    def slim(c: dict) -> dict:
+        return {"id": c["id"], "ref": c["ref"], "shown": c["shown"], "kind": c["kind"], "providers": c["providers"]}
+    chans, routes = channels.listing(), routing.listing()
+    by_dest = {v["destination"]: v for v in routes}
+    for c in chans:        # what feeds each channel and where it goes (app/routing.py), the same on every page
+        v = by_dest.get(c["ref"])
+        c["fed_by"] = [s["name"] for s in v["sources"]] if v else []
+        c["asked"] = [s["name"] for s in v["wanted"]] if v and v["state"] == "differs" else []
+        c["feeds"] = [r["name"] for r in routes if any(s["ref"] == c["ref"] for s in r["sources"])]
+    return {"channels": chans,
+            "suggestions": [{"a": slim(x["a"]), "b": slim(x["b"]), "why": x["why"]} for x in channels.suggestions()]}
+
+
+async def _channel_change(fn, *args):
+    """Run one channel change off the event loop and answer with the whole view, or a fixed sentence for a refusal."""
+    try:
+        await asyncio.to_thread(fn, *args)
+        return await asyncio.to_thread(_channels_view)
+    except channels.Refused as exc:
+        return JSONResponse({"error": channels.REFUSALS[exc.key]}, status_code=409 if exc.key in ("kind", "present", "same", "device", "no_device") else 404)
+    except db.Unavailable:
+        return JSONResponse({"error": "The database is down, so channels cannot be changed right now."}, status_code=503)
+
+
+@app.get("/api/admin/network/channels", dependencies=[Depends(require("network.view"))])
+async def admin_network_channels():
+    """Every audio, video and talk channel, however many modules report it, and the joins Relay suggests."""
+    try:
+        return await asyncio.to_thread(_channels_view)
+    except db.Unavailable:
+        return JSONResponse({"error": "The database is down, so channels cannot be read right now."}, status_code=503)
+
+
+@app.post("/api/admin/network/channels/merge", dependencies=[Depends(require("network.manage"))])
+async def admin_network_channel_merge(payload: dict, request: Request):
+    """Join two channels an operator says are one: {"keep": "channel:relay:1", "other": "channel:relay:2"}."""
+    keep, other = channels.channel_id(payload.get("keep")), channels.channel_id(payload.get("other"))
+    if keep is None or other is None:
+        return JSONResponse({"error": channels.REFUSALS["no_channel"]}, status_code=400)
+    out = await _channel_change(channels.merge, keep, other)
+    audit.note(request, "network.channel_merge", "Joined two channels into one", detail={"keep": channels.ref(keep), "other": channels.ref(other)})
+    return out
+
+
+@app.post("/api/admin/network/channels/split", dependencies=[Depends(require("network.manage"))])
+async def admin_network_channel_split(payload: dict, request: Request):
+    """Take one end out of a channel: {"end": 12}."""
+    end = payload.get("end")
+    if not isinstance(end, int) or isinstance(end, bool):
+        return JSONResponse({"error": channels.REFUSALS["no_end"]}, status_code=400)
+    out = await _channel_change(channels.split, end)
+    audit.note(request, "network.channel_split", "Split a channel apart", detail={"end": end})
+    return out
+
+
+@app.post("/api/admin/network/channels/decline", dependencies=[Depends(require("network.manage"))])
+async def admin_network_channel_decline(payload: dict, request: Request):
+    """Say two channels are not the same, so they are not suggested again: {"a": "channel:relay:1", "b": "channel:relay:2"}."""
+    a, b = channels.channel_id(payload.get("a")), channels.channel_id(payload.get("b"))
+    if a is None or b is None:
+        return JSONResponse({"error": channels.REFUSALS["no_channel"]}, status_code=400)
+    out = await _channel_change(channels.decline, a, b)
+    audit.note(request, "network.channel_decline", "Said two channels are not the same", detail={"a": channels.ref(a), "b": channels.ref(b)})
+    return out
+
+
+@app.post("/api/admin/network/channels/{cid}/rename", dependencies=[Depends(require("network.manage"))])
+async def admin_network_channel_rename(cid: int, payload: dict, request: Request):
+    """Rename a channel. {"name": "...", "device": false}: a Relay-only name (empty shows the gear's own name again), or
+    with "device": true the new name is sent to the gear and shown from there (#543)."""
+    name = payload.get("name", "")
+    if not isinstance(name, str) or len(name) > channels.NAME_MAX:
+        return JSONResponse({"error": f"A name is up to {channels.NAME_MAX} characters."}, status_code=400)
+    if payload.get("device") is True:
+        out = await _channel_change(channels.rename_on_device, cid, name)
+        if isinstance(out, JSONResponse):
+            return out
+        audit.note(request, "network.channel_rename_device", "Renamed a channel on the gear", target=channels.ref(cid),
+                   detail={"name": name})
+        return out
+    out = await _channel_change(channels.rename, cid, name)
+    if isinstance(out, JSONResponse):
+        return out
+    audit.note(request, "network.channel_rename", "Renamed a channel in Relay only", target=channels.ref(cid),
+               detail={"name": name})
+    return out
+
+
+@app.post("/api/admin/network/ports/relay/{pid}/rename", dependencies=[Depends(require("network.manage"))])
+async def admin_network_port_rename(pid: int, payload: dict, request: Request):
+    """A Relay-only name for a core port; the gear's own name is kept and returned beside it. Empty text clears it."""
+    name = payload.get("name", "")
+    if not isinstance(name, str) or len(name) > ports.NAME_MAX:
+        return JSONResponse({"error": f"A name is up to {ports.NAME_MAX} characters."}, status_code=400)
+    try:
+        await asyncio.to_thread(ports.rename, pid, name)
+        row = await asyncio.to_thread(ports.get, pid)
+    except ports.Refused as exc:
+        return JSONResponse({"error": ports.REFUSALS[exc.key]}, status_code=404)
+    except db.Unavailable:
+        return JSONResponse({"error": "The database is down, so ports cannot be changed right now."}, status_code=503)
+    audit.note(request, "network.port_rename", "Renamed a port in Relay only", target=ports.ref(pid), detail={"name": name})
+    return {"port": row, "device_updated": False}
+
+
+@app.post("/api/admin/network/channels/{cid}/note", dependencies=[Depends(require("network.manage"))])
+async def admin_network_channel_note(cid: int, payload: dict, request: Request):
+    """The note on a channel. Empty text clears it."""
+    text = payload.get("text", "")
+    if not isinstance(text, str) or len(text) > channels.NOTE_MAX:
+        return JSONResponse({"error": f"A note is up to {channels.NOTE_MAX} characters."}, status_code=400)
+    out = await _channel_change(channels.set_note, cid, text)
+    audit.note(request, "network.channel_note", "Changed a note on a channel", target=channels.ref(cid))
+    return out
+
+
+@app.delete("/api/admin/network/channels/{cid}", dependencies=[Depends(require("network.manage"))])
+async def admin_network_channel_forget(cid: int, request: Request):
+    """Forget a channel that no module reports any more."""
+    out = await _channel_change(channels.forget, cid)
+    audit.note(request, "network.channel_forget", "Forgot a channel", target=channels.ref(cid))
+    return out
+
+
+@app.post("/api/admin/network/classes/{cid}", dependencies=[Depends(require("network.manage"))])
+async def admin_network_route(cid: str, payload: dict, request: Request):
+    """Put a kind of traffic on a network port (port_id null: the system default) and set its policy."""
+    port_id = payload.get("port_id")
+    policy = payload.get("policy")
+    if port_id is not None and not isinstance(port_id, str) or policy is not None and not isinstance(policy, str):
+        return JSONResponse({"error": "port_id and policy must be text or null"}, status_code=400)
+    try:
+        r = await asyncio.to_thread(netroute.change, cid, port_id, policy, _browsing_from(request))
+    except netroute.RouteRefused as exc:
+        return JSONResponse({"error": exc.message}, status_code=409)
+    label = netroute.classes()[cid][1].label
+    where = (r.port.friendly_name or r.port.name) if r.port else ("the chosen network port" if r.routed else
+                                                                  "the system's default network")
+    audit.note(request, "network.route", f"Put {label} on {where} ({r.policy})", target=cid,
+               detail={"port_id": r.port_id, "policy": r.policy})
+    return await asyncio.to_thread(netroute.overview)
+
+
+@app.post("/api/admin/network/classes/{cid}/test", dependencies=[Depends(require("network.manage"))])
+async def admin_network_test(cid: str):
+    """Where this traffic would leave from now, and the owning module's own connection test when it has one."""
+    from . import netsock
+
+    cls = netroute.classes()
+    if cid not in cls:
+        raise HTTPException(404, "no such traffic")
+    out = await asyncio.to_thread(netsock.probe, cid)
+    owner = cls[cid][0]
+    mod = module_registry.get(owner) if owner else None
+    if mod is not None and module_registry.enabled(owner) and type(mod).test is not Module.test:
+        try:
+            got = await mod.test()
+            out["module"] = {"ok": bool(got.get("ok")), "detail": str(got.get("detail") or "")}
+        except Exception as exc:
+            log.exception("module %s test failed", owner)
+            out["module"] = {"ok": False, "detail": f"The test failed: {type(exc).__name__}"}
+    return out
+
+
+@app.post("/api/admin/network/ports/{pid}/forget", dependencies=[Depends(require("network.manage"))])
+async def admin_network_forget(pid: str, request: Request):
+    """Forget a network port that is gone and carries no traffic."""
+    try:
+        await asyncio.to_thread(netroute.forget, pid)
+    except netroute.RouteRefused as exc:
+        return JSONResponse({"error": exc.message}, status_code=409)
+    audit.note(request, "network.forget", "Forgot a network port", target=pid)
+    return await asyncio.to_thread(netroute.overview)
+
+
 @app.get("/api/admin/devices", dependencies=[Depends(require("session.view"))])
 async def admin_devices():
-    from .audio import capture_is_live, list_input_devices, selection_notice
+    from .audio import capture_is_live, label_inputs, list_input_devices, selection_notice
 
     live = capture_is_live()
     return {
-        "devices": list_input_devices(refresh=True),
+        "devices": label_inputs(list_input_devices(refresh=True)),
         "device_notice": selection_notice(config.get().get("audio_device")),
         "full_rescan": not live,
         "note": RESCAN_LIVE_NOTE if live else None,
     }
+
+
+# -- routes (#544): which source channel feeds which destination channel -------------------------------------------
+async def _routes_do(fn, *args, **kw):
+    """Run one routing call off the event loop: its result, or a fixed sentence for a refusal."""
+    try:
+        return await asyncio.to_thread(fn, *args, **kw)
+    except routing.Refused as exc:
+        return JSONResponse({"error": routing.REFUSALS[exc.key]}, status_code=404 if exc.key in ("no_channel", "no_route", "no_salvo") else 409)
+    except db.Unavailable:
+        return JSONResponse({"error": "The database is down, so routes cannot be changed right now."}, status_code=503)
+
+
+def _routes_view(provider: str = "", feed: str = "") -> dict:
+    out = {"routes": routing.listing(provider), "salvos": routing.salvos()}
+    if feed:
+        out["feeds"] = routing.feeds(feed)
+        out["feeding"] = routing.feeding(feed)
+    return out
+
+
+@app.get("/api/admin/routes", dependencies=[Depends(require("network.view"))])
+async def admin_routes(provider: str = "", channel: str = ""):
+    """Every route (what was asked for and what the gear does, with any difference) and every preset. With `channel`
+    (a channel ref): "what feeds this?" and "where does this go?" for it."""
+    return await _routes_do(_routes_view, provider[:32], channel[:60])
+
+
+async def _may_route(request: Request, destination) -> JSONResponse | None:
+    """403 unless the user holds network.manage or the permission the destination's module names (routing.may_route)."""
+    user = request.state.user
+    try:
+        if await asyncio.to_thread(routing.may_route, destination, user.can):
+            return None
+    except db.Unavailable:
+        return JSONResponse({"error": "The database is down, so routes cannot be changed right now."}, status_code=503)
+    return JSONResponse({"error": WEB_MESSAGES["not_allowed"]}, status_code=403)
+
+
+@app.post("/api/admin/routes", dependencies=[Depends(require(None))])
+async def admin_routes_set(payload: dict, request: Request):
+    """{"destination": "channel:relay:3", "source": "channel:relay:7", "gain_db": -3}: the destination takes the source.
+    Needs network.manage, or the permission the destination's module names (an NDI output: ndi.manage)."""
+    if (no := await _may_route(request, payload.get("destination"))) is not None:
+        return no
+    got = await _routes_do(routing.set, payload.get("destination"), payload.get("source"), payload.get("gain_db"))
+    if isinstance(got, JSONResponse):
+        return got
+    audit.note(request, "routes.set", "Routed a source to a destination",
+               detail={"destination": payload.get("destination"), "source": payload.get("source")})
+    return {"status": got["status"], "problems": got["problems"]}
+
+
+@app.post("/api/admin/routes/clear", dependencies=[Depends(require(None))])
+async def admin_routes_clear(payload: dict, request: Request):
+    """{"destination": ref, "source": ref}: take the destination off that source, or off everything without `source`.
+    The same permission as setting a route."""
+    if (no := await _may_route(request, payload.get("destination"))) is not None:
+        return no
+    got = await _routes_do(routing.clear, payload.get("destination"), payload.get("source"))
+    if isinstance(got, JSONResponse):
+        return got
+    audit.note(request, "routes.clear", "Took a destination off a source", detail={"destination": payload.get("destination")})
+    return {"status": got["status"], "problems": got["problems"]}
+
+
+@app.post("/api/admin/routes/salvos", dependencies=[Depends(require("network.manage"))])
+async def admin_routes_salvo_save(payload: dict, request: Request):
+    """{"name", "destinations": [refs], "scope", "id"}: save what those destinations take now as a preset."""
+    dests, sid = payload.get("destinations"), payload.get("id")
+    if not isinstance(dests, list) or len(dests) > 500:
+        return JSONResponse({"error": "Choose the destinations to save."}, status_code=400)
+    got = await _routes_do(routing.save_salvo, payload.get("name"), dests, payload.get("scope") or "",
+                           sid if isinstance(sid, int) and not isinstance(sid, bool) else None)
+    if isinstance(got, JSONResponse):
+        return got
+    audit.note(request, "routes.salvo_save", "Saved a route preset", target=got["name"])
+    return got
+
+
+@app.post("/api/admin/routes/salvos/{sid}/take", dependencies=[Depends(require("network.manage"))])
+async def admin_routes_salvo_take(sid: int, request: Request):
+    got = await _routes_do(routing.take_salvo, sid)
+    if isinstance(got, JSONResponse):
+        return got
+    audit.note(request, "routes.salvo_take", "Took a route preset", target=str(sid))
+    return {"problems": got}
+
+
+@app.delete("/api/admin/routes/salvos/{sid}", dependencies=[Depends(require("network.manage"))])
+async def admin_routes_salvo_delete(sid: int, request: Request):
+    got = await _routes_do(routing.delete_salvo, sid)
+    if isinstance(got, JSONResponse):
+        return got
+    audit.note(request, "routes.salvo_delete", "Deleted a route preset", target=str(sid))
+    return {"ok": True}
+
+
+@app.get("/api/admin/audiobus", dependencies=[Depends(require("session.view"))])
+async def admin_audiobus():
+    """The 32-lane audio bus (app/audiobus.py): its saved setting, the live state of every lane, input and
+    output, and what can be patched (devices and registered sources and outputs)."""
+    from . import audio as audiomod
+
+    return {
+        "config": {**config.get()["audio_bus"], "matrix": await asyncio.to_thread(audiobus.matrix_from_routes)},
+        "status": audiobus.bus.status(),
+        "lanes": audiobus.LANES,
+        "sources": [{"id": s.id, "label": s.label} for s in audiomod.sources()],
+        "outputs": [{"id": o.id, "label": o.label} for o in audiomod.outputs()],
+        "input_devices": audiomod.list_input_devices(),
+        "output_devices": await asyncio.to_thread(audiomod.list_output_devices),
+    }
+
+
+@app.post("/api/admin/audiobus", dependencies=[Depends(require("audio.manage"))])
+async def admin_audiobus_save(request: Request, payload: dict):
+    """Save the bus setting and apply it. Only what changed is touched: a device or output that is the same as
+    before keeps running."""
+    cfg = audiobus.normalize(payload)
+    cells = cfg["matrix"]
+    # The crosspoints are core routes (app/routing.py): config keeps the lanes and outputs, the routes keep who feeds what.
+    # Without "matrix" (the Audio bus page, whose crosspoints are the shared route editor) the routes are left alone.
+    saved = config.save({"audio_bus": {**cfg, "matrix": []}}, replace=("audio_bus",))["audio_bus"]
+    try:
+        if "matrix" in payload:
+            await asyncio.to_thread(audiobus.save_matrix, saved, cells)
+        else:
+            await asyncio.to_thread(audiobus.report_channels, saved)
+    except db.Unavailable:
+        return JSONResponse({"error": "The database is down, so the crosspoints cannot be saved right now."}, status_code=503)
+    cfg = {**saved, "matrix": await asyncio.to_thread(audiobus.matrix_from_routes)}
+    await asyncio.to_thread(audiobus.bus.apply, cfg)
+    audit.note(request, "audio.bus", "Changed the audio bus", detail={
+        "enabled": cfg["enabled"], "lanes": len(cfg["lanes"]), "outputs": len(cfg["outputs"]),
+        "crosspoints": len(cfg["matrix"])})
+    return {"config": cfg, "status": audiobus.bus.status()}
+
+
+@app.get("/api/admin/metering", dependencies=[Depends(require("session.view"))])
+async def admin_metering():
+    """The sound meter (app/metering.py): its saved setting and the live reading."""
+    return {"config": config.get()["metering"], "status": metering.meter.snapshot(), "lanes": audiobus.LANES}
+
+
+@app.post("/api/admin/metering", dependencies=[Depends(require("audio.manage"))])
+async def admin_metering_save(request: Request, payload: dict):
+    """Save the meter's setting and apply it. What the body leaves out is kept; setting a different calibration by
+    hand (against a reference meter) counts as calibrated."""
+    cur = config.get()["metering"]
+    body = metering.normalize({**cur, **payload})
+    if "calibration_db" in payload and body["calibration_db"] != cur["calibration_db"] and "calibrated" not in payload:
+        body["calibrated"] = True
+    cfg = config.save({"metering": body}, replace=("metering",))["metering"]
+    await asyncio.to_thread(metering.meter.apply, cfg)
+    audit.note(request, "audio.metering", "Changed the sound meter", detail={
+        "enabled": cfg["enabled"], "lane": cfg["lane"], "kind": cfg["kind"]})
+    return {"config": cfg, "status": metering.meter.snapshot()}
+
+
+@app.post("/api/admin/metering/calibrate", dependencies=[Depends(require("audio.manage"))])
+async def admin_metering_calibrate(request: Request, payload: dict):
+    """Set the calibration from a reference tone: body {"reference_db": 94}. Answers a sentence when there is no
+    signal to read."""
+    try:
+        cal = await asyncio.to_thread(metering.meter.calibrate, payload.get("reference_db"))
+    except metering.CalibrateError as exc:
+        return JSONResponse({"error": metering.CALIBRATE_SENTENCES[exc.reason]}, status_code=409)
+    cfg = config.save({"metering": {**config.get()["metering"], "calibration_db": cal, "calibrated": True}},
+                      replace=("metering",))["metering"]
+    audit.note(request, "audio.metering", "Calibrated the sound meter", detail={"calibration_db": cal})
+    return {"config": cfg, "status": metering.meter.snapshot()}
+
+
+@app.get("/api/admin/mixreport", dependencies=[Depends(require("session.view"))])
+async def admin_mixreport():
+    """The stream-mix report (app/mixreport.py): its setting, what it is doing now and the saved sessions."""
+    return {"config": config.get()["mixreport"], "status": mixreport.recorder.status(),
+            "sessions": await asyncio.to_thread(mixreport.list_sessions), "lanes": audiobus.LANES}
+
+
+@app.post("/api/admin/mixreport", dependencies=[Depends(require("audio.manage"))])
+async def admin_mixreport_save(request: Request, payload: dict):
+    """Save the report's setting and apply it. What the body leaves out is kept."""
+    body = mixreport.normalize({**config.get()["mixreport"], **payload})
+    cfg = config.save({"mixreport": body}, replace=("mixreport",))["mixreport"]
+    await asyncio.to_thread(mixreport.recorder.apply, cfg)
+    audit.note(request, "audio.mixreport", "Changed the stream-mix report", detail={
+        "enabled": cfg["enabled"], "left": cfg["left"], "right": cfg["right"], "rehearsal": cfg["rehearsal"]})
+    return {"config": cfg, "status": mixreport.recorder.status()}
+
+
+@app.get("/api/admin/mixreport/sessions/{sid}", dependencies=[Depends(require("session.view"))])
+async def admin_mixreport_session(sid: str, rehearsal: int = 0):
+    """One saved session, judged against the report's targets. Rehearsal seconds are left out unless asked for."""
+    got = await asyncio.to_thread(mixreport.read_session, sid)
+    if got is None:
+        return JSONResponse({"error": "That report is not there."}, status_code=404)
+    head, rows = got
+    kept = [r for r in rows if rehearsal or not r.get("r")]
+    return {"id": sid, "started": head.get("started"), "label": head.get("label", ""),
+            "rehearsal_seconds": len(rows) - len([r for r in rows if not r.get("r")]),
+            "report": mixreport.judge(kept, config.get()["mixreport"]), "series": mixreport.series(kept)}
+
+
+@app.get("/api/admin/mixreport/sessions/{sid}/csv", dependencies=[Depends(require("session.view"))])
+async def admin_mixreport_csv(sid: str):
+    got = await asyncio.to_thread(mixreport.read_session, sid)
+    if got is None:
+        return JSONResponse({"error": "That report is not there."}, status_code=404)
+    return Response(mixreport.csv_text(got[1]), media_type="text/csv",
+                    headers={"Content-Disposition": f'attachment; filename="stream-mix-{sid}.csv"'})
 
 
 @app.get("/api/admin/status", dependencies=[Depends(require("session.view"))])
@@ -1931,8 +2540,11 @@ CONFIG_PERMISSIONS = {
     "default_font_px": "settings.manage",
     "speaking_indicator_vad": "settings.manage",
     "history_lines": "settings.manage",
+    "timezone": "settings.manage",
     "realtime": "settings.manage",
     "openai_api_key": "credentials.manage",
+    "vercel_api_key": "credentials.manage",
+    "backup_passphrase": "credentials.manage",
     "recording": "recordings.manage",
     "blocklist": "blocklist.manage",
 }
@@ -1960,9 +2572,26 @@ async def admin_config(request: Request, payload: dict):
         if field in payload:
             updates[field] = payload[field]
 
+    if "timezone" in payload:
+        # The one Relay time zone: every schedule, signage slot, board row and call time reads it.
+        if payload["timezone"] not in schedules.TZ_LABELS:
+            raise HTTPException(status_code=400, detail=schedules.MESSAGES["zone"])
+        updates["timezone"] = payload["timezone"]
+
     key = payload.get("openai_api_key")
     if isinstance(key, str) and key.strip():
         updates["openai_api_key"] = key.strip()
+    vkey = payload.get("vercel_api_key")
+    if isinstance(vkey, str) and vkey.strip():
+        updates["vercel_api_key"] = vkey.strip()
+
+    if "backup_passphrase" in payload:
+        # Only the key derived from it is kept (app/backup.py); null or "" removes it.
+        phrase = payload["backup_passphrase"]
+        try:
+            updates["backup_key"] = backupmod.passphrase_setting(phrase if isinstance(phrase, str) else "")
+        except ValueError:
+            raise HTTPException(status_code=400, detail=WEB_MESSAGES["backup_passphrase_short"]) from None
 
     if isinstance(payload.get("realtime"), dict):
         updates["realtime"] = payload["realtime"]
@@ -1972,6 +2601,8 @@ async def admin_config(request: Request, payload: dict):
 
     cfg = config.save(updates)
     hub.history_lines = cfg["history_lines"]
+    if "timezone" in updates:
+        await scheduler.poke()
     # The names of the fields changed, never their values (the OpenAI key is one of them).
     changed = sorted(f for f in CONFIG_PERMISSIONS if f in payload)
     audit.note(request, "settings.change", "Changed settings: " + (", ".join(changed) or "nothing"),
@@ -2104,6 +2735,17 @@ async def admin_alerts_save(payload: dict):
     except ValueError as exc:
         raise HTTPException(400, str(exc))
     return _alerts_frame()
+
+
+@app.post("/api/admin/alerts/test", dependencies=[Depends(require("alerts.manage"))])
+async def admin_alerts_test(payload: dict):
+    """Show "Test from Relay" on one panel ({"panel": id}) or browser screen ({"screen": name}) for a message's
+    time. Answers how many of its streams took it; 0 means it is not connected."""
+    try:
+        took = alerts.test(panel=payload.get("panel"), screen=payload.get("screen"))
+    except alertsmod.Refused as exc:
+        raise HTTPException(exc.status, alertsmod.MESSAGES[exc.key])
+    return {"ok": True, "delivered": took}
 
 
 @app.get("/api/admin/alerts/history", dependencies=[Depends(require("alerts.history"))])
@@ -2243,7 +2885,7 @@ async def admin_panel_update(panel_id: str, payload: dict):
             raise HTTPException(400, "service_mode must be a string")
         kwargs["service_mode"] = payload["service_mode"]
     # Empty while the Planning Center module is off: no panel can be set to a service then.
-    followed = panel_registry.followed_service_types()
+    followed = (modules_pkg.using("plan.service_types") or (lambda: []))()
     if "service_type" in payload:
         st = payload["service_type"]
         if st not in (None, "") and str(st) not in followed:
@@ -2301,11 +2943,23 @@ def _schedule_error(exc: ValueError) -> JSONResponse:
     return JSONResponse({"error": schedules.MESSAGES.get(key, "That schedule is not valid.")}, status_code=400)
 
 
-async def _save_schedules(items: list[dict]) -> dict:
-    config.save({"schedules": items})
+async def _save_schedules(items: list[dict], engine_refs: list[str] | None = None) -> dict:
+    updates: dict = {"schedules": items}
+    if engine_refs is not None:
+        updates["engine_schedules"] = engine_refs
+    config.save(updates)
     await scheduler.poke()
     engine._push_status()
     return scheduler.listing()
+
+
+def _engine_refs(sid: str, payload: dict) -> list[str]:
+    """The engine's picked schedules after a save, with `sid` in or out as the payload's `engine` says (unchanged
+    when it does not say)."""
+    refs = [r for r in config.get()["engine_schedules"] if r != schedules.ref(sid)]
+    if payload.get("engine", schedules.ref(sid) in config.get()["engine_schedules"]):
+        refs.append(schedules.ref(sid))
+    return refs
 
 
 @app.get("/api/admin/schedules", dependencies=[Depends(require("schedules.view"))])
@@ -2324,7 +2978,7 @@ async def admin_schedule_create(payload: dict):
     while new["id"] in taken:
         new["id"] = secrets.token_hex(4)
     items.append(new)
-    return await _save_schedules(items)
+    return await _save_schedules(items, _engine_refs(new["id"], payload))
 
 
 @app.put("/api/admin/schedules/{sid}", dependencies=[Depends(require("schedules.manage"))])
@@ -2337,7 +2991,7 @@ async def admin_schedule_update(sid: str, payload: dict):
         items[idx] = schedules.validate(payload, sid=sid)
     except ValueError as exc:
         return _schedule_error(exc)
-    return await _save_schedules(items)
+    return await _save_schedules(items, _engine_refs(sid, payload))
 
 
 @app.delete("/api/admin/schedules/{sid}", dependencies=[Depends(require("schedules.manage"))])
@@ -2346,7 +3000,190 @@ async def admin_schedule_delete(sid: str):
     kept = [s for s in items if s["id"] != sid]
     if len(kept) == len(items):
         raise HTTPException(404, "unknown schedule")
+    # A schedule something still picks is not deleted out from under it: the page lists where it is used.
+    users = scheduler_mod.used_by(sid)
+    if users:
+        return JSONResponse({"error": schedules.MESSAGES["in_use"], "used_by": users}, status_code=409)
     return await _save_schedules(kept)
+
+
+# ---------------------------------------------------------------- screens and places (#527)
+# One record per physical display (app/screens.py); the Screens page is the live wall: what each screen shows now,
+# grouped by place, with what it should show, a hand-held override and a flash.
+
+def _screens_frame() -> dict:
+    """The Screens page: places and their screens with what each shows, plus the boards, playlists and schedules a
+    screen can be set to."""
+    signage = modules_pkg.using("signage.content")
+    cfg_boards = {b["id"]: b["name"] for b in config.get()["boards"]}
+    lists = {"board": cfg_boards, "signage": {}}
+    if signage is not None:
+        lists["signage"] = {str(p["id"]): p["name"] for p in signage.store.playlists()}
+    now, rows = time.time(), []
+    for r in screens.listing():
+        shows = _screen_showing(r)
+        slug = signage.store.core_screen_slug(r["id"]) if signage is not None else ""
+        rows.append({
+            "id": r["id"], "ref": r["ref"], "name": r["name"], "kind": r["kind"], "place_id": r["place_id"],
+            "place": r["place"], "address": r["address"], "last_seen": r["last_seen"],
+            "online": screens.online(r, now),
+            "normal": {"kind": r["normal_kind"], "ref": r["normal_ref"]},
+            "during": {"kind": r["during_kind"], "ref": r["during_ref"]}, "schedule": r["during_schedule"],
+            "hold": {"kind": r["hold_kind"], "ref": r["hold_ref"]},
+            "now": {**shows, "label": lists.get(shows["kind"], {}).get(shows["ref"], "")},
+            "links": ([signage.store.player_path(slug)] if slug else [])
+            + [f"/screen?alert={k[6:]}" for k in r["keys"] if k.startswith("alert:")]})
+    return {"places": screens.places(), "screens": rows, "signage_on": signage is not None,
+            "boards": [{"id": i, "name": n} for i, n in lists["board"].items()],
+            "playlists": [{"id": i, "name": n} for i, n in lists["signage"].items()],
+            "schedules": [{"ref": schedules.ref(x["id"]), "name": x["name"]} for x in config.get()["schedules"]],
+            "limits": {"name": screens.NAME_MAX}, "now": now}
+
+
+def _screens_error(exc: screens.Refused) -> JSONResponse:
+    return JSONResponse({"error": screens.REFUSALS[exc.key]}, status_code=404 if exc.key.startswith("no_") else 400)
+
+
+def _shows_pair(raw) -> tuple | None:
+    """("board", "lobby") from {"kind", "ref"}; None when the body does not mention it."""
+    if not isinstance(raw, dict):
+        return None
+    return str(raw.get("kind") or ""), str(raw.get("ref") or "")
+
+
+def _apply_screen_changes(sid: int, payload: dict) -> int:
+    """Make the changes in `payload` ({name, place_id, normal, during, schedule}); the id of the screen that results
+    (a name another screen has merges the two)."""
+    if "place_id" in payload:
+        place = payload["place_id"]
+        screens.set_place(sid, place if isinstance(place, int) and not isinstance(place, bool) else None)
+    if any(k in payload for k in ("normal", "during", "schedule")):
+        screens.set_shows(sid, normal=_shows_pair(payload.get("normal")), during=_shows_pair(payload.get("during")),
+                          schedule=payload.get("schedule") if isinstance(payload.get("schedule"), str) else None)
+    if "name" in payload:
+        sid = screens.rename(sid, payload["name"])
+    _prepare_signage(sid)
+    return sid
+
+
+def _prepare_signage(sid: int) -> None:
+    """A screen set to show a playlist needs a signage screen to play it: make one when it has none."""
+    signage = modules_pkg.using("signage.content")
+    core = screens.get(sid)
+    if signage is None or core is None:
+        return
+    wants = "signage" in (core["normal_kind"], core["during_kind"], core["hold_kind"])
+    if wants:
+        signage.store.ensure_screen(core)
+
+
+@app.get("/api/admin/screens", dependencies=[Depends(require("screens.view"))])
+async def admin_screens():
+    return await asyncio.to_thread(_screens_frame)
+
+
+@app.put("/api/admin/screens/{sid}", dependencies=[Depends(require("screens.manage"))])
+async def admin_screen_update(sid: int, payload: dict):
+    try:
+        await asyncio.to_thread(_apply_screen_changes, sid, payload)
+    except screens.Refused as exc:
+        return _screens_error(exc)
+    return await asyncio.to_thread(_screens_frame)
+
+
+@app.delete("/api/admin/screens/{sid}", dependencies=[Depends(require("screens.manage"))])
+async def admin_screen_delete(sid: int):
+    try:
+        await asyncio.to_thread(screens.delete, sid)
+    except screens.Refused as exc:
+        return _screens_error(exc)
+    return await asyncio.to_thread(_screens_frame)
+
+
+@app.put("/api/admin/screens/{sid}/hold", dependencies=[Depends(require("screens.manage"))])
+async def admin_screen_hold(sid: int, payload: dict):
+    """Put a board or signage playlist on the screen now; it stays until cleared."""
+    pair = _shows_pair(payload) or ("", "")
+    try:
+        await asyncio.to_thread(screens.set_hold, sid, *pair)
+        await asyncio.to_thread(_prepare_signage, sid)
+    except screens.Refused as exc:
+        return _screens_error(exc)
+    return await asyncio.to_thread(_screens_frame)
+
+
+@app.delete("/api/admin/screens/{sid}/hold", dependencies=[Depends(require("screens.manage"))])
+async def admin_screen_hold_clear(sid: int):
+    try:
+        await asyncio.to_thread(screens.set_hold, sid)
+    except screens.Refused as exc:
+        return _screens_error(exc)
+    return await asyncio.to_thread(_screens_frame)
+
+
+def _flash_screen(core: dict) -> int:
+    """Show "Test from Relay" on a screen that listens for alerts: a panel by its id, a browser by its alert name."""
+    took = 0
+    for key in screens.keys(core["id"]):
+        if key.startswith("panel:"):
+            took += alerts.test(panel=key[6:])
+    took += alerts.test(screen=core["name"]) if core["kind"] == "browser" else 0
+    return took
+
+
+@app.post("/api/admin/screens/{sid}/flash", dependencies=[Depends(require("screens.manage"))])
+async def admin_screen_flash(sid: int):
+    core = await asyncio.to_thread(screens.get, sid)
+    if core is None:
+        return _screens_error(screens.Refused("no_screen"))
+    return {"took": await asyncio.to_thread(_flash_screen, core)}
+
+
+@app.post("/api/admin/places", dependencies=[Depends(require("screens.manage"))])
+async def admin_place_create(payload: dict):
+    try:
+        await asyncio.to_thread(screens.place_add, payload.get("name"))
+    except screens.Refused as exc:
+        return _screens_error(exc)
+    return await asyncio.to_thread(_screens_frame)
+
+
+@app.put("/api/admin/places/{pid}", dependencies=[Depends(require("screens.manage"))])
+async def admin_place_update(pid: int, payload: dict):
+    try:
+        await asyncio.to_thread(screens.place_rename, pid, payload.get("name"))
+    except screens.Refused as exc:
+        return _screens_error(exc)
+    # A board keeps the place's name as it was saved: carry the new one over.
+    new = next((p["name"] for p in screens.places() if p["id"] == pid), "")
+    ref = screens.place_ref(pid)
+    kept = [{**b, "place": new} if b["place_ref"] == ref else b for b in config.get()["boards"]]
+    if kept != config.get()["boards"]:
+        config.save({"boards": kept})
+    return await asyncio.to_thread(_screens_frame)
+
+
+@app.delete("/api/admin/places/{pid}", dependencies=[Depends(require("screens.manage"))])
+async def admin_place_delete(pid: int):
+    try:
+        await asyncio.to_thread(screens.place_delete, pid)
+    except screens.Refused as exc:
+        return _screens_error(exc)
+    kept = [{**b, "place": "", "place_ref": ""} if b["place_ref"] == screens.place_ref(pid) else b
+            for b in config.get()["boards"]]
+    if kept != config.get()["boards"]:
+        config.save({"boards": kept})
+    return await asyncio.to_thread(_screens_frame)
+
+
+@app.post("/api/admin/places/{pid}/flash", dependencies=[Depends(require("screens.manage"))])
+async def admin_place_flash(pid: int):
+    found = await asyncio.to_thread(screens.in_place, pid)
+    took = 0
+    for r in found:
+        core = await asyncio.to_thread(screens.get, r["id"])
+        took += await asyncio.to_thread(_flash_screen, core) if core else 0
+    return {"took": took}
 
 
 # ---------------------------------------------------------------- overlays
@@ -2410,6 +3247,450 @@ async def admin_overlay_delete(oid: str):
         raise HTTPException(404, "unknown overlay")
     config.save({"overlays": kept})
     return _overlays_frame()
+
+
+# ---------------------------------------------------------------- boards (#156)
+# A board is a screen built from widgets at /board/<slug> (app/boards.py), laid out with the shared editor (#421).
+# Not an admin path, so it answers on both ports: a public board opens for anyone, on either; any other opens only on
+# the operator port, for someone signed in with boards.view (every role). Its widgets' data comes from the existing
+# feeds (/stream) and, for a module's widget, from /board/<slug>/_/data, which asks the module through the registry.
+# That poll also says which page to show (boards.current), names the screen asking (so the Boards page lists the
+# screens showing each board), and carries the board's revision and a reload count, so a saved change or "Reload all
+# screens" reaches every screen without anyone touching it.
+BOARD_PRESS_WINDOW_S = 10.0
+BOARD_MAX_PRESSES = 20
+BOARD_SCREEN_GONE_S = 15.0       # a screen that has not asked for this long is no longer showing the board
+BOARD_MAX_LIVE_SCREENS = 100
+_board_presses: dict[str, list[float]] = {}
+_board_live: dict[str, dict] = {}   # board id -> {"screens": {id: {first, last, ip}}, "reload", "override", "last"}
+# Refusals the board routes answer with: fixed sentences, looked up by key.
+BOARD_REFUSALS = {"no_page": "That page is not on this board.", "no_screen": "That is not a screen.",
+                  "too_many_names": "This board has too many named screens."}
+
+
+def _board_catalogue() -> dict[str, dict]:
+    return boards.catalogue(module_registry.board_widgets(), config.get()["boards"])
+
+
+def _board_or_404(bid: str) -> dict:
+    board = boards.find(config.get()["boards"], bid)
+    if board is None:
+        raise HTTPException(404, "Not Found")
+    return board
+
+
+def _board_viewer(request: Request, board: dict, perm: str = "boards.view"):
+    """(user or None, None) when this request may open the board, else (None, the response to send). A public board
+    needs nobody signed in; any other needs the operator port and `perm`. Blocks (database)."""
+    if board["public"] and perm == "boards.view":
+        return (_session_user(request) if _on_admin_port(request) else None), None
+    if not _on_admin_port(request):
+        return None, HTMLResponse("Not found", status_code=404)
+    got = _page_gate(request, perm)
+    return (got, None) if isinstance(got, User) else (None, got)
+
+
+def _board_items_for_page(items: list[dict], cat: dict[str, dict]) -> list[dict]:
+    """Items with what the page draws them by: the kind and the title, or a note when the widget's module is off."""
+    out = []
+    for it in items:
+        d = cat.get(it["type"])
+        extra = {"kind": d["kind"], "title": boards.item_title(d, it["props"])} if d else \
+            {"kind": "text", "title": "", "off": "This widget's module is off."}
+        out.append({**it, **extra})
+    return out
+
+
+def _board_rev(board: dict) -> str:
+    """Changes whenever what a screen draws changes (not the screen names)."""
+    body = json.dumps({k: board[k] for k in ("name", "ratio", "cols", "rows", "pages", "rotation")}, sort_keys=True)
+    return hashlib.sha256(body.encode()).hexdigest()[:12]
+
+
+def _board_live_for(bid: str) -> dict:
+    return _board_live.setdefault(bid, {"screens": {}, "reload": 0, "override": None, "last": None})
+
+
+def _local_now() -> datetime:
+    """Now as naive wall-clock time in the one Relay zone (Settings > System)."""
+    return datetime.now(ZoneInfo(config.timezone())).replace(tzinfo=None)
+
+
+def _schedule_open(ref: str, local_now: datetime) -> bool:
+    """Whether the named schedule `ref` is enabled and open at `local_now` (a board row that names a schedule)."""
+    sched = schedules.find(config.get()["schedules"], ref)
+    return bool(sched and sched["enabled"]
+                and schedules.is_open_local(sched, local_now, config.timezone(), scheduler_plan_source()))
+
+
+def _board_state(board: dict, follow: dict[str, dict] | None = None) -> dict:
+    """Which page the board shows now, as boards.current decides it, unless someone chose one by hand from the Boards
+    page: that holds until what decides the page changes (the schedule moves on, ProPresenter shows something else)."""
+    live = _board_live_for(board["id"])
+    rot = board["rotation"]
+    now_pp = None
+    if rot["mode"] == "follow":
+        src = (follow if follow is not None else module_registry.board_follow()).get(rot["follow"]["source"])
+        now_pp = src["now"] if src and src["connected"] else None
+    cur = boards.current(board, _local_now(), now_pp, live["last"], _schedule_open)
+    ov = live["override"]
+    ids = [p["id"] for p in board["pages"]]
+    if ov and (ov["key"] != cur["key"] or ov["page"] not in ids):
+        live["override"] = ov = None
+    if ov:
+        cur = {**cur, "page": ov["page"], "rotate": None, "override": True,
+               "why": f"Chosen by hand: {boards.show_label(board, ov['page'], True)}, until the next change"}
+    if not cur["rotate"]:
+        live["last"] = cur["page"]
+    return cur
+
+
+def _board_screens(bid: str) -> list[dict]:
+    """The screens asking for this board, named from the core screen each one is (app/screens.py)."""
+    live = _board_live_for(bid)
+    now = time.time()
+    for sid in [s for s, v in live["screens"].items() if now - v["last"] > BOARD_SCREEN_GONE_S]:
+        live["screens"].pop(sid, None)
+    try:
+        names = screens.names_by_key("board:")
+    except db.Unavailable:
+        names = {}
+    rows = [{"id": sid, "name": names.get(sid, ""), "ip": v["ip"], "since": v["first"]}
+            for sid, v in live["screens"].items()]
+    return sorted(rows, key=lambda r: (not r["name"], r["name"].lower(), r["since"]))
+
+
+BOARD_CORE_SCREEN = re.compile(r"screen-(\d{1,9})")
+BOARD_SCREEN_REFRESH_S = 15.0   # how often a polling board screen tells the database it is still there
+
+
+def _board_screen_key(sid: str) -> str:
+    return "board:" + sid
+
+
+def _signage_on() -> bool:
+    return modules_pkg.using("signage.content") is not None
+
+
+def _screen_showing(screen: dict) -> dict:
+    """What a core screen shows now (app/screens.py `showing_now`)."""
+    return screens.showing_now(screen, signage_on=_signage_on())
+
+
+def _board_screen_goto(request: Request, board: dict, sid: str, row: dict) -> str:
+    """Tell the database this browser is showing the board, then say where it should go instead, when its screen is
+    set to show a signage playlist or another board ("" to stay). A browser opened from a screen's own link
+    (`screen-<id>`, see below) is that screen; any other is adopted by its random id, named by what the board last
+    called it."""
+    try:
+        if row.get("core") is None or time.time() - row.get("synced", 0) > BOARD_SCREEN_REFRESH_S:
+            m = BOARD_CORE_SCREEN.fullmatch(sid)
+            core = screens.get(int(m.group(1))) if m else None
+            if core is None:
+                core = screens.adopt(_board_screen_key(sid), name=board["screen_names"].get(sid, ""),
+                                     address=row["ip"], board=board["id"])
+            else:
+                screens.touch(core["id"], address=row["ip"], board=board["id"])
+            row["core"], row["synced"] = core["id"], time.time()
+        core = screens.get(row["core"])
+    except db.Unavailable:
+        return ""
+    if core is None:
+        row["core"] = None
+        return ""
+    shows = _screen_showing(core)
+    if shows["kind"] == "board" and shows["ref"] and shows["ref"] != board["id"] \
+            and boards.find(config.get()["boards"], shows["ref"]):
+        return f"/board/{shows['ref']}?screen=screen-{core['id']}"
+    signage = modules_pkg.using("signage.content")
+    if shows["kind"] == "signage" and signage is not None:
+        slug = signage.store.core_screen_slug(core["id"])
+        if slug:
+            return signage.store.player_address(request.url.hostname or "", slug)
+    return ""
+
+
+@app.get("/board/{bid}", response_class=HTMLResponse)
+def page_board(request: Request, bid: str, edit: int = 0):
+    board = _board_or_404(bid)
+    user, resp = _board_viewer(request, board, "boards.manage" if edit else "boards.view")
+    if resp is not None:
+        return resp
+    if edit:
+        # Boards are laid out on the Boards page now; an old ?edit=1 link goes there.
+        return RedirectResponse("/admin#boards", status_code=303)
+    cat = _board_catalogue()
+    perms = user.permissions() if user else set()
+    page = {"id": board["id"], "name": board["name"], "ratio": board["ratio"], "cols": board["cols"],
+            "rows": board["rows"], "public": board["public"], "rev": _board_rev(board),
+            "pages": [{"id": p["id"], "name": p["name"], "items": _board_items_for_page(p["items"], cat)}
+                      for p in board["pages"]]}
+    # Which widget types this person may press (a module's buttons need its permission; a board link needs nothing).
+    press = sorted(t for t, d in cat.items() if d["kind"] in boards.PRESSED and (not d["press_permission"]
+                                                                            or d["press_permission"] in perms))
+    ctx = {"board": page, "press": press, "state": _board_state(board)}
+    return templates.TemplateResponse(request, "board.html", {"data": ctx, "title": board["name"]},
+                                      headers={"Cache-Control": "no-store", "Referrer-Policy": "no-referrer"})
+
+
+@app.get("/board/{bid}/_/data")
+async def board_data(request: Request, bid: str, screen: str = ""):
+    """Live data for the board's module widgets (every page's), by item id, the page to show now, and the board's
+    revision and reload count. `screen` is the asking screen's own id. Same access as the board."""
+    board = _board_or_404(bid)
+    _, resp = await asyncio.to_thread(_board_viewer, request, board)
+    if resp is not None:
+        return JSONResponse({"error": "Not found"}, status_code=404)
+    live = _board_live_for(bid)
+    goto = ""
+    if boards.SCREEN_ID.fullmatch(screen or ""):
+        now = time.time()
+        row = live["screens"].get(screen)
+        if row is not None:
+            row["last"] = now
+        elif len(live["screens"]) < BOARD_MAX_LIVE_SCREENS:
+            row = live["screens"][screen] = {"first": now, "last": now, "ip": _client_ip(request)}
+        if row is not None:
+            goto = await asyncio.to_thread(_board_screen_goto, request, board, screen, row)
+    data = await module_registry.board_data(boards.all_items(board))
+    st = _board_state(board)
+    return JSONResponse({"items": data, "page": st["page"], "rotate": st["rotate"], "now": time.time(),
+                         "rev": _board_rev(board), "reload": live["reload"], "goto": goto},
+                        headers={"Cache-Control": "no-store"})
+
+
+async def _press_route(item: dict, request: Request) -> dict:
+    """A route button was pressed: the destination takes the source, the same route the NDI and Blackmagic pages make."""
+    props = item.get("props") or {}
+    if not props.get("destination") or not props.get("source"):
+        return {"ok": False, "error": "Choose the destination and the source for this button."}
+    got = await _routes_do(routing.set, props["destination"], props["source"])
+    if isinstance(got, JSONResponse):
+        return {"ok": False, "error": "That route could not be made."}
+    if got["problems"]:
+        return {"ok": False, "error": got["problems"][0][:200]}
+    audit.note(request, "routes.set", "Routed a source to a destination",
+               detail={"destination": props["destination"], "source": props["source"]})
+    return {"ok": True}
+
+
+@app.post("/board/{bid}/_/press/{item_id}")
+async def board_press(request: Request, bid: str, item_id: str):
+    """Press a module's button widget on a board, or move one of its faders (the module reads the JSON body, such as
+    {"strip": "in3", "pos": 0.6}). Needs someone signed in on the operator port who holds the widget's press permission,
+    even on a public board. Answers {"ok": true} or {"error": "<a fixed sentence>"}."""
+    board = _board_or_404(bid)
+    item = boards.find_item(board, item_id)
+    if item is None:
+        return JSONResponse({"error": "That button is not on this board."}, status_code=404)
+    d = _board_catalogue().get(item["type"])
+    mod = module_registry.board_owner(item["type"])
+    core_route = item["type"] == "route"          # core's own button (app/routing.py), not a module's
+    if d is None or (mod is None and not core_route) or d["kind"] not in boards.PRESSED:
+        return JSONResponse({"error": "That button is off."}, status_code=409)
+    user = await asyncio.to_thread(_session_user, request) if _on_admin_port(request) else None
+    if user is None or (not board["public"] and not user.can("boards.view")) \
+            or (d["press_permission"] and not user.can(d["press_permission"])):
+        return JSONResponse({"error": "Sign in with an account that may press this."}, status_code=403)
+    if _rate_limited(_board_presses, _client_ip(request), BOARD_MAX_PRESSES, BOARD_PRESS_WINDOW_S):
+        return JSONResponse({"error": "Too many presses. Wait a moment."}, status_code=429)
+    request.state.user = user
+    try:
+        got = await (_press_route(item, request) if core_route else mod.board_press(item, request))
+    except Exception:
+        log.exception("board press failed")
+        got = {"ok": False, "error": "That did not work."}
+    if isinstance(got, dict) and got.get("ok"):
+        # Not under /api/admin, so the audit middleware does not see it: write the module's notes here.
+        notes = audit.pending(request) or [{"action": "boards.press", "summary": f"Pressed {d['name']} on the board "
+                                            f"{board['name']}", "target": item["id"], "detail": None}]
+        await asyncio.to_thread(_audit_write, notes, user, _client_ip(request))
+        return {"ok": True}
+    err = got.get("error") if isinstance(got, dict) and isinstance(got.get("error"), str) else "That did not work."
+    return JSONResponse({"error": err[:200]}, status_code=502)
+
+
+def _rate_limited(table: dict[str, list[float]], who: str, limit: int, window: float) -> bool:
+    now = time.monotonic()
+    if len(table) > 2000:
+        for k in [k for k, v in table.items() if not v or now - v[-1] > window]:
+            table.pop(k, None)
+    recent = [t for t in table.get(who, []) if now - t < window]
+    if len(recent) >= limit:
+        table[who] = recent
+        return True
+    table[who] = recent + [now]
+    return False
+
+
+def _boards_live() -> dict:
+    """What the Boards page shows live: per board, the page up now and why, and the screens showing it; and the follow
+    sources a board can follow (ProPresenter)."""
+    follow = module_registry.board_follow()
+    out = {}
+    for b in config.get()["boards"]:
+        st = _board_state(b, follow)
+        out[b["id"]] = {"page": st["page"], "rotate": st["rotate"], "why": st["why"], "override": bool(st.get("override")),
+                        "screens": _board_screens(b["id"])}
+    return {"live": out, "follow": follow, "now": time.time()}
+
+
+def _link_board_places(items: list[dict]) -> list[dict]:
+    """Each board's `place` text is a core place (app/screens.py, #527): make the place when it is new and keep its ref
+    and its current name on the board. The same list back when nothing changed."""
+    changed, out = False, []
+    for b in items:
+        if b["place"] and not b["place_ref"]:
+            try:
+                found = screens.place_add(b["place"])
+            except (db.Unavailable, screens.Refused):
+                out.append(b)
+                continue
+            b, changed = {**b, "place": found["name"], "place_ref": found["ref"]}, True
+        out.append(b)
+    return out if changed else items
+
+
+def _boards_frame() -> dict:
+    stored = config.get()["boards"]
+    linked = _link_board_places(stored)
+    if linked is not stored:
+        config.save({"boards": linked})
+    cat = _board_catalogue()
+    return {"boards": config.get()["boards"], "catalogue": list(cat.values()), "templates": boards.templates(cat),
+            "days": boards.DAYS, "matches": boards.MATCHES, "max_pages": boards.MAX_PAGES,
+            "schedules": [{"ref": schedules.ref(x["id"]), "name": x["name"]} for x in config.get()["schedules"]],
+            "swatches": boards.SWATCHES} | _boards_live()
+
+
+def _board_error(exc: boards.BoardError) -> JSONResponse:
+    return JSONResponse({"error": str(exc)}, status_code=400)
+
+
+@app.get("/api/admin/boards", dependencies=[Depends(require("boards.view"))])
+async def admin_boards():
+    return _boards_frame()
+
+
+@app.get("/api/admin/boards/live", dependencies=[Depends(require("boards.view"))])
+async def admin_boards_live():
+    return _boards_live()
+
+
+@app.post("/api/admin/boards", dependencies=[Depends(require("boards.manage"))])
+async def admin_board_create(payload: dict):
+    items = list(config.get()["boards"])
+    try:
+        new = boards.create(items, payload, _board_catalogue())
+    except boards.BoardError as exc:
+        return _board_error(exc)
+    config.save({"boards": _link_board_places(items + [new])})
+    return _boards_frame() | {"saved": new["id"]}
+
+
+@app.put("/api/admin/boards/{bid}", dependencies=[Depends(require("boards.manage"))])
+async def admin_board_update(bid: str, payload: dict):
+    items = list(config.get()["boards"])
+    idx = next((i for i, b in enumerate(items) if b["id"] == bid), None)
+    if idx is None:
+        raise HTTPException(404, "unknown board")
+    try:
+        items[idx] = boards.update(items[idx], payload, _board_catalogue())
+    except boards.BoardError as exc:
+        return _board_error(exc)
+    if "place" in payload:
+        items[idx] = {**items[idx], "place_ref": ""}   # a new place text is looked up again below
+    items = _link_board_places(items)
+    config.save({"boards": items})
+    return _boards_frame() | {"saved": bid, "board": items[idx]}
+
+
+@app.put("/api/admin/boards/{bid}/screens/{sid}", dependencies=[Depends(require("boards.manage"))])
+async def admin_board_screen_name(bid: str, sid: str, payload: dict):
+    """Name one of the screens showing a board (Foyer TV left), or clear its name with ""."""
+    _board_or_404(bid)
+    if not boards.SCREEN_ID.fullmatch(sid):
+        return JSONResponse({"error": BOARD_REFUSALS["no_screen"]}, status_code=400)
+    name = boards.layout.text(payload.get("name"), boards.SCREEN_NAME_MAX)
+    if not name:
+        return JSONResponse({"error": screens.REFUSALS["name"]}, status_code=400)
+    try:
+        core = await asyncio.to_thread(screens.adopt, _board_screen_key(sid))
+        await asyncio.to_thread(screens.rename, core["id"], name)
+    except screens.Refused as exc:
+        return JSONResponse({"error": screens.REFUSALS[exc.key]}, status_code=400)
+    _board_live_for(bid)["screens"].get(sid, {}).pop("core", None)
+    return _boards_frame()
+
+
+@app.post("/api/admin/boards/{bid}/reload", dependencies=[Depends(require("boards.manage"))])
+async def admin_board_reload(bid: str):
+    """Every screen showing the board loads it again within a few seconds."""
+    _board_or_404(bid)
+    _board_live_for(bid)["reload"] += 1
+    return _boards_live()
+
+
+@app.post("/api/admin/boards/{bid}/page", dependencies=[Depends(require("boards.manage"))])
+async def admin_board_page(bid: str, payload: dict):
+    """Show one page now, by hand ({"page": id}), until what decides the page changes; {"page": ""} goes back to it."""
+    board = _board_or_404(bid)
+    want = payload.get("page") if isinstance(payload.get("page"), str) else ""
+    live = _board_live_for(bid)
+    if not want:
+        live["override"] = None
+        return _boards_live()
+    if want not in [p["id"] for p in board["pages"]]:
+        return JSONResponse({"error": BOARD_REFUSALS["no_page"]}, status_code=400)
+    live["override"] = None
+    key = _board_state(board)["key"]
+    live["override"] = {"page": want, "key": key}
+    return _boards_live()
+
+
+@app.post("/api/admin/boards/{bid}/duplicate", dependencies=[Depends(require("boards.manage"))])
+async def admin_board_duplicate(bid: str):
+    items = list(config.get()["boards"])
+    board = boards.find(items, bid)
+    if board is None:
+        raise HTTPException(404, "unknown board")
+    try:
+        new = boards.create(items, {**board, "name": f"{board['name']} copy"[:boards.NAME_MAX]}, _board_catalogue())
+    except boards.BoardError as exc:
+        return _board_error(exc)
+    config.save({"boards": _link_board_places(items + [new])})
+    return _boards_frame() | {"saved": new["id"]}
+
+
+@app.get("/api/admin/boards/{bid}/export", dependencies=[Depends(require("boards.view"))])
+async def admin_board_export(bid: str):
+    board = _board_or_404(bid)
+    return JSONResponse(boards.export(board), headers={
+        "Content-Disposition": f'attachment; filename="{board["id"]}.relayboard.json"'})
+
+
+@app.post("/api/admin/boards/import", dependencies=[Depends(require("boards.manage"))])
+async def admin_board_import(payload: dict):
+    items = list(config.get()["boards"])
+    try:
+        new = boards.import_board(items, payload, _board_catalogue())
+    except boards.BoardError as exc:
+        return _board_error(exc)
+    config.save({"boards": _link_board_places(items + [new])})
+    return _boards_frame() | {"saved": new["id"]}
+
+
+@app.delete("/api/admin/boards/{bid}", dependencies=[Depends(require("boards.manage"))])
+async def admin_board_delete(bid: str):
+    items = list(config.get()["boards"])
+    kept = [b for b in items if b["id"] != bid]
+    if len(kept) == len(items):
+        raise HTTPException(404, "unknown board")
+    config.save({"boards": kept})
+    _board_live.pop(bid, None)
+    with contextlib.suppress(db.Unavailable):
+        await asyncio.to_thread(screens.forget_board, bid)
+    return _boards_frame()
 
 
 # ---------------------------------------------------------------- recordings
@@ -2721,7 +4002,7 @@ def admin_device_trust(request: Request, payload: dict):
     user: User = request.state.user
     if user.id <= 0:                       # the setup token has no account to record it against
         raise HTTPException(status_code=403, detail=WEB_MESSAGES["not_allowed"])
-    token, row = users.trust_device(payload.get("name"), user)
+    token, row = users.trust_device(payload.get("name"), user, request.headers.get("user-agent", ""))
     audit.note(request, "device.trust", "Trusted a browser for PIN sign-in", target=row["name"])
     resp = JSONResponse({"device": _iso(row), "this": row["id"]})
     _set_cookie(resp, request, DEVICE_COOKIE, token, DEVICE_COOKIE_MAX_AGE)
@@ -2735,6 +4016,78 @@ def admin_device_revoke(device_id: int, request: Request):
     if had is not None:
         audit.note(request, "device.revoke", "Forgot a trusted device", target=had["name"])
     return {"ok": True}
+
+
+# ------------------------------------------------------- phones: one core device with its parts (#528)
+def _phones_error(exc: devices.Refused) -> JSONResponse:
+    return JSONResponse({"error": devices.REFUSALS[exc.key]}, status_code=404 if exc.key == "no_device" else 400)
+
+
+def _phones(user_id: int | None) -> dict:
+    return {"phones": [_iso(d) for d in devices.listing(user_id)]}
+
+
+@app.get("/api/admin/phones", dependencies=[Depends(require("users.view"))])
+async def admin_phones():
+    """Every phone and computer, with the parts each holds (sign-in, intercom, check-in, push)."""
+    return await asyncio.to_thread(_phones, None)
+
+
+@app.put("/api/admin/phones/{phone_id}", dependencies=[Depends(require("users.manage"))])
+async def admin_phone_rename(phone_id: int, payload: dict):
+    try:
+        await asyncio.to_thread(devices.rename, phone_id, payload.get("name"))
+    except devices.Refused as exc:
+        return _phones_error(exc)
+    return await asyncio.to_thread(_phones, None)
+
+
+@app.delete("/api/admin/phones/{phone_id}", dependencies=[Depends(require("users.manage"))])
+async def admin_phone_revoke(phone_id: int, request: Request):
+    """Forget a phone: its intercom session, push pages, check-in and sign-in trust all end."""
+    gone = await asyncio.to_thread(devices.revoke, phone_id)
+    if gone is None:
+        return _phones_error(devices.Refused("no_device"))
+    audit.note(request, "phone.revoke", "Forgot a phone: signed it out of sign-in, intercom, check-in and push",
+               target=gone["name"], detail={"parts": gone["parts"]})
+    return await asyncio.to_thread(_phones, None)
+
+
+@app.post("/api/admin/phones/{phone_id}/merge", dependencies=[Depends(require("users.manage"))])
+async def admin_phone_merge(phone_id: int, payload: dict):
+    """Two entries that are the same phone: `into` keeps its name and takes the other's parts."""
+    into = payload.get("into")
+    if isinstance(into, bool) or not isinstance(into, int):
+        return _phones_error(devices.Refused("no_device"))
+    try:
+        await asyncio.to_thread(devices.merge, into, phone_id)
+    except devices.Refused as exc:
+        return _phones_error(exc)
+    return await asyncio.to_thread(_phones, None)
+
+
+@app.get("/api/admin/me/phones", dependencies=[Depends(require(None, tokens=False))])
+async def admin_me_phones(request: Request):
+    return await asyncio.to_thread(_phones, request.state.user.id)
+
+
+@app.put("/api/admin/me/phones/{phone_id}", dependencies=[Depends(require(None, tokens=False))])
+async def admin_me_phone_rename(phone_id: int, request: Request, payload: dict):
+    try:
+        await asyncio.to_thread(lambda: devices.rename(phone_id, payload.get("name"), user_id=request.state.user.id))
+    except devices.Refused as exc:
+        return _phones_error(exc)
+    return await asyncio.to_thread(_phones, request.state.user.id)
+
+
+@app.delete("/api/admin/me/phones/{phone_id}", dependencies=[Depends(require(None, tokens=False))])
+async def admin_me_phone_revoke(phone_id: int, request: Request):
+    gone = await asyncio.to_thread(lambda: devices.revoke(phone_id, user_id=request.state.user.id))
+    if gone is None:
+        return _phones_error(devices.Refused("no_device"))
+    audit.note(request, "phone.revoke", "Forgot one of their phones: signed it out of sign-in, intercom, check-in and push",
+               target=gone["name"], detail={"parts": gone["parts"]})
+    return await asyncio.to_thread(_phones, request.state.user.id)
 
 
 # ------------------------------------------------------- the audit log (#172)

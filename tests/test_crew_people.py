@@ -18,6 +18,7 @@ _db.reset()
 import app.main as main  # noqa: E402,F401
 from app import config, users  # noqa: E402
 from app.main import app  # noqa: E402
+from app.modules import modules  # noqa: E402
 from app.modules.crew import MODULE, people  # noqa: E402
 from app.modules.planning_center.pclive import follower, Track  # noqa: E402
 
@@ -28,6 +29,7 @@ from _harness import eq, fails  # noqa: E402
 config.ensure_file()
 config.save({"admin_token": "t0ken", "port": 8000, "admin_port": 8001,
              "modules": {"crew": {"enabled": True}, "planning_center": {"enabled": True}}})
+modules.attach("planning_center")        # the crew asks Planning Center for the followed plans by name (#523)
 
 print("similarity")
 eq("exact once normalised", people.similarity("  José  Núñez ", "jose nunez"), 1.0)
@@ -60,14 +62,15 @@ mike, sara = users.get_by_username("mike"), users.get_by_username("sara")
 users.update(mike.id, name="Mike Smith", actor=None)
 users.update(sara.id, name="Sara Lee", actor=None)
 
-r = admin.put(f"/api/admin/crew/people/{mike.id}/role", json={"role": "Camera 1"})
-eq("an admin sets a role", (r.status_code, r.json()), (200, {"role": "Camera 1"}))
-eq("a member may not", member.put(f"/api/admin/crew/people/{mike.id}/role", json={"role": "X"}).status_code, 403)
-eq("a long role is refused", admin.put(f"/api/admin/crew/people/{mike.id}/role", json={"role": "x" * 41}).status_code, 400)
-eq("an unknown person is refused", admin.put("/api/admin/crew/people/99999/role", json={"role": "A"}).status_code, 404)
-eq("the crew page shows it", "Mike Smith · Camera 1" in member.get("/crew").text, True)
+r = admin.put(f"/api/admin/crew/people/{mike.id}/role", json={"crew_role": "Camera 1"})
+eq("an admin sets a role", (r.status_code, r.json()), (200, {"crew_role": "Camera 1"}))
+eq("a member may not", member.put(f"/api/admin/crew/people/{mike.id}/role", json={"crew_role": "X"}).status_code, 403)
+eq("a long role is refused", admin.put(f"/api/admin/crew/people/{mike.id}/role", json={"crew_role": "x" * 41}).status_code, 400)
+eq("an unknown person is refused", admin.put("/api/admin/crew/people/99999/role", json={"crew_role": "A"}).status_code, 404)
+page = member.get("/crew").text   # the person's sheet: their name, then the role they fill
+eq("the crew page shows it", ('id="crMeName">Mike Smith<' in page, 'id="crMeRole">Camera 1<' in page), (True, True))
 row = [p for p in admin.get("/api/admin/crew/people").json()["people"] if p["id"] == mike.id][0]
-eq("listed", (row["role"], row["linked"], row["suggested_name"]), ("Camera 1", False, ""))
+eq("listed", (row["crew_role"], row["linked"], row["suggested_name"]), ("Camera 1", False, ""))
 
 print("matching")
 tr = follower.tracks.setdefault("7", Track("7"))
@@ -76,7 +79,7 @@ MODULE._scan()
 got = {p["id"]: p for p in admin.get("/api/admin/crew/people").json()["people"]}
 eq("a short form is linked and suggested", (got[mike.id]["linked"], got[mike.id]["suggested_name"]), (True, "Michael Smith"))
 eq("an identical spelling is linked with no suggestion", (got[sara.id]["linked"], got[sara.id]["suggested_name"]), (True, ""))
-eq("matching kept the role", got[mike.id]["role"], "Camera 1")
+eq("matching kept the role", got[mike.id]["crew_role"], "Camera 1")
 eq("the name is not changed on its own", users.get(mike.id).name, "Mike Smith")
 tr.team = [{"person": "503", "name": "Someone Else"}]
 MODULE._scan()
@@ -97,6 +100,7 @@ MODULE._scan()
 eq("a removed match is relinked only by a new scan", [p for p in admin.get("/api/admin/crew/people").json()["people"]
                                                       if p["id"] == sara.id][0]["linked"], True)
 config.save({"modules": {"planning_center": {"enabled": False}}})
+modules.get("planning_center").detach()
 eq("scan refused while it is off", admin.post("/api/admin/crew/people/scan").status_code, 400)
 
 print("account removal")

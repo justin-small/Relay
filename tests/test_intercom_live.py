@@ -56,6 +56,9 @@ for u, d in ((alice, a_dev), (bob, b_dev)):
     c = Conn(None, d, SimpleNamespace(id=u.id, name=u.name), 1)
     presence.conns[d["id"]] = c
 presence.conns[a_dev["id"]].stats = {"packets_lost": 40, "jitter_ms": 80.0, "rtt_ms": 10, "tracks": 1}
+from app.modules.intercom.watchdog import watchdog  # noqa: E402
+
+watchdog.phone_levels[a_dev["id"]] = (3.0, 80.0, "error")   # what the watchdog worked out over its 10 s window
 now = time.monotonic()
 arbiter.leases[main["id"]] = {alice.id: arb.Lease(alice.id, a_dev["id"], "Alice", 2, now, now, False, 0)}
 
@@ -83,6 +86,7 @@ eq("each phone shows where it is and what it holds", (people["Alice"]["where"], 
 eq("priority is the user's best", (people["Alice"]["priority"], people["Bob"]["priority"]), (2, 5))
 eq("loss and jitter past the thresholds are marked", (people["Alice"]["loss_level"], people["Alice"]["jitter_level"]),
    ("warn", "bad"))
+eq("as the watchdog's numbers", (people["Alice"]["loss_pct"], people["Alice"]["jitter_ms"]), (3.0, 80.0))
 eq("a phone with no stats has no level", people["Bob"]["loss_level"], "")
 eq("nothing is muted", (snap["muted_all"], chans["Main"]["muted"], people["Alice"]["muted"]), (False, False, False))
 

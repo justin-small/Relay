@@ -1,0 +1,91 @@
+<!doctype html><html lang="en" data-theme="dark" data-preset="relay"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<link rel="stylesheet" href="../../../app/static/tokens.css"><link rel="stylesheet" href="../../../app/static/components.css"><link rel="stylesheet" href="../planning-center/common.css"><link rel="stylesheet" href="ndi.css">
+<title>NDI B · In and out</title></head><body>
+<div class="top"><b>NDI</b><span class="spill on"><i class="dot ok"></i>Running</span><span class="sp"></span><span class="muted">Ana Ruiz · manage</span></div>
+<div class="wrap stack">
+<div class="tabs" id="tabs"><button data-p="home" class="on">Overview</button><button data-p="in">Coming in</button><button data-p="screens">Screens</button><button data-p="out">Going out</button><button data-p="setup">Setup</button></div>
+
+<!-- OVERVIEW -->
+<div class="pane on" id="home"><div class="stack">
+<div class="flow">
+<div class="stage" data-go="in"><h4>Coming in</h4><p>NDI feeds Relay found on the network</p><div class="big">6 <span class="muted" style="font-size:var(--fs-base)">online · 1 offline</span></div></div>
+<div class="arr">→</div>
+<div class="stage" data-go="screens"><h4>Screens</h4><p>Watch pages and multiviews for monitors and TVs</p><div class="big">2 <span class="muted" style="font-size:var(--fs-base)">multiviews · 3 watching</span></div></div>
+<div class="arr">→</div>
+<div class="stage" data-go="out"><h4>Going out</h4><p>NDI feeds Relay sends to TVs, switchers and OBS</p><div class="big">5 <span class="muted" style="font-size:var(--fs-base)">feeds · 2 CPU heavy</span></div></div>
+</div>
+<div class="cols" style="grid-template-columns:repeat(auto-fit,minmax(340px,1fr))">
+<div class="card"><h3>Getting set up</h3>
+<div class="step done"><span class="n">✓</span><div><b>Relay can see NDI</b><p>The NDI runtime is installed and 7 sources were found.</p></div></div>
+<div class="step done"><span class="n">✓</span><div><b>Cameras have numbers</b><p>3 sources get an on-air border from ATEM.</p></div></div>
+<div class="step"><span class="n">3</span><div><b>Make a multiview for the booth</b><p>Several sources on one TV. <a href="#">Make one</a></p></div></div>
+<div class="step"><span class="n">4</span><div><b>Send captions to your switcher</b><p>Turn on a screen or overlay under Going out. <a href="#">Go there</a></p></div></div></div>
+<div class="card"><h3>Needs a look</h3>
+<div class="setrow"><span>Balcony Cam is offline<small>Last seen Sunday 11:52. Check its power or network cable.</small></span><button class="sm">Forget it</button></div>
+<div class="setrow"><span>Nursery shows nothing<small>A routed output with no source sends black.</small></span><button class="sm">Pick a source</button></div>
+<div class="setrow"><span>Relay is using 40% of one core for NDI<small>Two page outputs are on at 30 fps.</small></span><button class="sm">Review</button></div></div>
+</div></div></div>
+
+<!-- COMING IN -->
+<div class="pane" id="in"><div class="stack">
+<p class="lede">Every NDI feed on the network appears here by itself. Give a camera its switcher number to get the red on-air and green preview border wherever it is shown.</p>
+<div class="toolbar"><input type="search" placeholder="Find a source" aria-label="Find a source"><span class="grow"></span><span class="muted">Last looked 12 s ago</span><button>Look again</button></div>
+<div class="card" style="padding:0">
+<table class="dt"><thead><tr><th style="width:140px"></th><th>Source</th><th>Picture</th><th style="width:150px">Camera number</th><th>Used by</th><th></th></tr></thead><tbody>
+<tr><td><div class="pic pgm" style="width:120px"></div></td><td><b>Center PTZ</b><br><span class="muted">BIRDDOG-P200</span></td><td class="num">1080p 59.94</td><td><select><option selected>Camera 1</option></select></td><td><span class="tag">Booth</span> <span class="tag">Stage confidence</span></td><td><button class="sm">Watch</button></td></tr>
+<tr><td><div class="pic b pvw" style="width:120px"></div></td><td><b>Stage Left</b><br><span class="muted">PTZ-2</span></td><td class="num">1080p 29.97</td><td><select><option selected>Camera 2</option></select></td><td><span class="tag">Booth</span></td><td><button class="sm">Watch</button></td></tr>
+<tr><td><div class="pic c" style="width:120px"></div></td><td><b>Wide Shot</b><br><span class="muted">PTZ-3</span></td><td class="num">720p 29.97</td><td><select><option selected>Camera 3</option></select></td><td></td><td><button class="sm">Watch</button></td></tr>
+<tr><td><div class="pic d" style="width:120px"></div></td><td><b>ProPresenter Lyrics</b><br><span class="muted">PROPRES-MAC</span></td><td class="num">1080p 30</td><td><select><option>Not a camera</option></select></td><td><span class="tag">Lobby TV</span></td><td><button class="sm">Watch</button></td></tr>
+<tr><td><div class="pic e" style="width:120px"></div></td><td><b>OBS Program</b><br><span class="muted">STREAM-PC</span></td><td class="num">1080p 30</td><td><select><option>Not a camera</option></select></td><td></td><td><button class="sm">Watch</button></td></tr>
+<tr style="opacity:.6"><td><div class="pic off" style="width:120px"></div></td><td><b>Balcony Cam</b><br><span class="muted">Offline since Sunday</span></td><td></td><td><select><option>Camera 4</option></select></td><td></td><td><button class="sm quiet">Forget</button></td></tr>
+</tbody></table></div>
+<p class="hint">Relay's own outputs are under Going out, not here. Missing a source? See Setup.</p>
+</div></div>
+
+<!-- SCREENS -->
+<div class="pane" id="screens"><div class="stack">
+<p class="lede">Pages you open in a browser on a monitor, laptop or TV in the building to see NDI video. They work only on this network.</p>
+<div class="subtabs" id="st"><button class="on">Multiviews</button><button>Single source</button></div>
+<div class="mvlist">
+<div class="card"><div class="mvthumb" style="grid-template-columns:repeat(2,1fr)"><i></i><i></i><i></i><i></i></div><div class="between" style="margin-top:var(--sp-2)"><b>Booth</b><span class="muted">2 watching</span></div><div class="gap" style="margin-top:var(--sp-2)"><button class="sm primary">Edit</button><button class="sm">Open</button><button class="sm">Copy link</button></div></div>
+<div class="card"><div class="mvthumb" style="grid-template-columns:repeat(3,1fr);grid-template-rows:repeat(3,1fr)"><i style="grid-column:1/3;grid-row:1/3"></i><i></i><i></i><i></i><i></i><i></i></div><div class="between" style="margin-top:var(--sp-2)"><b>Stage confidence</b><span class="muted">1 watching</span></div><div class="gap" style="margin-top:var(--sp-2)"><button class="sm primary">Edit</button><button class="sm">Open</button><button class="sm">Copy link</button></div></div>
+<button class="card" style="border-style:dashed;display:flex;align-items:center;justify-content:center;min-height:160px;color:var(--muted)">+ New multiview</button></div>
+<div class="card"><h3>Editing: Booth</h3>
+<div class="mved"><div class="canvas" style="grid-template-columns:repeat(2,1fr);grid-template-rows:repeat(2,1fr)">
+<div class="pic pgm sel"><span class="lbl">Center PTZ</span><span class="meter"><i></i></span></div><div class="pic b pvw"><span class="lbl">Stage Left</span></div><div class="pic d"><span class="lbl">Lyrics</span></div><div class="pic e"><span class="clock">9:41</span></div></div>
+<div class="stack"><div class="field"><label>Layout</label><select><option>2 × 2</option><option>1 big, 5 small</option></select></div><b>Selected box</b><div class="field"><label>Shows</label><select><option>Center PTZ</option><option>Clock</option><option>Countdown to a time</option><option>Countdown to end of service</option><option>Nothing</option></select></div><div class="field"><label>Label</label><input value="Center PTZ"></div><label class="check"><input type="checkbox" checked> Audio meter</label><div class="ctl"><button class="primary">Save</button><button class="quiet">Delete multiview</button></div></div></div></div>
+</div></div>
+
+<!-- GOING OUT -->
+<div class="pane" id="out"><div class="stack">
+<p class="lede">NDI feeds Relay sends. Anything that receives NDI (a TV decoder, ATEM, ProPresenter, OBS, vMix) can pick these up by name.</p>
+<div class="card"><div class="between"><div><h3>Switchable feeds</h3><p class="lede" style="margin:0">Set a TV to one of these once, then change what it shows here. No re-encoding.</p></div><div class="gap"><select aria-label="Preset"><option>Preset: Sunday morning</option><option>Youth night</option></select><button class="sm primary">Take</button></div></div>
+<div class="stack" style="margin-top:var(--sp-3)">
+<div class="route"><div class="out"><b>Lobby TV</b><small>Relay - Lobby TV</small></div><span class="arrow">←</span><select><option>ProPresenter Lyrics</option></select><div class="pic d"></div><button class="sm quiet">Remove</button></div>
+<div class="route"><div class="out"><b>Green room</b><small>Relay - Green room</small></div><span class="arrow">←</span><select><option>Booth multiview</option></select><div class="pic"></div><button class="sm quiet">Remove</button></div>
+<div class="route"><div class="out"><b>Nursery</b><small>Relay - Nursery</small></div><span class="arrow">←</span><select><option>Nothing (black)</option></select><div class="pic off"></div><button class="sm quiet">Remove</button></div>
+<div class="gap"><input placeholder="New feed name" style="width:240px" aria-label="New feed name"><button>Add</button><span class="grow"></span><button class="sm">Save current as preset</button></div></div></div>
+<div class="card" style="padding:0"><div style="padding:var(--sp-4) var(--sp-4) 0"><h3>Relay pages as feeds</h3><p class="lede">Caption screens and overlays drawn as video. Overlays keep transparency. Each uses CPU while on.</p></div>
+<div class="outrow"><label class="switch"><input type="checkbox" checked><span class="slider"></span></label><div><b>Screen (Spanish)</b><div class="mono">Relay - Screen (Spanish)</div></div><span class="spill on"><i class="dot ok"></i>Sending · 30 fps</span><span class="cost">22% of a core</span></div>
+<div class="outrow"><label class="switch"><input type="checkbox" checked><span class="slider"></span></label><div><b>Overlay</b> <span class="tag">transparent</span><div class="mono">Relay - Overlay</div></div><span class="spill on"><i class="dot ok"></i>Sending · 30 fps</span><span class="cost">18% of a core</span></div>
+<div class="outrow"><label class="switch"><input type="checkbox"><span class="slider"></span></label><div><b>Screen (Korean)</b><div class="mono">Relay - Screen (Korean)</div></div><span class="muted">Off</span><span></span></div>
+<div class="outrow"><span></span><span class="muted">Size and rate for all page feeds</span><select><option>1280 × 720</option><option>1920 × 1080</option></select><select><option>30 fps</option><option>15 fps</option></select></div></div>
+</div></div>
+
+<!-- SETUP -->
+<div class="pane" id="setup"><div class="stack">
+<div class="card"><h3>Finding sources</h3><p class="lede">Leave this alone unless a source is missing. NDI finds sources on the same network by itself.</p>
+<div class="setrow"><span>Find sources on this network by themselves<small>Multicast DNS. Does not cross VLANs.</small></span><label class="switch"><input type="checkbox" checked><span class="slider"></span></label></div>
+<div class="form" style="margin-top:var(--sp-3)"><div class="field"><label>Discovery server</label><input placeholder="192.168.1.20"><span class="hint">From NDI Tools, on an always-on computer. Needs a Relay restart.</span></div><div class="field"><label>Extra addresses</label><input placeholder="192.168.20.5"><span class="hint">Machines on another VLAN.</span></div><div class="field"><label>Groups</label><input placeholder="All groups"><span class="hint">Only if your sources use NDI groups.</span></div></div>
+<div class="ctl" style="margin-top:var(--sp-3)"><button class="primary">Save</button></div></div>
+<div class="card"><h3>Browser picture quality</h3><p class="lede">For Watch pages and multiviews. Lower these if Relay's computer is busy.</p>
+<div class="form"><div class="field"><label>Smoothness</label><div class="seg"><button>Low (10 fps)</button><button class="on">Normal (15)</button><button>Smooth (30)</button></div></div><div class="field"><label>Sharpness</label><div class="seg"><button>Low</button><button class="on">Normal</button><button>High</button></div></div></div></div>
+</div></div>
+</div>
+<nav class="mocknav"><a href="index.html">Index</a><a href="a-tabs.html">A</a><a href="b-flow.html" aria-current="page">B</a><a href="c-sources.html">C</a></nav>
+<script>
+function go(p){document.querySelectorAll('#tabs button').forEach(function(x){x.classList.toggle('on',x.dataset.p===p)});document.querySelectorAll('.pane').forEach(function(x){x.classList.toggle('on',x.id===p)});}
+document.getElementById('tabs').addEventListener('click',function(e){var b=e.target.closest('button');if(b)go(b.dataset.p);});
+document.querySelectorAll('.stage').forEach(function(s){s.onclick=function(){go(s.dataset.go)}});
+document.addEventListener('click',function(e){var o=e.target.closest('.seg button,.subtabs button,.canvas .pic');if(!o)return;var pic=o.classList.contains('pic');o.parentNode.querySelectorAll(pic?'.pic':'button').forEach(function(x){x.classList.toggle(pic?'sel':'on',x===o)});});
+</script></body></html>

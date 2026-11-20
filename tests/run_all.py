@@ -47,6 +47,7 @@ def command(path: Path, coverage: bool) -> list[str]:
 def run(path: Path, coverage: bool, timeout: float) -> dict:
     tmp = tempfile.mkdtemp(prefix=f"relay-{path.stem}-")
     env = dict(os.environ, TMPDIR=tmp, TEMP=tmp, TMP=tmp, PYTHONUNBUFFERED="1")
+    env.setdefault("RELAY_KEY_STORE", "file")      # never the developer's Keychain (app/secretbox.py)
     start = time.monotonic()
     try:
         proc = subprocess.run(command(path, coverage), cwd=ROOT, env=env, capture_output=True, text=True,
@@ -60,6 +61,11 @@ def run(path: Path, coverage: bool, timeout: float) -> dict:
         shutil.rmtree(tmp, ignore_errors=True)
     skipped = code == 0 and any(line.startswith(SKIP_MARK) for line in out.splitlines())
     return {"path": path, "code": code, "out": out, "secs": time.monotonic() - start, "skipped": skipped}
+
+
+# Files that pace a fake device in real time (a 5 ms tick, a 10 ms feed). Run beside seven other test processes on a CI
+# runner they are starved by the scheduler and fail for it, not for a fault, so they run alone, after the rest.
+ALONE = {"test_audiobus.py"}
 
 
 def junit(results: list[dict], dest: str) -> None:
@@ -89,15 +95,22 @@ def main(argv: list[str] | None = None) -> int:
         print("no test files match")
         return 1
     results = []
+
+    def report(r):
+        results.append(r)
+        state = "skip" if r["skipped"] else ("ok  " if r["code"] == 0 else "FAIL")
+        print(f"{state} {r['secs']:6.1f}s  {r['path'].relative_to(ROOT)}", flush=True)
+        if args.v or r["code"]:
+            print("\n".join("    " + line for line in r["out"].rstrip().splitlines()), flush=True)
+
+    together = [p for p in todo if p.name not in ALONE]
     with cf.ThreadPoolExecutor(max_workers=max(1, args.j)) as pool:
-        futures = [pool.submit(run, p, args.coverage, args.timeout) for p in todo]
+        futures = [pool.submit(run, p, args.coverage, args.timeout) for p in together]
         for fut in cf.as_completed(futures):
-            r = fut.result()
-            results.append(r)
-            state = "skip" if r["skipped"] else ("ok  " if r["code"] == 0 else "FAIL")
-            print(f"{state} {r['secs']:6.1f}s  {r['path'].relative_to(ROOT)}", flush=True)
-            if args.v or r["code"]:
-                print("\n".join("    " + line for line in r["out"].rstrip().splitlines()), flush=True)
+            report(fut.result())
+    for p in todo:
+        if p.name in ALONE:
+            report(run(p, args.coverage, args.timeout))
 
     results.sort(key=lambda r: r["path"].name)
     if args.junit:

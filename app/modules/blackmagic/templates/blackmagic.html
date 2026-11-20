@@ -1,0 +1,122 @@
+{# The Blackmagic admin page, rendered inside admin.html only while the module is on. Tabs: the rack (front and back
+   of every device, drawn), the wiring between them, every connector with its note, and finding and adding gear. #}
+    <h2 class="title">Blackmagic <span class="sumstate" id="bmSum"></span></h2>
+    <div class="note err" id="bmErr" hidden></div>
+    <div class="note warn" id="bmWarn" hidden></div>
+
+    <div class="tabs" role="tablist" id="bmTabs">
+      <button type="button" role="tab" data-bmtab="rack" aria-selected="true">Rack</button>
+      <button type="button" role="tab" data-bmtab="wiring" aria-selected="false">Wiring</button>
+      <button type="button" role="tab" data-bmtab="ports" aria-selected="false">Ports and notes</button>
+      <button type="button" role="tab" data-bmtab="find" aria-selected="false">Find and add</button>
+    </div>
+
+    <div class="bmpane on" id="bmPaneRack" role="tabpanel">
+      <div class="bmsplit">
+        <div class="bmstack">
+          <section class="bmbetween">
+            <div><b>Booth rack</b> <span class="muted">Drawn in the order set in Find and add. Click a unit to control it; turn the rack round to see the cabling.</span></div>
+            <div class="seg bmface" id="bmFace"><button type="button" data-face="front" aria-pressed="true">Front</button><button type="button" data-face="back" aria-pressed="false">Back</button></div>
+          </section>
+          <div class="bmlegend" id="bmLegend"></div>
+          <div class="bmflip" id="bmFlip"><div class="bmrack" id="bmRack"></div></div>
+        </div>
+        <div class="bmstack bmdrawer" id="bmDrawer"></div>
+      </div>
+    </div>
+
+    <div class="bmpane" id="bmPaneWiring" role="tabpanel">
+      <div class="bmsplit">
+        <section>
+          <div class="bmbetween" style="margin-bottom:var(--sp-3)">
+            <div><h3 style="margin:0">Back panels and cables</h3><span class="muted">Green: in use now. Red: what is on program. Hover a connector to follow its cable.</span></div>
+            <button type="button" class="sm" id="bmAddCable">Add a cable</button>
+          </div>
+          <p class="note" id="bmCableNote" hidden></p>
+          <div class="bmwiring" id="bmWire"></div>
+        </section>
+        <div class="bmstack bmdrawer">
+          <section id="bmWireInsp"></section>
+          <section><h4>On air now</h4><div class="bmchain" id="bmChain"></div></section>
+          <section><h4>How cables get here</h4>
+            <p class="hint" style="margin-top:0">Relay cannot see a cable. It suggests one when a Videohub output's label names a switcher input (like "ATEM 1", or the input's own name), and you confirm it; or press Add a cable and click its two ends.</p>
+            <div class="bmgap" id="bmSuggest"></div>
+          </section>
+        </div>
+      </div>
+    </div>
+
+    <div class="bmpane" id="bmPanePorts" role="tabpanel">
+      <section>
+        <h3>Every connector</h3>
+        <p class="note">One row per connector. Labels and what is on it now come from the device; the note is yours, for the next volunteer who has to trace a cable.</p>
+        <div class="bmgap" style="margin-bottom:var(--sp-3)">
+          <select id="bmPortDev" aria-label="Device"></select>
+          <label class="chk chk-inline"><input type="checkbox" id="bmPortUsed" checked> Only connectors in use</label>
+        </div>
+        <div class="tablescroll"><table class="dt bmports"><thead><tr><th>Device</th><th>Connector</th><th>Label on the device</th><th>Signal</th><th>Now</th><th style="width:30%">Note</th></tr></thead><tbody id="bmPortRows"></tbody></table></div>
+        <div class="ctl"><button type="button" class="primary" id="bmSaveNotes">Save notes</button><span class="muted">Notes are kept with the device, so they survive a new address.</span></div>
+      </section>
+    </div>
+
+    <div class="bmpane" id="bmPaneFind" role="tabpanel">
+      <section id="bmOrder">
+        <h3>Units in this rack</h3>
+        <p class="note">The order here is the order the rack is drawn in. A desktop switcher sits on the shelf below the rack unless you move it.</p>
+        <div class="tablescroll"><table class="dt"><thead><tr><th></th><th>Name</th><th>Model</th><th>Address</th><th>Where</th><th></th></tr></thead><tbody id="bmOrderRows"></tbody></table></div>
+        <p class="note" id="bmNone">No devices yet. Find one on the network, or add it by its address.</p>
+        <div class="ctl" id="bmAddBtns"><button type="button" class="primary" id="bmShowFind">Scan the network</button><button type="button" id="bmShowAdd">Add by address</button></div>
+      </section>
+
+      <section id="bmFind" hidden>
+        <h3>Find on the network</h3>
+        <p class="note">Lists Blackmagic gear that announces itself on this network: switchers, HyperDecks, Videohubs,
+          cameras and more. Relay picks the drawing from the model each one reports.</p>
+        <div class="ctl" style="display:flex;gap:12px;align-items:center;flex-wrap:wrap">
+          <button type="button" class="primary" id="bmScan">Scan</button>
+          <label class="chk chk-inline"><input type="checkbox" id="bmProbe"> Also try every address on this subnet (finds ATEM switchers only)</label>
+        </div>
+        <p class="note" id="bmScanNote" hidden></p>
+        <div class="tablescroll"><table id="bmFound" hidden>
+          <thead><tr><th>Device</th><th>Kind</th><th>Address</th><th>Firmware</th><th></th></tr></thead>
+          <tbody></tbody>
+        </table></div>
+      </section>
+
+      <section id="bmAdd" hidden>
+        <h3>Add by address</h3>
+        <p class="note">For a device the scan does not find, for example on another VLAN. Relay joins each device as one
+          more control app and reconnects by itself. An ATEM Constellation also has a Videohub inside it: add it again
+          as a Videohub, by its address, to route it.</p>
+        <div class="row">
+          <div class="field">
+            <label for="bmKind">Kind</label>
+            <select id="bmKind">
+              <option value="atem">ATEM switcher</option>
+              <option value="hyperdeck">HyperDeck recorder</option>
+              <option value="videohub">Videohub router</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="bmName">Name</label>
+            <input id="bmName" placeholder="Main room" autocomplete="off" maxlength="40">
+          </div>
+          <div class="field">
+            <label for="bmHost">Address</label>
+            <input id="bmHost" placeholder="192.168.1.240" autocomplete="off" spellcheck="false" maxlength="253">
+          </div>
+          <div class="field">
+            <label for="bmPort">Port</label>
+            <input id="bmPort" type="number" min="1" max="65535" value="9910">
+          </div>
+        </div>
+        <div class="ctl"><button type="button" class="primary" id="bmAddBtn">Add device</button></div>
+      </section>
+
+      <section>
+        <h3>Models Relay can draw</h3>
+        <p class="note">Relay picks the drawing from the model each device reports; change it in a device's Settings. A
+          model Relay does not know yet is drawn as the nearest panel of its kind, and still connects.</p>
+        <div class="bmmodels" id="bmModels"></div>
+      </section>
+    </div>

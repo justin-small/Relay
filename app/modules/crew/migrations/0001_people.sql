@@ -6,7 +6,7 @@
 create table crew_profiles (
     user_id         integer primary key references users (id) on delete cascade,
     role            text not null default '',
-    pc_person       text unique,
+    pc_person       text unique,   -- allow-shared: as it was made; 0010 moved it to core's person_links
     pc_name         text,
     suggested_name  text,
     dismissed_name  text,

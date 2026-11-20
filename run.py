@@ -10,6 +10,9 @@ The panel carries the OpenAI key and every account, so it is never served in cle
 speaks TLS (app/tls.py), and admin routes are refused on the viewer port (`_split_admin_port` in
 app/main.py), so the link handed to a room cannot reach the panel.
 
+Which addresses each socket binds follows the traffic routes (app/netroute.py): with none set, every interface as
+below; with "crew" or "viewers" routed to a network port, that port's address and 127.0.0.1 only (app/serving.py).
+
 Modules may add plain-HTTP ports of their own (`Listener`, app/modules/__init__.py), such as signage screens on
 8090: one is opened for each listener of a module that is on, and only that module's routes answer on it. One that
 cannot be opened is a notice on the admin page, not a reason to stop.
@@ -42,11 +45,15 @@ def _print_identity(info, viewer_port: int, admin_port: int, fqdn: str) -> None:
     print()
 
 
+def _hosts(group) -> str:
+    return ", ".join(group.socks)
+
+
 def _module_listeners(host: str, cfg: dict, taken: set[int]):
-    """Open the plain-HTTP ports of the modules that are on. Returns (sockets, lines to print)."""
+    """Open the plain-HTTP ports of the modules that are on. Returns (groups, lines to print)."""
     from app.modules import modules
 
-    socks, lines, published = [], [], {}
+    groups, lines, published = [], [], {}
     for mod, lst, port in modules.listeners(cfg):
         what = f"{mod.manifest.name} ({lst.label})"
         if port in taken:
@@ -54,16 +61,16 @@ def _module_listeners(host: str, cfg: dict, taken: set[int]):
                                f"Choose another port in its settings and restart Relay.")
             continue
         try:
-            sock, bound, _ = serving.listen(host, port, what)
+            group = serving.listen_group(f"{mod.manifest.id}.{lst.name}", what, lst.traffic, host, port)
         except SystemExit as exc:
             serving.add_notice(f"{exc} Choose another port in its settings and restart Relay.")
             continue
-        taken.add(bound)
-        socks.append(sock)
-        published[bound] = lst.prefixes
-        lines.append(f"{what} -> http://{host}:{bound}   (plain HTTP)")
+        taken.add(group.port)
+        groups.append(group)
+        published[group.port] = lst.prefixes
+        lines.append(f"{what} -> http://{_hosts(group)} port {group.port}   (plain HTTP)")
     serving.publish_listeners(published)
-    return socks, lines
+    return groups, lines
 
 
 def main() -> None:
@@ -76,19 +83,21 @@ def main() -> None:
         return
 
     host, admin_host = cfg["host"], cfg["admin_host"]
-    viewer_sock, viewer_port, note1 = serving.listen(host, int(cfg["port"]), "viewer pages")
+    viewers = serving.listen_group("viewers", "viewer pages", "viewers", host, int(cfg["port"]))
     try:
-        admin_sock, admin_port, note2 = serving.listen(admin_host, int(cfg["admin_port"]), "operator panel")
+        panel = serving.listen_group("panel", "operator panel", "crew", admin_host, int(cfg["admin_port"]), secure=True)
     except SystemExit:
-        viewer_sock.close()
+        for sock in viewers.socks.values():
+            sock.close()
         raise
-    notes = [n for n in (note1, note2) if n]
-    serving.publish(viewer_port, admin_port, notes)
-    extra_socks, extra_lines = _module_listeners(host, cfg, {viewer_port, admin_port})
+    viewer_port, admin_port = viewers.port, panel.port
+    serving.publish(viewer_port, admin_port, [])
+    extra_groups, extra_lines = _module_listeners(host, cfg, {viewer_port, admin_port})
+    serving.publish_groups([viewers, panel, *extra_groups])
 
     info = tls.panel.start(cfg["admin_fqdn"])
-    print(f"Viewer pages   -> http://{host}:{viewer_port}   (plain HTTP)")
-    print(f"Operator panel -> https://{admin_host}:{admin_port}   (HTTPS, self-signed)")
+    print(f"Viewer pages   -> http://{_hosts(viewers)} port {viewer_port}   (plain HTTP)")
+    print(f"Operator panel -> https://{_hosts(panel)} port {admin_port}   (HTTPS, self-signed)")
     for line in extra_lines:
         print(line)
     for n in serving.notices():
@@ -105,12 +114,12 @@ def main() -> None:
         sidecar.emit("ready", viewer_port=viewer_port, admin_port=admin_port, fingerprint=info.fingerprint,
                      version=os.environ.get("RELAY_VERSION") or "dev", pid=os.getpid(), ips=list(info.ips))
 
-    plain = [viewer_sock] + extra_socks
-    server = serving.make_server("app.main:app", plain, [admin_sock], tls.panel.context, on_ready=ready)
+    all_groups = serving.groups()
+    server = serving.make_server("app.main:app", [], [], tls.panel.context, on_ready=ready, groups=all_groups)
     if sidecar.enabled():
         # The desktop shell owns this process: `quit` or its pipe closing is a graceful stop (app/sidecar.py).
         sidecar.watch_parent(lambda: setattr(server, "should_exit", True))
-    server.run(sockets=plain + [admin_sock])
+    server.run(sockets=[s for g in all_groups for s in g.socks.values()])
 
 
 if __name__ == "__main__":

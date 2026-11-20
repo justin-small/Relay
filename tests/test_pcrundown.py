@@ -40,6 +40,11 @@ def at(h, m=0, s=0):
     return datetime(2026, 11, 15, h, m, s, tzinfo=NY).timestamp()
 
 
+# The fixture plan is on 15 November 2026, so the real clock must not decide whether it is live: it did, once that
+# day's service hours had passed. Run the whole file at 9:30 on the morning of the plan.
+rundown.utcnow = lambda: at(9, 30)
+
+
 def hm(ts):
     return None if ts is None else datetime.fromtimestamp(ts, NY).strftime("%H:%M")
 
@@ -93,7 +98,7 @@ eq("team names from the include", [m["team"] for m in team], ["Vocals", "Band", 
 eq("times: listed, unsaid (None) and none", [m["times"] for m in team], [["900"], None, []])
 eq("only an https photo is kept", [m["photo"] for m in team], ["https://avatars.example/sarah.jpg", "", ""])
 eq("needed positions", fake.needed_positions("7", "700"),
-   [{"team": "Band", "position": "Bass", "quantity": 2, "time": None}])
+   [{"team": "Band", "team_id": "t2", "position": "Bass", "quantity": 2, "time": None}])
 
 # -- settings -----------------------------------------------------------------------------------------------------
 print("settings")
@@ -259,7 +264,7 @@ owner = _db.client(app, role="owner")
 r = viewer_role.get("/api/admin/planning-center/rundown")
 check("a viewer may look at the rundown in admin", r.status_code == 200 and r.json()["rundown"]["plan"]["id"] == "700")
 check("...with every team and position for the mic map",
-      {"team": "Band", "position": "Bass"} in r.json()["positions"])
+      {"team": "Band", "position": "Bass", "team_ref": "", "position_ref": ""} in r.json()["positions"])
 eq("a viewer may not change the settings",
    viewer_role.post("/api/admin/planning-center/rundown/settings", json={"screen": True}).status_code, 403)
 eq("an operator may not either", operator.post("/api/admin/planning-center/rundown/settings",
@@ -287,6 +292,70 @@ r = operator.post("/api/admin/planning-center/rundown/redraw", json={"type": "7"
 check("an operator may redraw", r.status_code == 200)
 check("...and the redraw keeps the other positions' draws",
       "700:900:Vocals|Worship Leader" in config.get()["planning_center"]["rundown"]["draws"])
+
+# -- channels: soundboard inputs assigned to positions of any service type -----------------------------------------
+print("channels")
+ch = rundown.clean_channels([
+    {"id": "a", "number": "03", "name": "Vocal 1", "positions": [
+        {"service_type": "7", "team": "Vocals", "position": "Vocals"},
+        {"service_type": "7", "team": "Vocals", "position": "Vocals"},          # a repeat: dropped
+        {"service_type": "8", "team": "Youth", "position": "Vocals"},
+        {"service_type": "", "team": "Vocals", "position": "Vocals"}]},        # no service type: dropped
+    {"id": "a", "number": "04", "name": "Same id"},                             # a repeated id: dropped
+    {"number": "", "name": ""},                                                 # nothing to show: dropped
+    {"id": "b", "number": "04", "name": "Vocal 2", "positions": [{"service_type": "7", "team": "Vocals", "position": "Vocals"}]},
+    "junk"])
+eq("channels cleaned: repeats and empty ones dropped", [(c["id"], len(c["positions"])) for c in ch], [("a", 2), ("b", 1)])
+eq("a channel's label is its number", rundown.channel_label({"number": "03", "name": "Vocal 1"}), "03")
+eq("...else the start of its name", rundown.channel_label({"number": "", "name": "A very long channel name"}), "A very long")
+rs_ch = rundown.clean_rundown({"channels": ch})
+eq("a service type gets only the channels assigned to it",
+   [(m["position"], m["mics"], m["names"]) for m in rundown.effective_mics(rs_ch, "7")],
+   [("Vocals", ["03", "04"], {"03": "Vocal 1", "04": "Vocal 2"})])
+eq("...so another type's position has just its own", [m["mics"] for m in rundown.effective_mics(rs_ch, "8")], [["03"]])
+eq("...and a type with none has none", rundown.effective_mics(rs_ch, "9"), [])
+old = rundown.clean_rundown({"mics": [{"team": "Vocals", "position": "Vocals", "mics": ["09"]}], "channels": ch})
+eq("an older per-position list still counts and is not doubled",
+   [(m["position"], m["mics"]) for m in rundown.effective_mics(old, "7")], [("Vocals", ["09"])])
+ch_settings = {"rundown": rundown.clean_rundown({"channels": [
+    {"id": "w", "number": "01", "name": "Ana Vox", "positions": [{"service_type": "7", "team": "Vocals", "position": "Worship Leader"}]},
+    {"id": "v1", "number": "03", "name": "Vocal 1", "positions": [{"service_type": "7", "team": "Vocals", "position": "Vocals"}]},
+    {"id": "v2", "number": "04", "name": "Vocal 2", "positions": [{"service_type": "7", "team": "Vocals", "position": "Vocals"}]}]})}
+cmsg, cdraws = rundown.build(tr, ch_settings, now, NY, rng=random.Random(3))
+eq("a position's people take its channels' labels", sorted(c["mic"] for c in cmsg["mics"]), ["01", "03", "04"])
+eq("a mic on the rundown carries its channel's name", {c["mic"]: c["label"] for c in cmsg["mics"]}["01"], "Ana Vox")
+ref_settings = {"rundown": rundown.clean_rundown({"channels": [
+    {"id": "v1", "number": "03", "name": "Vocal 1", "channel_ref": "channel:relay:5",
+     "positions": [{"service_type": "7", "team": "Vocals", "position": "Vocals"}]},
+    {"id": "v2", "number": "04", "name": "Vocal 2", "positions": [{"service_type": "7", "team": "Vocals", "position": "Vocals"}]}]})}
+rmsg, _ = rundown.build(tr, ref_settings, now, NY, rng=random.Random(3))
+eq("a mic names the core input channel it sits on (#546), so a soundboard can show who holds it",
+   {c["mic"]: c["channel_ref"] for c in rmsg["mics"]}, {"03": "channel:relay:5", "04": ""})
+also_settings = {"rundown": rundown.clean_rundown({"channels": [
+    {"id": "v1", "number": "03", "name": "Vocal 1", "channel_ref": "channel:relay:5",
+     "also_refs": ["channel:relay:6", "channel:relay:5", "junk", "channel:relay:7"],
+     "positions": [{"service_type": "7", "team": "Vocals", "position": "Vocals"}]}]})}
+eq("an entry keeps its further input channels, without repeats or junk (#546)",
+   also_settings["rundown"]["channels"][0]["also_refs"], ["channel:relay:6", "channel:relay:7"])
+eq("an entry with no first channel keeps none", rundown.clean_rundown({"channels": [
+    {"id": "x", "name": "Spare", "also_refs": ["channel:relay:6"], "positions": []}]})["channels"][0]["also_refs"], [])
+amsg, _ = rundown.build(tr, also_settings, now, NY, rng=random.Random(3))
+mic = amsg["mics"][0]
+eq("the mic lists every input channel of its entry", mic["channel_refs"], ["channel:relay:5", "channel:relay:6", "channel:relay:7"])
+check("its holder is on one of them", mic["channel_ref"] in mic["channel_refs"], mic["channel_ref"])
+again, _ = rundown.build(tr, also_settings, now, NY, rng=random.Random(99))
+eq("and stays on it for the service time", again["mics"][0]["channel_ref"], mic["channel_ref"])
+picks = {rundown.pick_ref(["a", "b", "c"], f"seed{i}") for i in range(40)}
+eq("different holders are spread over the channels", picks, {"a", "b", "c"})
+eq("one channel is that channel", (rundown.pick_ref(["a"], "s"), rundown.pick_ref([], "s"), rundown.pick_ref("x", "s")), ("a", "", "x"))
+eq("the worship leader holds the leader's channel", {c["mic"]: (c["person"] or {}).get("name") for c in cmsg["mics"]}["01"], "Sarah Lee")
+r = owner.post("/api/admin/planning-center/rundown/settings", json={"channels": ch})
+check("the owner saves the channels", r.status_code == 200 and [c["id"] for c in r.json()["settings"]["channels"]] == ["a", "b"])
+eq("channels must be a list", owner.post("/api/admin/planning-center/rundown/settings", json={"channels": "x"}).status_code, 400)
+eq("an operator may not change them", operator.post("/api/admin/planning-center/rundown/settings", json={"channels": []}).status_code, 403)
+r = viewer_role.get("/api/admin/planning-center/rundown")
+check("the admin read lists positions with their service types and the channel catalog",
+      {"service_type": "7", "team": "Band", "position": "Bass", "team_ref": "", "position_ref": ""} in r.json()["type_positions"] and r.json()["catalog"] == [])
 
 
 class LiveFake(pc.Client):

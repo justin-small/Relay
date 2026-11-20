@@ -1519,9 +1519,11 @@ async def scenario_tags():
               await until(lambda: fired[-1:] == [("capture-start", None)], 4), fired)
         check("an unknown action is a warning, not an action",
               any("Unknown action" in w for w in st.tags.seen["warnings"]), st.tags.seen["warnings"])
-        eq("the slide's tags and what it resolved to are shown",
-           (st.tags.seen["slide_tags"], st.tags.seen["resolved"], st.tags.seen["slide"]),
-           (["capture-start"], ["capture-start"], 3))
+        # The notes (status/slide) and the slide number (presentation/slide_index) are separate streams, so under
+        # load the action can fire on the notes before the number catches up; what is shown settles once it does.
+        shown = lambda: (st.tags.seen["slide_tags"], st.tags.seen["resolved"], st.tags.seen["slide"])  # noqa: E731
+        await until(lambda: shown() == (["capture-start"], ["capture-start"], 3), 4)
+        eq("the slide's tags and what it resolved to are shown", shown(), (["capture-start"], ["capture-start"], 3))
         fake.index = 3
         check("a slide with none falls back to the deck's: the set changed, so it runs",
               await until(lambda: fired[-1:] == [("lyrics", None)], 4), fired)
@@ -1529,15 +1531,18 @@ async def scenario_tags():
         eq("what fired is listed for admin, newest first",
            [(r["action"], r["ok"]) for r in st.tags.history][:2], [("lyrics", True), ("capture-start", True)])
 
-        # a fast run
+        # a fast run. The settle time is well past the 0.12 s between slides: at 0.4 s a loaded machine (Windows CI,
+        # the full suite in parallel) can stall long enough between two updates for a slide in the middle to fire.
+        configure(srv, tags={"enabled": True, "settle_s": 1.5})
         fired.clear()
         fake.notes = {i: f"[relay:alert=Slide {i}]" for i in range(4)}
         for i in (0, 1, 2, 3, 0, 1, 2):
             fake.index = i
             await asyncio.sleep(0.12)
-        await until(lambda: fired, 3)
-        await asyncio.sleep(0.5)
+        await until(lambda: fired, 6)
+        await asyncio.sleep(1.8)
         eq("a fast run of slides fires once, for the slide it stopped on", fired, [("alert", "Slide 2")])
+        configure(srv, tags={"enabled": True, "settle_s": 0.4})
 
         # read-only toward ProPresenter, view-only does not stop Relay-side actions, ProPresenter's capture is never called
         writes = [r for r in fake.requests if r[0] != "GET"]

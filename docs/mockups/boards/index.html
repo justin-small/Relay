@@ -1,0 +1,750 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Relay · Boards and layout editor (mockup)</title>
+<!-- Mockup for #421 (shared layout editor in core) and #156 (boards). One editor engine (LayoutEditor) and one
+     renderer (renderItem) drive both the boards and the lighting cue pages, the way the real build will share
+     app/static/layout-editor.js and app/static/layout-render.js. Sample data only; nothing is saved. -->
+<style>
+:root{--bg:#09090b;--fg:#fafafa;--muted:#a1a1aa;--faint:#71717a;--card:#111113;--border:#27272a;--primary:#4ade80;--primary-fg:#052e16;--sb:#0c0c0e;--hover:color-mix(in srgb,#4ade80 14%,transparent);--ok:#4ade80;--warn:#fbbf24;--err:#f87171;--info:#60a5fa;--r:10px;--font:ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif}
+*{box-sizing:border-box}
+body{margin:0;background:var(--sb);color:var(--fg);font:14px/1.45 var(--font)}
+button,input,select,textarea{font:inherit;color:inherit}
+:focus-visible{outline:none;box-shadow:0 0 0 3px color-mix(in srgb,var(--primary) 50%,transparent)}
+header.top{display:flex;align-items:center;gap:16px;padding:10px 16px;border-bottom:1px solid var(--border);position:sticky;top:0;background:var(--sb);z-index:30;flex-wrap:wrap}
+header.top b{font-size:15px}
+.tabs{display:flex;gap:4px;flex-wrap:wrap}
+.tabs button{height:32px;padding:0 12px;border:1px solid transparent;border-radius:8px;background:none;cursor:pointer;color:var(--muted)}
+.tabs button[aria-selected=true]{background:var(--hover);color:var(--primary);border-color:color-mix(in srgb,var(--primary) 35%,transparent)}
+main{padding:20px 16px 60px;max-width:1280px;margin:0 auto}
+section.screen{display:none}section.screen.on{display:block}
+h2{margin:0 0 4px;font-size:20px}
+.sub{color:var(--muted);margin:0 0 16px;max-width:820px}
+.card{background:var(--card);border:1px solid var(--border);border-radius:var(--r);padding:16px}
+.btn{height:32px;padding:0 12px;border:1px solid var(--border);border-radius:8px;background:var(--bg);cursor:pointer;display:inline-flex;align-items:center;gap:6px;white-space:nowrap}
+.btn:hover{border-color:var(--muted)}
+.btn.pri{background:var(--primary);color:var(--primary-fg);border-color:var(--primary);font-weight:500}
+.btn.ghost{background:none;border-color:transparent}
+.btn.danger{color:var(--err)}
+.btn:disabled{opacity:.4;cursor:default}
+.badge{font-size:11px;padding:2px 7px;border-radius:999px;border:1px solid var(--border);color:var(--muted);white-space:nowrap}
+.badge.ok{color:var(--ok);border-color:color-mix(in srgb,var(--ok) 40%,transparent)}
+.badge.info{color:var(--info);border-color:color-mix(in srgb,var(--info) 40%,transparent)}
+.note{color:var(--muted);font-size:13px}
+.decide{border-left:3px solid var(--warn);padding:8px 12px;background:color-mix(in srgb,var(--warn) 8%,transparent);border-radius:0 8px 8px 0;font-size:13px;margin:12px 0;max-width:820px}
+.decide b{color:var(--warn)}
+table{width:100%;border-collapse:collapse}
+th,td{text-align:left;padding:10px 8px;border-bottom:1px solid var(--border);vertical-align:middle}
+th{font-weight:500;color:var(--muted);font-size:12px}
+td code{font-size:12px;color:var(--info)}
+.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.spacer{flex:1}
+
+/* ---------- browser / tablet frames ---------- */
+.frame{border:1px solid var(--border);border-radius:12px;overflow:hidden;background:#000}
+.frame .bar{display:flex;align-items:center;gap:8px;padding:6px 10px;background:#18181b;border-bottom:1px solid var(--border);font-size:12px;color:var(--muted)}
+.frame .bar .url{flex:1;background:#09090b;border-radius:6px;padding:3px 10px;font-family:ui-monospace,monospace}
+.dots{display:flex;gap:5px}.dots i{width:9px;height:9px;border-radius:50%;background:#3f3f46}
+.tablet{border:10px solid #1f1f23;border-radius:22px;background:#000;overflow:hidden}
+
+/* ---------- the shared editor ---------- */
+.le{display:flex;flex-direction:column;gap:0;position:relative}
+.le-tools{display:flex;gap:6px;align-items:center;flex-wrap:wrap;padding:8px;background:#18181b;border-bottom:1px solid var(--border)}
+.le-tools .name{font-weight:600;padding:0 6px}
+.le-tools select{height:32px;background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:0 6px}
+.le-body{display:flex;position:relative;overflow:hidden;background:#000}
+.le-stage{flex:1;min-width:0;padding:12px;display:block}
+.lgrid{position:relative;display:grid;gap:var(--gap,10px);width:100%;margin:0 auto;contain:size}
+#boardHost .lgrid{max-width:calc((100vh - 190px) * 16 / 9)}
+.gcell{border:1px dashed #ffffff14;border-radius:6px;pointer-events:none}
+.lgrid.nolines .gcell{border-color:transparent}
+.le:not(.editing) .gcell{border-color:transparent}
+.li{position:relative;min-width:0;min-height:0;display:flex;z-index:1;touch-action:none}
+.le.editing .li{cursor:grab}
+.le.editing .li.drag{cursor:grabbing;opacity:.85;z-index:5}
+.li.sel{z-index:4}
+.li.sel::after{content:"";position:absolute;inset:-3px;border:2px solid var(--primary);border-radius:8px;pointer-events:none}
+.li.bad::after{border-color:var(--err)}
+.h{position:absolute;width:12px;height:12px;background:var(--primary);border:2px solid #000;border-radius:3px;z-index:6;touch-action:none}
+.h[data-d=n]{top:-8px;left:calc(50% - 6px);cursor:ns-resize}.h[data-d=s]{bottom:-8px;left:calc(50% - 6px);cursor:ns-resize}
+.h[data-d=e]{right:-8px;top:calc(50% - 6px);cursor:ew-resize}.h[data-d=w]{left:-8px;top:calc(50% - 6px);cursor:ew-resize}
+.h[data-d=ne]{top:-8px;right:-8px;cursor:nesw-resize}.h[data-d=sw]{bottom:-8px;left:-8px;cursor:nesw-resize}
+.h[data-d=nw]{top:-8px;left:-8px;cursor:nwse-resize}.h[data-d=se]{bottom:-8px;right:-8px;cursor:nwse-resize}
+.minibar{position:absolute;top:-42px;left:0;display:flex;gap:2px;background:#18181b;border:1px solid var(--border);border-radius:8px;padding:3px;z-index:7;white-space:nowrap}
+.minibar button{height:28px;padding:0 8px;border:0;background:none;border-radius:6px;cursor:pointer;font-size:12px}
+.minibar button:hover{background:var(--hover)}
+.li.top .minibar{top:auto;bottom:-42px}
+.le-tools[hidden],.le-hint[hidden]{display:none}
+.le-pal{position:absolute;top:0;right:0;bottom:0;z-index:9;width:0;overflow:hidden;transition:width .2s ease-out;background:color-mix(in srgb,var(--card) 94%,transparent);backdrop-filter:blur(6px);border-left:1px solid var(--border)}
+.le-pal.open + .editfab{display:none}
+.le.editing .le-stage{padding-right:284px}
+.le.inline .le-stage{padding-right:12px}
+.le.inline .le-body{display:grid;grid-template-columns:minmax(0,1fr) 240px}
+.le.inline .le-pal{position:static;width:auto}
+.le.inline .le-pal .in{width:auto}
+.le-pal.open{width:272px}
+.le-pal .in{width:272px;height:100%;overflow:auto;padding:10px}
+.le-pal input[type=search]{width:100%;height:32px;border:1px solid var(--border);border-radius:8px;background:var(--bg);padding:0 10px;margin-bottom:8px}
+.pcat{font-size:12px;color:var(--muted);margin:12px 0 4px;display:flex;gap:6px;align-items:center}
+.pitem{display:flex;align-items:center;gap:8px;width:100%;padding:8px;border:1px solid var(--border);border-radius:8px;background:var(--bg);margin-bottom:6px;cursor:grab;text-align:left}
+.pitem:hover{border-color:var(--primary)}
+.pitem small{color:var(--faint);margin-left:auto;font-size:11px}
+.pitem .sw{width:14px;height:14px;border-radius:4px;flex:none}
+.le-hint{padding:6px 10px;font-size:12px;color:var(--faint);background:#18181b;border-top:1px solid var(--border)}
+.le-hint kbd{border:1px solid var(--border);border-radius:4px;padding:0 4px;font-size:11px}
+.editfab{position:absolute;right:14px;bottom:14px;z-index:8}
+
+/* ---------- the shared renderer ---------- */
+.lw{flex:1;min-width:0;min-height:0;container-type:size;display:flex;flex-direction:column;overflow:hidden;padding:clamp(6px,1vw,14px) clamp(8px,1.2vw,16px);border:0;text-align:left;position:relative;user-select:none}
+.lw[data-shape=rect]{border-radius:0}.lw[data-shape=rounded]{border-radius:14px}.lw[data-shape=pill]{border-radius:999px;padding-inline:clamp(14px,2vw,28px)}
+.lw[data-shape=circle]{border-radius:50%;flex:none;height:100%;aspect-ratio:1;margin:auto}
+.lw.press{cursor:pointer;align-items:center;justify-content:center;text-align:center;box-shadow:inset 0 -4px 0 #0004;font-weight:650}
+.lw.press .big{font-size:min(30cqh,15cqw);line-height:1.1}
+.lw.press.down,.lw.press:active{filter:none;background:var(--pressed)!important}
+.lw.lit{outline:4px solid #fff;outline-offset:-4px}
+.lw .hd{font-size:max(11px,min(13cqh,6cqw));opacity:.7;display:flex;gap:.4em;align-items:center;font-weight:500;flex:none}
+.lw .ico{width:1.1em;height:1.1em;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;flex:none}
+.lw .bigx{font-size:min(48cqh,20cqw);font-weight:700;line-height:1;margin:auto 0;font-variant-numeric:tabular-nums}
+.lw .cap{margin-top:auto;font-size:min(19cqh,6cqw);line-height:1.25;font-weight:500}
+.lw .cap div{opacity:.55}.lw .cap div:last-child{opacity:1}
+.lw .ln{font-size:max(13px,min(16cqh,7cqw));line-height:1.3}
+.lw .lst{margin-top:4cqh;display:flex;flex-direction:column;gap:2cqh;font-size:min(10cqh,7cqw)}
+.lw .lst .cur{color:var(--primary);font-weight:600}
+.lw .bars{display:flex;flex-direction:column;gap:3cqh;margin-top:auto;font-size:min(11cqh,6cqw)}
+.lw .bars span{display:flex;gap:.5em;align-items:center}
+.lw .bars i{flex:1;height:.55em;border-radius:99px;background:#ffffff22;overflow:hidden}
+.lw .bars i b{display:block;height:100%;background:var(--ok)}
+.lw .air{display:inline-flex;gap:.4em;align-items:center;font-weight:700;color:#fff;background:#dc2626;border-radius:6px;padding:.1em .5em;width:max-content}
+.lw .dot{width:.6em;height:.6em;border-radius:50%;background:var(--ok);display:inline-block}
+.lw .mod{position:absolute;right:6px;top:4px;font-size:10px;opacity:.45}
+
+/* ---------- dialog ---------- */
+dialog{background:var(--card);color:var(--fg);border:1px solid var(--border);border-radius:14px;padding:0;width:min(560px,94vw)}
+dialog::backdrop{background:#000a}
+.dh{display:flex;align-items:center;gap:8px;padding:14px 16px;border-bottom:1px solid var(--border)}
+.dh b{font-size:16px}
+.dtabs{display:flex;gap:4px;padding:8px 16px 0}
+.dtabs button{border:0;background:none;padding:6px 10px;border-bottom:2px solid transparent;cursor:pointer;color:var(--muted)}
+.dtabs button[aria-selected=true]{color:var(--fg);border-color:var(--primary)}
+.db{padding:16px;display:grid;grid-template-columns:1fr 200px;gap:16px}
+.db .fields{display:flex;flex-direction:column;gap:12px}
+.fld label{display:block;font-size:12px;color:var(--muted);margin-bottom:4px}
+.fld input:not([type=color]),.fld select,.fld textarea{width:100%;height:32px;background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:0 8px}
+.fld textarea{height:64px;padding:6px 8px}
+.seg{display:flex;border:1px solid var(--border);border-radius:8px;overflow:hidden}
+.seg button{flex:1;height:30px;border:0;background:var(--bg);cursor:pointer;font-size:12px}
+.seg button[aria-pressed=true]{background:var(--hover);color:var(--primary)}
+.colors{display:flex;gap:10px}
+.colors .fld{flex:1}
+.fld input[type=color]{width:100%;height:32px;border:1px solid var(--border);border-radius:8px;background:var(--bg);padding:2px}
+.prev{display:flex;flex-direction:column;gap:6px}
+.prev .pv{height:120px;display:flex;background:#000;border-radius:8px;padding:8px}
+.df{display:flex;gap:8px;justify-content:flex-end;padding:12px 16px;border-top:1px solid var(--border)}
+
+/* ---------- architecture ---------- */
+.arch{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.box{border:1px solid var(--border);border-radius:10px;padding:12px;background:var(--card)}
+.box h4{margin:0 0 8px;font-size:13px}
+.box ul{margin:0;padding-left:18px;color:var(--muted);font-size:13px}
+.box code{color:var(--info);font-size:12px}
+.box.core{border-color:color-mix(in srgb,var(--primary) 40%,transparent)}
+.split{display:grid;grid-template-columns:minmax(0,1.6fr) minmax(0,1fr);gap:16px;align-items:start}
+@media (max-width:900px){.split,.arch{grid-template-columns:1fr}.db{grid-template-columns:1fr}.le-pal.open{width:220px}.le-pal .in{width:220px}}
+</style>
+</head>
+<body>
+<header class="top">
+  <b>Relay · Boards and layout editor</b><span class="badge info">Mockup · #421 + #156</span>
+  <nav class="tabs" role="tablist" id="tabs"></nav>
+</header>
+<main>
+
+<section class="screen" id="s-list">
+  <h2>Boards</h2>
+  <p class="sub">Admin › Live › Boards. Each board has its own address for a TV or tablet. Anyone signed in to Relay can
+    open a board; a board marked <b>Public</b> opens for anyone on the viewer network. Editing needs <code>boards.manage</code> (Admin).</p>
+  <div class="card">
+    <div class="row" style="margin-bottom:8px">
+      <button class="btn pri" id="newBoard">New board</button><button class="btn">Import…</button>
+      <span class="spacer"></span><span class="note">4 boards</span>
+    </div>
+    <table>
+      <thead><tr><th>Name</th><th>Address</th><th>Who can open it</th><th>Grid</th><th>Changed</th><th></th></tr></thead>
+      <tbody id="boardRows"></tbody>
+    </table>
+  </div>
+  <div class="decide"><b>Decided:</b> boards live in core (<code>app/boards.py</code>, stored in their own file next to config.json);
+    the address is <code>/board/&lt;slug&gt;</code> on the operator port, and on the viewer port only when the board is Public.
+    Export is a <code>.relayboard</code> JSON file; import checks it with the same validator as a save.</div>
+</section>
+
+<section class="screen" id="s-board">
+  <h2>A board, live, and its editor</h2>
+  <p class="sub">The board as a TV shows it. Press <b>Edit</b> (admins only): the palette slides in and the grid appears,
+    while captions, the clock and the stream keep updating underneath. Drag a widget to move it, drag an edge or corner to
+    resize, double-click (or <kbd>Enter</kbd>) for its settings. <b>Save</b> returns to the board.</p>
+  <div class="frame">
+    <div class="bar"><span class="dots"><i></i><i></i><i></i></span><span class="url" id="boardUrl">relay.local/board/lobby</span></div>
+    <div id="boardHost"></div>
+  </div>
+  <div class="decide"><b>Decided:</b> grid with snap. A board picks its columns and rows (default 12 × 8) and its shape
+    (16:9, 4:3, 9:16 portrait); every widget is a whole number of cells, so it lays out the same on any screen size.</div>
+</section>
+
+<section class="screen" id="s-light">
+  <h2>Lighting cue page, on the same editor</h2>
+  <p class="sub">Admin › Lighting › Cue pages. The page's form and preview are replaced by the shared editor. The palette
+    is the cues the lighting program lists (or "Add by id" for Vista and Lightkey); each button gets the shared look:
+    text, shape, colour, text colour, pressed colour, icon. The tablet on the right is <code>/screen?lighting=…</code>,
+    drawn by the same renderer: tap a button to see it press.</p>
+  <div class="split">
+    <div class="card" style="padding:0;overflow:hidden" id="lightHost"></div>
+    <div>
+      <div class="tablet" style="aspect-ratio:4/3;display:flex"><div id="lightScreen" style="flex:1;display:flex;padding:10px"></div></div>
+      <p class="note">Tablet: <code>/screen?lighting=worship&amp;key=…</code> · the outlined button is lit in QLC+.</p>
+    </div>
+  </div>
+  <div class="decide"><b>Decided:</b> lighting pages saved with "Place buttons freely" (percent x/y/w/h) are moved onto the grid once, to the nearest cells, and the free option goes away. One layout model for every user of the editor.</div>
+</section>
+
+<section class="screen" id="s-dialog">
+  <h2>Widget settings</h2>
+  <p class="sub">One dialog for every item. <b>Look</b> is the shared style schema core validates for every user of the
+    editor; <b>Widget</b> is the settings the item's owner (core for boards, the lighting module for cues) supplies and
+    checks. Open it from any item in the editor; here are three to try.</p>
+  <div class="row"><button class="btn" data-demo="cap">Captions widget</button><button class="btn" data-demo="cue">Lighting cue button</button><button class="btn" data-demo="count">Countdown</button></div>
+</section>
+
+<section class="screen" id="s-arch">
+  <h2>How the pieces fit</h2>
+  <p class="sub">Core owns the editor, the renderer and the style rules. A module never gets imported by core: it hands
+    core a list of widgets through a <code>Module</code> method, the same way it feeds the network map.</p>
+  <div class="arch">
+    <div class="box core"><h4>Core · <code>app/layout.py</code></h4><ul>
+      <li><code>clean_style()</code>: label ≤ 60 chars, shape one of 4, colours <code>#rrggbb</code>, icon from a fixed set. Never raw CSS.</li>
+      <li><code>clean_grid()</code>: cols 1–24, rows 1–24, items inside the grid and not overlapping.</li>
+      <li>Used by boards and by the lighting module for its cue pages.</li></ul></div>
+    <div class="box core"><h4>Core · <code>app/static/layout-editor.js</code> + <code>layout-render.js</code></h4><ul>
+      <li><code>RelayLayout.edit(root, {grid, items, palette, settings, onSave})</code></li>
+      <li><code>RelayLayout.render(item, kind)</code>: one drawing for the editor, boards and <code>/screen</code>.</li>
+      <li>Pointer and touch drag, edge and corner resize, keyboard, undo/redo.</li></ul></div>
+    <div class="box core"><h4>Core · <code>app/boards.py</code> + <code>/board/&lt;slug&gt;</code></h4><ul>
+      <li>Board store, create / duplicate / delete / export / import, <code>boards.view</code> / <code>boards.manage</code>.</li>
+      <li>Core widgets: captions per language, now/next, countdown, alerts, status, clock, text, board link.</li>
+      <li>Feeds come from existing streams (<code>/stream</code>, alerts, status).</li></ul></div>
+    <div class="box"><h4>Modules · <code>Module.board_widgets()</code></h4><ul>
+      <li>Lighting: cue button (pressable). OBS: stream status, program scene. ProPresenter: current slide. Planning Center: service order.</li>
+      <li>Each widget: id, name, category, default size, settings fields, and a data feed it publishes.</li>
+      <li>Module off → its widgets leave the palette, and on a board they show "Lighting is off".</li></ul></div>
+  </div>
+</section>
+</main>
+
+<dialog id="dlg"></dialog>
+
+<script>
+(function () {
+'use strict';
+/* ---------------------------------------------------------------- sample data */
+const ICONS = { none: '', light: 'M9 18h6M10 21h4M12 3a6 6 0 0 0-4 10.5c.7.7 1 1.5 1 2.5h6c0-1 .3-1.8 1-2.5A6 6 0 0 0 12 3z',
+  mic: 'M12 3a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V6a3 3 0 0 0-3-3zM5 11a7 7 0 0 0 14 0M12 18v3', cam: 'M3 7h12v10H3zM15 10l6-3v10l-6-3',
+  star: 'M12 3l2.7 5.6 6.1.9-4.4 4.3 1 6.1L12 17l-5.4 2.9 1-6.1L3.2 9.5l6.1-.9z', music: 'M9 18V5l11-2v13M9 18a3 3 0 1 1-6 0 3 3 0 0 1 6 0zM20 16a3 3 0 1 1-6 0 3 3 0 0 1 6 0z',
+  cc: 'M3 5h18v14H3zM10 10a2 2 0 1 0 0 4M17 10a2 2 0 1 0 0 4', clock: 'M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18zM12 7v5l3 2', arrow: 'M5 12h14M13 6l6 6-6 6' };
+const ICON_NAMES = { none: 'None', light: 'Light', mic: 'Mic', cam: 'Camera', star: 'Star', music: 'Music', cc: 'Captions', clock: 'Clock', arrow: 'Arrow' };
+const LINES = {
+  English: ['Good morning, and welcome.', 'Open your Bibles to Psalm 23.', 'The Lord is my shepherd; I shall not want.', 'He makes me lie down in green pastures.', 'He leads me beside still waters.'],
+  'Español': ['Buenos días y bienvenidos.', 'Abran sus Biblias en el Salmo 23.', 'El Señor es mi pastor; nada me faltará.', 'En lugares de delicados pastos me hará descansar.', 'Junto a aguas de reposo me pastoreará.'],
+  'Tiếng Việt': ['Chào buổi sáng, chào mừng quý vị.', 'Hãy mở Kinh Thánh Thi Thiên 23.', 'Đức Giê-hô-va là Đấng chăn giữ tôi.', 'Ngài khiến tôi an nghỉ nơi đồng cỏ xanh.', 'Dẫn tôi đến mé nước bình tịnh.'] };
+const WIDGET_LOOK = { shape: 'rounded', bg: '#111113', fg: '#fafafa', pressed: '#27272a', label: '', icon: 'none' };
+const CUE_LOOK = { shape: 'rounded', bg: '#2b5fd9', fg: '#ffffff', pressed: '#5b8bff', label: '', icon: 'light' };
+
+// What a palette entry is: who supplies it (core or a module), its default size, its settings fields.
+const BOARD_PALETTE = [
+  { cat: 'Captions', type: 'captions', name: 'Captions · English', w: 8, h: 3, icon: 'cc', props: { lang: 'English', lines: 3 } },
+  { cat: 'Captions', type: 'captions', name: 'Translation · Español', w: 6, h: 2, icon: 'cc', props: { lang: 'Español', lines: 2 } },
+  { cat: 'Captions', type: 'captions', name: 'Translation · Tiếng Việt', w: 6, h: 2, icon: 'cc', props: { lang: 'Tiếng Việt', lines: 2 } },
+  { cat: 'Service', type: 'nownext', name: 'Now and next', w: 4, h: 2, icon: 'music', props: {} },
+  { cat: 'Service', type: 'countdown', name: 'Countdown', w: 3, h: 2, icon: 'clock', props: { title: 'Service starts in', at: '10:30' } },
+  { cat: 'Status', type: 'alerts', name: 'Alerts', w: 4, h: 1, icon: 'none', props: {} },
+  { cat: 'Status', type: 'status', name: 'Relay status', w: 3, h: 2, icon: 'none', props: {} },
+  { cat: 'Clock and text', type: 'clock', name: 'Clock', w: 3, h: 2, icon: 'clock', props: { h24: false } },
+  { cat: 'Clock and text', type: 'text', name: 'Custom text', w: 4, h: 1, icon: 'none', props: { text: 'Welcome to Grace Church' } },
+  { cat: 'Clock and text', type: 'link', name: 'Board link', w: 2, h: 1, icon: 'arrow', press: true, props: { target: 'Stage monitor' } },
+  { cat: 'Lighting', module: 'lighting', type: 'cue', name: 'Cue button', w: 2, h: 1, icon: 'light', press: true, props: { cue: 'Walk-in' } },
+  { cat: 'OBS Studio', module: 'obs', type: 'stream', name: 'Stream status', w: 3, h: 2, icon: 'cam', props: {} },
+  { cat: 'OBS Studio', module: 'obs', type: 'scene', name: 'Program scene', w: 3, h: 1, icon: 'cam', props: {} },
+  { cat: 'ProPresenter', module: 'propresenter', type: 'slide', name: 'Current slide', w: 6, h: 2, icon: 'music', props: {} },
+  { cat: 'Planning Center', module: 'planning_center', type: 'plan', name: 'Service order', w: 4, h: 4, icon: 'none', props: {} },
+  { cat: 'Wireless mics', module: 'mics', type: 'mics', name: 'Mic batteries', w: 4, h: 3, icon: 'mic', props: {}, soon: '#148' }];
+const LIGHT_PALETTE = ['Walk-in', 'Worship', 'Message', 'Baptism', 'Communion', 'House full', 'Haze', 'Blackout', 'Stage wash', 'Greeting']
+  .map(function (n) { return { cat: 'From QLC+', module: 'lighting', type: 'cue', name: n, w: 1, h: 1, icon: 'light', press: true, props: { cue: n } }; });
+const CUE_COLORS = { 'Walk-in': '#7c3aed', Worship: '#2b5fd9', Message: '#0f766e', Blackout: '#3f3f46', 'House full': '#b45309', Baptism: '#0369a1' };
+
+let uid = 1;
+function item(type, x, y, w, h, props, look, extra) {
+  return Object.assign({ id: 'i' + (uid++), type: type, x: x, y: y, w: w, h: h, props: props || {}, style: Object.assign({}, WIDGET_LOOK, look || {}) }, extra || {});
+}
+const BOARDS = [
+  { name: 'Lobby', slug: 'lobby', access: 'Public', cols: 12, rows: 8, ratio: '16/9', changed: 'Today, 9:12',
+    items: [item('captions', 0, 0, 8, 3, { lang: 'English', lines: 3 }, { label: 'Live captions', icon: 'cc' }),
+            item('captions', 0, 3, 8, 2, { lang: 'Español', lines: 2 }, { label: 'Español', icon: 'cc', bg: '#0b1d3a' }),
+            item('clock', 8, 0, 4, 2, { h24: false }, { bg: '#18181b' }),
+            item('nownext', 8, 2, 4, 3, {}, {}),
+            item('stream', 0, 5, 3, 3, {}, { icon: 'cam' }, { module: 'obs' }),
+            item('text', 3, 5, 5, 1, { text: 'Welcome to Grace Church' }, { bg: '#052e16', fg: '#bbf7d0', shape: 'pill' }),
+            item('plan', 3, 6, 4, 2, {}, {}, { module: 'planning_center' }),
+            item('alerts', 8, 5, 4, 1, {}, {}),
+            item('link', 8, 6, 4, 1, { target: 'Stage monitor' }, { label: 'Stage monitor', icon: 'arrow', bg: '#1e3a8a', pressed: '#3b5bdb' }, { press: true })] },
+  { name: 'Stage monitor', slug: 'stage', access: 'Signed in', cols: 12, rows: 8, ratio: '16/9', changed: 'Sun, 8:40', items: [] },
+  { name: 'Sound booth tablet', slug: 'booth', access: 'Signed in', cols: 8, rows: 6, ratio: '4/3', changed: 'Nov 9', items: [] },
+  { name: 'Overflow room', slug: 'overflow', access: 'Public', cols: 12, rows: 8, ratio: '16/9', changed: 'Nov 2', items: [] }];
+const LIGHT_PAGE = { cols: 4, rows: 3, ratio: '4/3', items: [
+  item('cue', 0, 0, 2, 1, { cue: 'Walk-in' }, Object.assign({}, CUE_LOOK, { bg: '#7c3aed', pressed: '#a78bfa' }), { press: true, module: 'lighting' }),
+  item('cue', 2, 0, 1, 1, { cue: 'Worship' }, CUE_LOOK, { press: true, module: 'lighting' }),
+  item('cue', 3, 0, 1, 1, { cue: 'Message' }, Object.assign({}, CUE_LOOK, { bg: '#0f766e', pressed: '#14b8a6', icon: 'star' }), { press: true, module: 'lighting' }),
+  item('cue', 0, 1, 1, 1, { cue: 'Baptism' }, Object.assign({}, CUE_LOOK, { bg: '#0369a1', shape: 'circle' }), { press: true, module: 'lighting' }),
+  item('cue', 1, 1, 2, 1, { cue: 'House full' }, Object.assign({}, CUE_LOOK, { bg: '#b45309', pressed: '#f59e0b', shape: 'pill' }), { press: true, module: 'lighting' }),
+  item('cue', 3, 1, 1, 2, { cue: 'Blackout' }, Object.assign({}, CUE_LOOK, { bg: '#3f3f46', pressed: '#71717a', shape: 'rect', icon: 'none' }), { press: true, module: 'lighting' })] };
+let litCue = 'Worship';
+
+/* ---------------------------------------------------------------- tiny DOM helpers */
+function el(tag, cls, text) { const n = document.createElement(tag); if (cls) n.className = cls; if (text !== undefined) n.textContent = text; return n; }
+function icon(name) {
+  if (!ICONS[name]) return null;
+  const s = document.createElementNS('http://www.w3.org/2000/svg', 'svg'); s.setAttribute('viewBox', '0 0 24 24'); s.setAttribute('class', 'ico');
+  const p = document.createElementNS('http://www.w3.org/2000/svg', 'path'); p.setAttribute('d', ICONS[name]); s.appendChild(p); return s;
+}
+function hd(it, fallback) {
+  const h = el('div', 'hd'); const i = icon(it.style.icon); if (i) h.appendChild(i);
+  h.appendChild(el('span', '', it.style.label || fallback)); return h;
+}
+function clock(h24) { return new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', hour12: !h24 }); }
+const MOD_NAMES = { obs: 'OBS Studio', planning_center: 'Planning Center', propresenter: 'ProPresenter', lighting: 'Lighting', mics: 'Wireless mics' };
+
+/* ---------------------------------------------------------------- the shared renderer (layout-render.js) */
+function renderItem(it) {
+  // A div with a button role: a <button> cannot be a size container, and the text scales with the item's size.
+  const w = el('div', 'lw' + (it.press ? ' press' : ''));
+  if (it.press) { w.setAttribute('role', 'button'); w.tabIndex = 0; }
+  w.dataset.shape = it.style.shape; w.style.background = it.style.bg; w.style.color = it.style.fg;
+  w.style.setProperty('--pressed', it.style.pressed);
+  const p = it.props;
+  switch (it.type) {
+    case 'captions': {
+      w.appendChild(hd(it, p.lang)); const c = el('div', 'cap'); c.dataset.cap = p.lang; c.dataset.n = p.lines || 3; w.appendChild(c); break; }
+    case 'clock': { w.appendChild(hd(it, 'Time')); const b = el('div', 'bigx', clock(p.h24)); b.dataset.clock = p.h24 ? '24' : '12'; w.appendChild(b); break; }
+    case 'countdown': { w.appendChild(hd(it, p.title || 'Countdown')); const b = el('div', 'bigx', '08:42'); b.dataset.count = '1'; w.appendChild(b); break; }
+    case 'nownext': {
+      w.appendChild(hd(it, 'Now')); w.appendChild(el('div', 'ln', 'Worship · Build My Life'));
+      const n = el('div', 'hd'); n.style.marginTop = 'auto'; n.textContent = 'Next'; w.appendChild(n); w.appendChild(el('div', 'ln', 'Announcements · 10:52')); break; }
+    case 'alerts': { const r = el('div', 'ln'); r.style.margin = 'auto 0'; const d = el('span', 'dot'); r.appendChild(d); r.appendChild(document.createTextNode(' ' + (it.style.label || 'No alerts'))); w.appendChild(r); break; }
+    case 'status': {
+      w.appendChild(hd(it, 'Relay')); const l = el('div', 'lst');
+      ['Captions live', 'Translating 2 languages', 'Stream on air'].forEach(function (t) { const r = el('div'); r.appendChild(el('span', 'dot')); r.appendChild(document.createTextNode(' ' + t)); l.appendChild(r); });
+      w.appendChild(l); break; }
+    case 'text': { const t = el('div', 'ln', p.text || ''); t.style.margin = 'auto 0'; t.style.fontSize = 'clamp(13px,1.6vw,30px)'; t.style.fontWeight = '600'; w.appendChild(t); break; }
+    case 'link': case 'cue': {
+      const i = icon(it.style.icon); const b = el('div', 'big');
+      if (i) { i.style.display = 'block'; i.style.margin = '0 auto .25em'; b.appendChild(i); }
+      b.appendChild(document.createTextNode(it.style.label || (it.type === 'cue' ? p.cue : '→ ' + p.target))); w.appendChild(b);
+      if (it.type === 'cue' && p.cue === litCue) w.classList.add('lit'); break; }
+    case 'stream': { w.appendChild(hd(it, 'Stream')); const a = el('div', 'air', '● ON AIR'); a.style.marginTop = 'auto'; w.appendChild(a); const v = el('div', 'ln', '1:02:13 · 214 watching'); v.dataset.air = '1'; w.appendChild(v); break; }
+    case 'scene': { w.appendChild(hd(it, 'Program')); w.appendChild(el('div', 'ln', 'Wide · Stage')); break; }
+    case 'slide': { w.appendChild(hd(it, 'ProPresenter')); const t = el('div', 'cap'); t.style.textAlign = 'center'; t.appendChild(el('div', '', 'This is my anthem, this is my song')); w.appendChild(t); break; }
+    case 'plan': {
+      w.appendChild(hd(it, 'Service order')); const l = el('div', 'lst');
+      [['10:30', 'Walk-in'], ['10:35', 'Worship'], ['10:52', 'Announcements'], ['11:00', 'Message']].forEach(function (r, i) { l.appendChild(el('div', i === 1 ? 'cur' : '', r[0] + '  ' + r[1])); });
+      w.appendChild(l); break; }
+    case 'mics': {
+      w.appendChild(hd(it, 'Mic batteries')); const b = el('div', 'bars');
+      [['Pastor', 80], ['Worship 1', 45], ['Worship 2', 15]].forEach(function (m) { const r = el('span'); r.appendChild(el('span', '', m[0])); const bar = el('i'); const f = el('b'); f.style.width = m[1] + '%'; if (m[1] < 25) f.style.background = 'var(--err)'; bar.appendChild(f); r.appendChild(bar); b.appendChild(r); });
+      w.appendChild(b); break; }
+  }
+  if (it.module && it.type !== 'cue') w.appendChild(el('span', 'mod', MOD_NAMES[it.module] || it.module));
+  return w;
+}
+
+/* live feeds keep running under the editor */
+let tick = 0;
+function feeds() {
+  tick++;
+  document.querySelectorAll('[data-clock]').forEach(function (n) { n.textContent = clock(n.dataset.clock === '24'); });
+  document.querySelectorAll('[data-count]').forEach(function (n) { const s = Math.max(0, 522 - tick); n.textContent = String(Math.floor(s / 60)).padStart(2, '0') + ':' + String(s % 60).padStart(2, '0'); });
+  document.querySelectorAll('[data-cap]').forEach(function (n) {
+    const L = LINES[n.dataset.cap] || LINES.English; const k = +n.dataset.n || 3; const at = Math.floor(tick / 3);
+    if (n.dataset.at === String(at)) return; n.dataset.at = at; n.textContent = '';
+    for (let i = k - 1; i >= 0; i--) n.appendChild(el('div', '', L[(at - i + L.length * 9) % L.length]));
+  });
+}
+setInterval(feeds, 1000);
+
+/* ---------------------------------------------------------------- the shared editor (layout-editor.js) */
+function LayoutEditor(host, opts) {
+  const self = this;
+  const st = { cols: opts.cols, rows: opts.rows, items: opts.items, sel: null, lines: true };
+  let undo = [], redo = [], editing = !!opts.alwaysEdit, saved = null;
+  const root = el('div', 'le' + (opts.alwaysEdit ? ' inline' : ''));
+  const tools = el('div', 'le-tools');
+  const body = el('div', 'le-body');
+  const stage = el('div', 'le-stage');
+  const grid = el('div', 'lgrid');
+  const pal = el('div', 'le-pal'); const palIn = el('div', 'in'); pal.appendChild(palIn);
+  const hint = el('div', 'le-hint');
+  stage.appendChild(grid); body.appendChild(stage); body.appendChild(pal);
+  root.appendChild(tools); root.appendChild(body); root.appendChild(hint);
+  host.appendChild(root);
+  if (opts.height) body.style.height = opts.height;
+  const fab = el('button', 'btn pri editfab', 'Edit board');
+  fab.onclick = function () { enter(); };
+  if (!opts.alwaysEdit) body.appendChild(fab);
+
+  function snap() { return JSON.stringify(st.items); }
+  function push(before) { if (before !== snap()) { undo.push(before); redo = []; drawTools(); } }
+  function find(id) { return st.items.filter(function (i) { return i.id === id; })[0]; }
+  function hits(a, x, y, w, h) {
+    return st.items.some(function (b) { return b !== a && x < b.x + b.w && b.x < x + w && y < b.y + b.h && b.y < y + h; });
+  }
+  function freeSlot(w, h) {
+    for (let y = 0; y + h <= st.rows; y++) for (let x = 0; x + w <= st.cols; x++) if (!hits(null, x, y, w, h)) return { x: x, y: y };
+    return null;
+  }
+  function cellAt(ev) {
+    const r = grid.getBoundingClientRect();
+    return { x: Math.max(0, Math.min(st.cols - 1, Math.floor((ev.clientX - r.left) / r.width * st.cols))),
+             y: Math.max(0, Math.min(st.rows - 1, Math.floor((ev.clientY - r.top) / r.height * st.rows))) };
+  }
+  function enter() { editing = true; saved = snap(); undo = []; redo = []; pal.classList.add('open'); draw(); }
+  function leave(keep) {
+    if (!keep && saved) st.items = JSON.parse(saved);
+    editing = !!opts.alwaysEdit; st.sel = null; pal.classList.remove('open'); draw();
+    if (keep && opts.onSave) opts.onSave(st.items);
+  }
+  self.items = function () { return st.items; };
+  self.redraw = function () { draw(); };
+
+  function drawTools() {
+    tools.textContent = '';
+    tools.hidden = !editing; hint.hidden = !editing; fab.hidden = editing;
+    if (!editing) return;
+    tools.appendChild(el('span', 'name', opts.title));
+    const sz = el('select'); sz.title = 'Grid size';
+    (opts.sizes || []).forEach(function (s) { const o = el('option', '', s[0] + ' × ' + s[1] + ' cells'); o.value = s.join('x'); if (s[0] === st.cols && s[1] === st.rows) o.selected = true; sz.appendChild(o); });
+    sz.onchange = function () {
+      const b = snap(); const v = sz.value.split('x').map(Number);
+      st.cols = v[0]; st.rows = v[1];
+      st.items.forEach(function (i) { i.w = Math.min(i.w, st.cols); i.h = Math.min(i.h, st.rows); i.x = Math.min(i.x, st.cols - i.w); i.y = Math.min(i.y, st.rows - i.h); });
+      push(b); draw();
+    };
+    tools.appendChild(sz);
+    const ln = el('button', 'btn ghost', st.lines ? 'Hide grid' : 'Show grid'); ln.onclick = function () { st.lines = !st.lines; draw(); }; tools.appendChild(ln);
+    const u = el('button', 'btn ghost', 'Undo'); u.disabled = !undo.length; u.onclick = doUndo; tools.appendChild(u);
+    const r = el('button', 'btn ghost', 'Redo'); r.disabled = !redo.length; r.onclick = doRedo; tools.appendChild(r);
+    tools.appendChild(el('span', 'spacer'));
+    const pb = el('button', 'btn', pal.classList.contains('open') ? 'Hide ' + opts.paletteName : opts.paletteName);
+    pb.onclick = function () { pal.classList.toggle('open'); drawTools(); }; tools.appendChild(pb);
+    if (!opts.alwaysEdit) { const c = el('button', 'btn', 'Cancel'); c.onclick = function () { leave(false); }; tools.appendChild(c); }
+    const s = el('button', 'btn pri', opts.saveLabel || 'Save'); s.onclick = function () { if (opts.alwaysEdit) { saved = snap(); undo = []; redo = []; flash(s, 'Saved'); if (opts.onSave) opts.onSave(st.items); drawTools(); } else leave(true); };
+    tools.appendChild(s);
+  }
+  function flash(b, t) { const o = b.textContent; b.textContent = t; setTimeout(function () { b.textContent = o; }, 900); }
+  function doUndo() { if (!undo.length) return; redo.push(snap()); st.items = JSON.parse(undo.pop()); draw(); }
+  function doRedo() { if (!redo.length) return; undo.push(snap()); st.items = JSON.parse(redo.pop()); draw(); }
+
+  function drawPalette() {
+    palIn.textContent = '';
+    palIn.appendChild(el('div', 'pcat', 'Click to add, or drag onto the ' + opts.noun));
+    const q = el('input'); q.type = 'search'; q.placeholder = 'Search ' + opts.paletteName.toLowerCase(); palIn.appendChild(q);
+    const list = el('div'); palIn.appendChild(list);
+    function fill() {
+      list.textContent = ''; let cat = '';
+      opts.palette.filter(function (p) { return p.name.toLowerCase().indexOf(q.value.toLowerCase()) >= 0; }).forEach(function (p) {
+        if (p.cat !== cat) {
+          cat = p.cat; const c = el('div', 'pcat', cat);
+          if (p.module) c.appendChild(el('span', 'badge', p.soon ? 'when ' + p.soon + ' lands' : 'module'));
+          list.appendChild(c);
+        }
+        const b = el('button', 'pitem'); b.draggable = true;
+        if (p.type === 'cue') { const sw = el('span', 'sw'); sw.style.background = CUE_COLORS[p.name] || CUE_LOOK.bg; b.appendChild(sw); }
+        else { const i = icon(p.icon === 'none' ? 'star' : p.icon); if (i) { i.style.width = '16px'; i.style.height = '16px'; b.appendChild(i); } }
+        b.appendChild(el('span', '', p.name)); b.appendChild(el('small', '', p.w + '×' + p.h));
+        if (p.soon) b.disabled = true;
+        b.onclick = function () { add(p); };
+        b.ondragstart = function (e) { e.dataTransfer.setData('text/plain', String(opts.palette.indexOf(p))); };
+        list.appendChild(b);
+      });
+      if (opts.addById) {
+        list.appendChild(el('div', 'pcat', 'Add by id (Vista, Lightkey)'));
+        const r = el('div', 'row'); const i = el('input'); i.placeholder = 'EX.1.0.1.0.0'; i.style.cssText = 'flex:1;height:32px;border:1px solid var(--border);border-radius:8px;background:var(--bg);padding:0 8px';
+        const a = el('button', 'btn', 'Add'); a.onclick = function () { if (i.value.trim()) add({ type: 'cue', name: i.value.trim(), w: 1, h: 1, press: true, module: 'lighting', props: { cue: i.value.trim() } }); };
+        r.appendChild(i); r.appendChild(a); list.appendChild(r);
+      }
+    }
+    q.oninput = fill; fill();
+  }
+  function add(p, at) {
+    let w = Math.min(p.w, st.cols), h = Math.min(p.h, st.rows);
+    let pos = at && !hits(null, Math.min(at.x, st.cols - w), Math.min(at.y, st.rows - h), w, h) ? { x: Math.min(at.x, st.cols - w), y: Math.min(at.y, st.rows - h) } : freeSlot(w, h);
+    if (!pos) { w = 1; h = 1; pos = freeSlot(1, 1); }
+    if (!pos) { hint.textContent = 'The ' + opts.noun + ' is full: make a widget smaller or the grid bigger.'; return; }
+    const b = snap();
+    const look = p.type === 'cue' ? Object.assign({}, CUE_LOOK, { bg: CUE_COLORS[p.name] || CUE_LOOK.bg }) : Object.assign({}, WIDGET_LOOK, { icon: p.icon || 'none' });
+    const it = item(p.type, pos.x, pos.y, w, h, JSON.parse(JSON.stringify(p.props || {})), look, { press: !!p.press, module: p.module });
+    st.items.push(it); st.sel = it.id; push(b); draw();
+  }
+  grid.ondragover = function (e) { if (editing) e.preventDefault(); };
+  grid.ondrop = function (e) { e.preventDefault(); const p = opts.palette[+e.dataTransfer.getData('text/plain')]; if (p) add(p, cellAt(e)); };
+
+  function draw() {
+    root.classList.toggle('editing', editing);
+    grid.classList.toggle('nolines', !st.lines);
+    grid.style.gridTemplateColumns = 'repeat(' + st.cols + ',minmax(0,1fr))';
+    grid.style.gridTemplateRows = 'repeat(' + st.rows + ',minmax(0,1fr))';
+    grid.style.aspectRatio = opts.ratio;
+    grid.style.setProperty('--gap', (opts.gap || 10) + 'px');
+    grid.textContent = '';
+    for (let y = 0; y < st.rows; y++) for (let x = 0; x < st.cols; x++) {
+      const c = el('div', 'gcell'); c.style.gridArea = (y + 1) + '/' + (x + 1); grid.appendChild(c);
+    }
+    st.items.forEach(function (it) {
+      const li = el('div', 'li'); li.dataset.id = it.id;
+      li.style.gridArea = (it.y + 1) + '/' + (it.x + 1) + '/span ' + it.h + '/span ' + it.w;
+      const w = renderItem(it); li.appendChild(w);
+      if (!editing) {
+        if (it.press) w.onclick = function () { if (opts.onPress) opts.onPress(it, w); };
+      } else {
+        if (it.press) w.tabIndex = -1;
+        li.tabIndex = 0;
+        li.onpointerdown = function (ev) { if (ev.target.classList.contains('h') || ev.target.closest('.minibar')) return; startMove(ev, it, li); };
+        li.ondblclick = function () { openSettings(it); };
+        li.onkeydown = function (ev) { key(ev, it); };
+        li.onfocus = function () { if (st.sel !== it.id) { st.sel = it.id; markSel(); } };
+        if (st.sel === it.id) {
+          li.classList.add('sel'); if (it.y === 0) li.classList.add('top');
+          ['n', 's', 'e', 'w', 'ne', 'nw', 'se', 'sw'].forEach(function (d) {
+            const h = el('span', 'h'); h.dataset.d = d; h.onpointerdown = function (ev) { startResize(ev, it, li, d); }; li.appendChild(h);
+          });
+          const mb = el('div', 'minibar');
+          [['Settings', function () { openSettings(it); }], ['Duplicate', function () { dup(it); }], ['Delete', function () { del(it); }]].forEach(function (a) {
+            const b = el('button', '', a[0]); b.onclick = function (e) { e.stopPropagation(); a[1](); }; mb.appendChild(b);
+          });
+          li.appendChild(mb);
+        }
+      }
+      grid.appendChild(li);
+    });
+    drawTools(); drawPalette(); feeds();
+    hint.textContent = '';
+    if (editing) {
+      [['Drag', 'to move'], ['Edges and corners', 'resize'], ['Double-click', 'for settings'], ['Arrows', 'move'], ['Shift+arrows', 'resize'], ['Delete', 'removes'], ['⌘Z', 'undo']].forEach(function (k, i) {
+        if (i) hint.appendChild(document.createTextNode(' · ')); hint.appendChild(el('kbd', '', k[0])); hint.appendChild(document.createTextNode(' ' + k[1]));
+      });
+    }
+    if (editing && st.sel) { const n = grid.querySelector('.li[data-id="' + st.sel + '"]'); if (n && document.activeElement !== n && root.contains(document.activeElement)) n.focus(); }
+  }
+  function markSel() { draw(); const n = grid.querySelector('.li[data-id="' + st.sel + '"]'); if (n) n.focus(); }
+  function startMove(ev, it, li) {
+    ev.preventDefault();
+    if (st.sel !== it.id) { st.sel = it.id; markSel(); li = grid.querySelector('.li[data-id="' + it.id + '"]'); }
+    const before = snap(); const c0 = cellAt(ev); const ox = c0.x - it.x, oy = c0.y - it.y;
+    li.setPointerCapture(ev.pointerId); li.classList.add('drag');
+    li.onpointermove = function (e) {
+      const c = cellAt(e); const nx = Math.max(0, Math.min(st.cols - it.w, c.x - ox)), ny = Math.max(0, Math.min(st.rows - it.h, c.y - oy));
+      const bad = hits(it, nx, ny, it.w, it.h); li.classList.toggle('bad', bad);
+      if (!bad && (nx !== it.x || ny !== it.y)) { it.x = nx; it.y = ny; li.style.gridArea = (ny + 1) + '/' + (nx + 1) + '/span ' + it.h + '/span ' + it.w; }
+    };
+    li.onpointerup = function () { li.onpointermove = null; li.onpointerup = null; push(before); draw(); };
+  }
+  function startResize(ev, it, li, d) {
+    ev.preventDefault(); ev.stopPropagation();
+    const before = snap(); const h = ev.target; h.setPointerCapture(ev.pointerId);
+    const x2 = it.x + it.w, y2 = it.y + it.h;
+    h.onpointermove = function (e) {
+      const c = cellAt(e); let x = it.x, y = it.y, w = it.w, hh = it.h;
+      if (d.indexOf('e') >= 0) w = Math.max(1, c.x - x + 1);
+      if (d.indexOf('s') >= 0) hh = Math.max(1, c.y - y + 1);
+      if (d.indexOf('w') >= 0) { x = Math.min(c.x, x2 - 1); w = x2 - x; }
+      if (d.indexOf('n') >= 0) { y = Math.min(c.y, y2 - 1); hh = y2 - y; }
+      if (!hits(it, x, y, w, hh)) { it.x = x; it.y = y; it.w = w; it.h = hh; li.style.gridArea = (y + 1) + '/' + (x + 1) + '/span ' + hh + '/span ' + w; }
+    };
+    h.onpointerup = function () { h.onpointermove = null; h.onpointerup = null; push(before); draw(); };
+  }
+  function key(ev, it) {
+    const mod = ev.metaKey || ev.ctrlKey;
+    if (mod && ev.key.toLowerCase() === 'z') { ev.preventDefault(); ev.shiftKey ? doRedo() : doUndo(); return; }
+    if (ev.key === 'Delete' || ev.key === 'Backspace') { ev.preventDefault(); del(it); return; }
+    if (ev.key === 'Enter') { ev.preventDefault(); openSettings(it); return; }
+    if (ev.key === 'Escape') { st.sel = null; draw(); return; }
+    const dx = { ArrowLeft: -1, ArrowRight: 1 }[ev.key] || 0, dy = { ArrowUp: -1, ArrowDown: 1 }[ev.key] || 0;
+    if (!dx && !dy) return;
+    ev.preventDefault(); const before = snap();
+    if (ev.shiftKey) { const w = it.w + dx, h = it.h + dy; if (w >= 1 && h >= 1 && it.x + w <= st.cols && it.y + h <= st.rows && !hits(it, it.x, it.y, w, h)) { it.w = w; it.h = h; } }
+    else { const x = it.x + dx, y = it.y + dy; if (x >= 0 && y >= 0 && x + it.w <= st.cols && y + it.h <= st.rows && !hits(it, x, y, it.w, it.h)) { it.x = x; it.y = y; } }
+    push(before); markSel();
+  }
+  function dup(it) {
+    const pos = freeSlot(it.w, it.h) || freeSlot(1, 1); if (!pos) return;
+    const b = snap(); const c = JSON.parse(JSON.stringify(it)); c.id = 'i' + (uid++); c.x = pos.x; c.y = pos.y;
+    if (!freeSlot(it.w, it.h)) { c.w = 1; c.h = 1; }
+    st.items.push(c); st.sel = c.id; push(b); draw();
+  }
+  function del(it) { const b = snap(); st.items = st.items.filter(function (i) { return i !== it; }); st.sel = null; push(b); draw(); }
+  function openSettings(it) {
+    const before = snap();
+    settingsDialog(it, function () { draw(); }, function (ok) { if (!ok) { st.items = JSON.parse(before); } else push(before); draw(); });
+  }
+  draw();
+}
+
+/* ---------------------------------------------------------------- settings dialog: Widget (owner's fields) + Look (core schema) */
+const FIELDS = {
+  captions: [['lang', 'Language', 'select', Object.keys(LINES)], ['lines', 'Lines shown', 'select', [1, 2, 3, 4]]],
+  clock: [['h24', '24-hour clock', 'check']],
+  countdown: [['title', 'Heading', 'text'], ['at', 'Counts down to', 'time']],
+  text: [['text', 'Text', 'area']],
+  link: [['target', 'Opens board', 'select', ['Stage monitor', 'Sound booth tablet', 'Overflow room']]],
+  cue: [['cue', 'Cue (from QLC+)', 'ro'], ['_note', 'A press is sent once and never retried.', 'note']],
+  stream: [['_note', 'Shows the first OBS computer that is streaming.', 'note']] };
+const DLG = document.getElementById('dlg');
+function settingsDialog(it, live, done) {
+  DLG.textContent = '';
+  const head = el('div', 'dh'); head.appendChild(el('b', '', 'Settings')); head.appendChild(el('span', 'badge', it.module ? (MOD_NAMES[it.module] + ' module') : 'Core widget'));
+  DLG.appendChild(head);
+  const tabs = el('div', 'dtabs'); DLG.appendChild(tabs);
+  const body = el('div', 'db'); const fields = el('div', 'fields'); const prev = el('div', 'prev');
+  body.appendChild(fields); body.appendChild(prev); DLG.appendChild(body);
+  let tab = 'look';
+  function fld(label, input) { const f = el('div', 'fld'); const l = el('label', '', label); f.appendChild(l); f.appendChild(input); return f; }
+  function changed() { drawPrev(); live(); }
+  function drawPrev() {
+    prev.textContent = ''; prev.appendChild(el('div', 'note', 'Preview'));
+    const pv = el('div', 'pv'); pv.appendChild(renderItem(it)); prev.appendChild(pv); feeds();
+    prev.appendChild(el('div', 'note', it.w + ' × ' + it.h + ' cells'));
+  }
+  function drawTabs() {
+    tabs.textContent = '';
+    [['widget', 'Widget'], ['look', 'Look']].forEach(function (t) {
+      const b = el('button', '', t[1]); b.setAttribute('aria-selected', tab === t[0]); b.onclick = function () { tab = t[0]; drawTabs(); drawFields(); }; tabs.appendChild(b);
+    });
+  }
+  function drawFields() {
+    fields.textContent = '';
+    if (tab === 'look') {
+      const s = it.style;
+      const lab = el('input'); lab.maxLength = 60; lab.value = s.label; lab.placeholder = it.type === 'cue' ? it.props.cue : 'Default heading';
+      lab.oninput = function () { s.label = lab.value; changed(); }; fields.appendChild(fld('Label text', lab));
+      const seg = el('div', 'seg');
+      [['rect', 'Square'], ['rounded', 'Rounded'], ['pill', 'Pill'], ['circle', 'Circle']].forEach(function (o) {
+        const b = el('button', '', o[1]); b.type = 'button'; b.setAttribute('aria-pressed', s.shape === o[0]);
+        b.onclick = function () { s.shape = o[0]; drawFields(); changed(); }; seg.appendChild(b);
+      });
+      fields.appendChild(fld('Shape', seg));
+      const cols = el('div', 'colors');
+      [['bg', 'Background'], ['fg', 'Text']].concat(it.press ? [['pressed', 'Pressed']] : []).forEach(function (k) {
+        const i = el('input'); i.type = 'color'; i.value = s[k[0]]; i.oninput = function () { s[k[0]] = i.value; changed(); }; cols.appendChild(fld(k[1], i));
+      });
+      fields.appendChild(cols);
+      const ic = el('select'); Object.keys(ICON_NAMES).forEach(function (k) { const o = el('option', '', ICON_NAMES[k]); o.value = k; if (s.icon === k) o.selected = true; ic.appendChild(o); });
+      ic.onchange = function () { s.icon = ic.value; changed(); }; fields.appendChild(fld('Icon', ic));
+      fields.appendChild(el('div', 'note', 'Checked by core: colours are #rrggbb, the shape and icon come from these lists, text is plain.'));
+    } else {
+      const list = FIELDS[it.type] || [];
+      if (!list.length) fields.appendChild(el('div', 'note', 'This widget has no settings of its own.'));
+      list.forEach(function (f) {
+        const k = f[0]; let input;
+        if (f[2] === 'note') { fields.appendChild(el('div', 'note', f[1])); return; }
+        if (f[2] === 'select') { input = el('select'); f[3].forEach(function (v) { const o = el('option', '', String(v)); o.value = v; if (String(it.props[k]) === String(v)) o.selected = true; input.appendChild(o); }); input.onchange = function () { it.props[k] = isNaN(+input.value) ? input.value : +input.value; changed(); }; }
+        else if (f[2] === 'check') { input = el('input'); input.type = 'checkbox'; input.style.width = 'auto'; input.checked = !!it.props[k]; input.onchange = function () { it.props[k] = input.checked; changed(); }; }
+        else if (f[2] === 'area') { input = el('textarea'); input.maxLength = 200; input.value = it.props[k] || ''; input.oninput = function () { it.props[k] = input.value; changed(); }; }
+        else { input = el('input'); input.type = f[2] === 'time' ? 'time' : 'text'; input.value = it.props[k] || ''; input.readOnly = f[2] === 'ro'; input.oninput = function () { it.props[k] = input.value; changed(); }; }
+        fields.appendChild(fld(f[1], input));
+      });
+    }
+  }
+  const foot = el('div', 'df');
+  const cancel = el('button', 'btn', 'Cancel'); const ok = el('button', 'btn pri', 'Done');
+  foot.appendChild(cancel); foot.appendChild(ok); DLG.appendChild(foot);
+  let result = false;
+  cancel.onclick = function () { DLG.close(); }; ok.onclick = function () { result = true; DLG.close(); };
+  DLG.onclose = function () { DLG.onclose = null; done(result); };
+  drawTabs(); drawFields(); drawPrev(); DLG.showModal();
+}
+
+/* ---------------------------------------------------------------- screens */
+// Tabs are buttons with a fixed list; the URL hash is only honoured when it names one of them.
+const SCREENS = [['s-list', 'Boards list'], ['s-board', 'Board + editor'], ['s-light', 'Lighting cue page'], ['s-dialog', 'Widget settings'], ['s-arch', 'Architecture']];
+const tabsNav = document.getElementById('tabs');
+function show(id) {
+  if (!SCREENS.some(function (s) { return s[0] === id; })) id = 's-board';
+  SCREENS.forEach(function (s) { document.getElementById(s[0]).classList.toggle('on', s[0] === id); });
+  tabsNav.querySelectorAll('button').forEach(function (b) { b.setAttribute('aria-selected', b.dataset.s === id); });
+  history.replaceState(null, '', '#' + id.slice(2));
+}
+SCREENS.forEach(function (s) { const b = el('button', '', s[1]); b.dataset.s = s[0]; b.setAttribute('role', 'tab'); b.onclick = function () { show(s[0]); }; tabsNav.appendChild(b); });
+
+// Boards list
+const rows = document.getElementById('boardRows');
+function drawRows() {
+  rows.textContent = '';
+  BOARDS.forEach(function (b, i) {
+    const tr = el('tr');
+    tr.appendChild(el('td', '', b.name));
+    const u = el('td'); u.appendChild(el('code', '', '/board/' + b.slug)); tr.appendChild(u);
+    const a = el('td'); a.appendChild(el('span', 'badge' + (b.access === 'Public' ? ' ok' : ''), b.access)); tr.appendChild(a);
+    tr.appendChild(el('td', 'note', b.cols + ' × ' + b.rows + ' · ' + b.ratio.replace('/', ':')));
+    tr.appendChild(el('td', 'note', b.changed));
+    const act = el('td'); const r = el('div', 'row'); r.style.justifyContent = 'flex-end';
+    const open = el('button', 'btn', 'Open'); open.onclick = function () { show('s-board'); }; r.appendChild(open);
+    const d = el('button', 'btn ghost', 'Duplicate'); d.onclick = function () { BOARDS.splice(i + 1, 0, Object.assign({}, b, { name: b.name + ' copy', slug: b.slug + '-copy', changed: 'Just now', items: JSON.parse(JSON.stringify(b.items)) })); drawRows(); }; r.appendChild(d);
+    r.appendChild(el('button', 'btn ghost', 'Export'));
+    const x = el('button', 'btn ghost danger', 'Delete'); x.onclick = function () { if (confirm('Delete the board "' + b.name + '"? Its address stops working.')) { BOARDS.splice(i, 1); drawRows(); } }; r.appendChild(x);
+    act.appendChild(r); tr.appendChild(act); rows.appendChild(tr);
+  });
+}
+drawRows();
+document.getElementById('newBoard').onclick = function () { BOARDS.push({ name: 'New board', slug: 'new-board', access: 'Signed in', cols: 12, rows: 8, ratio: '16/9', changed: 'Just now', items: [] }); drawRows(); };
+
+// Board + editor
+new LayoutEditor(document.getElementById('boardHost'), {
+  title: 'Lobby', noun: 'board', paletteName: 'Widgets', cols: 12, rows: 8, ratio: '16/9', items: BOARDS[0].items, palette: BOARD_PALETTE,
+  sizes: [[12, 8], [16, 9], [8, 6], [6, 4]], height: 'auto',
+  onPress: function (it, w) { w.classList.add('down'); setTimeout(function () { w.classList.remove('down'); }, 200); } });
+
+// Lighting: the editor in the admin card, the tablet drawn by the same renderer
+const tabletGrid = el('div', 'lgrid'); document.getElementById('lightScreen').appendChild(tabletGrid);
+function drawTablet(items) {
+  tabletGrid.textContent = ''; tabletGrid.style.cssText = 'grid-template-columns:repeat(' + LIGHT_PAGE.cols + ',minmax(0,1fr));grid-template-rows:repeat(' + LIGHT_PAGE.rows + ',minmax(0,1fr));height:100%;--gap:10px';
+  items.forEach(function (it) {
+    const li = el('div', 'li'); li.style.gridArea = (it.y + 1) + '/' + (it.x + 1) + '/span ' + it.h + '/span ' + it.w;
+    const w = renderItem(it); w.onclick = function () { litCue = it.props.cue; drawTablet(items); le.redraw(); };
+    li.appendChild(w); tabletGrid.appendChild(li);
+  });
+}
+const lh = document.getElementById('lightHost');
+const lhHead = el('div'); lhHead.style.cssText = 'padding:12px 14px;border-bottom:1px solid var(--border)';
+lhHead.appendChild(el('b', '', 'Cue page · Worship')); lhHead.appendChild(document.createTextNode('  '));
+lhHead.appendChild(el('span', 'badge ok', 'Screen on')); lh.appendChild(lhHead);
+const lhEd = el('div'); lh.appendChild(lhEd);
+const le = new LayoutEditor(lhEd, {
+  title: 'Worship', noun: 'page', paletteName: 'Cues', cols: LIGHT_PAGE.cols, rows: LIGHT_PAGE.rows, ratio: '4/3', items: LIGHT_PAGE.items, palette: LIGHT_PALETTE,
+  sizes: [[4, 3], [6, 4], [3, 2], [8, 6]], alwaysEdit: true, addById: true, saveLabel: 'Save page', gap: 8,
+  onSave: function (items) { drawTablet(items); } });
+drawTablet(LIGHT_PAGE.items);
+const ltPal = lhEd.querySelector('.le-pal'); if (ltPal) ltPal.classList.add('open');
+
+// Dialog demos
+document.querySelectorAll('[data-demo]').forEach(function (b) {
+  b.onclick = function () {
+    const it = { cap: item('captions', 0, 0, 8, 3, { lang: 'Español', lines: 2 }, { label: 'Español', icon: 'cc', bg: '#0b1d3a' }),
+      cue: item('cue', 0, 0, 2, 1, { cue: 'Walk-in' }, Object.assign({}, CUE_LOOK, { bg: '#7c3aed', pressed: '#a78bfa' }), { press: true, module: 'lighting' }),
+      count: item('countdown', 0, 0, 3, 2, { title: 'Service starts in', at: '10:30' }, {}) }[b.dataset.demo];
+    settingsDialog(it, function () {}, function () {});
+  };
+});
+
+show('s-' + (location.hash.slice(1) || 'board'));
+feeds();
+})();
+</script>
+</body>
+</html>

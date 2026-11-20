@@ -11,7 +11,7 @@ import re
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse
 
-from ... import config, panels
+from ... import channels as core_channels, config, db, panels
 from ...scheduler import scheduler
 from ...panels import registry as panel_registry
 from ... import modules as shared
@@ -246,19 +246,73 @@ def _who(user) -> str:
     return "Admin page"
 
 
+def _link_flag(ref) -> dict:
+    """Whether a channel or mic label is tied to a core channel (#542). `name_only` is a typed name with no channel behind
+    it, shown on the page so it is not mistaken for one; `channel_missing` is a channel its gear no longer has."""
+    try:
+        got = core_channels.by_ref(ref)
+    except db.Unavailable:
+        return {"name_only": not ref, "channel_missing": False}
+    return {"name_only": got is None, "channel_missing": bool(got and got["missing"])}
+
+
 def _rundown_settings_view() -> dict:
+    """The settings for the admin page. Each mic mapping and channel assignment says whether Planning Center no longer
+    lists its position ("missing") or it was never matched to one ("unmatched"), so neither is silently ignored (#525)."""
+    from ... import directory
+
+    def flagged(entry: dict) -> dict:
+        got = directory.describe(entry.get("position_ref", ""), entry.get("position", ""))
+        return {**entry, "missing": got["missing"], "unmatched": got["unmatched"]}
+
     rs = config.get()["planning_center"]["rundown"]
-    return {k: v for k, v in rs.items() if k != "draws"}
+    out = {k: v for k, v in rs.items() if k != "draws"}
+    out["mics"] = [{**flagged(m), "mic_flags": {x: _link_flag(m.get("mic_refs", {}).get(x)) for x in m["mics"]}}
+                   for m in rs["mics"]]
+    def also(ref: str) -> dict:
+        got = core_channels.by_ref(ref)
+        return {"ref": ref, "name": got["shown"] if got else "", "missing": not got or got["missing"]}
+
+    out["channels"] = [{**c, "positions": [flagged(a) for a in c["positions"]], **_link_flag(c.get("channel_ref")),
+                        "also": [also(r) for r in c.get("also_refs") or []]}
+                       for c in rs["channels"]]
+    got = directory.describe(rs.get("leader_position_ref", ""), rs.get("leader_position", ""))
+    out["leader_missing"], out["leader_unmatched"] = got["missing"], got["unmatched"]
+    return out
+
+
+def channel_catalog() -> tuple[list[dict], str]:
+    """Soundboard channels: the audio source channels core holds (app/channels.py), whichever module reports them. When
+    there are none the admin page lets the operator type a channel in. Returns the channels and where they came from."""
+    out: list[dict] = []
+    sources: list[str] = []
+    try:
+        for c in core_channels.listing("audio"):
+            if not c["missing"] and c["direction"] == "source":
+                out.append({"id": c["ref"], "ref": c["ref"], "number": str(c["number"] if c["number"] is not None else ""),
+                            "name": c["shown"]})
+        if out:
+            sources.append("Relay channels")
+    except db.Unavailable:
+        log.info("the database is down, so Relay's own channels are not offered")
+    return out, ", ".join(sources)
 
 
 @router.get("/api/admin/planning-center/rundown", dependencies=[Depends(require("planning_center.view"))])
 async def admin_planning_center_rundown(type: str = "", time: str = ""):
     """The rundown as /screen shows it, the settings behind it, and every team and position on today's plans
-    (for the mic map)."""
+    (for the channel assignments), plus the channels a soundboard module offers."""
+    from ... import directory
+
     st = type if type in follower.tracks else ""
     want = time if re.fullmatch(r"\d{4}", time or "") else ""
+    catalog, catalog_source = channel_catalog()
     return {"rundown": rundown_now(st, want), "settings": _rundown_settings_view(),
             "positions": rundown.positions(list(follower.tracks.values())),
+            "all_positions": [{"ref": p["ref"], "name": p["name"], "team": p["team"]}
+                              for p in directory.positions() if not p["missing"]],
+            "type_positions": rundown.type_positions(list(follower.tracks.values())),
+            "catalog": catalog, "catalog_source": catalog_source,
             "service_types": [{"id": s, "name": follower.names.get(s) or f"Service type {s}"}
                               for s in follower.tracks],
             "actions": control.recent()}
@@ -266,7 +320,7 @@ async def admin_planning_center_rundown(type: str = "", time: str = ""):
 
 @router.post("/api/admin/planning-center/rundown/settings", dependencies=[Depends(require("planning_center.manage"))])
 async def admin_planning_center_rundown_settings(payload: dict):
-    """The rundown on /screen (on or off), the note fields it reads, and the mics by position."""
+    """The rundown on /screen (on or off), the note fields it reads, and the channels with their positions."""
     saved = config.get()["planning_center"]
     rs = dict(saved["rundown"])
     for k in ("leader_note", "leader_position", "sermon_note"):
@@ -278,10 +332,27 @@ async def admin_planning_center_rundown_settings(payload: dict):
         if not isinstance(payload["screen"], bool):
             return JSONResponse({"error": "screen must be true or false."}, status_code=400)
         rs["screen"] = payload["screen"]
+    if "leader_position_ref" in payload:
+        # Picked from the list (#521): the position's name comes from the directory; "" picks none.
+        from ... import directory
+        try:
+            ref = directory.clean_ref(directory.POSITION, payload["leader_position_ref"])
+        except ValueError:
+            return JSONResponse({"error": "Pick a position Planning Center lists."}, status_code=400)
+        rs["leader_position_ref"] = ref
+        rs["leader_position"] = directory.describe(ref)["name"] if ref else ""
+    elif "leader_position" in payload:
+        rs["leader_position_ref"] = ""      # a typed name is matched to a position on the next refresh
     if "mics" in payload:
         if not isinstance(payload["mics"], list):
             return JSONResponse({"error": "mics must be a list."}, status_code=400)
         rs["mics"] = payload["mics"]
+    if "channels" in payload:
+        if not isinstance(payload["channels"], list):
+            return JSONResponse({"error": "channels must be a list."}, status_code=400)
+        rs["channels"] = rundown.clean_channels(payload["channels"])
+    rs = {**rs, **{k: rundown.clean_rundown(rs)[k] for k in ("mics", "channels")}}
+    rundown.refresh_saved(rs)        # a ref for each name that matches one, and Planning Center's current names (#525)
     config.save({"planning_center": {**saved, "rundown": rs}}, replace=("planning_center",))
     log.info("Planning Center rundown settings saved (screen %s)", "on" if rs["screen"] else "off")
     return {"settings": _rundown_settings_view()}

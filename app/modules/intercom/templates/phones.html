@@ -1,0 +1,15 @@
+{# Signed-in phones (#273): its own admin page, rendered inside admin.html only while the module is on. #}
+    <h2 class="title">Signed-in phones</h2>
+    <section id="icPhonesSection">
+      <p class="note">Each crew member signs in on their own phone with their own account. Signing a phone out ends its
+        intercom at once.</p>
+      <div class="note" id="icPhonesEmpty">No phones are signed in.</div>
+      <table class="tbl" id="icPhonesTable" hidden>
+        <thead><tr><th>Person</th><th>Phone</th><th>Signed in</th><th>Last seen</th><th>Key renews</th><th>Status</th><th></th></tr></thead>
+        <tbody id="icPhones"></tbody>
+      </table>
+      <div class="ctl" style="margin-top:12px">
+        <button type="button" id="icSignOutAll" hidden>Sign out all phones</button>
+      </div>
+    </section>
+    <div class="note err" id="icPhonesErr" hidden></div>

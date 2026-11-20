@@ -1,34 +1,4 @@
 {# The Intercom tab of the crew page (#240). Filled in by crew.js; every word from the server is set as text. #}
-<style>
-  #ic .chips { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 12px; }
-  #ic .chip { font-size: 13px; padding: 4px 10px; border: 1px solid var(--line); border-radius: 999px; color: var(--dim); }
-  #ic .chip.ok { color: var(--fg); border-color: var(--accent); }
-  #ic .chip.bad { color: var(--err); border-color: var(--err); }
-  #ic .banner { border: 1px solid var(--line); border-radius: 10px; padding: 10px 14px; margin: 0 0 12px; font-size: 14px; }
-  #ic .banner.warn { border-color: var(--err); color: var(--err); }
-  #ic .ch { border: 1px solid var(--line); border-left-width: 6px; border-radius: 12px; padding: 12px 14px; margin: 0 0 10px; }
-  #ic .ch.off { opacity: .45; }
-  #ic .ch h3 { margin: 0; font-size: 16px; }
-  #ic .ch .act { color: var(--dim); font-size: 14px; margin: 2px 0 8px; }
-  #ic .ch .row { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
-  #ic .tog { padding: 8px 14px; font: inherit; font-weight: 600; border-radius: 8px; border: 1px solid var(--line);
-             background: none; color: var(--fg); cursor: pointer; }
-  #ic .tog[aria-pressed=true] { background: var(--accent); color: var(--bg); border-color: var(--accent); }
-  #ic .tog:disabled { text-decoration: line-through; cursor: not-allowed; opacity: .6; }
-  #ic .ch input[type=range] { flex: 1 1 120px; min-width: 100px; }
-  #ic .ch .res { font-size: 14px; font-weight: 600; }
-  #ic .ch .res.cut, #ic .ch .res.denied { color: var(--err); }
-  #ic .foot { position: sticky; bottom: 0; background: var(--bg); padding: 12px 0 8px; border-top: 1px solid var(--line); }
-  #ic .to { font-size: 14px; color: var(--dim); margin: 0 0 10px; }
-  #ic #icTalk { width: 100%; min-height: 84px; font: inherit; font-size: 20px; font-weight: 700; border-radius: 16px;
-                border: 0; background: var(--accent); color: var(--bg); touch-action: none; user-select: none;
-                -webkit-user-select: none; -webkit-touch-callout: none; cursor: pointer; }
-  #ic #icTalk[aria-pressed=true] { background: var(--err); color: #fff; }
-  #ic #icTalk:disabled { opacity: .45; cursor: not-allowed; }
-  #ic .foot .row { display: flex; gap: 8px; margin-top: 8px; }
-  #ic .foot .row button { flex: 1; }
-  #ic .note { color: var(--dim); font-size: 13px; margin-top: 10px; }
-</style>
 <div id="ic" hidden>
   <div class="chips" aria-label="Connection">
     <span class="chip" id="icProd"></span>
@@ -51,6 +21,11 @@
     </div>
     <label class="note" style="display:block"><input type="checkbox" id="icKeep" checked>
       Keep this phone signed in to the intercom</label>
+    <details class="note" id="icMine">
+      <summary>My phones</summary>
+      <ul id="icMyList" style="list-style:none;padding:0;margin:8px 0 0"></ul>
+      <p class="note" id="icMyEmpty" hidden>No phones are signed in to the intercom.</p>
+    </details>
     <p class="note" id="icIos" hidden>On iPhone the intercom only works while this tab is in front. Keep the screen on.</p>
     <p class="note">Space bar talks on a laptop. A headset's play/pause button toggles Latch where the browser allows it.</p>
   </div>

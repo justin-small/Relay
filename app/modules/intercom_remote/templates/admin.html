@@ -1,0 +1,16 @@
+{# The Remote crew admin page, rendered inside admin.html only while the module is on. #}
+    <h2 class="title">Remote crew <span class="sumstate" id="irSum"></span></h2>
+    <p class="sub">Crew who may use the intercom from outside the building, through Cloudflare. Local phones and local audio never depend on this.</p>
+    <div class="note" id="irState"></div>
+
+    <section>
+      <h3>Who may connect remotely</h3>
+      <div class="note">Only people marked here can connect from outside, even with a valid account. They sign in at the install's remote address with their own Relay login and get the same channels and rights as on site.</div>
+      <table class="grid" id="irPeople"><thead><tr><th>Person</th><th>Role</th><th>Remote phones</th><th></th></tr></thead><tbody></tbody></table>
+    </section>
+
+    <section>
+      <h3>Remote connections</h3>
+      <table class="grid" id="irSessions"><thead><tr><th>Person</th><th>Started</th><th>Ended</th><th>Why</th></tr></thead><tbody></tbody></table>
+    </section>
+    <div class="note err" id="irErr" hidden></div>

@@ -29,7 +29,7 @@ constexpr const char *kUpdateKey = "update";
 constexpr const char *kLockKey = "lock";
 
 // The orientation this build was configured for. It is the defaults' rotation, and it
-// is also what a stored rotation that is neither 0 nor 180 falls back to. The Kconfig
+// is also what a stored rotation that is not 0, 90, 180 or 270 falls back to. The Kconfig
 // value is 0 or 180, so the cast loses nothing.
 uint16_t configured_rotation()
 {

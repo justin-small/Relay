@@ -37,26 +37,66 @@ CODE_HTTPS = 4426
 def _stats(data: dict) -> dict:
     """A phone's receive statistics (packets lost, jitter, round trip), for the watchdog (#276): numbers only."""
     out = {}
-    for key in ("packets_lost", "jitter_ms", "rtt_ms", "tracks"):
+    for key in ("packets_lost", "packets_received", "jitter_ms", "rtt_ms", "tracks"):
         v = data.get(key)
         out[key] = v if isinstance(v, (int, float)) and not isinstance(v, bool) and 0 <= v < 1e9 else None
     return out
 
 
+class Remote:
+    """How a module that carries phones from outside the building (intercom_remote, #277) joins the same socket.
+
+    `allow(device, user)` says whether this credential may connect here; `handle(conn, data)` answers a message
+    of the module's own and returns True when it did; `opened(conn)` and `closed(conn)` run around the connection.
+    A remote phone never gets a local LiveKit token: `token` is refused for it."""
+    via = "remote"
+    max_message = MAX_MESSAGE      # a module whose messages carry more (SDP for remote audio) raises it
+
+    async def allow(self, device: dict, user) -> bool:
+        return True
+
+    def unavailable(self) -> int | None:
+        """A close code to answer with when the module cannot take phones just now (not a bad credential)."""
+        return None
+
+    async def handle(self, conn: "Conn", data: dict) -> bool:
+        return False
+
+    async def opened(self, conn: "Conn") -> None:
+        pass
+
+    async def closed(self, conn: "Conn") -> None:
+        pass
+
+
+_token_times: dict[int, deque[float]] = {}     # device id -> recent token requests
+_token_logged: dict[int, float] = {}
+
+
 class Conn:
-    def __init__(self, ws: WebSocket, device: dict, user, session_id: int):
+    def __init__(self, ws: WebSocket, device: dict, user, session_id: int, remote: Remote | None = None):
+        self.remote = remote
         self.stats: dict = {}
         self.ws, self.device_id, self.user_id, self.name = ws, device["id"], user.id, user.name
         self.session_id = session_id
-        self.tokens: deque[float] = deque()
 
     def allow_token(self) -> bool:
+        """30 token requests a minute per device (#278), counted across reconnects, so a phone cannot reset its
+        count by opening a new socket. A refusal is logged once a minute, not per request."""
         now = time.monotonic()
-        while self.tokens and now - self.tokens[0] > 60:
-            self.tokens.popleft()
-        if len(self.tokens) >= TOKENS_PER_MIN:
+        q = _token_times.setdefault(self.device_id, deque())
+        while q and now - q[0] > 60:
+            q.popleft()
+        if len(q) >= TOKENS_PER_MIN:
+            if now - _token_logged.get(self.device_id, -60.0) >= 60:
+                _token_logged[self.device_id] = now
+                log.warning("intercom: phone %s asked for more than %d tokens a minute; refused",
+                            self.device_id, TOKENS_PER_MIN)
             return False
-        self.tokens.append(now)
+        q.append(now)
+        if len(_token_times) > 2000:
+            for k in [k for k, v in _token_times.items() if not v or now - v[-1] > 60]:
+                _token_times.pop(k, None), _token_logged.pop(k, None)
         return True
 
 
@@ -215,16 +255,16 @@ class Presence:
             self._bad.pop(ip, None)
         return len(q) >= BAD_HELLOS_PER_MIN
 
-    async def serve(self, ws: WebSocket) -> None:
+    async def serve(self, ws: WebSocket, remote: Remote | None = None) -> None:
         ip = ws.client.host if ws.client else ""
         await ws.accept()
-        if not on_operator_port(ws):
+        if remote is None and not on_operator_port(ws):
             await ws.close(code=CODE_HTTPS, reason="https_only")
             return
         if self._too_many_bad(ip, False):
             await ws.close(code=CODE_RATE, reason="slow_down")
             return
-        auth = await self._hello(ws, ip)
+        auth = await self._hello(ws, ip, remote)
         if auth is None:
             return
         device, user, fresh = auth
@@ -232,13 +272,15 @@ class Presence:
         if old is not None:
             await self._close(old, CODE_REPLACED, "replaced")
         try:
-            sid = await store.run(self._open, device, user)
+            sid = await store.run(self._open, device, user, remote.via if remote else "local")
         except db.Unavailable:
             await ws.close(code=1013, reason="try_again")
             return
-        conn = Conn(ws, device, user, sid)
+        conn = Conn(ws, device, user, sid, remote)
         self.conns[device["id"]] = conn
         self._changed()
+        if remote is not None:
+            await remote.opened(conn)
         reason = "closed"
         try:
             await self._send(ws, await self._welcome(device, user, fresh))
@@ -252,13 +294,23 @@ class Presence:
             if self.conns.get(device["id"]) is conn:
                 del self.conns[device["id"]]
                 self._changed()
+                if remote is not None:       # first: the arbiter may wait on LiveKit, and Cloudflare must not
+                    try:
+                        await remote.closed(conn)
+                    except Exception:
+                        log.exception("intercom: remote cleanup failed")
                 await arbiter.disconnected(device["id"])
+            elif remote is not None:
+                try:
+                    await remote.closed(conn)
+                except Exception:
+                    log.exception("intercom: remote cleanup failed")
             try:
                 await store.run(self._shut, conn, reason)
             except Exception:
                 pass
 
-    async def _hello(self, ws: WebSocket, ip: str):
+    async def _hello(self, ws: WebSocket, ip: str, remote: Remote | None = None):
         try:
             msg = await asyncio.wait_for(ws.receive_text(), HELLO_WAIT_S)
             data = json.loads(msg) if len(msg) <= MAX_MESSAGE else None
@@ -274,6 +326,13 @@ class Presence:
             except db.Unavailable:
                 await ws.close(code=1013, reason="try_again")
                 return None
+        if got is not None and remote is not None:
+            down = remote.unavailable()
+            if down is not None:       # the module is reconnecting: the phone retries, and keeps its sign-in
+                await ws.close(code=down, reason="link_lost")
+                return None
+            if not await remote.allow(got[0], got[1]):
+                got = None
         if got is None:
             self._too_many_bad(ip, True)
             await ws.close(code=CODE_BAD_CREDENTIAL, reason="sign_in_again")
@@ -303,7 +362,7 @@ class Presence:
                 return "timeout"
             except (WebSocketDisconnect, RuntimeError):      # RuntimeError: closed from our side meanwhile
                 return "closed"
-            if len(text) > MAX_MESSAGE:
+            if len(text) > (MAX_MESSAGE if conn.remote is None else max(MAX_MESSAGE, conn.remote.max_message)):
                 await self._send(ws, {"type": "error", "text": "Message too large."})
                 continue
             try:
@@ -318,6 +377,12 @@ class Presence:
     async def _handle(self, conn: Conn, data: dict) -> bool:
         """Answer one message. True when the socket was closed because of it."""
         kind = data.get("type")
+        if conn.remote is not None:
+            if kind == "token":      # a remote phone reaches LiveKit only through the bridge
+                await self._send(conn.ws, {"type": "error", "for": "token", "text": "Not available remotely."})
+                return False
+            if await conn.remote.handle(conn, data):
+                return False
         if kind == "ping":
             await self._send(conn.ws, {"type": "pong"})
         elif kind == "token":
@@ -356,10 +421,10 @@ class Presence:
 
     # -------------------------------------------------------------- history (sync, in a worker thread)
     @staticmethod
-    def _open(device: dict, user) -> int:
+    def _open(device: dict, user, via: str = "local") -> int:
         with db.transaction() as tx:
-            row = tx.one("insert into intercom_sessions (device_id, user_id, via, started_at) values (?, ?, 'local', ?)"
-                         " returning id", (device["id"], user.id, db.now()))
+            row = tx.one("insert into intercom_sessions (device_id, user_id, via, started_at) values (?, ?, ?, ?)"
+                         " returning id", (device["id"], user.id, via, db.now()))
             store.log_event(tx, "device_connected", user_id=user.id, device_id=device["id"])
             return row["id"]
 

@@ -1,7 +1,12 @@
 /* /screen?rundown=full|side|micboard (#148): lays out the "rundown" stream a module offers (Planning Center).
-   A kiosk: nothing scrolls and nothing is pressed. The stage is 1920x1080, scaled to the screen; text that would not
-   fit its panel is shrunk until it does, and the side column drops items rather than cut one in half. Everything is
-   built with textContent: names and notes come from a church's own plan. */
+   A kiosk: nothing scrolls and nothing is pressed. The stage is 1920x1080, scaled to the screen.
+
+   The order of service is drawn to scale (the "ruler"): an item is as tall as its minutes, beside a lane with the
+   plan, and a slanted line joins the two wherever the service has slipped. On the micboard each mic carries its own
+   strip of the service, lit where it is drawn (songs) or in use now. People show their Planning Center photo, over
+   their initials for when there is none or it will not load.
+
+   Everything is built with textContent: names and notes come from a church's own plan. */
 (function () {
   'use strict';
 
@@ -10,17 +15,13 @@
   const wantTeam = (body.dataset.team || '').toLowerCase();
   const stage = document.getElementById('stage');
   const $ = (id) => document.getElementById(id);
+  const SVG = 'http://www.w3.org/2000/svg';
   const COLOURS = ['#d9488f', '#8b6cf0', '#2bb3c4', '#ee8a4a', '#3fbf6f', '#4f8de8', '#a76ae0', '#e0b43a',
                    '#e85a6e', '#2fae9c', '#c98a3a', '#7c9a6a'];
 
   let msg = null, skew = 0, zone = undefined;
 
-  function el(tag, cls, text) {
-    const e = document.createElement(tag);
-    if (cls) e.className = cls;
-    if (text !== undefined && text !== null) e.textContent = text;
-    return e;
-  }
+  const el = relayUI.el;
   function colour(name) {
     let h = 0;
     for (const c of name || '') h = (h * 31 + c.charCodeAt(0)) >>> 0;
@@ -44,16 +45,20 @@
     const t = h ? `${h}:${String(m).padStart(2, '0')}:${String(x).padStart(2, '0')}` : `${m}:${String(x).padStart(2, '0')}`;
     return (neg ? '-' : '') + t;
   }
-  function len(s) { return s ? dur(s) : ''; }
-  function face(box, p) {
-    box.style.background = p && p.name ? colour(p.name) : '';
-    if (p && p.name) box.appendChild(el('span', 'ini', initials(p.name)));
-    if (p && p.photo) {
+  function kindOf(it) { return it.kind === 'song' ? 'song' : it.kind === 'media' ? 'media' : 'talk'; }
+  // A person's Planning Center photo over their initials (shown when there is no photo or it will not load).
+  function face(p, cls) {
+    const box = el('span', 'face' + (cls ? ' ' + cls : ''));
+    if (!p || !p.name) return box;
+    box.style.background = colour(p.name);
+    box.appendChild(el('span', 'ini', initials(p.name)));
+    if (p.photo) {
       const img = el('img'); img.alt = ''; img.referrerPolicy = 'no-referrer';
       img.onerror = () => img.remove();
       img.src = p.photo;
       box.appendChild(img);
     }
+    return box;
   }
 
   // -- fitting ---------------------------------------------------------------------------------------------------
@@ -71,29 +76,72 @@
     }
   }
 
+  // -- times -----------------------------------------------------------------------------------------------------
+  // Where each item really sits: its actual start (done, current), else the projection, else the plan; it ends where
+  // the next item starts once that has happened, and the current item runs until now if it is over its length.
+  function spans() {
+    const items = msg.items, out = [];
+    const startOf = (it) => it.actual || it.projected || it.planned;
+    items.forEach((it, n) => {
+      const s = startOf(it);
+      if (s === null || s === undefined) return;
+      let e = s + (it.length || 0);
+      const nx = items.slice(n + 1).find((x) => x.kind !== 'header' && startOf(x));
+      if (it.state === 'done' && nx && (nx.actual || nx.state === 'current')) e = Math.max(s, startOf(nx));
+      if (it.state === 'current') e = Math.max(e, now());
+      out.push({ it, s, e, p: it.planned, pe: it.planned !== null && it.planned !== undefined ? it.planned + (it.length || 0) : null });
+    });
+    return out;
+  }
+  function range(list) {
+    let from = Infinity, to = -Infinity;
+    for (const x of list) {
+      from = Math.min(from, x.s, x.p ?? x.s); to = Math.max(to, x.e, x.pe ?? x.e);
+    }
+    return from < to ? [from, to] : null;
+  }
+
   // -- header ----------------------------------------------------------------------------------------------------
   function header() {
     const h = (msg && msg.header) || {};
     const live = !!(msg && msg.live && h.current);
-    $('hLive').hidden = !live;
+    if ($('hLive')) $('hLive').hidden = !live;
     $('hTitle').textContent = h.current || (msg && msg.plan ? (msg.plan.title || 'Today’s plan') : 'No plan today');
-    const song = h.song;
-    $('hKey').hidden = !(song && song.key);
-    $('hKey').textContent = song && song.key ? song.key : '';
-    $('hLead').textContent = song && song.leader ? `led by ${song.leader}` : '';
-    $('hNext').textContent = h.next || '–';
-    $('hPlanned').textContent = clock(h.planned_end);
-    const proj = $('hProj');
-    proj.textContent = clock(h.projected_end);
-    proj.className = 'big' + (h.projected_end && h.planned_end && h.projected_end - h.planned_end >= 60 ? ' warn' : '');
-    const over = $('hOver');
-    if (h.over_s === null || h.over_s === undefined) { over.textContent = '–'; over.className = 'big'; }
-    else {
-      over.textContent = (h.over_s >= 0 ? '+' : '') + dur(h.over_s);
-      over.className = 'big' + (h.over_s >= 60 ? ' warn' : '');
-    }
     $('hSvc').textContent = msg && msg.time ? `${clock(msg.time.starts_at)} service` : 'Service';
+    const song = h.song;
+    if ($('hKey')) { $('hKey').hidden = !(song && song.key); $('hKey').textContent = song && song.key ? song.key : ''; }
+    if ($('hLead')) $('hLead').textContent = song && song.leader ? `${song.leader} leads` : '';
+    if ($('hNext')) {
+      const nx = (msg && msg.items || []).find((x) => x.state === 'next');
+      $('hNextAt').textContent = nx ? `Then, at ${clock(nx.projected || nx.planned)}` : 'Then';
+      $('hNext').textContent = h.next || '–';
+    }
+    if ($('hProg')) {
+      $('hProg').hidden = !(h.item_started_at && h.item_length);
+      $('hProg').className = 'prog' + (h.kind === 'song' ? ' song' : '');
+      $('hFrom').textContent = clock(h.item_started_at);
+      $('hTo').textContent = h.item_started_at ? clock(h.item_started_at + h.item_length) : '';
+    }
+    slip();
     tick();
+  }
+  // How the service is running, in words.
+  function slip() {
+    const box = $('hSlip'), h = (msg && msg.header) || {};
+    box.replaceChildren();
+    if (!h.planned_end) return;
+    const ends = h.projected_end || h.planned_end, m = Math.round(Math.abs(h.over_s || 0) / 60);
+    if (h.over_s === null || h.over_s === undefined) {
+      box.appendChild(el('span', 'd', 'Planned to end at ')); box.append(clock(h.planned_end) + '.');
+      return;
+    }
+    if (h.over_s >= 60) box.appendChild(el('span', 'w', `${m} minute${m === 1 ? '' : 's'} behind.`));
+    else if (h.over_s <= -60) box.appendChild(el('span', 'ok', `${m} minute${m === 1 ? '' : 's'} ahead.`));
+    else box.appendChild(el('span', 'ok', 'On time.'));
+    box.appendChild(el('span', 'd', ' The service ends at '));
+    box.append(clock(ends));
+    if (Math.abs(ends - h.planned_end) >= 60) { box.appendChild(el('span', 'd', ` instead of ${clock(h.planned_end)}`)); }
+    box.append('.');
   }
   function tick() {
     $('hClock').textContent = clock(now(), true);
@@ -102,87 +150,101 @@
     if (h.item_started_at && h.item_length) {
       const s = h.item_started_at + h.item_length - now();
       left.textContent = dur(s);
-      left.className = 'big' + (s < 0 ? ' over' : '');
-    } else { left.textContent = '–'; left.className = 'big'; }
-    if ($('sLeft')) $('sLeft').textContent = left.textContent === '–' ? '' : left.textContent;
+      left.className = 'left' + (s < 0 ? ' over' : '');
+      if ($('hBar')) $('hBar').style.width = Math.min(100, Math.max(0, (now() - h.item_started_at) / h.item_length * 100)) + '%';
+    } else { left.textContent = '–'; left.className = 'left'; }
   }
 
-  // -- order of service ------------------------------------------------------------------------------------------
-  const SECTIONS = { pre: 'Pre-service', during: 'Service', post: 'Post-service' };
-  function songMeta(song, withMics) {
-    const m = el('div', 'm');
-    if (song.key) m.appendChild(el('span', 'key', song.key));
-    if (song.leader) m.appendChild(el('span', '', `${song.leader} leads`));
-    if (withMics) for (const x of song.mics) {
-      const s = el('span'); s.appendChild(el('span', 'mic', x.mic)); s.append(' ' + first(x.name)); m.appendChild(s);
-    }
-    return m;
-  }
-  function row(it, side) {
-    const r = el('div', 'row ' + (it.state || '') + (it.kind === 'header' ? ' header' : ''));
-    r.appendChild(el('span', 'pt', clock(it.planned)));
-    const shown = it.actual || it.projected || it.planned;
-    const late = shown && it.planned && shown - it.planned >= 60, early = shown && it.planned && it.planned - shown >= 60;
-    r.appendChild(el('span', 'at' + (late ? ' late' : early ? ' early' : ''), clock(shown)));
-    const mid = el('div'); mid.style.minWidth = '0';
-    mid.appendChild(el('div', 't', it.title));
-    if (it.song) mid.appendChild(songMeta(it.song, !side));
-    r.appendChild(mid);
-    r.appendChild(el('span', 'len', len(it.length)));
-    return r;
-  }
-  function rows() {
-    const box = $('rows');
+  // -- the ruler -------------------------------------------------------------------------------------------------
+  function ruler(mini) {
+    const box = $('ruler');
     box.replaceChildren();
-    let items = msg.items;
-    if (layout === 'compact') {
-      const i = items.findIndex((x) => x.state === 'current');
-      const from = i >= 0 ? i : items.findIndex((x) => x.state !== 'done');
-      items = items.slice(Math.max(0, from), Math.max(0, from) + 4);
+    const list = spans(), r = range(list);
+    if (!r) return;
+    let [from, to] = r;
+    const cur = list.find((x) => x.it.state === 'current');
+    // The side column and the compact layout start just before what is on now, so what is left gets the height.
+    if (mini || layout === 'compact') from = Math.max(from, (cur ? cur.s : now()) - (mini ? 120 : 300));
+    const H = box.clientHeight, pps = H / (to - from), y = (t) => (t - from) * pps;
+    const mins = (to - from) / 60, step = (mins <= 40 ? 5 : mins <= 120 ? 15 : 30) * 60;
+    for (let t = Math.ceil(from / step) * step; t <= to; t += step) {
+      const tk = el('div', 'tick'); tk.style.top = y(t) + 'px'; tk.appendChild(el('span', '', clock(t))); box.appendChild(tk);
     }
-    let sect = '';
-    for (const it of items) {
-      if (it.section !== sect && layout !== 'compact') { sect = it.section; box.appendChild(el('div', 'sect', SECTIONS[sect] || '')); }
-      box.appendChild(row(it, false));
+    if (!mini) {
+      const svg = document.createElementNS(SVG, 'svg');
+      svg.setAttribute('class', 'drift'); svg.setAttribute('viewBox', `0 0 46 ${H}`); svg.setAttribute('preserveAspectRatio', 'none');
+      for (const x of list) {
+        if (x.p === null || x.p === undefined || x.it.kind === 'header' || x.pe <= from) continue;
+        const ph = (x.pe - Math.max(x.p, from)) * pps - 2;
+        const pl = el('div', 'plan', ph > 18 ? clock(x.p) : '');
+        pl.style.top = Math.max(y(x.p), 0) + 'px'; pl.style.height = Math.max(ph, 1) + 'px';
+        box.appendChild(pl);
+        if (Math.abs(x.s - x.p) >= 30 && x.p >= from) {
+          const ln = document.createElementNS(SVG, 'line');
+          ln.setAttribute('x1', '0'); ln.setAttribute('y1', String(y(x.p)));
+          ln.setAttribute('x2', '46'); ln.setAttribute('y2', String(y(x.s)));
+          ln.setAttribute('stroke', '#ff4d3d'); ln.setAttribute('stroke-width', '1.5'); ln.setAttribute('opacity', '.7');
+          svg.appendChild(ln);
+        }
+      }
+      box.appendChild(svg);
     }
-  }
-  function rail() {
-    const box = $('rail'), fit = box.parentElement;
-    box.replaceChildren();
-    const cur = msg.items.find((x) => x.state === 'current');
-    $('sTitle').textContent = cur ? cur.title : (($('hTitle') || {}).textContent || '–');
-    const meta = $('sMeta'); meta.replaceChildren();
-    if (cur && cur.song) meta.appendChild(songMeta(cur.song, true));
-    const i = msg.items.findIndex((x) => x.state === 'current');
-    const upcoming = msg.items.slice(i >= 0 ? i + 1 : 0).filter((x) => x.state !== 'done' && x.kind !== 'header');
-    for (const it of upcoming) {
-      box.appendChild(row(it, true));
-      if (box.scrollHeight > fit.clientHeight) { box.lastChild.remove(); break; }
+    const notesFor = msg.notes && msg.notes.item;
+    for (const x of list) {
+      const it = x.it;
+      if (x.e <= from) continue;
+      if (it.kind === 'header') {
+        const sc = el('div', 'sect', it.title); sc.style.top = y(x.s) + 'px'; box.appendChild(sc); continue;
+      }
+      const top = Math.max(y(x.s), 0), hh = y(x.e) - top - 3;
+      const tall = hh > 140 && notesFor === it.title && msg.notes;
+      const b = el('div', `blk ${kindOf(it)} ${it.state || ''}${hh < 12 ? ' tiny' : hh < 26 ? ' small' : ''}${tall ? ' tall' : ''}`);
+      b.style.top = top + 'px'; b.style.height = Math.max(hh, 1) + 'px';
+      const late = it.planned && x.s - it.planned >= 60 && it.state !== 'done';
+      b.appendChild(el('span', 'at' + (late ? ' late' : ''), clock(x.s)));
+      b.appendChild(el('span', 't', it.title));
+      if (it.song && it.song.key) b.appendChild(el('span', 'key k', it.song.key));
+      if (it.song && it.song.leader && hh > 24) b.appendChild(el('span', 'ld', it.song.leader));
+      if (mini && it.state === 'current' && hh > 60) {
+        const fs = el('div', 'faces');
+        for (const c of msg.mics) if (c.on && c.person) fs.appendChild(face(c.person));
+        if (fs.childNodes.length) b.appendChild(fs);
+      }
+      if (tall) b.appendChild(el('div', 'peek', msg.notes.text.split(/\n\s*\n/).slice(0, mini ? 2 : 4).join('\n\n')));
+      box.appendChild(b);
+    }
+    const t = now();
+    if (t >= from && t <= to) {
+      const ph = el('div', 'playhead'); ph.style.top = y(t) + 'px'; ph.appendChild(el('span', '', clock(t))); box.appendChild(ph);
     }
   }
 
   // -- mics ------------------------------------------------------------------------------------------------------
-  function channel(c, leader) {
-    const p = c.person;
-    const ch = el('div', 'ch ' + (c.label ? 'label ' : '') + (!p ? 'spare' : c.on ? 'on' : 'idle'));
-    const f = el('div', 'face');
-    if (c.label) f.appendChild(el('div', 'lt', c.label)); else if (p) face(f, p);
-    f.appendChild(el('span', 'num', c.mic));
-    ch.appendChild(f);
-    ch.appendChild(el('div', 'name', p ? p.name : 'Spare'));
-    const pos = el('div', 'pos');
-    if (p && leader && p.name === leader) { pos.appendChild(el('span', 'lead', 'Leading')); pos.append(' · '); }
-    pos.append(p ? c.position : `${c.position} · unfilled`);
-    ch.appendChild(pos);
-    return ch;
+  function onMics() {
+    const box = $('mics');
+    box.replaceChildren();
+    const h = msg.header || {};
+    $('micsFor').textContent = h.kind === 'song' ? 'On mics for this song' : 'On mics now';
+    const on = msg.mics.filter((c) => c.on && c.person);
+    if (!on.length) {
+      box.appendChild(el('div', 'none', msg.mics.length ? 'No mics in use for this item' : 'No mics mapped to positions'));
+      return;
+    }
+    for (const c of on) {
+      const d = el('div', 'om');
+      d.appendChild(face(c.person));
+      d.appendChild(el('span', 'mic', c.mic));
+      d.appendChild(el('span', 'n', first(c.person.name)));
+      box.appendChild(d);
+    }
   }
-  // Up to 8 mics in one row, 9 to 19 in two, 20 or more in three; columns share the width equally (the strip on
-  // the full view caps a column at 240 px so a few mics do not turn into wide slabs).
+
+  // Up to 8 mics in one row, 9 to 19 in two, 20 or more in three; columns share the width equally.
   function rowsFor(n) { return n >= 20 ? 3 : n > 8 ? 2 : 1; }
-  function grid(box, n, cap) {
+  function grid(box, n) {
     const rows = rowsFor(n), cols = Math.max(1, Math.ceil(n / rows));
     box.dataset.rows = String(rows);
-    box.style.gridTemplateColumns = `repeat(${cols}, minmax(0, ${cap ? cap + 'px' : '1fr'}))`;
+    box.style.gridTemplateColumns = `repeat(${cols}, minmax(0, 1fr))`;
     box.style.gridTemplateRows = `repeat(${rows}, minmax(0, 1fr))`;
   }
   function fitNames(box) {
@@ -192,86 +254,107 @@
       while (size > 10 && n.scrollWidth > n.clientWidth) { size -= 0.5; n.style.fontSize = size + 'px'; }
     });
   }
-
-  function platform() {
-    const box = $('mics');
+  function hour() {
+    const box = $('hour');
     box.replaceChildren();
-    const h = msg.header || {};
-    const on = msg.mics.filter((c) => c.on);
-    $('micsFor').textContent = h.current ? `${h.current} · mics` : 'mics';
-    if (!on.length) {
-      box.style.gridTemplateColumns = '1fr'; box.style.gridTemplateRows = '1fr'; box.dataset.rows = '1';
-      box.appendChild(el('div', 'empty', msg.mics.length ? 'No mics in use for this item' : 'No mics mapped to positions'));
-      return;
+    const list = spans().filter((x) => x.it.kind !== 'header'), r = range(list);
+    if (!r) return null;
+    const [from, to] = r, x = (t) => (t - from) / (to - from) * 100;
+    for (const s of list) {
+      const seg = el('div', `seg ${kindOf(s.it)} ${s.it.state || ''}`, (s.e - s.s) / (to - from) > 0.045 ? s.it.title : '');
+      seg.style.left = x(s.s) + '%'; seg.style.width = `calc(${x(s.e) - x(s.s)}% - 3px)`;
+      box.appendChild(seg);
     }
-    grid(box, on.length, 240);
-    for (const c of on) box.appendChild(channel(c, h.song && h.song.leader));
-    fitNames(box);
+    const t = now();
+    if (t >= from && t <= to) { const ph = el('div', 'ph'); ph.style.left = x(t) + '%'; box.appendChild(ph); }
+    return { list, from, to, x };
+  }
+  function channel(c, leader, scale) {
+    const p = c.person;
+    const sings = msg.items.some((it) => it.song && it.song.mics.some((m) => m.mic === c.mic));
+    const ch = el('div', 'ch' + (sings ? ' sings' : '') + (c.label && !p ? ' label' : '') + (!p && !c.label ? ' spare' : ''));
+    const f = p ? face(p) : el('span', 'face');
+    if (c.label && !p) f.appendChild(el('div', 'lt', c.label));
+    f.appendChild(el('span', 'num', c.mic));
+    ch.appendChild(f);
+    const bd = el('div', 'bd');
+    bd.appendChild(el('div', 'name', p ? p.name : 'Spare'));
+    const pos = el('div', 'pos');
+    if (p && leader && p.name === leader) { pos.appendChild(el('span', 'lead', 'Leading')); pos.append(' · '); }
+    pos.append(p ? c.position : `${c.position} · unfilled`);
+    bd.appendChild(pos);
+    if (scale) {
+      const lane = el('div', 'lane');
+      for (const s of scale.list) {
+        const it = s.it;
+        const drawn = it.song && it.song.mics.some((m) => m.mic === c.mic);
+        const spokenNow = it.state === 'current' && !it.song && c.on;
+        if (!drawn && !spokenNow) continue;
+        const i = el('i', (drawn ? '' : 'talk') + (it.state === 'done' ? ' done' : ''));
+        i.style.left = scale.x(s.s) + '%'; i.style.width = (scale.x(s.e) - scale.x(s.s)) + '%';
+        lane.appendChild(i);
+      }
+      const t = now();
+      if (t >= scale.from && t <= scale.to) { const b = el('b'); b.style.left = scale.x(t) + '%'; lane.appendChild(b); }
+      bd.appendChild(lane);
+    }
+    ch.appendChild(bd);
+    return ch;
   }
   function micboard() {
     const box = $('board');
     box.replaceChildren();
-    const h = msg.header || {};
-    // Every column the same width and the same distance apart, in mic order.
-    grid(box, msg.mics.length, 0);
-    for (const c of msg.mics) box.appendChild(channel(c, h.song && h.song.leader));
+    const h = msg.header || {}, sc = hour();
+    if (!msg.mics.length) {
+      box.style.gridTemplateColumns = '1fr'; box.style.gridTemplateRows = '1fr';
+      box.appendChild(el('div', 'empty', 'No input channels assigned to positions yet. Assign them on the Planning Center admin page.'));
+      return;
+    }
+    grid(box, msg.mics.length);
+    for (const c of msg.mics) box.appendChild(channel(c, h.song && h.song.leader, sc));
     fitNames(box);
-    if (!msg.mics.length) box.appendChild(el('div', 'msg', 'No mics mapped to positions yet. Map them on the Planning Center admin page.'));
   }
 
   // -- notes and roster ------------------------------------------------------------------------------------------
   function notes() {
     const n = msg.notes, box = $('notes');
-    $('notesH').textContent = n ? `Notes · ${n.item}` : 'Notes';
-    $('notesAt').textContent = n ? clock(n.projected || n.planned) : '';
+    $('notesH').textContent = n ? `${n.item} · at ${clock(n.projected || n.planned)}` : 'Notes';
     box.className = 'notes' + (n ? '' : ' none');
     box.textContent = n ? n.text : 'No sermon notes on this plan.';
-    shrink(box, 24, 11);
+    shrink(box, 18, 11);
   }
+  // Everyone serving who is not on a mic (the mics are on the micboard and in the list beside the clock), and the
+  // positions still to fill.
   function roster() {
     const box = $('roster');
     box.replaceChildren();
-    const people = msg.people.filter((p) => !wantTeam || p.team.toLowerCase() === wantTeam);
-    $('teamNote').textContent = (msg.time ? clock(msg.time.starts_at) : '') + ' · ' + (body.dataset.team || 'all teams');
+    const people = msg.people.filter((p) => !p.mic && (!wantTeam || p.team.toLowerCase() === wantTeam));
+    $('teamNote').textContent = 'Serving without a mic' + (body.dataset.team ? ` · ${body.dataset.team}` : '');
     const teams = [];
     for (const p of people) if (!teams.includes(p.team)) teams.push(p.team);
-    const avatar = (p) => {
-      const a = el('span', 'pa' + (p.status === 'unfilled' ? ' empty' : ''));
-      if (p.status === 'unfilled') a.textContent = '?'; else face(a, p);
-      return a;
-    };
     const person = (p, withPos) => {
-      const d = el('div', `p ${p.status}${p.singing ? ' singing' : ''}`);
-      d.appendChild(avatar(p));
-      const x = el('div', 'x');
-      x.appendChild(el('div', 'n', p.status === 'unfilled' ? 'Unfilled' : p.name));
-      if (withPos) x.appendChild(el('div', 's', p.position));
-      d.appendChild(x);
-      if (p.status === 'pending' || p.status === 'declined') d.appendChild(el('span', 'tag ' + p.status, p.status));
-      if (p.mic) d.appendChild(el('span', 'mic', p.mic));
+      const d = el('div', `p ${p.status}`);
+      const n = p.status === 'unfilled' ? 'No one yet' : p.name + (p.status === 'pending' ? ' · not confirmed' : '');
+      d.appendChild(el('span', 'n', n));
+      if (withPos) d.appendChild(el('span', 's', p.position));
       return d;
     };
     for (const t of teams) {
       box.appendChild(el('div', 'tm', t || 'Team'));
-      const grid = el('div', 'grid');
       const mine = people.filter((p) => p.team === t);
       if (cards === 'position') {
         const positions = [];
         for (const p of mine) if (!positions.includes(p.position)) positions.push(p.position);
         for (const pos of positions) {
           const pb = el('div', 'posbox');
-          const hd = el('div', 'h'); hd.appendChild(el('span', '', pos));
-          const mics = mine.filter((p) => p.position === pos && p.mic).map((p) => p.mic);
-          if (mics.length) hd.appendChild(el('span', 'mic', mics.join(' / ')));
-          pb.appendChild(hd);
+          pb.appendChild(el('div', 'h', pos));
           for (const p of mine.filter((q) => q.position === pos)) pb.appendChild(person(p, false));
-          grid.appendChild(pb);
+          box.appendChild(pb);
         }
-      } else for (const p of mine) grid.appendChild(person(p, true));
-      box.appendChild(grid);
+      } else for (const p of mine) box.appendChild(person(p, true));
     }
-    if (!people.length) box.appendChild(el('div', 'p', 'Nobody scheduled for this service time.'));
-    shrink(box, 20, 9);
+    if (!people.length) box.appendChild(el('div', 'p', 'Everyone serving this time is on a mic.'));
+    shrink(box, 18, 9);
   }
 
   // -- render ----------------------------------------------------------------------------------------------------
@@ -279,17 +362,17 @@
     const m = $('msg');
     m.hidden = !text;
     m.textContent = text || '';
-    const b = $('body') || $('board');
+    const b = $('body');
     if (b) b.hidden = !!text;
   }
   function render() {
     if (!msg) return;
     zone = msg.zone || undefined;
-    header();
     if (!msg.plan) { message('No plan today for the service type this screen follows.'); return; }
     message('');
-    if (view === 'full') { rows(); platform(); notes(); roster(); }
-    else if (view === 'side') rail();
+    if (view !== 'side') header();
+    if (view === 'full') { ruler(false); onMics(); notes(); roster(); }
+    else if (view === 'side') ruler(true);
     else micboard();
   }
 
@@ -321,5 +404,7 @@
   window.addEventListener('resize', () => { scale(); render(); });
   scale();
   connect();
-  setInterval(tick, 500);
+  setInterval(() => { if (msg && msg.plan && view !== 'side') tick(); }, 500);
+  // The playhead and the current item's growing block move slowly; redraw them every 15 seconds.
+  setInterval(render, 15000);
 })();

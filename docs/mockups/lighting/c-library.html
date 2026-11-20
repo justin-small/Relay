@@ -1,0 +1,82 @@
+<!doctype html><html lang="en" data-theme="dark" data-preset="relay"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<link rel="stylesheet" href="../../../app/static/tokens.css"><link rel="stylesheet" href="../../../app/static/components.css"><link rel="stylesheet" href="common.css">
+<style>
+/* C: a library of pages. Each page is a card with its own preview; opening one shows it with its screen beside it. */
+.steps{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:var(--sp-3)}
+.step{display:flex;gap:var(--sp-2);align-items:flex-start;padding:var(--sp-3);border:1px solid var(--border);border-radius:var(--r);background:var(--card)}
+.step i{flex:none;width:22px;height:22px;border-radius:50%;display:grid;place-items:center;font-style:normal;font-size:var(--fs-xs);font-weight:700;background:var(--ok);color:var(--primary-fg)}
+.step.todo i{background:none;border:1px solid var(--border);color:var(--muted)}
+.step small{display:block;color:var(--muted)}
+.lib{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:var(--sp-4)}
+.pcard{cursor:pointer}
+.pcard:hover{border-color:var(--primary)}
+.pcard .meta{display:flex;gap:var(--sp-2);flex-wrap:wrap;margin-top:var(--sp-2)}
+.newp{display:grid;place-items:center;border:1px dashed var(--border);border-radius:var(--r);color:var(--muted);min-height:200px;cursor:pointer;background:none}
+.detail{display:grid;grid-template-columns:minmax(0,1fr) 320px;gap:var(--sp-4);align-items:start}
+@media(max-width:900px){.steps{grid-template-columns:1fr 1fr}.detail{grid-template-columns:1fr}}
+.phone{border:6px solid #27272a;border-radius:18px;background:#000;padding:6px}
+</style>
+<title>Lighting C · Library</title></head><body>
+<div class="top"><b>Lighting</b><span class="sp"></span><button id="connBtn" class="spill on" style="height:auto"><i class="dot ok"></i>QLC+ · 192.168.1.50 · change</button></div>
+
+<div class="wrap stack" id="library">
+<div class="steps">
+<div class="step"><i>✓</i><span>Choose your lighting program<small>QLC+ at 192.168.1.50</small></span></div>
+<div class="step"><i>✓</i><span>Test the connection<small>46 cues, 3 levels found</small></span></div>
+<div class="step"><i>✓</i><span>Put cues on a page<small>3 pages, 19 buttons</small></span></div>
+<div class="step todo"><i>4</i><span>Open a page on a tablet<small>Youth night has no screen yet</small></span></div></div>
+
+<div class="card hidden" id="conn"><h3>Lighting program</h3><div class="form">
+<div class="field"><label>Program</label><select><option>QLC+ (web API)</option><option>Lightkey (OSC, macOS)</option><option>Chroma-Q Vista (OSC)</option><option>ShowXpress (Live API)</option></select></div>
+<div class="field"><label>Address</label><input value="192.168.1.50"></div><div class="field"><label>Port</label><input value="9999"></div></div>
+<div class="ctl" style="margin-top:var(--sp-3)"><button class="primary">Save</button><button>Test connection</button></div></div>
+
+<div class="between"><h2 style="margin:0">Cue pages</h2><span class="muted">A page is a grid of cue buttons. Only cues on a page can be fired from screens, boards and slide tags.</span></div>
+<div class="lib" id="lib"></div>
+
+<div class="card"><div class="between"><h3 style="margin:0">Cues not on any page <span class="muted">8</span></h3><input placeholder="Search cues" style="width:220px"></div>
+<p class="note">From QLC+. Press to fire once; drag onto a page to keep it.</p>
+<div class="chips" id="unplaced"></div></div>
+</div>
+
+<div class="wrap stack hidden" id="detail">
+<div class="gap"><button id="back">← All pages</button><input id="dName" style="width:260px;font-size:var(--fs-lg);font-weight:600"><span class="sp"></span><button>Duplicate</button><button class="danger">Delete</button></div>
+<div class="detail">
+<div class="stack"><div class="seg" id="dMode"><button data-p="run" class="on">Try it</button><button data-p="edit">Edit layout</button></div>
+<div id="dGrid"></div><div class="card" id="dLevels"><h3>Levels</h3><div class="faders" id="dFaders"></div></div>
+<div class="card hidden" id="dPal"><h3>Drag a cue onto an empty cell</h3><div class="chips" id="dPalChips"></div></div></div>
+<div class="stack">
+<div class="card"><div class="between"><h3 style="margin:0">Tablet screen</h3><label class="switch"><input type="checkbox" checked><span class="slider"></span></label></div>
+<p class="note">Opens full screen at its own link. Anyone with the link can press.</p>
+<div class="phone"><div id="dPhone" class="mini"></div></div>
+<div class="linkbox" style="margin-top:var(--sp-3)"><span>relay.local/screen?lighting=sun&amp;k=8f2c…</span><button class="sm">Copy</button></div>
+<div class="gap" style="margin-top:var(--sp-2)"><button class="sm">Show QR</button><button class="sm">New key</button></div></div>
+<div class="card"><h3>Used by</h3>
+<div class="setrow"><span>Booth iPad<small>Last press 9:11</small></span><span class="tag">screen</span></div>
+<div class="setrow"><span>Front of house board<small>3 of these cues</small></span><span class="tag">board</span></div>
+<div class="setrow"><span>ProPresenter<small>7 slides tag a cue here</small></span><span class="tag">slide tags</span></div></div>
+</div></div></div>
+
+<nav class="mocknav"><a href="index.html">All</a><a href="a-tabs.html">A</a><a href="b-desk.html">B</a><a href="c-library.html" aria-current="page">C</a></nav>
+<script src="mock.js"></script>
+<script>
+(function(){var M=window.Mock,cur=null;
+var lib=document.getElementById('lib');
+M.PAGES.forEach(function(p){var c=document.createElement('div');c.className='card pcard';var t=document.createElement('div');t.className='mini';c.appendChild(t);M.draw(t,p,{mini:true});
+var h=document.createElement('h3');h.style.marginTop='var(--sp-3)';h.textContent=p.name;c.appendChild(h);
+var m=document.createElement('div');m.className='meta';
+[[p.screen?'Screen on':'No screen',p.screen?'badge ok':'tag'],[p.cues.length+' cues','tag'],[p.presses+' presses today','tag']].forEach(function(x){var s=document.createElement('span');s.className=x[1];s.textContent=x[0];m.appendChild(s);});
+c.appendChild(m);c.onclick=function(){open(p.id);};lib.appendChild(c);});
+var n=document.createElement('button');n.className='newp';n.textContent='+ New page';lib.appendChild(n);
+function chips(el){M.UNPLACED.forEach(function(x){var s=document.createElement('span');s.className='chip';s.textContent=x;el.appendChild(s);});}
+chips(document.getElementById('unplaced'));chips(document.getElementById('dPalChips'));
+function draw(mode){var p=M.pageById(cur);var ed=mode==='edit';M.draw(document.getElementById('dGrid'),p,ed?{edit:true,sel:6}:{});
+M.faders(document.getElementById('dFaders'),p);document.getElementById('dLevels').classList.toggle('hidden',ed||!p.levels.length);document.getElementById('dPal').classList.toggle('hidden',!ed);}
+function open(id){cur=id;var p=M.pageById(id);document.getElementById('dName').value=p.name;M.draw(document.getElementById('dPhone'),p,{mini:true});draw('run');
+document.querySelectorAll('#dMode button').forEach(function(b){b.classList.toggle('on',b.dataset.p==='run');});
+document.getElementById('library').classList.add('hidden');document.getElementById('detail').classList.remove('hidden');}
+M.seg(document.getElementById('dMode'),draw);
+document.getElementById('back').onclick=function(){document.getElementById('detail').classList.add('hidden');document.getElementById('library').classList.remove('hidden');};
+document.getElementById('connBtn').onclick=function(){document.getElementById('conn').classList.toggle('hidden');};
+})();
+</script></body></html>

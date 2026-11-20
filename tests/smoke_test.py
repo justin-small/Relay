@@ -7,6 +7,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+os.environ.setdefault("RELAY_KEY_STORE", "file")
 os.environ.setdefault("RELAY_CONFIG", os.path.join(tempfile.mkdtemp(), "config.json"))
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import _db  # noqa: E402  (a throwaway SQLite file for the user system; must come before app.main)
@@ -163,6 +164,7 @@ eq("disconnect flushes each direction", _seen["tf"], "hola")
 
 print("\nonly one session is opened with transcription (billed per session)")
 import app.engine as _engine_mod
+import app.transcribe as _transcribe_mod
 from app.engine import engine as _eng, TRANSCRIPTION_STREAM as _TS
 class _FakeSession:
     state = "connected"
@@ -327,13 +329,13 @@ class _FakeTx:
     def start(self, q): pass
     async def stop(self): pass
     def health(self): return {"name": self.name, "state": self.state}
-_real_tx, _real_cap = _engine_mod.TranscriptionSession, _eng.capture
-_engine_mod.TranscriptionSession = _FakeTx
+_real_tx, _real_cap = _transcribe_mod.TranscriptionSession, _eng.capture
+_transcribe_mod.TranscriptionSession = _FakeTx
 _eng.capture = _FakeCapture()
 _cfg = config.save({"realtime": {"translation_mode": "text", "transcribe_model": ""}})
 try:
     async def _engine_text_test():
-        _eng._open_text_pipeline(["SPANISH", "CHINESE"], _cfg, "sk-test")
+        _eng._open_text_pipeline(["SPANISH", "CHINESE"], _cfg, _transcribe_mod.resolve(_cfg)[0], "sk-test")
         _eng.translator._request = lambda text, codes: {c: f"[{c}] {text}" for c in codes}
         out = {"relays": dict(_eng.relays),
                "model": _eng.transcriber.kw["model"],
@@ -389,7 +391,7 @@ try:
           [f["final"] for f in _o["tl_frames"]] == [True]
           and _o["tl_frames"][0]["text"] == "[es] Good morning.", _o["tl_frames"])
 finally:
-    _engine_mod.TranscriptionSession = _real_tx
+    _transcribe_mod.TranscriptionSession = _real_tx
     _eng.capture = _real_cap
     config.save({"realtime": {"translation_mode": "realtime",
                               "transcribe_model": "gpt-live-transcribe"}})
@@ -425,15 +427,15 @@ finally:
 
 print("\nblocked words never reach the text translator")
 _bl_cfg = config.save({"realtime": {"translation_mode": "text"}})
-_real_tx2, _real_cap2 = _engine_mod.TranscriptionSession, _eng.capture
-_engine_mod.TranscriptionSession = _FakeTx
+_real_tx2, _real_cap2 = _transcribe_mod.TranscriptionSession, _eng.capture
+_transcribe_mod.TranscriptionSession = _FakeTx
 _eng.capture = _FakeCapture()
 _prev_bl = list(hub.blocklist)
 hub.set_blocklist(["damn"])
 try:
     async def _bl_test():
         sent = []
-        _eng._open_text_pipeline(["ARABIC"], _bl_cfg, "sk-test")
+        _eng._open_text_pipeline(["ARABIC"], _bl_cfg, _transcribe_mod.resolve(_cfg)[0], "sk-test")
         _eng.translator._request = lambda text, langs: sent.append(text) or {c: text for c in langs}
         _eng.transcriber.kw["on_source_final"]("Well, damn, that was close.")
         await asyncio.sleep(0.05)
@@ -444,7 +446,7 @@ try:
           len(_sent) == 1 and "damn" not in _sent[0].lower() and "close" in _sent[0], _sent)
 finally:
     hub.set_blocklist(_prev_bl)
-    _engine_mod.TranscriptionSession = _real_tx2
+    _transcribe_mod.TranscriptionSession = _real_tx2
     _eng.capture = _real_cap2
     config.save({"realtime": {"translation_mode": "realtime"}})
 

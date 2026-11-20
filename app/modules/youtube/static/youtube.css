@@ -1,0 +1,10 @@
+/* The youtube admin page's layout (#463: moved out of youtube.js). Controls come from components.css. */
+#page-youtube a{color:var(--fg)}
+#page-youtube .ytcards{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:12px;align-items:start;margin-bottom:12px}
+@media (max-width:900px){#page-youtube .ytcards{grid-template-columns:minmax(0,1fr)}
+}
+#page-youtube .ytbc + .ytbc{margin-top:12px;padding-top:12px;border-top:1px solid var(--line)}
+#page-youtube .ytbc h4{margin:10px 0 0;font-size:var(--fs-md);font-weight:600;overflow-wrap:anywhere}
+#page-youtube details.sect{margin-top:12px}
+#page-youtube .ytrow{display:flex;flex-wrap:wrap;gap:12px}
+#page-youtube .ytrow .field{flex:1 1 220px}

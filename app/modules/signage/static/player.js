@@ -65,6 +65,11 @@
   /* A new state from Relay: {screen, playlist, items, today, server_time}. */
   SignagePlayer.prototype.load = function (state) {
     if (!state || state.gone) { this.items = []; this._blank(); return; }
+    if (state.board && !this.opts.preview) {
+      // The screen is set to show a board now (#527): carry on at the board, which comes back here when it should.
+      location.replace(location.protocol + '//' + location.hostname + ':' + state.board.port + state.board.path);
+      return;
+    }
     if (typeof state.server_time === 'number') this.offset = state.server_time - Date.now();
     if (!this.opts.preview) { this._banner(state.banner); this._takeover(state.takeover); }
     this.today = state.today || '';

@@ -46,6 +46,9 @@ ACTIONS: dict[str, bool] = {
     "captions": False,
     "lang": True,
     "alert": True,
+    "light": True,          # light=Walk-in: fires the lighting cue of that name on a lighting page (needs Lighting on)
+    "obs": True,            # obs=Message: switches every OBS computer that has a scene of that name (needs OBS on)
+    "reaper": True,         # reaper=record|stop|marker|marker=Sermon|action=40157: tells REAPER (needs REAPER on)
 }
 ACTIONS.update(signagetags.NAMES)       # signage-screen=..., signage-push, ... (signagetags.py): they act only while signage is on
 

@@ -29,7 +29,9 @@ from datetime import date, datetime, timedelta, timezone
 from typing import Any
 from zoneinfo import ZoneInfo
 
+from ... import netsock
 from ...realtime import _SSL
+from ...text import fold
 
 log = logging.getLogger("relay.planningcenter")
 
@@ -57,7 +59,9 @@ class _NoRedirect(urllib.request.HTTPRedirectHandler):
         return None
 
 
-_NO_REDIRECT = urllib.request.build_opener(_NoRedirect, urllib.request.HTTPSHandler(context=_SSL))
+EPISODES = 25                 # a channel's newest episodes offered for linking (#411)
+TRAFFIC = "planning_center"   # every call to Planning Center goes out through this class's port (#348)
+_NO_REDIRECT = netsock.opener(TRAFFIC, _NoRedirect, context=_SSL)
 
 
 class PlanningCenterError(Exception):
@@ -80,8 +84,8 @@ def operator_message(exc: PlanningCenterError) -> str:
                 "Services." if exc.status == 403 else "Planning Center did not accept that application ID and secret.")
     if exc.kind == "rate":
         return "Planning Center is rate limiting this account. Try again in a minute."
-    if exc.kind == "network":
-        return "Could not reach Planning Center. Check this machine's internet connection."
+    if exc.kind == "network":   # names the network port when Planning Center's traffic is routed to one (#348)
+        return netsock.failure(TRAFFIC, "Could not reach Planning Center. Check this machine's internet connection.")
     if exc.status:
         return f"Planning Center refused the request (HTTP {int(exc.status)})."
     return "Planning Center sent something Relay could not read."
@@ -143,7 +147,12 @@ class Client:
         since it may have."""
         return self._request("POST", path, params)
 
-    def _request(self, method: str, path: str, params: dict[str, Any] | None) -> dict:
+    def patch(self, path: str, body: dict) -> dict:
+        """Change a record (a Publishing episode time's video link, #411). A 429 is retried: Planning Center did not
+        make the change."""
+        return self._request("PATCH", path, None, body)
+
+    def _request(self, method: str, path: str, params: dict[str, Any] | None, body: dict | None = None) -> dict:
         url = self.base_url + path
         if params:
             url += "?" + urllib.parse.urlencode(params)
@@ -154,11 +163,14 @@ class Client:
             if count is not None and limit is not None and count >= limit:
                 _sleep(max(0.0, min(MAX_WAIT_S, float(period or DEFAULT_WAIT_S))))
                 self.rate["count"] = None
-            req = urllib.request.Request(url, headers=self._headers(path), method=method,
-                                         data=b"" if method == "POST" else None)
+            headers = self._headers(path)
+            if body is not None:
+                headers["Content-Type"] = "application/json"
+            req = urllib.request.Request(url, headers=headers, method=method,
+                                         data=json.dumps(body).encode("utf-8") if body is not None
+                                         else b"" if method == "POST" else None)
             try:
-                kw = {"context": _SSL} if url.startswith("https:") else {}
-                with urllib.request.urlopen(req, timeout=TIMEOUT_S, **kw) as resp:
+                with netsock.urlopen(TRAFFIC, req, timeout=TIMEOUT_S, context=_SSL) as resp:
                     self._note_rate(resp.headers)
                     return json.loads(resp.read())
             except urllib.error.HTTPError as exc:
@@ -191,6 +203,55 @@ class Client:
         raise PlanningCenterError("rate", "Planning Center is rate limiting this account.")  # pragma: no cover
 
     # -- calls ---------------------------------------------------------
+    # -- Publishing (#411): the Church Center channels, their episodes, and each episode time's video link ----
+    def channels(self) -> list[dict]:
+        """Publishing channels that are not archived, in Planning Center's order."""
+        doc = self.get("/publishing/v2/channels", {"per_page": PAGE_SIZE})
+        out = []
+        for row in doc.get("data") or []:
+            a = row.get("attributes") or {}
+            if a.get("archived"):
+                continue
+            out.append({"id": str(row.get("id")), "name": str(a.get("name") or "")[:120],
+                        "watch_live": bool(a.get("enable_watch_live")),
+                        "url": str(a.get("church_center_url") or "")[:300]})
+        return out
+
+    def episodes(self, channel_id: str) -> list[dict]:
+        """A channel's latest episodes (newest live date first), each with its times and their video links."""
+        cid = _pid(channel_id)
+        doc = self.get(f"/publishing/v2/channels/{cid}/episodes",
+                       {"per_page": EPISODES, "order": "-published_live_at", "include": "episode_times"})
+        inc = _included(doc)
+        out = []
+        for row in doc.get("data") or []:
+            a = row.get("attributes") or {}
+            ids = _rel_ids(row, "episode_times")
+            times = [inc.get(("EpisodeTime", i)) for i in ids] if ids else \
+                self.get(f"/publishing/v2/episodes/{_pid(str(row.get('id')))}/episode_times").get("data") or []
+            out.append({"id": str(row.get("id")), "title": str(a.get("title") or "")[:200],
+                        "live_at": parse_time(a.get("published_live_at")),
+                        "url": str(a.get("church_center_url") or "")[:300],
+                        "times": [_episode_time(t) for t in times if t]})
+        return out
+
+    def episode_times(self, episode_id: str) -> list[dict]:
+        doc = self.get(f"/publishing/v2/episodes/{_pid(episode_id)}/episode_times")
+        return [_episode_time(t) for t in doc.get("data") or []]
+
+    def set_episode_video(self, episode_id: str, video_url: str) -> list[dict]:
+        """Put `video_url` on every time of the episode that does not have it already; Planning Center makes the
+        embed itself. Returns the episode's times as they are now."""
+        out = []
+        for t in self.episode_times(episode_id):
+            if t["video_url"] != video_url:
+                doc = self.patch(f"/publishing/v2/episodes/{_pid(episode_id)}/episode_times/{_pid(t['id'])}",
+                                 {"data": {"type": "EpisodeTime", "id": t["id"],
+                                           "attributes": {"video_url": video_url}}})
+                t = _episode_time(doc.get("data") or {}) if doc.get("data") else dict(t, video_url=video_url)
+            out.append(t)
+        return out
+
     def service_types(self) -> list[dict[str, str]]:
         """Every service type on the account as {"id", "name"}, by name. Archived
         and deleted ones are left out: there is nothing live to follow in them."""
@@ -409,6 +470,7 @@ class Client:
                     "status": MEMBER_STATUS.get(str(a.get("status") or "")[:1].upper(), "pending"),
                     "position": str(a.get("team_position_name") or "").strip(),
                     "team": str(team.get("name") or "").strip(),
+                    "team_id": _rel_id(row, "team") or "",
                     # Only a picture Planning Center hosts, over https: the screen shows it as an <img>.
                     "photo": photo if photo.startswith("https://") else "",
                     "times": times,
@@ -428,11 +490,43 @@ class Client:
         for row in doc.get("data") or []:
             a = row.get("attributes") or {}
             team = (inc.get(("Team", _rel_id(row, "team"))) or {}).get("attributes") or {}
-            out.append({"team": str(team.get("name") or "").strip(),
+            out.append({"team": str(team.get("name") or "").strip(), "team_id": _rel_id(row, "team") or "",
                         "position": str(a.get("team_position_name") or "").strip(),
                         "quantity": max(1, min(20, int(a.get("quantity") or 1))),
                         "time": _rel_id(row, "time")})
         return out
+
+    def teams(self, service_type: str) -> list[dict]:
+        """Every team of the service type with its positions, by Planning Center's ids (#525): what Relay's pickers
+        offer and what saved call times, checklists and mic mappings point at. [{"id", "name", "positions": [{"id", "name"}]}]."""
+        out: list[dict] = []
+        offset = 0
+        for _ in range(MAX_PAGES):
+            doc = self.get(f"/services/v2/service_types/{service_type}/teams",
+                           {"include": "team_positions", "per_page": PAGE_SIZE, "offset": offset})
+            rows = doc.get("data") or []
+            inc = _included(doc)
+            for row in rows:
+                positions = []
+                for pid in _rel_ids(row, "team_positions"):
+                    pos = (inc.get(("TeamPosition", pid)) or {}).get("attributes") or {}
+                    if str(pos.get("name") or "").strip():
+                        positions.append({"id": pid, "name": str(pos["name"]).strip()})
+                name = str((row.get("attributes") or {}).get("name") or "").strip()
+                if row.get("id") is not None and name:
+                    out.append({"id": str(row["id"]), "name": name, "positions": positions})
+            if len(rows) < PAGE_SIZE:
+                break
+            offset += PAGE_SIZE
+        return out
+
+
+def tag_positions(rows: list[dict], catalog: list[dict]) -> None:
+    """Put the position's id on each member or needed row, found by its team and name in the catalog ("" when the
+    catalog does not list it, such as before it was read)."""
+    ids = {(t["id"], fold(p["name"])): p["id"] for t in catalog for p in t["positions"]}
+    for r in rows:
+        r["position_id"] = ids.get((r.get("team_id") or "", fold(r.get("position"))), "")
 
 
 # PlanPerson.status is C, U or D (or spelled out: Confirmed, Unconfirmed, Declined).
@@ -440,6 +534,20 @@ MEMBER_STATUS = {"C": "confirmed", "U": "pending", "D": "declined"}
 
 
 # -- reading JSON:API -------------------------------------------------------
+def _pid(raw: str) -> str:
+    """A Planning Center id goes into a path: digits only, so nothing the browser sends can change the address."""
+    if not re.fullmatch(r"\d{1,20}", raw or ""):
+        raise PlanningCenterError("http", "That is not a Planning Center id.")
+    return raw
+
+
+def _episode_time(row: dict) -> dict:
+    a = row.get("attributes") or {}
+    return {"id": str(row.get("id")), "starts_at": parse_time(a.get("starts_at")),
+            "ends_at": parse_time(a.get("ends_at")), "video_url": str(a.get("video_url") or "")[:300],
+            "service": str(a.get("streaming_service") or "")[:40], "state": str(a.get("current_state") or "")[:20]}
+
+
 def parse_time(raw: Any) -> float | None:
     """An ISO time from Planning Center as epoch seconds, or None."""
     if not raw or not isinstance(raw, str):

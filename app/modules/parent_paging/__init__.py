@@ -21,13 +21,15 @@ class ParentPaging(Module):
         summary="Kids workers page a parent from their room's page: the child's Check-Ins security code goes to a "
                 "ProPresenter message, never the child's name.",
         settings_key="parent_paging",
+        section="Crew",
         guide="https://github.com/justin-small/relay#parent-paging",
         uses=("planning_center", "propresenter"),
     )
     admin_pages = (AdminPage(
-        id="parentpaging", title="Parent paging", template="admin.html", group="Live",
+        id="parentpaging", title="Parent paging", template="admin.html",
         icon='<path d="M8 2a3 3 0 0 1 3 3v2l1.5 3h-9L5 7V5a3 3 0 0 1 3-3zM6.5 12a1.5 1.5 0 0 0 3 0"/>'),)
     admin_scripts = ("parentpaging.js",)
+    admin_styles = ("parentpaging.css",)
     route_prefixes = ("/api/admin/parent-paging", "/paging")
     permissions = (
         Permission("parent_paging.view", "See the parent pages that are up", "Parent paging", "viewer"),
@@ -57,16 +59,23 @@ class ParentPaging(Module):
         return [router]
 
     def attach(self) -> None:
-        from ..propresenter.propresenter import follower
+        from ... import modules
         from .paging import pager
 
+        # ProPresenter provides "propresenter.follower" and "propresenter.api" (#523); asked at each call, so the
+        # order the two came on in does not matter, and nothing is paged while it is off.
         def client():
-            from ..propresenter import propresenter as pp
+            follower, pp = modules.using("propresenter.follower"), modules.using("propresenter.api")
+            return follower.client if follower is not None and pp.configured() else None
 
-            return follower.client if pp.configured() else None
+        async def call(*args, **kwargs):
+            follower = modules.using("propresenter.follower")
+            if follower is None:
+                raise RuntimeError("ProPresenter is off.")
+            return await follower.call(*args, **kwargs)
 
         pager.client_for = client
-        pager.call = follower.call
+        pager.call = call
 
     def detach(self) -> None:
         from .paging import pager
@@ -110,10 +119,11 @@ class ParentPaging(Module):
         import urllib.parse
 
         from ... import config
-        from ..planning_center import planningcenter as pc
+        from ... import modules
         from . import checkins, paging
 
-        client = pc.client_from(config.get())
+        pc = modules.using("plan.api")
+        client = pc.client_from(config.get()) if pc is not None else None
         if client is None:
             return {"ok": False, "detail": "Planning Center is not set up."}
         try:

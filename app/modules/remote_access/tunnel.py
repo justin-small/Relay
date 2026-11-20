@@ -18,6 +18,9 @@ import sys
 import time
 from pathlib import Path
 
+from ... import netroute
+from .cloud import TRAFFIC
+
 log = logging.getLogger("relay.remote_access")
 
 EXE = "cloudflared.exe" if sys.platform == "win32" else "cloudflared"
@@ -35,6 +38,16 @@ def find_binary() -> str | None:
         if beside.is_file():
             return str(beside)
     return shutil.which("cloudflared")
+
+
+def edge_bind_args() -> list[str]:
+    """cloudflared's own option to leave through the port remote access is routed to (#348): it opens its edge
+    connections itself, so Relay can only tell it the source address. Nothing when the class follows the system
+    default or fell back to it."""
+    r = netroute.resolve(TRAFFIC)
+    if r.routed and not r.fallback and r.available and r.address:
+        return ["--edge-bind-address", r.address]
+    return []
 
 
 class Tunnel:
@@ -64,6 +77,13 @@ class Tunnel:
         if self._task and not self._task.done():
             self._task.cancel()
         self._task = None
+
+    async def restart(self) -> None:
+        """Start cloudflared again with the same token, so it binds the address its route gives now (#348)."""
+        if self._task and not self._task.done():
+            token = self._token
+            await self.stop()
+            self.start(token)
 
     async def stop(self) -> None:
         task, self._task = self._task, None
@@ -116,7 +136,7 @@ class Tunnel:
             kwargs["creationflags"] = 0x0800_0000  # CREATE_NO_WINDOW
         try:
             self._proc = await asyncio.create_subprocess_exec(
-                binary, "tunnel", "--no-autoupdate", "--loglevel", "info", "run",
+                binary, "tunnel", "--no-autoupdate", "--loglevel", "info", *edge_bind_args(), "run",
                 stdin=asyncio.subprocess.DEVNULL, stdout=asyncio.subprocess.DEVNULL,
                 stderr=asyncio.subprocess.PIPE, env=env, **kwargs)
         except OSError as exc:

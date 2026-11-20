@@ -1,6 +1,7 @@
 """The database: one SQLite file beside config.json (relay.db), through the standard library.
 
-There is no server to install, start or supervise, and copying the state folder is a complete backup.
+There is no server to install, start or supervise. Backups are encrypted (app/backup.py); restore one with
+`relay --restore-backup <file>` or tools/restore_backup.py, never by copying it over relay.db.
 Everything here is blocking: callers on the event loop use asyncio.to_thread or a sync FastAPI dependency.
 
 One connection serves the whole process, behind one lock, so there is one writer at a time (Relay runs one
@@ -41,7 +42,8 @@ BUSY_TIMEOUT_MS = 5000
 BACKOFF = 5.0                # seconds after a failure during which calls fail at once instead of re-opening
 KEEP_BACKUPS = 7
 BACKUP_EVERY = timedelta(hours=24)
-_BACKUP_NAME = re.compile(r"^relay-(\d{8}-\d{6})\.db$")
+# relay-<time>.db.enc since #278 (encrypted, app/backup.py); relay-<time>.db is an older, plain one.
+_BACKUP_NAME = re.compile(r"^relay-(\d{8}-\d{6})\.db(\.enc)?$")
 _NAMESPACE = re.compile(r"^[a-z][a-z0-9_]*$")
 _MIGRATION = re.compile(r"^\d{4}_[a-z0-9_]+\.sql$")
 # OperationalError texts that mean the file or disk, not a bad statement.
@@ -71,6 +73,18 @@ def now() -> str:
 def later(seconds: float) -> str:
     """The timestamp `seconds` from now (negative for the past)."""
     return _iso(datetime.now(timezone.utc) + timedelta(seconds=seconds))
+
+
+def iso(ts: float) -> str:
+    """The ISO UTC text for epoch seconds: what every time column stores (#529)."""
+    return _iso(datetime.fromtimestamp(ts, timezone.utc))
+
+
+def epoch(text: str | None) -> float | None:
+    """Epoch seconds for a stored ISO UTC time, for arithmetic and for a page that counts in seconds; None for none."""
+    if not text:
+        return None
+    return datetime.strptime(text, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc).timestamp()
 
 
 # ------------------------------------------------------------------ connection
@@ -326,39 +340,51 @@ def _dumps(directory: Path) -> list[Path]:
     return sorted(p for p in directory.iterdir() if _BACKUP_NAME.match(p.name))
 
 
-def backup(now: datetime | None = None) -> Path | None:
-    """Copy the database into the backups dir with SQLite's online backup (atomically, 0600), then keep only
-    the newest KEEP_BACKUPS. The copy is one self-contained file: restoring is copying it over relay.db.
+def backup(now: datetime | None = None, passphrase_key: str = "") -> Path | None:
+    """Copy the database with SQLite's online backup, encrypt it (app/backup.py) and write it into the backups dir
+    (atomically, 0600), then keep only the newest KEEP_BACKUPS. `passphrase_key` is config's `backup_key`: when set,
+    the copy also opens with the owner's backup passphrase. Plain backups left by an older version are encrypted
+    in place, so none stays readable without the key.
 
     Returns the new file, or None (with a warning logged) when the database is unavailable or the copy fails.
     Never raises for those.
     """
+    from . import backup as crypt
+
     now = now or datetime.now(timezone.utc)
     directory = backups_dir()
-    final = directory / f"relay-{now.astimezone(timezone.utc):%Y%m%d-%H%M%S}.db"
+    final = directory / f"relay-{now.astimezone(timezone.utc):%Y%m%d-%H%M%S}.db.enc"
+    # The tmp names do not match the backup pattern, so a half-written file is never listed or restored.
     tmp = directory / f".{final.name}.tmp"
+    plain_tmp = directory / f".{final.name}.plain.tmp"
     try:
         os.makedirs(directory, mode=0o700, exist_ok=True)
-        # The tmp name does not match the backup pattern, so a half-written file is never listed or restored.
         tmp.unlink(missing_ok=True)
-        os.close(os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600))
-        dst = sqlite3.connect(tmp)
+        plain_tmp.unlink(missing_ok=True)
+        os.close(os.open(plain_tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600))
+        dst = sqlite3.connect(plain_tmp)
         try:
             with _guard(), _lock:
                 _get_conn().backup(dst)
             dst.execute("pragma journal_mode = delete")      # a single file, no -wal beside it
         finally:
             dst.close()
+        blob = crypt.encrypt(plain_tmp.read_bytes(), passphrase_key)
+        _drop(plain_tmp)
+        fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, "wb") as f:
+            f.write(blob)
         os.chmod(tmp, 0o600)
         os.replace(tmp, final)
     except Unavailable:
         log.warning("database backup skipped: the database is unavailable")
-        _drop(tmp)
+        _drop(tmp), _drop(plain_tmp)
         return None
-    except (OSError, sqlite3.Error) as e:
+    except Exception as e:          # an OS, SQLite or key-store failure: logged, retried next hour
         log.warning("database backup failed: %s", e)
-        _drop(tmp)
+        _drop(tmp), _drop(plain_tmp)
         return None
+    _encrypt_old(directory, passphrase_key)
     for old in _dumps(directory)[:-KEEP_BACKUPS]:
         try:
             old.unlink()
@@ -368,6 +394,28 @@ def backup(now: datetime | None = None) -> Path | None:
     return final
 
 
+def _encrypt_old(directory: Path, passphrase_key: str) -> None:
+    """Encrypt each plain relay-<time>.db a version before #278 left, as relay-<time>.db.enc."""
+    from . import backup as crypt
+
+    for old in _dumps(directory):
+        if old.name.endswith(".enc"):
+            continue
+        target = old.with_name(old.name + ".enc")
+        tmp = directory / f".{target.name}.tmp"
+        try:
+            blob = crypt.encrypt(old.read_bytes(), passphrase_key)
+            fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+            with os.fdopen(fd, "wb") as f:
+                f.write(blob)
+            os.replace(tmp, target)
+            old.unlink()
+            log.info("encrypted an older plain backup: %s", target.name)
+        except Exception as e:
+            _drop(tmp)
+            log.warning("could not encrypt the older backup %s: %s", old.name, e)
+
+
 def _drop(p: Path) -> None:
     try:
         p.unlink(missing_ok=True)
@@ -375,15 +423,21 @@ def _drop(p: Path) -> None:
         pass
 
 
-def backup_due(now: datetime | None = None) -> bool:
-    """True when no backup was taken in the last 24 hours."""
+def last_backup_at() -> datetime | None:
+    """When the newest backup was taken (UTC), or None when there is none."""
     dumps = _dumps(backups_dir())
     if not dumps:
-        return True
-    now = now or datetime.now(timezone.utc)
+        return None
     m = _BACKUP_NAME.match(dumps[-1].name)
     try:
-        taken = datetime.strptime(m.group(1), "%Y%m%d-%H%M%S").replace(tzinfo=timezone.utc)
+        return datetime.strptime(m.group(1), "%Y%m%d-%H%M%S").replace(tzinfo=timezone.utc)
     except (ValueError, AttributeError):
-        taken = datetime.fromtimestamp(dumps[-1].stat().st_mtime, timezone.utc)
-    return now - taken >= BACKUP_EVERY
+        return datetime.fromtimestamp(dumps[-1].stat().st_mtime, timezone.utc)
+
+
+def backup_due(now: datetime | None = None) -> bool:
+    """True when no backup was taken in the last 24 hours."""
+    taken = last_backup_at()
+    if taken is None:
+        return True
+    return (now or datetime.now(timezone.utc)) - taken >= BACKUP_EVERY

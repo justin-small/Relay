@@ -1,0 +1,18 @@
+{# The YouTube admin page (#252, #411), rendered inside admin.html only while the module is on. #}
+    <h2 class="title">YouTube <span class="sumstate" id="ytSum"></span></h2>
+    <p class="sub">Whether the church's channel is live, for how long, and how many are watching. It shows on the
+      status view beside OBS and the other streams. Relay can also schedule the live streams ahead of time and put
+      each one's link in Planning Center Publishing, so Church Center shows it.</p>
+    <div class="note err" id="ytErr" hidden></div>
+    <div class="ytcards">
+      <div id="ytLive"></div>
+      <div id="ytAccount"></div>
+    </div>
+    <div class="ytcards">
+      <div id="ytSchedule"></div>
+      <div id="ytLinks"></div>
+    </div>
+    <details class="sect" id="ytSettings">
+      <summary>Settings</summary>
+      <div id="ytForm"></div>
+    </details>

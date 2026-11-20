@@ -28,7 +28,9 @@ jobs:
           python-version: '3.15'
           cache: pip
       # sounddevice needs the PortAudio library to import (see release.yml for why PulseAudio runs headless).
+      # A mirror outage makes apt retry every package until the job's limit; fail fast instead.
       - run: sudo apt-get update && sudo apt-get install -y libportaudio2 pulseaudio
+        timeout-minutes: 3
       - run: pulseaudio -D --exit-idle-time=-1 --load=module-null-sink && pactl info | head -3
       # httpx2 (starlette's TestClient), coverage and pytest are test-only, so they stay out of requirements.txt
       # and the release build.
@@ -98,7 +100,9 @@ jobs:
           python-version: '3.15'
           cache: pip
       # sounddevice needs PortAudio and a running PulseAudio to import, as in the Tests job above.
+      # A mirror outage makes apt retry every package until the job's limit; fail fast instead.
       - run: sudo apt-get update && sudo apt-get install -y libportaudio2 pulseaudio
+        timeout-minutes: 3
       - run: pulseaudio -D --exit-idle-time=-1 --load=module-null-sink && pactl info | head -3
       - run: pip install -r requirements.txt httpx2==2.13.1 playwright==1.65.2
       - run: python -m playwright install --with-deps chromium-headless-shell
@@ -155,8 +159,11 @@ jobs:
       - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # v1
         with:
           toolchain: stable
+      # A prebuilt, checksum-checked binary: `cargo install` compiled it from source on every run (about 2 minutes).
+      - name: Install cargo-audit
+        uses: taiki-e/install-action@cfdb7ed4ccc7c7dce37759eae89dc5674b469b39 # v2.90.3
+        with:
+          tool: cargo-audit@0.23.0
       - name: cargo audit
         working-directory: desktop/src-tauri
-        run: |
-          cargo install cargo-audit --locked --version 0.23.0
-          cargo audit
+        run: cargo audit
