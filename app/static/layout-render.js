@@ -122,6 +122,13 @@
       w.appendChild(head(s, it.title));
       const c = el('div', 'rl-list'); w.appendChild(c); w._rl.list = c;
     },
+    // Faders from a module (a desk's channels, #150): data {"strips": [{"id", "label", "pos" 0..1, "db" text, "muted"}]}.
+    // Moving one sends {"strip", "pos"} and its mute button {"strip", "mute"}; a strip being touched is not redrawn.
+    fader: function (w, it, s) {
+      w.appendChild(head(s, it.title));
+      const box = el('div', 'rl-faders'); w.appendChild(box);
+      w._rl.fader = { box: box, ids: '', rows: {}, touched: {} };
+    },
     // A live picture from a module: data {"image": "/path"} is a motion JPEG or a still on this site, {"tally":
     // "program" | "preview" | ""} puts a red or green border round it, {"note"} is a line over its corner.
     frame: function (w, it) {
@@ -158,6 +165,7 @@
       w._rl.list.textContent = '';
       d.rows.slice(0, 12).forEach(function (r) { w._rl.list.appendChild(el('div', r && r.current ? 'rl-cur' : '', String(r && r.text || ''))); });
     }
+    if (w._rl.fader && Array.isArray(d.strips)) paintFaders(w, d.strips);
     if (w._rl.frame) {
       const f = w._rl.frame;
       if (typeof d.image === 'string') {
@@ -180,6 +188,38 @@
       w._rl.airViewers = d.viewers;
       w._rl.airText.textContent = airLine(w);
     }
+  }
+  function paintFaders(w, strips) {
+    const f = w._rl.fader, ids = strips.map(function (x) { return String(x.id); }).join('|');
+    if (ids !== f.ids) {
+      f.ids = ids; f.rows = {}; f.box.textContent = '';
+      strips.slice(0, 16).forEach(function (x) {
+        const id = String(x.id);
+        const r = el('div', 'rl-fstrip');
+        const db = el('div', 'rl-fdb');
+        const slider = document.createElement('input');
+        slider.type = 'range'; slider.min = '0'; slider.max = '1000'; slider.step = '1'; slider.className = 'rl-fslide';
+        slider.disabled = !w._rl.send; slider.setAttribute('aria-label', String(x.label || id));
+        const mute = el('button', 'rl-fmute', 'Mute'); mute.type = 'button'; mute.disabled = !w._rl.send;
+        const name = el('div', 'rl-fname', String(x.label || ''));
+        const touch = function () { f.touched[id] = Date.now(); };
+        slider.addEventListener('pointerdown', touch); slider.addEventListener('input', touch);
+        slider.addEventListener('change', function () { touch(); w._rl.send({ strip: id, pos: +slider.value / 1000 }); });
+        mute.addEventListener('click', function () { touch(); w._rl.send({ strip: id, mute: mute.dataset.on !== '1' }); });
+        r.appendChild(db); r.appendChild(slider); r.appendChild(mute); r.appendChild(name); f.box.appendChild(r);
+        f.rows[id] = { slider: slider, mute: mute, db: db, name: name };
+      });
+    }
+    strips.slice(0, 16).forEach(function (x) {
+      const id = String(x.id), row = f.rows[id];
+      if (!row) return;
+      row.name.textContent = String(x.label || '');
+      if (Date.now() - (f.touched[id] || 0) < 2500) return;     // the person's finger wins over a stale reading
+      if (typeof x.pos === 'number') row.slider.value = String(Math.round(Math.max(0, Math.min(1, x.pos)) * 1000));
+      row.db.textContent = String(x.db || '');
+      row.mute.dataset.on = x.muted === true ? '1' : (x.muted === false ? '0' : '');
+      row.mute.textContent = x.muted === true ? 'Muted' : (x.muted === false ? 'Mute' : 'Mute ?');
+    });
   }
   // Sound: the status feed's `sound` block. Levels are set as text and drawn on a canvas, never as markup.
   const BAR_MIN = 20, BAR_MAX = 120;
@@ -258,6 +298,10 @@
         };
         w.addEventListener('click', fire);
         w.addEventListener('keydown', function (e) { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); fire(); } });
+      }
+      if (onPress && it.kind === 'fader' && !it.off) {
+        w._rl.send = function (body) { onPress(it, w, body); };
+        if (w._rl.fader) w._rl.fader.ids = '';    // redraw the strips enabled
       }
       out[it.id] = w;
     });

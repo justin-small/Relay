@@ -142,3 +142,11 @@
 .rl-ed .rl-swatch{width:24px;height:24px;min-height:0;padding:0;border-radius:var(--r-pill);border:2px solid transparent}
 .rl-ed .rl-swatch.on{border-color:var(--fg)}
 .rl-editing.rl-trayed .rl-canvas .rl-cell.rl-sel{z-index:6}
+/* Faders from a module (#150): one column a strip, the dB above, the mute and name below. */
+.rl-faders{flex:1;min-height:0;display:flex;gap:1.5cqw;align-items:stretch;justify-content:center;margin-top:2cqh}
+.rl-fstrip{flex:1;max-width:14cqw;min-width:0;display:flex;flex-direction:column;align-items:center;gap:1cqh}
+.rl-fdb,.rl-fname{font-size:max(var(--fs-sm),min(6cqh,3cqw));white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
+.rl-fdb{font-variant-numeric:tabular-nums;opacity:.8}
+.rl-fslide{flex:1;min-height:0;writing-mode:vertical-lr;direction:rtl;width:auto;accent-color:currentColor;touch-action:none}
+.rl-fmute{min-height:32px;width:100%;border:1px solid currentColor;border-radius:var(--r-ctl);background:transparent;color:inherit;font:inherit;cursor:pointer}
+.rl-fmute[data-on="1"]{background:var(--err);border-color:var(--err);color:var(--err-fg)}

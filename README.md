@@ -1590,6 +1590,41 @@ address and the two ports, save, and press Test connection.
 REAPER's OSC reports neither free disk space nor the project's name, so Relay cannot warn about either. Showing
 recording on the status view and caption panels is #450.
 
+## Audio Mixers
+
+The **Audio Mixers** module (#150, #486; off until switched on under Modules) mirrors and controls your sound desks,
+several at once. It is built from each maker's published protocol and the Bitfocus Companion modules for these desks;
+**no driver has been tried on a real desk yet**, so try yours before a service and tell us what it does.
+
+| Desk | Protocol | Port | Names | Notes |
+|---|---|---|---|---|
+| Allen & Heath Avantis, dLive | MIDI over TCP | 51325 | yes (8) | Set the base MIDI channel to match the desk. Mutes and faders are known once they change, or always with AH-Net (Avantis). |
+| Allen & Heath GLD, Qu-16/24/32 | MIDI over TCP | 51325 | yes (8, Qu 6) | One MIDI channel. Qu sends are not set from Relay. |
+| Allen & Heath SQ-5/6/7 | MIDI (NRPN) over TCP | 51325 | no | The SQ answers requests, so mutes, levels and sends are read at once. |
+| Behringer X32, Midas M32 | OSC over UDP | 10023 | yes (12) | Meters too. |
+| Behringer WING | OSC over UDP | 2223 | yes (16) | Scene names from the show's list. |
+| Yamaha CL, QL, TF, DM3, DM7 | RCP over TCP | 49280 | yes | Allow remote control from the Relay computer on the desk. |
+
+**AH-Net (Avantis, optional).** Allen & Heath's own protocol on port 51321 gives every input fader and the scene names,
+which MIDI does not. It is not published for other software, may stop working with new firmware and does not follow the
+console's user profiles, so it is off unless you turn it on for that desk.
+
+**What it does:**
+- **A live mirror** of every desk on the Audio Mixers page: channel names, colours, mutes, faders, meters (X32/M32) and the
+  current scene. A value Relay has not heard is shown as unknown, never guessed.
+- **Control behind a permission.** Muting, faders, names, colours and scene recalls need `audio_mixers.control` (operator);
+  the server refuses them otherwise. Nothing moves a desk on its own.
+- **Channels and sends.** Inputs and mixes are core audio channels, so the Planning Center board and the Network page see
+  them, a rename on the Network page goes to the desk, and each mix's sends are routes you can set from the page's "Sends
+  into each mix" or anywhere routes are made.
+- **Boards.** A fader bank (strips chosen per widget, like `main1, mix1-4, in1-8`), mute and scene buttons, a channel
+  wall, mic states and desk meters.
+- **Watchdog.** Save each desk as it should be, choose who to notify and which mutes to watch; a name, a watched mute or
+  the scene changing without Relay doing it sends that person a crew notification that buzzes until read. What Relay
+  itself does moves the baseline with it.
+- **Mic names from Planning Center.** "Preview names" shows the name the next service's mics give each desk channel (from
+  the Planning Center page's Team and mics tab); nothing is sent until you tick and confirm.
+
 ## YouTube
 
 Switch on **YouTube** on the Modules page, then open **Output > YouTube** and press **Connect**, then **Open YouTube

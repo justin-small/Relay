@@ -3422,7 +3422,7 @@ def page_board(request: Request, bid: str, edit: int = 0):
             "pages": [{"id": p["id"], "name": p["name"], "items": _board_items_for_page(p["items"], cat)}
                       for p in board["pages"]]}
     # Which widget types this person may press (a module's buttons need its permission; a board link needs nothing).
-    press = sorted(t for t, d in cat.items() if d["kind"] == "button" and (not d["press_permission"]
+    press = sorted(t for t, d in cat.items() if d["kind"] in boards.PRESSED and (not d["press_permission"]
                                                                             or d["press_permission"] in perms))
     ctx = {"board": page, "press": press, "state": _board_state(board)}
     return templates.TemplateResponse(request, "board.html", {"data": ctx, "title": board["name"]},
@@ -3472,8 +3472,9 @@ async def _press_route(item: dict, request: Request) -> dict:
 
 @app.post("/board/{bid}/_/press/{item_id}")
 async def board_press(request: Request, bid: str, item_id: str):
-    """Press a module's button widget on a board. Needs someone signed in on the operator port who holds the widget's
-    press permission, even on a public board. Answers {"ok": true} or {"error": "<a fixed sentence>"}."""
+    """Press a module's button widget on a board, or move one of its faders (the module reads the JSON body, such as
+    {"strip": "in3", "pos": 0.6}). Needs someone signed in on the operator port who holds the widget's press permission,
+    even on a public board. Answers {"ok": true} or {"error": "<a fixed sentence>"}."""
     board = _board_or_404(bid)
     item = boards.find_item(board, item_id)
     if item is None:
@@ -3481,7 +3482,7 @@ async def board_press(request: Request, bid: str, item_id: str):
     d = _board_catalogue().get(item["type"])
     mod = module_registry.board_owner(item["type"])
     core_route = item["type"] == "route"          # core's own button (app/routing.py), not a module's
-    if d is None or (mod is None and not core_route) or d["kind"] != "button":
+    if d is None or (mod is None and not core_route) or d["kind"] not in boards.PRESSED:
         return JSONResponse({"error": "That button is off."}, status_code=409)
     user = await asyncio.to_thread(_session_user, request) if _on_admin_port(request) else None
     if user is None or (not board["public"] and not user.can("boards.view")) \

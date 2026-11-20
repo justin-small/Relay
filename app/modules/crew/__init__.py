@@ -192,6 +192,8 @@ class Crew(Module):
         core_devices.register(notifications.PART, "Crew notifications", "crew_push_subs", lambda _id: None, notifications.describe_core)
         modules.listen("plan.changed", self._team_changed)
         modules.provide("schedules.used.crew", calltimes.schedule_users)
+        # Another module (the audio mixers' watchdog, #150) notifies chosen accounts: (message, user ids) -> id.
+        modules.provide("crew.notify", lambda message, user_ids: notifications.create(message, None, list(user_ids)))
         if hub.signed_out not in users.signed_out_hooks:
             users.signed_out_hooks.append(hub.signed_out)
 
@@ -208,6 +210,7 @@ class Crew(Module):
 
         modules.unlisten("plan.changed", self._team_changed)
         modules.withdraw("schedules.used.crew")
+        modules.withdraw("crew.notify")
         self._seen = ""
 
     def routers(self) -> list:

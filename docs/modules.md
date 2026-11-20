@@ -310,7 +310,7 @@ release that changes networking, run the manual [hardware test plan](reference/m
 ## Soundboard channels for Planning Center
 
 The Planning Center page's Team and mics tab offers the audio source channels core holds (see "Gear, ports and channels"):
-a module that reads a mixing console reports its input channels there and they appear in the tab's "Add channel" list. The
+a module that reads a mixing console (Audio Mixers, #150) reports its input channels there and they appear in the tab's "Add channel" list. The
 operator adds the ones they want to the board and assigns each to positions of any service type; until some are reported
 they type them in by hand. The board is saved as `planning_center.rundown.channels` (`{id, number, name, channel_ref,
 positions: [...]}`), and the rundown turns it into the older position-to-mics shape in `rundown.effective_mics`.
@@ -631,9 +631,14 @@ title, note, Undo, Cancel and Save instead of the toolbar), `between` (an elemen
 (the selected item's settings in a card beside it, with `swatches` for its background), `canvasClass` and `hintText`.
 `ed.setBar(bar)` changes the bar's words.
 
-`kind` picks the drawing: `button`, `captions`, `clock`, `countdown`, `text`, `status`, `lines`, `list`.
+`kind` picks the drawing: `button`, `captions`, `clock`, `countdown`, `text`, `status`, `lines`, `list`, `fader`.
 `RelayLayout.update(element, data)` feeds an item live data (`{lit}`, `{lines}`, `{rows}`, `{on_air, live_since,
-viewers}`).
+viewers}`, `{strips}`).
+
+A `fader` widget (#150) draws up to 16 touch faders from `{"strips": [{"id", "label", "pos", "db", "muted"}]}` (`pos` is
+0..1, `db` the text shown above it). Like a button it needs its `press_permission`: moving a fader posts `{"strip", "pos"}`
+and its mute button `{"strip", "mute"}` to the same press route, and the module reads them with `await request.json()` in
+`board_press`. A strip the person touched in the last few seconds is not redrawn from a reading.
 
 **Widgets on boards from a module.** Override three methods; core never imports the module:
 
@@ -1168,6 +1173,10 @@ A name is `<area>` or `<area>.<what>`, lower case. The owner is the module the `
 that module off removes everything it provided (the registry calls `withdraw_all(owner)` after `detach`). Providing a
 name another module holds replaces it, and is logged. `modules.using_all("screen_pages.")` returns every capability
 under a prefix, by the rest of the name. `modules.provided()` lists them all with their owners (tests).
+
+Other names offered today include `crew.notify` (crew: `(message, user ids)` sends a notification that buzzes until
+read; the audio mixers' watchdog uses it), `plan.rundown_now` (Planning Center: the rundown with each mic's channel and
+person) and `gear.<id>` / `routes.<id>` (below).
 
 To hear about something instead of asking for it, `modules.listen(topic, fn)` in `attach()`, `modules.unlisten(topic, fn)`
 in `detach()`; the provider calls `modules.announce(topic, *args)`. Planning Center announces `plan.changed` when the

@@ -363,6 +363,7 @@ MIN_ROLE = {
     "ndi.view": "viewer", "ndi.manage": "admin",
     "obs.view": "viewer", "obs.control": "operator", "obs.manage": "admin",
     "reaper.view": "viewer", "reaper.control": "operator", "reaper.manage": "admin",
+    "audio_mixers.view": "viewer", "audio_mixers.control": "operator", "audio_mixers.manage": "admin",
     "youtube.view": "viewer", "youtube.publish": "operator", "youtube.manage": "admin",
     "unifi.view": "viewer", "unifi.manage": "admin",
     "tally_arbiter.view": "viewer", "tally_arbiter.manage": "admin",
@@ -392,7 +393,7 @@ print("every /api/admin route")
 config.save({"modules": {"propresenter": {"enabled": True}, "planning_center": {"enabled": True},
                          "remote_access": {"enabled": True}, "signage": {"enabled": True},
                          "signage_web": {"enabled": True}, "alert_events": {"enabled": True},
-                         "blackmagic": {"enabled": True}, "lighting": {"enabled": True}, "ndi": {"enabled": True}, "obs": {"enabled": True}, "reaper": {"enabled": True}, "youtube": {"enabled": True}, "unifi": {"enabled": True}, "tally_arbiter": {"enabled": True}, "open_sound_meter": {"enabled": True}, "prodmesh_rta": {"enabled": True},
+                         "blackmagic": {"enabled": True}, "lighting": {"enabled": True}, "ndi": {"enabled": True}, "obs": {"enabled": True}, "reaper": {"enabled": True}, "audio_mixers": {"enabled": True}, "youtube": {"enabled": True}, "unifi": {"enabled": True}, "tally_arbiter": {"enabled": True}, "open_sound_meter": {"enabled": True}, "prodmesh_rta": {"enabled": True},
                          "parent_paging": {"enabled": True}, "intercom": {"enabled": True}, "intercom_remote": {"enabled": True},
                          "crew": {"enabled": True}}})
 
@@ -735,6 +736,14 @@ for method, path, perm in (
     ("POST", "/api/admin/reaper/marker", "reaper.control"),
     ("POST", "/api/admin/reaper/action", "reaper.control"),               # no action number: refused
     ("POST", "/api/admin/reaper/track", "reaper.control"),                # no computer named: 404
+    ("GET", "/api/admin/audio_mixers", "audio_mixers.view"),
+    ("GET", "/api/admin/audio_mixers/wait", "audio_mixers.view"),         # a long poll: answers at once on a new version
+    ("PUT", "/api/admin/audio_mixers/settings", "audio_mixers.manage"),   # an empty body is refused
+    ("POST", "/api/admin/audio_mixers/{did}/control", "audio_mixers.control"),   # no such desk: 404
+    ("POST", "/api/admin/audio_mixers/{did}/baseline", "audio_mixers.manage"),
+    ("GET", "/api/admin/audio_mixers/people", "audio_mixers.manage"),
+    ("GET", "/api/admin/audio_mixers/names", "audio_mixers.control"),     # Planning Center off: a sentence, nothing sent
+    ("POST", "/api/admin/audio_mixers/names", "audio_mixers.control"),    # no rows: refused
     ("GET", PGX, "parent_paging.view"),
     ("PUT", PGX + "/settings", "parent_paging.manage"),                 # an empty body changes nothing
     ("GET", PGX + "/locations", "parent_paging.manage"),                # Planning Center is not set up: refused
@@ -925,7 +934,7 @@ eq("signed out is 401", anon_c.get("/api/admin/propresenter").status_code, 401)
 config.save({"modules": {"propresenter": {"enabled": False}, "planning_center": {"enabled": False},
                          "remote_access": {"enabled": False}, "signage": {"enabled": False},
                          "signage_web": {"enabled": False}, "alert_events": {"enabled": False},
-                         "blackmagic": {"enabled": False}, "lighting": {"enabled": False}, "ndi": {"enabled": False}, "obs": {"enabled": False}, "reaper": {"enabled": False}, "youtube": {"enabled": False}, "unifi": {"enabled": False}, "tally_arbiter": {"enabled": False}, "open_sound_meter": {"enabled": False}, "prodmesh_rta": {"enabled": False},
+                         "blackmagic": {"enabled": False}, "lighting": {"enabled": False}, "ndi": {"enabled": False}, "obs": {"enabled": False}, "reaper": {"enabled": False}, "audio_mixers": {"enabled": False}, "youtube": {"enabled": False}, "unifi": {"enabled": False}, "tally_arbiter": {"enabled": False}, "open_sound_meter": {"enabled": False}, "prodmesh_rta": {"enabled": False},
                          "parent_paging": {"enabled": False}, "intercom": {"enabled": False}, "intercom_remote": {"enabled": False},
                          "crew": {"enabled": False}}})
 eq("a module that is off is still a 404 for everyone", op_c.get("/api/admin/propresenter").status_code, 404)
@@ -1490,6 +1499,8 @@ for mid, want in (("planning_center", {"planning_center.view": "viewer", "planni
                   ("ndi", {"ndi.view": "viewer", "ndi.manage": "admin"}),
                   ("obs", {"obs.view": "viewer", "obs.control": "operator", "obs.manage": "admin"}),
                   ("reaper", {"reaper.view": "viewer", "reaper.control": "operator", "reaper.manage": "admin"}),
+                  ("audio_mixers", {"audio_mixers.view": "viewer", "audio_mixers.control": "operator",
+                                    "audio_mixers.manage": "admin"}),
                   ("youtube", {"youtube.view": "viewer", "youtube.publish": "operator", "youtube.manage": "admin"}),
                   ("unifi", {"unifi.view": "viewer", "unifi.manage": "admin"}),
                   ("tally_arbiter", {"tally_arbiter.view": "viewer", "tally_arbiter.manage": "admin"}),
