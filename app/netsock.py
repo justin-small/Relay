@@ -532,7 +532,7 @@ async def udp_endpoint(route: Resolved | str, protocol_factory: Callable[[], asy
             try:
                 sock.getsockname()
             except OSError:
-                sock.bind(("0.0.0.0", 0))
+                sock.bind(("0.0.0.0", 0))  # nosec B104 - an ephemeral port, only to receive replies to our own sends
         sock.setblocking(False)
         transport, protocol = await loop.create_datagram_endpoint(protocol_factory, sock=sock)
         if target is not None and getattr(transport, "_address", 0) is None:
