@@ -1,0 +1,21 @@
+{# The Dante admin page, rendered inside admin.html only while the module is on. #}
+    <h2 class="title">Dante <span class="sumstate" id="danteSum"></span></h2>
+    <p class="sub">The Dante devices Relay finds on its Dante network: stage boxes, Dante Virtual Soundcard and Dante
+      Via. Each appears once by its Dante name, with the transmit channels it announces and whether its control port
+      answers. This page only looks; it changes nothing on a device. Works with Dante devices.</p>
+
+    <section>
+      <h3>Devices</h3>
+      <div class="ctl"><button type="button" class="primary" id="danteScan">Look again</button></div>
+      <div class="note" id="danteStatus"></div>
+      <div class="tablescroll">
+        <table>
+          <thead><tr><th>Name</th><th>Address</th><th>Model</th><th>Control port</th><th>Channels</th></tr></thead>
+          <tbody id="danteRows"></tbody>
+        </table>
+      </div>
+      <p class="note">A control port that does not answer may still be reachable: Relay's check is a first version
+        that has not yet been tried on real Dante gear. Between the main network and a Dante VLAN, the router has to
+        let UDP through to the control port (4440 for most devices, 24440 for Dante Via).</p>
+    </section>
+    <div class="note err" id="danteErr" hidden></div>
