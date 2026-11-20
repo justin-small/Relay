@@ -1,9 +1,9 @@
-/* Going out on the NDI admin page (#298, #299): the router as a click grid (a row per feed Relay sends, a column per
-   source), its presets, and Relay's own pages sent as NDI. Drawn by ndi.js on every update; a part is rebuilt only
+/* Going out on the NDI admin page (#298, #299): the router as core's route editor (a row per feed Relay sends, a column
+   per source, #546), its presets, and Relay's own pages sent as NDI. Drawn by ndi.js on every update; a part is rebuilt only
    when what it shows changes, so a click during a live update is not lost. */
 (function () {
   const N = window.RelayNdi, R = window.RelayAdmin;
-  if (!N || !R || !document.getElementById('ndiRtTable')) return;
+  if (!N || !R || !document.getElementById('ndiRtGrid')) return;
   const $ = R.$;
   const el = relayUI.el;
   const changed = N.changed;
@@ -13,50 +13,45 @@
   }
   function btn(text, fn, cls, disabled) { const b = el('button', { type: 'button', className: cls || '', disabled: !!disabled }, text); b.onclick = fn; return b; }
 
+  // The grid is core's route editor (relayUI.routeEditor, #546): a row per feed, a column per source. Core stores the
+  // route and this module applies it. A feed's own line (its NDI name, an error, Remove) is drawn under its name.
+  let editor = null, feeds = {}, own = [], may = false;
+  function feedOf(c) {
+    const e = c.ends.filter(function (x) { return x.provider === 'ndi' && x.key.indexOf('route:') === 0; })[0];
+    return e ? feeds[e.key.slice(6)] : null;
+  }
+  function isOwn(c) {
+    return c.ends.some(function (e) {
+      if (e.provider !== 'ndi' || e.key.indexOf('src:') !== 0) return false;
+      const name = e.key.slice(4);
+      return own.some(function (n) { return name === n || name.indexOf('(' + n + ')') >= 0; });
+    });
+  }
+  function feedLine(c) {
+    const r = feedOf(c);
+    if (!r) return null;
+    const box = el('div', 'note');
+    if (r.error) box.appendChild(el('div', 'hint err', r.error));
+    box.appendChild(btn('Remove', async function () {
+      if (await relayUI.confirm('Remove the feed "' + r.name + '"? A TV set to it goes black.')) act('DELETE', '/api/admin/ndi/router/outputs/' + r.id);
+    }, 'sm quiet', !may));
+    return box;
+  }
+
   function drawRouter(s) {
     const rt = s.router.routes, can = N.can('ndi.manage');
-    $('ndiRtNone').hidden = rt.length > 0; $('ndiRtTable').hidden = !rt.length;
-    // The columns: every input except Relay's own feeds (a feed cannot show itself), plus any source a feed is on
-    // that is not seen now, then Nothing.
-    const own = {}; rt.forEach(function (r) { own[r.ndi] = 1; });
-    const cols = s.inputs.filter(function (i) {
-      return !Object.keys(own).some(function (n) { return i.name === n || i.name.indexOf('(' + n + ')') >= 0; });
-    }).map(function (i) {
-      const src = s.sources.filter(function (x) { return x.name === i.name; })[0];   // the short name reads best in a column
-      return [i.name, src && src.source ? src.source : i.label, i.online];
-    });
-    rt.forEach(function (r) { if (r.source && !cols.some(function (c) { return c[0] === r.source; })) cols.push([r.source, r.source + ' (not seen)', false]); });
-    const rows = rt.map(function (r) { return [r.id, r.name, r.ndi, r.source, r.error, r.state === 'differs' ? 'Relay asked for ' + (r.asked || 'nothing') + '; the output shows ' + (r.source || 'nothing') + '.' : '']; });
-    if (changed('rt.router', [cols, rows, can])) {
-      const t = $('ndiRtTable'); t.textContent = '';
-      const head = el('tr'); head.appendChild(el('th', '', ''));
-      cols.forEach(function (c) { head.appendChild(el('th', { scope: 'col', title: c[1], className: c[2] ? '' : 'off' }, el('span', '', c[1]))); });
-      head.appendChild(el('th', { scope: 'col' }, el('span', '', 'Nothing')));
-      t.appendChild(el('thead', '', head));
-      const body = el('tbody');
-      rows.forEach(function (r) {
-        const tr = el('tr');
-        const th = el('th', { scope: 'row' }); th.appendChild(el('b', '', r[1])); th.appendChild(el('code', 'hint', r[2]));
-        if (r[4]) th.appendChild(el('span', 'hint err', r[4]));
-        if (r[5]) th.appendChild(el('span', 'hint err', r[5]));
-        tr.appendChild(th);
-        cols.concat([['', 'Nothing', true]]).forEach(function (c) {
-          const on = r[3] === c[0];
-          const td = el('td');
-          const b = btn('', function () { if (!on) act('PUT', '/api/admin/ndi/router/outputs/' + r[0] + '/source', { source: c[0] }); },
-            'ndixp' + (on ? ' on' : ''), !can);
-          b.setAttribute('aria-pressed', String(on));
-          b.setAttribute('aria-label', (c[0] ? 'Show ' + c[1] : 'Show nothing') + ' on ' + r[1]);
-          b.title = c[1] + ' → ' + r[1];
-          td.appendChild(b); tr.appendChild(td);
-        });
-        const rm = el('td'); rm.appendChild(btn('Remove', async function () {
-          if (await relayUI.confirm('Remove the feed "' + r[1] + '"? A TV set to it goes black.')) act('DELETE', '/api/admin/ndi/router/outputs/' + r[0]);
-        }, 'sm quiet', !can));
-        tr.appendChild(rm);
-        body.appendChild(tr);
-      });
-      t.appendChild(body);
+    $('ndiRtNone').hidden = rt.length > 0; $('ndiRtGrid').hidden = !rt.length;
+    const rows = rt.map(function (r) { return [r.id, r.name, r.ndi, r.source, r.asked, r.state, r.error]; });
+    const seen = s.sources.map(function (x) { return [x.name, x.online]; });
+    if (changed('rt.router', [rows, seen, can])) {
+      feeds = {}; rt.forEach(function (r) { feeds[r.id] = r; });
+      own = rt.map(function (r) { return r.ndi; });
+      may = can;
+      if (!editor) {
+        editor = relayUI.routeEditor($('ndiRtGrid'), { kind: 'video', provider: 'ndi', perm: 'ndi.manage',
+          source: function (c) { return !isOwn(c); }, extra: feedLine,
+          empty: 'Your feeds show here once NDI has started them.' });
+      } else editor.reload();
     }
     const names = {}; rt.forEach(function (r) { names[r.id] = r.name; });
     const salvos = s.router.salvos.map(function (v) {

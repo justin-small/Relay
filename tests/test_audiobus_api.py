@@ -91,6 +91,10 @@ with section("saving applies the cleaned setting"):
        sorted((c["in"], c["gain_db"]) for c in admin.get("/api/admin/audiobus").json()["config"]["matrix"] if c["ch"] == 1),
        [(1, -3.0), (2, -6.0)])
     eq("and the running bus", sorted(c["in"] for c in core_bus.bus.config["matrix"] if c["ch"] == 1), [1, 2])
+    body = {k: v for k, v in BODY.items() if k != "matrix"}
+    admin.post("/api/admin/audiobus", json=body)
+    eq("a save with no matrix (the Audio bus page) leaves the routes alone",
+       sorted((x["name"], x["gain_db"]) for x in core_routing.feeds(mon1["ref"])), [("Lane 1", -3.0), ("Lane 2", -6.0)])
     eq("the output was opened once", OUT.opened, 1)
     st = admin.get("/api/admin/audiobus").json()["status"]
     eq("the bus runs with its output", (st["running"], [o["id"] for o in st["outputs"]], st["outputs"][0]["state"]),

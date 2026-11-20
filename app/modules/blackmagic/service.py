@@ -787,7 +787,8 @@ class Service:
     # ------------------------------------------------------------------------------------------ core routes (#544)
     def routes_api(self) -> dict:
         """What core's routes ask of this module (app/routing.py): a Videohub output takes one input."""
-        return {"exclusive": True, "gain": False, "apply": self._core_apply, "read": self._core_read}
+        return {"exclusive": True, "gain": False, "apply": self._core_apply, "read": self._core_read,
+                "permission": "blackmagic.control"}
 
     def _out_end(self, key: str):
         """(device, hub client, output number) for a channel end key "<device id>:vout<n>", else None."""

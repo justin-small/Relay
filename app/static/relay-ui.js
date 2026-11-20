@@ -48,8 +48,12 @@
                                    direction ('source' or 'destination'), label, empty, onChange(ref or null).
                                    A fixed kind or direction shows as text, not a control. Handle: { value(), set(ref) }.
      routeEditor(host, opts)       destinations down, sources across, one dot per route; core stores the route and the
-                                   module that owns the gear applies it. opts: kind, provider, onChange(). Audio
-                                   destinations mix several sources and take a gain; video takes one. Handle: { reload() }.
+                                   module that owns the gear applies it. opts: kind, provider (only that module's ends),
+                                   gear (only ends on that gear id), anySource (sources from every module), perm (a
+                                   module permission that may route, besides network.manage), source(c) and
+                                   destination(c) (keep a channel), extra(c) (a node under a destination's name),
+                                   empty (the sentence when there is nothing to route), onChange(). Audio destinations
+                                   mix several sources and take a gain; video takes one. Handle: { reload() }.
 
    Do not copy one of these into a module script: use it from here, and add what is missing here
    (tests/test_ui_contract.py enforces this). Loaded before every script that uses it. */
@@ -186,6 +190,16 @@
     dc: 'DC power', other: 'Connector', audio: 'Audio', video: 'Video', talk: 'Talk' };
   const SEND = client({ cache: 'no-store' });
   let drawer = null;
+  // Pickers drawn together (a row each) share one read of a list: a read is reused for two seconds.
+  const lists = {};
+  function list(path) {
+    const hit = lists[path], now = Date.now();
+    if (hit && now - hit.at < 2000) return hit.p;
+    const p = SEND('GET', path);
+    lists[path] = { at: now, p: p };
+    p.catch(function () { delete lists[path]; });
+    return p;
+  }
 
   function portItems(r) {
     const out = [];
@@ -323,7 +337,7 @@
     const kinds = Object.keys(KIND_NAMES).slice(0, 10).map(function (k) { return [k, KIND_NAMES[k]]; });
     return browse(host, { label: o.label || 'Port', title: (o.label || 'Port') + ': choose a port', empty: 'Choose a port', none: 'No port matches.',
       value: o.value, disabled: o.disabled, fixed: { kind: o.kind || '' }, onChange: o.onChange, filters: [{ key: 'kind', label: 'Kind', options: kinds }],
-      load: function () { return SEND('GET', '/api/admin/network/cables').then(portItems); } });
+      load: function () { return list('/api/admin/network/cables').then(portItems); } });
   }
 
   function channelPicker(host, opts) {
@@ -332,7 +346,7 @@
       none: 'No channel matches.', value: o.value, disabled: o.disabled, fixed: { kind: o.kind || '', dir: o.direction || '' }, onChange: o.onChange,
       filters: [{ key: 'kind', label: 'Kind', options: [['audio', 'Audio'], ['video', 'Video'], ['talk', 'Talk']] },
         { key: 'dir', label: 'Direction', options: [['source', 'Source'], ['destination', 'Destination']] }],
-      load: function () { return SEND('GET', '/api/admin/network/channels').then(channelItems); } });
+      load: function () { return list('/api/admin/network/channels').then(channelItems); } });
   }
 
   const STATE_TEXT = { same: ['ok', 'Applied by the gear'], differs: ['warn', 'Gear differs'], wanted: ['info', 'Waiting for the gear'],
@@ -348,29 +362,37 @@
     }
     function draw(chans, routes) {
       const byDest = {}; routes.forEach(function (r) { byDest[r.destination] = r; });
-      const kind = o.kind || '';
-      const live = function (c) { return !c.missing && (!kind || c.kind === kind) && (!o.provider || c.providers.indexOf(o.provider) >= 0); };
-      const srcs = chans.filter(function (c) { return live(c) && c.ends.some(function (e) { return e.direction === 'source'; }); });
-      const dests = chans.filter(function (c) { return live(c) && c.ends.some(function (e) { return e.direction === 'destination'; }); });
+      const kind = o.kind || '', may = can('network.manage') || (!!o.perm && can(o.perm));
+      // A channel counts here by its own ends: an end of this direction, on this module and gear, that is reported now.
+      function has(c, dir, scoped) {
+        return c.ends.some(function (e) {
+          return e.direction === dir && !e.missing && (!scoped || ((!o.provider || e.provider === o.provider) && (o.gear == null || e.gear === o.gear)));
+        });
+      }
+      const live = function (c) { return !c.missing && (!kind || c.kind === kind); };
+      const srcs = chans.filter(function (c) { return live(c) && has(c, 'source', !o.anySource) && (!o.source || o.source(c)); });
+      const dests = chans.filter(function (c) { return live(c) && has(c, 'destination', true) && (!o.destination || o.destination(c)); });
       box.textContent = '';
-      if (!srcs.length || !dests.length) { box.appendChild(el('p', 'note', 'Nothing to route yet: a module has to report a source and a destination.')); return; }
+      if (!dests.length) { box.appendChild(el('p', 'note', o.empty || 'Nothing to route yet: a module has to report a source and a destination.')); return; }
+      if (!srcs.length) { box.appendChild(el('p', 'note', 'No source to route from yet.')); }
       const head = el('tr', '', el('th', '', 'Destination'));
-      srcs.forEach(function (s) { head.appendChild(el('th', 'pk-xh', el('span', '', s.shown), el('small', '', s.gear_name))); });
+      srcs.forEach(function (s) { head.appendChild(el('th', 'pk-xh', el('span', '', s.shown), s.gear_name !== s.shown ? el('small', '', s.gear_name) : null)); });
       head.appendChild(el('th', '', 'State'));
       const body = el('tbody');
       dests.forEach(function (d) {
         const v = byDest[d.ref] || { sources: [], state: 'none', gain: false };
-        const row = el('tr', '', el('td', '', el('div', 'strong', d.shown), el('div', 'note', d.gear_name)));
+        const row = el('tr', '', el('td', '', el('div', 'strong', d.shown), d.gear_name !== d.shown ? el('div', 'note', d.gear_name) : null,
+          o.extra ? o.extra(d) : null));
         srcs.forEach(function (s) {
           const on = v.sources.filter(function (x) { return x.ref === s.ref; })[0];
           const b = el('button', 'pk-x' + (on ? ' on' : '')); b.type = 'button';
           b.setAttribute('aria-pressed', String(!!on)); b.setAttribute('aria-label', s.shown + ' to ' + d.shown);
-          b.disabled = !can('network.manage');
+          b.disabled = !may;
           b.onclick = function () { change(on ? '/api/admin/routes/clear' : '/api/admin/routes', { destination: d.ref, source: s.ref }); };
           const cell = el('td', 'pk-xc', b);
           if (on && v.gain) {
             const g = el('input', 'sm pk-g'); g.type = 'number'; g.value = on.gain_db === null || on.gain_db === undefined ? 0 : on.gain_db;
-            g.setAttribute('aria-label', 'Gain in dB for ' + s.shown); g.disabled = !can('network.manage');
+            g.setAttribute('aria-label', 'Gain in dB for ' + s.shown); g.disabled = !may;
             g.onchange = function () { change('/api/admin/routes', { destination: d.ref, source: s.ref, gain_db: Number(g.value) }); };
             cell.appendChild(g);
           }

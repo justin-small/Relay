@@ -871,4 +871,5 @@ def _core_read(end: dict) -> list[dict] | None:
             for c in bus.config["matrix"] if c["out"] == where[0] and c["ch"] == where[1]]
 
 
-routing.provide_core(PROVIDER, {"exclusive": False, "gain": True, "apply": _core_apply, "read": _core_read})
+routing.provide_core(PROVIDER, {"exclusive": False, "gain": True, "apply": _core_apply, "read": _core_read,
+                               "permission": "audio.manage"})

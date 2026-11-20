@@ -63,16 +63,7 @@
 .ndilink b { flex:0 1 14rem; }
 .ndilink code { flex:1 1 14rem; color:var(--muted); font-size:var(--fs-sm); overflow-wrap:anywhere; }
 
-/* Going out: the router grid, presets and page feeds */
-.ndimx { width:auto; border-collapse:separate; border-spacing:var(--sp-1); margin:var(--sp-2) 0 var(--sp-3); }
-.ndimx thead th { height:9rem; vertical-align:bottom; padding:0 0 var(--sp-1); font-weight:500; color:var(--muted); font-size:var(--fs-sm); }
-.ndimx thead th span { display:inline-block; writing-mode:vertical-rl; transform:rotate(180deg); white-space:nowrap; max-height:9rem; overflow:hidden; text-overflow:ellipsis; }
-.ndimx thead th.off { opacity:.55; }
-.ndimx tbody th { text-align:left; padding:var(--sp-1) var(--sp-3) var(--sp-1) 0; white-space:nowrap; font-weight:400; }
-.ndimx td { padding:0; }
-.ndixp { width:2.25rem; height:2.25rem; min-height:0; padding:0; background:var(--bg); border:1px solid var(--border); border-radius:var(--r-sm); }
-.ndixp:hover:not(:disabled) { border-color:var(--primary); background:var(--hover); }
-.ndixp.on, .ndixp.on:hover { background:var(--primary); border-color:var(--primary); }
+/* Going out: presets and page feeds (the router grid is relayUI.routeEditor) */
 .ndipreset { display:flex; align-items:center; justify-content:space-between; gap:var(--sp-3); flex-wrap:wrap; padding:var(--sp-3);
              margin:0 0 var(--sp-2); background:var(--inset); border:1px solid var(--border); border-radius:var(--r); }
 .ndipreset > div:first-child { flex:1 1 16rem; min-width:0; }

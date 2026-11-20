@@ -30,6 +30,7 @@ window.relayCan = function (perm) { return window.RELAY_ME.permissions.indexOf(p
     <div class="has" data-group="translation"><button type="button" class="nb" data-tip="Transcription &amp; translation" aria-expanded="false"><svg class="i" viewBox="0 0 16 16" aria-hidden="true"><path d="M2 4h7M5.5 2v2M3.5 4c.5 3 2.5 5 5 6M8 4c-.5 3-2.5 5-5.5 6.5M9 14l3-7 3 7M10 12h4"/></svg><span class="nl">Transcription &amp; translation</span>{% if 'session.view' in perms %}<span class="ndot idle" id="navStreamDot" role="img" aria-label="Stream stopped" title="Stream stopped"></span>{% endif %}{{ chev }}</button><div class="subm"><div><ul>
       {% if 'session.view' in perms %}{{ sub("health", "Session health") }}{% endif %}
       {% if 'audio.manage' in perms %}{{ sub("audio", "Audio input") }}{% endif %}
+      {% if 'audio.manage' in perms %}{{ sub("audiobus", "Audio bus") }}{% endif %}
       {% if 'targets.manage' in perms %}{{ sub("targets", "Target languages") }}{% endif %}
       {% if 'blocklist.manage' in perms %}{{ sub("blocklist", "Blocked words") }}{% endif %}
       {% if 'session.view' in perms %}{{ sub("urls", "Viewer links") }}{% endif %}
@@ -209,6 +210,40 @@ window.relayCan = function (perm) { return window.RELAY_ME.permissions.indexOf(p
       </div>
       <div id="mrReport"></div>
       <canvas id="mrGraph" width="620" height="120" style="width:100%;max-width:620px;height:120px;margin-top:8px" role="img" aria-label="Loudness over the session" hidden></canvas>
+    </section>
+  </div>
+  <div class="page" id="page-audiobus" data-page="audiobus" hidden>
+    <h2 class="title">Audio bus</h2>
+    <p class="sub">Up to 32 lanes from any input, routed to outputs through one crosspoint matrix.</p>
+    <div class="note err" id="abErr" role="alert" hidden></div>
+    <section>
+      <h3>Bus</h3>
+      <p class="note">Off until you switch it on. Each lane is one mono channel of an input, at 48 kHz; the captions,
+        the sound meter, a recorder or an output can each take a lane. The main capture on Audio input is not touched.</p>
+      <div class="ctl">
+        <label class="switch"><input type="checkbox" id="abOn" aria-label="Audio bus on"><span class="slider"></span></label>
+        <span id="abState" class="pill"><span class="dot"></span><span>Off</span></span>
+      </div>
+    </section>
+    <section>
+      <h3>Lanes</h3>
+      <p class="note">Patch one channel of an input to a lane, or <em>mix</em> to sum every channel of it. A device is
+        opened once however many lanes use it.</p>
+      <div id="abLanes"></div>
+      <div class="row"><button type="button" id="abAddLane">Add a lane</button></div>
+    </section>
+    <section>
+      <h3>Outputs</h3>
+      <p class="note">An output is a device with up to 32 channels. Its channels are what the crosspoints below feed.</p>
+      <div id="abOuts"></div>
+      <div class="row"><button type="button" id="abAddOut">Add an output</button></div>
+    </section>
+    <div class="row"><button type="button" class="primary" id="abSave">Save lanes and outputs</button><span class="note" id="abSaved" role="status"></span></div>
+    <section>
+      <h3>Crosspoints</h3>
+      <p class="note">Output channels down, lanes across: click a square to feed a lane into a channel, and set its gain
+        in dB. A channel mixes every lane fed into it. Save lanes and outputs first; new ones show here once saved.</p>
+      <div id="abMatrix"></div>
     </section>
   </div>
 {% endif %}
@@ -1072,6 +1107,7 @@ window.relayCan = function (perm) { return window.RELAY_ME.permissions.indexOf(p
 <script src="{{ static('network.js') }}"></script>
 <script src="{{ static('network_map.js') }}"></script>
 <script src="{{ static('network_channels.js') }}"></script>
+<script src="{{ static('audiobus.js') }}"></script>
 <script src="{{ static('overlay-builder.js') }}"></script>
 <script src="{{ static('boards.js') }}"></script>
 <script src="{{ static('screens.js') }}"></script>

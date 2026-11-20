@@ -109,6 +109,44 @@
     return sel;
   }
 
+  // An entry may use several input channels (#546): whoever holds it is given one of them at random, kept for the
+  // service time. The extras are chosen with the shared channel picker, like the first.
+  function alsoBox(ch, manage) {
+    const box = el('div', 'pcalso');
+    const also = ch.also || [];
+    also.forEach(function (a, i) {
+      const c = el('span', 'pcchip', (a.name || 'An input channel') + (a.missing ? ' (no longer reported)' : ''));
+      if (manage) {
+        const x = el('button', '', '×'); x.type = 'button';
+        x.setAttribute('aria-label', 'Stop using ' + (a.name || 'this input channel') + ' for ' + (ch.name || ch.number));
+        x.addEventListener('click', function () {
+          const b = edit().filter(function (y) { return y.id === ch.id; })[0];
+          b.also = (b.also || []).filter(function (_, k) { return k !== i; });
+          b.also_refs = b.also.map(function (y) { return y.ref; });
+          dirty(true); render();
+        });
+        c.appendChild(x);
+      }
+      box.appendChild(c);
+    });
+    if (also.length) box.appendChild(el('span', 'note', 'Whoever holds this is given one of its ' + (also.length + 1) + ' input channels at random.'));
+    if (manage && also.length < 7) {
+      const host = el('span', 'pcalsopick');
+      relayUI.channelPicker(host, { label: 'Also use another input channel for ' + (ch.name || ch.number), empty: 'Also use another input channel',
+        kind: 'audio', direction: 'source', onChange: function (ref, item) {
+          if (!ref || !item) return;
+          const b = edit().filter(function (y) { return y.id === ch.id; })[0];
+          b.also = b.also || [];
+          if (ref === b.channel_ref || b.also.some(function (y) { return y.ref === ref; })) { say('pcChMsg', item.title + ' is already on this entry.', true); return; }
+          b.also.push({ ref: ref, name: item.title, missing: false });
+          b.also_refs = b.also.map(function (y) { return y.ref; });
+          say('pcChMsg', ''); dirty(true); render();
+        } });
+      box.appendChild(host);
+    }
+    return box;
+  }
+
   function row(ch) {
     const manage = can('planning_center.manage');
     const r = el('div', 'pcchan');
@@ -140,6 +178,7 @@
       act.appendChild(rm);
     }
     r.appendChild(act);
+    if (ch.channel_ref && (manage || (ch.also || []).length)) r.appendChild(alsoBox(ch, manage));
     return r;
   }
 

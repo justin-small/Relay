@@ -277,24 +277,42 @@
     if (!(d.presets || []).length) presets.append(el('span', { className: 'muted', text: 'None saved yet.' }));
     box.append(el('div', 'field', el('label', { text: 'Presets' }), presets));
     const more = el('details', {}, el('summary', { text: 'All routes, presets and labels' }));
+    more.open = !!routesOpen[d.id];
+    more.ontoggle = function () { routesOpen[d.id] = more.open; };
     allRoutes(d, h, more, control, manage);
     box.append(more);
   }
+  // The routes are core's route editor (relayUI.routeEditor, #546): outputs down, inputs across, scoped to this
+  // router's gear. Core stores a route and this module applies it. One editor per router, kept across redraws.
+  const routesOpen = {}, editors = {};
+  function routesFor(d, h) {
+    let r = editors[d.id];
+    if (!r) {
+      const host = el('div');
+      r = editors[d.id] = { host: host, sig: '', editor: relayUI.routeEditor(host, { kind: 'video', provider: 'blackmagic', gear: d.gear_id,
+        perm: 'blackmagic.control', empty: 'The router\'s outputs show here once it has connected.' }) };
+    }
+    const sig = JSON.stringify([(h.outputs || []).map(function (o) { return [o.n, o.input, o.label]; }), (h.inputs || []).map(function (i) { return i.label; })]);
+    if (r.sig && sig !== r.sig) r.editor.reload();
+    r.sig = sig;
+    return r.host;
+  }
   function allRoutes(d, h, box, control, manage) {
-    const body = el('tbody');
-    (h.outputs || []).forEach(function (o) {
-      const pick = el('select', { disabled: !control || o.lock === 'L' });
-      (h.inputs || []).forEach(function (i) { pick.append(el('option', { value: i.n, text: (i.n + 1) + '. ' + portName(i, 'Input'), selected: i.n === o.input })); });
-      pick.setAttribute('aria-label', 'Input for ' + portName(o, 'Output'));
-      pick.onchange = function () { return post('videohub/route', { device: d.id, output: o.n, input: +pick.value }); };
-      const lock = el('td');
-      if (o.lock === 'L') lock.append(el('span', { className: 'badge warn', text: 'Another panel' }));
-      else if (manage) lock.append(button(o.lock === 'O' ? 'Unlock' : 'Lock', function () {
-        return post('videohub/lock', { device: d.id, output: o.n, action: o.lock === 'O' ? 'unlock' : 'lock' });
-      }, 'sm'));
-      body.append(el('tr', {}, el('td', { text: (o.n + 1) + '. ' + portName(o, 'Output') }), el('td', {}, pick), lock));
-    });
-    box.append(el('div', 'tablescroll', el('table', 'dt', el('thead', {}, el('tr', {}, el('th', { text: 'Output' }), el('th', { text: 'Takes' }), el('th', { text: 'Lock' }))), body)));
+    box.append(routesFor(d, h));
+    // Locks belong to the router, not to a route: an output locked by this computer, another panel, or open.
+    const locks = (h.outputs || []).filter(function (o) { return manage || o.lock === 'L'; });
+    if (locks.length) {
+      const body = el('tbody');
+      locks.forEach(function (o) {
+        const lock = el('td');
+        if (o.lock === 'L') lock.append(el('span', { className: 'badge warn', text: 'Another panel' }));
+        else lock.append(button(o.lock === 'O' ? 'Unlock' : 'Lock', function () {
+          return post('videohub/lock', { device: d.id, output: o.n, action: o.lock === 'O' ? 'unlock' : 'lock' });
+        }, 'sm'));
+        body.append(el('tr', {}, el('td', { text: (o.n + 1) + '. ' + portName(o, 'Output') }), lock));
+      });
+      box.append(el('div', 'tablescroll', el('table', 'dt', el('thead', {}, el('tr', {}, el('th', { text: 'Output' }), el('th', { text: 'Lock' }))), body)));
+    }
     if (manage) {
       (d.presets || []).forEach(function (p) {
         box.append(el('div', 'bmgap', el('span', { text: p.name }), el('span', { className: 'muted', text: Object.keys(p.routes).length + ' outputs' }),

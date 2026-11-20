@@ -36,6 +36,7 @@ from . import planningcenter as pc
 MAX_MAPPINGS = 64
 MAX_MICS = 24         # per position (a choir can have many)
 MAX_CHANNELS = 96     # on the board
+MAX_ALSO = 7          # further input channels on one board entry; whoever holds it gets one of them at random
 MAX_ASSIGNMENTS = 32  # positions one channel serves
 MAX_DRAWS = 200       # stored draws kept, newest last
 NOTE_MAX = 4000       # sermon notes sent, characters
@@ -206,7 +207,13 @@ def clean_channels(raw: Any) -> list[dict]:
                 positions.append({"service_type": st, "team": team, "team_ref": tref, "position": pos,
                                   "position_ref": pref})
         link = c.get("channel_ref") if core_channels.channel_id(c.get("channel_ref")) is not None else ""
-        out.append({"id": cid, "name": name, "number": number, "channel_ref": link, "positions": positions})
+        also: list[str] = []
+        for r in c.get("also_refs") or []:
+            if isinstance(r, str) and r != link and r not in also and core_channels.channel_id(r) is not None \
+                    and len(also) < MAX_ALSO:
+                also.append(r)
+        out.append({"id": cid, "name": name, "number": number, "channel_ref": link, "also_refs": also if link else [],
+                    "positions": positions})
     return out
 
 
@@ -235,7 +242,7 @@ def effective_mics(rs: dict, service_type: str) -> list[dict]:
             if label not in mp["mics"] and len(mp["mics"]) < MAX_MICS:
                 mp["mics"].append(label)
                 mp["names"][label] = ch["name"]
-                mp["refs"][label] = ch.get("channel_ref") or ""
+                mp["refs"][label] = [r for r in [ch.get("channel_ref") or ""] + list(ch.get("also_refs") or []) if r]
     covered = {(m["position_ref"] or m["team"], m["position"]) for m in out}
     return out + [m for k, m in by_position.items() if k not in covered]
 
@@ -310,6 +317,18 @@ def draw_mics(mapping: dict, people: list[dict], kept: dict[str, str], rng: rand
 
 def draw_key(plan_id: str, time_id: str, mapping: dict) -> str:
     return f"{plan_id}:{time_id}:{_key(mapping)}"
+
+
+def pick_ref(refs: Any, seed: str) -> str:
+    """The one input channel a mic's holder is on. A board entry may use several input channels (#546): the holder gets
+    one at random, drawn from `seed` (the draw, the mic and the person) so it stays put for the service time and only
+    changes when someone else holds the mic. A plain ref (an older per-position mic) is that ref."""
+    if isinstance(refs, str):
+        return refs
+    refs = [r for r in refs or [] if isinstance(r, str) and r]
+    if len(refs) <= 1:
+        return refs[0] if refs else ""
+    return random.Random(seed).choice(refs)  # nosec B311 - which channel a volunteer is on, not a secret
 
 
 # -- the rundown -------------------------------------------------------------------------------------------------
@@ -471,8 +490,11 @@ def build(track: Any, settings: dict, now: float, zone: ZoneInfo, want_time: str
             m = next((x for x in members if x["id"] == holders.get(mic)), None)
             on = bool(cur_item and m and ((cur_item["type"] == "song") == mp["sings"]))
             # channel_ref names the core input channel (#542), so a soundboard module can show the holder's name on it.
+            refs = mp["refs"].get(mic, "")
+            seed = f"{draw_key(plan['id'], tid, mp)}:{mic}:{m['id'] if m else ''}"
             channels.append({"mic": mic, "label": mp["names"].get(mic) or mp["label"], "position": mp["position"], "team": mp["team"],
-                             "channel_ref": mp["refs"].get(mic, ""), "person": person(m) if m else None, "on": on})
+                             "channel_ref": pick_ref(refs, seed), "channel_refs": [refs] if isinstance(refs, str) and refs else list(refs or []),
+                             "person": person(m) if m else None, "on": on})
     channels.sort(key=lambda c: _mic_sort(c["mic"]))
     out["mics"] = channels
 

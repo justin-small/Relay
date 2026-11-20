@@ -269,7 +269,12 @@ def _rundown_settings_view() -> dict:
     out = {k: v for k, v in rs.items() if k != "draws"}
     out["mics"] = [{**flagged(m), "mic_flags": {x: _link_flag(m.get("mic_refs", {}).get(x)) for x in m["mics"]}}
                    for m in rs["mics"]]
-    out["channels"] = [{**c, "positions": [flagged(a) for a in c["positions"]], **_link_flag(c.get("channel_ref"))}
+    def also(ref: str) -> dict:
+        got = core_channels.by_ref(ref)
+        return {"ref": ref, "name": got["shown"] if got else "", "missing": not got or got["missing"]}
+
+    out["channels"] = [{**c, "positions": [flagged(a) for a in c["positions"]], **_link_flag(c.get("channel_ref")),
+                        "also": [also(r) for r in c.get("also_refs") or []]}
                        for c in rs["channels"]]
     got = directory.describe(rs.get("leader_position_ref", ""), rs.get("leader_position", ""))
     out["leader_missing"], out["leader_unmatched"] = got["missing"], got["unmatched"]

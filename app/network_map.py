@@ -608,7 +608,7 @@ def stored_ports(live: list[dict], rows: list[dict]) -> list[dict]:
         p = now.get(r["key"], {})
         out.append({**p, "port": int(r["key"]), "name": r["name"] or r["gear_name"], "up": bool(r["link_up"]),
                     "link": r["link_up"], "speed": r["speed_mbps"], "poe_w": r["poe_w"], "errors": r["errors"] or 0,
-                    "ref": r["ref"], "missing": r["missing"], "client": p.get("client", ""), "client_mac": p.get("client_mac", ""),
+                    "ref": r["ref"], "gear_name": r["gear_name"], "relay_name": r["name"], "missing": r["missing"], "client": p.get("client", ""), "client_mac": p.get("client_mac", ""),
                     "use": p.get("use"), "warn": p.get("warn", ""), "uplink": bool(p.get("uplink"))})
     return out
 
