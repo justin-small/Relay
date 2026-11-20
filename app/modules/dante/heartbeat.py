@@ -5,8 +5,14 @@ total length, the device's 8-byte identity at offset 8) followed by records. Rel
   0x8002 signal presence: a level byte for every transmit channel, then every receive channel.
   0x8001 clock frequency offset: the device's clock error against its leader, in parts per billion (a signed u32).
 Layouts follow chris-ritsen/network-audio-controller (public domain, `heartbeat.rs`, `signal_presence.rs`,
-`heartbeat_clock.rs`) and avstreamlens (MIT, `conmon.rs`). Not yet checked on real Dante gear. A packet that does
-not fit those layouts is "no reading" (None), never a made-up one. All big-endian.
+`heartbeat_clock.rs`) and avstreamlens (MIT, `conmon.rs`). Checked on 2026-11-20 against 25 packets from 10 real
+senders on the church's two Dante networks (a Dante Virtual Soundcard, a Dante Via-style PC and four hardware boxes
+heard on both networks): every packet's records read, and the two records below match byte for byte. A packet that
+does not fit those layouts is "no reading" (None), never a made-up one. All big-endian.
+
+What real devices send: each sends a heartbeat about once a second, but only software devices and some others carry
+0x8002 signal presence (2 of 10 senders did; the four hardware boxes did not). Their levels need the metering
+requests (ports 8751 and 8752), which Relay does not make yet. 0x8001 comes from every sender.
 
 Level byte, the "signal presence" scale: 0 is clipping, 1 to 252 is -(byte / 2) dBFS, 253 and up is silence or mute.
 """

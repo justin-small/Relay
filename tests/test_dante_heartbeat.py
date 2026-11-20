@@ -36,6 +36,17 @@ with section("a packet is read, and what does not fit is no reading"):
     eq("a level count that disagrees with the record has no levels", hb.parse(good[:0x20 + 12] + struct.pack(">H", 9) + good[0x20 + 14:])["presence"], None)
     eq("a short packet", hb.parse(b"\xff\xfe"), None)
 
+with section("records captured from a real Dante Virtual Soundcard are read"):
+    # Real 0x8001 and 0x8002 records (2026-11-20); only the sender's identity is replaced.
+    real_clock = bytes.fromhex("003480010004002855310000fffff170000000ff0001570500000007000007fd0015253500000020000000000000000f00000000")
+    real_presence = bytes.fromhex("001c800200040010d7560000000200000002000000180000c1c1ffff")
+    body = real_clock + real_presence
+    packet = struct.pack(">HH", 0xFFFE, 32 + len(body)) + bytes.fromhex("0f100000") + bytes.fromhex("001122fffe334455") + bytes.fromhex("417564696e6174650008000110000000") + body
+    got = hb.parse(packet)
+    eq("the clock error is -3728 ppb", got["offset_ppb"], -3728)
+    eq("two transmit and two receive channels", (got["presence"]["tx"], got["presence"]["rx"]), ([193, 193], [255, 255]))
+    eq("a transmit byte of 193 is about -96 dBFS, and 255 is silence", (hb.level(193), hb.level(255)), (-96, -127))
+
 with section("the latest heartbeat of each sender is kept for a few seconds"):
     beats = hb.Heartbeats()
     check("a heartbeat is kept", beats.feed(hb.packet(ID, tx=[2, 40], offset_ppb=15), "10.0.0.5", now=100.0))
