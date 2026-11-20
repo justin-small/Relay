@@ -527,12 +527,12 @@ async def udp_endpoint(route: Resolved | str, protocol_factory: Callable[[], asy
             sock.connect(target)
         elif sys.platform == "win32":
             # A sender left unbound is bound by the OS on its first send, but asyncio starts receiving at once and
-            # an unbound socket cannot receive on Windows (WinError 10022): replies never arrive. Bind it to any
-            # free port now; getsockname() raises on an unbound socket there.
+            # an unbound socket cannot receive on Windows (WinError 10022): replies never arrive. Bind it to a free
+            # port on the default network's address now (never every interface, CodeQL); getsockname() raises on an unbound socket there.
             try:
                 sock.getsockname()
             except OSError:
-                sock.bind(("0.0.0.0", 0))  # nosec B104 - an ephemeral port, only to receive replies to our own sends
+                sock.bind((_unrouted_host(_resolved(route), None), 0))
         sock.setblocking(False)
         transport, protocol = await loop.create_datagram_endpoint(protocol_factory, sock=sock)
         if target is not None and getattr(transport, "_address", 0) is None:
