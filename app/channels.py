@@ -180,6 +180,11 @@ def _root_id(cid: int) -> int | None:
     return None
 
 
+def root_id(cid: int) -> int | None:
+    """The id of the channel `cid` is now part of (following a merge), or None when there is no such channel."""
+    return _root_id(cid)
+
+
 def get(cid: int) -> dict | None:
     """The channel `cid` is now part of (following a merge), or None."""
     root = _root_id(cid)
@@ -266,6 +271,25 @@ def sync(provider: str, reported: Iterable[dict], gear_id: int | None = None, wi
                 out[r["key"]] = ref(_follow(tx, r["channel_id"]))
     _touch()
     return out
+
+
+def ensure(provider: str, key: str, kind: str, direction: str = "source", gear_name: str = "") -> str | None:
+    """The channel ref of the end (`provider`, `key`), made as a missing end when nothing has reported it yet: for saved
+    data that names a source which is offline now. A module's next `report` brings it back. None when it cannot be made."""
+    c = _clean({"key": key, "kind": kind, "direction": direction, "gear_name": gear_name})
+    if c is None or not isinstance(provider, str) or not PROVIDER_RE.match(provider):
+        return None
+    with db.transaction() as tx:
+        old = tx.one("select channel_id from channel_ends where provider = ? and key = ?", (provider, key))
+        if old is not None:
+            return ref(_follow(tx, old["channel_id"]))
+        now = db.now()
+        tx.execute("insert into channels (kind, created_at) values (?, ?)", (c["kind"], now))
+        cid = tx.one("select last_insert_rowid() id")["id"]
+        tx.execute("insert into channel_ends (channel_id, provider, key, direction, gear_name, missing, created_at)"
+                   " values (?, ?, ?, ?, ?, 1, ?)", (cid, provider, key, c["direction"], c["gear_name"], now))
+    _touch()
+    return ref(cid)
 
 
 def report(provider: str, reported: Iterable[dict], gear_id: int | None = None, within: str = "") -> dict[str, str] | None:

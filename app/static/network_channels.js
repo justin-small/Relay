@@ -61,6 +61,9 @@
     } else if (canManage) {
       nm.appendChild(el('div', 'muted', 'Relay only: this gear is not renamed from here.'));
     }
+    if ((c.fed_by || []).length) nm.appendChild(el('div', 'muted', 'Fed by ' + c.fed_by.join(', ')));
+    if ((c.asked || []).length) nm.appendChild(el('div', 'muted', 'Relay asked for ' + c.asked.join(', ') + '; the gear does something else.'));
+    if ((c.feeds || []).length) nm.appendChild(el('div', 'muted', 'Feeds ' + c.feeds.join(', ')));
     tr.appendChild(nm);
     tr.appendChild(el('td', '', KIND[c.kind] || c.kind));
     var ends = el('td', 'muted');

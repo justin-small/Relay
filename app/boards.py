@@ -99,6 +99,17 @@ def _sound_sources() -> list[list[str]]:
     return [["", "Relay's own meter"]] + [[k, v] for k, v in metering.sources()]
 
 
+def _route_options(direction: str) -> list[list[str]]:
+    """[[channel ref, name]] for every audio and video channel that gives (source) or takes (destination) a signal."""
+    from . import channels, db
+
+    try:
+        return [[c["ref"], c["shown"]] for c in channels.listing()
+                if c["kind"] in ("audio", "video") and any(e["direction"] == direction for e in c["ends"])]
+    except db.Unavailable:
+        return []
+
+
 def core_widgets() -> list[dict]:
     """Core's widget definitions. Asked for each time, since the caption languages follow the configuration."""
     return [
@@ -118,6 +129,14 @@ def core_widgets() -> list[dict]:
         {"type": "link", "name": "Board link", "group": "Clock and text", "kind": "button", "w": 2, "h": 1,
          "style": {"icon": "arrow", "bg": "#1e3a8a", "pressed": "#3b5bdb"},
          "fields": [{"key": "board", "label": "Opens board", "type": "select", "options": [], "default": ""}]},
+        {"type": "route", "name": "Route", "group": "Routing", "kind": "button", "w": 3, "h": 1,
+         "style": {"icon": "arrow", "bg": "#14532d", "pressed": "#16a34a"}, "press_permission": "network.manage",
+         "fields": [{"key": "destination", "label": "Destination (what takes the signal)", "type": "select",
+                     "options": _route_options("destination"), "default": ""},
+                    {"key": "source", "label": "Source (what it takes)", "type": "select",
+                     "options": _route_options("source"), "default": ""},
+                    {"key": "_", "type": "note", "label": "A press routes the source to the destination, as on the NDI "
+                     "and Blackmagic pages, and is not retried. Pressing needs someone signed in who may manage routes."}]},
         {"type": "stream", "name": "Livestream", "group": "Status", "kind": "status", "w": 3, "h": 2,
          "style": {"icon": "cam"},
          "fields": [{"key": "_", "label": "On air when any stream Relay watches is live (OBS, YouTube...).",

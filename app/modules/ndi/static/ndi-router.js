@@ -26,7 +26,7 @@
       return [i.name, src && src.source ? src.source : i.label, i.online];
     });
     rt.forEach(function (r) { if (r.source && !cols.some(function (c) { return c[0] === r.source; })) cols.push([r.source, r.source + ' (not seen)', false]); });
-    const rows = rt.map(function (r) { return [r.id, r.name, r.ndi, r.source, r.error]; });
+    const rows = rt.map(function (r) { return [r.id, r.name, r.ndi, r.source, r.error, r.state === 'differs' ? 'Relay asked for ' + (r.asked || 'nothing') + '; the output shows ' + (r.source || 'nothing') + '.' : '']; });
     if (changed('rt.router', [cols, rows, can])) {
       const t = $('ndiRtTable'); t.textContent = '';
       const head = el('tr'); head.appendChild(el('th', '', ''));
@@ -38,6 +38,7 @@
         const tr = el('tr');
         const th = el('th', { scope: 'row' }); th.appendChild(el('b', '', r[1])); th.appendChild(el('code', 'hint', r[2]));
         if (r[4]) th.appendChild(el('span', 'hint err', r[4]));
+        if (r[5]) th.appendChild(el('span', 'hint err', r[5]));
         tr.appendChild(th);
         cols.concat([['', 'Nothing', true]]).forEach(function (c) {
           const on = r[3] === c[0];

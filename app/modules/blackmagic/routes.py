@@ -12,14 +12,14 @@ import asyncio
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse
 
-from ... import audit, db
+from ... import audit, db, routing
 from ... import cables as core_cables
 from ...text import same_name
 from .. import require
 from . import discovery, videohub
 from .service import (DEFAULT_NAME, DEFAULT_PORT as DEFAULT_PORTS, DRAWINGS, KIND_NAMES, KINDS, MAX_DEVICES,
                       MAX_PRESETS, NAME_MAX, NOTE_MAX, PLACES, PORT_RE, clean_device, clean_host, clean_offset,
-                      connector, devices, new_id, save_devices, service, set_note)
+                      connector, devices, hub_refs, new_id, preset_scope, save_devices, service, set_note)
 
 router = APIRouter()
 VIEW = [Depends(require("blackmagic.view"))]
@@ -413,9 +413,19 @@ def admin_hub_route(request: Request, payload: dict):
         return _bad("Choose an output and an input that exist.")
     if not hub.can_route(out):
         return _bad("Another control surface has locked that output.", 409)
-    sent, _ = service.route(dev, {out: src})
-    if not sent:
-        return _bad("The Videohub is not connected.", 409)
+    refs = hub_refs(dev.cfg["id"])
+    if ("vout", out) in refs and ("vin", src) in refs:
+        # A core route (app/routing.py): the same route is shown and can be changed from the NDI page or a board.
+        try:
+            got = routing.set(refs[("vout", out)], refs[("vin", src)])
+        except routing.Refused as exc:
+            return _bad(routing.REFUSALS[exc.key], 409)
+        if got["problems"]:
+            return _bad(got["problems"][0], 409)
+    else:
+        sent, _ = service.route(dev, {out: src})
+        if not sent:
+            return _bad("The Videohub is not connected.", 409)
     audit.note(request, "blackmagic.videohub_route", "Changed a Videohub route", target=dev.cfg["name"],
                detail={"output": out + 1, "input": src + 1})
     return {"ok": True}
@@ -463,46 +473,43 @@ def admin_hub_lock(request: Request, payload: dict):
 
 @router.post("/api/admin/blackmagic/videohub/presets", dependencies=MANAGE)
 def admin_hub_preset_save(request: Request, payload: dict):
-    """Save what the router routes right now as a preset (a preset of the same name is replaced)."""
+    """Save what the router routes right now as a preset (a preset of the same name is replaced). It is a core preset
+    (app/routing.py) scoped to this Videohub."""
     dev, hub, err = _hub(payload)
     if err:
         return err
     name = videohub.clean_label(payload.get("name"))
     if not name:
         return _bad("Give the preset a name.")
-    routes = {str(o): i for o, i in sorted(hub.state.routing.items())}
-    if not routes:
+    if not hub.state.routing:
         return _bad("The Videohub has not said what it routes yet.", 409)
-    items = devices()
-    item = next((d for d in items if d["id"] == dev.cfg["id"]), None)
-    if item is None:
-        return _bad("That Videohub is not in the list.", 404)
-    presets = item.get("presets", [])
-    same = next((p for p in presets if same_name(p["name"], name)), None)
-    if same is None and len(presets) >= MAX_PRESETS:
+    refs = hub_refs(dev.cfg["id"])
+    outs = [refs[("vout", n)] for n in sorted(hub.state.routing) if ("vout", n) in refs]
+    if not outs:
+        return _bad("Relay has not listed this Videohub's outputs yet.", 409)
+    scope = preset_scope(dev.cfg["id"])
+    held = routing.salvos(scope)
+    same = next((v for v in held if same_name(v["name"], name)), None)
+    if same is None and len(held) >= MAX_PRESETS:
         return _bad(f"A Videohub keeps at most {MAX_PRESETS} presets.")
-    if same is not None:
-        same.update(name=name, routes=routes)
-    else:
-        presets.append({"id": new_id(), "name": name, "routes": routes})
-    item["presets"] = presets
-    save_devices([clean_device(d) if d is item else d for d in items])
+    try:
+        routing.save_salvo(name, outs, scope, same["id"] if same else None)
+    except routing.Refused as exc:
+        return _bad(routing.REFUSALS[exc.key], 409)
     audit.note(request, "blackmagic.videohub_preset_save", "Saved a Videohub route preset", target=name,
-               detail={"device": dev.cfg["name"], "routes": len(routes)})
+               detail={"device": dev.cfg["name"], "routes": len(outs)})
     return service.snapshot()
 
 
 @router.delete("/api/admin/blackmagic/videohub/presets/{device_id}/{preset_id}", dependencies=MANAGE)
 def admin_hub_preset_delete(request: Request, device_id: str, preset_id: str):
-    items = devices()
-    item = next((d for d in items if d["id"] == device_id and d["kind"] == "videohub"), None)
-    preset = next((p for p in (item or {}).get("presets", []) if p["id"] == preset_id), None)
-    if item is None or preset is None:
+    held = routing.salvos(preset_scope(device_id)) if device_id in service.devices else []
+    preset = next((v for v in held if str(v["id"]) == preset_id), None)
+    if preset is None:
         return _bad("That preset is not saved.", 404)
-    item["presets"] = [p for p in item["presets"] if p["id"] != preset_id]
-    save_devices(items)
+    routing.delete_salvo(preset["id"])
     audit.note(request, "blackmagic.videohub_preset_delete", "Deleted a Videohub route preset", target=preset["name"],
-               detail={"device": item["name"]})
+               detail={"device": service.devices[device_id].cfg["name"]})
     return service.snapshot()
 
 
@@ -511,11 +518,12 @@ def admin_hub_preset_apply(request: Request, payload: dict):
     dev, hub, err = _hub(payload)
     if err:
         return err
-    saved = next((d for d in devices() if d["id"] == dev.cfg["id"]), {})
-    preset = next((p for p in saved.get("presets", []) if p["id"] == payload.get("preset")), None)
+    preset = next((v for v in routing.salvos(preset_scope(dev.cfg["id"])) if str(v["id"]) == str(payload.get("preset"))), None)
     if preset is None:
         return _bad("That preset is not saved.", 404)
-    sent, left_out = service.route(dev, {int(o): i for o, i in preset["routes"].items()})
+    problems = routing.take_salvo(preset["id"])
+    left_out = len(problems)
+    sent = max(0, len(preset["routes"]) - left_out)
     if not sent:
         return _bad("Nothing in that preset could be sent: the outputs are locked or no longer exist.", 409)
     audit.note(request, "blackmagic.videohub_preset", "Recalled a Videohub route preset", target=preset["name"],

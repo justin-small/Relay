@@ -24,7 +24,7 @@ _db.start()
 _db.reset()
 
 import app.main as main  # noqa: E402,F401
-from app import config  # noqa: E402
+from app import config, routing as core_routing  # noqa: E402
 from app.main import app  # noqa: E402
 from app.modules import modules as _modules  # noqa: E402
 from app.modules.blackmagic import hyperdeck as hd  # noqa: E402
@@ -535,6 +535,16 @@ with section("The admin routes for a HyperDeck and a Videohub"):
     eq("a viewer cannot route", viewer.post(f"{B}/videohub/route", json={"device": hub_cfg["id"], "output": 0, "input": 1}).status_code, 403)
     res = operator.post(f"{B}/videohub/route", json={"device": hub_cfg["id"], "output": 0, "input": 2})
     eq("an operator routes", (res.status_code, rec_hub.sent[-1]), (200, "VIDEO OUTPUT ROUTING:\n0 2\n\n"))
+    from app import channels as core_channels  # noqa: E402
+
+    out0 = next(c for c in core_channels.listing("video") if any(e["key"] == f"{hub_cfg['id']}:vout0" for e in c["ends"]))
+    v = core_routing.status(out0["ref"])
+    eq("the route is a core route; the router has not said it took it yet, so a difference is shown",
+       (v["state"], [x["name"] for x in v["wanted"]], [x["name"] for x in v["actual"]]), ("differs", ["Slides"], ["Camera 1"]))
+    hc.consume(hub_block("VIDEO OUTPUT ROUTING:", "0 2"))
+    eq("once the router says so, they agree and it is what feeds the output",
+       (core_routing.status(out0["ref"])["state"], [x["name"] for x in core_routing.feeds(out0["ref"])]), ("same", ["Slides"]))
+    hc.consume(hub_block("VIDEO OUTPUT ROUTING:", "0 0"))
     eq("an input that does not exist", admin.post(f"{B}/videohub/route", json={"device": hub_cfg["id"], "output": 0, "input": 3}).status_code, 400)
     eq("an output that does not exist", admin.post(f"{B}/videohub/route", json={"device": hub_cfg["id"], "output": 9, "input": 0}).status_code, 400)
     sent_before = len(rec_hub.sent)
@@ -588,8 +598,10 @@ with section("The admin routes for a HyperDeck and a Videohub"):
     eq("a preset needs a name", admin.post(f"{B}/videohub/presets", json={"device": hub_cfg["id"], "name": " "}).status_code, 400)
     res = admin.post(f"{B}/videohub/presets", json={"device": hub_cfg["id"], "name": "Program to overflow"})
     presets = [d for d in res.json()["devices"] if d["kind"] == "videohub"][0]["presets"]
-    eq("the current routing is saved", (res.status_code, [(p["name"], p["routes"]) for p in presets]),
-       (200, [("Program to overflow", {"0": 0, "1": 1, "2": 2})]))
+    saved = core_routing.salvos("blackmagic:" + hub_cfg["id"])
+    eq("the current routing is saved as a core preset", (res.status_code, [p["name"] for p in presets],
+                                                          [(len(v["routes"]), v["scope"]) for v in saved]),
+       (200, ["Program to overflow"], [(3, "blackmagic:" + hub_cfg["id"])]))
     pid = presets[0]["id"]
     res = admin.post(f"{B}/videohub/presets", json={"device": hub_cfg["id"], "name": "program TO overflow"})
     again = [d for d in res.json()["devices"] if d["kind"] == "videohub"][0]["presets"]
@@ -601,7 +613,7 @@ with section("The admin routes for a HyperDeck and a Videohub"):
     rec_hub.sent.clear()
     res = operator.post(f"{B}/videohub/presets/apply", json={"device": hub_cfg["id"], "preset": pid})
     eq("an operator recalls one; the output another surface holds is left out",
-       (res.status_code, res.json()["sent"], res.json()["left_out"], rec_hub.sent), (200, 2, 1, ["VIDEO OUTPUT ROUTING:\n0 0\n2 2\n\n"]))
+       (res.status_code, res.json()["sent"], res.json()["left_out"], rec_hub.sent), (200, 2, 1, ["VIDEO OUTPUT ROUTING:\n0 0\n\n", "VIDEO OUTPUT ROUTING:\n2 2\n\n"]))
     eq("a preset that is not saved", admin.post(f"{B}/videohub/presets/apply", json={"device": hub_cfg["id"], "preset": "nope"}).status_code, 404)
     hc.consume(hub_block("VIDEO OUTPUT LOCKS:", "0 L", "1 L", "2 L"))
     eq("every output locked: nothing to send is a 409", admin.post(f"{B}/videohub/presets/apply", json={"device": hub_cfg["id"], "preset": pid}).status_code, 409)
@@ -614,6 +626,17 @@ with section("The admin routes for a HyperDeck and a Videohub"):
     eq("a switcher is not a Videohub", admin.post(f"{B}/videohub/route", json={"output": 0, "input": 0}).status_code, 404)
     hc.connected = False
     eq("a router that is not connected is a 409", admin.post(f"{B}/videohub/lock", json={"device": hub_cfg["id"], "output": 0, "action": "lock"}).status_code, 409)
+
+with section("Videohub presets saved before #544 become core presets"):
+    config.save({svc.KEY: {"devices": [{"id": "legacyhb", "kind": "videohub", "name": "Old hub", "host": "10.0.0.9",
+                                         "presets": [{"id": "p1", "name": "Sunday", "routes": {"0": 1, "1": 0}}]}]}},
+                replace=(svc.KEY,))
+    got = svc.devices()
+    eq("the device no longer holds them", [d.get("presets") for d in got if d["id"] == "legacyhb"], [[]])
+    moved = core_routing.salvos(svc.preset_scope("legacyhb"))
+    eq("they are core presets scoped to the device", [(v["name"], len(v["routes"])) for v in moved], [("Sunday", 2)])
+    svc.devices()
+    eq("a second read changes nothing", len(core_routing.salvos(svc.preset_scope("legacyhb"))), 1)
 
 with section("Health and the connection test count every kind"):
     svc.service.devices.clear()

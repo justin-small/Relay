@@ -502,6 +502,35 @@ once. A tally camera may carry `"channel"`, the ref of its video channel, and sh
 your own: `tests/test_shared_concepts.py` counts a module table named `*channels` and a module default `"channels": []`, with a
 shrink-only baseline (the intercom keeps its talk settings on its table, and the rundown keeps each channel's positions).
 
+## Routes
+
+A route says which source channel feeds which destination channel, such as "Lobby TV takes Camera 2", with a gain in dB where the
+gear has one (`app/routing.py`, tables in `app/migrations/0015_routes.sql`, #544). Both ends are core channels (see Channels). A
+**salvo** is a saved set of routes taken in one click; its `scope` says whose it is (`ndi`, `blackmagic:<device id>`).
+
+**The module that owns the destination applies it.** It offers `modules.provide("routes.<module id>", {...})` in `attach()` with
+`exclusive` (a destination takes one source, as a video output does, or mixes several, as an audio output does), `gain`
+(the gear has a gain per route), `apply(end, wanted)` (point the destination end at `wanted`, a list of `{"ends": [the source
+channel's ends], "gain_db"}`; pick the end you can use; return "" or a sentence saying why not) and `read(end)` (what the gear
+really does, a list of `{"provider", "key", "gain_db"}` naming source ends, or None when it cannot say). Core code that owns
+destinations (the audio bus) uses `routing.provide_core(provider, api)`. A module whose gear forgets its routes when it
+restarts calls `routing.reapply("<module id>")` from `start()`.
+
+**The gear is the truth.** `routing.status(destination)` says what was asked for (`wanted`), what the gear does (`actual`) and
+`state`: `same`, `differs`, `wanted` (the gear cannot say), `actual` (the gear does something nobody asked for here) or `none`.
+Pages show a difference and Relay never quietly overwrites the gear. `routing.feeds(ref)` answers "what feeds this?" for any
+channel ref and `routing.feeding(ref)` "where does this go?"; the Network page's Channels list shows both.
+
+**Make a route from anywhere.** `routing.set(destination, source, gain_db)`, `clear`, `replace` and the salvo calls
+(`save_salvo`, `take_salvo`, `delete_salvo`) block, so call them through `asyncio.to_thread`. The admin API is `/api/admin/routes`
+(`network.view` to read, `network.manage` to change), and a board's **Route** button makes the same route. The NDI page, the
+Blackmagic page (Videohub) and the audio bus crosspoints all read and write through it; the NDI router keeps only the outputs it
+creates (`router_outputs`), the Videohub only its connection, and the audio bus's crosspoints are the routes into its output channels
+(`out:<id>:<n>`, from lanes `lane<n>`). Routes and presets saved by those pages before #544 moved to core the first time they were read.
+
+**Keep no list of routes.** `tests/test_shared_concepts.py` counts a module table named `*routes`, `*salvos`, `*matrix` or
+`*crosspoints` and a module default `"routes": []`, `"salvos": []` or `"matrix": []`, with a shrink-only baseline.
+
 ## Phones and computers
 
 A phone or computer a person carries is one core **device** (`app/devices.py`, tables in `app/migrations/0009_devices.sql`,

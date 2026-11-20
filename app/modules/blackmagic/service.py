@@ -20,7 +20,7 @@ import re
 import secrets
 import time
 
-from ... import cables as core_cables, channels, config, db, gear, ports, screens, tally
+from ... import cables as core_cables, channels, config, db, gear, ports, routing, screens, tally
 from ...text import same_name
 from . import atem_protocol as p
 from . import drawings, hyperdeck, videohub
@@ -286,6 +286,7 @@ def devices() -> list[dict]:
     legacy = any(isinstance(d, dict) and (any(k in d for k in IDENTITY) or d.get("notes"))
                  for d in (raw.get("devices") if isinstance(raw, dict) and isinstance(raw.get("devices"), list) else []))
     old_cables = isinstance(raw, dict) and bool(raw.get("cables"))
+    old_presets = any(d.get("presets") for d in items)
     try:
         known = gear.by_keys()
         out = []
@@ -299,6 +300,8 @@ def devices() -> list[dict]:
             save_devices(out)                  # the identity is on gear now: take it out of config
         if old_cables:
             _move_cables(out)
+        if old_presets:
+            _move_presets(out)
     except db.Unavailable:
         return items
     return [d for _, d in sorted(enumerate(out), key=lambda t: (t[1]["position"], t[0]))]
@@ -324,6 +327,41 @@ def _move_cables(items: list[dict]) -> None:
             except core_cables.Refused:
                 pass                           # the same pair is already cabled
     save_devices(items)
+
+
+def preset_scope(device_id: str) -> str:
+    return "blackmagic:" + device_id
+
+
+def _move_presets(items: list[dict]) -> None:
+    """A Videohub's route presets saved in config before #544 become core presets (app/routing.py) scoped to the device,
+    once: they are gone from config after. A preset whose name is already taken there is dropped, as a second save of the
+    same name was."""
+    for dev in items:
+        if dev["kind"] != "videohub":
+            continue
+        for pre in dev.get("presets", []):
+            cells = []
+            for o, i in pre["routes"].items():
+                dest = channels.ensure("blackmagic", f"{dev['id']}:vout{o}", "video", "destination", f"Output {int(o) + 1}")
+                src = channels.ensure("blackmagic", f"{dev['id']}:vin{i}", "video", "source", f"Input {i + 1}")
+                if dest and src:
+                    cells.append((dest, src, None))
+            routing.import_salvo(pre["name"], preset_scope(dev["id"]), cells)
+        dev["presets"] = []
+    save_devices(items)
+
+
+def hub_refs(device_id: str) -> dict[tuple[str, int], str]:
+    """{("vout" or "vin", number from 0): channel ref} for the ports of one Videohub that core has channels for."""
+    out: dict[tuple[str, int], str] = {}
+    for c in channels.listing():
+        for e in c["ends"]:
+            if e["provider"] == "blackmagic" and e["key"].startswith(device_id + ":v") and not e["missing"]:
+                m = re.fullmatch(r"v(in|out)(\d+)", e["key"][len(device_id) + 1:])
+                if m:
+                    out[("v" + m.group(1), int(m.group(2)))] = c["ref"]
+    return out
 
 
 def cables(items: list[dict] | None = None) -> list[dict]:
@@ -628,6 +666,7 @@ class Service:
             out["hyperdeck"] = {}
         else:
             out["videohub"] = {}
+            out["presets"] = self._presets(cfg["id"])
         if c is None or not c.connected:
             return self._faced(out)
         out["connected"] = True
@@ -645,6 +684,13 @@ class Service:
         else:
             out.update(product=c.state.model, videohub=self._videohub_snapshot(c))
         return self._faced(out)
+
+    @staticmethod
+    def _presets(device_id: str) -> list[dict]:
+        try:
+            return [{"id": str(v["id"]), "name": v["name"]} for v in routing.salvos(preset_scope(device_id))]
+        except db.Unavailable:
+            return []
 
     @staticmethod
     def _hyperdeck_snapshot(c: HyperDeckClient) -> dict:
@@ -739,6 +785,44 @@ class Service:
             raise ValueError("The Videohub has no such port, or the name is empty.")
         if not hub.set_labels(kind, {n: label}):
             raise ValueError("The Videohub is not connected, so its label was not changed.")
+
+    # ------------------------------------------------------------------------------------------ core routes (#544)
+    def routes_api(self) -> dict:
+        """What core's routes ask of this module (app/routing.py): a Videohub output takes one input."""
+        return {"exclusive": True, "gain": False, "apply": self._core_apply, "read": self._core_read}
+
+    def _out_end(self, key: str):
+        """(device, hub client, output number) for a channel end key "<device id>:vout<n>", else None."""
+        did, _, tail = key.rpartition(":")
+        m = re.fullmatch(r"vout(\d+)", tail)
+        dev = self.devices.get(did)
+        hub = self.hub(dev) if dev is not None else None
+        return None if not m or hub is None else (dev, hub, int(m.group(1)))
+
+    def _core_apply(self, end: dict, wanted: list[dict]) -> str:
+        got = self._out_end(end["key"])
+        if got is None:
+            return "The Videohub is not connected."
+        dev, hub, n = got
+        if not wanted:
+            return "A Videohub always shows an input, so it is left as it is."
+        prefix = end["key"].rpartition(":")[0] + ":vin"
+        ins = [int(e["key"][len(prefix):]) for w in wanted for e in w["ends"]
+               if e["provider"] == "blackmagic" and e["key"].startswith(prefix) and e["key"][len(prefix):].isdigit()]
+        if not ins:
+            return "That source is not an input of this Videohub."
+        if not hub.can_route(n):
+            return "Another control surface has locked that output."
+        sent, _ = self.route(dev, {n: ins[0]})
+        return "" if sent else "The Videohub did not take that route."
+
+    def _core_read(self, end: dict) -> list[dict] | None:
+        got = self._out_end(end["key"])
+        if got is None or not got[1].state.ready:
+            return None
+        src = got[1].state.routing.get(got[2])
+        return [] if src is None else [{"provider": "blackmagic", "key": f"{end['key'].rpartition(':')[0]}:vin{src}",
+                                         "gain_db": None}]
 
     def route(self, dev: Device, pairs: dict[int, int]) -> tuple[int, int]:
         """Send routes the router would take; leave out any output another control surface holds. (sent, left out)"""

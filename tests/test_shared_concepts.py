@@ -19,6 +19,10 @@ shared files themselves (app/text.py and app/timewin.py) and counts, per file:
            real or integer. Core and every module store time as `<name>_at text` written by `db.now()` or `db.iso(ts)`
            (`2027-01-15T08:00:00Z`), so a join across modules needs no conversion; `db.epoch(text)` gives seconds when
            arithmetic is needed;
+* route    a module table or default that is its own list of routes, route presets or a crosspoint matrix (`create table
+           <x>_routes`, `_salvos`, `_matrix`, or a default `"routes": []`): a route is one core route (app/routing.py, #544)
+           from a source channel to a destination channel, applied by the module that owns the destination
+           (`provide("routes.<module id>")`), and a preset is a core salvo. A module keeps the outputs it creates, not who feeds them;
 * gear     a module table of equipment, racks or places (`create table <x>_gear`, `_equipment`, `_racks`, `_places`), or one named
            `gear`, `racks` or `places`: a piece of equipment is one core gear record (app/gear.py, #547), a rack sits inside a
            core place, and a module attaches to the gear by key (`gear.adopt(["<module>:<id>", ...])`) and keeps only what it
@@ -96,6 +100,12 @@ CABLE_LIST = re.compile(r"""['"](?:cables|wires)['"]\s*:\s*\[\s*\]""")
 # point at a core channel by `channel_ref`.
 CHANNEL_TABLE = re.compile(r"^\s*create\s+table\s+(?:if\s+not\s+exists\s+)?\w*channels?\s*\(", re.I)
 CHANNEL_LIST = re.compile(r"""['"]channels['"]\s*:\s*\[\s*\]""")
+# A module table or default that is its own list of routes, presets of routes or a crosspoint matrix (#544): a route is one core
+# route (app/routing.py, migration 0015_routes.sql) from a source channel to a destination channel, applied by the module that
+# owns the destination, and a preset is a core salvo. A module keeps the outputs it creates, never who feeds them. The NDI
+# default `"routes": [], "salvos": []` is baselined with a reason: it carries what was saved before #544 until it has moved.
+ROUTE_TABLE = re.compile(r"^\s*create\s+table\s+(?:if\s+not\s+exists\s+)?\w*(?:routes?|salvos?|matrix|crosspoints?)\s*\(", re.I)
+ROUTE_LIST = re.compile(r"""['"](?:routes|salvos|matrix|crosspoints)['"]\s*:\s*\[\s*\]""")
 EPOCH_COLUMN = re.compile(r"^\s*(?:alter\s+table\s+\w+\s+add\s+column\s+)?(?:\w+_(?:ts|epoch)\s+\w+|\w+_at\s+(?:real|integer|int|numeric|float)\b)", re.I)
 CREATE_TABLE = re.compile(r"create\s+table\s+(\w+)\s*\((.*?)\n\)\s*;", re.I | re.S)
 
@@ -153,6 +163,8 @@ def hits() -> dict[tuple[str, str], list[int]]:
                 out.setdefault(("cable", rel), []).append(n)
             if MODULES in p.parents and CHANNEL_LIST.search(code) and "allow-shared:" not in line:
                 out.setdefault(("channel", rel), []).append(n)
+            if MODULES in p.parents and ROUTE_LIST.search(code):
+                out.setdefault(("route", rel), []).append(n)
     for p in sorted((APP / "migrations").glob("*.sql")) + module_sql():
         rel = p.relative_to(ROOT).as_posix()
         for n, line in enumerate(p.read_text(encoding="utf-8").splitlines(), 1):
@@ -179,6 +191,8 @@ def hits() -> dict[tuple[str, str], list[int]]:
                 out.setdefault(("cable", rel), []).append(n)
             if "allow-shared:" not in line and CHANNEL_TABLE.match(line):
                 out.setdefault(("channel", rel), []).append(n)
+            if "allow-shared:" not in line and ROUTE_TABLE.match(line):
+                out.setdefault(("route", rel), []).append(n)
     for p in sorted(MODULES.glob("*/static/*.js")):
         rel = p.relative_to(ROOT).as_posix()
         for n, line in enumerate(p.read_text(encoding="utf-8").splitlines(), 1):
@@ -316,6 +330,12 @@ def main() -> None:
         check("a table that only mentions channels is fine", not CHANNEL_TABLE.match("create table channel_log ("))
         check("a module's own list of channels is found", bool(CHANNEL_LIST.search('defaults = {"mics": [], "channels": []}')))
         check("a channel the server sent is fine", not CHANNEL_LIST.search('return {"channels": channels.listing()}'))
+        check("a module table of routes is found", bool(ROUTE_TABLE.match("create table ndi_routes (")))
+        check("so is a matrix or a salvos table", bool(ROUTE_TABLE.match("create table if not exists mixer_matrix(")) and bool(ROUTE_TABLE.match("create table salvos (")))
+        check("a table that only mentions routing is fine", not ROUTE_TABLE.match("create table route_log ("))
+        check("a module's own list of routes is found", bool(ROUTE_LIST.search('defaults = {"outputs": [], "routes": []}')))
+        check("so is a list of presets", bool(ROUTE_LIST.search('"salvos": []')))
+        check("a route the server sent is fine", not ROUTE_LIST.search('return {"routes": routing.listing()}'))
         check("a devices table is found", bool(DEVICE_TABLE.match("create table crew_devices (")))
         check("so is a push subscriptions table", bool(DEVICE_TABLE.match("create table x_push_subs (")))
         check("a table that only mentions devices is fine", not DEVICE_TABLE.match("create table device_log ("))

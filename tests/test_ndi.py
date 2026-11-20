@@ -142,7 +142,7 @@ with section("settings"):
                                                 "interval": 1}), {"servers": [], "mdns": True, "extra_ips": ["10.0.0.1"], "groups": ["A"], "interval": 5,
                                                                    "view_fps": 15, "view_quality": 60, "view_width": 1280,
                                                                    "view_max": 4, "tally": {}, "multiviews": [], "out_on": [],
-                                                                   "out_size": "1280x720", "out_fps": 30, "routes": [], "salvos": []})
+                                                                   "out_size": "1280x720", "out_fps": 30, "router_outputs": [], "routes": [], "salvos": []})
     check("defaults", svc.clean_settings(None)["interval"] == 15)
 
 with section("without the runtime"):
@@ -300,11 +300,13 @@ with section("page outputs (#299)"):
     s.pages.make = outs.render.make
     registry.withdraw("ndi.outputs.signage")
 
-with section("router (#298)"):
+with section("router (#298, core routes #544)"):
+    from app import channels as core_channels, db as core_db, routing
     from app.modules.ndi import router as rt
 
     s = svc.service
     r = s.router
+    registry.provide("routes.ndi", r.api(), owner="ndi")
     add = r.add_output("Lobby TV")
     check("an output is added and live", isinstance(add, dict) and backend.routers[-1].name == "Relay - Lobby TV")
     eq("a duplicate name is refused", isinstance(r.add_output("lobby tv"), str), True)
@@ -312,36 +314,69 @@ with section("router (#298)"):
     inst = backend.routers[-1]
     eq("route to a source", r.route(add["id"], "BIRD (HDMI 1)"), "")
     eq("the library was told", inst.target, "BIRD (HDMI 1)")
-    eq("it is saved", s.settings()["routes"][0]["source"], "BIRD (HDMI 1)")
+    out = next(x for x in r.snapshot()["routes"] if x["id"] == add["id"])
+    eq("the page shows the route and agrees with the gear", (out["source"], out["state"]), ("BIRD (HDMI 1)", "same"))
+    eq("it is a core route", [f["name"] for f in routing.feeds(out["ref"])], ["HDMI 1"])
+    core_channels.ensure("ndi", "src:PTZ-1 (NDI HX2, )", "video", "source", "PTZ-1")
+    r._target[add["id"]] = "PTZ-1 (NDI HX2, )"      # what NDI was last told, as if another tool had switched it
+    out = next(x for x in r.snapshot()["routes"] if x["id"] == add["id"])
+    eq("a change on the gear is shown, with what was asked", (out["state"], out["asked"]), ("differs", "BIRD (HDMI 1)"))
+    r._target[add["id"]] = "BIRD (HDMI 1)"
     eq("an output cannot show itself", r.route(add["id"], "PC (Relay - Lobby TV)"), "An output cannot show itself.")
     eq("an unknown output is refused", r.route("nope1234", "x"), "That output does not exist.")
     two = r.add_output("Stage")
     r.route(two["id"], "PTZ-1 (NDI HX2, )")
     sv = r.save_salvo("Sunday")
-    eq("a preset holds both routes", sv["routes"], {add["id"]: "BIRD (HDMI 1)", two["id"]: "PTZ-1 (NDI HX2, )"})
+    eq("a preset holds both routes", sv["name"], "Sunday")
+    eq("as sources by output", next(x for x in r.snapshot()["salvos"] if x["id"] == sv["id"])["routes"],
+       {add["id"]: "BIRD (HDMI 1)", two["id"]: "PTZ-1 (NDI HX2, )"})
     r.route(add["id"], "")
     eq("clear leaves it showing nothing", inst.target, None)
     eq("take puts the routes back", r.take(sv["id"]), "")
     eq("the lobby is back", inst.target, "BIRD (HDMI 1)")
     eq("a duplicate preset name is refused", isinstance(r.save_salvo("sunday"), str), True)
     upd = r.save_salvo("Sunday", sv["id"])
-    eq("a preset can be replaced", (upd["id"], len(s.settings()["salvos"])), (sv["id"], 1))
+    eq("a preset can be replaced", (upd["id"], len(r.snapshot()["salvos"])), (sv["id"], 1))
     eq("taking nothing", r.take("zzzz"), "That preset does not exist.")
-    # a restart: stop, then start again from the saved settings
+    # a restart: stop, then start again; core points each output where it was asked
     asyncio.run(s.stop())
     n = len(backend.routers)
     asyncio.run(s.start())
-    check("routes come back after a restart", len(backend.routers) == n + 2)
+    check("outputs come back after a restart", len(backend.routers) == n + 2)
     again = {x.name: x.target for x in backend.routers[n:]}
     eq("pointed where they were", again, {"Relay - Lobby TV": "BIRD (HDMI 1)", "Relay - Stage": "PTZ-1 (NDI HX2, )"})
     check("stop closes the routers", all(x.closed for x in backend.routers[:n]))
-    check("inputs list includes sources", any(i["name"] == "BIRD (HDMI 1)" for i in s.snapshot()["inputs"]) or True)
-    check("removing deletes it and its preset entry", r.remove_output(add["id"])
-          and add["id"] not in s.settings()["salvos"][0]["routes"] and backend.routers[n].closed)
-    eq("junk routes are cleaned", rt.clean_routes([{"id": "!", "name": "x"}, {"id": "abcd1234", "name": ""}, 5]), [])
+    check("removing deletes it, its route and its preset entry", r.remove_output(add["id"])
+          and add["id"] not in r.snapshot()["salvos"][0]["routes"] and backend.routers[n].closed)
+    eq("junk outputs are cleaned", rt.clean_outputs([{"id": "!", "name": "x"}, {"id": "abcd1234", "name": ""}, 5]), [])
     r.remove_output(two["id"])
     r.delete_salvo(sv["id"])
-    eq("all gone", (s.settings()["routes"], s.settings()["salvos"]), ([], []))
+    eq("all gone", (s.settings()["router_outputs"], r.snapshot()["salvos"]), ([], []))
+
+with section("routes saved before #544 move to core"):
+    from app import config as core_config
+
+    raw = dict(core_config.get().get("ndi") or {})
+    raw.update({"routes": [{"id": "aaaa1111", "name": "Lobby TV", "source": "BIRD (HDMI 1)"},
+                           {"id": "bbbb2222", "name": "Stage", "source": ""}],
+                "salvos": [{"id": "cccc3333", "name": "Sunday", "routes": {"aaaa1111": "BIRD (HDMI 1)", "bbbb2222": ""}}]})
+    raw.pop("router_outputs", None)
+    core_config.save({"ndi": raw})
+    r.migrate()
+    saved = core_config.get().get("ndi") or {}
+    eq("the old lists are emptied", (saved.get("routes"), saved.get("salvos")), ([], []))
+    eq("the outputs stay with NDI", [o["name"] for o in s.settings()["router_outputs"]], ["Lobby TV", "Stage"])
+    snap = r.snapshot()
+    eq("the route is a core route", [(x["name"], x["source"]) for x in snap["routes"]],
+       [("Lobby TV", "BIRD (HDMI 1)"), ("Stage", "")])
+    eq("the preset moved", [(v["name"], sorted(v["routes"].values())) for v in snap["salvos"]],
+       [("Sunday", ["", "BIRD (HDMI 1)"])])
+    r.migrate()
+    eq("a second run changes nothing", len(r.snapshot()["salvos"]), 1)
+    for o in list(s.settings()["router_outputs"]):
+        r.remove_output(o["id"])
+    for v in r.snapshot()["salvos"]:
+        r.delete_salvo(v["id"])
     s._seen.clear()                     # a scan may have run during the restart
     s.merge(found)                      # the restart cleared the list: put back what the next section expects
     s.merge([found[0]])
