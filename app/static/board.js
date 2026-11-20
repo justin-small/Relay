@@ -48,7 +48,7 @@
     if (nodes[id]) R.update(nodes[id], live[id]);
   }
 
-  async function onPress(it) {
+  async function onPress(it, w, body) {
     if (it.type === 'link') {
       const to = (it.props || {}).board;
       if (to) location.href = '/board/' + encodeURIComponent(to);
@@ -56,7 +56,9 @@
     }
     if (!press[it.type]) { say('Sign in with an account that may press this.'); return; }
     try {
-      const res = await fetch(base + '/_/press/' + encodeURIComponent(it.id), { method: 'POST', credentials: 'same-origin' });
+      const init = { method: 'POST', credentials: 'same-origin' };
+      if (body) { init.headers = { 'Content-Type': 'application/json' }; init.body = JSON.stringify(body); }
+      const res = await fetch(base + '/_/press/' + encodeURIComponent(it.id), init);
       if (!res.ok) { const out = await res.json().catch(function () { return {}; }); say(out.error || 'That did not work.'); }
     } catch (e) { say('Relay did not answer.'); }
   }

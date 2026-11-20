@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Panel mixer views</title>
+<!-- Mockups for #150: what a relay-display panel (CrowPanel 7", 800x480) could show from Audio Mixers. Static: no
+     script, made-up data. Colours are the panel firmware's own (status_view.cpp), not the operator panel's tokens. -->
+<style>
+  :root{--bg:#101010;--band:#1c1c1c;--live:#b3261e;--key:#8c8c8c;--idle:#5c5c5c;--text:#fff;--good:#4ade80;--warn:#fbbf24;--bad:#f87171}
+  body{margin:0;padding:24px 16px;background:#0a0a0a;color:#e5e5e5;font:15px/1.45 system-ui,-apple-system,"Segoe UI",sans-serif}
+  h1{font-size:22px;margin:0 0 4px}
+  .lede{color:#a3a3a3;margin:0 0 28px;max-width:820px}
+  .opt{margin:0 0 40px}
+  .opt h2{font-size:18px;margin:0 0 4px}
+  .opt p{margin:0 0 12px;color:#a3a3a3;max-width:820px}
+  .wrap{max-width:100%;overflow-x:auto}
+  .panel{width:800px;height:480px;background:var(--bg);color:var(--text);border:10px solid #000;border-radius:14px;
+    box-sizing:content-box;position:relative;overflow:hidden;font-family:system-ui,sans-serif}
+  .bar{height:44px;background:var(--band);display:flex;align-items:center;gap:12px;padding:0 18px;font-size:18px}
+  .bar b{font-weight:600}.bar .r{margin-left:auto;color:var(--key);font-size:16px}
+  .dot{width:10px;height:10px;border-radius:50%;background:var(--good);display:inline-block}
+  .dot.bad{background:var(--bad)}
+  /* A: status view with a mic block */
+  .srow{display:flex;align-items:center;gap:12px;padding:0 18px;height:46px;border-bottom:1px solid #1c1c1c;font-size:19px}
+  .srow .k{color:var(--key);width:150px}.srow .v{flex:1}.good{color:var(--good)}.warn{color:var(--warn)}.bad{color:var(--bad)}
+  .mics{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;padding:12px 18px}
+  .mic{background:var(--band);border-radius:8px;padding:8px 10px;font-size:17px;display:flex;justify-content:space-between;align-items:center}
+  .mic.m{color:var(--idle)}.mic.m span:last-child{color:var(--bad);font-weight:700}
+  .mic span:last-child{font-size:14px;color:var(--good)}
+  /* B: channel wall */
+  .wall{display:grid;grid-template-columns:repeat(8,1fr);gap:6px;padding:10px 12px}
+  .ch{background:var(--band);border-radius:8px;height:186px;display:flex;flex-direction:column;align-items:center;padding:6px 4px;box-sizing:border-box;position:relative}
+  .ch .n{color:var(--key);font-size:13px}.ch .nm{font-size:15px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
+  .ch .rail{flex:1;width:8px;background:#000;border-radius:4px;margin:6px 0;position:relative}
+  .ch .rail i{position:absolute;left:-9px;width:26px;height:10px;background:#d4d4d4;border-radius:3px}
+  .ch .db{font-size:14px;font-variant-numeric:tabular-nums}
+  .ch.m{background:#3a1214}.ch.m .db{color:var(--bad)}
+  .ch .tag{position:absolute;top:6px;right:6px;width:8px;height:8px;border-radius:50%}
+  /* C: micboard */
+  .board{display:grid;grid-template-columns:repeat(4,1fr);grid-template-rows:repeat(2,1fr);gap:10px;padding:14px;height:calc(480px - 44px - 28px);box-sizing:border-box}
+  .tile{border-radius:12px;background:#14532d;display:flex;flex-direction:column;justify-content:center;align-items:center;gap:4px}
+  .tile .num{font-size:15px;color:#bbf7d0}.tile .who{font-size:30px;font-weight:700}.tile .pos{font-size:15px;color:#d1fae5}
+  .tile.m{background:#3a1214}.tile.m .num,.tile.m .pos{color:#fecaca}.tile.m .who{color:#fca5a5}
+  .tile.u{background:var(--band)}.tile.u .num,.tile.u .pos{color:var(--key)}.tile.u .who{color:var(--idle)}
+  .foot{position:absolute;left:0;right:0;bottom:0;height:28px;display:flex;gap:18px;align-items:center;padding:0 18px;color:var(--key);font-size:14px;background:var(--band)}
+</style>
+</head>
+<body>
+<h1>Panel mixer views (#150)</h1>
+<p class="lede">Three ways a relay-display panel could show the sound desk, at the 7" panel's 800×480. All read-only:
+  moving the desk stays on the admin page and boards, behind <code>audio_mixers.control</code>. Data is made up.</p>
+
+<section class="opt">
+  <h2>A. Mics on the Status view</h2>
+  <p>The Status feed panels already have, with a mic block under the usual rows. Smallest change (no new feed kind),
+    but no faders or levels: a glance at "is the pastor's mic live".</p>
+  <div class="wrap"><div class="panel">
+    <div class="bar"><b>Status</b><span class="r">10:24</span></div>
+    <div class="srow"><span class="k">Captions</span><span class="v good">Live · Spanish, Korean</span></div>
+    <div class="srow"><span class="k">Input</span><span class="v good">Signal OK</span></div>
+    <div class="srow"><span class="k">Stream</span><span class="v good">On air 0:42:10 · 38 watching</span></div>
+    <div class="srow"><span class="k">FOH X32</span><span class="v">Scene 3 · Sunday AM</span></div>
+    <div class="mics">
+      <div class="mic"><span>Pastor</span><span>LIVE</span></div>
+      <div class="mic"><span>Lead Vox</span><span>LIVE</span></div>
+      <div class="mic m"><span>BGV 1</span><span>MUTED</span></div>
+      <div class="mic"><span>BGV 2</span><span>LIVE</span></div>
+      <div class="mic"><span>Keys L</span><span>LIVE</span></div>
+      <div class="mic m"><span>Acoustic</span><span>MUTED</span></div>
+      <div class="mic"><span>Bass DI</span><span>LIVE</span></div>
+      <div class="mic"><span>Kick</span><span>LIVE</span></div>
+    </div>
+  </div></div>
+</section>
+
+<section class="opt">
+  <h2>B. Mixer feed: a channel wall</h2>
+  <p>A new feed of its own: one desk, sixteen strips a page in two rows (paged by swipe or by a setting), each with its number,
+    name, colour, fader position and dB; a muted strip goes red. The scene and the link state in the bar.</p>
+  <div class="wrap"><div class="panel">
+    <div class="bar"><span class="dot"></span><b>FOH X32</b><span>Scene 3 · Sunday AM</span><span class="r">Inputs 1–8 · 1/4</span></div>
+    <div class="wall">
+      <div class="ch"><span class="tag" style="background:#f87171"></span><span class="n">1</span><span class="nm">Pastor</span><span class="rail"><i style="bottom:78%"></i></span><span class="db">-1.6</span></div>
+      <div class="ch"><span class="tag" style="background:#4ade80"></span><span class="n">2</span><span class="nm">Lead Vox</span><span class="rail"><i style="bottom:74%"></i></span><span class="db">-3.2</span></div>
+      <div class="ch m"><span class="tag" style="background:#fbbf24"></span><span class="n">3</span><span class="nm">BGV 1</span><span class="rail"><i style="bottom:70%"></i></span><span class="db">MUTE</span></div>
+      <div class="ch"><span class="tag" style="background:#60a5fa"></span><span class="n">4</span><span class="nm">BGV 2</span><span class="rail"><i style="bottom:66%"></i></span><span class="db">-6.4</span></div>
+      <div class="ch"><span class="tag" style="background:#c084fc"></span><span class="n">5</span><span class="nm">Keys L</span><span class="rail"><i style="bottom:62%"></i></span><span class="db">-8.0</span></div>
+      <div class="ch"><span class="tag" style="background:#22d3ee"></span><span class="n">6</span><span class="nm">Keys R</span><span class="rail"><i style="bottom:58%"></i></span><span class="db">-9.6</span></div>
+      <div class="ch"><span class="tag" style="background:#fff"></span><span class="n">7</span><span class="nm">Bass DI</span><span class="rail"><i style="bottom:52%"></i></span><span class="db">-12.4</span></div>
+      <div class="ch"><span class="tag" style="background:#5c5c5c"></span><span class="n">8</span><span class="nm">Kick</span><span class="rail"><i style="bottom:46%"></i></span><span class="db">-15.6</span></div>
+      <div class="ch"><span class="n">LR</span><span class="nm">Main</span><span class="rail"><i style="bottom:72%"></i></span><span class="db">-2.0</span></div>
+      <div class="ch"><span class="n">M1</span><span class="nm">Wedge 1</span><span class="rail"><i style="bottom:68%"></i></span><span class="db">-4.0</span></div>
+      <div class="ch"><span class="n">M2</span><span class="nm">Wedge 2</span><span class="rail"><i style="bottom:68%"></i></span><span class="db">-4.0</span></div>
+      <div class="ch m"><span class="n">M3</span><span class="nm">IEM Drums</span><span class="rail"><i style="bottom:60%"></i></span><span class="db">MUTE</span></div>
+      <div class="ch"><span class="n">M4</span><span class="nm">IEM Keys</span><span class="rail"><i style="bottom:64%"></i></span><span class="db">-5.2</span></div>
+      <div class="ch"><span class="n">D1</span><span class="nm">Vocals</span><span class="rail"><i style="bottom:74%"></i></span><span class="db">0.0</span></div>
+      <div class="ch"><span class="n">D2</span><span class="nm">Band</span><span class="rail"><i style="bottom:70%"></i></span><span class="db">-1.0</span></div>
+      <div class="ch"><span class="n">D3</span><span class="nm">FX</span><span class="rail"><i style="bottom:56%"></i></span><span class="db">-8.0</span></div>
+    </div>
+  </div></div>
+</section>
+
+<section class="opt">
+  <h2>C. Micboard: who is on which mic</h2>
+  <p>Big tiles for the stage or green room, laid out like the rundown's micboard (up to 8 in a row): mic number,
+    the person from Planning Center (or the desk's name), and their position; green live, red muted, grey when the
+    desk has not said. Readable across a room.</p>
+  <div class="wrap"><div class="panel">
+    <div class="bar"><span class="dot"></span><b>Mics</b><span>FOH X32 · Scene 3</span><span class="r">Sunday 10:30</span></div>
+    <div class="board">
+      <div class="tile"><span class="num">MIC 1</span><span class="who">Pastor Dan</span><span class="pos">Preaching</span></div>
+      <div class="tile"><span class="num">MIC 2</span><span class="who">Anna</span><span class="pos">Lead vocal</span></div>
+      <div class="tile m"><span class="num">MIC 3</span><span class="who">Ben</span><span class="pos">Vocals · muted</span></div>
+      <div class="tile"><span class="num">MIC 4</span><span class="who">Chloe</span><span class="pos">Vocals</span></div>
+      <div class="tile"><span class="num">MIC 5</span><span class="who">David</span><span class="pos">Acoustic</span></div>
+      <div class="tile m"><span class="num">MIC 6</span><span class="who">Erin</span><span class="pos">Keys · muted</span></div>
+      <div class="tile u"><span class="num">MIC 7</span><span class="who">Spare</span><span class="pos">not known</span></div>
+      <div class="tile"><span class="num">MIC 8</span><span class="who">Host</span><span class="pos">Announcements</span></div>
+    </div>
+    <div class="foot"><span>6 live</span><span>2 muted</span><span>1 not known</span></div>
+  </div></div>
+</section>
+</body>
+</html>
