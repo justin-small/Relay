@@ -563,7 +563,7 @@ class _Osc(Driver):
         except OSError:
             raise netsock.RouteError(f"Could not find {self.host}.") from None
         self.peer = infos[0][4][:2]
-        self.transport, _ = await netsock.udp_endpoint(TRAFFIC, lambda: _Proto(self), 0)
+        self.transport, _ = await netsock.udp_endpoint(TRAFFIC, lambda: _Proto(self), 0, toward=self.peer)
 
     def close(self) -> None:
         t, self.transport = self.transport, None
