@@ -11,6 +11,8 @@
       <button type="button" role="tab" data-sgtab="takeover" aria-selected="false">Takeovers</button>
       <button type="button" role="tab" data-sgtab="media" aria-selected="false">Media</button>
       <button type="button" role="tab" data-sgtab="settings" aria-selected="false">Settings</button>
+      {% for t in module_tabs.get('signage', []) %}<button type="button" role="tab" data-sgtab="{{ t.id }}" data-tab="{{ t.id }}" aria-selected="false">{{ t.title }}</button>
+      {% endfor %}
     </div>
 
     <div data-sgpane="screens">
@@ -241,6 +243,13 @@
     </div>
 
     <div class="note err" id="sgErr" hidden></div>
+
+    {% for t in module_tabs.get('signage', []) %}
+    <div data-sgpane="{{ t.id }}" data-pane="{{ t.id }}" id="page-{{ t.id }}" hidden>
+{% include t.template %}
+      <p class="note modfoot">{{ t.module }} module v{{ t.version }}{% if t.guide %} &middot; <a href="{{ t.guide }}" target="_blank" rel="noopener">Setup guide</a>{% endif %} &middot; <a href="#modules">Switch it off on the Modules page</a></p>
+    </div>
+    {% endfor %}
 
     <div class="sg-preview" id="sgPreview" hidden>
       <div class="sg-stage" id="sgStage"></div>

@@ -83,7 +83,7 @@ class Manifest:
     section: str = ""
 
 
-TAB_PAGES = ("network",)
+TAB_PAGES = ("network", "signage")
 
 
 @dataclass(frozen=True)
@@ -97,7 +97,7 @@ class AdminPage:
     permission: str = ""
     # A core page this one is a tab of, instead of a sidebar entry of its own: "network" puts it on the Network
     # page's tab bar after core's tabs. Core renders the template in the tab's panel; the module's scripts run as
-    # for any page. The only core page that takes tabs is TAB_PAGES.
+    # for any page. "signage" is the Signage module's page: it draws the tabs itself. The only core page that takes tabs is TAB_PAGES.
     tab_of: str = ""
 
 
@@ -155,6 +155,8 @@ class Module:
     secret_settings: tuple[str, ...] = ()
     # Admin pages, and the scripts in the module's static/ directory the admin page loads for it.
     admin_pages: tuple[AdminPage, ...] = ()
+    # True: the module's pages are one sidebar entry and tabs across the top of each page, not a submenu.
+    admin_tabbed: bool = False
     admin_scripts: tuple[str, ...] = ()
     # Stylesheets in static/ the admin page loads for it (#463). They place the shared controls in components.css
     # and use the tokens in tokens.css; tests/test_style_contract.py keeps literal sizes and colours out.
@@ -869,7 +871,8 @@ class Registry:
             health = self.health(mod)
             section = m.section if m.section in NAV_SECTIONS else "Modules"
             entries.append({"id": m.id, "name": m.name, "section": section, "icon": pages[0]["icon"],
-                            "health": health.state, "detail": health.detail, "pages": pages})
+                            "health": health.state, "detail": health.detail, "pages": pages,
+                            "tabbed": mod.admin_tabbed})
         entries.sort(key=lambda e: NAV_SECTIONS.index(e["section"]))
         return entries
 

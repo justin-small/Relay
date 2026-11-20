@@ -44,10 +44,7 @@ html.cl[data-collapse=icon] .grp{margin-top:-32px;opacity:0;pointer-events:none}
 .subm>div{overflow:hidden;min-height:0}
 .subm ul{list-style:none;margin:2px 0 2px 14px;padding:0 0 0 10px;border-left:1px solid var(--border)}
 .subm a{height:28px;font-size:var(--fs-md)}
-/* A module's state beside its sidebar entry, and the stream's beside Transcription & translation. */
-.ndot{width:7px;height:7px;border-radius:50%;flex:none;background:var(--faint)}
-.ndot.ok{background:var(--ok)}.ndot.warn{background:var(--warn)}.ndot.error{background:var(--err)}
-html.cl[data-collapse=icon] .nl,html.cl[data-collapse=icon] .nbadge,html.cl[data-collapse=icon] .ndot,html.cl[data-collapse=icon] .chev,html.cl[data-collapse=icon] .subm,html.cl[data-collapse=icon] .uinfo{display:none}
+html.cl[data-collapse=icon] .nl,html.cl[data-collapse=icon] .nbadge,html.cl[data-collapse=icon] .chev,html.cl[data-collapse=icon] .subm,html.cl[data-collapse=icon] .uinfo{display:none}
 html.cl[data-collapse=icon] .qc .go{padding:0;justify-content:center}
 html.cl[data-collapse=icon] .nav a,html.cl[data-collapse=icon] .nav .nb{padding:0;justify-content:center}
 .user{display:flex;gap:8px;align-items:center;height:48px;padding:0 8px;border:0;background:none;border-radius:var(--r-ctl);cursor:pointer;color:var(--fg);text-align:left;width:100%;transition:background-color .15s}
@@ -509,7 +506,8 @@ table.audit tr.failed .what { color:var(--err); }
 
 /* The Network page (#437, the closets redesign: docs/mockups/network/b-closet.html). The switches and the map are drawn
    in SVG from these classes only, so they follow every preset and both themes. */
-#page-network .tabs { display:flex; margin:0 0 var(--sp-3); }
+/* The tab bar of any page fills the width, 34px tall, the same on every page (#591). */
+.page > .tabs { display:flex; margin:0 0 var(--sp-3); }
 .nmpane { display:none; } .nmpane.on { display:block; }
 .nmsplit { display:grid; grid-template-columns:minmax(0,1fr) 330px; gap:var(--sp-4); align-items:start; }
 @media (max-width:980px) { .nmsplit { grid-template-columns:minmax(0,1fr); } }

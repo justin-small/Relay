@@ -56,7 +56,15 @@
     for (const b of page.querySelectorAll('[data-sgtab]')) b.setAttribute('aria-selected', String(b.dataset.sgtab === name));
     for (const p of page.querySelectorAll('[data-sgpane]')) p.hidden = p.dataset.sgpane !== name;
   }
-  for (const b of page.querySelectorAll('[data-sgtab]')) b.onclick = function () { setTab(b.dataset.sgtab); };
+  for (const b of page.querySelectorAll('[data-sgtab]')) b.onclick = function () {
+    setTab(b.dataset.sgtab);
+    if (location.hash.slice(1) !== 'signage/' + b.dataset.sgtab) history.replaceState(null, '', '#signage/' + b.dataset.sgtab);
+  };
+  // The page opened or a hash named a tab ("#signage/signageweb", or an old "#signageweb"; admin.js showPage).
+  page.addEventListener('relay:tab', function (e) {
+    const want = e.detail || 'screens';
+    if (page.querySelector('[data-sgtab="' + want + '"]')) setTab(want);
+  });
 
   /* ---------------------------------------------------------------- render */
   function render() {

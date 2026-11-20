@@ -96,11 +96,20 @@ def watch(page):
 
 
 
+TAB_INDEX = ("n => 1 + JSON.parse(document.querySelector(`#nav a[data-pages~='${n}']`).dataset.tabs)"
+             ".findIndex(t => t[0] === n)")
+
+
 def nav_click(page, name):
     """Click a page's sidebar link, opening the entry it sits under first (one module, or System)."""
     page.evaluate("n => { const a = document.querySelector(`#nav a[data-page='${n}']`); const h = a && a.closest('.has'); "
                   "if (h && !h.classList.contains('open')) h.querySelector('.nb').click(); }", name)
-    page.click(f"nav a[data-page='{name}']")
+    if page.locator(f"nav a[data-page='{name}']").count():
+        page.click(f"nav a[data-page='{name}']")
+        return
+    # A page that is a tab (System, ProPresenter: #591): open its entry, then click its tab on the bar.
+    page.click(f"nav a[data-pages~='{name}']")
+    page.click(f".page:not([hidden]) .pagetabs [role=tab]:nth-child({page.evaluate(TAB_INDEX, name)})")
 
 def visit(context, path):
     page = context.new_page()
@@ -178,7 +187,7 @@ try:
                 clean(f"{role} /admin", r, seen)
                 eq(f"{role}: the page knows the role's permissions",
                    sorted(page.evaluate("window.RELAY_ME.permissions")), sorted(allowed))
-                shown = set(page.eval_on_selector_all("nav a[data-page]", "as => as.map(a => a.dataset.page)"))
+                shown = set(page.eval_on_selector_all("nav a[data-page]", "as => as.flatMap(a => (a.dataset.pages || a.dataset.page).split(' '))"))
                 want = {name for name, perm in NAV.items() if perm in allowed}
                 eq(f"{role}: exactly the pages the role may open are in the menu", sorted(shown & set(NAV)),
                    sorted(want))

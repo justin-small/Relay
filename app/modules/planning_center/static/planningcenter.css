@@ -56,7 +56,6 @@
 /* Sizes taken from the approved mockup (docs/mockups/planning-center): headings, cards, tab bar and the compact picker. */
 #page-planningcenter h3 { font-size:var(--fs-lg); font-weight:700; margin:0 0 var(--sp-2); }
 #page-planningcenter section { margin:0 0 var(--sp-3); padding:var(--sp-4); }
-#page-planningcenter .tabs { display:flex; margin:0 0 var(--sp-3); }
 #page-planningcenter .note { margin:0 0 var(--sp-2); }
 #page-planningcenter .pcctx select { height:var(--ctl-h-sm); min-height:var(--ctl-h-sm); padding:2px 8px; font-size:var(--fs-sm); }
 #page-planningcenter .pcctx label { font-size:var(--fs-xs); margin-bottom:2px; }
