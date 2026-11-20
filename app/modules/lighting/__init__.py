@@ -24,8 +24,8 @@ class Lighting(Module):
         version="1.3.0",
         traffic=(Traffic("lighting", "Lighting program control (QLC+ web API)"),),
     )
-    defaults = {"backend": "", "host": "", "port": 0, "password": "", "functions": False, "console": "EX", "fade": "", "pages": []}
-    secret_settings = ("password",)
+    defaults = {"programs": [], "pages": []}
+    secret_settings = ("programs",)
     admin_pages = (AdminPage(
         id="lighting", title="Lighting", template="lighting.html",
         icon='<circle cx="8" cy="6" r="3"/><path d="M6.5 10.5h3M7 13h2"/>'),)
@@ -100,12 +100,8 @@ class Lighting(Module):
     async def board_data(self, items: list[dict]) -> dict[str, dict]:
         from .service import service
 
-        b = service.backend
-        if b is None or not b.can_report_state:
-            return {}
-        try:
-            lit = await b.state()
-        except Exception:
+        lit = await service.states()
+        if not lit:
             return {}
         return {i["id"]: {"lit": bool(lit.get((i.get("props") or {}).get("cue")))} for i in items}
 
@@ -121,24 +117,22 @@ class Lighting(Module):
     def health(self) -> Health:
         from .service import service
 
-        s = service.settings()
-        if not s["backend"]:
+        programs = service.programs()
+        if not programs:
             return Health("warn", "Not set up: choose the lighting program")
-        if service.backend is None:
-            return Health("error", "That lighting program is not available in this version of Relay")
+        missing = [p["name"] for p in programs if p["id"] not in service.backends]
+        if missing:
+            return Health("error", f"Not available in this version of Relay: {', '.join(missing)}")
         if service.error:
             return Health("warn", service.error)
-        return Health("ok", "Ready")
+        return Health("ok", "Ready" if len(programs) == 1 else f"{len(programs)} programs ready")
 
     async def test(self) -> dict:
         from .service import service
 
-        if service.backend is None:
-            return {"ok": False, "detail": "Choose the lighting program first."}
-        try:
-            return await service.backend.test()
-        except Exception:
-            return {"ok": False, "detail": "The lighting program did not answer."}
+        from .routes import admin_test
+
+        return await admin_test(None)
 
 
 MODULE = Lighting()

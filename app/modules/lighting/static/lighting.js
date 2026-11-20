@@ -109,7 +109,7 @@
     if (!shown.some(function (p) { return p.id === firePage; })) firePage = shown.length ? shown[0].id : '';
     const page = shown.filter(function (p) { return p.id === firePage; })[0];
     $('ltFireEmpty').hidden = !!page;
-    $('ltFireEmpty').textContent = !data.backend ? 'Choose your lighting program on the Program tab first.'
+    $('ltFireEmpty').textContent = !(data.programs || []).length ? 'Choose your lighting program on the Program tab first.'
       : manage() ? 'No cue pages yet. Make one on the Pages tab.' : 'No cue pages yet.';
     $('ltFireBar').hidden = shown.length < 2;
     $('ltFireBox').hidden = !page;
@@ -292,11 +292,16 @@
   };
 
   /* ---------------------------------------------------------------- pages: edit */
+  function groupOf(c) {
+    const all = (data && data.programs) || [];
+    const p = all.filter(function (x) { return x.id === c.program; })[0];
+    return all.length > 1 && p ? 'From ' + p.name : 'From the lighting program';
+  }
   function palette(page, current) {
     const on = {};
     (current || page.cues.map(toItem)).forEach(function (it) { on[(it.props && it.props.cue) || it.id] = true; });
     return ((data && data.cues) || []).filter(function (c) { return !on[c.id] && c.kind !== 'slider'; }).map(function (c) {
-      return { group: 'From the lighting program', name: c.name, title: c.name, kind: 'button', type: 'cue', w: 1, h: 1,
+      return { group: groupOf(c), name: c.name, title: c.name, kind: 'button', type: 'cue', w: 1, h: 1,
         props: { cue: c.id }, style: CUE_LOOK };
     });
   }
@@ -435,50 +440,88 @@
   }
 
   /* ---------------------------------------------------------------- program */
-  let chosen = '';
+  let progs = [];                          // the programs being edited (a copy of data.programs)
+  let cur = 0;                             // the index in `progs` open in the form
   function backendOf(id) { return ((data && data.backends) || []).filter(function (b) { return b.id === id; })[0]; }
+  function readForm() {
+    const p = progs[cur];
+    if (!p) return;
+    p.name = $('ltName').value; p.host = $('ltHost').value; p.console = $('ltConsole').value;
+    p.functions = $('ltFunctions').checked;
+    p.fade = $('ltFade').value === '' ? '' : parseFloat($('ltFade').value);
+    p.port = parseInt($('ltPort').value || '0', 10);
+    if ($('ltPass').value) p.password = $('ltPass').value;
+  }
+  function fillForm() {
+    const p = progs[cur] || {};
+    $('ltName').value = p.name || ''; $('ltHost').value = p.host || ''; $('ltPort').value = p.port || '';
+    $('ltPass').value = '';
+    $('ltFunctions').checked = !!p.functions; $('ltConsole').value = p.console || 'EX';
+    $('ltFade').value = p.fade === '' || p.fade == null ? '' : p.fade;
+    $('ltPass').placeholder = p.has_password ? '(saved)' : '';
+    ['ltName', 'ltHost', 'ltPort', 'ltPass', 'ltFunctions', 'ltConsole', 'ltFade', 'ltSave', 'ltTest', 'ltAdd', 'ltRemove']
+      .forEach(function (id) { $(id).disabled = !manage(); });
+    $('ltStatus').textContent = p.error || (p.active ? 'Connected.' : '');
+  }
   function renderProgram() {
+    const list = $('ltList');
+    list.textContent = '';
+    progs.forEach(function (p, i) {
+      const b = el('button', 'ltopt', el('b', '', p.name || 'Lighting program'),
+        el('span', '', (backendOf(p.backend) || {}).label || 'Choose a kind below'));
+      b.type = 'button'; b.setAttribute('aria-pressed', String(i === cur));
+      b.onclick = function () { readForm(); cur = i; fillForm(); renderProgram(); };
+      list.appendChild(b);
+    });
     const root = $('ltProgs');
     root.textContent = '';
+    const chosen = (progs[cur] || {}).backend || '';
     (data.backends || []).forEach(function (b) {
       const o = el('button', 'ltopt', el('b', '', b.label), b.about ? el('span', '', b.about) : null);
-      o.type = 'button'; o.setAttribute('aria-pressed', String(b.id === chosen)); o.disabled = !manage();
-      o.onclick = function () { chosen = b.id; renderProgram(); };
+      o.type = 'button'; o.setAttribute('aria-pressed', String(b.id === chosen)); o.disabled = !manage() || !progs[cur];
+      o.onclick = function () { readForm(); progs[cur].backend = b.id; renderProgram(); };
       root.appendChild(o);
     });
     const b = backendOf(chosen);
-    $('ltConn').hidden = !b;
-    if (!b) return;
-    const fields = b.fields || ['host', 'port'];
-    $('ltConnTitle').textContent = b.label + ' connection';
+    $('ltConn').hidden = !progs[cur];
+    $('ltProgs').hidden = !progs[cur];
+    if (!progs[cur]) return;
+    const fields = b ? b.fields || ['host', 'port'] : [];
+    $('ltConnTitle').textContent = (b ? b.label : 'Program') + ' connection';
     document.querySelectorAll('#page-lighting [data-ltfield]').forEach(function (f) { f.hidden = fields.indexOf(f.dataset.ltfield) < 0; });
-    $('ltPort').placeholder = b.default_port ? String(b.default_port) : '';
-    $('ltPortHint').textContent = b.default_port ? 'Empty uses ' + b.default_port + ', the program\'s own.' : '';
+    $('ltPort').placeholder = b && b.default_port ? String(b.default_port) : '';
+    $('ltPortHint').textContent = b && b.default_port ? 'Empty uses ' + b.default_port + ', the program\'s own.' : '';
   }
   function fillProgram(d) {
-    chosen = d.backend || '';
-    $('ltHost').value = d.host || ''; $('ltPort').value = d.port || ''; $('ltPass').value = '';
-    $('ltFunctions').checked = !!d.functions; $('ltConsole').value = d.console || 'EX';
-    $('ltFade').value = d.fade === '' || d.fade == null ? '' : d.fade;
-    $('ltPass').placeholder = d.has_password ? '(saved)' : '';
-    ['ltHost', 'ltPort', 'ltPass', 'ltFunctions', 'ltConsole', 'ltFade', 'ltSave', 'ltTest'].forEach(function (id) { $(id).disabled = !manage(); });
-    $('ltStatus').textContent = d.error || (d.active ? 'Connected.' : '');
+    progs = copy(d.programs || []);
+    if (cur >= progs.length) cur = Math.max(0, progs.length - 1);
+    fillForm();
     renderProgram();
   }
+  $('ltAdd').onclick = function () {
+    readForm();
+    progs.push({ id: '', name: '', backend: '', host: '', port: 0, functions: false, console: 'EX', fade: '' });
+    cur = progs.length - 1; fillForm(); renderProgram();
+  };
+  $('ltRemove').onclick = async function () {
+    if (!progs[cur] || !(await window.relayUI.confirm('Remove ' + (progs[cur].name || 'this program') + '? Cues on pages that use it stop working.'))) return;
+    progs.splice(cur, 1); cur = Math.max(0, cur - 1); fillForm(); renderProgram();
+    $('ltSave').click();
+  };
   $('ltSave').onclick = async function () {
     showError('');
+    readForm();
     try {
-      const d = await send('PUT', '/api/admin/lighting/settings', { backend: chosen, host: $('ltHost').value,
-        functions: $('ltFunctions').checked, console: $('ltConsole').value,
-        fade: $('ltFade').value === '' ? '' : parseFloat($('ltFade').value),
-        port: parseInt($('ltPort').value || '0', 10), password: $('ltPass').value });
+      const d = await send('PUT', '/api/admin/lighting/settings', { programs: progs });
       fillProgram(d); render(d);
     } catch (e) { showError(e.message); }
   };
   $('ltTest').onclick = async function () {
     showError('');
-    try { const r = await send('POST', '/api/admin/lighting/test'); $('ltStatus').textContent = r.detail || ''; }
-    catch (e) { showError(e.message); }
+    try {
+      const r = await send('POST', '/api/admin/lighting/test', { program: (progs[cur] || {}).id || '' });
+      $('ltStatus').textContent = r.detail || '';
+    } catch (e) { showError(e.message); }
   };
 
   /* ---------------------------------------------------------------- load */
@@ -503,7 +546,7 @@
     if (firstLoad) {
       firstLoad = false;
       fillProgram(d);
-      showTab(!d.backend && manage() ? 'program' : tab);
+      showTab(!(d.programs || []).length && manage() ? 'program' : tab);
       pageView('list');
     } else {
       $('ltStatus').textContent = d.error || $('ltStatus').textContent;

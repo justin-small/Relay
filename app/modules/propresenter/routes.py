@@ -103,11 +103,24 @@ async def admin_propresenter():
     return _pp_body()
 
 
+def _with_primary_address(saved: dict, payload: dict) -> list[dict]:
+    """`saved`'s computers with the primary's host and port taken from `payload`; the first computer is made when there is none."""
+    computers = [dict(c) for c in saved.get("computers") or []]
+    target = next((c for c in computers if c["id"] == saved.get("primary")), None)
+    if target is None:
+        target = {"id": "main", "name": "ProPresenter", "host": "", "port": 0}
+        computers.insert(0, target)
+    for key in ("host", "port"):
+        if key in payload:
+            target[key] = payload[key]
+    return computers
+
+
 @router.post("/api/admin/propresenter", dependencies=[Depends(require("propresenter.manage"))])
 async def admin_propresenter_save(payload: dict):
     """Save the connection and switches. Only the keys sent change. A new address reconnects at once."""
     saved = config.get()["propresenter"]
-    merged = {**saved, **{k: v for k, v in payload.items() if k in saved and k not in ("lyrics", "timers", "tags", "link", "lobby", "view", "signage")}}
+    merged = {**saved, **{k: v for k, v in payload.items() if k in saved and k not in ("computers", "host", "port", "lyrics", "timers", "tags", "link", "lobby", "view", "signage")}}
     if isinstance(payload.get("lyrics"), dict):
         merged["lyrics"] = {**saved["lyrics"], **payload["lyrics"]}
     if "timers" in payload:
@@ -133,11 +146,18 @@ async def admin_propresenter_save(payload: dict):
         if problem:
             return JSONResponse({"error": problem}, status_code=400)
         merged["link"] = propresenter.clean_link_settings(payload["link"], saved["link"])
-    if payload.get("host") and not propresenter.clean_host(payload["host"]):
-        return JSONResponse({"error": "Enter just the machine's name or IP address, with no http:// or port."},
-                            status_code=400)
-    if payload.get("port") not in ("", None, 0) and "port" in payload and not propresenter.clean_port(payload["port"]):
-        return JSONResponse({"error": "The port is a number from 1 to 65535."}, status_code=400)
+    for item in payload["computers"] if isinstance(payload.get("computers"), list) else [payload]:
+        item = item if isinstance(item, dict) else {}
+        if item.get("host") and not propresenter.clean_host(item["host"]):
+            return JSONResponse({"error": "Enter just the machine's name or IP address, with no http:// or port."},
+                                status_code=400)
+        if item.get("port") not in ("", None, 0) and "port" in item and not propresenter.clean_port(item["port"]):
+            return JSONResponse({"error": "The port is a number from 1 to 65535."}, status_code=400)
+    if isinstance(payload.get("computers"), list):
+        merged["computers"] = payload["computers"]
+    elif "host" in payload or "port" in payload:
+        # Before #483 the body held one computer's address: that edits the primary (or makes the first).
+        merged["computers"] = _with_primary_address(saved, payload)
     clean = propresenter.clean_stored(merged)
     if clean["enabled"] and not (clean["host"] and clean["port"]):
         return JSONResponse({"error": "Enter the machine's address and ProPresenter's port first. "

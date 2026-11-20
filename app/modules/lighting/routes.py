@@ -9,7 +9,7 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from ... import audit, config
 from .. import require
 from .backend import BackendError
-from .service import KEY, clean_pages, clean_settings, new_key, service
+from .service import KEY, clean_pages, clean_programs, clean_settings, new_key, service
 
 router = APIRouter()
 VIEW = [Depends(require("lighting.view"))]
@@ -66,17 +66,33 @@ async def admin_state():
     return await service.snapshot()
 
 
+LEGACY_FLAT = {"backend": "", "host": "", "port": 0, "password": "", "functions": False, "console": "EX", "fade": ""}
+PROGRAM_FIELDS = ("name", "backend", "host", "port", "functions", "console", "fade")
+
+
 @router.put("/api/admin/lighting/settings", dependencies=MANAGE)
 async def admin_settings(request: Request, payload: dict):
-    cur = service.settings()
-    new = clean_settings({**cur, **{k: payload[k] for k in ("backend", "host", "port", "functions", "console", "fade") if k in payload},
-                          "password": payload["password"] if isinstance(payload.get("password"), str)
-                          and payload["password"] else cur["password"]})
-    if isinstance(payload.get("host"), str) and payload["host"].strip() and not new["host"]:
-        return _bad("That is not an address: use the lighting computer's IP address, like 192.168.1.50.")
-    config.save({KEY: new})
+    """Save the lighting programs. `programs` is the whole list; a program keeps its saved password unless one is sent.
+    Before #484 the body was one program's fields: that edits the first program (or makes it)."""
+    cur = service.programs()
+    sent = payload.get("programs")
+    if not isinstance(sent, list):
+        first = cur[0] if cur else {"id": "main"}
+        sent = [{**first, **{k: payload[k] for k in PROGRAM_FIELDS if k in payload},
+                 "password": payload["password"] if isinstance(payload.get("password"), str) and payload["password"]
+                 else first.get("password", "")}, *cur[1:]]
+    saved = {p["id"]: p["password"] for p in cur}
+    items = [{**i, "password": i["password"] if isinstance(i.get("password"), str) and i["password"]
+              else saved.get(i.get("id"), "")} for i in sent if isinstance(i, dict)]
+    for raw, prog in zip(items, clean_programs(items)):
+        if isinstance(raw.get("host"), str) and raw["host"].strip() and not prog["host"]:
+            return _bad("That is not an address: use the lighting computer's IP address, like 192.168.1.50.")
+    new = clean_settings({"programs": items, "pages": service.settings()["pages"]})
+    # The flat program settings from before #484 are blanked, so the old password does not stay in config.json.
+    config.save({KEY: {**LEGACY_FLAT, **new}})
     await service.restart()
-    audit.note(request, "lighting.settings", "Changed the lighting program", target=new["backend"] or "(none)")
+    audit.note(request, "lighting.settings", "Changed the lighting programs",
+               target=", ".join(p["backend"] or "(none)" for p in new["programs"]) or "(none)")
     return await service.snapshot()
 
 
@@ -132,13 +148,26 @@ async def admin_screen_link(page_id: str, request: Request):
 
 
 @router.post("/api/admin/lighting/test", dependencies=MANAGE)
-async def admin_test():
-    if service.backend is None:
+async def admin_test(payload: dict | None = None):
+    """Test one program (`program`: its id) or, with none named, every program: ok only when all answer."""
+    want = (payload or {}).get("program")
+    programs = [p for p in service.programs() if not want or p["id"] == want]
+    if not programs:
         return {"ok": False, "detail": "Choose the lighting program first."}
-    try:
-        return await service.backend.test()
-    except Exception:
-        return {"ok": False, "detail": "The lighting program did not answer."}
+    results = []
+    for prog in programs:
+        b = service.backends.get(prog["id"])
+        if b is None:
+            results.append({"ok": False, "detail": "Choose the lighting program first."})
+            continue
+        try:
+            results.append(await b.test())
+        except Exception:
+            results.append({"ok": False, "detail": "The lighting program did not answer."})
+    if len(results) == 1:
+        return results[0]
+    return {"ok": all(r.get("ok") for r in results),
+            "detail": " ".join(f"{p['name']}: {r.get('detail', '')}" for p, r in zip(programs, results))}
 
 
 @router.post("/api/admin/lighting/press", dependencies=CONTROL)
@@ -229,14 +258,8 @@ async def screen_state(page_id: str, request: Request, key: str = ""):
     page, err = _checked(request, page_id, key)
     if page is None:
         return err
-    state = {}
-    b = service.backend
-    if b is not None and b.can_report_state:
-        try:
-            lit = await b.state()
-            state = {c["id"]: bool(lit.get(c["id"])) for c in page["cues"]}
-        except Exception:
-            state = {}
+    lit = await service.states()
+    state = {c["id"]: bool(lit.get(c["id"])) for c in page["cues"]} if lit else {}
     return JSONResponse({"state": state}, headers={"Cache-Control": "no-store"})
 
 

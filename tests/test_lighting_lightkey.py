@@ -118,7 +118,7 @@ async def main():
         check("no host, a press", "address" in await raises(lightkey.Lightkey({"host": ""}).press("A:B")))
 
     with section("settings"):
-        c = svc.clean_settings
+        c = svc.clean_program
         eq("fade is kept, rounded, or blank", (c({"fade": 1.5})["fade"], c({"fade": 0})["fade"], c({})["fade"],
                                                c({"fade": -1})["fade"], c({"fade": 99999})["fade"],
                                                c({"fade": True})["fade"], c({"fade": "2"})["fade"]),

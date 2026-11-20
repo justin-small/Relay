@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import hmac
+import json
 import re
 import secrets
 import uuid
@@ -96,7 +97,13 @@ def clean_pages(raw: Any, keys: dict[str, str] | None = None) -> list[dict]:
     return out
 
 
-def clean_settings(raw: Any) -> dict:
+MAX_PROGRAMS = 8
+_PROGRAM_ID_RE = re.compile(r"[a-z0-9_\-]{1,24}")
+
+
+def clean_program(raw: Any) -> dict:
+    """One lighting program's connection: {"id", "name", "backend", "host", "port", "password", "functions",
+    "console", "fade"}."""
     raw = raw if isinstance(raw, dict) else {}
     backend = raw.get("backend") if isinstance(raw.get("backend"), str) else ""
     host = raw.get("host").strip() if isinstance(raw.get("host"), str) else ""
@@ -111,28 +118,106 @@ def clean_settings(raw: Any) -> dict:
         and 0 <= fade <= 3600 else ""
     console = raw.get("console") if isinstance(raw.get("console"), str) else ""
     console = console.strip() if re.fullmatch(r"[A-Za-z0-9]{1,8}", console.strip()) else "EX"
-    return {"backend": backend if _ID_RE.fullmatch(backend) else "", "host": host, "port": port,
-            "password": password[:200], "functions": raw.get("functions") is True, "console": console, "fade": fade,
-            "pages": clean_pages(raw.get("pages"))}
+    pid = raw.get("id") if isinstance(raw.get("id"), str) and _PROGRAM_ID_RE.fullmatch(raw["id"]) else ""
+    return {"id": pid, "name": _text(raw.get("name"), 40),
+            "backend": backend if _ID_RE.fullmatch(backend) else "", "host": host, "port": port,
+            "password": password[:200], "functions": raw.get("functions") is True, "console": console, "fade": fade}
+
+
+def clean_programs(raw: Any) -> list[dict]:
+    """Programs as a bounded list with unique ids; a program with no id gets one, and none has an empty name."""
+    out: list[dict] = []
+    seen: set[str] = set()
+    for item in (raw if isinstance(raw, list) else [])[:MAX_PROGRAMS]:
+        if not isinstance(item, dict):
+            continue
+        prog = clean_program(item)
+        if not prog["id"] or prog["id"] in seen:
+            prog["id"] = next(i for i in ("main", *(f"p{n}" for n in range(2, MAX_PROGRAMS + 2))) if i not in seen)
+        seen.add(prog["id"])
+        label = BACKENDS[prog["backend"]].label if prog["backend"] in BACKENDS else ""
+        prog["name"] = prog["name"] or label or prog["backend"] or "Lighting program"
+        out.append(prog)
+    return out
+
+
+def _passwords(raw: Any) -> dict[str, str]:
+    """The `passwords` setting: one sealed string holding {program id: password} as JSON, because config.json seals
+    only top-level string fields."""
+    if isinstance(raw, dict):
+        d = raw
+    else:
+        try:
+            d = json.loads(raw) if isinstance(raw, str) and raw else {}
+        except ValueError:
+            d = {}
+    return {k: v[:200] for k, v in (d.items() if isinstance(d, dict) else ())
+            if isinstance(k, str) and _PROGRAM_ID_RE.fullmatch(k) and isinstance(v, str) and v}
+
+
+def runtime_programs(raw: Any) -> list[dict]:
+    """The programs with each one's password put back in, for opening a backend. Before #484 the program's settings
+    sat flat beside the pages; they become the first program, "main"."""
+    raw = raw if isinstance(raw, dict) else {}
+    programs = raw.get("programs")
+    if not isinstance(programs, list) and raw.get("backend"):
+        programs = [{**raw, "id": "main"}]
+    saved = _passwords(raw.get("passwords"))
+    out = clean_programs(programs)
+    for prog, item in zip(out, [i for i in (programs or []) if isinstance(i, dict)][:len(out)]):
+        sent = item.get("password") if isinstance(item.get("password"), str) else ""
+        old = saved.get(item.get("id") if isinstance(item.get("id"), str) else "", "")
+        prog["password"] = (sent or old)[:200]
+    return out
+
+
+def clean_settings(raw: Any) -> dict:
+    """The stored form: {"programs": [...], "passwords": "<sealed JSON>", "pages": [...]}."""
+    raw = raw if isinstance(raw, dict) else {}
+    programs = runtime_programs(raw)
+    pw = {p["id"]: p["password"] for p in programs if p["password"]}
+    return {"programs": [{k: v for k, v in p.items() if k != "password"} for p in programs],
+            "passwords": json.dumps(pw, sort_keys=True) if pw else "", "pages": clean_pages(raw.get("pages"))}
 
 
 def public(settings: dict) -> dict:
     s = clean_settings(settings)
-    s["has_password"] = bool(s["password"])
-    s["password"] = ""
+    pw = _passwords(s.pop("passwords"))
+    for prog in s["programs"]:
+        prog["has_password"] = prog["id"] in pw
     for p in s["pages"]:     # a key reaches only its own route (manage), never a viewer or a config read
         p["has_key"] = bool(p.pop("key"))
     return s
 
 
+def cue_ref(program_id: str, cue_id: str, first: bool) -> str:
+    """The id Relay uses for a program's own cue: bare for the first program (what pages saved before #484 hold),
+    `<program>:<cue>` for the others, so two programs can both have a cue "1"."""
+    return cue_id if first else f"{program_id}:{cue_id}"
+
+
 class Service:
     def __init__(self) -> None:
-        self.backend: Backend | None = None
+        self.backends: dict[str, Backend] = {}     # program id -> its open backend
+        self.errors: dict[str, str] = {}           # program id -> the last thing it could not do
         self._running = False
-        self.error = ""
+
+    @property
+    def backend(self) -> Backend | None:
+        """The first program's backend: what a cue with no program prefix goes to."""
+        first = self.programs()
+        return self.backends.get(first[0]["id"]) if first else None
+
+    @property
+    def error(self) -> str:
+        return next((e for e in self.errors.values() if e), "")
 
     def settings(self) -> dict:
         return clean_settings(config.get().get(KEY))
+
+    def programs(self) -> list[dict]:
+        """The programs as backends are opened with them: passwords included."""
+        return runtime_programs(config.get().get(KEY))
 
     # ------------------------------------------------------------------------------------------ life cycle
     async def start(self) -> None:
@@ -148,21 +233,36 @@ class Service:
         self._open()
 
     def _open(self) -> None:
-        s = self.settings()
-        cls = BACKENDS.get(s["backend"])
-        self.error = ""
-        if self._running and cls is not None:
-            self.backend = cls(s)
+        self.errors = {}
+        if not self._running:
+            return
+        for prog in self.programs():
+            cls = BACKENDS.get(prog["backend"])
+            if cls is not None:
+                self.backends[prog["id"]] = cls(prog)
 
     async def _close(self) -> None:
-        backend, self.backend = self.backend, None
-        if backend is not None:
+        backends, self.backends = list(self.backends.values()), {}
+        for backend in backends:
             try:
                 await backend.close()
             except Exception:
                 pass
 
-    # ------------------------------------------------------------------------------------------ cues
+    # ------------------------------------------------------------------------------------------ programs and cues
+    def resolve(self, cue_ref_id: str) -> tuple[str, str]:
+        """(program id, the program's own cue id) for a Relay cue id: a `<program>:<cue>` whose prefix is a program
+        goes to that program, anything else to the first."""
+        programs = self.programs()
+        head, sep, rest = cue_ref_id.partition(":")
+        if sep and any(p["id"] == head for p in programs[1:]):
+            return head, rest
+        return (programs[0]["id"] if programs else ""), cue_ref_id
+
+    def backend_for(self, cue_ref_id: str) -> tuple[Backend | None, str]:
+        pid, own = self.resolve(cue_ref_id)
+        return self.backends.get(pid), own
+
     def screen_page(self, page_id: str, key: str) -> dict | None:
         """The page whose screen key is `key`, else None. The key is checked in constant time, and only while the
         page's screen is switched on."""
@@ -188,17 +288,23 @@ class Service:
                     return p, c
         return None
 
-    async def listed(self) -> list[Cue]:
-        b = self.backend
-        if b is None or not b.can_list:
-            return []
-        try:
-            return list(await b.list_cues())
-        except BackendError as e:
-            self.error = str(e)
-        except Exception:
-            self.error = "The lighting program did not answer."
-        return []
+    async def listed(self) -> list[tuple[str, Cue]]:
+        """[(Relay cue id, cue)] from every program that lists its cues."""
+        out: list[tuple[str, Cue]] = []
+        for index, prog in enumerate(self.programs()):
+            b = self.backends.get(prog["id"])
+            if b is None or not b.can_list:
+                continue
+            try:
+                cues = list(await b.list_cues())
+            except BackendError as e:
+                self.errors[prog["id"]] = str(e)
+                continue
+            except Exception:
+                self.errors[prog["id"]] = "The lighting program did not answer."
+                continue
+            out.extend((cue_ref(prog["id"], c.id, index == 0), c) for c in cues)
+        return out
 
     async def find(self, cue_id: str, *, page_only: bool) -> tuple[str, str] | None:
         """(label for the audit trail, cue id) when `cue_id` may be fired, else None."""
@@ -207,18 +313,19 @@ class Service:
             return f"{found[0]['name']}, {found[1]['name']}", cue_id
         if page_only:
             return None
-        for c in await self.listed():
-            if c.id == cue_id:
+        for ref, c in await self.listed():
+            if ref == cue_id:
                 return c.name, cue_id
         return None
 
     async def act(self, verb: str, cue_id: str, *args: Any) -> None:
-        """One try, never repeated: a dropped connection may already have done it."""
-        b = self.backend
+        """One try, never repeated: a dropped connection may already have done it. `cue_id` is Relay's id for the cue
+        (see `resolve`)."""
+        b, own = self.backend_for(cue_id)
         if b is None:
             raise BackendError("No lighting program is connected.")
         try:
-            await getattr(b, verb)(cue_id, *args)
+            await getattr(b, verb)(own, *args)
         except BackendError:
             raise
         except asyncio.CancelledError:
@@ -226,26 +333,49 @@ class Service:
         except Exception:
             raise BackendError("The lighting program did not answer. The cue may or may not have happened.")
 
+    async def states(self) -> dict[str, bool]:
+        """Relay cue id -> is it on, from every program that reports state; a program that does not answer is left out."""
+        out: dict[str, bool] = {}
+        for index, prog in enumerate(self.programs()):
+            b = self.backends.get(prog["id"])
+            if b is None or not b.can_report_state:
+                continue
+            try:
+                lit = await b.state()
+            except Exception:
+                self.errors[prog["id"]] = self.errors.get(prog["id"]) or "The lighting program did not report its state."
+                continue
+            out.update({cue_ref(prog["id"], str(k), index == 0): bool(v) for k, v in lit.items()})
+        return out
+
     async def snapshot(self) -> dict:
-        s = self.settings()
-        b = self.backend
-        out = public(s)
+        out = public(config.get().get(KEY))
+        programs = self.programs()
         out.update(backends=[{"id": k, "label": v.label or k, "about": v.about, "fields": list(v.fields),
                              "default_port": v.default_port} for k, v in sorted(BACKENDS.items())],
-                   active=bool(b), can_list=bool(b and b.can_list), can_report_state=bool(b and b.can_report_state),
-                   can_set_level=bool(b and b.can_set_level), cues=[], state={}, levels={}, error=self.error)
-        if b is not None:
-            out["cues"] = [{"id": c.id, "name": c.name, "kind": c.kind} for c in await self.listed()]
+                   active=bool(self.backends), can_list=False, can_report_state=False, can_set_level=False,
+                   cues=[], state={}, levels={}, error="")
+        for index, prog in enumerate(programs):
+            b = self.backends.get(prog["id"])
+            row = next(p for p in out["programs"] if p["id"] == prog["id"])
+            row["active"] = b is not None
+            if b is None:
+                continue
+            out["can_list"] = out["can_list"] or b.can_list
+            out["can_report_state"] = out["can_report_state"] or b.can_report_state
+            out["can_set_level"] = out["can_set_level"] or b.can_set_level
             if b.can_set_level:
                 try:
-                    out["levels"] = {str(k): int(v) for k, v in (await b.levels()).items()}
+                    out["levels"].update({cue_ref(prog["id"], str(k), index == 0): int(v)
+                                          for k, v in (await b.levels()).items()})
                 except Exception:
-                    out["error"] = out["error"] or "The lighting program did not report its levels."
-            if b.can_report_state:
-                try:
-                    out["state"] = {str(k): bool(v) for k, v in (await b.state()).items()}
-                except Exception:
-                    out["error"] = out["error"] or "The lighting program did not report its state."
+                    self.errors[prog["id"]] = self.errors.get(prog["id"]) or "The lighting program did not report its levels."
+        out["cues"] = [{"id": ref, "name": c.name, "kind": c.kind, "program": self.resolve(ref)[0]}
+                       for ref, c in await self.listed()]
+        out["state"] = await self.states()
+        for prog in out["programs"]:
+            prog["error"] = self.errors.get(prog["id"], "")
+        out["error"] = self.error
         return out
 
 
