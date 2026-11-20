@@ -2,7 +2,12 @@
 
 The subscription list (0x3000), set subscription (0x3010) and clear subscription (0x3014) follow the layouts two
 independent open projects use against real devices (chris-ritsen/network-audio-controller, public domain, and
-dewiweb/aes67_visualizer, MIT). Relay has still not run them on real Dante gear: the page says so.
+dewiweb/aes67_visualizer, MIT). On 2026-11-20 the read side was checked on a real Allen & Heath DT168 stage box
+(StageBox-1-Top, ARC version 2.7.41): channel count 0x1000, name 0x1002, info 0x1003, transmit lists 0x2000/0x2010
+and the receive list 0x3000 all answered, and parse_rx_page read all 8 receive channels with their `<channel>@<device>`
+sources. Its status word was 1 for every channel, which fits subscriptions to a device that is off the network
+(remembered, not resolved); 9 and 10 for a live subscription are from the open projects, not yet seen. The write side
+(0x3010, 0x3014) has not been sent to any real device.
 
 Levels are no longer asked for here: they come from the multicast heartbeat (heartbeat.py), because 0x3400 is a channel
 listing, not meter levels (Dante-BabelBox's capture notes). UNVERIFIED: the clock (0x1200) layout, which neither open
