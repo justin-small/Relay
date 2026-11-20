@@ -6,7 +6,14 @@ from fastapi.responses import JSONResponse
 
 from ... import audio, audit, audiobus, config, languages, transcribe
 from .. import require
-from .service import Refused, clean_settings, service
+from .service import START_MESSAGES, Refused, clean_settings, service
+
+CAPTURE_SENTENCE = "The talkback lane could not be opened. Check the audio bus is on and a mic is patched to it."
+
+
+def _sentence(exc: Refused) -> str:
+    """A fixed sentence for a refusal, never the exception's own text."""
+    return START_MESSAGES.get(exc.key, CAPTURE_SENTENCE)
 
 router = APIRouter()
 VIEW = [Depends(require("talkback.view"))]
@@ -47,7 +54,7 @@ async def admin_settings(request: Request, payload: dict):
         try:
             await service.restart()
         except Refused as exc:
-            return JSONResponse({"error": str(exc)}, status_code=409)
+            return JSONResponse({"error": _sentence(exc)}, status_code=409)
     audit.note(request, "talkback.settings", "Changed the talkback settings",
                target=f"lane {s['lane']}" if s["lane"] else "no lane")
     return _state()
@@ -57,7 +64,7 @@ async def _run(request: Request, action: str, what: str):
     try:
         await getattr(service, action)()
     except Refused as exc:
-        return JSONResponse({"error": str(exc), "key": exc.key}, status_code=409)
+        return JSONResponse({"error": _sentence(exc), "key": exc.key}, status_code=409)
     audit.note(request, f"talkback.{action}", what)
     return _state()
 
