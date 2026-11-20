@@ -25,7 +25,7 @@ import time
 from typing import Any
 
 from ... import gear, gearfeed, mdns, netinfo, netroute, netsock
-from . import arc
+from . import arc, inputs
 from .monitor import monitor
 
 log = logging.getLogger("relay.dante")
@@ -291,6 +291,12 @@ class Service:
                     "unreachable": sum(1 for d in devices if d.get("reachable") is False),
                     "problems": monitor.current(), "levels": list(self.levels.values()),
                     "leader": next((d["name"] for d in devices if (d.get("clock") or {}).get("leader")), "")}
+
+    def input_labels(self, devices: list[dict]) -> dict[int, dict]:
+        """Which input devices are Dante or AES67, and what feeds this computer's Dante inputs (see inputs.py)."""
+        with self._lock:
+            known = [dict(d) for d in self.devices]
+        return inputs.labels(devices, known)
 
     def gear_list(self) -> dict | None:
         """Boxes for the network map and each device's transmit channels as core channels (app/gearfeed.py). None until

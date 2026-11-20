@@ -1938,14 +1938,14 @@ async def admin_urls():
 
 @app.get("/api/admin/state", dependencies=[Depends(require("settings.view"))])
 async def admin_state():
-    from .audio import list_input_devices, selection_notice
+    from .audio import label_inputs, list_input_devices, selection_notice
 
     # Cached read: opening the panel must never re-initialise PortAudio, which
     # would close a live capture stream out from under the event.
     return {
         "config": config.redacted(),
         "status": engine.status(),
-        "devices": list_input_devices(),
+        "devices": label_inputs(list_input_devices()),
         "device_notice": selection_notice(config.get().get("audio_device")),
         "urls": _urls(serving.viewer_port(config.get()["port"])),
         "serving": _serving_info(),
@@ -2269,11 +2269,11 @@ async def admin_network_forget(pid: str, request: Request):
 
 @app.get("/api/admin/devices", dependencies=[Depends(require("session.view"))])
 async def admin_devices():
-    from .audio import capture_is_live, list_input_devices, selection_notice
+    from .audio import capture_is_live, label_inputs, list_input_devices, selection_notice
 
     live = capture_is_live()
     return {
-        "devices": list_input_devices(refresh=True),
+        "devices": label_inputs(list_input_devices(refresh=True)),
         "device_notice": selection_notice(config.get().get("audio_device")),
         "full_rescan": not live,
         "note": RESCAN_LIVE_NOTE if live else None,
