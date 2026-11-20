@@ -222,7 +222,7 @@ def channel_label(channel: dict) -> str:
 def effective_mics(rs: dict, service_type: str) -> list[dict]:
     """The position-to-mics mappings for one service type: the older per-position lists, plus one mapping per
     position that has channels assigned (each channel contributing its label as a mic)."""
-    out = [dict(m, names={}) for m in rs["mics"]]
+    out = [dict(m, names={}, refs=dict(m.get("mic_refs") or {})) for m in rs["mics"]]
     by_position: dict[tuple[str, str], dict] = {}
     for ch in rs.get("channels") or []:
         label = channel_label(ch)
@@ -231,10 +231,11 @@ def effective_mics(rs: dict, service_type: str) -> list[dict]:
                 continue
             mp = by_position.setdefault((a["position_ref"] or a["team"], a["position"]), {
                 "team": a["team"], "team_ref": a["team_ref"], "position": a["position"],
-                "position_ref": a["position_ref"], "mics": [], "sings": True, "label": "", "names": {}})
+                "position_ref": a["position_ref"], "mics": [], "sings": True, "label": "", "names": {}, "refs": {}})
             if label not in mp["mics"] and len(mp["mics"]) < MAX_MICS:
                 mp["mics"].append(label)
                 mp["names"][label] = ch["name"]
+                mp["refs"][label] = ch.get("channel_ref") or ""
     covered = {(m["position_ref"] or m["team"], m["position"]) for m in out}
     return out + [m for k, m in by_position.items() if k not in covered]
 
@@ -469,8 +470,9 @@ def build(track: Any, settings: dict, now: float, zone: ZoneInfo, want_time: str
         for mic in mp["mics"]:
             m = next((x for x in members if x["id"] == holders.get(mic)), None)
             on = bool(cur_item and m and ((cur_item["type"] == "song") == mp["sings"]))
+            # channel_ref names the core input channel (#542), so a soundboard module can show the holder's name on it.
             channels.append({"mic": mic, "label": mp["names"].get(mic) or mp["label"], "position": mp["position"], "team": mp["team"],
-                             "person": person(m) if m else None, "on": on})
+                             "channel_ref": mp["refs"].get(mic, ""), "person": person(m) if m else None, "on": on})
     channels.sort(key=lambda c: _mic_sort(c["mic"]))
     out["mics"] = channels
 

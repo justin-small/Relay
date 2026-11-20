@@ -324,6 +324,13 @@ ch_settings = {"rundown": rundown.clean_rundown({"channels": [
 cmsg, cdraws = rundown.build(tr, ch_settings, now, NY, rng=random.Random(3))
 eq("a position's people take its channels' labels", sorted(c["mic"] for c in cmsg["mics"]), ["01", "03", "04"])
 eq("a mic on the rundown carries its channel's name", {c["mic"]: c["label"] for c in cmsg["mics"]}["01"], "Ana Vox")
+ref_settings = {"rundown": rundown.clean_rundown({"channels": [
+    {"id": "v1", "number": "03", "name": "Vocal 1", "channel_ref": "channel:relay:5",
+     "positions": [{"service_type": "7", "team": "Vocals", "position": "Vocals"}]},
+    {"id": "v2", "number": "04", "name": "Vocal 2", "positions": [{"service_type": "7", "team": "Vocals", "position": "Vocals"}]}]})}
+rmsg, _ = rundown.build(tr, ref_settings, now, NY, rng=random.Random(3))
+eq("a mic names the core input channel it sits on (#546), so a soundboard can show who holds it",
+   {c["mic"]: c["channel_ref"] for c in rmsg["mics"]}, {"03": "channel:relay:5", "04": ""})
 eq("the worship leader holds the leader's channel", {c["mic"]: (c["person"] or {}).get("name") for c in cmsg["mics"]}["01"], "Sarah Lee")
 r = owner.post("/api/admin/planning-center/rundown/settings", json={"channels": ch})
 check("the owner saves the channels", r.status_code == 200 and [c["id"] for c in r.json()["settings"]["channels"]] == ["a", "b"])
