@@ -1017,6 +1017,31 @@ export. Another module reads it through `modules.using("talkback.lines")`, a dic
 when it is committed; returns the way to stop listening). Talkback is a second stream of billed audio seconds: its status
 shows them beside the main feed's.
 
+## AES67 streams as the input
+
+The AES67 module (#266) finds AES67 streams (a Dante device in AES67 mode, Ravenna, Livewire) and receives one as Relay's
+sound input. Discovery is SAP: it joins 239.255.255.255 and 224.2.127.254, port 9875, parses each announcement's SDP
+(`sdp.py`) and keeps the table of streams until the sender deletes one or is silent for five minutes. A stream is
+`<group>:<port>`; the module lists one it cannot receive (unicast, an encoding other than L16 or L24) with the reason.
+
+It registers the audio source `aes67` with core's `audio.register_source` while it is on, so the engine reads it like a
+sound device: `audio_source` `"aes67"`, `audio_device` the stream id, `input_channel` a channel number or `"mix"`. It also
+gives the audio bus a multichannel input (`lane_input`). Receiving is a Python multicast socket on the module's own
+network port (traffic class `aes67`, `media`, so it never runs on a port the operator did not choose) and a thread
+(`receiver.py`): RTP is decoded in numpy and handed to the pump at the stream's own rate, which resamples. No kernel driver.
+
+* A lost packet is replaced with silence of the same length and counted (`lost`); a late or repeated packet is dropped
+  (`late`); another sender's stream (a different SSRC, or an address the SDP's source filter does not name) is ignored.
+* Relay does **not** lock to PTP. It measures the arrival rate against the wall clock (`drift_ppm`, shown after 30 s) and
+  counts dropouts, which is what a feed resampled to 24 kHz needs to know.
+* The chosen stream's SDP is kept in the module's settings (`remembered`, at most 8), so the saved input opens after a
+  restart before the next announcement arrives.
+* Venue switches need IGMP snooping and a querier, or multicast floods or never arrives. The admin page says so.
+* A stream is marked Dante when its SDP names Dante or Audinate; the module lists Dante as a module it can do more with
+  (`uses`) but reads no Dante data yet. Dante Virtual Soundcard cannot send AES67.
+* **Not proven on real gear:** built against SDP and RTP captured by hand and a loopback multicast socket. The one-hour
+  soak with a Dante device in AES67 mode (no dropouts on macOS, Windows and Linux) is still to be run.
+
 ## Shared helpers for module scripts
 
 Core's `app/static/relay-ui.js` (#461) gives every script `window.relayUI`. The operator panel, the crew page and

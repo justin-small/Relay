@@ -63,3 +63,24 @@ is broken.
   subscribed.
 - Check Relay's **Dante** page for problems and the clock: a clock that is not
   locked can cut the sound out.
+
+## AES67 without a sound card
+
+The **AES67** module takes a network stream straight into Relay: no driver, no
+sound card. It works with a Dante device set to **AES67 mode** (switch it on in
+Dante Controller), and with Ravenna and Livewire. It does **not** work with
+Dante Virtual Soundcard, which cannot send AES67.
+
+1. Switch the **AES67** module on under **Modules**.
+2. Open **AES67**. Streams the devices announce appear in a minute or less.
+3. Choose a stream's channel (or **Mix of all**) and click **Use as input**.
+
+Streams are 44.1 to 96 kHz, 16 or 24 bit; Relay resamples. It does not follow
+the network's PTP clock: the page counts lost packets and shows how fast the
+audio arrives, so you can see whether the feed is steady.
+
+::: warning
+Your switches need **IGMP snooping** and an IGMP querier, or the stream either
+floods every port or never arrives. This route is **not tested** on real Dante
+equipment yet.
+:::
