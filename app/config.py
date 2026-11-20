@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any
 
 from . import languages
-from . import overlays
+from . import boards, overlays
 from . import paths
 from . import redact
 from . import schedules
@@ -34,6 +34,8 @@ EXAMPLE_PATH = ROOT / "config.example.json"
 
 DEFAULTS: dict[str, Any] = {
     "openai_api_key": "",
+    # The one Vercel AI Gateway key (#495): transcription on Scribe v2 Realtime goes through it.
+    "vercel_api_key": "",
     "admin_token": "",
     # The owner's backup passphrase, as the key derived from it (app/backup.py); never the passphrase itself.
     "backup_key": "",
@@ -41,6 +43,13 @@ DEFAULTS: dict[str, Any] = {
     # Which registered audio source feeds capture (app/audio.py): "portaudio", or the id of a module's source.
     "audio_source": "portaudio",
     "input_channel": 0,
+    # The 32-lane audio bus (app/audiobus.py): inputs patched to lanes, a crosspoint matrix, outputs. Off until
+    # switched on; the main capture above does not depend on it.
+    "audio_bus": {"enabled": False, "lanes": [], "outputs": [], "matrix": []},
+    "mixreport": {"enabled": False, "left": 1, "right": 2, "silence_dbfs": -50.0, "target_lufs": -16.0,
+                  "tolerance_lu": 2.0, "peak_limit_dbfs": -1.0, "rehearsal": False},
+    "metering": {"enabled": False, "lane": 1, "kind": "room", "calibration_db": 110.0, "calibrated": False,
+                 "warn_db": 85.0, "limit_db": 95.0},
     "source_language": "ENGLISH",
     "targets": {"SPANISH": {"enabled": True}},
     "default_font_px": 40,
@@ -58,11 +67,18 @@ DEFAULTS: dict[str, Any] = {
         # machine left running a season of events cannot fill its disk.
         "keep_runs": 20,
     },
-    # Scheduled start/stop windows -- see schedules.py for the shape. Empty by
-    # default: nothing starts on its own until the operator sets a schedule.
+    # The one Relay time zone (#526): signage, Planning Center, YouTube, call times and every schedule use it.
+    # Empty means "not chosen yet": load fills it from the host's TZ (or the zone an older schedule carried).
+    "timezone": "",
+    # Named schedules -- see schedules.py for the shape. Empty by default: nothing starts on its own until the
+    # operator sets a schedule and picks it for the engine.
     "schedules": [],
+    # (`engine_schedules`, the refs "schedule:relay:<id>" that start and stop the engine, is not defaulted here: a
+    # config from before #526 has none, and then every schedule drove the engine, which load keeps.)
     # Named broadcast overlays (/overlay/<id>) -- see overlays.py for the shape.
     "overlays": [],
+    # Boards (/board/<slug>, #156): screens built from widgets -- see boards.py for the shape.
+    "boards": [],
     # Caption panels the operator has named or given a feed, by panel id --
     # see panels.py. Panels themselves are never written here by a check-in.
     "panels": {},
@@ -71,6 +87,12 @@ DEFAULTS: dict[str, Any] = {
     # Which modules are switched on, by module id: {"<id>": {"enabled": bool}} -- see app/modules/. A
     # module with no switch saved is on only if its integration was already set up (Module.configured).
     "modules": {},
+    # Which network port each kind of traffic uses, and the ports Relay has seen -- see netroute.py. No route
+    # means the system default, as before routes existed.
+    "network": {"routes": {}, "policy": {}},
+    # What the operator adds to the network map: a name Relay shows for a device, notes on devices and switch ports,
+    # and the closets the switches hang in -- see network_map.py. Nothing here is sent to a device.
+    "network_map": {"names": {}, "notes": {}, "places": []},
     "host": "0.0.0.0",
     # The operator panel is HTTPS only (app/tls.py), so it can face the network: 443 on every interface.
     # Viewers get plain HTTP on 80. If either cannot be opened Relay uses 8080 / 8443 (app/serving.py).
@@ -98,6 +120,9 @@ DEFAULTS: dict[str, Any] = {
         # line translated into every target by text_model (billed per token --
         # a small fraction of the cost, but captions arrive a line at a time).
         "translation_mode": "realtime",
+        # Who transcribes the main feed (app/transcribe.py): "scribe" (Vercel) or "openai", or the id of a
+        # backend a module registers. One that is unknown, or whose key is not saved, falls back to OpenAI.
+        "backend": "scribe",
         "text_model": "gpt-6-luna",
         # Sent as reasoning_effort when non-empty. "none" keeps a reasoning
         # model from thinking before each line, which only adds delay here;
@@ -133,7 +158,7 @@ _data: dict[str, Any] = {}
 _mtime: float = 0.0
 # Secrets kept sealed in config.json (app/secretbox.py, #278) and held as plain text only in memory. Modules add
 # their own with Module.secret_settings. The backup passphrase key is core's (app/backup.py).
-SECRET_KEYS = ("openai_api_key", "admin_token", "backup_key")
+SECRET_KEYS = ("openai_api_key", "vercel_api_key", "admin_token", "backup_key")
 # Sealed values this computer cannot open (its key was lost), kept as stored until a new value replaces them, so a
 # keyring that is locked for one start does not wipe them on the next save.
 _unopened: dict[str, str] = {}
@@ -168,6 +193,12 @@ def _normalise(cfg: dict) -> dict:
     cfg["default_font_px"] = max(16, min(160, int(cfg.get("default_font_px") or 40)))
     cfg["history_lines"] = max(1, min(500, int(cfg.get("history_lines") or 40)))
     cfg["audio_source"] = str(cfg.get("audio_source") or "portaudio").strip().lower() or "portaudio"
+    from . import audiobus  # here, not at the top: it loads the sound library, which config must not need
+    cfg["audio_bus"] = audiobus.normalize(cfg.get("audio_bus"))
+    from . import metering  # the same reason: it imports the bus
+    cfg["metering"] = metering.normalize(cfg.get("metering"))
+    from . import mixreport  # the same reason
+    cfg["mixreport"] = mixreport.normalize(cfg.get("mixreport"))
     # A channel index, or the string "mix" to average every input channel --
     # a stereo board feed is usually better summed than halved.
     _ch = cfg.get("input_channel", 0)
@@ -215,6 +246,7 @@ def _normalise(cfg: dict) -> dict:
     for _dead in ("vad_mode", "vad_eagerness", "vad_threshold",
                   "vad_prefix_padding_ms", "vad_silence_duration_ms"):
         rt.pop(_dead, None)
+    rt["backend"] = str(rt.get("backend") or DEFAULTS["realtime"]["backend"]).strip()[:40]
     if rt.get("translation_mode") not in ("realtime", "text"):
         rt["translation_mode"] = DEFAULTS["realtime"]["translation_mode"]
     rt["text_model"] = str(rt.get("text_model") or "").strip() or DEFAULTS["realtime"]["text_model"]
@@ -231,9 +263,18 @@ def _normalise(cfg: dict) -> dict:
         "keep_runs": max(1, min(500, int(rec.get("keep_runs") or 20))),
     }
     cfg["recording"] = rec
+    # The one Relay time zone: an older config kept a zone per schedule and one for signage; carry the first over.
+    legacy = schedules.legacy_zone(cfg.get("schedules")) or (cfg.get("signage") or {}).get("timezone")
+    cfg["timezone"] = schedules.clean_zone(cfg.get("timezone") or legacy, os.environ.get("TZ"))
     # A hand-edited schedule that does not validate is dropped, not fatal.
+    had_engine = "engine_schedules" in cfg
     cfg["schedules"] = schedules.clean_list(cfg.get("schedules"))
+    chosen = cfg.get("engine_schedules") if had_engine and isinstance(cfg.get("engine_schedules"), list) else \
+        [schedules.ref(s["id"]) for s in cfg["schedules"]]
+    cfg["engine_schedules"] = [r for r in dict.fromkeys(chosen)
+                               if schedules.find(cfg["schedules"], r) is not None]
     cfg["overlays"] = overlays.clean_list(cfg.get("overlays"), languages.TARGETS)
+    cfg["boards"] = boards.clean_list(cfg.get("boards"))
     # Imported here: panels.py reads config, so the module-level import would loop.
     from . import panels
 
@@ -245,6 +286,12 @@ def _normalise(cfg: dict) -> dict:
     from .modules import modules
 
     modules.clean_config(cfg)
+    from . import netroute
+
+    cfg["network"] = netroute.clean(cfg.get("network"))
+    from . import network_map
+
+    cfg["network_map"] = network_map.clean_stored(cfg.get("network_map"))
     # The blocklist lives in its own file; config.json only points at it.
     cfg.pop("blocklist", None)
     cfg["blocklist_file"] = str(cfg.get("blocklist_file") or "blocklist.txt")
@@ -370,6 +417,11 @@ def ensure_blocklist_file() -> Path:
     return path
 
 
+def timezone() -> str:
+    """The Relay time zone (an IANA name from the US list)."""
+    return get()["timezone"]
+
+
 def get() -> dict:
     """Live config. Re-reads the file if it changed on disk (hot-reload).
 
@@ -413,6 +465,7 @@ def redacted() -> dict:
     module's settings as its `public()` gives them (no Planning Center secret)."""
     cfg = dict(get())
     key = cfg.pop("openai_api_key", "") or ""
+    vkey = cfg.pop("vercel_api_key", "") or ""
     cfg.pop("admin_token", None)
     cfg["backup_passphrase_set"] = bool(cfg.pop("backup_key", ""))
     cfg["secret_store"] = secretbox.where()
@@ -421,6 +474,8 @@ def redacted() -> dict:
     modules.redact_config(cfg)
     cfg["openai_api_key_set"] = bool(key)
     cfg["openai_api_key_hint"] = f"…{key[-4:]}" if len(key) >= 4 else ""
+    cfg["vercel_api_key_set"] = bool(vkey)
+    cfg["vercel_api_key_hint"] = f"…{vkey[-4:]}" if len(vkey) >= 4 else ""
     return cfg
 
 

@@ -1,0 +1,22 @@
+# Literal px font sizes, hex/rgb colours and px radii per file when tests/test_style_contract.py came in (#463).
+# The counts may only go down. Use the tokens in app/static/tokens.css and the classes in components.css,
+# then run tests/test_style_contract.py --rebaseline to lower a line.
+# file  font  colour  radius
+app/modules/crew/templates/join.html 0 7 1
+app/modules/crew/templates/offline.html 0 5 0
+app/modules/intercom_remote/static/phone.html 4 16 1
+app/modules/lighting/templates/screen.html 2 4 1
+app/modules/ndi/templates/multiview.html 2 3 0
+app/modules/ndi/templates/view.html 2 9 1
+app/modules/obs/static/screen.css 5 12 3
+app/modules/parent_paging/templates/room.html 1 19 3
+app/modules/propresenter/static/slideview.css 10 19 4
+app/modules/signage/static/player.js 0 7 0
+app/modules/signage/static/signage.js 0 1 0
+app/modules/signage/templates/player.html 0 2 0
+app/static/admin.css 0 13 0
+app/static/layout.css 20 45 16
+app/static/rundown.css 38 31 0
+app/static/viewer.css 47 82 18
+app/templates/board.html 1 5 1
+app/templates/flash.html 0 1 0

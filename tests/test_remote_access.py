@@ -61,7 +61,7 @@ class FakeCloud(BaseHTTPRequestHandler):
         seen.append((self.command, self.path, body, self.headers.get("Authorization", "")))
 
     def _install(self, code=200):
-        self._send(code, {"install_id": "inst-1", "hostname": "k7m2p9qa.relaychurchsystems.com",
+        self._send(code, {"install_id": "inst-1", "hostname": "k7m2p9qa.cloud.relaysystems.dev",
                           "tunnel_token": f"tok-{cloud_state['port']}"})
 
     def do_GET(self):
@@ -166,7 +166,7 @@ r = admin.post(URL + "/enroll", json={"code": GOOD_CODE.lower()})
 eq("a good code enrolls", r.status_code, 200)
 v = r.json()
 eq("enrolled", v["enrolled"], True)
-eq("the url", v["url"], "https://k7m2p9qa.relaychurchsystems.com")
+eq("the url", v["url"], "https://k7m2p9qa.cloud.relaysystems.dev")
 enroll_bodies = [b for (m, p, b, _a) in seen if m == "POST"]
 check("every attempt sent the same secret", {b["secret"] for b in enroll_bodies} == {first_secret})
 eq("the viewer port was sent", cloud_state["port"], 8000)
@@ -184,7 +184,7 @@ for label, value in (("secret", first_secret), ("tunnel token", "tok-8000")):
     check(f"the {label} is not in the admin state", value not in state_body)
     check(f"the {label} is not in the view", value not in json.dumps(admin.get(URL).json()))
 eq("the admin state says only enrolled and the url", admin.get("/api/admin/state").json()["config"]["remote_access"],
-   {"enrolled": True, "url": "https://k7m2p9qa.relaychurchsystems.com"})
+   {"enrolled": True, "url": "https://k7m2p9qa.cloud.relaysystems.dev"})
 
 print("the viewer port never reaches it")
 from fastapi.testclient import TestClient  # noqa: E402

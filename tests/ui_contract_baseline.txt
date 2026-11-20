@@ -1,0 +1,5 @@
+# Functions copied word for word between scripts when tests/test_ui_contract.py came in (#461).
+# This list may only shrink. Move a helper into app/static/relay-ui.js, delete its lines here.
+# name  body-hash  file
+check ee29eeef70 app/modules/obs/static/obs.js
+check ee29eeef70 app/modules/reaper/static/reaper.js

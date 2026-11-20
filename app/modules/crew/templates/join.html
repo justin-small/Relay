@@ -1,38 +1,95 @@
 <!doctype html>
 <html lang="en"><head>
-<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="theme-color" content="#000000"><title>Join {{ app_name }}</title>
+{#- Served on the plain-HTTP join port only, which cannot reach /static: the page carries its own few colours. -#}
 <style>
-  body { margin: 0; background: #000; color: #f4f4f5; font: 16px/1.5 system-ui, sans-serif; padding: 24px; }
-  main { max-width: 34em; margin: 0 auto; }
-  h1 { font-size: 1.4em; } h2 { font-size: 1.05em; margin-top: 1.6em; }
-  p, li { color: #d1d5db; }
-  a.btn { display: inline-block; font-weight: 600; padding: 11px 20px; border-radius: 8px; background: #4ade80;
-          color: #000; text-decoration: none; margin: 4px 8px 4px 0; }
-  a.alt { background: #27272a; color: #f4f4f5; }
+  :root { --bg: #09090b; --fg: #fafafa; --muted: #a1a1aa; --card: #111113; --line: #27272a; --primary: #4ade80; --primary-fg: #052e16;
+          --r: 14px; color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--fg); font: 1rem/1.5 system-ui, -apple-system, sans-serif; }
+  main { min-height: 100vh; min-height: 100dvh; max-width: 34em; margin: 0 auto; display: flex; flex-direction: column; gap: 1rem;
+         padding: calc(1.5rem + env(safe-area-inset-top)) 1.25rem calc(1.25rem + env(safe-area-inset-bottom)); }
+  header { text-align: center; padding: 1rem 0 .25rem; }
+  header img { width: 3.5rem; height: 3.5rem; }
+  h1 { font-size: 1.5rem; margin: .6rem 0 .25rem; }
+  p, li span { color: var(--muted); margin: 0; }
+  .seg { display: flex; border: 1px solid var(--line); border-radius: calc(var(--r) - 4px); overflow: hidden; }
+  .seg button { flex: 1; min-height: 2.75rem; padding: .5rem .75rem; border: 0; background: none; color: var(--muted); font: inherit; cursor: pointer; }
+  .seg button + button { border-left: 1px solid var(--line); }
+  .seg button[aria-pressed=true] { background: color-mix(in srgb, var(--primary) 14%, transparent); color: var(--fg); font-weight: 600; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: var(--r); padding: 1rem; }
+  .card.on { border-color: var(--primary); }
+  .card.later { opacity: .6; }
+  .card h2 { margin: 0 0 .2rem; font-size: .75rem; letter-spacing: .07em; text-transform: uppercase; color: var(--muted); }
+  .card b { font-size: 1.1rem; }
+  ol { list-style: none; counter-reset: s; margin: .9rem 0 0; padding: 0; }
+  ol li { counter-increment: s; position: relative; padding: 0 0 .9rem 2.6rem; }
+  ol li::before { content: counter(s); position: absolute; left: 0; top: 0; width: 1.8rem; height: 1.8rem; border-radius: 50%;
+                  display: grid; place-items: center; background: color-mix(in srgb, var(--primary) 14%, transparent); font-weight: 700; }
+  ol li b { display: block; font-size: 1rem; }
+  .grow { flex: 1; }
+  a.btn { display: block; text-align: center; font-weight: 700; font-size: 1.1rem; padding: 1rem; border-radius: var(--r);
+          background: var(--primary); color: var(--primary-fg); text-decoration: none; }
+  a.alt { background: var(--card); color: var(--fg); border: 1px solid var(--line); }
+  [hidden] { display: none !important; }
 </style></head><body><main>
-<h1>Join {{ app_name }}</h1>
-<p>This page is only on the church network. {{ app_name }} is a secure page, and your phone has not been told to
-  trust it yet, so it would show a warning on its own. That is expected: nobody outside this network can read it.
-  Two steps, once per phone.</p>
-<h2>1. Let your phone trust Relay</h2>
+<header>
+  <img src="/crew-join/mark.svg" alt="" onerror="this.remove()">
+  <h1>Join {{ app_name }}</h1>
+  <p>The plan, your checklist, team chat and intercom on your phone. This page only works on the church Wi-Fi.</p>
+</header>
+<div class="seg" role="group" aria-label="Your phone">
+  <button type="button" data-os="ios" aria-pressed="true">iPhone or iPad</button>
+  <button type="button" data-os="android" aria-pressed="false">Android</button>
+</div>
 {% if have_cert %}
-<p><a class="btn alt" href="/crew-join/relay.crt">Download the certificate</a></p>
-<ul>
-  <li><b>iPhone or iPad:</b> tap Allow, then open Settings, tap "Profile Downloaded" and Install. Then go to Settings,
-    General, About, Certificate Trust Settings and turn on trust for Relay.</li>
-  <li><b>Android:</b> open Settings, search for "CA certificate" (or Security, Encryption and credentials, Install a
-    certificate), choose CA certificate, and pick the downloaded file.</li>
-</ul>
+<section class="card on">
+  <h2>Step 1 of 2 · about a minute</h2>
+  <b>Let this phone trust Relay</b>
+  <p>{{ app_name }} is a secure page, and your phone has not been told to trust it yet, so it would show a warning.
+    Nobody outside this network can read it.</p>
+  <ol data-for="ios">
+    <li><b>Download the certificate</b><span>Tap Allow when asked.</span></li>
+    <li><b>Install it</b><span>Open Settings, tap "Profile Downloaded", then Install.</span></li>
+    <li><b>Turn on trust</b><span>Settings, General, About, Certificate Trust Settings: turn on Relay.</span></li>
+  </ol>
+  <ol data-for="android" hidden>
+    <li><b>Download the certificate</b><span>Keep the file when asked.</span></li>
+    <li><b>Install it</b><span>Settings, search for "CA certificate" (or Security, Encryption and credentials, Install a
+      certificate), choose CA certificate, and pick the file.</span></li>
+  </ol>
+</section>
 {% else %}
-<p>Relay has no certificate yet. Ask whoever runs the booth to open Relay once, then scan again.</p>
+<section class="card on">
+  <h2>Step 1 of 2</h2>
+  <b>Relay has no certificate yet</b>
+  <p>Ask whoever runs the booth to open Relay once, then scan again.</p>
+</section>
 {% endif %}
-<h2>2. Open the crew page</h2>
-{% if crew_url %}
-<p><a class="btn" href="{{ crew_url }}">Open {{ app_name }}</a></p>
-<p>If your phone still shows a warning, you can tap Advanced and continue; that works for this page too, but the
-  app will not install to your home screen until the certificate is trusted.</p>
-{% else %}
-<p>Relay cannot tell what its address is right now. Ask whoever runs the booth.</p>
-{% endif %}
-</main></body></html>
+<section class="card later">
+  <h2>Step 2 of 2</h2>
+  <b>Open the crew page and add it to your Home Screen</b>
+  {% if crew_url %}
+  <p>If the phone still warns you, tap Advanced and continue. The page works, but it will not install to the Home
+    Screen until the certificate is trusted.</p>
+  {% else %}
+  <p>Relay cannot tell what its address is right now. Ask whoever runs the booth.</p>
+  {% endif %}
+</section>
+<div class="grow"></div>
+{% if have_cert %}<a class="btn" href="/crew-join/relay.crt">Download the certificate</a>{% endif %}
+{% if crew_url %}<a class="btn alt" href="{{ crew_url }}">Open {{ app_name }}</a>{% endif %}
+</main>
+<script>
+  (function () {                       // pick the phone's own steps; the buttons switch them
+    var android = /Android/i.test(navigator.userAgent);
+    function show(os) {
+      document.querySelectorAll('[data-os]').forEach(function (b) { b.setAttribute('aria-pressed', String(b.dataset.os === os)); });
+      document.querySelectorAll('[data-for]').forEach(function (l) { l.hidden = l.dataset.for !== os; });
+    }
+    document.querySelectorAll('[data-os]').forEach(function (b) { b.addEventListener('click', function () { show(b.dataset.os); }); });
+    show(android ? 'android' : 'ios');
+  })();
+</script>
+</body></html>

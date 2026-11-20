@@ -24,12 +24,13 @@ class IntercomRemote(Module):
         version="0.1.0",
         summary="Lets allowed crew use the intercom from outside the building, through Cloudflare Realtime.",
         settings_key="intercom_remote",
+        section="Crew",
         guide="https://github.com/justin-small/relay#intercom-remote",
         uses=("intercom", "remote_access"),
     )
     defaults: dict = {}
     admin_pages = (AdminPage(
-        id="intercom-remote", title="Remote crew", template="admin.html", group="Automation",
+        id="intercom-remote", title="Remote crew", template="admin.html",
         icon='<circle cx="8" cy="8" r="6"/><path d="M2 8h12M8 2c2 2 2.5 4 2.5 6S10 12 8 14M8 2C6 4 5.5 6 5.5 8S6 12 8 14"/>'),)
     admin_scripts = ("remote.js",)
     route_prefixes = ("/api/admin/intercom-remote", "/intercom/remote")
@@ -64,17 +65,21 @@ class IntercomRemote(Module):
         bridge.on_lost = None
 
     async def start(self) -> None:
-        from . import media
+        from . import media, watch
         from .bridge import bridge
 
+        watch.register()            # before begin(), so the first state change is logged
         bridge.begin(media.load())
 
     async def stop(self) -> None:
         from .bridge import bridge
         from .remote import crew
 
+        from . import watch
+
         await crew.drop_all("module_off")
         await bridge.end()
+        watch.unregister()
 
     def health(self) -> Health:
         from ..remote_access.service import enrolled

@@ -3,8 +3,8 @@
 The operator panel has a **menu down the left side**. Click an item to open
 its page. The panel remembers the page you were on. At the top, a coloured
 pill shows whether capture is running, and **Start capture** and **Stop** are
-on the **Session health** page. On a phone or a narrow window, the menu is
-behind a **Menu** button.
+on the **Session health** page. On a phone or a narrow window, the menu slides in
+when you tap the **sidebar button** at the top left.
 
 ## Overview
 
@@ -20,8 +20,9 @@ behind a **Menu** button.
 5. **Settings.** **Blocked words**, **Credentials**, **Appearance &
    tuning** and **Users**.
 6. **Start capture.** See [Starting and stopping](#start-stop).
-7. **Viewers.** How many people have a viewer page open, next to **Sign
-   out**.
+7. **Viewers.** How many people have a viewer page open.
+8. **Your name.** At the bottom of the menu, and the round button at the top
+   right: **Account** and **Sign out**.
 
 Each page is described in this chapter, except **Panels**, **Alerts** and
 **Planning Center**, which are in Part 5.
@@ -213,6 +214,20 @@ The meter only moves while capture is running. When capture is stopped, it
 shows nothing even if a microphone is connected.
 :::
 
+## Audio bus {#audio-bus}
+
+**Audio bus** sits under **Audio input**. The bus takes up to 32 mono lanes from any input and sends them to outputs
+through one crosspoint matrix. It stays off until you switch it on, and the main capture on **Audio input** is not
+touched.
+
+1. **Lanes.** Click **Add a lane**, choose the input and device, then a channel, or **Mix of all** to sum every channel.
+2. **Outputs.** Click **Add an output**, choose the device and how many channels it has.
+3. Click **Save lanes and outputs**.
+4. **Crosspoints.** Output channels run down the side and lanes across the top. Click a square to feed a lane into a
+   channel, and type a gain in dB beside it. A channel mixes every lane fed into it.
+
+The crosspoints are the same routes the Network page shows, so a change made here shows there too.
+
 ## Target languages {#target-languages}
 
 This page chooses which languages Relay translates into. There are 17:
@@ -282,8 +297,8 @@ Schedules start and stop capture automatically, for example every Sunday from
 1. **Status line.** What happens next, for example **Next start: Wed
    09/23/2026 8:00 PM CDT (Wednesday night).** With no schedules, it says
    capture only starts when you press **Start capture**.
-2. **Schedule.** Its name, and under it a summary: which days, the times and
-   the time zone.
+2. **Schedule.** Its name, and under it a summary of its windows and where it
+   is used.
 3. **Next start.** When it will next start capture. **off** if the schedule
    is switched off.
 4. **On.** Switch a schedule off to skip it without deleting it, for example
@@ -295,22 +310,28 @@ Schedules start and stop capture automatically, for example every Sunday from
 
 ![The form for a new schedule.](images/admin-schedule-form.png){width=100%}
 
-1. **Name (optional).** A label such as *Sunday evening*.
-2. **Repeats.** **Every week**, or **One time only** for a single date.
-3. **Days.** For a weekly schedule, click each day it runs. Selected days turn
-   green.
-4. **Starting on / Ending on (optional).** For a weekly schedule, limit it to
-   a date range, such as a term or a season. Type the date as MM/DD/YYYY, or
-   click the calendar button. For a one-time schedule, this is the date it
-   runs.
-5. **Start time** and **Stop time.** Pick the hour, the minutes and AM or PM.
+1. **Name.** A label such as *Sunday services*. Other pages pick the schedule
+   by this name.
+2. **Windows.** Each window is **Every week** (click each day it runs, and
+   optionally a first and last date, typed as MM/DD/YYYY or picked with the
+   calendar button) or **One date**, with a **start time** and a **stop time**.
    If the stop time is earlier than the start time, it stops the next day, so
-   11:00 PM to 1:00 AM works. The form tells you when that happens.
-6. **Time zone.** Eastern, Central, Mountain, Arizona, Pacific, Alaska or
-   Hawaii. Times follow this zone, including daylight saving: 10:00 AM stays
-   10:00 AM all year.
-7. Click **Add schedule** (or **Save schedule** when editing). **Cancel**
+   11:00 PM to 1:00 AM works. **Add a window** adds another, for example the
+   evening service.
+3. **Also open.** Tick **Around each service time in today's Planning Center
+   plan** to add a window around every service time, with the minutes before
+   and after you choose. It adds nothing while the Planning Center module is off.
+4. **Capture starts and stops on this schedule.** Tick it for the schedules that
+   should start and stop capture. Signage slots, board rotation rows and crew
+   call times pick a schedule by name in their own pages.
+5. **Used by.** When you edit a schedule, the places that use it are listed. Delete
+   is refused while any are listed; pick another schedule there first.
+6. Click **Add schedule** (or **Save changes** when editing). **Cancel**
    closes the form without saving.
+
+Times follow Relay's one time zone, set under **Settings > System**, including
+daylight saving: 10:00 AM stays 10:00 AM all year. Change a schedule here and
+the engine, signage, boards and call times that use it move together.
 
 You should see the new schedule in the list, with its next start time.
 
@@ -494,6 +515,45 @@ and notifications.
 The overlay link also takes `?lyrics=1`, to show ProPresenter's lyrics in
 place of the captions. See the ProPresenter chapter.
 :::
+
+## Screens {#screens}
+
+Every TV, tablet and panel is one **screen** with one name and one place. The Screens page (under Output) is a live wall: a tile per screen, grouped by place, showing what is on it now and whether it was heard from lately.
+
+A browser appears by itself the first time it opens a board, a signage address or an alert link, and a panel appears when it checks in. Under **Edit** you set a screen's name, its place, and what it shows: a board or a signage playlist **normally**, and another **during** a schedule from the Schedules page. **Show now** holds one on the screen until you press **Back to schedule**. With Signage switched off, a screen set to a playlist shows its board instead.
+
+If two pages knew the same TV by different names, give one of them the other's name: they become one screen. **Flash** shows a test message on a screen, and **Flash all** on a place does it for every screen there. An alert button can also target a whole place, and the old addresses (`/signage/<name>`, board links, `/screen?alert=`) keep working.
+
+## Boards {#boards}
+
+A board is a screen you build yourself from widgets: live captions in any language, a clock, a countdown, a line of
+text, the livestream's status, a button that opens another board, and widgets from the modules you have switched on
+(Lighting adds a button for each cue on a cue page). Each board has its own address, `/board/<name>`, for a TV in the
+lobby or a tablet at the sound desk. The address stays the same when you rename the board.
+
+### To make a board
+
+1. Open **Boards** (under Output), type a name, choose the screen's shape (16:9 TV, 4:3 tablet or 9:16 portrait) and
+   press **New board**.
+2. Press **Edit** beside it. The board opens with the widget list beside it, and the board keeps running underneath.
+3. Click a widget in the list to add it, or drag it onto the board. Drag a widget to move it; drag its edges or corners
+   to make it bigger or smaller. Widgets snap to the grid and never cover each other.
+4. Double-click a widget (or select it and press Enter) for its settings: **Settings** holds what it shows (the caption
+   language, the countdown's time, the text) and **Look** its label, shape, colours and icon.
+5. Press **Save**. **Cancel** puts the board back as it was; **Undo** and **Redo** step through your changes.
+
+With the keyboard: arrow keys move the selected widget, Shift and an arrow resize it, Delete removes it, and Ctrl+Z
+(Cmd+Z on a Mac) undoes.
+
+### Who can open a board
+
+Anyone signed in to Relay can open a board on the operator address. Tick **Public** to let anyone open it without
+signing in, on the viewer network too; use it for a lobby TV, never for a board with anything private on it. Only
+Admins and Owners can make, change and delete boards. A button that does something (a lighting cue) needs someone
+signed in who may do that, even on a public board.
+
+**Export** saves a board as a file and **Import** reads one back as a new board, so you can copy a layout to another
+Relay. A widget whose module you switch off stays on the board, greyed out, and works again when the module is back on.
 
 ## Blocked words {#blocked-words}
 
@@ -686,6 +746,18 @@ After five wrong PINs in a row, the PIN is cleared and you sign in with your
 password and set a new one. Removing a trusted device from the list stops PIN
 sign-ins there.
 
+### Phones {#phones}
+
+Each phone or computer is listed once, under **My account** (yours) and on the
+**Users** page (everyone's), with everything it is set up for: PIN sign-in, the
+intercom, Wi-Fi check-in and crew notifications. **Forget** ends all of them at
+once: the phone is signed out of the intercom, stops getting crew pages, is
+taken off check-in and loses its PIN sign-in. **Rename** changes the name shown
+here. Phones set up before this list existed show once for each thing they were
+set up for; if two entries are the same phone, an Admin opens **Join…** on one
+and picks the other, and their parts become one phone. New things you set up
+join your phone's entry when the browser is the same one.
+
 ### API tokens {#api-tokens}
 
 An **API token** lets a script or another program, such as a Stream Deck
@@ -788,6 +860,37 @@ connection, not these settings.
 Relay's colours are fixed: dark by default, with the light / dark button on
 each viewer page. The overlay's colours, font and background are set on
 the [Broadcast overlay](#broadcast-overlay) page.
+:::
+
+## Customize the panel {#customize}
+
+The gear button at the top right opens **Preferences**. Each choice applies
+at once and is saved for you, so it follows you to every device you sign in
+on. It changes nobody else's panel.
+
+1. **Theme Preset.** **Relay** (green, the default), **Soft Pop**,
+   **Tangerine** or **Brutalist**. Each has a light and a dark version.
+2. **Fonts.** The type for the panel: **System UI**, **Rounded**, **Serif**
+   or **Monospace**. These come from your computer, so they work with no
+   internet.
+3. **Theme Mode.** **Light**, **Dark**, or **System** to follow your
+   computer. The sun and moon button next to the gear cycles the three.
+4. **Page Layout.** **Centered** keeps pages a readable width. **Full
+   Width** uses the whole window.
+5. **Navbar Behavior.** **Sticky** keeps the top bar in view as you scroll.
+   **Scroll** lets it scroll away.
+6. **Sidebar Style.** **Inset** (the default), **Sidebar** or **Floating**.
+7. **Sidebar Collapse Mode.** **Icon** shrinks the menu to a column of
+   icons; point at one to see its name. **OffCanvas** hides the menu
+   completely.
+
+**Restore Defaults** puts everything back. Press `Ctrl K` (`Cmd K` on a Mac)
+anywhere to search every page and a few actions, such as starting the stream
+or changing the theme.
+
+::: note
+The viewer pages, the overlay and the screens in the room do not follow
+these choices. They keep the large, high-contrast look the audience needs.
 :::
 
 ## Modules {#modules}

@@ -15,11 +15,12 @@ mod settings;
 mod tray;
 mod updater;
 
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Mutex;
 
 use backend::{Backend, Status};
-use tauri::{AppHandle, Manager, RunEvent, Url, WebviewWindow, WindowEvent};
+use tauri::webview::{NewWindowFeatures, NewWindowResponse};
+use tauri::{AppHandle, Manager, RunEvent, Url, WebviewUrl, WebviewWindow, WebviewWindowBuilder, WindowEvent, Wry};
 use tauri_plugin_autostart::{MacosLauncher, ManagerExt as _};
 use tauri_plugin_clipboard_manager::ClipboardExt;
 use tauri_plugin_dialog::DialogExt;
@@ -47,6 +48,43 @@ pub fn open_panel(app: &AppHandle) {
         let _ = w.unminimize();
         let _ = w.set_focus();
     }
+}
+
+/// A link the panel opens in a new window (`target="_blank"`, `window.open`). The system webview drops these unless
+/// the shell answers, so every link of that kind went nowhere. A page of the panel itself (the board editor, a
+/// viewer preview through the proxy) opens in another Relay window that shares the panel's sign-in; anything else
+/// (a viewer address, another product's site) opens in the default browser.
+fn on_new_window(app: AppHandle, proxy_port: u16) -> impl Fn(Url, NewWindowFeatures) -> NewWindowResponse<Wry> + Send + 'static {
+    move |url, features| {
+        let ours = url.scheme() == "http" && url.host_str() == Some("127.0.0.1") && url.port() == Some(proxy_port);
+        if ours {
+            if let Some(w) = panel_window(&app, proxy_port, &url, features) {
+                return NewWindowResponse::Create { window: w };
+            }
+        } else if matches!(url.scheme(), "http" | "https" | "mailto") {
+            let _ = open::that(url.as_str());
+        }
+        NewWindowResponse::Deny
+    }
+}
+
+/// Another window on the panel. It is built from the opener's webview configuration (`features`) so it shares
+/// the sign-in, and the webview then loads the link into it.
+fn panel_window(app: &AppHandle, proxy_port: u16, url: &Url, features: NewWindowFeatures) -> Option<WebviewWindow> {
+    static NEXT: AtomicUsize = AtomicUsize::new(1);
+    let label = format!("panel-{}", NEXT.fetch_add(1, Ordering::SeqCst));
+    WebviewWindowBuilder::new(app, label, WebviewUrl::External("about:blank".parse().ok()?))
+        .window_features(features)
+        .title("Relay")
+        .inner_size(1280.0, 860.0)
+        .min_inner_size(640.0, 480.0)
+        .on_document_title_changed(|w, title| {
+            let _ = w.set_title(if title.is_empty() { "Relay" } else { &title });
+        })
+        .on_new_window(on_new_window(app.clone(), proxy_port))
+        .build()
+        .map_err(|e| eprintln!("could not open {url}: {e}"))
+        .ok()
 }
 
 /// What the start-up page shows for a backend state (kind is a CSS class on the page).
@@ -231,6 +269,9 @@ fn main() {
             let proxy_port = tauri::async_runtime::block_on(proxy::start(backend.pins.clone(), handle.clone()))?;
             let autostart_on = handle.autolaunch().is_enabled().unwrap_or(false);
             app.manage(tray::build(&handle, autostart_on)?);
+            // The main window is built here, not from the config alone, so it can answer links that open a window.
+            let main = app.config().app.windows.iter().find(|w| w.label == "main").cloned().expect("main window config");
+            WebviewWindowBuilder::from_config(&handle, &main)?.on_new_window(on_new_window(handle.clone(), proxy_port)).build()?;
             let splash = window(&handle).and_then(|w| w.url().ok());
             app.manage(Shell {
                 backend: backend.clone(),
@@ -263,7 +304,8 @@ fn main() {
             Ok(())
         })
         .on_window_event(|w, event| {
-            if let WindowEvent::CloseRequested { api, .. } = event {
+            // Only the main window hides on close (Relay keeps running); a board or other panel window just closes.
+            if let (WindowEvent::CloseRequested { api, .. }, "main") = (event, w.label()) {
                 api.prevent_close();
                 let _ = w.hide();
                 explain_tray_once(w.app_handle());

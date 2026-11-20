@@ -1,0 +1,141 @@
+<!doctype html><html lang="en" data-theme="dark" data-preset="relay"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<link rel="stylesheet" href="../../../app/static/tokens.css"><link rel="stylesheet" href="../../../app/static/components.css"><link rel="stylesheet" href="common.css">
+<title>Lighting A · Tabs</title></head><body>
+<div class="top"><b>Lighting</b><span class="spill on"><i class="dot ok"></i>QLC+ · 192.168.1.50</span><span class="sp"></span><span class="muted">Ana Ruiz · manage</span></div>
+<div class="wrap stack">
+<div class="tabs" id="tabs"><button data-p="fire" class="on">Fire cues</button><button data-p="pages">Pages</button><button data-p="screens">Screens</button><button data-p="program">Program</button></div>
+
+<!-- Fire: the operator's view. One page at a time, as big as the screen allows. -->
+<div class="pane on" id="fire"><div class="stack">
+<div class="between"><div class="seg" id="firePick"><button data-p="sun" class="on">Sunday service</button><button data-p="youth">Youth night</button><button data-p="sm">Stage manager</button></div>
+<span class="muted" id="fireLast">Last: Sermon, Booth iPad, 9:11</span></div>
+<div id="fireGrid"></div>
+<div class="card"><h3>Levels</h3><div class="faders" id="fireFaders"></div></div>
+<p class="note">A press is sent once. If the connection drops, Relay does not try again, because the cue may already have happened.</p>
+</div></div>
+
+<!-- Pages: three steps. A list of pages; New page asks name, size and a starting point; opening a page edits it on its own screen. -->
+<div class="pane" id="pages">
+
+<div class="stack" id="pgList">
+<div class="between"><p class="lede" style="margin:0">A page is a grid of cue buttons. Its order here is the order on the Fire cues tab; drag a row to move it.</p>
+<button class="primary" id="newBtn">New page</button></div>
+<div class="card" style="padding:0" id="pgRows"></div>
+</div>
+
+<div class="stack hidden" id="pgNew">
+<div class="gap"><button class="link" data-back>← Pages</button><span class="muted">/</span><b>New page</b></div>
+<div class="card"><div class="newgrid">
+<div class="stack">
+<div class="field" style="margin:0"><label for="npName">Name</label><input id="npName" placeholder="e.g. Christmas Eve" maxlength="40" style="width:300px"><span class="hint">What operators see on the tab and on the tablet.</span></div>
+<div class="field" style="margin:0"><label>Size</label><div class="sizes" id="npSize"></div><span class="hint">Buttons can span several cells. You can change the size later.</span></div>
+<div class="field" style="margin:0"><label>Start with</label><div class="opts" id="npStart">
+<button class="opt on" data-s="blank"><b>Empty page</b><span>Place cues yourself.</span></button>
+<button class="opt" data-s="copy"><b>Copy a page</b><span><select style="margin-top:6px"><option>Sunday service</option><option>Youth night</option><option>Stage manager</option></select></span></button>
+<button class="opt" data-s="pick"><b>Pick cues</b><span>Tick cues; Relay lays them out in order.</span></button></div></div>
+<div class="field hidden" style="margin:0" id="npPick"><label>Cues to place <span class="muted" id="npCount">3 picked</span></label>
+<div class="ticks" id="npTicks"></div></div>
+</div>
+<div class="stack"><span class="muted">Preview</span><div id="npPrev"></div><p class="note" style="margin:0" id="npFit">4 × 3 grid · 12 buttons fit.</p></div>
+</div>
+<div class="ctl" style="margin-top:var(--sp-4)"><button class="primary" id="npCreate">Create and edit</button><button data-back>Cancel</button></div></div>
+</div>
+
+<div class="stack hidden" id="pgEdit">
+<div class="between"><div class="gap"><button class="link" data-back>← Pages</button><span class="muted">/</span>
+<input id="edName" value="Sunday service" style="width:240px;font-weight:600" aria-label="Page name"><span class="badge warn hidden" id="dirty">Unsaved changes</span></div>
+<div class="gap"><button id="discard">Discard</button><button class="primary" id="saveEd">Save page</button></div></div>
+<div class="edgrid">
+<div class="card"><h3>Cues</h3><input placeholder="Search 46 cues" style="width:100%;margin-bottom:var(--sp-2)">
+<p class="note" style="margin-top:0">Not on this page yet. Click to put it in the next empty cell, or drag it to a cell.</p>
+<div class="chips" id="palette"></div>
+<details style="margin-top:var(--sp-3)"><summary class="muted">Add by id</summary><div class="gap" style="margin-top:var(--sp-2)"><input placeholder="Cue id" style="width:120px"><button class="sm">Add</button></div><span class="hint">For a cue QLC+ does not list.</span></details></div>
+<div class="stack"><div class="gap"><span class="muted">Size</span><select style="width:auto"><option>4 × 3</option><option>6 × 4</option><option>3 × 2</option><option>8 × 6</option></select>
+<span class="muted">Drag a button to move it, its corner to resize it.</span><span class="sp"></span><button class="sm">Undo</button><button class="sm">Preview on tablet</button></div>
+<div id="editGrid"></div></div>
+<div class="card" id="insp"><h3>Button: <span id="selName">Sermon</span></h3>
+<div class="stack"><div class="field" style="margin:0"><label>Label</label><input value="Sermon" id="selLabel"></div>
+<div class="field" style="margin:0"><label>Shape</label><div class="seg"><button class="on">Rounded</button><button>Pill</button><button>Square</button></div></div>
+<div class="field" style="margin:0"><label>Colour</label><div class="gap"><span class="swatch" style="background:#b45309"></span><span class="swatch" style="background:#2b5fd9"></span><span class="swatch" style="background:#7c3aed"></span><span class="swatch" style="background:#15803d"></span><span class="swatch" style="background:#be185d"></span></div></div>
+<div class="field" style="margin:0"><label>Cue in QLC+</label><input value="Sermon (14)" readonly><span class="hint">Slide tag: [relay:light=Sermon]</span></div>
+<button>Remove from page</button></div></div>
+</div>
+<details class="card"><summary><b>Page settings</b> <span class="muted">· screen on · 10 cues</span></summary>
+<div class="setrow" style="margin-top:var(--sp-2)"><span>Tablet screen<small>Its link and key are on the Screens tab.</small></span><label class="switch"><input type="checkbox" checked><span class="slider"></span></label></div>
+<div class="setrow"><span>Duplicate this page<small>Makes a copy you can change, with no screen.</small></span><button class="sm">Duplicate</button></div>
+<div class="setrow"><span>Delete this page<small>Its screen link stops working. Slide tags for its cues stop firing unless the cue is on another page.</small></span><button class="sm danger">Delete page</button></div>
+</details>
+</div>
+
+</div>
+
+<!-- Screens: one row per page, its tablet link and key. -->
+<div class="pane" id="screens"><div class="stack">
+<p class="lede">Each page can be opened full screen on a tablet at its own link. Anyone with the link can press its cues, so keep it on the booth and stage devices. A new key stops the old link working.</p>
+<div class="card"><table class="dt"><thead><tr><th>Page</th><th>Screen</th><th>Link</th><th>Presses today</th><th></th></tr></thead><tbody>
+<tr><td><b>Sunday service</b><br><span class="muted">10 cues, 2 levels</span></td><td><label class="switch"><input type="checkbox" checked><span class="slider"></span></label></td>
+<td><div class="linkbox"><span>https://relay.local/screen?lighting=sun&amp;k=8f2c…e19a</span><button class="sm">Copy</button></div></td><td class="mono">31 · last 9:11</td><td><button class="sm">New key</button></td></tr>
+<tr><td><b>Youth night</b><br><span class="muted">6 cues</span></td><td><label class="switch"><input type="checkbox"><span class="slider"></span></label></td>
+<td class="muted">Off. Turn it on to make a link.</td><td class="mono">0</td><td></td></tr>
+<tr><td><b>Stage manager</b><br><span class="muted">3 cues, 1 level</span></td><td><label class="switch"><input type="checkbox" checked><span class="slider"></span></label></td>
+<td><div class="linkbox"><span>https://relay.local/screen?lighting=sm&amp;k=03ab…77d0</span><button class="sm">Copy</button></div></td><td class="mono">4 · last 8:40</td><td><button class="sm">New key</button></td></tr>
+</tbody></table></div>
+<div class="card"><h3>Other ways in</h3><div class="setrow"><span>ProPresenter slide tags<small>A slide with [relay:light=Cue name] fires that cue when it goes live. The cue must be on a page.</small></span><span class="tag">ProPresenter on</span></div>
+<div class="setrow"><span>Boards<small>Any board can hold cue buttons from these pages.</small></span><a href="#">Open boards</a></div></div>
+</div></div>
+
+<!-- Program: choose one, then only that program's fields. -->
+<div class="pane" id="program"><div class="stack">
+<div class="card"><h3>Lighting program</h3><p class="lede">Relay talks to one lighting program. Pick it, then fill in the fields it needs.</p>
+<div class="opts"><button class="opt on"><b>QLC+</b><span>Web API, any OS</span></button><button class="opt"><b>Lightkey</b><span>OSC, macOS</span></button><button class="opt"><b>Chroma-Q Vista</b><span>OSC</span></button><button class="opt"><b>ShowXpress</b><span>Live API</span></button></div></div>
+<div class="card"><h3>QLC+ connection</h3><div class="form">
+<div class="field"><label>Address</label><input value="192.168.1.50"><span class="hint">The computer running QLC+, started with -w.</span></div>
+<div class="field"><label>Port</label><input value="9999" type="number"><span class="hint">QLC+ web port, 9999 unless changed.</span></div></div>
+<div class="setrow" style="margin-top:var(--sp-3)"><span>List functions too<small>Scenes and chases with no virtual-console button show up as cues you can place.</small></span><label class="switch"><input type="checkbox" checked><span class="slider"></span></label></div>
+<div class="ctl"><button class="primary">Save</button><button>Test connection</button><span class="badge ok">Connected · 46 cues, 3 levels</span></div></div>
+</div></div>
+</div>
+<nav class="mocknav"><a href="index.html">All</a><a href="a-tabs.html" aria-current="page">A</a><a href="b-desk.html">B</a><a href="c-library.html">C</a></nav>
+<script src="mock.js"></script>
+<script>
+(function(){var M=window.Mock;
+M.seg(document.getElementById('tabs'),function(p){document.querySelectorAll('.pane').forEach(function(x){x.classList.toggle('on',x.id===p);});});
+function fire(id){var p=M.pageById(id);M.draw(document.getElementById('fireGrid'),p,{wide:true,onPress:function(n){document.getElementById('fireLast').textContent='Last: '+n+', this page, now';}});
+M.faders(document.getElementById('fireFaders'),p);document.getElementById('fireFaders').closest('.card').classList.toggle('hidden',!p.levels.length);}
+function $(id){return document.getElementById(id);}
+function view(v){['pgList','pgNew','pgEdit'].forEach(function(x){$(x).classList.toggle('hidden',x!==v);});}
+function mk(tag,cls,text){var e=document.createElement(tag);if(cls)e.className=cls;if(text!=null)e.textContent=text;return e;}
+// The list: one row per page with a preview, its screen state and an Edit button.
+M.PAGES.forEach(function(p){var r=mk('div','prow');r.appendChild(mk('span','grip','⋮⋮'));var t=mk('div','mini');r.appendChild(t);M.draw(t,p,{mini:true});
+var n=mk('div');n.appendChild(mk('b','',p.name));n.appendChild(mk('small','',p.cues.length+' cues'+(p.levels.length?', '+p.levels.length+' level'+(p.levels.length>1?'s':''):'')+' · '+p.cols+' × '+p.rows));r.appendChild(n);
+r.appendChild(mk('span',p.screen?'badge ok':'badge muted',p.screen?'Screen on':'No screen'));r.appendChild(mk('button','sm','Edit'));
+r.onclick=function(){edit(p.id);};$('pgRows').appendChild(r);});
+// New page: name, size, starting point, live preview.
+var SIZES=[[3,2],[4,3],[6,4],[8,6]],size=[4,3],start='blank';
+SIZES.forEach(function(s,i){var b=mk('button',i===1?'on':'');var g=mk('span','sg');g.style.gridTemplateColumns='repeat('+s[0]+',1fr)';
+for(var k=0;k<s[0]*s[1];k++)g.appendChild(mk('i'));b.appendChild(g);b.appendChild(mk('span','',s[0]+' × '+s[1]));
+b.onclick=function(){$('npSize').querySelectorAll('button').forEach(function(x){x.classList.toggle('on',x===b);});size=s;prev();};$('npSize').appendChild(b);});
+var ALL=['Walk-in','House half','Countdown','Worship full','Worship soft','Sermon','Baptism','Altar call','Postlude','Blackout','Haze on','Chase'].concat(M.UNPLACED);
+ALL.forEach(function(n,i){var l=mk('label','check');var c=mk('input');c.type='checkbox';c.checked=i<3;c.onchange=prev;l.appendChild(c);l.appendChild(document.createTextNode(' '+n));$('npTicks').appendChild(l);});
+var KEYS=Object.keys(M.C);
+function prev(){var cues=[];
+if(start==='copy')cues=M.PAGES[0].cues.filter(function(c){return c[1]+c[3]<=size[0]&&c[2]+c[4]<=size[1];});
+if(start==='pick'){var on=[].slice.call($('npTicks').querySelectorAll('input')).filter(function(c){return c.checked;});$('npCount').textContent=on.length+' picked';
+on.slice(0,size[0]*size[1]).forEach(function(c,i){cues.push([KEYS[i%KEYS.length],i%size[0],Math.floor(i/size[0]),1,1]);});}
+M.draw($('npPrev'),{cols:size[0],rows:size[1],cues:cues},{edit:true,sel:-1});
+$('npFit').textContent=size[0]+' × '+size[1]+' grid · '+(size[0]*size[1])+' buttons fit'+(start==='pick'?', '+cues.length+' placed.':'.');}
+$('npStart').addEventListener('click',function(e){var o=e.target.closest('.opt');if(!o||e.target.tagName==='SELECT')return;start=o.dataset.s;$('npPick').classList.toggle('hidden',start!=='pick');prev();});
+$('newBtn').onclick=function(){$('npName').value='';prev();view('pgNew');$('npName').focus();};
+$('npCreate').onclick=function(){edit('youth',$('npName').value||'New page');};
+// Edit: its own screen, with unsaved-changes state.
+function edit(id,name){var p=M.pageById(id);$('edName').value=name||p.name;$('dirty').classList.add('hidden');
+M.draw($('editGrid'),p,{edit:true,sel:id==='sun'?6:0});
+var pal=$('palette');pal.textContent='';M.UNPLACED.forEach(function(n){var c=mk('span','chip add','+ '+n);c.onclick=function(){c.remove();$('dirty').classList.remove('hidden');};pal.appendChild(c);});
+view('pgEdit');}
+$('edName').oninput=function(){$('dirty').classList.remove('hidden');};
+$('saveEd').onclick=$('discard').onclick=function(){$('dirty').classList.add('hidden');};
+document.querySelectorAll('[data-back]').forEach(function(b){b.onclick=function(){view('pgList');};});
+M.seg($('firePick'),fire);fire('sun');
+document.addEventListener('click',function(e){var o=e.target.closest('.opt');if(!o)return;o.parentNode.querySelectorAll('.opt').forEach(function(x){x.classList.toggle('on',x===o);});});
+})();
+</script></body></html>

@@ -3,7 +3,6 @@
     <p class="sub">The media server behind the crew intercom. Relay runs it on this computer; nothing leaves your network.</p>
 
     <section id="icLive">
-      <style>#icLive .ic-warn{color:#b45309;font-weight:600}#icLive .ic-bad{color:#b91c1c;font-weight:700}</style>
       <h3>Live <span class="sumstate" id="icLiveSum"></span></h3>
       <div class="ctl" id="icLiveBar">
         <label class="note">Production label
@@ -29,6 +28,37 @@
       </table>
       <p class="note">Changes here apply at once and are logged. Mutes are live state: they clear when Relay restarts, and they never change who is on a channel.</p>
       <div class="note err" id="icLiveErr" hidden></div>
+    </section>
+
+    <section id="icHealth">
+      <h3>Health <span class="sumstate" id="icHealthSum"></span></h3>
+      <p class="note">Checked every 5 seconds. Relay restarts LiveKit when it stops answering; nothing else is restarted.</p>
+      <div class="ic-cards" id="icCards"></div>
+      <details id="icThBox">
+        <summary>Thresholds</summary>
+        <div class="ic-th" id="icTh" style="margin-top:8px"></div>
+        <div class="ctl" style="margin-top:8px">
+          <button type="button" id="icThSave">Save thresholds</button>
+          <button type="button" id="icThReset">Back to defaults</button>
+        </div>
+      </details>
+      <h3>Connection log</h3>
+      <div class="ctl">
+        <label>Show
+          <select id="icLogHours"><option value="1">last hour</option><option value="24" selected>last 24 hours</option>
+            <option value="168">last 7 days</option><option value="720">last 30 days</option></select></label>
+        <label>Kind <input type="text" id="icLogKind" maxlength="40" placeholder="e.g. device_" style="width:10em"></label>
+        <button type="button" id="icLogCsv">Export CSV</button>
+      </div>
+      <div class="note" id="icEventsEmpty">Nothing logged in this period.</div>
+      <div style="max-height:320px;overflow:auto">
+        <table class="tbl" id="icEventsTable" hidden>
+          <thead><tr><th>Time</th><th>Event</th><th>Person</th><th>Phone</th><th>Channel</th><th>By</th><th>Detail</th></tr></thead>
+          <tbody id="icEvents"></tbody>
+        </table>
+      </div>
+      <p class="note">Connections, sign-ins and permission changes are logged and kept for 30 days. Audio is never recorded.</p>
+      <div class="note err" id="icHealthErr" hidden></div>
     </section>
 
     <section>
@@ -63,7 +93,7 @@
         <button type="button" id="icNewChannel">New channel</button>
       </div>
 
-      <div id="icEdit" hidden style="margin-top:16px;padding:12px;border:1px solid var(--line, #8884);border-radius:8px">
+      <div id="icEdit" class="notice" hidden style="margin-top:16px">
         <h3 id="icEditTitle">Edit channel</h3>
         <div class="ctl">
           <label>Name <input type="text" id="icEName" maxlength="60"></label>
@@ -94,7 +124,7 @@
     </section>
 
     <section>
-      <h3>Log</h3>
+      <h3>LiveKit log</h3>
       <pre class="mono" id="icLog" style="max-height:260px;overflow:auto;white-space:pre-wrap"></pre>
     </section>
     <div class="note err" id="icErr" hidden></div>

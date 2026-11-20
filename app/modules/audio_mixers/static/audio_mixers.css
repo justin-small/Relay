@@ -1,0 +1,25 @@
+/* The Audio Mixers admin page's layout (#150). Controls come from components.css, sizes and colours from tokens.css. */
+#page-audio_mixers .amhead{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+#page-audio_mixers .amhead h3{margin:0}
+#page-audio_mixers .ampills{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+#page-audio_mixers .amscene{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:10px 0}
+#page-audio_mixers .amscene input{width:96px}
+#page-audio_mixers .amscenetext{font-size:var(--fs-md);margin-right:auto}
+#page-audio_mixers .amstrips{display:flex;flex-direction:column;gap:4px;margin-top:8px}
+#page-audio_mixers .amstrip{display:grid;grid-template-columns:32px minmax(80px,180px) minmax(64px,110px) 76px minmax(80px,1fr) 52px 64px;
+  gap:8px;align-items:center}
+#page-audio_mixers .amstrip[hidden]{display:none}
+#page-audio_mixers .amnum{color:var(--dim);font-variant-numeric:tabular-nums;text-align:right;font-size:var(--fs-sm)}
+#page-audio_mixers .amname,#page-audio_mixers .amcolour{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:var(--fs-md)}
+#page-audio_mixers .amcolour{color:var(--dim);font-size:var(--fs-sm)}
+#page-audio_mixers .amfader{width:100%;accent-color:var(--ok)}
+#page-audio_mixers .amdb{font-variant-numeric:tabular-nums;font-size:var(--fs-sm);text-align:right}
+#page-audio_mixers .ammeter{height:8px;background:var(--inset);border-radius:var(--r-sm);overflow:hidden}
+#page-audio_mixers .ammeter i{display:block;height:100%;width:0;background:var(--ok)}
+#page-audio_mixers .amroutes{margin-top:12px}
+#page-audio_mixers .amform{margin-bottom:12px}
+@media (max-width:760px){
+  #page-audio_mixers .amstrip{grid-template-columns:28px minmax(0,1fr) 76px;grid-auto-rows:auto}
+  #page-audio_mixers .amstrip .amfader{grid-column:1/-1}
+  #page-audio_mixers .amstrip select,#page-audio_mixers .amstrip .amcolour,#page-audio_mixers .ammeter{display:none}
+}

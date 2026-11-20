@@ -656,7 +656,7 @@ over the internet. **Remote access** is a module, off until you switch it on (Ad
 
 1. Switch on **Remote access** and open its page (under Output).
 2. Enter the **enrollment code** you were given and press **Enroll**. Each code works once.
-3. Relay gets its own address, `https://<random>.relaychurchsystems.com`, with a QR code to put on a slide.
+3. Relay gets its own address, `https://<random>.cloud.relaysystems.dev`, with a QR code to put on a slide.
 
 How it works: Relay's cloud (the `relay-cloud` Worker, a separate repository) makes a Cloudflare Tunnel and a DNS
 name for this install. Relay then runs `cloudflared`, which connects **out** to Cloudflare, so nothing changes on
@@ -707,6 +707,8 @@ playlist on screens through `schedule.register_layer` (see "Signage from ProPres
   what is taken over and has one **Return all to playlist** button. Another module (ProPresenter slide-note tags)
   can switch screens with `takeover.live_view_set`, `takeover.push_set` and `takeover.clear` in
   `app/modules/signage/takeover.py`, naming `signage` in its `uses`.
+- On a **board** (Boards page), the **Signage takeovers** widget lists which screens or groups are taken over and by
+  what, and **Return signage to playlist** (needs `signage.manage`, lit while anything is taken over) ends them all.
 
 Screens are on a **port of their own** (8090, changeable on the Settings tab; restart Relay after changing it). It is
 plain HTTP so a TV needs no login and no certificate, and only the signage pages answer on it: the captions, the
@@ -793,12 +795,34 @@ intranet, a device on the LAN) are never fetched by Relay: they are saved unchec
 Three pieces fit together. A switcher module reads the program and preview from a video switcher, core keeps the
 one shared tally state, and the tally screens read only that state, so they work with whichever module fills it.
 
-- **Blackmagic ATEM** (module, off by default). Enter the switcher's IP address on its admin page. Relay speaks
-  the ATEM network protocol itself (UDP port 9910, written from the protocol description in `atem-connection`, the
-  library Bitfocus Companion uses), so there is nothing to install. It shows the program and preview tally with the
-  switcher's own input names, and a booth operator can cut, auto-transition, set preview or program, mix a downstream
-  key, fade to black and run macros. Control needs the Operator role (`atem.control`). It reconnects by itself, waiting
-  longer after each failed try, and the tally goes dark while the switcher is away.
+- **Blackmagic** (module, off by default; before 2026-11-17 it was the ATEM module, and its settings, switch and
+  network port move over on upgrade). One module for the Blackmagic gear a church runs: ATEM switchers, HyperDeck
+  recorders and Videohub routers, any number of each. On its admin page, press **Scan** to list the Blackmagic gear on
+  the network (found over mDNS; tick "every address on this subnet" where mDNS is blocked, which finds switchers only)
+  and add a device in one click, or add one by its IP address and kind. Each device connects on its own, can be
+  switched off without being removed, and is followed to a new address if its DHCP lease changes. Control needs the
+  Operator role (`blackmagic.control`); adding, removing, renaming labels, locking outputs and saving presets need Admin
+  (`blackmagic.manage`).
+  - **ATEM switcher.** Relay speaks the ATEM network protocol itself (UDP port 9910, written from the protocol
+    description in `atem-connection`, the library Bitfocus Companion uses), so there is nothing to install. It shows
+    the program and preview tally with the switcher's own input names, and a booth operator can cut, auto-transition,
+    set preview or program, mix a downstream key, fade to black and run macros. Add as many switchers as the building
+    has; each either drives the tally lights or not, and each one that does gets its own **first camera number**
+    (camera 1 on the overflow switcher as tally 101, say) so the screens never mix them up. It reconnects by itself,
+    waiting longer after each failed try, and the tally goes dark while the switcher is away.
+  - **HyperDeck recorder.** Over its text protocol (TCP port 9993). The page shows whether it is recording, playing
+    or stopped, the current clip and timecode, each slot's disk and the recording time left, and the latest clips,
+    with **Record**, **Stop** and **Play** buttons. The deck's remote control must be on (it is by default).
+  - **Videohub router.** Over its text protocol (TCP port 9990). The page lists every output with the input it takes,
+    changes a route from a drop-down, and keeps **route presets** (save what the router does now as "Program to
+    overflow", recall it with one press; an output another control surface has locked is left out). Admins can rename
+    inputs and outputs (the router's own labels) and lock or unlock an output. A lock Relay takes is held by Relay's
+    connection and is released by the router when the connection closes; Relay never forces another surface's lock.
+    An ATEM Constellation has a Videohub router inside: add it again as a Videohub, by its address, to route it.
+  The HyperDeck and Videohub parts were written from Blackmagic's protocol documents and tested against fakes. The
+  Videohub's reading side (the prelude, labels, routing, locks, ping) has been checked against an ATEM 2 M/E
+  Constellation HD's built-in router (protocol 2.7, 45 inputs, 16 outputs); changing routes, labels and locks, and the
+  whole HyperDeck, have not yet been run on real hardware.
 - **Tally Arbiter** (module, off by default). For every other switcher (OBS, vMix and the rest), run
   [Tally Arbiter](https://github.com/josephdadams/TallyArbiter) and give Relay its address (port 4455). Relay listens
   as a tally listener; each Tally Arbiter device is a camera, numbered in the order Tally Arbiter lists them.
@@ -1017,8 +1041,10 @@ from the tag, and publishes a GitHub release with `Relay-v1.2.0.zip` (a
 `git archive` of the tag, so nothing gitignored ships),
 `Relay-User-Guide.pdf` and `Relay-User-Guide.docx`. A tag with a hyphen
 (`v1.2.0-rc.1`) becomes a pre-release, which `releases/latest` skips. Pull
-requests that touch the workflow or `docs/guide/` run everything but the
-publish.
+requests that touch the workflow or `desktop/` run everything but the
+publish and the Intel Mac installer, which is built on tags only (push a
+`-rc` tag to see all four first). A pull request that changes only
+`docs/guide/` builds just the guide (`.github/workflows/guide.yml`).
 
 The Companion module releases the same way from its own repo, with the tag
 checked against `package.json` and `companion/manifest.json`.
@@ -1463,6 +1489,181 @@ Tests: `tests/test_propresenter.py` (a fake ProPresenter on localhost), and for
 the panel views `firmware/relay-display/tests/test_propresenter_view.py`. For
 operators there is a chapter in the user guide
 (`docs/guide/src/54-propresenter.md`).
+
+## OBS Studio
+
+Switch on **OBS Studio** on the Modules page, then open **Output > OBS Studio**. In OBS, open Tools > WebSocket Server
+Settings, switch the server on and note its port (4455) and password. Add each OBS computer Relay should follow (up to
+four, such as a stream PC and a record PC) with its address, port and password, and Save. Each computer keeps one
+connection to OBS for everything below.
+
+For each computer the page shows the program scene, whether it is streaming and recording and for how long, dropped
+frames, the last minute's dropped (network), skipped (encoding) and lagged (rendering) frames, CPU, memory, frame rate,
+free disk, and a chart of the last 15 minutes' bitrate and dropped frames. Each computer is also an entry on the
+status view (`/status`): **trouble** (error) when OBS cannot be reached or the stream stopped by itself, **needs a
+look** (warn) while reconnecting, over 1% bad frames in the last minute, or a watched microphone muted while live,
+**healthy** while streaming or recording, **standing by** otherwise.
+
+- **Stream, recording and replay.** Operators start and stop the stream (Relay asks first) and the recording, pause
+  and resume it, and start the replay buffer and save the last moments. Pause does nothing in OBS's Simple output
+  mode with Recording Quality "Same as stream"; Relay says so. The replay buffer needs switching on in OBS (Settings >
+  Output > Replay Buffer). Each press is sent once and never retried.
+- **Scenes and studio mode.** Operators switch scenes from the page. With studio mode on, a tap puts a scene in
+  preview and **Take** sends it to program. **Turn screen on** gives a link (`/screen?obs=...&key=...`) for a tablet
+  with one big button per scene; the key is the link's only authority, works for that computer only, and **New link**
+  stops the old one at once.
+- **Audio.** Tick the inputs to watch to see their meters and mute or unmute them; tick "warn if muted while live" for
+  a microphone that must never be muted on air.
+- **Alerts.** Pick one of your alert buttons to raise when a computer is in trouble, and one for when it needs a look.
+  Each is raised once per problem. "Cannot be reached" raises only after Relay was connected to it, so a computer
+  switched off all week stays quiet.
+- **Tally.** Give scenes camera numbers and the tally screens (`/tally`) and the panels' tally view light that camera
+  red while its scene is on air, and green while it is in preview.
+- **Preview.** Tick "Show a preview" to see the program scene on the page, refreshed about once a second while the page
+  is open. It is never sent to viewers.
+- **Captions.** Tick "Send captions into this stream" and pick the language. Finished lines are sent as CEA-608
+  captions with OBS's `SendStreamCaption`, split to 32 characters, only while OBS is streaming. Set a delay in seconds
+  if OBS delays the stream. Viewers on YouTube and Twitch can switch them on; Vimeo does not show them, and Resi is
+  untested.
+- **YouTube.** When OBS streams to YouTube with your account connected in OBS, the page shows which broadcast OBS
+  picked with links to it in YouTube Studio and on YouTube. OBS's WebSocket cannot change a broadcast's title, privacy
+  or schedule; do that in YouTube Studio. Relay never reads OBS's stream key.
+- **Slide tags.** `[relay:obs=Message]` on a ProPresenter slide switches every connected OBS computer that has a
+  scene of that name.
+
+### OBS from Companion or a script
+
+Every action above is an admin route, so a Stream Deck can press it through Companion's **Generic HTTP** module with an
+API token. Make a token on the **Users** page (an admin's account), then send it as `Authorization: Bearer relay_...`
+to the operator panel's address (`https://<relay>:<admin port>`), with `Content-Type: application/json`:
+
+| Button | Request | Body |
+|---|---|---|
+| Switch scene | `POST /api/admin/obs/scene` | `{"machine": "<id>", "scene": "Message"}` |
+| Start / stop stream | `POST /api/admin/obs/output` | `{"machine": "<id>", "output": "stream", "action": "start"}` (or `"stop"`) |
+| Recording | `POST /api/admin/obs/output` | `{"machine": "<id>", "output": "record", "action": "start"}` (`stop`, `pause`, `resume`) |
+| Save replay | `POST /api/admin/obs/output` | `{"machine": "<id>", "output": "replay", "action": "save"}` |
+| Studio mode | `POST /api/admin/obs/studio` | `{"machine": "<id>", "action": "take"}` (`on`, `off`, or `preview` with `"scene"`) |
+| Mute | `POST /api/admin/obs/mute` | `{"machine": "<id>", "input": "Pastor mic", "muted": true}` |
+| Read state | `GET /api/admin/obs` | |
+
+The computer's `<id>` is in `GET /api/admin/obs` (`machines[].id`). Companion must trust Relay's certificate, or use
+the certificate fingerprint as described in the Companion chapter of the guide. Only admin accounts hold tokens, and a
+token acts as its user: turning that user off stops the token at once.
+
+## REAPER
+
+The **REAPER** module (#413, off until switched on under Modules) records the service in REAPER over its OSC control
+surface. Relay follows up to four REAPER computers.
+
+**Set REAPER up.** In REAPER open Settings > Control/OSC/web, click Add and choose OSC (Open Sound Control):
+
+| REAPER setting | Value |
+|---|---|
+| Mode | Configure device IP + local port |
+| Device IP | the Relay computer's address (`127.0.0.1` when REAPER runs on the Relay computer) |
+| Device port | Relay's listen port for this computer (9001) |
+| Local listen port | the port Relay sends to (8000) |
+| Pattern config | Default |
+
+Click OK, then Apply. A device IP of `0.0.0.0` sends nothing back. Also switch off Settings > Recording > "Prompt to save/delete/rename new
+files" (or answer it each time): while that prompt is open REAPER answers nothing, so Relay cannot see that it
+stopped and says so. On Relay's REAPER page add the computer with its
+address and the two ports, save, and press Test connection.
+
+**What it does:**
+- **Transport.** Record, stop, a named marker at the play cursor, and any REAPER action by its number (Actions list,
+  Command ID). A computer already recording is left alone. Every command is sent once and never retried.
+- **Auto-record.** Record while the stream is on air (OBS, YouTube and other stream sources) and/or during schedule
+  windows; stop a set number of seconds after it ends. Relay only stops a recording it started. If someone stops the
+  recording while the service is live, Relay does not start it again and reports an error.
+- **Markers.** One for each new ProPresenter presentation, named after it (on by default), and one for each stage
+  message (off by default), while recording.
+- **Tracks.** Each track's name, arm, mute and level; arm and mute from the page. Relay follows the first 64 tracks.
+- **Checks and alarms.** Warnings: no track armed, a named track missing or not armed, an armed track silent for the
+  set time while recording. Errors: REAPER stopped answering, or not recording while the service is live. Each
+  computer can raise one Alerts button on an error and another on a warning, once per problem.
+- **Slide tags.** `[relay:reaper=record]`, `stop`, `marker`, `marker=Sermon`, `action=40157` (see ProPresenter).
+- **Boards.** Record (lit while recording), Stop, Marker, REAPER action, a recording status tile and armed-track
+  meters.
+
+REAPER's OSC reports neither free disk space nor the project's name, so Relay cannot warn about either. Showing
+recording on the status view and caption panels is #450.
+
+## Audio Mixers
+
+The **Audio Mixers** module (#150, #486; off until switched on under Modules) mirrors and controls your sound desks,
+several at once. It is built from each maker's published protocol and the Bitfocus Companion modules for these desks;
+**no driver has been tried on a real desk yet**, so try yours before a service and tell us what it does.
+
+| Desk | Protocol | Port | Names | Notes |
+|---|---|---|---|---|
+| Allen & Heath Avantis, dLive | MIDI over TCP | 51325 | yes (8) | Set the base MIDI channel to match the desk. Mutes and faders are known once they change, or always with AH-Net (Avantis). |
+| Allen & Heath GLD, Qu-16/24/32 | MIDI over TCP | 51325 | yes (8, Qu 6) | One MIDI channel. Qu sends are not set from Relay. |
+| Allen & Heath SQ-5/6/7 | MIDI (NRPN) over TCP | 51325 | no | The SQ answers requests, so mutes, levels and sends are read at once. |
+| Behringer X32, Midas M32 | OSC over UDP | 10023 | yes (12) | Meters too. |
+| Behringer WING | OSC over UDP | 2223 | yes (16) | Scene names from the show's list. |
+| Yamaha CL, QL, TF, DM3, DM7 | RCP over TCP | 49280 | yes | Allow remote control from the Relay computer on the desk. |
+
+**AH-Net (Avantis, optional).** Allen & Heath's own protocol on port 51321 gives every input fader and the scene names,
+which MIDI does not. It is not published for other software, may stop working with new firmware and does not follow the
+console's user profiles, so it is off unless you turn it on for that desk.
+
+**What it does:**
+- **A live mirror** of every desk on the Audio Mixers page: channel names, colours, mutes, faders, meters (X32/M32) and the
+  current scene. A value Relay has not heard is shown as unknown, never guessed.
+- **Control behind a permission.** Muting, faders, names, colours and scene recalls need `audio_mixers.control` (operator);
+  the server refuses them otherwise. Nothing moves a desk on its own.
+- **Channels and sends.** Inputs and mixes are core audio channels, so the Planning Center board and the Network page see
+  them, a rename on the Network page goes to the desk, and each mix's sends are routes you can set from the page's "Sends
+  into each mix" or anywhere routes are made.
+- **Boards.** A fader bank (strips chosen per widget, like `main1, mix1-4, in1-8`), mute and scene buttons, a channel
+  wall, mic states and desk meters.
+- **Watchdog.** Save each desk as it should be, choose who to notify and which mutes to watch; a name, a watched mute or
+  the scene changing without Relay doing it sends that person a crew notification that buzzes until read. What Relay
+  itself does moves the baseline with it.
+- **Mic names from Planning Center.** "Preview names" shows the name the next service's mics give each desk channel (from
+  the Planning Center page's Team and mics tab); nothing is sent until you tick and confirm.
+
+## YouTube
+
+Switch on **YouTube** on the Modules page, then open **Output > YouTube** and press **Connect**, then **Open YouTube
+sign-in**, and sign in with the Google account that owns the church's channel (the link also works on another phone or
+computer). Google sends the sign-in back through Relay's cloud (cloud.relaysystems.dev), which passes it to this Relay. Relay asks to manage the channel (`youtube.force-ssl`) so it can schedule live streams; it never uploads videos and never changes or deletes a broadcast it did not create. A channel connected before scheduling existed is read-only until someone presses **Connect again**.
+
+The page then shows the channel's live broadcast: its state (live, testing), how long it has been live, how many are
+watching, and links to its watch page and to YouTube Studio. It is also an entry on the status view (`/status`): **live**
+with the viewer count while the channel is on air, **needs a look** when YouTube stops accepting Relay's sign-in or
+cannot be read, **standing by** otherwise. Broadcast titles stay on the admin page; the status view shows only "YouTube".
+
+- **How often.** Every Relay shares one daily YouTube allowance, so it checks rarely: every minute while YouTube or
+  another stream Relay follows (OBS, say) is on air, and every 10 minutes otherwise. Both can be changed in Settings.
+  If the allowance runs out, the page says so and status comes back after midnight Pacific time.
+- **Signing in again.** If the account's password changes or someone removes Relay's access, the page and the module's
+  health say "YouTube needs signing in again". Press **Connect again**.
+- **Disconnect** forgets the account and asks Google to remove Relay's access. To check, open the Google account's
+  Security page, then "Your connections to third-party apps & services".
+- **Your own Google app.** To keep the sign-in off Relay's cloud, a church can make its own (a "TVs and Limited
+  Input devices" client with the YouTube Data API switched on, see `docs/reference/oauth-apps.md`) and enter its client
+  ID and secret under Settings. Connect then shows a code to enter at google.com/device.
+- **Scheduled streams.** Under **Scheduled streams → Schedule settings**, turn on *Create the live streams ahead of
+  time* and say when the services are: weekly (a name, a day and a time, in Relay's time zone) and/or from the plans of
+  Planning Center service types Relay follows. Relay creates each one's broadcast up to *Days ahead* before it (a week
+  by default), with the title (`{name}`, `{title}`, `{date}`, `{time}`), description and privacy you set, and binds it to
+  the **stream key** you pick (press *Load stream keys*), so it starts and stops with your encoder. A broadcast already
+  scheduled in YouTube Studio within 45 minutes of a service counts as that service's; Relay makes no second one.
+  Each broadcast costs 100 units of the shared allowance, so Relay checks for upcoming ones every 30 minutes, and only
+  while a schedule or an episode is set up.
+- **Planning Center Publishing.** Under **Planning Center Publishing**, pick a channel (such as *Live*), then an
+  episode, and how to choose its broadcast: *by the episode's day and time* (a weekly episode whose time was last
+  Sunday at 10:00 gets the next Sunday-at-10:00 broadcast), *the next broadcast*, or *one I pick*. Relay writes the
+  broadcast's watch link into each of the episode's times, so Church Center shows the stream there. It sends as soon
+  as the broadcast is scheduled (unless you untick *Send by itself*), and again whenever someone presses **Send now**.
+  Planning Center must be on and connected, and its token's person must be able to edit Publishing.
+- Only Admins and Owners connect, disconnect, change settings, the schedule and the linked episodes; Operators can also
+  press **Send now**; viewers see the status. Connecting and
+  disconnecting are in the audit log. The token is kept encrypted in config.json, like the OpenAI key, and never sent to
+  a browser.
 
 ## Parent paging
 

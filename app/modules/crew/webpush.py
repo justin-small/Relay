@@ -24,6 +24,8 @@ from cryptography.hazmat.primitives.asymmetric.utils import decode_dss_signature
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 
+from ... import netsock
+
 # The browsers' push services: Chrome and Edge (FCM, Windows), Firefox (Mozilla), Safari (Apple).
 ALLOWED_HOSTS = ("fcm.googleapis.com", "updates.push.services.mozilla.com", "push.apple.com",
                  "notify.windows.com", "push.services.mozilla.com")
@@ -99,6 +101,9 @@ def vapid_header(key: ec.EllipticCurvePrivateKey, endpoint: str, now: float | No
     return f"vapid t={head}.{body}.{b64e(sig)}, k={b64e(public_bytes(key))}"
 
 
+TRAFFIC = "crew.push"
+
+
 class _NoRedirect(urllib.request.HTTPRedirectHandler):
     def redirect_request(self, *args, **kwargs):
         return None
@@ -116,7 +121,8 @@ def post(endpoint: str, headers: dict, body: bytes) -> int:
     """One POST to a push service. Returns the status; raises Failed on a network error. Tests replace this."""
     req = urllib.request.Request(endpoint, data=body, headers=headers, method="POST")
     try:
-        with urllib.request.build_opener(_NoRedirect).open(req, timeout=TIMEOUT_S) as res:
+        # Through the port the operator chose for crew notifications (#348); the system default when none.
+        with netsock.opener(TRAFFIC, _NoRedirect).open(req, timeout=TIMEOUT_S) as res:
             return res.status
     except urllib.error.HTTPError as exc:
         return exc.code

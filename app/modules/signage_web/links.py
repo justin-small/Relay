@@ -16,6 +16,7 @@ import urllib.parse
 import urllib.request
 from typing import Any
 
+from ... import netsock
 from ...realtime import _SSL
 
 log = logging.getLogger("relay.signage_web")
@@ -155,8 +156,8 @@ class _NoRedirect(urllib.request.HTTPRedirectHandler):
         return None
 
 
-_HTTPS = urllib.request.HTTPSHandler(context=_SSL)
-_OPENER = urllib.request.build_opener(_NoRedirect, _HTTPS)
+TRAFFIC = "signage_web"   # the checks go out through this class's port (#348)
+_OPENER = netsock.opener(TRAFFIC, _NoRedirect, context=_SSL)
 
 
 def public_host(host: str) -> bool:

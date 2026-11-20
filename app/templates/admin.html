@@ -1,518 +1,85 @@
 <!doctype html>
-<html lang="en"><head>
+{% set look = look|default({}) %}
+<html lang="en" data-theme="{{ 'dark' if look.get('ui_mode', 'dark') == 'system' else look.get('ui_mode', 'dark') }}" data-mode="{{ look.get('ui_mode', 'dark') }}" data-preset="{{ look.get('ui_preset', 'relay') }}" data-sb="{{ look.get('ui_sidebar', 'inset') }}" data-collapse="{{ look.get('ui_collapse', 'icon') }}" data-layout="{{ look.get('ui_layout', 'centered') }}" data-navbar="{{ look.get('ui_navbar', 'sticky') }}" data-font="{{ look.get('ui_font', 'system') }}"{% if look.get('ui_collapsed') %} class="cl"{% endif %}><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Relay &middot; Operator</title>{% include "_brand_head.html" %}<link rel="stylesheet" href="{{ static('viewer.css') }}">
+<title>Relay &middot; Operator</title>{% include "_brand_head.html" %}<link rel="stylesheet" href="{{ static('viewer.css') }}"><link rel="stylesheet" href="{{ static('tokens.css') }}"><link rel="stylesheet" href="{{ static('components.css') }}"><link rel="stylesheet" href="{{ static('admin.css') }}"><link rel="stylesheet" href="{{ static('layout.css') }}"><link rel="stylesheet" href="{{ static('boards.css') }}">{% for style in module_styles %}<link rel="stylesheet" href="{{ static('modules/' ~ style) }}">{% endfor %}
 <script>
+/* Before first paint: "system" follows the device, and the chosen font applies (both are allow-listed words). */
+(function () {
+  var h = document.documentElement, f = {rounded: 'ui-rounded,"SF Pro Rounded","Hiragino Maru Gothic ProN",system-ui,sans-serif', serif: 'ui-serif,Georgia,"Times New Roman",serif', mono: 'ui-monospace,SFMono-Regular,Menlo,monospace'};
+  if (h.dataset.mode === 'system' && window.matchMedia('(prefers-color-scheme: light)').matches) h.dataset.theme = 'light';
+  if (f[h.dataset.font]) h.style.setProperty('--font', f[h.dataset.font]);
+  if (window.matchMedia('(max-width:900px)').matches) h.classList.remove('cl');
+})();
 window.RELAY_ME = {{ me|tojson }};
 window.relayCan = function (perm) { return window.RELAY_ME.permissions.indexOf(perm) !== -1; };
 </script>
-<style>
-  body { display:block; font-size:14px; }
-  .wrap { max-width:820px; margin:0 auto; padding:22px 20px 90px; }
-  header { display:flex; align-items:center; gap:12px; margin-bottom:20px; }
-  header h1 { font-size:19px; margin:0; font-weight:600; }
-  header .spacer { flex:1; }
-  section { border:1px solid var(--line); border-radius:11px; background:#0a0b0d; padding:16px 18px; margin-bottom:14px; }
-  section h2 { font-size:11px; letter-spacing:.13em; text-transform:uppercase; color:var(--dim);
-               margin:0 0 13px; font-weight:600; }
-  label { display:block; font-size:12px; color:var(--dim); margin:0 0 5px; }
-  input, select, textarea { width:100%; padding:9px 11px; font:inherit; border-radius:7px;
-                  border:1px solid var(--line); background:#111216; color:var(--fg); }
-  textarea { resize:vertical; line-height:1.5; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-             font-size:13px; }
-  .row { display:flex; gap:10px; flex-wrap:wrap; }
-  .row > * { flex:1 1 200px; min-width:0; }
-  .field { margin-bottom:12px; }
-  button { padding:9px 15px; font:inherit; font-weight:500; border-radius:7px;
-           border:1px solid var(--line); background:#1a1c21; color:var(--fg); cursor:pointer; }
-  button:hover { background:#22252b; }
-  button.primary { background:#2f6df6; border-color:#2f6df6; color:#fff; font-weight:600; }
-  button.danger  { background:#7f1d1d; border-color:#7f1d1d; color:#fff; font-weight:600; }
-  button:disabled { opacity:.45; cursor:not-allowed; }
-  /* dBFS meter: -60 dBFS at the left edge, 0 at the right, with the -18 dBFS
-     target band marked. The bar is RMS; the thin marker is a decaying peak. */
-  /* The scale must be exactly as wide as the bar, so both live in .metercol and
-     the LED/readout take their space beside it, not out of it. */
-  .meterwrap { display:flex; align-items:flex-start; gap:10px; margin-top:9px; }
-  .metercol { flex:1 1 auto; min-width:0; }
-  /* Fixed width: the readout's digits change every tick, and a bar that
-     resizes under them is unreadable at a glance. */
-  .meterside { flex:0 0 152px; display:flex; flex-direction:column;
-               align-items:flex-end; gap:4px; padding-top:1px; }
-  .meter { position:relative; height:11px; border-radius:5px;
-           background:#111216; overflow:hidden; }
-  .meter > i { display:block; height:100%; width:0; background:var(--accent);
-               transition:width .08s linear; }
-  .meter.hot > i { background:var(--warn); }
-  .meter.clipping > i { background:var(--err); }
-  /* Target band, -20 to -16 dBFS => 66.7% to 73.3% of the scale. */
-  .meter::before { content:""; position:absolute; inset:0 26.7% 0 66.7%;
-                   background:rgba(255,255,255,.10);
-                   border-left:1px solid rgba(255,255,255,.22);
-                   border-right:1px solid rgba(255,255,255,.22); pointer-events:none; }
-  .meter > b { position:absolute; top:0; bottom:0; width:2px; margin-left:-1px;
-               background:var(--fg); opacity:0; border-radius:1px;
-               transition:left .08s linear, opacity .2s linear; pointer-events:none; }
-  .clip { font-size:11px; font-weight:700; letter-spacing:.1em;
-          padding:3px 8px; border-radius:4px; border:1px solid var(--line);
-          color:var(--line); background:#111216; transition:none; }
-  .clip.on { color:#fff; background:var(--err); border-color:var(--err); }
-  .meterscale { position:relative; display:block; height:12px; margin-top:3px; }
-  .meterscale span { position:absolute; top:0; font-size:11px; color:var(--dim);
-                     white-space:nowrap;
-                     font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
-  .meterread { font-size:11px; color:var(--dim); white-space:nowrap;
-               font-variant-numeric:tabular-nums;
-               font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
-  .meterread.clipped { color:var(--err); }
-  table { width:100%; border-collapse:collapse; }
-  td, th { text-align:left; padding:8px 6px; border-bottom:1px solid var(--line); font-size:13px; vertical-align:middle; }
-  th { color:var(--dim); font-weight:500; font-size:11px; text-transform:uppercase; letter-spacing:.09em; }
-  tr:last-child td { border-bottom:0; }
-  .pill { display:inline-flex; align-items:center; gap:6px; font-size:12px; color:var(--dim); }
-  .muted { color:var(--dim); }
-  .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size:12px; }
-  .switch { position:relative; display:inline-block; width:42px; height:24px; flex:0 0 auto; }
-  .switch input { opacity:0; width:0; height:0; }
-  .slider { position:absolute; inset:0; background:#2a2d34; border-radius:24px; transition:.15s; cursor:pointer; }
-  .slider:before { content:""; position:absolute; height:18px; width:18px; left:3px; top:3px;
-                   background:#fff; border-radius:50%; transition:.15s; }
-  .switch input:checked + .slider { background:var(--accent); }
-  .switch input:checked + .slider:before { transform:translateX(18px); }
-  .bannerbar { position:fixed; left:0; right:0; bottom:0; background:#0a0b0d;
-               border-top:1px solid var(--line); padding:11px 20px; display:flex; gap:10px;
-               align-items:center; z-index:10; }
-  .bannerbar .spacer { flex:1; }
-  .note { font-size:12px; color:var(--dim); margin-top:8px; line-height:1.5; }
-  .err { color:var(--err); }
-  .ok { color:var(--accent); }
-  .urls a { color:var(--fg); }
-  .urls .urlgroup { display:flex; gap:14px; align-items:baseline; padding:6px 0;
-                    border-bottom:1px solid var(--line); }
-  .urls .urlgroup:last-child { border-bottom:0; }
-  .urls .urllabel { flex:0 0 104px; color:var(--dim); font-size:11px; font-weight:600;
-                    text-transform:uppercase; letter-spacing:.09em; }
-  .urls .urllinks { display:flex; flex-wrap:wrap; gap:12px 20px; min-width:0; align-items:flex-start; }
-  .urls .urllink { display:flex; flex-direction:column; gap:6px; }
-  .urls .urlrow { display:flex; align-items:center; gap:8px; }
-  .urls .urllinks a { font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-                      font-size:12px; word-break:break-all; }
-  .urls .urlheading { color:var(--dim); font-size:11px; font-weight:700; letter-spacing:.12em;
-                      text-transform:uppercase; margin:14px 0 2px; }
-  .urls .urlheading:first-child { margin-top:0; }
-  .urls .urlcopy { flex:0 0 auto; background:var(--btn-bg,#17181c); color:var(--fg);
-                   border:1px solid var(--line); border-radius:6px; padding:6px 12px;
-                   font-size:11px; cursor:pointer; }
-  .urls .urlcopy:active { background:var(--btn-active,#24262c); }
-  .urls .urlcopy.ok { color:var(--accent); border-color:var(--accent); }
-  .urls .urlqr { display:block; width:96px; height:96px; background:#fff;
-                 border-radius:6px; padding:5px; }
-  .urls .urlqr svg { width:100%; height:100%; display:block; }
-  .urls .urlqr:empty { display:none; }
-  details.sect { border:1px solid var(--line); border-radius:11px; background:#0a0b0d;
-                 padding:16px 18px; margin-bottom:14px; }
-  details.sect > summary { font-size:11px; letter-spacing:.13em; text-transform:uppercase;
-                 color:var(--dim); font-weight:600; margin:0; cursor:pointer;
-                 list-style:none; display:flex; align-items:center; gap:8px; }
-  details.sect > summary::-webkit-details-marker { display:none; }
-  details.sect > summary::before { content:""; flex:0 0 auto; width:0; height:0;
-                 border-left:5px solid var(--dim); border-top:4px solid transparent;
-                 border-bottom:4px solid transparent; transition:transform .12s ease; }
-  details.sect[open] > summary::before { transform:rotate(90deg); }
-  details.sect > summary:focus-visible { outline:2px solid var(--accent); outline-offset:3px; border-radius:4px; }
-  details.sect[open] > summary { margin-bottom:13px; }
-  /* What is on, shown on the Target languages heading so a collapsed section
-     never hides a live (billed) session. */
-  details.sect > summary .sumstate { text-transform:none; letter-spacing:0; font-size:12px;
-                 font-weight:500; color:var(--dim); }
-  details.sect > summary .sumstate .live { color:var(--accent); }
-  /* Panels. One card per panel, so a phone-width screen never scrolls sideways. */
-  .plist { display:flex; flex-direction:column; gap:10px; }
-  label.check { display:flex; align-items:center; gap:8px; font-weight:normal; min-height:32px; }
-  .pcard { border:1px solid var(--line); border-radius:9px; background:#111216; padding:12px 14px; }
-  .pcard.offline { opacity:.72; }
-  /* Modules page: one card per module. */
-  .mcard .phead { flex-wrap:nowrap; }
-  .mcard .mver { font-size:12px; color:var(--dim); }
-  .mcard .switch { margin-left:auto; }
-  .mcard .msum { margin:6px 0 0; font-size:13px; line-height:1.5; }
-  .mcard .mfoot { display:flex; flex-wrap:wrap; align-items:center; gap:8px 14px; margin-top:10px; font-size:12.5px; }
-  .mcard .mfoot[hidden] { display:none; }
-  .mcard .mhealth::before { content:""; display:inline-block; width:7px; height:7px; border-radius:50%;
-                            background:var(--dim); margin-right:6px; vertical-align:1px; }
-  .mcard .mhealth.ok::before { background:var(--accent); }
-  .mcard .mhealth.warn::before { background:var(--warn); }
-  .mcard .mhealth.error::before { background:var(--err); }
-  .mcard .mfoot a { color:var(--fg); }
-  .modfoot { margin-top:18px; }
-  .modfoot a { color:var(--fg); }
-  .pcard .phead { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
-  .pcard .pname { font-weight:600; font-size:15px; overflow-wrap:anywhere; }
-  .pcard .pstate { font-size:12px; color:var(--dim); margin-left:auto; }
-  .pcard dl { display:grid; grid-template-columns:max-content 1fr; gap:3px 12px; margin:10px 0 0;
-              font-size:12.5px; }
-  .pcard dt { color:var(--dim); }
-  .pcard dd { margin:0; overflow-wrap:anywhere; }
-  .pcard .pactions { display:flex; flex-wrap:wrap; gap:8px; margin-top:12px; }
-  .pcard .pactions[hidden] { display:none; }
-  .pcard form { margin-top:12px; }
-  .pcard .pupdate { margin-top:10px; font-size:12.5px; }
-  .pcard .pupdate .badge { color:var(--accent); font-weight:600; }
-  .pcard .pupdate .bad { color:#ff8a80; }
-  .pcard progress { width:100%; height:6px; margin-top:4px; }
-  .fwbox { border:1px solid var(--line); border-radius:9px; background:#111216; padding:12px 14px; margin-top:12px; }
-  .fwbox .fwrow { display:flex; flex-wrap:wrap; align-items:center; gap:8px; margin-top:8px; }
-  .pcard form .field { margin-bottom:10px; }
-  /* Alerts (#121). */
-  .acard .atargets { display:grid; grid-template-columns:repeat(auto-fill,minmax(180px,1fr)); gap:0 16px; }
-  .acard .astate { font-size:12px; color:var(--dim); margin-left:auto; }
-  .acard .astate.on { color:#ff8a80; font-weight:600; }
-  .acard .astate.seen { color:var(--accent); }
-  .acard .field { margin:10px 0 0; }
-  .acard .aicon { width:28px; height:28px; flex:0 0 auto; color:var(--dim); }
-  .acard .aicon svg { width:100%; height:100%; display:block; }
-  .acard select.aiconpick, .acard select.alevelpick { width:auto; flex:0 0 auto; }
-  /* Session health's five columns scroll inside the section on a phone, not the page. */
-  .tablescroll { overflow-x:auto; -webkit-overflow-scrolling:touch; }
-  .tablescroll table { min-width:480px; }
-  /* Schedules. Days are chips, not a column of checkboxes; the date field is a
-     US-format text box with the browser's own calendar behind a button, so the
-     format never follows the browser's locale. */
-  .days { display:flex; flex-wrap:wrap; gap:6px; }
-  .days label { display:inline-flex; align-items:center; margin:0; cursor:pointer; }
-  .days input { position:absolute; opacity:0; width:0; height:0; }
-  .days span { display:inline-block; min-width:46px; text-align:center; padding:7px 9px;
-               border:1px solid var(--line); border-radius:7px; background:#111216;
-               color:var(--dim); font-size:13px; }
-  .days input:checked + span { background:var(--accent); border-color:var(--accent); color:#04130a; font-weight:600; }
-  .days input:focus-visible + span { outline:2px solid var(--accent); outline-offset:2px; }
-  .datefield { position:relative; display:flex; gap:6px; }
-  .datefield input[type=text] { flex:1 1 auto; }
-  .datefield button { flex:0 0 auto; padding:0 10px; display:inline-flex; align-items:center; }
-  .datefield .nativedate { position:absolute; right:0; bottom:0; width:1px; height:1px;
-                           padding:0; border:0; opacity:0; pointer-events:none; }
-  .timefield { display:flex; gap:6px; }
-  .timefield select { flex:1 1 0; min-width:0; }
-  #schedForm { border-top:1px solid var(--line); margin-top:14px; padding-top:14px; }
-  .schedname { font-weight:600; }
-  .schedsum { font-size:12px; color:var(--dim); margin-top:2px; }
-  .schedactions { white-space:nowrap; text-align:right; }
-  .schedactions button { padding:6px 12px; font-size:12px; margin-left:4px; }
-  .warn { color:var(--warn); }
-
-  /* ---- Operator layout: top bar, left sidebar of settings areas, one page at a time ---- */
-  :root { --bg:#0d0e10; --line:#23252a; --btn:#17181b; --btn-bg:#17181b; --fg:#eceae6; --dim:#9aa0a8;
-          --accent:#5fcf8f; --err:#f87171; }
-  html { scrollbar-color:#2c2e33 transparent; }
-  body { display:block; font:14px/1.5 ui-sans-serif,-apple-system,"Segoe UI",system-ui,sans-serif; background:var(--bg); }
-  ::selection { background:#3b4a40; color:#fff; }
-  :focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
-  input[type=checkbox],input[type=radio] { accent-color:var(--accent); }
-  button { border-radius:5px; }
-  button.primary { background:var(--fg); border-color:var(--fg); color:#111; }
-  button.danger { background:#7f1d1d; border-color:#7f1d1d; color:#fff; }
-  select,input,textarea { border-radius:5px; background:#141518; }
-  .spacer { flex:1; }
-  .ic { width:16px; height:16px; fill:none; stroke:currentColor; stroke-width:1.6; stroke-linecap:round; stroke-linejoin:round; vertical-align:-3px; }
-
-  header.topbar { position:sticky; top:0; z-index:10; background:var(--bg); display:flex; align-items:center;
-                  gap:12px; padding:12px 20px; margin:0; border-bottom:1px solid var(--line); }
-  header.topbar h1 { font-size:17px; letter-spacing:-.01em; margin:0; font-weight:600; }
-  .menu { display:none; }
-  /* Always visible: is the transcription stream running? */
-  .spill { display:inline-flex; align-items:center; gap:8px; border:1px solid var(--line); border-radius:4px;
-           padding:5px 12px; font-weight:700; letter-spacing:.02em; font-size:12px; text-decoration:none; }
-  .spill.on { color:var(--accent); border-color:#1f4d33; background:#0b1a12; }
-  .spill.on .dot { background:var(--accent); animation:pulse 1.4s infinite; }
-  .spill.off { color:#fca5a5; border-color:#5b2020; background:#1c0b0b; }
-  .spill.off .dot { background:var(--err); }
-  .dot { width:9px; height:9px; }
-  @keyframes pulse { 50% { opacity:.3; } }
-  @media (prefers-reduced-motion:reduce) { .spill.on .dot { animation:none; } }
-
-  .layout { display:grid; grid-template-columns:220px minmax(0,1fr); min-height:calc(100vh - 54px); }
-  nav { border-right:1px solid var(--line); padding:16px 12px; position:sticky; top:54px; align-self:start;
-        height:calc(100vh - 54px); overflow:auto; }
-  nav .grp { font-size:12px; color:var(--dim); font-weight:500; padding:16px 10px 4px; }
-  nav .grp:first-child { padding-top:0; }
-  nav a { display:flex; align-items:center; gap:9px; padding:7px 10px; border-radius:5px; color:#c4c7cc; text-decoration:none; }
-  nav a:hover { background:#16171a; }
-  nav a.on { background:#1d1f23; color:#fff; box-shadow:inset 0 0 0 1px #2c2f35; font-weight:600; }
-  nav a .ico { display:inline-flex; width:16px; height:16px; opacity:.75; }
-  nav a .ico svg { width:16px; height:16px; fill:none; stroke:currentColor; stroke-width:1.5; stroke-linecap:round; stroke-linejoin:round; }
-  main { padding:28px 36px 96px; max-width:880px; width:100%; }
-  .page[hidden] { display:none; }
-  main h2.title { font-size:22px; letter-spacing:-.015em; margin:0 0 4px; font-weight:600; }
-  main h2.title .sumstate { font-size:13px; font-weight:400; letter-spacing:0; color:var(--dim); margin-left:8px; }
-  main h2.title .sumstate .live { color:var(--accent); }
-  main p.sub { margin:0 0 28px; color:var(--dim); max-width:60ch; }
-
-  /* Flat sections under a hairline: no card around every group. */
-  main section { border:0; border-top:1px solid var(--line); border-radius:0; background:transparent;
-                 padding:20px 0 4px; margin:0 0 24px; }
-  main section h3 { font-size:15px; color:var(--fg); font-weight:600; margin:0 0 14px; }
-  label { font-size:13px; }
-  .meter { border-radius:3px; }
-  th { text-transform:none; letter-spacing:0; font-weight:500; font-size:12px; }
-  .note { border-radius:0; }
-  .ctl { display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
-  .feedbar { display:flex; align-items:center; gap:12px; flex-wrap:wrap; margin-bottom:10px; }
-  .feedbar select { width:auto; min-width:200px; }
-  .feedscroll { margin:0; white-space:nowrap; }
-  label.check { justify-content:flex-start; }
-  label.check input[type=checkbox] { width:auto; flex:0 0 auto; margin:0; }
-  #pcTypeList { gap:2px; }
-  main h3 .count { font-weight:400; font-size:13px; color:var(--dim); margin-left:6px; }
-  .langgrid { display:grid; grid-template-columns:repeat(auto-fill,minmax(210px,1fr)); gap:2px 24px; }
-  .langgrid label.check { margin:0; padding:6px 0; }
-  .langgrid .tstate { margin-left:auto; font-size:11px; color:var(--dim); }
-  .langgrid label.check.off { opacity:.55; }
-  main form.formsec { border-top:1px solid var(--line); padding:20px 0 4px; margin:0 0 24px; }
-  main form.formsec h3 { font-size:15px; font-weight:600; margin:0 0 14px; }
-  .prow.head { color:var(--dim); font-size:12px; padding:0 0 6px; border-top:0; }
-  /* Viewer links: label, link and Copy on the left, the QR code on the right. */
-  .urls .urlgroup { display:flex; gap:16px; align-items:center; padding:12px 0; border-bottom:0; border-top:1px solid var(--line); }
-  .urls section > .urlgroup:first-of-type { border-top:0; padding-top:0; }
-  .urls .urllabel { flex:0 0 170px; }
-  .urls .urllinks { flex:1; flex-direction:column; gap:14px; }
-  .urls .urllink { flex-direction:row; align-items:center; justify-content:space-between; gap:14px; width:100%; }
-  .urls .urlrow { min-width:0; }
-  .urls .urlrow { flex-direction:column; align-items:flex-start; gap:6px; }
-  .urls .urllinks a { color:#9db8ff; }
-  .urls .urlqr { width:72px; height:72px; padding:4px; border-radius:4px; }
-  #pcTypes { margin-top:18px; }
-  #pcNotesRow { margin-top:16px; }
-  .feedbox { height:240px; overflow:auto; background:#08090a; border:1px solid var(--line); border-radius:5px;
-             padding:10px 14px; font-size:15px; line-height:1.6; }
-  .feedbox p { margin:0 0 4px; }
-  .feedbox p.open { color:#fff; }
-  .feedbox p.settled { color:#c9cbd1; }
-  .feedbox .empty { color:var(--dim); font-size:13px; }
-
-  /* Viewer links: sentence-case group headings instead of letter-spaced labels. */
-  .urls .urlheading { text-transform:none; letter-spacing:0; font-size:15px; font-weight:600; color:var(--fg); margin:18px 0 4px; }
-  .urls .urllabel { text-transform:none; letter-spacing:0; font-size:13px; font-weight:600; color:var(--fg); }
-
-  /* Panels: a compact list; the name opens its settings in a right-hand drawer. */
-  .prow { display:grid; grid-template-columns:minmax(120px,1.3fr) minmax(90px,1fr) minmax(100px,1.3fr) minmax(60px,.6fr) auto; gap:4px 14px;
-          align-items:center; padding:10px 0; border-top:1px solid var(--line); font-size:13px; }
-  .prow:first-child { border-top:0; }
-  .prow.offline { opacity:.75; }
-  .plink { background:none; border:0; padding:0; color:#fff; font-weight:600; font-size:14px; text-align:left;
-           text-decoration:underline; text-decoration-color:#3a3d45; text-underline-offset:3px; cursor:pointer;
-           overflow-wrap:anywhere; }
-  .plink:hover { text-decoration-color:#fff; }
-  .pstat { display:inline-flex; align-items:center; gap:6px; font-size:12px; color:var(--dim); justify-self:end; }
-  .pstat .badge { color:var(--accent); }
-  /* The way to the USB flasher (/admin/flash): a whole-card link above the panel list, so a new
-     panel's first step is the first thing on the page. */
-  .flashcta { display:flex; align-items:center; gap:14px; margin:0 0 14px; padding:14px 18px;
-              border:1px solid var(--accent); border-radius:11px;
-              background:color-mix(in srgb, var(--accent) 10%, transparent);
-              color:var(--fg); text-decoration:none; }
-  .flashcta:hover { background:color-mix(in srgb, var(--accent) 18%, transparent); }
-  .flashcta:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
-  .flashcta__ico svg { width:22px; height:22px; fill:none; stroke:var(--accent); stroke-width:1.5;
-                       stroke-linecap:round; stroke-linejoin:round; display:block; }
-  .flashcta__text { flex:1; min-width:0; display:flex; flex-direction:column; gap:3px; line-height:1.45; }
-  .flashcta__text span { color:var(--dim); font-size:13px; }
-  .flashcta__go { flex:0 0 auto; padding:8px 14px; border-radius:7px; background:var(--accent); color:var(--bg);
-                  font-weight:600; white-space:nowrap; }
-  @media (max-width:560px) { .flashcta { flex-wrap:wrap; } .flashcta__go { width:100%; text-align:center; } }
-  .fwbox.flat { border:0; background:transparent; padding:0; margin:0; }
-  .fwtype { padding:12px 0; border-top:1px solid var(--line); }
-  .fwtype:first-child { border-top:0; padding-top:0; }
-  .fwtype .fwname { font-weight:600; font-size:14px; }
-  .fwtype .fwmeta { font-size:12px; color:var(--dim); margin-top:2px; }
-  .fwtype .fwrow [hidden] { display:none; }
-  #drawerBg { position:fixed; inset:0; background:rgba(0,0,0,.55); z-index:20; }
-  #drawerBg[hidden],#drawer[hidden] { display:none; }
-  #drawer { position:fixed; top:0; right:0; bottom:0; width:min(420px,100%); background:#101114;
-            border-left:1px solid var(--line); z-index:21; display:flex; flex-direction:column; }
-  #drawer > header { display:flex; align-items:center; gap:10px; padding:14px 18px; margin:0; border-bottom:1px solid var(--line); }
-  #drawer > header h2 { margin:0; font-size:16px; flex:1; font-weight:600; overflow-wrap:anywhere; }
-  #drawer .dbody { padding:16px 18px 28px; overflow:auto; flex:1; }
-  #drawer .dfoot { padding:12px 18px; border-top:1px solid var(--line); display:flex; gap:8px; align-items:center; }
-  #drawer .dfoot .forget { color:var(--err); }
-  #drawer .dhead { font-size:15px; font-weight:600; margin:22px 0 10px; }
-  #drawer .radios { display:flex; gap:20px; flex-wrap:wrap; }
-  #drawer .radios label.check { margin:0; min-height:0; padding:4px 0; }
-  #drawer input[type=radio] { width:auto; flex:0 0 auto; margin:0; }
-  #drawer .kv { display:flex; justify-content:space-between; gap:16px; padding:7px 0; border-bottom:1px solid var(--line); font-size:13px; }
-  #drawer .kv > :last-child { text-align:right; overflow-wrap:anywhere; }
-  #drawer .pupdate { margin-top:10px; font-size:12.5px; }
-  #drawer .pupdate .badge { color:var(--accent); font-weight:600; }
-  #drawer .pupdate .bad { color:#ff8a80; }
-  #drawer .pactions { display:flex; flex-wrap:wrap; gap:8px; margin-top:12px; }
-
-  @media (max-width:760px) {
-    .layout { grid-template-columns:minmax(0,1fr); }
-    nav { display:none; position:static; height:auto; border-right:0; border-bottom:1px solid var(--line); }
-    nav.open { display:block; }
-    .menu { display:inline-block; }
-    main { padding:20px 16px 96px; }
-    .prow { grid-template-columns:1fr auto; }
-    .prow .pshow,.prow .pfw,.prow .pboard { grid-column:1 / -1; }
-  }
-  /* ---- Broadcast overlay builder (#139): controls left, sticky live preview right ---- */
-  main:has(#page-overlay:not([hidden])) { max-width:1240px; }
-  .ovtabs { display:flex; gap:4px; border-bottom:1px solid var(--line); margin:-8px 0 20px; }
-  .ovtabs button { border:0; background:none; border-bottom:2px solid transparent; border-radius:0; color:var(--dim); padding:8px 12px; }
-  .ovtabs button.on { color:var(--fg); border-bottom-color:var(--fg); }
-  .ovb { display:grid; grid-template-columns:minmax(300px,380px) minmax(0,1fr); gap:28px; align-items:start; }
-  .ovb[hidden], .ovguides[hidden] { display:none; }
-  .ovb-preview { position:sticky; top:72px; min-width:0; }
-  .ovb fieldset { border:0; border-top:1px solid var(--line); margin:0 0 6px; padding:14px 0 6px; min-width:0; }
-  .ovb legend { font-size:15px; font-weight:600; padding:0 0 10px; float:left; width:100%; }
-  .ovb legend + * { clear:both; }
-  .ovb .lbl { display:block; font-size:12px; color:var(--dim); margin:0 0 5px; }
-  .seg { display:flex; border:1px solid var(--line); border-radius:7px; overflow:hidden; }
-  .seg.seg-auto { display:inline-flex; }
-  .seg button { flex:1; border:0; border-radius:0; background:#111216; color:var(--dim); padding:7px 6px; font-size:13px; }
-  .seg button + button { border-left:1px solid var(--line); }
-  .seg button.on { background:#2a2c31; color:#fff; }
-  .rng { display:flex; align-items:center; gap:10px; }
-  .rng input { flex:1; padding:0; border:0; background:none; accent-color:var(--accent); }
-  .rng output { min-width:64px; text-align:right; color:var(--dim); font-size:13px; }
-  .chk { display:flex; gap:9px; align-items:flex-start; font-size:14px; color:var(--fg); margin:0 0 12px; }
-  .chk input { width:auto; margin-top:3px; accent-color:var(--accent); }
-  .chk small { display:block; color:var(--dim); font-size:12px; }
-  .chk[hidden], .field[hidden] { display:none; }
-  .chk-inline { display:inline-flex; align-items:center; margin:0; }
-  .chk-inline input { margin-top:0; }
-  .ovcolours .field { flex:0 0 auto; } .ovcolours .ovwide { flex:1 1 160px; }
-  .ovcolours input[type=color] { width:52px; height:36px; padding:3px; }
-  .ovpresets { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
-  .ovpreset { text-align:left; padding:8px; background:#111216; }
-  .ovpreset.on { box-shadow:0 0 0 2px var(--fg); }
-  .ovpreset .th { position:relative; aspect-ratio:16/9; border-radius:3px; margin-bottom:6px; background:#26303f; overflow:hidden; }
-  .ovpreset .th.dark { background:#000; }
-  .ovpreset .th i { position:absolute; left:16%; right:16%; height:9%; background:rgba(255,255,255,.85); border-radius:1px; }
-  .ovpreset .th i.b { background:rgba(255,255,255,.5); }
-  .ovpreset .th.dark i { left:7%; right:7%; }
-  .ovpreset span { display:block; font-size:13px; font-weight:500; }
-  .ovpreset small { display:block; color:var(--dim); font-size:12px; }
-  .ovedit { border:1px solid var(--line); border-radius:7px; padding:10px 12px; margin:0 0 12px; font-size:13px; color:var(--dim); }
-  .ovedit strong { color:var(--fg); }
-  .ovedit button { margin-top:8px; padding:5px 10px; font-size:13px; }
-  .ovstagebar { display:flex; align-items:center; gap:10px; margin-bottom:8px; flex-wrap:wrap; }
-  .ovstagebar .lbl { margin:0; }
-  .ovstagebar .chk-inline { margin-left:auto; }
-  .ovstage { position:relative; aspect-ratio:16/9; border-radius:6px; overflow:hidden; border:1px solid var(--line); }
-  .ovstage iframe { position:absolute; inset:0; width:100%; height:100%; border:0; background:transparent; color-scheme:normal; }
-  /* A stand-in for program video: a lit stage and a speaker, drawn flat. */
-  .ovstage.bk-program { background:
-      linear-gradient(180deg, transparent 56%, #241d17 56%),
-      linear-gradient(90deg, transparent 44%, #3a312d 44%, #3a312d 56%, transparent 56%) 0 0/100% 100% no-repeat,
-      linear-gradient(180deg, #2c3a55 0%, #3b2f4a 100%); }
-  .ovstage.bk-checker { background:repeating-conic-gradient(#2a2a2a 0 25%, #1c1c1c 0 50%) 0 0/24px 24px; }
-  .ovstage.bk-black { background:#000; }
-  .ovsafe { position:absolute; border:1px dashed rgba(255,255,255,.4); pointer-events:none; }
-  .ovsafe[hidden] { display:none; }
-  .ovlink { margin-top:16px; border:1px solid var(--line); border-radius:7px; padding:12px 14px; }
-  .ovurl { word-break:break-all; color:#cfd3d8; margin:4px 0 10px; line-height:1.5; }
-  .ovacts { display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
-  .btnlink { display:inline-block; padding:9px 15px; border-radius:7px; border:1px solid var(--line); background:#1a1c21; color:var(--fg); text-decoration:none; font-weight:500; }
-  .ovsave { margin-top:14px; padding-top:12px; border-top:1px solid var(--line); }
-  .ovsaverow { display:flex; gap:8px; } .ovsaverow input { flex:1; min-width:0; } .ovsaverow button { flex:0 0 auto; }
-  .ovsaved { margin-top:22px; }
-  .ovsaved h3 { font-size:15px; font-weight:600; margin:0 0 8px; }
-  .ovsaved td .rowacts { display:flex; gap:6px; justify-content:flex-end; flex-wrap:wrap; }
-  .ovsaved td .rowacts button { padding:5px 10px; font-size:13px; }
-  .ovsaved tr.on td { color:#fff; }
-  .ovrecipes { display:grid; grid-template-columns:repeat(auto-fit,minmax(260px,1fr)); gap:22px; }
-  .ovrecipes > div { border-top:1px solid var(--line); padding-top:14px; }
-  .ovrecipes h3 { margin:0 0 4px; font-size:15px; }
-  .ovrecipes .note { margin:0 0 10px; }
-  .ovrecipes ol { margin:0; padding-left:20px; color:#d4d6da; } .ovrecipes li { margin-bottom:7px; }
-  @media (max-width:1100px) { .ovb { grid-template-columns:minmax(0,1fr); } .ovb-preview { position:static; order:-1; } }
-
-  /* ---- Accounts: the header link, My account, Users ---- */
-  .acct { display:inline-flex; align-items:baseline; gap:8px; color:var(--fg); text-decoration:none; padding:5px 8px;
-          border-radius:5px; min-width:0; }
-  .acct:hover { background:#16171a; }
-  .acct[aria-current=page] { background:#1d1f23; box-shadow:inset 0 0 0 1px #2c2f35; }
-  .acct .acctname { font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:16ch; }
-  .acct .acctrole { font-size:12px; color:var(--dim); }
-  .viewonly { margin:-14px 0 20px; }
-  .ctl[hidden], .ctl .grow[hidden] { display:none; }
-  .ctl .grow { flex:1 1 200px; min-width:0; }
-  .ctl .grow input { width:100%; }
-  .acctform { max-width:420px; }
-  .acctform .ctl { margin-top:4px; }
-  .rolepill { display:inline-block; font-size:12px; padding:1px 8px; border:1px solid var(--line); border-radius:10px; color:var(--dim); }
-  .tablescroll { position:relative; }
-  .auditfilters select, .auditfilters input { width:auto; min-width:0; flex:1 1 140px; max-width:220px; }
-  #auditMoreRow[hidden] { display:none; }
-  table.audit td { vertical-align:top; }
-  table.audit .when { white-space:nowrap; }
-  table.audit .what small, table.audit .who small { display:block; color:var(--dim); }
-  table.audit tr.failed .what { color:var(--err); }
-  .sr { position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0 0 0 0); white-space:nowrap; }
-  .stat-off { color:#fca5a5; }
-  .stat-warn { color:var(--warn); }
-  .userrow-acts { white-space:nowrap; text-align:right; }
-  .userrow-acts button { padding:5px 10px; font-size:12px; margin-left:4px; }
-  .userform { border:1px solid var(--line); border-radius:9px; background:#111216; padding:14px 16px; margin:12px 0; }
-  .userform[hidden] { display:none; }
-  .userform h4 { margin:0 0 12px; font-size:14px; font-weight:600; }
-  .passbox { display:flex; gap:8px; }
-  .passbox input { flex:1 1 auto; min-width:0; }
-  .passbox button { flex:0 0 auto; }
-  .passbox[hidden] { display:none; }
-  .shown { border:1px dashed var(--accent); border-radius:7px; padding:10px 12px; margin:10px 0; }
-  .shown[hidden] { display:none; }
-  .shown .mono { font-size:14px; user-select:all; overflow-wrap:anywhere; }
-  .rolegrid th, .rolegrid td { text-align:center; padding:6px 8px; }
-  .rolegrid th:first-child, .rolegrid td:first-child { text-align:left; }
-  .rolegrid tr.grp td { color:var(--dim); font-size:12px; font-weight:600; padding-top:14px; }
-  .rolegrid .yes { color:var(--accent); }
-  .rolegrid .no { color:var(--dim); opacity:.5; }
-  .thisdev { color:var(--accent); font-size:12px; margin-left:6px; }
-  @media (max-width:760px) { header.topbar { flex-wrap:wrap; gap:8px 10px; } .acct .acctname { max-width:12ch; } .acct .acctrole { display:none; } .viewonly { margin-top:-18px; } }
-</style>
 </head><body>
 {% set perms = me.permissions %}
 {% macro viewonly(perm) %}{% if perm not in perms %}<p class="note viewonly">You can view this page but not change it.</p>{% endif %}{% endmacro %}
-<header class="topbar">
-  <button class="menu" id="navToggle" aria-expanded="false" aria-controls="nav"><svg class="ic" viewBox="0 0 16 16" aria-hidden="true"><path d="M2 4h12M2 8h12M2 12h12"/></svg> Menu</button>
-  <h1 class="brand">{% include "_lockup.svg" %}</h1>
-  <a href="#health" class="spill off" id="streamPill" title="Open Session health" aria-live="polite"><span class="dot" id="masterDot"></span><span id="pillTxt">STOPPED</span></a>
-  <span id="modulePills" style="display:contents"></span>
-  <span class="spacer"></span>
-  <span class="muted" id="viewerCount">0 viewers</span>
-  <a class="acct" href="#account" id="acctLink" title="My account"><span class="acctname">{{ me.user.name }}</span><span class="acctrole">{{ me.user.role|capitalize }}</span></a>
-  <form method="post" action="/admin/logout" style="margin:0"><button>Sign out</button></form>
-</header>
-<div class="layout">
-{% macro module_links(group) %}{% for p in module_nav.get(group, []) %}
-    <a href="#{{ p.id }}" data-page="{{ p.id }}"><span class="ico"><svg viewBox="0 0 16 16" aria-hidden="true">{{ p.icon|safe }}</svg></span>{{ p.title }}</a>{% endfor %}{% endmacro %}
-  <nav id="nav" aria-label="Settings areas">
-    {% if 'session.view' in perms or 'audio.manage' in perms or 'targets.manage' in perms or module_nav.get("Live") %}<div class="grp">Live</div>{% endif %}
-    {% if 'session.view' in perms %}<a href="#health" data-page="health"><span class="ico"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 8h3l2-5 2 10 2-5h3"/></svg></span>Session health</a>{% endif %}
-    {% if 'audio.manage' in perms %}<a href="#audio" data-page="audio"><span class="ico"><svg viewBox="0 0 16 16" aria-hidden="true"><rect x="6" y="1.5" width="4" height="8" rx="2"/><path d="M3.5 7.5a4.5 4.5 0 0 0 9 0M8 12v2.5"/></svg></span>Audio input</a>{% endif %}
-    {% if 'targets.manage' in perms %}<a href="#targets" data-page="targets"><span class="ico"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 4h7M5.5 2v2M3.5 4c.5 3 2.5 5 5 6M8 4c-.5 3-2.5 5-5.5 6.5M9 14l3-7 3 7M10 12h4"/></svg></span>Target languages</a>{% endif %}
-    {{ module_links("Live") }}
-    {% if 'panels.view' in perms or 'alerts.view' in perms or 'overlays.view' in perms or 'recordings.view' in perms or module_nav.get("Output") %}<div class="grp">Output</div>{% endif %}
-    {% if 'panels.view' in perms %}<a href="#panels" data-page="panels"><span class="ico"><svg viewBox="0 0 16 16" aria-hidden="true"><rect x="1.5" y="3" width="13" height="9" rx="1.5"/><path d="M5.5 14.5h5"/></svg></span>Panels</a>{% endif %}
-    {% if 'alerts.view' in perms %}<a href="#alerts" data-page="alerts"><span class="ico"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4 11V7a4 4 0 0 1 8 0v4l1.5 1.5h-11zM6.5 14h3"/></svg></span>Alerts</a>{% endif %}
-    {% if 'session.view' in perms %}<a href="#urls" data-page="urls"><span class="ico"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M6.5 9.5a3 3 0 0 0 4 0l2-2a3 3 0 0 0-4-4l-1 1M9.5 6.5a3 3 0 0 0-4 0l-2 2a3 3 0 0 0 4 4l1-1"/></svg></span>Viewer links</a>{% endif %}
-    {% if 'overlays.view' in perms %}<a href="#overlay" data-page="overlay"><span class="ico"><svg viewBox="0 0 16 16" aria-hidden="true"><rect x="1.5" y="2.5" width="13" height="11" rx="1.5"/><path d="M4 10.5h8M5 8.5h6"/></svg></span>Broadcast overlay</a>{% endif %}
-    {% if 'recordings.view' in perms %}<a href="#recordings" data-page="recordings"><span class="ico"><svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6"/><circle cx="8" cy="8" r="2" fill="currentColor"/></svg></span>Recordings &amp; export</a>{% endif %}
-    {{ module_links("Output") }}
-    {% if 'schedules.view' in perms or module_nav.get("Automation") %}<div class="grp">Automation</div>{% endif %}
-    {% if 'schedules.view' in perms %}<a href="#schedules" data-page="schedules"><span class="ico"><svg viewBox="0 0 16 16" aria-hidden="true"><rect x="2" y="3" width="12" height="11" rx="1.5"/><path d="M2 7h12M5.5 1.5v3M10.5 1.5v3"/></svg></span>Schedules</a>{% endif %}
-    {{ module_links("Automation") }}
-    {% if 'blocklist.manage' in perms or 'credentials.manage' in perms or 'settings.manage' in perms or 'modules.view' in perms or 'users.view' in perms or 'audit.view' in perms or module_nav.get("Settings") %}<div class="grp">Settings</div>{% endif %}
-    {% if 'blocklist.manage' in perms %}<a href="#blocklist" data-page="blocklist"><span class="ico"><svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6"/><path d="M3.8 12.2l8.4-8.4"/></svg></span>Blocked words</a>{% endif %}
-    {% if 'credentials.manage' in perms %}<a href="#credentials" data-page="credentials"><span class="ico"><svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="5" cy="10.5" r="2.5"/><path d="M7 9l6-6M11 5l1.5 1.5M9.5 6.5L11 8"/></svg></span>Credentials</a>{% endif %}
-    {% if 'settings.manage' in perms %}<a href="#appearance" data-page="appearance"><span class="ico"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 4h12M2 8h12M2 12h12"/><circle cx="5" cy="4" r="1.5" fill="var(--bg)"/><circle cx="10.5" cy="8" r="1.5" fill="var(--bg)"/><circle cx="6.5" cy="12" r="1.5" fill="var(--bg)"/></svg></span>Appearance &amp; tuning</a>{% endif %}
-    {{ module_links("Settings") }}
-    {% if 'users.view' in perms %}<a href="#users" data-page="users"><span class="ico"><svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="6" cy="5.5" r="2.5"/><path d="M1.5 13.5c.4-2.6 2.2-4 4.5-4s4.1 1.4 4.5 4M10.5 3.2a2.5 2.5 0 0 1 0 4.6M12 9.8c1.3.5 2.2 1.6 2.5 3.7"/></svg></span>Users</a>{% endif %}
-    {% if 'audit.view' in perms %}<a href="#audit" data-page="audit"><span class="ico"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4 1.5h6l3 3v10H4z"/><path d="M10 1.5v3h3M6.5 8h4M6.5 10.5h4M6.5 13h2.5"/></svg></span>Audit log</a>{% endif %}
-    {% if 'modules.view' in perms %}<a href="#modules" data-page="modules"><span class="ico"><svg viewBox="0 0 16 16" aria-hidden="true"><rect x="2" y="2" width="5" height="5" rx="1"/><rect x="9" y="2" width="5" height="5" rx="1"/><rect x="2" y="9" width="5" height="5" rx="1"/><path d="M11.5 9v5M9 11.5h5"/></svg></span>Modules</a>{% endif %}
+{% set chev %}<svg class="i chev" viewBox="0 0 16 16" aria-hidden="true"><path d="M6 4l4 4-4 4"/></svg>{% endset %}
+{% set health_words = {"ok": "Working", "warn": "Needs attention", "error": "Not working", "idle": "Not in use"} %}
+{% macro ndot(m) %}<span class="ndot {{ m.health }}" data-mod-dot="{{ m.id }}" role="img" aria-label="{{ health_words.get(m.health, m.health) }}" title="{{ m.detail or health_words.get(m.health, m.health) }}"></span>{% endmacro %}
+{% macro sub(id, title) %}<li><a href="#{{ id }}" data-page="{{ id }}"><span class="nl">{{ title }}</span></a></li>{% endmacro %}
+<div class="app">
+<aside id="aside"><div class="sbin">
+  <div class="sbhead"><h1 class="brand"><span class="lk">{% include "_lockup.svg" %}</span><span class="mk">{% include "_mark.svg" %}</span></h1></div>
+  <nav id="nav" class="nav sbscroll" aria-label="Settings areas">
+    {% if 'session.control' in perms %}<div class="qc"><button type="button" class="go" id="goBtn" data-tip="Start stream"><svg class="i" viewBox="0 0 16 16" aria-hidden="true"><path d="M4.5 3l8 5-8 5z"/></svg><span class="nl">Start stream</span></button>{% if 'alerts.view' in perms %}<a class="inb" href="#alerts" data-tip="Alerts" aria-label="Alerts"><svg class="i" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 11V7a4 4 0 0 1 8 0v4l1.5 1.5h-11zM6.5 14h3"/></svg></a>{% endif %}</div>{% endif %}
+    {% if 'session.view' in perms or 'audio.manage' in perms or 'targets.manage' in perms or 'blocklist.manage' in perms or 'overlays.view' in perms or 'recordings.view' in perms %}
+    <div class="has" data-group="translation"><button type="button" class="nb" data-tip="Transcription &amp; translation" aria-expanded="false"><svg class="i" viewBox="0 0 16 16" aria-hidden="true"><path d="M2 4h7M5.5 2v2M3.5 4c.5 3 2.5 5 5 6M8 4c-.5 3-2.5 5-5.5 6.5M9 14l3-7 3 7M10 12h4"/></svg><span class="nl">Transcription &amp; translation</span>{% if 'session.view' in perms %}<span class="ndot idle" id="navStreamDot" role="img" aria-label="Stream stopped" title="Stream stopped"></span>{% endif %}{{ chev }}</button><div class="subm"><div><ul>
+      {% if 'session.view' in perms %}{{ sub("health", "Session health") }}{% endif %}
+      {% if 'audio.manage' in perms %}{{ sub("audio", "Audio input") }}{% endif %}
+      {% if 'audio.manage' in perms %}{{ sub("audiobus", "Audio bus") }}{% endif %}
+      {% if 'targets.manage' in perms %}{{ sub("targets", "Target languages") }}{% endif %}
+      {% if 'blocklist.manage' in perms %}{{ sub("blocklist", "Blocked words") }}{% endif %}
+      {% if 'session.view' in perms %}{{ sub("urls", "Viewer links") }}{% endif %}
+      {% if 'overlays.view' in perms %}{{ sub("overlay", "Broadcast overlay") }}{% endif %}
+      {% if 'recordings.view' in perms %}{{ sub("recordings", "Recordings & export") }}{% endif %}
+    </ul></div></div></div>
+    {% endif %}
+    {% if 'panels.view' in perms or 'alerts.view' in perms or 'boards.view' in perms or 'schedules.view' in perms or 'screens.view' in perms %}<div class="grp">Output</div>{% endif %}
+    {% if 'panels.view' in perms %}<a href="#panels" data-page="panels" data-tip="Panels"><svg class="i" viewBox="0 0 16 16" aria-hidden="true"><rect x="1.5" y="3" width="13" height="9" rx="1.5"/><path d="M5.5 14.5h5"/></svg><span class="nl">Panels</span></a>{% endif %}
+    {% if 'alerts.view' in perms %}<a href="#alerts" data-page="alerts" data-tip="Alerts"><svg class="i" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 11V7a4 4 0 0 1 8 0v4l1.5 1.5h-11zM6.5 14h3"/></svg><span class="nl">Alerts</span></a>{% endif %}
+    {% if 'screens.view' in perms %}<a href="#screens" data-page="screens" data-tip="Screens"><svg class="i" viewBox="0 0 16 16" aria-hidden="true"><rect x="1.5" y="2.5" width="13" height="9" rx="1.5"/><path d="M5.5 14h5M8 11.5V14"/></svg><span class="nl">Screens</span></a>{% endif %}
+    {% if 'boards.view' in perms %}<a href="#boards" data-page="boards" data-tip="Boards"><svg class="i" viewBox="0 0 16 16" aria-hidden="true"><rect x="1.5" y="2.5" width="13" height="11" rx="1.5"/><path d="M1.5 7.5h8M9.5 2.5v11"/></svg><span class="nl">Boards</span></a>{% endif %}
+    {% if 'schedules.view' in perms %}<a href="#schedules" data-page="schedules" data-tip="Schedules"><svg class="i" viewBox="0 0 16 16" aria-hidden="true"><rect x="2" y="3" width="12" height="11" rx="1.5"/><path d="M2 7h12M5.5 1.5v3M10.5 1.5v3"/></svg><span class="nl">Schedules</span></a>{% endif %}
+    {% for m in module_nav %}{% if loop.first or m.section != loop.previtem.section %}<div class="grp">{{ m.section }}</div>{% endif %}
+    {% if m.pages|length == 1 %}{% set p = m.pages[0] %}<a href="#{{ p.id }}" data-page="{{ p.id }}" data-mod="{{ m.id }}" data-tip="{{ p.title }}"><svg class="i" viewBox="0 0 16 16" aria-hidden="true">{{ p.icon|safe }}</svg><span class="nl">{{ p.title }}</span>{{ ndot(m) }}</a>
+    {% else %}<div class="has" data-mod="{{ m.id }}"><button type="button" class="nb" data-tip="{{ m.name }}" aria-expanded="false"><svg class="i" viewBox="0 0 16 16" aria-hidden="true">{{ m.icon|safe }}</svg><span class="nl">{{ m.name }}</span>{{ ndot(m) }}{{ chev }}</button><div class="subm"><div><ul>{% for p in m.pages %}{{ sub(p.id, p.title) }}{% endfor %}</ul></div></div></div>
+    {% endif %}{% endfor %}
+    {% if 'modules.view' in perms or 'users.view' in perms or 'credentials.manage' in perms or 'network.view' in perms or 'settings.manage' in perms or 'audit.view' in perms %}
+    <div class="grp">Settings</div>
+    <div class="has" data-group="system"><button type="button" class="nb" data-tip="System" aria-expanded="false"><svg class="i" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="2.2"/><path d="M8 1.5v1.6M8 12.9v1.6M1.5 8h1.6M12.9 8h1.6M3.4 3.4l1.1 1.1M11.5 11.5l1.1 1.1M3.4 12.6l1.1-1.1M11.5 4.5l1.1-1.1"/></svg><span class="nl">System</span>{{ chev }}</button><div class="subm"><div><ul>
+      {% if 'modules.view' in perms %}{{ sub("modules", "Modules") }}{% endif %}
+      {% if 'users.view' in perms %}{{ sub("users", "Users") }}{% endif %}
+      {% if 'credentials.manage' in perms %}{{ sub("credentials", "Credentials") }}{% endif %}
+      {% if 'network.view' in perms %}{{ sub("network", "Network") }}{% endif %}
+      {% if 'settings.manage' in perms %}{{ sub("appearance", "Appearance & tuning") }}{% endif %}
+      {% if 'audit.view' in perms %}{{ sub("audit", "Audit log") }}{% endif %}
+    </ul></div></div></div>
+    {% endif %}
   </nav>
-  <main>
+  <button type="button" class="user" id="userBtn" aria-haspopup="menu" aria-expanded="false" aria-label="Account menu"><span class="av">{{ me.user.name[:1] }}</span><span class="uinfo"><b>{{ me.user.name }}</b><small>{{ me.user.role }}</small></span></button>
+</div></aside>
+<div class="scrim" id="scrim"></div>
+<div class="inset" id="inset">
+<header class="top">
+  <button type="button" class="ib" id="sbToggle" aria-label="Toggle sidebar"><svg class="i" viewBox="0 0 16 16" aria-hidden="true"><rect x="2" y="3" width="12" height="10" rx="2"/><path d="M6 3v10"/></svg></button>
+  <span class="vsep"></span>
+  <button type="button" class="search" id="searchBtn" aria-label="Search pages and actions"><svg class="i" viewBox="0 0 16 16" aria-hidden="true"><circle cx="7" cy="7" r="4.5"/><path d="M11 11l3 3"/></svg><span>Search pages &amp; actions</span><kbd>&#8984;K</kbd></button>
+  <span class="crumb" id="crumb"></span>
+  <span class="sp"></span>
+  <a href="#health" class="spill off" id="streamPill" title="Open Session health" aria-live="polite"><span class="dot" id="masterDot"></span><span id="pillTxt">STOPPED</span></a>
+  <span id="modulePills"></span>
+  <span class="pill muted" id="viewerCount" style="font-weight:500">0 viewers</span>
+  <button type="button" class="ib" id="lookBtn" aria-label="Preferences" aria-haspopup="dialog" aria-expanded="false"><svg class="i" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="2.2"/><path d="M8 1.5v1.6M8 12.9v1.6M1.5 8h1.6M12.9 8h1.6M3.4 3.4l1.1 1.1M11.5 11.5l1.1 1.1M3.4 12.6l1.1-1.1M11.5 4.5l1.1-1.1"/></svg></button>
+  <button type="button" class="ib" id="themeBtn" aria-label="Change theme"></button>
+  <button type="button" class="ib" id="acctBtn" aria-label="Account" aria-haspopup="menu" aria-expanded="false" style="width:auto;border:0"><span class="av">{{ me.user.name[:1] }}</span></button>
+  <a class="acct" href="#account" id="acctLink" title="My account"><span class="acctname">{{ me.user.name }}</span></a>
+  <form method="post" action="/admin/logout" id="logoutForm" hidden></form>
+</header>
+<main><div class="wrap">
   <div id="alert" class="field err" hidden></div>
 {% if 'session.view' in perms %}
   <div class="page" id="page-health" data-page="health" hidden>
@@ -542,8 +109,8 @@ window.relayCan = function (perm) { return window.RELAY_ME.permissions.indexOf(p
       <h3>Sessions</h3>
     <div class="tablescroll">
       <table>
-        <thead><tr><th>Session</th><th>State</th><th>Last delta</th><th>Retries</th><th>Audio dropped</th></tr></thead>
-        <tbody id="sessions"><tr><td colspan="5" class="muted">Not started.</td></tr></tbody>
+        <thead><tr><th>Session</th><th>State</th><th>Last delta</th><th>Retries</th><th>Audio dropped</th><th>Cost</th></tr></thead>
+        <tbody id="sessions"><tr><td colspan="6" class="muted">Not started.</td></tr></tbody>
       </table>
     </div>
   </section>
@@ -563,6 +130,7 @@ window.relayCan = function (perm) { return window.RELAY_ME.permissions.indexOf(p
         <button id="rescan" style="flex:0 0 auto">Rescan</button>
       </div>
       <div id="deviceNotice" class="note" role="status" hidden></div>
+      <div id="deviceFeed" class="note" role="status" hidden></div>
     </div>
     <div class="field">
       <label for="noise">Noise reduction</label>
@@ -594,6 +162,90 @@ window.relayCan = function (perm) { return window.RELAY_ME.permissions.indexOf(p
     </div>
     <div class="note" id="audioNote"></div>
   </section>
+    <section>
+      <h3>Sound level and spectrum</h3>
+      <p class="note" style="margin-top:0">A calibrated sound meter (A- and C-weighted) and a 1/3-octave spectrum, read from one lane of the audio bus at its full 48 kHz. Patch a measurement mic to the lane for room SPL; a desk feed measures the mix only.</p>
+      <div class="row">
+        <label><input type="checkbox" id="mtOn"> Meter on</label>
+        <label>Lane <input type="number" id="mtLane" min="1" max="32" value="1"></label>
+        <label>Input is <select id="mtKind"><option value="room">A measurement mic in the room</option><option value="mix">The desk's mix (not room SPL)</option></select></label>
+      </div>
+      <div class="row">
+        <label>Warn at (dB) <input type="number" id="mtWarn" min="40" max="140" step="1"></label>
+        <label>Limit at (dB) <input type="number" id="mtLimit" min="40" max="140" step="1"></label>
+        <label>Calibration: 0 dBFS = (dB SPL) <input type="number" id="mtCal" min="60" max="160" step="0.1"></label>
+      </div>
+      <div class="row">
+        <button id="mtSave" class="primary" type="button">Save</button>
+        <label>Calibrator reads (dB) <input type="number" id="mtRef" min="30" max="140" step="0.1" value="94"></label>
+        <button id="mtCalibrate" type="button">Set calibration from the tone now playing</button>
+      </div>
+      <div class="pill" style="margin-top:9px"><span class="dot" id="mtDot"></span><span id="mtState">Off</span></div>
+      <div class="meterread" id="mtRead" style="margin-top:6px">—</div>
+      <canvas id="mtRta" width="620" height="140" style="width:100%;max-width:620px;height:140px;margin-top:8px" role="img" aria-label="Spectrum in third-octave bands"></canvas>
+      <canvas id="mtWf" width="300" height="31" style="width:100%;max-width:620px;height:140px;margin-top:8px;image-rendering:pixelated;background:var(--video-bg)" role="img" aria-label="Spectrogram: time runs left to right, low frequencies at the bottom"></canvas>
+      <div class="note" id="mtNote"></div>
+    </section>
+    <section>
+      <h3>Stream mix report</h3>
+      <p class="note" style="margin-top:0">While the stream mix carries sound, Relay saves a row a second (loudness, peak, left/right correlation, octave bands) for each captions session, then judges it against your targets. Patch the mix's left and right to two lanes from the same device.</p>
+      <div class="row">
+        <label><input type="checkbox" id="mrOn"> Record the stream mix</label>
+        <label>Left lane <input type="number" id="mrLeft" min="1" max="32"></label>
+        <label>Right lane <input type="number" id="mrRight" min="1" max="32"></label>
+        <label><input type="checkbox" id="mrRehearsal"> This is a rehearsal</label>
+      </div>
+      <div class="row">
+        <label>Target (LUFS) <input type="number" id="mrTarget" min="-40" max="-5" step="0.5"></label>
+        <label>Within (LU) <input type="number" id="mrTol" min="0.5" max="10" step="0.5"></label>
+        <label>Peak limit (dBFS) <input type="number" id="mrPeak" min="-20" max="0" step="0.5"></label>
+        <label>Silence below (dBFS) <input type="number" id="mrSilence" min="-90" max="-10" step="1"></label>
+      </div>
+      <div class="row"><button id="mrSave" class="primary" type="button">Save</button></div>
+      <div class="note" id="mrState"></div>
+      <div class="row" style="margin-top:10px">
+        <label>Session <select id="mrSessions"></select></label>
+        <label><input type="checkbox" id="mrIncl"> Include rehearsal</label>
+        <button id="mrShow" type="button">Show report</button>
+        <a id="mrCsv" class="btnlink" href="#" hidden>Download CSV</a>
+      </div>
+      <div id="mrReport"></div>
+      <canvas id="mrGraph" width="620" height="120" style="width:100%;max-width:620px;height:120px;margin-top:8px" role="img" aria-label="Loudness over the session" hidden></canvas>
+    </section>
+  </div>
+  <div class="page" id="page-audiobus" data-page="audiobus" hidden>
+    <h2 class="title">Audio bus</h2>
+    <p class="sub">Up to 32 lanes from any input, routed to outputs through one crosspoint matrix.</p>
+    <div class="note err" id="abErr" role="alert" hidden></div>
+    <section>
+      <h3>Bus</h3>
+      <p class="note">Off until you switch it on. Each lane is one mono channel of an input, at 48 kHz; the captions,
+        the sound meter, a recorder or an output can each take a lane. The main capture on Audio input is not touched.</p>
+      <div class="ctl">
+        <label class="switch"><input type="checkbox" id="abOn" aria-label="Audio bus on"><span class="slider"></span></label>
+        <span id="abState" class="pill"><span class="dot"></span><span>Off</span></span>
+      </div>
+    </section>
+    <section>
+      <h3>Lanes</h3>
+      <p class="note">Patch one channel of an input to a lane, or <em>mix</em> to sum every channel of it. A device is
+        opened once however many lanes use it.</p>
+      <div id="abLanes"></div>
+      <div class="row"><button type="button" id="abAddLane">Add a lane</button></div>
+    </section>
+    <section>
+      <h3>Outputs</h3>
+      <p class="note">An output is a device with up to 32 channels. Its channels are what the crosspoints below feed.</p>
+      <div id="abOuts"></div>
+      <div class="row"><button type="button" id="abAddOut">Add an output</button></div>
+    </section>
+    <div class="row"><button type="button" class="primary" id="abSave">Save lanes and outputs</button><span class="note" id="abSaved" role="status"></span></div>
+    <section>
+      <h3>Crosspoints</h3>
+      <p class="note">Output channels down, lanes across: click a square to feed a lane into a channel, and set its gain
+        in dB. A channel mixes every lane fed into it. Save lanes and outputs first; new ones show here once saved.</p>
+      <div id="abMatrix"></div>
+    </section>
   </div>
 {% endif %}
 {% if 'targets.manage' in perms %}
@@ -611,6 +263,11 @@ window.relayCan = function (perm) { return window.RELAY_ME.permissions.indexOf(p
         has a text model translate each finished line into every language, so extra languages cost
         almost nothing. Captions then arrive a line at a time, a second or two behind.
         Changing it restarts live sessions.{% if 'settings.manage' not in perms %} An administrator sets the engine.{% endif %}</div>
+    </div>
+    <div class="field">
+      <label for="xbackend">Transcription</label>
+      <select id="xbackend" aria-label="Transcription backend"{% if 'settings.manage' not in perms %} disabled{% endif %}></select>
+      <div class="note" id="xbackendNote">Who turns the room's audio into text. If its key is not saved, OpenAI is used instead and this says so.</div>
     </div>
     </section>
     <section>
@@ -666,92 +323,79 @@ window.relayCan = function (perm) { return window.RELAY_ME.permissions.indexOf(p
 {% if 'alerts.view' in perms %}
   <div class="page" id="page-alerts" data-page="alerts" hidden>
     <h2 class="title">Alerts <span class="sumstate" id="alertsSum"></span></h2>
-    <p class="sub">Buttons a musician taps to flash panels and screens red and white until someone there taps one.</p>
+    <p class="sub">The band opens the sender page on a phone and taps a row. Each row is something they can send; each
+      column is a panel or browser screen. Tick a square to send that row to that screen.</p>
     {{ viewonly('alerts.manage') }}
-    <section>
-      <h3>Buttons</h3>
-      <div class="plist" id="alertList"></div>
-      {% if 'alerts.manage' in perms %}<div class="ctl" style="margin-top:12px">
-        <button type="button" id="alertAdd">Add button</button>
+    <div class="abar">
+      <div class="abar-link" id="alertLinks"></div>
+      {% if 'alerts.manage' in perms %}<span class="muted" id="alertDirty" hidden>Unsaved changes</span>
+      <button class="primary" type="button" id="alertSave">Save alerts</button>{% endif %}
+    </div>
+    <section class="apatchsect">
+      <div class="tablescroll"><table class="apatch" id="alertList"></table></div>
+      {% if 'alerts.manage' in perms %}<div class="ctl apatch-add">
+        <button type="button" id="alertAdd">Add alert button</button>
+        <button type="button" id="msgAdd">Add stage message</button>
+        <span class="apatch-screen">
+          <input id="alertScreenName" maxlength="32" placeholder="Booth TV" aria-label="New browser screen name">
+          <button type="button" id="alertScreenAdd">Add browser screen</button>
+        </span>
       </div>{% endif %}
+      <div class="note"><b>Alert buttons</b> flash until someone at the screen taps it, then the sender sees where it
+        was seen. <b>Stage messages</b> show words over whatever the screen shows, with nothing to tap, and end on
+        their own. A panel joins when it checks in; a browser screen joins when it is opened at its column&rsquo;s
+        link. <b>Test</b> shows &ldquo;Test from Relay&rdquo; on that one screen for a few seconds.</div>
     </section>
-    <section>
-      <h3>Stage messages</h3>
-      <p class="note" style="margin-top:0">Words from the booth to the stage, with nothing to tap. Each has a level: info is a steady blue, attention flashes amber, urgent flashes red and white.
-        A message sits in the middle of the screen; a banner is a strip across the top that stays up longer. They show
-        over whatever a panel or screen is already showing, and end on their own or when someone clears them on the
-        sender page.</p>
-      <div class="plist" id="msgList"></div>
-      {% if 'alerts.manage' in perms %}<div class="ctl" style="margin-top:12px">
-        <button type="button" id="msgAdd">Add message</button>
-      </div>{% endif %}
-      <div class="field" style="margin-top:12px">
-        <label>Typed messages go to</label>
-        <div id="msgFree"></div>
-        <div class="note">The sender page shows a box to type a message once you pick at least one panel or screen here.</div>
+    <details class="sect" id="alertSettings">
+      <summary>Settings <span class="sumstate" id="alertSetSum"></span></summary>
+      <div class="row">
+        <div class="field">
+          <label for="alertAutoStop">An alert stops flashing after</label>
+          <select id="alertAutoStop"{% if 'alerts.manage' not in perms %} disabled{% endif %}>
+            <option value="30">30 seconds</option>
+            <option value="60">1 minute</option>
+            <option value="120">2 minutes</option>
+            <option value="180">3 minutes</option>
+            <option value="300">5 minutes</option>
+            <option value="600">10 minutes</option>
+          </select>
+          <div class="note">If nobody taps. The sender then sees &ldquo;Not seen&rdquo; and can send again. The flash
+            is once a second, well under the rate where flashing becomes a seizure risk.</div>
+        </div>
+        <div class="field">
+          <label for="msgSeconds">A message stays (seconds)</label>
+          <input id="msgSeconds" type="number" min="3" max="120"{% if 'alerts.manage' not in perms %} disabled{% endif %}>
+        </div>
+        <div class="field">
+          <label for="bannerSeconds">A banner stays (seconds)</label>
+          <input id="bannerSeconds" type="number" min="30" max="3600"{% if 'alerts.manage' not in perms %} disabled{% endif %}>
+          <div class="note">A banner is a strip across the top that stays up longer than a message.</div>
+        </div>
       </div>
-      <div class="ctl">
-        <label for="msgSeconds">A message stays</label>
-        <input id="msgSeconds" type="number" min="3" max="120" style="width:5em"{% if 'alerts.manage' not in perms %} disabled{% endif %}> <span class="muted">seconds</span>
-        <label for="bannerSeconds" style="margin-left:16px">A banner stays</label>
-        <input id="bannerSeconds" type="number" min="30" max="3600" style="width:5em"{% if 'alerts.manage' not in perms %} disabled{% endif %}> <span class="muted">seconds</span>
-      </div>
-    </section>
-    <section>
-      <h3>Replies</h3>
-      <p class="note" style="margin-top:0">A short list a panel or screen can tap when it acknowledges, so nobody needs a keyboard.
-        The sender sees the reply next to &ldquo;Seen&rdquo;. One reply per line, up to 6 of 24 characters. Leave it empty for a
-        plain acknowledge. Tapping anywhere else on the flashing screen still acknowledges with no reply.</p>
       <div class="field">
-        <label for="alertReplies">Replies</label>
-        <textarea id="alertReplies" rows="4" style="max-width:20em" placeholder="On my way&#10;Can't right now"{% if 'alerts.manage' not in perms %} disabled{% endif %}></textarea>
-      </div>
-    </section>
-    <section>
-      <h3>When nobody taps</h3>
-      <div class="field">
-        <label for="alertAutoStop">Stop flashing after</label>
-        <select id="alertAutoStop" style="width:auto"{% if 'alerts.manage' not in perms %} disabled{% endif %}>
-          <option value="30">30 seconds</option>
-          <option value="60">1 minute</option>
-          <option value="120">2 minutes</option>
-          <option value="180">3 minutes</option>
-          <option value="300">5 minutes</option>
-          <option value="600">10 minutes</option>
-        </select>
-        <div class="note">The sender then sees &ldquo;Not seen&rdquo; and can send again. The flash is once a second,
-          fixed: well under the rate where flashing becomes a seizure risk.</div>
+        <label for="alertReplies">Replies, one per line</label>
+        <textarea id="alertReplies" rows="3" placeholder="On my way&#10;Can't right now"{% if 'alerts.manage' not in perms %} disabled{% endif %}></textarea>
+        <div class="note">Tapped on the flashing screen instead of a plain acknowledge, so nobody needs a keyboard. The
+          sender sees it next to &ldquo;Seen&rdquo;. Up to 6, of 24 characters. Leave it empty for a plain acknowledge.</div>
       </div>
       <div class="field">
         <label class="chk chk-inline"><input type="checkbox" id="alertSignin"{% if 'alerts.manage' not in perms %} disabled{% endif %}> Only signed-in people can send</label>
-        <div class="note">The sender page then moves to the operator panel's <span class="mono">https://</span> address
-          and asks for a sign-in. Anyone whose role can send alerts may use it, including a Member, who cannot open
-          this panel. Their account name is shown on the screen they flash. Panels send as they always have.</div>
+        <div class="note">Otherwise anyone with the sender link can send, so hand it to the band, not the room. With
+          sign-in on, the sender page moves to this panel&rsquo;s <span class="mono">https://</span> address, and anyone
+          whose role can send alerts may use it, including a Member. Panels send as they always have.</div>
       </div>
-      {% if 'alerts.manage' in perms %}<button class="primary" type="button" id="alertSave">Save alerts</button>
-      <span class="muted" id="alertDirty" style="margin-left:10px" hidden>Unsaved changes</span>{% endif %}
-    </section>
-    {% if 'alerts.history' in perms %}<section>
-      <h3>History</h3>
-      <p class="note" style="margin-top:0">Who sent what, to which screens, and how long until someone saw it. Kept for <span id="alertHistKeep">30</span> days.</p>
+    </details>
+    {% if 'alerts.history' in perms %}<details class="sect" id="alertHistory">
+      <summary>History <span class="sumstate">kept for <span id="alertHistKeep">30</span> days</span></summary>
+      <p class="note">Who sent what, to which screens, and how long until someone saw it.</p>
       <div class="tablescroll">
         <table class="audit">
           <thead><tr><th>When</th><th>Who</th><th>What</th><th>Seen</th></tr></thead>
           <tbody id="alertHistList"><tr><td colspan="4" class="muted">Loading&hellip;</td></tr></tbody>
         </table>
       </div>
-      <div class="ctl" style="margin-top:12px" id="alertHistMoreRow" hidden><button type="button" id="alertHistMore">Show older</button></div>
-    </section>{% endif %}
-    <section>
-      <h3>Where to send from, and what flashes</h3>
-      <div id="alertLinks"></div>
-      <div class="note">
-        Unless sending needs a sign-in, anyone with the sender link can send, so hand it to the band, not the room. A panel sends from its
-        <em>Alert buttons</em> feed, set on its card under Panels. A browser screen flashes when it is opened as
-        <span class="mono">/screen?alert=&lt;name&gt;</span> with a name a button lists; a TV with no touch needs a
-        mouse click or key press to acknowledge, or it flashes until the auto-stop.
-      </div>
-    </section>
+      <div class="ctl" id="alertHistMoreRow" hidden><button type="button" id="alertHistMore">Show older</button></div>
+    </details>{% endif %}
   </div>
 {% endif %}
 {% if 'session.view' in perms %}
@@ -888,6 +532,33 @@ window.relayCan = function (perm) { return window.RELAY_ME.permissions.indexOf(p
     </div>
   </div>
 {% endif %}
+{% if 'screens.view' in perms %}
+  <div class="page" id="page-screens" data-page="screens" hidden>
+    {# Screens (#527): every physical display once, grouped by place, with what each shows now. screens.js draws it. #}
+    <h2 class="title">Screens</h2>
+    <p class="sub">Every TV, tablet and panel, once, with one name and one place. A screen shows a board or a signage playlist, and flashes for alerts.</p>
+    {{ viewonly('screens.manage') }}
+    <div class="note err" id="scErr" hidden></div>
+    <div class="note ok" id="scMsg" hidden></div>
+    <div class="ctl"><button type="button" id="scAddPlace">Add place</button></div>
+    <div id="scMain"><p class="muted">Loading&hellip;</p></div>
+    <section class="sc-edit" id="scEdit" hidden></section>
+  </div>
+{% endif %}
+{% if 'boards.view' in perms %}
+  <div class="page" id="page-boards" data-page="boards" hidden>
+    {# Boards (#156): screens built from widgets, each at its own address. boards.js draws the page: boards by place
+       down the side, the chosen board beside (its live preview, the screens showing it, its pages and what decides
+       which one shows, editing in place), a new board from a template, and its buttons to press. #}
+    {{ viewonly('boards.manage') }}
+    <div class="note err" id="bdErr" hidden></div>
+    <div class="bd bp">
+      <nav class="blist" id="bdList" aria-label="Boards"></nav>
+      <div id="bdMain"><p class="muted">Loading&hellip;</p></div>
+    </div>
+    <input type="file" id="bdImport" accept=".json,application/json" hidden>
+  </div>
+{% endif %}
 {% if 'recordings.view' in perms %}
   <div class="page" id="page-recordings" data-page="recordings" hidden>
     <h2 class="title">Recordings &amp; export</h2>
@@ -943,11 +614,12 @@ window.relayCan = function (perm) { return window.RELAY_ME.permissions.indexOf(p
 {% if 'schedules.view' in perms %}
   <div class="page" id="page-schedules" data-page="schedules" hidden>
     <h2 class="title">Schedules</h2>
-    <p class="sub">Start and stop capture automatically.</p>
+    <p class="sub">Named schedules that start and stop capture and drive signage, boards and call times.</p>
     {{ viewonly('schedules.manage') }}
     <section>
       <h3>Schedules</h3>
     <div class="note" style="margin:0 0 12px" id="schedStatus">No schedules set. Capture only starts when you press <em>Start capture</em>.</div>
+    <p class="note" style="margin:0 0 12px">Named, reusable schedules. Signage slots, board rotation rows and crew call times pick one by name, so changing it here moves every place that uses it. Times follow Relay's time zone: <strong id="schedZone"></strong> (Settings, System).</p>
     <table>
       <thead><tr><th>Schedule</th><th>Next start</th><th style="width:52px">On</th><th></th></tr></thead>
       <tbody id="schedList"><tr><td colspan="4" class="muted">No schedules yet.</td></tr></tbody>
@@ -956,57 +628,30 @@ window.relayCan = function (perm) { return window.RELAY_ME.permissions.indexOf(p
     </section>
 
     {% if 'schedules.manage' in perms %}<form id="schedForm" class="formsec" hidden autocomplete="off">
-      <h3>New schedule</h3>
-      <div class="row">
-        <div class="field">
-          <label for="schedName">Name (optional)</label>
-          <input id="schedName" type="text" maxlength="60" placeholder="Sunday morning service">
-        </div>
-        <div class="field" style="flex:0 1 180px">
-          <label for="schedRepeat">Repeats</label>
-          <select id="schedRepeat">
-            <option value="weekly">Every week</option>
-            <option value="once">One time only</option>
-          </select>
-        </div>
+      <h3 id="schedFormTitle">New schedule</h3>
+      <div class="field">
+        <label for="schedName">Name</label>
+        <input id="schedName" type="text" maxlength="60" placeholder="Sunday services">
       </div>
-      <div class="field" id="schedDaysField">
-        <label>Days</label>
-        <div class="days" id="schedDays"></div>
+      <h4>Windows</h4>
+      <div id="schedWindows"></div>
+      <div class="ctl"><button type="button" id="schedAddWindow">Add a window</button></div>
+      <h4>Also open</h4>
+      <div id="schedPlanBox">
+        <label class="check"><input type="checkbox" id="schedPlan"> Around each service time in today's Planning Center plan</label>
+        <div class="row" id="schedPlanTimes" hidden>
+          <div class="field"><label for="schedPlanBefore">Minutes before the service time</label><input id="schedPlanBefore" type="number" min="0" max="360" value="30"></div>
+          <div class="field"><label for="schedPlanAfter">Minutes after it</label><input id="schedPlanAfter" type="number" min="0" max="360" value="120"></div>
+        </div>
+        <p class="note" id="schedPlanOff" hidden>The Planning Center module is off, so plan times add nothing until it is on.</p>
       </div>
-      <div class="row">
-        <div class="field" id="schedStartDateField">
-          <label for="schedStartDate" id="schedStartDateLabel">Starting on (optional)</label>
-          <div class="datefield">
-            <input id="schedStartDate" type="text" inputmode="numeric" maxlength="10" placeholder="MM/DD/YYYY">
-            <button type="button" class="datepick" data-for="schedStartDate" aria-label="Pick a date" title="Pick a date"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><rect x="2" y="3" width="12" height="11" rx="1.5"/><path d="M2 6.5h12M5 1.5v3M11 1.5v3"/></svg></button>
-            <input type="date" class="nativedate" tabindex="-1" aria-hidden="true">
-          </div>
-        </div>
-        <div class="field" id="schedEndDateField">
-          <label for="schedEndDate">Ending on (optional)</label>
-          <div class="datefield">
-            <input id="schedEndDate" type="text" inputmode="numeric" maxlength="10" placeholder="MM/DD/YYYY">
-            <button type="button" class="datepick" data-for="schedEndDate" aria-label="Pick a date" title="Pick a date"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><rect x="2" y="3" width="12" height="11" rx="1.5"/><path d="M2 6.5h12M5 1.5v3M11 1.5v3"/></svg></button>
-            <input type="date" class="nativedate" tabindex="-1" aria-hidden="true">
-          </div>
-        </div>
+      <h4>Starts and stops capture</h4>
+      <label class="check"><input type="checkbox" id="schedEngine"> Capture starts and stops on this schedule</label>
+      <div id="schedUsedBox" hidden>
+        <h4>Used by</h4>
+        <ul id="schedUsed"></ul>
+        <p class="note">Delete is refused while anything is listed here; pick another schedule in those places first.</p>
       </div>
-      <div class="row">
-        <div class="field">
-          <label id="schedStartLabel">Start time</label>
-          <div class="timefield" id="schedStart" role="group" aria-labelledby="schedStartLabel"></div>
-        </div>
-        <div class="field">
-          <label id="schedStopLabel">Stop time</label>
-          <div class="timefield" id="schedStop" role="group" aria-labelledby="schedStopLabel"></div>
-        </div>
-        <div class="field">
-          <label for="schedTz">Time zone</label>
-          <select id="schedTz"></select>
-        </div>
-      </div>
-      <div class="note" id="schedOvernight" hidden style="margin:-4px 0 12px">The stop time is earlier than the start time, so it stops the next day.</div>
       <button class="primary" type="submit" id="schedSave">Save schedule</button>
       <button type="button" id="schedCancel">Cancel</button>
     </form>{% endif %}
@@ -1014,11 +659,11 @@ window.relayCan = function (perm) { return window.RELAY_ME.permissions.indexOf(p
     <section>
       <h3>How schedules work</h3>
     <div class="note" style="margin-top:0">
-      Capture starts and stops on its own inside each window. If it is already running when a
+      Capture starts and stops on its own inside each window of the schedules ticked for it. If it is already running when a
       window opens, it keeps running and stops at the window&rsquo;s end. Pressing <em>Stop</em>
       during a window holds it until the next scheduled start. Starting by hand outside a window
       is never stopped by a schedule. Windows that overlap or touch run as one session.
-      <br>Times follow the time zone you pick, including daylight saving. The machine and the
+      <br>Times follow Relay's time zone, including daylight saving. The machine and the
       relay must be running for a schedule to fire; a window already under way when the relay
       starts is picked up, and one missed entirely is skipped.
     </div>
@@ -1065,6 +710,10 @@ window.relayCan = function (perm) { return window.RELAY_ME.permissions.indexOf(p
       <label for="apikey">OpenAI API key <span id="keyState" class="muted"></span></label>
       <input id="apikey" type="password" placeholder="sk-… (leave blank to keep current)" autocomplete="off">
     </div>
+    <div class="field">
+      <label for="vkey">Vercel AI Gateway key <span id="vkeyState" class="muted"></span></label>
+      <input id="vkey" type="password" placeholder="(leave blank to keep current)" autocomplete="off">
+    </div>
     <button class="primary" id="saveCreds">Save credentials</button>
     <div class="note">Stored server-side in <span class="mono">config.json</span> (0600), encrypted with a key kept in this computer's keychain (<span id="keyStore" class="mono"></span>). Never sent to viewer pages.</div>
     </section>
@@ -1095,6 +744,11 @@ window.relayCan = function (perm) { return window.RELAY_ME.permissions.indexOf(p
       <div class="field">
         <label for="history">History lines kept per stream</label>
         <input id="history" type="number" min="1" max="500" step="1">
+      </div>
+      <div class="field">
+        <label for="relayZone">Time zone</label>
+        <select id="relayZone"></select>
+        <span class="hint">One time zone for Relay: schedules, signage, boards, call times and YouTube all read it.</span>
       </div>
     </div>
     </section>
@@ -1137,7 +791,150 @@ window.relayCan = function (perm) { return window.RELAY_ME.permissions.indexOf(p
     </section>
   </div>
 {% endif %}
-{% for group in module_nav.values() %}{% for p in group %}
+{% if 'network.view' in perms %}
+  {# The Network page (the closets redesign, docs/mockups/network/b-closet.html): every switch drawn where it hangs,
+     the map, every device with the name Relay shows and a note, this computer's ports and traffic, and the sources
+     and closets. Modules add tabs after core's (AdminPage.tab_of). network_map.js draws the first three and the
+     last; network.js This computer. #}
+  <div class="page" id="page-network" data-page="network" hidden>
+    <h2 class="title">Network <span class="sumstate" id="nmSum"></span></h2>
+    {{ viewonly('network.manage') }}
+    <div class="tabs nmtabs" role="tablist" id="nmTabs">
+      <button type="button" role="tab" data-tab="racks" aria-selected="true">Racks</button>
+      <button type="button" role="tab" data-tab="map" data-alias="network_map" aria-selected="false">Map</button>
+      <button type="button" role="tab" data-tab="ports" aria-selected="false">Ports and notes</button>
+      <button type="button" role="tab" data-tab="computer" aria-selected="false">This computer</button>
+      <button type="button" role="tab" data-tab="find" aria-selected="false">Find and add</button>
+      {% for t in module_tabs.get('network', []) %}<button type="button" role="tab" data-tab="{{ t.id }}" aria-selected="false">{{ t.title }}</button>
+      {% endfor %}
+    </div>
+
+    <div class="nmpane on" data-pane="racks" role="tabpanel">
+      <div class="nmsplit">
+        <div class="nmstack">
+          <section class="nmlook" id="nmLook" hidden>
+            <div class="nmbetween"><h3>Needs a look</h3><span class="muted" id="nmChecked"></span></div>
+            <div id="nmIssues"></div>
+          </section>
+          <section class="nmbetween">
+            <div><b>Every switch, drawn where it hangs</b> <span class="muted">Click a port to see what is plugged in. Hover for link, PoE and your note.</span></div>
+            <div class="seg nmhl" id="nmHl" role="group" aria-label="Show"><button type="button" data-v="all">All</button><button type="button" data-v="ndi">NDI</button><button type="button" data-v="dante">Dante</button><button type="button" data-v="poe">PoE</button><button type="button" data-v="check">Problems</button></div>
+          </section>
+          <div class="nmlegend"><span><i class="ok"></i>Link up</span><span><i class="warn"></i>Slow or errors</span><span><i class="poe"></i>Powered (PoE)</span><span><i class="ndi"></i>NDI</span><span><i class="dante"></i>Dante</span></div>
+          <div class="nmclosets" id="nmClosets"></div>
+          <p class="note" id="nmNoGear" hidden>Switches are drawn from a module that reads them, such as UniFi. Turn one on in <a href="#modules">Modules</a>; the map and the device list work without one.</p>
+        </div>
+        <div class="nmstack nmdrawer" id="nmDrawer"></div>
+      </div>
+    </div>
+
+    <div class="nmpane" data-pane="map" role="tabpanel">
+      <div class="nmsplit">
+        <div class="nmstack">
+          <div class="nmtoolbar">
+            <div class="seg" id="nmFilter" role="group" aria-label="Show"><button type="button" data-v="all">All</button><button type="button" data-v="av">AV only</button><button type="button" data-v="ndi">NDI</button><button type="button" data-v="dante">Dante</button></div>
+            <span class="nmgrow"></span>
+            <span class="nmlegend"><span><i class="ndi"></i>NDI</span><span><i class="dante"></i>Dante</span><span><i class="warn"></i>Slow link</span></span>
+          </div>
+          <div class="nmframe" id="nmMap" tabindex="0" aria-label="Network map"></div>
+        </div>
+        <div class="nmstack nmdrawer" id="nmMapDetail"></div>
+      </div>
+    </div>
+
+    <div class="nmpane" data-pane="ports" role="tabpanel">
+      <section>
+        <h3>Every device and the port it is on</h3>
+        <p class="note">One row per device Relay can see. Where it is plugged in comes from the switches; the name and note are yours. Click a name to call it what your team calls it: the new name shows everywhere in Relay, but the device and the module that found it keep their own.</p>
+        <div class="nmtoolbar">
+          <input type="search" id="nmSearch" placeholder="Find name, IP or MAC" aria-label="Find name, IP or MAC" autocomplete="off">
+          <div class="seg" id="nmPortFilter" role="group" aria-label="Show"><button type="button" data-v="all">All</button><button type="button" data-v="av">AV only</button><button type="button" data-v="ndi">NDI</button><button type="button" data-v="dante">Dante</button><button type="button" data-v="check">Needs a look</button></div>
+          <span class="nmgrow"></span>
+          <select id="nmSwitch" aria-label="Switch"><option value="">Every switch</option></select>
+        </div>
+        <div class="tablescroll"><table class="dt nmdevs">
+          <thead><tr><th>Name in Relay</th><th>What</th><th>Address</th><th>Plugged into</th><th>Link</th><th>PoE</th><th>Carries</th><th>Note</th></tr></thead>
+          <tbody id="nmRows"><tr><td colspan="8" class="muted">Loading&hellip;</td></tr></tbody>
+        </table></div>
+        <div class="ctl nmsave"><button type="button" class="primary" id="nmSaveNotes">Save notes</button><span class="muted">A name is saved when you press Enter. Names and notes are kept with the device&rsquo;s MAC, so they survive a new address; nothing is sent to the device.</span></div>
+        <div class="err" id="nmErr" hidden></div>
+      </section>
+      <section id="nmCables">
+        <h3>Cables</h3>
+        <p class="note">A cable joins any two ports on any gear, and every page that draws cables draws this list: one recorded on the Blackmagic page shows here, and the other way round. A cable a module reports, such as a device on a UniFi switch port, cannot be removed here; add a note to it instead.</p>
+        <div class="tablescroll"><table class="dt nmcables">
+          <thead><tr><th>One end</th><th>The other end</th><th>Recorded by</th><th>Note</th><th></th></tr></thead>
+          <tbody id="nmCableRows"><tr><td colspan="5" class="muted">Loading&hellip;</td></tr></tbody>
+        </table></div>
+        <div class="nmtoolbar nmaddcable">
+          <div class="nmpick" id="nmCableA"></div>
+          <div class="nmpick" id="nmCableB"></div>
+          <input type="text" id="nmCableNote" maxlength="300" placeholder="Note (optional)" aria-label="Note for the new cable">
+          <button type="button" class="primary" id="nmAddCable">Add cable</button>
+        </div>
+        <div class="err" id="nmCableErr" hidden></div>
+      </section>
+      <section id="nmChannels">
+        <h3>Channels</h3>
+        <p class="note">A channel is one audio, video or talk signal, such as &ldquo;Camera 2&rdquo;. Each module reports its own: NDI a source, Blackmagic a switcher input, the audio bus a lane. Relay never joins two by itself; where two look like one it suggests the join and you decide. A name you type here shows on every page that uses the channel.</p>
+        <div id="nmChanSuggest"></div>
+        <div class="tablescroll"><table class="dt nmchannels">
+          <thead><tr><th>Name</th><th>Kind</th><th>Reported by</th><th>Note</th><th></th></tr></thead>
+          <tbody id="nmChanRows"><tr><td colspan="5" class="muted">Loading&hellip;</td></tr></tbody>
+        </table></div>
+        <div class="err" id="nmChanErr" hidden></div>
+      </section>
+    </div>
+
+    <div class="nmpane" data-pane="computer" role="tabpanel">
+      <div class="nmwhat"><b>This computer&rsquo;s network ports, and which one each kind of Relay traffic uses</b>
+        <p>Traffic with no port chosen uses the system&rsquo;s default network. A change applies at once; one that would take the panel off the address you are using is refused.</p></div>
+      <div id="netWarnings" class="netwarn" hidden></div>
+    <section>
+      <h3>Ports</h3>
+      <table class="nettable">
+        <thead><tr><th>Port</th><th>Address</th><th>Link</th><th>Speed</th><th>Traffic on it</th><th></th></tr></thead>
+        <tbody id="netPorts"><tr><td colspan="6" class="muted">Loading&hellip;</td></tr></tbody>
+      </table>
+      <div class="note">Updates by itself when a cable is pulled or an adapter plugged in.</div>
+    </section>
+    <section>
+      <h3>Traffic</h3>
+      <table class="nettable">
+        <thead><tr><th>Traffic</th><th>Network port</th><th>If the port is missing</th><th>Status</th><th></th></tr></thead>
+        <tbody id="netClasses"><tr><td colspan="5" class="muted">Loading&hellip;</td></tr></tbody>
+      </table>
+      <div class="note">A change applies at once: Relay moves its pages and tells each module. The operator panel
+        always answers on this computer too (127.0.0.1), and a change that would take it off the address you are
+        using is refused; make it on this computer instead.</div>
+      <div class="err" id="netError" hidden></div>
+    </section>
+    </div>
+
+    <div class="nmpane" data-pane="find" role="tabpanel">
+      <div class="nmwhat"><b>Where the map comes from</b>
+        <p>Relay merges what each source sees: a device seen by two sources is drawn once. Modules add more; turning one off removes only what it added.</p></div>
+      <section><div id="nmSources"></div></section>
+      <div class="ctl"><button type="button" id="nmRefresh">Look again now</button><span class="muted" id="nmStatus" aria-live="polite">Loading&hellip;</span></div>
+      <section>
+        <h3>Racks and closets</h3>
+        <p class="note">Which closet each switch is drawn in, top to bottom. A switch found later lands in Not placed until you give it one. A place with no switches in it goes when you save.</p>
+        <div class="tablescroll"><table class="dt">
+          <thead><tr><th>Order</th><th>Name</th><th>Model</th><th>Address</th><th>Where</th></tr></thead>
+          <tbody id="nmPlaceRows"></tbody>
+        </table></div>
+        <div class="nmtoolbar nmaddplace"><input type="text" id="nmNewPlace" maxlength="40" placeholder="Booth rack" aria-label="New place"><button type="button" id="nmAddPlace">Add a place</button><span class="nmgrow"></span><button type="button" class="primary" id="nmSavePlaces">Save places</button></div>
+      </section>
+    </div>
+    {% for t in module_tabs.get('network', []) %}
+    <div class="nmpane" data-pane="{{ t.id }}" role="tabpanel">
+{% include t.template %}
+      <p class="note modfoot">{{ t.module }} module v{{ t.version }}{% if t.guide %} &middot; <a href="{{ t.guide }}" target="_blank" rel="noopener">Setup guide</a>{% endif %} &middot; <a href="#modules">Switch it off on the Modules page</a></p>
+    </div>
+    {% endfor %}
+  </div>
+{% endif %}
+{% for m in module_nav %}{% for p in m.pages %}
   <div class="page" id="page-{{ p.id }}" data-page="{{ p.id }}" hidden>
 {% include p.template %}
     <p class="note modfoot">{{ p.module }} module v{{ p.version }}{% if p.guide %} &middot; <a href="{{ p.guide }}" target="_blank" rel="noopener">Setup guide</a>{% endif %} &middot; <a href="#modules">Switch it off on the Modules page</a></p>
@@ -1150,12 +947,14 @@ window.relayCan = function (perm) { return window.RELAY_ME.permissions.indexOf(p
     {{ viewonly('users.manage') }}
     <section>
       <h3>People</h3>
+      <div class="dtbar"><input type="search" id="userFilter" placeholder="Filter people&hellip;" aria-label="Filter people" autocomplete="off" style="max-width:260px"></div>
       <div class="tablescroll">
-        <table>
-          <thead><tr><th>Name</th><th>Username</th><th>Role</th><th>Status</th><th>PIN</th><th>Last sign-in</th><th><span class="sr">Actions</span></th></tr></thead>
+        <table class="dt">
+          <thead><tr><th><button type="button" class="sort" data-sort="name">Name</button></th><th><button type="button" class="sort" data-sort="username">Username</button></th><th><button type="button" class="sort" data-sort="role">Role</button></th><th><button type="button" class="sort" data-sort="status">Status</button></th><th>PIN</th><th><button type="button" class="sort" data-sort="last_login">Last sign-in</button></th><th><span class="sr">Actions</span></th></tr></thead>
           <tbody id="userList"><tr><td colspan="7" class="muted">Loading&hellip;</td></tr></tbody>
         </table>
       </div>
+      <div class="pg" id="userPager" hidden></div>
       <div class="shown" id="userSecret" hidden></div>
       <div class="userform" id="userPanel" hidden></div>
       {% if 'users.manage' in perms %}<div class="ctl" style="margin-top:12px">
@@ -1163,6 +962,18 @@ window.relayCan = function (perm) { return window.RELAY_ME.permissions.indexOf(p
       </div>{% endif %}
       <div class="note">A new user signs in with the temporary password you give them and chooses their own at once.
         Forgotten passwords are reset here: there is no email.</div>
+    </section>
+    <section>
+      <h3>Phones</h3>
+      <div class="note">Each phone or computer once, with everything it is set up for: PIN sign-in, the intercom, Wi-Fi check-in and crew
+        page alerts. Forgetting a phone ends all of them: it is signed out of the intercom, stops getting pages, is taken off check-in
+        and loses its PIN. If one phone shows up twice, join the two.</div>
+      <div class="tablescroll">
+        <table>
+          <thead><tr><th>Phone</th><th>Person</th><th>Set up for</th><th>Last seen</th><th><span class="sr">Actions</span></th></tr></thead>
+          <tbody id="phoneList"><tr><td colspan="5" class="muted">Loading&hellip;</td></tr></tbody>
+        </table>
+      </div>
     </section>
     <section>
       <h3>Trusted devices</h3>
@@ -1253,6 +1064,17 @@ window.relayCan = function (perm) { return window.RELAY_ME.permissions.indexOf(p
         </div>
       </form>
     </section>
+    <section>
+      <h3>My phones</h3>
+      <div class="note">The phones and computers you have set up, with what each is set up for. Forgetting one signs it out of the intercom,
+        stops its crew notifications, takes it off check-in and ends its PIN sign-in.</div>
+      <div class="tablescroll">
+        <table>
+          <thead><tr><th>Phone</th><th>Set up for</th><th>Last seen</th><th><span class="sr">Actions</span></th></tr></thead>
+          <tbody id="myPhoneList"><tr><td colspan="4" class="muted">Loading&hellip;</td></tr></tbody>
+        </table>
+      </div>
+    </section>
     {% if 'tokens.own' in perms %}<section>
       <h3>API tokens</h3>
       <div class="note" style="margin:0 0 12px">For scripts and other programs that use Relay's API as you. A token can do what your role can,
@@ -1272,8 +1094,8 @@ window.relayCan = function (perm) { return window.RELAY_ME.permissions.indexOf(p
       <div class="note" style="margin-top:0" id="deviceState"></div>
     </section>
   </div>
-  </main>
-</div>
+</div></main>
+</div></div>
 <div id="drawerBg" hidden></div>
 <aside id="drawer" aria-hidden="true" aria-labelledby="dTitle" hidden>
   <header><h2 id="dTitle"></h2><button type="button" id="dClose" aria-label="Close"><svg class="ic" viewBox="0 0 16 16" aria-hidden="true"><path d="M3.5 3.5l9 9M12.5 3.5l-9 9"/></svg></button></header>
@@ -1281,12 +1103,26 @@ window.relayCan = function (perm) { return window.RELAY_ME.permissions.indexOf(p
   <div class="dfoot" id="dFoot"></div>
 </aside>
 
+<div id="toast" role="status" aria-live="polite"></div>
+<div id="pal" role="dialog" aria-label="Search pages and actions"><div class="box"><input id="q" placeholder="Search pages and actions…" autocomplete="off" aria-label="Search pages and actions"><div id="res" role="listbox"></div></div></div>
+<script src="{{ static('relay-ui.js') }}"></script>
 <script src="{{ static('qrcode.min.js') }}"></script>
 <script src="{{ static('alert-icons.js') }}"></script>
+<script src="{{ static('layout-render.js') }}"></script>
+<script src="{{ static('layout-editor.js') }}"></script>
+<script src="{{ static('board-live.js') }}"></script>
+<script src="{{ static('shell.js') }}"></script>
 <script src="{{ static('admin.js') }}"></script>
 <script src="{{ static('modules.js') }}"></script>
+<script src="{{ static('network.js') }}"></script>
+<script src="{{ static('network_map.js') }}"></script>
+<script src="{{ static('network_channels.js') }}"></script>
+<script src="{{ static('audiobus.js') }}"></script>
 <script src="{{ static('overlay-builder.js') }}"></script>
+<script src="{{ static('boards.js') }}"></script>
+<script src="{{ static('screens.js') }}"></script>
 <script src="{{ static('users.js') }}"></script>
 <script src="{{ static('audit.js') }}"></script>
+<script src="{{ static('oauth.js') }}"></script>
 {% for script in module_scripts %}<script src="{{ static('modules/' ~ script) }}"></script>
 {% endfor %}</body></html>

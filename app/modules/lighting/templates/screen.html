@@ -1,0 +1,26 @@
+{# /screen?lighting=<page>: a page of big cue buttons for a tablet. Served by the lighting module through core's
+   screen hook, drawn by core's shared layout renderer (#421); its script is /static/modules/lighting/screen.js. #}
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="referrer" content="no-referrer">
+<link rel="stylesheet" href="/static/tokens.css"><title>{{ page.name }}</title>
+<link rel="stylesheet" href="/static/layout.css">
+<style>
+html, body { margin: 0; height: 100%; background: #111; color: #fff; font:16px/1.2 var(--font); }
+body { -webkit-user-select: none; user-select: none; touch-action: manipulation; }
+#ltScreen { box-sizing: border-box; height: 100%; padding: 12px; --rl-gap: 12px; }
+#ltToast { position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%); background: #7a1f1f; color: #fff; padding: 10px 18px; border-radius: 8px; font-size: 18px; }
+</style>
+</head>
+<body>
+<main id="ltScreen" data-page="{{ page.id }}"></main>
+<div id="ltToast" role="status" aria-live="polite" hidden></div>
+<script id="ltData" type="application/json">{{ {"page": page, "key": key} | tojson }}</script>
+<script src="/static/relay-ui.js"></script>
+<script src="/static/layout-render.js"></script>
+<script src="/static/modules/lighting/screen.js"></script>
+</body>
+</html>

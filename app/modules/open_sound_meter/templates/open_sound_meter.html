@@ -1,0 +1,42 @@
+{# The Open Sound Meter admin page, rendered inside admin.html only while the module is on. #}
+    <h2 class="title">Open Sound Meter <span class="sumstate" id="osmSum"></span></h2>
+    <p class="sub">Listen to the level an Open Sound Meter install broadcasts over UDP, and show it on boards and the
+      status feed next to Relay's own meter. In a Sound level or Spectrum widget, choose "Read from: Open Sound
+      Meter". Copy the address and port from Open Sound Meter's own network settings.</p>
+
+    <section>
+      <h3>Where it is heard</h3>
+      <div class="row">
+        <div class="field">
+          <label for="osmGroup">Multicast address (empty for plain UDP)</label>
+          <input id="osmGroup" placeholder="239.1.1.1" autocomplete="off" spellcheck="false" maxlength="15">
+        </div>
+        <div class="field">
+          <label for="osmPort">Port</label>
+          <input id="osmPort" type="number" min="1" max="65535" value="9999">
+        </div>
+      </div>
+      <div class="row">
+        <div class="field">
+          <label for="osmWeighting">A value with no name is</label>
+          <select id="osmWeighting"><option value="A">A-weighted</option><option value="C">C-weighted</option></select>
+        </div>
+        <div class="field">
+          <label for="osmResponse">with response</label>
+          <select id="osmResponse"><option value="slow">Slow</option><option value="fast">Fast</option></select>
+        </div>
+        <div class="field"><label for="osmWarn">Orange from (dB)</label><input id="osmWarn" type="number" min="40" max="140"></div>
+        <div class="field"><label for="osmLimit">Red from (dB)</label><input id="osmLimit" type="number" min="40" max="140"></div>
+      </div>
+      <div class="ctl"><button type="button" class="primary" id="osmSave">Save</button></div>
+      <div class="note" id="osmStatus"></div>
+    </section>
+    <div class="note err" id="osmErr" hidden></div>
+
+    <section>
+      <h3>What arrives</h3>
+      <div class="note" id="osmCounts"></div>
+      <p class="note">Packets Relay could not read as a level are kept here, shortened, so a new Open Sound Meter
+        release's shape can be seen.</p>
+      <pre id="osmSamples" style="white-space:pre-wrap;overflow-wrap:anywhere"></pre>
+    </section>

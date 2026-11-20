@@ -1,0 +1,57 @@
+{# A tab of the Network page (#358, the network redesign): the gear's firmware, the console's change log and the connection settings. unifi.js fills it; the panel's own pieces only. #}
+    <p class="note">Relay reads the church's UniFi console, read-only. Switch ports, PoE and which device is on each port
+      are drawn on the Racks tab.</p>
+    <section id="ufGearSect" hidden>
+      <h3>Network gear</h3>
+      <div id="ufGear"></div>
+    </section>
+    <section id="ufChangesSect" hidden>
+      <h3>Changes on the console</h3>
+      <p class="note">What was changed on the console and by whom, from its own log (30 days).</p>
+      <p class="note" id="ufSignins"></p>
+      <div class="tablescroll"><table class="tbl" id="ufChanges">
+        <thead><tr><th>When</th><th>Who</th><th>What</th></tr></thead>
+        <tbody></tbody>
+      </table></div>
+    </section>
+
+    <details class="sect" id="ufSettings">
+      <summary>Settings</summary>
+      <p class="note">Make a read-only API key on the console under Control Plane, Integrations. Relay only ever reads
+        with it.</p>
+      <div class="row">
+        <div class="field"><label for="ufHost">Console address</label>
+          <input id="ufHost" placeholder="192.168.1.1" autocomplete="off" spellcheck="false" maxlength="253"></div>
+        <div class="field"><label for="ufPort">Port</label>
+          <input id="ufPort" type="number" min="1" max="65535" value="443"></div>
+        <div class="field"><label for="ufSite">Site</label>
+          <input id="ufSite" placeholder="default" autocomplete="off" spellcheck="false" maxlength="64"></div>
+      </div>
+      <div class="row">
+        <div class="field"><label for="ufKey">API key</label>
+          <input id="ufKey" type="password" autocomplete="off" spellcheck="false" maxlength="200"></div>
+      </div>
+      <p class="note">Optional: a local, read-only user on the console (not a UI.com account). With it, Relay listens
+        to the console's live events, so a phone joining shows within seconds instead of at the next read.</p>
+      <div class="row">
+        <div class="field"><label for="ufUser">Local user</label>
+          <input id="ufUser" autocomplete="off" spellcheck="false" maxlength="120"></div>
+        <div class="field"><label for="ufPass">Password</label>
+          <input id="ufPass" type="password" autocomplete="new-password" maxlength="200"></div>
+      </div>
+      <div class="row">
+        <div class="field"><label for="ufPoll">Read every (seconds)</label>
+          <input id="ufPoll" type="number" min="10" max="300"></div>
+        <div class="field"><label for="ufAway">Counts as gone after (seconds)</label>
+          <input id="ufAway" type="number" min="60" max="3600"></div>
+        <div class="field"><label for="ufTarget">Outside address Relay checks</label>
+          <input id="ufTarget" placeholder="1.1.1.1" autocomplete="off" spellcheck="false" maxlength="253"></div>
+      </div>
+      <p class="note" id="ufFpSaved" hidden></p>
+      <div class="ctl" style="display:flex;gap:12px;flex-wrap:wrap">
+        <button type="button" class="primary" id="ufSave">Save</button>
+        <button type="button" id="ufCheck">Read now</button>
+        <button type="button" id="ufClearUser" hidden>Remove the local user</button>
+        <button type="button" id="ufForget" hidden>Forget the trusted certificate</button>
+      </div>
+    </details>

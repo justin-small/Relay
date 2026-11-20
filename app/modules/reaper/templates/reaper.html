@@ -1,0 +1,14 @@
+{# The REAPER admin page (#413), rendered inside admin.html only while the module is on. #}
+    <h2 class="title">REAPER <span class="sumstate" id="rpSum"></span></h2>
+    <p class="sub">Record the service in REAPER: start and stop with the stream or a schedule, drop a marker for each
+      song, and get warned when no track is armed, an expected track is missing or a track goes silent.</p>
+    <div class="note err" id="rpErr" hidden></div>
+    <div id="rpMachines"></div>
+    <div class="ctl">
+      <button type="button" id="rpAdd">Add REAPER computer</button>
+      <button type="button" class="primary" id="rpSave">Save</button>
+    </div>
+    <div class="note">In REAPER, open Settings &gt; Control/OSC/web, click Add and choose OSC (Open Sound Control).
+      Set the mode to "Configure device IP + local port", the device IP to this computer's address (127.0.0.1 when
+      REAPER runs here), the device port to the listen port below (9001), and the local listen port to the port
+      below (8000). Keep the pattern config on Default, then click OK and Apply.</div>

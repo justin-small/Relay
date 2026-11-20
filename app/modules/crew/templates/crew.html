@@ -5,63 +5,107 @@
 <title>{{ app_name }}</title>
 {% include "_brand_head.html" %}
 <link rel="manifest" href="/crew/_/manifest.webmanifest">
-<link rel="stylesheet" href="{{ static('viewer.css') }}">
+<link rel="stylesheet" href="{{ static('viewer.css') }}"><link rel="stylesheet" href="{{ static('tokens.css') }}">
+<link rel="stylesheet" href="{{ static('components.css') }}">
 <link rel="stylesheet" href="{{ static('modules/crew/crew.css') }}">
+{% for style in module_styles %}<link rel="stylesheet" href="{{ static('modules/' ~ style) }}">{% endfor %}
+<script src="{{ static('look.js') }}"></script>
 </head><body class="crew-page">
+{#- The crew page (#226), redesigned as a home screen and a bottom bar: Home answers "what do I do now", the bar
+    holds the tabs modules add, and the person's own settings live in a sheet opened from their initials. -#}
+{% set first = (user.name or '').split(' ')[0] %}
+{% set initials = (user.name or '?').split() | map('first') | join('') | upper %}
+{% set LABEL = {'checklists': 'Checklist', 'resources': 'Files', 'intercom': 'Talk'} %}
+{% set ICON = {
+  'home': '<path d="M4 11l8-7 8 7v9h-5v-6H9v6H4z"/>',
+  'chat': '<path d="M4 5h16v11h-9l-5 4v-4H4z"/>',
+  'checklists': '<path d="M4 7l2 2 3-4M4 15l2 2 3-4M12 7h8M12 15h8"/>',
+  'resources': '<path d="M6 3h8l4 4v14H6zM14 3v4h4"/>',
+  'intercom': '<path d="M5 13v-1a7 7 0 0114 0v1M5 13h3v6H5zM16 13h3v6h-3z"/>',
+  'activity': '<path d="M3 12h4l3-7 4 14 3-7h4"/>'} %}
+{% set bar = tabs | rejectattr("id", "equalto", "activity") | list %}
+{% set more = tabs | selectattr("id", "equalto", "activity") | list %}
+<div class="cr-app">
 <header class="cr-bar">
-  <img src="/static/brand/relay-mark.svg" width="28" height="28" alt="">
-  <h1>{{ app_name }}</h1>
-  <span class="cr-who">{{ user.name }}{% if crew_role %} · {{ crew_role }}{% endif %}</span>
+  <img src="/static/brand/relay-mark.svg" width="26" height="26" alt="">
+  <h1>{% if first %}Hello, {{ first }}{% else %}{{ app_name }}{% endif %}</h1>
+  <button type="button" class="cr-me" id="crMeBtn" aria-haspopup="dialog" aria-controls="crMe"
+          aria-label="{{ user.name }}: your settings">{{ initials[:2] }}</button>
 </header>
+<p class="cr-offline" id="crNet" hidden>Off the church Wi-Fi. Showing what you last saw.</p>
 <main class="cr-main" id="crMain">
-  <section class="cr-card cr-today" id="crToday" hidden aria-live="polite">
-    <h2>Today</h2>
-    <div class="cr-pos" id="crPos"></div>
-    <div class="cr-note" id="crCall"></div>
-  </section>
-  {% if show_plan %}
-  <section class="cr-card" id="crPlan" aria-live="polite">
-    <h2>Plan</h2>
-    <div class="cr-note" id="crPlanNote">Loading…</div>
-    <ol class="cr-items" id="crItems"></ol>
-  </section>
-  {% endif %}
-  <section class="cr-card" id="crIn" hidden>
-    <h2>Check in</h2>
-    <div class="cr-note" id="crInNote" role="status" aria-live="polite"></div>
-    <button type="button" class="cr-confirm" id="crInBtn" hidden>Check in</button>
-  </section>
-  <section class="cr-card cr-alerts" id="crAlerts" hidden>
-    <h2>Pages</h2>
-    <div class="cr-note" id="crAlertsNote">Get a buzz on this phone when the booth pages you.</div>
-    <button type="button" id="crAlertsBtn">Turn on pages</button>
-  </section>
-  {% set others = tools | rejectattr("path", "equalto", "/crew") | list %}
-  {% if others %}
-  <section class="cr-card">
-    <h2>Tools</h2>
-    <ul class="cr-tools">
-      {% for t in others %}<li><a href="{{ t.path }}"><strong>{{ t.title }}</strong>{% if t.note %}<span>{{ t.note }}</span>{% endif %}</a></li>{% endfor %}
-    </ul>
-  </section>
-  {% endif %}
-  {% if tabs %}
-  <div role="tablist" class="cr-tabs" aria-label="Crew tools">
-    {% for t in tabs %}
-    <button role="tab" id="tab-{{ t.id }}" aria-controls="panel-{{ t.id }}" aria-selected="false" tabindex="-1"
-            type="button" data-tab="{{ t.id }}">{{ t.title }}</button>
-    {% endfor %}
+  <div role="tabpanel" class="cr-panel" id="panel-home" aria-labelledby="tab-home">
+    <section class="cr-card cr-now" id="crNow" hidden aria-live="polite">
+      <h2>Now <small id="crNowWhen"></small></h2>
+      <div class="cr-big" id="crNowTitle"></div>
+      <div class="cr-note" id="crNowSub"></div>
+      <div class="cr-line" id="crNext" hidden><span class="cr-time">Next</span><b id="crNextTitle"></b><span class="cr-end" id="crNextAt"></span></div>
+    </section>
+    <section class="cr-card" id="crDay" aria-live="polite">
+      <h2><span id="crDayHead">Today</span> <small id="crPos">{{ crew_role }}</small></h2>
+      <ol class="cr-lines" id="crDayList"></ol>
+      <div class="cr-note" id="crInNote" role="status" aria-live="polite"></div>
+    </section>
+    {% if show_plan %}
+    <details class="cr-card cr-plan" id="crPlan">
+      <summary id="crPlanNote">Plan</summary>
+      <ol class="cr-lines" id="crItems"></ol>
+    </details>
+    {% endif %}
   </div>
   {% for t in tabs %}
   <div role="tabpanel" class="cr-panel" id="panel-{{ t.id }}" aria-labelledby="tab-{{ t.id }}" hidden>
     {% include t.template %}
   </div>
   {% endfor %}
-  {% endif %}
-  <p class="cr-foot" id="crNet" hidden>You are offline. The plan will update when you are back on the network.</p>
-  <form method="post" action="/admin/logout" class="cr-out"><button type="submit">Sign out</button></form>
 </main>
+<nav class="cr-tabs" role="tablist" aria-label="Crew tools">
+  <button role="tab" id="tab-home" aria-controls="panel-home" aria-selected="true" type="button" data-tab="home">
+    <svg viewBox="0 0 24 24" aria-hidden="true">{{ ICON.home | safe }}</svg><span>Home</span></button>
+  {% for t in bar %}
+  <button role="tab" id="tab-{{ t.id }}" aria-controls="panel-{{ t.id }}" aria-selected="false" tabindex="-1" type="button"
+          data-tab="{{ t.id }}"><svg viewBox="0 0 24 24" aria-hidden="true">{{ (ICON[t.id] or '<circle cx="12" cy="12" r="7"/>') | safe }}</svg><span>{{ LABEL[t.id] or t.title }}</span><i class="cr-ct" hidden></i></button>
+  {% endfor %}
+  {% for t in more %}
+  <button role="tab" id="tab-{{ t.id }}" aria-controls="panel-{{ t.id }}" aria-selected="false" tabindex="-1" type="button"
+          data-tab="{{ t.id }}" hidden>{{ t.title }}</button>
+  {% endfor %}
+</nav>
+</div>
+
+<dialog class="cr-sheet" id="crMe" aria-labelledby="crMeName">
+  <div class="cr-grab" aria-hidden="true"></div>
+  <div class="cr-head">
+    <div><b id="crMeName">{{ user.name }}</b><div class="cr-note" id="crMeRole">{{ crew_role }}</div></div>
+    <span class="badge" id="crMeIn" hidden></span>
+  </div>
+  <div class="cr-set" id="crAlerts" hidden>
+    <span><b>Notifications from the booth</b><small id="crAlertsNote">Buzzes until you confirm.</small></span>
+    <label class="switch"><input type="checkbox" id="crAlertsBtn" aria-label="Notifications from the booth"><span class="slider"></span></label>
+  </div>
+  <div id="crDev" hidden>
+    <div class="cr-set"><span><b>My phones</b><small id="crDevNote">When one of these joins the church Wi-Fi, you are
+      checked in without opening this page.</small></span></div>
+    <ul class="cr-lines" id="crDevList"></ul>
+    <button type="button" id="crDevThis" hidden>This is my phone</button>
+    <p class="cr-note" id="crDevPrivate" hidden>This phone uses a private Wi-Fi address. Turn on a fixed address for
+      the church Wi-Fi (on iPhone: Settings, Wi-Fi, the church network, Private Wi-Fi Address: Fixed), or Relay may
+      not know it next time.</p>
+  </div>
+  {% set others = tools | rejectattr("path", "equalto", "/crew") | list %}
+  {% for t in others %}
+  <a class="cr-set cr-link" href="{{ t.path }}"><span><b>{{ t.title }}</b>{% if t.note %}<small>{{ t.note }}</small>{% endif %}</span><span aria-hidden="true">›</span></a>
+  {% endfor %}
+  {% for t in more %}
+  <button type="button" class="cr-set cr-link" data-open="{{ t.id }}"><span><b>{{ t.title }}</b><small>Who did what on the crew page</small></span><span aria-hidden="true">›</span></button>
+  {% endfor %}
+  <div class="cr-sheet-foot">
+    <form method="post" action="/admin/logout"><button class="link" type="submit">Sign out</button></form>
+    <button type="button" id="crMeClose">Close</button>
+  </div>
+</dialog>
 <script>window.RELAY_CREW = { plan: {{ 'true' if show_plan else 'false' }} };</script>
+<script src="{{ static('relay-ui.js') }}"></script>
 <script src="{{ static('modules/crew/crew.js') }}"></script>
 {% for s in module_scripts %}<script src="{{ static('modules/' ~ s) }}" defer></script>
 {% endfor %}

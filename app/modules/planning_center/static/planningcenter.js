@@ -1,23 +1,44 @@
-/* The Planning Center admin page (a module, #157): the token, the service types Relay follows, today's plan and
-   LIVE state, and the presses made from panels. Loaded by admin.html only while the module is on; uses the admin
+/* The Planning Center admin page (a module, #157): tabs for the service, channels, rundown, signage and token, the
+   service types Relay follows, today's plan and LIVE state, and the presses made from panels. Loaded by admin.html only while the module is on; uses the admin
    page's helpers through window.RelayAdmin. */
 (function () {
   const R = window.RelayAdmin;
   if (!R || !document.getElementById('page-planningcenter')) return;
-  const $ = R.$, el = R.el, api = R.api, post = R.post, okMsg = R.okMsg, alertMsg = R.alertMsg, agoText = R.agoText;
+  const $ = R.$, el = R.el, api = R.api, post = R.post, okMsg = R.okMsg, alertMsg = R.alertMsg;
   function C() { return R.cfg(); }
   // What this user may do here. Without the admin page's relayCan the server still refuses, so assume yes.
-  function can(perm) { return typeof window.relayCan !== 'function' || !!window.relayCan(perm); }
+  const can = relayUI.can;
   function paintAccess() {
     const manage = can('planning_center.manage'), control = can('planning_center.control');
     // The token, the service types and the notes switch are changes to the setup: only for who manages it.
-    $('pcConnBox').querySelectorAll('.row, .ctl, .note:not(#pcState)').forEach(function (n) { n.hidden = !manage; });
+    $('pcConnBox').querySelectorAll('.pcopts, .ctl, .note:not(#pcState)').forEach(function (n) { n.hidden = !manage; });
     $('pcNotes').disabled = !manage;
     const note = $('pcSetupAccessNote');
     note.hidden = manage;
     note.textContent = manage ? '' : control
       ? 'You can choose the plan for today but not change the setup.' : 'You can view this page but not change it.';
   }
+  /* ---- Tabs ----
+     The service picker (#pcCtx) belongs to the Service, Team and mics, and Rundown tabs. Until a token is saved
+     only Connection is useful, so it is the only tab offered. */
+  const CTX_TABS = ['service', 'channels', 'rundown'];
+  let pcTab = 'service';
+  function showTab(name) {
+    const pc = (C() && C().planning_center) || {};
+    if (!pc.connected) name = 'connection';
+    pcTab = name;
+    $('pcTabs').querySelectorAll('[data-pctab]').forEach(function (b) {
+      b.setAttribute('aria-selected', String(b.dataset.pctab === name));
+      b.hidden = !pc.connected && b.dataset.pctab !== 'connection';
+    });
+    document.querySelectorAll('#page-planningcenter [data-pcpane]').forEach(function (p) { p.hidden = p.dataset.pcpane !== name; });
+    $('pcCtx').hidden = !pc.connected || !(pc.service_types || []).length || CTX_TABS.indexOf(name) < 0;
+  }
+  $('pcTabs').addEventListener('click', function (e) {
+    const b = e.target.closest('[data-pctab]');
+    if (b) showTab(b.dataset.pctab);
+  });
+
   // The Panels page offers a panel's service mode while Planning Center is connected.
   R.panelHooks.serviceOn = function () { return !!(C() && C().planning_center && C().planning_center.connected); };
 
@@ -51,6 +72,7 @@
     $('pcNotes').checked = !!pc.show_notes;
     renderPcTypes();
     paintAccess();
+    showTab(pcTab);
   }
 
   function renderPcTypes() {
@@ -185,95 +207,55 @@
      Read every few seconds while the section is open and a token is saved.
      Relay picks the plan with a service time today; the select overrides that
      pick for the rest of the day. */
-  let pcLiveTimer = null, pcLiveSig = '';
+  let pcLiveTimer = null;
 
-  function mmss(sec) {
-    const s = Math.abs(Math.round(sec));
-    return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0');
-  }
-
-  function pcLiveLine(t) {
-    if (t.error) return t.error;
-    if (!t.plan) return 'No plan with a service time today.';
-    const tm = t.timers || {};
-    const item = (t.items || []).filter(function (i) { return i.id === tm.current_item; })[0];
-    const parts = [t.live ? 'Live · ' + t.controller.name + ' is controlling' : 'Not live'];
-    if (item && tm.item_left_s !== null) {
-      parts.push(item.title + ' · ' + mmss(tm.item_left_s) + (tm.item_left_s < 0 ? ' over' : ' left'));
-    }
-    if (tm.service_over_s !== null && tm.service_over_s !== undefined) {
-      parts.push('service ' + mmss(tm.service_over_s) + (tm.service_over_s > 0 ? ' behind' : ' ahead'));
-    }
-    const next = (t.items || []).filter(function (i) { return i.id === tm.next_item; })[0];
-    if (next) parts.push('next: ' + next.title);
-    if (t.updated_at) {
-      parts.push('checked ' + agoText(Math.max(0, Date.now() / 1000 - t.updated_at)));
-    }
-    return parts.join(' · ');
-  }
-
-    function notePcNames(types) {
+  function notePcNames(types) {
     const names = {};
     types.forEach(function (t) { names[t.service_type] = t.name; });
     R.setServiceNames(names);
   }
 
+  // The Plan dropdown of the service picker: Relay's own pick for today, or any plan of the viewed service type.
+  let pcPlanSig = '';
+  function renderPcPlan(types) {
+    const t = types.filter(function (x) { return x.service_type === $('rdType').value; })[0] || types[0];
+    const sel = $('pcPlan');
+    if (!t) { sel.innerHTML = ''; pcPlanSig = ''; return; }
+    const sig = JSON.stringify([t.service_type, t.plan && t.plan.id, t.override, t.plans.map(function (p) { return p.id; })]);
+    if (sig === pcPlanSig) return;       // rebuilt only when the plans change, so an open list is not pulled away
+    pcPlanSig = sig;
+    sel.innerHTML = '';
+    const auto = el('option', '', 'Today, Relay\'s pick' + (!t.override && t.plan && t.plan.title ? ': ' + t.plan.title : ''));
+    auto.value = '';
+    sel.appendChild(auto);
+    const plans = t.plans.slice();
+    if (t.plan && !plans.some(function (p) { return p.id === t.plan.id; })) plans.unshift(t.plan);
+    plans.forEach(function (p) {
+      const o = el('option', '', (p.dates || 'No date') + (p.title ? ': ' + p.title : ''));
+      o.value = p.id;
+      sel.appendChild(o);
+    });
+    sel.value = t.override && t.plan ? t.plan.id : '';
+    sel.disabled = !can('planning_center.control');
+    sel.dataset.type = t.service_type;
+  }
+  $('pcPlan').addEventListener('change', async function () {
+    try {
+      renderPcLive(await post('/api/admin/planning-center/plan', { service_type: $('pcPlan').dataset.type, plan: $('pcPlan').value }));
+      alertMsg('');
+    } catch (e) { alertMsg(e.message); }
+  });
+  // Changing the service type changes which plans the Plan dropdown lists.
+  $('rdType').addEventListener('change', function () { pcPlanSig = ''; pcLivePoll(); });
+
   function renderPcLive(snap) {
     const types = snap.service_types || [];
     notePcNames(types);
-    $('pcToday').hidden = !types.length;
     $('pcTodayNote').textContent = types.length
       ? 'Day boundary: ' + snap.time_zone + (snap.time_zone_guessed
         ? ' (Relay\'s own zone; Planning Center\'s was not readable)' : ' (from Planning Center)')
       : '';
-    const list = $('pcTodayList');
-    // Rebuild the rows only when the plans change, so an open select is not
-    // pulled out from under the operator; the status line updates in place.
-    const sig = JSON.stringify(types.map(function (t) {
-      return [t.service_type, t.name, t.plan && t.plan.id, t.override, t.plans.map(function (p) { return p.id; })];
-    }));
-    if (sig !== pcLiveSig) {
-      pcLiveSig = sig;
-      list.innerHTML = '';
-      types.forEach(function (t) {
-        const row = el('div', 'pctoday', '');
-        row.appendChild(el('strong', '', t.name + ' '));
-        const sel = document.createElement('select');
-        sel.setAttribute('aria-label', 'Plan followed today for ' + t.name);
-        sel.disabled = !can('planning_center.control');
-        const auto = document.createElement('option');
-        auto.value = ''; auto.textContent = 'Relay\'s pick for today';
-        sel.appendChild(auto);
-        const plans = t.plans.slice();
-        if (t.plan && !plans.some(function (p) { return p.id === t.plan.id; })) plans.unshift(t.plan);
-        plans.forEach(function (p) {
-          const o = document.createElement('option');
-          o.value = p.id;
-          o.textContent = (p.dates || 'No date') + (p.title ? ' · ' + p.title : '');
-          sel.appendChild(o);
-        });
-        sel.value = t.override && t.plan ? t.plan.id : '';
-        sel.addEventListener('change', async function () {
-          try {
-            renderPcLive(await post('/api/admin/planning-center/plan',
-              { service_type: t.service_type, plan: sel.value }));
-            alertMsg('');
-          } catch (e) { alertMsg(e.message); }
-        });
-        row.appendChild(sel);
-        const line = el('div', 'note', '');
-        line.id = 'pcLive-' + t.service_type;
-        row.appendChild(line);
-        list.appendChild(row);
-      });
-    }
-    types.forEach(function (t) {
-      const line = $('pcLive-' + t.service_type);
-      if (!line) return;
-      const picked = !t.override && t.plan ? (t.plan.dates || 'Plan ' + t.plan.id) + ' · ' : '';
-      line.textContent = picked + pcLiveLine(t);
-      line.className = 'note ' + (t.error ? 'err' : t.live ? 'ok' : '');
-    });
+    renderPcPlan(types);
     renderPcActions(snap.actions || []);
   }
 
@@ -303,7 +285,7 @@
   async function pcLivePoll() {
     const on = C() && C().planning_center && C().planning_center.connected
       && C().planning_center.service_types.length && !$('page-planningcenter').hidden;
-    if (!on) { if (!(C() && C().planning_center && C().planning_center.connected)) $('pcToday').hidden = true; return; }
+    if (!on) return;
     try { renderPcLive(await api('/api/admin/planning-center/live')); } catch (e) { /* next tick */ }
   }
   window.addEventListener('hashchange', pcLivePoll);

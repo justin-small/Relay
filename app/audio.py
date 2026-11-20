@@ -75,16 +75,33 @@ def dbfs(linear: float) -> float:
 # The list is therefore cached, and the re-init is skipped whenever a stream is
 # open -- see list_input_devices().
 _device_cache: list[dict] | None = None
-_capture_live = False
+# How many PortAudio input streams are open: the main capture, and every device the lane bus (audiobus.py)
+# has open. The device list is re-probed only when this is zero.
+_capture_count = 0
+_capture_lock = threading.Lock()
+
+
+def _capture_opened() -> None:
+    global _capture_count
+    with _capture_lock:
+        _capture_count += 1
+
+
+def _capture_closed() -> None:
+    global _capture_count
+    with _capture_lock:
+        _capture_count = max(0, _capture_count - 1)
 
 
 def _set_capture_live(flag: bool) -> None:
-    global _capture_live
-    _capture_live = flag
+    """Test helper: pretend one stream is open (True) or none are (False)."""
+    global _capture_count
+    with _capture_lock:
+        _capture_count = 1 if flag else 0
 
 
 def capture_is_live() -> bool:
-    return _capture_live
+    return _capture_count > 0
 
 
 def _number_repeats(devices: list[dict]) -> list[dict]:
@@ -139,8 +156,23 @@ def list_input_devices(refresh: bool = False) -> list[dict]:
     global _device_cache
     if _device_cache is not None and not refresh:
         return _device_cache
-    _device_cache = _probe_input_devices(reinit=not _capture_live)
+    _device_cache = _probe_input_devices(reinit=not capture_is_live())
+    _report_input_channels(_device_cache)
     return _device_cache
+
+
+MAX_CHANNELS_PER_DEVICE = 32
+
+
+def _report_input_channels(devices: list[dict]) -> None:
+    """Each input channel of each device PortAudio lists is an audio source channel in core (#542). A device that is gone
+    turns missing there, with any name an operator gave it."""
+    from . import channels
+
+    found = [{"key": f"{d['label']}#{n}", "kind": "audio", "direction": "source", "number": n,
+              "gear_name": f"{d['name']} {n}"}
+             for d in devices for n in range(1, min(d["channels"], MAX_CHANNELS_PER_DEVICE) + 1)]
+    channels.report("portaudio", found)
 
 
 def _default_device(devices: list[dict]) -> dict:
@@ -167,6 +199,23 @@ def is_legacy_pulse(selector) -> bool:
     two ALSA devices that stood for the server's default input)."""
     sel = str(selector or "").strip().lower()
     return sel.startswith("pulseaudio:") or sel in _LEGACY_PULSE_NAMES
+
+
+def label_inputs(devices: list[dict]) -> list[dict]:
+    """The devices, each with `kind` ("Dante", "AES67" or "") and `feeds` (for each channel, what feeds it, as text, or
+    ""), from whatever module provides "audio.input_labels" (the Dante module, #264). Core names no module: with none
+    on, every device has an empty kind and no feeds. The saved `label` is never changed."""
+    from .modules import using
+
+    fn = using("audio.input_labels")
+    notes: dict = {}
+    if fn is not None:
+        try:
+            notes = fn(devices) or {}
+        except Exception:  # noqa: BLE001
+            log.warning("input labels failed", exc_info=True)
+    return [{**d, "kind": (notes.get(d["index"]) or {}).get("kind", ""),
+             "feeds": (notes.get(d["index"]) or {}).get("feeds", [])} for d in devices]
 
 
 def selection_notice(selector, refresh: bool = False) -> str | None:
@@ -276,6 +325,88 @@ class AudioSource:
         """A fixed sentence when the saved selection cannot be used as named, else None."""
         return None
 
+    def lane_input(self) -> "LaneInput":
+        """A new, separate input for the lane bus. The default wraps `open` as one mono lane; a source that can
+        be open more than once, or has several channels, overrides this."""
+        return MonoSourceInput(self)
+
+
+# -- lanes (the 32x32 bus, audiobus.py) -----------------------------------------
+# The bus runs every lane at LANE_RATE. An input delivers whole multichannel blocks, and an output accepts them,
+# so one open device feeds every lane patched to it.
+LANE_RATE = 48000
+MAX_LANES = 32
+
+
+class LaneInput:
+    """One open multichannel input. `open` starts delivering; `deliver(block)` takes a float32 array shaped
+    (frames, channels) at `SourceInfo.rate` and must never block (call it from any thread)."""
+
+    def open(self, selector, deliver: Callable[[np.ndarray], None]) -> SourceInfo:
+        """`SourceInfo.device["channels"]` is the channel count. Raises SourceError with a fixed sentence."""
+        raise NotImplementedError
+
+    def close(self) -> None:
+        """Stop delivering. Safe to call when not open, and again."""
+
+    def alive(self) -> bool:
+        return True
+
+    @property
+    def dropped(self) -> int:
+        """Frames lost at the device hand-off since it opened (a ring that was not read in time)."""
+        return 0
+
+
+class MonoSourceInput(LaneInput):
+    """Any registered AudioSource as one lane: the source's own mono channel, so a module that only
+    implements `open` can feed the bus without more code."""
+
+    def __init__(self, source: "AudioSource") -> None:
+        self.source = source
+
+    def open(self, selector, deliver) -> SourceInfo:
+        info = self.source.open(selector, 0, lambda block: deliver(np.asarray(block, dtype=np.float32).reshape(-1, 1)))
+        return SourceInfo(rate=info.rate, device={**info.device, "channels": 1}, channel=0)
+
+    def close(self) -> None:
+        self.source.close()
+
+    def alive(self) -> bool:
+        return self.source.alive()
+
+
+class LaneSink:
+    """One open multichannel output, paced by its own device clock. The bus writes `free()` frames at a time
+    (never more) as float32 (frames, channels) at `rate`, so a sink never blocks the bus and a slow sink
+    cannot back up a fast one."""
+
+    rate: int = LANE_RATE
+    channels: int = 0
+
+    def free(self) -> int:
+        """Frames that `write` takes now."""
+        raise NotImplementedError
+
+    def queued(self) -> int:
+        """Frames written and not yet played."""
+        raise NotImplementedError
+
+    def write(self, block: np.ndarray) -> int:
+        """Queue the frames; returns how many were taken."""
+        raise NotImplementedError
+
+    def close(self) -> None:
+        """Stop and release the device. Safe to call again."""
+
+    def alive(self) -> bool:
+        return True
+
+    @property
+    def underruns(self) -> int:
+        """Times the device wanted audio and the queue was empty."""
+        return 0
+
 
 class AudioOutput:
     """Where audio Relay plays goes (alert tones, spoken translation): a sound device, or a module's
@@ -291,6 +422,10 @@ class AudioOutput:
 
     def stop(self) -> None:
         """Cut off whatever is playing and release the device."""
+
+    def lane_sink(self, selector, channels: int) -> "LaneSink":
+        """A new multichannel sink for the lane bus. Raises SourceError when this output cannot take lanes."""
+        raise SourceError("This output cannot be used for lanes.")
 
 
 _sources: dict[str, AudioSource] = {}
@@ -398,14 +533,14 @@ class PortAudioSource(AudioSource):
                               "app. " + mic_blocked_hint()) from exc
         with self._lock:
             self._stream = stream
-        _set_capture_live(True)
+        _capture_opened()
         return SourceInfo(rate=int(rate), device=dev, channel="mix" if mix else pick)
 
     def close(self) -> None:
-        _set_capture_live(False)
         with self._lock:
             stream, self._stream = self._stream, None
         if stream is not None:
+            _capture_closed()
             try:
                 stream.abort()
             except Exception:
@@ -421,6 +556,9 @@ class PortAudioSource(AudioSource):
 
     def notice(self, selector) -> str | None:
         return selection_notice(selector)
+
+    def lane_input(self) -> "LaneInput":
+        return PortAudioLaneInput()
 
 
 def list_output_devices() -> list[dict]:
@@ -486,6 +624,225 @@ class PortAudioOutput(AudioOutput):
         self._cut.set()
         for t in list(self._playing):
             t.join(timeout=1.0)
+
+    def lane_sink(self, selector, channels: int) -> "LaneSink":
+        return PortAudioLaneSink(self._device(selector), selector, channels)
+
+
+# -- PortAudio lanes: C-callback ring buffers (rtmixer) -------------------------------------------------------
+# rtmixer's C callback and PortAudio's lock-free ring buffer keep Python off the audio thread. Where rtmixer is
+# not installed the same classes fall back to a plain sounddevice callback, so Relay still runs, with the
+# Python callback holding the GIL on every block.
+try:  # pragma: no cover - depends on the install
+    import rtmixer
+except Exception:  # pragma: no cover
+    rtmixer = None
+
+
+def _ring_frames(rate: int) -> int:
+    """About a second of frames, as the power of two PortAudio's ring buffer needs."""
+    return 1 << max(10, int(rate).bit_length())
+
+
+class PortAudioLaneInput(LaneInput):
+    """Every channel of one PortAudio input device, opened once however many lanes use it."""
+
+    def __init__(self) -> None:
+        self._stream = None
+        self._ring = None
+        self._action = None
+        self._reader: threading.Thread | None = None
+        self._stop = threading.Event()
+        self._counted = False
+        self._channels = 0
+        self._dropped = 0
+
+    @property
+    def dropped(self) -> int:
+        return self._dropped
+
+    def open(self, selector, deliver) -> SourceInfo:
+        self.close()
+        dev = resolve_device(selector, refresh=True)
+        if dev is None:
+            raise SourceError("No input device matched the saved selection.")
+        rate = int(dev["default_samplerate"] or LANE_RATE)
+        channels = int(dev["channels"])
+        self._channels = channels
+        self._stop.clear()
+        try:
+            if rtmixer is not None:
+                self._open_ring(dev, rate, channels, deliver)
+            else:
+                self._open_callback(dev, rate, channels, deliver)
+        except Exception as exc:
+            log.warning("Could not open %s for lanes: %s", dev["label"], exc)
+            self.close()
+            raise SourceError(f"Could not open {dev['label']}. Check it is plugged in and not in use by another "
+                              "app. " + mic_blocked_hint()) from exc
+        _capture_opened()
+        self._counted = True
+        return SourceInfo(rate=rate, device=dev, channel="all")
+
+    def _open_ring(self, dev, rate, channels, deliver) -> None:
+        rec = rtmixer.Recorder(device=dev["index"], channels=channels, samplerate=rate, latency="low")
+        ring = rtmixer.RingBuffer(4 * channels, _ring_frames(rate))
+        self._stream, self._ring = rec, ring
+        rec.start()
+        self._action = rec.record_ringbuffer(ring)
+        self._reader = threading.Thread(target=self._read, args=(deliver,), name="lane-in", daemon=True)
+        self._reader.start()
+
+    def _read(self, deliver) -> None:
+        ring, channels = self._ring, self._channels
+        while not self._stop.wait(0.005):
+            n = ring.read_available
+            if n:
+                data = np.frombuffer(ring.read(n), dtype=np.float32).reshape(-1, channels).copy()
+                deliver(data)
+
+    def _open_callback(self, dev, rate, channels, deliver) -> None:
+        def callback(indata, frames, time_info, status):
+            if status:
+                log.debug("PortAudio status: %s", status)
+            deliver(indata.copy())
+
+        self._stream = sd.InputStream(device=dev["index"], channels=channels, samplerate=rate,
+                                      blocksize=max(64, int(rate * 0.01)), dtype="float32", callback=callback)
+        self._stream.start()
+
+    def alive(self) -> bool:
+        s = self._stream
+        return s is not None and bool(getattr(s, "active", True))
+
+    def close(self) -> None:
+        self._stop.set()
+        if self._reader is not None:
+            self._reader.join(timeout=1.0)
+            self._reader = None
+        stream, self._stream = self._stream, None
+        if stream is not None:
+            for call in ("abort", "close"):
+                try:
+                    getattr(stream, call)()
+                except Exception:
+                    pass
+        self._ring = self._action = None
+        if self._counted:
+            self._counted = False
+            _capture_closed()
+
+
+class _PyRing:
+    """A small frame ring for the fallback sink: one writer thread, one reader (the device callback)."""
+
+    def __init__(self, frames: int, channels: int) -> None:
+        self.buf = np.zeros((frames, channels), dtype=np.float32)
+        self.size, self.channels = frames, channels
+        self.r = self.w = 0
+        self.lock = threading.Lock()
+
+    @property
+    def read_available(self) -> int:
+        return self.w - self.r
+
+    @property
+    def write_available(self) -> int:
+        return self.size - (self.w - self.r)
+
+    def write(self, block: np.ndarray) -> int:
+        with self.lock:
+            n = min(len(block), self.write_available)
+            self.buf[(self.w + np.arange(n)) % self.size] = block[:n]
+            self.w += n
+            return n
+
+    def read(self, n: int) -> np.ndarray:
+        with self.lock:
+            n = min(n, self.read_available)
+            idx = (self.r + np.arange(n)) % self.size
+            out = self.buf[idx].copy()
+            self.r += n
+            return out
+
+
+class PortAudioLaneSink(LaneSink):
+    """A multichannel PortAudio output device, played from a ring buffer the bus fills."""
+
+    def __init__(self, index: int | None, selector, channels: int) -> None:
+        self.channels = int(channels)
+        self._underruns = 0
+        self._stream = None
+        self._ring = None
+        self._action = None
+        try:
+            info = sd.query_devices(index, "output") if index is not None else sd.query_devices(kind="output")
+            index = info["index"] if "index" in info else index
+            have = int(info["max_output_channels"])
+            if have < self.channels:
+                raise SourceError(f"{info['name']} has {have} output channels, fewer than the {self.channels} asked for.")
+            self.rate = LANE_RATE
+            frames = _ring_frames(self.rate)
+            if rtmixer is not None:
+                self._stream = rtmixer.Mixer(device=index, channels=self.channels, samplerate=self.rate,
+                                             latency="low")
+                self._ring = rtmixer.RingBuffer(4 * self.channels, frames)
+                self._stream.start()
+                self._action = self._stream.play_ringbuffer(self._ring)
+            else:
+                self._ring = _PyRing(frames, self.channels)
+
+                def callback(outdata, frame_count, time_info, status):
+                    block = self._ring.read(frame_count)
+                    outdata[: len(block)] = block
+                    if len(block) < frame_count:
+                        outdata[len(block):] = 0
+                        self._underruns += 1
+
+                self._stream = sd.OutputStream(device=index, channels=self.channels, samplerate=self.rate,
+                                               dtype="float32", callback=callback)
+                self._stream.start()
+        except SourceError:
+            self.close()
+            raise
+        except Exception as exc:
+            log.warning("Could not open the output device for lanes: %s", exc)
+            self.close()
+            raise SourceError("Could not open the output device. Check it is plugged in and not in use by "
+                              "another app.") from exc
+
+    def free(self) -> int:
+        return self._ring.write_available if self._ring is not None else 0
+
+    def queued(self) -> int:
+        return self._ring.read_available if self._ring is not None else 0
+
+    def write(self, block: np.ndarray) -> int:
+        ring = self._ring
+        if ring is None or not len(block):
+            return 0
+        n = min(len(block), ring.write_available)
+        if isinstance(ring, _PyRing):
+            return ring.write(block[:n])
+        return int(ring.write(np.ascontiguousarray(block[:n], dtype=np.float32), n))
+
+    def alive(self) -> bool:
+        s = self._stream
+        return s is not None and bool(getattr(s, "active", True))
+
+    @property
+    def underruns(self) -> int:
+        return self._underruns
+
+    def close(self) -> None:
+        stream, self._stream = self._stream, None
+        if stream is not None:
+            for call in ("abort", "close"):
+                try:
+                    getattr(stream, call)()
+                except Exception:
+                    pass
+        self._ring = self._action = None
 
 
 register_source(PortAudioSource())

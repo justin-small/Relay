@@ -122,3 +122,30 @@ def clear(user_id: int, scope: str | None = None) -> int:
         return db.execute("delete from user_prefs where user_id = ?", (int(user_id),))
     _check(scope, "x")
     return db.execute("delete from user_prefs where user_id = ? and scope = ?", (int(user_id), scope))
+
+
+# The operator panel's look (#434): which of these a person may choose. A stored value is untrusted (above), so
+# the page reads each one through this table and falls back to the default for anything else; the value is only
+# ever one of these words, and it reaches the page as an attribute, never as markup.
+SHELL_DEFAULTS = {"ui_preset": "relay", "ui_mode": "dark", "ui_sidebar": "inset", "ui_collapse": "icon",
+                  "ui_layout": "centered", "ui_navbar": "sticky", "ui_font": "system", "ui_collapsed": False}
+SHELL_CHOICES = {"ui_preset": ("relay", "softpop", "tangerine", "brutalist"),
+                 "ui_mode": ("light", "dark", "system"),
+                 "ui_sidebar": ("inset", "sidebar", "floating"),
+                 "ui_collapse": ("icon", "offcanvas"),
+                 "ui_layout": ("centered", "full"),
+                 "ui_navbar": ("sticky", "scroll"),
+                 "ui_font": ("system", "rounded", "serif", "mono")}
+
+
+def shell_view(stored: dict[str, Any] | None) -> dict[str, Any]:
+    """The panel's look from a person's core preferences: every key of SHELL_DEFAULTS, each an allowed value."""
+    stored = stored if isinstance(stored, dict) else {}
+    out: dict[str, Any] = dict(SHELL_DEFAULTS)
+    for name, allowed in SHELL_CHOICES.items():
+        value = stored.get(name)
+        if isinstance(value, str) and value in allowed:
+            out[name] = value
+    if stored.get("ui_collapsed") is True:
+        out["ui_collapsed"] = True
+    return out

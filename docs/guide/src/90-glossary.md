@@ -110,6 +110,12 @@
 : The secure, encrypted kind of web address, starting `https://`. The
   operator panel uses it.
 
+**IGMP snooping, IGMP querier**
+: Switch settings for multicast. Snooping sends multicast only to the switch
+  ports that ask for it; the querier is the one switch or router on a network
+  that keeps asking who wants it. Snooping without a querier stops multicast
+  after a few minutes.
+
 **IP address, LAN IP address**
 : The number that identifies a computer on a network, such as
   `192.168.1.50`. The LAN IP address is the one on the local network.
@@ -143,6 +149,15 @@
 : A whole Companion module packed into one compressed file, added with
   **Import module package**.
 
+**Multicast**
+: Network traffic sent once to every device that has asked for it, such as
+  Dante discovery, AES67 audio and NDI. It needs IGMP snooping on the switches.
+
+**Network port**
+: A physical connection to a network: the built-in Ethernet, a USB or
+  Thunderbolt Ethernet adapter, or Wi-Fi. Not the same as a **Port** number.
+  See [Using more than one network port](#network-ports).
+
 **Node.js, npm**
 : Node.js runs JavaScript programs outside a browser. npm installs the parts
   they need. Needed only to build the Companion module yourself, for
@@ -171,7 +186,7 @@
 
 **Port**
 : A numbered door on a computer that a program listens on. Relay uses 80 for
-  viewers and 443 for the operator panel.
+  viewers and 443 for the operator panel. See also **Network port**.
 
 **Prepaid credit**
 : Money paid to OpenAI in advance and used up as Relay runs.
@@ -251,6 +266,10 @@
   your user folder, apart from the app, so updates never touch it. Open it with
   **Open state folder** in the Relay menu.
 
+**Subnet**
+: One network's range of addresses, such as `192.168.1.x`. Each of the Relay
+  computer's network ports should be on a different subnet.
+
 **System tray, menu bar**
 : Where Relay's icon and menu live while it runs: the menu bar at the top right
   of a Mac's screen, or the notification area by the clock on Windows and
@@ -272,6 +291,10 @@
 **Variable**
 : In Companion, a value from Relay, such as the session clock, that can be
   shown on a button.
+
+**VLAN**
+: A separate network carried on the same managed switch, kept apart from the
+  others as if it had its own switch.
 
 **Viewer link, viewer pages**
 : The plain `http://` address you give the room, and the caption pages it

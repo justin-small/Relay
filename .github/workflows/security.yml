@@ -50,8 +50,11 @@ jobs:
           tar -xzf "gitleaks_${GITLEAKS}_linux_x64.tar.gz" gitleaks
           mkdir -p "$HOME/.local/bin" && mv actionlint gitleaks "$HOME/.local/bin/"
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+      # A prebuilt, checksum-checked binary: `cargo install` compiled it from source on every run (about 2 minutes).
       - name: Install cargo-deny
-        run: cargo install cargo-deny --locked --version 0.20.2
+        uses: taiki-e/install-action@cfdb7ed4ccc7c7dce37759eae89dc5674b469b39 # v2.90.3
+        with:
+          tool: cargo-deny@0.20.2
       - name: Scans
         env:
           GH_TOKEN: ${{ github.token }}   # zizmor reads action metadata from the API

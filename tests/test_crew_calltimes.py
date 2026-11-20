@@ -19,9 +19,9 @@ _db.start()
 _db.reset()
 
 import app.main as main  # noqa: E402,F401
-from app import config, db, users  # noqa: E402
+from app import directory, config, db, users  # noqa: E402
 from app.main import app  # noqa: E402
-from app.modules.crew import MODULE, calltimes, paging  # noqa: E402
+from app.modules.crew import MODULE, calltimes, notifications  # noqa: E402
 from app.modules.planning_center.pclive import Track  # noqa: E402
 
 fails = []
@@ -60,13 +60,12 @@ TRACKS = [tr]
 from app.modules.crew import people  # noqa: E402
 people.ready()
 for uid, pid, name in ((mike.id, "501", "Mike Smith"), (sara.id, "502", "Sara Lee")):
-    db.execute("insert into crew_profiles (user_id, pc_person, pc_name, updated_at) values (?, ?, ?, ?)"
-               " on conflict (user_id) do update set pc_person = excluded.pc_person", (uid, pid, name, db.now()))
+    directory.link(uid, directory.PCO, pid, name)
 
 print("checking a rule")
 good = {"team": "Camera", "kind": "before", "minutes": 60, "message": "Camera call time"}
-eq("a rule is cleaned", calltimes.clean(good), {"team": "Camera", "message": "Camera call time", "enabled": True,
-                                                "minutes": 60, "weekday": None, "clock": None, "kind": "before"})
+eq("a rule is cleaned", calltimes.clean(good), {"team": "Camera", "team_ref": "", "message": "Camera call time", "enabled": True,
+                                                "minutes": 60, "weekday": None, "clock": None, "schedule_ref": "", "kind": "before"})
 for label, bad in (("no team", {**good, "team": " "}), ("no words", {**good, "message": ""}),
                    ("too long", {**good, "message": "x" * 141}), ("minutes as text", {**good, "minutes": "60"}),
                    ("minutes as a bool", {**good, "minutes": True}), ("minutes too big", {**good, "minutes": 1441}),
@@ -77,7 +76,7 @@ for label, bad in (("no team", {**good, "team": " "}), ("no words", {**good, "me
     try:
         calltimes.clean(bad)
         eq(f"refused: {label}", False, True)
-    except paging.Invalid:
+    except notifications.Invalid:
         eq(f"refused: {label}", True, True)
 
 print("the admin page")
@@ -92,25 +91,58 @@ r = admin.put(f"/api/admin/crew/calltimes/{rid}", json={**good, "enabled": False
 eq("turned off", r.json()["rules"][0]["enabled"], False)
 admin.put(f"/api/admin/crew/calltimes/{rid}", json=good)
 eq("fixed rule is cleaned and kept", admin.post("/api/admin/crew/calltimes", json={
-    "team": "Band", "kind": "fixed", "weekday": 6, "clock": "08:30", "message": "Band soundcheck"}).status_code, 200)
+    "team": "Band", "kind": "fixed", "weekday": 0, "clock": "08:30", "message": "Band soundcheck"}).status_code, 200)
 
 print("minutes before each service")
-sent_before = db.one("select count(*) as n from crew_pages")["n"]
+sent_before = db.one("select count(*) as n from crew_notifications")["n"]
 eq("early: nothing", calltimes.run(S1 - 3600 - 5, TRACKS, ZONE), 0)
 eq("at 8:00 (an hour before 9:00) Camera is paged, only those serving the 9:00", calltimes.run(S1 - 3600, TRACKS, ZONE), 1)
-page = db.one("select id, message from crew_pages order by id desc limit 1")
+page = db.one("select id, message from crew_notifications order by id desc limit 1")
 eq("with the rule's words", page["message"], "Camera call time")
 eq("to the person serving that time only", [r["user_id"] for r in db.query(
-    "select user_id from crew_page_recipients where page_id = ?", (page["id"],))], [mike.id])
+    "select user_id from crew_notification_recipients where notification_id = ?", (page["id"],))], [mike.id])
 eq("not twice for the same service", calltimes.run(S1 - 3600 + 30, TRACKS, ZONE), 0)
 eq("never late: a minute after is skipped", calltimes.run(S1 - 3600 + 61, TRACKS, ZONE), 0)
 eq("the 11:00 service has its own call, for both people", calltimes.run(S2 - 3600, TRACKS, ZONE), 1)
-p2 = db.one("select id from crew_pages order by id desc limit 1")["id"]
+p2 = db.one("select id from crew_notifications order by id desc limit 1")["id"]
 eq("both serve the 11:00", sorted(r["user_id"] for r in db.query(
-    "select user_id from crew_page_recipients where page_id = ?", (p2,))), sorted([mike.id, sara.id]))
-eq("the rehearsal is not a service", db.one("select count(*) as n from crew_pages")["n"] - sent_before, 2)
+    "select user_id from crew_notification_recipients where notification_id = ?", (p2,))), sorted([mike.id, sara.id]))
+eq("the rehearsal is not a service", db.one("select count(*) as n from crew_notifications")["n"] - sent_before, 2)
 last = [r for r in calltimes.list_rules() if r["id"] == rid][0]
 eq("the list shows the last run", (last["last_people"], last["last_ts"] is not None), (2, True))
+
+print("minutes before a named schedule (#526)")
+from app import schedules as sched_mod  # noqa: E402
+from app.modules.crew import MODULE as _crew  # noqa: E402,F401
+
+config.save({"timezone": "America/New_York"})
+svc = sched_mod.validate({"name": "Sunday services", "windows": [
+    {"repeat": "weekly", "days": [0], "start_time": "09:00", "stop_time": "10:30"},
+    {"repeat": "weekly", "days": [0], "start_time": "11:00", "stop_time": "12:30"}]})
+config.save({"schedules": [svc]})
+ref = sched_mod.ref(svc["id"])
+named = calltimes.clean({**good, "schedule_ref": ref})
+eq("a rule may name a schedule", (named["kind"], named["schedule_ref"]), ("before", ref))
+try:
+    calltimes.clean({**good, "schedule_ref": "schedule:relay:nope"})
+    eq("a schedule that is not there is refused", False, True)
+except notifications.Invalid:
+    eq("a schedule that is not there is refused", True, True)
+nid = calltimes.save(named)
+rule = [r for r in calltimes.list_rules() if r["id"] == nid][0]
+eq("the list names the schedule", (rule["schedule_ref"], rule["schedule_name"]), (ref, "Sunday services"))
+eq("each window of today starts a call time, minutes before it",
+   [(round(at - SUN), tid) for _o, at, tid in calltimes.occasions(rule, TRACKS, SUN, ZONE)], [(0, None), (7200, None)])
+eq("the call times of a schedule are reported to the Schedules page", calltimes.schedule_users(ref),
+   [{"where": "Crew", "what": f"Call time for {rule['team']}, 60 min before"}])
+eq("a day the schedule has no window is quiet", calltimes.occasions(rule, TRACKS, SUN + 86400, ZONE), [])
+config.save({"schedules": [dict(svc, windows=[dict(svc["windows"][0], start_time="10:00", stop_time="11:00")])]})
+eq("moving the schedule moves the call time",
+   [round(at - SUN) for _o, at, _t in calltimes.occasions(rule, TRACKS, SUN, ZONE)], [3600])
+config.save({"schedules": [dict(svc, enabled=False)]})
+eq("a schedule that is off pages nobody", calltimes.occasions(rule, TRACKS, SUN, ZONE), [])
+calltimes.delete(nid)
+config.save({"schedules": []})
 
 print("a fixed day and time")
 at = datetime(2026, 11, 15, 8, 30, tzinfo=ZONE).timestamp()
@@ -119,7 +151,7 @@ eq("Band at 08:30 Sunday has nobody with an account: no page", calltimes.run(at,
 eq("and it is not retried that day", calltimes.run(at + 20, TRACKS, ZONE), 0)
 monday = datetime(2026, 11, 16, 8, 30, tzinfo=ZONE).timestamp()
 eq("not on another weekday", calltimes.run(monday, TRACKS, ZONE), 0)
-eq("a team nobody is serving gets nothing", calltimes.occasions({**good, "team": "Lights", "kind": "fixed", "weekday": 6,
+eq("a team nobody is serving gets nothing", calltimes.occasions({**good, "team": "Lights", "kind": "fixed", "weekday": 0,
                                                                   "clock": "08:30"}, TRACKS, at, ZONE), [])
 eq("Band has no account matched, so the run records nobody", [r["last_people"] for r in calltimes.list_rules()
                                                               if r["team"] == "Band"], [0])

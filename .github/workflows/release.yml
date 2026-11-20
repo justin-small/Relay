@@ -25,8 +25,11 @@ name: Release
 #
 # A tag with a hyphen (v1.2.0-rc.1) is published as a pre-release, which releases/latest skips: installs
 # update from releases/latest/download/latest.json, so they are never offered one.
-# Pull requests that touch this file, the guide or desktop/ run every step except the publish (and the
-# updater signing, which needs the secret), so a broken build shows up before a tag does.
+# Pull requests that touch this file or desktop/ run every step except the publish (and the updater signing,
+# which needs the secret), so a broken build shows up before a tag does. The Intel Mac installer waits for a tag
+# to keep pull requests quick: macos-15-intel is the slowest runner (7 to 15 minutes) and the Apple silicon
+# build already proves the Mac build. A guide-only change runs guide.yml alone.
+# Push a pre-release tag (v1.2.0-rc.1) first to build all four before the real one.
 
 on:
   push:
@@ -34,7 +37,6 @@ on:
   pull_request:
     paths:
       - .github/workflows/release.yml
-      - docs/guide/**
       - desktop/**
       - spike/**
       - tools/release_tools.py
@@ -62,7 +64,9 @@ jobs:
       # The runner's PortAudio is built with PulseAudio and fails to
       # initialise -- so the import fails -- when no Pulse server answers.
       # A headless one with a null sink is enough.
+      # A mirror outage makes apt retry every package until the job's limit; fail fast instead.
       - run: sudo apt-get update && sudo apt-get install -y libportaudio2 pulseaudio
+        timeout-minutes: 3
       - run: pulseaudio -D --exit-idle-time=-1 --load=module-null-sink && pactl info | head -3
       # httpx2 is test-only (starlette's TestClient), so it stays out of
       # requirements.txt and the release build.
@@ -84,42 +88,10 @@ jobs:
       - run: python tests/test_modules.py
       - run: python tests/smoke_test.py
 
+  # The guide build lives in guide.yml, which also runs on its own for pull requests that change the guide.
   guide:
     name: User guide
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    env:
-      # The versions the committed guide was last built with.
-      PANDOC_VERSION: '3.11'
-      TYPST_VERSION: '0.15.1'
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - name: Install pandoc, typst and fonts
-        run: |
-          curl -fsSL -o pandoc.deb \
-            "https://github.com/jgm/pandoc/releases/download/${PANDOC_VERSION}/pandoc-${PANDOC_VERSION}-1-amd64.deb"
-          sudo apt-get update
-          sudo apt-get install -y ./pandoc.deb fonts-liberation fonts-dejavu-core
-          rm pandoc.deb
-          curl -fsSL "https://github.com/typst/typst/releases/download/v${TYPST_VERSION}/typst-x86_64-unknown-linux-musl.tar.xz" \
-            | sudo tar -xJ -C /usr/local/bin --strip-components=1 typst-x86_64-unknown-linux-musl/typst
-          pandoc --version | head -1
-          typst --version
-      - name: Build PDF and DOCX
-        run: |
-          if [[ "$GITHUB_REF_TYPE" == tag ]]; then
-            export GUIDE_VERSION="${GITHUB_REF_NAME#v}"
-          fi
-          docs/guide/build.sh
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: guide
-          path: |
-            docs/guide/out/Relay-User-Guide.pdf
-            docs/guide/out/Relay-User-Guide.docx
-          if-no-files-found: error
+    uses: ./.github/workflows/guide.yml
 
   panel-firmware:
     name: Panel firmware
@@ -175,13 +147,17 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include:
-          # Windows on ARM and Linux arm64 come later (#184).
-          - { name: windows-x64, os: windows-latest, bundles: nsis }
-          - { name: macos-arm64, os: macos-latest, bundles: 'app,dmg', arch: aarch64 }
-          - { name: macos-x64, os: macos-15-intel, bundles: 'app,dmg', arch: x64 }
-          # Not 22.04: orjson publishes no Python 3.15 wheel for its glibc (the freeze spike, #179, ran on 24.04).
-          - { name: linux-x64, os: ubuntu-24.04, bundles: 'appimage,deb' }
+        # Windows on ARM and Linux arm64 come later (#184).
+        # Linux is on 24.04, not 22.04: orjson publishes no Python 3.15 wheel for 22.04's glibc (the freeze
+        # spike, #179, ran on 24.04).
+        # The Intel Mac (the second argument) is built on a tag only; see the top of this file.
+        include: >-
+          ${{ fromJSON(format('[{0}{1}]',
+            '{"name": "windows-x64", "os": "windows-latest", "bundles": "nsis"},
+             {"name": "macos-arm64", "os": "macos-latest", "bundles": "app,dmg", "arch": "aarch64"},
+             {"name": "linux-x64", "os": "ubuntu-24.04", "bundles": "appimage,deb"}',
+            github.ref_type == 'tag' && ',
+             {"name": "macos-x64", "os": "macos-15-intel", "bundles": "app,dmg", "arch": "x64"}' || '')) }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:

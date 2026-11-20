@@ -4,32 +4,25 @@
   const R = window.RelayAdmin;
   if (!R || !document.getElementById('page-signageweb')) return;
   const $ = R.$, api = R.api, post = R.post;
-  function can(perm) { return typeof window.relayCan !== 'function' || !!window.relayCan(perm); }
+  const can = relayUI.can;
   function showError(text) { $('swErr').textContent = text || ''; $('swErr').hidden = !text; }
 
   const KIND = { web: 'Web page', youtube: 'YouTube' };
 
-  async function send(method, path, body) {
-    const res = await fetch(path, { method: method, headers: { 'Content-Type': 'application/json' },
-      body: body === undefined ? undefined : JSON.stringify(body), credentials: 'same-origin' });
-    const data = await res.json().catch(function () { return {}; });
-    if (!res.ok) throw new Error(data.error || data.detail || 'That did not work.');
-    return data;
-  }
+  const send = relayUI.api;
 
   function row(link, manage) {
     const d = document.createElement('div');
-    d.className = 'row';
-    d.style.cssText = 'align-items:center;gap:12px;padding:8px 0;border-top:1px solid var(--line, #8883)';
+    d.className = 'lrow';
     const info = document.createElement('div');
-    info.style.cssText = 'flex:1;min-width:0';
+    info.className = 'grow';
     const name = document.createElement('div');
     name.textContent = link.name;
-    name.style.fontWeight = '600';
+    name.className = 'strong';
     const meta = document.createElement('div');
     meta.className = 'note';
     meta.textContent = KIND[link.kind] + ' · ' + link.url;
-    meta.style.cssText = 'overflow:hidden;text-overflow:ellipsis;white-space:nowrap';
+    meta.classList.add('ellip');
     const c = link.check || {};
     const state = document.createElement('div');
     state.className = 'note ' + (c.state === 'ok' ? 'ok' : (c.state === 'blocked' || c.state === 'gone' ? 'err' : ''));
@@ -56,7 +49,7 @@
       const del = document.createElement('button');
       del.type = 'button'; del.className = 'forget'; del.textContent = 'Remove';
       del.onclick = async function () {
-        if (!confirm('Remove "' + link.name + '"? Playlists that use it will skip it.')) return;
+        if (!(await relayUI.confirm('Remove "' + link.name + '"? Playlists that use it will skip it.'))) return;
         showError('');
         try { await send('DELETE', '/api/admin/signage-web/links/' + link.id); await refresh(); }
         catch (e) { showError(e.message); }

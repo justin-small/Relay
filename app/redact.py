@@ -57,7 +57,7 @@ def fold(text: str) -> str:
     """
     out = []
     for ch in text:
-        base = unicodedata.normalize("NFD", ch)
+        base = unicodedata.normalize("NFD", ch)  # allow-shared: one character at a time, so offsets match the original
         out.append((base[0] if base else ch).lower())
     return "".join(out)
 

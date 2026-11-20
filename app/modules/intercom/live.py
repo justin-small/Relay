@@ -2,7 +2,7 @@
 
 `snapshot()` is the whole state the page draws. The page keeps one open stream (`/api/admin/intercom/live/stream`)
 and each press, release, join, leave, mute or label change signals `notify()`, which wakes every open stream; a stream
-also refreshes itself every REFRESH_S so a phone's packet loss and jitter move. Nothing here is stored: mutes live in
+also refreshes itself every REFRESH_S so a phone's packet loss and jitter move (both come from the watchdog, #276). Nothing here is stored: mutes live in
 the arbiter and clear on restart. Each operator action writes one `intercom_events` row with the operator as actor.
 """
 from __future__ import annotations
@@ -19,10 +19,6 @@ log = logging.getLogger("relay.intercom")
 
 REFRESH_S = 2.0
 COALESCE_S = 0.1
-
-# (amber from, red from). Until the watchdog's thresholds (#276) exist these are the page's own.
-LOSS_PACKETS = (20, 100)
-JITTER_MS = (30, 60)
 
 label = ""                                   # the production label, kept for the top bar pill
 
@@ -45,10 +41,10 @@ def unsubscribe(ev: asyncio.Event) -> None:
     _signal.discard(ev)
 
 
-def level(value: Any, bounds: tuple[float, float]) -> str:
+def _level(t: dict, value: Any, warn_key: str, error_key: str) -> str:
     if not isinstance(value, (int, float)) or isinstance(value, bool):
         return ""
-    return "bad" if value >= bounds[1] else "warn" if value >= bounds[0] else "ok"
+    return "bad" if value > t[error_key] else "warn" if value > t[warn_key] else "ok"
 
 
 def _read() -> dict:
@@ -66,8 +62,10 @@ def _read() -> dict:
 
 async def snapshot() -> dict:
     from .presence import presence
+    from .watchdog import thresholds, watchdog
 
     global label
+    t = thresholds()
     data = await store.run(_read)
     label = data["label"]
     conns = list(presence.conns.values())
@@ -89,7 +87,7 @@ async def snapshot() -> dict:
     for x in conns:
         user = data["users"].get(x.user_id) or {}
         dev = data["devices"].get(x.device_id) or {}
-        s = x.stats or {}
+        loss_pct, jitter, _ = watchdog.phone_levels.get(x.device_id, (None, None, ""))
         connected.append({
             "user_id": x.user_id, "device_id": x.device_id, "user": x.name, "role": user.get("role", ""),
             "priority": priority.get(x.user_id), "phone": dev.get("name", ""), "where": "Local",
@@ -97,8 +95,8 @@ async def snapshot() -> dict:
                         if ch in names and any(l.device_id == x.device_id for l in ls.values())],
             "listening": [names[ch] for (u, ch) in sorted(listens) if u == x.user_id and ch in names
                           and (u, ch) in hears],
-            "packets_lost": s.get("packets_lost"), "loss_level": level(s.get("packets_lost"), LOSS_PACKETS),
-            "jitter_ms": s.get("jitter_ms"), "jitter_level": level(s.get("jitter_ms"), JITTER_MS),
+            "loss_pct": loss_pct, "loss_level": _level(t, loss_pct, "loss_warn_pct", "loss_error_pct"),
+            "jitter_ms": jitter, "jitter_level": _level(t, jitter, "jitter_warn_ms", "jitter_error_ms"),
             "muted": arbiter.muted_all or x.user_id in arbiter.muted_users,
             "user_muted": x.user_id in arbiter.muted_users})
     connected.sort(key=lambda r: (r["user"].lower(), r["device_id"]))

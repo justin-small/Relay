@@ -335,8 +335,6 @@ class Registry:
         self.alerts_for: Callable[[str], list[dict]] = lambda pid: []
         # Set by the ProPresenter module while it is on (app/modules/): whether panels may be switched to its lyrics.
         self.lyrics_offered: Callable[[], bool] = lambda: False
-        # Set by the Planning Center module while it is on: the service types a panel may show or control.
-        self.followed_service_types: Callable[[], list[str]] = lambda: []
         # Set by the ProPresenter module while it is on: a panel's timer settings changed (its timers feed refreshes).
         self.on_timers_change: Callable[[], None] = lambda: None
         # Slide-note tags (#138): panels that were switched to the lyrics, with what they showed ("restore") and

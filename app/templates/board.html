@@ -1,0 +1,28 @@
+<!doctype html>
+{# /board/<slug> (#156): a board, drawn by the shared renderer (#421), nothing but the board. It is laid out on the
+   Boards page. Everything the page needs is in boardData; board.js draws it and board-live.js keeps it live. #}
+<html lang="en"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#000000">
+<meta name="referrer" content="no-referrer">
+<title>{{ title }}</title>
+{% include "_brand_head.html" %}
+<link rel="stylesheet" href="{{ static('tokens.css') }}"><link rel="stylesheet" href="{{ static('layout.css') }}"><script src="{{ static('look.js') }}"></script>
+<style>
+html,body{margin:0;height:100%;background:#000;color:#fafafa;font-family:var(--font,var(--font))}
+body{display:flex;flex-direction:column;overflow:hidden}
+#board{flex:1;min-height:0;display:flex}
+#boardView{flex:1;min-height:0;padding:1vmin;box-sizing:border-box;display:flex;align-items:center;justify-content:center}
+#boardView .rl-grid{flex:none;contain:size}
+#toast{position:fixed;left:50%;bottom:20px;transform:translateX(-50%);background:#7a1f1f;color:#fff;padding:10px 18px;border-radius:8px;font-size:16px;z-index:30}
+.empty{margin:auto;color:#a1a1aa;text-align:center;padding:24px}
+</style>
+</head><body>
+<div id="board"></div>
+<div id="toast" role="status" aria-live="polite" hidden></div>
+<script id="boardData" type="application/json">{{ data | tojson }}</script>
+<script src="{{ static('relay-ui.js') }}"></script>
+<script src="{{ static('layout-render.js') }}"></script>
+<script src="{{ static('board-live.js') }}"></script>
+<script src="{{ static('board.js') }}"></script>
+</body></html>

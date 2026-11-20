@@ -1,0 +1,76 @@
+<!doctype html><html lang="en" data-theme="dark" data-preset="relay"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<link rel="stylesheet" href="../../../app/static/tokens.css"><link rel="stylesheet" href="../../../app/static/components.css"><link rel="stylesheet" href="network.css">
+<title>Network C · Health and AV traffic</title></head><body>
+<div class="top"><b>Network</b><span class="spill warn"><i class="dot warn"></i>3 things to check before Sunday</span><span class="sp"></span><span class="muted">Ana Ruiz · manage</span></div>
+<div class="wrap stack">
+<div class="tabs" id="tabs" role="tablist"><button type="button" data-p="ov" class="on">Overview<span class="dot warn"></span></button><button type="button" data-p="av">Video and audio</button><button type="button" data-p="map">Map</button><button type="button" data-p="devices">Devices<small>22</small></button><button type="button" data-p="setup">Setup</button></div>
+
+<div class="pane on" id="ov"><div class="stack">
+<div class="stats">
+<div class="stat"><div class="k">Devices</div><div class="v">22</div><div class="s">21 online · 1 offline</div></div>
+<div class="stat"><div class="k">NDI sources</div><div class="v">6</div><div class="s">5 cameras and screens · 1 offline</div></div>
+<div class="stat"><div class="k">Dante devices</div><div class="v">4</div><div class="s">All on the audio network</div></div>
+<div class="stat warn"><div class="k">Stage switch PoE</div><div class="v">41 W</div><div class="s">of 45 W · 91%</div></div>
+<div class="stat"><div class="k">Internet</div><div class="v">940</div><div class="s">Mb/s down · 41 up · 12 ms</div></div>
+</div>
+<div class="split"><div class="card"><div class="between"><h3 style="margin:0">Needs a look</h3><span class="muted">Checked 8 s ago</span></div>
+<div class="issue"><span class="sev"></span><div><b>Wide Shot is linked at 100 Mb/s</b><p>Stage switch, port 5. It should run at 1 Gb/s; 214 errors today. NDI from this camera may stutter. Try another cable or the jack behind the drum riser.</p></div><button type="button" class="sm" data-go="cam3">Show</button></div>
+<div class="issue"><span class="sev"></span><div><b>Stage switch is near its PoE limit</b><p>41 of 45 W. Three cameras draw from it; a fourth powered device may not start. Move one to the booth switch or use an injector.</p></div><button type="button" class="sm" data-go="sw2">Show</button></div>
+<div class="issue"><span class="sev err"></span><div><b>Balcony Cam is offline</b><p>Last seen Sunday 11:52 by discovery. UniFi does not see it on any port, so it is unplugged or has no power.</p></div><button type="button" class="sm" data-go="cam4">Show</button></div>
+<div class="issue"><span class="sev info"></span><div><b>UniFi controller traffic has no port chosen</b><p>It uses the system default network. Choose Ethernet on Setup so it does not go out over Wi-Fi.</p></div><button type="button" class="sm" data-tab="setup">Setup</button></div>
+</div>
+<div class="stack drawer"><div class="card"><h4>Busiest links now</h4><div id="busy"></div></div>
+<div class="card"><h4>Last 24 hours</h4><div class="issue" style="grid-template-columns:auto 1fr"><span class="muted mono">09:14</span><div>Lobby TV joined, port 2</div></div><div class="issue" style="grid-template-columns:auto 1fr"><span class="muted mono">08:52</span><div>Wide Shot dropped to 100 Mb/s</div></div><div class="issue" style="grid-template-columns:auto 1fr"><span class="muted mono">Sun</span><div>Balcony Cam left</div></div></div></div>
+</div></div></div>
+
+<div class="pane" id="av"><div class="stack">
+<div class="what"><div><b>Who is sending video and audio to whom</b><p>NDI flows come from the NDI module (which source each receiver watches); Dante flows from the devices&rsquo; own subscriptions. The bar is the bandwidth on the receiver&rsquo;s switch port.</p></div></div>
+<div class="flowcols"><div class="card"><div class="between"><h3 style="margin:0"><span class="tag ndi">NDI</span> Video</h3><span class="muted">545 Mb/s total</span></div><div id="ndiflows"></div></div>
+<div class="card"><div class="between"><h3 style="margin:0"><span class="tag dante">Dante</span> Audio</h3><span class="muted">116 channels</span></div><div id="danteflows"></div></div></div>
+<div class="card"><h3>Switch uplinks</h3><p class="lede">Every NDI camera on stage reaches the booth through one cable. When it fills, video stutters everywhere.</p><div id="uplinks"></div></div>
+</div></div>
+
+<div class="pane" id="map"><div class="split"><div class="stack">
+<div class="toolbar"><div class="seg" id="mf"><button type="button" class="on" data-v="all">All</button><button type="button" data-v="av">AV only</button><button type="button" data-v="check">Problems</button></div><span class="grow"></span><span class="legend"><span><i class="ndi"></i>NDI</span><span><i class="dante"></i>Dante</span><span><i class="warn"></i>Check</span></span></div>
+<div class="mapframe" id="mframe"></div></div><div class="stack drawer" id="mdet"></div></div></div>
+
+<div class="pane" id="devices"><div class="split"><div class="card" id="dtable"></div><div class="stack drawer" id="ddet"></div></div></div>
+
+<div class="pane" id="setup"><div class="stack"><div class="tabs" id="sub" style="display:inline-flex;align-self:flex-start"><button type="button" class="on" data-s="computer">This computer</button><button type="button" data-s="sources">Sources</button><button type="button" data-s="alerts">Alerts</button></div>
+<div id="computer"></div><div id="sources" hidden></div>
+<div id="alerts" hidden class="card"><h3>Tell the crew</h3><p class="lede">Send a crew alert when one of these happens during a service.</p>
+<label class="check"><input type="checkbox" checked> A camera or Dante device goes offline</label>
+<label class="check"><input type="checkbox" checked> A link drops below 1 Gb/s</label>
+<label class="check"><input type="checkbox"> A switch passes 85% of its PoE budget</label>
+<label class="check"><input type="checkbox"> An unknown device joins the production network</label>
+<div class="ctl" style="margin-top:var(--sp-3)"><button type="button" class="primary">Save</button></div></div>
+</div></div>
+</div>
+<nav class="mocknav"><a href="index.html">Index</a><a href="a-tabs.html">A</a><a href="b-closet.html">B</a><a href="c-health.html" aria-current="page">C</a></nav>
+<script src="net.js"></script><script src="shared.js"></script>
+<script>
+(function(){
+var N=NET,h=N.h;
+function flows(kind,root){N.FLOWS.filter(function(f){return f[0]===kind;}).forEach(function(f){var a=N.dev(f[1]),b=N.dev(f[2]),r=h('div','flow',root);
+  var x=h('div','',r);h('b','',x,a.name);h('div','muted',x,a.sw?N.gear(a.sw).name+' · '+a.port:'');h('span','arr',r,'→');
+  var y=h('div','',r);h('b','',y,b.name);h('div','muted',y,b.sw?N.gear(b.sw).name+' · '+b.port:'');
+  var z=h('div','',r);z.style.textAlign='right';z.style.minWidth='110px';
+  if(kind==='ndi'){var cap=a.speed||1000,pct=Math.min(100,Math.round(100*f[3]/cap));var m=h('div','meter'+(pct>60?' err':pct>30?' warn':''),z);h('i','',m).style.width=pct+'%';h('small','muted',z,f[3]+' Mb/s'+(a.warn?' on a 100 Mb/s link':''));}
+  else h('span','muted',z,f[3]+' ch');});}
+flows('ndi',document.getElementById('ndiflows'));flows('dante',document.getElementById('danteflows'));
+var U=[['Stage switch → Booth switch','sw1 port 24',357,1000],['Booth switch → Gateway','SFP+ 1',62,10000],['Lobby switch → Booth switch','sw1 port 23',14,1000],['Wide Shot → Stage switch','port 5',41,100]];
+var ul=document.getElementById('uplinks'),busy=document.getElementById('busy');
+U.forEach(function(u,i){var r=h('div','flow',ul);var x=h('div','',r);h('b','',x,u[0]);h('div','muted',x,u[1]);h('span','',r);h('span','',r);
+  var z=h('div','',r);z.style.minWidth='160px';var pct=Math.round(100*u[2]/u[3]);var m=h('div','meter'+(pct>60?' err':pct>30?' warn':''),z);h('i','',m).style.width=pct+'%';h('small','muted',z,u[2]+' of '+(u[3]>=1000?u[3]/1000+' Gb/s':u[3]+' Mb/s')+' · '+pct+'%');
+  if(i===0||i===3){var b=h('div','flow',busy);b.style.gridTemplateColumns='1fr auto';var bx=h('div','',b);h('b','',bx,u[0]);var bm=h('div','meter'+(pct>30?' warn':''),bx);h('i','',bm).style.width=pct+'%';h('span','muted',b,pct+'%');}});
+var mfilter='all',msel='cam3';function mf(d){if(d.kind&&d.kind!=='client')return true;if(mfilter==='av')return d.ndi||d.dante;if(mfilter==='check')return !!(d.warn||d.off);return true;}
+function map(){N.drawMap(document.getElementById('mframe'),{sel:msel,filter:mf,onPick:function(id){msel=id;map();}});N.detail(document.getElementById('mdet'),msel);}
+N.seg(document.getElementById('mf'),function(v){mfilter=v;map();});map();
+NETUI.deviceTable(document.getElementById('dtable'),{onPick:function(id){N.detail(document.getElementById('ddet'),id);}});N.detail(document.getElementById('ddet'),'cam4');
+NETUI.thisComputer(document.getElementById('computer'));NETUI.sources(document.getElementById('sources'));
+document.getElementById('sub').addEventListener('click',function(e){var b=e.target.closest('button');if(!b)return;Array.prototype.forEach.call(this.children,function(x){x.classList.toggle('on',x===b);});['computer','sources','alerts'].forEach(function(id){document.getElementById(id).hidden=id!==b.dataset.s;});});
+function go(tab){document.querySelector('#tabs [data-p="'+tab+'"]').click();}
+document.getElementById('ov').addEventListener('click',function(e){var b=e.target.closest('button');if(!b)return;if(b.dataset.tab)go(b.dataset.tab);if(b.dataset.go){msel=b.dataset.go;go('map');map();}});
+N.tabs('tabs');
+})();
+</script></body></html>

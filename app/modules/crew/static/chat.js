@@ -9,15 +9,9 @@
   const sel = $('chatChannel'), list = $('chatList'), note = $('chatNote'), box = $('chatText'), push = $('chatPush');
   let me = 0, moderator = false, channels = [], current = 'team', source = null, retry = 0, timer = null;
 
-  async function api(method, path, body) {
-    const res = await fetch(path, { method: method, credentials: 'same-origin', cache: 'no-store',
-      headers: { 'Content-Type': 'application/json' }, body: body ? JSON.stringify(body) : undefined });
-    if (res.status === 401 || res.status === 403 && method === 'GET') { location.reload(); return null; }
-    const data = await res.json().catch(function () { return {}; });
-    if (!res.ok) { note.textContent = data.detail || 'That did not work.'; return null; }
-    note.textContent = '';
-    return data;
-  }
+  // A refused read (403) means the session lost its crew access: the page reloads to say so.
+  const reading = relayUI.client({ cache: 'no-store', note: note, reload: [401, 403] });
+  const writing = relayUI.client({ cache: 'no-store', note: note, reload: [401] });
   function clock(ts) { return new Date(ts * 1000).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }); }
   function atBottom() { return list.scrollHeight - list.scrollTop - list.clientHeight < 60; }
 
@@ -29,9 +23,9 @@
     const text = document.createElement('div'); text.className = 'chat-body'; text.textContent = m.body;
     li.appendChild(who); li.appendChild(text);
     if (m.user_id === me || moderator) {
-      const del = document.createElement('button'); del.type = 'button'; del.className = 'chat-del'; del.textContent = 'Delete';
+      const del = document.createElement('button'); del.type = 'button'; del.className = 'link sm chat-del'; del.textContent = 'Delete';
       del.setAttribute('aria-label', 'Delete message from ' + m.author);
-      del.addEventListener('click', function () { api('DELETE', '/crew/api/chat/message/' + m.id); });
+      del.addEventListener('click', function () { writing('DELETE', '/crew/api/chat/message/' + m.id); });
       li.appendChild(del);
     }
     return li;
@@ -43,7 +37,7 @@
     if (stick) list.scrollTop = list.scrollHeight;
   }
   async function load() {
-    const d = await api('GET', '/crew/api/chat/history?channel=' + encodeURIComponent(current));
+    const d = await reading('GET', '/crew/api/chat/history?channel=' + encodeURIComponent(current));
     if (!d || d.channel !== current) return;
     list.textContent = '';
     d.messages.forEach(function (m) { list.appendChild(draw(m)); });
@@ -59,7 +53,7 @@
     push.checked = !!(c && c.push);
   }
   async function loadChannels() {
-    const d = await api('GET', '/crew/api/chat/channels');
+    const d = await reading('GET', '/crew/api/chat/channels');
     if (!d) return false;
     me = d.me; moderator = d.moderator; channels = d.channels; showChannels(); return true;
   }
@@ -80,7 +74,7 @@
     };
   }
   function close() { clearTimeout(timer); if (source) { source.close(); source = null; } }
-  function active() { return !root.closest('[role=tabpanel]').hidden && document.visibilityState === 'visible'; }
+  function active() { return relayUI.shown(root); }
   async function wake() {
     if (!active()) { close(); return; }
     if (await loadChannels()) open();
@@ -88,7 +82,7 @@
 
   sel.addEventListener('change', function () { current = sel.value; showChannels(); note.textContent = ''; load(); });
   push.addEventListener('change', async function () {
-    const d = await api('PUT', '/crew/api/chat/push', { channel: current, on: push.checked });
+    const d = await writing('PUT', '/crew/api/chat/push', { channel: current, on: push.checked });
     if (d) { channels = d.channels; showChannels(); } else { push.checked = !push.checked; }
   });
   $('chatForm').addEventListener('submit', async function (e) {
@@ -96,7 +90,7 @@
     const body = box.value.trim();
     if (!body) return;
     $('chatSend').disabled = true;
-    const d = await api('POST', '/crew/api/chat/send', { channel: current, body: body });
+    const d = await writing('POST', '/crew/api/chat/send', { channel: current, body: body });
     $('chatSend').disabled = false;
     if (d) { box.value = ''; add(d.message); }
   });
