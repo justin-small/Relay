@@ -29,7 +29,7 @@ Object.assign(I, {
 const C = {
   vo: false,                 // demo: the signed-in role may view but not change
   tab: {},                   // remembered tab per page
-  mode: 'realtime',          // translation engine
+  mode: 'text',              // text translation is the only engine (#496)
   on: new Set(['SPANISH', 'PORTUGUESE', 'KOREAN']),
   feed: '', aud: null, audDev: 'x32', audNone: false, noise: '',
   hist: 'rows', cert: false, rec: null, ov: null, al: null, drawer: null
@@ -347,16 +347,10 @@ function targetsRefresh() {
 }
 P.targets = () => head('Target languages', 'Choose which languages are translated and offered to viewers.', {sum: targetsSum(), sumId: 'targetsSum', vo: false, demo: 'Demo: no settings.manage'}) +
   `<div class="clo-g a">` +
-  card('Translation engine', 'How captions are translated.', `<div class="clo-f" style="margin:0"><select id="xmode" aria-label="Translation engine" data-clo-in="xmode"${C.vo ? ' disabled' : ''}>
-      <option value="realtime"${C.mode === 'realtime' ? ' selected' : ''}>Realtime: streams word by word, billed per minute per language</option>
-      <option value="text"${C.mode === 'text' ? ' selected' : ''}>Text: one line at a time, a fraction of the cost</option></select>
-    ${note('Realtime runs one translation session per language. Text transcribes once and has a text model translate each finished line into every language, so extra languages cost almost nothing. Captions then arrive a line at a time, a second or two behind. Changing it restarts live sessions.' + (C.vo ? ' An administrator sets the engine.' : ''))}</div>
-    <div class="clo-opt"><div data-clo-eng="realtime" class="${C.mode === 'realtime' ? 'on' : ''}"><b>Realtime</b>One billed session per language. Word by word.</div><div data-clo-eng="text" class="${C.mode === 'text' ? 'on' : ''}"><b>Text</b>One transcription session. A line at a time. Needed for Arabic, Nepali, Telugu and Hmong.</div></div>`) +
   card('Enabled languages <span class="clo-cnt" id="targetsCount">' + C.on.size + ' enabled</span>', 'Each tick is one language viewers can pick.', `
     <div class="row" style="margin-bottom:12px"><button type="button" class="btn sm" id="targetsAll" data-clo-act="tall">Select all</button><button type="button" class="btn sm" id="targetsNone" data-clo-act="tnone">Clear</button></div>
     <div class="clo-lg" id="targets">${langGrid()}</div>
     ${note(C.mode === 'text' ? 'Every live target is translated from the one transcription session. Turning one off takes effect from the next line.' : 'Each live target is a separate, continuously-billed session. Turning one off closes it immediately.', '', 'targetsNote')}`) + `</div>`;
-IN.xmode = el => { C.mode = el.value; targetsRefresh(); toast('Translation engine saved.' + (live ? ' Live sessions restarted.' : '')); };
 IN.tgt = el => { el.checked ? C.on.add(el.dataset.t) : C.on.delete(el.dataset.t); targetsRefresh(); };
 ACT.tall = () => { const todo = LANGS.filter(l => !C.on.has(l[0]) && (C.mode === 'text' || !l[3])); todo.forEach(l => C.on.add(l[0])); targetsRefresh(); toast(C.mode === 'text' ? 'All languages on' : 'Turn on ' + todo.length + ' languages? Each is a separate, continuously-billed session while capture runs.'); };
 ACT.tnone = () => { C.on.clear(); targetsRefresh(); };

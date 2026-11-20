@@ -54,6 +54,7 @@ window.relayCan = function (perm) { return window.RELAY_ME.permissions.indexOf(p
       {% if 'modules.view' in perms %}{{ sub("modules", "Modules") }}{% endif %}
       {% if 'users.view' in perms %}{{ sub("users", "Users") }}{% endif %}
       {% if 'credentials.manage' in perms %}{{ sub("credentials", "Credentials") }}{% endif %}
+      {% if 'settings.manage' in perms %}{{ sub("aimodels", "AI models") }}{% endif %}
       {% if 'network.view' in perms %}{{ sub("network", "Network") }}{% endif %}
       {% if 'settings.manage' in perms %}{{ sub("appearance", "Appearance & tuning") }}{% endif %}
       {% if 'audit.view' in perms %}{{ sub("audit", "Audit log") }}{% endif %}
@@ -253,31 +254,13 @@ window.relayCan = function (perm) { return window.RELAY_ME.permissions.indexOf(p
     <h2 class="title">Target languages <span class="sumstate" id="targetsSum"></span></h2>
     <p class="sub">Choose which languages are translated and offered to viewers.</p>
     <section>
-      <h3>Translation engine</h3>
-    <div class="field">
-      <select id="xmode" aria-label="Translation engine"{% if 'settings.manage' not in perms %} disabled{% endif %}>
-        <option value="realtime">Realtime: streams word by word, billed per minute per language</option>
-        <option value="text">Text: one line at a time, a fraction of the cost</option>
-      </select>
-      <div class="note">Realtime runs one translation session per language. Text transcribes once and
-        has a text model translate each finished line into every language, so extra languages cost
-        almost nothing. Captions then arrive a line at a time, a second or two behind.
-        Changing it restarts live sessions.{% if 'settings.manage' not in perms %} An administrator sets the engine.{% endif %}</div>
-    </div>
-    <div class="field">
-      <label for="xbackend">Transcription</label>
-      <select id="xbackend" aria-label="Transcription backend"{% if 'settings.manage' not in perms %} disabled{% endif %}></select>
-      <div class="note" id="xbackendNote">Who turns the room's audio into text. If its key is not saved, OpenAI is used instead and this says so.</div>
-    </div>
-    </section>
-    <section>
       <h3>Enabled languages <span class="count" id="targetsCount"></span></h3>
       <div class="ctl" style="margin-bottom:10px">
         <button type="button" id="targetsAll">Select all</button>
         <button type="button" id="targetsNone">Clear</button>
       </div>
       <div class="langgrid" id="targets"></div>
-    <div class="note" id="targetsNote">Each live target is a separate, continuously-billed session. Turning one off closes it immediately.</div>
+    <div class="note" id="targetsNote">Every language is translated from the one transcription, a line at a time, so another language costs almost nothing. Turning one off takes effect from the next line.{% if 'settings.manage' in perms %} The models are picked on <a href="#aimodels">AI models</a>.{% endif %}</div>
     </section>
   </div>
 {% endif %}
@@ -731,6 +714,26 @@ window.relayCan = function (perm) { return window.RELAY_ME.permissions.indexOf(p
   </div>
 {% endif %}
 {% if 'settings.manage' in perms %}
+  <div class="page" id="page-aimodels" data-page="aimodels" hidden>
+    <h2 class="title">AI models</h2>
+    <p class="sub">Every AI task goes through the one Vercel AI Gateway key. A task can be switched to the OpenAI key
+      instead, and uses it on its own when the Vercel key is not saved. Switching translation does not stop captions.</p>
+    <div class="field err" id="aiError" hidden></div>
+    <section>
+      <h3>Live transcription</h3>
+      <div id="aiTranscription"></div>
+      <div class="note">Captions use ElevenLabs Scribe v2 Realtime until Vercel lists Scribe v3 Live; the model
+        moves to v3 Live then. Talkback speaker labels need v3 Live, so talkback has none until then. Talkback uses
+        this transcription unless its own page picks another.</div>
+    </section>
+    <section>
+      <h3>Text and speech</h3>
+      <div id="aiTasks"></div>
+    </section>
+    <div class="note" id="aiCatalogue"></div>
+  </div>
+{% endif %}
+{% if 'settings.manage' in perms %}
   <div class="page" id="page-appearance" data-page="appearance" hidden>
     <h2 class="title">Appearance &amp; tuning</h2>
     <p class="sub">Viewer text size and how caption lines are broken.</p>
@@ -771,9 +774,7 @@ window.relayCan = function (perm) { return window.RELAY_ME.permissions.indexOf(p
       always at a word boundary so a word is never cut in half. Lower the first for snappier
       lines; raise the second if you see a sentence split across two lines. In-progress text
       is already on screen as it streams, so a generous backstop costs nothing.
-      Changing these restarts live sessions.
-      <span class="mono">gpt-realtime-translate</span> fixes phrase boundaries server-side, so
-      these two fields are the only line-break controls.</div>
+      Changing these restarts live sessions.</div>
     </section>
   </div>
 {% endif %}
@@ -1118,6 +1119,7 @@ window.relayCan = function (perm) { return window.RELAY_ME.permissions.indexOf(p
 <script src="{{ static('network_map.js') }}"></script>
 <script src="{{ static('network_channels.js') }}"></script>
 <script src="{{ static('audiobus.js') }}"></script>
+<script src="{{ static('aimodels.js') }}"></script>
 <script src="{{ static('overlay-builder.js') }}"></script>
 <script src="{{ static('boards.js') }}"></script>
 <script src="{{ static('screens.js') }}"></script>

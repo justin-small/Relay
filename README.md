@@ -296,24 +296,16 @@ the `relay.db` the app uses (beside `config.json` in the state folder, or the fi
 
 ## Target languages
 
-The relay runs on `gpt-realtime-translate`, a streaming interpreter model. One
-session per target carries **both** feeds, the English transcript and that
-target's translation, so there is no separate transcription session to run or
-pay for. Billing is per minute of audio, per open session.
+Relay transcribes the room once (Scribe v2 Realtime through the Vercel AI Gateway, or OpenAI's
+`gpt-live-transcribe` as the fallback; see app/transcribe.py) and a text model translates each finished line into
+every target that is on (app/texttranslate.py). Which provider and model each AI task uses is picked on **System >
+AI models** (app/aimodels.py): the one Vercel key by default, the OpenAI key per task as a fallback. The realtime
+translation engine (one `gpt-realtime-translate` session per language) was removed in #496; a `config.json` that
+still names `translation_mode: "realtime"` loads and runs as text translation.
 
-Twelve targets are available (the 13 output languages the model supports, minus
-the English source): Spanish, Portuguese, French, German, Italian, Russian,
-Chinese, Japanese, Korean, Hindi, Indonesian, Vietnamese.
-
-Two things follow from the model:
-
-- **No dialect or register control.** The model takes an output language and
-  nothing else: no prompt, no voice, no formality setting. The old
-  `es-419 / es-MX / es-CA` selector is gone; a `variant` left in `config.json`
-  is ignored. Spanish comes out in a neutral Latin American register.
-- **A target must be enabled for anything to appear**, including
-  `/transcription`. The English transcript is produced by the translation
-  session, so with every target off both feeds are silent. The panel says so.
+Sixteen targets are offered, minus the source language. Spanish comes out in a neutral Latin American register;
+there is no dialect setting, and a `variant` left in `config.json` is ignored. With every target off the source
+captions still run.
 
 ## Blocked words
 
@@ -582,24 +574,16 @@ Canned captions stream to the viewer pages. No OpenAI connection is opened.
 
 ## Cost
 
-Cost is `(enabled targets) × (time)`, billed per minute of audio, including
-silence, because the sessions stay open by design. One session per target carries both
-the English transcript and that target's translation, so running Spanish is one
-stream, not two. Viewers cost nothing.
-
-In **Text** translation mode there is one transcription session and a text
-model translates each finished line, so extra languages cost almost nothing;
-captions then arrive a line at a time.
+Cost is the transcription's minutes of audio, including silence, plus the translation's tokens. One transcription
+runs however many targets are on, and each line is translated per target by a text model, so another language costs
+almost nothing. Viewers cost nothing.
 
 **Press Stop between sessions.** Nothing else controls the cost.
 
 ## Tuning line breaks
 
-**Phrase boundaries are not tunable.** `gpt-realtime-translate` decides where a
-phrase ends from the audio itself, and the translations endpoint has no turn
-detection to configure: there is no `semantic_vad`, no `eagerness`, no
-millisecond threshold. A translation session has no turn lifecycle at all;
-sending `turn_detection` is rejected outright. If you have an older
+**Turn detection is not tunable.** The transcription backend decides where a turn ends (Scribe from its own voice
+activity, OpenAI from the pauses the silence gate leaves). If you have an older
 `config.json` carrying `vad_mode`, `vad_eagerness` or the `vad_*_ms` fields,
 they do nothing and are dropped the next time the file is saved.
 
@@ -934,7 +918,10 @@ app/
   main.py                    FastAPI routes, SSE, admin API
   engine.py                  capture -> sessions -> hub wiring, target toggles
   audio.py                   PortAudio capture, resample, fan-out
-  realtime.py                gpt-realtime-translate sessions, reconnect, errors
+  realtime.py                transcription sessions (OpenAI), reconnect, errors
+  transcribe.py              transcription backends (Scribe through Vercel, OpenAI), module-registered ones
+  texttranslate.py           each finished line -> a text model -> every target
+  aimodels.py                provider and model per AI task, Vercel's model list with prices
   hub.py                     delta broadcast, sequencing, late-joiner history
   recorder.py                per-run transcript on disk (opt-in), retention
   exporting.py               transcripts, source<->translation pairing, zip

@@ -46,7 +46,7 @@ with section("which backend runs"):
     b, warn = transcribe.resolve(cfg_with())
     check("with no key at all the chosen backend is returned, so the start names its key",
           b.id == "scribe" and b.key_setting == "vercel_api_key", (b.id, warn))
-    check("only OpenAI translates in one session", [x.translates for x in transcribe.backends()] == [False, True])
+    check("no backend translates on its own any more (#496)", not any(hasattr(x, "translates") for x in transcribe.backends()))
     saved = config.save({"realtime": {"backend": ""}})
     eq("an empty saved backend means the default", saved["realtime"]["backend"], "scribe")
     try:
@@ -234,14 +234,14 @@ async def scenario_engine_runs_a_registered_backend():
     transcribe.register_backend(transcribe.Backend(
         id="scripted", label="Scripted", session=lambda cfg, key, **kw: ScriptedSession(api_key=key, **kw),
         key_setting=None, price_per_hour=1.0))
-    config.save({"realtime": {"backend": "scripted", "translation_mode": "realtime"}, "targets": {}})
+    config.save({"realtime": {"backend": "scripted"}, "targets": {}})
     eng = engine_mod.Engine()
     eng.bind(asyncio.get_running_loop())
     eng.capture = FakeCapture()
     status = await eng.start()
     check("the engine ran the module's backend", eng.backend and eng.backend.id == "scripted" and
           status["backend"]["id"] == "scripted" and status["backend"]["warning"] is None, status["backend"])
-    check("a backend that cannot translate gets the text pipeline", eng.translator is not None and
+    check("every backend gets the text pipeline", eng.translator is not None and
           isinstance(eng.transcriber, ScriptedSession))
     lines = hub.channel(engine_mod.TRANSCRIPTION_STREAM, config.get()["source_language"]).snapshot()
     check("its lines reached the viewers' transcription feed", "Welcome home." in json.dumps(lines), lines)
@@ -255,7 +255,7 @@ async def scenario_engine_runs_a_registered_backend():
 
 
 async def scenario_fallback_warning_in_status():
-    config.save({"realtime": {"backend": "scribe", "translation_mode": "text"}, "openai_api_key": "sk-test",
+    config.save({"realtime": {"backend": "scribe"}, "openai_api_key": "sk-test",
                  "vercel_api_key": "", "targets": {}})
     eng = engine_mod.Engine()
     eng.bind(asyncio.get_running_loop())

@@ -78,7 +78,7 @@ PUBLIC = ["/", "/transcription", "/translation", "/both", "/present", "/status"]
 NAV = {"health": "session.view", "audio": "audio.manage", "targets": "targets.manage", "panels": "panels.view",
        "alerts": "alerts.view", "urls": "session.view", "overlay": "overlays.view", "recordings": "recordings.view",
        "schedules": "schedules.view", "blocklist": "blocklist.manage", "credentials": "credentials.manage",
-       "appearance": "settings.manage", "users": "users.view", "audit": "audit.view", "modules": "modules.view",
+       "appearance": "settings.manage", "aimodels": "settings.manage", "users": "users.view", "audit": "audit.view", "modules": "modules.view",
        "network": "network.view"}
 # Long-lived streams are cut when a page is closed; that is not a failure.
 STREAMS = ("/stream", "/events", "/live/stream", "/ws")

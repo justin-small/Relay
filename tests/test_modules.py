@@ -49,10 +49,12 @@ MODULES = APP / "modules"
 # registers with it through app/audio.py; it opens no network connection of its own.
 # netroute.py (#344): which network port each kind of traffic uses; core because every module asks it.
 # netsock.py (#345): sockets pinned to a chosen port; core so every module steers traffic the same way.
+# aimodels.py (#495): which provider and model each AI task uses, and Vercel's model list; core because every AI
+# task (core translation, and modules later) asks it, and it reaches the network only through netsock.
 # layout.py (#421) and boards.py (#156): the shared grid editor's schema and the boards built with it; core because
 # they talk to no other product (a module only adds widgets to them through the registry).
 CORE_FILES = {
-    "__init__.py", "alerthistory.py", "alerts.py", "announce.py", "audio.py", "audiobus.py", "audit.py", "backup.py", "boards.py", "layout.py", "config.py", "db.py", "demo.py", "engine.py", "exporting.py", "hub.py", "prefs.py",
+    "__init__.py", "aimodels.py", "alerthistory.py", "alerts.py", "announce.py", "audio.py", "audiobus.py", "audit.py", "backup.py", "boards.py", "layout.py", "config.py", "db.py", "demo.py", "engine.py", "exporting.py", "hub.py", "prefs.py",
     "devices.py", "directory.py", "gear.py", "gearfeed.py", "cables.py", "channels.py", "routing.py", "importdocker.py", "languages.py", "main.py", "mdns.py", "metering.py", "mixreport.py", "netinfo.py", "netroute.py", "netsock.py", "network_map.py", "oauth.py", "overlays.py", "panelfw.py", "panels.py", "paths.py", "ports.py", "realtime.py", "recorder.py", "redact.py",
     "scheduler.py", "schedules.py", "screens.py", "secretbox.py", "serving.py", "setupcode.py", "sidecar.py", "streamstatus.py", "tally.py", "text.py", "texttranslate.py", "timewin.py", "tls.py", "transcribe.py", "users.py",
 }

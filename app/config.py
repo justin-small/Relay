@@ -6,6 +6,7 @@ never serialised to a browser in full -- see `redacted()`.
 from __future__ import annotations
 
 import json
+import logging
 import os
 import threading
 from pathlib import Path
@@ -30,12 +31,15 @@ BLOCKLIST_ENV = os.environ.get("RELAY_BLOCKLIST") or ""
 # Same escape hatch for the recordings directory: the container keeps /app
 # read-only, so a recorded event has to land on the mounted state volume.
 RECORDINGS_ENV = os.environ.get("RELAY_RECORDINGS") or ""
+log = logging.getLogger("relay.config")
 EXAMPLE_PATH = ROOT / "config.example.json"
 
 DEFAULTS: dict[str, Any] = {
     "openai_api_key": "",
-    # The one Vercel AI Gateway key (#495): transcription on Scribe v2 Realtime goes through it.
+    # The one Vercel AI Gateway key (#495): every AI task goes through it unless set to the OpenAI key.
     "vercel_api_key": "",
+    # Which provider and model each AI task uses (app/aimodels.py); filled in by normalize.
+    "ai": {},
     "admin_token": "",
     # The owner's backup passphrase, as the key derived from it (app/backup.py); never the passphrase itself.
     "backup_key": "",
@@ -103,7 +107,6 @@ DEFAULTS: dict[str, Any] = {
     # addresses and host name. Blank certifies those alone.
     "admin_fqdn": "",
     "realtime": {
-        "translate_model": "gpt-realtime-translate",
         # The source-language transcript is opt-in: the translations endpoint only
         # emits the input transcript when an input transcription model is set. An
         # empty string turns the source (e.g. English) pane off.
@@ -115,15 +118,11 @@ DEFAULTS: dict[str, Any] = {
         #   gpt-4o-mini-transcribe 50k
         #   gpt-4o-transcribe      10k   lowest ceiling of the set; avoid
         "transcribe_model": "gpt-live-transcribe",
-        # "realtime": one gpt-realtime-translate session per target, billed per
-        # minute each. "text": one transcription session, and each committed
-        # line translated into every target by text_model (billed per token --
-        # a small fraction of the cost, but captions arrive a line at a time).
-        "translation_mode": "realtime",
         # Who transcribes the main feed (app/transcribe.py): "scribe" (Vercel) or "openai", or the id of a
         # backend a module registers. One that is unknown, or whose key is not saved, falls back to OpenAI.
         "backend": "scribe",
-        "text_model": "gpt-6-luna",
+        # The Vercel model the scribe backend streams to (a streaming transcription model in Vercel's list).
+        "scribe_model": "elevenlabs/scribe-v2-realtime",
         # Sent as reasoning_effort when non-empty. "none" keeps a reasoning
         # model from thinking before each line, which only adds delay here;
         # blank omits it, for a model that does not take the parameter.
@@ -221,13 +220,12 @@ def _normalise(cfg: dict) -> dict:
     # `admin_host` is where the HTTPS panel listens; set it to "127.0.0.1" to keep the panel off the network.
     cfg["host"] = (str(cfg.get("host") or "").strip() or "0.0.0.0")
     cfg["admin_host"] = (str(cfg.get("admin_host") or "").strip() or "0.0.0.0")
-    # The relay moved to the translations endpoint, which only serves
-    # gpt-realtime-translate. A config written before that still names the old
-    # conversational model; point it at the right one instead of failing to
-    # connect. transcribe_model is gone -- one session now carries both feeds.
     rt = cfg.get("realtime") or {}
-    if rt.get("translate_model") in (None, "", "gpt-realtime", "gpt-realtime-mini"):
-        rt["translate_model"] = DEFAULTS["realtime"]["translate_model"]
+    # The realtime translation engine (one gpt-realtime-translate session per language) is gone (#496): text
+    # translation is the only engine, so a config that still names it runs as text mode.
+    if rt.pop("translation_mode", None) == "realtime":
+        log.info("translation_mode \"realtime\" is no longer offered; translating with the text engine")
+    rt.pop("translate_model", None)
     # transcribe_model is back: it enables the source-language transcript on the
     # same session. Missing key -> default it on; an explicit empty/null -> off.
     rt["gate_silence"] = bool(rt.get("gate_silence", True))
@@ -247,9 +245,10 @@ def _normalise(cfg: dict) -> dict:
                   "vad_prefix_padding_ms", "vad_silence_duration_ms"):
         rt.pop(_dead, None)
     rt["backend"] = str(rt.get("backend") or DEFAULTS["realtime"]["backend"]).strip()[:40]
-    if rt.get("translation_mode") not in ("realtime", "text"):
-        rt["translation_mode"] = DEFAULTS["realtime"]["translation_mode"]
-    rt["text_model"] = str(rt.get("text_model") or "").strip() or DEFAULTS["realtime"]["text_model"]
+    rt["scribe_model"] = str(rt.get("scribe_model") or "").strip()[:120] or DEFAULTS["realtime"]["scribe_model"]
+    # The translation model moved to ai.tasks.translation (#495); an older config's choice is carried over once.
+    from . import aimodels  # here, not at the top: it imports the network helpers, which read config
+    cfg["ai"] = aimodels.normalize(cfg.get("ai"), str(rt.pop("text_model", "") or "").strip())
     effort = rt.get("text_reasoning_effort", DEFAULTS["realtime"]["text_reasoning_effort"])
     rt["text_reasoning_effort"] = str(effort or "").strip()
     # An empty string from the panel's default option means "off".

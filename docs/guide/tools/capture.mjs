@@ -81,8 +81,8 @@ function audio(over = {}) {
 
 function session(target, over = {}) {
   return {
-    name: 'translate:' + target, kind: 'translate', state: 'connected', error: null,
-    model: 'gpt-realtime-translate', last_delta_ts: now() - 0.4, connected_at: now() - 1520,
+    name: 'text:' + target, kind: 'text', state: 'connected', error: null,
+    model: 'openai/gpt-6-luna', last_delta_ts: now() - 0.4, connected_at: now() - 1520,
     reconnects: 0, fatal: false, dropped_audio: 0, ...over,
   };
 }

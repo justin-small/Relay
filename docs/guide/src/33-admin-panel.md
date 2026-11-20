@@ -233,21 +233,18 @@ The crosspoints are the same routes the Network page shows, so a change made her
 This page chooses which languages Relay translates into. There are 17:
 Arabic, Chinese, French, German, Hindi, Indonesian, Italian, Japanese,
 Korean, Nepali, Portuguese, Russian, Spanish, Telugu, Vietnamese, Hmong and
-English (English only when the speaker is not speaking English). Arabic,
-Nepali, Telugu and Hmong need the **Text** engine, described below.
+English (English only when the speaker is not speaking English). Relay
+transcribes the room once and translates each finished line into every language
+that is on, so another language costs almost nothing. The models it uses are
+picked on **System** > **AI models**.
 
 ![Target languages with capture stopped: two languages armed.](images/admin-targets-stopped.png){width=90%}
 
-1. **Translation engine.** **Realtime** translates word by word and bills
-   each language per minute. **Text** transcribes once and translates each
-   finished line, so extra languages cost almost nothing. In Text mode,
-   captions arrive a line at a time, a second or two behind. Changing it
-   restarts live sessions.
-2. **Select all** and **Clear** switch every language on or off at once.
-3. **Count.** How many languages are enabled.
-4. **Tick box.** Click to turn a language on or off. The change is saved at
-   once.
-5. **State** of each language:
+1. **Select all** and **Clear** switch every language on or off at once.
+2. **Count.** How many languages are enabled.
+3. **Tick box.** Click to turn a language on or off. The change is saved at
+   once, and takes effect from the next line.
+4. **State** of each language:
    - **off**: not used.
    - **armed — starts with capture**: switched on, but capture is stopped, so
      nothing is being translated yet. It goes live when you click **Start
@@ -643,7 +640,8 @@ runs you no longer need.
 
 ## Credentials {#credentials}
 
-This page changes the OpenAI API key and the backup passphrase. Only an Owner
+This page changes the Vercel AI Gateway key, the OpenAI API key and the backup
+passphrase. Only an Owner
 sees it. Relay stores both encrypted, with a key kept in this computer's Keychain
 (macOS), Credential Manager (Windows) or a private key file (Linux); the note
 under **Save credentials** names which.
@@ -822,6 +820,30 @@ unless an Owner sets a backup passphrase on the **Credentials** page; then it al
 opens with that passphrase anywhere. To restore one, stop Relay and run
 `relay --restore-backup <file>` (add `--passphrase` on another computer). Deleting
 `relay.db` deletes all accounts, and Relay asks for the first Owner again.
+
+## AI models {#aimodels}
+
+This page picks which provider and model each AI task uses. It is under
+**System** and needs the right to change settings.
+
+Every task goes through the **Vercel AI Gateway** key by default. A task can be
+switched to the **OpenAI key** instead. When a task is set to Vercel but only
+the OpenAI key is saved, Relay uses the OpenAI key on its own and the task says
+so in amber.
+
+- **Live transcription.** Who turns the room's speech into text. Captions use
+  ElevenLabs **Scribe v2 Realtime** through Vercel until Vercel lists Scribe v3
+  Live. Talkback speaker labels need v3 Live, so talkback has none until then.
+  Saving restarts the live captions, which takes a second or two.
+- **Translation.** `gpt-6-luna` through Vercel by default. Switching its
+  provider or model does not stop the captions: the next line goes to the new
+  one.
+- **Command Center chat**, **Summaries and notes** and **Spoken translation**
+  are saved now for features that are still being built.
+
+Each model list comes from Vercel's own catalogue, with each model's price
+from Vercel: **free** models first, then priced ones, then any Vercel lists no
+price for. The list is read once an hour.
 
 ## Appearance & tuning {#appearance}
 
