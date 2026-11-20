@@ -124,7 +124,7 @@ class Router:
     # -------------------------------------------------------------------------------------------- core's side
     def api(self) -> dict:
         """What core's routes ask of this module (app/routing.py)."""
-        return {"exclusive": True, "gain": False, "apply": self._core_apply, "read": self._core_read}
+        return {"exclusive": True, "gain": False, "apply": self._core_apply, "read": self._core_read, "permission": "ndi.manage"}
 
     def _core_apply(self, end: dict, wanted: list[dict]) -> str:
         oid = end["key"][len(OUT):]

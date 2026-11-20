@@ -2306,9 +2306,23 @@ async def admin_routes(provider: str = "", channel: str = ""):
     return await _routes_do(_routes_view, provider[:32], channel[:60])
 
 
-@app.post("/api/admin/routes", dependencies=[Depends(require("network.manage"))])
+async def _may_route(request: Request, destination) -> JSONResponse | None:
+    """403 unless the user holds network.manage or the permission the destination's module names (routing.may_route)."""
+    user = request.state.user
+    try:
+        if await asyncio.to_thread(routing.may_route, destination, user.can):
+            return None
+    except db.Unavailable:
+        return JSONResponse({"error": "The database is down, so routes cannot be changed right now."}, status_code=503)
+    return JSONResponse({"error": WEB_MESSAGES["not_allowed"]}, status_code=403)
+
+
+@app.post("/api/admin/routes", dependencies=[Depends(require(None))])
 async def admin_routes_set(payload: dict, request: Request):
-    """{"destination": "channel:relay:3", "source": "channel:relay:7", "gain_db": -3}: the destination takes the source."""
+    """{"destination": "channel:relay:3", "source": "channel:relay:7", "gain_db": -3}: the destination takes the source.
+    Needs network.manage, or the permission the destination's module names (an NDI output: ndi.manage)."""
+    if (no := await _may_route(request, payload.get("destination"))) is not None:
+        return no
     got = await _routes_do(routing.set, payload.get("destination"), payload.get("source"), payload.get("gain_db"))
     if isinstance(got, JSONResponse):
         return got
@@ -2317,9 +2331,12 @@ async def admin_routes_set(payload: dict, request: Request):
     return {"status": got["status"], "problems": got["problems"]}
 
 
-@app.post("/api/admin/routes/clear", dependencies=[Depends(require("network.manage"))])
+@app.post("/api/admin/routes/clear", dependencies=[Depends(require(None))])
 async def admin_routes_clear(payload: dict, request: Request):
-    """{"destination": ref, "source": ref}: take the destination off that source, or off everything without `source`."""
+    """{"destination": ref, "source": ref}: take the destination off that source, or off everything without `source`.
+    The same permission as setting a route."""
+    if (no := await _may_route(request, payload.get("destination"))) is not None:
+        return no
     got = await _routes_do(routing.clear, payload.get("destination"), payload.get("source"))
     if isinstance(got, JSONResponse):
         return got
@@ -2383,9 +2400,13 @@ async def admin_audiobus_save(request: Request, payload: dict):
     cfg = audiobus.normalize(payload)
     cells = cfg["matrix"]
     # The crosspoints are core routes (app/routing.py): config keeps the lanes and outputs, the routes keep who feeds what.
+    # Without "matrix" (the Audio bus page, whose crosspoints are the shared route editor) the routes are left alone.
     saved = config.save({"audio_bus": {**cfg, "matrix": []}}, replace=("audio_bus",))["audio_bus"]
     try:
-        await asyncio.to_thread(audiobus.save_matrix, saved, cells)
+        if "matrix" in payload:
+            await asyncio.to_thread(audiobus.save_matrix, saved, cells)
+        else:
+            await asyncio.to_thread(audiobus.report_channels, saved)
     except db.Unavailable:
         return JSONResponse({"error": "The database is down, so the crosspoints cannot be saved right now."}, status_code=503)
     cfg = {**saved, "matrix": await asyncio.to_thread(audiobus.matrix_from_routes)}

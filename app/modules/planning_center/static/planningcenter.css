@@ -18,6 +18,9 @@
 .pcchan .now { font-size:var(--fs-sm); color:var(--muted); }
 .pcchan .now b { color:var(--fg); font-weight:500; }
 .pcchan .now .spare { color:var(--warn); }
+.pcalso { grid-column:1 / -1; display:flex; flex-wrap:wrap; gap:var(--sp-2); align-items:center; }
+.pcalso .note { margin:0; }
+.pcalsopick { flex:0 1 18rem; }
 .pcchip { display:inline-flex; align-items:center; gap:var(--sp-1); font-size:var(--fs-sm); border:1px solid var(--border);
           border-radius:var(--r-pill); padding:2px var(--sp-1) 2px var(--sp-2); }
 .pcchip i { font-style:normal; color:var(--muted); }

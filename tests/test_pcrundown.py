@@ -331,6 +331,23 @@ ref_settings = {"rundown": rundown.clean_rundown({"channels": [
 rmsg, _ = rundown.build(tr, ref_settings, now, NY, rng=random.Random(3))
 eq("a mic names the core input channel it sits on (#546), so a soundboard can show who holds it",
    {c["mic"]: c["channel_ref"] for c in rmsg["mics"]}, {"03": "channel:relay:5", "04": ""})
+also_settings = {"rundown": rundown.clean_rundown({"channels": [
+    {"id": "v1", "number": "03", "name": "Vocal 1", "channel_ref": "channel:relay:5",
+     "also_refs": ["channel:relay:6", "channel:relay:5", "junk", "channel:relay:7"],
+     "positions": [{"service_type": "7", "team": "Vocals", "position": "Vocals"}]}]})}
+eq("an entry keeps its further input channels, without repeats or junk (#546)",
+   also_settings["rundown"]["channels"][0]["also_refs"], ["channel:relay:6", "channel:relay:7"])
+eq("an entry with no first channel keeps none", rundown.clean_rundown({"channels": [
+    {"id": "x", "name": "Spare", "also_refs": ["channel:relay:6"], "positions": []}]})["channels"][0]["also_refs"], [])
+amsg, _ = rundown.build(tr, also_settings, now, NY, rng=random.Random(3))
+mic = amsg["mics"][0]
+eq("the mic lists every input channel of its entry", mic["channel_refs"], ["channel:relay:5", "channel:relay:6", "channel:relay:7"])
+check("its holder is on one of them", mic["channel_ref"] in mic["channel_refs"], mic["channel_ref"])
+again, _ = rundown.build(tr, also_settings, now, NY, rng=random.Random(99))
+eq("and stays on it for the service time", again["mics"][0]["channel_ref"], mic["channel_ref"])
+picks = {rundown.pick_ref(["a", "b", "c"], f"seed{i}") for i in range(40)}
+eq("different holders are spread over the channels", picks, {"a", "b", "c"})
+eq("one channel is that channel", (rundown.pick_ref(["a"], "s"), rundown.pick_ref([], "s"), rundown.pick_ref("x", "s")), ("a", "", "x"))
 eq("the worship leader holds the leader's channel", {c["mic"]: (c["person"] or {}).get("name") for c in cmsg["mics"]}["01"], "Sarah Lee")
 r = owner.post("/api/admin/planning-center/rundown/settings", json={"channels": ch})
 check("the owner saves the channels", r.status_code == 200 and [c["id"] for c in r.json()["settings"]["channels"]] == ["a", "b"])

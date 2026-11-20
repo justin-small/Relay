@@ -190,6 +190,22 @@ with section("a board button makes the same route"):
     eq("the destination takes the source", [x["name"] for x in routing.feeds(R["Green room"])], ["Camera 3"])
     eq("and the gear was told", video.state["out2"], [("in2", None)])
 
+with section("a module may let its own operators route its destinations (#546)"):
+    operator = _db.client(app, role="operator", username="op2", base_url="http://relay.local:8001")
+    modules.provide("routes.vid", {**video.api("vid"), "permission": "session.control"}, owner="test")
+    eq("who may route a video output", routing.permissions(R["Lobby TV"]), ["network.manage", "session.control"])
+    eq("an audio output names no permission of its own", routing.permissions(R["Main L"]), ["network.manage"])
+    r = operator.post("/api/admin/routes", json={"destination": R["Lobby TV"], "source": R["Camera 2"]})
+    eq("an operator with the module's permission routes it", (r.status_code, [x["name"] for x in routing.feeds(R["Lobby TV"])]),
+       (200, ["Camera 2"]))
+    eq("and clears it", (operator.post("/api/admin/routes/clear", json={"destination": R["Lobby TV"]}).status_code,
+                         routing.feeds(R["Lobby TV"])), (200, []))
+    r = operator.post("/api/admin/routes", json={"destination": R["Main L"], "source": R["Vocal"]})
+    eq("but not a destination whose module asks for more", (r.status_code, r.json()), (403, {"error": "Not allowed"}))
+    eq("nor clears one", operator.post("/api/admin/routes/clear", json={"destination": R["Main L"]}).status_code, 403)
+    eq("a channel that is not there needs network.manage", operator.post(
+        "/api/admin/routes", json={"destination": "channel:relay:999", "source": R["Camera 2"]}).status_code, 403)
+
 with section("a module that is off applies nothing and says so"):
     modules.withdraw_all("test")
     got = routing.set(R["Lobby TV"], R["Camera 3"])

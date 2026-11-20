@@ -544,7 +544,9 @@ gear has one (`app/routing.py`, tables in `app/migrations/0015_routes.sql`, #544
 `exclusive` (a destination takes one source, as a video output does, or mixes several, as an audio output does), `gain`
 (the gear has a gain per route), `apply(end, wanted)` (point the destination end at `wanted`, a list of `{"ends": [the source
 channel's ends], "gain_db"}`; pick the end you can use; return "" or a sentence saying why not) and `read(end)` (what the gear
-really does, a list of `{"provider", "key", "gain_db"}` naming source ends, or None when it cannot say). Core code that owns
+really does, a list of `{"provider", "key", "gain_db"}` naming source ends, or None when it cannot say), and optionally
+`permission`: a permission of its own that may route its destinations besides `network.manage` (NDI names `ndi.manage`,
+Blackmagic `blackmagic.control`), so an operator routes from the module's page without Network rights. Core code that owns
 destinations (the audio bus) uses `routing.provide_core(provider, api)`. A module whose gear forgets its routes when it
 restarts calls `routing.reapply("<module id>")` from `start()`.
 
@@ -1023,7 +1025,7 @@ every standalone page whose script uses it load it first; a new page that uses i
 | `shown(node)` | True while the node's tab panel is open and the page is in front. |
 | `portPicker(host, opts)` | Choose one port by its core ref (#546). Opens a drawer: gear on the left, its ports on the right, with a kind filter. `opts`: `value`, `kind` (fixes the connector kind), `label`, `disabled`, `onChange(ref, item)`. Returns `{ value(), set(ref), lock(kind) }`. |
 | `channelPicker(host, opts)` | Choose one core channel by its ref. `opts`: `kind` (`audio`, `video` or `talk`) and `direction` (`source` or `destination`), either of which shows as text when fixed, plus `value`, `label`, `empty`, `disabled`, `onChange(ref, item)`. |
-| `routeEditor(host, opts)` | Destinations down, sources across, one dot per route; audio takes a gain, video one source. Core stores the route and the module that owns the gear applies it. `opts`: `kind`, `provider`, `onChange()`. |
+| `routeEditor(host, opts)` | Destinations down, sources across, one dot per route; audio takes a gain, video one source. Core stores the route and the module that owns the gear applies it. `opts`: `kind`, `provider` (only that module's ends), `gear` (only ends on that gear id), `anySource` (sources from every module), `perm` (the module permission that may route, as in its `routes.<id>`), `source(c)` and `destination(c)` (keep a channel), `extra(c)` (a node under a destination's name, such as a Remove button), `empty`, `onChange()`. Handle: `reload()`. Used by the NDI router, the Videohub routes on the Blackmagic page and the Audio bus page. |
 
 Use them by alias (`const el = relayUI.el;`), never by copying. A helper core lacks is added to `relay-ui.js`, not
 written into the module. `tests/test_ui_contract.py` fails on a module script that defines its own `can`, `api`,

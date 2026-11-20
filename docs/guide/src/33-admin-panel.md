@@ -214,6 +214,20 @@ The meter only moves while capture is running. When capture is stopped, it
 shows nothing even if a microphone is connected.
 :::
 
+## Audio bus {#audio-bus}
+
+**Audio bus** sits under **Audio input**. The bus takes up to 32 mono lanes from any input and sends them to outputs
+through one crosspoint matrix. It stays off until you switch it on, and the main capture on **Audio input** is not
+touched.
+
+1. **Lanes.** Click **Add a lane**, choose the input and device, then a channel, or **Mix of all** to sum every channel.
+2. **Outputs.** Click **Add an output**, choose the device and how many channels it has.
+3. Click **Save lanes and outputs**.
+4. **Crosspoints.** Output channels run down the side and lanes across the top. Click a square to feed a lane into a
+   channel, and type a gain in dB beside it. A channel mixes every lane fed into it.
+
+The crosspoints are the same routes the Network page shows, so a change made here shows there too.
+
 ## Target languages {#target-languages}
 
 This page chooses which languages Relay translates into. There are 17:

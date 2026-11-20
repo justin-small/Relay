@@ -10,7 +10,8 @@ the gear really does. It offers `modules.provide("routes.<module id>", {...})` w
 * `gain`       True when the gear has a gain per route;
 * `apply(end, wanted)`  point the destination end `end` (a channel end dict) at `wanted`, a list of
                {"ends": [the source channel's ends], "gain_db"}; pick the end you can use. Return "" or a sentence saying why not;
-* `read(end)`  what the gear does now: a list of {"provider", "key", "gain_db"} naming source ends, or None when it cannot say.
+* `read(end)`  what the gear does now: a list of {"provider", "key", "gain_db"} naming source ends, or None when it cannot say;
+* `permission` (optional) a permission that may route its destinations, besides network.manage (`may_route`).
 
 The gear is the truth: `status` and `feeds` show what it reports and flag a difference from what was asked, and Relay never
 quietly overwrites the gear. A module that loses its state on restart calls `reapply(provider)` when it starts.
@@ -98,6 +99,26 @@ def _appliers(dest: dict) -> list[tuple[dict, dict]]:
         if api and e["direction"] == "destination" and not e["missing"]:
             out.append((e, api))
     return out
+
+
+MANAGE = "network.manage"
+
+
+def permissions(destination: Any) -> list[str]:
+    """The permissions that may route `destination`: network.manage, plus the `permission` each module (or core owner)
+    that applies it names in its routes API, so an NDI operator can route NDI outputs from the NDI page (#546)."""
+    out = [MANAGE]
+    dest = channels.get(_cid(destination) or 0)
+    for _, api in _appliers(dest) if dest is not None else []:
+        perm = api.get("permission")
+        if isinstance(perm, str) and perm and perm not in out:
+            out.append(perm)
+    return out
+
+
+def may_route(destination: Any, can) -> bool:
+    """Whether a user whose `can(permission)` answers may change what `destination` takes."""
+    return any(can(p) for p in permissions(destination))
 
 
 def exclusive(dest: dict) -> bool:

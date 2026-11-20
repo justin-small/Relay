@@ -348,9 +348,11 @@
         c.appendChild(el('b', '', g.name + ' · port ' + pick.port));
         c.appendChild(el('p', 'muted', info && info.up ? (info.client ? info.client + ' is on it; Relay does not know it by address.' : 'A link is up but Relay does not know what is on it.') : 'Nothing plugged in.'));
         if (info) { var kv = el('dl', 'nmkv'); kvRow(kv, 'Link', info.up ? speedText(info.speed) || 'Up' : 'Down'); kvRow(kv, 'PoE', info.poe ? info.poe + ' W' : ''); kvRow(kv, 'Errors', info.errors ? String(info.errors) : ''); kvRow(kv, 'Check', info.warn); kvRow(kv, 'Name on the switch', info.name); c.appendChild(kv); }
+        if (p) portNameField(c, p);
         noteField(c, g.id + '#' + pick.port);
         dr.appendChild(c);
       }
+      if (info && info.dev && p) { var pn = el('section', 'nmcard', el('b', '', g.name + ' · port ' + pick.port)); portNameField(pn, p); dr.appendChild(pn); }
     } else detail(dr, g, null);
     if (g.poe_budget_w) {
       var share = Math.min(1, (g.poe_w || 0) / g.poe_budget_w);
@@ -432,6 +434,28 @@
     }
     if (g.children.length) c.appendChild(g);
     parent.appendChild(c);
+  }
+
+  /* A port's name (#543): the switch's own name is kept, and a name typed here shows in Relay only, beside it. Empty
+     text shows the switch's name again. A switch port cannot be renamed on the switch from Relay. */
+  function portNameField(card, p) {
+    var pid = String(p.ref || '').split(':')[2];
+    if (!pid) return;
+    var f = el('div', 'field');
+    var id = 'nmPortName-' + pid;
+    var lab = el('label', '', 'Name in Relay'); lab.htmlFor = id;
+    var t = el('input'); t.id = id; t.maxLength = 60; t.value = p.relay_name || '';
+    t.placeholder = p.gear_name || ('Port ' + p.port);
+    t.disabled = !canManage;
+    var said = el('span', 'hint', p.gear_name ? 'The switch calls it ' + p.gear_name + '. A name here changes Relay only.' : 'A name here changes Relay only.');
+    t.addEventListener('change', function () {
+      send('POST', '/api/admin/network/ports/relay/' + pid + '/rename', { name: t.value.trim() }).then(function (r) {
+        p.relay_name = r.port.name; p.name = r.port.name || p.gear_name; said.textContent = 'Saved. Relay only: the switch keeps its own name.';
+        paintRacks();
+      }).catch(function (e) { said.textContent = e.message; });
+    });
+    f.appendChild(lab); f.appendChild(t); f.appendChild(said);
+    card.appendChild(f);
   }
 
   /* A note field that saves when the operator leaves it. */
