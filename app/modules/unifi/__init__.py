@@ -19,6 +19,7 @@ class UniFi(Module):
         summary="Reads the church's UniFi network, read-only: internet health, switch ports and PoE, Wi-Fi, NDI and "
                 "Dante traffic, firmware, the console's change log, and who is on the network.",
         settings_key="unifi",
+        section="Building",
         guide="https://github.com/justin-small/relay#unifi",
         version="1.1.0",
         traffic=(Traffic("unifi", "UniFi controller"),),
@@ -26,11 +27,15 @@ class UniFi(Module):
     secret_settings = ("api_key", "password")
     network_map_adds = ("Switches, access points and the gateway, which port each device is on, link speed, PoE and "
                         "errors, and which devices carry NDI or Dante by the console's traffic flows.")
-    admin_pages = (AdminPage(
-        id="unifi", title="UniFi", template="unifi.html", group="Settings",
-        icon='<circle cx="8" cy="3" r="1.6"/><circle cx="3" cy="12.5" r="1.6"/><circle cx="13" cy="12.5" r="1.6"/>'
-             '<circle cx="8" cy="12.5" r="1.6"/><path d="M8 4.6v6.3M7 4.3l-3.2 6.8M9 4.3l3.2 6.8"/>'),)
+    # Tabs of the core Network page, after its own (Racks, Map, Ports and notes, This computer, Find and add).
+    admin_pages = (
+        AdminPage(id="unifi", title="Internet", template="unifi_internet.html", tab_of="network"),
+        AdminPage(id="unifi_wifi", title="Wi-Fi and who's on", template="unifi_wifi.html", tab_of="network"),
+        AdminPage(id="unifi_av", title="NDI and Dante", template="unifi_av.html", tab_of="network"),
+        AdminPage(id="unifi_console", title="UniFi console", template="unifi_console.html", tab_of="network"),
+    )
     admin_scripts = ("unifi.js",)
+    admin_styles = ("unifi.css",)
     route_prefixes = ("/api/admin/unifi",)
     permissions = (
         Permission("unifi.view", "See who is on the church network and when they joined", "UniFi", "viewer"),
@@ -58,6 +63,19 @@ class UniFi(Module):
 
         return [router]
 
+    def attach(self) -> None:
+        from ... import modules
+        from .service import service
+
+        modules.provide("unifi.service", service)       # the crew's Wi-Fi check-in reads who is on the network
+        modules.provide("gear.unifi", {"list": self.gear_list})   # its switches, access points and clients (app/gearfeed.py)
+
+    def detach(self) -> None:
+        from ... import modules
+
+        modules.withdraw("unifi.service")
+        modules.withdraw("gear.unifi")
+
     async def start(self) -> None:
         from .service import service
 
@@ -73,10 +91,10 @@ class UniFi(Module):
 
         service.poke()
 
-    def network_map(self) -> list[dict]:
+    def gear_list(self) -> dict:
         from .service import service
 
-        return service.map_devices()
+        return {"devices": service.map_devices()}
 
     def pills(self) -> list[dict]:
         from .service import service

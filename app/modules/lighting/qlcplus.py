@@ -33,6 +33,9 @@ RETRY_S = 3.0          # wait before reconnecting the background connection
 class QLCPlus(Backend):
     id = "qlcplus"
     label = "QLC+ (web API)"
+    about = "QLC+ started with -w, on any computer."
+    fields = ("host", "port", "functions")
+    default_port = DEFAULT_PORT
     can_list = True
     can_report_state = True
     can_set_level = True

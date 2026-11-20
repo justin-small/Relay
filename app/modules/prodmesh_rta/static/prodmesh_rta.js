@@ -4,16 +4,10 @@
   const R = window.RelayAdmin;
   if (!R || !document.getElementById('page-prodmeshrta')) return;
   const $ = R.$;
-  function can(perm) { return typeof window.relayCan !== 'function' || !!window.relayCan(perm); }
+  const can = relayUI.can;
   function showError(text) { $('pmErr').textContent = text || ''; $('pmErr').hidden = !text; }
 
-  async function send(method, path, body) {
-    const res = await fetch(path, { method: method, headers: { 'Content-Type': 'application/json' },
-      body: body === undefined ? undefined : JSON.stringify(body), credentials: 'same-origin' });
-    const data = await res.json().catch(function () { return {}; });
-    if (!res.ok) throw new Error(data.error || data.detail || 'That did not work.');
-    return data;
-  }
+  const send = relayUI.api;
 
   let editing = false;
   function draw(s) {

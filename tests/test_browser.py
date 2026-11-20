@@ -21,6 +21,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from _harness import check, done, eq, section, skip, tmpdir  # noqa: E402
+from _style_probe import EXEMPT, PROBE  # noqa: E402
 
 try:
     from playwright.sync_api import Error as PlaywrightError, sync_playwright
@@ -78,7 +79,7 @@ NAV = {"health": "session.view", "audio": "audio.manage", "targets": "targets.ma
        "alerts": "alerts.view", "urls": "session.view", "overlay": "overlays.view", "recordings": "recordings.view",
        "schedules": "schedules.view", "blocklist": "blocklist.manage", "credentials": "credentials.manage",
        "appearance": "settings.manage", "users": "users.view", "audit": "audit.view", "modules": "modules.view",
-       "network": "network.view", "network_map": "network.view"}
+       "network": "network.view"}
 # Long-lived streams are cut when a page is closed; that is not a failure.
 STREAMS = ("/stream", "/events", "/live/stream", "/ws")
 
@@ -93,6 +94,13 @@ def watch(page):
             if r.status >= 400 and not r.url.endswith("/favicon.ico") else None)
     return seen
 
+
+
+def nav_click(page, name):
+    """Click a page's sidebar link, opening the entry it sits under first (one module, or System)."""
+    page.evaluate("n => { const a = document.querySelector(`#nav a[data-page='${n}']`); const h = a && a.closest('.has'); "
+                  "if (h && !h.classList.contains('open')) h.querySelector('.nb').click(); }", name)
+    page.click(f"nav a[data-page='{name}']")
 
 def visit(context, path):
     page = context.new_page()
@@ -180,7 +188,7 @@ try:
             with section(f"{role}: every page in the menu"):
                 for name in sorted(shown):
                     seen["errors"].clear(); seen["console"].clear(); seen["failed"].clear()
-                    page.click(f"nav a[data-page='{name}']")
+                    nav_click(page, name)
                     page.wait_for_timeout(400)
                     eq(f"{role} #{name}: no script error", seen["errors"], [])
                     eq(f"{role} #{name}: no console error", seen["console"], [])
@@ -223,6 +231,25 @@ try:
                     "() => document.documentElement.scrollWidth <= innerWidth"))
                 octx.close()
 
+        # Shared styles (#463): on every page the Owner can open, in each preset, the buttons, fields and text are
+        # drawn at the sizes of the token scale (tests/_style_probe.py lists what is left out and why).
+        for preset, theme in (("relay", "dark"), ("softpop", "light"), ("tangerine", "dark"), ("brutalist", "light")):
+            with section(f"shared styles: {preset} {theme}"):
+                octx, page, seen = owner_page()
+                page.evaluate("l => { document.documentElement.dataset.preset = l[0]; document.documentElement.dataset.theme = l[1]; }",
+                              [preset, theme])
+                for name in page.eval_on_selector_all("nav a[data-page]", "as => as.map(a => a.dataset.page)"):
+                    page.evaluate("n => { location.hash = n }", name)
+                    page.wait_for_timeout(250)
+                    eq(f"{preset} #{name}: controls and text on the token scale", page.evaluate(PROBE, EXEMPT), [])
+                for path in ("/home", "/admin/flash"):
+                    p2 = octx.new_page()
+                    p2.goto(BASE + path, wait_until="load")
+                    p2.wait_for_timeout(300)
+                    eq(f"{preset} {path}: controls and text on the token scale", p2.evaluate(PROBE, EXEMPT), [])
+                    p2.close()
+                octx.close()
+
         with section("shell: phone width"):
             octx, page, seen = owner_page(375, 812)
             check("phone: the sidebar starts closed", page.evaluate(
@@ -231,7 +258,7 @@ try:
             page.wait_for_timeout(300)
             check("phone: the toggle opens the drawer", page.evaluate(
                 "() => document.getElementById('aside').getBoundingClientRect().left >= 0"))
-            page.click("nav a[data-page='audio']")
+            nav_click(page, "audio")
             page.wait_for_timeout(300)
             check("phone: choosing a page closes the drawer", page.evaluate(
                 "() => document.getElementById('aside').getBoundingClientRect().right <= 0"))

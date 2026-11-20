@@ -75,6 +75,18 @@ def later(seconds: float) -> str:
     return _iso(datetime.now(timezone.utc) + timedelta(seconds=seconds))
 
 
+def iso(ts: float) -> str:
+    """The ISO UTC text for epoch seconds: what every time column stores (#529)."""
+    return _iso(datetime.fromtimestamp(ts, timezone.utc))
+
+
+def epoch(text: str | None) -> float | None:
+    """Epoch seconds for a stored ISO UTC time, for arithmetic and for a page that counts in seconds; None for none."""
+    if not text:
+        return None
+    return datetime.strptime(text, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc).timestamp()
+
+
 # ------------------------------------------------------------------ connection
 
 def path() -> Path:

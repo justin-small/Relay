@@ -354,7 +354,7 @@ The mockup has all of them: **35 pages inside the shell** (listed in the sidebar
 | `s-crew-activity` | Crew app: Activity | Crew & phones | `/crew#activity` |
 | `s-crew-intercom` | Crew app: Intercom | Crew & phones | `/crew#intercom` |
 | `s-crew-join` | Join the crew app | Crew & phones | `/crew-join` |
-| `s-crew-page` | Page confirmation | Crew & phones | `/crew/page/{token}` |
+| `s-crew-page` | Page confirmation | Crew & phones | `/crew/notification/{token}` |
 | `s-crew-offline` | Crew app offline | Crew & phones | `/crew/_/offline` |
 | `s-paging-room` | Parent paging room | Crew & phones | `/paging/{secret}` |
 

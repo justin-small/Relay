@@ -83,6 +83,12 @@ with section("every preset meets AA"):
             for k in ("ok", "warn", "err"):
                 r = ratio(colour(status[t]["--" + k]), card)
                 check(f"{p} {t}: --{k} on a card is {r:.2f}:1", r >= 4.5)
+            r = ratio(colour(status[t]["--danger-fg"]), colour(status[t]["--danger"]))
+            check(f"{p} {t}: text on a danger button is {r:.2f}:1 (#463)", r >= 4.5)
+            r = ratio(colour(status[t]["--danger-fg"]), colour(status[t]["--danger-hover"]))
+            check(f"{p} {t}: text on a hovered danger button is {r:.2f}:1", r >= 4.5)
+            r = ratio(fg, card)
+            check(f"{p} {t}: the primary button's ring (--fg) stands off a card {r:.2f}:1", r >= 3.0)
     check("all eight presets were read", found == 8, found)
 
 done()

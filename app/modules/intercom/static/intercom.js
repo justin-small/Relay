@@ -4,7 +4,7 @@
   const R = window.RelayAdmin;
   if (!R || !document.getElementById('page-intercom')) return;
   const $ = R.$, api = R.api, post = R.post;
-  function can(perm) { return typeof window.relayCan !== 'function' || !!window.relayCan(perm); }
+  const can = relayUI.can;
 
   let last = null;
   let timer = null;
@@ -85,13 +85,7 @@
 
   function cell(text) { const td = document.createElement('td'); td.textContent = text; return td; }
 
-  function btn(label, fn) {
-    const b = document.createElement('button');
-    b.type = 'button';
-    b.textContent = label;
-    b.addEventListener('click', fn);
-    return b;
-  }
+  const btn = relayUI.button;
 
   function editError(msg) { $('icEErr').textContent = msg || ''; $('icEErr').hidden = !msg; }
 
@@ -105,7 +99,8 @@
       tr.dataset.id = c.id;
       const dot = document.createElement('td');
       const sw = document.createElement('span');
-      sw.style.cssText = 'display:inline-block;width:12px;height:12px;border-radius:50%;background:' + (/^#[0-9a-fA-F]{3,8}$/.test(c.colour) ? c.colour : '#888');
+      sw.className = 'swatch';
+      if (/^#[0-9a-fA-F]{3,8}$/.test(c.colour)) sw.style.background = c.colour;   // the operator's own colour for the channel
       dot.appendChild(sw);
       tr.appendChild(dot);
       [c.name, MODES[c.mode] || c.mode, String(c.max_talkers), c.latch_seconds ? c.latch_seconds + ' s' : 'none',
@@ -251,7 +246,7 @@
     if (!editing) return;
     const names = editing.members.map(function (m) { return m.name; });
     const who = names.length ? ' These people will lose it: ' + names.join(', ') + '.' : '';
-    if (!window.confirm('Delete ' + $('icEName').value + '?' + who + ' This cannot be undone.')) return;
+    if (!(await relayUI.confirm('Delete ' + $('icEName').value + '?' + who + ' This cannot be undone.'))) return;
     try {
       await api('/api/admin/intercom/channels/' + editing.id, { method: 'DELETE' });
       $('icEdit').hidden = true;
@@ -309,7 +304,7 @@
   });
 
   if ($('icSignOutAll')) $('icSignOutAll').addEventListener('click', async function () {
-    if (!window.confirm('Sign out every phone? Each person will have to sign in again.')) return;
+    if (!(await relayUI.confirm('Sign out every phone? Each person will have to sign in again.'))) return;
     try { await post('/api/admin/intercom/phones/signout-all', {}); } catch (e) { fail(e); }
     refreshPhones();
   });

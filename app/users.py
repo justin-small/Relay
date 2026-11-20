@@ -27,7 +27,7 @@ import threading
 from dataclasses import dataclass
 from typing import Iterable
 
-from . import db
+from . import db, devices
 
 ROLES = ("member", "viewer", "operator", "admin", "owner")      # rank = index + 1
 
@@ -79,6 +79,8 @@ _CORE = (
     Permission("recordings.manage", "Delete recordings and change recording settings", "Recordings", "admin"),
     Permission("schedules.view", "See schedules", "Schedules", "viewer"),
     Permission("schedules.manage", "Change schedules", "Schedules", "admin"),
+    Permission("screens.view", "See screens and places", "Screens", "viewer"),
+    Permission("screens.manage", "Name, place and set what screens show, and flash them", "Screens", "admin"),
     Permission("blocklist.manage", "Edit blocked words", "Settings", "admin"),
     Permission("settings.view", "Read the configuration (secrets hidden)", "Settings", "viewer"),
     Permission("settings.manage", "Change appearance, tuning and realtime settings", "Settings", "admin"),
@@ -518,8 +520,9 @@ def _valid_token(token) -> bool:
     return isinstance(token, str) and 0 < len(token) <= 200
 
 
-def start_session(user: User, *, via: str, device_id: int | None = None) -> tuple[str, int]:
-    """Returns (cookie token, max_age seconds). A "pin" session needs the trusted device it came from."""
+def start_session(user: User, *, via: str, device_id: int | None = None, user_agent: str = "") -> tuple[str, int]:
+    """Returns (cookie token, max_age seconds). A "pin" session needs the trusted device it came from. `user_agent` is
+    the browser's, kept so that forgetting the phone it belongs to (devices.revoke) signs it out too."""
     if via not in ("password", "pin"):
         raise ValueError("via must be 'password' or 'pin'")
     if via == "pin" and device_id is None:
@@ -528,9 +531,10 @@ def start_session(user: User, *, via: str, device_id: int | None = None) -> tupl
     token = secrets.token_urlsafe(32)
     with db.transaction() as tx:
         tx.execute("delete from sessions where expires_at < ?", (db.now(),))      # housekeeping, no timer needed
-        tx.execute("insert into sessions (user_id, token_hash, via, device_id, expires_at)"
-                   " values (?, ?, ?, ?, ?)",
-                   (user.id, _hash_token(token), via, device_id if via == "pin" else None, db.later(age)))
+        tx.execute("insert into sessions (user_id, token_hash, via, device_id, user_agent, expires_at)"
+                   " values (?, ?, ?, ?, ?, ?)",
+                   (user.id, _hash_token(token), via, device_id if via == "pin" else None,
+                    devices.agent(user_agent), db.later(age)))
     return token, age
 
 
@@ -568,12 +572,15 @@ _DEVICE_COLS = ("d.id, d.name, d.created_at as created, u.name as created_by, d.
                 " from trusted_devices d left join users u on u.id = d.created_by")
 
 
-def trust_device(name: str, actor: User) -> tuple[str, dict]:
+def trust_device(name: str, actor: User, user_agent: str = "") -> tuple[str, dict]:
+    """Trust this browser. It is the sign-in part of a core device (app/devices.py, #528) owned by the admin who trusted
+    it: the same device as their phone's other parts when the user agent says it is the same browser."""
     name = _clean_name(name, "bad_device_name")
     token = secrets.token_urlsafe(32)
     with db.transaction() as tx:
-        new = tx.one("insert into trusted_devices (name, token_hash, created_by) values (?, ?, ?)"
-                     " returning id", (name, _hash_token(token), actor.id))
+        core = devices.for_part(actor.id, devices.SIGNIN, devices.SIGNIN_TABLE, name=name, user_agent=user_agent, q=tx)
+        new = tx.one("insert into trusted_devices (name, token_hash, created_by, device_id) values (?, ?, ?, ?)"
+                     " returning id", (name, _hash_token(token), actor.id, core))
         row = tx.one(f"select {_DEVICE_COLS} where d.id = ?", (new["id"],))
     return token, row
 
@@ -584,12 +591,14 @@ def device_for(token: str) -> dict | None:
     read should not cost a write each time."""
     if not _valid_token(token):
         return None
-    row = db.one("select id, name, (last_used is null or last_used < ?) as stale"
+    row = db.one("select id, name, device_id, (last_used is null or last_used < ?) as stale"
                  " from trusted_devices where token_hash = ?", (db.later(-600), _hash_token(token)))
     if row is None:
         return None
     if row.pop("stale"):
         db.execute("update trusted_devices set last_used = ? where id = ?", (db.now(), row["id"]))
+        devices.seen(row["device_id"])
+    row.pop("device_id")
     return row
 
 

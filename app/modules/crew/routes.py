@@ -11,9 +11,9 @@ from pathlib import Path
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 
-from ... import audit, config, db, netroute, serving, tls
-from .. import listener_port, modules as registry, require
-from . import calltimes, chat, checkin, checklists, devices, paging, people, resources
+from ... import audit, config, db, directory, netroute, schedules, serving, tls
+from .. import listener_port, modules as registry, require, using
+from . import calltimes, chat, checkin, checklists, devices, notifications, people, resources
 
 router = APIRouter()
 VIEW = [Depends(require("crew.view"))]
@@ -72,13 +72,14 @@ async def crew_page(request: Request):
     s = _settings()
     try:
         role = await asyncio.to_thread(people.profile, got.id)
-        role = role["role"]
+        role = role["crew_role"]
     except Exception:
         role = ""      # the role is a label: the page works without it
     return templates.TemplateResponse(request, "crew/crew.html", {
         "app_name": s["name"], "show_plan": s["show_plan"], "user": got, "crew_role": role,
         "tools": registry.user_nav(got), "tabs": registry.crew_nav(got),
         "module_scripts": registry.crew_scripts(got),
+        "module_styles": registry.crew_styles(got),
     }, headers=NO_STORE)
 
 
@@ -123,6 +124,13 @@ def join_cert():
         "Content-Disposition": 'attachment; filename="relay.crt"', "Cache-Control": "no-cache"})
 
 
+@router.get("/crew-join/mark.svg")
+def join_mark():
+    """Relay's mark for the join page, which is on its own port and cannot reach /static."""
+    path = HERE.parent.parent / "static" / "brand" / "relay-mark.svg"
+    return Response(path.read_bytes(), media_type="image/svg+xml", headers={"Cache-Control": "max-age=86400"})
+
+
 @router.get("/crew/_/manifest.webmanifest")
 def crew_manifest():
     name = _settings()["name"]
@@ -149,10 +157,9 @@ def crew_offline():
 def crew_plan():
     """Today's plan for the page, from Planning Center when that module is on and the setting allows it. Titles
     and times only: the people, mics and notes stay on the production team's screen."""
-    if not _settings()["show_plan"] or not registry.enabled("planning_center"):
+    rundown_now = using("plan.rundown_now")
+    if not _settings()["show_plan"] or rundown_now is None:
         return {"available": False, "plan": None}
-    from ..planning_center.routes import rundown_now
-
     msg = rundown_now("", "")
     if not msg.get("plan"):
         return {"available": True, "plan": None}
@@ -176,8 +183,8 @@ def crew_today(request: Request):
     try:
         teams = checklists.teams_of(user.id, tracks)
         call = calltimes.next_for(user.id, tracks, zone)
-        role = people.profile(user.id)["role"]
-    except paging.Invalid:
+        role = people.profile(user.id)["crew_role"]
+    except notifications.Invalid:
         teams, call, role = [], None, ""
     return {"running": bool(engine.running), "teams": teams, "role": role, "zone": str(zone) if zone else None,
             "call": call}
@@ -212,6 +219,25 @@ def admin_save(request: Request, payload: dict):
 
 
 # -- roles and Planning Center names (#227) --------------------------------------------------------------------
+def _teams() -> list[dict]:
+    """The Planning Center teams an admin page picks from: {"ref", "name", "missing"}."""
+    return directory.teams()
+
+
+def _picks() -> list[dict]:
+    """Teams, then each team's positions, for a page that picks one: {"ref", "label"}. A team is for everyone on it, a
+    position for the people in that position only."""
+    out = [{"ref": t["ref"], "label": t["name"]} for t in directory.teams() if not t["missing"]]
+    out += [{"ref": p["ref"], "label": f"{p['team']} \u00b7 {p['name']}" if p["team"] else p["name"]}
+            for p in directory.positions() if not p["missing"]]
+    return out
+
+
+def _lead_picks(user_id: int) -> list[dict]:
+    """What a team lead may pick: only the teams and positions they lead ("name" is for one saved with no ref)."""
+    return [{"ref": l["ref"], "label": l["name"], "name": l["name"]} for l in checklists.lead_rows(user_id)]
+
+
 def _people_call(fn, *args):
     from ... import db
 
@@ -243,10 +269,10 @@ def people_scan(request: Request):
 
 @router.put("/api/admin/crew/people/{user_id}/role", dependencies=MANAGE)
 def people_role(request: Request, user_id: int, payload: dict):
-    role = _people_call(people.set_role, user_id, payload.get("role"))
+    role = _people_call(people.set_role, user_id, payload.get("crew_role"))
     chat.hub.signed_out(user_id)         # their role channel changed: their open chat reconnects and reloads
-    audit.note(request, "crew.role", "Set a crew role", target=user_id, detail={"role": role})
-    return {"role": role}
+    audit.note(request, "crew.role", "Set a crew role", target=user_id, detail={"crew_role": role})
+    return {"crew_role": role}
 
 
 @router.post("/api/admin/crew/people/{user_id}/name", dependencies=MANAGE)
@@ -270,13 +296,12 @@ def people_unlink(request: Request, user_id: int):
     return {"ok": True}
 
 
-# -- pages that buzz until read (#228) --------------------------------------------------------------------------
+# -- notifications that buzz until read (#228) --------------------------------------------------------------------------
 def _tracks():
     """Today's followed plans, when Planning Center is on (an empty list otherwise)."""
-    if not registry.enabled("planning_center"):
+    follower = using("plan.follower")
+    if follower is None:
         return []
-    from ..planning_center.pclive import follower
-
     return list(follower.tracks.values())
 
 
@@ -295,71 +320,76 @@ def activity(actor: str | None = None, kind: str | None = None, days: int | None
 
 @router.get("/crew/api/push/key", dependencies=USE)
 def push_key():
-    return {"key": _people_call(paging.public_key)}
+    return {"key": _people_call(notifications.public_key)}
 
 
 @router.get("/crew/api/push", dependencies=USE)
 def push_state(request: Request):
-    return {"enabled": _people_call(paging.subscribed, request.state.user.id)}
+    return {"enabled": _people_call(notifications.subscribed, request.state.user.id)}
 
 
 @router.post("/crew/api/push", dependencies=USE)
 def push_subscribe(request: Request, payload: dict):
-    _people_call(paging.subscribe, request.state.user.id, payload)
+    _people_call(notifications.subscribe, request.state.user.id, payload, request.headers.get("user-agent", ""))
     return {"enabled": True}
 
 
 @router.delete("/crew/api/push", dependencies=USE)
 def push_unsubscribe(request: Request, payload: dict):
-    _people_call(paging.unsubscribe, request.state.user.id, payload.get("endpoint"))
-    return {"enabled": _people_call(paging.subscribed, request.state.user.id)}
+    _people_call(notifications.unsubscribe, request.state.user.id, payload.get("endpoint"))
+    return {"enabled": _people_call(notifications.subscribed, request.state.user.id)}
 
 
-def _confirm_page(request: Request, row: dict | None, status: int = 200):
+def _confirm_notification(request: Request, row: dict | None, status: int = 200):
     _, templates = _pkg()
-    return templates.TemplateResponse(request, "crew/page.html", {
+    return templates.TemplateResponse(request, "crew/notification.html", {
         "app_name": _settings()["name"], "found": row is not None, "message": (row or {}).get("message", ""),
+        "sender": (row or {}).get("sender") or "", "sent_ts": int((row or {}).get("sent_ts") or 0),
         "confirmed": bool(row and row["confirmed_at"])}, status_code=status if row else 404, headers=NO_STORE)
 
 
-@router.get("/crew/page/{token}", response_class=HTMLResponse)
-def page_open(request: Request, token: str):
+# /crew/page/<token> is the address a notification had before #529: a push sent just before an update still carries it.
+@router.get("/crew/notification/{token}", response_class=HTMLResponse)
+@router.get("/crew/page/{token}", response_class=HTMLResponse, include_in_schema=False)
+def notification_open(request: Request, token: str):
     """A person's own confirm link, opened from the push. The token is the proof: no sign-in is needed, because
-    it can do nothing but confirm that one page."""
-    return _confirm_page(request, _people_call(paging.by_token, token))
+    it can do nothing but confirm that one notification."""
+    return _confirm_notification(request, _people_call(notifications.by_token, token))
 
 
-@router.post("/crew/page/{token}", response_class=HTMLResponse)
-def page_confirm(request: Request, token: str):
-    return _confirm_page(request, _people_call(paging.confirm, token))
+@router.post("/crew/notification/{token}", response_class=HTMLResponse)
+@router.post("/crew/page/{token}", response_class=HTMLResponse, include_in_schema=False)
+def notification_confirm(request: Request, token: str):
+    return _confirm_notification(request, _people_call(notifications.confirm, token))
 
 
-@router.get("/api/admin/crew/pages", dependencies=PAGE)
-def pages_get():
-    return {"pages": _people_call(paging.recent), "targets": _people_call(paging.targets, _tracks()),
+@router.get("/api/admin/crew/notifications", dependencies=PAGE)
+def notifications_get():
+    return {"notifications": _people_call(notifications.recent), "targets": _people_call(notifications.targets, _tracks()),
             "planning_center": registry.enabled("planning_center")}
 
 
-@router.post("/api/admin/crew/pages", dependencies=PAGE)
-def pages_send(request: Request, payload: dict):
-    ids, unmatched = _people_call(paging.resolve, payload.get("users"), payload.get("teams"), _tracks())
-    page = _people_call(paging.create, payload.get("message"), request.state.user.id, ids)
-    audit.note(request, "crew.page", "Paged the crew", target=page, detail={"people": len(ids)})
-    return {"id": page, "people": len(ids), "unmatched": unmatched}
+@router.post("/api/admin/crew/notifications", dependencies=PAGE)
+def notifications_send(request: Request, payload: dict):
+    ids, unmatched = _people_call(notifications.resolve, payload.get("users"), payload.get("teams"), _tracks())
+    note = _people_call(notifications.create, payload.get("message"), request.state.user.id, ids)
+    audit.note(request, "crew.page", "Notified the crew", target=note, detail={"people": len(ids)})
+    return {"id": note, "people": len(ids), "unmatched": unmatched}
 
 
-# -- scheduled call-time pages (#229) -----------------------------------------------------------------------------
+# -- scheduled call-time notifications (#229) -----------------------------------------------------------------------------
 @router.get("/api/admin/crew/calltimes", dependencies=VIEW)
 def calltimes_get():
-    return {"rules": _people_call(calltimes.list_rules),
-            "teams": sorted(paging.serving(_tracks())), "planning_center": registry.enabled("planning_center")}
+    return {"rules": _people_call(calltimes.list_rules), "teams": _people_call(_teams),
+            "schedules": [{"ref": schedules.ref(x["id"]), "name": x["name"]} for x in config.get()["schedules"]],
+            "planning_center": registry.enabled("planning_center")}
 
 
 @router.post("/api/admin/crew/calltimes", dependencies=MANAGE)
 def calltimes_add(request: Request, payload: dict):
     rule = _people_call(calltimes.clean, payload)
     rid = _people_call(calltimes.save, rule)
-    audit.note(request, "crew.calltime_add", "Added a call-time page", target=rid, detail={"team": rule["team"]})
+    audit.note(request, "crew.calltime_add", "Added a call-time notification", target=rid, detail={"team": rule["team"]})
     return calltimes_get()
 
 
@@ -367,7 +397,7 @@ def calltimes_add(request: Request, payload: dict):
 def calltimes_change(request: Request, rule_id: int, payload: dict):
     rule = _people_call(calltimes.clean, payload)
     _people_call(calltimes.save, rule, rule_id)
-    audit.note(request, "crew.calltime_change", "Changed a call-time page", target=rule_id,
+    audit.note(request, "crew.calltime_change", "Changed a call-time notification", target=rule_id,
                detail={"team": rule["team"], "enabled": rule["enabled"]})
     return calltimes_get()
 
@@ -375,7 +405,7 @@ def calltimes_change(request: Request, rule_id: int, payload: dict):
 @router.delete("/api/admin/crew/calltimes/{rule_id}", dependencies=MANAGE)
 def calltimes_delete(request: Request, rule_id: int):
     _people_call(calltimes.delete, rule_id)
-    audit.note(request, "crew.calltime_delete", "Removed a call-time page", target=rule_id)
+    audit.note(request, "crew.calltime_delete", "Removed a call-time notification", target=rule_id)
     return calltimes_get()
 
 
@@ -508,10 +538,9 @@ def arrivals_clear(request: Request):
 # -- Wi-Fi check-in: a person's own devices, seen by the UniFi module (#356) ---------------------------------------
 def _wifi_client(request: Request) -> dict | None:
     """The UniFi client this request came from, when UniFi is on and sees the address."""
-    if not registry.running("unifi"):
+    service = using("unifi.service")
+    if service is None:
         return None
-    from ..unifi.service import service
-
     return service.presence.by_ip(request.client.host if request.client else "")
 
 
@@ -543,7 +572,8 @@ def devices_this(request: Request, payload: dict):
     here = _wifi_client(request)
     if here is None:
         raise HTTPException(409, "Relay cannot see this phone on the church Wi-Fi. Join the Wi-Fi and try again.")
-    _people_call(devices.add, user.id, "mac", here["mac"], payload.get("label") or here.get("name") or "")
+    _people_call(devices.add, user.id, "mac", here["mac"], payload.get("label") or here.get("name") or "", "self",
+                 request.headers.get("user-agent", ""))
     tracks, zone = calltimes._state()
     now = __import__("time").time()
     key = checkin.plan_key(tracks, zone, now)
@@ -618,7 +648,7 @@ def checklists_tick(request: Request, item_id: int, payload: dict):
 
 
 def _editable(user) -> list[dict]:
-    return [t for t in checklists.templates() if checklists.can_edit(user, t["position"])]
+    return [t for t in checklists.templates() if checklists.can_edit(user, t["position"], "crew.checklist_edit", t["position_ref"])]
 
 
 @router.get("/crew/api/checklists/templates", dependencies=CHECKLIST)
@@ -629,20 +659,20 @@ def checklists_templates(request: Request):
     out = _people_call(_editable, user)
     if not out and not user.can("crew.checklist_edit") and not _people_call(checklists.leads_of, user.id):
         raise HTTPException(403, "You cannot edit checklists.")
-    return {"templates": out, "positions": sorted(paging.serving(tracks)), "all": user.can("crew.checklist_edit"),
+    return {"templates": out, "picks": _picks() if user.can("crew.checklist_edit") else _lead_picks(user.id), "all": user.can("crew.checklist_edit"),
             "leads": _people_call(checklists.leads_of, user.id)}
 
 
-def _check_edit(user, position: str) -> None:
-    if not _people_call(checklists.can_edit, user, position):
-        raise HTTPException(403, "You can edit checklists only for the positions you lead." if position
+def _check_edit(user, position: str, position_ref: str = "") -> None:
+    if not _people_call(checklists.can_edit, user, position, "crew.checklist_edit", position_ref):
+        raise HTTPException(403, "You can edit checklists only for the positions you lead." if position or position_ref
                             else "Only an operator edits the checklist for everyone.")
 
 
 @router.post("/crew/api/checklists/templates", dependencies=CHECKLIST)
 def checklists_add(request: Request, payload: dict):
     data = _people_call(checklists.clean, payload)
-    _check_edit(request.state.user, data["position"])
+    _check_edit(request.state.user, data["position"], data["position_ref"])
     lid = _people_call(checklists.save, data)
     _log(request, "crew.checklist_add", "Added a crew checklist", target=lid, detail={"position": data["position"]})
     return checklists_templates(request)
@@ -654,8 +684,8 @@ def checklists_change(request: Request, list_id: int, payload: dict):
     old = _people_call(checklists.get, list_id)
     if old is None:
         raise HTTPException(404, "No such checklist.")
-    _check_edit(request.state.user, old["position"])          # a lead may not take over someone else's list
-    _check_edit(request.state.user, data["position"])         # nor move their own onto another position
+    _check_edit(request.state.user, old["position"], old["position_ref"])   # a lead may not take over someone else's list
+    _check_edit(request.state.user, data["position"], data["position_ref"])  # nor move their own onto another position
     _people_call(checklists.save, data, list_id)
     _log(request, "crew.checklist_change", "Changed a crew checklist", target=list_id, detail={"position": data["position"]})
     return checklists_templates(request)
@@ -666,7 +696,7 @@ def checklists_delete(request: Request, list_id: int):
     old = _people_call(checklists.get, list_id)
     if old is None:
         raise HTTPException(404, "No such checklist.")
-    _check_edit(request.state.user, old["position"])
+    _check_edit(request.state.user, old["position"], old["position_ref"])
     _people_call(checklists.delete, list_id)
     _log(request, "crew.checklist_delete", "Removed a crew checklist", target=list_id, detail={"position": old["position"]})
     return checklists_templates(request)
@@ -680,21 +710,22 @@ def checklists_board(plan: str | None = None):
 
 @router.get("/api/admin/crew/checklist-leads", dependencies=CHECKLIST_EDIT)
 def checklist_leads():
-    return {"leads": _people_call(checklists.list_leads), "people": [
+    return {"leads": _people_call(checklists.list_leads), "picks": _picks(), "people": [
         {"id": p["id"], "name": p["name"]} for p in _people_call(people.people_list) if not p["disabled"]]}
 
 
 @router.post("/api/admin/crew/checklist-leads", dependencies=CHECKLIST_EDIT)
 def checklist_leads_add(request: Request, payload: dict):
-    _people_call(checklists.add_lead, payload.get("user_id"), payload.get("position"))
+    _people_call(checklists.add_lead, payload.get("user_id"), payload.get("position"),
+                 payload.get("position_ref"))
     audit.note(request, "crew.checklist_lead", "Made someone a checklist lead", target=payload.get("user_id"),
                detail={"position": payload.get("position")})
     return checklist_leads()
 
 
 @router.delete("/api/admin/crew/checklist-leads/{user_id}", dependencies=CHECKLIST_EDIT)
-def checklist_leads_remove(request: Request, user_id: int, position: str):
-    _people_call(checklists.remove_lead, user_id, position)
+def checklist_leads_remove(request: Request, user_id: int, position: str = "", position_ref: str = ""):
+    _people_call(checklists.remove_lead, user_id, position, position_ref)
     audit.note(request, "crew.checklist_lead_remove", "Removed a checklist lead", target=user_id, detail={"position": position})
     return checklist_leads()
 
@@ -716,9 +747,10 @@ def resources_mine(request: Request):
     return _people_call(_my_resources, request.state.user)
 
 
-def _res_edit(user, position: str) -> None:
-    if not _people_call(checklists.can_edit, user, position, "crew.resources_edit"):
-        raise HTTPException(403, "You can add resources only for the positions you lead." if position
+def _res_edit(user, pick: tuple[str, str]) -> None:
+    ref, position = pick
+    if not _people_call(checklists.can_edit, user, position, "crew.resources_edit", ref):
+        raise HTTPException(403, "You can add resources only for the positions you lead." if position or ref
                             else "Only an operator adds a resource for everyone.")
 
 
@@ -730,30 +762,32 @@ def resources_manage(request: Request):
     if not user.can("crew.resources_edit") and not leads:
         raise HTTPException(403, "You cannot edit resources.")
     rows = _people_call(resources.all_rows)
-    return {"resources": [r for r in rows if checklists.can_edit(user, r["position"], "crew.resources_edit")],
-            "positions": sorted(paging.serving(tracks)), "all": user.can("crew.resources_edit"), "leads": leads,
+    return {"resources": [r for r in rows if checklists.can_edit(user, r["position"], "crew.resources_edit", r["position_ref"])],
+            "picks": _picks() if user.can("crew.resources_edit") else _lead_picks(user.id),
+            "all": user.can("crew.resources_edit"), "leads": leads,
             "embed_hosts": _hosts(), "limit": resources.FILE_LIMIT}
 
 
 @router.post("/crew/api/resources/link", dependencies=RESOURCES)
 def resources_add_link(request: Request, payload: dict):
-    _res_edit(request.state.user, resources.clean_position(payload.get("position")))
+    _res_edit(request.state.user, _people_call(resources.clean_position, payload.get("position"),
+                                               payload.get("position_ref")))
     rid = _people_call(resources.add_url, request.state.user.id, payload.get("kind"), payload.get("title"),
-                       payload.get("position"), payload.get("url"), _hosts())
+                       payload.get("position"), payload.get("url"), _hosts(), payload.get("position_ref"))
     _log(request, "crew.resource_add", "Added a crew resource", target=rid, detail={"kind": payload.get("kind")})
     return resources_manage(request)
 
 
 @router.post("/crew/api/resources/file", dependencies=RESOURCES)
-async def resources_add_file(request: Request, title: str = "", position: str = ""):
+async def resources_add_file(request: Request, title: str = "", position: str = "", position_ref: str = ""):
     """A file, sent as the raw request body. The position is checked before any of it is read."""
     user = request.state.user
-    pos = _people_call(resources.clean_position, position)
+    pos = _people_call(resources.clean_position, position, position_ref)
     _res_edit(user, pos)
     declared = request.headers.get("content-length")
     if declared and declared.isdigit() and int(declared) > resources.FILE_LIMIT + 1024:
         raise HTTPException(413, "That file is too large. Files can be up to 25 MB.")
-    rid = await _people_call_async(resources.add_file, user.id, title, pos, request.stream())
+    rid = await _people_call_async(resources.add_file, user.id, title, pos[1], request.stream(), pos[0])
     _log(request, "crew.resource_add", "Added a crew resource", target=rid, detail={"kind": "file"})
     return await asyncio.to_thread(resources_manage, request)
 
@@ -774,9 +808,11 @@ def resources_change(request: Request, rid: int, payload: dict):
     old = _people_call(resources.get, rid)
     if old is None:
         raise HTTPException(404, "No such resource.")
-    _res_edit(request.state.user, old["position"])
-    _res_edit(request.state.user, resources.clean_position(payload.get("position")))
-    _people_call(resources.change, rid, payload.get("title"), payload.get("position"), payload.get("url"), _hosts())
+    _res_edit(request.state.user, (old["position_ref"], old["position"]))
+    _res_edit(request.state.user, _people_call(resources.clean_position, payload.get("position"),
+                                               payload.get("position_ref")))
+    _people_call(resources.change, rid, payload.get("title"), payload.get("position"), payload.get("url"), _hosts(),
+                 payload.get("position_ref"))
     _log(request, "crew.resource_change", "Changed a crew resource", target=rid)
     return resources_manage(request)
 
@@ -786,7 +822,7 @@ def resources_delete(request: Request, rid: int):
     old = _people_call(resources.get, rid)
     if old is None:
         raise HTTPException(404, "No such resource.")
-    _res_edit(request.state.user, old["position"])
+    _res_edit(request.state.user, (old["position_ref"], old["position"]))
     _people_call(resources.delete, rid)
     _log(request, "crew.resource_delete", "Removed a crew resource", target=rid, detail={"kind": old["kind"]})
     return resources_manage(request)
@@ -801,7 +837,7 @@ def resources_file(request: Request, rid: int):
     tracks, _ = calltimes._state()
     if row is None or row["kind"] != "file" or not (
             _people_call(resources.sees, user.id, rid, tracks)
-            or _people_call(checklists.can_edit, user, row["position"], "crew.resources_edit")):
+            or _people_call(checklists.can_edit, user, row["position"], "crew.resources_edit", row["position_ref"])):
         raise HTTPException(404, "No such file.")
     path = resources.file_path(row)
     if path is None:

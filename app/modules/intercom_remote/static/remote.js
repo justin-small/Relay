@@ -4,7 +4,7 @@
   const R = window.RelayAdmin;
   if (!R || !document.getElementById('page-intercom-remote')) return;
   const $ = R.$, api = R.api, post = R.post;
-  function can(perm) { return typeof window.relayCan !== 'function' || !!window.relayCan(perm); }
+  const can = relayUI.can;
 
   const STATE = { connected: 'ok', connecting: '', reconnecting: 'err', missing: 'err', off: '' };
   let timer = null;

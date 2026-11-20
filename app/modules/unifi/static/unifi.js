@@ -4,48 +4,18 @@
    console goes on the page as text. The live parts hold no buttons, so a redraw never eats a click. */
 (function () {
   const R = window.RelayAdmin;
-  if (!R || !document.getElementById('page-unifi')) return;
+  if (!R || !document.getElementById('ufLive')) return;   // its tabs are on the Network page
   const $ = R.$;
-  (function () {
-    const s = document.createElement('style');
-    s.textContent = [
-      '#page-unifi .ufcards{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:12px;align-items:start}',
-      '@media (max-width:900px){#page-unifi .ufcards{grid-template-columns:minmax(0,1fr)}}',
-      '#page-unifi .pcard h4{margin:0;font-size:13px;font-weight:600}',
-      '#page-unifi .pcard .phead .spill{padding:3px 9px;font-size:11px}',
-      '#page-unifi .ufgear{display:flex;flex-direction:column;gap:12px}',
-      '#page-unifi .ufchart{display:block;width:100%;height:90px;margin-top:6px}',
-      '#page-unifi .ufchart text{font-size:10px;fill:var(--dim)}',
-      '#page-unifi .ufchart .a{stroke:var(--accent)}#page-unifi .ufchart .b{stroke:var(--dim)}#page-unifi .ufchart .c{stroke:var(--err)}',
-      '#page-unifi .uflegend{font-size:12px;color:var(--dim);margin-top:2px}',
-      '#page-unifi .uflegend i{display:inline-block;width:14px;height:2px;vertical-align:middle;margin:0 4px 0 10px}',
-      '#page-unifi td.warn{color:var(--err)}',
-      '#page-unifi #ufRange button.primary{pointer-events:none}',
-      '#page-unifi #ufWarn ul{margin:4px 0 0 18px;padding:0}',
-    ].join('');
-    document.head.appendChild(s);
-  })();
 
   let last = null;
   let filled = false;
   let hours = 24;
   let histAt = 0;
-  function can(perm) { return typeof window.relayCan !== 'function' || !!window.relayCan(perm); }
+  const can = relayUI.can;
   function showError(text) { $('ufErr').textContent = text || ''; $('ufErr').hidden = !text; }
-  async function send(method, path, body) {
-    const res = await fetch(path, { method: method, headers: { 'Content-Type': 'application/json' },
-      body: body === undefined ? undefined : JSON.stringify(body), credentials: 'same-origin' });
-    const data = await res.json().catch(function () { return {}; });
-    if (!res.ok) throw new Error(data.error || data.detail || 'That did not work.');
-    return data;
-  }
-  function el(tag, text, cls) {
-    const e = document.createElement(tag);
-    if (text !== undefined && text !== null && text !== '') e.textContent = text;
-    if (cls) e.className = cls;
-    return e;
-  }
-  function td(text, cls) { return el('td', text === undefined || text === null || text === '' ? '—' : String(text), cls); }
+  const send = relayUI.api;
+  const el = relayUI.el;
+  function td(text, cls) { return el('td', cls, text === undefined || text === null || text === '' ? '—' : String(text)); }
   function ago(ts) {
     if (!ts) return '';
     const s = Math.max(0, Math.round(Date.now() / 1000 - ts));
@@ -65,13 +35,13 @@
   function label(c) { return c.name || c.hostname || c.mac; }
   function dl(rows) {
     const d = el('dl');
-    rows.forEach(function (r) { if (!r) return; d.appendChild(el('dt', r[0])); d.appendChild(el('dd', r[1] || '—')); });
+    rows.forEach(function (r) { if (!r) return; d.appendChild(el('dt', '', r[0])); d.appendChild(el('dd', '', r[1] || '—')); });
     return d;
   }
   function head(card, title, health, state) {
-    const h = el('div', '', 'phead');
-    h.appendChild(el('h4', title));
-    if (state) h.appendChild(el('span', state, 'pstate mhealth ' + health));
+    const h = el('div', 'phead');
+    h.appendChild(el('h4', '', title));
+    if (state) h.appendChild(el('span', 'pstate mhealth ' + health, state));
     card.appendChild(h);
   }
   function rows(id, items, make) {
@@ -99,7 +69,7 @@
     const c = $('ufNet'); c.replaceChildren();
     const n = d.internet;
     const prob = d.part_problems.internet;
-    if (!n) { head(c, 'Internet', 'idle', prob ? 'Not read' : 'Reading…'); if (prob) c.appendChild(el('p', prob, 'note')); return; }
+    if (!n) { head(c, 'Internet', 'idle', prob ? 'Not read' : 'Reading…'); if (prob) c.appendChild(el('p', 'note', prob)); return; }
     const p = n.probe || {}, gw = p.gateway || {}, ext = p.outside || {};
     const bad = n.status !== 'ok' || (ext.loss || 0) >= 34 || (n.latency_ms || 0) >= 150;
     head(c, 'Internet', bad ? 'error' : 'ok', n.status === 'ok' ? (bad ? 'Slow' : 'Up') : 'Down');
@@ -118,9 +88,9 @@
     const w = $('ufWarn'); w.replaceChildren();
     w.hidden = !d.warnings.length;
     if (!d.warnings.length) return;
-    w.appendChild(el('b', d.warnings.length === 1 ? 'One thing to check' : d.warnings.length + ' things to check'));
+    w.appendChild(el('b', '', d.warnings.length === 1 ? 'One thing to check' : d.warnings.length + ' things to check'));
     const ul = el('ul');
-    d.warnings.forEach(function (t) { ul.appendChild(el('li', t)); });
+    d.warnings.forEach(function (t) { ul.appendChild(el('li', '', t)); });
     w.appendChild(ul);
   }
 
@@ -154,7 +124,7 @@
     return svg;
   }
   function legend(items) {
-    const p = el('div', '', 'uflegend');
+    const p = el('div', 'uflegend');
     items.forEach(function (it) {
       const i = el('i'); i.style.background = it[1]; p.appendChild(i); p.appendChild(document.createTextNode(it[0]));
     });
@@ -166,11 +136,11 @@
     let h;
     try { h = await send('GET', '/api/admin/unifi/history?hours=' + hours); } catch (e) { return; }
     const box = $('ufCharts'); box.replaceChildren();
-    if (h.rows.length < 2) { box.appendChild(el('p', 'Relay keeps a reading every minute from when it first reads the console; the chart draws once there are two.', 'note')); $('ufPeaks').textContent = ''; return; }
-    box.appendChild(el('h4', 'Throughput'));
+    if (h.rows.length < 2) { box.appendChild(el('p', 'note', 'Relay keeps a reading every minute from when it first reads the console; the chart draws once there are two.')); $('ufPeaks').textContent = ''; return; }
+    box.appendChild(el('h4', '', 'Throughput'));
     box.appendChild(chart(h.rows, [{ key: 'down_bps', cls: 'a', name: 'download' }, { key: 'up_bps', cls: 'b', name: 'upload' }], '', rate));
     box.appendChild(legend([['Download', 'var(--accent)'], ['Upload', 'var(--dim)']]));
-    box.appendChild(el('h4', 'Latency and loss'));
+    box.appendChild(el('h4', '', 'Latency and loss'));
     box.appendChild(chart(h.rows, [{ key: 'latency_ms', cls: 'a', name: 'latency' }, { key: 'ext_ms', cls: 'b', name: 'Relay check' }], ' ms', function (v) { return Math.round(v); }));
     box.appendChild(chart(h.rows, [{ key: 'ext_loss', cls: 'c', name: 'lost' }, { key: 'gw_loss', cls: 'b', name: 'lost to gateway' }], '% lost', function (v) { return Math.round(v); }));
     box.appendChild(legend([['Console latency', 'var(--accent)'], ['Relay’s check', 'var(--dim)'], ['Lost (outside)', 'var(--err)']]));
@@ -190,9 +160,9 @@
   function drawGear(d) {
     const box = $('ufGear'); box.replaceChildren();
     box.className = 'ufgear';
-    if (d.part_problems.gear) box.appendChild(el('p', d.part_problems.gear, 'note err'));
+    if (d.part_problems.gear) box.appendChild(el('p', 'note err', d.part_problems.gear));
     d.gear.forEach(function (g) {
-      const c = el('div', '', 'pcard mcard');
+      const c = el('div', 'pcard mcard');
       head(c, g.name, g.online ? (g.warnings.length ? 'warn' : 'ok') : 'error', g.online ? (g.warnings.length ? 'Needs a look' : 'Online') : 'Offline');
       const up = g.uplink;
       c.appendChild(dl([
@@ -203,10 +173,10 @@
         g.poe_w !== null ? ['Power over Ethernet', g.poe_w + ' W' + (g.poe_budget_w ? ' of ' + g.poe_budget_w + ' W' : '')] : null,
       ]));
       if (g.ports.length) {
-        const wrap = el('div', '', 'tablescroll');
-        const t = el('table', '', 'tbl');
+        const wrap = el('div', 'tablescroll');
+        const t = el('table', 'tbl');
         const th = el('thead'); const tr = el('tr');
-        ['Port', 'Connected', 'Link', 'PoE', 'Traffic', 'Errors', ''].forEach(function (x) { tr.appendChild(el('th', x)); });
+        ['Port', 'Connected', 'Link', 'PoE', 'Traffic', 'Errors', ''].forEach(function (x) { tr.appendChild(el('th', '', x)); });
         th.appendChild(tr); t.appendChild(th);
         const tb = el('tbody');
         g.ports.forEach(function (p) {
@@ -260,7 +230,7 @@
     rows('ufClients', d.clients.filter(function (c) {
       return !q || [c.name, c.hostname, c.ip, c.mac, c.model].some(function (v) { return v && v.toLowerCase().indexOf(q) >= 0; });
     }), function (c) {
-      const who = el('td'); who.appendChild(el('div', label(c)));
+      const who = el('td'); who.appendChild(el('div', '', label(c)));
       const tags = [];
       if (c.model) tags.push(c.model);
       if (c.hostname && c.hostname !== c.name) tags.push(c.hostname);
@@ -268,7 +238,7 @@
       if (c.private) tags.push('private address');
       if (c.signal !== null && c.signal !== undefined) tags.push(c.signal + ' dBm');
       if (c.missing) tags.push('not seen for ' + ago(c.missing).replace(' ago', ''));
-      if (tags.length) who.appendChild(el('div', tags.join(' · '), 'muted'));
+      if (tags.length) who.appendChild(el('div', 'muted', tags.join(' · ')));
       const t = el('tr');
       t.append(who, td(c.ip, 'mono'), td(c.mac, 'mono'), td(c.where || (c.wired ? 'wired' : 'Wi-Fi')), td(ago(c.since)));
       return t;
@@ -279,7 +249,7 @@
     const words = { join: 'Joined', leave: 'Left', roam: 'Moved' };
     rows('ufEvents', d.events, function (e) {
       const t = el('tr');
-      const pill = el('td'); pill.appendChild(el('span', words[e.kind] || e.kind, 'spill' + (e.kind === 'join' ? ' ok' : '')));
+      const pill = el('td'); pill.appendChild(el('span', 'spill' + (e.kind === 'join' ? ' ok' : ''), words[e.kind] || e.kind));
       t.append(td(ago(e.ts)), pill, td(e.name || e.hostname || e.mac), td(e.where));
       return t;
     });
@@ -331,6 +301,7 @@
     $('ufForget').hidden = !s.fingerprint;
     const live = !!d.checked_at && !d.problem;
     ['ufLive', 'ufHist', 'ufGearSect', 'ufClientsSect', 'ufEventsSect'].forEach(function (id) { $(id).hidden = !live; });
+    document.querySelectorAll('.ufnotlive').forEach(function (n) { n.hidden = live || !!d.untrusted; });
     if (!d.configured && !$('ufSettings').open) $('ufSettings').open = true;
     if (!live) { $('ufWifiSect').hidden = true; $('ufAvSect').hidden = true; $('ufChangesSect').hidden = true; $('ufSpeedSect').hidden = true; return; }
     drawConn(d); drawNet(d); drawWarn(d); drawGear(d); drawWifi(d); drawAv(d);
@@ -369,5 +340,5 @@
   if (!can('unifi.manage')) $('ufSettings').hidden = true;
 
   refresh();
-  setInterval(function () { if (!document.hidden && !document.getElementById('page-unifi').hidden) refresh(); }, 5000);
+  setInterval(function () { const pg = document.getElementById('page-network'); if (!document.hidden && pg && !pg.hidden) refresh(); }, 5000);
 })();

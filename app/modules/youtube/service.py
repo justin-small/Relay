@@ -35,7 +35,7 @@ LIVE_S = (30, 600, 60)          # (least, most, default) seconds between checks 
 IDLE_S = (120, 3600, 600)       # and otherwise
 # Scheduled streams (#411, schedule.py): off until the operator turns it on.
 SCHEDULE = {"on": False, "privacy": "public", "stream_id": "", "stream_name": "", "title": "{name} · {date}",
-            "description": "", "days_ahead": 7, "plan_types": [], "rules": []}
+            "description": "", "days_ahead": 7, "plan_types": [], "rules": [], "days_from": "sunday"}
 DEFAULTS = {"account": "", "client_id": "", "client_secret": "", "live_s": LIVE_S[2], "idle_s": IDLE_S[2],
             "schedule": SCHEDULE, "links": [], "created": {}}     # the last three: schedule.py (#411)
 

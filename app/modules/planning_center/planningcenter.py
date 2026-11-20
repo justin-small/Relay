@@ -31,6 +31,7 @@ from zoneinfo import ZoneInfo
 
 from ... import netsock
 from ...realtime import _SSL
+from ...text import fold
 
 log = logging.getLogger("relay.planningcenter")
 
@@ -469,6 +470,7 @@ class Client:
                     "status": MEMBER_STATUS.get(str(a.get("status") or "")[:1].upper(), "pending"),
                     "position": str(a.get("team_position_name") or "").strip(),
                     "team": str(team.get("name") or "").strip(),
+                    "team_id": _rel_id(row, "team") or "",
                     # Only a picture Planning Center hosts, over https: the screen shows it as an <img>.
                     "photo": photo if photo.startswith("https://") else "",
                     "times": times,
@@ -488,11 +490,43 @@ class Client:
         for row in doc.get("data") or []:
             a = row.get("attributes") or {}
             team = (inc.get(("Team", _rel_id(row, "team"))) or {}).get("attributes") or {}
-            out.append({"team": str(team.get("name") or "").strip(),
+            out.append({"team": str(team.get("name") or "").strip(), "team_id": _rel_id(row, "team") or "",
                         "position": str(a.get("team_position_name") or "").strip(),
                         "quantity": max(1, min(20, int(a.get("quantity") or 1))),
                         "time": _rel_id(row, "time")})
         return out
+
+    def teams(self, service_type: str) -> list[dict]:
+        """Every team of the service type with its positions, by Planning Center's ids (#525): what Relay's pickers
+        offer and what saved call times, checklists and mic mappings point at. [{"id", "name", "positions": [{"id", "name"}]}]."""
+        out: list[dict] = []
+        offset = 0
+        for _ in range(MAX_PAGES):
+            doc = self.get(f"/services/v2/service_types/{service_type}/teams",
+                           {"include": "team_positions", "per_page": PAGE_SIZE, "offset": offset})
+            rows = doc.get("data") or []
+            inc = _included(doc)
+            for row in rows:
+                positions = []
+                for pid in _rel_ids(row, "team_positions"):
+                    pos = (inc.get(("TeamPosition", pid)) or {}).get("attributes") or {}
+                    if str(pos.get("name") or "").strip():
+                        positions.append({"id": pid, "name": str(pos["name"]).strip()})
+                name = str((row.get("attributes") or {}).get("name") or "").strip()
+                if row.get("id") is not None and name:
+                    out.append({"id": str(row["id"]), "name": name, "positions": positions})
+            if len(rows) < PAGE_SIZE:
+                break
+            offset += PAGE_SIZE
+        return out
+
+
+def tag_positions(rows: list[dict], catalog: list[dict]) -> None:
+    """Put the position's id on each member or needed row, found by its team and name in the catalog ("" when the
+    catalog does not list it, such as before it was read)."""
+    ids = {(t["id"], fold(p["name"])): p["id"] for t in catalog for p in t["positions"]}
+    for r in rows:
+        r["position_id"] = ids.get((r.get("team_id") or "", fold(r.get("position"))), "")
 
 
 # PlanPerson.status is C, U or D (or spelled out: Confirmed, Unconfirmed, Declined).

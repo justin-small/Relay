@@ -41,17 +41,19 @@ class Blackmagic(Module):
                 "recorders (record, stop, play, clip and time left) and Videohub routers (routing, labels, presets). "
                 "Finds Blackmagic gear on the network.",
         settings_key="blackmagic",
+        section="Show",
         guide="https://github.com/justin-small/relay#cameras-and-tally",
-        version="2.0.0",
+        version="2.1.0",
         traffic=(Traffic("blackmagic", "Blackmagic device control (ATEM over UDP, HyperDeck and Videohub over TCP)"),),
         renamed_from="atem",
     )
     defaults = {"devices": []}
     network_map_adds = "Names each Blackmagic device it is connected to."
     admin_pages = (AdminPage(
-        id="blackmagic", title="Blackmagic", template="blackmagic.html", group="Output",
+        id="blackmagic", title="Blackmagic", template="blackmagic.html",
         icon='<rect x="2" y="4" width="12" height="8" rx="1"/><path d="M5 7h2M9 7h2M5 9.5h6"/>'),)
-    admin_scripts = ("blackmagic.js",)
+    admin_scripts = ("bmdraw.js", "blackmagic.js")
+    admin_styles = ("blackmagic.css",)
     route_prefixes = ("/api/admin/blackmagic",)
     permissions = (
         Permission("blackmagic.view", "See Blackmagic devices' connection, inputs, tally, recording and routing",
@@ -63,9 +65,9 @@ class Blackmagic(Module):
     )
 
     def clean(self, raw: Any) -> dict:
-        from .service import clean_settings
+        from .service import clean_config
 
-        return clean_settings(raw)
+        return clean_config(raw)
 
     def configured(self, settings: dict) -> bool:
         return False  # New: nobody had it before, so it starts off.
@@ -75,9 +77,21 @@ class Blackmagic(Module):
 
         return [router]
 
-    def detach(self) -> None:
+    def attach(self) -> None:
+        from ... import modules as registry
         from .service import service
 
+        # Core's rename flow (#543) asks for this: which channel ends this module can rename on the gear, and how.
+        registry.provide("gear.blackmagic", {"can_rename": service.can_rename, "rename": service.rename_end,
+                                              "list": self.gear_list})
+        registry.provide("routes.blackmagic", service.routes_api())
+
+    def detach(self) -> None:
+        from ... import modules as registry
+        from .service import service
+
+        registry.withdraw("gear.blackmagic")
+        registry.withdraw("routes.blackmagic")
         service.clear_tally()
 
     async def start(self) -> None:
@@ -90,11 +104,13 @@ class Blackmagic(Module):
 
         await service.stop()
 
-    def network_map(self) -> list[dict]:
-        from .service import devices
+    def gear_list(self) -> dict:
+        """Its devices for the network map, and the connectors and video channels of each connected one (app/gearfeed.py)."""
+        from .service import devices, service
 
-        return [{**_addr(d.get("host")), "name": d.get("name") or KIND_NAME[d["kind"]], "kind": "av",
-                 "tags": [KIND_TAG[d["kind"]]]} for d in devices() if d.get("host")]
+        return {**service.gear_list(),
+                "devices": [{**_addr(d.get("host")), "name": d.get("name") or KIND_NAME[d["kind"]], "kind": "av",
+                             "tags": [KIND_TAG[d["kind"]]]} for d in devices() if d.get("host")]}
 
     def _live(self) -> list[dict]:
         from .service import service

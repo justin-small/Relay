@@ -29,7 +29,7 @@ _db.start()
 _db.reset()
 
 import app.main as main  # noqa: E402,F401
-from app import config, oauth  # noqa: E402
+from app import config, oauth, timewin  # noqa: E402
 from app.main import app  # noqa: E402
 from app.modules import modules as registry  # noqa: E402
 from app.modules.planning_center import planningcenter as pcm  # noqa: E402
@@ -126,6 +126,7 @@ svc.ACCOUNT.status = lambda: {"state": "connected", "service": "YouTube", "messa
 config.ensure_file()
 config.save({"modules": {"youtube": {"enabled": True}}})
 registry.attach("youtube")
+registry.attach("planning_center")          # YouTube asks Planning Center for its client by name (#523)
 P = sch.planner
 P.lock = asyncio.Lock()
 NOW = time.time()
@@ -149,7 +150,13 @@ with section("settings are cleaned"):
     eq("a stream id with a space is dropped", s["stream_id"], "")
     eq("only numeric plan types", s["plan_types"], ["12"])
     eq("blank title gets the default", s["title"], "{name} · {date}")
-    eq("one good rule, time padded", [(r["day"], r["time"], r["name"]) for r in s["rules"]], [(6, "09:30", "Sunday")])
+    eq("one good rule, time padded; saved before #522, so Sunday 6 (from Monday) is renumbered 0",
+       [(r["day"], r["time"], r["name"]) for r in s["rules"]], [(0, "09:30", "Sunday")])
+    eq("marked as counted from Sunday", s["days_from"], "sunday")
+    eq("cleaning again does not renumber twice", [r["day"] for r in sch.clean_schedule(s)["rules"]], [0])
+    fresh = sch.clean_schedule({"days_from": "sunday", "rules": [{"day": 0, "time": "09:00", "name": "Sun"},
+                                                                 {"day": 6, "time": "18:00", "name": "Sat"}]})
+    eq("days saved from Sunday are kept", [r["day"] for r in fresh["rules"]], [0, 6])
     check("the rule got an id", bool(s["rules"][0]["id"]))
     eq("no settings is the default", sch.clean_schedule(None), svc.SCHEDULE)
     links = sch.clean_links([link(match="bogus", video="bad id!"), {"channel_id": "1/2", "episode_id": "3"}, link(id="l2", auto=False)])
@@ -203,7 +210,8 @@ with section("creates each service's broadcast once, bound to the stream key"):
     when = dt.datetime.fromtimestamp(soon, TZ)
     YT.upcoming = [{"id": "already001", "title": "Made in Studio", "start": time.time() + 86400 * 5}]
     config.save({"youtube": {"schedule": {"on": True, "privacy": "unlisted", "stream_id": "key1",
-                                          "rules": [{"id": "r1", "day": when.weekday(), "time": when.strftime("%H:%M"), "name": "Prayer"}],
+                                          "days_from": "sunday",
+                                          "rules": [{"id": "r1", "day": timewin.weekday(when), "time": when.strftime("%H:%M"), "name": "Prayer"}],
                                           "plan_types": ["671659"]}}})
     plan_at = time.time() + 86400 * 5 + 600                     # ten minutes from the one made in Studio
     PC.plans = {"671659": [{"id": "77", "title": "Advent 1", "series_title": "", "sort_date": plan_at, "times": []},
@@ -280,6 +288,10 @@ with section("routes and permissions"):
     eq("viewer cannot change it", viewer.put("/api/admin/youtube/schedule", json={"on": True}).status_code, 403)
     r = owner.put("/api/admin/youtube/schedule", json={"days_ahead": 3, "privacy": "private", "junk": 1})
     eq("owner saves", (r.status_code, r.json()["schedule"]["days_ahead"], r.json()["schedule"]["privacy"]), (200, 3, "private"))
+    r = owner.put("/api/admin/youtube/schedule", json={"days_from": "monday",
+                                                      "rules": [{"id": "s1", "day": 0, "time": "09:00", "name": "Sun"}]})
+    eq("a day the page sends counts from Sunday, whatever days_from it claims", [x["day"] for x in r.json()["schedule"]["rules"]], [0])
+    eq("and it is stored that way", [x["day"] for x in sch.stored()["schedule"]["rules"]], [0])
     eq("stream keys", owner.get("/api/admin/youtube/streams").json()["streams"][0]["title"], "SERVICE")
     pub = owner.get("/api/admin/youtube/publishing").json()
     eq("channels", [c["name"] for c in pub["channels"]], ["Live"])

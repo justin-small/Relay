@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Rundown C · Distance</title>
+<link rel="stylesheet" href="common.css">
+<style>
+/* Option C: read from the platform, not the booth. Black so it does not light faces, a few things set very large,
+   timing said in words, and only the problems with the roster listed (the full roster is already in Planning Center). */
+:root { --f: #ffffff; --dim: #8e8e8e; --faint: #3c3c3c; --warn: #ffb020; --bad: #ff5a4e; }
+.stage { background: #000; color: var(--f); font-family: -apple-system, "Helvetica Neue", system-ui, sans-serif; }
+.lbl { font-size: 26px; color: var(--dim); font-weight: 500; }
+.now { position: absolute; left: 70px; top: 56px; width: 1100px; }
+.now h1 { font-size: 150px; font-weight: 800; line-height: .95; margin: 8px 0 0; letter-spacing: -.035em; }
+.now .who { font-size: 40px; color: var(--dim); margin-top: 18px; }
+.now .who b { color: #000; background: var(--f); padding: 0 12px; margin-right: 14px; font-weight: 800; }
+.clock { font-size: 330px; font-weight: 700; line-height: .9; letter-spacing: -.05em; margin-top: 50px; }
+.late { font-size: 46px; margin-top: 26px; }
+.late em { font-style: normal; color: var(--warn); font-weight: 700; }
+.late span { color: var(--dim); }
+.after { position: absolute; left: 1240px; top: 56px; width: 620px; }
+.after .nx { font-size: 72px; font-weight: 700; line-height: 1; margin-top: 10px; letter-spacing: -.02em; }
+.after .nxs { font-size: 32px; margin-top: 12px; color: var(--dim); }
+.after .nxs .bad { color: var(--bad); }
+.after ol { list-style: none; margin: 46px 0 0; padding: 0; }
+.after li { display: flex; gap: 22px; font-size: 34px; padding: 12px 0; border-top: 1px solid var(--faint); }
+.after li span { color: var(--dim); width: 92px; flex: none; }
+.mics { position: absolute; left: 70px; width: 1100px; top: 820px; font-size: 32px; line-height: 1.55; color: #d8d8d8; }
+.mics sup { font-size: 19px; color: var(--dim); margin: 0 4px 0 0; vertical-align: 10px; }
+.mics .x { color: var(--dim); }
+.gaps { position: absolute; left: 1240px; top: 620px; width: 620px; }
+.gaps div { font-size: 30px; padding: 8px 0; }
+.gaps .bad { color: var(--bad); } .gaps .warn { color: var(--warn); }
+
+/* micboard: numbers and first names, nothing else at full size */
+.mhead { position: absolute; left: 70px; right: 70px; top: 40px; display: flex; align-items: baseline; gap: 40px; font-size: 64px; font-weight: 800; letter-spacing: -.02em; }
+.mhead .c { font-weight: 700; }
+.mhead .l { margin-left: auto; font-size: 36px; font-weight: 600; color: var(--warn); }
+.mgrid { position: absolute; left: 70px; right: 70px; top: 170px; bottom: 50px; display: grid; grid-template-columns: repeat(8, 1fr);
+  grid-template-rows: repeat(3, 1fr); column-gap: 30px; row-gap: 20px; }
+.mc { border-top: 3px solid #fff; padding-top: 10px; min-width: 0; }
+.mc .n { font-size: 96px; font-weight: 800; line-height: 1; letter-spacing: -.04em; }
+.mc .nm { font-size: 44px; font-weight: 700; margin-top: 6px; line-height: 1.05; }
+.mc .ps { font-size: 22px; color: var(--dim); margin-top: 4px; }
+.mc.quiet { border-color: var(--faint); } .mc.quiet .n, .mc.quiet .nm { color: #5d5d5d; }
+.mc.bad { border-color: var(--bad); } .mc.bad .nm { color: var(--bad); }
+
+/* side */
+.caps { position: absolute; left: 70px; top: 0; width: 1200px; height: 1080px; display: flex; flex-direction: column; justify-content: center;
+  gap: 30px; font-size: 64px; line-height: 1.3; font-weight: 500; }
+.caps p { margin: 0; }
+.sidebox { position: absolute; left: 1360px; top: 0; width: 500px; height: 1080px; display: flex; flex-direction: column; justify-content: center; }
+.sidebox h2 { font-size: 72px; font-weight: 800; line-height: 1; margin: 6px 0 0; letter-spacing: -.02em; }
+.sidebox .clock { font-size: 200px; margin-top: 24px; }
+.sidebox .late { font-size: 34px; }
+.sidebox .nxt { margin-top: 70px; padding-top: 22px; border-top: 1px solid var(--faint); font-size: 40px; font-weight: 700; }
+</style>
+</head>
+<body>
+<div class="stage"></div>
+<script src="common.js"></script>
+<script>
+const R = RD, e = R.esc;
+const upcoming = R.items.filter((i) => !i.done && !i.current && i.sec !== "post");
+const onMic = R.mics.filter((m) => m[4] && m[1]);
+const offMic = R.mics.filter((m) => !m[4] && m[1]);
+
+RD.mount({
+  full: () => `
+    <div class="now"><div class="lbl">Now</div><h1>${e(R.current.title)}</h1>
+      <div class="who"><b>${R.current.key}</b>${e(R.current.leader)} leads</div>
+      <div class="clock tnum">${R.current.left}</div>
+      <div class="late"><em>${R.over} minutes behind.</em> <span>Done at</span> ${R.projectedEnd}<span>, not ${R.plannedEnd}.</span></div></div>
+    <div class="after"><div class="lbl">Next, at ${R.fmt(upcoming[0].a)}</div><div class="nx">${e(upcoming[0].t)}</div>
+      <div class="nxs"><span class="bad">No one is on mic 12.</span> Jo Lin is on 05.</div>
+      <ol>${upcoming.slice(1).map((i) => `<li><span class="tnum">${R.fmt(i.a)}</span>${e(i.t)}</li>`).join("")}</ol></div>
+    <div class="gaps"><div class="lbl">Still open</div>
+      ${R.crew.filter((c) => c[3]).map((c) => c[3] === "unfilled" ? `<div class="bad">No one on ${e(c[1].toLowerCase())}</div>` :
+        c[3] === "pending" ? `<div class="warn">${e(c[0])} hasn't confirmed (${e(c[1].toLowerCase())})</div>` : `<div>${e(c[0])} declined</div>`).join("")}</div>
+    <div class="mics"><span class="lbl" style="font-size:26px">Singing on this one&nbsp;&nbsp;</span>${onMic.map((m) => `<sup class="tnum">${m[0]}</sup>${e(R.first(m[1]))}`).join("&ensp; ")}
+      <span class="x">&ensp;·&ensp;quiet: ${offMic.map((m) => `${m[0]} ${e(R.first(m[1]))}`).join(", ")}</span></div>`,
+  micboard: () => `
+    <div class="mhead"><span>${e(R.current.title)}</span><span class="c tnum">${R.current.left}</span><span class="l">${R.over} min behind</span></div>
+    <div class="mgrid">${R.mics.map((m) => {
+      const bad = !m[1] && m[5] !== "spare", quiet = !m[4] || m[5] === "spare";
+      return `<div class="mc${bad ? " bad" : quiet ? " quiet" : ""}"><div class="n tnum">${m[0]}</div>
+        <div class="nm">${m[1] ? e(R.first(m[1])) : bad ? "No one" : "Spare"}</div>
+        <div class="ps">${e(m[2])}${m[5] === "leading" ? ", leading" : ""}</div></div>`;
+    }).join("")}</div>`,
+  side: () => `<div class="caps">${R.captions.map((c) => `<p>${e(c)}</p>`).join("")}</div>
+    <div class="sidebox"><div class="lbl">Now</div><h2>${e(R.current.title)}</h2>
+      <div class="clock tnum">${R.current.left}</div>
+      <div class="late"><em>${R.over} min behind</em></div>
+      <div class="nxt"><div class="lbl">Next, at ${R.fmt(upcoming[0].a)}</div>${e(upcoming[0].t)}</div></div>`,
+});
+</script>
+</body>
+</html>

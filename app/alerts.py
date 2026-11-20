@@ -42,7 +42,7 @@ import time
 from dataclasses import dataclass
 from typing import Any, Callable
 
-from . import alerthistory, config, db
+from . import alerthistory, config, db, screens
 
 MAX_BUTTONS = 16
 MAX_TARGETS = 16            # panels plus screens, per button
@@ -69,6 +69,8 @@ BANNER_DEFAULT_S = 300
 BANNER_MIN_S = 30
 BANNER_MAX_S = 3600
 MAX_LIVE_MESSAGES = 8
+# What the admin page's Test button shows on one panel or screen.
+TEST_TEXT = "Test from Relay"
 # Replies (#216): a short fixed list the operator sets, tapped on a panel or screen when it acknowledges.
 MAX_REPLIES = 6
 REPLY_MAX = 24
@@ -419,6 +421,7 @@ MESSAGES = {
     "bad_level": "level must be info, attention or urgent",
     "bad_reply": "that is not one of the replies",
     "no_free_targets": "the operator has not chosen where typed messages go",
+    "no_test_target": "say which panel or screen to test",
 }
 
 
@@ -528,7 +531,7 @@ class Alerts:
         out = []
         for b in self.settings()["buttons"]:
             alert = self.latest.get(b["id"])
-            if alert is not None and alert.state == "on" and pid in b["panels"]:
+            if alert is not None and alert.state == "on" and pid in self.targets_of(b)[0]:
                 out.append(self._alert_message(alert, b))
         out.extend(self._message_wire(m) for m in self.live.values() if pid in m.panels)
         return out
@@ -568,9 +571,10 @@ class Alerts:
             message = self._alert_message(alert, button)
             if button.get("stage"):
                 self._stage(alert.id, f"{button['name']} (from {alert.sender})" if alert.sender else button["name"])
-            for pid in button["panels"]:
+            panels, names = self.targets_of(button)
+            for pid in panels:
                 self.push_panel(pid, message)
-            for name in button["screens"]:
+            for name in names:
                 self._push_screen(name, message)
         self._broadcast_state()
         return self.state()
@@ -601,7 +605,25 @@ class Alerts:
         return self.state()
 
     def _target_names(self, item: dict[str, Any]) -> tuple[str, ...]:
-        return tuple([self.panel_name(p) or "a panel" for p in item["panels"]] + list(item["screens"]))
+        panels, names = self.targets_of(item)
+        return tuple([self.panel_name(p) or "a panel" for p in panels] + names)
+
+    def targets_of(self, item: dict[str, Any]) -> tuple[list[str], list[str]]:
+        """(panel ids, browser screen names) a button flashes. An entry in its `screens` that is a place ref
+        ("place:relay:3", app/screens.py) stands for every screen in that place, panels and browsers alike."""
+        panels, names = list(item["panels"]), []
+        for entry in item["screens"]:
+            pid = screens.place_id(entry)
+            if pid is None:
+                names.append(entry)
+                continue
+            try:
+                found = screens.in_place(pid)
+            except db.Unavailable:
+                continue
+            panels += [r["panel_id"] for r in found if r["panel_id"]]
+            names += [r["name"] for r in found if not r["panel_id"]]
+        return list(dict.fromkeys(panels)), list(dict.fromkeys(names))
 
     def ack(self, alert_id: str, *, panel: str | None = None, screen: str | None = None,
             reply: object = None) -> dict[str, Any]:
@@ -617,12 +639,12 @@ class Alerts:
         if button is None:
             raise Refused(404, "no_alert")
         if panel is not None:
-            if panel not in button["panels"]:
+            if panel not in self.targets_of(button)[0]:
                 raise Refused(403, "not_this_panel")
             where = self.panel_name(panel) or "a panel"
         elif screen is not None:
             screen = clean_name(screen).lower()
-            where = next((s for s in button["screens"] if s.lower() == screen), "")
+            where = next((s for s in self.targets_of(button)[1] if s.lower() == screen), "")
             if not where:
                 raise Refused(403, "not_this_screen")
         else:
@@ -673,9 +695,10 @@ class Alerts:
         self._record_alert(alert, button)
         self._emit("alert.acknowledged" if state == "seen" else "alert.ended", alert, button)
         if button is not None:
-            for pid in button["panels"]:
+            panels, names = self.targets_of(button)
+            for pid in panels:
                 self.push_panel(pid, message)
-            for name in button["screens"]:
+            for name in names:
                 self._push_screen(name, message)
 
     # ------------------------------------------------- history and events out
@@ -779,6 +802,34 @@ class Alerts:
         self._broadcast_messages()
         return self.message_state()
 
+    def test(self, *, panel: object = None, screen: object = None) -> int:
+        """Show "Test from Relay" on one panel or browser screen for a message's time, so the operator can check
+        it before a service. Steady info blue: nothing flashes, nothing to tap, nothing in the history. Returns
+        how many streams took it (0 when the panel or screen is not connected)."""
+        if isinstance(panel, str) and _PANEL_RE.match(panel):
+            panels, screens, key = [panel], [], "test:panel:" + panel
+        elif isinstance(screen, str) and clean_name(screen):
+            name = clean_name(screen)
+            panels, screens, key = [], [name], "test:screen:" + name.lower()
+        else:
+            raise Refused(400, "no_test_target")
+        self.expire()
+        old = self.live.get(key)
+        if old is not None:
+            self._end_message(old)
+        while len(self.live) >= MAX_LIVE_MESSAGES:
+            self._end_message(next(iter(self.live.values())))
+        msg = Message(secrets.token_hex(8), key, TEST_TEXT, False, "Relay", _now(),
+                      self.settings()["messages"]["message_s"], panels, screens, "info")
+        self.live[key] = msg
+        wire = self._message_wire(msg)
+        took = sum(self.push_panel(pid, wire) for pid in panels)
+        for name in screens:
+            took += len(self._screens.get(name.lower(), []))
+            self._push_screen(name, wire)
+        self._broadcast_messages()
+        return took
+
     def clear_messages(self, message_id: object = None) -> dict[str, Any]:
         """Take one showing message down (by its id), or every one when no id is given."""
         for msg in list(self.live.values()):
@@ -840,7 +891,7 @@ class Alerts:
         self.expire()
         for b in self.settings()["buttons"]:
             alert = self.latest.get(b["id"])
-            if alert is not None and alert.state == "on" and key in (s.lower() for s in b["screens"]):
+            if alert is not None and alert.state == "on" and key in (s.lower() for s in self.targets_of(b)[1]):
                 q.put_nowait(sse_frame(self._alert_message(alert, b)))
         for msg in self.live.values():
             if key in (s.lower() for s in msg.screens):

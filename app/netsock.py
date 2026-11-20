@@ -507,11 +507,27 @@ def multicast_sender(route: Resolved | str, *, ttl: int | None = None, port: int
     return sock
 
 
+def _source_toward(peer: tuple[str, int] | None) -> str | None:
+    """The local address the OS would send from to reach `peer` (a throwaway connected UDP socket sends nothing),
+    or None when it cannot tell. Lets an unbound sender bind where the peer's replies will come back to."""
+    if peer is None:
+        return None
+    probe = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        probe.connect((peer[0], int(peer[1])))
+        return probe.getsockname()[0]
+    except OSError:
+        return None
+    finally:
+        probe.close()
+
+
 async def udp_endpoint(route: Resolved | str, protocol_factory: Callable[[], asyncio.DatagramProtocol],
-                       port: int = 0, *, remote: tuple[str, int] | None = None,
+                       port: int = 0, *, remote: tuple[str, int] | None = None, toward: tuple[str, int] | None = None,
                        **kwargs: Any) -> tuple[asyncio.DatagramTransport, asyncio.DatagramProtocol]:
     """loop.create_datagram_endpoint on a routed UDP socket. `remote` (host, port) connects it, so the transport's
-    sendto() needs no address, as with create_datagram_endpoint(remote_addr=...). `kwargs` go to udp_socket
+    sendto() needs no address, as with create_datagram_endpoint(remote_addr=...). `toward` names the peer an unconnected
+    sender will talk to, so on Windows (where it must be bound to receive) it binds on the address that reaches it. `kwargs` go to udp_socket
     (broadcast, reuse)."""
     loop = asyncio.get_running_loop()
     target = None
@@ -525,6 +541,14 @@ async def udp_endpoint(route: Resolved | str, protocol_factory: Callable[[], asy
     try:
         if target is not None:
             sock.connect(target)
+        elif sys.platform == "win32":
+            # A sender left unbound is bound by the OS on its first send, but asyncio starts receiving at once and
+            # an unbound socket cannot receive on Windows (WinError 10022): replies never arrive. Bind it to a free
+            # port on the default network's address now (never every interface, CodeQL); getsockname() raises on an unbound socket there.
+            try:
+                sock.getsockname()
+            except OSError:
+                sock.bind((_source_toward(toward) or _unrouted_host(_resolved(route), None), 0))
         sock.setblocking(False)
         transport, protocol = await loop.create_datagram_endpoint(protocol_factory, sock=sock)
         if target is not None and getattr(transport, "_address", 0) is None:

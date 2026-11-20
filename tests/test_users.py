@@ -73,11 +73,18 @@ _db.reset()
 check("init() is true with a database", db.init())
 check("available() is true", db.available())
 rows = db.query("select namespace, version from schema_migrations order by version")
-CORE_N = 5
+CORE_N = 15
 eq("core migrations applied once, in order", rows,
    [{"namespace": "core", "version": "0001_users"}, {"namespace": "core", "version": "0002_api_tokens"},
     {"namespace": "core", "version": "0003_audit_log"}, {"namespace": "core", "version": "0004_user_prefs"},
-    {"namespace": "core", "version": "0005_alert_history"}])
+    {"namespace": "core", "version": "0005_alert_history"}, {"namespace": "core", "version": "0006_person_links"},
+    {"namespace": "core", "version": "0007_directory_items"},
+    {"namespace": "core", "version": "0008_screens_places"}, {"namespace": "core", "version": "0009_devices"},
+    {"namespace": "core", "version": "0010_session_agent"}, {"namespace": "core", "version": "0011_gear_racks"},
+    {"namespace": "core", "version": "0012_ports"},
+    {"namespace": "core", "version": "0013_cables"},
+    {"namespace": "core", "version": "0014_channels"},
+    {"namespace": "core", "version": "0015_routes"}])
 check("init() again is a no-op", db.init())
 eq("still the same migration rows", db.one("select count(*) as n from schema_migrations")["n"], CORE_N)
 eq("migrate() twice is idempotent", (db.migrate("core", db.CORE_MIGRATIONS), db.migrate("core", db.CORE_MIGRATIONS)),
@@ -215,7 +222,7 @@ CATALOGUE = {
     "session.view": "viewer", "session.control": "operator", "audio.manage": "admin", "targets.manage": "operator",
     "panels.view": "viewer", "panels.manage": "admin", "alerts.view": "viewer", "alerts.manage": "admin", "alerts.history": "admin",
     "overlays.view": "viewer", "overlays.manage": "operator", "boards.view": "member", "boards.manage": "admin", "recordings.view": "operator",
-    "recordings.manage": "admin", "schedules.view": "viewer", "schedules.manage": "admin",
+    "recordings.manage": "admin", "schedules.view": "viewer", "schedules.manage": "admin", "screens.view": "viewer", "screens.manage": "admin",
     "blocklist.manage": "admin", "settings.view": "viewer", "settings.manage": "admin",
     "credentials.manage": "owner", "modules.view": "viewer", "modules.manage": "admin", "users.view": "admin",
     "network.view": "viewer", "network.manage": "admin",

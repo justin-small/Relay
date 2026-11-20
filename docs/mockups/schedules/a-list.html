@@ -1,0 +1,24 @@
+<!doctype html><html lang="en" data-theme="dark" data-preset="relay"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="../../../app/static/tokens.css"><link rel="stylesheet" href="../../../app/static/components.css"><link rel="stylesheet" href="schedules.css"><title>Schedules A · List and editor</title></head><body>
+<div class="top"><b>Schedules</b><span class="tag ok">Time zone: Central</span><span class="sp"></span><span class="muted">Ana Ruiz · manage</span><button type="button">Add schedule</button></div>
+<div class="wrap stack">
+<p class="lede">Named, reusable schedules. Engine start/stop, signage slots, board rotation and crew call times pick one by name instead of keeping their own windows. Change one here and every place that uses it moves. The time zone is the one on System.</p>
+<div class="split">
+<div class="list">
+<button class="item on" type="button"><b>Sunday services</b> <span class="tag">3 windows</span><small>Sun 8:30 AM–12:30 PM, 5:00–7:00 PM · plan times · used in 4 places</small></button>
+<button class="item" type="button"><b>Wednesday youth</b><small>Wed 6:00–8:30 PM · used in 2 places</small></button>
+<button class="item" type="button"><b>Christmas Eve</b> <span class="tag warn">one-off</span><small>12/24/2026 4:00–8:00 PM · not used yet</small></button>
+</div>
+<div class="stack">
+<div class="pnl"><div class="btw"><h3>Sunday services</h3><div class="gp"><label class="switch"><input type="checkbox" checked aria-label="Enabled"><span></span></label><button type="button">Delete</button></div></div>
+<div class="field"><label>Name</label><input value="Sunday services"></div>
+<h3 style="margin-top:var(--sp-4)">Windows</h3>
+<div class="win"><i class="on">S</i><i>M</i><i>T</i><i>W</i><i>T</i><i>F</i><i>S</i><span>8:30 AM – 12:30 PM <button type="button" class="sm">Edit</button></span></div>
+<div class="win"><i class="on">S</i><i>M</i><i>T</i><i>W</i><i>T</i><i>F</i><i>S</i><span>5:00 PM – 7:00 PM <button type="button" class="sm">Edit</button></span></div>
+<div class="win"><i>S</i><i>M</i><i>T</i><i>W</i><i>T</i><i>F</i><i>S</i><span>12/31/2026 (one-off) 10:00 PM – 12:30 AM <button type="button" class="sm">Edit</button></span></div>
+<div class="gp" style="margin-top:var(--sp-3)"><button type="button">Add weekly window</button><button type="button">Add one-off date</button></div>
+<h3 style="margin-top:var(--sp-4)">Also open</h3>
+<label class="gp"><input type="checkbox" checked> Whenever today's Planning Center plan has a service time</label>
+<span class="hint">Planning Center: next plan Sun 11/22, times 9:00 and 11:00 AM. Switches on only when the Planning Center module is on.</span>
+<div style="margin-top:var(--sp-3)"><button type="button">Save changes</button></div></div>
+<div class="pnl"><h3>Used by</h3><div class="use"><span>Engine · start capture 15 min before, stop at end</span><span>Engine</span></div><div class="use"><span>Signage · Lobby slot "Welcome loop"</span><span>Signage</span></div><div class="use"><span>Crew · call times for Band, Tech</span><span>Crew</span></div><div class="use"><span>Boards · Lobby rotation</span><span>Boards</span></div><span class="hint">Delete is refused while anything is listed here.</span></div>
+</div></div></div><nav class="mocknav"><a href="index.html">Index</a><a href="a-list.html" aria-current="page">A</a><a href="b-week.html" >B</a></nav></body></html>

@@ -5,7 +5,7 @@
   if (!R || !document.getElementById('icLive')) return;
   const $ = R.$;
   const BASE = '/api/admin/intercom/live';
-  function can(perm) { return typeof window.relayCan !== 'function' || !!window.relayCan(perm); }
+  const can = relayUI.can;
   const canLive = can('intercom.live');
   let es = null;
   let state = null;
@@ -32,13 +32,7 @@
     } catch (e) { fail(e); }
   }
 
-  function button(label, fn) {
-    const b = document.createElement('button');
-    b.type = 'button';
-    b.textContent = label;
-    b.addEventListener('click', fn);
-    return b;
-  }
+  const button = relayUI.button;
 
   const MODES = { preempt: 'Pre-empt', party: 'Party line', queue: 'One at a time' };
 

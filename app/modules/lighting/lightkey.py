@@ -39,6 +39,9 @@ def address_for(cue_id: str, action: str = "activate") -> str:
 class Lightkey(Backend):
     id = "lightkey"
     label = "Lightkey (OSC, macOS)"
+    about = "Lightkey on a Mac, with OSC input on."
+    fields = ("host", "port", "fade")
+    default_port = DEFAULT_PORT
 
     def _target(self) -> tuple[str, int]:
         host = self.settings.get("host") or ""

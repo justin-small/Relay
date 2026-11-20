@@ -169,6 +169,6 @@ with section("the board widgets"):
     eq("an offered one is kept", props["response"], "fast")
     board = boards.create([], {"name": "Sound", "items": [{"type": "rta", "x": 0, "y": 0, "w": 6, "h": 3,
                                                          "props": {"view": "waterfall"}}]}, cat)
-    eq("a board holds it", board["items"][0]["props"]["view"], "waterfall")
+    eq("a board holds it", board["pages"][0]["items"][0]["props"]["view"], "waterfall")
 
 done()

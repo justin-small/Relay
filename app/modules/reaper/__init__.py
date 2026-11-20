@@ -39,6 +39,7 @@ class Reaper(Module):
         summary="Starts and stops REAPER recording with the service, drops a marker for each song, and warns when a "
                 "track is not armed or goes silent.",
         settings_key="reaper",
+        section="Show",
         guide="https://github.com/justin-small/relay#reaper",
         version="1.0.0",
         traffic=(Traffic("reaper", "REAPER (OSC)"),),
@@ -46,9 +47,10 @@ class Reaper(Module):
     defaults = {"machines": []}
     network_map_adds = "Marks the computers it records on as running REAPER."
     admin_pages = (AdminPage(
-        id="reaper", title="REAPER", template="reaper.html", group="Output",
+        id="reaper", title="REAPER", template="reaper.html",
         icon='<circle cx="8" cy="8" r="5.5"/><circle cx="8" cy="8" r="2.5" fill="currentColor"/>'),)
     admin_scripts = ("reaper.js",)
+    admin_styles = ("reaper.css",)
     route_prefixes = ("/api/admin/reaper",)
     permissions = (
         Permission("reaper.view", "See whether REAPER is recording, its tracks and alarms", "REAPER", "viewer"),
@@ -71,12 +73,18 @@ class Reaper(Module):
         return [router]
 
     def attach(self) -> None:
+        from ... import modules
         from .service import attach_hooks
+
+        modules.provide("gear.reaper", {"list": self.gear_list})     # the computers it records on (app/gearfeed.py)
 
         attach_hooks()      # core's recording hook (slide tags, boards), presentation markers, stage-message markers
 
     def detach(self) -> None:
+        from ... import modules
         from .service import detach_hooks
+
+        modules.withdraw("gear.reaper")
 
         detach_hooks()
 
@@ -97,12 +105,12 @@ class Reaper(Module):
 
         asyncio.ensure_future(service.restart())
 
-    def network_map(self) -> list[dict]:
+    def gear_list(self) -> dict:
         from ... import config
 
         machines = (config.get().get("reaper") or {}).get("machines") or []
-        return [{**_addr(m.get("host")), "name": m.get("name") or "", "kind": "computer", "tags": ["REAPER"]}
-                for m in machines if isinstance(m, dict) and m.get("host")]
+        return {"devices": [{**_addr(m.get("host")), "name": m.get("name") or "", "kind": "computer", "tags": ["REAPER"]}
+                            for m in machines if isinstance(m, dict) and m.get("host")]}
 
     def health(self) -> Health:
         from .service import service

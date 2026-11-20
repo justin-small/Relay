@@ -96,6 +96,7 @@ async def direct(fn, *args):
 
 fake_pc, fake_pp = FakePC(), FakePP()
 
+_modules.attach("planning_center")        # the Check-Ins reads use the client Planning Center provides (#523)
 print("Check-Ins")
 eq("codes are letters and digits, upper case", checkins.clean_code(" x7-k "), "X7K")
 eq("a name is first name and initial", checkins.short_name("Emma ", "stone"), "Emma S.")
@@ -137,6 +138,7 @@ config.save({"admin_token": "t0ken", "port": 8000, "admin_port": 8001,
              "modules": {"parent_paging": {"enabled": True}, "planning_center": {"enabled": True},
                          "propresenter": {"enabled": True}}})
 MODULE.attach()
+_modules.attach("propresenter")
 routes._pc_client = lambda: fake_pc
 pager.client_for, pager.call = (lambda: fake_pp), direct
 admin = _db.client(app, base_url="http://relay.local:8001")

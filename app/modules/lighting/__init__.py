@@ -19,6 +19,7 @@ class Lighting(Module):
         name="Lighting cues",
         summary="Fires a lighting program's cues (walk-in, worship, message) from cue pages, without the lighting PC.",
         settings_key="lighting",
+        section="Show",
         guide="/docs/lighting",
         version="1.3.0",
         traffic=(Traffic("lighting", "Lighting program control (QLC+ web API)"),),
@@ -26,9 +27,10 @@ class Lighting(Module):
     defaults = {"backend": "", "host": "", "port": 0, "password": "", "functions": False, "console": "EX", "fade": "", "pages": []}
     secret_settings = ("password",)
     admin_pages = (AdminPage(
-        id="lighting", title="Lighting", template="lighting.html", group="Output",
+        id="lighting", title="Lighting", template="lighting.html",
         icon='<circle cx="8" cy="6" r="3"/><path d="M6.5 10.5h3M7 13h2"/>'),)
     admin_scripts = ("lighting.js",)
+    admin_styles = ("lighting.css",)
     route_prefixes = ("/api/admin/lighting", "/lighting")
     permissions = (
         Permission("lighting.view", "See the lighting cue pages", "Lighting", "viewer"),
@@ -54,19 +56,19 @@ class Lighting(Module):
 
         return [router]
 
-    # The fire hook is a hook into core, so it is set in attach() and removed in detach().
+    # The cue and its screen page are provided to core in attach() and removed in detach().
     def attach(self) -> None:
         from ... import modules as registry
         from .routes import fire, screen_page
 
-        registry.cue_hook = fire
-        registry.screen_pages["lighting"] = screen_page
+        registry.provide("lighting.cues", fire)
+        registry.provide("screen_pages.lighting", screen_page)
 
     def detach(self) -> None:
         from ... import modules as registry
 
-        registry.cue_hook = None
-        registry.screen_pages.pop("lighting", None)
+        registry.withdraw("lighting.cues")
+        registry.withdraw("screen_pages.lighting")
 
     async def start(self) -> None:
         from .service import service

@@ -16,7 +16,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Callable
 
-from ... import db
+from ... import db, gearfeed
 
 MIGRATIONS = Path(__file__).resolve().parent / "migrations"
 MODES = ("preempt", "party", "queue")
@@ -126,9 +126,33 @@ def prune_events(days: int = EVENTS_KEEP_DAYS, now: datetime | None = None) -> i
 
 # ------------------------------------------------------------------ channels and members
 
+_reported: tuple = ()
+
+
+def _report(rows: list[dict]) -> None:
+    """Each intercom channel is a core channel of kind talk (#542), so a rundown or a console can pick it by ref. The
+    intercom keeps its talk settings (mode, talkers, latch) on its own table; core keeps the name everyone shows."""
+    global _reported
+    sig = tuple((r["id"], r["name"]) for r in rows)
+    if sig == _reported:
+        return
+    if gearfeed.changed("intercom") is not None:      # core asks gear_list() below through `gear.intercom`
+        _reported = sig
+
+
+def gear_list() -> dict:
+    """What the intercom offers core through `gear.intercom` (app/gearfeed.py): one talk channel per intercom channel."""
+    ready()
+    rows = db.query("select * from intercom_channels order by sort, id")
+    return {"channels": [{"items": [{"key": f"ch{r['id']}", "kind": "talk", "direction": "source", "number": r["id"],
+                                     "gear_name": r["name"]} for r in rows]}]}
+
+
 def channels() -> list[dict]:
     ready()
-    return db.query("select * from intercom_channels order by sort, id")
+    rows = db.query("select * from intercom_channels order by sort, id")
+    _report(rows)
+    return rows
 
 
 def channel(channel_id: int) -> dict | None:

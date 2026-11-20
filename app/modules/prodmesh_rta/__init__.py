@@ -20,12 +20,13 @@ class ProdMeshRta(Module):
         version="1.0.0",
         summary="Shows a remote ProdMesh analyser's level, loudness and 31-band spectrum next to Relay's own meter.",
         settings_key="prodmesh_rta",
+        section="Sound",
         guide="https://github.com/justin-small/relay#sound-level",
         traffic=(Traffic("prodmesh_rta", "ProdMesh RTA (WebSocket)"),),
     )
     defaults = {"url": "", "warn_db": 85.0, "limit_db": 95.0}
     admin_pages = (AdminPage(
-        id="prodmeshrta", title="ProdMesh RTA", template="prodmesh_rta.html", group="Output",
+        id="prodmeshrta", title="ProdMesh RTA", template="prodmesh_rta.html",
         icon='<path d="M2 13V9M5 13V5M8 13V7M11 13V3M14 13V8"/>'),)
     admin_scripts = ("prodmesh_rta.js",)
     route_prefixes = ("/api/admin/prodmesh-rta",)

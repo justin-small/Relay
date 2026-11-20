@@ -1,0 +1,37 @@
+{# A tab of the Network page (#358, the network redesign): the console connection, internet health over time and speed tests. unifi.js fills it; the panel's own pieces only. #}
+    <div class="ufhead"><b>UniFi</b> <span class="sumstate" id="ufSum"></span></div>
+    <div class="note err" id="ufErr" hidden></div>
+    <p class="note ufnotlive" hidden>UniFi is not connected yet. Set it up on the UniFi console tab.</p>
+    <section id="ufTrust" hidden>
+      <h3>Trust the console's certificate</h3>
+      <p class="note">The console uses a certificate this computer does not know, which is normal for a UniFi console.
+        Check that this fingerprint matches the one your browser shows when you open the console's address, then trust
+        it. Relay connects only while the console shows this certificate.</p>
+      <p class="mono" id="ufFp"></p>
+      <div class="ctl"><button type="button" class="primary" id="ufTrustBtn">Trust this certificate</button></div>
+    </section>
+    <section id="ufLive" hidden>
+      <div class="ufcards">
+        <div class="pcard mcard" id="ufConn"></div>
+        <div class="pcard mcard" id="ufNet"></div>
+      </div>
+      <div class="note warn" id="ufWarn" hidden></div>
+    </section>
+    <section id="ufHist" hidden>
+      <h3>Internet over time</h3>
+      <div class="ctl" id="ufRange">
+        <button type="button" data-h="24" class="primary">24 hours</button>
+        <button type="button" data-h="168">7 days</button>
+        <button type="button" data-h="720">30 days</button>
+      </div>
+      <div id="ufCharts"></div>
+      <p class="note" id="ufPeaks"></p>
+    </section>
+    <section id="ufSpeedSect" hidden>
+      <h3>Speed tests</h3>
+      <p class="note">The console's own speed tests (30 days). Relay only reads them; run one from the UniFi app.</p>
+      <div class="tablescroll"><table class="tbl" id="ufSpeed">
+        <thead><tr><th>When</th><th>Download</th><th>Upload</th><th>Ping</th></tr></thead>
+        <tbody></tbody>
+      </table></div>
+    </section>

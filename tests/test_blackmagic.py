@@ -236,9 +236,11 @@ asyncio.run(run_client())
 print("settings: a list of switchers, and the old single address")
 eq("the old setting becomes the first switcher", svc.clean_settings({"host": " 10.0.0.5 ", "port": 9910}),
    {"devices": [{"id": "main", "kind": "atem", "name": "Switcher", "host": "10.0.0.5", "port": 9910, "enabled": True,
-                 "uid": "", "model": "", "tally": True, "tally_offset": 0}]})
-eq("an old setting with no address is no switchers", svc.clean_settings({"host": "", "port": 9910}), {"devices": []})
-eq("junk is no switchers", svc.clean_settings({"host": "a b/c", "port": "x"}), {"devices": []})
+                 "uid": "", "model": "", "drawing": "", "place": "", "notes": {}, "tally": True, "tally_offset": 0}],
+    "cables": []})
+eq("an old setting with no address is no switchers", svc.clean_settings({"host": "", "port": 9910}),
+   {"devices": [], "cables": []})
+eq("junk is no switchers", svc.clean_settings({"host": "a b/c", "port": "x"}), {"devices": [], "cables": []})
 two = svc.clean_settings({"devices": [
     {"id": "a1", "name": "  Main   room ", "host": "10.0.0.5", "port": 70000, "tally_offset": 5000, "uid": "bad uid!"},
     {"id": "a1", "host": "10.0.0.6"}, {"id": "BAD", "host": "10.0.0.7"}, "junk",
@@ -548,11 +550,129 @@ fake.connected = True
 fake.state.version = 0x0002001B
 eq("a switcher older than 8.0.1 is flagged", admin.get("/api/admin/blackmagic").json()["devices"][0]["old_firmware"], True)
 
+print("the rack: notes, order, cables, drawing and place")
+res = admin.post("/api/admin/blackmagic/devices", json={"kind": "videohub", "name": "Router", "host": "10.0.0.70"})
+hub = next(d for d in res.json()["devices"] if d["name"] == "Router")
+eq("a new device has no notes, drawing or place", (hub["notes"], hub["drawing"], hub["place"]), ({}, "", ""))
+res = admin.post("/api/admin/blackmagic/notes", json={"device": hub["id"], "port": "in3", "text": "Cam 3 tie line"})
+eq("a note is kept on its connector", (res.status_code, next(d for d in res.json()["devices"] if d["id"] == hub["id"])["notes"]),
+   (200, {"in3": "Cam 3 tie line"}))
+eq("a note on a device that is not there", admin.post("/api/admin/blackmagic/notes", json={"device": "nope", "port": "in1", "text": "x"}).status_code, 404)
+eq("a connector id that is not one", admin.post("/api/admin/blackmagic/notes", json={"device": hub["id"], "port": "IN 1!", "text": "x"}).status_code, 400)
+eq("a note that is too long", admin.post("/api/admin/blackmagic/notes", json={"device": hub["id"], "port": "in1", "text": "x" * 301}).status_code, 400)
+res = admin.post("/api/admin/blackmagic/notes", json={"device": hub["id"], "port": "in3", "text": "  "})
+eq("an empty note removes it", next(d for d in res.json()["devices"] if d["id"] == hub["id"])["notes"], {})
+
+res = admin.post("/api/admin/blackmagic/order", json={"ids": [hub["id"], "main"]})
+eq("the rack order is saved", [d["id"] for d in res.json()["devices"]], [hub["id"], "main"])
+eq("an order that leaves one out is refused", admin.post("/api/admin/blackmagic/order", json={"ids": ["main"]}).status_code, 400)
+eq("an order that names one twice is refused",
+   admin.post("/api/admin/blackmagic/order", json={"ids": ["main", "main"]}).status_code, 400)
+
+res = admin.post("/api/admin/blackmagic/cables", json={"a": [hub["id"], "out1"], "b": ["main", "in1"]})
+eq("a cable is added", (res.status_code, [(c["a"], c["b"]) for c in res.json()["cables"]]), (200, [([hub["id"], "out1"], ["main", "in1"])]))
+cable = res.json()["cables"][0]["id"]
+eq("the same cable the other way round is refused",
+   admin.post("/api/admin/blackmagic/cables", json={"a": ["main", "in1"], "b": [hub["id"], "out1"]}).status_code, 409)
+eq("a cable to a device that is not there is refused",
+   admin.post("/api/admin/blackmagic/cables", json={"a": ["nope", "out1"], "b": ["main", "in2"]}).status_code, 400)
+eq("a cable from a connector to itself is refused",
+   admin.post("/api/admin/blackmagic/cables", json={"a": ["main", "in2"], "b": ["main", "in2"]}).status_code, 400)
+res = admin.put(f"/api/admin/blackmagic/devices/{hub['id']}", json={"drawing": "videohub", "place": "shelf"})
+eq("drawing and place are saved, and cables survive an edit",
+   (next(d for d in res.json()["devices"] if d["id"] == hub["id"])["place"], len(res.json()["cables"])), ("shelf", 1))
+eq("a drawing that is not in the list is refused",
+   admin.put(f"/api/admin/blackmagic/devices/{hub['id']}", json={"drawing": "photo"}).status_code, 400)
+eq("a place that is not one is refused", admin.put(f"/api/admin/blackmagic/devices/{hub['id']}", json={"place": "roof"}).status_code, 400)
+res = admin.delete(f"/api/admin/blackmagic/cables/{cable}")
+eq("a cable is removed", (res.status_code, res.json()["cables"]), (200, []))
+eq("removing it again", admin.delete(f"/api/admin/blackmagic/cables/{cable}").status_code, 404)
+admin.post("/api/admin/blackmagic/cables", json={"a": [hub["id"], "out2"], "b": ["main", "in2"]})
+res = admin.delete(f"/api/admin/blackmagic/devices/{hub['id']}")
+eq("removing a device drops its cables", res.json()["cables"], [])
+
+eq("cables are cleaned: bad ends, unknown devices and repeats go",
+   svc.clean_cables([{"id": "a1", "a": ["d1", "out1"], "b": ["d2", "in1"]}, {"id": "a2", "a": ["d2", "in1"], "b": ["d1", "out1"]},
+                     {"id": "a3", "a": ["zz", "out1"], "b": ["d2", "in2"]}, {"id": "a4", "a": ["d1", "OUT"], "b": ["d2", "in2"]},
+                     {"id": "BAD", "a": ["d1", "out3"], "b": ["d2", "in3"]}, "junk"], {"d1", "d2"}),
+   [{"id": "a1", "a": ["d1", "out1"], "b": ["d2", "in1"]}])
+eq("notes are cleaned: bad ids and empty text go, long text is cut",
+   svc.clean_notes({"in1": "  a   note ", "IN 2": "x", "in3": "", "in4": "y" * 400}), {"in1": "a note", "in4": "y" * 300})
+
+print("connectors are core ports (#540)")
+from app import gear as core_gear, ports as core_ports  # noqa: E402
+from app.modules.blackmagic import drawings  # noqa: E402
+drawn = (Path(__file__).resolve().parent.parent / "app/modules/blackmagic/static/bmdraw.js").read_text()
+check("the page lists no connectors of its own: the server sends each face", "port('" not in drawn and "function tvs" not in drawn)
+for d in svc.DRAWINGS:
+    face = drawings.spec({"kind": "videohub" if d == "videohub" else "hyperdeck" if d.startswith("hyper") else "atem",
+                          "drawing": d, "videohub": {"inputs": [{"n": 0}] * 12, "outputs": [{"n": 0}] * 12}})
+    found = drawings.connectors(face)
+    check(f"{d}: every connector has a core port kind and a name",
+          found and all(c["kind"] in core_ports.KINDS and c["gear_name"] for c in found), found)
+eq("a 3.5 mm jack is a TRS port and 12 V is DC power", [(c["key"], c["kind"]) for c in drawings.connectors(
+   drawings.spec({"kind": "atem", "drawing": "mini-pro"})) if c["key"] in ("mic1", "pwr")], [("mic1", "trs"), ("pwr", "dc")])
+snap = admin.get("/api/admin/blackmagic").json()
+main_dev = next(d for d in snap["devices"] if d["id"] == "main")
+eq("the snapshot carries the face and the drawing names", (main_dev["face"]["form"], snap["drawings"]["videohub"]),
+   ("rack", "Videohub"))
+g = core_gear.by_key("blackmagic:main")
+rows = {r["key"]: r for r in core_ports.of_gear(g["id"])}
+eq("a connected switcher's connectors are ports on its gear", (rows["in1"]["kind"], rows["in1"]["direction"],
+   rows["in1"]["gear_name"], rows["eth"]["direction"]), ("sdi", "in", "IN 1", "both"))
+eq("Relay does not know if a connector has signal: link unknown", rows["in1"]["link_up"], None)
+res = admin.post("/api/admin/blackmagic/notes", json={"device": "main", "port": "in2", "text": "Pulpit camera"})
+eq("a connector's note is its port's note", core_ports.by_key(g["id"], "in2")["note"], "Pulpit camera")
+eq("and comes back with the device", next(d for d in res.json()["devices"] if d["id"] == "main")["notes"], {"in2": "Pulpit camera"})
+raw = config.get()["blackmagic"]
+raw["devices"][0]["notes"] = {"in5": "Old note from config", "in2": "loses to the port's note"}
+config.save({"blackmagic": raw}, replace=("blackmagic",))
+eq("notes saved in config before #540 move onto ports, once",
+   (svc.devices()[0]["notes"], [d.get("notes") for d in config.get()["blackmagic"]["devices"]]),
+   ({"in2": "Pulpit camera", "in5": "Old note from config"}, [None]))
+
+print("cables are core cables (#541)")
+from app import cables as core_cables, network_map  # noqa: E402
+res = admin.post("/api/admin/blackmagic/devices", json={"kind": "videohub", "name": "Tie", "host": "10.0.0.71"})
+tie = next(d for d in res.json()["devices"] if d["name"] == "Tie")
+res = admin.post("/api/admin/blackmagic/cables", json={"a": ["main", "in1"], "b": [tie["id"], "out1"]})
+eq("a cable recorded here shows on the Network page", [(c["a"]["gear"], c["a"]["key"], c["b"]["gear"], c["by"])
+   for c in network_map.cable_rows() if c["b"]["key"] == "out1"], [("Switcher", "in1", "Tie", "operator")])
+net = admin.get("/api/admin/network/cables").json()
+eq("and in its picker", {g["name"] for g in net["gear"]} >= {"Switcher", "Tie"}, True)
+def conn(device: str, key: str) -> dict:
+    gid = core_gear.by_key("blackmagic:" + device)["id"]
+    return core_ports.by_key(gid, key) or core_ports.adopt(gid, key, heard=False)
+
+
+res = admin.post("/api/admin/network/cables", json={"a": conn("main", "in3")["ref"], "b": conn(tie["id"], "out3")["ref"]})
+snap = svc.service.snapshot()
+eq("a cable recorded on the Network page shows on the Blackmagic page", sorted((tuple(c["a"]), tuple(c["b"])) for c in snap["cables"]),
+   sorted([(("main", "in1"), (tie["id"], "out1")), (("main", "in3"), (tie["id"], "out3"))]))
+sw = core_gear.adopt(["mac:aa:bb:cc:00:00:61"], name="Wall switch", kind="switch")["id"]
+core_ports.sync(sw, [{"key": "4", "kind": "eth"}])
+core_cables.add(conn("main", "eth")["id"], core_ports.by_key(sw, "4")["id"])
+eq("a cable to gear that is not Blackmagic stays off the Wiring tab", len(svc.service.snapshot()["cables"]), 2)
+core_cables.sync("unifi", [(conn("main", "in4")["id"], core_ports.by_key(sw, "4")["id"])])
+rep = next(c for c in core_cables.listing() if c["by"] == "unifi")
+res = admin.delete(f"/api/admin/blackmagic/cables/{rep['id']}")
+eq("a reported cable cannot be removed from the Blackmagic page", res.status_code, 409)
+raw = config.get()["blackmagic"]
+raw["cables"] = [{"id": "c1", "a": ["main", "in5"], "b": [tie["id"], "out5"]}, {"id": "c2", "a": ["main", "in1"], "b": [tie["id"], "out1"]}]
+config.save({"blackmagic": raw}, replace=("blackmagic",))
+svc.devices()
+eq("cables saved in config before #541 become core cables, once", sorted((c["a"][1], c["b"][1]) for c in svc.cables()),
+   sorted([("in1", "out1"), ("in3", "out3"), ("in5", "out5")]))
+eq("and are gone from config", "cables" in config.get()["blackmagic"], False)
+res = admin.delete(f"/api/admin/blackmagic/devices/{tie['id']}")
+eq("removing a device takes its cables with it", [c["b"][0] for c in res.json()["cables"]], [])
+eq("the other end's gear keeps its own cables", len([c for c in core_cables.listing() if c["by"] == "unifi"]), 1)
+
 print("health with several switchers")
 svc.service.devices.clear()
 fake_device({"id": "main", "name": "Main", "host": "10.0.0.5"}, FakeClient())
-config.save({"blackmagic": {"devices": [{"id": "main", "name": "Main", "host": "10.0.0.5"},
-                                  {"id": "b", "name": "Overflow", "host": "10.0.0.6"}]}}, replace=("blackmagic",))
+svc.save_devices([svc.clean_device({"id": "main", "name": "Main", "host": "10.0.0.5"}),
+                  svc.clean_device({"id": "b", "name": "Overflow", "host": "10.0.0.6"})])
 h = _modules.get("blackmagic").health()
 eq("one down is a warning naming it", (h.state, "Overflow" in h.detail), ("warn", True))
 fake_device({"id": "b", "name": "Overflow", "host": "10.0.0.6"}, FakeClient())

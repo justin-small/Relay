@@ -13,10 +13,12 @@ import re
 import time
 
 from ... import db
+from ... import devices as core_devices
 from . import checkin, people
 
 LABEL_MAX = 40
 PER_PERSON = 5
+PART = "crew_checkin"        # the kind of device part this module registers with core (app/devices.py, #528)
 _HOST = re.compile(r"^[a-z0-9][a-z0-9.\-_]{0,62}$")
 
 
@@ -38,18 +40,19 @@ def _label(raw) -> str:
 
 def mine(user_id: int) -> list[dict]:
     people.ready()
-    return db.query("select id, kind, value, label, added_ts, added_by from crew_devices where user_id = ?"
-                    " order by added_ts", (user_id,))
+    return db.query("select id, kind, value, label, added_at, added_by from crew_devices where user_id = ?"
+                    " order by added_at", (user_id,))
 
 
 def everyone() -> list[dict]:
     people.ready()
-    return db.query("select d.id, d.user_id, u.name, d.kind, d.value, d.label, d.added_ts, d.added_by"
-                    " from crew_devices d join users u on u.id = d.user_id order by lower(u.name), d.added_ts")
+    return db.query("select d.id, d.user_id, u.name, d.kind, d.value, d.label, d.added_at, d.added_by"
+                    " from crew_devices d join users u on u.id = d.user_id order by lower(u.name), d.added_at")
 
 
-def add(user_id: int, kind: str, value: str, label: str = "", by: str = "self") -> dict:
-    """Add a device. Raises people.Invalid with a sentence for the page."""
+def add(user_id: int, kind: str, value: str, label: str = "", by: str = "self", user_agent: str = "") -> dict:
+    """Add a device. Raises people.Invalid with a sentence for the page. It is a part of a core device
+    (app/devices.py, #528): the user's device with the same `user_agent` when it has no check-in part yet, else a new one."""
     people.ready()
     if kind == "mac":
         value = clean_mac(value)
@@ -68,9 +71,12 @@ def add(user_id: int, kind: str, value: str, label: str = "", by: str = "self") 
     n = db.one("select count(*) as n from crew_devices where user_id = ?", (user_id,))["n"]
     if n >= PER_PERSON:
         raise people.Invalid(f"You can add {PER_PERSON} devices. Remove one first.")
-    db.execute("insert into crew_devices (user_id, kind, value, label, added_ts, added_by) values (?, ?, ?, ?, ?, ?)",
-               (user_id, kind, value, _label(label), time.time(), "admin" if by == "admin" else "self"))
-    return db.one("select id, kind, value, label, added_ts, added_by from crew_devices where kind = ? and value = ?",
+    with db.transaction() as tx:
+        core = core_devices.for_part(user_id, PART, "crew_devices", name=_label(label), user_agent=user_agent, q=tx)
+        tx.execute("insert into crew_devices (user_id, kind, value, label, added_at, added_by, device_id)"
+                   " values (?, ?, ?, ?, ?, ?, ?)",
+                   (user_id, kind, value, _label(label), db.now(), "admin" if by == "admin" else "self", core))
+    return db.one("select id, kind, value, label, added_at, added_by from crew_devices where kind = ? and value = ?",
                   (kind, value))
 
 
@@ -105,3 +111,10 @@ def arrive_present(clients: list[dict], key: str, now: float | None = None) -> l
             checkin.arrive(uid, key, "wifi", ts)
             new.append(uid)
     return new
+
+
+def describe_core(core_id: int) -> list[str]:
+    """What check-in holds for a core device, for the phones list."""
+    people.ready()
+    return [("Wi-Fi check-in by address " if r["kind"] == "mac" else "Wi-Fi check-in by name ") + r["value"]
+            for r in db.query("select kind, value from crew_devices where device_id = ? order by id", (core_id,))]

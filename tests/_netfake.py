@@ -5,7 +5,7 @@ Import it after the test has set RELAY_CONFIG (it imports the app). Then:
     from _netfake import WIFI, USB, DANTE_NET, port, use_ports, lan, route, policy, loopback_route
 
     use_ports(WIFI, USB)                 # these are the machine's ports now (netroute's cached list)
-    remember(WIFI, USB)                  # and Relay has seen them (config "known_ports"), so routes to them keep
+    remember(WIFI, USB)                  # and Relay has seen them (core ports, #540), so routes to them keep
     route(dante=USB.id)                  # exactly these routes, every policy at its default
     with lan("192.168.1.20"):            # the default network's addresses (netinfo.lan_ips)
         netroute.resolve("dante")
@@ -46,7 +46,7 @@ def use_ports(*ports: Port) -> None:
 
 
 def remember(*ports: Port) -> None:
-    """Relay has seen these ports (config known_ports), so a route to one is kept even while it is unplugged."""
+    """Relay has seen these ports (core ports on this computer's gear), so a route to one is kept while it is unplugged."""
     netroute.remember(list(ports))
 
 

@@ -9,6 +9,7 @@ import uuid
 from typing import Any
 
 from ... import config, layout
+from ...text import same_name
 from . import lightkey, qlcplus, thelightingcontroller, vista  # noqa: F401  (each registers its backend)
 from .backend import BACKENDS, Backend, BackendError, Cue
 
@@ -181,12 +182,9 @@ class Service:
 
     def page_cue_named(self, name: str) -> tuple[dict, dict] | None:
         """(page, cue) for the first cue called `name` (any case, spaces squeezed) on any page, in page order."""
-        want = " ".join(name.split()).casefold()
-        if not want:
-            return None
         for p in self.settings()["pages"]:
             for c in p["cues"]:
-                if " ".join(c["name"].split()).casefold() == want:
+                if same_name(c["name"], name):
                     return p, c
         return None
 
@@ -232,7 +230,8 @@ class Service:
         s = self.settings()
         b = self.backend
         out = public(s)
-        out.update(backends=[{"id": k, "label": v.label or k} for k, v in sorted(BACKENDS.items())],
+        out.update(backends=[{"id": k, "label": v.label or k, "about": v.about, "fields": list(v.fields),
+                             "default_port": v.default_port} for k, v in sorted(BACKENDS.items())],
                    active=bool(b), can_list=bool(b and b.can_list), can_report_state=bool(b and b.can_report_state),
                    can_set_level=bool(b and b.can_set_level), cues=[], state={}, levels={}, error=self.error)
         if b is not None:

@@ -16,7 +16,8 @@ import time
 from collections import deque
 
 from ... import db
-from . import paging, people
+from ...text import fold
+from . import notifications, people
 
 log = logging.getLogger("relay.crew")
 
@@ -32,7 +33,7 @@ class Refused(people.Invalid):
 
 
 def role_channel(role: str) -> str | None:
-    text = " ".join((role or "").lower().split())
+    text = fold(role)
     return f"role:{text}" if text else None
 
 
@@ -50,7 +51,7 @@ def clean_body(raw) -> str:
 
 
 def own_channel(user_id: int) -> str | None:
-    return role_channel(people.profile(user_id)["role"])
+    return role_channel(people.profile(user_id)["crew_role"])
 
 
 def can_read(user, channel) -> bool:
@@ -70,9 +71,9 @@ def channels_for(user) -> list[dict]:
     out = [{"id": TEAM, "title": "Team", "push": TEAM in on}]
     seen = set()
     mine = own_channel(user.id)
-    rows = db.query("select distinct role from crew_profiles where role != ''") if user.can("crew.moderate") else []
-    wanted = [(mine, people.profile(user.id)["role"])] if mine else []
-    wanted += [(role_channel(r["role"]), r["role"]) for r in rows]
+    roles = sorted({p["crew_role"] for p in people.people_list() if p["crew_role"]}) if user.can("crew.moderate") else []
+    wanted = [(mine, people.profile(user.id)["crew_role"])] if mine else []
+    wanted += [(role_channel(r), r) for r in roles]
     for cid, title in wanted:
         if cid and cid not in seen:
             seen.add(cid)
@@ -83,7 +84,7 @@ def channels_for(user) -> list[dict]:
 # -- storage ------------------------------------------------------------------------------------------------------
 def _row(r: dict) -> dict:
     return {"id": r["id"], "channel": r["channel"], "user_id": r["user_id"], "author": r["author"],
-            "role": r["role"], "body": r["body"], "ts": r["created_ts"]}
+            "role": r["role"], "body": r["body"], "ts": db.epoch(r["created_at"])}
 
 
 def history(channel: str, limit: int = MIRROR, after: int = 0) -> list[dict]:
@@ -115,10 +116,10 @@ def post(user, channel: str, body, now: float | None = None) -> dict:
         raise Refused("You cannot post in that channel.", 403)
     if not _rate_ok(user.id, ts):
         raise Refused("Slow down: a few messages at a time.", 429)
-    role = people.profile(user.id)["role"]
-    row = db.one("insert into crew_chat_messages (channel, user_id, author, role, body, created_ts)"
-                 " values (?, ?, ?, ?, ?, ?) returning *", (channel, user.id, user.name, role, text, ts))
-    db.execute("delete from crew_chat_messages where created_ts < ?", (ts - KEEP_DAYS * 86400,))
+    role = people.profile(user.id)["crew_role"]
+    row = db.one("insert into crew_chat_messages (channel, user_id, author, role, body, created_at)"
+                 " values (?, ?, ?, ?, ?, ?) returning *", (channel, user.id, user.name, role, text, db.iso(ts)))
+    db.execute("delete from crew_chat_messages where created_at < ?", (db.iso(ts - KEEP_DAYS * 86400),))
     return _row(row)
 
 
@@ -167,11 +168,11 @@ def notify(channel: str, message: dict, watching) -> int:
     ids = push_targets(channel, message["user_id"], watching)
     if not ids:
         return 0
-    key = paging.vapid_key()
+    key = notifications.vapid_key()
     payload = {"title": "Team" if channel == TEAM else message["role"] or "Chat",
                "body": f"{message['author']}: {message['body'][:80]}", "url": "/crew#chat",
                "tag": "chat-" + channel[:40], "quiet": True}
-    return sum(1 for uid in ids if paging.push_user(key, uid, payload))
+    return sum(1 for uid in ids if notifications.push_user(key, uid, payload))
 
 
 # -- the open chats ---------------------------------------------------------------------------------------------

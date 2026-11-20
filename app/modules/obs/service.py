@@ -28,6 +28,7 @@ import base64
 import contextlib
 import hmac
 import json
+import logging
 import math
 import posixpath
 import re
@@ -37,11 +38,14 @@ import uuid
 from collections import deque
 from typing import Any
 
-from ... import audit, config, languages, tally
+from ... import audit, config, gearfeed, languages, tally
 from ...alerts import alerts
 from ...hub import hub
 from ...streamstatus import streams
+from ...text import same_name
 from .client import DEFAULT_PORT, EVENTS, METERS, Connection, ObsError
+
+log = logging.getLogger("relay.obs")
 
 KEY = "obs"
 MAX_MACHINES = 4
@@ -343,6 +347,19 @@ class Machine:
         self.scenes = [s["sceneName"] for s in scenes][:200]
         self.program = d.get("currentProgramSceneName") or ""
         self.preview_scene = d.get("currentPreviewSceneName") or ""
+        self._report_channels()
+
+    def _report_channels(self) -> None:
+        """Each OBS scene is a video source channel in core (#542), so a scene and the camera it shows can be named
+        once. Core asks for them through `gear.obs` (app/gearfeed.py) and only while OBS answers: a computer that is off
+        does not say what scenes it has."""
+        gearfeed.changed("obs")
+
+    def channel_group(self) -> dict:
+        """This computer's scenes as the channels it reports: `within` limits "no longer there" to its own keys."""
+        return {"within": f"{self.cfg['id']}:",
+                "items": [{"key": f"{self.cfg['id']}:{n}", "kind": "video", "direction": "source", "gear_name": n}
+                          for n in self.scenes]}
 
     async def _read_replay(self, conn: Connection) -> None:
         try:
@@ -585,8 +602,7 @@ class Machine:
         """OBS's own spelling of the scene called `name`, exact first, then any case; "" when there is none."""
         if name in self.scenes:
             return name
-        want = " ".join(name.split()).casefold()
-        return next((s for s in self.scenes if " ".join(s.split()).casefold() == want), "")
+        return next((s for s in self.scenes if same_name(s, name)), "")
 
     async def set_scene(self, scene: str) -> None:
         conn = self._connected()
@@ -830,6 +846,10 @@ class Service:
             return {"ok": False, "error": f"OBS did not switch on {', '.join(failed)}."}
         return {"ok": True}
 
+    def channel_groups(self) -> list[dict]:
+        """The scenes of every computer that answers now; one that is off says nothing, so its scenes do not turn missing."""
+        return [m.channel_group() for m in self.machines.values() if m.conn is not None]
+
     def health(self) -> tuple[str, str]:
         if not self.machines:
             return "warn", "Not set up: add an OBS computer"
@@ -855,11 +875,11 @@ def attach_hooks() -> None:
     from ... import modules as registry
 
     hub.add_line_sink(service.line_sink)
-    registry.scene_hook = service.switch_scene
+    registry.provide("obs.scenes", service.switch_scene)
 
 
 def detach_hooks() -> None:
     from ... import modules as registry
 
     hub.remove_line_sink(service.line_sink)
-    registry.scene_hook = None
+    registry.withdraw("obs.scenes")

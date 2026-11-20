@@ -53,8 +53,8 @@ MODULES = APP / "modules"
 # they talk to no other product (a module only adds widgets to them through the registry).
 CORE_FILES = {
     "__init__.py", "alerthistory.py", "alerts.py", "announce.py", "audio.py", "audiobus.py", "audit.py", "backup.py", "boards.py", "layout.py", "config.py", "db.py", "demo.py", "engine.py", "exporting.py", "hub.py", "prefs.py",
-    "importdocker.py", "languages.py", "main.py", "mdns.py", "metering.py", "mixreport.py", "netinfo.py", "netroute.py", "netsock.py", "network_map.py", "oauth.py", "overlays.py", "panelfw.py", "panels.py", "paths.py", "realtime.py", "recorder.py", "redact.py",
-    "scheduler.py", "schedules.py", "secretbox.py", "serving.py", "setupcode.py", "sidecar.py", "streamstatus.py", "tally.py", "texttranslate.py", "tls.py", "users.py",
+    "devices.py", "directory.py", "gear.py", "gearfeed.py", "cables.py", "channels.py", "routing.py", "importdocker.py", "languages.py", "main.py", "mdns.py", "metering.py", "mixreport.py", "netinfo.py", "netroute.py", "netsock.py", "network_map.py", "oauth.py", "overlays.py", "panelfw.py", "panels.py", "paths.py", "ports.py", "realtime.py", "recorder.py", "redact.py",
+    "scheduler.py", "schedules.py", "screens.py", "secretbox.py", "serving.py", "setupcode.py", "sidecar.py", "streamstatus.py", "tally.py", "text.py", "texttranslate.py", "timewin.py", "tls.py", "transcribe.py", "users.py",
 }
 # Network clients, and the core files allowed them: OpenAI (realtime, text translation) and the host's own
 # address for the viewer links (main, netinfo) and Relay announcing itself to its own caption panels (announce).
@@ -237,9 +237,11 @@ for mid in ids:
             return perm in self.perms
 
     async def nav_for(user):
+        """The pages the user reaches: sidebar entries, and tabs a module adds to a core page (AdminPage.tab_of)."""
         await registry.set_enabled(mid, True)
         try:
-            return [pg["id"] for groups in registry.admin_nav(user).values() for pg in groups]
+            return [pg["id"] for entry in registry.admin_nav(user) for pg in entry["pages"]] + \
+                [t["id"] for tabs in registry.admin_tabs(user).values() for t in tabs]
         finally:
             await registry.set_enabled(mid, False)
     for pg in mod.admin_pages:
@@ -274,7 +276,8 @@ for mid in ids:
         return page
     page = asyncio.run(on_then_off())
     check(f"{mid}: admin pages, nav links and scripts rendered while on",
-          all(f'data-page="{p.id}"' in page and f'href="#{p.id}"' in page for p in mod.admin_pages)
+          all((f'data-tab="{p.id}"' in page and f'data-pane="{p.id}"' in page) if p.tab_of else
+              (f'data-page="{p.id}"' in page and f'href="#{p.id}"' in page) for p in mod.admin_pages)
           and all(f"/static/modules/{mid}/{s}" in page for s in mod.admin_scripts))
 
 # ------------------------------------------------------------------ the registry, with a module made up here
@@ -393,6 +396,64 @@ try:
     asyncio.run(registry.set_enabled("fake", False))
 finally:
     registry._modules = saved
+
+# ------------------------------------------------------------------ provide() and using() (#523)
+print("provide and using")
+check("nothing is on offer to begin with", modmod.provided() == {}, modmod.provided())
+eq("asking for what is not there gives None", modmod.using("lighting.cues"), None)
+eq("or the default", modmod.using("lighting.cues", "off"), "off")
+modmod.provide("test.thing", 7, owner="fake")
+eq("a provided capability is asked for by name", modmod.using("test.thing"), 7)
+eq("and listed with its owner", modmod.provided(), {"test.thing": "fake"})
+modmod.provide("test.other", 8, owner="fake")
+modmod.provide("kept.thing", 9, owner="someone")
+eq("a prefix finds the family", modmod.using_all("test."), {"thing": 7, "other": 8})
+modmod.withdraw_all("fake")
+eq("turning a module off takes everything it provided", (modmod.using("test.thing"), modmod.using("test.other")),
+   (None, None))
+eq("and leaves what others provided", modmod.using("kept.thing"), 9)
+modmod.withdraw("kept.thing")
+modmod.withdraw("kept.thing")
+eq("withdrawing twice is harmless", modmod.using("kept.thing"), None)
+for bad in ("Lighting.cues", "lighting.", ".cues", "lighting cues", "", "a..b"):
+    try:
+        modmod.provide(bad, 1, owner="x")
+        check(f"{bad!r} is not a capability name", False)
+    except ValueError:
+        check(f"{bad!r} is not a capability name", True)
+modmod.provide("ndi", {"a": 1}, owner="ndi")
+eq("a bare area is a name too", modmod.using("ndi"), {"a": 1})
+modmod.withdraw("ndi")
+here: dict = {"__name__": "app.modules.crew.fake", "modmod": modmod}
+exec(compile("modmod.provide('crew.thing', 1)", "fake.py", "exec"), here)      # as if called from crew's own code
+eq("the owner is the module the call came from", modmod.provided(), {"crew.thing": "crew"})
+modmod.withdraw_all("crew")
+heard: list = []
+modmod.listen("test.topic", heard.append)
+modmod.listen("test.topic", heard.append)
+modmod.announce("test.topic", 1)
+eq("a listener hears an announcement, once however often it listened", heard, [1])
+modmod.unlisten("test.topic", heard.append)
+modmod.announce("test.topic", 2)
+eq("and stops after unlisten", heard, [1])
+modmod.listen("test.topic", lambda *a: 1 / 0)
+modmod.announce("test.topic", 3)
+check("a listener that fails does not stop the announcer", True)
+modmod._listeners.clear()
+
+for mid in ids:
+    mod = registry.get(mid)
+    before = {n for n, who in modmod.provided().items() if who == mid}
+    mod.attach()
+    mod.attach()
+    on = {n for n, who in modmod.provided().items() if who == mid}
+    mod.detach()
+    left = sorted(n for n, who in modmod.provided().items() if who == mid)
+    eq(f"{mid}: switching it off takes back what it provided ({', '.join(sorted(on)) or 'nothing'})", left, [])
+    mod.attach()
+    eq(f"{mid}: and on again gives it back", {n for n, who in modmod.provided().items() if who == mid}, on)
+    mod.detach()
+    check(f"{mid}: only names of the form area.what", all(re.match(r"^[a-z][a-z0-9_]*(\.[a-z0-9_-]+)*$", n) for n in on))
 
 if fails:
     print(f"\n{len(fails)} FAILED")

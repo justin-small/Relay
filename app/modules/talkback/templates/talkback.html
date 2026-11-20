@@ -1,0 +1,43 @@
+{# The Talkback admin page, rendered inside admin.html only while the module is on. #}
+    <h2 class="title">Talkback <span class="sumstate" id="tbSum"></span></h2>
+    <p class="sub">Transcribe the crew's talkback mic on a session of its own. It starts and stops apart from the
+      captions, and its text never reaches the caption feeds, recordings or exports. Silence is not sent, so a quiet
+      channel costs nothing.</p>
+
+    <section>
+      <h3>Settings</h3>
+      <div class="row">
+        <div class="field">
+          <label for="tbLane">Audio bus lane</label>
+          <select id="tbLane"></select>
+        </div>
+        <div class="field">
+          <label for="tbBackend">Transcription backend</label>
+          <select id="tbBackend"></select>
+        </div>
+        <div class="field">
+          <label for="tbLanguage">Language spoken</label>
+          <select id="tbLanguage"></select>
+        </div>
+      </div>
+      <div class="ctl"><button type="button" class="primary" id="tbSave">Save</button></div>
+      <div class="note" id="tbBusNote"></div>
+    </section>
+
+    <section>
+      <h3>Session</h3>
+      <div class="ctl">
+        <button type="button" class="primary" id="tbStart">Start</button>
+        <button type="button" id="tbStop">Stop</button>
+        <button type="button" id="tbRestart">Restart</button>
+      </div>
+      <div class="note" id="tbStatus"></div>
+      <div class="note" id="tbBilled"></div>
+    </section>
+    <div class="note err" id="tbErr" hidden></div>
+
+    <section>
+      <h3>What was said</h3>
+      <div class="note" id="tbPartial"></div>
+      <ul id="tbLines"></ul>
+    </section>

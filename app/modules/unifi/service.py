@@ -344,7 +344,7 @@ class Service:
             f"INTERNET {int(lat)} MS" if lat is not None else "INTERNET")
         if (ext.get("loss") or 0) >= 34 and net.get("status") in ("ok", "unknown"):
             text += f" · {int(ext['loss'])}% LOST"
-        pill = {"id": "unifi-internet", "text": text, "href": "#unifi"}
+        pill = {"id": "unifi-internet", "text": text, "href": "#network/unifi"}
         if bad:
             pill["level"] = "error"
         return [pill]
@@ -367,8 +367,9 @@ class Service:
             parent = next((m for m, o in by_mac.items() if o["name"] == up.get("to")), "") if up.get("to") else ""
             out.append({"mac": g["mac"], "ip": g.get("ip"), "name": g["name"],
                         "kind": g.get("kind") if g.get("kind") in ("gateway", "switch", "ap") else "switch",
-                        "uplink_mac": parent, "speed": up.get("speed"), "poe_w": g.get("poe_w"),
-                        "tags": [t for t in (g.get("model"),) if t], "ports": g.get("ports") or []})
+                        "uplink_mac": parent, "uplink_port": up.get("port") if parent else None, "speed": up.get("speed"), "poe_w": g.get("poe_w"),
+                        "tags": [t for t in (g.get("model"),) if t], "ports": g.get("ports") or [],
+                        "model": g.get("model") or "", "poe_budget_w": g.get("poe_budget_w")})
         ports = {(g["mac"], p["port"]): p for g in by_mac.values() for p in g.get("ports") or []}
         for c in self.presence.online():
             flows = av.get(c["mac"])

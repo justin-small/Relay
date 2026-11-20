@@ -79,7 +79,7 @@ def encode(frame: dict, max_width: int, quality: int) -> bytes | None:
 
 
 class Feed:
-    def __init__(self, source: str, owner: "Viewers") -> None:
+    def __init__(self, source: str, owner: "Viewers | None") -> None:
         self.source = source
         self.owner = owner
         self.jpeg = b""
@@ -107,8 +107,12 @@ class Feed:
         if jpeg is None:
             self.failed = True
             return
+        self.publish(jpeg, (int(frame.get("width", 0)), int(frame.get("height", 0))))
+
+    def publish(self, jpeg: bytes, size: tuple[int, int]) -> None:
+        """Set the newest picture and wake every browser waiting for one (any thread)."""
         with self._lock:
-            self.jpeg, self.seq, self.size = jpeg, self.seq + 1, (int(frame.get("width", 0)), int(frame.get("height", 0)))
+            self.jpeg, self.seq, self.size = jpeg, self.seq + 1, size
             waiters, self._waiters = self._waiters, []
         for loop, fut in waiters:
             try:

@@ -30,20 +30,23 @@ class Intercom(Module):
         version="0.2.0",
         summary="Crew intercom on phones over the church network, using a media server Relay runs itself.",
         settings_key="intercom",
+        section="Crew",
         guide="https://github.com/justin-small/relay#intercom",
         traffic=(Traffic("intercom", "Intercom audio (LiveKit media)", media=True),),
     )
     defaults = {"binary_path": "", "node_ip": "", "log_days": 30, "thresholds": {}}
     admin_pages = (AdminPage(
-        id="intercom", title="Intercom", template="admin.html", group="Automation",
+        id="intercom", title="Channels", template="admin.html",
         icon='<path d="M2.5 9.5v-2a5.5 5.5 0 0 1 11 0v2"/><rect x="1.5" y="9" width="3" height="4.5" rx="1"/>'
              '<rect x="11.5" y="9" width="3" height="4.5" rx="1"/>'),
-        AdminPage(id="intercom-phones", title="Signed-in phones", template="phones.html", group="Automation",
+        AdminPage(id="intercom-phones", title="Signed-in phones", template="phones.html",
                   icon='<rect x="4.5" y="1.5" width="7" height="13" rx="1.5"/><path d="M7 12.5h2"/>',
                   permission="intercom.manage"))
     admin_scripts = ("intercom.js", "live.js", "health.js")
+    admin_styles = ("intercom.css",)
     crew_tabs = (CrewTab("intercom", "Intercom", "crew.html", "intercom.use"),)
     crew_scripts = ("livekit-client.umd.js", "crew.js")
+    crew_styles = ("crew.css",)
     microphone_pages = ("/crew",)
     route_prefixes = ("/api/admin/intercom", "/intercom")
     # Never on the plain-HTTP viewer port, so a remote access tunnel carries none of the local intercom (the webhook
@@ -65,10 +68,16 @@ class Intercom(Module):
         self._logging: set[asyncio.Task] = set()
 
     def attach(self) -> None:
-        from ... import users
-        from . import store
+        from ... import devices as core_devices, modules, users
+        from . import devices, store
         from .presence import presence
 
+        def forget_phone(core_id: int) -> None:
+            for row in devices.revoke_core(core_id):
+                presence.run(presence.revoked(row))
+
+        core_devices.register(devices.PART, "Intercom", "intercom_devices", forget_phone, devices.describe_core)
+        modules.provide("gear.intercom", {"list": store.gear_list})    # its talk channels (app/gearfeed.py)
         if presence.user_signed_out not in users.signed_out_hooks:
             users.signed_out_hooks.append(presence.user_signed_out)
         if presence.member_changed not in store.member_hooks:
@@ -77,10 +86,12 @@ class Intercom(Module):
             store.config_hooks.append(presence.config_changed)
 
     def detach(self) -> None:
-        from ... import users
-        from . import store
+        from ... import devices as core_devices, modules, users
+        from . import devices, store
         from .presence import presence
 
+        core_devices.unregister(devices.PART)
+        modules.withdraw("gear.intercom")
         for lst, fn in ((users.signed_out_hooks, presence.user_signed_out), (store.member_hooks,
                                                                            presence.member_changed),
                         (store.config_hooks, presence.config_changed)):

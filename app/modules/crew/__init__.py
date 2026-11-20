@@ -31,6 +31,7 @@ class Crew(Module):
         summary="An installable page for the crew, signed in with a Relay account, that shows the plan and hosts "
                 "the other crew features. Served over HTTPS on this network only.",
         settings_key="crew",
+        section="Crew",
         guide="https://github.com/justin-small/relay#crew-app",
         uses=("planning_center", "unifi"),
         traffic=(Traffic("crew.push", "Crew notifications (web push, over the internet)"),),
@@ -38,9 +39,10 @@ class Crew(Module):
     defaults = {"name": DEFAULT_NAME, "show_plan": True, "geofence": None, "embed_hosts": None,
                 "join_port": JOIN_PORT}
     admin_pages = (AdminPage(
-        id="crew", title="Crew app", template="admin.html", group="Settings",
+        id="crew", title="Crew app", template="admin.html",
         icon='<circle cx="6" cy="5" r="2.5"/><circle cx="11.5" cy="6" r="2"/><path d="M1.5 13c0-2.5 2-4 4.5-4s4.5 1.5 4.5 4M10 9.2c2.5-.3 4.5.9 4.5 3.8"/>'),)
     admin_scripts = ("crewadmin.js",)
+    admin_styles = ("crewadmin.css",)
     route_prefixes = ("/api/admin/crew", "/crew", "/crew-join")
     listeners = (Listener(name="join", label="the crew join page", port_setting="join_port", default_port=JOIN_PORT,
                           prefixes=("/crew-join",), traffic="crew"),)  # phones join on the crew network
@@ -50,7 +52,7 @@ class Crew(Module):
         Permission("crew.use", "Open the crew page", "Crew app", "member"),
         Permission("crew.view", "See how the crew page is set up", "Crew app", "viewer"),
         Permission("crew.manage", "Change the crew page's name and what it shows", "Crew app", "admin"),
-        Permission("crew.page", "Page the crew and see who has read it", "Crew app", "operator"),
+        Permission("crew.page", "Notify the crew and see who has read it", "Crew app", "operator"),
         Permission("crew.chat", "Use the crew team chat", "Crew app", "member"),
         Permission("crew.checkin", "Check in at the church from the crew page", "Crew app", "member"),
         Permission("crew.checklist", "Tick your position's checklists on the crew page", "Crew app", "member"),
@@ -95,9 +97,9 @@ class Crew(Module):
         self._task: asyncio.Task | None = None
 
     async def start(self) -> None:
-        from . import paging
+        from . import notifications
 
-        paging.pending = True      # a page sent before a restart may still be buzzing
+        notifications.pending = True      # a notification sent before a restart may still be buzzing
         self._task = asyncio.create_task(self._pager(), name="crew-pager")
 
     async def stop(self) -> None:
@@ -112,12 +114,12 @@ class Crew(Module):
 
     async def _pager(self) -> None:
         """Fire due pushes once a second. Evaluated here, on the Relay host, never by a phone."""
-        from . import calltimes, paging
+        from . import calltimes, notifications
 
         beat = 0
         while True:
             try:
-                await asyncio.to_thread(paging.tick)
+                await asyncio.to_thread(notifications.tick)
                 if beat % 5 == 0:         # call times have a minute's grace, so every five seconds is plenty
                     await asyncio.to_thread(calltimes.run)
                 if beat % 15 == 0:        # UniFi reads the controller every 30 seconds by default
@@ -125,7 +127,7 @@ class Crew(Module):
             except asyncio.CancelledError:
                 raise
             except Exception:
-                log.warning("crew: paging tick failed", exc_info=True)
+                log.warning("crew: notifications tick failed", exc_info=True)
             beat += 1
             await asyncio.sleep(1)
 
@@ -135,13 +137,12 @@ class Crew(Module):
         import time
 
         from ... import audit, users
-        from .. import modules as registry
+        from ... import modules
         from . import calltimes, checkin, devices
 
-        if not registry.running("unifi"):
+        service = modules.using("unifi.service")
+        if service is None:
             return
-        from ..unifi.service import service
-
         clients = service.presence.online()
         if not clients:
             return
@@ -153,18 +154,19 @@ class Crew(Module):
 
     def _scan(self) -> None:
         """Match accounts to the people on the followed plans (people.py). Blocking: run off the loop."""
-        from ..planning_center.pclive import follower
-        from . import people
+        from ... import directory, modules
+        from . import people, refs
 
-        found: dict[str, dict] = {}
-        for tr in follower.tracks.values():
-            for m in tr.team:
-                if m.get("person"):
-                    found[m["person"]] = {"id": m["person"], "name": m["name"]}
-        sig = repr(sorted((i, p["name"]) for i, p in found.items()))
-        if sig == self._seen:
+        # Planning Center's teams and positions: adopt saved names that now match one, and keep saved names current.
+        refs.refresh()
+        follower = modules.using("plan.follower")
+        if follower is not None:
+            people.record_positions(list(follower.tracks.values()))
+        found = directory.people(directory.PCO)         # the people on the followed plans; [] while Planning Center is off
+        sig = repr(sorted((p["id"], p["name"]) for p in found))
+        if not found or sig == self._seen:
             return
-        people.scan(list(found.values()))
+        people.scan(found)
         self._seen = sig
 
     def _team_changed(self) -> None:
@@ -181,25 +183,34 @@ class Crew(Module):
             pass
 
     def attach(self) -> None:
-        from ... import users
-        from ..planning_center.pclive import follower
+        from ... import devices as core_devices, modules, users
         from .chat import hub
 
-        if self._team_changed not in follower.listeners:
-            follower.listeners.append(self._team_changed)
+        from . import calltimes, devices, notifications
+
+        core_devices.register(devices.PART, "Wi-Fi check-in", "crew_devices", lambda _id: None, devices.describe_core)
+        core_devices.register(notifications.PART, "Crew notifications", "crew_push_subs", lambda _id: None, notifications.describe_core)
+        modules.listen("plan.changed", self._team_changed)
+        modules.provide("schedules.used.crew", calltimes.schedule_users)
+        # Another module (the audio mixers' watchdog, #150) notifies chosen accounts: (message, user ids) -> id.
+        modules.provide("crew.notify", lambda message, user_ids: notifications.create(message, None, list(user_ids)))
         if hub.signed_out not in users.signed_out_hooks:
             users.signed_out_hooks.append(hub.signed_out)
 
     def detach(self) -> None:
-        from ... import users
-        from ..planning_center.pclive import follower
+        from ... import devices as core_devices, modules, users
         from .chat import hub
 
+        from . import devices, notifications
+
+        core_devices.unregister(devices.PART)
+        core_devices.unregister(notifications.PART)
         if hub.signed_out in users.signed_out_hooks:
             users.signed_out_hooks.remove(hub.signed_out)
 
-        if self._team_changed in follower.listeners:
-            follower.listeners.remove(self._team_changed)
+        modules.unlisten("plan.changed", self._team_changed)
+        modules.withdraw("schedules.used.crew")
+        modules.withdraw("crew.notify")
         self._seen = ""
 
     def routers(self) -> list:

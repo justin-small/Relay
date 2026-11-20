@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="en"><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<meta name="theme-color" content="#000000">
+<meta name="theme-color" content="#0c0c0d">
 <meta name="robots" content="noindex">
 <title>Rundown</title>
 {% include "_brand_head.html" %}
@@ -14,38 +14,47 @@
       data-view="{{ rundown_view }}" data-layout="{{ rundown_layout }}" data-cards="{{ rundown_cards }}"
       data-team="{{ rundown_team }}" data-time="{{ rundown_time }}" data-type="{{ rundown_type }}">
 <div class="stage" id="stage">
-  <div class="bar" id="bar">
-    <div class="now"><span class="livetag" id="hLive" hidden>LIVE</span><span class="t" id="hTitle">Waiting for the plan</span><span class="key" id="hKey" hidden></span><span class="s" id="hLead"></span></div>
-    <div class="left" id="hLeftBox"><span class="lbl">Left</span><span class="big" id="hLeft">–</span></div>
-    <div><span class="lbl">Next</span><span class="nx" id="hNext">–</span></div>
-    <div><span class="lbl">Planned end</span><span class="big" id="hPlanned">–</span></div>
-    <div><span class="lbl">Projected</span><span class="big" id="hProj">–</span></div>
-    <div><span class="lbl">Running</span><span class="big" id="hOver">–</span></div>
-    <div><span class="lbl" id="hSvc">Service</span><span class="big" id="hClock">–</span></div>
-  </div>
-
   <div class="msg" id="msg" hidden></div>
 
   {% if rundown_view == 'full' %}
+  {# The order of service drawn to scale on the left: an item is as tall as its minutes, the plan lane beside it,
+     and a slanted line wherever the service has slipped. #}
   <div class="full" id="body">
-    <div class="panel"><div class="ph"><h2>Order of service</h2><span class="r">planned · actual / projected</span></div><div class="fit"><div class="rows" id="rows"></div></div></div>
-    <div class="mid">
-      <div class="panel"><div class="ph"><h2>On the platform</h2><span class="r" id="micsFor"></span></div><div class="fit"><div class="chs" id="mics"></div></div></div>
-      <div class="panel"><div class="ph"><h2 id="notesH">Notes</h2><span class="r" id="notesAt"></span></div><div class="fit"><div class="notes" id="notes"></div></div></div>
+    <div class="ruler" id="ruler"></div>
+    <div class="nowcol">
+      <div class="lbl"><span class="livetag" id="hLive" hidden>LIVE</span><span id="hSvc">Service</span> · <span id="hClock">–</span></div>
+      <h1 class="ttl" id="hTitle">Waiting for the plan</h1>
+      <div class="sub"><span class="key" id="hKey" hidden></span><span id="hLead"></span></div>
+      <div class="left" id="hLeft">–</div>
+      <div class="prog" id="hProg" hidden><i id="hBar"></i><em id="hFrom"></em><em id="hTo"></em></div>
+      <div class="slip" id="hSlip"></div>
+      <div class="then"><span class="lbl" id="hNextAt">Then</span><div class="nx" id="hNext">–</div></div>
+      <div class="lbl mh" id="micsFor">On mics</div>
+      <div class="fit"><div class="onmics" id="mics"></div></div>
     </div>
-    <div class="panel"><div class="ph"><h2>Scheduled</h2><span class="r" id="teamNote"></span></div><div class="fit"><div class="roster" id="roster"></div></div></div>
+    <div class="rcol">
+      <div class="block notesbox"><div class="lbl" id="notesH">Notes</div><div class="fit"><div class="notes" id="notes"></div></div></div>
+      <div class="block rosterbox"><div class="lbl" id="teamNote">Serving without a mic</div><div class="fit"><div class="roster" id="roster"></div></div></div>
+    </div>
   </div>
   {% elif rundown_view == 'side' %}
   <div class="side" id="body">
     <div class="caps"><iframe src="{{ rundown_captions }}" title="Captions"></iframe></div>
-    <div class="panel">
-      <div class="nowbox"><span class="lbl">Now</span><div class="tt"><span id="sTitle">–</span><span id="sLeft"></span></div><div class="m" id="sMeta"></div></div>
-      <div class="fit"><div class="rows" id="rail"></div></div>
-    </div>
+    <div class="ruler mini" id="ruler"></div>
   </div>
   {% else %}
-  <div class="board" id="board"></div>
+  <div class="mb" id="body">
+    <div class="mbhead">
+      <div class="mbnow"><div class="lbl"><span class="livetag" id="hLive" hidden>LIVE</span><span id="hSvc">Service</span> · <span id="hClock">–</span></div>
+        <h1 class="ttl" id="hTitle">Waiting for the plan</h1></div>
+      <div class="left" id="hLeft">–</div>
+      <div class="slip" id="hSlip"></div>
+    </div>
+    <div class="hour" id="hour"></div>
+    <div class="board" id="board"></div>
+  </div>
   {% endif %}
 </div>
+<script src="{{ static('relay-ui.js') }}"></script>
 <script src="{{ static('rundown.js') }}"></script>
 </body></html>

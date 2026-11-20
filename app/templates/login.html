@@ -27,7 +27,7 @@
   <input id="password" type="password" name="password" autocomplete="new-password" minlength="8" required>
   <label for="confirm">Confirm password</label>
   <input id="confirm" type="password" name="confirm" autocomplete="new-password" minlength="8" required>
-  <button type="submit">Create the Owner</button>
+  <button class="primary" type="submit">Create the Owner</button>
   {% endif %}
   {% if notice %}<div class="sub" role="status">{{ notice }}</div>{% endif %}
   {% if error %}<div class="err" role="alert">{{ error }}</div>{% endif %}
@@ -38,7 +38,7 @@
   <p class="sub">Import your settings from the old Docker install. Type the path of the old Relay folder (or the <code>docker-config</code> folder inside it). Nothing in it is changed.</p>
   <label for="folder">Old Relay folder</label>
   <input id="folder" type="text" name="folder" autocomplete="off" spellcheck="false" required>
-  <button type="submit">Import from a previous Relay</button>
+  <button class="primary" type="submit">Import from a previous Relay</button>
 </form>
 {% endif %}
 {% elif mode == 'pin' %}
@@ -52,7 +52,7 @@
   </select>
   <label for="pin">PIN</label>
   <input id="pin" type="password" name="pin" inputmode="numeric" pattern="[0-9]*" maxlength="8" autocomplete="off" autofocus required>
-  <button type="submit">Sign in</button>
+  <button class="primary" type="submit">Sign in</button>
   {% if error %}<div class="err" role="alert">{{ error }}</div>{% endif %}
   <a class="link" href="/admin?pw=1">Use my password instead</a>
 </form>
@@ -65,7 +65,7 @@
   <input id="username" type="text" name="username" value="{{ username }}" autocomplete="username" autocapitalize="none" spellcheck="false" {% if not username %}autofocus {% endif %}required>
   <label for="password">Password</label>
   <input id="password" type="password" name="password" autocomplete="current-password" {% if username %}autofocus {% endif %}required>
-  <button type="submit">Sign in</button>
+  <button class="primary" type="submit">Sign in</button>
   {% if error %}<div class="err" role="alert">{{ error }}</div>{% endif %}
   {% if pin_users %}<a class="link" href="/admin">Use a PIN instead</a>{% endif %}
 </form>

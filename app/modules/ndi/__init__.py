@@ -21,17 +21,22 @@ class Ndi(Module):
         summary="Finds NDI video sources on the network (cameras, converters, software) and shares one receiver per "
                 "source with everything in Relay that uses NDI.",
         settings_key="ndi",
+        section="Show",
         guide="/docs/ndi",
         version="1.0.0",
         traffic=(Traffic("ndi", "NDI discovery (multicast DNS) and video"),),
         uses=("blackmagic", "obs", "tally_arbiter"),     # their tally state gives the viewer its on-air border
     )
     defaults = {"servers": [], "mdns": True, "extra_ips": [], "groups": [], "interval": 15, "view_fps": 15,
-                "view_quality": 60, "view_width": 1280, "view_max": 4, "tally": {}}
+                "view_quality": 60, "view_width": 1280, "view_max": 4, "tally": {}, "multiviews": [],
+                "out_on": [], "out_size": "1280x720", "out_fps": 30, "router_outputs": [], "tests": [], "tests_on": [],
+                # Saved before core routes (#544); read once by router.migrate() and then empty. Kept here so config keeps them.
+                "routes": [], "salvos": []}  # allow-shared: migrated into core routes
     admin_pages = (AdminPage(
-        id="ndi", title="NDI", template="ndi.html", group="Output",
+        id="ndi", title="NDI", template="ndi.html",
         icon='<rect x="2" y="4" width="12" height="8" rx="1"/><path d="M5 7v2.5M5 7l2 2.5V7M10 7h1.5M10 9.5h1.5"/>'),)
-    admin_scripts = ("ndi.js",)
+    admin_scripts = ("ndi.js", "ndi-router.js", "ndi-analysis.js", "ndi-tests.js")
+    admin_styles = ("ndi.css",)
     route_prefixes = ("/api/admin/ndi", "/ndi")
     panel_prefixes = ("/ndi",)       # the viewer (#296) stays on the HTTPS operator port, behind ndi.view
     permissions = (
@@ -57,13 +62,21 @@ class Ndi(Module):
         from ... import modules as registry
         from .service import service
 
-        registry.ndi_hooks.update({"sources": service.hook_sources, "subscribe": service.hook_subscribe,
-                                   "register_output": service.hook_output})
+        registry.provide("ndi", {"sources": service.hook_sources, "subscribe": service.hook_subscribe,
+                                 "register_output": service.hook_output})
+        registry.provide("routes.ndi", service.router.api())
+        registry.provide("gear.ndi", {"list": service.gear_list})      # its sources and outputs (app/gearfeed.py)
+        try:
+            service.router.migrate()
+        except Exception:               # the database may not be up yet; start() tries again
+            pass
 
     def detach(self) -> None:
         from ... import modules as registry
 
-        registry.ndi_hooks.clear()
+        registry.withdraw("ndi")
+        registry.withdraw("routes.ndi")
+        registry.withdraw("gear.ndi")
 
     async def start(self) -> None:
         from .service import service

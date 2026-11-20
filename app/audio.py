@@ -157,7 +157,22 @@ def list_input_devices(refresh: bool = False) -> list[dict]:
     if _device_cache is not None and not refresh:
         return _device_cache
     _device_cache = _probe_input_devices(reinit=not capture_is_live())
+    _report_input_channels(_device_cache)
     return _device_cache
+
+
+MAX_CHANNELS_PER_DEVICE = 32
+
+
+def _report_input_channels(devices: list[dict]) -> None:
+    """Each input channel of each device PortAudio lists is an audio source channel in core (#542). A device that is gone
+    turns missing there, with any name an operator gave it."""
+    from . import channels
+
+    found = [{"key": f"{d['label']}#{n}", "kind": "audio", "direction": "source", "number": n,
+              "gear_name": f"{d['name']} {n}"}
+             for d in devices for n in range(1, min(d["channels"], MAX_CHANNELS_PER_DEVICE) + 1)]
+    channels.report("portaudio", found)
 
 
 def _default_device(devices: list[dict]) -> dict:
@@ -184,6 +199,23 @@ def is_legacy_pulse(selector) -> bool:
     two ALSA devices that stood for the server's default input)."""
     sel = str(selector or "").strip().lower()
     return sel.startswith("pulseaudio:") or sel in _LEGACY_PULSE_NAMES
+
+
+def label_inputs(devices: list[dict]) -> list[dict]:
+    """The devices, each with `kind` ("Dante", "AES67" or "") and `feeds` (for each channel, what feeds it, as text, or
+    ""), from whatever module provides "audio.input_labels" (the Dante module, #264). Core names no module: with none
+    on, every device has an empty kind and no feeds. The saved `label` is never changed."""
+    from .modules import using
+
+    fn = using("audio.input_labels")
+    notes: dict = {}
+    if fn is not None:
+        try:
+            notes = fn(devices) or {}
+        except Exception:  # noqa: BLE001
+            log.warning("input labels failed", exc_info=True)
+    return [{**d, "kind": (notes.get(d["index"]) or {}).get("kind", ""),
+             "feeds": (notes.get(d["index"]) or {}).get("feeds", [])} for d in devices]
 
 
 def selection_notice(selector, refresh: bool = False) -> str | None:

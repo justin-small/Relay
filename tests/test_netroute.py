@@ -13,8 +13,13 @@ TMP = tempfile.mkdtemp()
 os.environ["RELAY_CONFIG"] = os.path.join(TMP, "config.json")
 os.environ["RELAY_CERT_DIR"] = os.path.join(TMP, "certs")
 os.environ["RELAY_ANNOUNCE"] = "0"
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import _db  # noqa: E402
 
-from app import config, netinfo, netroute  # noqa: E402
+_db.start()
+_db.reset()
+
+from app import config, gear, netinfo, netroute, ports  # noqa: E402
 from app.modules import Health, Manifest, Module, Traffic, modules, validate  # noqa: E402
 from app.netinfo import Port  # noqa: E402
 
@@ -57,7 +62,7 @@ config.ensure_file()
 
 with section("an install with no network config behaves as before"):
     cfg = config.load()
-    eq("default network section", cfg["network"], {"routes": {}, "policy": {}, "known_ports": {}})
+    eq("default network section", cfg["network"], {"routes": {}, "policy": {}})
     use_ports(WIFI, USB)
     with lan("192.168.1.20", "10.0.0.5"):
         r = netroute.resolve("crew")
@@ -88,15 +93,25 @@ with section("classes: core's and each module's"):
     probs = [p for p in validate(Bad(), "badnet") if "traffic" in p]
     eq("ids must belong to the module, need a label, appear once, be Traffic", len(probs), 4)
 
-with section("remembering ports"):
-    eq("new ports are written once", netroute.remember([WIFI, USB]), True)
-    eq("seen again: nothing written", netroute.remember([WIFI, USB]), False)
-    known = config.get()["network"]["known_ports"]
-    eq("names kept", known[USB.id], {"name": "en5", "friendly_name": "USB 10/100/1000 LAN", "kind": "ethernet"})
-    renamed = Port(**{**USB.__dict__, "name": "en7"})
-    eq("a rename is written", netroute.remember([renamed]), True)
-    eq("still one entry per MAC", config.get()["network"]["known_ports"][USB.id]["name"], "en7")
-    netroute.remember([DANTE_NET])
+with section("this computer's ports are core ports (#540)"):
+    rows = netroute.remember([WIFI, USB])
+    me = gear.by_key("relay:this")
+    eq("on this computer's gear", (me["kind"], [r["gear_id"] for r in rows]), ("relay", [me["id"], me["id"]]))
+    usb = ports.by_key(me["id"], USB.id)
+    eq("named, typed and live", (usb["gear_name"], usb["kind"], usb["link_up"], usb["missing"]), ("USB 10/100/1000 LAN", "eth", True, False))
+    check("its ref reads back", ports.by_ref(usb["ref"])["key"] == USB.id)
+    renamed = Port(**{**USB.__dict__, "friendly_name": "USB 2.5G LAN"})
+    netroute.remember([WIFI, renamed])
+    eq("a rename updates the row, still one row per adapter",
+       ([r["gear_name"] for r in ports.of_gear(me["id"]) if r["key"] == USB.id], len(ports.of_gear(me["id"]))),
+       (["USB 2.5G LAN"], 2))
+    netroute.remember([WIFI])
+    eq("unplugged: kept, marked missing, link unknown", (ports.by_key(me["id"], USB.id)["missing"],
+       ports.by_key(me["id"], USB.id)["link_up"]), (True, None))
+    vpn = port("utun3", "100.64.0.2/32", "VPN", mac="99", virtual=True, kind="other")
+    netroute.remember([WIFI, USB, vpn])
+    eq("a virtual port is not kept until it is routed", ports.by_key(me["id"], vpn.id), None)
+    netroute.remember([WIFI, USB, DANTE_NET])
 
 with section("a routed class resolves to its port"):
     config.save({"network": {"routes": {"netfake.audio": DANTE_NET.id, "crew": USB.id}}})
@@ -148,32 +163,90 @@ with section("core puts a strict class's missing port on the module's health"):
         use_ports(WIFI, USB, DANTE_NET)
         eq("port back: the module's own health", modules.health(FAKE), Health("ok", "Connected."))
 
-with section("clean(): round trip, stale ports and clashes"):
-    raw = {"routes": {"netfake.audio": DANTE_NET.id, "crew": USB.id}, "policy": {"netfake.audio": "fallback"},
-           "known_ports": config.get()["network"]["known_ports"]}
+with section("clean(): round trip, old routes and clashes"):
+    raw = {"routes": {"netfake.audio": {"port": "port:relay:3", "key": DANTE_NET.id},
+                      "crew": {"port": "port:relay:2", "key": USB.id}}, "policy": {"netfake.audio": "fallback"}}
     eq("a clean config round-trips unchanged", netroute.clean(json.loads(json.dumps(raw))), raw)
     eq("cleaning twice changes nothing", netroute.clean(netroute.clean(raw)), raw)
-    got = netroute.clean({"routes": {"netfake": "mac:ff:ff:ff:ff:ff:ff", "nosuch": USB.id, "Bad Id!": USB.id,
-                                     "crew": 7}, "policy": {"crew": "sometimes", "nosuch": "strict"},
-                          "known_ports": raw["known_ports"]})
-    eq("never-seen port, unknown class, bad id and non-string port all dropped", got["routes"], {})
+    eq("a route saved before #540 (the adapter id alone) keeps resolving by it",
+       netroute.clean({"routes": {"crew": USB.id}})["routes"], {"crew": {"port": "", "key": USB.id}})
+    got = netroute.clean({"routes": {"netfake": "no-prefix", "nosuch": USB.id, "Bad Id!": USB.id, "crew": 7},
+                          "policy": {"crew": "sometimes", "nosuch": "strict"}})
+    eq("an unusable port, unknown class, bad id and non-string port all dropped", got["routes"], {})
     eq("bad policies dropped", got["policy"], {})
     notes = netroute.notices()
-    check("a notice for the never-seen port, not an error",
-          any("Fake control was set to a network port Relay has never seen" in n for n in notes), notes)
+    check("a notice for the unusable port, not an error",
+          any("Fake control was set to a network port Relay cannot use" in n for n in notes), notes)
     check("a notice for the unknown class", any("'nosuch'" in n for n in notes), notes)
-    clash = netroute.clean({"routes": {"netfake.excl": USB.id, "netfake2": USB.id, "netfake": USB.id},
-                            "known_ports": raw["known_ports"]})
-    eq("two exclusive classes on one port: the second refused, a shared one kept", clash["routes"],
-       {"netfake.excl": USB.id, "netfake": USB.id})
+    clash = netroute.clean({"routes": {"netfake.excl": USB.id, "netfake2": USB.id, "netfake": USB.id}})
+    eq("two exclusive classes on one port: the second refused, a shared one kept", sorted(clash["routes"]),
+       ["netfake", "netfake.excl"])
     check("the clash is explained", any("needs a network port of its own" in n for n in netroute.notices()))
     eq("route_problems refuses the same for a page that saves routes",
-       list(netroute.route_problems({"netfake.excl": USB.id, "netfake2": USB.id}, raw["known_ports"])), ["netfake2"])
-    eq("junk known_ports are dropped", netroute.clean({"known_ports": {"no-prefix": {}, "mac:ok": "x"}})["known_ports"],
+       list(netroute.route_problems({"netfake.excl": {"port": "", "key": USB.id}, "netfake2": USB.id})), ["netfake2"])
+    eq("known_ports from before #540 are kept only until startup moves them",
+       netroute.clean({"known_ports": {"no-prefix": {}, "mac:ok": "x"}})["known_ports"],
        {"mac:ok": {"name": "", "friendly_name": "", "kind": ""}})
-    eq("not a dict at all", netroute.clean("nope"), {"routes": {}, "policy": {}, "known_ports": {}})
+    eq("not a dict at all", netroute.clean("nope"), {"routes": {}, "policy": {}})
+    config.save({"network": {"routes": {"netfake.audio": DANTE_NET.id, "crew": USB.id}}}, replace=("network",))
     stored = json.loads(Path(os.environ["RELAY_CONFIG"]).read_text())["network"]
-    eq("config.json keeps what clean() keeps", stored["routes"], {"netfake.audio": DANTE_NET.id, "crew": USB.id})
+    eq("config.json keeps what clean() keeps", stored["routes"],
+       {"netfake.audio": {"port": "", "key": DANTE_NET.id}, "crew": {"port": "", "key": USB.id}})
+
+with section("startup moves routes and known ports from before #540 onto core ports"):
+    OLD = port("en9", (), "Old dock", mac="09")
+    config.save({"network": {"routes": {"netfake.audio": DANTE_NET.id, "crew": USB.id},
+                             "known_ports": {OLD.id: {"name": "en9", "friendly_name": "Old dock", "kind": "ethernet"}}}},
+                replace=("network",))
+    use_ports(WIFI, USB, DANTE_NET)
+    with mock.patch.object(netinfo, "interfaces", return_value=[WIFI, USB, DANTE_NET]):
+        netroute.startup()
+    me = gear.by_key("relay:this")
+    net = config.get()["network"]
+    eq("known_ports are gone from config", "known_ports" in net, False)
+    eq("each route names its core port and keeps its adapter id", net["routes"]["crew"],
+       {"port": ports.by_key(me["id"], USB.id)["ref"], "key": USB.id})
+    old = ports.by_key(me["id"], OLD.id)
+    eq("an adapter seen before but not connected is a missing port, with its name",
+       (old["gear_name"], old["missing"]), ("Old dock", True))
+    eq("running it again writes nothing", netroute.migrate(), False)
+    with lan("192.168.1.20"):
+        eq("a migrated route resolves the same, with its ref", (netroute.resolve("crew").address,
+           netroute.resolve("crew").port_ref), ("10.0.0.5", net["routes"]["crew"]["port"]))
+
+with section("routes are chosen by port ref, and a gone port can be forgotten"):
+    me = gear.by_key("relay:this")
+    usb_ref = ports.by_key(me["id"], USB.id)["ref"]
+    with lan("192.168.1.20", "10.0.0.5"):
+        r = netroute.change("netfake", usb_ref, None, None)
+        eq("routed by ref", (r.port_id, r.port_ref, r.address), (USB.id, usb_ref, "10.0.0.5"))
+        r = netroute.change("netfake", WIFI.id, None, None)
+        eq("a connected adapter's id is accepted too, and saved as its port",
+           config.get()["network"]["routes"]["netfake"], {"port": ports.by_key(me["id"], WIFI.id)["ref"], "key": WIFI.id})
+        other = gear.adopt(["mac:aa:bb:cc:dd:ee:01"], name="Switch")
+        sw = ports.adopt(other["id"], "3", kind="eth")
+        try:
+            netroute.change("netfake", sw["ref"], None, None)
+            refused = ""
+        except netroute.RouteRefused as exc:
+            refused = exc.message
+        eq("a port on other gear is refused", refused, "Choose one of the network ports listed on this page.")
+        view = netroute.overview()
+        rows = {p["key"]: p for p in view["ports"]}
+        eq("the page lists ports by ref, with the adapter id beside it", (rows[USB.id]["id"], rows[USB.id]["present"]),
+           (usb_ref, True))
+        eq("a class names its port by ref", {c["id"]: c["port_id"] for c in view["classes"]}["netfake"],
+           ports.by_key(me["id"], WIFI.id)["ref"])
+        old = ports.by_key(me["id"], "mac:aa:00:00:00:00:09")
+        netroute.forget(old["ref"])
+        eq("a missing port with no route is forgotten", ports.by_key(me["id"], old["key"]), None)
+        try:
+            netroute.forget(usb_ref)
+            refused = ""
+        except netroute.RouteRefused as exc:
+            refused = exc.message
+        eq("a connected one is not", refused, "That network port is connected; only one that is gone can be forgotten.")
+    config.save({"network": {"routes": {"netfake.audio": DANTE_NET.id}, "policy": {}}}, replace=("network",))
 
 with section("a running module hears its port go away and come back"):
     config.save({"network": {"policy": {"netfake.audio": "strict"}}})
@@ -185,18 +258,15 @@ with section("a running module hears its port go away and come back"):
         modules._running.add("netfake")
         eq("just started: recorded, not told", netroute.refresh(), [])
         eq("nothing changed: not told", netroute.refresh(), [])
-        with mock.patch.object(netroute, "remember", return_value=False):
-            netroute.on_network_change([WIFI, USB])           # the Dante adapter unplugged
+        netroute.on_network_change([WIFI, USB])               # the Dante adapter unplugged
         eq("told once", len(FAKE.calls), 1)
         gone = FAKE.calls[-1]["netfake.audio"]
         eq("with every class of the module, the lost one unavailable", (sorted(FAKE.calls[-1]), gone.available),
            (["netfake", "netfake.audio", "netfake.excl"], False))
-        with mock.patch.object(netroute, "remember", return_value=False):
-            netroute.on_network_change([WIFI, USB, DANTE_NET])
+        netroute.on_network_change([WIFI, USB, DANTE_NET])
         eq("told it came back", (len(FAKE.calls), FAKE.calls[-1]["netfake.audio"].available), (2, True))
         moved = Port(**{**DANTE_NET.__dict__, "ipv4": ("169.254.99.1/16",)})
-        with mock.patch.object(netroute, "remember", return_value=False):
-            netroute.on_network_change([WIFI, USB, moved])
+        netroute.on_network_change([WIFI, USB, moved])
         eq("told the address changed", FAKE.calls[-1]["netfake.audio"].address, "169.254.99.1")
         config.save({"network": {"routes": {"netfake": USB.id}}})
         netroute.refresh()

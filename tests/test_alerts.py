@@ -530,6 +530,28 @@ n = len(alerthistory.search(limit=500)["entries"])
 eq("history older than the keep time is trimmed", (alerthistory.prune(), len(alerthistory.search(limit=500)["entries"])), (1, n - 1))
 alerts.on_change = None
 
+print("test a screen from the Alerts page")
+before = len(alerthistory.search(limit=500)["entries"])
+tq = alerts.subscribe_screen("Lobby")
+drain(tq)
+r = admin.post("/api/admin/alerts/test", json={"screen": "lobby"})
+eq("a test reaches an open screen", r.json(), {"ok": True, "delivered": 1})
+wire = [m for m in drain(tq) if m.get("type") == "message"]
+eq("it is a steady info message, nothing to tap", [(m["text"], m["level"], m["hz"], m["banner"]) for m in wire],
+   [("Test from Relay", "info", 0, False)])
+eq("a second test replaces the first", (admin.post("/api/admin/alerts/test", json={"screen": "Lobby"}).json()["delivered"],
+                                        [m["type"] for m in drain(tq)]), (1, ["message_end", "message"]))
+eq("a screen that is not open takes nothing",
+   admin.post("/api/admin/alerts/test", json={"screen": "Nowhere"}).json(), {"ok": True, "delivered": 0})
+eq("a panel with no stream takes nothing", admin.post("/api/admin/alerts/test", json={"panel": pid(99)}).json()["delivered"], 0)
+r = admin.post("/api/admin/alerts/test", json={"panel": "nope"})
+eq("no panel or screen is refused with a fixed sentence", (r.status_code, r.json()["detail"]),
+   (400, "say which panel or screen to test"))
+eq("the viewer port cannot test", viewer.post("/api/admin/alerts/test", json={"screen": "Lobby"}).status_code, 404)
+eq("a test is not in the history", len(alerthistory.search(limit=500)["entries"]), before)
+alerts.clear_messages()
+alerts.unsubscribe_screen("Lobby", tq)
+
 print("events out (#219)")
 got = []
 alerts.listeners.append(got.append)

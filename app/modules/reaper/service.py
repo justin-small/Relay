@@ -12,7 +12,7 @@ Each computer is a `client.Link`. Once a second the service:
   should be running but is not are errors. A problem raises the operator's chosen alert button once.
 
 Markers (each inserted at REAPER's play cursor, named): a new ProPresenter presentation (core's
-`presentation_listeners`), a stage message, a slide tag (`[relay:reaper=marker=Sermon]`), a board button and the
+`listen("presentation.up")`), a stage message, a slide tag (`[relay:reaper=marker=Sermon]`), a board button and the
 admin page. Everything that starts, stops or marks from outside the admin page is a system audit entry naming where it
 came from.
 """
@@ -27,6 +27,7 @@ import uuid
 from typing import Any
 
 from ... import audit, config, netroute, netsock, schedules
+from ...text import same_name
 from ...alerts import alerts
 from ...streamstatus import streams
 from .client import DEFAULT_LISTEN, DEFAULT_PORT, DEFAULT_TRACKS, QUIET_S, TRACKS, TRAFFIC, Link
@@ -120,10 +121,10 @@ def stream_on_air() -> bool:
 
 
 def schedule_open() -> bool:
-    from ...scheduler import Scheduler
+    from ...scheduler import Scheduler, engine_schedules, plan_source
 
     try:
-        return schedules.current_window(config.get().get("schedules") or [], Scheduler.now()) is not None
+        return schedules.current_window(engine_schedules(), Scheduler.now(), config.timezone(), plan_source()) is not None
     except Exception:
         return False
 
@@ -285,7 +286,7 @@ class Machine:
         if cfg["check_armed"] and not armed:
             out.append(("warn", "No track is armed to record."))
         for name in cfg["expect"]:
-            hit = [t for t in real if t.name.lower() == name.lower()]
+            hit = [t for t in real if same_name(t.name, name)]
             if not hit:
                 out.append(("warn", f"There is no track called {name}."))
             elif not any(t.armed for t in hit):
@@ -500,9 +501,8 @@ service = Service()
 def attach_hooks() -> None:
     from ... import modules as registry
 
-    registry.recording_hook = service.control
-    if service.presentation not in registry.presentation_listeners:
-        registry.presentation_listeners.append(service.presentation)
+    registry.provide("reaper.recording", service.control)
+    registry.listen("presentation.up", service.presentation)
     if service.alert_event not in alerts.listeners:
         alerts.listeners.append(service.alert_event)
 
@@ -510,8 +510,7 @@ def attach_hooks() -> None:
 def detach_hooks() -> None:
     from ... import modules as registry
 
-    registry.recording_hook = None
-    with contextlib.suppress(ValueError):
-        registry.presentation_listeners.remove(service.presentation)
+    registry.withdraw("reaper.recording")
+    registry.unlisten("presentation.up", service.presentation)
     with contextlib.suppress(ValueError):
         alerts.listeners.remove(service.alert_event)

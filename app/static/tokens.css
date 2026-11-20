@@ -1,9 +1,21 @@
 /* Design tokens and the four presets (#434): html[data-preset][data-theme]. Shared by the operator panel
    (admin.css), the sign-in and operator-tool pages (standalone.css) and, as variables only, any page that
    wants a preset. A module's page picks them up for free. */
-:root{--brand:#4ade80;--rail:48px;--sbw:272px;--font:ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;--shadow:none;--hover-fg:var(--fg)}
-[data-theme=dark]{--ok:#4ade80;--warn:#fbbf24;--err:#f87171;--info:#60a5fa;--err-fg:#fff;--faint:#71717a;color-scheme:dark}
-[data-theme=light]{--ok:#15803d;--warn:#b45309;--err:#b91c1c;--info:#1d4ed8;--err-fg:#fff;--faint:#71717a;color-scheme:light}
+:root{--brand:#4ade80;--rail:48px;--sbw:272px;--shadow:none;--hover-fg:var(--fg);
+  /* The one sans and one mono stack (#463): every page and module uses these, never a stack of its own. */
+  --font:ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;--mono:ui-monospace,SFMono-Regular,Menlo,monospace;
+  /* Type scale. Body text uses xs-base only; lg and up are headings and figures. */
+  --fs-xs:11px;--fs-sm:12px;--fs-md:13px;--fs-base:14px;--fs-lg:15px;--fs-xl:18px;--fs-2xl:22px;--fs-3xl:24px;
+  /* Control heights: regular, small, and the square icon button. */
+  --ctl-h:34px;--ctl-h-sm:28px;--ctl-h-icon:32px;
+  /* Spacing scale. */
+  --sp-1:4px;--sp-2:8px;--sp-3:12px;--sp-4:16px;--sp-5:24px;
+  /* Radii follow the preset's --r (Brutalist's 0 makes every one square). */
+  --r-sm:max(0px,calc(var(--r) - 6px));--r-ctl:max(0px,calc(var(--r) - 2px));--r-lg:calc(var(--r) + 4px);--r-pill:999px;
+  --focus-ring:0 0 0 3px color-mix(in srgb,var(--primary) 50%,transparent);
+  --knob:#fff;--qr-bg:#fff;--video-bg:#000;--scrim:#0008;--shadow-pop:0 10px 30px #0005;--shadow-tab:0 1px 2px #0005}
+[data-theme=dark]{--ok:#4ade80;--warn:#fbbf24;--err:#f87171;--info:#60a5fa;--err-fg:#fff;--faint:#71717a;--danger:#991b1b;--danger-hover:#b91c1c;--danger-fg:#fff;color-scheme:dark}
+[data-theme=light]{--ok:#15803d;--warn:#b45309;--err:#b91c1c;--info:#1d4ed8;--err-fg:#fff;--faint:#71717a;--danger:#b91c1c;--danger-hover:#991b1b;--danger-fg:#fff;color-scheme:light}
 [data-preset=relay][data-theme=dark]{--bg:#09090b;--fg:#fafafa;--muted:#a1a1aa;--card:#111113;--border:#27272a;--primary:#4ade80;--primary-fg:#052e16;--sb:#0c0c0e;--hover:color-mix(in srgb,#4ade80 14%,transparent);--hover-fg:#4ade80;--r:10px}
 [data-preset=relay][data-theme=light]{--bg:#f4f4f5;--fg:#18181b;--muted:#63636b;--card:#fff;--border:#e4e4e7;--primary:#15803d;--primary-fg:#fff;--sb:#fafafa;--hover:color-mix(in srgb,#15803d 12%,transparent);--hover-fg:#14632f;--r:10px}
 [data-preset=softpop][data-theme=light]{--bg:oklch(.9789 .0082 121.6);--fg:#000;--muted:oklch(.3211 0 0);--card:#fff;--border:#000;--primary:oklch(.5106 .2301 276.97);--primary-fg:#fff;--sb:oklch(.9789 .0082 121.6);--hover:oklch(.7686 .1647 70.08);--hover-fg:#000;--r:16px;--shadow:2px 2px 0 0 #000}

@@ -14,14 +14,16 @@ for that id on the LAN and follows it to its new address (a DHCP lease that chan
 from __future__ import annotations
 
 import asyncio
+import ipaddress
 import logging
 import re
 import secrets
 import time
 
-from ... import config, tally
+from ... import cables as core_cables, channels, config, db, gear, gearfeed, ports, routing, screens, tally
+from ...text import same_name
 from . import atem_protocol as p
-from . import hyperdeck, videohub
+from . import drawings, hyperdeck, videohub
 from .atem_client import AtemClient
 from .hyperdeck import HyperDeckClient
 from .videohub import VideohubClient
@@ -42,6 +44,16 @@ REFIND_EVERY_S = 60.0     # and not more often than this per switcher
 _HOST_RE = re.compile(r"[A-Za-z0-9]([A-Za-z0-9.\-]{0,251}[A-Za-z0-9])?")
 _ID_RE = re.compile(r"[a-z0-9]{1,16}")
 _UID_RE = re.compile(r"[A-Za-z0-9:._\-]{1,64}")
+# The rack redesign: which drawing a device gets (empty: picked from its product name, drawings.py), where it sits, and the
+# cables between connectors that Relay cannot see. A connector is a core port (app/ports.py, #540) on the device's gear,
+# keyed by its drawing id ("in1"), and its note is the port's note; notes saved in config before #540 move there. A cable is
+# a core cable (app/cables.py, #541) between two ports, whoever recorded it; cables saved in config before #541 move there.
+DRAWINGS = drawings.DRAWINGS
+PLACES = ("rack", "shelf")
+PORT_RE = re.compile(r"[a-z0-9]{1,12}")
+NOTE_MAX = ports.NOTE_MAX
+MAX_NOTES = 96
+MAX_CABLES = 200
 
 
 def _str(value, limit: int) -> str:
@@ -95,6 +107,43 @@ def clean_presets(raw) -> list[dict]:
     return out
 
 
+def clean_notes(raw) -> dict[str, str]:
+    """The operator's note on each connector of one device, by the drawing's connector id (in config only before #540)."""
+    out: dict[str, str] = {}
+    if isinstance(raw, dict):
+        for k, v in raw.items():
+            text = _str(v, NOTE_MAX)
+            if isinstance(k, str) and PORT_RE.fullmatch(k) and text and len(out) < MAX_NOTES:
+                out[k] = text
+    return out
+
+
+def _end(raw) -> list[str] | None:
+    if (isinstance(raw, list) and len(raw) == 2 and all(isinstance(x, str) for x in raw)
+            and _ID_RE.fullmatch(raw[0]) and PORT_RE.fullmatch(raw[1])):
+        return [raw[0], raw[1]]
+    return None
+
+
+def clean_cables(raw, ids: set[str]) -> list[dict]:
+    """Cables between two connectors, each end [device id, connector id]. A cable to a device no longer in the list
+    goes, and so does a second cable on the same pair of connectors."""
+    out: list[dict] = []
+    seen: set[tuple] = set()
+    for item in raw if isinstance(raw, list) else []:
+        if not isinstance(item, dict) or not isinstance(item.get("id"), str) or not _ID_RE.fullmatch(item["id"]):
+            continue
+        a, b = _end(item.get("a")), _end(item.get("b"))
+        if not a or not b or a == b or a[0] not in ids or b[0] not in ids:
+            continue
+        pair = tuple(sorted((tuple(a), tuple(b))))
+        if pair in seen or len(out) >= MAX_CABLES:
+            continue
+        seen.add(pair)
+        out.append({"id": item["id"], "a": a, "b": b})
+    return out
+
+
 def clean_device(raw, fallback_id: str = "") -> dict | None:
     """One device, or None when it has no usable id."""
     if not isinstance(raw, dict):
@@ -107,7 +156,10 @@ def clean_device(raw, fallback_id: str = "") -> dict | None:
     out = {"id": did, "kind": kind, "name": _str(raw.get("name"), NAME_MAX) or DEFAULT_NAME[kind],
            "host": clean_host(raw.get("host")), "port": clean_port(raw.get("port"), kind),
            "enabled": raw.get("enabled") is not False, "uid": uid if _UID_RE.fullmatch(uid) else "",
-           "model": _str(raw.get("model"), 60)}
+           "model": _str(raw.get("model"), 60),
+           "drawing": raw.get("drawing") if raw.get("drawing") in DRAWINGS else "",
+           "place": raw.get("place") if raw.get("place") in PLACES else "",
+           "notes": clean_notes(raw.get("notes"))}
     if kind == "atem":
         out["tally"] = raw.get("tally") is not False
         out["tally_offset"] = clean_offset(raw.get("tally_offset"))
@@ -129,15 +181,225 @@ def clean_settings(raw) -> dict:
     elif clean_host(raw.get("host")):
         # Before #386: one switcher, {"host", "port"}. It becomes the first in the list.
         devices.append(clean_device({"host": raw.get("host"), "port": raw.get("port"), "name": "Switcher"}, "main"))
-    return {"devices": devices}
+    return {"devices": devices, "cables": clean_cables(raw.get("cables"), {d["id"] for d in devices})}
+
+
+# What Relay shows for a device (its name, model, drawing and where it sits) is core gear (app/gear.py, #547) under the key
+# "blackmagic:<id>"; the module keeps what it needs to reach the device and what it adds (its address, kind, switch,
+# tally, presets, connector notes). A device saved before #547 has its name, model, drawing and place in config: they move
+# onto gear the first time the list is read. `place` is "rack" for gear in a rack, "shelf" for gear in a room outside any
+# rack and "" for neither. Where the order of the devices is a rack's top-to-bottom order, it is the gear's position.
+GEAR_KEY = "blackmagic:"
+IDENTITY = ("name", "model", "drawing", "place")
+ROOM, DEFAULT_RACK = "Equipment room", "Rack 1"
+
+
+def _net_keys(dev: dict) -> list[str]:
+    host = clean_host(dev.get("host")).lower().rstrip(".")
+    if not host:
+        return []
+    try:
+        return ["ip:" + str(ipaddress.ip_address(host))]
+    except ValueError:
+        return ["host:" + (host[:-6] if host.endswith(".local") else host)]
+
+
+def drawn_place(g: dict) -> str:
+    return "rack" if g["rack_id"] else ("shelf" if g["place_id"] else "")
+
+
+def _set_place(gid: int, place: str) -> None:
+    if place == "rack":
+        if not gear.get(gid)["rack_id"]:
+            rack = gear.rack_in_place(DEFAULT_RACK, ROOM)
+            gear.set_rack(gid, rack["id"], gear.next_position(rack["id"]))
+    else:
+        gear.set_rack(gid, None)
+        gear.set_place(gid, screens.place_add(ROOM)["id"] if place == "shelf" else None)
+
+
+def _write_gear(dev: dict, position: int | None = None) -> dict:
+    """The device's gear, made if it is new, with what the module knows about it written in."""
+    fresh = gear.by_key(GEAR_KEY + dev["id"]) is None
+    keys = [GEAR_KEY + dev["id"]]
+    for net in _net_keys(dev):                 # an address another Blackmagic device holds (one box, two services) stays apart
+        held = gear.by_key(net)
+        if held is None or not any(k.startswith(GEAR_KEY) and k != keys[0] for k in gear.keys(held["id"])):
+            keys.append(net)
+    g = gear.adopt(keys, name=dev["name"], kind=dev["kind"], heard=False)
+    if fresh and position is None and not g["rack_id"] and g["position"] == 0:
+        position = gear.next_position(None)    # a new device goes at the end of the list
+    if not g["named"] or not same_name(g["name"], dev["name"]):
+        gear.rename(g["id"], dev["name"])
+    gear.set_details(g["id"], kind=dev["kind"], model=dev["model"] or None, drawing=dev["drawing"])
+    if dev["place"] != drawn_place(g):
+        _set_place(g["id"], dev["place"])
+    if position is not None:
+        gear.set_position(g["id"], position)
+    return gear.get(g["id"])  # type: ignore[return-value]
+
+
+def _overlay(dev: dict, g: dict) -> dict:
+    return {**dev, "name": g["name"], "model": g["model"], "drawing": g["drawing"], "place": drawn_place(g),
+            "position": g["position"], "notes": ports.notes(g["id"]), "gear_id": g["id"]}
+
+
+def _stored_form(dev: dict) -> dict:
+    return {k: v for k, v in dev.items() if k not in IDENTITY and k not in ("position", "notes", "gear_id")}
+
+
+def _move_notes(gid: int, notes: dict[str, str]) -> None:
+    """Connector notes saved in config before #540 become the notes of the device's ports."""
+    for key, text in notes.items():
+        row = ports.by_key(gid, key) or ports.adopt(gid, key, heard=False)
+        if not row["note"]:
+            ports.set_note(row["id"], text)
+
+
+def set_note(dev: dict, key: str, text: str) -> None:
+    """The note on one connector of a device (empty text clears it)."""
+    g = gear.by_key(GEAR_KEY + dev["id"]) or _write_gear(dev)
+    row = ports.by_key(g["id"], key) or ports.adopt(g["id"], key, heard=False)
+    ports.set_note(row["id"], text)
+
+
+def clean_config(raw) -> dict:
+    """`clean_settings` for the config file: a device that has no name, model, drawing or place saved there stays without."""
+    out = clean_settings(raw)
+    given = {d.get("id"): d for d in (raw.get("devices") if isinstance(raw, dict) and isinstance(raw.get("devices"), list) else [])
+             if isinstance(d, dict)}
+    for dev in out["devices"]:
+        for k in IDENTITY:
+            if k not in given.get(dev["id"], {}):
+                dev.pop(k, None)
+        if not dev["notes"]:
+            dev.pop("notes")                   # connector notes are ports now (#540); config keeps one only before then
+    if not out["cables"]:
+        out.pop("cables")                  # cables are core cables now (#541); config keeps them only until they move
+    return out
 
 
 def devices() -> list[dict]:
-    return clean_settings(config.get().get(KEY))["devices"]
+    """The devices in rack order, with their gear's name, model, drawing and place."""
+    raw = config.get().get(KEY)
+    items = clean_settings(raw)["devices"]
+    legacy = any(isinstance(d, dict) and (any(k in d for k in IDENTITY) or d.get("notes"))
+                 for d in (raw.get("devices") if isinstance(raw, dict) and isinstance(raw.get("devices"), list) else []))
+    old_cables = isinstance(raw, dict) and bool(raw.get("cables"))
+    old_presets = any(d.get("presets") for d in items)
+    try:
+        known = gear.by_keys()
+        out = []
+        for dev in items:
+            g = known.get(GEAR_KEY + dev["id"])
+            g = g if g is not None else _write_gear(dev)
+            if dev["notes"]:
+                _move_notes(g["id"], dev["notes"])
+            out.append(_overlay(dev, g))
+        if legacy:
+            save_devices(out)                  # the identity is on gear now: take it out of config
+        if old_cables:
+            _move_cables(out)
+        if old_presets:
+            _move_presets(out)
+    except db.Unavailable:
+        return items
+    return [d for _, d in sorted(enumerate(out), key=lambda t: (t[1]["position"], t[0]))]
 
 
-def save_devices(items: list[dict]) -> None:
-    config.save({KEY: {"devices": items}}, replace=(KEY,))
+def _move_cables(items: list[dict]) -> None:
+    """Cables saved in config before #541 become core cables between the two connectors' ports, once: they are gone from
+    config after. A cable to a device that is not in the list goes, as it did before."""
+    legacy = clean_settings(config.get().get(KEY))["cables"]
+    if not legacy:
+        return
+    gears = {d["id"]: d.get("gear_id") for d in items}
+    for c in legacy:
+        ends = []
+        for did, key in (c["a"], c["b"]):
+            if not gears.get(did):
+                break
+            row = ports.by_key(gears[did], key) or ports.adopt(gears[did], key, heard=False)
+            ends.append(row["id"])
+        else:
+            try:
+                core_cables.add(ends[0], ends[1])
+            except core_cables.Refused:
+                pass                           # the same pair is already cabled
+    save_devices(items)
+
+
+def preset_scope(device_id: str) -> str:
+    return "blackmagic:" + device_id
+
+
+def _move_presets(items: list[dict]) -> None:
+    """A Videohub's route presets saved in config before #544 become core presets (app/routing.py) scoped to the device,
+    once: they are gone from config after. A preset whose name is already taken there is dropped, as a second save of the
+    same name was."""
+    for dev in items:
+        if dev["kind"] != "videohub":
+            continue
+        for pre in dev.get("presets", []):
+            cells = []
+            for o, i in pre["routes"].items():
+                dest = channels.ensure("blackmagic", f"{dev['id']}:vout{o}", "video", "destination", f"Output {int(o) + 1}")
+                src = channels.ensure("blackmagic", f"{dev['id']}:vin{i}", "video", "source", f"Input {i + 1}")
+                if dest and src:
+                    cells.append((dest, src, None))
+            routing.import_salvo(pre["name"], preset_scope(dev["id"]), cells)
+        dev["presets"] = []
+    save_devices(items)
+
+
+def hub_refs(device_id: str) -> dict[tuple[str, int], str]:
+    """{("vout" or "vin", number from 0): channel ref} for the ports of one Videohub that core has channels for."""
+    out: dict[tuple[str, int], str] = {}
+    for c in channels.listing():
+        for e in c["ends"]:
+            if e["provider"] == "blackmagic" and e["key"].startswith(device_id + ":v") and not e["missing"]:
+                m = re.fullmatch(r"v(in|out)(\d+)", e["key"][len(device_id) + 1:])
+                if m:
+                    out[("v" + m.group(1), int(m.group(2)))] = c["ref"]
+    return out
+
+
+def cables(items: list[dict] | None = None) -> list[dict]:
+    """The core cables with both ends on Blackmagic devices, as the page draws them: each end is [device id, connector id]."""
+    items = devices() if items is None else items
+    by_gear = {d["gear_id"]: d["id"] for d in items if d.get("gear_id")}
+    try:
+        rows = core_cables.of_gears(by_gear)
+    except db.Unavailable:
+        return []
+    return [{"id": c["id"], "ref": c["ref"], "a": [by_gear[c["a"]["gear"]], c["a"]["key"]],
+             "b": [by_gear[c["b"]["gear"]], c["b"]["key"]], "by": c["by"], "reported": c["reported"], "note": c["note"]}
+            for c in rows if c["a"]["gear"] in by_gear and c["b"]["gear"] in by_gear]
+
+
+def connector(items: list[dict], end) -> dict | None:
+    """The core port for [device id, connector id], made when Relay has not listed it yet; None when the device is not there."""
+    dev = next((d for d in items if d["id"] == end[0]), None)
+    if dev is None or not dev.get("gear_id"):
+        return None
+    return ports.by_key(dev["gear_id"], end[1]) or ports.adopt(dev["gear_id"], end[1], heard=False)
+
+
+def save_devices(items: list[dict], reorder: bool = False) -> None:
+    """Save the devices. A device's name, model, drawing and place go to its gear, and with `reorder` so does its place in
+    the list (the position the rack is drawn in). Its cables go with it: they are core cables on its ports."""
+    kept = [d["id"] for d in items]
+    stored_items = list(items)
+    try:
+        before = {d["id"] for d in clean_settings(config.get().get(KEY))["devices"]}
+        for i, dev in enumerate(items):
+            _write_gear(dev, i if reorder else None)
+        stored_items = [_stored_form(d) for d in items]
+        for gone in before - set(kept):
+            gear.forget_key(GEAR_KEY + gone)
+    except db.Unavailable:
+        stored_items = list(items)             # without the database the identity stays in config
+    config.save({KEY: {"devices": stored_items}}, replace=(KEY,))
 
 
 def overlaps(items: list[dict]) -> list[str]:
@@ -196,6 +458,10 @@ class Service:
         self._running = False
         self._watch: asyncio.Task | None = None
         self._lock = asyncio.Lock()
+        self._ported: dict[str, tuple] = {}      # device id -> the connectors last offered to core as its ports
+        self._offer: dict[str, dict] = {}        # device id -> {"ports", "channels"} offered to core while it is connected
+        self._chan_sig: dict[str, tuple] = {}    # device id -> the video channels last reported to core
+        self._chan_refs: dict[str, dict[str, str]] = {}   # device id -> {channel key: core channel ref}
 
     # ------------------------------------------------------------------------------------------ tally
     def publish(self) -> None:
@@ -208,7 +474,9 @@ class Service:
             if not (dev.cfg["kind"] == "atem" and dev.cfg["tally"] and dev.connected):
                 continue
             offset = dev.cfg["tally_offset"]
-            cams = [dict(c, n=c["n"] + offset) for c in dev.client.cameras() if c["n"] + offset <= 999]
+            refs = self._chan_refs.get(dev.cfg["id"], {})
+            cams = [dict(c, n=c["n"] + offset, **({"channel": refs[key]} if (key := f"{dev.cfg['id']}:in{c['n']}") in refs else {}))
+                    for c in dev.client.cameras() if c["n"] + offset <= 999]
             tally.tally.publish(dev.source, cams)
             live.add(dev.source)
         for gone in self._published - live:
@@ -334,9 +602,52 @@ class Service:
     # ------------------------------------------------------------------------------------------ what the page shows
     def snapshot(self) -> dict:
         items = devices()
-        return {"devices": [self.device_snapshot(d) for d in items], "warnings": overlaps(items),
-                "configured": any(d["host"] for d in items),
+        return {"devices": [self.device_snapshot(d) for d in items], "cables": cables(items), "warnings": overlaps(items),
+                "configured": any(d["host"] for d in items), "drawings": dict(drawings.NAMES),
                 "connected": sum(1 for d in items if self._connected(d["id"]))}
+
+    def _faced(self, out: dict) -> dict:
+        """The snapshot with the device's drawing (both faces, from what it reports) and its connectors recorded as core
+        ports. Connectors are recorded only while the device is connected: an unreachable Videohub does not say how many
+        inputs it has, and its ports must not all turn missing."""
+        out["auto_drawing"] = drawings.auto(out)
+        out["face"] = drawings.spec(out)
+        if not (out["connected"] and out.get("gear_id")):
+            self._offer.pop(out["id"], None)          # an unreachable device says nothing, so nothing turns missing
+            return out
+        found = drawings.connectors(out["face"])
+        sig = (out["gear_id"], tuple((c["key"], c["kind"], c["direction"], c["gear_name"]) for c in found))
+        chans = [] if out["kind"] == "hyperdeck" else self._video_channels(out)
+        csig = (out["gear_id"], tuple((c["key"], c["number"], c["gear_name"]) for c in chans))
+        if self._ported.get(out["id"]) == sig and self._chan_sig.get(out["id"]) == csig:
+            return out
+        self._offer[out["id"]] = {"ports": {"gear": out["gear_id"], "items": found},
+                                  "channels": {"gear": out["gear_id"], "items": chans}}
+        refs = gearfeed.changed("blackmagic")        # core asks gear_list() below through `gear.blackmagic`
+        if refs is not None:
+            self._ported[out["id"]] = sig
+            self._chan_sig[out["id"]] = csig
+            self._chan_refs[out["id"]] = {k: v for k, v in refs.items() if k.startswith(out["id"] + ":")}
+        return out
+
+    def gear_list(self) -> dict:
+        """The connectors and video channels of every device that is connected now (app/gearfeed.py)."""
+        offers = list(self._offer.values())
+        return {"ports": [o["ports"] for o in offers], "channels": [o["channels"] for o in offers]}
+
+    @staticmethod
+    def _video_channels(out: dict) -> list[dict]:
+        """The video channels a device has, as core channels (app/channels.py, #542): a switcher's inputs and a Videohub's
+        inputs (sources) and outputs (destinations). The key is the device id and the device's own number, so a
+        rename on the device keeps the channel."""
+        if out["kind"] == "atem":
+            return [{"key": f"{out['id']}:in{i['id']}", "kind": "video", "direction": "source", "number": i["id"],
+                     "gear_name": i["name"]} for i in out.get("inputs", [])]
+        hub = out.get("videohub") or {}
+        return ([{"key": f"{out['id']}:vin{i['n']}", "kind": "video", "direction": "source", "number": i["n"] + 1,
+                  "gear_name": i["label"]} for i in hub.get("inputs", [])]
+                + [{"key": f"{out['id']}:vout{o['n']}", "kind": "video", "direction": "destination", "number": o["n"] + 1,
+                    "gear_name": o["label"]} for o in hub.get("outputs", [])])
 
     def _connected(self, did: str) -> bool:
         dev = self.devices.get(did)
@@ -353,8 +664,9 @@ class Service:
             out["hyperdeck"] = {}
         else:
             out["videohub"] = {}
+            out["presets"] = self._presets(cfg["id"])
         if c is None or not c.connected:
-            return out
+            return self._faced(out)
         out["connected"] = True
         if cfg["kind"] == "atem":
             st = c.state
@@ -369,7 +681,14 @@ class Service:
             out.update(product=c.state.model, hyperdeck=self._hyperdeck_snapshot(c))
         else:
             out.update(product=c.state.model, videohub=self._videohub_snapshot(c))
-        return out
+        return self._faced(out)
+
+    @staticmethod
+    def _presets(device_id: str) -> list[dict]:
+        try:
+            return [{"id": str(v["id"]), "name": v["name"]} for v in routing.salvos(preset_scope(device_id))]
+        except db.Unavailable:
+            return []
 
     @staticmethod
     def _hyperdeck_snapshot(c: HyperDeckClient) -> dict:
@@ -436,6 +755,73 @@ class Service:
     def hub(dev: Device) -> VideohubClient | None:
         c = dev.client
         return c if dev.cfg["kind"] == "videohub" and c is not None and c.connected else None
+
+    # ------------------------------------------------------------------------------------------ rename (#543)
+    def _hub_end(self, key: str):
+        """(hub client, "input" or "output", number) for a channel end key "<device id>:vin<n>" or ":vout<n>", else None."""
+        did, _, tail = key.rpartition(":")
+        m = re.fullmatch(r"v(in|out)(\d+)", tail)
+        dev = self.devices.get(did)
+        if not m or dev is None:
+            return None
+        hub = self.hub(dev)
+        return None if hub is None else (hub, "input" if m.group(1) == "in" else "output", int(m.group(2)))
+
+    def can_rename(self, key: str) -> bool:
+        """Only a connected Videohub takes a new label; an ATEM's input names are not sent from here."""
+        return self._hub_end(key) is not None
+
+    def rename_end(self, key: str, name: str) -> None:
+        """Send a new label to the Videohub. Raises ValueError with a sentence the operator can read."""
+        got = self._hub_end(key)
+        if got is None:
+            raise ValueError("The Videohub is not connected, so its label was not changed.")
+        hub, kind, n = got
+        limit = hub.state.outputs if kind == "output" else hub.state.inputs
+        label = videohub.clean_label(name)
+        if not label or n >= limit:
+            raise ValueError("The Videohub has no such port, or the name is empty.")
+        if not hub.set_labels(kind, {n: label}):
+            raise ValueError("The Videohub is not connected, so its label was not changed.")
+
+    # ------------------------------------------------------------------------------------------ core routes (#544)
+    def routes_api(self) -> dict:
+        """What core's routes ask of this module (app/routing.py): a Videohub output takes one input."""
+        return {"exclusive": True, "gain": False, "apply": self._core_apply, "read": self._core_read,
+                "permission": "blackmagic.control"}
+
+    def _out_end(self, key: str):
+        """(device, hub client, output number) for a channel end key "<device id>:vout<n>", else None."""
+        did, _, tail = key.rpartition(":")
+        m = re.fullmatch(r"vout(\d+)", tail)
+        dev = self.devices.get(did)
+        hub = self.hub(dev) if dev is not None else None
+        return None if not m or hub is None else (dev, hub, int(m.group(1)))
+
+    def _core_apply(self, end: dict, wanted: list[dict]) -> str:
+        got = self._out_end(end["key"])
+        if got is None:
+            return "The Videohub is not connected."
+        dev, hub, n = got
+        if not wanted:
+            return "A Videohub always shows an input, so it is left as it is."
+        prefix = end["key"].rpartition(":")[0] + ":vin"
+        ins = [int(e["key"][len(prefix):]) for w in wanted for e in w["ends"]
+               if e["provider"] == "blackmagic" and e["key"].startswith(prefix) and e["key"][len(prefix):].isdigit()]
+        if not ins:
+            return "That source is not an input of this Videohub."
+        if not hub.can_route(n):
+            return "Another control surface has locked that output."
+        sent, _ = self.route(dev, {n: ins[0]})
+        return "" if sent else "The Videohub did not take that route."
+
+    def _core_read(self, end: dict) -> list[dict] | None:
+        got = self._out_end(end["key"])
+        if got is None or not got[1].state.ready:
+            return None
+        src = got[1].state.routing.get(got[2])
+        return [] if src is None else [{"provider": "blackmagic", "key": f"{end['key'].rpartition(':')[0]}:vin{src}",
+                                         "gain_db": None}]
 
     def route(self, dev: Device, pairs: dict[int, int]) -> tuple[int, int]:
         """Send routes the router would take; leave out any output another control surface holds. (sent, left out)"""

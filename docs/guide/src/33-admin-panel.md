@@ -214,6 +214,20 @@ The meter only moves while capture is running. When capture is stopped, it
 shows nothing even if a microphone is connected.
 :::
 
+## Audio bus {#audio-bus}
+
+**Audio bus** sits under **Audio input**. The bus takes up to 32 mono lanes from any input and sends them to outputs
+through one crosspoint matrix. It stays off until you switch it on, and the main capture on **Audio input** is not
+touched.
+
+1. **Lanes.** Click **Add a lane**, choose the input and device, then a channel, or **Mix of all** to sum every channel.
+2. **Outputs.** Click **Add an output**, choose the device and how many channels it has.
+3. Click **Save lanes and outputs**.
+4. **Crosspoints.** Output channels run down the side and lanes across the top. Click a square to feed a lane into a
+   channel, and type a gain in dB beside it. A channel mixes every lane fed into it.
+
+The crosspoints are the same routes the Network page shows, so a change made here shows there too.
+
 ## Target languages {#target-languages}
 
 This page chooses which languages Relay translates into. There are 17:
@@ -283,8 +297,8 @@ Schedules start and stop capture automatically, for example every Sunday from
 1. **Status line.** What happens next, for example **Next start: Wed
    09/23/2026 8:00 PM CDT (Wednesday night).** With no schedules, it says
    capture only starts when you press **Start capture**.
-2. **Schedule.** Its name, and under it a summary: which days, the times and
-   the time zone.
+2. **Schedule.** Its name, and under it a summary of its windows and where it
+   is used.
 3. **Next start.** When it will next start capture. **off** if the schedule
    is switched off.
 4. **On.** Switch a schedule off to skip it without deleting it, for example
@@ -296,22 +310,28 @@ Schedules start and stop capture automatically, for example every Sunday from
 
 ![The form for a new schedule.](images/admin-schedule-form.png){width=100%}
 
-1. **Name (optional).** A label such as *Sunday evening*.
-2. **Repeats.** **Every week**, or **One time only** for a single date.
-3. **Days.** For a weekly schedule, click each day it runs. Selected days turn
-   green.
-4. **Starting on / Ending on (optional).** For a weekly schedule, limit it to
-   a date range, such as a term or a season. Type the date as MM/DD/YYYY, or
-   click the calendar button. For a one-time schedule, this is the date it
-   runs.
-5. **Start time** and **Stop time.** Pick the hour, the minutes and AM or PM.
+1. **Name.** A label such as *Sunday services*. Other pages pick the schedule
+   by this name.
+2. **Windows.** Each window is **Every week** (click each day it runs, and
+   optionally a first and last date, typed as MM/DD/YYYY or picked with the
+   calendar button) or **One date**, with a **start time** and a **stop time**.
    If the stop time is earlier than the start time, it stops the next day, so
-   11:00 PM to 1:00 AM works. The form tells you when that happens.
-6. **Time zone.** Eastern, Central, Mountain, Arizona, Pacific, Alaska or
-   Hawaii. Times follow this zone, including daylight saving: 10:00 AM stays
-   10:00 AM all year.
-7. Click **Add schedule** (or **Save schedule** when editing). **Cancel**
+   11:00 PM to 1:00 AM works. **Add a window** adds another, for example the
+   evening service.
+3. **Also open.** Tick **Around each service time in today's Planning Center
+   plan** to add a window around every service time, with the minutes before
+   and after you choose. It adds nothing while the Planning Center module is off.
+4. **Capture starts and stops on this schedule.** Tick it for the schedules that
+   should start and stop capture. Signage slots, board rotation rows and crew
+   call times pick a schedule by name in their own pages.
+5. **Used by.** When you edit a schedule, the places that use it are listed. Delete
+   is refused while any are listed; pick another schedule there first.
+6. Click **Add schedule** (or **Save changes** when editing). **Cancel**
    closes the form without saving.
+
+Times follow Relay's one time zone, set under **Settings > System**, including
+daylight saving: 10:00 AM stays 10:00 AM all year. Change a schedule here and
+the engine, signage, boards and call times that use it move together.
 
 You should see the new schedule in the list, with its next start time.
 
@@ -495,6 +515,14 @@ and notifications.
 The overlay link also takes `?lyrics=1`, to show ProPresenter's lyrics in
 place of the captions. See the ProPresenter chapter.
 :::
+
+## Screens {#screens}
+
+Every TV, tablet and panel is one **screen** with one name and one place. The Screens page (under Output) is a live wall: a tile per screen, grouped by place, showing what is on it now and whether it was heard from lately.
+
+A browser appears by itself the first time it opens a board, a signage address or an alert link, and a panel appears when it checks in. Under **Edit** you set a screen's name, its place, and what it shows: a board or a signage playlist **normally**, and another **during** a schedule from the Schedules page. **Show now** holds one on the screen until you press **Back to schedule**. With Signage switched off, a screen set to a playlist shows its board instead.
+
+If two pages knew the same TV by different names, give one of them the other's name: they become one screen. **Flash** shows a test message on a screen, and **Flash all** on a place does it for every screen there. An alert button can also target a whole place, and the old addresses (`/signage/<name>`, board links, `/screen?alert=`) keep working.
 
 ## Boards {#boards}
 
@@ -717,6 +745,18 @@ pick your name and type your PIN. A PIN never works on any other browser.
 After five wrong PINs in a row, the PIN is cleared and you sign in with your
 password and set a new one. Removing a trusted device from the list stops PIN
 sign-ins there.
+
+### Phones {#phones}
+
+Each phone or computer is listed once, under **My account** (yours) and on the
+**Users** page (everyone's), with everything it is set up for: PIN sign-in, the
+intercom, Wi-Fi check-in and crew notifications. **Forget** ends all of them at
+once: the phone is signed out of the intercom, stops getting crew pages, is
+taken off check-in and loses its PIN sign-in. **Rename** changes the name shown
+here. Phones set up before this list existed show once for each thing they were
+set up for; if two entries are the same phone, an Admin opens **Join…** on one
+and picks the other, and their parts become one phone. New things you set up
+join your phone's entry when the browser is the same one.
 
 ### API tokens {#api-tokens}
 

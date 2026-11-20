@@ -1,58 +1,177 @@
-{# The lighting admin page, rendered inside admin.html only while the module is on. #}
+{# The lighting admin page, rendered inside admin.html only while the module is on. Four tabs: fire cues, edit the
+   cue pages, the pages' tablet screens, and the lighting program (docs/mockups/lighting/a-tabs.html). #}
     <h2 class="title">Lighting <span class="sumstate" id="ltSum"></span></h2>
     <p class="sub">Fire your lighting program's cues from Relay. Group the cues you want into pages; only a cue on a
-      page can be fired from a screen or panel.</p>
+      page can be fired from a screen, a board or a slide tag.</p>
 
-    <section>
-      <h3>Lighting program</h3>
-      <div class="row">
-        <div class="field">
-          <label for="ltBackend">Program</label>
-          <select id="ltBackend"></select>
-        </div>
-        <div class="field">
-          <label for="ltHost">Address</label>
-          <input id="ltHost" placeholder="192.168.1.50" autocomplete="off" spellcheck="false" maxlength="253">
-        </div>
-        <div class="field">
-          <label for="ltPort">Port</label>
-          <input id="ltPort" type="number" min="0" max="65535">
-        </div>
-        <div class="field">
-          <label for="ltConsole">Console type (Vista)</label>
-          <input id="ltConsole" placeholder="EX" maxlength="8" autocomplete="off" spellcheck="false">
-        </div>
-        <div class="field">
-          <label for="ltFade">Fade time, seconds (Lightkey)</label>
-          <input id="ltFade" type="number" min="0" max="3600" step="0.1" placeholder="cue's own">
-        </div>
-        <div class="field">
-          <label for="ltPass">Password</label>
-          <input id="ltPass" type="password" autocomplete="new-password" maxlength="200">
-        </div>
-      </div>
-      <label class="check"><input type="checkbox" id="ltFunctions"> Also list the program's functions (scenes and
-        chases) that have no button</label>
-      <div class="ctl">
-        <button type="button" class="primary" id="ltSave">Save</button>
-        <button type="button" id="ltTest">Test connection</button>
-      </div>
-      <div class="note" id="ltStatus"></div>
-      <div class="note">A cue that is fired is sent once. If the connection drops, Relay does not try again, because
-        the cue may already have happened.</div>
-    </section>
+    <div class="tabs" role="tablist" id="ltTabs">
+      <button type="button" role="tab" data-lttab="fire" aria-selected="true">Fire cues</button>
+      <button type="button" role="tab" data-lttab="pages" aria-selected="false">Pages</button>
+      <button type="button" role="tab" data-lttab="screens" aria-selected="false">Screens</button>
+      <button type="button" role="tab" data-lttab="program" aria-selected="false">Program</button>
+    </div>
     <div class="note err" id="ltErr" hidden></div>
 
-    <section>
-      <h3>Cue pages</h3>
-      <div id="ltPages"></div>
-      <div class="ctl" id="ltPageCtl">
-        <button type="button" id="ltAddPage">Add page</button>
-        <button type="button" class="primary" id="ltSavePages">Save pages</button>
+    {# Fire cues: one page at a time, its levels, and the cues on no page. #}
+    <div role="tabpanel" data-ltpane="fire">
+      <p class="note" id="ltFireEmpty" hidden></p>
+      <div class="ltbar" id="ltFireBar">
+        <div class="seg ltpick" id="ltFirePick" role="group" aria-label="Page"></div>
       </div>
-      <div id="ltAll" hidden>
-        <h3>All</h3>
-        <p class="note">Cues the program lists that are not on any page.</p>
-        <div id="ltAllCues"></div>
+      <div class="cuebox ltfire" id="ltFireBox"><div class="cuegrid" id="ltFireGrid"></div></div>
+      <section id="ltLevels" hidden>
+        <h3>Levels</h3>
+        <div class="ltfaders" id="ltFaders"></div>
+      </section>
+      <details class="ltmore" id="ltAll" hidden>
+        <summary>Cues not on any page <span class="muted" id="ltAllCount"></span></summary>
+        <p class="note">Fire one once from here. Put it on a page to use it on screens, boards and slide tags.</p>
+        <div class="ltchips" id="ltAllCues"></div>
+      </details>
+      <p class="note">A cue that is fired is sent once. If the connection drops, Relay does not try again, because the
+        cue may already have happened.</p>
+    </div>
+
+    {# Pages: the list, the New page step, and the editor for one page. #}
+    <div role="tabpanel" data-ltpane="pages" hidden>
+      <div id="ltPgList">
+        <div class="ltbar">
+          <p class="note ltlede">A page is a grid of cue buttons. The order here is the order on the Fire cues tab:
+            drag a row, or use its arrows.</p>
+          <button type="button" class="primary" id="ltNewBtn">New page</button>
+        </div>
+        <div class="ltrows" id="ltRows"></div>
+        <p class="note" id="ltRowsEmpty" hidden>No pages yet. Make one with New page.</p>
       </div>
-    </section>
+
+      <div id="ltPgNew" hidden>
+        <div class="ltcrumb"><button type="button" class="link" data-ltback>← Pages</button><span class="muted">/</span><b>New page</b></div>
+        <section class="ltnew">
+          <div class="ltnewform">
+            <div class="field">
+              <label for="ltNpName">Name</label>
+              <input id="ltNpName" maxlength="40" placeholder="e.g. Christmas Eve" autocomplete="off">
+              <span class="hint">What operators see on the Fire cues tab and on the tablet.</span>
+            </div>
+            <div class="field">
+              <label id="ltNpSizeLbl">Size</label>
+              <div class="ltsizes" id="ltNpSize" role="group" aria-labelledby="ltNpSizeLbl"></div>
+              <span class="hint">Buttons can span several cells. You can change the size later.</span>
+            </div>
+            <div class="field">
+              <label id="ltNpStartLbl">Start with</label>
+              <div class="ltopts" id="ltNpStart" role="group" aria-labelledby="ltNpStartLbl">
+                <button type="button" class="ltopt" data-start="blank" aria-pressed="true"><b>Empty page</b><span>Place cues yourself.</span></button>
+                <button type="button" class="ltopt" data-start="copy" aria-pressed="false"><b>Copy a page</b><span>Its buttons and their looks.</span></button>
+                <button type="button" class="ltopt" data-start="pick" aria-pressed="false"><b>Pick cues</b><span>Tick cues; Relay lays them out in order.</span></button>
+              </div>
+            </div>
+            <div class="field" id="ltNpCopyBox" hidden>
+              <label for="ltNpCopy">Page to copy</label>
+              <select id="ltNpCopy"></select>
+            </div>
+            <div class="field" id="ltNpPickBox" hidden>
+              <label>Cues to place <span class="muted" id="ltNpCount"></span></label>
+              <div class="ltticks" id="ltNpTicks"></div>
+            </div>
+          </div>
+          <div class="ltnewprev">
+            <span class="muted">Preview</span>
+            <div class="cuebox"><div class="cuegrid" id="ltNpPrev"></div></div>
+            <p class="note" id="ltNpFit"></p>
+          </div>
+        </section>
+        <div class="ctl">
+          <button type="button" class="primary" id="ltNpCreate">Create and edit</button>
+          <button type="button" data-ltback>Cancel</button>
+        </div>
+      </div>
+
+      <div id="ltPgEdit" hidden>
+        <div class="ltbar">
+          <div class="ltcrumb">
+            <button type="button" class="link" data-ltback>← Pages</button><span class="muted">/</span>
+            <input id="ltEdName" maxlength="40" aria-label="Page name" autocomplete="off">
+            <span class="badge warn" id="ltDirty" hidden>Unsaved changes</span>
+          </div>
+        </div>
+        <div id="ltEditor"></div>
+        <details class="ltmore" id="ltEdMore">
+          <summary>Page settings <span class="muted" id="ltEdSum"></span></summary>
+          <div class="ltset">
+            <span>Tablet screen<small>Its link and key are on the Screens tab.</small></span>
+            <label class="switch"><input type="checkbox" id="ltEdScreen" aria-label="Tablet screen"><span class="slider"></span></label>
+          </div>
+          <div class="ltset">
+            <span>Duplicate this page<small>A copy you can change, with no screen.</small></span>
+            <button type="button" class="sm" id="ltEdDup">Duplicate</button>
+          </div>
+          <div class="ltset">
+            <span>Delete this page<small>Its screen link stops working, and slide tags for its cues stop firing unless the
+              cue is on another page.</small></span>
+            <button type="button" class="sm danger" id="ltEdDel">Delete page</button>
+          </div>
+        </details>
+      </div>
+    </div>
+
+    {# Screens: a tablet link per page. #}
+    <div role="tabpanel" data-ltpane="screens" hidden>
+      <p class="note ltlede">Each page can be opened full screen on a tablet at its own link. Anyone with the link can
+        press that page's cues, so keep it on the booth and stage devices. A new key stops the old link working.</p>
+      <div class="tablescroll">
+        <table class="dt">
+          <thead><tr><th>Page</th><th>Screen</th><th>Link</th><th></th></tr></thead>
+          <tbody id="ltScreenRows"></tbody>
+        </table>
+      </div>
+      <p class="note" id="ltScreensEmpty" hidden>Make a page first, on the Pages tab.</p>
+    </div>
+
+    {# Program: choose one, then only the fields it needs. #}
+    <div role="tabpanel" data-ltpane="program" hidden>
+      <section>
+        <h3>Lighting program</h3>
+        <p class="note ltlede">Relay talks to one lighting program. Pick it, then fill in what it needs.</p>
+        <div class="ltopts" id="ltProgs" role="group" aria-label="Lighting program"></div>
+      </section>
+      <section id="ltConn" hidden>
+        <h3 id="ltConnTitle">Connection</h3>
+        <div class="ltform">
+          <div class="field" data-ltfield="host">
+            <label for="ltHost">Address</label>
+            <input id="ltHost" placeholder="192.168.1.50" autocomplete="off" spellcheck="false" maxlength="253">
+            <span class="hint">The IP address of the computer running it.</span>
+          </div>
+          <div class="field" data-ltfield="port">
+            <label for="ltPort">Port</label>
+            <input id="ltPort" type="number" min="0" max="65535">
+            <span class="hint" id="ltPortHint"></span>
+          </div>
+          <div class="field" data-ltfield="console">
+            <label for="ltConsole">Console type</label>
+            <input id="ltConsole" placeholder="EX" maxlength="8" autocomplete="off" spellcheck="false">
+            <span class="hint">As Vista names it in its OSC addresses, EX unless changed.</span>
+          </div>
+          <div class="field" data-ltfield="fade">
+            <label for="ltFade">Fade time, seconds</label>
+            <input id="ltFade" type="number" min="0" max="3600" step="0.1" placeholder="cue's own">
+            <span class="hint">Empty uses each cue's own fade.</span>
+          </div>
+          <div class="field" data-ltfield="password">
+            <label for="ltPass">Password</label>
+            <input id="ltPass" type="password" autocomplete="new-password" maxlength="200">
+            <span class="hint">Leave empty to keep the saved one.</span>
+          </div>
+        </div>
+        <div class="ltset" data-ltfield="functions">
+          <span>List functions too<small>Scenes and chases with no button show up as cues you can place.</small></span>
+          <label class="switch"><input type="checkbox" id="ltFunctions" aria-label="List functions too"><span class="slider"></span></label>
+        </div>
+        <div class="ctl">
+          <button type="button" class="primary" id="ltSave">Save</button>
+          <button type="button" id="ltTest">Test connection</button>
+          <span class="note" id="ltStatus"></span>
+        </div>
+      </section>
+    </div>

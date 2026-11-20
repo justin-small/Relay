@@ -76,7 +76,8 @@ async def schedule_state() -> dict:
 async def schedule_save(request: Request, payload: dict):
     """The schedule's settings: on, privacy, stream key, title, days ahead, plan service types and weekly rules."""
     cur = stored()["schedule"]
-    new = clean_schedule({**cur, **{k: v for k, v in payload.items() if k in cur}})
+    # days_from stays the stored one: the page always sends days counted from Sunday.
+    new = clean_schedule({**cur, **{k: v for k, v in payload.items() if k in cur and k != "days_from"}})
     config.save({KEY: {"schedule": new}})
     if new["on"] != cur["on"]:
         audit.note(request, "youtube.schedule", "Turned scheduled YouTube streams " + ("on" if new["on"] else "off"))
@@ -103,10 +104,11 @@ async def stream_keys():
 
 
 async def _pc(fn, *args):
-    from ..planning_center import planningcenter as pcm
+    from .. import using
 
     client = pc_client()
-    if client is None:
+    pcm = using("plan.api")
+    if client is None or pcm is None:
         return _problem(NO_PC, 409)
     try:
         return await asyncio.to_thread(getattr(client, fn), *args)

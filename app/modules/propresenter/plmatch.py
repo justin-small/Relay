@@ -20,9 +20,10 @@ Headers have nothing to match and are left out ("skipped").
 from __future__ import annotations
 
 import re
-import unicodedata
 from difflib import SequenceMatcher
 from typing import Any
+
+from ...text import strip_accents
 
 DEFAULT_THRESHOLD = 0.8
 MARGIN = 0.03            # the best fuzzy candidate must beat the runner-up (another presentation) by this much
@@ -42,8 +43,7 @@ _NONWORD = re.compile(r"[^0-9a-z]+")
 def normalise(title: Any) -> str:
     """A title reduced to what makes it the same song: lower case without accents or punctuation, no "(Live)",
     no key ("- G", "in G", "(Key of G)") and no arrangement or version suffix."""
-    text = unicodedata.normalize("NFKD", str(title or ""))
-    text = "".join(c for c in text if not unicodedata.combining(c)).casefold().replace("&", " and ")
+    text = strip_accents(title).casefold().replace("&", " and ")  # allow-shared: punctuation kept for the dash and key rules
     text = _PARENS.sub(" ", text)
     text = _APOS.sub("", text)
     parts = _DASHES.split(" " + text.strip() + " ")

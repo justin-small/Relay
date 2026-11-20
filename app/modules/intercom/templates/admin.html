@@ -3,7 +3,6 @@
     <p class="sub">The media server behind the crew intercom. Relay runs it on this computer; nothing leaves your network.</p>
 
     <section id="icLive">
-      <style>#icLive .ic-warn{color:#b45309;font-weight:600}#icLive .ic-bad{color:#b91c1c;font-weight:700}</style>
       <h3>Live <span class="sumstate" id="icLiveSum"></span></h3>
       <div class="ctl" id="icLiveBar">
         <label class="note">Production label
@@ -32,19 +31,6 @@
     </section>
 
     <section id="icHealth">
-      <style>
-        #icHealth .ic-cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:10px;margin:8px 0 12px}
-        #icHealth .ic-card{border:1px solid var(--line, #8884);border-radius:8px;padding:10px 12px}
-        #icHealth .ic-card b{display:block;margin-bottom:4px}
-        #icHealth .ic-card .st{font-size:12px;text-transform:uppercase;letter-spacing:.04em;font-weight:700}
-        #icHealth .ic-card.ok .st{color:var(--accent, #16a34a)}
-        #icHealth .ic-card.warn{border-color:#b45309}#icHealth .ic-card.warn .st{color:#b45309}
-        #icHealth .ic-card.error{border-color:#b91c1c}#icHealth .ic-card.error .st{color:#b91c1c}
-        #icHealth .ic-card.idle .st{opacity:.6}
-        #icHealth .ic-th{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:6px 16px}
-        #icHealth .ic-th label{display:flex;justify-content:space-between;gap:8px;align-items:center}
-        #icHealth .ic-th input{width:6em}
-      </style>
       <h3>Health <span class="sumstate" id="icHealthSum"></span></h3>
       <p class="note">Checked every 5 seconds. Relay restarts LiveKit when it stops answering; nothing else is restarted.</p>
       <div class="ic-cards" id="icCards"></div>
@@ -107,7 +93,7 @@
         <button type="button" id="icNewChannel">New channel</button>
       </div>
 
-      <div id="icEdit" hidden style="margin-top:16px;padding:12px;border:1px solid var(--line, #8884);border-radius:8px">
+      <div id="icEdit" class="notice" hidden style="margin-top:16px">
         <h3 id="icEditTitle">Edit channel</h3>
         <div class="ctl">
           <label>Name <input type="text" id="icEName" maxlength="60"></label>

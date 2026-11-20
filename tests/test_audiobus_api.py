@@ -80,7 +80,21 @@ with section("saving applies the cleaned setting"):
     cfg = r.json()["config"]
     eq("the bad lane was dropped", cfg["lanes"], [])
     eq("the output and crosspoint were kept", ([o["id"] for o in cfg["outputs"]], cfg["matrix"][0]["gain_db"]), (["mon"], -3.0))
-    eq("it is saved in the config file", config.get()["audio_bus"], cfg)
+    eq("it is saved in the config file, without the crosspoints", config.get()["audio_bus"], {**cfg, "matrix": []})
+    from app import audiobus as core_bus, channels as core_channels, routing as core_routing  # noqa: E402
+
+    mon1 = next(c for c in core_channels.listing("audio") if any(e["key"] == "out:mon:1" for e in c["ends"]))
+    eq("the crosspoint is a core route into that output channel, with its gain",
+       [(x["name"], x["gain_db"]) for x in core_routing.feeds(mon1["ref"])], [("Lane 1", -3.0)])
+    core_routing.set(mon1["ref"], core_channels.ensure("audiobus", "lane2", "audio", "source", "Lane 2"), -6)
+    eq("a route made anywhere reaches the bus's matrix",
+       sorted((c["in"], c["gain_db"]) for c in admin.get("/api/admin/audiobus").json()["config"]["matrix"] if c["ch"] == 1),
+       [(1, -3.0), (2, -6.0)])
+    eq("and the running bus", sorted(c["in"] for c in core_bus.bus.config["matrix"] if c["ch"] == 1), [1, 2])
+    body = {k: v for k, v in BODY.items() if k != "matrix"}
+    admin.post("/api/admin/audiobus", json=body)
+    eq("a save with no matrix (the Audio bus page) leaves the routes alone",
+       sorted((x["name"], x["gain_db"]) for x in core_routing.feeds(mon1["ref"])), [("Lane 1", -3.0), ("Lane 2", -6.0)])
     eq("the output was opened once", OUT.opened, 1)
     st = admin.get("/api/admin/audiobus").json()["status"]
     eq("the bus runs with its output", (st["running"], [o["id"] for o in st["outputs"]], st["outputs"][0]["state"]),
@@ -98,4 +112,18 @@ with section("switching off stops it, and the choice is audited"):
     check("changes are in the audit log", rows is None or "audio.bus" in str(rows))
 
 audiobus.bus.stop()
+with section("a matrix saved in config before #544 moves to core routes"):
+    from app import audiobus as old_bus, channels as old_channels, config as old_config, routing as old_routing  # noqa: E402
+
+    legacy = {"enabled": False, "lanes": [], "outputs": [{"id": "old", "output": "fake", "channels": 2}],
+              "matrix": [{"in": 3, "out": "old", "ch": 2, "gain_db": -9.0}]}
+    old_config.save({"audio_bus": legacy}, replace=("audio_bus",))
+    run = old_bus.runtime_config(old_config.get()["audio_bus"])
+    eq("the bus is given the same crosspoint", run["matrix"], [{"in": 3, "out": "old", "ch": 2, "gain_db": -9.0}])
+    eq("config no longer holds it", old_config.get()["audio_bus"]["matrix"], [])
+    old2 = next(c for c in old_channels.listing("audio") if any(e["key"] == "out:old:2" for e in c["ends"]))
+    eq("it is a route into the output's second channel", [(x["name"], x["gain_db"]) for x in old_routing.feeds(old2["ref"])],
+       [("Lane 3", -9.0)])
+    eq("a second start changes nothing", old_bus.runtime_config(old_config.get()["audio_bus"])["matrix"], run["matrix"])
+
 done()

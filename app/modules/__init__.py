@@ -12,9 +12,10 @@ the admin page's Modules page, and a module that is off carries none of its code
 * it adds nothing to the status, the panel feeds or the caption streams.
 
 The direction of imports is one way: a module may import core (config, hub, engine, panels, alerts, ...);
-core never imports a module. Core reaches modules only through this registry and the hooks below. A module
-that works with another one (the ProPresenter link to Planning Center) names it in `Manifest.uses` and must
-cope with it being off. tests/test_modules.py enforces all of this; docs/modules.md is the guide.
+core never imports a module. Core reaches modules only through this registry and what modules provide by name
+(`provide` and `using`, below), and a module reaches another the same way: it never imports it. A module that works
+with another one (the ProPresenter link to Planning Center) names it in `Manifest.uses` and must cope with
+`using()` returning None while it is off. tests/test_modules.py enforces all of this; docs/modules.md is the guide.
 
 The registry itself is core and imports each module package to read its manifest. Importing a module runs
 nothing: work starts only in `start`, which is called only while the module is on.
@@ -26,6 +27,8 @@ import importlib
 import logging
 import pkgutil
 import re
+import sys
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Awaitable, Callable
@@ -50,6 +53,8 @@ def _suppress():
 _ID_RE = re.compile(r"^[a-z][a-z0-9_]{1,31}$")
 _VERSION_RE = re.compile(r"^\d+\.\d+\.\d+$")
 HEALTH_STATES = ("ok", "warn", "error", "idle")
+# The headings of the module entries in the admin sidebar, in order (Manifest.section).
+NAV_SECTIONS = ("Show", "Crew", "Screens", "Sound", "Building", "Modules")
 
 
 @dataclass(frozen=True)
@@ -64,7 +69,8 @@ class Manifest:
     settings_key: str
     # Where the setup guide is: a README anchor or a docs/ path, shown next to the module's settings.
     guide: str = ""
-    # Other modules this one does more with when they are on too. Only these may be imported from it.
+    # Other modules this one does more with when they are on too. It asks for what they provide by name
+    # (`using()`) and copes with None; it imports none of them (tests/test_shared_concepts.py).
     uses: tuple[str, ...] = ()
     # Kinds of network traffic the operator can put on a port of their own (app/netroute.py, #344). Each id is the
     # module's id or starts with "<module id>.": Traffic("dante", "Dante control and discovery", media=True).
@@ -72,6 +78,12 @@ class Manifest:
     # The id this module had before it was renamed. config.json's settings key, on/off switch and network routes
     # saved under the old id move to the new one when config loads, once (#432, #433: "atem" became "blackmagic").
     renamed_from: str = ""
+    # The heading the module is listed under in the admin sidebar, one of NAV_SECTIONS. Each module is one entry
+    # there, with its admin pages under it; one with no section is listed under "Modules".
+    section: str = ""
+
+
+TAB_PAGES = ("network",)
 
 
 @dataclass(frozen=True)
@@ -80,10 +92,13 @@ class AdminPage:
     id: str            # the #hash and data-page name; unique across Relay
     title: str         # the nav label
     template: str      # a template in the module's templates/ directory
-    group: str         # the nav group it is listed under: "Live", "Output", "Automation" or "Settings"
-    icon: str = ""     # inner SVG for the 16x16 nav icon
+    icon: str = ""     # inner SVG for the 16x16 nav icon; the module's entry uses its first page's
     # The permission needed to see the page's nav link; empty means "<module id>.view".
     permission: str = ""
+    # A core page this one is a tab of, instead of a sidebar entry of its own: "network" puts it on the Network
+    # page's tab bar after core's tabs. Core renders the template in the tab's panel; the module's scripts run as
+    # for any page. The only core page that takes tabs is TAB_PAGES.
+    tab_of: str = ""
 
 
 @dataclass(frozen=True)
@@ -141,11 +156,15 @@ class Module:
     # Admin pages, and the scripts in the module's static/ directory the admin page loads for it.
     admin_pages: tuple[AdminPage, ...] = ()
     admin_scripts: tuple[str, ...] = ()
+    # Stylesheets in static/ the admin page loads for it (#463). They place the shared controls in components.css
+    # and use the tokens in tokens.css; tests/test_style_contract.py keeps literal sizes and colours out.
+    admin_styles: tuple[str, ...] = ()
     # Features for accounts that never open the admin panel (a Member's home page).
     user_pages: tuple[UserPage, ...] = ()
     # Tabs on the crew page, and the scripts in the module's static/ directory that page loads for them.
     crew_tabs: tuple[CrewTab, ...] = ()
     crew_scripts: tuple[str, ...] = ()
+    crew_styles: tuple[str, ...] = ()
     # Exact page paths (of any module) that may use the microphone while this module is on. Everywhere else the
     # browser is told microphone=(); a page that is not listed never gets a prompt.
     microphone_pages: tuple[str, ...] = ()
@@ -216,15 +235,9 @@ class Module:
         """Keys merged into the engine status the admin page and panels read."""
         return {}
 
-    # What this module adds to the network map (#437), one sentence for the map's Sources card; "" when it adds nothing.
+    # What this module adds to the network map (#437), one sentence for the map's Sources card, shown even while it is off;
+    # "" when it adds nothing. The devices themselves come from `modules.provide("gear.<id>", {"list": fn})` (app/gearfeed.py).
     network_map_adds: str = ""
-
-    def network_map(self) -> list[dict]:
-        """Devices this module knows, for the core network map (#437): a list of dicts as app/network_map.py describes
-        (mac, ip, host, name, kind, ndi, dante, uplink_mac, uplink_port, tags, ports ...). Called only while the module
-        is on, from the event loop: read what is already in memory, do no network work, and send no secrets. Core
-        merges these with what it sees itself; a module that does not override this adds nothing."""
-        return []
 
     def board_widgets(self) -> list[dict]:
         """Widgets this module adds to boards (#156), as app/boards.py describes a definition: {"type":
@@ -239,6 +252,13 @@ class Module:
         {"rows": [{"text", "current"}]}, {"on_air", "live_since", "viewers"}. `items` are only this module's own.
         Boards may be public: send nothing private, no addresses and no error text."""
         return {}
+
+    def board_follow(self) -> dict | None:
+        """What a board set to follow this module reads (#156 pages): None when the module offers nothing to follow,
+        else {"name": "ProPresenter", "connected": bool, "now": {"presentation", "group", "label"} (what shows now,
+        "" for none), "suggest": {"presentation": [...], "group": [...], "label": [...]}} (names the operator can
+        pick). Called from the event loop every few seconds: read what is in memory."""
+        return None
 
     async def board_press(self, item: dict, request: Any) -> dict:
         """Someone pressed one of this module's button widgets on a board: {"ok": True} or {"ok": False, "error":
@@ -255,11 +275,6 @@ class Module:
         """A /stream response for a stream this module owns, or None if `name` is not one of its own."""
         return None
 
-    def plan_label(self) -> str | None:
-        """Today's plan as a short title ("Sunday Service 9:00 AM") for modules that follow a plan, "" when there
-        is none today, and None when this module has no plans at all. Other modules ask through the registry."""
-        return None
-
 
 # ------------------------------------------------------------------ what core gives modules
 # A module cannot import app.main (main imports this registry), so the few things its routes need from the
@@ -274,77 +289,143 @@ templates: Any = None
 page_gate: Callable[..., Any] | None = None
 
 
-# The lighting module sets this in attach() and clears it in detach() (#377): (cue id, request or None) -> a dict
-# {"ok": bool, "error": str}. Anything that wants to fire a lighting cue calls `fire_cue`, never the module.
-cue_hook: Callable[..., Awaitable[dict]] | None = None   # (cue, request, *, by_name, source)
+# ------------------------------------------------------------------ capabilities (#523)
+# One way for a module to offer something to core or to another module, and for them to ask for it: a module that is
+# on provides a named capability in `attach()` (`modules.provide("lighting.cues", fire)`), and anything that wants it
+# asks by name (`modules.using("lighting.cues")`) and copes with None, which is what it gets while the provider is off.
+# Nothing imports another module. Turning a module off withdraws everything it provided (the registry does it after
+# `detach`, and a module may call `withdraw` itself). The names Relay's own modules provide are in docs/modules.md.
+_NAME_RE = re.compile(r"^[a-z][a-z0-9_]*(\.[a-z0-9_-]+)*$")
+_provided: dict[str, tuple[str, Any]] = {}          # name -> (module id, what it provides)
+_listeners: dict[str, list[Callable[..., Any]]] = {}
+
+
+def _owner_of_caller(depth: int = 2) -> str:
+    """The id of the module whose code called `provide`: the package under app/modules/ its file belongs to, else ''."""
+    name = sys._getframe(depth).f_globals.get("__name__", "")
+    if name.startswith(__name__ + "."):
+        return name[len(__name__) + 1:].split(".", 1)[0]
+    return ""
+
+
+def provide(name: str, impl: Any, *, owner: str | None = None) -> None:
+    """Offer `impl` (a function, an object, anything the asker needs) under `name` ("<area>" or "<area>.<what>", such as
+    "ndi", "lighting.cues" or "screen_pages.obs"). The owner is the module this is called from, so turning that module off
+    takes it away again; pass `owner` only from code that is not inside a module's package. Providing a name that
+    another module already holds replaces it, and is logged."""
+    if not isinstance(name, str) or not _NAME_RE.match(name):
+        raise ValueError(f"a capability is named <area> or <area>.<what> in lower case, not {name!r}")
+    who = _owner_of_caller() if owner is None else owner
+    held = _provided.get(name)
+    if held is not None and held[0] != who:
+        log.warning("capability %s: %s replaces %s", name, who or "code outside a module", held[0] or "code outside a module")
+    _provided[name] = (who, impl)
+
+
+def withdraw(name: str) -> None:
+    """Take back what `provide` offered under `name`. Harmless when nothing is there."""
+    _provided.pop(name, None)
+
+
+def withdraw_all(owner: str) -> None:
+    """Take back everything `owner` provided: the registry calls it when a module is switched off."""
+    for name in [n for n, (who, _) in _provided.items() if who == owner]:
+        del _provided[name]
+
+
+def using(name: str, default: Any = None) -> Any:
+    """What `name` stands for, or `default` (None) while no module that is on provides it."""
+    held = _provided.get(name)
+    return default if held is None else held[1]
+
+
+def using_all(prefix: str) -> dict[str, Any]:
+    """Every capability whose name starts with `prefix` (such as "screen_pages."), by the rest of the name."""
+    return {n[len(prefix):]: impl for n, (_, impl) in sorted(_provided.items()) if n.startswith(prefix)}
+
+
+def provided() -> dict[str, str]:
+    """Every capability on offer, by name, with the id of the module that provides it (for tests and the guide)."""
+    return {n: who for n, (who, _) in sorted(_provided.items())}
+
+
+def listen(topic: str, fn: Callable[..., Any]) -> None:
+    """Be called when `announce(topic, ...)` is: a module that wants to hear about another's events (the followed
+    plan changed) listens in `attach()`, with no import and no matter which of the two came on first. `unlisten`
+    in `detach()`. Called on the event loop; a listener must not block."""
+    if fn not in _listeners.setdefault(topic, []):
+        _listeners[topic].append(fn)
+
+
+def unlisten(topic: str, fn: Callable[..., Any]) -> None:
+    if fn in _listeners.get(topic, []):
+        _listeners[topic].remove(fn)
+
+
+def announce(topic: str, *args: Any) -> None:
+    for fn in list(_listeners.get(topic, [])):
+        try:
+            fn(*args)
+        except Exception:
+            log.exception("listener for %s failed", topic)
+
+
+def announce_plan_changed() -> None:
+    """The followed plans changed (Planning Center's follower calls it): `listen("plan.changed", fn)` to hear."""
+    announce("plan.changed")
 
 
 async def fire_cue(cue_id: str, request: Any = None, *, by_name: bool = False, source: str = "") -> dict:
     """Fire a cue the operator put on a lighting page. {"ok": False, "error": ...} when lighting is off, the cue is
     not on a page, or the program could not do it. Pass the admin `request` to have the press in the audit trail, or
     (with no request) a `source` such as "a ProPresenter slide tag" to have it recorded as a system entry that says
-    where it came from. `by_name` takes the cue's name on the page (any case) instead of the program's cue id."""
-    hook = cue_hook
+    where it came from. `by_name` takes the cue's name on the page (any case) instead of the program's cue id.
+    Lighting provides "lighting.cues": (cue, request, *, by_name, source) -> {"ok": bool, "error": str}."""
+    hook = using("lighting.cues")
     if hook is None:
         return {"ok": False, "error": "Lighting is off."}
     return await hook(cue_id, request, by_name=by_name, source=source)
 
 
-# The OBS module sets this in attach() and clears it in detach() (#250): (scene name, *, source) -> a dict
-# {"ok": bool, "error": str}. Anything that wants to switch a video scene calls `switch_scene`, never the module.
-scene_hook: Callable[..., Awaitable[dict]] | None = None
-
-
 async def switch_scene(name: str, *, source: str = "") -> dict:
     """Switch every connected OBS computer that has a scene called `name` (any case) to it. {"ok": False, "error":
     ...} when OBS is off, no computer has that scene, or OBS refused. `source` ("a ProPresenter slide tag") is recorded
-    as a system audit entry saying where the switch came from."""
-    hook = scene_hook
+    as a system audit entry saying where the switch came from. OBS provides "obs.scenes": (name, *, source) -> dict."""
+    hook = using("obs.scenes")
     if hook is None:
         return {"ok": False, "error": "The OBS module is off."}
     return await hook(name, source=source)
 
 
-# The REAPER module sets this in attach() and clears it in detach() (#413): (command, value, *, source) -> a dict
-# {"ok": bool, "error": str}. Anything that wants to start or stop a recording or drop a marker calls
-# `control_recording`, never the module.
-recording_hook: Callable[..., Awaitable[dict]] | None = None
-
-
 async def control_recording(command: str, value: str = "", *, source: str = "") -> dict:
     """Tell every recorder that answers to `record`, `stop`, add a `marker` (named `value`) or run an `action` (a
     command id). {"ok": False, "error": ...} when no recorder module is on or none answered. `source` ("a ProPresenter
-    slide tag") is recorded as a system audit entry saying where it came from."""
-    hook = recording_hook
+    slide tag") is recorded as a system audit entry saying where it came from. REAPER provides "reaper.recording":
+    (command, value, *, source) -> {"ok": bool, "error": str}."""
+    hook = using("reaper.recording")
     if hook is None:
         return {"ok": False, "error": "The REAPER module is off."}
     return await hook(command, value, source=source)
 
 
-# Called with a presentation's name each time a new one is up in ProPresenter (#413). The ProPresenter module calls
-# `announce_presentation`; a module that wants to know (REAPER's markers) appends a callable in attach() and removes
-# it in detach(). Called on the event loop; a listener must not block.
-presentation_listeners: list[Callable[[str], None]] = []
-
-
 def announce_presentation(name: str) -> None:
-    for fn in list(presentation_listeners):
-        try:
-            fn(name)
-        except Exception:
-            logging.getLogger("relay.modules").exception("presentation listener failed")
+    """A new presentation is up in ProPresenter (#413), which calls this with its name: `listen("presentation.up", fn)`
+    to hear (REAPER's song markers). Called on the event loop; a listener must not block."""
+    announce("presentation.up", name)
 
 
-# The NDI module sets this in attach() and clears it in detach() (#294): a dict of the functions other modules use,
-# `sources() -> list[dict]`, `subscribe(source, on_frame) -> unsubscribe()` and `register_output(name) -> output`.
-# Callers use `ndi_sources`, `ndi_subscribe` and `ndi_register_output`, never the module.
-ndi_hooks: dict[str, Callable[..., Any]] = {}
+# The NDI module provides "ndi": a dict of the functions other modules use, `sources() -> list[dict]`,
+# `subscribe(source, on_frame) -> unsubscribe()` and `register_output(name) -> output` (#294). Callers use `ndi_sources`,
+# `ndi_subscribe` and `ndi_register_output`, never the module.
+def _ndi(name: str) -> Callable[..., Any] | None:
+    hooks = using("ndi")
+    return hooks.get(name) if isinstance(hooks, dict) else None
 
 
 def ndi_sources() -> list[dict]:
     """The NDI sources found on the network: name, machine, source, address, groups, online, width, height, fps.
     Empty while the NDI module is off."""
-    fn = ndi_hooks.get("sources")
+    fn = _ndi("sources")
     return fn() if fn else []
 
 
@@ -352,21 +433,40 @@ def ndi_subscribe(source: str, on_frame: Callable[[dict], None]) -> Callable[[],
     """Receive the frames of an NDI source through the module's shared receiver (one per source, however many
     listeners). `on_frame` gets {"width", "height", "fps", "fourcc", "data"} on the receiver's thread and must not
     block. Returns the function that stops listening, or None while NDI is off or the runtime is missing."""
-    fn = ndi_hooks.get("subscribe")
+    fn = _ndi("subscribe")
     return fn(source, on_frame) if fn else None
 
 
-def ndi_register_output(name: str) -> Any:
-    """Register an NDI output called `name` (#299). Returns an object with `send(frame)` and `close()`, or None while
-    NDI is off or the runtime is missing."""
-    fn = ndi_hooks.get("register_output")
-    return fn(name) if fn else None
+def ndi_register_output(name: str, width: int = 1280, height: int = 720, fps: float = 30.0) -> Any:
+    """Register an NDI output called `name` (#299), sending BGRA frames of width x height at `fps`. Returns an object
+    with `send({"data": bytes})` and `close()`, or None while NDI is off or the runtime is missing."""
+    fn = _ndi("register_output")
+    return fn(name, width, height, fps) if fn else None
 
 
-# A module that serves a page on /screen sets an entry here in attach() and removes it in detach(): the query
-# parameter that asks for it ("lighting" for /screen?lighting=<page>) -> an async (request) -> response, or None to
-# let /screen carry on. Core never names a module; it only asks (#379).
-screen_pages: dict[str, Callable[..., Awaitable[Any]]] = {}
+# A module with a page worth sending as NDI provides "ndi.outputs.<its id>" (#299): a function returning
+# [{"id", "name", "url", "alpha", "group"}], where `url` is a path on the viewer port or http://127.0.0.1:<port>/... for
+# a page served on a port of its own. The NDI module lists them on its Outputs page (`using_all("ndi.outputs.")`).
+
+
+def plan_label() -> str | None:
+    """Today's plan as a short title ("Sunday Service 9:00 AM"), "" when there is none today, and None when no module
+    that follows plans is on. Planning Center provides "plan.label": () -> str."""
+    fn = using("plan.label")
+    try:
+        return fn() if fn else None
+    except Exception:
+        return None
+
+
+def service_starts_at() -> float | None:
+    """When the next service starts, as a Unix time, or None when no module that knows one is on. Planning Center
+    provides "plan.starts_at": () -> float | None."""
+    fn = using("plan.starts_at")
+    try:
+        return fn() if fn else None
+    except Exception:
+        return None
 
 
 def require(perm: str) -> Callable[..., Any]:
@@ -424,6 +524,7 @@ def event_stream(gen: Any) -> StreamingResponse:
 # ------------------------------------------------------------------ registry
 class Registry:
     def __init__(self) -> None:
+        self._health_cache: tuple[float, dict[str, str]] | None = None
         self._modules: dict[str, Module] | None = None
         self._running: set[str] = set()
         # Called after a module is switched on or off (main pushes a status update).
@@ -451,15 +552,10 @@ class Registry:
         return [m for m in self.all() if self.enabled(m.manifest.id)]
 
     def plan_label(self) -> str | None:
-        """The first switched-on module's plan label; None when no switched-on module follows plans."""
-        for mod in self.active():
-            try:
-                got = mod.plan_label()
-            except Exception:
-                got = None
-            if got is not None:
-                return got
-        return None
+        return plan_label()
+
+    def service_starts_at(self) -> float | None:
+        return service_starts_at()
 
     def require_enabled(self, mid: str) -> Callable[[], Awaitable[None]]:
         """A FastAPI dependency: 404 while the module is off, exactly as if its routes were not there."""
@@ -514,6 +610,7 @@ class Registry:
             log.exception("module %s failed to start", mid)
             with _suppress():
                 mod.detach()
+            withdraw_all(mid)
             return
         self._running.add(mid)
         log.info("Module on: %s %s", mod.manifest.name, mod.manifest.version)
@@ -530,6 +627,7 @@ class Registry:
         if detach:
             with _suppress():
                 mod.detach()
+            withdraw_all(mid)
         log.info("Module off: %s", mod.manifest.name)
 
     def attach(self, mid: str) -> None:
@@ -574,6 +672,29 @@ class Registry:
                     log.warning("module %s: a board widget was left out (bad type or permission)", mid)
                     continue
                 out.append(d)
+        return out
+
+    def board_follow(self) -> dict[str, dict]:
+        """Every switched-on, running module's follow source for board pages, by module id, bounded."""
+        out: dict[str, dict] = {}
+        for mod in self.active():
+            mid = mod.manifest.id
+            if not self.running(mid):
+                continue
+            try:
+                got = mod.board_follow()
+            except Exception:
+                log.exception("module %s: board_follow failed", mid)
+                continue
+            if not isinstance(got, dict):
+                continue
+            now = got.get("now") if isinstance(got.get("now"), dict) else {}
+            sug = got.get("suggest") if isinstance(got.get("suggest"), dict) else {}
+            keys = ("presentation", "group", "label")
+            out[mid] = {"name": str(got.get("name") or mid)[:40], "connected": got.get("connected") is True,
+                        "now": {k: str(now.get(k) or "")[:80] for k in keys},
+                        "suggest": {k: [str(v)[:80] for v in (sug.get(k) if isinstance(sug.get(k), list) else [])
+                                        if isinstance(v, str) and v.strip()][:200] for k in keys}}
         return out
 
     def board_owner(self, wtype: str) -> Module | None:
@@ -731,20 +852,51 @@ class Registry:
     def _page_permission(mod: Module, page: AdminPage) -> str:
         return page.permission or f"{mod.manifest.id}.view"
 
-    def admin_nav(self, user: User | None = None) -> dict[str, list[dict]]:
-        """The admin pages of the modules that are on, by nav group, for admin.html. With a `user`, only the
-        pages that user may see; with None, all of them (for code that has no user)."""
-        groups: dict[str, list[dict]] = {}
+    def admin_nav(self, user: User | None = None) -> list[dict]:
+        """The sidebar entries of the modules that are on, for admin.html: one per module, in NAV_SECTIONS order,
+        each with the admin pages under it. With a `user`, only the pages that user may see, and no entry for a
+        module with none; with None, all of them (for code that has no user)."""
+        entries: list[dict] = []
         for mod in self.active():
+            m = mod.manifest
+            pages = [{
+                "id": p.id, "title": p.title, "icon": p.icon,
+                "template": f"{m.id}/{p.template}",
+                "module": m.name, "version": m.version, "guide": m.guide,
+            } for p in mod.admin_pages if not p.tab_of and (user is None or user.can(self._page_permission(mod, p)))]
+            if not pages:
+                continue
+            health = self.health(mod)
+            section = m.section if m.section in NAV_SECTIONS else "Modules"
+            entries.append({"id": m.id, "name": m.name, "section": section, "icon": pages[0]["icon"],
+                            "health": health.state, "detail": health.detail, "pages": pages})
+        entries.sort(key=lambda e: NAV_SECTIONS.index(e["section"]))
+        return entries
+
+    def admin_tabs(self, user: User | None = None) -> dict[str, list[dict]]:
+        """{core page id: [tab, ...]}: the admin pages of the modules that are on that are tabs of a core page, in
+        module order, each only where `user` may see it."""
+        out: dict[str, list[dict]] = {}
+        for mod in self.active():
+            m = mod.manifest
             for p in mod.admin_pages:
-                if user is not None and not user.can(self._page_permission(mod, p)):
-                    continue
-                groups.setdefault(p.group, []).append({
-                    "id": p.id, "title": p.title, "icon": p.icon,
-                    "template": f"{mod.manifest.id}/{p.template}",
-                    "module": mod.manifest.name, "version": mod.manifest.version, "guide": mod.manifest.guide,
-                })
-        return groups
+                if p.tab_of in TAB_PAGES and (user is None or user.can(self._page_permission(mod, p))):
+                    out.setdefault(p.tab_of, []).append({
+                        "id": p.id, "title": p.title, "template": f"{m.id}/{p.template}", "module": m.name,
+                        "module_id": m.id, "version": m.version, "guide": m.guide})
+        return out
+
+    def health_states(self, max_age: float = 5.0) -> dict[str, str]:
+        """{module id: health state} for the modules that are on, for the sidebar's dots. Kept for `max_age`
+        seconds, because the status it rides on is pushed on every change. The detail stays out: the status goes
+        to every admin page, and only someone who may see a module's page reads why."""
+        now = time.monotonic()
+        cached = self._health_cache
+        if cached is not None and now - cached[0] < max_age:
+            return cached[1]
+        out = {mod.manifest.id: self.health(mod).state for mod in self.active()}
+        self._health_cache = (now, out)
+        return out
 
     def user_nav(self, user: User) -> list[dict]:
         """The home-page links of the modules that are on that `user` may use."""
@@ -761,6 +913,11 @@ class Registry:
         return [f"{mod.manifest.id}/{s}" for mod in self.active()
                 if any(user.can(t.permission) for t in mod.crew_tabs) for s in mod.crew_scripts]
 
+    def crew_styles(self, user: User) -> list[str]:
+        """The stylesheets of the modules that are on and have a tab `user` may use."""
+        return [f"{mod.manifest.id}/{s}" for mod in self.active()
+                if any(user.can(t.permission) for t in mod.crew_tabs) for s in mod.crew_styles]
+
     def microphone_pages(self) -> tuple[str, ...]:
         """The page paths that may use the microphone: those named by the modules that are on."""
         return tuple(p for mod in self.active() for p in mod.microphone_pages)
@@ -769,17 +926,24 @@ class Registry:
         """The page paths that may use the location: those named by the modules that are on."""
         return tuple(p for mod in self.active() for p in mod.geolocation_pages)
 
-    def admin_scripts(self, user: User | None = None) -> list[str]:
-        """The scripts of the modules that are on. With a `user`, only those of a module with at least one page
-        they may see (or, for a module with no pages, when they hold its `.view`)."""
+    def _admin_files(self, attr: str, user: User | None) -> list[str]:
         out: list[str] = []
         for mod in self.active():
             if user is not None:
                 pages = [self._page_permission(mod, p) for p in mod.admin_pages] or [f"{mod.manifest.id}.view"]
                 if not any(user.can(perm) for perm in pages):
                     continue
-            out += [f"{mod.manifest.id}/{s}" for s in mod.admin_scripts]
+            out += [f"{mod.manifest.id}/{s}" for s in getattr(mod, attr)]
         return out
+
+    def admin_scripts(self, user: User | None = None) -> list[str]:
+        """The scripts of the modules that are on. With a `user`, only those of a module with at least one page
+        they may see (or, for a module with no pages, when they hold its `.view`)."""
+        return self._admin_files("admin_scripts", user)
+
+    def admin_styles(self, user: User | None = None) -> list[str]:
+        """The stylesheets of the modules that are on, chosen as admin_scripts are (#463)."""
+        return self._admin_files("admin_styles", user)
 
 
 def listener_port(settings: dict, lst: Listener) -> int:
@@ -820,6 +984,9 @@ def validate(mod: Any, package: str) -> list[str]:
     for script in mod.admin_scripts:
         if not (HERE / package / "static" / script).is_file():
             problems.append(f"{package}: admin script {script} is missing")
+    for style in (*mod.admin_styles, *mod.crew_styles):
+        if not style.endswith(".css") or not (HERE / package / "static" / style).is_file():
+            problems.append(f"{package}: stylesheet {style} is missing")
     for tab in mod.crew_tabs:
         if not (HERE / package / "templates" / tab.template).is_file():
             problems.append(f"{package}: crew tab template {tab.template} is missing")

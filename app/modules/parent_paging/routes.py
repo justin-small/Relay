@@ -30,9 +30,10 @@ def _refuse(exc: Exception) -> JSONResponse:
 
 
 def _pc_client():
-    from ..planning_center import planningcenter as pc
+    from .. import using
 
-    client = pc.client_from(config.get())
+    pc = using("plan.api")
+    client = pc.client_from(config.get()) if pc is not None else None
     if client is None:
         raise paging.Refused("Planning Center is not set up. Save its application ID and secret first.", 409)
     return client

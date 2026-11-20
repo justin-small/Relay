@@ -496,8 +496,8 @@ from app.modules.propresenter import tagactions as ta  # noqa: E402
 
 eq("light takes a value and is a known tag", st.ACTIONS.get("light"), True)
 eq("the tag parses with a spaced name", slide_of("[relay:light=Walk In]"), [Tag("light", "Walk In")])
-_old_hook = _reg.cue_hook
-_reg.cue_hook = None
+_old_hook = _reg.using("lighting.cues")
+_reg.withdraw("lighting.cues")
 
 
 async def light_tag():
@@ -517,7 +517,7 @@ async def light_tag():
         got.append((cue, request, by_name, source))
         return {"ok": cue == "Walk-in", "error": "No cue with that name is on a lighting page."}
 
-    _reg.cue_hook = hook
+    _reg.provide("lighting.cues", hook, owner="lighting")
     eq("a cue is fired by name, from a slide tag", await ta._tag_light(" Walk-in "), "Lighting cue Walk-in fired.")
     eq("…through the core hook with no request", got, [("Walk-in", None, True, "a ProPresenter slide tag")])
     try:
@@ -528,15 +528,17 @@ async def light_tag():
 
 
 asyncio.run(light_tag())
-_reg.cue_hook = _old_hook
+_reg.withdraw("lighting.cues")
+if _old_hook is not None:
+    _reg.provide("lighting.cues", _old_hook, owner="lighting")
 eq("the action is wired", "light" in ta.ACTIONS, True)
 
 # ------------------------------------------------------------------------------------------------- obs=
 print("obs=<scene name> through the OBS scene hook")
 eq("obs takes a value and is a known tag", st.ACTIONS.get("obs"), True)
 eq("the tag parses with a spaced name", slide_of("[relay:obs=Wide Shot]"), [Tag("obs", "Wide Shot")])
-_old_scene = _reg.scene_hook
-_reg.scene_hook = None
+_old_scene = _reg.using("obs.scenes")
+_reg.withdraw("obs.scenes")
 
 
 async def obs_tag():
@@ -556,7 +558,7 @@ async def obs_tag():
         got.append((name, source))
         return {"ok": name == "Message", "error": "No connected OBS computer has a scene called \"Nope\"."}
 
-    _reg.scene_hook = hook
+    _reg.provide("obs.scenes", hook, owner="obs")
     eq("a scene is switched by name, from a slide tag", await ta._tag_obs(" Message "), "OBS switched to Message.")
     eq("…through the core hook", got, [("Message", "a ProPresenter slide tag")])
     try:
@@ -567,7 +569,9 @@ async def obs_tag():
 
 
 asyncio.run(obs_tag())
-_reg.scene_hook = _old_scene
+_reg.withdraw("obs.scenes")
+if _old_scene is not None:
+    _reg.provide("obs.scenes", _old_scene, owner="obs")
 eq("the obs action is wired", "obs" in ta.ACTIONS, True)
 
 print()

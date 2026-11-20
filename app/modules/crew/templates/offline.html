@@ -1,15 +1,62 @@
 <!doctype html>
 <html lang="en"><head>
-<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="theme-color" content="#000000"><title>Offline</title>
+<!-- Shown by the service worker when Relay can't be reached, so it carries its own few colours. -->
 <style>
-  body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: #000; color: #f4f4f5;
-         font: 16px/1.5 system-ui, sans-serif; text-align: center; padding: 24px; }
-  p { color: #9ca3af; max-width: 28em; }
-  button { font: inherit; font-weight: 600; padding: 11px 20px; border: 0; border-radius: 8px;
-           background: #4ade80; color: #000; cursor: pointer; }
+  :root { --bg: #09090b; --fg: #fafafa; --muted: #a1a1aa; --line: #27272a; --primary: #4ade80; --r: 14px; color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--fg); font: 1rem/1.5 system-ui, -apple-system, sans-serif; }
+  main { min-height: 100vh; min-height: 100dvh; max-width: 34em; margin: 0 auto; display: flex; flex-direction: column; gap: 1rem;
+         padding: calc(2.5rem + env(safe-area-inset-top)) 1.25rem calc(1.25rem + env(safe-area-inset-bottom)); text-align: center; }
+  .ring { width: 4.5rem; height: 4.5rem; margin: 0 auto; border-radius: 50%; display: grid; place-items: center;
+          border: 1px solid var(--primary); background: color-mix(in srgb, var(--primary) 12%, transparent); }
+  .ring i { width: 1rem; height: 1rem; border-radius: 50%; background: var(--primary); }
+  h1 { font-size: 1.5rem; margin: .4rem 0 0; }
+  p { color: var(--muted); margin: 0; }
+  .card { text-align: left; border: 1px solid var(--line); border-radius: var(--r); padding: 1rem; }
+  .card h2 { margin: 0 0 .3rem; font-size: .75rem; letter-spacing: .07em; text-transform: uppercase; color: var(--muted); }
+  .card b { display: block; font-size: 1.35rem; }
+  .card div { display: flex; gap: 1rem; padding: .6rem 0; border-top: 1px solid var(--line); }
+  .card div span:first-child { min-width: 4.5em; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .grow { flex: 1; }
+  button { font: inherit; font-weight: 700; font-size: 1.1rem; padding: 1rem; border: 0; border-radius: var(--r);
+           background: var(--primary); color: var(--bg); cursor: pointer; }
+  [hidden] { display: none !important; }
 </style></head><body>
-<main><h1>Can't reach Relay</h1>
-<p>Your phone is not on the network Relay is on. Join the same Wi-Fi as the booth and try again.</p>
-<button type="button" onclick="location.reload()">Try again</button></main>
+<main>
+  <div class="ring" aria-hidden="true"><i></i></div>
+  <h1>You're off the church Wi-Fi</h1>
+  <p>Relay only works on the church network. Join the same Wi-Fi as the booth and this page comes back by itself.</p>
+  <section class="card" id="last" hidden>
+    <h2 id="lastWhen">Saved</h2>
+    <b id="lastRole"></b>
+    <div id="lastCall" hidden><span></span><span>Call time</span></div>
+    <div id="lastService" hidden><span></span><span>Service</span></div>
+  </section>
+  <div class="grow"></div>
+  <button type="button" id="again">Try again</button>
+  <p>Checking again every 10 seconds.</p>
+</main>
+<script>
+  (function () {
+    // What the crew page last showed on this phone (its position and times), kept by the page itself.
+    var d = null;
+    try { d = JSON.parse(localStorage.getItem('relay-crew-last') || 'null'); } catch (e) { d = null; }
+    if (d && (d.role || d.call || d.service)) {
+      document.getElementById('last').hidden = false;
+      document.getElementById('lastWhen').textContent = 'Saved ' +
+        new Date(d.saved).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) + (d.plan ? ' · ' + d.plan : '');
+      document.getElementById('lastRole').textContent = d.role || 'Your day';
+      [['lastCall', d.call], ['lastService', d.service]].forEach(function (p) {
+        var row = document.getElementById(p[0]);
+        if (p[1]) { row.hidden = false; row.firstElementChild.textContent = p[1]; }
+      });
+    }
+    function retry() { location.reload(); }
+    document.getElementById('again').addEventListener('click', retry);
+    window.addEventListener('online', retry);
+    setInterval(function () { if (navigator.onLine) retry(); }, 10000);
+  })();
+</script>
 </body></html>

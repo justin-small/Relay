@@ -20,9 +20,10 @@ import _db  # noqa: E402
 _db.start()
 _db.reset()
 
-from app import config, db, mdns, netinfo, network_map, users  # noqa: E402
+from app import gear, config, db, mdns, netinfo, network_map, ports, users  # noqa: E402
 from app import main as M  # noqa: E402
 from app.main import app  # noqa: E402
+from app import modules as registry  # noqa: E402
 from app.modules import Module  # noqa: E402
 from _harness import check, done, eq, section  # noqa: E402
 
@@ -234,14 +235,15 @@ with section("what the modules add"):
                  "propresenter": {"host": "192.168.1.50", "port": 1025}}, replace=("blackmagic", "obs", "propresenter"))
     from app.modules import discover
     mods = discover()
-    atem = mods["blackmagic"].network_map()
+    atem = mods["blackmagic"].gear_list()["devices"]
     eq("ATEM names each switcher, by address or by name", [(d.get("ip"), d.get("host"), d["name"]) for d in atem],
        [("192.168.1.240", None, "Main room"), (None, "atem-b.local", "Overflow")])
-    eq("OBS marks its machines", [(d["ip"], d["tags"]) for d in mods["obs"].network_map()], [("192.168.1.31", ["OBS Studio"])])
-    eq("ProPresenter marks its computer", [(d["ip"], d["tags"]) for d in mods["propresenter"].network_map()], [("192.168.1.50", ["ProPresenter"])])
-    eq("a module with nothing to add adds nothing", mods["youtube"].network_map(), [])
+    eq("OBS marks its machines", [(d["ip"], d["tags"]) for d in mods["obs"].gear_list()["devices"]], [("192.168.1.31", ["OBS Studio"])])
+    eq("ProPresenter marks its computer", [(d["ip"], d["tags"]) for d in mods["propresenter"].gear_list()["devices"]], [("192.168.1.50", ["ProPresenter"])])
+    eq("a module with nothing to add offers no gear", [mods["youtube"].network_map_adds, hasattr(mods["youtube"], "gear_list")],
+       ["", False])
     eq("…and says so", mods["youtube"].network_map_adds, "")
-    named = network_map.merge([src("discovery", "Discovery", [{"ip": "192.168.1.31", "ndi": True}]), src("obs", "OBS Studio", mods["obs"].network_map())])
+    named = network_map.merge([src("discovery", "Discovery", [{"ip": "192.168.1.31", "ndi": True}]), src("obs", "OBS Studio", mods["obs"].gear_list()["devices"])])
     eq("OBS names a computer discovery found", (named[0]["name"], named[0]["tags"], named[0]["ndi"]), ("Stream PC", ["OBS Studio"], True))
 
 
@@ -252,15 +254,20 @@ class FakeModule(Module):
     network_map_adds = "Fake switches."
     broken = False
 
-    def network_map(self):
+    def gear_list(self):
         if self.broken:
             raise RuntimeError("secret detail that must not reach the page")
-        return [{"mac": "aa:aa:aa:aa:aa:10", "ip": "10.0.0.2", "name": "Fake switch", "kind": "switch"}]
+        return {"devices": [{"mac": "aa:aa:aa:aa:aa:10", "ip": "10.0.0.2", "name": "Fake switch", "kind": "switch"}]}
 
 
 class FakeRegistry:
     def __init__(self, mod, on):
         self.mod, self.on = mod, on
+        gid = "gear." + mod.manifest.id
+        if on:
+            registry.provide(gid, {"list": mod.gear_list}, owner=mod.manifest.id)     # what the module does in attach()
+        else:
+            registry.withdraw(gid)
 
     def all(self):
         return [self.mod]
@@ -331,5 +338,99 @@ with section("the route"):
     check("with the merged shape", {"devices", "sources", "relay_ports", "has_switch_source"} <= set(r.json()), list(r.json()))
     member = _db.client(app, "member", base_url=ADMIN)
     eq("a member may not", member.get("/api/admin/network/map").status_code, 403)
+
+# ------------------------------------------------------------------ names, notes and closets (the closets redesign)
+SW, CAM = "aa:aa:aa:aa:aa:10", "aa:aa:aa:aa:aa:31"
+
+with section("what is kept"):
+    got = network_map.clean_stored({
+        "names": {CAM: "  Wide   (back wall) ", "not a key!": "x", SW + "#4": "a name on a port", CAM + "+": ""},
+        "notes": {SW + "#4": "Wall plate B4", CAM: "x" * 400},
+        "places": [{"name": "Booth rack", "gear": [SW, SW, "bad key!"]}, {"name": "booth RACK", "gear": []}, {"name": " "}, "x"]})
+    eq("a name is tidied; a bad key, a port key and empty text go", got["names"], {CAM: "Wide (back wall)"})
+    eq("a note may be on a switch port, and is cut to length", (got["notes"][SW + "#4"], len(got["notes"][CAM])), ("Wall plate B4", 300))
+    eq("a place keeps its switches once, and a second place of the same name goes", got["places"], [{"name": "Booth rack", "gear": [SW]}])
+    eq("nothing saved is nothing", network_map.clean_stored(None), {"names": {}, "notes": {}, "places": []})
+
+with section("what needs a look"):
+    devs = network_map.merge([src("unifi", "UniFi", [
+        {"mac": SW, "name": "Stage switch", "kind": "switch", "poe_w": 41, "poe_budget_w": 45, "model": "USW-Lite-16-PoE",
+         "ports": [{"port": 5, "up": True, "speed": 100, "warn": "Linked at 100 Mbps.", "client_mac": CAM}]},
+        {"mac": CAM, "ip": "10.0.0.42", "name": "Wide Shot", "uplink_mac": SW, "uplink_port": 5}])])
+    found = network_map.issues(devs, [{"label": "UniFi", "on": True, "error": ""}, {"label": "Fake", "on": True, "error": "This source could not be read."}])
+    eq("worst first: a source that is not answering, then the port, then PoE",
+       [i["title"] for i in found], ["Fake is not answering", "Wide Shot: Stage switch port 5", "Stage switch is near its PoE limit"])
+    eq("the port's own sentence is the detail, and it points at the camera and its port",
+       (found[1]["detail"], found[1]["device"], found[1]["port"], found[1]["switch"]), ("Linked at 100 Mbps.", CAM, 5, SW))
+    eq("model and PoE budget come through the merge", ([d for d in devs if d["mac"] == SW][0]["model"], [d for d in devs if d["mac"] == SW][0]["poe_budget_w"]),
+       ("USW-Lite-16-PoE", 45.0))
+    quiet = network_map.merge([src("unifi", "UniFi", [{"mac": SW, "name": "S", "kind": "switch", "poe_w": 10, "poe_budget_w": 45, "ports": []}])])
+    eq("a switch well inside its budget is not listed", network_map.issues(quiet, []), [])
+
+with section("names, notes and places through the routes"):
+    OLD_NAMES = {"192.168.1.240": "Main room", "atem-b": "Overflow"}      # Blackmagic devices saved earlier in this file: named gear
+    network_map.reset()                                  # discovery still finds nothing, as in "the route"
+    admin = _db.client(app, "admin", base_url=ADMIN)
+    viewer = _db.client(app, "viewer", base_url=ADMIN)
+    fake = FakeModule()
+    fake.broken = False
+    eq("a viewer may not rename", viewer.post("/api/admin/network/map/labels", json={"names": {SW: "x"}}).status_code, 403)
+    eq("nor move a switch", viewer.post("/api/admin/network/map/places", json={"places": []}).status_code, 403)
+    eq("names must be an object", admin.post("/api/admin/network/map/labels", json={"names": ["x"]}).status_code, 400)
+    eq("places must be a list", admin.post("/api/admin/network/map/places", json={"places": "x"}).status_code, 400)
+    r = admin.post("/api/admin/network/map/labels", json={"names": {SW: "Booth core"}, "notes": {SW: "Top of the rack", SW + "#3": "Spare"}})
+    eq("an admin renames and notes", (r.status_code, r.json()["names"], r.json()["notes"]),
+       (200, {SW: "Booth core", **OLD_NAMES}, {SW: "Top of the rack", SW + "#3": "Spare"}))
+    snap = asyncio.run(network_map.snapshot(FakeRegistry(fake, True), force=True))
+    me = [d for d in snap["devices"] if d["mac"] == SW][0]
+    eq("the map shows the name Relay was given, and keeps the device's own", (me["name"], me["own_name"]), ("Booth core", "Fake switch"))
+    eq("the notes come with the map", snap["notes"][SW + "#3"], "Spare")
+    again = asyncio.run(network_map.snapshot(FakeRegistry(fake, True)))
+    eq("a cached read still carries the name", [d["name"] for d in again["devices"] if d["mac"] == SW], ["Booth core"])
+    r = admin.post("/api/admin/network/map/labels", json={"names": {SW: ""}, "notes": {SW + "#3": "  "}})
+    eq("empty text clears a name and a note; the rest stay", (r.json()["names"], r.json()["notes"]), (OLD_NAMES, {SW: "Top of the rack"}))
+    r = admin.post("/api/admin/network/map/places", json={"places": [{"name": "Booth rack", "gear": [SW]}, {"name": "Lobby", "gear": []}]})
+    eq("places are saved in order", r.json()["places"], [{"name": "Booth rack", "gear": [SW]}, {"name": "Lobby", "gear": []}])
+    eq("a closet is a rack inside a core place of the same name", [(r["name"], r["place"]) for r in gear.racks()],
+       [("Booth rack", "Booth rack"), ("Lobby", "Lobby")])
+    eq("the switch is gear in that rack, under one key", (gear.by_key("mac:" + SW)["rack"] if False else gear.by_key("mac:" + SW)["rack_ref"] != ""), True)
+    from app import audit
+    eq("both are audited", [e["action"] for e in audit.search(kind="network")["entries"][:2]], ["network.places", "network.labels"])
+
+with section("a switch's ports are core ports (#540), and every saved port note is still there"):
+    PORTED = "aa:aa:aa:aa:aa:30"
+    config.save({"network_map": {"names": {}, "notes": {PORTED + "#7": "Wall plate B7"}, "places": []}}, replace=("network_map",))
+
+    class PortedSwitch(FakeModule):
+        live = [{"port": 1, "name": "Uplink SFP+", "up": True, "speed": 10000, "uplink": True},
+                {"port": 7, "name": "Port 7", "up": False, "poe_w": 0.0, "errors": 3},
+                {"port": 8, "name": "Booth", "up": True, "speed": 1000, "poe_w": 4.26, "client": "Stage box", "warn": "Many errors"}]
+
+        def gear_list(self):
+            return {"devices": [{"mac": PORTED, "ip": "10.0.0.30", "name": "Ported switch", "kind": "switch", "ports": self.live}]}
+
+    sw = PortedSwitch()
+    network_map.reset()
+    snap = asyncio.run(network_map.snapshot(FakeRegistry(sw, True), force=True))
+    g = gear.by_key("mac:" + PORTED)
+    rows = {r["key"]: r for r in ports.of_gear(g["id"])}
+    eq("each switch port is a core port, keyed by its number", sorted(rows), ["1", "7", "8"])
+    eq("an SFP cage is told apart from Ethernet", (rows["1"]["kind"], rows["8"]["kind"]), ("sfp", "eth"))
+    eq("the link as the switch says it", (rows["1"]["link_up"], rows["7"]["link_up"], rows["8"]["poe_w"]), (True, False, 4.3))
+    eq("a note saved in config before #540 moved onto its port", (rows["7"]["note"], config.get()["network_map"]["notes"]),
+       ("Wall plate B7", {}))
+    eq("and still shows on the page", snap["notes"][PORTED + "#7"], "Wall plate B7")
+    shown = {p["port"]: p for d in snap["devices"] if d["mac"] == PORTED for p in d["ports"]}
+    eq("the map draws the kept ports with what the switch says now",
+       (shown[8]["ref"], shown[8]["client"], shown[8]["warn"], shown[7]["up"]), (rows["8"]["ref"], "Stage box", "Many errors", False))
+    sw.live = sw.live[:2]
+    network_map.reset()
+    snap = asyncio.run(network_map.snapshot(FakeRegistry(sw, True), force=True))
+    gone = {p["port"]: p for d in snap["devices"] if d["mac"] == PORTED for p in d["ports"]}[8]
+    eq("a port the switch stops reporting is kept, missing, with no link", (gone["missing"], gone["up"], gone["link"]), (True, False, None))
+    network_map.save_labels(notes={PORTED + "#12": "Future camera"})
+    eq("a note on a port the switch has not listed makes its port", ports.by_key(g["id"], "12")["note"], "Future camera")
+    network_map.save_labels(notes={PORTED + "#12": ""})
+    eq("empty text clears it", ports.by_key(g["id"], "12")["note"], "")
 
 done()

@@ -4,16 +4,10 @@
   const R = window.RelayAdmin;
   if (!R || !document.getElementById('page-tallyarbiter')) return;
   const $ = R.$;
-  function can(perm) { return typeof window.relayCan !== 'function' || !!window.relayCan(perm); }
+  const can = relayUI.can;
   function showError(text) { $('taErr').textContent = text || ''; $('taErr').hidden = !text; }
 
-  async function send(method, path, body) {
-    const res = await fetch(path, { method: method, headers: { 'Content-Type': 'application/json' },
-      body: body === undefined ? undefined : JSON.stringify(body), credentials: 'same-origin' });
-    const data = await res.json().catch(function () { return {}; });
-    if (!res.ok) throw new Error(data.error || data.detail || 'That did not work.');
-    return data;
-  }
+  const send = relayUI.api;
 
   let editing = false;
   function draw(state) {
@@ -26,8 +20,7 @@
     $('taEmpty').hidden = state.cameras.length > 0;
     state.cameras.forEach(function (c) {
       const row = document.createElement('div');
-      row.className = 'row';
-      row.style.cssText = 'gap:12px;padding:6px 0;border-top:1px solid var(--line, #8883)';
+      row.className = 'lrow';
       const t = document.createElement('span');
       t.textContent = c.n + '. ' + c.name + (c.program ? ' · on program' : (c.preview ? ' · on preview' : ''));
       row.appendChild(t);

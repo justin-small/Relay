@@ -31,7 +31,7 @@ from typing import Callable
 import numpy as np
 import soxr
 
-from . import audio
+from . import audio, channels, config, db, routing
 from .audio import LANE_RATE as RATE, MAX_LANES as LANES
 
 log = logging.getLogger("relay.audiobus")
@@ -127,6 +127,77 @@ def normalize(raw) -> dict:
         matrix.append({"in": lane, "out": oid, "ch": ch, "gain_db": round(max(GAIN_MIN_DB, min(GAIN_MAX_DB, gain)), 2)})
     matrix.sort(key=lambda x: (x["out"], x["ch"], x["in"]))
     return {"enabled": bool(raw.get("enabled")), "lanes": lanes, "outputs": outputs, "matrix": matrix}
+
+
+PROVIDER = "audiobus"
+
+
+def report_channels(cfg: dict) -> dict[str, str] | None:
+    """Tell core which audio channels the bus has (#542): each patched lane is a source and each channel of each output a
+    destination, so the console, the intercom and a rundown can pick one by ref, and a route (app/routing.py, #544) can
+    feed one lane into one output channel. Returns {key: channel ref}, or None while the database is not ready."""
+    found = [{"key": f"lane{s['lane']}", "kind": "audio", "direction": "source", "number": s["lane"],
+              "gear_name": s["name"] or f"Lane {s['lane']}"} for s in cfg["lanes"]]
+    for o in cfg["outputs"]:
+        shown = o["name"] or o["id"]
+        found += [{"key": f"out:{o['id']}:{ch}", "kind": "audio", "direction": "destination", "number": ch,
+                   "gear_name": shown if o["channels"] == 1 else f"{shown} {ch}"} for ch in range(1, o["channels"] + 1)]
+    return channels.report(PROVIDER, found)
+
+
+def _split_out(key: str) -> tuple[str, int] | None:
+    """("<output id>", channel from 1) for a destination end key "out:<id>:<n>"."""
+    oid, _, ch = key[4:].rpartition(":") if key.startswith("out:") else ("", "", "")
+    return (oid, int(ch)) if oid and ch.isdigit() else None
+
+
+def matrix_from_routes() -> list[dict]:
+    """The crosspoints the bus should run, [{"in": lane, "out": output id, "ch", "gain_db"}], built from core routes: each
+    output channel takes the lanes routed to it, each with its gain. Empty while the database is not ready."""
+    cells: list[dict] = []
+    try:
+        world = channels.listing("audio")
+        for c in world:
+            for e in c["ends"]:
+                where = _split_out(e["key"]) if e["provider"] == PROVIDER and e["direction"] == "destination" and not e["missing"] else None
+                if where is None:
+                    continue
+                for w in routing.wanted(c["ref"]):
+                    lanes = [int(x["key"][4:]) for x in w["ends"]
+                             if x["provider"] == PROVIDER and x["key"].startswith("lane") and x["key"][4:].isdigit()]
+                    if lanes:
+                        cells.append({"in": lanes[0], "out": where[0], "ch": where[1], "gain_db": w["gain_db"] or 0.0})
+    except db.Unavailable:
+        log.warning("The audio bus matrix could not be read: the database is down")
+    return cells
+
+
+def save_matrix(cfg: dict, cells: list[dict]) -> None:
+    """Make `cells` (what the page sends) the routes: every output channel takes exactly the lanes listed for it."""
+    refs = report_channels(cfg) or {}
+    per: dict[str, list[tuple[str, float]]] = {}
+    for c in cells:
+        lane = channels.ensure(PROVIDER, f"lane{c['in']}", "audio", "source", f"Lane {c['in']}")
+        if lane:
+            per.setdefault(f"out:{c['out']}:{c['ch']}", []).append((lane, c["gain_db"]))
+    for key, ref in refs.items():
+        if key.startswith("out:"):
+            routing.replace(ref, per.get(key, []), apply=False)
+
+
+def runtime_config(raw: dict) -> dict:
+    """The bus setting with the matrix core routes hold. A matrix saved in config before #544 moves to routes first, once."""
+    cfg = normalize(raw)
+    try:
+        if cfg["matrix"]:
+            cells = cfg["matrix"]
+            save_matrix(cfg, cells)
+            config.save({"audio_bus": {**cfg, "matrix": []}}, replace=("audio_bus",))
+        else:
+            report_channels(cfg)
+    except db.Unavailable:
+        log.warning("The audio bus matrix could not be moved: the database is down")
+    return {**cfg, "matrix": matrix_from_routes()}
 
 
 def db_to_gain(db: float) -> float:
@@ -553,6 +624,7 @@ class Bus:
         """Make the bus match `cfg`, touching only what changed: a device or output that is the same as before
         keeps running, so changing one feed does not disturb another."""
         cfg = normalize(cfg)
+        report_channels(cfg)
         with self._lock:
             self.config = cfg
             if not cfg["enabled"]:
@@ -777,3 +849,27 @@ class BusOutput(audio.AudioOutput):
 
 audio.register_source(LaneSource())
 audio.register_output(BusOutput())
+
+
+# -- core routes (#544) ---------------------------------------------------------------------------------------------
+def _core_apply(end: dict, wanted: list[dict]) -> str:
+    """A route into an output channel changed (from any page): run the bus on the matrix the routes now say."""
+    try:
+        bus.apply({**bus.config, "matrix": matrix_from_routes()})
+    except Exception:
+        log.exception("The audio bus could not take a route")
+        return "The audio bus did not take that route."
+    return ""
+
+
+def _core_read(end: dict) -> list[dict] | None:
+    """The lanes the bus is really mixing into an output channel, with their gains; None while the bus is off."""
+    where = _split_out(end["key"])
+    if where is None or not bus.config["enabled"] or not bus.running:
+        return None
+    return [{"provider": PROVIDER, "key": f"lane{c['in']}", "gain_db": c["gain_db"]}
+            for c in bus.config["matrix"] if c["out"] == where[0] and c["ch"] == where[1]]
+
+
+routing.provide_core(PROVIDER, {"exclusive": False, "gain": True, "apply": _core_apply, "read": _core_read,
+                               "permission": "audio.manage"})

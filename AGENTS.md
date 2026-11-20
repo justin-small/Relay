@@ -16,6 +16,37 @@ operator can switch on and off. Never add an integration to core (`app/*.py`, `a
 If it fails, fix the design; do not add the new file to `CORE_FILES` or `CORE_NETWORK` to make it pass
 unless the file really is core, and say why in the pull request.
 
+## Shared UI helpers come from relay-ui.js (enforced)
+
+Shared UI helpers come from `app/static/relay-ui.js` (`window.relayUI`: `can`, `api`, `client`, `el`, `say`,
+`confirm`). Do not copy a helper into a module script; if core lacks one, add it to core. `tests/test_ui_contract.py`
+enforces this, and its baseline of older copies (`tests/ui_contract_baseline.txt`) may only shrink. See
+"Shared helpers for module scripts" in `docs/modules.md`.
+
+## Shared styles come from components.css and tokens.css (enforced)
+
+Operator and module pages use the components in `app/static/components.css` and the tokens in `app/static/tokens.css`;
+no literal sizes or colours, no `<style>` in module templates and no CSS written from a script. A module's styles go
+in its `static/*.css`, listed in `admin_styles` or `crew_styles`. `tests/test_style_contract.py` enforces this, and its
+baseline (`tests/style_contract_baseline.txt`) may only go down; `tests/test_browser.py` checks the drawn sizes. See
+"Shared styles for module pages" in `docs/modules.md` and the exceptions in `docs/ui-audit/standardization-spec.md`.
+
+## Names, slugs, days and clock times come from text.py and timewin.py (enforced)
+
+Compare names with `app/text.py` (`same_name`, `fold`, `plain`) and make slugs with its `slug`; read days and clock
+times with `app/timewin.py`, where **days count from Sunday = 0** (`timewin.weekday(d)`, never `d.weekday()`).
+`tests/test_shared_concepts.py` enforces this, and its baseline (`tests/shared_concepts_baseline.txt`) may only
+shrink. See "Shared names, slugs, days and clock times" in `docs/modules.md`.
+
+## Tests wait on events and run real code (enforced)
+
+Python tests do not add fixed sleeps (use `wait_for`/`await_for`), `unittest.mock` or `monkeypatch`, hand-written
+swaps of a module's functions (`routes.fetch = fake`), timeouts above the harness's 5 seconds, or loops that catch
+`AssertionError` and retry. `tests/test_honest_tests.py` enforces this with a per-file count in
+`tests/honest_tests_baseline.txt` that may only go down. A use that is right is marked on its line with a reason, e.g.
+`# allow-sleep: shows no second push arrives` (a sleep only shows that something does *not* happen; a mock or
+patch only stands in for a seam a test cannot reach, such as the OS network stack).
+
 ## Run the whole suite before every push
 
 CI runs every `tests/test_*.py` plus `tests/smoke_test.py` on three platforms, and a new route, setting or module

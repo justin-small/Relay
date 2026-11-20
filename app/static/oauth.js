@@ -53,7 +53,7 @@
         // Through relay-cloud: the operator signs in at the service and it sends them back to Relay's cloud.
         card.appendChild(el('p', 'oauthsteps', 'Sign in with the church\'s ' + (s.service || '') + ' account. The sign-in opens in a new tab; this card updates by itself once you have signed in.'));
         const go = el('div', 'pactions');
-        const a = el('a', 'oauthgo', 'Open ' + (s.service || 'the') + ' sign-in');
+        const a = el('a', 'btn primary oauthgo', 'Open ' + (s.service || 'the') + ' sign-in');
         a.href = /^https:\/\//.test(s.url || '') ? s.url : '#';
         a.target = '_blank';
         a.rel = 'noopener noreferrer';
@@ -80,7 +80,7 @@
         }
       } else if (s.state === 'connected' || s.state === 'sign_in') {
         const dl = el('dl');
-        function row(k, v) { if (!v) return; dl.appendChild(el('dt', '', k)); dl.appendChild(el('dd', '', v)); }
+        function row(k, v) { relayUI.kv(dl, k, v); }
         row('Account', s.account);
         row('Connected', when(s.connected_at) + (s.connected_by ? ' by ' + s.connected_by : ''));
         row('Access', (s.scopes || []).map(function (x) { return (opts.scopeNames || {})[x] || x; }).join(', '));
@@ -110,7 +110,7 @@
 
     async function act(path, btn) {
       if (busy) return;
-      if (path === '/disconnect' && !window.confirm('Disconnect this account? Relay forgets it and asks the service to remove its access.')) return;
+      if (path === '/disconnect' && !(await relayUI.confirm('Disconnect this account? Relay forgets it and asks the service to remove its access.'))) return;
       busy = true;
       btn.disabled = true;
       try {
@@ -142,16 +142,6 @@
     return { refresh: refresh, stop: function () { clearTimeout(timer); } };
   }
 
-  (function () {
-    const s = document.createElement('style');
-    s.textContent = '.oauthcard .oauthcode{font:600 28px/1.2 ui-monospace,Menlo,Consolas,monospace;letter-spacing:.12em;' +
-      'margin:8px 0;user-select:all}.oauthcard .oauthsteps{margin:10px 0 0}.oauthcard a{color:var(--fg)}' +
-      '.oauthcard a.oauthgo{display:inline-block;padding:6px 14px;border-radius:8px;text-decoration:none;font-weight:500;' +
-      'background:var(--primary);border:1px solid var(--primary);color:var(--primary-fg)}' +
-      '.oauthcard .phead .spill{padding:3px 9px;font-size:11px}.oauthcard .spill .dot{border-radius:50%;display:inline-block}.oauthcard .spill:not(.on) .dot{background:var(--dim)}' +
-      '.oauthcard .spill.idle{color:var(--dim)}.oauthcard .spill.warn{color:#fcd34d;border-color:#5b4a14}.oauthcard .spill.warn .dot{background:#fcd34d}';
-    document.head.appendChild(s);
-  })();
 
   window.RelayOAuth = { mount: mount };
 })();
