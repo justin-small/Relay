@@ -8,7 +8,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 
 from ... import audit, config
 from .. import require
-from . import multiview, outputs, viewer
+from . import multiview, outputs, testpatterns, viewer
 from .service import KEY, LOW, VIEW_LIMITS, clean_ip, clean_server, clean_settings, service
 
 router = APIRouter()
@@ -93,6 +93,53 @@ async def admin_outputs(request: Request, payload: dict):
     audit.note(request, "ndi.outputs", "Changed which pages Relay sends as NDI")
     if service.running:
         await asyncio.to_thread(service.pages.sync)
+    return service.snapshot()
+
+
+# ------------------------------------------------------------------------------------------------ test patterns (#302)
+@router.put("/api/admin/ndi/tests", dependencies=MANAGE)
+async def admin_tests(request: Request, payload: dict):
+    """The test sources (a list; one without an id is new) and which are on."""
+    cur = service.settings()
+    raw = payload.get("tests", cur["tests"])
+    if not isinstance(raw, list) or any(not isinstance(t, dict) for t in raw):
+        return _bad("The test sources are a list.")
+    if len(raw) > testpatterns.MAX_TESTS:
+        return _bad(f"Keep at most {testpatterns.MAX_TESTS} test sources.")
+    tests = [{**t, "id": t["id"] if isinstance(t.get("id"), str) and t["id"] else testpatterns.new_id()} for t in raw]
+    clean = testpatterns.clean_tests(tests)
+    if len(clean) != len(tests):
+        return _bad("Give each test source its own name (letters, numbers, spaces), and use a size from the list.")
+    on = payload.get("on", cur["tests_on"])
+    if not isinstance(on, list) or any(v not in {t["id"] for t in clean} for v in on) or len(set(on)) > testpatterns.MAX_ON:
+        return _bad(f"Switch on at most {testpatterns.MAX_ON} test sources at once.")
+    names = {outputs.ndi_name(d["name"]).lower() for d in service.pages.defs()}
+    if any(testpatterns.ndi_name(t).lower() in names for t in clean):
+        return _bad("A page output already has that name.")
+    for gone in {t["id"] for t in cur["tests"]} - {t["id"] for t in clean}:
+        service.tests.forget(gone)
+    service.save_settings({"tests": clean, "tests_on": on})
+    audit.note(request, "ndi.tests", "Changed the NDI test patterns")
+    if service.running:
+        await asyncio.to_thread(service.tests.sync)
+    return service.snapshot()
+
+
+@router.put("/api/admin/ndi/tests/{tid}/image", dependencies=MANAGE)
+async def admin_test_image(request: Request, tid: str):
+    """The picture a test source of the "Your own picture" kind shows: the PNG is the request body."""
+    if tid not in {t["id"] for t in service.settings()["tests"]}:
+        return _bad("That test source does not exist.", 404)
+    raw = await request.body()
+    why = await asyncio.to_thread(testpatterns.check_image, raw)
+    if why:
+        return _bad(why)
+    path = service.tests.image_path(tid)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    await asyncio.to_thread(path.write_bytes, raw)
+    audit.note(request, "ndi.tests", "Uploaded a picture for an NDI test pattern")
+    if service.running:        # draw it again: the running source loaded the old picture when it started
+        await asyncio.to_thread(service.tests.restart, tid)
     return service.snapshot()
 
 

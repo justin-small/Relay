@@ -679,6 +679,8 @@ for method, path, perm in (
     ("PUT", "/api/admin/ndi/settings", "ndi.manage"),                   # an empty body changes nothing
     ("POST", "/api/admin/ndi/scan", "ndi.manage"),                      # not running: refused, nothing is sent
     ("PUT", "/api/admin/ndi/outputs", "ndi.manage"),                    # an empty body changes nothing
+    ("PUT", "/api/admin/ndi/tests", "ndi.manage"),                      # an empty body changes nothing
+    ("PUT", "/api/admin/ndi/tests/{tid}/image", "ndi.manage"),          # no such test source: refused
     ("POST", "/api/admin/ndi/router/outputs", "ndi.manage"),            # no name: refused
     ("DELETE", "/api/admin/ndi/router/outputs/{oid}", "ndi.manage"),    # no such output: refused
     ("PUT", "/api/admin/ndi/router/outputs/{oid}/source", "ndi.manage"),
