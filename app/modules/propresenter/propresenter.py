@@ -82,6 +82,9 @@ TIMER_JUMP_S = 2.0           # a running timer that is this far from where it sh
 # ----------------------------------------------------------------------------------------------- settings
 def default_settings() -> dict[str, Any]:
     return {"enabled": False, "host": "", "port": 0, "view_only": False,
+            # The computers Relay knows (#483), each {"id", "name", "host", "port"}, and which one drives the show. `host`
+            # and `port` above are always the primary's, so the follower, lobby and the other links read them unchanged.
+            "computers": [], "primary": "",
             "songs_library": "Songs", "songs_only": True,
             # Where the lyrics feed may be read. Song lyrics are licensed: the public phone viewer is off.
             "lyrics": {"viewer": False, "screen": True, "overlay": False, "panels": True},
@@ -278,15 +281,53 @@ def clean_port(value: object) -> int:
     return port if 1 <= port <= 65535 else 0
 
 
+MAX_COMPUTERS = 8
+COMPUTER_ID_RE = re.compile(r"^[a-z0-9_\-]{1,24}$")
+
+
+def clean_computers(raw: object, primary: object = "") -> tuple[list[dict[str, Any]], str]:
+    """(computers, primary id). A computer is {"id", "name", "host", "port"}: bounded, unique ids, one with no host
+    dropped, a computer with no name called "ProPresenter" (then "ProPresenter 2"...). `primary` is kept when it is
+    one of them, else the first computer."""
+    out: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for item in (raw if isinstance(raw, list) else [])[:MAX_COMPUTERS]:
+        if not isinstance(item, dict):
+            continue
+        host = clean_host(item.get("host"))
+        if not host:
+            continue
+        cid = item.get("id") if isinstance(item.get("id"), str) and COMPUTER_ID_RE.match(item["id"]) else ""
+        if not cid or cid in seen:
+            cid = next(i for i in ("main", *(f"c{n}" for n in range(2, MAX_COMPUTERS + 2))) if i not in seen)
+        seen.add(cid)
+        name = " ".join(str(item.get("name") or "").split())[:40] or "ProPresenter" + (f" {len(out) + 1}" if out else "")
+        out.append({"id": cid, "name": name, "host": host, "port": clean_port(item.get("port"))})
+    chosen = primary if isinstance(primary, str) and primary in seen else (out[0]["id"] if out else "")
+    return out, chosen
+
+
+def primary_computer(s: dict[str, Any]) -> dict[str, Any] | None:
+    return next((c for c in s.get("computers") or [] if c["id"] == s.get("primary")), None)
+
+
 def clean_stored(raw: object) -> dict[str, Any]:
     """The saved settings, anything malformed dropped rather than refused so a hand edit cannot stop Relay."""
     base = default_settings()
     raw = raw if isinstance(raw, dict) else {}
     lyr = raw.get("lyrics") if isinstance(raw.get("lyrics"), dict) else {}
+    listed = raw.get("computers")
+    if not listed:
+        # Before #483 one computer sat in `host` and `port` (and a hand edit may still set them): it becomes the
+        # first, "main". Once there are computers, `host` and `port` only mirror the primary.
+        listed = [{"id": "main", "name": "ProPresenter", "host": raw.get("host"), "port": raw.get("port")}]
+    computers, primary = clean_computers(listed, raw.get("primary"))
+    drives = next((c for c in computers if c["id"] == primary), None)
     return {
         "enabled": bool(raw.get("enabled", False)),
-        "host": clean_host(raw.get("host")),
-        "port": clean_port(raw.get("port")),
+        "computers": computers, "primary": primary,
+        "host": drives["host"] if drives else "",
+        "port": drives["port"] if drives else 0,
         "view_only": bool(raw.get("view_only", False)),
         "songs_library": " ".join(str(raw.get("songs_library") or base["songs_library"]).split())[:64]
         or base["songs_library"],

@@ -159,9 +159,13 @@ class ProPresenter(Module):
     def gear_list(self) -> dict:
         from ... import config
 
-        host = (config.get().get("propresenter") or {}).get("host")
-        return {"devices": [{**_addr(host), "name": "ProPresenter computer", "kind": "computer",
-                             "tags": ["ProPresenter"]}] if host else []}
+        from .propresenter import clean_stored
+
+        s = clean_stored(config.get().get("propresenter"))
+        computers = s["computers"]
+        return {"devices": [{**_addr(c["host"]), "name": c["name"] if len(computers) > 1 else "ProPresenter computer",
+                             "kind": "computer", "tags": ["ProPresenter"] + (["primary"] if len(computers) > 1 and c["id"] == s["primary"] else [])}
+                            for c in computers if c.get("host")]}
 
     def health(self) -> Health:
         from .propresenter import follower
@@ -170,7 +174,14 @@ class ProPresenter(Module):
         if not s["configured"]:
             return Health("warn", "Not set up: enter the address and switch it on")
         if s["connected"]:
-            return Health("ok", "Connected" + (f" to ProPresenter {s['version']}" if s.get("version") else ""))
+            from ... import config
+
+            saved = config.get().get("propresenter") or {}
+            lead = next((c["name"] for c in saved.get("computers") or [] if c["id"] == saved.get("primary")), "")
+            many = len(saved.get("computers") or []) > 1
+            return Health("ok", "Connected" + (f" to {lead}" if many and lead else "")
+                          + (f" (ProPresenter {s['version']})" if many and s.get("version")
+                             else f" to ProPresenter {s['version']}" if s.get("version") else ""))
         if s["connecting"]:
             return Health("warn", "Connecting")
         return Health("error", s["error"] or "Not connected")

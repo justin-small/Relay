@@ -131,13 +131,22 @@
     {# Program: choose one, then only the fields it needs. #}
     <div role="tabpanel" data-ltpane="program" hidden>
       <section>
-        <h3>Lighting program</h3>
-        <p class="note ltlede">Relay talks to one lighting program. Pick it, then fill in what it needs.</p>
+        <h3>Lighting programs</h3>
+        <p class="note ltlede">Relay can talk to several lighting programs at once, even two of the same kind. Pick one
+          to set up, or add another. A page can hold cues from any of them.</p>
+        <div class="ltopts" id="ltList" role="group" aria-label="Your lighting programs"></div>
+        <div class="ctl"><button type="button" id="ltAdd">Add a program</button></div>
+        <h3>Kind of program</h3>
         <div class="ltopts" id="ltProgs" role="group" aria-label="Lighting program"></div>
       </section>
       <section id="ltConn" hidden>
         <h3 id="ltConnTitle">Connection</h3>
         <div class="ltform">
+          <div class="field">
+            <label for="ltName">Name</label>
+            <input id="ltName" placeholder="Sanctuary lights" autocomplete="off" maxlength="40">
+            <span class="hint">Shown on the pages and in the audit trail.</span>
+          </div>
           <div class="field" data-ltfield="host">
             <label for="ltHost">Address</label>
             <input id="ltHost" placeholder="192.168.1.50" autocomplete="off" spellcheck="false" maxlength="253">
@@ -171,6 +180,7 @@
         <div class="ctl">
           <button type="button" class="primary" id="ltSave">Save</button>
           <button type="button" id="ltTest">Test connection</button>
+          <button type="button" id="ltRemove">Remove this program</button>
           <span class="note" id="ltStatus"></span>
         </div>
       </section>

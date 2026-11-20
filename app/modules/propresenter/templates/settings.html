@@ -19,7 +19,20 @@
     <div class="ppsbody">
     <section id="ppConn">
       <h3>Connection</h3>
+      <div class="note">Relay can know several ProPresenter computers. The <em>primary</em> one drives the
+        show: lyrics, timers, slide tags, the lobby and the Planning Center link all follow it. Make another computer the
+        primary to control it.</div>
+      <div class="plist" id="ppComputers" role="group" aria-label="ProPresenter computers"></div>
+      <div class="ctl">
+        <button type="button" id="ppAdd">Add a computer</button>
+        <button type="button" id="ppMakePrimary">Make this the primary</button>
+        <button type="button" id="ppRemove">Remove this computer</button>
+      </div>
       <div class="row">
+        <div class="field">
+          <label for="ppName">Name</label>
+          <input id="ppName" placeholder="Sanctuary" autocomplete="off" maxlength="40">
+        </div>
         <div class="field">
           <label for="ppHost">Machine name or address</label>
           <input id="ppHost" placeholder="10.0.0.20 or Studio-Mac.local" autocomplete="off" spellcheck="false">

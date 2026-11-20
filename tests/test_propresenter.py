@@ -784,6 +784,30 @@ eq("a lyrics switch moves alone", body["settings"]["lyrics"], {"viewer": False, 
 eq("the settings are in the admin state and the file", admin.get("/api/admin/state").json()["config"]["propresenter"]["host"],
    "127.0.0.1")
 eq("while off, the state says not configured", body["state"]["configured"], False)
+# several computers (#483): one is primary and its address is the host and port the follower reads
+print("several computers")
+eq("the one saved computer became the first, main", (body["settings"]["computers"], body["settings"]["primary"]),
+   ([{"id": "main", "name": "ProPresenter", "host": "127.0.0.1", "port": srv.port}], "main"))
+r = admin.post("/api/admin/propresenter", json={"computers": [
+    {"id": "main", "name": "Sanctuary", "host": "127.0.0.1", "port": srv.port},
+    {"name": "Overflow", "host": "10.0.0.8", "port": 50002}, {"name": "No host", "host": ""}, "junk"]})
+b = r.json()["settings"]
+eq("a list of computers is saved: no host or junk is dropped, ids and names are made",
+   [(c["id"], c["name"], c["host"]) for c in b["computers"]], [("main", "Sanctuary", "127.0.0.1"), ("c2", "Overflow", "10.0.0.8")])
+eq("the first is primary and its address is host and port", (b["primary"], b["host"], b["port"]), ("main", "127.0.0.1", srv.port))
+r = admin.post("/api/admin/propresenter", json={"primary": "c2"})
+eq("another computer is made primary", (r.json()["settings"]["host"], r.json()["settings"]["port"]), ("10.0.0.8", 50002))
+r = admin.post("/api/admin/propresenter", json={"primary": "nope"})
+eq("an unknown primary falls back to the first computer", r.json()["settings"]["primary"], "main")
+r = admin.post("/api/admin/propresenter", json={"port": srv.port + 1})
+eq("the old host and port body edits the primary", [(c["id"], c["port"]) for c in r.json()["settings"]["computers"]],
+   [("main", srv.port + 1), ("c2", 50002)])
+r = admin.post("/api/admin/propresenter", json={"computers": [{"id": "main", "host": "http://bad/"}]})
+eq("a URL as a computer's host is refused", r.status_code, 400)
+eq("each computer is listed as gear, the primary marked",
+   [(d["name"], d["tags"]) for d in _modules.get("propresenter").gear_list()["devices"]],
+   [("Sanctuary", ["ProPresenter", "primary"]), ("Overflow", ["ProPresenter"])])
+admin.post("/api/admin/propresenter", json={"computers": [{"id": "main", "name": "ProPresenter", "host": "127.0.0.1", "port": srv.port}]})
 # the stream refuses what is switched off
 admin.post("/api/admin/propresenter", json={"enabled": True})
 eq("the phone viewer is refused by default", viewer.get("/stream?stream=lyrics").status_code, 403)

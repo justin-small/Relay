@@ -37,13 +37,40 @@
      The connection fields are filled from the server once and then left alone while the operator types; the
      status below them is refreshed every couple of seconds while the page is open. */
   let ppSettings = null, ppFilled = false, ppTimer = null;
+  let ppComps = [], ppPrimary = '', ppCur = 0;   // the computers being edited (#483) and the one open in the form
+
+  function ppReadComputer() {
+    const c = ppComps[ppCur];
+    if (!c) return;
+    c.name = $('ppName').value.trim(); c.host = $('ppHost').value.trim();
+    c.port = parseInt($('ppPort').value, 10) || 0;
+  }
+  function ppShowComputer() {
+    const c = ppComps[ppCur] || {};
+    $('ppName').value = c.name || ''; $('ppHost').value = c.host || ''; $('ppPort').value = c.port || '';
+    ppDrawComputers();
+  }
+  function ppDrawComputers() {
+    const box = $('ppComputers');
+    box.textContent = '';
+    ppComps.forEach(function (c, i) {
+      const b = el('button', i === ppCur ? 'on' : '', (c.name || 'ProPresenter') + (c.id === ppPrimary ? ' · primary' : ''));
+      b.type = 'button'; b.setAttribute('aria-pressed', String(i === ppCur));
+      b.addEventListener('click', function () { ppReadComputer(); ppCur = i; ppShowComputer(); });
+      box.appendChild(b);
+    });
+    $('ppMakePrimary').disabled = !ppComps[ppCur] || ppComps[ppCur].id === ppPrimary;
+    $('ppRemove').disabled = !ppComps[ppCur];
+  }
 
   function ppFill(s) {
     ppSettings = s;
     if (!ppFilled) {
       ppFilled = true;
-      $('ppHost').value = s.host || '';
-      $('ppPort').value = s.port || '';
+      ppComps = JSON.parse(JSON.stringify(s.computers || [])); ppPrimary = s.primary || '';
+      if (!ppComps.length) ppComps = [{ id: '', name: '', host: '', port: 0 }];
+      ppCur = Math.max(0, ppComps.findIndex(function (c) { return c.id === ppPrimary; }));
+      ppShowComputer();
       $('ppLibrary').value = s.songs_library || 'Songs';
       const tm = s.timers || { amber_s: 120, red_s: 30 };
       $('ppTmAmber').value = clockText(tm.amber_s);
@@ -168,15 +195,41 @@
   setTimeout(ppPoll, 400);
 
   async function ppSave(extra) {
+    ppReadComputer();
     const body = await post('/api/admin/propresenter', Object.assign({
-      host: $('ppHost').value.trim(), port: parseInt($('ppPort').value, 10) || 0, enabled: $('ppEnabled').checked
+      computers: ppComps, primary: ppPrimary, enabled: $('ppEnabled').checked
     }, extra || {}));
+    // The server gave each new computer an id: take the lists back so the next save names them.
+    ppComps = JSON.parse(JSON.stringify(body.settings.computers || [])); ppPrimary = body.settings.primary || '';
+    if (!ppComps.length) ppComps = [{ id: '', name: '', host: '', port: 0 }];
+    ppCur = Math.min(ppCur, ppComps.length - 1);
+    ppShowComputer();
     ppRender(body);
     return body;
   }
 
   $('ppSave').addEventListener('click', async function () {
     try { await ppSave(); okMsg('Saved.'); } catch (e) { alertMsg(e.message); }
+  });
+  $('ppAdd').addEventListener('click', function () {
+    ppReadComputer();
+    ppComps.push({ id: '', name: '', host: '', port: 0 });
+    ppCur = ppComps.length - 1; ppShowComputer();
+  });
+  $('ppMakePrimary').addEventListener('click', async function () {
+    ppReadComputer();
+    const c = ppComps[ppCur];
+    if (!c || !c.id) { alertMsg('Save this computer first, then make it the primary.'); return; }
+    ppPrimary = c.id;
+    try { await ppSave(); okMsg(c.name + ' is the primary now.'); } catch (e) { alertMsg(e.message); }
+  });
+  $('ppRemove').addEventListener('click', async function () {
+    const c = ppComps[ppCur];
+    if (!c || !(await window.relayUI.confirm('Remove ' + (c.name || 'this computer') + '?'))) return;
+    ppComps.splice(ppCur, 1);
+    if (c.id === ppPrimary) ppPrimary = '';
+    ppCur = 0;
+    try { await ppSave(); okMsg('Removed.'); } catch (e) { alertMsg(e.message); }
   });
   $('ppEnabled').addEventListener('change', async function () {
     try { await ppSave(); alertMsg(''); } catch (e) { alertMsg(e.message); $('ppEnabled').checked = false; }

@@ -115,10 +115,10 @@ async def main():
         check("no host, a press", "address" in await raises(vista.Vista({"host": ""}).press("EX.1.0.1.0.0")))
 
     with section("settings"):
-        eq("console type is cleaned", (svc.clean_settings({"console": " sl "})["console"],
-                                       svc.clean_settings({"console": "bad type!"})["console"],
-                                       svc.clean_settings({})["console"]), ("sl", "EX", "EX"))
-        eq("a good one is kept", svc.clean_settings({"console": "SL2"})["console"], "SL2")
+        eq("console type is cleaned", (svc.clean_program({"console": " sl "})["console"],
+                                       svc.clean_program({"console": "bad type!"})["console"],
+                                       svc.clean_program({})["console"]), ("sl", "EX", "EX"))
+        eq("a good one is kept", svc.clean_program({"console": "SL2"})["console"], "SL2")
     rx.close()
 
 

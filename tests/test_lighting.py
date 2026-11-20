@@ -3,6 +3,7 @@ their permissions, the audit trail, the fire hook, and a press that is never rep
 Run: python tests/test_lighting.py
 """
 import asyncio
+import json
 import os
 import sys
 import tempfile
@@ -72,13 +73,21 @@ with section("settings and pages are cleaned"):
     s = svc.clean_settings({"backend": "fake", "host": " 10.0.0.5 ", "port": 70000, "password": "pw",
                             "pages": [{"name": " Worship  ", "cues": [{"id": "b", "name": "Verse"}, {"id": "b"}, {"id": "bad id"}]},
                                       {"name": ""}, "junk"]})
-    eq("host trimmed, bad port dropped", (s["host"], s["port"]), ("10.0.0.5", 0))
+    eq("host trimmed, bad port dropped", (s["programs"][0]["host"], s["programs"][0]["port"]), ("10.0.0.5", 0))
+    eq("the flat settings from before #484 become the first program, main", (len(s["programs"]), s["programs"][0]["id"]),
+       (1, "main"))
     eq("one named page, duplicate and bad cue ids dropped", [(p["name"], [(c["id"], c["name"]) for c in p["cues"]]) for p in s["pages"]],
        [("Worship", [("b", "Verse")])])
     check("a page gets an id", s["pages"][0]["id"])
-    eq("junk settings are empty", svc.clean_settings("x")["backend"], "")
-    check("public strips the password", svc.public(s)["password"] == "" and svc.public(s)["has_password"] is True)
-    check("the module's public() agrees", _modules.get("lighting").public(s)["password"] == "")
+    eq("junk settings are empty", svc.clean_settings("x")["programs"], [])
+    pub = svc.public(s)["programs"][0]
+    check("public strips the password", "password" not in pub and pub["has_password"] is True)
+    check("the module's public() agrees", "passwords" not in _modules.get("lighting").public(s))
+    check("the password is stored apart, to be sealed", json.loads(s["passwords"]) == {"main": "pw"})
+    many = svc.clean_settings({"programs": [{"backend": "fake", "name": "Sanctuary"}, {"backend": "fake"},
+                                            {"id": "main", "backend": "blind"}, "junk"]})["programs"]
+    eq("several programs get unique ids and names", [(p["id"], p["name"]) for p in many],
+       [("main", "Sanctuary"), ("p2", "Fake program"), ("p3", "Blind program")])
 
 with section("admin routes"):
     config.ensure_file()
@@ -105,10 +114,11 @@ with section("admin routes"):
 
     r = admin.put(A + "/settings", json={"backend": "fake", "host": "10.0.0.5", "port": 1234, "password": "pw"})
     eq("the program is chosen", (r.status_code, r.json()["active"], r.json()["can_list"]), (200, True, True))
-    check("the password is never sent back", r.json()["password"] == "" and r.json()["has_password"] is True)
-    check("but it is kept", config.get()["lighting"]["password"] == "pw")
+    one = r.json()["programs"][0]
+    check("the password is never sent back", "password" not in one and one["has_password"] is True)
+    check("but it is kept", svc.service.programs()[0]["password"] == "pw")
     r = admin.put(A + "/settings", json={"host": "10.0.0.6"})
-    check("an empty password leaves the saved one", config.get()["lighting"]["password"] == "pw")
+    check("an empty password leaves the saved one", svc.service.programs()[0]["password"] == "pw")
     eq("a bad address is a 400", admin.put(A + "/settings", json={"host": "no spaces/please"}).status_code, 400)
     r = admin.get(A)
     eq("listed cues and state", ([c["name"] for c in r.json()["cues"]], r.json()["state"]),
@@ -136,7 +146,7 @@ with section("admin routes"):
     eq("a text level is refused", admin.post(A + "/level", json={"cue": "s9", "level": "5"}).status_code, 400)
     eq("a level on an unknown cue is 404", admin.post(A + "/level", json={"cue": "zzz", "level": 5}).status_code, 404)
     eq("the program was told once", Fake.calls, [("level", "s9", 70)])
-    eq("the functions setting is saved", admin.put(A + "/settings", json={"functions": True}).json()["functions"], True)
+    eq("the functions setting is saved", admin.put(A + "/settings", json={"functions": True}).json()["programs"][0]["functions"], True)
     admin.put(A + "/settings", json={"functions": False})
 
 with section("audit trail"):
@@ -160,14 +170,65 @@ with section("the fire hook"):
     check("a tag press is recorded as coming from the slide tag",
           "Lighting: Worship, Verse (from a ProPresenter slide tag)" in texts, texts)
     Fake.calls.clear()
-    config.save({"lighting": {**config.get()["lighting"], "backend": "blind"}})
-    asyncio.run(svc.service.restart())
+    admin.put(A + "/settings", json={"backend": "blind"})
     admin.put(A + "/pages", json={"pages": [{"name": "Hand", "cues": [{"id": "g1", "name": "Hand cue"}]}]})
     r = admin.get(A).json()
     eq("a program that cannot list shows no cues but keeps its pages", (r["can_list"], r["cues"], len(r["pages"])), (False, [], 1))
     eq("a hand-added cue can be fired from the page", operator.post(A + "/press", json={"cue": "g1"}).status_code, 502)
-    config.save({"lighting": {**config.get()["lighting"], "backend": "fake"}})
-    asyncio.run(svc.service.restart())
+    admin.put(A + "/settings", json={"backend": "fake"})
+
+class Second(Fake):
+    id, label = "second", "Second program"
+    calls: list = []
+
+    async def list_cues(self):
+        return [be.Cue("a", "Chorus"), be.Cue("z", "Strobe")]
+
+    async def press(self, cue_id):
+        Second.calls.append(("press", cue_id))
+
+    async def state(self):
+        return {"a": True, "z": False}
+
+
+be.register(Second)
+
+with section("several programs at once"):
+    Fake.calls.clear()
+    r = admin.put(A + "/settings", json={"programs": [
+        {"id": "main", "name": "Sanctuary", "backend": "fake", "host": "10.0.0.5", "password": "one"},
+        {"name": "Youth room", "backend": "second", "host": "10.0.0.9", "password": "two"},
+        {"name": "Lobby", "backend": "fake", "host": "10.0.0.7"}]})
+    ids = [p["id"] for p in r.json()["programs"]]
+    eq("three programs, two of the same kind", (r.status_code, ids, [p["active"] for p in r.json()["programs"]]),
+       (200, ["main", "p2", "p3"], [True, True, True]))
+    check("no password comes back", all("password" not in p for p in r.json()["programs"]))
+    eq("each program keeps its own password", [p["password"] for p in svc.service.programs()], ["one", "two", ""])
+    eq("each backend got its own program's settings", [svc.service.backends[i].settings["host"] for i in ids],
+       ["10.0.0.5", "10.0.0.9", "10.0.0.7"])
+    r = admin.get(A).json()
+    eq("every program's cues are listed, the first bare and the others prefixed",
+       [(c["id"], c["program"]) for c in r["cues"] if c["name"] in ("Walk-in", "Chorus", "Strobe")],
+       [("a", "main"), ("p2:a", "p2"), ("p2:z", "p2"), ("p3:a", "p3")])
+    eq("two programs both having a cue a do not clash", {k: v for k, v in r["state"].items() if k in ("a", "p2:a", "p2:z")},
+       {"a": True, "p2:a": True, "p2:z": False})
+    admin.put(A + "/pages", json={"pages": [{"name": "Both", "cues": [{"id": "b", "name": "Verse"},
+                                                                       {"id": "p2:a", "name": "Chorus"}]}]})
+    Fake.calls.clear()
+    Second.calls.clear()
+    eq("a cue goes to its own program", (operator.post(A + "/press", json={"cue": "p2:a"}).status_code,
+                                         operator.post(A + "/press", json={"cue": "b"}).status_code), (200, 200))
+    eq("…only that program was told", (Second.calls, Fake.calls), ([("press", "a")], [("press", "b")]))
+    eq("a program that is not there is not a prefix", operator.post(A + "/press", json={"cue": "p9:a"}).status_code, 404)
+    r = admin.put(A + "/settings", json={"programs": [{"id": "main", "backend": "fake", "host": "10.0.0.5"}]})
+    eq("a program removed leaves the rest", [p["id"] for p in r.json()["programs"]], ["main"])
+    eq("its password does not linger, the kept one stays", json.loads(config.get()["lighting"]["passwords"] or "{}"),
+       {"main": "one"})
+    eq("test one program", admin.post(A + "/test", json={"program": "main"}).json(), {"ok": True, "detail": "Fake is fine."})
+    admin.put(A + "/settings", json={"programs": [{"id": "main", "backend": "fake"}, {"backend": "blind"}]})
+    check("a test of all says each program", "Fake is fine." in admin.post(A + "/test").json()["detail"])
+    eq("health names a program that is not ready", _modules.get("lighting").health().state, "ok")
+    admin.put(A + "/settings", json={"programs": [{"id": "main", "backend": "fake"}]})
 
 with section("a dropped connection is never retried"):
     Fake.calls.clear()
@@ -180,8 +241,7 @@ with section("a dropped connection is never retried"):
 
 with section("health"):
     eq("ready", _modules.get("lighting").health().state, "ok")
-    config.save({"lighting": {**config.get()["lighting"], "backend": ""}})
-    asyncio.run(svc.service.restart())
+    admin.put(A + "/settings", json={"programs": []})
     eq("no program is a warning", _modules.get("lighting").health().state, "warn")
 
 with section("switched off"):

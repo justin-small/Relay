@@ -53,6 +53,10 @@ guest Wi-Fi.
 4. Click **Test connection**. You should see the ProPresenter version.
 5. Tick **Follow ProPresenter** and click **Save**.
 
+**More than one ProPresenter computer.** Click **Add a computer** and fill in its name, address and port. One computer is
+the **primary**: it drives the show, so the lyrics, timers, slide tags, lobby rotation and the Planning Center link all follow
+it. To control another computer, select it and click **Make this the primary**. Every computer shows on the Network page.
+
 The link to Planning Center (following the plan, and ProPresenter moving
 Services LIVE) needs the **Planning Center** module switched on too.
 
