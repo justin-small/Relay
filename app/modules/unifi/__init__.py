@@ -68,11 +68,13 @@ class UniFi(Module):
         from .service import service
 
         modules.provide("unifi.service", service)       # the crew's Wi-Fi check-in reads who is on the network
+        modules.provide("gear.unifi", {"list": self.gear_list})   # its switches, access points and clients (app/gearfeed.py)
 
     def detach(self) -> None:
         from ... import modules
 
         modules.withdraw("unifi.service")
+        modules.withdraw("gear.unifi")
 
     async def start(self) -> None:
         from .service import service
@@ -89,10 +91,10 @@ class UniFi(Module):
 
         service.poke()
 
-    def network_map(self) -> list[dict]:
+    def gear_list(self) -> dict:
         from .service import service
 
-        return service.map_devices()
+        return {"devices": service.map_devices()}
 
     def pills(self) -> list[dict]:
         from .service import service

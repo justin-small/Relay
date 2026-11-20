@@ -1,14 +1,15 @@
 """The network map (#437): every device Relay can see, and which of them carry NDI video or Dante audio.
 
-A core page that modules feed. Core imports no module: a module that knows devices overrides `Module.network_map()`
-and returns plain dicts (see DEVICE below); this file asks every module that does, merges what comes back with
+A core page that modules feed. Core imports no module: a module that knows devices offers `modules.provide("gear.<id>",
+{"list": fn})` and its `list()` returns them as plain dicts under "devices" (see DEVICE below, and app/gearfeed.py); this file
+asks every module that does, merges what comes back with
 what core itself sees, and answers /api/admin/network/map. Turning a module off removes only what it added.
 
 Sources
   relay      core, always on: this computer and its network ports (app/netinfo.py).
   discovery  core, always on: NDI (_ndi._tcp) and Dante (_netaudio-*) announced over mDNS (app/mdns.py). It only
              listens and calls no product's API, so it stays core (decided 2026-11-16).
-  modules    one per module that overrides network_map(), while it is on: UniFi (switches, APs, which port each
+  modules    one per module that says what it adds (`network_map_adds`), while it is on: UniFi (switches, APs, which port each
              device is on), ATEM, OBS and ProPresenter (they name the gear they know).
 
 Merge: devices are one device when they share a MAC address, else an IP address, else the same host name (a Mac with
@@ -30,7 +31,7 @@ import re
 import time
 from typing import Any, Callable, Iterable
 
-from . import cables, db, gear, mdns, netinfo, ports, screens
+from . import cables, db, gear, gearfeed, mdns, netinfo, ports, screens
 
 log = logging.getLogger("relay")
 
@@ -228,12 +229,11 @@ def discovery_devices(found: list[mdns.Found]) -> list[dict]:
 
 
 def _module_sources(registry: Any) -> list[dict]:
-    """One entry per module that overrides network_map(): its devices while it is on, or nothing (and `on` False)."""
-    from .modules import Module        # the base class only: core names no module
-
+    """One entry per module that feeds the map (it says so in `network_map_adds`): the devices it offers through
+    `gear.<id>` (app/gearfeed.py) while it is on, or nothing (and `on` False)."""
     out = []
     for mod in registry.all():
-        if type(mod).network_map is Module.network_map:
+        if not mod.network_map_adds:
             continue
         sid = mod.manifest.id
         on = registry.enabled(sid)
@@ -241,7 +241,7 @@ def _module_sources(registry: Any) -> list[dict]:
                  "devices": [], "error": ""}
         if on:
             try:
-                entry["devices"] = mod.network_map() or []
+                entry["devices"] = gearfeed.devices(sid)
             except Exception:                                  # noqa: BLE001 - one module must not take the page down
                 log.warning("network map: %s failed", sid, exc_info=True)
                 entry["error"] = "This source could not be read."

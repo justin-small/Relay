@@ -73,12 +73,18 @@ class Reaper(Module):
         return [router]
 
     def attach(self) -> None:
+        from ... import modules
         from .service import attach_hooks
+
+        modules.provide("gear.reaper", {"list": self.gear_list})     # the computers it records on (app/gearfeed.py)
 
         attach_hooks()      # core's recording hook (slide tags, boards), presentation markers, stage-message markers
 
     def detach(self) -> None:
+        from ... import modules
         from .service import detach_hooks
+
+        modules.withdraw("gear.reaper")
 
         detach_hooks()
 
@@ -99,12 +105,12 @@ class Reaper(Module):
 
         asyncio.ensure_future(service.restart())
 
-    def network_map(self) -> list[dict]:
+    def gear_list(self) -> dict:
         from ... import config
 
         machines = (config.get().get("reaper") or {}).get("machines") or []
-        return [{**_addr(m.get("host")), "name": m.get("name") or "", "kind": "computer", "tags": ["REAPER"]}
-                for m in machines if isinstance(m, dict) and m.get("host")]
+        return {"devices": [{**_addr(m.get("host")), "name": m.get("name") or "", "kind": "computer", "tags": ["REAPER"]}
+                            for m in machines if isinstance(m, dict) and m.get("host")]}
 
     def health(self) -> Health:
         from .service import service

@@ -82,7 +82,8 @@ class Blackmagic(Module):
         from .service import service
 
         # Core's rename flow (#543) asks for this: which channel ends this module can rename on the gear, and how.
-        registry.provide("gear.blackmagic", {"can_rename": service.can_rename, "rename": service.rename_end})
+        registry.provide("gear.blackmagic", {"can_rename": service.can_rename, "rename": service.rename_end,
+                                              "list": self.gear_list})
         registry.provide("routes.blackmagic", service.routes_api())
 
     def detach(self) -> None:
@@ -103,11 +104,13 @@ class Blackmagic(Module):
 
         await service.stop()
 
-    def network_map(self) -> list[dict]:
-        from .service import devices
+    def gear_list(self) -> dict:
+        """Its devices for the network map, and the connectors and video channels of each connected one (app/gearfeed.py)."""
+        from .service import devices, service
 
-        return [{**_addr(d.get("host")), "name": d.get("name") or KIND_NAME[d["kind"]], "kind": "av",
-                 "tags": [KIND_TAG[d["kind"]]]} for d in devices() if d.get("host")]
+        return {**service.gear_list(),
+                "devices": [{**_addr(d.get("host")), "name": d.get("name") or KIND_NAME[d["kind"]], "kind": "av",
+                             "tags": [KIND_TAG[d["kind"]]]} for d in devices() if d.get("host")]}
 
     def _live(self) -> list[dict]:
         from .service import service

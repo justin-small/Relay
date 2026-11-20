@@ -20,7 +20,7 @@ import re
 import secrets
 import time
 
-from ... import cables as core_cables, channels, config, db, gear, ports, routing, screens, tally
+from ... import cables as core_cables, channels, config, db, gear, gearfeed, ports, routing, screens, tally
 from ...text import same_name
 from . import atem_protocol as p
 from . import drawings, hyperdeck, videohub
@@ -458,7 +458,8 @@ class Service:
         self._running = False
         self._watch: asyncio.Task | None = None
         self._lock = asyncio.Lock()
-        self._ported: dict[str, tuple] = {}      # device id -> the connectors last recorded as its ports
+        self._ported: dict[str, tuple] = {}      # device id -> the connectors last offered to core as its ports
+        self._offer: dict[str, dict] = {}        # device id -> {"ports", "channels"} offered to core while it is connected
         self._chan_sig: dict[str, tuple] = {}    # device id -> the video channels last reported to core
         self._chan_refs: dict[str, dict[str, str]] = {}   # device id -> {channel key: core channel ref}
 
@@ -611,17 +612,28 @@ class Service:
         inputs it has, and its ports must not all turn missing."""
         out["auto_drawing"] = drawings.auto(out)
         out["face"] = drawings.spec(out)
-        if out["connected"] and out.get("gear_id"):
-            found = drawings.connectors(out["face"])
-            sig = (out["gear_id"], tuple((c["key"], c["kind"], c["direction"], c["gear_name"]) for c in found))
-            if self._ported.get(out["id"]) != sig:
-                try:
-                    ports.sync(out["gear_id"], found)
-                    self._ported[out["id"]] = sig
-                except (db.Unavailable, ports.Refused):
-                    log.warning("Blackmagic: could not record the connectors of %s", out["name"])
-        self._report_channels(out)
+        if not (out["connected"] and out.get("gear_id")):
+            self._offer.pop(out["id"], None)          # an unreachable device says nothing, so nothing turns missing
+            return out
+        found = drawings.connectors(out["face"])
+        sig = (out["gear_id"], tuple((c["key"], c["kind"], c["direction"], c["gear_name"]) for c in found))
+        chans = [] if out["kind"] == "hyperdeck" else self._video_channels(out)
+        csig = (out["gear_id"], tuple((c["key"], c["number"], c["gear_name"]) for c in chans))
+        if self._ported.get(out["id"]) == sig and self._chan_sig.get(out["id"]) == csig:
+            return out
+        self._offer[out["id"]] = {"ports": {"gear": out["gear_id"], "items": found},
+                                  "channels": {"gear": out["gear_id"], "items": chans}}
+        refs = gearfeed.changed("blackmagic")        # core asks gear_list() below through `gear.blackmagic`
+        if refs is not None:
+            self._ported[out["id"]] = sig
+            self._chan_sig[out["id"]] = csig
+            self._chan_refs[out["id"]] = {k: v for k, v in refs.items() if k.startswith(out["id"] + ":")}
         return out
+
+    def gear_list(self) -> dict:
+        """The connectors and video channels of every device that is connected now (app/gearfeed.py)."""
+        offers = list(self._offer.values())
+        return {"ports": [o["ports"] for o in offers], "channels": [o["channels"] for o in offers]}
 
     @staticmethod
     def _video_channels(out: dict) -> list[dict]:
@@ -636,20 +648,6 @@ class Service:
                   "gear_name": i["label"]} for i in hub.get("inputs", [])]
                 + [{"key": f"{out['id']}:vout{o['n']}", "kind": "video", "direction": "destination", "number": o["n"] + 1,
                     "gear_name": o["label"]} for o in hub.get("outputs", [])])
-
-    def _report_channels(self, out: dict) -> None:
-        """Tell core which video channels this device has, only while it is connected (an unreachable one does not say
-        what it has, and its channels must not all turn missing), and only when they changed."""
-        if not (out["connected"] and out.get("gear_id")) or out["kind"] == "hyperdeck":
-            return
-        found = self._video_channels(out)
-        sig = (out["gear_id"], tuple((c["key"], c["number"], c["gear_name"]) for c in found))
-        if self._chan_sig.get(out["id"]) == sig:
-            return
-        refs = channels.report("blackmagic", found, out["gear_id"])
-        if refs is not None:
-            self._chan_refs[out["id"]] = refs
-            self._chan_sig[out["id"]] = sig
 
     def _connected(self, did: str) -> bool:
         dev = self.devices.get(did)

@@ -307,6 +307,7 @@ with section("router (#298, core routes #544)"):
     s = svc.service
     r = s.router
     registry.provide("routes.ndi", r.api(), owner="ndi")
+    registry.provide("gear.ndi", {"list": s.gear_list}, owner="ndi")        # what NDI's attach() provides
     add = r.add_output("Lobby TV")
     check("an output is added and live", isinstance(add, dict) and backend.routers[-1].name == "Relay - Lobby TV")
     eq("a duplicate name is refused", isinstance(r.add_output("lobby tv"), str), True)

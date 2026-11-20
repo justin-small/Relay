@@ -645,7 +645,7 @@ with section("Health and the connection test count every kind"):
     h = _modules.get("blackmagic").health()
     check("a device that is not connected is a warning naming it", h.state in ("warn", "error") and items[0]["name"] in h.detail)
     check("the network map names each with its kind",
-          [d["tags"][0] for d in _modules.get("blackmagic").network_map()] == [KIND for KIND in
+          [d["tags"][0] for d in _modules.get("blackmagic").gear_list()["devices"]] == [KIND for KIND in
            [{"hyperdeck": "HyperDeck", "videohub": "Videohub", "atem": "ATEM"}[d["kind"]] for d in svc.devices()]])
 
 with section("Switched off"):

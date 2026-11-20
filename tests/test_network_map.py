@@ -23,6 +23,7 @@ _db.reset()
 from app import gear, config, db, mdns, netinfo, network_map, ports, users  # noqa: E402
 from app import main as M  # noqa: E402
 from app.main import app  # noqa: E402
+from app import modules as registry  # noqa: E402
 from app.modules import Module  # noqa: E402
 from _harness import check, done, eq, section  # noqa: E402
 
@@ -234,14 +235,15 @@ with section("what the modules add"):
                  "propresenter": {"host": "192.168.1.50", "port": 1025}}, replace=("blackmagic", "obs", "propresenter"))
     from app.modules import discover
     mods = discover()
-    atem = mods["blackmagic"].network_map()
+    atem = mods["blackmagic"].gear_list()["devices"]
     eq("ATEM names each switcher, by address or by name", [(d.get("ip"), d.get("host"), d["name"]) for d in atem],
        [("192.168.1.240", None, "Main room"), (None, "atem-b.local", "Overflow")])
-    eq("OBS marks its machines", [(d["ip"], d["tags"]) for d in mods["obs"].network_map()], [("192.168.1.31", ["OBS Studio"])])
-    eq("ProPresenter marks its computer", [(d["ip"], d["tags"]) for d in mods["propresenter"].network_map()], [("192.168.1.50", ["ProPresenter"])])
-    eq("a module with nothing to add adds nothing", mods["youtube"].network_map(), [])
+    eq("OBS marks its machines", [(d["ip"], d["tags"]) for d in mods["obs"].gear_list()["devices"]], [("192.168.1.31", ["OBS Studio"])])
+    eq("ProPresenter marks its computer", [(d["ip"], d["tags"]) for d in mods["propresenter"].gear_list()["devices"]], [("192.168.1.50", ["ProPresenter"])])
+    eq("a module with nothing to add offers no gear", [mods["youtube"].network_map_adds, hasattr(mods["youtube"], "gear_list")],
+       ["", False])
     eq("…and says so", mods["youtube"].network_map_adds, "")
-    named = network_map.merge([src("discovery", "Discovery", [{"ip": "192.168.1.31", "ndi": True}]), src("obs", "OBS Studio", mods["obs"].network_map())])
+    named = network_map.merge([src("discovery", "Discovery", [{"ip": "192.168.1.31", "ndi": True}]), src("obs", "OBS Studio", mods["obs"].gear_list()["devices"])])
     eq("OBS names a computer discovery found", (named[0]["name"], named[0]["tags"], named[0]["ndi"]), ("Stream PC", ["OBS Studio"], True))
 
 
@@ -252,15 +254,20 @@ class FakeModule(Module):
     network_map_adds = "Fake switches."
     broken = False
 
-    def network_map(self):
+    def gear_list(self):
         if self.broken:
             raise RuntimeError("secret detail that must not reach the page")
-        return [{"mac": "aa:aa:aa:aa:aa:10", "ip": "10.0.0.2", "name": "Fake switch", "kind": "switch"}]
+        return {"devices": [{"mac": "aa:aa:aa:aa:aa:10", "ip": "10.0.0.2", "name": "Fake switch", "kind": "switch"}]}
 
 
 class FakeRegistry:
     def __init__(self, mod, on):
         self.mod, self.on = mod, on
+        gid = "gear." + mod.manifest.id
+        if on:
+            registry.provide(gid, {"list": mod.gear_list}, owner=mod.manifest.id)     # what the module does in attach()
+        else:
+            registry.withdraw(gid)
 
     def all(self):
         return [self.mod]
@@ -399,8 +406,8 @@ with section("a switch's ports are core ports (#540), and every saved port note 
                 {"port": 7, "name": "Port 7", "up": False, "poe_w": 0.0, "errors": 3},
                 {"port": 8, "name": "Booth", "up": True, "speed": 1000, "poe_w": 4.26, "client": "Stage box", "warn": "Many errors"}]
 
-        def network_map(self):
-            return [{"mac": PORTED, "ip": "10.0.0.30", "name": "Ported switch", "kind": "switch", "ports": self.live}]
+        def gear_list(self):
+            return {"devices": [{"mac": PORTED, "ip": "10.0.0.30", "name": "Ported switch", "kind": "switch", "ports": self.live}]}
 
     sw = PortedSwitch()
     network_map.reset()

@@ -18,7 +18,7 @@ import threading
 import time
 from typing import Any, Callable
 
-from ... import channels, config
+from ... import config, gearfeed
 from . import discovery, multiview, outputs, render, router, runtime, viewer
 
 log = logging.getLogger("relay.ndi")
@@ -433,15 +433,19 @@ class Service:
                 rec["missed"] += 1
 
     def report_channels(self) -> None:
-        """Tell core which video channels NDI has (#542): every source seen online (a source) and each of Relay's own
-        outputs that is on (a destination). A source that went offline turns missing there, with its name kept."""
+        """Tell core the video channels NDI has changed (#542); core asks `gear_list` through `gear.ndi`."""
+        gearfeed.changed("ndi")
+
+    def gear_list(self) -> dict:
+        """Every source seen online (a source) and each of Relay's own outputs that is on (a destination). A source that
+        went offline turns missing in core, with its name kept."""
         found = [{"key": "src:" + s["name"], "kind": "video", "direction": "source",
                   "gear_name": s["source"] or s["name"]} for s in self.sources() if s["online"]]
         found += [{"key": "out:" + n, "kind": "video", "direction": "destination", "gear_name": n}
                   for n in sorted(self.outputs)]
         found += [{"key": router.OUT + r["id"], "kind": "video", "direction": "destination",
                    "gear_name": outputs.ndi_name(r["name"])} for r in self.settings()["router_outputs"]]
-        channels.report("ndi", found)
+        return {"channels": [{"items": found}]}
 
     # ----------------------------------------------------------------------------------------------- reads
     def sources(self) -> list[dict]:

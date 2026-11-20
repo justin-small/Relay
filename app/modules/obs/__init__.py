@@ -78,6 +78,7 @@ class Obs(Module):
 
         attach_hooks()              # the caption sink and the scene hook (slide tags)
         registry.provide("screen_pages.obs", screen_page)
+        registry.provide("gear.obs", {"list": self.gear_list})     # its computers and their scenes (app/gearfeed.py)
 
     def detach(self) -> None:
         from ... import modules as registry
@@ -85,6 +86,7 @@ class Obs(Module):
 
         detach_hooks()
         registry.withdraw("screen_pages.obs")
+        registry.withdraw("gear.obs")
 
     async def start(self) -> None:
         from .service import service
@@ -96,12 +98,14 @@ class Obs(Module):
 
         await service.stop()     # also clears each machine's stream status and tally
 
-    def network_map(self) -> list[dict]:
+    def gear_list(self) -> dict:
         from ... import config
+        from .service import service
 
         machines = config.get().get("obs", {}).get("machines") or []
-        return [{**_addr(m.get("host")), "name": m.get("name") or "", "kind": "computer", "tags": ["OBS Studio"]}
-                for m in machines if isinstance(m, dict) and m.get("host")]
+        return {"devices": [{**_addr(m.get("host")), "name": m.get("name") or "", "kind": "computer", "tags": ["OBS Studio"]}
+                            for m in machines if isinstance(m, dict) and m.get("host")],
+                "channels": service.channel_groups()}
 
     def health(self) -> Health:
         from .service import service

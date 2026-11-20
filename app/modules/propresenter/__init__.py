@@ -99,6 +99,7 @@ class ProPresenter(Module):
         slidetags.tags.actions = {**ACTIONS, **signagetags.ACTIONS}
         # Signage: what a tag put on a screen is the schedule's "tag" layer. The actions refuse while signage is off.
         modules.provide("signage.layer.tag", signagetags.layer)
+        modules.provide("gear.propresenter", {"list": self.gear_list})   # the computer it controls (app/gearfeed.py)
         # Panels: the lyrics as a feed, and each panel's own timer settings.
         panel_registry.lyrics_offered = lambda: propresenter.panel_offers()["lyrics"]
         panel_registry.on_timers_change = timers_feed.refresh
@@ -118,6 +119,7 @@ class ProPresenter(Module):
         from .propresenter import timers_feed
 
         modules.withdraw("signage.layer.tag")
+        modules.withdraw("gear.propresenter")
         modules.withdraw("propresenter.feed_extra")
         modules.withdraw("propresenter.follower")
         modules.withdraw("propresenter.api")
@@ -154,11 +156,12 @@ class ProPresenter(Module):
         lobby.cancel()
         signage_sync.cancel()
 
-    def network_map(self) -> list[dict]:
+    def gear_list(self) -> dict:
         from ... import config
 
         host = (config.get().get("propresenter") or {}).get("host")
-        return [{**_addr(host), "name": "ProPresenter computer", "kind": "computer", "tags": ["ProPresenter"]}] if host else []
+        return {"devices": [{**_addr(host), "name": "ProPresenter computer", "kind": "computer",
+                             "tags": ["ProPresenter"]}] if host else []}
 
     def health(self) -> Health:
         from .propresenter import follower

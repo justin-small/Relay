@@ -18,7 +18,7 @@ import _db  # noqa: E402
 _db.start()
 _db.reset()
 
-from app import audiobus, channels, config, gear, tally  # noqa: E402
+from app import audiobus, channels, config, gear, modules, tally  # noqa: E402
 from app.main import app  # noqa: E402
 from app.modules.blackmagic.service import Service as BlackmagicService  # noqa: E402
 from app.modules.ndi.service import Service as NdiService  # noqa: E402
@@ -161,6 +161,7 @@ with section("NDI reports the sources it sees online, and OBS its scenes"):
     ndi = NdiService()
     ndi._seen = {"STUDIO (PTZ)": {"name": "STUDIO (PTZ)", "machine": "STUDIO", "source": "PTZ", "missed": 0},
                  "STUDIO (Old)": {"name": "STUDIO (Old)", "machine": "STUDIO", "source": "Old", "missed": 0}}
+    modules.provide("gear.ndi", {"list": ndi.gear_list}, owner="ndi")      # what the NDI module provides in attach()
     ndi.report_channels()
     ndi._seen["STUDIO (Old)"]["missed"] = 5
     ndi.report_channels()
@@ -168,10 +169,14 @@ with section("NDI reports the sources it sees online, and OBS its scenes"):
     eq("an online source is reported; one that went offline is missing", ends, {"src:STUDIO (PTZ)": False, "src:STUDIO (Old)": True})
     obs = ObsMachine({"id": "m1", "name": "Stream PC", "host": "127.0.0.1", "port": 4455}, "")
     obs.scenes = ["Wide", "Pulpit"]
+    modules.provide("gear.obs", {"list": lambda: {"channels": [obs.channel_group()]}}, owner="obs")
     obs._report_channels()
     other = ObsMachine({"id": "m2", "name": "Backup PC", "host": "127.0.0.2", "port": 4455}, "")
     other.scenes = ["Wide"]
+    modules.provide("gear.obs", {"list": lambda: {"channels": [other.channel_group()]}}, owner="obs")
     other._report_channels()
+    modules.withdraw_all("obs")
+    modules.withdraw_all("ndi")
     eq("each machine's scenes are its own", sorted((e["key"], e["missing"]) for c in channels.of_provider("obs") for e in c["ends"]
                                                    if e["key"].startswith("m") and e["key"][1] in "12" and e["key"][2] == ":"),
        [("m1:Pulpit", False), ("m1:Wide", False), ("m2:Wide", False)])
