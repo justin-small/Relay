@@ -1,7 +1,7 @@
 """Dante (#257): finds the Dante devices on Relay's Dante network and says whether their control port answers.
 
 Works with Dante devices, Dante Virtual Soundcard and Dante Via that announce themselves over mDNS. It lists
-each device once by its Dante name, its transmit channels, and whether Relay can reach its control port (ARC), and (#259,
+each device once by its Dante name, its transmit channels, and whether Relay can reach its control port (ARC), and (from each device's multicast heartbeat) its live channel levels, and (#259,
 #260) lets a permitted operator change a receive channel's subscription, lock channels Relay must never change, undo
 the last change and save, compare and apply routing presets. The write packet is untested on real gear (routing.py).
 Renaming and the rest of what Dante Controller does stay there. Discovery is core's (app/mdns.py);
@@ -29,7 +29,7 @@ class Dante(Module):
         settings_key="dante",
         section="Sound",
         guide="https://github.com/justin-small/relay#dante",
-        traffic=(Traffic("dante", "Dante discovery (multicast DNS) and the control-port check (UDP)", media=True),),
+        traffic=(Traffic("dante", "Dante discovery (multicast DNS), the control-port check (UDP) and the devices' heartbeat (multicast 224.0.0.233, port 8708)", media=True),),
     )
     defaults: dict = {}
     network_map_adds = "Names each Dante device it finds and the transmit channels it announces."

@@ -24,7 +24,7 @@ import app.main as main  # noqa: E402,F401
 from app import alerts, config, db  # noqa: E402
 from app.main import app  # noqa: E402
 from app.modules import modules as _modules  # noqa: E402
-from app.modules.dante import arc, monitor as mon, service as dante  # noqa: E402
+from app.modules.dante import arc, heartbeat, monitor as mon, service as dante  # noqa: E402
 
 from _harness import check, done, eq, section, wait_for  # noqa: E402
 
@@ -32,7 +32,7 @@ db.migrate("dante", Path(__file__).resolve().parent.parent / "app" / "modules" /
 
 
 class FakeDevice:
-    """A Dante device on loopback: answers the clock, subscription and level requests from its fields."""
+    """A Dante device on loopback: answers the clock and subscription requests from its fields."""
 
     def __init__(self) -> None:
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -41,7 +41,6 @@ class FakeDevice:
         self.port = self.sock.getsockname()[1]
         self.locked, self.leader, self.errors = True, True, 0
         self.subs = [(1, arc.SUB_OK, "Lead Vox@STAGE")]
-        self.levels = [6, 20, 255]
         self.up = True
         self._stop = threading.Event()
         self._t = threading.Thread(target=self._run, daemon=True)
@@ -55,14 +54,13 @@ class FakeDevice:
                 continue
             if not self.up or len(data) < 10:
                 continue
-            _, _, seq, cmd, _ = struct.unpack(">HHHHH", data[:10])
+            _, _, seq, cmd = struct.unpack(">HHHH", data[:8])
             if cmd == arc.CMD_CLOCK:
                 payload = struct.pack(">BBHIH", (1 if self.leader else 0) | (2 if self.locked else 0), 0, self.errors, 1000, 0)
             elif cmd == arc.CMD_SUBSCRIPTIONS:
-                payload = struct.pack(">H", len(self.subs)) + b"".join(
-                    struct.pack(">HHB", ch, st, len(n.encode())) + n.encode() for ch, st, n in self.subs)
-            elif cmd == arc.CMD_LEVELS:
-                payload = struct.pack(">H", len(self.levels)) + bytes(self.levels)
+                payload, result = arc.rx_page([(ch, n, 10 if st == arc.SUB_OK else 0 if st == arc.SUB_NONE else 4) for ch, st, n in self.subs])
+                self.sock.sendto(arc.reply(cmd, seq, payload, result), addr)
+                continue
             else:
                 continue
             self.sock.sendto(arc.reply(cmd, seq, payload), addr)
@@ -85,10 +83,11 @@ with section("the layouts read what a device sends, and refuse the rest"):
     eq("clock", arc.parse_clock(struct.pack(">BBHIH", 3, 0, 2, 500, 1)),
        {"leader": True, "locked": True, "follower_errors": 2, "latency_us": 500, "interface_errors": 1})
     eq("a short clock answer is no reading", arc.parse_clock(b"\x00\x01"), None)
-    eq("a subscription list that runs off the end is no reading", arc.parse_subscriptions(struct.pack(">HHHB", 1, 1, 1, 9)), None)
-    eq("levels", arc.parse_levels(struct.pack(">H", 2) + bytes([0, 30])), [0, -30])
-    eq("a level count that disagrees is no reading", arc.parse_levels(struct.pack(">H", 3) + bytes([0, 30])), None)
-    eq("an answer to another request is ignored", arc.body(arc.reply(arc.CMD_CLOCK, 5, b""), arc.CMD_LEVELS, 5), None)
+    eq("a receive page that runs off the end is no reading", arc.parse_rx_page(bytes([16, 3]) + b"\0" * 20), None)
+    page, _ = arc.rx_page([(1, "Lead Vox@STAGE", 10), (2, "", 0), (3, "Gone@NOPE", 4)])
+    eq("a receive page", arc.parse_rx_page(page), [{"channel": 1, "source": "Lead Vox@STAGE", "status": "ok"},
+       {"channel": 2, "source": "", "status": "none"}, {"channel": 3, "source": "Gone@NOPE", "status": "unresolved"}])
+    eq("an answer to another request is ignored", arc.body(arc.reply(arc.CMD_CLOCK, 5, b""), arc.CMD_SUBSCRIPTIONS, 5), None)
 
 with section("a fake device is read over real sockets"):
     box = FakeDevice()
@@ -186,7 +185,12 @@ with section("levels for starred channels"):
     dante.monitor.star("STAGE", "Pastor", True)
     eq("only the starred channel of another computer's device is watched", svc.meter_targets(), {"stage": {1}})
     svc.read_levels()
+    eq("no heartbeat is no reading", svc.levels, {})
+    beat = heartbeat.packet(bytes.fromhex("001dc1fffe19862a"), tx=[0, 40, 255], rx=[9], offset_ppb=-120)
+    check("a heartbeat is kept", svc.heartbeats.feed(beat, "127.0.0.1"))
+    svc.read_levels()
     eq("levels by channel name", [(c["channel"], c["level"]) for c in svc.levels["stage"]["channels"]], [("Pastor", -20)])
+    svc.heartbeats.stop()
     local = [a for p in dante.netinfo.interfaces() for a in p.addresses]
     if local:
         svc.devices[0]["ips"] = [local[0]]
