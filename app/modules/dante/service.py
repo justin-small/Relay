@@ -25,6 +25,8 @@ import time
 from typing import Any
 
 from ... import gear, gearfeed, mdns, netinfo, netroute, netsock
+from . import arc
+from .monitor import monitor
 
 log = logging.getLogger("relay.dante")
 
@@ -39,6 +41,7 @@ DEFAULT_ARC = 4440
 MAX_DEVICES = 200
 MAX_CHANNELS = 512
 SCAN_EVERY = 30.0
+METER_EVERY = 1.0
 PROBE_WAIT = 0.6
 
 
@@ -134,9 +137,11 @@ class Service:
         self._lock = threading.Lock()
         self.devices: list[dict] = []
         self.error = ""
+        self.levels: dict[str, dict] = {}
         self.scanned = 0.0
         self._task: asyncio.Task | None = None
         self._wake: asyncio.Event | None = None
+        self._meter: asyncio.Task | None = None
 
     # -------------------------------------------------------------------------------------------- scanning
     def scan_once(self) -> None:
@@ -164,7 +169,64 @@ class Service:
                 d["reachable"] = probe(ip, port, seq)
             except OSError:
                 d["reachable"] = None
+            d["clock"], d["subscriptions"] = None, None
+            if d["reachable"]:
+                self.read_state(d, ip, port)
         self.record(devices)
+        monitor.observe(devices)
+
+    @staticmethod
+    def read_state(d: dict, ip: str, port: int) -> None:
+        """The clock and the subscriptions of one device that answered. A device that answers in a way Relay cannot
+        read keeps None, which is "no reading", never a made-up one."""
+        try:
+            d["clock"] = arc.parse_clock(arc.ask(ip, port, arc.CMD_CLOCK, 2))
+            d["subscriptions"] = arc.parse_subscriptions(arc.ask(ip, port, arc.CMD_SUBSCRIPTIONS, 3))
+        except OSError:
+            pass
+
+    # -------------------------------------------------------------------------------------------- levels
+    def meter_targets(self) -> dict[str, set[int]]:
+        """Per device key, the channel numbers worth metering: Relay's own computer's channels and the starred ones."""
+        local = {a for p in netinfo.interfaces() for a in p.addresses}
+        starred = monitor.starred()
+        with self._lock:
+            devices = [dict(d) for d in self.devices]
+        out: dict[str, set[int]] = {}
+        for d in devices:
+            names = d["transmit"]
+            own = bool(local.intersection(d["ips"]))
+            want = {i for i, c in enumerate(names) if own or (d["name"], c) in starred}
+            if want and d["ips"]:
+                out[d["key"]] = want
+        return out
+
+    def read_levels(self) -> None:
+        """One meter reading of every device with a channel worth watching. Blocks: call through to_thread."""
+        targets = self.meter_targets()
+        if not targets:
+            with self._lock:
+                self.levels = {}
+            return
+        with self._lock:
+            devices = {d["key"]: dict(d) for d in self.devices}
+        out: dict[str, dict] = {}
+        for key, want in targets.items():
+            d = devices.get(key)
+            if not d:
+                continue
+            try:
+                got = arc.parse_levels(arc.ask(d["ips"][0], d["ports"].get("arc", DEFAULT_ARC), arc.CMD_LEVELS, 4, 0.4))
+            except OSError:
+                got = None
+            if got is None:
+                continue
+            names = d["transmit"]
+            named = len(got) == len(names)   # a count that disagrees means the order cannot be trusted
+            out[key] = {"device": d["name"], "channels": [
+                {"channel": names[i] if named else f"Channel {i + 1}", "level": got[i]} for i in sorted(want) if i < len(got)]}
+        with self._lock:
+            self.levels = out
 
     def record(self, devices: list[dict]) -> None:
         """Keep what a scan found and tell core its gear changed."""
@@ -185,18 +247,29 @@ class Service:
             except asyncio.TimeoutError:
                 pass
 
+    async def _meter_loop(self) -> None:
+        while True:
+            try:
+                await asyncio.to_thread(self.read_levels)
+            except Exception:  # noqa: BLE001
+                log.warning("dante: metering failed", exc_info=True)
+            await asyncio.sleep(METER_EVERY)
+
     def start(self) -> None:
         self._wake = asyncio.Event()
-        self._task = asyncio.get_running_loop().create_task(self._loop(), name="dante-scan")
+        loop = asyncio.get_running_loop()
+        self._task = loop.create_task(self._loop(), name="dante-scan")
+        self._meter = loop.create_task(self._meter_loop(), name="dante-meter")
 
     async def stop(self) -> None:
-        task, self._task = self._task, None
-        if task:
-            task.cancel()
-            try:
-                await task
-            except (asyncio.CancelledError, Exception):  # noqa: BLE001
-                pass
+        tasks, self._task, self._meter = [self._task, self._meter], None, None
+        for task in tasks:
+            if task:
+                task.cancel()
+                try:
+                    await task
+                except (asyncio.CancelledError, Exception):  # noqa: BLE001
+                    pass
 
     async def rescan(self) -> None:
         """Scan again now. With the loop running it wakes the loop; without it, scans here."""
@@ -215,7 +288,9 @@ class Service:
             devices = [dict(d) for d in self.devices]
             return {"devices": devices, "error": self.error, "scanned": self.scanned, "running": self._task is not None,
                     "reachable": sum(1 for d in devices if d.get("reachable")),
-                    "unreachable": sum(1 for d in devices if d.get("reachable") is False)}
+                    "unreachable": sum(1 for d in devices if d.get("reachable") is False),
+                    "problems": monitor.current(), "levels": list(self.levels.values()),
+                    "leader": next((d["name"] for d in devices if (d.get("clock") or {}).get("leader")), "")}
 
     def gear_list(self) -> dict | None:
         """Boxes for the network map and each device's transmit channels as core channels (app/gearfeed.py). None until

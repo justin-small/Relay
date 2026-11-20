@@ -9,6 +9,7 @@ the module adds the inventory, the reachability check and the gear it offers the
 from __future__ import annotations
 
 import asyncio
+from pathlib import Path
 from typing import Any
 
 from .. import AdminPage, Health, Manifest, Module, Traffic
@@ -37,7 +38,7 @@ class Dante(Module):
     route_prefixes = ("/api/admin/dante",)
     permissions = (
         Permission("dante.view", "See the Dante devices Relay found and whether they answer", "Dante", "viewer"),
-        Permission("dante.manage", "Look for Dante devices again", "Dante", "admin"),
+        Permission("dante.manage", "Look for Dante devices again and star channels for live levels", "Dante", "admin"),
     )
 
     def clean(self, raw: Any) -> dict:
@@ -63,8 +64,13 @@ class Dante(Module):
         registry.withdraw("gear.dante")
 
     async def start(self) -> None:
+        from ... import db
         from .service import service
 
+        try:
+            db.migrate("dante", Path(__file__).parent / "migrations")
+        except db.Unavailable:
+            pass  # history stays in memory until the database is back
         service.start()
 
     async def stop(self) -> None:
@@ -80,6 +86,8 @@ class Dante(Module):
             return Health("error", s["error"])
         if not s["devices"]:
             return Health("warn", "Looking: no Dante devices found yet")
+        if s["problems"]:
+            return Health("error", s["problems"][0]["text"] + (f" (and {len(s['problems']) - 1} more)" if len(s["problems"]) > 1 else ""))
         if s["unreachable"]:
             return Health("warn", f"{s['unreachable']} of {len(s['devices'])} devices did not answer on their control port")
         return Health("ok", f"{len(s['devices'])} Dante devices found")

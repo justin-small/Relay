@@ -30,6 +30,45 @@
         el('td', '', d.transmit.length ? d.transmit.length + ': ' + d.transmit.join(', ') : 'none announced')));
     });
     $('danteScan').disabled = !can('dante.manage');
+    $('danteProblems').textContent = s.problems.length ? s.problems.map(function (p) { return p.text; }).join('. ') : 'None.';
+    $('danteClock').textContent = s.leader ? 'Clock leader: ' + s.leader : '';
+    const lv = $('danteLevels');
+    lv.replaceChildren();
+    s.levels.forEach(function (d) {
+      d.channels.forEach(function (c) {
+        lv.appendChild(el('tr', '', el('td', '', d.device), el('td', '', c.channel), el('td', '', String(c.level))));
+      });
+    });
+    const stars = $('danteStars');
+    stars.replaceChildren();
+    s.devices.forEach(function (d) {
+      d.transmit.forEach(function (c) {
+        const box = el('input');
+        box.type = 'checkbox';
+        box.checked = starred.has(d.name + '\n' + c);
+        box.disabled = !can('dante.manage');
+        box.onchange = async function () {
+          showError('');
+          try {
+            const r = await send('POST', '/api/admin/dante/star', { device: d.name, channel: c, on: box.checked });
+            starred = new Set(r.starred.map(function (x) { return x[0] + '\n' + x[1]; }));
+          } catch (e) { showError(e.message); box.checked = !box.checked; }
+        };
+        stars.appendChild(el('label', '', box, ' ' + d.name + ': ' + c));
+      });
+    });
+  }
+
+  let starred = new Set();
+  async function history() {
+    try {
+      const h = await send('GET', '/api/admin/dante/history');
+      const rows = $('danteHistory');
+      rows.replaceChildren();
+      h.history.forEach(function (e) {
+        rows.appendChild(el('tr', '', el('td', '', e.at), el('td', '', e.device), el('td', '', e.kind), el('td', '', e.detail)));
+      });
+    } catch (e) { /* keeps what it shows */ }
   }
 
   let last = '';
@@ -37,7 +76,7 @@
     try {
       const s = await send('GET', '/api/admin/dante');
       const sig = JSON.stringify(s);
-      if (sig !== last) { last = sig; draw(s); }
+      if (sig !== last) { last = sig; draw(s); history(); }
     } catch (e) { /* the page keeps what it shows */ }
   }
   $('danteScan').onclick = async function () {
