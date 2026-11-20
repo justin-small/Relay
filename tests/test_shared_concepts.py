@@ -31,6 +31,10 @@ shared files themselves (app/text.py and app/timewin.py) and counts, per file:
            lists a device's connectors itself (`port('in1', 'sdi', ...)`): every physical connector is one core port on its
            gear (app/ports.py, #540). A module reports what its gear has with `ports.sync(gear_id, [...])` and keeps
            nothing of its own; a page draws the connectors the server sends;
+* seam     an old hook for gear, ports and channels (#545): a module that overrides `network_map(`, answers `mixer_channels`,
+           or calls `ports.sync(` / `channels.report(` / `channels.sync(` itself. A module offers what it has with
+           `modules.provide("gear.<module id>", {"list": fn})` and calls `gearfeed.changed("<module id>")` when it changes;
+           core records the answer (app/gearfeed.py);
 * import   a module importing another module's package (`from ..signage import store`, `from app.modules.x import`).
            A module offers what others need with `modules.provide("<area>.<what>", impl)` in `attach()` and others ask
            with `modules.using(...)` and cope with None (docs/modules.md, "Reaching another module").
@@ -106,6 +110,9 @@ CHANNEL_LIST = re.compile(r"""['"]channels['"]\s*:\s*\[\s*\]""")
 # default `"routes": [], "salvos": []` is baselined with a reason: it carries what was saved before #544 until it has moved.
 ROUTE_TABLE = re.compile(r"^\s*create\s+table\s+(?:if\s+not\s+exists\s+)?\w*(?:routes?|salvos?|matrix|crosspoints?)\s*\(", re.I)
 ROUTE_LIST = re.compile(r"""['"](?:routes|salvos|matrix|crosspoints)['"]\s*:\s*\[\s*\]""")
+# An old hook for what a module has (#545): the `Module.network_map()` override, the `mixer_channels` look-up, and a module
+# calling core's ports.sync / channels.report / channels.sync itself instead of answering `gear.<id>` (app/gearfeed.py).
+SEAM_HOOK = re.compile(r"\bdef\s+network_map\s*\(|\bmixer_channels\b|\b(?:ports\.sync|(?:core_)?channels\.(?:report|sync))\s*\(")
 EPOCH_COLUMN = re.compile(r"^\s*(?:alter\s+table\s+\w+\s+add\s+column\s+)?(?:\w+_(?:ts|epoch)\s+\w+|\w+_at\s+(?:real|integer|int|numeric|float)\b)", re.I)
 CREATE_TABLE = re.compile(r"create\s+table\s+(\w+)\s*\((.*?)\n\)\s*;", re.I | re.S)
 
@@ -165,6 +172,8 @@ def hits() -> dict[tuple[str, str], list[int]]:
                 out.setdefault(("channel", rel), []).append(n)
             if MODULES in p.parents and ROUTE_LIST.search(code):
                 out.setdefault(("route", rel), []).append(n)
+            if MODULES in p.parents and SEAM_HOOK.search(code):
+                out.setdefault(("seam", rel), []).append(n)
     for p in sorted((APP / "migrations").glob("*.sql")) + module_sql():
         rel = p.relative_to(ROOT).as_posix()
         for n, line in enumerate(p.read_text(encoding="utf-8").splitlines(), 1):
@@ -293,6 +302,11 @@ def main() -> None:
         eq("isoweekday", found("d.isoweekday()"), ["weekday"])
         eq("clock pattern", found('re.compile(r"([01]\\d|2[0-3]):[0-5]\\d")'), ["clock"])
         eq("a comment is not code", found("x = 1  # the old .weekday() counted from Monday"), [])
+        check("the old network_map hook is found", bool(SEAM_HOOK.search("    def network_map(self) -> list[dict]:")))
+        check("so is a module reporting ports itself", bool(SEAM_HOOK.search("ports.sync(out['gear_id'], found)")))
+        check("so is a module reporting channels itself", bool(SEAM_HOOK.search('channels.report("ndi", found)')))
+        check("so is the mixer_channels look-up", bool(SEAM_HOOK.search('fn = getattr(mod, "mixer_channels", None)')))
+        check("answering gear.<id> is fine", not SEAM_HOOK.search('registry.provide("gear.ndi", {"list": service.gear_list})'))
         check("an epoch column is found", bool(EPOCH_COLUMN.match("    arrived_ts  real    not null,")))
         check("so is an integer _at", bool(EPOCH_COLUMN.match("    seen_at integer,")))
         check("so is an added epoch column", bool(EPOCH_COLUMN.match("alter table x add column done_ts real")))

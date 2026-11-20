@@ -16,7 +16,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Callable
 
-from ... import channels as core_channels, db
+from ... import db, gearfeed
 
 MIGRATIONS = Path(__file__).resolve().parent / "migrations"
 MODES = ("preempt", "party", "queue")
@@ -136,10 +136,16 @@ def _report(rows: list[dict]) -> None:
     sig = tuple((r["id"], r["name"]) for r in rows)
     if sig == _reported:
         return
-    found = [{"key": f"ch{r['id']}", "kind": "talk", "direction": "source", "number": r["id"], "gear_name": r["name"]}
-             for r in rows]
-    if core_channels.report("intercom", found) is not None:
+    if gearfeed.changed("intercom") is not None:      # core asks gear_list() below through `gear.intercom`
         _reported = sig
+
+
+def gear_list() -> dict:
+    """What the intercom offers core through `gear.intercom` (app/gearfeed.py): one talk channel per intercom channel."""
+    ready()
+    rows = db.query("select * from intercom_channels order by sort, id")
+    return {"channels": [{"items": [{"key": f"ch{r['id']}", "kind": "talk", "direction": "source", "number": r["id"],
+                                     "gear_name": r["name"]} for r in rows]}]}
 
 
 def channels() -> list[dict]:

@@ -131,7 +131,7 @@ with the same permission rule. Core renders its template in the tab's panel (`da
 and `#<page id>` or `#network/<page id>` opens it. The UniFi module's Internet, Wi-Fi and who's on,
 NDI and Dante, and UniFi console are tabs this way. `registry.admin_tabs(user)` lists them;
 `TAB_PAGES` names the core pages that take tabs. A module that knows devices adds them to the map
-itself through `network_map()`, not through a tab.
+itself through `gear.<id>` (see Gear, ports and channels), not through a tab.
 
 **Features outside the admin panel.** A `UserPage(title, path, permission, note)` in
 `Module.user_pages` lists one of the module's own pages on the home page (`/home`) of a signed-in
@@ -309,15 +309,11 @@ release that changes networking, run the manual [hardware test plan](reference/m
 
 ## Soundboard channels for Planning Center
 
-A module that reads a mixing console can offer its input channels to the Planning Center page's Team and mics tab.
-It defines `mixer_channels(self) -> list[dict]` on its `Module`, returning `{"id", "number", "name"}` for each
-channel (the id must stay the same for a channel across reads). While the module is on, those channels appear in the
-tab's "Add channel" list; the operator adds the ones they want to the board and assigns each to positions of any
-service type. Planning Center asks every active module for the method and ignores a module without it or one that
-raises. Until a module offers channels the operator types them in by hand. The board is saved as
-`planning_center.rundown.channels` (`{id, number, name, positions: [{service_type, team, position}]}`), and the
-rundown turns it into the older position-to-mics shape in `rundown.effective_mics`, so the draw of who holds which
-channel is unchanged.
+The Planning Center page's Team and mics tab offers the audio source channels core holds (see "Gear, ports and channels"):
+a module that reads a mixing console reports its input channels there and they appear in the tab's "Add channel" list. The
+operator adds the ones they want to the board and assigns each to positions of any service type; until some are reported
+they type them in by hand. The board is saved as `planning_center.rundown.channels` (`{id, number, name, channel_ref,
+positions: [...]}`), and the rundown turns it into the older position-to-mics shape in `rundown.effective_mics`.
 
 ## Lighting cues from another module
 
@@ -407,6 +403,41 @@ keeps its identity across the move.
 every panel and browser screen in that place. Boards keep the place's name beside its ref (`place_ref`), and renaming a
 place carries over.
 
+## Gear, ports and channels
+
+One seam, for everything a module has that is a piece of equipment, a connector on it, or a signal through it
+(`app/gearfeed.py`, #545). A module offers it in `attach()` and core asks for it; the module never calls core's `ports.sync`
+or `channels.report` itself, and there is no other hook (`Module.network_map()`, `getattr(mod, "mixer_channels")` and the
+module's own channel reporting are gone; `tests/test_shared_concepts.py` counts them as `seam` with a shrink-only baseline).
+
+```python
+def attach(self):
+    modules.provide("gear.<module id>", {"list": self.gear_list,                  # what it has now
+                                         "can_rename": ..., "rename": ...})       # optional: rename on the gear (#543)
+    modules.provide("routes.<module id>", {...})                                   # optional: apply routes (#544)
+
+def gear_list(self) -> dict | None:
+    return {"devices":  [{"mac": ..., "ip": ..., "host": ..., "name": ..., "kind": ..., "tags": [...]}],   # network map
+            "ports":    [{"gear": <gear id>, "items": [{"key", "kind", "direction", "gear_name", ...}]}],
+            "channels": [{"gear": <gear id> or None, "within": "<key prefix>", "items": [{"key", "kind", "direction", ...}]}]}
+```
+
+* `devices` are the boxes the Network map merges (see Gear and racks); read what is already in memory, send no secrets.
+  The module's one-sentence `network_map_adds` stays on the `Module` class so the map's Sources card can say what it adds
+  while the module is off.
+* `ports` and `channels` are every connector and signal it has now, as the Ports and Channels sections describe. One it
+  stops listing turns missing, not deleted, so its name, note and cables stay. Leave a device out (or return None) while you
+  cannot see it: a Videohub that is not connected does not say how many inputs it has.
+* Call `gearfeed.changed("<module id>")` when what you have changed (a scene list was read, a device connected). Core calls
+  `list()`, records the answer and returns `{channel key: channel ref}`, or None when the database is not ready. It blocks;
+  from async code use `asyncio.to_thread` where the call is slow. Cables and routes keep their own calls (`cables.sync`,
+  `routing`).
+* **Switching a module off** withdraws `gear.<id>` with everything else it provided; its gear stays in core, shown as missing,
+  with its names, notes and cables. Switching it on and calling `changed` brings it back as the same records.
+* **Core's own sources** (the audio bus, PortAudio, sound-level sources) are not modules and call `channels.report`
+  directly; the stream itself stays in `app/audio.py`. The tally state (`app/tally.py`) carries live program and preview
+  flags, not a list of channels: a tally camera points at its channel by `"channel"` (see Channels).
+
 ## Gear and racks
 
 A piece of equipment (a switch, an ATEM, a Dante stage box, this computer) is one core **gear** record (`app/gear.py`, tables
@@ -442,8 +473,8 @@ it, a Relay-only name, a note, and network fields (link, speed, PoE, errors) tha
 `link_up` None is "unknown" and stays apart from False ("no link", "no signal"): never show a connector as live unless the
 device reports it.
 
-**Report, do not keep.** A module calls `ports.sync(gear_id, [{"key", "kind", "direction", "gear_name", ...}, ...])` with every
-port its gear has now; a port it no longer reports is marked `missing`, not dropped, so its note stays. Report only while you
+**Report, do not keep.** A module lists, under `ports` in its `gear.<id>` answer (Gear, ports and channels), `{"gear": gear_id,
+"items": [{"key", "kind", "direction", "gear_name", ...}, ...]}` with every port its gear has now (core calls `ports.sync`); a port it no longer reports is marked `missing`, not dropped, so its note stays. Report only while you
 can see the device (a Videohub that is not connected does not say how many inputs it has). A note or a name on a port the
 source has not listed yet goes through `ports.adopt(gear_id, key, heard=False)`. Keep no list of ports or connectors of your
 own, in a table, in config or in a page script: `tests/test_shared_concepts.py` counts a module table named `*_ports` or
@@ -482,8 +513,9 @@ A channel is one audio, video or talk signal an operator thinks of as one thing,
 reports (NDI's `BOOTH (Camera 2)`, a Videohub input, an ATEM input, a tally camera). Every page shows the channel under one name:
 the one an operator typed, else the first reporting end's own.
 
-**Report, do not keep.** A module that has channels calls `channels.report("<module id>", [{"key", "kind", "direction", "number",
-"gear_name"}, ...], gear_id)` (or `channels.sync`, which raises while the database is down) with every channel it sees now. `kind` is
+**Report, do not keep.** A module that has channels lists, under `channels` in its `gear.<id>` answer (Gear, ports and channels),
+`{"gear": gear_id, "items": [{"key", "kind", "direction", "number", "gear_name"}, ...]}` with every channel it sees now; core calls
+`channels.sync`. `kind` is
 `audio`, `video` or `talk`; `direction` is `source` or `destination`; `key` is the module's own stable id for it, kept per module
 (put the device id in it when the module has several devices, as Blackmagic does). One it no longer reports is marked `missing`, not
 dropped, so its name and note stay; `within="<key prefix>"` limits that to one machine when a module reports one at a time (OBS).

@@ -277,9 +277,8 @@ def _rundown_settings_view() -> dict:
 
 
 def channel_catalog() -> tuple[list[dict], str]:
-    """Soundboard channels offered by whichever module provides them. A module opts in with a method
-    `mixer_channels()` returning [{"id", "number", "name"}]; none exists yet, so the list is empty and the admin
-    page lets the operator type a channel in. Returns the channels and the names of the modules that gave them."""
+    """Soundboard channels: the audio source channels core holds (app/channels.py), whichever module reports them. When
+    there are none the admin page lets the operator type a channel in. Returns the channels and where they came from."""
     out: list[dict] = []
     sources: list[str] = []
     try:
@@ -291,21 +290,6 @@ def channel_catalog() -> tuple[list[dict], str]:
             sources.append("Relay channels")
     except db.Unavailable:
         log.info("the database is down, so Relay's own channels are not offered")
-    for mod in shared.modules.active():
-        fn = getattr(mod, "mixer_channels", None)
-        if not callable(fn):
-            continue
-        try:
-            found = fn()
-        except Exception:  # a soundboard that is down must not break this page
-            log.exception("channel list from module %s failed", getattr(mod.manifest, "id", "?"))
-            continue
-        for c in found or []:
-            if isinstance(c, dict) and (c.get("name") or c.get("number")):
-                out.append({"id": str(c.get("id") or c.get("number") or c.get("name")),
-                            "number": str(c.get("number") or ""), "name": str(c.get("name") or "")})
-                if mod.manifest.name not in sources:
-                    sources.append(mod.manifest.name)
     return out, ", ".join(sources)
 
 

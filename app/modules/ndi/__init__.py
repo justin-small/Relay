@@ -65,6 +65,7 @@ class Ndi(Module):
         registry.provide("ndi", {"sources": service.hook_sources, "subscribe": service.hook_subscribe,
                                  "register_output": service.hook_output})
         registry.provide("routes.ndi", service.router.api())
+        registry.provide("gear.ndi", {"list": service.gear_list})      # its sources and outputs (app/gearfeed.py)
         try:
             service.router.migrate()
         except Exception:               # the database may not be up yet; start() tries again
@@ -75,6 +76,7 @@ class Ndi(Module):
 
         registry.withdraw("ndi")
         registry.withdraw("routes.ndi")
+        registry.withdraw("gear.ndi")
 
     async def start(self) -> None:
         from .service import service

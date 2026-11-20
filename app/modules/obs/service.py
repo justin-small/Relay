@@ -38,7 +38,7 @@ import uuid
 from collections import deque
 from typing import Any
 
-from ... import audit, channels, config, languages, tally
+from ... import audit, config, gearfeed, languages, tally
 from ...alerts import alerts
 from ...hub import hub
 from ...streamstatus import streams
@@ -351,10 +351,15 @@ class Machine:
 
     def _report_channels(self) -> None:
         """Each OBS scene is a video source channel in core (#542), so a scene and the camera it shows can be named
-        once. Reported only while OBS answers: a computer that is off does not say what scenes it has."""
-        found = [{"key": f"{self.cfg['id']}:{n}", "kind": "video", "direction": "source", "gear_name": n}
-                 for n in self.scenes]
-        channels.report("obs", found, within=f"{self.cfg['id']}:")
+        once. Core asks for them through `gear.obs` (app/gearfeed.py) and only while OBS answers: a computer that is off
+        does not say what scenes it has."""
+        gearfeed.changed("obs")
+
+    def channel_group(self) -> dict:
+        """This computer's scenes as the channels it reports: `within` limits "no longer there" to its own keys."""
+        return {"within": f"{self.cfg['id']}:",
+                "items": [{"key": f"{self.cfg['id']}:{n}", "kind": "video", "direction": "source", "gear_name": n}
+                          for n in self.scenes]}
 
     async def _read_replay(self, conn: Connection) -> None:
         try:
@@ -840,6 +845,10 @@ class Service:
         if failed:
             return {"ok": False, "error": f"OBS did not switch on {', '.join(failed)}."}
         return {"ok": True}
+
+    def channel_groups(self) -> list[dict]:
+        """The scenes of every computer that answers now; one that is off says nothing, so its scenes do not turn missing."""
+        return [m.channel_group() for m in self.machines.values() if m.conn is not None]
 
     def health(self) -> tuple[str, str]:
         if not self.machines:
