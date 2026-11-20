@@ -109,8 +109,8 @@ window.relayCan = function (perm) { return window.RELAY_ME.permissions.indexOf(p
       <h3>Sessions</h3>
     <div class="tablescroll">
       <table>
-        <thead><tr><th>Session</th><th>State</th><th>Last delta</th><th>Retries</th><th>Audio dropped</th></tr></thead>
-        <tbody id="sessions"><tr><td colspan="5" class="muted">Not started.</td></tr></tbody>
+        <thead><tr><th>Session</th><th>State</th><th>Last delta</th><th>Retries</th><th>Audio dropped</th><th>Cost</th></tr></thead>
+        <tbody id="sessions"><tr><td colspan="6" class="muted">Not started.</td></tr></tbody>
       </table>
     </div>
   </section>
@@ -262,6 +262,11 @@ window.relayCan = function (perm) { return window.RELAY_ME.permissions.indexOf(p
         has a text model translate each finished line into every language, so extra languages cost
         almost nothing. Captions then arrive a line at a time, a second or two behind.
         Changing it restarts live sessions.{% if 'settings.manage' not in perms %} An administrator sets the engine.{% endif %}</div>
+    </div>
+    <div class="field">
+      <label for="xbackend">Transcription</label>
+      <select id="xbackend" aria-label="Transcription backend"{% if 'settings.manage' not in perms %} disabled{% endif %}></select>
+      <div class="note" id="xbackendNote">Who turns the room's audio into text. If its key is not saved, OpenAI is used instead and this says so.</div>
     </div>
     </section>
     <section>
@@ -703,6 +708,10 @@ window.relayCan = function (perm) { return window.RELAY_ME.permissions.indexOf(p
     <div class="field">
       <label for="apikey">OpenAI API key <span id="keyState" class="muted"></span></label>
       <input id="apikey" type="password" placeholder="sk-… (leave blank to keep current)" autocomplete="off">
+    </div>
+    <div class="field">
+      <label for="vkey">Vercel AI Gateway key <span id="vkeyState" class="muted"></span></label>
+      <input id="vkey" type="password" placeholder="(leave blank to keep current)" autocomplete="off">
     </div>
     <button class="primary" id="saveCreds">Save credentials</button>
     <div class="note">Stored server-side in <span class="mono">config.json</span> (0600), encrypted with a key kept in this computer's keychain (<span id="keyStore" class="mono"></span>). Never sent to viewer pages.</div>
