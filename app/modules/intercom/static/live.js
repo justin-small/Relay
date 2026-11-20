@@ -5,7 +5,7 @@
   if (!R || !document.getElementById('icLive')) return;
   const $ = R.$;
   const BASE = '/api/admin/intercom/live';
-  function can(perm) { return typeof window.relayCan !== 'function' || !!window.relayCan(perm); }
+  const can = relayUI.can;
   const canLive = can('intercom.live');
   let es = null;
   let state = null;
@@ -32,13 +32,7 @@
     } catch (e) { fail(e); }
   }
 
-  function button(label, fn) {
-    const b = document.createElement('button');
-    b.type = 'button';
-    b.textContent = label;
-    b.addEventListener('click', fn);
-    return b;
-  }
+  const button = relayUI.button;
 
   const MODES = { preempt: 'Pre-empt', party: 'Party line', queue: 'One at a time' };
 
@@ -82,7 +76,7 @@
       cell(tr, p.where);
       cell(tr, p.talking.join(', ') || '—');
       cell(tr, p.listening.join(', ') || '—');
-      cell(tr, p.packets_lost == null ? '' : String(p.packets_lost), 'ic-' + p.loss_level);
+      cell(tr, p.loss_pct == null ? '' : p.loss_pct.toFixed(1) + ' %', 'ic-' + p.loss_level);
       cell(tr, p.jitter_ms == null ? '' : Math.round(p.jitter_ms) + ' ms', 'ic-' + p.jitter_level);
       const a = document.createElement('td');
       if (canLive) a.appendChild(button(p.user_muted ? 'Unmute' : 'Mute', function () {

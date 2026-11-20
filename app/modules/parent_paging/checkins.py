@@ -13,7 +13,7 @@ import time
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
-from ..planning_center import planningcenter as pc
+from .. import using
 
 PAGE_SIZE = 100
 MAX_PAGES = 10
@@ -29,6 +29,20 @@ class Unavailable(Exception):
     def __init__(self, message: str):
         super().__init__(message)
         self.message = message
+
+
+class _PlanningCenter:
+    """Planning Center's client code, which that module provides as "plan.api" (#523) and this one never imports.
+    Asked while Planning Center is off, it says so instead of reading anything."""
+
+    def __getattr__(self, name: str) -> Any:
+        api = using("plan.api")
+        if api is None:
+            raise Unavailable("Planning Center is off.")
+        return getattr(api, name)
+
+
+pc = _PlanningCenter()
 
 
 def _refusal(exc: pc.PlanningCenterError) -> Unavailable:

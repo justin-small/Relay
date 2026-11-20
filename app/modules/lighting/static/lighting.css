@@ -1,0 +1,83 @@
+/* The Lighting admin page: its tabs' layout only (docs/mockups/lighting/a-tabs.html). Controls come from
+   components.css. A cue page is drawn on a stage-dark backing so the cue colours read as they will on the screen. */
+#page-lighting [hidden] { display:none !important; }
+#page-lighting .tabs { display:flex; margin:0 0 var(--sp-3); }
+.cuebox { background:var(--video-bg); padding:var(--sp-2); border-radius:var(--r-ctl); aspect-ratio:4/3; display:flex; }
+.cuegrid { flex:1; contain:size; }
+.ltlede { margin:0; max-width:80ch; }
+.ltbar { display:flex; align-items:center; justify-content:space-between; gap:var(--sp-3); flex-wrap:wrap; margin:0 0 var(--sp-3); }
+.ltcrumb { display:flex; align-items:center; gap:var(--sp-2); flex-wrap:wrap; margin:0 0 var(--sp-3); }
+.ltbar .ltcrumb { margin:0; }
+.ltcrumb input { width:16rem; font-weight:600; }
+
+/* Fire cues */
+.ltpick { flex-wrap:wrap; }
+.ltpick button { flex:0 1 auto; padding:var(--sp-1) var(--sp-4); }
+.ltfire { width:100%; max-width:min(100%, 70rem); max-height:70vh; margin:0 0 var(--sp-4); }
+.ltfaders { display:flex; flex-wrap:wrap; gap:var(--sp-3) var(--sp-5); }
+.ltfader { display:grid; grid-template-columns:auto minmax(8rem,14rem) 3.5em; gap:var(--sp-2); align-items:center; margin:0; }
+.ltfader output { font-variant-numeric:tabular-nums; color:var(--muted); text-align:right; }
+.ltmore { border:1px solid var(--border); border-radius:var(--r); background:var(--card); padding:var(--sp-3) var(--sp-4); margin:var(--sp-3) 0; }
+.ltmore summary { cursor:pointer; font-weight:600; }
+.ltchips { display:flex; flex-wrap:wrap; gap:var(--sp-2); align-items:center; }
+.ltchip { font-size:var(--fs-sm); border:1px solid var(--border); border-radius:var(--r-pill); padding:2px var(--sp-3); }
+
+/* Pages: the list */
+.ltrows { border:1px solid var(--border); border-radius:var(--r); background:var(--card); }
+.ltrow { display:grid; grid-template-columns:1.25rem 8rem minmax(0,1fr) auto auto auto; gap:var(--sp-4); align-items:center;
+         padding:var(--sp-3) var(--sp-4); border-bottom:1px solid var(--border); cursor:pointer; }
+.ltrow:last-child { border-bottom:0; }
+.ltrow:hover { background:var(--hover); }
+.ltrow.ltdrag { opacity:.5; }
+.ltrow.ltover { box-shadow:inset 0 2px 0 var(--primary); }
+.ltgrip { color:var(--muted); cursor:grab; text-align:center; user-select:none; }
+.ltname b { display:block; }
+.ltname small { color:var(--muted); }
+.ltmove { display:flex; gap:var(--sp-1); }
+.ltmini { padding:var(--sp-1); height:4.5rem; max-width:8rem; justify-self:start; }
+.ltmini .rl-grid { --rl-gap:3px; }
+.ltmini .rl-w { padding:0; box-shadow:none; border-radius:var(--r-sm); }
+.ltmini .rl-w > * { display:none; }
+.ltmini .rl-lit { outline-width:2px; outline-offset:-2px; }
+
+/* Pages: new */
+.ltnew { display:grid; grid-template-columns:minmax(0,1fr) minmax(16rem,22rem); gap:var(--sp-5); align-items:start; }
+.ltnewform { display:flex; flex-direction:column; gap:var(--sp-4); }
+.ltnewform .field { margin:0; }
+.ltnewform #ltNpName { width:20rem; max-width:100%; }
+.ltnewform #ltNpCopy { width:20rem; max-width:100%; }
+.ltnewprev { display:flex; flex-direction:column; gap:var(--sp-2); }
+.ltnewprev .note { margin:0; }
+.ltsizes { display:flex; gap:var(--sp-2); flex-wrap:wrap; }
+.ltsize { display:flex; flex-direction:column; align-items:center; gap:var(--sp-1); height:auto; min-height:0; padding:var(--sp-2) var(--sp-3); }
+.ltsize[aria-pressed=true], .ltopt[aria-pressed=true] { border-color:var(--primary); background:var(--hover); color:var(--hover-fg); }
+.ltsizepic { display:grid; gap:2px; width:3rem; }
+.ltsizepic i { background:var(--border); }
+.ltopts { display:grid; grid-template-columns:repeat(auto-fit,minmax(12rem,1fr)); gap:var(--sp-3); }
+.ltopt { display:block; text-align:left; height:auto; min-height:0; padding:var(--sp-3); white-space:normal; }
+.ltopt b { display:block; font-weight:600; }
+.ltopt span { display:block; margin-top:2px; font-size:var(--fs-sm); color:var(--muted); font-weight:400; }
+.ltticks { display:grid; grid-template-columns:repeat(auto-fill,minmax(11rem,1fr)); gap:2px var(--sp-3); max-height:14rem; overflow:auto;
+           border:1px solid var(--border); border-radius:var(--r-ctl); padding:var(--sp-2) var(--sp-3); }
+.ltticks .check { margin:0; }
+
+/* Pages: page settings */
+.ltset { display:flex; align-items:center; justify-content:space-between; gap:var(--sp-3); padding:var(--sp-3) 0; border-bottom:1px solid var(--border); }
+.ltset:last-child { border-bottom:0; }
+.ltset small { display:block; color:var(--muted); font-size:var(--fs-sm); }
+
+/* Screens */
+.ltlink { display:flex; gap:var(--sp-2); align-items:center; padding:var(--sp-1) var(--sp-2); border:1px dashed var(--border); border-radius:var(--r-ctl); max-width:32rem; }
+.ltlinktext { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-family:var(--mono); font-size:var(--fs-sm); color:var(--muted); }
+
+/* Program */
+.ltform { display:grid; grid-template-columns:repeat(auto-fill,minmax(14rem,19rem)); gap:var(--sp-4); margin:0 0 var(--sp-3); }
+.ltform .field { margin:0; }
+.hint { display:block; margin-top:var(--sp-1); font-size:var(--fs-sm); color:var(--muted); font-weight:400; overflow-wrap:anywhere; }
+
+@media (max-width:900px) {
+  .ltnew { grid-template-columns:minmax(0,1fr); }
+  .ltrow { grid-template-columns:1.25rem 5rem minmax(0,1fr) auto; }
+  .ltrow .ltmini { height:3rem; max-width:5rem; }
+  .ltrow .badge, .ltrow .ltmove { display:none; }
+}

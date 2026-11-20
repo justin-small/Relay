@@ -58,6 +58,10 @@ class RemoteCrew(Remote):
         self.states: dict[int, State] = {}         # device id -> state
         self._tasks: set[asyncio.Task] = set()
 
+    def unavailable(self) -> int | None:
+        # The bridge reconnecting is not a bad sign-in: answering 4401 made the phone throw its credential away.
+        return None if bridge.connected else CODE_LINK_LOST
+
     async def allow(self, device: dict, user) -> bool:
         if not bridge.connected:
             return False

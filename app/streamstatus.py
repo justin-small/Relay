@@ -1,6 +1,6 @@
 """The status feed (#224) and the shared stream status modules publish into (#249).
 
-    GET /stream?stream=status
+    GET /stream?stream=status            (add &sound=1 for the room's SPL and RTA, #149)
 
 For the sound desk and the booth: is Relay capturing, how hot is the input,
 which languages are live, how many are watching, and -- from the modules that
@@ -109,13 +109,18 @@ def input_state(audio: dict, running: bool) -> dict:
     return {"state": state, "dbfs": max(-60, min(0, dbfs))}
 
 
-def payload(now: float | None = None) -> dict:
+def payload(now: float | None = None, sound: bool = False) -> dict:
     from .engine import engine  # the engine imports the hub, as this file does; import it late all the same
 
     now = time.time() if now is None else now
     audio = engine.capture.status() if engine.capture else {}
     live = engine.live_targets()
     entries = streams.entries()
+    snd = None
+    if sound:
+        from . import metering  # late: it loads the audio bus, which the status feed otherwise does not need
+
+        snd = metering.meter.public()
     return {
         "type": "status",
         "running": bool(engine.running),
@@ -126,23 +131,25 @@ def payload(now: float | None = None) -> dict:
         # On air when any stream source says it is. None when no source is set up to say either way.
         "on_air": any(e["on_air"] for e in entries) if any(e["on_air"] is not None for e in entries) else None,
         "streams": entries,
+        **({"sound": snd} if snd else {}),
         "server_time": now,
     }
 
 
 def signature(msg: dict) -> str:
-    """What counts as a change: everything but the clock and the level's exact dB."""
+    """What counts as a change: everything but the clock and the level's exact dB. The sound block (asked for with
+    `sound=1`, by a board's meter widgets) moves every second, so it does count: panels never ask for it."""
     shown = {k: v for k, v in msg.items() if k != "server_time"}
     shown["input"] = (msg.get("input") or {}).get("state")
     return json.dumps(shown, sort_keys=True, default=str)
 
 
-async def frames(poll_s: float = POLL_S, tick_s: float = TICK_S) -> AsyncIterator[bytes]:
+async def frames(poll_s: float = POLL_S, tick_s: float = TICK_S, sound: bool = False) -> AsyncIterator[bytes]:
     """The stream: the whole state now, again on each change, and again every `tick_s`."""
     last_sig: str | None = None
     last_sent = 0.0
     while True:
-        msg = payload()
+        msg = payload(sound=sound)
         sig = signature(msg)
         mono = time.monotonic()
         if sig != last_sig or mono - last_sent >= tick_s:

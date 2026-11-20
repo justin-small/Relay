@@ -1,0 +1,37 @@
+/* Shared by the three #546 mockups. Real tokens.css and components.css; own classes are prefixed sp-. */
+*{box-sizing:border-box}
+body{margin:0;background:var(--sb);color:var(--fg);font:var(--fs-base)/1.45 var(--font)}
+.sp-app{display:flex;min-height:100vh}
+.sp-nav{width:var(--sbw);flex:none;padding:var(--sp-4) var(--sp-3);border-right:1px solid var(--border);display:flex;flex-direction:column;gap:2px}
+.sp-nav h1{font-size:var(--fs-lg);margin:0 0 var(--sp-3) var(--sp-2)}
+.sp-nav .grp{font-size:var(--fs-xs);color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin:var(--sp-3) var(--sp-2) 4px}
+.sp-nav button{text-align:left;border-color:transparent;background:none;color:var(--muted)}
+.sp-nav button.on{background:var(--hover);color:var(--hover-fg);font-weight:600}
+.sp-main{flex:1;min-width:0;padding:var(--sp-5);background:var(--bg);border-radius:var(--r-lg) 0 0 var(--r-lg);margin:var(--sp-2) 0}
+.sp-main h2{font-size:var(--fs-2xl);margin:0 0 var(--sp-1)}
+.sp-bar{display:flex;gap:var(--sp-2);align-items:center;flex-wrap:wrap;margin:0 0 var(--sp-4)}
+.sp-bar .grow{flex:1}
+.sp-tag{font-size:var(--fs-sm);color:var(--muted)}
+.sp-add{display:flex;gap:var(--sp-2);flex-wrap:wrap;align-items:flex-start;margin-top:var(--sp-3)}
+.sp-add>.sp-slot{flex:1 1 220px;min-width:200px;position:relative}
+.sp-add>input{flex:1 1 180px;width:auto}
+.sp-slot{position:relative}
+.sp-nm{font-weight:600}
+.sp-sub{color:var(--muted);font-size:var(--fs-xs)}
+.sp-avatar{display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;border-radius:50%;background:var(--hover);color:var(--hover-fg);font-size:var(--fs-sm);font-weight:600;flex:none}
+@media (max-width:820px){.sp-app{flex-direction:column}.sp-nav{width:auto;flex-direction:row;flex-wrap:wrap;border-right:0;border-bottom:1px solid var(--border)}.sp-nav h1,.sp-nav .grp{display:none}.sp-main{border-radius:0;margin:0}}
+
+.sp-h{font-size:var(--fs-lg);margin:var(--sp-4) 0 2px}
+.sp-sw{display:inline-block;width:14px;height:14px;border-radius:50%;vertical-align:middle;border:1px solid var(--border)}.sp-sw.big{width:22px;height:22px}
+.sp-cp{display:flex;gap:6px;margin-top:6px}.sp-cpb{min-height:0;width:20px;height:20px;padding:0;border-radius:50%;border:2px solid transparent;opacity:.55}
+.sp-cpb:hover{opacity:1}.sp-cpb[aria-pressed=true]{opacity:1;border-color:var(--fg)}
+.sp-cl{display:flex;align-items:center;gap:var(--sp-2)}
+.sp-person{display:inline-flex;align-items:center;gap:6px;margin:0 var(--sp-3) 4px 0}
+.sp-chips{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:6px}
+.sp-chipc{display:inline-flex;align-items:center;gap:4px;border:1px solid var(--border);border-radius:var(--r-pill);padding:2px 4px 2px 10px;font-size:var(--fs-sm);font-weight:600;background:var(--card)}
+.sp-chipx{min-height:0;width:20px;height:20px;padding:0;border-radius:50%;border:0;background:none;color:var(--muted)}
+.sp-addch{max-width:300px}
+
+.sp-slots{display:flex;gap:6px;flex-wrap:wrap}
+.sp-tog{min-height:var(--ctl-h-sm);padding:3px 10px;font-size:var(--fs-sm);border-radius:var(--r-pill)}
+.sp-tog[aria-pressed=true]{background:var(--hover);color:var(--hover-fg);border-color:var(--primary);font-weight:600}

@@ -130,9 +130,10 @@ def test_the_menu_offers_what_is_live_and_what_the_panel_can_draw(panel: Board, 
     # ask `/api/targets` for it.
     relay.live = ["SPANISH", "FRENCH", "JAPANESE", "RUSSIAN"]
     r = wait_report(panel, lambda r: r.known and r.options, "the options from /api/targets")
-    assert r.options == ["transcription", "FRENCH", "SPANISH"]
+    # The Alert buttons (#121) are always offered, last (feed_format.h): the pane says itself when Relay has none.
+    assert r.options == ["transcription", "FRENCH", "SPANISH", "alert"]
     assert relay.api_requests >= 1, "the panel never asked /api/targets: Relay says what is live only when it changes"
-    assert open_menu(panel) == 3
+    assert open_menu(panel) == 4
 
 
 def test_a_person_can_pick_one_feed(panel: Board, relay: FakeRelay) -> None:
@@ -251,8 +252,9 @@ def test_a_saved_language_that_is_not_live_is_still_in_the_menu(panel: Board, re
     """What was chosen and is dark is listed, dim and ticked, so the menu says what is saved; it is not an offer."""
     relay.set_live(["FRENCH"])
     r = wait_report(panel, lambda r: r.known and "(fallback)" in r.shows[0], "the fall-back")
-    assert r.options == ["transcription", "FRENCH"]
+    assert r.options == ["transcription", "FRENCH", "alert"]
     assert panel.uart is not None
     mark = panel.uart.mark()
     tap(panel, *MENU_BUTTON)
-    panel.uart.wait_for_after(mark, r"view: menu one feed, 3 on offer, pane 1", timeout=30)
+    # Transcription, French, the saved Spanish (dim) and the Alert buttons.
+    panel.uart.wait_for_after(mark, r"view: menu one feed, 4 on offer, pane 1", timeout=30)

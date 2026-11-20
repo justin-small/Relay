@@ -1,0 +1,87 @@
+/* Lighting mockups: the real tokens and components, plus the page frame and a stand-in for the cue grid. */
+html{background:var(--bg)}
+body{margin:0;background:var(--bg);color:var(--fg);font:var(--fs-base)/1.45 var(--font)}
+*{box-sizing:border-box}
+.top{display:flex;align-items:center;gap:var(--sp-3);padding:var(--sp-3) var(--sp-5);background:var(--sb);border-bottom:1px solid var(--border)}
+.top b{font-size:var(--fs-lg)}
+.sp{flex:1}
+.wrap{max-width:1200px;margin:0 auto;padding:var(--sp-5)}
+.card{background:var(--card);border:1px solid var(--border);border-radius:var(--r);padding:var(--sp-4)}
+.card h3{margin:0 0 var(--sp-2);font-size:var(--fs-lg)}
+.stack{display:flex;flex-direction:column;gap:var(--sp-3)}
+.between{display:flex;align-items:center;justify-content:space-between;gap:var(--sp-3)}
+.gap{display:flex;align-items:center;gap:var(--sp-2);flex-wrap:wrap}
+.lede{margin:0 0 var(--sp-3);color:var(--muted);max-width:80ch}
+.hint{display:block;margin-top:5px;font-size:var(--fs-sm);color:var(--muted);font-weight:400}
+.hidden{display:none!important}
+.pane{display:none}.pane.on{display:block}
+.form{display:grid;gap:var(--sp-4);grid-template-columns:repeat(auto-fill,minmax(240px,300px))}
+.form .field{margin:0}
+.form input,.form select{border-color:color-mix(in srgb,var(--fg) 28%,var(--border))}
+.setrow{display:flex;align-items:center;justify-content:space-between;gap:var(--sp-3);padding:var(--sp-3) 0;border-bottom:1px solid var(--border)}
+.setrow:last-child{border-bottom:0}
+.setrow small{display:block;color:var(--muted);font-size:var(--fs-sm)}
+.tag{font-size:var(--fs-xs);border:1px solid var(--border);border-radius:var(--r-pill);padding:0 8px;color:var(--muted);white-space:nowrap}
+.mocknav{position:fixed;right:10px;bottom:10px;display:flex;gap:4px;font-size:var(--fs-sm);z-index:50}
+.mocknav a{padding:4px 10px;background:var(--card);border:1px solid var(--border);border-radius:var(--r-ctl);color:var(--fg);text-decoration:none}
+.mocknav a[aria-current]{background:var(--primary);color:var(--primary-fg)}
+
+/* Program picker: one card per lighting program. */
+.opts{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:var(--sp-3)}
+.opt{display:block;text-align:left;border:1px solid var(--border);border-radius:var(--r);padding:var(--sp-3);cursor:pointer;background:var(--card);margin:0;color:var(--fg);min-height:0;height:auto}
+.opt.on{border-color:var(--primary);background:var(--hover)}
+.opt b{display:block;font-weight:600}
+.opt span{display:block;font-size:var(--fs-sm);color:var(--muted);font-weight:400;margin-top:2px}
+
+/* Cue grid: a stand-in for core's layout renderer (app/static/layout-render.js), same look. */
+.stage{background:var(--video-bg);border-radius:var(--r);padding:10px}
+.cg{display:grid;gap:8px;aspect-ratio:4/3;width:100%}
+.cg.wide{aspect-ratio:16/9}
+.cue{display:flex;align-items:center;justify-content:center;text-align:center;border-radius:12px;font-weight:650;color:#fff;
+  box-shadow:inset 0 -4px 0 rgba(0,0,0,.25);cursor:pointer;padding:6px;font-size:clamp(12px,1.5vw,20px);line-height:1.1;user-select:none;border:0}
+.cue.lit{outline:4px solid #fff;outline-offset:-4px}
+.cue.pill{border-radius:999px}
+.cue.rect{border-radius:0}
+.cue:active{filter:brightness(1.3)}
+.cg.edit{background-image:linear-gradient(rgba(255,255,255,.06) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.06) 1px,transparent 1px)}
+.cue.sel{box-shadow:0 0 0 3px var(--primary)}
+.slot{border:1px dashed rgba(255,255,255,.12);border-radius:8px}
+.mini .cg{gap:3px}.mini .cue{font-size:0;border-radius:3px;box-shadow:none;padding:0}.mini .stage{padding:5px;border-radius:var(--r-sm)}
+
+/* Faders for level cues. */
+.faders{display:flex;gap:var(--sp-4);flex-wrap:wrap}
+.fader{display:grid;grid-template-columns:auto minmax(140px,240px) 3.5em;gap:var(--sp-2);align-items:center}
+.fader output{font-variant-numeric:tabular-nums;color:var(--muted);text-align:right}
+
+/* Palette chips of cues not yet placed. */
+.chips{display:flex;gap:6px;flex-wrap:wrap}
+.chip{font-size:var(--fs-sm);border:1px solid var(--border);border-radius:var(--r-pill);padding:3px 10px;white-space:nowrap;background:var(--bg);cursor:grab}
+.chip i{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:6px;vertical-align:middle}
+.chip.lvl{border-style:dashed}
+
+.log{font-size:var(--fs-sm)}
+.log div{display:grid;grid-template-columns:3.5em 1fr;gap:var(--sp-2);padding:6px 0;border-bottom:1px solid var(--border)}
+.log div:last-child{border-bottom:0}
+.log time{font-family:var(--mono);color:var(--muted)}
+.log small{display:block;color:var(--muted)}
+.linkbox{display:flex;gap:var(--sp-2);align-items:center;padding:var(--sp-2) var(--sp-3);border:1px dashed var(--border);border-radius:var(--r-ctl);font-family:var(--mono);font-size:var(--fs-sm);overflow:hidden}
+.linkbox span{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--muted)}
+
+/* A, Pages tab: the list of pages, the New page step and the page editor. */
+.prow{display:grid;grid-template-columns:20px 120px minmax(0,1fr) auto auto;gap:var(--sp-4);align-items:center;padding:var(--sp-3) var(--sp-4);border-bottom:1px solid var(--border);cursor:pointer}
+.prow:last-child{border-bottom:0}
+.prow:hover{background:var(--hover)}
+.prow .grip{color:var(--muted);cursor:grab;text-align:center}
+.prow b{display:block}.prow small{color:var(--muted)}
+.newgrid{display:grid;grid-template-columns:minmax(0,1fr) 320px;gap:var(--sp-5);align-items:start}
+.sizes{display:flex;gap:var(--sp-2);flex-wrap:wrap}
+.sizes button{display:flex;flex-direction:column;align-items:center;gap:6px;height:auto;min-height:0;padding:var(--sp-2) var(--sp-3);background:var(--card)}
+.sizes button.on{border-color:var(--primary);background:var(--hover)}
+.sizes .sg{display:grid;gap:2px;width:48px;aspect-ratio:4/3}
+.sizes .sg i{background:var(--border);border-radius:1px}
+.ticks{display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:2px var(--sp-3);max-height:180px;overflow:auto;border:1px solid var(--border);border-radius:var(--r-ctl);padding:var(--sp-2) var(--sp-3)}
+.ticks .check{margin:0}
+.edgrid{display:grid;grid-template-columns:220px minmax(0,1fr) 260px;gap:var(--sp-4);align-items:start}
+@media(max-width:1000px){.edgrid,.newgrid{grid-template-columns:1fr}}
+.chip.add{cursor:pointer}.chip.add:hover{border-color:var(--primary)}
+details.card summary{cursor:pointer}

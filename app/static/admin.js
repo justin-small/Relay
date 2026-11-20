@@ -10,7 +10,7 @@
       return n;
     })();
   };
-  const can = function (perm) { return window.relayCan(perm); };
+  const can = relayUI.can;
   let devices = [];
   let cfg = null;
   let lastTargetsKey = '';
@@ -79,7 +79,7 @@
     list.forEach(function (d) {
       const o = document.createElement('option');
       o.value = d.label;
-      o.textContent = d.label + '  (' + d.channels + ' ch, ' + d.default_samplerate + ' Hz'
+      o.textContent = d.label + (d.kind ? '  [' + d.kind + ']' : '') + '  (' + d.channels + ' ch, ' + d.default_samplerate + ' Hz'
         + (d.default ? ', system default' : '') + ')';
       sel.appendChild(o);
     });
@@ -110,13 +110,27 @@
     sel.value = (want === 'mix' && n > 1)
       ? 'mix'
       : String(Math.min(parseInt(want, 10) || 0, n - 1));
+    renderFeed();
+  }
+
+  /* What feeds the chosen channel, when a module that knows (Dante) says. */
+  function renderFeed() {
+    const dev = devices.filter(function (d) { return d.label === $('device').value; })[0];
+    const feeds = dev && dev.feeds ? dev.feeds : [];
+    const ch = $('channel').value;
+    const text = ch === 'mix'
+      ? feeds.filter(Boolean).join(', ')
+      : (feeds[parseInt(ch, 10) || 0] || '');
+    const box = $('deviceFeed');
+    box.textContent = text ? 'Fed by: ' + text : '';
+    box.hidden = !text;
   }
 
   $('device').addEventListener('change', function () {
     renderChannels();
     saveDevice();
   });
-  $('channel').addEventListener('change', saveDevice);
+  $('channel').addEventListener('change', function () { renderFeed(); saveDevice(); });
   $('noise').addEventListener('change', saveDevice);
 
   function renderMode() {
@@ -126,6 +140,36 @@
       ? 'Every live target is translated from the one transcription session. Turning one off takes effect from the next line.'
       : 'Each live target is a separate, continuously-billed session. Turning one off closes it immediately.';
   }
+
+  /* Who transcribes the main feed: every registered backend, the saved choice selected, and the sentence for
+     why a different one is running when its key is missing. */
+  function paintBackends(list, running) {
+    const sel = $('xbackend');
+    const want = (cfg && cfg.realtime && cfg.realtime.backend) || 'scribe';
+    const sig = JSON.stringify(list) + want;
+    if (sel.dataset.sig !== sig) {
+      sel.dataset.sig = sig;
+      sel.innerHTML = '';
+      list.forEach(function (b) {
+        const o = document.createElement('option');
+        o.value = b.id;
+        o.textContent = b.label + (b.price_per_hour == null ? '' : ' - $' + b.price_per_hour.toFixed(2) + ' per hour') +
+          (b.available ? '' : ' (key not set)');
+        sel.appendChild(o);
+      });
+      sel.value = want;
+    }
+    $('xbackendNote').textContent = running && running.warning ? running.warning
+      : "Who turns the room's audio into text. If its key is not saved, OpenAI is used instead and this says so.";
+  }
+
+  $('xbackend').addEventListener('change', async function () {
+    try {
+      const body = await post('/api/admin/config', { realtime: { backend: $('xbackend').value } });
+      cfg = body.config;
+      okMsg('Transcription saved.' + (body.status && body.status.running ? ' Live sessions restarted.' : ''));
+    } catch (e) { alertMsg(e.message); }
+  });
 
   $('xmode').addEventListener('change', async function () {
     try {
@@ -231,7 +275,7 @@
       return t.enabled !== enabled && (!enabled || text || !t.text_only);
     });
     if (!todo.length) return;
-    if (enabled && !text && !window.confirm('Turn on ' + todo.length + ' languages? Each is a separate, continuously-billed session while capture runs.')) return;
+    if (enabled && !text && !(await relayUI.confirm('Turn on ' + todo.length + ' languages? Each is a separate, continuously-billed session while capture runs.'))) return;
     for (let i = 0; i < todo.length; i++) await setTarget(todo[i].target, enabled);
   }
   $('targetsAll').addEventListener('click', function () { setAllTargets(true); });
@@ -293,13 +337,15 @@
   $('saveCreds').addEventListener('click', async function () {
     const payload = {};
     if ($('apikey').value.trim()) payload.openai_api_key = $('apikey').value.trim();
+    if ($('vkey').value.trim()) payload.vercel_api_key = $('vkey').value.trim();
     if (!Object.keys(payload).length) { alertMsg('Nothing to save.'); return; }
     try {
       const body = await post('/api/admin/config', payload);
       cfg = body.config;
       $('apikey').value = '';
+      $('vkey').value = '';
       renderKeyState();
-      okMsg('Saved.' + (payload.openai_api_key ? ' Restart capture to use the new key.' : ''));
+      okMsg('Saved.' + (payload.openai_api_key || payload.vercel_api_key ? ' Restart capture to use the new key.' : ''));
     } catch (e) { alertMsg(e.message); }
   });
 
@@ -319,11 +365,24 @@
   });
   $('clearBackupPass').addEventListener('click', function () { saveBackupPass(null); });
 
+  // The one Relay time zone (#526), set under System.
+  function relayZoneOptions(zones) {
+    const sel = $('relayZone');
+    sel.textContent = '';
+    zones.forEach(function (z) {
+      const o = document.createElement('option');
+      o.value = z.id; o.textContent = z.label;
+      sel.appendChild(o);
+    });
+    sel.value = cfg.timezone;
+  }
+
   $('saveAppearance').addEventListener('click', async function () {
     try {
       const body = await post('/api/admin/config', {
         default_font_px: parseInt($('font').value, 10),
         history_lines: parseInt($('history').value, 10),
+        timezone: $('relayZone').value,
         realtime: {
           segment_idle_s: parseFloat($('segIdle').value),
           segment_max_idle_s: parseFloat($('segMaxIdle').value)
@@ -339,6 +398,8 @@
       ? '· set ' + cfg.openai_api_key_hint
       : '· not set';
     $('keyState').className = cfg && cfg.openai_api_key_set ? 'ok' : 'err';
+    $('vkeyState').textContent = cfg && cfg.vercel_api_key_set ? '· set ' + cfg.vercel_api_key_hint : '· not set';
+    $('vkeyState').className = cfg && cfg.vercel_api_key_set ? 'ok' : 'err';
     if ($('backupPassState')) {
       $('backupPassState').textContent = cfg && cfg.backup_passphrase_set ? '· set' : '· not set';
       $('keyStore').textContent = (cfg && cfg.secret_store) || '';
@@ -499,8 +560,8 @@
   }
 
   async function deleteRun(runId, started) {
-    if (!window.confirm('Delete the recording from ' + fmtWhen(started)
-        + '? The transcript cannot be recovered.')) return;
+    if (!(await relayUI.confirm('Delete the recording from ' + fmtWhen(started)
+        + '? The transcript cannot be recovered.'))) return;
     try {
       await api('/api/admin/recordings/' + encodeURIComponent(runId), { method: 'DELETE' });
       okMsg('Recording deleted.');
@@ -533,18 +594,18 @@
     } catch (e) { alertMsg(e.message); }
   });
 
-  /* ---- schedules ----
-     Stored ISO (YYYY-MM-DD) and 24-hour (HH:MM) on the server; shown and typed
-     here in US formats only -- MM/DD/YYYY and h:mm AM/PM -- whatever locale the
-     browser is set to. The server formats every instant it reports, in the
-     schedule's own zone, so the panel never does time-zone maths itself. */
+  /* ---- schedules (#526) ----
+     Named schedules: each a set of weekly windows and one-off dates, optionally also open around the Planning Center
+     plan times. Stored ISO (YYYY-MM-DD) and 24-hour (HH:MM) on the server; shown and typed here in US formats only --
+     MM/DD/YYYY and h:mm AM/PM -- whatever locale the browser is set to. The server formats every instant it reports,
+     in Relay's one time zone, so the panel never does time-zone maths itself. */
   const DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-  let schedTimezones = [];
-  let schedDefaultTz = 'America/New_York';
   let schedEditing = null;   // id being edited, '' for a new one, null when closed
   let schedItems = [];
   let schedSig = '';
   let schedStatus = null;
+  let schedWindows = [];     // the editor's window rows: { read(), box }
+  let schedPlanOn = true;    // whether the Planning Center module can supply plan times
 
   function usToIso(text) {
     const m = /^\s*(\d{1,2})\/(\d{1,2})\/(\d{4})\s*$/.exec(text || '');
@@ -560,123 +621,160 @@
     return m ? m[2] + '/' + m[3] + '/' + m[1] : '';
   }
 
-  // Three selects per time: hour 1-12, minute in 5s, AM/PM. A minute that is
-  // not a multiple of five (a hand-edited config) is added so it round-trips.
-  function buildTimePicker(box) {
-    const opts = function (list) {
-      const sel = document.createElement('select');
-      list.forEach(function (o) {
-        const el = document.createElement('option');
-        el.value = o[0]; el.textContent = o[1];
-        sel.appendChild(el);
-      });
-      return sel;
-    };
-    const hours = [];
-    for (let h = 1; h <= 12; h++) hours.push([String(h), String(h)]);
-    const mins = [];
-    for (let m = 0; m < 60; m += 5) mins.push([String(m).padStart(2, '0'), ':' + String(m).padStart(2, '0')]);
-    const h = opts(hours), m = opts(mins), ap = opts([['AM', 'AM'], ['PM', 'PM']]);
-    h.setAttribute('aria-label', 'Hour');
-    m.setAttribute('aria-label', 'Minute');
-    ap.setAttribute('aria-label', 'AM or PM');
-    box.appendChild(h); box.appendChild(m); box.appendChild(ap);
+  // A US-format time ("9:30 AM") typed in a text box, with the browser's own clock picker behind a button, like the
+  // date fields: the format never follows the browser's locale. The value is "HH:MM", 24-hour.
+  function timeToText(hhmm) {
+    const m = /^(\d{2}):(\d{2})$/.exec(hhmm || '');
+    if (!m) return '';
+    const h = parseInt(m[1], 10);
+    return ((h % 12) || 12) + ':' + m[2] + ' ' + (h < 12 ? 'AM' : 'PM');
+  }
+  function textToTime(text) {
+    const m = /^\s*(\d{1,2})(?::(\d{2}))?\s*([ap])?\.?m?\.?\s*$/i.exec(text || '');
+    if (!m) return null;
+    let h = parseInt(m[1], 10);
+    const min = m[2] === undefined ? 0 : parseInt(m[2], 10);
+    if (min > 59) return null;
+    if (m[3]) {
+      if (h < 1 || h > 12) return null;
+      h = (h % 12) + (m[3].toLowerCase() === 'p' ? 12 : 0);
+    } else if (h > 23) return null;
+    return String(h).padStart(2, '0') + ':' + String(min).padStart(2, '0');
+  }
+  function buildTimeField(label) {
+    const el = relayUI.el;
+    const text = el('input'); text.type = 'text'; text.maxLength = 8; text.placeholder = 'h:mm AM';
+    text.setAttribute('aria-label', label);
+    const native = el('input', 'nativedate'); native.type = 'time'; native.tabIndex = -1; native.setAttribute('aria-hidden', 'true');
+    const btn = el('button', 'datepick', '\u{1F552}'); btn.type = 'button'; btn.setAttribute('aria-label', 'Pick a time');
+    btn.addEventListener('click', function () {
+      native.value = textToTime(text.value) || '';
+      try { if (native.showPicker) native.showPicker(); else native.click(); } catch (e) { text.focus(); }
+    });
+    const listeners = [];
+    const changed = function () { listeners.forEach(function (fn) { fn(); }); };
+    native.addEventListener('change', function () { if (native.value) { text.value = timeToText(native.value); changed(); } });
+    // Tidy "930a" or "21:30" into "9:30 AM" once the operator leaves the field.
+    text.addEventListener('blur', function () { const t = textToTime(text.value); if (t) text.value = timeToText(t); changed(); });
     return {
-      set: function (hhmm) {
-        const parts = (hhmm || '10:00').split(':');
-        const hh = parseInt(parts[0], 10), mm = parts[1];
-        h.value = String((hh % 12) || 12);
-        if (![].some.call(m.options, function (o) { return o.value === mm; })) {
-          const el = document.createElement('option');
-          el.value = mm; el.textContent = ':' + mm;
-          m.appendChild(el);
-        }
-        m.value = mm;
-        ap.value = hh < 12 ? 'AM' : 'PM';
-      },
-      get: function () {
-        let hh = parseInt(h.value, 10) % 12;
-        if (ap.value === 'PM') hh += 12;
-        return String(hh).padStart(2, '0') + ':' + m.value;
-      },
-      onChange: function (fn) { [h, m, ap].forEach(function (el) { el.addEventListener('change', fn); }); }
+      box: el('div', 'datefield', text, btn, native),
+      set: function (hhmm) { text.value = timeToText(hhmm || '10:00'); },
+      get: function () { return textToTime(text.value); },
+      onChange: function (fn) { listeners.push(fn); }
     };
   }
 
-  const startPicker = buildTimePicker($('schedStart'));
-  const stopPicker = buildTimePicker($('schedStop'));
-
-  function checkOvernight() {
-    $('schedOvernight').hidden = !(stopPicker.get() < startPicker.get());
-  }
-  startPicker.onChange(checkOvernight);
-  stopPicker.onChange(checkOvernight);
-
-  // The day chips.
-  DAY_NAMES.forEach(function (name, i) {
-    const lab = document.createElement('label');
-    lab.innerHTML = '<input type="checkbox" value="' + i + '"><span>' + name + '</span>';
-    $('schedDays').appendChild(lab);
-  });
-
-  // The calendar button opens the browser's own date picker and writes the
-  // choice back in US format.
-  document.querySelectorAll('.datepick').forEach(function (btn) {
-    const text = $(btn.dataset.for);
-    const native = btn.parentNode.querySelector('.nativedate');
+  // A US-format text date with the browser's own calendar behind a button, so the format never follows the locale.
+  function buildDateField(label, optional) {
+    const el = relayUI.el;
+    const text = el('input'); text.type = 'text'; text.inputMode = 'numeric'; text.maxLength = 10; text.placeholder = 'MM/DD/YYYY';
+    const native = el('input', 'nativedate'); native.type = 'date'; native.tabIndex = -1; native.setAttribute('aria-hidden', 'true');
+    const btn = el('button', 'datepick', '\u{1F4C5}'); btn.type = 'button'; btn.setAttribute('aria-label', 'Pick a date');
     btn.addEventListener('click', function () {
       native.value = usToIso(text.value) || '';
-      try {
-        if (native.showPicker) native.showPicker(); else native.click();
-      } catch (e) { text.focus(); }
+      try { if (native.showPicker) native.showPicker(); else native.click(); } catch (e) { text.focus(); }
     });
-    native.addEventListener('change', function () {
-      if (native.value) text.value = isoToUs(native.value);
-    });
+    native.addEventListener('change', function () { if (native.value) text.value = isoToUs(native.value); });
     // Tidy 1/5/2027 into 01/05/2027 once the operator leaves the field.
-    text.addEventListener('blur', function () {
-      const iso = usToIso(text.value);
-      if (iso) text.value = isoToUs(iso);
-    });
-  });
-
-  function syncRepeat() {
-    const once = $('schedRepeat').value === 'once';
-    $('schedDaysField').hidden = once;
-    $('schedEndDateField').hidden = once;
-    $('schedStartDateLabel').textContent = once ? 'Date' : 'Starting on (optional)';
+    text.addEventListener('blur', function () { const iso = usToIso(text.value); if (iso) text.value = isoToUs(iso); });
+    text.setAttribute('aria-label', label + (optional ? ' (optional)' : ''));
+    return { box: el('div', 'datefield', text, btn, native), text: text };
   }
-  $('schedRepeat').addEventListener('change', syncRepeat);
 
-  function renderTzOptions() {
-    const sel = $('schedTz');
-    sel.innerHTML = '';
-    schedTimezones.forEach(function (z) {
-      const o = document.createElement('option');
-      o.value = z.id; o.textContent = z.label;
-      sel.appendChild(o);
+  // One window of the editor: weekly (days, optional first and last date) or one date, and its start and stop time.
+  function buildWindowRow(w) {
+    const el = relayUI.el;
+    const repeat = el('select');
+    [['weekly', 'Every week'], ['once', 'One date']].forEach(function (o) {
+      const op = el('option', '', o[1]); op.value = o[0]; repeat.appendChild(op);
     });
+    repeat.value = w.repeat; repeat.setAttribute('aria-label', 'Repeats');
+    const days = el('div', 'days');
+    DAY_NAMES.forEach(function (name, i) {
+      const lab = el('label'), cb = el('input'); cb.type = 'checkbox'; cb.value = String(i);
+      cb.checked = (w.days || []).indexOf(i) !== -1;
+      lab.appendChild(cb); lab.appendChild(el('span', '', name)); days.appendChild(lab);
+    });
+    const from = buildDateField('Starting on', true), until = buildDateField('Ending on', true);
+    from.text.value = isoToUs(w.start_date); until.text.value = isoToUs(w.end_date);
+    const start = buildTimeField('Start time'), stop = buildTimeField('Stop time');
+    start.set(w.start_time); stop.set(w.stop_time);
+    const overnight = el('span', 'hint');
+    const sync = function () {
+      const once = repeat.value === 'once';
+      days.hidden = once; untilField.hidden = once;
+      fromField.firstChild.textContent = once ? 'Date' : 'Starting on (optional)';
+      // The words are added and taken away (a hidden .hint would still be drawn: components.css sets its display).
+      overnight.textContent = start.get() && stop.get() && stop.get() < start.get() ? 'The stop time is earlier than the start time, so it stops the next day.' : '';
+    };
+    repeat.addEventListener('change', sync); start.onChange(sync); stop.onChange(sync);
+    const remove = el('button', 'quiet danger', 'Remove this window'); remove.type = 'button';
+    const f = relayUI.field;
+    const fromField = f('Starting on', from.box), untilField = f('Ending on', until.box);
+    const box = el('div', 'schedwin',
+      f('Repeats', repeat), fromField, untilField,
+      days,
+      f('Start time', start.box), f('Stop time', stop.box), overnight,
+      remove);
+    const row = {
+      box: box,
+      read: function () {
+        const once = repeat.value === 'once';
+        const out = { repeat: repeat.value, start_time: start.get(), stop_time: stop.get(), days: [], start_date: null, end_date: null };
+        if (!out.start_time || !out.stop_time) throw new Error('Enter the times like 9:30 AM.');
+        const a = from.text.value.trim(), z = until.text.value.trim();
+        if (a) { out.start_date = usToIso(a); if (!out.start_date) throw new Error('Enter the date as MM/DD/YYYY.'); }
+        if (once) {
+          if (!out.start_date) throw new Error('Pick the date this runs, as MM/DD/YYYY.');
+        } else {
+          days.querySelectorAll('input:checked').forEach(function (cb) { out.days.push(parseInt(cb.value, 10)); });
+          if (!out.days.length) throw new Error('Pick at least one day.');
+          if (z) { out.end_date = usToIso(z); if (!out.end_date) throw new Error('Enter the end date as MM/DD/YYYY.'); }
+        }
+        if (out.start_time === out.stop_time) throw new Error('Start and stop time must differ.');
+        return out;
+      }
+    };
+    remove.addEventListener('click', function () {
+      schedWindows = schedWindows.filter(function (r) { return r !== row; });
+      box.remove();
+    });
+    sync();
+    return row;
   }
+
+  function addWindowRow(w) {
+    const row = buildWindowRow(w || { repeat: 'weekly', days: [0], start_date: null, end_date: null, start_time: '10:00', stop_time: '12:00' });
+    schedWindows.push(row);
+    $('schedWindows').appendChild(row.box);
+  }
+
+  function syncPlan() {
+    $('schedPlanTimes').hidden = !$('schedPlan').checked;
+    $('schedPlanOff').hidden = !($('schedPlan').checked && !schedPlanOn);
+  }
+  $('schedPlan').addEventListener('change', syncPlan);
+  $('schedAddWindow').addEventListener('click', function () { addWindowRow(); });
 
   function openSchedForm(item) {
     schedEditing = item ? item.id : '';
-    const s = item || {
-      name: '', repeat: 'weekly', days: [0], start_date: null, end_date: null,
-      start_time: '10:00', stop_time: '12:00', timezone: lastTz(), enabled: true
-    };
-    $('schedName').value = s.name || '';
-    $('schedRepeat').value = s.repeat;
-    $('schedDays').querySelectorAll('input').forEach(function (cb) {
-      cb.checked = s.days.indexOf(parseInt(cb.value, 10)) !== -1;
+    $('schedName').value = item ? item.name : '';
+    $('schedWindows').textContent = '';
+    schedWindows = [];
+    (item ? item.windows : [null]).forEach(function (w) { addWindowRow(w); });
+    $('schedPlan').checked = !!(item && item.plan_times);
+    $('schedPlanBefore').value = item ? item.plan_before : 30;
+    $('schedPlanAfter').value = item ? item.plan_after : 120;
+    $('schedEngine').checked = item ? !!item.engine : true;
+    const used = $('schedUsed');
+    used.textContent = '';
+    ((item && item.used_by) || []).forEach(function (u) {
+      const li = document.createElement('li'); li.textContent = u.where + ': ' + u.what; used.appendChild(li);
     });
-    $('schedStartDate').value = isoToUs(s.start_date);
-    $('schedEndDate').value = isoToUs(s.end_date);
-    startPicker.set(s.start_time);
-    stopPicker.set(s.stop_time);
-    $('schedTz').value = s.timezone;
+    $('schedUsedBox').hidden = !(item && item.used_by && item.used_by.length);
+    $('schedFormTitle').textContent = item ? 'Edit ' + item.name : 'New schedule';
     $('schedSave').textContent = item ? 'Save changes' : 'Add schedule';
-    syncRepeat();
-    checkOvernight();
+    syncPlan();
     $('schedForm').hidden = false;
     $('schedAdd').hidden = true;
     $('schedName').focus();
@@ -688,43 +786,17 @@
     $('schedAdd').hidden = false;
   }
 
-  // A new schedule starts on the zone the operator used last.
-  function lastTz() {
-    return schedItems.length ? schedItems[schedItems.length - 1].timezone : schedDefaultTz;
-  }
-
   function readSchedForm() {
-    const repeat = $('schedRepeat').value;
-    const payload = {
-      name: $('schedName').value.trim(),
-      repeat: repeat,
-      start_time: startPicker.get(),
-      stop_time: stopPicker.get(),
-      timezone: $('schedTz').value,
-      days: [],
-      start_date: null,
-      end_date: null
+    const name = $('schedName').value.trim();
+    if (!name) throw new Error('Give the schedule a name.');
+    return {
+      name: name,
+      windows: schedWindows.map(function (r) { return r.read(); }),
+      plan_times: $('schedPlan').checked,
+      plan_before: parseInt($('schedPlanBefore').value, 10),
+      plan_after: parseInt($('schedPlanAfter').value, 10),
+      engine: $('schedEngine').checked
     };
-    const startText = $('schedStartDate').value.trim();
-    const endText = $('schedEndDate').value.trim();
-    if (startText) {
-      payload.start_date = usToIso(startText);
-      if (!payload.start_date) throw new Error('Enter the date as MM/DD/YYYY.');
-    }
-    if (repeat === 'once') {
-      if (!payload.start_date) throw new Error('Pick the date this runs, as MM/DD/YYYY.');
-    } else {
-      $('schedDays').querySelectorAll('input:checked').forEach(function (cb) {
-        payload.days.push(parseInt(cb.value, 10));
-      });
-      if (!payload.days.length) throw new Error('Pick at least one day.');
-      if (endText) {
-        payload.end_date = usToIso(endText);
-        if (!payload.end_date) throw new Error('Enter the end date as MM/DD/YYYY.');
-      }
-    }
-    if (payload.start_time === payload.stop_time) throw new Error('Start and stop time must differ.');
-    return payload;
   }
 
   $('schedAdd').addEventListener('click', function () { openSchedForm(null); });
@@ -735,12 +807,8 @@
     let payload;
     try { payload = readSchedForm(); } catch (e) { alertMsg(e.message); return; }
     const editing = schedEditing;
-    if (editing) {
-      const prev = schedItems.filter(function (s) { return s.id === editing; })[0];
-      payload.enabled = prev ? prev.enabled : true;
-    } else {
-      payload.enabled = true;
-    }
+    const prev = editing ? schedItems.filter(function (s) { return s.id === editing; })[0] : null;
+    payload.enabled = prev ? prev.enabled : true;
     try {
       const body = await api(editing ? '/api/admin/schedules/' + encodeURIComponent(editing)
                                      : '/api/admin/schedules', {
@@ -766,7 +834,7 @@
   }
 
   async function schedDelete(item) {
-    if (!window.confirm('Delete the schedule "' + (item.name || item.summary) + '"?')) return;
+    if (!(await relayUI.confirm('Delete the schedule "' + item.name + '"?'))) return;
     try {
       const body = await api('/api/admin/schedules/' + encodeURIComponent(item.id), { method: 'DELETE' });
       if (schedEditing === item.id) closeSchedForm();
@@ -775,13 +843,17 @@
     } catch (e) { alertMsg(e.message); }
   }
 
+  function usedText(list) {
+    const by = {};
+    list.forEach(function (u) { by[u.where] = (by[u.where] || 0) + 1; });
+    return Object.keys(by).map(function (k) { return by[k] > 1 ? k + ' (' + by[k] + ')' : k; }).join(', ');
+  }
+
   function renderSchedules(info) {
-    if (info.timezones && !schedTimezones.length) {
-      schedTimezones = info.timezones;
-      renderTzOptions();
-    }
-    if (info.default_timezone) schedDefaultTz = info.default_timezone;
     schedItems = info.schedules || [];
+    schedPlanOn = !!info.plan_times;
+    const zone = (info.timezones || []).filter(function (z) { return z.id === info.timezone; })[0];
+    $('schedZone').textContent = zone ? zone.label : (info.timezone || '');
     if (info.status) renderSchedStatus(info.status);
 
     const tb = $('schedList');
@@ -796,16 +868,18 @@
       const what = document.createElement('td');
       const name = document.createElement('div');
       name.className = 'schedname';
-      name.textContent = s.name || s.summary;
+      name.textContent = s.name;
       if (s.live && s.enabled) name.insertAdjacentHTML('beforeend', ' <span class="ok">· live window</span>');
       else if (s.expired) name.insertAdjacentHTML('beforeend', ' <span class="muted">· finished</span>');
       what.appendChild(name);
-      if (s.name) {
-        const sum = document.createElement('div');
-        sum.className = 'schedsum';
-        sum.textContent = s.summary;
-        what.appendChild(sum);
-      }
+      const sum = document.createElement('div');
+      sum.className = 'schedsum';
+      sum.textContent = s.summary;
+      what.appendChild(sum);
+      const use = document.createElement('div');
+      use.className = 'schedsum';
+      use.textContent = s.used_by.length ? 'Used by: ' + usedText(s.used_by) : 'Not used anywhere yet';
+      what.appendChild(use);
       tr.appendChild(what);
 
       const next = document.createElement('td');
@@ -910,19 +984,29 @@
   });
 
   /* ---- alerts (#121) ----
-     The operator's buttons are edited here and saved whole. The status stream's `alerts_admin` frame brings the
-     saved settings, the browser screens open now and each button's state; while there are unsaved edits only the
-     states and hints are repainted, so typing is never undone. */
+     One routing grid: each row is something the band can send (an alert button, a stage message, or words typed on
+     the sender page), each column a panel or browser screen, and a ticked square sends that row there. Edits go
+     straight into alertCfg and are saved whole. The status stream's `alerts_admin` frame brings the saved settings,
+     the browser screens open now and each button's state; while there are unsaved edits it never replaces alertCfg.
+     The grid is rebuilt only when its rows or columns change, never under a field being typed in, so a click or a
+     keystroke is never lost to a redraw. */
   let alertCfg = { auto_stop_s: 120, buttons: [], messages: { presets: [], free: { panels: [], screens: [] }, message_s: 10, banner_s: 300 } };
   let alertScreens = [];
   let alertState = [];
   let alertDirty = false;
   let viewerHosts = [];
+  let alertExtraScreens = [];   // screens added or unticked here, kept as columns until the page reloads
+  let alertOpenRow = '';        // the row whose options are open: 'b<i>', 'm<i>' or 'free'
+  let alertSig = '';
   const ALERT_WORDS = { on: 'Flashing', seen: 'Seen', missed: 'Not seen', cancelled: 'Stopped' };
+  const LEVEL_LABELS = { info: 'Info (blue)', attention: 'Attention (amber, flashes)', urgent: 'Urgent (red, flashes)' };
+  const LEVEL_SHORT = { info: 'Info', attention: 'Attention', urgent: 'Urgent' };
+  const AUTOSTOP_WORDS = { 30: '30 s', 60: '1 min', 120: '2 min', 180: '3 min', 300: '5 min', 600: '10 min' };
 
   function alertSetDirty(on) {
     alertDirty = on;
     $('alertDirty').hidden = !on;
+    renderAlertSetSum();
   }
 
   function applyAlerts(frame) {
@@ -930,12 +1014,13 @@
     alertState = frame.state || [];
     if (!alertDirty) {
       alertCfg = JSON.parse(JSON.stringify(frame.alerts || alertCfg));
+      if (!alertCfg.messages) alertCfg.messages = { presets: [], free: { panels: [], screens: [] }, message_s: 10, banner_s: 300 };
       $('alertAutoStop').value = String(alertCfg.auto_stop_s);
       $('alertSignin').checked = !!alertCfg.require_signin;
       $('alertReplies').value = (alertCfg.replies || []).join('\n');
-      if (!alertCfg.messages) alertCfg.messages = { presets: [], free: { panels: [], screens: [] }, message_s: 10, banner_s: 300 };
       $('msgSeconds').value = String(alertCfg.messages.message_s);
       $('bannerSeconds').value = String(alertCfg.messages.banner_s);
+      renderAlertSetSum();
     }
     renderAlerts();
   }
@@ -946,83 +1031,130 @@
     let text = ALERT_WORDS[row.state] || row.state;
     if (row.state === 'on' && row.from) text += ' · from ' + row.from;
     if (row.state === 'seen' && row.seen_on) text += ' on ' + row.seen_on;
-    if (row.state === 'seen' && row.reply) text += ' \u2014 \u201c' + row.reply + '\u201d';
+    if (row.state === 'seen' && row.reply) text += ' — “' + row.reply + '”';
     return { cls: row.state, text: text };
   }
 
   function renderAlertSum() {
     const on = alertState.filter(function (r) { return r.state === 'on'; }).length;
     const n = alertCfg.buttons.length;
-    $('alertsSum').innerHTML = on ? '<span class="live">' + on + ' flashing</span>'
-      : n ? n + (n === 1 ? ' button' : ' buttons') : '';
+    const m = alertCfg.messages.presets.length;
+    $('alertsSum').innerHTML = '';
+    if (on) { $('alertsSum').appendChild(el('span', 'live', on + ' flashing')); return; }
+    const parts = [];
+    if (n) parts.push(n + (n === 1 ? ' button' : ' buttons'));
+    if (m) parts.push(m + (m === 1 ? ' message' : ' messages'));
+    $('alertsSum').textContent = parts.join(' · ');
+  }
+
+  function renderAlertSetSum() {
+    const replies = $('alertReplies').value.split('\n').filter(function (r) { return r.trim(); }).length;
+    $('alertSetSum').textContent = [
+      'stops after ' + (AUTOSTOP_WORDS[$('alertAutoStop').value] || $('alertAutoStop').value + ' s'),
+      replies ? replies + (replies === 1 ? ' reply' : ' replies') : 'no replies',
+      $('alertSignin').checked ? 'sign-in to send' : 'anyone with the link sends'
+    ].join(' · ');
+  }
+
+  // Every row of the grid, in order, with how to show and edit it.
+  function alertRows() {
+    const rows = [];
+    alertCfg.buttons.forEach(function (b, i) { rows.push({ key: 'b' + i, kind: 'button', item: b, index: i }); });
+    alertCfg.messages.presets.forEach(function (m, i) { rows.push({ key: 'm' + i, kind: 'message', item: m, index: i }); });
+    rows.push({ key: 'free', kind: 'free', item: alertCfg.messages.free });
+    return rows;
+  }
+
+  // Every column: the panels that have checked in (and any a row still names), then the browser screens a row
+  // names, that are open now, or that were added here.
+  function alertColumns() {
+    const items = alertRows().map(function (r) { return r.item; });
+    const cols = panelRows.map(function (r) { return { kind: 'panel', id: r.id, name: r.name, online: !!r.online }; });
+    items.forEach(function (it) {
+      (it.panels || []).forEach(function (pid) {
+        if (!cols.some(function (c) { return c.kind === 'panel' && c.id === pid; })) {
+          cols.push({ kind: 'panel', id: pid, name: 'Forgotten panel ' + pid.slice(0, 4), online: false });
+        }
+      });
+    });
+    const seen = {};
+    const screens = [];
+    function addScreen(name) {
+      const key = name.toLowerCase();
+      if (!name || seen[key]) return;
+      seen[key] = true;
+      screens.push(name);
+    }
+    items.forEach(function (it) { (it.screens || []).forEach(addScreen); });
+    alertScreens.forEach(addScreen);
+    alertExtraScreens.forEach(addScreen);
+    screens.sort(function (a, b) { return a.toLowerCase() < b.toLowerCase() ? -1 : 1; });
+    const open = alertScreens.map(function (s) { return s.toLowerCase(); });
+    screens.forEach(function (name) {
+      cols.push({ kind: 'screen', id: name, name: name, online: open.indexOf(name.toLowerCase()) !== -1 });
+    });
+    return cols;
+  }
+
+  function alertHas(item, col) {
+    if (col.kind === 'panel') return (item.panels || []).indexOf(col.id) !== -1;
+    const key = col.id.toLowerCase();
+    return (item.screens || []).some(function (s) { return s.toLowerCase() === key; });
+  }
+
+  function alertSetHas(item, col, on) {
+    if (col.kind === 'panel') {
+      item.panels = (item.panels || []).filter(function (x) { return x !== col.id; });
+      if (on) item.panels.push(col.id);
+      return;
+    }
+    const key = col.id.toLowerCase();
+    item.screens = (item.screens || []).filter(function (s) { return s.toLowerCase() !== key; });
+    if (on) item.screens.push(col.id);
+    else if (alertExtraScreens.indexOf(col.id) === -1) alertExtraScreens.push(col.id);   // keep its column
+  }
+
+  function viewerBase() {
+    // The viewer hosts end in "/" (they are joined to "translation" and the like); these paths start with one.
+    return (viewerHosts[0] || location.origin).replace(/\/+$/, '');
   }
 
   function renderAlerts() {
     renderAlertSum();
-    const list = $('alertList');
-    // Never rebuild under the operator's cursor, or while edits wait: repaint the states only.
-    if (alertDirty || list.contains(document.activeElement)) {
-      list.querySelectorAll('[data-astate]').forEach(function (n) {
+    renderAlertLinks();
+    const table = $('alertList');
+    const cols = alertColumns();
+    const rows = alertRows();
+    const sig = JSON.stringify([cols, rows.map(function (r) { return r.key; }), alertOpenRow,
+      !!(window.RelayAdmin && window.RelayAdmin.panelHooks.stageDisplay)]);
+    const typing = table.contains(document.activeElement) &&
+      /^(INPUT|SELECT|TEXTAREA)$/.test(document.activeElement.tagName) && document.activeElement.type !== 'checkbox';
+    if (sig === alertSig || typing) {
+      // Only the live parts: each button's state.
+      table.querySelectorAll('[data-astate]').forEach(function (n) {
         const st = alertStateText(n.dataset.astate);
         n.className = 'astate ' + st.cls;
         n.textContent = st.text;
       });
-      list.querySelectorAll('[data-ahint]').forEach(function (n) { n.textContent = screenHint(); });
-      renderAlertLinks();
       return;
     }
-    list.innerHTML = '';
-    if (!alertCfg.buttons.length) {
-      list.appendChild(el('div', 'muted', 'No alert buttons yet. Add one for each place a musician may need to reach.'));
-    }
-    alertCfg.buttons.forEach(function (b, i) { list.appendChild(alertCard(b, i)); });
-    renderMessageCards();
-    renderAlertLinks();
+    alertSig = sig;
+    buildAlertGrid(table, rows, cols);
   }
 
-  /* Stage messages (#214): preset cards, and where typed words go. Edited with the buttons and saved with them. */
-  function targetPicker(item, editable, label) {
-    const wrap = el('div', 'field');
-    wrap.appendChild(el('label', '', label));
-    const grid = el('div', 'atargets');
-    const known = panelRows.slice();
-    item.panels.forEach(function (pid) {
-      if (!known.some(function (r) { return r.id === pid; })) known.push({ id: pid, name: 'Forgotten panel ' + pid.slice(0, 4), online: false });
-    });
-    if (!known.length) grid.appendChild(el('span', 'muted', 'No panels have checked in yet.'));
-    known.forEach(function (r) {
-      const lab = el('label', 'check');
-      const box = el('input');
-      box.type = 'checkbox';
-      box.checked = item.panels.indexOf(r.id) !== -1;
-      box.disabled = !editable;
-      box.addEventListener('change', function () {
-        item.panels = item.panels.filter(function (x) { return x !== r.id; });
-        if (box.checked) item.panels.push(r.id);
-        alertSetDirty(true);
-      });
-      lab.appendChild(box);
-      lab.appendChild(el('span', '', r.name + (r.online ? '' : ' (offline)')));
-      grid.appendChild(lab);
-    });
-    wrap.appendChild(grid);
-    const screens = el('input');
-    screens.placeholder = 'Browser screens, separated by commas';
-    screens.setAttribute('aria-label', label + ': browser screens');
-    screens.value = item.screens.join(', ');
-    screens.disabled = !editable;
-    screens.style.marginTop = '6px';
-    screens.addEventListener('input', function () {
-      item.screens = screens.value.split(',').map(function (x) { return x.replace(/\s+/g, ' ').trim(); }).filter(Boolean);
-      alertSetDirty(true);
-    });
-    wrap.appendChild(screens);
-    return wrap;
+  function forceAlerts() {
+    alertSig = '';
+    renderAlerts();
   }
 
-  /* Levels (#215): how loud an alert or message is. Info is a steady blue, attention flashes amber, urgent flashes
-     red and white. A button defaults to urgent, a message to info. */
-  const LEVEL_LABELS = { info: 'Info (blue)', attention: 'Attention (amber, flashes)', urgent: 'Urgent (red, flashes)' };
+  function levelSwatch(level) {
+    const sw = el('span', 'alv ' + level);
+    sw.title = LEVEL_LABELS[level];
+    sw.setAttribute('role', 'img');
+    sw.setAttribute('aria-label', LEVEL_SHORT[level]);
+    return sw;
+  }
+
   function levelPicker(item, editable, fallback, label) {
     const pick = el('select', 'alevelpick');
     pick.setAttribute('aria-label', label || 'Level');
@@ -1033,227 +1165,257 @@
     });
     pick.value = item.level || fallback;
     pick.disabled = !editable;
-    pick.addEventListener('change', function () { item.level = pick.value; alertSetDirty(true); });
+    pick.addEventListener('change', function () { item.level = pick.value; alertSetDirty(true); forceAlerts(); });
     return pick;
   }
 
-  function renderMessageCards() {
+  function buildAlertGrid(table, rows, cols) {
     const editable = can('alerts.manage');
-    const msgs = alertCfg.messages;
-    const list = $('msgList');
-    list.innerHTML = '';
-    if (!msgs.presets.length) list.appendChild(el('div', 'muted', 'No preset messages yet. Add the ones you send often: “Wrap up”, “5 minutes”.'));
-    msgs.presets.forEach(function (m, i) {
-      const card = el('div', 'pcard acard');
-      const head = el('div', 'phead');
-      const text = el('input');
-      text.value = m.text;
-      text.maxLength = 80;
-      text.placeholder = '5 minutes';
-      text.setAttribute('aria-label', 'Message');
-      text.style.flex = '1 1 220px';
-      text.disabled = !editable;
-      text.addEventListener('input', function () { m.text = text.value; alertSetDirty(true); });
-      head.appendChild(text);
-      head.appendChild(levelPicker(m, editable, 'info', 'Message level'));
-      const bl = el('label', 'check');
-      const bb = el('input');
-      bb.type = 'checkbox';
-      bb.checked = !!m.banner;
-      bb.disabled = !editable;
-      bb.addEventListener('change', function () { m.banner = bb.checked; alertSetDirty(true); });
-      bl.appendChild(bb);
-      bl.appendChild(el('span', '', 'Banner'));
-      head.appendChild(bl);
-      if (editable) {
-        const remove = el('button', '', 'Remove');
-        remove.type = 'button';
-        remove.addEventListener('click', function () {
-          msgs.presets.splice(i, 1);
-          alertDirty = false;
-          renderAlerts();
-          alertSetDirty(true);
-        });
-        head.appendChild(remove);
-      }
-      card.appendChild(head);
-      card.appendChild(targetPicker(m, editable, 'Shown on'));
-      list.appendChild(card);
-    });
-    const free = $('msgFree');
-    free.innerHTML = '';
-    free.appendChild(targetPicker(msgs.free, editable, 'Panels and screens'));
-    const fl = el('div', 'ctl');
-    fl.style.marginTop = '6px';
-    fl.appendChild(el('span', '', 'Typed messages are'));
-    fl.appendChild(levelPicker(msgs.free, editable, 'info', 'Typed message level'));
-    free.appendChild(fl);
-  }
+    const span = Math.max(cols.length, 1) + 2;
+    table.innerHTML = '';
 
-  function screenHint() {
-    return alertScreens.length ? 'Open now: ' + alertScreens.join(', ') : 'No alert screen is open right now.';
-  }
-
-  function alertCard(b, i) {
-    const editable = can('alerts.manage');
-    const card = el('div', 'pcard acard');
-    const head = el('div', 'phead');
-    // The icon the /alert page shows for it (look C): a preview and a picker.
-    const icons = window.RelayAlertIcons;
-    const preview = el('span', 'aicon');
-    const pick = el('select', 'aiconpick');
-    pick.setAttribute('aria-label', 'Icon');
-    if (!b.icon) b.icon = 'bell';
-    if (icons) {
-      icons.names.forEach(function (n) {
-        const o = el('option', '', icons.label(n));
-        o.value = n;
-        pick.appendChild(o);
-      });
-      pick.value = b.icon;
-      preview.innerHTML = icons.svg(b.icon);
+    const head = el('thead');
+    const hr = el('tr');
+    hr.appendChild(el('th', 'aname', 'Send'));
+    if (!cols.length) {
+      hr.appendChild(el('th', 'acolnone', 'No panels or screens yet. A panel appears here when it checks in; add a browser screen below for a TV or laptop.'));
     }
-    pick.addEventListener('change', function () {
-      b.icon = pick.value;
-      if (icons) preview.innerHTML = icons.svg(b.icon);
-      alertSetDirty(true);
+    cols.forEach(function (c) {
+      const th = el('th', 'acol');
+      th.scope = 'col';
+      const name = el('span', 'acolname');
+      const dot = el('span', 'dot' + (c.online ? ' ok' : ''));
+      dot.setAttribute('role', 'img');
+      dot.setAttribute('aria-label', c.online ? 'Connected' : 'Not connected');
+      dot.title = c.online ? 'Connected now' : 'Not connected now';
+      name.append(dot, el('span', '', c.name));
+      th.appendChild(name);
+      if (c.kind === 'panel') th.appendChild(el('span', 'acolkind', 'panel'));
+      else {
+        const link = relayUI.link('screen link', viewerBase() + '/screen?alert=' + encodeURIComponent(c.name));
+        link.className = 'acolkind';
+        link.title = 'Open this on the TV or laptop, so it joins as “' + c.name + '”';
+        th.appendChild(link);
+      }
+      hr.appendChild(th);
     });
-    head.appendChild(preview);
-    const name = el('input');
-    name.value = b.name;
-    name.maxLength = 32;
-    name.placeholder = 'FOH booth';
-    name.setAttribute('aria-label', 'Button name');
-    name.style.flex = '1 1 180px';
-    name.addEventListener('input', function () { b.name = name.value; alertSetDirty(true); renderAlertLinks(); });
-    head.appendChild(name);
-    head.appendChild(pick);
-    head.appendChild(levelPicker(b, editable, 'urgent', 'Alert level'));
-    const st = alertStateText(b.id);
-    const state = el('span', 'astate ' + st.cls, st.text);
-    if (b.id) state.dataset.astate = b.id;
-    head.appendChild(state);
-    if (!editable) { name.disabled = true; pick.disabled = true; }
-    const remove = el('button', '', 'Remove');
-    remove.type = 'button';
-    remove.addEventListener('click', function () {
-      alertCfg.buttons.splice(i, 1);
-      alertSetDirty(true);
-      alertDirty = false;   // rebuild now; the flag is set again just below
-      renderAlerts();
-      alertSetDirty(true);
-    });
-    if (editable) head.appendChild(remove);
-    card.appendChild(head);
+    hr.appendChild(el('th', 'aopt'));
+    head.appendChild(hr);
+    table.appendChild(head);
 
-    const pf = el('div', 'field');
-    pf.appendChild(el('label', '', 'Panels it flashes'));
-    const grid = el('div', 'atargets');
-    const known = panelRows.slice();
-    b.panels.forEach(function (pid) {
-      if (!known.some(function (r) { return r.id === pid; })) known.push({ id: pid, name: 'Forgotten panel ' + pid.slice(0, 4), online: false });
-    });
-    if (!known.length) grid.appendChild(el('span', 'muted', 'No panels have checked in yet.'));
-    known.forEach(function (r) {
-      const lab = el('label', 'check');
-      const box = el('input');
-      box.type = 'checkbox';
-      box.checked = b.panels.indexOf(r.id) !== -1;
-      box.disabled = !editable;
-      box.addEventListener('change', function () {
-        b.panels = b.panels.filter(function (x) { return x !== r.id; });
-        if (box.checked) b.panels.push(r.id);
-        alertSetDirty(true);
+    const body = el('tbody');
+    function group(text, note) {
+      const tr = el('tr', 'agroup');
+      const td = el('th');
+      td.colSpan = span;
+      const words = el('span', '', text);
+      if (note) words.appendChild(el('span', 'muted', ' — ' + note));
+      td.appendChild(words);
+      tr.appendChild(td);
+      body.appendChild(tr);
+    }
+    let lastKind = '';
+    rows.forEach(function (r) {
+      if (r.kind !== lastKind) {
+        if (r.kind === 'button') group('Alert buttons', 'flash until someone there taps the screen');
+        if (r.kind === 'message') group('Stage messages', 'words over the screen, nothing to tap');
+        if (r.kind === 'free' && lastKind !== 'message') group('Stage messages', 'words over the screen, nothing to tap');
+        lastKind = r.kind;
+      }
+      const tr = el('tr', 'arow');
+      const nameCell = el('th', 'aname');
+      nameCell.scope = 'row';
+      let label = '';
+      if (r.kind === 'button') {
+        const b = r.item;
+        if (!b.icon) b.icon = 'bell';
+        const icons = window.RelayAlertIcons;
+        const ic = el('span', 'aicon');
+        if (icons) ic.innerHTML = icons.svg(b.icon);
+        const name = el('input');
+        name.value = b.name;
+        name.maxLength = 32;
+        name.placeholder = 'FOH booth';
+        name.setAttribute('aria-label', 'Alert button name');
+        name.disabled = !editable;
+        name.addEventListener('input', function () { b.name = name.value; alertSetDirty(true); });
+        const st = alertStateText(b.id);
+        const state = el('span', 'astate ' + st.cls, st.text);
+        if (b.id) state.dataset.astate = b.id;
+        nameCell.append(ic, name, levelSwatch(b.level || 'urgent'), state);
+        label = b.name || 'New alert button';
+      } else if (r.kind === 'message') {
+        const m = r.item;
+        const text = el('input');
+        text.value = m.text;
+        text.maxLength = 80;
+        text.placeholder = '5 minutes';
+        text.setAttribute('aria-label', 'Stage message');
+        text.disabled = !editable;
+        text.addEventListener('input', function () { m.text = text.value; alertSetDirty(true); });
+        nameCell.append(text, levelSwatch(m.level || 'info'));
+        if (m.banner) nameCell.appendChild(el('span', 'atag', 'banner'));
+        label = m.text || 'New message';
+      } else {
+        nameCell.append(el('span', 'afree', 'Anything typed on the sender page'), levelSwatch(r.item.level || 'info'));
+        label = 'Typed messages';
+      }
+      tr.appendChild(nameCell);
+      if (!cols.length) tr.appendChild(el('td', 'acell'));
+      cols.forEach(function (c) {
+        const td = el('td', 'acell');
+        const box = el('input');
+        box.type = 'checkbox';
+        box.checked = alertHas(r.item, c);
+        box.disabled = !editable;
+        box.setAttribute('aria-label', label + ' on ' + c.name);
+        box.addEventListener('change', function () { alertSetHas(r.item, c, box.checked); alertSetDirty(true); });
+        td.appendChild(box);
+        tr.appendChild(td);
       });
-      lab.appendChild(box);
-      lab.appendChild(el('span', '', r.name + (r.online ? '' : ' (offline)')));
-      grid.appendChild(lab);
+      const opt = el('td', 'aopt');
+      const open = alertOpenRow === r.key;
+      const ob = relayUI.button(open ? 'Close' : 'Options', function () {
+        alertOpenRow = open ? '' : r.key;
+        forceAlerts();
+      }, 'sm quiet');
+      ob.setAttribute('aria-expanded', open ? 'true' : 'false');
+      opt.appendChild(ob);
+      tr.appendChild(opt);
+      body.appendChild(tr);
+      if (open) body.appendChild(alertOptions(r, span, editable));
     });
-    pf.appendChild(grid);
-    card.appendChild(pf);
+    table.appendChild(body);
 
-    const sf = el('div', 'field');
-    const sid = 'alertScreens' + i;
-    const sl = el('label', '', 'Browser screens it flashes (names, separated by commas)');
-    sl.htmlFor = sid;
-    sf.appendChild(sl);
-    const screens = el('input');
-    screens.id = sid;
-    screens.placeholder = 'Booth TV';
-    screens.value = b.screens.join(', ');
-    screens.disabled = !editable;
-    screens.addEventListener('input', function () {
-      b.screens = screens.value.split(',').map(function (x) { return x.replace(/\s+/g, ' ').trim(); })
-        .filter(Boolean);
-      alertSetDirty(true);
-      renderAlertLinks();
+    const foot = el('tfoot');
+    const fr = el('tr');
+    fr.appendChild(el('th', 'aname muted', cols.length ? 'Check a screen' : ''));
+    if (!cols.length) fr.appendChild(el('td'));
+    cols.forEach(function (c) {
+      const td = el('td', 'acell');
+      const tb = relayUI.button('Test', function () { testAlertTarget(c, tb); }, 'sm');
+      tb.disabled = !editable;
+      tb.setAttribute('aria-label', 'Test ' + c.name);
+      td.appendChild(tb);
+      fr.appendChild(td);
     });
-    sf.appendChild(screens);
-    const hint = el('div', 'note', screenHint());
-    hint.dataset.ahint = '1';
-    sf.appendChild(hint);
-    card.appendChild(sf);
+    fr.appendChild(el('td'));
+    foot.appendChild(fr);
+    table.appendChild(foot);
+  }
 
-    const stageRow = el('label', 'check');
-    const stageBox = el('input');
-    stageBox.type = 'checkbox';
-    stageBox.checked = !!b.stage;
-    stageBox.disabled = !editable;
-    stageBox.addEventListener('change', function () { b.stage = stageBox.checked; alertSetDirty(true); });
-    stageRow.appendChild(stageBox);
-    stageRow.appendChild(el('span', '', 'Also show on the ProPresenter stage display (cleared when acknowledged)'));
-    // Only while the ProPresenter module is on (its script sets the hook); the saved choice is kept either way.
-    if (window.RelayAdmin && window.RelayAdmin.panelHooks.stageDisplay) card.appendChild(stageRow);
-    return card;
+  // The options under a row: what does not fit in the grid itself.
+  function alertOptions(r, span, editable) {
+    const tr = el('tr', 'aoptrow');
+    const td = el('td');
+    td.colSpan = span;
+    const box = el('div', 'ctl');
+    if (r.kind === 'button') {
+      const b = r.item;
+      const icons = window.RelayAlertIcons;
+      if (icons) {
+        const pick = el('select', 'aiconpick');
+        pick.setAttribute('aria-label', 'Icon on the sender page');
+        icons.names.forEach(function (n) {
+          const o = el('option', '', icons.label(n));
+          o.value = n;
+          pick.appendChild(o);
+        });
+        pick.value = b.icon || 'bell';
+        pick.disabled = !editable;
+        pick.addEventListener('change', function () { b.icon = pick.value; alertSetDirty(true); forceAlerts(); });
+        box.append(el('span', 'muted', 'Icon'), pick);
+      }
+      box.append(el('span', 'muted', 'Level'), levelPicker(b, editable, 'urgent', 'Alert level'));
+      if (window.RelayAdmin && window.RelayAdmin.panelHooks.stageDisplay) {
+        const lab = el('label', 'check');
+        const cb = el('input');
+        cb.type = 'checkbox';
+        cb.checked = !!b.stage;
+        cb.disabled = !editable;
+        cb.addEventListener('change', function () { b.stage = cb.checked; alertSetDirty(true); });
+        lab.append(cb, el('span', '', 'Also on the ProPresenter stage display'));
+        box.appendChild(lab);
+      }
+    } else if (r.kind === 'message') {
+      const m = r.item;
+      box.append(el('span', 'muted', 'Level'), levelPicker(m, editable, 'info', 'Message level'));
+      const lab = el('label', 'check');
+      const cb = el('input');
+      cb.type = 'checkbox';
+      cb.checked = !!m.banner;
+      cb.disabled = !editable;
+      cb.addEventListener('change', function () { m.banner = cb.checked; alertSetDirty(true); forceAlerts(); });
+      lab.append(cb, el('span', '', 'Banner (a strip across the top that stays longer)'));
+      box.appendChild(lab);
+    } else {
+      box.append(el('span', 'muted', 'Typed messages are'), levelPicker(r.item, editable, 'info', 'Typed message level'));
+      td.appendChild(box);
+      td.appendChild(el('div', 'note', 'The sender page shows a box to type in once this row goes to at least one panel or screen.'));
+      tr.appendChild(td);
+      return tr;
+    }
+    if (editable) {
+      box.appendChild(relayUI.button('Remove', function () {
+        if (r.kind === 'button') alertCfg.buttons.splice(r.index, 1);
+        else alertCfg.messages.presets.splice(r.index, 1);
+        alertOpenRow = '';
+        alertSetDirty(true);
+        forceAlerts();
+      }, 'sm danger'));
+    }
+    td.appendChild(box);
+    tr.appendChild(td);
+    return tr;
+  }
+
+  async function testAlertTarget(c, btn) {
+    btn.disabled = true;
+    try {
+      const res = await post('/api/admin/alerts/test', c.kind === 'panel' ? { panel: c.id } : { screen: c.name });
+      if (res.delivered) okMsg('Test sent to ' + c.name + '. It shows for a few seconds.');
+      else alertMsg(c.name + ' is not connected, so the test showed nowhere. ' +
+        (c.kind === 'panel' ? 'Check that the panel is on and on the network.' : 'Open its screen link on that TV or laptop first.'));
+    } catch (e) { alertMsg(e.message); }
+    btn.disabled = false;
   }
 
   function renderAlertLinks() {
     const box = $('alertLinks');
     if (!box) return;
-    // The viewer hosts end in "/" (they are joined to "translation" and the like); these paths start with one.
-    const host = (viewerHosts[0] || location.origin).replace(/\/+$/, '');
     // With sign-in required the sender page lives on the operator panel's own https:// address, this one.
-    const rows = [['Sender page (phones)', '/alert', alertCfg.require_signin ? location.origin : host]];
-    const seen = {};
-    alertCfg.buttons.forEach(function (b) {
-      b.screens.forEach(function (sname) {
-        const key = sname.toLowerCase();
-        if (seen[key]) return;
-        seen[key] = true;
-        rows.push(['Screen “' + sname + '”', '/screen?alert=' + encodeURIComponent(sname)]);
-      });
-    });
+    const url = (alertCfg.require_signin ? location.origin : viewerBase()) + '/alert';
+    if (box.dataset.url === url) return;
+    box.dataset.url = url;
     box.innerHTML = '';
-    rows.forEach(function (r) {
-      const line = el('div', 'ctl');
-      line.style.marginBottom = '6px';
-      line.appendChild(el('span', '', r[0] + ':'));
-      const base = r[2] || host;
-      const a = el('a', 'mono', base + r[1]);
-      a.href = base + r[1];
-      a.target = '_blank';
-      a.rel = 'noopener';
-      line.appendChild(a);
-      box.appendChild(line);
-    });
+    box.append(el('span', 'muted', 'Sender page for the band’s phones'), relayUI.link(url, url));
   }
 
   $('alertAdd').addEventListener('click', function () {
-    alertCfg.buttons.push({ name: '', level: 'urgent', panels: [], screens: [] });
-    alertDirty = false;
-    renderAlerts();
+    alertCfg.buttons.push({ name: '', icon: 'bell', level: 'urgent', panels: [], screens: [] });
     alertSetDirty(true);
-    const inputs = $('alertList').querySelectorAll('.phead input');
+    forceAlerts();
+    const inputs = $('alertList').querySelectorAll('input[aria-label="Alert button name"]');
     if (inputs.length) inputs[inputs.length - 1].focus();
   });
   $('msgAdd').addEventListener('click', function () {
     alertCfg.messages.presets.push({ text: '', banner: false, level: 'info', panels: [], screens: [] });
-    alertDirty = false;
-    renderAlerts();
     alertSetDirty(true);
-    const inputs = $('msgList').querySelectorAll('.phead input[type=text], .phead input:not([type])');
+    forceAlerts();
+    const inputs = $('alertList').querySelectorAll('input[aria-label="Stage message"]');
     if (inputs.length) inputs[inputs.length - 1].focus();
   });
+  function addAlertScreen() {
+    const name = $('alertScreenName').value.replace(/\s+/g, ' ').trim();
+    if (!name) { $('alertScreenName').focus(); return; }
+    const taken = alertColumns().some(function (c) { return c.kind === 'screen' && c.name.toLowerCase() === name.toLowerCase(); });
+    if (!taken) alertExtraScreens.push(name);
+    $('alertScreenName').value = '';
+    forceAlerts();
+    okMsg(taken ? 'There is already a screen called ' + name + '.' : 'Added ' + name + '. Tick its squares, then open its screen link on that TV or laptop.');
+  }
+  $('alertScreenAdd').addEventListener('click', addAlertScreen);
+  $('alertScreenName').addEventListener('keydown', function (e) { if (e.key === 'Enter') { e.preventDefault(); addAlertScreen(); } });
   ['msgSeconds', 'bannerSeconds'].forEach(function (id) {
     $(id).addEventListener('input', function () { alertSetDirty(true); });
   });
@@ -1265,6 +1427,7 @@
   $('alertSignin').addEventListener('change', function () {
     alertCfg.require_signin = $('alertSignin').checked;
     alertSetDirty(true);
+    renderAlertLinks();
   });
   $('alertSave').addEventListener('click', async function () {
     try {
@@ -1292,6 +1455,7 @@
       alertSetDirty(false);
       if (document.activeElement && $('alertList').contains(document.activeElement)) document.activeElement.blur();
       applyAlerts(frame);
+      forceAlerts();
       okMsg('Alerts saved');
     } catch (e) { alertMsg(e.message); }
   });
@@ -1346,12 +1510,7 @@
   let panelDirty = false;
   let panelBoards = [];      // one row per kind of panel: {board, label, firmware, online, outdated}
 
-  function el(tag, cls, text) {
-    const n = document.createElement(tag);
-    if (cls) n.className = cls;
-    if (text !== undefined) n.textContent = text;
-    return n;
-  }
+  const el = relayUI.el;
 
   function agoText(sec) {
     if (sec === null || sec === undefined) return 'never';
@@ -1540,7 +1699,7 @@
       rm.type = 'button';
       rm.hidden = !f;
       rm.addEventListener('click', async function () {
-        if (!confirm('Remove the ' + b.label + ' firmware held by Relay?')) return;
+        if (!(await relayUI.confirm('Remove the ' + b.label + ' firmware held by Relay?'))) return;
         try { await api('/api/admin/panels/firmware?board=' + encodeURIComponent(b.board), { method: 'DELETE' }); alertMsg(''); }
         catch (e) { alertMsg(e.message); }
       });
@@ -1594,14 +1753,7 @@
     renderPanels();
   }
 
-  function field(label, control, id) {
-    const f = el('div', 'field');
-    const l = el('label', '', label);
-    if (id) { control.id = id; l.htmlFor = id; }
-    f.appendChild(l);
-    f.appendChild(control);
-    return f;
-  }
+  const field = relayUI.field;
 
   function radioRow(name, options, value, onchange) {
     const wrap = el('div', 'radios');
@@ -1867,7 +2019,7 @@
 
     cancel.addEventListener('click', closeDrawer);
     forget.addEventListener('click', async function () {
-      if (!confirm('Forget ' + row.name + '? A panel that is still on will reappear, unnamed.')) return;
+      if (!(await relayUI.confirm('Forget ' + row.name + '? A panel that is still on will reappear, unnamed.'))) return;
       try { await api('/api/admin/panels/' + row.id, { method: 'DELETE' }); alertMsg(''); closeDrawer(); }
       catch (e) { alertMsg(e.message); }
     });
@@ -1918,7 +2070,7 @@
       if (!Object.keys(out).length) { closeDrawer(); return; }
       save.disabled = true;
       if (out.rotation !== undefined && row.online
-          && !confirm('Turning the screen restarts ' + row.name + '. Its captions stop for about half a minute.')) {
+          && !(await relayUI.confirm('Turning the screen restarts ' + row.name + '. Its captions stop for about half a minute.'))) {
         return;
       }
       try {
@@ -1961,8 +2113,8 @@
       later.addEventListener('click', function () { askUpdate(row.id, false); });
       const now = el('button', '', 'Update now');
       now.type = 'button';
-      now.addEventListener('click', function () {
-        if (confirm('Restart ' + row.name + ' now? Its captions stop for about half a minute.')) askUpdate(row.id, true);
+      now.addEventListener('click', async function () {
+        if (await relayUI.confirm('Restart ' + row.name + ' now? Its captions stop for about half a minute.')) askUpdate(row.id, true);
       });
       actions.appendChild(later);
       actions.appendChild(now);
@@ -1975,7 +2127,7 @@
       reboot.disabled = !row.can_reboot;
       if (!row.can_reboot) reboot.title = 'The panel is not connected to Relay right now, or its firmware is too old to restart from here';
       reboot.addEventListener('click', async function () {
-        if (!confirm('Restart ' + row.name + ' now? Its captions stop for about half a minute.')) return;
+        if (!(await relayUI.confirm('Restart ' + row.name + ' now? Its captions stop for about half a minute.'))) return;
         try { await post('/api/admin/panels/' + row.id + '/reboot', {}); okMsg(row.name + ' is restarting.'); }
         catch (e) { alertMsg(e.message); }
       });
@@ -2120,6 +2272,7 @@
     if (recRunning && !st.running) loadRuns();  // a run just ended: it is downloadable now
     recRunning = !!st.running;
     paintModulePills(st.pills);
+    paintNavHealth(st.module_health);
     $('viewerCount').textContent = st.viewers + (st.viewers === 1 ? ' viewer' : ' viewers');
 
     const a = st.audio || {};
@@ -2142,6 +2295,7 @@
           + (drops ? '  ·  ' + drops + ' capture frame(s) dropped' : ''));
     $('audioNote').className = 'note' + (a.error || drops ? ' err' : '');
 
+    if (st.backends) paintBackends(st.backends, st.backend);
     if (st.blocklist) renderBlocklist(st.blocklist, st.blocklist_file, st.blocklist_max);
     if (st.targets) renderTargets(st.targets);
     st.targets && st.targets.forEach(function (t) {
@@ -2152,7 +2306,7 @@
     const tb = $('sessions');
     tb.innerHTML = '';
     if (!st.sessions.length) {
-      tb.innerHTML = '<tr><td colspan="5" class="muted">Not started.</td></tr>';
+      tb.innerHTML = '<tr><td colspan="6" class="muted">Not started.</td></tr>';
     } else {
       st.sessions.forEach(function (s) {
         const dropped = s.dropped_audio || 0;
@@ -2163,7 +2317,8 @@
             (s.error ? ' <span class="muted mono">' + s.error.slice(0, 90) + '</span>' : '') + '</td>' +
           '<td class="muted">' + ago(s.last_delta_ts) + '</td>' +
           '<td class="muted">' + s.reconnects + '</td>' +
-          '<td class="' + (dropped ? 'err' : 'muted') + '">' + dropped + '</td>';
+          '<td class="' + (dropped ? 'err' : 'muted') + '">' + dropped + '</td>' +
+          '<td class="muted">' + (s.cost_usd == null ? '' : '$' + s.cost_usd.toFixed(2)) + '</td>';
         tb.appendChild(tr);
       });
     }
@@ -2328,9 +2483,162 @@
   }
 
   /* ---- navigation: one settings area at a time, chosen from the sidebar ---- */
+  /* ---- sound level and spectrum (#149): settings, a live reading and the RTA, on the Audio input page ---- */
+  (function metering() {
+    if (!$('mtOn')) return;
+    let busy = false;
+    function fill(cfg) {
+      $('mtOn').checked = !!cfg.enabled; $('mtLane').value = cfg.lane; $('mtKind').value = cfg.kind;
+      $('mtWarn').value = cfg.warn_db; $('mtLimit').value = cfg.limit_db; $('mtCal').value = cfg.calibration_db;
+    }
+    function draw(st) {
+      const c = $('mtRta'), g = c.getContext('2d'); g.clearRect(0, 0, c.width, c.height);
+      const on = st.state === 'ok';
+      $('mtDot').className = 'dot' + (on ? ' ok' : '');
+      $('mtState').textContent = st.state === 'off' ? 'Off' : (on ? 'Measuring' : 'No signal on lane ' + st.lane);
+      const num = function (v) { return typeof v === 'number' ? v.toFixed(1) : '—'; };
+      $('mtRead').textContent = on ? 'A ' + num(st.a_slow) + ' slow · ' + num(st.a_fast) + ' fast   C ' + num(st.c_slow) + ' slow   Leq(A) 1 min ' + num(st.leq_a) + ' dB' : '—';
+      const notes = [];
+      if (st.state !== 'off' && st.kind === 'mix') notes.push('This is the mix level, not the SPL in the room.');
+      if (st.state !== 'off' && !st.calibrated) notes.push('Not calibrated: levels are relative until you set the calibration.');
+      if (st.dropped) notes.push(st.dropped + ' analysis blocks were skipped to keep the captions on time.');
+      $('mtNote').textContent = notes.join(' ');
+      // The spectrogram: each reading adds a column on the right, low bands at the bottom.
+      const wf = $('mtWf'), wg = wf.getContext('2d');
+      wg.drawImage(wf, -1, 0);
+      for (let i = 0; i < 31; i++) {
+        const f = on && Array.isArray(st.bands) ? Math.max(0, Math.min(1, (+st.bands[i] - 20) / 100)) : 0;
+        wg.fillStyle = on && Array.isArray(st.bands) ? 'hsl(' + Math.round(240 - 240 * f) + ',90%,' + Math.round(8 + 52 * f) + '%)' : '#000';
+        wg.fillRect(wf.width - 1, 30 - i, 1, 1);
+      }
+      if (!on || !Array.isArray(st.bands)) return;
+      const bw = c.width / 31;
+      for (let i = 0; i < 31; i++) {
+        const db = +st.bands[i], h = Math.round(Math.max(0, Math.min(1, (db - 20) / 100)) * (c.height - 14));
+        g.fillStyle = db >= st.limit_db ? '#dc2626' : (db >= st.warn_db ? '#f59e0b' : '#22c55e');
+        g.fillRect(i * bw + 1, c.height - 14 - h, bw - 2, h);
+      }
+      g.fillStyle = getComputedStyle(document.body).color; g.font = '11px system-ui,sans-serif';
+      (st.labels || []).forEach(function (t, i) { if (i % 3 === 1) g.fillText(t, i * bw, c.height - 2); });
+    }
+    async function load() { const r = await api('/api/admin/metering'); fill(r.config); draw(r.status); }
+    async function save(extra) {
+      const body = { enabled: $('mtOn').checked, lane: +$('mtLane').value, kind: $('mtKind').value,
+        warn_db: +$('mtWarn').value, limit_db: +$('mtLimit').value, calibration_db: +$('mtCal').value };
+      const r = await post('/api/admin/metering', Object.assign(body, extra || {}));
+      fill(r.config); draw(r.status);
+    }
+    $('mtSave').addEventListener('click', function () { save().catch(function (e) { alertMsg(e.message); }); });
+    $('mtCalibrate').addEventListener('click', async function () {
+      try {
+        const r = await post('/api/admin/metering/calibrate', { reference_db: +$('mtRef').value });
+        fill(r.config); draw(r.status);
+      } catch (e) { alertMsg(e.message); }
+    });
+    load().catch(function () {});
+    setInterval(async function () {
+      const pg = $('page-audio');
+      if (busy || document.hidden || !pg || pg.hidden) return;
+      busy = true;
+      try { draw((await api('/api/admin/metering')).status); } catch (e) { /* the next tick tries again */ } finally { busy = false; }
+    }, 1000);
+  })();
+
+  /* ---- stream mix report (#149): the setting, the saved sessions and each one's verdicts ---- */
+  (function mixreport() {
+    if (!$('mrOn')) return;
+    const IDS = ['mrOn', 'mrLeft', 'mrRight', 'mrRehearsal', 'mrTarget', 'mrTol', 'mrPeak', 'mrSilence'];
+    function fill(c) {
+      $('mrOn').checked = !!c.enabled; $('mrLeft').value = c.left; $('mrRight').value = c.right;
+      $('mrRehearsal').checked = !!c.rehearsal; $('mrTarget').value = c.target_lufs; $('mrTol').value = c.tolerance_lu;
+      $('mrPeak').value = c.peak_limit_dbfs; $('mrSilence').value = c.silence_dbfs;
+    }
+    function state(st) {
+      const l = st.latest;
+      $('mrState').textContent = !st.running ? 'Not recording.' : (st.error || (l
+        ? 'Recording: ' + (l.m === null ? '—' : l.m) + ' LUFS momentary, peak ' + l.pk + ' dBFS, ' + st.rows + ' seconds saved.'
+        : 'Recording, waiting for sound on the stream mix.'));
+    }
+    function sessions(list, keep) {
+      const sel = $('mrSessions'); sel.textContent = '';
+      list.forEach(function (s) {
+        const o = document.createElement('option'); o.value = s.id;
+        o.textContent = (s.started ? new Date(s.started * 1000).toLocaleString() : s.id) + ' · ' + s.seconds + ' s';
+        sel.appendChild(o);
+      });
+      if (keep && list.some(function (s) { return s.id === keep; })) sel.value = keep;
+    }
+    async function load() {
+      const r = await api('/api/admin/mixreport');
+      fill(r.config); state(r.status); sessions(r.sessions, $('mrSessions').value);
+    }
+    $('mrSave').addEventListener('click', async function () {
+      try {
+        const r = await post('/api/admin/mixreport', {
+          enabled: $('mrOn').checked, left: +$('mrLeft').value, right: +$('mrRight').value,
+          rehearsal: $('mrRehearsal').checked, target_lufs: +$('mrTarget').value, tolerance_lu: +$('mrTol').value,
+          peak_limit_dbfs: +$('mrPeak').value, silence_dbfs: +$('mrSilence').value });
+        fill(r.config); state(r.status);
+      } catch (e) { alertMsg(e.message); }
+    });
+    function graph(series) {
+      const c = $('mrGraph'), g = c.getContext('2d'); g.clearRect(0, 0, c.width, c.height);
+      const pts = series.filter(function (p) { return typeof p.m === 'number'; });
+      c.hidden = pts.length < 2;
+      if (c.hidden) return;
+      const lo = -40, hi = 0, x = function (i) { return i / (pts.length - 1) * (c.width - 2) + 1; };
+      const y = function (v) { return c.height - 4 - Math.max(0, Math.min(1, (v - lo) / (hi - lo))) * (c.height - 8); };
+      g.strokeStyle = getComputedStyle(document.body).color; g.globalAlpha = 0.5; g.lineWidth = 1;
+      g.beginPath(); pts.forEach(function (p, i) { i ? g.lineTo(x(i), y(p.m)) : g.moveTo(x(i), y(p.m)); }); g.stroke();
+      g.globalAlpha = 1; g.strokeStyle = getComputedStyle(document.documentElement).getPropertyValue('--ok').trim(); g.lineWidth = 2;
+      g.beginPath(); pts.forEach(function (p, i) { const v = typeof p.s === 'number' ? p.s : p.m; i ? g.lineTo(x(i), y(v)) : g.moveTo(x(i), y(v)); }); g.stroke();
+    }
+    $('mrShow').addEventListener('click', async function () {
+      const id = $('mrSessions').value; if (!id) return;
+      const box = $('mrReport'); box.textContent = '';
+      try {
+        const r = await api('/api/admin/mixreport/sessions/' + encodeURIComponent(id) + '?rehearsal=' + ($('mrIncl').checked ? 1 : 0));
+        const rep = r.report, num = function (v, u) { return typeof v === 'number' ? v + ' ' + u : '—'; };
+        const head = document.createElement('div'); head.className = 'meterread';
+        head.textContent = 'Overall: ' + rep.overall.toUpperCase() + ' · ' + rep.seconds + ' s of sound · integrated ' + num(rep.integrated_lufs, 'LUFS') +
+          ' · peak ' + num(rep.peak_dbfs, 'dBFS') + (r.rehearsal_seconds && !$('mrIncl').checked ? ' · ' + r.rehearsal_seconds + ' s of rehearsal left out' : '');
+        box.appendChild(head);
+        rep.verdicts.forEach(function (v) {
+          const d = document.createElement('div'); d.className = 'note';
+          d.textContent = (v.status === 'pass' ? '✓ ' : (v.status === 'warn' ? '! ' : '✗ ')) + v.check + ': ' + v.text;
+          box.appendChild(d);
+        });
+        graph(r.series);
+        $('mrCsv').href = '/api/admin/mixreport/sessions/' + encodeURIComponent(id) + '/csv'; $('mrCsv').hidden = false;
+      } catch (e) { box.textContent = e.message; }
+    });
+    load().catch(function () {});
+    setInterval(async function () {
+      const pg = $('page-audio');
+      if (document.hidden || !pg || pg.hidden) return;
+      try { state((await api('/api/admin/mixreport')).status); } catch (e) { /* the next tick tries again */ }
+    }, 3000);
+  })();
+
   const PAGES = Array.prototype.map.call(document.querySelectorAll('.page[data-page]'), function (n) { return n.dataset.page; });
 
-  function showPage(name) {
+  /* A hash can name a tab of a page: "#network/map". A tab's own id or its old page id ("#unifi", "#network_map")
+     opens the page it is on. The page hears which tab through a "relay:tab" event; '' means its first. */
+  function where(hash) {
+    const parts = String(hash || '').split('/');
+    let name = parts[0], tab = parts[1] || '';
+    if (PAGES.indexOf(name) === -1 && name) {
+      const t = Array.prototype.find.call(document.querySelectorAll('.page[data-page] [role=tab][data-tab]'), function (b) {
+        return b.dataset.tab === name || b.dataset.alias === name;
+      });
+      if (t) { tab = t.dataset.tab; name = t.closest('.page[data-page]').dataset.page; }
+    }
+    return { name: name, tab: tab };
+  }
+
+  function showPage(hash) {
+    const w = where(hash);
+    let name = w.name;
     if (PAGES.indexOf(name) === -1) name = PAGES[0];
     document.querySelectorAll('.page[data-page]').forEach(function (n) { n.hidden = n.dataset.page !== name; });
     document.querySelectorAll('nav a[data-page]').forEach(function (a) {
@@ -2339,17 +2647,14 @@
     });
     $('acctLink').classList.toggle('on', name === 'account');
     if (name === 'account') $('acctLink').setAttribute('aria-current', 'page'); else $('acctLink').removeAttribute('aria-current');
-    $('nav').classList.remove('open');
-    $('navToggle').setAttribute('aria-expanded', 'false');
+    if (window.RelayShell) window.RelayShell.page(name);   // breadcrumb, open parent, close the phone drawer (shell.js)
     if (panelDrawer && name !== 'panels') closeDrawer();
     feedSync(name === 'health');
-    try { window.scrollTo(0, 0); } catch (e) {}
+    const pg = $('page-' + name);
+    if (pg) pg.dispatchEvent(new CustomEvent('relay:tab', { detail: name === w.name ? w.tab : '' }));
+    try { window.scrollTo(0, 0); $('inset').scrollTop = 0; } catch (e) {}
   }
   window.addEventListener('hashchange', function () { showPage(location.hash.slice(1)); });
-  $('navToggle').addEventListener('click', function () {
-    const open = $('nav').classList.toggle('open');
-    $('navToggle').setAttribute('aria-expanded', open ? 'true' : 'false');
-  });
   $('drawerBg').addEventListener('click', closeDrawer);
   $('dClose').addEventListener('click', closeDrawer);
   document.addEventListener('keydown', function (e) { if (e.key === 'Escape' && panelDrawer) closeDrawer(); });
@@ -2361,7 +2666,7 @@
     box.textContent = '';
     (Array.isArray(list) ? list : []).forEach(function (p) {
       const a = document.createElement('a');
-      a.className = 'spill on';
+      a.className = 'spill ' + (p.level === 'error' ? 'off' : 'on');   // a module's problem shows red
       a.href = typeof p.href === 'string' && /^#[a-z0-9_-]+$/i.test(p.href) ? p.href : '#';
       const dot = document.createElement('span');
       dot.className = 'dot';
@@ -2373,10 +2678,29 @@
     });
   }
 
+  // The dots beside the sidebar's module entries, and the stream's beside Transcription & translation.
+  const HEALTH_WORDS = { ok: 'Working', warn: 'Needs attention', error: 'Not working', idle: 'Not in use' };
+  function paintNavHealth(states) {
+    if (!states || typeof states !== 'object') return;
+    document.querySelectorAll('#nav [data-mod-dot]').forEach(function (d) {
+      const st = states[d.dataset.modDot];
+      if (!Object.prototype.hasOwnProperty.call(HEALTH_WORDS, st) || d.classList.contains(st)) return;
+      d.className = 'ndot ' + st;
+      d.setAttribute('aria-label', HEALTH_WORDS[st]);
+      d.title = HEALTH_WORDS[st];
+    });
+  }
+
   function paintPill(running) {
     const pill = $('streamPill');
     pill.className = 'spill ' + (running ? 'on' : 'off');
     $('pillTxt').textContent = running ? 'STREAMING' : 'STOPPED';
+    const dot = $('navStreamDot');
+    if (dot) {
+      dot.className = 'ndot ' + (running ? 'ok' : 'idle');
+      dot.title = running ? 'Streaming' : 'Stream stopped';
+      dot.setAttribute('aria-label', dot.title);
+    }
   }
 
   /* ---- live transcript on Session health: the same /stream the viewers use ---- */
@@ -2495,6 +2819,7 @@
       document.dispatchEvent(new CustomEvent('relay:config'));
       $('font').value = cfg.default_font_px;
       $('history').value = cfg.history_lines;
+      relayZoneOptions(state.timezones || []);
       $('segIdle').value = cfg.realtime.segment_idle_s;
       $('segMaxIdle').value = cfg.realtime.segment_max_idle_s;
       $('noise').value = cfg.realtime.noise_reduction || '';

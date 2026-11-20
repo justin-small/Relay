@@ -1,0 +1,158 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Rundown B · Strips</title>
+<link rel="stylesheet" href="common.css">
+<style>
+/* Option B: read it the way the desk is read. Mics are channel strips with scribble-strip names, coloured the way the
+   church's WING snapshots colour them (MC green, vocals yellow, band blue), and a strip's lamp is lit when that mic
+   is drawn for the item that is on now. The order of service reads like the desk's scene list. */
+:root { --deck: #141518; --well: #0a0b0c; --lcd: #050506; --edge: #26282d; --f: #f4f4f2; --dim: #8d9097; --faint: #4b4e55;
+  --c5: #3fbf5f; --c7: #f2d03b; --c3: #3a6fd8; --c9: #e5483f; --c8: #f28b2c; --lamp: #4cff7a;
+  --cond: "Avenir Next Condensed", "Roboto Condensed", "Arial Narrow", sans-serif; }
+.stage { background: var(--deck); color: var(--f); font-family: var(--cond); }
+.lbl { font-size: 14px; letter-spacing: .1em; text-transform: uppercase; color: var(--dim); font-weight: 600; }
+
+/* the top line: the same six facts in all three views */
+.top { position: absolute; left: 24px; right: 24px; top: 20px; height: 96px; display: flex; gap: 2px; }
+.top > div { background: var(--lcd); border: 1px solid var(--edge); padding: 12px 20px; display: flex; flex-direction: column; justify-content: center; }
+.top .v { font-size: 40px; font-weight: 600; line-height: 1.05; white-space: nowrap; }
+.top .nowc { flex: 1; min-width: 0; flex-direction: row; align-items: center; gap: 18px; justify-content: flex-start; }
+.top .nowc .v { font-size: 52px; font-weight: 700; }
+.top .nowc .s { font-size: 22px; color: var(--dim); }
+.key { font-size: 22px; font-weight: 700; color: var(--lcd); background: var(--c7); padding: 1px 9px; }
+.top .over .v { color: var(--c8); }
+.top .unf { color: var(--c9); }
+
+/* scene list */
+.scenes { position: absolute; left: 24px; top: 136px; width: 1150px; height: 520px; background: var(--well); border: 1px solid var(--edge); }
+.sc { display: grid; grid-template-columns: 54px 80px 80px 1fr 70px; align-items: center; height: 42px; padding: 0 18px 0 0;
+  border-bottom: 1px solid #16171a; font-size: 24px; }
+.sc .no { text-align: center; color: var(--faint); font-size: 18px; }
+.sc .pt { color: var(--faint); font-size: 20px; } .sc .at { font-size: 22px; }
+.sc .at.late { color: var(--c8); }
+.sc .t { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-weight: 600; }
+.sc .t small { font-weight: 500; color: var(--dim); font-size: 18px; margin-left: 12px; }
+.sc .len { text-align: right; color: var(--dim); font-size: 20px; }
+.sc.done { color: var(--faint); } .sc.done .t, .sc.done .at { color: var(--faint); }
+.sc.cur { background: #12301c; box-shadow: inset 6px 0 0 var(--lamp); height: 58px; font-size: 30px; }
+.sc.cur .no { color: var(--lamp); font-weight: 700; }
+.sc .sect { grid-column: 1 / -1; padding-left: 54px; font-size: 13px; letter-spacing: .14em; color: var(--faint); text-transform: uppercase; }
+.sc.hd { height: 22px; border: 0; }
+
+.notes { position: absolute; left: 1194px; top: 136px; width: 702px; height: 300px; background: var(--well); border: 1px solid var(--edge); padding: 14px 20px; box-sizing: border-box; overflow: hidden; }
+.notes p { font-family: -apple-system, system-ui, sans-serif; font-size: 17px; line-height: 1.45; color: #c9cad0; white-space: pre-line; margin: 8px 0 0; }
+.off { position: absolute; left: 1194px; top: 452px; width: 702px; height: 204px; background: var(--well); border: 1px solid var(--edge); padding: 12px 20px; box-sizing: border-box;
+  display: grid; grid-template-columns: 1fr 1fr; grid-auto-rows: 30px; column-gap: 28px; align-content: start; }
+.off .lbl { grid-column: 1 / -1; }
+.off div { display: flex; justify-content: space-between; font-size: 20px; border-top: 1px solid #16171a; align-items: center; }
+.off .p { color: var(--dim); font-size: 17px; }
+.off .bad { color: var(--c9); } .off .pend { color: var(--c8); } .off .no { color: var(--faint); text-decoration: line-through; }
+
+/* channel strips */
+.bank { position: absolute; display: grid; gap: 6px; }
+.strip { background: var(--well); border: 1px solid var(--edge); display: flex; flex-direction: column; min-width: 0; position: relative; }
+.strip .lamp { height: 10px; margin: 8px 10px 0; background: #1c1f1d; border-radius: 2px; }
+.strip.on .lamp { background: var(--lamp); }
+.strip .num { font-size: 34px; font-weight: 700; padding: 6px 10px 0; line-height: 1; }
+.strip .lcd { margin: 8px 6px 6px; background: var(--lcd); border-top: 8px solid var(--c); padding: 8px 8px 10px; flex: 1;
+  display: flex; flex-direction: column; justify-content: flex-end; min-height: 0; }
+.strip .fn { font-size: 26px; font-weight: 700; line-height: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.strip .ln { font-size: 17px; color: var(--dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 3px; }
+.strip .ps { font-size: 15px; color: var(--c); margin-top: 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-weight: 600; }
+.strip.empty .lcd { border-top-color: var(--faint); }
+.strip.empty .fn { color: var(--c9); } .strip.spare .fn { color: var(--faint); }
+.strip:not(.on) .num { color: var(--dim); }
+.legend { position: absolute; display: flex; gap: 22px; font-size: 16px; color: var(--dim); align-items: center; }
+.legend i { display: inline-block; width: 22px; height: 8px; margin-right: 6px; vertical-align: middle; }
+.legend .lp { width: 16px; height: 8px; background: var(--lamp); }
+
+/* side */
+.caps { position: absolute; left: 70px; top: 0; width: 1180px; height: 1080px; display: flex; flex-direction: column; justify-content: center;
+  gap: 30px; font-family: -apple-system, system-ui, sans-serif; font-size: 64px; line-height: 1.3; font-weight: 500; }
+.caps p { margin: 0; }
+.rail { position: absolute; left: 1360px; top: 24px; width: 536px; height: 1032px; display: flex; flex-direction: column; gap: 6px; }
+.rail .box { background: var(--lcd); border: 1px solid var(--edge); padding: 14px 18px; }
+.rail .now { font-size: 46px; font-weight: 700; line-height: 1.05; }
+.rail .row2 { display: flex; justify-content: space-between; align-items: baseline; margin-top: 8px; font-size: 22px; color: var(--dim); }
+.rail .row2 b { font-size: 64px; color: var(--f); font-weight: 600; }
+.rail .row2 .o { color: var(--c8); font-weight: 700; font-size: 26px; }
+.chips { display: grid; grid-template-columns: 1fr 1fr; grid-auto-rows: 1fr; gap: 4px; flex: 1; }
+.chip { display: grid; grid-template-columns: 12px 44px 1fr; align-items: center; gap: 8px; background: var(--well); padding-right: 8px;
+  border-left: 6px solid var(--c); font-size: 24px; }
+.chip .l { width: 10px; height: 10px; border-radius: 50%; background: #1c1f1d; margin-left: 6px; }
+.chip.on .l { background: var(--lamp); }
+.chip .n { font-weight: 700; } .chip .nm { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.chip.empty .nm { color: var(--c9); } .chip.spare .nm { color: var(--faint); }
+.upnext .sc { height: 42px; font-size: 22px; grid-template-columns: 70px 1fr; padding-left: 8px; }
+</style>
+</head>
+<body>
+<div class="stage"></div>
+<script src="common.js"></script>
+<script>
+const R = RD, e = R.esc;
+// WING colour numbers the church's own snapshots use: MC 5 green, vocals 7 yellow, band 3 blue.
+const col = (m) => !m[4] ? "var(--c5)" : m[3] === "Band" ? "var(--c3)" : "var(--c7)";
+const isOn = (m) => m[4] && m[1];  // drawn for the song that is on now
+
+const topBar = () => `<div class="top">
+  <div class="nowc"><span class="v">${e(R.current.title)}</span><span class="key">${R.current.key}</span><span class="s">${e(R.current.leader)} leads</span></div>
+  <div><span class="lbl">Left</span><span class="v tnum">${R.current.left}</span></div>
+  <div><span class="lbl">Next · ${R.fmt(15)}</span><span class="v">${R.next.title} <span class="unf" style="font-size:22px">no mic 12</span></span></div>
+  <div class="over"><span class="lbl">Behind</span><span class="v tnum">+${R.over}:00</span></div>
+  <div><span class="lbl">Ends · planned ${R.plannedEnd}</span><span class="v tnum">${R.projectedEnd}</span></div>
+  <div><span class="lbl">${R.service}</span><span class="v tnum">${R.now}</span></div></div>`;
+
+const strip = (m) => {
+  const [n, name, pos] = m, empty = !name, sp = m[5] === "spare";
+  const parts = empty ? [sp ? "Spare" : "No one", ""] : name.startsWith("Pastor") ? [name, ""] : [name.split(" ")[0], name.split(" ").slice(1).join(" ")];
+  return `<div class="strip${isOn(m) ? " on" : ""}${empty ? " empty" : ""}${sp ? " spare" : ""}" style="--c:${col(m)}">
+    <div class="lamp"></div><div class="num tnum">${n}</div>
+    <div class="lcd"><div class="fn">${e(parts[0])}</div>${parts[1] ? `<div class="ln">${e(parts[1])}</div>` : ""}<div class="ps">${e(pos)}${m[5] === "leading" ? " · lead" : ""}</div></div></div>`;
+};
+const legend = (x, y) => `<div class="legend" style="left:${x}px;top:${y}px"><span><i class="lp"></i>on for ${e(R.current.title)}</span>
+  <span><i style="background:var(--c7)"></i>vocals</span><span><i style="background:var(--c3)"></i>band</span><span><i style="background:var(--c5)"></i>spoken</span></div>`;
+
+const sceneRows = (list, cur) => {
+  let last = "", out = "", i = 0;
+  for (const it of list) {
+    i++;
+    const sec = it.sec || "service";
+    if (sec !== last && !cur) out += `<div class="sc hd"><div class="sect">${sec === "pre" ? "Before" : sec === "post" ? "After" : "Service"}</div></div>`;
+    last = sec;
+    out += `<div class="sc${it.done ? " done" : ""}${it.current ? " cur" : ""}"><span class="no">${String(i).padStart(2, "0")}</span>
+      <span class="pt tnum">${R.fmt(it.p)}</span><span class="at tnum${it.a > it.p && !it.done ? " late" : ""}">${R.fmt(it.a)}</span>
+      <span class="t">${e(it.t)}${it.key ? ` <span class="key" style="font-size:16px">${it.key}</span>` : ""}${it.lead ? `<small>${e(it.lead)} leads</small>` : ""}</span>
+      <span class="len tnum">${it.len}:00</span></div>`;
+  }
+  return out;
+};
+
+RD.mount({
+  full: () => topBar() + `
+    <div class="scenes">${sceneRows(R.items)}</div>
+    <div class="notes"><span class="lbl">Notes · Sermon · Rooted · ${R.fmt(24)}</span><p>${e(R.notes)}</p></div>
+    <div class="off"><span class="lbl">Off mic</span>${R.crew.map((c) => `<div><span class="${c[3] === "unfilled" ? "bad" : c[3] === "pending" ? "pend" : c[3] === "declined" ? "no" : ""}">${c[0] ? e(c[0]) : "No one yet"}</span><span class="p">${e(c[1])}${c[3] === "pending" ? " · unconfirmed" : ""}</span></div>`).join("")}</div>
+    ${legend(26, 670)}
+    <div class="bank" style="left:24px;right:24px;top:700px;bottom:20px;grid-template-columns:repeat(11,1fr);grid-template-rows:1fr 1fr">${R.mics.map(strip).join("")}</div>`,
+  micboard: () => topBar() + legend(26, 132) + `
+    <div class="lbl" style="position:absolute;left:26px;top:172px">Platform</div>
+    <div class="bank" style="left:24px;right:24px;top:198px;height:300px;grid-template-columns:repeat(8,1fr)">${R.mics.slice(0, 8).map(strip).join("")}</div>
+    <div class="lbl" style="position:absolute;left:26px;top:516px">Choir</div>
+    <div class="bank" style="left:24px;right:24px;top:542px;bottom:20px;grid-template-columns:repeat(7,1fr);grid-template-rows:1fr 1fr">${R.mics.slice(8).map(strip).join("")}</div>`
+    .replace(/class="fn"/g, 'class="fn" style="font-size:40px"').replace(/class="num tnum"/g, 'class="num tnum" style="font-size:46px"'),
+  side: () => `<div class="caps">${R.captions.map((c) => `<p>${e(c)}</p>`).join("")}</div>
+    <div class="rail">
+      <div class="box"><span class="lbl">Now</span><div class="now">${e(R.current.title)} <span class="key">${R.current.key}</span></div>
+        <div class="row2"><b class="tnum">${R.current.left}</b><span class="o">+${R.over}:00 behind</span></div></div>
+      <div class="box upnext" style="padding:6px 0">${R.items.filter((i) => !i.done && !i.current).slice(0, 4).map((it) =>
+        `<div class="sc"><span class="at tnum${it.a > it.p ? " late" : ""}">${R.fmt(it.a)}</span><span class="t">${e(it.t)}</span></div>`).join("")}</div>
+      <div class="chips">${R.mics.map((m) => `<div class="chip${isOn(m) ? " on" : ""}${!m[1] ? " empty" : ""}${m[5] === "spare" ? " spare" : ""}" style="--c:${col(m)}"><span class="l"></span><span class="n tnum">${m[0]}</span><span class="nm">${m[1] ? e(R.first(m[1])) : m[5] === "spare" ? "Spare" : "No one"}</span></div>`).join("")}</div>
+    </div>`,
+});
+</script>
+</body>
+</html>

@@ -21,7 +21,8 @@ from pathlib import Path
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 
-from ... import audit, config, db, netinfo, schedules, serving
+from ... import audit, boards, config, db, netroute, schedules, serving
+from ... import screens as core_screens
 from .. import HEARTBEAT_S, event_stream, read_limited, require, sse
 from . import live, media, sources, store, takeover
 
@@ -69,6 +70,18 @@ def _screen_or_404(slug: str) -> dict:
 
 
 def _state(screen: dict) -> dict:
+    """What a player needs. The screen's core record (#527) can decide it shows a board instead, or a playlist of its
+    own choosing: that is the `board` redirect and the `playlist_id` the schedule layers sit on."""
+    core = core_screens.get(screen["core_id"])
+    shows = core_screens.showing_now(core, signage_on=True) if core else {"kind": ""}
+    if shows["kind"] == "board" and shows["ref"] and boards.find(config.get()["boards"], shows["ref"]):
+        return {"screen": {"slug": screen["slug"], "name": screen["name"], "sound": bool(screen["sound"])},
+                "playlist": None, "items": [], "today": "", "server_time": int(time.time() * 1000),
+                "takeover": None, "banner": None,
+                "board": {"port": serving.viewer_port(config.get()["port"]),
+                          "path": f"/board/{shows['ref']}?screen=screen-{core['id']}"}}
+    if shows["kind"] == "signage" and shows["ref"].isdigit() and store.playlist_get(int(shows["ref"])):
+        screen = {**screen, "playlist_id": int(shows["ref"]), "group_id": None}
     out = store.player_state(screen)
     out["takeover"] = takeover.payload(screen)
     out["banner"] = takeover.banner(screen)
@@ -148,6 +161,9 @@ async def public_now(slug: str, request: Request):
     item = item if isinstance(item, int) else None
     label = body.get("label") if isinstance(body, dict) and isinstance(body.get("label"), str) else ""
     live.report(slug, item, label)
+    core = core_screens.by_key(store.SCREEN_KEY + slug)
+    if core:
+        core_screens.touch(core["id"], address=request.client.host if request.client else "")
     return {"ok": True}
 
 
@@ -188,10 +204,22 @@ def _port_info() -> dict:
     return {"configured": configured, "bound": bound, "restart": serving.published() and bound != configured}
 
 
+def ndi_outputs() -> list[dict]:
+    """Each signage screen as a page the NDI module can send (provided as "ndi.outputs.signage"): the player on this
+    machine's signage port, so a TV fed by NDI plays the same loop as one with a browser."""
+    info = _port_info()
+    port = info["bound"] or info["configured"]
+    return [{"id": "signage:" + s["slug"], "name": "Signage (" + s["name"] + ")", "group": "Signage",
+             "url": f"http://127.0.0.1:{port}" + store.player_path(s["slug"]), "alpha": False} for s in store.screens()]
+
+
 def _screen_urls(slug: str) -> list[str]:
     info = _port_info()
     port = info["bound"] or info["configured"]
-    return [serving.link("http", ip, port, f"/signage/{slug}") for ip in netinfo.lan_ips()]
+    from . import MODULE
+
+    ips = netroute.link_addresses(MODULE.listeners[0].traffic)   # the screens' network when routed (#346)
+    return [serving.link("http", ip, port, f"/signage/{slug}") for ip in ips]
 
 
 @router.get("/api/admin/signage", dependencies=VIEW)
@@ -249,7 +277,10 @@ def admin_state():
         "overrides": over,
         "takeovers": taken,
         "views": [{"id": k, "label": v[0]} for k, v in takeover.VIEWS.items()],
+        "timezone": config.timezone(),
         "timezones": [{"id": z, "label": l} for z, l in schedules.US_TIMEZONES],
+        "named_schedules": [{"ref": schedules.ref(s["id"]), "name": s["name"], "summary": schedules.summary(s)}
+                            for s in config.get()["schedules"]],
         "today": store.today(),
     }
 
@@ -305,10 +336,6 @@ def admin_settings(request: Request, payload: dict):
         if port in (serving.viewer_port(cfg["port"]), serving.admin_port(cfg["admin_port"])):
             return JSONResponse({"error": "Relay already uses that port. Choose another."}, status_code=400)
         change["port"] = port
-    if "timezone" in payload:
-        if payload.get("timezone") not in schedules.TZ_LABELS:
-            return JSONResponse({"error": "Pick a US time zone."}, status_code=400)
-        change["timezone"] = payload["timezone"]
     if "override_until" in payload:
         if payload.get("override_until") not in ("next_change", "cleared"):
             return JSONResponse({"error": "A hand-chosen playlist lasts until the next scheduled change or until cleared."},

@@ -20,7 +20,7 @@ _db.reset()
 import app.main as main  # noqa: E402,F401
 from app import config, db, users  # noqa: E402
 from app.main import app  # noqa: E402
-from app.modules.crew import chat, paging, people, webpush  # noqa: E402
+from app.modules.crew import chat, notifications, people, webpush  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -38,7 +38,7 @@ anon = TestClient(app, base_url="http://relay.local:8001")
 viewer_port = TestClient(app, base_url="http://relay.local:8000")
 U = {n: users.get_by_username(n) for n in ("cam1", "cam2", "audio", "booth")}
 for n, uid in (("cam1", "Camera 1"), ("cam2", "camera  1"), ("audio", "Audio")):
-    admin.put(f"/api/admin/crew/people/{U[n].id}/role", json={"role": uid})
+    admin.put(f"/api/admin/crew/people/{U[n].id}/role", json={"crew_role": uid})
 
 print("channels")
 ch = lambda c: [(x["id"], x["title"]) for x in c.get("/crew/api/chat/channels").json()["channels"]]
@@ -80,8 +80,8 @@ for i in range(120):
 shown = chat.history("team")
 eq("100 shown, the newest, oldest first", (len(shown), shown[0]["body"], shown[-1]["body"]), (100, "m20", "m119"))
 chat.post(U["booth"], "team", "late", now=t0 + 31 * 86400)
-eq("a message older than 30 days is gone", db.one("select count(*) as n from crew_chat_messages where created_ts < ?",
-                                                  (t0 + 86400,))["n"], 0)
+eq("a message older than 30 days is gone", db.one("select count(*) as n from crew_chat_messages where created_at < ?",
+                                                  (db.iso(t0 + 86400),))["n"], 0)
 
 print("a few at a time")
 chat._recent.clear()

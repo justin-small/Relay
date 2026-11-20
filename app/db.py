@@ -75,6 +75,18 @@ def later(seconds: float) -> str:
     return _iso(datetime.now(timezone.utc) + timedelta(seconds=seconds))
 
 
+def iso(ts: float) -> str:
+    """The ISO UTC text for epoch seconds: what every time column stores (#529)."""
+    return _iso(datetime.fromtimestamp(ts, timezone.utc))
+
+
+def epoch(text: str | None) -> float | None:
+    """Epoch seconds for a stored ISO UTC time, for arithmetic and for a page that counts in seconds; None for none."""
+    if not text:
+        return None
+    return datetime.strptime(text, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc).timestamp()
+
+
 # ------------------------------------------------------------------ connection
 
 def path() -> Path:
@@ -411,15 +423,21 @@ def _drop(p: Path) -> None:
         pass
 
 
-def backup_due(now: datetime | None = None) -> bool:
-    """True when no backup was taken in the last 24 hours."""
+def last_backup_at() -> datetime | None:
+    """When the newest backup was taken (UTC), or None when there is none."""
     dumps = _dumps(backups_dir())
     if not dumps:
-        return True
-    now = now or datetime.now(timezone.utc)
+        return None
     m = _BACKUP_NAME.match(dumps[-1].name)
     try:
-        taken = datetime.strptime(m.group(1), "%Y%m%d-%H%M%S").replace(tzinfo=timezone.utc)
+        return datetime.strptime(m.group(1), "%Y%m%d-%H%M%S").replace(tzinfo=timezone.utc)
     except (ValueError, AttributeError):
-        taken = datetime.fromtimestamp(dumps[-1].stat().st_mtime, timezone.utc)
-    return now - taken >= BACKUP_EVERY
+        return datetime.fromtimestamp(dumps[-1].stat().st_mtime, timezone.utc)
+
+
+def backup_due(now: datetime | None = None) -> bool:
+    """True when no backup was taken in the last 24 hours."""
+    taken = last_backup_at()
+    if taken is None:
+        return True
+    return (now or datetime.now(timezone.utc)) - taken >= BACKUP_EVERY

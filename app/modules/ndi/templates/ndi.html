@@ -1,0 +1,236 @@
+{# The NDI admin page, rendered inside admin.html only while the module is on. Five tabs follow the video: what comes
+   in, the screens that show it, what Relay sends out, and setup. Drawn by ndi.js (sources, screens, setup) and
+   ndi-router.js (going out). #}
+    <h2 class="title">NDI <span class="sumstate" id="ndiSum"></span></h2>
+    <p class="sub">See your cameras and other NDI video on screens in the building, switch what TVs show, and send
+      Relay's captions to your switcher.</p>
+    <div class="note err" id="ndiErr" hidden></div>
+    <div class="note warn" id="ndiNoRuntime" hidden></div>
+
+    <div class="tabs" role="tablist" id="ndiTabs">
+      <button type="button" role="tab" data-nditab="home" aria-selected="true">Overview</button>
+      <button type="button" role="tab" data-nditab="in" aria-selected="false">Coming in</button>
+      <button type="button" role="tab" data-nditab="analysis" aria-selected="false">Analysis</button>
+      <button type="button" role="tab" data-nditab="screens" aria-selected="false">Screens</button>
+      <button type="button" role="tab" data-nditab="out" aria-selected="false">Going out</button>
+      <button type="button" role="tab" data-nditab="setup" aria-selected="false">Setup</button>
+    </div>
+
+    {# ---------------------------------------------------------------- Overview #}
+    <div data-ndipane="home">
+      <div class="ndiflow">
+        <button type="button" class="ndistage" data-ndigo="in"><b>Coming in</b>
+          <span class="hint">NDI video Relay found on the network</span><span class="ndibig" id="ndiOvIn"></span></button>
+        <span class="ndiarrow" aria-hidden="true">→</span>
+        <button type="button" class="ndistage" data-ndigo="screens"><b>Screens</b>
+          <span class="hint">Pages that show NDI video on monitors and TVs</span><span class="ndibig" id="ndiOvScreens"></span></button>
+        <span class="ndiarrow" aria-hidden="true">→</span>
+        <button type="button" class="ndistage" data-ndigo="out"><b>Going out</b>
+          <span class="hint">NDI video Relay sends to TVs, switchers and OBS</span><span class="ndibig" id="ndiOvOut"></span></button>
+      </div>
+      <div class="ndicols">
+        <section><h3>Getting set up</h3><ol class="ndisteps" id="ndiSteps"></ol></section>
+        <section><h3>Needs a look</h3><div id="ndiIssues"></div></section>
+      </div>
+    </div>
+
+    {# ---------------------------------------------------------------- Coming in #}
+    <div data-ndipane="in" hidden>
+      <section>
+        <div class="ndihead"><div><h3>Sources</h3>
+          <p class="note">Every NDI video feed on the network shows up here by itself: cameras, converters, ProPresenter,
+            OBS. Give a camera its switcher number and it gets a red border when it is on air and a green one on
+            preview, wherever Relay shows it. The on-air state comes from ATEM, OBS or Tally Arbiter.</p></div>
+          <div class="ctl"><span class="muted" id="ndiLast"></span><button type="button" id="ndiScan">Look again</button></div></div>
+        <p class="note" id="ndiNone">No sources found yet. If you expect some, see Setup.</p>
+        <div class="tablescroll"><table class="dt" id="ndiTable" hidden>
+          <thead><tr><th>Source</th><th>Picture</th><th>Camera number</th><th>Used by</th><th></th></tr></thead>
+          <tbody></tbody>
+        </table></div>
+        <div class="ctl"><button type="button" class="primary" id="ndiTallySave">Save camera numbers</button>
+          <span class="muted">Leave a number empty for a source that is not a camera.</span></div>
+        <p class="note">Picture size and rate show while something in Relay is watching the source. Feeds marked Sent by
+          Relay are Relay's own, set up under Going out.</p>
+      </section>
+    </div>
+
+    {# ---------------------------------------------------------------- Analysis (#300) #}
+    <div data-ndipane="analysis" hidden>
+      <section>
+        <div class="ndihead"><div><h3>Analysis</h3>
+          <p class="note">Why a feed is stuttering, without a separate tool: how steadily its frames arrive, the picture on
+            scopes, and the sound's levels and loudness. Relay receives the source while this page is open.</p></div>
+          <div class="ctl"><select id="ndiAnSource" aria-label="Source to analyse"></select>
+            <label class="check"><input type="checkbox" id="ndiAnLow"> Low bandwidth</label>
+            <button type="button" class="primary" id="ndiAnGo">Analyse</button>
+            <button type="button" id="ndiAnStop" hidden>Stop</button></div></div>
+        <p class="note" id="ndiAnNone">Choose a source and press Analyse.</p>
+        <p class="note err" id="ndiAnErr" hidden></p>
+      </section>
+      <div id="ndiAnBody" hidden>
+        <section>
+          <div class="ndihead"><h3><span class="dot" id="ndiAnDot"></span> <span id="ndiAnState"></span></h3>
+            <div class="ctl" id="ndiAnAlarms"></div></div>
+          <p class="note" id="ndiAnWhy"></p>
+          <p class="note">A still picture, such as a slide, sends no frames, so a gap there is not a fault.</p>
+          <div class="ndikv" id="ndiAnInfo"></div>
+        </section>
+        <section>
+          <h3>Frame timing</h3>
+          <div class="ndikv" id="ndiAnTiming"></div>
+          <p class="note">Late is a gap over twice the frame time. A gap over 150 ms is always flagged. The data rate is the decoded
+            picture, not what crossed the network.</p>
+          <div class="ctl"><label for="ndiAnSecs">Record for</label>
+            <input type="number" id="ndiAnSecs" min="1" max="3600" step="1" value="60" aria-label="Seconds to record">
+            <span class="muted">seconds</span>
+            <button type="button" id="ndiAnRec">Record frame timing</button>
+            <button type="button" id="ndiAnRecStop" hidden>Stop recording</button>
+            <button type="button" id="ndiAnDl" hidden>Download CSV</button>
+            <span class="muted" id="ndiAnRecState"></span></div>
+        </section>
+        <section id="ndiAnPicture">
+          <div class="ndihead"><h3>Picture</h3>
+            <div class="tabs" role="tablist" id="ndiAnScopeTabs">
+              <button type="button" role="tab" data-scope="waveform" aria-selected="true">Waveform</button>
+              <button type="button" role="tab" data-scope="parade" aria-selected="false">RGB parade</button>
+              <button type="button" role="tab" data-scope="vectorscope" aria-selected="false">Vectorscope</button>
+              <button type="button" role="tab" data-scope="histogram" aria-selected="false">Histogram</button>
+            </div></div>
+          <div class="ndiscopes"><canvas id="ndiAnCanvas" width="512" height="288" aria-label="Picture scope"></canvas>
+            <div class="ndikv" id="ndiAnRead"></div></div>
+          <p class="note" id="ndiAnPicNote"></p>
+        </section>
+        <section id="ndiAnSound">
+          <div class="ndihead"><h3>Sound</h3>
+            <div class="ctl"><button type="button" id="ndiAnReset">Reset loudness</button></div></div>
+          <p class="note" id="ndiAnNoSound">No audio from this source yet.</p>
+          <div id="ndiAnSoundBody" hidden>
+            <div class="ndimeters" id="ndiAnMeters"></div>
+            <div class="ndikv" id="ndiAnLoud"></div>
+            <canvas id="ndiAnSpec" width="512" height="120" aria-label="Spectrum of channel 1"></canvas>
+          </div>
+        </section>
+      </div>
+    </div>
+
+    {# ---------------------------------------------------------------- Screens #}
+    <div data-ndipane="screens" hidden>
+      <section>
+        <h3>Multiviews</h3>
+        <p class="note">Several sources, clocks and countdowns on one screen, for a booth monitor or a stage TV. Open its
+          link in a browser on this network. Relay draws it once, however many screens watch.</p>
+        <div class="ndimvlist" id="ndiMvList"></div>
+        <div class="ctl"><button type="button" id="ndiMvNew">New multiview</button></div>
+      </section>
+      <section id="ndiMvEdit" hidden>
+        <div class="ndihead"><h3 id="ndiMvTitle">Multiview</h3>
+          <div class="ctl"><button type="button" class="primary" id="ndiMvSave">Save</button>
+            <button type="button" id="ndiMvCancel">Cancel</button><button type="button" class="danger" id="ndiMvDelete">Delete</button></div></div>
+        <div class="row">
+          <div class="field"><label for="ndiMvName">Name</label><input id="ndiMvName" maxlength="60" autocomplete="off"></div>
+          <div class="field"><label for="ndiMvLayout">Layout</label><select id="ndiMvLayout"></select></div>
+        </div>
+        <p class="note">Drag a source, clock or countdown onto a box. Or click a box, then click what it should show.</p>
+        <div class="ndimved">
+          <div class="ndicanvas" id="ndiMvCanvas"></div>
+          <div class="ndiside">
+            <div class="ndipalette" id="ndiMvPalette" aria-label="What a box can show"></div>
+            <div id="ndiMvBox"></div>
+          </div>
+        </div>
+      </section>
+      <section>
+        <h3>One source on its own</h3>
+        <p class="note">Every source has its own page that plays it full screen, with its name, an audio meter and the tally
+          border. Open it on a booth laptop, a phone or a TV on this network. The Watch buttons on Coming in open it.</p>
+        <div class="ndilinks" id="ndiViewLinks"></div>
+      </section>
+    </div>
+
+    {# ---------------------------------------------------------------- Going out #}
+    <div data-ndipane="out" hidden>
+      <section>
+        <h3>Switch what TVs show</h3>
+        <p class="note">Each row is an NDI feed Relay sends, named <code>Relay - &lt;name&gt;</code>. Set a TV or decoder to
+          receive it once, then click a square to change what it shows. Nothing is re-encoded, and the choices come back
+          when Relay restarts.</p>
+        <p class="note" id="ndiRtNone">No feeds yet. Add one for each TV you want to switch from here.</p>
+        <div class="tablescroll"><table class="ndimx" id="ndiRtTable" hidden></table></div>
+        <div class="ctl"><input id="ndiRtName" placeholder="Lobby TV" maxlength="60" autocomplete="off" aria-label="New feed name">
+          <button type="button" id="ndiRtAdd">Add feed</button></div>
+        <h4>Presets</h4>
+        <p class="note">Save every feed's choice at once and bring it back with one click, such as Sunday morning.</p>
+        <div id="ndiSalvos"></div>
+        <div class="ctl"><input id="ndiSalvoName" placeholder="Sunday morning" maxlength="60" autocomplete="off" aria-label="Preset name">
+          <button type="button" id="ndiSalvoSave">Save current as a preset</button></div>
+        <p class="note">Decoders such as the Magewell Pro Convert cannot be switched from here: point them at one of these
+          feeds instead.</p>
+      </section>
+      <section>
+        <h3>Relay pages as NDI</h3>
+        <p class="note">Turn on a caption screen or overlay and it appears as an NDI source for your switcher,
+          ProPresenter, OBS or vMix. Overlays keep their transparency. Each one draws the page in a hidden browser and
+          uses some of this computer's processor, so turn on only what you use.</p>
+        <div class="note warn" id="ndiPagesWarn" hidden></div>
+        <div class="ndioutrows" id="ndiPages"></div>
+        <div class="row">
+          <div class="field"><label for="ndiOutSize">Size</label>
+            <select id="ndiOutSize"><option value="1280x720">1280 x 720</option><option value="1920x1080">1920 x 1080</option></select>
+            <span class="hint">1920 x 1080 is sharper on big screens and uses about twice the processor.</span></div>
+          <div class="field"><label for="ndiOutFps">Frames per second</label>
+            <input id="ndiOutFps" type="number" min="5" max="30" step="1"><span class="hint">5 to 30. Captions look fine at 15.</span></div>
+        </div>
+        <div class="ctl"><button type="button" class="primary" id="ndiPagesSave">Save</button></div>
+      </section>
+      <section id="ndiTestSect">
+        <h3>Test patterns</h3>
+        <p class="note">Colour bars, a grid, a moving bar, a tone or your own picture, sent as NDI sources so you can line
+          up projectors, TVs, switchers and sound before a service. Each shows up in the router like any other source,
+          so you can send bars to every lobby TV at once. The name, size and a running clock are written on the picture.</p>
+        <div class="ndioutrows" id="ndiTests"></div>
+        <div class="note warn" id="ndiTestErr" hidden></div>
+        <div class="ctl"><button type="button" id="ndiTestAdd">Add a test source</button>
+          <button type="button" class="primary" id="ndiTestSave">Save</button></div>
+      </section>
+    </div>
+
+    {# ---------------------------------------------------------------- Setup #}
+    <div data-ndipane="setup" hidden>
+      <section>
+        <h3>Finding sources</h3>
+        <p class="note">Leave this alone unless a source is missing. On one network NDI finds sources by itself.</p>
+        <label class="check"><input type="checkbox" id="ndiMdns"> Find sources on this network by themselves (multicast DNS; does not cross VLANs)</label>
+        <div class="row">
+          <div class="field"><label for="ndiServers">Discovery server</label>
+            <input id="ndiServers" placeholder="192.168.1.20" autocomplete="off" spellcheck="false" maxlength="300">
+            <span class="hint">Finds sources across subnets. Install NDI Tools from
+              <a href="https://ndi.video/tools" target="_blank" rel="noopener noreferrer">ndi.video/tools</a> on an always-on
+              computer and point every NDI machine at it. Port 5959 unless you add one; separate several with commas.</span></div>
+          <div class="field"><label for="ndiIps">Extra addresses</label>
+            <input id="ndiIps" placeholder="192.168.20.5" autocomplete="off" spellcheck="false" maxlength="400">
+            <span class="hint">A computer on another VLAN whose sources you want. Separate several with commas.</span></div>
+          <div class="field"><label for="ndiGroups">Groups</label>
+            <input id="ndiGroups" placeholder="All groups" autocomplete="off" spellcheck="false" maxlength="300">
+            <span class="hint">Only if your sources use NDI groups, such as BirdDog-Comms. Empty shows every group.</span></div>
+        </div>
+        <div id="ndiServerStatus"></div>
+        <div class="note warn" id="ndiRestart" hidden>The NDI runtime reads these settings when Relay starts. Restart Relay
+          to apply the change.</div>
+        <div class="ctl"><button type="button" class="primary" id="ndiSave">Save</button></div>
+      </section>
+      <section>
+        <h3>Picture in the browser</h3>
+        <p class="note">For the single-source pages and multiviews. Lower these if this computer is busy during a service.</p>
+        <div class="row">
+          <div class="field"><label for="ndiFps">Frames per second</label>
+            <input id="ndiFps" type="number" min="1" max="30" step="1"><span class="hint">1 to 30.</span></div>
+          <div class="field"><label for="ndiQuality">Picture quality</label>
+            <input id="ndiQuality" type="number" min="20" max="90" step="1"><span class="hint">20 to 90. Higher is sharper and heavier.</span></div>
+          <div class="field"><label for="ndiWidth">Widest picture, pixels</label>
+            <input id="ndiWidth" type="number" min="320" max="1920" step="10"><span class="hint">320 to 1920.</span></div>
+          <div class="field"><label for="ndiMax">Sources watched at once</label>
+            <input id="ndiMax" type="number" min="1" max="8" step="1"><span class="hint">1 to 8. Multiviews do not count.</span></div>
+        </div>
+        <div class="ctl"><button type="button" class="primary" id="ndiViewSave">Save</button></div>
+      </section>
+    </div>

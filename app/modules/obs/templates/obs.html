@@ -1,0 +1,13 @@
+{# The OBS Studio admin page (#250), rendered inside admin.html only while the module is on. #}
+    <h2 class="title">OBS Studio <span class="sumstate" id="obsSum"></span></h2>
+    <p class="sub">Follow OBS on one or more computers: the scene, whether it is streaming and recording, dropped
+      frames, and a preview. Switch scenes from here or from a tablet, and send Relay's captions into the stream.</p>
+    <div class="note err" id="obsErr" hidden></div>
+    <div id="obsMachines"></div>
+    <div class="ctl">
+      <button type="button" id="obsAdd">Add OBS computer</button>
+      <button type="button" class="primary" id="obsSave">Save</button>
+    </div>
+    <div class="note">In OBS, open Tools &gt; WebSocket Server Settings, switch on the server and note the port
+      (4455) and password. Captions reach viewers only on platforms that show CEA-608 captions from RTMP (YouTube,
+      Twitch); they are sent only while OBS is streaming.</div>

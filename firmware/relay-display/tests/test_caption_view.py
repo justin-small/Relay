@@ -27,7 +27,7 @@ ANSI = re.compile(r"\x1b\[[0-9;]*m")
 VIEW = re.compile(r"view: (following live|paused), (\d+) lines, (-?\d+) px below, jump button (shown|hidden)")
 
 # The button's place in logical coordinates (`layout.py`).
-from layout import DOT_Y, JUMP_X, JUMP_Y  # noqa: E402
+from layout import DOT_Y, JUMP_H, JUMP_X, JUMP_Y  # noqa: E402
 
 
 @dataclass
@@ -172,7 +172,8 @@ def test_a_drag_back_pauses_and_jump_to_live_resumes(panel: Board, relay: FakeRe
     wait_view(panel, lambda v: not v.following, "a drag back should pause")
     paused = settled(panel)
     assert not paused.following and paused.below > 100 and paused.jump_shown
-    r, g, b = pixel(panel, "jump", JUMP_X, JUMP_Y - 26)  # inside the button, above its label
+    # Inside the button, above its label: 5 px in from its top edge (past the 2 px border), whatever the UI scale.
+    r, g, b = pixel(panel, "jump", JUMP_X, JUMP_Y - JUMP_H // 2 + 5)
     assert b > 180 and r < 100, ("Jump to live is not on the glass", (r, g, b))
 
     # New lines do not pull a paused view along, and the way back to live grows.

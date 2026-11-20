@@ -1,0 +1,99 @@
+/* The Boards page in the operator panel (#156): boards grouped by place down the side, the chosen board's live
+   preview, the screens showing it, its pages and what decides which one shows, a new board from a template, and its
+   buttons to press. Drawn from components.css and the tokens; the board itself is drawn by layout.css. */
+.bd .stack{display:flex;flex-direction:column;gap:var(--sp-3)}
+.bd .gap{display:flex;align-items:center;gap:var(--sp-2);flex-wrap:wrap}
+.bd .sp{flex:1}
+.bd .lede{margin:0 0 var(--sp-3);color:var(--muted);max-width:80ch}
+.bd .hint{display:block;margin-top:4px;font-size:var(--fs-sm);color:var(--muted)}
+.bd .muted{color:var(--muted)}
+.bd .card{padding:var(--sp-4);min-width:0;box-shadow:none}
+.bd .card h3{margin:0 0 var(--sp-2);font-size:var(--fs-lg)}
+.bd h4{margin:0}
+.bd .field{margin:0 0 var(--sp-3)}
+.bd .field label{display:block;font-size:var(--fs-sm);margin-bottom:3px}
+.bd .field input,.bd .field select{width:100%}
+.bd input,.bd select{border-color:color-mix(in srgb,var(--fg) 28%,var(--border))}
+.bd .chip{display:inline-flex;align-items:center;gap:5px;font-size:var(--fs-xs);border:1px solid var(--border);border-radius:var(--r-pill);padding:1px 9px;color:var(--muted);white-space:nowrap}
+.bd .chip.ok{color:var(--ok);border-color:color-mix(in srgb,var(--ok) 50%,var(--border))}
+.bd .chip.warn{color:var(--warn);border-color:color-mix(in srgb,var(--warn) 50%,var(--border))}
+.bd .chip i{width:7px;height:7px;border-radius:50%;background:currentColor}
+.bd .tabs{margin:0}
+
+/* The page: boards down the side, the chosen one beside. */
+.bp{display:grid;grid-template-columns:240px minmax(0,1fr);gap:var(--sp-4);align-items:start}
+.blist{background:var(--card);border:1px solid var(--border);border-radius:var(--r);overflow:hidden;position:sticky;top:var(--sp-4)}
+.blist .hd{display:flex;gap:var(--sp-2);padding:var(--sp-2);border-bottom:1px solid var(--border)}
+.blist .hd.ft{border-top:1px solid var(--border);border-bottom:0}
+.blist .hd input{flex:1;min-width:0}
+.blist .pl{font-size:var(--fs-xs);color:var(--muted);text-transform:uppercase;letter-spacing:.06em;padding:var(--sp-3) var(--sp-3) var(--sp-1)}
+.blist a{display:flex;gap:var(--sp-3);align-items:center;padding:var(--sp-2) var(--sp-3);color:var(--fg);text-decoration:none}
+.blist a.on{background:var(--hover);color:var(--hover-fg)}
+.blist a b{display:block;font-weight:500;font-size:var(--fs-sm)}
+.blist a small{color:var(--muted);font-size:var(--fs-xs)}
+.blist .none{padding:var(--sp-3);color:var(--muted);font-size:var(--fs-sm)}
+.bh{display:flex;align-items:center;gap:var(--sp-3);flex-wrap:wrap;margin-bottom:var(--sp-3)}
+.bh h2.title{margin:0}
+.bd .addr{display:flex;align-items:center;gap:var(--sp-2);font-family:var(--mono);font-size:var(--fs-sm);color:var(--muted)}
+.bd .addr a{color:inherit;text-decoration:none}
+.bd .qr{width:132px;height:132px;padding:6px;background:var(--qr-bg);border-radius:var(--r-sm)}
+.bd .qr svg{display:block;width:100%;height:100%}
+.sel2{display:grid;grid-template-columns:minmax(0,1fr) 300px;gap:var(--sp-4);align-items:start}
+.bd .screenrow{display:flex;justify-content:space-between;align-items:center;gap:var(--sp-2);padding:6px 0;border-bottom:1px solid var(--border);font-size:var(--fs-sm)}
+.bd .screenrow:last-of-type{border-bottom:0}
+.bd .screenrow .gap{flex-wrap:nowrap;flex:none}
+.bd .setrow{display:flex;justify-content:space-between;align-items:center;gap:var(--sp-3)}
+
+/* A board drawn small: thumbnails (blocks in each widget's colour) and the live preview (the real widgets). */
+.bd-tv{background:var(--video-bg);border-radius:var(--r-sm);box-sizing:border-box;overflow:hidden}
+.bd-thumb{display:grid;flex:none;width:56px;padding:3px;gap:2px}
+.bd-thumb.p916{width:24px;margin:0 16px}
+.bd-thumb i{border-radius:10%;min-width:0;min-height:0}
+.bd-live{width:100%;padding:1.5%;position:relative}
+.bd-live>.rl-grid{width:100%;height:100%}
+.bd-live .empty{position:absolute;inset:0;display:grid;place-items:center;color:var(--muted);font-size:var(--fs-sm)}
+.bd-edit{max-width:780px;width:100%;overflow:visible}
+.bd-edit.rl-canvas{padding:1.5%}
+
+/* Pages and what decides the page. */
+.bd .pages{display:flex;gap:var(--sp-3);overflow-x:auto;padding-bottom:var(--sp-1)}
+.bd .pg{flex:none;width:190px;display:flex;flex-direction:column;align-items:stretch;justify-content:flex-start;height:auto;min-height:0;font-weight:400;border:1px solid var(--border);border-radius:var(--r);background:var(--card);padding:var(--sp-2);cursor:pointer;text-align:left;color:var(--fg)}
+.bd .pg.on{border-color:var(--primary)}
+.bd .pg b{display:block;margin-top:6px;font-size:var(--fs-sm)}
+.bd .pg small{color:var(--muted);font-size:var(--fs-xs)}
+.bd .pg .bd-thumb{width:100%}
+.bd .pg.add{display:flex;align-items:center;justify-content:center;border-style:dashed;color:var(--muted);min-height:130px}
+.bd .pgedit{display:flex;gap:var(--sp-2);align-items:flex-end;flex-wrap:wrap;margin-top:var(--sp-3)}
+.bd .pgedit .field{margin:0;width:240px}
+.bd .modes{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:var(--sp-3)}
+.bd .mode{text-align:left;border:1px solid var(--border);border-radius:var(--r);padding:var(--sp-3);background:var(--bg);color:var(--fg);cursor:pointer;min-height:0;height:auto;display:block;font-weight:400}
+.bd .mode.on{border-color:var(--primary);background:var(--hover);color:var(--hover-fg)}
+.bd .mode b{display:block}
+.bd .mode span{display:block;font-size:var(--fs-sm);color:var(--muted);margin-top:2px}
+.bd .mode:disabled{opacity:.5;cursor:default}
+.bd .rules{width:100%;border-collapse:collapse;font-size:var(--fs-sm)}
+.bd .rules th{text-align:left;font-weight:500;color:var(--muted);padding:6px var(--sp-2);border-bottom:1px solid var(--border)}
+.bd .rules td{padding:6px var(--sp-2);border-bottom:1px solid var(--border);vertical-align:middle}
+.bd .rules select,.bd .rules input{min-height:var(--ctl-h-sm);height:var(--ctl-h-sm);padding:2px 8px;font-size:var(--fs-sm);width:100%;box-sizing:border-box}
+.bd .rules tr.now td{background:color-mix(in srgb,var(--primary) 10%,transparent)}
+.bd .rules .w-days{width:130px}.bd .rules .w-time{width:110px}.bd .rules .w-x{width:40px}
+.bd .rules-sec{margin:var(--sp-4) 0 var(--sp-2)}
+
+/* A new board. */
+.bd .tpls{display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:var(--sp-3)}
+.bd .tpl{text-align:left;padding:var(--sp-2);border:1px solid var(--border);border-radius:var(--r);background:var(--bg);color:var(--fg);cursor:pointer;display:flex;flex-direction:column;gap:6px;min-height:0;height:auto;font-weight:400}
+.bd .tpl.on{border-color:var(--primary);background:var(--hover);color:var(--hover-fg)}
+.bd .tpl .bd-thumb{width:100%}
+.bd .tpl .bd-thumb.p43{width:75%}
+.bd .tpl .bd-blank{border:1px dashed var(--border)}
+.bd .tpl b{font-size:var(--fs-sm)}
+.bd .tpl span{font-size:var(--fs-xs);color:var(--muted)}
+.bd .dlg{max-width:760px;margin:0 auto;background:var(--card);border:1px solid var(--border);border-radius:var(--r-lg);padding:var(--sp-5);box-shadow:var(--shadow-pop)}
+.bd .dlg .field{margin:0}
+
+/* Running a board from here. */
+.bd .ctrlg{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:var(--sp-3)}
+.bd .ctrlg button{min-height:72px;font-size:var(--fs-lg);font-weight:600}
+.bd .ctrlg button.lit{background:var(--warn);color:var(--bg);border-color:var(--warn)}
+
+@media(max-width:1000px){.bp,.sel2{grid-template-columns:1fr}.blist{position:static}}

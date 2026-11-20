@@ -1,0 +1,71 @@
+/* The Planning Center admin page (#157): its tabs' layout only. Controls come from components.css. */
+.pcctx { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:var(--sp-4); }
+.pcctx .field, .pcopts .field { margin:0; }
+.pcopts { display:grid; grid-template-columns:repeat(auto-fit,minmax(14rem,19rem)); gap:var(--sp-4); margin:var(--sp-4) 0; }
+.pccols { display:grid; grid-template-columns:repeat(auto-fit,minmax(20rem,1fr)); gap:var(--sp-4); align-items:start; }
+.pclive { margin:0 0 var(--sp-3); padding:var(--sp-3) var(--sp-4); border:1px solid var(--primary); border-radius:var(--r); background:var(--card); }
+.pclive #rdNow { margin-right:auto; }
+.pclink { display:flex; align-items:center; gap:var(--sp-2); flex-wrap:wrap; padding:var(--sp-2) var(--sp-3); border:1px dashed var(--border); border-radius:var(--r-ctl); }
+.pcsplit { display:flex; align-items:flex-start; justify-content:space-between; gap:var(--sp-4); }
+.hint { overflow-wrap:anywhere; display:block; margin-top:var(--sp-1); font-size:var(--fs-sm); color:var(--muted); font-weight:400; }
+.pcchannels { display:flex; flex-direction:column; gap:var(--sp-2); margin:var(--sp-3) 0; }
+.pcchan { display:grid; grid-template-columns:9rem minmax(0,1fr) 11rem auto; gap:var(--sp-3); align-items:center;
+          padding:var(--sp-3); border:1px solid var(--border); border-radius:var(--r-ctl); background:var(--inset); }
+.pcchan .nm .num { font-family:var(--mono); font-weight:600; color:var(--muted); margin-right:var(--sp-2); }
+.pcchan .nm .name { font-weight:600; }
+.pcchan .asg { display:flex; flex-wrap:wrap; gap:var(--sp-2); align-items:center; }
+.pcchan .asg select { width:9.5rem; min-height:var(--ctl-h-sm); height:var(--ctl-h-sm); padding:2px 8px; font-size:var(--fs-sm); }
+.pcchan .now { font-size:var(--fs-sm); color:var(--muted); }
+.pcchan .now b { color:var(--fg); font-weight:500; }
+.pcchan .now .spare { color:var(--warn); }
+.pcalso { grid-column:1 / -1; display:flex; flex-wrap:wrap; gap:var(--sp-2); align-items:center; }
+.pcalso .note { margin:0; }
+.pcalsopick { flex:0 1 18rem; }
+.pcchip { display:inline-flex; align-items:center; gap:var(--sp-1); font-size:var(--fs-sm); border:1px solid var(--border);
+          border-radius:var(--r-pill); padding:2px var(--sp-1) 2px var(--sp-2); }
+.pcchip i { font-style:normal; color:var(--muted); }
+.pcchip button { min-height:0; padding:0 var(--sp-2); border:0; background:none; color:var(--muted); }
+@media (max-width:900px) {
+  .pcctx { grid-template-columns:minmax(0,1fr); }
+  .pcchan { grid-template-columns:minmax(0,1fr); }
+}
+/* A control with the hidden attribute stays hidden (the shared button style would show it again). */
+#page-planningcenter [hidden] { display:none !important; }
+/* The order of service: what is done fades, what is up is lit, as in the mockup. */
+.rdtable tr.cur td { background:var(--hover); color:var(--hover-fg); font-weight:600; }
+.rdtable tr.done td { opacity:.5; }
+/* Team and mics: the soundboard source, the picker and the footer. */
+.pcsrc { display:flex; align-items:center; gap:var(--sp-3); flex-wrap:wrap; margin:0 0 var(--sp-2); }
+.pcpick { border:1px solid var(--border); border-radius:var(--r-ctl); margin:var(--sp-2) 0 var(--sp-3); background:var(--bg); }
+.pcpick summary { cursor:pointer; padding:var(--sp-2) var(--sp-3); font-weight:500; }
+.pcpicklist { display:grid; grid-template-columns:repeat(auto-fill,minmax(14rem,1fr)); gap:var(--sp-1) var(--sp-3); padding:var(--sp-2) var(--sp-3); border-top:1px solid var(--border); }
+.pcpicklist label.check { margin:0; }
+.pcpicklist label.check span { color:var(--muted); }
+.pcpickfoot { padding:var(--sp-2) var(--sp-3); border-top:1px solid var(--border); }
+.pcfoot { display:flex; align-items:center; justify-content:space-between; gap:var(--sp-4); flex-wrap:wrap; margin-top:var(--sp-3); }
+.pcfoot .note { flex:1 1 24rem; margin:0; }
+/* The rundown's view picks: a card with a small picture of the layout, as in the mockup. */
+.pcviews { display:grid; grid-template-columns:repeat(auto-fit,minmax(12rem,1fr)); gap:var(--sp-3); }
+.pcview { display:block; text-align:left; min-height:0; padding:var(--sp-3); border:1px solid var(--border); border-radius:var(--r); background:var(--card); }
+.pcview.on { border-color:var(--primary); background:var(--hover); }
+.pcview b { display:block; color:var(--fg); font-weight:600; }
+.pcview span { display:block; color:var(--muted); font-size:var(--fs-sm); font-weight:400; margin-top:var(--sp-1); }
+.pcthumb { display:flex; gap:var(--sp-1); height:3rem; padding:var(--sp-1); margin-bottom:var(--sp-2); border:1px solid var(--border); border-radius:var(--r-sm); background:var(--bg); }
+.pcthumb i { flex:1; background:var(--border); border-radius:var(--r-sm); }
+.pcthumb i.a { flex:0 0 28%; background:var(--primary); }
+/* Sizes taken from the approved mockup (docs/mockups/planning-center): headings, cards, tab bar and the compact picker. */
+#page-planningcenter h3 { font-size:var(--fs-lg); font-weight:700; margin:0 0 var(--sp-2); }
+#page-planningcenter section { margin:0 0 var(--sp-3); padding:var(--sp-4); }
+#page-planningcenter .tabs { display:flex; margin:0 0 var(--sp-3); }
+#page-planningcenter .note { margin:0 0 var(--sp-2); }
+#page-planningcenter .pcctx select { height:var(--ctl-h-sm); min-height:var(--ctl-h-sm); padding:2px 8px; font-size:var(--fs-sm); }
+#page-planningcenter .pcctx label { font-size:var(--fs-xs); margin-bottom:2px; }
+#page-planningcenter .pccols section { margin:0; }
+#page-planningcenter .rdtable th { font-weight:400; }
+#page-planningcenter #rdBox, #page-planningcenter #pcChBox, #page-planningcenter #rdSetBox { background:none; border:0; box-shadow:none; padding:0; }
+.pcbox { background:var(--card); border:1px solid var(--border); border-radius:var(--r); padding:var(--sp-4); }
+.setrow { display:flex; align-items:center; justify-content:space-between; gap:var(--sp-3); padding:var(--sp-3) 0; border-bottom:1px solid var(--border); }
+.setrow small { display:block; color:var(--muted); font-size:var(--fs-sm); }
+/* The Add channel button sits on the bottom edge of the Number and Name boxes, not beside their labels. */
+#pcChManual { align-items:flex-end; gap:var(--sp-3); }
+#pcChManual .field { margin:0; }

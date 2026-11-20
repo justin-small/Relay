@@ -1,0 +1,21 @@
+{# /screen?obs=<computer>: that OBS computer's scenes as big buttons for a tablet. Served by the OBS module through
+   core's screen hook; its script is /static/modules/obs/screen.js. #}
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="referrer" content="no-referrer">
+<link rel="stylesheet" href="/static/tokens.css"><title>{{ machine.name }}: scenes</title>
+<link rel="stylesheet" href="/static/modules/obs/screen.css">
+</head>
+<body>
+<header id="obsHead"><span id="obsName"></span> <span id="obsLive" class="badge" hidden>LIVE</span>
+  <span id="obsRec" class="badge rec" hidden>REC</span> <span id="obsOff" class="badge off" hidden>OBS not connected</span></header>
+<main id="obsScenes"></main>
+<div id="obsToast" role="status" aria-live="polite" hidden></div>
+<script id="obsData" type="application/json">{{ {"machine": machine, "key": key} | tojson }}</script>
+<script src="/static/relay-ui.js"></script>
+<script src="/static/modules/obs/screen.js"></script>
+</body>
+</html>

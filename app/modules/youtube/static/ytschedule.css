@@ -1,0 +1,11 @@
+/* The ytschedule admin page's layout (#463: moved out of ytschedule.js). Controls come from components.css. */
+#page-youtube .ytlist{list-style:none;margin:8px 0 0;padding:0}
+#page-youtube .ytlist li{padding:8px 0;border-top:1px solid var(--line);display:flex;flex-wrap:wrap;gap:4px 12px;align-items:baseline}
+#page-youtube .ytlist li .t{font-weight:600;flex:1 1 200px;overflow-wrap:anywhere}
+#page-youtube .ytlist li .m{color:var(--dim);font-size:var(--fs-sm)}
+#page-youtube .ytrule{display:flex;flex-wrap:wrap;gap:8px;align-items:end;margin-top:6px}
+#page-youtube .ytrule .field{flex:1 1 120px;margin:0}
+#page-youtube .yttypes label{display:flex;gap:6px;align-items:center;font-weight:400;margin:4px 0}
+#page-youtube .ytlink + .ytlink{margin-top:12px;padding-top:12px;border-top:1px solid var(--line)}
+#page-youtube .ytlink h4{margin:0;font-size:var(--fs-md);font-weight:600;overflow-wrap:anywhere}
+#page-youtube .ytsub{margin:14px 0 4px;font-size:var(--fs-sm);text-transform:uppercase;letter-spacing:.04em;color:var(--dim)}

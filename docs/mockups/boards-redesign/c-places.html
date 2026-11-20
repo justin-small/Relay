@@ -1,0 +1,121 @@
+<!doctype html><html lang="en" data-theme="dark" data-preset="relay"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<link rel="stylesheet" href="../../../app/static/tokens.css"><link rel="stylesheet" href="../../../app/static/components.css"><link rel="stylesheet" href="common.css">
+<title>Boards C · Places and templates</title>
+<style>
+.place{display:grid;grid-template-columns:180px minmax(0,1fr);gap:var(--sp-4);align-items:start;padding:var(--sp-4) 0;border-bottom:1px solid var(--border)}
+.place:last-child{border-bottom:0}
+.place h3{margin:0;font-size:var(--fs-lg)}
+.rows{display:flex;flex-direction:column;gap:var(--sp-2)}
+.brow{display:grid;grid-template-columns:120px minmax(0,1fr) auto auto;gap:var(--sp-4);align-items:center;padding:var(--sp-2) var(--sp-3);background:var(--card);border:1px solid var(--border);border-radius:var(--r)}
+.brow .tv{padding:3px;gap:2px;justify-self:center}.brow .tv.p916{width:38px}.brow .tv.p43{width:96px}.brow .tv .w{padding:0;border-radius:2px}
+.brow b{display:block}.brow .addr{font-family:var(--mono);font-size:var(--fs-sm);color:var(--muted)}
+.tpls{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:var(--sp-3)}
+.tpl{text-align:left;padding:var(--sp-3);border:1px solid var(--border);border-radius:var(--r);background:var(--card);color:var(--fg);cursor:pointer;display:flex;flex-direction:column;gap:var(--sp-2)}
+.tpl.on{border-color:var(--primary);background:var(--hover)}
+.tpl .tv{padding:4px;gap:3px}.tpl .tv .w{padding:0;border-radius:2px}
+.tpl b{font-size:var(--fs-base)}.tpl span{font-size:var(--fs-sm);color:var(--muted)}
+.steps{display:flex;gap:var(--sp-2);font-size:var(--fs-sm);color:var(--muted)}
+.steps b{color:var(--fg)}
+.zed{display:grid;grid-template-columns:minmax(0,1fr) 320px;gap:var(--sp-4)}
+.zone{border:2px dashed #3f3f46;background:transparent;align-items:center;text-align:center;color:#a1a1aa;font-size:1.8cqw}
+.zone.hot{border-color:var(--primary);color:var(--fg);background:color-mix(in srgb,var(--primary) 12%,transparent)}
+.layouts{display:grid;grid-template-columns:repeat(4,1fr);gap:var(--sp-2)}
+.layouts .tv{padding:3px;gap:2px;cursor:pointer;border:2px solid transparent}
+.layouts .tv.on{border-color:var(--primary)}
+.layouts .tv .w{padding:0;border-radius:2px;background:#3f3f46}
+.full{background:#000;min-height:calc(100vh - 92px);display:flex;flex-direction:column;align-items:center;justify-content:center;padding:var(--sp-4);gap:var(--sp-3)}
+.full .tv{width:min(100%,calc((100vh - 170px)*16/9))}
+.dots{display:flex;gap:6px}.dots i{width:8px;height:8px;border-radius:50%;background:#3f3f46}.dots i.on{background:#a1a1aa}
+@media(max-width:900px){.place{grid-template-columns:1fr}.brow{grid-template-columns:90px 1fr}.zed{grid-template-columns:1fr}}
+</style></head><body>
+<div class="top"><b>Boards</b><span class="muted">Direction C · Places and templates: boards grouped by where they hang, built from a starting layout</span><span class="sp"></span><span class="muted">Ana Ruiz · admin</span></div>
+<div class="screens"><span>Screen:</span><button data-s="list" class="on">Boards by place</button><button data-s="new">New board</button><button data-s="edit">Editor (zones)</button><button data-s="view">On the TV</button></div>
+
+<!-- ===== LIST ===== -->
+<div class="scr on" id="list"><div class="wrap">
+<div class="between"><div><h2 style="margin:0">Boards</h2><p class="lede" style="margin:4px 0 0">Grouped by where the screen is. Each board has its own address; a TV keeps its link through a rename.</p></div>
+<div class="gap"><button>Import…</button><button class="primary" data-go="new">New board</button></div></div>
+<div class="place"><div><h3>Foyer</h3><span class="muted" style="font-size:var(--fs-sm)">2 screens on</span></div><div class="rows">
+ <div class="brow"><div class="tv" style="--c:12;--rw:8"><div class="w" style="grid-area:1/1/3/9"></div><div class="w" style="grid-area:1/9/3/13"></div><div class="w air" style="grid-area:3/9/5/13"></div><div class="w" style="grid-area:3/1/6/9"></div><div class="w" style="grid-area:6/1/9/9"></div><div class="w" style="grid-area:5/9/9/13"></div></div>
+  <div><b>Lobby</b><span class="addr">/board/lobby</span></div><div class="gap"><span class="chip warn">Public</span><span class="chip ok"><i></i>2 screens</span></div><div class="gap"><button class="sm primary" data-go="edit">Edit</button><button class="sm">Open</button><button class="sm quiet" aria-label="More">⋯</button></div></div>
+ <div class="brow"><div class="tv p916" style="--c:6;--rw:10;width:40px"><div class="w" style="grid-area:1/1/4/7"></div><div class="w" style="grid-area:4/1/11/7"></div></div>
+  <div><b>Hallway portrait</b><span class="addr">/board/hallway</span></div><div class="gap"><span class="chip">Signed in</span><span class="chip">Not open</span></div><div class="gap"><button class="sm primary">Edit</button><button class="sm">Open</button><button class="sm quiet" aria-label="More">⋯</button></div></div>
+</div></div>
+<div class="place"><div><h3>Stage</h3><span class="muted" style="font-size:var(--fs-sm)">1 screen on</span></div><div class="rows">
+ <div class="brow"><div class="tv" style="--c:12;--rw:8"><div class="w" style="grid-area:1/1/3/7"></div><div class="w" style="grid-area:1/7/3/13"></div><div class="w" style="grid-area:3/1/9/13"></div></div>
+  <div><b>Stage confidence</b><span class="addr">/board/stage</span></div><div class="gap"><span class="chip">Signed in</span><span class="chip ok"><i></i>1 screen</span></div><div class="gap"><button class="sm primary">Edit</button><button class="sm">Open</button><button class="sm quiet" aria-label="More">⋯</button></div></div>
+</div></div>
+<div class="place"><div><h3>Booth</h3><span class="muted" style="font-size:var(--fs-sm)">None on</span></div><div class="rows">
+ <div class="brow"><div class="tv p43" style="--c:8;--rw:6;width:96px"><div class="w btn lit" style="grid-area:1/1/3/3"></div><div class="w btn" style="grid-area:1/3/3/5"></div><div class="w btn" style="grid-area:1/5/3/7"></div><div class="w btn" style="grid-area:1/7/3/9"></div><div class="w" style="grid-area:3/1/7/9"></div></div>
+  <div><b>Booth tablet</b><span class="addr">/board/booth</span></div><div class="gap"><span class="chip">Signed in</span><span class="chip warn">1 widget off</span></div><div class="gap"><button class="sm primary">Edit</button><button class="sm">Open</button><button class="sm quiet" aria-label="More">⋯</button></div></div>
+</div></div>
+</div></div>
+
+<!-- ===== NEW ===== -->
+<div class="scr" id="new"><div class="wrap stack">
+<div class="steps"><b>1 Start from</b><span>›</span><span>2 Name and place</span></div>
+<h2 style="margin:0">What is this screen for?</h2>
+<p class="lede">Pick a starting layout. Every widget can be moved, changed or removed afterwards.</p>
+<div class="tpls">
+ <button class="tpl on"><div class="tv" style="--c:12;--rw:8"><div class="w" style="grid-area:1/1/3/9"></div><div class="w" style="grid-area:1/9/3/13"></div><div class="w air" style="grid-area:3/9/5/13"></div><div class="w" style="grid-area:3/1/9/9"></div><div class="w" style="grid-area:5/9/9/13"></div></div><b>Lobby welcome</b><span>Welcome text, clock, countdown, captions, livestream.</span></button>
+ <button class="tpl"><div class="tv" style="--c:12;--rw:8"><div class="w" style="grid-area:1/1/3/7"></div><div class="w" style="grid-area:1/7/3/13"></div><div class="w" style="grid-area:3/1/9/13"></div></div><b>Stage confidence</b><span>Big clock, time left, captions for the speaker.</span></button>
+ <button class="tpl"><div class="tv" style="--c:12;--rw:8"><div class="w" style="grid-area:1/1/9/13"></div></div><b>Captions only</b><span>Full-screen captions in one language.</span></button>
+ <button class="tpl"><div class="tv p43" style="--c:8;--rw:6"><div class="w btn" style="grid-area:1/1/3/3"></div><div class="w btn" style="grid-area:1/3/3/5"></div><div class="w btn" style="grid-area:1/5/3/7"></div><div class="w btn" style="grid-area:1/7/3/9"></div><div class="w btn" style="grid-area:3/1/5/3"></div><div class="w btn" style="grid-area:3/3/5/5"></div><div class="w" style="grid-area:5/1/7/9"></div></div><b>Button panel</b><span>Lighting cues and board links on a tablet.</span></button>
+ <button class="tpl"><div class="tv" style="--c:12;--rw:8"><div class="w" style="grid-area:1/1/5/7"></div><div class="w" style="grid-area:1/7/5/13"></div><div class="w" style="grid-area:5/1/9/13"></div></div><b>Sound check</b><span>Sound level, spectrum and the room clock.</span></button>
+ <button class="tpl"><div class="tv" style="--c:12;--rw:8;border:1px dashed var(--border)"></div><b>Blank</b><span>An empty grid.</span></button>
+</div>
+<div class="card" style="max-width:640px"><div class="gap" style="align-items:flex-end">
+ <div class="field" style="flex:1;min-width:180px;margin:0"><label>Name</label><input value="Lobby"></div>
+ <div class="field" style="width:160px;margin:0"><label>Place</label><select><option>Foyer</option><option>Stage</option><option>Booth</option><option>New place…</option></select></div>
+ <div class="field" style="width:140px;margin:0"><label>Shape</label><select><option>16:9 TV</option><option>4:3 tablet</option><option>9:16 portrait</option></select></div>
+ <button class="primary" data-go="edit">Make board</button></div>
+ <span class="hint">Address: relay.local/board/<b>lobby</b></span></div>
+</div></div>
+
+<!-- ===== EDITOR ===== -->
+<div class="scr" id="edit"><div class="wrap stack">
+<div class="between"><div class="gap"><button class="quiet" data-go="list">← Boards</button><b style="font-size:var(--fs-lg)">Lobby</b><span class="chip">Foyer</span></div><div class="gap"><button>Undo</button><button>Discard</button><button class="primary">Save</button></div></div>
+<div class="zed">
+ <div class="stack">
+  <div class="tv edit" style="--c:12;--rw:8">
+   <div class="w" style="grid-area:1/1/3/9"><small>Welcome</small><div class="mid">Welcome to Sunday Worship</div></div>
+   <div class="w" style="grid-area:1/9/3/13"><small>Time</small><div class="big">9:41</div></div>
+   <div class="w zone hot" style="grid-area:3/9/5/13">Drop here<br>Livestream</div>
+   <div class="w cap sel" style="grid-area:3/1/9/9"><p>so we gather around one table</p><p>and every seat is set for you</p></div>
+   <div class="w zone" style="grid-area:5/9/9/13">Empty<br>+ Add widget</div>
+  </div>
+  <p class="hint">The board is cut into zones. Drop a widget into a zone and it fills it; switch to Free grid to place by cell.</p>
+ </div>
+ <div class="stack">
+  <div class="card"><h3>Layout</h3>
+   <div class="layouts">
+    <div class="tv on" style="--c:12;--rw:8"><div class="w" style="grid-area:1/1/3/9"></div><div class="w" style="grid-area:1/9/3/13"></div><div class="w" style="grid-area:3/9/5/13"></div><div class="w" style="grid-area:3/1/9/9"></div><div class="w" style="grid-area:5/9/9/13"></div></div>
+    <div class="tv" style="--c:12;--rw:8"><div class="w" style="grid-area:1/1/9/9"></div><div class="w" style="grid-area:1/9/9/13"></div></div>
+    <div class="tv" style="--c:12;--rw:8"><div class="w" style="grid-area:1/1/3/13"></div><div class="w" style="grid-area:3/1/9/13"></div></div>
+    <div class="tv" style="--c:12;--rw:8"><div class="w" style="grid-area:1/1/5/7"></div><div class="w" style="grid-area:1/7/5/13"></div><div class="w" style="grid-area:5/1/9/7"></div><div class="w" style="grid-area:5/7/9/13"></div></div>
+   </div>
+   <label class="check" style="margin-top:var(--sp-3)"><input type="checkbox"> Free grid (place by cell, 12 × 8)</label></div>
+  <div class="card"><h3>Add to a zone</h3>
+   <div class="lib"><div class="li"><span class="ic">CC</span>Captions</div><div class="li"><span class="ic">◷</span>Clock</div><div class="li"><span class="ic">◷</span>Countdown</div><div class="li"><span class="ic">●</span>Livestream</div><div class="li"><span class="ic">▮</span>Sound level</div><div class="li"><span class="ic">✦</span>Lighting cue</div><div class="li"><span class="ic">T</span>Text</div></div></div>
+  <div class="card"><h3>Captions</h3>
+   <div class="field"><label>Language</label><select><option>English (original speech)</option><option>Spanish</option></select></div>
+   <div class="field"><label>Lines shown</label><select><option>3</option></select></div></div>
+ </div>
+</div></div></div>
+
+<!-- ===== VIEW ===== -->
+<div class="scr" id="view"><div class="full">
+ <div class="tv" style="--c:12;--rw:8">
+   <div class="w" style="grid-area:1/1/3/9"><small>Welcome</small><div class="mid">Welcome to Sunday Worship</div></div>
+   <div class="w" style="grid-area:1/9/3/13"><small>Time</small><div class="big">9:41</div></div>
+   <div class="w air" style="grid-area:3/9/5/13"><small>Livestream</small><div class="mid">● On air</div></div>
+   <div class="w cap" style="grid-area:3/1/9/9"><p>so we gather around one table</p><p>and every seat is set for you</p></div>
+   <div class="w" style="grid-area:5/9/9/13"><small>Starts in</small><div class="big">0:00</div></div>
+ </div>
+ <div class="dots" aria-label="Page 1 of 3"><i class="on"></i><i></i><i></i></div>
+ <p class="muted" style="font-size:var(--fs-sm);margin:0">Optional: a board can hold several pages that rotate every N seconds (new; needs your yes).</p>
+</div></div>
+
+<nav class="mocknav"><a href="a-gallery.html">A Gallery</a><a href="b-workspace.html">B Workspace</a><a href="c-places.html" aria-current>C Places</a><a href="index.html">Index</a></nav>
+<script src="mock.js"></script>
+</body></html>
