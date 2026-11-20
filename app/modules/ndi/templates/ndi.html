@@ -10,6 +10,7 @@
     <div class="tabs" role="tablist" id="ndiTabs">
       <button type="button" role="tab" data-nditab="home" aria-selected="true">Overview</button>
       <button type="button" role="tab" data-nditab="in" aria-selected="false">Coming in</button>
+      <button type="button" role="tab" data-nditab="analysis" aria-selected="false">Analysis</button>
       <button type="button" role="tab" data-nditab="screens" aria-selected="false">Screens</button>
       <button type="button" role="tab" data-nditab="out" aria-selected="false">Going out</button>
       <button type="button" role="tab" data-nditab="setup" aria-selected="false">Setup</button>
@@ -51,6 +52,65 @@
         <p class="note">Picture size and rate show while something in Relay is watching the source. Feeds marked Sent by
           Relay are Relay's own, set up under Going out.</p>
       </section>
+    </div>
+
+    {# ---------------------------------------------------------------- Analysis (#300) #}
+    <div data-ndipane="analysis" hidden>
+      <section>
+        <div class="ndihead"><div><h3>Analysis</h3>
+          <p class="note">Why a feed is stuttering, without a separate tool: how steadily its frames arrive, the picture on
+            scopes, and the sound's levels and loudness. Relay receives the source while this page is open.</p></div>
+          <div class="ctl"><select id="ndiAnSource" aria-label="Source to analyse"></select>
+            <label class="check"><input type="checkbox" id="ndiAnLow"> Low bandwidth</label>
+            <button type="button" class="primary" id="ndiAnGo">Analyse</button>
+            <button type="button" id="ndiAnStop" hidden>Stop</button></div></div>
+        <p class="note" id="ndiAnNone">Choose a source and press Analyse.</p>
+        <p class="note err" id="ndiAnErr" hidden></p>
+      </section>
+      <div id="ndiAnBody" hidden>
+        <section>
+          <div class="ndihead"><h3><span class="dot" id="ndiAnDot"></span> <span id="ndiAnState"></span></h3>
+            <div class="ctl" id="ndiAnAlarms"></div></div>
+          <p class="note" id="ndiAnWhy"></p>
+          <p class="note">A still picture, such as a slide, sends no frames, so a gap there is not a fault.</p>
+          <div class="ndikv" id="ndiAnInfo"></div>
+        </section>
+        <section>
+          <h3>Frame timing</h3>
+          <div class="ndikv" id="ndiAnTiming"></div>
+          <p class="note">Late is a gap over twice the frame time. A gap over 150 ms is always flagged. The data rate is the decoded
+            picture, not what crossed the network.</p>
+          <div class="ctl"><label for="ndiAnSecs">Record for</label>
+            <input type="number" id="ndiAnSecs" min="1" max="3600" step="1" value="60" aria-label="Seconds to record">
+            <span class="muted">seconds</span>
+            <button type="button" id="ndiAnRec">Record frame timing</button>
+            <button type="button" id="ndiAnRecStop" hidden>Stop recording</button>
+            <button type="button" id="ndiAnDl" hidden>Download CSV</button>
+            <span class="muted" id="ndiAnRecState"></span></div>
+        </section>
+        <section id="ndiAnPicture">
+          <div class="ndihead"><h3>Picture</h3>
+            <div class="tabs" role="tablist" id="ndiAnScopeTabs">
+              <button type="button" role="tab" data-scope="waveform" aria-selected="true">Waveform</button>
+              <button type="button" role="tab" data-scope="parade" aria-selected="false">RGB parade</button>
+              <button type="button" role="tab" data-scope="vectorscope" aria-selected="false">Vectorscope</button>
+              <button type="button" role="tab" data-scope="histogram" aria-selected="false">Histogram</button>
+            </div></div>
+          <div class="ndiscopes"><canvas id="ndiAnCanvas" width="512" height="288" aria-label="Picture scope"></canvas>
+            <div class="ndikv" id="ndiAnRead"></div></div>
+          <p class="note" id="ndiAnPicNote"></p>
+        </section>
+        <section id="ndiAnSound">
+          <div class="ndihead"><h3>Sound</h3>
+            <div class="ctl"><button type="button" id="ndiAnReset">Reset loudness</button></div></div>
+          <p class="note" id="ndiAnNoSound">No audio from this source yet.</p>
+          <div id="ndiAnSoundBody" hidden>
+            <div class="ndimeters" id="ndiAnMeters"></div>
+            <div class="ndikv" id="ndiAnLoud"></div>
+            <canvas id="ndiAnSpec" width="512" height="120" aria-label="Spectrum of channel 1"></canvas>
+          </div>
+        </section>
+      </div>
     </div>
 
     {# ---------------------------------------------------------------- Screens #}

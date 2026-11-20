@@ -80,3 +80,23 @@
   .ndioutrow { grid-template-columns:auto minmax(0,1fr); }
   .ndioutrow .ndistate { grid-column:2; }
 }
+
+/* Analysis (#300): readout lists, the scope canvases and the audio meters */
+.ndikv { display:grid; grid-template-columns:repeat(auto-fill,minmax(14rem,1fr)); gap:var(--sp-2) var(--sp-4); margin:var(--sp-3) 0; }
+.ndikv > div { display:flex; justify-content:space-between; gap:var(--sp-3); border-bottom:1px solid var(--border); padding:var(--sp-1) 0; }
+.ndikv span:first-child { color:var(--muted); }
+.ndikv b { font-family:var(--mono); font-weight:500; text-align:right; overflow-wrap:anywhere; }
+.ndikv b.warn { color:var(--warn); }
+.ndikv b.bad { color:var(--err); }
+.ndiscopes { display:grid; grid-template-columns:minmax(0,2fr) minmax(0,1fr); gap:var(--sp-4); align-items:start; }
+.ndiscopes canvas, #ndiAnSpec { width:100%; height:auto; background:var(--video-bg); border:1px solid var(--border); border-radius:var(--r-ctl); }
+@media (max-width:50rem) { .ndiscopes { grid-template-columns:minmax(0,1fr); } }
+.ndimeters { display:grid; gap:var(--sp-2); margin:var(--sp-3) 0; }
+.ndimeter { display:grid; grid-template-columns:3rem minmax(0,1fr) 12rem; gap:var(--sp-3); align-items:center; }
+.ndimeter .meter { position:relative; }
+.ndimeter .meter > i { display:block; height:100%; }
+.ndimeter .meter > i.amber { background:var(--warn); }
+.ndimeter .meter > i.red { background:var(--err); }
+.ndimeter .meter > u { position:absolute; top:0; bottom:0; width:var(--sp-1); background:var(--fg); text-decoration:none; }
+.ndimeter .read { font-family:var(--mono); font-size:var(--fs-sm); text-align:right; }
+.ndihealth { display:inline-block; vertical-align:middle; margin-right:var(--sp-2); }
