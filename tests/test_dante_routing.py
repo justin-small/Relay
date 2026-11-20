@@ -59,19 +59,16 @@ class FakeDevice:
                 page = rows[first:first + arc.PAGE]
                 payload, result = arc.rx_page(page, more=first + arc.PAGE < len(rows))
                 self.sock.sendto(arc.reply(cmd, seq, payload, result), addr)
-            elif cmd in (arc.CMD_SET_SUBSCRIPTION, arc.CMD_CLEAR_SUBSCRIPTION):
+            elif cmd == arc.CMD_SET_SUBSCRIPTION:
+                proto = struct.unpack(">H", data[:2])[0]
                 if self.refuse:
-                    self.sock.sendto(struct.pack(">HHHHH", arc.PROTOCOL, 10, seq, cmd, 7), addr)
+                    self.sock.sendto(struct.pack(">HHHHH", proto, 10, seq, cmd, 7), addr)
                     continue
-                if cmd == arc.CMD_CLEAR_SUBSCRIPTION:
-                    ch, n = struct.unpack(">I", data[12:16])[0], ""
-                else:
-                    ch = data[13]
-                    tx_chan, tx_dev = struct.unpack(">HH", data[14:18])
-                    n = f"{data[tx_chan:data.index(0, tx_chan)].decode()}@{data[tx_dev:data.index(0, tx_dev)].decode()}"
+                ch, tx_chan, tx_dev = data[13], *struct.unpack(">HH", data[14:18])
+                n = f"{data[tx_chan:data.index(0, tx_chan)].decode()}@{data[tx_dev:data.index(0, tx_dev)].decode()}" if tx_chan else ""
                 if not self.ignore_writes:
                     self.subs[ch] = n
-                self.sock.sendto(arc.reply(cmd, seq, b""), addr)
+                self.sock.sendto(arc.reply(cmd, seq, b"", protocol=proto), addr)
 
     def close(self) -> None:
         self._stop.set()
@@ -105,14 +102,13 @@ SUB = "/api/admin/dante/routing/subscribe"
 scan()
 
 with section("the write packet is built and refusals are read"):
-    eq("a clear is its own command with the channel", arc.subscribe_request(2, "", 7), arc.clear_request(2, 7))
-    eq("a clear request is the count then the channel", arc.clear_request(2, 7)[8:], struct.pack(">HHI", 0, 1, 2))
+    # Packets Dante Controller sent to a real DT168 stage box on 2026-11-20 (sequence 0x39 and 0x3f), byte for byte.
+    real_sub = bytes.fromhex("272900c100393010000008010001" "00ac00af") + b"\0" * (172 - 18) + b"16\0Stagebox-2-Bottom\0"
+    real_clear = bytes.fromhex("272900ac003f3010000008010001" "00000000") + b"\0" * (172 - 18)
+    eq("a subscribe is what Dante Controller sent", arc.subscribe_request(1, "16@Stagebox-2-Bottom", 0x39), real_sub)
+    eq("a clear is what Dante Controller sent (0x3010 with no pointers, not 0x3014)", arc.subscribe_request(1, "", 0x3F), real_clear)
     eq("a write the device cannot take is not built", (arc.subscribe_request(300, "A@B", 1), arc.subscribe_request(1, "@B", 1)), (None, None))
-    w = arc.subscribe_request(1, "Pastor@STAGE", 9)
-    eq("a write is the length, the 2 marker, the channel and two string pointers into one table",
-       (struct.unpack(">H", w[2:4])[0] == len(w), w[10], w[13], w[w[14] << 8 | w[15]:].split(b"\0")[:2]),
-       (True, 2, 1, [b"Pastor", b"STAGE"]))
-    eq("the records block is padded so the strings start at byte 52", struct.unpack(">H", w[14:16])[0], 52)
+    check("answers under the protocols Dante Controller uses are accepted", 0x2729 in arc.REPLY_PROTOCOLS and 0x2809 in arc.REPLY_PROTOCOLS)
     state, why = arc.set_subscription("127.0.0.1", stage.port, 1, "Pastor@STAGE")
     eq("a fake device accepts", (state, why), ("ok", ""))
     eq("and shows it", stage.subs[1], "Pastor@STAGE")
