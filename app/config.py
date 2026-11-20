@@ -34,6 +34,8 @@ EXAMPLE_PATH = ROOT / "config.example.json"
 
 DEFAULTS: dict[str, Any] = {
     "openai_api_key": "",
+    # The one Vercel AI Gateway key (#495): transcription on Scribe v2 Realtime goes through it.
+    "vercel_api_key": "",
     "admin_token": "",
     # The owner's backup passphrase, as the key derived from it (app/backup.py); never the passphrase itself.
     "backup_key": "",
@@ -118,6 +120,9 @@ DEFAULTS: dict[str, Any] = {
         # line translated into every target by text_model (billed per token --
         # a small fraction of the cost, but captions arrive a line at a time).
         "translation_mode": "realtime",
+        # Who transcribes the main feed (app/transcribe.py): "scribe" (Vercel) or "openai", or the id of a
+        # backend a module registers. One that is unknown, or whose key is not saved, falls back to OpenAI.
+        "backend": "scribe",
         "text_model": "gpt-6-luna",
         # Sent as reasoning_effort when non-empty. "none" keeps a reasoning
         # model from thinking before each line, which only adds delay here;
@@ -153,7 +158,7 @@ _data: dict[str, Any] = {}
 _mtime: float = 0.0
 # Secrets kept sealed in config.json (app/secretbox.py, #278) and held as plain text only in memory. Modules add
 # their own with Module.secret_settings. The backup passphrase key is core's (app/backup.py).
-SECRET_KEYS = ("openai_api_key", "admin_token", "backup_key")
+SECRET_KEYS = ("openai_api_key", "vercel_api_key", "admin_token", "backup_key")
 # Sealed values this computer cannot open (its key was lost), kept as stored until a new value replaces them, so a
 # keyring that is locked for one start does not wipe them on the next save.
 _unopened: dict[str, str] = {}
@@ -241,6 +246,7 @@ def _normalise(cfg: dict) -> dict:
     for _dead in ("vad_mode", "vad_eagerness", "vad_threshold",
                   "vad_prefix_padding_ms", "vad_silence_duration_ms"):
         rt.pop(_dead, None)
+    rt["backend"] = str(rt.get("backend") or DEFAULTS["realtime"]["backend"]).strip()[:40]
     if rt.get("translation_mode") not in ("realtime", "text"):
         rt["translation_mode"] = DEFAULTS["realtime"]["translation_mode"]
     rt["text_model"] = str(rt.get("text_model") or "").strip() or DEFAULTS["realtime"]["text_model"]
@@ -459,6 +465,7 @@ def redacted() -> dict:
     module's settings as its `public()` gives them (no Planning Center secret)."""
     cfg = dict(get())
     key = cfg.pop("openai_api_key", "") or ""
+    vkey = cfg.pop("vercel_api_key", "") or ""
     cfg.pop("admin_token", None)
     cfg["backup_passphrase_set"] = bool(cfg.pop("backup_key", ""))
     cfg["secret_store"] = secretbox.where()
@@ -467,6 +474,8 @@ def redacted() -> dict:
     modules.redact_config(cfg)
     cfg["openai_api_key_set"] = bool(key)
     cfg["openai_api_key_hint"] = f"…{key[-4:]}" if len(key) >= 4 else ""
+    cfg["vercel_api_key_set"] = bool(vkey)
+    cfg["vercel_api_key_hint"] = f"…{vkey[-4:]}" if len(vkey) >= 4 else ""
     return cfg
 
 

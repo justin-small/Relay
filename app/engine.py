@@ -23,10 +23,10 @@ import logging
 import os
 import time
 
-from . import config, languages, redact, streamstatus
+from . import config, languages, redact, streamstatus, transcribe
 from .audio import AudioCapture
 from .hub import hub
-from .realtime import TranscriptionSession, TranslationRelaySession
+from .realtime import RealtimeSession, TranslationRelaySession
 from .texttranslate import TextTranslator
 from .recorder import recorder
 from .modules import modules
@@ -53,13 +53,22 @@ REHEARSAL_REFUSAL = (
 START_MESSAGES = {
     "rehearsal": REHEARSAL_REFUSAL,
     "no_key": "No OpenAI API key set. Add one in the admin panel.",
+    "no_vercel_key": "No Vercel AI Gateway API key set. Add one in the admin panel, or pick OpenAI to transcribe.",
+    "no_translation_key": "Captions are running, but translating them needs an OpenAI API key until translation "
+                          "moves to Vercel. Add one in the admin panel.",
+    "no_backend_key": "The transcription backend needs a key that is not set. Add it in the admin panel.",
 }
+BACKEND_KEY_REFUSALS = {"openai_api_key": "no_key", "vercel_api_key": "no_vercel_key"}
 
 
 def text_mode(cfg: dict) -> bool:
     """Transcribe once and translate the text, rather than one realtime
-    translation session per target. See texttranslate.py."""
-    return cfg["realtime"].get("translation_mode") == "text"
+    translation session per target. See texttranslate.py. A backend that cannot translate
+    (Scribe) is only ever used this way."""
+    if cfg["realtime"].get("translation_mode") == "text":
+        return True
+    backend, _ = transcribe.resolve(cfg)
+    return not backend.translates
 
 
 def demo_mode() -> bool:
@@ -77,7 +86,10 @@ class Engine:
         self._source_owner: str | None = None
         # Text translation mode: one transcription session feeding a chat
         # model, instead of a realtime session per target.
-        self.transcriber: TranscriptionSession | None = None
+        self.transcriber: RealtimeSession | None = None
+        # What the main feed runs on, and why that is not the backend the operator chose (None: it is).
+        self.backend: transcribe.Backend | None = None
+        self.backend_warning: str | None = None
         self.translator: TextTranslator | None = None
         self.running = False
         # Wall clock, not monotonic: this timestamp is served to clients on
@@ -102,10 +114,13 @@ class Engine:
             raise StartRefused("rehearsal", REHEARSAL_REFUSAL)
         async with self._lock:
             cfg = config.get()
-            key = (cfg.get("openai_api_key") or "").strip()
-            if not key:
-                self.last_error = START_MESSAGES["no_key"]
-                raise StartRefused("no_key", self.last_error)
+            backend, warning = transcribe.resolve(cfg)
+            key = backend.key(cfg)
+            if backend.key_setting and not key:
+                refusal = BACKEND_KEY_REFUSALS.get(backend.key_setting, "no_backend_key")
+                self.last_error = START_MESSAGES[refusal]
+                raise StartRefused(refusal, self.last_error)
+            self.backend, self.backend_warning = backend, warning
 
             hub.history_lines = cfg["history_lines"]
             hub.set_blocklist(redact.read_blocklist_file(config.blocklist_path()))
@@ -129,7 +144,7 @@ class Engine:
             self._begin_recording(cfg, src, enabled)
             skipped = []
             if text_mode(cfg):
-                self._open_text_pipeline(enabled, cfg, key)
+                self._open_text_pipeline(enabled, cfg, backend, key)
             else:
                 for target in enabled:
                     if languages.text_only(target):
@@ -143,6 +158,8 @@ class Engine:
                 "No target language is enabled, so nothing is being transcribed "
                 "or translated. Turn one on."
             )
+            if enabled and text_mode(cfg) and not (cfg.get("openai_api_key") or "").strip():
+                self.last_error = START_MESSAGES["no_translation_key"]
             if skipped:
                 self.last_error = (
                     f"{', '.join(skipped)} need the Text translation engine; "
@@ -277,12 +294,14 @@ class Engine:
             await self._close_relay(heir, handoff=False)
             self._open_relay(heir, cfg, key)
 
-    def _open_text_pipeline(self, enabled: list[str], cfg: dict, key: str) -> None:
+    def _open_text_pipeline(self, enabled: list[str], cfg: dict, backend: transcribe.Backend, key: str) -> None:
         assert self.capture is not None
         rt = cfg["realtime"]
         src = cfg["source_language"]
+        # The translations still go to OpenAI's chat model until they move to Vercel (#496), so they use the
+        # OpenAI key whichever backend transcribes.
         translator = TextTranslator(
-            api_key=key,
+            api_key=(cfg.get("openai_api_key") or "").strip(),
             model=rt.get("text_model") or config.DEFAULTS["realtime"]["text_model"],
             reasoning_effort=rt.get("text_reasoning_effort", ""),
             source_language=src,
@@ -298,16 +317,9 @@ class Engine:
             # sent to the model, so it cannot reach any language.
             translator.submit(hub.publish_final(TRANSCRIPTION_STREAM, src, text))
 
-        session = TranscriptionSession(
+        session = backend.session(
+            cfg, key,
             name="transcribe",
-            api_key=key,
-            # Text mode has nothing to translate without the transcript, so an
-            # empty transcribe_model (the realtime mode's "source pane off")
-            # falls back to the default here.
-            model=rt.get("transcribe_model") or config.DEFAULTS["realtime"]["transcribe_model"],
-            noise_reduction=rt.get("noise_reduction"),
-            segment_idle_s=rt.get("segment_idle_s"),
-            segment_max_idle_s=rt.get("segment_max_idle_s"),
             source_language=src,
             on_source_delta=lambda d: hub.publish_delta(TRANSCRIPTION_STREAM, src, d),
             on_source_final=source_final,
@@ -374,6 +386,12 @@ class Engine:
             "running": self.running,
             "started_at": self.started_at,
             "error": self.last_error,
+            # What transcribes the main feed, and the sentence for why it is not what the operator chose.
+            "backend": ({"id": self.backend.id, "label": self.backend.label, "warning": self.backend_warning,
+                         "price_per_hour": self.backend.price_per_hour}
+                        if self.running and self.backend is not None else None),
+            "backends": [{"id": b.id, "label": b.label, "available": b.available(cfg),
+                          "price_per_hour": b.price_per_hour} for b in transcribe.backends()],
             "audio": self.capture.status() if self.capture else {},
             "sessions": sessions,
             "viewers": hub.viewer_count(),

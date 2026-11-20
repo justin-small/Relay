@@ -2543,6 +2543,7 @@ CONFIG_PERMISSIONS = {
     "timezone": "settings.manage",
     "realtime": "settings.manage",
     "openai_api_key": "credentials.manage",
+    "vercel_api_key": "credentials.manage",
     "backup_passphrase": "credentials.manage",
     "recording": "recordings.manage",
     "blocklist": "blocklist.manage",
@@ -2580,6 +2581,9 @@ async def admin_config(request: Request, payload: dict):
     key = payload.get("openai_api_key")
     if isinstance(key, str) and key.strip():
         updates["openai_api_key"] = key.strip()
+    vkey = payload.get("vercel_api_key")
+    if isinstance(vkey, str) and vkey.strip():
+        updates["vercel_api_key"] = vkey.strip()
 
     if "backup_passphrase" in payload:
         # Only the key derived from it is kept (app/backup.py); null or "" removes it.

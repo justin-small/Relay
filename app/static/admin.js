@@ -127,6 +127,36 @@
       : 'Each live target is a separate, continuously-billed session. Turning one off closes it immediately.';
   }
 
+  /* Who transcribes the main feed: every registered backend, the saved choice selected, and the sentence for
+     why a different one is running when its key is missing. */
+  function paintBackends(list, running) {
+    const sel = $('xbackend');
+    const want = (cfg && cfg.realtime && cfg.realtime.backend) || 'scribe';
+    const sig = JSON.stringify(list) + want;
+    if (sel.dataset.sig !== sig) {
+      sel.dataset.sig = sig;
+      sel.innerHTML = '';
+      list.forEach(function (b) {
+        const o = document.createElement('option');
+        o.value = b.id;
+        o.textContent = b.label + (b.price_per_hour == null ? '' : ' - $' + b.price_per_hour.toFixed(2) + ' per hour') +
+          (b.available ? '' : ' (key not set)');
+        sel.appendChild(o);
+      });
+      sel.value = want;
+    }
+    $('xbackendNote').textContent = running && running.warning ? running.warning
+      : "Who turns the room's audio into text. If its key is not saved, OpenAI is used instead and this says so.";
+  }
+
+  $('xbackend').addEventListener('change', async function () {
+    try {
+      const body = await post('/api/admin/config', { realtime: { backend: $('xbackend').value } });
+      cfg = body.config;
+      okMsg('Transcription saved.' + (body.status && body.status.running ? ' Live sessions restarted.' : ''));
+    } catch (e) { alertMsg(e.message); }
+  });
+
   $('xmode').addEventListener('change', async function () {
     try {
       const body = await post('/api/admin/config', { realtime: { translation_mode: $('xmode').value } });
@@ -293,13 +323,15 @@
   $('saveCreds').addEventListener('click', async function () {
     const payload = {};
     if ($('apikey').value.trim()) payload.openai_api_key = $('apikey').value.trim();
+    if ($('vkey').value.trim()) payload.vercel_api_key = $('vkey').value.trim();
     if (!Object.keys(payload).length) { alertMsg('Nothing to save.'); return; }
     try {
       const body = await post('/api/admin/config', payload);
       cfg = body.config;
       $('apikey').value = '';
+      $('vkey').value = '';
       renderKeyState();
-      okMsg('Saved.' + (payload.openai_api_key ? ' Restart capture to use the new key.' : ''));
+      okMsg('Saved.' + (payload.openai_api_key || payload.vercel_api_key ? ' Restart capture to use the new key.' : ''));
     } catch (e) { alertMsg(e.message); }
   });
 
@@ -352,6 +384,8 @@
       ? '· set ' + cfg.openai_api_key_hint
       : '· not set';
     $('keyState').className = cfg && cfg.openai_api_key_set ? 'ok' : 'err';
+    $('vkeyState').textContent = cfg && cfg.vercel_api_key_set ? '· set ' + cfg.vercel_api_key_hint : '· not set';
+    $('vkeyState').className = cfg && cfg.vercel_api_key_set ? 'ok' : 'err';
     if ($('backupPassState')) {
       $('backupPassState').textContent = cfg && cfg.backup_passphrase_set ? '· set' : '· not set';
       $('keyStore').textContent = (cfg && cfg.secret_store) || '';
@@ -2247,6 +2281,7 @@
           + (drops ? '  ·  ' + drops + ' capture frame(s) dropped' : ''));
     $('audioNote').className = 'note' + (a.error || drops ? ' err' : '');
 
+    if (st.backends) paintBackends(st.backends, st.backend);
     if (st.blocklist) renderBlocklist(st.blocklist, st.blocklist_file, st.blocklist_max);
     if (st.targets) renderTargets(st.targets);
     st.targets && st.targets.forEach(function (t) {
@@ -2257,7 +2292,7 @@
     const tb = $('sessions');
     tb.innerHTML = '';
     if (!st.sessions.length) {
-      tb.innerHTML = '<tr><td colspan="5" class="muted">Not started.</td></tr>';
+      tb.innerHTML = '<tr><td colspan="6" class="muted">Not started.</td></tr>';
     } else {
       st.sessions.forEach(function (s) {
         const dropped = s.dropped_audio || 0;
@@ -2268,7 +2303,8 @@
             (s.error ? ' <span class="muted mono">' + s.error.slice(0, 90) + '</span>' : '') + '</td>' +
           '<td class="muted">' + ago(s.last_delta_ts) + '</td>' +
           '<td class="muted">' + s.reconnects + '</td>' +
-          '<td class="' + (dropped ? 'err' : 'muted') + '">' + dropped + '</td>';
+          '<td class="' + (dropped ? 'err' : 'muted') + '">' + dropped + '</td>' +
+          '<td class="muted">' + (s.cost_usd == null ? '' : '$' + s.cost_usd.toFixed(2)) + '</td>';
         tb.appendChild(tr);
       });
     }
