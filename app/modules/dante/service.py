@@ -298,6 +298,17 @@ class Service:
             known = [dict(d) for d in self.devices]
         return inputs.labels(devices, known)
 
+    def devices_copy(self) -> list[dict]:
+        with self._lock:
+            return [dict(d) for d in self.devices]
+
+    def keep_subscriptions(self, key: str, subs: list[dict] | None) -> None:
+        """Routing wrote and read back a device: keep what it now shows, so the page does not wait for the next scan."""
+        with self._lock:
+            for d in self.devices:
+                if d["key"] == key:
+                    d["subscriptions"] = subs
+
     def gear_list(self) -> dict | None:
         """Boxes for the network map and each device's transmit channels as core channels (app/gearfeed.py). None until
         the first scan has run, so nothing turns missing before Relay has looked."""
