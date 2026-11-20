@@ -25,7 +25,7 @@ import time
 from typing import Any
 
 from ... import gear, gearfeed, mdns, netinfo, netroute, netsock
-from . import arc, inputs
+from . import arc, heartbeat, inputs
 from .monitor import monitor
 
 log = logging.getLogger("relay.dante")
@@ -142,6 +142,7 @@ class Service:
         self._task: asyncio.Task | None = None
         self._wake: asyncio.Event | None = None
         self._meter: asyncio.Task | None = None
+        self.heartbeats = heartbeat.Heartbeats()
 
     # -------------------------------------------------------------------------------------------- scanning
     def scan_once(self) -> None:
@@ -181,7 +182,7 @@ class Service:
         read keeps None, which is "no reading", never a made-up one."""
         try:
             d["clock"] = arc.parse_clock(arc.ask(ip, port, arc.CMD_CLOCK, 2))
-            d["subscriptions"] = arc.parse_subscriptions(arc.ask(ip, port, arc.CMD_SUBSCRIPTIONS, 3))
+            d["subscriptions"] = arc.read_subscriptions(ip, port)
         except OSError:
             pass
 
@@ -215,16 +216,14 @@ class Service:
             d = devices.get(key)
             if not d:
                 continue
-            try:
-                got = arc.parse_levels(arc.ask(d["ips"][0], d["ports"].get("arc", DEFAULT_ARC), arc.CMD_LEVELS, 4, 0.4))
-            except OSError:
-                got = None
+            got = self.heartbeats.levels(d["ips"])
             if got is None:
                 continue
             names = d["transmit"]
             named = len(got) == len(names)   # a count that disagrees means the order cannot be trusted
             out[key] = {"device": d["name"], "channels": [
-                {"channel": names[i] if named else f"Channel {i + 1}", "level": got[i]} for i in sorted(want) if i < len(got)]}
+                {"channel": names[i] if named else f"Channel {i + 1}", "level": got[i]} for i in sorted(want)
+                if i < len(got) and got[i] is not None]}
         with self._lock:
             self.levels = out
 
@@ -260,8 +259,13 @@ class Service:
         loop = asyncio.get_running_loop()
         self._task = loop.create_task(self._loop(), name="dante-scan")
         self._meter = loop.create_task(self._meter_loop(), name="dante-meter")
+        try:
+            self.heartbeats.listen(netsock.multicast_socket(CLASS_ID, heartbeat.GROUP, heartbeat.PORT))
+        except (OSError, ValueError) as e:
+            log.warning("dante: cannot listen for heartbeats, so no levels: %s", e)
 
     async def stop(self) -> None:
+        self.heartbeats.stop()
         tasks, self._task, self._meter = [self._task, self._meter], None, None
         for task in tasks:
             if task:

@@ -52,20 +52,26 @@ class FakeDevice:
                 data, addr = self.sock.recvfrom(2048)
             except OSError:
                 continue
-            _, _, seq, cmd, _ = struct.unpack(">HHHHH", data[:10])
+            _, _, seq, cmd = struct.unpack(">HHHH", data[:8])
             if cmd == arc.CMD_SUBSCRIPTIONS:
-                payload = struct.pack(">H", len(self.subs)) + b"".join(
-                    struct.pack(">HHB", ch, arc.SUB_OK if n else arc.SUB_NONE, len(n.encode())) + n.encode()
-                    for ch, n in sorted(self.subs.items()))
-                self.sock.sendto(arc.reply(cmd, seq, payload), addr)
-            elif cmd == arc.CMD_SET_SUBSCRIPTION:
-                ch, n = struct.unpack(">HB", data[10:13])
+                first = struct.unpack(">H", data[12:14])[0] - 1
+                rows = [(ch, n, 10 if n else 0) for ch, n in sorted(self.subs.items())]
+                page = rows[first:first + arc.PAGE]
+                payload, result = arc.rx_page(page, more=first + arc.PAGE < len(rows))
+                self.sock.sendto(arc.reply(cmd, seq, payload, result), addr)
+            elif cmd in (arc.CMD_SET_SUBSCRIPTION, arc.CMD_CLEAR_SUBSCRIPTION):
                 if self.refuse:
                     self.sock.sendto(struct.pack(">HHHHH", arc.PROTOCOL, 10, seq, cmd, 7), addr)
                     continue
+                if cmd == arc.CMD_CLEAR_SUBSCRIPTION:
+                    ch, n = struct.unpack(">I", data[12:16])[0], ""
+                else:
+                    ch = data[13]
+                    tx_chan, tx_dev = struct.unpack(">HH", data[14:18])
+                    n = f"{data[tx_chan:data.index(0, tx_chan)].decode()}@{data[tx_dev:data.index(0, tx_dev)].decode()}"
                 if not self.ignore_writes:
-                    self.subs[ch] = data[13:13 + n].decode()
-                self.sock.sendto(arc.reply(cmd, seq, struct.pack(">H", ch)), addr)
+                    self.subs[ch] = n
+                self.sock.sendto(arc.reply(cmd, seq, b""), addr)
 
     def close(self) -> None:
         self._stop.set()
@@ -99,11 +105,19 @@ SUB = "/api/admin/dante/routing/subscribe"
 scan()
 
 with section("the write packet is built and refusals are read"):
-    eq("a clear request carries an empty name", arc.subscribe_request(2, "", 7)[10:], struct.pack(">HB", 2, 0))
+    eq("a clear is its own command with the channel", arc.subscribe_request(2, "", 7), arc.clear_request(2, 7))
+    eq("a clear request is the count then the channel", arc.clear_request(2, 7)[8:], struct.pack(">HHI", 0, 1, 2))
+    eq("a write the device cannot take is not built", (arc.subscribe_request(300, "A@B", 1), arc.subscribe_request(1, "@B", 1)), (None, None))
+    w = arc.subscribe_request(1, "Pastor@STAGE", 9)
+    eq("a write is the length, the 2 marker, the channel and two string pointers into one table",
+       (struct.unpack(">H", w[2:4])[0] == len(w), w[10], w[13], w[w[14] << 8 | w[15]:].split(b"\0")[:2]),
+       (True, 2, 1, [b"Pastor", b"STAGE"]))
+    eq("the records block is padded so the strings start at byte 52", struct.unpack(">H", w[14:16])[0], 52)
     state, why = arc.set_subscription("127.0.0.1", stage.port, 1, "Pastor@STAGE")
     eq("a fake device accepts", (state, why), ("ok", ""))
     eq("and shows it", stage.subs[1], "Pastor@STAGE")
-    stage.subs[1] = ""
+    eq("a clear is accepted", arc.set_subscription("127.0.0.1", stage.port, 1, ""), ("ok", ""))
+    eq("and empties it", stage.subs[1], "")
     stage.refuse = True
     state, why = arc.set_subscription("127.0.0.1", stage.port, 1, "Pastor@STAGE")
     check("a refusal names Dante Domain Manager", state == "refused" and "Domain Manager" in why)
