@@ -1,18 +1,10 @@
-"""OpenAI Realtime sessions over WebSocket.
+"""Live transcription sessions over WebSocket.
 
-TranscriptionSession is the source-only session the text translation mode uses
-(see texttranslate.py). The realtime mode's session is TranslationRelaySession
--- a `gpt-realtime-translate` connection that emits *both* transcripts on a
-single socket:
-
-    session.input_transcript.*   -> source-language text  (transcription stream)
-    session.output_transcript.*  -> target-language text  (translation stream)
-    session.output_audio.*       -> ignored; this app is text-only
-
-That is why there is no separate transcription session any more: one connection
-per enabled target carries both feeds, at half the upstream audio and a flat
-per-minute price. Sessions are fed captured PCM continuously and reconnect on
-their own with backoff, so one failing target never takes down the others.
+RealtimeSession is the shared base: connection lifecycle, audio pump, reconnect with backoff, caption-line
+segmenting and health. TranscriptionSession is OpenAI's `gpt-live-transcribe` (the fallback backend); the Scribe
+session through the Vercel gateway is in app/transcribe.py. Each finished source line is translated by a chat model
+(app/texttranslate.py), so one transcription session serves every language. The old realtime translation engine,
+one `gpt-realtime-translate` session per language, was removed in #496.
 
 Event names differ between the GA and the earlier beta shapes of the Realtime
 API, so the dispatcher accepts both spellings rather than pinning one.
@@ -60,12 +52,9 @@ def _is_fatal(msg: str) -> bool:
     low = (msg or "").lower()
     return any(m in low for m in FATAL_MARKERS)
 
-# The two transcript directions the translations endpoint emits. Completion
-# events are not spelled out in the published guide, so both the ".done" and
-# ".completed" forms are accepted; if neither ever arrives the partial buffer is
-# still flushed on disconnect.
+# The source-language transcript channel. Completion events come as both ".done" and ".completed"; if neither
+# ever arrives the partial buffer is still flushed on disconnect.
 SOURCE = "source"
-TARGET = "target"
 
 # A committed line should end where a sentence does. Includes the CJK forms the
 # translation channel emits for those targets.
@@ -87,21 +76,6 @@ SOURCE_DONE_EVENTS = {
     "session.input_transcript.completed",
     "conversation.item.input_audio_transcription.completed",
 }
-TARGET_DELTA_EVENTS = {
-    "session.output_transcript.delta",
-    "response.output_text.delta",
-    "response.text.delta",
-    "response.output_audio_transcript.delta",
-}
-TARGET_DONE_EVENTS = {
-    "session.output_transcript.done",
-    "session.output_transcript.completed",
-    "response.output_text.done",
-    "response.text.done",
-    "response.output_audio_transcript.done",
-}
-
-
 def _ssl_context() -> ssl.SSLContext:
     """Trust store that works on a stock python.org install.
 
@@ -429,99 +403,11 @@ class RealtimeSession:
         }
 
 
-class TranslationRelaySession(RealtimeSession):
-    """One target language. Audio in; source *and* target transcript text out.
-
-    `gpt-realtime-translate` takes no prompt, no voice and no register control --
-    the whole session config is the output language -- so there is nothing here
-    for a speaker to talk the model out of. The prompt-injection guard the old
-    instruction-driven session needed is structural to this model.
-    """
-
-    kind = "translate"
-
-    def __init__(
-        self,
-        *,
-        source_language: str,
-        target: str,
-        on_source_delta: Callable[[str], None],
-        on_source_final: Callable[[str], None],
-        on_target_delta: Callable[[str], None],
-        on_target_final: Callable[[str], None],
-        transcribe_model: str = "",
-        segment_idle_s: float | None = None,
-        segment_max_idle_s: float | None = None,
-        **kw,
-    ):
-        super().__init__(**kw)
-        self.source_language = source_language
-        self.target = target
-        self.transcribe_model = transcribe_model
-        if segment_idle_s is not None:
-            self.SEGMENT_IDLE_S = segment_idle_s
-        if segment_max_idle_s is not None:
-            self.SEGMENT_MAX_IDLE_S = segment_max_idle_s
-        self.target_iso = languages.target_iso(target)
-        self._sinks = {
-            SOURCE: (on_source_delta, on_source_final),
-            TARGET: (on_target_delta, on_target_final),
-        }
-
-    def _url(self) -> str:
-        return f"{WS_BASE}/translations?model={self.model}"
-
-    def _session_update(self) -> dict:
-        audio: dict = {"output": {"language": self.target_iso}}
-        # No turn detection is sent, and there is no setting for it. The
-        # translations endpoint rejects `turn_detection` in session.update
-        # ("Unknown parameter: session.audio.input.turn_detection") because a
-        # translation session has no turn lifecycle at all -- per the OpenAI
-        # cookbook guide [5], "Translation starts from the incoming audio stream
-        # itself. There is no response.create, assistant turn, tool call, or
-        # conversation state to manage." The endpoint finds phrase boundaries
-        # itself; the caption line breaks the operator *can* steer are this
-        # app's own, in SEGMENT_IDLE_S / SEGMENT_MAX_IDLE_S below.
-        # `turn_detection` (semantic_vad / server_vad, eagerness) belongs to the
-        # conversational and /transcription endpoints, not this one, and this
-        # one rejects it outright.
-        # Only noise reduction is settable on the input side; it is omitted when
-        # unset so the endpoint keeps its own default rather than being handed a
-        # null.
-        # The source-language transcript is opt-in: without an input transcription
-        # model the endpoint emits only the translated (output) stream, so the
-        # source pane stays empty. Setting it turns on the input_audio_transcription
-        # events the SOURCE_* sets listen for.
-        inp: dict = {}
-        if self.transcribe_model:
-            inp["transcription"] = {"model": self.transcribe_model}
-        if self.noise_reduction:
-            inp["noise_reduction"] = {"type": self.noise_reduction}
-        if inp:
-            audio["input"] = inp
-        return {"type": "session.update", "session": {"audio": audio}}
-
-    def _delta_channel(self, etype: str) -> str | None:
-        if etype in SOURCE_DELTA_EVENTS:
-            return SOURCE
-        if etype in TARGET_DELTA_EVENTS:
-            return TARGET
-        return None
-
-    def _final_channel(self, etype: str) -> str | None:
-        if etype in SOURCE_DONE_EVENTS:
-            return SOURCE
-        if etype in TARGET_DONE_EVENTS:
-            return TARGET
-        return None
-
-
 class TranscriptionSession(RealtimeSession):
     """Source language only: a `gpt-live-transcribe` transcription session.
 
-    Used by the text translation mode, where the translations come from a chat
-    model fed the committed source lines (see texttranslate.py), so one
-    transcription stream serves every target.
+    The translations come from a chat model fed the committed source lines
+    (see texttranslate.py), so one transcription stream serves every target.
 
     This endpoint has no server-side turn detection for this model, and it only
     sends a final transcript for audio the client has committed. With silence
@@ -591,7 +477,7 @@ class TranscriptionSession(RealtimeSession):
                 turn_started = None
 
     def _handle(self, evt: dict) -> None:
-        # Unlike the translations endpoint, this one does send a completed
+        # This endpoint sends a completed
         # event -- one per committed turn, carrying the turn's whole text. The
         # segmenter has usually committed that text already, line by line, as
         # the deltas went quiet; publishing the event's transcript as well put

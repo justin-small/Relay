@@ -1,6 +1,7 @@
 """app/realtime.py against a fake WebSocket: the connection loop (session.update first, audio pumped, events
-dispatched), reconnects with backoff, fatal errors that stop retrying, the idle segmenter that stands in for
-the done event the translations endpoint never sends, and the transcription session's turn commits.
+dispatched), reconnects with backoff, fatal errors that stop retrying, the idle segmenter that commits a line
+when no done event comes, and the transcription session's turn commits. The base class is driven through a
+two-channel session defined here (the realtime translation session it used to be tested through is gone, #496).
 Offline. Run: python tests/test_realtime.py
 """
 import asyncio
@@ -60,13 +61,44 @@ class Server:
         return nxt
 
 
+class TwoChannel(realtime.RealtimeSession):
+    """The smallest RealtimeSession with two transcript channels ("source" and "target"), so the base class's
+    connection loop, dispatch and segmenter are tested on their own."""
+
+    kind = "two"
+    TARGET = "target"
+
+    def __init__(self, *, on_source_delta, on_source_final, on_target_delta, on_target_final,
+                 segment_idle_s=None, segment_max_idle_s=None, **kw):
+        super().__init__(**kw)
+        if segment_idle_s is not None:
+            self.SEGMENT_IDLE_S = segment_idle_s
+        if segment_max_idle_s is not None:
+            self.SEGMENT_MAX_IDLE_S = segment_max_idle_s
+        self._sinks = {realtime.SOURCE: (on_source_delta, on_source_final),
+                       self.TARGET: (on_target_delta, on_target_final)}
+
+    def _url(self):
+        return f"{realtime.WS_BASE}/test?model={self.model}"
+
+    def _session_update(self):
+        return {"type": "session.update", "session": {"noise": self.noise_reduction}}
+
+    def _delta_channel(self, etype):
+        return {"session.input_transcript.delta": realtime.SOURCE,
+                "session.output_transcript.delta": self.TARGET}.get(etype)
+
+    def _final_channel(self, etype):
+        return {"session.input_transcript.done": realtime.SOURCE,
+                "session.output_transcript.done": self.TARGET}.get(etype)
+
+
 def translate_session(**kw):
     got = {"sd": [], "sf": [], "td": [], "tf": []}
     statuses = []
-    s = realtime.TranslationRelaySession(
-        name="FRENCH", api_key="sk-test", model="gpt-realtime-translate", source_language="ENGLISH",
-        target="FRENCH", on_source_delta=got["sd"].append, on_source_final=got["sf"].append,
-        on_target_delta=got["td"].append, on_target_final=got["tf"].append,
+    s = TwoChannel(
+        name="FRENCH", api_key="sk-test", model="m1", on_source_delta=got["sd"].append,
+        on_source_final=got["sf"].append, on_target_delta=got["td"].append, on_target_final=got["tf"].append,
         on_status=lambda: statuses.append(s.state), **kw)
     return s, got, statuses
 
@@ -82,19 +114,16 @@ async def scenario_connect_and_dispatch():
         {"type": "session.output_transcript.delta", "delta": "Encore"},
     ]))
     realtime._connect = server.connect
-    s, got, statuses = translate_session(transcribe_model="gpt-live-transcribe", noise_reduction="near_field")
+    s, got, statuses = translate_session(noise_reduction="near_field")
     q = asyncio.Queue()
     s.start(q)
     await q.put(b"\x01\x02" * 4)
     check("it connects", await await_for(lambda: s.state == "connected"))
     ws = server.made[0]
-    eq("to the translations endpoint for the model", server.urls[0],
-       "wss://api.openai.com/v1/realtime/translations?model=gpt-realtime-translate")
+    eq("to the session's endpoint for the model", server.urls[0], "wss://api.openai.com/v1/realtime/test?model=m1")
     eq("with the key as a bearer token", server.headers[0], {"Authorization": "Bearer sk-test"})
-    eq("session.update is the first thing sent, with the output language and the opt-in input settings",
-       ws.sent[0], {"type": "session.update", "session": {"audio": {
-           "output": {"language": "fr"},
-           "input": {"transcription": {"model": "gpt-live-transcribe"}, "noise_reduction": {"type": "near_field"}}}}})
+    eq("session.update is the first thing sent", ws.sent[0],
+       {"type": "session.update", "session": {"noise": "near_field"}})
     check("audio is pumped as base64 under the session.-prefixed append",
           await await_for(lambda: len(ws.sent) > 1))
     eq("…the frame itself", ws.sent[1], {"type": "session.input_audio_buffer.append",
@@ -104,7 +133,7 @@ async def scenario_connect_and_dispatch():
     eq("target deltas (dict form too) reach the target sink", got["td"], ["Bonjour ", "Encore"])
     eq("a done with no text commits what was buffered", got["sf"], ["Hello world."])
     eq("a done with a transcript commits that", got["tf"], ["Bonjour le monde."])
-    check("health reports the connection", s.health()["state"] == "connected" and s.health()["kind"] == "translate"
+    check("health reports the connection", s.health()["state"] == "connected" and s.health()["kind"] == "two"
           and s.health()["connected_at"] and s.health()["last_delta_ts"], s.health())
 
     await s.stop()

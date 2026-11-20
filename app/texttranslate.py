@@ -1,12 +1,12 @@
-"""Text translation mode: committed source lines -> a chat model -> every target.
+"""Translation: committed source lines -> a chat model -> every target.
 
-The realtime mode pays `gpt-realtime-translate` per minute *per target*. Here a
-single transcription session produces the source lines, and each committed line
-is translated into every live target. Text is billed per token, so the
-per-target cost all but disappears; the price is that captions land a line at a
-time instead of streaming word by word.
+One transcription session produces the source lines, and each committed line is translated into every live
+target. Text is billed per token, so another language costs almost nothing; the translations land a line at a
+time while the source still streams word by word. The requests go to the provider and model the AI models page
+picks for translation (app/aimodels.py): the Vercel AI Gateway by default, or the OpenAI key; both take the same
+OpenAI-style chat request.
 
-A chat model takes instructions, which the realtime translator does not. The
+A chat model takes instructions. The
 spoken text could therefore try to talk to it ("ignore your instructions and
 ...") -- so the line travels as a JSON string field, the system prompt says it
 is content and never instruction, and every result is checked before it is
@@ -35,12 +35,11 @@ from collections import deque
 from concurrent.futures import ThreadPoolExecutor
 from typing import Callable
 
-from . import languages, netsock
+from . import aimodels, languages, netsock
 from .realtime import _SSL, _is_fatal
 
 log = logging.getLogger("relay.texttranslate")
 
-CHAT_URL = "https://api.openai.com/v1/chat/completions"
 CONTEXT_LINES = 2  # earlier source lines sent along for context, not translated
 TIMEOUT_S = 20.0
 # A translation this many times longer than its source line (plus slack for
@@ -99,11 +98,13 @@ class TextTranslator:
         *,
         api_key: str,
         model: str,
+        url: str = aimodels.OPENAI_CHAT_URL,
         source_language: str,
         reasoning_effort: str = "",
         on_final: Callable[[str, str], None],
         on_status: Callable[[], None] | None = None,
     ):
+        self.url = url
         self.api_key = api_key
         self.model = model
         self.reasoning_effort = reasoning_effort
@@ -141,6 +142,15 @@ class TextTranslator:
                 pass
             self._task = None
         self._set_state("idle")
+
+    def use(self, url: str, api_key: str, model: str) -> None:
+        """Send the next request somewhere else (the AI models page changed). A line in flight finishes where
+        it started; a fatal error from the old provider is forgotten, since the new one may well work."""
+        self.url, self.api_key, self.model = url, api_key, model
+        self.name = f"text:{model}"
+        self.fatal = False
+        if self.state == "error":
+            self._set_state("connected")
 
     def submit(self, line: str) -> None:
         """A committed source line. Never blocks the caller."""
@@ -217,7 +227,7 @@ class TextTranslator:
         if self.reasoning_effort:
             body["reasoning_effort"] = self.reasoning_effort
         req = urllib.request.Request(
-            CHAT_URL,
+            self.url,
             data=json.dumps(body).encode("utf-8"),
             headers={"Authorization": f"Bearer {self.api_key}",
                      "Content-Type": "application/json"},

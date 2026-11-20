@@ -24,7 +24,7 @@ from typing import Callable
 from urllib.parse import quote
 
 from . import config, languages, netsock
-from .realtime import SOURCE, RealtimeSession, TranscriptionSession, TranslationRelaySession
+from .realtime import SOURCE, RealtimeSession, TranscriptionSession
 
 log = logging.getLogger("relay.transcribe")
 
@@ -43,9 +43,8 @@ MAX_AUDIO_FRAME_BYTES = 65536
 class Backend:
     """One way to transcribe. A module registers its own instance.
 
-    `key_setting` names the saved secret the backend needs (None: it needs none); `translates` says it can also
-    translate and speak in one session, which only the OpenAI translations endpoint does -- a backend without
-    it is paired with the text translator (app/texttranslate.py). `session(cfg, key, **kw)` returns an object
+    `key_setting` names the saved secret the backend needs (None: it needs none). Every backend is paired with
+    the text translator (app/texttranslate.py). `session(cfg, key, **kw)` returns an object
     shaped like RealtimeSession (start(queue), stop(), state, health()); `kw` carries `name`,
     `source_language`, `on_source_delta`, `on_source_final` and `on_status`.
     """
@@ -55,7 +54,6 @@ class Backend:
     session: Callable[..., RealtimeSession]
     key_setting: str | None = None
     key_label: str = ""
-    translates: bool = False
     price_per_hour: float | None = None
 
     def key(self, cfg: dict) -> str:
@@ -113,27 +111,11 @@ def _openai_session(cfg: dict, key: str, **kw) -> RealtimeSession:
     rt = cfg["realtime"]
     return TranscriptionSession(
         api_key=key,
-        # Text mode has nothing to translate without the transcript, so an empty transcribe_model (the
-        # realtime mode's "source pane off") falls back to the default here.
+        # Nothing can be translated without the transcript, so an empty transcribe_model falls back to the default.
         model=rt.get("transcribe_model") or config.DEFAULTS["realtime"]["transcribe_model"],
         noise_reduction=rt.get("noise_reduction"),
         segment_idle_s=rt.get("segment_idle_s"),
         segment_max_idle_s=rt.get("segment_max_idle_s"),
-        **kw,
-    )
-
-
-def openai_relay(cfg: dict, key: str, *, target: str, transcribe_model: str, **kw) -> TranslationRelaySession:
-    """The OpenAI translate-and-speak session, one per target: only the OpenAI backend `translates`."""
-    rt = cfg["realtime"]
-    return TranslationRelaySession(
-        api_key=key,
-        model=rt["translate_model"],
-        noise_reduction=rt.get("noise_reduction"),
-        transcribe_model=transcribe_model,
-        segment_idle_s=rt.get("segment_idle_s"),
-        segment_max_idle_s=rt.get("segment_max_idle_s"),
-        target=target,
         **kw,
     )
 
@@ -249,6 +231,7 @@ def _scribe_session(cfg: dict, key: str, **kw) -> RealtimeSession:
     rt = cfg["realtime"]
     return ScribeSession(
         api_key=key,
+        model=rt.get("scribe_model") or SCRIBE_MODEL,
         segment_idle_s=rt.get("segment_idle_s"),
         segment_max_idle_s=rt.get("segment_max_idle_s"),
         **kw,
@@ -261,5 +244,5 @@ register_backend(Backend(
 ))
 register_backend(Backend(
     id="openai", label="OpenAI", session=_openai_session,
-    key_setting="openai_api_key", key_label="an OpenAI API key", translates=True,
+    key_setting="openai_api_key", key_label="an OpenAI API key",
 ))

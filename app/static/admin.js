@@ -133,55 +133,6 @@
   $('channel').addEventListener('change', function () { renderFeed(); saveDevice(); });
   $('noise').addEventListener('change', saveDevice);
 
-  function renderMode() {
-    const text = cfg.realtime.translation_mode === 'text';
-    $('xmode').value = text ? 'text' : 'realtime';
-    $('targetsNote').textContent = text
-      ? 'Every live target is translated from the one transcription session. Turning one off takes effect from the next line.'
-      : 'Each live target is a separate, continuously-billed session. Turning one off closes it immediately.';
-  }
-
-  /* Who transcribes the main feed: every registered backend, the saved choice selected, and the sentence for
-     why a different one is running when its key is missing. */
-  function paintBackends(list, running) {
-    const sel = $('xbackend');
-    const want = (cfg && cfg.realtime && cfg.realtime.backend) || 'scribe';
-    const sig = JSON.stringify(list) + want;
-    if (sel.dataset.sig !== sig) {
-      sel.dataset.sig = sig;
-      sel.innerHTML = '';
-      list.forEach(function (b) {
-        const o = document.createElement('option');
-        o.value = b.id;
-        o.textContent = b.label + (b.price_per_hour == null ? '' : ' - $' + b.price_per_hour.toFixed(2) + ' per hour') +
-          (b.available ? '' : ' (key not set)');
-        sel.appendChild(o);
-      });
-      sel.value = want;
-    }
-    $('xbackendNote').textContent = running && running.warning ? running.warning
-      : "Who turns the room's audio into text. If its key is not saved, OpenAI is used instead and this says so.";
-  }
-
-  $('xbackend').addEventListener('change', async function () {
-    try {
-      const body = await post('/api/admin/config', { realtime: { backend: $('xbackend').value } });
-      cfg = body.config;
-      okMsg('Transcription saved.' + (body.status && body.status.running ? ' Live sessions restarted.' : ''));
-    } catch (e) { alertMsg(e.message); }
-  });
-
-  $('xmode').addEventListener('change', async function () {
-    try {
-      const body = await post('/api/admin/config', { realtime: { translation_mode: $('xmode').value } });
-      cfg = body.config;
-      renderMode();
-      lastTargetsKey = '';
-      renderTargets(lastTargets);
-      okMsg('Translation engine saved.' + (body.status && body.status.running ? ' Live sessions restarted.' : ''));
-    } catch (e) { alertMsg(e.message); renderMode(); }
-  });
-
   async function saveDevice() {
     try {
       const payload = {
@@ -209,9 +160,6 @@
   /* ---- targets ---- */
   function targetState(t) {
     if (t.live) return 'live';
-    if (t.text_only && cfg && cfg.realtime.translation_mode !== 'text') {
-      return t.enabled ? 'needs the Text engine' : 'Text engine only';
-    }
     return t.enabled ? 'armed — starts with capture' : 'off';
   }
 
@@ -244,20 +192,17 @@
     feedTargets(targets);
     const on = targets.filter(function (t) { return t.enabled; }).length;
     $('targetsCount').textContent = on + ' enabled';
-    const key = JSON.stringify(targets) + (cfg && cfg.realtime.translation_mode);
+    const key = JSON.stringify(targets);
     if (key === lastTargetsKey) return;
     lastTargetsKey = key;
 
     const grid = $('targets');
     grid.innerHTML = '';
-    const text = cfg && cfg.realtime.translation_mode === 'text';
     targets.forEach(function (t) {
-      const needsText = t.text_only && !text;
-      const lab = el('label', 'check' + (needsText && !t.enabled ? ' off' : ''));
+      const lab = el('label', 'check');
       const box = document.createElement('input');
       box.type = 'checkbox';
       box.checked = !!t.enabled;
-      box.disabled = needsText && !t.enabled;   // Text-only languages need the Text engine
       box.addEventListener('change', function (ev) { setTarget(t.target, ev.target.checked); });
       lab.appendChild(box);
       lab.appendChild(el('span', '', t.language_label));
@@ -270,12 +215,8 @@
 
   /* Select all / Clear apply one language at a time, the same call each tick box makes. */
   async function setAllTargets(enabled) {
-    const text = cfg && cfg.realtime.translation_mode === 'text';
-    const todo = lastTargets.filter(function (t) {
-      return t.enabled !== enabled && (!enabled || text || !t.text_only);
-    });
+    const todo = lastTargets.filter(function (t) { return t.enabled !== enabled; });
     if (!todo.length) return;
-    if (enabled && !text && !(await relayUI.confirm('Turn on ' + todo.length + ' languages? Each is a separate, continuously-billed session while capture runs.'))) return;
     for (let i = 0; i < todo.length; i++) await setTarget(todo[i].target, enabled);
   }
   $('targetsAll').addEventListener('click', function () { setAllTargets(true); });
@@ -2295,7 +2236,6 @@
           + (drops ? '  ·  ' + drops + ' capture frame(s) dropped' : ''));
     $('audioNote').className = 'note' + (a.error || drops ? ' err' : '');
 
-    if (st.backends) paintBackends(st.backends, st.backend);
     if (st.blocklist) renderBlocklist(st.blocklist, st.blocklist_file, st.blocklist_max);
     if (st.targets) renderTargets(st.targets);
     st.targets && st.targets.forEach(function (t) {
@@ -2823,7 +2763,6 @@
       $('segIdle').value = cfg.realtime.segment_idle_s;
       $('segMaxIdle').value = cfg.realtime.segment_max_idle_s;
       $('noise').value = cfg.realtime.noise_reduction || '';
-      renderMode();
       renderUrls(state.urls);
       renderSecure(state.serving);
       watchUrls(state.urls);

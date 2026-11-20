@@ -1,10 +1,7 @@
 """Source and target language definitions.
 
-The relay runs on `gpt-realtime-translate`, a purpose-built streaming
-interpreter. It exposes exactly one knob -- the output language -- and no
-prompting, register or dialect control, so a target is just a label and an ISO
-code. (The dialect system that steered the old `gpt-realtime` + instructions
-path was removed along with it.)
+A target is a label, an ISO code and the name a text model is asked to translate
+into (app/texttranslate.py). There is no dialect or register setting.
 """
 
 # Writing systems a language can be drawn in. Clients with a limited font (the
@@ -15,10 +12,10 @@ SOURCE_LANGUAGES = {
     "ENGLISH": {"label": "English", "iso": "en", "script": "latin"},
 }
 
-# The 13 output languages gpt-realtime-translate can produce, then the ones only
-# the text translation mode can (`text_only`): a chat model translates into
-# them, so `name` is what the request calls the language -- spelled out where
-# the bare label is ambiguous. Input is far wider -- 70+ languages -- but this
+# The 13 languages the old realtime engine could produce, then the ones only a
+# text model could (`text_only`, kept for the panels' grouping); a text model now
+# translates into all of them, so `name` is what the request calls the language --
+# spelled out where the bare label is ambiguous. Input is far wider -- 70+ languages -- but this
 # app only ever sends one source language.
 TARGETS = {
     "SPANISH": {"label": "Spanish", "iso": "es", "script": "latin"},

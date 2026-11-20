@@ -32,7 +32,7 @@ from jinja2 import ChoiceLoader, FileSystemLoader, PrefixLoader
 from . import alerts as alertsmod
 from . import backup as backupmod
 from . import announce as announcemod
-from . import alerthistory, audiobus, audit, boards, cables, channels, config, db, devices, exporting, importdocker, languages, metering, mixreport, netinfo, network_map, netroute, overlays, panelfw, panels, ports, prefs, redact, routing, schedules, screens, serving, setupcode, streamstatus, tally, tls, users
+from . import aimodels, alerthistory, audiobus, audit, boards, cables, channels, config, db, devices, exporting, importdocker, languages, metering, mixreport, netinfo, network_map, netroute, overlays, panelfw, panels, ports, prefs, redact, routing, schedules, screens, serving, setupcode, streamstatus, tally, tls, transcribe, users
 from .alerts import alerts
 from . import engine as engine_mod
 from .engine import TRANSCRIPTION_STREAM, TRANSLATION_STREAM, demo_mode, engine
@@ -2542,6 +2542,7 @@ CONFIG_PERMISSIONS = {
     "history_lines": "settings.manage",
     "timezone": "settings.manage",
     "realtime": "settings.manage",
+    "ai": "settings.manage",
     "openai_api_key": "credentials.manage",
     "vercel_api_key": "credentials.manage",
     "backup_passphrase": "credentials.manage",
@@ -2596,6 +2597,10 @@ async def admin_config(request: Request, payload: dict):
     if isinstance(payload.get("realtime"), dict):
         updates["realtime"] = payload["realtime"]
 
+    if isinstance(payload.get("ai"), dict):
+        # Which provider and model each AI task uses (app/aimodels.py normalises what is sent).
+        updates["ai"] = {"tasks": payload["ai"].get("tasks")} if isinstance(payload["ai"].get("tasks"), dict) else {}
+
     if isinstance(payload.get("recording"), dict):
         updates["recording"] = payload["recording"]
 
@@ -2632,11 +2637,42 @@ async def admin_config(request: Request, payload: dict):
     )
     if needs_restart and engine.running:
         await engine.restart()
+    elif engine.running and any(f in updates for f in ("ai", "openai_api_key", "vercel_api_key")):
+        # A translation provider or key change moves the translator only; captions keep running.
+        await engine.apply_ai()
 
     body = {"config": config.redacted(), "status": engine.status()}
     if blocklist_report is not None:
         body["blocklist_report"] = blocklist_report
     return JSONResponse(body)
+
+
+@app.get("/api/admin/ai", dependencies=[Depends(require("settings.manage"))])
+async def admin_ai():
+    """The AI models page: each task's provider and model and what it runs on now, the transcription backends,
+    and which keys are saved."""
+    cfg = config.get()
+    rt = cfg["realtime"]
+    backend, warning = transcribe.resolve(cfg)
+    return {
+        "tasks": aimodels.routes(cfg),
+        "transcription": {
+            "backend": rt.get("backend") or transcribe.DEFAULT_BACKEND,
+            "scribe_model": rt.get("scribe_model"),
+            "openai_model": rt.get("transcribe_model") or config.DEFAULTS["realtime"]["transcribe_model"],
+            "running": backend.id, "warning": warning,
+            "backends": [{"id": b.id, "label": b.label, "available": b.available(cfg),
+                          "price_per_hour": b.price_per_hour} for b in transcribe.backends()],
+        },
+        "keys": {"vercel": bool((cfg.get("vercel_api_key") or "").strip()),
+                 "openai": bool((cfg.get("openai_api_key") or "").strip())},
+    }
+
+
+@app.get("/api/admin/ai/models", dependencies=[Depends(require("settings.manage"))])
+async def admin_ai_models(refresh: bool = False):
+    """Vercel's model list for the pickers, with each model's price and whether it is free (cached for an hour)."""
+    return await asyncio.to_thread(aimodels.catalogue.get, refresh)
 
 
 @app.post("/api/admin/target/{target}", dependencies=[Depends(require("targets.manage"))])

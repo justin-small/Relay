@@ -1,20 +1,9 @@
-"""The relay: one capture, one session per enabled target, one hub.
+"""The relay: one capture, one transcription session, one translator, one hub.
 
-Each session is a `gpt-realtime-translate` connection. The translation comes
-with it; the source transcript does not -- the endpoint only emits it when the
-session names an input transcription model, and that model is billed on its
-own (`gpt-live-transcribe`, per second of audio). Toggling a target on/off
-opens/closes exactly one session; that toggle is the cost control.
-
-Every session would transcribe the same audio, so only one of them
-(`_source_owner`) is opened with a transcription model. When the owner closes
-while others stay live, one of those is reopened with transcription so the
-source pane keeps running.
-
-realtime.translation_mode = "text" swaps all of that for one transcription
-session whose committed lines a chat model translates into every target
-(texttranslate.py). Targets then cost tokens, not minutes; a toggle only
-changes which languages the next request asks for.
+The transcription backend (app/transcribe.py: Scribe through the Vercel gateway, or OpenAI) turns the room's audio
+into source-language lines; a chat model translates each finished line into every target that is on
+(app/texttranslate.py), through the provider the AI models page picks for translation (app/aimodels.py). Targets
+cost tokens, not minutes, and a toggle only changes which languages the next request asks for.
 """
 from __future__ import annotations
 
@@ -23,10 +12,10 @@ import logging
 import os
 import time
 
-from . import config, languages, redact, streamstatus, transcribe
+from . import aimodels, config, languages, redact, streamstatus, transcribe
 from .audio import AudioCapture
 from .hub import hub
-from .realtime import RealtimeSession, TranslationRelaySession
+from .realtime import RealtimeSession
 from .texttranslate import TextTranslator
 from .recorder import recorder
 from .modules import modules
@@ -54,21 +43,11 @@ START_MESSAGES = {
     "rehearsal": REHEARSAL_REFUSAL,
     "no_key": "No OpenAI API key set. Add one in the admin panel.",
     "no_vercel_key": "No Vercel AI Gateway API key set. Add one in the admin panel, or pick OpenAI to transcribe.",
-    "no_translation_key": "Captions are running, but translating them needs an OpenAI API key until translation "
-                          "moves to Vercel. Add one in the admin panel.",
+    "no_translation_key": "Captions are running, but translating them needs a Vercel AI Gateway key or an OpenAI "
+                          "key. Add one in the admin panel.",
     "no_backend_key": "The transcription backend needs a key that is not set. Add it in the admin panel.",
 }
 BACKEND_KEY_REFUSALS = {"openai_api_key": "no_key", "vercel_api_key": "no_vercel_key"}
-
-
-def text_mode(cfg: dict) -> bool:
-    """Transcribe once and translate the text, rather than one realtime
-    translation session per target. See texttranslate.py. A backend that cannot translate
-    (Scribe) is only ever used this way."""
-    if cfg["realtime"].get("translation_mode") == "text":
-        return True
-    backend, _ = transcribe.resolve(cfg)
-    return not backend.translates
 
 
 def demo_mode() -> bool:
@@ -81,16 +60,15 @@ class Engine:
     def __init__(self):
         self.loop: asyncio.AbstractEventLoop | None = None
         self.capture: AudioCapture | None = None
-        self.relays: dict[str, TranslationRelaySession] = {}
         self._audio_queues: dict[str, asyncio.Queue] = {}
-        self._source_owner: str | None = None
-        # Text translation mode: one transcription session feeding a chat
-        # model, instead of a realtime session per target.
+        # One transcription session feeding a chat model that translates every target.
         self.transcriber: RealtimeSession | None = None
         # What the main feed runs on, and why that is not the backend the operator chose (None: it is).
         self.backend: transcribe.Backend | None = None
         self.backend_warning: str | None = None
         self.translator: TextTranslator | None = None
+        # Where the translator's requests go (app/aimodels.py), and why that is not the operator's choice.
+        self.translation_route: aimodels.Route | None = None
         self.running = False
         # Wall clock, not monotonic: this timestamp is served to clients on
         # other machines (a Companion surface, a browser) that render the
@@ -142,29 +120,13 @@ class Engine:
             enabled = [t for t, spec in sorted(cfg["targets"].items()) if spec.get("enabled")]
             # The recorded window is exactly this start -> the matching stop.
             self._begin_recording(cfg, src, enabled)
-            skipped = []
-            if text_mode(cfg):
-                self._open_text_pipeline(enabled, cfg, backend, key)
-            else:
-                for target in enabled:
-                    if languages.text_only(target):
-                        skipped.append(languages.target_label(target))
-                    else:
-                        self._open_relay(target, cfg, key)
-            # Both feeds now come out of the translation sessions, so with no
-            # target enabled there is nothing to transcribe either. Say so
-            # rather than sitting there looking connected.
+            self._open_text_pipeline(enabled, cfg, backend, key)
+            # With no target enabled there is nothing to translate, and the captions still run; say so.
             self.last_error = None if enabled else (
-                "No target language is enabled, so nothing is being transcribed "
-                "or translated. Turn one on."
+                "No target language is enabled, so captions run without translation. Turn one on."
             )
-            if enabled and text_mode(cfg) and not (cfg.get("openai_api_key") or "").strip():
+            if enabled and not self.translation_route.key:
                 self.last_error = START_MESSAGES["no_translation_key"]
-            if skipped:
-                self.last_error = (
-                    f"{', '.join(skipped)} need the Text translation engine; "
-                    "the Realtime engine cannot produce them, so they are off."
-                )
             self._push_status()
             return self.status()
 
@@ -208,101 +170,42 @@ class Engine:
             raise KeyError(target)
         spec = dict(cfg0["targets"].get(target, {}))
         spec["enabled"] = enabled
-        cfg = config.save({"targets": {target: spec}})
+        config.save({"targets": {target: spec}})
 
         async with self._lock:
+            # A target is a key in the next request, not a session.
             if self.translator is not None:
-                # Text mode: a target is a key in the next request, not a session.
                 if enabled:
                     hub.reset(TRANSLATION_STREAM, target)
                     self.translator.targets.add(target)
                 else:
                     self.translator.targets.discard(target)
-                self._push_status()
-                return self.status()
-            if target in self.relays:
-                await self._close_relay(target)
-            if enabled and self.running and not languages.text_only(target):
-                key = (cfg.get("openai_api_key") or "").strip()
-                if key:
-                    hub.reset(TRANSLATION_STREAM, target)
-                    self._open_relay(target, cfg, key)
             self._push_status()
         return self.status()
 
-    # -- session plumbing ---------------------------------------------
-    # There is no turn-detection block to build: the translations endpoint sets
-    # phrase boundaries itself and rejects `turn_detection` outright. What the
-    # operator steers instead is when *this app* commits a caption line --
-    # segment_idle_s / segment_max_idle_s, passed through below.
-
-    def _source_delta(self, target: str, text: str) -> None:
-        """Publish the source transcript from one session only -- see the note
-        at the top of this module."""
-        if target == self._source_owner:
-            hub.publish_delta(TRANSCRIPTION_STREAM, config.get()["source_language"], text)
-
-    def _source_final(self, target: str, text: str) -> None:
-        if target == self._source_owner:
-            hub.publish_final(TRANSCRIPTION_STREAM, config.get()["source_language"], text)
-
-    def _open_relay(self, target: str, cfg: dict, key: str) -> None:
-        assert self.capture is not None
-        # The transcription model is fixed when the session opens, so the owner
-        # is decided here: the first session opened while there is none.
-        owner = self._source_owner not in self.relays
-        session = TranslationRelaySession(
-            name=f"translate:{target}",
-            api_key=key,
-            model=cfg["realtime"]["translate_model"],
-            noise_reduction=cfg["realtime"].get("noise_reduction"),
-            transcribe_model=(cfg["realtime"].get("transcribe_model") or "") if owner else "",
-            segment_idle_s=cfg["realtime"].get("segment_idle_s"),
-            segment_max_idle_s=cfg["realtime"].get("segment_max_idle_s"),
-            source_language=cfg["source_language"],
-            target=target,
-            on_source_delta=lambda d, t=target: self._source_delta(t, d),
-            on_source_final=lambda x, t=target: self._source_final(t, x),
-            on_target_delta=lambda d, t=target: hub.publish_delta(TRANSLATION_STREAM, t, d),
-            on_target_final=lambda x, t=target: hub.publish_final(TRANSLATION_STREAM, t, x),
-            on_status=self._push_status,
-        )
-        q = self.capture.add_consumer()
-        self._audio_queues[target] = q
-        session.start(q)
-        self.relays[target] = session
-        if owner:
-            self._source_owner = target
-
-    async def _close_relay(self, target: str, handoff: bool = True) -> None:
-        session = self.relays.pop(target, None)
-        if session is not None:
-            await session.stop()
-        q = self._audio_queues.pop(target, None)
-        if q is not None and self.capture is not None:
-            self.capture.remove_consumer(q)
-        if target != self._source_owner:
-            return
-        self._source_owner = None
-        if not (handoff and self.relays):
-            return
-        # The others were opened without transcription; reopen one with it.
-        cfg = config.get()
-        key = (cfg.get("openai_api_key") or "").strip()
-        if key:
-            heir = min(self.relays)
-            await self._close_relay(heir, handoff=False)
-            self._open_relay(heir, cfg, key)
+    async def apply_ai(self) -> dict:
+        """Point the running translator at the provider and model the AI models page now picks, without
+        touching the transcription session or any other feed."""
+        async with self._lock:
+            if self.translator is not None:
+                route = aimodels.resolve(config.get(), "translation")
+                self.translation_route = route
+                self.translator.use(route.url, route.key, route.model)
+            self._push_status()
+        return self.status()
 
     def _open_text_pipeline(self, enabled: list[str], cfg: dict, backend: transcribe.Backend, key: str) -> None:
         assert self.capture is not None
         rt = cfg["realtime"]
         src = cfg["source_language"]
-        # The translations still go to OpenAI's chat model until they move to Vercel (#496), so they use the
-        # OpenAI key whichever backend transcribes.
+        # Translation goes where the AI models page says (Vercel by default, the OpenAI key as fallback),
+        # whichever backend transcribes.
+        route = aimodels.resolve(cfg, "translation")
+        self.translation_route = route
         translator = TextTranslator(
-            api_key=(cfg.get("openai_api_key") or "").strip(),
-            model=rt.get("text_model") or config.DEFAULTS["realtime"]["text_model"],
+            url=route.url,
+            api_key=route.key,
+            model=route.model,
             reasoning_effort=rt.get("text_reasoning_effort", ""),
             source_language=src,
             on_final=lambda t, x: hub.publish_final(TRANSLATION_STREAM, t, x),
@@ -343,27 +246,21 @@ class Engine:
             await translator.stop()
 
     async def _stop_all_sessions(self) -> None:
-        for target in list(self.relays):
-            await self._close_relay(target, handoff=False)
         await self._close_text_pipeline()
 
     def _sessions(self) -> list:
         """Every live connection, for health and the meter, in a stable order."""
-        if self.translator is not None:
-            return [s for s in (self.transcriber, self.translator) if s is not None]
-        return [self.relays[t] for t in sorted(self.relays)]
+        return [s for s in (self.transcriber, self.translator) if s is not None]
 
     def _live_names(self) -> list[str]:
-        if self.translator is not None:
-            return sorted(self.translator.targets)
-        return list(self.relays)
+        return sorted(self.translator.targets) if self.translator is not None else []
 
     # -- status --------------------------------------------------------
     def live_targets(self) -> list[dict]:
         cfg = config.get()
         out = []
         for target in self._live_names():
-            session = self.relays.get(target) or self.translator
+            session = self.translator
             out.append(
                 {
                     "target": target,
@@ -390,6 +287,10 @@ class Engine:
             "backend": ({"id": self.backend.id, "label": self.backend.label, "warning": self.backend_warning,
                          "price_per_hour": self.backend.price_per_hour}
                         if self.running and self.backend is not None else None),
+            # Where translation runs, and the sentence for why it is not the provider the operator chose.
+            "translation": ({"provider": self.translation_route.provider, "label": self.translation_route.label,
+                             "model": self.translation_route.model, "warning": self.translation_route.warning}
+                            if self.running and self.translation_route is not None else None),
             "backends": [{"id": b.id, "label": b.label, "available": b.available(cfg),
                           "price_per_hour": b.price_per_hour} for b in transcribe.backends()],
             "audio": self.capture.status() if self.capture else {},
@@ -409,7 +310,6 @@ class Engine:
                     "language_label": languages.target_label(name),
                     "enabled": spec.get("enabled", False),
                     "live": name in live,
-                    "text_only": languages.text_only(name),
                 }
                 for name, spec in sorted(cfg["targets"].items())
             ],

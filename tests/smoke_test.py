@@ -73,9 +73,10 @@ cfg = config.save({"targets": {"SPANISH": {"enabled": True, "variant": "es-MX"}}
 check("stale variant dropped", cfg["targets"]["SPANISH"] == {"enabled": True}, cfg["targets"]["SPANISH"])
 check("all 13 realtime + 4 text-only languages offered, minus the source",
       len(cfg["targets"]) == 16 and "ENGLISH" not in cfg["targets"], sorted(cfg["targets"]))
-check("old model name migrated",
-      config.save({"realtime": {"translate_model": "gpt-realtime"}})["realtime"]["translate_model"]
-      == "gpt-realtime-translate")
+_old_engine = config.save({"realtime": {"translation_mode": "realtime", "translate_model": "gpt-realtime"}})
+check("a config naming the removed realtime engine loads without it (text mode is the only engine)",
+      "translation_mode" not in _old_engine["realtime"] and "translate_model" not in _old_engine["realtime"],
+      _old_engine["realtime"])
 # The translations endpoint has no turn lifecycle, so turn-detection settings
 # are not offered and a config written by an older version is stripped of them.
 _VAD_KEYS = ("vad_mode", "vad_eagerness", "vad_threshold",
@@ -88,8 +89,7 @@ _stale = config.save({"realtime": {
 check("stale turn-detection fields dropped",
       not any(k in _stale for k in _VAD_KEYS), _stale)
 check("dropping them leaves the live realtime settings alone",
-      _stale["translate_model"] == "gpt-realtime-translate"
-      and _stale["segment_idle_s"] == 1.0, _stale)
+      _stale["segment_idle_s"] == 1.0 and _stale["backend"] == "scribe", _stale)
 from app.engine import Engine as _Engine
 check("no _vad() builder left to call", not hasattr(_Engine, "_vad"))
 check("noise reduction defaults off", config.save({})["realtime"]["noise_reduction"] is None)
@@ -112,105 +112,17 @@ check("plain label", languages.target_label("SPANISH") == "Spanish")
 check("source language excluded from targets",
       "ENGLISH" not in languages.target_names("ENGLISH"))
 
-print("\nrelay session")
-from app.realtime import SOURCE, TARGET, TranslationRelaySession
-_seen = {"sd": "", "sf": "", "td": "", "tf": ""}
-_rs = TranslationRelaySession(
-    name="t", api_key="k", model="gpt-realtime-translate",
-    source_language="ENGLISH", target="SPANISH",
-    on_source_delta=lambda x: _seen.__setitem__("sd", _seen["sd"] + x),
-    on_source_final=lambda x: _seen.__setitem__("sf", x),
-    on_target_delta=lambda x: _seen.__setitem__("td", _seen["td"] + x),
-    on_target_final=lambda x: _seen.__setitem__("tf", x),
-)
-check("translations endpoint url",
-      _rs._url() == "wss://api.openai.com/v1/realtime/translations?model=gpt-realtime-translate",
-      _rs._url())
-# The whole session config is the output language. A translation session has no
-# turn lifecycle, and the endpoint rejects `turn_detection` outright with
-# "Unknown parameter: session.audio.input.turn_detection" -- so the payload
-# below is not an oversight, it is the contract.
-eq("session config is the output language, nothing else",
-   _rs._session_update(),
-   {"type": "session.update", "session": {"audio": {"output": {"language": "es"}}}})
-check("no turn_detection anywhere in the payload",
-      "turn_detection" not in json.dumps(_rs._session_update()), _rs._session_update())
-check("the session has no vad to send", not hasattr(_rs, "vad"))
-eq("noise reduction rides on the input block",
-   TranslationRelaySession(
-       name="t", api_key="k", model="gpt-realtime-translate",
-       noise_reduction="far_field",
-       source_language="ENGLISH", target="SPANISH",
-       on_source_delta=lambda x: None, on_source_final=lambda x: None,
-       on_target_delta=lambda x: None, on_target_final=lambda x: None,
-   )._session_update(),
-   {"type": "session.update", "session": {"audio": {
-       "input": {"noise_reduction": {"type": "far_field"}},
-       "output": {"language": "es"}}}})
-# The two transcripts interleave on one socket; they must not splice together.
-_rs._handle({"type": "session.input_transcript.delta", "delta": "Good "})
-_rs._handle({"type": "session.output_transcript.delta", "delta": "Buenas "})
-_rs._handle({"type": "session.input_transcript.delta", "delta": "afternoon"})
-_rs._handle({"type": "session.output_transcript.delta", "delta": "tardes"})
-eq("source deltas kept separate", _seen["sd"], "Good afternoon")
-eq("target deltas kept separate", _seen["td"], "Buenas tardes")
-_rs._handle({"type": "session.input_transcript.done"})
-_rs._handle({"type": "session.output_transcript.done"})
-eq("source final from its own buffer", _seen["sf"], "Good afternoon")
-eq("target final from its own buffer", _seen["tf"], "Buenas tardes")
-_rs._handle({"type": "session.output_transcript.delta", "delta": "hola"})
-_rs._flush_partial()
-eq("disconnect flushes each direction", _seen["tf"], "hola")
-
-print("\nonly one session is opened with transcription (billed per session)")
 import app.engine as _engine_mod
 import app.transcribe as _transcribe_mod
 from app.engine import engine as _eng, TRANSCRIPTION_STREAM as _TS
-class _FakeSession:
-    state = "connected"
-    def __init__(self, **kw):
-        self.transcribe_model = kw["transcribe_model"]
-    def start(self, q): pass
-    async def stop(self): pass
+from app.realtime import SOURCE
 class _FakeCapture:
     def add_consumer(self): return object()
     def remove_consumer(self, q): pass
     def status(self): return {}
-_real_session, _real_capture = _engine_mod.TranslationRelaySession, _eng.capture
-_engine_mod.TranslationRelaySession = _FakeSession
-_eng.capture = _FakeCapture()
-_prev_key = config.get().get("openai_api_key", "")
-config.save({"openai_api_key": "sk-test-1234"})
-_cfg = config.get()
-_tm = _cfg["realtime"]["transcribe_model"]
-try:
-    for _t in ("FRENCH", "SPANISH", "VIETNAMESE"):
-        _eng._open_relay(_t, _cfg, "sk-test-1234")
-    eq("first session opened owns the source", _eng._source_owner, "FRENCH")
-    eq("only the owner transcribes",
-       {t: s.transcribe_model for t, s in _eng.relays.items()},
-       {"FRENCH": _tm, "SPANISH": "", "VIETNAMESE": ""})
-    _heard = []
-    _real_delta = hub.publish_delta
-    hub.publish_delta = lambda stream, lang, text: _heard.append((stream, text))
-    try:
-        _eng._source_delta("FRENCH", "hello")     # the owner
-        _eng._source_delta("SPANISH", "hello")    # never sent by a non-owner, but guarded
-    finally:
-        hub.publish_delta = _real_delta
-    eq("source transcript published once", _heard, [(_TS, "hello")])
-    asyncio.run(_eng._close_relay("SPANISH"))
-    eq("closing a non-owner leaves the owner alone", _eng._source_owner, "FRENCH")
-    asyncio.run(_eng._close_relay("FRENCH"))
-    eq("owner handed off when it closes", _eng._source_owner, "VIETNAMESE")
-    eq("the heir is reopened with transcription",
-       _eng.relays["VIETNAMESE"].transcribe_model, _tm)
-    asyncio.run(_eng._stop_all_sessions())
-    check("no owner with no sessions", _eng._source_owner is None and not _eng.relays)
-finally:
-    _engine_mod.TranslationRelaySession = _real_session
-    _eng.capture = _real_capture
-    config.save({"openai_api_key": _prev_key})
+check("no realtime translation session is left to open",
+      not hasattr(__import__("app.realtime", fromlist=["x"]), "TranslationRelaySession")
+      and not hasattr(_eng, "relays") and not hasattr(_eng, "_open_relay"))
 
 print("\ntext translation mode: transcription session")
 from app.realtime import TranscriptionSession as _TxS
@@ -317,10 +229,8 @@ check("a quota error stops the translator",
       _tr[0] and _tr[1] == "error" and "insufficient_quota" in (_tr[2] or ""), _tr)
 
 print("\ntext translation mode: engine")
-eq("realtime mode is the default", config.get()["realtime"]["translation_mode"], "realtime")
-eq("default text model", config.get()["realtime"]["text_model"], "gpt-6-luna")
-config.save({"realtime": {"translation_mode": "bogus"}})
-eq("an unknown mode falls back to realtime", config.get()["realtime"]["translation_mode"], "realtime")
+eq("translation defaults to gpt-6-luna through Vercel", config.get()["ai"]["tasks"]["translation"],
+   {"provider": "vercel", "model": "openai/gpt-6-luna", "openai_model": "gpt-6-luna"})
 
 class _FakeTx:
     state = "connected"
@@ -332,13 +242,12 @@ class _FakeTx:
 _real_tx, _real_cap = _transcribe_mod.TranscriptionSession, _eng.capture
 _transcribe_mod.TranscriptionSession = _FakeTx
 _eng.capture = _FakeCapture()
-_cfg = config.save({"realtime": {"translation_mode": "text", "transcribe_model": ""}})
+_cfg = config.save({"realtime": {"transcribe_model": ""}})
 try:
     async def _engine_text_test():
         _eng._open_text_pipeline(["SPANISH", "CHINESE"], _cfg, _transcribe_mod.resolve(_cfg)[0], "sk-test")
         _eng.translator._request = lambda text, codes: {c: f"[{c}] {text}" for c in codes}
-        out = {"relays": dict(_eng.relays),
-               "model": _eng.transcriber.kw["model"],
+        out = {"model": _eng.transcriber.kw["model"],
                "sessions": [s["name"] for s in _eng.status()["sessions"]],
                "live": sorted(t["target"] for t in _eng.live_targets())}
         await _eng.set_target("FRENCH", True)
@@ -370,7 +279,6 @@ try:
         out["stopped"] = (_eng.transcriber, _eng.translator)
         return out
     _o = asyncio.run(_engine_text_test())
-    eq("text mode opens no per-target sessions", _o["relays"], {})
     eq("empty transcribe_model falls back to the default", _o["model"], "gpt-live-transcribe")
     eq("health lists the transcriber and the translator", _o["sessions"], ["transcribe", "text:gpt-6-luna"])
     eq("enabled targets are live", _o["live"], ["CHINESE", "SPANISH"])
@@ -393,8 +301,7 @@ try:
 finally:
     _transcribe_mod.TranscriptionSession = _real_tx
     _eng.capture = _real_cap
-    config.save({"realtime": {"translation_mode": "realtime",
-                              "transcribe_model": "gpt-live-transcribe"}})
+    config.save({"realtime": {"transcribe_model": "gpt-live-transcribe"}})
 
 print("\ntext-only languages")
 from app import languages as _langs
@@ -412,21 +319,8 @@ async def _named_test():
 asyncio.run(_named_test())
 eq("the request carries the language's name, keyed by code", _asked,
    [{"hmn": _langs.target_prompt_name("HMONG")}])
-_opened = []
-_real_open_relay = _eng._open_relay
-_eng._open_relay = lambda t, *a: _opened.append(t)
-try:
-    _eng.relays = {}
-    _eng.running = True
-    asyncio.run(_eng.set_target("ARABIC", True))
-    eq("realtime mode opens no session for a text-only language", _opened, [])
-    asyncio.run(_eng.set_target("ARABIC", False))
-finally:
-    _eng._open_relay = _real_open_relay
-    _eng.running = False
-
 print("\nblocked words never reach the text translator")
-_bl_cfg = config.save({"realtime": {"translation_mode": "text"}})
+_bl_cfg = config.get()
 _real_tx2, _real_cap2 = _transcribe_mod.TranscriptionSession, _eng.capture
 _transcribe_mod.TranscriptionSession = _FakeTx
 _eng.capture = _FakeCapture()
@@ -448,7 +342,6 @@ finally:
     hub.set_blocklist(_prev_bl)
     _transcribe_mod.TranscriptionSession = _real_tx2
     _eng.capture = _real_cap2
-    config.save({"realtime": {"translation_mode": "realtime"}})
 
 print("\npanel viewer links")
 from app.main import _urls
@@ -1023,8 +916,8 @@ from app.engine import engine as real_engine
 config.save({"openai_api_key": "sk-test-1234"})
 os.environ["RELAY_DEMO"] = "1"
 _opened = []
-_real_open = real_engine._open_relay
-real_engine._open_relay = lambda *a, **k: _opened.append(a)
+_real_open = real_engine._open_text_pipeline
+real_engine._open_text_pipeline = lambda *a, **k: _opened.append(a)
 real_engine.last_error = None  # left over from the no-key start above
 try:
     r = sc.post("/api/admin/start")
@@ -1054,7 +947,7 @@ try:
     config.save({"schedules": _saved})
 finally:
     os.environ.pop("RELAY_DEMO", None)
-    real_engine._open_relay = _real_open
+    real_engine._open_text_pipeline = _real_open
     config.save({"openai_api_key": ""})
 
 print("\noperator panel is served on its own port")

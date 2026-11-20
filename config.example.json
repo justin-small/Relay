@@ -31,7 +31,6 @@
   "admin_port": 8001,
   "admin_fqdn": "",
   "realtime": {
-    "translate_model": "gpt-realtime-translate",
     "noise_reduction": null,
     "segment_idle_s": 1.0,
     "segment_max_idle_s": 10.0

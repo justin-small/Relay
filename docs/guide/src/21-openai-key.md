@@ -5,6 +5,13 @@ Written in September 2026. OpenAI's dashboard changes often, so the layout you
 see may differ. Menu names are given as they appeared then.
 :::
 
+::: note
+Relay now runs every AI task through one **Vercel AI Gateway** key by default
+(**System** > **AI models** in the admin panel). The OpenAI key in this chapter
+is the fallback: Relay uses it for a task you switch to it, and on its own when
+no Vercel key is saved.
+:::
+
 This chapter takes you from nothing to a working key in Relay. Set aside about
 30 minutes. You need an email address, a mobile phone and a payment card.
 
@@ -214,38 +221,32 @@ its usage tier (see the next step). That limit is separate from the limits
 you set, and you cannot use it as your own cap.
 :::
 
-## Step 6: Check the account can use Relay's model
+## Step 6: Check the account can use Relay's models
 
-Relay uses OpenAI's live translation model, called `gpt-realtime-translate`.
-Relay opens one connection, called a **session**, for each target language
-you switch on.
+Through the OpenAI key, Relay uses two models: `gpt-live-transcribe` turns the
+room's speech into text, and `gpt-6-luna` translates each finished line into
+every language you switch on. One transcription runs however many languages
+are on.
 
 ### Usage tier
 
 OpenAI puts every organization in a **usage tier**. The tier depends on how
 much you have paid in total, and it sets your **rate limits**: how much you
-can use each minute. In September 2026:
-
-- The **Free** tier cannot use `gpt-realtime-translate` at all.
-- **Tier 1** starts once you have paid $5. Tier 1 allows 50 minutes of audio
-  per minute, which is far more than Relay's 12 languages need.
-
-So buying credit in Step 2 is enough. To check your tier:
+can use each minute. **Tier 1** starts once you have paid $5, which is enough
+for Relay, so buying credit in Step 2 is all you need. To check your tier:
 
 1. Click **Settings**, then **Limits** under **Organization**.
    Near the top you should see your current usage tier, for example
    **Tier 1**.
-2. Scroll the list of models, or search it, for `gpt-realtime-translate`.
-   It should show a limit, not "not supported".
+2. Search the list of models for `gpt-live-transcribe` and `gpt-6-luna`.
+   Each should show a limit, not "not supported".
 
 OpenAI moves you up a tier automatically as you spend more.
 
 ### Organization verification
 
 Some OpenAI models need **organization verification**: a one-time identity
-check with a government photo ID and sometimes a selfie. In September 2026,
-OpenAI's page for `gpt-realtime-translate` did not list verification as a
-requirement.
+check with a government photo ID and sometimes a selfie.
 
 If Relay shows an error saying your organization **must be verified**, go to
 **Settings** > **General** (under **Organization**) and click **Verify
@@ -361,60 +362,36 @@ key so that it stops working is called **revoking** it.
 
 ## Understanding the cost
 
-OpenAI charges Relay's translation **by the minute of audio**, not by the
-word. Three things decide the bill:
+Relay transcribes the room once and translates the text, so two things decide
+the bill:
 
-- **How many target languages are switched on.** Each language is its own
-  session, and each session is billed on its own. Three languages cost three
-  times as much as one.
-- **How long the sessions are open.** Budget for every minute between
-  **Start capture** and **Stop**, including quiet stretches when nobody is
-  speaking.
-- **Nothing else.** The number of viewers does not matter. A room of 500
-  phones costs the same as a room of one.
+- **How long transcription runs.** It is billed by the minute of audio, for
+  every minute between **Start capture** and **Stop**, including quiet
+  stretches. It costs the same however many languages are on.
+- **How much is said, and in how many languages.** Each finished line is
+  translated by a text model, billed by the word (in **tokens**). Each extra
+  language adds cents per event, not dollars.
 
-The formula is:
-
-> cost = languages switched on × minutes running × price per minute
+The number of viewers does not matter. A room of 500 phones costs the same as
+a room of one.
 
 ### Worked example
 
 ::: note
 **Price assumption.** OpenAI's pricing page
 (<https://developers.openai.com/api/docs/pricing>) listed
-`gpt-realtime-translate` at **$0.034 per minute** when this was written, in
-September 2026. Prices change. Check that page for the current figure before
-you plan a budget.
+`gpt-live-transcribe` at **$0.017 per minute** when this was written. Prices
+change. Check that page for the current figure before you plan a budget. The
+**AI models** page shows each model's current price on the Vercel AI Gateway.
 :::
 
 A two-hour event, with Spanish, French and Korean switched on:
 
-> 3 languages × 120 minutes × $0.034 = **$12.24**
+> 120 minutes × $0.017 (transcription) + about $0.10 (translation) = **about $2.14**
 
-The same three languages left running over a weekend by mistake (48 hours,
-2,880 minutes):
-
-> 3 × 2,880 × $0.034 = **$293.76**
-
-Relay also asks OpenAI for the English transcript, on one session only,
-however many languages are on. OpenAI bills it on top of the translation as
-`gpt-live-transcribe`, listed at $0.017 per minute, so the two-hour example
-above costs 120 × $0.017 = $2.04 more, $14.28 in total.
-
-### Text translation mode (cheaper)
-
-Under **Target languages**, the **Translation engine** setting has a **Text**
-option. Relay then transcribes once and has a small text model
-(`gpt-6-luna` by default) translate each finished line into every language
-you have on. Text is billed per token, so each extra language costs cents per
-event instead of $0.034 a minute. The same two-hour event with three
-languages:
-
-> 120 minutes × $0.017 (transcription) + about $0.10 (text) = **about $2.14**
-
-The trade-off: captions appear a line at a time, a second or two after each
-sentence ends, rather than word by word. Try it at a midweek event first and
-ask native speakers to check the translations.
+Captions in the speaker's language appear word by word; each translation
+appears a line at a time, a second or two after the sentence ends. Ask native
+speakers to check the translations at a midweek event first.
 
 ::: tip
 After your first real session, open the **Usage** page on the OpenAI
