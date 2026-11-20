@@ -19,7 +19,7 @@ import time
 from typing import Any, Callable
 
 from ... import config, gearfeed
-from . import analysis, discovery, multiview, outputs, render, router, runtime, viewer
+from . import analysis, discovery, multiview, outputs, render, router, runtime, testpatterns, viewer
 
 log = logging.getLogger("relay.ndi")
 
@@ -108,6 +108,10 @@ def clean_settings(raw: Any) -> dict:
     out["out_size"] = raw.get("out_size") if raw.get("out_size") in outputs.SIZES else "1280x720"
     fps = raw.get("out_fps")
     out["out_fps"] = max(5, min(30, fps)) if isinstance(fps, int) and not isinstance(fps, bool) else 30
+    out["tests"] = testpatterns.clean_tests(raw.get("tests"))
+    known = {t["id"] for t in out["tests"]}
+    out["tests_on"] = [v for i, v in enumerate(raw.get("tests_on") if isinstance(raw.get("tests_on"), list) else [])
+                       if isinstance(v, str) and v in known and v not in raw["tests_on"][:i]][:testpatterns.MAX_ON]
     out["router_outputs"] = router.clean_outputs(raw.get("router_outputs"))
     # Saved before core routes (#544): carried as they are until router.migrate() has moved them, then empty.
     out["routes"] = raw["routes"] if isinstance(raw.get("routes"), list) else []
@@ -297,6 +301,7 @@ class Service:
         self.pool.address_of = lambda s: self._seen.get(s, {}).get("address", "")
         self.outputs: dict[str, Any] = {}
         self.pages = outputs.Outputs(self.hook_output, self.settings, config.get, _providers, _base, self._bump)
+        self.tests = testpatterns.Tests(self.hook_output, self.settings, lambda: config.STATE_DIR / "ndi", self._bump)
         self.router = router.Router(runtime.load, self.settings, self.save_settings, self._bump, lambda: self.running,
                                    self.report_channels)
         self.error = ""
@@ -381,6 +386,7 @@ class Service:
         self._watch_task = asyncio.create_task(self._loop_health(), name="ndi-health")
         await asyncio.to_thread(self.router.start)
         await asyncio.to_thread(self.pages.sync)
+        await asyncio.to_thread(self.tests.sync)
 
     async def stop(self) -> None:
         self.running = False
@@ -400,6 +406,7 @@ class Service:
             self._watch_task = None
         await asyncio.to_thread(self.close_analyses)
         await asyncio.to_thread(self.pages.close)
+        await asyncio.to_thread(self.tests.close)
         await asyncio.to_thread(self.router.stop)
         await asyncio.to_thread(self.viewers.close_all)
         await asyncio.to_thread(self.multiviews.close_all)
@@ -565,7 +572,7 @@ class Service:
                 "running": self.running, "scanning": self.scanning, "last_scan": self.last_scan,
                 "sources": self.sources(), "settings": self.settings(), "outputs": sorted(self.outputs),
                 "servers": self.servers, "via_server": self.via_server,
-                "pages": self.pages.status(), "pages_error": render.available(), "router": self.router.snapshot(),
+                "pages": self.pages.status(), "tests": self.tests.status(), "pages_error": render.available(), "router": self.router.snapshot(),
                 "inputs": self.inputs(), "restart_needed": runtime.restart_needed(self.settings())}
 
     # ------------------------------------------------------------------------------------------------ hooks
@@ -575,13 +582,14 @@ class Service:
     def hook_subscribe(self, source: str, on_frame: Callable[[dict], None]) -> Callable[[], None] | None:
         return self.pool.acquire(source, on_frame) if self.running else None
 
-    def hook_output(self, name: str, width: int = 1280, height: int = 720, fps: float = 30.0) -> Any:
+    def hook_output(self, name: str, width: int = 1280, height: int = 720, fps: float = 30.0, audio: bool = False) -> Any:
         backend = runtime.load()
         name = " ".join(name.split())[:80] if isinstance(name, str) else ""
         if not self.running or backend is None or not name or name in self.outputs:
             return None
         try:
-            out = backend.open_sender(name, width, height, fps)
+            out = backend.open_sender(name, width, height, fps, audio=True) if audio \
+                else backend.open_sender(name, width, height, fps)
         except Exception:
             log.exception("NDI output %s could not open", name)
             return None

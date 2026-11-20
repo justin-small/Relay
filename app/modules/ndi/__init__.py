@@ -29,13 +29,13 @@ class Ndi(Module):
     )
     defaults = {"servers": [], "mdns": True, "extra_ips": [], "groups": [], "interval": 15, "view_fps": 15,
                 "view_quality": 60, "view_width": 1280, "view_max": 4, "tally": {}, "multiviews": [],
-                "out_on": [], "out_size": "1280x720", "out_fps": 30, "router_outputs": [],
+                "out_on": [], "out_size": "1280x720", "out_fps": 30, "router_outputs": [], "tests": [], "tests_on": [],
                 # Saved before core routes (#544); read once by router.migrate() and then empty. Kept here so config keeps them.
                 "routes": [], "salvos": []}  # allow-shared: migrated into core routes
     admin_pages = (AdminPage(
         id="ndi", title="NDI", template="ndi.html",
         icon='<rect x="2" y="4" width="12" height="8" rx="1"/><path d="M5 7v2.5M5 7l2 2.5V7M10 7h1.5M10 9.5h1.5"/>'),)
-    admin_scripts = ("ndi.js", "ndi-router.js", "ndi-analysis.js")
+    admin_scripts = ("ndi.js", "ndi-router.js", "ndi-analysis.js", "ndi-tests.js")
     admin_styles = ("ndi.css",)
     route_prefixes = ("/api/admin/ndi", "/ndi")
     panel_prefixes = ("/ndi",)       # the viewer (#296) stays on the HTTPS operator port, behind ndi.view

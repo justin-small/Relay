@@ -8,7 +8,7 @@ says so on its page and stays off; Relay itself starts. NOT yet proved here: sen
 macOS, Windows and the headless Linux service. The calls below follow cyndilib's documented API and are covered only
 against a fake backend (tests/test_ndi.py), so check them against a real source before relying on them.
 
-A backend has `connect(name, address, low=False) -> connection` (`low` asks the sender for its low-bandwidth stream), `open_sender(name, width, height, fps) -> sender` and
+A backend has `connect(name, address, low=False) -> connection` (`low` asks the sender for its low-bandwidth stream), `open_sender(name, width, height, fps, audio=False) -> sender` and
 `open_router(name) -> router` (`change(source)`, `clear()`, `close()`: the NDI routing API through ctypes, #298). A connection has
 `receive(timeout_ms) -> frame dict | None` and `close()`; a frame is {"width", "height", "fps", "fourcc", "data"}; audio is {"audio": float32 (channels, samples), "rate",
 "audio_db"} and a sender's connection metadata is {"meta": xml text}; `perf()` is the SDK's dropped-frame counts. A
@@ -99,8 +99,9 @@ class CyndiBackend:
     def connect(self, name: str, address: str = "", low: bool = False) -> "_Connection":
         return _Connection(name, low)
 
-    def open_sender(self, name: str, width: int = 1280, height: int = 720, fps: float = 30.0) -> "_Sender":
-        return _Sender(name, width, height, fps)
+    def open_sender(self, name: str, width: int = 1280, height: int = 720, fps: float = 30.0,
+                    audio: bool = False) -> "_Sender":
+        return _Sender(name, width, height, fps, audio)
 
     def open_router(self, name: str) -> "_Router":
         return _Router(name)
@@ -232,7 +233,7 @@ class _Sender:
     """An NDI source Relay publishes. `send` takes {"data": BGRA bytes of width x height x 4}; the size is fixed when
     the sender opens (cyndilib refuses to open one with no video frame attached)."""
 
-    def __init__(self, name: str, width: int = 1280, height: int = 720, fps: float = 30.0) -> None:
+    def __init__(self, name: str, width: int = 1280, height: int = 720, fps: float = 30.0, audio: bool = False) -> None:
         from cyndilib.sender import Sender
         from cyndilib.video_frame import VideoSendFrame
         from cyndilib.wrapper.ndi_structs import FourCC
@@ -243,12 +244,25 @@ class _Sender:
         frame.set_frame_rate(fps)
         frame.set_fourcc(FourCC.BGRA)
         self._sender.set_video_frame(frame)
+        self._audio = None
+        if audio:       # a source that also sends sound (the test tones, #302): 48 kHz stereo, set before it opens
+            from cyndilib.audio_frame import AudioSendFrame
+
+            self._audio = AudioSendFrame()
+            self._audio.sample_rate = 48000
+            self._audio.num_channels = 2
+            self._audio.set_max_num_samples(48000 // max(1, int(fps)) + 16)
+            self._sender.set_audio_frame(self._audio)
         self._sender.open()
 
     def send(self, frame: dict) -> None:
         data = frame["data"]
         # cyndilib wants a writable buffer (bytes is refused with "Object is not writable"): found sending real frames.
-        self._sender.write_video(bytearray(data) if isinstance(data, bytes) else data)
+        data = bytearray(data) if isinstance(data, bytes) else data
+        if self._audio is not None and frame.get("audio") is not None:
+            self._sender.write_video_and_audio(data, frame["audio"])      # float32 (channels, samples)
+        else:
+            self._sender.write_video(data)
 
     def close(self) -> None:
         try:
