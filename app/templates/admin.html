@@ -822,8 +822,8 @@ window.relayCan = function (perm) { return window.RELAY_ME.permissions.indexOf(p
           <tbody id="nmCableRows"><tr><td colspan="5" class="muted">Loading&hellip;</td></tr></tbody>
         </table></div>
         <div class="nmtoolbar nmaddcable">
-          <select id="nmCableA" aria-label="One end of the new cable"></select>
-          <select id="nmCableB" aria-label="The other end of the new cable"></select>
+          <div class="nmpick" id="nmCableA"></div>
+          <div class="nmpick" id="nmCableB"></div>
           <input type="text" id="nmCableNote" maxlength="300" placeholder="Note (optional)" aria-label="Note for the new cable">
           <button type="button" class="primary" id="nmAddCable">Add cable</button>
         </div>

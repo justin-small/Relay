@@ -47,28 +47,18 @@
     render();
   }
 
+  // Choosing from the console uses the shared channel picker (#546): core's audio sources, named as on every page.
+  let pick = null;
   function renderSource() {
-    const catalog = (data && data.catalog) || [];
-    const onBoard = current().map(function (c) { return c.id; });
-    const live = catalog.length > 0;
-    $('pcChSrc').textContent = live ? 'Soundboard connected' : 'No soundboard module is connected. Type each channel in.';
-    $('pcChSrcText').textContent = live ? (data.catalog_source ? data.catalog_source + ' · ' : '') + catalog.length + ' channels' : '';
-    $('pcChRefresh').hidden = !live;
-    $('pcChPickBox').hidden = !live;
-    const sig = JSON.stringify([catalog, onBoard]);
-    if ($('pcChPickList').dataset.sig === sig) return;
-    $('pcChPickList').dataset.sig = sig;
-    const list = $('pcChPickList');
-    list.innerHTML = '';
-    catalog.forEach(function (c) {
-      const label = el('label', 'check');
-      const box = document.createElement('input');
-      box.type = 'checkbox'; box.value = c.id;
-      box.checked = box.disabled = onBoard.indexOf(c.id) >= 0;
-      label.appendChild(box);
-      label.appendChild(el('span', '', (c.number ? c.number + ' ' : '') + c.name));
-      list.appendChild(label);
-    });
+    if (pick || !$('pcChPick')) return;
+    pick = relayUI.channelPicker($('pcChPick'), { label: 'Add an input channel', empty: 'Add an input channel', kind: 'audio', direction: 'source',
+      onChange: function (ref, item) {
+        if (!ref || !item) return;
+        pick.set(null);
+        if (current().some(function (c) { return c.channel_ref === ref; })) { say('pcChMsg', item.title + ' is already on the board.', true); return; }
+        say('pcChMsg', '');
+        addChannel(item.number === null || item.number === undefined ? '' : String(item.number), item.title, 'c' + Date.now().toString(36), ref);
+      } });
   }
 
   function chip(ch, a, i) {
@@ -77,7 +67,7 @@
     c.appendChild(document.createTextNode(' ' + a.position + (a.missing ? ' (no longer in Planning Center)' : '') + (a.unmatched ? ' (not matched to Planning Center)' : '')));
     if (can('planning_center.manage')) {
       const x = el('button', '', '×'); x.type = 'button';
-      x.setAttribute('aria-label', 'Remove ' + a.position + ' from this channel');
+      x.setAttribute('aria-label', 'Remove ' + a.position + ' from this input channel');
       x.addEventListener('click', function () {
         edit().filter(function (b) { return b.id === ch.id; })[0].positions.splice(i, 1);
         dirty(true); render();
@@ -126,7 +116,7 @@
     if (ch.number) nm.appendChild(el('span', 'num', ch.number));
     if (ch.name) nm.appendChild(el('span', 'name', ch.name));
     if (ch.channel_missing) nm.appendChild(el('span', 'note', ' (its channel is no longer reported)'));
-    else if (ch.name_only) nm.appendChild(el('span', 'note', ' (name only: not tied to a Relay channel)'));
+    else if (ch.name_only) nm.appendChild(el('span', 'note', ' (name only: not tied to a Relay input channel)'));
     r.appendChild(nm);
     const asg = el('div', 'asg');
     ch.positions.forEach(function (a, i) { asg.appendChild(chip(ch, a, i)); });
@@ -188,8 +178,8 @@
     renderLegacy();
     const manage = can('planning_center.manage'), control = can('planning_center.control');
     renderSource();
-    $('pcChSource').hidden = !manage;
-    $('pcChManual').hidden = !manage || $('pcChPickBox').hidden === false;
+    $('pcChPickBox').hidden = !manage;
+    $('pcChManual').hidden = !manage;
     $('pcChSave').hidden = !manage;
     $('pcChShuffle').hidden = !control;
     const sig = JSON.stringify([current(), data.type_positions, data.rundown.mics, data.service_types]);
@@ -198,19 +188,12 @@
     const list = $('pcChList');
     list.innerHTML = '';
     current().forEach(function (ch) { list.appendChild(row(ch)); });
-    if (!current().length) list.appendChild(el('p', 'note', 'No channels on the board yet. Add one above.'));
+    if (!current().length) list.appendChild(el('p', 'note', 'No input channels on the board yet. Add one above.'));
   }
 
-  $('pcChAdd').addEventListener('click', function () {
-    const picked = [...$('pcChPickList').querySelectorAll('input:checked:not(:disabled)')].map(function (b) { return b.value; });
-    ((data && data.catalog) || []).filter(function (c) { return picked.indexOf(c.id) >= 0; }).forEach(function (c) {
-      addChannel(c.number, c.name, c.id, c.ref);
-    });
-  });
-  $('pcChRefresh').addEventListener('click', function () { document.dispatchEvent(new Event('pc:poll')); });
   $('pcChAddManual').addEventListener('click', function () {
     const number = $('pcChNum').value.trim(), name = $('pcChName').value.trim();
-    if (!number && !name) { say('pcChMsg', 'Give the channel a number or a name.', true); return; }
+    if (!number && !name) { say('pcChMsg', 'Give the input channel a number or a name.', true); return; }
     say('pcChMsg', '');
     addChannel(number, name);
     $('pcChNum').value = ''; $('pcChName').value = '';

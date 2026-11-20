@@ -37,6 +37,20 @@
                                    option says noneLabel. A saved name with no ref gets an option of its own.
      pickedName(select)            the name kept with the chosen option, "" for a listed one (the ref is the value).
 
+   The shared pickers (#546), drawn by the pk- classes in components.css. Each takes a host element and returns a
+   handle; none styles itself and none reads a page's own list: the ports and channels are core's (the same names on
+   every page).
+
+     portPicker(host, opts)        choose one port, by its ref. opts: value, kind (fixes the connector kind), label, disabled,
+                                   onChange(ref or null, item). Opens a drawer: gear on the left, its ports on the right.
+                                   Handle: { value(), set(ref), lock(kind) }.
+     channelPicker(host, opts)     choose one channel, by its ref. opts: value, kind ('audio', 'video' or 'talk'),
+                                   direction ('source' or 'destination'), label, empty, onChange(ref or null).
+                                   A fixed kind or direction shows as text, not a control. Handle: { value(), set(ref) }.
+     routeEditor(host, opts)       destinations down, sources across, one dot per route; core stores the route and the
+                                   module that owns the gear applies it. opts: kind, provider, onChange(). Audio
+                                   destinations mix several sources and take a gain; video takes one. Handle: { reload() }.
+
    Do not copy one of these into a module script: use it from here, and add what is missing here
    (tests/test_ui_contract.py enforces this). Loaded before every script that uses it. */
 (function (root) {
@@ -166,7 +180,219 @@
     return o ? (o.dataset.name || '') : '';
   }
 
+
+  // ---- the shared pickers (#546) -------------------------------------------------------------------------------
+  const KIND_NAMES = { eth: 'Ethernet', sfp: 'SFP', sdi: 'SDI', hdmi: 'HDMI', xlr: 'XLR', trs: 'Jack', usb: 'USB', iec: 'Mains',
+    dc: 'DC power', other: 'Connector', audio: 'Audio', video: 'Video', talk: 'Talk' };
+  const SEND = client({ cache: 'no-store' });
+  let drawer = null;
+
+  function portItems(r) {
+    const out = [];
+    (r.gear || []).forEach(function (g) {
+      g.ports.forEach(function (p) {
+        out.push({ id: p.ref, kind: p.kind, group: g.name, title: p.shown, badge: KIND_NAMES[p.kind] || p.kind, missing: p.missing,
+          text: g.name + ' ' + p.shown + ' ' + p.key });
+      });
+    });
+    return out;
+  }
+
+  function channelItems(r) {
+    return (r.channels || []).map(function (c) {
+      const dirs = c.ends.map(function (e) { return e.direction; });
+      const group = c.gear_name || (c.providers || []).join(', ') || 'Other';
+      return { id: c.ref, kind: c.kind, dir: c.direction, dirs: dirs, group: group, title: c.shown, number: c.number,
+        sub: c.ends.length + (c.ends.length === 1 ? ' end' : ' ends'), badge: (KIND_NAMES[c.kind] || c.kind) + ' ' + c.direction,
+        missing: c.missing, text: group + ' ' + c.shown + ' ' + c.kind };
+    });
+  }
+
+  function closeDrawer() {
+    if (!drawer) return;
+    drawer.veil.hidden = true; drawer.box.hidden = true;
+    if (drawer.opener && drawer.opener.focus) drawer.opener.focus();
+  }
+
+  function ensureDrawer() {
+    if (drawer) return drawer;
+    const veil = el('div', 'pk-veil'), box = el('aside', 'pk-drawer');
+    veil.hidden = box.hidden = true;
+    box.setAttribute('role', 'dialog'); box.setAttribute('aria-modal', 'true');
+    veil.onclick = closeDrawer;
+    root.document.addEventListener('keydown', function (e) { if (e.key === 'Escape' && !box.hidden) closeDrawer(); });
+    root.document.body.appendChild(veil); root.document.body.appendChild(box);
+    drawer = { veil: veil, box: box, opener: null };
+    return drawer;
+  }
+
+  function segment(label, options, value, onPick) {
+    const seg = el('div', 'seg');
+    seg.setAttribute('role', 'group'); seg.setAttribute('aria-label', label);
+    [['', 'Any']].concat(options).forEach(function (o) {
+      const b = el('button', '', o[1]); b.type = 'button';
+      b.setAttribute('aria-pressed', String(o[0] === value));
+      b.onclick = function () { onPick(o[0]); };
+      seg.appendChild(b);
+    });
+    return seg;
+  }
+
+  // One browse drawer for both pickers; they differ in the items, the filters and the words.
+  function browse(host, o) {
+    const state = { value: o.value || null, items: [], fixed: o.fixed || {}, filter: {}, gear: '', ready: false, error: '' };
+    const btn = el('button', 'pk-btn'); btn.type = 'button'; btn.disabled = !!o.disabled;
+    btn.setAttribute('aria-haspopup', 'dialog'); btn.setAttribute('aria-label', o.label);
+    host.appendChild(btn);
+
+    function current() { return state.items.filter(function (x) { return x.id === state.value; })[0]; }
+    function show() {
+      btn.textContent = '';
+      const c = current();
+      btn.appendChild(el('span', 'pk-val' + (c ? '' : ' muted'), c ? c.title : (state.error || o.empty)));
+      if (c) btn.appendChild(el('span', 'badge muted', c.badge));
+      btn.appendChild(el('span', 'muted', '…'));
+    }
+    function load() {
+      return o.load().then(function (items) { state.items = items; state.ready = true; state.error = ''; show(); })
+        .catch(function (e) { state.error = e.message; show(); });
+    }
+    function visible(q) {
+      return state.items.filter(function (x) {
+        const fixed = state.fixed;
+        for (const k in fixed) if (fixed[k] && x[k] !== fixed[k]) return false;
+        for (const k in state.filter) if (state.filter[k] && x[k] !== state.filter[k]) return false;
+        return !q || x.text.toLowerCase().indexOf(q) >= 0;
+      });
+    }
+    function open() {
+      const d = ensureDrawer();
+      d.opener = btn; state.gear = '';
+      const q = el('input', 'sm'); q.type = 'search'; q.placeholder = 'Search everything'; q.setAttribute('aria-label', 'Search');
+      const tools = el('div', 'pk-tools', q);
+      const side = el('div', 'pk-side'), body = el('div', 'pk-body');
+      const close = el('button', 'sm quiet', 'Close'); close.type = 'button'; close.onclick = closeDrawer;
+      const clear = el('button', 'sm quiet', 'Clear choice'); clear.type = 'button';
+      clear.onclick = function () { state.value = null; show(); closeDrawer(); if (o.onChange) o.onChange(null); };
+      function draw() {
+        tools.textContent = ''; tools.appendChild(q);
+        (o.filters || []).forEach(function (f) {
+          if (state.fixed[f.key]) { tools.appendChild(el('span', 'badge muted', f.label + ': ' + (KIND_NAMES[state.fixed[f.key]] || state.fixed[f.key]))); return; }
+          tools.appendChild(segment(f.label, f.options, state.filter[f.key] || '', function (v) { state.filter[f.key] = v; draw(); }));
+        });
+        const vis = visible(q.value.trim().toLowerCase()), groups = {}, order = [];
+        vis.forEach(function (x) { (groups[x.group] = groups[x.group] || (order.push(x.group), [])).push(x); });
+        if (state.gear && !groups[state.gear]) state.gear = '';
+        side.textContent = '';
+        function gbtn(name, label, count) {
+          const b = el('button', 'pk-gb', label + ' ', el('span', 'note', String(count))); b.type = 'button';
+          b.setAttribute('aria-pressed', String(state.gear === name));
+          b.onclick = function () { state.gear = name; draw(); };
+          side.appendChild(b);
+        }
+        gbtn('', 'All gear', vis.length);
+        order.forEach(function (g) { gbtn(g, g, groups[g].length); });
+        body.textContent = '';
+        const shown = state.gear ? groups[state.gear] : vis;
+        if (!shown.length) body.appendChild(el('p', 'note', state.ready ? o.none : 'Loading…'));
+        shown.forEach(function (x) {
+          const r = el('button', 'pk-row', el('span', 'pk-ot', el('span', 'strong', x.title), el('div', 'note', x.group + (x.sub ? ' · ' + x.sub : ''))),
+            x.missing ? el('span', 'badge warn', 'missing') : null, el('span', 'badge muted', x.badge));
+          r.type = 'button'; r.setAttribute('aria-pressed', String(x.id === state.value));
+          r.onclick = function () { state.value = x.id; show(); closeDrawer(); if (o.onChange) o.onChange(x.id, x); };
+          body.appendChild(r);
+        });
+      }
+      q.oninput = draw;
+      d.box.textContent = '';
+      d.box.appendChild(el('div', 'pk-dh', el('strong', '', o.title), close));
+      d.box.appendChild(tools);
+      d.box.appendChild(el('div', 'pk-split', side, body));
+      d.box.appendChild(el('div', 'pk-df', clear, el('span', 'note', 'Names are the gear\'s own. A Relay-only name shows with the gear\'s name beside it.')));
+      draw(); d.veil.hidden = d.box.hidden = false; q.focus();
+      if (!state.ready) load().then(draw);
+    }
+    btn.onclick = open;
+    show(); load();
+    return { value: function () { return state.value; }, set: function (v) { state.value = v || null; show(); },
+      lock: function (k) { state.fixed = Object.assign({}, state.fixed, { kind: k || '' }); if (state.value && !current()) state.value = null; show(); } };
+  }
+
+  function portPicker(host, opts) {
+    const o = opts || {};
+    const kinds = Object.keys(KIND_NAMES).slice(0, 10).map(function (k) { return [k, KIND_NAMES[k]]; });
+    return browse(host, { label: o.label || 'Port', title: (o.label || 'Port') + ': choose a port', empty: 'Choose a port', none: 'No port matches.',
+      value: o.value, disabled: o.disabled, fixed: { kind: o.kind || '' }, onChange: o.onChange, filters: [{ key: 'kind', label: 'Kind', options: kinds }],
+      load: function () { return SEND('GET', '/api/admin/network/cables').then(portItems); } });
+  }
+
+  function channelPicker(host, opts) {
+    const o = opts || {};
+    return browse(host, { label: o.label || 'Channel', title: (o.label || 'Channel') + ': choose a channel', empty: o.empty || 'Choose a channel',
+      none: 'No channel matches.', value: o.value, disabled: o.disabled, fixed: { kind: o.kind || '', dir: o.direction || '' }, onChange: o.onChange,
+      filters: [{ key: 'kind', label: 'Kind', options: [['audio', 'Audio'], ['video', 'Video'], ['talk', 'Talk']] },
+        { key: 'dir', label: 'Direction', options: [['source', 'Source'], ['destination', 'Destination']] }],
+      load: function () { return SEND('GET', '/api/admin/network/channels').then(channelItems); } });
+  }
+
+  const STATE_TEXT = { same: ['ok', 'Applied by the gear'], differs: ['warn', 'Gear differs'], wanted: ['info', 'Waiting for the gear'],
+    actual: ['muted', 'Set on the gear'], none: ['muted', 'No source'] };
+
+  function routeEditor(host, opts) {
+    const o = opts || {};
+    const box = el('div', 'tablescroll'), msg = el('div', 'note err'); msg.hidden = true;
+    host.appendChild(box); host.appendChild(msg);
+    function fail(e) { say(msg, e.message, true, { hide: true }); }
+    function change(path, body) {
+      return SEND('POST', path, body).then(function () { if (o.onChange) o.onChange(); return load(); }).catch(fail);
+    }
+    function draw(chans, routes) {
+      const byDest = {}; routes.forEach(function (r) { byDest[r.destination] = r; });
+      const kind = o.kind || '';
+      const live = function (c) { return !c.missing && (!kind || c.kind === kind) && (!o.provider || c.providers.indexOf(o.provider) >= 0); };
+      const srcs = chans.filter(function (c) { return live(c) && c.ends.some(function (e) { return e.direction === 'source'; }); });
+      const dests = chans.filter(function (c) { return live(c) && c.ends.some(function (e) { return e.direction === 'destination'; }); });
+      box.textContent = '';
+      if (!srcs.length || !dests.length) { box.appendChild(el('p', 'note', 'Nothing to route yet: a module has to report a source and a destination.')); return; }
+      const head = el('tr', '', el('th', '', 'Destination'));
+      srcs.forEach(function (s) { head.appendChild(el('th', 'pk-xh', el('span', '', s.shown), el('small', '', s.gear_name))); });
+      head.appendChild(el('th', '', 'State'));
+      const body = el('tbody');
+      dests.forEach(function (d) {
+        const v = byDest[d.ref] || { sources: [], state: 'none', gain: false };
+        const row = el('tr', '', el('td', '', el('div', 'strong', d.shown), el('div', 'note', d.gear_name)));
+        srcs.forEach(function (s) {
+          const on = v.sources.filter(function (x) { return x.ref === s.ref; })[0];
+          const b = el('button', 'pk-x' + (on ? ' on' : '')); b.type = 'button';
+          b.setAttribute('aria-pressed', String(!!on)); b.setAttribute('aria-label', s.shown + ' to ' + d.shown);
+          b.disabled = !can('network.manage');
+          b.onclick = function () { change(on ? '/api/admin/routes/clear' : '/api/admin/routes', { destination: d.ref, source: s.ref }); };
+          const cell = el('td', 'pk-xc', b);
+          if (on && v.gain) {
+            const g = el('input', 'sm pk-g'); g.type = 'number'; g.value = on.gain_db === null || on.gain_db === undefined ? 0 : on.gain_db;
+            g.setAttribute('aria-label', 'Gain in dB for ' + s.shown); g.disabled = !can('network.manage');
+            g.onchange = function () { change('/api/admin/routes', { destination: d.ref, source: s.ref, gain_db: Number(g.value) }); };
+            cell.appendChild(g);
+          }
+          row.appendChild(cell);
+        });
+        const st = STATE_TEXT[v.state] || STATE_TEXT.none;
+        row.appendChild(el('td', '', el('span', 'badge ' + st[0], st[1]),
+          v.state === 'differs' ? el('div', 'note', 'Gear: ' + ((v.actual || []).map(function (a) { return a.name; }).join(', ') || 'nothing')) : null));
+        body.appendChild(row);
+      });
+      box.appendChild(el('table', 'pk-mx', el('thead', '', head), body));
+    }
+    function load() {
+      return Promise.all([SEND('GET', '/api/admin/network/channels'), SEND('GET', '/api/admin/routes' + (o.provider ? '?provider=' + encodeURIComponent(o.provider) : ''))])
+        .then(function (r) { say(msg, '', false, { hide: true }); draw(r[0].channels || [], r[1].routes || []); }).catch(fail);
+    }
+    load();
+    return { reload: load };
+  }
+
   root.relayUI = { can: can, api: api, client: client, el: el, say: say, confirm: confirm,
     button: button, buttons: buttons, note: note, field: field, pill: pill, link: link, kv: kv, shown: shown,
-    picker: picker, pickedName: pickedName };
+    picker: picker, pickedName: pickedName,
+    portPicker: portPicker, channelPicker: channelPicker, routeEditor: routeEditor };
 })(typeof window !== 'undefined' ? window : globalThis);

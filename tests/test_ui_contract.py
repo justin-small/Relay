@@ -8,7 +8,10 @@ This file is the rule's enforcement, run in CI on every pull request. It fails w
 * a module script defines its own function named like a relayUI helper (can, api, el, say, confirm) instead of
   using window.relayUI;
 * any script other than relay-ui.js calls the browser's confirm() (use relayUI.confirm);
-* a page loads a script that uses relayUI without loading relay-ui.js before it.
+* a page loads a script that uses relayUI without loading relay-ui.js before it;
+* a script other than relay-ui.js reads core's routes, or its port or channel list, to build a picker of its own (#546):
+  a page that chooses a port, a channel or a route uses relayUI.portPicker, channelPicker or routeEditor. The baseline for
+  this rule is empty: only the scripts named in PICKER_OWNERS may call those routes, because they manage the list itself.
 
 Vendored files (vendor/, *.min.js, livekit-client.umd.js) are left out.
 
@@ -29,6 +32,13 @@ MIN_BODY = 60
 # The remote phone page is reached through the remote-access tunnel, which exposes only its own four routes
 # (app/modules/intercom_remote/routes.py REMOTE_ROUTES), so it cannot load core's script.
 OWN_HELPERS_ALLOWED = {"app/modules/intercom_remote/static/phone.js"}
+# Core routes behind the shared pickers (#546) and the scripts that may call them. network_channels.js and network_map.js
+# are the Network page's own lists (merge, rename, record a cable): they edit channels and cables, they do not offer a choice.
+PICKER_ROUTES = {
+    "/api/admin/routes": set(),
+    "/api/admin/network/channels": {"app/static/network_channels.js"},
+    "/api/admin/network/cables": {"app/static/network_map.js"},
+}
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from _harness import check, done, eq, section  # noqa: E402
@@ -266,6 +276,20 @@ def main() -> None:
             for m in re.finditer(r"(?<![\w$.])(?:window\.)?confirm\s*\(", masked):
                 bad.append(f"{p.relative_to(ROOT).as_posix()}:{masked.count(chr(10), 0, m.start()) + 1}")
         eq("direct confirm() calls (use await relayUI.confirm)", bad, [])
+
+    with section("ports, channels and routes are chosen with the shared pickers (#546)"):
+        bad = []
+        for p in scripts():
+            if p == SHARED:
+                continue
+            rel = p.relative_to(ROOT).as_posix()
+            src = p.read_text(encoding="utf-8")
+            for route, owners in PICKER_ROUTES.items():
+                if route in src and rel not in owners:
+                    bad.append(f"{rel} calls {route}")
+        eq("scripts that fetch core's ports, channels or routes for a picker of their own", bad, [])
+        for owner in {o for owners in PICKER_ROUTES.values() for o in owners}:
+            check(f"{owner} exists", (ROOT / owner).exists())
 
     with section("pages load relay-ui.js before the scripts that use it"):
         for t in templates():

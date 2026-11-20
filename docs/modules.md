@@ -1021,12 +1021,15 @@ every standalone page whose script uses it load it first; a new page that uses i
 | `kv(dl, term, value)` | A `dt`/`dd` pair added to a `<dl>`, skipped when the value is empty. |
 | `note(target)` | A function that shows an error line in `target` and hides it while empty. |
 | `shown(node)` | True while the node's tab panel is open and the page is in front. |
+| `portPicker(host, opts)` | Choose one port by its core ref (#546). Opens a drawer: gear on the left, its ports on the right, with a kind filter. `opts`: `value`, `kind` (fixes the connector kind), `label`, `disabled`, `onChange(ref, item)`. Returns `{ value(), set(ref), lock(kind) }`. |
+| `channelPicker(host, opts)` | Choose one core channel by its ref. `opts`: `kind` (`audio`, `video` or `talk`) and `direction` (`source` or `destination`), either of which shows as text when fixed, plus `value`, `label`, `empty`, `disabled`, `onChange(ref, item)`. |
+| `routeEditor(host, opts)` | Destinations down, sources across, one dot per route; audio takes a gain, video one source. Core stores the route and the module that owns the gear applies it. `opts`: `kind`, `provider`, `onChange()`. |
 
 Use them by alias (`const el = relayUI.el;`), never by copying. A helper core lacks is added to `relay-ui.js`, not
 written into the module. `tests/test_ui_contract.py` fails on a module script that defines its own `can`, `api`,
 `el`, `say` or `confirm`, on any direct `confirm()` call, on a page that loads a `relayUI` script without
 `relay-ui.js` before it, and on any function body of more than 60 characters copied between two scripts. The copies
-that were already there are listed in `tests/ui_contract_baseline.txt`, which may only shrink.
+that were already there are listed in `tests/ui_contract_baseline.txt`, which may only shrink. The same test fails on any script other than `relay-ui.js` that calls core's `/api/admin/routes`, or reads its channel list or its cable gear list, to build a choice of its own; the baseline for that rule is empty, and the Network page's own list scripts are the only ones named in it.
 
 These helpers are for a module's browser scripts. The server side has one pattern of its own for reaching core and
 other modules, `modules.provide()` and `modules.using()` (see [Reaching another module](#reaching-another-module)); a

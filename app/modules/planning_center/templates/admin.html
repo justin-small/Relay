@@ -5,7 +5,7 @@
 
     <div class="tabs" role="tablist" id="pcTabs">
       <button type="button" role="tab" data-pctab="service" aria-selected="true">Service</button>
-      <button type="button" role="tab" data-pctab="channels" aria-selected="false">Team and mics</button>
+      <button type="button" role="tab" data-pctab="channels" aria-selected="false">Team and inputs</button>
       <button type="button" role="tab" data-pctab="rundown" aria-selected="false">Rundown</button>
       <button type="button" role="tab" data-pctab="signage" aria-selected="false">Signage</button>
       <button type="button" role="tab" data-pctab="connection" aria-selected="false">Connection</button>
@@ -14,7 +14,7 @@
     {# Which service the Service, Team and mics and Rundown tabs show: the one pick every part of the page shares. #}
     <section id="pcCtx" hidden>
       <h3>Service you are viewing</h3>
-      <p class="note">Plan and time come from Planning Center. The Service, Team and mics, and Rundown tabs show this choice: the order of service with Next and Previous, who is on each channel, and the /screen rundown.</p>
+      <p class="note">Plan and time come from Planning Center. The Service, Team and inputs, and Rundown tabs show this choice: the order of service with Next and Previous, who is on each channel, and the /screen rundown.</p>
       <div class="pcctx">
         <div class="field"><label for="rdType">Service type</label><select id="rdType"></select></div>
         <div class="field"><label for="pcPlan">Plan</label><select id="pcPlan"></select></div>
@@ -68,18 +68,17 @@
     <div data-pcpane="channels" hidden>
       <section id="pcChBox" hidden>
         <div class="pcbox">
-        <h3>Channels on the board</h3>
-        <p class="note">Add the soundboard channels you want to track, then assign each one to the positions that use it. A channel can serve positions from several service types, so a mic shared by Sunday and Youth is set up once.</p>
-        <div class="pcsrc" id="pcChSource"><span class="pill" id="pcChSrc"></span><span class="muted" id="pcChSrcText"></span><span class="grow"></span><button type="button" class="sm" id="pcChRefresh">Refresh names</button></div>
+        <h3>Input channels on the board</h3>
+        <p class="note">Add the input channels you want to track, then assign each one to the positions that use it. An input channel can serve positions from several service types, so one shared by Sunday and Youth is set up once.</p>
         <details class="pcpick" id="pcChPickBox">
-          <summary>Add channels from the soundboard</summary>
-          <div class="pcpicklist" id="pcChPickList"></div>
-          <div class="ctl pcpickfoot"><button type="button" class="primary sm" id="pcChAdd">Add selected</button><span class="muted">Channels already on the board are ticked.</span></div>
+          <summary>Add an input channel from the console</summary>
+          <div class="pcpickhost" id="pcChPick"></div>
+          <p class="note">Choose from the channels Relay knows. Their names come from the gear and are the same on every page. One that is not listed can be typed in below.</p>
         </details>
         <div class="ctl" id="pcChManual" hidden>
           <div class="field"><label for="pcChNum">Number</label><input id="pcChNum" placeholder="03" maxlength="12"></div>
           <div class="field"><label for="pcChName">Name</label><input id="pcChName" placeholder="Vocal 1" maxlength="40"></div>
-          <button type="button" id="pcChAddManual">Add channel</button>
+          <button type="button" id="pcChAddManual">Add input channel</button>
         </div>
         <div class="notice warn" id="pcChLegacy" hidden>
           <p>Older mic settings are still in use: <span id="pcChLegacyText"></span></p>
@@ -89,10 +88,10 @@
         </div>
         <div class="pcchannels" id="pcChList"></div>
         <div class="pcbox pcfoot">
-          <p class="note">Relay gives every confirmed person in a position one of its channels, drawn at random once and then kept, so nobody changes mid-service. It only changes when someone confirms or drops out, or when you press Shuffle. People past the last channel get none.</p>
+          <p class="note">Relay gives every confirmed person in a position one of its input channels, drawn at random once and then kept, so nobody changes mid-service. It only changes when someone confirms or drops out, or when you press Shuffle. People past the last input channel get none.</p>
           <div class="ctl">
             <span class="muted" id="pcChMsg"></span>
-            <button type="button" id="pcChShuffle">Shuffle who gets which channel</button>
+            <button type="button" id="pcChShuffle">Shuffle who gets which input channel</button>
             <button type="button" class="primary" id="pcChSave" disabled>Save</button>
           </div>
         </div>

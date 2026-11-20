@@ -520,6 +520,7 @@ table.audit tr.failed .what { color:var(--err); }
 .nmbetween h3 { margin:0; }
 .nmtoolbar { display:flex; align-items:center; gap:var(--sp-2); flex-wrap:wrap; margin:0 0 var(--sp-3); }
 .nmtoolbar input[type=search] { width:240px; }
+.nmtoolbar .nmpick { flex:1 1 220px; min-width:200px; }
 .nmgrow { flex:1; }
 .nmhl { min-width:320px; }
 .nmwhat { padding:var(--sp-3) var(--sp-4); background:var(--card); border:1px solid var(--border); border-radius:var(--r); margin:0 0 var(--sp-3); }

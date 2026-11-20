@@ -307,7 +307,7 @@
     const h = msg.header || {}, sc = hour();
     if (!msg.mics.length) {
       box.style.gridTemplateColumns = '1fr'; box.style.gridTemplateRows = '1fr';
-      box.appendChild(el('div', 'empty', 'No mics mapped to positions yet. Map them on the Planning Center admin page.'));
+      box.appendChild(el('div', 'empty', 'No input channels assigned to positions yet. Assign them on the Planning Center admin page.'));
       return;
     }
     grid(box, msg.mics.length);

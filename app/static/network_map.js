@@ -622,7 +622,7 @@
   }
 
   /* ---------------------------------------------------------------- Cables */
-  var gearPicks = null;                   // the gear with its ports, to pick the ends of a new cable from
+  var cableA = null, cableB = null;       // the shared port pickers (relay-ui.js) for the ends of a new cable
   function cableEnd(e) { return (e.gear ? e.gear + ' · ' : '') + e.shown; }
   function cableText(c) { return cableEnd(c.a) + ' to ' + cableEnd(c.b) + (c.note ? ' (' + c.note + ')' : ''); }
   function sourceLabel(id) {
@@ -666,20 +666,15 @@
     if (!body.children.length) { var r = el('tr'), c0 = el('td', 'muted', 'No cables recorded yet.'); c0.colSpan = 5; r.appendChild(c0); body.appendChild(r); }
   }
   function paintPicks() {
-    ['nmCableA', 'nmCableB'].forEach(function (id) {
-      var sel = $(id), cur = sel.value;
-      sel.textContent = '';
-      sel.appendChild(el('option', { value: '', text: id === 'nmCableA' ? 'One end…' : 'The other end…' }));
-      (gearPicks || []).forEach(function (g) {
-        var grp = el('optgroup'); grp.label = g.name;
-        g.ports.forEach(function (p) { grp.appendChild(el('option', { value: p.ref, text: p.shown + (p.missing ? ' (not reported now)' : '') })); });
-        sel.appendChild(grp);
-      });
-      sel.value = cur;
-    });
+    // Both ends choose with the shared port picker; once one end is set the other offers only ports of its kind (#546).
+    var a = $('nmCableA'), b = $('nmCableB');
+    a.textContent = ''; b.textContent = '';
+    var off = !canManage;
+    cableB = relayUI.portPicker(b, { label: 'The other end of the cable', disabled: off });
+    cableA = relayUI.portPicker(a, { label: 'One end of the cable', disabled: off, onChange: function (ref, item) { cableB.lock(item ? item.kind : null); } });
   }
   function loadPicks() {
-    send('GET', '/api/admin/network/cables').then(function (r) { gearPicks = r.gear; data.cables = r.cables; paintPicks(); paintCables(); paintMap(); })
+    send('GET', '/api/admin/network/cables').then(function (r) { data.cables = r.cables; paintPicks(); paintCables(); paintMap(); })
       .catch(function () { /* the list on the page still shows what the last read had */ });
   }
 
@@ -804,13 +799,13 @@
       send('POST', '/api/admin/network/map/labels', body).then(function (st) { data.notes = st.notes; notesDirty = {}; paintRows(); })
         .catch(function (e) { showErr(e.message); });
     });
-    ['nmCableA', 'nmCableB', 'nmCableNote', 'nmAddCable'].forEach(function (id) { $(id).disabled = !canManage; });
+    ['nmCableNote', 'nmAddCable'].forEach(function (id) { $(id).disabled = !canManage; });
     $('nmAddCable').addEventListener('click', function () {
       cableErr('');
-      var a = $('nmCableA').value, b = $('nmCableB').value;
+      var a = cableA && cableA.value(), b = cableB && cableB.value();
       if (!a || !b) { cableErr('Pick a port for each end of the cable.'); return; }
       send('POST', '/api/admin/network/cables', { a: a, b: b, note: $('nmCableNote').value.trim() })
-        .then(function (r) { data.cables = r.cables; $('nmCableA').value = $('nmCableB').value = $('nmCableNote').value = ''; paintCables(); paintMap(); })
+        .then(function (r) { data.cables = r.cables; $('nmCableNote').value = ''; paintPicks(); paintCables(); paintMap(); })
         .catch(function (e) { cableErr(e.message); });
     });
     $('nmAddPlace').disabled = $('nmSavePlaces').disabled = $('nmNewPlace').disabled = !canManage;
