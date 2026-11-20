@@ -1,0 +1,26 @@
+/* Shared look for the privacy, terms and data deletion pages. Matches index.html's colours and type. */
+html{color-scheme:dark}
+body{margin:0;background:#050505;color:#f4f4f5;font-family:'Atkinson Hyperlegible',-apple-system,'Segoe UI',system-ui,sans-serif;font-size:18px;line-height:1.6}
+a{color:#4ade80;text-underline-offset:4px}
+::selection{background:#4ade80;color:#04130a}
+:focus-visible{outline:2px solid #4ade80;outline-offset:4px;border-radius:4px}
+.top{max-width:760px;margin:0 auto;padding:28px 32px 0;display:flex;justify-content:space-between;align-items:center;gap:16px;font-size:16px}
+.top a{color:#c9cbd1;text-decoration:none;padding:10px 0}
+.top a:hover{color:#fff}
+.brand{display:flex;align-items:center;gap:10px;font-family:'Bricolage Grotesque','Atkinson Hyperlegible',system-ui,sans-serif;font-weight:700;font-size:20px;color:#f4f4f5!important}
+main{max-width:760px;margin:0 auto;padding:72px 32px 96px}
+h1,h2{font-family:'Bricolage Grotesque','Atkinson Hyperlegible',system-ui,sans-serif;font-weight:700;letter-spacing:-0.03em;text-wrap:balance;margin:0}
+h1{font-size:clamp(40px,7vw,64px);line-height:1}
+h2{font-size:26px;line-height:1.15;margin:56px 0 14px;padding-top:28px;border-top:1px solid rgba(255,255,255,.09)}
+p,li{text-wrap:pretty;color:#c9cbd1}
+p{margin:0 0 14px}
+ul{margin:0 0 14px;padding-left:22px}
+li{margin:6px 0}
+strong{color:#f4f4f5}
+.date{color:#a1a1aa;margin-top:18px}
+.lead{font-size:21px;color:#f4f4f5;margin-top:32px}
+footer{border-top:1px solid rgba(255,255,255,.08)}
+footer div{max-width:760px;margin:0 auto;padding:32px 32px 48px;display:flex;flex-wrap:wrap;gap:8px 28px;font-size:16px;color:#a1a1aa}
+footer a{color:#a1a1aa;text-decoration:none;padding:10px 0}
+footer a:hover{color:#fff}
+@media (max-width:600px){.top,main,footer div{padding-left:16px;padding-right:16px}main{padding-top:48px}}

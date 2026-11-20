@@ -5,13 +5,17 @@ reload. Calls raise db.Unavailable while the database is down; routes turn that 
 """
 from __future__ import annotations
 
+import json
 import re
 import secrets
 import threading
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
-from ... import config, db
+from ... import config, db, schedules
+from ... import screens as core_screens
+from ...text import same_name, slug as text_slug
 from . import live, media, schedule, sources
 
 MIGRATIONS = Path(__file__).resolve().parent / "migrations"
@@ -71,9 +75,8 @@ def _date(v) -> str:
 
 
 def tz_name() -> str:
-    from ...schedules import DEFAULT_TIMEZONE
-
-    return (config.get().get("signage") or {}).get("timezone") or DEFAULT_TIMEZONE
+    """The Relay time zone: signage has no zone of its own since #526."""
+    return config.timezone()
 
 
 def utc_now() -> datetime:
@@ -321,12 +324,21 @@ def group_delete(gid: int) -> None:
 
 # ------------------------------------------------------------------ screens
 
+SCREEN_KEY = "signage:"
+
+
+def _core_screen(row: dict) -> dict:
+    """A signage screen is a core screen (app/screens.py, #527): the display's name is the core one, and a screen
+    that has none yet is linked here, joining the core screen of the same name when there is one."""
+    key = SCREEN_KEY + row["slug"]
+    core = core_screens.by_key(key) or core_screens.adopt(key, name=row["name"], heard=False)
+    return {**row, "sound": bool(row["sound"]), "name": core["name"], "core_id": core["id"]}
+
+
 def screens() -> list[dict]:
     ready()
-    rows = db.query("select * from signage_screens order by name collate nocase, id")
-    for r in rows:
-        r["sound"] = bool(r["sound"])
-    return rows
+    rows = [_core_screen(r) for r in db.query("select * from signage_screens order by name collate nocase, id")]
+    return sorted(rows, key=lambda r: (r["name"].lower(), r["id"]))
 
 
 def screen_by_slug(slug: str) -> dict | None:
@@ -334,9 +346,49 @@ def screen_by_slug(slug: str) -> dict | None:
         return None
     ready()
     row = db.one("select * from signage_screens where slug = ?", (slug,))
-    if row:
-        row["sound"] = bool(row["sound"])
-    return row
+    return _core_screen(row) if row else None
+
+
+def player_path(slug: str) -> str:
+    """The path a TV opens for this screen (on the signage port)."""
+    return f"/signage/{slug}"
+
+
+def player_address(host: str, slug: str) -> str:
+    """The address a TV opens for this screen, on the signage port of `host`."""
+    from ... import serving
+
+    return serving.link("http", f"[{host}]" if ":" in host else host, config.get()["signage"]["port"],
+                        player_path(slug))
+
+
+def core_screen_slug(core_id: int) -> str:
+    """The signage address of a core screen, or "" when none of its signage screens exists yet."""
+    return next((k[len(SCREEN_KEY):] for k in core_screens.keys(core_id) if k.startswith(SCREEN_KEY)), "")
+
+
+def ensure_screen(core: dict) -> dict:
+    """The signage screen for a core screen, made (with an address from its name) when it has none: what the Screens
+    page needs before it can set a playlist on a display."""
+    ready()
+    slug = core_screen_slug(core["id"])
+    if slug:
+        return screen_by_slug(slug) or {}
+    taken = {r["slug"] for r in db.query("select slug from signage_screens")}
+    new = text_slug(core["name"], taken, fallback="screen")
+    db.execute("insert into signage_screens (slug, name, sound, created_at) values (?, ?, 0, ?)",
+               (new, core["name"], db.now()))
+    core_screens.adopt(SCREEN_KEY + new, name=core["name"], heard=False)
+    row = db.one("select * from signage_screens where slug = ?", (new,))
+    return _core_screen(row)
+
+
+def set_default_playlist(core_id: int, playlist_id: int | None) -> None:
+    """The playlist a core screen plays when nothing above it in the schedule picks one."""
+    slug = core_screen_slug(core_id)
+    if slug and db.execute("update signage_screens set playlist_id = ? where slug = ?",
+                           (playlist_id, slug)):
+        live.bump()
 
 
 def screen_save(sid: int | None, raw: dict) -> dict:
@@ -358,6 +410,7 @@ def screen_save(sid: int | None, raw: dict) -> dict:
     clash = db.one("select id from signage_screens where slug = ?", (slug,))
     if clash and clash["id"] != sid:
         raise Invalid("Another screen already uses that address.", 409)
+    old = db.one("select slug from signage_screens where id = ?", (sid,)) if sid is not None else None
     with db.transaction() as tx:
         if sid is None:
             tx.execute("insert into signage_screens (slug, name, sound, playlist_id, group_id, created_at)"
@@ -368,16 +421,25 @@ def screen_save(sid: int | None, raw: dict) -> dict:
                               " group_id = ? where id = ?", (slug, name, sound, pid, gid, sid)):
                 raise Invalid("That screen does not exist.", 404)
             row = tx.one("select * from signage_screens where id = ?", (sid,))
+    if old:
+        core_screens.move_key(SCREEN_KEY + old["slug"], SCREEN_KEY + slug)
+    core = core_screens.by_key(SCREEN_KEY + slug) or core_screens.adopt(SCREEN_KEY + slug, name=name, heard=False)
+    if not same_name(core["name"], name):
+        try:
+            core_screens.rename(core["id"], name, panel_ok=True)
+        except core_screens.Refused as exc:
+            raise Invalid(core_screens.REFUSALS[exc.key]) from None
     live.bump()
-    if row:
-        row["sound"] = bool(row["sound"])
-    return row or {}
+    return _core_screen(row) if row else {}
 
 
 def screen_delete(sid: int) -> None:
     ready()
+    row = db.one("select slug from signage_screens where id = ?", (sid,))
     if not db.execute("delete from signage_screens where id = ?", (sid,)):
         raise Invalid("That screen does not exist.", 404)
+    if row:
+        core_screens.forget_key(SCREEN_KEY + row["slug"])
     live.bump()
 
 
@@ -400,9 +462,50 @@ def default_playlist(screen: dict) -> tuple[int | None, str]:
 def slots() -> list[dict]:
     ready()
     rows = db.query("select * from signage_slots order by id")
+    names = {schedules.ref(s["id"]): s["name"] for s in config.get()["schedules"]}
     for r in rows:
-        r["summary"] = schedule.describe_slot(r)
+        r["summary"] = schedule.describe_slot(r, names)
     return rows
+
+
+def schedule_users(ref: str) -> list[dict]:
+    """The slots that pick named schedule `ref`, for the Schedules page's "used by"."""
+    ready()
+    return [{"where": "Signage", "what": f"Slot on {_target_label(r)}"} for r in slots() if r["schedule_ref"] == ref]
+
+
+def _target_label(slot: dict) -> str:
+    if slot["target"] == "all":
+        return "all screens"
+    if slot["target"] == "screen":
+        row = db.one("select name from signage_screens where id = ?", (slot["target_id"],))
+    else:
+        row = db.one("select name from signage_groups where id = ?", (slot["target_id"],))
+    return f"{slot['target']} {row['name']}" if row else slot["target"]
+
+
+_ref_cache: dict[str, tuple[float, str, list[tuple[datetime, datetime]]]] = {}
+
+
+def open_ref(ref: str, local_now: datetime) -> bool:
+    """Whether named schedule `ref` is enabled and open at naive Relay-zone wall-clock `local_now`.
+
+    Resolving a screen steps minute by minute across a week (`next_change`), so a schedule's windows are worked out
+    once for a few weeks around now and kept for a minute, rather than on every step."""
+    from ... import modules
+
+    sched = schedules.find(config.get()["schedules"], ref)
+    if sched is None or not sched["enabled"]:
+        return False
+    tz, now = config.timezone(), utc_now()
+    stamp = json.dumps([sched, tz], sort_keys=True)
+    held = _ref_cache.get(ref)
+    if held is None or held[1] != stamp or now.timestamp() - held[0] > 60:
+        span = timedelta(days=schedule.HORIZON_DAYS + 3)
+        wins = schedules.windows([sched], now - span, now + span, tz, modules.using("schedules.plan_times"))
+        held = _ref_cache[ref] = (now.timestamp(), stamp, [(w.start, w.stop) for w in wins])
+    at = schedules.localize(local_now.date(), local_now.time().replace(second=0, microsecond=0), ZoneInfo(tz))
+    return any(a <= at < b for a, b in held[2])
 
 
 def _check_target(row: dict) -> None:
@@ -421,7 +524,10 @@ def slot_save(sid: int | None, raw: dict) -> dict:
     except schedule.Refused as exc:
         raise Invalid(str(exc)) from None
     _check_target(row)
-    cols = ("target", "target_id", "playlist_id", "days", "start_time", "end_time", "start_date", "end_date")
+    if row["schedule_ref"] and schedules.find(config.get()["schedules"], row["schedule_ref"]) is None:
+        raise Invalid("That schedule does not exist.", 404)
+    cols = ("target", "target_id", "playlist_id", "days", "start_time", "end_time", "start_date", "end_date",
+            "schedule_ref")
     with db.transaction() as tx:
         if sid is None:
             tx.execute(f"insert into signage_slots ({', '.join(cols)}) values ({', '.join('?' * len(cols))})",
@@ -468,7 +574,7 @@ def override_set(target: str, target_id: int, playlist_id: int, until: str) -> d
         targets = _all_screens_for(target, target_id)
 
         def key(local_now):
-            return tuple(((schedule.matching(rows, s, local_now) or [{"id": 0}])[0]["id"]) for s in targets)
+            return tuple(((schedule.matching(rows, s, local_now, open_ref) or [{"id": 0}])[0]["id"]) for s in targets)
 
         at = schedule.next_change(key, now, tz) if targets else None
         expires = at.strftime("%Y-%m-%dT%H:%M:%SZ") if at else ""
@@ -518,7 +624,7 @@ def resolve(screen: dict, now: datetime | None = None, _slots=None, _overrides=N
         return {"playlist_id": o["playlist_id"], "layer": "override", "until": o["expires_at"],
                 "why": f"Put on by hand for {what}"}
     rows = _slots if _slots is not None else slots()
-    hit = schedule.matching(rows, screen, schedule.local(now, tz_name()))
+    hit = schedule.matching(rows, screen, schedule.local(now, tz_name()), open_ref)
     if hit:
         more = len(hit) - 1
         return {"playlist_id": hit[0]["playlist_id"], "layer": "schedule", "until": "",

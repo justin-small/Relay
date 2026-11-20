@@ -45,16 +45,22 @@ APP = ROOT / "app"
 MODULES = APP / "modules"
 
 # Relay's core. A new file here is a new piece of core, not an integration: say why in the pull request.
+# audiobus.py (#92): the 32-lane audio bus and matrix. Core because every module that brings audio in or out
+# registers with it through app/audio.py; it opens no network connection of its own.
+# netroute.py (#344): which network port each kind of traffic uses; core because every module asks it.
+# netsock.py (#345): sockets pinned to a chosen port; core so every module steers traffic the same way.
+# layout.py (#421) and boards.py (#156): the shared grid editor's schema and the boards built with it; core because
+# they talk to no other product (a module only adds widgets to them through the registry).
 CORE_FILES = {
-    "__init__.py", "alerthistory.py", "alerts.py", "announce.py", "audio.py", "audit.py", "backup.py", "config.py", "db.py", "demo.py", "engine.py", "exporting.py", "hub.py", "prefs.py",
-    "importdocker.py", "languages.py", "main.py", "netinfo.py", "overlays.py", "panelfw.py", "panels.py", "paths.py", "realtime.py", "recorder.py", "redact.py",
-    "scheduler.py", "schedules.py", "secretbox.py", "serving.py", "setupcode.py", "sidecar.py", "streamstatus.py", "tally.py", "texttranslate.py", "tls.py", "users.py",
+    "__init__.py", "alerthistory.py", "alerts.py", "announce.py", "audio.py", "audiobus.py", "audit.py", "backup.py", "boards.py", "layout.py", "config.py", "db.py", "demo.py", "engine.py", "exporting.py", "hub.py", "prefs.py",
+    "devices.py", "directory.py", "gear.py", "gearfeed.py", "cables.py", "channels.py", "routing.py", "importdocker.py", "languages.py", "main.py", "mdns.py", "metering.py", "mixreport.py", "netinfo.py", "netroute.py", "netsock.py", "network_map.py", "oauth.py", "overlays.py", "panelfw.py", "panels.py", "paths.py", "ports.py", "realtime.py", "recorder.py", "redact.py",
+    "scheduler.py", "schedules.py", "screens.py", "secretbox.py", "serving.py", "setupcode.py", "sidecar.py", "streamstatus.py", "tally.py", "text.py", "texttranslate.py", "timewin.py", "tls.py", "transcribe.py", "users.py",
 }
 # Network clients, and the core files allowed them: OpenAI (realtime, text translation) and the host's own
 # address for the viewer links (main, netinfo) and Relay announcing itself to its own caption panels (announce).
 NETWORK = {"socket", "ssl", "http.client", "urllib.request", "websockets", "httpx", "aiohttp", "requests",
            "zeroconf", "paho", "pyserial", "serial"}
-CORE_NETWORK = {"announce.py": {"socket"}, "main.py": {"socket"}, "netinfo.py": {"socket"}, "realtime.py": {"ssl", "websockets"}, "serving.py": {"socket"},
+CORE_NETWORK = {"announce.py": {"socket"}, "main.py": {"socket"}, "mdns.py": {"socket"}, "netinfo.py": {"socket"}, "netsock.py": {"socket", "ssl", "http.client", "urllib.request", "websockets"}, "realtime.py": {"ssl"}, "serving.py": {"socket"},
                 "texttranslate.py": {"urllib.request"}, "tls.py": {"socket", "ssl"}}
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -120,6 +126,62 @@ for name in sorted(CORE_FILES & top):
     extra = sorted(used - CORE_NETWORK.get(name, set()))
     check(f"{name} opens no network connection of its own (integrations go in modules)", not extra, extra)
 
+# ------------------------------------------------------------------ modules open sockets through app/netsock.py
+# A module's traffic leaves through the network port the operator chose for it (#348), so a module never opens a
+# connection itself. The exceptions are this computer's own ports, and LiveKit's one-time download on the system
+# default (the intercom class may be routed to an audio network with no internet).
+OPENERS = {"socket.socket", "socket.create_connection", "urllib.request.urlopen", "urllib.request.build_opener",
+           "http.client.HTTPConnection", "http.client.HTTPSConnection", "websockets.connect", "websockets.serve",
+           "asyncio.open_connection", "asyncio.start_server", "create_datagram_endpoint", "create_connection",
+           "create_server", "open_connection"}
+MODULE_SOCKETS = {
+    "intercom/livekit.py": {"socket.socket", "urllib.request.urlopen", "urllib.request.build_opener"},
+    "intercom/rooms.py": {"urllib.request.build_opener"},       # LiveKit's room service on 127.0.0.1
+    "intercom/rtcproxy.py": {"websockets.connect"},             # LiveKit's signalling on 127.0.0.1
+}
+
+
+def opened(path: Path) -> set[str]:
+    """Every call in a file that opens a connection or socket by itself, by its dotted name (or method name)."""
+    out = set()
+    for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+        if not isinstance(node, ast.Call):
+            continue
+        parts, f = [], node.func
+        while isinstance(f, ast.Attribute):
+            parts.insert(0, f.attr)
+            f = f.value
+        if isinstance(f, ast.Name):
+            parts.insert(0, f.id)
+        dotted = ".".join(parts)
+        if dotted in OPENERS:
+            out.add(dotted)
+        elif parts and parts[-1] in OPENERS and isinstance(node.func, ast.Attribute):
+            out.add(parts[-1])          # loop.create_datagram_endpoint(...), and the like
+    return out
+
+
+print("modules open sockets only through app/netsock.py")
+for path in sorted(MODULES.rglob("*.py")):
+    rel = path.relative_to(MODULES)
+    if len(rel.parts) < 2 or "__pycache__" in rel.parts:
+        continue
+    extra = sorted(opened(path) - MODULE_SOCKETS.get(rel.as_posix(), set()))
+    check(f"{rel.as_posix()} opens no socket of its own (use app/netsock.py with its traffic class)", not extra, extra)
+for name, allowed in MODULE_SOCKETS.items():
+    check(f"{name} still needs its socket exception", bool(opened(MODULES / name) & allowed), name)
+
+# ------------------------------------------------------------------ traffic classes belong to their module (#349)
+print("traffic classes are the module's own")
+from app import netroute  # noqa: E402
+
+owner_of: dict[str, str] = {t.id: "core" for t in netroute.CORE_TRAFFIC}
+for mid in module_ids():
+    for t in registry.get(mid).manifest.traffic:
+        check(f"{mid}: traffic {t.id!r} starts with the module's id", netroute.owns(mid, t.id), t.id)
+        check(f"{mid}: traffic {t.id!r} is declared nowhere else", t.id not in owner_of, owner_of.get(t.id))
+        owner_of.setdefault(t.id, mid)
+
 # ------------------------------------------------------------------ each real module keeps the contract
 print("module contract")
 config.ensure_file()
@@ -175,9 +237,11 @@ for mid in ids:
             return perm in self.perms
 
     async def nav_for(user):
+        """The pages the user reaches: sidebar entries, and tabs a module adds to a core page (AdminPage.tab_of)."""
         await registry.set_enabled(mid, True)
         try:
-            return [pg["id"] for groups in registry.admin_nav(user).values() for pg in groups]
+            return [pg["id"] for entry in registry.admin_nav(user) for pg in entry["pages"]] + \
+                [t["id"] for tabs in registry.admin_tabs(user).values() for t in tabs]
         finally:
             await registry.set_enabled(mid, False)
     for pg in mod.admin_pages:
@@ -212,7 +276,8 @@ for mid in ids:
         return page
     page = asyncio.run(on_then_off())
     check(f"{mid}: admin pages, nav links and scripts rendered while on",
-          all(f'data-page="{p.id}"' in page and f'href="#{p.id}"' in page for p in mod.admin_pages)
+          all((f'data-tab="{p.id}"' in page and f'data-pane="{p.id}"' in page) if p.tab_of else
+              (f'data-page="{p.id}"' in page and f'href="#{p.id}"' in page) for p in mod.admin_pages)
           and all(f"/static/modules/{mid}/{s}" in page for s in mod.admin_scripts))
 
 # ------------------------------------------------------------------ the registry, with a module made up here
@@ -331,6 +396,64 @@ try:
     asyncio.run(registry.set_enabled("fake", False))
 finally:
     registry._modules = saved
+
+# ------------------------------------------------------------------ provide() and using() (#523)
+print("provide and using")
+check("nothing is on offer to begin with", modmod.provided() == {}, modmod.provided())
+eq("asking for what is not there gives None", modmod.using("lighting.cues"), None)
+eq("or the default", modmod.using("lighting.cues", "off"), "off")
+modmod.provide("test.thing", 7, owner="fake")
+eq("a provided capability is asked for by name", modmod.using("test.thing"), 7)
+eq("and listed with its owner", modmod.provided(), {"test.thing": "fake"})
+modmod.provide("test.other", 8, owner="fake")
+modmod.provide("kept.thing", 9, owner="someone")
+eq("a prefix finds the family", modmod.using_all("test."), {"thing": 7, "other": 8})
+modmod.withdraw_all("fake")
+eq("turning a module off takes everything it provided", (modmod.using("test.thing"), modmod.using("test.other")),
+   (None, None))
+eq("and leaves what others provided", modmod.using("kept.thing"), 9)
+modmod.withdraw("kept.thing")
+modmod.withdraw("kept.thing")
+eq("withdrawing twice is harmless", modmod.using("kept.thing"), None)
+for bad in ("Lighting.cues", "lighting.", ".cues", "lighting cues", "", "a..b"):
+    try:
+        modmod.provide(bad, 1, owner="x")
+        check(f"{bad!r} is not a capability name", False)
+    except ValueError:
+        check(f"{bad!r} is not a capability name", True)
+modmod.provide("ndi", {"a": 1}, owner="ndi")
+eq("a bare area is a name too", modmod.using("ndi"), {"a": 1})
+modmod.withdraw("ndi")
+here: dict = {"__name__": "app.modules.crew.fake", "modmod": modmod}
+exec(compile("modmod.provide('crew.thing', 1)", "fake.py", "exec"), here)      # as if called from crew's own code
+eq("the owner is the module the call came from", modmod.provided(), {"crew.thing": "crew"})
+modmod.withdraw_all("crew")
+heard: list = []
+modmod.listen("test.topic", heard.append)
+modmod.listen("test.topic", heard.append)
+modmod.announce("test.topic", 1)
+eq("a listener hears an announcement, once however often it listened", heard, [1])
+modmod.unlisten("test.topic", heard.append)
+modmod.announce("test.topic", 2)
+eq("and stops after unlisten", heard, [1])
+modmod.listen("test.topic", lambda *a: 1 / 0)
+modmod.announce("test.topic", 3)
+check("a listener that fails does not stop the announcer", True)
+modmod._listeners.clear()
+
+for mid in ids:
+    mod = registry.get(mid)
+    before = {n for n, who in modmod.provided().items() if who == mid}
+    mod.attach()
+    mod.attach()
+    on = {n for n, who in modmod.provided().items() if who == mid}
+    mod.detach()
+    left = sorted(n for n, who in modmod.provided().items() if who == mid)
+    eq(f"{mid}: switching it off takes back what it provided ({', '.join(sorted(on)) or 'nothing'})", left, [])
+    mod.attach()
+    eq(f"{mid}: and on again gives it back", {n for n, who in modmod.provided().items() if who == mid}, on)
+    mod.detach()
+    check(f"{mid}: only names of the form area.what", all(re.match(r"^[a-z][a-z0-9_]*(\.[a-z0-9_-]+)*$", n) for n in on))
 
 if fails:
     print(f"\n{len(fails)} FAILED")

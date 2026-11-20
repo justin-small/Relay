@@ -1,0 +1,210 @@
+<!doctype html><html lang="en" data-theme="dark" data-preset="relay"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<link rel="stylesheet" href="../../../app/static/tokens.css"><link rel="stylesheet" href="../../../app/static/components.css"><link rel="stylesheet" href="common.css">
+<title>Crew A · Tabs across the top</title></head><body data-scope>
+<div class="mockhead"><h1>A. Tabs across the top</h1><p>The Planning Center pattern everywhere: one job per tab, tabs at the top of the phone and of the operator page.</p>
+<div class="tabs" data-tabs><button data-p="phone" class="on">Crew phone</button><button data-p="screens">Page, join, offline</button><button data-p="admin">Operator page</button></div></div>
+
+<!-- ============================================================ PHONE -->
+<div class="pane on" data-pane="phone"><div class="phones">
+
+<div class="phonecap"><div class="phone" data-scope>
+<div class="status"><span>8:04</span><span>Wi-Fi 100%</span></div>
+<div class="ph-bar"><img src="../../../app/static/brand/relay-mark.svg" width="26" height="26" alt=""><h1>Grace Church Crew</h1><span class="avatar">MO</span></div>
+<div class="ptabs" data-tabs><button data-p="today" class="on">Today</button><button data-p="chat">Chat<span class="ct">3</span></button><button data-p="lists">Checklists</button><button data-p="res">Resources</button><button data-p="ic">Intercom</button></div>
+<div class="scroll">
+ <div class="pane on" data-pane="today">
+  <div class="pc hl"><h2>You serve today <small>Sunday Worship</small></h2>
+   <div class="pos">Camera 2</div><div class="sub">Production · with Dev, Priya and 4 others</div>
+   <div class="kpis" style="margin-top:12px"><div class="kpi"><b>7:30</b><span>Call time</span></div><div class="kpi"><b>9:00</b><span>Service</span></div><div class="kpi"><b style="color:var(--ok)">In</b><span>7:24 by Wi-Fi</span></div></div></div>
+  <div class="pc"><h2>Your checklist <small>4 of 7</small></h2><div class="bar8"><i style="width:57%"></i></div><p class="note" style="margin:8px 0 0">Next: White balance to the stage wash. <a href="#">Open Checklists</a></p></div>
+  <div class="pc"><h2>Plan <small>9:00 AM</small></h2>
+   <div class="ln done"><span class="t">8:58</span>Welcome and countdown</div>
+   <div class="ln done"><span class="t">9:00</span>Goodness of God<span class="end">Ana</span></div>
+   <div class="ln cur"><span class="t">9:06</span>Announcements<span class="end">Now</span></div>
+   <div class="ln"><span class="t">9:09</span>Sermon: Mercy at the Table<span class="end">Lee</span></div>
+   <div class="ln"><span class="t">9:41</span>Offering</div>
+   <div class="ln"><span class="t">9:45</span>Great Are You Lord<span class="end">Ana</span></div></div>
+  <div class="pc"><h2>This phone</h2>
+   <div class="setrow"><span>Pages from the booth<small>Buzzes until you confirm.</small></span><label class="switch"><input type="checkbox" checked><span class="slider"></span></label></div>
+   <div class="setrow"><span>Check in by Wi-Fi<small>Maya's iPhone · added Oct 12</small></span><button class="sm">Change</button></div></div>
+  <div class="pc"><h2>More tools</h2>
+   <div class="res"><span class="ic">TL</span><span class="grow"><b>Tally</b><small>Which camera is live</small></span>›</div>
+   <div class="res"><span class="ic">BD</span><span class="grow"><b>Boards</b><small>Foyer and green room screens</small></span>›</div></div>
+  <p style="text-align:center"><button class="link">Sign out</button></p>
+ </div>
+ <div class="pane" data-pane="chat">
+  <div class="chans"><button class="on">Production<span class="ct">3</span></button><button>Everyone</button><button>Camera ops</button></div>
+  <div class="msgs">
+   <div class="msg page"><small>Page from the booth · 7:52</small>Production meeting at the back table in 5.</div>
+   <div class="msg"><small>Dev Shah · 7:55</small>Cam 3 battery is at 20%, swapping now</div>
+   <div class="msg me"><small>You · 7:56</small>I've got spare in the cage</div>
+   <div class="msg"><small>Priya Nair · 8:01</small>Lyrics are loaded, slide 4 has a typo, fixing</div></div>
+  <label class="chk" style="margin-top:10px"><input type="checkbox"> <span style="text-decoration:none;color:var(--muted);font-size:14px">Quiet notification when I am not looking</span></label>
+ </div>
+ <div class="pane" data-pane="lists">
+  <div class="pc"><h2>Camera 2 <small>4 of 7</small></h2>
+   <label class="chk ok"><input type="checkbox" checked><span>Batteries charged and in</span></label>
+   <label class="chk ok"><input type="checkbox" checked><span>Tripod level, pan lock off</span></label>
+   <label class="chk ok"><input type="checkbox" checked><span>Headset on Production channel</span></label>
+   <label class="chk ok"><input type="checkbox" checked><span>Tally light working</span></label>
+   <label class="chk"><input type="checkbox"><span>White balance to the stage wash</span></label>
+   <label class="chk"><input type="checkbox"><span>Frame the pulpit wide and tight</span></label>
+   <label class="chk"><input type="checkbox"><span>Record card in, 1 hour free</span></label></div>
+  <div class="pc"><h2>Everyone <small>1 of 2</small></h2>
+   <label class="chk ok"><input type="checkbox" checked><span>Phone on silent</span></label>
+   <label class="chk"><input type="checkbox"><span>Pray with the team at 8:45</span></label></div>
+  <p class="note">Each service starts fresh. Your team lead writes these.</p>
+ </div>
+ <div class="pane" data-pane="res">
+  <div class="pc"><h2>Camera 2</h2>
+   <div class="res"><span class="ic">PDF</span><span class="grow"><b>Shot list, Sunday</b><small>File · 2 pages</small></span>›</div>
+   <div class="res"><span class="ic">▶</span><span class="grow"><b>Framing the pulpit</b><small>Video · YouTube</small></span>›</div>
+   <div class="embed">Embedded page shows here</div></div>
+  <div class="pc"><h2>Everyone</h2>
+   <div class="res"><span class="ic">DOC</span><span class="grow"><b>Volunteer handbook</b><small>Link · Google Docs</small></span>›</div></div>
+ </div>
+ <div class="pane" data-pane="ic">
+  <div class="ics"><div class="icb on"><b>Production</b><small>4 talking here</small></div><div class="icb"><b>Stage</b><small>Listen only</small></div></div>
+  <button class="talk" type="button">Hold to talk</button>
+  <p class="note" style="text-align:center">Use headphones. Your microphone is only open while you hold.</p>
+ </div>
+</div></div><small>Today is the first tab: your position, call time, check-in, plan and this phone's settings. The rest each get a tab.</small></div>
+
+<div class="phonecap"><div class="phone" data-scope>
+<div class="status"><span>8:04</span><span>Wi-Fi 100%</span></div>
+<div class="ph-bar"><img src="../../../app/static/brand/relay-mark.svg" width="26" height="26" alt=""><h1>Grace Church Crew</h1><span class="avatar">SO</span></div>
+<div class="ptabs" data-tabs><button data-p="today">Today</button><button data-p="chat">Chat</button><button data-p="lists">Checklists</button><button data-p="act" class="on">Activity</button></div>
+<div class="scroll">
+ <div class="pane" data-pane="today"><div class="pc hl"><h2>You serve today</h2><div class="pos">Producer</div><div class="sub">Production lead</div></div></div>
+ <div class="pane" data-pane="chat"><p class="note">Chat as in the phone beside this.</p></div>
+ <div class="pane" data-pane="lists">
+  <div class="pc"><h2>Edit checklists <small>Production</small></h2>
+   <div class="res"><span class="grow"><b>Camera 2</b><small>7 items</small></span><button class="sm">Edit</button></div>
+   <div class="res"><span class="grow"><b>Graphics</b><small>5 items</small></span><button class="sm">Edit</button></div>
+   <button class="sm" style="margin-top:8px">New checklist</button></div></div>
+ <div class="pane on" data-pane="act">
+  <div class="seg" style="margin-bottom:10px"><button class="on">Everything</button><button>Check-ins</button><button>Chat</button><button>Pages</button></div>
+  <div class="pc"><h2>Today</h2>
+   <div class="ln"><span class="t">8:01</span><span><b>Priya Nair</b> ticked "Lyrics loaded"</span></div>
+   <div class="ln"><span class="t">7:56</span><span><b>Maya Okafor</b> wrote in Production</span></div>
+   <div class="ln"><span class="t">7:52</span><span><b>You</b> paged Production</span><span class="end">5 of 6 read</span></div>
+   <div class="ln"><span class="t">7:31</span><span><b>Dev Shah</b> checked in by Wi-Fi</span></div>
+   <div class="ln"><span class="t">7:24</span><span><b>Maya Okafor</b> checked in by Wi-Fi</span></div></div>
+  <button class="sm">Older</button>
+ </div>
+</div></div><small>An operator or team lead sees the same bar with an Activity tab, and edit buttons inside Checklists and Resources. Tabs follow the person's role.</small></div>
+
+</div></div>
+
+<!-- ============================================================ PAGE / JOIN / OFFLINE -->
+<div class="pane" data-pane="screens"><div class="phones">
+<div class="phonecap"><div class="phone">
+<div class="status"><span>9:14</span><span>Wi-Fi</span></div>
+<div class="ph-bar"><img src="../../../app/static/brand/relay-mark.svg" width="26" height="26" alt=""><h1>Grace Church Crew</h1></div>
+<div class="alertscr urgent"><span class="badge warn">PAGE · buzzing again in 0:40</span><div class="from">From the booth to Production · 9:14</div><div class="text">Camera 2, go wide for the baptism on stage left.</div>
+<button class="primary big">I have read this</button><p class="note" style="margin:0">The buzzing stops when you confirm. <a href="#">Open the crew page</a></p></div></div><small>Page: the message fills the screen and the one button is under your thumb.</small></div>
+
+<div class="phonecap"><div class="phone">
+<div class="status"><span>7:10</span><span>Wi-Fi</span></div>
+<div class="scroll"><img src="../../../app/static/brand/relay-mark.svg" width="40" height="40" alt="">
+<h2 style="font-size:24px;margin:10px 0 4px">Join Grace Church Crew</h2><p class="sub">Two steps, once per phone. This page only works on the church Wi-Fi.</p>
+<ol class="steps" style="margin-top:18px"><li class="ok"><b>You are on the church Wi-Fi</b><span class="sub">Relay found you.</span></li>
+<li><b>Let your phone trust Relay</b><span class="sub">So the page can install and use the microphone.</span><div class="seg" style="margin:10px 0"><button class="on">iPhone</button><button>Android</button></div>
+<button class="primary" style="width:100%">Download the certificate</button><p class="note">Tap Allow. Then Settings, Profile Downloaded, Install. Then General, About, Certificate Trust Settings, turn on Relay.</p></li>
+<li><b>Open the crew page</b><span class="sub">Then Share, Add to Home Screen.</span><button style="width:100%;margin-top:8px">Open Grace Church Crew</button></li></ol></div></div><small>Join: numbered steps with the phone's own instructions picked by a switch.</small></div>
+
+<div class="phonecap"><div class="phone">
+<div class="status"><span>8:40</span><span>LTE</span></div>
+<div class="alertscr" style="text-align:center;align-items:center"><img src="../../../app/static/brand/relay-mark.svg" width="44" height="44" alt=""><h2 style="margin:0;font-size:22px">Can't reach Relay</h2><p class="sub" style="max-width:26em">Your phone is not on the church Wi-Fi. Join it and this page comes back by itself.</p><button class="primary" style="width:100%">Try again</button><p class="note">Last plan you saw: Sunday Worship, 9:00 AM. You are Camera 2, call 7:30.</p></div></div><small>Offline: keeps the one thing a volunteer needs, their position and call time.</small></div>
+</div></div>
+
+<!-- ============================================================ OPERATOR -->
+<div class="pane" data-pane="admin" data-scope>
+<div class="top"><b>Crew app</b><span class="spill on"><i class="dot ok"></i>On · 22 people</span><span class="grow"></span><span class="muted">Sam Ortiz · operator</span></div>
+<div class="wrap stack">
+<div class="tabs" data-tabs><button data-p="today" class="on">Today</button><button data-p="paging">Paging</button><button data-p="lists">Checklists</button><button data-p="people">People and phones</button><button data-p="setup">Setup</button></div>
+
+<div class="pane on" data-pane="today"><div class="stack">
+<div class="card between"><div class="gap"><span class="muted">Service</span><b>Sunday Worship · today 9:00 AM</b><span class="tag">from Planning Center</span></div><div class="gap"><button>Clear arrivals</button></div></div>
+<div class="cols c3"><div class="card stat"><b>14 / 22</b><span>Arrived, against their team's call time</span></div><div class="card stat"><b style="color:var(--warn)">3</b><span>Late: past call time, not here</span></div><div class="card stat"><b>61%</b><span>Checklist items ticked</span></div></div>
+<div class="card"><h3>Arrivals</h3><p class="lede">Who on today's plan has arrived. Arrivals clear by themselves when a new plan takes over.</p>
+<table class="dt"><thead><tr><th>Name</th><th>Team</th><th>Position</th><th>Call</th><th>Status</th><th>Checklist</th></tr></thead><tbody>
+<tr><td>Maya Okafor</td><td>Production</td><td>Camera 2</td><td class="mono">7:30</td><td><span class="badge ok">In 7:24 · Wi-Fi</span></td><td>4 / 7</td></tr>
+<tr><td>Dev Shah</td><td>Production</td><td>Camera 3</td><td class="mono">7:30</td><td><span class="badge ok">In 7:31 · Wi-Fi</span></td><td>6 / 7</td></tr>
+<tr><td>Priya Nair</td><td>Production</td><td>Lyrics</td><td class="mono">7:30</td><td><span class="badge ok">In 7:40 · tapped</span></td><td>5 / 5</td></tr>
+<tr><td>Tom Reyes</td><td>Production</td><td>Audio</td><td class="mono">7:30</td><td><span class="badge warn">Late 34 min</span></td><td>0 / 9</td></tr>
+<tr><td>Ana Ruiz</td><td>Worship</td><td>Worship Leader</td><td class="mono">7:45</td><td><span class="badge ok">In 7:41 · Wi-Fi</span></td><td>2 / 3</td></tr>
+<tr><td>Jo Park</td><td>Worship</td><td>Vocals</td><td class="mono">7:45</td><td><span class="badge warn">Late 19 min</span></td><td>0 / 3</td></tr>
+<tr><td>Kim Lau</td><td>Hosts</td><td>Door</td><td class="mono">8:30</td><td><span class="badge muted">Not yet due</span></td><td>0 / 2</td></tr></tbody></table></div>
+</div></div>
+
+<div class="pane" data-pane="paging"><div class="stack">
+<div class="cols c2">
+<div class="card"><h3>Page the crew</h3><p class="lede">Buzzes each phone, and again for up to two minutes until they confirm.</p>
+<div class="field"><label for="pt">What the page says</label><input id="pt" maxlength="140" placeholder="Camera 2, go wide for the baptism"><span class="hint">Up to 140 characters.</span></div>
+<label>Teams serving today</label><div class="opts"><button class="opt on">Production · 6</button><button class="opt">Worship · 5</button><button class="opt">Hosts · 8</button><button class="opt">Kids · 3</button></div>
+<label style="margin-top:var(--sp-3)">Or people</label><div class="opts"><button class="opt">Maya Okafor</button><button class="opt">Dev Shah</button><button class="opt">Tom Reyes</button><button class="opt">+ 19</button></div>
+<div class="ctl" style="margin-top:var(--sp-4)"><button class="primary">Send page to 6</button><span class="muted">2 of them have pages off</span></div></div>
+<div class="card"><h3>Sent today</h3><table class="dt"><thead><tr><th>Time</th><th>Page</th><th>Read</th></tr></thead><tbody>
+<tr><td class="mono">7:52</td><td>Production meeting at the back table in 5.</td><td><span class="badge ok">5 of 6</span></td></tr>
+<tr><td class="mono">7:30</td><td>Call time, Production. <span class="tag">call time</span></td><td><span class="badge warn">4 of 6</span></td></tr></tbody></table></div></div>
+<div class="card"><h3>Call times</h3><p class="lede">Page a Planning Center team on a schedule. A call time Relay misses by a minute is skipped, never sent late.</p>
+<div class="form"><div class="field"><label for="ctt">Team</label><select id="ctt"><option>Production</option><option>Worship</option><option>Hosts</option></select></div>
+<div class="field"><label>When</label><div class="seg"><button class="on">Before the service</button><button>Day and time</button></div></div>
+<div class="field"><label for="ctm">Minutes before</label><input id="ctm" type="number" value="90"><span class="hint">Before each of today's service times.</span></div>
+<div class="field"><label for="cts">What the page says</label><input id="cts" placeholder="Call time, Production"></div></div>
+<div class="ctl" style="margin-top:var(--sp-3)"><button class="primary">Add call time</button></div>
+<table class="dt" style="margin-top:var(--sp-4)"><thead><tr><th>Team</th><th>When</th><th>Says</th><th>Last sent</th><th></th></tr></thead><tbody>
+<tr><td>Production</td><td>90 min before</td><td>Call time, Production.</td><td class="mono">Today 7:30</td><td><button class="sm quiet">Remove</button></td></tr>
+<tr><td>Worship</td><td>75 min before</td><td>Worship, sound check.</td><td class="mono">Today 7:45</td><td><button class="sm quiet">Remove</button></td></tr>
+<tr><td>Hosts</td><td>Sunday 8:30</td><td>Doors open in 15.</td><td class="mono">Sun Nov 16</td><td><button class="sm quiet">Remove</button></td></tr></tbody></table></div>
+</div></div>
+
+<div class="pane" data-pane="lists"><div class="stack">
+<div class="card"><div class="between"><h3>Progress</h3><div class="gap"><label for="lp" style="margin:0">Service</label><select id="lp" style="width:260px"><option>Today 9:00 AM</option><option>Sun Nov 16, 9:00 AM</option></select></div></div>
+<table class="dt"><thead><tr><th>Name</th><th>Team</th><th>Checklist</th><th>Done</th></tr></thead><tbody>
+<tr><td>Maya Okafor</td><td>Production</td><td>Camera 2</td><td><div class="gap"><div class="bar8" style="width:120px"><i style="width:57%"></i></div>4 / 7</div></td></tr>
+<tr><td>Priya Nair</td><td>Production</td><td>Lyrics</td><td><div class="gap"><div class="bar8" style="width:120px"><i style="width:100%"></i></div>5 / 5</div></td></tr>
+<tr><td>Tom Reyes</td><td>Production</td><td>Audio</td><td><div class="gap"><div class="bar8" style="width:120px"><i style="width:0"></i></div>0 / 9</div></td></tr></tbody></table></div>
+<div class="cols c2"><div class="card"><h3>Checklists</h3><p class="lede">Written here or by team leads on their phone. Everyone sees their team's lists and the ones for everyone.</p>
+<div class="person"><span class="grow"><b>Camera 2</b><small>Production · 7 items</small></span><button class="sm">Edit</button></div>
+<div class="person"><span class="grow"><b>Audio</b><small>Production · 9 items</small></span><button class="sm">Edit</button></div>
+<div class="person"><span class="grow"><b>Everyone</b><small>All teams · 2 items</small></span><button class="sm">Edit</button></div>
+<button class="sm" style="margin-top:var(--sp-3)">New checklist</button></div>
+<div class="card"><h3>Team leads</h3><p class="lede">A lead writes checklists and resources for their own team from the phone.</p>
+<div class="ctl"><select style="width:180px"><option>Sam Ortiz</option></select><select style="width:160px"><option>Production</option></select><button>Make lead</button></div>
+<div class="person" style="margin-top:var(--sp-3)"><span class="avatar">SO</span><span class="grow"><b>Sam Ortiz</b><small>Production</small></span><button class="sm quiet">Remove</button></div>
+<div class="person"><span class="avatar">AR</span><span class="grow"><b>Ana Ruiz</b><small>Worship</small></span><button class="sm quiet">Remove</button></div></div></div>
+</div></div>
+
+<div class="pane" data-pane="people"><div class="stack">
+<div class="card"><div class="between"><h3>People</h3><button>Match names now</button></div><p class="lede">Give each person the role they fill. Relay matches names to Planning Center once it is sure and offers Planning Center's spelling.</p>
+<table class="dt"><thead><tr><th>Name</th><th>Role</th><th>Planning Center</th><th>Phones</th></tr></thead><tbody>
+<tr><td>Maya Okafor</td><td><input value="Camera 2" style="width:160px"></td><td><span class="badge ok">Matched</span></td><td>iPhone · Wi-Fi</td></tr>
+<tr><td>Dev Shah</td><td><input value="Camera 3" style="width:160px"></td><td><span class="badge ok">Matched</span></td><td>Pixel · Wi-Fi</td></tr>
+<tr><td>Tom Reyes</td><td><input value="Audio" style="width:160px"></td><td><span class="badge warn">Use "Thomas Reyes"?</span> <button class="sm">Use</button></td><td class="muted">None</td></tr></tbody></table></div>
+<div class="card"><h3>Wi-Fi check-in</h3><p class="lede">With UniFi on, a person is checked in when one of their devices joins the church network. People add their own phone from the crew page.</p>
+<div class="form"><div class="field"><label>Person</label><select><option>Tom Reyes</option></select></div><div class="field"><label>By</label><div class="seg"><button class="on">MAC address</button><button>Hostname</button></div></div><div class="field"><label>Value</label><input placeholder="3c:22:fb:5e:90:40"></div><div class="field"><label>Label</label><input placeholder="iPhone"></div></div>
+<div class="ctl" style="margin-top:var(--sp-3)"><button class="primary">Add device</button></div></div>
+</div></div>
+
+<div class="pane" data-pane="setup"><div class="stack">
+<div class="card"><h3>The page</h3><div class="form"><div class="field"><label for="nm">Name on the home screen</label><input id="nm" value="Grace Church Crew" maxlength="24"><span class="hint">Up to 24 characters.</span></div></div>
+<div class="setrow"><span>Show today's plan<small>From Planning Center, when it is on.</small></span><label class="switch"><input type="checkbox" checked><span class="slider"></span></label></div></div>
+<div class="cols c2"><div class="card"><h3>Check-in by location</h3><p class="lede">A phone on the church network checks in by itself. Away from it, a person can tap Check in inside this circle. Relay keeps no coordinates.</p>
+<div class="form"><div class="field"><label>Latitude</label><input value="41.8781"></div><div class="field"><label>Longitude</label><input value="-87.6298"></div><div class="field"><label>Radius, metres</label><input value="150"><span class="hint">20 to 5000.</span></div></div><button style="margin-top:var(--sp-3)">Use this computer's location</button></div>
+<div class="card"><h3>Sites allowed inside Resources</h3><p class="lede">Resources can embed pages only from these. Any other address is a plain link.</p><textarea rows="5" style="width:100%">youtube.com
+docs.google.com
+drive.google.com
+vimeo.com</textarea><span class="hint">One site per line; subdomains count.</span></div></div>
+<div class="card"><h3>Getting it on a phone</h3><div class="gap" style="gap:var(--sp-5);align-items:flex-start">
+<div class="qr" role="img" aria-label="QR code"><i></i><i></i><i></i><i class="w"></i><i></i><i class="w"></i><i></i><i></i><i></i><i></i><i class="w"></i><i></i><i></i><i class="w"></i><i></i><i></i><i class="w"></i><i></i><i></i><i></i><i></i><i class="w"></i><i></i><i class="w"></i><i></i><i></i><i></i><i class="w"></i><i></i><i class="w"></i><i></i><i></i><i></i><i class="w"></i><i></i><i class="w"></i><i></i><i class="w"></i><i></i><i></i><i class="w"></i><i></i><i></i><i class="w"></i><i></i><i></i><i></i><i class="w"></i><i></i><i class="w"></i><i></i><i></i><i></i><i></i><i class="w"></i><i></i><i></i><i></i><i class="w"></i><i></i><i class="w"></i><i></i><i></i><i></i><i class="w"></i><i></i><i></i><i class="w"></i><i></i><i></i><i class="w"></i><i></i><i></i><i></i><i></i><i class="w"></i><i></i><i></i><i></i><i></i></div>
+<div class="stack" style="flex:1;min-width:280px"><p class="lede" style="margin:0">Put the QR code on a screen or print it. It opens a join page that explains how to trust Relay, then the crew page.</p>
+<div class="linkbox"><span class="mono grow">http://192.168.1.20:8095/crew-join</span><button class="sm">Copy</button><button class="sm">Print</button></div>
+<div class="linkbox"><span class="mono grow">https://192.168.1.20/crew</span><button class="sm">Copy</button></div>
+<p class="hint">Never reachable through remote viewer access.</p></div></div></div>
+</div></div>
+</div></div>
+
+<nav class="mocknav"><a href="index.html">Index</a><a href="a-tabs.html" aria-current="page">A</a><a href="b-home.html">B</a><a href="c-teams.html">C</a></nav>
+<script src="common.js"></script></body></html>

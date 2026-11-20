@@ -1,6 +1,6 @@
-"""The calls this install makes to Relay's cloud (relay-cloud, a Cloudflare Worker at cloud.relaychurchsystems.com).
+"""The calls this install makes to Relay's cloud (relay-cloud, a Cloudflare Worker at cloud.relaysystems.dev).
 
-Enrolling spends an enrollment code and gives this install a tunnel and a viewer address <slug>.relaychurchsystems.com.
+Enrolling spends an enrollment code and gives this install a tunnel and a viewer address <slug>.cloud.relaysystems.dev.
 The install makes its own secret, sends it once, and proves itself with it afterwards; the cloud stores only a hash.
 The cloud holds the Cloudflare API token; this install only ever holds its own tunnel's token.
 
@@ -15,8 +15,12 @@ import urllib.request
 
 import certifi
 
+from ... import netsock
+
+TRAFFIC = "remote_access"   # calls to Relay's cloud and the tunnel go out through this class's port (#348)
+
 TIMEOUT_S = 30
-DEFAULT_URL = "https://cloud.relaychurchsystems.com"
+DEFAULT_URL = "https://cloud.relaysystems.dev"
 
 # What the operator reads for each kind of failure.
 MESSAGES = {
@@ -45,6 +49,8 @@ class CloudError(Exception):
 
     @property
     def message(self) -> str:
+        if self.kind == "network":   # names the network port when remote access is routed to one (#348)
+            return netsock.failure(TRAFFIC, MESSAGES["network"])
         return MESSAGES[self.kind]
 
 
@@ -60,7 +66,7 @@ def _call(base: str, method: str, path: str, body: dict | None = None, secret: s
         headers["Authorization"] = f"Bearer {secret}"
     req = urllib.request.Request(base.rstrip("/") + path, data=data, headers=headers, method=method)
     try:
-        with urllib.request.urlopen(req, timeout=TIMEOUT_S, context=_context()) as resp:
+        with netsock.urlopen(TRAFFIC, req, timeout=TIMEOUT_S, context=_context()) as resp:
             raw = resp.read()
     except urllib.error.HTTPError as exc:
         try:

@@ -58,7 +58,7 @@ SCANS = [
   Scan("gitleaks", "gitleaks", ["git", "--no-banner", "--redact", "-l", "error", "."], "brew install gitleaks"),
   Scan("actionlint", "actionlint", ["-color"], "brew install actionlint"),
   Scan("zizmor", "zizmor", ["--no-progress", ".github"], "brew install zizmor   (or: pip install zizmor==1.32.0)"),
-  Scan("cargo-deny", "cargo-deny", ["check"], "cargo install cargo-deny --locked --version 0.20.2",
+  Scan("cargo-deny", "cargo-deny", ["check"], "cargo install cargo-deny --locked --version 0.20.2   (CI installs the same version prebuilt)",
        cwd=ROOT / "desktop" / "src-tauri"),
 ]
 

@@ -1,0 +1,31 @@
+{# The Audio Mixers admin page (#150), rendered inside admin.html only while the module is on. #}
+    <h2 class="title">Audio Mixers <span class="sumstate" id="amSum"></span></h2>
+    <p class="sub">Your sound desks, live: channel names, mutes, faders and scenes, the sends into each mix, a
+      watchdog for changes nobody made through Relay, and mic names from Planning Center.</p>
+    <div class="note err" id="amErr" hidden></div>
+    <div id="amDesks"></div>
+    <section id="amNames" hidden>
+      <h3>Mic names from Planning Center</h3>
+      <p class="note">The next service's mics, from the Planning Center page's Team and mics tab, give each desk
+        channel the name of the person on it. Nothing goes to a desk until you confirm.</p>
+      <div class="ctl"><button type="button" id="amPreview">Preview names</button></div>
+      <div id="amNameRows"></div>
+    </section>
+    <section id="amWatch" hidden>
+      <h3>Watchdog</h3>
+      <p class="note">Save what each desk should look like, then pick who hears when a name, a watched mute or the
+        scene changes without Relay doing it. Their phone buzzes until they read it (Crew notifications).</p>
+      <div id="amWatchForm"></div>
+    </section>
+    <section id="amSetup" hidden>
+      <h3>Desks</h3>
+      <div id="amDeskForm"></div>
+      <div class="ctl">
+        <button type="button" id="amAdd">Add desk</button>
+        <button type="button" class="primary" id="amSave">Save</button>
+      </div>
+      <p class="note">Relay talks to each desk over its own control protocol (Allen &amp; Heath MIDI over TCP,
+        Behringer OSC, Yamaha RCP). These drivers are built from the published protocols and have not been tried on
+        a real desk yet: try them before a service. On macOS and Windows, allow incoming connections the first time
+        Relay asks; an X32 or WING answers over UDP.</p>
+    </section>

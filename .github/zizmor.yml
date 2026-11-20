@@ -6,3 +6,8 @@ rules:
       # write. Kept for build time; the shipped Python set is hash-pinned and the installers are signed.
       # Revisit by disabling the caches when ref_type is a tag.
       - release.yml
+  self-repository:
+    ignore:
+      # release.yml calls guide.yml as `./.github/workflows/guide.yml`, the form actionlint and the GitHub docs
+      # use; the call reads the workflow from the same commit either way.
+      - release.yml

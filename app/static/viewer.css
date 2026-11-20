@@ -290,7 +290,8 @@ body.overlay.overlay-matte .ov-label { color: #fff; }
 /* Narrow phones: the bar must never push the language picker off-screen. */
 #langPicker { max-width: 42vw; text-overflow: ellipsis; }
 @media (max-width: 520px) {
-  .bar { gap: 6px; padding: 7px 9px; font-size: 12px; }
+  /* The bar wraps to a second row rather than pushing A- and A+ (the text-size controls) off a 375px screen. */
+  .bar { gap: 6px; padding: 7px 9px; font-size: 12px; flex-wrap: wrap; }
   .bar a { padding: 4px 6px; }
   .bar select, .bar button { padding: 5px 7px; font-size: 12px; }
   .feed { padding: 20px 16px 45vh 16px; }

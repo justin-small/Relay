@@ -26,7 +26,7 @@ This is optional. Relay works fully without it.
 2. Press **Enroll**.
 
 After a few seconds the page shows your link, for example
-`https://k7m2p9qa.relaychurchsystems.com`, with a QR code. When it says
+`https://k7m2p9qa.cloud.relaysystems.dev`, with a QR code. When it says
 **Connected**, the link works from anywhere.
 
 Put the link or the QR code on a slide, in your livestream description or in

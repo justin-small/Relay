@@ -37,7 +37,7 @@ CODE_HTTPS = 4426
 def _stats(data: dict) -> dict:
     """A phone's receive statistics (packets lost, jitter, round trip), for the watchdog (#276): numbers only."""
     out = {}
-    for key in ("packets_lost", "jitter_ms", "rtt_ms", "tracks"):
+    for key in ("packets_lost", "packets_received", "jitter_ms", "rtt_ms", "tracks"):
         v = data.get(key)
         out[key] = v if isinstance(v, (int, float)) and not isinstance(v, bool) and 0 <= v < 1e9 else None
     return out
@@ -54,6 +54,10 @@ class Remote:
 
     async def allow(self, device: dict, user) -> bool:
         return True
+
+    def unavailable(self) -> int | None:
+        """A close code to answer with when the module cannot take phones just now (not a bad credential)."""
+        return None
 
     async def handle(self, conn: "Conn", data: dict) -> bool:
         return False
@@ -322,8 +326,13 @@ class Presence:
             except db.Unavailable:
                 await ws.close(code=1013, reason="try_again")
                 return None
-        if got is not None and remote is not None and not await remote.allow(got[0], got[1]):
-            got = None
+        if got is not None and remote is not None:
+            down = remote.unavailable()
+            if down is not None:       # the module is reconnecting: the phone retries, and keeps its sign-in
+                await ws.close(code=down, reason="link_lost")
+                return None
+            if not await remote.allow(got[0], got[1]):
+                got = None
         if got is None:
             self._too_many_bad(ip, True)
             await ws.close(code=CODE_BAD_CREDENTIAL, reason="sign_in_again")

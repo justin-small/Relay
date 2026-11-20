@@ -1,0 +1,5 @@
+/* The Remote access admin page (#463: moved out of its template). */
+/* A QR code needs a light quiet zone to scan, whatever the page's colours. */
+.ra-qr { width:120px; height:120px; padding:6px; background:var(--qr-bg); border-radius:var(--r-ctl); flex:none; }
+.ra-qr svg { width:100%; height:100%; display:block; }
+.ra-qr:empty { display:none; }

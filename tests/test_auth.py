@@ -344,10 +344,11 @@ MIN_ROLE = {
     "admin.open": "viewer", "alerts.send": "member",
     "session.view": "viewer", "session.control": "operator", "audio.manage": "admin", "targets.manage": "operator",
     "panels.view": "viewer", "panels.manage": "admin", "alerts.view": "viewer", "alerts.manage": "admin", "alerts.history": "admin",
-    "overlays.view": "viewer", "overlays.manage": "operator", "recordings.view": "operator",
-    "recordings.manage": "admin", "schedules.view": "viewer", "schedules.manage": "admin",
+    "overlays.view": "viewer", "overlays.manage": "operator", "boards.view": "member", "boards.manage": "admin", "recordings.view": "operator",
+    "recordings.manage": "admin", "schedules.view": "viewer", "schedules.manage": "admin", "screens.view": "viewer", "screens.manage": "admin",
     "blocklist.manage": "admin", "settings.view": "viewer", "settings.manage": "admin",
     "credentials.manage": "owner", "modules.view": "viewer", "modules.manage": "admin", "users.view": "admin",
+    "network.view": "viewer", "network.manage": "admin",
     "users.manage": "admin", "tokens.own": "admin", "tokens.manage": "owner", "audit.view": "admin",
     "planning_center.view": "viewer", "planning_center.control": "operator", "planning_center.manage": "admin",
     "propresenter.view": "viewer", "propresenter.control": "operator", "propresenter.manage": "admin",
@@ -357,8 +358,20 @@ MIN_ROLE = {
     "intercom_remote.view": "viewer", "intercom_remote.manage": "admin",
     "signage_web.view": "viewer", "signage_web.manage": "admin",
     "alert_events.view": "viewer", "alert_events.manage": "admin",
-    "atem.view": "viewer", "atem.control": "operator", "atem.manage": "admin",
+    "blackmagic.view": "viewer", "blackmagic.control": "operator", "blackmagic.manage": "admin",
+    "lighting.view": "viewer", "lighting.control": "operator", "lighting.manage": "admin",
+    "ndi.view": "viewer", "ndi.manage": "admin",
+    "obs.view": "viewer", "obs.control": "operator", "obs.manage": "admin",
+    "reaper.view": "viewer", "reaper.control": "operator", "reaper.manage": "admin",
+    "audio_mixers.view": "viewer", "audio_mixers.control": "operator", "audio_mixers.manage": "admin",
+    "youtube.view": "viewer", "youtube.publish": "operator", "youtube.manage": "admin",
+    "unifi.view": "viewer", "unifi.manage": "admin",
     "tally_arbiter.view": "viewer", "tally_arbiter.manage": "admin",
+    "open_sound_meter.view": "viewer", "open_sound_meter.manage": "admin",
+    "dante.view": "viewer", "dante.control": "operator", "dante.manage": "admin",
+    "talkback.view": "operator", "talkback.control": "operator", "talkback.manage": "admin",
+    "aes67.view": "viewer", "aes67.manage": "admin",
+    "prodmesh_rta.view": "viewer", "prodmesh_rta.manage": "admin",
     "parent_paging.view": "viewer", "parent_paging.control": "operator", "parent_paging.manage": "admin",
     "crew.use": "member", "crew.view": "viewer", "crew.manage": "admin", "crew.page": "operator", "crew.chat": "member", "crew.checkin": "member", "crew.checklist": "member", "crew.checklist_edit": "operator", "crew.resources": "member", "crew.resources_edit": "operator", "crew.moderate": "operator", "crew.activity": "operator",
 }
@@ -383,7 +396,7 @@ print("every /api/admin route")
 config.save({"modules": {"propresenter": {"enabled": True}, "planning_center": {"enabled": True},
                          "remote_access": {"enabled": True}, "signage": {"enabled": True},
                          "signage_web": {"enabled": True}, "alert_events": {"enabled": True},
-                         "atem": {"enabled": True}, "tally_arbiter": {"enabled": True},
+                         "blackmagic": {"enabled": True}, "lighting": {"enabled": True}, "ndi": {"enabled": True}, "obs": {"enabled": True}, "reaper": {"enabled": True}, "audio_mixers": {"enabled": True}, "youtube": {"enabled": True}, "unifi": {"enabled": True}, "tally_arbiter": {"enabled": True}, "open_sound_meter": {"enabled": True}, "dante": {"enabled": True}, "aes67": {"enabled": True}, "talkback": {"enabled": True}, "prodmesh_rta": {"enabled": True},
                          "parent_paging": {"enabled": True}, "intercom": {"enabled": True}, "intercom_remote": {"enabled": True},
                          "crew": {"enabled": True}}})
 
@@ -405,6 +418,15 @@ route("GET", "/api/admin/urls", "settings.view")
 route("GET", "/api/admin/status", "session.view")
 route("GET", "/api/admin/status/stream", "session.view")
 route("GET", "/api/admin/devices", "session.view")
+route("GET", "/api/admin/audiobus", "session.view")
+route("POST", "/api/admin/audiobus", "audio.manage")
+route("GET", "/api/admin/metering", "session.view")
+route("POST", "/api/admin/metering", "audio.manage")
+route("POST", "/api/admin/metering/calibrate", "audio.manage")
+route("GET", "/api/admin/mixreport", "session.view")
+route("POST", "/api/admin/mixreport", "audio.manage")
+route("GET", "/api/admin/mixreport/sessions/{sid}", "session.view")
+route("GET", "/api/admin/mixreport/sessions/{sid}/csv", "session.view")
 route("POST", "/api/admin/config", "settings.view")        # then per field, below
 route("POST", "/api/admin/target/{target}", "targets.manage")
 route("POST", "/api/admin/start", "session.control")
@@ -413,9 +435,36 @@ route("POST", "/api/admin/stop", "session.control")
 route("GET", "/api/admin/modules", "modules.view")
 route("POST", "/api/admin/modules/{mid}", "modules.manage")
 route("POST", "/api/admin/modules/{mid}/test", "modules.manage")
+# network ports (#347)
+route("GET", "/api/admin/network", "network.view")
+route("GET", "/api/admin/network/map", "network.view")
+route("POST", "/api/admin/network/map/labels", "network.manage")
+route("POST", "/api/admin/network/map/places", "network.manage")
+route("GET", "/api/admin/network/cables", "network.view")
+route("POST", "/api/admin/network/cables", "network.manage")
+route("POST", "/api/admin/network/cables/{cid}/note", "network.manage")
+route("DELETE", "/api/admin/network/cables/{cid}", "network.manage")
+route("GET", "/api/admin/network/channels", "network.view")
+route("POST", "/api/admin/network/channels/merge", "network.manage")
+route("POST", "/api/admin/network/channels/split", "network.manage")
+route("POST", "/api/admin/network/channels/decline", "network.manage")
+route("POST", "/api/admin/network/channels/{cid}/rename", "network.manage")
+route("POST", "/api/admin/network/ports/relay/{pid}/rename", "network.manage")
+route("POST", "/api/admin/network/channels/{cid}/note", "network.manage")
+route("DELETE", "/api/admin/network/channels/{cid}", "network.manage")
+route("GET", "/api/admin/routes", "network.view")
+route("POST", "/api/admin/routes", None)            # network.manage or the module's own (routing.may_route)
+route("POST", "/api/admin/routes/clear", None)
+route("POST", "/api/admin/routes/salvos", "network.manage")
+route("POST", "/api/admin/routes/salvos/{sid}/take", "network.manage")
+route("DELETE", "/api/admin/routes/salvos/{sid}", "network.manage")
+route("POST", "/api/admin/network/classes/{cid}", "network.manage")
+route("POST", "/api/admin/network/classes/{cid}/test", "network.manage")
+route("POST", "/api/admin/network/ports/{pid}/forget", "network.manage")
 # alerts
 route("GET", "/api/admin/alerts", "alerts.view")
 route("POST", "/api/admin/alerts", "alerts.manage")
+route("POST", "/api/admin/alerts/test", "alerts.manage")
 route("GET", "/api/admin/alerts/history", "alerts.history")
 # panels
 route("GET", "/api/admin/panels", "panels.view")
@@ -435,11 +484,33 @@ route("GET", "/api/admin/schedules", "schedules.view")
 route("POST", "/api/admin/schedules", "schedules.manage")
 route("PUT", "/api/admin/schedules/{sid}", "schedules.manage")
 route("DELETE", "/api/admin/schedules/{sid}", "schedules.manage")
+# screens and places
+route("GET", "/api/admin/screens", "screens.view")
+route("PUT", "/api/admin/screens/{sid}", "screens.manage")
+route("DELETE", "/api/admin/screens/{sid}", "screens.manage")
+route("PUT", "/api/admin/screens/{sid}/hold", "screens.manage")
+route("DELETE", "/api/admin/screens/{sid}/hold", "screens.manage")
+route("POST", "/api/admin/screens/{sid}/flash", "screens.manage")
+route("POST", "/api/admin/places", "screens.manage")
+route("PUT", "/api/admin/places/{pid}", "screens.manage")
+route("DELETE", "/api/admin/places/{pid}", "screens.manage")
+route("POST", "/api/admin/places/{pid}/flash", "screens.manage")
 # overlays
 route("GET", "/api/admin/overlays", "overlays.view")
 route("POST", "/api/admin/overlays", "overlays.manage")
 route("PUT", "/api/admin/overlays/{oid}", "overlays.manage")
 route("DELETE", "/api/admin/overlays/{oid}", "overlays.manage")
+route("GET", "/api/admin/boards", "boards.view")
+route("POST", "/api/admin/boards", "boards.manage")
+route("PUT", "/api/admin/boards/{bid}", "boards.manage")
+route("DELETE", "/api/admin/boards/{bid}", "boards.manage")
+route("POST", "/api/admin/boards/{bid}/duplicate", "boards.manage")
+route("GET", "/api/admin/boards/{bid}/export", "boards.view")
+route("POST", "/api/admin/boards/import", "boards.manage")
+route("GET", "/api/admin/boards/live", "boards.view")
+route("PUT", "/api/admin/boards/{bid}/screens/{sid}", "boards.manage")
+route("POST", "/api/admin/boards/{bid}/reload", "boards.manage")
+route("POST", "/api/admin/boards/{bid}/page", "boards.manage")
 # recordings
 route("GET", "/api/admin/recordings", "recordings.view")
 route("GET", "/api/admin/recordings/{run_id}", "recordings.view")
@@ -456,6 +527,13 @@ route("DELETE", "/api/admin/users/{user_id}", "users.manage")
 route("GET", "/api/admin/trusted-devices", "users.view")
 route("POST", "/api/admin/trusted-devices", "users.manage")
 route("DELETE", "/api/admin/trusted-devices/{device_id}", "users.manage")
+route("GET", "/api/admin/phones", "users.view")
+route("PUT", "/api/admin/phones/{phone_id}", "users.manage")
+route("DELETE", "/api/admin/phones/{phone_id}", "users.manage")
+route("POST", "/api/admin/phones/{phone_id}/merge", "users.manage")
+route("GET", "/api/admin/me/phones", None)
+route("PUT", "/api/admin/me/phones/{phone_id}", None)
+route("DELETE", "/api/admin/me/phones/{phone_id}", None)
 # API tokens (#174)
 route("GET", "/api/admin/me/tokens", "tokens.own")
 route("POST", "/api/admin/me/tokens", "tokens.own")
@@ -474,12 +552,16 @@ route("GET", "/api/admin/audit", "audit.view")
 PCX, PPX, RAX = "/api/admin/planning-center", "/api/admin/propresenter", "/api/admin/remote-access"
 SGX = "/api/admin/signage"
 SWX = "/api/admin/signage-web"
-ATX = "/api/admin/atem"
+ATX = "/api/admin/blackmagic"
 TAX = "/api/admin/tally-arbiter"
 PGX = "/api/admin/parent-paging"
 for method, path, perm in (
     ("GET", "/api/admin/intercom", "intercom.view"),
     ("POST", "/api/admin/intercom/restart", "intercom.manage"),
+    ("GET", "/api/admin/intercom/health", "intercom.view"),
+    ("PUT", "/api/admin/intercom/health/thresholds", "intercom.manage"),
+    ("GET", "/api/admin/intercom/events", "intercom.view"),
+    ("GET", "/api/admin/intercom/events.csv", "intercom.view"),
     ("GET", "/api/admin/intercom/phones", "intercom.manage"),
     ("POST", "/api/admin/intercom/phones/signout-all", "intercom.manage"),
     ("POST", "/api/admin/intercom/phones/{device_id}/rename", "intercom.manage"),
@@ -548,10 +630,13 @@ for method, path, perm in (
     ("PUT", "/api/admin/crew/people/{user_id}/role", "crew.manage"),
     ("POST", "/api/admin/crew/people/{user_id}/name", "crew.manage"),
     ("DELETE", "/api/admin/crew/people/{user_id}/match", "crew.manage"),
-    ("GET", "/api/admin/crew/pages", "crew.page"),
-    ("POST", "/api/admin/crew/pages", "crew.page"),                       # an empty body is refused
+    ("GET", "/api/admin/crew/notifications", "crew.page"),
+    ("POST", "/api/admin/crew/notifications", "crew.page"),                       # an empty body is refused
     ("GET", "/api/admin/crew/arrivals", "crew.page"),
     ("DELETE", "/api/admin/crew/arrivals", "crew.page"),
+    ("GET", "/api/admin/crew/devices", "crew.view"),
+    ("POST", "/api/admin/crew/devices", "crew.manage"),                   # an empty body is refused
+    ("DELETE", "/api/admin/crew/devices/{device_id}", "crew.manage"),
     ("GET", "/api/admin/crew/checklists", "crew.page"),
     ("GET", "/api/admin/crew/checklist-leads", "crew.checklist_edit"),
     ("POST", "/api/admin/crew/checklist-leads", "crew.checklist_edit"),   # an empty body is refused
@@ -562,15 +647,106 @@ for method, path, perm in (
     ("DELETE", "/api/admin/crew/calltimes/{rule_id}", "crew.manage"),
     ("POST", "/api/admin/alert-events/test", "alert_events.manage"),      # sends to nothing until something is on
     ("GET", "/api/admin/alert-events/state", "alert_events.view"),
-    ("GET", ATX, "atem.view"),
-    ("PUT", ATX + "/settings", "atem.manage"),                           # an empty body clears the address
-    ("POST", ATX + "/cut", "atem.control"),                              # no switcher connected: nothing is sent
-    ("POST", ATX + "/auto", "atem.control"),
-    ("POST", ATX + "/fade-to-black", "atem.control"),
-    ("POST", ATX + "/program", "atem.control"),
-    ("POST", ATX + "/preview", "atem.control"),
-    ("POST", ATX + "/downstream-key", "atem.control"),
-    ("POST", ATX + "/macro", "atem.control"),
+    ("GET", ATX, "blackmagic.view"),
+    ("POST", ATX + "/devices", "blackmagic.manage"),                           # an empty body is refused
+    ("PUT", ATX + "/devices/{device_id}", "blackmagic.manage"),                # no such switcher: 404
+    ("DELETE", ATX + "/devices/{device_id}", "blackmagic.manage"),
+    ("POST", ATX + "/scan", "blackmagic.manage"),
+    ("POST", ATX + "/order", "blackmagic.manage"),                             # not every device listed: 400
+    ("POST", ATX + "/notes", "blackmagic.manage"),                             # no such device: 404
+    ("POST", ATX + "/cables", "blackmagic.manage"),                            # no ends: 400
+    ("DELETE", ATX + "/cables/{cable_id}", "blackmagic.manage"),               # no such cable: 404                              # mDNS only: asks, never connects
+    ("POST", ATX + "/cut", "blackmagic.control"),                              # no switcher connected: nothing is sent
+    ("POST", ATX + "/auto", "blackmagic.control"),
+    ("POST", ATX + "/fade-to-black", "blackmagic.control"),
+    ("POST", ATX + "/program", "blackmagic.control"),
+    ("POST", ATX + "/preview", "blackmagic.control"),
+    ("POST", ATX + "/downstream-key", "blackmagic.control"),
+    ("POST", ATX + "/macro", "blackmagic.control"),
+    ("POST", ATX + "/hyperdeck/{action}", "blackmagic.control"),               # record, stop or play; no deck: nothing is sent
+    ("POST", ATX + "/videohub/route", "blackmagic.control"),                   # no Videohub connected: nothing is sent
+    ("POST", ATX + "/videohub/labels", "blackmagic.manage"),
+    ("POST", ATX + "/videohub/lock", "blackmagic.manage"),
+    ("POST", ATX + "/videohub/presets", "blackmagic.manage"),
+    ("DELETE", ATX + "/videohub/presets/{device_id}/{preset_id}", "blackmagic.manage"),
+    ("POST", ATX + "/videohub/presets/apply", "blackmagic.control"),
+    ("GET", "/api/admin/lighting", "lighting.view"),
+    ("PUT", "/api/admin/lighting/settings", "lighting.manage"),         # an empty body changes nothing
+    ("PUT", "/api/admin/lighting/pages", "lighting.manage"),            # an empty body is refused
+    ("PUT", "/api/admin/lighting/pages/{page_id}/screen", "lighting.manage"),   # no such page: 404
+    ("GET", "/api/admin/lighting/pages/{page_id}/link", "lighting.manage"),     # no such page: 404
+    ("POST", "/api/admin/lighting/test", "lighting.manage"),            # no program chosen: nothing is sent
+    ("POST", "/api/admin/lighting/press", "lighting.control"),          # no cue named: refused
+    ("POST", "/api/admin/lighting/release", "lighting.control"),
+    ("POST", "/api/admin/lighting/level", "lighting.control"),           # no cue named: refused
+    ("GET", "/api/admin/ndi", "ndi.view"),
+    ("PUT", "/api/admin/ndi/settings", "ndi.manage"),                   # an empty body changes nothing
+    ("POST", "/api/admin/ndi/scan", "ndi.manage"),                      # not running: refused, nothing is sent
+    ("PUT", "/api/admin/ndi/outputs", "ndi.manage"),                    # an empty body changes nothing
+    ("PUT", "/api/admin/ndi/tests", "ndi.manage"),                      # an empty body changes nothing
+    ("PUT", "/api/admin/ndi/tests/{tid}/image", "ndi.manage"),          # no such test source: refused
+    ("POST", "/api/admin/ndi/router/outputs", "ndi.manage"),            # no name: refused
+    ("DELETE", "/api/admin/ndi/router/outputs/{oid}", "ndi.manage"),    # no such output: refused
+    ("PUT", "/api/admin/ndi/router/outputs/{oid}/source", "ndi.manage"),
+    ("POST", "/api/admin/ndi/router/salvos", "ndi.manage"),             # no name: refused
+    ("DELETE", "/api/admin/ndi/router/salvos/{sid}", "ndi.manage"),
+    ("POST", "/api/admin/ndi/router/salvos/{sid}/take", "ndi.manage"),
+    ("POST", "/api/admin/ndi/analysis/open", "ndi.view"),               # no such source: refused
+    ("GET", "/api/admin/ndi/analysis", "ndi.view"),                     # needs ?source=; not open: refused
+    ("DELETE", "/api/admin/ndi/analysis", "ndi.view"),
+    ("POST", "/api/admin/ndi/analysis/reset", "ndi.view"),              # not open: refused
+    ("POST", "/api/admin/ndi/analysis/record", "ndi.manage"),           # seconds are checked, no such source: refused
+    ("POST", "/api/admin/ndi/analysis/record/stop", "ndi.manage"),
+    ("GET", "/api/admin/ndi/analysis/recording", "ndi.view"),           # needs ?source=
+    ("GET", "/api/admin/youtube", "youtube.view"),
+    ("PUT", "/api/admin/youtube/settings", "youtube.manage"),             # an empty body changes nothing
+    ("POST", "/api/admin/youtube/check", "youtube.manage"),               # not connected: nothing is sent
+    ("GET", "/api/admin/youtube/account", "youtube.view"),
+    ("POST", "/api/admin/youtube/account/connect", "youtube.manage"),     # no Google app set: refused, nothing sent
+    ("POST", "/api/admin/youtube/account/cancel", "youtube.manage"),
+    ("POST", "/api/admin/youtube/account/disconnect", "youtube.manage"),  # not connected: nothing to revoke
+    ("GET", "/api/admin/youtube/schedule", "youtube.view"),
+    ("PUT", "/api/admin/youtube/schedule", "youtube.manage"),             # an empty body changes nothing
+    ("POST", "/api/admin/youtube/schedule/check", "youtube.manage"),      # not connected: nothing is sent
+    ("GET", "/api/admin/youtube/streams", "youtube.manage"),              # not connected: refused, nothing sent
+    ("GET", "/api/admin/youtube/publishing", "youtube.manage"),           # Planning Center not connected: refused
+    ("GET", "/api/admin/youtube/publishing/{channel_id}/episodes", "youtube.manage"),
+    ("PUT", "/api/admin/youtube/links", "youtube.manage"),                # an empty body: no links
+    ("POST", "/api/admin/youtube/links/{link_id}/send", "youtube.publish"),       # no such link: nothing sent
+    ("GET", "/api/admin/unifi", "unifi.view"),
+    ("PUT", "/api/admin/unifi/settings", "unifi.manage"),                 # no console set: nothing is sent
+    ("POST", "/api/admin/unifi/trust", "unifi.manage"),                   # nothing shown to trust: refused
+    ("DELETE", "/api/admin/unifi/trust", "unifi.manage"),
+    ("POST", "/api/admin/unifi/check", "unifi.manage"),
+    ("POST", "/api/admin/unifi/refresh", "unifi.view"),
+    ("GET", "/api/admin/unifi/history", "unifi.view"),
+    ("GET", "/api/admin/obs", "obs.view"),
+    ("PUT", "/api/admin/obs/settings", "obs.manage"),                     # an empty body is refused
+    ("POST", "/api/admin/obs/test", "obs.manage"),                        # no computer named: nothing is sent
+    ("POST", "/api/admin/obs/scene", "obs.control"),                      # no computer named: 404
+    ("GET", "/api/admin/obs/preview/{machine_id}", "obs.view"),           # no such computer: 404
+    ("PUT", "/api/admin/obs/screen/{machine_id}", "obs.manage"),          # no such computer: 404
+    ("GET", "/api/admin/obs/screen/{machine_id}", "obs.manage"),
+    ("POST", "/api/admin/obs/output", "obs.control"),                     # no computer named: 404
+    ("POST", "/api/admin/obs/studio", "obs.control"),
+    ("POST", "/api/admin/obs/mute", "obs.control"),
+    ("GET", "/api/admin/obs/audio/{machine_id}", "obs.view"),             # no such computer: 404
+    ("GET", "/api/admin/reaper", "reaper.view"),
+    ("PUT", "/api/admin/reaper/settings", "reaper.manage"),               # an empty body is refused
+    ("POST", "/api/admin/reaper/test", "reaper.manage"),                  # no computer named: nothing is sent
+    ("POST", "/api/admin/reaper/record", "reaper.control"),               # no computer answers: 502
+    ("POST", "/api/admin/reaper/stop", "reaper.control"),
+    ("POST", "/api/admin/reaper/marker", "reaper.control"),
+    ("POST", "/api/admin/reaper/action", "reaper.control"),               # no action number: refused
+    ("POST", "/api/admin/reaper/track", "reaper.control"),                # no computer named: 404
+    ("GET", "/api/admin/audio_mixers", "audio_mixers.view"),
+    ("GET", "/api/admin/audio_mixers/wait", "audio_mixers.view"),         # a long poll: answers at once on a new version
+    ("PUT", "/api/admin/audio_mixers/settings", "audio_mixers.manage"),   # an empty body is refused
+    ("POST", "/api/admin/audio_mixers/{did}/control", "audio_mixers.control"),   # no such desk: 404
+    ("POST", "/api/admin/audio_mixers/{did}/baseline", "audio_mixers.manage"),
+    ("GET", "/api/admin/audio_mixers/people", "audio_mixers.manage"),
+    ("GET", "/api/admin/audio_mixers/names", "audio_mixers.control"),     # Planning Center off: a sentence, nothing sent
+    ("POST", "/api/admin/audio_mixers/names", "audio_mixers.control"),    # no rows: refused
     ("GET", PGX, "parent_paging.view"),
     ("PUT", PGX + "/settings", "parent_paging.manage"),                 # an empty body changes nothing
     ("GET", PGX + "/locations", "parent_paging.manage"),                # Planning Center is not set up: refused
@@ -584,6 +760,29 @@ for method, path, perm in (
     ("POST", PGX + "/pages/clear", "parent_paging.control"),
     ("GET", TAX, "tally_arbiter.view"),
     ("PUT", TAX + "/settings", "tally_arbiter.manage"),                  # an empty body clears the address
+    ("GET", "/api/admin/open-sound-meter", "open_sound_meter.view"),
+    ("PUT", "/api/admin/open-sound-meter/settings", "open_sound_meter.manage"),
+    ("GET", "/api/admin/dante", "dante.view"),
+    ("POST", "/api/admin/dante/scan", "dante.manage"),
+    ("GET", "/api/admin/dante/history", "dante.view"),
+    ("POST", "/api/admin/dante/star", "dante.manage"),
+    ("GET", "/api/admin/dante/routing", "dante.view"),
+    ("POST", "/api/admin/dante/routing/subscribe", "dante.control"),
+    ("POST", "/api/admin/dante/routing/undo", "dante.control"),
+    ("POST", "/api/admin/dante/routing/lock", "dante.manage"),
+    ("POST", "/api/admin/dante/presets", "dante.manage"),
+    ("DELETE", "/api/admin/dante/presets/{preset_id}", "dante.manage"),
+    ("GET", "/api/admin/dante/presets/{preset_id}/compare", "dante.view"),
+    ("POST", "/api/admin/dante/presets/{preset_id}/apply", "dante.control"),
+    ("GET", "/api/admin/aes67", "aes67.view"),
+    ("POST", "/api/admin/aes67/remember", "aes67.manage"),
+    ("GET", "/api/admin/talkback", "talkback.view"),
+    ("PUT", "/api/admin/talkback/settings", "talkback.manage"),
+    ("POST", "/api/admin/talkback/start", "talkback.control"),       # no lane chosen: refused
+    ("POST", "/api/admin/talkback/stop", "talkback.control"),
+    ("POST", "/api/admin/talkback/restart", "talkback.control"),
+    ("GET", "/api/admin/prodmesh-rta", "prodmesh_rta.view"),
+    ("PUT", "/api/admin/prodmesh-rta/settings", "prodmesh_rta.manage"),
 ):
     route(method, path, perm)
 for method, path, perm in (
@@ -689,7 +888,7 @@ for m, p, rt in found:
 check("each route's dependency asks for the permission in the table", not mismatch, mismatch[:5])
 
 # GETs that are safe to run for real (no hardware, no side effects), to see "allowed" really allowed.
-SAFE_GET = {"/api/admin/me", "/api/admin/state", "/api/admin/status", "/api/admin/modules", "/api/admin/alerts",
+SAFE_GET = {"/api/admin/me", "/api/admin/state", "/api/admin/status", "/api/admin/modules", "/api/admin/network", "/api/admin/network/map", "/api/admin/alerts",
             "/api/admin/panels", "/api/admin/panels/firmware", "/api/admin/schedules", "/api/admin/overlays",
             "/api/admin/recordings", "/api/admin/users", "/api/admin/trusted-devices",
             "/api/admin/me/tokens", "/api/admin/tokens", "/api/admin/me/prefs",
@@ -757,7 +956,7 @@ eq("signed out is 401", anon_c.get("/api/admin/propresenter").status_code, 401)
 config.save({"modules": {"propresenter": {"enabled": False}, "planning_center": {"enabled": False},
                          "remote_access": {"enabled": False}, "signage": {"enabled": False},
                          "signage_web": {"enabled": False}, "alert_events": {"enabled": False},
-                         "atem": {"enabled": False}, "tally_arbiter": {"enabled": False},
+                         "blackmagic": {"enabled": False}, "lighting": {"enabled": False}, "ndi": {"enabled": False}, "obs": {"enabled": False}, "reaper": {"enabled": False}, "audio_mixers": {"enabled": False}, "youtube": {"enabled": False}, "unifi": {"enabled": False}, "tally_arbiter": {"enabled": False}, "open_sound_meter": {"enabled": False}, "dante": {"enabled": False}, "aes67": {"enabled": False}, "talkback": {"enabled": False}, "prodmesh_rta": {"enabled": False},
                          "parent_paging": {"enabled": False}, "intercom": {"enabled": False}, "intercom_remote": {"enabled": False},
                          "crew": {"enabled": False}}})
 eq("a module that is off is still a 404 for everyone", op_c.get("/api/admin/propresenter").status_code, 404)
@@ -1111,10 +1310,11 @@ fresh()
 print("API tokens")
 NO_TOKENS = {("POST", "/api/admin/me/password"), ("POST", "/api/admin/me/pin"), ("DELETE", "/api/admin/me/pin"),
              ("GET", "/api/admin/me/tokens"), ("POST", "/api/admin/me/tokens"),
-             ("DELETE", "/api/admin/me/tokens/{token_id}")}
+             ("DELETE", "/api/admin/me/tokens/{token_id}"), ("GET", "/api/admin/me/phones"),
+             ("PUT", "/api/admin/me/phones/{phone_id}"), ("DELETE", "/api/admin/me/phones/{phone_id}")}
 refusing = {(m, p) for m, p, rt in found
             if any(getattr(d.call, "tokens", True) is False for d in rt.dependant.dependencies)}
-eq("exactly the signed-in user's own password, PIN and token routes refuse tokens", refusing, NO_TOKENS)
+eq("exactly the signed-in user's own password, PIN, token and phone routes refuse tokens", refusing, NO_TOKENS)
 
 
 def bearer(secret, base=ADMIN):
@@ -1263,8 +1463,8 @@ class Fake(Module):
     manifest = Manifest(id="fake", name="Fake", version="1.0.0", summary="Made up for this test.", settings_key="fake_s")
     permissions = (users.Permission("fake.view", "See it", "Fake", "viewer"),
                    users.Permission("fake.manage", "Change it", "Fake", "admin"))
-    admin_pages = (modmod.AdminPage(id="fakeview", title="Fake", template="x.html", group="Output"),
-                   modmod.AdminPage(id="fakeset", title="Fake settings", template="y.html", group="Settings",
+    admin_pages = (modmod.AdminPage(id="fakeview", title="Fake", template="x.html"),
+                   modmod.AdminPage(id="fakeset", title="Fake settings", template="y.html",
                                     permission="fake.manage"))
     admin_scripts = ("fake.js",)
 
@@ -1276,11 +1476,11 @@ Fake.permissions = (users.Permission("other.view", "x", "x", "viewer"),)
 check("a permission outside the module's id is rejected", any("must start with 'fake.'" in p for p in modmod.validate(Fake(), "fake")))
 Fake.permissions = (users.Permission("fake.view", "See it", "Fake", "viewer"),
                     users.Permission("fake.manage", "Change it", "Fake", "admin"))
-Fake.admin_pages = (modmod.AdminPage(id="fakeview", title="Fake", template="x.html", group="Output", permission="fake.nope"),)
+Fake.admin_pages = (modmod.AdminPage(id="fakeview", title="Fake", template="x.html", permission="fake.nope"),)
 check("a page needing an undeclared permission is rejected", any("fake.nope" in p for p in modmod.validate(Fake(), "fake")))
 Fake.admin_pages = fake.admin_pages = (
-    modmod.AdminPage(id="fakeview", title="Fake", template="x.html", group="Output"),
-    modmod.AdminPage(id="fakeset", title="Fake settings", template="y.html", group="Settings", permission="fake.manage"))
+    modmod.AdminPage(id="fakeview", title="Fake", template="x.html"),
+    modmod.AdminPage(id="fakeset", title="Fake settings", template="y.html", permission="fake.manage"))
 users.register(Fake.permissions)
 eq("registered with users", {"fake.view", "fake.manage"} <= {p.id for p in users.catalogue()}, True)
 eq("…at the right ranks", (users.User(0, "a", "A", "viewer", False, False, False).can("fake.view"),
@@ -1293,14 +1493,15 @@ registry.enabled = lambda mid: mid == "fake"
 try:
     def U(role):
         return users.User(0, role, role, role, False, False, False)
-    eq("viewer: only the page it may see",
-       {g: [p["id"] for p in ps] for g, ps in registry.admin_nav(U("viewer")).items()}, {"Output": ["fakeview"]})
-    eq("admin: both pages", sorted(p["id"] for ps in registry.admin_nav(U("admin")).values() for p in ps), ["fakeset", "fakeview"])
-    eq("no user: everything (for code without one)", sorted(p["id"] for ps in registry.admin_nav().values() for p in ps),
+    eq("viewer: one entry, with only the page it may see",
+       [(m["id"], [p["id"] for p in m["pages"]]) for m in registry.admin_nav(U("viewer"))], [("fake", ["fakeview"])])
+    eq("admin: both pages under the one entry", [sorted(p["id"] for p in m["pages"]) for m in registry.admin_nav(U("admin"))],
+       [["fakeset", "fakeview"]])
+    eq("no user: everything (for code without one)", sorted(p["id"] for m in registry.admin_nav() for p in m["pages"]),
        ["fakeset", "fakeview"])
+    eq("no section: listed under Modules", registry.admin_nav()[0]["section"], "Modules")
     eq("viewer: the module's script, since a page is visible", registry.admin_scripts(U("viewer")), ["fake/fake.js"])
-    Fake.admin_pages = fake.admin_pages = (modmod.AdminPage(id="fakeset", title="Fake settings", template="y.html",
-                                                            group="Settings", permission="fake.manage"),)
+    Fake.admin_pages = fake.admin_pages = (modmod.AdminPage(id="fakeset", title="Fake settings", template="y.html", permission="fake.manage"),)
     eq("viewer: no visible page, no script", registry.admin_scripts(U("viewer")), [])
     eq("admin: the script", registry.admin_scripts(U("admin")), ["fake/fake.js"])
 finally:
@@ -1315,8 +1516,21 @@ for mid, want in (("planning_center", {"planning_center.view": "viewer", "planni
                   ("signage", {"signage.view": "viewer", "signage.manage": "admin"}),
                   ("signage_web", {"signage_web.view": "viewer", "signage_web.manage": "admin"}),
                   ("alert_events", {"alert_events.view": "viewer", "alert_events.manage": "admin"}),
-                  ("atem", {"atem.view": "viewer", "atem.control": "operator", "atem.manage": "admin"}),
+                  ("blackmagic", {"blackmagic.view": "viewer", "blackmagic.control": "operator", "blackmagic.manage": "admin"}),
+                  ("lighting", {"lighting.view": "viewer", "lighting.control": "operator", "lighting.manage": "admin"}),
+                  ("ndi", {"ndi.view": "viewer", "ndi.manage": "admin"}),
+                  ("obs", {"obs.view": "viewer", "obs.control": "operator", "obs.manage": "admin"}),
+                  ("reaper", {"reaper.view": "viewer", "reaper.control": "operator", "reaper.manage": "admin"}),
+                  ("audio_mixers", {"audio_mixers.view": "viewer", "audio_mixers.control": "operator",
+                                    "audio_mixers.manage": "admin"}),
+                  ("youtube", {"youtube.view": "viewer", "youtube.publish": "operator", "youtube.manage": "admin"}),
+                  ("unifi", {"unifi.view": "viewer", "unifi.manage": "admin"}),
                   ("tally_arbiter", {"tally_arbiter.view": "viewer", "tally_arbiter.manage": "admin"}),
+                  ("open_sound_meter", {"open_sound_meter.view": "viewer", "open_sound_meter.manage": "admin"}),
+                  ("dante", {"dante.view": "viewer", "dante.control": "operator", "dante.manage": "admin"}),
+                  ("aes67", {"aes67.view": "viewer", "aes67.manage": "admin"}),
+                  ("talkback", {"talkback.view": "operator", "talkback.control": "operator", "talkback.manage": "admin"}),
+                  ("prodmesh_rta", {"prodmesh_rta.view": "viewer", "prodmesh_rta.manage": "admin"}),
                   ("parent_paging", {"parent_paging.view": "viewer", "parent_paging.control": "operator",
                                      "parent_paging.manage": "admin"}),
                   ("crew", {"crew.use": "member", "crew.view": "viewer", "crew.manage": "admin", "crew.page": "operator", "crew.chat": "member", "crew.checkin": "member",

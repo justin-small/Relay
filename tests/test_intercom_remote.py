@@ -372,7 +372,9 @@ with TestClient(app, base_url=viewer) as client:
                 ws.receive_text()
                 check("nobody connects while the link is down", False)
             except WebSocketDisconnect as e:
-                eq("nobody connects while the link is down", e.code, 4401)
+                # Not 4401: that tells the phone to sign in again and it throws its saved credential away (#277).
+                eq("nobody connects while the link is down, and is told to retry, not to sign in again", e.code,
+                   remote.CODE_LINK_LOST)
         bridge._set("connected", "Connected to Cloudflare")
 
     with section("taking remote access away signs the phones out"):

@@ -1,0 +1,31 @@
+{# A tab of the Network page (#358, the network redesign): Wi-Fi, who is on the network, and who joined and left. unifi.js fills it; the panel's own pieces only. #}
+    <p class="note ufnotlive" hidden>UniFi is not connected yet. Set it up on the UniFi console tab.</p>
+    <section id="ufWifiSect" hidden>
+      <h3>Wi-Fi</h3>
+      <div class="tablescroll"><table class="tbl" id="ufRadios">
+        <thead><tr><th>Access point</th><th>Band</th><th>Channel</th><th>Clients</th><th>Busy</th><th>Retries</th><th>Other networks on it</th></tr></thead>
+        <tbody></tbody>
+      </table></div>
+      <p class="note" id="ufWeak"></p>
+    </section>
+    <section id="ufClientsSect" hidden>
+      <h3>On the network <span class="muted" id="ufCount"></span></h3>
+      <div class="row" style="align-items:center;gap:12px">
+        <div class="field"><label for="ufFilter">Find</label>
+          <input id="ufFilter" placeholder="Name, address or MAC" autocomplete="off" spellcheck="false"></div>
+      </div>
+      <div class="tablescroll"><table class="tbl" id="ufClients">
+        <thead><tr><th>Device</th><th>Address</th><th>MAC</th><th>Where</th><th>Since</th></tr></thead>
+        <tbody></tbody>
+      </table></div>
+    </section>
+    <section id="ufEventsSect" hidden>
+      <h3>Joins and leaves</h3>
+      <p class="note" id="ufEventsNote">Since Relay started reading the console. A phone that drops off for less than
+        the "counts as gone after" time is not a leave.</p>
+      <div class="tablescroll"><table class="tbl" id="ufEvents">
+        <thead><tr><th>When</th><th></th><th>Device</th><th>Where</th></tr></thead>
+        <tbody></tbody>
+      </table></div>
+      <p class="note" id="ufNoEvents">Nothing yet.</p>
+    </section>

@@ -1,0 +1,16 @@
+/* The Intercom admin pages (#463: moved out of the template). */
+#icLive .ic-warn{color:var(--warn);font-weight:600}
+#icLive .ic-bad{color:var(--err);font-weight:700}
+#icHealth .ic-cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:10px;margin:8px 0 12px}
+#icHealth .ic-card{border:1px solid var(--border);border-radius:var(--r-ctl);padding:10px 12px}
+#icHealth .ic-card b{display:block;margin-bottom:4px}
+#icHealth .ic-card .st{font-size:var(--fs-sm);text-transform:uppercase;letter-spacing:.04em;font-weight:700}
+#icHealth .ic-card.ok .st{color:var(--ok)}
+#icHealth .ic-card.warn{border-color:var(--warn)}
+#icHealth .ic-card.warn .st{color:var(--warn)}
+#icHealth .ic-card.error{border-color:var(--err)}
+#icHealth .ic-card.error .st{color:var(--err)}
+#icHealth .ic-card.idle .st{opacity:.6}
+#icHealth .ic-th{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:6px 16px}
+#icHealth .ic-th label{display:flex;justify-content:space-between;gap:8px;align-items:center}
+#icHealth .ic-th input{width:6em}

@@ -24,7 +24,7 @@
   const INPUT = {
     off: ['Off', ''], lost: ['Lost', 'err'], clipping: ['Clipping', 'err'], silent: ['Silent', 'warn'], ok: ['OK', 'ok'],
   };
-  const HEALTH = { ok: 'healthy', warn: 'needs a look', error: 'trouble', idle: 'not connected' };
+  const HEALTH = { ok: 'healthy', warn: 'needs a look', error: 'trouble', idle: 'standing by' };
 
   function paint() {
     if (!state) return;

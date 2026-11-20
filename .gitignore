@@ -37,3 +37,16 @@ docker-config/
 .coverage.*
 htmlcov/
 test-results.xml
+
+
+# UniFi live-test credentials (tools/check_unifi.py)
+unifi-test.env
+
+# UI audit findings, screenshots and demo harness (local only)
+docs/ui-audit/*
+# The shared-style exceptions (#463) are committed; the rest of the audit stays local.
+!docs/ui-audit/standardization-spec.md
+
+# Mixing console snapshots and site mockups (local only)
+board configs/
+site/mockups/

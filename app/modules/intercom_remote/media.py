@@ -151,6 +151,31 @@ class _Mic:
         self.task: asyncio.Task | None = None
 
 
+def _relay_when_turn() -> None:
+    """Make aiortc connections that were given a TURN server use only relayed candidates (once, for this process).
+
+    aiortc cannot ask for relay-only ICE. Left alone, the bridge nominates the first pair that answers: a direct
+    UDP pair to Cloudflare that answers STUN but never completes DTLS on some networks (measured on the venue LAN:
+    DTLS timed out in 20 s on 2 of 2 tries with TURN offered but not required, and connected in 0.4 s on 3 of 3 tries
+    with relay required). Only the bridge uses aiortc, and without a TURN server nothing changes."""
+    import aiortc.rtcicetransport as rit
+    from aioice import Connection
+    from aioice.ice import TransportPolicy
+
+    if getattr(rit.Connection, "relay_when_turn", False):
+        return
+
+    class RelayWhenTurn(Connection):
+        relay_when_turn = True
+
+        def __init__(self, *args, **kwargs):
+            if kwargs.get("turn_server"):
+                kwargs["transport_policy"] = TransportPolicy.RELAY
+            super().__init__(*args, **kwargs)
+
+    rit.Connection = RelayWhenTurn
+
+
 class _Link:
     """One Cloudflare session and the bridge's connection to it, made when first needed: Cloudflare drops a session
     that nothing connects to within a few seconds, so one opened at start and used minutes later is refused."""
@@ -161,13 +186,19 @@ class _Link:
         self.neg = asyncio.Lock()              # one offer/answer on this connection at a time
 
     async def ensure(self) -> None:
-        from aiortc import RTCPeerConnection
+        from aiortc import RTCConfiguration, RTCIceServer, RTCPeerConnection
 
         from . import cloud
 
         if self.pc is None:
             self.session = await cloud.run(cloud.open_session)
-            self.pc = RTCPeerConnection()
+            # Cloudflare's TURN as well as STUN, as the phones have: on a network where the direct UDP path to
+            # Cloudflare answers ICE but not DTLS (found on the venue LAN, #277), the bridge would never connect.
+            servers = [RTCIceServer(urls=s["urls"], username=s.get("username"), credential=s.get("credential"))
+                       for s in await cloud.run(cloud.ice_servers)]
+            log.info("intercom_remote: ICE servers for the bridge: %s", [(s.urls[:1], bool(s.username)) for s in servers])
+            _relay_when_turn()
+            self.pc = RTCPeerConnection(RTCConfiguration(iceServers=servers))
 
     async def reset(self) -> None:
         pc, self.pc = self.pc, None

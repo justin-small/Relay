@@ -6,7 +6,7 @@
   const $ = R.$, api = R.api, post = R.post;
   const BASE = '/api/admin/parent-paging';
   const STATUS = { waiting: 'Waiting for you', shown: 'On screen', sent: 'In the ProPresenter message' };
-  function can(perm) { return typeof window.relayCan !== 'function' || !!window.relayCan(perm); }
+  const can = relayUI.can;
   function showError(text) { $('ppgErr').textContent = text || ''; $('ppgErr').hidden = !text; }
   function ago(s) { return s < 60 ? s + ' s ago' : Math.floor(s / 60) + ' min ago'; }
 
@@ -31,12 +31,12 @@
 
   function pageRow(p, mode, control) {
     const d = document.createElement('div');
-    d.style.cssText = 'display:flex;align-items:center;gap:12px;padding:8px 0;border-top:1px solid var(--line, #8883)';
+    d.className = 'lrow';
     const code = document.createElement('div');
     code.textContent = p.code;
-    code.style.cssText = 'font-size:1.6em;font-weight:700;letter-spacing:.08em;min-width:5em';
+    code.className = 'ppcode';
     const info = document.createElement('div');
-    info.style.cssText = 'flex:1;min-width:8em';
+    info.className = 'grow';
     const room = document.createElement('div');
     room.textContent = p.room;
     const meta = document.createElement('div');
@@ -56,13 +56,13 @@
 
   function roomRow(r, manage) {
     const d = document.createElement('div');
-    d.style.cssText = 'padding:10px 0;border-top:1px solid var(--line, #8883)';
+    d.className = 'lrow stack';
     const top = document.createElement('div');
-    top.style.cssText = 'display:flex;align-items:center;gap:8px;flex-wrap:wrap';
+    top.className = 'ctl';
     const info = document.createElement('div');
-    info.style.cssText = 'flex:1;min-width:0';
+    info.className = 'grow';
     const name = document.createElement('div');
-    name.textContent = r.name; name.style.fontWeight = '600';
+    name.textContent = r.name; name.className = 'strong';
     const meta = document.createElement('div');
     meta.className = 'note';
     meta.textContent = r.event ? 'Check-Ins: ' + r.event : 'Check-Ins room ' + r.location_id;
@@ -70,11 +70,11 @@
     top.appendChild(info);
     const linkBox = document.createElement('div');
     linkBox.hidden = true;
-    linkBox.style.cssText = 'margin-top:8px;display:flex;gap:12px;align-items:center;flex-wrap:wrap';
+    linkBox.className = 'ctl ppbox';
     function showLink(data) {
       linkBox.textContent = '';
       const qr = document.createElement('div');
-      qr.style.cssText = 'width:120px;height:120px;background:#fff';
+      qr.className = 'qrbox';
       try {
         if (typeof qrcode === 'function') {
           const q = qrcode(0, 'M'); q.addData(data.url); q.make();
@@ -94,7 +94,7 @@
         showLink(await api(BASE + '/rooms/' + r.id + '/link'));
       }));
       top.appendChild(button('New link', '', async function () {
-        if (!confirm('Make a new link for ' + r.name + '? The old link stops working at once.')) return;
+        if (!(await relayUI.confirm('Make a new link for ' + r.name + '? The old link stops working at once.'))) return;
         showLink(await post(BASE + '/rooms/' + r.id + '/new-link'));
       }));
       top.appendChild(button('Rename', '', async function () {
@@ -103,7 +103,7 @@
         render(await send('PUT', BASE + '/rooms/' + r.id, { name: n }));
       }));
       top.appendChild(button('Remove', 'forget', async function () {
-        if (!confirm('Remove ' + r.name + '? Its link stops working and its pages come down.')) return;
+        if (!(await relayUI.confirm('Remove ' + r.name + '? Its link stops working and its pages come down.'))) return;
         render(await send('DELETE', BASE + '/rooms/' + r.id));
       }));
     }
@@ -185,7 +185,7 @@
     } catch (e) { showError(e.message); }
   };
   $('ppgClearAll').onclick = async function () {
-    if (!confirm('Take every parent page down?')) return;
+    if (!(await relayUI.confirm('Take every parent page down?'))) return;
     try { render(await post(BASE + '/pages/clear')); } catch (e) { showError(e.message); }
   };
   $('ppgLoad').onclick = async function () {

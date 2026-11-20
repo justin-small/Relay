@@ -7,12 +7,7 @@
 
   const canManage = window.relayCan('modules.manage');
 
-  function h(tag, cls, text) {
-    const n = document.createElement(tag);
-    if (cls) n.className = cls;
-    if (text !== undefined) n.textContent = text;
-    return n;
-  }
+  const h = relayUI.el;
   async function call(path, opts) {
     const res = await fetch(path, Object.assign({ cache: 'no-store' }, opts || {}));
     const data = await res.json().catch(function () { return {}; });

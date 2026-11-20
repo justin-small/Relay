@@ -1,7 +1,7 @@
 """Remote access (#50): viewers off the venue's network open the caption and translation links over the internet.
 
 Switched on, this install enrolls once with an enrollment code and gets its own address,
-https://<random>.relaychurchsystems.com, made by Relay's cloud (relay-cloud). cloudflared then keeps an outbound-only
+https://<random>.cloud.relaysystems.dev, made by Relay's cloud (relay-cloud). cloudflared then keeps an outbound-only
 tunnel from this machine to Cloudflare: no port forwarding, no router changes. The tunnel reaches the viewer port
 only; the operator panel is never on it. Switched off, cloudflared stops and the address is kept for next time.
 """
@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from .. import AdminPage, Health, Manifest, Module
+from .. import AdminPage, Health, Manifest, Module, Traffic
 from ...users import Permission
 
 
@@ -21,17 +21,20 @@ class RemoteAccess(Module):
     manifest = Manifest(
         id="remote_access",
         name="Remote access",
-        version="1.0.0",
+        version="1.1.0",
         summary="Gives the viewer links an internet address, so people off the venue's Wi-Fi can follow along.",
         settings_key="remote_access",
+        section="Building",
         guide="https://github.com/justin-small/relay#remote-access",
+        traffic=(Traffic("remote_access", "Remote access (Relay's cloud and the tunnel, over the internet)"),),
     )
     secret_settings = ("secret", "tunnel_token", "pending_secret")
     defaults = {"cloud_url": "", "install_id": "", "hostname": "", "secret": "", "tunnel_token": "",
                 "pending_secret": ""}
     admin_pages = (AdminPage(
-        id="remoteaccess", title="Remote access", template="admin.html", group="Output",
+        id="remoteaccess", title="Remote access", template="admin.html",
         icon='<circle cx="8" cy="8" r="6"/><path d="M2 8h12M8 2c2 2 2.5 4 2.5 6S10 12 8 14M8 2C6 4 5.5 6 5.5 8S6 12 8 14"/>'),)
+    admin_styles = ("remote_access.css",)
     admin_scripts = ("remoteaccess.js",)
     route_prefixes = ("/api/admin/remote-access",)
     permissions = (
@@ -88,6 +91,14 @@ class RemoteAccess(Module):
         if tunnel.state == "retrying":
             return Health("error", "Can't reach Cloudflare")
         return Health("warn", "Connecting")
+
+    def network_changed(self, resolved) -> None:
+        # Its port went away, came back or was re-chosen: cloudflared binds its address only when it starts.
+        import asyncio
+
+        from .tunnel import tunnel
+
+        self._net_task = asyncio.get_running_loop().create_task(tunnel.restart(), name="remote-access-network")
 
     async def test(self) -> dict:
         import asyncio

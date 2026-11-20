@@ -136,9 +136,11 @@ eq("a service type not followed is said", run(sync.sync())["error"],
    "That service type is not one Relay follows. Follow it above first.")
 save(enabled=True, service_type="77")
 config.save({"modules": {"signage": {"enabled": False}}})
+_modules.get("signage").detach()            # what switching it off does: it takes back what it provided
 eq("signage off is said", run(sync.sync())["error"], "Signage is switched off.")
 eq("and nothing was fetched", fake.calls, [])
 config.save({"modules": {"signage": {"enabled": True}}})
+_modules.attach("signage")
 
 print("files attached to the plan and its items")
 st = run(sync.sync())

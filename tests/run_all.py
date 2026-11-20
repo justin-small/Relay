@@ -63,6 +63,11 @@ def run(path: Path, coverage: bool, timeout: float) -> dict:
     return {"path": path, "code": code, "out": out, "secs": time.monotonic() - start, "skipped": skipped}
 
 
+# Files that pace a fake device in real time (a 5 ms tick, a 10 ms feed). Run beside seven other test processes on a CI
+# runner they are starved by the scheduler and fail for it, not for a fault, so they run alone, after the rest.
+ALONE = {"test_audiobus.py"}
+
+
 def junit(results: list[dict], dest: str) -> None:
     cases = []
     for r in results:
@@ -90,15 +95,22 @@ def main(argv: list[str] | None = None) -> int:
         print("no test files match")
         return 1
     results = []
+
+    def report(r):
+        results.append(r)
+        state = "skip" if r["skipped"] else ("ok  " if r["code"] == 0 else "FAIL")
+        print(f"{state} {r['secs']:6.1f}s  {r['path'].relative_to(ROOT)}", flush=True)
+        if args.v or r["code"]:
+            print("\n".join("    " + line for line in r["out"].rstrip().splitlines()), flush=True)
+
+    together = [p for p in todo if p.name not in ALONE]
     with cf.ThreadPoolExecutor(max_workers=max(1, args.j)) as pool:
-        futures = [pool.submit(run, p, args.coverage, args.timeout) for p in todo]
+        futures = [pool.submit(run, p, args.coverage, args.timeout) for p in together]
         for fut in cf.as_completed(futures):
-            r = fut.result()
-            results.append(r)
-            state = "skip" if r["skipped"] else ("ok  " if r["code"] == 0 else "FAIL")
-            print(f"{state} {r['secs']:6.1f}s  {r['path'].relative_to(ROOT)}", flush=True)
-            if args.v or r["code"]:
-                print("\n".join("    " + line for line in r["out"].rstrip().splitlines()), flush=True)
+            report(fut.result())
+    for p in todo:
+        if p.name in ALONE:
+            report(run(p, args.coverage, args.timeout))
 
     results.sort(key=lambda r: r["path"].name)
     if args.junit:

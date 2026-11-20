@@ -1,0 +1,82 @@
+<!doctype html><html lang="en" data-theme="dark" data-preset="relay"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<link rel="stylesheet" href="../../../app/static/tokens.css"><link rel="stylesheet" href="../../../app/static/components.css"><link rel="stylesheet" href="../planning-center/common.css"><link rel="stylesheet" href="ndi.css">
+<title>NDI C · Source wall</title></head><body>
+<div class="top"><b>NDI</b><span class="spill on"><i class="dot ok"></i>6 of 7 online</span><span class="spill on"><i class="dot ok"></i>Tally: ATEM</span><span class="sp"></span><span class="muted">Ana Ruiz · manage</span></div>
+<div class="wrap stack">
+<div class="tabs" id="tabs"><button data-p="wall" class="on">Sources</button><button data-p="mv">Multiviews</button><button data-p="routes">Outputs</button><button data-p="set">Settings</button></div>
+
+<!-- WALL -->
+<div class="pane on" id="wall"><div class="split">
+<div class="stack">
+<div class="toolbar"><input type="search" placeholder="Find a source" aria-label="Find a source"><div class="seg"><button class="on">All</button><button>Cameras</button><button>Other</button><button>Relay's own</button></div><span class="grow"></span><button class="sm">Look again</button></div>
+<div class="grid" id="g">
+<div class="src-card on"><div class="pic pgm"><span class="cam">CAM 1</span><span class="lbl">Center PTZ</span></div></div>
+<div class="src-card"><div class="pic b pvw"><span class="cam">CAM 2</span><span class="lbl">Stage Left</span></div></div>
+<div class="src-card"><div class="pic c"><span class="cam">CAM 3</span><span class="lbl">Wide Shot</span></div></div>
+<div class="src-card"><div class="pic d"><span class="lbl">ProPresenter Lyrics</span></div></div>
+<div class="src-card"><div class="pic e"><span class="lbl">OBS Program</span></div></div>
+<div class="src-card"><div class="pic"><span class="cam">RELAY</span><span class="lbl">Screen (Spanish)</span></div></div>
+<div class="src-card"><div class="pic off"><span class="mid">Offline since Sunday</span><span class="lbl">Balcony Cam</span></div></div>
+</div>
+<p class="hint">Red border: on air. Green: on preview. Click a source to see and change everything about it on the right.</p>
+</div>
+<aside class="card detail"><div class="pic pgm"><span class="cam">CAM 1</span></div>
+<div class="between" style="margin-top:var(--sp-3)"><h3 style="margin:0">Center PTZ</h3><span class="badge err">On air</span></div>
+<dl class="kv"><dt>Device</dt><dd>BIRDDOG-P200 (192.168.1.41)</dd><dt>Picture</dt><dd>1920×1080 · 59.94 fps</dd><dt>Audio</dt><dd>2 channels</dd></dl>
+<div class="field"><label>Switcher camera</label><select><option>Not a camera</option><option selected>Camera 1</option><option>Camera 2</option></select><span class="hint">Gives it the on-air border everywhere it is shown.</span></div>
+<label style="margin-top:var(--sp-3)">Watch in a browser</label>
+<div class="linkbox"><span class="mono grow">/ndi/view/Center%20PTZ</span><button class="sm">Copy</button><button class="sm">Open</button></div>
+<label style="margin-top:var(--sp-3)">Used in</label>
+<div class="stack" style="gap:var(--sp-2)"><div class="between"><span>Booth multiview, box 1</span><button class="sm quiet">Edit</button></div><div class="between"><span>Stage confidence, big box</span><button class="sm quiet">Edit</button></div></div>
+<label style="margin-top:var(--sp-3)">Send to</label>
+<div class="gap"><button class="sm">Lobby TV</button><button class="sm">Green room</button><button class="sm">Nursery</button></div>
+<p class="hint">Puts this source on that output now.</p></aside>
+</div></div>
+
+<!-- MULTIVIEWS -->
+<div class="pane" id="mv"><div class="stack">
+<div class="what"><div><b>Several sources on one TV</b><p>Drag a source from the right onto a box. Open the link on any screen on this network.</p></div></div>
+<div class="gap"><div class="seg"><button class="on">Booth</button><button>Stage confidence</button></div><button class="sm">+ New</button><span class="grow"></span><select aria-label="Layout"><option>2 × 2</option><option>3 × 3</option><option>1 big, 5 small</option></select><button class="sm">Copy link</button><button class="sm">Open</button><button class="primary sm">Save</button></div>
+<div class="mved"><div class="canvas" style="grid-template-columns:repeat(2,1fr);grid-template-rows:repeat(2,1fr)">
+<div class="pic pgm"><span class="lbl">Center PTZ</span><span class="meter"><i></i></span></div><div class="pic b pvw"><span class="lbl">Stage Left</span><span class="meter"><i style="height:30%"></i></span></div><div class="pic d"><span class="lbl">Lyrics</span></div><div class="pic e sel"><span class="clock" style="color:var(--warn)">-02:14</span><span class="lbl">Service ends</span></div></div>
+<div class="card stack"><b>Drag onto a box</b><div class="palette">
+<span class="chip">▣ Center PTZ</span><span class="chip">▣ Stage Left</span><span class="chip">▣ Wide Shot</span><span class="chip">▣ ProPresenter Lyrics</span><span class="chip">▣ OBS Program</span><span class="chip">◷ Clock</span><span class="chip">⏱ Countdown to a time</span><span class="chip">⏱ Countdown to service end</span><span class="chip">□ Empty</span></div>
+<hr style="border:0;border-top:1px solid var(--border);width:100%"><b>Selected box</b><div class="field"><label>Label</label><input value="Service ends"></div><label class="check"><input type="checkbox"> Audio meter</label></div></div>
+</div></div>
+
+<!-- OUTPUTS -->
+<div class="pane" id="routes"><div class="stack">
+<div class="what"><div><b>What Relay sends out as NDI</b><p>Rows are feeds Relay sends; columns are sources. Click a square to switch that feed. Point a TV or decoder at <span class="mono">Relay - &lt;name&gt;</span> once and switch it from here after that.</p></div></div>
+<div class="card" style="overflow:auto"><div class="between"><h3>Switch</h3><div class="gap"><button class="preset sm"><span>Sunday morning</span></button><button class="preset sm"><span>Youth night</span></button><button class="sm">Save as preset</button></div></div>
+<table class="mx"><thead><tr><th></th><th>Center PTZ</th><th>Stage Left</th><th>Wide Shot</th><th>ProPresenter</th><th>OBS Program</th><th>Booth multiview</th><th>Nothing</th></tr></thead><tbody>
+<tr><th>Lobby TV</th><td></td><td></td><td></td><td class="x"></td><td></td><td></td><td></td></tr>
+<tr><th>Green room</th><td></td><td></td><td></td><td></td><td></td><td class="x"></td><td></td></tr>
+<tr><th>Nursery</th><td></td><td></td><td></td><td></td><td></td><td></td><td class="x"></td></tr>
+<tr><th style="color:var(--muted)">+ Add feed</th></tr></tbody></table></div>
+<div class="card" style="padding:0"><div style="padding:var(--sp-4) var(--sp-4) 0"><h3>Relay pages as NDI</h3></div>
+<div class="outrow"><label class="switch"><input type="checkbox" checked><span class="slider"></span></label><div><b>Screen (Spanish)</b><div class="mono">Relay - Screen (Spanish)</div></div><span class="spill on"><i class="dot ok"></i>Sending</span><span class="cost">22% of a core</span></div>
+<div class="outrow"><label class="switch"><input type="checkbox" checked><span class="slider"></span></label><div><b>Overlay</b> <span class="tag">transparent</span><div class="mono">Relay - Overlay</div></div><span class="spill on"><i class="dot ok"></i>Sending</span><span class="cost">18% of a core</span></div>
+<div class="outrow"><label class="switch"><input type="checkbox"><span class="slider"></span></label><div><b>Screen (Korean)</b><div class="mono">Relay - Screen (Korean)</div></div><span class="muted">Off</span><span></span></div></div>
+</div></div>
+
+<!-- SETTINGS -->
+<div class="pane" id="set"><div class="cols" style="grid-template-columns:repeat(auto-fit,minmax(340px,1fr))">
+<div class="card"><h3>Finding sources</h3><p class="lede">Only needed if a source is missing.</p>
+<div class="setrow"><span>Find sources by themselves<small>Works on one network; does not cross VLANs.</small></span><label class="switch"><input type="checkbox" checked><span class="slider"></span></label></div>
+<div class="form" style="margin-top:var(--sp-3);grid-template-columns:1fr"><div class="field"><label>Discovery server</label><input placeholder="192.168.1.20"><span class="hint">Needs a Relay restart.</span></div><div class="field"><label>Extra addresses</label><input placeholder="192.168.20.5"></div><div class="field"><label>Groups</label><input placeholder="All"></div></div>
+<div class="ctl" style="margin-top:var(--sp-3)"><button class="primary">Save</button></div></div>
+<div class="card"><h3>Picture in the browser</h3><p class="lede">For Watch pages and multiviews.</p>
+<div class="form" style="grid-template-columns:1fr"><div class="field"><label>Frames per second</label><input type="number" value="15"></div><div class="field"><label>Quality</label><input type="number" value="60"></div><div class="field"><label>Widest picture</label><input type="number" value="1280"></div><div class="field"><label>Sources at once</label><input type="number" value="4"></div></div></div>
+<div class="card"><h3>Relay pages as NDI</h3><div class="form" style="grid-template-columns:1fr"><div class="field"><label>Size</label><select><option>1280 × 720</option><option>1920 × 1080</option></select></div><div class="field"><label>Frames per second</label><input type="number" value="30"></div></div></div>
+</div></div>
+</div>
+<nav class="mocknav"><a href="index.html">Index</a><a href="a-tabs.html">A</a><a href="b-flow.html">B</a><a href="c-sources.html" aria-current="page">C</a></nav>
+<script>
+document.getElementById('tabs').addEventListener('click',function(e){var b=e.target.closest('button');if(!b)return;
+document.querySelectorAll('#tabs button').forEach(function(x){x.classList.toggle('on',x===b)});
+document.querySelectorAll('.pane').forEach(function(p){p.classList.toggle('on',p.id===b.dataset.p)});});
+document.addEventListener('click',function(e){
+var c=e.target.closest('#g .src-card');if(c){document.querySelectorAll('#g .src-card').forEach(function(x){x.classList.toggle('on',x===c)});return;}
+var t=e.target.closest('.mx td');if(t){t.parentNode.querySelectorAll('td').forEach(function(x){x.classList.toggle('x',x===t)});return;}
+var o=e.target.closest('.seg button,.canvas .pic');if(!o)return;var pic=o.classList.contains('pic');o.parentNode.querySelectorAll(pic?'.pic':'button').forEach(function(x){x.classList.toggle(pic?'sel':'on',x===o)});});
+</script></body></html>

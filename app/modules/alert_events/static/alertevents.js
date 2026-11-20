@@ -3,7 +3,7 @@
   const R = window.RelayAdmin;
   if (!R || !document.getElementById('page-alertevents')) return;
   const $ = R.$, api = R.api;
-  function can(perm) { return typeof window.relayCan !== 'function' || !!window.relayCan(perm); }
+  const can = relayUI.can;
   function showError(text) { $('aeErr').textContent = text || ''; $('aeErr').hidden = !text; }
 
   async function send(path, body) {
