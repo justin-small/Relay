@@ -1006,6 +1006,16 @@ sender can never cost viewers a line. The OBS module's caption sender is the fir
 language (the source captions or one translation), finished lines only, split to 32 characters for CEA-608, sent with
 `SendStreamCaption` and only while that OBS is streaming.
 
+## Talkback text from another module
+
+The Talkback module (#93) transcribes one audio bus lane on a session of its own: its own capture (the `talkback_lane`
+source), its own start, stop and restart, and a transcription backend chosen apart from the captions (blank follows
+the main feed's). Its text is kept in the module, never in `hub`, so it cannot reach the caption feeds, a recording or an
+export. Another module reads it through `modules.using("talkback.lines")`, a dict of `recent(limit)` (newest lines,
+`{seq, ts, text}`) and `subscribe(fn)` (`fn({"type": "delta", "text"})` while a line is open, `fn({"type": "line", ...})`
+when it is committed; returns the way to stop listening). Talkback is a second stream of billed audio seconds: its status
+shows them beside the main feed's.
+
 ## Shared helpers for module scripts
 
 Core's `app/static/relay-ui.js` (#461) gives every script `window.relayUI`. The operator panel, the crew page and
