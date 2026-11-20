@@ -368,6 +368,7 @@ MIN_ROLE = {
     "unifi.view": "viewer", "unifi.manage": "admin",
     "tally_arbiter.view": "viewer", "tally_arbiter.manage": "admin",
     "open_sound_meter.view": "viewer", "open_sound_meter.manage": "admin",
+    "dante.view": "viewer", "dante.manage": "admin",
     "talkback.view": "operator", "talkback.control": "operator", "talkback.manage": "admin",
     "prodmesh_rta.view": "viewer", "prodmesh_rta.manage": "admin",
     "parent_paging.view": "viewer", "parent_paging.control": "operator", "parent_paging.manage": "admin",
@@ -394,7 +395,7 @@ print("every /api/admin route")
 config.save({"modules": {"propresenter": {"enabled": True}, "planning_center": {"enabled": True},
                          "remote_access": {"enabled": True}, "signage": {"enabled": True},
                          "signage_web": {"enabled": True}, "alert_events": {"enabled": True},
-                         "blackmagic": {"enabled": True}, "lighting": {"enabled": True}, "ndi": {"enabled": True}, "obs": {"enabled": True}, "reaper": {"enabled": True}, "audio_mixers": {"enabled": True}, "youtube": {"enabled": True}, "unifi": {"enabled": True}, "tally_arbiter": {"enabled": True}, "open_sound_meter": {"enabled": True}, "talkback": {"enabled": True}, "prodmesh_rta": {"enabled": True},
+                         "blackmagic": {"enabled": True}, "lighting": {"enabled": True}, "ndi": {"enabled": True}, "obs": {"enabled": True}, "reaper": {"enabled": True}, "audio_mixers": {"enabled": True}, "youtube": {"enabled": True}, "unifi": {"enabled": True}, "tally_arbiter": {"enabled": True}, "open_sound_meter": {"enabled": True}, "dante": {"enabled": True}, "talkback": {"enabled": True}, "prodmesh_rta": {"enabled": True},
                          "parent_paging": {"enabled": True}, "intercom": {"enabled": True}, "intercom_remote": {"enabled": True},
                          "crew": {"enabled": True}}})
 
@@ -760,6 +761,8 @@ for method, path, perm in (
     ("PUT", TAX + "/settings", "tally_arbiter.manage"),                  # an empty body clears the address
     ("GET", "/api/admin/open-sound-meter", "open_sound_meter.view"),
     ("PUT", "/api/admin/open-sound-meter/settings", "open_sound_meter.manage"),
+    ("GET", "/api/admin/dante", "dante.view"),
+    ("POST", "/api/admin/dante/scan", "dante.manage"),
     ("GET", "/api/admin/talkback", "talkback.view"),
     ("PUT", "/api/admin/talkback/settings", "talkback.manage"),
     ("POST", "/api/admin/talkback/start", "talkback.control"),       # no lane chosen: refused
@@ -940,7 +943,7 @@ eq("signed out is 401", anon_c.get("/api/admin/propresenter").status_code, 401)
 config.save({"modules": {"propresenter": {"enabled": False}, "planning_center": {"enabled": False},
                          "remote_access": {"enabled": False}, "signage": {"enabled": False},
                          "signage_web": {"enabled": False}, "alert_events": {"enabled": False},
-                         "blackmagic": {"enabled": False}, "lighting": {"enabled": False}, "ndi": {"enabled": False}, "obs": {"enabled": False}, "reaper": {"enabled": False}, "audio_mixers": {"enabled": False}, "youtube": {"enabled": False}, "unifi": {"enabled": False}, "tally_arbiter": {"enabled": False}, "open_sound_meter": {"enabled": False}, "talkback": {"enabled": False}, "prodmesh_rta": {"enabled": False},
+                         "blackmagic": {"enabled": False}, "lighting": {"enabled": False}, "ndi": {"enabled": False}, "obs": {"enabled": False}, "reaper": {"enabled": False}, "audio_mixers": {"enabled": False}, "youtube": {"enabled": False}, "unifi": {"enabled": False}, "tally_arbiter": {"enabled": False}, "open_sound_meter": {"enabled": False}, "dante": {"enabled": False}, "talkback": {"enabled": False}, "prodmesh_rta": {"enabled": False},
                          "parent_paging": {"enabled": False}, "intercom": {"enabled": False}, "intercom_remote": {"enabled": False},
                          "crew": {"enabled": False}}})
 eq("a module that is off is still a 404 for everyone", op_c.get("/api/admin/propresenter").status_code, 404)
@@ -1511,6 +1514,7 @@ for mid, want in (("planning_center", {"planning_center.view": "viewer", "planni
                   ("unifi", {"unifi.view": "viewer", "unifi.manage": "admin"}),
                   ("tally_arbiter", {"tally_arbiter.view": "viewer", "tally_arbiter.manage": "admin"}),
                   ("open_sound_meter", {"open_sound_meter.view": "viewer", "open_sound_meter.manage": "admin"}),
+                  ("dante", {"dante.view": "viewer", "dante.manage": "admin"}),
                   ("talkback", {"talkback.view": "operator", "talkback.control": "operator", "talkback.manage": "admin"}),
                   ("prodmesh_rta", {"prodmesh_rta.view": "viewer", "prodmesh_rta.manage": "admin"}),
                   ("parent_paging", {"parent_paging.view": "viewer", "parent_paging.control": "operator",

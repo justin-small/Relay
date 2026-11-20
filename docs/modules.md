@@ -273,6 +273,7 @@ Each module's classes, and what happens when the port changes (`network_changed`
 | Crew | `crew.push` | `opener` (web push) | next push |
 | Signage web | `signage_web` | `opener` (link checks) | next check |
 | Alert events | `alert_events` | `urlopen` (webhook), `udp_socket` (OSC) | next event |
+| Dante (discovery and control-port check) | `dante` (media) | `scan_addresses` gives core's mDNS listener the port's address; `udp_socket` (control-port check) | scans again |
 | Core translation | `translation` | `websocket` (realtime), `urlopen` (text) | next connection |
 
 Not steered yet: the remote intercom bridge's media (aiortc gathers on every interface), the phones' LiveKit
