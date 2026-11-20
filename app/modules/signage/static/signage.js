@@ -5,7 +5,7 @@
   const R = window.RelayAdmin;
   if (!R || !document.getElementById('page-signage')) return;
   const $ = R.$, api = R.api, post = R.post, el = R.el;
-  function can(perm) { return typeof window.relayCan !== 'function' || !!window.relayCan(perm); }
+  const can = relayUI.can;
 
   const page = document.getElementById('page-signage');
   let data = null;
@@ -76,11 +76,7 @@
     renderTakeover();
     renderMedia();
     if (document.activeElement !== $('sgPort')) $('sgPort').value = data.settings.port;
-    if (document.activeElement !== $('sgZone')) {
-      $('sgZone').textContent = '';
-      for (const z of data.timezones) option($('sgZone'), z.id, z.label, z.id === data.settings.timezone);
-      $('sgOvUntil').value = data.settings.override_until;
-    }
+    if (document.activeElement !== $('sgOvUntil')) $('sgOvUntil').value = data.settings.override_until;
     $('sgPortState').textContent = port.bound ? 'Serving screens on port ' + port.bound + ' now.' : '';
   }
 
@@ -121,8 +117,8 @@
       act.appendChild(button('Preview', '', function () { openPreview({ screen: s.slug }, s.name); }));
       if (can('signage.manage')) {
         act.appendChild(button('Edit', '', function () { openScreenForm(s); }));
-        act.appendChild(button('Delete', 'danger', function () {
-          if (!confirm('Delete the screen "' + s.name + '"? Its address stops working.')) return;
+        act.appendChild(button('Delete', 'danger', async function () {
+          if (!(await relayUI.confirm('Delete the screen "' + s.name + '"? Its address stops working.'))) return;
           call(async function () { await send('DELETE', '/api/admin/signage/screens/' + s.id); await refresh(); });
         }));
       }
@@ -191,8 +187,8 @@
       tr.appendChild(el('td', members.length ? '' : 'muted', members.join(', ') || 'None yet'));
       const act = el('td');
       if (can('signage.manage')) {
-        act.appendChild(button('Delete', 'danger', function () {
-          if (!confirm('Delete the group "' + g.name + '"? Its screens go back to their own playlists.')) return;
+        act.appendChild(button('Delete', 'danger', async function () {
+          if (!(await relayUI.confirm('Delete the group "' + g.name + '"? Its screens go back to their own playlists.'))) return;
           call(async function () { await send('DELETE', '/api/admin/signage/groups/' + g.id); await refresh(); });
         }));
       }
@@ -213,8 +209,8 @@
     const box = $('sgPlaylists');
     box.textContent = '';
     for (const p of data.playlists) {
-      const b = button(p.name + ' (' + p.items.length + ')', '', function () {
-        if (dirty && current !== p.id && !confirm('Leave without saving the changes to this playlist?')) return;
+      const b = button(p.name + ' (' + p.items.length + ')', '', async function () {
+        if (dirty && current !== p.id && !(await relayUI.confirm('Leave without saving the changes to this playlist?'))) return;
         openPlaylist(p.id);
       });
       b.setAttribute('aria-current', String(p.id === current));
@@ -359,17 +355,17 @@
   $('sgRenameSave').onclick = function () {
     call(async function () { await send('PATCH', '/api/admin/signage/playlists/' + current, { name: $('sgRename').value }); await refresh(); });
   };
-  $('sgDuplicate').onclick = function () {
-    if (dirty && !confirm('The copy is made from the saved playlist, without your unsaved changes. Go on?')) return;
+  $('sgDuplicate').onclick = async function () {
+    if (dirty && !(await relayUI.confirm('The copy is made from the saved playlist, without your unsaved changes. Go on?'))) return;
     call(async function () {
       const p = await post('/api/admin/signage/playlists/' + current + '/duplicate', {});
       current = p.id; dirty = false;
       await refresh();
     });
   };
-  $('sgPlaylistDelete').onclick = function () {
+  $('sgPlaylistDelete').onclick = async function () {
     const p = data.playlists.find(function (x) { return x.id === current; });
-    if (!confirm('Delete the playlist "' + p.name + '"? Screens and groups playing it will play nothing.')) return;
+    if (!(await relayUI.confirm('Delete the playlist "' + p.name + '"? Screens and groups playing it will play nothing.'))) return;
     call(async function () { await send('DELETE', '/api/admin/signage/playlists/' + current); current = null; dirty = false; await refresh(); });
   };
   $('sgPreviewList').onclick = function () {
@@ -403,8 +399,8 @@
           if (name === null) return;
           call(async function () { await send('PATCH', '/api/admin/signage/media/' + m.id, { name: name }); await refresh(); });
         }));
-        ctl.appendChild(button('Delete', 'danger', function () {
-          if (!confirm('Delete "' + m.name + '" from the library?')) return;
+        ctl.appendChild(button('Delete', 'danger', async function () {
+          if (!(await relayUI.confirm('Delete "' + m.name + '" from the library?'))) return;
           call(async function () { await send('DELETE', '/api/admin/signage/media/' + m.id); await refresh(); });
         }));
         c.appendChild(ctl);
@@ -516,8 +512,8 @@
   const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
   let slotEditing = null;      // slot id being edited, 0 for a new one, null when the form is closed
   function zoneLabel() {
-    const z = data.timezones.find(function (x) { return x.id === data.settings.timezone; });
-    return z ? z.label : data.settings.timezone;
+    const z = data.timezones.find(function (x) { return x.id === data.timezone; });
+    return z ? z.label : data.timezone;
   }
   function targetOptions(sel, value) {
     sel.textContent = '';
@@ -548,8 +544,8 @@
       const act = el('td');
       if (can('signage.manage')) {
         act.appendChild(button('Edit', '', function () { openSlotForm(sl); }));
-        act.appendChild(button('Delete', 'danger', function () {
-          if (!confirm('Delete this time slot?')) return;
+        act.appendChild(button('Delete', 'danger', async function () {
+          if (!(await relayUI.confirm('Delete this time slot?'))) return;
           call(async function () { await send('DELETE', '/api/admin/signage/slots/' + sl.id); await refresh(); });
         }));
       }
@@ -578,8 +574,9 @@
     }
   }
   function syncSlotForm() {
-    const range = $('sgSlotKind').value === 'range';
+    const kind = $('sgSlotKind').value, range = kind === 'range', named = kind === 'named';
     $('sgSlotFromBox').hidden = !range; $('sgSlotToBox').hidden = !range;
+    $('sgSlotNamedBox').hidden = !named; $('sgSlotOwn').hidden = named;
     $('sgSlotTimes').hidden = $('sgSlotAllDay').checked;
   }
   function openSlotForm(sl) {
@@ -587,7 +584,10 @@
     $('sgSlotForm').hidden = false;
     targetOptions($('sgSlotTarget'), sl ? sl.target + ':' + sl.target_id : '');
     playlistSelect($('sgSlotPlaylist'), sl ? sl.playlist_id : null, 'Choose a playlist');
-    $('sgSlotKind').value = sl && sl.start_date ? 'range' : 'weekly';
+    const named = $('sgSlotNamed');
+    named.textContent = '';
+    for (const n of data.named_schedules) option(named, n.ref, n.name, sl && sl.schedule_ref === n.ref);
+    $('sgSlotKind').value = sl && sl.schedule_ref ? 'named' : sl && sl.start_date ? 'range' : 'weekly';
     $('sgSlotFrom').value = sl ? sl.start_date : '';
     $('sgSlotTo').value = sl ? sl.end_date : '';
     const days = $('sgSlotDays');
@@ -613,8 +613,10 @@
     ev.preventDefault();
     const parts = $('sgSlotTarget').value.split(':');
     const range = $('sgSlotKind').value === 'range';
+    const named = $('sgSlotKind').value === 'named';
     const allDay = $('sgSlotAllDay').checked;
     const payload = {
+      schedule_ref: named ? $('sgSlotNamed').value : '',
       target: parts[0], target_id: Number(parts[1]), playlist_id: Number($('sgSlotPlaylist').value) || 0,
       days: Array.from($('sgSlotDays').querySelectorAll('input:checked')).map(function (c) { return Number(c.value); }),
       start_date: range ? $('sgSlotFrom').value : '', end_date: range ? $('sgSlotTo').value : '',
@@ -704,8 +706,8 @@
       await refresh();
     });
   };
-  $('sgReturnAll').onclick = function () {
-    if (!confirm('Return every screen to its playlist?')) return;
+  $('sgReturnAll').onclick = async function () {
+    if (!(await relayUI.confirm('Return every screen to its playlist?'))) return;
     call(async function () { await send('DELETE', '/api/admin/signage/takeovers'); await refresh(); });
   };
   $('sgAlertSave').onclick = function () {
@@ -717,7 +719,7 @@
   };
   $('sgSchedSave').onclick = function () {
     call(async function () {
-      await send('PUT', '/api/admin/signage/settings', { timezone: $('sgZone').value, override_until: $('sgOvUntil').value });
+      await send('PUT', '/api/admin/signage/settings', { override_until: $('sgOvUntil').value });
       await refresh();
     });
   };

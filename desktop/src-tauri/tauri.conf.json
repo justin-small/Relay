@@ -9,6 +9,7 @@
     "windows": [
       {
         "label": "main",
+        "create": false,
         "title": "Relay",
         "url": "index.html",
         "width": 1280,

@@ -1,0 +1,85 @@
+<!doctype html><html lang="en" data-theme="dark" data-preset="relay"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<link rel="stylesheet" href="../../../app/static/tokens.css"><link rel="stylesheet" href="../../../app/static/components.css"><link rel="stylesheet" href="common.css">
+<style>
+/* B: a lighting desk. The page fills the window; setup lives in a drawer. */
+body{height:100vh;display:flex;flex-direction:column;overflow:hidden}
+.desk{flex:1;min-height:0;display:grid;grid-template-columns:200px minmax(0,1fr) 260px}
+.rail{border-right:1px solid var(--border);padding:var(--sp-3);display:flex;flex-direction:column;gap:4px;background:var(--sb)}
+.rail h4,.side h4{margin:var(--sp-2) 0 var(--sp-1);font-size:var(--fs-xs);text-transform:uppercase;letter-spacing:.06em;color:var(--muted);font-weight:600}
+.pg-b{display:flex;flex-direction:column;align-items:flex-start;text-align:left;height:auto;min-height:0;padding:var(--sp-2) var(--sp-3);border:1px solid transparent;background:none;width:100%}
+.pg-b small{color:var(--muted);font-weight:400}
+.pg-b.on{background:var(--hover);border-color:var(--primary)}
+.center{display:flex;flex-direction:column;min-height:0;padding:var(--sp-4);gap:var(--sp-3);background:var(--video-bg)}
+.center .stage{flex:1;min-height:0;display:flex;align-items:center;justify-content:center;padding:0;background:none}
+#grid{container-type:size}
+.center .cg{width:min(100cqw,133cqh);height:auto}
+.strip{display:flex;gap:var(--sp-4);align-items:center;padding:var(--sp-3) var(--sp-4);border:1px solid var(--border);border-radius:var(--r);background:var(--card)}
+.side{border-left:1px solid var(--border);padding:var(--sp-3);overflow:auto;background:var(--sb)}
+.drawer{position:fixed;top:0;right:0;bottom:0;width:min(440px,100%);background:var(--card);border-left:1px solid var(--border);box-shadow:var(--shadow-pop);padding:var(--sp-4);overflow:auto;transform:translateX(100%);transition:transform .2s;z-index:40}
+.drawer.on{transform:none}
+.drawer .field{margin:0 0 var(--sp-3)}
+.editing .center{background:var(--bg)}
+</style>
+<title>Lighting B · Desk</title></head><body>
+<div class="top"><b>Lighting</b><span class="spill on"><i class="dot ok"></i>QLC+ connected</span><span class="muted">46 cues</span><span class="sp"></span>
+<div class="seg" id="mode"><button data-p="run" class="on">Run</button><button data-p="edit">Edit layout</button></div><button id="openSetup">Setup</button></div>
+<div class="desk" id="desk">
+<nav class="rail" id="rail"><h4>Pages</h4>
+<button class="pg-b on" data-p="sun">Sunday service<small>Screen on · 10 cues</small></button>
+<button class="pg-b" data-p="youth">Youth night<small>Screen off · 6 cues</small></button>
+<button class="pg-b" data-p="sm">Stage manager<small>Screen on · 3 cues</small></button>
+<button class="sm" style="margin-top:var(--sp-2)">+ Add page</button>
+<span class="sp"></span>
+<p class="note">A press is sent once and never retried.</p></nav>
+
+<main class="center">
+<div class="between"><b style="font-size:var(--fs-xl)" id="pgName">Sunday service</b><span class="gap" id="runBar"><span class="badge ok">LIVE: Sermon</span></span>
+<span class="gap hidden" id="editBar"><span class="muted">Drag to move, corners to resize.</span><select style="width:auto"><option>4 × 3</option><option>6 × 4</option><option>8 × 6</option></select><button>Discard</button><button class="primary">Save page</button></span></div>
+<div id="grid" style="flex:1;min-height:0;display:flex"></div>
+<div class="strip" id="levels"><b>Levels</b><div class="faders" id="faders"></div></div>
+<div class="strip hidden" id="palStrip"><b style="white-space:nowrap">Add a cue</b><div class="chips" id="palette"></div></div>
+</main>
+
+<aside class="side"><h4>This page's screen</h4>
+<div class="linkbox"><span>relay.local/screen?lighting=sun&amp;k=8f2c…</span><button class="sm">Copy</button></div>
+<div class="gap" style="margin-top:var(--sp-2)"><button class="sm">QR code</button><button class="sm">New key</button><span class="sp"></span><label class="switch"><input type="checkbox" checked><span class="slider"></span></label></div>
+<h4 style="margin-top:var(--sp-4)">Recent presses</h4>
+<div class="log" id="log">
+<div><time>9:11</time><span>Sermon<small>Booth iPad</small></span></div>
+<div><time>9:06</time><span>House half<small>ProPresenter slide tag · Announcements</small></span></div>
+<div><time>9:00</time><span>Worship full<small>Ana Ruiz · this page</small></span></div>
+<div><time>8:58</time><span>Countdown<small>Board: Front of house</small></span></div>
+<div><time>8:40</time><span>Haze on<small>Side-stage tablet</small></span></div></div>
+<h4 style="margin-top:var(--sp-4)">Not on any page</h4>
+<p class="note" style="margin-top:0">Fire once from here; add to a page to use it on screens and slide tags.</p>
+<div class="chips"><span class="chip">Strobe hit</span><span class="chip">Fog burst</span><span class="chip">Choir wash</span><span class="chip">Rainbow</span><span class="chip">+4 more</span></div>
+</aside></div>
+
+<div class="drawer" id="drawer"><div class="between"><h3 style="margin:0">Setup</h3><button id="closeSetup">Close</button></div>
+<p class="lede" style="margin-top:var(--sp-2)">Which lighting program Relay talks to. You set this once.</p>
+<div class="field"><label>Program</label><select><option>QLC+ (web API)</option><option>Lightkey (OSC, macOS)</option><option>Chroma-Q Vista (OSC)</option><option>ShowXpress (Live API)</option></select></div>
+<div class="field"><label>Address</label><input value="192.168.1.50"><span class="hint">The computer running QLC+.</span></div>
+<div class="field"><label>Port</label><input value="9999" type="number" style="width:120px"></div>
+<div class="setrow"><span>List functions too<small>Scenes and chases with no button.</small></span><label class="switch"><input type="checkbox" checked><span class="slider"></span></label></div>
+<div class="ctl"><button class="primary">Save</button><button>Test connection</button></div>
+<p class="note">Connected at 8:31 · 46 cues, 3 levels.</p></div>
+
+<nav class="mocknav"><a href="index.html">All</a><a href="a-tabs.html">A</a><a href="b-desk.html" aria-current="page">B</a><a href="c-library.html">C</a></nav>
+<script src="mock.js"></script>
+<script>
+(function(){var M=window.Mock,cur='sun',editing=false;
+function show(){var p=M.pageById(cur);document.getElementById('pgName').textContent=p.name;
+M.draw(document.getElementById('grid'),p,editing?{edit:true,sel:6}:{onPress:function(n){var l=document.getElementById('log'),d=document.createElement('div');
+d.innerHTML='<time>now</time><span></span>';d.querySelector('span').textContent=n;l.insertBefore(d,l.firstChild);document.querySelector('#runBar .badge').textContent='LIVE: '+n;}});
+M.faders(document.getElementById('faders'),p);
+document.getElementById('levels').classList.toggle('hidden',editing||!p.levels.length);
+document.getElementById('palStrip').classList.toggle('hidden',!editing);
+document.getElementById('runBar').classList.toggle('hidden',editing);document.getElementById('editBar').classList.toggle('hidden',!editing);
+document.getElementById('desk').classList.toggle('editing',editing);}
+var rail=document.getElementById('rail');rail.addEventListener('click',function(e){var b=e.target.closest('.pg-b');if(!b)return;
+rail.querySelectorAll('.pg-b').forEach(function(x){x.classList.toggle('on',x===b);});cur=b.dataset.p;show();});
+M.seg(document.getElementById('mode'),function(m){editing=m==='edit';show();});
+var pal=document.getElementById('palette');M.UNPLACED.forEach(function(n){var c=document.createElement('span');c.className='chip';c.textContent=n;pal.appendChild(c);});
+var dr=document.getElementById('drawer');document.getElementById('openSetup').onclick=function(){dr.classList.add('on');};document.getElementById('closeSetup').onclick=function(){dr.classList.remove('on');};
+show();})();
+</script></body></html>

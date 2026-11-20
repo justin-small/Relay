@@ -1,0 +1,27 @@
+{# The ProdMesh RTA admin page, rendered inside admin.html only while the module is on. #}
+    <h2 class="title">ProdMesh RTA <span class="sumstate" id="pmSum"></span></h2>
+    <p class="sub">Connect to a ProdMesh analyser that is already running and show its level, signal and 31-band
+      spectrum on boards and the status feed next to Relay's own meter. In a Sound level or Spectrum widget, choose
+      "Read from: ProdMesh RTA".</p>
+
+    <section>
+      <h3>Analyser</h3>
+      <div class="row">
+        <div class="field">
+          <label for="pmUrl">Address</label>
+          <input id="pmUrl" placeholder="ws://192.168.1.60:8080/rta" autocomplete="off" spellcheck="false" maxlength="300">
+        </div>
+        <div class="field"><label for="pmWarn">Orange from (dB)</label><input id="pmWarn" type="number" min="40" max="140"></div>
+        <div class="field"><label for="pmLimit">Red from (dB)</label><input id="pmLimit" type="number" min="40" max="140"></div>
+      </div>
+      <div class="ctl"><button type="button" class="primary" id="pmSave">Save</button></div>
+      <div class="note" id="pmStatus"></div>
+    </section>
+    <div class="note err" id="pmErr" hidden></div>
+
+    <section>
+      <h3>What arrives</h3>
+      <div class="note" id="pmCounts"></div>
+      <p class="note">Messages Relay could not read are kept here, shortened, so the analyser's shape can be seen.</p>
+      <pre id="pmSamples" style="white-space:pre-wrap;overflow-wrap:anywhere"></pre>
+    </section>

@@ -1,0 +1,17 @@
+/* The reaper admin page's layout (#463: moved out of reaper.js). Controls come from components.css. */
+#page-reaper .rpcards{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:12px;align-items:start}
+@media (max-width:900px){#page-reaper .rpcards{grid-template-columns:minmax(0,1fr)}
+}
+#page-reaper .pcard h4{margin:0 0 8px;font-size:var(--fs-md);font-weight:600}
+#page-reaper .rpbtns{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px;align-items:center}
+#page-reaper .rpbtns input{width:auto;flex:1 1 140px;min-width:0}
+#page-reaper .rptrack{display:grid;grid-template-columns:minmax(0,120px) minmax(40px,1fr) auto auto;gap:8px;align-items:center;margin:4px 0}
+#page-reaper .rptrack .rpname{font-size:var(--fs-md);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#page-reaper .rpmeter{height:8px;background:var(--inset);border-radius:var(--r-sm);overflow:hidden}
+#page-reaper .rpmeter i{display:block;height:100%;background:var(--ok)}
+#page-reaper .rptrack button{width:auto;min-height:var(--ctl-h-sm);padding:3px 10px;font-size:var(--fs-sm);min-width:64px}
+#page-reaper .rptrack button.on{background:var(--err);color:var(--err-fg)}
+#page-reaper .rpmachine > h3 .count{font-weight:400;font-size:var(--fs-md);color:var(--dim);margin-left:6px}
+#page-reaper details.sect{margin-top:12px}
+#page-reaper details.sect h4{font-size:var(--fs-md);font-weight:600;margin:18px 0 8px}
+#page-reaper .rpprobs{margin:8px 0 0;padding-left:18px}

@@ -1,0 +1,17 @@
+/* The UniFi tabs on the Network page: their layout only (#463: moved out of unifi.js). Controls come from components.css. */
+#page-network .ufcards{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:12px;align-items:start}
+@media (max-width:900px){#page-network .ufcards{grid-template-columns:minmax(0,1fr)}
+}
+#page-network .pcard h4{margin:0;font-size:var(--fs-md);font-weight:600}
+#page-network .ufgear{display:flex;flex-direction:column;gap:12px}
+#page-network .ufchart{display:block;width:100%;height:90px;margin-top:6px}
+#page-network .ufchart text{font-size:var(--fs-xs);fill:var(--dim)}
+#page-network .ufchart .a{stroke:var(--accent)}
+#page-network .ufchart .b{stroke:var(--dim)}
+#page-network .ufchart .c{stroke:var(--err)}
+#page-network .uflegend{font-size:var(--fs-sm);color:var(--dim);margin-top:2px}
+#page-network .uflegend i{display:inline-block;width:14px;height:2px;vertical-align:middle;margin:0 4px 0 10px}
+#page-network td.warn{color:var(--err)}
+#page-network #ufRange button.primary{pointer-events:none}
+#page-network #ufWarn ul{margin:4px 0 0 18px;padding:0}
+#page-network .ufhead{display:flex;align-items:center;gap:var(--sp-2);margin:0 0 var(--sp-3)}

@@ -4,7 +4,7 @@
   const R = window.RelayAdmin;
   if (!R || !document.getElementById('page-remoteaccess')) return;
   const $ = R.$, api = R.api, post = R.post;
-  function can(perm) { return typeof window.relayCan !== 'function' || !!window.relayCan(perm); }
+  const can = relayUI.can;
 
   let last = null;
   let timer = null;
@@ -78,8 +78,8 @@
   });
 
   $('raRelease').addEventListener('click', async function () {
-    if (!confirm('Release ' + (last && last.url) + '?\n\nThe link stops working for good, and enrolling again ' +
-                 'needs a new code and gives a different link.')) return;
+    if (!(await relayUI.confirm('Release ' + (last && last.url) + '?\n\nThe link stops working for good, and enrolling again ' +
+                 'needs a new code and gives a different link.'))) return;
     showError('');
     try { render(await post('/api/admin/remote-access/release', {})); } catch (e) { showError(e.message); }
   });

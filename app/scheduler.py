@@ -22,15 +22,26 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import os
 from datetime import datetime, timezone
 
 from . import config, schedules
 from .engine import demo_mode, engine
+from . import modules
 
 log = logging.getLogger("relay.scheduler")
 
 TICK_S = 5.0
+
+
+def plan_source() -> schedules.PlanSource | None:
+    """Today's Planning Center service times, while that module is on (None otherwise)."""
+    return modules.using("schedules.plan_times")
+
+
+def engine_schedules() -> list[dict]:
+    """The named schedules the operator picked to start and stop the engine."""
+    cfg = config.get()
+    return [s for s in (schedules.find(cfg["schedules"], r) for r in cfg["engine_schedules"]) if s]
 
 
 class Scheduler:
@@ -72,8 +83,8 @@ class Scheduler:
     # -- the decision --------------------------------------------------
     async def tick(self, now: datetime | None = None) -> None:
         now = now or self.now()
-        scheds = config.get()["schedules"]
-        win = schedules.current_window(scheds, now)
+        scheds = engine_schedules()
+        win = schedules.current_window(scheds, now, config.timezone(), plan_source())
 
         if not engine.running:
             self.started_by = None
@@ -127,7 +138,8 @@ class Scheduler:
     # -- operator hooks ------------------------------------------------
     def manual_stop(self, now: datetime | None = None) -> None:
         """The operator pressed Stop: hold the current window, if any."""
-        win = schedules.current_window(config.get()["schedules"], now or self.now())
+        now = now or self.now()
+        win = schedules.current_window(engine_schedules(), now, config.timezone(), plan_source())
         self.held = win.start if win else None
         self.owned_until = None
         self.started_by = None
@@ -148,9 +160,10 @@ class Scheduler:
     # -- status --------------------------------------------------------
     def status(self, now: datetime | None = None) -> dict:
         now = now or self.now()
-        scheds = config.get()["schedules"]
-        win = schedules.current_window(scheds, now)
-        nxt = schedules.next_window(scheds, now)
+        scheds = engine_schedules()
+        tz, plan = config.timezone(), plan_source()
+        win = schedules.current_window(scheds, now, tz, plan)
+        nxt = schedules.next_window(scheds, now, tz, plan)
 
         stop = None
         if self.owned_until is not None and engine.running:
@@ -185,25 +198,44 @@ class Scheduler:
     # -- the list the panel edits ---------------------------------------
     def listing(self, now: datetime | None = None) -> dict:
         now = now or self.now()
+        cfg = config.get()
+        tz, plan = cfg["timezone"], plan_source()
         items = []
-        for s in config.get()["schedules"]:
-            nxt = schedules.next_window([dict(s, enabled=True)], now)
-            live = schedules.current_window([dict(s, enabled=True)], now)
+        for s in cfg["schedules"]:
+            nxt = schedules.next_window([dict(s, enabled=True)], now, tz, plan)
             items.append(dict(
                 s,
+                ref=schedules.ref(s["id"]),
                 summary=schedules.summary(s),
-                start_date_us=schedules.fmt_date(s.get("start_date")),
-                end_date_us=schedules.fmt_date(s.get("end_date")),
-                expired=schedules.is_expired(s, now),
-                live=bool(live),
-                next_start=schedules.fmt_instant(nxt.start, nxt.tz) if nxt else None,
+                windows=[dict(w, summary=schedules.window_summary(w),
+                              start_date_us=schedules.fmt_date(w.get("start_date")),
+                              end_date_us=schedules.fmt_date(w.get("end_date"))) for w in s["windows"]],
+                expired=schedules.is_expired(s, now, tz),
+                live=schedules.is_open(s, now, tz, plan),
+                next_start=schedules.fmt_instant(nxt.start, tz) if nxt else None,
+                engine=schedules.ref(s["id"]) in cfg["engine_schedules"],
+                used_by=used_by(s["id"]),
             ))
         return {
             "schedules": items,
+            "timezone": tz,
             "timezones": [{"id": z, "label": l} for z, l in schedules.US_TIMEZONES],
-            "default_timezone": schedules.default_timezone(os.environ.get("TZ")),
+            "plan_times": plan is not None,
             "status": self.status(now),
         }
+
+
+def used_by(sid: str) -> list[dict]:
+    """Every place that picks schedule `sid`: [{"where": "Signage", "what": "Lobby slot"}...]. The engine is core's;
+    each module that picks schedules offers what it uses as `schedules.used.<module>` (a function taking the ref)."""
+    want = schedules.ref(sid)
+    out = [{"where": "Engine", "what": "Starts and stops live captions"}] if want in config.get()["engine_schedules"] else []
+    from . import boards
+
+    out += boards.schedule_users(want)
+    for _name, fn in modules.using_all("schedules.used.").items():
+        out += fn(want)
+    return out
 
 
 scheduler = Scheduler()

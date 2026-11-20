@@ -1,7 +1,8 @@
 """Intercom (#237): phone intercom for the crew, over a media server Relay runs on this computer.
 
-This slice holds the module's tables (#272) and the supervised local livekit-server (#238). Channels, talk
-leases and the crew page come in the later issues of the epic. Everything stays on the LAN: no cloud, no Docker.
+The module's tables (#272), the supervised local livekit-server (#238), phones and rooms (#273, #239), channels and
+talk leases (#275, #274), the crew page tab (#240), the live page (#241) and the watchdog (#276). Everything stays on
+the LAN: no cloud, no Docker.
 """
 from __future__ import annotations
 
@@ -10,7 +11,7 @@ import contextlib
 import logging
 from typing import Any
 
-from .. import AdminPage, CrewTab, Health, Manifest, Module
+from .. import AdminPage, CrewTab, Health, Manifest, Module, Traffic
 from ...users import Permission
 
 log = logging.getLogger("relay.intercom")
@@ -26,21 +27,31 @@ class Intercom(Module):
     manifest = Manifest(
         id="intercom",
         name="Intercom",
-        version="0.1.0",
+        version="0.2.0",
         summary="Crew intercom on phones over the church network, using a media server Relay runs itself.",
         settings_key="intercom",
+        section="Crew",
         guide="https://github.com/justin-small/relay#intercom",
+        traffic=(Traffic("intercom", "Intercom audio (LiveKit media)", media=True),),
     )
-    defaults = {"binary_path": "", "node_ip": "", "log_days": 30}
+    defaults = {"binary_path": "", "node_ip": "", "log_days": 30, "thresholds": {}}
     admin_pages = (AdminPage(
-        id="intercom", title="Intercom", template="admin.html", group="Automation",
+        id="intercom", title="Channels", template="admin.html",
         icon='<path d="M2.5 9.5v-2a5.5 5.5 0 0 1 11 0v2"/><rect x="1.5" y="9" width="3" height="4.5" rx="1"/>'
-             '<rect x="11.5" y="9" width="3" height="4.5" rx="1"/>'),)
-    admin_scripts = ("intercom.js", "live.js")
+             '<rect x="11.5" y="9" width="3" height="4.5" rx="1"/>'),
+        AdminPage(id="intercom-phones", title="Signed-in phones", template="phones.html",
+                  icon='<rect x="4.5" y="1.5" width="7" height="13" rx="1.5"/><path d="M7 12.5h2"/>',
+                  permission="intercom.manage"))
+    admin_scripts = ("intercom.js", "live.js", "health.js")
+    admin_styles = ("intercom.css",)
     crew_tabs = (CrewTab("intercom", "Intercom", "crew.html", "intercom.use"),)
     crew_scripts = ("livekit-client.umd.js", "crew.js")
+    crew_styles = ("crew.css",)
     microphone_pages = ("/crew",)
     route_prefixes = ("/api/admin/intercom", "/intercom")
+    # Never on the plain-HTTP viewer port, so a remote access tunnel carries none of the local intercom (the webhook
+    # LiveKit calls stays there on purpose). Remote crew (intercom_remote, #277) has routes of its own for that.
+    panel_prefixes = ("/intercom/api", "/intercom/ws", "/intercom/rtc")
     permissions = (
         Permission("intercom.use", "Use the crew intercom on a phone", "Intercom", "member"),
         Permission("intercom.view", "See the intercom media server and its log", "Intercom", "viewer"),
@@ -54,12 +65,19 @@ class Intercom(Module):
         self._task: asyncio.Task | None = None
         self._watch: asyncio.Task | None = None
         self._leases: asyncio.Task | None = None
+        self._logging: set[asyncio.Task] = set()
 
     def attach(self) -> None:
-        from ... import users
-        from . import store
+        from ... import devices as core_devices, modules, users
+        from . import devices, store
         from .presence import presence
 
+        def forget_phone(core_id: int) -> None:
+            for row in devices.revoke_core(core_id):
+                presence.run(presence.revoked(row))
+
+        core_devices.register(devices.PART, "Intercom", "intercom_devices", forget_phone, devices.describe_core)
+        modules.provide("gear.intercom", {"list": store.gear_list})    # its talk channels (app/gearfeed.py)
         if presence.user_signed_out not in users.signed_out_hooks:
             users.signed_out_hooks.append(presence.user_signed_out)
         if presence.member_changed not in store.member_hooks:
@@ -68,10 +86,12 @@ class Intercom(Module):
             store.config_hooks.append(presence.config_changed)
 
     def detach(self) -> None:
-        from ... import users
-        from . import store
+        from ... import devices as core_devices, modules, users
+        from . import devices, store
         from .presence import presence
 
+        core_devices.unregister(devices.PART)
+        modules.withdraw("gear.intercom")
         for lst, fn in ((users.signed_out_hooks, presence.user_signed_out), (store.member_hooks,
                                                                            presence.member_changed),
                         (store.config_hooks, presence.config_changed)):
@@ -82,8 +102,10 @@ class Intercom(Module):
         raw = raw if isinstance(raw, dict) else {}
         days = raw.get("log_days")
         days = days if isinstance(days, int) and not isinstance(days, bool) and 1 <= days <= 365 else 30
+        from .watchdog import clean_thresholds
+
         return {"binary_path": _text(raw.get("binary_path")), "node_ip": _text(raw.get("node_ip"), 64),
-                "log_days": days}
+                "log_days": days, "thresholds": clean_thresholds(raw.get("thresholds"))}
 
     def configured(self, settings: dict) -> bool:
         return False  # New: nobody had it before, so it starts off.
@@ -115,9 +137,25 @@ class Intercom(Module):
         supervisor.begin(config.get()["intercom"])
         self._task = asyncio.create_task(self._housekeeping())
         self._watch = asyncio.create_task(rooms.watch(), name="intercom-room-watch")
+        from .watchdog import record, watchdog
+
+        def restarted() -> None:
+            task = asyncio.get_running_loop().create_task(record("livekit_restarted"))
+            self._logging.add(task)
+            task.add_done_callback(self._logging.discard)
+
+        supervisor.on_restart = restarted
+        watchdog.on_change = live.notify
+        watchdog.begin()
+        await record("server_restart")
 
     async def stop(self) -> None:
         from .livekit import supervisor
+        from .watchdog import watchdog
+
+        await watchdog.end()
+        watchdog.on_change = None
+        supervisor.on_restart = None
 
         if self._task is not None:
             self._task.cancel()
@@ -165,8 +203,14 @@ class Intercom(Module):
             await asyncio.sleep(PRUNE_EVERY_S)
 
     def health(self) -> Health:
+        """A watchdog card at warn or error (#276) wins; otherwise LiveKit's own state."""
         from .livekit import supervisor
+        from .watchdog import watchdog
 
+        state = watchdog.state()
+        if state in ("warn", "error"):
+            bad = [c for c in watchdog.cards.values() if c.state == state]
+            return Health(state, "; ".join(f"{c.title}: {c.detail}" for c in bad))
         s = supervisor
         if s.state == "running":
             return Health("ok", "LiveKit is running")
@@ -176,9 +220,20 @@ class Intercom(Module):
             return Health("error", s.detail)
         return Health("idle", "LiveKit is not running")
 
+    def network_changed(self, resolved) -> None:
+        # LiveKit reads its address and interface only when it starts: start it again on the port it goes to now.
+        from .livekit import supervisor
+
+        if supervisor.state != "off":
+            self._net_task = asyncio.get_running_loop().create_task(supervisor.restart(), name="intercom-network")
+
     async def test(self) -> dict:
         from ... import config
-        from .livekit import asset, find_binary
+        from .livekit import asset, find_binary, media_route
+
+        _addr, _iface, problem = media_route(config.get()["intercom"]["node_ip"])
+        if problem:
+            return {"ok": False, "detail": problem}
 
         if find_binary(config.get()["intercom"]["binary_path"]):
             return {"ok": True, "detail": "livekit-server is in place."}
@@ -191,8 +246,14 @@ class Intercom(Module):
 
     def pills(self) -> list:
         from . import live
+        from .watchdog import watchdog
 
-        return live.pills()
+        out = live.pills()
+        bad = watchdog.problems()
+        if bad:
+            out.append({"id": "intercom-health", "level": "error", "href": "#intercom",
+                        "text": "INTERCOM " + (bad[0].title.upper() if len(bad) == 1 else f"{len(bad)} PROBLEMS")})
+        return out
 
 
 MODULE = Intercom()

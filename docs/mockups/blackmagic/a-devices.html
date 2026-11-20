@@ -1,0 +1,72 @@
+<!doctype html><html lang="en" data-theme="dark" data-preset="relay"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<link rel="stylesheet" href="../../../app/static/tokens.css"><link rel="stylesheet" href="../../../app/static/components.css"><link rel="stylesheet" href="common.css">
+<title>Blackmagic A · Device tabs</title></head><body>
+<div class="top"><b>Blackmagic</b><span class="spill on"><i class="dot ok"></i>4 of 4 connected</span><span class="sp"></span><span class="muted">Ana Ruiz · manage</span></div>
+<div class="wrap stack">
+<div class="tabs" id="tabs" role="tablist"></div>
+
+<div id="panes"></div>
+
+<div class="pane" id="add"><div class="stack">
+<div class="card"><h3>Find on the network</h3><p class="lede">Lists Blackmagic gear that announces itself on this network. Relay knows the model from the announcement and picks the matching front and back drawing.</p>
+<div class="gap"><button class="primary" type="button">Scan</button><label class="check" style="margin:0"><input type="checkbox"> Also try every address on this subnet (finds ATEM switchers only)</label></div>
+<table class="dt" style="margin-top:var(--sp-3)"><thead><tr><th>Device</th><th>Model</th><th>Address</th><th>Drawing</th><th></th></tr></thead><tbody>
+<tr><td>Studio Camera 4K Pro</td><td>Blackmagic Studio Camera</td><td class="mono">10.0.20.61</td><td class="muted">Not drawn yet</td><td class="muted">Cameras cannot be added</td></tr>
+<tr><td>Kids room</td><td>ATEM Mini Pro</td><td class="mono">10.0.20.42</td><td>ATEM Mini Pro</td><td><button class="sm" type="button">Add</button></td></tr>
+<tr><td>Lobby router</td><td>Smart Videohub 12x12 12G</td><td class="mono">10.0.20.51</td><td>Smart Videohub 12x12</td><td><button class="sm" type="button">Add</button></td></tr></tbody></table></div>
+<div class="card"><h3>Add by address</h3><p class="lede">For a device the scan does not find, for example on another VLAN. Pick the model so the right panel is drawn; Relay checks it when it connects.</p>
+<div class="form-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,280px));gap:var(--sp-4)">
+<div class="field"><label for="ak">Model</label><select id="ak"><optgroup label="ATEM switchers"><option>ATEM Mini Pro</option><option>ATEM Mini Extreme ISO</option><option>ATEM Television Studio HD8 ISO</option></optgroup><optgroup label="HyperDeck"><option>HyperDeck Studio HD Plus</option></optgroup><optgroup label="Videohub"><option>Smart Videohub 12x12 12G</option><option>Videohub 20x20 12G</option></optgroup><option>Other (draw a generic panel)</option></select><span class="hint">Sets the drawing and the port.</span></div>
+<div class="field"><label for="an">Name</label><input id="an" placeholder="Main room"><span class="hint">Shown on the tab and in the network map.</span></div>
+<div class="field"><label for="ah">Address</label><input id="ah" placeholder="192.168.1.240" spellcheck="false"><span class="hint">IP address or host name.</span></div></div>
+<div class="ctl" style="margin-top:var(--sp-3)"><button class="primary" type="button">Add device</button></div></div>
+</div></div>
+</div>
+<nav class="mocknav"><a href="index.html">Index</a><a href="a-devices.html" aria-current="page">A</a><a href="b-rack.html">B</a><a href="c-flow.html">C</a></nav>
+<script src="devices.js"></script>
+<script>
+(function(){
+var BM=window.BM,h=BM.h;
+var tabs=document.getElementById('tabs'),panes=document.getElementById('panes');
+var view={},sel={};
+BM.DEVICES.forEach(function(d,i){
+  var b=h('button',i===0?'on':'',tabs);b.type='button';b.dataset.p='d-'+d.id;b.setAttribute('role','tab');
+  h('i','dot '+(d.connected?'ok':'err'),b);b.appendChild(document.createTextNode(d.name));
+  var p=h('div','pane'+(i===0?' on':''),panes);p.id='d-'+d.id;view[d.id]='both';
+});
+var add=h('button','',tabs,'+ Find and add');add.type='button';add.dataset.p='add';
+document.getElementById('panes').after(document.getElementById('add'));
+BM.tabs('tabs');
+
+function render(d){
+  var m=BM.model(d),p=document.getElementById('d-'+d.id);p.textContent='';
+  var st=h('div','stack',p);
+  var c=h('div','card',st);
+  var hd=h('div','devhead',c);h('b','',hd,d.name);h('span','badge ok',hd,'Connected');
+  h('span','muted',hd,m.name+' · '+d.host+' · firmware '+d.firmware);h('span','grow',hd);
+  var seg=h('div','seg',hd);seg.style.minWidth='240px';
+  [['front','Front'],['back','Back'],['both','Both']].forEach(function(o){var b=h('button',view[d.id]===o[0]?'on':'',seg,o[1]);b.type='button';b.addEventListener('click',function(){view[d.id]=o[0];render(d);});});
+  var ed=h('button','sm',hd,'Edit');ed.type='button';
+  var sp=h('div','split',st);
+  var left=h('div','stack',sp);
+  ['front','back'].forEach(function(face){
+    if(view[d.id]!=='both'&&view[d.id]!==face)return;
+    var cc=h('div','card',left);
+    var lb=h('div','between',cc);h('p','face-label',lb,face==='front'?(m.form==='desk'?'Top panel · press to control':'Front panel · press to control'):'Back panel · hover a connector');
+    var lg=h('div','legend',lb);
+    (face==='front'?[['pgm','Program / recording'],['pvw','Preview / playing'],['dis','Not from Relay']]:[['ok','Signal'],['warn','Cabled, no signal'],['info','Has a note']]).forEach(function(x){var s=h('span','',lg);h('i',x[0],s);s.appendChild(document.createTextNode(x[1]));});
+    var svg=BM.draw(d,face,{selPort:sel[d.id]});cc.appendChild(svg);
+    BM.wire(svg,function(dd,pid){sel[d.id]=pid;render(d);});
+  });
+  var right=h('div','stack drawer',sp);
+  var ic=h('div','card',right);h('h4','',ic,'Connector');BM.inspector(ic,d,sel[d.id]);
+  var lc=h('div','card',right);
+  if(m.family==='atem'){h('h4','',lc,'Inputs');var sl=h('div','srclist',lc);Object.keys(d.state.inputs).filter(function(k){return +k>0&&+k<100}).forEach(function(k){var x=h('div',+k===d.state.pgm?'pgm':+k===d.state.pvw?'pvw':'',sl);h('b','',x,k);h('span','',x,d.state.inputs[k]);});
+    h('p','hint',lc,'Names come from the switcher. Program (red) and preview (green) also light the tally screens at /tally.');}
+  else if(m.family==='hyperdeck'){h('h4','',lc,'Recording');var kv=h('dl','kv',lc);[['State',d.state.mode==='rec'?'Recording':d.state.mode==='play'?'Playing':'Stopped'],['Clip',d.state.clip],['Time left',d.state.left],['SD 1',d.state.sd1],['SD 2',d.state.sd2]].forEach(function(r){h('dt','',kv,r[0]);h('dd','',kv,r[1]);});}
+  else {h('h4','',lc,'Routing');h('p','hint',lc,'Press an output on the front, then click an input on the back (or below), then TAKE.');var s=h('select','',lc);s.setAttribute('aria-label','Preset');['Presets…','Sunday','Youth night','Everything to bars'].forEach(function(o){h('option','',s,o);});var b=h('button','sm',lc,'Apply preset');b.type='button';b.style.marginTop='var(--sp-2)';}
+}
+BM.DEVICES.forEach(render);
+BM.onChange(function(d,said){render(d);BM.toast(said);});
+})();
+</script></body></html>

@@ -1,0 +1,140 @@
+<!doctype html><html lang="en" data-theme="dark" data-preset="relay"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<link rel="stylesheet" href="../../../app/static/tokens.css"><link rel="stylesheet" href="../../../app/static/components.css"><link rel="stylesheet" href="common.css">
+<title>Blackmagic B · Rack</title></head><body>
+<div class="top"><b>Blackmagic</b><span class="spill on"><i class="dot ok"></i>4 of 4 connected</span><span class="sp"></span><span class="muted">Ana Ruiz · manage</span></div>
+<div class="wrap stack">
+<div class="tabs" id="tabs" role="tablist"><button type="button" data-p="rack" class="on">Rack</button><button type="button" data-p="wiring">Wiring</button><button type="button" data-p="ports">Ports and notes</button><button type="button" data-p="setup">Find and add</button></div>
+
+<div class="pane on" id="rack"><div class="split">
+<div class="stack">
+<div class="card between"><div><b>Booth rack</b><span class="muted" style="margin-left:var(--sp-2)">Drawn in the order you set in Find and add. Click a unit to control it; turn the rack round to see the cabling.</span></div>
+<div class="seg" id="face" style="min-width:200px"><button type="button" class="on" data-f="front">Front</button><button type="button" data-f="back">Back</button></div></div>
+<div class="legend" id="legend"></div>
+<div class="flip" id="flip"><div class="rack" id="units"></div></div>
+</div>
+<div class="stack drawer" id="drawer"></div>
+</div></div>
+
+<div class="pane" id="wiring"><div class="split">
+<div class="card"><div class="between" style="margin-bottom:var(--sp-3)"><div><h3 style="margin:0">Back panels and cables</h3><span class="muted">Green: signal on the cable. Red: what is on program. Hover a connector to follow its cable.</span></div>
+<button type="button" class="sm" id="addCable">Add a cable</button></div>
+<div class="wiring" id="wire"></div></div>
+<div class="stack drawer"><div class="card" id="winsp"></div>
+<div class="card"><h4>On air now</h4><div class="chain" id="chain"></div></div>
+<div class="card"><h4>How cables get here</h4><p class="hint" style="margin-top:0">Relay cannot see a cable. It suggests one when a Videohub output label matches a switcher input (ATEM 1 → IN 1), and you confirm it, or click two connectors to add one yourself.</p>
+<div class="gap"><button type="button" class="sm primary">Confirm 2 suggestions</button></div></div></div>
+</div></div>
+
+<div class="pane" id="ports"><div class="card"><h3>Every connector</h3>
+<p class="lede">One row per connector Relay knows about. Labels and signal come from the device; the note is yours, for the next volunteer who has to trace a cable. Hover the device column to see where it is in the rack.</p>
+<div class="gap" style="margin-bottom:var(--sp-3)"><select id="pdev" aria-label="Device"></select><label class="check" style="margin:0"><input type="checkbox" id="pused" checked> Only connectors in use</label></div>
+<div class="tablescroll"><table class="dt ptable"><thead><tr><th>Device</th><th>Connector</th><th>Label on the device</th><th>Signal</th><th>Now</th><th style="width:30%">Note</th></tr></thead><tbody id="prows"></tbody></table></div>
+<div class="ctl" style="margin-top:var(--sp-3)"><button class="primary" type="button">Save notes</button><span class="muted">Notes are kept with the device, so they survive a new address.</span></div></div></div>
+
+<div class="pane" id="setup"><div class="stack">
+<div class="card"><h3>Units in this rack</h3><p class="lede">Order sets how the rack is drawn. A desktop switcher sits on the shelf below the rack.</p>
+<table class="dt"><thead><tr><th></th><th>Name</th><th>Model</th><th>Address</th><th>Where</th><th></th></tr></thead><tbody id="srows"></tbody></table>
+<div class="ctl" style="margin-top:var(--sp-3)"><button class="primary" type="button">Scan the network</button><button type="button">Add by address</button></div></div>
+<div class="card"><h3>Models Relay can draw</h3><p class="lede">A model Relay does not know yet is drawn as a plain panel with its ports listed; it still connects.</p><div class="model-grid" id="models"></div></div>
+</div></div>
+</div>
+<nav class="mocknav"><a href="index.html">Index</a><a href="a-devices.html">A</a><a href="b-rack.html" aria-current="page">B</a><a href="c-flow.html">C</a></nav>
+<script src="devices.js"></script>
+<script>
+(function(){
+var BM=window.BM,h=BM.h;
+var ORDER=['hub','main','deck'],SHELF=['youth'];
+var face='front',cur='main',selPort=null;
+var picked=null,hot=null,s=BM.s;
+BM.tabs('tabs',function(p){if(p==='wiring')cables();});
+
+function legend(){var lg=document.getElementById('legend');lg.textContent='';
+  (face==='front'?[['pgm','Program / recording'],['pvw','Preview / playing'],['dis','Not from Relay']]:[['ok','Signal'],['warn','Cabled, no signal'],['info','Has a note']]).forEach(function(x){var s=h('span','',lg);h('i',x[0],s);s.appendChild(document.createTextNode(x[1]));});}
+
+function unit(id,parent,cls){
+  var d=BM.dev(id),u=h('div','unit'+(id===cur?' on':'')+(cls?' '+cls:''),parent);u.dataset.dev=id;
+  h('span','cap',u,d.name+' · '+BM.model(d).name);
+  var svg=BM.draw(d,face,{selPort:id===cur?selPort:null});u.appendChild(svg);
+  svg.dataset.canControl=id===cur?'yes':'no';
+  BM.wire(svg,function(dd,pid){cur=id;selPort=pid;all();});
+  u.addEventListener('click',function(){if(cur!==id){cur=id;selPort=null;all();}});
+}
+function rack(){var r=document.getElementById('units');r.textContent='';r.style.paddingTop='28px';r.style.gap='26px';
+  ORDER.forEach(function(id){unit(id,r);});
+  var sh=h('div','shelf',r);h('span','cap',sh,'Shelf');SHELF.forEach(function(id){var w=h('div','',sh);w.style.maxWidth='70%';unit(id,w);});
+  legend();}
+
+function drawer(){var dr=document.getElementById('drawer');dr.textContent='';
+  var d=BM.dev(cur),m=BM.model(d),st=d.state;
+  var c=h('div','card',dr);var hd=h('div','between',c);h('b','',hd,d.name);h('span','badge ok',hd,'Connected');
+  h('p','muted',c,m.name+' · '+d.host);
+  if(face==='back'){h('p','hint',c,'Back of the rack: Relay shows signal on each connector and the labels the device reports. Click one to read it and add a note.');}
+  else if(m.family==='atem'){h('p','hint',c,'Press PROGRAM to cut a source on air, PREVIEW to line it up, then CUT or AUTO. Dimmed buttons are done on the switcher.');
+    var g=h('div','gap',c);[['cut','Cut'],['auto','Auto'],['ftb','Fade to black']].forEach(function(a){var b=h('button',a[0]==='cut'?'primary':'',g,a[1]);b.type='button';b.addEventListener('click',function(){BM.press(d,a[0]);});});
+    var ms=h('div','field',c);ms.style.marginTop='var(--sp-3)';h('label','',ms,'Macros');var mg=h('div','gap',ms);(st.macros||[]).forEach(function(n,i){var b=h('button','sm',mg,n);b.type='button';b.addEventListener('click',function(){BM.press(d,'macro:'+(i+1));});});}
+  else if(m.family==='hyperdeck'){var kv=h('dl','kv',c);[['State',st.mode==='rec'?'Recording':st.mode==='play'?'Playing':'Stopped'],['Clip',st.clip],['Timecode',st.tc],['Time left',st.left]].forEach(function(r){h('dt','',kv,r[0]);h('dd','',kv,r[1]);});}
+  else {h('p','hint',c,'Press an output on the front, choose an input below or on the back, then TAKE.');
+    var f=h('div','field',c);var lab=h('label','',f,'Input');lab.htmlFor='hsrc';var s=h('select','',f);s.id='hsrc';s.disabled=!st.sel;
+    h('option','',s,st.sel?'Choose an input for output '+st.sel:'Press an output first');st.inputs.forEach(function(n,i){var o=h('option','',s,(i+1)+' · '+n);o.value=i+1;});
+    s.addEventListener('change',function(){if(s.value)BM.press(d,'src:'+s.value);});
+    var pr=h('div','field',c);h('label','',pr,'Presets');var pg=h('div','gap',pr);['Sunday','Youth night','All bars'].forEach(function(n){var b=h('button','sm',pg,n);b.type='button';});}
+  var ic=h('div','card',dr);h('h4','',ic,'Connector');BM.inspector(ic,d,selPort);
+}
+
+function ports(){var tb=document.getElementById('prows'),only=document.getElementById('pused').checked,want=document.getElementById('pdev').value;tb.textContent='';
+  BM.DEVICES.forEach(function(d){if(want&&want!==d.id)return;
+    BM.model(d).back.items.forEach(function(p){if(p.t!=='port')return;var i=BM.portInfo(d,p);if(only&&!i.used)return;
+      var tr=h('tr','',tb);h('td','',tr,d.name);h('td','mono',tr,p.label);h('td','',tr,i.label||'—');
+      var sg=h('td','',tr);h('span','badge '+(i.live?'ok':'muted'),sg,i.signal||'None');h('td','muted',tr,i.routed||i.feeds||'');
+      var nt=h('td','',tr),inp=h('input','',nt);inp.value=i.note;inp.placeholder='Add a note';inp.setAttribute('aria-label','Note for '+i.title);
+      inp.addEventListener('change',function(){if(inp.value.trim())BM.NOTES[i.key]=inp.value.trim();else delete BM.NOTES[i.key];});});});}
+var pdev=document.getElementById('pdev');h('option','',pdev,'All devices').value='';BM.DEVICES.forEach(function(d){h('option','',pdev,d.name).value=d.id;});
+pdev.addEventListener('change',ports);document.getElementById('pused').addEventListener('change',ports);
+
+function setup(){var tb=document.getElementById('srows');tb.textContent='';
+  ORDER.concat(SHELF).forEach(function(id,i){var d=BM.dev(id),tr=h('tr','',tb);h('td','muted mono',tr,'⋮⋮');h('td','',tr,d.name);h('td','',tr,BM.model(d).name);h('td','mono',tr,d.host);h('td','',tr,SHELF.indexOf(id)>=0?'Shelf':'Rack, '+(i+1));var e=h('td','',tr);var b=h('button','sm',e,'Edit');b.type='button';});
+  var mg=document.getElementById('models');mg.textContent='';
+  Object.keys(BM.MODELS).forEach(function(k){var m=BM.MODELS[k],c=h('div','card',mg);h('b','',c,m.name);
+    var fake={id:'x-'+k,name:m.name,model:k,connected:true,state:sample(m)};var svg=BM.draw(fake,'front');c.appendChild(svg);var svg2=BM.draw(fake,'back');c.appendChild(svg2);
+    h('span','muted',c,(m.form==='rack'?m.u+'U rack':'Desktop')+' · '+m.back.items.filter(function(x){return x.t==='port';}).length+' connectors');});}
+function sample(m){if(m.family==='atem')return {pgm:1,pvw:2,inputs:{},signal:{},outs:[],macros:[]};if(m.family==='hyperdeck')return {mode:'stop',clip:'',tc:'',left:'',signal:{}};
+  var n=m.size||12,a=[];for(var i=1;i<=n;i++)a.push(i);return {inputs:a.map(function(i){return 'In '+i;}),outputs:a.map(function(i){return 'Out '+i;}),routes:a.slice(),locks:{},live:[],sel:null};}
+
+document.getElementById('face').addEventListener('click',function(e){var b=e.target.closest('button');if(!b||b.dataset.f===face)return;
+  this.querySelectorAll('button').forEach(function(x){x.classList.toggle('on',x===b);});
+  var f=document.getElementById('flip');f.classList.add('turning');setTimeout(function(){face=b.dataset.f;selPort=null;all();f.classList.remove('turning');},350);});
+
+/* Wiring: the back of every unit in rack order, with the cables drawn between them. */
+function chain(){var c=document.getElementById('chain');c.textContent='';
+  var m=BM.dev('main'),hub=BM.dev('hub'),deck=BM.dev('deck'),src=m.state.pgm,hubIn=hub.state.routes[src-1];
+  [[hub.state.inputs[hubIn-1],''],['Router '+hubIn+' → '+src,''],['Main switcher: '+m.state.inputs[src],'pgm'],['PGM → Router in 9',''],[hub.state.outputs[8],''],[deck.name+(deck.state.mode==='rec'?' ● recording':''),deck.state.mode==='rec'?'pgm':'']]
+    .forEach(function(x,i){if(i)h('i','',c,'→');h('span',x[1],c,x[0]);});}
+function wiring(){var w=document.getElementById('wire');w.textContent='';
+  ORDER.concat(SHELF).forEach(function(id){var d=BM.dev(id),m=BM.model(d),r=h('div','row',w);
+    var nm=h('div','nm',r);h('b','',nm,d.name);h('small','',nm,m.name+(SHELF.indexOf(id)>=0?' · shelf':''));
+    var svg=BM.draw(d,'back',{selPort:picked&&picked[0]===id?picked[1]:null});r.appendChild(svg);
+    BM.wire(svg,function(dd,pid){picked=[id,pid];wiring();winsp();});
+    svg.addEventListener('mouseover',function(e){var p=e.target.closest('[data-port]');var k=p?id+':'+p.dataset.port:null;if(k!==hot){hot=k;highlight();}});
+    svg.addEventListener('mouseleave',function(){hot=null;highlight();});});
+  s('svg',{'class':'cables'},w);cables();}
+function centre(id,pid,box){var g=document.querySelector('.wiring svg.hw[data-dev="'+id+'"] [data-port="'+pid+'"]');if(!g)return null;
+  var r=g.getBoundingClientRect();return {x:r.left+r.width/2-box.left,y:r.top+r.height/2-box.top-4};}
+function cables(){var w=document.getElementById('wire'),cs=w.querySelector('svg.cables');if(!cs||!w.offsetParent)return;cs.textContent='';
+  var box=w.getBoundingClientRect(),m=BM.dev('main');
+  BM.CABLES.forEach(function(c){var a=centre(c.a[0],c.a[1],box),b=centre(c.b[0],c.b[1],box);if(!a||!b)return;
+    var dy=Math.max(40,Math.abs(b.y-a.y)/2);
+    var p=s('path',{d:'M'+a.x+','+a.y+' C'+a.x+','+(a.y+dy)+' '+b.x+','+(b.y-dy)+' '+b.x+','+b.y},cs);
+    var ia=BM.portInfo(BM.dev(c.a[0]),BM.findPort(BM.dev(c.a[0]),c.a[1]));
+    var onPgm=(c.b[0]==='main'&&c.b[1]==='in'+m.state.pgm)||(c.a[0]==='main'&&c.a[1]==='out0')||(c.b[0]==='deck');
+    p.setAttribute('class',(ia.live?'live':'')+(onPgm?' pgm':''));p.dataset.k=c.a.join(':')+'|'+c.b.join(':');});
+  highlight();}
+function highlight(){document.querySelectorAll('.cables path').forEach(function(p){var ks=p.dataset.k.split('|');p.classList.toggle('hot',!!hot&&ks.indexOf(hot)>=0);});}
+function winsp(){var c=document.getElementById('winsp');c.textContent='';h('h4','',c,'Connector');BM.inspector(c,picked?BM.dev(picked[0]):null,picked?picked[1]:null);}
+document.getElementById('addCable').addEventListener('click',function(){BM.toast('Click the two ends of the cable on the back panels');});
+window.addEventListener('resize',cables);
+
+function all(){rack();drawer();}
+all();ports();setup();wiring();winsp();chain();
+BM.onChange(function(d,said){all();ports();wiring();winsp();chain();BM.toast(said);});
+})();
+</script></body></html>

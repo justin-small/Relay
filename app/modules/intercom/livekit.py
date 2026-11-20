@@ -7,7 +7,8 @@ fetched, so intercom works with no internet. On macOS the operator installs live
 
 Everything stays on the LAN: no TURN, no STUN, no cloud. LiveKit's signalling port is bound to 127.0.0.1; media
 goes to one UDP port and one TCP port. The API key and secret are made here on first start and kept in the state
-folder (0600); they never reach the admin page or a phone.
+folder (0600), the secret sealed with the machine key (app/secretbox.py, #278). livekit.yaml never holds it: LiveKit
+is given it in its environment (LIVEKIT_KEYS). Neither reaches the admin page or a phone.
 """
 from __future__ import annotations
 
@@ -33,7 +34,7 @@ import zipfile
 from collections import deque
 from pathlib import Path
 
-from ... import netinfo, paths
+from ... import netinfo, netroute, netsock, paths
 from . import winjob
 
 log = logging.getLogger("relay.intercom")
@@ -107,7 +108,8 @@ def download(base_url: str = BASE_URL, wanted: tuple[str, str] | None = None) ->
         raise LiveKitError("LiveKit publishes no build for this computer. Install livekit-server and give its path.")
     name, want = wanted
     try:
-        with urllib.request.urlopen(base_url + name, timeout=60) as r:    # noqa: S310  (a fixed https URL)
+        with urllib.request.urlopen(base_url + name, timeout=60,    # noqa: S310  (a fixed https URL)
+                                    context=netsock.tls_context()) as r:
             blob = r.read(MAX_DOWNLOAD + 1)
     except OSError:
         raise LiveKitError("Could not download LiveKit. Check the internet connection, then switch intercom on "
@@ -163,19 +165,36 @@ def write_private(file: Path, text: str) -> None:
 
 
 def keys() -> tuple[str, str]:
-    """The API key and secret, made on first use and kept in the state folder (0600). Never shown or sent out."""
+    """The API key and secret, made on first use and kept in the state folder (0600, the secret sealed). Never shown
+    or sent out. A secret this computer can no longer open is replaced: phones just reconnect with new tokens."""
+    from ... import secretbox
+
     folder = state_folder()
     file = folder / "keys.json"
     try:
         got = json.loads(file.read_text(encoding="utf-8"))
-        if isinstance(got.get("key"), str) and isinstance(got.get("secret"), str) and got["secret"]:
-            return got["key"], got["secret"]
+        stored = got.get("secret")
+        if isinstance(got.get("key"), str) and isinstance(stored, str) and stored:
+            secret = secretbox.unseal(stored, "intercom:livekit-secret")
+            if secret:
+                if not secretbox.is_sealed(stored):          # written before #278: seal it now
+                    write_private(file, json.dumps({"key": got["key"],
+                                                    "secret": secretbox.seal(secret, "intercom:livekit-secret")}))
+                return got["key"], secret
     except (OSError, ValueError, AttributeError):
         pass
     paths.make_private_dir(folder)
-    pair = {"key": KEY_NAME, "secret": secrets.token_urlsafe(32)}
-    write_private(file, json.dumps(pair))
-    return pair["key"], pair["secret"]
+    key, secret = KEY_NAME, secrets.token_urlsafe(32)
+    write_private(file, json.dumps({"key": key, "secret": secretbox.seal(secret, "intercom:livekit-secret")}))
+    return key, secret
+
+
+def env_keys(key: str, secret: str) -> dict[str, str]:
+    """The environment livekit-server reads its key pair from, so the secret is never written into livekit.yaml."""
+    return {"LIVEKIT_KEYS": f"{key}: {secret}"}
+
+
+TRAFFIC = "intercom"   # LiveKit's media: the port the operator chose for it (#348)
 
 
 def lan_address(configured: str = "") -> str:
@@ -185,10 +204,30 @@ def lan_address(configured: str = "") -> str:
     return ips[0] if ips else "127.0.0.1"
 
 
-def config_text(node_ip: str, key: str, secret: str, webhook_url: str = "") -> str:
-    """livekit.yaml. JSON strings are valid YAML scalars, so nothing needs escaping by hand."""
+def media_route(configured: str = "") -> tuple[str, str, str]:
+    """(address LiveKit advertises, interface it gathers on or "", why it cannot start or "").
+
+    An address typed under Settings wins. Otherwise the intercom class's port when it is routed there: LiveKit
+    then advertises that port's address and gathers candidates on that interface only. A strict route whose port
+    is missing or down gives the reason instead, and LiveKit does not start. Unrouted: the first LAN address."""
+    if configured:
+        return configured, "", ""
+    r = netroute.resolve(TRAFFIC)
+    if r.routed and not r.fallback:
+        if not r.available or not r.address:
+            return "", "", r.reason or "Intercom's network port cannot be used right now."
+        return r.address, r.port.name if r.port else "", ""
+    return lan_address(), "", ""
+
+
+def config_text(node_ip: str, key: str, webhook_url: str = "", interface: str = "") -> str:
+    """livekit.yaml. JSON strings are valid YAML scalars, so nothing needs escaping by hand. No `keys:` block: the
+    secret reaches LiveKit through env_keys(), never this file."""
     q = json.dumps
     hook = ["webhook:", f"  api_key: {q(key)}", "  urls:", f"    - {q(webhook_url)}"] if webhook_url else []
+    # Routed (#348): gather ICE candidates on the chosen port only, so media never leaves by another one.
+    only = ["  interfaces:", "    includes:", f"      - {q(interface)}",
+            "  ips:", "    includes:", f"      - {q(node_ip + '/32')}"] if interface else []
     return "\n".join([
         f"port: {SIGNAL_PORT}",
         "bind_addresses:",
@@ -198,12 +237,11 @@ def config_text(node_ip: str, key: str, secret: str, webhook_url: str = "") -> s
         f"  udp_port: {UDP_PORT}",
         "  use_external_ip: false",
         f"  node_ip: {q(node_ip)}",
+        *only,
         "room:",
         "  auto_create: false",
         "  enable_remote_unmute: true",       # the server unmutes a talker's track when a lease starts
         "  empty_timeout: 10",
-        "keys:",
-        f"  {q(key)}: {q(secret)}",
         *hook,
         "logging:",
         "  level: info",
@@ -218,12 +256,12 @@ def webhook_url() -> str:
     return f"http://127.0.0.1:{serving.viewer_port(config.get()['port'])}/intercom/livekit-webhook"
 
 
-def write_config(node_ip: str) -> Path:
-    key, secret = keys()
+def write_config(node_ip: str, interface: str = "") -> Path:
+    key, _ = keys()
     folder = state_folder()
     paths.make_private_dir(folder)
     file = folder / "livekit.yaml"
-    write_private(file, config_text(node_ip, key, secret, webhook_url()))
+    write_private(file, config_text(node_ip, key, webhook_url(), interface))
     return file
 
 
@@ -268,6 +306,8 @@ class Supervisor:
         self.since = 0.0
         self.started_at = 0.0
         self.restarts: deque[float] = deque()
+        self.fails = 0           # health checks failed in a row, for the watchdog's card (#276)
+        self.on_restart = None   # called with no arguments each time Relay restarts a LiveKit that stopped
         self.log: deque[str] = deque(maxlen=LOG_LINES)
         self.settings: dict = {}
         self._task: asyncio.Task | None = None
@@ -294,6 +334,7 @@ class Supervisor:
                 await task
         await self._kill()
         self.restarts.clear()
+        self.fails = 0
         self._set("off")
 
     async def restart(self) -> None:
@@ -311,7 +352,7 @@ class Supervisor:
                 binary = await self._fetch()
                 if binary is None:
                     return
-            fails = 0
+            self.fails = fails = 0
             while True:
                 if self._proc is None or self._proc.returncode is not None:
                     if self._gave_up():
@@ -323,22 +364,28 @@ class Supervisor:
                     if not await self._launch(binary):
                         return
                     self.restarts.append(time.monotonic())
-                    fails = 0
+                    self.fails = fails = 0
                 await asyncio.sleep(HEALTH_EVERY_S)
                 ok = self._proc is not None and self._proc.returncode is None and await asyncio.to_thread(
                     ping, SIGNAL_PORT)
                 if ok:
-                    fails = 0
+                    self.fails = fails = 0
                     self._set("running", "")
                     continue
                 if self._proc is not None and self._proc.returncode is None and \
                         time.time() - self.started_at < STARTUP_GRACE_S:
                     continue
                 fails += 1
+                self.fails = fails
                 if self._proc is None or self._proc.returncode is not None or fails >= FAILS_TO_RESTART:
                     log.warning("intercom: livekit_restarted")
                     self._set("restarting", "LiveKit stopped answering. Starting it again.")
                     await self._kill()
+                    if self.on_restart is not None:
+                        try:
+                            self.on_restart()
+                        except Exception:
+                            log.exception("intercom: livekit restart hook failed")
         except asyncio.CancelledError:
             await self._kill()
             raise
@@ -366,15 +413,18 @@ class Supervisor:
             return None
 
     async def _launch(self, binary: str) -> bool:
-        node_ip = lan_address(self.settings.get("node_ip", ""))
+        node_ip, interface, problem = media_route(self.settings.get("node_ip", ""))
+        if problem:
+            self._set("error", problem)   # a strict route's port is missing or down: never on another network
+            return False
         busy = await asyncio.to_thread(busy_port, node_ip)
         if busy:
             self._set("error", busy)
             return False
         self._set("starting", "Starting LiveKit.")
-        self._secret = keys()[1]
-        cfg = write_config(node_ip)
-        kwargs: dict = {}
+        key, self._secret = keys()
+        cfg = write_config(node_ip, interface)
+        kwargs: dict = {"env": {**os.environ, **env_keys(key, self._secret)}}
         if sys.platform == "win32":
             kwargs["creationflags"] = 0x0800_0200   # CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP
         else:
@@ -418,7 +468,7 @@ class Supervisor:
     def view(self) -> dict:
         return {"state": self.state, "detail": self.detail,
                 "uptime_s": int(time.time() - self.started_at) if self.state == "running" and self.started_at else 0,
-                "node_ip": lan_address(self.settings.get("node_ip", "")),
+                "node_ip": media_route(self.settings.get("node_ip", ""))[0],
                 "ports": {"signal": SIGNAL_PORT, "tcp": TCP_PORT, "udp": UDP_PORT},
                 "version": VERSION, "binary": bool(find_binary(self.settings.get("binary_path", ""))),
                 "can_download": asset() is not None, "log": list(self.log)}

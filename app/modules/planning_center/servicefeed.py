@@ -25,7 +25,7 @@ import asyncio
 import json
 import logging
 from datetime import datetime, timezone
-from ... import config
+from ... import config, modules
 from . import planningcenter as pc
 from ...hub import sse_frame
 from .pclive import follower
@@ -51,9 +51,6 @@ class ServiceFeed:
         # Called when the list of service feeds a panel can pick changes
         # (main.py re-sends the `targets` message).
         self.on_offered_change = None
-        # Extra fields for a service type's message (pclink.py: which plan item ProPresenter has up). A function
-        # of the service type id returning a dict, or None.
-        self.extra = None
         follower.listeners.append(self.refresh)
 
     # -- what the panel menu offers -------------------------------------
@@ -87,9 +84,12 @@ class ServiceFeed:
             items.append(out)
         t = s["timers"]
         extra = {}
-        if self.extra is not None:
+        # Extra fields for a service type's message (which plan item ProPresenter has up): the capability
+        # "propresenter.feed_extra", a function of the service type id returning a dict, or None (#523).
+        fn = modules.using("propresenter.feed_extra")
+        if fn is not None:
             try:
-                extra = self.extra(st) or {}
+                extra = fn(st) or {}
             except Exception:
                 log.exception("service feed extra failed")
         return {

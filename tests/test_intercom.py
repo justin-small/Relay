@@ -64,7 +64,7 @@ check("every intercom table exists", {"intercom_orgs", "intercom_production", "i
                                       "intercom_channels", "intercom_channel_members", "intercom_user_choices",
                                       "intercom_sessions", "intercom_events"} <= tables)
 check("core users were left alone", db.one("select id from users where username = 'alice'") is not None)
-eq("each migration recorded once", count("schema_migrations where namespace = 'intercom'"), 3)
+eq("each migration recorded once", count("schema_migrations where namespace = 'intercom'"), 5)
 eq("one organisation row", count("intercom_orgs"), 1)
 
 general = store.create_channel("General", actor_id=alice.id)
@@ -187,19 +187,29 @@ check("one UDP and one TCP port, LAN address, no cloud", "udp_port: 7882" in tex
       and 'node_ip: "192.168.1.20"' in text and "use_external_ip: false" in text and "turn" not in text.lower()
       and "stun" not in text.lower())
 check("rooms are only made by Relay", "auto_create: false" in text)
-check("the secret is in the config but not in the admin view",
-      k1[1] in text and k1[1] not in json.dumps(livekit.supervisor.view()))
+check("the secret is neither in livekit.yaml nor in the admin view",
+      k1[1] not in text and "keys:" not in text and k1[1] not in json.dumps(livekit.supervisor.view()))
+check("keys.json holds the secret sealed, not as text",
+      k1[1] not in (Path(TMP) / "livekit" / "keys.json").read_text() and "enc:v1:" in (Path(TMP) / "livekit" / "keys.json").read_text())
+eq("LiveKit is given the pair in its environment", livekit.env_keys(*k1), {"LIVEKIT_KEYS": f"{k1[0]}: {k1[1]}"})
+(Path(TMP) / "livekit" / "keys.json").write_text(json.dumps({"key": "relay", "secret": "plain-old-secret"}))
+eq("a pre-#278 plain secret still works", livekit.keys(), ("relay", "plain-old-secret"))
+check("and is sealed on first read", "plain-old-secret" not in (Path(TMP) / "livekit" / "keys.json").read_text())
+eq("and opens the same afterwards", livekit.keys(), ("relay", "plain-old-secret"))
+(Path(TMP) / "livekit" / "keys.json").write_text(json.dumps({"key": "relay", "secret": "enc:v1:00000000:AAAA"}))
+check("a secret this computer cannot open is replaced", livekit.keys()[1] not in ("", "enc:v1:00000000:AAAA"))
+k1 = livekit.keys()
 
 # ------------------------------------------------------------------ the supervisor
 FAKE = f'''#!{sys.executable}
-import http.server, socketserver, sys
+import http.server, os, socketserver, sys
 cfg = open(sys.argv[sys.argv.index("--config") + 1]).read()
 port = int(cfg.split("port: ")[1].split()[0])
 class H(http.server.BaseHTTPRequestHandler):
     def log_message(self, *a): pass
     def do_GET(self):
         self.send_response(200); self.end_headers(); self.wfile.write(b"OK")
-print("started with a secret in view: " + cfg.split("keys:")[1].split(":")[1].strip(), flush=True)
+print("started with a secret in view: " + os.environ["LIVEKIT_KEYS"].split(":", 1)[1].strip(), flush=True)
 class S(http.server.HTTPServer):
     def server_bind(self):          # HTTPServer looks up this machine's host name here, which can take
         socketserver.TCPServer.server_bind(self)   # many seconds on a CI runner with no DNS
@@ -244,6 +254,8 @@ async def until(cond, seconds=10):
 
 async def supervise():
     sup = livekit.Supervisor()
+    restarted = []
+    sup.on_restart = lambda: restarted.append(sup.state)
     sup.begin({"binary_path": str(fake), "node_ip": "127.0.0.1"})
     started = await until(lambda: sup.state == "running", 30)
     if not started:
@@ -255,6 +267,7 @@ async def supervise():
     os.killpg(os.getpgid(pid), 9)
     check("a killed server comes back", await until(lambda: sup._proc and sup._proc.pid != pid
                                                     and sup.state == "running", 15))
+    eq("the restart hook ran once, as it restarted (the watchdog logs livekit_restarted)", restarted, ["restarting"])
     pid = sup._proc.pid
     await sup.end()
     check("switching off leaves no process", not alive(pid) and sup.state == "off")

@@ -9,12 +9,12 @@
       <label class="chat-lbl" for="clTitle">Title</label>
       <input id="clTitle" maxlength="60" autocomplete="off">
       <label class="chat-lbl" for="clPos">Position</label>
-      <input id="clPos" list="clPositions" maxlength="80" autocomplete="off" placeholder="A Planning Center team, or blank for everyone">
-      <datalist id="clPositions"></datalist>
+      <select id="clPos"></select>
+      <div class="cr-note">Choose a Planning Center team, or one position of it. Everyone serving sees a checklist set for no one in particular.</div>
       <label class="chat-lbl" for="clItems">Items, one per line</label>
-      <textarea id="clItems" rows="6"></textarea>
+      <textarea class="prose" id="clItems" rows="6"></textarea>
       <div class="cl-btns">
-        <button type="button" id="clSave">Save checklist</button>
+        <button class="primary" type="button" id="clSave">Save checklist</button>
         <button type="button" id="clCancel" hidden>Cancel</button>
       </div>
     </div>

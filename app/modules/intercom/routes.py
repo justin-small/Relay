@@ -2,16 +2,20 @@
 from __future__ import annotations
 
 import asyncio
+import csv
+import io
 import json
+from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, Request, WebSocket
 from fastapi.responses import JSONResponse, Response, StreamingResponse
 
 from .. import modules as registry, require
-from ... import db, users
+from ... import config, db, users
 from . import devices, live, rooms, rtcproxy, store, webhook
 from .livekit import supervisor
 from .presence import on_operator_port, presence
+from .watchdog import clean_thresholds, watchdog
 
 router = APIRouter()
 
@@ -26,6 +30,85 @@ async def intercom_view():
 async def intercom_restart():
     await supervisor.restart()
     return supervisor.view()
+
+
+# ------------------------------------------------------------------ health and the connection log (#276)
+
+LOG_HOURS = (1, 24, 168, 720)
+
+
+@router.get("/api/admin/intercom/health", dependencies=[Depends(require("intercom.view"))])
+async def health_view():
+    """The watchdog's cards and the thresholds they use. Measurements only: no keys, tokens or audio."""
+    return watchdog.view()
+
+
+@router.put("/api/admin/intercom/health/thresholds")
+async def health_thresholds(request: Request, user: users.User = Depends(require("intercom.manage"))):
+    """Save the thresholds. A value that is missing or out of range goes back to its default."""
+    d = await _body(request)
+    saved = dict(config.get()["intercom"])
+    saved["thresholds"] = clean_thresholds(d.get("thresholds"))
+    config.save({"intercom": saved}, replace=("intercom",))
+
+    def note() -> None:
+        with db.transaction() as tx:
+            store.log_event(tx, "thresholds_changed", actor_id=user.id)
+
+    try:
+        await store.run(note)
+    except db.Unavailable:
+        pass
+    return watchdog.view()
+
+
+def _since(hours) -> str:
+    try:
+        h = int(hours)
+    except (TypeError, ValueError):
+        h = 24
+    h = h if h in LOG_HOURS else 24
+    return (datetime.now(timezone.utc) - timedelta(hours=h)).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def _event_row(e: dict) -> dict:
+    try:
+        detail = json.loads(e["detail"] or "{}")
+    except ValueError:
+        detail = {}
+    return {"at": e["at"], "kind": e["kind"], "user": e["user"] or "", "device": e["device"] or "",
+            "channel": e["channel"] or "", "actor": e["actor"] or "",
+            "detail": detail if isinstance(detail, dict) else {}}
+
+
+@router.get("/api/admin/intercom/events", dependencies=[Depends(require("intercom.view"))])
+async def events_list(hours: int = 24, kind: str = ""):
+    rows = [_event_row(e) for e in await store.run(store.events_since, _since(hours), 1000)]
+    if kind:
+        rows = [r for r in rows if r["kind"].startswith(kind[:40])]
+    return {"events": rows[:500], "hours": hours if hours in LOG_HOURS else 24}
+
+
+def _cell(v) -> str:
+    """A CSV cell a spreadsheet will not run as a formula."""
+    text = v if isinstance(v, str) else json.dumps(v, separators=(",", ":"), sort_keys=True)
+    return "'" + text if text[:1] in ("=", "+", "-", "@", "\t", "\r") else text
+
+
+@router.get("/api/admin/intercom/events.csv", dependencies=[Depends(require("intercom.view"))])
+async def events_csv(hours: int = 24):
+    """The connection log as CSV for a spreadsheet. It holds names, kinds and plain details: there is no audio in the
+    log, and no credential, token or key is ever written to it."""
+    rows = [_event_row(e) for e in await store.run(store.events_since, _since(hours), 50000)]
+    buf = io.StringIO()
+    w = csv.writer(buf)
+    w.writerow(["time (UTC)", "event", "person", "phone", "channel", "by", "detail"])
+    for r in rows:
+        w.writerow([_cell(r[k]) for k in ("at", "kind", "user", "device", "channel", "actor")] +
+                   [_cell(r["detail"]) if r["detail"] else ""])
+    name = "intercom-log-" + datetime.now(timezone.utc).strftime("%Y%m%d-%H%M") + ".csv"
+    return Response("\ufeff" + buf.getvalue(), media_type="text/csv; charset=utf-8",
+                    headers={"Content-Disposition": f'attachment; filename="{name}"', "Cache-Control": "no-store"})
 
 
 # ------------------------------------------------------------------ signed-in phones (#273)

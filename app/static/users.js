@@ -19,14 +19,7 @@
     return A.api(path, opts);
   }
 
-  function field(label, control, id) {
-    const f = el('div', 'field');
-    const l = el('label', '', label);
-    if (id) { control.id = id; l.htmlFor = id; }
-    f.appendChild(l);
-    f.appendChild(control);
-    return f;
-  }
+  const field = relayUI.field;
 
   function input(type, max) {
     const i = el('input');
@@ -63,6 +56,7 @@
 
   function initAccount() {
     paintAccount();
+    loadMyPhones();
     g('pwForm').addEventListener('submit', async function (ev) {
       ev.preventDefault();
       const cur = g('pwCurrent'), nw = g('pwNew'), again = g('pwConfirm');
@@ -124,7 +118,7 @@
     rm.setAttribute('aria-label', 'Revoke ' + t.name);
     rm.addEventListener('click', async function () {
       const whose = withPerson ? t.user_name + '\'s token ' : 'the token ';
-      if (!window.confirm('Revoke ' + whose + '"' + t.name + '"? Anything using it stops working at once.')) return;
+      if (!(await relayUI.confirm('Revoke ' + whose + '"' + t.name + '"? Anything using it stops working at once.'))) return;
       try { await onRevoke(t); A.okMsg('Revoked ' + t.name + '.'); } catch (e) { A.alertMsg(e.message); }
     });
     act.appendChild(rm);
@@ -225,7 +219,7 @@
 
   /* ---- Users ---- */
   let users = [], roles = [], perms = [];
-  let devices = [], thisDevice = null;
+  let devices = [], thisDevice = null, allPhones = [];
   let secretText = '';
 
   // 16 characters from an alphabet without look-alikes (no 0/O, 1/l/I), drawn without bias, in groups of four.
@@ -497,7 +491,7 @@
       const del = el('button', 'danger', 'Delete');
       del.type = 'button';
       del.addEventListener('click', async function () {
-        if (!window.confirm('Delete ' + u.name + ' (' + u.username + ')? They are signed out at once and the account cannot be brought back.')) return;
+        if (!(await relayUI.confirm('Delete ' + u.name + ' (' + u.username + ')? They are signed out at once and the account cannot be brought back.'))) return;
         try {
           await send('DELETE', '/api/admin/users/' + encodeURIComponent(u.id));
           closePanel();
@@ -536,6 +530,42 @@
     form.querySelector('input').focus();
   }
 
+  /* The people table: filter, sort by a column and page through, in the browser (a church has tens of people). */
+  const view = { q: '', key: 'name', dir: 1, page: 1, size: 10 };
+  function visibleUsers() {
+    const q = view.q.trim().toLowerCase();
+    const rows = users.filter(function (u) { return !q || (u.name + ' ' + u.username + ' ' + roleLabel(u.role)).toLowerCase().indexOf(q) !== -1; });
+    rows.forEach(function (u) { u.status = statusOf(u).text; });
+    return window.RelayShell ? window.RelayShell.sortRows(rows, view.key, view.dir) : rows;
+  }
+  function renderPager(total) {
+    const box = g('userPager');
+    const pages = Math.max(1, Math.ceil(total / view.size));
+    box.hidden = total <= view.size;
+    box.textContent = '';
+    if (box.hidden) return;
+    view.page = Math.min(view.page, pages);
+    box.appendChild(el('span', '', 'Page ' + view.page + ' of ' + pages));
+    const nav = el('span', 'pgn');
+    function btn(label, n, cls, off) {
+      const b = el('button', cls || '', label);
+      b.type = 'button'; b.disabled = !!off;
+      b.addEventListener('click', function () { view.page = n; renderUsers(); });
+      nav.appendChild(b);
+    }
+    btn('\u2039 Prev', view.page - 1, '', view.page < 2);
+    window.RelayShell.pageNums(view.page, pages).forEach(function (n) { btn(String(n), n, n === view.page ? 'cur' : '', false); });
+    btn('Next \u203a', view.page + 1, '', view.page >= pages);
+    box.appendChild(nav);
+  }
+  function paintSortHeads() {
+    document.querySelectorAll('#page-users th [data-sort]').forEach(function (b) {
+      const on = b.dataset.sort === view.key;
+      b.closest('th').setAttribute('aria-sort', on ? (view.dir > 0 ? 'ascending' : 'descending') : 'none');
+      b.textContent = b.textContent.replace(/ [\u25b2\u25bc]$/, '') + (on ? (view.dir > 0 ? ' \u25b2' : ' \u25bc') : '');
+    });
+  }
+
   function renderUsers() {
     const tb = g('userList');
     tb.textContent = '';
@@ -546,10 +576,22 @@
       td.colSpan = 7;
       tr.appendChild(td);
       tb.appendChild(tr);
+      renderPager(0);
       return;
     }
     const manage = can('users.manage');
-    users.forEach(function (u) {
+    const all = visibleUsers();
+    renderPager(all.length);
+    paintSortHeads();
+    if (!all.length) {
+      const tr = el('tr');
+      const td = el('td', 'muted', 'No people match.');
+      td.colSpan = 7;
+      tr.appendChild(td);
+      tb.appendChild(tr);
+      return;
+    }
+    all.slice((view.page - 1) * view.size, view.page * view.size).forEach(function (u) {
       const tr = el('tr');
       const nameTd = el('td');
       nameTd.appendChild(el('strong', '', u.name));
@@ -575,6 +617,116 @@
       tr.appendChild(act);
       tb.appendChild(tr);
     });
+  }
+
+  /* ---- Phones (#528): one core device per phone, with sign-in, intercom, check-in and push as parts ---- */
+  function partsText(p) {
+    return p.parts.length ? p.parts.map(function (x) { return x.label; }).join(', ') : 'Nothing yet';
+  }
+
+  function renderPhones(tb, phones, base, withPerson) {
+    tb.textContent = '';
+    const cols = withPerson ? 5 : 4;
+    if (!phones.length) emptyRow(tb, cols, 'No phones yet.');
+    const manage = base === '/api/admin/me/phones' || can('users.manage');
+    phones.forEach(function (p) {
+      const tr = el('tr');
+      const nameTd = el('td');
+      nameTd.appendChild(el('strong', '', p.name || 'Phone'));
+      tr.appendChild(nameTd);
+      if (withPerson) tr.appendChild(el('td', 'muted', p.user));
+      const holds = el('td');
+      p.parts.forEach(function (x) { holds.appendChild(el('div', 'muted', x.label + ': ' + x.detail.join('; '))); });
+      if (!p.parts.length) holds.appendChild(el('span', 'muted', 'Nothing yet'));
+      tr.appendChild(holds);
+      tr.appendChild(el('td', 'muted', when(p.last_seen, true)));
+      const act = el('td', 'userrow-acts');
+      if (manage) {
+        const rn = el('button', '', 'Rename');
+        rn.type = 'button';
+        rn.setAttribute('aria-label', 'Rename ' + p.name);
+        rn.addEventListener('click', function () { editPhoneName(nameTd, p, base, tb, withPerson); });
+        act.appendChild(rn);
+        const same = phones.filter(function (o) { return o.id !== p.id && o.user_id === p.user_id; });
+        if (base === '/api/admin/phones' && same.length) {
+          const join = el('button', '', 'Join…');
+          join.type = 'button';
+          join.setAttribute('aria-label', 'Join ' + p.name + ' with another phone of ' + p.user);
+          join.addEventListener('click', function () { pickPhoneToJoin(act, p, same, tb, withPerson); });
+          act.appendChild(join);
+        }
+        const rm = el('button', '', 'Forget');
+        rm.type = 'button';
+        rm.setAttribute('aria-label', 'Forget ' + p.name);
+        rm.addEventListener('click', async function () {
+          if (!(await relayUI.confirm('Forget ' + p.name + '? It is signed out of everything it is set up for: ' + partsText(p) + '.'))) return;
+          try {
+            const r = await send('DELETE', base + '/' + encodeURIComponent(p.id));
+            A.okMsg('Forgot ' + p.name + '.');
+            paintPhones(tb, r.phones, base, withPerson);
+            if (base !== '/api/admin/me/phones') await load();
+          } catch (e) { A.alertMsg(e.message); }
+        });
+        act.appendChild(rm);
+      }
+      tr.appendChild(act);
+      tb.appendChild(tr);
+    });
+  }
+
+  function paintPhones(tb, phones, base, withPerson) {
+    if (tb === g('phoneList')) allPhones = phones || [];
+    renderPhones(tb, phones || [], base, withPerson);
+  }
+
+  function editPhoneName(cell, p, base, tb, withPerson) {
+    cell.textContent = '';
+    const name = input('text', 60);
+    name.value = p.name || '';
+    name.setAttribute('aria-label', 'Name for this phone');
+    cell.appendChild(name);
+    const save = el('button', '', 'Save');
+    save.type = 'button';
+    save.addEventListener('click', async function () {
+      try {
+        const r = await send('PUT', base + '/' + encodeURIComponent(p.id), { name: name.value.trim() });
+        paintPhones(tb, r.phones, base, withPerson);
+      } catch (e) { A.alertMsg(e.message); }
+    });
+    cell.appendChild(save);
+    name.focus();
+  }
+
+  function pickPhoneToJoin(cell, p, others, tb, withPerson) {
+    cell.textContent = '';
+    const sel = el('select');
+    sel.setAttribute('aria-label', 'Join ' + p.name + ' into');
+    others.forEach(function (o) {
+      const opt = el('option', '', o.name);
+      opt.value = String(o.id);
+      sel.appendChild(opt);
+    });
+    cell.appendChild(sel);
+    const go = el('button', '', 'Join into this one');
+    go.type = 'button';
+    go.addEventListener('click', async function () {
+      const into = others.filter(function (o) { return String(o.id) === sel.value; })[0];
+      if (!into || !(await relayUI.confirm('Join ' + p.name + ' into ' + into.name + '? They are the same phone, so its parts move to ' + into.name + '.'))) return;
+      try {
+        const r = await send('POST', '/api/admin/phones/' + encodeURIComponent(p.id) + '/merge', { into: into.id });
+        paintPhones(tb, r.phones, '/api/admin/phones', withPerson);
+      } catch (e) { A.alertMsg(e.message); }
+    });
+    cell.appendChild(go);
+  }
+
+  async function loadMyPhones() {
+    const tb = g('myPhoneList');
+    if (!tb) return;
+    try {
+      const r = await A.api('/api/admin/me/phones');
+      paintPhones(tb, r.phones, '/api/admin/me/phones', false);
+    } catch (e) { A.alertMsg(e.message); }
   }
 
   /* ---- Trusted devices ---- */
@@ -610,7 +762,7 @@
         rm.type = 'button';
         rm.setAttribute('aria-label', 'Remove ' + d.name);
         rm.addEventListener('click', async function () {
-          if (!window.confirm('Remove ' + d.name + '? A PIN will stop working there.')) return;
+          if (!(await relayUI.confirm('Remove ' + d.name + '? A PIN will stop working there.'))) return;
           try {
             await send('DELETE', '/api/admin/trusted-devices/' + encodeURIComponent(d.id));
             if (d.id === thisDevice) { ME.device = { trusted: false, name: null }; paintAccount(); }
@@ -696,7 +848,8 @@
   async function load() {
     try {
       const both = await Promise.all([A.api('/api/admin/users'), A.api('/api/admin/trusted-devices'),
-        can('tokens.manage') ? A.api('/api/admin/tokens') : Promise.resolve({ tokens: [] })]);
+        can('tokens.manage') ? A.api('/api/admin/tokens') : Promise.resolve({ tokens: [] }),
+        A.api('/api/admin/phones')]);
       allTokens = both[2].tokens || [];
       users = both[0].users || [];
       roles = both[0].roles || [];
@@ -705,6 +858,7 @@
       thisDevice = both[1].this === undefined ? null : both[1].this;
       renderUsers();
       renderDevices();
+      paintPhones(g('phoneList'), both[3].phones, '/api/admin/phones', true);
       renderAllTokens();
       renderRoleRef();
     } catch (e) { A.alertMsg(e.message); }
@@ -715,6 +869,15 @@
     if (add) add.addEventListener('click', function () { if (!roles.length) return; closeDevicePanel(); openAdd(); });
     const trust = g('deviceAdd');
     if (trust) trust.addEventListener('click', function () { closePanel(); openTrust(); });
+    const filter = g('userFilter');
+    if (filter) filter.addEventListener('input', function () { view.q = filter.value; view.page = 1; renderUsers(); });
+    document.querySelectorAll('#page-users th [data-sort]').forEach(function (b) {
+      b.addEventListener('click', function () {
+        view.dir = view.key === b.dataset.sort ? -view.dir : 1;
+        view.key = b.dataset.sort; view.page = 1;
+        renderUsers();
+      });
+    });
     window.addEventListener('hashchange', function () {
       if (location.hash === '#users') load();
       else { clearSecret(); closePanel(); closeDevicePanel(); }

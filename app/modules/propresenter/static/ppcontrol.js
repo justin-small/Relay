@@ -6,7 +6,7 @@
   if (!$('page-ppcontrol')) return;
   const BASE = '/api/admin/propresenter';
   // What this user may do here. Without the admin page's relayCan the server still refuses, so assume yes.
-  function can(perm) { return typeof window.relayCan !== 'function' || !!window.relayCan(perm); }
+  const can = relayUI.can;
   let body = null;            // the last /api/admin/propresenter answer: {settings, state}
   let slides = null;          // {uuid, name, rev, cues}
   let slidesFor = '';         // the presentation uuid the grid was built for
@@ -18,22 +18,10 @@
   let loadedOnce = false;
   let pollTimer = null, ticks = 0;
 
-  function h(tag, cls, text) {
-    const n = document.createElement(tag);
-    if (cls) n.className = cls;
-    if (text !== undefined) n.textContent = text;
-    return n;
-  }
-  async function call(path, opts) {
-    const res = await fetch(path, Object.assign({ cache: 'no-store' }, opts || {}));
-    const data = await res.json().catch(function () { return {}; });
-    if (!res.ok) throw new Error(data.error || data.detail || ('HTTP ' + res.status));
-    return data;
-  }
-  function send(path, payload) {
-    return call(BASE + path, { method: 'POST', headers: { 'Content-Type': 'application/json' },
-                               body: JSON.stringify(payload || {}) });
-  }
+  const h = relayUI.el;
+  const request = relayUI.client({ cache: 'no-store', status: true });
+  function call(path) { return request('GET', path); }
+  function send(path, payload) { return request('POST', BASE + path, payload || {}); }
   function showErr(msg) {
     const n = $('pcErr');
     n.textContent = msg || '';
@@ -522,6 +510,19 @@
   });
   window.addEventListener('hashchange', function () {
     if (pageOpen()) { loadedOnce = false; slidesFor = ''; poll(); }
+  });
+  // The live and next slide as pictures, the same view the Slide view page shows.
+  if (window.RelaySlideView) window.RelaySlideView.create($('pcView'), { base: BASE + '/live', active: pageOpen });
+  // The tabs beside the slide grid: one panel shows at a time.
+  $('pcTabs').addEventListener('click', function (ev) {
+    const t = ev.target.closest('button[data-tab]');
+    if (!t) return;
+    $('pcTabs').querySelectorAll('button[data-tab]').forEach(function (b) {
+      const on = b === t;
+      b.classList.toggle('on', on);
+      b.setAttribute('aria-selected', on ? 'true' : 'false');
+      $(b.dataset.tab).hidden = !on;
+    });
   });
 
   /* Arrow keys and Page Up / Page Down step the slide; Shift + the same keys step the playlist item. Only while

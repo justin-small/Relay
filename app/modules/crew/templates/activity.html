@@ -1,0 +1,25 @@
+{# The Activity tab of the crew page (#235): who did what, from the audit log. Filled in by activity.js; every word from the server is set as text. #}
+<div id="ac" class="ac">
+  <div class="cr-note" id="acNote" role="status" aria-live="polite"></div>
+  <section class="cr-card">
+    <h2>Crew activity</h2>
+    <div class="cl-form">
+      <label class="chat-lbl" for="acWho">Person</label>
+      <select id="acWho"><option value="">Everyone</option></select>
+      <label class="chat-lbl" for="acKind">What</label>
+      <select id="acKind">
+        <option value="">Everything</option>
+        <option value="chat">Chat</option>
+        <option value="checkin">Check-ins</option>
+        <option value="checklist">Checklists</option>
+        <option value="resource">Resources</option>
+        <option value="page">Notifications</option>
+        <option value="calltime">Call times</option>
+      </select>
+      <label class="chat-lbl" for="acDays">When</label>
+      <select id="acDays"><option value="1">Last day</option><option value="7" selected>Last week</option><option value="">All kept (90 days)</option></select>
+    </div>
+    <ul id="acList" class="rs-list"></ul>
+    <div class="cl-btns"><button type="button" id="acMore" hidden>Older</button></div>
+  </section>
+</div>

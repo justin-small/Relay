@@ -4,7 +4,7 @@ import os
 HERE = os.path.dirname(os.path.abspath(SPEC))
 ROOT = os.path.dirname(HERE)
 import sys; sys.path.insert(0, ROOT)  # collect_submodules("app") imports it
-from PyInstaller.utils.hooks import collect_submodules, collect_data_files, collect_dynamic_libs
+from PyInstaller.utils.hooks import collect_submodules, collect_data_files, collect_dynamic_libs, copy_metadata
 
 onefile = os.environ.get("RELAY_ONEFILE") == "1"
 
@@ -18,9 +18,11 @@ for mod in sorted(os.listdir(f"{ROOT}/app/modules")):
         if os.path.isdir(f"{ROOT}/app/modules/{mod}/{sub}"):
             datas.append((f"{ROOT}/app/modules/{mod}/{sub}", f"app/modules/{mod}/{sub}"))
 datas += collect_data_files("tzdata") + collect_data_files("certifi")
+# keyring finds its Keychain / Credential Manager backend through entry points, which live in its metadata (#278).
+datas += copy_metadata("keyring")
 
 # Modules are discovered by pkgutil.iter_modules on the folder, so every one has to be pulled in by name.
-hidden = collect_submodules("app") + collect_submodules("uvicorn") + collect_submodules("cryptography") + ["uvloop", "httptools"]
+hidden = collect_submodules("app") + collect_submodules("uvicorn") + collect_submodules("cryptography") + collect_submodules("keyring.backends") + ["uvloop", "httptools"]
 binaries = collect_dynamic_libs("_sounddevice_data") + collect_dynamic_libs("soxr")
 
 a = Analysis(["entry.py"], pathex=["..", "."], datas=datas, binaries=binaries, hiddenimports=hidden)

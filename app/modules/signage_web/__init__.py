@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from .. import AdminPage, Health, Manifest, Module
+from .. import AdminPage, Health, Manifest, Module, Traffic
 from ...users import Permission
 
 WEB_KIND = "web_page"
@@ -18,16 +18,18 @@ class SignageWeb(Module):
     manifest = Manifest(
         id="signage_web",
         name="Signage: web pages and YouTube",
-        version="1.0.0",
+        version="1.1.0",
         summary="Adds web pages and YouTube videos or playlists to signage playlists. They need the internet and "
                 "are skipped while a screen can't reach it.",
         settings_key="signage_web",
+        section="Screens",
         guide="https://github.com/justin-small/relay#signage-web-pages-and-youtube",
         uses=("signage",),
+        traffic=(Traffic("signage_web", "Signage web page checks (over the internet)"),),
     )
     defaults = {"links": []}
     admin_pages = (AdminPage(
-        id="signageweb", title="Web & YouTube", template="admin.html", group="Output",
+        id="signageweb", title="Web & YouTube", template="admin.html",
         icon='<circle cx="8" cy="8" r="6"/><path d="M2 8h12M8 2c2 2 2 10 0 12M8 2c-2 2-2 10 0 12"/>'),)
     admin_scripts = ("signageweb.js",)
     route_prefixes = ("/api/admin/signage-web",)
@@ -51,19 +53,19 @@ class SignageWeb(Module):
         return [router]
 
     def attach(self) -> None:
-        from ..signage import sources
+        from ... import modules
         from . import sourcing
 
         for kind, label in ((WEB_KIND, "Web page"), (YOUTUBE_KIND, "YouTube video or playlist")):
-            sources.register(sources.Source(
-                kind=kind, label=label, resolve=sourcing.resolver(kind), describe=sourcing.describer(kind),
-                choices=sourcing.chooser(kind)))
+            modules.provide("signage.source." + kind, {
+                "label": label, "resolve": sourcing.resolver(kind), "describe": sourcing.describer(kind),
+                "choices": sourcing.chooser(kind)})
 
     def detach(self) -> None:
-        from ..signage import sources
+        from ... import modules
 
-        sources.unregister(WEB_KIND)
-        sources.unregister(YOUTUBE_KIND)
+        modules.withdraw("signage.source." + WEB_KIND)
+        modules.withdraw("signage.source." + YOUTUBE_KIND)
 
     def health(self) -> Health:
         from ... import config

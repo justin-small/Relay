@@ -4,9 +4,9 @@
   const R = window.RelayAdmin;
   if (!R || !document.getElementById('sgBox')) return;
   const $ = R.$, el = R.el, api = R.api, post = R.post;
-  function can(perm) { return typeof window.relayCan !== 'function' || !!window.relayCan(perm); }
+  const can = relayUI.can;
   function C() { return R.cfg(); }
-  function say(id, text, bad) { const n = $(id); n.textContent = text || ''; n.className = 'note' + (bad ? ' err' : text ? ' ok' : ''); }
+  const say = relayUI.say;
 
   const FIELDS = ['sgType', 'sgMatch', 'sgItemFiles', 'sgPlanFiles', 'sgText', 'sgNote', 'sgPlaylist', 'sgOn'];
   let filled = false;       // the form shows the saved settings once, so polling never overwrites an edit

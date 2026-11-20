@@ -489,6 +489,91 @@ eq("settle outside 0.2 to 30 s is refused with a sentence", pp2.tag_fields({"set
    "The settle time is a number of seconds from 0.2 to 30.")
 eq("settle in range is kept", pp2.tag_fields({"settle_s": 2})[0], {"settle_s": 2.0})
 
+# ------------------------------------------------------------------------------------------------- light=
+print("light=<cue name> through the lighting hook")
+from app import modules as _reg  # noqa: E402
+from app.modules.propresenter import tagactions as ta  # noqa: E402
+
+eq("light takes a value and is a known tag", st.ACTIONS.get("light"), True)
+eq("the tag parses with a spaced name", slide_of("[relay:light=Walk In]"), [Tag("light", "Walk In")])
+_old_hook = _reg.using("lighting.cues")
+_reg.withdraw("lighting.cues")
+
+
+async def light_tag():
+    try:
+        await ta._tag_light("Walk-in")
+        check("lighting off refuses with a sentence", False)
+    except RuntimeError as exc:
+        eq("lighting off refuses with a sentence", str(exc), "Lighting is off.")
+    try:
+        await ta._tag_light("  ")
+        check("no name is refused", False)
+    except RuntimeError as exc:
+        check("no name is refused", "Name the cue" in str(exc))
+    got = []
+
+    async def hook(cue, request=None, *, by_name=False, source=""):
+        got.append((cue, request, by_name, source))
+        return {"ok": cue == "Walk-in", "error": "No cue with that name is on a lighting page."}
+
+    _reg.provide("lighting.cues", hook, owner="lighting")
+    eq("a cue is fired by name, from a slide tag", await ta._tag_light(" Walk-in "), "Lighting cue Walk-in fired.")
+    eq("…through the core hook with no request", got, [("Walk-in", None, True, "a ProPresenter slide tag")])
+    try:
+        await ta._tag_light("Nope")
+        check("an unknown cue is refused with the hook's sentence", False)
+    except RuntimeError as exc:
+        eq("an unknown cue is refused with the hook's sentence", str(exc), "No cue with that name is on a lighting page.")
+
+
+asyncio.run(light_tag())
+_reg.withdraw("lighting.cues")
+if _old_hook is not None:
+    _reg.provide("lighting.cues", _old_hook, owner="lighting")
+eq("the action is wired", "light" in ta.ACTIONS, True)
+
+# ------------------------------------------------------------------------------------------------- obs=
+print("obs=<scene name> through the OBS scene hook")
+eq("obs takes a value and is a known tag", st.ACTIONS.get("obs"), True)
+eq("the tag parses with a spaced name", slide_of("[relay:obs=Wide Shot]"), [Tag("obs", "Wide Shot")])
+_old_scene = _reg.using("obs.scenes")
+_reg.withdraw("obs.scenes")
+
+
+async def obs_tag():
+    try:
+        await ta._tag_obs("Message")
+        check("OBS off refuses with a sentence", False)
+    except RuntimeError as exc:
+        eq("OBS off refuses with a sentence", str(exc), "The OBS module is off.")
+    try:
+        await ta._tag_obs(" ")
+        check("no name is refused", False)
+    except RuntimeError as exc:
+        check("no name is refused", "Name the scene" in str(exc))
+    got = []
+
+    async def hook(name, *, source=""):
+        got.append((name, source))
+        return {"ok": name == "Message", "error": "No connected OBS computer has a scene called \"Nope\"."}
+
+    _reg.provide("obs.scenes", hook, owner="obs")
+    eq("a scene is switched by name, from a slide tag", await ta._tag_obs(" Message "), "OBS switched to Message.")
+    eq("…through the core hook", got, [("Message", "a ProPresenter slide tag")])
+    try:
+        await ta._tag_obs("Nope")
+        check("an unknown scene is refused with the hook's sentence", False)
+    except RuntimeError as exc:
+        check("an unknown scene is refused with the hook's sentence", "Nope" in str(exc))
+
+
+asyncio.run(obs_tag())
+_reg.withdraw("obs.scenes")
+if _old_scene is not None:
+    _reg.provide("obs.scenes", _old_scene, owner="obs")
+eq("the obs action is wired", "obs" in ta.ACTIONS, True)
+
 print()
 print("FAILED: " + ", ".join(fails) if fails else "all passed")
 sys.exit(1 if fails else 0)

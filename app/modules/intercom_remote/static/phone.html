@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Remote crew</title>
+<style>
+:root{--bg:#fff;--fg:#111;--mut:#666;--line:#d8d8d8;--acc:#0a5cff;--bad:#b00020;--ok:#0a7d33}
+@media (prefers-color-scheme:dark){:root{--bg:#111;--fg:#eee;--mut:#9a9a9a;--line:#333;--acc:#6aa0ff;--bad:#ff6b81;--ok:#4cd07d}}
+body{margin:0;padding:16px;background:var(--bg);color:var(--fg);font:16px/1.4 system-ui,sans-serif;max-width:480px;margin-inline:auto}
+h1{font-size:20px;margin:0 0 4px}p.s{color:var(--mut);margin:0 0 16px}
+input,button{font:inherit;padding:10px 12px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--fg)}
+input{width:100%;box-sizing:border-box;margin-bottom:8px}
+button{cursor:pointer;-webkit-user-select:none;user-select:none}button.p{background:var(--acc);border-color:var(--acc);color:#fff}
+#ptt{width:100%;height:96px;font-size:20px;margin:12px 0;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none;-webkit-tap-highlight-color:transparent;touch-action:none}#ptt.on{background:var(--ok);border-color:var(--ok);color:#fff}
+.ch{display:flex;gap:12px;align-items:center;padding:8px 0;border-bottom:1px solid var(--line)}.ch b{flex:1}
+.ch label{color:var(--mut);font-size:14px}
+#msg{color:var(--mut);min-height:1.4em;margin:8px 0}#msg.bad{color:var(--bad)}
+[hidden]{display:none!important}
+</style></head><body>
+<h1>Remote crew</h1><p class="s" id="prod">Talk to the team from outside the building.</p>
+<form id="login"><input id="u" placeholder="Username" autocomplete="username" autocapitalize="none">
+<input id="p" type="password" placeholder="Password" autocomplete="current-password"><button class="p" type="submit">Sign in</button></form>
+<div id="app" hidden>
+<div id="chs"></div>
+<button class="p" id="go" type="button">Connect audio</button>
+<button id="ptt" type="button" disabled>Hold to talk</button>
+<button id="out" type="button">Sign out</button>
+<div id="aud" hidden></div>
+</div>
+<div id="msg" role="status"></div>
+<script src="/intercom/remote/phone.js"></script>
+</body></html>

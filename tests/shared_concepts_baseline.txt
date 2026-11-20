@@ -1,0 +1,35 @@
+# Hand-written name tidying, Monday-first weekdays and HH:MM patterns outside app/text.py and
+# app/timewin.py when tests/test_shared_concepts.py came in (#522), and modules that import another
+# module's package (#523), and a module column holding a person as text (#524). This list may only shrink: fix one, lower its count here (or run the test
+# with --rebaseline).
+# intercom_remote -> intercom stays: the remote intercom is the same feature as the intercom (its rooms, its
+# devices, its presence, its watchdog), not an add-on that has to cope with the intercom being off.
+# intercom_remote -> remote_access stays: it reads the enrolment and the cloud client that module holds even
+# while the tunnel (remote access) is off, so asking by name would stop the remote intercom when it is.
+# signage_screens stays (#527): it keeps what signage adds to a screen (address, sound, playlist); the name and place are the
+# core screen's.
+# intercom_remote_devices stays (#528): it flags an intercom credential as remote and is keyed by that credential's row,
+# which is the device part; it is not a second device.
+# time: the old crew migrations 0002-0008 made epoch columns; 0014_iso_times_and_notifications.sql converts them (#529).
+# They stay as history (a saved migration is never edited); nothing new may add one.
+# intercom_channels stays (#542): it keeps the talk settings (mode, talkers, latch) of a channel; core holds the channel as a talk
+# channel. The rundown's board channels stay: each keeps its assignments to positions and points at a core channel by channel_ref.
+# rule  count  file
+import 2 app/modules/intercom_remote/__init__.py
+import 2 app/modules/intercom_remote/cloud.py
+import 3 app/modules/intercom_remote/media.py
+import 2 app/modules/intercom_remote/remote.py
+import 2 app/modules/intercom_remote/routes.py
+import 1 app/modules/intercom_remote/store.py
+import 1 app/modules/intercom_remote/watch.py
+screen 1 app/modules/signage/migrations/0001_signage.sql
+device 1 app/modules/intercom_remote/migrations/0001_remote.sql
+time 1 app/modules/crew/migrations/0002_paging.sql
+time 1 app/modules/crew/migrations/0003_calltimes.sql
+time 1 app/modules/crew/migrations/0004_chat.sql
+time 1 app/modules/crew/migrations/0005_checkin.sql
+time 1 app/modules/crew/migrations/0006_checklists.sql
+time 1 app/modules/crew/migrations/0007_resources.sql
+time 2 app/modules/crew/migrations/0008_devices.sql
+channel 1 app/modules/intercom/migrations/0001_intercom.sql
+channel 1 app/modules/planning_center/rundown.py

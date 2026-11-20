@@ -28,14 +28,15 @@ import ssl
 import time
 from typing import Any, Callable
 
-import websockets
 
-from . import languages
+from . import languages, netsock
 
 log = logging.getLogger("relay.realtime")
 
 WS_BASE = "wss://api.openai.com/v1/realtime"
 MAX_BACKOFF = 15.0
+# 24 kHz, 16-bit, mono: what every session is fed (the capture resamples to it).
+PCM_BYTES_PER_S = 24000 * 2
 
 # Faults that retrying cannot fix. Stop and tell the operator instead of
 # hammering the API with a credential it has already rejected.
@@ -125,16 +126,21 @@ _SSL = _ssl_context()
 async def _connect(url: str, headers: dict[str, str]):
     """websockets renamed extra_headers -> additional_headers in v14."""
     kw = {"max_size": 1 << 24, "ping_interval": 20, "ssl": _SSL}
+    # Through the port the operator chose for translation (#348); the system default when there is none.
     try:
-        return await websockets.connect(url, additional_headers=headers, **kw)
+        return await netsock.websocket("translation", url, additional_headers=headers, **kw)
     except TypeError:
-        return await websockets.connect(url, extra_headers=headers, **kw)
+        return await netsock.websocket("translation", url, extra_headers=headers, **kw)
 
 
 class RealtimeSession:
     """Base: connection lifecycle, audio pump, backoff, health reporting."""
 
     kind = "session"
+    # Which backend (app/transcribe.py) opened this session, and what it bills: shown in health() so the
+    # operator sees the cost of every billed feed. None: the backend states no price.
+    backend = "openai"
+    price_per_hour: float | None = None
 
     # The /realtime/translations endpoint namespaces every client event under
     # "session."; it rejects the bare "input_audio_buffer.append" the classic
@@ -178,6 +184,8 @@ class RealtimeSession:
         self.last_delta_ts: float | None = None
         self.connected_at: float | None = None
         self.reconnects = 0
+        # Seconds of audio sent upstream: what a backend that bills per second of streamed audio charges for.
+        self.audio_s = 0.0
 
         self._task: asyncio.Task | None = None
         self._ws: Any = None
@@ -224,9 +232,7 @@ class RealtimeSession:
         while not self._stop.is_set():
             try:
                 self._set_state("connecting" if not self.reconnects else "reconnecting")
-                url = self._url()
-                headers = {"Authorization": f"Bearer {self.api_key}"}
-                ws = await _connect(url, headers)
+                ws = await self._open()
                 self._ws = ws
                 pump = None
                 segmenter = None
@@ -278,6 +284,13 @@ class RealtimeSession:
         else:
             self._set_state("idle")
 
+    async def _open(self):
+        """The open connection. A backend with another handshake overrides this."""
+        return await _connect(self._url(), {"Authorization": f"Bearer {self.api_key}"})
+
+    def _count(self, pcm: bytes) -> None:
+        self.audio_s += len(pcm) / PCM_BYTES_PER_S
+
     async def _commit_idle_segments(self) -> None:
         """Commit a channel's partial once its deltas go quiet.
 
@@ -322,6 +335,7 @@ class RealtimeSession:
         assert self._audio_q is not None
         while True:
             pcm = await self._audio_q.get()
+            self._count(pcm)
             payload = base64.b64encode(pcm).decode("ascii")
             await ws.send(json.dumps({"type": self.AUDIO_APPEND_TYPE, "audio": payload}))
 
@@ -405,6 +419,11 @@ class RealtimeSession:
             "connected_at": self.connected_at,
             "reconnects": self.reconnects,
             "fatal": self.fatal,
+            "backend": self.backend,
+            "audio_s": round(self.audio_s, 1),
+            "price_per_hour": self.price_per_hour,
+            "cost_usd": (None if self.price_per_hour is None
+                         else round(self.audio_s / 3600 * self.price_per_hour, 4)),
             # Frames this session lost to a stalled uplink (see AudioCapture).
             "dropped_audio": getattr(self._audio_q, "dropped", 0),
         }
@@ -562,6 +581,7 @@ class TranscriptionSession(RealtimeSession):
                 pcm = None
             now = time.monotonic()
             if pcm is not None:
+                self._count(pcm)
                 payload = base64.b64encode(pcm).decode("ascii")
                 await ws.send(json.dumps({"type": self.AUDIO_APPEND_TYPE, "audio": payload}))
                 if turn_started is None:

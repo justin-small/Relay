@@ -1,6 +1,6 @@
-"""The calls this install makes to Relay's cloud (relay-cloud, a Cloudflare Worker at cloud.relaychurchsystems.com).
+"""The calls this install makes to Relay's cloud (relay-cloud, a Cloudflare Worker at cloud.relaysystems.dev).
 
-Enrolling spends an enrollment code and gives this install a tunnel and a viewer address <slug>.relaychurchsystems.com.
+Enrolling spends an enrollment code and gives this install a tunnel and a viewer address <slug>.cloud.relaysystems.dev.
 The install makes its own secret, sends it once, and proves itself with it afterwards; the cloud stores only a hash.
 The cloud holds the Cloudflare API token; this install only ever holds its own tunnel's token.
 
@@ -15,8 +15,12 @@ import urllib.request
 
 import certifi
 
+from ... import netsock
+
+TRAFFIC = "remote_access"   # calls to Relay's cloud and the tunnel go out through this class's port (#348)
+
 TIMEOUT_S = 30
-DEFAULT_URL = "https://cloud.relaychurchsystems.com"
+DEFAULT_URL = "https://cloud.relaysystems.dev"
 
 # What the operator reads for each kind of failure.
 MESSAGES = {
@@ -27,6 +31,12 @@ MESSAGES = {
     "server_error": "Relay's cloud couldn't finish that just now. Try again in a minute.",
     "unauthorised": "Relay's cloud no longer knows this install: its address was released. Enroll again with a new code.",
     "network": "Couldn't reach Relay's cloud. Check this computer's internet connection.",
+    "realtime_unavailable": "Relay's cloud has no Cloudflare Realtime app set up for remote intercom yet.",
+    "upstream_unreachable": "Relay's cloud couldn't reach Cloudflare Realtime just now. Try again in a minute.",
+    "upstream_error": "Cloudflare Realtime refused that just now. Try again in a minute.",
+    "too_many_sessions": "This install has too many open remote intercom sessions. Try again in a few minutes.",
+    "rate_limited": "Relay's cloud is busy. Try again in a minute.",
+    "not_found": "Relay's cloud no longer has that remote intercom session.",
     "unexpected": "Relay's cloud answered in a way this version of Relay doesn't understand. Try again later.",
 }
 
@@ -39,6 +49,8 @@ class CloudError(Exception):
 
     @property
     def message(self) -> str:
+        if self.kind == "network":   # names the network port when remote access is routed to one (#348)
+            return netsock.failure(TRAFFIC, MESSAGES["network"])
         return MESSAGES[self.kind]
 
 
@@ -54,7 +66,7 @@ def _call(base: str, method: str, path: str, body: dict | None = None, secret: s
         headers["Authorization"] = f"Bearer {secret}"
     req = urllib.request.Request(base.rstrip("/") + path, data=data, headers=headers, method=method)
     try:
-        with urllib.request.urlopen(req, timeout=TIMEOUT_S, context=_context()) as resp:
+        with netsock.urlopen(TRAFFIC, req, timeout=TIMEOUT_S, context=_context()) as resp:
             raw = resp.read()
     except urllib.error.HTTPError as exc:
         try:
@@ -73,6 +85,11 @@ def _call(base: str, method: str, path: str, body: dict | None = None, secret: s
     if not isinstance(out, dict):
         raise CloudError("unexpected")
     return out
+
+
+def call(base: str, method: str, path: str, body: dict | None = None, secret: str = "") -> dict:
+    """One authenticated call to the cloud, for modules that use more of its API (intercom_remote, #277)."""
+    return _call(base, method, path, body, secret)
 
 
 def _install(out: dict) -> dict:

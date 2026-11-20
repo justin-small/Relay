@@ -7,29 +7,14 @@
   if (!$('ppLink')) return;
   const BASE = '/api/admin/propresenter/link';
   // What this user may do here. Without the admin page's relayCan the server still refuses, so assume yes.
-  function can(perm) { return typeof window.relayCan !== 'function' || !!window.relayCan(perm); }
+  const can = relayUI.can;
   let last = null, filled = false, pairing = null, names = null, timer = null, busy = false;
 
-  function h(tag, cls, text) {
-    const n = document.createElement(tag);
-    if (cls) n.className = cls;
-    if (text !== undefined) n.textContent = text;
-    return n;
-  }
-  async function call(path, opts) {
-    const res = await fetch(path, Object.assign({ cache: 'no-store' }, opts || {}));
-    const data = await res.json().catch(function () { return {}; });
-    if (!res.ok) throw new Error(data.error || data.detail || ('HTTP ' + res.status));
-    return data;
-  }
-  function post(path, body) {
-    return call(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body || {}) });
-  }
-  function say(msg, bad) {
-    const n = $('plkMsg');
-    n.textContent = msg || '';
-    n.className = 'note' + (bad ? ' err' : msg ? ' ok' : '');
-  }
+  const h = relayUI.el;
+  const request = relayUI.client({ cache: 'no-store', status: true });
+  function call(path) { return request('GET', path); }
+  function post(path, body) { return request('POST', path, body || {}); }
+  const say = relayUI.say;
   function kv(label, value, cls) {
     const row = h('div', 'note' + (cls ? ' ' + cls : ''));
     row.style.marginTop = '0';
@@ -151,7 +136,7 @@
   }
 
   async function startPair(title, cell) {
-    try { await loadNames(); } catch (e) { say(e.message, true); return; }
+    try { await loadNames(); } catch (e) { say('plkMsg', e.message, true); return; }
     pairing = title;
     cell.innerHTML = '';
     const inp = h('input');
@@ -163,7 +148,7 @@
     ok.type = 'button';
     ok.addEventListener('click', function () {
       const hit = names.filter(function (p) { return p.name === inp.value; });
-      if (hit.length === 0) { say('Pick a presentation name from the list.', true); return; }
+      if (hit.length === 0) { say('plkMsg', 'Pick a presentation name from the list.', true); return; }
       pair(title, hit[0].uuid, hit[0].name);
     });
     cell.appendChild(inp);
@@ -173,8 +158,8 @@
 
   async function pair(title, uuid, name) {
     pairing = null;
-    try { render(await post(BASE + '/mapping', { item: title, uuid: uuid, name: name })); say(uuid ? 'Paired.' : 'Pairing removed.'); }
-    catch (e) { say(e.message, true); }
+    try { render(await post(BASE + '/mapping', { item: title, uuid: uuid, name: name })); say('plkMsg', uuid ? 'Paired.' : 'Pairing removed.'); }
+    catch (e) { say('plkMsg', e.message, true); }
   }
 
   async function poll() {
@@ -184,36 +169,36 @@
 
   $('plkSave').addEventListener('click', async function () {
     const dwell = parseFloat($('plkDwell').value);
-    if (!(dwell >= 1 && dwell <= 300)) { say('The time is a number of seconds from 1 to 300.', true); return; }
+    if (!(dwell >= 1 && dwell <= 300)) { say('plkMsg', 'The time is a number of seconds from 1 to 300.', true); return; }
     try {
       await post('/api/admin/propresenter', { link: { follow: $('plkFollow').checked, drive: $('plkDrive').checked,
         allow_back: $('plkBack').checked, dwell_s: dwell, service_type: $('plkSt').value } });
       filled = false;
       render(await call(BASE));
-      say('Saved.');
-    } catch (e) { say(e.message, true); }
+      say('plkMsg', 'Saved.');
+    } catch (e) { say('plkMsg', e.message, true); }
   });
 
   $('plkMatch').addEventListener('click', async function () {
     busy = true;
     $('plkMatch').disabled = true;
-    say('Reading ProPresenter...');
-    try { names = null; render(await post(BASE + '/refresh')); say('Matched.'); }
-    catch (e) { say(e.message, true); }
+    say('plkMsg', 'Reading ProPresenter...');
+    try { names = null; render(await post(BASE + '/refresh')); say('plkMsg', 'Matched.'); }
+    catch (e) { say('plkMsg', e.message, true); }
     busy = false;
   });
 
   $('plkBuild').addEventListener('click', async function () {
-    if (!last || !window.confirm('Make or remake the playlist "' + last.playlist_name + '" in ProPresenter? Only that playlist, which Relay owns, is changed.')) return;
+    if (!last || !(await relayUI.confirm('Make or remake the playlist "' + last.playlist_name + '" in ProPresenter? Only that playlist, which Relay owns, is changed.'))) return;
     busy = true;
     $('plkBuild').disabled = true;
-    say('Building the playlist...');
+    say('plkMsg', 'Building the playlist...');
     try {
       const r = await post(BASE + '/playlist');
       render(r.state);
-      say('Playlist "' + r.playlist.name + '": ' + r.presentations + ' presentations' + (r.left_out.length ? '; left out: ' + r.left_out.join(', ') : '')
+      say('plkMsg', 'Playlist "' + r.playlist.name + '": ' + r.presentations + ' presentations' + (r.left_out.length ? '; left out: ' + r.left_out.join(', ') : '')
         + (r.verified ? '. Read back and it matches.' : '. ProPresenter did not give back the same list: check it in ProPresenter.'), !r.verified);
-    } catch (e) { say(e.message, true); }
+    } catch (e) { say('plkMsg', e.message, true); }
     busy = false;
   });
 

@@ -50,5 +50,51 @@ async def _tag_alert(value: str | None) -> str:
         raise RuntimeError(str(exc))
 
 
+async def _tag_light(value: str | None) -> str:
+    """Fire the lighting cue called `value` on a lighting page, through core's hook: this module never imports
+    lighting, and the tag does nothing (and says so) while lighting is off."""
+    from .. import fire_cue
+
+    name = (value or "").strip()
+    if not name:
+        raise RuntimeError("Name the cue after light=, like [relay:light=Walk-in].")
+    r = await fire_cue(name, by_name=True, source="a ProPresenter slide tag")
+    if not r.get("ok"):
+        raise RuntimeError(str(r.get("error") or "The cue was not fired."))
+    return f"Lighting cue {name} fired."
+
+
+async def _tag_obs(value: str | None) -> str:
+    """Switch OBS to the scene called `value`, through core's hook: this module never imports obs, and the tag does
+    nothing (and says so) while the OBS module is off."""
+    from .. import switch_scene
+
+    name = (value or "").strip()
+    if not name:
+        raise RuntimeError("Name the scene after obs=, like [relay:obs=Message].")
+    r = await switch_scene(name, source="a ProPresenter slide tag")
+    if not r.get("ok"):
+        raise RuntimeError(str(r.get("error") or "OBS did not switch."))
+    return f"OBS switched to {name}."
+
+
+async def _tag_reaper(value: str | None) -> str:
+    """Tell REAPER to record, stop, drop a marker or run an action, through core's hook: this module never imports
+    reaper. `record`, `stop`, `marker`, `marker=Sermon`, `action=40157`."""
+    from .. import control_recording
+
+    command, _, rest = (value or "").strip().partition("=")
+    command = command.strip().lower()
+    if command not in ("record", "stop", "marker", "action"):
+        raise RuntimeError("Say what REAPER should do, like [relay:reaper=record], [relay:reaper=stop] or "
+                           "[relay:reaper=marker=Sermon].")
+    r = await control_recording(command, rest.strip(), source="a ProPresenter slide tag")
+    if not r.get("ok"):
+        raise RuntimeError(str(r.get("error") or "REAPER did not answer."))
+    return {"record": "REAPER is recording.", "stop": "REAPER stopped recording.",
+            "marker": "REAPER marker added.", "action": "REAPER action sent."}[command]
+
+
 ACTIONS = {"capture-start": _tag_capture_start, "capture-stop": _tag_capture_stop,
-           "lyrics": _tag_lyrics, "captions": _tag_captions, "lang": _tag_lang, "alert": _tag_alert}
+           "lyrics": _tag_lyrics, "captions": _tag_captions, "lang": _tag_lang, "alert": _tag_alert,
+           "light": _tag_light, "obs": _tag_obs, "reaper": _tag_reaper}

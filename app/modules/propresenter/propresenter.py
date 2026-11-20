@@ -37,7 +37,8 @@ import time
 import urllib.parse
 from typing import Any, Callable
 
-from ... import config
+from ... import config, netsock
+from ...text import same_name
 # A panel's own timer settings are the panel's (panels.py); ProPresenter's global ones use the same check.
 from ...panels import MAX_THRESHOLD_S, MAX_TIMERS_SHOWN, TIMER_ID_RE, timer_fields
 from . import plmatch, slidetags
@@ -350,6 +351,9 @@ def configured(cfg: dict | None = None) -> bool:
 
 
 # ---------------------------------------------------------------------------------------------- the client
+TRAFFIC = "propresenter"   # the traffic class every connection to ProPresenter goes through (#348)
+
+
 class ProError(Exception):
     """kind: network (no answer), timeout, http (an error status), view_only (a write refused), bad (an answer
     Relay cannot read)."""
@@ -493,7 +497,8 @@ class Client:
         url = "/" + path.lstrip("/")
         conn = None
         try:
-            conn = http.client.HTTPConnection(self.ip or self.pin(), self.port, timeout=timeout)
+            # Through the port the operator chose for ProPresenter (#348); the system default when there is none.
+            conn = netsock.http_connection(TRAFFIC, self.ip or self.pin(), self.port, timeout=timeout)
             conn.putrequest(method, url, skip_host=True, skip_accept_encoding=True)
             conn.putheader("Host", f"{self.host}:{self.port}")
             conn.putheader("Accept", "application/json")
@@ -575,7 +580,7 @@ class Client:
     def open_stream(self, paths: list[str]) -> tuple[http.client.HTTPConnection, http.client.HTTPResponse]:
         conn = None
         try:
-            conn = http.client.HTTPConnection(self.pin(), self.port, timeout=STALL_S + 5)
+            conn = netsock.http_connection(TRAFFIC, self.pin(), self.port, timeout=STALL_S + 5)
             data = json.dumps(paths).encode()
             conn.putrequest("POST", "/v1/status/updates", skip_host=True, skip_accept_encoding=True)
             conn.putheader("Host", f"{self.host}:{self.port}")
@@ -674,6 +679,7 @@ class Follower:
         self.error = ""
         self.version: dict | None = None
         self.presentation: dict | None = None   # {uuid, name, path, library, groups: [(name, count)]}
+        self._announced: str | None = None      # the presentation last told to core's presentation listeners
         self.slide_index: int | None = None
         self.current = _slide_side(None)
         self.next = _slide_side(None)
@@ -713,6 +719,12 @@ class Follower:
         if self._task is not None:
             self._task.cancel()
         self._hang_up()
+
+    async def reconnect(self) -> None:
+        """ProPresenter's network port changed (#348): drop the live connection and open it again through the
+        port it goes through now."""
+        self._hang_up()
+        await self.poke()
 
     async def poke(self) -> None:
         """The settings changed: reconnect now (a new address) or go quiet (switched off)."""
@@ -1107,7 +1119,7 @@ class Follower:
         if not pres:
             return False
         lib = settings().get("songs_library") or ""
-        if lib and pres["library"].lower() == lib.lower():
+        if lib and same_name(pres["library"], lib):
             return True
         return any(SONG_GROUPS.match(n) for n, _ in pres["groups"])
 
@@ -1301,6 +1313,7 @@ class Follower:
             self._observe_tags()
         except Exception:
             log.exception("slide tag check failed")
+        self._announce_presentation()
         sig = json.dumps([self.up, self.connecting, self.error, self.presentation, self.slide_index,
                           self.current, self.next, self.stage_message, self.data, self.lyrics(),
                           self.timer_kinds, self.announcement, self.announcement_index],
@@ -1313,6 +1326,18 @@ class Follower:
                     fn()
                 except Exception:
                     log.exception("ProPresenter listener failed")
+
+    def _announce_presentation(self) -> None:
+        """Tell core's presentation listeners (REAPER's song markers, #413) when a new presentation is up."""
+        pres = self.presentation if self.up else None
+        uuid = pres["uuid"] if pres else None
+        if uuid == self._announced:
+            return
+        self._announced = uuid
+        if pres and pres.get("name"):
+            from .. import announce_presentation
+
+            announce_presentation(pres["name"])
 
     # -- stage message -----------------------------------------------------------------------------------------
     @staticmethod
@@ -1669,9 +1694,12 @@ def discover(seconds: float = 2.0) -> list[dict]:
     query = struct.pack("!6H", 0, 0, 1, 0, 0, 0) + _name(SERVICE.split(".")) + struct.pack("!HH", 12, 1)
     records: list[tuple[str, int, bytes, str]] = []
     asked: set[tuple[int, str]] = set()
-    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     try:
-        sock.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_TTL, 255)
+        sock = netsock.multicast_sender(TRAFFIC, ttl=255)   # asked on ProPresenter's port (#348)
+    except netsock.RouteError as exc:
+        log.info("mDNS search not possible: %s", exc)
+        return []
+    try:
         sock.settimeout(0.25)
         deadline = time.monotonic() + seconds
         sent = -1.0

@@ -152,8 +152,10 @@ save_pp(signage={"enabled": False, "playlist": "PL-ANN"})
 eq("off does nothing", run(sync.sync())["error"], "")
 save_pp(signage={"enabled": True, "playlist": "PL-ANN"})
 config.save({"modules": {"signage": {"enabled": False}}})
+_modules.get("signage").detach()            # what switching it off does: it takes back what it provided
 eq("signage off", run(sync.sync(force=True))["error"], "Signage is switched off.")
 config.save({"modules": {"signage": {"enabled": True}}})
+_modules.attach("signage")
 eq("sync now answers", admin.post("/api/admin/propresenter/signage/sync").status_code, 200)
 
 print("the tags are read")
@@ -226,9 +228,11 @@ eq("no tag layer left", plays("lobby-tv")["layer"] != "tag", True)
 
 print("signage off")
 config.save({"modules": {"signage": {"enabled": False}}})
+_modules.get("signage").detach()
 eq("a tag says signage is off", act("signage-all", "Welcome"), "ERR " + signagetags.OFF)
 eq("the panel says so", signagetags.state(), {"on": False, "held": []})
 config.save({"modules": {"signage": {"enabled": True}}})
+_modules.attach("signage")
 
 print("through the watcher")
 async def watch():
@@ -260,7 +264,9 @@ from app.modules import modules as reg  # noqa: E402
 reg.get("propresenter").detach()
 eq("the layer is gone", schedule.layer_result(store.screen_by_slug("cafe"), datetime.now(timezone.utc)), None)
 reg.get("propresenter").attach()
-check("and comes back", "tag" in schedule._layers)
+import app.modules as core  # noqa: E402
+
+check("and comes back", core.using("signage.layer.tag") is not None)
 
 print()
 print("all passed" if not fails else f"{len(fails)} FAILED")

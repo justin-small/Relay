@@ -17,15 +17,15 @@
 .sv-frame.sv-img .sv-text { display:none; }
 .sv-empty { color:var(--dim,#999); font-size:13px; }
 .sv-timer { position:absolute; top:8px; right:8px; padding:3px 10px; border-radius:6px; background:rgba(0,0,0,.72);
-            font:600 clamp(16px,3vw,30px)/1.2 ui-monospace,SFMono-Regular,Menlo,monospace; color:#fff;
+            font:600 clamp(16px,3vw,30px)/1.2 var(--mono); color:#fff;
             font-variant-numeric:tabular-nums; }
-.sv-timer small { font:500 11px/1 system-ui,sans-serif; opacity:.75; margin-right:8px; letter-spacing:.04em; }
+.sv-timer small { font:500 11px/1 var(--font); opacity:.75; margin-right:8px; letter-spacing:.04em; }
 .sv-timer.amber { color:#ffb020; }
 .sv-timer.red { color:#ff5a4f; }
 .sv-timer.idle { opacity:.7; }
 .sv-media { position:absolute; left:0; right:0; bottom:0; padding:14px 10px 6px; display:flex; gap:10px; align-items:center;
             background:linear-gradient(transparent, rgba(0,0,0,.78)); color:#fff;
-            font:500 12px/1 ui-monospace,SFMono-Regular,Menlo,monospace; }
+            font:500 12px/1 var(--mono); }
 .sv-media .bar { flex:1; height:5px; border-radius:3px; background:rgba(255,255,255,.28); overflow:hidden; }
 .sv-media .bar > i { display:block; height:100%; width:0; background:#4f8cff; }
 .sv-media.paused .bar > i { background:#9aa0aa; }
