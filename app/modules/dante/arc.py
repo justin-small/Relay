@@ -11,6 +11,10 @@ Payload layouts, all big-endian, after the header:
   subscriptions (0x3000): count u16, then per receive channel: channel u16, status u16, name length u8, name
                           (`<transmit channel>@<device>`, empty when not subscribed)
   levels (0x3400):        count u16, then one byte per channel: the level as -dBFS (0 = full scale, 255 = silence)
+  set subscription (0x3010, #259): receive channel u16, name length u8, name (`<transmit channel>@<device>`; empty
+                          name clears the subscription). A device that accepts answers result 1 and the same
+                          channel u16; any other result is a refusal (a network under Dante Domain Manager refuses
+                          writes unless Relay has its credentials).
 """
 from __future__ import annotations
 
@@ -26,6 +30,7 @@ PROTOCOL = 0x27FF
 CMD_CLOCK = 0x1200
 CMD_SUBSCRIPTIONS = 0x3000
 CMD_LEVELS = 0x3400
+CMD_SET_SUBSCRIPTION = 0x3010
 MAX_CHANNELS = 512
 SUB_NONE, SUB_OK = 0, 1       # any other status is a subscription that does not resolve
 WAIT = 0.6
@@ -90,25 +95,52 @@ def parse_levels(payload: bytes | None) -> list[int] | None:
     return [-b for b in payload[2:]]
 
 
-def ask(ip: str, port: int, command: int, sequence: int = 1, wait: float = WAIT) -> bytes | None:
-    """Send one request and return the payload of its answer, or None when none comes. Blocks up to `wait` seconds:
-    call through to_thread. Raises netsock.RouteError when the Dante network is not there."""
+def subscribe_request(channel: int, source: str, sequence: int) -> bytes:
+    """A request to subscribe receive `channel` to `source` (`<transmit channel>@<device>`); "" clears it."""
+    name = source.encode("utf-8")[:255]
+    payload = struct.pack(">HB", channel, len(name)) + name
+    return struct.pack(">HHHHH", PROTOCOL, HEADER + len(payload), sequence & 0xFFFF, CMD_SET_SUBSCRIPTION, 0) + payload
+
+
+def exchange(ip: str, port: int, data: bytes, command: int, sequence: int, wait: float = WAIT) -> tuple[int, bytes] | None:
+    """Send `data` and return (result, payload) of the device's answer to `command`/`sequence`, or None when none
+    comes. Blocks up to `wait` seconds: call through to_thread. Raises netsock.RouteError when the Dante network is
+    not there."""
     sock = netsock.udp_socket(CLASS_ID)
     try:
-        sock.sendto(request(command, sequence), (ip, port))
+        sock.sendto(data, (ip, port))
         end = time.monotonic() + wait
         while time.monotonic() < end:
             ready, _, _ = select.select([sock], [], [], max(0.0, end - time.monotonic()))
             if not ready:
                 break
             try:
-                data, addr = sock.recvfrom(4096)
+                got, addr = sock.recvfrom(4096)
             except OSError:
                 continue
-            if addr[0] == ip:
-                got = body(data, command, sequence)
-                if got is not None:
-                    return got
+            if addr[0] != ip or len(got) < HEADER:
+                continue
+            proto, length, seq, cmd, result = struct.unpack(">HHHHH", got[:HEADER])
+            if proto == PROTOCOL and cmd == command and seq == sequence & 0xFFFF and length == len(got):
+                return result, got[HEADER:]
         return None
     finally:
         sock.close()
+
+
+def ask(ip: str, port: int, command: int, sequence: int = 1, wait: float = WAIT) -> bytes | None:
+    """Send one request and return the payload of its answer, or None when none comes (or it is a refusal)."""
+    got = exchange(ip, port, request(command, sequence), command, sequence, wait)
+    return got[1] if got and got[0] == 1 else None
+
+
+def set_subscription(ip: str, port: int, channel: int, source: str, sequence: int = 5, wait: float = 1.5) -> tuple[str, str]:
+    """Write one subscription. Returns ("ok", ""), ("refused", why) or ("silent", why). UNVERIFIED like the rest."""
+    got = exchange(ip, port, subscribe_request(channel, source, sequence), CMD_SET_SUBSCRIPTION, sequence, wait)
+    if got is None:
+        return "silent", "The device did not answer the change."
+    result, payload = got
+    if result == 1 and len(payload) >= 2 and struct.unpack(">H", payload[:2])[0] == channel:
+        return "ok", ""
+    return "refused", ("The device refused the change. On a network under Dante Domain Manager, changes are refused "
+                       "unless Relay is given its credentials, which Relay does not support yet.")

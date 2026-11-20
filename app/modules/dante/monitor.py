@@ -26,7 +26,7 @@ log = logging.getLogger("relay.dante")
 MISSING_SCANS = 2
 KEEP_HISTORY = 1000
 STAGE_BUTTON = "Dante"
-KINDS = ("appeared", "vanished", "subscription", "clock_leader", "problem", "recovered")
+KINDS = ("appeared", "vanished", "subscription", "clock_leader", "problem", "recovered", "routing")
 
 
 def sub_map(device: dict) -> dict[int, tuple[str, str]]:

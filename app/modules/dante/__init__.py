@@ -1,8 +1,10 @@
 """Dante (#257): finds the Dante devices on Relay's Dante network and says whether their control port answers.
 
-Works with Dante devices, Dante Virtual Soundcard and Dante Via that announce themselves over mDNS. Read-only: it lists
-each device once by its Dante name, its transmit channels, and whether Relay can reach its control port (ARC). Renaming
-and routing wait for a packet capture or real gear to check the protocol against. Discovery is core's (app/mdns.py);
+Works with Dante devices, Dante Virtual Soundcard and Dante Via that announce themselves over mDNS. It lists
+each device once by its Dante name, its transmit channels, and whether Relay can reach its control port (ARC), and (#259,
+#260) lets a permitted operator change a receive channel's subscription, lock channels Relay must never change, undo
+the last change and save, compare and apply routing presets. The write packet is untested on real gear (routing.py).
+Renaming and the rest of what Dante Controller does stay there. Discovery is core's (app/mdns.py);
 the module adds the inventory, the reachability check and the gear it offers the network map and Channels
 (`gear.dante`, app/gearfeed.py).
 """
@@ -22,7 +24,8 @@ class Dante(Module):
         name="Dante",
         version="1.0.0",
         summary="Finds the Dante devices on the network (stage boxes, Dante Virtual Soundcard, Dante Via), lists "
-                "their transmit channels and checks that Relay can reach each one.",
+                "their transmit channels, checks that Relay can reach each one and changes which channel "
+                "each receive channel listens to, with confirmation, undo and saved presets.",
         settings_key="dante",
         section="Sound",
         guide="https://github.com/justin-small/relay#dante",
@@ -38,7 +41,8 @@ class Dante(Module):
     route_prefixes = ("/api/admin/dante",)
     permissions = (
         Permission("dante.view", "See the Dante devices Relay found and whether they answer", "Dante", "viewer"),
-        Permission("dante.manage", "Look for Dante devices again and star channels for live levels", "Dante", "admin"),
+        Permission("dante.control", "Change which Dante channel each receive channel listens to, and undo it", "Dante", "operator"),
+        Permission("dante.manage", "Look for Dante devices again, star channels, lock receive channels and save routing presets", "Dante", "admin"),
     )
 
     def clean(self, raw: Any) -> dict:
