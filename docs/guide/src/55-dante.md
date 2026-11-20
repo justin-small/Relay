@@ -1,4 +1,4 @@
-# Dante: taking Relay's sound off the network {#dante}
+# Dante: taking Relay's sound off the network {#dante-input}
 
 If your sound desk or stage boxes use **Dante**, Relay can take its sound
 straight off the network, with no cable to the computer. Relay does not need
