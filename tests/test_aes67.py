@@ -301,9 +301,13 @@ async def scenarios():
             n[0] += 1
             return not q.empty()
 
-        check("audio from the stream reaches the capture's consumers", await await_for(feed, 4.0, 0.02))
-        tx.close()
-        cap.stop()
+        try:
+            check("audio from the stream reaches the capture's consumers", await await_for(feed, 4.0, 0.02))
+        except OSError as exc:
+            print(f"  skipped: nothing can be sent to the group here ({exc})")
+        finally:
+            tx.close()
+            cap.stop()
     live.expire(now=1e12)
     eq("with none, health says it is looking", MODULE.health().state, "warn")
     await registry.set_enabled("aes67", False)
