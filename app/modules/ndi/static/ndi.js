@@ -81,6 +81,7 @@
     s.router.routes.forEach(function (r) { if (r.source === name) out.push(r.name); });
     return out;
   }
+  const HEALTH_DOT = { ok: 'ok', warn: 'warn', bad: 'err', quiet: '' };      // the dot beside a source being received (#300)
   function drawSources(s) {
     $('ndiNone').hidden = s.sources.length > 0;
     $('ndiTable').hidden = !s.sources.length;
@@ -89,14 +90,16 @@
     const rows = s.sources.map(function (x) {
       return [x.name, label(x), x.machine, x.online, x.width ? x.width + ' x ' + x.height + (x.fps ? ', ' + x.fps + ' fps' : '') : '',
         tally[x.name] || '', usedBy(x.name, s), x.converter ? (x.converter.source || x.converter.source_ip) : '',
-        (s.outputs || []).indexOf(x.source) >= 0];
+        (s.outputs || []).indexOf(x.source) >= 0, x.health, x.health_why];
     });
     const body = $('ndiTable').querySelector('tbody');
     if (body.contains(document.activeElement) || !changed('sources', [rows, manage])) return;
     body.textContent = '';
     rows.forEach(function (r) {
       const tr = el('tr');
-      const c1 = el('td'); c1.appendChild(el('b', '', r[1]));
+      const c1 = el('td');
+      if (r[3] && r[9] && r[9] !== 'unknown') { const d = el('span', 'dot ' + HEALTH_DOT[r[9]] + ' ndihealth'); d.title = r[10] || ''; d.setAttribute('role', 'img'); d.setAttribute('aria-label', 'Stream health: ' + r[9]); c1.appendChild(d); }
+      c1.appendChild(el('b', '', r[1]));
       if (!r[3]) { c1.appendChild(document.createTextNode(' ')); c1.appendChild(el('span', 'badge muted', 'Offline')); }
       if (r[8]) { c1.appendChild(document.createTextNode(' ')); c1.appendChild(el('span', 'badge info', 'Sent by Relay')); }
       c1.appendChild(el('span', 'hint', r[2] + (r[7] ? ' · converter set to ' + r[7] : '')));
@@ -361,7 +364,9 @@
     drawOverview(s); drawSources(s); drawMvList(s); drawViewLinks(s); drawSetup(s);
     if (edit && !$('ndiMvEdit').contains(document.activeElement) && changed('palette', s.sources.map(function (x) { return [x.name, x.online]; }))) drawPalette();
     if (window.RelayNdiMore) window.RelayNdiMore(s);
+    window.dispatchEvent(new Event('relay-ndi-state'));        // the Analysis tab (ndi-analysis.js) reads the source list
   }
+  window.RelayNdiState = function () { return state; };
   async function poll() {
     if (polling) return;
     polling = true;

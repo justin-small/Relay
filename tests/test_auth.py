@@ -685,6 +685,13 @@ for method, path, perm in (
     ("POST", "/api/admin/ndi/router/salvos", "ndi.manage"),             # no name: refused
     ("DELETE", "/api/admin/ndi/router/salvos/{sid}", "ndi.manage"),
     ("POST", "/api/admin/ndi/router/salvos/{sid}/take", "ndi.manage"),
+    ("POST", "/api/admin/ndi/analysis/open", "ndi.view"),               # no such source: refused
+    ("GET", "/api/admin/ndi/analysis", "ndi.view"),                     # needs ?source=; not open: refused
+    ("DELETE", "/api/admin/ndi/analysis", "ndi.view"),
+    ("POST", "/api/admin/ndi/analysis/reset", "ndi.view"),              # not open: refused
+    ("POST", "/api/admin/ndi/analysis/record", "ndi.manage"),           # seconds are checked, no such source: refused
+    ("POST", "/api/admin/ndi/analysis/record/stop", "ndi.manage"),
+    ("GET", "/api/admin/ndi/analysis/recording", "ndi.view"),           # needs ?source=
     ("GET", "/api/admin/youtube", "youtube.view"),
     ("PUT", "/api/admin/youtube/settings", "youtube.manage"),             # an empty body changes nothing
     ("POST", "/api/admin/youtube/check", "youtube.manage"),               # not connected: nothing is sent

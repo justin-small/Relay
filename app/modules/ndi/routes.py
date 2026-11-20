@@ -4,12 +4,12 @@ from __future__ import annotations
 import asyncio
 
 from fastapi import APIRouter, Depends, Request
-from fastapi.responses import HTMLResponse, JSONResponse, Response, StreamingResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response, StreamingResponse
 
 from ... import audit, config
 from .. import require
 from . import multiview, outputs, viewer
-from .service import KEY, VIEW_LIMITS, clean_ip, clean_server, clean_settings, service
+from .service import KEY, LOW, VIEW_LIMITS, clean_ip, clean_server, clean_settings, service
 
 router = APIRouter()
 VIEW = [Depends(require("ndi.view"))]
@@ -230,3 +230,90 @@ async def multiview_stream(mid: str):
 
     return StreamingResponse(body(), media_type=f"multipart/x-mixed-replace; boundary={viewer.BOUNDARY}",
                              headers={**NO_STORE, "X-Accel-Buffering": "no"})
+
+
+# ------------------------------------------------------------------------------------------------ analysis (#300)
+# One source at a time, from a receiver Relay holds for the admin page while it keeps asking (30 s after the last ask).
+# `low` tests the sender's low-bandwidth stream.
+def _akey(source: str, low: bool) -> str:
+    return source + LOW if low else source
+
+
+def _online(source) -> dict | None:
+    if not isinstance(source, str):
+        return None
+    return next((s for s in service.sources() if s["name"] == source and s["online"]), None)
+
+
+@router.post("/api/admin/ndi/analysis/open", dependencies=VIEW)
+async def analysis_open(payload: dict):
+    source, low = payload.get("source"), payload.get("low", False)
+    if not isinstance(low, bool):
+        return _bad("Low bandwidth is on or off.")
+    if not service.running or _online(source) is None:
+        return _bad("That NDI source is not available.", 404)
+    key = await asyncio.to_thread(service.analysis_open, source, low)
+    if key is None:
+        return _bad("That source cannot be received.", 409)
+    return service.analysis_snapshot(key)
+
+
+@router.get("/api/admin/ndi/analysis", dependencies=VIEW)
+async def analysis_read(source: str, low: bool = False, scopes: bool = True):
+    """The newest numbers. Asking also keeps the analysis open. `scopes=false` leaves out the picture scopes."""
+    key = _akey(source, low)
+    cur = service._open.get(key)
+    if cur is None:
+        return _bad("That analysis is not open.", 404)
+    await asyncio.to_thread(service.analysis_open, source, low)
+    snap = await asyncio.to_thread(service.analysis_snapshot, key)
+    if not scopes:
+        snap.pop("picture", None)
+    return JSONResponse(snap, headers=NO_STORE)
+
+
+@router.delete("/api/admin/ndi/analysis", dependencies=VIEW)
+async def analysis_close(source: str, low: bool = False):
+    await asyncio.to_thread(service.analysis_close, _akey(source, low))
+    return {"ok": True}
+
+
+@router.post("/api/admin/ndi/analysis/reset", dependencies=VIEW)
+async def analysis_reset(payload: dict):
+    """Start the loudness and clip counts again."""
+    t = service.analysis.tracks.get(_akey(str(payload.get("source", "")), bool(payload.get("low", False))))
+    if t is None:
+        return _bad("That analysis is not open.", 404)
+    t.meter.reset_stats()
+    return {"ok": True}
+
+
+@router.post("/api/admin/ndi/analysis/record", dependencies=MANAGE)
+async def analysis_record(request: Request, payload: dict):
+    """Record per-frame timing to a CSV for `seconds` (1 to 3600). Needs the analysis open."""
+    seconds = payload.get("seconds", 60)
+    if isinstance(seconds, bool) or not isinstance(seconds, int) or not 1 <= seconds <= 3600:
+        return _bad("A recording is a whole number of seconds from 1 to 3600.")
+    source = payload.get("source")
+    if _online(source) is None:
+        return _bad("That NDI source is not available.", 404)
+    rec = service.analysis.record(_akey(source, bool(payload.get("low", False))), seconds)
+    if rec is None:
+        return _bad("Open the analysis first.", 409)
+    audit.note(request, "ndi.analysis", "Recorded NDI frame timing")
+    return rec.status()
+
+
+@router.post("/api/admin/ndi/analysis/record/stop", dependencies=MANAGE)
+async def analysis_record_stop(payload: dict):
+    service.analysis.stop_recording(_akey(str(payload.get("source", "")), bool(payload.get("low", False))))
+    return {"ok": True}
+
+
+@router.get("/api/admin/ndi/analysis/recording", dependencies=VIEW)
+async def analysis_download(source: str, low: bool = False):
+    """The newest recording for the source, as a CSV to send to whoever runs the network."""
+    rec = service.analysis.last_recording.get(_akey(source, low))
+    if rec is None or not rec.path.exists():
+        return _bad("There is no recording for that source yet.", 404)
+    return FileResponse(rec.path, media_type="text/csv", filename=rec.path.name, headers=NO_STORE)

@@ -8,9 +8,10 @@ says so on its page and stays off; Relay itself starts. NOT yet proved here: sen
 macOS, Windows and the headless Linux service. The calls below follow cyndilib's documented API and are covered only
 against a fake backend (tests/test_ndi.py), so check them against a real source before relying on them.
 
-A backend has `connect(name, address) -> connection`, `open_sender(name, width, height, fps) -> sender` and
+A backend has `connect(name, address, low=False) -> connection` (`low` asks the sender for its low-bandwidth stream), `open_sender(name, width, height, fps) -> sender` and
 `open_router(name) -> router` (`change(source)`, `clear()`, `close()`: the NDI routing API through ctypes, #298). A connection has
-`receive(timeout_ms) -> frame dict | None` and `close()`; a frame is {"width", "height", "fps", "fourcc", "data"}. A
+`receive(timeout_ms) -> frame dict | None` and `close()`; a frame is {"width", "height", "fps", "fourcc", "data"}; audio is {"audio": float32 (channels, samples), "rate",
+"audio_db"} and a sender's connection metadata is {"meta": xml text}; `perf()` is the SDK's dropped-frame counts. A
 sender has `send(frame)` and `close()`. Tests replace `load`.
 """
 from __future__ import annotations
@@ -95,8 +96,8 @@ def reset() -> None:
 
 
 class CyndiBackend:
-    def connect(self, name: str, address: str = "") -> "_Connection":
-        return _Connection(name)
+    def connect(self, name: str, address: str = "", low: bool = False) -> "_Connection":
+        return _Connection(name, low)
 
     def open_sender(self, name: str, width: int = 1280, height: int = 720, fps: float = 30.0) -> "_Sender":
         return _Sender(name, width, height, fps)
@@ -126,7 +127,7 @@ class CyndiBackend:
 
 
 class _Connection:
-    def __init__(self, name: str) -> None:
+    def __init__(self, name: str, low: bool = False) -> None:
         from cyndilib.finder import Finder
         from cyndilib.receiver import ReceiveFrameType, Receiver
         from cyndilib.video_frame import VideoRecvFrame
@@ -134,7 +135,10 @@ class _Connection:
         self._kind = ReceiveFrameType.recv_video
         self._audio = None
         self._audio_kind = None
-        try:       # Audio is for the viewer's level meter. Not proved on real NDI: any trouble just means no meter.
+        self._meta = None
+        self._meta_kind = ReceiveFrameType.recv_metadata
+        self._want = self._kind
+        try:       # Audio is for the meters and analysis. Any trouble just means no audio.
             from cyndilib.audio_frame import AudioRecvFrame
 
             self._audio = AudioRecvFrame()
@@ -150,8 +154,21 @@ class _Connection:
             self._finder.close()
             raise OSError("That NDI source is not on the network.")
         self._frame = VideoRecvFrame()
-        self._recv = Receiver()
+        if low:
+            from cyndilib.wrapper.ndi_recv import RecvBandwidth
+
+            self._recv = Receiver(bandwidth=RecvBandwidth.lowest)
+        else:
+            self._recv = Receiver()
         self._recv.set_video_frame(self._frame)
+        try:       # what the sender says about itself (product, capabilities); arrives once, when it connects
+            from cyndilib.metadata_frame import MetadataRecvFrame
+
+            self._meta = MetadataRecvFrame()
+            self._recv.set_metadata_frame(self._meta)
+            self._want = self._want | self._meta_kind
+        except Exception:
+            self._meta = None
         if self._audio is not None:
             try:
                 self._recv.set_audio_frame(self._audio)
@@ -160,9 +177,11 @@ class _Connection:
         self._recv.set_source(src)
 
     def receive(self, timeout_ms: int) -> dict | None:
-        got = self._recv.receive(self._want if self._audio is not None else self._kind, timeout_ms)
+        got = self._recv.receive(self._want, timeout_ms)
         if self._audio is not None and got == self._audio_kind:
             return self._audio_level()
+        if self._meta is not None and got == self._meta_kind:
+            return self._metadata()
         if got != self._kind:
             return None
         f = self._frame
@@ -172,18 +191,34 @@ class _Connection:
                 "fourcc": str(f.get_fourcc()), "data": bytes(f)}
 
     def _audio_level(self) -> dict | None:
-        """The peak of the audio just received, in dBFS: {"audio_db": -18.2}. Never raises."""
+        """The audio just received: {"audio_db": peak dBFS, "audio": float32 (channels, samples), "rate"}. Never raises."""
         try:
             import math
 
             import numpy as np
 
-            arr = np.asarray(self._audio.get_array() if hasattr(self._audio, "get_array") else self._audio, dtype=np.float32)
+            arr = np.array(self._audio.get_all_read_data()[0], dtype=np.float32)      # (channels, samples); a copy
             peak = float(np.max(np.abs(arr))) if arr.size else 0.0
-            return {"audio_db": round(20 * math.log10(peak), 1) if peak > 1e-6 else -120.0}
+            return {"audio_db": round(20 * math.log10(peak), 1) if peak > 1e-6 else -120.0, "audio": arr,
+                    "rate": int(self._audio.sample_rate)}
         except Exception:
             self._audio = None      # a build whose audio frame reads differently: stop trying, keep the video
             return None
+
+    def _metadata(self) -> dict | None:
+        try:
+            xml = self._meta.xml_doc
+            return {"meta": xml if isinstance(xml, str) else str(xml)} if xml else None
+        except Exception:
+            self._meta = None
+            return None
+
+    def perf(self) -> dict:
+        """The SDK's frame counts: {"video": {"frames_total", "frames_dropped"}, "audio": ..., "metadata": ...}."""
+        try:
+            return dict(self._recv.get_performance_data())
+        except Exception:
+            return {}
 
     def close(self) -> None:
         for obj in (self._recv, self._finder):
