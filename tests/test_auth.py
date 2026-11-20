@@ -763,6 +763,8 @@ for method, path, perm in (
     ("PUT", "/api/admin/open-sound-meter/settings", "open_sound_meter.manage"),
     ("GET", "/api/admin/dante", "dante.view"),
     ("POST", "/api/admin/dante/scan", "dante.manage"),
+    ("GET", "/api/admin/dante/history", "dante.view"),
+    ("POST", "/api/admin/dante/star", "dante.manage"),
     ("GET", "/api/admin/talkback", "talkback.view"),
     ("PUT", "/api/admin/talkback/settings", "talkback.manage"),
     ("POST", "/api/admin/talkback/start", "talkback.control"),       # no lane chosen: refused
