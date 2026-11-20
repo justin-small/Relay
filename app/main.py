@@ -32,7 +32,7 @@ from jinja2 import ChoiceLoader, FileSystemLoader, PrefixLoader
 from . import alerts as alertsmod
 from . import backup as backupmod
 from . import announce as announcemod
-from . import alerthistory, audiobus, audit, boards, cables, channels, config, db, devices, exporting, importdocker, languages, metering, mixreport, netinfo, network_map, netroute, overlays, panelfw, panels, ports, prefs, redact, schedules, screens, serving, setupcode, streamstatus, tally, tls, users
+from . import alerthistory, audiobus, audit, boards, cables, channels, config, db, devices, exporting, importdocker, languages, metering, mixreport, netinfo, network_map, netroute, overlays, panelfw, panels, ports, prefs, redact, routing, schedules, screens, serving, setupcode, streamstatus, tally, tls, users
 from .alerts import alerts
 from . import engine as engine_mod
 from .engine import TRANSCRIPTION_STREAM, TRANSLATION_STREAM, demo_mode, engine
@@ -246,6 +246,11 @@ AUDIT_ROUTES = {
     "admin_network_channel_split": ("network.channel_split", "Split a channel apart"),
     "admin_network_channel_decline": ("network.channel_decline", "Said two channels are not the same"),
     "admin_network_channel_forget": ("network.channel_forget", "Forgot a channel"),
+    "admin_routes_set": ("routes.set", "Routed a source to a destination"),
+    "admin_routes_clear": ("routes.clear", "Took a destination off a source"),
+    "admin_routes_salvo_save": ("routes.salvo_save", "Saved a route preset"),
+    "admin_routes_salvo_take": ("routes.salvo_take", "Took a route preset"),
+    "admin_routes_salvo_delete": ("routes.salvo_delete", "Deleted a route preset"),
     "admin_network_forget": ("network.forget", "Forgot a network port"),
     "admin_network_labels": ("network.labels", "Changed device names or notes on the network map"),
     "admin_network_places": ("network.places", "Changed where the network gear is"),
@@ -389,7 +394,7 @@ async def _startup() -> None:
     if cfg["audio_bus"]["enabled"]:
         # Opening devices can take a moment, and a device that is not there yet is retried by the bus itself.
         try:
-            await asyncio.to_thread(audiobus.bus.apply, cfg["audio_bus"])
+            await asyncio.to_thread(audiobus.bus.apply, await asyncio.to_thread(audiobus.runtime_config, cfg["audio_bus"]))
         except Exception:
             log.exception("The audio bus could not start")
     if cfg["metering"]["enabled"]:
@@ -2089,7 +2094,14 @@ def _channels_view() -> dict:
     """Every channel with its ends, and the pairs Relay suggests are one channel (never joined on its own)."""
     def slim(c: dict) -> dict:
         return {"id": c["id"], "ref": c["ref"], "shown": c["shown"], "kind": c["kind"], "providers": c["providers"]}
-    return {"channels": channels.listing(),
+    chans, routes = channels.listing(), routing.listing()
+    by_dest = {v["destination"]: v for v in routes}
+    for c in chans:        # what feeds each channel and where it goes (app/routing.py), the same on every page
+        v = by_dest.get(c["ref"])
+        c["fed_by"] = [s["name"] for s in v["sources"]] if v else []
+        c["asked"] = [s["name"] for s in v["wanted"]] if v and v["state"] == "differs" else []
+        c["feeds"] = [r["name"] for r in routes if any(s["ref"] == c["ref"] for s in r["sources"])]
+    return {"channels": chans,
             "suggestions": [{"a": slim(x["a"]), "b": slim(x["b"]), "why": x["why"]} for x in channels.suggestions()]}
 
 
@@ -2268,6 +2280,85 @@ async def admin_devices():
     }
 
 
+# -- routes (#544): which source channel feeds which destination channel -------------------------------------------
+async def _routes_do(fn, *args, **kw):
+    """Run one routing call off the event loop: its result, or a fixed sentence for a refusal."""
+    try:
+        return await asyncio.to_thread(fn, *args, **kw)
+    except routing.Refused as exc:
+        return JSONResponse({"error": routing.REFUSALS[exc.key]}, status_code=404 if exc.key in ("no_channel", "no_route", "no_salvo") else 409)
+    except db.Unavailable:
+        return JSONResponse({"error": "The database is down, so routes cannot be changed right now."}, status_code=503)
+
+
+def _routes_view(provider: str = "", feed: str = "") -> dict:
+    out = {"routes": routing.listing(provider), "salvos": routing.salvos()}
+    if feed:
+        out["feeds"] = routing.feeds(feed)
+        out["feeding"] = routing.feeding(feed)
+    return out
+
+
+@app.get("/api/admin/routes", dependencies=[Depends(require("network.view"))])
+async def admin_routes(provider: str = "", channel: str = ""):
+    """Every route (what was asked for and what the gear does, with any difference) and every preset. With `channel`
+    (a channel ref): "what feeds this?" and "where does this go?" for it."""
+    return await _routes_do(_routes_view, provider[:32], channel[:60])
+
+
+@app.post("/api/admin/routes", dependencies=[Depends(require("network.manage"))])
+async def admin_routes_set(payload: dict, request: Request):
+    """{"destination": "channel:relay:3", "source": "channel:relay:7", "gain_db": -3}: the destination takes the source."""
+    got = await _routes_do(routing.set, payload.get("destination"), payload.get("source"), payload.get("gain_db"))
+    if isinstance(got, JSONResponse):
+        return got
+    audit.note(request, "routes.set", "Routed a source to a destination",
+               detail={"destination": payload.get("destination"), "source": payload.get("source")})
+    return {"status": got["status"], "problems": got["problems"]}
+
+
+@app.post("/api/admin/routes/clear", dependencies=[Depends(require("network.manage"))])
+async def admin_routes_clear(payload: dict, request: Request):
+    """{"destination": ref, "source": ref}: take the destination off that source, or off everything without `source`."""
+    got = await _routes_do(routing.clear, payload.get("destination"), payload.get("source"))
+    if isinstance(got, JSONResponse):
+        return got
+    audit.note(request, "routes.clear", "Took a destination off a source", detail={"destination": payload.get("destination")})
+    return {"status": got["status"], "problems": got["problems"]}
+
+
+@app.post("/api/admin/routes/salvos", dependencies=[Depends(require("network.manage"))])
+async def admin_routes_salvo_save(payload: dict, request: Request):
+    """{"name", "destinations": [refs], "scope", "id"}: save what those destinations take now as a preset."""
+    dests, sid = payload.get("destinations"), payload.get("id")
+    if not isinstance(dests, list) or len(dests) > 500:
+        return JSONResponse({"error": "Choose the destinations to save."}, status_code=400)
+    got = await _routes_do(routing.save_salvo, payload.get("name"), dests, payload.get("scope") or "",
+                           sid if isinstance(sid, int) and not isinstance(sid, bool) else None)
+    if isinstance(got, JSONResponse):
+        return got
+    audit.note(request, "routes.salvo_save", "Saved a route preset", target=got["name"])
+    return got
+
+
+@app.post("/api/admin/routes/salvos/{sid}/take", dependencies=[Depends(require("network.manage"))])
+async def admin_routes_salvo_take(sid: int, request: Request):
+    got = await _routes_do(routing.take_salvo, sid)
+    if isinstance(got, JSONResponse):
+        return got
+    audit.note(request, "routes.salvo_take", "Took a route preset", target=str(sid))
+    return {"problems": got}
+
+
+@app.delete("/api/admin/routes/salvos/{sid}", dependencies=[Depends(require("network.manage"))])
+async def admin_routes_salvo_delete(sid: int, request: Request):
+    got = await _routes_do(routing.delete_salvo, sid)
+    if isinstance(got, JSONResponse):
+        return got
+    audit.note(request, "routes.salvo_delete", "Deleted a route preset", target=str(sid))
+    return {"ok": True}
+
+
 @app.get("/api/admin/audiobus", dependencies=[Depends(require("session.view"))])
 async def admin_audiobus():
     """The 32-lane audio bus (app/audiobus.py): its saved setting, the live state of every lane, input and
@@ -2275,7 +2366,7 @@ async def admin_audiobus():
     from . import audio as audiomod
 
     return {
-        "config": config.get()["audio_bus"],
+        "config": {**config.get()["audio_bus"], "matrix": await asyncio.to_thread(audiobus.matrix_from_routes)},
         "status": audiobus.bus.status(),
         "lanes": audiobus.LANES,
         "sources": [{"id": s.id, "label": s.label} for s in audiomod.sources()],
@@ -2289,7 +2380,15 @@ async def admin_audiobus():
 async def admin_audiobus_save(request: Request, payload: dict):
     """Save the bus setting and apply it. Only what changed is touched: a device or output that is the same as
     before keeps running."""
-    cfg = config.save({"audio_bus": payload}, replace=("audio_bus",))["audio_bus"]
+    cfg = audiobus.normalize(payload)
+    cells = cfg["matrix"]
+    # The crosspoints are core routes (app/routing.py): config keeps the lanes and outputs, the routes keep who feeds what.
+    saved = config.save({"audio_bus": {**cfg, "matrix": []}}, replace=("audio_bus",))["audio_bus"]
+    try:
+        await asyncio.to_thread(audiobus.save_matrix, saved, cells)
+    except db.Unavailable:
+        return JSONResponse({"error": "The database is down, so the crosspoints cannot be saved right now."}, status_code=503)
+    cfg = {**saved, "matrix": await asyncio.to_thread(audiobus.matrix_from_routes)}
     await asyncio.to_thread(audiobus.bus.apply, cfg)
     audit.note(request, "audio.bus", "Changed the audio bus", detail={
         "enabled": cfg["enabled"], "lanes": len(cfg["lanes"]), "outputs": len(cfg["outputs"]),
@@ -3335,6 +3434,21 @@ async def board_data(request: Request, bid: str, screen: str = ""):
                         headers={"Cache-Control": "no-store"})
 
 
+async def _press_route(item: dict, request: Request) -> dict:
+    """A route button was pressed: the destination takes the source, the same route the NDI and Blackmagic pages make."""
+    props = item.get("props") or {}
+    if not props.get("destination") or not props.get("source"):
+        return {"ok": False, "error": "Choose the destination and the source for this button."}
+    got = await _routes_do(routing.set, props["destination"], props["source"])
+    if isinstance(got, JSONResponse):
+        return {"ok": False, "error": "That route could not be made."}
+    if got["problems"]:
+        return {"ok": False, "error": got["problems"][0][:200]}
+    audit.note(request, "routes.set", "Routed a source to a destination",
+               detail={"destination": props["destination"], "source": props["source"]})
+    return {"ok": True}
+
+
 @app.post("/board/{bid}/_/press/{item_id}")
 async def board_press(request: Request, bid: str, item_id: str):
     """Press a module's button widget on a board. Needs someone signed in on the operator port who holds the widget's
@@ -3345,7 +3459,8 @@ async def board_press(request: Request, bid: str, item_id: str):
         return JSONResponse({"error": "That button is not on this board."}, status_code=404)
     d = _board_catalogue().get(item["type"])
     mod = module_registry.board_owner(item["type"])
-    if d is None or mod is None or d["kind"] != "button":
+    core_route = item["type"] == "route"          # core's own button (app/routing.py), not a module's
+    if d is None or (mod is None and not core_route) or d["kind"] != "button":
         return JSONResponse({"error": "That button is off."}, status_code=409)
     user = await asyncio.to_thread(_session_user, request) if _on_admin_port(request) else None
     if user is None or (not board["public"] and not user.can("boards.view")) \
@@ -3355,7 +3470,7 @@ async def board_press(request: Request, bid: str, item_id: str):
         return JSONResponse({"error": "Too many presses. Wait a moment."}, status_code=429)
     request.state.user = user
     try:
-        got = await mod.board_press(item, request)
+        got = await (_press_route(item, request) if core_route else mod.board_press(item, request))
     except Exception:
         log.exception("board press failed")
         got = {"ok": False, "error": "That did not work."}

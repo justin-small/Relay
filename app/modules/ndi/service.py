@@ -105,8 +105,10 @@ def clean_settings(raw: Any) -> dict:
     out["out_size"] = raw.get("out_size") if raw.get("out_size") in outputs.SIZES else "1280x720"
     fps = raw.get("out_fps")
     out["out_fps"] = max(5, min(30, fps)) if isinstance(fps, int) and not isinstance(fps, bool) else 30
-    out["routes"] = router.clean_routes(raw.get("routes"))
-    out["salvos"] = router.clean_salvos(raw.get("salvos"), out["routes"])
+    out["router_outputs"] = router.clean_outputs(raw.get("router_outputs"))
+    # Saved before core routes (#544): carried as they are until router.migrate() has moved them, then empty.
+    out["routes"] = raw["routes"] if isinstance(raw.get("routes"), list) else []
+    out["salvos"] = raw["salvos"] if isinstance(raw.get("salvos"), list) else []
     return out
 
 
@@ -266,7 +268,8 @@ class Service:
         self.pool.address_of = lambda s: self._seen.get(s, {}).get("address", "")
         self.outputs: dict[str, Any] = {}
         self.pages = outputs.Outputs(self.hook_output, self.settings, config.get, _providers, _base, self._bump)
-        self.router = router.Router(runtime.load, self.settings, self.save_settings, self._bump, lambda: self.running)
+        self.router = router.Router(runtime.load, self.settings, self.save_settings, self._bump, lambda: self.running,
+                                   self.report_channels)
         self.error = ""
         self.last_scan = 0.0
         self.scanning = False
@@ -436,6 +439,8 @@ class Service:
                   "gear_name": s["source"] or s["name"]} for s in self.sources() if s["online"]]
         found += [{"key": "out:" + n, "kind": "video", "direction": "destination", "gear_name": n}
                   for n in sorted(self.outputs)]
+        found += [{"key": router.OUT + r["id"], "kind": "video", "direction": "destination",
+                   "gear_name": outputs.ndi_name(r["name"])} for r in self.settings()["router_outputs"]]
         channels.report("ndi", found)
 
     # ----------------------------------------------------------------------------------------------- reads

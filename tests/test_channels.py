@@ -181,7 +181,7 @@ with section("the audio bus reports its lanes and outputs"):
                                                  "outputs": [{"id": "foh", "name": "FOH"}]}))
     got = {(e["key"], e["direction"], e["number"]) for c in channels.of_provider("audiobus") for e in c["ends"]
            if not e["missing"]}
-    eq("patched lanes and outputs", got, {("lane3", "source", 3), ("out:foh", "destination", None)})
+    eq("patched lanes and outputs", got, {("lane3", "source", 3), ("out:foh:1", "destination", 1), ("out:foh:2", "destination", 2)})
 
 with section("a rundown channel is tied to a core channel, and a typed name is matched once"):
     lane = next(c for c in channels.of_provider("audiobus") if c["ends"][0]["key"] == "lane3")
