@@ -264,7 +264,7 @@ fn copy_audio(a: &AudioFrame) -> Option<Audio> {
         return None;
     }
     let stride = a.channel_stride as usize;
-    if stride < n * 4 || stride % 4 != 0 {
+    if stride < n * 4 || !stride.is_multiple_of(4) {
         return None;
     }
     let mut data = Vec::with_capacity(ch * n);

@@ -230,6 +230,8 @@ class Pool:
             while not e.stop.is_set():
                 frame = conn.receive(500)
                 now = time.monotonic()
+                if frame and frame.get("age_ms"):      # when it arrived, not when this thread got round to it
+                    now -= frame["age_ms"] / 1000.0
                 if self.stats is not None and now - perf_at >= PERF_EVERY_S and hasattr(conn, "perf"):
                     perf_at = now
                     self.stats.on_perf(e.key, conn.perf())

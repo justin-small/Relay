@@ -118,9 +118,9 @@ fn planes<'a>(f: &Frame<'a>) -> Option<Planes<'a>> {
             for r in 0..h {
                 let src = &f.data[r * f.width * 2..r * f.width * 2 + w * 2];
                 let dst = &mut y[r * w..(r + 1) * w];
-                for (d, px) in dst.chunks_exact_mut(2).zip(src.chunks_exact(4)) {
-                    d[0] = px[1];
-                    d[1] = px[3];
+                for (i, px) in src.as_chunks::<4>().0.iter().enumerate() {
+                    dst[2 * i] = px[1];
+                    dst[2 * i + 1] = px[3];
                 }
             }
             // Chroma reads use the trimmed width as the row pitch only when no trim happened; keep the real pitch.
@@ -139,7 +139,7 @@ fn planes<'a>(f: &Frame<'a>) -> Option<Planes<'a>> {
             let (kr32, kb32) = (kr as f32, kb as f32);
             let kg32 = (1.0 - kr - kb) as f32;
             let mut y = vec![0u8; w * h];
-            for (d, px) in y.iter_mut().zip(f.data.chunks_exact(4)) {
+            for (d, px) in y.iter_mut().zip(f.data.as_chunks::<4>().0) {
                 let (r, g, b) = (px[order[0]] as f32, px[order[1]] as f32, px[order[2]] as f32);
                 *d = c8(16.0 + (kr32 * r + kg32 * g + kb32 * b) * 219.0 / 255.0);
             }
@@ -262,7 +262,7 @@ pub fn scopes(f: &Frame, prev: Option<&Grid>) -> Option<(Scopes, Grid)> {
             lr[o] = a;
             lg[o] = bb;
             lb[o] = c;
-            if a < 13 || a > 238 || bb < 13 || bb > 238 || c < 13 || c > 238 {
+            if ![a, bb, c].iter().all(|v| (13..=238).contains(v)) {
                 bad += 1;
             }
             vec_counts[(cb as usize >> 1) * 128 + (cr as usize >> 1)] += 1;

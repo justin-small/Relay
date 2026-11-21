@@ -78,7 +78,9 @@ jobs:
           toolchain: stable
       - uses: swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
-          workspaces: native/relay-bus
+          workspaces: |
+            native/relay-bus
+            native/relay-ndi
       # The audio bus core is a Rust extension the app imports (#601); build and install it.
       - name: Build the audio bus core
         run: python tools/build_bus_wheel.py

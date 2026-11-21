@@ -233,6 +233,8 @@ impl AudioMeter {
     }
 }
 
+type ScopeResult<'py> = (Option<Bound<'py, PyDict>>, Option<Bound<'py, PyAny>>);
+
 fn pack_dict<'py>(py: Python<'py>, p: &Pack) -> PyResult<Bound<'py, PyDict>> {
     let d = PyDict::new(py);
     d.set_item("w", p.w)?;
@@ -247,7 +249,7 @@ fn pack_dict<'py>(py: Python<'py>, p: &Pack) -> PyResult<Bound<'py, PyDict>> {
 #[pyfunction]
 #[pyo3(signature = (data, width, height, fourcc, prev=None))]
 fn scopes<'py>(py: Python<'py>, data: PyBackedBytes, width: usize, height: usize, fourcc: &str,
-               prev: Option<PyReadonlyArray2<'py, f32>>) -> PyResult<(Option<Bound<'py, PyDict>>, Option<Bound<'py, PyAny>>)> {
+               prev: Option<PyReadonlyArray2<'py, f32>>) -> PyResult<ScopeResult<'py>> {
     let prev_grid = prev.as_ref().map(|a| Grid { h: a.shape()[0], w: a.shape()[1], v: a.as_array().iter().copied().collect() });
     let bytes: &[u8] = &data;
     let out = py.detach(|| sc::scopes(&Frame { data: bytes, width, height, fourcc }, prev_grid.as_ref()));

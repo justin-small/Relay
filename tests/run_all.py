@@ -4,7 +4,7 @@
     python tests/run_all.py -k crew pclink  # only files whose name contains one of these
     python tests/run_all.py --coverage      # also record coverage (needs `pip install coverage`)
 
-It first builds the Rust audio bus core (tools/build_bus_wheel.py --if-stale), which needs Rust installed.
+It first builds the Rust extensions, the audio bus core and the NDI engine (tools/build_bus_wheel.py --if-stale), which needs Rust installed.
     python tests/run_all.py --junit out.xml # a JUnit report, one test case per file
 
 Each file runs in its own process with its own temp folder (TMPDIR), removed afterwards, so nothing a test
@@ -96,10 +96,10 @@ def main(argv: list[str] | None = None) -> int:
     if not todo:
         print("no test files match")
         return 1
-    # The audio bus core is a Rust extension every test process may import: build it first when the sources changed.
+    # The audio bus core and the NDI engine are Rust extensions every test process may import: build it first when the sources changed.
     built = subprocess.run([sys.executable, str(ROOT / "tools" / "build_bus_wheel.py"), "--if-stale"])
     if built.returncode:
-        print("The audio bus core (relay_bus) could not be built; see above.")
+        print("The Rust extensions (relay_bus, relay_ndi) could not be built; see above.")
         return 1
     results = []
 
