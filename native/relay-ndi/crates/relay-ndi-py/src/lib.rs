@@ -8,7 +8,9 @@ use pyo3::pybacked::PyBackedBytes;
 use pyo3::exceptions::{PyOSError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::{PyBytes, PyDict, PyList};
+use relay_ndi::audio::{AudioMeter as CoreMeter, Snapshot};
 use relay_ndi::find::Finder;
+use std::sync::Mutex;
 use relay_ndi::recv::{Event, Receiver};
 use relay_ndi::route::Router as CoreRouter;
 use relay_ndi::scopes::{self as sc, Frame, Grid, Pack};
@@ -166,6 +168,71 @@ impl Router {
     }
 }
 
+#[pyclass(frozen, module = "relay_ndi")]
+struct AudioMeter {
+    m: Mutex<CoreMeter>,
+}
+
+#[pymethods]
+impl AudioMeter {
+    #[new]
+    fn new() -> Self {
+        AudioMeter { m: Mutex::new(CoreMeter::new()) }
+    }
+
+    #[getter]
+    fn rate(&self) -> u32 {
+        self.m.lock().unwrap_or_else(|p| p.into_inner()).rate()
+    }
+
+    #[getter]
+    fn ch(&self) -> usize {
+        self.m.lock().unwrap_or_else(|p| p.into_inner()).channels()
+    }
+
+    /// `samples` is float32 shaped (channels, n); `now` is monotonic seconds.
+    fn feed(&self, py: Python<'_>, samples: PyReadonlyArray2<'_, f32>, rate: u32, now: f64) {
+        let (ch, n) = (samples.shape()[0], samples.shape()[1]);
+        let flat: Vec<f32> = samples.as_array().iter().copied().collect();
+        py.detach(|| self.m.lock().unwrap_or_else(|p| p.into_inner()).feed(&flat, ch, n, rate, now));
+    }
+
+    fn reset(&self) {
+        self.m.lock().unwrap_or_else(|p| p.into_inner()).reset();
+    }
+
+    /// The same dict as Python's `AudioMeter.snapshot`, or None when no audio has arrived lately.
+    fn snapshot<'py>(&self, py: Python<'py>, now: f64) -> PyResult<Option<Bound<'py, PyDict>>> {
+        let snap: Option<Snapshot> = self.m.lock().unwrap_or_else(|p| p.into_inner()).snapshot(now);
+        let Some(s) = snap else { return Ok(None) };
+        let d = PyDict::new(py);
+        let chans = PyList::empty(py);
+        for c in &s.channels {
+            let e = PyDict::new(py);
+            e.set_item("rms", c.rms)?;
+            e.set_item("peak", c.peak)?;
+            e.set_item("hold", c.hold)?;
+            e.set_item("true_peak", c.true_peak)?;
+            e.set_item("dc", c.dc)?;
+            e.set_item("mute", c.mute)?;
+            chans.append(e)?;
+        }
+        d.set_item("rate", s.rate)?;
+        d.set_item("channels", chans)?;
+        d.set_item("clips", s.clips)?;
+        d.set_item("clip_now", s.clip_now)?;
+        d.set_item("momentary", s.momentary)?;
+        d.set_item("short", s.short)?;
+        d.set_item("integrated", s.integrated)?;
+        d.set_item("lra", s.lra)?;
+        d.set_item("correlation", s.correlation)?;
+        d.set_item("spectrum", s.spectrum)?;
+        let alarms: Vec<Vec<&str>> = s.alarms.iter().map(|(a, b)| vec![*a, *b]).collect();
+        d.set_item("alarms", alarms)?;
+        Ok(Some(d))
+    }
+}
+
 fn pack_dict<'py>(py: Python<'py>, p: &Pack) -> PyResult<Bound<'py, PyDict>> {
     let d = PyDict::new(py);
     d.set_item("w", p.w)?;
@@ -221,6 +288,7 @@ fn _native(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<Connection>()?;
     m.add_class::<Sender>()?;
     m.add_class::<Router>()?;
+    m.add_class::<AudioMeter>()?;
     m.add_function(wrap_pyfunction!(find, m)?)?;
     m.add_function(wrap_pyfunction!(library, m)?)?;
     m.add_function(wrap_pyfunction!(scopes, m)?)?;

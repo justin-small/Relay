@@ -2,6 +2,7 @@
 //! the finder, one receiver thread per source, senders and routers. The picture scopes, test patterns and meters
 //! that work on what they carry are in their own modules.
 
+pub mod audio;
 pub mod ffi;
 pub mod find;
 pub mod recv;
