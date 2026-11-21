@@ -1,0 +1,4 @@
+# The audio bus wheel (native/relay-bus) is built in release.yml with maturin, which this file pins with hashes for every
+# platform. Regenerate it after changing the version:
+#   uv pip compile requirements-wheel.in --generate-hashes --universal --python-version 3.15 -o requirements-wheel.txt
+maturin==1.16.0

@@ -41,6 +41,8 @@ on:
       - spike/**
       - tools/release_tools.py
       - requirements.txt
+      - requirements-wheel.*
+      - native/**
 
 permissions:
   contents: read
@@ -195,12 +197,27 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libxdo-dev \
-            patchelf libportaudio2 pulseaudio
+            patchelf libportaudio2 pulseaudio libasound2-dev
           pulseaudio -D --exit-idle-time=-1 --load=module-null-sink
       - name: Version from the tag
         if: github.ref_type == 'tag'
         shell: bash
         run: python tools/release_tools.py version "$GITHUB_REF_NAME"
+      # The audio bus core (native/relay-bus, #601): a Rust extension built here, on the runner it will ship from, so
+      # each installer carries its own platform's wheel. maturin is pinned and hash-checked (requirements-wheel.txt),
+      # like everything else the build installs. One abi3 wheel covers every Python from 3.10. The Linux wheel is
+      # tagged for this machine (`--compatibility linux`) because it links the system ALSA library, which the
+      # manylinux rules forbid. Nothing in app/ imports it yet, so this only proves it builds and loads.
+      - name: Build the audio bus wheel
+        shell: bash
+        run: |
+          python -m pip install -U pip
+          pip install --require-hashes --only-binary=:all: -r requirements-wheel.txt
+          compat=pypi; [[ "$RUNNER_OS" == Linux ]] && compat=linux
+          maturin build --release --locked --compatibility "$compat" \
+            --manifest-path native/relay-bus/crates/relay-bus-py/Cargo.toml --out "$RUNNER_TEMP/relay-bus-wheel"
+          pip install --no-index --no-deps "$RUNNER_TEMP"/relay-bus-wheel/relay_bus-*.whl
+          python -c "import relay_bus; print('relay_bus', relay_bus.__file__)"
       - name: Freeze the backend
         shell: bash
         run: |
