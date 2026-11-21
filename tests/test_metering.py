@@ -120,7 +120,7 @@ with section("calibration against a reference tone"):
         sent += int(RATE * 0.6)
         # Let the analysis catch up before the next block: six seconds in one burst would overflow the lane's
         # four-second tap on a slow machine, which is what a real input (paced by its clock) never does.
-        wait_for(lambda: m.analyzer.hops >= sent // metering.HOP - 1, timeout=10)
+        wait_for(lambda: m.analyzer.hops >= sent // metering.HOP - 1)
     wait_for(lambda: m.analyzer.hops >= 120, timeout=10)
     cal = m.calibrate(94)
     expect = 94 - 20 * math.log10(0.1 / math.sqrt(2))
