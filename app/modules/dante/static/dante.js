@@ -11,6 +11,7 @@
 
   function reach(d) {
     if (d.reachable === true) return relayUI.pill('answers', 'on');
+    if (d.reachable === false && d.heartbeat) return relayUI.pill('alive, control port silent', 'warn');
     if (d.reachable === false) return relayUI.pill('no answer', 'warn');
     return relayUI.pill('not checked', 'idle');
   }
@@ -22,12 +23,15 @@
     rows.replaceChildren();
     s.devices.forEach(function (d) {
       const model = [d.manufacturer, d.model].filter(Boolean).join(' ') + (d.via ? ' (Dante Via)' : '');
+      const info = d.info || {};
+      const facts = [info.sample_rate ? info.sample_rate / 1000 + ' kHz' : '',
+        info.tx !== undefined ? info.tx + ' out, ' + info.rx + ' in' : ''].filter(Boolean).join(', ');
       rows.appendChild(el('tr', '',
         el('td', '', d.name),
         el('td', '', d.ips.join(', ') || d.host),
         el('td', '', model),
         el('td', '', reach(d), ' ' + (d.arc_port || '')),
-        el('td', '', d.transmit.length ? d.transmit.length + ': ' + d.transmit.join(', ') : 'none announced')));
+        el('td', '', (facts ? facts + '. ' : '') + (d.transmit.length ? d.transmit.length + ' named: ' + d.transmit.join(', ') : 'none announced'))));
     });
     $('danteScan').disabled = !can('dante.manage');
     $('danteProblems').textContent = s.problems.length ? s.problems.map(function (p) { return p.text; }).join('. ') : 'None.';
