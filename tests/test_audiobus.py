@@ -438,7 +438,9 @@ with section("the crosspoint matrix sums lanes with gains"):
     tail = a[RATE // 2:]
     check("audio reached the output", len(a) > (RATE if REALTIME else RATE // 4), str(len(a)))
     check("channel 1 is lane 1 at -6 dB", abs(peak(tail[:, 0]) - 0.2) < 0.02, str(peak(tail[:, 0])))
-    check("channel 2 is lane 1 plus lane 2", 0.5 < peak(tail[:, 1]) <= 0.8 + 1e-6, str(peak(tail[:, 1])))
+    # The two tones sum to at most 0.8; the resampler's interpolation can overshoot a peak by a fraction of a percent when
+    # their phases line up, so allow 1%.
+    check("channel 2 is lane 1 plus lane 2", 0.5 < peak(tail[:, 1]) <= 0.8 * 1.01, str(peak(tail[:, 1])))
     check("channel 3 has no crosspoint, so silence", peak(tail[:, 2]) == 0.0)
     if REALTIME:
         check("the output was never starved once running", sink.underruns - sink.warm_underruns <= 2,
