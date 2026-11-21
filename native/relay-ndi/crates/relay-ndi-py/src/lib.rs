@@ -7,10 +7,11 @@ use numpy::{PyArray1, PyArrayMethods, PyReadonlyArray2, PyUntypedArrayMethods};
 use pyo3::pybacked::PyBackedBytes;
 use pyo3::exceptions::{PyOSError, PyValueError};
 use pyo3::prelude::*;
-use pyo3::types::{PyBytes, PyDict};
+use pyo3::types::{PyBytes, PyDict, PyList};
 use relay_ndi::find::Finder;
 use relay_ndi::recv::{Event, Receiver};
 use relay_ndi::route::Router as CoreRouter;
+use relay_ndi::scopes::{self as sc, Frame, Grid, Pack};
 use relay_ndi::send::Sender as CoreSender;
 use std::path::PathBuf;
 use std::time::Duration;
@@ -165,6 +166,56 @@ impl Router {
     }
 }
 
+fn pack_dict<'py>(py: Python<'py>, p: &Pack) -> PyResult<Bound<'py, PyDict>> {
+    let d = PyDict::new(py);
+    d.set_item("w", p.w)?;
+    d.set_item("h", p.h)?;
+    d.set_item("b64", &p.b64)?;
+    Ok(d)
+}
+
+/// The picture scopes and readouts for one frame (UYVY, BGRA, BGRX, RGBA or RGBX), and the grid to pass as `prev`
+/// next time for the frame difference. `(None, prev)` when the pixel format is not handled. The same dict as
+/// Python's `analysis.scopes`.
+#[pyfunction]
+#[pyo3(signature = (data, width, height, fourcc, prev=None))]
+fn scopes<'py>(py: Python<'py>, data: PyBackedBytes, width: usize, height: usize, fourcc: &str,
+               prev: Option<PyReadonlyArray2<'py, f32>>) -> PyResult<(Option<Bound<'py, PyDict>>, Option<Bound<'py, PyAny>>)> {
+    let prev_grid = prev.as_ref().map(|a| Grid { h: a.shape()[0], w: a.shape()[1], v: a.as_array().iter().copied().collect() });
+    let bytes: &[u8] = &data;
+    let out = py.detach(|| sc::scopes(&Frame { data: bytes, width, height, fourcc }, prev_grid.as_ref()));
+    let Some((s, grid)) = out else {
+        return Ok((None, prev.map(|a| a.as_any().clone())));
+    };
+    let d = PyDict::new(py);
+    d.set_item("waveform", pack_dict(py, &s.waveform)?)?;
+    let parade = PyList::new(py, s.parade.iter().map(|p| pack_dict(py, p)).collect::<PyResult<Vec<_>>>()?)?;
+    d.set_item("parade", parade)?;
+    d.set_item("vectorscope", pack_dict(py, &s.vectorscope)?)?;
+    d.set_item("histogram", s.histogram)?;
+    let r = PyDict::new(py);
+    let rd = &s.read;
+    r.set_item("luma_min", rd.luma_min)?;
+    r.set_item("luma_max", rd.luma_max)?;
+    r.set_item("luma_mean", rd.luma_mean)?;
+    r.set_item("sub_black", rd.sub_black)?;
+    r.set_item("super_white", rd.super_white)?;
+    r.set_item("illegal_rgb", rd.illegal_rgb)?;
+    r.set_item("frame_diff", rd.frame_diff)?;
+    r.set_item("sharpness", rd.sharpness)?;
+    r.set_item("letterbox", rd.letterbox.to_vec())?;
+    r.set_item("pillarbox", rd.pillarbox.to_vec())?;
+    r.set_item("aspect", rd.aspect)?;
+    r.set_item("matrix", rd.matrix)?;
+    r.set_item("width", rd.width)?;
+    r.set_item("height", rd.height)?;
+    d.set_item("read", r)?;
+    let alarms: Vec<Vec<&str>> = s.alarms.iter().map(|(a, b)| vec![*a, *b]).collect();
+    d.set_item("alarms", alarms)?;
+    let g = PyArray1::from_vec(py, grid.v).reshape([grid.h, grid.w])?;
+    Ok((Some(d), Some(g.into_any())))
+}
+
 #[pymodule]
 fn _native(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<Connection>()?;
@@ -172,6 +223,7 @@ fn _native(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<Router>()?;
     m.add_function(wrap_pyfunction!(find, m)?)?;
     m.add_function(wrap_pyfunction!(library, m)?)?;
+    m.add_function(wrap_pyfunction!(scopes, m)?)?;
     m.add_function(wrap_pyfunction!(set_search_dirs, m)?)?;
     Ok(())
 }

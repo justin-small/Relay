@@ -6,6 +6,7 @@ pub mod ffi;
 pub mod find;
 pub mod recv;
 pub mod route;
+pub mod scopes;
 pub mod send;
 
 pub use ffi::{api, set_search_dirs};
