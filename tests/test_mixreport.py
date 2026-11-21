@@ -24,7 +24,8 @@ import numpy as np  # noqa: E402
 from app import audiobus, config, mixreport as mr  # noqa: E402
 from app.main import app  # noqa: E402
 
-from _harness import check, done, eq, section  # noqa: E402
+from _buslane import feed, lane_bus  # noqa: E402
+from _harness import check, done, eq, section, wait_for  # noqa: E402
 
 RATE = mr.RATE
 
@@ -103,23 +104,30 @@ with section("the setting is cleaned"):
     eq("junk is the default", mr.normalize("x"), mr.default_config())
 
 with section("the recorder saves a row a second while there is sound"):
-    bus = audiobus.Bus()
+    bus = lane_bus(1, 2)
     root = Path(tempfile.mkdtemp())
     rec = mr.Recorder(bus, root)
     rec.config = mr.normalize({"enabled": True, "left": 1, "right": 2})
     t0 = 1_800_000_000.0
-    eq("nothing yet", rec.tick(t0), None)
+    eq("nothing yet", rec.tick(t0), None)        # the first look starts keeping the lanes
+    sent = 0
+
+    def put(block):
+        """Both lanes get `block`, and the recorder's copy of them has caught up (it reads on a thread of its own)."""
+        global sent
+        feed(bus, 1, block)
+        feed(bus, 2, block)
+        sent += len(block)
+        check("the lanes caught up", wait_for(lambda: min(bus.lane(1).written, bus.lane(2).written) >= sent), str(sent))
+
     for i in range(3):
-        bus.lane(1).push(tone(997, 0.1, 1.0))
-        bus.lane(2).push(tone(997, 0.1, 1.0))
+        put(tone(997, 0.1, 1.0))
         got = rec.tick(t0 + 1 + i)
         check(f"second {i + 1} is a row", got is not None and abs(got["m"] + 20.0) < 0.5, str(got))
-    bus.lane(1).push(np.zeros(RATE, dtype=np.float32))
-    bus.lane(2).push(np.zeros(RATE, dtype=np.float32))
+    put(np.zeros(RATE, dtype=np.float32))
     eq("a silent second writes nothing", rec.tick(t0 + 5), None)
     rec.config["rehearsal"] = True
-    bus.lane(1).push(tone(997, 0.1, 1.0))
-    bus.lane(2).push(tone(997, 0.1, 1.0))
+    put(tone(997, 0.1, 1.0))
     rec.tick(t0 + 6)
     files = list(root.glob("*.jsonl"))
     eq("one file", len(files), 1)

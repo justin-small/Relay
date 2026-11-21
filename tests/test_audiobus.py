@@ -309,19 +309,21 @@ with section("many consumers share a lane, and a consumer's fault does not stop 
     t3 = audiobus.bus.lane(5).subscribe(boom)
     with capture_log("relay.audiobus") as logged:
         feed("A", 8, 0.1, RATE, {0: 440}, realtime=False)
-    check("the broken consumer is logged", any("consumer failed" in m for m in logged))
-    eq("both consumers got every sample", (sum(a), sum(b)), (4800, 4800))
+        # Consumers run on threads of their own (the engine's audio threads never wait for them), so they catch up.
+        check("the broken consumer is logged", wait_for(lambda: any("consumer failed" in m for m in logged)))
+    check("both consumers got every sample", wait_for(lambda: (sum(a), sum(b)) == (4800, 4800)), str((sum(a), sum(b))))
     eq("the lane counts its consumers", audiobus.bus.status()["lanes"][4]["subscribers"], 3)
     audiobus.bus.lane(5).unsubscribe(t1)
     audiobus.bus.lane(5).unsubscribe(t3)
     feed("A", 8, 0.1, RATE, {0: 440}, realtime=False)
+    check("a subscribed consumer keeps hearing it", wait_for(lambda: sum(b) == 9600), str(sum(b)))
     eq("an unsubscribed consumer stops hearing it", (sum(a), sum(b)), (4800, 9600))
     audiobus.bus.lane(5).unsubscribe(t2)
 
     async def via_queue():
         loop = asyncio.get_running_loop()
         tok, q = audiobus.bus.lane(5).subscribe_queue(loop, maxsize=3)
-        await asyncio.to_thread(feed, "A", 8, 0.1, RATE, {0: 440}, 0.5, 0.01, False)
+        await asyncio.to_thread(feed, "A", 8, 0.1, RATE, {0: 440}, 0.5, 0.01, True)   # paced: ten blocks arrive one by one
         await asyncio.sleep(0.1)
         audiobus.bus.lane(5).unsubscribe(tok)
         return q.qsize(), q.dropped
@@ -435,20 +437,24 @@ with section("the crosspoint matrix sums lanes with gains"):
           str(st["meters"][:3]))
 
 
+def main_output() -> dict:
+    return next(o for o in audiobus.bus.status()["outputs"] if o["id"] == "main")
+
+
 with section("an output follows an input whose clock runs fast or slow, without clicking"):
     for ratio in (1.003, 0.997) if REALTIME else ():
         def clean(k):
-            return float(np.abs(np.diff(k.audio()[RATE:][:, 0])).max()) < 0.08 and audiobus.bus.output("main").resyncs == 0
+            return float(np.abs(np.diff(k.audio()[RATE:][:, 0])).max()) < 0.08 and main_output()["resyncs"] == 0
 
         sink = settled(lambda: run_matrix(rate_a=RATE * ratio, seconds=3.0), clean)
         a = sink.audio()[RATE:]
-        out = audiobus.bus.output("main")
+        out = main_output()
         # a click shows up as a jump between neighbouring samples far larger than the 440 Hz tone's slope
         jumps = np.abs(np.diff(a[:, 0]))
         check(f"no click at {ratio:.3f}x", float(jumps.max()) < 0.08, str(float(jumps.max())))
-        check(f"no resync at {ratio:.3f}x", out.resyncs == 0, str(out.resyncs))
-        check(f"the output trims its speed at {ratio:.3f}x", 0 < abs(out.ratio.get(1, 1.0) - 1.0) <= audiobus.MAX_DRIFT_TRIM
-              or out.ratio.get(1, 1.0) != 1.0, str(out.ratio))
+        check(f"no resync at {ratio:.3f}x", out["resyncs"] == 0, str(out["resyncs"]))
+        check(f"the output trims its speed at {ratio:.3f}x", out["ratio"] != 1.0 and abs(out["drift"] - 1.0) <= audiobus.MAX_DRIFT_TRIM * 2,
+              f"ratio {out['ratio']} drift {out['drift']}")
 
 
 with section("an output on another sample rate gets resampled audio"):
@@ -506,7 +512,8 @@ with section("the main capture can take a lane as its source"):
     eq("the lane's label is shown", info.device["label"], "Lane 4: Altar")
     eq("the pump is told the lane rate", info.rate, RATE)
     feed("A", 8, 0.1, RATE, {0: 440}, realtime=False)
-    eq("the capture received the lane's samples", sum(len(b) for b in got), 4800)
+    check("the capture received the lane's samples", wait_for(lambda: sum(len(b) for b in got) == 4800),
+          str(sum(len(b) for b in got)))
     check("alive while the bus runs", src.alive())
     for bad in ("0", "99", "x", None):
         try:
@@ -554,7 +561,7 @@ with section("a lost input reconnects, and a failed open is retried"):
     got = []
     t = audiobus.bus.lane(1).subscribe(got.append)
     feed("A", 8, 0.1, RATE, {0: 440}, realtime=False)
-    eq("and delivers again", sum(len(b) for b in got), 4800)
+    check("and delivers again", wait_for(lambda: sum(len(b) for b in got) == 4800), str(sum(len(b) for b in got)))
     audiobus.bus.lane(1).unsubscribe(t)
 
     # a device that is open but silent for too long is also treated as gone
