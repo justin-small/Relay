@@ -1223,6 +1223,7 @@ provide:
 | `signage.content` | signage | a namespace: `store`, `media`, `live`, `takeover`, `schedule`, `sources` |
 | `signage.source.<kind>` | planning_center, signage_web | a kind of playlist item: a dict of `label`, `resolve`, `describe`, `choices` (signage's `sources.py`) |
 | `signage.layer.tag` | propresenter | the schedule's "tag" layer: `(screen, now) -> {"playlist_id", "why"} or None` |
+| `dante.routing` | dante | `() -> [device, ...]`: each Dante device as last scanned (`name`, `reachable`, `transmit`, `subscriptions`); read-only, the signal map joins a patch list to it |
 | `unifi.service` | unifi | who is on the network (the crew's Wi-Fi check-in) |
 
 **Copes with it being off.** `using()` is None while a module is off, and a module that works with another (it names it

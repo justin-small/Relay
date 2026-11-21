@@ -62,12 +62,14 @@ class Dante(Module):
 
         registry.provide("gear.dante", {"list": service.gear_list})
         registry.provide("audio.input_labels", service.input_labels)
+        registry.provide("dante.routing", service.devices_copy)  # read-only: the signal map joins a patch list to it
 
     def detach(self) -> None:
         from ... import modules as registry
 
         registry.withdraw("gear.dante")
         registry.withdraw("audio.input_labels")
+        registry.withdraw("dante.routing")
 
     async def start(self) -> None:
         from ... import db
