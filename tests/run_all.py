@@ -4,7 +4,7 @@
     python tests/run_all.py -k crew pclink  # only files whose name contains one of these
     python tests/run_all.py --coverage      # also record coverage (needs `pip install coverage`)
 
-It first builds the Rust extensions, the audio bus core and the NDI engine (tools/build_bus_wheel.py --if-stale), which needs Rust installed.
+It first builds the Rust extensions, the audio bus core and the NDI engine (tools/build_bus_wheel.py --if-stale), which needs Rust installed, then lints both crates with `cargo clippy -D warnings`, as CI does.
     python tests/run_all.py --junit out.xml # a JUnit report, one test case per file
 
 Each file runs in its own process with its own temp folder (TMPDIR), removed afterwards, so nothing a test
@@ -101,6 +101,13 @@ def main(argv: list[str] | None = None) -> int:
     if built.returncode:
         print("The Rust extensions (relay_bus, relay_ndi) could not be built; see above.")
         return 1
+    # CI runs clippy on both Rust crates with warnings as errors, and the tests alone do not: run it here so a push does not fail on it.
+    for crate in ("relay-bus", "relay-ndi"):
+        lint = subprocess.run(["cargo", "clippy", "--locked", "--all-targets", "--", "-D", "warnings"],
+                              cwd=ROOT / "native" / crate)
+        if lint.returncode:
+            print(f"cargo clippy found problems in native/{crate}; see above.")
+            return 1
     results = []
 
     def report(r):
