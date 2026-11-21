@@ -111,6 +111,39 @@ with section("saving an empty bus closes everything, and the change is audited")
     rows = admin.get("/api/admin/audit", params={"kind": "audio.bus"}).json() if admin.get("/api/admin/audit").status_code == 200 else None
     check("changes are in the audit log", rows is None or "audio.bus" in str(rows))
 
+with section("an install from before lanes keeps its input after upgrade (#599)"):
+    old = config._normalise({"audio_source": "portaudio", "audio_device": "Studio Mic", "input_channel": 1})
+    eq("the old input is lane 1 and the captions read it", (old["audio_lane"], old["audio_bus"]["lanes"]),
+       (1, [{"lane": 1, "name": "Main input", "source": "portaudio", "device": "Studio Mic", "channel": 1}]))
+    check("the old keys are gone", not any(k in old for k in ("audio_source", "audio_device", "input_channel")))
+    mixed = config._normalise({"audio_source": "portaudio", "audio_device": None, "input_channel": "mix"})
+    eq("a system default input with mix is kept", mixed["audio_bus"]["lanes"][0]["channel"], "mix")
+    lane = config._normalise({"audio_source": "lane", "audio_device": "5"})
+    eq("a capture that read a lane keeps that lane and adds none", (lane["audio_lane"], lane["audio_bus"]["lanes"]), (5, []))
+    fresh = config._normalise({})
+    eq("a fresh install gets no lane of its own", (fresh["audio_bus"]["lanes"], fresh["audio_bus"]["outputs"]), ([], []))
+
+with section("first setup asks for the first input and output, then patches alerts to the output (#599)"):
+    audiobus.bus.stop()
+    config.save({"audio_bus": {"lanes": [], "outputs": [], "matrix": []}}, replace=("audio_bus",))
+    got = admin.get("/api/admin/audiobus").json()
+    eq("a fresh bus needs both", got["setup"], {"input": True, "output": True})
+    check("a viewer cannot set up", viewer.post("/api/admin/audiobus/setup", json={"input": "", "output": ""}).status_code in (401, 403))
+    done_ = admin.post("/api/admin/audiobus/setup", json={"input": "", "output": ""}).json()
+    eq("lane 1 and output main are made", ([x["lane"] for x in done_["config"]["lanes"]], [o["id"] for o in done_["config"]["outputs"]]),
+       ([1], ["main"]))
+    eq("nothing is left to set up", done_["setup"], {"input": False, "output": False})
+    patched = audiobus.destination_patches()
+    eq("alert tones and the test tone feed both channels of the output",
+       {k: sorted((o, c) for o, c, _ in v) for k, v in patched.items() if k in ("alerts", "test")},
+       {"alerts": [("main", 1), ("main", 2)], "test": [("main", 1), ("main", 2)]})
+    again = admin.post("/api/admin/audiobus/setup", json={"input": "other", "output": "other"}).json()
+    eq("a second run changes nothing", again["config"]["lanes"][0]["device"], None)
+    audiobus.bus.stop()
+    config.save({"audio_bus": {"lanes": [], "outputs": [], "matrix": []}}, replace=("audio_bus",))
+    part = admin.post("/api/admin/audiobus/setup", json={"input": "", "output": None}).json()
+    eq("an output left for later stays to ask", part["setup"], {"input": False, "output": True})
+
 audiobus.bus.stop()
 with section("a matrix saved in config before #544 moves to core routes"):
     from app import audiobus as old_bus, channels as old_channels, config as old_config, routing as old_routing  # noqa: E402

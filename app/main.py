@@ -256,6 +256,7 @@ AUDIT_ROUTES = {
     "admin_network_places": ("network.places", "Changed where the network gear is"),
     "admin_config": ("settings.change", "Changed settings"),
     "admin_audiobus_save": ("audio.bus", "Changed the audio bus"),
+    "admin_audiobus_setup": ("audio.bus", "Finished the first audio setup"),
     "admin_audiobus_test": ("audio.bus", "Played the audio bus test tone"),
     "admin_metering_save": ("audio.metering", "Changed the sound meter"),
     "admin_mixreport_save": ("audio.mixreport", "Changed the stream-mix report"),
@@ -2386,6 +2387,7 @@ async def admin_audiobus():
         "outputs": [{"id": o.id, "label": o.label} for o in audiomod.outputs()],
         "input_devices": audiomod.list_input_devices(),
         "output_devices": await asyncio.to_thread(audiomod.list_output_devices),
+        "setup": audiobus.needs_setup(config.get()["audio_bus"]),
     }
 
 
@@ -2401,6 +2403,30 @@ async def admin_audiobus_test():
     reached = await asyncio.to_thread(tones.play_test)
     key = "played" if reached else "unpatched"
     return {"reached": reached, "message": AUDIOBUS_TEST_SENTENCES[key]}
+
+
+@app.post("/api/admin/audiobus/setup", dependencies=[Depends(require("audio.manage"))])
+async def admin_audiobus_setup(request: Request, payload: dict):
+    """First setup: the operator picks the first input and the first output. `input` and `output` are a device label
+    ("" = the system default) or null to leave that part for later. Whatever is already set up is kept."""
+    from . import audio as audiomod
+
+    def pick(key):
+        return False if payload.get(key) is None else str(payload.get(key) or "")
+    chosen = pick("output")
+    channels_of = next((d["channels"] for d in await asyncio.to_thread(audiomod.list_output_devices) if d["label"] == chosen), 2)
+    cfg, made = audiobus.first_setup(config.get()["audio_bus"], pick("input"), chosen, min(2, channels_of))
+    saved = config.save({"audio_bus": {**cfg, "matrix": []}}, replace=("audio_bus",))["audio_bus"]
+    try:
+        if made:
+            await asyncio.to_thread(audiobus.patch_first_output, saved)
+        else:
+            await asyncio.to_thread(audiobus.report_channels, saved)
+    except db.Unavailable:
+        return JSONResponse({"error": "The database is down, so the routes cannot be saved right now."}, status_code=503)
+    cfg = {**saved, "matrix": await asyncio.to_thread(audiobus.matrix_from_routes)}
+    await asyncio.to_thread(audiobus.bus.apply, cfg)
+    return {"config": cfg, "status": audiobus.bus.status(), "setup": audiobus.needs_setup(cfg)}
 
 
 @app.post("/api/admin/audiobus", dependencies=[Depends(require("audio.manage"))])

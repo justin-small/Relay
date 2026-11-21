@@ -102,8 +102,21 @@
     const box = $('abState'); box.textContent = '';
     box.replaceWith(Object.assign(UI.pill(st.running ? 'Running' : 'Off', st.running ? 'on' : 'idle'), { id: 'abState' }));
   }
+  // First setup: until the bus has a lane and an output, ask for the first input and output (#599).
+  let pick = { input: '', output: '' };
+  function drawSetup() {
+    const need = info.setup || {}, box = $('abSetup'), row = $('abSetupRow');
+    box.hidden = !(need.input || need.output);
+    if (box.hidden) return;
+    row.textContent = '';
+    if (need.input) row.appendChild(UI.field('Input', select('First input', [['', 'System default input']]
+      .concat((info.input_devices || []).map(function (d) { return [d.label, d.label]; })), pick.input, function (v) { pick.input = v; })));
+    if (need.output) row.appendChild(UI.field('Output', select('First output', [['', 'System default output']]
+      .concat((info.output_devices || []).map(function (d) { return [d.label, d.label + ' (' + d.channels + ' ch)']; })), pick.output,
+      function (v) { pick.output = v; })));
+  }
   function drawAll() {
-    drawState(); drawLanes(); drawOuts();
+    drawSetup(); drawState(); drawLanes(); drawOuts();
     if (!editor) editor = UI.routeEditor($('abMatrix'), { kind: 'audio', provider: 'audiobus', perm: 'audio.manage',
       empty: 'Add an output and save to route lanes into it.' });
     else editor.reload();
@@ -124,12 +137,24 @@
     if (page.hidden || document.hidden || !info) return;
     try {
       const next = await request('GET', '/api/admin/audiobus');
-      info.status = next.status; drawState();
+      info.status = next.status; info.setup = next.setup; drawState();
       const a = document.activeElement;
       if (!(a && page.contains(a) && (a.tagName === 'INPUT' || a.tagName === 'SELECT'))) { drawLanes(); drawOuts(); }
     } catch (e) { /* the page keeps what it shows */ }
   }
 
+  $('abSetupGo').onclick = async function () {
+    fail(''); UI.say('abSaved', '');
+    const need = info.setup || {};
+    try {
+      const got = await request('POST', '/api/admin/audiobus/setup', {
+        input: need.input ? pick.input : null, output: need.output ? pick.output : null });
+      info.config = got.config; info.status = got.status; info.setup = got.setup;
+      draft = fromConfig(got.config);
+      drawAll();
+      UI.say('abSaved', 'Set up. Play the test tone to hear the output.', false, { ms: 5000 });
+    } catch (e) { fail(e.message); }
+  };
   $('abAddLane').onclick = function () {
     const used = draft.lanes.map(function (l) { return l.lane; });
     let n = 1; while (n <= MAX_LANES && used.indexOf(n) >= 0) n++;

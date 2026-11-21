@@ -214,6 +214,13 @@ window.relayCan = function (perm) { return window.RELAY_ME.permissions.indexOf(p
     <h2 class="title">Audio bus</h2>
     <p class="sub">Up to 32 lanes from any input, routed to outputs through one crosspoint matrix.</p>
     <div class="note err" id="abErr" role="alert" hidden></div>
+    <section id="abSetup" hidden>
+      <h3>First setup</h3>
+      <p class="note">Pick the sound device the captions listen to and the one Relay plays alert tones through. You can
+        change both below at any time.</p>
+      <div class="row notice" id="abSetupRow"></div>
+      <div class="row"><button type="button" class="primary" id="abSetupGo">Use these</button></div>
+    </section>
     <section>
       <h3>Bus</h3>
       <p class="note">Each lane is one mono channel of an input, at 48 kHz; the captions,
