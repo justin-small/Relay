@@ -42,7 +42,6 @@ from .audio import LANE_RATE as RATE, MAX_LANES as LANES
 
 log = logging.getLogger("relay.audiobus")
 
-RING_S = 2.0                      # how much of each lane is kept for the outputs to read
 DEFAULT_LATENCY_MS = 60           # an output's total buffering; passthrough latency is about this
 MIN_LATENCY_MS, MAX_LATENCY_MS = 20, 500
 MAX_DRIFT_TRIM = 0.005            # an output speeds up or slows down by at most 0.5% to follow another clock
@@ -399,7 +398,6 @@ class Lane:
         self._subs: dict[int, _Reader] = {}
         self._next = 1
         self._sub_lock = threading.Lock()
-        self._tail: _Tail | None = None
 
     def subscribe(self, callback: Callable[[np.ndarray], None]) -> int:
         """Call `callback(block)` with every block (mono float32 at RATE) on a thread of its own. Any number of
@@ -435,56 +433,6 @@ class Lane:
     @property
     def subscribers(self) -> int:
         return len(self._subs)
-
-    def tail(self, n: int) -> tuple[np.ndarray, int]:
-        """The newest `n` samples of the lane (up to the last RING_S seconds) and the running total of samples seen.
-        The first call starts keeping the lane; before that there is nothing to return."""
-        if self._tail is None:
-            self._tail = _Tail(self)
-        return self._tail.read(n)
-
-    @property
-    def written(self) -> int:
-        return self.tail(0)[1]
-
-    def stop_tail(self) -> None:
-        tail, self._tail = self._tail, None
-        if tail is not None:
-            tail.close()
-
-
-class _Tail:
-    """The last RING_S seconds of one lane, kept for the readers that look back (the stream-mix report)."""
-
-    def __init__(self, lane: Lane) -> None:
-        self.size = int(RATE * RING_S)
-        self.ring = np.zeros(self.size, dtype=np.float32)
-        self.written = 0
-        self.lock = threading.Lock()
-        self.token = lane.subscribe(self._push)
-        self.lane = lane
-
-    def _push(self, block: np.ndarray) -> None:
-        n = len(block)
-        if n > self.size:
-            block, n = block[-self.size:], self.size
-        with self.lock:
-            start = self.written % self.size
-            first = min(n, self.size - start)
-            self.ring[start:start + first] = block[:first]
-            if first < n:
-                self.ring[: n - first] = block[first:]
-            self.written += n
-
-    def read(self, n: int) -> tuple[np.ndarray, int]:
-        with self.lock:
-            w = self.written
-            n = max(0, min(n, w, self.size))
-            idx = np.arange(w - n, w) % self.size
-            return self.ring[idx].copy(), w
-
-    def close(self) -> None:
-        self.lane.unsubscribe(self.token)
 
 
 # -- network sources and senders: the part Python drives ------------------------------------------------------------
@@ -781,8 +729,6 @@ class Bus:
         if self._super is not None and self._super is not threading.current_thread():
             self._super.join(timeout=2.0)
         self._super = None
-        for lane in self.lanes:
-            lane.stop_tail()
 
     def close(self) -> None:
         """Stop, then stop the engine's own threads (tests do; Relay lets the process end do it)."""

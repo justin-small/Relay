@@ -258,9 +258,9 @@ AUDIT_ROUTES = {
     "admin_audiobus_save": ("audio.bus", "Changed the audio bus"),
     "admin_audiobus_setup": ("audio.bus", "Finished the first audio setup"),
     "admin_audiobus_test": ("audio.bus", "Played the audio bus test tone"),
-    "admin_metering_save": ("audio.metering", "Changed the sound meter"),
+    "admin_metering_save": ("audio.metering", "Changed the sound meters"),
     "admin_mixreport_save": ("audio.mixreport", "Changed the stream-mix report"),
-    "admin_metering_calibrate": ("audio.metering", "Calibrated the sound meter"),
+    "admin_metering_calibrate": ("audio.metering", "Calibrated a sound meter"),
     "admin_target": ("session.target", "Changed a target language"),
     "admin_start": ("session.start", "Started captions"),
     "admin_stop": ("session.stop", "Stopped captions"),
@@ -398,7 +398,7 @@ async def _startup() -> None:
         await asyncio.to_thread(audiobus.bus.apply, await asyncio.to_thread(audiobus.runtime_config, cfg["audio_bus"]))
     except Exception:
         log.exception("The audio bus could not start")
-    if cfg["metering"]["enabled"]:
+    if any(m["enabled"] for m in cfg["metering"]["meters"]):
         try:
             await asyncio.to_thread(metering.meter.apply, cfg["metering"])
         except Exception:
@@ -2455,37 +2455,46 @@ async def admin_audiobus_save(request: Request, payload: dict):
 
 @app.get("/api/admin/metering", dependencies=[Depends(require("session.view"))])
 async def admin_metering():
-    """The sound meter (app/metering.py): its saved setting and the live reading."""
-    return {"config": config.get()["metering"], "status": metering.meter.snapshot(), "lanes": audiobus.LANES}
+    """The sound meters (app/metering.py): their saved setting and each one's live reading."""
+    return {"config": config.get()["metering"], "status": metering.meter.snapshots(), "lanes": audiobus.LANES}
 
 
 @app.post("/api/admin/metering", dependencies=[Depends(require("audio.manage"))])
 async def admin_metering_save(request: Request, payload: dict):
-    """Save the meter's setting and apply it. What the body leaves out is kept; setting a different calibration by
-    hand (against a reference meter) counts as calibrated."""
-    cur = config.get()["metering"]
-    body = metering.normalize({**cur, **payload})
-    if "calibration_db" in payload and body["calibration_db"] != cur["calibration_db"] and "calibrated" not in payload:
-        body["calibrated"] = True
+    """Save the list of meters and apply it: body {"meters": [{"id", "name", "lane", "kind", ...}]}. A meter whose
+    calibration was set by hand (against a reference meter) counts as calibrated."""
+    cur = {m["id"]: m for m in config.get()["metering"]["meters"]}
+    meters = payload.get("meters")
+    if isinstance(meters, list):
+        for m in meters:
+            old = cur.get(m.get("id")) if isinstance(m, dict) else None
+            if old is not None and "calibrated" not in m and m.get("calibration_db") not in (None, old["calibration_db"]):
+                m["calibrated"] = True
+            elif old is not None and isinstance(m, dict):
+                m.setdefault("calibrated", old["calibrated"])
+    body = metering.normalize(payload)
     cfg = config.save({"metering": body}, replace=("metering",))["metering"]
     await asyncio.to_thread(metering.meter.apply, cfg)
-    audit.note(request, "audio.metering", "Changed the sound meter", detail={
-        "enabled": cfg["enabled"], "lane": cfg["lane"], "kind": cfg["kind"]})
-    return {"config": cfg, "status": metering.meter.snapshot()}
+    audit.note(request, "audio.metering", "Changed the sound meters", detail={
+        "meters": [{"id": m["id"], "lane": m["lane"], "kind": m["kind"], "enabled": m["enabled"]} for m in cfg["meters"]]})
+    return {"config": cfg, "status": metering.meter.snapshots()}
 
 
-@app.post("/api/admin/metering/calibrate", dependencies=[Depends(require("audio.manage"))])
-async def admin_metering_calibrate(request: Request, payload: dict):
-    """Set the calibration from a reference tone: body {"reference_db": 94}. Answers a sentence when there is no
-    signal to read."""
+@app.post("/api/admin/metering/{mid}/calibrate", dependencies=[Depends(require("audio.manage"))])
+async def admin_metering_calibrate(mid: str, request: Request, payload: dict):
+    """Set one meter's calibration from a reference tone: body {"reference_db": 94}. Answers a sentence when there is
+    no signal to read."""
+    cur = config.get()["metering"]
+    if not any(m["id"] == mid for m in cur["meters"]):
+        return JSONResponse({"error": "There is no such meter."}, status_code=404)
     try:
-        cal = await asyncio.to_thread(metering.meter.calibrate, payload.get("reference_db"))
+        cal = await asyncio.to_thread(metering.meter.calibrate, mid, payload.get("reference_db"))
     except metering.CalibrateError as exc:
         return JSONResponse({"error": metering.CALIBRATE_SENTENCES[exc.reason]}, status_code=409)
-    cfg = config.save({"metering": {**config.get()["metering"], "calibration_db": cal, "calibrated": True}},
-                      replace=("metering",))["metering"]
-    audit.note(request, "audio.metering", "Calibrated the sound meter", detail={"calibration_db": cal})
-    return {"config": cfg, "status": metering.meter.snapshot()}
+    meters = [{**m, "calibration_db": cal, "calibrated": True} if m["id"] == mid else m for m in cur["meters"]]
+    cfg = config.save({"metering": {"meters": meters}}, replace=("metering",))["metering"]
+    audit.note(request, "audio.metering", "Calibrated a sound meter", detail={"meter": mid, "calibration_db": cal})
+    return {"config": cfg, "status": metering.meter.snapshots()}
 
 
 @app.get("/api/admin/mixreport", dependencies=[Depends(require("session.view"))])

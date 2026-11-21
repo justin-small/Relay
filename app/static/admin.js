@@ -2382,33 +2382,15 @@
   /* ---- navigation: one settings area at a time, chosen from the sidebar ---- */
   /* ---- sound level and spectrum (#149): settings, a live reading and the RTA, on the Audio input page ---- */
   (function metering() {
-    if (!$('mtOn')) return;
-    let busy = false;
-    function fill(cfg) {
-      $('mtOn').checked = !!cfg.enabled; $('mtLane').value = cfg.lane; $('mtKind').value = cfg.kind;
-      $('mtWarn').value = cfg.warn_db; $('mtLimit').value = cfg.limit_db; $('mtCal').value = cfg.calibration_db;
-    }
-    function draw(st) {
-      const c = $('mtRta'), g = c.getContext('2d'); g.clearRect(0, 0, c.width, c.height);
-      const on = st.state === 'ok';
-      $('mtDot').className = 'dot' + (on ? ' ok' : '');
-      $('mtState').textContent = st.state === 'off' ? 'Off' : (on ? 'Measuring' : 'No signal on lane ' + st.lane);
-      const num = function (v) { return typeof v === 'number' ? v.toFixed(1) : '—'; };
-      $('mtRead').textContent = on ? 'A ' + num(st.a_slow) + ' slow · ' + num(st.a_fast) + ' fast   C ' + num(st.c_slow) + ' slow   Leq(A) 1 min ' + num(st.leq_a) + ' dB' : '—';
-      const notes = [];
-      if (st.state !== 'off' && st.kind === 'mix') notes.push('This is the mix level, not the SPL in the room.');
-      if (st.state !== 'off' && !st.calibrated) notes.push('Not calibrated: levels are relative until you set the calibration.');
-      if (st.dropped) notes.push(st.dropped + ' analysis blocks were skipped to keep the captions on time.');
-      $('mtNote').textContent = notes.join(' ');
-      // The spectrogram: each reading adds a column on the right, low bands at the bottom.
-      const wf = $('mtWf'), wg = wf.getContext('2d');
-      wg.drawImage(wf, -1, 0);
-      for (let i = 0; i < 31; i++) {
-        const f = on && Array.isArray(st.bands) ? Math.max(0, Math.min(1, (+st.bands[i] - 20) / 100)) : 0;
-        wg.fillStyle = on && Array.isArray(st.bands) ? 'hsl(' + Math.round(240 - 240 * f) + ',90%,' + Math.round(8 + 52 * f) + '%)' : '#000';
-        wg.fillRect(wf.width - 1, 30 - i, 1, 1);
-      }
-      if (!on || !Array.isArray(st.bands)) return;
+    if (!$('mtList')) return;
+    const el = relayUI.el;
+    let meters = [], busy = false;
+    const num = function (v) { return typeof v === 'number' ? v.toFixed(1) : '—'; };
+    function input(type, value, attrs) { return el('input', Object.assign({ type: type, value: value }, attrs || {})); }
+    function lbl(text, control) { return el('label', '', text + ' ', control); }
+    function drawBands(c, st) {
+      const g = c.getContext('2d'); g.clearRect(0, 0, c.width, c.height);
+      if (st.state !== 'ok' || !Array.isArray(st.bands)) return;
       const bw = c.width / 31;
       for (let i = 0; i < 31; i++) {
         const db = +st.bands[i], h = Math.round(Math.max(0, Math.min(1, (db - 20) / 100)) * (c.height - 14));
@@ -2418,19 +2400,73 @@
       g.fillStyle = getComputedStyle(document.body).color; g.font = '11px system-ui,sans-serif';
       (st.labels || []).forEach(function (t, i) { if (i % 3 === 1) g.fillText(t, i * bw, c.height - 2); });
     }
-    async function load() { const r = await api('/api/admin/metering'); fill(r.config); draw(r.status); }
-    async function save(extra) {
-      const body = { enabled: $('mtOn').checked, lane: +$('mtLane').value, kind: $('mtKind').value,
-        warn_db: +$('mtWarn').value, limit_db: +$('mtLimit').value, calibration_db: +$('mtCal').value };
-      const r = await post('/api/admin/metering', Object.assign(body, extra || {}));
-      fill(r.config); draw(r.status);
+    function card(m) {
+      const f = {
+        on: input('checkbox', ''), name: input('text', m.name, { maxLength: 40 }), lane: input('number', m.lane, { min: 1, max: 32 }),
+        kind: el('select', '', el('option', { value: 'room', text: 'A measurement mic in the room' }),
+                 el('option', { value: 'mix', text: "The desk's mix (not room SPL)" })),
+        warn: input('number', m.warn_db, { min: 40, max: 140, step: 1 }), limit: input('number', m.limit_db, { min: 40, max: 140, step: 1 }),
+        cal: input('number', m.calibration_db, { min: 60, max: 160, step: 0.1 }), ref: input('number', 94, { min: 30, max: 140, step: 0.1 })
+      };
+      f.on.checked = !!m.enabled; f.kind.value = m.kind;
+      const dot = el('span', 'dot'), state = el('span', '', 'Off'), read = el('div', 'meterread', '—');
+      const canvas = el('canvas'); canvas.width = 620; canvas.height = 140; canvas.className = 'mtrta';
+      canvas.setAttribute('role', 'img'); canvas.setAttribute('aria-label', 'Spectrum in third-octave bands');
+      const note = el('div', 'note');
+      const node = el('div', 'mtcard', el('h4', '', m.name),
+        el('div', 'row', lbl('On', f.on), lbl('Name', f.name), lbl('Lane', f.lane), lbl('Input is', f.kind)),
+        el('div', 'row', lbl('Warn at (dB)', f.warn), lbl('Limit at (dB)', f.limit), lbl('Calibration: 0 dBFS = (dB SPL)', f.cal)),
+        el('div', 'row', lbl('Calibrator reads (dB)', f.ref),
+          relayUI.button('Set calibration from the tone now playing', async function () {
+            try {
+              const r = await post('/api/admin/metering/' + encodeURIComponent(m.id) + '/calibrate', { reference_db: +f.ref.value });
+              meters = r.config.meters; render(r.status);
+            } catch (e) { alertMsg(e.message); }
+          }),
+          relayUI.button('Remove', function () { meters = collect().filter(function (x) { return x.id !== m.id; }); render([]); }, 'sm')),
+        el('div', 'pill', dot, state), read, canvas, note);
+      node._get = function () {
+        return { id: m.id, name: f.name.value, enabled: f.on.checked, lane: +f.lane.value, kind: f.kind.value,
+          warn_db: +f.warn.value, limit_db: +f.limit.value, calibration_db: +f.cal.value };
+      };
+      node._draw = function (st) {
+        const on = st.state === 'ok';
+        dot.className = 'dot' + (on ? ' ok' : '');
+        state.textContent = st.state === 'off' ? 'Off' : (on ? 'Measuring' : 'No signal on lane ' + st.lane);
+        read.textContent = on ? 'A ' + num(st.a_slow) + ' slow · ' + num(st.a_fast) + ' fast   C ' + num(st.c_slow) + ' slow   Leq(A) 1 min ' + num(st.leq_a) + ' dB' : '—';
+        const notes = [];
+        if (st.state !== 'off' && st.kind === 'mix') notes.push('This is the mix level, not the SPL in the room.');
+        if (st.state !== 'off' && !st.calibrated) notes.push('Not calibrated: levels are relative until you set the calibration.');
+        if (st.dropped) notes.push(st.dropped + ' blocks of audio were skipped because the analysis fell behind.');
+        note.textContent = notes.join(' ');
+        drawBands(canvas, st);
+      };
+      node._id = m.id;
+      return node;
     }
-    $('mtSave').addEventListener('click', function () { save().catch(function (e) { alertMsg(e.message); }); });
-    $('mtCalibrate').addEventListener('click', async function () {
-      try {
-        const r = await post('/api/admin/metering/calibrate', { reference_db: +$('mtRef').value });
-        fill(r.config); draw(r.status);
-      } catch (e) { alertMsg(e.message); }
+    function collect() { return Array.prototype.map.call($('mtList').children, function (n) { return n._get(); }); }
+    function render(status) {
+      const list = $('mtList'); list.textContent = '';
+      meters.forEach(function (m) { list.appendChild(card(m)); });
+      if (!meters.length) list.appendChild(el('p', 'note', 'No meters yet. Add one to measure a lane.'));
+      draw(status || []);
+    }
+    function draw(status) {
+      Array.prototype.forEach.call($('mtList').children, function (n) {
+        const st = (status || []).filter(function (s) { return s.id === n._id; })[0];
+        if (n._draw) n._draw(st || { state: 'off' });
+      });
+    }
+    async function load() { const r = await api('/api/admin/metering'); meters = r.config.meters; render(r.status); }
+    $('mtAdd').addEventListener('click', function () {
+      const taken = collect().map(function (m) { return m.id; });
+      let n = 1; while (taken.indexOf('m' + n) >= 0) n++;
+      meters = collect(); meters.push({ id: 'm' + n, name: n === 1 ? 'Room' : 'Meter ' + n, enabled: true, lane: 1, kind: 'room', warn_db: 85, limit_db: 95, calibration_db: 110 });
+      render([]);
+    });
+    $('mtSave').addEventListener('click', async function () {
+      try { const r = await post('/api/admin/metering', { meters: collect() }); meters = r.config.meters; render(r.status); $('mtNote').textContent = 'Saved.'; }
+      catch (e) { alertMsg(e.message); }
     });
     load().catch(function () {});
     setInterval(async function () {
