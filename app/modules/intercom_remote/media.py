@@ -1,7 +1,7 @@
 """The audio side of the bridge (#277): LiveKit's rtc SDK on the local side, aiortc on Cloudflare's.
 
 Listening: for each channel a remote phone hears, a bridge participant joins the channel's LiveKit room (subscribe only,
-under an identity the talk arbiter ignores), mixes every audio track in it into one 48 kHz mono stream and pushes that
+under an identity the talk arbiter ignores), hands every audio track in it to the mixer (a Rust engine of its own, `mixbus.py`), which makes one 48 kHz mono stream and pushes that
 to Cloudflare as the track `ch<id>`; phones pull it. Talking: a remote phone's microphone track is pulled from the
 phone's Cloudflare session and published into the room under that phone's own identity (`u<user>-d<device>`), so the
 arbiter (#274) arms, unmutes and mutes it exactly as for a local phone.
@@ -9,8 +9,10 @@ arbiter (#274) arms, unmutes and mutes it exactly as for a local phone.
 Both libraries are imported only when used: a missing one is reported by `unavailable()` and shows as the bridge's
 "missing" state. Everything here is outbound; closing it never touches a local phone's connection.
 
+Main-bus audio can be fed into a channel's mix (`feed`): the engine carries it from the main bus's lane, in Rust.
+
 Known limits: one mix per channel means a remote talker also hears the room's mix including themselves (a little
-echo), and the pure audio helpers (`Mixer`, `to_mono`) are tested while the SDK calls need real sessions.
+echo; a return per talker is #614), and the mixer is tested against a real engine while the SDK calls need real sessions.
 """
 from __future__ import annotations
 
@@ -19,17 +21,17 @@ import contextlib
 import importlib.util
 import logging
 import time
-from collections import deque
 from fractions import Fraction
 from typing import Any
 
 import numpy as np
 
+from . import mixbus
+
 log = logging.getLogger("relay.intercom_remote")
 
-RATE = 48_000
-FRAME = RATE // 50                      # 20 ms, what Opus and aiortc work in
-MAX_BUFFER = RATE // 2                  # a source that gets 500 ms behind drops its oldest audio
+RATE = mixbus.RATE
+FRAME = mixbus.FRAME                    # 20 ms, what Opus and aiortc work in
 PUBLISH_TRIES = 15                      # the arbiter arms a new participant when LiveKit's webhook arrives
 PUBLISH_WAIT_S = 0.2
 CONNECT_TRIES = 50                      # 10 s for the bridge's own connection to Cloudflare
@@ -42,56 +44,8 @@ TOKEN_TTL_S = 3600
 LIBS = ("livekit", "aiortc", "av")
 
 
-def to_mono(data: Any, channels: int, planar: bool = False) -> np.ndarray:
-    """Interleaved (or planar) int16 samples of any channel count as one mono int16 array."""
-    a = np.asarray(data, dtype=np.int16)
-    if channels <= 1:
-        return a.reshape(-1)
-    a = a.reshape(channels, -1) if planar else a.reshape(-1, channels).T
-    return a.astype(np.int32).mean(axis=0).astype(np.int16)
-
-
-class Mixer:
-    """Sums any number of mono int16 sources into 20 ms frames. A source with nothing queued adds silence."""
-
-    def __init__(self) -> None:
-        self.q: dict[Any, deque[np.ndarray]] = {}
-        self.n: dict[Any, int] = {}
-
-    def add(self, key: Any, samples: np.ndarray) -> None:
-        q = self.q.setdefault(key, deque())
-        q.append(samples)
-        self.n[key] = self.n.get(key, 0) + len(samples)
-        while self.n[key] > MAX_BUFFER and len(q) > 1:
-            self.n[key] -= len(q.popleft())
-
-    def drop(self, key: Any) -> None:
-        self.q.pop(key, None)
-        self.n.pop(key, None)
-
-    def _take(self, key: Any) -> np.ndarray:
-        q, need, parts = self.q[key], FRAME, []
-        while need and q:
-            head = q.popleft()
-            if len(head) > need:
-                q.appendleft(head[need:])
-                head = head[:need]
-            parts.append(head)
-            need -= len(head)
-        got = sum(len(p) for p in parts)
-        self.n[key] -= got
-        out = np.concatenate(parts) if parts else np.zeros(0, np.int16)
-        return np.pad(out, (0, FRAME - len(out))) if len(out) < FRAME else out
-
-    def pull(self) -> np.ndarray:
-        total = np.zeros(FRAME, np.int32)
-        for key in list(self.q):
-            total += self._take(key)
-        return np.clip(total, -32768, 32767).astype(np.int16)
-
-
-def _mix_track(mixer: Mixer):
-    """An aiortc audio track that plays a Mixer in real time. Built on demand so aiortc stays an optional import."""
+def _mix_track(mix, channel_id: int):
+    """An aiortc audio track that plays one channel's mix from the Rust engine in real time. Built on demand so aiortc stays an optional import."""
     import av
     from aiortc import MediaStreamTrack
 
@@ -112,7 +66,7 @@ def _mix_track(mixer: Mixer):
                 wait = self.start + self.ts / RATE - time.monotonic()
                 if wait > 0:
                     await asyncio.sleep(wait)
-            frame = av.AudioFrame.from_ndarray(mixer.pull().reshape(1, -1), format="s16", layout="mono")
+            frame = av.AudioFrame.from_ndarray(mix.pull(channel_id).reshape(1, -1), format="s16", layout="mono")
             frame.sample_rate, frame.pts, frame.time_base = RATE, self.ts, Fraction(1, RATE)
             self.ts += FRAME
             return frame
@@ -120,9 +74,15 @@ def _mix_track(mixer: Mixer):
     return MixTrack()
 
 
-def _frame_to_mono(frame) -> np.ndarray:
-    planar = frame.format.is_planar
-    return to_mono(frame.to_ndarray(), len(frame.layout.channels), planar)
+def _mono_converter():
+    """A PyAV resampler that turns whatever a microphone frame is into 48 kHz mono int16 (done in C, not numpy)."""
+    import av
+
+    return av.AudioResampler(format="s16", layout="mono", rate=RATE)
+
+
+def _frame_to_mono(resampler, frame) -> np.ndarray:
+    return np.concatenate([f.to_ndarray().reshape(-1) for f in resampler.resample(frame)] or [np.zeros(0, np.int16)])
 
 
 def _can_publish(room) -> bool:
@@ -133,10 +93,10 @@ def _can_publish(room) -> bool:
 
 
 class _Listen:
-    """One channel's mix: a room, a mixer and the track pushed to Cloudflare."""
+    """One channel's mix: a room and the track pushed to Cloudflare (the mix itself is the engine's)."""
 
-    def __init__(self, room, mixer: Mixer, track) -> None:
-        self.room, self.mixer, self.track = room, mixer, track
+    def __init__(self, room, track) -> None:
+        self.room, self.track = room, track
         self.mid = ""
         self.readers: dict[str, asyncio.Task] = {}
 
@@ -146,6 +106,7 @@ class _Mic:
 
     def __init__(self, mid: str, track) -> None:
         self.mid, self.track = mid, track
+        self.convert = None                    # a PyAV resampler, made when the pump starts
         self.sources: dict[int, Any] = {}      # channel -> livekit AudioSource
         self.rooms: dict[int, Any] = {}
         self.task: asyncio.Task | None = None
@@ -234,6 +195,7 @@ class LiveMedia:
         self.into = _Link()                    # remote phones' microphones, pulled
         self.listens: dict[int, _Listen] = {}
         self.mics: dict[int, _Mic] = {}
+        self.mix: mixbus.MixBus | None = None  # the mixer engine, made when the first channel is heard
         self._closed = False
 
     @property
@@ -259,6 +221,9 @@ class LiveMedia:
             await self._stop_mic(device_id)
         await self.out.reset()
         await self.into.reset()
+        if self.mix is not None:
+            self.mix.close()
+            self.mix = None
 
     async def _idle(self) -> None:
         if not self.listens:
@@ -360,23 +325,27 @@ class LiveMedia:
 
         if channel_id in self.listens:
             return
-        mixer = Mixer()
+        if self.mix is None:
+            self.mix = mixbus.MixBus()
+        mix = self.mix
+        mix.open_channel(channel_id)
         room = rtc.Room()
-        entry = _Listen(room, mixer, _mix_track(mixer))
+        entry = _Listen(room, _mix_track(mix, channel_id))
         self.listens[channel_id] = entry
 
         def on_subscribed(track, _pub, participant):
             if track.kind != rtc.TrackKind.KIND_AUDIO:
                 return
-            key = f"{participant.identity}/{track.sid}"
-            entry.readers[key] = asyncio.create_task(self._read(entry, key, track))
+            key = f"{channel_id}/{participant.identity}/{track.sid}"
+            if mix.add_track(channel_id, key):
+                entry.readers[key] = asyncio.create_task(self._read(mix, key, track))
 
         def on_unsubscribed(track, _pub, participant):
-            key = f"{participant.identity}/{track.sid}"
+            key = f"{channel_id}/{participant.identity}/{track.sid}"
             task = entry.readers.pop(key, None)
             if task is not None:
                 task.cancel()
-            mixer.drop(key)
+            mix.drop_track(key)
 
         room.on("track_subscribed", on_subscribed)
         room.on("track_unsubscribed", on_unsubscribed)
@@ -392,13 +361,13 @@ class LiveMedia:
             await self._stop_listen(channel_id)
             raise
 
-    async def _read(self, entry: _Listen, key: str, track) -> None:
+    async def _read(self, mix: mixbus.MixBus, key: str, track) -> None:
         from livekit import rtc
 
         stream = rtc.AudioStream(track, sample_rate=RATE, num_channels=1)
         try:
             async for ev in stream:
-                entry.mixer.add(key, np.frombuffer(ev.frame.data, dtype=np.int16).copy())
+                mix.push(key, np.frombuffer(ev.frame.data, dtype=np.int16))
         except asyncio.CancelledError:
             raise
         except Exception:
@@ -418,10 +387,23 @@ class LiveMedia:
             task.cancel()
         with contextlib.suppress(Exception):
             entry.track.stop()
+        if self.mix is not None:
+            self.mix.close_channel(channel_id)
         with contextlib.suppress(Exception):
             await entry.room.disconnect()
         await self.out.close_track(entry.mid)
         await self._idle()
+
+    # ------------------------------------------------------------------ feeds from the main bus
+    def feed(self, channel_id: int, source, lane: int, gain_db: float = 0.0) -> bool:
+        """Hear lane `lane` of the bus `source` (a `relay_bus.Bus`, e.g. `audiobus.bus.engine`) in channel
+        `channel_id`'s mix. Rust carries it engine to engine; False if the channel is not being listened to or the
+        mixer has no lane left."""
+        return self.mix is not None and channel_id in self.listens and self.mix.add_feed(channel_id, source, lane, gain_db)
+
+    def unfeed(self, channel_id: int, lane: int) -> None:
+        if self.mix is not None:
+            self.mix.drop_feed(channel_id, lane)
 
     # ------------------------------------------------------------------ talking
     async def talk(self, channel_id: int, user_id: int, device_id: int, cf_session_id: str, name: str) -> None:
@@ -467,11 +449,12 @@ class LiveMedia:
         """Move one phone's microphone from Cloudflare into every room it is talking in."""
         from livekit import rtc
 
+        mic.convert = _mono_converter()
         while True:
             frame = await mic.track.recv()
-            pcm = _frame_to_mono(frame)
-            if frame.sample_rate != RATE:
-                raise RuntimeError("unexpected sample rate")
+            pcm = _frame_to_mono(mic.convert, frame)
+            if not len(pcm):
+                continue
             for source in list(mic.sources.values()):
                 await source.capture_frame(rtc.AudioFrame(pcm.tobytes(), RATE, 1, len(pcm)))
 
@@ -519,6 +502,10 @@ class NoMedia:
     async def unlisten(self, channel_id) -> None: ...
     async def talk(self, channel_id, user_id, device_id, cf_session_id, name) -> None: ...
     async def untalk(self, channel_id, device_id) -> None: ...
+    def feed(self, channel_id, source, lane, gain_db=0.0) -> bool:
+        return False
+
+    def unfeed(self, channel_id, lane) -> None: ...
 
 
 def load():

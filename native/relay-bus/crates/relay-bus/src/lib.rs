@@ -16,6 +16,7 @@ pub mod engine;
 pub mod error;
 pub mod fake;
 pub mod health;
+pub mod link;
 pub mod meter;
 pub mod status;
 pub mod tap;
@@ -32,6 +33,7 @@ pub use config::{db_to_gain, input_id, Cell, ChannelSel, Config, LaneSpec, Outpu
 pub use engine::Engine;
 pub use error::Error;
 pub use health::GlitchCounters;
+pub use link::{Link, LinkStatus};
 pub use meter::MeterReading;
 pub use status::{InputStatus, LaneStatus, OutputKind, OutputStatus, Status, StreamState, TapStatus};
 pub use tap::{TapOptions, TapRead};

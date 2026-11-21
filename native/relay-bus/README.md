@@ -36,6 +36,7 @@ clock. Phase 2 added `crates/relay-bus-cpal` (the cpal `Backend` and the device-
 | `tap.rs` | non-realtime readers on a lane, with an optional output rate |
 | `meter.rs`, `health.rs`, `status.rs` | meters, glitch counters, the `status()` types |
 | `analysis/` | the sound-level meter (`spl.rs`), the BS.1770 stream-mix meter (`loudness.rs`) and `probe.rs`, which taps lanes and runs both on a Rust thread (#604). `filters.rs` and `gating.rs` are ported from PLVS (`THIRD-PARTY-NOTICES.md`) |
+| `link.rs` | a `Link` carries one lane of one engine into an external input of another, on a Rust thread, so audio crosses between engines without Python (#605). `Bus("none")` in the Python binding is an engine with no devices, fed by `push` or a link and drained with `pull`: the remote intercom's mixer (`app/modules/intercom_remote/mixbus.py`) |
 
 ## Design
 
