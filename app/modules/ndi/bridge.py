@@ -73,7 +73,7 @@ def check(machines: list[dict]) -> dict[str, dict]:
 def via(source_address: str, machines: list[dict]) -> str:
     """The name of the Bridge machine a source's address belongs to, or ""."""
     host = (source_address or "").rsplit(":", 1)[0] if source_address.count(":") == 1 else (source_address or "")
-    return next((m["name"] for m in machines if host and m["address"].lower() == host.lower()), "")
+    return next((m["name"] for m in machines if host and text.same_name(m["address"], host)), "")
 
 
 def start_text(m: dict) -> dict:
