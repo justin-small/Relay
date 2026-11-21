@@ -23,7 +23,7 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 from urllib.parse import urlencode
 
-from fastapi import Depends, FastAPI, Form, HTTPException, Request, Response
+from fastapi import Depends, FastAPI, Form, HTTPException, Request, Response, WebSocket
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -32,7 +32,7 @@ from jinja2 import ChoiceLoader, FileSystemLoader, PrefixLoader
 from . import alerts as alertsmod
 from . import backup as backupmod
 from . import announce as announcemod
-from . import aimodels, alerthistory, audiobus, audit, boards, cables, channels, config, db, devices, exporting, importdocker, languages, metering, mixreport, netinfo, network_map, netroute, overlays, panelfw, panels, ports, prefs, redact, routing, schedules, screens, serving, setupcode, streamstatus, tally, tls, tones, transcribe, users
+from . import aimodels, alerthistory, audiobus, audit, boards, cables, channels, config, db, devices, exporting, helperhub, importdocker, languages, metering, mixreport, netinfo, network_map, netroute, overlays, panelfw, panels, ports, prefs, redact, routing, schedules, screens, serving, setupcode, streamstatus, tally, tls, tones, transcribe, users
 from .alerts import alerts
 from . import engine as engine_mod
 from .engine import TRANSCRIPTION_STREAM, TRANSLATION_STREAM, demo_mode, engine
@@ -304,6 +304,9 @@ AUDIT_ROUTES = {
     "admin_me_token_create": ("token.create", "Made an API token"),
     "admin_me_token_revoke": ("token.revoke", "Revoked one of their API tokens"),
     "admin_token_revoke": ("token.revoke", "Revoked an API token"),
+    "admin_helper_code": ("helper.code", "Made a helper pairing code"),
+    "admin_helper_rename": ("helper.rename", "Renamed a helper"),
+    "admin_helper_remove": ("helper.remove", "Removed a helper"),
     "admin_user_create": ("user.create", "Added a user"),
     "admin_user_update": ("user.update", "Changed a user"),
     "admin_user_password": ("user.password_reset", "Reset a user's password"),
@@ -3990,6 +3993,50 @@ def admin_token_revoke(token_id: int, request: Request):
     if had is not None:
         audit.note(request, "token.revoke", f"Revoked {had['user_name']}'s API token", target=had["name"],
                    detail={"owner": had["username"]})
+    return {"ok": True}
+
+
+# ------------------------------------------------------------------ helpers (#497)
+
+@app.websocket("/ws/helper")
+async def helper_socket(ws: WebSocket):
+    """A Relay Helper's connection (native/relay-helper). It proves itself in its first frame (a pairing code, or its
+    token), never in the address, so nothing secret lands in a log."""
+    await ws.accept()
+    await helperhub.hub.serve(ws)
+
+
+@app.get("/api/admin/helpers", dependencies=[Depends(require("helpers.view"))])
+def admin_helpers():
+    return {"helpers": helperhub.hub.view(), "waiting_codes": helperhub.hub.pending_codes()}
+
+
+@app.post("/api/admin/helpers/code", dependencies=[Depends(require("helpers.manage"))])
+def admin_helper_code(request: Request):
+    """A one-use code for `relay-helper pair`. Valid ten minutes."""
+    try:
+        made = helperhub.hub.make_code()
+    except helperhub.HelperError as exc:
+        raise HTTPException(status_code=409, detail=exc.message)
+    audit.note(request, "helper.code", "Made a helper pairing code")
+    return made
+
+
+@app.post("/api/admin/helpers/{helper_id}", dependencies=[Depends(require("helpers.manage"))])
+def admin_helper_rename(helper_id: str, payload: dict, request: Request):
+    rec = helperhub.hub.rename(helper_id, payload.get("name"))
+    if rec is None:
+        raise HTTPException(status_code=404, detail="No such helper")
+    audit.note(request, "helper.rename", f"Renamed a helper to {rec.get('name')}", target=helper_id)
+    return {"ok": True}
+
+
+@app.delete("/api/admin/helpers/{helper_id}", dependencies=[Depends(require("helpers.manage"))])
+async def admin_helper_remove(helper_id: str, request: Request):
+    rec = await helperhub.hub.remove(helper_id)
+    if rec is None:
+        raise HTTPException(status_code=404, detail="No such helper")
+    audit.note(request, "helper.remove", f"Removed the helper {rec.get('name')}", target=helper_id)
     return {"ok": True}
 
 

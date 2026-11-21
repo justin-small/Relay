@@ -347,7 +347,7 @@ MIN_ROLE = {
     "overlays.view": "viewer", "overlays.manage": "operator", "boards.view": "member", "boards.manage": "admin", "recordings.view": "operator",
     "recordings.manage": "admin", "schedules.view": "viewer", "schedules.manage": "admin", "screens.view": "viewer", "screens.manage": "admin",
     "blocklist.manage": "admin", "settings.view": "viewer", "settings.manage": "admin",
-    "credentials.manage": "owner", "modules.view": "viewer", "modules.manage": "admin", "users.view": "admin",
+    "credentials.manage": "owner", "modules.view": "viewer", "modules.manage": "admin", "helpers.view": "admin", "helpers.manage": "admin", "users.view": "admin",
     "network.view": "viewer", "network.manage": "admin",
     "users.manage": "admin", "tokens.own": "admin", "tokens.manage": "owner", "audit.view": "admin",
     "planning_center.view": "viewer", "planning_center.control": "operator", "planning_center.manage": "admin",
@@ -524,6 +524,10 @@ route("GET", "/api/admin/recordings/{run_id}/export.zip", "recordings.view")
 route("GET", "/api/admin/recordings/{run_id}/file/{name}", "recordings.view")
 route("DELETE", "/api/admin/recordings/{run_id}", "recordings.manage")
 # users and trusted devices
+route("GET", "/api/admin/helpers", "helpers.view")
+route("POST", "/api/admin/helpers/code", "helpers.manage")
+route("POST", "/api/admin/helpers/{helper_id}", "helpers.manage")
+route("DELETE", "/api/admin/helpers/{helper_id}", "helpers.manage")
 route("GET", "/api/admin/users", "users.view")
 route("POST", "/api/admin/users", "users.manage")
 route("PUT", "/api/admin/users/{user_id}", "users.manage")
@@ -823,6 +827,9 @@ for method, path, perm in (
     ("GET", PPX, "propresenter.view"),
     ("POST", PPX, "propresenter.manage"),
     ("POST", PPX + "/test", "propresenter.manage"),
+    ("GET", PPX + "/songs/helper", "propresenter.view"),
+    ("POST", PPX + "/songs/send", "propresenter.manage"),
+    ("POST", PPX + "/songs/read", "propresenter.view"),
     ("POST", PPX + "/discover", "propresenter.manage"),
     ("POST", PPX + "/stage", "propresenter.control"),
     ("DELETE", PPX + "/stage", "propresenter.control"),
@@ -1368,8 +1375,8 @@ r = t.get("/api/admin/me")
 eq("a token acts as its user", (r.status_code, r.json()["user"]["username"]), (200, "admin"))
 eq("…with its role's permissions less the barred ones", r.json()["permissions"],
    sorted(p for p, mr in MIN_ROLE.items() if RANK["admin"] >= RANK[mr]
-          and p not in ("users.view", "users.manage", "credentials.manage", "tokens.own", "tokens.manage",
-                        "audit.view")))
+          and p not in ("helpers.manage", "users.view", "users.manage", "credentials.manage", "tokens.own",
+                        "tokens.manage", "audit.view")))
 eq("it reads status", t.get("/api/admin/status").status_code, 200)
 eq("it may do what the role may", t.post("/api/admin/config", json={"history_lines": 77}).status_code, 200)
 eq("…and not more", (t.post("/api/admin/config", json={"openai_api_key": "sk-x"}).status_code,

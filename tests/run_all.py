@@ -101,8 +101,8 @@ def main(argv: list[str] | None = None) -> int:
     if built.returncode:
         print("The Rust extensions (relay_bus, relay_ndi) could not be built; see above.")
         return 1
-    # CI runs clippy on both Rust crates with warnings as errors, and the tests alone do not: run it here so a push does not fail on it.
-    for crate in ("relay-bus", "relay-ndi"):
+    # CI runs clippy on the Rust crates with warnings as errors, and the tests alone do not: run it here so a push does not fail on it.
+    for crate in ("relay-bus", "relay-ndi", "relay-helper"):
         lint = subprocess.run(["cargo", "clippy", "--locked", "--all-targets", "--", "-D", "warnings"],
                               cwd=ROOT / "native" / crate)
         if lint.returncode:

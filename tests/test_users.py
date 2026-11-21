@@ -225,7 +225,7 @@ CATALOGUE = {
     "recordings.manage": "admin", "schedules.view": "viewer", "schedules.manage": "admin", "screens.view": "viewer", "screens.manage": "admin",
     "blocklist.manage": "admin", "settings.view": "viewer", "settings.manage": "admin",
     "credentials.manage": "owner", "modules.view": "viewer", "modules.manage": "admin", "users.view": "admin",
-    "network.view": "viewer", "network.manage": "admin",
+    "network.view": "viewer", "network.manage": "admin", "helpers.view": "admin", "helpers.manage": "admin",
     "users.manage": "admin", "tokens.own": "admin", "tokens.manage": "owner", "audit.view": "admin",
 }
 eq("the core catalogue is exactly the contract's table",
