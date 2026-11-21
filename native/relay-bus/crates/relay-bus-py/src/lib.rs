@@ -10,7 +10,8 @@ use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyList};
 use relay_bus::fake::{signal, DeviceSpec, FakeBackend};
-use relay_bus::{Backend, Cell, ChannelSel, Config, Engine, Error, LaneSpec, MeterReading, OutputKind, OutputSpec, StreamState, TapOptions};
+use relay_bus::analysis::spl::CalibrateError;
+use relay_bus::{Backend, Cell, ChannelSel, Config, Engine, Error, LaneSpec, MeterReading, OutputKind, OutputSpec, ProbeHub, ProbeReading, ProbeSpec, StreamState, TapOptions};
 use relay_bus_cpal::{list_devices as cpal_list_devices, ChangeSignal, CpalBackend, DeviceWatcher};
 use std::sync::atomic::{AtomicBool, Ordering::Relaxed};
 use std::sync::{Arc, Mutex};
@@ -22,7 +23,7 @@ const FAKE_TICK: Duration = Duration::from_millis(5);
 
 fn rt_err(e: Error) -> PyErr {
     match e {
-        Error::Config(_) | Error::UnknownInput(_) | Error::UnknownOutput(_) | Error::UnknownTap(_) => PyValueError::new_err(e.to_string()),
+        Error::Config(_) | Error::UnknownInput(_) | Error::UnknownOutput(_) | Error::UnknownTap(_) | Error::UnknownProbe(_) => PyValueError::new_err(e.to_string()),
         _ => PyRuntimeError::new_err(e.to_string()),
     }
 }
@@ -254,6 +255,7 @@ fn list_devices(py: Python<'_>) -> PyResult<Bound<'_, PyList>> {
 #[pyclass(frozen, module = "relay_bus")]
 struct Bus {
     engine: Arc<Engine>,
+    probes: ProbeHub,
     fake: Option<Arc<FakeBackend>>,
     cpal: Option<Arc<CpalBackend>>,
     signal: Arc<ChangeSignal>,
@@ -320,7 +322,8 @@ impl Bus {
                 .spawn(move || supervisor(e, f, s, st))
                 .map_err(|e| PyRuntimeError::new_err(e.to_string()))?
         };
-        Ok(Self { engine, fake, cpal, signal, stop, thread: Mutex::new(Some(thread)), watcher: Mutex::new(watcher), watch_method: method })
+        let probes = ProbeHub::new(engine.clone());
+        Ok(Self { engine, probes, fake, cpal, signal, stop, thread: Mutex::new(Some(thread)), watcher: Mutex::new(watcher), watch_method: method })
     }
 
     /// How device changes are noticed: "coreaudio-listener", "polling-2s" or "none" (the fake backend).
@@ -414,6 +417,99 @@ impl Bus {
 
     fn close_tap(&self, py: Python<'_>, tap: u64) -> PyResult<()> {
         py.detach(|| self.engine.close_tap(tap)).map_err(rt_err)
+    }
+
+    // -- meters (issue 604) ----------------------------------------------------------------------------------
+    /// Start a meter on the bus. `kind` is "spl" (`lanes` is one lane) or "loudness" (`lanes` is [left, right]).
+    /// The analysis runs on a Rust thread, so the meter sees every sample whatever Python is doing. Returns its id.
+    #[pyo3(signature = (kind, lanes, calibration_db = 110.0, silence_dbfs = -50.0))]
+    fn open_probe(&self, py: Python<'_>, kind: &str, lanes: Vec<usize>, calibration_db: f64, silence_dbfs: f64) -> PyResult<u64> {
+        let spec = match (kind, lanes.as_slice()) {
+            ("spl", [lane]) => ProbeSpec::Spl { lane: *lane, calibration_db },
+            ("loudness", [left, right]) => ProbeSpec::Loudness { left: *left, right: *right, silence_dbfs },
+            ("spl" | "loudness", _) => return Err(bad("an spl meter reads one lane and a loudness meter two".into())),
+            other => return Err(bad(format!("a meter kind is \"spl\" or \"loudness\", not {other:?}"))),
+        };
+        py.detach(|| self.probes.open(spec)).map_err(rt_err)
+    }
+
+    fn close_probe(&self, py: Python<'_>, probe: u64) -> PyResult<()> {
+        py.detach(|| self.probes.close(probe)).map_err(rt_err)
+    }
+
+    /// The meter's newest reading: a dict with `kind`, the values, `dropped`, `idle_s` (None before any audio).
+    fn probe_status<'py>(&self, py: Python<'py>, probe: u64) -> PyResult<Bound<'py, PyDict>> {
+        let st = self.probes.status(probe).map_err(rt_err)?;
+        let d = PyDict::new(py);
+        d.set_item("dropped", st.dropped)?;
+        d.set_item("idle_s", st.idle_s)?;
+        d.set_item("calibration_db", st.calibration_db)?;
+        match st.reading {
+            ProbeReading::Spl(r) => {
+                d.set_item("kind", "spl")?;
+                d.set_item("a_fast", r.a_fast)?;
+                d.set_item("a_slow", r.a_slow)?;
+                d.set_item("c_fast", r.c_fast)?;
+                d.set_item("c_slow", r.c_slow)?;
+                d.set_item("leq_a", r.leq_a)?;
+                d.set_item("bands", r.bands.to_vec())?;
+            }
+            ProbeReading::Loudness(r) => {
+                d.set_item("kind", "loudness")?;
+                d.set_item("momentary", r.momentary)?;
+                d.set_item("short_term", r.short_term)?;
+                d.set_item("integrated", r.integrated)?;
+                d.set_item("range_lu", r.range_lu)?;
+                d.set_item("true_peak_dbtp", r.true_peak_dbtp)?;
+                d.set_item("sample_peak_dbfs", r.sample_peak_dbfs)?;
+                d.set_item("correlation", r.correlation)?;
+                d.set_item("octaves", r.octaves.to_vec())?;
+                d.set_item("seconds", r.seconds)?;
+            }
+        }
+        Ok(d)
+    }
+
+    /// The one-second rows a loudness meter wrote since the last call, oldest first.
+    fn probe_rows<'py>(&self, py: Python<'py>, probe: u64) -> PyResult<Bound<'py, PyList>> {
+        let rows = self.probes.take_rows(probe).map_err(rt_err)?;
+        let out = PyList::empty(py);
+        for r in rows {
+            let d = PyDict::new(py);
+            d.set_item("momentary", r.momentary)?;
+            d.set_item("short_term", r.short_term)?;
+            d.set_item("integrated", r.integrated)?;
+            d.set_item("range_lu", r.range_lu)?;
+            d.set_item("sample_peak_dbfs", r.sample_peak_dbfs)?;
+            d.set_item("true_peak_dbtp", r.true_peak_dbtp)?;
+            d.set_item("correlation", r.correlation)?;
+            d.set_item("octaves", r.octaves.to_vec())?;
+            d.set_item("sound", r.sound)?;
+            out.append(d)?;
+        }
+        Ok(out)
+    }
+
+    fn reset_probe(&self, py: Python<'_>, probe: u64) -> PyResult<()> {
+        py.detach(|| self.probes.reset(probe)).map_err(rt_err)
+    }
+
+    fn set_probe_calibration(&self, py: Python<'_>, probe: u64, calibration_db: f64) -> PyResult<()> {
+        py.detach(|| self.probes.set_calibration(probe, calibration_db)).map_err(rt_err)
+    }
+
+    fn set_probe_silence(&self, py: Python<'_>, probe: u64, silence_dbfs: f64) -> PyResult<()> {
+        py.detach(|| self.probes.set_silence(probe, silence_dbfs)).map_err(rt_err)
+    }
+
+    /// Calibrate an SPL meter so it now reads `reference_db`; returns the new calibration. Raises ValueError whose
+    /// text is "reference" (not a level between 30 and 140) or "too_quiet" (nothing to read).
+    fn calibrate_probe(&self, py: Python<'_>, probe: u64, reference_db: f64) -> PyResult<f64> {
+        match py.detach(|| self.probes.calibrate(probe, reference_db)).map_err(rt_err)? {
+            Ok(cal) => Ok(cal),
+            Err(CalibrateError::Reference) => Err(bad("reference".into())),
+            Err(CalibrateError::TooQuiet) => Err(bad("too_quiet".into())),
+        }
     }
 
     /// Raise the device-change signal by hand, as the OS watcher does: waiting streams retry at once. Used to try the
