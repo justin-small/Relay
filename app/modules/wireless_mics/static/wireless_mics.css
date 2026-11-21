@@ -1,0 +1,15 @@
+/* The Wireless mics admin page (#153): one card per mic or pack. Controls come from components.css, values from tokens.css. */
+.wmcard { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:var(--sp-2) var(--sp-4); padding:var(--sp-3);
+  border:1px solid var(--border); border-radius:var(--r-sm); margin-bottom:var(--sp-3); }
+.wmcard.warn { border-color:var(--warn); }
+.wmcard.bad { border-color:var(--err); }
+.wmcard.off { opacity:.6; }
+.wmcard h4 { margin:0; font-size:var(--fs-base); }
+.wmcard .wmwho { display:flex; align-items:center; gap:var(--sp-2); color:var(--muted); font-size:var(--fs-sm); }
+.wmcard .wmwho img { width:var(--ctl-h); height:var(--ctl-h); border-radius:50%; object-fit:cover; }
+.wmcard .wmmeters { display:grid; grid-template-columns:max-content 1fr; gap:var(--sp-1) var(--sp-2); align-items:center; font-size:var(--fs-sm); }
+.wmcard meter { width:100%; }
+.wmcard .wmwarn { grid-column:1 / -1; font-size:var(--fs-sm); color:var(--warn); }
+.wmcard .wmwarn.bad { color:var(--err); }
+.wmrow { display:flex; gap:var(--sp-2); align-items:end; flex-wrap:wrap; margin-bottom:var(--sp-2); }
+@media (max-width:700px) { .wmcard { grid-template-columns:1fr; } }

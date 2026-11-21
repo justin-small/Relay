@@ -1,0 +1,41 @@
+{# The Wireless mics admin page, rendered inside admin.html only while the module is on. #}
+    <h2 class="title">Wireless mics <span class="sumstate" id="wmSum"></span></h2>
+    <p class="sub">Battery, signal, audio level and mute for Shure wireless receivers, and a list of mics and in-ear packs
+      with no network. Each one can be tied to a Planning Center position, so its card shows who is scheduled there.</p>
+    <div class="note warn">Not yet proven on real receivers. The Shure part was written from Shure's published command
+      strings and tested against a stand-in receiver. Check each reading against the receiver's own display before you
+      rely on it.</div>
+
+    <section>
+      <h3>Receivers</h3>
+      <p class="note">Shure QLX-D, ULX-D and SLX-D receivers, reached on TCP port 2202. Relay must be able to reach the
+        receiver's address.</p>
+      <div id="wmReceivers"></div>
+      <div class="ctl"><button type="button" id="wmAddReceiver">Add a receiver</button></div>
+    </section>
+
+    <section>
+      <h3>Manual mics and packs</h3>
+      <p class="note">Gear with no network. It shows a name and a position and no readings.</p>
+      <div id="wmManual"></div>
+      <div class="ctl"><button type="button" id="wmAddManual">Add a mic or pack</button></div>
+    </section>
+
+    <section>
+      <h3>Warnings</h3>
+      <div class="row">
+        <div class="field"><label for="wmLow">Low battery at (%)</label>
+          <input id="wmLow" type="number" min="1" max="99"></div>
+        <div class="field"><label for="wmWeak">Weak signal below (dBm)</label>
+          <input id="wmWeak" type="number" min="-120" max="-20"></div>
+      </div>
+    </section>
+
+    <div class="ctl"><button type="button" class="primary" id="wmSave">Save</button></div>
+    <div class="note err" id="wmErr" hidden></div>
+
+    <section>
+      <h3>Mics</h3>
+      <div id="wmCards"></div>
+      <p class="note" id="wmEmpty">None yet.</p>
+    </section>

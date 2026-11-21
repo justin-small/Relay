@@ -271,6 +271,7 @@ Each module's classes, and what happens when the port changes (`network_changed`
 | Blackmagic (ATEM, HyperDeck, Videohub) | `blackmagic` | `udp_endpoint` (ATEM), `open_tcp` (HyperDeck, Videohub); `multicast_sender` and `udp_socket` (discovery) | every device's connection starts again |
 | ProPresenter (and its Planning Center link) | `propresenter` | `http_connection`, `multicast_sender` (discovery) | the live connection opens again |
 | Tally Arbiter | `tally_arbiter` | `websocket_session` | connects again |
+| Wireless mics (Shure) | `wireless_mics` | `open_tcp` | every receiver's connection starts again |
 | REAPER | `reaper` | `udp_endpoint` (bound to Relay's listen port; 127.0.0.1 when REAPER is on this computer) | every computer's socket opens again |
 | Planning Center | `planning_center` | `urlopen`, `opener` | asks again now |
 | Remote access | `remote_access` | `urlopen`; cloudflared gets `--edge-bind-address` | cloudflared restarts |
