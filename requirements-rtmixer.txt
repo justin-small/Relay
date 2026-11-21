@@ -1,9 +1,0 @@
-# Optional: lock-free PortAudio ring buffers and a C audio callback for the 32-lane audio bus (app/audiobus.py,
-# #92). Relay runs without it: app/audio.py falls back to a plain sounddevice callback, which holds the GIL on
-# every block. Install it for the better path:  pip install -r requirements-rtmixer.txt
-#
-# Pinned to a commit on master, not the 0.1.7 release (2024-07): master fixes a hanging wait() and crashes on
-# teardown (its NEWS: "0.1.8 -- unreleased"). It is not in requirements.txt because the desktop release installs
-# hash-pinned packages (requirements-release.txt) and pip cannot hash a git URL. Move it into requirements.txt
-# when 0.1.8 is on PyPI.
-rtmixer @ git+https://github.com/spatialaudio/python-rtmixer@b0e23f6ae9116226fc36cbf23d1c90c0217b8749
