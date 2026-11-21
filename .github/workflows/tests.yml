@@ -185,9 +185,11 @@ jobs:
       - name: cargo clippy
         working-directory: native/relay-bus
         run: cargo clippy --locked --all-targets -- -D warnings
+      # Not the wheel crate (relay-bus-py): it has no Rust tests, and linking it needs libpython, which a runner without
+      # Python set up may lack. The wheel is built and imported by the release build and by every Python test job.
       - name: cargo test
         working-directory: native/relay-bus
-        run: cargo test --locked
+        run: cargo test --locked --workspace --exclude relay-bus-py
 
   # Known vulnerabilities in what Relay ships: the Python backend (requirements.txt and the hash-pinned
   # release set) and the desktop shell's Rust crates and npm packages. Runs on every pull request, so a new
