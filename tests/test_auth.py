@@ -784,6 +784,7 @@ for method, path, perm in (
     ("GET", "/api/admin/signalmap", "signalmap.view"),
     ("PUT", "/api/admin/signalmap/patch", "signalmap.manage"),
     ("DELETE", "/api/admin/signalmap/patch", "signalmap.manage"),
+    ("POST", "/api/admin/signalmap/import", "signalmap.manage"),
     ("POST", "/api/admin/dante/routing/subscribe", "dante.control"),
     ("POST", "/api/admin/dante/routing/undo", "dante.control"),
     ("POST", "/api/admin/dante/routing/lock", "dante.manage"),

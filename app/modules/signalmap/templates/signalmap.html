@@ -10,6 +10,11 @@
       <p class="note">One channel per line: CH, NAME, PORT, SOCKET, UPSTREAM, separated by commas, tabs or bars. A
         first line naming the columns is used when present. Relay matches NAME to a Dante transmit channel's name
         (or <code>name@device</code>); the other columns are shown as written.</p>
+      <div class="ctl" id="smImport" hidden>
+        <label for="smDesk">Fill from a show file</label>
+        <select id="smDesk"></select>
+        <button type="button" id="smUse">Use this patch</button>
+      </div>
       <textarea id="smText" rows="8" spellcheck="false"></textarea>
       <div class="ctl">
         <button type="button" class="primary" id="smSave">Save patch list</button>
@@ -21,9 +26,11 @@
     <section>
       <h3>Patch against the live routing</h3>
       <div class="note" id="smStatus"></div>
-      <div class="tablescroll">
+      <div class="tabs" role="group" id="smView"><button type="button" data-view="table" aria-pressed="true">Table</button><button type="button" data-view="graph" aria-pressed="false">Graph</button></div>
+      <div id="smGraph" class="smgraph" hidden></div>
+      <div class="tablescroll" id="smTable">
         <table>
-          <thead><tr><th>CH</th><th>Name</th><th>Port</th><th>Socket</th><th>Upstream</th><th>Dante</th><th>Received by</th></tr></thead>
+          <thead><tr><th>CH</th><th>Name</th><th>Port</th><th>Socket</th><th>Upstream</th><th>Dante</th><th>Switch port</th><th>Received by</th></tr></thead>
           <tbody id="smRows"></tbody>
         </table>
       </div>
