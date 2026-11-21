@@ -114,8 +114,13 @@ with section("calibration against a reference tone"):
         check("no signal refuses", False)
     except ValueError as exc:
         check("no signal refuses with a sentence", "No sound" in str(exc), str(exc))
+    sent = 0
     for _ in range(10):
         feed(bus, 1, tone(1000, 0.1, 0.6))
+        sent += int(RATE * 0.6)
+        # Let the analysis catch up before the next block: six seconds in one burst would overflow the lane's
+        # four-second tap on a slow machine, which is what a real input (paced by its clock) never does.
+        wait_for(lambda: m.analyzer.hops >= sent // metering.HOP - 1, timeout=10)
     wait_for(lambda: m.analyzer.hops >= 120, timeout=10)
     cal = m.calibrate(94)
     expect = 94 - 20 * math.log10(0.1 / math.sqrt(2))
