@@ -42,6 +42,7 @@ class FakeDevice:
         self.subs = dict(subs)            # channel -> source
         self.refuse = refuse
         self.ignore_writes = False
+        self.pages = 0                    # 0x3410 writes received
         self._stop = threading.Event()
         self._t = threading.Thread(target=self._run, daemon=True)
         self._t.start()
@@ -68,6 +69,21 @@ class FakeDevice:
                 n = f"{data[tx_chan:data.index(0, tx_chan)].decode()}@{data[tx_dev:data.index(0, tx_dev)].decode()}" if tx_chan else ""
                 if not self.ignore_writes:
                     self.subs[ch] = n
+                self.sock.sendto(arc.reply(cmd, seq, b"", protocol=proto), addr)
+
+            elif cmd == arc.CMD_SET_SUBSCRIPTION_PAGE:
+                # the 0x3410 page of a 2.8+ device: 0x0800 at 16, capacity and count at 18-19, 8-byte records from 20, strings by pointer
+                proto = struct.unpack(">H", data[:2])[0]
+                self.pages += 1
+                if self.refuse or proto != arc.PROTOCOL_MODERN:
+                    self.sock.sendto(struct.pack(">HHHHH", proto, 10, seq, cmd, 7), addr)
+                    continue
+                for i in range(data[19]):
+                    rec_at = 20 + 8 * i
+                    ch, tx_chan, tx_dev = data[rec_at + 1], *struct.unpack(">HH", data[rec_at + 4:rec_at + 8])
+                    n = f"{data[tx_chan:data.index(0, tx_chan)].decode()}@{data[tx_dev:data.index(0, tx_dev)].decode()}" if tx_chan else ""
+                    if not self.ignore_writes:
+                        self.subs[ch] = n
                 self.sock.sendto(arc.reply(cmd, seq, b"", protocol=proto), addr)
 
     def close(self) -> None:
@@ -119,20 +135,39 @@ with section("the write packet is built and refusals are read"):
     check("a refusal names Dante Domain Manager", state == "refused" and "Domain Manager" in why)
     stage.refuse = False
 
-with section("a device on ARC 2.8 or newer is never written to"):
-    modern = FakeDevice({1: "Lead Vox@STAGE"})
+with section("a device on ARC 2.8 or newer is written with the 0x3410 page"):
+    # Packets sent to a real ARC 2.8.12 device (Dante Virtual Soundcard) on 2026-11-21, both answered with result 1 and
+    # read back with 0x3000: receive channel 2 to 01@StageBox-1-Top, then cleared.
+    real_set = bytes.fromhex("2809002e000a3410" "0000" "000000000000" "0800" "0101" "00020003" "001c001f") + b"01\0StageBox-1-Top\0"
+    real_clear = bytes.fromhex("2809001c000b3410" "0000" "000000000000" "0800" "0101" "00020003" "00000000")
+    eq("a subscribe page is what the real device accepted", arc.subscribe_page_request(2, "01@StageBox-1-Top", 0x0A), real_set)
+    eq("a clear page is what the real device accepted", arc.subscribe_page_request(2, "", 0x0B), real_clear)
+    eq("a page the device cannot take is not built", (arc.subscribe_page_request(0, "A@B", 1), arc.subscribe_page_request(1, "@B", 1)), (None, None))
+    eq("2.8 and newer are modern", [arc.is_modern(v) for v in ("2.8.15", "2.8.9", "2.10.0", "3.0")], [True] * 4)
+    eq("older, unknown and unreadable are not", [arc.is_modern(v) for v in ("2.7.41", "", None, "x.y", "2")], [False] * 5)
+    modern = FakeDevice({1: "Lead Vox@STAGE", 2: ""})
+    eq("a modern write is accepted", arc.set_subscription("127.0.0.1", modern.port, 2, "Pastor@STAGE", modern=True), ("ok", ""))
+    eq("and shows on the device", (modern.subs[2], modern.pages), ("Pastor@STAGE", 1))
+    eq("a modern clear is accepted", arc.set_subscription("127.0.0.1", modern.port, 2, "", modern=True), ("ok", ""))
+    eq("and empties it", modern.subs[2], "")
+    modern.refuse = True
+    check("a modern refusal names Dante Domain Manager", "Domain Manager" in arc.set_subscription("127.0.0.1", modern.port, 2, "Pastor@STAGE", modern=True)[1])
+    modern.refuse = False
     d = rec("VIA", modern, [])
     d["arc_version"] = "2.8.15"
     dante.service.record([rec("STAGE", stage, ["Lead Vox", "Pastor"]), d])
-    eq("2.8.15 needs the newer format", rt.needs_modern_format(d), True)
-    eq("2.7.41 does not", rt.needs_modern_format({"arc_version": "2.7.41"}), False)
-    eq("2.10.0 does", rt.needs_modern_format({"arc_version": "2.10.0"}), True)
-    eq("an unknown version does not", (rt.needs_modern_format({}), rt.needs_modern_format({"arc_version": "x.y"})), (False, False))
-    r = operator.post(SUB, json={"device": "VIA", "channel": 1, "source": "Pastor@STAGE", "confirm": True})
-    eq("the refusal says why", (r.status_code, r.json()["result"]["result"], r.json()["result"]["message"]), (200, "refused", rt.ARC_MODERN_MESSAGE))
-    eq("the device was not written to", modern.subs[1], "Lead Vox@STAGE")
-    page = {x["name"]: x["read_only"] for x in operator.get("/api/admin/dante/routing").json()["devices"]}
-    eq("the page marks it read-only", (page["VIA"], page["STAGE"]), (rt.ARC_MODERN_MESSAGE, ""))
+    sent = modern.pages
+    r = operator.post(SUB, json={"device": "VIA", "channel": 2, "source": "Pastor@STAGE", "confirm": True})
+    eq("Relay subscribes a 2.8 device and reads it back", (r.status_code, r.json()["result"]["result"]), (200, "ok"))
+    eq("with a page, not the old packet", (modern.subs[2], modern.pages - sent), ("Pastor@STAGE", 1))
+    eq("and undo clears it the same way", operator.post("/api/admin/dante/routing/undo", json={"confirm": True}).status_code, 200)
+    eq("so the channel is empty again", modern.subs[2], "")
+    d["arc_version"] = "2.7.41"
+    modern.ignore_writes = False
+    dante.service.record([rec("STAGE", stage, ["Lead Vox", "Pastor"]), d])
+    before = modern.pages
+    operator.post(SUB, json={"device": "VIA", "channel": 2, "source": "Pastor@STAGE", "confirm": True})
+    eq("a 2.7 device is not sent a page", modern.pages, before)
     modern.close()
     scan()
 

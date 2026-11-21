@@ -10,6 +10,10 @@ sources. Its status word was 1 for every channel, which fits subscriptions to a 
 packets match Dante Controller's byte for byte (tests/test_dante_routing.py) but Relay has not sent one to a
 real device yet.
 
+Devices on ARC 2.8 or newer (Via, newer hardware) take the page format instead: opcode 0x3410 under protocol 0x2809.
+Proven on 2026-11-21 against a real ARC 2.8.12 device (Dante Virtual Soundcard on a Mac Studio): a subscribe and a clear
+were both accepted (result 1) and read back with the unchanged 0x3000 listing. Reads need no change on 2.8.
+
 Levels are no longer asked for here: they come from the multicast heartbeat (heartbeat.py), because 0x3400 is a channel
 listing, not meter levels (Dante-BabelBox's capture notes). UNVERIFIED: the clock (0x1200) layout, which neither open
 project uses; the heartbeat carries only the clock's frequency error, not leader or lock. Every parser
@@ -33,6 +37,12 @@ success with more pages. All big-endian. Payloads after the 10-byte header:
                           channels up to 255. Clearing is the same packet with both pointers 0 (and no strings), 172
                           bytes long: Controller never sent 0x3014. A network under Dante Domain Manager refuses
                           writes unless Relay has its credentials.
+  set subscription page (0x3410, ARC 2.8+, protocol 0x2809, checked on a real device 2026-11-21): u16 0 (result), six
+                          zero bytes, 0x08 0x00, capacity u8, count u8, then `capacity` records of 8 bytes (zero when
+                          unused): 00, receive channel u8, 00, media type 3 (audio), transmit-channel pointer u16,
+                          transmit-device pointer u16 (both 0 clears), then the strings `<transmit channel>\\0<transmit
+                          device>\\0`. A pointer is an offset from the start of the packet. Relay writes one record
+                          per packet (capacity 1), so a clear is 28 bytes. No padding, unlike 0x3010.
 """
 from __future__ import annotations
 
@@ -54,6 +64,10 @@ CMD_RATES = 0x1100
 CMD_CLOCK = 0x1200
 CMD_SUBSCRIPTIONS = 0x3000
 CMD_SET_SUBSCRIPTION = 0x3010
+CMD_SET_SUBSCRIPTION_PAGE = 0x3410   # ARC 2.8+
+PROTOCOL_MODERN = 0x2809
+MEDIA_AUDIO = 3
+ARC_MODERN = (2, 8)
 MORE_PAGES = 0x8112
 PAGE = 16                      # receive channels a device answers per page
 RX_RECORD = 20
@@ -238,6 +252,35 @@ def subscribe_request(channel: int, source: str, sequence: int) -> bytes | None:
     return head + b"\0" * (STRINGS_AT - len(head)) + chan_b + dev_b
 
 
+def is_modern(arc_version: str | None) -> bool:
+    """True when the device announced ARC 2.8 or newer ("2.8.15"), so it takes the 0x3410 page format. An unknown or
+    unreadable version is not modern: Relay keeps writing it as before."""
+    parts = []
+    for p in str(arc_version or "").split(".")[:2]:
+        if not p.isdigit():
+            return False
+        parts.append(int(p))
+    return len(parts) == 2 and tuple(parts) >= ARC_MODERN
+
+
+def subscribe_page_request(channel: int, source: str, sequence: int) -> bytes | None:
+    """The 0x3410 page a 2.8+ device takes to subscribe receive `channel` (1-255) to `source` (as subscribe_request),
+    or to clear it when `source` is empty. One record per page. None when it cannot be written."""
+    if not 1 <= channel <= 255:
+        return None
+    chan_b = dev_b = b""
+    if source:
+        chan, _, dev = source.rpartition("@") if "@" in source else (source, "", ".")
+        if not chan or not dev:
+            return None
+        chan_b, dev_b = chan.encode("utf-8") + b"\0", dev.encode("utf-8") + b"\0"
+    at = HEADER + 6 + 2 + 2 + 8                                  # where the strings start: after the one record
+    chan_at, dev_at = (at, at + len(chan_b)) if source else (0, 0)
+    return struct.pack(">HHHHH6xBBBBBBBBHH", PROTOCOL_MODERN, at + len(chan_b) + len(dev_b), sequence & 0xFFFF,
+                       CMD_SET_SUBSCRIPTION_PAGE, 0, 0x08, 0, 1, 1, 0, channel, 0, MEDIA_AUDIO,
+                       chan_at, dev_at) + chan_b + dev_b
+
+
 def exchange(ip: str, port: int, data: bytes, command: int, sequence: int, wait: float = WAIT) -> tuple[int, bytes] | None:
     """Send `data` and return (result, payload) of the device's answer to `command`/`sequence`, or None when none
     comes. Blocks up to `wait` seconds: call through to_thread. Raises netsock.RouteError when the Dante network is
@@ -270,13 +313,14 @@ def ask(ip: str, port: int, command: int, sequence: int = 1, wait: float = WAIT)
     return got[1] if got and got[0] == 1 else None
 
 
-def set_subscription(ip: str, port: int, channel: int, source: str, sequence: int = 5, wait: float = 1.5) -> tuple[str, str]:
+def set_subscription(ip: str, port: int, channel: int, source: str, sequence: int = 5, wait: float = 1.5,
+                     modern: bool = False) -> tuple[str, str]:
     """Write one subscription (an empty `source` clears it). Returns ("ok", ""), ("refused", why) or ("silent", why).
-    Not yet run on real Dante gear; the caller reads the device back to confirm."""
-    data = subscribe_request(channel, source, sequence)
+    `modern` is a device on ARC 2.8 or newer, which takes the 0x3410 page. The caller reads the device back to confirm."""
+    data = (subscribe_page_request if modern else subscribe_request)(channel, source, sequence)
     if data is None:
         return "refused", "Relay cannot write that channel or source."
-    got = exchange(ip, port, data, CMD_SET_SUBSCRIPTION, sequence, wait)
+    got = exchange(ip, port, data, CMD_SET_SUBSCRIPTION_PAGE if modern else CMD_SET_SUBSCRIPTION, sequence, wait)
     if got is None:
         return "silent", "The device did not answer the change."
     if got[0] in (1, MORE_PAGES):

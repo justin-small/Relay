@@ -148,13 +148,13 @@
         const cells = cols.map(function (c) {
           const on = was.toLowerCase() === c.source.toLowerCase();
           const b = button(on ? '●' : '·', function () { change(d.name, rc.channel, on ? '' : c.source, was); },
-            !control || isLocked || !!d.read_only);
+            !control || isLocked);
           b.title = (on ? 'Clear ' : 'Subscribe to ') + c.source;
           return el('td', '', b);
         });
         const lockBtn = button(isLocked ? 'Locked' : 'Lock', function () { lock(d.name, rc.channel, !isLocked); },
           !can('dante.manage'));
-        const status = (rc.status === 'unresolved' ? ' (cannot find it)' : '') + (d.read_only ? ' (read-only: ' + d.read_only + ')' : '');
+        const status = rc.status === 'unresolved' ? ' (cannot find it)' : '';
         body.appendChild(el('tr', '', el('td', '', d.name + ' ' + rc.channel), el('td', '', (was || 'nothing') + status),
           el('td', '', lockBtn), cells));
       });

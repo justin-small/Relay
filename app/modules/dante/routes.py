@@ -8,7 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from ... import audit
 from .. import require
 from .monitor import monitor
-from .routing import ARC_MODERN_MESSAGE, Refused, needs_modern_format, routing
+from .routing import Refused, routing
 from .service import service
 
 router = APIRouter()
@@ -86,8 +86,7 @@ def routing_state():
     """Every device with its transmit channels and receive channels (what each listens to), the locks, the last change
     Undo would reverse, and the saved presets."""
     devices = [{"name": d["name"], "reachable": d.get("reachable"), "transmit": d["transmit"],
-                "receive": d.get("subscriptions"),
-                "read_only": ARC_MODERN_MESSAGE if needs_modern_format(d) else ""} for d in service.devices_copy()]
+                "receive": d.get("subscriptions")} for d in service.devices_copy()]
     return {"devices": devices, "locks": sorted([d, c] for d, c in routing.locks()), "undo": routing.undo_info(),
             "presets": routing.presets()}
 
