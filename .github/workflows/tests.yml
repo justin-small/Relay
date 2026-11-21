@@ -225,6 +225,34 @@ jobs:
         working-directory: native/relay-ndi
         run: cargo test --locked --workspace --exclude relay-ndi-py
 
+  # The Relay Helper (native/relay-helper, #497): a small program on a show computer that dials out to Relay. Its tests run a
+  # fake Relay and a fake ProPresenter API on this machine, so they need neither.
+  relay-helper:
+    name: Tests (Relay Helper, ${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # v1
+        with:
+          toolchain: stable
+          components: clippy
+      - uses: swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          workspaces: native/relay-helper
+      - name: cargo clippy
+        working-directory: native/relay-helper
+        run: cargo clippy --locked --all-targets -- -D warnings
+      - name: cargo test
+        working-directory: native/relay-helper
+        run: cargo test --locked
+
   # Known vulnerabilities in what Relay ships: the Python backend (requirements.txt and the hash-pinned
   # release set) and the desktop shell's Rust crates and npm packages. Runs on every pull request, so a new
   # advisory against a pinned version shows up before the next release.
@@ -268,4 +296,7 @@ jobs:
         run: cargo audit
       - name: cargo audit (NDI engine)
         working-directory: native/relay-ndi
+        run: cargo audit
+      - name: cargo audit (Relay Helper)
+        working-directory: native/relay-helper
         run: cargo audit
