@@ -711,20 +711,21 @@ with hooks set in `attach()` and cleared in `detach()`.
 The router (#298) and page outputs are in `docs/ndi-router-and-outputs.md`.
 
 Discovery is mDNS (`_ndi._tcp`) plus extra addresses asked directly; a BirdDog converter's `_birddog._tcp` adds what it
-is set to. The NDI runtime and `cyndilib` are installed separately (NDI's licence does not let Relay bundle them,
-`app/modules/ndi/runtime.py`): without them the module says so on its page and stays off. Board widgets: `ndi.summary`,
+is set to. Everything that talks to NDI runs in Rust (`native/relay-ndi`, the `relay_ndi` wheel, #606): the finder, a receiver thread
+per source, senders, routers, the picture scopes, the audio meter, the viewer's JPEG encode and the test patterns. The NDI
+runtime is installed separately (NDI's licence does not let Relay bundle it; `native/relay-ndi` opens it with dlopen, so a
+build needs no SDK, `app/modules/ndi/runtime.py`): without it the module says so on its page and stays off. Board widgets: `ndi.summary`,
 `ndi.sources`, `ndi.source`, `ndi.view`. Discovery servers (#295) are set on its page and written to an NDI config in Relay's state folder; see `docs/ndi-discovery-server.md`.
 
 **The single-source viewer** (#296, `app/modules/ndi/viewer.py`): `/ndi/view/<source>` plays one source in a browser as
 MJPEG (`/ndi/stream/<source>`), on the HTTPS operator port only (`panel_prefixes`) and behind `ndi.view`, so it stays on
-the LAN. A source is a **feed**: one lease on the shared pool, one JPEG encode at most `view_fps` times a second (Pillow),
+the LAN. A source is a **feed**: one lease on the shared pool, one JPEG encode at most `view_fps` times a second (Rust, `relay_ndi.jpeg`),
 sent to every browser watching it; nothing is encoded with no viewer, and the lease is given back with the last one.
 `view_fps` (1-30, 15), `view_quality` (20-90, 60), `view_width` (320-1920, 1280) and `view_max` (1-8, 4 sources at once;
 the next is a 503) are settings. A source with a camera number in `tally` (source name -> number) gets a red or green
 border from core's tally state (`app/tally.py`, filled by the ATEM, OBS and Tally Arbiter modules, which NDI lists in
-`uses`). The audio meter reads a peak level the receiver sends alongside video (`audio_db`, in `runtime.py`; written
-from cyndilib's documentation and **not proved on real NDI**: if the audio frame reads differently, the meter stays
-empty and the picture is unaffected). WebRTC would add lower latency and audio; it is not built. The `ndi.view` board
+`uses`). The audio meter reads a peak level the receiver sends alongside video (`audio_db`, from the Rust receiver;
+proved on a real NDI stream carrying a -23 dBFS tone, #606). WebRTC would add lower latency and audio; it is not built. The `ndi.view` board
 widget is a tile drawn by core's `frame` kind (`{"image": "/path", "tally", "note"}`): it shows only for people signed in
 on the operator port, since it reads the same stream.
 

@@ -42,8 +42,8 @@ Going out → **Test patterns** sends built-in pictures as NDI sources named `Re
 crosshair with safe areas, greyscale ramp, solid colours, a moving bar (time-driven, so dropped frames show as jumps),
 an alpha checker, or your own PNG (kept with its transparency). The name, size and a running clock can be written on the
 picture. Sound is a 1 kHz tone at a chosen dBFS, a left-then-right identification tone, or silence. Size (up to 4K) and
-frame rate are set per source; at most 4 run at once. They are drawn with numpy and Pillow (no browser) in
+frame rate are set per source; at most 4 run at once. They are drawn in Rust (`relay_ndi`, no browser; Pillow draws the burned-in text and reads your picture) from
 `app/modules/ndi/testpatterns.py`, and, like page outputs, appear as inputs in the router.
 
-Proved against the real NDI library on macOS (video plus stereo audio sent through cyndilib); not yet looked at on a
+Proved against the real NDI library on macOS (video plus stereo audio sent through the Rust engine, #606); not yet looked at on a
 separate receiver machine.

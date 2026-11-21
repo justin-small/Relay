@@ -33,9 +33,13 @@ CloudCast Scope manual, which the issue (#300) names. NDI Analysis is not bundle
 start; `ndi.view` can download. Files stay in the state folder under `ndi/analysis/` until the next recording of the same
 source replaces the entry in the list.
 
-## Known problem
+## Receive rate (#566, fixed by #606)
 
-Relay's receiver currently gets about 20 of a 30 fps source's frames (#566), so the frame rate, late-frame counts and health verdict read worse than the stream really is. Do not trust them on a real source until that is fixed.
+Relay's receiver used to get about 20 of a 30 fps source's frames, because the Python binding held the GIL inside the
+receive call, so the frame rate, late-frame counts and health verdict read worse than the stream really was. The receiver
+is now a Rust thread (`native/relay-ndi`) that queues what arrives: a 1080p30 UYVY source on this Mac read 29.99 fps, no late
+frames and *Healthy* ("Steady"); the old binding read 13 fps in the same test. The numbers can be trusted again. A reader that
+falls eight pictures behind loses the oldest, and `queue_overflow` in the receiver's counts says how many.
 
 ## Not done
 
@@ -46,6 +50,7 @@ Relay's receiver currently gets about 20 of a 30 fps source's frames (#566), so 
 
 ## Proved on real NDI
 
-Against Relay's own test sender on this Mac (no cameras were on the network): frame arrival, the decoded size, the audio
+Against Relay's own test sender on this Mac, in another process (no cameras were on the network; 1080p30 UYVY with a
+-23 dBFS stereo tone, 2026-11-21: 29.99 fps, integrated -23.0 LUFS, scopes and viewer JPEG all working): frame arrival, the decoded size, the audio
 samples (a -23 dBFS tone read -23.0 LUFS integrated and -23.0 momentary), the SDK's dropped-frame counts, and the low-bandwidth
 receiver opening. Not yet proved: an HX or hardware sender, a sender's metadata, and a busy network.
