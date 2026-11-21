@@ -128,7 +128,7 @@ Ask whoever looks after your network to check these:
 - **Separate networks.** Use a separate switch, or a separate **VLAN** on a
   managed switch, for each network: crew, Dante, NDI. Keep Dante and NDI off
   the venue Wi-Fi.
-- **IGMP snooping, with a querier.** Dante discovery, AES67 audio and NDI use
+- **IGMP snooping, with a querier.** Dante discovery and NDI use
   **multicast**. Turn on IGMP snooping on each switch that carries them, so
   multicast reaches only the ports that ask for it, and make sure one switch
   (or the router) on each of those networks is the **IGMP querier**. Without a

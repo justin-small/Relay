@@ -2,8 +2,8 @@
 
 If your sound desk or stage boxes use **Dante**, Relay can take its sound
 straight off the network, with no cable to the computer. Relay does not need
-any special code for this: it uses an ordinary **sound card that Dante or AES67
-adds to the computer**, and picks it like any microphone.
+any special code for this: it uses an ordinary **sound card that Dante
+adds to the computer**, and picks it like any microphone or speaker.
 
 This is optional. Everything here works with Dante devices; nothing here is
 certified by Audinate.
@@ -21,25 +21,21 @@ route as **not tested** until this page says otherwise.
 | Any | **Dante Virtual Soundcard** (paid, from Audinate) | Not tested |
 | Any | **Dante Via** (free, from Audinate) | Not tested |
 | Any | A **Dante AVIO USB** adapter, plugged in like any sound card | Not tested |
-| Windows | **openaes67**, a free AES67 sound card (MIT licence): <https://github.com/ylzwd/openaes67> | Not tested |
-| Mac | **AES67 macOS Driver**: <https://github.com/soundsofthesir/AES67_macos_Driver> | Not tested |
-| Linux | **Inferno**, an unofficial Dante-compatible driver | Not tested |
 
-The Mac driver is licensed GPL-3.0, so Relay only **links** to it and never
-includes it: download it from its own page. Inferno was made by studying how
-Dante talks, not by Audinate; check its licence yourself before you rely on it,
-and keep Dante Controller for anything important.
+Relay does not send or receive AES67 itself. If your gear is in AES67 mode, use
+Dante Virtual Soundcard (or Dante Via) on the Relay computer to bring it in.
+Dante Controller stays the place for anything important.
 
 ## Set up
 
 1. Install one of the routes above and restart the computer if it asks.
-2. In **Dante Controller** (or the AES67 driver's own settings), **subscribe**
+2. In **Dante Controller**, **subscribe**
    the desk's output channels to the sound card's receive channels.
 3. In Relay's admin panel, open **Audio** and click **Rescan**.
 4. Pick the sound card as the **Capture device**, then pick the **channel**
    (or **Mix**).
 
-Relay marks the inputs it recognises with **[Dante]** or **[AES67]** after the
+Relay marks the inputs it recognises with **[Dante]** after the
 name. It recognises them by name, so a sound card renamed by hand may show no
 mark. The mark changes nothing about how it works.
 
@@ -64,26 +60,22 @@ is broken.
 - Check Relay's **Dante** page for problems and the clock: a clock that is not
   locked can cut the sound out.
 
-## AES67 without a sound card
+## Sending Relay's sound onto Dante {#dante-output}
 
-The **AES67** module takes a network stream straight into Relay: no driver, no
-sound card. It works with a Dante device set to **AES67 mode** (switch it on in
-Dante Controller), and with Ravenna and Livewire. It does **not** work with
-Dante Virtual Soundcard, which cannot send AES67.
+Alert tones and spoken translation channels go out the same way: as an ordinary
+sound device.
 
-1. Switch the **AES67** module on under **Modules**.
-2. Open **AES67**. Streams the devices announce appear in a minute or less.
-3. Choose a stream's channel (or **Mix of all**) and click **Use as input**.
+1. Install **Dante Virtual Soundcard** (or Dante Via, or plug in a Dante AVIO
+   USB adapter) and restart the computer if it asks.
+2. In Relay's admin panel, open **Audio** and click **Rescan**.
+3. On the **Audio bus** page, add an **output**, choose the Dante sound card as
+   its device, and patch the alert tones and each spoken language to the
+   channels you want them on.
+4. In **Dante Controller**, **subscribe** the receivers you want (a desk input,
+   a speaker, a stage box) to the sound card's transmit channels.
 
-Streams are 44.1 to 96 kHz, 16 or 24 bit; Relay resamples. It does not follow
-the network's PTP clock: the page counts lost packets and shows how fast the
-audio arrives, so you can see whether the feed is steady.
-
-::: warning
-Your switches need **IGMP snooping** and an IGMP querier, or the stream either
-floods every port or never arrives. This route is **not tested** on real Dante
-equipment yet.
-:::
+If you hear nothing, check the subscription in Dante Controller first, then
+that the sound card is the one chosen in Relay.
 
 ## The Dante page: what Relay finds on the network
 

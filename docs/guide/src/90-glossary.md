@@ -151,7 +151,7 @@
 
 **Multicast**
 : Network traffic sent once to every device that has asked for it, such as
-  Dante discovery, AES67 audio and NDI. It needs IGMP snooping on the switches.
+  Dante discovery and NDI. It needs IGMP snooping on the switches.
 
 **Network port**
 : A physical connection to a network: the built-in Ethernet, a USB or

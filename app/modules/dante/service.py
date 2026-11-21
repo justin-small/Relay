@@ -301,7 +301,7 @@ class Service:
                     "leader": next((d["name"] for d in devices if (d.get("clock") or {}).get("leader")), "")}
 
     def input_labels(self, devices: list[dict]) -> dict[int, dict]:
-        """Which input devices are Dante or AES67, and what feeds this computer's Dante inputs (see inputs.py)."""
+        """Which input devices are Dante (Dante Virtual Soundcard, Via, AVIO), and what feeds this computer's Dante inputs (see inputs.py)."""
         with self._lock:
             known = [dict(d) for d in self.devices]
         return inputs.labels(devices, known)

@@ -1,4 +1,4 @@
-"""Dante and AES67 inputs named in the input picker (#264): the name rules, the feeds from this computer's Dante device,
+"""Dante inputs named in the input picker (#264): the name rules, the feeds from this computer's Dante device,
 and core's hook with the Dante module on and off. Run: .venv/bin/python tests/test_dante_inputs.py"""
 import os
 import sys
@@ -30,8 +30,7 @@ def dev(index, name, channels=2):
 
 with section("names"):
     for name, want in [("Dante Virtual Soundcard (x64)", "Dante"), ("Dante Via", "Dante"), ("Dante AVIO USB", "Dante"),
-                       ("openaes67 Sound Card", "AES67"), ("Inferno", "AES67"), ("MacBook Pro Microphone", ""),
-                       ("Dante AES67 Bridge", "Dante")]:
+                       ("openaes67 Sound Card", ""), ("MacBook Pro Microphone", "")]:
         eq(name, inputs.kind_of(name), want)
 
 with section("feeds come from the device on this computer"):
@@ -44,10 +43,9 @@ with section("feeds come from the device on this computer"):
         eq("this computer's device", inputs.local_feeds([other, mine]), ["Lead Vox@STAGE", "", "Gone@BOX"])
     eq("a device elsewhere is not it", inputs.local_feeds([other]), [])
     eq("an unreadable device gives no feeds", inputs.local_feeds([{"ips": [here], "subscriptions": None}]), [])
-    out = inputs.labels([dev(0, "Dante Virtual Soundcard"), dev(1, "openaes67"), dev(2, "Built-in Mic")],
+    out = inputs.labels([dev(0, "Dante Virtual Soundcard"), dev(1, "Built-in Line In"), dev(2, "Built-in Mic")],
                         [mine] if here else [])
-    eq("only Dante and AES67 are labelled", {i: o["kind"] for i, o in out.items()}, {0: "Dante", 1: "AES67"})
-    eq("AES67 inputs get no Dante feeds", out[1]["feeds"], [])
+    eq("only Dante is labelled", {i: o["kind"] for i, o in out.items()}, {0: "Dante"})
 
 with section("core's hook: nothing named with the module off, labels with it on"):
     devices = [dev(0, "Dante Virtual Soundcard"), dev(1, "Built-in Mic")]
@@ -61,5 +59,14 @@ with section("core's hook: nothing named with the module off, labels with it on"
     config.save({"modules": {"dante": {"enabled": False}}})
     _modules.get("dante").detach()
     eq("off again", [d["kind"] for d in audio.label_inputs(devices)], ["", ""])
+
+with section("a config saved with the removed AES67 module loses it (#603)"):
+    cfg = {"aes67": {"output": {"enabled": True}}, "modules": {"aes67": {"enabled": True}, "dante": {"enabled": True}},
+           "network": {"routes": {"aes67": {"port": "p"}, "dante": {"port": "q"}}, "policy": {"aes67.media": {}}}}
+    _modules.clean_config(cfg)
+    check("settings gone", "aes67" not in cfg)
+    check("switch gone", "aes67" not in cfg["modules"])
+    eq("only the Dante route is left", cfg["network"]["routes"], {"dante": {"port": "q"}})
+    eq("the policy goes too", cfg["network"]["policy"], {})
 
 done()

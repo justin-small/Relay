@@ -85,6 +85,9 @@ class Manifest:
 
 TAB_PAGES = ("network", "signage")
 
+# Modules that were removed: what a config saved under one of these ids kept is dropped on load (aes67, #603).
+RETIRED_MODULES = ("aes67",)
+
 
 @dataclass(frozen=True)
 class AdminPage:
@@ -789,6 +792,7 @@ class Registry:
     def clean_config(self, cfg: dict) -> None:
         """Normalise each module's settings and its switch, in place (config._normalise)."""
         stored = cfg.get("modules") if isinstance(cfg.get("modules"), dict) else {}
+        self._drop_retired(cfg)
         for mod in self.all():
             if mod.manifest.renamed_from:
                 stored = self._move_renamed(cfg, stored, mod.manifest)
@@ -804,6 +808,21 @@ class Registry:
                 # changes nothing for a church that uses it.
                 switches[m.id] = {"enabled": bool(mod.configured(cfg[m.settings_key]))}
         cfg["modules"] = switches
+
+    @staticmethod
+    def _drop_retired(cfg: dict) -> None:
+        """Settings, switch and network routes saved by a module that no longer exists (RETIRED_MODULES), removed."""
+        for old in RETIRED_MODULES:
+            cfg.pop(old, None)
+            if isinstance(cfg.get("modules"), dict):
+                cfg["modules"].pop(old, None)
+            net = cfg.get("network")
+            if isinstance(net, dict):
+                for part in ("routes", "policy"):
+                    table = net.get(part)
+                    if isinstance(table, dict):
+                        for cid in [c for c in table if c == old or c.startswith(old + ".")]:
+                            del table[cid]
 
     @staticmethod
     def _move_renamed(cfg: dict, stored: dict, m: Manifest) -> dict:

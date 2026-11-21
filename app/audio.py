@@ -202,7 +202,7 @@ def is_legacy_pulse(selector) -> bool:
 
 
 def label_inputs(devices: list[dict]) -> list[dict]:
-    """The devices, each with `kind` ("Dante", "AES67" or "") and `feeds` (for each channel, what feeds it, as text, or
+    """The devices, each with `kind` ("Dante" or "") and `feeds` (for each channel, what feeds it, as text, or
     ""), from whatever module provides "audio.input_labels" (the Dante module, #264). Core names no module: with none
     on, every device has an empty kind and no feeds. The saved `label` is never changed."""
     from .modules import using
