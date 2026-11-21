@@ -84,6 +84,13 @@ class Dante(Module):
 
         await service.stop()
 
+    def status(self) -> dict:
+        from .service import service
+
+        s = service.snapshot()
+        return {"dante": {"devices": len(s["devices"]), "online": s["reachable"], "unreachable": s["unreachable"],
+                          "broken_subscriptions": len(s["problems"]), "scanned": s["scanned"]}}
+
     def health(self) -> Health:
         from .service import service
 
