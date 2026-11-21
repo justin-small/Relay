@@ -185,10 +185,10 @@ check("a module's output receives the clip", OUT.clips == [(20, 24000, "bus 1")]
 mod.detach()
 
 print("config and the engine")
-check("audio_source defaults to PortAudio", config.save({})["audio_source"] == "portaudio")
-check("audio_source is normalised", config.save({"audio_source": " Fake_Net "})["audio_source"] == "fake_net")
-check("an empty audio_source falls back", config.save({"audio_source": ""})["audio_source"] == "portaudio")
-config.save({"audio_source": "fake_net"})
+check("the captions listen to lane 1 by default", config.save({})["audio_lane"] == 1)
+check("a lane is clamped to the bus's 32", config.save({"audio_lane": 99})["audio_lane"] == 32)
+check("a lane that is not a number falls back to 1", config.save({"audio_lane": "x"})["audio_lane"] == 1)
+config.save({"audio_lane": 6})
 seen = {}
 
 
@@ -207,7 +207,7 @@ try:
     asyncio.run(eng.start())
 except engine_mod.StartRefused:
     pass
-check("the engine starts capture on the saved source", seen.get("args", (0, 0, 0))[2] == "fake_net", seen)
+check("the engine starts capture on the saved lane", seen.get("args") == ("6", 0, "lane"), seen)
 
 print()
 print("FAILED: " + ", ".join(fails) if fails else "all checks passed")

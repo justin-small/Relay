@@ -770,8 +770,8 @@ def attach(self): audio.register_source(Stream()); audio.register_output(Sender(
 def detach(self): audio.unregister_source("mixer_stream"); audio.unregister_output("mixer_stream")
 ```
 
-The operator picks the source in `audio_source` (default `"portaudio"`); `audio_device` and `input_channel`
-are passed to the source's `open` as its selector and channel. Resampling to 24 kHz, the meter, silence
+Capture reads one bus lane (`audio_lane`, 1 to 32, default 1): the engine opens the `"lane"` source with the lane
+number as its selector. The input itself is patched to that lane on the Audio bus page. Resampling to 24 kHz, the meter, silence
 gating, reconnecting and the consumers stay in core's pump, so a source only delivers frames. `open` raises
 `audio.SourceError` with a fixed sentence (nothing from the network or a library) when it cannot start. An
 `AudioOutput.play(pcm, rate, selector)` takes mono 16-bit PCM, returns at once and raises nothing.
@@ -815,7 +815,7 @@ class MySink(audio.LaneSink):                   # paced by the sender's own cloc
 
 Consume a lane from core or a module with `audiobus.bus.lane(n).subscribe(callback)` (called on the input's
 thread, so it must not block; any number of subscribers share a lane) or `subscribe_queue(loop)` for async
-code. The engine can take a lane as its input with `audio_source: "lane"` and `audio_device: "<lane>"`, and
+code. The captions take a lane as their input (`audio_lane`, through the `"lane"` source), and
 Relay's own sounds can be played into a bus output through `audio.get_output("bus").play(pcm, rate,
 "<output id>:3,4")`. Outputs follow each lane's clock with a resampler trimmed by at most 0.5%, so two devices
 on different clocks do not click; the cost is the output's `latency_ms` (default 60) of passthrough delay.

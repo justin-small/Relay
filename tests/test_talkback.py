@@ -226,7 +226,7 @@ async def scenarios():
     with section("the main feed and talkback run side by side"):
         lines = []
         hub.add_line_sink(lambda *args: lines.append(args))     # every committed line goes to each sink, as to a recording
-        config.save({"audio_source": "lane", "audio_device": "4", "input_channel": 0,
+        config.save({"audio_lane": 4,
                      "realtime": {"backend": "tbfake"}})
         await main.start()
         check("the main feed runs on its own lane", main.running)

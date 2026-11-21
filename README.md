@@ -882,7 +882,7 @@ Two switchers can feed the screens at once: a camera is live when either says so
 |---|---|
 | `Incorrect API key provided` | The key is wrong. Sessions stop rather than retry. Paste the right key and press Start again. |
 | Sessions say `reconnecting` and climb | Network. Reconnect is automatic with backoff; check the host's connection. |
-| Meter is flat while someone speaks | Wrong device or wrong channel. Try each channel, or **Mix** on a stereo feed; press Rescan if the interface was plugged in after launch. |
+| Meter is flat while someone speaks | Wrong device or wrong channel. Try each channel of its lane on the Audio bus page, or **Mix** on a stereo feed; press Rescan devices there if the interface was plugged in after launch. |
 | CLIP indicator keeps lighting | The feed is too hot. Reduce gain at the console or interface until the peak marker sits at the −18 dBFS band and CLIP stays dark. Clipped audio transcribes badly and no model setting recovers it. |
 | Meter moves but sits far left | Input gain is too low. Below about −40 dBFS the model has little to work with; bring the loudest speech up to the marked band. |
 | `No input device matched` | The interface was unplugged. Reselect it and press Start. |

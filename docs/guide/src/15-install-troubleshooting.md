@@ -41,10 +41,10 @@ Two tools help with almost every problem:
 
 | Symptom | What to do |
 |---|---|
-| The input list is empty | Relay cannot see any sound input. Plug in the microphone or interface, then press **Rescan**. On Linux, check `arecord -l` lists it. |
+| The input list is empty | Relay cannot see any sound input. Plug in the microphone or interface, then press **Rescan devices** on the **Audio bus** page. On Linux, check `arecord -l` lists it. |
 | The meter stays flat for every input | The system is blocking the microphone. **macOS:** **System Settings → Privacy & Security → Microphone**, turn on **Relay**. **Windows:** see [Microphone privacy settings](#microphone-privacy-settings). Then choose **Restart Relay**. |
-| The meter is flat on one input only | Wrong device or wrong channel. Try each channel, or **Mix** on a stereo feed. On Windows the same device can appear more than once: try the next one. |
-| The input you used before is gone after a restart | The interface was unplugged, or the system gave it a new name. Plug it in, press **Rescan**, choose it again and press **Start capture**. |
+| The meter is flat on one input only | Wrong device or wrong channel. On the **Audio bus** page try each channel for that lane, or **Mix** on a stereo feed. On Windows the same device can appear more than once: try the next one. |
+| The input you used before is gone after a restart | The interface was unplugged, or the system gave it a new name. Plug it in, press **Rescan devices** on the **Audio bus** page, choose it again and press **Start capture**. |
 | Another program has the sound card | Some programs (video calls, recording software) take the input for themselves. Close them, then press **Start capture** again. |
 
 ## Once Relay is running

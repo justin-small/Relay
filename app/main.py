@@ -1937,15 +1937,10 @@ async def admin_urls():
 
 @app.get("/api/admin/state", dependencies=[Depends(require("settings.view"))])
 async def admin_state():
-    from .audio import label_inputs, list_input_devices, selection_notice
-
-    # Cached read: opening the panel must never re-initialise PortAudio, which
-    # would close a live capture stream out from under the event.
     return {
         "config": config.redacted(),
         "status": engine.status(),
-        "devices": label_inputs(list_input_devices()),
-        "device_notice": selection_notice(config.get().get("audio_device")),
+        "lanes": audiobus.patched_lanes(),
         "urls": _urls(serving.viewer_port(config.get()["port"])),
         "serving": _serving_info(),
         "timezones": [{"id": z, "label": label} for z, label in schedules.US_TIMEZONES],
@@ -2268,12 +2263,11 @@ async def admin_network_forget(pid: str, request: Request):
 
 @app.get("/api/admin/devices", dependencies=[Depends(require("session.view"))])
 async def admin_devices():
-    from .audio import capture_is_live, label_inputs, list_input_devices, selection_notice
+    from .audio import capture_is_live, label_inputs, list_input_devices
 
     live = capture_is_live()
     return {
         "devices": label_inputs(list_input_devices(refresh=True)),
-        "device_notice": selection_notice(config.get().get("audio_device")),
         "full_rescan": not live,
         "note": RESCAN_LIVE_NOTE if live else None,
     }
@@ -2532,9 +2526,7 @@ async def admin_status_stream(request: Request):
 
 # What each field of POST /api/admin/config needs. A field that is not here is not applied.
 CONFIG_PERMISSIONS = {
-    "audio_device": "audio.manage",
-    "audio_source": "audio.manage",
-    "input_channel": "audio.manage",
+    "audio_lane": "audio.manage",
     "source_language": "audio.manage",
     "default_font_px": "settings.manage",
     "speaking_indicator_vad": "settings.manage",
@@ -2560,9 +2552,7 @@ async def admin_config(request: Request, payload: dict):
 
     updates: dict = {}
     allowed_scalars = (
-        "audio_device",
-        "audio_source",
-        "input_channel",
+        "audio_lane",
         "source_language",
         "default_font_px",
         "speaking_indicator_vad",
@@ -2632,7 +2622,7 @@ async def admin_config(request: Request, payload: dict):
     # Changes that alter the audio path or model behaviour need a session cycle.
     needs_restart = any(
         f in updates
-        for f in ("audio_device", "audio_source", "input_channel", "source_language", "realtime")
+        for f in ("audio_lane", "source_language", "realtime")
     )
     if needs_restart and engine.running:
         await engine.restart()

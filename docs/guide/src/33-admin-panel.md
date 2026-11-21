@@ -90,7 +90,7 @@ costs the same as one full of speech.
 | Message | What to do |
 |---|---|
 | **No OpenAI API key set. Add one in the admin panel.** | Add the key in [Credentials](#credentials), then click **Start capture** again. |
-| **No input device matched the saved selection.** | The sound device was unplugged or renamed. Plug it in, click **Rescan** in **Audio input**, choose it again, and click **Start capture**. |
+| **No input device matched the saved selection.** | The sound device was unplugged or renamed. Plug it in, click **Rescan devices** on the **Audio bus** page, check the lane is patched to it, and click **Start capture**. |
 
 ## Session health {#session-health}
 
@@ -148,23 +148,18 @@ backups, or move to a wired connection.
 
 ## Audio input {#audio-input}
 
-This page chooses where the sound comes from, and shows how loud it is.
+This page chooses which lane the captions listen to, and shows how loud it is. The input itself (the sound card and its channel) is patched to a lane on the **Audio bus** page.
 
 ![Audio input while capture is running (test data).](images/admin-audio-input.png){width=100%}
 
-1. **Capture device.** The sound input to use: an audio interface, a USB
-   microphone, or the computer's own microphone. Each entry shows how many
-   channels it has and its sample rate. If the list is wrong or empty, click
-   **Rescan** (3).
-2. **Channel.** Which input on the device to use. **Channel 1**,
-   **Channel 2** and so on pick one input. **Mix** combines all of them. For a
-   stereo feed from the sound desk, **Mix** is usually right. If the meter
-   stays flat while someone talks, you have picked the wrong channel: try the
-   others.
-3. **Rescan.** Looks for sound devices again. Use it after you plug
-   something in. While capture runs, it cannot see new devices: click **Stop**
-   first, then **Rescan**.
-4. **Noise reduction.** Cleans up background noise before the sound goes to
+1. **Lane.** The bus lane the captions listen to, listed by the name you gave it
+   on the **Audio bus** page. With nothing patched yet the list says so: open
+   **Audio bus**, add a lane, choose the sound input and its channel (**Mix**
+   combines all channels, usually right for a stereo feed from the sound desk),
+   save, then come back here and pick the lane. If the meter stays flat while
+   someone talks, the lane has the wrong channel: change it on the **Audio bus**
+   page. After you plug something in, click **Rescan devices** there.
+2. **Noise reduction.** Cleans up background noise before the sound goes to
    OpenAI. Match it to your source:
    - **Board feed / line in**: a feed from the sound desk. The default.
      The desk has already cleaned the sound, so Relay adds nothing.

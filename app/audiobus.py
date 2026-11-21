@@ -783,6 +783,11 @@ class Bus:
 bus = Bus()
 
 
+def patched_lanes() -> list[dict]:
+    """The lanes something is patched to, as the Audio input page lists them: [{"lane", "name"}]."""
+    return [{"lane": x["lane"], "name": x["name"]} for x in bus.config["lanes"]]
+
+
 # -- the engine's way in: a lane as an audio source -------------------------------------------------------------
 class LaneSource(audio.AudioSource):
     """`audio_source: "lane"` with `audio_device: "<lane number>"` feeds the main capture from a lane, so the

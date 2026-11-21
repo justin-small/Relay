@@ -137,6 +137,15 @@
     draft.lanes.push({ lane: n, name: '', source: 'portaudio', device: null, channel: 0 });
     drawLanes();
   };
+  $('abRescan').onclick = async function () {
+    fail(''); UI.say('abSaved', '');
+    try {
+      const body = await request('GET', '/api/admin/devices');      // probes the sound devices again (not while a capture holds them)
+      await load();
+      drawLanes(); drawOuts();
+      UI.say('abSaved', body.note || 'Devices rescanned.', false, { ms: 4000 });
+    } catch (e) { fail(e.message); }
+  };
   $('abAddOut').onclick = function () {
     let n = draft.outputs.length + 1; while (draft.outputs.some(function (o) { return o.id === 'out' + n; })) n++;
     draft.outputs.push({ id: 'out' + n, name: '', output: 'portaudio', device: null, channels: 2, latency_ms: 60 });

@@ -120,18 +120,14 @@ window.relayCan = function (perm) { return window.RELAY_ME.permissions.indexOf(p
 {% if 'audio.manage' in perms %}
   <div class="page" id="page-audio" data-page="audio" hidden>
     <h2 class="title">Audio input</h2>
-    <p class="sub">Choose the capture device and watch the input level.</p>
+    <p class="sub">Choose which lane the captions listen to and watch the input level.</p>
     <section>
-      <h3>Capture device</h3>
+      <h3>Captions listen to</h3>
     <div class="field">
-      <label for="device">Capture device</label>
-      <div class="row">
-        <select id="device"></select>
-        <select id="channel" style="flex:0 0 130px"></select>
-        <button id="rescan" style="flex:0 0 auto">Rescan</button>
-      </div>
-      <div id="deviceNotice" class="note" role="status" hidden></div>
-      <div id="deviceFeed" class="note" role="status" hidden></div>
+      <label for="lane">Lane</label>
+      <select id="lane"></select>
+      <div id="laneNote" class="note" role="status" hidden></div>
+      <div class="note">The input itself, its device and channel are patched to a lane on the Audio bus page.</div>
     </div>
     <div class="field">
       <label for="noise">Noise reduction</label>
@@ -231,7 +227,8 @@ window.relayCan = function (perm) { return window.RELAY_ME.permissions.indexOf(p
       <p class="note">Patch one channel of an input to a lane, or <em>mix</em> to sum every channel of it. A device is
         opened once however many lanes use it.</p>
       <div id="abLanes"></div>
-      <div class="row"><button type="button" id="abAddLane">Add a lane</button></div>
+      <div class="row"><button type="button" id="abAddLane">Add a lane</button>
+        <button type="button" id="abRescan">Rescan devices</button></div>
     </section>
     <section>
       <h3>Outputs</h3>
