@@ -12,7 +12,7 @@ does not fit those layouts is "no reading" (None), never a made-up one. All big-
 
 What real devices send: each sends a heartbeat about once a second, but only software devices and some others carry
 0x8002 signal presence (2 of 10 senders did; the four hardware boxes did not). Their levels need the metering
-requests (ports 8751 and 8752), which Relay does not make yet. 0x8001 comes from every sender.
+requests (metering.py: a request to port 8800, then pushes to port 8751). 0x8001 comes from every sender.
 
 Level byte, the "signal presence" scale: 0 is clipping, 1 to 252 is -(byte / 2) dBFS, 253 and up is silence or mute.
 """
