@@ -2,7 +2,7 @@
 fixed list of routes the tunnel carries.
 
 Offline: a throwaway database, the app's own lifespan, a fake Cloudflare (relay-cloud) and a fake audio side. The
-audio bridge's helpers (media.py: mixing, down-mixing, the fallback when the libraries are missing) are checked here;
+audio bridge's helpers (the mixer engine in mixbus.py, down-mixing, the fallback when the libraries are missing) are checked here;
 its livekit and aiortc calls need real sessions and are not. Run: python tests/test_intercom_remote.py
 """
 import asyncio
@@ -393,26 +393,110 @@ with TestClient(app, base_url=viewer) as client:
         r = client.post("/intercom/remote/api/sign-in", json={"username": "alice", "password": "correct horse"})
         eq("and cannot sign in again", r.status_code, 403)
 
-with section("the audio helpers"):
+with section("the mixer is a Rust engine of its own"):
     import numpy as np
-    from app.modules.intercom_remote import media
+    from app.modules.intercom_remote import media, mixbus
+    import _buslane
 
-    eq("stereo is averaged to mono", media.to_mono(np.array([100, 300, -100, -300], np.int16), 2).tolist(), [200, -200])
-    eq("planar stereo too", media.to_mono(np.array([100, -100, 300, -300], np.int16), 2, True).tolist(), [200, -200])
-    m = media.Mixer()
-    eq("no sources is silence", int(np.abs(m.pull()).sum()), 0)
-    m.add("a", np.full(media.FRAME * 2, 1000, np.int16))
-    m.add("b", np.full(media.FRAME, 2500, np.int16))
-    eq("sources are summed", int(m.pull()[0]), 3500)
-    eq("a source that ran dry adds silence", int(m.pull()[0]), 1000)
-    m.add("c", np.full(media.FRAME, 30000, np.int16))
-    m.add("d", np.full(media.FRAME, 30000, np.int16))
-    eq("the sum is clipped, not wrapped", int(m.pull().max()), 32767)
-    m.drop("c")
-    check("a dropped source is gone", "c" not in m.q)
-    for _ in range(10):
-        m.add("slow", np.ones(media.RATE, np.int16))
-    check("a source that falls behind is trimmed", m.n["slow"] <= media.MAX_BUFFER + media.RATE)
+    FR = mixbus.FRAME
+
+    def level(mix, channel, frames=None):
+        """Pull one 20 ms frame, after pushing `frames` ({track: value}) once: a caller's clock, 20 ms a turn."""
+        for key, v in (frames or {}).items():
+            mix.push(key, np.full(FR, v, np.int16))
+        return int(mix.pull(channel)[-1])
+
+    def settles(mix, channel, frames, want, tol=3):
+        """Keep the clock going until the mix reads `want` (the engine holds a little audio before it plays)."""
+        return wait_for(lambda: abs(level(mix, channel, frames) - want) <= tol, 5.0, 0.02)
+
+    mix = mixbus.MixBus()
+    mix.open_channel(1)
+    eq("no sources is silence", int(np.abs(mix.pull(1)).sum()), 0)
+    check("two tracks join the channel", mix.add_track(1, "1/a/x") and mix.add_track(1, "1/b/y"))
+    check("sources are summed", settles(mix, 1, {"1/a/x": 1000, "1/b/y": 2500}, 3500))
+    mix.drop_track("1/b/y")
+    check("a dropped track leaves the mix", settles(mix, 1, {"1/a/x": 1000}, 1000))
+    mix.add_track(1, "1/c/z")
+    mix.add_track(1, "1/d/w")
+    check("the sum is clipped, not wrapped", settles(mix, 1, {"1/c/z": 30000, "1/d/w": 30000}, 32767, 1))
+    eq("a frame is 20 ms of 48 kHz mono int16", (len(mix.pull(1)), mix.pull(1).dtype.name), (FR, "int16"))
+    mix.push("1/gone/never", np.ones(FR, np.int16))          # a late frame of a track that was never added is ignored
+    mix.close_channel(1)
+    eq("a closed channel is silence, not an error", int(np.abs(mix.pull(1)).sum()), 0)
+    mix.open_channel(2)
+    mix.open_channel(3)
+    check("a track belongs to the channel it was added to", mix.add_track(2, "2/a/x") and not mix.add_track(9, "9/a/x"))
+    check("the other channel stays silent", settles(mix, 3, {"2/a/x": 4000}, 0))
+    check("and this one has it", settles(mix, 2, {"2/a/x": 4000}, 4000))
+    full = [mix.add_track(3, f"3/p/{i}") for i in range(mixbus.LANES)]
+    check("the engine has 32 lanes and refuses the rest", full.count(True) == mixbus.LANES - 1 and not full[-1],
+          f"{full.count(True)} accepted")
+
+    with section("main-bus audio reaches a channel through a link that runs in Rust"):
+        main = _buslane.lane_bus(1)
+        mix.close_channel(3)
+        mix.close_channel(2)
+        mix.open_channel(4)
+        check("a feed needs a listened channel", not mix.add_feed(8, main.engine, 1))
+        check("the main bus's lane 1 feeds channel 4", mix.add_feed(4, main.engine, 1, 0.0))
+
+        def on_main(v):
+            _buslane.feed(main, 1, np.full(FR, v, np.float32))
+            return int(mix.pull(4)[-1])
+
+        check("it is heard in the mix", wait_for(lambda: abs(on_main(0.1) - 3277) <= 6, 5.0, 0.02), "level not reached")
+        st = mix.feed_status(4, 1)
+        check("and the link carried it without losing any", st["carried"] > 0 and st["dropped"] == 0, str(st))
+        mix.add_track(4, "4/a/x")
+
+        def both():
+            _buslane.feed(main, 1, np.full(FR, 0.1, np.float32))
+            return level(mix, 4, {"4/a/x": 1000})
+
+        check("beside a room's own track", wait_for(lambda: abs(both() - 4277) <= 6, 5.0, 0.02), "level not reached")
+        check("a feed takes a gain", mix.add_feed(4, main.engine, 1, -20.0))
+        mix.drop_track("4/a/x")
+        check("-20 dB is a tenth", wait_for(lambda: abs(on_main(0.5) - 1638) <= 8, 5.0, 0.02), "gain not applied")
+        mix.drop_feed(4, 1)
+        eq("a dropped feed has no status", mix.feed_status(4, 1), None)
+        eq("and its tap on the main bus is released", len(main.engine.status()["taps"]), 0)
+        main.close()
+
+    with section("the feed keeps flowing while Python is busy"):
+        from app import audiobus
+        import time as _time
+
+        live = audiobus.Bus("fake")
+        live.apply({"enabled": True, "lanes": [{"lane": 1, "source": "portaudio", "device": "Fake Mic", "channel": 0}]})
+        mix.open_channel(5)
+        mix.add_feed(5, live.engine, 1, 0.0)
+        check("audio is flowing", wait_for(lambda: mix.feed_status(5, 1)["carried"] > 4800, 5.0, 0.02))
+        before = mix.feed_status(5, 1)
+        until = _time.monotonic() + 0.4
+        while _time.monotonic() < until:       # Python holds its own thread (and the GIL) busy for 400 ms
+            sum(range(1000))
+        after = mix.feed_status(5, 1)
+        check("Rust carried 400 ms of audio meanwhile", after["carried"] - before["carried"] >= 0.35 * mixbus.RATE,
+              f"{after['carried'] - before['carried']} frames")
+        eq("and lost none", after["dropped"], 0)
+        live.close()
+
+    import importlib.util
+
+    if importlib.util.find_spec("av") is None:         # an optional library of the bridge, like aiortc and livekit
+        print("  skip a microphone frame becomes 48 kHz mono: PyAV is not installed")
+    else:
+        with section("a microphone frame becomes 48 kHz mono"):
+            import av
+
+            conv = media._mono_converter()
+            stereo = av.AudioFrame.from_ndarray(np.tile(np.array([[100, 300]], np.int16), (1, FR)), format="s16", layout="stereo")
+            stereo.sample_rate = mixbus.RATE
+            pcm = media._frame_to_mono(conv, stereo)
+            eq("stereo is averaged", (len(pcm), set(pcm.tolist())), (FR, {200}))
+    mix.close()
+
     n = media.NoMedia("why")
     eq("the stand-in says why", n.unavailable(), "why")
     check("and is never alive", not n.alive())

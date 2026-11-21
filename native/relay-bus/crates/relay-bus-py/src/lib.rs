@@ -11,9 +11,10 @@ use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyList};
 use relay_bus::fake::{signal, DeviceSpec, FakeBackend};
 use relay_bus::analysis::spl::CalibrateError;
-use relay_bus::{Backend, Cell, ChannelSel, Config, Engine, Error, LaneSpec, MeterReading, OutputKind, OutputSpec, ProbeHub, ProbeReading, ProbeSpec, StreamState, TapOptions};
+use relay_bus::{Backend, Cell, ChannelSel, Config, Engine, Error, LaneSpec, Link, MeterReading, OutputKind, OutputSpec, ProbeHub, ProbeReading, ProbeSpec, StreamState, TapOptions};
 use relay_bus_cpal::{list_devices as cpal_list_devices, ChangeSignal, CpalBackend, DeviceWatcher};
-use std::sync::atomic::{AtomicBool, Ordering::Relaxed};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering::Relaxed};
+use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
@@ -251,7 +252,9 @@ fn list_devices(py: Python<'_>) -> PyResult<Bound<'_, PyList>> {
 
 /// The 32-lane audio bus. `Bus("cpal")` opens real devices; `Bus("fake")` runs the deterministic fake backend on the
 /// wall clock (a 2 channel 1 kHz sine input named "default" and "Fake Mic", outputs "default" and "Fake Speaker"),
-/// which is handy for trying the API where there is no sound card.
+/// which is handy for trying the API where there is no sound card. `Bus("none")` has no devices at all: it is an
+/// engine fed with `push` (or a link from another bus) and drained with `pull`, which is what the remote intercom's
+/// mixer is (#605).
 #[pyclass(frozen, module = "relay_bus")]
 struct Bus {
     engine: Arc<Engine>,
@@ -263,6 +266,9 @@ struct Bus {
     thread: Mutex<Option<JoinHandle<()>>>,
     watcher: Mutex<Option<DeviceWatcher>>,
     watch_method: &'static str,
+    no_devices: bool,
+    links: Mutex<HashMap<u64, Link>>,
+    next_link: AtomicU64,
 }
 
 fn supervisor(engine: Arc<Engine>, fake: Option<Arc<FakeBackend>>, signal: Arc<ChangeSignal>, stop: Arc<AtomicBool>) {
@@ -312,7 +318,8 @@ impl Bus {
                 }
                 (Arc::new(Engine::new(f.clone() as Arc<dyn Backend>)), Some(f), None, None, "none")
             }
-            other => return Err(bad(format!("backend must be \"cpal\" or \"fake\", not {other:?}"))),
+            "none" => (Arc::new(Engine::new(FakeBackend::new() as Arc<dyn Backend>)), None, None, None, "none"),
+            other => return Err(bad(format!("backend must be \"cpal\", \"fake\" or \"none\", not {other:?}"))),
         };
         let stop = Arc::new(AtomicBool::new(false));
         let thread = {
@@ -323,7 +330,10 @@ impl Bus {
                 .map_err(|e| PyRuntimeError::new_err(e.to_string()))?
         };
         let probes = ProbeHub::new(engine.clone());
-        Ok(Self { engine, probes, fake, cpal, signal, stop, thread: Mutex::new(Some(thread)), watcher: Mutex::new(watcher), watch_method: method })
+        Ok(Self {
+            engine, probes, fake, cpal, signal, stop, thread: Mutex::new(Some(thread)), watcher: Mutex::new(watcher), watch_method: method,
+            no_devices: backend == "none", links: Mutex::new(HashMap::new()), next_link: AtomicU64::new(1),
+        })
     }
 
     /// How device changes are noticed: "coreaudio-listener", "polling-2s" or "none" (the fake backend).
@@ -366,6 +376,7 @@ impl Bus {
     /// Shut down and stop the background threads. The Bus is unusable for devices afterwards.
     fn close(&self, py: Python<'_>) {
         py.detach(|| {
+            self.links.lock().unwrap_or_else(|e| e.into_inner()).clear();
             self.stop.store(true, Relaxed);
             self.signal.notify();
             if let Some(t) = self.thread.lock().unwrap_or_else(|e| e.into_inner()).take() {
@@ -512,6 +523,43 @@ impl Bus {
         }
     }
 
+    // -- links (issue 605) -------------------------------------------------------------------------------------
+    /// Carry lane `lane` of the bus `source` into this bus's external input `input_id` (see `input_id` in the config),
+    /// on a Rust thread: no Python in the audio path. The input may be configured later. Returns the link's id.
+    fn link_from(&self, py: Python<'_>, source: PyRef<'_, Bus>, lane: usize, input_id: &str) -> PyResult<u64> {
+        if Arc::ptr_eq(&source.engine, &self.engine) {
+            return Err(bad("a bus cannot be linked to itself".into()));
+        }
+        let (src, dst) = (source.engine.clone(), self.engine.clone());
+        let link = py.detach(|| Link::start(src, lane, dst, input_id)).map_err(rt_err)?;
+        let id = self.next_link.fetch_add(1, Relaxed);
+        self.links.lock().unwrap_or_else(|e| e.into_inner()).insert(id, link);
+        Ok(id)
+    }
+
+    /// Stop a link and release its tap on the source.
+    fn close_link(&self, py: Python<'_>, link: u64) -> PyResult<()> {
+        let taken = self.links.lock().unwrap_or_else(|e| e.into_inner()).remove(&link);
+        match taken {
+            Some(l) => {
+                py.detach(|| drop(l));
+                Ok(())
+            }
+            None => Err(bad(format!("no link {link}"))),
+        }
+    }
+
+    /// `{carried, refused, dropped}` frames of a link: pushed into this bus, refused because the input was not there
+    /// yet, and lost because the link fell behind.
+    fn link_status<'py>(&self, py: Python<'py>, link: u64) -> PyResult<Bound<'py, PyDict>> {
+        let st = self.links.lock().unwrap_or_else(|e| e.into_inner()).get(&link).map(|l| l.status()).ok_or_else(|| bad(format!("no link {link}")))?;
+        let d = PyDict::new(py);
+        d.set_item("carried", st.carried)?;
+        d.set_item("refused", st.refused)?;
+        d.set_item("dropped", st.dropped)?;
+        Ok(d)
+    }
+
     /// Raise the device-change signal by hand, as the OS watcher does: waiting streams retry at once. Used to try the
     /// path without a device to unplug.
     fn notify_device_change(&self) {
@@ -527,6 +575,9 @@ impl Bus {
 
     /// Devices of this bus's backend (the same rows as the module's `list_devices()`).
     fn list_devices<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyList>> {
+        if self.no_devices {
+            return Ok(PyList::empty(py));
+        }
         device_list(py, self.fake.is_some())
     }
 }
