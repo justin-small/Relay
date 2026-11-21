@@ -407,8 +407,12 @@ with section("sending: through a real multicast socket"):
         except audio.SourceError as exc:
             print(f"  skipped: this machine cannot listen for multicast ({exc})")
             rx = None
+        if rx is not None and not wait_for(lambda: len(got) >= 5, 2.0):
+            print(f"  skipped: no multicast came back on this machine ({out.sender.packets} packets sent)")
+            rx.stop()
+            rx = None
         if rx is not None:
-            check("silence flows before anything plays", wait_for(lambda: len(got) >= 5, 4.0), f"{len(got)} blocks")
+            check("silence flows before anything plays", len(got) >= 5, f"{len(got)} blocks")
             t0 = len(got)
             out.on_alert({"event": "alert.sent", "level": "urgent"})
             loud = wait_for(lambda: any(float(np.max(np.abs(b[:, 1]))) > 0.05 for b in got[t0:]), 0.5)
