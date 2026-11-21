@@ -59,11 +59,11 @@ BODY = {"enabled": True,
         "outputs": [{"id": "mon", "output": "fake", "channels": 2}],
         "matrix": [{"in": 1, "out": "mon", "ch": 1, "gain_db": -3}]}
 
-with section("the bus is off until it is switched on"):
+with section("the bus starts empty"):
     r = viewer.get("/api/admin/audiobus")
     eq("a viewer can read it", r.status_code, 200)
     d = r.json()
-    eq("the saved setting is off and empty", d["config"], {"enabled": False, "lanes": [], "outputs": [], "matrix": []})
+    eq("the saved setting is empty", d["config"], {"lanes": [], "outputs": [], "matrix": []})
     eq("32 lanes are reported, all unpatched", (d["lanes"], len(d["status"]["lanes"]),
                                                 {x["state"] for x in d["status"]["lanes"]}), (32, 32, {"unpatched"}))
     check("sources and outputs include core's PortAudio and the bus's own", {"portaudio", "lane"} <= {s["id"] for s in d["sources"]}
@@ -104,10 +104,10 @@ with section("saving applies the cleaned setting"):
     admin.post("/api/admin/audiobus", json={**BODY, "outputs": [{"id": "mon", "output": "fake", "channels": 4}]})
     eq("a changed output is reopened", OUT.opened, 2)
 
-with section("switching off stops it, and the choice is audited"):
-    admin.post("/api/admin/audiobus", json={**BODY, "enabled": False})
+with section("saving an empty bus closes everything, and the change is audited"):
+    admin.post("/api/admin/audiobus", json={"lanes": [], "outputs": []})
     st = admin.get("/api/admin/audiobus").json()["status"]
-    eq("not running, nothing open", (st["running"], st["outputs"]), (False, []))
+    eq("nothing patched, nothing open", st["outputs"], [])
     rows = admin.get("/api/admin/audit", params={"kind": "audio.bus"}).json() if admin.get("/api/admin/audit").status_code == 200 else None
     check("changes are in the audit log", rows is None or "audio.bus" in str(rows))
 
@@ -115,7 +115,7 @@ audiobus.bus.stop()
 with section("a matrix saved in config before #544 moves to core routes"):
     from app import audiobus as old_bus, channels as old_channels, config as old_config, routing as old_routing  # noqa: E402
 
-    legacy = {"enabled": False, "lanes": [], "outputs": [{"id": "old", "output": "fake", "channels": 2}],
+    legacy = {"lanes": [], "outputs": [{"id": "old", "output": "fake", "channels": 2}],
               "matrix": [{"in": 3, "out": "old", "ch": 2, "gain_db": -9.0}]}
     old_config.save({"audio_bus": legacy}, replace=("audio_bus",))
     run = old_bus.runtime_config(old_config.get()["audio_bus"])

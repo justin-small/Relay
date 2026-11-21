@@ -11,7 +11,6 @@
     })();
   };
   const can = relayUI.can;
-  let devices = [];
   let cfg = null;
   let lastTargetsKey = '';
 
@@ -60,85 +59,53 @@
     });
   }
 
-  /* ---- devices ---- */
-  function renderDevices(list, selected, notice) {
-    devices = list;
-    const nb = $('deviceNotice');
-    nb.textContent = notice || '';
-    nb.hidden = !notice;
-    const sel = $('device');
+  /* ---- the lane the captions listen to ---- */
+  function renderLanes(lanes, selected) {
+    const sel = $('lane');
+    const note = $('laneNote');
     sel.innerHTML = '';
-    if (!list.length) {
+    if (!lanes.length) {
       const o = document.createElement('option');
-      o.textContent = 'No input devices found';
+      o.textContent = 'No lane is patched';
       sel.appendChild(o);
       sel.disabled = true;
+      note.textContent = 'Nothing is patched to a lane yet. Patch an input to a lane on the Audio bus page, then pick it here.';
+      note.hidden = false;
       return;
     }
     sel.disabled = false;
-    list.forEach(function (d) {
+    note.hidden = true;
+    lanes.forEach(function (l) {
       const o = document.createElement('option');
-      o.value = d.label;
-      o.textContent = d.label + (d.kind ? '  [' + d.kind + ']' : '') + '  (' + d.channels + ' ch, ' + d.default_samplerate + ' Hz'
-        + (d.default ? ', system default' : '') + ')';
+      o.value = String(l.lane);
+      o.textContent = 'Lane ' + l.lane + (l.name ? ': ' + l.name : '');
       sel.appendChild(o);
     });
-    if (selected) sel.value = selected;
-    if (!sel.value) sel.selectedIndex = 0;
-    renderChannels();
-  }
-
-  function renderChannels() {
-    const dev = devices.filter(function (d) { return d.label === $('device').value; })[0];
-    const sel = $('channel');
-    const want = cfg ? cfg.input_channel : 0;
-    sel.innerHTML = '';
-    const n = dev ? dev.channels : 1;
-    for (let i = 0; i < n; i++) {
+    sel.value = String(selected);
+    if (!sel.value) {
+      // The chosen lane is not patched (any more): say so instead of silently showing another one.
       const o = document.createElement('option');
-      o.value = String(i);
-      o.textContent = 'Channel ' + (i + 1);
+      o.value = String(selected);
+      o.textContent = 'Lane ' + selected + ' (not patched)';
       sel.appendChild(o);
+      sel.value = String(selected);
     }
-    // A stereo board feed is usually better summed than halved.
-    if (n > 1) {
-      const o = document.createElement('option');
-      o.value = 'mix';
-      o.textContent = 'Mix (' + n + ' ch)';
-      sel.appendChild(o);
-    }
-    sel.value = (want === 'mix' && n > 1)
-      ? 'mix'
-      : String(Math.min(parseInt(want, 10) || 0, n - 1));
-    renderFeed();
   }
 
-  /* What feeds the chosen channel, when a module that knows (Dante) says. */
-  function renderFeed() {
-    const dev = devices.filter(function (d) { return d.label === $('device').value; })[0];
-    const feeds = dev && dev.feeds ? dev.feeds : [];
-    const ch = $('channel').value;
-    const text = ch === 'mix'
-      ? feeds.filter(Boolean).join(', ')
-      : (feeds[parseInt(ch, 10) || 0] || '');
-    const box = $('deviceFeed');
-    box.textContent = text ? 'Fed by: ' + text : '';
-    box.hidden = !text;
-  }
-
-  $('device').addEventListener('change', function () {
-    renderChannels();
-    saveDevice();
-  });
-  $('channel').addEventListener('change', function () { renderFeed(); saveDevice(); });
-  $('noise').addEventListener('change', saveDevice);
-
-  async function saveDevice() {
+  // The lanes are patched on the Audio bus page: read them again each time this page is shown.
+  $('page-audio').addEventListener('relay:tab', async function () {
     try {
-      const payload = {
-        audio_device: $('device').value,
-        input_channel: $('channel').value === 'mix' ? 'mix' : (parseInt($('channel').value, 10) || 0)
-      };
+      const state = await api('/api/admin/state');
+      cfg = state.config;
+      renderLanes(state.lanes, cfg.audio_lane);
+    } catch (e) { alertMsg(e.message); }
+  });
+  $('lane').addEventListener('change', saveLane);
+  $('noise').addEventListener('change', saveLane);
+
+  async function saveLane() {
+    try {
+      const payload = { audio_lane: parseInt($('lane').value, 10) || 1 };
       // Noise reduction is a realtime setting: a role that cannot change those must not send it (the whole
       // request would be refused).
       if (can('settings.manage')) payload.realtime = { noise_reduction: $('noise').value || null };
@@ -147,15 +114,6 @@
       okMsg('Input saved.');
     } catch (e) { alertMsg(e.message); }
   }
-
-  $('rescan').addEventListener('click', async function () {
-    try {
-      const body = await api('/api/admin/devices');
-      renderDevices(body.devices, cfg && cfg.audio_device, body.device_notice);
-      if (body.note) alertMsg(body.note);
-      else okMsg('Devices rescanned.');
-    } catch (e) { alertMsg(e.message); }
-  });
 
   /* ---- targets ---- */
   function targetState(t) {
@@ -2734,7 +2692,7 @@
     try {
       const state = await api('/api/admin/state');
       cfg = state.config;
-      renderDevices(state.devices, cfg.audio_device, state.device_notice);
+      renderLanes(state.lanes, cfg.audio_lane);
       renderKeyState();
       // Module scripts (app/modules/<id>/static/) start from here.
       document.dispatchEvent(new CustomEvent('relay:config'));

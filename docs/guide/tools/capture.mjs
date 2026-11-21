@@ -313,9 +313,8 @@ async function adminPage(browser, { status = null, width = 1100, height = 900 } 
     const res = await route.fetch();
     const body = JSON.parse(scrub(await res.text()));
     body.urls = [EXAMPLE];
-    body.devices = DEVICES;
-    body.config.audio_device = 'USB Audio CODEC';
-    body.config.input_channel = 'mix';
+    body.lanes = [{ lane: 1, name: 'Sound desk mix' }, { lane: 2, name: 'Pastor lapel' }];
+    body.config.audio_lane = 1;
     if (status) body.status = { ...body.status, ...status(body.status) };
     await route.fulfill({ response: res, json: body });
   });

@@ -18,8 +18,8 @@ Python consumers (a tap per subscriber, read on a thread of its own).
 Outputs. A multichannel sink (a PortAudio device, or a module's network sender) of up to 32 channels. Relay's
 own sounds (alert tones, spoken translation) can be played into an output through the "bus" AudioOutput.
 
-Off until configured: with `audio_bus.enabled` false nothing here opens a device, and the main capture
-(audio.AudioCapture) is untouched either way.
+Always on: there is no switch. With nothing patched the bus opens nothing; a device that is not there (a
+headless server, an unplugged interface) is a lane or output that is waiting, and reconnects when it appears.
 
 Core, not a module: every module that brings audio in or out registers with it through app/audio.py, and core
 never imports a network client for it.
@@ -58,7 +58,7 @@ OUT_LOST_SENTENCE = "The audio output stopped. Check the device is plugged in; R
 
 # -- configuration ---------------------------------------------------------------------------------------------
 def default_config() -> dict:
-    return {"enabled": False, "lanes": [], "outputs": [], "matrix": []}
+    return {"lanes": [], "outputs": [], "matrix": []}
 
 
 def _int(v, lo: int, hi: int, default: int, drop: bool = False) -> int:
@@ -132,7 +132,7 @@ def normalize(raw) -> dict:
             gain = 0.0
         matrix.append({"in": lane, "out": oid, "ch": ch, "gain_db": round(max(GAIN_MIN_DB, min(GAIN_MAX_DB, gain)), 2)})
     matrix.sort(key=lambda x: (x["out"], x["ch"], x["in"]))
-    return {"enabled": bool(raw.get("enabled")), "lanes": lanes, "outputs": outputs, "matrix": matrix}
+    return {"lanes": lanes, "outputs": outputs, "matrix": matrix}
 
 
 PROVIDER = "audiobus"
@@ -592,13 +592,10 @@ class Bus:
             self.config = cfg
             for lane in self.lanes:
                 lane.name = ""
-            if not cfg["enabled"]:
-                self._stop_all()
-                return
             for spec in cfg["lanes"]:
                 self.lanes[spec["lane"] - 1].name = spec["name"]
             self._stop_outputs(cfg)             # before the engine forgets them: a sender must not pull from a gone output
-            self.engine.apply(self._for_engine(cfg))
+            self.engine.apply({**self._for_engine(cfg), "enabled": True})
             self._apply_intakes(cfg)
             self._start_outputs(cfg)
             self.running = True
@@ -787,6 +784,11 @@ class Bus:
 bus = Bus()
 
 
+def patched_lanes() -> list[dict]:
+    """The lanes something is patched to, as the Audio input page lists them: [{"lane", "name"}]."""
+    return [{"lane": x["lane"], "name": x["name"]} for x in bus.config["lanes"]]
+
+
 # -- the engine's way in: a lane as an audio source -------------------------------------------------------------
 class LaneSource(audio.AudioSource):
     """`audio_source: "lane"` with `audio_device: "<lane number>"` feeds the main capture from a lane, so the
@@ -881,7 +883,7 @@ def _core_apply(end: dict, wanted: list[dict]) -> str:
 def _core_read(end: dict) -> list[dict] | None:
     """The lanes the bus is really mixing into an output channel, with their gains; None while the bus is off."""
     where = _split_out(end["key"])
-    if where is None or not bus.config["enabled"] or not bus.running:
+    if where is None or not bus.running:
         return None
     return [{"provider": PROVIDER, "key": f"lane{c['in']}", "gain_db": c["gain_db"]}
             for c in bus.config["matrix"] if c["out"] == where[0] and c["ch"] == where[1]]

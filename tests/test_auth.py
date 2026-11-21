@@ -978,7 +978,7 @@ print("config fields")
 config.save({"openai_api_key": "", "default_font_px": 30, "recording": {"enabled": False, "keep_runs": 5}})
 before = json.dumps(config.get(), sort_keys=True)
 for role in ("viewer", "operator"):
-    eq(f"{role} cannot change audio", clients[role].post("/api/admin/config", json={"audio_device": "x"}).status_code, 403)
+    eq(f"{role} cannot change audio", clients[role].post("/api/admin/config", json={"audio_lane": 2}).status_code, 403)
 eq("an operator cannot change appearance", op_c.post("/api/admin/config", json={"default_font_px": 44}).status_code, 403)
 eq("an operator cannot change a blocklist", op_c.post("/api/admin/config", json={"blocklist": "x"}).status_code, 403)
 eq("a viewer can post nothing at all, harmlessly", view_c.post("/api/admin/config", json={}).status_code, 200)

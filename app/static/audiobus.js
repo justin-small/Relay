@@ -103,14 +103,13 @@
     box.replaceWith(Object.assign(UI.pill(st.running ? 'Running' : 'Off', st.running ? 'on' : 'idle'), { id: 'abState' }));
   }
   function drawAll() {
-    $('abOn').checked = !!draft.enabled;
     drawState(); drawLanes(); drawOuts();
     if (!editor) editor = UI.routeEditor($('abMatrix'), { kind: 'audio', provider: 'audiobus', perm: 'audio.manage',
       empty: 'Add an output and save to route lanes into it.' });
     else editor.reload();
   }
   function fromConfig(cfg) {
-    return { enabled: !!cfg.enabled, lanes: (cfg.lanes || []).map(function (l) { return Object.assign({}, l); }),
+    return { lanes: (cfg.lanes || []).map(function (l) { return Object.assign({}, l); }),
       outputs: (cfg.outputs || []).map(function (o) { return Object.assign({}, o); }) };
   }
 
@@ -131,13 +130,21 @@
     } catch (e) { /* the page keeps what it shows */ }
   }
 
-  $('abOn').onchange = function () { draft.enabled = $('abOn').checked; };
   $('abAddLane').onclick = function () {
     const used = draft.lanes.map(function (l) { return l.lane; });
     let n = 1; while (n <= MAX_LANES && used.indexOf(n) >= 0) n++;
     if (n > MAX_LANES) { fail('All 32 lanes are patched.'); return; }
     draft.lanes.push({ lane: n, name: '', source: 'portaudio', device: null, channel: 0 });
     drawLanes();
+  };
+  $('abRescan').onclick = async function () {
+    fail(''); UI.say('abSaved', '');
+    try {
+      const body = await request('GET', '/api/admin/devices');      // probes the sound devices again (not while a capture holds them)
+      await load();
+      drawLanes(); drawOuts();
+      UI.say('abSaved', body.note || 'Devices rescanned.', false, { ms: 4000 });
+    } catch (e) { fail(e.message); }
   };
   $('abAddOut').onclick = function () {
     let n = draft.outputs.length + 1; while (draft.outputs.some(function (o) { return o.id === 'out' + n; })) n++;
@@ -147,7 +154,7 @@
   $('abSave').onclick = async function () {
     fail(''); UI.say('abSaved', '');
     try {
-      const got = await request('POST', '/api/admin/audiobus', { enabled: draft.enabled, lanes: draft.lanes, outputs: draft.outputs });
+      const got = await request('POST', '/api/admin/audiobus', { lanes: draft.lanes, outputs: draft.outputs });
       info.config = got.config; info.status = got.status;
       draft = fromConfig(got.config);
       drawAll();

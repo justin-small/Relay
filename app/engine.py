@@ -106,8 +106,8 @@ class Engine:
             assert self.capture is not None
             try:
                 self.capture.gate_silence = bool(cfg["realtime"].get("gate_silence", True))
-                self.capture.start(cfg.get("audio_device"), cfg.get("input_channel", 0),
-                                   cfg.get("audio_source") or "portaudio")
+                from . import audiobus  # here: the bus loads the sound library, which this module must not need at import
+                self.capture.start(str(cfg["audio_lane"]), 0, audiobus.LANE_SOURCE)
             except RuntimeError:
                 # The capture's own sentence (fixed text naming the device), never the exception's.
                 self.last_error = self.capture.error or "The audio input could not be opened."

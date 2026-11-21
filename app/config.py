@@ -43,13 +43,10 @@ DEFAULTS: dict[str, Any] = {
     "admin_token": "",
     # The owner's backup passphrase, as the key derived from it (app/backup.py); never the passphrase itself.
     "backup_key": "",
-    "audio_device": None,
-    # Which registered audio source feeds capture (app/audio.py): "portaudio", or the id of a module's source.
-    "audio_source": "portaudio",
-    "input_channel": 0,
-    # The 32-lane audio bus (app/audiobus.py): inputs patched to lanes, a crosspoint matrix, outputs. Off until
-    # switched on; the main capture above does not depend on it.
-    "audio_bus": {"enabled": False, "lanes": [], "outputs": [], "matrix": []},
+    # Which bus lane (1 to 32) the captions listen to. The input itself is patched to that lane on the Audio bus page.
+    "audio_lane": 1,
+    # The 32-lane audio bus (app/audiobus.py): inputs patched to lanes, a crosspoint matrix, outputs. Always on.
+    "audio_bus": {"lanes": [], "outputs": [], "matrix": []},
     "mixreport": {"enabled": False, "left": 1, "right": 2, "silence_dbfs": -50.0, "target_lufs": -16.0,
                   "tolerance_lu": 2.0, "peak_limit_dbfs": -1.0, "rehearsal": False},
     "metering": {"enabled": False, "lane": 1, "kind": "room", "calibration_db": 110.0, "calibrated": False,
@@ -191,23 +188,18 @@ def _normalise(cfg: dict) -> dict:
     cfg["targets"] = targets
     cfg["default_font_px"] = max(16, min(160, int(cfg.get("default_font_px") or 40)))
     cfg["history_lines"] = max(1, min(500, int(cfg.get("history_lines") or 40)))
-    cfg["audio_source"] = str(cfg.get("audio_source") or "portaudio").strip().lower() or "portaudio"
     from . import audiobus  # here, not at the top: it loads the sound library, which config must not need
+    try:
+        cfg["audio_lane"] = max(1, min(audiobus.LANES, int(cfg.get("audio_lane") or 1)))
+    except (TypeError, ValueError):
+        cfg["audio_lane"] = 1
+    for gone in ("audio_source", "audio_device", "input_channel"):   # the capture's own input, before it read a lane
+        cfg.pop(gone, None)
     cfg["audio_bus"] = audiobus.normalize(cfg.get("audio_bus"))
     from . import metering  # the same reason: it imports the bus
     cfg["metering"] = metering.normalize(cfg.get("metering"))
     from . import mixreport  # the same reason
     cfg["mixreport"] = mixreport.normalize(cfg.get("mixreport"))
-    # A channel index, or the string "mix" to average every input channel --
-    # a stereo board feed is usually better summed than halved.
-    _ch = cfg.get("input_channel", 0)
-    if isinstance(_ch, str) and _ch.strip().lower() == "mix":
-        cfg["input_channel"] = "mix"
-    else:
-        try:
-            cfg["input_channel"] = max(0, int(_ch or 0))
-        except (TypeError, ValueError):
-            cfg["input_channel"] = 0
     # Viewers get `port`; the operator panel is served on `admin_port`, over HTTPS only, so the link handed
     # to a room never reaches the panel. They cannot be the same port: that would serve the panel where
     # viewers are served, in cleartext.
