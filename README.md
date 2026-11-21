@@ -1596,6 +1596,14 @@ several at once. It is built from each maker's published protocol and the Bitfoc
 which MIDI does not. It is not published for other software, may stop working with new firmware and does not follow the
 console's user profiles, so it is off unless you turn it on for that desk.
 
+**I/O patch from a show file (Avantis, dLive).** The desks' MIDI and AH-Net do not say what is patched where, so export
+the show (`.tar.gz`, from the desk's USB or Director) and choose it on the desk's card: Relay lists each input channel's
+name and socket (local, I/O port, SLink, USB) and, on the Avantis, what each patched output carries, and keeps it for the
+signal map. It is read from the show's live scene and never written back. A file it does not know (another format
+version, a Qu show, a zip) is refused with a sentence and changes nothing. Checked against real Avantis exports
+(Bridge-2 to Bridge-4); the dLive layout follows published notes and has not been tried on a real export, and Qu shows are
+not read yet.
+
 **What it does:**
 - **A live mirror** of every desk on the Audio Mixers page: channel names, colours, mutes, faders, meters (X32/M32) and the
   current scene. A value Relay has not heard is shown as unknown, never guessed.

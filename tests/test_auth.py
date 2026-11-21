@@ -367,6 +367,7 @@ MIN_ROLE = {
     "youtube.view": "viewer", "youtube.publish": "operator", "youtube.manage": "admin",
     "unifi.view": "viewer", "unifi.manage": "admin",
     "tally_arbiter.view": "viewer", "tally_arbiter.manage": "admin",
+    "wireless_mics.view": "viewer", "wireless_mics.manage": "admin",
     "open_sound_meter.view": "viewer", "open_sound_meter.manage": "admin",
     "dante.view": "viewer", "dante.control": "operator", "dante.manage": "admin",
     "signalmap.view": "viewer", "signalmap.manage": "admin",
@@ -396,7 +397,7 @@ print("every /api/admin route")
 config.save({"modules": {"propresenter": {"enabled": True}, "planning_center": {"enabled": True},
                          "remote_access": {"enabled": True}, "signage": {"enabled": True},
                          "signage_web": {"enabled": True}, "alert_events": {"enabled": True},
-                         "blackmagic": {"enabled": True}, "lighting": {"enabled": True}, "ndi": {"enabled": True}, "obs": {"enabled": True}, "reaper": {"enabled": True}, "audio_mixers": {"enabled": True}, "youtube": {"enabled": True}, "unifi": {"enabled": True}, "tally_arbiter": {"enabled": True}, "open_sound_meter": {"enabled": True}, "dante": {"enabled": True}, "signalmap": {"enabled": True}, "talkback": {"enabled": True}, "prodmesh_rta": {"enabled": True},
+                         "blackmagic": {"enabled": True}, "lighting": {"enabled": True}, "ndi": {"enabled": True}, "obs": {"enabled": True}, "reaper": {"enabled": True}, "audio_mixers": {"enabled": True}, "youtube": {"enabled": True}, "unifi": {"enabled": True}, "tally_arbiter": {"enabled": True}, "wireless_mics": {"enabled": True}, "open_sound_meter": {"enabled": True}, "dante": {"enabled": True}, "signalmap": {"enabled": True}, "talkback": {"enabled": True}, "prodmesh_rta": {"enabled": True},
                          "parent_paging": {"enabled": True}, "intercom": {"enabled": True}, "intercom_remote": {"enabled": True},
                          "crew": {"enabled": True}}})
 
@@ -559,6 +560,7 @@ SGX = "/api/admin/signage"
 SWX = "/api/admin/signage-web"
 ATX = "/api/admin/blackmagic"
 TAX = "/api/admin/tally-arbiter"
+WM = "/api/admin/wireless-mics"
 PGX = "/api/admin/parent-paging"
 for method, path, perm in (
     ("GET", "/api/admin/intercom", "intercom.view"),
@@ -751,6 +753,9 @@ for method, path, perm in (
     ("PUT", "/api/admin/audio_mixers/settings", "audio_mixers.manage"),   # an empty body is refused
     ("POST", "/api/admin/audio_mixers/{did}/control", "audio_mixers.control"),   # no such desk: 404
     ("POST", "/api/admin/audio_mixers/{did}/baseline", "audio_mixers.manage"),
+    ("GET", "/api/admin/audio_mixers/{did}/patch", "audio_mixers.view"),      # no such desk: 404
+    ("POST", "/api/admin/audio_mixers/{did}/patch", "audio_mixers.manage"),   # no such desk: 404
+    ("DELETE", "/api/admin/audio_mixers/{did}/patch", "audio_mixers.manage"),
     ("GET", "/api/admin/audio_mixers/people", "audio_mixers.manage"),
     ("GET", "/api/admin/audio_mixers/names", "audio_mixers.control"),     # Planning Center off: a sentence, nothing sent
     ("POST", "/api/admin/audio_mixers/names", "audio_mixers.control"),    # no rows: refused
@@ -766,6 +771,8 @@ for method, path, perm in (
     ("POST", PGX + "/pages/{pid}/clear", "parent_paging.control"),
     ("POST", PGX + "/pages/clear", "parent_paging.control"),
     ("GET", TAX, "tally_arbiter.view"),
+    ("GET", WM, "wireless_mics.view"),
+    ("PUT", WM + "/settings", "wireless_mics.manage"),
     ("PUT", TAX + "/settings", "tally_arbiter.manage"),                  # an empty body clears the address
     ("GET", "/api/admin/open-sound-meter", "open_sound_meter.view"),
     ("PUT", "/api/admin/open-sound-meter/settings", "open_sound_meter.manage"),
@@ -964,7 +971,7 @@ eq("signed out is 401", anon_c.get("/api/admin/propresenter").status_code, 401)
 config.save({"modules": {"propresenter": {"enabled": False}, "planning_center": {"enabled": False},
                          "remote_access": {"enabled": False}, "signage": {"enabled": False},
                          "signage_web": {"enabled": False}, "alert_events": {"enabled": False},
-                         "blackmagic": {"enabled": False}, "lighting": {"enabled": False}, "ndi": {"enabled": False}, "obs": {"enabled": False}, "reaper": {"enabled": False}, "audio_mixers": {"enabled": False}, "youtube": {"enabled": False}, "unifi": {"enabled": False}, "tally_arbiter": {"enabled": False}, "open_sound_meter": {"enabled": False}, "dante": {"enabled": False}, "signalmap": {"enabled": False}, "talkback": {"enabled": False}, "prodmesh_rta": {"enabled": False},
+                         "blackmagic": {"enabled": False}, "lighting": {"enabled": False}, "ndi": {"enabled": False}, "obs": {"enabled": False}, "reaper": {"enabled": False}, "audio_mixers": {"enabled": False}, "youtube": {"enabled": False}, "unifi": {"enabled": False}, "tally_arbiter": {"enabled": False}, "wireless_mics": {"enabled": False}, "open_sound_meter": {"enabled": False}, "dante": {"enabled": False}, "signalmap": {"enabled": False}, "talkback": {"enabled": False}, "prodmesh_rta": {"enabled": False},
                          "parent_paging": {"enabled": False}, "intercom": {"enabled": False}, "intercom_remote": {"enabled": False},
                          "crew": {"enabled": False}}})
 eq("a module that is off is still a 404 for everyone", op_c.get("/api/admin/propresenter").status_code, 404)
@@ -1534,6 +1541,7 @@ for mid, want in (("planning_center", {"planning_center.view": "viewer", "planni
                   ("youtube", {"youtube.view": "viewer", "youtube.publish": "operator", "youtube.manage": "admin"}),
                   ("unifi", {"unifi.view": "viewer", "unifi.manage": "admin"}),
                   ("tally_arbiter", {"tally_arbiter.view": "viewer", "tally_arbiter.manage": "admin"}),
+                  ("wireless_mics", {"wireless_mics.view": "viewer", "wireless_mics.manage": "admin"}),
                   ("open_sound_meter", {"open_sound_meter.view": "viewer", "open_sound_meter.manage": "admin"}),
                   ("dante", {"dante.view": "viewer", "dante.control": "operator", "dante.manage": "admin"}),
                   ("signalmap", {"signalmap.view": "viewer", "signalmap.manage": "admin"}),

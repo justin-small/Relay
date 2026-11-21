@@ -56,7 +56,7 @@ class AudioMixers(Module):
         traffic=(Traffic("audio_mixers", "Audio mixers (MIDI, OSC, RCP)"),),
     )
     defaults = {"desks": [], "watchdog": {"on": False, "user_id": 0, "names": True, "scene": True, "mutes": []},
-                "baselines": {}, "names": {"style": "first"}}
+                "baselines": {}, "patches": {}, "names": {"style": "first"}}
     network_map_adds = "Adds the sound desks it controls."
     admin_pages = (AdminPage(
         id="audio_mixers", title="Audio Mixers", template="audio_mixers.html",
@@ -94,12 +94,14 @@ class AudioMixers(Module):
         modules.provide("gear.audio_mixers", {"list": service.gear_list, "can_rename": service.can_rename,
                                               "rename": service.rename})
         modules.provide("routes.audio_mixers", service.routes_api())
+        modules.provide("patch.audio_mixers", service.patch_list)
 
     def detach(self) -> None:
         from ... import modules
 
         modules.withdraw("gear.audio_mixers")
         modules.withdraw("routes.audio_mixers")
+        modules.withdraw("patch.audio_mixers")
 
     async def start(self) -> None:
         from .service import service
