@@ -1,8 +1,7 @@
 """Wireless mics admin routes (#153). Mounted by the module registry, so each answers 404 while the module is off."""
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, Request
-from fastapi.responses import JSONResponse
+from fastapi import APIRouter, Depends, HTTPException, Request
 
 from ... import audit, config, directory
 from .. import require
@@ -28,8 +27,8 @@ def admin_state():
 async def admin_settings(request: Request, payload: dict):
     try:
         s = validate(payload)
-    except Invalid as e:
-        return JSONResponse({"error": str(e)}, status_code=400)
+    except Invalid as exc:
+        raise HTTPException(400, exc.message)
     config.save({"wireless_mics": s}, replace=("wireless_mics",))
     await service.restart()
     audit.note(request, "wireless_mics.settings", "Changed the wireless mics",

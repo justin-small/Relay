@@ -26,7 +26,11 @@ PERSON_CACHE_S = 5.0
 
 
 class Invalid(ValueError):
-    """A setting the operator typed is wrong; the message is a fixed sentence for the page."""
+    """A setting the operator typed is wrong; `message` is a fixed sentence for the page."""
+
+    def __init__(self, message: str) -> None:
+        super().__init__(message)
+        self.message = message
 
 
 def _text(value: Any, limit: int) -> str:
