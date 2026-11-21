@@ -21,14 +21,15 @@ class AES67(Module):
         name="AES67",
         version="1.0.0",
         summary="Finds AES67 network audio streams (Dante devices in AES67 mode, Ravenna, Livewire) and receives "
-                "one as Relay's input, with no driver to install.",
+                "one as Relay's input, and sends Relay's alert tones and spoken languages out as one, with no driver "
+                "to install.",
         settings_key="aes67",
         section="Sound",
         guide="https://github.com/justin-small/relay#aes67",
         uses=("dante",),
-        traffic=(Traffic("aes67", "AES67 stream announcements (SAP) and audio (multicast RTP)", media=True),),
+        traffic=(Traffic("aes67", "AES67 stream announcements (SAP) and audio (multicast RTP), in and out", media=True),),
     )
-    defaults: dict = {"remembered": {}}
+    defaults: dict = {"remembered": {}, "output": {}}
     admin_pages = (AdminPage(
         id="aes67", title="AES67", template="aes67.html",
         icon='<path d="M2 8h2l2-5 3 10 2-5h3"/>'),)
@@ -36,7 +37,7 @@ class AES67(Module):
     route_prefixes = ("/api/admin/aes67",)
     permissions = (
         Permission("aes67.view", "See the AES67 streams Relay hears announced and how the chosen one is arriving", "AES67", "viewer"),
-        Permission("aes67.manage", "Choose which AES67 stream Relay keeps for its input", "AES67", "admin"),
+        Permission("aes67.manage", "Choose which AES67 stream Relay keeps for its input, and set up and test the stream Relay sends", "AES67", "admin"),
     )
 
     def clean(self, raw: Any) -> dict:
@@ -57,30 +58,55 @@ class AES67(Module):
         from .service import service
         from .source import AES67Source
 
+        from ... import modules as registry
+        from ...alerts import alerts
+        from .output import AES67Output, output
+
         audio.register_source(AES67Source(service.find))
+        audio.register_output(AES67Output())
+        if output.on_alert not in alerts.listeners:
+            alerts.listeners.append(output.on_alert)
+        registry.provide("aes67.speak", output.speak)
 
     def detach(self) -> None:
         from ... import audio
         from .source import SOURCE_ID
 
+        from ... import modules as registry
+        from ...alerts import alerts
+        from .output import OUTPUT_ID, output
+
         audio.unregister_source(SOURCE_ID)
+        audio.unregister_output(OUTPUT_ID)
+        if output.on_alert in alerts.listeners:
+            alerts.listeners.remove(output.on_alert)
+        registry.withdraw("aes67.speak")
 
     async def start(self) -> None:
         from ... import config
         from .service import service
 
+        from .output import output
+
         service.configure(config.get().get("aes67") or {})
         service.start()
+        output.configure((config.get().get("aes67") or {}).get("output"))
 
     async def stop(self) -> None:
         from .service import service
 
+        from .output import output
+
         service.stop()
+        output.stop()
 
     def network_changed(self, resolved) -> None:
+        from .output import output
         from .service import service
 
         service.start()
+        if output.settings["enabled"]:
+            output.configure(output.settings)
 
     def health(self) -> Health:
         from .service import service

@@ -31,4 +31,14 @@
         silent usually means the switch is dropping multicast, or the stream goes out of a different network port than
         Relay listens on: set the AES67 port under Network.</p>
     </section>
+    <section>
+      <h3>Send Relay's sound out</h3>
+      <p class="note">Relay can send its stage alert tones and each spoken language onto the network as one AES67
+        stream of up to 8 channels, announced the way Dante devices announce theirs. In Dante Controller, switch the
+        receiving device to AES67 mode and subscribe it to this stream; Relay's own clock paces it (it does not lock
+        to PTP). A sound device or Dante Virtual Soundcard works too, without this: pick it as an audio output.</p>
+      <div id="aes67OutForm"></div>
+      <div class="note" id="aes67OutNow"></div>
+      <div class="note err" id="aes67OutErr" hidden></div>
+    </section>
     <div class="note err" id="aes67Err" hidden></div>

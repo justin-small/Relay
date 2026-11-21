@@ -29,8 +29,8 @@ NO_LISTEN = "Could not listen for AES67 announcements on the network."
 
 
 def clean_settings(raw: Any) -> dict:
-    """`{"remembered": {stream id: sdp}}`: the streams the operator chose, each kept only while its SDP still parses
-    as the stream it is filed under."""
+    """`{"remembered": {stream id: sdp}, "output": {...}}`: the streams the operator chose, each kept only while its
+    SDP still parses as the stream it is filed under, and the output's settings (output.py)."""
     out: dict[str, str] = {}
     src = raw.get("remembered") if isinstance(raw, dict) else None
     if isinstance(src, dict):
@@ -38,7 +38,9 @@ def clean_settings(raw: Any) -> dict:
             s = parse(sdp) if isinstance(sdp, str) else None
             if s is not None and s.id == sid and len(out) < MAX_REMEMBERED:
                 out[sid] = sdp
-    return {"remembered": out}
+    from .output import clean as clean_output
+
+    return {"remembered": out, "output": clean_output(raw.get("output") if isinstance(raw, dict) else None)}
 
 
 class Service:

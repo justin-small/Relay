@@ -778,6 +778,8 @@ for method, path, perm in (
     ("POST", "/api/admin/dante/presets/{preset_id}/apply", "dante.control"),
     ("GET", "/api/admin/aes67", "aes67.view"),
     ("POST", "/api/admin/aes67/remember", "aes67.manage"),
+    ("POST", "/api/admin/aes67/output", "aes67.manage"),
+    ("POST", "/api/admin/aes67/output/test", "aes67.manage"),
     ("GET", "/api/admin/talkback", "talkback.view"),
     ("PUT", "/api/admin/talkback/settings", "talkback.manage"),
     ("POST", "/api/admin/talkback/start", "talkback.control"),       # no lane chosen: refused
