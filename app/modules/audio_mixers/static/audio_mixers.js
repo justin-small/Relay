@@ -257,6 +257,79 @@
     });
   }
 
+  // ------------------------------------------------------------------------------------------ I/O patch from a show file
+  let patchSig = '';
+  function patchTable(heads, rows) {
+    const table = el('table');
+    const hr = el('tr');
+    heads.forEach(function (t) { hr.appendChild(el('th', '', t)); });
+    table.appendChild(hr);
+    rows.forEach(function (cells) {
+      const tr = el('tr');
+      cells.forEach(function (t) { tr.appendChild(el('td', '', t)); });
+      table.appendChild(tr);
+    });
+    return table;
+  }
+  async function sendShow(d, file) {
+    const res = await fetch('/api/admin/audio_mixers/' + encodeURIComponent(d.id) + '/patch?name=' + encodeURIComponent(file.name),
+      { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/octet-stream' }, body: file });
+    const out = await res.json().catch(function () { return {}; });
+    if (!res.ok) throw new Error(out.error || out.detail || 'That did not work.');
+  }
+  function patchForm() {
+    const host = $('amPatchRows');
+    const list = data.desks.filter(function (d) { return d.model === 'avantis' || d.model === 'dlive' || /^qu/.test(d.model); });
+    const kept = (data.settings && data.settings.patches) || {};
+    const sig = JSON.stringify(list.map(function (d) { return [d.id, d.name, d.model, (kept[d.id] || {}).read_at || 0]; }));
+    $('amPatch').hidden = !list.length;
+    if (sig === patchSig) return;
+    patchSig = sig;
+    host.textContent = '';
+    list.forEach(function (d) {
+      const card = el('div', 'pcard amform');
+      card.appendChild(el('h4', '', d.name));
+      const got = kept[d.id];
+      if (/^qu/.test(d.model)) {
+        card.appendChild(el('p', 'note', 'Qu show files are not supported yet.'));
+        host.appendChild(card);
+        return;
+      }
+      const file = el('input', { type: 'file', accept: '.gz,.tgz,application/gzip', id: 'amPatchFile' + d.id, 'aria-label': 'Show file for ' + d.name });
+      file.onchange = async function () {
+        const f = file.files[0];
+        file.value = '';
+        if (!f) return;
+        say('');
+        try { await sendShow(d, f); data = await api('GET', '/api/admin/audio_mixers', null, { cache: 'no-store' }); patchSig = ''; paint(); }
+        catch (e) { say(e.message); }
+      };
+      card.appendChild(relayUI.field(got ? 'Read a newer show' : 'Choose the exported show', file, 'amPatchFile' + d.id));
+      if (got) {
+        card.appendChild(el('p', 'note', got.file + ' (' + (got.family === 'avantis' ? 'Avantis' : 'dLive') + ' show format ' + got.firmware +
+          ', read ' + new Date(got.read_at * 1000).toLocaleString() + '): ' + got.inputs.length + ' inputs, ' + got.outputs.length + ' outputs patched.' +
+          (got.verified ? '' : ' This layout has not been checked against a real export yet.')));
+        card.appendChild(patchTable(['Ch', 'Name', 'Source'], got.inputs.map(function (i) {
+          return [String(i.channel), i.named ? i.name : '', i.source.label];
+        })));
+        if (got.outputs.length) {
+          const more = el('details');
+          more.appendChild(el('summary', '', 'Outputs (' + got.outputs.length + ')'));
+          more.appendChild(patchTable(['Output', 'Carries'], got.outputs.map(function (o) { return [o.destination, o.carries]; })));
+          card.appendChild(more);
+        }
+        const row = el('div', 'ctl');
+        row.appendChild(button('Clear the patch', async function () {
+          if (!(await relayUI.confirm('Forget the patch read for ' + d.name + '? Nothing changes on the desk.'))) return;
+          await api('DELETE', '/api/admin/audio_mixers/' + encodeURIComponent(d.id) + '/patch');
+          data = await api('GET', '/api/admin/audio_mixers', null, { cache: 'no-store' }); patchSig = ''; paint();
+        }, 'danger sm'));
+        card.appendChild(row);
+      }
+      host.appendChild(card);
+    });
+  }
+
   // ------------------------------------------------------------------------------------------ setup
   function modelOf(id) { return (data.models || []).filter(function (m) { return m.id === id; })[0] || {}; }
   function deskForm() {
@@ -322,7 +395,7 @@
     $('amNames').hidden = !can('audio_mixers.control');
     const manage = can('audio_mixers.manage');
     $('amWatch').hidden = !manage; $('amSetup').hidden = !manage;
-    if (manage) { watchForm(); deskForm(); }
+    if (manage) { watchForm(); deskForm(); patchForm(); } else { $('amPatch').hidden = true; }
   }
 
   $('amPreview').onclick = function () { say(''); preview().catch(function (e) { say(e.message); }); };

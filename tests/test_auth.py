@@ -752,6 +752,9 @@ for method, path, perm in (
     ("PUT", "/api/admin/audio_mixers/settings", "audio_mixers.manage"),   # an empty body is refused
     ("POST", "/api/admin/audio_mixers/{did}/control", "audio_mixers.control"),   # no such desk: 404
     ("POST", "/api/admin/audio_mixers/{did}/baseline", "audio_mixers.manage"),
+    ("GET", "/api/admin/audio_mixers/{did}/patch", "audio_mixers.view"),      # no such desk: 404
+    ("POST", "/api/admin/audio_mixers/{did}/patch", "audio_mixers.manage"),   # no such desk: 404
+    ("DELETE", "/api/admin/audio_mixers/{did}/patch", "audio_mixers.manage"),
     ("GET", "/api/admin/audio_mixers/people", "audio_mixers.manage"),
     ("GET", "/api/admin/audio_mixers/names", "audio_mixers.control"),     # Planning Center off: a sentence, nothing sent
     ("POST", "/api/admin/audio_mixers/names", "audio_mixers.control"),    # no rows: refused
