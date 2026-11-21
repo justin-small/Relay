@@ -1,0 +1,78 @@
+{
+ "engine": "rust",
+ "scenario": "F",
+ "seconds": 60.0,
+ "halves": [
+  {
+   "busy_thread": false,
+   "wall_s": 30.00772983301431,
+   "cpu_pct": 18.703450848271718,
+   "speaker_underruns": 0,
+   "speaker_resyncs": 0,
+   "input_dropped": 0,
+   "glitches": {
+    "underruns": 0,
+    "resyncs": 0,
+    "dropped_frames": 0,
+    "discard_overflow": 0,
+    "rejected": 0,
+    "command_busy": 0
+   },
+   "tap_samples_vs_expected": [
+    1.000408900208512,
+    1.000408900208512,
+    1.000408900208512,
+    1.000408900208512
+   ],
+   "tap_dropped": 0,
+   "tap_max_arrival_gap_ms": 18.458624952472746,
+   "busy_share_of_solo": null
+  },
+  {
+   "busy_thread": true,
+   "wall_s": 30.008548334008083,
+   "cpu_pct": 102.6532361949998,
+   "speaker_underruns": 0,
+   "speaker_resyncs": 0,
+   "input_dropped": 0,
+   "glitches": {
+    "underruns": 0,
+    "resyncs": 0,
+    "dropped_frames": 0,
+    "discard_overflow": 0,
+    "rejected": 0,
+    "command_busy": 0
+   },
+   "tap_samples_vs_expected": [
+    1.0000483750821851,
+    1.0000483750821851,
+    1.0000483750821851,
+    1.0000483750821851
+   ],
+   "tap_dropped": 0,
+   "tap_max_arrival_gap_ms": 67.77095806319267,
+   "busy_share_of_solo": 0.9798486923550508
+  }
+ ],
+ "advisories": 0,
+ "machine": {
+  "model": "Mac16,7",
+  "cpu": "Apple M4 Pro",
+  "cores": "14",
+  "perf_cores": "10",
+  "efficiency_cores": "4",
+  "memory_gb": 24.0,
+  "macos": "26.5.2",
+  "build": "25F84",
+  "python": "3.10.11",
+  "numpy": "2.2.6",
+  "date": "2026-11-21 00:16",
+  "power": "Now drawing from 'AC Power'",
+  "low_power_mode": "lowpowermode (not listed)",
+  "load_avg_at_start": [
+   2.4208984375,
+   2.35693359375,
+   2.86572265625
+  ]
+ }
+}

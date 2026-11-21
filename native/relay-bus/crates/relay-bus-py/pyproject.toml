@@ -1,0 +1,16 @@
+[build-system]
+requires = ["maturin>=1.7,<2"]
+build-backend = "maturin"
+
+[project]
+name = "relay-bus"
+version = "0.1.0"
+description = "Relay audio bus core (Rust), Python binding. Spike for issue 599."
+requires-python = ">=3.10"
+dependencies = ["numpy"]
+license = { text = "MIT" }
+
+[tool.maturin]
+python-source = "python"
+module-name = "relay_bus._native"
+features = ["extension-module"]

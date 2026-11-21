@@ -1,0 +1,422 @@
+{
+ "engine": "rust",
+ "scenario": "C",
+ "seconds": 60.0,
+ "seed": 3,
+ "rtmixer_in_use": null,
+ "rss_after_imports_mb": 41.265625,
+ "apply_ms": 146.80262503679842,
+ "ready_s": 0.10470475000329316,
+ "all_open": true,
+ "threads_cpu_s": {
+  "bench-drain": 19.195,
+  "native-other": 5.528,
+  "bench-gen": 3.586,
+  "bench-tap": 2.921,
+  "main": 1.565,
+  "bench-poll": 0.037,
+  "rust-threads": 0.025
+ },
+ "threads_cpu_pct": {
+  "main": 2.72,
+  "native-other": 9.62,
+  "rust-threads": 0.04,
+  "bench-drain": 33.42,
+  "bench-gen": 6.24,
+  "bench-tap": 5.09,
+  "bench-poll": 0.06
+ },
+ "threads_unaccounted_s": -0.0,
+ "wall_s": 57.4349147080211,
+ "cpu_pct": 57.20527168365675,
+ "rss_mb": {
+  "after_imports": 41.265625,
+  "window_start": 114.484375,
+  "window_end": 261.828125,
+  "window_max_sampled": 261.171875,
+  "process_peak": 261.84375,
+  "growth_over_window": 147.34375,
+  "bus_over_imports": 220.5625
+ },
+ "speaker": {
+  "underruns": 31,
+  "resyncs": 0,
+  "queued_ms_end": 30.289270401000977
+ },
+ "fake_outputs": {
+  "underruns": 0,
+  "resyncs": 0,
+  "silent_blocks": 0,
+  "blocks": 34450
+ },
+ "input_dropped": 0,
+ "detail_end": {
+  "glitches": {
+   "underruns": 74,
+   "resyncs": 0,
+   "dropped_frames": 0,
+   "discard_overflow": 0,
+   "rejected": 0,
+   "command_busy": 0
+  },
+  "advisories": 0,
+  "tap_dropped": {
+   "129": 0,
+   "133": 0,
+   "135": 0,
+   "131": 0
+  }
+ },
+ "glitches_delta": {
+  "underruns": 31,
+  "resyncs": 0,
+  "dropped_frames": 0,
+  "discard_overflow": 0,
+  "rejected": 0,
+  "command_busy": 0
+ },
+ "advisories_delta": 0,
+ "totals_since_start": {
+  "f1": {
+   "underruns": 12,
+   "resyncs": 0
+  },
+  "f2": {
+   "underruns": 16,
+   "resyncs": 0
+  },
+  "f3": {
+   "underruns": 15,
+   "resyncs": 0
+  },
+  "spk": {
+   "underruns": 31,
+   "resyncs": 0
+  }
+ },
+ "driver": {
+  "late_ms": {
+   "n": 2872,
+   "p50": 2.0694578997790813,
+   "p90": 3.775999997742474,
+   "p99": 4.641749896109104,
+   "p999": 8.996082935482264,
+   "max": 21.111874957568944
+  },
+  "resets": 0,
+  "errors": 0
+ },
+ "drain": {
+  "late_ms": {
+   "n": 34463,
+   "p50": 0.48999988939613104,
+   "p90": 0.849291100166738,
+   "p99": 2.399957971647382,
+   "p999": 5.978166940622032,
+   "max": 16.250416985712945
+  },
+  "resets": 0
+ },
+ "status_call_ms": {
+  "median": 0.4771249950863421,
+  "max": 5.406750016845763
+ },
+ "taps": [
+  {
+   "lane": 1,
+   "samples": 1379280,
+   "expected": 1378437,
+   "ratio": 1.0006108704462653,
+   "dropped": 0,
+   "rms_dbfs": -45.689286442367376,
+   "max_arrival_gap_ms": 23.198916926048696,
+   "discontinuities": null
+  },
+  {
+   "lane": 2,
+   "samples": 1379040,
+   "expected": 1378437,
+   "ratio": 1.000436760324385,
+   "dropped": 0,
+   "rms_dbfs": -33.467995006911714,
+   "max_arrival_gap_ms": 40.83737498149276,
+   "discontinuities": 0,
+   "worst_residual_over_amp": 3.1165241082264927e-07
+  },
+  {
+   "lane": 10,
+   "samples": 1379040,
+   "expected": 1378437,
+   "ratio": 1.000436760324385,
+   "dropped": 0,
+   "rms_dbfs": -33.46797390308079,
+   "max_arrival_gap_ms": 41.69820807874203,
+   "discontinuities": 0,
+   "worst_residual_over_amp": 3.6000829632213777e-07
+  },
+  {
+   "lane": 18,
+   "samples": 1379040,
+   "expected": 1378437,
+   "ratio": 1.000436760324385,
+   "dropped": 0,
+   "rms_dbfs": -33.46798900995439,
+   "max_arrival_gap_ms": 41.57604102510959,
+   "discontinuities": 0,
+   "worst_residual_over_amp": 2.895615421050213e-07
+  }
+ ],
+ "meters": {
+  "lane_expected_dbfs": -33.46787486224657,
+  "synthetic_lane_error_db": {
+   "median_abs": 0.0024192116682684173,
+   "max_abs": 0.016244714909120717,
+   "n": 31
+  },
+  "mic_tap_rms_dbfs": -45.68940174980384,
+  "mic_lane_meter_rms_dbfs": -47.095889908643464,
+  "output_expected_dbfs": -58.55425792390384,
+  "output_at_floor_fraction": {
+   "f1": 0.0,
+   "f2": 0.0,
+   "f3": 0.0,
+   "spk": 0.0
+  },
+  "output_error_db": {
+   "f1": 18.073425751092486,
+   "f2": -1.6048972779036674,
+   "f3": -1.384425791949269,
+   "spk": 18.11267612091693
+  }
+ },
+ "extra": {
+  "alerts": [
+   {
+    "at_s": 3.210687864877986,
+    "inject_call_ms": 1.2313340557739139,
+    "meter_ms": 8.387417066842318,
+    "ring_queued_ms_at_rise": 30.204381942749023,
+    "est_device_ms": null,
+    "fake_device_ms": 2.8820419684052467,
+    "speaker_peak_dbfs": -19.581984462759316
+   },
+   {
+    "at_s": 6.04846174783701,
+    "inject_call_ms": 2.962083090096712,
+    "meter_ms": 14.103292021900415,
+    "ring_queued_ms_at_rise": 30.9860897064209,
+    "est_device_ms": null,
+    "fake_device_ms": 5.393708008341491,
+    "speaker_peak_dbfs": -19.57020158155516
+   },
+   {
+    "at_s": 9.409862784376383,
+    "inject_call_ms": 3.1090830452740192,
+    "meter_ms": 8.74079205095768,
+    "ring_queued_ms_at_rise": 29.897748947143555,
+    "est_device_ms": null,
+    "fake_device_ms": 5.503667052835226,
+    "speaker_peak_dbfs": -19.583937904870183
+   },
+   {
+    "at_s": 12.749295376747142,
+    "inject_call_ms": 1.980624976567924,
+    "meter_ms": 12.237541959621012,
+    "ring_queued_ms_at_rise": 29.489431381225586,
+    "est_device_ms": null,
+    "fake_device_ms": 5.808167043142021,
+    "speaker_peak_dbfs": -19.64377432824398
+   },
+   {
+    "at_s": 14.807434033470262,
+    "inject_call_ms": 3.991750068962574,
+    "meter_ms": 10.736500029452145,
+    "ring_queued_ms_at_rise": 30.12639045715332,
+    "est_device_ms": null,
+    "fake_device_ms": 6.119166035205126,
+    "speaker_peak_dbfs": -19.54881779779329
+   },
+   {
+    "at_s": 17.149664229248124,
+    "inject_call_ms": 4.101834027096629,
+    "meter_ms": 14.673833968117833,
+    "ring_queued_ms_at_rise": 29.388219833374023,
+    "est_device_ms": null,
+    "fake_device_ms": 7.584500010125339,
+    "speaker_peak_dbfs": -19.58690931144907
+   },
+   {
+    "at_s": 20.91928266476927,
+    "inject_call_ms": 1.9836249994114041,
+    "meter_ms": 5.717042018659413,
+    "ring_queued_ms_at_rise": 29.414520263671875,
+    "est_device_ms": null,
+    "fake_device_ms": 4.798709065653384,
+    "speaker_peak_dbfs": -19.55576934851672
+   },
+   {
+    "at_s": 24.524216120359167,
+    "inject_call_ms": 2.279084059409797,
+    "meter_ms": 10.149833979085088,
+    "ring_queued_ms_at_rise": 29.49314308166504,
+    "est_device_ms": null,
+    "fake_device_ms": 4.656458972021937,
+    "speaker_peak_dbfs": -19.632669142630547
+   },
+   {
+    "at_s": 26.62165133918936,
+    "inject_call_ms": 2.0226669730618596,
+    "meter_ms": 5.651999963447452,
+    "ring_queued_ms_at_rise": 30.355546951293945,
+    "est_device_ms": null,
+    "fake_device_ms": 4.285916918888688,
+    "speaker_peak_dbfs": -19.616533906021925
+   },
+   {
+    "at_s": 29.37089936613282,
+    "inject_call_ms": 2.3655829718336463,
+    "meter_ms": 10.425125015899539,
+    "ring_queued_ms_at_rise": 29.92774772644043,
+    "est_device_ms": null,
+    "fake_device_ms": 6.732917041517794,
+    "speaker_peak_dbfs": -19.602959883896922
+   },
+   {
+    "at_s": 31.707667604735228,
+    "inject_call_ms": 1.7839999636635184,
+    "meter_ms": 14.262540964409709,
+    "ring_queued_ms_at_rise": 28.226552963256836,
+    "est_device_ms": null,
+    "fake_device_ms": 5.172624951228499,
+    "speaker_peak_dbfs": -19.62051070103329
+   },
+   {
+    "at_s": 34.66272061753911,
+    "inject_call_ms": 1.8382499692961574,
+    "meter_ms": 8.37087503168732,
+    "ring_queued_ms_at_rise": 30.28093147277832,
+    "est_device_ms": null,
+    "fake_device_ms": 6.974084069952369,
+    "speaker_peak_dbfs": -19.44587513784103
+   },
+   {
+    "at_s": 37.011524865728866,
+    "inject_call_ms": 2.1578340092673898,
+    "meter_ms": 14.876542030833662,
+    "ring_queued_ms_at_rise": 30.65155029296875,
+    "est_device_ms": null,
+    "fake_device_ms": 7.4226249707862735,
+    "speaker_peak_dbfs": -19.47609648028787
+   },
+   {
+    "at_s": 39.15777053256301,
+    "inject_call_ms": 3.022999968379736,
+    "meter_ms": 5.591957946307957,
+    "ring_queued_ms_at_rise": 30.920547485351562,
+    "est_device_ms": null,
+    "fake_device_ms": 6.0587499756366014,
+    "speaker_peak_dbfs": -19.501077068882733
+   },
+   {
+    "at_s": 41.22509024870659,
+    "inject_call_ms": 0.4937499761581421,
+    "meter_ms": 5.206333007663488,
+    "ring_queued_ms_at_rise": 30.371397018432617,
+    "est_device_ms": null,
+    "fake_device_ms": 4.091167007572949,
+    "speaker_peak_dbfs": -19.577599299553626
+   },
+   {
+    "at_s": 44.860029699223844,
+    "inject_call_ms": 2.910083974711597,
+    "meter_ms": 5.5354590294882655,
+    "ring_queued_ms_at_rise": 30.14509391784668,
+    "est_device_ms": null,
+    "fake_device_ms": 5.725292023271322,
+    "speaker_peak_dbfs": -19.575589351015186
+   },
+   {
+    "at_s": 48.38338322039022,
+    "inject_call_ms": 1.8693750025704503,
+    "meter_ms": 8.800040930509567,
+    "ring_queued_ms_at_rise": 30.487852096557617,
+    "est_device_ms": null,
+    "fake_device_ms": 4.506457946263254,
+    "speaker_peak_dbfs": -19.58415690034816
+   },
+   {
+    "at_s": 50.39950531354336,
+    "inject_call_ms": 3.9480410050600767,
+    "meter_ms": 13.940957956947386,
+    "ring_queued_ms_at_rise": 30.188093185424805,
+    "est_device_ms": null,
+    "fake_device_ms": 8.741165976971388,
+    "speaker_peak_dbfs": -19.630426861178172
+   },
+   {
+    "at_s": 52.88872491429275,
+    "inject_call_ms": 2.4024159647524357,
+    "meter_ms": 10.549083002842963,
+    "ring_queued_ms_at_rise": 29.913284301757812,
+    "est_device_ms": null,
+    "fake_device_ms": 5.260915961116552,
+    "speaker_peak_dbfs": -19.51324374186936
+   },
+   {
+    "at_s": 56.93031736816741,
+    "inject_call_ms": 1.95462501142174,
+    "meter_ms": 9.070708998478949,
+    "ring_queued_ms_at_rise": 29.88408660888672,
+    "est_device_ms": null,
+    "fake_device_ms": 4.58099995739758,
+    "speaker_peak_dbfs": -19.640065020047512
+   }
+  ],
+  "alerts_summary": {
+   "meter_ms": {
+    "n": 20,
+    "median": 9.610271488782018,
+    "p95": 14.673833968117833,
+    "max": 14.876542030833662
+   },
+   "meter_ms_missing": 0,
+   "est_device_ms": null,
+   "est_device_ms_missing": 20,
+   "fake_device_ms": {
+    "n": 20,
+    "median": 5.448687530588359,
+    "p95": 7.584500010125339,
+    "max": 8.741165976971388
+   },
+   "fake_device_ms_missing": 0,
+   "inject_call_ms": {
+    "n": 20,
+    "median": 2.2184590343385935,
+    "p95": 3.991750068962574,
+    "max": 4.101834027096629
+   },
+   "inject_call_ms_missing": 0
+  }
+ },
+ "ru_peak_before_window_mb": 114.609375,
+ "machine": {
+  "model": "Mac16,7",
+  "cpu": "Apple M4 Pro",
+  "cores": "14",
+  "perf_cores": "10",
+  "efficiency_cores": "4",
+  "memory_gb": 24.0,
+  "macos": "26.5.2",
+  "build": "25F84",
+  "python": "3.10.11",
+  "numpy": "2.2.6",
+  "date": "2026-11-20 23:53",
+  "power": "Now drawing from 'Battery Power'",
+  "low_power_mode": "lowpowermode (not listed)",
+  "load_avg_at_start": [
+   3.64697265625,
+   3.60888671875,
+   3.275390625
+  ]
+ }
+}

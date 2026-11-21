@@ -1,0 +1,198 @@
+{
+ "engine": "python-nortmixer",
+ "scenario": "B",
+ "seconds": 60.0,
+ "seed": 3,
+ "rtmixer_in_use": false,
+ "rss_after_imports_mb": 92.65625,
+ "apply_ms": 108.42833295464516,
+ "ready_s": 9.095796849578619e-05,
+ "all_open": true,
+ "threads_cpu_s": {
+  "py-bus": 24.889,
+  "bench-gen": 3.949,
+  "bench-drain": 3.187,
+  "native-other": 2.7,
+  "bench-tap": 1.034,
+  "bench-poll": 0.023,
+  "main": 0.0
+ },
+ "threads_cpu_pct": {
+  "main": 0.0,
+  "native-other": 4.5,
+  "py-bus": 41.48,
+  "bench-drain": 5.31,
+  "bench-gen": 6.58,
+  "bench-tap": 1.72,
+  "bench-poll": 0.04
+ },
+ "threads_unaccounted_s": -0.0,
+ "wall_s": 60.001542833051644,
+ "cpu_pct": 59.635893196215214,
+ "rss_mb": {
+  "after_imports": 92.65625,
+  "window_start": 111.03125,
+  "window_end": 100.03125,
+  "window_max_sampled": 118.5,
+  "process_peak": 118.671875,
+  "growth_over_window": -11.0,
+  "bus_over_imports": 7.375
+ },
+ "speaker": {
+  "underruns": 222,
+  "resyncs": 0,
+  "queued_ms_end": 17.0
+ },
+ "fake_outputs": {
+  "underruns": 76,
+  "resyncs": 0,
+  "silent_blocks": 0,
+  "blocks": 36003
+ },
+ "input_dropped": 0,
+ "detail_end": {
+  "bus_lane_underruns": {
+   "spk": 373,
+   "f1": 144,
+   "f2": 192,
+   "f3": 170
+  },
+  "sink_underruns": {
+   "spk": 4,
+   "f1": 0,
+   "f2": 0,
+   "f3": 0
+  },
+  "rtmixer_in_use": false
+ },
+ "totals_since_start": {
+  "spk": {
+   "underruns": 377,
+   "resyncs": 0
+  },
+  "f1": {
+   "underruns": 144,
+   "resyncs": 0
+  },
+  "f2": {
+   "underruns": 192,
+   "resyncs": 0
+  },
+  "f3": {
+   "underruns": 170,
+   "resyncs": 0
+  }
+ },
+ "driver": {
+  "late_ms": {
+   "n": 3000,
+   "p50": 2.0621250150725245,
+   "p90": 3.855000017210841,
+   "p99": 4.750458989292383,
+   "p999": 5.538500030525029,
+   "max": 6.366541958414018
+  },
+  "resets": 0,
+  "errors": 0
+ },
+ "drain": {
+  "late_ms": {
+   "n": 36003,
+   "p50": 0.6984169594943523,
+   "p90": 1.2145409127697349,
+   "p99": 2.0663749892264605,
+   "p999": 2.9104589484632015,
+   "max": 3.5810410045087337
+  },
+  "resets": 0
+ },
+ "status_call_ms": {
+  "median": 0.27143751503899693,
+  "max": 0.3880000440403819
+ },
+ "taps": [
+  {
+   "lane": 1,
+   "samples": 1440050,
+   "expected": 1440037,
+   "ratio": 1.0000090081063948,
+   "dropped": 0,
+   "rms_dbfs": -42.99532105867874,
+   "max_arrival_gap_ms": 42.63350006658584,
+   "discontinuities": null
+  },
+  {
+   "lane": 2,
+   "samples": 1440880,
+   "expected": 1440037,
+   "ratio": 1.0005853821744677,
+   "dropped": 0,
+   "rms_dbfs": -33.467869559026816,
+   "max_arrival_gap_ms": 44.91641593631357,
+   "discontinuities": 0,
+   "worst_residual_over_amp": 8.575319840794146e-07
+  },
+  {
+   "lane": 10,
+   "samples": 1440880,
+   "expected": 1440037,
+   "ratio": 1.0005853821744677,
+   "dropped": 0,
+   "rms_dbfs": -33.46787186149817,
+   "max_arrival_gap_ms": 46.173375099897385,
+   "discontinuities": 0,
+   "worst_residual_over_amp": 1.5886983548152322e-06
+  },
+  {
+   "lane": 18,
+   "samples": 1440880,
+   "expected": 1440037,
+   "ratio": 1.0005853821744677,
+   "dropped": 0,
+   "rms_dbfs": -33.46787029858354,
+   "max_arrival_gap_ms": 46.32137494627386,
+   "discontinuities": 0,
+   "worst_residual_over_amp": 9.226709730738211e-07
+  }
+ ],
+ "meters": {
+  "lane_expected_dbfs": -33.46787486224657,
+  "synthetic_lane_error_db": {
+   "median_abs": 0.011822239847241178,
+   "max_abs": 0.0321251377534324,
+   "n": 31
+  },
+  "mic_tap_rms_dbfs": -42.99739694991967,
+  "mic_lane_meter_rms_dbfs": -42.947108764628716,
+  "output_expected_dbfs": -58.55425792390384,
+  "output_at_floor_fraction": {
+   "spk": 0.31666666666666665,
+   "f1": 0.36666666666666664,
+   "f2": 0.4,
+   "f3": 0.38333333333333336
+  },
+  "output_error_db": {}
+ },
+ "extra": {},
+ "ru_peak_before_window_mb": 111.03125,
+ "machine": {
+  "model": "Mac16,7",
+  "cpu": "Apple M4 Pro",
+  "cores": "14",
+  "perf_cores": "10",
+  "efficiency_cores": "4",
+  "memory_gb": 24.0,
+  "macos": "26.5.2",
+  "build": "25F84",
+  "python": "3.10.11",
+  "numpy": "2.2.6",
+  "date": "2026-11-20 23:50",
+  "power": "Now drawing from 'Battery Power'",
+  "low_power_mode": "lowpowermode (not listed)",
+  "load_avg_at_start": [
+   4.095703125,
+   3.4189453125,
+   3.13916015625
+  ]
+ }
+}

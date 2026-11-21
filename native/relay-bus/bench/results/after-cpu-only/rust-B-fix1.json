@@ -1,0 +1,276 @@
+{
+ "engine": "rust",
+ "scenario": "B",
+ "seconds": 60.0,
+ "seed": 1,
+ "rtmixer_in_use": null,
+ "rss_after_imports_mb": 42.359375,
+ "apply_ms": 104.37216598074883,
+ "ready_s": 0.10360245790798217,
+ "all_open": true,
+ "threads_cpu_s": {
+  "bench-drain": 7.632,
+  "bench-gen": 4.263,
+  "bench-tap": 3.422,
+  "native-other": 1.978,
+  "bench-poll": 0.039,
+  "rust-threads": 0.031,
+  "main": 0.0
+ },
+ "threads_cpu_pct": {
+  "main": 0.0,
+  "native-other": 3.3,
+  "rust-threads": 0.05,
+  "bench-drain": 12.72,
+  "bench-gen": 7.1,
+  "bench-tap": 5.7,
+  "bench-poll": 0.07
+ },
+ "threads_unaccounted_s": -0.0,
+ "wall_s": 60.00295979192015,
+ "cpu_pct": 28.9396490776748,
+ "rss_series_mb": [
+  66.2,
+  68.1,
+  70.5,
+  73.0,
+  75.4,
+  77.9,
+  80.4,
+  82.8,
+  85.4,
+  87.9,
+  90.5,
+  93.0,
+  95.5,
+  98.0,
+  100.7,
+  103.2,
+  105.7,
+  108.3,
+  110.7,
+  113.3,
+  115.8,
+  118.3,
+  120.9,
+  123.3,
+  125.8,
+  128.3,
+  130.8,
+  133.4,
+  135.9,
+  138.3,
+  140.9,
+  143.5,
+  146.0,
+  148.5,
+  151.1,
+  153.7,
+  156.2,
+  158.6,
+  161.1,
+  163.7,
+  166.1,
+  168.8,
+  171.3,
+  173.8,
+  176.4,
+  178.9,
+  181.4,
+  183.9,
+  186.2,
+  188.7,
+  191.2,
+  193.7,
+  196.2,
+  198.7,
+  201.3,
+  203.8,
+  206.3,
+  208.8,
+  211.3,
+  213.8
+ ],
+ "rss_mb": {
+  "after_imports": 42.359375,
+  "window_start": 66.234375,
+  "window_end": 216.046875,
+  "window_max_sampled": 213.78125,
+  "process_peak": 216.0625,
+  "growth_over_window": 149.8125,
+  "bus_over_imports": 173.6875
+ },
+ "speaker": {
+  "underruns": 0,
+  "resyncs": 0,
+  "queued_ms_end": 30.216812133789062
+ },
+ "fake_outputs": {
+  "underruns": 0,
+  "resyncs": 0,
+  "silent_blocks": 0,
+  "blocks": 36003
+ },
+ "input_dropped": 0,
+ "detail_end": {
+  "glitches": {
+   "underruns": 15,
+   "resyncs": 0,
+   "dropped_frames": 0,
+   "discard_overflow": 0,
+   "rejected": 0,
+   "command_busy": 0
+  },
+  "advisories": 0,
+  "tap_dropped": {
+   "131": 0,
+   "129": 0,
+   "133": 0,
+   "135": 0
+  }
+ },
+ "glitches_delta": {
+  "underruns": 0,
+  "resyncs": 0,
+  "dropped_frames": 0,
+  "discard_overflow": 0,
+  "rejected": 0,
+  "command_busy": 0
+ },
+ "advisories_delta": 0,
+ "totals_since_start": {
+  "f1": {
+   "underruns": 0,
+   "resyncs": 0
+  },
+  "f2": {
+   "underruns": 0,
+   "resyncs": 0
+  },
+  "f3": {
+   "underruns": 0,
+   "resyncs": 0
+  },
+  "spk": {
+   "underruns": 15,
+   "resyncs": 0
+  }
+ },
+ "driver": {
+  "late_ms": {
+   "n": 3000,
+   "p50": 1.799333025701344,
+   "p90": 3.668458084575832,
+   "p99": 4.388374974951148,
+   "p999": 7.011041976511478,
+   "max": 9.500458021648228
+  },
+  "resets": 0,
+  "errors": 0
+ },
+ "drain": {
+  "late_ms": {
+   "n": 36003,
+   "p50": 0.585292000323534,
+   "p90": 0.8339579217135906,
+   "p99": 1.988957985304296,
+   "p999": 4.87075001001358,
+   "max": 9.64191707316786
+  },
+  "resets": 0
+ },
+ "status_call_ms": {
+  "median": 0.554229540284723,
+  "max": 1.1942910496145487
+ },
+ "taps": [
+  {
+   "lane": 1,
+   "samples": 1440720,
+   "expected": 1440071,
+   "ratio": 1.0004506479042639,
+   "dropped": 0,
+   "rms_dbfs": -47.20383485965218,
+   "max_arrival_gap_ms": 24.312749970704317,
+   "discontinuities": null
+  },
+  {
+   "lane": 2,
+   "samples": 1440480,
+   "expected": 1440071,
+   "ratio": 1.0002839894588358,
+   "dropped": 0,
+   "rms_dbfs": -33.46801943668859,
+   "max_arrival_gap_ms": 33.153209020383656,
+   "discontinuities": 0,
+   "worst_residual_over_amp": 3.1165241082264927e-07
+  },
+  {
+   "lane": 10,
+   "samples": 1440480,
+   "expected": 1440071,
+   "ratio": 1.0002839894588358,
+   "dropped": 0,
+   "rms_dbfs": -33.4679739030808,
+   "max_arrival_gap_ms": 46.678374987095594,
+   "discontinuities": 0,
+   "worst_residual_over_amp": 3.6000829632213777e-07
+  },
+  {
+   "lane": 18,
+   "samples": 1440480,
+   "expected": 1440071,
+   "ratio": 1.0002839894588358,
+   "dropped": 0,
+   "rms_dbfs": -33.46799309504584,
+   "max_arrival_gap_ms": 46.963959001004696,
+   "discontinuities": 0,
+   "worst_residual_over_amp": 2.895615421050213e-07
+  }
+ ],
+ "meters": {
+  "lane_expected_dbfs": -33.46787486224657,
+  "synthetic_lane_error_db": {
+   "median_abs": 0.0026376890913226703,
+   "max_abs": 0.010747347828313991,
+   "n": 31
+  },
+  "mic_tap_rms_dbfs": -47.20378329332675,
+  "mic_lane_meter_rms_dbfs": -47.74012551792367,
+  "output_expected_dbfs": -58.55425792390384,
+  "output_at_floor_fraction": {
+   "f1": 0.0,
+   "f2": 0.0,
+   "f3": 0.0,
+   "spk": 0.0
+  },
+  "output_error_db": {
+   "f1": -3.048500950684705,
+   "f2": -3.0030218367021604,
+   "f3": -2.888346554066146,
+   "spk": -1.857606656415328
+  }
+ },
+ "extra": {},
+ "ru_peak_before_window_mb": 66.25,
+ "machine": {
+  "model": "Mac16,7",
+  "cpu": "Apple M4 Pro",
+  "cores": "14",
+  "perf_cores": "10",
+  "efficiency_cores": "4",
+  "memory_gb": 24.0,
+  "macos": "26.5.2",
+  "build": "25F84",
+  "python": "3.10.11",
+  "numpy": "2.2.6",
+  "date": "2026-11-21 00:30",
+  "power": "Now drawing from 'AC Power'",
+  "low_power_mode": "lowpowermode (not listed)",
+  "load_avg_at_start": [
+   3.607421875,
+   3.5654296875,
+   3.54638671875
+  ]
+ }
+}

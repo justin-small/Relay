@@ -1,0 +1,22 @@
+[package]
+name = "relay-bus"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Relay audio bus core (spike, issue 599): lanes, fan-out rings, drift-following outputs"
+
+[features]
+# The fake backend wraps every realtime callback in assert_no_alloc, so a test aborts if that path allocates.
+# (The test binaries install the checking allocator; see tests/common/mod.rs.)
+no-alloc-check = ["dep:assert_no_alloc"]
+
+[dependencies]
+rtrb = "0.3"
+rubato = "1"
+audioadapter-buffers = "2"
+assert_no_alloc = { version = "1.1", optional = true }
+
+[dev-dependencies]
+# Turn the feature on for `cargo test` without asking the person running it to remember a flag.
+relay-bus = { path = ".", features = ["no-alloc-check"] }
+assert_no_alloc = "1.1"
