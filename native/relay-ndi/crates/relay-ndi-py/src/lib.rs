@@ -11,6 +11,7 @@ use pyo3::types::{PyBytes, PyDict, PyList};
 use relay_ndi::audio::{AudioMeter as CoreMeter, Snapshot};
 use relay_ndi::find::Finder;
 use std::sync::Mutex;
+use relay_ndi::picture;
 use relay_ndi::recv::{Event, Receiver};
 use relay_ndi::route::Router as CoreRouter;
 use relay_ndi::scopes::{self as sc, Frame, Grid, Pack};
@@ -233,6 +234,24 @@ impl AudioMeter {
     }
 }
 
+/// The frame as `(width, height, rgb bytes)`, no wider than `max_width`; None for a pixel format not handled.
+#[pyfunction]
+fn to_rgb<'py>(py: Python<'py>, data: PyBackedBytes, width: usize, height: usize, fourcc: &str, max_width: usize)
+               -> Option<(usize, usize, Bound<'py, PyBytes>)> {
+    let bytes: &[u8] = &data;
+    let img = py.detach(|| picture::to_rgb(bytes, width, height, fourcc, max_width))?;
+    Some((img.width, img.height, PyBytes::new(py, &img.data)))
+}
+
+/// The frame as JPEG bytes, no wider than `max_width`; None for a pixel format not handled.
+#[pyfunction]
+fn jpeg<'py>(py: Python<'py>, data: PyBackedBytes, width: usize, height: usize, fourcc: &str, max_width: usize, quality: u8)
+             -> Option<Bound<'py, PyBytes>> {
+    let bytes: &[u8] = &data;
+    let out = py.detach(|| picture::jpeg(bytes, width, height, fourcc, max_width, quality))?;
+    Some(PyBytes::new(py, &out))
+}
+
 type ScopeResult<'py> = (Option<Bound<'py, PyDict>>, Option<Bound<'py, PyAny>>);
 
 fn pack_dict<'py>(py: Python<'py>, p: &Pack) -> PyResult<Bound<'py, PyDict>> {
@@ -294,6 +313,8 @@ fn _native(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(find, m)?)?;
     m.add_function(wrap_pyfunction!(library, m)?)?;
     m.add_function(wrap_pyfunction!(scopes, m)?)?;
+    m.add_function(wrap_pyfunction!(to_rgb, m)?)?;
+    m.add_function(wrap_pyfunction!(jpeg, m)?)?;
     m.add_function(wrap_pyfunction!(set_search_dirs, m)?)?;
     Ok(())
 }
