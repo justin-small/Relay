@@ -338,6 +338,18 @@ with section("many consumers share a lane, and a consumer's fault does not stop 
         check("lane 33 does not exist", True)
 
 
+with section("a saved device is named the way the engine's backend names it"):
+    listing = [{"index": 0, "name": "MacBook Pro Microphone", "label": "Core Audio: MacBook Pro Microphone"},
+               {"index": 3, "name": "Scarlett 2i2", "label": "Core Audio: Scarlett 2i2"}]
+    names = ["macbook pro microphone", "Scarlett 2i2"]
+    pick = lambda sel: audiobus.engine_device(sel, listing, names)   # noqa: E731
+    eq("the default stays the default", pick(None), None)
+    eq("a label becomes the device's name", pick("Core Audio: Scarlett 2i2"), "Scarlett 2i2")
+    eq("a name matches whatever its case", pick("MACBOOK PRO MICROPHONE"), "macbook pro microphone")
+    eq("an index becomes the device's name", pick("3"), "Scarlett 2i2")
+    eq("a device the engine does not list is passed on, so it shows as missing", pick("Core Audio: Gone"), "Core Audio: Gone")
+
+
 # -- changing one feed leaves the others alone -------------------------------------------------------------------------
 with section("changing one input or output does not disturb another"):
     reset_bus()
