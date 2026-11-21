@@ -9,6 +9,7 @@
 //! built by the engine and moved to them through SPSC queues, and everything they retire comes back through a
 //! discard queue (see `rt.rs`).
 
+pub mod analysis;
 pub mod backend;
 pub mod config;
 pub mod engine;
@@ -25,6 +26,7 @@ mod output;
 mod resamp;
 mod rt;
 
+pub use analysis::probe::{ProbeHub, ProbeReading, ProbeSpec, ProbeStatus};
 pub use backend::{Backend, DeviceFormat, InputCallback, OutputCallback, Stream};
 pub use config::{db_to_gain, input_id, Cell, ChannelSel, Config, LaneSpec, OutputSpec, DEVICE_SOURCE};
 pub use engine::Engine;
