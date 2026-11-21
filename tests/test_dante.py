@@ -25,6 +25,7 @@ from app import config, mdns  # noqa: E402
 from app.main import app  # noqa: E402
 from app.modules import modules as _modules  # noqa: E402
 from app.modules.dante import service as dante  # noqa: E402
+from app.modules.dante import arc, heartbeat  # noqa: E402
 
 from _harness import check, done, eq, section, wait_for  # noqa: E402
 
@@ -83,6 +84,58 @@ with section("the control-port check talks to a real socket"):
     eq("a silent device is not", dante.probe("127.0.0.1", silent.getsockname()[1], 4, wait=0.3), False)
     answering.close()
     silent.close()
+
+with section("what a device says about itself (layouts read from a real DT168 on 2026-11-20, names made up)"):
+    counts = struct.pack(">HHH", 0x07F9, 16, 8) + bytes(16)
+    eq("0x1000 gives transmit and receive counts", arc.parse_counts(counts), {"tx": 16, "rx": 8})
+    eq("a short answer is no reading", arc.parse_counts(b"\0\0"), None)
+    eq("an absurd count is no reading", arc.parse_counts(struct.pack(">HHH", 0, 60000, 8)), None)
+    eq("0x1002 is the Dante name", arc.parse_name(b"Test-Box\0"), "Test-Box")
+    info = bytearray(80)
+    struct.pack_into(">HHH", info, 6, 10 + 20, 10 + 40, 10 + 60)       # pointers are offsets in the whole packet
+    struct.pack_into(">HH", info, 12, 10 + 40, 10 + 60)
+    info[20:33], info[40:49], info[60:70] = b"Audinate DCM\0", b"Test-Box\0", b"TB-123456\0"
+    eq("0x1003 gives board, name and hostname", arc.parse_info(bytes(info)),
+       {"board": "Audinate DCM", "name": "Test-Box", "hostname": "TB-123456"})
+    rates = bytearray(100)
+    struct.pack_into(">HHHH", rates, 2, 0x0201, 1, arc.RATE_TAG, 10 + 60)
+    struct.pack_into(">I", rates, 60, 48000)
+    eq("0x1100 gives the sample rate", arc.parse_sample_rate(bytes(rates)), 48000)
+    struct.pack_into(">I", rates, 60, 1234)
+    eq("a rate Dante does not run at is no reading", arc.parse_sample_rate(bytes(rates)), None)
+    eq("no table is no reading", arc.parse_sample_rate(b"\0" * 20), None)
+
+    box = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    box.bind(("127.0.0.1", 0))
+    box.settimeout(3)
+    struct.pack_into(">I", rates, 60, 96000)
+    answers = {arc.CMD_COUNTS: counts, arc.CMD_INFO: bytes(info), arc.CMD_RATES: bytes(rates)}
+
+    def device():
+        try:
+            for _ in answers:
+                data, addr = box.recvfrom(2048)
+                _, _, seq, cmd, _ = struct.unpack(">HHHHH", data[:10])
+                box.sendto(arc.reply(cmd, seq, answers[cmd]), addr)
+        except OSError:
+            pass
+
+    t = threading.Thread(target=device, daemon=True)
+    t.start()
+    got = arc.read_info("127.0.0.1", box.getsockname()[1], wait=1.0)
+    t.join(3)
+    box.close()
+    eq("read_info asks a device and keeps what it can read", got,
+       {"tx": 16, "rx": 8, "board": "Audinate DCM", "name": "Test-Box", "hostname": "TB-123456", "sample_rate": 96000})
+
+with section("the heartbeat says a device is alive without asking it"):
+    hb = heartbeat.Heartbeats()
+    packet = heartbeat.packet(b"\x01" * 8)
+    check("a heartbeat Relay can read is kept", hb.feed(packet, "192.168.1.9", now=100.0))
+    eq("alive just after it", hb.seen(["192.168.1.9"], now=101.0), True)
+    eq("not alive once it has gone quiet", hb.seen(["192.168.1.9"], now=100.0 + heartbeat.MAX_AGE + 1), False)
+    eq("another address is not it", hb.seen(["192.168.1.10"], now=101.0), False)
+    eq("a computer on two ports is alive by either address", hb.seen(["10.0.0.1", "192.168.1.9"], now=101.0), True)
 
 with section("the gear it offers"):
     eq("nothing before the first scan", dante.service.gear_list(), None)

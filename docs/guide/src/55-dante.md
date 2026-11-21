@@ -84,3 +84,26 @@ Your switches need **IGMP snooping** and an IGMP querier, or the stream either
 floods every port or never arrives. This route is **not tested** on real Dante
 equipment yet.
 :::
+
+## The Dante page: what Relay finds on the network
+
+With the **Dante** module on, its admin page lists every Dante device Relay can
+see: stage boxes, Dante Virtual Soundcard, Dante Via and bridges. Each is listed
+once, by its Dante name, even when a computer announces itself on two network
+ports. For each device Relay shows the address, model, sample rate, how many
+channels it sends and receives, the transmit channels it names, and what each
+receive channel listens to.
+
+Relay checks a device two ways. It asks the device's control port (4440, or
+24440 for Dante Via), and it listens for the device's own multicast heartbeat.
+A device that sends heartbeats but does not answer on its control port is shown
+as *alive, control port silent*.
+
+::: warning
+The heartbeat does not cross a router. If Relay is on the main network and the
+Dante gear is on a Dante VLAN, only the control port tells whether a device is
+there, so the router must let UDP through to it. On the church network this was
+tried on 2026-11-20: the control port answered across the router from stage
+boxes, a Mac running Dante Virtual Soundcard and Dante Via, while the heartbeat
+was seen only on the Dante network itself.
+:::

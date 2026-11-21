@@ -47,6 +47,10 @@ HEADER = 10
 PROTOCOL = 0x27FF
 PROTOCOL_WRITE = 0x2729       # what Dante Controller uses for writes to the older (2.7.x) devices
 REPLY_PROTOCOLS = (0x27FF, 0x2729, 0x2809)
+CMD_COUNTS = 0x1000
+CMD_NAME = 0x1002
+CMD_INFO = 0x1003
+CMD_RATES = 0x1100
 CMD_CLOCK = 0x1200
 CMD_SUBSCRIPTIONS = 0x3000
 CMD_SET_SUBSCRIPTION = 0x3010
@@ -84,6 +88,66 @@ def parse_clock(payload: bytes | None) -> dict | None:
     flags, _, follower, latency, iface = struct.unpack(">BBHIH", payload)
     return {"leader": bool(flags & 1), "locked": bool(flags & 2), "follower_errors": follower,
             "latency_us": latency, "interface_errors": iface}
+
+
+SAMPLE_RATES = (44100, 48000, 88200, 96000, 176400, 192000)
+RATE_TAG = 0x8020              # in the 0x1100 table: points at the u32 sample rate
+
+
+def parse_counts(payload: bytes | None) -> dict | None:
+    """Transmit and receive channel counts from 0x1000 (checked on a DT168: 16 and 8)."""
+    if payload is None or len(payload) < 6:
+        return None
+    tx, rx = struct.unpack(">HH", payload[2:6])
+    return {"tx": tx, "rx": rx} if tx <= MAX_CHANNELS and rx <= MAX_CHANNELS else None
+
+
+def parse_name(payload: bytes | None) -> str | None:
+    """The device's Dante name from 0x1002: a NUL-terminated string."""
+    if not payload:
+        return None
+    end = payload.find(b"\0")
+    name = payload[:end if end >= 0 else None].decode("utf-8", "replace")
+    return name or None
+
+
+def parse_info(payload: bytes | None) -> dict | None:
+    """Board, Dante name and hostname from 0x1003: string pointers at payload bytes 6, 12 and 14 (packet offsets, as
+    in the receive list). Checked on a DT168: "Audinate DCM", its Dante name, and "DT168-xxxxxx"."""
+    if payload is None or len(payload) < 16:
+        return None
+    board, name, host = struct.unpack(">HHH", payload[6:8] + payload[12:14] + payload[14:16])
+    out = {"board": _text(payload, board), "name": _text(payload, name), "hostname": _text(payload, host)}
+    return out if any(out.values()) else None
+
+
+def parse_sample_rate(payload: bytes | None) -> int | None:
+    """The sample rate from 0x1100: a table of (tag u16, pointer u16) pairs from payload byte 2, where tag 0x8020
+    points at a u32. Only the rates Dante runs at are accepted, so a layout that differs shows "no reading"."""
+    if payload is None:
+        return None
+    for at in range(2, len(payload) - 3, 4):
+        tag, pointer = struct.unpack(">HH", payload[at:at + 4])
+        if tag == RATE_TAG:
+            where = pointer - HEADER
+            if 0 <= where and where + 4 <= len(payload):
+                rate = struct.unpack(">I", payload[where:where + 4])[0]
+                return rate if rate in SAMPLE_RATES else None
+            return None
+    return None
+
+
+def read_info(ip: str, port: int, sequence: int = 10, wait: float = WAIT) -> dict:
+    """What a device says about itself: counts, name, board, hostname and sample rate. A request that gets no
+    readable answer leaves its fields out."""
+    out: dict = {}
+    for i, (command, parse) in enumerate(((CMD_COUNTS, parse_counts), (CMD_INFO, parse_info), (CMD_RATES, parse_sample_rate))):
+        got = parse(ask(ip, port, command, sequence + i, wait))
+        if isinstance(got, dict):
+            out.update(got)
+        elif got is not None:
+            out["sample_rate"] = got
+    return out
 
 
 def page_request(first: int) -> bytes:

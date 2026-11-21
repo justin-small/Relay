@@ -98,8 +98,8 @@ def inventory(found: list[mdns.Found]) -> list[dict]:
 
 def probe_packet(sequence: int) -> bytes:
     """An ARC request for the device's channel counts: the 10-byte header alone (protocol 0x27ff, length, sequence,
-    command 0x1000, no result). NOT checked against real gear yet: a device that does not answer it may still be
-    reachable, which the page says."""
+    command 0x1000, no result). Checked on 2026-11-20 against real DT168 stage boxes, a Mac running Dante Virtual
+    Soundcard and Dante Via (port 24440), from the Dante network and from the main LAN across the router."""
     return struct.pack(">HHHHH", 0x27FF, 10, sequence & 0xFFFF, 0x1000, 0)
 
 
@@ -170,7 +170,9 @@ class Service:
                 d["reachable"] = probe(ip, port, seq)
             except OSError:
                 d["reachable"] = None
-            d["clock"], d["subscriptions"] = None, None
+            d["clock"], d["subscriptions"], d["info"] = None, None, {}
+            d["heartbeat"] = self.heartbeats.seen(d["ips"])
+            d["online"] = bool(d["reachable"] or d["heartbeat"])
             if d["reachable"]:
                 self.read_state(d, ip, port)
         self.record(devices)
@@ -181,6 +183,7 @@ class Service:
         """The clock and the subscriptions of one device that answered. A device that answers in a way Relay cannot
         read keeps None, which is "no reading", never a made-up one."""
         try:
+            d["info"] = arc.read_info(ip, port)
             d["clock"] = arc.parse_clock(arc.ask(ip, port, arc.CMD_CLOCK, 2))
             d["subscriptions"] = arc.read_subscriptions(ip, port)
         except OSError:
@@ -292,6 +295,7 @@ class Service:
             devices = [dict(d) for d in self.devices]
             return {"devices": devices, "error": self.error, "scanned": self.scanned, "running": self._task is not None,
                     "reachable": sum(1 for d in devices if d.get("reachable")),
+                    "online": sum(1 for d in devices if d.get("online")),
                     "unreachable": sum(1 for d in devices if d.get("reachable") is False),
                     "problems": monitor.current(), "levels": list(self.levels.values()),
                     "leader": next((d["name"] for d in devices if (d.get("clock") or {}).get("leader")), "")}

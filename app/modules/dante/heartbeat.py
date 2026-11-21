@@ -131,6 +131,12 @@ class Heartbeats:
                     return [None] * p["tx_first"] + [level(b) for b in p["tx"]]
         return None
 
+    def seen(self, ips: list[str], now: float | None = None) -> bool:
+        """True when a device sent a heartbeat from one of `ips` in the last few seconds: alive without asking it."""
+        now = time.monotonic() if now is None else now
+        with self._lock:
+            return any(now - got["at"] <= MAX_AGE for ip in ips if (got := self._latest.get(ip)))
+
     def offset_ppb(self, ips: list[str], now: float | None = None) -> int | None:
         now = time.monotonic() if now is None else now
         with self._lock:
