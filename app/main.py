@@ -2373,6 +2373,14 @@ async def admin_routes_salvo_delete(sid: int, request: Request):
     return {"ok": True}
 
 
+@app.get("/api/admin/nosound", dependencies=[Depends(require("session.view"))])
+async def admin_nosound():
+    """The "No sound?" walk (app/nosound.py): where the sound stops, step by step."""
+    from . import nosound
+
+    return nosound.current()
+
+
 @app.get("/api/admin/audiobus", dependencies=[Depends(require("session.view"))])
 async def admin_audiobus():
     """The 32-lane audio bus (app/audiobus.py): its saved setting, the live state of every lane, input and

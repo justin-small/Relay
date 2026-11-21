@@ -60,13 +60,15 @@ class Crew(Module):
         Permission("crew.resources", "See your position's resources on the crew page", "Crew app", "member"),
         Permission("crew.resources_edit", "Add resources for every position", "Crew app", "operator"),
         Permission("crew.activity", "See who did what on the crew page", "Crew app", "operator"),
+        Permission("crew.nosound", "Run the \"No sound?\" check from the crew page", "Crew app", "member"),
         Permission("crew.moderate", "Read every role channel and delete anyone's chat message", "Crew app", "operator"),
     )
     crew_tabs = (CrewTab("chat", "Chat", "chat.html", "crew.chat"),
                  CrewTab("checklists", "Checklists", "checklists.html", "crew.checklist"),
                  CrewTab("resources", "Resources", "resources.html", "crew.resources"),
-                 CrewTab("activity", "Activity", "activity.html", "crew.activity"))
-    crew_scripts = ("chat.js", "checklists.js", "resources.js", "activity.js")
+                 CrewTab("activity", "Activity", "activity.html", "crew.activity"),
+                 CrewTab("nosound", "No sound?", "nosound.html", "crew.nosound"))
+    crew_scripts = ("chat.js", "checklists.js", "resources.js", "activity.js", "nosound.js")
     user_pages = (UserPage("Crew", "/crew", "crew.use", "The plan and your team's tools"),)
 
     def clean(self, raw: Any) -> dict:
