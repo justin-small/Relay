@@ -24,11 +24,20 @@ pub struct Sender {
     rate: (i32, i32),
     fourcc: u32,
     bytes_per_pixel: usize,
+    /// Some(ms): label frames from a counter instead of letting the SDK make timecodes up, with the audio labelled this
+    /// many milliseconds later than the picture it goes with. For proving the receiver's A/V sync reading (issue 561).
+    audio_offset_ms: Option<f64>,
+    /// Pictures and audio samples sent so far, for those timecodes.
+    sent: Mutex<(i64, i64)>,
 }
 
 impl Sender {
     /// `fourcc` is "BGRA" (the default; pictures with alpha) or "UYVY" (what cameras send; no alpha).
     pub fn open(name: &str, width: u32, height: u32, fps: f64, fourcc: &str) -> Result<Sender, String> {
+        Self::open_timed(name, width, height, fps, fourcc, None)
+    }
+
+    pub fn open_timed(name: &str, width: u32, height: u32, fps: f64, fourcc: &str, audio_offset_ms: Option<f64>) -> Result<Sender, String> {
         let (fourcc, bytes_per_pixel) = match fourcc {
             "BGRA" => (ffi::FOURCC_BGRA, 4),
             "UYVY" => (ffi::FOURCC_UYVY, 2),
@@ -42,7 +51,7 @@ impl Sender {
         if h.is_null() {
             return Err("NDI would not create the output.".into());
         }
-        Ok(Sender { api, h: Mutex::new(Some(h as usize)), width: width as i32, height: height as i32, rate: frame_rate(fps), fourcc, bytes_per_pixel })
+        Ok(Sender { api, h: Mutex::new(Some(h as usize)), width: width as i32, height: height as i32, rate: frame_rate(fps), fourcc, bytes_per_pixel, audio_offset_ms, sent: Mutex::new((0, 0)) })
     }
 
     /// Send one picture of `width * height * bytes_per_pixel` bytes and, if given, planar float audio (`channels` rows of
@@ -54,13 +63,25 @@ impl Sender {
         }
         let Some(h) = *self.h.lock().unwrap_or_else(|p| p.into_inner()) else { return Err("closed".into()) };
         let h = h as Handle;
+        let (n_video, n_samples) = {
+            let mut c = self.sent.lock().unwrap_or_else(|p| p.into_inner());
+            let before = *c;
+            c.0 += 1;
+            if let Some((_, _, samples)) = audio {
+                c.1 += samples as i64;
+            }
+            before
+        };
+        let tick = |ok: bool, ticks: f64| if ok { ticks as i64 } else { ffi::TIMECODE_SYNTHESIZE };
+        let video_tc = tick(self.audio_offset_ms.is_some(), n_video as f64 * 1e7 * self.rate.1 as f64 / self.rate.0 as f64);
+        let audio_tc = tick(self.audio_offset_ms.is_some(), n_samples as f64 * 1e7 / 48000.0 + self.audio_offset_ms.unwrap_or(0.0) * 1e4);
         if let Some((planar, channels, samples)) = audio {
             if planar.len() >= channels * samples && channels > 0 && samples > 0 {
                 let a = AudioFrame {
                     sample_rate: 48000,
                     channels: channels as i32,
                     samples: samples as i32,
-                    timecode: ffi::TIMECODE_SYNTHESIZE,
+                    timecode: audio_tc,
                     fourcc: ffi::FOURCC_FLTP,
                     data: planar.as_ptr() as *mut u8,
                     channel_stride: (samples * 4) as i32,
@@ -79,7 +100,7 @@ impl Sender {
             frame_rate_d: self.rate.1,
             aspect: self.width as f32 / self.height as f32,
             format: ffi::FORMAT_PROGRESSIVE,
-            timecode: ffi::TIMECODE_SYNTHESIZE,
+            timecode: video_tc,
             data: bgra.as_ptr() as *mut u8,
             stride: self.width * self.bytes_per_pixel as i32,
             metadata: ptr::null(),

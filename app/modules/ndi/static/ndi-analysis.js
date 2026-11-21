@@ -80,6 +80,14 @@
       box.appendChild(el('span', 'badge ' + (a[1] === 'bad' ? 'err' : 'warn'), a[0]));
     });
     if (s.dropped) box.appendChild(el('span', 'badge err', 'DROPS ' + s.dropped));
+    const y = s.sync;
+    if (y && y.valid && !y.synthesized && (y.state === 'warn' || y.state === 'bad'))
+      box.appendChild(el('span', 'badge ' + (y.state === 'bad' ? 'err' : 'warn'), 'A/V SYNC ' + (y.offset_ms > 0 ? '+' : '') + y.offset_ms + ' ms'));
+  }
+  function syncRow(y) {
+    if (!y || !y.valid) return ['A/V sync', 'Measuring'];
+    if (y.synthesized) return ['A/V sync', 'Not told by this sender'];
+    return ['A/V sync', (y.offset_ms > 0 ? '+' : '') + y.offset_ms + ' ms ' + (y.offset_ms > 0 ? '(audio ahead)' : y.offset_ms < 0 ? '(audio behind)' : ''), y.state === 'bad' ? 'bad' : y.state === 'warn' ? 'warn' : ''];
   }
   function drawInfo(s) {
     const i = s.info || {}, f = i.format || {};
@@ -88,7 +96,7 @@
       ['Type', i.type + (s.low ? ' (low bandwidth)' : '')],
       ['Host', i.host ? i.host + (i.port ? ':' + i.port : '') : '—'], ['Group', (i.groups || []).join(', ') || '—'],
       ['Picture', f.width ? f.width + ' x ' + f.height + ', ' + fmt(f.fps, ' fps') : '—'],
-      ['Sound', f.audio_rate ? f.audio_rate / 1000 + ' kHz, ' + f.audio_channels + ' ch' : 'none yet'],
+      ['Sound', f.audio_rate ? f.audio_rate / 1000 + ' kHz, ' + f.audio_channels + ' ch' : 'none yet'], syncRow(s.sync),
       ['Sender', [i.name, i.model, i.version].filter(Boolean).join(' · ') || '—'], ['Capabilities', caps || '—']]);
   }
   function drawTiming(s) {

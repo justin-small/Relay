@@ -10,6 +10,7 @@ use pyo3::prelude::*;
 use pyo3::types::{PyBytes, PyDict, PyList};
 use relay_ndi::audio::{AudioMeter as CoreMeter, Snapshot};
 use relay_ndi::find::Finder;
+use relay_ndi::health::{self, Stats, SyncMeter as CoreSync, Timing as CoreTiming};
 use std::sync::Mutex;
 use relay_ndi::patterns::{self, Patch, Tone as CoreTone};
 use relay_ndi::picture;
@@ -81,12 +82,19 @@ impl Connection {
                 d.set_item("fourcc", v.fourcc)?;
                 d.set_item("data", PyBytes::new(py, &v.data))?;
                 d.set_item("age_ms", at.elapsed().as_secs_f64() * 1000.0)?;
+                d.set_item("timecode", v.timecode)?;
+                d.set_item("timestamp", v.timestamp)?;
+                if !v.metadata.is_empty() {
+                    d.set_item("frame_meta", v.metadata)?;
+                }
             }
             Event::Audio(a) => {
                 let arr = PyArray1::from_vec(py, a.data).reshape([a.channels, a.samples])?;
                 d.set_item("audio_db", a.peak_db)?;
                 d.set_item("audio", arr)?;
                 d.set_item("rate", a.rate)?;
+                d.set_item("timecode", a.timecode)?;
+                d.set_item("timestamp", a.timestamp)?;
             }
             Event::Meta(xml) => d.set_item("meta", xml)?,
         }
@@ -121,9 +129,9 @@ struct Sender {
 #[pymethods]
 impl Sender {
     #[new]
-    #[pyo3(signature = (name, width=1280, height=720, fps=30.0, fourcc="BGRA"))]
-    fn new(py: Python<'_>, name: String, width: u32, height: u32, fps: f64, fourcc: &str) -> PyResult<Self> {
-        let tx = py.detach(|| CoreSender::open(&name, width, height, fps, fourcc)).map_err(os_err)?;
+    #[pyo3(signature = (name, width=1280, height=720, fps=30.0, fourcc="BGRA", audio_offset_ms=None))]
+    fn new(py: Python<'_>, name: String, width: u32, height: u32, fps: f64, fourcc: &str, audio_offset_ms: Option<f64>) -> PyResult<Self> {
+        let tx = py.detach(|| CoreSender::open_timed(&name, width, height, fps, fourcc, audio_offset_ms)).map_err(os_err)?;
         Ok(Sender { tx })
     }
 
@@ -352,6 +360,143 @@ fn scopes<'py>(py: Python<'py>, data: PyBackedBytes, width: usize, height: usize
     Ok((Some(d), Some(g.into_any())))
 }
 
+fn stats_dict<'py>(py: Python<'py>, s: &Stats) -> PyResult<Bound<'py, PyDict>> {
+    let d = PyDict::new(py);
+    d.set_item("frames", s.frames)?;
+    d.set_item("late", s.late)?;
+    d.set_item("long_gaps", s.long_gaps)?;
+    d.set_item("declared_fps", s.declared_fps)?;
+    d.set_item("recent_late", s.recent_late)?;
+    d.set_item("since_last_s", s.since_last_s)?;
+    match &s.measured {
+        None => {
+            d.set_item("interval_ms", py.None())?;
+            d.set_item("measured_fps", 0.0)?;
+            d.set_item("jitter_ms", py.None())?;
+            d.set_item("rate_mbps", 0.0)?;
+            d.set_item("frame_bytes", py.None())?;
+        }
+        Some(m) => {
+            let iv = PyDict::new(py);
+            iv.set_item("min", m.iv_min)?;
+            iv.set_item("avg", m.iv_avg)?;
+            iv.set_item("max", m.iv_max)?;
+            iv.set_item("sd", m.iv_sd)?;
+            d.set_item("interval_ms", iv)?;
+            d.set_item("measured_fps", m.measured_fps)?;
+            let j = PyDict::new(py);
+            j.set_item("mean", m.jitter_mean)?;
+            j.set_item("peak", m.jitter_peak)?;
+            d.set_item("jitter_ms", j)?;
+            d.set_item("rate_mbps", m.rate_mbps)?;
+            let b = PyDict::new(py);
+            b.set_item("min", m.bytes_min)?;
+            b.set_item("avg", m.bytes_avg)?;
+            b.set_item("max", m.bytes_max)?;
+            d.set_item("frame_bytes", b)?;
+        }
+    }
+    Ok(d)
+}
+
+fn num(d: &Bound<'_, PyDict>, key: &str) -> f64 {
+    d.get_item(key).ok().flatten().and_then(|v| v.extract::<f64>().ok()).unwrap_or(0.0)
+}
+
+fn sub(d: &Bound<'_, PyDict>, key: &str, field: &str) -> f64 {
+    d.get_item(key).ok().flatten().and_then(|v| v.cast_into::<PyDict>().ok()).map(|x| num(&x, field)).unwrap_or(0.0)
+}
+
+fn stats_from(d: &Bound<'_, PyDict>) -> Stats {
+    let measured = if d.get_item("interval_ms").ok().flatten().is_some_and(|v| !v.is_none()) {
+        Some(health::Measured {
+            iv_avg: sub(d, "interval_ms", "avg"),
+            measured_fps: num(d, "measured_fps"),
+            jitter_mean: sub(d, "jitter_ms", "mean"),
+            ..Default::default()
+        })
+    } else {
+        None
+    };
+    Stats {
+        frames: num(d, "frames") as u64,
+        declared_fps: num(d, "declared_fps"),
+        recent_late: num(d, "recent_late") as usize,
+        since_last_s: d.get_item("since_last_s").ok().flatten().and_then(|v| v.extract::<f64>().ok()),
+        measured,
+        ..Default::default()
+    }
+}
+
+/// `(state, why)` from a `Timing.stats` dict and the SDK's dropped-frame count.
+#[pyfunction]
+#[pyo3(signature = (stats, dropped=0))]
+fn health_of(stats: &Bound<'_, PyDict>, dropped: i64) -> (&'static str, String) {
+    let (state, why) = health::health(&stats_from(stats), dropped);
+    (state.name(), why)
+}
+
+/// Frame arrivals for one source: `record` on each picture, `stats` any time.
+#[pyclass(frozen, module = "relay_ndi")]
+struct Timing {
+    t: Mutex<CoreTiming>,
+}
+
+#[pymethods]
+impl Timing {
+    #[new]
+    fn new() -> Self {
+        Timing { t: Mutex::new(CoreTiming::new()) }
+    }
+
+    /// "", "late" or "gap" for what this arrival was.
+    #[pyo3(signature = (now, nbytes, fps=0.0))]
+    fn record(&self, now: f64, nbytes: u64, fps: f64) -> &'static str {
+        self.t.lock().unwrap_or_else(|p| p.into_inner()).record(now, nbytes, fps).name()
+    }
+
+    fn stats<'py>(&self, py: Python<'py>, now: f64) -> PyResult<Bound<'py, PyDict>> {
+        let s = self.t.lock().unwrap_or_else(|p| p.into_inner()).stats(now);
+        stats_dict(py, &s)
+    }
+}
+
+/// How far the audio runs from the picture, by the senders' timestamps and timecodes.
+#[pyclass(frozen, module = "relay_ndi")]
+struct SyncMeter {
+    m: Mutex<CoreSync>,
+}
+
+#[pymethods]
+impl SyncMeter {
+    #[new]
+    fn new() -> Self {
+        SyncMeter { m: Mutex::new(CoreSync::new()) }
+    }
+
+    fn video(&self, timecode: i64, timestamp: i64) {
+        self.m.lock().unwrap_or_else(|p| p.into_inner()).video(timecode, timestamp);
+    }
+
+    fn audio(&self, timecode: i64, timestamp: i64) {
+        self.m.lock().unwrap_or_else(|p| p.into_inner()).audio(timecode, timestamp);
+    }
+
+    fn reset(&self) {
+        self.m.lock().unwrap_or_else(|p| p.into_inner()).reset();
+    }
+
+    fn snapshot<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyDict>> {
+        let s = self.m.lock().unwrap_or_else(|p| p.into_inner()).snapshot();
+        let d = PyDict::new(py);
+        d.set_item("valid", s.valid)?;
+        d.set_item("synthesized", s.synthesized)?;
+        d.set_item("offset_ms", s.offset_ms)?;
+        d.set_item("state", s.state)?;
+        Ok(d)
+    }
+}
+
 #[pymodule]
 fn _native(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<Connection>()?;
@@ -359,6 +504,9 @@ fn _native(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<Router>()?;
     m.add_class::<AudioMeter>()?;
     m.add_class::<Tone>()?;
+    m.add_class::<Timing>()?;
+    m.add_class::<SyncMeter>()?;
+    m.add_function(wrap_pyfunction!(health_of, m)?)?;
     m.add_function(wrap_pyfunction!(find, m)?)?;
     m.add_function(wrap_pyfunction!(library, m)?)?;
     m.add_function(wrap_pyfunction!(scopes, m)?)?;

@@ -5,6 +5,7 @@
 pub mod audio;
 pub mod ffi;
 pub mod find;
+pub mod health;
 pub mod patterns;
 pub mod picture;
 pub mod recv;

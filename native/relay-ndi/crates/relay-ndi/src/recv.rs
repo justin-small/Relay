@@ -25,6 +25,11 @@ pub struct Video {
     pub fourcc: &'static str,
     /// Tightly packed rows, no stride padding.
     pub data: Vec<u8>,
+    /// What the sender labelled the frame with, and when its SDK took it, in 100 ns units (issue 561).
+    pub timecode: i64,
+    pub timestamp: i64,
+    /// The XML the sender attached to this frame, when it attached any.
+    pub metadata: String,
 }
 
 pub struct Audio {
@@ -35,6 +40,8 @@ pub struct Audio {
     pub data: Vec<f32>,
     /// The loudest sample of the chunk in dBFS, -120 for silence.
     pub peak_db: f64,
+    pub timecode: i64,
+    pub timestamp: i64,
 }
 
 pub enum Event {
@@ -255,7 +262,9 @@ fn copy_video(v: &VideoFrame) -> Option<Video> {
         d
     };
     let fps = if v.frame_rate_d > 0 { v.frame_rate_n as f64 / v.frame_rate_d as f64 } else { 0.0 };
-    Some(Video { width: w as u32, height: h as u32, fps, fourcc: name, data })
+    // SAFETY: the library gave a NUL-terminated string, or null, valid until the frame is freed.
+    let metadata = unsafe { ffi::text(v.metadata) };
+    Some(Video { width: w as u32, height: h as u32, fps, fourcc: name, data, timecode: v.timecode, timestamp: v.timestamp, metadata })
 }
 
 fn copy_audio(a: &AudioFrame) -> Option<Audio> {
@@ -277,7 +286,7 @@ fn copy_audio(a: &AudioFrame) -> Option<Audio> {
         }
         data.extend_from_slice(row);
     }
-    Some(Audio { rate: a.sample_rate as u32, channels: ch, samples: n, data, peak_db: db(peak) })
+    Some(Audio { rate: a.sample_rate as u32, channels: ch, samples: n, data, peak_db: db(peak), timecode: a.timecode, timestamp: a.timestamp })
 }
 
 #[cfg(test)]
@@ -301,7 +310,7 @@ mod tests {
             video_seen: AtomicU64::new(0),
         };
         for i in 0..VIDEO_QUEUE + 3 {
-            let v = Video { width: i as u32, height: 1, fps: 30.0, fourcc: "UYVY", data: vec![] };
+            let v = Video { width: i as u32, height: 1, fps: 30.0, fourcc: "UYVY", data: vec![], timecode: 0, timestamp: 0, metadata: String::new() };
             push(&shared, Event::Video(v, Instant::now()));
         }
         assert_eq!(shared.overflow.load(Relaxed), 3);

@@ -43,7 +43,8 @@ falls eight pictures behind loses the oldest, and `queue_overflow` in the receiv
 
 ## Not done
 
-- SCTE-104 (#560) and audio/video sync (#561): they need the frames' ancillary data and timestamps, which Relay's receiver does not pass on yet.
+- **A/V sync** (#561): the receiver passes every frame's NDI timestamp and timecode on, and Rust (`health.rs`) compares them: the audio's timestamp-to-timecode gap against the picture's, as the median of the last 120 frames. Amber beyond ±20 ms and red beyond ±40 ms, with an `A/V SYNC` chip and a row on the Info card. It reads nothing ("Not told by this sender") when the sender let the NDI SDK make its timecodes up, and it cannot see a delay the sender's own timecodes do not carry. A sender that calls audio and picture in turn shows up to one frame of offset from that order alone, so a steady reading is the sender's habit and a change in it is the thing to watch. Proved on real NDI (`native/relay-ndi/python/proof_sync.py`): the reading moved +39.1 ms for a sent +40 ms and -24.7 ms for -25 ms.
+- SCTE-104 (#560): see below.
 - The optional alert (#562), and health dots on the viewer and multiview boxes (#563).
 - Sender product info comes from NDI's connection metadata. It has not been seen from a real camera yet (Relay's own sender
   does not send it), so check **Sender** against a real device.

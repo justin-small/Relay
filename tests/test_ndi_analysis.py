@@ -83,6 +83,24 @@ with section("frame timing and health"):
         slow.record(i / 25, 1000, 30.0)
     eq("a 25 fps stream that says 30 is bad", analysis.health(slow.stats(2.4))[0], "bad")
 
+with section("audio and picture sync"):
+    a = analysis.Analyzer(Path(TMP))
+    base = 9_000_000_000
+    for i in range(40):                  # a sender whose audio is labelled 35 ms later than its picture
+        ts = base + i * 333_333
+        a.on_video(SRC, {**frame(), "timecode": ts - 4_000_000, "timestamp": ts}, 100.0 + i / 30)
+        a.on_audio(SRC, {"audio": sine(-20), "rate": 48000, "timecode": ts - 4_000_000 + 350_000, "timestamp": ts})
+    sy = a.snapshot(SRC)["sync"]
+    eq("the audio is read as 35 ms late", (sy["valid"], sy["offset_ms"], sy["state"]), (True, 35.0, "warn"))
+    b = analysis.Analyzer(Path(TMP))
+    for i in range(40):                  # the SDK made the timecodes up: nothing can be said
+        ts = base + i * 333_333
+        b.on_video(SRC, {**frame(), "timecode": ts, "timestamp": ts}, 100.0 + i / 30)
+        b.on_audio(SRC, {"audio": sine(-20), "rate": 48000, "timecode": ts, "timestamp": ts})
+    sy = b.snapshot(SRC)["sync"]
+    eq("made-up timecodes say nothing", (sy["valid"], sy["synthesized"], sy["state"]), (True, True, "unknown"))
+    eq("a source with no frames has no sync", analysis.Analyzer(Path(TMP)).snapshot("nothing").get("sync"), None)
+
 with section("picture scopes"):
     sc, grid = analysis.scopes(frame(rgb=(128, 128, 128)))
     r = sc["read"]
