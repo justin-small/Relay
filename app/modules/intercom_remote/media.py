@@ -321,10 +321,21 @@ class LiveMedia:
 
     # ------------------------------------------------------------------ listening
     async def listen(self, channel_id: int, cf_session_id: str, name: str) -> None:
-        from livekit import rtc
-
         if channel_id in self.listens:
             return
+        entry = await self._hear(channel_id)
+        try:
+            entry.mid, sender = await self._push(entry.track, name)
+            await self._connected()       # a phone can pull the mix only once Cloudflare has media flowing
+            await self._flowing(sender)
+        except BaseException:
+            await self._stop_listen(channel_id)
+            raise
+
+    async def _hear(self, channel_id: int) -> _Listen:
+        """Join the channel's room and hand every audio track in it to the mixer. The Cloudflare side is `listen`'s."""
+        from livekit import rtc
+
         if self.mix is None:
             self.mix = mixbus.MixBus()
         mix = self.mix
@@ -350,16 +361,18 @@ class LiveMedia:
         room.on("track_subscribed", on_subscribed)
         room.on("track_unsubscribed", on_unsubscribed)
         try:
-            from ..intercom import livekit as lk, rooms
-
-            await rooms.ensure_room(channel_id)          # rooms are not made on demand
-            await room.connect(f"ws://127.0.0.1:{lk.SIGNAL_PORT}", self._bridge_token(channel_id))
-            entry.mid, sender = await self._push(entry.track, name)
-            await self._connected()       # a phone can pull the mix only once Cloudflare has media flowing
-            await self._flowing(sender)
+            await self._join(room, channel_id)
         except BaseException:
             await self._stop_listen(channel_id)
             raise
+        return entry
+
+    async def _join(self, room, channel_id: int) -> None:
+        """Connect the bridge's participant to the channel's room on the local LiveKit."""
+        from ..intercom import livekit as lk, rooms
+
+        await rooms.ensure_room(channel_id)          # rooms are not made on demand
+        await room.connect(f"ws://127.0.0.1:{lk.SIGNAL_PORT}", self._bridge_token(channel_id))
 
     async def _read(self, mix: mixbus.MixBus, key: str, track) -> None:
         from livekit import rtc

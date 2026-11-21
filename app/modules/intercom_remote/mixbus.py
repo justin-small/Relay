@@ -23,7 +23,7 @@ log = logging.getLogger("relay.intercom_remote")
 RATE = 48_000
 FRAME = RATE // 50                  # 20 ms, what Opus and aiortc work in
 LANES = 32
-LATENCY_MS = 40                     # the engine holds each mix about half of this; the 20 ms minimum is the floor
+LATENCY_MS = 120                    # each mix is held about 60 ms deep: at 40 ms a real LiveKit room underran constantly
 _FULL = 32768.0
 
 
