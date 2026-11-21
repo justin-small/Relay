@@ -12,6 +12,8 @@ pub enum Error {
     UnknownOutput(String),
     /// No tap with that id.
     UnknownTap(u64),
+    /// No meter probe with that id.
+    UnknownProbe(u64),
     /// The thing exists but is not running right now (device closed, engine disabled).
     NotRunning(String),
     /// A command queue to the realtime thread is full; try again.
@@ -27,6 +29,7 @@ impl fmt::Display for Error {
             Error::UnknownInput(s) => write!(f, "no external input {s:?}"),
             Error::UnknownOutput(s) => write!(f, "no output {s:?}"),
             Error::UnknownTap(id) => write!(f, "no tap {id}"),
+            Error::UnknownProbe(id) => write!(f, "no meter probe {id}"),
             Error::NotRunning(s) => write!(f, "{s} is not running"),
             Error::Busy => write!(f, "the realtime thread is busy; try again"),
             Error::Backend(s) => write!(f, "audio backend: {s}"),

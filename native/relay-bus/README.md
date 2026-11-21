@@ -35,6 +35,7 @@ clock. Phase 2 added `crates/relay-bus-cpal` (the cpal `Backend` and the device-
 | `rt.rs` | the two queues to a realtime thread (commands in, discards out) |
 | `tap.rs` | non-realtime readers on a lane, with an optional output rate |
 | `meter.rs`, `health.rs`, `status.rs` | meters, glitch counters, the `status()` types |
+| `analysis/` | the sound-level meter (`spl.rs`), the BS.1770 stream-mix meter (`loudness.rs`) and `probe.rs`, which taps lanes and runs both on a Rust thread (#604). `filters.rs` and `gating.rs` are ported from PLVS (`THIRD-PARTY-NOTICES.md`) |
 
 ## Design
 

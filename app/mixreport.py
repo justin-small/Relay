@@ -1,24 +1,23 @@
-"""The stream-mix report (#149): while the stream mix carries sound, one row a second of BS.1770 loudness, sample
+"""The stream-mix report (#149, #604): while the stream mix carries sound, one row a second of BS.1770 loudness, true
 peak, left/right correlation and octave bands, saved per service, and a verdict on it afterwards.
 
 The stream mix is a stereo pair of lanes on the audio bus (app/audiobus.py). Patch both from the same device so the
 two stay in step; correlation needs that. A "service" is Relay's own session (the engine's run); with none running,
 rows go to one file per day. A row is written only while the mix carries sound (above `silence_dbfs`).
 
-Loudness. K-weighted (the BS.1770 shelf and high-pass, evaluated per FFT bin from their published 48 kHz
-coefficients) mean square of the last 400 ms is the momentary loudness, the last 3 s the short-term. Integrated
-loudness is judged afterwards from the saved momentary values with BS.1770's two gates (absolute -70 LUFS, then 10 LU
-under the ungated level). It is built from one momentary value a second, not the standard's 75 % overlapped blocks,
-so it can differ from a hardware meter by a few tenths of a LU. Peak is the sample peak, not the true peak.
+The maths is not here. A loudness probe in the Rust core (native/relay-bus, `relay_bus.Bus.open_probe("loudness")`)
+reads both lanes on its own thread and writes one finished row a second: momentary and short-term loudness, the
+running integrated loudness (exact BS.1770 gating) and loudness range, sample and true peak, correlation and the octave
+levels. Python saves those rows and judges them; it computes no loudness and does no frequency analysis.
 
 Files. `<state folder>/mixreports/<session>.jsonl`: a header line, then one JSON row per second:
-    {"t": epoch, "m": momentary LUFS, "s": short-term LUFS, "pk": peak dBFS, "co": L/R correlation,
+    {"t": epoch, "m": momentary LUFS, "s": short-term LUFS, "i": integrated LUFS so far, "lra": loudness range LU,
+     "pk": sample peak dBFS, "tp": true peak dBTP, "co": L/R correlation,
      "oct": [10 octave levels, 31.5 Hz to 16 kHz, dBFS], "r": 1 when rehearsal}
-numpy only. Core: it reads Relay's own bus and talks to nothing outside.
+Core: it reads Relay's own bus and talks to nothing outside.
 """
 from __future__ import annotations
 
-import collections
 import json
 import logging
 import math
@@ -27,16 +26,10 @@ import threading
 import time
 from pathlib import Path
 
-import numpy as np
-
 from . import audiobus, paths
 
 log = logging.getLogger("relay.mixreport")
 
-RATE = audiobus.RATE
-FRAME, HOP = 4096, 2048
-MOMENTARY_S, SHORT_S = 0.4, 3
-ABS_GATE, REL_GATE = -70.0, 10.0
 OCTAVES = (31.5, 63.0, 125.0, 250.0, 500.0, 1000.0, 2000.0, 4000.0, 8000.0, 16000.0)
 OCTAVE_LABELS = ("31", "63", "125", "250", "500", "1k", "2k", "4k", "8k", "16k")
 MAX_FILES = 100
@@ -45,10 +38,6 @@ ID_RE = re.compile(r"[A-Za-z0-9-]{1,40}")
 SERIES_POINTS = 600
 BASS_HEAVY_DB, THIN_DB = 8.0, -12.0
 WANDER_LU = 12.0
-
-_K1_B, _K1_A = (1.53512485958697, -2.69169618940638, 1.19839281085285), (1.0, -1.69065929318241, 0.73248077421585)
-_K2_B, _K2_A = (1.0, -2.0, 1.0), (1.0, -1.99004745483398, 0.99007225036621)
-
 
 def default_config() -> dict:
     return {"enabled": False, "left": 1, "right": 2, "silence_dbfs": -50.0, "target_lufs": -16.0,
@@ -80,95 +69,16 @@ def normalize(raw) -> dict:
     return out
 
 
-# -- the maths ---------------------------------------------------------------------------------------------------
-def _biquad_power(b, a, f: np.ndarray) -> np.ndarray:
-    z = np.exp(-2j * np.pi * f / RATE)
-    num = b[0] + b[1] * z + b[2] * z * z
-    den = a[0] + a[1] * z + a[2] * z * z
-    return np.square(np.abs(num / den))
-
-
-def k_weights(n: int = FRAME) -> np.ndarray:
-    """The squared K-weighting gain of each rfft bin of an n-sample FFT, DC silenced."""
-    f = np.fft.rfftfreq(n, 1.0 / RATE)
-    w = _biquad_power(_K1_B, _K1_A, f) * _biquad_power(_K2_B, _K2_A, f)
-    w[0] = 0.0
-    return w
-
-
-_HANN = np.hanning(FRAME)
-_HANN_MS = float(np.mean(np.square(_HANN)))
-_KW = k_weights()
-_OCT_BINS = [(max(1, int(math.ceil(fc / math.sqrt(2) / (RATE / FRAME)))),
-              max(2, int(math.ceil(fc * math.sqrt(2) / (RATE / FRAME))))) for fc in OCTAVES]
-
-
-def _power(x: np.ndarray) -> np.ndarray | None:
-    """Mean one-sided power spectrum of Hann frames of x, scaled so sums over bins are mean squares."""
-    if len(x) < FRAME:
-        return None
-    frames = np.lib.stride_tricks.sliding_window_view(x.astype(np.float64, copy=False), FRAME)[::HOP]
-    p = np.square(np.abs(np.fft.rfft(frames * _HANN, axis=1)))
-    p[:, 1:-1] *= 2.0
-    return p.mean(axis=0) / (FRAME * FRAME * _HANN_MS)
-
-
-def k_ms(x: np.ndarray) -> float:
-    p = _power(x)
-    return float(np.dot(p, _KW)) if p is not None else 0.0
-
-
-def lufs(ms: float) -> float | None:
-    return round(-0.691 + 10.0 * math.log10(ms), 1) if ms > 1e-12 else None
-
-
-def dbfs(v: float) -> float:
-    return round(20.0 * math.log10(v), 1) if v > 1e-9 else -120.0
-
-
-def analyse_second(left: np.ndarray, right: np.ndarray, silence_dbfs: float,
-                   recent: collections.deque) -> dict | None:
-    """One row for about a second of stereo samples, or None when the mix is silent. `recent` carries the last
-    SHORT_S seconds' K-weighted mean squares between calls."""
-    n = min(len(left), len(right))
-    if n < FRAME:
-        return None
-    left, right = left[-n:].astype(np.float64), right[-n:].astype(np.float64)
-    mono = 0.5 * (left + right)
-    if dbfs(float(np.sqrt(np.mean(np.square(mono))))) <= silence_dbfs and \
-            dbfs(float(max(np.sqrt(np.mean(np.square(left))), np.sqrt(np.mean(np.square(right)))))) <= silence_dbfs:
-        recent.clear()
-        return None
-    last = int(MOMENTARY_S * RATE)
-    m = lufs(k_ms(left[-last:]) + k_ms(right[-last:]))
-    recent.append(k_ms(left) + k_ms(right))
-    while len(recent) > SHORT_S:
-        recent.popleft()
-    s = lufs(sum(recent) / len(recent))
-    sl, sr = left - left.mean(), right - right.mean()
-    den = math.sqrt(float(np.dot(sl, sl)) * float(np.dot(sr, sr)))
-    co = round(float(np.dot(sl, sr)) / den, 2) if den > 1e-12 else None
-    p = _power(mono)
-    octs = [dbfs(math.sqrt(float(p[a:b].sum()))) for a, b in _OCT_BINS] if p is not None else [-120.0] * 10
-    return {"m": m, "s": s, "pk": dbfs(float(max(np.abs(left).max(), np.abs(right).max()))), "co": co, "oct": octs}
-
-
 # -- judging -----------------------------------------------------------------------------------------------------
+def _r(v):
+    """A number from the probe, rounded to a tenth for the file; None stays None."""
+    return None if v is None else round(float(v), 1)
+
+
 def _energy_mean(values: list[float]) -> float | None:
     if not values:
         return None
     return 10.0 * math.log10(sum(10.0 ** (v / 10.0) for v in values) / len(values))
-
-
-def integrated(momentary: list[float]) -> float | None:
-    """BS.1770 gated loudness of momentary values: absolute gate, then 10 LU under what remains."""
-    above = [m for m in momentary if m > ABS_GATE]
-    if not above:
-        return None
-    rel = _energy_mean(above) - REL_GATE
-    kept = [m for m in above if m > rel]
-    out = _energy_mean(kept)
-    return round(out, 1) if out is not None else None
 
 
 def judge(rows: list[dict], cfg: dict) -> dict:
@@ -181,10 +91,13 @@ def judge(rows: list[dict], cfg: dict) -> dict:
         return out
     ms = [r["m"] for r in rows if isinstance(r.get("m"), (int, float))]
     ss = [r["s"] for r in rows if isinstance(r.get("s"), (int, float))]
-    pks = [r["pk"] for r in rows if isinstance(r.get("pk"), (int, float))]
+    pks = [r["tp"] if isinstance(r.get("tp"), (int, float)) else r["pk"] for r in rows
+           if isinstance(r.get("tp"), (int, float)) or isinstance(r.get("pk"), (int, float))]
     cos = [r["co"] for r in rows if isinstance(r.get("co"), (int, float))]
-    integ = integrated(ms)
-    out.update(integrated_lufs=integ, loudest_momentary=round(max(ms), 1) if ms else None,
+    # The programme loudness is the meter's own running value (exact BS.1770 gating, done in Rust) at the last row.
+    integ = next((r["i"] for r in reversed(rows) if isinstance(r.get("i"), (int, float))), None)
+    lra = next((r["lra"] for r in reversed(rows) if isinstance(r.get("lra"), (int, float))), None)
+    out.update(integrated_lufs=integ, loudness_range=lra, loudest_momentary=round(max(ms), 1) if ms else None,
                max_short_term=round(max(ss), 1) if ss else None, peak_dbfs=round(max(pks), 1) if pks else None,
                correlation=round(sum(cos) / len(cos), 2) if cos else None)
     octs = [r["oct"] for r in rows if isinstance(r.get("oct"), list) and len(r["oct"]) == len(OCTAVES)]
@@ -211,9 +124,9 @@ def judge(rows: list[dict], cfg: dict) -> dict:
         top = max(pks)
         if over:
             add("Peaks", "fail" if top >= 0.0 else "warn",
-                f"Sample peak reached {top} dBFS; {over} second{'s' if over != 1 else ''} above {cfg['peak_limit_dbfs']}.")
+                f"True peak reached {top} dBTP; {over} second{'s' if over != 1 else ''} above {cfg['peak_limit_dbfs']}.")
         else:
-            add("Peaks", "pass", f"Sample peak {top} dBFS, under the {cfg['peak_limit_dbfs']} limit.")
+            add("Peaks", "pass", f"True peak {top} dBTP, under the {cfg['peak_limit_dbfs']} limit.")
     if ss and len(ss) >= 10:
         spread = max(ss) - min(ss)
         add("Consistency", "warn" if spread > WANDER_LU else "pass",
@@ -306,26 +219,24 @@ def read_session(session_id: str, root: Path | None = None) -> tuple[dict, list[
 
 
 def csv_text(rows: list[dict]) -> str:
-    head = ["time", "momentary_lufs", "short_term_lufs", "sample_peak_dbfs", "lr_correlation"] + \
+    head = ["time", "momentary_lufs", "short_term_lufs", "integrated_lufs", "sample_peak_dbfs", "true_peak_dbtp",
+            "lr_correlation"] + \
            [f"{lab}_hz_dbfs" for lab in OCTAVE_LABELS] + ["rehearsal"]
     lines = [",".join(head)]
     for r in rows:
         t = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(r["t"])) if isinstance(r.get("t"), (int, float)) else ""
         oct_ = r.get("oct") if isinstance(r.get("oct"), list) else []
-        cells = [t, r.get("m"), r.get("s"), r.get("pk"), r.get("co")] + [oct_[i] if i < len(oct_) else ""
-                                                                         for i in range(len(OCTAVES))] + \
-                [1 if r.get("r") else 0]
+        cells = [t, r.get("m"), r.get("s"), r.get("i"), r.get("pk"), r.get("tp"), r.get("co")] + \
+                [oct_[i] if i < len(oct_) else ""
+                 for i in range(len(OCTAVES))] + [1 if r.get("r") else 0]
         lines.append(",".join("" if c is None else str(c) for c in cells))
     return "\n".join(lines) + "\n"
 
 
 # -- the recorder ------------------------------------------------------------------------------------------------
-def lane_tail(lane: audiobus.Lane, n: int) -> tuple[np.ndarray, int]:
-    """The newest n samples of a lane and its running total. The first call starts keeping the lane (audiobus.Lane.tail)."""
-    return lane.tail(n)
-
-
 class Recorder:
+    """Keeps a loudness probe on the stream mix's two lanes and saves the rows it writes, a second at a time."""
+
     def __init__(self, target: audiobus.Bus | None = None, root: Path | None = None) -> None:
         self._target = target
         self._root = root
@@ -333,8 +244,8 @@ class Recorder:
         self._thread: threading.Thread | None = None
         self._stop = threading.Event()
         self._lock = threading.Lock()
-        self._recent: collections.deque = collections.deque()
-        self._last = (0, 0)
+        self._probe: tuple[int, int, int] | None = None      # probe id, left lane, right lane
+        self._programme: str | None = None                   # the session the probe's integrated loudness belongs to
         self.session: str | None = None
         self.rows = 0
         self.latest: dict | None = None
@@ -357,17 +268,36 @@ class Recorder:
             elif self._thread is None:
                 self._start_locked()
             else:
-                self._last = (0, 0)
+                self._open_probe_locked()
 
     def stop(self) -> None:
         with self._lock:
             self._stop_locked()
 
+    def _open_probe_locked(self) -> None:
+        """A probe on the configured lanes; kept as it is when the lanes did not change, so the programme's
+        integrated loudness is not lost to a change of target or tolerance."""
+        cfg = self.config
+        if self._probe is not None and self._probe[1:] == (cfg["left"], cfg["right"]):
+            self.bus.engine.set_probe_silence(self._probe[0], cfg["silence_dbfs"])
+            return
+        self._close_probe_locked()
+        pid = self.bus.engine.open_probe("loudness", [cfg["left"], cfg["right"]], silence_dbfs=cfg["silence_dbfs"])
+        self._probe = (pid, cfg["left"], cfg["right"])
+
+    def _close_probe_locked(self) -> None:
+        probe, self._probe = self._probe, None
+        if probe is not None:
+            try:
+                self.bus.engine.close_probe(probe[0])
+            except (ValueError, RuntimeError):
+                pass
+
     def _start_locked(self) -> None:
         self._stop = threading.Event()
-        self._recent.clear()
-        self._last = (0, 0)
         self.session, self.rows, self.latest, self.error = None, 0, None, ""
+        self._programme = None
+        self._open_probe_locked()
         self._thread = threading.Thread(target=self._run, args=(self._stop,), name="relay-mixreport", daemon=True)
         self._thread.start()
 
@@ -376,6 +306,7 @@ class Recorder:
         self._stop.set()
         if thread is not None:
             thread.join(timeout=3.0)
+        self._close_probe_locked()
 
     def _run(self, stop: threading.Event) -> None:
         while not stop.wait(1.0):
@@ -384,25 +315,34 @@ class Recorder:
             except Exception:
                 log.exception("stream-mix report tick failed")
 
-    def tick(self, now: float | None = None) -> dict | None:
-        """Read the newest second from both lanes and save a row when the mix carries sound. Public for tests."""
-        cfg = self.config
+    def tick(self, now: float | None = None) -> list[dict]:
+        """Take the rows the probe wrote since the last tick and save those where the mix carried sound. Returns the
+        rows saved. Public for tests."""
         now = time.time() if now is None else now
-        lo, ro = self.bus.lane(cfg["left"]), self.bus.lane(cfg["right"])
-        wl, wr = lo.written, ro.written
-        n = min(wl - self._last[0], wr - self._last[1]) if self._last != (0, 0) else RATE
-        self._last = (wl, wr)
-        if n < FRAME:
-            return None
-        left, _ = lane_tail(lo, n)
-        right, _ = lane_tail(ro, n)
-        row = analyse_second(left, right, cfg["silence_dbfs"], self._recent)
-        if row is None:
-            return None
-        row = {"t": int(now), **row, **({"r": 1} if cfg["rehearsal"] else {})}
-        self.latest = row
-        self._save(row, now)
-        return row
+        with self._lock:
+            probe = self._probe
+            rehearsal = self.config["rehearsal"]
+        if probe is None:
+            return []
+        fresh = self.bus.engine.probe_rows(probe[0])
+        programme = self._session_for(now)[0]
+        if self._programme is not None and programme != self._programme:
+            self.bus.engine.reset_probe(probe[0])         # a new service: its integrated loudness starts from nothing
+            self._programme = programme
+            return []
+        self._programme = programme
+        saved = []
+        for i, r in enumerate(fresh):
+            if not r["sound"]:
+                continue
+            t = int(now - (len(fresh) - 1 - i))           # the newest row is this second; older ones are earlier
+            row = {"t": t, "m": _r(r["momentary"]), "s": _r(r["short_term"]), "i": _r(r["integrated"]),
+                   "lra": _r(r["range_lu"]), "pk": _r(r["sample_peak_dbfs"]), "tp": _r(r["true_peak_dbtp"]),
+                   "co": r["correlation"], "oct": [_r(o) for o in r["octaves"]], **({"r": 1} if rehearsal else {})}
+            self.latest = row
+            self._save(row, now)
+            saved.append(row)
+        return saved
 
     def _session_for(self, now: float) -> tuple[str, float, str]:
         from .engine import engine

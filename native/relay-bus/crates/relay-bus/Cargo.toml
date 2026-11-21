@@ -15,6 +15,7 @@ rtrb = "0.3"
 rubato = "1"
 audioadapter-buffers = "2"
 assert_no_alloc = { version = "1.1", optional = true }
+rustfft = "6"
 
 [dev-dependencies]
 # Turn the feature on for `cargo test` without asking the person running it to remember a flag.

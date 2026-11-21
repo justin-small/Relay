@@ -163,6 +163,8 @@ html[data-sb] .inset{margin:0!important;border:0!important;border-radius:0!impor
                font-variant-numeric:tabular-nums;
                font-family:var(--mono); }
 .meterread.clipped { color:var(--err); }
+.mtcard { padding:var(--sp-3) 0; border-bottom:1px solid var(--line); }
+.mtrta { display:block; width:100%; max-width:620px; height:140px; margin-top:var(--sp-2); }
 .urls a { color:var(--fg); }
 .urls .urlgroup { display:flex; gap:14px; align-items:baseline; padding:6px 0;
                     border-bottom:1px solid var(--line); }

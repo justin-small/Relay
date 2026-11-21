@@ -94,10 +94,11 @@ def _languages() -> list[list[str]]:
 
 
 def _sound_sources() -> list[list[str]]:
-    """Where a sound widget can read: Relay's own meter, then each module's registered source (#149)."""
+    """Where a sound widget can read: the first of Relay's own meters, then each meter by name and each module's
+    registered source (#149, #604)."""
     from . import metering
 
-    return [["", "Relay's own meter"]] + [[k, v] for k, v in metering.sources()]
+    return [["", "Relay's first meter"]] + [[k, v] for k, v in metering.choices()]
 
 
 def _route_options(direction: str) -> list[list[str]]:

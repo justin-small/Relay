@@ -1,7 +1,7 @@
-"""The stream-mix report (#149): K-weighted loudness against known tones, peak, correlation, octaves, the one-row-a-second
-recorder on a fake bus, gated integrated loudness, the verdicts and the admin routes. No devices.
-Run: .venv/bin/python tests/test_mixreport.py"""
-import collections
+"""The stream-mix report (#149, #604): the one-row-a-second recorder reading a Rust loudness probe on a fake bus, the
+verdicts on saved rows, the files and the admin routes. The loudness maths itself (K-weighting, gating, true peak,
+correlation, octaves) is tested against known tones in Rust: native/relay-bus/crates/relay-bus/tests/probes.rs.
+No devices. Run: .venv/bin/python tests/test_mixreport.py"""
 import json
 import math
 import os
@@ -27,7 +27,7 @@ from app.main import app  # noqa: E402
 from _buslane import feed, lane_bus  # noqa: E402
 from _harness import check, done, eq, section, wait_for  # noqa: E402
 
-RATE = mr.RATE
+RATE = audiobus.RATE
 
 
 def tone(freq, amp, seconds, phase=0.0):
@@ -35,55 +35,27 @@ def tone(freq, amp, seconds, phase=0.0):
     return (amp * np.sin(2 * math.pi * freq * t + phase)).astype(np.float32)
 
 
-with section("K-weighted loudness of a stereo tone"):
-    # BS.1770: a 997 Hz sine at -20 dBFS peak in both channels reads about -20 - 3.01 + 3.01 - 0.691 = -23.7 LUFS...
-    # per channel mean square 0.01/2*... the check is against the standard's own reference: 0 dBFS-peak 997 Hz on
-    # both channels is -3.01 LUFS, so -20 dBFS peak is -23.0 LUFS.
-    x = tone(997, 0.1, 2.0)
-    row = mr.analyse_second(x, x, -50.0, collections.deque())
-    check("stereo -20 dBFS tone reads -20.0 LUFS", row and abs(row["m"] + 20.0) < 0.3, str(row and row["m"]))
-    check("short-term agrees on a steady tone", abs(row["s"] - row["m"]) < 0.3)
-    check("peak is the tone's amplitude", abs(row["pk"] + 20.0) < 0.2, str(row["pk"]))
-    eq("identical channels correlate fully", row["co"], 1.0)
-    eq("ten octave levels", len(row["oct"]), 10)
-    eq("the tone is in the 1k octave", int(np.argmax(row["oct"])), 5)
-
-with section("K-weighting turns low frequencies down"):
-    lo = mr.analyse_second(tone(60, 0.1, 2.0), tone(60, 0.1, 2.0), -50.0, collections.deque())
-    check("60 Hz reads quieter than 997 Hz at the same level", lo["m"] < row["m"] - 0.5, f"{lo['m']} {row['m']}")
-
-with section("correlation"):
-    a = tone(500, 0.1, 2.0)
-    out = mr.analyse_second(a, -a, -50.0, collections.deque())
-    eq("opposite channels", out["co"], -1.0)
-    b = tone(500, 0.1, 2.0, phase=math.pi / 2)
-    check("quadrature channels are uncorrelated", abs(mr.analyse_second(a, b, -50.0, collections.deque())["co"]) < 0.05)
-
-with section("silence writes nothing"):
-    z = np.zeros(RATE, dtype=np.float32)
-    eq("silent", mr.analyse_second(z, z, -50.0, collections.deque()), None)
-    eq("too short", mr.analyse_second(a[:100], a[:100], -50.0, collections.deque()), None)
-
-with section("integrated loudness gates quiet passages out"):
-    loud = [-16.0] * 100
-    quiet = [-45.0] * 100
-    check("steady", abs(mr.integrated(loud) + 16.0) < 0.05)
-    check("a quiet half under the relative gate does not drag it down", abs(mr.integrated(loud + quiet) + 16.0) < 0.05)
-    check("below the absolute gate is nothing", mr.integrated([-80.0] * 10) is None)
-
 with section("the verdicts"):
     cfg = {"target_lufs": -16.0, "tolerance_lu": 2.0, "peak_limit_dbfs": -1.0}
     oct_ok = [-40, -36, -34, -32, -32, -34, -36, -40, -45, -50]
-    rows = [{"t": i, "m": -16.0, "s": -16.0, "pk": -6.0, "co": 0.8, "oct": oct_ok} for i in range(60)]
+    rows = [{"t": i, "m": -16.0, "s": -16.0, "i": -16.0, "lra": 3.0, "pk": -6.0, "tp": -5.5, "co": 0.8, "oct": oct_ok}
+            for i in range(60)]
     j = mr.judge(rows, cfg)
     eq("a good mix passes", j["overall"], "pass")
     eq("every check present", sorted(v["check"] for v in j["verdicts"]),
        ["Balance", "Consistency", "Loudness", "Peaks", "Phase"])
-    loud_rows = [{**r, "m": -9.0, "s": -9.0} for r in rows]
+    loud_rows = [{**r, "m": -9.0, "s": -9.0, "i": -9.0} for r in rows]
     jl = mr.judge(loud_rows, cfg)
     eq("far too loud fails loudness", [v["status"] for v in jl["verdicts"] if v["check"] == "Loudness"], ["fail"])
-    hot = [{**r, "pk": 0.0} for r in rows]
+    hot = [{**r, "pk": 0.0, "tp": 0.4} for r in rows]
     eq("clipping fails peaks", [v["status"] for v in mr.judge(hot, cfg)["verdicts"] if v["check"] == "Peaks"], ["fail"])
+    inter = [{**r, "pk": -3.0, "tp": -0.2} for r in rows]
+    check("a true peak over the limit warns even when the samples are under it",
+          [v["status"] for v in mr.judge(inter, cfg)["verdicts"] if v["check"] == "Peaks"] == ["warn"])
+    jg = mr.judge(rows, cfg)
+    eq("the programme loudness is the meter's own running value", (jg["integrated_lufs"], jg["loudness_range"]), (-16.0, 3.0))
+    old = [{k: v for k, v in r.items() if k not in ("i", "lra", "tp")} for r in rows]
+    eq("a row without an integrated value reads as too quiet", [v["status"] for v in mr.judge(old, cfg)["verdicts"] if v["check"] == "Loudness"], ["warn"])
     phase = [{**r, "co": -0.5} for r in rows]
     eq("out of phase fails", [v["status"] for v in mr.judge(phase, cfg)["verdicts"] if v["check"] == "Phase"], ["fail"])
     bass = [{**r, "oct": [-20, -20, -20, -40, -40, -40, -40, -45, -50, -55]} for r in rows]
@@ -108,24 +80,31 @@ with section("the recorder saves a row a second while there is sound"):
     root = Path(tempfile.mkdtemp())
     rec = mr.Recorder(bus, root)
     rec.config = mr.normalize({"enabled": True, "left": 1, "right": 2})
+    rec._open_probe_locked()
+    pid = rec._probe[0]
     t0 = 1_800_000_000.0
-    eq("nothing yet", rec.tick(t0), None)        # the first look starts keeping the lanes
-    sent = 0
+    eq("nothing yet", rec.tick(t0), [])
+    seen = [0]
 
     def put(block):
-        """Both lanes get `block`, and the recorder's copy of them has caught up (it reads on a thread of its own)."""
-        global sent
+        """Both lanes get `block`; wait until the Rust probe has written the rows for it."""
         feed(bus, 1, block)
         feed(bus, 2, block)
-        sent += len(block)
-        check("the lanes caught up", wait_for(lambda: min(bus.lane(1).written, bus.lane(2).written) >= sent), str(sent))
+        seen[0] += len(block) // RATE
+        check("the probe caught up", wait_for(lambda: bus.engine.probe_status(pid)["seconds"] >= seen[0]), str(seen[0]))
 
+    got = []
     for i in range(3):
         put(tone(997, 0.1, 1.0))
-        got = rec.tick(t0 + 1 + i)
-        check(f"second {i + 1} is a row", got is not None and abs(got["m"] + 20.0) < 0.5, str(got))
+        got += rec.tick(t0 + 1 + i)
+    eq("three seconds of tone are three rows", len(got), 3)
+    check("momentary loudness is the tone's", all(abs(r["m"] + 20.0) < 0.3 for r in got), str([r["m"] for r in got]))
+    check("the true peak is the tone's amplitude", abs(got[-1]["tp"] + 20.0) < 0.3, str(got[-1]["tp"]))
+    eq("identical channels correlate fully", got[-1]["co"], 1.0)
+    eq("ten octave levels, the tone in the 1k one", (len(got[-1]["oct"]), got[-1]["oct"].index(max(got[-1]["oct"]))), (10, 5))
+    check("a running integrated loudness after three seconds", abs(got[-1]["i"] + 20.0) < 0.3, str(got[-1]["i"]))
     put(np.zeros(RATE, dtype=np.float32))
-    eq("a silent second writes nothing", rec.tick(t0 + 5), None)
+    eq("a silent second writes nothing", rec.tick(t0 + 5), [])
     rec.config["rehearsal"] = True
     put(tone(997, 0.1, 1.0))
     rec.tick(t0 + 6)
@@ -143,11 +122,13 @@ with section("the recorder saves a row a second while there is sound"):
     eq("a missing session", mr.read_session("nothing", root), None)
     csv = mr.csv_text(rows).splitlines()
     eq("a csv header and rows", len(csv), 5)
-    check("the csv has the octave columns", "1k_hz_dbfs" in csv[0])
+    check("the csv has the octave and true-peak columns", "1k_hz_dbfs" in csv[0] and "true_peak_dbtp" in csv[0])
     # a damaged line is skipped, not fatal
     with files[0].open("a") as f:
         f.write("{not json\n")
     eq("a damaged line is skipped", len(mr.read_session(s[0]["id"], root)[1]), 4)
+    rec.stop()
+    eq("stopping closes the probe", rec._probe, None)
 
 with section("the admin API"):
     config.ensure_file()
