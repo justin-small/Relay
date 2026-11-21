@@ -16,6 +16,7 @@ from fastapi.responses import JSONResponse
 from ... import audit
 from .. import require
 from .models import COLOURS, FAMILIES, MODELS, TESTED
+from . import showfile
 from .service import MAX_DESKS, clean_settings, save, service, settings
 
 router = APIRouter()
@@ -149,3 +150,52 @@ async def admin_names_push(request: Request, payload: dict):
     audit.note(request, "audio_mixers.names", f"Sent {got['sent']} mic name{'s' if got['sent'] != 1 else ''} from "
                "Planning Center to the desks")
     return got
+
+
+# -- I/O patch from an exported show file (#261) ---------------------------------------------------------------------
+@router.get("/api/admin/audio_mixers/{did}/patch", dependencies=VIEW)
+async def admin_patch(did: str):
+    if not any(d["id"] == did for d in settings()["desks"]):
+        return _bad("No such desk.", 404)
+    return {"patch": settings().get("patches", {}).get(did)}
+
+
+@router.post("/api/admin/audio_mixers/{did}/patch", dependencies=MANAGE)
+async def admin_patch_read(request: Request, did: str, name: str = ""):
+    """The body is the exported show (.tar.gz). A file Relay cannot read is refused with a sentence and nothing is
+    saved: the desk's stored patch stays as it was."""
+    desk = next((d for d in settings()["desks"] if d["id"] == did), None)
+    if desk is None:
+        return _bad("No such desk.", 404)
+    model = desk["model"]
+    if model not in showfile.MODELS:
+        return _bad("Reading a patch from a show file works for the Avantis and dLive only. Qu shows are not "
+                    "supported yet." if model.startswith("qu") else "Reading a patch from a show file works for the "
+                    "Avantis and dLive only.")
+    body = bytearray()
+    async for chunk in request.stream():
+        body += chunk
+        if len(body) > showfile.MAX_UPLOAD:
+            return _bad("That file is too large to be a show.", 413)
+    try:
+        got = await asyncio.to_thread(showfile.read, bytes(body))
+    except showfile.ShowFileError as e:
+        return _bad(str(e))
+    if got["family"] != model:
+        return _bad(f"That is {'an Avantis' if got['family'] == 'avantis' else 'a dLive'} show, but this desk is a "
+                    f"{MODELS[model].label}. Nothing was changed.")
+    patch = {**got, "file": name.strip()[:120], "read_at": time.time()}
+    save({"patches": {**settings().get("patches", {}), did: patch}})
+    audit.note(request, "audio_mixers.patch", f"Read the I/O patch of {desk['name']} from a show file",
+               detail={"inputs": len(got["inputs"]), "outputs": len(got["outputs"]), "firmware": got["firmware"]})
+    return {"patch": settings()["patches"][did]}
+
+
+@router.delete("/api/admin/audio_mixers/{did}/patch", dependencies=MANAGE)
+async def admin_patch_clear(request: Request, did: str):
+    desk = next((d for d in settings()["desks"] if d["id"] == did), None)
+    if desk is None:
+        return _bad("No such desk.", 404)
+    save({"patches": {k: v for k, v in settings().get("patches", {}).items() if k != did}})
+    audit.note(request, "audio_mixers.patch", f"Cleared the I/O patch of {desk['name']}")
+    return {"patch": None}

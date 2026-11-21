@@ -25,7 +25,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from ... import config, modules
-from . import drivers
+from . import drivers, showfile
 from .mirror import Mirror
 from .models import COLOURS, KINDS, MODELS, OFF_DB, TESTED, clamp_db, clean_name, db_text, default_name, has_strip, \
     parse_strip
@@ -111,8 +111,11 @@ def clean_settings(raw: Any) -> dict:
         scene = b.get("scene") if isinstance(b.get("scene"), int) and not isinstance(b.get("scene"), bool) else None
         saved = b.get("saved_at") if isinstance(b.get("saved_at"), (int, float)) else 0
         baselines[did] = {"names": names, "mutes": bm, "scene": scene, "saved_at": saved}
+    sent = raw.get("patches") if isinstance(raw.get("patches"), dict) else {}
+    patches = {did: c for did, v in sent.items()
+               if did in by_id and by_id[did]["model"] in showfile.MODELS and (c := showfile.clean_patch(v))}
     style = (raw.get("names") or {}).get("style") if isinstance(raw.get("names"), dict) else None
-    return {"desks": desks, "watchdog": watchdog, "baselines": baselines,
+    return {"desks": desks, "watchdog": watchdog, "baselines": baselines, "patches": patches,
             "names": {"style": style if style in ("first", "full", "last") else "first"}}
 
 
@@ -316,6 +319,15 @@ class Service:
         if said:
             raise ValueError(said)
         self.expect(d, strip, name=text)
+
+    # -- I/O patch read from an exported show (#261), for the signal map (#262) ---------------------------------------
+    def patch_list(self) -> list[dict]:
+        """Every desk with a patch read from a show file: {desk, name, model, family, firmware, file, read_at,
+        verified, inputs, outputs}. Inputs: channel, name, named, source {kind, port, socket, label}."""
+        s = settings()
+        got = s.get("patches", {})
+        return [{"desk": d["id"], "name": d["name"], "model": d["model"], **got[d["id"]]}
+                for d in s["desks"] if d["id"] in got]
 
     # -- routes (app/routing.py): an input's send to a mix ----------------------------------------------------------------
     def routes_api(self) -> dict:
