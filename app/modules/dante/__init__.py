@@ -58,13 +58,14 @@ class Dante(Module):
 
     def attach(self) -> None:
         from ... import modules as registry
+        from ... import nosound
         from . import walk
         from .service import service
 
         registry.provide("gear.dante", {"list": service.gear_list})
         registry.provide("audio.input_labels", service.input_labels)
         registry.provide("dante.routing", service.devices_copy)  # read-only: the signal map joins a patch list to it
-        registry.provide("nosound.dante", lambda audio: walk.steps(audio, service.devices_copy()))
+        registry.provide("nosound.dante", nosound.upstream(10, lambda audio: walk.steps(audio, service.devices_copy())))
 
     def detach(self) -> None:
         from ... import modules as registry

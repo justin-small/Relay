@@ -91,6 +91,47 @@ with section("Dante: each fault stops the walk at the right step"):
     w = nosound.walk(SILENT, True, dante(OK_SUBS, devices=[mine, {"name": "STAGE", "ips": ["10.9.9.2"], "online": True}]))
     eq("unreadable subscriptions are unknown, not a fault", states(w)["dante_sub"], "unknown")
 
+with section("sound desk: the channel that feeds Relay is muted"):
+    from app.modules.audio_mixers import drivers as mixdrv, service as mixsvc, walk as desk_walk
+    from app.modules.audio_mixers.mirror import Mirror
+    from app.modules.audio_mixers.models import MODELS
+
+    cfg = mixsvc.clean_desk({"id": "foh", "name": "FOH", "model": "x32", "host": "10.9.9.2"}, 1)
+    mirror = Mirror(MODELS["x32"])
+    desk = mixsvc.Desk(cfg, mirror, mixdrv.make(cfg, mirror))
+    mine = {"name": "DVS-PC", "key": "dvs-pc", "ips": [HERE], "online": True, "clock": {"locked": True},
+            "subscriptions": [{"channel": 1, "status": "ok", "source": "Lead Vox@FOH-DANTE"}]}
+    foh = {"name": "FOH-DANTE", "key": "foh-dante", "ips": ["10.9.9.2"], "online": True, "clock": {"locked": True}}
+
+    def desk_steps(devices=None):
+        return desk_walk.steps({**SILENT, "device": "Core Audio: Dante Virtual Soundcard"}, devices or [mine, foh], [desk])
+
+    def walk_with(devices=None):
+        both = {"dante": nosound.upstream(10, dante(mine["subscriptions"], devices or [mine, foh])["dante"]),
+                "audio_mixers": nosound.upstream(20, lambda a: desk_steps(devices))}
+        return nosound.walk(SILENT, True, both)
+
+    eq("a desk it cannot hear is unknown", [s["state"] for s in desk_steps()], ["unknown"])
+    mirror.link(True)
+    mirror.heard()
+    eq("a channel it cannot tie to a strip is unknown", [s["state"] for s in desk_steps()], ["unknown"])
+    mirror.set("in1", name="Lead Vox")
+    eq("a mute it has not heard is unknown", [s["state"] for s in desk_steps()], ["unknown"])
+    mirror.set("in1", muted=False)
+    eq("not muted", [s["state"] for s in desk_steps()], ["ok"])
+    mirror.set("in1", muted=True)
+    eq("muted", [s["state"] for s in desk_steps()], ["fail"])
+    w = walk_with()
+    eq("the walk stops at the muted channel", (w["verdict"], w["stopped_at"]), ("stopped", "desk_mute"))
+    check("the Dante steps come first", ids(w).index("dante_sub") < ids(w).index("desk_mute"), str(ids(w)))
+    broken = {**mine, "subscriptions": [{"channel": 1, "status": "none", "source": ""}]}
+    w = nosound.walk(SILENT, True, {"audio_mixers": nosound.upstream(20, lambda a: desk_steps([broken, foh])),
+                                    "dante": dante(broken["subscriptions"], [broken, foh])["dante"]})
+    eq("a Dante fault nearer Relay is reported before the desk", w["stopped_at"], "dante_sub")
+    eq("a desk that does not feed Relay adds nothing",
+       desk_walk.steps({**SILENT, "device": "x"}, [mine, {**foh, "ips": ["10.9.9.7"], "name": "STAGE"}], [desk]), [])
+    eq("no desk step with the Dante module off", nosound.walk(SILENT, True, {})["stopped_at"], "source")
+
 with section("route"):
     check("route exists", any(r.path == "/api/admin/nosound" for r in main.app.routes))
 
