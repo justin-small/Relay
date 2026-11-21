@@ -1,0 +1,12 @@
+[package]
+name = "relay-ndi"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+description = "Relay's NDI engine (issue 606): finder, receiver, sender and router over the NDI runtime, loaded at run time"
+
+[dependencies]
+# The NDI runtime is opened with dlopen, never linked: Relay does not ship it (its licence forbids that) and a build
+# needs neither the SDK nor its headers.
+libloading = "0.8"

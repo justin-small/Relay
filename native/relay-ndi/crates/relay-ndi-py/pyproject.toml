@@ -1,0 +1,16 @@
+[build-system]
+requires = ["maturin>=1.7,<2"]
+build-backend = "maturin"
+
+[project]
+name = "relay-ndi"
+version = "0.1.0"
+description = "Relay's NDI engine (Rust), Python binding. Issue 606."
+requires-python = ">=3.10"
+dependencies = ["numpy"]
+license = { text = "MIT" }
+
+[tool.maturin]
+python-source = "python"
+module-name = "relay_ndi._native"
+features = ["extension-module"]
