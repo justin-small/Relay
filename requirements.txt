@@ -30,3 +30,5 @@ keyring==25.7.0
 # IANA zone data for the scheduler (zoneinfo). The slim base image's system
 # zone files are not something to rely on; zoneinfo falls back to this.
 tzdata==2026.4
+# ProPresenter's own files (songs, playlists) are Protocol Buffers; app/modules/propresenter/ppfile.py (#497).
+protobuf==7.36.2
