@@ -240,7 +240,7 @@ from app import netsock
 
 reader, writer = await netsock.open_tcp("propresenter", host, port)          # or connect_tcp(...) -> socket
 transport, proto = await netsock.udp_endpoint("blackmagic", AtemProtocol)          # or udp_socket(...) -> socket
-sock = netsock.multicast_socket("aes67", "239.69.1.1", 5004)                 # joined on the port's address
+sock = netsock.multicast_socket("dante", "224.0.0.251", 5353)                # joined on the port's address
 server = await netsock.start_server("signage", handle, 8090)                 # or listen_tcp(...) -> socket
 
 conn = netsock.http_connection("propresenter", host, port, timeout=5)        # http.client, HTTPS with tls=True
@@ -283,9 +283,9 @@ Each module's classes, and what happens when the port changes (`network_changed`
 
 Not steered yet: the remote intercom bridge's media (aiortc gathers on every interface), the phones' LiveKit
 signalling (it arrives on the crew port), and LiveKit's download (the system default, since the intercom port may
-have no internet). Dante, AES67 and NDI are built on this from the start: Dante discovery and control join and send
+have no internet). Dante and NDI are built on this from the start: Dante discovery and control join and send
 on the `dante` port with `multicast_socket`; Dante Virtual Soundcard and Dante Via choose their own network card in
-their own app, so set the same one there. AES67 sends and joins with `multicast_socket`. NDI reads its own adapter
+their own app, so set the same one there. NDI reads its own adapter
 list (`ndi-config.v1.json`); check what the SDK version supports before writing it per run.
 
 `netsock.notes(class_id)` lists what the operator should know about a route:
@@ -1024,37 +1024,6 @@ export. Another module reads it through `modules.using("talkback.lines")`, a dic
 `{seq, ts, text}`) and `subscribe(fn)` (`fn({"type": "delta", "text"})` while a line is open, `fn({"type": "line", ...})`
 when it is committed; returns the way to stop listening). Talkback is a second stream of billed audio seconds: its status
 shows them beside the main feed's.
-
-## AES67 streams as the input
-
-The AES67 module (#266) finds AES67 streams (a Dante device in AES67 mode, Ravenna, Livewire) and receives one as Relay's
-sound input. Discovery is SAP: it joins 239.255.255.255 and 224.2.127.254, port 9875, parses each announcement's SDP
-(`sdp.py`) and keeps the table of streams until the sender deletes one or is silent for five minutes. A stream is
-`<group>:<port>`; the module lists one it cannot receive (unicast, an encoding other than L16 or L24) with the reason.
-
-It registers the audio source `aes67` with core's `audio.register_source` while it is on, so the engine reads it like a
-sound device: `audio_source` `"aes67"`, `audio_device` the stream id, `input_channel` a channel number or `"mix"`. It also
-gives the audio bus a multichannel input (`lane_input`). Receiving is a Python multicast socket on the module's own
-network port (traffic class `aes67`, `media`, so it never runs on a port the operator did not choose) and a thread
-(`receiver.py`): RTP is decoded in numpy and handed to the pump at the stream's own rate, which resamples. No kernel driver.
-
-* A lost packet is replaced with silence of the same length and counted (`lost`); a late or repeated packet is dropped
-  (`late`); another sender's stream (a different SSRC, or an address the SDP's source filter does not name) is ignored.
-* Relay does **not** lock to PTP. It measures the arrival rate against the wall clock (`drift_ppm`, shown after 30 s) and
-  counts dropouts, which is what a feed resampled to 24 kHz needs to know.
-* The chosen stream's SDP is kept in the module's settings (`remembered`, at most 8), so the saved input opens after a
-  restart before the next announcement arrives.
-* Venue switches need IGMP snooping and a querier, or multicast floods or never arrives. The admin page says so.
-* **Sending (#267).** Switched on in the module's `output` settings, it sends one multicast stream of up to 8 channels
-  (L24 or L16, 48 kHz, 1 ms packets) announced by SAP and withdrawn on stop (`sender.py`, `output.py`). It is the audio
-  output `aes67_out` (`audio.get_output("aes67_out").play(pcm, rate, "<channel>")`, channels from 1) and a lane-bus sink.
-  A stage alert plays a level-based tone on `alert_channel`; `modules.using("aes67.speak")(language, pcm, rate)` queues
-  speech on that language's channel. Gain and name per channel, and a test tone, are on the page. Paced by Relay's own
-  clock (`ts-refclk:local`), not PTP, and not yet tried on a real Dante receiver.
-* A stream is marked Dante when its SDP names Dante or Audinate; the module lists Dante as a module it can do more with
-  (`uses`) but reads no Dante data yet. Dante Virtual Soundcard cannot send AES67.
-* **Not proven on real gear:** built against SDP and RTP captured by hand and a loopback multicast socket. The one-hour
-  soak with a Dante device in AES67 mode (no dropouts on macOS, Windows and Linux) is still to be run.
 
 ## Shared helpers for module scripts
 

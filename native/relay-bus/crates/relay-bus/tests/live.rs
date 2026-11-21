@@ -256,8 +256,8 @@ fn pushed_audio_reaches_a_device_output_through_a_lane() {
     let r = rig();
     r.fake.add_output("o", DeviceSpec::new(1, 48_000, 256));
     r.fake.capture_output("o", true);
-    let lane = lane(1, "aes67", "stage", ChannelSel::Index(1));
-    let id = input_id("aes67", &lane.device);
+    let lane = lane(1, "net", "stage", ChannelSel::Index(1));
+    let id = input_id("net", &lane.device);
     r.eng
         .apply(&Config {
             enabled: true,
@@ -278,7 +278,7 @@ fn pushed_audio_reaches_a_device_output_through_a_lane() {
     assert_eq!(st.glitches.underruns + st.glitches.resyncs, 0);
     let cap = r.fake.take_output("o");
     assert!(near(mean(&cap[cap.len() - 24_000..]), 0.35, 4e-3));
-    assert_eq!(r.eng.push("aes67:nowhere", &block, 2, 44_100), Err(Error::UnknownInput("aes67:nowhere".into())));
+    assert_eq!(r.eng.push("net:nowhere", &block, 2, 44_100), Err(Error::UnknownInput("net:nowhere".into())));
 }
 
 #[test]
@@ -286,7 +286,7 @@ fn a_pull_output_is_paced_by_the_callers_clock() {
     let r = rig();
     let lane = lane(1, "ndi", "cam", ChannelSel::Index(0));
     let id = input_id("ndi", &lane.device);
-    let out = OutputSpec { id: "send".into(), name: "".into(), output: "aes67".into(), device: None, channels: 2, latency_ms: 60 };
+    let out = OutputSpec { id: "send".into(), name: "".into(), output: "net".into(), device: None, channels: 2, latency_ms: 60 };
     r.eng
         .apply(&Config { enabled: true, lanes: vec![lane], outputs: vec![out], matrix: vec![cell(1, "send", 1, 0.0), cell(1, "send", 2, -6.0206)] })
         .unwrap();

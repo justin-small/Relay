@@ -169,7 +169,7 @@ mod tests {
 
     #[test]
     fn input_ids_fold_case() {
-        assert_eq!(input_id("AES67", &Some(" Stage ".into())), "aes67:stage");
+        assert_eq!(input_id("PortAudio", &Some(" Stage ".into())), "portaudio:stage");
         assert_eq!(input_id("portaudio", &None), "portaudio:");
     }
 }
