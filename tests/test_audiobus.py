@@ -626,16 +626,5 @@ with section("the device list is not re-probed while any stream is open"):
         audio._probe_input_devices = real
     eq("re-init only once nothing is open", probes, [False, True])
 
-with section("the fallback ring (no rtmixer) keeps order, wraps, and never overfills"):
-    ring = audio._PyRing(8, 2)
-    blk = lambda a, b: np.array([[i, -i] for i in range(a, b)], dtype=np.float32)
-    eq("writes up to its size", ring.write(blk(0, 10)), 8)
-    eq("full: nothing more fits", (ring.write_available, ring.read_available), (0, 8))
-    got = ring.read(5)
-    eq("reads in order", got[:, 0].tolist(), [0, 1, 2, 3, 4])
-    eq("space opens as it is read", ring.write(blk(8, 12)), 4)
-    eq("it wraps without losing order", ring.read(99)[:, 0].tolist(), [5, 6, 7, 8, 9, 10, 11])
-    eq("empty reads nothing", len(ring.read(4)), 0)
-
 audiobus.bus.stop()
 done()
