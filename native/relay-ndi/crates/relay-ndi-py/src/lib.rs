@@ -3,7 +3,7 @@
 //! Every call that can wait (finding, connecting, reading the queue, a paced send) releases the GIL. The capture
 //! loop itself is a Rust thread, so Python only ever collects what it has already queued.
 
-use numpy::{PyArray1, PyArrayMethods, PyReadonlyArray2, PyUntypedArrayMethods};
+use numpy::{PyArray1, PyArrayMethods, PyReadonlyArray2, PyReadonlyArray3, PyUntypedArrayMethods};
 use pyo3::pybacked::PyBackedBytes;
 use pyo3::exceptions::{PyOSError, PyValueError};
 use pyo3::prelude::*;
@@ -11,6 +11,7 @@ use pyo3::types::{PyBytes, PyDict, PyList};
 use relay_ndi::audio::{AudioMeter as CoreMeter, Snapshot};
 use relay_ndi::find::Finder;
 use std::sync::Mutex;
+use relay_ndi::patterns::{self, Patch, Tone as CoreTone};
 use relay_ndi::picture;
 use relay_ndi::recv::{Event, Receiver};
 use relay_ndi::route::Router as CoreRouter;
@@ -252,6 +253,53 @@ fn jpeg<'py>(py: Python<'py>, data: PyBackedBytes, width: usize, height: usize, 
     Some(PyBytes::new(py, &out))
 }
 
+/// A test pattern's unchanging picture as BGRA bytes.
+#[pyfunction]
+fn base_picture<'py>(py: Python<'py>, pattern: &str, width: usize, height: usize) -> Bound<'py, PyBytes> {
+    PyBytes::new(py, &py.detach(|| patterns::base_picture(pattern, width, height)))
+}
+
+/// One test-pattern frame (BGRA bytes): `base` (the BGRA picture shaped (height, width, 4)) plus the moving element and,
+/// if `burn` is `(x, y, w, h, bgra bytes)`, the burned-in text patch.
+#[pyfunction]
+#[pyo3(signature = (pattern, base, now, frame, burn=None))]
+fn draw_frame<'py>(py: Python<'py>, pattern: &str, base: PyReadonlyArray3<'_, u8>, now: f64, frame: u64,
+                   burn: Option<(i64, i64, usize, usize, PyBackedBytes)>) -> PyResult<Bound<'py, PyBytes>> {
+    let (height, width, depth) = (base.shape()[0], base.shape()[1], base.shape()[2]);
+    let Ok(pixels) = base.as_slice() else { return Err(PyValueError::new_err("the base picture must be contiguous")) };
+    if depth != 4 {
+        return Err(PyValueError::new_err("the base picture must be BGRA, shaped (height, width, 4)"));
+    }
+    let out = py.detach(|| {
+        let patch = burn.as_ref().map(|(x, y, w, h, b)| Patch { x: *x, y: *y, w: *w, h: *h, bgra: b });
+        patterns::draw_frame(pattern, pixels, width, height, now, frame, patch.as_ref())
+    });
+    Ok(PyBytes::new(py, &out))
+}
+
+#[pyclass(frozen, module = "relay_ndi")]
+struct Tone {
+    t: Mutex<CoreTone>,
+}
+
+#[pymethods]
+impl Tone {
+    #[new]
+    fn new(mode: &str, level: f64, fps: f64) -> Self {
+        Tone { t: Mutex::new(CoreTone::new(mode, level, fps)) }
+    }
+
+    fn channel(&self) -> &'static str {
+        self.t.lock().unwrap_or_else(|p| p.into_inner()).channel()
+    }
+
+    /// The audio for the next video frame: float32, shaped (2, samples).
+    fn next<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
+        let (data, n) = self.t.lock().unwrap_or_else(|p| p.into_inner()).next_frame();
+        Ok(PyArray1::from_vec(py, data).reshape([2, n])?.into_any())
+    }
+}
+
 type ScopeResult<'py> = (Option<Bound<'py, PyDict>>, Option<Bound<'py, PyAny>>);
 
 fn pack_dict<'py>(py: Python<'py>, p: &Pack) -> PyResult<Bound<'py, PyDict>> {
@@ -310,11 +358,14 @@ fn _native(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<Sender>()?;
     m.add_class::<Router>()?;
     m.add_class::<AudioMeter>()?;
+    m.add_class::<Tone>()?;
     m.add_function(wrap_pyfunction!(find, m)?)?;
     m.add_function(wrap_pyfunction!(library, m)?)?;
     m.add_function(wrap_pyfunction!(scopes, m)?)?;
     m.add_function(wrap_pyfunction!(to_rgb, m)?)?;
     m.add_function(wrap_pyfunction!(jpeg, m)?)?;
+    m.add_function(wrap_pyfunction!(base_picture, m)?)?;
+    m.add_function(wrap_pyfunction!(draw_frame, m)?)?;
     m.add_function(wrap_pyfunction!(set_search_dirs, m)?)?;
     Ok(())
 }
