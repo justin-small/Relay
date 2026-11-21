@@ -1,0 +1,198 @@
+{
+ "engine": "python-nortmixer",
+ "scenario": "B",
+ "seconds": 60.0,
+ "seed": 1,
+ "rtmixer_in_use": false,
+ "rss_after_imports_mb": 93.4375,
+ "apply_ms": 108.14708401449025,
+ "ready_s": 0.00012137496378272772,
+ "all_open": true,
+ "threads_cpu_s": {
+  "py-bus": 24.606,
+  "bench-gen": 3.742,
+  "bench-drain": 3.076,
+  "native-other": 2.691,
+  "bench-tap": 0.984,
+  "bench-poll": 0.022,
+  "main": 0.0
+ },
+ "threads_cpu_pct": {
+  "main": 0.0,
+  "native-other": 4.48,
+  "py-bus": 41.01,
+  "bench-drain": 5.13,
+  "bench-gen": 6.24,
+  "bench-tap": 1.64,
+  "bench-poll": 0.04
+ },
+ "threads_unaccounted_s": -0.001,
+ "wall_s": 60.00269704195671,
+ "cpu_pct": 58.529124074944676,
+ "rss_mb": {
+  "after_imports": 93.4375,
+  "window_start": 110.359375,
+  "window_end": 143.46875,
+  "window_max_sampled": 143.25,
+  "process_peak": 143.484375,
+  "growth_over_window": 33.109375,
+  "bus_over_imports": 50.03125
+ },
+ "speaker": {
+  "underruns": 207,
+  "resyncs": 0,
+  "queued_ms_end": 17.0
+ },
+ "fake_outputs": {
+  "underruns": 39,
+  "resyncs": 0,
+  "silent_blocks": 0,
+  "blocks": 36004
+ },
+ "input_dropped": 0,
+ "detail_end": {
+  "bus_lane_underruns": {
+   "spk": 356,
+   "f1": 136,
+   "f2": 126,
+   "f3": 169
+  },
+  "sink_underruns": {
+   "spk": 6,
+   "f1": 0,
+   "f2": 0,
+   "f3": 1
+  },
+  "rtmixer_in_use": false
+ },
+ "totals_since_start": {
+  "spk": {
+   "underruns": 362,
+   "resyncs": 0
+  },
+  "f1": {
+   "underruns": 136,
+   "resyncs": 0
+  },
+  "f2": {
+   "underruns": 126,
+   "resyncs": 0
+  },
+  "f3": {
+   "underruns": 170,
+   "resyncs": 0
+  }
+ },
+ "driver": {
+  "late_ms": {
+   "n": 3000,
+   "p50": 2.0379170309752226,
+   "p90": 3.914666944183409,
+   "p99": 4.802374984137714,
+   "p999": 5.402624956332147,
+   "max": 7.40724999923259
+  },
+  "resets": 0,
+  "errors": 0
+ },
+ "drain": {
+  "late_ms": {
+   "n": 36006,
+   "p50": 0.7020410848781466,
+   "p90": 1.1967499740421772,
+   "p99": 2.0541660487651825,
+   "p999": 2.8310409979894757,
+   "max": 5.429791868664324
+  },
+  "resets": 0
+ },
+ "status_call_ms": {
+  "median": 0.26627047918736935,
+  "max": 0.34954200964421034
+ },
+ "taps": [
+  {
+   "lane": 1,
+   "samples": 1440050,
+   "expected": 1440064,
+   "ratio": 0.9999897719827003,
+   "dropped": 0,
+   "rms_dbfs": -47.144255204529564,
+   "max_arrival_gap_ms": 42.93187498115003,
+   "discontinuities": null
+  },
+  {
+   "lane": 2,
+   "samples": 1440050,
+   "expected": 1440064,
+   "ratio": 0.9999897719827003,
+   "dropped": 0,
+   "rms_dbfs": -33.46786765726573,
+   "max_arrival_gap_ms": 47.65804100316018,
+   "discontinuities": 0,
+   "worst_residual_over_amp": 8.575319840794146e-07
+  },
+  {
+   "lane": 10,
+   "samples": 1440880,
+   "expected": 1440064,
+   "ratio": 1.00056613496367,
+   "dropped": 0,
+   "rms_dbfs": -33.46787186149817,
+   "max_arrival_gap_ms": 45.39949994068593,
+   "discontinuities": 0,
+   "worst_residual_over_amp": 1.5886983548152322e-06
+  },
+  {
+   "lane": 18,
+   "samples": 1440050,
+   "expected": 1440064,
+   "ratio": 0.9999897719827003,
+   "dropped": 0,
+   "rms_dbfs": -33.46787176228052,
+   "max_arrival_gap_ms": 47.11295897141099,
+   "discontinuities": 0,
+   "worst_residual_over_amp": 9.226709730738211e-07
+  }
+ ],
+ "meters": {
+  "lane_expected_dbfs": -33.46787486224657,
+  "synthetic_lane_error_db": {
+   "median_abs": 0.012032822234395724,
+   "max_abs": 0.0321251377534324,
+   "n": 31
+  },
+  "mic_tap_rms_dbfs": -47.144118478376555,
+  "mic_lane_meter_rms_dbfs": -46.91724766623774,
+  "output_expected_dbfs": -58.55425792390384,
+  "output_at_floor_fraction": {
+   "spk": 0.21666666666666667,
+   "f1": 0.4166666666666667,
+   "f2": 0.5333333333333333,
+   "f3": 0.45
+  },
+  "output_error_db": {}
+ },
+ "extra": {},
+ "ru_peak_before_window_mb": 110.390625,
+ "machine": {
+  "model": "Mac16,7",
+  "cpu": "Apple M4 Pro",
+  "cores": "14",
+  "perf_cores": "10",
+  "efficiency_cores": "4",
+  "memory_gb": 24.0,
+  "macos": "26.5.2",
+  "build": "25F84",
+  "python": "3.10.11",
+  "numpy": "2.2.6",
+  "date": "2026-11-20 23:47",
+  "power": "Now drawing from 'Battery Power'",
+  "low_power_mode": "lowpowermode (not listed)",
+  "load_avg_at_start": [
+   2.5771484375,
+   3.06298828125,
+   2.99462890625
+  ]
+ }
+}

@@ -1,0 +1,411 @@
+{
+ "engine": "python-nortmixer",
+ "scenario": "C",
+ "seconds": 60.0,
+ "seed": 2,
+ "rtmixer_in_use": false,
+ "rss_after_imports_mb": 91.875,
+ "apply_ms": 109.97658304404467,
+ "ready_s": 0.0001151250908151269,
+ "all_open": true,
+ "threads_cpu_s": {
+  "py-bus": 23.631,
+  "bench-gen": 3.699,
+  "bench-drain": 2.937,
+  "native-other": 2.664,
+  "main": 1.245,
+  "bench-tap": 0.99,
+  "bench-poll": 0.019
+ },
+ "threads_cpu_pct": {
+  "main": 2.17,
+  "native-other": 4.64,
+  "py-bus": 41.15,
+  "bench-drain": 5.11,
+  "bench-gen": 6.44,
+  "bench-tap": 1.72,
+  "bench-poll": 0.03
+ },
+ "threads_unaccounted_s": -0.001,
+ "wall_s": 57.42017895798199,
+ "cpu_pct": 61.273960894037096,
+ "rss_mb": {
+  "after_imports": 91.875,
+  "window_start": 108.71875,
+  "window_end": 142.078125,
+  "window_max_sampled": 142.03125,
+  "process_peak": 142.078125,
+  "growth_over_window": 33.359375,
+  "bus_over_imports": 50.203125
+ },
+ "speaker": {
+  "underruns": 192,
+  "resyncs": 0,
+  "queued_ms_end": 17.0
+ },
+ "fake_outputs": {
+  "underruns": 74,
+  "resyncs": 0,
+  "silent_blocks": 2,
+  "blocks": 34455
+ },
+ "input_dropped": 0,
+ "detail_end": {
+  "bus_lane_underruns": {
+   "spk": 338,
+   "f1": 164,
+   "f2": 160,
+   "f3": 156
+  },
+  "sink_underruns": {
+   "spk": 9,
+   "f1": 3,
+   "f2": 3,
+   "f3": 2
+  },
+  "rtmixer_in_use": false
+ },
+ "totals_since_start": {
+  "spk": {
+   "underruns": 347,
+   "resyncs": 0
+  },
+  "f1": {
+   "underruns": 167,
+   "resyncs": 0
+  },
+  "f2": {
+   "underruns": 163,
+   "resyncs": 0
+  },
+  "f3": {
+   "underruns": 158,
+   "resyncs": 0
+  }
+ },
+ "driver": {
+  "late_ms": {
+   "n": 2871,
+   "p50": 2.1994170965626836,
+   "p90": 3.962417016737163,
+   "p99": 4.846208146773279,
+   "p999": 5.399708054028451,
+   "max": 5.92204206623137
+  },
+  "resets": 0,
+  "errors": 0
+ },
+ "drain": {
+  "late_ms": {
+   "n": 34455,
+   "p50": 0.6970829563215375,
+   "p90": 1.1945830192416906,
+   "p99": 2.008583047427237,
+   "p999": 2.712375018745661,
+   "max": 4.655708093196154
+  },
+  "resets": 0
+ },
+ "status_call_ms": {
+  "median": 0.24414551444351673,
+  "max": 0.699915923178196
+ },
+ "taps": [
+  {
+   "lane": 1,
+   "samples": 1377800,
+   "expected": 1378084,
+   "ratio": 0.9997937027563546,
+   "dropped": 0,
+   "rms_dbfs": -44.94645109529961,
+   "max_arrival_gap_ms": 42.295666062273085,
+   "discontinuities": null
+  },
+  {
+   "lane": 2,
+   "samples": 1377800,
+   "expected": 1378084,
+   "ratio": 0.9997937027563546,
+   "dropped": 0,
+   "rms_dbfs": -33.46787693984053,
+   "max_arrival_gap_ms": 45.01699993852526,
+   "discontinuities": 0,
+   "worst_residual_over_amp": 8.575319840794146e-07
+  },
+  {
+   "lane": 10,
+   "samples": 1378630,
+   "expected": 1378084,
+   "ratio": 1.0003959881194608,
+   "dropped": 0,
+   "rms_dbfs": -33.46787827331893,
+   "max_arrival_gap_ms": 46.25449993181974,
+   "discontinuities": 0,
+   "worst_residual_over_amp": 1.5886983548152322e-06
+  },
+  {
+   "lane": 18,
+   "samples": 1378630,
+   "expected": 1378084,
+   "ratio": 1.0003959881194608,
+   "dropped": 0,
+   "rms_dbfs": -33.4678638258322,
+   "max_arrival_gap_ms": 46.257583075203,
+   "discontinuities": 0,
+   "worst_residual_over_amp": 9.226709730738211e-07
+  }
+ ],
+ "meters": {
+  "lane_expected_dbfs": -33.46787486224657,
+  "synthetic_lane_error_db": {
+   "median_abs": 0.014569850601453993,
+   "max_abs": 0.0321251377534324,
+   "n": 31
+  },
+  "mic_tap_rms_dbfs": -44.94849823529228,
+  "mic_lane_meter_rms_dbfs": -46.74855295743012,
+  "output_expected_dbfs": -58.55425792390384,
+  "output_at_floor_fraction": {
+   "spk": 0.25862068965517243,
+   "f1": 0.41379310344827586,
+   "f2": 0.39655172413793105,
+   "f3": 0.39655172413793105
+  },
+  "output_error_db": {}
+ },
+ "extra": {
+  "alerts": [
+   {
+    "at_s": 3.904821883628939,
+    "inject_call_ms": 0.21708302665501833,
+    "meter_ms": 16.98962494265288,
+    "ring_queued_ms_at_rise": 4.1,
+    "est_device_ms": 21.089624942652883,
+    "fake_device_ms": 20.072749932296574,
+    "speaker_peak_dbfs": -19.5
+   },
+   {
+    "at_s": 6.357951922542746,
+    "inject_call_ms": 0.8790419669821858,
+    "meter_ms": 8.095083991065621,
+    "ring_queued_ms_at_rise": 30.0,
+    "est_device_ms": 38.09508399106562,
+    "fake_device_ms": 27.66150003299117,
+    "speaker_peak_dbfs": -19.6
+   },
+   {
+    "at_s": 9.53412592407689,
+    "inject_call_ms": 0.2644999185577035,
+    "meter_ms": 7.126000011339784,
+    "ring_queued_ms_at_rise": 17.0,
+    "est_device_ms": 24.126000011339784,
+    "fake_device_ms": 26.005832944065332,
+    "speaker_peak_dbfs": -19.6
+   },
+   {
+    "at_s": 13.29185186638925,
+    "inject_call_ms": 0.27112499810755253,
+    "meter_ms": 11.289999936707318,
+    "ring_queued_ms_at_rise": 30.0,
+    "est_device_ms": 41.28999993670732,
+    "fake_device_ms": 28.64545793272555,
+    "speaker_peak_dbfs": -19.6
+   },
+   {
+    "at_s": 15.930183321426307,
+    "inject_call_ms": 0.21050008945167065,
+    "meter_ms": 13.053625007160008,
+    "ring_queued_ms_at_rise": 30.0,
+    "est_device_ms": 43.05362500716001,
+    "fake_device_ms": 25.01762507017702,
+    "speaker_peak_dbfs": -19.5
+   },
+   {
+    "at_s": 19.296509123285944,
+    "inject_call_ms": 0.16933400183916092,
+    "meter_ms": 16.857124981470406,
+    "ring_queued_ms_at_rise": 30.0,
+    "est_device_ms": 46.857124981470406,
+    "fake_device_ms": 24.79170903097838,
+    "speaker_peak_dbfs": -19.6
+   },
+   {
+    "at_s": 21.8907142446603,
+    "inject_call_ms": 0.2370000584051013,
+    "meter_ms": 5.350791965611279,
+    "ring_queued_ms_at_rise": 30.0,
+    "est_device_ms": 35.35079196561128,
+    "fake_device_ms": 23.786791949532926,
+    "speaker_peak_dbfs": -19.6
+   },
+   {
+    "at_s": 24.117667019613656,
+    "inject_call_ms": 0.21012499928474426,
+    "meter_ms": 13.610458001494408,
+    "ring_queued_ms_at_rise": 30.0,
+    "est_device_ms": 43.61045800149441,
+    "fake_device_ms": 27.4219160201028,
+    "speaker_peak_dbfs": -19.6
+   },
+   {
+    "at_s": 27.706832758869133,
+    "inject_call_ms": 0.22720801644027233,
+    "meter_ms": 10.380792082287371,
+    "ring_queued_ms_at_rise": 30.0,
+    "est_device_ms": 40.38079208228737,
+    "fake_device_ms": 27.456750045530498,
+    "speaker_peak_dbfs": -19.6
+   },
+   {
+    "at_s": 30.299264273792048,
+    "inject_call_ms": 0.3666660049930215,
+    "meter_ms": 5.998166045174003,
+    "ring_queued_ms_at_rise": 30.0,
+    "est_device_ms": 35.998166045174,
+    "fake_device_ms": 24.167416035197675,
+    "speaker_peak_dbfs": -19.6
+   },
+   {
+    "at_s": 32.6951066508554,
+    "inject_call_ms": 0.23920892272144556,
+    "meter_ms": 2.266499912366271,
+    "ring_queued_ms_at_rise": 30.0,
+    "est_device_ms": 32.26649991236627,
+    "fake_device_ms": 23.798958980478346,
+    "speaker_peak_dbfs": -19.6
+   },
+   {
+    "at_s": 34.708827738253405,
+    "inject_call_ms": 0.20016601774841547,
+    "meter_ms": 8.862916030921042,
+    "ring_queued_ms_at_rise": 24.1,
+    "est_device_ms": 32.96291603092104,
+    "fake_device_ms": 26.571833062916994,
+    "speaker_peak_dbfs": -19.7
+   },
+   {
+    "at_s": 37.715686423043536,
+    "inject_call_ms": 0.13912504073232412,
+    "meter_ms": 2.058124984614551,
+    "ring_queued_ms_at_rise": 30.0,
+    "est_device_ms": 32.05812498461455,
+    "fake_device_ms": 28.00041704904288,
+    "speaker_peak_dbfs": -19.6
+   },
+   {
+    "at_s": 40.568193299799454,
+    "inject_call_ms": 0.22795808035880327,
+    "meter_ms": 3.6552080418914557,
+    "ring_queued_ms_at_rise": 30.0,
+    "est_device_ms": 33.655208041891456,
+    "fake_device_ms": 24.882249999791384,
+    "speaker_peak_dbfs": -19.6
+   },
+   {
+    "at_s": 42.775519825096374,
+    "inject_call_ms": 0.1854579895734787,
+    "meter_ms": 10.024916962720454,
+    "ring_queued_ms_at_rise": 30.0,
+    "est_device_ms": 40.024916962720454,
+    "fake_device_ms": 25.75229189824313,
+    "speaker_peak_dbfs": -19.6
+   },
+   {
+    "at_s": 46.36798205007119,
+    "inject_call_ms": 0.7287090411409736,
+    "meter_ms": 4.0362500585615635,
+    "ring_queued_ms_at_rise": 30.0,
+    "est_device_ms": 34.03625005856156,
+    "fake_device_ms": 25.451541994698346,
+    "speaker_peak_dbfs": -19.6
+   },
+   {
+    "at_s": 50.16523979294959,
+    "inject_call_ms": 0.22741605062037706,
+    "meter_ms": 2.117082942277193,
+    "ring_queued_ms_at_rise": 30.0,
+    "est_device_ms": 32.11708294227719,
+    "fake_device_ms": 30.41204100009054,
+    "speaker_peak_dbfs": -19.6
+   },
+   {
+    "at_s": 52.1903275694919,
+    "inject_call_ms": 0.17391692381352186,
+    "meter_ms": 15.491374884732068,
+    "ring_queued_ms_at_rise": 30.0,
+    "est_device_ms": 45.49137488473207,
+    "fake_device_ms": 31.878249952569604,
+    "speaker_peak_dbfs": -19.6
+   },
+   {
+    "at_s": 54.296548350227994,
+    "inject_call_ms": 0.18945802003145218,
+    "meter_ms": 9.931874927133322,
+    "ring_queued_ms_at_rise": 30.0,
+    "est_device_ms": 39.93187492713332,
+    "fake_device_ms": 27.840791968628764,
+    "speaker_peak_dbfs": -19.6
+   },
+   {
+    "at_s": 56.91711300719588,
+    "inject_call_ms": 0.1342089381068945,
+    "meter_ms": 9.775249985978007,
+    "ring_queued_ms_at_rise": 30.0,
+    "est_device_ms": 39.77524998597801,
+    "fake_device_ms": 29.490833985619247,
+    "speaker_peak_dbfs": -19.6
+   }
+  ],
+  "alerts_summary": {
+   "meter_ms": {
+    "n": 20,
+    "median": 9.319083008449525,
+    "p95": 16.857124981470406,
+    "max": 16.98962494265288
+   },
+   "meter_ms_missing": 0,
+   "est_device_ms": {
+    "n": 20,
+    "median": 37.04662501811981,
+    "p95": 45.49137488473207,
+    "max": 46.857124981470406
+   },
+   "est_device_ms_missing": 0,
+   "fake_device_ms": {
+    "n": 20,
+    "median": 26.288833003491163,
+    "p95": 30.41204100009054,
+    "max": 31.878249952569604
+   },
+   "fake_device_ms_missing": 0,
+   "inject_call_ms": {
+    "n": 20,
+    "median": 0.22214552154764533,
+    "p95": 0.7287090411409736,
+    "max": 0.8790419669821858
+   },
+   "inject_call_ms_missing": 0
+  }
+ },
+ "ru_peak_before_window_mb": 108.75,
+ "machine": {
+  "model": "Mac16,7",
+  "cpu": "Apple M4 Pro",
+  "cores": "14",
+  "perf_cores": "10",
+  "efficiency_cores": "4",
+  "memory_gb": 24.0,
+  "macos": "26.5.2",
+  "build": "25F84",
+  "python": "3.10.11",
+  "numpy": "2.2.6",
+  "date": "2026-11-20 23:59",
+  "power": "Now drawing from 'Battery Power'",
+  "low_power_mode": "lowpowermode (not listed)",
+  "load_avg_at_start": [
+   4.1259765625,
+   4.3837890625,
+   3.73291015625
+  ]
+ }
+}

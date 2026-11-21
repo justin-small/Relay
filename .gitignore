@@ -50,3 +50,7 @@ docs/ui-audit/*
 # Mixing console snapshots and site mockups (local only)
 board configs/
 site/mockups/
+
+# Rust audio-bus spike build output
+native/relay-bus/target/
+native/relay-bus/.venv-build/

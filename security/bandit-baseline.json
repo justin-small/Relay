@@ -62,7 +62,7 @@
    "test_name": "hardcoded_sql_expressions"
   },
   {
-   "code": "70     \"modules\": {},\n71     \"host\": \"0.0.0.0\",\n72     # The operator panel is HTTPS only (app/tls.py), so it can face the network: 443 on every interface.\n73     # Viewers get plain HTTP on 80. If either cannot be opened Relay uses 8080 / 8443 (app/serving.py).\n74     \"admin_host\": \"0.0.0.0\",\n75     \"port\": 80,\n76     \"admin_port\": 443,\n77     # Optional hostname for the operator panel certificate (app/tls.py), on top of this machine's own\n78     # addresses and host name. Blank certifies those alone.\n79     \"admin_fqdn\": \"\",\n80     \"realtime\": {\n81         \"translate_model\": \"gpt-realtime-translate\",\n82         # The source-language transcript is opt-in: the translations endpoint only\n83         # emits the input transcript when an input transcription model is set. An\n84         # empty string turns the source (e.g. English) pane off.\n85         # All of these are accepted here; the figure is the account TPM ceiling,\n86         # and continuous audio makes that the binding constraint:\n87         #   gpt-live-transcribe    60k   built for streaming -- the default\n88         #   gpt-transcribe        200k   most headroom\n89         #   gpt-realtime-whisper   60k\n90         #   gpt-4o-mini-transcribe 50k\n91         #   gpt-4o-transcribe      10k   lowest ceiling of the set; avoid\n92         \"transcribe_model\": \"gpt-live-transcribe\",\n93         # \"realtime\": one gpt-realtime-translate session per target, billed per\n94         # minute each. \"text\": one transcription session, and each committed\n95         # line translated into every target by text_model (billed per token --\n96         # a small fraction of the cost, but captions arrive a line at a time).\n97         \"translation_mode\": \"realtime\",\n98         \"text_model\": \"gpt-6-luna\",\n99         # Sent as reasoning_effort when non-empty. \"none\" keeps a reasoning\n100         # model from thinking before each line, which only adds delay here;\n101         # blank omits it, for a model that does not take the parameter.\n102         \"text_reasoning_effort\": \"none\",\n103         # Segment timing for the committed caption lines. A line is committed\n104         # once its deltas have been quiet for segment_idle_s AND it ends on a\n105         # sentence boundary; segment_max_idle_s is the backstop that commits a\n106         # line with no sentence end (always at a word boundary). Keep the\n107         # backstop generous: in-progress text is already on screen as it\n108         # streams, so an early commit only splits sentences -- a stall in the\n109         # transcription stream is not a speaker pause.\n110         \"segment_idle_s\": 1.0,\n111         \"segment_max_idle_s\": 10.0,\n112         # Send only audio around detected speech. The transcription model\n113         # hallucinates text from a room's noise floor when fed continuous\n114         # silence; set false to restore the old always-send behaviour.\n115         \"gate_silence\": True,\n116         # No turn-detection settings: the translations endpoint has no turn\n117         # lifecycle and rejects `turn_detection` outright, so semantic_vad,\n118         # server_vad and the ms thresholds have no meaning here. Line breaks are\n119         # steered by segment_idle_s / segment_max_idle_s above. See the\n120         # comment in realtime.py's _session_update().\n121         # Input noise reduction, applied *before* VAD. null = off (the default,\n122         # for an already-conditioned board feed); \"far_field\" for a room or\n123         # laptop mic; \"near_field\" for a headset or lavalier.\n124         \"noise_reduction\": None,\n125     },\n126 }\n127 \n128 _lock = threading.RLock()\n129 _data: dict[str, Any] = {}\n130 _mtime: float = 0.0\n131 \n132 \n133 def _merge(base: dict, over: dict) -> dict:\n134     out = dict(base)\n135     for k, v in (over or {}).items():\n136         if isinstance(v, dict) and isinstance(out.get(k), dict):\n137             out[k] = _merge(out[k], v)\n138         else:\n139             out[k] = v\n140     return out\n141 \n142 \n143 def _normalise(cfg: dict) -> dict:\n144     cfg = _merge(DEFAULTS, cfg)\n145     if cfg.get(\"source_language\") not in languages.SOURCE_LANGUAGES:\n146         cfg[\"source_language\"] = \"ENGLISH\"\n147     # gpt-realtime-translate takes no dialect or register setting, so a target\n148     # is just on or off. A stale \"variant\" from an older config is dropped here.\n149     allowed = languages.target_names(cfg[\"source_language\"])\n150     targets = {}\n151     for name, spec in (cfg.get(\"targets\") or {}).items():\n152         name = name.upper()\n153         if name not in allowed:\n154             continue\n155         targets[name] = {\"enabled\": bool((spec or {}).get(\"enabled\"))}\n156     for name in allowed:\n157         targets.setdefault(name, {\"enabled\": False})\n158     cfg[\"targets\"] = targets\n159     cfg[\"default_font_px\"] = max(16, min(160, int(cfg.get(\"default_font_px\") or 40)))\n160     cfg[\"history_lines\"] = max(1, min(500, int(cfg.get(\"history_lines\") or 40)))\n161     cfg[\"audio_source\"] = str(cfg.get(\"audio_source\") or \"portaudio\").strip().lower() or \"portaudio\"\n162     # A channel index, or the string \"mix\" to average every input channel --\n163     # a stereo board feed is usually better summed than halved.\n164     _ch = cfg.get(\"input_channel\", 0)\n",
+   "code": "99     \"network_map\": {\"names\": {}, \"notes\": {}, \"places\": []},\n100     \"host\": \"0.0.0.0\",\n101     # The operator panel is HTTPS only (app/tls.py), so it can face the network: 443 on every interface.\n102     # Viewers get plain HTTP on 80. If either cannot be opened Relay uses 8080 / 8443 (app/serving.py).\n103     \"admin_host\": \"0.0.0.0\",\n104     \"port\": 80,\n105     \"admin_port\": 443,\n106     # Optional hostname for the operator panel certificate (app/tls.py), on top of this machine's own\n107     # addresses and host name. Blank certifies those alone.\n108     \"admin_fqdn\": \"\",\n109     \"realtime\": {\n110         # The source-language transcript is opt-in: the translations endpoint only\n111         # emits the input transcript when an input transcription model is set. An\n112         # empty string turns the source (e.g. English) pane off.\n113         # All of these are accepted here; the figure is the account TPM ceiling,\n114         # and continuous audio makes that the binding constraint:\n115         #   gpt-live-transcribe    60k   built for streaming -- the default\n116         #   gpt-transcribe        200k   most headroom\n117         #   gpt-realtime-whisper   60k\n118         #   gpt-4o-mini-transcribe 50k\n119         #   gpt-4o-transcribe      10k   lowest ceiling of the set; avoid\n120         \"transcribe_model\": \"gpt-live-transcribe\",\n121         # Who transcribes the main feed (app/transcribe.py): \"scribe\" (Vercel) or \"openai\", or the id of a\n122         # backend a module registers. One that is unknown, or whose key is not saved, falls back to OpenAI.\n123         \"backend\": \"scribe\",\n124         # The Vercel model the scribe backend streams to (a streaming transcription model in Vercel's list).\n125         \"scribe_model\": \"elevenlabs/scribe-v2-realtime\",\n126         # Sent as reasoning_effort when non-empty. \"none\" keeps a reasoning\n127         # model from thinking before each line, which only adds delay here;\n128         # blank omits it, for a model that does not take the parameter.\n129         \"text_reasoning_effort\": \"none\",\n130         # Segment timing for the committed caption lines. A line is committed\n131         # once its deltas have been quiet for segment_idle_s AND it ends on a\n132         # sentence boundary; segment_max_idle_s is the backstop that commits a\n133         # line with no sentence end (always at a word boundary). Keep the\n134         # backstop generous: in-progress text is already on screen as it\n135         # streams, so an early commit only splits sentences -- a stall in the\n136         # transcription stream is not a speaker pause.\n137         \"segment_idle_s\": 1.0,\n138         \"segment_max_idle_s\": 10.0,\n139         # Send only audio around detected speech. The transcription model\n140         # hallucinates text from a room's noise floor when fed continuous\n141         # silence; set false to restore the old always-send behaviour.\n142         \"gate_silence\": True,\n143         # No turn-detection settings: the translations endpoint has no turn\n144         # lifecycle and rejects `turn_detection` outright, so semantic_vad,\n145         # server_vad and the ms thresholds have no meaning here. Line breaks are\n146         # steered by segment_idle_s / segment_max_idle_s above. See the\n147         # comment in realtime.py's _session_update().\n148         # Input noise reduction, applied *before* VAD. null = off (the default,\n149         # for an already-conditioned board feed); \"far_field\" for a room or\n150         # laptop mic; \"near_field\" for a headset or lavalier.\n151         \"noise_reduction\": None,\n152     },\n153 }\n154 \n155 _lock = threading.RLock()\n156 _data: dict[str, Any] = {}\n157 _mtime: float = 0.0\n158 # Secrets kept sealed in config.json (app/secretbox.py, #278) and held as plain text only in memory. Modules add\n159 # their own with Module.secret_settings. The backup passphrase key is core's (app/backup.py).\n160 SECRET_KEYS = (\"openai_api_key\", \"vercel_api_key\", \"admin_token\", \"backup_key\")\n161 # Sealed values this computer cannot open (its key was lost), kept as stored until a new value replaces them, so a\n162 # keyring that is locked for one start does not wipe them on the next save.\n163 _unopened: dict[str, str] = {}\n164 \n165 \n166 def _merge(base: dict, over: dict) -> dict:\n167     out = dict(base)\n168     for k, v in (over or {}).items():\n169         if isinstance(v, dict) and isinstance(out.get(k), dict):\n170             out[k] = _merge(out[k], v)\n171         else:\n172             out[k] = v\n173     return out\n174 \n175 \n176 def _normalise(cfg: dict) -> dict:\n177     cfg = _merge(DEFAULTS, cfg)\n178     if cfg.get(\"source_language\") not in languages.SOURCE_LANGUAGES:\n179         cfg[\"source_language\"] = \"ENGLISH\"\n180     # gpt-realtime-translate takes no dialect or register setting, so a target\n181     # is just on or off. A stale \"variant\" from an older config is dropped here.\n182     allowed = languages.target_names(cfg[\"source_language\"])\n183     targets = {}\n184     for name, spec in (cfg.get(\"targets\") or {}).items():\n185         name = name.upper()\n186         if name not in allowed:\n187             continue\n188         targets[name] = {\"enabled\": bool((spec or {}).get(\"enabled\"))}\n189     for name in allowed:\n190         targets.setdefault(name, {\"enabled\": False})\n191     cfg[\"targets\"] = targets\n192     cfg[\"default_font_px\"] = max(16, min(160, int(cfg.get(\"default_font_px\") or 40)))\n193     cfg[\"history_lines\"] = max(1, min(500, int(cfg.get(\"history_lines\") or 40)))\n194     cfg[\"audio_source\"] = str(cfg.get(\"audio_source\") or \"portaudio\").strip().lower() or \"portaudio\"\n195     from . import audiobus  # here, not at the top: it loads the sound library, which config must not need\n196     cfg[\"audio_bus\"] = audiobus.normalize(cfg.get(\"audio_bus\"))\n197     from . import metering  # the same reason: it imports the bus\n198     cfg[\"metering\"] = metering.normalize(cfg.get(\"metering\"))\n199     from . import mixreport  # the same reason\n200     cfg[\"mixreport\"] = mixreport.normalize(cfg.get(\"mixreport\"))\n201     # A channel index, or the string \"mix\" to average every input channel --\n202     # a stereo board feed is usually better summed than halved.\n203     _ch = cfg.get(\"input_channel\", 0)\n204     if isinstance(_ch, str) and _ch.strip().lower() == \"mix\":\n205         cfg[\"input_channel\"] = \"mix\"\n206     else:\n207         try:\n208             cfg[\"input_channel\"] = max(0, int(_ch or 0))\n209         except (TypeError, ValueError):\n210             cfg[\"input_channel\"] = 0\n211     # Viewers get `port`; the operator panel is served on `admin_port`, over HTTPS only, so the link handed\n212     # to a room never reaches the panel. They cannot be the same port: that would serve the panel where\n213     # viewers are served, in cleartext.\n214     cfg[\"port\"] = int(cfg.get(\"port\") or 80)\n215     cfg[\"admin_port\"] = int(cfg.get(\"admin_port\") or 443)\n216     if cfg[\"admin_port\"] == cfg[\"port\"]:\n217         cfg[\"admin_port\"] = 8443 if cfg[\"port\"] == 443 else 443\n",
    "col_offset": 12,
    "end_col_offset": 21,
    "filename": "app/config.py",
@@ -73,11 +73,8 @@
    },
    "issue_severity": "MEDIUM",
    "issue_text": "Possible binding to all interfaces.",
-   "line_number": 71,
+   "line_number": 100,
    "line_range": [
-    34,
-    35,
-    36,
     37,
     38,
     39,
@@ -167,14 +164,41 @@
     123,
     124,
     125,
-    126
+    126,
+    127,
+    128,
+    129,
+    130,
+    131,
+    132,
+    133,
+    134,
+    135,
+    136,
+    137,
+    138,
+    139,
+    140,
+    141,
+    142,
+    143,
+    144,
+    145,
+    146,
+    147,
+    148,
+    149,
+    150,
+    151,
+    152,
+    153
    ],
    "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b104_hardcoded_bind_all_interfaces.html",
    "test_id": "B104",
    "test_name": "hardcoded_bind_all_interfaces"
   },
   {
-   "code": "73     # Viewers get plain HTTP on 80. If either cannot be opened Relay uses 8080 / 8443 (app/serving.py).\n74     \"admin_host\": \"0.0.0.0\",\n75     \"port\": 80,\n76     \"admin_port\": 443,\n77     # Optional hostname for the operator panel certificate (app/tls.py), on top of this machine's own\n78     # addresses and host name. Blank certifies those alone.\n79     \"admin_fqdn\": \"\",\n80     \"realtime\": {\n81         \"translate_model\": \"gpt-realtime-translate\",\n82         # The source-language transcript is opt-in: the translations endpoint only\n83         # emits the input transcript when an input transcription model is set. An\n84         # empty string turns the source (e.g. English) pane off.\n85         # All of these are accepted here; the figure is the account TPM ceiling,\n86         # and continuous audio makes that the binding constraint:\n87         #   gpt-live-transcribe    60k   built for streaming -- the default\n88         #   gpt-transcribe        200k   most headroom\n89         #   gpt-realtime-whisper   60k\n90         #   gpt-4o-mini-transcribe 50k\n91         #   gpt-4o-transcribe      10k   lowest ceiling of the set; avoid\n92         \"transcribe_model\": \"gpt-live-transcribe\",\n93         # \"realtime\": one gpt-realtime-translate session per target, billed per\n94         # minute each. \"text\": one transcription session, and each committed\n95         # line translated into every target by text_model (billed per token --\n96         # a small fraction of the cost, but captions arrive a line at a time).\n97         \"translation_mode\": \"realtime\",\n98         \"text_model\": \"gpt-6-luna\",\n99         # Sent as reasoning_effort when non-empty. \"none\" keeps a reasoning\n100         # model from thinking before each line, which only adds delay here;\n101         # blank omits it, for a model that does not take the parameter.\n102         \"text_reasoning_effort\": \"none\",\n103         # Segment timing for the committed caption lines. A line is committed\n104         # once its deltas have been quiet for segment_idle_s AND it ends on a\n105         # sentence boundary; segment_max_idle_s is the backstop that commits a\n106         # line with no sentence end (always at a word boundary). Keep the\n107         # backstop generous: in-progress text is already on screen as it\n108         # streams, so an early commit only splits sentences -- a stall in the\n109         # transcription stream is not a speaker pause.\n110         \"segment_idle_s\": 1.0,\n111         \"segment_max_idle_s\": 10.0,\n112         # Send only audio around detected speech. The transcription model\n113         # hallucinates text from a room's noise floor when fed continuous\n114         # silence; set false to restore the old always-send behaviour.\n115         \"gate_silence\": True,\n116         # No turn-detection settings: the translations endpoint has no turn\n117         # lifecycle and rejects `turn_detection` outright, so semantic_vad,\n118         # server_vad and the ms thresholds have no meaning here. Line breaks are\n119         # steered by segment_idle_s / segment_max_idle_s above. See the\n120         # comment in realtime.py's _session_update().\n121         # Input noise reduction, applied *before* VAD. null = off (the default,\n122         # for an already-conditioned board feed); \"far_field\" for a room or\n123         # laptop mic; \"near_field\" for a headset or lavalier.\n124         \"noise_reduction\": None,\n125     },\n126 }\n127 \n128 _lock = threading.RLock()\n129 _data: dict[str, Any] = {}\n130 _mtime: float = 0.0\n131 \n132 \n133 def _merge(base: dict, over: dict) -> dict:\n134     out = dict(base)\n135     for k, v in (over or {}).items():\n136         if isinstance(v, dict) and isinstance(out.get(k), dict):\n137             out[k] = _merge(out[k], v)\n138         else:\n139             out[k] = v\n140     return out\n141 \n142 \n143 def _normalise(cfg: dict) -> dict:\n144     cfg = _merge(DEFAULTS, cfg)\n145     if cfg.get(\"source_language\") not in languages.SOURCE_LANGUAGES:\n146         cfg[\"source_language\"] = \"ENGLISH\"\n147     # gpt-realtime-translate takes no dialect or register setting, so a target\n148     # is just on or off. A stale \"variant\" from an older config is dropped here.\n149     allowed = languages.target_names(cfg[\"source_language\"])\n150     targets = {}\n151     for name, spec in (cfg.get(\"targets\") or {}).items():\n152         name = name.upper()\n153         if name not in allowed:\n154             continue\n155         targets[name] = {\"enabled\": bool((spec or {}).get(\"enabled\"))}\n156     for name in allowed:\n157         targets.setdefault(name, {\"enabled\": False})\n158     cfg[\"targets\"] = targets\n159     cfg[\"default_font_px\"] = max(16, min(160, int(cfg.get(\"default_font_px\") or 40)))\n160     cfg[\"history_lines\"] = max(1, min(500, int(cfg.get(\"history_lines\") or 40)))\n161     cfg[\"audio_source\"] = str(cfg.get(\"audio_source\") or \"portaudio\").strip().lower() or \"portaudio\"\n162     # A channel index, or the string \"mix\" to average every input channel --\n163     # a stereo board feed is usually better summed than halved.\n164     _ch = cfg.get(\"input_channel\", 0)\n165     if isinstance(_ch, str) and _ch.strip().lower() == \"mix\":\n166         cfg[\"input_channel\"] = \"mix\"\n167     else:\n",
+   "code": "102     # Viewers get plain HTTP on 80. If either cannot be opened Relay uses 8080 / 8443 (app/serving.py).\n103     \"admin_host\": \"0.0.0.0\",\n104     \"port\": 80,\n105     \"admin_port\": 443,\n106     # Optional hostname for the operator panel certificate (app/tls.py), on top of this machine's own\n107     # addresses and host name. Blank certifies those alone.\n108     \"admin_fqdn\": \"\",\n109     \"realtime\": {\n110         # The source-language transcript is opt-in: the translations endpoint only\n111         # emits the input transcript when an input transcription model is set. An\n112         # empty string turns the source (e.g. English) pane off.\n113         # All of these are accepted here; the figure is the account TPM ceiling,\n114         # and continuous audio makes that the binding constraint:\n115         #   gpt-live-transcribe    60k   built for streaming -- the default\n116         #   gpt-transcribe        200k   most headroom\n117         #   gpt-realtime-whisper   60k\n118         #   gpt-4o-mini-transcribe 50k\n119         #   gpt-4o-transcribe      10k   lowest ceiling of the set; avoid\n120         \"transcribe_model\": \"gpt-live-transcribe\",\n121         # Who transcribes the main feed (app/transcribe.py): \"scribe\" (Vercel) or \"openai\", or the id of a\n122         # backend a module registers. One that is unknown, or whose key is not saved, falls back to OpenAI.\n123         \"backend\": \"scribe\",\n124         # The Vercel model the scribe backend streams to (a streaming transcription model in Vercel's list).\n125         \"scribe_model\": \"elevenlabs/scribe-v2-realtime\",\n126         # Sent as reasoning_effort when non-empty. \"none\" keeps a reasoning\n127         # model from thinking before each line, which only adds delay here;\n128         # blank omits it, for a model that does not take the parameter.\n129         \"text_reasoning_effort\": \"none\",\n130         # Segment timing for the committed caption lines. A line is committed\n131         # once its deltas have been quiet for segment_idle_s AND it ends on a\n132         # sentence boundary; segment_max_idle_s is the backstop that commits a\n133         # line with no sentence end (always at a word boundary). Keep the\n134         # backstop generous: in-progress text is already on screen as it\n135         # streams, so an early commit only splits sentences -- a stall in the\n136         # transcription stream is not a speaker pause.\n137         \"segment_idle_s\": 1.0,\n138         \"segment_max_idle_s\": 10.0,\n139         # Send only audio around detected speech. The transcription model\n140         # hallucinates text from a room's noise floor when fed continuous\n141         # silence; set false to restore the old always-send behaviour.\n142         \"gate_silence\": True,\n143         # No turn-detection settings: the translations endpoint has no turn\n144         # lifecycle and rejects `turn_detection` outright, so semantic_vad,\n145         # server_vad and the ms thresholds have no meaning here. Line breaks are\n146         # steered by segment_idle_s / segment_max_idle_s above. See the\n147         # comment in realtime.py's _session_update().\n148         # Input noise reduction, applied *before* VAD. null = off (the default,\n149         # for an already-conditioned board feed); \"far_field\" for a room or\n150         # laptop mic; \"near_field\" for a headset or lavalier.\n151         \"noise_reduction\": None,\n152     },\n153 }\n154 \n155 _lock = threading.RLock()\n156 _data: dict[str, Any] = {}\n157 _mtime: float = 0.0\n158 # Secrets kept sealed in config.json (app/secretbox.py, #278) and held as plain text only in memory. Modules add\n159 # their own with Module.secret_settings. The backup passphrase key is core's (app/backup.py).\n160 SECRET_KEYS = (\"openai_api_key\", \"vercel_api_key\", \"admin_token\", \"backup_key\")\n161 # Sealed values this computer cannot open (its key was lost), kept as stored until a new value replaces them, so a\n162 # keyring that is locked for one start does not wipe them on the next save.\n163 _unopened: dict[str, str] = {}\n164 \n165 \n166 def _merge(base: dict, over: dict) -> dict:\n167     out = dict(base)\n168     for k, v in (over or {}).items():\n169         if isinstance(v, dict) and isinstance(out.get(k), dict):\n170             out[k] = _merge(out[k], v)\n171         else:\n172             out[k] = v\n173     return out\n174 \n175 \n176 def _normalise(cfg: dict) -> dict:\n177     cfg = _merge(DEFAULTS, cfg)\n178     if cfg.get(\"source_language\") not in languages.SOURCE_LANGUAGES:\n179         cfg[\"source_language\"] = \"ENGLISH\"\n180     # gpt-realtime-translate takes no dialect or register setting, so a target\n181     # is just on or off. A stale \"variant\" from an older config is dropped here.\n182     allowed = languages.target_names(cfg[\"source_language\"])\n183     targets = {}\n184     for name, spec in (cfg.get(\"targets\") or {}).items():\n185         name = name.upper()\n186         if name not in allowed:\n187             continue\n188         targets[name] = {\"enabled\": bool((spec or {}).get(\"enabled\"))}\n189     for name in allowed:\n190         targets.setdefault(name, {\"enabled\": False})\n191     cfg[\"targets\"] = targets\n192     cfg[\"default_font_px\"] = max(16, min(160, int(cfg.get(\"default_font_px\") or 40)))\n193     cfg[\"history_lines\"] = max(1, min(500, int(cfg.get(\"history_lines\") or 40)))\n194     cfg[\"audio_source\"] = str(cfg.get(\"audio_source\") or \"portaudio\").strip().lower() or \"portaudio\"\n195     from . import audiobus  # here, not at the top: it loads the sound library, which config must not need\n196     cfg[\"audio_bus\"] = audiobus.normalize(cfg.get(\"audio_bus\"))\n197     from . import metering  # the same reason: it imports the bus\n198     cfg[\"metering\"] = metering.normalize(cfg.get(\"metering\"))\n199     from . import mixreport  # the same reason\n200     cfg[\"mixreport\"] = mixreport.normalize(cfg.get(\"mixreport\"))\n201     # A channel index, or the string \"mix\" to average every input channel --\n202     # a stereo board feed is usually better summed than halved.\n203     _ch = cfg.get(\"input_channel\", 0)\n204     if isinstance(_ch, str) and _ch.strip().lower() == \"mix\":\n205         cfg[\"input_channel\"] = \"mix\"\n206     else:\n207         try:\n208             cfg[\"input_channel\"] = max(0, int(_ch or 0))\n209         except (TypeError, ValueError):\n210             cfg[\"input_channel\"] = 0\n211     # Viewers get `port`; the operator panel is served on `admin_port`, over HTTPS only, so the link handed\n212     # to a room never reaches the panel. They cannot be the same port: that would serve the panel where\n213     # viewers are served, in cleartext.\n214     cfg[\"port\"] = int(cfg.get(\"port\") or 80)\n215     cfg[\"admin_port\"] = int(cfg.get(\"admin_port\") or 443)\n216     if cfg[\"admin_port\"] == cfg[\"port\"]:\n217         cfg[\"admin_port\"] = 8443 if cfg[\"port\"] == 443 else 443\n218     cfg[\"admin_fqdn\"] = str(cfg.get(\"admin_fqdn\") or \"\").strip().strip(\".\")\n219     # `host` is where the viewer link listens -- every interface, because the room has to reach it.\n220     # `admin_host` is where the HTTPS panel listens; set it to \"127.0.0.1\" to keep the panel off the network.\n",
    "col_offset": 18,
    "end_col_offset": 27,
    "filename": "app/config.py",
@@ -185,11 +209,8 @@
    },
    "issue_severity": "MEDIUM",
    "issue_text": "Possible binding to all interfaces.",
-   "line_number": 74,
+   "line_number": 103,
    "line_range": [
-    34,
-    35,
-    36,
     37,
     38,
     39,
@@ -279,14 +300,41 @@
     123,
     124,
     125,
-    126
+    126,
+    127,
+    128,
+    129,
+    130,
+    131,
+    132,
+    133,
+    134,
+    135,
+    136,
+    137,
+    138,
+    139,
+    140,
+    141,
+    142,
+    143,
+    144,
+    145,
+    146,
+    147,
+    148,
+    149,
+    150,
+    151,
+    152,
+    153
    ],
    "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b104_hardcoded_bind_all_interfaces.html",
    "test_id": "B104",
    "test_name": "hardcoded_bind_all_interfaces"
   },
   {
-   "code": "181     # `admin_host` is where the HTTPS panel listens; set it to \"127.0.0.1\" to keep the panel off the network.\n182     cfg[\"host\"] = (str(cfg.get(\"host\") or \"\").strip() or \"0.0.0.0\")\n183     cfg[\"admin_host\"] = (str(cfg.get(\"admin_host\") or \"\").strip() or \"0.0.0.0\")\n",
+   "code": "220     # `admin_host` is where the HTTPS panel listens; set it to \"127.0.0.1\" to keep the panel off the network.\n221     cfg[\"host\"] = (str(cfg.get(\"host\") or \"\").strip() or \"0.0.0.0\")\n222     cfg[\"admin_host\"] = (str(cfg.get(\"admin_host\") or \"\").strip() or \"0.0.0.0\")\n",
    "col_offset": 57,
    "end_col_offset": 66,
    "filename": "app/config.py",
@@ -297,16 +345,16 @@
    },
    "issue_severity": "MEDIUM",
    "issue_text": "Possible binding to all interfaces.",
-   "line_number": 182,
+   "line_number": 221,
    "line_range": [
-    182
+    221
    ],
    "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b104_hardcoded_bind_all_interfaces.html",
    "test_id": "B104",
    "test_name": "hardcoded_bind_all_interfaces"
   },
   {
-   "code": "182     cfg[\"host\"] = (str(cfg.get(\"host\") or \"\").strip() or \"0.0.0.0\")\n183     cfg[\"admin_host\"] = (str(cfg.get(\"admin_host\") or \"\").strip() or \"0.0.0.0\")\n184     # The relay moved to the translations endpoint, which only serves\n",
+   "code": "221     cfg[\"host\"] = (str(cfg.get(\"host\") or \"\").strip() or \"0.0.0.0\")\n222     cfg[\"admin_host\"] = (str(cfg.get(\"admin_host\") or \"\").strip() or \"0.0.0.0\")\n223     rt = cfg.get(\"realtime\") or {}\n",
    "col_offset": 69,
    "end_col_offset": 78,
    "filename": "app/config.py",
@@ -317,38 +365,18 @@
    },
    "issue_severity": "MEDIUM",
    "issue_text": "Possible binding to all interfaces.",
-   "line_number": 183,
+   "line_number": 222,
    "line_range": [
-    183
+    222
    ],
    "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b104_hardcoded_bind_all_interfaces.html",
    "test_id": "B104",
    "test_name": "hardcoded_bind_all_interfaces"
   },
   {
-   "code": "131     try:\n132         with urllib.request.urlopen(req, timeout=WEBHOOK_TIMEOUT_S) as resp:   # noqa: S310 (http and https only)\n133             resp.read(1024)\n",
+   "code": "110     try:\n111         with urllib.request.urlopen(base_url + name, timeout=60,    # noqa: S310  (a fixed https URL)\n112                                     context=netsock.tls_context()) as r:\n113             blob = r.read(MAX_DOWNLOAD + 1)\n",
    "col_offset": 13,
-   "end_col_offset": 67,
-   "filename": "app/modules/alert_events/events.py",
-   "issue_confidence": "HIGH",
-   "issue_cwe": {
-    "id": 22,
-    "link": "https://cwe.mitre.org/data/definitions/22.html"
-   },
-   "issue_severity": "MEDIUM",
-   "issue_text": "Audit url open for permitted schemes. Allowing use of file:/ or custom schemes is often unexpected.",
-   "line_number": 132,
-   "line_range": [
-    132
-   ],
-   "more_info": "https://bandit.readthedocs.io/en/1.9.4/blacklists/blacklist_calls.html#b310-urllib-urlopen",
-   "test_id": "B310",
-   "test_name": "blacklist"
-  },
-  {
-   "code": "109     try:\n110         with urllib.request.urlopen(base_url + name, timeout=60) as r:    # noqa: S310  (a fixed https URL)\n111             blob = r.read(MAX_DOWNLOAD + 1)\n",
-   "col_offset": 13,
-   "end_col_offset": 64,
+   "end_col_offset": 66,
    "filename": "app/modules/intercom/livekit.py",
    "issue_confidence": "HIGH",
    "issue_cwe": {
@@ -357,16 +385,17 @@
    },
    "issue_severity": "MEDIUM",
    "issue_text": "Audit url open for permitted schemes. Allowing use of file:/ or custom schemes is often unexpected.",
-   "line_number": 110,
+   "line_number": 111,
    "line_range": [
-    110
+    111,
+    112
    ],
    "more_info": "https://bandit.readthedocs.io/en/1.9.4/blacklists/blacklist_calls.html#b310-urllib-urlopen",
    "test_id": "B310",
    "test_name": "blacklist"
   },
   {
-   "code": "123             f.write(data)\n124         os.chmod(tmp, 0o755)\n125         os.replace(tmp, folder / EXE)\n",
+   "code": "125             f.write(data)\n126         os.chmod(tmp, 0o755)\n127         os.replace(tmp, folder / EXE)\n",
    "col_offset": 8,
    "end_col_offset": 28,
    "filename": "app/modules/intercom/livekit.py",
@@ -377,76 +406,16 @@
    },
    "issue_severity": "MEDIUM",
    "issue_text": "Chmod setting a permissive mask 0o755 on file (tmp).",
-   "line_number": 124,
+   "line_number": 126,
    "line_range": [
-    124
+    126
    ],
    "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b103_set_bad_file_permissions.html",
    "test_id": "B103",
    "test_name": "set_bad_file_permissions"
   },
   {
-   "code": "160                 kw = {\"context\": _SSL} if url.startswith(\"https:\") else {}\n161                 with urllib.request.urlopen(req, timeout=TIMEOUT_S, **kw) as resp:\n162                     self._note_rate(resp.headers)\n",
-   "col_offset": 21,
-   "end_col_offset": 73,
-   "filename": "app/modules/planning_center/planningcenter.py",
-   "issue_confidence": "HIGH",
-   "issue_cwe": {
-    "id": 22,
-    "link": "https://cwe.mitre.org/data/definitions/22.html"
-   },
-   "issue_severity": "MEDIUM",
-   "issue_text": "Audit url open for permitted schemes. Allowing use of file:/ or custom schemes is often unexpected.",
-   "line_number": 161,
-   "line_range": [
-    161
-   ],
-   "more_info": "https://bandit.readthedocs.io/en/1.9.4/blacklists/blacklist_calls.html#b310-urllib-urlopen",
-   "test_id": "B310",
-   "test_name": "blacklist"
-  },
-  {
-   "code": "91             try:\n92                 extra = self.extra(st) or {}\n93             except Exception:\n",
-   "col_offset": 24,
-   "end_col_offset": 38,
-   "filename": "app/modules/planning_center/servicefeed.py",
-   "issue_confidence": "MEDIUM",
-   "issue_cwe": {
-    "id": 89,
-    "link": "https://cwe.mitre.org/data/definitions/89.html"
-   },
-   "issue_severity": "MEDIUM",
-   "issue_text": "Use of extra potential SQL attack vector.",
-   "line_number": 92,
-   "line_range": [
-    92
-   ],
-   "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b610_django_extra_used.html",
-   "test_id": "B610",
-   "test_name": "django_extra_used"
-  },
-  {
-   "code": "56     try:\n57         with urllib.request.urlopen(req, timeout=TIMEOUT_S, context=_context()) as resp:\n58             raw = resp.read()\n",
-   "col_offset": 13,
-   "end_col_offset": 79,
-   "filename": "app/modules/remote_access/cloud.py",
-   "issue_confidence": "HIGH",
-   "issue_cwe": {
-    "id": 22,
-    "link": "https://cwe.mitre.org/data/definitions/22.html"
-   },
-   "issue_severity": "MEDIUM",
-   "issue_text": "Audit url open for permitted schemes. Allowing use of file:/ or custom schemes is often unexpected.",
-   "line_number": 57,
-   "line_range": [
-    57
-   ],
-   "more_info": "https://bandit.readthedocs.io/en/1.9.4/blacklists/blacklist_calls.html#b310-urllib-urlopen",
-   "test_id": "B310",
-   "test_name": "blacklist"
-  },
-  {
-   "code": "426         if sid is None:\n427             tx.execute(f\"insert into signage_slots ({', '.join(cols)}) values ({', '.join('?' * len(cols))})\",\n428                        tuple(row[c] for c in cols))\n",
+   "code": "532         if sid is None:\n533             tx.execute(f\"insert into signage_slots ({', '.join(cols)}) values ({', '.join('?' * len(cols))})\",\n534                        tuple(row[c] for c in cols))\n",
    "col_offset": 23,
    "end_col_offset": 109,
    "filename": "app/modules/signage/store.py",
@@ -457,16 +426,16 @@
    },
    "issue_severity": "MEDIUM",
    "issue_text": "Possible SQL injection vector through string-based query construction.",
-   "line_number": 427,
+   "line_number": 533,
    "line_range": [
-    427
+    533
    ],
    "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b608_hardcoded_sql_expressions.html",
    "test_id": "B608",
    "test_name": "hardcoded_sql_expressions"
   },
   {
-   "code": "430         else:\n431             if not tx.execute(f\"update signage_slots set {', '.join(c + ' = ?' for c in cols)} where id = ?\",\n432                               (*[row[c] for c in cols], sid)):\n",
+   "code": "536         else:\n537             if not tx.execute(f\"update signage_slots set {', '.join(c + ' = ?' for c in cols)} where id = ?\",\n538                               (*[row[c] for c in cols], sid)):\n",
    "col_offset": 30,
    "end_col_offset": 108,
    "filename": "app/modules/signage/store.py",
@@ -477,36 +446,16 @@
    },
    "issue_severity": "MEDIUM",
    "issue_text": "Possible SQL injection vector through string-based query construction.",
-   "line_number": 431,
+   "line_number": 537,
    "line_range": [
-    431
+    537
    ],
    "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b608_hardcoded_sql_expressions.html",
    "test_id": "B608",
    "test_name": "hardcoded_sql_expressions"
   },
   {
-   "code": "225         try:\n226             with urllib.request.urlopen(req, timeout=TIMEOUT_S, context=_SSL) as resp:\n227                 data = json.loads(resp.read())\n",
-   "col_offset": 17,
-   "end_col_offset": 77,
-   "filename": "app/texttranslate.py",
-   "issue_confidence": "HIGH",
-   "issue_cwe": {
-    "id": 22,
-    "link": "https://cwe.mitre.org/data/definitions/22.html"
-   },
-   "issue_severity": "MEDIUM",
-   "issue_text": "Audit url open for permitted schemes. Allowing use of file:/ or custom schemes is often unexpected.",
-   "line_number": 226,
-   "line_range": [
-    226
-   ],
-   "more_info": "https://bandit.readthedocs.io/en/1.9.4/blacklists/blacklist_calls.html#b310-urllib-urlopen",
-   "test_id": "B310",
-   "test_name": "blacklist"
-  },
-  {
-   "code": "312 def get(user_id) -> User | None:\n313     row = db.one(f\"select {_COLS} from users where id = ?\", (user_id,))\n314     return _user(row) if row else None\n",
+   "code": "318 def get(user_id) -> User | None:\n319     row = db.one(f\"select {_COLS} from users where id = ?\", (user_id,))\n320     return _user(row) if row else None\n",
    "col_offset": 17,
    "end_col_offset": 58,
    "filename": "app/users.py",
@@ -517,16 +466,16 @@
    },
    "issue_severity": "MEDIUM",
    "issue_text": "Possible SQL injection vector through string-based query construction.",
-   "line_number": 313,
+   "line_number": 319,
    "line_range": [
-    313
+    319
    ],
    "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b608_hardcoded_sql_expressions.html",
    "test_id": "B608",
    "test_name": "hardcoded_sql_expressions"
   },
   {
-   "code": "317 def get_by_username(username: str) -> User | None:\n318     row = db.one(f\"select {_COLS} from users where username = ?\",\n319                  ((username or \"\").strip().lower() if isinstance(username, str) else \"\",))\n",
+   "code": "323 def get_by_username(username: str) -> User | None:\n324     row = db.one(f\"select {_COLS} from users where username = ?\",\n325                  ((username or \"\").strip().lower() if isinstance(username, str) else \"\",))\n",
    "col_offset": 17,
    "end_col_offset": 64,
    "filename": "app/users.py",
@@ -537,16 +486,16 @@
    },
    "issue_severity": "MEDIUM",
    "issue_text": "Possible SQL injection vector through string-based query construction.",
-   "line_number": 318,
+   "line_number": 324,
    "line_range": [
-    318
+    324
    ],
    "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b608_hardcoded_sql_expressions.html",
    "test_id": "B608",
    "test_name": "hardcoded_sql_expressions"
   },
   {
-   "code": "324     \"\"\"The row being changed, locked, after the actor's rank rule. Raises not_found / account_above_you.\"\"\"\n325     row = tx.one(f\"select {_COLS} from users where id = ?\", (user_id,))\n326     if row is None:\n",
+   "code": "330     \"\"\"The row being changed, locked, after the actor's rank rule. Raises not_found / account_above_you.\"\"\"\n331     row = tx.one(f\"select {_COLS} from users where id = ?\", (user_id,))\n332     if row is None:\n",
    "col_offset": 17,
    "end_col_offset": 58,
    "filename": "app/users.py",
@@ -557,16 +506,16 @@
    },
    "issue_severity": "MEDIUM",
    "issue_text": "Possible SQL injection vector through string-based query construction.",
-   "line_number": 325,
+   "line_number": 331,
    "line_range": [
-    325
+    331
    ],
    "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b608_hardcoded_sql_expressions.html",
    "test_id": "B608",
    "test_name": "hardcoded_sql_expressions"
   },
   {
-   "code": "345         row = tx.one(\n346             \"insert into users (username, name, role, password_hash, must_change_password)\"\n347             f\" values (?, ?, ?, ?, ?) on conflict (username) do nothing returning {_COLS}\",\n348             (username, name, role, pw, bool(temporary)))\n",
+   "code": "351         row = tx.one(\n352             \"insert into users (username, name, role, password_hash, must_change_password)\"\n353             f\" values (?, ?, ?, ?, ?) on conflict (username) do nothing returning {_COLS}\",\n354             (username, name, role, pw, bool(temporary)))\n",
    "col_offset": 12,
    "end_col_offset": 90,
    "filename": "app/users.py",
@@ -577,17 +526,17 @@
    },
    "issue_severity": "MEDIUM",
    "issue_text": "Possible SQL injection vector through string-based query construction.",
-   "line_number": 346,
+   "line_number": 352,
    "line_range": [
-    346,
-    347
+    352,
+    353
    ],
    "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b608_hardcoded_sql_expressions.html",
    "test_id": "B608",
    "test_name": "hardcoded_sql_expressions"
   },
   {
-   "code": "384         row = tx.one(\n385             \"update users set name = ?, role = ?, disabled = ?, updated_at = ? where id = ?\"\n386             f\" returning {_COLS}\",\n387             (new_name if new_name is not None else cur[\"name\"], final_role, int(final_disabled), db.now(),\n",
+   "code": "390         row = tx.one(\n391             \"update users set name = ?, role = ?, disabled = ?, updated_at = ? where id = ?\"\n392             f\" returning {_COLS}\",\n393             (new_name if new_name is not None else cur[\"name\"], final_role, int(final_disabled), db.now(),\n",
    "col_offset": 12,
    "end_col_offset": 33,
    "filename": "app/users.py",
@@ -598,17 +547,17 @@
    },
    "issue_severity": "MEDIUM",
    "issue_text": "Possible SQL injection vector through string-based query construction.",
-   "line_number": 385,
+   "line_number": 391,
    "line_range": [
-    385,
-    386
+    391,
+    392
    ],
    "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b608_hardcoded_sql_expressions.html",
    "test_id": "B608",
    "test_name": "hardcoded_sql_expressions"
   },
   {
-   "code": "464     uname = username.strip().lower() if isinstance(username, str) else \"\"\n465     row = db.one(f\"select {_COLS}, password_hash from users where username = ?\", (uname,)) if uname else None\n466     if row is None or not isinstance(password, str) or len(password) > 200:\n",
+   "code": "470     uname = username.strip().lower() if isinstance(username, str) else \"\"\n471     row = db.one(f\"select {_COLS}, password_hash from users where username = ?\", (uname,)) if uname else None\n472     if row is None or not isinstance(password, str) or len(password) > 200:\n",
    "col_offset": 17,
    "end_col_offset": 79,
    "filename": "app/users.py",
@@ -619,16 +568,16 @@
    },
    "issue_severity": "MEDIUM",
    "issue_text": "Possible SQL injection vector through string-based query construction.",
-   "line_number": 465,
+   "line_number": 471,
    "line_range": [
-    465
+    471
    ],
    "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b608_hardcoded_sql_expressions.html",
    "test_id": "B608",
    "test_name": "hardcoded_sql_expressions"
   },
   {
-   "code": "481         raise Refused(\"no_device\")\n482     row = db.one(f\"select {_COLS}, pin_hash from users where id = ?\", (user_id,))\n483     if row is None or not row[\"pin_hash\"]:\n",
+   "code": "487         raise Refused(\"no_device\")\n488     row = db.one(f\"select {_COLS}, pin_hash from users where id = ?\", (user_id,))\n489     if row is None or not row[\"pin_hash\"]:\n",
    "col_offset": 17,
    "end_col_offset": 68,
    "filename": "app/users.py",
@@ -639,16 +588,16 @@
    },
    "issue_severity": "MEDIUM",
    "issue_text": "Possible SQL injection vector through string-based query construction.",
-   "line_number": 482,
+   "line_number": 488,
    "line_range": [
-    482
+    488
    ],
    "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b608_hardcoded_sql_expressions.html",
    "test_id": "B608",
    "test_name": "hardcoded_sql_expressions"
   },
   {
-   "code": "535         return None\n536     row = db.one(f\"select {_COLS_U} from sessions s join users u on u.id = s.user_id\"\n537                  \" where s.token_hash = ? and s.expires_at > ? and not u.disabled\",\n538                  (_hash_token(token), db.now()))\n",
+   "code": "543         return None\n544     row = db.one(f\"select {_COLS_U} from sessions s join users u on u.id = s.user_id\"\n545                  \" where s.token_hash = ? and s.expires_at > ? and not u.disabled\",\n546                  (_hash_token(token), db.now()))\n",
    "col_offset": 17,
    "end_col_offset": 82,
    "filename": "app/users.py",
@@ -659,17 +608,17 @@
    },
    "issue_severity": "MEDIUM",
    "issue_text": "Possible SQL injection vector through string-based query construction.",
-   "line_number": 536,
+   "line_number": 544,
    "line_range": [
-    536,
-    537
+    544,
+    545
    ],
    "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b608_hardcoded_sql_expressions.html",
    "test_id": "B608",
    "test_name": "hardcoded_sql_expressions"
   },
   {
-   "code": "653         return None\n654     row = db.one(f\"select {_COLS_U}, t.id as token_id, (t.last_used is null or t.last_used < ?) as stale\"\n655                  \" from api_tokens t join users u on u.id = t.user_id\"\n656                  \" where t.token_hash = ? and (t.expires_at is null or t.expires_at > ?) and not u.disabled\",\n657                  (db.later(-60), _hash_token(secret), db.now()))\n",
+   "code": "666         return None\n667     row = db.one(f\"select {_COLS_U}, t.id as token_id, (t.last_used is null or t.last_used < ?) as stale\"\n668                  \" from api_tokens t join users u on u.id = t.user_id\"\n669                  \" where t.token_hash = ? and (t.expires_at is null or t.expires_at > ?) and not u.disabled\",\n670                  (db.later(-60), _hash_token(secret), db.now()))\n",
    "col_offset": 17,
    "end_col_offset": 108,
    "filename": "app/users.py",
@@ -680,15 +629,195 @@
    },
    "issue_severity": "MEDIUM",
    "issue_text": "Possible SQL injection vector through string-based query construction.",
-   "line_number": 654,
+   "line_number": 667,
    "line_range": [
-    654,
-    655,
-    656
+    667,
+    668,
+    669
    ],
    "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b608_hardcoded_sql_expressions.html",
    "test_id": "B608",
    "test_name": "hardcoded_sql_expressions"
+  },
+  {
+   "code": "74     mod.__file__ = str(ROOT / \"app/modules/crew/routes.py\")\n75     exec(compile(ported_source(), mod.__file__, \"exec\"), mod.__dict__)\n76     app = FastrAPI(docs_url=None, redoc_url=None)\n",
+   "col_offset": 4,
+   "end_col_offset": 70,
+   "filename": "tools/bench_fastrapi/crew_app.py",
+   "issue_confidence": "HIGH",
+   "issue_cwe": {
+    "id": 78,
+    "link": "https://cwe.mitre.org/data/definitions/78.html"
+   },
+   "issue_severity": "MEDIUM",
+   "issue_text": "Use of exec detected.",
+   "line_number": 75,
+   "line_range": [
+    75
+   ],
+   "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b102_exec_used.html",
+   "test_id": "B102",
+   "test_name": "exec_used"
+  },
+  {
+   "code": "47     try:\n48         r = urllib.request.urlopen(req, timeout=5)\n49     except urllib.error.HTTPError as e:\n",
+   "col_offset": 12,
+   "end_col_offset": 50,
+   "filename": "tools/bench_fastrapi/crew_run.py",
+   "issue_confidence": "HIGH",
+   "issue_cwe": {
+    "id": 22,
+    "link": "https://cwe.mitre.org/data/definitions/22.html"
+   },
+   "issue_severity": "MEDIUM",
+   "issue_text": "Audit url open for permitted schemes. Allowing use of file:/ or custom schemes is often unexpected.",
+   "line_number": 48,
+   "line_range": [
+    48
+   ],
+   "more_info": "https://bandit.readthedocs.io/en/1.9.4/blacklists/blacklist_calls.html#b310-urllib-urlopen",
+   "test_id": "B310",
+   "test_name": "blacklist"
+  },
+  {
+   "code": "66         try:\n67             urllib.request.urlopen(f\"http://127.0.0.1:{port}/crew/_/offline\", timeout=1).read()\n68             return proc, port\n",
+   "col_offset": 12,
+   "end_col_offset": 88,
+   "filename": "tools/bench_fastrapi/crew_run.py",
+   "issue_confidence": "HIGH",
+   "issue_cwe": {
+    "id": 22,
+    "link": "https://cwe.mitre.org/data/definitions/22.html"
+   },
+   "issue_severity": "MEDIUM",
+   "issue_text": "Audit url open for permitted schemes. Allowing use of file:/ or custom schemes is often unexpected.",
+   "line_number": 67,
+   "line_range": [
+    67
+   ],
+   "more_info": "https://bandit.readthedocs.io/en/1.9.4/blacklists/blacklist_calls.html#b310-urllib-urlopen",
+   "test_id": "B310",
+   "test_name": "blacklist"
+  },
+  {
+   "code": "51     sys.modules[\"app.main\"] = main\n52     exec(compile(src, main.__file__, \"exec\"), main.__dict__)\n53 else:\n",
+   "col_offset": 4,
+   "end_col_offset": 60,
+   "filename": "tools/bench_fastrapi/main_app.py",
+   "issue_confidence": "HIGH",
+   "issue_cwe": {
+    "id": 78,
+    "link": "https://cwe.mitre.org/data/definitions/78.html"
+   },
+   "issue_severity": "MEDIUM",
+   "issue_text": "Use of exec detected.",
+   "line_number": 52,
+   "line_range": [
+    52
+   ],
+   "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b102_exec_used.html",
+   "test_id": "B102",
+   "test_name": "exec_used"
+  },
+  {
+   "code": "20     try:\n21         r = urllib.request.urlopen(req, timeout=5)\n22     except urllib.error.HTTPError as e:\n",
+   "col_offset": 12,
+   "end_col_offset": 50,
+   "filename": "tools/bench_fastrapi/main_extra.py",
+   "issue_confidence": "HIGH",
+   "issue_cwe": {
+    "id": 22,
+    "link": "https://cwe.mitre.org/data/definitions/22.html"
+   },
+   "issue_severity": "MEDIUM",
+   "issue_text": "Audit url open for permitted schemes. Allowing use of file:/ or custom schemes is often unexpected.",
+   "line_number": 21,
+   "line_range": [
+    21
+   ],
+   "more_info": "https://bandit.readthedocs.io/en/1.9.4/blacklists/blacklist_calls.html#b310-urllib-urlopen",
+   "test_id": "B310",
+   "test_name": "blacklist"
+  },
+  {
+   "code": "36         try:\n37             urllib.request.urlopen(f\"http://127.0.0.1:{port}/\", timeout=1).read()\n38             return proc, port\n",
+   "col_offset": 12,
+   "end_col_offset": 74,
+   "filename": "tools/bench_fastrapi/main_run.py",
+   "issue_confidence": "HIGH",
+   "issue_cwe": {
+    "id": 22,
+    "link": "https://cwe.mitre.org/data/definitions/22.html"
+   },
+   "issue_severity": "MEDIUM",
+   "issue_text": "Audit url open for permitted schemes. Allowing use of file:/ or custom schemes is often unexpected.",
+   "line_number": 37,
+   "line_range": [
+    37
+   ],
+   "more_info": "https://bandit.readthedocs.io/en/1.9.4/blacklists/blacklist_calls.html#b310-urllib-urlopen",
+   "test_id": "B310",
+   "test_name": "blacklist"
+  },
+  {
+   "code": "48     try:\n49         r = urllib.request.urlopen(req, timeout=4)\n50     except urllib.error.HTTPError as e:\n",
+   "col_offset": 12,
+   "end_col_offset": 50,
+   "filename": "tools/bench_fastrapi/main_run.py",
+   "issue_confidence": "HIGH",
+   "issue_cwe": {
+    "id": 22,
+    "link": "https://cwe.mitre.org/data/definitions/22.html"
+   },
+   "issue_severity": "MEDIUM",
+   "issue_text": "Audit url open for permitted schemes. Allowing use of file:/ or custom schemes is often unexpected.",
+   "line_number": 49,
+   "line_range": [
+    49
+   ],
+   "more_info": "https://bandit.readthedocs.io/en/1.9.4/blacklists/blacklist_calls.html#b310-urllib-urlopen",
+   "test_id": "B310",
+   "test_name": "blacklist"
+  },
+  {
+   "code": "64     text = VOLATILE.sub(\"\", body.decode(\"utf-8\", \"replace\"))\n65     return r.status, ct, hashlib.sha1(text.encode()).hexdigest()[:10]\n66 \n",
+   "col_offset": 25,
+   "end_col_offset": 52,
+   "filename": "tools/bench_fastrapi/main_run.py",
+   "issue_confidence": "HIGH",
+   "issue_cwe": {
+    "id": 327,
+    "link": "https://cwe.mitre.org/data/definitions/327.html"
+   },
+   "issue_severity": "HIGH",
+   "issue_text": "Use of weak SHA1 hash for security. Consider usedforsecurity=False",
+   "line_number": 65,
+   "line_range": [
+    65
+   ],
+   "more_info": "https://bandit.readthedocs.io/en/1.9.4/plugins/b324_hashlib.html",
+   "test_id": "B324",
+   "test_name": "hashlib"
+  },
+  {
+   "code": "40         try:\n41             urllib.request.urlopen(f\"http://127.0.0.1:{port}/json\", timeout=1).read()\n42             return\n",
+   "col_offset": 12,
+   "end_col_offset": 78,
+   "filename": "tools/bench_fastrapi/run.py",
+   "issue_confidence": "HIGH",
+   "issue_cwe": {
+    "id": 22,
+    "link": "https://cwe.mitre.org/data/definitions/22.html"
+   },
+   "issue_severity": "MEDIUM",
+   "issue_text": "Audit url open for permitted schemes. Allowing use of file:/ or custom schemes is often unexpected.",
+   "line_number": 41,
+   "line_range": [
+    41
+   ],
+   "more_info": "https://bandit.readthedocs.io/en/1.9.4/blacklists/blacklist_calls.html#b310-urllib-urlopen",
+   "test_id": "B310",
+   "test_name": "blacklist"
   },
   {
    "code": "77     url = URL.format(version=VERSION, asset=asset)\n78     with urllib.request.urlopen(url, timeout=120, context=_context()) as resp:\n79         data = resp.read()\n",

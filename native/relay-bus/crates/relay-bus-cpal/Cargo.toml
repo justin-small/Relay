@@ -1,0 +1,20 @@
+[package]
+name = "relay-bus-cpal"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+description = "cpal Backend for the Relay audio bus, plus a device-change watcher (spike, issue 599)"
+
+[dependencies]
+relay-bus = { path = "../relay-bus" }
+cpal = "0.18"
+
+# Windows and Linux: ask cpal to raise the audio thread to realtime priority (audio_thread_priority). macOS callbacks
+# already run on CoreAudio's realtime threads, and cpal has no such feature there.
+[target.'cfg(any(target_os = "windows", target_os = "linux"))'.dependencies]
+cpal = { version = "0.18", features = ["realtime"] }
+
+# macOS: the device-change listener talks to the CoreAudio HAL directly.
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2-core-audio = { version = "0.3", default-features = false, features = ["std", "AudioHardware"] }

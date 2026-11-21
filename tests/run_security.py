@@ -14,7 +14,7 @@ The scans (the same commands as .github/workflows/security.yml, which calls this
     gitleaks    Secrets in the git history.
     actionlint  Mistakes in .github/workflows (including shell scripts in `run:`).
     zizmor      Security problems in the workflows (unpinned actions, injection, token scope).
-    cargo-deny  Rust crates: advisories, licences, sources (desktop/src-tauri/deny.toml).
+    cargo-deny  Rust crates: advisories, licences, sources (desktop/src-tauri/deny.toml and native/relay-bus/deny.toml).
 
 pip-audit, npm audit and cargo audit stay in tests.yml (the "Dependency audit" job). CodeQL runs on GitHub
 (repository default setup); it has no local equivalent here, so read its alerts on the pull request.
@@ -60,6 +60,8 @@ SCANS = [
   Scan("zizmor", "zizmor", ["--no-progress", ".github"], "brew install zizmor   (or: pip install zizmor==1.32.0)"),
   Scan("cargo-deny", "cargo-deny", ["check"], "cargo install cargo-deny --locked --version 0.20.2   (CI installs the same version prebuilt)",
        cwd=ROOT / "desktop" / "src-tauri"),
+  Scan("cargo-deny (relay-bus)", "cargo-deny", ["check"], "cargo install cargo-deny --locked --version 0.20.2   (CI installs the same version prebuilt)",
+       cwd=ROOT / "native" / "relay-bus"),
 ]
 
 

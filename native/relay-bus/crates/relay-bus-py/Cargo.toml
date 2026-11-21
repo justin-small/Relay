@@ -1,0 +1,24 @@
+[package]
+name = "relay-bus-py"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+description = "Python binding for the Relay audio bus (spike, issue 599), built with maturin"
+
+[lib]
+# The Python package is `relay_bus` (python/relay_bus/__init__.py); this is its native part, `relay_bus._native`.
+# The name cannot be `relay_bus`, which is the engine crate's.
+name = "_native"
+crate-type = ["cdylib"]
+
+[dependencies]
+relay-bus = { path = "../relay-bus" }
+relay-bus-cpal = { path = "../relay-bus-cpal" }
+# abi3-py310: one wheel for Python 3.10 and later (the repo's .venv is 3.10; the task asked for 3.11+, which this covers).
+pyo3 = { version = "0.30", features = ["abi3-py310"] }
+numpy = "0.30"
+
+[features]
+# maturin turns this on for wheels (an extension module must not link libpython); `cargo test` and clippy leave it off.
+extension-module = ["pyo3/extension-module"]
