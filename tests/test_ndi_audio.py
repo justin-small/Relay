@@ -33,7 +33,7 @@ SRC, ONLY = "CAM (Stage)", "MIC (Pulpit)"
 RATE = 48000
 
 
-def chunk(db_left=-20.0, db_right=-40.0, n=480):
+def chunk(db_left=-20.0, db_right=-40.0, n=4800):      # 100 ms: loudness needs 400 ms, so it does not depend on the runner's speed
     x = np.sin(2 * np.pi * 1000 * np.arange(n) / RATE).astype(np.float32)
     left, right = x * 10 ** (db_left / 20), x * 10 ** (db_right / 20)
     return {"audio": np.stack([left, right]), "rate": RATE, "audio_db": round(db_left, 1),
@@ -210,7 +210,7 @@ with section("NDI sound on the lane bus"):
     blocks = []
     info = inp.open(SRC, blocks.append)
     eq("the source's channels are the lane input's", (info.device["channels"], info.rate, info.device["label"]), (2, RATE, SRC))
-    check("blocks arrive as frames by channels", wait_for(lambda: blocks) and blocks[0].shape == (480, 2) and blocks[0].dtype == np.float32)
+    check("blocks arrive as frames by channels", wait_for(lambda: blocks) and blocks[0].shape == (4800, 2) and blocks[0].dtype == np.float32)
     check("it is alive while sound arrives", inp.alive())
     try:
         audio.get_source("ndi").lane_input().open("", lambda b: None)
