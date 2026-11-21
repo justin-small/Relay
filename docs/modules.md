@@ -923,7 +923,11 @@ upstream (a Dante input, a sound desk mute) adds steps by providing `nosound.<mo
 state, checked, look)` entries, in order from nearest Relay to farthest. `state` is "ok", "fail" or "unknown" (Relay
 cannot read it: never a guess); `checked` says what Relay looked at, `look` what the person should do next. Add steps
 only when the input is yours, and read what the module already knows: send nothing. The walk stops at the first
-"fail" and shows the rest as not checked. Shown on the admin Health page and on the crew page's "No sound?" tab.
+"fail" and shows the rest as not checked. Wrap the provider in `nosound.upstream(order, fn)` to say where it sits on the
+way upstream (lower is nearer Relay: Dante 10, the sound desk 20), so the nearest fault is reported first. The sound
+desk step (`audio_mixers/walk.py`) finds the desk through `dante.routing`: the channel subscribed to Relay's input
+names a device that is a configured desk, and its label a strip; it says whether that strip is muted, or "unknown" when
+the desk is not heard, has not said, or the label matches no strip. Shown on the admin Health page and on the crew page's "No sound?" tab.
 
 ## Livestream status
 

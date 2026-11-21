@@ -43,6 +43,13 @@ def step(id: str, title: str, state: str, checked: str, look: str = "") -> dict:
             "checked": _text(checked, TEXT_MAX), "look": _text(look, TEXT_MAX)}
 
 
+def upstream(order: int, fn: Callable[[dict], list[dict]]) -> Callable[[dict], list[dict]]:
+    """Mark a module's `nosound.` provider with where it sits on the way upstream from Relay's input (lower is nearer
+    Relay: the Dante steps are 10, the sound desk 20), so the walk reports the nearest fault first. Default 50."""
+    fn.order = order  # type: ignore[attr-defined]
+    return fn
+
+
 def core_steps(audio: dict, running: bool) -> tuple[list[dict], str]:
     """Relay's own steps and the input's coarse state (see streamstatus.input_state): ([steps], state)."""
     seen = input_state(audio, running)
@@ -74,7 +81,7 @@ def module_steps(audio: dict, providers: dict[str, Callable[[dict], list[dict]]]
     nonsense adds one "unknown" step, so the walk never breaks and never invents a result."""
     found = modules.using_all(CAPABILITY) if providers is None else providers
     out: list[dict] = []
-    for name, fn in found.items():
+    for name, fn in sorted(found.items(), key=lambda kv: getattr(kv[1], "order", 50)):
         try:
             got = fn(audio)
         except Exception:  # noqa: BLE001
