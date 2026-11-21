@@ -1,0 +1,35 @@
+{# The Signal map admin page (#262), rendered inside admin.html only while the module is on. #}
+    <h2 class="title">Signal map <span class="sumstate" id="smSum"></span></h2>
+    <p class="sub">Paste the patch list and see each line against the live Dante routing: is the channel on the
+      network, does anything receive it, and does that subscription resolve. Works with Dante devices. With the Dante
+      module off the list shows as pasted, without the live column.</p>
+    <div class="note err" id="smErr" hidden></div>
+
+    <section>
+      <h3>Patch list</h3>
+      <p class="note">One channel per line: CH, NAME, PORT, SOCKET, UPSTREAM, separated by commas, tabs or bars. A
+        first line naming the columns is used when present. Relay matches NAME to a Dante transmit channel's name
+        (or <code>name@device</code>); the other columns are shown as written.</p>
+      <textarea id="smText" rows="8" spellcheck="false"></textarea>
+      <div class="ctl">
+        <button type="button" class="primary" id="smSave">Save patch list</button>
+        <button type="button" class="danger" id="smClear">Remove</button>
+      </div>
+      <div class="note" id="smSaved"></div>
+    </section>
+
+    <section>
+      <h3>Patch against the live routing</h3>
+      <div class="note" id="smStatus"></div>
+      <div class="tablescroll">
+        <table>
+          <thead><tr><th>CH</th><th>Name</th><th>Port</th><th>Socket</th><th>Upstream</th><th>Dante</th><th>Received by</th></tr></thead>
+          <tbody id="smRows"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section>
+      <h3>On the network, not in the patch</h3>
+      <div class="note" id="smUnpatched"></div>
+    </section>

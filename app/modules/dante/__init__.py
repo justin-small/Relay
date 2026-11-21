@@ -63,6 +63,7 @@ class Dante(Module):
 
         registry.provide("gear.dante", {"list": service.gear_list})
         registry.provide("audio.input_labels", service.input_labels)
+        registry.provide("dante.routing", service.devices_copy)  # read-only: the signal map joins a patch list to it
         registry.provide("nosound.dante", lambda audio: walk.steps(audio, service.devices_copy()))
 
     def detach(self) -> None:
@@ -70,6 +71,7 @@ class Dante(Module):
 
         registry.withdraw("gear.dante")
         registry.withdraw("audio.input_labels")
+        registry.withdraw("dante.routing")
         registry.withdraw("nosound.dante")
 
     async def start(self) -> None:
