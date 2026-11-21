@@ -25,6 +25,7 @@ CHECKIN = [Depends(require("crew.checkin"))]
 CHECKLIST = [Depends(require("crew.checklist"))]
 RESOURCES = [Depends(require("crew.resources"))]
 ACTIVITY = [Depends(require("crew.activity"))]
+NOSOUND = [Depends(require("crew.nosound"))]
 CHECKLIST_EDIT = [Depends(require("crew.checklist_edit"))]
 
 KEY = "crew"
@@ -740,6 +741,14 @@ def _my_resources(user) -> dict:
     operator = user.can("crew.resources_edit")
     return {"resources": resources.mine(user.id, tracks), "editor": operator or bool(checklists.leads_of(user.id)),
             "all": operator}
+
+
+@router.get("/crew/api/nosound", dependencies=NOSOUND)
+def nosound_walk():
+    """The "No sound?" walk (core's app/nosound.py), for a volunteer who cannot open the operator panel."""
+    from ... import nosound
+
+    return nosound.current()
 
 
 @router.get("/crew/api/resources", dependencies=RESOURCES)

@@ -98,6 +98,11 @@ window.relayCan = function (perm) { return window.RELAY_ME.permissions.indexOf(p
       <div class="note">{% if 'session.control' in perms %}Starts or stops transcription and every translation session together. Stopping ends billed API usage.{% else %}Shows whether transcription and the translation sessions are running.{% endif %}</div>
     </section>
     <section>
+      <h3>No sound?</h3>
+      <div class="note">Walks back from Relay's input and says where the sound stops and what to look at next.</div>
+      <div id="noSound"></div>
+    </section>
+    <section>
       <h3>Live transcript</h3>
       <div class="feedbar">
         <select id="feedSel" aria-label="Feed to watch"><option value="">Transcription (source)</option></select>
