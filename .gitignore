@@ -54,3 +54,5 @@ site/mockups/
 # Rust audio-bus spike build output
 native/relay-bus/target/
 native/relay-bus/.venv-build/
+native/relay-ndi/target/
+native/relay-ndi/.venv-build/

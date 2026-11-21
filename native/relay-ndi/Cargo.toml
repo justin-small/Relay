@@ -1,0 +1,15 @@
+[workspace]
+resolver = "2"
+members = ["crates/relay-ndi", "crates/relay-ndi-py"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+
+# Picture scopes and test patterns are per-pixel loops: tests need optimised code. Debug assertions stay on.
+[profile.dev]
+opt-level = 3
+
+[profile.test]
+opt-level = 3

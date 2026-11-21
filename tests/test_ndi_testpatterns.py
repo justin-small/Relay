@@ -47,7 +47,7 @@ with section("pictures"):
         t = test(pattern=p, burn=False)
         base = tp.base_picture(t, 640, 360)
         frame = tp.draw_frame(t, base, None, 100.0, 0)
-        check(f"{p} is BGRA of the right size and writable", frame.size == 640 * 360 * 4 and frame.flags.writeable)
+        check(f"{p} is BGRA of the right size", len(frame) == 640 * 360 * 4)
     bars = tp.base_picture(test(), 700, 360)
     eq("the first bar is 75% white (BGRA)", tuple(bars[10, 5]), (191, 191, 191, 255))
     eq("the second bar is yellow", tuple(bars[10, 150][:3]), (0, 191, 191))
@@ -58,14 +58,14 @@ with section("pictures"):
     t = test(pattern="motion", burn=False)
     base = tp.base_picture(t, 640, 360)
     a, b = (tp.draw_frame(t, base, None, x, 0) for x in (0.0, 0.5))
-    check("the moving element moves", not np.array_equal(a, b))
+    check("the moving element moves", a != b)
     t = test(pattern="black")
     burn = tp.Burn(t, 640, 360)
     plain = tp.draw_frame(t, tp.base_picture(t, 640, 360), None, 100.0, 0)
     burned = tp.draw_frame(t, tp.base_picture(t, 640, 360), burn, 100.0, 0)
-    check("burn-in writes over the picture", not np.array_equal(plain, burned))
+    check("burn-in writes over the picture", plain != burned)
     later = tp.draw_frame(t, tp.base_picture(t, 640, 360), burn, 101.0, 30)
-    check("and the clock changes it each second", not np.array_equal(burned, later))
+    check("and the clock changes it each second", burned != later)
 
 with section("custom picture"):
     from PIL import Image

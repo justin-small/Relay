@@ -12,7 +12,6 @@ Frames arrive on the receiver's thread; browsers are asked on the event loop. Th
 from __future__ import annotations
 
 import asyncio
-import io
 import logging
 import threading
 import time
@@ -24,58 +23,37 @@ BOUNDARY = "relayndiframe"
 IDLE_WAIT_S = 10.0       # a viewer waits this long for a frame before the stream gives up and the browser retries
 
 
+def _cc(frame: dict) -> str:
+    return str(frame.get("fourcc", "")).upper().split(".")[-1]
+
+
 def to_rgb(frame: dict, max_width: int):
     """The frame as a Pillow RGB image no wider than `max_width`, or None for a pixel format not handled here
-    (and when Pillow or numpy is missing). Handles the formats NDI delivers: UYVY (the default), BGRA/BGRX and RGBA/RGBX."""
+    (and when Pillow or the Rust engine is missing). Handles the formats NDI delivers: UYVY (the default), BGRA/BGRX and
+    RGBA/RGBX. The conversion and scaling are Rust's (`relay_ndi.to_rgb`, #606)."""
     try:
-        import numpy as np
+        import relay_ndi
         from PIL import Image
     except ImportError:
         return None
     w, h, data = int(frame.get("width") or 0), int(frame.get("height") or 0), frame.get("data")
     if w < 2 or h < 2 or not data:
         return None
-    cc = str(frame.get("fourcc", "")).upper().split(".")[-1]
-    try:
-        if cc in ("BGRA", "BGRX", "RGBA", "RGBX"):
-            a = np.frombuffer(data, dtype=np.uint8, count=w * h * 4).reshape(h, w, 4)
-            rgb = a[:, :, 2::-1] if cc.startswith("BGR") else a[:, :, :3]
-            img = Image.fromarray(np.ascontiguousarray(rgb), "RGB")
-        elif cc == "UYVY":
-            img = _uyvy(np, Image, data, w, h)
-        else:
-            return None
-    except (ValueError, TypeError):
-        return None
-    if img.width > max_width:
-        img = img.resize((max_width, max(1, round(img.height * max_width / img.width))))
-    return img
-
-
-def _uyvy(np, Image, data, w: int, h: int):
-    """UYVY (4:2:2) to RGB, BT.709 limited range, with the chroma of each pixel pair shared by both."""
-    w -= w % 2
-    a = np.frombuffer(data, dtype=np.uint8, count=w * h * 2).reshape(h, w // 2, 4).astype(np.float32)
-    u, y0, v, y1 = a[:, :, 0] - 128.0, (a[:, :, 1] - 16.0) * 1.1644, a[:, :, 2] - 128.0, (a[:, :, 3] - 16.0) * 1.1644
-    r = 1.7927 * v
-    g = -0.2132 * u - 0.5329 * v
-    b = 2.1124 * u
-    out = np.empty((h, w, 3), dtype=np.uint8)
-    for i, y in ((0, y0), (1, y1)):
-        out[:, i::2, 0] = np.clip(y + r, 0, 255)
-        out[:, i::2, 1] = np.clip(y + g, 0, 255)
-        out[:, i::2, 2] = np.clip(y + b, 0, 255)
-    return Image.fromarray(out, "RGB")
+    got = relay_ndi.to_rgb(bytes(data), w, h, _cc(frame), int(max_width))
+    return Image.frombytes("RGB", (got[0], got[1]), got[2]) if got else None
 
 
 def encode(frame: dict, max_width: int, quality: int) -> bytes | None:
-    """One NDI video frame as JPEG bytes, or None when it cannot be."""
-    img = to_rgb(frame, max_width)
-    if img is None:
+    """One NDI video frame as JPEG bytes, or None when it cannot be. Converted, scaled and encoded in Rust
+    (`relay_ndi.jpeg`, #606): the Pillow path managed 5 to 8 frames a second at 1080p."""
+    try:
+        import relay_ndi
+    except ImportError:
         return None
-    buf = io.BytesIO()
-    img.save(buf, "JPEG", quality=quality)
-    return buf.getvalue()
+    w, h, data = int(frame.get("width") or 0), int(frame.get("height") or 0), frame.get("data")
+    if w < 2 or h < 2 or not data:
+        return None
+    return relay_ndi.jpeg(bytes(data), w, h, _cc(frame), int(max_width), int(quality))
 
 
 class Feed:
