@@ -19,6 +19,8 @@ import re
 import secrets
 from typing import Any
 
+from ... import text
+
 MAX_MACHINES = 8
 DEFAULT_PORT = 5990
 _ID = re.compile(r"[a-z0-9]{4,16}")
@@ -38,7 +40,7 @@ def clean_machines(raw: Any) -> list[dict]:
         name = " ".join(m["name"].split())[:60] if isinstance(m.get("name"), str) else ""
         addr = m["address"].strip() if isinstance(m.get("address"), str) else ""
         port = m.get("port")
-        if not name or not _HOST.fullmatch(addr) or name.lower() in [x["name"].lower() for x in out]:
+        if not name or not _HOST.fullmatch(addr) or any(text.same_name(name, x["name"]) for x in out):
             continue
         mid = m["id"] if isinstance(m.get("id"), str) and _ID.fullmatch(m["id"]) and m["id"] not in [x["id"] for x in out] else new_id()
         out.append({"id": mid, "name": name, "role": "host" if m.get("role") == "host" else "join", "address": addr,
