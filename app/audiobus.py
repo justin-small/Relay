@@ -214,6 +214,28 @@ def db_to_gain(db: float) -> float:
 # The mixing, resampling and metering are done by the Rust core (native/relay-bus, the `relay_bus` wheel, #601): no
 # Python runs on an audio thread. What stays here is what only Python can do: reading a module's network source
 # and handing it over, driving a module's network sender, and handing lane audio to the Python consumers.
+def engine_device(selector, listing: list[dict], engine_names: list[str]):
+    """The name the engine's device backend knows a saved device by. A saved selector is what the admin page picked from
+    PortAudio's list: an "API: Name" label, a bare name, or an index. The engine opens devices by name, so the selector
+    is mapped to the device's name through that list, and kept when the engine lists a device of that name. Anything
+    it cannot map is passed on unchanged: the engine then reports the device as missing, as it does for any unplugged one."""
+    if selector in (None, ""):
+        return selector
+    known = {n.lower(): n for n in engine_names}
+    sel = str(selector).strip()
+    found = None
+    if sel.isdigit():
+        found = next((d for d in listing if d["index"] == int(sel)), None)
+    else:
+        low = sel.lower()
+        found = (next((d for d in listing if d["label"].lower() == low), None)
+                 or next((d for d in listing if d["name"].lower() == low), None))
+    for candidate in ((found["name"] if found else None), sel):
+        if candidate and candidate.lower() in known:
+            return known[candidate.lower()]
+    return selector
+
+
 def _meter(m: dict) -> dict:
     """The panel's meter shape (dBFS) from the engine's linear one."""
     return {"rms_dbfs": round(audio.dbfs(m["rms"]), 1), "peak_dbfs": round(audio.dbfs(m["peak"]), 1),
@@ -576,7 +598,7 @@ class Bus:
             for spec in cfg["lanes"]:
                 self.lanes[spec["lane"] - 1].name = spec["name"]
             self._stop_outputs(cfg)             # before the engine forgets them: a sender must not pull from a gone output
-            self.engine.apply(cfg)
+            self.engine.apply(self._for_engine(cfg))
             self._apply_intakes(cfg)
             self._start_outputs(cfg)
             self.running = True
@@ -585,6 +607,23 @@ class Bus:
                 self._super = threading.Thread(target=self._supervise, args=(self._stop,),
                                                name="lane-supervisor", daemon=True)
                 self._super.start()
+
+    def _for_engine(self, cfg: dict) -> dict:
+        """`cfg` with each sound device named the way the engine's backend names it (see `engine_device`). Real devices
+        only: the fake backend's devices are named by the test that made them."""
+        if self.backend != "cpal":
+            return cfg
+        try:
+            names = [d["name"] for d in self.engine.list_devices()]
+            inputs, outputs = audio.list_input_devices(), audio.list_output_devices()
+        except Exception:
+            log.exception("The sound devices could not be listed; using the saved names as they are")
+            return cfg
+        return {**cfg,
+                "lanes": [{**x, "device": engine_device(x["device"], inputs, names) if x["source"] == audio.PORTAUDIO else x["device"]}
+                          for x in cfg["lanes"]],
+                "outputs": [{**o, "device": engine_device(o["device"], outputs, names) if o["output"] == audio.PORTAUDIO else o["device"]}
+                            for o in cfg["outputs"]]}
 
     def _apply_intakes(self, cfg: dict) -> None:
         wanted: dict[str, list[dict]] = {}
