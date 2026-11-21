@@ -32,7 +32,7 @@ from jinja2 import ChoiceLoader, FileSystemLoader, PrefixLoader
 from . import alerts as alertsmod
 from . import backup as backupmod
 from . import announce as announcemod
-from . import aimodels, alerthistory, audiobus, audit, boards, cables, channels, config, db, devices, exporting, importdocker, languages, metering, mixreport, netinfo, network_map, netroute, overlays, panelfw, panels, ports, prefs, redact, routing, schedules, screens, serving, setupcode, streamstatus, tally, tls, transcribe, users
+from . import aimodels, alerthistory, audiobus, audit, boards, cables, channels, config, db, devices, exporting, importdocker, languages, metering, mixreport, netinfo, network_map, netroute, overlays, panelfw, panels, ports, prefs, redact, routing, schedules, screens, serving, setupcode, streamstatus, tally, tls, tones, transcribe, users
 from .alerts import alerts
 from . import engine as engine_mod
 from .engine import TRANSCRIPTION_STREAM, TRANSLATION_STREAM, demo_mode, engine
@@ -256,6 +256,7 @@ AUDIT_ROUTES = {
     "admin_network_places": ("network.places", "Changed where the network gear is"),
     "admin_config": ("settings.change", "Changed settings"),
     "admin_audiobus_save": ("audio.bus", "Changed the audio bus"),
+    "admin_audiobus_test": ("audio.bus", "Played the audio bus test tone"),
     "admin_metering_save": ("audio.metering", "Changed the sound meter"),
     "admin_mixreport_save": ("audio.mixreport", "Changed the stream-mix report"),
     "admin_metering_calibrate": ("audio.metering", "Calibrated the sound meter"),
@@ -1289,6 +1290,8 @@ async def panel_events(panel_id: str):
 # On the viewer port with no login, like the panels' routes: anyone with the /alert link may send, by the
 # operator's choice, unless the operator requires a sign-in (#175). alerts.py says what bounds them.
 alerts.push_panel = panel_registry.push_alert
+if tones.on_alert not in alerts.listeners:      # an alert sent sounds its tone on the bus's Alert tones destination (#599)
+    alerts.listeners.append(tones.on_alert)
 alerts.panel_name = panel_registry.display_name
 panel_registry.alerts_for = alerts.active_for_panel
 
@@ -2384,6 +2387,20 @@ async def admin_audiobus():
         "input_devices": audiomod.list_input_devices(),
         "output_devices": await asyncio.to_thread(audiomod.list_output_devices),
     }
+
+
+AUDIOBUS_TEST_SENTENCES = {
+    "played": "The test tone is playing.",
+    "unpatched": "Test tone is not routed to any output yet. Route it to an output channel below, then try again.",
+}
+
+
+@app.post("/api/admin/audiobus/test", dependencies=[Depends(require("audio.manage"))])
+async def admin_audiobus_test():
+    """Play the test tone to wherever the Test tone destination is routed, so a patch can be heard."""
+    reached = await asyncio.to_thread(tones.play_test)
+    key = "played" if reached else "unpatched"
+    return {"reached": reached, "message": AUDIOBUS_TEST_SENTENCES[key]}
 
 
 @app.post("/api/admin/audiobus", dependencies=[Depends(require("audio.manage"))])

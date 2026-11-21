@@ -490,24 +490,6 @@ with section("an output on another sample rate gets resampled audio"):
 
 
 # -- Relay's own sounds -----------------------------------------------------------------------------------------------------
-with section("Relay's own sounds play into a bus output"):
-    reset_bus()
-    audiobus.bus.apply({"enabled": True, "outputs": [{"id": "mon", "output": "fake", "channels": 4}]})
-    pcm = (tone(880, 0.3, 24000, 0.5) * 32767).astype("<i2").tobytes()
-    audio.get_output("bus").play(pcm, 24000, "mon:3,4")
-    wait_for(lambda: len(OUT.sinks[0].audio()) > 14000)
-    a = OUT.sinks[0].audio()
-    check("the clip is on channels 3 and 4", peak(a[:, 2]) > 0.4 and peak(a[:, 3]) > 0.4)
-    check("and not on channels 1 and 2", peak(a[:, 0]) == 0 and peak(a[:, 1]) == 0)
-    check("it was resampled from 24 kHz to 48 kHz: about 0.6 s", abs(int(np.count_nonzero(a[:, 2])) - 14400) < 2000,
-          str(int(np.count_nonzero(a[:, 2]))))
-    with capture_log("relay.audiobus") as logged:
-        audio.get_output("bus").play(pcm, 24000, "nobody")     # an unknown output is logged, never raised
-        audio.get_output("bus").play(b"\x00", 24000, "mon")    # a truncated clip too
-    check("an unknown output or a bad clip raises nothing, and is logged", len(logged) == 2, str(logged))
-    reset_bus()
-
-
 # -- the engine takes a lane ------------------------------------------------------------------------------------------------------
 with section("the main capture can take a lane as its source"):
     reset_bus()

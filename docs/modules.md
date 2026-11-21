@@ -816,8 +816,12 @@ class MySink(audio.LaneSink):                   # paced by the sender's own cloc
 Consume a lane from core or a module with `audiobus.bus.lane(n).subscribe(callback)` (called on the input's
 thread, so it must not block; any number of subscribers share a lane) or `subscribe_queue(loop)` for async
 code. The captions take a lane as their input (`audio_lane`, through the `"lane"` source), and
-Relay's own sounds can be played into a bus output through `audio.get_output("bus").play(pcm, rate,
-"<output id>:3,4")`. Outputs follow each lane's clock with a resampler trimmed by at most 0.5%, so two devices
+Relay's own sounds go to a named **destination**: `audiobus.bus.play_to("alerts", samples, rate)` mixes a mono
+float32 clip into every output channel that destination is routed to, at that route's gain. Core offers `alerts`
+(the tone for each alert level, `app/tones.py`), `test` and one `speech:<language>` per target; a module offers its own
+with `audiobus.register_destination(key, label)`. Each destination is a source in the route editor, so the operator
+routes it to output channels like any lane. Nothing under `app/` opens a sound device (`tests/test_bus_only.py`).
+Outputs follow each lane's clock with a resampler trimmed by at most 0.5%, so two devices
 on different clocks do not click; the cost is the output's `latency_ms` (default 60) of passthrough delay.
 
 ## Pages that need HTTPS

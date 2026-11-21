@@ -67,7 +67,7 @@ with section("the bus starts empty"):
     eq("32 lanes are reported, all unpatched", (d["lanes"], len(d["status"]["lanes"]),
                                                 {x["state"] for x in d["status"]["lanes"]}), (32, 32, {"unpatched"}))
     check("sources and outputs include core's PortAudio and the bus's own", {"portaudio", "lane"} <= {s["id"] for s in d["sources"]}
-          and {"portaudio", "bus"} <= {o["id"] for o in d["outputs"]})
+          and "portaudio" in {o["id"] for o in d["outputs"]})
     eq("the bus is not running", d["status"]["running"], False)
 
 with section("only audio.manage changes it"):

@@ -137,6 +137,13 @@
     draft.lanes.push({ lane: n, name: '', source: 'portaudio', device: null, channel: 0 });
     drawLanes();
   };
+  $('abTest').onclick = async function () {
+    fail(''); UI.say('abSaved', '');
+    try {
+      const got = await request('POST', '/api/admin/audiobus/test', {});
+      UI.say('abSaved', got.message, !got.reached, { ms: 5000 });
+    } catch (e) { fail(e.message); }
+  };
   $('abRescan').onclick = async function () {
     fail(''); UI.say('abSaved', '');
     try {
