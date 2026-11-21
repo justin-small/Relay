@@ -29,12 +29,21 @@ jobs:
           cache: pip
       # sounddevice needs the PortAudio library to import (see release.yml for why PulseAudio runs headless).
       # A mirror outage makes apt retry every package until the job's limit; fail fast instead.
-      - run: sudo apt-get update && sudo apt-get install -y libportaudio2 pulseaudio
+      - run: sudo apt-get update && sudo apt-get install -y libportaudio2 pulseaudio libasound2-dev
         timeout-minutes: 3
       - run: pulseaudio -D --exit-idle-time=-1 --load=module-null-sink && pactl info | head -3
       # httpx2 (starlette's TestClient), coverage and pytest are test-only, so they stay out of requirements.txt
       # and the release build.
       - run: pip install -r requirements.txt httpx2==2.13.1 coverage==7.16.2 pytest==9.2.0
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # v1
+        with:
+          toolchain: stable
+      - uses: swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          workspaces: native/relay-bus
+      # The audio bus core is a Rust extension the app imports (#601); build and install it.
+      - name: Build the audio bus core
+        run: python tools/build_bus_wheel.py
       - name: Module rule (every integration is a switchable module)
         run: python tests/test_modules.py
       - name: The whole suite, with coverage
@@ -81,6 +90,16 @@ jobs:
       # No uvloop wheel for Windows (see the freeze spike, #179); requirements.txt skips it there.
       - run: pip install -r requirements.txt httpx2==2.13.1
         shell: bash
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # v1
+        with:
+          toolchain: stable
+      - uses: swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          workspaces: native/relay-bus
+      # The audio bus core is a Rust extension the app imports (#601); build and install it.
+      - name: Build the audio bus core
+        run: python tools/build_bus_wheel.py
+        shell: bash
       - name: The suite
         shell: bash
         run: python tests/run_all.py
@@ -101,10 +120,19 @@ jobs:
           cache: pip
       # sounddevice needs PortAudio and a running PulseAudio to import, as in the Tests job above.
       # A mirror outage makes apt retry every package until the job's limit; fail fast instead.
-      - run: sudo apt-get update && sudo apt-get install -y libportaudio2 pulseaudio
+      - run: sudo apt-get update && sudo apt-get install -y libportaudio2 pulseaudio libasound2-dev
         timeout-minutes: 3
       - run: pulseaudio -D --exit-idle-time=-1 --load=module-null-sink && pactl info | head -3
       - run: pip install -r requirements.txt httpx2==2.13.1 playwright==1.65.2
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # v1
+        with:
+          toolchain: stable
+      - uses: swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          workspaces: native/relay-bus
+      # The audio bus core is a Rust extension the app imports (#601); build and install it.
+      - name: Build the audio bus core
+        run: python tools/build_bus_wheel.py
       - run: python -m playwright install --with-deps chromium-headless-shell
       - name: The pages in a browser
         run: python tests/test_browser.py

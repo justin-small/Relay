@@ -67,12 +67,21 @@ jobs:
       # initialise -- so the import fails -- when no Pulse server answers.
       # A headless one with a null sink is enough.
       # A mirror outage makes apt retry every package until the job's limit; fail fast instead.
-      - run: sudo apt-get update && sudo apt-get install -y libportaudio2 pulseaudio
+      - run: sudo apt-get update && sudo apt-get install -y libportaudio2 pulseaudio libasound2-dev
         timeout-minutes: 3
       - run: pulseaudio -D --exit-idle-time=-1 --load=module-null-sink && pactl info | head -3
       # httpx2 is test-only (starlette's TestClient), so it stays out of
       # requirements.txt and the release build.
       - run: pip install -r requirements.txt httpx2==2.13.1
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # v1
+        with:
+          toolchain: stable
+      - uses: swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          workspaces: native/relay-bus
+      # The audio bus core is a Rust extension the app imports (#601); build and install it.
+      - name: Build the audio bus core
+        run: python tools/build_bus_wheel.py
       - run: python tests/test_redact.py
       - run: python tests/test_schedules.py
       - run: python tests/test_announce.py
@@ -205,19 +214,10 @@ jobs:
         run: python tools/release_tools.py version "$GITHUB_REF_NAME"
       # The audio bus core (native/relay-bus, #601): a Rust extension built here, on the runner it will ship from, so
       # each installer carries its own platform's wheel. maturin is pinned and hash-checked (requirements-wheel.txt),
-      # like everything else the build installs. One abi3 wheel covers every Python from 3.10. The Linux wheel is
-      # tagged for this machine (`--compatibility linux`) because it links the system ALSA library, which the
-      # manylinux rules forbid. Nothing in app/ imports it yet, so this only proves it builds and loads.
-      - name: Build the audio bus wheel
+      # like everything else the build installs. The frozen backend collects it (spike/relay.spec).
+      - name: Build the audio bus core
         shell: bash
-        run: |
-          python -m pip install -U pip
-          pip install --require-hashes --only-binary=:all: -r requirements-wheel.txt
-          compat=pypi; [[ "$RUNNER_OS" == Linux ]] && compat=linux
-          maturin build --release --locked --compatibility "$compat" \
-            --manifest-path native/relay-bus/crates/relay-bus-py/Cargo.toml --out "$RUNNER_TEMP/relay-bus-wheel"
-          pip install --no-index --no-deps "$RUNNER_TEMP"/relay-bus-wheel/relay_bus-*.whl
-          python -c "import relay_bus; print('relay_bus', relay_bus.__file__)"
+        run: python tools/build_bus_wheel.py
       - name: Freeze the backend
         shell: bash
         run: |

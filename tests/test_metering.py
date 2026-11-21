@@ -22,6 +22,7 @@ import numpy as np  # noqa: E402
 from app import audiobus, boards, config, metering, streamstatus  # noqa: E402
 from app.main import app  # noqa: E402
 
+from _buslane import feed, lane_bus  # noqa: E402
 from _harness import check, done, eq, section, wait_for  # noqa: E402
 
 RATE = metering.RATE
@@ -87,12 +88,12 @@ with section("the setting is cleaned"):
     eq("junk is the default", metering.normalize("x"), metering.default_config())
 
 with section("the tap copies and returns; a full queue drops, never waits"):
-    bus = audiobus.Bus()
+    bus = lane_bus(3)
     m = metering.Metering(bus)
     m.apply({"enabled": True, "lane": 3, "calibration_db": 110.0})
     lane = bus.lane(3)
     eq("one subscriber on the lane", lane.subscribers, 1)
-    lane.push(tone(1000, 0.5, 0.5))
+    feed(bus, 3, tone(1000, 0.5, 0.5))
     wait_for(lambda: m.analyzer.hops >= 4)
     eq("state is ok with sound", m.snapshot()["state"], "ok")
     m.stop()
@@ -105,7 +106,7 @@ with section("the tap copies and returns; a full queue drops, never waits"):
     eq("the rest were counted as dropped", m.dropped, 48)
 
 with section("calibration against a reference tone"):
-    bus = audiobus.Bus()
+    bus = lane_bus(1)
     m = metering.Metering(bus)
     m.apply({"enabled": True, "lane": 1})
     try:
@@ -114,7 +115,7 @@ with section("calibration against a reference tone"):
     except ValueError as exc:
         check("no signal refuses with a sentence", "No sound" in str(exc), str(exc))
     for _ in range(10):
-        bus.lane(1).push(tone(1000, 0.1, 0.6))
+        feed(bus, 1, tone(1000, 0.1, 0.6))
     wait_for(lambda: m.analyzer.hops >= 120, timeout=10)
     cal = m.calibrate(94)
     expect = 94 - 20 * math.log10(0.1 / math.sqrt(2))

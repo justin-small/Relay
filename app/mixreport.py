@@ -321,12 +321,8 @@ def csv_text(rows: list[dict]) -> str:
 
 # -- the recorder ------------------------------------------------------------------------------------------------
 def lane_tail(lane: audiobus.Lane, n: int) -> tuple[np.ndarray, int]:
-    """The newest n samples of a lane and its running total, without waiting on the input thread longer than a copy."""
-    with lane.lock:
-        w = lane.written
-        n = max(0, min(n, w, lane.size))
-        idx = np.arange(w - n, w) % lane.size
-        return lane.ring[idx].copy(), w
+    """The newest n samples of a lane and its running total. The first call starts keeping the lane (audiobus.Lane.tail)."""
+    return lane.tail(n)
 
 
 class Recorder:

@@ -3,6 +3,8 @@
     python tests/run_all.py                 # the whole suite, one process per file, several at a time
     python tests/run_all.py -k crew pclink  # only files whose name contains one of these
     python tests/run_all.py --coverage      # also record coverage (needs `pip install coverage`)
+
+It first builds the Rust audio bus core (tools/build_bus_wheel.py --if-stale), which needs Rust installed.
     python tests/run_all.py --junit out.xml # a JUnit report, one test case per file
 
 Each file runs in its own process with its own temp folder (TMPDIR), removed afterwards, so nothing a test
@@ -93,6 +95,11 @@ def main(argv: list[str] | None = None) -> int:
     todo = [p for p in scripts() if not args.k or any(k in p.name for k in args.k)]
     if not todo:
         print("no test files match")
+        return 1
+    # The audio bus core is a Rust extension every test process may import: build it first when the sources changed.
+    built = subprocess.run([sys.executable, str(ROOT / "tools" / "build_bus_wheel.py"), "--if-stale"])
+    if built.returncode:
+        print("The audio bus core (relay_bus) could not be built; see above.")
         return 1
     results = []
 
