@@ -37,7 +37,6 @@ sleep 2 tests/test_lighting_lightkey.py
 sleep 5 tests/test_lighting_qlcplus.py
 sleep 4 tests/test_lighting_tlc.py
 sleep 2 tests/test_lighting_vista.py
-timeout 1 tests/test_metering.py
 mock 22 tests/test_module_traffic.py
 sleep 3 tests/test_module_traffic.py
 sleep 2 tests/test_ndi.py
