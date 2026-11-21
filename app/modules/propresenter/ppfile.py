@@ -25,7 +25,11 @@ SECTION_COLOURS = {
 
 
 class FileError(ValueError):
-    """A ProPresenter file Relay cannot read, or a song it cannot write. The message is safe to show."""
+    """A ProPresenter file Relay cannot read, or a song it cannot write. `message` is a fixed sentence, safe to show."""
+
+    def __init__(self, message: str):
+        super().__init__(message)
+        self.message = message
 
 
 @lru_cache(maxsize=1)

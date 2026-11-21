@@ -9,11 +9,11 @@ import logging
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from fastapi.responses import HTMLResponse, JSONResponse
 
-from ... import config, engine as enginemod, modules as shared
+from ... import audit, config, engine as enginemod, helperhub, modules as shared
 from ...hub import sse_frame
 from ...panels import timer_fields
 from .. import event_stream, require
-from . import propresenter, signagesync, signagetags, slidetags
+from . import ppsongs, propresenter, signagesync, signagetags, slidetags
 from .pclink import MESSAGES as LINK_MESSAGES, LinkError, link as pc_link
 from .ppcontrol import control as pp_control
 from .pplobby import MESSAGES as LOBBY_MESSAGES, LobbyError, lobby as pp_lobby
@@ -525,3 +525,33 @@ async def admin_pp_link_playlist():
         done = await pc_link.build_playlist()
         return {**done, "state": pc_link.state()}
     return await _link_run(go)
+
+
+# --- Songs into ProPresenter (#497). ProPresenter's API cannot create a song, so Relay builds the file and the Relay Helper
+# on the ProPresenter computer opens it. Fixed sentences only, never an exception's text.
+@router.get("/api/admin/propresenter/songs/helper", dependencies=[Depends(require("propresenter.view"))])
+async def admin_pp_songs_helper():
+    """Is a helper connected that can put songs into ProPresenter?"""
+    return ppsongs.helper_state()
+
+
+@router.post("/api/admin/propresenter/songs/send", dependencies=[Depends(require("propresenter.manage"))])
+async def admin_pp_songs_send(payload: dict, request: Request):
+    """Build songs (name, sections of slides, arrangements, CCLI and the rest) and have the helper import them."""
+    try:
+        done = await ppsongs.send(payload.get("songs"))
+    except ppsongs.SongError as exc:
+        raise HTTPException(status_code=400, detail=exc.message)
+    except helperhub.HelperError as exc:
+        raise HTTPException(status_code=409, detail=exc.message)
+    audit.note(request, "propresenter.songs", f"Sent {done['sent']} song(s) to ProPresenter", detail={"songs": done["files"][:20]})
+    return done
+
+
+@router.post("/api/admin/propresenter/songs/read", dependencies=[Depends(require("propresenter.view"))])
+async def admin_pp_songs_read(payload: dict):
+    """The lyrics, sections, arrangements and CCLI inside a `.pro` file (sent as base64 in `data_b64`)."""
+    try:
+        return ppsongs.read_song(payload.get("data_b64"))
+    except ppsongs.SongError as exc:
+        raise HTTPException(status_code=400, detail=exc.message)
