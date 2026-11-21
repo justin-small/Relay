@@ -913,6 +913,17 @@ whatever that person sent through the API, not necessarily something your module
   person's signed-in admin session. `tests/test_prefs_render.py` refuses a line that sends a preference
   to one of those; it reads line by line, so it cannot see a value passed through a variable first.
 
+## Steps for the "No sound?" walk
+
+The "No sound?" walk (`app/nosound.py`, #263) starts at Relay's input and walks upstream so a volunteer can see where
+the sound stops. Core owns the first steps (is Relay capturing, is sound arriving). A module that knows a link further
+upstream (a Dante input, a sound desk mute) adds steps by providing `nosound.<module id>` in `attach()`: a function
+`fn(audio) -> list[dict]` taking the capture status (`engine.capture.status()`) and returning `nosound.step(id, title,
+state, checked, look)` entries, in order from nearest Relay to farthest. `state` is "ok", "fail" or "unknown" (Relay
+cannot read it: never a guess); `checked` says what Relay looked at, `look` what the person should do next. Add steps
+only when the input is yours, and read what the module already knows: send nothing. The walk stops at the first
+"fail" and shows the rest as not checked. Shown on the admin Health page and on the crew page's "No sound?" tab.
+
 ## Livestream status
 
 A module that watches a livestream (OBS, Resi, YouTube, ...) publishes into the shared stream status in core

@@ -58,16 +58,19 @@ class Dante(Module):
 
     def attach(self) -> None:
         from ... import modules as registry
+        from . import walk
         from .service import service
 
         registry.provide("gear.dante", {"list": service.gear_list})
         registry.provide("audio.input_labels", service.input_labels)
+        registry.provide("nosound.dante", lambda audio: walk.steps(audio, service.devices_copy()))
 
     def detach(self) -> None:
         from ... import modules as registry
 
         registry.withdraw("gear.dante")
         registry.withdraw("audio.input_labels")
+        registry.withdraw("nosound.dante")
 
     async def start(self) -> None:
         from ... import db
