@@ -29,6 +29,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import math
+import sqlite3
 import threading
 import time
 from typing import Callable
@@ -49,7 +50,7 @@ TICK_S = 0.005                    # how often an output tops up its sink
 CHUNK_FRAMES = 960                # the most an output produces in one go (20 ms)
 READ_FRAMES = 4800                # the most a lane reader takes in one go (100 ms); what has built up arrives as one block
 GAIN_MIN_DB, GAIN_MAX_DB = -90.0, 24.0
-BUS_OUTPUT = "bus"                # the AudioOutput id that plays Relay's own sounds into a bus output
+BUS_OUTPUT = "bus"                # a reserved output id: it was the AudioOutput that played Relay's own sounds, before destinations
 LANE_SOURCE = "lane"              # the AudioSource id that lets the engine take a lane as its input
 
 LOST_SENTENCE = "The audio input stopped. Check the device is plugged in; Relay reconnects on its own."
@@ -137,6 +138,32 @@ def normalize(raw) -> dict:
 
 PROVIDER = "audiobus"
 
+# -- named destinations (#599) -------------------------------------------------------------------------------------------
+# Audio Relay makes itself goes to a named destination, never to a device. Each destination is a source in the route
+# editor: the operator routes "Alert tones" into the channels of an output, with a gain, and playing to the destination
+# mixes the clip into each of those channels. Core offers alert tones, a test tone and a spoken translation for each
+# target language; a module offers its own with `register_destination`.
+DEST_PREFIX = "dest:"
+CORE_DESTINATIONS = {"alerts": "Alert tones", "test": "Test tone"}
+_module_destinations: dict[str, str] = {}
+
+
+def register_destination(key: str, label: str) -> None:
+    """A module's own destination ("talkback"): key is lower_snake_case, label what the operator sees."""
+    _module_destinations[str(key)] = str(label)
+
+
+def unregister_destination(key: str) -> None:
+    _module_destinations.pop(str(key), None)
+
+
+def destinations() -> list[dict]:
+    """Every destination now: [{"key", "label"}]. Spoken translation has one per target language, as the config lists them."""
+    found = [{"key": k, "label": v} for k, v in CORE_DESTINATIONS.items()]
+    for lang in sorted(config.get().get("targets") or {}):
+        found.append({"key": f"speech:{str(lang).lower()}", "label": f"Spoken translation: {str(lang).title()}"})
+    return found + [{"key": k, "label": v} for k, v in sorted(_module_destinations.items())]
+
 
 def report_channels(cfg: dict) -> dict[str, str] | None:
     """Tell core which audio channels the bus has (#542): each patched lane is a source and each channel of each output a
@@ -144,6 +171,8 @@ def report_channels(cfg: dict) -> dict[str, str] | None:
     feed one lane into one output channel. Returns {key: channel ref}, or None while the database is not ready."""
     found = [{"key": f"lane{s['lane']}", "kind": "audio", "direction": "source", "number": s["lane"],
               "gear_name": s["name"] or f"Lane {s['lane']}"} for s in cfg["lanes"]]
+    found += [{"key": DEST_PREFIX + d["key"], "kind": "audio", "direction": "source", "number": None,
+               "gear_name": d["label"]} for d in destinations()]
     for o in cfg["outputs"]:
         shown = o["name"] or o["id"]
         found += [{"key": f"out:{o['id']}:{ch}", "kind": "audio", "direction": "destination", "number": ch,
@@ -157,25 +186,40 @@ def _split_out(key: str) -> tuple[str, int] | None:
     return (oid, int(ch)) if oid and ch.isdigit() else None
 
 
-def matrix_from_routes() -> list[dict]:
-    """The crosspoints the bus should run, [{"in": lane, "out": output id, "ch", "gain_db"}], built from core routes: each
-    output channel takes the lanes routed to it, each with its gain. Empty while the database is not ready."""
-    cells: list[dict] = []
+def _routes() -> list[tuple[str, str, int, float]]:
+    """Every audio route into one of the bus's output channels: [(source key, output id, channel from 1, gain dB)]. The
+    source key is "lane<n>" or "dest:<destination>". Empty while the database is not ready."""
+    found: list[tuple[str, str, int, float]] = []
     try:
-        world = channels.listing("audio")
-        for c in world:
+        for c in channels.listing("audio"):
             for e in c["ends"]:
                 where = _split_out(e["key"]) if e["provider"] == PROVIDER and e["direction"] == "destination" and not e["missing"] else None
                 if where is None:
                     continue
                 for w in routing.wanted(c["ref"]):
-                    lanes = [int(x["key"][4:]) for x in w["ends"]
-                             if x["provider"] == PROVIDER and x["key"].startswith("lane") and x["key"][4:].isdigit()]
-                    if lanes:
-                        cells.append({"in": lanes[0], "out": where[0], "ch": where[1], "gain_db": w["gain_db"] or 0.0})
-    except db.Unavailable:
-        log.warning("The audio bus matrix could not be read: the database is down")
-    return cells
+                    for x in w["ends"]:
+                        if x["provider"] == PROVIDER and (x["key"].startswith("lane") or x["key"].startswith(DEST_PREFIX)):
+                            found.append((x["key"], where[0], where[1], w["gain_db"] or 0.0))
+                            break
+    except (db.Unavailable, sqlite3.Error):
+        log.warning("The audio bus routes could not be read: the database is not ready")
+    return found
+
+
+def matrix_from_routes() -> list[dict]:
+    """The crosspoints the bus should run, [{"in": lane, "out": output id, "ch", "gain_db"}], built from core routes: each
+    output channel takes the lanes routed to it, each with its gain. Empty while the database is not ready."""
+    return [{"in": int(key[4:]), "out": oid, "ch": ch, "gain_db": gain}
+            for key, oid, ch, gain in _routes() if key.startswith("lane") and key[4:].isdigit()]
+
+
+def destination_patches() -> dict[str, list[tuple[str, int, float]]]:
+    """Where each destination is patched: {destination key: [(output id, channel from 1, gain dB)]}."""
+    patches: dict[str, list[tuple[str, int, float]]] = {}
+    for key, oid, ch, gain in _routes():
+        if key.startswith(DEST_PREFIX):
+            patches.setdefault(key[len(DEST_PREFIX):], []).append((oid, ch, gain))
+    return patches
 
 
 def save_matrix(cfg: dict, cells: list[dict]) -> None:
@@ -567,6 +611,7 @@ class Bus:
         self.lanes = [Lane(self, i + 1) for i in range(LANES)]
         self.config = default_config()
         self.running = False
+        self.patches: dict[str, list[tuple[str, int, float]]] = {}      # destination -> where it is patched
         self._intakes: dict[str, _PyIntake] = {}
         self._outputs: dict[str, _PyOutput] = {}
         self._lock = threading.RLock()
@@ -588,8 +633,10 @@ class Bus:
         keeps running, so changing one feed does not disturb another."""
         cfg = normalize(cfg)
         report_channels(cfg)
+        patches = destination_patches()
         with self._lock:
             self.config = cfg
+            self.patches = patches
             for lane in self.lanes:
                 lane.name = ""
             for spec in cfg["lanes"]:
@@ -731,6 +778,28 @@ class Bus:
                 return _OutputRef(self, spec)
         return None
 
+    def play_to(self, key: str, mono: np.ndarray, rate: int = RATE) -> int:
+        """Play mono float32 `mono` at `rate` to the destination `key` ("alerts", "test", "speech:spanish"): the clip is
+        mixed into the next block of every output channel it is patched to, at that patch's gain. Returns how many
+        channels it reached (0: not patched, or the bus is not running). Never blocks and never opens a device."""
+        reached = 0
+        patched = self.patches.get(str(key))
+        if not patched or not self.running or not len(mono):
+            return 0
+        clip = np.ascontiguousarray(mono, dtype=np.float32)
+        if int(rate) != RATE:
+            clip = soxr.resample(clip, int(rate), RATE).astype(np.float32)
+        for oid, ch, gain_db in patched:
+            out = self.output(oid)
+            if out is None or not 1 <= ch <= out.channels:
+                continue
+            try:
+                out.inject(clip * np.float32(db_to_gain(gain_db)), (ch - 1,), RATE)
+                reached += 1
+            except Exception:
+                log.exception("Could not play %s into %s channel %d", key, oid, ch)
+        return reached
+
     def status(self) -> dict:
         with self._lock:
             patch = {s["lane"]: s for s in self.config["lanes"]}
@@ -828,45 +897,7 @@ class LaneSource(audio.AudioSource):
         return lane is not None and self.bus.running
 
 
-# -- Relay's own sounds into a bus output ---------------------------------------------------------------------
-class BusOutput(audio.AudioOutput):
-    """`play` with selector "<output id>" or "<output id>:1,2" (1-based channels; default: every channel of a
-    one- or two-channel output, else the first two) adds the clip to that bus output's mix."""
-
-    id = BUS_OUTPUT
-    label = "Audio bus output"
-
-    def __init__(self, target: Bus | None = None) -> None:
-        self._bus = target
-
-    @property
-    def bus(self) -> Bus:
-        return self._bus or bus
-
-    def play(self, pcm: bytes, rate: int = audio.TARGET_RATE, selector=None) -> None:
-        try:
-            oid, _, chans = str(selector or "").partition(":")
-            out = self.bus.output(oid.strip().lower())
-            if out is None:
-                log.warning("No bus output %r for this sound", oid)
-                return
-            mono = np.frombuffer(pcm, dtype="<i2").astype(np.float32) / 32768.0
-            if int(rate) != RATE:
-                mono = soxr.resample(mono, int(rate), RATE).astype(np.float32)
-            wanted = [int(c) - 1 for c in chans.split(",") if c.strip().isdigit()] or list(range(min(2, out.channels)))
-            out.inject(mono, tuple(c for c in wanted if 0 <= c < out.channels), RATE)
-        except Exception:
-            log.exception("Could not play into the audio bus")
-
-    def stop(self) -> None:
-        for spec in list(self.bus.config["outputs"]):
-            out = self.bus.output(spec["id"])
-            if out is not None:
-                out.stop_injects()
-
-
 audio.register_source(LaneSource())
-audio.register_output(BusOutput())
 
 
 # -- core routes (#544) ---------------------------------------------------------------------------------------------

@@ -1,7 +1,6 @@
-"""app/audio.py's sound output and the capture fan-out, with PortAudio replaced by a fake: which devices can
-play, how a saved selector finds one, a clip written in short blocks on its own thread, Stop cutting it off, a
-device that fails only logging, and a stalled consumer losing its oldest frame instead of holding up the rest.
-Offline, no sound device needed. Run: python tests/test_audio_output.py
+"""app/audio.py's device list and the capture fan-out, with PortAudio replaced by a fake: which devices can
+play, and a stalled consumer losing its oldest frame instead of holding up the rest. (Playing a sound goes through
+the audio bus's destinations: tests/test_audiobus.py.) Offline, no sound device needed. Run: python tests/test_audio_output.py
 """
 import asyncio
 import logging
@@ -70,53 +69,6 @@ try:
         eq("an unknown host API is shown as ?", outs[-1]["hostapi"], "?")
         check("two devices with the same name are told apart", outs[1]["label"] != outs[2]["label"],
               [o["label"] for o in outs])
-
-    out = audio.PortAudioOutput()
-    with section("finding the saved device"):
-        eq("none or empty is the default device", (out._device(None), out._device("")), (None, None))
-        eq("by index", out._device("2"), 2)
-        eq("by label, ignoring case", out._device("core audio: speakers"), 1)
-        eq("by name", out._device("Speakers"), 1)
-        eq("an index of a device that cannot play is not used", out._device("0"), None)
-        eq("a device that is gone falls back to the default", out._device("HDMI"), None)
-
-    with section("playing a clip"):
-        pcm = b"\x01\x00" * 4800                         # 0.2 s at 24 kHz
-        out.play(pcm, rate=24000, selector="Speakers")
-        check("it plays on its own thread and finishes", wait_for(lambda: not out._playing, 2))
-        s = FakeStream.made[-1]
-        eq("on the chosen device, mono 16-bit at the clip's rate",
-           (s.kw["device"], s.kw["channels"], s.kw["dtype"], s.kw["samplerate"]), (1, 1, "int16", 24000))
-        eq("written in 50 ms blocks, all of it", s.writes, [1200, 1200, 1200, 1200])
-
-    with section("stopping a clip"):
-        FakeStream.block = threading.Event()
-        out.play(b"\x01\x00" * 24000, rate=24000)
-        check("the clip is playing", wait_for(lambda: FakeStream.made[-1].writes == [] and out._playing, 1))
-        stopper = threading.Thread(target=out.stop)
-        stopper.start()
-        FakeStream.block.set()
-        stopper.join(3)
-        FakeStream.block = None
-        check("Stop waits for it and it ends early", not out._playing and len(FakeStream.made[-1].writes) < 20,
-              len(FakeStream.made[-1].writes))
-        out.play(b"\x01\x00" * 2400, rate=24000)
-        check("the next clip plays in full after a Stop",
-              wait_for(lambda: not out._playing, 2) and FakeStream.made[-1].writes == [1200, 1200])
-
-    with section("a device that fails"):
-        records = []
-        handler = logging.Handler()
-        handler.emit = lambda r: records.append(r.getMessage())
-        audio.log.addHandler(handler)
-        FakeStream.fail = OSError("device unavailable")
-        try:
-            out.play(b"\x01\x00" * 100)
-            check("the failure ends the clip", wait_for(lambda: not out._playing, 2))
-        finally:
-            FakeStream.fail = None
-            audio.log.removeHandler(handler)
-        check("…and is logged, not raised", any("Could not play audio" in r for r in records), records)
 finally:
     audio.sd = real_sd
 
