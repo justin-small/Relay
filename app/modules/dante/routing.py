@@ -27,6 +27,22 @@ MAX_PRESETS = 200
 MAX_NAME = 80
 
 
+# Removable with #584: devices announcing this ARC version or newer expect the 0x3410 page format, which Relay does not
+# write yet, so no write is sent to them. Delete `needs_modern_format`, its two uses and `ARC_MODERN_MESSAGE` when it does.
+ARC_MODERN = (2, 8)
+ARC_MODERN_MESSAGE = "This device needs the newer Dante control format, which Relay does not write yet."
+
+
+def needs_modern_format(d: dict) -> bool:
+    """True when the device announced ARC `ARC_MODERN` or newer ("2.8.15"); an unknown or unreadable version is not."""
+    parts = []
+    for p in str(d.get("arc_version") or "").split(".")[:2]:
+        if not p.isdigit():
+            return False
+        parts.append(int(p))
+    return tuple(parts) >= ARC_MODERN
+
+
 class Refused(Exception):
     """A request Relay will not carry out; `str(e)` says why, in words for the operator."""
 
@@ -138,6 +154,9 @@ class Routing:
                     row.update(result="missing", message=f"The device has no receive channel {c['channel']}.")
                     continue
                 row["from"] = now["source"] if now["status"] != "none" else ""
+                if needs_modern_format(d):
+                    row.update(result="refused", message=ARC_MODERN_MESSAGE)
+                    continue
                 if (d["name"], c["channel"]) in locked:
                     row.update(result="locked", message="The channel is locked, so Relay left it alone.")
                     continue

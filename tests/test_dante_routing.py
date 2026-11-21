@@ -119,6 +119,23 @@ with section("the write packet is built and refusals are read"):
     check("a refusal names Dante Domain Manager", state == "refused" and "Domain Manager" in why)
     stage.refuse = False
 
+with section("a device on ARC 2.8 or newer is never written to"):
+    modern = FakeDevice({1: "Lead Vox@STAGE"})
+    d = rec("VIA", modern, [])
+    d["arc_version"] = "2.8.15"
+    dante.service.record([rec("STAGE", stage, ["Lead Vox", "Pastor"]), d])
+    eq("2.8.15 needs the newer format", rt.needs_modern_format(d), True)
+    eq("2.7.41 does not", rt.needs_modern_format({"arc_version": "2.7.41"}), False)
+    eq("2.10.0 does", rt.needs_modern_format({"arc_version": "2.10.0"}), True)
+    eq("an unknown version does not", (rt.needs_modern_format({}), rt.needs_modern_format({"arc_version": "x.y"})), (False, False))
+    r = operator.post(SUB, json={"device": "VIA", "channel": 1, "source": "Pastor@STAGE", "confirm": True})
+    eq("the refusal says why", (r.status_code, r.json()["result"]["result"], r.json()["result"]["message"]), (200, "refused", rt.ARC_MODERN_MESSAGE))
+    eq("the device was not written to", modern.subs[1], "Lead Vox@STAGE")
+    page = {x["name"]: x["read_only"] for x in operator.get("/api/admin/dante/routing").json()["devices"]}
+    eq("the page marks it read-only", (page["VIA"], page["STAGE"]), (rt.ARC_MODERN_MESSAGE, ""))
+    modern.close()
+    scan()
+
 with section("permissions: a viewer reads, only an operator changes"):
     eq("a viewer reads the matrix", viewer.get("/api/admin/dante/routing").status_code, 200)
     eq("a viewer's write is refused (403)", viewer.post(SUB, json={"device": "PA", "channel": 1, "source": "", "confirm": True}).status_code, 403)
