@@ -26,6 +26,9 @@
      field(label, control, id)     a .field: the label above the control, joined to it (the id is set when given).
      pill(text, cls)               a status pill with its dot: cls is 'on', 'warn', 'err', 'idle' or ''.
      link(text, href)              a link that opens in a new tab, without handing the page to it.
+     noSoundWalk(host, url)        the "No sound?" walk (#263): a button that asks `url` (it answers app/nosound.py's
+                                   walk) and lists each step with what Relay checked and what to look at next.
+                                   Handle: { run() }.
      buttons(error)                button with { error } fixed: buttons(showError)(text, fn, cls).
      note(target)                  a function that shows an error line in target (an element or its id), and
                                    hides it while there is none.
@@ -154,6 +157,37 @@
     const a = el('a', '', text);
     a.href = href; a.target = '_blank'; a.rel = 'noopener noreferrer';
     return a;
+  }
+
+  const WALK_PILL = { ok: 'on', fail: 'err', unknown: 'warn', skipped: 'idle' };
+  const WALK_WORD = { ok: 'OK', fail: 'Problem', unknown: 'Cannot tell', skipped: 'Not checked' };
+  const WALK_VERDICT = {
+    sound: 'Sound is reaching Relay, so the problem is after its input.',
+    stopped: 'Found where the sound stops.',
+    unknown: 'Relay found nothing wrong along the way. Check the source.',
+    off: 'Relay is not capturing.',
+  };
+
+  function noSoundWalk(host, url) {
+    const out = el('div'), msg = el('div', 'note');
+    const request = client({ cache: 'no-store', note: msg });
+    function draw(w) {
+      out.textContent = '';
+      out.appendChild(el('p', '', WALK_VERDICT[w.verdict] || ''));
+      const list = el('ol', 'nosound-steps');
+      (w.steps || []).forEach(function (st) {
+        const item = el('li', '', pill(WALK_WORD[st.state] || st.state, WALK_PILL[st.state] || ''), ' ', el('b', '', st.title),
+          st.checked ? el('div', 'note', st.checked) : null,
+          st.look && st.state !== 'ok' && st.state !== 'skipped' ? el('div', '', 'Next: ' + st.look) : null);
+        list.appendChild(item);
+      });
+      out.appendChild(list);
+    }
+    function run() { return request('GET', url).then(function (w) { if (w) { say(msg, ''); draw(w); } }); }
+    host.appendChild(button('Check now', run, { cls: 'primary', error: function (m) { say(msg, m, !!m); } }));
+    host.appendChild(msg);
+    host.appendChild(out);
+    return { run: run };
   }
 
   function kv(dl, term, value) {
@@ -414,7 +448,7 @@
   }
 
   root.relayUI = { can: can, api: api, client: client, el: el, say: say, confirm: confirm,
-    button: button, buttons: buttons, note: note, field: field, pill: pill, link: link, kv: kv, shown: shown,
+    button: button, buttons: buttons, note: note, field: field, pill: pill, link: link, noSoundWalk: noSoundWalk, kv: kv, shown: shown,
     picker: picker, pickedName: pickedName,
     portPicker: portPicker, channelPicker: channelPicker, routeEditor: routeEditor };
 })(typeof window !== 'undefined' ? window : globalThis);

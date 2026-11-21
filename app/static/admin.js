@@ -11,6 +11,7 @@
     })();
   };
   const can = relayUI.can;
+  if (document.getElementById('noSound')) relayUI.noSoundWalk(document.getElementById('noSound'), '/api/admin/nosound');
   let cfg = null;
   let lastTargetsKey = '';
 

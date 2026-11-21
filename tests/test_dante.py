@@ -149,6 +149,11 @@ with section("the gear it offers"):
     eq("limited to that device's keys", box_channels["within"], "dt168-0a1b2c:")
     dante.service.record([])
 
+with section("status summary"):
+    from app.modules.dante import MODULE  # noqa: E402
+    st = MODULE.status()["dante"]
+    eq("empty before a scan", (st["devices"], st["broken_subscriptions"]), (0, 0))
+
 with section("admin routes, module on and off"):
     config.ensure_file()
     config.save({"admin_token": "t0ken", "port": 8000, "admin_port": 8001, "modules": {"dante": {"enabled": True}}})

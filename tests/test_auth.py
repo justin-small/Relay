@@ -373,7 +373,7 @@ MIN_ROLE = {
     "talkback.view": "operator", "talkback.control": "operator", "talkback.manage": "admin",
     "prodmesh_rta.view": "viewer", "prodmesh_rta.manage": "admin",
     "parent_paging.view": "viewer", "parent_paging.control": "operator", "parent_paging.manage": "admin",
-    "crew.use": "member", "crew.view": "viewer", "crew.manage": "admin", "crew.page": "operator", "crew.chat": "member", "crew.checkin": "member", "crew.checklist": "member", "crew.checklist_edit": "operator", "crew.resources": "member", "crew.resources_edit": "operator", "crew.moderate": "operator", "crew.activity": "operator",
+    "crew.use": "member", "crew.view": "viewer", "crew.manage": "admin", "crew.page": "operator", "crew.chat": "member", "crew.checkin": "member", "crew.checklist": "member", "crew.checklist_edit": "operator", "crew.resources": "member", "crew.resources_edit": "operator", "crew.moderate": "operator", "crew.activity": "operator", "crew.nosound": "member",
 }
 for role in ROLE_NAMES:
     me = clients[role].get("/api/admin/me").json()
@@ -420,6 +420,7 @@ route("GET", "/api/admin/urls", "settings.view")
 route("GET", "/api/admin/status", "session.view")
 route("GET", "/api/admin/status/stream", "session.view")
 route("GET", "/api/admin/devices", "session.view")
+route("GET", "/api/admin/nosound", "session.view")
 route("GET", "/api/admin/audiobus", "session.view")
 route("POST", "/api/admin/audiobus", "audio.manage")
 route("POST", "/api/admin/audiobus/test", "audio.manage")
@@ -1541,7 +1542,7 @@ for mid, want in (("planning_center", {"planning_center.view": "viewer", "planni
                   ("parent_paging", {"parent_paging.view": "viewer", "parent_paging.control": "operator",
                                      "parent_paging.manage": "admin"}),
                   ("crew", {"crew.use": "member", "crew.view": "viewer", "crew.manage": "admin", "crew.page": "operator", "crew.chat": "member", "crew.checkin": "member",
-                                      "crew.checklist": "member", "crew.checklist_edit": "operator", "crew.resources": "member", "crew.resources_edit": "operator", "crew.moderate": "operator", "crew.activity": "operator"})):
+                                      "crew.checklist": "member", "crew.checklist_edit": "operator", "crew.resources": "member", "crew.resources_edit": "operator", "crew.moderate": "operator", "crew.activity": "operator", "crew.nosound": "member"})):
     got = {p.id: p.min_role for p in registry.get(mid).permissions}
     eq(f"{mid} declares its permissions", got, want)
 

@@ -58,11 +58,13 @@ class Dante(Module):
 
     def attach(self) -> None:
         from ... import modules as registry
+        from . import walk
         from .service import service
 
         registry.provide("gear.dante", {"list": service.gear_list})
         registry.provide("audio.input_labels", service.input_labels)
         registry.provide("dante.routing", service.devices_copy)  # read-only: the signal map joins a patch list to it
+        registry.provide("nosound.dante", lambda audio: walk.steps(audio, service.devices_copy()))
 
     def detach(self) -> None:
         from ... import modules as registry
@@ -70,6 +72,7 @@ class Dante(Module):
         registry.withdraw("gear.dante")
         registry.withdraw("audio.input_labels")
         registry.withdraw("dante.routing")
+        registry.withdraw("nosound.dante")
 
     async def start(self) -> None:
         from ... import db
@@ -85,6 +88,13 @@ class Dante(Module):
         from .service import service
 
         await service.stop()
+
+    def status(self) -> dict:
+        from .service import service
+
+        s = service.snapshot()
+        return {"dante": {"devices": len(s["devices"]), "online": s["reachable"], "unreachable": s["unreachable"],
+                          "broken_subscriptions": len(s["problems"]), "scanned": s["scanned"]}}
 
     def health(self) -> Health:
         from .service import service
