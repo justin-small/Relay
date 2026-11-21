@@ -104,7 +104,7 @@ class Routing:
         """One subscription written and read back. ("ok"|"refused"|"silent"|"unconfirmed"|"error", message)."""
         ip, port = d["ips"][0], d["ports"].get("arc", DEFAULT_ARC)
         try:
-            state, why = arc.set_subscription(ip, port, channel, source)
+            state, why = arc.set_subscription(ip, port, channel, source, modern=arc.is_modern(d.get("arc_version")))
         except OSError as e:
             return "error", f"Relay could not reach the Dante network: {e}"
         if state != "ok":
