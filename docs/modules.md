@@ -1042,6 +1042,12 @@ network port (traffic class `aes67`, `media`, so it never runs on a port the ope
 * The chosen stream's SDP is kept in the module's settings (`remembered`, at most 8), so the saved input opens after a
   restart before the next announcement arrives.
 * Venue switches need IGMP snooping and a querier, or multicast floods or never arrives. The admin page says so.
+* **Sending (#267).** Switched on in the module's `output` settings, it sends one multicast stream of up to 8 channels
+  (L24 or L16, 48 kHz, 1 ms packets) announced by SAP and withdrawn on stop (`sender.py`, `output.py`). It is the audio
+  output `aes67_out` (`audio.get_output("aes67_out").play(pcm, rate, "<channel>")`, channels from 1) and a lane-bus sink.
+  A stage alert plays a level-based tone on `alert_channel`; `modules.using("aes67.speak")(language, pcm, rate)` queues
+  speech on that language's channel. Gain and name per channel, and a test tone, are on the page. Paced by Relay's own
+  clock (`ts-refclk:local`), not PTP, and not yet tried on a real Dante receiver.
 * A stream is marked Dante when its SDP names Dante or Audinate; the module lists Dante as a module it can do more with
   (`uses`) but reads no Dante data yet. Dante Virtual Soundcard cannot send AES67.
 * **Not proven on real gear:** built against SDP and RTP captured by hand and a loopback multicast socket. The one-hour

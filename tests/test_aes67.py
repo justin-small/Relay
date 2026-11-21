@@ -24,9 +24,19 @@ import numpy as np  # noqa: E402
 from app import audio, config  # noqa: E402
 from app.modules import modules as registry  # noqa: E402
 from app.modules.aes67 import MODULE, rtp, sdp  # noqa: E402
+from app.modules.aes67 import sender  # noqa: E402
+from app.modules.aes67.output import AES67Output, Invalid, Output, clean as output_clean, validate  # noqa: E402
 from app.modules.aes67.receiver import Receiver  # noqa: E402
 from app.modules.aes67.service import MAX_STREAMS, STALE_S, Service, clean_settings  # noqa: E402
 from app.modules.aes67.source import AES67Source, pick  # noqa: E402
+
+def _raises(fn) -> bool:
+    try:
+        fn()
+    except audio.SourceError:
+        return True
+    return False
+
 
 DANTE_SDP = """v=0
 o=- 1234 5678 IN IP4 192.168.1.20
@@ -192,9 +202,9 @@ with section("the stream table"):
 
 with section("a chosen stream is remembered with its SDP"):
     eq("settings keep only an SDP that matches its id",
-       clean_settings({"remembered": {"239.69.1.2:5004": DANTE_SDP, "1.2.3.4:5": DANTE_SDP, "x": 5}}),
-       {"remembered": {"239.69.1.2:5004": DANTE_SDP}})
-    eq("junk is no settings", clean_settings("x"), {"remembered": {}})
+       clean_settings({"remembered": {"239.69.1.2:5004": DANTE_SDP, "1.2.3.4:5": DANTE_SDP, "x": 5}})["remembered"],
+       {"239.69.1.2:5004": DANTE_SDP})
+    eq("junk is no settings", clean_settings("x"), {"remembered": {}, "output": output_clean({})})
     cold = Service()
     cold.configure({"remembered": {"239.69.1.2:5004": DANTE_SDP}})
     check("the saved input is found before any announcement", cold.find("239.69.1.2:5004") is not None)
@@ -271,6 +281,12 @@ async def scenarios():
     config.save({"modules": {"aes67": {"enabled": True}}})
     await registry.start_enabled()
     check("switching it on registers the source", audio.get_source("aes67") is not None)
+    from app.alerts import alerts as core_alerts  # noqa: E402
+    from app.modules import using as provided_by  # noqa: E402
+    from app.modules.aes67.output import output as live_output  # noqa: E402
+    check("and the output", audio.get_output("aes67_out") is not None)
+    check("and listens for alerts", live_output.on_alert in core_alerts.listeners)
+    check("and offers speech to other modules", provided_by("aes67.speak") is not None)
     from app.modules.aes67.service import service as live
 
     check("and starts listening for announcements (or says why not)", live.running or live.snapshot()["error"])
@@ -312,6 +328,110 @@ async def scenarios():
     eq("with none, health says it is looking", MODULE.health().state, "warn")
     await registry.set_enabled("aes67", False)
     check("switching it off removes the source", audio.get_source("aes67") is None)
+    check("and the output, the listener and the offer", audio.get_output("aes67_out") is None
+          and live_output.on_alert not in core_alerts.listeners and provided_by("aes67.speak") is None)
+
+
+with section("sending: encoding and packets"):
+    block = np.array([[0.5, -0.5], [1.0, -1.0], [2.0, -2.0]], dtype=np.float32)
+    back = rtp.decode(sender.encode(block, "L24"), "L24", 2)
+    check("L24 decodes back to what was sent (clipped at full scale)",
+          back is not None and np.allclose(back, np.clip(block, -1, 1), atol=2e-7))
+    back16 = rtp.decode(sender.encode(block, "L16"), "L16", 2)
+    check("L16 does too", back16 is not None and np.allclose(back16, np.clip(block, -1, 1), atol=5e-5))
+    pkt = rtp.parse(sender.rtp_packet(65535, 7, 99, b"\0" * 6))
+    eq("an RTP packet parses with its header", (pkt.payload_type, pkt.seq, pkt.timestamp, pkt.ssrc), (97, 65535, 7, 99))
+    check("the sequence wraps", rtp.parse(sender.rtp_packet(65536, 0, 0, b"\0" * 6)).seq == 0)
+    eq("a 1 ms packet of 8 channels fits one frame", len(sender.encode(np.zeros((48, 8), np.float32), "L24")), 1152)
+
+with section("sending: the announcement is one Relay can read itself"):
+    text = sender.build_sdp("Relay", "239.69.67.1", 5004, 2, "L24", "192.168.1.5", ["Alert", ""], 42)
+    st = sdp.parse(text)
+    eq("the stream the SDP names", (st.id, st.channels, st.rate, st.encoding, st.problem),
+       ("239.69.67.1:5004", 2, 48000, "L24", ""))
+    eq("with its channel names", st.labels, ("Alert", "Ch 2"))
+    check("the packet time and a source filter are stated", "a=ptime:1" in text and "incl IN IP4 239.69.67.1 192.168.1.5" in text)
+    ann = sdp.parse_sap(sender.build_sap(text, "192.168.1.5", 7))
+    eq("SAP carries it", (ann.withdraw, ann.msg_id, ann.origin, ann.sdp == text), (False, 7, "192.168.1.5", True))
+    check("and can withdraw it", sdp.parse_sap(sender.build_sap(text, "192.168.1.5", 7, True)).withdraw)
+
+with section("sending: the mixer"):
+    m = sender.Mixer(2, [-6.0, 0.0])
+    m.overlay(0, np.ones(100, np.float32))
+    first = m.pull(48)
+    check("gain applies per channel", abs(float(first[0, 0]) - 10 ** (-6 / 20)) < 1e-6 and float(first[0, 1]) == 0.0)
+    m.overlay(0, np.ones(10, np.float32))
+    check("a clip mixes into what waits, starting at once", abs(float(m.pull(48)[0, 0]) - 2 * 10 ** (-6 / 20)) < 1e-6)
+    m.pull(48)
+    check("the queue empties and then sends silence", float(m.pull(48)[:, 0].sum()) == 0.0)
+    eq("append takes what fits", m.append(1, np.ones(sender.RATE * 5, np.float32)), m.cap)
+    check("and counts the rest as dropped", m.dropped == sender.RATE * 5 - m.cap)
+    check("peaks are reported once", m.peaks_db()[0] is not None and m.peaks_db()[0] is None)
+    check("a channel outside the stream is ignored", m.append(5, np.ones(4, np.float32)) == 0)
+    check("resampling 24 kHz doubles the frames", len(sender.resample(np.zeros(240, np.float32), 24000)) == 480)
+    check("the alert tone grows with the level",
+          len(sender.alert_tone("info")) < len(sender.alert_tone("attention")) < len(sender.alert_tone("urgent")))
+
+with section("sending: settings"):
+    d = output_clean({})
+    eq("defaults: off, two channels, L24", (d["enabled"], d["channels"], d["encoding"], d["alert_channel"]), (False, 2, "L24", 1))
+    j = output_clean({"channels": 99, "group": "10.0.0.1", "port": 5, "encoding": "mp3", "gain_db": ["x", 5],
+                      "languages": {"es": 9, "fr": 2, "": 1}})
+    eq("junk falls back to defaults", (j["channels"], j["group"], j["port"], j["encoding"]), (2, "239.69.67.1", 5004, "L24"))
+    eq("gains are numbers, one per channel", j["gain_db"], [0.0, 5.0])
+    eq("a language keeps only a channel inside the stream", j["languages"], {"fr": 2})
+    for label, bad in (("not an object", 5), ("unicast address", {"group": "10.0.0.1"}), ("port", {"port": 80}),
+                       ("channels", {"channels": 9}), ("format", {"encoding": "L32"}), ("gain", {"gain_db": [99]}),
+                       ("language channel", {"channels": 2, "languages": {"es": 3}}),
+                       ("alert channel", {"channels": 2, "alert_channel": 3})):
+        try:
+            validate(bad)
+            check("refused: " + label, False)
+        except Invalid as exc:
+            check("refused: " + label, bool(exc.message))
+    eq("good settings are accepted", validate({"enabled": True, "channels": 3, "languages": {"es": 3}})["languages"], {"es": 3})
+
+with section("sending: through a real multicast socket"):
+    out = Output()
+    off = out.play(b"\0\0" * 10, 48000, 1)
+    check("nothing plays while it is off", off is False and out.play_alert("urgent") is False)
+    out.configure({"enabled": True, "channels": 2, "group": "239.69.67.9", "port": 5006, "encoding": "L16",
+                   "alert_channel": 2, "gain_db": [0, 0], "languages": {"es": 1}})
+    if not out.running:
+        print(f"  skipped: this machine cannot send multicast ({out.error})")
+    else:
+        got: list = []
+        rx = Receiver(sdp.parse(out.sender.sdp), got.append)
+        try:
+            rx.start()
+        except audio.SourceError as exc:
+            print(f"  skipped: this machine cannot listen for multicast ({exc})")
+            rx = None
+        if rx is not None:
+            check("silence flows before anything plays", wait_for(lambda: len(got) >= 5, 4.0), f"{len(got)} blocks")
+            t0 = len(got)
+            out.on_alert({"event": "alert.sent", "level": "urgent"})
+            loud = wait_for(lambda: any(float(np.max(np.abs(b[:, 1]))) > 0.05 for b in got[t0:]), 0.5)
+            check("a stage alert is on its channel within 500 ms", loud)
+            check("and not on the other", all(float(np.max(np.abs(b[:, 0]))) < 1e-3 for b in got[t0:]))
+            t1 = len(got)
+            pcm = (np.sin(np.arange(2400) / 8.0) * 12000).astype("<i2").tobytes()
+            check("a spoken language plays on its own channel", out.speak("es", pcm, 24000))
+            check("a language with no channel is not played", out.speak("fr", pcm, 24000) is False)
+            check("spoken audio arrives on channel 1",
+                  wait_for(lambda: any(float(np.max(np.abs(b[:, 0]))) > 0.1 for b in got[t1:]), 2.0))
+            check("the test tone is queued on its channel", out.test_tone(1, 0.1))
+            check("and refused on a channel outside the stream", out.test_tone(3, 0.1) is False)
+            snap = out.snapshot()
+            check("the snapshot reports packets and the address", snap["packets"] > 0 and snap["address"] != "")
+            rx.stop()
+        out.stop()
+        check("stopping ends the stream", not out.running)
+
+with section("sending: the audio output and the alert listener"):
+    ao = AES67Output()
+    ao.play(b"\0\0" * 4, 48000, 1)              # off: logged and dropped, raises nothing
+    check("a lane sink is refused while the stream is off", _raises(lambda: ao.lane_sink(1, 2)))
 
 
 with section("on and off"):
