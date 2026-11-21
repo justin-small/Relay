@@ -482,14 +482,19 @@ with section("the mixer is a Rust engine of its own"):
         eq("and lost none", after["dropped"], 0)
         live.close()
 
-    with section("a microphone frame becomes 48 kHz mono"):
-        import av
+    import importlib.util
 
-        conv = media._mono_converter()
-        stereo = av.AudioFrame.from_ndarray(np.tile(np.array([[100, 300]], np.int16), (1, FR)), format="s16", layout="stereo")
-        stereo.sample_rate = mixbus.RATE
-        pcm = media._frame_to_mono(conv, stereo)
-        eq("stereo is averaged", (len(pcm), set(pcm.tolist())), (FR, {200}))
+    if importlib.util.find_spec("av") is None:         # an optional library of the bridge, like aiortc and livekit
+        print("  skip a microphone frame becomes 48 kHz mono: PyAV is not installed")
+    else:
+        with section("a microphone frame becomes 48 kHz mono"):
+            import av
+
+            conv = media._mono_converter()
+            stereo = av.AudioFrame.from_ndarray(np.tile(np.array([[100, 300]], np.int16), (1, FR)), format="s16", layout="stereo")
+            stereo.sample_rate = mixbus.RATE
+            pcm = media._frame_to_mono(conv, stereo)
+            eq("stereo is averaged", (len(pcm), set(pcm.tolist())), (FR, {200}))
     mix.close()
 
     n = media.NoMedia("why")
