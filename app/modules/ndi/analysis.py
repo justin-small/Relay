@@ -282,6 +282,13 @@ class Analyzer:
             t.latest = None
             t.prev_grid = None
 
+    def audio_alarms(self, source: str) -> set[str]:
+        """The names of the audio alarms lit now for the source ("SILENCE", "CLIP", "PHASE"); none when it has no
+        audio meter running."""
+        t = self.tracks.get(source)
+        snap = t.meter.snapshot() if t is not None else None
+        return {a[0] for a in (snap or {}).get("alarms", [])}
+
     def health(self, source: str) -> tuple[str, str]:
         t = self.tracks.get(source)
         if t is None:

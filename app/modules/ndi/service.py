@@ -19,7 +19,7 @@ import time
 from typing import Any, Callable
 
 from ... import config, gearfeed
-from . import analysis, discovery, multiview, outputs, render, router, runtime, testpatterns, viewer
+from . import analysis, discovery, multiview, outputs, render, router, runtime, testpatterns, viewer, watch
 
 log = logging.getLogger("relay.ndi")
 
@@ -115,6 +115,7 @@ def clean_settings(raw: Any) -> dict:
     out["tests_on"] = [v for i, v in enumerate(raw.get("tests_on") if isinstance(raw.get("tests_on"), list) else [])
                        if isinstance(v, str) and v in known and v not in raw["tests_on"][:i]][:testpatterns.MAX_ON]
     out["router_outputs"] = router.clean_outputs(raw.get("router_outputs"))
+    out["watch"] = watch.clean_watch(raw.get("watch"))
     # Saved before core routes (#544): carried as they are until router.migrate() has moved them, then empty.
     out["routes"] = raw["routes"] if isinstance(raw.get("routes"), list) else []
     out["salvos"] = raw["salvos"] if isinstance(raw.get("salvos"), list) else []
@@ -144,6 +145,27 @@ def _cameras() -> list[dict]:
     from ...tally import tally
 
     return tally.cameras()
+
+
+def _named_schedules() -> list[dict]:
+    """The Schedules page's schedules, for the watch card's "Only during" list: [{"ref", "name"}]."""
+    from ... import schedules
+
+    return [{"ref": schedules.ref(s["id"]), "name": schedules.display_name(s)} for s in config.get()["schedules"] if s.get("enabled")]
+
+
+def _in_service(ref: str) -> bool:
+    """Whether the named schedule (Schedules page) is open now, by the one Relay clock."""
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    from ... import schedules
+    from ...scheduler import plan_source
+
+    zone = config.timezone()
+    sched = schedules.find(config.get()["schedules"], ref)
+    now = datetime.now(ZoneInfo(zone)).replace(tzinfo=None)
+    return bool(sched and sched["enabled"] and schedules.is_open_local(sched, now, zone, plan_source()))
 
 
 def _service_start() -> float | None:
@@ -318,6 +340,8 @@ class Service:
         self.multiviews = multiview.Multiviews(self.hook_subscribe, self.settings, self.audio_level, _cameras,
                                                _service_start, self.audio_levels)
         self.pool.address_of = lambda s: self._seen.get(s, {}).get("address", "")
+        self.watch = watch.Watch(lambda: self.settings()["watch"], self._watch_auto, self._watch_problems,
+                                 self._watch_acquire, _in_service, changed=self._bump)
         self.outputs: dict[str, Any] = {}
         self.pages = outputs.Outputs(self.hook_output, self.settings, config.get, _providers, _base, self._bump)
         self.tests = testpatterns.Tests(self.hook_output, self.settings, lambda: config.STATE_DIR / "ndi", self._bump)
@@ -466,6 +490,7 @@ class Service:
             except (asyncio.CancelledError, Exception):
                 pass
             self._watch_task = None
+        await asyncio.to_thread(self.watch.stop)
         await asyncio.to_thread(self.close_analyses)
         await asyncio.to_thread(self.pages.close)
         await asyncio.to_thread(self.tests.close)
@@ -497,8 +522,49 @@ class Service:
             except Exception:
                 log.exception("NDI health check failed")
 
+    def _watch_auto(self) -> list[str]:
+        """Sources the booth plainly relies on: those with a camera number and those in a multiview box."""
+        s = self.settings()
+        names = list(s["tally"])
+        for mv in s["multiviews"]:
+            names += [b["source"] for b in mv["boxes"] if b["kind"] == "source" and b["source"] and b["source"] not in names]
+        return names
+
+    def _watch_acquire(self, source: str) -> Any:
+        """A low-bandwidth receiver for a watched source, with its audio meter running."""
+        lease = self.pool.acquire(source, lambda f: None, low=True)
+        if lease is not None:
+            self.analysis.watch(source + LOW, True)
+        return lease
+
+    def _watch_problems(self, source: str, sound: bool) -> list[tuple[str, str]]:
+        """What is wrong with a watched source now: [(kind, sentence)]."""
+        rec = self._seen.get(source)
+        label = (rec or {}).get("source") or source
+        if rec is None or rec["missed"] >= GONE_AFTER:
+            return [("offline", f"{label} is offline")]
+        key = source + LOW
+        t = self.analysis.tracks.get(key)
+        if t is not None and not t.watch:
+            self.analysis.watch(key, True)
+        out: list[tuple[str, str]] = []
+        state, why = self.analysis.health(key)
+        if state == "bad":
+            out.append(("frames", f"{label}: {why}"))
+        if sound:
+            alarms = self.analysis.audio_alarms(key)
+            if "SILENCE" in alarms:
+                out.append(("silence", f"{label} has gone silent"))
+            if "CLIP" in alarms:
+                out.append(("clipping", f"{label} is clipping"))
+        return out
+
     def _health_tick(self) -> None:
         now = time.monotonic()
+        try:
+            self.watch.tick(now)
+        except Exception:
+            log.exception("NDI source watch failed")
         for key in [k for k, v in self._open.items() if v["expires"] < now]:
             self.analysis_close(key)
         seen = {s["name"]: s["health"] for s in self.sources()}
@@ -611,6 +677,14 @@ class Service:
                    "gear_name": outputs.ndi_name(r["name"])} for r in self.settings()["router_outputs"]]
         return {"channels": [{"items": found}]}
 
+    def schedule_users(self, ref: str) -> list[dict]:
+        """Where this module picks the named schedule `ref`, for the Schedules page's "used by"."""
+        w = self.settings()["watch"]
+        from ... import schedules
+
+        same = w["schedule"] and (schedules.ref_id(w["schedule"]) or w["schedule"]) == (schedules.ref_id(ref) or ref)
+        return [{"where": "NDI", "what": "Watching the sources the booth relies on"}] if same else []
+
     # ----------------------------------------------------------------------------------------------- reads
     def sources(self) -> list[dict]:
         users = self.pool.counts()
@@ -641,7 +715,8 @@ class Service:
                 "sources": self.sources(), "settings": self.settings(), "outputs": sorted(self.outputs),
                 "servers": self.servers, "via_server": self.via_server,
                 "pages": self.pages.status(), "tests": self.tests.status(), "pages_error": render.available(), "router": self.router.snapshot(),
-                "inputs": self.inputs(), "restart_needed": runtime.restart_needed(self.settings())}
+                "inputs": self.inputs(), "watch": self.watch.snapshot(), "schedules": _named_schedules(),
+                "restart_needed": runtime.restart_needed(self.settings())}
 
     # ------------------------------------------------------------------------------------------------ hooks
     def hook_sources(self) -> list[dict]:

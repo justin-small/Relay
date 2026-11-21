@@ -17,6 +17,7 @@ use relay_ndi::picture;
 use relay_ndi::pcm;
 use relay_ndi::recv::{Event, Receiver};
 use relay_ndi::sink::{AudioSink as CoreSink, Combiner as CoreCombiner};
+use relay_ndi::watch::{Event as WatchEvent, Kind as WatchKind, Watcher as CoreWatcher};
 use relay_ndi::route::Router as CoreRouter;
 use relay_ndi::scopes::{self as sc, Frame, Grid, Pack};
 use relay_ndi::send::Sender as CoreSender;
@@ -590,6 +591,57 @@ impl Combiner {
     }
 }
 
+type Change = (&'static str, String, &'static str, String);
+
+fn changes(events: Vec<WatchEvent>) -> Vec<Change> {
+    events
+        .into_iter()
+        .map(|e| match e {
+            WatchEvent::Raised { source, kind, why } => ("raised", source, kind.name(), why),
+            WatchEvent::Cleared { source, kind, why } => ("cleared", source, kind.name(), why),
+        })
+        .collect()
+}
+
+/// Decides when a relied-on source has a real problem: a fault must hold for the hold time to be raised and stay gone
+/// for five seconds to be cleared.
+#[pyclass(frozen, module = "relay_ndi")]
+struct Watcher {
+    w: Mutex<CoreWatcher>,
+}
+
+#[pymethods]
+impl Watcher {
+    #[new]
+    fn new(hold_s: f64) -> Self {
+        Watcher { w: Mutex::new(CoreWatcher::new(hold_s)) }
+    }
+
+    fn set_hold(&self, hold_s: f64) {
+        self.w.lock().unwrap_or_else(|p| p.into_inner()).set_hold(hold_s);
+    }
+
+    /// `problems` is what is wrong with `source` now: [("offline" | "frames" | "silence" | "clipping", sentence)].
+    /// Returns what changed: [("raised" | "cleared", source, kind, sentence)].
+    fn feed(&self, now: f64, source: &str, problems: Vec<(String, String)>) -> PyResult<Vec<Change>> {
+        let mut parsed = Vec::new();
+        for (k, why) in problems {
+            let Some(kind) = WatchKind::parse(&k) else { return Err(PyValueError::new_err(format!("unknown problem kind {k}"))) };
+            parsed.push((kind, why));
+        }
+        Ok(changes(self.w.lock().unwrap_or_else(|p| p.into_inner()).feed(now, source, &parsed)))
+    }
+
+    fn forget(&self, source: &str) -> Vec<Change> {
+        changes(self.w.lock().unwrap_or_else(|p| p.into_inner()).forget(source))
+    }
+
+    /// Everything raised and not cleared: [(source, kind, sentence)].
+    fn active(&self) -> Vec<(String, &'static str, String)> {
+        self.w.lock().unwrap_or_else(|p| p.into_inner()).active().into_iter().map(|(s, k, w)| (s, k.name(), w)).collect()
+    }
+}
+
 #[pymodule]
 fn _native(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<Connection>()?;
@@ -599,6 +651,7 @@ fn _native(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<Tone>()?;
     m.add_class::<Timing>()?;
     m.add_class::<AudioSink>()?;
+    m.add_class::<Watcher>()?;
     m.add_class::<Combiner>()?;
     m.add_function(wrap_pyfunction!(mix_s16, m)?)?;
     m.add_class::<SyncMeter>()?;

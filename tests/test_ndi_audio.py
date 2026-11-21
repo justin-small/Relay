@@ -45,7 +45,7 @@ class Conn:
         self.backend, self.name, self.n = backend, name, 0
 
     def receive(self, timeout_ms):
-        time.sleep(0.01)
+        time.sleep(0.01)  # allow-sleep: paces the fake sender like a real wire
         self.n += 1
         if self.name == ONLY or self.n % 2:
             return chunk()

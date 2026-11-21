@@ -6,9 +6,9 @@ import asyncio
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response, StreamingResponse
 
-from ... import audit, config
+from ... import audit, config, schedules
 from .. import require
-from . import listen, multiview, outputs, testpatterns, viewer
+from . import listen, multiview, outputs, testpatterns, viewer, watch
 from .service import KEY, LOW, VIEW_LIMITS, clean_ip, clean_server, clean_settings, service
 
 router = APIRouter()
@@ -62,7 +62,21 @@ async def admin_settings(request: Request, payload: dict):
             return _bad("A camera number is a whole number from 1 to 999.")
     if "multiviews" in payload and not isinstance(payload["multiviews"], list):
         return _bad("Multiviews are a list.")
-    keys = ("servers", "mdns", "extra_ips", "groups", "interval", "tally", "multiviews", *VIEW_LIMITS)
+    if "watch" in payload:
+        w = payload["watch"]
+        if not isinstance(w, dict) or any(k in w and not isinstance(w[k], bool) for k in ("on", "auto", "sound")):
+            return _bad("Watching a source is on or off.")
+        if "hold" in w and (isinstance(w["hold"], bool) or not isinstance(w["hold"], int)
+                            or not watch.HOLD_MIN <= w["hold"] <= watch.HOLD_MAX):
+            return _bad(f"The hold time is a whole number of seconds from {watch.HOLD_MIN} to {watch.HOLD_MAX}.")
+        if "sources" in w and (not isinstance(w["sources"], list) or len(w["sources"]) > watch.MAX_SOURCES
+                               or any(not isinstance(n, str) for n in w["sources"])):
+            return _bad(f"Watch at most {watch.MAX_SOURCES} sources, by name.")
+        if "schedule" in w and (not isinstance(w["schedule"], str)
+                                or (w["schedule"] and schedules.find(config.get()["schedules"], w["schedule"]) is None)):
+            return _bad("That schedule does not exist.")
+        payload = {**payload, "watch": {**cur["watch"], **w}}
+    keys = ("servers", "mdns", "extra_ips", "groups", "interval", "tally", "multiviews", "watch", *VIEW_LIMITS)
     new = clean_settings({**cur, **{k: payload[k] for k in keys if k in payload}})
     if not new["mdns"] and not new["servers"] and not new["extra_ips"]:
         return _bad("With multicast DNS off, add a discovery server or an extra address, or nothing can be found.")

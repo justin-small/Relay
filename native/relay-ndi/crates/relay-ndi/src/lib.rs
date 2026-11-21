@@ -14,5 +14,6 @@ pub mod route;
 pub mod scopes;
 pub mod send;
 pub mod sink;
+pub mod watch;
 
 pub use ffi::{api, set_search_dirs};
