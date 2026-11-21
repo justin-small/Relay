@@ -479,7 +479,7 @@ impl OutputCore {
         self.carry_pos = 0;
         self.carry_len = 0;
         // Channel-major to interleaved.
-        for (c, plane) in self.mix.chunks_exact(CHUNK).enumerate() {
+        for (c, plane) in self.mix.as_chunks::<CHUNK>().0.iter().enumerate() {
             for (frame, &x) in self.inter.chunks_exact_mut(ch).zip(plane) {
                 frame[c] = x;
             }
