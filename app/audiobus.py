@@ -717,6 +717,7 @@ class Bus:
 
     def stop(self) -> None:
         with self._lock:
+            self.config = {**self.config, "enabled": False}
             self._stop_all()
         if self._super is not None and self._super is not threading.current_thread():
             self._super.join(timeout=2.0)
