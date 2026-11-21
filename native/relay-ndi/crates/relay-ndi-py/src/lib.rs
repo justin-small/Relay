@@ -10,10 +10,15 @@ use pyo3::prelude::*;
 use pyo3::types::{PyBytes, PyDict, PyList};
 use relay_ndi::audio::{AudioMeter as CoreMeter, Snapshot};
 use relay_ndi::find::Finder;
+use relay_ndi::health::{self, Stats, SyncMeter as CoreSync, Timing as CoreTiming};
 use std::sync::Mutex;
 use relay_ndi::patterns::{self, Patch, Tone as CoreTone};
 use relay_ndi::picture;
+use relay_ndi::pcm;
+use relay_ndi::scte;
 use relay_ndi::recv::{Event, Receiver};
+use relay_ndi::sink::{AudioSink as CoreSink, Combiner as CoreCombiner};
+use relay_ndi::watch::{Event as WatchEvent, Kind as WatchKind, Watcher as CoreWatcher};
 use relay_ndi::route::Router as CoreRouter;
 use relay_ndi::scopes::{self as sc, Frame, Grid, Pack};
 use relay_ndi::send::Sender as CoreSender;
@@ -81,12 +86,20 @@ impl Connection {
                 d.set_item("fourcc", v.fourcc)?;
                 d.set_item("data", PyBytes::new(py, &v.data))?;
                 d.set_item("age_ms", at.elapsed().as_secs_f64() * 1000.0)?;
+                d.set_item("timecode", v.timecode)?;
+                d.set_item("timestamp", v.timestamp)?;
+                if !v.metadata.is_empty() {
+                    d.set_item("frame_meta", v.metadata)?;
+                }
             }
             Event::Audio(a) => {
                 let arr = PyArray1::from_vec(py, a.data).reshape([a.channels, a.samples])?;
                 d.set_item("audio_db", a.peak_db)?;
+                d.set_item("levels", a.levels.iter().map(|(p, r)| vec![*p, *r]).collect::<Vec<_>>())?;
                 d.set_item("audio", arr)?;
                 d.set_item("rate", a.rate)?;
+                d.set_item("timecode", a.timecode)?;
+                d.set_item("timestamp", a.timestamp)?;
             }
             Event::Meta(xml) => d.set_item("meta", xml)?,
         }
@@ -121,21 +134,21 @@ struct Sender {
 #[pymethods]
 impl Sender {
     #[new]
-    #[pyo3(signature = (name, width=1280, height=720, fps=30.0, fourcc="BGRA"))]
-    fn new(py: Python<'_>, name: String, width: u32, height: u32, fps: f64, fourcc: &str) -> PyResult<Self> {
-        let tx = py.detach(|| CoreSender::open(&name, width, height, fps, fourcc)).map_err(os_err)?;
+    #[pyo3(signature = (name, width=1280, height=720, fps=30.0, fourcc="BGRA", audio_offset_ms=None))]
+    fn new(py: Python<'_>, name: String, width: u32, height: u32, fps: f64, fourcc: &str, audio_offset_ms: Option<f64>) -> PyResult<Self> {
+        let tx = py.detach(|| CoreSender::open_timed(&name, width, height, fps, fourcc, audio_offset_ms)).map_err(os_err)?;
         Ok(Sender { tx })
     }
 
     /// One picture (`width * height * 4` BGRA bytes) and optionally float32 audio shaped (channels, samples).
-    #[pyo3(signature = (data, audio=None))]
-    fn send(&self, py: Python<'_>, data: PyBackedBytes, audio: Option<PyReadonlyArray2<'_, f32>>) -> PyResult<()> {
+    #[pyo3(signature = (data, audio=None, meta=None))]
+    fn send(&self, py: Python<'_>, data: PyBackedBytes, audio: Option<PyReadonlyArray2<'_, f32>>, meta: Option<String>) -> PyResult<()> {
         let bgra: &[u8] = &data;
         let planar = audio.map(|a| {
             let (ch, n) = (a.shape()[0], a.shape()[1]);
             (a.as_array().iter().copied().collect::<Vec<f32>>(), ch, n)
         });
-        py.detach(|| self.tx.send(bgra, planar.as_ref().map(|(v, c, n)| (v.as_slice(), *c, *n)))).map_err(PyValueError::new_err)
+        py.detach(|| self.tx.send_meta(bgra, planar.as_ref().map(|(v, c, n)| (v.as_slice(), *c, *n)), meta.as_deref())).map_err(PyValueError::new_err)
     }
 
     fn close(&self, py: Python<'_>) {
@@ -352,6 +365,308 @@ fn scopes<'py>(py: Python<'py>, data: PyBackedBytes, width: usize, height: usize
     Ok((Some(d), Some(g.into_any())))
 }
 
+fn stats_dict<'py>(py: Python<'py>, s: &Stats) -> PyResult<Bound<'py, PyDict>> {
+    let d = PyDict::new(py);
+    d.set_item("frames", s.frames)?;
+    d.set_item("late", s.late)?;
+    d.set_item("long_gaps", s.long_gaps)?;
+    d.set_item("declared_fps", s.declared_fps)?;
+    d.set_item("recent_late", s.recent_late)?;
+    d.set_item("since_last_s", s.since_last_s)?;
+    match &s.measured {
+        None => {
+            d.set_item("interval_ms", py.None())?;
+            d.set_item("measured_fps", 0.0)?;
+            d.set_item("jitter_ms", py.None())?;
+            d.set_item("rate_mbps", 0.0)?;
+            d.set_item("frame_bytes", py.None())?;
+        }
+        Some(m) => {
+            let iv = PyDict::new(py);
+            iv.set_item("min", m.iv_min)?;
+            iv.set_item("avg", m.iv_avg)?;
+            iv.set_item("max", m.iv_max)?;
+            iv.set_item("sd", m.iv_sd)?;
+            d.set_item("interval_ms", iv)?;
+            d.set_item("measured_fps", m.measured_fps)?;
+            let j = PyDict::new(py);
+            j.set_item("mean", m.jitter_mean)?;
+            j.set_item("peak", m.jitter_peak)?;
+            d.set_item("jitter_ms", j)?;
+            d.set_item("rate_mbps", m.rate_mbps)?;
+            let b = PyDict::new(py);
+            b.set_item("min", m.bytes_min)?;
+            b.set_item("avg", m.bytes_avg)?;
+            b.set_item("max", m.bytes_max)?;
+            d.set_item("frame_bytes", b)?;
+        }
+    }
+    Ok(d)
+}
+
+fn num(d: &Bound<'_, PyDict>, key: &str) -> f64 {
+    d.get_item(key).ok().flatten().and_then(|v| v.extract::<f64>().ok()).unwrap_or(0.0)
+}
+
+fn sub(d: &Bound<'_, PyDict>, key: &str, field: &str) -> f64 {
+    d.get_item(key).ok().flatten().and_then(|v| v.cast_into::<PyDict>().ok()).map(|x| num(&x, field)).unwrap_or(0.0)
+}
+
+fn stats_from(d: &Bound<'_, PyDict>) -> Stats {
+    let measured = if d.get_item("interval_ms").ok().flatten().is_some_and(|v| !v.is_none()) {
+        Some(health::Measured {
+            iv_avg: sub(d, "interval_ms", "avg"),
+            measured_fps: num(d, "measured_fps"),
+            jitter_mean: sub(d, "jitter_ms", "mean"),
+            ..Default::default()
+        })
+    } else {
+        None
+    };
+    Stats {
+        frames: num(d, "frames") as u64,
+        declared_fps: num(d, "declared_fps"),
+        recent_late: num(d, "recent_late") as usize,
+        since_last_s: d.get_item("since_last_s").ok().flatten().and_then(|v| v.extract::<f64>().ok()),
+        measured,
+        ..Default::default()
+    }
+}
+
+/// `(state, why)` from a `Timing.stats` dict and the SDK's dropped-frame count.
+#[pyfunction]
+#[pyo3(signature = (stats, dropped=0))]
+fn health_of(stats: &Bound<'_, PyDict>, dropped: i64) -> (&'static str, String) {
+    let (state, why) = health::health(&stats_from(stats), dropped);
+    (state.name(), why)
+}
+
+/// Frame arrivals for one source: `record` on each picture, `stats` any time.
+#[pyclass(frozen, module = "relay_ndi")]
+struct Timing {
+    t: Mutex<CoreTiming>,
+}
+
+#[pymethods]
+impl Timing {
+    #[new]
+    fn new() -> Self {
+        Timing { t: Mutex::new(CoreTiming::new()) }
+    }
+
+    /// "", "late" or "gap" for what this arrival was.
+    #[pyo3(signature = (now, nbytes, fps=0.0))]
+    fn record(&self, now: f64, nbytes: u64, fps: f64) -> &'static str {
+        self.t.lock().unwrap_or_else(|p| p.into_inner()).record(now, nbytes, fps).name()
+    }
+
+    fn stats<'py>(&self, py: Python<'py>, now: f64) -> PyResult<Bound<'py, PyDict>> {
+        let s = self.t.lock().unwrap_or_else(|p| p.into_inner()).stats(now);
+        stats_dict(py, &s)
+    }
+}
+
+/// How far the audio runs from the picture, by the senders' timestamps and timecodes.
+#[pyclass(frozen, module = "relay_ndi")]
+struct SyncMeter {
+    m: Mutex<CoreSync>,
+}
+
+#[pymethods]
+impl SyncMeter {
+    #[new]
+    fn new() -> Self {
+        SyncMeter { m: Mutex::new(CoreSync::new()) }
+    }
+
+    fn video(&self, timecode: i64, timestamp: i64) {
+        self.m.lock().unwrap_or_else(|p| p.into_inner()).video(timecode, timestamp);
+    }
+
+    fn audio(&self, timecode: i64, timestamp: i64) {
+        self.m.lock().unwrap_or_else(|p| p.into_inner()).audio(timecode, timestamp);
+    }
+
+    fn reset(&self) {
+        self.m.lock().unwrap_or_else(|p| p.into_inner()).reset();
+    }
+
+    fn snapshot<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyDict>> {
+        let s = self.m.lock().unwrap_or_else(|p| p.into_inner()).snapshot();
+        let d = PyDict::new(py);
+        d.set_item("valid", s.valid)?;
+        d.set_item("synthesized", s.synthesized)?;
+        d.set_item("offset_ms", s.offset_ms)?;
+        d.set_item("state", s.state)?;
+        Ok(d)
+    }
+}
+
+/// Float32 audio shaped (channels, samples) as interleaved little-endian 16-bit stereo: the channels in `pick` (0-based;
+/// none means all) for a browser to play.
+#[pyfunction]
+#[pyo3(signature = (samples, pick=Vec::new()))]
+fn mix_s16<'py>(py: Python<'py>, samples: PyReadonlyArray2<'_, f32>, pick: Vec<usize>) -> Bound<'py, PyBytes> {
+    let (ch, n) = (samples.shape()[0], samples.shape()[1]);
+    let flat: Vec<f32> = samples.as_array().iter().copied().collect();
+    PyBytes::new(py, &py.detach(|| pcm::mix_s16(&flat, ch, n, &pick)))
+}
+
+/// An audio-only NDI source the lane bus writes to.
+#[pyclass(frozen, module = "relay_ndi")]
+struct AudioSink {
+    s: CoreSink,
+}
+
+#[pymethods]
+impl AudioSink {
+    #[new]
+    #[pyo3(signature = (name, channels=2, rate=48000))]
+    fn new(py: Python<'_>, name: String, channels: usize, rate: u32) -> PyResult<Self> {
+        let s = py.detach(|| CoreSink::open(&name, channels, rate)).map_err(os_err)?;
+        Ok(AudioSink { s })
+    }
+
+    #[getter]
+    fn rate(&self) -> u32 {
+        self.s.rate()
+    }
+
+    #[getter]
+    fn channels(&self) -> usize {
+        self.s.channels()
+    }
+
+    fn free(&self) -> usize {
+        self.s.free()
+    }
+
+    fn queued(&self) -> usize {
+        self.s.queued()
+    }
+
+    #[getter]
+    fn underruns(&self) -> u64 {
+        self.s.underruns()
+    }
+
+    #[getter]
+    fn sent_frames(&self) -> u64 {
+        self.s.sent_frames()
+    }
+
+    /// float32 shaped (frames, channels); returns the frames taken.
+    fn write(&self, block: PyReadonlyArray2<'_, f32>) -> usize {
+        let frames = block.shape()[0];
+        let flat: Vec<f32> = block.as_array().iter().copied().collect();
+        self.s.write(&flat, frames)
+    }
+
+    fn close(&self, py: Python<'_>) {
+        py.detach(|| self.s.close());
+    }
+}
+
+/// An NDI source with the picture of one source and the sound of another.
+#[pyclass(frozen, module = "relay_ndi")]
+struct Combiner {
+    c: CoreCombiner,
+}
+
+#[pymethods]
+impl Combiner {
+    #[new]
+    #[pyo3(signature = (name, video=String::new(), audio=String::new(), wait=5.0))]
+    fn new(py: Python<'_>, name: String, video: String, audio: String, wait: f64) -> PyResult<Self> {
+        let c = py.detach(|| CoreCombiner::open(&name, &video, &audio, wait)).map_err(os_err)?;
+        Ok(Combiner { c })
+    }
+
+    #[getter]
+    fn frames(&self) -> u64 {
+        self.c.frames()
+    }
+
+    fn close(&self, py: Python<'_>) {
+        py.detach(|| self.c.close());
+    }
+}
+
+type Change = (&'static str, String, &'static str, String);
+
+fn changes(events: Vec<WatchEvent>) -> Vec<Change> {
+    events
+        .into_iter()
+        .map(|e| match e {
+            WatchEvent::Raised { source, kind, why } => ("raised", source, kind.name(), why),
+            WatchEvent::Cleared { source, kind, why } => ("cleared", source, kind.name(), why),
+        })
+        .collect()
+}
+
+/// Decides when a relied-on source has a real problem: a fault must hold for the hold time to be raised and stay gone
+/// for five seconds to be cleared.
+#[pyclass(frozen, module = "relay_ndi")]
+struct Watcher {
+    w: Mutex<CoreWatcher>,
+}
+
+#[pymethods]
+impl Watcher {
+    #[new]
+    fn new(hold_s: f64) -> Self {
+        Watcher { w: Mutex::new(CoreWatcher::new(hold_s)) }
+    }
+
+    fn set_hold(&self, hold_s: f64) {
+        self.w.lock().unwrap_or_else(|p| p.into_inner()).set_hold(hold_s);
+    }
+
+    /// `problems` is what is wrong with `source` now: [("offline" | "frames" | "silence" | "clipping", sentence)].
+    /// Returns what changed: [("raised" | "cleared", source, kind, sentence)].
+    fn feed(&self, now: f64, source: &str, problems: Vec<(String, String)>) -> PyResult<Vec<Change>> {
+        let mut parsed = Vec::new();
+        for (k, why) in problems {
+            let Some(kind) = WatchKind::parse(&k) else { return Err(PyValueError::new_err(format!("unknown problem kind {k}"))) };
+            parsed.push((kind, why));
+        }
+        Ok(changes(self.w.lock().unwrap_or_else(|p| p.into_inner()).feed(now, source, &parsed)))
+    }
+
+    fn forget(&self, source: &str) -> Vec<Change> {
+        changes(self.w.lock().unwrap_or_else(|p| p.into_inner()).forget(source))
+    }
+
+    /// Everything raised and not cleared: [(source, kind, sentence)].
+    fn active(&self) -> Vec<(String, &'static str, String)> {
+        self.w.lock().unwrap_or_else(|p| p.into_inner()).active().into_iter().map(|(s, k, w)| (s, k.name(), w)).collect()
+    }
+}
+
+/// The SCTE-104 cues in a video frame's metadata XML (`frame_meta`): [{"line", "action" (start, end, cancel), "immediate",
+/// "event_id", "unique_program_id", "pre_roll_ms", "break_tenths", "auto_return", "time_type", "time", "warnings"}].
+#[pyfunction]
+fn scte_cues<'py>(py: Python<'py>, xml: &str) -> PyResult<Vec<Bound<'py, PyDict>>> {
+    scte::cues(xml)
+        .into_iter()
+        .map(|c| {
+            let d = PyDict::new(py);
+            d.set_item("line", c.line)?;
+            d.set_item("action", c.action)?;
+            d.set_item("immediate", c.immediate)?;
+            d.set_item("event_id", c.event_id)?;
+            d.set_item("unique_program_id", c.unique_program_id)?;
+            d.set_item("pre_roll_ms", c.pre_roll_ms)?;
+            d.set_item("break_tenths", c.break_tenths)?;
+            d.set_item("auto_return", c.auto_return)?;
+            d.set_item("time_type", c.time_type)?;
+            d.set_item("time", c.time)?;
+            d.set_item("warnings", c.warnings)?;
+            Ok(d)
+        })
+        .collect()
+}
+
 #[pymodule]
 fn _native(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<Connection>()?;
@@ -359,6 +674,14 @@ fn _native(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<Router>()?;
     m.add_class::<AudioMeter>()?;
     m.add_class::<Tone>()?;
+    m.add_class::<Timing>()?;
+    m.add_class::<AudioSink>()?;
+    m.add_class::<Watcher>()?;
+    m.add_function(wrap_pyfunction!(scte_cues, m)?)?;
+    m.add_class::<Combiner>()?;
+    m.add_function(wrap_pyfunction!(mix_s16, m)?)?;
+    m.add_class::<SyncMeter>()?;
+    m.add_function(wrap_pyfunction!(health_of, m)?)?;
     m.add_function(wrap_pyfunction!(find, m)?)?;
     m.add_function(wrap_pyfunction!(library, m)?)?;
     m.add_function(wrap_pyfunction!(scopes, m)?)?;

@@ -19,7 +19,7 @@ import time
 from typing import Any, Callable
 
 from ... import config, gearfeed
-from . import analysis, discovery, multiview, outputs, render, router, runtime, testpatterns, viewer
+from . import analysis, bridge, discovery, multiview, outputs, render, router, runtime, testpatterns, viewer, watch
 
 log = logging.getLogger("relay.ndi")
 
@@ -33,6 +33,8 @@ _HOST = re.compile(r"[A-Za-z0-9]([A-Za-z0-9.\-]{0,251}[A-Za-z0-9])?")
 MAX_SERVERS = 4
 MAX_TALLY = 64
 AUDIO_FRESH_S = 2.0      # an audio level older than this is "no audio"
+LOUD_HOLD_S = 10.0       # the loudness meter runs this long after a viewer last asked for it
+AUDIO_ONLY_AFTER_S = 3.0  # sound but no picture for this long: an audio-only source
 SERVER_PORT = 5959       # NDI Discovery Service's port
 LOW = "\x00low"          # a source's low-bandwidth receiver (#300) is a pool entry of its own, under this suffix
 ANALYSIS_HOLD_S = 30.0   # an analysis stays open this long after its page last asked for it
@@ -113,6 +115,8 @@ def clean_settings(raw: Any) -> dict:
     out["tests_on"] = [v for i, v in enumerate(raw.get("tests_on") if isinstance(raw.get("tests_on"), list) else [])
                        if isinstance(v, str) and v in known and v not in raw["tests_on"][:i]][:testpatterns.MAX_ON]
     out["router_outputs"] = router.clean_outputs(raw.get("router_outputs"))
+    out["watch"] = watch.clean_watch(raw.get("watch"))
+    out["bridge"] = bridge.clean_machines(raw.get("bridge"))
     # Saved before core routes (#544): carried as they are until router.migrate() has moved them, then empty.
     out["routes"] = raw["routes"] if isinstance(raw.get("routes"), list) else []
     out["salvos"] = raw["salvos"] if isinstance(raw.get("salvos"), list) else []
@@ -144,6 +148,27 @@ def _cameras() -> list[dict]:
     return tally.cameras()
 
 
+def _named_schedules() -> list[dict]:
+    """The Schedules page's schedules, for the watch card's "Only during" list: [{"ref", "name"}]."""
+    from ... import schedules
+
+    return [{"ref": schedules.ref(s["id"]), "name": schedules.display_name(s)} for s in config.get()["schedules"] if s.get("enabled")]
+
+
+def _in_service(ref: str) -> bool:
+    """Whether the named schedule (Schedules page) is open now, by the one Relay clock."""
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    from ... import schedules
+    from ...scheduler import plan_source
+
+    zone = config.timezone()
+    sched = schedules.find(config.get()["schedules"], ref)
+    now = datetime.now(ZoneInfo(zone)).replace(tzinfo=None)
+    return bool(sched and sched["enabled"] and schedules.is_open_local(sched, now, zone, plan_source()))
+
+
 def _service_start() -> float | None:
     from ... import modules as registry
 
@@ -153,8 +178,10 @@ def _service_start() -> float | None:
 class Lease:
     """A listener's hold on a source's receiver. `release()` is safe to call twice."""
 
-    def __init__(self, pool: "Pool", source: str, cb: Callable[[dict], None]) -> None:
+    def __init__(self, pool: "Pool", source: str, cb: Callable[[dict], None],
+                 audio_cb: Callable[[dict], None] | None = None) -> None:
         self.pool, self.source, self.cb, self.done = pool, source, cb, False
+        self.audio_cb = audio_cb       # called with each chunk of sound ({"audio", "rate", "audio_db", "levels"})
 
     def release(self) -> None:
         if not self.done:
@@ -177,7 +204,7 @@ class _Entry:
 
 class Pool:
     def __init__(self, on_info: Callable[[str, dict], None], on_change: Callable[[], None],
-                 on_audio: Callable[[str, float], None] | None = None,
+                 on_audio: Callable[[str, dict], None] | None = None,
                  stats: "analysis.Analyzer | None" = None) -> None:
         self._entries: dict[str, _Entry] = {}
         self._lock = threading.Lock()
@@ -186,12 +213,13 @@ class Pool:
         self.stats = stats
         self.address_of: Callable[[str], str] = lambda s: ""
 
-    def acquire(self, source: str, cb: Callable[[dict], None], low: bool = False) -> Lease | None:
+    def acquire(self, source: str, cb: Callable[[dict], None], low: bool = False,
+                audio_cb: Callable[[dict], None] | None = None) -> Lease | None:
         backend = runtime.load()
         if backend is None or not isinstance(source, str) or not source:
             return None
         key = source + LOW if low else source
-        lease = Lease(self, key, cb)
+        lease = Lease(self, key, cb, audio_cb)
         with self._lock:
             e = self._entries.get(key)
             if e is None:
@@ -245,7 +273,14 @@ class Pool:
                     if self.stats is not None:
                         self.stats.on_audio(e.key, frame)
                     if not e.low and self._on_audio is not None and isinstance(frame.get("audio_db"), (int, float)):
-                        self._on_audio(e.source, float(frame["audio_db"]))
+                        self._on_audio(e.source, frame)
+                    with self._lock:
+                        acbs = [x.audio_cb for x in e.leases if x.audio_cb is not None]
+                    for acb in acbs:
+                        try:
+                            acb(frame)
+                        except Exception:
+                            log.exception("an NDI audio listener failed")
                     continue
                 if self.stats is not None:
                     self.stats.on_video(e.key, frame, now)
@@ -293,14 +328,21 @@ class Service:
         self._task: asyncio.Task | None = None
         self._watch_task: asyncio.Task | None = None
         self._audio: dict[str, tuple[float, float]] = {}   # source -> (peak dBFS, when)
+        self._levels: dict[str, tuple[list, float]] = {}   # source -> ([[peak, rms] per channel], when)
+        self._loud: dict[str, list] = {}                   # source -> [loudness meter, last asked]: only while a viewer asks
+        self._first_audio: dict[str, float] = {}           # source -> when its sound first arrived
+        self._video_at: dict[str, float] = {}              # source -> when its picture last arrived
+        self.audio_only_after = AUDIO_ONLY_AFTER_S
         self.analysis = analysis.Analyzer(config.STATE_DIR / "ndi" / "analysis")
         self._open: dict[str, dict] = {}      # analysis key -> {"lease", "expires"}: the analyses the admin page has open
         self._health: dict[str, str] = {}
-        self.pool = Pool(self._info, self._bump, self._level, self.analysis)
+        self.pool = Pool(self._info, self._bump, self._audio_frame, self.analysis)
         self.viewers = viewer.Viewers(self.hook_subscribe, self.settings)
         self.multiviews = multiview.Multiviews(self.hook_subscribe, self.settings, self.audio_level, _cameras,
-                                               _service_start)
+                                               _service_start, self.audio_levels)
         self.pool.address_of = lambda s: self._seen.get(s, {}).get("address", "")
+        self.watch = watch.Watch(lambda: self.settings()["watch"], self._watch_auto, self._watch_problems,
+                                 self._watch_acquire, _in_service, changed=self._bump)
         self.outputs: dict[str, Any] = {}
         self.pages = outputs.Outputs(self.hook_output, self.settings, config.get, _providers, _base, self._bump)
         self.tests = testpatterns.Tests(self.hook_output, self.settings, lambda: config.STATE_DIR / "ndi", self._bump)
@@ -311,6 +353,7 @@ class Service:
         self.scanning = False
         self.running = False
         self.servers: list[dict] = []     # per discovery server: {"server", "reachable", "error"}
+        self.bridge_status: dict[str, dict] = {}     # Bridge machine id -> {"reachable", "error"} (#303)
         self.via_server = 0               # sources the SDK reports through its finder
 
     def settings(self) -> dict:
@@ -359,8 +402,47 @@ class Service:
             if fut in self._waiters:
                 self._waiters.remove(fut)
 
-    def _level(self, source: str, db: float) -> None:
-        self._audio[source] = (db, time.monotonic())
+    def _level(self, source: str, db: float, levels: list | None = None) -> None:
+        now = time.monotonic()
+        self._audio[source] = (db, now)
+        if levels:
+            self._levels[source] = (levels, now)
+
+    def _audio_frame(self, source: str, frame: dict) -> None:
+        """A chunk of sound from a receiver's thread: its levels, the loudness meter if a viewer is watching, and whether
+        this source sends no picture at all (an audio-only source, #301)."""
+        now = time.monotonic()
+        self._level(source, float(frame["audio_db"]), frame.get("levels"))
+        loud = self._loud.get(source)
+        if loud is not None:
+            if now - loud[1] > LOUD_HOLD_S:
+                self._loud.pop(source, None)
+            elif frame.get("audio") is not None:
+                loud[0].feed(frame["audio"], int(frame.get("rate") or 0), now)
+        first = self._first_audio.setdefault(source, now)
+        rec = self._seen.get(source)
+        if rec is not None and not rec.get("audio_only") and source not in self._video_at and now - first > self.audio_only_after:
+            rec["audio_only"] = True
+            self._bump()
+
+    def audio_levels(self, source: str) -> list[float] | None:
+        """Each channel's latest peak in dBFS, or None when the source has sent none lately."""
+        got = self._levels.get(source)
+        return [c[0] for c in got[0]] if got and time.monotonic() - got[1] < AUDIO_FRESH_S else None
+
+    def audio_state(self, source: str) -> dict:
+        """What the viewer's meters show: each channel's peak and RMS, the momentary and short-term loudness (measured
+        only while someone keeps asking for it), and whether the source is audio only."""
+        now = time.monotonic()
+        loud = self._loud.get(source)
+        if loud is None:
+            self._loud[source] = loud = [analysis.AudioMeter(), now]
+        loud[1] = now
+        got = self._levels.get(source)
+        chans = [{"peak": c[0], "rms": c[1]} for c in got[0]] if got and now - got[1] < AUDIO_FRESH_S else []
+        snap = loud[0].snapshot(now) or {}
+        return {"channels": chans, "momentary": snap.get("momentary"), "short": snap.get("short"),
+                "audio_only": bool(self._seen.get(source, {}).get("audio_only"))}
 
     def audio_level(self, source: str) -> float | None:
         """The source's latest audio peak in dBFS, or None when it has sent none lately."""
@@ -368,7 +450,11 @@ class Service:
         return got[0] if got and time.monotonic() - got[1] < AUDIO_FRESH_S else None
 
     def _info(self, source: str, info: dict) -> None:
+        self._video_at[source] = time.monotonic()
         rec = self._seen.get(source)
+        if rec is not None and rec.get("audio_only"):
+            rec["audio_only"] = False
+            self._bump()
         if rec is not None and any(rec.get(k) != info[k] for k in info):
             rec.update(info)
             self._bump()
@@ -406,6 +492,7 @@ class Service:
             except (asyncio.CancelledError, Exception):
                 pass
             self._watch_task = None
+        await asyncio.to_thread(self.watch.stop)
         await asyncio.to_thread(self.close_analyses)
         await asyncio.to_thread(self.pages.close)
         await asyncio.to_thread(self.tests.close)
@@ -414,11 +501,16 @@ class Service:
         await asyncio.to_thread(self.multiviews.close_all)
         await asyncio.to_thread(self.pool.close_all)
         self._audio.clear()
+        self._levels.clear()
+        self._loud.clear()
+        self._first_audio.clear()
+        self._video_at.clear()
         for o in list(self.outputs.values()):
             o.close()
         self.outputs.clear()
         self._seen.clear()
         self.servers = []
+        self.bridge_status = {}
         self._bump()
 
     # --------------------------------------------------------------------------------------- analysis (#300)
@@ -433,8 +525,49 @@ class Service:
             except Exception:
                 log.exception("NDI health check failed")
 
+    def _watch_auto(self) -> list[str]:
+        """Sources the booth plainly relies on: those with a camera number and those in a multiview box."""
+        s = self.settings()
+        names = list(s["tally"])
+        for mv in s["multiviews"]:
+            names += [b["source"] for b in mv["boxes"] if b["kind"] == "source" and b["source"] and b["source"] not in names]
+        return names
+
+    def _watch_acquire(self, source: str) -> Any:
+        """A low-bandwidth receiver for a watched source, with its audio meter running."""
+        lease = self.pool.acquire(source, lambda f: None, low=True)
+        if lease is not None:
+            self.analysis.watch(source + LOW, True)
+        return lease
+
+    def _watch_problems(self, source: str, sound: bool) -> list[tuple[str, str]]:
+        """What is wrong with a watched source now: [(kind, sentence)]."""
+        rec = self._seen.get(source)
+        label = (rec or {}).get("source") or source
+        if rec is None or rec["missed"] >= GONE_AFTER:
+            return [("offline", f"{label} is offline")]
+        key = source + LOW
+        t = self.analysis.tracks.get(key)
+        if t is not None and not t.watch:
+            self.analysis.watch(key, True)
+        out: list[tuple[str, str]] = []
+        state, why = self.analysis.health(key)
+        if state == "bad":
+            out.append(("frames", f"{label}: {why}"))
+        if sound:
+            alarms = self.analysis.audio_alarms(key)
+            if "SILENCE" in alarms:
+                out.append(("silence", f"{label} has gone silent"))
+            if "CLIP" in alarms:
+                out.append(("clipping", f"{label} is clipping"))
+        return out
+
     def _health_tick(self) -> None:
         now = time.monotonic()
+        try:
+            self.watch.tick(now)
+        except Exception:
+            log.exception("NDI source watch failed")
         for key in [k for k, v in self._open.items() if v["expires"] < now]:
             self.analysis_close(key)
         seen = {s["name"]: s["health"] for s in self.sources()}
@@ -492,6 +625,7 @@ class Service:
             found = await asyncio.to_thread(discovery.scan, 2.5, s["extra_ips"]) if s["mdns"] else []
             found = discovery.visible(found, s["groups"])
             self.servers = await asyncio.to_thread(check_servers, s["servers"])
+            self.bridge_status = await asyncio.to_thread(bridge.check, s["bridge"])
             reported = await asyncio.to_thread(self._find_via_sdk) if (s["servers"] or not s["mdns"]) else []
         finally:
             self.scanning = False
@@ -527,7 +661,7 @@ class Service:
             names.add(f["name"])
             old = self._seen.get(f["name"], {})
             self._seen[f["name"]] = {**f, "missed": 0, "width": old.get("width", 0), "height": old.get("height", 0),
-                                     "fps": old.get("fps", 0)}
+                                     "fps": old.get("fps", 0), "audio_only": bool(old.get("audio_only"))}
         for n, rec in list(self._seen.items()):
             if n not in names:
                 rec["missed"] += 1
@@ -547,14 +681,26 @@ class Service:
                    "gear_name": outputs.ndi_name(r["name"])} for r in self.settings()["router_outputs"]]
         return {"channels": [{"items": found}]}
 
+    def schedule_users(self, ref: str) -> list[dict]:
+        """Where this module picks the named schedule `ref`, for the Schedules page's "used by"."""
+        w = self.settings()["watch"]
+        from ... import schedules
+
+        same = w["schedule"] and (schedules.ref_id(w["schedule"]) or w["schedule"]) == (schedules.ref_id(ref) or ref)
+        return [{"where": "NDI", "what": "Watching the sources the booth relies on"}] if same else []
+
     # ----------------------------------------------------------------------------------------------- reads
     def sources(self) -> list[dict]:
         users = self.pool.counts()
+        machines = self.settings()["bridge"]
         out = []
         for rec in self._seen.values():
             r = {k: v for k, v in rec.items() if k != "missed"}
             r["online"] = rec["missed"] < GONE_AFTER
             r["listeners"] = users.get(rec["name"], 0)
+            r["via_bridge"] = bridge.via(rec.get("address", ""), machines)
+            got = self._levels.get(rec["name"])
+            r["audio_channels"] = len(got[0]) if got and time.monotonic() - got[1] < AUDIO_FRESH_S else 0
             r["health"], r["health_why"] = self.analysis.health(rec["name"])
             out.append(r)
         return sorted(out, key=lambda r: (r["machine"].lower(), r["source"].lower()))
@@ -575,7 +721,10 @@ class Service:
                 "sources": self.sources(), "settings": self.settings(), "outputs": sorted(self.outputs),
                 "servers": self.servers, "via_server": self.via_server,
                 "pages": self.pages.status(), "tests": self.tests.status(), "pages_error": render.available(), "router": self.router.snapshot(),
-                "inputs": self.inputs(), "restart_needed": runtime.restart_needed(self.settings())}
+                "inputs": self.inputs(), "watch": self.watch.snapshot(), "schedules": _named_schedules(),
+                "bridge": [{**m, **self.bridge_status.get(m["id"], {}), "start": bridge.start_text(m)}
+                           for m in self.settings()["bridge"]],
+                "restart_needed": runtime.restart_needed(self.settings())}
 
     # ------------------------------------------------------------------------------------------------ hooks
     def hook_sources(self) -> list[dict]:
@@ -583,6 +732,11 @@ class Service:
 
     def hook_subscribe(self, source: str, on_frame: Callable[[dict], None]) -> Callable[[], None] | None:
         return self.pool.acquire(source, on_frame) if self.running else None
+
+    def hook_listen(self, source: str, on_audio: Callable[[dict], None]) -> Lease | None:
+        """Hold the source's low-bandwidth receiver and pass each chunk of its sound to `on_audio` (a browser listening,
+        the lane bus)."""
+        return self.pool.acquire(source, lambda f: None, low=True, audio_cb=on_audio) if self.running else None
 
     def hook_output(self, name: str, width: int = 1280, height: int = 720, fps: float = 30.0, audio: bool = False) -> Any:
         backend = runtime.load()

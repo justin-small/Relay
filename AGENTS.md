@@ -58,6 +58,8 @@ Running only the tests for your area is not enough. Before each push:
 ```
 
 It runs the files several at a time and ends with a line per failing file; exit 0 means it is safe to push.
+It also runs `cargo clippy --locked --all-targets -- -D warnings` on `native/relay-bus` and `native/relay-ndi`, because CI
+fails on any warning and the Rust tests alone do not lint; run the same command in a crate while you work on it.
 It first builds the Rust audio bus core (`tools/build_bus_wheel.py --if-stale`, the `relay_bus` wheel the app imports),
 so Rust must be installed (rustup; on Linux also `libasound2-dev`).
 `-k <part of a name>` narrows it while you work. CI also runs `node --test tests/js/*.test.mjs`, `cargo test` in

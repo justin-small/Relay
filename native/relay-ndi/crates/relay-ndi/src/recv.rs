@@ -25,6 +25,11 @@ pub struct Video {
     pub fourcc: &'static str,
     /// Tightly packed rows, no stride padding.
     pub data: Vec<u8>,
+    /// What the sender labelled the frame with, and when its SDK took it, in 100 ns units (issue 561).
+    pub timecode: i64,
+    pub timestamp: i64,
+    /// The XML the sender attached to this frame, when it attached any.
+    pub metadata: String,
 }
 
 pub struct Audio {
@@ -35,6 +40,10 @@ pub struct Audio {
     pub data: Vec<f32>,
     /// The loudest sample of the chunk in dBFS, -120 for silence.
     pub peak_db: f64,
+    /// Each channel's `(peak, rms)` over this chunk in dBFS, -120 for silence.
+    pub levels: Vec<(f64, f64)>,
+    pub timecode: i64,
+    pub timestamp: i64,
 }
 
 pub enum Event {
@@ -255,7 +264,26 @@ fn copy_video(v: &VideoFrame) -> Option<Video> {
         d
     };
     let fps = if v.frame_rate_d > 0 { v.frame_rate_n as f64 / v.frame_rate_d as f64 } else { 0.0 };
-    Some(Video { width: w as u32, height: h as u32, fps, fourcc: name, data })
+    // SAFETY: the library gave a NUL-terminated string, or null, valid until the frame is freed.
+    let metadata = unsafe { ffi::text(v.metadata) };
+    Some(Video { width: w as u32, height: h as u32, fps, fourcc: name, data, timecode: v.timecode, timestamp: v.timestamp, metadata })
+}
+
+/// The loudest sample of the chunk, and each channel's `(peak, rms)` in dBFS, from planar samples.
+pub fn channel_levels(planar: &[f32], ch: usize, n: usize) -> (f32, Vec<(f64, f64)>) {
+    let mut all = 0f32;
+    let mut out = Vec::with_capacity(ch);
+    for c in 0..ch {
+        let row = &planar[c * n..(c + 1) * n];
+        let (mut peak, mut sum) = (0f32, 0f64);
+        for &s in row {
+            peak = peak.max(s.abs());
+            sum += (s as f64) * (s as f64);
+        }
+        all = all.max(peak);
+        out.push((db(peak), db(((sum / n.max(1) as f64).sqrt()) as f32)));
+    }
+    (all, out)
 }
 
 fn copy_audio(a: &AudioFrame) -> Option<Audio> {
@@ -268,21 +296,28 @@ fn copy_audio(a: &AudioFrame) -> Option<Audio> {
         return None;
     }
     let mut data = Vec::with_capacity(ch * n);
-    let mut peak = 0f32;
     for c in 0..ch {
         // SAFETY: planar float audio: channel `c` starts `c * stride` bytes in and holds `n` aligned f32 samples.
         let row = unsafe { std::slice::from_raw_parts(a.data.add(c * stride) as *const f32, n) };
-        for &s in row {
-            peak = peak.max(s.abs());
-        }
         data.extend_from_slice(row);
     }
-    Some(Audio { rate: a.sample_rate as u32, channels: ch, samples: n, data, peak_db: db(peak) })
+    let (peak, levels) = channel_levels(&data, ch, n);
+    Some(Audio { rate: a.sample_rate as u32, channels: ch, samples: n, data, peak_db: db(peak), levels, timecode: a.timecode, timestamp: a.timestamp })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn each_channel_has_its_own_peak_and_rms() {
+        let mut planar = vec![0.0f32; 8];
+        planar[..4].copy_from_slice(&[0.5, -0.5, 0.5, -0.5]); // channel 0: a square wave at -6 dBFS
+        let (all, lv) = channel_levels(&planar, 2, 4);
+        assert_eq!(all, 0.5);
+        assert_eq!(lv[0], (-6.0, -6.0));
+        assert_eq!(lv[1], (LEVEL_FLOOR, LEVEL_FLOOR));
+    }
 
     #[test]
     fn peak_in_db() {
@@ -301,7 +336,7 @@ mod tests {
             video_seen: AtomicU64::new(0),
         };
         for i in 0..VIDEO_QUEUE + 3 {
-            let v = Video { width: i as u32, height: 1, fps: 30.0, fourcc: "UYVY", data: vec![] };
+            let v = Video { width: i as u32, height: 1, fps: 30.0, fourcc: "UYVY", data: vec![], timecode: 0, timestamp: 0, metadata: String::new() };
             push(&shared, Event::Video(v, Instant::now()));
         }
         assert_eq!(shared.overflow.load(Relaxed), 3);

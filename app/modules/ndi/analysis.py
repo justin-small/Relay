@@ -13,14 +13,18 @@ follows the CloudCast Scope manual (cloudcastsystemsau.github.io/cloudcast-scope
 * **Recording** (`Recording`): per-frame timing to a CSV for a set time.
 
 The data rate is the decoded picture's size, because the SDK does not report the bytes that crossed the network.
-Not covered: SCTE-104 (needs the VANC ancillary data the SDK does not hand over) and audio/video sync (needs the
-frames' timestamps, which the receiver does not pass on yet).
+* **Sync** (`relay_ndi.SyncMeter`, #561): how far the audio runs from the picture, from each frame's NDI timestamp and
+  timecode (see `health.rs`). Amber beyond 20 ms and red beyond 40 ms. It reads nothing for a sender that lets the SDK make
+  its timecodes up.
+* **Ad cues** (`relay_ndi.scte_cues`, #560): SCTE-104 splice cues, read from the `<vancData>` XML NDI carries in a video
+  frame's metadata (NDI's proposed metadata messages), newest first, with warnings for a pre-roll over 60 s or a break over
+  an hour.
+Timing, the health verdict, the sync reading and the cue decoding are computed in Rust.
 """
 from __future__ import annotations
 
 import collections
 import csv
-import math
 import re
 import threading
 import time
@@ -34,102 +38,45 @@ except ImportError:            # pragma: no cover
     np = None
     _native = None
 
-LATE_FACTOR = 2.0          # an interval this many frame times long is a late frame
-LONG_GAP_S = 0.150         # a gap longer than this is flagged whatever the frame rate
-QUIET_S = 2.0              # no frame for this long: quiet (a still picture), or stalled
-HEALTH_WINDOW_S = 10.0
-KEEP = 600                 # frame arrivals kept
 MAX_SCOPE_SAMPLES = 200_000
+MAX_CUES = 100             # SCTE-104 cues kept per source
 BLACK_PEAK, FROZEN_DIFF, GAMUT_FRACTION, GAMUT_MIN = 20, 0.05, 0.001, 64
 
 
 # ------------------------------------------------------------------------------------------------- timing
 class Timing:
-    """Frame arrivals for one source. `record` runs on the receiver's thread, `stats` on any."""
+    """Frame arrivals for one source. `record` runs on the receiver's thread, `stats` on any. The numbers are Rust's
+    (`relay_ndi.Timing`, #561); this keeps the size the sender declared."""
 
     def __init__(self) -> None:
-        self._lock = threading.Lock()
-        self._t: collections.deque = collections.deque(maxlen=KEEP)     # (arrival, decoded bytes)
-        self.frames = self.late = self.long_gaps = 0
-        self.bytes = 0
+        self._t = _native.Timing() if _native is not None else None
         self.fps = 0.0                                                   # as the sender declares it
         self.size = (0, 0)
-        self.started = time.monotonic()
-        self._events: collections.deque = collections.deque(maxlen=200)  # (arrival, "late" | "gap")
 
     def record(self, now: float, nbytes: int, fps: float = 0.0, size: tuple[int, int] = (0, 0)) -> str:
         """Note a frame; returns "" , "late" or "gap" for what this arrival was."""
-        with self._lock:
-            flag = ""
-            if self._t:
-                dt = now - self._t[-1][0]
-                frame = 1.0 / self.fps if self.fps > 0 else 0.0
-                if dt > LONG_GAP_S and dt > (frame or 0.0) * LATE_FACTOR:
-                    flag = "gap"
-                    self.long_gaps += 1
-                elif frame and dt > frame * LATE_FACTOR:
-                    flag = "late"
-                if flag:
-                    self.late += 1
-                    self._events.append((now, flag))
-            self._t.append((now, nbytes))
-            self.frames += 1
-            self.bytes += nbytes
-            if fps:
-                self.fps = fps
-            if size[0]:
-                self.size = size
-            return flag
+        if fps:
+            self.fps = fps
+        if size[0]:
+            self.size = size
+        return self._t.record(now, nbytes, fps) if self._t is not None else ""
 
     def stats(self, now: float | None = None) -> dict:
         now = time.monotonic() if now is None else now
-        with self._lock:
-            ts = list(self._t)
-            events = [e for e in self._events if now - e[0] <= HEALTH_WINDOW_S]
-            fps, frames, late, gaps = self.fps, self.frames, self.late, self.long_gaps
-        out: dict[str, Any] = {"frames": frames, "late": late, "long_gaps": gaps, "declared_fps": fps,
-                               "recent_late": len(events), "since_last_s": round(now - ts[-1][0], 2) if ts else None}
-        if len(ts) < 3:
-            out.update(interval_ms=None, measured_fps=0.0, jitter_ms=None, rate_mbps=0.0, frame_bytes=None)
-            return out
-        iv = [(b[0] - a[0]) * 1000.0 for a, b in zip(ts, ts[1:])]
-        recent = iv[-300:]
-        avg = sum(recent) / len(recent)
-        sd = math.sqrt(sum((x - avg) ** 2 for x in recent) / len(recent))
-        nominal = 1000.0 / fps if fps else avg
-        jit = [abs(x - nominal) for x in recent]
-        sizes = [b for _, b in ts]
-        span = ts[-1][0] - ts[0][0]
-        out.update(
-            interval_ms={"min": round(min(recent), 2), "avg": round(avg, 2), "max": round(max(recent), 2), "sd": round(sd, 2)},
-            measured_fps=round(1000.0 / avg, 3) if avg else 0.0,
-            jitter_ms={"mean": round(sum(jit) / len(jit), 2), "peak": round(max(jit), 2)},
-            rate_mbps=round(sum(sizes[1:]) * 8 / span / 1e6, 2) if span > 0 else 0.0,
-            frame_bytes={"min": min(sizes), "avg": round(sum(sizes) / len(sizes)), "max": max(sizes)})
-        return out
+        return self._t.stats(float(now)) if self._t is not None else {"frames": 0}
+
+    frames = property(lambda self: self.stats()["frames"])
+    late = property(lambda self: self.stats()["late"])
+    long_gaps = property(lambda self: self.stats()["long_gaps"])
 
 
 def health(t: dict, dropped: int = 0) -> tuple[str, str]:
     """("ok" | "warn" | "bad" | "quiet" | "unknown", why) from Timing.stats and the SDK's dropped-frame count. The
     thresholds are the manual's: frame rate off nominal by 0.2% is amber and 1% red; jitter above a quarter of a frame is
-    amber and above half a frame is red."""
-    if not t or not t.get("frames"):
+    amber and above half a frame is red. Decided in Rust."""
+    if not t or not t.get("frames") or _native is None:
         return "unknown", "Not being received"
-    since = t.get("since_last_s")
-    if since is not None and since > QUIET_S:
-        return "quiet", "No frames for %.0f s: a still picture sends none, so this is not always a fault" % since
-    iv = t.get("interval_ms")
-    if iv is None:
-        return "unknown", "Measuring"
-    nominal = 1000.0 / t["declared_fps"] if t.get("declared_fps") else iv["avg"]
-    off = abs(t["measured_fps"] - t["declared_fps"]) / t["declared_fps"] if t.get("declared_fps") else 0.0
-    jit = t["jitter_ms"]
-    if t["recent_late"] >= 3 or off > 0.01 or jit["mean"] > nominal / 2 or dropped:
-        return "bad", ("%d late or long gaps in the last %d s" % (t["recent_late"], HEALTH_WINDOW_S)
-                       if t["recent_late"] >= 3 else "Dropping frames" if dropped else "Frame rate or timing is off")
-    if t["recent_late"] or off > 0.002 or jit["mean"] > nominal / 4:
-        return "warn", "Timing is a little uneven"
-    return "ok", "Steady"
+    return _native.health_of(t, int(dropped))
 
 
 # ------------------------------------------------------------------------------------------------- picture
@@ -274,6 +221,9 @@ class Track:
     def __init__(self) -> None:
         self.timing = Timing()
         self.meter = AudioMeter()
+        self.sync = _native.SyncMeter() if _native is not None else None     # audio against picture (#561)
+        self.cues: collections.deque = collections.deque(maxlen=MAX_CUES)    # SCTE-104 cues, newest last (#560)
+        self.cue_total = 0
         self.latest: dict | None = None        # newest video frame, kept only while `watch` is set
         self.watch = False
         self.prev_grid = None
@@ -310,6 +260,13 @@ class Analyzer:
         nbytes = len(frame.get("data") or b"")
         size = (int(frame.get("width") or 0), int(frame.get("height") or 0))
         flag = t.timing.record(now, nbytes, float(frame.get("fps") or 0.0), size)
+        if t.sync is not None and "timecode" in frame:
+            t.sync.video(int(frame["timecode"]), int(frame.get("timestamp") or 0))
+        meta = frame.get("frame_meta")
+        if meta and _native is not None and "vancPacket" in meta:
+            for cue in _native.scte_cues(meta):
+                t.cues.append({**cue, "at": time.time()})
+                t.cue_total += 1
         if t.watch:
             t.latest = frame
         rec = t.recording
@@ -318,6 +275,8 @@ class Analyzer:
 
     def on_audio(self, source: str, frame: dict) -> None:
         t = self.tracks.get(source)
+        if t is not None and t.sync is not None and "timecode" in frame:
+            t.sync.audio(int(frame["timecode"]), int(frame.get("timestamp") or 0))
         if t is not None and t.watch and frame.get("audio") is not None:
             t.meter.feed(frame["audio"], int(frame.get("rate") or 0))
 
@@ -334,6 +293,13 @@ class Analyzer:
         if not on:
             t.latest = None
             t.prev_grid = None
+
+    def audio_alarms(self, source: str) -> set[str]:
+        """The names of the audio alarms lit now for the source ("SILENCE", "CLIP", "PHASE"); none when it has no
+        audio meter running."""
+        t = self.tracks.get(source)
+        snap = t.meter.snapshot() if t is not None else None
+        return {a[0] for a in (snap or {}).get("alarms", [])}
 
     def health(self, source: str) -> tuple[str, str]:
         t = self.tracks.get(source)
@@ -352,7 +318,8 @@ class Analyzer:
             "source": source, "live": True, "health": hs, "why": why,
             "info": {"type": source_type(rec), "host": rec.get("address", ""), "port": rec.get("port", 0),
                      "groups": rec.get("groups", []), "format": _format(t, rec), **t.meta},
-            "timing": st, "dropped": t.dropped, "audio": t.meter.snapshot(),
+            "timing": st, "dropped": t.dropped, "audio": t.meter.snapshot(), "sync": t.sync.snapshot() if t.sync else None,
+            "scte": {"total": t.cue_total, "cues": list(t.cues)[::-1][:50]},
             "recording": t.recording.status() if t.recording else None}
         frame = t.latest
         if want_scopes and frame is not None:

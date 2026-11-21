@@ -142,7 +142,9 @@ with section("settings"):
                                                 "interval": 1}), {"servers": [], "mdns": True, "extra_ips": ["10.0.0.1"], "groups": ["A"], "interval": 5,
                                                                    "view_fps": 15, "view_quality": 60, "view_width": 1280,
                                                                    "view_max": 4, "tally": {}, "multiviews": [], "out_on": [],
-                                                                   "out_size": "1280x720", "out_fps": 30, "tests": [], "tests_on": [], "router_outputs": [], "routes": [], "salvos": []})
+                                                                   "out_size": "1280x720", "out_fps": 30, "tests": [], "tests_on": [], "router_outputs": [],
+                                                                   "watch": {"on": False, "auto": True, "sources": [], "hold": 10, "schedule": "", "sound": True}, "bridge": [],
+                                                                   "routes": [], "salvos": []})
     check("defaults", svc.clean_settings(None)["interval"] == 15)
 
 with section("without the runtime"):

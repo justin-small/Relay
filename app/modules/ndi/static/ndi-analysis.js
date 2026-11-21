@@ -80,6 +80,14 @@
       box.appendChild(el('span', 'badge ' + (a[1] === 'bad' ? 'err' : 'warn'), a[0]));
     });
     if (s.dropped) box.appendChild(el('span', 'badge err', 'DROPS ' + s.dropped));
+    const y = s.sync;
+    if (y && y.valid && !y.synthesized && (y.state === 'warn' || y.state === 'bad'))
+      box.appendChild(el('span', 'badge ' + (y.state === 'bad' ? 'err' : 'warn'), 'A/V SYNC ' + (y.offset_ms > 0 ? '+' : '') + y.offset_ms + ' ms'));
+  }
+  function syncRow(y) {
+    if (!y || !y.valid) return ['A/V sync', 'Measuring'];
+    if (y.synthesized) return ['A/V sync', 'Not told by this sender'];
+    return ['A/V sync', (y.offset_ms > 0 ? '+' : '') + y.offset_ms + ' ms ' + (y.offset_ms > 0 ? '(audio ahead)' : y.offset_ms < 0 ? '(audio behind)' : ''), y.state === 'bad' ? 'bad' : y.state === 'warn' ? 'warn' : ''];
   }
   function drawInfo(s) {
     const i = s.info || {}, f = i.format || {};
@@ -88,7 +96,7 @@
       ['Type', i.type + (s.low ? ' (low bandwidth)' : '')],
       ['Host', i.host ? i.host + (i.port ? ':' + i.port : '') : '—'], ['Group', (i.groups || []).join(', ') || '—'],
       ['Picture', f.width ? f.width + ' x ' + f.height + ', ' + fmt(f.fps, ' fps') : '—'],
-      ['Sound', f.audio_rate ? f.audio_rate / 1000 + ' kHz, ' + f.audio_channels + ' ch' : 'none yet'],
+      ['Sound', f.audio_rate ? f.audio_rate / 1000 + ' kHz, ' + f.audio_channels + ' ch' : 'none yet'], syncRow(s.sync),
       ['Sender', [i.name, i.model, i.version].filter(Boolean).join(' · ') || '—'], ['Capabilities', caps || '—']]);
   }
   function drawTiming(s) {
@@ -184,6 +192,24 @@
       ['Aspect', r.aspect], ['Colour matrix', r.matrix + ' (guessed from the size)']]);
   }
 
+  // ---- ad cues (SCTE-104)
+  function drawCues(s) {
+    const c = s.scte || { total: 0, cues: [] }, body = $('ndiAnCues').querySelector('tbody');
+    $('ndiAnCueCount').textContent = String(c.total); $('ndiAnCueCount').className = 'badge ' + (c.cues.some(function (x) { return x.warnings.length; }) ? 'warn' : 'muted');
+    $('ndiAnNoCues').hidden = c.cues.length > 0; $('ndiAnCues').hidden = !c.cues.length;
+    body.textContent = '';
+    c.cues.forEach(function (x) {
+      const tr = el('tr'), what = (x.action === 'cancel' ? 'Cancel' : x.action === 'start' ? 'Splice start' : 'Splice end') + (x.action !== 'cancel' ? (x.immediate ? ' (immediate)' : ' (normal)') : '');
+      tr.appendChild(el('td', '', what));
+      tr.appendChild(el('td', '', String(x.event_id)));
+      tr.appendChild(el('td', x.warnings.indexOf('pre-roll over 60 s') >= 0 ? 'warn' : '', x.pre_roll_ms + ' ms'));
+      tr.appendChild(el('td', x.warnings.indexOf('break over an hour') >= 0 ? 'warn' : '', x.action === 'start' && x.break_tenths ? (x.break_tenths / 10).toFixed(1) + ' s' + (x.auto_return ? ', returns by itself' : '') : '—'));
+      tr.appendChild(el('td', 'muted', x.time_type === 'none' ? 'None' : x.time_type.toUpperCase() + ' ' + x.time));
+      tr.appendChild(el('td', 'muted', String(x.line)));
+      body.appendChild(tr);
+    });
+  }
+
   // ---- sound
   function barPct(db) { return Math.max(0, Math.min(100, (db + 60) / 60 * 100)); }      // 0 to -60 dBFS
   function drawSound(s) {
@@ -232,7 +258,7 @@
 
   function draw(s) {
     if (!s || !s.live) { showErr('That source is not being received.'); return; }
-    last = s; drawHealth(s); drawInfo(s); drawTiming(s); drawPicture(s); drawSound(s);
+    last = s; drawHealth(s); drawInfo(s); drawTiming(s); drawPicture(s); drawCues(s); drawSound(s);
   }
 
   // the NDI page hands its source list over (see ndi.js) and tells us when to look
