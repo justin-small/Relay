@@ -28,6 +28,7 @@ allow = [
   "BSL-1.0",
   "CC0-1.0",
   "CDLA-Permissive-2.0",
+  "IJG",   # jpeg-encoder: BSD-like, ships if the documentation credits the Independent JPEG Group (THIRD-PARTY-NOTICES.md)
   "ISC",
   "MIT",
   "MIT-0",
