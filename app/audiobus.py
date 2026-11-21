@@ -136,6 +136,65 @@ def normalize(raw) -> dict:
     return {"lanes": lanes, "outputs": outputs, "matrix": matrix}
 
 
+def migrate_legacy_input(cfg: dict) -> None:
+    """An install from before the capture read a lane keeps its input (#599): its `audio_source`, `audio_device` and
+    `input_channel` become a lane on the bus, and `audio_lane` points at it. A config with none of those keys is a fresh
+    install, left alone: the operator picks the first input at setup. Run before the old keys are dropped."""
+    if not any(k in cfg for k in ("audio_source", "audio_device", "input_channel")):
+        return
+    source = str(cfg.get("audio_source") or audio.PORTAUDIO).strip().lower() or audio.PORTAUDIO
+    bus_cfg = cfg.get("audio_bus") if isinstance(cfg.get("audio_bus"), dict) else {}
+    lanes = [dict(x) for x in bus_cfg.get("lanes") or [] if isinstance(x, dict)]
+    if source == LANE_SOURCE:                    # the capture already read a lane: only the lane number moves
+        cfg["audio_lane"] = _int(str(cfg.get("audio_device") or "").lower().replace("lane", "").strip(), 1, LANES, 1)
+    else:
+        taken = {x.get("lane") for x in lanes}
+        want = _int(cfg.get("audio_lane"), 1, LANES, 1)
+        n = want if want not in taken else next((k for k in range(1, LANES + 1) if k not in taken), 0)
+        if n:
+            ch = cfg.get("input_channel", 0)
+            lanes.append({"lane": n, "name": "Main input", "source": source, "device": cfg.get("audio_device"),
+                          "channel": "mix" if isinstance(ch, str) and ch.strip().lower() == "mix" else ch})
+            cfg["audio_lane"] = n
+    cfg["audio_bus"] = {**bus_cfg, "lanes": lanes}
+
+
+def needs_setup(cfg: dict) -> dict:
+    """What first setup still has to ask for: {"input": no lane yet, "output": no output yet}."""
+    return {"input": not cfg.get("lanes"), "output": not cfg.get("outputs")}
+
+
+FIRST_PATCHED = ("alerts", "test")      # destinations first setup patches into every channel of the first output
+
+
+def first_setup(current: dict, input_device, output_device, out_channels: int = 2) -> tuple[dict, bool]:
+    """Add what the operator picked at first setup to the bus setting `current`: `input_device` (None = the system
+    default input) becomes lane 1 when there is no lane, `output_device` (None = the system default output) becomes
+    output "main" when there is no output. A device of False leaves that part alone. Returns (setting, made_output); a
+    part already set up is kept."""
+    cfg = normalize(current)
+    if not cfg["lanes"] and input_device is not False:
+        cfg["lanes"] = [{"lane": 1, "name": "Main input", "source": audio.PORTAUDIO,
+                         "device": input_device or None, "channel": "mix"}]
+    made = not cfg["outputs"] and output_device is not False
+    if made:
+        cfg["outputs"] = [{"id": "main", "name": "Main output", "output": audio.PORTAUDIO, "device": output_device or None,
+                           "channels": max(1, min(LANES, int(out_channels))), "latency_ms": DEFAULT_LATENCY_MS}]
+    return normalize(cfg), made
+
+
+def patch_first_output(cfg: dict) -> None:
+    """Route the alert tones and the test tone into every channel of the output first setup made, so a stereo speaker
+    plays them with nothing else set up. The output is new, so no channel of it has a route to keep."""
+    out = cfg["outputs"][0]
+    refs = report_channels(cfg) or {}
+    sources = [channels.ensure(PROVIDER, DEST_PREFIX + key, "audio", "source", CORE_DESTINATIONS[key]) for key in FIRST_PATCHED]
+    for ch in range(1, out["channels"] + 1):
+        ref = refs.get(f"out:{out['id']}:{ch}")
+        if ref:
+            routing.replace(ref, [(src, 0.0) for src in sources if src], apply=False)
+
+
 PROVIDER = "audiobus"
 
 # -- named destinations (#599) -------------------------------------------------------------------------------------------
@@ -882,7 +941,7 @@ class LaneSource(audio.AudioSource):
         except (TypeError, ValueError):
             raise audio.SourceError(f"Pick a lane from 1 to {LANES}.") from None
         if not self.bus.running:
-            raise audio.SourceError("The audio bus is not running. Switch it on and patch an input to this lane.")
+            raise audio.SourceError("The audio bus is not running yet.")
         self._lane, self._token = lane, lane.subscribe(deliver)
         return audio.SourceInfo(rate=RATE, device={"label": f"Lane {lane.index}" + (f": {lane.name}" if lane.name else ""),
                                                    "channels": 1}, channel=0)

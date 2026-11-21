@@ -189,6 +189,7 @@ def _normalise(cfg: dict) -> dict:
     cfg["default_font_px"] = max(16, min(160, int(cfg.get("default_font_px") or 40)))
     cfg["history_lines"] = max(1, min(500, int(cfg.get("history_lines") or 40)))
     from . import audiobus  # here, not at the top: it loads the sound library, which config must not need
+    audiobus.migrate_legacy_input(cfg)
     try:
         cfg["audio_lane"] = max(1, min(audiobus.LANES, int(cfg.get("audio_lane") or 1)))
     except (TypeError, ValueError):
