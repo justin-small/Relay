@@ -50,7 +50,7 @@ impl Ring {
             if c < channels && planar.len() >= (c + 1) * n {
                 q.extend(&planar[c * n..(c + 1) * n]);
             } else {
-                q.extend(std::iter::repeat(0.0).take(n));
+                q.extend(std::iter::repeat_n(0.0, n));
             }
         }
     }
@@ -61,7 +61,7 @@ impl Ring {
         let mut out = Vec::with_capacity(frames * self.ch.len());
         for q in &mut self.ch {
             out.extend(q.drain(..real));
-            out.extend(std::iter::repeat(0.0).take(frames - real));
+            out.extend(std::iter::repeat_n(0.0, frames - real));
         }
         (out, real)
     }
@@ -302,7 +302,7 @@ fn combine_loop(name: &str, vrx: Option<Receiver>, arx: Option<Receiver>, shared
                 if pic.fourcc != "UYVY" && pic.fourcc != "BGRA" {
                     continue;
                 }
-                let stale = sender.as_ref().map_or(true, |(_, w, h, f)| (*w, *h, *f) != (pic.width, pic.height, fourcc));
+                let stale = sender.as_ref().is_none_or(|(_, w, h, f)| (*w, *h, *f) != (pic.width, pic.height, fourcc));
                 if stale {
                     sender = None; // closes the old one first, so the name is free
                     match Sender::open(name, pic.width, pic.height, pic.fps, fourcc) {
