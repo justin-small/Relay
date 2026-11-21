@@ -1,6 +1,6 @@
 """Signal map (#262): a patch list the operator pastes (CH, NAME, PORT, SOCKET, UPSTREAM), joined with the live Dante
-routing, so each patched channel shows whether it is on the network, received and resolving. The first slice is the
-table; the node graph and show-file import come after. Works with Dante off (the list shows as pasted, with no live
+routing, so each patched channel shows whether it is on the network, received and resolving. Shown as a table and as a
+node graph (patch, Dante channel and the switch port UniFi reports, receiver); a desk's show-file patch can fill the list. Works with Dante off (the list shows as pasted, with no live
 column). It reads Dante only through `dante.routing`, never its code.
 """
 from __future__ import annotations
@@ -22,7 +22,7 @@ class SignalMap(Module):
         settings_key="signalmap",
         section="Sound",
         guide="https://github.com/justin-small/relay#signal-map",
-        uses=("dante",),
+        uses=("dante", "audio_mixers", "unifi"),
     )
     defaults: dict = {}
     admin_pages = (AdminPage(
@@ -30,6 +30,7 @@ class SignalMap(Module):
         icon='<circle cx="3" cy="4" r="1.5"/><circle cx="3" cy="12" r="1.5"/><circle cx="13" cy="8" r="1.5"/>'
              '<path d="M4.5 4h3l3 4M4.5 12h3l3-4"/>'),)
     admin_scripts = ("signalmap.js",)
+    admin_styles = ("signalmap.css",)
     route_prefixes = ("/api/admin/signalmap",)
     permissions = (
         Permission("signalmap.view", "See the patch list against the live Dante routing", "Signal map", "viewer"),

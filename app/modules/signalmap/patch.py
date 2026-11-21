@@ -62,7 +62,40 @@ def _candidates(devices: list[dict], name: str) -> list[tuple[str, dict]]:
     return out
 
 
-def join(rows: list[dict], devices: list[dict] | None) -> dict:
+def from_desk(desk: dict) -> str:
+    """The patch text for a desk whose show file Relay read (`patch.audio_mixers`): one tab-separated line per named
+    input channel, PORT the kind of source and its port, SOCKET its socket number, UPSTREAM the desk's own label."""
+    lines = ["CH\tName\tPort\tSocket\tUpstream"]
+    for r in desk.get("inputs") or []:
+        s = r.get("source") or {}
+        if not r.get("named") or not r.get("name"):
+            continue
+        port = " ".join(x for x in (s.get("kind", "").replace("_", " "), str(s["port"]) if s.get("port") else "") if x)
+        lines.append("\t".join(text.squeeze(str(x)) for x in (r.get("channel", ""), r["name"], port,
+                                                              s.get("socket") or "", s.get("label", ""))))
+    return "\n".join(lines) + "\n"
+
+
+def switch_ports(devices: list[dict], unifi: list[dict] | None) -> dict[str, dict]:
+    """Which switch port each Dante device is plugged into, by the device's Dante name, from UniFi's map list
+    (`gear.unifi`): {"switch", "port", "label", "speed"}. A device UniFi does not see wired is left out."""
+    if not unifi:
+        return {}
+    gear = {g["mac"]: g for g in unifi if g.get("kind") in ("switch", "gateway") or g.get("ports")}
+    by_ip = {g["ip"]: g for g in unifi if g.get("ip") and g.get("uplink_mac") and g.get("uplink_port") is not None}
+    out = {}
+    for d in devices:
+        c = next((by_ip[ip] for ip in d.get("ips") or [] if ip in by_ip), None)
+        sw = gear.get(c["uplink_mac"]) if c else None
+        if c and sw:
+            label = c.get("port_name") or next((p.get("name") for p in sw.get("ports") or []
+                                                if p.get("port") == c["uplink_port"]), "") or ""
+            out[d["name"]] = {"switch": sw["name"], "port": c["uplink_port"], "label": label, "speed": c.get("speed")}
+    return out
+
+
+def join(rows: list[dict], devices: list[dict] | None, net: dict[str, dict] | None = None,
+         local: frozenset[str] | set[str] = frozenset()) -> dict:
     """Each row with `live`: {"state", "source", "receivers", "why"} where state is one of
     `unknown` (Dante is off or not scanned yet), `missing` (no such transmit channel), `offline` (its device does not
     answer), `unsubscribed` (nobody receives it), `broken` (a receive channel names it but cannot find it) or `ok`.
@@ -79,7 +112,8 @@ def join(rows: list[dict], devices: list[dict] | None) -> dict:
         else:
             source, dev = found[0]
             used.update(s for s, _ in found)
-            recv = [{"device": d["name"], "channel": s["channel"], "status": s["status"]}
+            recv = [{"device": d["name"], "channel": s["channel"], "status": s["status"],
+                     "relay": bool(local.intersection(d.get("ips") or []))}
                     for d in devices for s in d.get("subscriptions") or []
                     if s["status"] != "none" and text.same_name(s["source"], source)]
             if dev.get("reachable") is False:
@@ -90,7 +124,8 @@ def join(rows: list[dict], devices: list[dict] | None) -> dict:
                 state, why = "unsubscribed", "No receive channel listens to it."
             else:
                 state, why = "ok", ""
-            live = {"state": state, "source": source, "receivers": recv, "why": why
+            live = {"state": state, "source": source, "device": dev["name"], "via": (net or {}).get(dev["name"]),
+                    "receivers": recv, "why": why
                     + (" Another channel has the same name." if len(found) > 1 else "")}
         out.append(dict(r, live=live))
     counts: dict[str, int] = {}

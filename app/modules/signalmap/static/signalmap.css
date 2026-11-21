@@ -1,0 +1,19 @@
+/* The Signal map page (#262): the node graph. Controls come from components.css, values from tokens.css. */
+#page-signalmap [hidden] { display:none !important; }
+.smgraph { display:flex; flex-direction:column; gap:var(--sp-3); }
+.smline { display:flex; align-items:center; gap:0; flex-wrap:wrap; }
+.smcol { display:flex; flex-direction:column; gap:var(--sp-2); }
+.smrow { display:flex; align-items:center; }
+.smnode { border:1px solid var(--border); border-radius:var(--r-sm); background:var(--card); padding:var(--sp-2) var(--sp-3); min-width:9rem; display:flex; flex-direction:column; }
+.smnode small { color:var(--muted); font-size:var(--fs-sm); overflow-wrap:anywhere; }
+.smnode.ok { border-color:color-mix(in srgb,var(--ok) 50%,var(--border)); }
+.smnode.warn { border-color:color-mix(in srgb,var(--warn) 50%,var(--border)); }
+.smnode.err { border-color:color-mix(in srgb,var(--err) 50%,var(--border)); }
+.smnode.smrelay { border-width:2px; }
+.smedge { display:flex; flex-direction:column; align-items:center; justify-content:center; min-width:4rem; padding:0 var(--sp-1); }
+.smedge::before { content:""; display:block; width:100%; border-top:2px solid var(--muted); }
+.smedge.ok::before { border-color:var(--ok); }
+.smedge.warn::before { border-top-style:dashed; border-color:var(--warn); }
+.smedge.err::before { border-top-style:dashed; border-color:var(--err); }
+.smedge small { order:-1; color:var(--muted); font-size:var(--fs-xs); text-align:center; }
+.smedge.err small { color:var(--err); }
