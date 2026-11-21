@@ -224,7 +224,7 @@ def feed(device, channels, seconds, rate, freqs, amp=0.5, step=0.01, realtime=Tr
 
 
 def reset_bus():
-    audiobus.bus.apply({"enabled": False})
+    audiobus.bus.apply({})                               # an empty bus: everything closes
     SRC.opens.clear()
     SRC.fail = None
     OUT.sinks.clear()
@@ -238,7 +238,7 @@ def peak(x):
 # -- configuration -----------------------------------------------------------------------------------------------------
 with section("the saved setting is cleaned, never refused"):
     cfg = audiobus.normalize({
-        "enabled": 1,
+        "enabled": 1,                                                      # the old switch: ignored now
         "lanes": [{"lane": 1, "source": "Fake", "device": "A", "channel": 3},
                   {"lane": 1, "source": "fake", "device": "B"},             # duplicate lane
                   {"lane": 33, "source": "fake"}, {"lane": 0}, "junk",     # out of range, not a dict
@@ -250,7 +250,7 @@ with section("the saved setting is cleaned, never refused"):
                    {"in": 2, "out": "nowhere", "ch": 1}, {"in": 2, "out": "main_out", "ch": 99},
                    {"in": 3, "out": "main_out", "ch": 2, "gain_db": "loud"},
                    {"in": 4, "out": "main_out", "ch": 3, "gain_db": 500}]})
-    eq("enabled is a bool", cfg["enabled"], True)
+    eq("the old on/off switch is gone", "enabled" in cfg, False)
     eq("lane 1 kept once, lane 32 kept, others dropped", [x["lane"] for x in cfg["lanes"]], [1, 32])
     eq("source ids are lowercased", cfg["lanes"][0]["source"], "fake")
     eq("mix is normalised", cfg["lanes"][1]["channel"], "mix")
@@ -261,7 +261,7 @@ with section("the saved setting is cleaned, never refused"):
     eq("only valid, unique crosspoints stay", [(m["in"], m["ch"]) for m in cfg["matrix"]], [(1, 1), (3, 2), (4, 3)])
     eq("a gain that is not a number is 0 dB, and gains are clamped",
        [m["gain_db"] for m in cfg["matrix"]], [-6.0, 0.0, audiobus.GAIN_MAX_DB])
-    eq("empty config is off", audiobus.normalize(None)["enabled"], False)
+    eq("an empty config is an empty bus", audiobus.normalize(None), {"lanes": [], "outputs": [], "matrix": []})
 
 
 # -- inputs from several devices -----------------------------------------------------------------------------------------
@@ -371,15 +371,15 @@ with section("changing one input or output does not disturb another"):
     check("output o2 (changed) was reopened", not sinks[1].up and len(OUT.sinks) == 3 and OUT.sinks[2].channels == 4)
     audiobus.bus.apply({**changed, "lanes": [changed["lanes"][1]]})
     check("a device no lane uses is closed", first["A"].closed and not first["B"].closed)
-    audiobus.bus.apply({"enabled": False})
-    check("switching the bus off closes everything", not SRC.live and all(not s.up for s in OUT.sinks))
-    eq("and it reports not running", audiobus.bus.status()["running"], False)
+    audiobus.bus.apply({})
+    check("an empty bus closes everything", not SRC.live and all(not s.up for s in OUT.sinks))
+    eq("and the bus keeps running, with nothing patched", audiobus.bus.status()["running"], True)
 
 
-with section("off by default: nothing opens"):
+with section("nothing patched: nothing opens"):
     reset_bus()
-    audiobus.bus.apply({"lanes": [{"lane": 1, "source": "fake", "device": "A"}]})
-    eq("a disabled bus opens no device", (SRC.opens, OUT.sinks), ([], []))
+    eq("an empty bus opens no device", (SRC.opens, OUT.sinks), ([], []))
+    eq("and every lane is unpatched", {x["state"] for x in audiobus.bus.status()["lanes"]}, {"unpatched"})
 
 
 # -- the matrix -------------------------------------------------------------------------------------------------------------
@@ -513,6 +513,7 @@ with section("the main capture can take a lane as its source"):
     reset_bus()
     src = audio.get_source("lane")
     check("core registers the lane source", src is not None)
+    audiobus.bus.stop()
     try:
         src.open("1", 0, lambda b: None)
         check("a stopped bus refuses with a sentence", False)

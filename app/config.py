@@ -49,7 +49,7 @@ DEFAULTS: dict[str, Any] = {
     "input_channel": 0,
     # The 32-lane audio bus (app/audiobus.py): inputs patched to lanes, a crosspoint matrix, outputs. Off until
     # switched on; the main capture above does not depend on it.
-    "audio_bus": {"enabled": False, "lanes": [], "outputs": [], "matrix": []},
+    "audio_bus": {"lanes": [], "outputs": [], "matrix": []},
     "mixreport": {"enabled": False, "left": 1, "right": 2, "silence_dbfs": -50.0, "target_lufs": -16.0,
                   "tolerance_lu": 2.0, "peak_limit_dbfs": -1.0, "rehearsal": False},
     "metering": {"enabled": False, "lane": 1, "kind": "room", "calibration_db": 110.0, "calibrated": False,

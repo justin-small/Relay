@@ -780,12 +780,11 @@ gating, reconnecting and the consumers stay in core's pump, so a source only del
 
 Beside the main capture, core has a bus of 32 mono **lanes** at 48 kHz (`app/audiobus.py`, #92). Any
 device of any registered source can be patched to any lane; a crosspoint **matrix** routes lanes to
-**outputs** of up to 32 channels. It is off until `audio_bus.enabled` is set, and the main capture does not
-depend on it. The operator's setting, saved in `audio_bus` and edited through `GET`/`POST /api/admin/audiobus`:
+**outputs** of up to 32 channels. It is always on (there is no switch): with nothing patched it opens nothing,
+and a device that is missing is a lane or output that waits and reconnects. The operator's setting, saved in `audio_bus` and edited through `GET`/`POST /api/admin/audiobus`:
 
 ```json
-{"enabled": true,
- "lanes":   [{"lane": 1, "name": "Pastor", "source": "portaudio", "device": "Core Audio: Scarlett", "channel": 0},
+{"lanes":   [{"lane": 1, "name": "Pastor", "source": "portaudio", "device": "Core Audio: Scarlett", "channel": 0},
              {"lane": 9, "source": "mixer_stream", "device": "ch 9", "channel": "mix"}],
  "outputs": [{"id": "monitor", "output": "portaudio", "device": "Core Audio: Speakers", "channels": 2, "latency_ms": 60}],
  "matrix":  [{"in": 1, "out": "monitor", "ch": 1, "gain_db": -6}]}

@@ -391,12 +391,11 @@ async def _startup() -> None:
     # written until a run starts, and only if recording is enabled.
     recorder.configure(config.recordings_path(), cfg["recording"]["keep_runs"])
     engine.bind(asyncio.get_running_loop())
-    if cfg["audio_bus"]["enabled"]:
-        # Opening devices can take a moment, and a device that is not there yet is retried by the bus itself.
-        try:
-            await asyncio.to_thread(audiobus.bus.apply, await asyncio.to_thread(audiobus.runtime_config, cfg["audio_bus"]))
-        except Exception:
-            log.exception("The audio bus could not start")
+    # The bus is always on. Opening devices can take a moment, and a device that is not there yet is retried by the bus itself.
+    try:
+        await asyncio.to_thread(audiobus.bus.apply, await asyncio.to_thread(audiobus.runtime_config, cfg["audio_bus"]))
+    except Exception:
+        log.exception("The audio bus could not start")
     if cfg["metering"]["enabled"]:
         try:
             await asyncio.to_thread(metering.meter.apply, cfg["metering"])
@@ -2412,7 +2411,7 @@ async def admin_audiobus_save(request: Request, payload: dict):
     cfg = {**saved, "matrix": await asyncio.to_thread(audiobus.matrix_from_routes)}
     await asyncio.to_thread(audiobus.bus.apply, cfg)
     audit.note(request, "audio.bus", "Changed the audio bus", detail={
-        "enabled": cfg["enabled"], "lanes": len(cfg["lanes"]), "outputs": len(cfg["outputs"]),
+        "lanes": len(cfg["lanes"]), "outputs": len(cfg["outputs"]),
         "crosspoints": len(cfg["matrix"])})
     return {"config": cfg, "status": audiobus.bus.status()}
 
