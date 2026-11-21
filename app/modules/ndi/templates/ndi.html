@@ -52,6 +52,26 @@
         <p class="note">Picture size and rate show while something in Relay is watching the source. Feeds marked Sent by
           Relay are Relay's own, set up under Going out.</p>
       </section>
+      <section id="ndiWatch">
+        <h3>Watch the sources you rely on</h3>
+        <p class="note">Relay can keep an eye on the sources the booth needs during a service, and flash the stage alert
+          button named “NDI” (make one on the Alerts page) when one goes offline, drops frames, goes silent or clips. A
+          problem has to last the hold time first, so a blip raises nothing. While it is watching, Relay holds a small
+          low-bandwidth stream of each source to measure it.</p>
+        <p class="note warn" id="ndiWatchNow" hidden></p>
+        <div class="field"><label class="check"><input type="checkbox" id="ndiWatchOn"> Watch during services</label></div>
+        <div class="field"><label class="check"><input type="checkbox" id="ndiWatchAuto"> Include every source that has a camera number or is in a multiview</label></div>
+        <div class="field"><label class="check"><input type="checkbox" id="ndiWatchSound"> Also warn when a source goes silent or clips</label></div>
+        <div class="row">
+          <div class="field"><label for="ndiWatchSched">Only during</label><select id="ndiWatchSched"></select>
+            <span class="hint">A schedule from the Schedules page, such as Sunday service. Always, if you choose none.</span></div>
+          <div class="field"><label for="ndiWatchHold">Hold time, seconds</label>
+            <input id="ndiWatchHold" type="number" min="3" max="300" step="1"><span class="hint">3 to 300.</span></div>
+        </div>
+        <div class="field"><label>Also watch these</label><div id="ndiWatchPick"></div></div>
+        <div class="ctl"><button type="button" class="primary" id="ndiWatchSave">Save</button>
+          <span class="muted" id="ndiWatchState"></span></div>
+      </section>
     </div>
 
     {# ---------------------------------------------------------------- Analysis (#300) #}
@@ -99,6 +119,14 @@
           <div class="ndiscopes"><canvas id="ndiAnCanvas" width="512" height="288" aria-label="Picture scope"></canvas>
             <div class="ndikv" id="ndiAnRead"></div></div>
           <p class="note" id="ndiAnPicNote"></p>
+        </section>
+        <section id="ndiAnScte">
+          <div class="ndihead"><h3>Ad cues <span class="badge muted" id="ndiAnCueCount">0</span></h3></div>
+          <p class="note" id="ndiAnNoCues">No SCTE-104 ad cues have arrived from this source. A sender has to attach them to its
+            pictures as NDI ancillary data.</p>
+          <div class="tablescroll"><table class="dt" id="ndiAnCues" hidden>
+            <thead><tr><th>Cue</th><th>Event</th><th>Pre-roll</th><th>Break</th><th>Time</th><th>Line</th></tr></thead>
+            <tbody></tbody></table></div>
         </section>
         <section id="ndiAnSound">
           <div class="ndihead"><h3>Sound</h3>
@@ -217,6 +245,18 @@
         <div class="note warn" id="ndiRestart" hidden>The NDI runtime reads these settings when Relay starts. Restart Relay
           to apply the change.</div>
         <div class="ctl"><button type="button" class="primary" id="ndiSave">Save</button></div>
+      </section>
+      <section id="ndiBridge">
+        <h3>Other sites (NDI Bridge)</h3>
+        <p class="note">NDI Bridge, NDI's own tool, carries NDI between buildings over one encrypted TCP port. Relay does
+          not run it: list the machines that do, and Relay checks that a Host answers (a forgotten port forward shows here
+          first), marks the sources that arrive from them “Via Bridge”, and writes the start-up text for each. The encryption
+          key is never stored here: type it into Bridge yourself. Bridge runs on Windows and Linux; NDI lists no Mac version.</p>
+        <div id="ndiBridgeList"></div>
+        <div class="ctl"><button type="button" id="ndiBridgeAdd">Add a machine</button>
+          <button type="button" class="primary" id="ndiBridgeSave">Save</button></div>
+        <p class="note">Steps for two sites: see <a href="https://docs.ndi.video/all/using-ndi/ndi-tools/ndi-tools-for-windows/bridge" target="_blank" rel="noopener noreferrer">NDI's Bridge guide</a>
+          and Relay's NDI Bridge guide in docs/ndi-bridge.md.</p>
       </section>
       <section>
         <h3>Picture in the browser</h3>

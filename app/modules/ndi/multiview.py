@@ -230,13 +230,19 @@ class Compositor(viewer.Feed):
             self._centre(d, "No signal" if box["source"] else "No source", rect, font)
         self._label(d, box["label"] or box["source"], rect, font)
         if box["meter"]:
-            db = self.mgr.level(box["source"])
-            frac = 0.0 if db is None else max(0.0, min(1.0, (db + 60) / 60))
-            bw, bh = max(40, w // 4), max(5, h // 40)
-            mx, my = x + w - bw - 8, y + h - bh - 8
-            d.rectangle((mx, my, mx + bw, my + bh), fill=(50, 50, 54))
-            if frac:
-                d.rectangle((mx, my, mx + int(bw * frac), my + bh), fill=(64, 192, 87) if frac < 0.92 else (224, 49, 49))
+            peaks = self.mgr.levels(box["source"]) if self.mgr.levels is not None else None
+            if not peaks:
+                db = self.mgr.level(box["source"])
+                peaks = [] if db is None else [db]
+            peaks = peaks[:MAX_METER_BARS] or [None]
+            bw, bh = max(40, w // 4), max(3, h // 60)
+            mx, my = x + w - bw - 8, y + h - (bh + 2) * len(peaks) - 6
+            for k, db in enumerate(peaks):
+                frac = 0.0 if db is None else max(0.0, min(1.0, (db + 60) / 60))
+                by = my + k * (bh + 2)
+                d.rectangle((mx, by, mx + bw, by + bh), fill=(50, 50, 54))
+                if frac:
+                    d.rectangle((mx, by, mx + int(bw * frac), by + bh), fill=(64, 192, 87) if frac < 0.92 else (224, 49, 49))
         cam = s["tally"].get(box["source"], 0)
         c = cams.get(cam) if cam else None
         colour = (224, 49, 49) if c and c["program"] else ((47, 158, 68) if c and c["preview"] else None)
@@ -261,13 +267,18 @@ class Compositor(viewer.Feed):
         d.text((x + 6, y + 3 - box[1]), text, fill=(255, 255, 255), font=font)
 
 
+MAX_METER_BARS = 8       # channels drawn in a box's meter
+
+
 class Multiviews:
     """The open compositors. `subscribe` is core's `ndi_subscribe`; the rest read settings, audio levels, the shared
     tally state and the next service start, so this file imports nothing from another module."""
 
     def __init__(self, subscribe: Callable, settings: Callable[[], dict], level: Callable[[str], float | None],
-                 cameras: Callable[[], list[dict]], service_start: Callable[[], float | None]) -> None:
+                 cameras: Callable[[], list[dict]], service_start: Callable[[], float | None],
+                 levels: Callable[[str], list[float] | None] | None = None) -> None:
         self.subscribe, self.settings, self.level = subscribe, settings, level
+        self.levels = levels          # each channel's peak in dBFS (#301); without it a box shows one bar
         self.cameras, self.service_start = cameras, service_start
         self.open_: dict[str, Compositor] = {}
         self._lock = threading.Lock()

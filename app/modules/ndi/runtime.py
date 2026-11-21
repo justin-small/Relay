@@ -12,9 +12,10 @@ A receiver is a Rust thread that queues what arrives, so Python never sits in th
 
 A backend has `connect(name, address, low=False) -> connection` (`low` asks the sender for its low-bandwidth stream),
 `open_sender(name, width, height, fps, audio=False) -> sender` and `open_router(name) -> router` (`change(source)`,
-`clear()`, `close()`: the NDI routing API, #298). A connection has `receive(timeout_ms) -> frame dict | None` and
+`clear()`, `close()`: the NDI routing API, #298), `open_audio_sink(name, channels, rate)` and `open_combiner(name, video,
+audio)` (#301). A connection has `receive(timeout_ms) -> frame dict | None` and
 `close()`; a frame is {"width", "height", "fps", "fourcc", "data", "age_ms"} (`age_ms` is how long it waited in the
-queue); audio is {"audio": float32 (channels, samples), "rate", "audio_db"} and a sender's connection metadata is
+queue); audio is {"audio": float32 (channels, samples), "rate", "audio_db", "levels": [[peak, rms] per channel]} and a sender's connection metadata is
 {"meta": xml text}; `perf()` is the SDK's dropped-frame counts. A sender has `send(frame)` and `close()`. Tests replace
 `load`.
 """
@@ -127,6 +128,18 @@ class RustBackend:
         import relay_ndi
 
         return relay_ndi.Router(name)
+
+    def open_audio_sink(self, name: str, channels: int = 2, rate: int = 48000) -> Any:
+        """An audio-only NDI source named `name` (#301): `write(float32 (frames, channels))`, `free()`, `queued()`."""
+        import relay_ndi
+
+        return relay_ndi.AudioSink(name, channels, rate)
+
+    def open_combiner(self, name: str, video: str = "", audio: str = "") -> Any:
+        """A source named `name` with the picture of `video` and the sound of `audio` (either may be empty)."""
+        import relay_ndi
+
+        return relay_ndi.Combiner(name, video, audio)
 
     def find(self, seconds: float = 3.0) -> list[dict]:
         """Every source the SDK sees (through a discovery server, extra addresses, groups and mDNS): [{"name",

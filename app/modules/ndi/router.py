@@ -47,7 +47,7 @@ def clean_outputs(raw: Any) -> list[dict]:
             continue
         name = _name(r.get("name"))
         if name and r["id"] not in [x["id"] for x in out] and name.lower() not in [x["name"].lower() for x in out]:
-            out.append({"id": r["id"], "name": name})
+            out.append({"id": r["id"], "name": name, "audio": _source(r.get("audio"))})
     return out[:MAX_OUTPUTS]
 
 
@@ -61,6 +61,35 @@ def _source_name(chan: dict | None) -> str:
         if e["provider"] == KEY and e["key"].startswith(SRC):
             return e["key"][len(SRC):]
     return ""
+
+
+class _Combined:
+    """A routed output whose sound comes from another source than its picture (#301). The NDI routing call switches a whole
+    source, so this output is a Rust combiner (`open_combiner`) instead, restarted with the picture each time the route
+    changes. It answers the same calls as a routing instance."""
+
+    def __init__(self, backend: Any, name: str, audio: str) -> None:
+        self._backend, self._name, self._audio = backend, name, audio
+        self._inst: Any = None
+        self._lock = threading.Lock()
+        self.change("")                          # the sound alone until a picture is chosen
+
+    def change(self, source: str) -> bool:
+        inst = self._backend.open_combiner(self._name, source, self._audio)     # may raise: the caller says so
+        with self._lock:
+            old, self._inst = self._inst, inst
+        if old is not None:
+            old.close()
+        return True
+
+    def clear(self) -> bool:
+        return self.change("")
+
+    def close(self) -> None:
+        with self._lock:
+            inst, self._inst = self._inst, None
+        if inst is not None:
+            inst.close()
 
 
 class Router:
@@ -103,7 +132,7 @@ class Router:
             if r["id"] in self._live:
                 return True
         try:
-            inst = backend.open_router(ndi_name(r["name"]))
+            inst = _Combined(backend, ndi_name(r["name"]), r["audio"]) if r.get("audio") else backend.open_router(ndi_name(r["name"]))
         except Exception as exc:
             log.warning("NDI routed output %s could not open: %s", r["name"], exc)
             self._err[r["id"]] = "NDI would not create this output."
@@ -169,7 +198,7 @@ class Router:
             return f"At most {MAX_OUTPUTS} routed outputs."
         if name.lower() in [r["name"].lower() for r in s["router_outputs"]]:
             return "There is already an output with that name."
-        r = {"id": new_id(), "name": name}
+        r = {"id": new_id(), "name": name, "audio": ""}
         self._save({"router_outputs": s["router_outputs"] + [r]})
         self._open(r)
         self._report()
@@ -196,6 +225,29 @@ class Router:
             pass
         self._notify()
         return True
+
+    def set_audio(self, oid: str, source: str) -> str:
+        """Take this output's sound from `source` ("" puts it back with the picture). '' on success."""
+        s = self._settings()
+        r = next((x for x in s["router_outputs"] if x["id"] == oid), None)
+        if r is None:
+            return "That output does not exist."
+        source = _source(source)
+        if source.endswith("(" + ndi_name(r["name"]) + ")") or source == ndi_name(r["name"]):
+            return "An output cannot take sound from itself."
+        shown = self._target.get(oid, "")
+        with self._lock:
+            old = self._live.pop(oid, None)
+        if old is not None:
+            old.close()
+        r = {**r, "audio": source}
+        self._save({"router_outputs": [r if x["id"] == oid else x for x in s["router_outputs"]]})
+        if self._running() and self._open(r):
+            if shown and not self._apply(self._live[oid], shown):
+                self._notify()
+                return "NDI would not switch that output."
+        self._notify()
+        return self._err.get(oid, "")
 
     def route(self, oid: str, source: str) -> str:
         """'' on success, else the sentence saying why not."""
@@ -309,7 +361,7 @@ class Router:
             v = seen.get(c["ref"]) if c else None
             shown = names.get(v["sources"][0]["ref"], "") if v and v["sources"] else ""
             asked = names.get(v["wanted"][0]["ref"], "") if v and v["wanted"] else ""
-            routes.append({**r, "ndi": ndi_name(r["name"]), "live": r["id"] in self._live, "error": self._err.get(r["id"], ""),
+            routes.append({**r, "audio": r.get("audio", ""), "ndi": ndi_name(r["name"]), "live": r["id"] in self._live, "error": self._err.get(r["id"], ""),
                            "source": shown, "asked": asked, "state": v["state"] if v else "none",
                            "ref": c["ref"] if c else ""})
         salvos = [{"id": str(sv["id"]), "name": sv["name"],

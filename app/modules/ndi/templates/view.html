@@ -6,7 +6,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="referrer" content="no-referrer">
-<link rel="stylesheet" href="/static/tokens.css"><title>{{ data.title }}</title>
+<link rel="stylesheet" href="/static/tokens.css"><link rel="stylesheet" href="/static/modules/ndi/view.css"><title>{{ data.title }}</title>
 <style>
 html, body { margin: 0; height: 100%; background: #000; color: #fff; font:16px/1.3 var(--font); }
 #ndv { box-sizing: border-box; height: 100%; display: flex; flex-direction: column; border: 8px solid transparent; }
@@ -23,9 +23,13 @@ html, body { margin: 0; height: 100%; background: #000; color: #fff; font:16px/1
 </head>
 <body>
 <main id="ndv" data-tally="">
-  <div id="ndvPic"><img id="ndvImg" alt="{{ data.title }}"></div>
+  <div id="ndvPic"><img id="ndvImg" alt="{{ data.title }}"><div id="ndvAudioOnly" hidden>Audio only</div></div>
   <div id="ndvBar"><b>{{ data.title }}</b><span>{{ data.machine }}</span><span id="ndvInfo"></span>
-    <div id="ndvMeter" title="Audio level" hidden><i></i></div><span id="ndvMsg" role="status" aria-live="polite"></span></div>
+    <div id="ndvSound" hidden>
+      <div id="ndvMeters" title="Level of each channel"></div><span id="ndvLoud" title="Momentary loudness"></span>
+      <span id="ndvChans" role="group" aria-label="Channels to hear"></span>
+      <button type="button" id="ndvListen" aria-pressed="false">Listen</button>
+    </div><span id="ndvMsg" role="status" aria-live="polite"></span></div>
 </main>
 <script id="ndvData" type="application/json">{{ data | tojson }}</script>
 <script src="/static/modules/ndi/view.js"></script>

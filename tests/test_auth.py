@@ -685,12 +685,14 @@ for method, path, perm in (
     ("GET", "/api/admin/ndi", "ndi.view"),
     ("PUT", "/api/admin/ndi/settings", "ndi.manage"),                   # an empty body changes nothing
     ("POST", "/api/admin/ndi/scan", "ndi.manage"),                      # not running: refused, nothing is sent
+    ("PUT", "/api/admin/ndi/bridge", "ndi.manage"),                     # no list: refused
     ("PUT", "/api/admin/ndi/outputs", "ndi.manage"),                    # an empty body changes nothing
     ("PUT", "/api/admin/ndi/tests", "ndi.manage"),                      # an empty body changes nothing
     ("PUT", "/api/admin/ndi/tests/{tid}/image", "ndi.manage"),          # no such test source: refused
     ("POST", "/api/admin/ndi/router/outputs", "ndi.manage"),            # no name: refused
     ("DELETE", "/api/admin/ndi/router/outputs/{oid}", "ndi.manage"),    # no such output: refused
     ("PUT", "/api/admin/ndi/router/outputs/{oid}/source", "ndi.manage"),
+    ("PUT", "/api/admin/ndi/router/outputs/{oid}/audio", "ndi.manage"),
     ("POST", "/api/admin/ndi/router/salvos", "ndi.manage"),             # no name: refused
     ("DELETE", "/api/admin/ndi/router/salvos/{sid}", "ndi.manage"),
     ("POST", "/api/admin/ndi/router/salvos/{sid}/take", "ndi.manage"),

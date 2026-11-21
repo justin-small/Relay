@@ -15,7 +15,7 @@
 
   // The grid is core's route editor (relayUI.routeEditor, #546): a row per feed, a column per source. Core stores the
   // route and this module applies it. A feed's own line (its NDI name, an error, Remove) is drawn under its name.
-  let editor = null, feeds = {}, own = [], may = false;
+  let editor = null, feeds = {}, own = [], may = false, srcs = [];
   function feedOf(c) {
     const e = c.ends.filter(function (x) { return x.provider === 'ndi' && x.key.indexOf('route:') === 0; })[0];
     return e ? feeds[e.key.slice(6)] : null;
@@ -32,6 +32,16 @@
     if (!r) return null;
     const box = el('div', 'note');
     if (r.error) box.appendChild(el('div', 'hint err', r.error));
+    // Sound follows the picture unless a feed is told to take it from another source (decoded and sent again, #301).
+    const pick = el('select', { disabled: !may });
+    pick.setAttribute('aria-label', 'Sound for ' + r.name);
+    pick.appendChild(el('option', { value: '' }, 'Sound follows the picture'));
+    const names = srcs.filter(function (x) { return x.online; }).map(function (x) { return x.name; });
+    if (r.audio && names.indexOf(r.audio) < 0) names.push(r.audio);
+    names.forEach(function (n) { pick.appendChild(el('option', { value: n, selected: n === r.audio }, 'Sound from ' + n)); });
+    pick.onchange = function () { act('PUT', '/api/admin/ndi/router/outputs/' + r.id + '/audio', { source: pick.value }); };
+    box.appendChild(pick);
+    box.appendChild(document.createTextNode(' '));
     box.appendChild(btn('Remove', async function () {
       if (await relayUI.confirm('Remove the feed "' + r.name + '"? A TV set to it goes black.')) act('DELETE', '/api/admin/ndi/router/outputs/' + r.id);
     }, 'sm quiet', !may));
@@ -41,7 +51,8 @@
   function drawRouter(s) {
     const rt = s.router.routes, can = N.can('ndi.manage');
     $('ndiRtNone').hidden = rt.length > 0; $('ndiRtGrid').hidden = !rt.length;
-    const rows = rt.map(function (r) { return [r.id, r.name, r.ndi, r.source, r.asked, r.state, r.error]; });
+    srcs = s.sources;
+    const rows = rt.map(function (r) { return [r.id, r.name, r.ndi, r.source, r.asked, r.state, r.error, r.audio]; });
     const seen = s.sources.map(function (x) { return [x.name, x.online]; });
     if (changed('rt.router', [rows, seen, can])) {
       feeds = {}; rt.forEach(function (r) { feeds[r.id] = r; });

@@ -161,7 +161,7 @@ with section("the routes"):
     eq("so is its stream", admin.get("/ndi/stream/nothing").status_code, 404)
     eq("not on the viewer port", on_viewer_port.get(f"/ndi/view/{enc}").status_code, 404)
     lv = admin.get(f"/ndi/level/{enc}").json()
-    eq("the level answer", sorted(lv), ["db", "fps", "height", "width"])
+    eq("the level answer", sorted(lv), ["audio_only", "channels", "db", "fps", "height", "momentary", "short", "width"])
 
     async def stream_route():
         # TestClient cannot hold an endless response open, so call the route and read its body directly.

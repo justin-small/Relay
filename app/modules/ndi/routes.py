@@ -6,9 +6,9 @@ import asyncio
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response, StreamingResponse
 
-from ... import audit, config
+from ... import audit, config, schedules
 from .. import require
-from . import multiview, outputs, testpatterns, viewer
+from . import bridge, listen, multiview, outputs, testpatterns, viewer, watch
 from .service import KEY, LOW, VIEW_LIMITS, clean_ip, clean_server, clean_settings, service
 
 router = APIRouter()
@@ -62,7 +62,21 @@ async def admin_settings(request: Request, payload: dict):
             return _bad("A camera number is a whole number from 1 to 999.")
     if "multiviews" in payload and not isinstance(payload["multiviews"], list):
         return _bad("Multiviews are a list.")
-    keys = ("servers", "mdns", "extra_ips", "groups", "interval", "tally", "multiviews", *VIEW_LIMITS)
+    if "watch" in payload:
+        w = payload["watch"]
+        if not isinstance(w, dict) or any(k in w and not isinstance(w[k], bool) for k in ("on", "auto", "sound")):
+            return _bad("Watching a source is on or off.")
+        if "hold" in w and (isinstance(w["hold"], bool) or not isinstance(w["hold"], int)
+                            or not watch.HOLD_MIN <= w["hold"] <= watch.HOLD_MAX):
+            return _bad(f"The hold time is a whole number of seconds from {watch.HOLD_MIN} to {watch.HOLD_MAX}.")
+        if "sources" in w and (not isinstance(w["sources"], list) or len(w["sources"]) > watch.MAX_SOURCES
+                               or any(not isinstance(n, str) for n in w["sources"])):
+            return _bad(f"Watch at most {watch.MAX_SOURCES} sources, by name.")
+        if "schedule" in w and (not isinstance(w["schedule"], str)
+                                or (w["schedule"] and schedules.find(config.get()["schedules"], w["schedule"]) is None)):
+            return _bad("That schedule does not exist.")
+        payload = {**payload, "watch": {**cur["watch"], **w}}
+    keys = ("servers", "mdns", "extra_ips", "groups", "interval", "tally", "multiviews", "watch", *VIEW_LIMITS)
     new = clean_settings({**cur, **{k: payload[k] for k in keys if k in payload}})
     if not new["mdns"] and not new["servers"] and not new["extra_ips"]:
         return _bad("With multicast DNS off, add a discovery server or an extra address, or nothing can be found.")
@@ -74,6 +88,23 @@ async def admin_settings(request: Request, payload: dict):
 
 
 # ------------------------------------------------------------------------------------------------ outputs (#299)
+@router.put("/api/admin/ndi/bridge", dependencies=MANAGE)
+async def admin_bridge(request: Request, payload: dict):
+    """The booth's NDI Bridge machines (a name, Host or Join, address and port). Relay only lists and checks them."""
+    raw = payload.get("machines")
+    if not isinstance(raw, list) or len(raw) > bridge.MAX_MACHINES:
+        return _bad(f"Keep at most {bridge.MAX_MACHINES} Bridge machines.")
+    clean = bridge.clean_machines(raw)
+    if len(clean) != len(raw):
+        return _bad("Give each machine its own name and an address like 203.0.113.5 or bridge.example.org, with a port from 1 to 65535.")
+    service.save_settings({"bridge": clean})
+    audit.note(request, "ndi.bridge", "Changed the NDI Bridge machines")
+    if service.running:
+        service.bridge_status = await asyncio.to_thread(bridge.check, clean)
+    service._bump()
+    return service.snapshot()
+
+
 @router.put("/api/admin/ndi/outputs", dependencies=MANAGE)
 async def admin_outputs(request: Request, payload: dict):
     """Which page outputs are on, and their size and frame rate."""
@@ -172,6 +203,16 @@ async def router_route(oid: str, request: Request, payload: dict):
     return _router_done(request, "Routed an NDI output", err)
 
 
+@router.put("/api/admin/ndi/router/outputs/{oid}/audio", dependencies=MANAGE)
+async def router_audio(oid: str, request: Request, payload: dict):
+    """Take an output's sound from another source than its picture ("" for the picture's own)."""
+    src = payload.get("source", "")
+    if not isinstance(src, str):
+        return _bad("A source is a name, or empty for the picture's own sound.")
+    err = await asyncio.to_thread(service.router.set_audio, oid, src)
+    return _router_done(request, "Set the sound of an NDI output", err)
+
+
 @router.post("/api/admin/ndi/router/salvos", dependencies=MANAGE)
 async def router_salvo_save(request: Request, payload: dict):
     sid = payload.get("id", "")
@@ -239,12 +280,49 @@ async def view_stream(source: str):
 
 @router.get("/ndi/level/{source:path}", dependencies=VIEW)
 async def view_level(source: str):
-    """The audio peak in dBFS (null when there is none) and the frame size, for the viewer's meter and caption."""
+    """The audio peak in dBFS (null when there is none), each channel's peak and RMS, the loudness, whether the source is
+    audio only, and the frame size: for the viewer's meters and caption."""
     src = _known(source)
     if src is None:
         return JSONResponse({"error": "That NDI source is not available."}, status_code=404)
     return JSONResponse({"db": service.audio_level(source), "width": src["width"], "height": src["height"],
-                         "fps": src["fps"]}, headers=NO_STORE)
+                         "fps": src["fps"], **service.audio_state(source)}, headers=NO_STORE)
+
+
+_listeners = listen.Listeners()
+
+
+@router.get("/ndi/listen/{source:path}", dependencies=VIEW)
+async def view_listen(source: str, ch: str = ""):
+    """The source's sound as endless 16-bit stereo PCM (little endian) for a browser to play; `ch=1,2` picks channels
+    (counted from 1; none means all). The sample rate is in the `X-Rate` header and the source's channel count in
+    `X-Channels`."""
+    if _known(source) is None:
+        return JSONResponse({"error": "That NDI source is not available."}, status_code=404)
+    pick = listen.parse_channels(ch)
+    if pick is None:
+        return JSONResponse({"error": "Channels are numbers from 1, like 1,2."}, status_code=400)
+    if not _listeners.take():
+        return JSONResponse({"error": f"At most {listen.MAX_LISTENERS} people can listen at once. Try again later."},
+                            status_code=503)
+    stream = listen.Stream(asyncio.get_running_loop(), pick)
+    stream.lease = await asyncio.to_thread(service.hook_listen, source, stream.feed)
+    if stream.lease is None or not await stream.first():
+        stream.close()
+        _listeners.give()
+        return JSONResponse({"error": "That source is not sending any sound."}, status_code=404)
+
+    async def body():
+        try:
+            async for data in stream.chunks():
+                yield data
+        finally:
+            await asyncio.to_thread(stream.close)
+            _listeners.give()
+
+    return StreamingResponse(body(), media_type="application/octet-stream",
+                             headers={**NO_STORE, "X-Rate": str(stream.rate), "X-Channels": str(stream.channels),
+                                      "X-Accel-Buffering": "no"})
 
 
 # ------------------------------------------------------------------------------------------------ multiview (#297)
