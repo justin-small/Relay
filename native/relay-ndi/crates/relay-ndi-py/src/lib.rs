@@ -14,7 +14,9 @@ use relay_ndi::health::{self, Stats, SyncMeter as CoreSync, Timing as CoreTiming
 use std::sync::Mutex;
 use relay_ndi::patterns::{self, Patch, Tone as CoreTone};
 use relay_ndi::picture;
+use relay_ndi::pcm;
 use relay_ndi::recv::{Event, Receiver};
+use relay_ndi::sink::{AudioSink as CoreSink, Combiner as CoreCombiner};
 use relay_ndi::route::Router as CoreRouter;
 use relay_ndi::scopes::{self as sc, Frame, Grid, Pack};
 use relay_ndi::send::Sender as CoreSender;
@@ -91,6 +93,7 @@ impl Connection {
             Event::Audio(a) => {
                 let arr = PyArray1::from_vec(py, a.data).reshape([a.channels, a.samples])?;
                 d.set_item("audio_db", a.peak_db)?;
+                d.set_item("levels", a.levels.iter().map(|(p, r)| vec![*p, *r]).collect::<Vec<_>>())?;
                 d.set_item("audio", arr)?;
                 d.set_item("rate", a.rate)?;
                 d.set_item("timecode", a.timecode)?;
@@ -497,6 +500,96 @@ impl SyncMeter {
     }
 }
 
+/// Float32 audio shaped (channels, samples) as interleaved little-endian 16-bit stereo: the channels in `pick` (0-based;
+/// none means all) for a browser to play.
+#[pyfunction]
+#[pyo3(signature = (samples, pick=Vec::new()))]
+fn mix_s16<'py>(py: Python<'py>, samples: PyReadonlyArray2<'_, f32>, pick: Vec<usize>) -> Bound<'py, PyBytes> {
+    let (ch, n) = (samples.shape()[0], samples.shape()[1]);
+    let flat: Vec<f32> = samples.as_array().iter().copied().collect();
+    PyBytes::new(py, &py.detach(|| pcm::mix_s16(&flat, ch, n, &pick)))
+}
+
+/// An audio-only NDI source the lane bus writes to.
+#[pyclass(frozen, module = "relay_ndi")]
+struct AudioSink {
+    s: CoreSink,
+}
+
+#[pymethods]
+impl AudioSink {
+    #[new]
+    #[pyo3(signature = (name, channels=2, rate=48000))]
+    fn new(py: Python<'_>, name: String, channels: usize, rate: u32) -> PyResult<Self> {
+        let s = py.detach(|| CoreSink::open(&name, channels, rate)).map_err(os_err)?;
+        Ok(AudioSink { s })
+    }
+
+    #[getter]
+    fn rate(&self) -> u32 {
+        self.s.rate()
+    }
+
+    #[getter]
+    fn channels(&self) -> usize {
+        self.s.channels()
+    }
+
+    fn free(&self) -> usize {
+        self.s.free()
+    }
+
+    fn queued(&self) -> usize {
+        self.s.queued()
+    }
+
+    #[getter]
+    fn underruns(&self) -> u64 {
+        self.s.underruns()
+    }
+
+    #[getter]
+    fn sent_frames(&self) -> u64 {
+        self.s.sent_frames()
+    }
+
+    /// float32 shaped (frames, channels); returns the frames taken.
+    fn write(&self, block: PyReadonlyArray2<'_, f32>) -> usize {
+        let frames = block.shape()[0];
+        let flat: Vec<f32> = block.as_array().iter().copied().collect();
+        self.s.write(&flat, frames)
+    }
+
+    fn close(&self, py: Python<'_>) {
+        py.detach(|| self.s.close());
+    }
+}
+
+/// An NDI source with the picture of one source and the sound of another.
+#[pyclass(frozen, module = "relay_ndi")]
+struct Combiner {
+    c: CoreCombiner,
+}
+
+#[pymethods]
+impl Combiner {
+    #[new]
+    #[pyo3(signature = (name, video=String::new(), audio=String::new(), wait=5.0))]
+    fn new(py: Python<'_>, name: String, video: String, audio: String, wait: f64) -> PyResult<Self> {
+        let c = py.detach(|| CoreCombiner::open(&name, &video, &audio, wait)).map_err(os_err)?;
+        Ok(Combiner { c })
+    }
+
+    #[getter]
+    fn frames(&self) -> u64 {
+        self.c.frames()
+    }
+
+    fn close(&self, py: Python<'_>) {
+        py.detach(|| self.c.close());
+    }
+}
+
 #[pymodule]
 fn _native(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<Connection>()?;
@@ -505,6 +598,9 @@ fn _native(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<AudioMeter>()?;
     m.add_class::<Tone>()?;
     m.add_class::<Timing>()?;
+    m.add_class::<AudioSink>()?;
+    m.add_class::<Combiner>()?;
+    m.add_function(wrap_pyfunction!(mix_s16, m)?)?;
     m.add_class::<SyncMeter>()?;
     m.add_function(wrap_pyfunction!(health_of, m)?)?;
     m.add_function(wrap_pyfunction!(find, m)?)?;

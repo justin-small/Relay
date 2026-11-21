@@ -691,6 +691,7 @@ for method, path, perm in (
     ("POST", "/api/admin/ndi/router/outputs", "ndi.manage"),            # no name: refused
     ("DELETE", "/api/admin/ndi/router/outputs/{oid}", "ndi.manage"),    # no such output: refused
     ("PUT", "/api/admin/ndi/router/outputs/{oid}/source", "ndi.manage"),
+    ("PUT", "/api/admin/ndi/router/outputs/{oid}/audio", "ndi.manage"),
     ("POST", "/api/admin/ndi/router/salvos", "ndi.manage"),             # no name: refused
     ("DELETE", "/api/admin/ndi/router/salvos/{sid}", "ndi.manage"),
     ("POST", "/api/admin/ndi/router/salvos/{sid}/take", "ndi.manage"),

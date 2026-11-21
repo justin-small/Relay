@@ -40,6 +40,8 @@ pub struct Audio {
     pub data: Vec<f32>,
     /// The loudest sample of the chunk in dBFS, -120 for silence.
     pub peak_db: f64,
+    /// Each channel's `(peak, rms)` over this chunk in dBFS, -120 for silence.
+    pub levels: Vec<(f64, f64)>,
     pub timecode: i64,
     pub timestamp: i64,
 }
@@ -267,6 +269,23 @@ fn copy_video(v: &VideoFrame) -> Option<Video> {
     Some(Video { width: w as u32, height: h as u32, fps, fourcc: name, data, timecode: v.timecode, timestamp: v.timestamp, metadata })
 }
 
+/// The loudest sample of the chunk, and each channel's `(peak, rms)` in dBFS, from planar samples.
+pub fn channel_levels(planar: &[f32], ch: usize, n: usize) -> (f32, Vec<(f64, f64)>) {
+    let mut all = 0f32;
+    let mut out = Vec::with_capacity(ch);
+    for c in 0..ch {
+        let row = &planar[c * n..(c + 1) * n];
+        let (mut peak, mut sum) = (0f32, 0f64);
+        for &s in row {
+            peak = peak.max(s.abs());
+            sum += (s as f64) * (s as f64);
+        }
+        all = all.max(peak);
+        out.push((db(peak), db(((sum / n.max(1) as f64).sqrt()) as f32)));
+    }
+    (all, out)
+}
+
 fn copy_audio(a: &AudioFrame) -> Option<Audio> {
     let (ch, n) = (a.channels.max(0) as usize, a.samples.max(0) as usize);
     if ch == 0 || n == 0 || a.data.is_null() || a.fourcc != ffi::FOURCC_FLTP || a.sample_rate <= 0 {
@@ -277,21 +296,28 @@ fn copy_audio(a: &AudioFrame) -> Option<Audio> {
         return None;
     }
     let mut data = Vec::with_capacity(ch * n);
-    let mut peak = 0f32;
     for c in 0..ch {
         // SAFETY: planar float audio: channel `c` starts `c * stride` bytes in and holds `n` aligned f32 samples.
         let row = unsafe { std::slice::from_raw_parts(a.data.add(c * stride) as *const f32, n) };
-        for &s in row {
-            peak = peak.max(s.abs());
-        }
         data.extend_from_slice(row);
     }
-    Some(Audio { rate: a.sample_rate as u32, channels: ch, samples: n, data, peak_db: db(peak), timecode: a.timecode, timestamp: a.timestamp })
+    let (peak, levels) = channel_levels(&data, ch, n);
+    Some(Audio { rate: a.sample_rate as u32, channels: ch, samples: n, data, peak_db: db(peak), levels, timecode: a.timecode, timestamp: a.timestamp })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn each_channel_has_its_own_peak_and_rms() {
+        let mut planar = vec![0.0f32; 8];
+        planar[..4].copy_from_slice(&[0.5, -0.5, 0.5, -0.5]); // channel 0: a square wave at -6 dBFS
+        let (all, lv) = channel_levels(&planar, 2, 4);
+        assert_eq!(all, 0.5);
+        assert_eq!(lv[0], (-6.0, -6.0));
+        assert_eq!(lv[1], (LEVEL_FLOOR, LEVEL_FLOOR));
+    }
 
     #[test]
     fn peak_in_db() {

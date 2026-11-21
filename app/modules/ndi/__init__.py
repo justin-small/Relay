@@ -59,9 +59,13 @@ class Ndi(Module):
         return [router]
 
     def attach(self) -> None:
+        from ... import audio
         from ... import modules as registry
+        from . import bus, runtime
         from .service import service
 
+        audio.register_source(bus.NdiSource(service.hook_listen))
+        audio.register_output(bus.NdiOutput(runtime.load))
         registry.provide("ndi", {"sources": service.hook_sources, "subscribe": service.hook_subscribe,
                                  "register_output": service.hook_output})
         registry.provide("routes.ndi", service.router.api())
@@ -72,8 +76,12 @@ class Ndi(Module):
             pass
 
     def detach(self) -> None:
+        from ... import audio
         from ... import modules as registry
+        from . import bus
 
+        audio.unregister_source(bus.ID)
+        audio.unregister_output(bus.ID)
         registry.withdraw("ndi")
         registry.withdraw("routes.ndi")
         registry.withdraw("gear.ndi")

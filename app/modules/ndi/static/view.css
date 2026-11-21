@@ -1,0 +1,12 @@
+/* The NDI viewer's sound controls (#301): one bar per channel, the loudness, and Listen. Tokens only. */
+#ndvSound { display: flex; align-items: center; gap: 1em; margin-left: auto; }
+#ndvMeters { display: flex; flex-direction: column; gap: 0.2em; width: 9em; }
+#ndvMeters .ch { position: relative; height: 0.5em; background: var(--hover); border-radius: var(--r-sm); overflow: hidden; }
+#ndvMeters .ch i { display: block; height: 100%; width: 0; background: var(--ok); transition: width .12s; }
+#ndvMeters .ch i.hot { background: var(--warn); }
+#ndvMeters .ch i.clip { background: var(--err); }
+#ndvMeters .ch u { position: absolute; top: 0; bottom: 0; width: 0.15em; background: var(--fg); left: 0; }
+#ndvLoud { min-width: 7em; text-align: right; font-variant-numeric: tabular-nums; }
+#ndvChans { display: flex; gap: 0.3em; }
+#ndvChans button[aria-pressed="true"] { background: var(--primary); color: var(--primary-fg); }
+#ndvAudioOnly { flex: 1; display: flex; align-items: center; justify-content: center; font-size: 1.5em; color: var(--muted); }
