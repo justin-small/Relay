@@ -9,6 +9,12 @@ Matrix. An output channel is the sum of the lanes routed to it, each with a gain
 clocks, so an output reads each lane through a small resampler whose ratio is nudged to hold a steady fill
 (a fraction of a percent, inaudible), instead of clicking when two clocks drift apart.
 
+The Rust core. All of that, and every sound device, runs in `relay_bus` (native/relay-bus, built by
+tools/build_bus_wheel.py): no Python runs on an audio thread, so a busy Python process cannot starve the audio.
+This file is the Python side: the saved setting (normalize), core routes, a module's network sources (read here
+and handed to the core with `push`) and senders (fed here from the core with `pull`), and lane readers for the
+Python consumers (a tap per subscriber, read on a thread of its own).
+
 Outputs. A multichannel sink (a PortAudio device, or a module's network sender) of up to 32 channels. Relay's
 own sounds (alert tones, spoken translation) can be played into an output through the "bus" AudioOutput.
 
@@ -25,7 +31,6 @@ import logging
 import math
 import threading
 import time
-from dataclasses import dataclass
 from typing import Callable
 
 import numpy as np
@@ -42,6 +47,7 @@ MIN_LATENCY_MS, MAX_LATENCY_MS = 20, 500
 MAX_DRIFT_TRIM = 0.005            # an output speeds up or slows down by at most 0.5% to follow another clock
 TICK_S = 0.005                    # how often an output tops up its sink
 CHUNK_FRAMES = 960                # the most an output produces in one go (20 ms)
+READ_FRAMES = 4800                # the most a lane reader takes in one go (100 ms); what has built up arrives as one block
 GAIN_MIN_DB, GAIN_MAX_DB = -90.0, 24.0
 BUS_OUTPUT = "bus"                # the AudioOutput id that plays Relay's own sounds into a bus output
 LANE_SOURCE = "lane"              # the AudioSource id that lets the engine take a lane as its input
@@ -204,103 +210,108 @@ def db_to_gain(db: float) -> float:
     return 0.0 if db <= GAIN_MIN_DB else 10.0 ** (db / 20.0)
 
 
-# -- meters ------------------------------------------------------------------------------------------------------
-class Meter:
-    """Level, decaying peak-hold and clipping for one stream of float samples (the panel's 1 Hz poll reads it)."""
-
-    def __init__(self) -> None:
-        self.reset()
-
-    def reset(self) -> None:
-        self.level = 0.0
-        self.peak = 0.0
-        self._hold = 0.0
-        self._ts = 0.0
-        self.clipped = 0
-        self._clip_until = 0.0
-
-    def feed(self, block: np.ndarray, now: float) -> None:
-        if not block.size:
-            return
-        mag = np.abs(block)
-        self.level = float(np.sqrt(np.mean(np.square(block))))
-        self.peak = float(mag.max())
-        clipped = int(np.count_nonzero(mag >= audio.CLIP_LEVEL))
-        if clipped:
-            self.clipped += clipped
-            self._clip_until = now + audio.CLIP_HOLD_S
-        elapsed = (now - self._ts) if self._ts else 0.0
-        self._ts = now
-        decayed = self._hold * (10.0 ** (-(audio.PEAK_DECAY_DB_PER_S * elapsed) / 20.0)) if elapsed > 0 else self._hold
-        self._hold = max(self.peak, decayed)
-
-    @property
-    def clipping(self) -> bool:
-        return time.time() < self._clip_until
-
-    def snapshot(self) -> dict:
-        return {"rms_dbfs": round(audio.dbfs(self.level), 1), "peak_dbfs": round(audio.dbfs(self._hold), 1),
-                "clipping": self.clipping, "clipped_samples": self.clipped}
+# -- the engine ---------------------------------------------------------------------------------------------------
+# The mixing, resampling and metering are done by the Rust core (native/relay-bus, the `relay_bus` wheel, #601): no
+# Python runs on an audio thread. What stays here is what only Python can do: reading a module's network source
+# and handing it over, driving a module's network sender, and handing lane audio to the Python consumers.
+def engine_device(selector, listing: list[dict], engine_names: list[str]):
+    """The name the engine's device backend knows a saved device by. A saved selector is what the admin page picked from
+    PortAudio's list: an "API: Name" label, a bare name, or an index. The engine opens devices by name, so the selector
+    is mapped to the device's name through that list, and kept when the engine lists a device of that name. Anything
+    it cannot map is passed on unchanged: the engine then reports the device as missing, as it does for any unplugged one."""
+    if selector in (None, ""):
+        return selector
+    known = {n.lower(): n for n in engine_names}
+    sel = str(selector).strip()
+    found = None
+    if sel.isdigit():
+        found = next((d for d in listing if d["index"] == int(sel)), None)
+    else:
+        low = sel.lower()
+        found = (next((d for d in listing if d["label"].lower() == low), None)
+                 or next((d for d in listing if d["name"].lower() == low), None))
+    for candidate in ((found["name"] if found else None), sel):
+        if candidate and candidate.lower() in known:
+            return known[candidate.lower()]
+    return selector
 
 
-# -- lanes -------------------------------------------------------------------------------------------------------
+def _meter(m: dict) -> dict:
+    """The panel's meter shape (dBFS) from the engine's linear one."""
+    return {"rms_dbfs": round(audio.dbfs(m["rms"]), 1), "peak_dbfs": round(audio.dbfs(m["peak"]), 1),
+            "clipping": bool(m["clipping"]), "clipped_samples": int(m["clipped_samples"])}
+
+
+def input_id(source: str, device) -> str:
+    """The engine's name for an input: `source:device`, lower-cased (config::input_id in the Rust core)."""
+    return f"{str(source).strip().lower()}:{str(device or '').strip().lower()}"
+
+
+def _key(source: str, device) -> tuple[str, str]:
+    return source, (device or "").lower()
+
+
+class _Reader:
+    """A reader of one lane: a tap in the engine and a Python thread that hands each block to `callback`. The
+    thread is ours and may be slow; the engine's audio threads never wait for it (a slow reader loses frames)."""
+
+    def __init__(self, bus: "Bus", lane: int, callback: Callable[[np.ndarray], None]) -> None:
+        self.bus, self.lane, self.callback = bus, lane, callback
+        self.tap = bus.engine.open_tap(lane)
+        self._stop = threading.Event()
+        self._thread = threading.Thread(target=self._run, name=f"lane-{lane}-reader", daemon=True)
+        self._thread.start()
+
+    def _run(self) -> None:
+        eng = self.bus.engine
+        while not self._stop.is_set():
+            try:
+                block, _ = eng.read_tap(self.tap, READ_FRAMES, 0.1)
+            except ValueError:
+                return                                  # the tap is gone
+            if len(block):
+                try:
+                    self.callback(block)
+                except Exception:  # a consumer's fault must not stop the lane
+                    log.exception("lane %d consumer failed", self.lane)
+
+    def close(self) -> None:
+        self._stop.set()
+        if self._thread is not threading.current_thread():
+            self._thread.join(timeout=1.0)
+        try:
+            self.bus.engine.close_tap(self.tap)
+        except (ValueError, RuntimeError):
+            pass
+
+
 class Lane:
-    """One mono stream at RATE. `push` is called from the input's thread; consumers never block it."""
+    """One mono stream at RATE. Consumers `subscribe` and are called with float32 blocks from a thread of their
+    own; they never hold up the audio."""
 
-    def __init__(self, index: int) -> None:
+    def __init__(self, bus: "Bus", index: int) -> None:
+        self.bus = bus
         self.index = index
         self.name = ""
-        self.size = int(RATE * RING_S)
-        self.ring = np.zeros(self.size, dtype=np.float32)
-        self.written = 0                       # total samples pushed; the ring holds the last `size`
-        self.lock = threading.Lock()
-        self.meter = Meter()
-        self.last_ts = 0.0
-        self._subs: dict[int, Callable[[np.ndarray], None]] = {}
+        self._subs: dict[int, _Reader] = {}
         self._next = 1
         self._sub_lock = threading.Lock()
-
-    def push(self, block: np.ndarray) -> None:
-        n = len(block)
-        if not n:
-            return
-        now = time.time()
-        if n > self.size:
-            block = block[-self.size:]
-            n = self.size
-        with self.lock:
-            start = self.written % self.size
-            first = min(n, self.size - start)
-            self.ring[start:start + first] = block[:first]
-            if first < n:
-                self.ring[: n - first] = block[first:]
-            self.written += n
-        self.last_ts = now
-        self.meter.feed(block, now)
-        for cb in tuple(self._subs.values()):
-            try:
-                cb(block)
-            except Exception:  # a consumer's fault must not stop the lane
-                log.exception("lane %d consumer failed", self.index)
-
-    def reset(self) -> None:
-        with self.lock:
-            self.ring[:] = 0.0
-            self.written = 0
-        self.meter.reset()
-        self.last_ts = 0.0
+        self._tail: _Tail | None = None
 
     def subscribe(self, callback: Callable[[np.ndarray], None]) -> int:
-        """Call `callback(block)` with every block (mono float32 at RATE) on the input's thread: it must not
-        block. Any number of subscribers may take the same lane. Returns a token for `unsubscribe`."""
+        """Call `callback(block)` with every block (mono float32 at RATE) on a thread of its own. Any number of
+        subscribers may take the same lane. Returns a token for `unsubscribe`."""
+        reader = _Reader(self.bus, self.index, callback)
         with self._sub_lock:
             token, self._next = self._next, self._next + 1
-            self._subs = {**self._subs, token: callback}
+            self._subs[token] = reader
         return token
 
     def unsubscribe(self, token: int) -> None:
         with self._sub_lock:
-            self._subs = {k: v for k, v in self._subs.items() if k != token}
+            reader = self._subs.pop(token, None)
+        if reader is not None:
+            reader.close()
 
     def subscribe_queue(self, loop: asyncio.AbstractEventLoop, maxsize: int = 100) -> tuple[int, asyncio.Queue]:
         """The same for async code: blocks arrive in an asyncio.Queue on `loop`; a full queue drops its oldest."""
@@ -322,63 +333,89 @@ class Lane:
     def subscribers(self) -> int:
         return len(self._subs)
 
+    def tail(self, n: int) -> tuple[np.ndarray, int]:
+        """The newest `n` samples of the lane (up to the last RING_S seconds) and the running total of samples seen.
+        The first call starts keeping the lane; before that there is nothing to return."""
+        if self._tail is None:
+            self._tail = _Tail(self)
+        return self._tail.read(n)
 
-# -- inputs ------------------------------------------------------------------------------------------------------
-def _key(source: str, device) -> tuple[str, str]:
-    return source, str(device or "").strip().lower()
+    @property
+    def written(self) -> int:
+        return self.tail(0)[1]
 
-
-class _Tap:
-    """Lane `lane` takes `channel` (an index, or "mix") of an input, resampled to RATE when the device is not."""
-
-    def __init__(self, lane: Lane, channel) -> None:
-        self.lane, self.channel = lane, channel
-        self.stream: soxr.ResampleStream | None = None
-        self.rate = RATE
-
-    def prepare(self, rate: int) -> None:
-        self.rate = rate
-        self.stream = None if rate == RATE else soxr.ResampleStream(rate, RATE, 1, dtype="float32", quality="HQ")
-
-    def feed(self, block: np.ndarray) -> None:
-        channels = block.shape[1]
-        if self.channel == "mix":
-            x = block.mean(axis=1, dtype=np.float32) if channels > 1 else block[:, 0]
-        else:
-            x = block[:, min(int(self.channel), channels - 1)]
-        if self.stream is not None:
-            x = self.stream.resample_chunk(np.ascontiguousarray(x, dtype=np.float32))
-        self.lane.push(np.ascontiguousarray(x, dtype=np.float32))
+    def stop_tail(self) -> None:
+        tail, self._tail = self._tail, None
+        if tail is not None:
+            tail.close()
 
 
-class _Intake:
-    """One open device, shared by every lane patched to it."""
+class _Tail:
+    """The last RING_S seconds of one lane, kept for the readers that look back (the stream-mix report)."""
 
-    def __init__(self, source: str, device) -> None:
+    def __init__(self, lane: Lane) -> None:
+        self.size = int(RATE * RING_S)
+        self.ring = np.zeros(self.size, dtype=np.float32)
+        self.written = 0
+        self.lock = threading.Lock()
+        self.token = lane.subscribe(self._push)
+        self.lane = lane
+
+    def _push(self, block: np.ndarray) -> None:
+        n = len(block)
+        if n > self.size:
+            block, n = block[-self.size:], self.size
+        with self.lock:
+            start = self.written % self.size
+            first = min(n, self.size - start)
+            self.ring[start:start + first] = block[:first]
+            if first < n:
+                self.ring[: n - first] = block[first:]
+            self.written += n
+
+    def read(self, n: int) -> tuple[np.ndarray, int]:
+        with self.lock:
+            w = self.written
+            n = max(0, min(n, w, self.size))
+            idx = np.arange(w - n, w) % self.size
+            return self.ring[idx].copy(), w
+
+    def close(self) -> None:
+        self.lane.unsubscribe(self.token)
+
+
+# -- network sources and senders: the part Python drives ------------------------------------------------------------
+class _PyIntake:
+    """A module's network source (not a sound device): Python reads it and hands each block to the engine, which
+    resamples, picks channels and meters it like a device's. A device (source "portaudio") is the engine's own."""
+
+    def __init__(self, bus: "Bus", source: str, device) -> None:
+        self.bus = bus
         self.source, self.device = source, device
+        self.id = input_id(source, device)
         self.input: audio.LaneInput | None = None
         self.info: audio.SourceInfo | None = None
-        self.taps: tuple[_Tap, ...] = ()
+        self.rate = 0
+        self.lanes: tuple[int, ...] = ()
         self.error: str | None = None
         self.last_block = 0.0
         self.next_try = 0.0
         self.blocks = 0
-        self.dropped_closed = 0   # frames dropped by inputs of this intake that have since closed
+        self.dropped_closed = 0
 
     @property
     def state(self) -> str:
         return "open" if self.input is not None and not self.error else ("waiting" if self.error else "closed")
 
     def deliver(self, block: np.ndarray) -> None:
-        if block.ndim != 2 or not len(block):
+        if block.ndim != 2 or not len(block) or not self.rate:
             return
         self.last_block = time.time()
         self.blocks += 1
-        for tap in self.taps:
-            try:
-                tap.feed(block)
-            except Exception:
-                log.exception("lane %d could not take its channel", tap.lane.index)
+        try:
+            self.bus.engine.push(self.id, np.ascontiguousarray(block, dtype=np.float32), self.rate)
+        except (ValueError, RuntimeError):
+            pass                                          # the engine is being reconfigured; this block is lost
 
     def label(self) -> str:
         return (self.info.device.get("label") if self.info else None) or str(self.device or "default input")
@@ -398,14 +435,12 @@ class _Intake:
             log.exception("audio source %s failed to open", self.source)
             self.error = "The audio source could not be opened."
             return False
-        self.input, self.info, self.error = li, info, None
+        self.input, self.info, self.error, self.rate = li, info, None, int(info.rate)
         self.last_block = time.time()
-        for tap in self.taps:
-            tap.prepare(int(info.rate))
         return True
 
     def close(self) -> None:
-        li, self.input = self.input, None
+        li, self.input, self.rate = self.input, None, 0
         if li is not None:
             self.dropped_closed += li.dropped
             try:
@@ -418,17 +453,9 @@ class _Intake:
         return self.dropped_closed + (self.input.dropped if self.input is not None else 0)
 
 
-# -- outputs -----------------------------------------------------------------------------------------------------
-@dataclass
-class _Inject:
-    samples: np.ndarray          # mono, at RATE
-    channels: tuple[int, ...]    # 0-based output channels it is added to
-    pos: int = 0
-
-
-class _Output:
-    """One open sink with its crosspoints. A thread tops its queue up to a target fill, reading each lane it
-    needs through a drift-following resampler."""
+class _PyOutput:
+    """A module's network sender (not a sound device): a thread keeps its sink topped up to a target fill with
+    audio the engine mixes for it (`pull`). A device (output "portaudio") is the engine's own."""
 
     def __init__(self, bus: "Bus", spec: dict) -> None:
         self.bus = bus
@@ -439,38 +466,12 @@ class _Output:
         self.sink: audio.LaneSink | None = None
         self.error: str | None = None
         self.next_try = 0.0
-        self.matrix = np.zeros((0, self.channels), dtype=np.float32)
-        self.lanes_used: tuple[int, ...] = ()
-        self.meters = [Meter() for _ in range(self.channels)]
-        self.underruns = 0              # times a routed lane had nothing for the output
-        self.resyncs = 0
-        self.pos: dict[int, float] = {}  # lane -> read position (a sample count, fractional)
-        self.ratio: dict[int, float] = {}
+        self.underruns = 0
         self._pending = np.zeros((0, self.channels), dtype=np.float32)
         self._resampler: soxr.ResampleStream | None = None
-        self._injects: list[_Inject] = []
-        self._inject_lock = threading.Lock()
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
 
-    # -- routing --------------------------------------------------------------------------------------------
-    def set_matrix(self, cells: list[dict]) -> None:
-        lanes = sorted({c["in"] for c in cells})
-        m = np.zeros((len(lanes), self.channels), dtype=np.float32)
-        for c in cells:
-            m[lanes.index(c["in"]), c["ch"] - 1] = db_to_gain(c["gain_db"])
-        self.matrix, self.lanes_used = m, tuple(lanes)   # one swap: the thread reads both together
-        self.pos = {k: v for k, v in self.pos.items() if k in lanes}
-
-    def inject(self, samples: np.ndarray, channels: tuple[int, ...]) -> None:
-        with self._inject_lock:
-            self._injects.append(_Inject(samples, channels))
-
-    def stop_injects(self) -> None:
-        with self._inject_lock:
-            self._injects.clear()
-
-    # -- sink -----------------------------------------------------------------------------------------------
     def open(self) -> bool:
         out = audio.get_output(self.spec["output"])
         if out is None:
@@ -489,12 +490,12 @@ class _Output:
         self._resampler = None if sink.rate == RATE else soxr.ResampleStream(
             RATE, sink.rate, self.channels, dtype="float32", quality="HQ")
         self._pending = np.zeros((0, self.channels), dtype=np.float32)
-        self.pos.clear()
         return True
 
     def close_sink(self) -> None:
         sink, self.sink = self.sink, None
         if sink is not None:
+            self.underruns += sink.underruns
             try:
                 sink.close()
             except Exception:
@@ -511,56 +512,6 @@ class _Output:
             self._thread.join(timeout=2.0)
             self._thread = None
         self.close_sink()
-
-    # -- the mix ---------------------------------------------------------------------------------------------
-    def _read_lane(self, lane: Lane, n: int) -> np.ndarray:
-        """`n` samples of `lane` at the pace of this output's clock: the read position follows the lane's
-        write position, trimming the speed by up to MAX_DRIFT_TRIM to hold the target lag."""
-        target = int(RATE * self.latency_ms / 2000)
-        with lane.lock:
-            w = lane.written
-            size = lane.size
-            r = self.pos.get(lane.index)
-            if r is None or r > w or w - r > size - 4 * CHUNK_FRAMES or w - r > 6 * target + CHUNK_FRAMES:
-                if r is not None:
-                    self.resyncs += 1
-                r = float(max(0, w - target))
-            lag = w - r
-            ratio = 1.0 + max(-MAX_DRIFT_TRIM, min(MAX_DRIFT_TRIM, (lag - target) / RATE * 0.5))
-            end = r + n * ratio
-            if w == 0 or end + 1 >= w:
-                self.underruns += 1
-                self.pos[lane.index] = r
-                return np.zeros(n, dtype=np.float32)
-            at = r + np.arange(n) * ratio
-            i0 = np.floor(at).astype(np.int64)
-            frac = (at - i0).astype(np.float32)
-            a = lane.ring[i0 % size]
-            b = lane.ring[(i0 + 1) % size]
-        self.pos[lane.index] = r + n * ratio
-        self.ratio[lane.index] = ratio
-        return a * (1.0 - frac) + b * frac
-
-    def _mix(self, n: int) -> np.ndarray:
-        lanes, matrix = self.lanes_used, self.matrix
-        if lanes:
-            cols = np.stack([self._read_lane(self.bus.lanes[i - 1], n) for i in lanes], axis=1)
-            mixed = cols @ matrix
-        else:
-            mixed = np.zeros((n, self.channels), dtype=np.float32)
-        with self._inject_lock:
-            for inj in list(self._injects):
-                take = inj.samples[inj.pos:inj.pos + n]
-                for c in inj.channels:
-                    if c < self.channels:
-                        mixed[: len(take), c] += take
-                inj.pos += len(take)
-                if inj.pos >= len(inj.samples):
-                    self._injects.remove(inj)
-        now = time.time()
-        for c in range(self.channels):
-            self.meters[c].feed(mixed[:, c], now)
-        return np.clip(mixed, -1.0, 1.0)
 
     def _run(self) -> None:
         while not self._stop.wait(TICK_S):
@@ -586,38 +537,50 @@ class _Output:
             return
         n_sink = min(want, int(CHUNK_FRAMES * sink.rate / RATE) or CHUNK_FRAMES)
         n_lane = max(1, int(math.ceil(n_sink * RATE / sink.rate)))
-        block = self._mix(n_lane)
+        block = self.bus.engine.pull(self.id, n_lane)
         if self._resampler is not None:
             block = self._resampler.resample_chunk(np.ascontiguousarray(block, dtype=np.float32))
         took = sink.write(block)
         if took < len(block):
             self._pending = block[took:]
 
-    def snapshot(self) -> dict:
-        sink = self.sink
-        return {
-            "id": self.id, "name": self.spec["name"], "output": self.spec["output"],
-            "device": self.spec["device"], "channels": self.channels, "latency_ms": self.latency_ms,
-            "state": "open" if sink is not None else ("waiting" if self.error else "closed"),
-            "error": self.error,
-            "underruns": self.underruns + (sink.underruns if sink is not None else 0),
-            "resyncs": self.resyncs,
-            "queued_ms": round(1000 * sink.queued() / sink.rate, 1) if sink is not None else 0.0,
-            "meters": [m.snapshot() for m in self.meters],
-        }
+
+class _OutputRef:
+    """What a consumer gets from `Bus.output(id)`: the channel count and a way to add a clip to the mix."""
+
+    def __init__(self, bus: "Bus", spec: dict) -> None:
+        self.bus, self.id, self.channels, self.spec = bus, spec["id"], spec["channels"], spec
+
+    def inject(self, samples: np.ndarray, channels: tuple[int, ...], rate: int = RATE) -> None:
+        """Mix mono `samples` into the given output channels (counted from 0) in the next block."""
+        self.bus.engine.inject(self.id, list(channels), np.ascontiguousarray(samples, dtype=np.float32), int(rate))
+
+    def stop_injects(self) -> None:
+        self.bus.engine.stop_injects(self.id)
 
 
 # -- the bus -----------------------------------------------------------------------------------------------------
 class Bus:
-    def __init__(self) -> None:
-        self.lanes = [Lane(i + 1) for i in range(LANES)]
+    def __init__(self, backend: str = "cpal") -> None:
+        self.backend = backend                  # "cpal": real devices; "fake": the engine's own test devices
+        self._engine = None
+        self.lanes = [Lane(self, i + 1) for i in range(LANES)]
         self.config = default_config()
         self.running = False
-        self._intakes: dict[tuple[str, str], _Intake] = {}
-        self._outputs: dict[str, _Output] = {}
+        self._intakes: dict[str, _PyIntake] = {}
+        self._outputs: dict[str, _PyOutput] = {}
         self._lock = threading.RLock()
         self._super: threading.Thread | None = None
         self._stop = threading.Event()
+
+    @property
+    def engine(self):
+        """The Rust engine, made on first use (it starts its device watcher and supervisor threads)."""
+        with self._lock:
+            if self._engine is None:
+                import relay_bus
+                self._engine = relay_bus.Bus(self.backend)
+            return self._engine
 
     # -- configuration ---------------------------------------------------------------------------------------
     def apply(self, cfg: dict) -> None:
@@ -627,11 +590,17 @@ class Bus:
         report_channels(cfg)
         with self._lock:
             self.config = cfg
+            for lane in self.lanes:
+                lane.name = ""
             if not cfg["enabled"]:
                 self._stop_all()
                 return
-            self._apply_inputs(cfg)
-            self._apply_outputs(cfg)
+            for spec in cfg["lanes"]:
+                self.lanes[spec["lane"] - 1].name = spec["name"]
+            self._stop_outputs(cfg)             # before the engine forgets them: a sender must not pull from a gone output
+            self.engine.apply(self._for_engine(cfg))
+            self._apply_intakes(cfg)
+            self._start_outputs(cfg)
             self.running = True
             if self._super is None or not self._super.is_alive() or self._stop.is_set():
                 self._stop = threading.Event()        # a fresh one: an old supervisor still winding down keeps its own
@@ -639,47 +608,56 @@ class Bus:
                                                name="lane-supervisor", daemon=True)
                 self._super.start()
 
-    def _apply_inputs(self, cfg: dict) -> None:
-        wanted: dict[tuple[str, str], list[dict]] = {}
-        patched = set()
+    def _for_engine(self, cfg: dict) -> dict:
+        """`cfg` with each sound device named the way the engine's backend names it (see `engine_device`). Real devices
+        only: the fake backend's devices are named by the test that made them."""
+        if self.backend != "cpal":
+            return cfg
+        try:
+            names = [d["name"] for d in self.engine.list_devices()]
+            inputs, outputs = audio.list_input_devices(), audio.list_output_devices()
+        except Exception:
+            log.exception("The sound devices could not be listed; using the saved names as they are")
+            return cfg
+        return {**cfg,
+                "lanes": [{**x, "device": engine_device(x["device"], inputs, names) if x["source"] == audio.PORTAUDIO else x["device"]}
+                          for x in cfg["lanes"]],
+                "outputs": [{**o, "device": engine_device(o["device"], outputs, names) if o["output"] == audio.PORTAUDIO else o["device"]}
+                            for o in cfg["outputs"]]}
+
+    def _apply_intakes(self, cfg: dict) -> None:
+        wanted: dict[str, list[dict]] = {}
         for spec in cfg["lanes"]:
-            wanted.setdefault(_key(spec["source"], spec["device"]), []).append(spec)
-            patched.add(spec["lane"])
+            if spec["source"] != audio.PORTAUDIO:
+                wanted.setdefault(input_id(spec["source"], spec["device"]), []).append(spec)
         for key in [k for k in self._intakes if k not in wanted]:
             self._intakes.pop(key).close()
-        for lane in self.lanes:
-            if lane.index not in patched:
-                lane.name = ""
-                if lane.last_ts:
-                    lane.reset()
         for key, specs in wanted.items():
             intake = self._intakes.get(key)
             if intake is None:
-                intake = self._intakes[key] = _Intake(specs[0]["source"], specs[0]["device"])
-            taps = []
-            for spec in specs:
-                lane = self.lanes[spec["lane"] - 1]
-                lane.name = spec["name"]
-                taps.append(_Tap(lane, spec["channel"]))
-            for tap in taps:
-                tap.prepare(int(intake.info.rate) if intake.info else RATE)
-            intake.taps = tuple(taps)          # one swap, so the device thread never sees a half-built list
-            if intake.input is None and not intake.error:
-                intake.open()
+                intake = self._intakes[key] = _PyIntake(self, specs[0]["source"], specs[0]["device"])
+            intake.lanes = tuple(s["lane"] for s in specs)
+            if intake.input is None and not intake.open():
+                intake.next_try = time.time() + audio.RETRY_EVERY_S
 
-    def _apply_outputs(self, cfg: dict) -> None:
-        wanted = {o["id"]: o for o in cfg["outputs"]}
-        for oid in [k for k, o in self._outputs.items() if k not in wanted or wanted[k] != o.spec]:
+    @staticmethod
+    def _senders(cfg: dict) -> dict[str, dict]:
+        """The outputs Python drives (a module's network sender), by id."""
+        return {o["id"]: o for o in cfg["outputs"] if o["output"] != audio.PORTAUDIO}
+
+    def _stop_outputs(self, cfg: dict) -> None:
+        wanted = self._senders(cfg)
+        for oid in [k for k in self._outputs if k not in wanted or self._outputs[k].spec != wanted[k]]:
             self._outputs.pop(oid).stop()
-        for oid, spec in wanted.items():
-            out = self._outputs.get(oid)
-            if out is None:
-                out = self._outputs[oid] = _Output(self, spec)
-                out.set_matrix([c for c in cfg["matrix"] if c["out"] == oid])
-                out.open()
-                out.start()
-            else:
-                out.set_matrix([c for c in cfg["matrix"] if c["out"] == oid])
+
+    def _start_outputs(self, cfg: dict) -> None:
+        for oid, spec in self._senders(cfg).items():
+            if oid in self._outputs:
+                continue
+            out = self._outputs[oid] = _PyOutput(self, spec)
+            if not out.open():
+                out.next_try = time.time() + audio.RETRY_EVERY_S
+            out.start()
 
     def _stop_all(self) -> None:
         self._stop.set()
@@ -689,19 +667,28 @@ class Bus:
         for intake in self._intakes.values():
             intake.close()
         self._intakes.clear()
-        for lane in self.lanes:
-            lane.name = ""
-            lane.reset()
+        if self._engine is not None:
+            self._engine.apply({"enabled": False, "lanes": [], "outputs": [], "matrix": []})
         self.running = False
 
     def stop(self) -> None:
         with self._lock:
+            self.config = {**self.config, "enabled": False}
             self._stop_all()
         if self._super is not None and self._super is not threading.current_thread():
             self._super.join(timeout=2.0)
         self._super = None
+        for lane in self.lanes:
+            lane.stop_tail()
 
-    # -- unplug / replug ---------------------------------------------------------------------------------------
+    def close(self) -> None:
+        """Stop, then stop the engine's own threads (tests do; Relay lets the process end do it)."""
+        self.stop()
+        if self._engine is not None:
+            self._engine.close()
+            self._engine = None
+
+    # -- unplug / replug: the engine reopens its own devices; this reopens the sources and senders Python drives --
     def _supervise(self, stop: threading.Event) -> None:
         while not stop.wait(0.5):
             now = time.time()
@@ -711,7 +698,7 @@ class Bus:
                 for out in list(self._outputs.values()):
                     self._check_output(out, now)
 
-    def _check_intake(self, intake: _Intake, now: float) -> None:
+    def _check_intake(self, intake: _PyIntake, now: float) -> None:
         li = intake.input
         if li is not None and (not li.alive() or now - intake.last_block > audio.LOST_AFTER_S):
             log.warning("Audio input %s lost; waiting for it to come back", intake.label())
@@ -724,7 +711,7 @@ class Bus:
                 intake.error = had if had == LOST_SENTENCE else intake.error
                 intake.next_try = now + audio.RETRY_EVERY_S
 
-    def _check_output(self, out: _Output, now: float) -> None:
+    def _check_output(self, out: _PyOutput, now: float) -> None:
         sink = out.sink
         if sink is not None and not sink.alive():
             log.warning("Audio output %s lost; waiting for it to come back", out.id)
@@ -741,33 +728,60 @@ class Bus:
             raise ValueError(f"lanes are numbered 1 to {LANES}")
         return self.lanes[int(number) - 1]
 
-    def output(self, output_id: str) -> _Output | None:
-        return self._outputs.get(output_id)
+    def output(self, output_id: str) -> _OutputRef | None:
+        for spec in self.config["outputs"]:
+            if spec["id"] == output_id and self.running:
+                return _OutputRef(self, spec)
+        return None
 
-    # -- status ----------------------------------------------------------------------------------------------
     def status(self) -> dict:
         with self._lock:
             patch = {s["lane"]: s for s in self.config["lanes"]}
+            eng = self._engine.status() if self._engine is not None and self.running else None
+            e_lanes = {l["lane"]: l for l in eng["lanes"]} if eng else {}
+            e_inputs = {i["id"]: i for i in eng["inputs"]} if eng else {}
             lanes = []
             for lane in self.lanes:
                 spec = patch.get(lane.index)
-                intake = self._intakes.get(_key(spec["source"], spec["device"])) if spec else None
+                e = e_lanes.get(lane.index)
+                py = self._intakes.get(input_id(spec["source"], spec["device"])) if spec else None
+                state, error = (py.state, py.error) if py is not None else (
+                    ((e["state"] if e else None) or "closed", e["error"] if e else None) if spec else ("unpatched", None))
+                m = _meter(e["meter"]) if e else _meter({"rms": 0.0, "peak": 0.0, "clipping": False, "clipped_samples": 0})
                 lanes.append({
                     "lane": lane.index, "name": lane.name, "patched": spec is not None,
                     "source": spec["source"] if spec else None, "device": spec["device"] if spec else None,
                     "channel": spec["channel"] if spec else None,
-                    "state": intake.state if intake else "unpatched",
-                    "error": intake.error if intake else None,
-                    "subscribers": lane.subscribers,
-                    **lane.meter.snapshot(),
+                    "state": state, "error": error, "subscribers": lane.subscribers, **m,
                 })
-            inputs = [{"source": i.source, "device": i.device, "label": i.label(), "state": i.state,
-                       "error": i.error, "rate": int(i.info.rate) if i.info else None,
-                       "channels": int(i.info.device.get("channels", 0)) if i.info else None,
-                       "lanes": [t.lane.index for t in i.taps], "dropped": i.dropped}
-                      for i in self._intakes.values()]
-            return {"running": self.running, "lane_rate": RATE, "lanes": lanes, "inputs": inputs,
-                    "outputs": [o.snapshot() for o in self._outputs.values()], "matrix": self.config["matrix"]}
+            inputs = []
+            for iid, i in e_inputs.items():
+                py = self._intakes.get(iid)
+                if py is not None:
+                    inputs.append({"source": py.source, "device": py.device, "label": py.label(), "state": py.state,
+                                   "error": py.error, "rate": py.rate or None,
+                                   "channels": int(py.info.device.get("channels", 0)) if py.info else None,
+                                   "lanes": list(py.lanes), "dropped": py.dropped})
+                else:
+                    inputs.append({"source": i["source"], "device": i["device"], "label": str(i["device"] or "default input"),
+                                   "state": i["state"], "error": i["error"], "rate": i["rate"], "channels": i["channels"],
+                                   "lanes": i["lanes"], "dropped": i["dropped"]})
+            outputs = []
+            for spec in self.config["outputs"] if self.running else ():
+                e = next((o for o in (eng["outputs"] if eng else []) if o["id"] == spec["id"]), None)
+                py = self._outputs.get(spec["id"])
+                state, error = (("open" if py.sink is not None else ("waiting" if py.error else "closed")), py.error) if py is not None \
+                    else ((e["state"], e["error"]) if e else ("closed", None))
+                outputs.append({
+                    "id": spec["id"], "name": spec["name"], "output": spec["output"], "device": spec["device"],
+                    "channels": spec["channels"], "latency_ms": spec["latency_ms"], "state": state, "error": error,
+                    "underruns": (e["underruns"] if e else 0) + (py.underruns + (py.sink.underruns if py and py.sink else 0) if py else 0),
+                    "resyncs": e["resyncs"] if e else 0, "queued_ms": e["queued_ms"] if e else 0.0,
+                    "meters": [_meter(m) for m in e["meters"]] if e else [],
+                    "ratio": e["ratio"] if e else 1.0, "drift": e["drift"] if e else 0.0,
+                })
+            return {"running": self.running, "lane_rate": RATE, "lanes": lanes, "inputs": inputs, "outputs": outputs,
+                    "matrix": self.config["matrix"]}
 
 
 bus = Bus()
@@ -838,13 +852,15 @@ class BusOutput(audio.AudioOutput):
             if int(rate) != RATE:
                 mono = soxr.resample(mono, int(rate), RATE).astype(np.float32)
             wanted = [int(c) - 1 for c in chans.split(",") if c.strip().isdigit()] or list(range(min(2, out.channels)))
-            out.inject(mono, tuple(c for c in wanted if 0 <= c < out.channels))
+            out.inject(mono, tuple(c for c in wanted if 0 <= c < out.channels), RATE)
         except Exception:
             log.exception("Could not play into the audio bus")
 
     def stop(self) -> None:
-        for out in list(self.bus._outputs.values()):
-            out.stop_injects()
+        for spec in list(self.bus.config["outputs"]):
+            out = self.bus.output(spec["id"])
+            if out is not None:
+                out.stop_injects()
 
 
 audio.register_source(LaneSource())
