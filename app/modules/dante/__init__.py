@@ -29,7 +29,7 @@ class Dante(Module):
         settings_key="dante",
         section="Sound",
         guide="https://github.com/justin-small/relay#dante",
-        traffic=(Traffic("dante", "Dante discovery (multicast DNS), the control-port check (UDP) and the devices' heartbeat (multicast 224.0.0.233, port 8708)", media=True),),
+        traffic=(Traffic("dante", "Dante discovery (multicast DNS), the control-port check (UDP) and the devices' heartbeat (multicast 224.0.0.233, port 8708) and the meter requests to a device's port 8800 (the device then pushes to our UDP port 8751)", media=True),),
     )
     defaults: dict = {}
     network_map_adds = "Names each Dante device it finds and the transmit channels it announces."

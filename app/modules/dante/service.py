@@ -25,7 +25,7 @@ import time
 from typing import Any
 
 from ... import gear, gearfeed, mdns, netinfo, netroute, netsock
-from . import arc, heartbeat, inputs
+from . import arc, heartbeat, inputs, metering
 from .monitor import monitor
 
 log = logging.getLogger("relay.dante")
@@ -143,6 +143,7 @@ class Service:
         self._wake: asyncio.Event | None = None
         self._meter: asyncio.Task | None = None
         self.heartbeats = heartbeat.Heartbeats()
+        self.meters = metering.Meters()
 
     # -------------------------------------------------------------------------------------------- scanning
     def scan_once(self) -> None:
@@ -220,6 +221,9 @@ class Service:
             if not d:
                 continue
             got = self.heartbeats.levels(d["ips"])
+            if got is None:                # no signal presence in its heartbeat (a hardware box): ask it for meters
+                self.meters.ask(d["name"], d["ips"])
+                got = self.meters.levels(d["ips"])
             if got is None:
                 continue
             names = d["transmit"]
@@ -266,8 +270,17 @@ class Service:
             self.heartbeats.listen(netsock.multicast_socket(CLASS_ID, heartbeat.GROUP, heartbeat.PORT))
         except (OSError, ValueError) as e:
             log.warning("dante: cannot listen for heartbeats, so no levels: %s", e)
+        try:
+            sock = netsock.udp_socket(CLASS_ID, metering.PORT, reuse=True)
+            addr = sock.getsockname()[0]
+            mac = next((p.mac for p in netinfo.interfaces() if addr in p.addresses and p.mac), "")
+            self.meters.listen(sock, bytes.fromhex(mac.replace(":", "").replace("-", "")) if len(mac) >= 12 else b"\0" * 6)
+        except (OSError, ValueError) as e:
+            log.warning("dante: cannot listen for device meters, so no levels from hardware boxes: %s", e)
 
     async def stop(self) -> None:
+        self.meters.release()
+        self.meters.stop()
         self.heartbeats.stop()
         tasks, self._task, self._meter = [self._task, self._meter], None, None
         for task in tasks:
