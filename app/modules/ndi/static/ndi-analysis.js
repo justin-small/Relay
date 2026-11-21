@@ -192,6 +192,24 @@
       ['Aspect', r.aspect], ['Colour matrix', r.matrix + ' (guessed from the size)']]);
   }
 
+  // ---- ad cues (SCTE-104)
+  function drawCues(s) {
+    const c = s.scte || { total: 0, cues: [] }, body = $('ndiAnCues').querySelector('tbody');
+    $('ndiAnCueCount').textContent = String(c.total); $('ndiAnCueCount').className = 'badge ' + (c.cues.some(function (x) { return x.warnings.length; }) ? 'warn' : 'muted');
+    $('ndiAnNoCues').hidden = c.cues.length > 0; $('ndiAnCues').hidden = !c.cues.length;
+    body.textContent = '';
+    c.cues.forEach(function (x) {
+      const tr = el('tr'), what = (x.action === 'cancel' ? 'Cancel' : x.action === 'start' ? 'Splice start' : 'Splice end') + (x.action !== 'cancel' ? (x.immediate ? ' (immediate)' : ' (normal)') : '');
+      tr.appendChild(el('td', '', what));
+      tr.appendChild(el('td', '', String(x.event_id)));
+      tr.appendChild(el('td', x.warnings.indexOf('pre-roll over 60 s') >= 0 ? 'warn' : '', x.pre_roll_ms + ' ms'));
+      tr.appendChild(el('td', x.warnings.indexOf('break over an hour') >= 0 ? 'warn' : '', x.action === 'start' && x.break_tenths ? (x.break_tenths / 10).toFixed(1) + ' s' + (x.auto_return ? ', returns by itself' : '') : '—'));
+      tr.appendChild(el('td', 'muted', x.time_type === 'none' ? 'None' : x.time_type.toUpperCase() + ' ' + x.time));
+      tr.appendChild(el('td', 'muted', String(x.line)));
+      body.appendChild(tr);
+    });
+  }
+
   // ---- sound
   function barPct(db) { return Math.max(0, Math.min(100, (db + 60) / 60 * 100)); }      // 0 to -60 dBFS
   function drawSound(s) {
@@ -240,7 +258,7 @@
 
   function draw(s) {
     if (!s || !s.live) { showErr('That source is not being received.'); return; }
-    last = s; drawHealth(s); drawInfo(s); drawTiming(s); drawPicture(s); drawSound(s);
+    last = s; drawHealth(s); drawInfo(s); drawTiming(s); drawPicture(s); drawCues(s); drawSound(s);
   }
 
   // the NDI page hands its source list over (see ndi.js) and tells us when to look

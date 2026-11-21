@@ -90,7 +90,7 @@
     const rows = s.sources.map(function (x) {
       return [x.name, label(x), x.machine, x.online, x.width ? x.width + ' x ' + x.height + (x.fps ? ', ' + x.fps + ' fps' : '') : '',
         tally[x.name] || '', usedBy(x.name, s), x.converter ? (x.converter.source || x.converter.source_ip) : '',
-        (s.outputs || []).indexOf(x.source) >= 0, x.health, x.health_why, !!x.audio_only, x.audio_channels || 0];
+        (s.outputs || []).indexOf(x.source) >= 0, x.health, x.health_why, !!x.audio_only, x.audio_channels || 0, x.via_bridge || ''];
     });
     const body = $('ndiTable').querySelector('tbody');
     if (body.contains(document.activeElement) || !changed('sources', [rows, manage])) return;
@@ -102,6 +102,7 @@
       c1.appendChild(el('b', '', r[1]));
       if (!r[3]) { c1.appendChild(document.createTextNode(' ')); c1.appendChild(el('span', 'badge muted', 'Offline')); }
       if (r[8]) { c1.appendChild(document.createTextNode(' ')); c1.appendChild(el('span', 'badge info', 'Sent by Relay')); }
+      if (r[13]) { c1.appendChild(document.createTextNode(' ')); c1.appendChild(el('span', 'badge info', 'Via Bridge: ' + r[13])); }
       c1.appendChild(el('span', 'hint', r[2] + (r[7] ? ' · converter set to ' + r[7] : '')));
       tr.appendChild(c1);
       tr.appendChild(el('td', 'muted', r[11] ? 'Audio only' + (r[12] ? ', ' + r[12] + ' ch' : '') : (r[4] ? r[4] + (r[12] ? ', ' + r[12] + ' ch sound' : '') : '—')));

@@ -47,3 +47,9 @@ frame rate are set per source; at most 4 run at once. They are drawn in Rust (`r
 
 Proved against the real NDI library on macOS (video plus stereo audio sent through the Rust engine, #606); not yet looked at on a
 separate receiver machine.
+
+## Sound from another source
+
+A routed output can take its sound from a different source than its picture (the "Sound from" choice under the feed's name).
+It then stops being an NDI route and becomes a Rust combiner that decodes and sends the picture and sound again, restarted
+whenever the route changes. See `docs/ndi-audio.md`.

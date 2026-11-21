@@ -120,6 +120,14 @@
             <div class="ndikv" id="ndiAnRead"></div></div>
           <p class="note" id="ndiAnPicNote"></p>
         </section>
+        <section id="ndiAnScte">
+          <div class="ndihead"><h3>Ad cues <span class="badge muted" id="ndiAnCueCount">0</span></h3></div>
+          <p class="note" id="ndiAnNoCues">No SCTE-104 ad cues have arrived from this source. A sender has to attach them to its
+            pictures as NDI ancillary data.</p>
+          <div class="tablescroll"><table class="dt" id="ndiAnCues" hidden>
+            <thead><tr><th>Cue</th><th>Event</th><th>Pre-roll</th><th>Break</th><th>Time</th><th>Line</th></tr></thead>
+            <tbody></tbody></table></div>
+        </section>
         <section id="ndiAnSound">
           <div class="ndihead"><h3>Sound</h3>
             <div class="ctl"><button type="button" id="ndiAnReset">Reset loudness</button></div></div>
@@ -237,6 +245,18 @@
         <div class="note warn" id="ndiRestart" hidden>The NDI runtime reads these settings when Relay starts. Restart Relay
           to apply the change.</div>
         <div class="ctl"><button type="button" class="primary" id="ndiSave">Save</button></div>
+      </section>
+      <section id="ndiBridge">
+        <h3>Other sites (NDI Bridge)</h3>
+        <p class="note">NDI Bridge, NDI's own tool, carries NDI between buildings over one encrypted TCP port. Relay does
+          not run it: list the machines that do, and Relay checks that a Host answers (a forgotten port forward shows here
+          first), marks the sources that arrive from them “Via Bridge”, and writes the start-up text for each. The encryption
+          key is never stored here: type it into Bridge yourself. Bridge runs on Windows and Linux; NDI lists no Mac version.</p>
+        <div id="ndiBridgeList"></div>
+        <div class="ctl"><button type="button" id="ndiBridgeAdd">Add a machine</button>
+          <button type="button" class="primary" id="ndiBridgeSave">Save</button></div>
+        <p class="note">Steps for two sites: see <a href="https://docs.ndi.video/all/using-ndi/ndi-tools/ndi-tools-for-windows/bridge" target="_blank" rel="noopener noreferrer">NDI's Bridge guide</a>
+          and Relay's NDI Bridge guide in docs/ndi-bridge.md.</p>
       </section>
       <section>
         <h3>Picture in the browser</h3>

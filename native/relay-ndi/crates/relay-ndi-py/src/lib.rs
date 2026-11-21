@@ -15,6 +15,7 @@ use std::sync::Mutex;
 use relay_ndi::patterns::{self, Patch, Tone as CoreTone};
 use relay_ndi::picture;
 use relay_ndi::pcm;
+use relay_ndi::scte;
 use relay_ndi::recv::{Event, Receiver};
 use relay_ndi::sink::{AudioSink as CoreSink, Combiner as CoreCombiner};
 use relay_ndi::watch::{Event as WatchEvent, Kind as WatchKind, Watcher as CoreWatcher};
@@ -140,14 +141,14 @@ impl Sender {
     }
 
     /// One picture (`width * height * 4` BGRA bytes) and optionally float32 audio shaped (channels, samples).
-    #[pyo3(signature = (data, audio=None))]
-    fn send(&self, py: Python<'_>, data: PyBackedBytes, audio: Option<PyReadonlyArray2<'_, f32>>) -> PyResult<()> {
+    #[pyo3(signature = (data, audio=None, meta=None))]
+    fn send(&self, py: Python<'_>, data: PyBackedBytes, audio: Option<PyReadonlyArray2<'_, f32>>, meta: Option<String>) -> PyResult<()> {
         let bgra: &[u8] = &data;
         let planar = audio.map(|a| {
             let (ch, n) = (a.shape()[0], a.shape()[1]);
             (a.as_array().iter().copied().collect::<Vec<f32>>(), ch, n)
         });
-        py.detach(|| self.tx.send(bgra, planar.as_ref().map(|(v, c, n)| (v.as_slice(), *c, *n)))).map_err(PyValueError::new_err)
+        py.detach(|| self.tx.send_meta(bgra, planar.as_ref().map(|(v, c, n)| (v.as_slice(), *c, *n)), meta.as_deref())).map_err(PyValueError::new_err)
     }
 
     fn close(&self, py: Python<'_>) {
@@ -642,6 +643,30 @@ impl Watcher {
     }
 }
 
+/// The SCTE-104 cues in a video frame's metadata XML (`frame_meta`): [{"line", "action" (start, end, cancel), "immediate",
+/// "event_id", "unique_program_id", "pre_roll_ms", "break_tenths", "auto_return", "time_type", "time", "warnings"}].
+#[pyfunction]
+fn scte_cues<'py>(py: Python<'py>, xml: &str) -> PyResult<Vec<Bound<'py, PyDict>>> {
+    scte::cues(xml)
+        .into_iter()
+        .map(|c| {
+            let d = PyDict::new(py);
+            d.set_item("line", c.line)?;
+            d.set_item("action", c.action)?;
+            d.set_item("immediate", c.immediate)?;
+            d.set_item("event_id", c.event_id)?;
+            d.set_item("unique_program_id", c.unique_program_id)?;
+            d.set_item("pre_roll_ms", c.pre_roll_ms)?;
+            d.set_item("break_tenths", c.break_tenths)?;
+            d.set_item("auto_return", c.auto_return)?;
+            d.set_item("time_type", c.time_type)?;
+            d.set_item("time", c.time)?;
+            d.set_item("warnings", c.warnings)?;
+            Ok(d)
+        })
+        .collect()
+}
+
 #[pymodule]
 fn _native(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<Connection>()?;
@@ -652,6 +677,7 @@ fn _native(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<Timing>()?;
     m.add_class::<AudioSink>()?;
     m.add_class::<Watcher>()?;
+    m.add_function(wrap_pyfunction!(scte_cues, m)?)?;
     m.add_class::<Combiner>()?;
     m.add_function(wrap_pyfunction!(mix_s16, m)?)?;
     m.add_class::<SyncMeter>()?;

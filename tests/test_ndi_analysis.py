@@ -101,6 +101,25 @@ with section("audio and picture sync"):
     eq("made-up timecodes say nothing", (sy["valid"], sy["synthesized"], sy["state"]), (True, True, "unknown"))
     eq("a source with no frames has no sync", analysis.Analyzer(Path(TMP)).snapshot("nothing").get("sync"), None)
 
+with section("SCTE-104 ad cues"):
+    XML = ('<vancData version="1.0"><vancPacket did="97" sdid="1" line="9">lmlZT38BWHL0/ICA</vancPacket>'
+           '<vancPacket did="65" sdid="7" line="10">CP//AB4AAQEAAgAAAQEBAA4BAAAAAwAAAAAAAAAAAA==</vancPacket></vancData>')
+    a = analysis.Analyzer(Path(TMP))
+    a.on_video(SRC, frame(), 1.0)
+    eq("no metadata, no cues", a.snapshot(SRC)["scte"], {"total": 0, "cues": []})
+    a.on_video(SRC, {**frame(), "frame_meta": XML}, 1.1)
+    a.on_video(SRC, {**frame(), "frame_meta": "<ndi_other/>"}, 1.2)
+    got = a.snapshot(SRC)["scte"]
+    eq("the documented example is one splice start, event 3, on line 10", (got["total"], got["cues"][0]["action"], got["cues"][0]["event_id"], got["cues"][0]["line"]), (1, "start", 3, 10))
+    import base64
+    raw = bytearray(base64.b64decode("CP//AB4AAQEAAgAAAQEBAA4BAAAAAwAAAAAAAAAAAA=="))
+    at = raw.index(b"\x01\x01\x00\x0e") + 4                     # the splice request's data
+    raw[at], raw[at + 7:at + 9], raw[at + 9:at + 11] = 3, (61000).to_bytes(2, "big"), (40000).to_bytes(2, "big")
+    bad = f'<vancData version="1.0"><vancPacket did="65" sdid="7" line="10">{base64.b64encode(bytes(raw)).decode()}</vancPacket></vancData>'
+    a.on_video(SRC, {**frame(), "frame_meta": bad}, 1.3)
+    got = a.snapshot(SRC)["scte"]
+    eq("newest first, and a misread unit is warned", (got["total"], got["cues"][0]["action"], got["cues"][0]["warnings"]), (2, "end", ["pre-roll over 60 s", "break over an hour"]))
+
 with section("picture scopes"):
     sc, grid = analysis.scopes(frame(rgb=(128, 128, 128)))
     r = sc["read"]

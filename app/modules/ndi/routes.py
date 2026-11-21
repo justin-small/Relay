@@ -8,7 +8,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 
 from ... import audit, config, schedules
 from .. import require
-from . import listen, multiview, outputs, testpatterns, viewer, watch
+from . import bridge, listen, multiview, outputs, testpatterns, viewer, watch
 from .service import KEY, LOW, VIEW_LIMITS, clean_ip, clean_server, clean_settings, service
 
 router = APIRouter()
@@ -88,6 +88,23 @@ async def admin_settings(request: Request, payload: dict):
 
 
 # ------------------------------------------------------------------------------------------------ outputs (#299)
+@router.put("/api/admin/ndi/bridge", dependencies=MANAGE)
+async def admin_bridge(request: Request, payload: dict):
+    """The booth's NDI Bridge machines (a name, Host or Join, address and port). Relay only lists and checks them."""
+    raw = payload.get("machines")
+    if not isinstance(raw, list) or len(raw) > bridge.MAX_MACHINES:
+        return _bad(f"Keep at most {bridge.MAX_MACHINES} Bridge machines.")
+    clean = bridge.clean_machines(raw)
+    if len(clean) != len(raw):
+        return _bad("Give each machine its own name and an address like 203.0.113.5 or bridge.example.org, with a port from 1 to 65535.")
+    service.save_settings({"bridge": clean})
+    audit.note(request, "ndi.bridge", "Changed the NDI Bridge machines")
+    if service.running:
+        service.bridge_status = await asyncio.to_thread(bridge.check, clean)
+    service._bump()
+    return service.snapshot()
+
+
 @router.put("/api/admin/ndi/outputs", dependencies=MANAGE)
 async def admin_outputs(request: Request, payload: dict):
     """Which page outputs are on, and their size and frame rate."""

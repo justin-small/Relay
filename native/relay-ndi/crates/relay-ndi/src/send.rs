@@ -57,6 +57,12 @@ impl Sender {
     /// Send one picture of `width * height * bytes_per_pixel` bytes and, if given, planar float audio (`channels` rows of
     /// `samples`) with it. The video call returns when the frame has been copied, paced to the frame rate.
     pub fn send(&self, bgra: &[u8], audio: Option<(&[f32], usize, usize)>) -> Result<(), String> {
+        self.send_meta(bgra, audio, None)
+    }
+
+    /// `send`, with XML metadata attached to the picture (what carries SCTE-104 and captions as NDI ancillary data).
+    pub fn send_meta(&self, bgra: &[u8], audio: Option<(&[f32], usize, usize)>, meta: Option<&str>) -> Result<(), String> {
+        let meta = meta.filter(|m| !m.is_empty()).map(cstr);
         let need = self.width as usize * self.height as usize * self.bytes_per_pixel;
         if bgra.len() < need {
             return Err(format!("a {}x{} picture is {need} bytes; got {}", self.width, self.height, bgra.len()));
@@ -103,7 +109,7 @@ impl Sender {
             timecode: video_tc,
             data: bgra.as_ptr() as *mut u8,
             stride: self.width * self.bytes_per_pixel as i32,
-            metadata: ptr::null(),
+            metadata: meta.as_ref().map_or(ptr::null(), |m| m.as_ptr()),
             timestamp: 0,
         };
         // SAFETY: the synchronous send reads `bgra` (at least `need` bytes) and finishes with it before returning.

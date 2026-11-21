@@ -16,10 +16,14 @@ The data rate is the decoded picture's size, because the SDK does not report the
 * **Sync** (`relay_ndi.SyncMeter`, #561): how far the audio runs from the picture, from each frame's NDI timestamp and
   timecode (see `health.rs`). Amber beyond 20 ms and red beyond 40 ms. It reads nothing for a sender that lets the SDK make
   its timecodes up.
-Timing, the health verdict and the sync reading are computed in Rust. Not covered: SCTE-104 (#560).
+* **Ad cues** (`relay_ndi.scte_cues`, #560): SCTE-104 splice cues, read from the `<vancData>` XML NDI carries in a video
+  frame's metadata (NDI's proposed metadata messages), newest first, with warnings for a pre-roll over 60 s or a break over
+  an hour.
+Timing, the health verdict, the sync reading and the cue decoding are computed in Rust.
 """
 from __future__ import annotations
 
+import collections
 import csv
 import re
 import threading
@@ -35,6 +39,7 @@ except ImportError:            # pragma: no cover
     _native = None
 
 MAX_SCOPE_SAMPLES = 200_000
+MAX_CUES = 100             # SCTE-104 cues kept per source
 BLACK_PEAK, FROZEN_DIFF, GAMUT_FRACTION, GAMUT_MIN = 20, 0.05, 0.001, 64
 
 
@@ -217,6 +222,8 @@ class Track:
         self.timing = Timing()
         self.meter = AudioMeter()
         self.sync = _native.SyncMeter() if _native is not None else None     # audio against picture (#561)
+        self.cues: collections.deque = collections.deque(maxlen=MAX_CUES)    # SCTE-104 cues, newest last (#560)
+        self.cue_total = 0
         self.latest: dict | None = None        # newest video frame, kept only while `watch` is set
         self.watch = False
         self.prev_grid = None
@@ -255,6 +262,11 @@ class Analyzer:
         flag = t.timing.record(now, nbytes, float(frame.get("fps") or 0.0), size)
         if t.sync is not None and "timecode" in frame:
             t.sync.video(int(frame["timecode"]), int(frame.get("timestamp") or 0))
+        meta = frame.get("frame_meta")
+        if meta and _native is not None and "vancPacket" in meta:
+            for cue in _native.scte_cues(meta):
+                t.cues.append({**cue, "at": time.time()})
+                t.cue_total += 1
         if t.watch:
             t.latest = frame
         rec = t.recording
@@ -307,6 +319,7 @@ class Analyzer:
             "info": {"type": source_type(rec), "host": rec.get("address", ""), "port": rec.get("port", 0),
                      "groups": rec.get("groups", []), "format": _format(t, rec), **t.meta},
             "timing": st, "dropped": t.dropped, "audio": t.meter.snapshot(), "sync": t.sync.snapshot() if t.sync else None,
+            "scte": {"total": t.cue_total, "cues": list(t.cues)[::-1][:50]},
             "recording": t.recording.status() if t.recording else None}
         frame = t.latest
         if want_scopes and frame is not None:

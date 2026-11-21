@@ -19,7 +19,7 @@ import time
 from typing import Any, Callable
 
 from ... import config, gearfeed
-from . import analysis, discovery, multiview, outputs, render, router, runtime, testpatterns, viewer, watch
+from . import analysis, bridge, discovery, multiview, outputs, render, router, runtime, testpatterns, viewer, watch
 
 log = logging.getLogger("relay.ndi")
 
@@ -116,6 +116,7 @@ def clean_settings(raw: Any) -> dict:
                        if isinstance(v, str) and v in known and v not in raw["tests_on"][:i]][:testpatterns.MAX_ON]
     out["router_outputs"] = router.clean_outputs(raw.get("router_outputs"))
     out["watch"] = watch.clean_watch(raw.get("watch"))
+    out["bridge"] = bridge.clean_machines(raw.get("bridge"))
     # Saved before core routes (#544): carried as they are until router.migrate() has moved them, then empty.
     out["routes"] = raw["routes"] if isinstance(raw.get("routes"), list) else []
     out["salvos"] = raw["salvos"] if isinstance(raw.get("salvos"), list) else []
@@ -352,6 +353,7 @@ class Service:
         self.scanning = False
         self.running = False
         self.servers: list[dict] = []     # per discovery server: {"server", "reachable", "error"}
+        self.bridge_status: dict[str, dict] = {}     # Bridge machine id -> {"reachable", "error"} (#303)
         self.via_server = 0               # sources the SDK reports through its finder
 
     def settings(self) -> dict:
@@ -508,6 +510,7 @@ class Service:
         self.outputs.clear()
         self._seen.clear()
         self.servers = []
+        self.bridge_status = {}
         self._bump()
 
     # --------------------------------------------------------------------------------------- analysis (#300)
@@ -622,6 +625,7 @@ class Service:
             found = await asyncio.to_thread(discovery.scan, 2.5, s["extra_ips"]) if s["mdns"] else []
             found = discovery.visible(found, s["groups"])
             self.servers = await asyncio.to_thread(check_servers, s["servers"])
+            self.bridge_status = await asyncio.to_thread(bridge.check, s["bridge"])
             reported = await asyncio.to_thread(self._find_via_sdk) if (s["servers"] or not s["mdns"]) else []
         finally:
             self.scanning = False
@@ -688,11 +692,13 @@ class Service:
     # ----------------------------------------------------------------------------------------------- reads
     def sources(self) -> list[dict]:
         users = self.pool.counts()
+        machines = self.settings()["bridge"]
         out = []
         for rec in self._seen.values():
             r = {k: v for k, v in rec.items() if k != "missed"}
             r["online"] = rec["missed"] < GONE_AFTER
             r["listeners"] = users.get(rec["name"], 0)
+            r["via_bridge"] = bridge.via(rec.get("address", ""), machines)
             got = self._levels.get(rec["name"])
             r["audio_channels"] = len(got[0]) if got and time.monotonic() - got[1] < AUDIO_FRESH_S else 0
             r["health"], r["health_why"] = self.analysis.health(rec["name"])
@@ -716,6 +722,8 @@ class Service:
                 "servers": self.servers, "via_server": self.via_server,
                 "pages": self.pages.status(), "tests": self.tests.status(), "pages_error": render.available(), "router": self.router.snapshot(),
                 "inputs": self.inputs(), "watch": self.watch.snapshot(), "schedules": _named_schedules(),
+                "bridge": [{**m, **self.bridge_status.get(m["id"], {}), "start": bridge.start_text(m)}
+                           for m in self.settings()["bridge"]],
                 "restart_needed": runtime.restart_needed(self.settings())}
 
     # ------------------------------------------------------------------------------------------------ hooks
