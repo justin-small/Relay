@@ -40,9 +40,27 @@ fn fake_propresenter() -> u16 {
     std::thread::spawn(move || {
         for stream in listener.incoming() {
             let Ok(mut s) = stream else { continue };
-            let mut buf = vec![0u8; 8192];
-            let n = s.read(&mut buf).unwrap_or(0);
-            let req = String::from_utf8_lossy(&buf[..n]).to_string();
+            // A request can arrive in pieces (headers, then body): read until the whole body is here.
+            let mut raw: Vec<u8> = Vec::new();
+            let mut buf = [0u8; 4096];
+            loop {
+                let n = s.read(&mut buf).unwrap_or(0);
+                if n == 0 {
+                    break;
+                }
+                raw.extend_from_slice(&buf[..n]);
+                let text = String::from_utf8_lossy(&raw).to_string();
+                if let Some(split) = text.find("\r\n\r\n") {
+                    let want: usize = text[..split]
+                        .lines()
+                        .find_map(|l| l.to_ascii_lowercase().strip_prefix("content-length:").map(|v| v.trim().parse().unwrap_or(0)))
+                        .unwrap_or(0);
+                    if raw.len() >= split + 4 + want {
+                        break;
+                    }
+                }
+            }
+            let req = String::from_utf8_lossy(&raw).to_string();
             let first = req.lines().next().unwrap_or("").to_string();
             let body = if first.starts_with("GET /version") {
                 r#"{"host_description":"ProPresenter 22","api_version":"v1"}"#.to_string()
