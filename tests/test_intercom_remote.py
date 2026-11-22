@@ -66,6 +66,13 @@ class FakeMedia:
     async def untalk(self, channel_id, device_id):
         self.calls.append(("untalk", channel_id, device_id))
 
+    def feed(self, channel_id, source, lane, gain_db=0.0):
+        self.calls.append(("feed", channel_id, lane, gain_db))
+        return True
+
+    def unfeed(self, channel_id, lane):
+        self.calls.append(("unfeed", channel_id, lane))
+
 
 CLOUD: list[tuple] = []
 OPENED = iter(f"sess{n:08d}" for n in range(1, 1000))
@@ -221,6 +228,59 @@ with section("the exposed routes are a fixed list"):
             for r in [next(x for x in routes.router.routes if x.path == p)]}
     eq("exactly the sign-in and the socket", sorted(mine), sorted(routes.REMOTE_ROUTES))
     check("every one is under the module's prefix", all(p.startswith("/intercom/remote/") for _m, p in routes.REMOTE_ROUTES))
+
+with section("main-bus feeds saved for a channel (#616)"):
+    from app.modules.intercom_remote import feeds, IntercomRemote
+
+    eq("a bad list is made safe: duplicates, out-of-range lanes and junk are dropped, gain is limited",
+       feeds.clean_list([{"channel": 1, "lane": 2, "gain_db": -3}, {"channel": 1, "lane": 2}, {"channel": 1, "lane": 33},
+                         {"channel": 0, "lane": 1}, "x", {"channel": "a", "lane": 1},
+                         {"channel": 2, "lane": 1, "gain_db": 99}]),
+       [{"channel": 1, "lane": 2, "gain_db": -3.0}, {"channel": 2, "lane": 1, "gain_db": 12.0}])
+    eq("the module's settings keep only the list", IntercomRemote().clean({"feeds": [{"channel": 1, "lane": 1}], "x": 1}),
+       {"feeds": [{"channel": 1, "lane": 1, "gain_db": 0.0}]})
+    eq("nothing saved is an empty list", IntercomRemote().clean(None), {"feeds": []})
+
+    fm2 = FakeMedia()
+    first = [{"channel": 1, "lane": 3, "gain_db": -6.0}, {"channel": 2, "lane": 4, "gain_db": 0.0}]
+    feeds.save(first)
+    eq("it is saved in the module's settings", feeds.saved(), first)
+    feeds.apply_channel(fm2, 1)
+    eq("a channel's mix starting brings in that channel's feeds only", fm2.calls, [("feed", 1, 3, -6.0)])
+    fm2.calls.clear()
+    second = [{"channel": 1, "lane": 3, "gain_db": -9.0}, {"channel": 1, "lane": 5, "gain_db": 0.0}]
+    feeds.save(second)
+    feeds.change(fm2, {1: 1}, first, second)
+    eq("a change drops what was removed and updates the rest, only on channels being heard",
+       sorted(fm2.calls), [("feed", 1, 3, -9.0), ("feed", 1, 5, 0.0), ("unfeed", 2, 4)])
+    eq("a feed whose channel nobody listens to is waiting",
+       [f["state"] for f in feeds.status(fm2, {})["feeds"]], ["waiting", "waiting"])
+
+    class Mix:
+        def status(self):
+            return {"lanes": [{"patched": True}, {"patched": False}, {"patched": True}],
+                    "outputs": [{"id": "ch1", "underruns": 2, "resyncs": 1, "queued_ms": 61.04}]}
+
+        def feed_status(self, channel_id, lane):
+            return {"carried": 480, "refused": 0, "dropped": 3} if lane == 3 else None
+
+    fm2.mix = Mix()
+    st = feeds.status(fm2, {1: 1})
+    eq("the mixer's lanes and glitches are reported",
+       st["mixer"], {"lanes_total": 32, "lanes_used": 2,
+                     "outputs": [{"channel": 1, "underruns": 2, "resyncs": 1, "queued_ms": 61.0}]})
+    eq("a carried feed shows its counters", st["feeds"][0],
+       {"channel": 1, "lane": 3, "gain_db": -9.0, "state": "carried", "carried": 480, "refused": 0, "dropped": 3})
+    eq("a feed the mixer has no lane for is refused", st["feeds"][1]["state"], "refused")
+
+    heard = []
+    b3 = Bridge()
+    b3.media, b3.state, b3.session_id = fm2, "connected", "s"
+    b3.on_listen = lambda m, c: heard.append(c)
+    run(b3.pull_tracks([1, 2]))
+    run(b3.pull_tracks([1]))
+    eq("the bridge says when a channel's mix starts, once", heard, [1, 2])
+    feeds.save([])
 
 # ------------------------------------------------------------------ the remote socket
 viewer = "http://relay.local:8000"

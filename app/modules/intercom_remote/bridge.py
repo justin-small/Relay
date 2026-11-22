@@ -53,6 +53,8 @@ class Media(Protocol):
     async def unlisten(self, channel_id: int) -> None: ...
     async def talk(self, channel_id: int, user_id: int, device_id: int, cf_session_id: str, name: str) -> None: ...
     async def untalk(self, channel_id: int, device_id: int) -> None: ...
+    def feed(self, channel_id: int, source, lane: int, gain_db: float = 0.0) -> bool: ...
+    def unfeed(self, channel_id: int, lane: int) -> None: ...
 
 
 class Bridge:
@@ -65,6 +67,7 @@ class Bridge:
         self.sleep: Callable[[float], Awaitable[None]] = asyncio.sleep
         self.on_lost: Callable[[], Awaitable[None]] | None = None      # drop every remote phone
         self.on_state: Callable[[str], None] | None = None
+        self.on_listen: Callable[[Media, int], None] | None = None     # a channel's mix started: add its main-bus feeds
         self.listening: dict[int, int] = {}  # channel -> remote phones listening to it
         self._task: asyncio.Task | None = None
         self._stop = asyncio.Event()
@@ -115,12 +118,20 @@ class Bridge:
             with contextlib.suppress(Exception):
                 await cloud.run(cloud.close_session, sid)
 
+    def _listening_now(self, channel_id: int) -> None:
+        if self.on_listen is not None and self.media is not None:
+            try:
+                self.on_listen(self.media, channel_id)
+            except Exception:
+                log.exception("intercom_remote: could not start the main-bus feeds of channel %s", channel_id)
+
     async def _connect(self) -> None:
         assert self.media is not None
         self.session_id = await cloud.run(cloud.open_session)
         await self.media.open()
         for channel_id in list(self.listening):          # phones that were listening before the link dropped
             await self.media.listen(channel_id, self.session_id, track_name(channel_id))
+            self._listening_now(channel_id)
 
     async def _run(self) -> None:
         while not self._stop.is_set():
@@ -173,6 +184,7 @@ class Bridge:
         for channel_id in channels:
             if self.listening.get(channel_id, 0) == 0:
                 await self.media.listen(channel_id, self.session_id, track_name(channel_id))
+                self._listening_now(channel_id)
             self.listening[channel_id] = self.listening.get(channel_id, 0) + 1
             out.append({"location": "remote", "trackName": track_name(channel_id),
                         "sessionId": getattr(self.media, "session", "") or self.session_id})

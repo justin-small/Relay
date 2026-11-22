@@ -596,6 +596,7 @@ for method, path, perm in (
     ("GET", "/api/admin/intercom-remote", "intercom_remote.view"),
     ("POST", "/api/admin/intercom-remote/users/{user_id}/allow", "intercom_remote.manage"),
     ("POST", "/api/admin/intercom-remote/users/{user_id}/cut", "intercom_remote.manage"),
+    ("PUT", "/api/admin/intercom-remote/feeds", "intercom_remote.manage"),
     ("PUT", "/api/admin/intercom/live/production", "intercom.live"),
     ("GET", SGX, "signage.view"),
     ("GET", SGX + "/preview", "signage.view"),

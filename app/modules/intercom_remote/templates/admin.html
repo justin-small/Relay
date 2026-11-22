@@ -10,6 +10,20 @@
     </section>
 
     <section>
+      <h3>Main-bus audio in a channel</h3>
+      <div class="note">Pick a lane of the main audio bus to be heard in a channel's remote mix, for a program feed or a talkback return. A feed plays only while a remote phone is listening to that channel. The mixer has 32 lanes, shared by the room's talkers and these feeds.</div>
+      <table class="grid" id="irFeeds"><thead><tr><th>Channel</th><th>Main-bus lane</th><th>Gain (dB)</th><th>Status</th><th></th></tr></thead><tbody></tbody></table>
+      <div class="row" id="irFeedAdd"></div>
+      <div class="note" id="irFeedMsg" hidden></div>
+    </section>
+
+    <section>
+      <h3>Remote mixer</h3>
+      <div class="note" id="irMixer"></div>
+      <table class="grid" id="irMixOut"><thead><tr><th>Channel</th><th>Underruns</th><th>Resyncs</th><th>Buffered (ms)</th></tr></thead><tbody></tbody></table>
+    </section>
+
+    <section>
       <h3>Remote connections</h3>
       <table class="grid" id="irSessions"><thead><tr><th>Person</th><th>Started</th><th>Ended</th><th>Why</th></tr></thead><tbody></tbody></table>
     </section>
