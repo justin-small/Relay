@@ -1,0 +1,21 @@
+[package]
+name = "relay-rf"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+description = "Spike for the RF monitor (issues 360-376): RTL-SDR in pure Rust, no SoapySDR, no Python"
+
+[dependencies]
+rtl-sdr-rs = "0.4"
+rustfft = "6"
+
+[profile.dev]
+opt-level = 3
+
+[lib]
+name = "relay_rf"
+path = "src/lib.rs"
+
+[[bin]]
+name = "relay-rf"
+path = "src/main.rs"
