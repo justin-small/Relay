@@ -1,0 +1,64 @@
+<!doctype html><meta charset="utf-8"><title>Avantis live meters</title>
+<style>
+body{margin:0;padding:16px;background:#121212;color:#ddd;font:13px system-ui}
+h1{font-size:16px;margin:0 0 4px;font-weight:600}
+#bar{display:flex;gap:18px;align-items:center;margin-bottom:6px;flex-wrap:wrap}
+#note{color:#9a9a9a;margin-bottom:12px;max-width:900px;line-height:1.5}
+#wrap{display:flex;flex-wrap:wrap;gap:22px 26px;align-items:flex-start}
+.g{background:#181818;padding:10px 12px;border-radius:6px}
+.g .t{color:#e8e8e8;font-weight:600;margin-bottom:2px}
+.g .s{color:#8f8f8f;font-size:11px;margin-bottom:8px;max-width:260px;line-height:1.4}
+.body{display:flex;gap:6px;align-items:flex-start}
+.rows{display:flex;flex-direction:column;font-size:11px;color:#9a9a9a;text-align:right}
+.rows div{height:13px;line-height:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:130px}
+.rows .n{color:#cfcfcf}
+.cols{display:flex;font-size:10px;color:#7d7d7d;margin-bottom:3px}
+.cols span{width:13px;text-align:center}
+canvas{display:block}
+.k{display:inline-block;width:14px;height:10px}
+#hov{color:#8ab4f8;min-width:320px}
+</style>
+<h1>Avantis live meters</h1>
+<div id="bar"><span id="st">connecting</span><span id="fps"></span><span id="hov">hover a cell</span></div>
+<div id="note">Read-only view of the desk's meter stream (AH-Net, port 51321). Level scale: -96 dB (silent) to -6 dB (loud). Grey cells are unused filler slots. Each row is one meter block. White tick = peak hold. Pre-fader input meters do not follow the fader.</div>
+<div style="margin-bottom:12px;color:#9a9a9a">-96 dB <span id="lg"></span> -6 dB</div>
+<div id="wrap"></div>
+<script>
+const C=11,G=2,P=C+G;
+const INFO={
+ 0:{w:5,title:'Group 0 - input meters (A)',sub:'96 inputs, one row per input, 5 meter points per input. Points are equal on a channel with no processing.',cols:['1','2','3','4','5'],rows:'in'},
+ 1:{w:4,title:'Group 1 - input meters (B)',sub:'Same 96 inputs, 4 values per input: two level points, a filler slot, and one other measure (unidentified).',cols:['1','2','-','4'],rows:'in'},
+ 2:{w:9,title:'Group 2 - bus / output meters',sub:'56 blocks of 8 points plus a separator. Row labels are INFERRED (groups, then 10 mono aux, then 12 stereo aux as L/R pairs, then main) from the mix order and which blocks carry input 12. Rows 46+ unmapped.',cols:['','1','2','3','4','5','6','7','8'],rows:'blk'},
+ 4:{w:8,title:'Group 4 - unmapped',sub:'40 blocks of 8, mostly silent in this run.',cols:[],rows:'blk'},
+ 5:{w:8,title:'Group 5 - unmapped',sub:'32 blocks of 8, constant -18 dB pattern.',cols:[],rows:'blk'},
+ 6:{w:8,title:'Group 6 - unmapped',sub:'8 blocks of 8.',cols:[],rows:'blk'},
+ 7:{w:8,title:'Group 7 - unmapped',sub:'14 blocks of 8.',cols:[],rows:'blk'},
+ 8:{w:8,title:'Group 8 - unmapped',sub:'6 blocks of 8.',cols:[],rows:'blk'}
+};
+let NAMES={names:{},colours:{}};
+function col(v){if(v===9)return '#262626';const t=Math.max(0,Math.min(1,(v+96)/90));return 'hsl(212,'+Math.round(25+65*t)+'%,'+Math.round(12+52*t)+'%)';}
+for(let i=0;i<=10;i++){const s=document.createElement('span');s.className='k';s.style.background=col(-96+i*9);lg.appendChild(s)}
+const cv={},peak={},cur={},disp={};let last=-1,lastT=Date.now();
+function label(g,r){const inf=INFO[g]||{rows:'blk'};if(g==2){return {n:String(r),t:(NAMES.blocks&&NAMES.blocks[String(r)])||''}}if(inf.rows==='in'){const nm=NAMES.names[String(r)];return {n:String(r+1),t:nm||''}}return {n:String(r),t:''}}
+function mk(g,n){const inf=INFO[g]||{w:8,title:'Group '+g,sub:'',cols:[],rows:'blk'};const w=inf.w,rows=Math.ceil(n/w);
+ const d=document.createElement('div');d.className='g';
+ d.innerHTML='<div class="t">'+inf.title+'</div><div class="s">'+inf.sub+'</div>';
+ if(inf.cols.length){const cr=document.createElement('div');cr.className='cols';cr.style.marginLeft='146px';inf.cols.forEach(x=>{const s=document.createElement('span');s.textContent=x;cr.appendChild(s)});d.appendChild(cr)}
+ const body=document.createElement('div');body.className='body';
+ const rl=document.createElement('div');rl.className='rows';rl.id='rows'+g;
+ for(let r=0;r<rows;r++){const lb=label(g,r);const e=document.createElement('div');e.innerHTML='<span class="n">'+lb.n+'</span> '+(lb.t?lb.t:'');rl.appendChild(e)}
+ body.appendChild(rl);
+ const c=document.createElement('canvas');c.width=w*P;c.height=rows*P;
+ c.onmousemove=e=>{const r=c.getBoundingClientRect(),x=Math.floor((e.clientX-r.left)/P),y=Math.floor((e.clientY-r.top)/P),i=y*w+x,lb=label(g,y);
+  hov.textContent=inf.title.split(' - ')[0]+' | '+(inf.rows==='in'?'input '+lb.n+(lb.t?' "'+lb.t+'"':''):'block '+y)+' | point '+(x+1)+' | '+(cur[g]&&cur[g][i]!==9?cur[g][i]+' dB':'filler')};
+ body.appendChild(c);d.appendChild(body);wrap.appendChild(d);cv[g]=[c,w,rows];peak[g]=new Array(n).fill(-96)}
+function draw(g){const [c,w]=cv[g],x=c.getContext('2d'),a=cur[g],p=peak[g];x.clearRect(0,0,c.width,c.height);
+ for(let i=0;i<a.length;i++){const v=a[i],px=(i%w)*P,py=Math.floor(i/w)*P;x.fillStyle=col(v);x.fillRect(px,py,C,C);
+  if(v!==9){if(v>p[i])p[i]=v;else p[i]=Math.max(-96,p[i]-0.4);
+   if(p[i]>-90){const t=Math.round((p[i]+96)/90*(C-1));x.fillStyle='#fff';x.fillRect(px,py+C-1-t,C,1)}}}}
+async function loadNames(){try{NAMES=await (await fetch('/names')).json();for(const g of [0,1,2]){const rl=document.getElementById('rows'+g);if(!rl)continue;[...rl.children].forEach((e,r)=>{const lb=label(g,r);e.innerHTML='<span class="n">'+lb.n+'</span> '+(lb.t||'')})}}catch(e){}}
+async function tick(){try{const r=await fetch('/state'),s=await r.json();st.textContent=s.status;
+ const now=Date.now();if(last<0){last=s.frames;lastT=now}else if(now-lastT>1000){fps.textContent=Math.round((s.frames-last)/((now-lastT)/1000)/8)+' frames/s per group';last=s.frames;lastT=now}
+ for(const g in s.groups){const n=s.groups[g].length;if(!cv[g]){mk(g,n);disp[g]=s.groups[g].slice()}const d=disp[g],v=s.groups[g];for(let i=0;i<n;i++){d[i]=(v[i]===9)?9:(d[i]===9?v[i]:Math.max(v[i],d[i]-1.0))}cur[g]=d;draw(g)}}catch(e){st.textContent='server unreachable'}}
+setInterval(tick,50);setInterval(loadNames,5000);loadNames();
+</script>
