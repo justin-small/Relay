@@ -179,6 +179,9 @@ async def open_tcp(route: Resolved | str, host: str, port: int, timeout: float =
         kwargs["server_hostname"] = host
     try:
         return await asyncio.open_connection(sock=sock, **kwargs)
+    except ssl.SSLError:
+        _close(sock)
+        raise RouteError(f"The TLS connection to {host} port {port} failed. Check its certificate.") from None
     except OSError:
         _close(sock)
         raise RouteError(f"Could not connect to {host} port {port} through {_name(_resolved(route))}.") from None
