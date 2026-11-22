@@ -55,9 +55,11 @@ MODULES = APP / "modules"
 # they talk to no other product (a module only adds widgets to them through the registry).
 # serialio.py (#629): serial over TCP/UDP and local serial ports for modules, with framing and reconnect; core because every
 # module that speaks serial (a Furman sequencer, a projector) shares it, and it opens sockets only through netsock.
+# modbus.py (#629): a Modbus TCP and RTU client over a serialio.Link; core because every module that reads a PLC, meter or
+# relay board shares it, and it opens nothing itself (the Link does, through netsock).
 CORE_FILES = {
     "__init__.py", "aimodels.py", "alerthistory.py", "alerts.py", "announce.py", "audio.py", "audiobus.py", "audit.py", "backup.py", "boards.py", "layout.py", "config.py", "db.py", "demo.py", "engine.py", "exporting.py", "hub.py", "prefs.py",
-    "devices.py", "directory.py", "gear.py", "gearfeed.py", "helperhub.py", "cables.py", "channels.py", "routing.py", "importdocker.py", "languages.py", "main.py", "mdns.py", "metering.py", "mixreport.py", "netinfo.py", "netroute.py", "netsock.py", "network_map.py", "nosound.py", "oauth.py", "overlays.py", "panelfw.py", "panels.py", "paths.py", "ports.py", "realtime.py", "recorder.py", "redact.py",
+    "devices.py", "directory.py", "gear.py", "gearfeed.py", "helperhub.py", "cables.py", "channels.py", "routing.py", "importdocker.py", "languages.py", "main.py", "mdns.py", "metering.py", "mixreport.py", "modbus.py", "netinfo.py", "netroute.py", "netsock.py", "network_map.py", "nosound.py", "oauth.py", "overlays.py", "panelfw.py", "panels.py", "paths.py", "ports.py", "realtime.py", "recorder.py", "redact.py",
     "scheduler.py", "schedules.py", "screens.py", "secretbox.py", "serialio.py", "serving.py", "setupcode.py", "sidecar.py", "streamstatus.py", "tally.py", "text.py", "texttranslate.py", "timewin.py", "tls.py", "tones.py", "transcribe.py", "users.py",
 }
 # Network clients, and the core files allowed them: OpenAI (realtime, text translation) and the host's own
