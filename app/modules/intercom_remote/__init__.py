@@ -28,7 +28,7 @@ class IntercomRemote(Module):
         guide="https://github.com/justin-small/relay#intercom-remote",
         uses=("intercom", "remote_access"),
     )
-    defaults: dict = {}
+    defaults: dict = {"feeds": []}
     admin_pages = (AdminPage(
         id="intercom-remote", title="Remote crew", template="admin.html",
         icon='<circle cx="8" cy="8" r="6"/><path d="M2 8h12M8 2c2 2 2.5 4 2.5 6S10 12 8 14M8 2C6 4 5.5 6 5.5 8S6 12 8 14"/>'),)
@@ -42,7 +42,9 @@ class IntercomRemote(Module):
     )
 
     def clean(self, raw: Any) -> dict:
-        return {}
+        from .feeds import clean_list
+
+        return {"feeds": clean_list(raw.get("feeds") if isinstance(raw, dict) else None)}
 
     def configured(self, settings: dict) -> bool:
         return False
@@ -57,12 +59,16 @@ class IntercomRemote(Module):
         from .bridge import bridge
         from .remote import crew
 
+        from . import feeds
+
         bridge.on_lost = crew.drop_all
+        bridge.on_listen = feeds.apply_channel
 
     def detach(self) -> None:
         from .bridge import bridge
 
         bridge.on_lost = None
+        bridge.on_listen = None
 
     async def start(self) -> None:
         from . import media, watch

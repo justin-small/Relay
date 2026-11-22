@@ -55,7 +55,9 @@ def free_port():
 PORT = free_port()
 config.ensure_file()
 # The browser talks to the operator port (plain HTTP here); the viewer port is another, unused one.
-config.save({"admin_token": "t0ken", "port": free_port(), "admin_port": PORT})
+config.save({"admin_token": "t0ken", "port": free_port(), "admin_port": PORT,
+             "modules": {"intercom": {"enabled": True}, "remote_access": {"enabled": True},
+                         "intercom_remote": {"enabled": True}}})
 users.SCRYPT_N = 2 ** 10
 PASSWORD = "correct horse"
 for role in users.ROLES:                    # one person of each role, named after it
@@ -258,6 +260,35 @@ try:
                     eq(f"{preset} {path}: controls and text on the token scale", p2.evaluate(PROBE, EXEMPT), [])
                     p2.close()
                 octx.close()
+
+        with section("remote crew: feed a main-bus lane into a channel's mix (#616)"):
+            from app.modules.intercom import store as intercom_store
+
+            intercom_store.create_channel("Stage")
+            octx, page, seen = owner_page()
+            page.evaluate("() => { location.hash = 'intercom-remote' }")
+            page.wait_for_selector("#irFeedAdd select")
+            check("the page says no feed is set and shows the mixer's lanes",
+                  "0 of 32 mixer lanes in use" in page.inner_text("#irMixer"), page.inner_text("#irMixer"))
+            page.select_option("#irFeedAdd select >> nth=1", "3")
+            page.fill("#irFeedAdd input", "-6")
+            page.click("#irFeedAdd button")
+            page.wait_for_selector("#irFeeds tbody tr")
+            row = page.inner_text("#irFeeds tbody tr")
+            check("the feed is listed with its channel, lane and gain", "Stage" in row and "Lane 3" in row, row)
+            eq("and its gain", page.input_value("#irFeeds tbody tr input"), "-6")
+            check("it waits until a remote phone listens", "Waiting for a remote phone" in row, row)
+            eq("it was saved in the module's settings", config.get()["intercom_remote"]["feeds"],
+               [{"channel": 1, "lane": 3, "gain_db": -6.0}])
+            page.reload(wait_until="load")
+            page.evaluate("() => { location.hash = 'intercom-remote' }")
+            page.wait_for_selector("#irFeeds tbody tr")
+            check("and is still there after a reload", "Lane 3" in page.inner_text("#irFeeds tbody tr"))
+            page.click("#irFeeds tbody tr button")
+            page.wait_for_function("() => !document.querySelector('#irFeeds tbody tr')")
+            eq("removing it clears the setting", config.get()["intercom_remote"]["feeds"], [])
+            eq("no script or console error on the page", (seen["errors"], seen["console"]), ([], []))
+            octx.close()
 
         with section("shell: phone width"):
             octx, page, seen = owner_page(375, 812)

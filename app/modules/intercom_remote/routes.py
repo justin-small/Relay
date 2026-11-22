@@ -17,10 +17,10 @@ from pathlib import Path
 from fastapi.responses import FileResponse, JSONResponse
 
 from .. import require
-from ... import users
+from ... import audit, audiobus, users
 from ..intercom import devices, store as istore
 from ..intercom.presence import presence
-from . import remote, store
+from . import feeds, remote, store
 from .bridge import bridge
 
 router = APIRouter()
@@ -116,7 +116,22 @@ def view() -> dict:
 
 @router.get("/api/admin/intercom-remote", dependencies=[Depends(require("intercom_remote.view"))])
 async def remote_view():
-    return {**view(), "people": await istore.run(store.people), "sessions": await istore.run(store.sessions)}
+    return {**view(), "people": await istore.run(store.people), "sessions": await istore.run(store.sessions),
+            **await _feed_view()}
+
+
+def _main_lanes() -> list[dict]:
+    try:
+        return [{"lane": n["lane"], "name": n.get("name") or ""} for n in audiobus.bus.status()["lanes"]]
+    except Exception:
+        log.exception("intercom remote: could not list the main bus's lanes")
+        return [{"lane": n, "name": ""} for n in range(1, audiobus.LANES + 1)]
+
+
+async def _feed_view() -> dict:
+    rows = await istore.run(istore.channels)
+    return {**feeds.status(bridge.media, bridge.listening), "channels": [{"id": c["id"], "name": c["name"]} for c in rows],
+            "main_lanes": _main_lanes()}
 
 
 @router.post("/api/admin/intercom-remote/users/{user_id}/allow")
@@ -142,3 +157,26 @@ async def remote_cut(user_id: int, user: users.User = Depends(require("intercom_
         await presence.revoked({"id": device_id, "user_id": user_id})
     await remote.drop_user(user_id, "cut")
     return {"cut": len(ids)}
+
+
+@router.put("/api/admin/intercom-remote/feeds")
+async def remote_feeds(request: Request, user: users.User = Depends(require("intercom_remote.manage"))):
+    """Replace the list of main-bus lanes heard in a channel's remote mix: `{feeds: [{channel, lane, gain_db}]}`."""
+    data = await _body(request)
+    raw = data.get("feeds")
+    if not isinstance(raw, list):
+        return JSONResponse({"error": "Send the list of feeds."}, status_code=400)
+    new = feeds.clean_list(raw)
+    if len(new) != len(raw):
+        return JSONResponse({"error": "Each feed needs an intercom channel, a main-bus lane from 1 to "
+                             f"{feeds.LANES} that is not already used for that channel, and a gain from "
+                             f"{feeds.GAIN_MIN:g} to {feeds.GAIN_MAX:g} dB."}, status_code=400)
+    known = {c["id"] for c in await istore.run(istore.channels)}
+    if any(f["channel"] not in known for f in new):
+        return JSONResponse({"error": "That intercom channel does not exist."}, status_code=400)
+    old = feeds.saved()
+    feeds.save(new)
+    feeds.change(bridge.media, bridge.listening, old, new)
+    audit.note(request, "intercom_remote.feeds", "Changed the main-bus feeds of the remote intercom",
+               target=f"{len(new)} feed{'s' if len(new) != 1 else ''}")
+    return await _feed_view()
