@@ -1185,6 +1185,54 @@ free-text `team` or `position` column on its own (`tests/test_shared_concepts.py
   fills, no longer called `role`) defaults to their usual Planning Center position, learned from the plans they are
   scheduled on, and an admin's own role replaces it.
 
+## Shared transports: serial, Modbus and MQTT
+
+A module that talks to a device over a serial line, Modbus or MQTT never opens a socket, a serial port or a broker
+connection itself (#629). Core has the transports, and the operator sets up the connection once on **System > Connections**.
+
+| File | What it gives a module |
+|---|---|
+| `app/serialio.py` | `Link`: serial over TCP or UDP (a serial server such as the Waveshare RS232/485/422 to PoE ETH), or a local serial port (pyserial). Reconnects with a backoff, says whether it is connected and why not, runs one request at a time. Framing by terminator (CR, LF, NUL, CRLF). |
+| `app/modbus.py` | `ModbusClient` on a `Link`: Modbus TCP, or RTU over a serial port or a serial-over-TCP link. Coils, discrete inputs, holding and input registers; unit id, timeout, retries. |
+| `app/mqttclient.py` | `MqttClient`: MQTT 3.1.1, QoS 0 and 1, wildcards, retained messages, last will, user name and password, TLS (system trust, or a certificate the operator pastes in). Reconnects and subscribes again by itself. |
+| `app/connections.py` | The operator's saved connections and Test. Hands a module a started handle. |
+
+```python
+from app import connections
+
+link = await connections.open_link(conn_id, traffic="furman")     # a serial connection, or the link under a Modbus one
+reply = await link.request(b"?ID 0\r", until=b"\x04", timeout=1.0)  # send, wait for the terminator, one at a time
+
+modbus = await connections.open_modbus(conn_id)                   # ModbusClient: await modbus.read_holding_registers(0, 10)
+mqtt = await connections.open_mqtt(conn_id)                       # await mqtt.subscribe("a/+/b", handler); await mqtt.publish(...)
+```
+
+- **Pass your own traffic class** (`traffic="furman"`, declared in your `Manifest.traffic`) so the connection's sockets
+  leave through the port the operator routed your module to. Without it the connection uses its own class,
+  `connections`, which the Network page routes like any other. TCP, UDP and TLS all open through `app/netsock.py`.
+- **Do not keep a handle across an edit.** Editing or deleting a connection closes its handles; ask `connections.open_*`
+  again when you need one (it is cached). A handle starts connecting at once: `await link.wait_connected(seconds)` if you
+  need it up before the first request.
+- **State** for your page: `link.state()` and `client.state()` give `connected`, `last_error` (a fixed sentence), when it
+  connected, and byte or message counts.
+- **Errors carry a fixed `.message`** (`LinkError`, `ModbusError`, `MqttError`, `SettingsError`, `connections.Refused`). A
+  route answers with `exc.message` through `HTTPException`, never `str(exc)`, or CodeQL flags information exposure.
+- **Settings** for a connection of your own kind come from `serialio.clean_link`, `modbus.clean_modbus` and
+  `mqttclient.clean_mqtt`. An MQTT password is sealed at rest (`secretbox`) and never sent to a browser.
+- **Test** (`connections.test`): connect and optionally send for serial, read a register for Modbus, publish and hear a
+  message back for MQTT. It opens a temporary handle and saves nothing.
+- **Permissions**: `connections.view` and `connections.manage`, both admin; `connections.manage` is barred from API tokens.
+
+Why Modbus and MQTT are written here and not taken from pymodbus and paho-mqtt: both open their own sockets, which would
+bypass the routing that keeps a module's traffic on the chosen network port (#345), and both would add to the desktop
+build. The only new dependency is pyserial (pure Python), for local serial ports.
+
+**Tested against fakes, and in two cases against the real thing:** `tests/test_serialio.py`, `test_modbus.py`,
+`test_mqttclient.py` and `test_connections.py` run real code against fake devices on loopback and a pty, and the MQTT
+tests also run against a real mosquitto when it is installed. A Waveshare serial server was run by hand with a loopback on
+its RS-232 and RS-422 ports (echo, latency, all four terminators, all 256 byte values, reconnect). No Furman, Modbus
+device or MQTT broker on a real show network was used.
+
 ## Reaching another module
 
 One pattern for a module to give core or another module something, and for them to ask for it (#523, part of the
