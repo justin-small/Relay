@@ -73,7 +73,7 @@ _db.reset()
 check("init() is true with a database", db.init())
 check("available() is true", db.available())
 rows = db.query("select namespace, version from schema_migrations order by version")
-CORE_N = 15
+CORE_N = 16
 eq("core migrations applied once, in order", rows,
    [{"namespace": "core", "version": "0001_users"}, {"namespace": "core", "version": "0002_api_tokens"},
     {"namespace": "core", "version": "0003_audit_log"}, {"namespace": "core", "version": "0004_user_prefs"},
@@ -84,7 +84,8 @@ eq("core migrations applied once, in order", rows,
     {"namespace": "core", "version": "0012_ports"},
     {"namespace": "core", "version": "0013_cables"},
     {"namespace": "core", "version": "0014_channels"},
-    {"namespace": "core", "version": "0015_routes"}])
+    {"namespace": "core", "version": "0015_routes"},
+    {"namespace": "core", "version": "0016_connections"}])
 check("init() again is a no-op", db.init())
 eq("still the same migration rows", db.one("select count(*) as n from schema_migrations")["n"], CORE_N)
 eq("migrate() twice is idempotent", (db.migrate("core", db.CORE_MIGRATIONS), db.migrate("core", db.CORE_MIGRATIONS)),
@@ -226,6 +227,7 @@ CATALOGUE = {
     "blocklist.manage": "admin", "settings.view": "viewer", "settings.manage": "admin",
     "credentials.manage": "owner", "modules.view": "viewer", "modules.manage": "admin", "users.view": "admin",
     "network.view": "viewer", "network.manage": "admin", "helpers.view": "admin", "helpers.manage": "admin",
+    "connections.view": "admin", "connections.manage": "admin",
     "users.manage": "admin", "tokens.own": "admin", "tokens.manage": "owner", "audit.view": "admin",
 }
 eq("the core catalogue is exactly the contract's table",

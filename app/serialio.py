@@ -42,11 +42,19 @@ BACKOFF = (0.5, 30.0)         # seconds before the first retry, and the most it 
 
 
 class LinkError(OSError):
-    """A link that cannot do what was asked. The message is a fixed sentence, safe to show an operator."""
+    """A link that cannot do what was asked. `message` is a fixed sentence, safe to show an operator."""
+
+    def __init__(self, message: str):
+        super().__init__(message)
+        self.message = message
 
 
 class SettingsError(ValueError):
-    """Settings that cannot make a link. The message is a fixed sentence."""
+    """Settings that cannot make a link, a Modbus client or an MQTT client. `message` is a fixed sentence."""
+
+    def __init__(self, message: str):
+        super().__init__(message)
+        self.message = message
 
 
 # ------------------------------------------------------------------ settings
@@ -403,9 +411,9 @@ class Link:
                 try:
                     await chan.open(self._feed)
                 except netsock.RouteError as exc:
-                    self._fail(str(exc))           # netsock's sentences are fixed
+                    self._fail(exc.message)        # netsock's sentences are fixed
                 except LinkError as exc:
-                    self._fail(str(exc))
+                    self._fail(exc.message)
                 except (OSError, asyncio.TimeoutError):
                     self._fail("Could not connect.")
                 except KeyError:

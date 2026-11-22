@@ -52,6 +52,7 @@ class ModbusError(OSError):
 
     def __init__(self, message: str, code: int | None = None):
         super().__init__(message)
+        self.message = message
         self.code = code
 
 
@@ -193,13 +194,13 @@ class ModbusClient:
                 return await self._once(unit, pdu)
             except serialio.LinkError as exc:
                 last = exc
-                if str(exc) == "Not connected." or str(exc) == "The connection was lost.":
+                if exc.message in ("Not connected.", "The connection was lost."):
                     break                  # nothing to retry until the link is back
             except ModbusError as exc:
                 if exc.code is not None:
                     raise                  # the device said no; asking again will not change its mind
                 last = exc
-        raise ModbusError(str(last) if isinstance(last, (serialio.LinkError, ModbusError)) else "The request failed.")
+        raise ModbusError(getattr(last, "message", "The request failed."))
 
     # -- reads
 

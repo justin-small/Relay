@@ -47,7 +47,11 @@ Handler = Callable[[str, bytes, bool], "Awaitable[None] | None"]
 
 
 class MqttError(OSError):
-    """An MQTT operation that failed. The message is a fixed sentence."""
+    """An MQTT operation that failed. `message` is a fixed sentence."""
+
+    def __init__(self, message: str):
+        super().__init__(message)
+        self.message = message
 
 
 # ------------------------------------------------------------------ settings and topics
@@ -419,9 +423,9 @@ class MqttClient:
                 try:
                     await self._session()
                 except netsock.RouteError as exc:
-                    self._fail(str(exc))
+                    self._fail(exc.message)
                 except MqttError as exc:
-                    self._fail(str(exc))
+                    self._fail(exc.message)
                 except (OSError, asyncio.TimeoutError):
                     self._fail("Could not connect to the broker.")
                 except KeyError:
