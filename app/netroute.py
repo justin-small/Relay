@@ -65,6 +65,7 @@ CORE_TRAFFIC: tuple[Traffic, ...] = (
     Traffic("crew", "Operator panel, sign-in and crew pages (HTTPS)"),
     Traffic("discovery", "Relay's announcement to caption panels (mDNS)"),
     Traffic("translation", "Translation service (OpenAI, over the internet)"),
+    Traffic("connections", "Serial, Modbus and MQTT connections (app/connections.py)"),
 )
 
 

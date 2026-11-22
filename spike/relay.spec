@@ -22,7 +22,7 @@ datas += collect_data_files("tzdata") + collect_data_files("certifi")
 datas += copy_metadata("keyring")
 
 # Modules are discovered by pkgutil.iter_modules on the folder, so every one has to be pulled in by name.
-hidden = collect_submodules("app") + collect_submodules("uvicorn") + collect_submodules("cryptography") + collect_submodules("keyring.backends") + ["uvloop", "httptools", "relay_bus", "relay_bus._native"]
+hidden = collect_submodules("app") + collect_submodules("uvicorn") + collect_submodules("cryptography") + collect_submodules("keyring.backends") + collect_submodules("serial") + ["uvloop", "httptools", "relay_bus", "relay_bus._native"]
 binaries = collect_dynamic_libs("_sounddevice_data") + collect_dynamic_libs("soxr")
 
 a = Analysis(["entry.py"], pathex=["..", "."], datas=datas, binaries=binaries, hiddenimports=hidden)

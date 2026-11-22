@@ -53,16 +53,18 @@ MODULES = APP / "modules"
 # task (core translation, and modules later) asks it, and it reaches the network only through netsock.
 # layout.py (#421) and boards.py (#156): the shared grid editor's schema and the boards built with it; core because
 # they talk to no other product (a module only adds widgets to them through the registry).
+# serialio.py (#629): serial over TCP/UDP and local serial ports for modules, with framing and reconnect; core because every
+# module that speaks serial (a Furman sequencer, a projector) shares it, and it opens sockets only through netsock.
 CORE_FILES = {
     "__init__.py", "aimodels.py", "alerthistory.py", "alerts.py", "announce.py", "audio.py", "audiobus.py", "audit.py", "backup.py", "boards.py", "layout.py", "config.py", "db.py", "demo.py", "engine.py", "exporting.py", "hub.py", "prefs.py",
     "devices.py", "directory.py", "gear.py", "gearfeed.py", "helperhub.py", "cables.py", "channels.py", "routing.py", "importdocker.py", "languages.py", "main.py", "mdns.py", "metering.py", "mixreport.py", "netinfo.py", "netroute.py", "netsock.py", "network_map.py", "nosound.py", "oauth.py", "overlays.py", "panelfw.py", "panels.py", "paths.py", "ports.py", "realtime.py", "recorder.py", "redact.py",
-    "scheduler.py", "schedules.py", "screens.py", "secretbox.py", "serving.py", "setupcode.py", "sidecar.py", "streamstatus.py", "tally.py", "text.py", "texttranslate.py", "timewin.py", "tls.py", "tones.py", "transcribe.py", "users.py",
+    "scheduler.py", "schedules.py", "screens.py", "secretbox.py", "serialio.py", "serving.py", "setupcode.py", "sidecar.py", "streamstatus.py", "tally.py", "text.py", "texttranslate.py", "timewin.py", "tls.py", "tones.py", "transcribe.py", "users.py",
 }
 # Network clients, and the core files allowed them: OpenAI (realtime, text translation) and the host's own
 # address for the viewer links (main, netinfo) and Relay announcing itself to its own caption panels (announce).
 NETWORK = {"socket", "ssl", "http.client", "urllib.request", "websockets", "httpx", "aiohttp", "requests",
            "zeroconf", "paho", "pyserial", "serial"}
-CORE_NETWORK = {"announce.py": {"socket"}, "main.py": {"socket"}, "mdns.py": {"socket"}, "netinfo.py": {"socket"}, "netsock.py": {"socket", "ssl", "http.client", "urllib.request", "websockets"}, "realtime.py": {"ssl"}, "serving.py": {"socket"},
+CORE_NETWORK = {"announce.py": {"socket"}, "main.py": {"socket"}, "mdns.py": {"socket"}, "netinfo.py": {"socket"}, "netsock.py": {"socket", "ssl", "http.client", "urllib.request", "websockets"}, "realtime.py": {"ssl"}, "serialio.py": {"serial"}, "serving.py": {"socket"},
                 "texttranslate.py": {"urllib.request"}, "tls.py": {"socket", "ssl"}}
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
