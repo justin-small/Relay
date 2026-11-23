@@ -38,7 +38,7 @@ impl Registry {
     pub fn infos(&self) -> Vec<CapInfo> {
         self.caps
             .values()
-            .map(|c| CapInfo { id: c.id().to_string(), version: c.version(), ops: c.ops().iter().map(|s| s.to_string()).collect() })
+            .map(|c| CapInfo { id: c.id().to_string(), version: c.version(), ops: c.ops().iter().map(std::string::ToString::to_string).collect() })
             .collect()
     }
 
@@ -50,5 +50,11 @@ impl Registry {
             return Err(format!("The '{cap}' capability has no '{op}' operation."));
         }
         c.call(op, args).await
+    }
+}
+
+impl std::fmt::Debug for Registry {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Registry").field("capabilities", &self.caps.keys().collect::<Vec<_>>()).finish()
     }
 }

@@ -50,6 +50,12 @@ swaps of a module's functions (`routes.fetch = fake`), timeouts above the harnes
 `# allow-sleep: shows no second push arrives` (a sleep only shows that something does *not* happen; a mock or
 patch only stands in for a seam a test cannot reach, such as the OS network stack).
 
+## Python version
+
+CI and the release build run Python 3.15, and `requirements.txt` needs 3.11 or newer (Pillow 13). The `.venv` that
+`.venv/bin/python` points to must be built on one of those and match `requirements.txt`; rebuild it if
+`.venv/bin/python -V` says 3.10.
+
 ## Run the whole suite before every push
 
 CI runs every `tests/test_*.py` plus `tests/smoke_test.py` on three platforms, and a new route, setting or module

@@ -8,9 +8,9 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 pub const LABEL: &str = "org.relay.helper";
-#[cfg_attr(not(windows), allow(dead_code))]
+#[cfg_attr(not(windows), expect(dead_code, reason = "only the Windows autostart uses the Run key"))]
 const RUN_VALUE: &str = "Relay Helper";
-#[cfg_attr(not(windows), allow(dead_code))]
+#[cfg_attr(not(windows), expect(dead_code, reason = "only the Windows autostart uses the Run key"))]
 const RUN_KEY: &str = r"HKCU\Software\Microsoft\Windows\CurrentVersion\Run";
 
 fn xml_escape(text: &str) -> String {
@@ -45,7 +45,6 @@ pub fn plist(exe: &Path, config: Option<&Path>, log: &Path) -> String {
 }
 
 /// What goes in Windows' `Run` key: the program, quoted, and `run --background` so it lets go of its console window.
-#[cfg_attr(not(windows), allow(dead_code))]
 pub fn run_value(exe: &Path) -> String {
     format!("\"{}\" run --background", exe.display())
 }
@@ -67,7 +66,7 @@ pub fn detach_console() {
 
 #[cfg_attr(not(any(target_os = "macos", windows)), allow(dead_code))]
 fn run(cmd: &mut Command) -> Result<bool, String> {
-    cmd.output().map(|o| o.status.success()).map_err(|e| format!("Could not run {:?}: {e}", cmd.get_program()))
+    cmd.output().map(|o| o.status.success()).map_err(|e| format!("Could not run {}: {e}", cmd.get_program().to_string_lossy()))
 }
 
 #[cfg(target_os = "macos")]
@@ -84,7 +83,7 @@ pub fn install(config_override: Option<&Path>) -> Result<String, String> {
         let home = PathBuf::from(std::env::var_os("HOME").ok_or("HOME is not set.")?);
         let path = launch_agent_path(&home);
         let log = home.join("Library").join("Logs").join("Relay Helper.log");
-        std::fs::create_dir_all(path.parent().unwrap()).map_err(|e| format!("Cannot create {}: {e}", path.display()))?;
+        std::fs::create_dir_all(path.parent().ok_or("The launch agent path has no folder.")?).map_err(|e| format!("Cannot create {}: {e}", path.display()))?;
         std::fs::write(&path, plist(&exe, config_override, &log)).map_err(|e| format!("Cannot write {}: {e}", path.display()))?;
         let domain = format!("gui/{}", uid()?);
         let _ = run(Command::new("launchctl").args(["bootout", &format!("{domain}/{LABEL}")]));
@@ -101,8 +100,11 @@ pub fn install(config_override: Option<&Path>) -> Result<String, String> {
             return Err("Windows would not save the startup entry.".to_string());
         }
         // CREATE_NO_WINDOW | DETACHED_PROCESS: running now, with no console, and not tied to this one.
-        Command::new(&exe).args(["run", "--background"]).creation_flags(0x0800_0000 | 0x0000_0008)
-            .spawn().map_err(|e| format!("The startup entry is saved, but the helper did not start: {e}"))?;
+        Command::new(&exe)
+            .args(["run", "--background"])
+            .creation_flags(0x0800_0000 | 0x0000_0008)
+            .spawn()
+            .map_err(|e| format!("The startup entry is saved, but the helper did not start: {e}"))?;
         Ok("The helper now starts when you sign in to Windows and is running.".to_string())
     }
     #[cfg(not(any(target_os = "macos", windows)))]

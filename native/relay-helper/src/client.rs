@@ -149,7 +149,7 @@ pub async fn session_with(config: &Config, registry: &Registry, keep: Keepalive)
                 refused = true;
                 break;
             }
-            Ok(ToHelper::Welcome { .. }) | Ok(ToHelper::Paired { .. }) | Err(_) => {}
+            Ok(ToHelper::Welcome { .. } | ToHelper::Paired { .. }) | Err(_) => {}
         }
     }
     drop(tx);

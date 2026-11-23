@@ -26,6 +26,7 @@ pub trait Opener: Send + Sync {
     fn open(&self, files: &[PathBuf]) -> Result<(), String>;
 }
 
+#[derive(Debug)]
 pub struct SystemOpener;
 
 impl Opener for SystemOpener {
@@ -44,11 +45,8 @@ impl Opener for SystemOpener {
         } else if cfg!(windows) {
             // `start` opens each file with the program Windows has for .pro: ProPresenter.
             for f in files {
-                let status = std::process::Command::new("cmd")
-                    .args(["/C", "start", ""])
-                    .arg(f)
-                    .status()
-                    .map_err(|e| format!("Could not start ProPresenter: {e}"))?;
+                let status =
+                    std::process::Command::new("cmd").args(["/C", "start", ""]).arg(f).status().map_err(|e| format!("Could not start ProPresenter: {e}"))?;
                 if !status.success() {
                     return Err("ProPresenter would not open the file (is it installed?).".to_string());
                 }
@@ -123,9 +121,7 @@ impl ProPresenter {
         let mut paths = Vec::new();
         for f in &files {
             let name = safe_name(&f.name)?;
-            let data = base64::engine::general_purpose::STANDARD
-                .decode(f.data_b64.as_bytes())
-                .map_err(|_| format!("'{}' is not valid base64.", f.name))?;
+            let data = base64::engine::general_purpose::STANDARD.decode(f.data_b64.as_bytes()).map_err(|_| format!("'{}' is not valid base64.", f.name))?;
             if data.len() > MAX_FILE {
                 return Err(format!("'{}' is larger than {} MB.", f.name, MAX_FILE / 1024 / 1024));
             }
@@ -133,7 +129,7 @@ impl ProPresenter {
             tokio::fs::write(&path, &data).await.map_err(|e| format!("Cannot write '{name}': {e}"))?;
             paths.push(path);
         }
-        let opener = self.opener.clone();
+        let opener = Arc::clone(&self.opener);
         let to_open = paths.clone();
         tokio::task::spawn_blocking(move || opener.open(&to_open)).await.map_err(|e| e.to_string())??;
         // ProPresenter copies a song into its own library when it opens it; the file is not needed after that.
@@ -148,11 +144,7 @@ impl ProPresenter {
 
 /// A file name that is one plain `.pro` name: no folders, no dots at the start, an extension ProPresenter imports.
 pub fn safe_name(name: &str) -> Result<String, String> {
-    let bad = name.is_empty()
-        || name.len() > 200
-        || name.starts_with('.')
-        || name.contains(['/', '\\', '\0', ':'])
-        || name.chars().any(|c| c.is_control());
+    let bad = name.is_empty() || name.len() > 200 || name.starts_with('.') || name.contains(['/', '\\', '\0', ':']) || name.chars().any(char::is_control);
     if bad {
         return Err(format!("'{name}' is not a file name the helper will write."));
     }
@@ -182,11 +174,7 @@ pub fn check_api_path(path: &str) -> Result<(), String> {
 async fn http(url: &str, method: &str, body: Option<String>) -> Result<(u16, Value), String> {
     let (url, method) = (url.to_string(), method.to_string());
     tokio::task::spawn_blocking(move || {
-        let agent: ureq::Agent = ureq::Agent::config_builder()
-            .timeout_global(Some(Duration::from_secs(10)))
-            .http_status_as_error(false)
-            .build()
-            .into();
+        let agent: ureq::Agent = ureq::Agent::config_builder().timeout_global(Some(Duration::from_secs(10))).http_status_as_error(false).build().into();
         let mut req = ureq::http::Request::builder().method(method.as_str()).uri(&url);
         if body.is_some() {
             req = req.header("Content-Type", "application/json");
@@ -221,5 +209,11 @@ impl Capability for ProPresenter {
                 _ => Err(format!("Unknown operation '{op}'.")),
             }
         })
+    }
+}
+
+impl std::fmt::Debug for ProPresenter {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ProPresenter").field("scratch", &self.scratch).finish_non_exhaustive()
     }
 }
