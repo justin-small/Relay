@@ -176,7 +176,7 @@ async fn sign_in_never_says_which_half_was_wrong_and_disabled_only_after_the_pas
     let u = make(&auth, "carol", "operator").await;
     assert_eq!(refused(auth.authenticate("nobody", &secret("good")).await), Refusal::BadLogin);
     assert_eq!(refused(auth.authenticate("carol", &secret("wrong")).await), Refusal::BadLogin);
-    assert_eq!(refused(auth.authenticate("", "").await), Refusal::BadLogin);
+    assert_eq!(refused(auth.authenticate("", &secret("good")).await), Refusal::BadLogin);
     assert_eq!(refused(auth.authenticate("carol", &"x".repeat(201)).await), Refusal::BadLogin);
     let admin = make(&auth, "boss", "owner").await;
     auth.update_user(u.id, UserChanges { disabled: Some(true), ..Default::default() }, Some(&admin)).await.unwrap();
