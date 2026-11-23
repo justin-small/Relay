@@ -2736,7 +2736,11 @@
       cfg = state.config;
       renderLanes(state.lanes, cfg.audio_lane);
       renderKeyState();
-      // Module scripts (app/modules/<id>/static/) start from here.
+      // Module scripts (app/modules/<id>/static/) start from here. They are plain scripts after this one, so on a fast
+      // response the state can arrive before they have run and attached their listener (#687): wait for the parser.
+      if (document.readyState === 'loading') {
+        await new Promise(function (done) { document.addEventListener('DOMContentLoaded', done, { once: true }); });
+      }
       document.dispatchEvent(new CustomEvent('relay:config'));
       $('font').value = cfg.default_font_px;
       $('history').value = cfg.history_lines;
