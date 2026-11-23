@@ -273,15 +273,19 @@ class Engine:
         return sorted(out, key=lambda d: d["label"])
 
     def status(self) -> dict:
-        # Imported here: the scheduler drives this engine, so it imports us.
+        # Imported here: the scheduler and the stream drive this engine, so they import us.
         from .scheduler import scheduler
+        from .stream import stream
 
         cfg = config.get()
         sessions = [s.health() for s in self._sessions()]
         live = set(self._live_names())
         return {
-            "running": self.running,
-            "started_at": self.started_at,
+            # The show is running (#592): Start was pressed. Captions are one part of it, `captions_running`.
+            "running": stream.running,
+            "started_at": stream.started_at,
+            "captions_running": self.running,
+            "stream": stream.status(),
             "error": self.last_error,
             # What transcribes the main feed, and the sentence for why it is not what the operator chose.
             "backend": ({"id": self.backend.id, "label": self.backend.label, "warning": self.backend_warning,
@@ -319,11 +323,13 @@ class Engine:
         """The small, high-frequency slice of status -- level, speech and each
         session's state. Pushed at 1 Hz so the admin meter stays live without
         re-sending the full status object (which carries the whole blocklist)."""
+        from .stream import stream
+
         a = self.capture.status() if self.capture else {}
         return {
             "type": "meter",
-            "running": self.running,
-            "started_at": self.started_at,
+            "running": stream.running,
+            "started_at": stream.started_at,
             "level": a.get("level", 0.0),
             "rms_dbfs": a.get("rms_dbfs", -60.0),
             "peak_dbfs": a.get("peak_dbfs", -60.0),

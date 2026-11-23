@@ -56,6 +56,9 @@ DEFAULTS: dict[str, Any] = {
     "speaking_indicator_vad": True,
     "blocklist_file": "blocklist.txt",
     "history_lines": 40,
+    # Whether Start also runs live captions and translation (#592). Off: Start opens the stream for the modules
+    # that follow it and captions stay idle, with no key or audio input needed.
+    "stream_captions": True,
     # Session recording, for the post-event transcript and the paired
     # fine-tuning export. Off by default: writing every word spoken in a room
     # to disk is the operator's call, not a default we make for them. Lines
@@ -187,6 +190,7 @@ def _normalise(cfg: dict) -> dict:
     cfg["targets"] = targets
     cfg["default_font_px"] = max(16, min(160, int(cfg.get("default_font_px") or 40)))
     cfg["history_lines"] = max(1, min(500, int(cfg.get("history_lines") or 40)))
+    cfg["stream_captions"] = bool(cfg.get("stream_captions", True))
     from . import audiobus  # here, not at the top: it loads the sound library, which config must not need
     audiobus.migrate_legacy_input(cfg)
     try:

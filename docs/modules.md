@@ -1022,6 +1022,24 @@ oauth.add_routes(router, "/api/admin/youtube/account", ACCOUNT,
 The client IDs Relay signs in with, and how to make them, are in
 [reference/oauth-apps.md](reference/oauth-apps.md).
 
+## Start and Stop (the stream)
+
+Start does not mean "start captions" (#592). Core's `app/stream.py` owns Start and Stop: it opens the stream (a
+running flag and a clock), runs live captions and translation as one part of it while the operator keeps **Run live
+captions and translation with Start** ticked (`stream_captions`, on by default), and announces the change. With captions
+off, Start needs no key and no audio input. A caption start that is refused (no key, no sound card) refuses the whole
+Start and leaves nothing half started.
+
+A module that wants to follow Start and Stop never imports the stream. It calls `modules.listen("stream.started", fn)`
+and `modules.listen("stream.stopped", fn)` in `attach()` and `unlisten` in `detach()`; `fn()` runs on the event loop and
+must not block (queue the work onto the module's own task). Follow only when the module's own setting says so, so
+nothing starts a recorder or an encoder that its operator did not ask to be tied to Start. A module that does the
+starting (a ProPresenter slide tag `capture-start`, a schedule) calls the same `stream.start()` / `stream.stop()` the
+button does, so every route to Start announces the same event.
+
+The admin status keeps `running` and `started_at` for the stream and adds `stream` (`running`, `started_at`,
+`captions`) and `captions_running`. The viewer feeds and the status feed keep `running` for the captions themselves.
+
 ## Captions from another module
 
 Core hands every committed line, after the blocklist, to the recorder (`hub.line_sink`, set by the engine) and then to

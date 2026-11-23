@@ -285,7 +285,7 @@ on this computer, readable by your account alone.
    You should see `Saved. Restart capture to use the new key.` The label next
    to **OpenAI API key** should now end in the last four characters of the new
    key.
-6. Press **Start capture**.
+6. Press **Start**.
    Session health should show one `connected` session for each target
    language you switched on.
 
@@ -301,14 +301,14 @@ page to see which key Relay is using.
 
 ### If there is no key
 
-If you press **Start capture** before a key is set, Relay does not start and
+If you press **Start** before a key is set, Relay does not start and
 shows:
 
 ```
 No OpenAI API key set. Add one in the admin panel.
 ```
 
-Add the key as described above, then press **Start capture** again.
+Add the key as described above, then press **Start** again.
 
 ### Other errors from OpenAI
 
@@ -357,7 +357,7 @@ key so that it stops working is called **revoking** it.
    and the last characters shown in the list.
 4. Click the delete (bin) icon next to the old key, then **Revoke key**.
    The old key should disappear from the list. It stops working at once.
-5. Press **Start capture** in Relay to check that the new key works.
+5. Press **Start** in Relay to check that the new key works.
 6. Check the **Usage** page for any use you do not recognise.
 
 ## Understanding the cost

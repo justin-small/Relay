@@ -2,7 +2,7 @@
 
 The operator panel has a **menu down the left side**. Click an item to open
 its page. The panel remembers the page you were on. At the top, a coloured
-pill shows whether capture is running, and **Start capture** and **Stop** are
+pill shows whether capture is running, and **Start** and **Stop** are
 on the **Session health** page. On a phone or a narrow window, the menu slides in
 when you tap the **sidebar button** at the top left.
 
@@ -19,7 +19,7 @@ when you tap the **sidebar button** at the top left.
 4. **Automation.** **Schedules** and **Planning Center**.
 5. **Settings.** **Blocked words**, **Credentials**, **Appearance &
    tuning** and **Users**.
-6. **Start capture.** See [Starting and stopping](#start-stop).
+6. **Start.** See [Starting and stopping](#start-stop).
 7. **Viewers.** How many people have a viewer page open.
 8. **Your name.** At the bottom of the menu, and the round button at the top
    right: **Account** and **Sign out**.
@@ -47,8 +47,10 @@ This is the panel during a session, with two languages live.
 
 ![Stream control while capture is running.](images/admin-stream-control.png){width=100%}
 
-1. **Start capture** begins listening and opens one connection to OpenAI for
-   each target language that is switched on. It is greyed out while capture
+1. **Start** opens the stream. While **Run live captions and translation with Start** is ticked (it is by default), it
+   begins listening and opens one connection to OpenAI for
+   each target language that is switched on. Untick it and Start opens the stream without captions, with no key or
+   sound input needed, for the modules that follow Start and Stop. It is greyed out while capture
    runs.
 2. **Stop** ends capture and closes every connection. Billing stops at once.
    It is greyed out while capture is stopped.
@@ -61,7 +63,7 @@ This is the panel during a session, with two languages live.
 
 1. Check that at least one language is switched on in **Target languages**.
    If none is, nothing appears on the viewer pages.
-2. Click **Start capture**.
+2. Click **Start**.
 3. You should see the status pill turn green and the state change to
    **Running**.
 4. Within a few seconds, **Session health** should show one row per language,
@@ -81,7 +83,7 @@ long as capture runs, including silence. A session left running over lunch
 costs the same as one full of speech.
 :::
 
-### If Start capture shows an error
+### If Start shows an error
 
 ![A start that failed because the chosen audio device is missing.](images/admin-start-error.png){width=100%}
 
@@ -89,8 +91,8 @@ costs the same as one full of speech.
 
 | Message | What to do |
 |---|---|
-| **No OpenAI API key set. Add one in the admin panel.** | Add the key in [Credentials](#credentials), then click **Start capture** again. |
-| **No input device matched the saved selection.** | The sound device was unplugged or renamed. Plug it in, click **Rescan devices** on the **Audio bus** page, check the lane is patched to it, and click **Start capture**. |
+| **No OpenAI API key set. Add one in the admin panel.** | Add the key in [Credentials](#credentials), then click **Start** again. |
+| **No input device matched the saved selection.** | The sound device was unplugged or renamed. Plug it in, click **Rescan devices** on the **Audio bus** page, check the lane is patched to it, and click **Start**. |
 
 ## Session health {#session-health}
 
@@ -119,7 +121,7 @@ for each target language while capture runs. When capture is stopped it says
 | **connecting** | Yellow | Opening the connection. | Wait a few seconds. |
 | **connected** | Green | Working. | Nothing. |
 | **reconnecting** | Yellow | The connection dropped. Relay is reopening it by itself. | Wait. If it keeps happening, check the internet connection. |
-| **error** | Red | The connection failed and Relay has stopped trying. The reason is shown next to it. | Read the reason, fix it, then **Stop** and **Start capture**. |
+| **error** | Red | The connection failed and Relay has stopped trying. The reason is shown next to it. | Read the reason, fix it, then **Stop** and **Start**. |
 
 ### When a state turns bad
 
@@ -136,7 +138,7 @@ for each target language while capture runs. When capture is stopped it says
 
 | Reason shown | What it means | What to do |
 |---|---|---|
-| **Incorrect API key provided** | The key is wrong or was deleted. | Put the right key in [Credentials](#credentials), then **Stop** and **Start capture**. |
+| **Incorrect API key provided** | The key is wrong or was deleted. | Put the right key in [Credentials](#credentials), then **Stop** and **Start**. |
 | **You exceeded your current quota** or a billing message | The OpenAI account is out of credit, or hit its spending limit. | Add credit or raise the limit on the OpenAI website. See Part 2. |
 | A message about **model** access | The account cannot use the model Relay needs. | See Part 2, "Check the account can use Relay's model". |
 
@@ -178,7 +180,7 @@ This page chooses which lane the captions listen to, and shows how loud it is. T
    gets cut off. Watch this light, not only the bar: short, loud sounds are
    easy to miss on the bar.
 8. **Reading.** The average and peak level in numbers, and how many samples
-   have clipped since you last pressed **Start capture**.
+   have clipped since you last pressed **Start**.
 
 Under the meter, a line names the device and channel in use.
 
@@ -189,7 +191,7 @@ captions pause for a few seconds.
 ### Setting the level
 
 1. Choose the device and channel.
-2. Click **Start capture**. Ask someone to speak at their normal loudest.
+2. Click **Start**. Ask someone to speak at their normal loudest.
 3. You should see the bar move and the status say **Speaking**.
 4. Adjust the gain on the sound desk or audio interface, not in Relay, until
    the loudest speech reaches the **−18** band and **CLIP** stays dark.
@@ -288,7 +290,7 @@ Schedules start and stop capture automatically, for example every Sunday from
 
 1. **Status line.** What happens next, for example **Next start: Wed
    09/23/2026 8:00 PM CDT (Wednesday night).** With no schedules, it says
-   capture only starts when you press **Start capture**.
+   capture only starts when you press **Start**.
 2. **Schedule.** Its name, and under it a summary of its windows and where it
    is used.
 3. **Next start.** When it will next start capture. **off** if the schedule
@@ -332,7 +334,7 @@ You should see the new schedule in the list, with its next start time.
 - **Already running when a schedule starts:** capture keeps running and stops
   at the schedule's stop time.
 - **You press Stop during a scheduled time:** capture stays off until the
-  next scheduled start. Pressing **Start capture** again undoes that, and
+  next scheduled start. Pressing **Start** again undoes that, and
   capture then stops at the schedule's stop time.
 - **You start capture by hand outside any schedule:** no schedule stops it.
   You must press **Stop**.
@@ -593,7 +595,7 @@ never the sound. **Recording is off until you turn it on.**
 ![Recordings & export, with three saved runs (test data).](images/admin-recordings.png){width=100%}
 
 1. **Record each run to disk.** Turn this on to save every session. A "run"
-   is everything from **Start capture** to **Stop**.
+   is everything from **Start** to **Stop**.
 2. **Runs kept.** How many runs to keep. When a new run starts and there are
    more than this, the oldest are deleted. The default is 20.
 3. **Save** stores both settings. Recording starts with the **next** run.
@@ -663,7 +665,7 @@ under **Save credentials** names which.
 3. Click **Save credentials**.
 4. You should see **Saved. Restart capture to use the new key.** and the last
    four characters change.
-5. If capture is running, click **Stop**, then **Start capture**. The new key
+5. If capture is running, click **Stop**, then **Start**. The new key
    is only used from the next start.
 
 ::: warning
