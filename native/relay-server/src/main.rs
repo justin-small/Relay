@@ -72,7 +72,13 @@ async fn run() -> Result<(), String> {
     tracing::info!(config = %path.display(), "reading config");
     let config = Arc::new(Config::load(&path).map_err(|e| e.to_string())?);
     let shutdown = Shutdown::new();
-    let mut registry = Registry::new(Arc::clone(&config), Host::new(shutdown.clone()));
+    let sealed = Arc::new(relay_config::Settings::new(&path));
+    let mut registry = Registry::new(Arc::clone(&config), Host::new(shutdown.clone())
+        .with_store(Arc::new(relay_server::modulehost::SealedStore(sealed)))
+        .with_net(relay_core::Net::new(Arc::new(relay_server::netsock::RoutedNet::new(
+        Arc::clone(&config),
+        std::collections::BTreeMap::new(),
+    )))));
     modules::register_all(&mut registry).map_err(|e| e.to_string())?;
     let registry = Arc::new(registry);
 
@@ -87,6 +93,7 @@ async fn run() -> Result<(), String> {
         tick: TICK,
     };
     let app = App::start(options, Arc::clone(&registry), shutdown.clone()).await?;
+    registry.host().set_viewer_port(app.viewer_port());
     registry.start_enabled().await;
     for line in app.banner() {
         println!("{line}");

@@ -40,6 +40,7 @@ pub fn valid_id(id: &str) -> bool {
 
 impl Registry {
     pub fn new(config: Arc<Config>, host: Host) -> Self {
+        host.default_store(&config);
         Self { modules: Vec::new(), config, host, running: Mutex::default() }
     }
 
@@ -55,9 +56,21 @@ impl Registry {
         if m.route_prefixes.iter().any(|p| !p.starts_with('/')) {
             return Err(AppError::new(ErrorCode::Internal).because(format!("module {:?} has a route prefix that is not a path", m.id)));
         }
+        for field in module.secret_settings() {
+            self.host.add_secret(m.settings_key, field);
+        }
         module.attach(&self.host);
         self.modules.push(module);
         Ok(())
+    }
+
+    pub fn host(&self) -> &Host {
+        &self.host
+    }
+
+    /// The modules, in the order they were registered.
+    pub fn modules(&self) -> &[Arc<dyn Module>] {
+        &self.modules
     }
 
     pub fn ids(&self) -> Vec<&'static str> {
@@ -93,7 +106,7 @@ impl Registry {
         if self.running(m.id) {
             return Ok(());
         }
-        let settings = module.clean(&self.config.settings(m.settings_key).unwrap_or_else(|| module.defaults()));
+        let settings = module.clean(&self.host.settings(m.settings_key).unwrap_or_else(|| module.defaults()));
         module.start(self.host.clone(), settings).await?;
         if let Ok(mut r) = self.running.lock() {
             r.insert(m.id);

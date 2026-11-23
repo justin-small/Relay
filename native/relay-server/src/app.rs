@@ -153,6 +153,7 @@ impl App {
         match relay_auth::Auth::open(&database_path(), relay_auth::Cost::standard()).await {
             Ok(auth) => {
                 let accounts = crate::accounts::Accounts::new(auth, crate::pages::Pages::new(&opts.app_dir), opts.config_path.clone());
+                registry.host().set_authorizer(Arc::new(crate::modulehost::AccountsAuthorizer(Arc::clone(&accounts))));
                 routes = routes.merge(crate::accounts::routes(accounts));
             }
             Err(e) => tracing::error!("accounts are served by the app behind this server, not by it: {e}"),

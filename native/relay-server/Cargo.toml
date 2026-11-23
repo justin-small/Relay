@@ -18,6 +18,7 @@ path = "src/main.rs"
 relay-auth = { path = "../relay-auth" }
 relay-config = { path = "../relay-config" }
 relay-core = { path = "../relay-core" }
+relay-module-remote_access = { path = "../modules/remote_access" }
 axum = { version = "0.8", default-features = false, features = ["http1", "json", "tokio", "ws"] }
 futures-core = "0.3"
 bytes = "1"
@@ -45,6 +46,9 @@ tower-http = { version = "0.6", default-features = false, features = ["fs"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt", "env-filter", "ansi"] }
 x509-parser = "0.16"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.59", features = ["Win32_Networking_WinSock", "Win32_System_IO"] }
 
 [dev-dependencies]
 futures-util = "0.3"

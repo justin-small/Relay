@@ -8,12 +8,14 @@ use relay_core::{AppError, Module};
 
 /// Every module, in the order they start (they stop in reverse).
 pub fn all() -> Vec<Arc<dyn Module>> {
-    Vec::new()
+    vec![Arc::new(relay_module_remote_access::RemoteAccess::new())]
 }
 
 /// Registered into `registry` by `main`; returns the first problem a module's manifest has.
 pub fn register_all(registry: &mut relay_core::Registry) -> Result<(), AppError> {
-    for module in all() {
+    let modules = all();
+    relay_server::modulehost::register_permissions(&modules).map_err(|e| AppError::new(relay_core::ErrorCode::Internal).because(e))?;
+    for module in modules {
         registry.register(module)?;
     }
     Ok(())

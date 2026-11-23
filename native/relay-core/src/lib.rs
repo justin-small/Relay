@@ -4,17 +4,23 @@
 //! its own crate under `native/modules/<id>/` that depends on this one and is listed in `relay-server`'s registry.
 //! `tests/test_rust_modules.py` fails the build when a core crate depends on a module crate, or a module on another one.
 
+pub mod access;
 pub mod config;
 pub mod error;
 pub mod hub;
 pub mod languages;
 pub mod module;
+pub mod net;
 pub mod paths;
 pub mod registry;
 pub mod shutdown;
+pub mod store;
 
+pub use access::{Authorizer, Permission};
 pub use config::Config;
+pub use store::{PlainStore, SettingsStore};
 pub use error::{AppError, ErrorCode};
 pub use module::{Health, HealthState, Host, Listener, Manifest, Module};
+pub use net::{Net, RouteError, Router, UdpOptions};
 pub use registry::{ActiveListener, Registry};
 pub use shutdown::Shutdown;
