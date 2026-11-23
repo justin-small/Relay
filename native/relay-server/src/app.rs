@@ -89,6 +89,14 @@ pub struct App {
     shutdown: Shutdown,
 }
 
+/// `relay.db`: `RELAY_DATABASE` when set, else beside config.json (`app/db.py` `path`).
+fn database_path() -> PathBuf {
+    match std::env::var("RELAY_DATABASE").map(|v| v.trim().to_owned()) {
+        Ok(v) if !v.is_empty() => PathBuf::from(v),
+        _ => relay_core::paths::state_dir().join("relay.db"),
+    }
+}
+
 fn core_spec(key: &str, what: &str, class: &str, secure: bool, configured: &str, port: u16) -> Spec {
     let (label, policy) = netroute::core_classes().get(class).copied().unwrap_or((class, Policy::Fallback));
     Spec {
@@ -139,7 +147,17 @@ impl App {
         };
 
         let panel = Panel::start(&tls::cert_dir(), &settings.admin_fqdn, &names_for(&settings, &net))?;
-        let server = Arc::new(Server::new(registry.routes().merge(crate::statics::routes(&opts.app_dir)), upstream));
+        let mut routes = registry.routes().merge(crate::statics::routes(&opts.app_dir));
+        // Accounts (#655): the sign-in forms and the account, token, device and audit routes. When the database cannot be used
+        // (an older file than this server reads, a disk problem) the server says why and forwards them to the app instead.
+        match relay_auth::Auth::open(&database_path(), relay_auth::Cost::standard()).await {
+            Ok(auth) => {
+                let accounts = crate::accounts::Accounts::new(auth, crate::pages::Pages::new(&opts.app_dir), opts.config_path.clone());
+                routes = routes.merge(crate::accounts::routes(accounts));
+            }
+            Err(e) => tracing::error!("accounts are served by the app behind this server, not by it: {e}"),
+        }
+        let server = Arc::new(Server::new(routes, upstream));
         let mut listener_prefixes = plan.listener_prefixes.clone();
         listener_prefixes.extend(registry.listener_prefixes());
         server.set_prefixes(Prefixes { listener: listener_prefixes, panel: plan.panel_prefixes.clone() });

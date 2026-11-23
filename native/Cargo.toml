@@ -15,6 +15,7 @@ members = [
   "relay-helper",
   "relay-front",
   "relay-core",
+  "relay-auth",
   "relay-server",
   "modules/*",
 ]
@@ -26,6 +27,7 @@ default-members = [
   "relay-helper",
   "relay-front",
   "relay-core",
+  "relay-auth",
   "relay-server",
   "modules/*",
 ]

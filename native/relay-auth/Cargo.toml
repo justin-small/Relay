@@ -1,0 +1,24 @@
+[package]
+name = "relay-auth"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+description = "Relay's database, accounts and sessions in Rust (#655): users, roles and permissions, password and PIN sign-in, sessions, trusted devices, API tokens, login lock-outs and the audit log, on the same relay.db the Python server uses."
+
+[dependencies]
+argon2 = "0.5"
+base64 = "0.22"
+rand = "0.8"
+scrypt = { version = "0.11", default-features = false }
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["preserve_order"] }
+sha2 = "0.10"
+sqlx = { version = "0.9", default-features = false, features = ["runtime-tokio", "sqlite", "macros"] }
+subtle = "2"
+time = { version = "0.3", features = ["formatting", "macros"] }
+tokio = { version = "1", features = ["sync", "rt", "macros", "time"] }
+tracing = "0.1"
+
+[dev-dependencies]
+tokio = { version = "1", features = ["sync", "rt", "macros", "time", "test-util"] }

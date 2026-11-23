@@ -4,6 +4,7 @@
 //! have, and forwards the rest to the running FastAPI app until the last route is ported (the strangler, #651). The program is
 //! `main.rs`; everything it does is here so the tests can drive it.
 
+pub mod accounts;
 pub mod announce;
 pub mod app;
 pub mod forward;
