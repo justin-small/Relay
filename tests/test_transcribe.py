@@ -19,6 +19,7 @@ os.environ["RELAY_STATE_DIR"] = tmpdir()
 
 import websockets  # noqa: E402
 
+from app.modules.captions.pipeline import Pipeline  # noqa: E402
 from app import config, engine as engine_mod, realtime, transcribe  # noqa: E402
 from app.hub import hub  # noqa: E402
 
@@ -235,7 +236,8 @@ async def scenario_engine_runs_a_registered_backend():
         id="scripted", label="Scripted", session=lambda cfg, key, **kw: ScriptedSession(api_key=key, **kw),
         key_setting=None, price_per_hour=1.0))
     config.save({"realtime": {"backend": "scripted"}, "targets": {}})
-    eng = engine_mod.Engine()
+    eng = Pipeline(engine_mod.Engine())
+    eng.engine.pipeline = eng
     eng.bind(asyncio.get_running_loop())
     eng.capture = FakeCapture()
     status = await eng.start()
@@ -257,7 +259,8 @@ async def scenario_engine_runs_a_registered_backend():
 async def scenario_fallback_warning_in_status():
     config.save({"realtime": {"backend": "scribe"}, "openai_api_key": "sk-test",
                  "vercel_api_key": "", "targets": {}})
-    eng = engine_mod.Engine()
+    eng = Pipeline(engine_mod.Engine())
+    eng.engine.pipeline = eng
     eng.bind(asyncio.get_running_loop())
     eng.capture = FakeCapture()
     status = await eng.start()
@@ -268,7 +271,8 @@ async def scenario_fallback_warning_in_status():
 
 async def scenario_start_refused_names_the_key():
     config.save({"realtime": {"backend": "scribe"}, "openai_api_key": "", "vercel_api_key": ""})
-    eng = engine_mod.Engine()
+    eng = Pipeline(engine_mod.Engine())
+    eng.engine.pipeline = eng
     eng.bind(asyncio.get_running_loop())
     eng.capture = FakeCapture()
     try:

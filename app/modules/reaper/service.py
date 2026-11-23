@@ -29,6 +29,7 @@ from typing import Any
 from ... import audit, config, netroute, netsock, schedules
 from ...text import same_name
 from ...alerts import alerts
+from ...stream import stream as show_stream
 from ...streamstatus import streams
 from .client import DEFAULT_LISTEN, DEFAULT_PORT, DEFAULT_TRACKS, QUIET_S, TRACKS, TRAFFIC, Link
 
@@ -92,7 +93,8 @@ def clean_machine(m: Any, seen: set[str], ports: set[int]) -> dict | None:
     return {"id": mid, "name": _text(m.get("name"), 24) or "REAPER", "host": host,
             "port": _int(m.get("port"), DEFAULT_PORT, 1, 65535), "listen_port": listen,
             "tracks": _int(m.get("tracks"), DEFAULT_TRACKS, 1, TRACKS),
-            "follow_stream": m.get("follow_stream") is True, "follow_schedule": m.get("follow_schedule") is True,
+            "follow_stream": m.get("follow_stream") is True, "follow_start": m.get("follow_start") is True,
+            "follow_schedule": m.get("follow_schedule") is True,
             "stop_delay": _int(m.get("stop_delay"), 60, 0, STOP_DELAY_MAX),
             "song_markers": m.get("song_markers") is not False, "message_markers": m.get("message_markers") is True,
             "check_armed": m.get("check_armed") is not False, "expect": expect[:MAX_EXPECT],
@@ -227,18 +229,19 @@ class Machine:
             self.stopping = False
 
     # -- the service -------------------------------------------------------------------------------------------
-    def tick(self, on_air: bool, window: bool, now: float) -> None:
+    def tick(self, on_air: bool, window: bool, now: float, started: bool = False) -> None:
         cfg, st = self.cfg, self.link.state
         if not self.link.reached(now):
             return
-        want = (cfg["follow_stream"] and on_air) or (cfg["follow_schedule"] and window)
+        want = (cfg["follow_stream"] and on_air) or (cfg["follow_schedule"] and window) or (cfg["follow_start"] and started)
         if want != self.wanted:
             self.wanted = want
             if want:
                 self.wanted_since, self.held = now, False
             else:
                 self.unwanted_since = now
-        why = "the stream is on air" if cfg["follow_stream"] and on_air else "a schedule window is open"
+        why = ("the stream is on air" if cfg["follow_stream"] and on_air else
+               "Start was pressed" if cfg["follow_start"] and started else "a schedule window is open")
         if want and not st.recording and not self.held and not self.asked_at:
             if self.link.record():
                 self.asked_at, self.ours = now, True
@@ -380,9 +383,9 @@ class Service:
 
     def tick(self, now: float | None = None) -> None:
         now = time.time() if now is None else now
-        on_air, window = stream_on_air(), schedule_open()
+        on_air, window, started = stream_on_air(), schedule_open(), show_stream.running
         for m in self.machines.values():
-            m.tick(on_air, window, now)
+            m.tick(on_air, window, now, started)
             m.alarm(now)
 
     # -- acting -------------------------------------------------------------------------------------------------

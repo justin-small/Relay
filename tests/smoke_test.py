@@ -91,6 +91,7 @@ check("stale turn-detection fields dropped",
 check("dropping them leaves the live realtime settings alone",
       _stale["segment_idle_s"] == 1.0 and _stale["backend"] == "scribe", _stale)
 from app.engine import Engine as _Engine
+from app.modules.captions.pipeline import Pipeline as _Pipeline
 check("no _vad() builder left to call", not hasattr(_Engine, "_vad"))
 check("noise reduction defaults off", config.save({})["realtime"]["noise_reduction"] is None)
 check("bogus noise reduction clamped to off",
@@ -115,6 +116,9 @@ check("source language excluded from targets",
 import app.engine as _engine_mod
 import app.transcribe as _transcribe_mod
 from app.engine import engine as _eng, TRANSCRIPTION_STREAM as _TS
+from app.modules import modules as _module_registry
+_module_registry.attach("captions")        # captions are the Captions module's part of Start (#592)
+_pipe = _eng.pipeline
 from app.realtime import SOURCE
 class _FakeCapture:
     def add_consumer(self): return object()
@@ -239,25 +243,25 @@ class _FakeTx:
     def start(self, q): pass
     async def stop(self): pass
     def health(self): return {"name": self.name, "state": self.state}
-_real_tx, _real_cap = _transcribe_mod.TranscriptionSession, _eng.capture
+_real_tx, _real_cap = _transcribe_mod.TranscriptionSession, _pipe.capture
 _transcribe_mod.TranscriptionSession = _FakeTx
-_eng.capture = _FakeCapture()
+_pipe.capture = _FakeCapture()
 _cfg = config.save({"realtime": {"transcribe_model": ""}})
 try:
     async def _engine_text_test():
-        _eng._open_text_pipeline(["SPANISH", "CHINESE"], _cfg, _transcribe_mod.resolve(_cfg)[0], "sk-test")
-        _eng.translator._request = lambda text, codes: {c: f"[{c}] {text}" for c in codes}
-        out = {"model": _eng.transcriber.kw["model"],
+        _pipe._open_text_pipeline(["SPANISH", "CHINESE"], _cfg, _transcribe_mod.resolve(_cfg)[0], "sk-test")
+        _pipe.translator._request = lambda text, codes: {c: f"[{c}] {text}" for c in codes}
+        out = {"model": _pipe.transcriber.kw["model"],
                "sessions": [s["name"] for s in _eng.status()["sessions"]],
                "live": sorted(t["target"] for t in _eng.live_targets())}
         await _eng.set_target("FRENCH", True)
         await _eng.set_target("CHINESE", False)
-        out["after_toggle"] = sorted(_eng.translator.targets)
+        out["after_toggle"] = sorted(_pipe.translator.targets)
         heard = []
         real_final = hub.publish_final
         hub.publish_final = lambda stream, lang, text=None: heard.append((stream, lang, text)) or text
         try:
-            _eng.transcriber.kw["on_source_final"]("Welcome.")
+            _pipe.transcriber.kw["on_source_final"]("Welcome.")
             await asyncio.sleep(0.05)
         finally:
             hub.publish_final = real_final
@@ -268,15 +272,15 @@ try:
         _cs, _qs = await hub.subscribe(_TS, _src, finals_only=True)
         _ct, _qt = await hub.subscribe("translation", "SPANISH", finals_only=True)
         await _qs.get(); await _qt.get()
-        _eng.transcriber.kw["on_source_delta"]("Good mor")
-        _eng.transcriber.kw["on_source_final"]("Good morning.")
+        _pipe.transcriber.kw["on_source_delta"]("Good mor")
+        _pipe.transcriber.kw["on_source_final"]("Good morning.")
         await asyncio.sleep(0.05)
         out["tx_frames"] = [unframe(_qs.get_nowait()) for _ in range(_qs.qsize())]
         out["tl_frames"] = [unframe(_qt.get_nowait()) for _ in range(_qt.qsize())]
         hub.unsubscribe(_cs, _qs); hub.unsubscribe(_ct, _qt)
         hub.reset(_TS, _src); hub.reset("translation", "SPANISH")  # leave no history behind
-        await _eng._stop_all_sessions()
-        out["stopped"] = (_eng.transcriber, _eng.translator)
+        await _pipe._stop_all_sessions()
+        out["stopped"] = (_pipe.transcriber, _pipe.translator)
         return out
     _o = asyncio.run(_engine_text_test())
     eq("empty transcribe_model falls back to the default", _o["model"], "gpt-live-transcribe")
@@ -300,7 +304,7 @@ try:
           and _o["tl_frames"][0]["text"] == "[es] Good morning.", _o["tl_frames"])
 finally:
     _transcribe_mod.TranscriptionSession = _real_tx
-    _eng.capture = _real_cap
+    _pipe.capture = _real_cap
     config.save({"realtime": {"transcribe_model": "gpt-live-transcribe"}})
 
 print("\ntext-only languages")
@@ -321,19 +325,19 @@ eq("the request carries the language's name, keyed by code", _asked,
    [{"hmn": _langs.target_prompt_name("HMONG")}])
 print("\nblocked words never reach the text translator")
 _bl_cfg = config.get()
-_real_tx2, _real_cap2 = _transcribe_mod.TranscriptionSession, _eng.capture
+_real_tx2, _real_cap2 = _transcribe_mod.TranscriptionSession, _pipe.capture
 _transcribe_mod.TranscriptionSession = _FakeTx
-_eng.capture = _FakeCapture()
+_pipe.capture = _FakeCapture()
 _prev_bl = list(hub.blocklist)
 hub.set_blocklist(["damn"])
 try:
     async def _bl_test():
         sent = []
-        _eng._open_text_pipeline(["ARABIC"], _bl_cfg, _transcribe_mod.resolve(_cfg)[0], "sk-test")
-        _eng.translator._request = lambda text, langs: sent.append(text) or {c: text for c in langs}
-        _eng.transcriber.kw["on_source_final"]("Well, damn, that was close.")
+        _pipe._open_text_pipeline(["ARABIC"], _bl_cfg, _transcribe_mod.resolve(_cfg)[0], "sk-test")
+        _pipe.translator._request = lambda text, langs: sent.append(text) or {c: text for c in langs}
+        _pipe.transcriber.kw["on_source_final"]("Well, damn, that was close.")
         await asyncio.sleep(0.05)
-        await _eng._stop_all_sessions()
+        await _pipe._stop_all_sessions()
         return sent
     _sent = asyncio.run(_bl_test())
     check("the translator gets the line with the blocked word removed",
@@ -341,7 +345,7 @@ try:
 finally:
     hub.set_blocklist(_prev_bl)
     _transcribe_mod.TranscriptionSession = _real_tx2
-    _eng.capture = _real_cap2
+    _pipe.capture = _real_cap2
 
 print("\npanel viewer links")
 from app.main import _urls
@@ -363,7 +367,7 @@ eq("stopped relay reports no start time", _eng.status()["started_at"], None)
 eq("meter agrees when stopped", _eng.meter()["started_at"], None)
 _t0 = time.time()
 from app.stream import stream as _stream  # noqa: E402
-_eng.running = True
+_pipe.running = True
 _stream.running, _stream.started_at = True, _t0          # what start() stamps
 check("status carries the start time", _eng.status()["started_at"] == _t0)
 check("meter carries the same start time", _eng.meter()["started_at"] == _t0)
@@ -372,11 +376,11 @@ check("timestamp is wall clock, not monotonic",
 asyncio.run(_stream.stop())
 eq("stop clears the start time", _eng.status()["started_at"], None)
 eq("stop clears it in the meter too", _eng.meter()["started_at"], None)
-check("stop also clears running", not _eng.running)
+check("stop also clears the stream running", not _stream.running)
 # restart() is stop() + start(), so a restarted session is stamped afresh
 # rather than keeping the old window.
 import inspect as _inspect
-_restart_src = _inspect.getsource(_Engine.restart)
+_restart_src = _inspect.getsource(_Pipeline.restart)
 check("restart re-stamps by going through stop and start",
       "await self.stop()" in _restart_src and "await self.start()" in _restart_src)
 
@@ -645,10 +649,8 @@ check("/api/targets shape", t["source"]["lang"] == "ENGLISH" and "live" in t)
 check("no live targets before start", t["live"] == [])
 check("/api/targets source carries script", t["source"].get("script") == "latin", t["source"])
 # live targets carry script: force two live names (one Latin, one not).
-_orig_live = _eng._live_names
-_eng._live_names = lambda: ["SPANISH", "RUSSIAN"]
-_orig_tr = _eng.translator
-_eng.translator = type("_S", (), {"state": "live"})()
+_orig_tr = _pipe.translator
+_pipe.translator = type("_S", (), {"state": "live", "targets": {"SPANISH", "RUSSIAN"}})()
 try:
     _lt = {d["target"]: d for d in _eng.live_targets()}
     check("live targets carry script",
@@ -661,8 +663,7 @@ try:
     check("/api/targets live entries carry script",
           {d["target"]: d["script"] for d in _api["live"]} == {"SPANISH": "latin", "RUSSIAN": "cyrillic"}, _api)
 finally:
-    _eng._live_names = _orig_live
-    _eng.translator = _orig_tr
+    _pipe.translator = _orig_tr
 
 # /stream?finals=1 through the route: first frame is a snapshot, deltas skipped.
 async def _route_finals():
@@ -776,9 +777,9 @@ from app.engine import engine as real_engine
 config.save({"openai_api_key": "sk-test-1234"})
 os.environ["RELAY_DEMO"] = "1"
 _opened = []
-_real_open = real_engine._open_text_pipeline
-real_engine._open_text_pipeline = lambda *a, **k: _opened.append(a)
-real_engine.last_error = None  # left over from the no-key start above
+_real_open = real_engine.pipeline._open_text_pipeline
+real_engine.pipeline._open_text_pipeline = lambda *a, **k: _opened.append(a)
+real_engine.pipeline.last_error = None  # left over from the no-key start above
 try:
     r = sc.post("/api/admin/start")
     check("start is refused in rehearsal mode", r.status_code == 400, r.text)
@@ -807,7 +808,7 @@ try:
     config.save({"schedules": _saved})
 finally:
     os.environ.pop("RELAY_DEMO", None)
-    real_engine._open_text_pipeline = _real_open
+    real_engine.pipeline._open_text_pipeline = _real_open
     config.save({"openai_api_key": ""})
 
 print("\noperator panel is served on its own port")

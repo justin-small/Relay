@@ -1,23 +1,17 @@
-"""The relay: one capture, one transcription session, one translator, one hub.
+"""What every page reads about the running relay: the status, the meter and the targets the viewers are told.
 
-The transcription backend (app/transcribe.py: Scribe through the Vercel gateway, or OpenAI) turns the room's audio
-into source-language lines; a chat model translates each finished line into every target that is on
-(app/texttranslate.py), through the provider the AI models page picks for translation (app/aimodels.py). Targets
-cost tokens, not minutes, and a toggle only changes which languages the next request asks for.
+The caption pipeline itself (one capture, one transcription session, one translator) is the Captions module's
+(app/modules/captions/pipeline.py, #592). While that module is on it plugs into `Engine.pipeline`, as one part of
+core's stream (app/stream.py); while it is off this engine answers with captions idle and nothing running.
 """
 from __future__ import annotations
 
 import asyncio
 import logging
 import os
-import time
 
-from . import aimodels, config, languages, redact, streamstatus, transcribe
-from .audio import AudioCapture
+from . import config, languages, redact, streamstatus, transcribe
 from .hub import hub
-from .realtime import RealtimeSession
-from .texttranslate import TextTranslator
-from .recorder import recorder
 from .modules import modules
 
 log = logging.getLogger("relay.engine")
@@ -56,114 +50,56 @@ def demo_mode() -> bool:
     return os.environ.get("RELAY_DEMO") == "1"
 
 
+class _NoPipeline:
+    """What the status reads while the Captions module is off."""
+    backend = backend_warning = translation_route = None
+
+
 class Engine:
     def __init__(self):
         self.loop: asyncio.AbstractEventLoop | None = None
-        self.capture: AudioCapture | None = None
-        self._audio_queues: dict[str, asyncio.Queue] = {}
-        # One transcription session feeding a chat model that translates every target.
-        self.transcriber: RealtimeSession | None = None
-        # What the main feed runs on, and why that is not the backend the operator chose (None: it is).
-        self.backend: transcribe.Backend | None = None
-        self.backend_warning: str | None = None
-        self.translator: TextTranslator | None = None
-        # Where the translator's requests go (app/aimodels.py), and why that is not the operator's choice.
-        self.translation_route: aimodels.Route | None = None
-        self.running = False
-        # Wall clock, not monotonic: this timestamp is served to clients on
-        # other machines (a Companion surface, a browser) that render the
-        # session clock against their own clock. None whenever stopped.
-        self.started_at: float | None = None
-        self.last_error: str | None = None
-        self._lock = asyncio.Lock()
+        # The Captions module's pipeline while that module is on (app/modules/captions/pipeline.py), else None.
+        self.pipeline = None
 
     def bind(self, loop: asyncio.AbstractEventLoop) -> None:
         self.loop = loop
-        self.capture = AudioCapture(loop)
 
-    # -- master control -----------------------------------------------
-    async def start(self) -> dict:
-        # Rehearsal only fakes the viewer feed. A real start here would open
-        # billed sessions with the configured key, which is exactly what a
-        # rehearsal exists to avoid -- so refuse before touching anything.
-        # Not recorded in last_error: the refusal answers one press, and a
-        # sticky error would sit in the panel for the whole rehearsal.
-        if demo_mode():
-            raise StartRefused("rehearsal", REHEARSAL_REFUSAL)
-        async with self._lock:
-            cfg = config.get()
-            backend, warning = transcribe.resolve(cfg)
-            key = backend.key(cfg)
-            if backend.key_setting and not key:
-                refusal = BACKEND_KEY_REFUSALS.get(backend.key_setting, "no_backend_key")
-                self.last_error = START_MESSAGES[refusal]
-                raise StartRefused(refusal, self.last_error)
-            self.backend, self.backend_warning = backend, warning
+    # -- what the pipeline holds, or nothing while captions are off ------
+    @property
+    def running(self) -> bool:
+        return bool(self.pipeline and self.pipeline.running)
 
-            hub.history_lines = cfg["history_lines"]
-            hub.set_blocklist(redact.read_blocklist_file(config.blocklist_path()))
-            await self._stop_all_sessions()
-            assert self.capture is not None
-            try:
-                self.capture.gate_silence = bool(cfg["realtime"].get("gate_silence", True))
-                from . import audiobus  # here: the bus loads the sound library, which this module must not need at import
-                self.capture.start(str(cfg["audio_lane"]), 0, audiobus.LANE_SOURCE)
-            except RuntimeError:
-                # The capture's own sentence (fixed text naming the device), never the exception's.
-                self.last_error = self.capture.error or "The audio input could not be opened."
-                raise StartRefused("capture", self.last_error) from None
+    @property
+    def started_at(self) -> float | None:
+        return self.pipeline.started_at if self.pipeline else None
 
-            self.running = True
-            self.started_at = time.time()
-            src = cfg["source_language"]
-            hub.reset(TRANSCRIPTION_STREAM, src)
-            enabled = [t for t, spec in sorted(cfg["targets"].items()) if spec.get("enabled")]
-            # The recorded window is exactly this start -> the matching stop.
-            self._begin_recording(cfg, src, enabled)
-            self._open_text_pipeline(enabled, cfg, backend, key)
-            # With no target enabled there is nothing to translate, and the captions still run; say so.
-            self.last_error = None if enabled else (
-                "No target language is enabled, so captions run without translation. Turn one on."
-            )
-            if enabled and not self.translation_route.key:
-                self.last_error = START_MESSAGES["no_translation_key"]
-            self._push_status()
-            return self.status()
+    @property
+    def last_error(self) -> str | None:
+        return self.pipeline.last_error if self.pipeline else None
 
-    async def stop(self) -> dict:
-        async with self._lock:
-            await self._stop_all_sessions()
-            if self.capture is not None:
-                self.capture.stop()
-            self.running = False
-            self.started_at = None
-            self._end_recording()
-            self._push_status()
-            return self.status()
+    @property
+    def capture(self):
+        return self.pipeline.capture if self.pipeline else None
+
+    def _sessions(self) -> list:
+        return self.pipeline.sessions() if self.pipeline else []
+
+    def _live_names(self) -> list[str]:
+        return self.pipeline.live_names() if self.pipeline else []
+
+    def live_targets(self) -> list[dict]:
+        return self.pipeline.live_targets() if self.pipeline else []
 
     async def restart(self) -> dict:
-        if self.running:
-            await self.stop()
-            return await self.start()
+        if self.pipeline:
+            await self.pipeline.restart()
         return self.status()
 
-    # -- recording ------------------------------------------------------
-    def _begin_recording(self, cfg: dict, source: str, targets: list[str]) -> None:
-        """Open a run file, if recording is on. A failure here is logged by the
-        recorder and leaves `line_sink` unset: the event still goes ahead."""
-        hub.line_sink = None
-        rec = cfg.get("recording") or {}
-        if not rec.get("enabled"):
-            return
-        recorder.configure(config.recordings_path(), rec.get("keep_runs", 20))
-        if recorder.start_run(source, targets):
-            hub.line_sink = recorder.append
+    async def apply_ai(self) -> dict:
+        if self.pipeline:
+            await self.pipeline.apply_ai()
+        return self.status()
 
-    def _end_recording(self) -> None:
-        hub.line_sink = None
-        recorder.finish_run()
-
-    # -- per-target toggling ------------------------------------------
     async def set_target(self, target: str, enabled: bool) -> dict:
         cfg0 = config.get()
         if target not in languages.target_names(cfg0["source_language"]):
@@ -171,113 +107,20 @@ class Engine:
         spec = dict(cfg0["targets"].get(target, {}))
         spec["enabled"] = enabled
         config.save({"targets": {target: spec}})
-
-        async with self._lock:
-            # A target is a key in the next request, not a session.
-            if self.translator is not None:
-                if enabled:
-                    hub.reset(TRANSLATION_STREAM, target)
-                    self.translator.targets.add(target)
-                else:
-                    self.translator.targets.discard(target)
+        if self.pipeline:
+            await self.pipeline.apply_target(target, enabled)
+        else:
             self._push_status()
         return self.status()
-
-    async def apply_ai(self) -> dict:
-        """Point the running translator at the provider and model the AI models page now picks, without
-        touching the transcription session or any other feed."""
-        async with self._lock:
-            if self.translator is not None:
-                route = aimodels.resolve(config.get(), "translation")
-                self.translation_route = route
-                self.translator.use(route.url, route.key, route.model)
-            self._push_status()
-        return self.status()
-
-    def _open_text_pipeline(self, enabled: list[str], cfg: dict, backend: transcribe.Backend, key: str) -> None:
-        assert self.capture is not None
-        rt = cfg["realtime"]
-        src = cfg["source_language"]
-        # Translation goes where the AI models page says (Vercel by default, the OpenAI key as fallback),
-        # whichever backend transcribes.
-        route = aimodels.resolve(cfg, "translation")
-        self.translation_route = route
-        translator = TextTranslator(
-            url=route.url,
-            api_key=route.key,
-            model=route.model,
-            reasoning_effort=rt.get("text_reasoning_effort", ""),
-            source_language=src,
-            on_final=lambda t, x: hub.publish_final(TRANSLATION_STREAM, t, x),
-            on_status=self._push_status,
-        )
-        translator.targets = set(enabled)
-
-        def source_final(text: str) -> None:
-            # Translate the line as published, blocklist applied: the list is
-            # English and Spanish words, which no filter on the far side could
-            # catch once they are Arabic or Chinese. A removed word is never
-            # sent to the model, so it cannot reach any language.
-            translator.submit(hub.publish_final(TRANSCRIPTION_STREAM, src, text))
-
-        session = backend.session(
-            cfg, key,
-            name="transcribe",
-            source_language=src,
-            on_source_delta=lambda d: hub.publish_delta(TRANSCRIPTION_STREAM, src, d),
-            on_source_final=source_final,
-            on_status=self._push_status,
-        )
-        translator.start()
-        q = self.capture.add_consumer()
-        self._audio_queues[session.name] = q
-        session.start(q)
-        self.transcriber, self.translator = session, translator
-
-    async def _close_text_pipeline(self) -> None:
-        session, translator = self.transcriber, self.translator
-        self.transcriber = self.translator = None
-        if session is not None:
-            await session.stop()
-            q = self._audio_queues.pop(session.name, None)
-            if q is not None and self.capture is not None:
-                self.capture.remove_consumer(q)
-        if translator is not None:
-            await translator.stop()
-
-    async def _stop_all_sessions(self) -> None:
-        await self._close_text_pipeline()
-
-    def _sessions(self) -> list:
-        """Every live connection, for health and the meter, in a stable order."""
-        return [s for s in (self.transcriber, self.translator) if s is not None]
-
-    def _live_names(self) -> list[str]:
-        return sorted(self.translator.targets) if self.translator is not None else []
 
     # -- status --------------------------------------------------------
-    def live_targets(self) -> list[dict]:
-        cfg = config.get()
-        out = []
-        for target in self._live_names():
-            session = self.translator
-            out.append(
-                {
-                    "target": target,
-                    "label": languages.target_label(target),
-                    "iso": languages.target_iso(target),
-                    "script": languages.target_script(target),
-                    "state": session.state,
-                }
-            )
-        return sorted(out, key=lambda d: d["label"])
-
     def status(self) -> dict:
         # Imported here: the scheduler and the stream drive this engine, so they import us.
         from .scheduler import scheduler
         from .stream import stream
 
         cfg = config.get()
+        p = self.pipeline or _NoPipeline
         sessions = [s.health() for s in self._sessions()]
         live = set(self._live_names())
         return {
@@ -288,13 +131,13 @@ class Engine:
             "stream": stream.status(),
             "error": self.last_error,
             # What transcribes the main feed, and the sentence for why it is not what the operator chose.
-            "backend": ({"id": self.backend.id, "label": self.backend.label, "warning": self.backend_warning,
-                         "price_per_hour": self.backend.price_per_hour}
-                        if self.running and self.backend is not None else None),
+            "backend": ({"id": p.backend.id, "label": p.backend.label, "warning": p.backend_warning,
+                         "price_per_hour": p.backend.price_per_hour}
+                        if self.running and p.backend is not None else None),
             # Where translation runs, and the sentence for why it is not the provider the operator chose.
-            "translation": ({"provider": self.translation_route.provider, "label": self.translation_route.label,
-                             "model": self.translation_route.model, "warning": self.translation_route.warning}
-                            if self.running and self.translation_route is not None else None),
+            "translation": ({"provider": p.translation_route.provider, "label": p.translation_route.label,
+                             "model": p.translation_route.model, "warning": p.translation_route.warning}
+                            if self.running and p.translation_route is not None else None),
             "backends": [{"id": b.id, "label": b.label, "available": b.available(cfg),
                           "price_per_hour": b.price_per_hour} for b in transcribe.backends()],
             "audio": self.capture.status() if self.capture else {},

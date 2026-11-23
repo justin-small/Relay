@@ -26,6 +26,7 @@ import _db  # noqa: E402
 _db.start()
 _db.reset()
 
+from app.modules.captions.pipeline import Pipeline  # noqa: E402
 from app import aimodels, config, engine as engine_mod, texttranslate, transcribe  # noqa: E402
 from app.main import app  # noqa: E402
 
@@ -209,7 +210,8 @@ async def engine_switches_translation():
     try:
         config.save({"realtime": {"backend": "idle"}, "openai_api_key": "sk-1", "vercel_api_key": "vk_1",
                      "targets": {"SPANISH": {"enabled": True}}, "ai": {"tasks": {"translation": {"provider": "vercel"}}}})
-        eng = engine_mod.Engine()
+        eng = Pipeline(engine_mod.Engine())
+        eng.engine.pipeline = eng
         eng.bind(asyncio.get_running_loop())
         eng.capture = Capture()
         status = await eng.start()

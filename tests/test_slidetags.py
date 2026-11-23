@@ -275,7 +275,7 @@ _modules.attach("planning_center")
 _modules.attach("propresenter")
 from app import main as app_main, panels as panels_mod, alerts as alerts_mod  # noqa: E402
 from app.modules.propresenter import propresenter as pp  # noqa: E402
-from app.engine import engine  # noqa: E402
+from app.stream import stream  # noqa: E402
 from app.scheduler import scheduler  # noqa: E402
 
 eq("every tag action has a function", sorted(st.tags.actions), sorted(st.ACTIONS))
@@ -283,20 +283,23 @@ eq("every tag action has a function", sorted(st.tags.actions), sorted(st.ACTIONS
 
 async def wiring():
     log = []
-    real = (engine.start, engine.stop, engine.running, scheduler.manual_start, scheduler.manual_stop,
+    real = (scheduler.manual_start, scheduler.manual_stop,
             app_main.panel_registry.show_lyrics, app_main.panel_registry.show_captions,
             app_main.panel_registry.show_language, app_main.alerts.raise_named)
+    refuse = []
+    part_state = {"on": False}
 
-    async def fake_start():
-        log.append("engine.start")
-        engine.running = True
-        return {}
+    # A part of the stream (app/stream.py) that records what Start and Stop do to it: real code, no swap.
+    async def part_start():
+        log.append("part.start")
+        if refuse:
+            raise RuntimeError(refuse[0])
+        part_state["on"] = True
 
-    async def fake_stop():
-        log.append("engine.stop")
-        engine.running = False
-        return {}
-    engine.start, engine.stop, engine.running = fake_start, fake_stop, False
+    async def part_stop():
+        log.append("part.stop")
+        part_state["on"] = False
+    stream.add_part("test", part_start, part_stop, lambda: part_state["on"])
     scheduler.manual_start = lambda: log.append("scheduler.manual_start")
     scheduler.manual_stop = lambda: log.append("scheduler.manual_stop")
     app_main.panel_registry.show_lyrics = lambda: log.append("lyrics") or "ok"
@@ -307,12 +310,12 @@ async def wiring():
         acts = st.tags.actions
         await acts["capture-start"](None)
         eq("capture-start starts Relay's own captioning the way the Start button does",
-           log, ["scheduler.manual_start", "engine.start"])
+           log, ["scheduler.manual_start", "part.start"])
         log.clear()
         await acts["capture-start"](None)
         eq("…and does nothing when it is already running", log, [])
         await acts["capture-stop"](None)
-        eq("capture-stop stops it the way the Stop button does", log, ["scheduler.manual_stop", "engine.stop"])
+        eq("capture-stop stops it the way the Stop button does", log, ["scheduler.manual_stop", "part.stop"])
         log.clear()
         await acts["capture-stop"](None)
         eq("…and does nothing when it is already stopped", log, [])
@@ -323,22 +326,21 @@ async def wiring():
         eq("lyrics, captions, lang and alert reach the panels and Alerts", log,
            ["lyrics", "captions", ("lang", "SPANISH"), ("alert", "Sound desk", "ProPresenter")])
 
-        async def refuse():
-            raise RuntimeError("No OpenAI API key set. Add one in the admin panel.")
-        engine.start = refuse
+        refuse.append("No OpenAI API key set. Add one in the admin panel.")
         try:
             await acts["capture-start"](None)
             check("a start that Relay refuses is an error the history can show", False)
         except RuntimeError as exc:
             check("a start that Relay refuses is an error the history can show", "No OpenAI API key" in str(exc), str(exc))
-        app_main.alerts.raise_named = real[8]
+        app_main.alerts.raise_named = real[5]
         try:
             await acts["alert"]("Nobody has this name")
             check("an alert with no button of that name is an error the history can show", False)
         except RuntimeError as exc:
             check("an alert with no button of that name is an error the history can show", "No alert button" in str(exc), str(exc))
     finally:
-        (engine.start, engine.stop, engine.running, scheduler.manual_start, scheduler.manual_stop,
+        stream.remove_part("test")
+        (scheduler.manual_start, scheduler.manual_stop,
          app_main.panel_registry.show_lyrics, app_main.panel_registry.show_captions,
          app_main.panel_registry.show_language, app_main.alerts.raise_named) = real
 

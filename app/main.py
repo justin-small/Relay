@@ -2692,7 +2692,7 @@ async def admin_config(request: Request, payload: dict):
         for f in ("audio_lane", "source_language", "realtime")
     )
     if "stream_captions" in updates:
-        await show_stream.apply_captions()
+        await show_stream.apply_parts()
     if needs_restart and engine.running:
         await engine.restart()
     elif engine.running and any(f in updates for f in ("ai", "openai_api_key", "vercel_api_key")):
