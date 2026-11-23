@@ -47,6 +47,10 @@ with tempfile.TemporaryDirectory() as d:
         (d / (name + ".sig")).write_text(sig + "\n")
     (d / "Relay_1.2.0_amd64.deb").write_bytes(b"x")  # not an update artifact: no .sig needed
     (d / "Relay_1.2.0_aarch64.dmg").write_bytes(b"x")
+    # The Relay Helper installers (#636) ride on the same release but are not updater artifacts: no .sig, no entry.
+    for name in ("Relay-Helper-windows-x64.exe", "Relay-Helper-macos-arm64.pkg", "Relay-Helper-macos-x64.pkg"):
+        (d / name).write_bytes(b"x")
+        check(f"{name} is not an updater artifact", rt.platform_of(name) is None)
     out = rt.latest_json(d, "v1.2.0", "acme/Relay", "notes", "2026-01-01T00:00:00Z")
     p = out["platforms"]
     check("four platforms", sorted(p) == ["darwin-aarch64", "darwin-x86_64", "linux-x86_64", "windows-x86_64"])

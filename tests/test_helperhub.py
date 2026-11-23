@@ -238,6 +238,7 @@ with section("the websocket and the admin routes"):
     listed = admin.get("/api/admin/helpers").json()
     eq("the list shows it offline", [(h["name"], h["online"]) for h in listed["helpers"]], [("Stage Mac", False)])
     eq("and no secret", "token" in json.dumps(listed), False)
+    check("the page gets the certificate fingerprint to pin", isinstance(listed["fingerprint"], str), listed)
     with admin.websocket_connect("/ws/helper") as ws:
         ws.send_text(json.dumps({"type": "hello", "helper_id": paired["helper_id"], "token": paired["token"], "name": "Stage Mac",
                                  "os": "macos", "version": "0.1.0", "capabilities": [{"id": "propresenter", "version": 1, "ops": ["status"]}]}))

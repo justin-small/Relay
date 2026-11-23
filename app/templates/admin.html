@@ -1010,6 +1010,17 @@ window.relayCan = function (perm) { return window.RELAY_ME.permissions.indexOf(p
       Relay by itself, so Relay can reach things on that computer that it cannot reach from here. Install the Relay Helper
       there, then pair it with a code from this page.</p>
     <section>
+      <h3>Install the helper</h3>
+      <p class="sub">Download the installer for the show computer. It starts the helper now and every time that computer
+        signs in, and it reconnects by itself after sleep. Until the installers are signed, the computer warns once;
+        the release notes say how to get past it.</p>
+      <ul class="sub">
+        <li><a href="https://github.com/justin-small/Relay/releases/latest/download/Relay-Helper-windows-x64.exe" rel="noopener">Windows</a> (64-bit)</li>
+        <li><a href="https://github.com/justin-small/Relay/releases/latest/download/Relay-Helper-macos-arm64.pkg" rel="noopener">Mac with Apple silicon</a> (M1 and later)</li>
+        <li><a href="https://github.com/justin-small/Relay/releases/latest/download/Relay-Helper-macos-x64.pkg" rel="noopener">Mac with an Intel processor</a></li>
+      </ul>
+    </section>
+    <section>
       <h3>Pair a computer</h3>
       <p class="sub" id="helperPairHelp">On the show computer run <code>relay-helper pair</code> with this Relay's address and the code below.</p>
       <div class="ctl"><button type="button" class="primary" id="helperCodeBtn">Make a pairing code</button></div>

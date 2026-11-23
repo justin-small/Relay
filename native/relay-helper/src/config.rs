@@ -15,6 +15,9 @@ pub struct Config {
     pub token: String,
     #[serde(default)]
     pub name: String,
+    /// SHA-256 fingerprint of the certificate a `wss://` Relay must present; empty means the public roots decide.
+    #[serde(default)]
+    pub tls_pin: String,
     #[serde(default)]
     pub propresenter: ProPresenterConfig,
 }

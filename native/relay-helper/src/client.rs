@@ -13,7 +13,11 @@ use crate::capability::Registry;
 use crate::config::Config;
 use crate::protocol::{FromHelper, ToHelper, MAX_FRAME};
 
-pub const VERSION: &str = env!("CARGO_PKG_VERSION");
+/// The release tag's version when the release build sets it (RELAY_HELPER_VERSION), else the crate's.
+pub const VERSION: &str = match option_env!("RELAY_HELPER_VERSION") {
+    Some(v) => v,
+    None => env!("CARGO_PKG_VERSION"),
+};
 
 pub fn os_name() -> String {
     std::env::consts::OS.to_string()
@@ -30,7 +34,7 @@ fn endpoint(relay_url: &str) -> String {
 /// Trade a pairing code for a token and keep it in `config`. Returns the saved config.
 pub async fn pair(mut config: Config, code: &str) -> Result<Config, String> {
     let request = endpoint(&config.relay_url).into_client_request().map_err(|_| "That is not a Relay address.".to_string())?;
-    let (mut ws, _) = tokio_tungstenite::connect_async_with_config(request, Some(ws_config()), false)
+    let (mut ws, _) = tokio_tungstenite::connect_async_tls_with_config(request, Some(ws_config()), false, crate::tls::pinned_connector(&config.tls_pin))
         .await
         .map_err(|e| format!("Cannot reach Relay: {e}"))?;
     let name = if config.name.is_empty() { default_name() } else { config.name.clone() };
@@ -56,10 +60,29 @@ fn default_name() -> String {
     std::env::var("COMPUTERNAME").or_else(|_| std::env::var("HOSTNAME")).unwrap_or_else(|_| "Show computer".to_string())
 }
 
+/// How the helper notices a connection that went quiet without closing, as one does when the computer sleeps or
+/// Wi-Fi drops: it pings every `ping_every`, and gives up the connection when nothing at all (a pong, a call, a
+/// ping) has arrived for `dead_after`, so `run` dials again.
+#[derive(Debug, Clone, Copy)]
+pub struct Keepalive {
+    pub ping_every: Duration,
+    pub dead_after: Duration,
+}
+
+impl Default for Keepalive {
+    fn default() -> Self {
+        Keepalive { ping_every: Duration::from_secs(20), dead_after: Duration::from_secs(50) }
+    }
+}
+
 /// One connection, start to finish. Ok(true) means Relay refused us (stop retrying); Ok(false) means it dropped.
 pub async fn session(config: &Config, registry: &Registry) -> Result<bool, String> {
+    session_with(config, registry, Keepalive::default()).await
+}
+
+pub async fn session_with(config: &Config, registry: &Registry, keep: Keepalive) -> Result<bool, String> {
     let request = endpoint(&config.relay_url).into_client_request().map_err(|_| "That is not a Relay address.".to_string())?;
-    let (ws, _) = tokio_tungstenite::connect_async_with_config(request, Some(ws_config()), false)
+    let (ws, _) = tokio_tungstenite::connect_async_tls_with_config(request, Some(ws_config()), false, crate::tls::pinned_connector(&config.tls_pin))
         .await
         .map_err(|e| format!("Cannot reach Relay: {e}"))?;
     let (mut sink, mut stream) = ws.split();
@@ -77,15 +100,30 @@ pub async fn session(config: &Config, registry: &Registry) -> Result<bool, Strin
 
     let (tx, mut rx) = mpsc::channel::<FromHelper>(64);
     let writer = tokio::spawn(async move {
-        while let Some(msg) = rx.recv().await {
-            let Ok(text) = serde_json::to_string(&msg) else { continue };
-            if sink.send(Message::text(text)).await.is_err() {
-                break;
+        let mut beat = tokio::time::interval(keep.ping_every);
+        beat.tick().await;
+        loop {
+            tokio::select! {
+                msg = rx.recv() => {
+                    let Some(msg) = msg else { break };
+                    let Ok(text) = serde_json::to_string(&msg) else { continue };
+                    if sink.send(Message::text(text)).await.is_err() {
+                        break;
+                    }
+                }
+                _ = beat.tick() => {
+                    if sink.send(Message::Ping(Vec::new().into())).await.is_err() {
+                        break;
+                    }
+                }
             }
         }
     });
     let mut refused = false;
-    while let Some(frame) = stream.next().await {
+    loop {
+        // A read that waits longer than `dead_after` means the connection is dead even though nothing closed it.
+        let Ok(next) = tokio::time::timeout(keep.dead_after, stream.next()).await else { break };
+        let Some(frame) = next else { break };
         let Ok(frame) = frame else { break };
         let Message::Text(text) = frame else {
             if matches!(frame, Message::Close(_)) {

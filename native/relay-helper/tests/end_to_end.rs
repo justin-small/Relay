@@ -12,6 +12,7 @@ use futures_util::{SinkExt, StreamExt};
 use relay_helper::capability::Registry;
 use relay_helper::client;
 use relay_helper::config::{Config, ProPresenterConfig};
+use relay_helper::{autostart, tls};
 use relay_helper::propresenter::{check_api_path, safe_name, Opener, ProPresenter};
 use relay_helper::protocol::{FromHelper, ToHelper};
 use serde_json::{json, Value};
@@ -241,7 +242,7 @@ fn config_round_trips_and_is_private() {
     let dir = std::env::temp_dir().join(format!("relay-helper-cfg-{}", uuid_like()));
     let path = dir.join("nested").join("helper.json");
     assert_eq!(Config::load(&path).unwrap(), Config::default());
-    let cfg = Config { relay_url: "ws://x".into(), helper_id: "h".into(), token: "t".into(), name: "n".into(),
+    let cfg = Config { relay_url: "ws://x".into(), helper_id: "h".into(), token: "t".into(), name: "n".into(), tls_pin: "AB".repeat(32),
                        propresenter: ProPresenterConfig { api_host: "127.0.0.1".into(), api_port: 50402 } };
     cfg.save(&path).unwrap();
     assert_eq!(Config::load(&path).unwrap(), cfg);
@@ -263,4 +264,107 @@ fn frames_have_stable_shapes() {
     assert_eq!(ok, json!({"type": "result", "id": 1, "ok": true, "data": {"a": 1}}));
     let err = serde_json::to_value(FromHelper::err(2, "no")).unwrap();
     assert_eq!(err, json!({"type": "result", "id": 2, "ok": false, "error": "no"}));
+}
+
+/// A Relay with its own certificate: a TLS listener whose certificate the test makes, and that certificate's fingerprint.
+async fn tls_relay() -> (AsyncListener, String, String) {
+    let key = rcgen::generate_simple_self_signed(vec!["relay.test".to_string()]).unwrap();
+    let der = key.cert.der().to_vec();
+    let fp = tls::fingerprint_of(&der);
+    let acceptor = tokio_rustls::TlsAcceptor::from(Arc::new(
+        tokio_rustls::rustls::ServerConfig::builder_with_provider(Arc::new(tokio_rustls::rustls::crypto::ring::default_provider()))
+            .with_safe_default_protocol_versions()
+            .unwrap()
+            .with_no_client_auth()
+            .with_single_cert(vec![key.cert.der().clone()], tokio_rustls::rustls::pki_types::PrivateKeyDer::Pkcs8(key.signing_key.serialize_der().into()))
+            .unwrap(),
+    ));
+    let inner = AsyncListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = inner.local_addr().unwrap();
+    // The helper dials this port; each connection is wrapped in TLS, then handed to a plain WebSocket accept on a pipe.
+    let front = AsyncListener::bind("127.0.0.1:0").await.unwrap();
+    let url = format!("wss://127.0.0.1:{}", front.local_addr().unwrap().port());
+    tokio::spawn(async move {
+        loop {
+            let Ok((tcp, _)) = front.accept().await else { return };
+            let acceptor = acceptor.clone();
+            let target = addr;
+            tokio::spawn(async move {
+                let Ok(mut tls_stream) = acceptor.accept(tcp).await else { return };
+                let Ok(mut plain) = tokio::net::TcpStream::connect(target).await else { return };
+                let _ = tokio::io::copy_bidirectional(&mut tls_stream, &mut plain).await;
+            });
+        }
+    });
+    (inner, url, fp)
+}
+
+#[tokio::test]
+async fn a_pinned_certificate_is_the_only_one_trusted() {
+    let (listener, url, fp) = tls_relay().await;
+    tokio::spawn(async move {
+        loop {
+            let Ok((s, _)) = listener.accept().await else { return };
+            tokio::spawn(async move {
+                let Ok(mut ws) = tokio_tungstenite::accept_async(s).await else { return };
+                let _ = next_text(&mut ws).await;
+                let reply = ToHelper::Paired { helper_id: "h1".into(), token: "tok".into() };
+                let _ = ws.send(Message::text(serde_json::to_string(&reply).unwrap())).await;
+            });
+        }
+    });
+    // The right fingerprint, written the way Relay's admin page shows it (colons), connects.
+    let colons = fp.as_bytes().chunks(2).map(|c| std::str::from_utf8(c).unwrap()).collect::<Vec<_>>().join(":");
+    let good = Config { relay_url: url.clone(), tls_pin: tls::clean_pin(&colons).unwrap(), ..Config::default() };
+    assert_eq!(client::pair(good, "x").await.unwrap().token, "tok");
+    // Another certificate's fingerprint is refused before anything is sent.
+    let wrong = Config { relay_url: url.clone(), tls_pin: "00".repeat(32), ..Config::default() };
+    assert!(client::pair(wrong, "x").await.unwrap_err().starts_with("Cannot reach Relay"));
+    // No pin: a self-signed certificate is not one the public roots vouch for.
+    let none = Config { relay_url: url, ..Config::default() };
+    assert!(client::pair(none, "x").await.is_err());
+}
+
+#[test]
+fn fingerprints_are_cleaned() {
+    let fp = "AB".repeat(32);
+    assert_eq!(tls::clean_pin(&fp.to_lowercase()).unwrap(), fp);
+    assert!(tls::clean_pin(&"ab:".repeat(31)).is_err(), "62 digits is not a SHA-256");
+    assert!(tls::clean_pin("not a fingerprint").is_err());
+    assert!(tls::clean_pin(&"G".repeat(64)).is_err());
+    assert_eq!(tls::fingerprint_of(b""), "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855");
+}
+
+#[tokio::test]
+async fn a_connection_that_goes_quiet_is_dropped_so_run_dials_again() {
+    let (listener, url) = relay_listener().await;
+    let cfg = Config { relay_url: url, helper_id: "h1".into(), token: "tok".into(), name: "n".into(), ..Config::default() };
+    let reg = registry(1, Arc::new(Recorder(Mutex::new(vec![]))));
+    let keep = client::Keepalive { ping_every: Duration::from_millis(100), dead_after: Duration::from_millis(400) };
+    let helper = tokio::spawn(async move { client::session_with(&cfg, &reg, keep).await });
+    // The "Relay" accepts the socket at the TCP level and then reads and answers nothing: what a sleeping laptop's
+    // half-open connection looks like from the other side.
+    let (s, _) = listener.accept().await.unwrap();
+    let ws = tokio_tungstenite::accept_async(s).await.unwrap();
+    let (_sink, _stream) = ws.split();
+    let ended = tokio::time::timeout(Duration::from_secs(4), helper).await.expect("the helper gives up on silence").unwrap();
+    assert_eq!(ended, Ok(false));
+}
+
+#[test]
+fn the_login_entries_name_the_program() {
+    let exe = std::path::Path::new("/Applications/Relay Helper/relay-helper");
+    let log = std::path::Path::new("/Users/a&b/Library/Logs/Relay Helper.log");
+    let plist = autostart::plist(exe, Some(std::path::Path::new("/tmp/x<y>.json")), log);
+    assert!(plist.contains("<string>org.relay.helper</string>"));
+    assert!(plist.contains("<string>/Applications/Relay Helper/relay-helper</string>\n    <string>run</string>\n    <string>--background</string>"));
+    assert!(plist.contains("<key>RunAtLoad</key>\n  <true/>") && plist.contains("<key>KeepAlive</key>\n  <true/>"));
+    assert!(plist.contains("/tmp/x&lt;y&gt;.json") && plist.contains("/Users/a&amp;b/"));
+    assert!(!autostart::plist(exe, None, log).contains("EnvironmentVariables"));
+    assert_eq!(
+        autostart::launch_agent_path(std::path::Path::new("/Users/a")),
+        std::path::PathBuf::from("/Users/a/Library/LaunchAgents/org.relay.helper.plist")
+    );
+    assert_eq!(autostart::run_value(std::path::Path::new(r"C:\Program Files\Relay Helper\relay-helper.exe")),
+               r#""C:\Program Files\Relay Helper\relay-helper.exe" run --background"#);
 }

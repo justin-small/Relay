@@ -1,0 +1,10 @@
+#!/bin/bash
+# Runs as root after the package copies relay-helper into /usr/local/bin. Register the launch agent for the person
+# who is signed in at the Mac (not root), so the helper starts at their login and now. Never fails the install: if
+# nobody is signed in, `relay-helper install` is one command to run later.
+user=$(/usr/bin/stat -f%Su /dev/console 2>/dev/null)
+if [ -n "$user" ] && [ "$user" != "root" ]; then
+  uid=$(/usr/bin/id -u "$user")
+  /bin/launchctl asuser "$uid" /usr/bin/sudo -u "$user" -H /usr/local/bin/relay-helper install || true
+fi
+exit 0

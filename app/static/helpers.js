@@ -9,6 +9,7 @@
   const el = U.el;
   const manage = g('page-helpers').getAttribute('data-manage') === 'yes';
   let timer = 0;
+  let fingerprint = '';
 
   const SYSTEMS = { macos: 'macOS', windows: 'Windows', linux: 'Linux' };
 
@@ -54,6 +55,7 @@
     const tb = g('helperList');
     try {
       const body = await A.api('/api/admin/helpers');
+      fingerprint = body.fingerprint || '';
       tb.textContent = '';
       body.helpers.forEach(function (h) { tb.appendChild(row(h)); });
       if (!body.helpers.length) {
@@ -77,7 +79,10 @@
       g('helperCodeNote').textContent = 'Use it within ' + Math.round(made.expires_in / 60) + ' minutes. It works once.';
       g('helperCodeBox').hidden = false;
       const cmd = g('helperCmd');
-      cmd.textContent = 'relay-helper pair ws://' + location.host + ' ' + made.code;
+      // Relay's own HTTPS: dial wss:// and pin its certificate, which no public authority vouches for.
+      cmd.textContent = location.protocol === 'https:'
+        ? 'relay-helper pair wss://' + location.host + ' ' + made.code + (fingerprint ? ' --pin ' + fingerprint : '')
+        : 'relay-helper pair ws://' + location.host + ' ' + made.code;
       cmd.hidden = false;
     } catch (e) {
       A.alertMsg(e.message);

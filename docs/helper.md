@@ -22,6 +22,43 @@ relay-helper port 50402                                      # ProPresenter's Ne
 relay-helper run                                             # leave running; it reconnects by itself
 ```
 
+### Installing it
+
+Each release carries an installer for the show computer, linked from Relay's Helpers page: `Relay-Helper-windows-x64.exe`,
+`Relay-Helper-macos-arm64.pkg` (Apple silicon) and `Relay-Helper-macos-x64.pkg` (Intel). Each puts the program in place
+and runs `relay-helper install`, so the helper starts now and at every login. Until it is paired it waits; running
+`relay-helper pair` (the Helpers page prints the whole command) is the one step left. The installers are unsigned until
+a signing certificate exists, so the computer warns once.
+
+| Command | Does |
+| --- | --- |
+| `relay-helper install` | macOS: a launchd agent (`~/Library/LaunchAgents/org.relay.helper.plist`, restarted if it exits, log in `~/Library/Logs/Relay Helper.log`). Windows: a value in the user's `Run` key. Then starts the helper |
+| `relay-helper uninstall` | Removes that, and stops the running helper |
+
+It runs as the signed-in user on purpose: ProPresenter's window lives in that session, so a Windows service (which runs
+apart from the desktop) could not open a `.pro` file. Release binaries are built by the `helper` job in
+`.github/workflows/release.yml`; the Windows installer is `native/relay-helper/packaging/windows/relay-helper.nsi`, the
+macOS one a `pkgbuild` package whose `packaging/macos/postinstall` registers the launch agent for the signed-in user.
+
+### A Relay with its own certificate
+
+Relay serves its operator panel over HTTPS with a self-signed certificate (`app/tls.py`), so no public authority vouches
+for it. Pair with `wss://` and the certificate's SHA-256 fingerprint, which the Helpers page prints in the command:
+
+```bash
+relay-helper pair wss://192.168.1.20 ABC-123 "FOH Mac" --pin 3F:9A:...
+```
+
+The pin is saved in the settings (`tls_pin`); from then on the helper accepts that certificate and no other, before it
+sends anything, even if the name differs. Pairing again without `--pin` clears it. A Relay that gets a new certificate
+(a new address, or near its expiry; Relay says so on its admin page) must be paired again with the new fingerprint.
+With no pin, `wss://` uses the public root certificates, which suits a Relay behind a proxy with a real certificate.
+
+### Sleep and flaky networks
+
+The helper pings Relay every 20 seconds and drops the connection when nothing at all has arrived for 50, then dials
+again (1 s, doubling to 30 s). A laptop that sleeps or loses Wi-Fi comes back without anyone touching it.
+
 Settings are one JSON file (`~/Library/Application Support/Relay Helper/helper.json`, or `%APPDATA%\Relay Helper\` on
 Windows, mode 0600 where the OS has modes). `RELAY_HELPER_CONFIG` points elsewhere.
 
