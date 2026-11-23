@@ -56,10 +56,9 @@ pub fn route_key(route: &Value) -> Option<String> {
         Value::String(s) => s.as_str(),
         _ => return None,
     };
-    let valid = (key.starts_with("mac:") || key.starts_with("name:"))
-        && key.len() > 4
-        && key.len() <= 205
-        && !key.chars().any(|c| (c as u32) < 0x20);
+    // Python's `^(mac|name):[^\x00-\x1f]{1,200}$`: one to 200 characters after the prefix, none of them a control character.
+    let rest = key.strip_prefix("mac:").or_else(|| key.strip_prefix("name:"));
+    let valid = rest.is_some_and(|r| (1..=200).contains(&r.chars().count()) && !r.chars().any(|c| (c as u32) < 0x20));
     valid.then(|| key.to_owned())
 }
 

@@ -657,3 +657,73 @@ async fn a_routed_port_going_missing_keeps_this_computer_reaching_the_listener_a
     assert!(g.notes.iter().any(|n| n.contains("Dante audio") && n.ends_with("only this computer can reach it.")), "{:?}", g.notes);
     server.close();
 }
+
+// ------------------------------------------------------------------------------------------------ gaps cargo-mutants found
+
+#[test]
+fn a_truncated_percent_escape_is_left_as_it_is() {
+    use relay_server::gate::decoded_path;
+    assert_eq!(decoded_path("a%4"), "a%4");
+    assert_eq!(decoded_path("%"), "%");
+    assert_eq!(decoded_path("%zz/x"), "%zz/x");
+    assert_eq!(decoded_path("%41%42"), "AB");
+}
+
+#[test]
+fn a_policy_is_strict_or_fallback_and_nothing_else() {
+    assert_eq!(Policy::parse("fallback"), Some(Policy::Fallback));
+    assert_eq!(Policy::parse("strict"), Some(Policy::Strict));
+    assert_eq!(Policy::parse("Strict"), None);
+}
+
+#[test]
+fn core_knows_its_five_classes() {
+    let classes = netroute::core_classes();
+    assert_eq!(classes.keys().copied().collect::<Vec<_>>(), vec!["connections", "crew", "discovery", "translation", "viewers"]);
+}
+
+#[test]
+fn route_keys_need_one_to_200_characters_after_the_prefix() {
+    let at = |n: usize| json!(format!("name:{}", "x".repeat(n)));
+    assert!(netroute::route_key(&at(200)).is_some());
+    assert!(netroute::route_key(&at(201)).is_none());
+    assert!(netroute::route_key(&json!(format!("mac:{}", "y".repeat(200)))).is_some());
+    assert!(netroute::route_key(&json!("name:x")).is_some());
+    assert!(netroute::route_key(&json!("name:Ethernet 2")).is_some(), "a space is not a control character");
+    assert!(netroute::route_key(&json!("name:")).is_none());
+}
+
+#[test]
+fn a_class_on_the_default_network_links_every_lan_address_not_only_the_first() {
+    let ports = [Port { default_route: true, ..port("name:en0", "en0", "192.168.1.20", true) }, port("name:en1", "en1", "10.0.0.5", true)];
+    let r = netroute::resolve("viewers", "Viewer pages", Policy::Fallback, &json!({}), &ports);
+    assert_eq!(netroute::link_addresses(&r, &ports), vec!["192.168.1.20".to_owned(), "10.0.0.5".to_owned()]);
+}
+
+#[test]
+fn a_routed_address_that_is_loopback_binds_it_once_with_no_notice() {
+    let ports = [port("name:lo-test", "lo-test", "127.0.0.1", true)];
+    let r = netroute::resolve("viewers", "Viewer pages", Policy::Fallback, &json!({"routes": {"viewers": "name:lo-test"}}), &ports);
+    let plan = listen::plan(Some(&r), false, "0.0.0.0", 80);
+    assert_eq!(plan.hosts, vec!["127.0.0.1".to_owned()]);
+    assert!(plan.notes.is_empty(), "{:?}", plan.notes);
+}
+
+#[test]
+fn the_panel_notice_names_the_routed_address_while_its_port_is_up() {
+    let ports = [port("name:en5", "en5", "10.0.0.5", true)];
+    let r = netroute::resolve("crew", "Crew pages", Policy::Fallback, &json!({"routes": {"crew": "name:en5"}}), &ports);
+    let plan = listen::plan(Some(&r), true, "0.0.0.0", 443);
+    assert_eq!(plan.notes.len(), 1);
+    assert!(plan.notes[0].starts_with("The operator panel answers only on 10.0.0.5 and this computer (https://127.0.0.1/admin)."), "{}", plan.notes[0]);
+}
+
+#[test]
+fn an_error_is_told_in_a_fixed_sentence() {
+    use std::io::{Error, ErrorKind};
+    assert_eq!(listen::why(&Error::from(ErrorKind::AddrInUse)), "it is already in use");
+    assert_eq!(listen::why(&Error::from(ErrorKind::PermissionDenied)), "this account is not permitted to use it");
+    assert_eq!(listen::why(&Error::from_raw_os_error(10048)), "it is already in use");
+    assert_eq!(listen::why(&Error::from_raw_os_error(10013)), "this account is not permitted to use it");
+    assert_eq!(listen::why(&Error::from(ErrorKind::TimedOut)), "it could not be opened");
+}
