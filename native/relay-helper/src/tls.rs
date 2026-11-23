@@ -13,12 +13,16 @@ use sha2::{Digest, Sha256};
 
 /// Upper-case hex with no separators, so `AB:CD`, `abcd` and `AB CD` compare equal.
 pub fn normalise(fingerprint: &str) -> String {
-    fingerprint.chars().filter(|c| c.is_ascii_hexdigit()).collect::<String>().to_ascii_uppercase()
+    fingerprint.chars().filter(char::is_ascii_hexdigit).collect::<String>().to_ascii_uppercase()
 }
 
 /// The fingerprint of a certificate in DER form: 64 upper-case hex digits.
 pub fn fingerprint_of(cert: &[u8]) -> String {
-    Sha256::digest(cert).iter().map(|b| format!("{b:02X}")).collect()
+    Sha256::digest(cert).iter().fold(String::new(), |mut hex, b| {
+        use std::fmt::Write as _;
+        let _ = write!(hex, "{b:02X}");
+        hex
+    })
 }
 
 /// A SHA-256 fingerprint as 64 hex digits, from any spacing or colons; an error sentence when it is not one.
@@ -76,7 +80,7 @@ pub fn pinned_connector(pin: &str) -> Option<tokio_tungstenite::Connector> {
         return None;
     }
     let provider = Arc::new(ring::default_provider());
-    let config = rustls::ClientConfig::builder_with_provider(provider.clone())
+    let config = rustls::ClientConfig::builder_with_provider(Arc::clone(&provider))
         .with_safe_default_protocol_versions()
         .expect("TLS versions")
         .dangerous() // only to install PinVerifier, which accepts one fingerprint and nothing else

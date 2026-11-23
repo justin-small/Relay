@@ -21,7 +21,7 @@ fn usage() -> ! {
 
 #[tokio::main]
 async fn main() {
-    let path: PathBuf = std::env::var_os("RELAY_HELPER_CONFIG").map(PathBuf::from).unwrap_or_else(config::default_path);
+    let path: PathBuf = std::env::var_os("RELAY_HELPER_CONFIG").map_or_else(config::default_path, PathBuf::from);
     let args: Vec<String> = std::env::args().skip(1).collect();
     let cfg = match config::Config::load(&path) {
         Ok(c) => c,
@@ -49,7 +49,7 @@ async fn main() {
                     // A new pairing starts from what the operator typed now, never a pin left from the last Relay.
                     cfg.tls_pin = pin.unwrap_or_default();
                     match client::pair(cfg, &args[2]).await {
-                        Ok(paired) => paired.save(&path).map(|_| println!("Paired. Now run: relay-helper run (or relay-helper install to start at login)")),
+                        Ok(paired) => paired.save(&path).map(|()| println!("Paired. Now run: relay-helper run (or relay-helper install to start at login)")),
                         Err(e) => Err(e),
                     }
                 }
@@ -61,7 +61,7 @@ async fn main() {
             Ok(p) if p > 0 => {
                 let mut cfg = cfg;
                 cfg.propresenter.api_port = p;
-                cfg.save(&path).map(|_| println!("ProPresenter's API port is {p}."))
+                cfg.save(&path).map(|()| println!("ProPresenter's API port is {p}."))
             }
             _ => Err("The port is a number from 1 to 65535.".to_string()),
         },
@@ -92,8 +92,14 @@ async fn main() {
             client::run(cfg, registry).await
         }
         Some("status") => {
-            println!("settings: {}\nrelay: {}\ncertificate pin: {}\npaired: {}\nProPresenter API port: {}", path.display(), cfg.relay_url,
-                     if cfg.tls_pin.is_empty() { "none" } else { &cfg.tls_pin }, !cfg.token.is_empty(), cfg.propresenter.api_port);
+            println!(
+                "settings: {}\nrelay: {}\ncertificate pin: {}\npaired: {}\nProPresenter API port: {}",
+                path.display(),
+                cfg.relay_url,
+                if cfg.tls_pin.is_empty() { "none" } else { &cfg.tls_pin },
+                !cfg.token.is_empty(),
+                cfg.propresenter.api_port
+            );
             Ok(())
         }
         _ => usage(),

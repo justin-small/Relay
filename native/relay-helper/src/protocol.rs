@@ -18,14 +18,27 @@ pub struct CapInfo {
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ToHelper {
     /// Sent after `Hello` is accepted.
-    Welcome { relay_version: String },
+    Welcome {
+        relay_version: String,
+    },
     /// Answer to `Pair`: keep the token, connect with it from now on.
-    Paired { helper_id: String, token: String },
+    Paired {
+        helper_id: String,
+        token: String,
+    },
     /// Run `op` of capability `cap`; answer with `Result` carrying the same `id`.
-    Call { id: u64, cap: String, op: String, #[serde(default)] args: Value },
+    Call {
+        id: u64,
+        cap: String,
+        op: String,
+        #[serde(default)]
+        args: Value,
+    },
     Ping,
     /// Relay refuses the connection (bad token, helper removed); the helper stops retrying until paired again.
-    Refused { reason: String },
+    Refused {
+        reason: String,
+    },
 }
 
 /// Helper to Relay.
@@ -33,9 +46,20 @@ pub enum ToHelper {
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum FromHelper {
     /// First message with a token: who this is and what it can do.
-    Hello { helper_id: String, name: String, os: String, version: String, capabilities: Vec<CapInfo> },
+    Hello {
+        helper_id: String,
+        name: String,
+        os: String,
+        version: String,
+        capabilities: Vec<CapInfo>,
+    },
     /// First message without a token: trade a pairing code (made on Relay's admin page) for one.
-    Pair { code: String, name: String, os: String, version: String },
+    Pair {
+        code: String,
+        name: String,
+        os: String,
+        version: String,
+    },
     Result {
         id: u64,
         ok: bool,
@@ -46,7 +70,11 @@ pub enum FromHelper {
     },
     Pong,
     /// Something a capability noticed on its own (for example ProPresenter started).
-    Event { cap: String, name: String, data: Value },
+    Event {
+        cap: String,
+        name: String,
+        data: Value,
+    },
 }
 
 impl FromHelper {

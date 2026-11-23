@@ -1,6 +1,9 @@
 //! The helper against a fake Relay (a WebSocket server) and a fake ProPresenter API (a tiny HTTP server): pairing,
 //! hello, calls answered, refusals, the file and path rules, and reconnecting.
 
+// The fake servers below are test fixtures outside any `#[test]`: when one cannot open its socket there is nothing to recover to.
+#![expect(clippy::unwrap_used, reason = "fixture helpers fail the test by panicking when they cannot set up")]
+
 use std::io::{Read, Write};
 use std::net::TcpListener;
 use std::path::PathBuf;
@@ -12,9 +15,9 @@ use futures_util::{SinkExt, StreamExt};
 use relay_helper::capability::Registry;
 use relay_helper::client;
 use relay_helper::config::{Config, ProPresenterConfig};
-use relay_helper::{autostart, tls};
 use relay_helper::propresenter::{check_api_path, safe_name, Opener, ProPresenter};
 use relay_helper::protocol::{FromHelper, ToHelper};
+use relay_helper::{autostart, tls};
 use serde_json::{json, Value};
 use tokio::net::TcpListener as AsyncListener;
 use tokio_tungstenite::tungstenite::Message;
@@ -89,10 +92,7 @@ fn registry(port: u16, rec: Arc<Recorder>) -> Registry {
 }
 
 fn uuid_like() -> String {
-    format!("{}-{:?}", std::process::id(), std::time::Instant::now())
-        .chars()
-        .filter(|c| c.is_ascii_alphanumeric())
-        .collect()
+    format!("{}-{:?}", std::process::id(), std::time::Instant::now()).chars().filter(char::is_ascii_alphanumeric).collect()
 }
 
 async fn next_text<S>(ws: &mut S) -> Value
@@ -102,7 +102,7 @@ where
     loop {
         match tokio::time::timeout(Duration::from_secs(5), ws.next()).await.expect("a frame within 5 s") {
             Some(Ok(Message::Text(t))) => return serde_json::from_str(&t).unwrap(),
-            Some(Ok(_)) => continue,
+            Some(Ok(_)) => {}
             other => panic!("connection ended: {other:?}"),
         }
     }
@@ -143,7 +143,7 @@ async fn hello_calls_and_results() {
     let rec = Arc::new(Recorder(Mutex::new(vec![])));
     let (listener, url) = relay_listener().await;
     let cfg = Config { relay_url: url, helper_id: "h1".into(), token: "tok".into(), name: "FOH Mac".into(), ..Config::default() };
-    let reg = registry(port, rec.clone());
+    let reg = registry(port, Arc::clone(&rec));
     let helper = tokio::spawn(async move { client::run(cfg, reg).await });
 
     let (s, _) = listener.accept().await.unwrap();
@@ -155,9 +155,7 @@ async fn hello_calls_and_results() {
     assert_eq!(hello["capabilities"][0]["id"], "propresenter");
     assert_eq!(hello["capabilities"][0]["ops"], json!(["status", "open_files", "api"]));
 
-    let ask = |id: u64, op: &str, args: Value| {
-        serde_json::to_string(&ToHelper::Call { id, cap: "propresenter".into(), op: op.into(), args }).unwrap()
-    };
+    let ask = |id: u64, op: &str, args: Value| serde_json::to_string(&ToHelper::Call { id, cap: "propresenter".into(), op: op.into(), args }).unwrap();
 
     ws.send(Message::text(ask(1, "status", Value::Null))).await.unwrap();
     let r = next_text(&mut ws).await;
@@ -242,8 +240,14 @@ fn config_round_trips_and_is_private() {
     let dir = std::env::temp_dir().join(format!("relay-helper-cfg-{}", uuid_like()));
     let path = dir.join("nested").join("helper.json");
     assert_eq!(Config::load(&path).unwrap(), Config::default());
-    let cfg = Config { relay_url: "ws://x".into(), helper_id: "h".into(), token: "t".into(), name: "n".into(), tls_pin: "AB".repeat(32),
-                       propresenter: ProPresenterConfig { api_host: "127.0.0.1".into(), api_port: 50402 } };
+    let cfg = Config {
+        relay_url: "ws://x".into(),
+        helper_id: "h".into(),
+        token: "t".into(),
+        name: "n".into(),
+        tls_pin: "AB".repeat(32),
+        propresenter: ProPresenterConfig { api_host: "127.0.0.1".into(), api_port: 50402 },
+    };
     cfg.save(&path).unwrap();
     assert_eq!(Config::load(&path).unwrap(), cfg);
     #[cfg(unix)]
@@ -365,6 +369,8 @@ fn the_login_entries_name_the_program() {
         autostart::launch_agent_path(std::path::Path::new("/Users/a")),
         std::path::PathBuf::from("/Users/a/Library/LaunchAgents/org.relay.helper.plist")
     );
-    assert_eq!(autostart::run_value(std::path::Path::new(r"C:\Program Files\Relay Helper\relay-helper.exe")),
-               r#""C:\Program Files\Relay Helper\relay-helper.exe" run --background"#);
+    assert_eq!(
+        autostart::run_value(std::path::Path::new(r"C:\Program Files\Relay Helper\relay-helper.exe")),
+        r#""C:\Program Files\Relay Helper\relay-helper.exe" run --background"#
+    );
 }
