@@ -94,10 +94,11 @@ window.relayCan = function (perm) { return window.RELAY_ME.permissions.indexOf(p
       <div class="ctl">
         <span class="muted" id="masterState">Stopped</span>
         <span class="spacer"></span>
-        {% if 'session.control' in perms %}<button class="primary" id="startBtn">Start capture</button>
+        {% if 'session.control' in perms %}<button class="primary" id="startBtn">Start</button>
         <button class="danger" id="stopBtn" disabled>Stop</button>{% endif %}
       </div>
-      <div class="note">{% if 'session.control' in perms %}Starts or stops transcription and every translation session together. Stopping ends billed API usage.{% else %}Shows whether transcription and the translation sessions are running.{% endif %}</div>
+      <label class="check"><input type="checkbox" id="captionsToggle" checked{% if 'settings.manage' not in perms %} disabled{% endif %}> Run live captions and translation with Start</label>
+      <div class="note">{% if 'session.control' in perms %}Starts or stops the stream: live captions and translation (while ticked) and every module set to follow Start and Stop. Stopping ends billed API usage.{% else %}Shows whether the stream is running.{% endif %}</div>
     </section>
     <section>
       <h3>No sound?</h3>
@@ -544,7 +545,7 @@ window.relayCan = function (perm) { return window.RELAY_ME.permissions.indexOf(p
     <section>
       <h3>Recording</h3>
     <div class="note" style="margin:0 0 12px">
-      A recording covers exactly one run &mdash; from <em>Start capture</em> to
+      A recording covers exactly one run &mdash; from <em>Start</em> to
       <em>Stop</em>. Every committed caption line is written to disk as it happens,
       so a crash mid-event still leaves you the transcript up to that point.
       Blocked words are removed before anything is written.
@@ -595,7 +596,7 @@ window.relayCan = function (perm) { return window.RELAY_ME.permissions.indexOf(p
     {{ viewonly('schedules.manage') }}
     <section>
       <h3>Schedules</h3>
-    <div class="note" style="margin:0 0 12px" id="schedStatus">No schedules set. Capture only starts when you press <em>Start capture</em>.</div>
+    <div class="note" style="margin:0 0 12px" id="schedStatus">No schedules set. The stream only starts when you press <em>Start</em>.</div>
     <p class="note" style="margin:0 0 12px">Named, reusable schedules. Signage slots, board rotation rows and crew call times pick one by name, so changing it here moves every place that uses it. Times follow Relay's time zone: <strong id="schedZone"></strong> (Settings, System).</p>
     <table>
       <thead><tr><th>Schedule</th><th>Next start</th><th style="width:52px">On</th><th></th></tr></thead>

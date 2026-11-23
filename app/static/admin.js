@@ -820,7 +820,7 @@
     schedStatus = sc;
     const el = $('schedStatus');
     if (!sc || !sc.count) {
-      el.innerHTML = 'No schedules set. Capture only starts when you press <em>Start capture</em>.';
+      el.innerHTML = 'No schedules set. The stream only starts when you press <em>Start</em>.';
       return;
     }
     const bits = [];
@@ -876,6 +876,10 @@
     $('startBtn').disabled = true;
     try { applyStatus(await post('/api/admin/start')); alertMsg(''); }
     catch (e) { alertMsg(e.message); $('startBtn').disabled = false; }
+  });
+  $('captionsToggle').addEventListener('change', async function (ev) {
+    try { applyStatus(await post('/api/admin/config', { stream_captions: ev.target.checked }).then(function (b) { return b.status; })); alertMsg(''); }
+    catch (e) { alertMsg(e.message); ev.target.checked = !ev.target.checked; }
   });
   $('stopBtn').addEventListener('click', async function () {
     $('stopBtn').disabled = true;
@@ -2164,6 +2168,7 @@
     if (!st.sessions) return;
 
     if (st.schedule) schedStatusChanged(st.schedule);
+    if (st.stream) $('captionsToggle').checked = !!st.stream.captions;
     $('masterDot').className = 'dot ' + (st.running ? 'ok' : '');
     paintPill(st.running);
     $('masterState').textContent = masterText(st.running);

@@ -222,12 +222,12 @@ class FakeEngine:
         self.stops += 1
         return {}
 
-    def _push_status(self):
+    def push_status(self):
         self.pushes += 1
 
 
 fake = FakeEngine()
-scheduler_mod.engine = fake
+scheduler_mod.stream = fake      # the scheduler drives the stream (#592)
 run = scheduler_mod.Scheduler()
 
 
@@ -399,7 +399,7 @@ check("the Relay zone starts from the schedule's own", cfg["timezone"], "America
 # ------------------------------------------------------------ the admin API
 print("\nadmin API")
 from fastapi.testclient import TestClient
-from app import engine as engine_mod
+from app import engine as engine_mod, stream as stream_mod
 from app.main import app
 
 config.save({"schedules": [], "engine_schedules": [], "timezone": CT, "port": 8000, "admin_port": 8000})
@@ -407,7 +407,7 @@ body = {"name": "Sunday morning", "windows": [{"repeat": "weekly", "days": [0], 
         "engine": True}
 cl = _db.client(app, base_url="http://testserver")
 with cl:
-    scheduler_mod.engine = engine_mod.engine
+    scheduler_mod.stream = stream_mod.stream
     check("needs a sign-in", TestClient(app).get("/api/admin/schedules").status_code, 401)
     got = cl.get("/api/admin/schedules").json()
     check("lists US zones only", [z["id"] for z in got["timezones"]], [z for z, _ in S.US_TIMEZONES])

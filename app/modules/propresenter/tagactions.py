@@ -4,31 +4,31 @@ from __future__ import annotations
 
 from ... import alerts as alertsmod
 from ...alerts import alerts
-from ...engine import engine
 from ...panels import registry as panel_registry
 from ...scheduler import scheduler
+from ...stream import stream
 
 
 # Slide-note tags (#138): what each action does in Relay. These are Relay's own doing, so view-only (which is about
 # writes to ProPresenter) does not stop them. None of them calls ProPresenter: capture means Relay's own audio and
 # captions, never ProPresenter's capture/start.
 async def _tag_capture_start(value: str | None) -> str:
-    if engine.running:
-        return "Captioning was already running."
+    if stream.running:
+        return "The stream was already running."
     scheduler.manual_start()
     try:
-        await engine.start()
+        await stream.start()
     except RuntimeError as exc:
-        raise RuntimeError(f"Captioning did not start: {exc}")
-    return "Captioning started."
+        raise RuntimeError(f"The stream did not start: {exc}")
+    return "The stream started."
 
 
 async def _tag_capture_stop(value: str | None) -> str:
-    if not engine.running:
-        return "Captioning was already stopped."
+    if not stream.running:
+        return "The stream was already stopped."
     scheduler.manual_stop()
-    await engine.stop()
-    return "Captioning stopped."
+    await stream.stop()
+    return "The stream stopped."
 
 
 async def _tag_lyrics(value: str | None) -> str:

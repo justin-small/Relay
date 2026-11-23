@@ -44,6 +44,7 @@ from .panels import registry as panel_registry
 from .recorder import recorder
 from . import scheduler as scheduler_mod
 from .scheduler import plan_source as scheduler_plan_source, scheduler
+from .stream import stream as show_stream
 from .users import User
 
 logging.basicConfig(
@@ -533,7 +534,7 @@ async def _shutdown() -> None:
         if task is not None:
             task.cancel()
     with contextlib.suppress(Exception):
-        await engine.stop()
+        await show_stream.stop()
     with contextlib.suppress(Exception):
         await asyncio.to_thread(metering.meter.stop)
     with contextlib.suppress(Exception):
@@ -2600,6 +2601,7 @@ CONFIG_PERMISSIONS = {
     "default_font_px": "settings.manage",
     "speaking_indicator_vad": "settings.manage",
     "history_lines": "settings.manage",
+    "stream_captions": "settings.manage",
     "timezone": "settings.manage",
     "realtime": "settings.manage",
     "ai": "settings.manage",
@@ -2630,6 +2632,8 @@ async def admin_config(request: Request, payload: dict):
     for field in allowed_scalars:
         if field in payload:
             updates[field] = payload[field]
+    if "stream_captions" in payload:
+        updates["stream_captions"] = bool(payload["stream_captions"])
 
     if "timezone" in payload:
         # The one Relay time zone: every schedule, signage slot, board row and call time reads it.
@@ -2693,6 +2697,8 @@ async def admin_config(request: Request, payload: dict):
         f in updates
         for f in ("audio_lane", "source_language", "realtime")
     )
+    if "stream_captions" in updates:
+        await show_stream.apply_captions()
     if needs_restart and engine.running:
         await engine.restart()
     elif engine.running and any(f in updates for f in ("ai", "openai_api_key", "vercel_api_key")):
@@ -2749,7 +2755,7 @@ async def admin_target(target: str, payload: dict):
 async def admin_start():
     scheduler.manual_start()
     try:
-        return await engine.start()
+        return await show_stream.start()
     except RuntimeError as exc:
         # The refusal last: status() carries its own "error" (the sticky
         # last_error), which must not mask why this press failed.
@@ -2763,7 +2769,7 @@ async def admin_start():
 async def admin_stop():
     # Before the stop, so the status it pushes already shows the window held.
     scheduler.manual_stop()
-    return await engine.stop()
+    return await show_stream.stop()
 
 
 # ---------------------------------------------------------------- schedules

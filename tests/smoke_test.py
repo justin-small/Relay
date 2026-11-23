@@ -357,18 +357,19 @@ finally:
 
 print("\nsession clock")
 # A real start() needs PortAudio and a live OpenAI key, so the stamping itself
-# is exercised through the state it leaves behind: what start() sets, what
+# is exercised through the state it leaves behind (the stream's, #592): what start() sets, what
 # stop() clears, and that both status frames carry it.
 eq("stopped relay reports no start time", _eng.status()["started_at"], None)
 eq("meter agrees when stopped", _eng.meter()["started_at"], None)
 _t0 = time.time()
+from app.stream import stream as _stream  # noqa: E402
 _eng.running = True
-_eng.started_at = _t0          # what start() stamps
+_stream.running, _stream.started_at = True, _t0          # what start() stamps
 check("status carries the start time", _eng.status()["started_at"] == _t0)
 check("meter carries the same start time", _eng.meter()["started_at"] == _t0)
 check("timestamp is wall clock, not monotonic",
       abs(_eng.status()["started_at"] - time.time()) < 5)
-asyncio.run(_eng.stop())
+asyncio.run(_stream.stop())
 eq("stop clears the start time", _eng.status()["started_at"], None)
 eq("stop clears it in the meter too", _eng.meter()["started_at"], None)
 check("stop also clears running", not _eng.running)
