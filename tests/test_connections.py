@@ -121,7 +121,7 @@ with section("What an operator types"):
                       ("an unknown traffic class", {**SERIAL, "traffic": "nope"}), ("no link", {"name": "x", "kind": "serial"}),
                       ("a bad Modbus unit", {**MODBUS, "modbus": {"unit": 999}}), ("no broker", {"name": "x", "kind": "mqtt"}),
                       ("nothing", None)):
-        check(f"{what} is refused with a sentence", refused(connections.clean, raw), raw)
+        check(f"{what} is refused with a sentence", refused(connections.clean, raw))
 
 with section("The stored list"):
     a = connections.create(SERIAL)
@@ -137,21 +137,20 @@ with section("The stored list"):
 
 with section("An MQTT password is sealed at rest and never sent to a browser"):
     raw = db.one("select settings from connections where id = ?", (c["id"],))["settings"]
-    check("the stored row does not hold the password", "hunter2" not in raw, raw)
-    check("it holds a sealed value", secretbox.PREFIX in raw, raw)
-    eq("Relay reads it back", connections.get(c["id"])["settings"]["mqtt"]["password"], "hunter2")
+    check("the stored row does not hold the password", "hunter2" not in raw)
+    check("it holds a sealed value", secretbox.PREFIX in raw)
+    check("Relay reads it back", connections.get(c["id"])["settings"]["mqtt"]["password"] == "hunter2")
     shown = connections.public(connections.get(c["id"]))
     check("the browser's copy has no password, only whether there is one",
-          "password" not in shown["settings"]["mqtt"] and shown["settings"]["mqtt"]["has_password"], shown)
+          "password" not in shown["settings"]["mqtt"] and shown["settings"]["mqtt"]["has_password"])
     check("and the text of it appears nowhere in it", "hunter2" not in repr(shown))
     asyncio.run(connections.update(c["id"], {**MQTT, "mqtt": {"host": "10.0.0.21", "username": "relay"}}))
-    eq("an edit that leaves the password out keeps it", (connections.get(c["id"])["settings"]["mqtt"]["host"],
-                                                         connections.get(c["id"])["settings"]["mqtt"]["password"]),
-       ("10.0.0.21", "hunter2"))
+    eq("an edit moves the broker", connections.get(c["id"])["settings"]["mqtt"]["host"], "10.0.0.21")
+    check("and one that leaves the password out keeps it", connections.get(c["id"])["settings"]["mqtt"]["password"] == "hunter2")
     asyncio.run(connections.update(c["id"], {**MQTT, "mqtt": {"host": "10.0.0.21", "username": "relay", "password": ""}}))
-    eq("an edit that sends an empty one clears it", connections.get(c["id"])["settings"]["mqtt"]["password"], "")
+    check("an edit that sends an empty one clears it", connections.get(c["id"])["settings"]["mqtt"]["password"] == "")
     asyncio.run(connections.update(c["id"], {**MQTT, "mqtt": {"host": "10.0.0.21", "username": "relay", "password": "new"}}))
-    eq("and a new one replaces it", connections.get(c["id"])["settings"]["mqtt"]["password"], "new")
+    check("and a new one replaces it", connections.get(c["id"])["settings"]["mqtt"]["password"] == "new")
 
 with section("Edit and remove"):
     changed = asyncio.run(connections.update(a["id"], {**SERIAL, "name": "Serial server"}))
@@ -301,14 +300,14 @@ with section("The admin routes"):
     body = res.json()
     eq("an admin sees the list, the ports, the kinds and the traffic classes", (res.status_code, sorted(body)),
        (200, ["connections", "kinds", "serial_ports", "traffic"]))
-    check("the list so far, with no password anywhere", "new" not in res.text and "hunter2" not in res.text, res.text[:300])
+    check("the list so far, with no password anywhere", "new" not in res.text and "hunter2" not in res.text)
     check("the Waveshare shows its state as not open", any(c["name"] == "Serial server" and c["state"] is None
                                                            for c in body["connections"]), body["connections"])
     check("connections is one of the traffic classes", "connections" in body["traffic"])
     res = admin.post(R, json={**MQTT, "name": "Hall broker", "mqtt": {"host": "10.0.0.30", "password": "s3cret"}})
     mid = res.json()["connection"]["id"]
     eq("add an MQTT connection", (res.status_code, res.json()["connection"]["settings"]["mqtt"]["has_password"]), (200, True))
-    check("its password does not come back", "s3cret" not in res.text, res.text)
+    check("its password does not come back", "s3cret" not in res.text)
     res = admin.post(R, json={**SERIAL, "name": "serial SERVER"})
     eq("the same name again is a 409 with the sentence", (res.status_code, res.json()["detail"]),
        (409, "Another connection already has that name."))
@@ -317,7 +316,7 @@ with section("The admin routes"):
     eq("no kind is a 400", admin.post(R, json={"name": "x"}).status_code, 400)
     res = admin.post(f"{R}/{mid}", json={"name": "Hall broker", "kind": "mqtt", "mqtt": {"host": "10.0.0.31"}})
     eq("an edit that leaves the password out is 200", res.status_code, 200)
-    eq("and kept it", connections.get(mid)["settings"]["mqtt"]["password"], "s3cret")
+    check("and kept it", connections.get(mid)["settings"]["mqtt"]["password"] == "s3cret")
     eq("editing one that is not there is 404", admin.post(f"{R}/9999", json=SERIAL).status_code, 404)
     res = admin.post(R + "/test", json={"connection": SERIAL, "probe": {"send": "?ID 0"}})
     eq("Test through the route", (res.status_code, res.json()["ok"], res.json()["reply"]), (200, True, "OK ?ID 0\\r"))

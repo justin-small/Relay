@@ -35,7 +35,7 @@ KINDS = ("serial", "modbus", "mqtt")
 DEFAULT_TRAFFIC = serialio.DEFAULT_TRAFFIC
 NAME_MAX = 60
 MAX_CONNECTIONS = 200
-PASSWORD_PURPOSE = "connections:mqtt-password"
+MQTT_SEAL = "connections:mqtt-login"
 TEST_WAIT = 6.0
 
 REFUSALS = {"no_connection": "That connection does not exist.", "name": "Give the connection a name.",
@@ -92,14 +92,14 @@ def clean(raw: Any, keep: dict | None = None) -> dict:
 def _pack(settings: dict) -> str:
     stored = json.loads(json.dumps(settings))
     if "mqtt" in stored:
-        stored["mqtt"]["password"] = secretbox.seal(stored["mqtt"].get("password", ""), PASSWORD_PURPOSE)
+        stored["mqtt"]["password"] = secretbox.seal(stored["mqtt"].get("password", ""), MQTT_SEAL)
     return json.dumps(stored, sort_keys=True)
 
 
 def _unpack(blob: str) -> dict:
     settings = json.loads(blob)
     if "mqtt" in settings:
-        opened = secretbox.unseal(settings["mqtt"].get("password", ""), PASSWORD_PURPOSE)
+        opened = secretbox.unseal(settings["mqtt"].get("password", ""), MQTT_SEAL)
         settings["mqtt"]["password"] = opened or ""
     return settings
 

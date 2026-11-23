@@ -298,9 +298,10 @@ async def fake_broker_tests():
 
     with section("Fake broker: what the client says"):
         first = broker.connects[0]
-        eq("MQTT 3.1.1, clean session, the id, user, password and will",
-           (first["proto"], first["level"], first["id"], first["username"], first["password"], first["will"]),
-           (b"MQTT", 4, "alice", "u", "pw", {"topic": "status/alice", "payload": b"gone", "qos": 1, "retain": False}))
+        eq("MQTT 3.1.1, the id, the user and the will",
+           (first["proto"], first["level"], first["id"], first["username"], first["will"]),
+           (b"MQTT", 4, "alice", "u", {"topic": "status/alice", "payload": b"gone", "qos": 1, "retain": False}))
+        check("the password reaches the broker", first["password"] == "pw")
         eq("flags: clean session, will, will QoS 1, user, password", first["flags"], 0x02 | 0x04 | 0x08 | 0x80 | 0x40)
         check("a client with no id gets one of its own", broker.connects[1]["id"].startswith("relay-"))
         eq("state says connected", (ca.state()["connected"], ca.state()["last_error"]), (True, ""))
