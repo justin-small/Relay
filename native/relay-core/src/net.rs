@@ -65,6 +65,12 @@ pub trait Router: Send + Sync + 'static {
 
     /// A UDP socket bound and pinned for the class.
     fn udp(&self, class: &str, options: &UdpOptions) -> Result<UdpSocket, RouteError>;
+
+    /// The address of the network port the class is routed to, when it is routed, available and not fallen back: for a program
+    /// that opens its own connections and can only be told a source address (cloudflared's `--edge-bind-address`).
+    fn routed_address(&self, _class: &str) -> Option<IpAddr> {
+        None
+    }
 }
 
 /// What a module holds: cheap to clone, the same router everywhere.
@@ -87,6 +93,11 @@ impl Net {
 
     pub fn udp(&self, class: &str, options: &UdpOptions) -> Result<UdpSocket, RouteError> {
         self.0.udp(class, options)
+    }
+
+    /// See [`Router::routed_address`].
+    pub fn routed_address(&self, class: &str) -> Option<IpAddr> {
+        self.0.routed_address(class)
     }
 }
 

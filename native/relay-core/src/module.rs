@@ -15,6 +15,7 @@ use std::any::Any;
 use std::collections::BTreeMap;
 use std::future::Future;
 use std::pin::Pin;
+use std::sync::atomic::{AtomicU16, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 
 use axum::Router;
@@ -109,11 +110,21 @@ pub struct Host {
     net: Net,
     store: Arc<OnceLock<Arc<dyn SettingsStore>>>,
     authorizer: Arc<OnceLock<Arc<dyn Authorizer>>>,
+    viewer_port: Arc<AtomicU16>,
 }
 
 impl Host {
     pub fn new(shutdown: Shutdown) -> Self {
-        Self { shared: Arc::default(), shutdown, net: Net::unrouted(), store: Arc::default(), authorizer: Arc::default() }
+        Self { shared: Arc::default(), shutdown, net: Net::unrouted(), store: Arc::default(), authorizer: Arc::default(), viewer_port: Arc::default() }
+    }
+
+    /// The port the viewer pages are served on right now (`serving.viewer_port`), 0 until the server has opened it.
+    pub fn viewer_port(&self) -> u16 {
+        self.viewer_port.load(Ordering::Relaxed)
+    }
+
+    pub fn set_viewer_port(&self, port: u16) {
+        self.viewer_port.store(port, Ordering::Relaxed);
     }
 
     /// Open and seal module secrets with the server's store (built before the registry, so it is in place for `attach`).

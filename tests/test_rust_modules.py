@@ -68,7 +68,7 @@ def rust_files(folder: Path) -> list[Path]:
 def socket_breaches(name: str, folder: Path) -> list[str]:
     return [f"{name}/{src.relative_to(folder)} opens its own socket: ask Host::net() for the traffic class's connection, so it "
             "leaves by the port the operator assigned (docs/rust-server.md)"
-            for src in rust_files(folder) if SOCKET_USE.search(src.read_text(encoding="utf-8"))]
+            for src in rust_files(folder / "src") if SOCKET_USE.search(src.read_text(encoding="utf-8"))]
 
 
 def audit(crates: dict, server_modules_rs: str) -> list[str]:

@@ -8,7 +8,7 @@ use relay_core::{AppError, Module};
 
 /// Every module, in the order they start (they stop in reverse).
 pub fn all() -> Vec<Arc<dyn Module>> {
-    Vec::new()
+    vec![Arc::new(relay_module_remote_access::RemoteAccess::new())]
 }
 
 /// Registered into `registry` by `main`; returns the first problem a module's manifest has.

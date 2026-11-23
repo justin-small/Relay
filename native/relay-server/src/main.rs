@@ -93,6 +93,7 @@ async fn run() -> Result<(), String> {
         tick: TICK,
     };
     let app = App::start(options, Arc::clone(&registry), shutdown.clone()).await?;
+    registry.host().set_viewer_port(app.viewer_port());
     registry.start_enabled().await;
     for line in app.banner() {
         println!("{line}");

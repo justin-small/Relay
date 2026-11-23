@@ -2733,6 +2733,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "relay-module-remote_access"
+version = "0.1.0"
+dependencies = [
+ "axum",
+ "base64 0.22.1",
+ "bytes",
+ "http-body-util",
+ "hyper",
+ "hyper-util",
+ "rand 0.8.8",
+ "relay-core",
+ "rustls",
+ "serde_json",
+ "tokio",
+ "tokio-rustls",
+ "tower",
+ "tracing",
+ "webpki-roots 0.26.11",
+]
+
+[[package]]
 name = "relay-ndi"
 version = "0.1.0"
 dependencies = [
@@ -2780,6 +2801,7 @@ dependencies = [
  "relay-auth",
  "relay-config",
  "relay-core",
+ "relay-module-remote_access",
  "rustls",
  "serde",
  "serde_json",

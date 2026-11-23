@@ -18,6 +18,7 @@ path = "src/main.rs"
 relay-auth = { path = "../relay-auth" }
 relay-config = { path = "../relay-config" }
 relay-core = { path = "../relay-core" }
+relay-module-remote_access = { path = "../modules/remote_access" }
 axum = { version = "0.8", default-features = false, features = ["http1", "json", "tokio", "ws"] }
 futures-core = "0.3"
 bytes = "1"

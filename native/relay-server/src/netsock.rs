@@ -152,6 +152,11 @@ fn no_connreset(sock: &Socket) {
 fn no_connreset(_sock: &Socket) {}
 
 impl Router for RoutedNet {
+    fn routed_address(&self, class: &str) -> Option<IpAddr> {
+        let (r, _) = self.resolve(class);
+        if r.routed() && !r.fallback && r.available { r.address.as_deref()?.parse().ok() } else { None }
+    }
+
     fn connect_tcp<'a>(
         &'a self,
         class: &'a str,
