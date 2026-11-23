@@ -38,6 +38,8 @@ pub struct Options {
     pub install_name: String,
     pub announce: bool,
     pub tick: Duration,
+    /// Run the audio bus, routes and meters here (#657) instead of in the app behind the server.
+    pub rust_audio: bool,
 }
 
 /// config.json's keys for the sockets.
@@ -152,8 +154,21 @@ impl App {
         // (an older file than this server reads, a disk problem) the server says why and forwards them to the app instead.
         match relay_auth::Auth::open(&database_path(), relay_auth::Cost::standard()).await {
             Ok(auth) => {
+                let auth_pool = auth.pool().clone();
                 let accounts = crate::accounts::Accounts::new(auth, crate::pages::Pages::new(&opts.app_dir), opts.config_path.clone());
                 registry.host().set_authorizer(Arc::new(crate::modulehost::AccountsAuthorizer(Arc::clone(&accounts))));
+                if opts.rust_audio {
+                    let app = match (&opts.upstream, &opts.token) {
+                        (Some(base), Some(token)) if !token.is_empty() => Some(crate::pyapp::PyApp::new(base, token)),
+                        _ => None,
+                    };
+                    if let Some(api) = crate::audio::start(auth_pool, Arc::clone(&accounts), &opts.config_path, app, shutdown.clone()).await {
+                        if let Some(token) = opts.token.as_deref().filter(|t| !t.is_empty()) {
+                            routes = routes.merge(crate::internal::routes(api.clone(), token));
+                        }
+                        routes = routes.merge(crate::audio::routes(api));
+                    }
+                }
                 routes = routes.merge(crate::accounts::routes(accounts));
             }
             Err(e) => tracing::error!("accounts are served by the app behind this server, not by it: {e}"),

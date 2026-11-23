@@ -417,11 +417,15 @@ async def _startup() -> None:
     recorder.configure(config.recordings_path(), cfg["recording"]["keep_runs"])
     engine.bind(asyncio.get_running_loop())
     # The bus is always on. Opening devices can take a moment, and a device that is not there yet is retried by the bus itself.
+    # Behind the Rust server with RELAY_RUST_AUDIO the server owns the bus and the meters (#657): this process only follows it.
     try:
-        await asyncio.to_thread(audiobus.bus.apply, await asyncio.to_thread(audiobus.runtime_config, cfg["audio_bus"]))
+        if audiobus.REMOTE:
+            await asyncio.to_thread(audiobus.bus.start_remote)
+        else:
+            await asyncio.to_thread(audiobus.bus.apply, await asyncio.to_thread(audiobus.runtime_config, cfg["audio_bus"]))
     except Exception:
         log.exception("The audio bus could not start")
-    if any(m["enabled"] for m in cfg["metering"]["meters"]):
+    if not audiobus.REMOTE and any(m["enabled"] for m in cfg["metering"]["meters"]):
         try:
             await asyncio.to_thread(metering.meter.apply, cfg["metering"])
         except Exception:

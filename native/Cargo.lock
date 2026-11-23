@@ -2625,6 +2625,19 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d902046e6a28a1e4c3cab97258a0ce11e994903f01c2d97a9447a0b3df85f4f6"
 
 [[package]]
+name = "relay-audio"
+version = "0.1.0"
+dependencies = [
+ "relay-auth",
+ "relay-bus",
+ "relay-bus-cpal",
+ "serde_json",
+ "sqlx",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "relay-auth"
 version = "0.1.0"
 dependencies = [
@@ -2798,6 +2811,7 @@ dependencies = [
  "quickcheck",
  "rand 0.8.8",
  "rcgen 0.13.2",
+ "relay-audio",
  "relay-auth",
  "relay-config",
  "relay-core",
@@ -2808,6 +2822,7 @@ dependencies = [
  "serde_urlencoded",
  "sha2 0.10.9",
  "socket2 0.5.10",
+ "sqlx",
  "subtle",
  "time",
  "tokio",
