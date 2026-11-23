@@ -89,3 +89,21 @@ A test is a script in `tests/` named `test_*.py`. Use the shared checks in `test
 `done()`), wrap each part in `with section("..."):` so one exception does not hide the checks after it, poll with
 `wait_for`/`await_for` instead of a fixed `sleep` when waiting for something to happen, and make folders with
 `tmpdir()` so they are removed. A fixed sleep is right only to show that something does *not* happen.
+
+## Rust tests (enforced where CI can, otherwise by this list)
+
+Every change under `native/` keeps its tests current and uses the Rust tools, not only `cargo test`:
+
+- **Test the change.** New behaviour gets an integration test in the crate's `tests/` (for the server, real sockets and
+  real TLS, as `native/relay-server/tests/listeners.rs` does); a bug fix gets the test that would have caught it.
+- **nextest.** Run tests with `cargo nextest run -p <crate>` from `native/` (`native/.config/nextest.toml`): one process per
+  test, so a hung test is named and killed.
+- **Properties.** Code that parses, decodes or decides from arbitrary input (paths, ids, names, routes) also gets a quickcheck
+  property in `tests/properties.rs` that holds for any input.
+- **Mutation testing.** After changing a port rule, parser or other decision logic, run
+  `cargo mutants -p <crate> -j2 -f <crate>/src/<file>.rs` from `native/` (paths are workspace-relative; slow, one file at a time).
+  A surviving mutant is a missing test: add it, or say in the pull request why the mutant is harmless.
+- **Clippy.** `cargo clippy --locked --all-targets --workspace -- -D warnings`, as in "Run the whole suite".
+
+`tests/run_all.py` and CI run `cargo test` and clippy; nextest and mutants are run by hand before you push, so say in the pull
+request which you ran. This Mac's cargo mirror does not resolve: use a temporary `native/.cargo/config.toml` and never commit it.
