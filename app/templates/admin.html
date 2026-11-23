@@ -47,7 +47,7 @@ window.relayCan = function (perm) { return window.RELAY_ME.permissions.indexOf(p
     {% elif m.pages|length == 1 %}{% set p = m.pages[0] %}<a href="#{{ p.id }}" data-page="{{ p.id }}" data-mod="{{ m.id }}" data-tip="{{ p.title }}"><svg class="i" viewBox="0 0 16 16" aria-hidden="true">{{ p.icon|safe }}</svg><span class="nl">{{ p.title }}</span></a>
     {% else %}<div class="has" data-mod="{{ m.id }}"><button type="button" class="nb" data-tip="{{ m.name }}" aria-expanded="false"><svg class="i" viewBox="0 0 16 16" aria-hidden="true">{{ m.icon|safe }}</svg><span class="nl">{{ m.name }}</span>{{ chev }}</button><div class="subm"><div><ul>{% for p in m.pages %}{{ sub(p.id, p.title) }}{% endfor %}</ul></div></div></div>
     {% endif %}{% endfor %}
-    {% if 'modules.view' in perms or 'users.view' in perms or 'credentials.manage' in perms or 'network.view' in perms or 'settings.manage' in perms or 'audit.view' in perms or 'helpers.view' in perms %}
+    {% if 'modules.view' in perms or 'users.view' in perms or 'credentials.manage' in perms or 'network.view' in perms or 'settings.manage' in perms or 'audit.view' in perms or 'helpers.view' in perms or 'connections.view' in perms %}
     <div class="grp">Settings</div>
     {% set sys = [] %}
     {% if 'modules.view' in perms %}{% set _ = sys.append(["modules", "Modules"]) %}{% endif %}
@@ -55,6 +55,7 @@ window.relayCan = function (perm) { return window.RELAY_ME.permissions.indexOf(p
     {% if 'credentials.manage' in perms %}{% set _ = sys.append(["credentials", "Credentials"]) %}{% endif %}
     {% if 'settings.manage' in perms %}{% set _ = sys.append(["aimodels", "AI models"]) %}{% endif %}
     {% if 'network.view' in perms %}{% set _ = sys.append(["network", "Network"]) %}{% endif %}
+    {% if 'connections.view' in perms %}{% set _ = sys.append(["connections", "Connections"]) %}{% endif %}
     {% if 'settings.manage' in perms %}{% set _ = sys.append(["appearance", "Appearance & tuning"]) %}{% endif %}
     {% if 'helpers.view' in perms %}{% set _ = sys.append(["helpers", "Helpers"]) %}{% endif %}
     {% if 'audit.view' in perms %}{% set _ = sys.append(["audit", "Audit log"]) %}{% endif %}
@@ -1024,6 +1025,33 @@ window.relayCan = function (perm) { return window.RELAY_ME.permissions.indexOf(p
     </section>
   </div>
 {% endif %}
+{% if 'connections.view' in perms %}
+  <div class="page" id="page-connections" data-page="connections" hidden data-manage="{{ 'yes' if 'connections.manage' in perms else 'no' }}">
+    <h2 class="title">Connections</h2>
+    <p class="sub">A connection is a way for Relay to talk to a device that is not on the network the usual way: a serial
+      server (an RS-232 or RS-485 box with an Ethernet port), a serial port on this computer, a Modbus device or an MQTT
+      broker. Add one here, press Test to see it answer, then pick it in the module that uses it.</p>
+    <section>
+      <h3>Connections</h3>
+      <table class="tbl">
+        <thead><tr><th>Name</th><th>Kind</th><th>Where</th><th>Status</th><th></th></tr></thead>
+        <tbody id="connList"><tr><td colspan="5" class="muted">Loading&hellip;</td></tr></tbody>
+      </table>
+      <div class="ctl"><button type="button" class="primary" id="connAddBtn">Add a connection</button></div>
+    </section>
+    <section id="connForm" hidden>
+      <h3 id="connFormTitle">Add a connection</h3>
+      <div id="connFields"></div>
+      <div class="ctl">
+        <button type="button" id="connTestBtn">Test</button>
+        <button type="button" class="primary" id="connSaveBtn">Save</button>
+        <button type="button" class="quiet" id="connCancelBtn">Cancel</button>
+      </div>
+      <div id="connNote" class="field err" hidden></div>
+      <div id="connResult" aria-live="polite"></div>
+    </section>
+  </div>
+{% endif %}
 {% if 'audit.view' in perms %}
   <div class="page" id="page-audit" data-page="audit" hidden>
     <h2 class="title">Audit log</h2>
@@ -1142,6 +1170,7 @@ window.relayCan = function (perm) { return window.RELAY_ME.permissions.indexOf(p
 <script src="{{ static('users.js') }}"></script>
 <script src="{{ static('audit.js') }}"></script>
 <script src="{{ static('helpers.js') }}"></script>
+<script src="{{ static('connections.js') }}"></script>
 <script src="{{ static('oauth.js') }}"></script>
 {% for script in module_scripts %}<script src="{{ static('modules/' ~ script) }}"></script>
 {% endfor %}</body></html>

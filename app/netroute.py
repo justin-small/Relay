@@ -65,6 +65,7 @@ CORE_TRAFFIC: tuple[Traffic, ...] = (
     Traffic("crew", "Operator panel, sign-in and crew pages (HTTPS)"),
     Traffic("discovery", "Relay's announcement to caption panels (mDNS)"),
     Traffic("translation", "Translation service (OpenAI, over the internet)"),
+    Traffic("connections", "Serial, Modbus and MQTT connections (app/connections.py)"),
 )
 
 
@@ -400,6 +401,23 @@ def _key(r: Resolved) -> tuple:
     return (r.port_id, r.port.id if r.port else None, r.address, r.available, r.fallback)
 
 
+CORE_KEY = "core:connections"
+
+
+def _tell_connections() -> None:
+    """Connections (app/connections.py) are core's own users of the "connections" class: connect them again when it moved."""
+    from . import connections
+
+    try:
+        key = _key(resolve("connections"))
+    except Exception:
+        log.exception("could not resolve the network route of the connections")
+        return
+    before, _last[CORE_KEY] = _last.get(CORE_KEY), key
+    if before is not None and before != key:
+        connections.network_changed()
+
+
 def refresh() -> list[str]:
     """Tell each running module whose classes now resolve differently (`Module.network_changed`).
 
@@ -410,8 +428,9 @@ def refresh() -> list[str]:
     told: list[str] = []
     running = {m.manifest.id: m for m in modules.all() if m.manifest.traffic and modules.running(m.manifest.id)}
     for mid in list(_last):
-        if mid not in running:
+        if mid not in running and mid != CORE_KEY:
             del _last[mid]
+    _tell_connections()
     for mid, mod in running.items():
         try:
             now = module_resolved(mid)

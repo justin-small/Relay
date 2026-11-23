@@ -98,8 +98,8 @@ def watch(page):
 
 
 
-TAB_INDEX = ("n => 1 + JSON.parse(document.querySelector(`#nav a[data-pages~='${n}']`).dataset.tabs)"
-             ".findIndex(t => t[0] === n)")
+TAB_TITLE = ("n => JSON.parse(document.querySelector(`#nav a[data-pages~='${n}']`).dataset.tabs)"
+             ".find(t => t[0] === n)[1]")
 
 
 def nav_click(page, name):
@@ -109,9 +109,15 @@ def nav_click(page, name):
     if page.locator(f"nav a[data-page='{name}']").count():
         page.click(f"nav a[data-page='{name}']")
         return
-    # A page that is a tab (System, ProPresenter: #591): open its entry, then click its tab on the bar.
-    page.click(f"nav a[data-pages~='{name}']")
-    page.click(f".page:not([hidden]) .pagetabs [role=tab]:nth-child({page.evaluate(TAB_INDEX, name)})")
+    # A page that is a tab (System, ProPresenter: #591): when its bar is already on screen (the last page was one of the
+    # same entry's), click the tab there; otherwise open the entry from the sidebar first, and give the bar a moment to
+    # be drawn, because it is built again as the page shows and a click on the first one would find it gone.
+    tab = page.locator(".page:not([hidden]) .pagetabs").get_by_role("tab", name=page.evaluate(TAB_TITLE, name), exact=True)
+    if not tab.count():
+        page.click(f"nav a[data-pages~='{name}']")
+        page.wait_for_timeout(300)
+    tab.click()
+
 
 def visit(context, path):
     page = context.new_page()

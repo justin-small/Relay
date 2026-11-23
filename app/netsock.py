@@ -52,7 +52,12 @@ PROC_CONF = "/proc/sys/net/ipv4/conf"
 class RouteError(OSError):
     """A routed socket could not be made. The message is a fixed sentence fit for the admin page.
 
-    An OSError, so a client that already catches OSError around a connection (most do) reports it as one."""
+    An OSError, so a client that already catches OSError around a connection (most do) reports it as one. `message` is
+    that sentence, for a page to show (a route answers with it, never with str() of the exception)."""
+
+    def __init__(self, message: str = ""):
+        super().__init__(message)
+        self.message = message
 
 
 # Ports whose interface pin was refused (Linux without CAP_NET_RAW), by port id: they keep the source address only.
@@ -179,6 +184,9 @@ async def open_tcp(route: Resolved | str, host: str, port: int, timeout: float =
         kwargs["server_hostname"] = host
     try:
         return await asyncio.open_connection(sock=sock, **kwargs)
+    except ssl.SSLError:
+        _close(sock)
+        raise RouteError(f"The TLS connection to {host} port {port} failed. Check its certificate.") from None
     except OSError:
         _close(sock)
         raise RouteError(f"Could not connect to {host} port {port} through {_name(_resolved(route))}.") from None

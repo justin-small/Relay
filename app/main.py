@@ -32,7 +32,7 @@ from jinja2 import ChoiceLoader, FileSystemLoader, PrefixLoader
 from . import alerts as alertsmod
 from . import backup as backupmod
 from . import announce as announcemod
-from . import aimodels, alerthistory, audiobus, audit, boards, cables, channels, config, db, devices, exporting, helperhub, importdocker, languages, metering, mixreport, netinfo, network_map, netroute, overlays, panelfw, panels, ports, prefs, redact, routing, schedules, screens, serving, setupcode, streamstatus, tally, tls, tones, transcribe, users
+from . import aimodels, alerthistory, audiobus, audit, boards, cables, channels, config, connections, db, devices, exporting, helperhub, importdocker, languages, metering, mixreport, netinfo, network_map, netroute, overlays, panelfw, panels, ports, prefs, redact, routing, schedules, screens, serialio, serving, setupcode, streamstatus, tally, tls, tones, transcribe, users
 from .alerts import alerts
 from . import engine as engine_mod
 from .engine import TRANSCRIPTION_STREAM, TRANSLATION_STREAM, demo_mode, engine
@@ -305,6 +305,10 @@ AUDIT_ROUTES = {
     "admin_me_token_create": ("token.create", "Made an API token"),
     "admin_me_token_revoke": ("token.revoke", "Revoked one of their API tokens"),
     "admin_token_revoke": ("token.revoke", "Revoked an API token"),
+    "admin_connection_add": ("connection.add", "Added a connection"),
+    "admin_connection_change": ("connection.change", "Changed a connection"),
+    "admin_connection_remove": ("connection.remove", "Removed a connection"),
+    "admin_connection_test": ("connection.test", "Tested a connection"),
     "admin_helper_code": ("helper.code", "Made a helper pairing code"),
     "admin_helper_rename": ("helper.rename", "Renamed a helper"),
     "admin_helper_remove": ("helper.remove", "Removed a helper"),
@@ -518,6 +522,8 @@ async def _backup_loop() -> None:
 async def _shutdown() -> None:
     with contextlib.suppress(Exception):
         await module_registry.stop_all()
+    with contextlib.suppress(Exception):
+        await connections.close_all()
     scheduler.cancel()
     announcer = getattr(app.state, "announcer", None)
     if announcer is not None:
@@ -3999,6 +4005,63 @@ def admin_token_revoke(token_id: int, request: Request):
     if had is not None:
         audit.note(request, "token.revoke", f"Revoked {had['user_name']}'s API token", target=had["name"],
                    detail={"owner": had["username"]})
+    return {"ok": True}
+
+
+# ------------------------------------------------------------------ connections (#629)
+
+def _connection_error(exc: Exception) -> HTTPException:
+    """A refusal as the fixed sentence the error carries, never str() of the exception."""
+    if isinstance(exc, connections.Refused):
+        return HTTPException(status_code=404 if exc.key == "no_connection" else 409 if exc.key in ("exists", "too_many") else 400,
+                             detail=exc.message)
+    return HTTPException(status_code=400, detail=exc.message)
+
+
+@app.get("/api/admin/connections", dependencies=[Depends(require("connections.view"))])
+def admin_connections():
+    return {"connections": [{**connections.public(c), "state": connections.state(c["id"])} for c in connections.listing()],
+            "serial_ports": serialio.list_ports(), "kinds": list(connections.KINDS),
+            "traffic": sorted(c for c in netroute.classes())}
+
+
+@app.post("/api/admin/connections", dependencies=[Depends(require("connections.manage"))])
+def admin_connection_add(payload: dict, request: Request):
+    try:
+        conn = connections.create(payload)
+    except (connections.Refused, serialio.SettingsError) as exc:
+        raise _connection_error(exc)
+    audit.note(request, "connection.add", f"Added the {conn['kind']} connection {conn['name']}", target=str(conn["id"]))
+    return {"connection": connections.public(conn)}
+
+
+@app.post("/api/admin/connections/test", dependencies=[Depends(require("connections.manage"))])
+async def admin_connection_test(payload: dict):
+    """Try settings as typed (nothing is saved). `id` makes a password left out the saved one."""
+    cid = payload.get("id") if isinstance(payload.get("id"), int) and not isinstance(payload.get("id"), bool) else None
+    try:
+        return await connections.test(payload.get("connection"), payload.get("probe"), cid=cid)
+    except (connections.Refused, serialio.SettingsError) as exc:
+        raise _connection_error(exc)
+
+
+@app.post("/api/admin/connections/{connection_id}", dependencies=[Depends(require("connections.manage"))])
+async def admin_connection_change(connection_id: int, payload: dict, request: Request):
+    try:
+        conn = await connections.update(connection_id, payload)
+    except (connections.Refused, serialio.SettingsError) as exc:
+        raise _connection_error(exc)
+    audit.note(request, "connection.change", f"Changed the connection {conn['name']}", target=str(connection_id))
+    return {"connection": connections.public(conn)}
+
+
+@app.delete("/api/admin/connections/{connection_id}", dependencies=[Depends(require("connections.manage"))])
+async def admin_connection_remove(connection_id: int, request: Request):
+    try:
+        old = await connections.remove(connection_id)
+    except connections.Refused as exc:
+        raise _connection_error(exc)
+    audit.note(request, "connection.remove", f"Removed the connection {old['name']}", target=str(connection_id))
     return {"ok": True}
 
 

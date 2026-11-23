@@ -89,6 +89,8 @@ _CORE = (
     Permission("modules.manage", "Switch modules on and off, run a module's test", "Modules", "admin"),
     Permission("network.view", "See this computer's network ports and which traffic uses each", "Network", "viewer"),
     Permission("network.manage", "Choose which network port each kind of traffic uses", "Network", "admin"),
+    Permission("connections.view", "See the serial, Modbus and MQTT connections", "Connections", "admin"),
+    Permission("connections.manage", "Add, change, test and remove serial, Modbus and MQTT connections", "Connections", "admin"),
     Permission("helpers.view", "See the helper programs paired with Relay", "Helpers", "admin"),
     Permission("helpers.manage", "Make pairing codes for, rename and remove helper programs", "Helpers", "admin"),
     Permission("users.view", "See users and trusted devices", "Users", "admin"),
@@ -101,7 +103,7 @@ _CORE = (
 # What an API token never does, whatever its user's role: manage accounts, passwords, devices, tokens or the
 # OpenAI key, or read the audit log (who signs in, from where). A leaked token can then use Relay but cannot take over an account or mint more tokens. The
 # signed-in-user routes with no permission of their own (password, PIN, own tokens) refuse tokens in main.py.
-TOKEN_BARRED = frozenset({"helpers.manage", "users.view", "users.manage", "credentials.manage", "tokens.own", "tokens.manage",
+TOKEN_BARRED = frozenset({"connections.manage", "helpers.manage", "users.view", "users.manage", "credentials.manage", "tokens.own", "tokens.manage",
                           "audit.view"})
 
 _PERM_ID = re.compile(r"^[a-z][a-z0-9_]*\.[a-z][a-z0-9_]*$")

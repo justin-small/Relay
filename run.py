@@ -28,7 +28,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from app import config, serving, sidecar, tls  # noqa: E402
+from app import config, db, serving, sidecar, tls  # noqa: E402
 
 
 def _print_identity(info, viewer_port: int, admin_port: int, fqdn: str) -> None:
@@ -82,6 +82,9 @@ def main() -> None:
         print(info.fingerprint)
         return
 
+    # The listeners ask which port a traffic class is routed to, and that reads the gear table: migrate first, or a
+    # route saved in the config crashes the first start on a computer whose database does not exist yet.
+    db.init()
     host, admin_host = cfg["host"], cfg["admin_host"]
     viewers = serving.listen_group("viewers", "viewer pages", "viewers", host, int(cfg["port"]))
     try:
