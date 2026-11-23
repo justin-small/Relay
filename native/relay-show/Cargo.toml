@@ -7,6 +7,7 @@ publish = false
 description = "Alerts, stage messages, panels and screens in Rust (#660, part of #650): the rules of app/alerts.py, app/panels.py and app/screens.py, with no HTTP in the crate."
 
 [dependencies]
+relay-auth = { path = "../relay-auth" }
 relay-core = { path = "../relay-core" }
 bytes = "1"
 rand = "0.8"
