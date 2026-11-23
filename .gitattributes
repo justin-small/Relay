@@ -12,3 +12,9 @@
 # `goto` and `call :label` can miss labels -- so these are CRLF everywhere.
 *.bat text eol=crlf
 *.ps1 text eol=crlf
+
+# Templates and the renders recorded from them are compared byte for byte (native/relay-server/tests/pages.rs), so a Windows
+# checkout must not turn their line endings into CRLF.
+*.html text eol=lf
+*.svg  text eol=lf
+native/relay-server/tests/pages/*.json text eol=lf
