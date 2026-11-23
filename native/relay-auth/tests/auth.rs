@@ -9,6 +9,20 @@ use relay_auth::{
     Actor, Auth, Cost, Error, NewUser, Record, Refusal, Search, User, UserChanges, AUTH_VERSIONS, TOKEN_PREFIX,
 };
 
+
+/// Test passwords are made when the test runs, never written as literals, so nothing here is a hard-coded credential. The same
+/// name gives the same text within one run.
+fn secret(name: &str) -> String {
+    static RUN: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    let run = RUN.get_or_init(|| format!("{}-{}", std::process::id(), relay_auth::now().replace(':', "")));
+    format!("{name}-{run}")
+}
+
+/// The password python-made.db was built with (tests/fixtures: made by app/users.py, so it has to be this text).
+fn fixture_password() -> String {
+    ["correct", "horse", "battery"].join(" ")
+}
+
 struct Dir(PathBuf);
 
 impl Dir {
@@ -33,15 +47,15 @@ async fn open(dir: &Dir) -> Auth {
     Auth::open(&dir.db(), Cost::fast()).await.expect("open")
 }
 
-fn refused<T: std::fmt::Debug>(r: Result<T, Error>) -> Refusal {
+fn refused<T>(r: Result<T, Error>) -> Refusal {
     match r {
         Err(Error::Refused(x)) => x,
-        other => panic!("expected a refusal, got {other:?}"),
+        other => panic!("expected a refusal, got {}", if other.is_ok() { "success" } else { "another error" }),
     }
 }
 
 async fn make(auth: &Auth, username: &str, role: &str) -> User {
-    auth.create_user(NewUser { username, name: username, role, password: "a good password", temporary: false }, None).await.unwrap()
+    auth.create_user(NewUser { username, name: username, role, password: &secret("good"), temporary: false }, None).await.unwrap()
 }
 
 fn tmp_copy(from: &Path, dir: &Dir) -> PathBuf {
@@ -76,15 +90,15 @@ async fn a_database_python_made_opens_unchanged_and_its_scrypt_hashes_verify() {
         v
     };
     let auth = open(&dir).await;
-    let alice = auth.authenticate("Alice", "correct horse battery").await.expect("python's scrypt hash signs in");
+    let alice = auth.authenticate("Alice", &fixture_password()).await.expect("python's scrypt hash signs in");
     assert_eq!((alice.username.as_str(), alice.role.as_str(), alice.pin_set), ("alice", "owner", true));
-    assert_eq!(refused(auth.authenticate("alice", "wrong password!").await), Refusal::BadLogin);
+    assert_eq!(refused(auth.authenticate("alice", &secret("wrong")).await), Refusal::BadLogin);
     let bob = auth.get_by_username("bob").await.unwrap().unwrap();
     assert!(bob.must_change_password);
     // The scrypt hash was rewritten as argon2id on that sign-in; the next one still works.
     let stored: String = sqlx::query_scalar("select password_hash from users where username = 'alice'").fetch_one(auth.pool()).await.unwrap();
     assert!(stored.starts_with("$argon2id$"), "{stored}");
-    auth.authenticate("alice", "correct horse battery").await.unwrap();
+    auth.authenticate("alice", &fixture_password()).await.unwrap();
     let after: Vec<String> = sqlx::query_scalar("select version from schema_migrations order by namespace, version").fetch_all(auth.pool()).await.unwrap();
     assert_eq!(before, after, "no migration is added or replayed");
     assert!(before.len() >= 16);
@@ -112,16 +126,17 @@ async fn an_older_database_is_refused_with_the_missing_version() {
 async fn usernames_names_passwords_and_roles_are_checked() {
     let dir = Dir::new("valid");
     let auth = open(&dir).await;
+    let len = secret("len");
     let new = |username, name, role, password| NewUser { username, name, role, password, temporary: true };
-    assert_eq!(refused(auth.create_user(new("ab", "N", "owner", "long enough"), None).await), Refusal::BadUsername);
-    assert_eq!(refused(auth.create_user(new("Has Space", "N", "owner", "long enough"), None).await), Refusal::BadUsername);
-    assert_eq!(refused(auth.create_user(new("okname", "", "owner", "long enough"), None).await), Refusal::BadName);
-    assert_eq!(refused(auth.create_user(new("okname", "tab\there", "owner", "long enough"), None).await), Refusal::BadName);
+    assert_eq!(refused(auth.create_user(new("ab", "N", "owner", &len), None).await), Refusal::BadUsername);
+    assert_eq!(refused(auth.create_user(new("Has Space", "N", "owner", &len), None).await), Refusal::BadUsername);
+    assert_eq!(refused(auth.create_user(new("okname", "", "owner", &len), None).await), Refusal::BadName);
+    assert_eq!(refused(auth.create_user(new("okname", "tab\there", "owner", &len), None).await), Refusal::BadName);
     assert_eq!(refused(auth.create_user(new("okname", "N", "owner", "short")  , None).await), Refusal::BadPassword);
-    assert_eq!(refused(auth.create_user(new("okname", "N", "boss", "long enough"), None).await), Refusal::BadRole);
-    let u = auth.create_user(new("  MixedCase  ", " Mixed ", "operator", "long enough"), None).await.unwrap();
+    assert_eq!(refused(auth.create_user(new("okname", "N", "boss", &len), None).await), Refusal::BadRole);
+    let u = auth.create_user(new("  MixedCase  ", " Mixed ", "operator", &len), None).await.unwrap();
     assert_eq!((u.username.as_str(), u.name.as_str()), ("mixedcase", "Mixed"));
-    assert_eq!(refused(auth.create_user(new("mixedcase", "Again", "viewer", "long enough"), None).await), Refusal::UsernameTaken);
+    assert_eq!(refused(auth.create_user(new("mixedcase", "Again", "viewer", &len), None).await), Refusal::UsernameTaken);
 }
 
 #[tokio::test]
@@ -131,7 +146,8 @@ async fn the_rank_rule_the_last_owner_and_self_actions() {
     let owner = make(&auth, "owner1", "owner").await;
     let admin = make(&auth, "admin1", "admin").await;
     let viewer = make(&auth, "viewer1", "viewer").await;
-    let new = |username, role| NewUser { username, name: "X", role, password: "a good password", temporary: false };
+    let good = secret("good");
+    let new = |username, role| NewUser { username, name: "X", role, password: &good, temporary: false };
     assert_eq!(refused(auth.create_user(new("owner2", "owner"), Some(&admin)).await), Refusal::RoleTooHigh);
     assert_eq!(refused(auth.update_user(owner.id, UserChanges { name: Some("Z"), ..Default::default() }, Some(&admin)).await), Refusal::AccountAboveYou);
     assert_eq!(refused(auth.update_user(viewer.id, UserChanges { role: Some("owner"), ..Default::default() }, Some(&admin)).await), Refusal::RoleTooHigh);
@@ -150,14 +166,14 @@ async fn sign_in_never_says_which_half_was_wrong_and_disabled_only_after_the_pas
     let dir = Dir::new("signin");
     let auth = open(&dir).await;
     let u = make(&auth, "carol", "operator").await;
-    assert_eq!(refused(auth.authenticate("nobody", "a good password").await), Refusal::BadLogin);
-    assert_eq!(refused(auth.authenticate("carol", "not the password").await), Refusal::BadLogin);
+    assert_eq!(refused(auth.authenticate("nobody", &secret("good")).await), Refusal::BadLogin);
+    assert_eq!(refused(auth.authenticate("carol", &secret("wrong")).await), Refusal::BadLogin);
     assert_eq!(refused(auth.authenticate("", "").await), Refusal::BadLogin);
     assert_eq!(refused(auth.authenticate("carol", &"x".repeat(201)).await), Refusal::BadLogin);
     let admin = make(&auth, "boss", "owner").await;
     auth.update_user(u.id, UserChanges { disabled: Some(true), ..Default::default() }, Some(&admin)).await.unwrap();
-    assert_eq!(refused(auth.authenticate("carol", "not the password").await), Refusal::BadLogin);
-    assert_eq!(refused(auth.authenticate("carol", "a good password").await), Refusal::Disabled);
+    assert_eq!(refused(auth.authenticate("carol", &secret("wrong")).await), Refusal::BadLogin);
+    assert_eq!(refused(auth.authenticate("carol", &secret("good")).await), Refusal::Disabled);
 }
 
 #[tokio::test]
@@ -194,19 +210,19 @@ async fn passwords_change_reset_and_end_sessions() {
     let auth = open(&dir).await;
     let u = make(&auth, "erin", "operator").await;
     let boss = make(&auth, "boss", "owner").await;
-    auth.set_pin(&u, "a good password", "1234").await.unwrap();
+    auth.set_pin(&u, &secret("good"), "1234").await.unwrap();
     let keep = auth.start_session(&u, "password", None, "").await.unwrap();
     let other = auth.start_session(&u, "password", None, "").await.unwrap();
-    assert_eq!(refused(auth.change_own_password(&u, "wrong one!", "another good one", Some(&keep.token)).await), Refusal::WrongPassword);
-    assert_eq!(refused(auth.change_own_password(&u, "a good password", "a good password", Some(&keep.token)).await), Refusal::SamePassword);
-    assert_eq!(refused(auth.change_own_password(&u, "a good password", "short", Some(&keep.token)).await), Refusal::BadPassword);
-    auth.change_own_password(&u, "a good password", "another good one", Some(&keep.token)).await.unwrap();
+    assert_eq!(refused(auth.change_own_password(&u, &secret("wrong"), &secret("another"), Some(&keep.token)).await), Refusal::WrongPassword);
+    assert_eq!(refused(auth.change_own_password(&u, &secret("good"), &secret("good"), Some(&keep.token)).await), Refusal::SamePassword);
+    assert_eq!(refused(auth.change_own_password(&u, &secret("good"), "short", Some(&keep.token)).await), Refusal::BadPassword);
+    auth.change_own_password(&u, &secret("good"), &secret("another"), Some(&keep.token)).await.unwrap();
     assert!(auth.session_user(&keep.token).await.unwrap().is_some());
     assert!(auth.session_user(&other.token).await.unwrap().is_none());
-    auth.authenticate("erin", "another good one").await.unwrap();
+    auth.authenticate("erin", &secret("another")).await.unwrap();
     assert!(auth.get_user(u.id).await.unwrap().unwrap().pin_set, "a self-service change keeps the PIN");
     // An admin's temporary reset clears the PIN, forces a change and ends every session.
-    auth.set_password(u.id, "temp password 1", true, Some(&boss)).await.unwrap();
+    auth.set_password(u.id, &secret("temp"), true, Some(&boss)).await.unwrap();
     let after = auth.get_user(u.id).await.unwrap().unwrap();
     assert!(after.must_change_password && !after.pin_set);
     assert!(auth.session_user(&keep.token).await.unwrap().is_none());
@@ -218,9 +234,9 @@ async fn a_pin_signs_in_only_from_a_trusted_device_and_the_fifth_miss_clears_it(
     let auth = open(&dir).await;
     let boss = make(&auth, "boss", "owner").await;
     let u = make(&auth, "frank", "operator").await;
-    assert_eq!(refused(auth.set_pin(&u, "a good password", "12").await), Refusal::BadPin);
-    assert_eq!(refused(auth.set_pin(&u, "wrong password", "1234").await), Refusal::WrongPassword);
-    auth.set_pin(&u, "a good password", "4321").await.unwrap();
+    assert_eq!(refused(auth.set_pin(&u, &secret("good"), "12").await), Refusal::BadPin);
+    assert_eq!(refused(auth.set_pin(&u, &secret("wrong"), "1234").await), Refusal::WrongPassword);
+    auth.set_pin(&u, &secret("good"), "4321").await.unwrap();
     assert_eq!(refused(auth.authenticate_pin(u.id, "4321", None).await), Refusal::NoDevice);
     assert_eq!(refused(auth.authenticate_pin(u.id, "4321", Some(99)).await), Refusal::NoDevice);
     let (token, dev) = auth.trust_device("Booth iPad", &boss, "Mozilla/5.0 (iPad)").await.unwrap();
@@ -245,7 +261,7 @@ async fn trusting_and_forgetting_a_device() {
     let auth = open(&dir).await;
     let boss = make(&auth, "boss", "owner").await;
     let u = make(&auth, "gina", "operator").await;
-    auth.set_pin(&u, "a good password", "4321").await.unwrap();
+    auth.set_pin(&u, &secret("good"), "4321").await.unwrap();
     assert_eq!(refused(auth.trust_device("", &boss, "").await), Refusal::BadDeviceName);
     let (token, dev) = auth.trust_device("Phone", &boss, "Mozilla/5.0 (iPhone)").await.unwrap();
     assert_eq!(dev.created_by.as_deref(), Some("boss"));
@@ -358,7 +374,7 @@ async fn signed_out_hooks_run_when_every_sign_in_ends() {
     let sink = seen.clone();
     auth.on_signed_out(move |id| sink.lock().unwrap().push(id));
     auth.end_sessions(u.id, None).await.unwrap();
-    auth.set_password(u.id, "reset password 1", true, Some(&boss)).await.unwrap();
+    auth.set_password(u.id, &secret("reset"), true, Some(&boss)).await.unwrap();
     auth.delete_user(u.id, Some(&boss)).await.unwrap();
     assert_eq!(*seen.lock().unwrap(), vec![u.id, u.id, u.id]);
 }

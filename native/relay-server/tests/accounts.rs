@@ -16,6 +16,14 @@ use relay_server::pages::Pages;
 use serde_json::{json, Value};
 use tower::ServiceExt;
 
+
+/// Test passwords are made when the test runs, never written as literals. The same name gives the same text within one run.
+fn secret(name: &str) -> &'static str {
+    static RUN: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    let run = RUN.get_or_init(|| format!("{}-{}", std::process::id(), relay_auth::now().replace(':', "")));
+    Box::leak(format!("{name}-{run}").into_boxed_str())
+}
+
 struct Site {
     dir: PathBuf,
     acc: Shared,
@@ -103,14 +111,14 @@ impl Site {
     async fn user(&self, username: &str, role: &str, temporary: bool) {
         self.acc
             .auth
-            .create_user(NewUser { username, name: username, role, password: "a good password", temporary }, None)
+            .create_user(NewUser { username, name: username, role, password: secret("good"), temporary }, None)
             .await
             .unwrap();
     }
 
     /// Sign in with the form and return the cookie header to send back.
     async fn sign_in(&self, username: &str) -> String {
-        let r = self.form("/admin/login", "", &[("username", username), ("password", "a good password")], LAN).await;
+        let r = self.form("/admin/login", "", &[("username", username), ("password", secret("good"))], LAN).await;
         assert_eq!(r.status, StatusCode::SEE_OTHER, "{}", r.body);
         format!("relay_admin={}", r.cookie("relay_admin").expect("a session cookie"))
     }
@@ -121,11 +129,11 @@ async fn the_sign_in_form_lands_on_the_panel_or_the_home_page_and_sets_a_strict_
     let s = site("form").await;
     s.user("boss", "owner", false).await;
     s.user("mem", "member", false).await;
-    let r = s.form("/admin/login", "", &[("username", "Boss"), ("password", "a good password")], LAN).await;
+    let r = s.form("/admin/login", "", &[("username", "Boss"), ("password", secret("good"))], LAN).await;
     assert_eq!((r.status, r.headers[header::LOCATION].to_str().unwrap()), (StatusCode::SEE_OTHER, "/admin"));
     let set = r.headers.get_all(header::SET_COOKIE).iter().next().unwrap().to_str().unwrap().to_owned();
     assert!(set.contains("HttpOnly") && set.contains("SameSite=Strict") && set.contains("Path=/") && set.contains("Secure"), "{set}");
-    let r = s.form("/admin/login", "", &[("username", "mem"), ("password", "a good password")], LAN).await;
+    let r = s.form("/admin/login", "", &[("username", "mem"), ("password", secret("good"))], LAN).await;
     assert_eq!(r.headers[header::LOCATION], "/home", "a member never opens the panel");
 }
 
@@ -133,7 +141,7 @@ async fn the_sign_in_form_lands_on_the_panel_or_the_home_page_and_sets_a_strict_
 async fn a_wrong_password_shows_the_form_with_the_sentence_and_is_audited_without_the_typed_name() {
     let s = site("wrong").await;
     s.user("boss", "owner", false).await;
-    let r = s.form("/admin/login", "", &[("username", "boss"), ("password", "not the password")], LAN).await;
+    let r = s.form("/admin/login", "", &[("username", "boss"), ("password", secret("wrong"))], LAN).await;
     assert_eq!(r.status, StatusCode::UNAUTHORIZED);
     assert!(r.body.contains("Wrong username or password."), "{}", r.body);
     assert_eq!(r.headers[header::CACHE_CONTROL], "no-store");
@@ -154,13 +162,13 @@ async fn five_failures_lock_the_address_and_only_the_fifth_is_audited() {
     let s = site("lock").await;
     s.user("boss", "owner", false).await;
     for _ in 0..5 {
-        let r = s.form("/admin/login", "", &[("username", "boss"), ("password", "bad password!")], "10.9.9.9:1").await;
+        let r = s.form("/admin/login", "", &[("username", "boss"), ("password", secret("wrong"))], "10.9.9.9:1").await;
         assert_eq!(r.status, StatusCode::UNAUTHORIZED);
     }
-    let r = s.form("/admin/login", "", &[("username", "boss"), ("password", "a good password")], "10.9.9.9:1").await;
+    let r = s.form("/admin/login", "", &[("username", "boss"), ("password", secret("good"))], "10.9.9.9:1").await;
     assert_eq!(r.status, StatusCode::TOO_MANY_REQUESTS, "even the right password is refused during the lock-out");
     assert!(r.body.contains("Too many attempts. Try again in 10 min."), "{}", r.body);
-    let ok = s.form("/admin/login", "", &[("username", "boss"), ("password", "a good password")], "10.9.9.8:1").await;
+    let ok = s.form("/admin/login", "", &[("username", "boss"), ("password", secret("good"))], "10.9.9.8:1").await;
     assert_eq!(ok.status, StatusCode::SEE_OTHER, "another address is unaffected");
     let locked = s.acc.auth.search_audit(relay_auth::Search { kind: Some("auth.locked"), ..Default::default() }).await.unwrap();
     assert_eq!(locked.entries.len(), 1);
@@ -177,7 +185,7 @@ async fn a_forwarded_address_counts_only_from_a_loopback_peer() {
                 Method::POST,
                 "/admin/login",
                 &[("x-forwarded-for", "7.7.7.7")],
-                Some(("application/x-www-form-urlencoded", "username=boss&password=bad+password%21".into())),
+                Some(("application/x-www-form-urlencoded", format!("username=boss&password={}", secret("wrong")))),
                 peer,
             )
             .await
@@ -213,7 +221,7 @@ async fn the_api_wants_a_session_a_permission_and_a_finished_password_change() {
     let r = s.get("/api/admin/users", &temp).await;
     assert_eq!((r.status, r.json()), (StatusCode::FORBIDDEN, json!({"detail": "password_change_required"})));
     assert_eq!(s.get("/api/admin/me", &temp).await.status, StatusCode::OK, "/me is how the page learns it must change it");
-    let r = s.api(Method::POST, "/api/admin/me/password", &temp, json!({"current": "a good password", "new": "a brand new one"})).await;
+    let r = s.api(Method::POST, "/api/admin/me/password", &temp, json!({"current": secret("good"), "new": secret("another")})).await;
     assert_eq!(r.json(), json!({"ok": true}));
     assert_eq!(s.get("/api/admin/users", &temp).await.status, StatusCode::OK);
 }
@@ -225,13 +233,13 @@ async fn the_users_routes_follow_the_rules_and_leave_audit_entries() {
     s.user("adm", "admin", false).await;
     let boss = s.sign_in("boss").await;
     let adm = s.sign_in("adm").await;
-    let r = s.api(Method::POST, "/api/admin/users", &adm, json!({"username": "newbie", "name": "New Bie", "role": "owner", "password": "a good password"})).await;
+    let r = s.api(Method::POST, "/api/admin/users", &adm, json!({"username": "newbie", "name": "New Bie", "role": "owner", "password": secret("good")})).await;
     assert_eq!((r.status, r.json()["detail"].clone()), (StatusCode::FORBIDDEN, json!("You cannot give a role higher than your own.")));
-    let r = s.api(Method::POST, "/api/admin/users", &adm, json!({"username": "newbie", "name": "New Bie", "role": "operator", "password": "a good password"})).await;
+    let r = s.api(Method::POST, "/api/admin/users", &adm, json!({"username": "newbie", "name": "New Bie", "role": "operator", "password": secret("good")})).await;
     assert_eq!(r.status, StatusCode::OK, "{}", r.body);
     let id = r.json()["user"]["id"].as_i64().unwrap();
     assert_eq!(r.json()["user"]["must_change_password"], true);
-    let dup = s.api(Method::POST, "/api/admin/users", &adm, json!({"username": "NEWBIE", "name": "x", "role": "viewer", "password": "a good password"})).await;
+    let dup = s.api(Method::POST, "/api/admin/users", &adm, json!({"username": "NEWBIE", "name": "x", "role": "viewer", "password": secret("good")})).await;
     assert_eq!(dup.status, StatusCode::CONFLICT);
     let r = s.api(Method::PUT, &format!("/api/admin/users/{id}"), &adm, json!({"role": "viewer", "disabled": "yes"})).await;
     assert_eq!((r.status, r.json()["detail"].clone()), (StatusCode::BAD_REQUEST, json!("That request is not valid.")));
@@ -240,7 +248,7 @@ async fn the_users_routes_follow_the_rules_and_leave_audit_entries() {
     let owner_id = s.acc.auth.get_by_username("boss").await.unwrap().unwrap().id;
     let r = s.api(Method::DELETE, &format!("/api/admin/users/{owner_id}"), &adm, json!({})).await;
     assert_eq!((r.status, r.json()["detail"].clone()), (StatusCode::FORBIDDEN, json!("You cannot change an account with a higher role than yours.")));
-    let r = s.api(Method::POST, &format!("/api/admin/users/{id}/password"), &adm, json!({"password": "reset password 1"})).await;
+    let r = s.api(Method::POST, &format!("/api/admin/users/{id}/password"), &adm, json!({"password": secret("reset")})).await;
     assert_eq!(r.json(), json!({"ok": true}));
     assert_eq!(s.api(Method::POST, &format!("/api/admin/users/{id}/signout"), &adm, json!({})).await.status, StatusCode::OK);
     assert_eq!(s.api(Method::POST, "/api/admin/users/9999/signout", &adm, json!({})).await.status, StatusCode::NOT_FOUND);
@@ -297,7 +305,7 @@ async fn a_pin_signs_in_from_a_trusted_browser_and_the_device_cookie_is_long_liv
     s.user("fran", "operator", false).await;
     let boss = s.sign_in("boss").await;
     let fran = s.sign_in("fran").await;
-    let set = s.api(Method::POST, "/api/admin/me/pin", &fran, json!({"password": "a good password", "pin": "4321"})).await;
+    let set = s.api(Method::POST, "/api/admin/me/pin", &fran, json!({"password": secret("good"), "pin": "4321"})).await;
     assert_eq!(set.json(), json!({"ok": true, "pin_set": true}));
     let fran_id = s.acc.auth.get_by_username("fran").await.unwrap().unwrap().id;
     let r = s.form("/admin/login/pin", "", &[("user_id", &fran_id.to_string()), ("pin", "4321")], LAN).await;
@@ -327,13 +335,13 @@ async fn the_password_form_and_sign_out_end_sessions() {
     let s = site("logout").await;
     s.user("erin", "operator", true).await;
     let cookie = s.sign_in("erin").await;
-    let r = s.form("/admin/password", &cookie, &[("current", "a good password"), ("new", "another good one"), ("confirm", "different one!!")], LAN).await;
+    let r = s.form("/admin/password", &cookie, &[("current", secret("good")), ("new", secret("another")), ("confirm", secret("diff"))], LAN).await;
     assert_eq!(r.status, StatusCode::BAD_REQUEST);
     assert!(r.body.contains("The two passwords do not match."));
-    let r = s.form("/admin/password", &cookie, &[("current", "wrong wrong"), ("new", "another good one"), ("confirm", "another good one")], LAN).await;
+    let r = s.form("/admin/password", &cookie, &[("current", secret("wrong")), ("new", secret("another")), ("confirm", secret("another"))], LAN).await;
     assert_eq!(r.status, StatusCode::FORBIDDEN);
     assert!(r.body.contains("The password is wrong."));
-    let r = s.form("/admin/password", &cookie, &[("current", "a good password"), ("new", "another good one"), ("confirm", "another good one")], LAN).await;
+    let r = s.form("/admin/password", &cookie, &[("current", secret("good")), ("new", secret("another")), ("confirm", secret("another"))], LAN).await;
     assert_eq!((r.status, r.headers[header::LOCATION].to_str().unwrap()), (StatusCode::SEE_OTHER, "/admin"));
     let r = s.form("/admin/password", "", &[("current", "x")], LAN).await;
     assert_eq!(r.headers[header::LOCATION], "/admin", "no session: back to the sign-in");
