@@ -69,7 +69,7 @@ def main() -> int:
     while not stop:
         audio = np.stack([amp * np.sin(2 * math.pi * f * t + p) for f, p in zip(freqs, phase)]).astype(np.float32)
         phase = (phase + 2 * math.pi * np.array(freqs) * per / RATE) % (2 * math.pi)
-        sender.send({"width": w, "height": h, "fourcc": "BGRA", "data": frames[n % len(frames)], "audio": audio, "rate": RATE})
+        sender.send(frames[n % len(frames)], audio)
         n += 1
         wait = t0 + n * period - time.monotonic()
         if wait > 0:

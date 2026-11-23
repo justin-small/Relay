@@ -40,8 +40,10 @@ import httpx
 
 REPO = Path(__file__).resolve().parent.parent
 PORT, ADMIN_PORT = 18080, 18443
-VIEWER = f"http://127.0.0.1:{PORT}"
-ADMIN = f"https://127.0.0.1:{ADMIN_PORT}"
+# RELAY_STRESS_VIEWER / RELAY_STRESS_ADMIN point the load at something in front of Relay (the axum front door, #651)
+# instead of at Relay itself; Relay is still started on PORT / ADMIN_PORT, and its memory and CPU are still what is sampled.
+VIEWER = os.environ.get("RELAY_STRESS_VIEWER", f"http://127.0.0.1:{PORT}")
+ADMIN = os.environ.get("RELAY_STRESS_ADMIN", f"https://127.0.0.1:{ADMIN_PORT}")
 PASSWORD = "stress-test-password-1"
 
 
@@ -157,7 +159,8 @@ class Server:
                "RELAY_CERT_DIR": str(self.dir / "certs"), "RELAY_KEY_STORE": "file", "RELAY_DEMO": "1",
                "PYTHONUNBUFFERED": "1"}
         self.proc = subprocess.Popen([sys.executable, str(REPO / "run.py")], cwd=REPO, env=env,
-                                     stdout=self.log.open("wb"), stderr=subprocess.STDOUT)
+                                     stdout=self.log.open("wb"), stderr=subprocess.STDOUT,
+                                     start_new_session=True)  # own process group, so __exit__ can stop children too
         deadline = time.time() + 60
         while time.time() < deadline:
             if self.proc.poll() is not None:
@@ -200,11 +203,12 @@ class Server:
             with contextlib.suppress(subprocess.TimeoutExpired):
                 self.spy.wait(timeout=30)
         if self.proc:
-            self.proc.terminate()
+            with contextlib.suppress(ProcessLookupError):
+                os.killpg(self.proc.pid, 15)
             with contextlib.suppress(subprocess.TimeoutExpired):
                 self.proc.wait(timeout=15)
-            if self.proc.poll() is None:
-                self.proc.kill()
+            with contextlib.suppress(ProcessLookupError):
+                os.killpg(self.proc.pid, 9)
         if self.spy and (self.dir / "profile.svg").exists():
             keep = REPO / "stress-results" / "profile.svg"
             keep.parent.mkdir(exist_ok=True)
