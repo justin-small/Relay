@@ -279,9 +279,9 @@ class Service:
             log.warning("dante: cannot listen for device meters, so no levels from hardware boxes: %s", e)
 
     async def stop(self) -> None:
-        self.meters.release()
-        self.meters.stop()
-        self.heartbeats.stop()
+        # Each stop() joins its listener thread (up to half a second, the socket's timeout): off the event loop, or
+        # every viewer waits while the module is switched off (tools/stress.py modules).
+        await asyncio.to_thread(self._stop_listeners)
         tasks, self._task, self._meter = [self._task, self._meter], None, None
         for task in tasks:
             if task:
@@ -290,6 +290,11 @@ class Service:
                     await task
                 except (asyncio.CancelledError, Exception):  # noqa: BLE001
                     pass
+
+    def _stop_listeners(self) -> None:
+        self.meters.release()
+        self.meters.stop()
+        self.heartbeats.stop()
 
     async def rescan(self) -> None:
         """Scan again now. With the loop running it wakes the loop; without it, scans here."""
