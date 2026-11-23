@@ -57,6 +57,7 @@ native/relay-bus/.venv-build/
 native/relay-ndi/target/
 native/relay-helper/target/
 native/relay-rf/target/
+native/relay-front/target/
 native/relay-ndi/.venv-build/
 
 # Output of tools/stress.py

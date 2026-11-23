@@ -1,0 +1,23 @@
+[package]
+name = "relay-front"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+description = "Spike for #651: a front door on hyper that forwards every request, streams and websockets included, to the unchanged FastAPI app."
+publish = false
+
+[dependencies]
+bytes = "1"
+http-body-util = "0.1"
+hyper = { version = "1", features = ["http1", "server", "client"] }
+hyper-rustls = { version = "0.27", default-features = false, features = ["http1", "ring", "tls12"] }
+hyper-util = { version = "0.1", features = ["client-legacy", "http1", "server-auto", "tokio"] }
+rcgen = { version = "0.13", default-features = false, features = ["ring", "pem"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "io-util", "signal"] }
+tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12"] }
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1

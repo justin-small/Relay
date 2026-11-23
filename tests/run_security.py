@@ -66,6 +66,8 @@ SCANS = [
        cwd=ROOT / "native" / "relay-ndi"),
   Scan("cargo-deny (relay-helper)", "cargo-deny", ["check"], "cargo install cargo-deny --locked --version 0.20.2   (CI installs the same version prebuilt)",
        cwd=ROOT / "native" / "relay-helper"),
+  Scan("cargo-deny (relay-front)", "cargo-deny", ["check"], "cargo install cargo-deny --locked --version 0.20.2   (CI installs the same version prebuilt)",
+       cwd=ROOT / "native" / "relay-front"),
   Scan("cargo-deny (relay-rf)", "cargo-deny", ["check"], "cargo install cargo-deny --locked --version 0.20.2   (CI installs the same version prebuilt)",
        cwd=ROOT / "native" / "relay-rf"),
 ]
