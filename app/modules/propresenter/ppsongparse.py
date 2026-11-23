@@ -9,8 +9,8 @@ import re
 
 MAX_TEXT = 200_000
 MAX_PAGES = 30
-HEADER = re.compile(r"^[\[(]?\s*(verse|chorus|pre[- ]?chorus|bridge|tag|intro|outro|interlude|instrumental|refrain|ending|coda"
-                    r"|turnaround|vamp)\s*(\d+)?\s*[\])]?\s*:?\s*$|^[\[(]?\s*(v|c|b|pc)\s*(\d+)\s*[\])]?\s*:?\s*$", re.I)
+NAMES = ("verse", "chorus", "pre-chorus", "prechorus", "pre chorus", "bridge", "tag", "intro", "outro", "interlude", "instrumental",
+         "refrain", "ending", "coda", "turnaround", "vamp")
 SHORT = {"v": "Verse", "c": "Chorus", "b": "Bridge", "pc": "Pre-Chorus"}
 CHORD = re.compile(r"^[A-G][#b]?(?:maj|min|m|M|dim|aug|sus|add|\+)?\d*(?:\([^)]*\))?(?:/[A-G][#b]?)?$")
 INLINE = re.compile(r"\[([^\[\]\n]{1,20})\]")
@@ -49,14 +49,24 @@ def with_chords(text: str, chords: list) -> str:
 
 
 def is_header(line: str) -> str:
-    """The section name a line stands for ("Verse 1"), or "" when it is not a section heading."""
-    m = HEADER.match(line.strip())
-    if not m:
+    """The section name a line stands for ("Verse 1"), or "" when it is not a section heading. Plain string steps, not a
+    pattern: a pasted sheet is untrusted text and a long line must not cost more than its length."""
+    t = line.strip()
+    if not t or len(t) > 24:
         return ""
-    if m.group(1):
-        base = re.sub(r"pre[- ]?chorus", "Pre-Chorus", m.group(1), flags=re.I)
-        return (base[:1].upper() + base[1:].lower() if base.lower() != "pre-chorus" else "Pre-Chorus") + (f" {m.group(2)}" if m.group(2) else "")
-    return f"{SHORT[m.group(3).lower()]} {m.group(4)}"
+    t = t.strip("[]():").strip().lower()
+    word, num = t, ""
+    cut = len(t.rstrip("0123456789"))
+    if cut < len(t):
+        word, num = t[:cut].strip(), t[cut:]
+        if len(num) > 2:
+            return ""
+    if word in SHORT:
+        return f"{SHORT[word]} {num}" if num else ""     # "v", "c", "b" and "pc" need a number: "[C]" is a chord
+    if word not in NAMES:
+        return ""
+    base = "Pre-Chorus" if word.startswith("pre") else word.capitalize()
+    return f"{base} {num}" if num else base
 
 
 def _is_chord_line(line: str) -> bool:

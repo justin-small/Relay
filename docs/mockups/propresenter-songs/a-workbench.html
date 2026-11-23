@@ -72,7 +72,7 @@ $("tog").onclick = () => { helper = !helper; $("tog").textContent = helper ? "Pr
 $("add").onclick = () => { sec.push({ id: "n" + sec.length, name: "New section", kind: "verse", text: "", tr: "" }); render(); };
 function dlg(h) { $("dlgs").innerHTML = `<div class="veil"><div class="dlg">${h}</div></div>`; $("dlgs").querySelectorAll("[data-x]").forEach(b => b.onclick = () => $("dlgs").innerHTML = ""); }
 $("split").onclick = () => dlg(`<h3>Auto-split all sections?</h3><p class="note" style="margin-top:0">This will change the slides. Nothing is saved until you confirm.</p>
-<div class="dl"><span class="muted">Lines per slide</span><span>${$("lps").value}</span><span class="muted">Before</span><span>9 slides</span><span class="muted">After</span><span class="add">11 slides (+2)</span><span class="muted">Changed</span><span>Verse 1 (5 lines → 2 slides), Chorus (4 → 1)</span></div>
+<div class="dl"><span class="muted">Lines per slide</span><span>${+$("lps").value}</span><span class="muted">Before</span><span>9 slides</span><span class="muted">After</span><span class="add">11 slides (+2)</span><span class="muted">Changed</span><span>Verse 1 (5 lines → 2 slides), Chorus (4 → 1)</span></div>
 <div class="field" style="margin-top:var(--sp-3)"><label>How to split</label><div class="seg"><button class="on">Even slides</button><button>Break at blank lines</button><button>Keep short last slide</button></div></div>
 <div class="gap" style="margin-top:var(--sp-4);justify-content:flex-end"><button data-x>Cancel</button><button class="primary" data-x>Split</button></div>`);
 $("imp").onclick = () => dlg(`<h3>Paste lyrics and chords</h3><textarea style="min-height:160px" placeholder="Verse 1&#10;[G]I love You, Lord&#10;…&#10;&#10;Chorus&#10;…"></textarea>
