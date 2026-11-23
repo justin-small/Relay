@@ -2,4 +2,4 @@
 # file pulls in, with hashes, for every platform. Regenerate it after any change to requirements.txt:
 #   uv pip compile requirements-release.in --generate-hashes --universal --python-version 3.15 -o requirements-release.txt
 -r requirements.txt
-pyinstaller==6.22.0
+pyinstaller==6.22.3
