@@ -194,8 +194,10 @@ class _Udp:
         ended = self._ended
 
         class Proto(asyncio.DatagramProtocol):
-            def datagram_received(self, data: bytes, addr: Any) -> None:
-                feed(data)
+            def datagram_received(self, data: Any, addr: Any) -> None:
+                # Windows' proactor loop, on a connected socket it was handed, can pass (data, address) as `data`
+                # (netsock.udp_endpoint tells it the peer only after the first read is queued).
+                feed(data[0] if isinstance(data, tuple) else data)
 
             def error_received(self, exc: Exception) -> None:
                 if not ended.done():
