@@ -1,0 +1,3 @@
+# cargo mutants: change the code in small ways and check a test notices. A surviving mutant is a gap in the tests.
+# Run from native/:  cargo mutants -p relay-server -j2 -f src/gate.rs     (slow: it rebuilds per mutant; one file at a time)
+exclude_globs = ["**/tests/**", "relay-server/src/main.rs", "relay-server/src/modules.rs"]

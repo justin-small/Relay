@@ -62,15 +62,18 @@ ENV = {**os.environ, "RELAY_HOME": HOME, "RELAY_CONFIG": str(Path(HOME, "config.
        "RELAY_ANNOUNCE": "0", "RELAY_KEY_STORE": "file", "PYTHONUNBUFFERED": "1"}
 ENV.pop("RELAY_DB_BACKUPS", None)
 
-UNVERIFIED = ssl.create_default_context()
-UNVERIFIED.check_hostname = False
-UNVERIFIED.verify_mode = ssl.CERT_NONE
+def trusting_context() -> ssl.SSLContext:
+    """TLS that trusts the panel's own certificate and nothing else, as an operator does after checking its fingerprint."""
+    context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+    context.minimum_version = ssl.TLSVersion.TLSv1_2
+    context.load_verify_locations(cafile=str(Path(HOME, "certs", "admin.crt")))
+    return context
 
 
 def ask(port: int, path: str, secure: bool = False, headers: dict | None = None, method: str = "GET"):
     """(status, headers lower-cased, body text) or None when nothing is listening."""
     try:
-        conn = (http.client.HTTPSConnection("127.0.0.1", port, context=UNVERIFIED, timeout=5) if secure
+        conn = (http.client.HTTPSConnection("127.0.0.1", port, context=trusting_context(), timeout=5) if secure
                 else http.client.HTTPConnection("127.0.0.1", port, timeout=5))
         conn.request(method, path, headers=headers or {})
         resp = conn.getresponse()
@@ -123,7 +126,7 @@ try:
     with section("the certificate is the one relay-server prints"):
         shown = subprocess.run([str(BINARY), "--fingerprint"], cwd=ROOT, env=ENV, capture_output=True, text=True, timeout=30)  # allow-timeout: reads the interfaces
         printed = shown.stdout.strip()
-        with socket.create_connection(("127.0.0.1", ADMIN), timeout=5) as raw, UNVERIFIED.wrap_socket(raw) as tls:
+        with socket.create_connection(("127.0.0.1", ADMIN), timeout=5) as raw, trusting_context().wrap_socket(raw, server_hostname="127.0.0.1") as tls:
             der = tls.getpeercert(binary_form=True) or b""
         import hashlib
         seen = ":".join(f"{b:02X}" for b in hashlib.sha256(der).digest())

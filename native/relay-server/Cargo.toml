@@ -37,3 +37,6 @@ tower = { version = "0.5", default-features = false, features = ["util"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt", "env-filter", "ansi"] }
 x509-parser = "0.16"
+
+[dev-dependencies]
+quickcheck = "1"

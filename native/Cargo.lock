@@ -571,6 +571,26 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0e9c71c2167ca323c882b99918929403426e2373ea17242ff5653e0d5e1058be"
 
 [[package]]
+name = "env_filter"
+version = "2.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "288efae2d67fb0418d01f837feb55c7a9cdc4c5db38d3dee91324a1c7ec6fd31"
+dependencies = [
+ "log",
+ "regex",
+]
+
+[[package]]
+name = "env_logger"
+version = "0.11.12"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "82bdfc6e01c305a3ea46ed815b06ac0b379d7c5eac588fa4464048d731c4dcdf"
+dependencies = [
+ "env_filter",
+ "log",
+]
+
+[[package]]
 name = "equivalent"
 version = "1.0.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1720,6 +1740,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "quickcheck"
+version = "1.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "95c589f335db0f6aaa168a7cd27b1fc6920f5e1470c804f814d9cd6e62a0f70b"
+dependencies = [
+ "env_logger",
+ "log",
+ "rand",
+]
+
+[[package]]
 name = "quote"
 version = "1.0.47"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1934,6 +1965,7 @@ dependencies = [
  "hyper-util",
  "mdns-sd",
  "netdev",
+ "quickcheck",
  "rcgen 0.13.2",
  "relay-core",
  "rustls",

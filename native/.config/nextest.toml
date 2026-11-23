@@ -1,0 +1,8 @@
+# cargo nextest run: one process per test, so a hung test is named and killed instead of stalling the run.
+[profile.default]
+slow-timeout = { period = "5s", terminate-after = 2 }
+fail-fast = false
+
+[profile.ci]
+retries = 0
+failure-output = "immediate-final"
