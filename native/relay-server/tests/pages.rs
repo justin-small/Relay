@@ -26,6 +26,22 @@ fn captured() -> Vec<(String, Value)> {
     out
 }
 
+/// `static()` links end in `?v=<the file's modification time>`, which is different on every machine (a CI checkout is newer than
+/// the capture). The version's format is checked by `static_urls_carry_the_files_version`; here it is one fixed word.
+fn without_versions(html: &str) -> String {
+    let mut out = String::with_capacity(html.len());
+    let mut rest = html;
+    while let Some(at) = rest.find("?v=") {
+        out.push_str(&rest[..at + 3]);
+        rest = &rest[at + 3..];
+        let hex = rest.bytes().take_while(|b| b.is_ascii_hexdigit()).count();
+        out.push('V');
+        rest = &rest[hex..];
+    }
+    out.push_str(rest);
+    out
+}
+
 /// The first line where two texts differ, with a little around it.
 fn first_difference(a: &str, b: &str) -> String {
     let at = a.bytes().zip(b.bytes()).position(|(x, y)| x != y).unwrap_or(a.len().min(b.len()));
@@ -50,8 +66,8 @@ fn every_captured_page_renders_as_jinja_did() {
             continue;
         }
         match pages.render(name, context) {
-            Ok(got) if got == want => {}
-            Ok(got) => failures.push(format!("{file}\n{}", first_difference(want, &got))),
+            Ok(got) if without_versions(&got) == without_versions(want) => {}
+            Ok(got) => failures.push(format!("{file}\n{}", first_difference(&without_versions(want), &without_versions(&got)))),
             Err(e) => failures.push(format!("{file}\n  {e:#}")),
         }
     }
