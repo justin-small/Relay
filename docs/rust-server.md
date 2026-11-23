@@ -102,9 +102,11 @@ Adding a module is: `cargo new native/modules/<id>` as `relay-module-<id>`, one 
   (and switches on a module that was already set up), so an install that has run Python has them all. A fresh install of the
   Rust server has none, and #656 decides the first-run rule.
 - **The database** is SQLite in WAL mode, `relay.db` beside config.json, with the `schema_migrations(namespace, version)` table
-  recording which numbered `.sql` files of the core and of each module have run. `sqlx` (#655) reads the same table and runs
-  the same files, so neither server re-runs a migration. The migrations stay SQL files in the repository, shared by both servers,
-  and a migration is never edited after it ships. While both servers can open one database, a schema change must work for both.
+  recording which numbered `.sql` files of the core and of each module have run. `relay-auth` (#655) does **not** replay the
+  migrations: a new file gets `native/relay-auth/schema.sql` (the auth tables as they are after migrations 0001 to 0004, 0009 and 0010)
+  and those six versions are recorded, and an existing file must already hold them or is refused with the version it lacks. The
+  Python migrations stay in the repository for the Python server, and a migration is never edited after it ships. While both
+  servers can open one database, a schema change to an auth table must work for both, and `schema.sql` changes with it.
 
 ## Errors, logging and shutdown
 
@@ -201,3 +203,37 @@ included it) to be in some capture. `tests/pages_allowed.txt` lists reviewed dif
 
 Not in this issue: routes that render a page. The page handlers (their contexts come from accounts, settings and the modules) arrive with
 #655, #656 and #661; each calls `Pages::render` with the context its Python handler builds. Until then the front door forwards those routes.
+
+## Database, accounts and sessions (#655)
+
+`native/relay-auth` is `app/db.py`, `app/users.py`, `app/audit.py` and the sign-in rules of `app/main.py`, on the same `relay.db`.
+`sqlx` (SQLite, WAL, owner-only file) is the database layer; the crate is a library, so the tests open a real file.
+
+| Python | Rust |
+|---|---|
+| `db.py` open, pragmas, migrations | `Auth::open`: a new file gets `schema.sql`; an existing one must hold `AUTH_VERSIONS` (see above) |
+| `users.py` accounts, rank rule, last owner | `accounts.rs`: the same rules and the same fixed sentences (`Refusal`) |
+| roles, `can`, `TOKEN_BARRED` | `perms.rs`: five roles, the catalogue, `register` for a module's permissions |
+| sessions, trusted devices, API tokens | `sessions.rs`, `devices.rs`, `tokens.rs`: only the sha256 is stored, so a session or token made by either server works on the other |
+| `audit.py` | `audit.rs`: `record` never fails the caller; 90 days, 200000 rows, sorted-key detail |
+| `_LOGIN_FAILS` | `lockout.rs`: 5 failures lock an address for 10 minutes, 0.75 s per failure |
+
+**Hashes.** New password and PIN hashes are argon2id (19 MiB, 2 passes). The scrypt hashes Python wrote still verify, and a user who
+signs in with one is rewritten as argon2id. That is one way: Python cannot read argon2id, so going back to the Python server
+asks those people for a new password. (The Python server signs sessions in the same way, so a session cookie the Rust server issued
+works in Python.)
+
+**Routes** (`relay-server/src/accounts.rs`, merged ahead of the forward to Python): `POST /admin/login`, `/admin/login/pin`,
+`/admin/password`, `/admin/logout`, and under `/api/admin`: `me`, `me/password`, `me/pin`, `me/tokens`, `tokens`, `users`,
+`trusted-devices`, `audit`. Each writes its own audit entry once it succeeds (Python's `_Gate` still writes the entry for the routes it
+serves, with their notes, so a forwarded route is not audited twice). The route-to-action table is the `acc.note` call in each
+handler; `AUDIT_ROUTES` stays in Python until the routes it names are ported.
+
+**Not here.** First-run setup (`/admin/setup`, `/admin/import`) stays with Python: it stores the OpenAI key as a sealed secret, which
+is #656. The pages (`/admin`, `/home`, the sign-in form) arrive with the settings and modules they list. Preferences are read (for `/me`)
+but written by Python. Phones (`/api/admin/phones`) wait for the modules that hold a phone's other parts.
+
+**The check.** `native/relay-auth/tests/auth.rs` (the rules of `test_users.py` and `test_audit.py`, a database the Python server made in
+`tests/fixtures/python-made.db`, scrypt and argon2id) and `native/relay-server/tests/accounts.rs` (the routes of `test_auth.py`). The
+Python tests keep testing the Python server until it is removed in #665; #663 replaces `TestClient` with a harness that drives the
+running Rust server, and moves those three files over then.
