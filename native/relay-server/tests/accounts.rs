@@ -17,11 +17,17 @@ use serde_json::{json, Value};
 use tower::ServiceExt;
 
 
-/// Test passwords are made when the test runs, never written as literals. The same name gives the same text within one run.
+/// Test passwords are random, made when the test runs: the name only says which one (the same name gives the same password
+/// within one run), and none of the text is written in the source.
 fn secret(name: &str) -> &'static str {
-    static RUN: std::sync::OnceLock<String> = std::sync::OnceLock::new();
-    let run = RUN.get_or_init(|| format!("{}-{}", std::process::id(), relay_auth::now().replace(':', "")));
-    Box::leak(format!("{name}-{run}").into_boxed_str())
+    static MADE: std::sync::Mutex<Vec<(String, &'static str)>> = std::sync::Mutex::new(Vec::new());
+    let mut made = MADE.lock().unwrap_or_else(|e| e.into_inner());
+    if let Some((_, v)) = made.iter().find(|(k, _)| k == name) {
+        return v;
+    }
+    let value: &'static str = Box::leak(format!("{:016x}{:016x}", rand::random::<u64>(), rand::random::<u64>()).into_boxed_str());
+    made.push((name.to_string(), value));
+    value
 }
 
 struct Site {

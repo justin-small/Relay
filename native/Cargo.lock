@@ -2622,6 +2622,7 @@ dependencies = [
  "netdev",
  "proptest",
  "quickcheck",
+ "rand 0.8.8",
  "rcgen 0.13.2",
  "relay-auth",
  "relay-core",

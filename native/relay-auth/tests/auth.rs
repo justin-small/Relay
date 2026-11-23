@@ -10,12 +10,20 @@ use relay_auth::{
 };
 
 
-/// Test passwords are made when the test runs, never written as literals, so nothing here is a hard-coded credential. The same
-/// name gives the same text within one run.
+/// Test passwords are random, made when the test runs: the name only says which one (the same name gives the same password
+/// within one run), and none of the text is written in the source, so nothing here is a hard-coded credential.
 fn secret(name: &str) -> String {
-    static RUN: std::sync::OnceLock<String> = std::sync::OnceLock::new();
-    let run = RUN.get_or_init(|| format!("{}-{}", std::process::id(), relay_auth::now().replace(':', "")));
-    format!("{name}-{run}")
+    use rand::RngCore;
+    static MADE: std::sync::Mutex<Vec<(String, String)>> = std::sync::Mutex::new(Vec::new());
+    let mut made = MADE.lock().unwrap_or_else(|e| e.into_inner());
+    if let Some((_, v)) = made.iter().find(|(k, _)| k == name) {
+        return v.clone();
+    }
+    let mut bytes = [0u8; 12];
+    rand::rngs::OsRng.fill_bytes(&mut bytes);
+    let value: String = bytes.iter().map(|b| format!("{b:02x}")).collect();
+    made.push((name.to_string(), value.clone()));
+    value
 }
 
 /// The password python-made.db was built with (tests/fixtures: made by app/users.py, so it has to be this text).
