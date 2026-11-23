@@ -44,6 +44,11 @@ jobs:
       # The audio bus core (#601) and the NDI engine (#606) are Rust extensions the app imports; build and install them.
       - name: Build the Rust extensions
         run: python tools/build_bus_wheel.py
+      # tests/test_rust_listeners.py runs the Rust server. Built inside the suite, a cold build (sqlite, argon2 and the rest) takes
+      # most of the 300 seconds a test file gets and starves the tests running beside it, so it is built here first (cached).
+      - name: Build the Rust server
+        run: cargo build --locked -p relay-server
+        working-directory: native
       - name: Module rule (every integration is a switchable module)
         run: python tests/test_modules.py
       - name: The whole suite, with coverage
@@ -99,6 +104,11 @@ jobs:
       # The audio bus core (#601) and the NDI engine (#606) are Rust extensions the app imports; build and install them.
       - name: Build the Rust extensions
         run: python tools/build_bus_wheel.py
+        shell: bash
+      # See the first job: the listeners test needs the server, and a cold build inside the suite starves the other tests.
+      - name: Build the Rust server
+        run: cargo build --locked -p relay-server
+        working-directory: native
         shell: bash
       - name: The suite
         shell: bash
