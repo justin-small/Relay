@@ -275,9 +275,8 @@ with section("Packets"):
     eq("remaining length 0", mq._length(0), b"\x00")
     eq("remaining length 127 and 128", (mq._length(127), mq._length(128)), (b"\x7f", b"\x80\x01"))
     eq("remaining length 16383 and 16384", (mq._length(16383), mq._length(16384)), (b"\xff\x7f", b"\x80\x80\x01"))
-    eq("the spec's CONNECT: clean session, client id 'c', keep-alive 60",
-       mq.connect_packet({"username": "", "password": "", "keepalive": 60}, "c"),
-       bytes.fromhex("100d00044d51545404020 03c000163".replace(" ", "")))
+    check("the spec's CONNECT: clean session, client id 'c', keep-alive 60",
+          mq.connect_packet({"username": "", "password": "", "keepalive": 60}, "c") == bytes.fromhex("100d00044d5154540402003c000163"))
     eq("a QoS 0 publish", mq.publish_packet("a/b", b"hi", 0, False, 0), bytes.fromhex("30070003612f626869"))
     eq("a retained QoS 1 publish carries its id", mq.publish_packet("t", b"x", 1, True, 5),
        bytes.fromhex("3306000174000578"))
