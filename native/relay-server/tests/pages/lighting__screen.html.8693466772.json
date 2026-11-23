@@ -1,0 +1,50 @@
+{
+ "template": "lighting/screen.html",
+ "uses": [
+  "lighting/screen.html"
+ ],
+ "context": {
+  "page": {
+   "id": "p1",
+   "name": "Worship",
+   "cols": 4,
+   "rows": 3,
+   "cues": [
+    {
+     "id": "a",
+     "name": "Walk-in",
+     "x": 0,
+     "y": 0,
+     "w": 2,
+     "h": 1,
+     "style": {
+      "label": "WALK IN",
+      "shape": "circle",
+      "bg": "#112233",
+      "fg": "#ffffff",
+      "pressed": "#5b8bff",
+      "icon": ""
+     }
+    },
+    {
+     "id": "b",
+     "name": "Verse",
+     "x": 2,
+     "y": 0,
+     "w": 1,
+     "h": 1,
+     "style": {
+      "label": "",
+      "shape": "rounded",
+      "bg": "#2b5fd9",
+      "fg": "#ffffff",
+      "pressed": "#5b8bff",
+      "icon": ""
+     }
+    }
+   ]
+  },
+  "key": "ecafd936bdc04fcd6c953e1aca815f4c"
+ },
+ "html": "\n<!doctype html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n<meta name=\"viewport\" content=\"width=device-width, initial-scale=1, viewport-fit=cover\">\n<meta name=\"referrer\" content=\"no-referrer\">\n<link rel=\"stylesheet\" href=\"/static/tokens.css\"><title>Worship</title>\n<link rel=\"stylesheet\" href=\"/static/layout.css\">\n<style>\nhtml, body { margin: 0; height: 100%; background: #111; color: #fff; font:16px/1.2 var(--font); }\nbody { -webkit-user-select: none; user-select: none; touch-action: manipulation; }\n#ltScreen { box-sizing: border-box; height: 100%; padding: 12px; --rl-gap: 12px; }\n#ltToast { position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%); background: #7a1f1f; color: #fff; padding: 10px 18px; border-radius: 8px; font-size: 18px; }\n</style>\n</head>\n<body>\n<main id=\"ltScreen\" data-page=\"p1\"></main>\n<div id=\"ltToast\" role=\"status\" aria-live=\"polite\" hidden></div>\n<script id=\"ltData\" type=\"application/json\">{\"key\": \"ecafd936bdc04fcd6c953e1aca815f4c\", \"page\": {\"cols\": 4, \"cues\": [{\"h\": 1, \"id\": \"a\", \"name\": \"Walk-in\", \"style\": {\"bg\": \"#112233\", \"fg\": \"#ffffff\", \"icon\": \"\", \"label\": \"WALK IN\", \"pressed\": \"#5b8bff\", \"shape\": \"circle\"}, \"w\": 2, \"x\": 0, \"y\": 0}, {\"h\": 1, \"id\": \"b\", \"name\": \"Verse\", \"style\": {\"bg\": \"#2b5fd9\", \"fg\": \"#ffffff\", \"icon\": \"\", \"label\": \"\", \"pressed\": \"#5b8bff\", \"shape\": \"rounded\"}, \"w\": 1, \"x\": 2, \"y\": 0}], \"id\": \"p1\", \"name\": \"Worship\", \"rows\": 3}}</script>\n<script src=\"/static/relay-ui.js\"></script>\n<script src=\"/static/layout-render.js\"></script>\n<script src=\"/static/modules/lighting/screen.js\"></script>\n</body>\n</html>"
+}

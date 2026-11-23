@@ -1,0 +1,15 @@
+{
+ "template": "index.html",
+ "uses": [
+  "index.html"
+ ],
+ "context": {
+  "font_px": 40,
+  "source_language": "ENGLISH",
+  "source_label": "English",
+  "source_iso": "en",
+  "present": false,
+  "show_admin": true
+ },
+ "html": "<!doctype html>\n<html lang=\"en\"><head>\n<meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1,viewport-fit=cover\">\n<title>Live Captions</title><link rel=\"icon\" href=\"/static/brand/favicon.ico\" sizes=\"32x32\"><link rel=\"icon\" href=\"/static/brand/favicon.svg\" type=\"image/svg+xml\"><link rel=\"apple-touch-icon\" href=\"/static/brand/apple-touch-icon.png\"><link rel=\"manifest\" href=\"/static/brand/site.webmanifest\"><link rel=\"stylesheet\" href=\"/static/viewer.css?v=18eabefb1d726926\"><link rel=\"stylesheet\" href=\"/static/tokens.css?v=18eabefb1d3bf1bf\"><script src=\"/static/look.js?v=18eabefb21aa1849\"></script>\n<script>try{var t=localStorage.getItem('relay.theme');if(t)document.documentElement.setAttribute('data-theme',t);}catch(e){}</script>\n</head><body>\n<div class=\"index\">\n  <div class=\"brand\"><svg class=\"lockup\" role=\"img\" aria-label=\"Relay\" xmlns=\"http://www.w3.org/2000/svg\" width=\"82\" height=\"24\" viewBox=\"0 0 219.3 64\"><g transform=\"translate(-15.3 -14.55) scale(1.4545)\"><rect x=\"11.5\" y=\"14\" width=\"9\" height=\"36.4\" rx=\"4.5\" fill=\"currentColor\"/><path fill-rule=\"evenodd\" fill=\"var(--brand,#4ade80)\" d=\"M33.5 14H44.5A9 9 0 0 1 53.5 23V30A9 9 0 0 1 49 37.8L52.6 48.2Q53.6 51.4 50.4 50.2L37 39H33.5A9 9 0 0 1 24.5 30V23A9 9 0 0 1 33.5 14ZM32.5 20.8H45.5A2 2 0 0 1 47.5 22.8V22.8A2 2 0 0 1 45.5 24.8H32.5A2 2 0 0 1 30.5 22.8V22.8A2 2 0 0 1 32.5 20.8ZM32.5 28.3H39.0A2 2 0 0 1 41.0 30.3V30.299999999999997A2 2 0 0 1 39.0 32.3H32.5A2 2 0 0 1 30.5 30.299999999999997V30.3A2 2 0 0 1 32.5 28.3Z\"/></g><path transform=\"translate(84.29 19.6) scale(0.62)\" d=\"M0 40V0M0 18A18 18 0 0 1 18 0M33 20H73A20 20 0 1 0 67.14 34.14M92 -24V40M151 20A20 20 0 1 0 151 20.01M151 0V40M170 0V20A20 20 0 0 0 210 20M210 0V44A16 16 0 0 1 194 60H186\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"9\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/></svg></div>\n  <h1>Live Captions</h1>\n  <p class=\"sub\">Pick a view. Nothing to install &mdash; the page updates itself.</p>\n  <div class=\"choices\">\n    <a class=\"choice\" href=\"/translation\"><strong>Translation</strong><span>Read along in your language</span></a>\n    <a class=\"choice\" href=\"/transcription\"><strong>Transcription</strong><span>Live English of what is being said</span></a>\n    <a class=\"choice\" href=\"/both\"><strong>Both</strong><span>English and translation, side by side</span></a>\n    \n    <a class=\"choice\" href=\"/admin\"><strong>Operator panel</strong><span>Token required</span></a>\n    \n  </div>\n</div>\n</body></html>"
+}

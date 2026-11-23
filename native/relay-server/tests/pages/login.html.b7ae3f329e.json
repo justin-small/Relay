@@ -1,0 +1,20 @@
+{
+ "template": "login.html",
+ "uses": [
+  "login.html"
+ ],
+ "context": {
+  "mode": "pin",
+  "error": "That PIN is not right.",
+  "username": "",
+  "pin_users": [
+   {
+    "id": 12,
+    "name": "Pinuser"
+   }
+  ],
+  "pin_user": -1,
+  "device_name": "Booth iPad"
+ },
+ "html": "<!doctype html>\n<html lang=\"en\"><head>\n<title>Operator sign in</title><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">\n<meta name=\"robots\" content=\"noindex\">\n<link rel=\"icon\" href=\"/static/brand/favicon.ico\" sizes=\"32x32\"><link rel=\"icon\" href=\"/static/brand/favicon.svg\" type=\"image/svg+xml\"><link rel=\"apple-touch-icon\" href=\"/static/brand/apple-touch-icon.png\"><link rel=\"manifest\" href=\"/static/brand/site.webmanifest\"><link rel=\"stylesheet\" href=\"/static/viewer.css?v=18eabefb1d726926\"><link rel=\"stylesheet\" href=\"/static/tokens.css?v=18eabefb1d3bf1bf\"><link rel=\"stylesheet\" href=\"/static/components.css?v=18eabefb212bd886\"><link rel=\"stylesheet\" href=\"/static/standalone.css?v=18eabefb1d26673f\">\n<script src=\"/static/look.js?v=18eabefb21aa1849\"></script>\n</head><body>\n\n<form method=\"post\" action=\"/admin/login/pin\">\n  <img class=\"mark\" src=\"/static/brand/relay-mark.svg\" width=\"52\" height=\"52\" alt=\"Relay\">\n  <h1>Operator panel</h1>\n  <p class=\"sub\">This browser is trusted (Booth iPad). Pick your name and type your PIN.</p>\n  <label for=\"user_id\">Name</label>\n  <select id=\"user_id\" name=\"user_id\" required>\n    <option value=\"12\">Pinuser</option>\n  </select>\n  <label for=\"pin\">PIN</label>\n  <input id=\"pin\" type=\"password\" name=\"pin\" inputmode=\"numeric\" pattern=\"[0-9]*\" maxlength=\"8\" autocomplete=\"off\" autofocus required>\n  <button class=\"primary\" type=\"submit\">Sign in</button>\n  <div class=\"err\" role=\"alert\">That PIN is not right.</div>\n  <a class=\"link\" href=\"/admin?pw=1\">Use my password instead</a>\n</form>\n\n</body></html>"
+}

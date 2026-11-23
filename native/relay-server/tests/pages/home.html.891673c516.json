@@ -1,0 +1,31 @@
+{
+ "template": "home.html",
+ "uses": [
+  "home.html"
+ ],
+ "context": {
+  "user": {
+   "id": 1,
+   "username": "owner",
+   "name": "Owner",
+   "role": "owner",
+   "disabled": false,
+   "must_change_password": false,
+   "pin_set": false
+  },
+  "tools": [
+   {
+    "title": "Alerts",
+    "note": "Flash a screen to get someone's attention",
+    "path": "/alert"
+   },
+   {
+    "title": "Crew",
+    "note": "The plan and your team's tools",
+    "path": "/crew"
+   }
+  ],
+  "admin": true
+ },
+ "html": "<!doctype html>\n<html lang=\"en\"><head>\n<title>Relay</title><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">\n<meta name=\"robots\" content=\"noindex\">\n<link rel=\"icon\" href=\"/static/brand/favicon.ico\" sizes=\"32x32\"><link rel=\"icon\" href=\"/static/brand/favicon.svg\" type=\"image/svg+xml\"><link rel=\"apple-touch-icon\" href=\"/static/brand/apple-touch-icon.png\"><link rel=\"manifest\" href=\"/static/brand/site.webmanifest\"><link rel=\"stylesheet\" href=\"/static/viewer.css?v=18eabefb1d726926\"><link rel=\"stylesheet\" href=\"/static/tokens.css?v=18eabefb1d3bf1bf\"><link rel=\"stylesheet\" href=\"/static/components.css?v=18eabefb212bd886\"><link rel=\"stylesheet\" href=\"/static/standalone.css?v=18eabefb1d26673f\">\n<script src=\"/static/look.js?v=18eabefb21aa1849\"></script>\n</head><body>\n<div class=\"card\">\n  <img class=\"mark\" src=\"/static/brand/relay-mark.svg\" width=\"52\" height=\"52\" alt=\"Relay\">\n  <h1>Hello, Owner</h1>\n  \n  <p class=\"sub\">What you can use in Relay.</p>\n  <ul class=\"tools\">\n    \n    <li><a href=\"/alert\"><strong>Alerts</strong><span>Flash a screen to get someone&#39;s attention</span></a></li>\n    \n    <li><a href=\"/crew\"><strong>Crew</strong><span>The plan and your team&#39;s tools</span></a></li>\n    \n    \n    <li><a href=\"/admin\"><strong>Operator panel</strong><span>Control Relay</span></a></li>\n    \n  </ul>\n  \n</div>\n<form method=\"post\" action=\"/admin/logout\">\n  <a class=\"link\" href=\"/home?password=1\">Change my password</a>\n  <button class=\"link\" type=\"submit\">Sign out</button>\n</form>\n</body></html>"
+}

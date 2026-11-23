@@ -1,0 +1,17 @@
+{
+ "template": "login.html",
+ "uses": [
+  "login.html"
+ ],
+ "context": {
+  "mode": "setup",
+  "error": "The two passwords do not match.",
+  "notice": null,
+  "username": "boss",
+  "name": "The Boss",
+  "token_set": true,
+  "code_set": false,
+  "remote": false
+ },
+ "html": "<!doctype html>\n<html lang=\"en\"><head>\n<title>Set up Relay</title><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">\n<meta name=\"robots\" content=\"noindex\">\n<link rel=\"icon\" href=\"/static/brand/favicon.ico\" sizes=\"32x32\"><link rel=\"icon\" href=\"/static/brand/favicon.svg\" type=\"image/svg+xml\"><link rel=\"apple-touch-icon\" href=\"/static/brand/apple-touch-icon.png\"><link rel=\"manifest\" href=\"/static/brand/site.webmanifest\"><link rel=\"stylesheet\" href=\"/static/viewer.css?v=18eabefb1d726926\"><link rel=\"stylesheet\" href=\"/static/tokens.css?v=18eabefb1d3bf1bf\"><link rel=\"stylesheet\" href=\"/static/components.css?v=18eabefb212bd886\"><link rel=\"stylesheet\" href=\"/static/standalone.css?v=18eabefb1d26673f\">\n<script src=\"/static/look.js?v=18eabefb21aa1849\"></script>\n</head><body>\n\n<form method=\"post\" action=\"/admin/setup\">\n  <img class=\"mark\" src=\"/static/brand/relay-mark.svg\" width=\"52\" height=\"52\" alt=\"Relay\">\n  <h1>Set up Relay</h1>\n  \n  <p class=\"sub\">Create the first account, the Owner. Enter the admin token from <code>config.json</code> once; after this it is never used again.</p>\n  \n  <label for=\"token\">Admin token</label>\n  <input id=\"token\" type=\"password\" name=\"token\" autofocus autocomplete=\"off\" required>\n  \n  <label for=\"api_key\">OpenAI API key <span class=\"opt\">(optional, can be added later in Settings)</span></label>\n  <input id=\"api_key\" type=\"password\" name=\"api_key\" autocomplete=\"off\" spellcheck=\"false\">\n  <label for=\"username\">Username</label>\n  <input id=\"username\" type=\"text\" name=\"username\" value=\"boss\" autocomplete=\"username\" autocapitalize=\"none\" spellcheck=\"false\" required>\n  <label for=\"name\">Your name</label>\n  <input id=\"name\" type=\"text\" name=\"name\" value=\"The Boss\" autocomplete=\"name\" required>\n  <label for=\"password\">Password</label>\n  <input id=\"password\" type=\"password\" name=\"password\" autocomplete=\"new-password\" minlength=\"8\" required>\n  <label for=\"confirm\">Confirm password</label>\n  <input id=\"confirm\" type=\"password\" name=\"confirm\" autocomplete=\"new-password\" minlength=\"8\" required>\n  <button class=\"primary\" type=\"submit\">Create the Owner</button>\n  \n  \n  <div class=\"err\" role=\"alert\">The two passwords do not match.</div>\n</form>\n\n<form method=\"post\" action=\"/admin/import\">\n  <h1>Coming from Relay 2.0?</h1>\n  <p class=\"sub\">Import your settings from the old Docker install. Type the path of the old Relay folder (or the <code>docker-config</code> folder inside it). Nothing in it is changed.</p>\n  <label for=\"folder\">Old Relay folder</label>\n  <input id=\"folder\" type=\"text\" name=\"folder\" autocomplete=\"off\" spellcheck=\"false\" required>\n  <button class=\"primary\" type=\"submit\">Import from a previous Relay</button>\n</form>\n\n\n</body></html>"
+}

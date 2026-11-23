@@ -1,0 +1,62 @@
+{
+ "template": "crew/crew.html",
+ "uses": [
+  "crew/chat.html",
+  "crew/checklists.html",
+  "crew/crew.html",
+  "crew/nosound.html",
+  "crew/resources.html"
+ ],
+ "context": {
+  "app_name": "Relay crew",
+  "show_plan": true,
+  "user": {
+   "id": 4,
+   "username": "mike",
+   "name": "Mike Smith",
+   "role": "member",
+   "disabled": false,
+   "must_change_password": false,
+   "pin_set": false
+  },
+  "crew_role": "",
+  "tools": [
+   {
+    "title": "Crew",
+    "note": "The plan and your team's tools",
+    "path": "/crew"
+   }
+  ],
+  "tabs": [
+   {
+    "id": "chat",
+    "title": "Chat",
+    "template": "crew/chat.html"
+   },
+   {
+    "id": "checklists",
+    "title": "Checklists",
+    "template": "crew/checklists.html"
+   },
+   {
+    "id": "resources",
+    "title": "Resources",
+    "template": "crew/resources.html"
+   },
+   {
+    "id": "nosound",
+    "title": "No sound?",
+    "template": "crew/nosound.html"
+   }
+  ],
+  "module_scripts": [
+   "crew/chat.js",
+   "crew/checklists.js",
+   "crew/resources.js",
+   "crew/activity.js",
+   "crew/nosound.js"
+  ],
+  "module_styles": []
+ },
+ "html": "<!doctype html>\n<html lang=\"en\"><head>\n<meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1,viewport-fit=cover\">\n<meta name=\"robots\" content=\"noindex\"><meta name=\"theme-color\" content=\"#000000\">\n<title>Relay crew</title>\n<link rel=\"icon\" href=\"/static/brand/favicon.ico\" sizes=\"32x32\"><link rel=\"icon\" href=\"/static/brand/favicon.svg\" type=\"image/svg+xml\"><link rel=\"apple-touch-icon\" href=\"/static/brand/apple-touch-icon.png\"><link rel=\"manifest\" href=\"/static/brand/site.webmanifest\">\n<link rel=\"manifest\" href=\"/crew/_/manifest.webmanifest\">\n<link rel=\"stylesheet\" href=\"/static/viewer.css?v=18eabefb1d726926\"><link rel=\"stylesheet\" href=\"/static/tokens.css?v=18eabefb1d3bf1bf\">\n<link rel=\"stylesheet\" href=\"/static/components.css?v=18eabefb212bd886\">\n<link rel=\"stylesheet\" href=\"/static/modules/crew/crew.css?v=18eabefb1de9e6ed\">\n\n<script src=\"/static/look.js?v=18eabefb21aa1849\"></script>\n</head><body class=\"crew-page\">\n\n\n\n\n\n<div class=\"cr-app\">\n<header class=\"cr-bar\">\n  <img src=\"/static/brand/relay-mark.svg\" width=\"26\" height=\"26\" alt=\"\">\n  <h1>Hello, Mike</h1>\n  <button type=\"button\" class=\"cr-me\" id=\"crMeBtn\" aria-haspopup=\"dialog\" aria-controls=\"crMe\"\n          aria-label=\"Mike Smith: your settings\">MS</button>\n</header>\n<p class=\"cr-offline\" id=\"crNet\" hidden>Off the church Wi-Fi. Showing what you last saw.</p>\n<main class=\"cr-main\" id=\"crMain\">\n  <div role=\"tabpanel\" class=\"cr-panel\" id=\"panel-home\" aria-labelledby=\"tab-home\">\n    <section class=\"cr-card cr-now\" id=\"crNow\" hidden aria-live=\"polite\">\n      <h2>Now <small id=\"crNowWhen\"></small></h2>\n      <div class=\"cr-big\" id=\"crNowTitle\"></div>\n      <div class=\"cr-note\" id=\"crNowSub\"></div>\n      <div class=\"cr-line\" id=\"crNext\" hidden><span class=\"cr-time\">Next</span><b id=\"crNextTitle\"></b><span class=\"cr-end\" id=\"crNextAt\"></span></div>\n    </section>\n    <section class=\"cr-card\" id=\"crDay\" aria-live=\"polite\">\n      <h2><span id=\"crDayHead\">Today</span> <small id=\"crPos\"></small></h2>\n      <ol class=\"cr-lines\" id=\"crDayList\"></ol>\n      <div class=\"cr-note\" id=\"crInNote\" role=\"status\" aria-live=\"polite\"></div>\n    </section>\n    \n    <details class=\"cr-card cr-plan\" id=\"crPlan\">\n      <summary id=\"crPlanNote\">Plan</summary>\n      <ol class=\"cr-lines\" id=\"crItems\"></ol>\n    </details>\n    \n  </div>\n  \n  <div role=\"tabpanel\" class=\"cr-panel\" id=\"panel-chat\" aria-labelledby=\"tab-chat\" hidden>\n    \n<div id=\"chat\" class=\"chat\">\n  <div class=\"chat-top\">\n    <label class=\"chat-pick\"><span class=\"chat-lbl\">Channel</span> <select id=\"chatChannel\" aria-label=\"Channel\"></select></label>\n    <label class=\"chat-push\"><input type=\"checkbox\" id=\"chatPush\"> Quiet notification when I am not looking</label>\n  </div>\n  <div class=\"cr-note\" id=\"chatNote\" role=\"status\" aria-live=\"polite\"></div>\n  <ol class=\"chat-list\" id=\"chatList\" aria-live=\"polite\" aria-label=\"Messages\"></ol>\n  <form class=\"chat-form\" id=\"chatForm\" autocomplete=\"off\">\n    <textarea class=\"prose\" id=\"chatText\" rows=\"2\" maxlength=\"500\" placeholder=\"Message\" aria-label=\"Message\"></textarea>\n    <button class=\"primary\" type=\"submit\" id=\"chatSend\">Send</button>\n  </form>\n</div>\n  </div>\n  \n  <div role=\"tabpanel\" class=\"cr-panel\" id=\"panel-checklists\" aria-labelledby=\"tab-checklists\" hidden>\n    \n<div id=\"cl\" class=\"cl\">\n  <div class=\"cr-note\" id=\"clNote\" role=\"status\" aria-live=\"polite\"></div>\n  <div id=\"clLists\"></div>\n  <section class=\"cr-card\" id=\"clEditBox\" hidden>\n    <h2>Edit checklists</h2>\n    <div id=\"clTemplates\"></div>\n    <div class=\"cl-form\">\n      <label class=\"chat-lbl\" for=\"clTitle\">Title</label>\n      <input id=\"clTitle\" maxlength=\"60\" autocomplete=\"off\">\n      <label class=\"chat-lbl\" for=\"clPos\">Position</label>\n      <select id=\"clPos\"></select>\n      <div class=\"cr-note\">Choose a Planning Center team, or one position of it. Everyone serving sees a checklist set for no one in particular.</div>\n      <label class=\"chat-lbl\" for=\"clItems\">Items, one per line</label>\n      <textarea class=\"prose\" id=\"clItems\" rows=\"6\"></textarea>\n      <div class=\"cl-btns\">\n        <button class=\"primary\" type=\"button\" id=\"clSave\">Save checklist</button>\n        <button type=\"button\" id=\"clCancel\" hidden>Cancel</button>\n      </div>\n    </div>\n  </section>\n</div>\n  </div>\n  \n  <div role=\"tabpanel\" class=\"cr-panel\" id=\"panel-resources\" aria-labelledby=\"tab-resources\" hidden>\n    \n<div id=\"rs\" class=\"rs\">\n  <div class=\"cr-note\" id=\"rsNote\" role=\"status\" aria-live=\"polite\"></div>\n  <div id=\"rsLists\"></div>\n  <section class=\"cr-card\" id=\"rsEditBox\" hidden>\n    <h2>Add or change resources</h2>\n    <div id=\"rsManage\"></div>\n    <div class=\"cl-form\">\n      <label class=\"chat-lbl\" for=\"rsKind\">Kind</label>\n      <select id=\"rsKind\"><option value=\"file\">File from this phone</option><option value=\"link\">Link</option><option value=\"embed\">Embedded page</option></select>\n      <label class=\"chat-lbl\" for=\"rsTitle\">Title</label>\n      <input id=\"rsTitle\" maxlength=\"80\" autocomplete=\"off\">\n      <label class=\"chat-lbl\" for=\"rsPos\">Position</label>\n      <select id=\"rsPos\"></select>\n      <label class=\"chat-lbl\" for=\"rsUrl\" id=\"rsUrlLbl\">Web address</label>\n      <input id=\"rsUrl\" type=\"url\" maxlength=\"500\" autocomplete=\"off\" inputmode=\"url\">\n      <input id=\"rsFile\" type=\"file\" accept=\".pdf,.png,.jpg,.jpeg,.webp,.gif,.txt,.docx,.xlsx,.pptx\" hidden>\n      <div class=\"cr-note\" id=\"rsHint\"></div>\n      <div class=\"cl-btns\">\n        <button type=\"button\" id=\"rsSave\">Add</button>\n        <button type=\"button\" id=\"rsCancel\" hidden>Cancel</button>\n      </div>\n    </div>\n  </section>\n</div>\n  </div>\n  \n  <div role=\"tabpanel\" class=\"cr-panel\" id=\"panel-nosound\" aria-labelledby=\"tab-nosound\" hidden>\n    \n<section class=\"cr-card\">\n  <h2>No sound?</h2>\n  <div class=\"cr-note\">Relay walks back from its input and says where the sound stops and what to look at next.</div>\n  <div id=\"nsWalk\"></div>\n</section>\n  </div>\n  \n</main>\n<nav class=\"cr-tabs\" role=\"tablist\" aria-label=\"Crew tools\">\n  <button role=\"tab\" id=\"tab-home\" aria-controls=\"panel-home\" aria-selected=\"true\" type=\"button\" data-tab=\"home\">\n    <svg viewBox=\"0 0 24 24\" aria-hidden=\"true\"><path d=\"M4 11l8-7 8 7v9h-5v-6H9v6H4z\"/></svg><span>Home</span></button>\n  \n  <button role=\"tab\" id=\"tab-chat\" aria-controls=\"panel-chat\" aria-selected=\"false\" tabindex=\"-1\" type=\"button\"\n          data-tab=\"chat\"><svg viewBox=\"0 0 24 24\" aria-hidden=\"true\"><path d=\"M4 5h16v11h-9l-5 4v-4H4z\"/></svg><span>Chat</span><i class=\"cr-ct\" hidden></i></button>\n  \n  <button role=\"tab\" id=\"tab-checklists\" aria-controls=\"panel-checklists\" aria-selected=\"false\" tabindex=\"-1\" type=\"button\"\n          data-tab=\"checklists\"><svg viewBox=\"0 0 24 24\" aria-hidden=\"true\"><path d=\"M4 7l2 2 3-4M4 15l2 2 3-4M12 7h8M12 15h8\"/></svg><span>Checklist</span><i class=\"cr-ct\" hidden></i></button>\n  \n  <button role=\"tab\" id=\"tab-resources\" aria-controls=\"panel-resources\" aria-selected=\"false\" tabindex=\"-1\" type=\"button\"\n          data-tab=\"resources\"><svg viewBox=\"0 0 24 24\" aria-hidden=\"true\"><path d=\"M6 3h8l4 4v14H6zM14 3v4h4\"/></svg><span>Files</span><i class=\"cr-ct\" hidden></i></button>\n  \n  <button role=\"tab\" id=\"tab-nosound\" aria-controls=\"panel-nosound\" aria-selected=\"false\" tabindex=\"-1\" type=\"button\"\n          data-tab=\"nosound\"><svg viewBox=\"0 0 24 24\" aria-hidden=\"true\"><circle cx=\"12\" cy=\"12\" r=\"7\"/></svg><span>No sound?</span><i class=\"cr-ct\" hidden></i></button>\n  \n  \n</nav>\n</div>\n\n<dialog class=\"cr-sheet\" id=\"crMe\" aria-labelledby=\"crMeName\">\n  <div class=\"cr-grab\" aria-hidden=\"true\"></div>\n  <div class=\"cr-head\">\n    <div><b id=\"crMeName\">Mike Smith</b><div class=\"cr-note\" id=\"crMeRole\"></div></div>\n    <span class=\"badge\" id=\"crMeIn\" hidden></span>\n  </div>\n  <div class=\"cr-set\" id=\"crAlerts\" hidden>\n    <span><b>Notifications from the booth</b><small id=\"crAlertsNote\">Buzzes until you confirm.</small></span>\n    <label class=\"switch\"><input type=\"checkbox\" id=\"crAlertsBtn\" aria-label=\"Notifications from the booth\"><span class=\"slider\"></span></label>\n  </div>\n  <div id=\"crDev\" hidden>\n    <div class=\"cr-set\"><span><b>My phones</b><small id=\"crDevNote\">When one of these joins the church Wi-Fi, you are\n      checked in without opening this page.</small></span></div>\n    <ul class=\"cr-lines\" id=\"crDevList\"></ul>\n    <button type=\"button\" id=\"crDevThis\" hidden>This is my phone</button>\n    <p class=\"cr-note\" id=\"crDevPrivate\" hidden>This phone uses a private Wi-Fi address. Turn on a fixed address for\n      the church Wi-Fi (on iPhone: Settings, Wi-Fi, the church network, Private Wi-Fi Address: Fixed), or Relay may\n      not know it next time.</p>\n  </div>\n  \n  \n  \n  <div class=\"cr-sheet-foot\">\n    <form method=\"post\" action=\"/admin/logout\"><button class=\"link\" type=\"submit\">Sign out</button></form>\n    <button type=\"button\" id=\"crMeClose\">Close</button>\n  </div>\n</dialog>\n<script>window.RELAY_CREW = { plan: true };</script>\n<script src=\"/static/relay-ui.js?v=18eabefb21e0f8ff\"></script>\n<script src=\"/static/modules/crew/crew.js?v=18eabefb1def2cde\"></script>\n<script src=\"/static/modules/crew/chat.js?v=18eabefb1de53c6d\" defer></script>\n<script src=\"/static/modules/crew/checklists.js?v=18eabefb1de7c654\" defer></script>\n<script src=\"/static/modules/crew/resources.js?v=18eabefb1e108172\" defer></script>\n<script src=\"/static/modules/crew/activity.js?v=18eabefb1ddff5ff\" defer></script>\n<script src=\"/static/modules/crew/nosound.js?v=18eabefb1e0c769c\" defer></script>\n\n</body></html>"
+}

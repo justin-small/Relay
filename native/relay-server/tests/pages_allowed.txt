@@ -1,0 +1,2 @@
+# Captured renders (a file name in tests/pages/, or its start) where Rust may differ from Python, each with the reason.
+# Nothing is listed: every page renders byte for byte as Jinja2 did.

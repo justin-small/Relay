@@ -1,0 +1,14 @@
+{
+ "template": "status.html",
+ "uses": [
+  "status.html"
+ ],
+ "context": {
+  "font_px": 40,
+  "source_language": "ENGLISH",
+  "source_label": "English",
+  "source_iso": "en",
+  "present": false
+ },
+ "html": "<!doctype html>\n<html lang=\"en\"><head>\n<meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1,viewport-fit=cover\">\n<meta name=\"theme-color\" content=\"#000000\">\n<title>Relay status</title>\n<link rel=\"icon\" href=\"/static/brand/favicon.ico\" sizes=\"32x32\"><link rel=\"icon\" href=\"/static/brand/favicon.svg\" type=\"image/svg+xml\"><link rel=\"apple-touch-icon\" href=\"/static/brand/apple-touch-icon.png\"><link rel=\"manifest\" href=\"/static/brand/site.webmanifest\">\n<link rel=\"stylesheet\" href=\"/static/viewer.css?v=18eabefb1d726926\"><link rel=\"stylesheet\" href=\"/static/tokens.css?v=18eabefb1d3bf1bf\"><script src=\"/static/look.js?v=18eabefb21aa1849\"></script>\n</head><body class=\"status-page\">\n\n<main class=\"st-grid\" aria-live=\"polite\">\n  <section class=\"st-card st-air\" id=\"airCard\">\n    <h2>Livestream</h2>\n    <div class=\"st-big\" id=\"airText\">—</div>\n    <div class=\"st-sub\" id=\"airSub\"></div>\n    <ul class=\"st-streams\" id=\"streams\"></ul>\n  </section>\n  <section class=\"st-card\" id=\"capCard\">\n    <h2>Captions</h2>\n    <div class=\"st-big\" id=\"capText\">—</div>\n    <div class=\"st-sub\" id=\"capSub\"></div>\n  </section>\n  <section class=\"st-card\" id=\"inCard\">\n    <h2>Input</h2>\n    <div class=\"st-big\" id=\"inText\">—</div>\n    <div class=\"st-sub\" id=\"inSub\"></div>\n    <div class=\"st-meter\"><div class=\"st-meter-fill\" id=\"inFill\"></div></div>\n  </section>\n  <section class=\"st-card\" id=\"viewCard\">\n    <h2>Watching</h2>\n    <div class=\"st-big\" id=\"viewText\">—</div>\n    <div class=\"st-sub\" id=\"viewSub\">on Relay's caption pages</div>\n  </section>\n</main>\n<p class=\"st-foot\"><span class=\"dot\" id=\"connDot\" title=\"Connection to Relay\"></span> <span id=\"connText\">Connecting…</span></p>\n\n<script src=\"/static/status.js?v=18eabefb1d2cfd1f\"></script>\n</body></html>"
+}

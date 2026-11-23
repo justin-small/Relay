@@ -6,7 +6,7 @@
 //!
 //! `--upstream` (or `RELAY_UPSTREAM`) is the running FastAPI app: what the server does not serve itself is forwarded to it, and
 //! with `--front-token` (or `RELAY_FRONT_TOKEN`, the same value the app is given) the two exchange the module listeners and the
-//! ports really bound. `--fingerprint` prints the panel certificate's SHA-256 and exits.
+//! ports really bound. `--app-dir` (or `RELAY_APP_DIR`, default `app`) is the folder with `static/`, `templates/` and `modules/`. `--fingerprint` prints the panel certificate's SHA-256 and exits.
 
 mod modules;
 
@@ -78,6 +78,7 @@ async fn run() -> Result<(), String> {
 
     let options = Options {
         config_path: path,
+        app_dir: arg("--app-dir", "RELAY_APP_DIR").map(Into::into).unwrap_or_else(|| "app".into()),
         upstream: arg("--upstream", "RELAY_UPSTREAM"),
         token: arg("--front-token", "RELAY_FRONT_TOKEN"),
         version: std::env::var("RELAY_VERSION").ok().filter(|v| !v.is_empty()).unwrap_or_else(|| "dev".to_owned()),

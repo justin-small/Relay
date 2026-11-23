@@ -1,0 +1,10 @@
+{
+ "template": "db_down.html",
+ "uses": [
+  "db_down.html"
+ ],
+ "context": {
+  "message": "Relay's database is not answering."
+ },
+ "html": "<!doctype html>\n<html lang=\"en\"><head>\n<title>Operator panel unavailable</title><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">\n<meta name=\"robots\" content=\"noindex\">\n<link rel=\"icon\" href=\"/static/brand/favicon.ico\" sizes=\"32x32\"><link rel=\"icon\" href=\"/static/brand/favicon.svg\" type=\"image/svg+xml\"><link rel=\"apple-touch-icon\" href=\"/static/brand/apple-touch-icon.png\"><link rel=\"manifest\" href=\"/static/brand/site.webmanifest\"><link rel=\"stylesheet\" href=\"/static/viewer.css?v=18eabefb1d726926\"><link rel=\"stylesheet\" href=\"/static/tokens.css?v=18eabefb1d3bf1bf\"><link rel=\"stylesheet\" href=\"/static/components.css?v=18eabefb212bd886\"><link rel=\"stylesheet\" href=\"/static/standalone.css?v=18eabefb1d26673f\">\n<script src=\"/static/look.js?v=18eabefb21aa1849\"></script>\n</head><body>\n<div class=\"card\">\n  <img class=\"mark\" src=\"/static/brand/relay-mark.svg\" width=\"52\" height=\"52\" alt=\"Relay\">\n  <h1>Operator panel unavailable</h1>\n  <p class=\"sub\" role=\"alert\">Relay&#39;s database is not answering.</p>\n  <a class=\"link\" href=\"/admin\">Try again</a>\n</div>\n</body></html>"
+}

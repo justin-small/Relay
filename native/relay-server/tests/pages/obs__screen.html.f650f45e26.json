@@ -1,0 +1,14 @@
+{
+ "template": "obs/screen.html",
+ "uses": [
+  "obs/screen.html"
+ ],
+ "context": {
+  "machine": {
+   "id": "f7a4c335",
+   "name": "Stream PC"
+  },
+  "key": "3db3fe2c4cca512e277acced9ffc871c"
+ },
+ "html": "\n<!doctype html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n<meta name=\"viewport\" content=\"width=device-width, initial-scale=1, viewport-fit=cover\">\n<meta name=\"referrer\" content=\"no-referrer\">\n<link rel=\"stylesheet\" href=\"/static/tokens.css\"><title>Stream PC: scenes</title>\n<link rel=\"stylesheet\" href=\"/static/modules/obs/screen.css\">\n</head>\n<body>\n<header id=\"obsHead\"><span id=\"obsName\"></span> <span id=\"obsLive\" class=\"badge\" hidden>LIVE</span>\n  <span id=\"obsRec\" class=\"badge rec\" hidden>REC</span> <span id=\"obsOff\" class=\"badge off\" hidden>OBS not connected</span></header>\n<main id=\"obsScenes\"></main>\n<div id=\"obsToast\" role=\"status\" aria-live=\"polite\" hidden></div>\n<script id=\"obsData\" type=\"application/json\">{\"key\": \"3db3fe2c4cca512e277acced9ffc871c\", \"machine\": {\"id\": \"f7a4c335\", \"name\": \"Stream PC\"}}</script>\n<script src=\"/static/relay-ui.js\"></script>\n<script src=\"/static/modules/obs/screen.js\"></script>\n</body>\n</html>"
+}

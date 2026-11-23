@@ -1,0 +1,55 @@
+{
+ "template": "viewer.html",
+ "uses": [
+  "viewer.html"
+ ],
+ "context": {
+  "font_px": 40,
+  "source_language": "ENGLISH",
+  "source_label": "English",
+  "source_iso": "en",
+  "present": false,
+  "mode": "translation",
+  "overlay": true,
+  "ov": {
+   "preset": "",
+   "stream": "translation",
+   "lang": "SPANISH",
+   "lang2": "",
+   "lines": 2,
+   "font": 54,
+   "w": 1920,
+   "h": 1080,
+   "hold": 4000,
+   "safe": 5.0,
+   "plate": 0.55,
+   "matte": false,
+   "bg": "transparent",
+   "pos": "top",
+   "align": "left",
+   "maxw": 70,
+   "family": "serif",
+   "edge": "outline",
+   "color": "FF0000",
+   "platec": "102030",
+   "mode": "popon",
+   "finals": true,
+   "labels": true
+  },
+  "overlay_feeds": [
+   {
+    "stream": "translation",
+    "lang": "SPANISH",
+    "iso": "es",
+    "label": "Español"
+   }
+  ],
+  "overlay_labels": false,
+  "overlay_pad_x": 96,
+  "overlay_pad_y": 54,
+  "overlay_platec": "16,32,48",
+  "overlay_demo": null,
+  "lyrics_for": ""
+ },
+ "html": "<!doctype html>\n<html lang=\"en\"><head>\n<meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1,viewport-fit=cover\">\n<meta name=\"theme-color\" content=\"#000000\">\n<title>Live Translation</title>\n<link rel=\"icon\" href=\"/static/brand/favicon.ico\" sizes=\"32x32\"><link rel=\"icon\" href=\"/static/brand/favicon.svg\" type=\"image/svg+xml\"><link rel=\"apple-touch-icon\" href=\"/static/brand/apple-touch-icon.png\"><link rel=\"manifest\" href=\"/static/brand/site.webmanifest\">\n<link rel=\"stylesheet\" href=\"/static/viewer.css?v=18eabefb1d726926\">\n<link rel=\"stylesheet\" href=\"/static/overlay-fonts.css?v=18eabefb21d6b4bc\"><style>\n  /* Broadcast overlay tokens, resolved server-side (app/overlays.py: every value\n     is an enum, a clamped number or a checked colour). The page is a fixed\n     canvas scaled to fit the browser source; everything outside it stays\n     transparent so OBS/ProPresenter composites the alpha directly. */\n  :root {\n    --ov-w: 1920px; --ov-h: 1080px;\n    --ov-font: 54px;\n    --ov-pad-x: 96px; --ov-pad-y: 54px;\n    --ov-plate: 0.55;\n    --ov-platec: 16,32,48;\n    --ov-color: #FF0000;\n    --ov-maxw: 70%;\n    --ov-bg: transparent;\n    --ov-hold-ms: 4000ms;\n  }\n</style>\n</head><body class=\" overlay ov-hidden ov-pos-top ov-align-left ov-font-serif ov-edge-outline ov-popon\">\n\n<div class=\"bar\">\n  <span class=\"dot\" id=\"statusDot\"></span>\n  <a href=\"/transcription\" class=\"\">English</a>\n  <a href=\"/translation\" class=\"on\">Translation</a>\n  <a href=\"/both\" class=\"\">Both</a>\n  <span class=\"spacer\"></span>\n  \n  <select id=\"langPicker\" aria-label=\"Translation language\"></select>\n  \n  <button id=\"themeToggle\" aria-label=\"Toggle light or dark theme\" title=\"Light / dark\">&#9681;</button>\n  <button id=\"wakeToggle\" aria-pressed=\"false\" aria-label=\"Keep screen awake\" title=\"Keep screen awake\" hidden>&#9788;</button>\n  <button id=\"presentBtn\" aria-label=\"Presentation mode\" title=\"Presentation mode\">&#9974;</button>\n  <button data-font=\"down\" aria-label=\"Smaller text\">A&minus;</button>\n  <button data-font=\"up\" aria-label=\"Larger text\">A+</button>\n</div>\n\n\n<div class=\"panes ov-canvas\">\n  \n  <div class=\"pane\">\n    \n    <div class=\"feed\" data-stream=\"translation\" data-lang=\"SPANISH\" lang=\"es\" data-lines=\"2\" data-finals=\"1\">\n      <div class=\"log\" role=\"log\" aria-live=\"polite\" aria-atomic=\"false\" aria-label=\"Español\"></div>\n    </div>\n  </div>\n  \n</div>\n\n\n\n\n<button id=\"presentExit\" type=\"button\" hidden aria-label=\"Exit presentation mode\">&#10005;</button>\n\n\n\n\n\n<div class=\"toast\" id=\"toast\"></div>\n<script>window.RELAY = {fontPx: 40, sourceLanguage: \"ENGLISH\", sourceIso: \"en\", mode: \"translation\", present: false, screen: false, screenLang: \"\", screenFont: 0, overlay: true, overlayLang: \"SPANISH\", overlayW: 1920, overlayH: 1080, overlayFont: 54, overlayHold: 4000, overlayPopOn: true, overlayDemo: null};</script>\n<script src=\"/static/viewer.js?v=18eabefb1d77776d\"></script>\n\n\n</body></html>"
+}

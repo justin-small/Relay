@@ -1,0 +1,23 @@
+{
+ "template": "viewer.html",
+ "uses": [
+  "viewer.html"
+ ],
+ "context": {
+  "font_px": 40,
+  "source_language": "ENGLISH",
+  "source_label": "English",
+  "source_iso": "en",
+  "present": false,
+  "mode": "translation",
+  "screen": true,
+  "screen_lang": "",
+  "screen_iso": "",
+  "screen_lines": 3,
+  "screen_align": "bottom",
+  "screen_font": null,
+  "screen_alert": "",
+  "lyrics_for": ""
+ },
+ "html": "<!doctype html>\n<html lang=\"en\"><head>\n<meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1,viewport-fit=cover\">\n<meta name=\"theme-color\" content=\"#000000\">\n<title>Live Translation</title>\n<link rel=\"icon\" href=\"/static/brand/favicon.ico\" sizes=\"32x32\"><link rel=\"icon\" href=\"/static/brand/favicon.svg\" type=\"image/svg+xml\"><link rel=\"apple-touch-icon\" href=\"/static/brand/apple-touch-icon.png\"><link rel=\"manifest\" href=\"/static/brand/site.webmanifest\">\n<link rel=\"stylesheet\" href=\"/static/viewer.css?v=18eabefb1d726926\">\n\n</head><body class=\" screen align-bottom\">\n\n<div class=\"bar\">\n  <span class=\"dot\" id=\"statusDot\"></span>\n  <a href=\"/transcription\" class=\"\">English</a>\n  <a href=\"/translation\" class=\"on\">Translation</a>\n  <a href=\"/both\" class=\"\">Both</a>\n  <span class=\"spacer\"></span>\n  \n  <button id=\"themeToggle\" aria-label=\"Toggle light or dark theme\" title=\"Light / dark\">&#9681;</button>\n  <button id=\"wakeToggle\" aria-pressed=\"false\" aria-label=\"Keep screen awake\" title=\"Keep screen awake\" hidden>&#9788;</button>\n  <button id=\"presentBtn\" aria-label=\"Presentation mode\" title=\"Presentation mode\">&#9974;</button>\n  <button data-font=\"down\" aria-label=\"Smaller text\">A&minus;</button>\n  <button data-font=\"up\" aria-label=\"Larger text\">A+</button>\n</div>\n\n\n<div class=\"panes \">\n  \n  \n  <div class=\"pane\">\n    \n    <div class=\"feed\" data-stream=\"translation\" data-lang=\"\" data-lines=\"3\">\n      <div class=\"log\" role=\"log\" aria-live=\"polite\" aria-atomic=\"false\" aria-label=\"Translation\"></div>\n      \n    </div>\n    <button class=\"jump\" type=\"button\" hidden>Jump to live &#8595;</button>\n  </div>\n  \n</div>\n\n\n\n\n<button id=\"presentExit\" type=\"button\" hidden aria-label=\"Exit presentation mode\">&#10005;</button>\n\n\n\n<span class=\"screen-fault\" id=\"screenFault\" title=\"Stream fault\" hidden></span>\n\n<div class=\"toast\" id=\"toast\"></div>\n<script>window.RELAY = {fontPx: 40, sourceLanguage: \"ENGLISH\", sourceIso: \"en\", mode: \"translation\", present: false, screen: true, screenLang: \"\", screenFont: 0, overlay: false, overlayLang: \"\", overlayW: 1920, overlayH: 1080, overlayFont: 54, overlayHold: 0, overlayPopOn: false, overlayDemo: null};</script>\n<script src=\"/static/viewer.js?v=18eabefb1d77776d\"></script>\n\n\n</body></html>"
+}
