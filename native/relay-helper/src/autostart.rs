@@ -64,7 +64,7 @@ pub fn detach_console() {
     }
 }
 
-#[cfg_attr(not(any(target_os = "macos", windows)), allow(dead_code))]
+#[cfg_attr(not(any(target_os = "macos", windows)), expect(dead_code, reason = "only the macOS and Windows installs run a command"))]
 fn run(cmd: &mut Command) -> Result<bool, String> {
     cmd.output().map(|o| o.status.success()).map_err(|e| format!("Could not run {}: {e}", cmd.get_program().to_string_lossy()))
 }
