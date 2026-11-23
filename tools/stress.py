@@ -178,14 +178,14 @@ class Server:
         return self
 
     def _sign_up(self) -> None:
-        r = httpx.post(f"{ADMIN}/admin/setup", verify=False, follow_redirects=False,
+        r = httpx.post(f"{ADMIN}/admin/setup", verify=False, follow_redirects=False,  # nosec B501 - the stress test drives its own local Relay, which has a self-signed certificate
                        data={"username": "stress", "name": "Stress", "password": PASSWORD, "confirm": PASSWORD})
         if r.status_code not in (200, 302, 303) or not r.cookies:
             raise SystemExit(f"first-run setup refused ({r.status_code}): {r.text[:300]}")
         self.cookies = dict(r.cookies)
 
     def admin(self, **kw) -> httpx.AsyncClient:
-        return httpx.AsyncClient(base_url=ADMIN, verify=False, cookies=self.cookies, timeout=30, **kw)
+        return httpx.AsyncClient(base_url=ADMIN, verify=False, cookies=self.cookies, timeout=30, **kw)  # nosec B501 - local Relay, self-signed certificate
 
     def viewer(self, **kw) -> httpx.AsyncClient:
         return httpx.AsyncClient(base_url=VIEWER, timeout=30,
