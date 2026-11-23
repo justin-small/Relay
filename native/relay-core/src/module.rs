@@ -21,6 +21,7 @@ use axum::Router;
 use serde_json::Value;
 
 use crate::error::AppError;
+use crate::net::Net;
 use crate::shutdown::Shutdown;
 
 pub type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
@@ -103,11 +104,23 @@ type Provided = Arc<Mutex<BTreeMap<String, (String, Arc<dyn Any + Send + Sync>)>
 pub struct Host {
     shared: Provided,
     pub shutdown: Shutdown,
+    net: Net,
 }
 
 impl Host {
     pub fn new(shutdown: Shutdown) -> Self {
-        Self { shared: Arc::default(), shutdown }
+        Self { shared: Arc::default(), shutdown, net: Net::unrouted() }
+    }
+
+    /// Use `net` for every module's outbound traffic (the server's router; `Host::new` has none, so classes are unrouted).
+    pub fn with_net(mut self, net: Net) -> Self {
+        self.net = net;
+        self
+    }
+
+    /// Outbound connections and UDP sockets, routed by traffic class. A module opens no socket of its own.
+    pub fn net(&self) -> &Net {
+        &self.net
     }
 
     /// Offer `value` under `name` (`"<area>.<what>"`). `owner` is the module's id; `withdraw_all` takes it back.

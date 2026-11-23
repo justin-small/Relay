@@ -26,6 +26,9 @@ PREFIX = "relay-module-"
 ID_RE = re.compile(r"^[a-z][a-z0-9_]{1,31}$")
 # What a module crate may depend on inside the workspace.
 MODULE_MAY_USE = {"relay-core", "relay-bus", "relay-ndi"}
+# A module opens no socket of its own (the Rust form of netsock's rule, #345): `tokio::net`, `std::net::*Socket/Stream/Listener`,
+# `socket2`. A `// allow-socket: <reason>` on the line marks one that is right (an address type is not a socket).
+SOCKET_USE = re.compile(r"^(?!.*allow-socket:).*(tokio::net|std::net::(Tcp|Udp)|socket2)", re.M)
 
 
 def manifest(path: Path) -> dict:
@@ -62,6 +65,12 @@ def rust_files(folder: Path) -> list[Path]:
     return [p for p in sorted(folder.rglob("*.rs")) if "target" not in p.relative_to(folder).parts]
 
 
+def socket_breaches(name: str, folder: Path) -> list[str]:
+    return [f"{name}/{src.relative_to(folder)} opens its own socket: ask Host::net() for the traffic class's connection, so it "
+            "leaves by the port the operator assigned (docs/rust-server.md)"
+            for src in rust_files(folder) if SOCKET_USE.search(src.read_text(encoding="utf-8"))]
+
+
 def audit(crates: dict, server_modules_rs: str) -> list[str]:
     """Every rule's breaches as sentences; empty when the layout is sound. The test runs it on the real tree and on broken ones."""
     problems = []
@@ -96,6 +105,8 @@ def audit(crates: dict, server_modules_rs: str) -> list[str]:
         for ident in sorted(listed):
             if PREFIX + ident not in modules:
                 problems.append(f"relay-server/src/modules.rs names relay_module_{ident}, which is not a module crate")
+    for name, (folder, _m) in modules.items():
+        problems += socket_breaches(name, folder)
     for name in ("relay-core", "relay-server"):
         if name not in crates:
             continue
@@ -154,6 +165,12 @@ with section("the rules catch a breach"):
           any("not a module crate" in p for p in audit(tree(), listed + " relay_module_ghost")))
     bad = (NATIVE / "modules" / "demo", tomllib.loads('[package]\nname = "relay-demo"\n'))
     check("a module crate with the wrong name is caught", any("is named relay-module-<id>" in p for p in audit({k: v for k, v in tree().items() if k != "relay-module-demo"} | {"relay-demo": bad}, listed)))
+    own = crate("demo", "relay-module-demo", 'relay-core = {path="x"}', "use tokio::net::TcpStream;")
+    check("a module naming tokio::net is caught", socket_breaches("relay-module-demo", own[0]) != [])
+    ok = crate("demo2", "relay-module-demo", 'relay-core = {path="x"}', "use tokio::net::TcpStream; // allow-socket: a type in a signature")
+    eq("a marked line is allowed", socket_breaches("relay-module-demo", ok[0]), [])
+    plain = crate("demo3", "relay-module-demo", 'relay-core = {path="x"}', "let s = host.net().udp(\"intercom\", &o);")
+    eq("asking Host::net() is allowed", socket_breaches("relay-module-demo", plain[0]), [])
     leaky = crate("c3", "relay-core", "", "use relay_module_demo::Demo;")
     check("core source naming a module is caught", any("names a module crate" in p for p in audit(tree(**{"relay-core": leaky}), listed)))
 

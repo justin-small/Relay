@@ -13,6 +13,7 @@ pub mod gate;
 pub mod listen;
 pub mod netinfo;
 pub mod netroute;
+pub mod netsock;
 pub mod pages;
 pub mod serve;
 pub mod statics;
