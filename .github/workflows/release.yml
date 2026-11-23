@@ -22,6 +22,10 @@ name: Release
 #                                    operator uploads in the admin page's Panels section (#74)
 #   relay-display.bin                the same, merged with the bootloader and partition table, for the first
 #                                    flash of a panel over USB (firmware/relay-display/README.md)
+#   Relay-Helper-windows-x64.exe, Relay-Helper-macos-arm64.pkg, Relay-Helper-macos-x64.pkg
+#                                    the Relay Helper for the show computer (#636). The names do not end in
+#                                    -setup.exe or .app.tar.gz, so the updater's latest.json never lists them;
+#                                    the admin page's Helpers page links to them on the latest release.
 #
 # A tag with a hyphen (v1.2.0-rc.1) is published as a pre-release, which releases/latest skips: installs
 # update from releases/latest/download/latest.json, so they are never offered one.
@@ -288,9 +292,96 @@ jobs:
           path: staged/*
           if-no-files-found: error
 
+  # The Relay Helper (native/relay-helper, #497, #636): the small program an operator installs on the show computer that
+  # runs ProPresenter. A macOS package (Apple silicon and Intel, both built on the Apple silicon runner: the helper is
+  # pure Rust, so one runner is enough and a pull request proves both) and a Windows installer. Both register the
+  # helper to start at login (`relay-helper install`). Unsigned until a signing certificate exists, like the desktop
+  # installers (.github/release-notes.md says how to get past the warning).
+  helper:
+    name: Relay Helper (${{ matrix.name }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {name: windows-x64, os: windows-latest, target: x86_64-pc-windows-msvc}
+          - {name: macos, os: macos-latest, target: aarch64-apple-darwin}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # v1
+        with:
+          toolchain: stable
+          targets: x86_64-apple-darwin,aarch64-apple-darwin,x86_64-pc-windows-msvc
+      - uses: swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          workspaces: native/relay-helper
+      - name: Version
+        id: ver
+        shell: bash
+        run: |
+          if [[ "$GITHUB_REF_TYPE" == tag ]]; then
+            echo "version=$(python tools/release_tools.py version "$GITHUB_REF_NAME")" >> "$GITHUB_OUTPUT"
+          else
+            echo "version=0.0.0-dev" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Build
+        shell: bash
+        working-directory: native/relay-helper
+        env:
+          RELAY_HELPER_VERSION: ${{ steps.ver.outputs.version }}
+        run: |
+          if [[ "$RUNNER_OS" == macOS ]]; then
+            cargo build --release --locked --target aarch64-apple-darwin
+            cargo build --release --locked --target x86_64-apple-darwin
+          else
+            cargo build --release --locked --target "${{ matrix.target }}"
+          fi
+      - name: Package for macOS
+        if: runner.os == 'macOS'
+        shell: bash
+        env:
+          VERSION: ${{ steps.ver.outputs.version }}
+        run: |
+          set -e
+          mkdir -p staged
+          for pair in "aarch64-apple-darwin:arm64" "x86_64-apple-darwin:x64"; do
+            target=${pair%%:*}; arch=${pair##*:}
+            root="$RUNNER_TEMP/pkg-$arch"
+            mkdir -p "$root/usr/local/bin"
+            cp "native/relay-helper/target/$target/release/relay-helper" "$root/usr/local/bin/relay-helper"
+            codesign --force --sign - "$root/usr/local/bin/relay-helper"
+            pkgbuild --root "$root" --identifier org.relay.helper --version "${VERSION%%-*}" \
+              --scripts native/relay-helper/packaging/macos --install-location / \
+              "staged/Relay-Helper-macos-${arch}.pkg"
+          done
+      - name: Package for Windows
+        if: runner.os == 'Windows'
+        shell: bash
+        env:
+          VERSION: ${{ steps.ver.outputs.version }}
+        run: |
+          set -e
+          mkdir -p staged
+          # NSIS is not on every runner image: install it, pinned.
+          choco install nsis --version 3.11 -y --no-progress
+          "/c/Program Files (x86)/NSIS/makensis.exe" -V2 "-DVERSION=$VERSION" \
+            "-DEXE=$(cygpath -w "$PWD/native/relay-helper/target/${{ matrix.target }}/release/relay-helper.exe")" \
+            "-DOUT=$(cygpath -w "$PWD/staged/Relay-Helper-windows-x64.exe")" \
+            native/relay-helper/packaging/windows/relay-helper.nsi
+      - run: ls -l staged
+        shell: bash
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: helper-${{ matrix.name }}
+          path: staged/*
+          if-no-files-found: error
+
   release:
     name: Publish release
-    needs: [test, guide, panel-firmware, desktop]
+    needs: [test, guide, panel-firmware, desktop, helper]
     if: github.event_name == 'push' && github.ref_type == 'tag'
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -311,6 +402,11 @@ jobs:
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           pattern: desktop-*
+          path: dist
+          merge-multiple: true
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: helper-*
           path: dist
           merge-multiple: true
       - name: Package the source

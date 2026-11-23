@@ -4077,7 +4077,9 @@ async def helper_socket(ws: WebSocket):
 
 @app.get("/api/admin/helpers", dependencies=[Depends(require("helpers.view"))])
 def admin_helpers():
-    return {"helpers": helperhub.hub.view(), "waiting_codes": helperhub.hub.pending_codes()}
+    # The panel's certificate fingerprint rides along: a helper dialling Relay's own HTTPS pins it (`relay-helper pair --pin`).
+    return {"helpers": helperhub.hub.view(), "waiting_codes": helperhub.hub.pending_codes(),
+            "fingerprint": tls.panel.describe().get("fingerprint") or ""}
 
 
 @app.post("/api/admin/helpers/code", dependencies=[Depends(require("helpers.manage"))])
