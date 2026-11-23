@@ -275,6 +275,23 @@ async def connection_tests():
             check("warn while reconnecting", await wait_for_async(lambda: "reconnecting" in m.health()[1], 6), m.health())
             fake.stream["outputReconnecting"] = False
 
+        with section("outputs that follow Start and Stop"):
+            check("off by default", not m.cfg["start_record"] and not m.cfg["start_stream"])
+            await m.follow_start()
+            check("nothing starts while it is not asked", not fake.record["outputActive"] and "StartStream" not in fake.requests)
+            m.cfg["start_record"] = True
+            await m.follow_start()
+            check("Start begins the recording", await wait_for_async(lambda: fake.record["outputActive"]))
+            eq("and remembers it began it", m.started_by_start, {"record"})
+            await m.follow_stop()
+            check("Stop ends the recording it began", await wait_for_async(lambda: not fake.record["outputActive"]))
+            check("and leaves a stream nobody asked it to touch", fake.stream["outputActive"])
+            fake.record.update(outputActive=True)
+            m.cfg["start_record"] = False
+            await m.follow_stop()
+            check("an output the operator started by hand is left running", fake.record["outputActive"])
+            fake.record.update(outputActive=False)
+
         with section("captions"):
             hub.publish_final("transcription", "ENGLISH", "This line is for the people who watch at home today.")
             check("off by default: nothing sent", not await wait_for_async(lambda: fake.captions, 0.6))

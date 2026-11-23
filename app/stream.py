@@ -6,14 +6,18 @@ of it while the operator wants them (`stream_captions`, on by default), and tell
 same, the other way: `stream.stopped`. A module hears it with `modules.listen("stream.started", fn)` in `attach()`
 and `unlisten` in `detach()`; `fn()` runs on the event loop and must not block.
 
-Captions are the engine (app/engine.py). The engine keeps its own `running`, which stays "the captions are live",
-and the stream's `running` is "the operator has started the show".
+Captions are the Captions module's part of the stream (app/modules/captions/): while it is on it adds itself with
+`stream.add_part(...)`, and the engine (app/engine.py) keeps `running` as "the captions are live", while the
+stream's `running` is "the operator has started the show". With that module off, Start opens the stream and runs
+no captions.
 """
 from __future__ import annotations
 
 import asyncio
 import logging
 import time
+from dataclasses import dataclass
+from typing import Awaitable, Callable
 
 from . import config, modules
 from .engine import demo_mode, engine
@@ -24,8 +28,18 @@ STARTED = "stream.started"
 STOPPED = "stream.stopped"
 
 
+@dataclass
+class Part:
+    """One thing Start runs: `start` may raise a RuntimeError (the engine's StartRefused) to refuse the whole Start."""
+    start: Callable[[], Awaitable[None]]
+    stop: Callable[[], Awaitable[None]]
+    running: Callable[[], bool]
+    wanted: Callable[[], bool]
+
+
 class Stream:
     def __init__(self):
+        self.parts: dict[str, Part] = {}
         self.running = False
         # Wall clock, as the engine's: served to clients on other machines that render the clock themselves.
         self.started_at: float | None = None
@@ -34,16 +48,32 @@ class Stream:
     def captions_wanted(self) -> bool:
         return bool(config.get().get("stream_captions", True))
 
+    def add_part(self, name: str, start, stop, running, *, wanted=lambda: True) -> None:
+        """A module adds something Start runs (the Captions module adds "captions") in `attach()`, and takes it
+        away with `remove_part` in `detach()`. `wanted()` says whether this Start should run it."""
+        self.parts[name] = Part(start, stop, running, wanted)
+
+    def remove_part(self, name: str) -> None:
+        self.parts.pop(name, None)
+
     async def start(self) -> dict:
         """Open the stream. Captions start with it when wanted; if they are refused (no key, no audio) the whole
         start is refused with the engine's own `StartRefused` and nothing is left half started."""
         async with self._lock:
             if self.running:
                 return self.status()
-            if self.captions_wanted():
-                await engine.start()
+            started: list[Part] = []
+            try:
+                for part in list(self.parts.values()):
+                    if part.wanted():
+                        await part.start()
+                        started.append(part)
+            except BaseException:
+                for part in reversed(started):      # a refused part leaves nothing half started
+                    await part.stop()
+                raise
             self.running = True
-            self.started_at = engine.started_at if engine.running and engine.started_at else time.time()
+            self.started_at = time.time()
             modules.announce(STARTED)
             engine._push_status()
             return self.status()
@@ -53,28 +83,30 @@ class Stream:
             was = self.running
             self.running = False
             self.started_at = None
-            if engine.running:
-                await engine.stop()
+            for part in list(self.parts.values()):
+                if part.running():
+                    await part.stop()
             if was:
                 modules.announce(STOPPED)
             engine._push_status()
             return self.status()
 
-    async def apply_captions(self) -> None:
+    async def apply_parts(self) -> None:
         """The operator turned captions on or off in settings: follow it live, so a running stream gains or loses
-        captions without a stop. A refused start stays in the engine's own error for the panel."""
+        its parts without a stop. A refused start stays in the part's own error for the panel."""
         async with self._lock:
             if not self.running:
                 return
-            if self.captions_wanted() and not engine.running:
-                if demo_mode():
-                    return
-                try:
-                    await engine.start()
-                except RuntimeError:
-                    return
-            elif not self.captions_wanted() and engine.running:
-                await engine.stop()
+            for part in list(self.parts.values()):
+                if part.wanted() and not part.running():
+                    if demo_mode():
+                        continue
+                    try:
+                        await part.start()
+                    except RuntimeError:
+                        continue
+                elif not part.wanted() and part.running():
+                    await part.stop()
             engine._push_status()
 
     def push_status(self) -> None:
@@ -82,7 +114,8 @@ class Stream:
         engine._push_status()
 
     def status(self) -> dict:
-        return {"running": self.running, "started_at": self.started_at, "captions": self.captions_wanted()}
+        return {"running": self.running, "started_at": self.started_at, "captions": self.captions_wanted(),
+                "captions_available": "captions" in self.parts}
 
 
 stream = Stream()

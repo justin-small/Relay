@@ -165,6 +165,7 @@ def clean_machine(m: Any, seen: set[str]) -> dict | None:
 
     return {"id": mid, "name": _text(m.get("name"), 24) or "OBS", "host": host, "port": port,
             "captions": m.get("captions") is True, "caption_lang": lang, "caption_delay": delay,
+            "start_record": m.get("start_record") is True, "start_stream": m.get("start_stream") is True,
             "preview": m.get("preview") is True, "alert_error": button("alert_error"), "alert_warn": button("alert_warn"),
             "tally": _tally(m.get("tally")), "audio": _audio(m.get("audio")),
             "screen_on": bool(key) and m.get("screen_on") is True, "key": key}
@@ -259,6 +260,7 @@ class Machine:
         self.captions: asyncio.Queue = asyncio.Queue(CAPTION_QUEUE)
         self.captions_sent = 0
         self.caption_error = ""
+        self.started_by_start: set[str] = set()    # the outputs Relay's Start began, which its Stop ends (#592)
         self._shot: tuple[float, bytes] = (0.0, b"")
         self._shot_lock = asyncio.Lock()
 
@@ -659,6 +661,33 @@ class Machine:
                 raise ObsError("OBS did not pause the recording. In OBS's Simple output mode, set Recording Quality "
                                "to anything but \"Same as stream\", or use Advanced mode.")
 
+    async def follow_start(self) -> None:
+        """Relay's Start was pressed: begin the outputs this computer is set to begin with it, if OBS is reachable
+        and not already doing them. A failure is logged and audited, never raised: Start goes ahead without it."""
+        for which, key, status in (("record", "start_record", self.record), ("stream", "start_stream", self.stream)):
+            if not self.cfg[key] or self.state != "connected" or status.get("outputActive"):
+                continue
+            try:
+                await self.output(which, "start")
+                self.started_by_start.add(which)
+                audit.record("obs.start", f"OBS ({self.cfg['name']}): started the {which} because Start was pressed",
+                             target=self.id)
+            except ObsError:
+                log.warning("OBS %s: could not start the %s with Start", self.cfg["name"], which)
+
+    async def follow_stop(self) -> None:
+        """Relay's Stop was pressed: end only what Start began here, never an output the operator started by hand."""
+        for which in sorted(self.started_by_start):
+            if self.state != "connected":
+                break
+            try:
+                await self.output(which, "stop")
+                audit.record("obs.stop", f"OBS ({self.cfg['name']}): stopped the {which} because Stop was pressed",
+                             target=self.id)
+            except ObsError:
+                log.warning("OBS %s: could not stop the %s with Stop", self.cfg["name"], which)
+        self.started_by_start.clear()
+
     async def set_mute(self, name: str, muted: bool) -> None:
         conn = self._connected()
         if name not in self.inputs:
@@ -846,6 +875,15 @@ class Service:
             return {"ok": False, "error": f"OBS did not switch on {', '.join(failed)}."}
         return {"ok": True}
 
+    def stream_started(self) -> None:
+        """Core's stream.started: each computer begins what it is set to begin with Start (on the event loop)."""
+        for m in list(self.machines.values()):
+            asyncio.get_running_loop().create_task(m.follow_start())
+
+    def stream_stopped(self) -> None:
+        for m in list(self.machines.values()):
+            asyncio.get_running_loop().create_task(m.follow_stop())
+
     def channel_groups(self) -> list[dict]:
         """The scenes of every computer that answers now; one that is off says nothing, so its scenes do not turn missing."""
         return [m.channel_group() for m in self.machines.values() if m.conn is not None]
@@ -876,6 +914,8 @@ def attach_hooks() -> None:
 
     hub.add_line_sink(service.line_sink)
     registry.provide("obs.scenes", service.switch_scene)
+    registry.listen("stream.started", service.stream_started)
+    registry.listen("stream.stopped", service.stream_stopped)
 
 
 def detach_hooks() -> None:
@@ -883,3 +923,5 @@ def detach_hooks() -> None:
 
     hub.remove_line_sink(service.line_sink)
     registry.withdraw("obs.scenes")
+    registry.unlisten("stream.started", service.stream_started)
+    registry.unlisten("stream.stopped", service.stream_stopped)

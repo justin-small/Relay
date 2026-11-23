@@ -3,7 +3,7 @@
 # (or run the test with --rebaseline).
 # rule  count  file
 mock 1 tests/_netfake.py
-patch 16 tests/smoke_test.py
+patch 10 tests/smoke_test.py
 sleep 10 tests/smoke_test.py
 patch 4 tests/test_alert_events.py
 sleep 1 tests/test_alert_events.py
@@ -84,7 +84,7 @@ sleep 1 tests/test_sidecar.py
 patch 2 tests/test_signage_routes.py
 sleep 1 tests/test_signage_routes.py
 patch 1 tests/test_signage_web.py
-patch 19 tests/test_slidetags.py
+patch 13 tests/test_slidetags.py
 sleep 7 tests/test_slidetags.py
 patch 1 tests/test_sound_modules.py
 sleep 2 tests/test_sound_modules.py

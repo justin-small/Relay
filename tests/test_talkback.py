@@ -150,7 +150,8 @@ async def scenarios():
     check("and offers its lines to other modules", modmod.using("talkback.lines") is not None)
 
     # -- the main engine and the bus ------------------------------------------------------------------------------
-    main = engine_mod.engine
+    modmod.modules.attach("captions")      # the main caption feed, as the Captions module runs it
+    main = engine_mod.engine.pipeline
     main.bind(loop)
 
     def bus_on():

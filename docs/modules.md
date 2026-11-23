@@ -10,7 +10,7 @@ and fails the build when it is broken. See [What the test checks](#what-the-test
 
 ## What counts as core
 
-Captions, translation, the audio path, viewers, panels and their firmware protocol, alerts, schedules,
+The caption feeds and the transcription backends, translation settings, the audio path, viewers, panels and their firmware protocol, alerts, schedules,
 recordings and the admin panel itself. Core is the list `CORE_FILES` in `tests/test_modules.py`. Adding a
 file to that list is a design decision: say why in the pull request.
 
@@ -1030,12 +1030,23 @@ captions and translation with Start** ticked (`stream_captions`, on by default),
 off, Start needs no key and no audio input. A caption start that is refused (no key, no sound card) refuses the whole
 Start and leaves nothing half started.
 
-A module that wants to follow Start and Stop never imports the stream. It calls `modules.listen("stream.started", fn)`
-and `modules.listen("stream.stopped", fn)` in `attach()` and `unlisten` in `detach()`; `fn()` runs on the event loop and
-must not block (queue the work onto the module's own task). Follow only when the module's own setting says so, so
-nothing starts a recorder or an encoder that its operator did not ask to be tied to Start. A module that does the
-starting (a ProPresenter slide tag `capture-start`, a schedule) calls the same `stream.start()` / `stream.stop()` the
-button does, so every route to Start announces the same event.
+**Captions are a module** (`app/modules/captions/`, #592): the capture, the transcription session and the translator
+(`pipeline.py`) belong to it, and it adds them to the stream with `stream.add_part("captions", start, stop, running,
+wanted=...)` in `attach()`. Core's engine (`app/engine.py`) keeps what every page reads (status, meter, the targets
+viewers are told) and answers with captions idle while the module is off; the backends (`app/transcribe.py`), the hub and
+the viewer feeds stay core. A part's `start` may raise a `RuntimeError` (the engine's `StartRefused`) to refuse the whole
+Start; the parts already started are stopped again.
+
+A module that wants to follow Start and Stop never imports the stream's internals. It calls
+`modules.listen("stream.started", fn)` and `modules.listen("stream.stopped", fn)` in `attach()` and `unlisten` in
+`detach()`; `fn()` runs on the event loop and must not block (queue the work onto the module's own task). Follow only
+when the module's own setting says so, so nothing starts a recorder or an encoder that its operator did not ask to be
+tied to Start. A module that does the starting (a ProPresenter slide tag `capture-start`, a schedule) calls the same
+`stream.start()` / `stream.stop()` the button does, so every route to Start announces the same event.
+
+Following Start and Stop today: **OBS** (per computer, "Start recording when Start is pressed" and "Go live when Start
+is pressed"; Stop ends only what Start began, never an output the operator started by hand) and **REAPER** (per computer,
+"Record while Start is pressed", beside the stream and schedule options; it reads `stream.running` on its own tick).
 
 The admin status keeps `running` and `started_at` for the stream and adds `stream` (`running`, `started_at`,
 `captions`) and `captions_running`. The viewer feeds and the status feed keep `running` for the captions themselves.

@@ -15,6 +15,7 @@ os.environ["RELAY_ANNOUNCE"] = "0"
 
 import numpy as np  # noqa: E402
 
+from app.modules.captions.pipeline import Pipeline  # noqa: E402
 from app import audio, config, engine as engine_mod  # noqa: E402
 from app.modules import Manifest, Module  # noqa: E402
 
@@ -200,7 +201,7 @@ class StubCapture:
         raise RuntimeError("stop here")
 
 
-eng = engine_mod.Engine()
+eng = Pipeline(engine_mod.Engine())
 eng.capture = StubCapture()
 config.save({"openai_api_key": "sk-test"})
 try:

@@ -378,6 +378,9 @@
       input(m, 'password', { type: 'password', maxlength: 200, autocomplete: 'new-password' })));
     set.appendChild(row2);
     set.appendChild(check(m, 'preview', 'Show a preview of the program scene on this page'));
+    set.appendChild(el('h4', '', 'With Relay\'s Start and Stop'));
+    set.appendChild(check(m, 'start_record', 'Start recording when Start is pressed, and stop it with Stop'));
+    set.appendChild(check(m, 'start_stream', 'Go live when Start is pressed, and end the stream with Stop'));
 
     set.appendChild(el('h4', '', 'Captions into the stream'));
     set.appendChild(check(m, 'captions', 'Send Relay\'s captions into this stream (CEA-608)'));
@@ -504,7 +507,7 @@
   }
 
   $('obsAdd').onclick = function () {
-    machines.push({ id: '', name: 'OBS', host: '', port: 4455, password: '', preview: false, captions: false,
+    machines.push({ id: '', name: 'OBS', host: '', port: 4455, password: '', preview: false, captions: false, start_record: false, start_stream: false,
                     caption_lang: 'source', caption_delay: 0, alert_error: '', alert_warn: '', audio: [], tally: [] });
     dirty = true; render();
   };
@@ -513,7 +516,7 @@
     try {
       data = await send('PUT', '/api/admin/obs/settings', { machines: machines.map(function (m) {
         return { id: m.id, name: m.name, host: m.host, port: m.port, password: m.password || '',
-                 clear_password: !!m.clear_password, preview: !!m.preview, captions: !!m.captions,
+                 clear_password: !!m.clear_password, preview: !!m.preview, captions: !!m.captions, start_record: !!m.start_record, start_stream: !!m.start_stream,
                  caption_lang: m.caption_lang, caption_delay: m.caption_delay || 0,
                  alert_error: m.alert_error || '', alert_warn: m.alert_warn || '',
                  audio: m.audio || [], tally: (m.tally || []).filter(function (t) { return t.scene; }) };

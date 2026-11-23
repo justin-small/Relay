@@ -23,6 +23,8 @@ from app.stream import STARTED, STOPPED, stream  # noqa: E402
 
 config.ensure_file()
 config.save({"port": 8000, "admin_port": 8000, "admin_token": "t0ken"})
+modules.modules.attach("captions")        # the Captions module adds captions as a part of the stream
+stream_has = "captions" in stream.parts
 heard: list[str] = []
 on_started, on_stopped = (lambda: heard.append("started")), (lambda: heard.append("stopped"))
 modules.listen(STARTED, on_started)
@@ -30,6 +32,7 @@ modules.listen(STOPPED, on_stopped)
 
 
 with section("captions are on by default"):
+    check("the Captions module added its part", stream_has)
     eq("the saved setting", config.get()["stream_captions"], True)
     eq("a fresh stream is stopped", (stream.running, stream.started_at), (False, None))
 
@@ -57,7 +60,7 @@ with section("captions off: Start needs no key and no audio"):
     eq("and carries the stream", status["stream"]["running"], True)
     asyncio.run(stream.start())
     eq("a second Start changes nothing and announces nothing", heard, ["started"])
-    asyncio.run(stream.apply_captions())
+    asyncio.run(stream.apply_parts())
     eq("turning captions off while they are off does nothing", engine.running, False)
     asyncio.run(stream.stop())
     eq("Stop ends the stream", (stream.running, stream.started_at), (False, None))

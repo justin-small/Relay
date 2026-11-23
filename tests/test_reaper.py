@@ -223,6 +223,20 @@ async def live_tests():
             check("off air stops it (no delay)", await await_for(lambda: not m.link.state.recording))
             check("not an unexpected stop", not m.unexpected_at)
 
+        with section("auto-record with Start"):
+            from app.stream import stream as relay_stream
+            m.cfg["follow_start"] = True
+            svc.service.tick()
+            check("nothing before Start is pressed", not m.link.state.recording)
+            relay_stream.running = True                              # what a Start leaves behind
+            svc.service.tick()
+            check("Start starts it", await await_for(lambda: m.link.state.recording))
+            check("started by Relay", m.ours and m.wanted)
+            relay_stream.running = False
+            svc.service.tick()
+            check("Stop stops it", await await_for(lambda: not m.link.state.recording))
+            m.cfg["follow_start"] = False
+
         with section("someone stops it while the service is live"):
             streams.publish("obs", label="OBS", on_air=True, health="ok", live_since=time.time())
             svc.service.tick()
@@ -234,7 +248,7 @@ async def live_tests():
             check("and says why", "not recording while the service is live" in m.health()[1], m.health())
             svc.service.tick()
             await asyncio.sleep(0.2)
-            eq("it is not started again behind their back", fake.sent("/record").__len__(), 3)
+            eq("it is not started again behind their back", fake.sent("/record").__len__(), 4)
             streams.publish("obs", label="OBS", on_air=False, health="idle")
             svc.service.tick()
             check("the error ends with the service", m.health()[0] != "error", m.health())

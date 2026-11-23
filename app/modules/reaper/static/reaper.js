@@ -78,8 +78,8 @@
     row('Last marker', st.marker || 'None');
     const armed = st.tracks.filter(function (t) { return t.armed; }).length;
     row('Tracks', st.tracks.length + ' · ' + armed + ' armed');
-    row('Auto-record', (m.follow_stream || m.follow_schedule)
-      ? [m.follow_stream ? 'with the stream' : '', m.follow_schedule ? 'in schedule windows' : ''].filter(Boolean).join(' and ')
+    row('Auto-record', (m.follow_stream || m.follow_start || m.follow_schedule)
+      ? [m.follow_stream ? 'with the stream' : '', m.follow_start ? 'with Start' : '', m.follow_schedule ? 'in schedule windows' : ''].filter(Boolean).join(' and ')
         + (st.wanted ? ' (now)' : '')
       : 'Off');
     card.appendChild(dl);
@@ -138,6 +138,7 @@
 
     set.appendChild(el('h4', '', 'Auto-record'));
     set.appendChild(check(m, 'follow_stream', 'Record while the stream is on air (OBS, YouTube and other stream sources)'));
+    set.appendChild(check(m, 'follow_start', 'Record while Start is pressed (the Start and Stop buttons)'));
     set.appendChild(check(m, 'follow_schedule', 'Record during schedule windows'));
     const d = el('div', 'row');
     d.appendChild(field('Stop this many seconds after it ends', input(m, 'stop_delay', { type: 'number', min: 0, max: 3600 })));
@@ -260,7 +261,7 @@
     const used = machines.map(function (m) { return m.listen_port; });
     let lp = 9001; while (used.indexOf(lp) >= 0) lp++;
     machines.push({ id: '', name: 'REAPER', host: '127.0.0.1', port: 8000, listen_port: lp, tracks: 16, follow_stream: false,
-                    follow_schedule: false, stop_delay: 60, song_markers: true, message_markers: false,
+                    follow_start: false, follow_schedule: false, stop_delay: 60, song_markers: true, message_markers: false,
                     check_armed: true, expect: [], silent_s: 30, alert_error: '', alert_warn: '' });
     dirty = true; render();
   };
@@ -269,7 +270,7 @@
     try {
       data = await send('PUT', '/api/admin/reaper/settings', { machines: machines.map(function (m) {
         return { id: m.id, name: m.name, host: m.host, port: m.port, listen_port: m.listen_port, tracks: m.tracks || 16,
-                 follow_stream: !!m.follow_stream, follow_schedule: !!m.follow_schedule, stop_delay: m.stop_delay || 0,
+                 follow_stream: !!m.follow_stream, follow_start: !!m.follow_start, follow_schedule: !!m.follow_schedule, stop_delay: m.stop_delay || 0,
                  song_markers: !!m.song_markers, message_markers: !!m.message_markers, check_armed: !!m.check_armed,
                  expect: m.expect || [], silent_s: m.silent_s || 0,
                  alert_error: m.alert_error || '', alert_warn: m.alert_warn || '' };

@@ -359,6 +359,7 @@ MIN_ROLE = {
     "signage_web.view": "viewer", "signage_web.manage": "admin",
     "alert_events.view": "viewer", "alert_events.manage": "admin",
     "blackmagic.view": "viewer", "blackmagic.control": "operator", "blackmagic.manage": "admin",
+    "captions.view": "viewer", "captions.manage": "admin",
     "lighting.view": "viewer", "lighting.control": "operator", "lighting.manage": "admin",
     "ndi.view": "viewer", "ndi.manage": "admin",
     "obs.view": "viewer", "obs.control": "operator", "obs.manage": "admin",
