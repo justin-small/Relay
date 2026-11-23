@@ -9,6 +9,7 @@
 //! Time is injected ([`Clock`]), so a test moves a clock instead of sleeping.
 
 pub mod alerts;
+pub mod firmware;
 pub mod panels;
 pub mod screens;
 pub mod text;
@@ -30,7 +31,7 @@ pub struct SystemClock {
 }
 
 impl SystemClock {
-    pub fn new() -> Arc<dyn Clock> {
+    pub fn shared() -> Arc<dyn Clock> {
         Arc::new(Self { start: std::time::Instant::now() })
     }
 }

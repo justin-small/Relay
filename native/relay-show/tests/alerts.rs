@@ -301,7 +301,8 @@ fn test_message_and_streams_are_bounded() {
     let mut slow = r.alerts.subscribe_sender();
     for n in 0..40 {
         r.clock.advance(1.0);
-        r.alerts.press(&button(&r, "A")["id"].as_str().unwrap().to_owned(), &format!("s{n}"), None).unwrap();
+        let id = button(&r, "A")["id"].as_str().unwrap().to_owned();
+        r.alerts.press(&id, &format!("s{n}"), None).unwrap();
     }
     let mut got = 0;
     while slow.try_recv().is_ok() {

@@ -7,8 +7,10 @@ publish = false
 description = "Alerts, stage messages, panels and screens in Rust (#660, part of #650): the rules of app/alerts.py, app/panels.py and app/screens.py, with no HTTP in the crate."
 
 [dependencies]
+relay-core = { path = "../relay-core" }
 bytes = "1"
 rand = "0.8"
+sha2 = "0.10"
 serde_json = { version = "1", features = ["preserve_order"] }
 sqlx = { version = "0.9", default-features = false, features = ["runtime-tokio", "sqlite", "macros"] }
 tokio = { version = "1", features = ["sync", "rt", "macros", "time"] }
