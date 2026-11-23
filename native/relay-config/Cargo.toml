@@ -1,0 +1,22 @@
+[package]
+name = "relay-config"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+description = "Relay's settings and secrets in Rust (#656): config.json with the Python server's defaults and clamping, secrets sealed at rest (enc:v1, AES-256-GCM, the same key store), loaded, validated and saved atomically."
+
+[dependencies]
+relay-core = { path = "../relay-core" }
+aes-gcm = "0.10"
+base64 = "0.22"
+rand = "0.8"
+serde_json = { version = "1", features = ["preserve_order"] }
+tracing = "0.1"
+
+# The login Keychain (macOS) and Credential Manager (Windows) hold the key, as the Python server's keyring package does.
+# Linux keeps `secret.key` in the state folder, so it needs no keyring.
+[target.'cfg(target_os = "macos")'.dependencies]
+keyring = { version = "3", default-features = false, features = ["apple-native"] }
+[target.'cfg(target_os = "windows")'.dependencies]
+keyring = { version = "3", default-features = false, features = ["windows-native"] }

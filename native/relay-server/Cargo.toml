@@ -16,8 +16,10 @@ path = "src/main.rs"
 
 [dependencies]
 relay-auth = { path = "../relay-auth" }
+relay-config = { path = "../relay-config" }
 relay-core = { path = "../relay-core" }
-axum = { version = "0.8", default-features = false, features = ["http1", "json", "tokio"] }
+axum = { version = "0.8", default-features = false, features = ["http1", "json", "tokio", "ws"] }
+futures-core = "0.3"
 bytes = "1"
 http-body-util = "0.1"
 gethostname = "0.5"
@@ -45,6 +47,8 @@ tracing-subscriber = { version = "0.3", default-features = false, features = ["f
 x509-parser = "0.16"
 
 [dev-dependencies]
+futures-util = "0.3"
+tokio-tungstenite = "0.30"
 rand = "0.8"
 relay-auth = { path = "../relay-auth" }
 quickcheck = "1"

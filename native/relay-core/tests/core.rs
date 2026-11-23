@@ -210,3 +210,22 @@ fn a_module_finds_what_another_provides_only_while_it_is_provided() {
     host.withdraw_all("demo");
     assert!(host.using::<String>("gear.list").is_none());
 }
+
+#[test]
+fn a_change_does_not_undo_what_another_writer_saved_since_the_file_was_read() {
+    let dir = std::env::temp_dir().join(format!("relay-core-stale-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("config.json");
+    std::fs::write(&path, r#"{"port": 80}"#).unwrap();
+    let cfg = Config::load(&path).unwrap();
+    // relay-config's Settings (or the Python server) saves the same file after this one read it
+    std::fs::write(&path, r#"{"port": 8123, "history_lines": 90}"#).unwrap();
+    cfg.set_module_enabled("demo", true).unwrap();
+    let after: Value = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+    assert_eq!(after["port"], 8123);
+    assert_eq!(after["history_lines"], 90);
+    assert_eq!(after["modules"]["demo"]["enabled"], true);
+    assert!(cfg.module_enabled("demo"));
+    let _ = std::fs::remove_dir_all(&dir);
+}

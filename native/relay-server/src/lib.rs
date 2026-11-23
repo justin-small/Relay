@@ -16,4 +16,7 @@ pub mod netroute;
 pub mod pages;
 pub mod serve;
 pub mod statics;
+pub mod status;
+pub mod streams;
 pub mod tls;
+pub mod ws;
