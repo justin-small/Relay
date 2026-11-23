@@ -52,7 +52,8 @@ board configs/
 site/mockups/
 
 # Rust audio-bus spike build output
-native/target/
+native/mutants.out*/
+target/
 native/relay-bus/.venv-build/
 native/relay-ndi/.venv-build/
 
