@@ -8,6 +8,7 @@ description = "Relay's Rust server core (#652): the module trait and registry, t
 
 [dependencies]
 axum = { version = "0.8", default-features = false, features = ["json"] }
+bytes = "1"
 serde_json = { version = "1", features = ["preserve_order"] }
 tokio = { version = "1", features = ["sync", "rt", "macros", "time"] }
 tracing = "0.1"

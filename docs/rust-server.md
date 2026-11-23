@@ -14,7 +14,7 @@ the running FastAPI, route by route. Everything below is for the Rust side of th
 | The rule | Only `relay-server` depends on a module crate, and no module depends on another. `tests/test_rust_modules.py` enforces it in CI |
 | Config and data | `config.json` and `relay.db` are read in place. Same path rules, same keys, same sealed secrets, same migrations table. A Python install upgrades by starting the Rust server, and can go back |
 | Errors | One `AppError` with a fixed sentence per code. A response is `{"detail": "<sentence>"}`, never an exception's text. The cause goes to the log |
-| Logging | `tracing`, filter from `RELAY_LOG` (default `info`), to stderr. A log file and the event feed for #647 and #648 arrive with #656 |
+| Logging | `tracing`, filter from `RELAY_LOG` (default `info`), to stderr. A log file and the event feed for #647 and #648 are not part of #656 (settings and streams); they come with the first issue that needs them |
 | Shutdown | One `Shutdown` signal. Ctrl-C or SIGTERM sets it, modules stop in reverse order, and the process exits after 10 seconds regardless |
 
 ## The workspace
@@ -96,8 +96,7 @@ Adding a module is: `cargo new native/modules/<id>` as `relay-module-<id>`, one 
   module that is not compiled in) is written back as it was. A save is whole-file and atomic: a temp file beside it, owner-only,
   renamed over. A missing file is an empty config; a file that is not a JSON object stops the server rather than being overwritten.
 - **Secrets** are `enc:v1:<kid>:<data>` (`app/secretbox.py`: AES-256-GCM, the key in the Keychain or Credential Manager, or
-  `secret.key` on Linux). `relay-core` leaves them sealed. Opening them needs the same key store from Rust (`keyring` and
-  `aes-gcm`), and is #656's job with the settings. Until then a Rust save writes the sealed text back untouched.
+  `secret.key` on Linux). `relay-core` leaves them sealed; `relay-config` (#656, below) opens and seals them.
 - **Module switch**: `modules.<id>.enabled`. A module with no switch is off in Rust. Python writes every switch at startup
   (and switches on a module that was already set up), so an install that has run Python has them all. A fresh install of the
   Rust server has none, and #656 decides the first-run rule.
@@ -166,11 +165,12 @@ last saw); the desktop shell's `sidecar` messages (#664).
 
 ## Questions for later issues
 
-- **The first-run switch rule** for a Rust-only install (#656).
+- **The first-run switch rule** for a Rust-only install. #656 left it alone: Python's rule ("a module with no switch is on only if its
+  integration was already set up") needs each module's `configured`, so it is settled with the first ported module (#661).
 - **Axum's state**: `Registry::routes()` returns a `Router<()>`; shared state (accounts, the hub) will be a typed `AppState` that
   modules receive through `Host`. Settled in #655 and #656 when there is state to share.
-- **Windows config permissions**: Python restricts config.json with an owner-only ACL; the Rust save sets mode 0600 on Unix
-  and leaves the ACL for #656.
+- **Windows config permissions**: Python restricts config.json with an owner-only ACL; `relay-config` makes the same `icacls` call
+  (`private.rs`). Not yet run on Windows.
 
 ## Static files and pages (#654)
 
@@ -237,3 +237,49 @@ but written by Python. Phones (`/api/admin/phones`) wait for the modules that ho
 `tests/fixtures/python-made.db`, scrypt and argon2id) and `native/relay-server/tests/accounts.rs` (the routes of `test_auth.py`). The
 Python tests keep testing the Python server until it is removed in #665; #663 replaces `TestClient` with a harness that drives the
 running Rust server, and moves those three files over then.
+
+## Settings, secrets and the event streams (#656)
+
+Two new homes: **`native/relay-config`** (`app/config.py` and `app/secretbox.py`) and, in `relay-core`, **`hub.rs`** (`app/hub.py`);
+`relay-server` gains `streams.rs`, `status.rs` and `ws.rs`.
+
+**Secrets** (`relay-config/src/secretbox.rs`) are byte-compatible both ways with `app/secretbox.py`: the same `enc:v1:<kid>:<data>`
+format, the purpose (`config:<field>`) as the GCM associated data, the same key ids, the same key stores (login Keychain, Windows
+Credential Manager, or `secret.key` in the state folder; `RELAY_KEY_STORE=file|keyring`), the same fallbacks. A value Python sealed
+opens in Rust and the reverse (`tests/config.rs` carries a value Python made; the other direction was checked with Python reading a
+Rust-saved config). The keyring path (macOS Keychain, Windows Credential Manager) is written to Python's naming but only the file
+store runs in CI; the Windows credential name is unchecked.
+
+**Settings** (`relay-config/src/settings.rs`) load, validate and save config.json: defaults merged under the file, secrets opened on
+load and sealed on save (a sealed value this computer cannot open is kept until a new one replaces it), a hand-typed secret sealed
+at once, hot reload when the file's time changes, an atomic 0600 save, `replace` for removable entries, `redacted()` for the browser.
+It does what `config.py` does on its own: ports (the panel never shares the viewer's), the languages and targets, the font, history
+and lane clamps, the realtime and recording blocks, `host` and `admin_fqdn`. A block another Python module cleans (`audio_bus`,
+`schedules`, `overlays`, `boards`, `panels`, `alerts`, `network`, `network_map`, `ai`, `metering`, `mixreport`, a module's own
+settings, the legacy audio keys and `blocklist`) is **kept exactly as stored** until the issue that ports that module adds its
+`clean`; so is a key nothing knows, in its place. `relay_core::Config` (the raw value the listeners read) stays; its `update` now starts
+from the file as it is, so a module switch cannot undo what `Settings` saved since.
+
+**The hub** (`relay-core/src/hub.rs`) has Python's channels, ring buffer, resync anchors every 20th delta, `Last-Event-ID` resume rules
+(including the two resumes it refuses and answers with a snapshot) and finals-only feed, and the same frame bytes
+(`id: <seq>\ndata: <compact JSON>\n\n`, key order `stream, lang, seq, delta, final, ts[, text]`). A frame is serialised once and the
+same `Bytes` goes to every viewer. What differs: a subscriber is a bounded channel, one that falls 256 frames behind is dropped and
+**its stream ends** (Python dropped it and left the connection waiting on heartbeats), so the browser reconnects and resumes; line
+sinks run after the hub's lock is released; the blocklist is a `Redact` trait with a pass-through default, because `app/redact.py` ports
+with captions (#659).
+
+**Streams** (`relay-server/src/streams.rs`): `/stream` for `transcription`, `translation` and `status`, `/api/admin/status/stream`,
+all with a 15 second heartbeat and `X-Accel-Buffering: no`, each a task that ends with the client or at shutdown. A module's own stream
+(alerts, tally, lyrics, rundown) is `Streams::provide`d by that module when it is ported (#660, #661). The status feed's input is the
+`Show` trait (`status.rs`), implemented by the engine, capture and panels as they move (#657, #659, #660); `Idle` until then.
+`Accounts::require` is the guard for the admin stream (`session.view`).
+
+**Websockets** (`ws.rs`): `serve(upgrade, shutdown, options, handler)` gives a handler a `Peer`; the pump pings, closes an idle socket
+(1008), limits message size, closes with 1001 on shutdown and finishes a close as a handshake. The helper, intercom and remote intercom
+routes (#497's hub, #662) are handlers on it.
+
+**Not mounted yet.** The caption engine still publishes into the Python hub, so the front door keeps forwarding `/stream` and the
+status stream to Python; mounting `streams::routes` is the one line that ends that, done when the engine moves (#659). The tests drive the
+router on real sockets, including 500 held-open viewers (`five_hundred_held_open_viewers_all_keep_up`), the in-Rust counterpart of
+`tools/stress.py sse`, which starts the Python app and so could not be pointed at these routes yet.
+

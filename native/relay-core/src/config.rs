@@ -79,7 +79,13 @@ impl Config {
     /// Change the top-level object and save it. The change is kept in memory only if the save worked.
     pub fn update(&self, change: impl FnOnce(&mut Map<String, Value>)) -> Result<(), AppError> {
         let mut data = self.data.lock().map_err(|_| AppError::new(ErrorCode::Internal).because("config lock poisoned"))?;
-        let mut next = data.clone();
+        // Start from the file as it is now, not from what was read at start-up: `relay-config`'s `Settings` (#656) saves this same
+        // file, and a change made from a stale copy would undo whatever it saved since.
+        let mut next = std::fs::read_to_string(&self.path)
+            .ok()
+            .and_then(|t| serde_json::from_str::<Value>(&t).ok())
+            .filter(Value::is_object)
+            .unwrap_or_else(|| data.clone());
         if let Some(root) = next.as_object_mut() {
             change(root);
         }

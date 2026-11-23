@@ -194,6 +194,13 @@ impl Accounts {
         Ok(user)
     }
 
+    /// For a route that lives outside this file (the admin status stream, #656): is the caller signed in, with `perm`? The refusal is
+    /// the response to send (`require(perm)` in `app/users.py`).
+    pub async fn require(&self, headers: &HeaderMap, conn: Option<Conn>, perm: &'static str) -> Result<(), Response> {
+        let who = Who::of(headers, conn);
+        self.user_for(&who, &Need { perm: Some(perm), pending_ok: false, tokens: true }).await.map(|_| ())
+    }
+
     /// `x-admin-token` is honoured only while no account exists, and then acts as an Owner with no row (id 0).
     async fn setup_owner(&self, who: &Who) -> Result<Option<User>, Error> {
         let supplied = who.headers.get("x-admin-token").and_then(|v| v.to_str().ok()).unwrap_or("");

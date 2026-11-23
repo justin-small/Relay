@@ -6,6 +6,8 @@
 
 pub mod config;
 pub mod error;
+pub mod hub;
+pub mod languages;
 pub mod module;
 pub mod paths;
 pub mod registry;
