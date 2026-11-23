@@ -1,0 +1,16 @@
+{
+ "template": "tally.html",
+ "uses": [
+  "tally.html"
+ ],
+ "context": {
+  "font_px": 40,
+  "source_language": "ENGLISH",
+  "source_label": "English",
+  "source_iso": "en",
+  "present": false,
+  "view": "board",
+  "camera": 0
+ },
+ "html": "<!doctype html>\n<html lang=\"en\"><head>\n<meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1,viewport-fit=cover\">\n<meta name=\"theme-color\" content=\"#000000\">\n<title>Relay tally</title>\n<link rel=\"icon\" href=\"/static/brand/favicon.ico\" sizes=\"32x32\"><link rel=\"icon\" href=\"/static/brand/favicon.svg\" type=\"image/svg+xml\"><link rel=\"apple-touch-icon\" href=\"/static/brand/apple-touch-icon.png\"><link rel=\"manifest\" href=\"/static/brand/site.webmanifest\">\n<link rel=\"stylesheet\" href=\"/static/viewer.css?v=18eabefb1d726926\"><link rel=\"stylesheet\" href=\"/static/tokens.css?v=18eabefb1d3bf1bf\"><script src=\"/static/look.js?v=18eabefb21aa1849\"></script>\n</head><body class=\"tally-page tally-board\" data-view=\"board\" data-camera=\"0\">\n\n\n<main class=\"ty-board\" id=\"board\" aria-live=\"polite\"></main>\n<p class=\"ty-foot\"><span class=\"dot\" id=\"connDot\" title=\"Connection to Relay\"></span> <span id=\"connText\">Connecting…</span>\n  <button type=\"button\" class=\"ty-usb\" id=\"usbAll\" hidden>Show USB cameras</button></p>\n\n\n<script src=\"/static/tally.js?v=18eabefb1d3694dc\"></script>\n</body></html>"
+}

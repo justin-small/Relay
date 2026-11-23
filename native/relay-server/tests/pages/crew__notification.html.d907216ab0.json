@@ -1,0 +1,15 @@
+{
+ "template": "crew/notification.html",
+ "uses": [
+  "crew/notification.html"
+ ],
+ "context": {
+  "app_name": "Relay",
+  "found": false,
+  "message": "",
+  "sender": "",
+  "sent_ts": 0,
+  "confirmed": false
+ },
+ "html": "<!doctype html>\n<html lang=\"en\"><head>\n<meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1,viewport-fit=cover\">\n<meta name=\"robots\" content=\"noindex\"><meta name=\"theme-color\" content=\"#000000\">\n<title>Relay</title>\n<link rel=\"icon\" href=\"/static/brand/favicon.ico\" sizes=\"32x32\"><link rel=\"icon\" href=\"/static/brand/favicon.svg\" type=\"image/svg+xml\"><link rel=\"apple-touch-icon\" href=\"/static/brand/apple-touch-icon.png\"><link rel=\"manifest\" href=\"/static/brand/site.webmanifest\">\n<link rel=\"stylesheet\" href=\"/static/tokens.css?v=18eabefb1d3bf1bf\"><link rel=\"stylesheet\" href=\"/static/viewer.css?v=18eabefb1d726926\">\n<link rel=\"stylesheet\" href=\"/static/components.css?v=18eabefb212bd886\">\n<link rel=\"stylesheet\" href=\"/static/modules/crew/crew.css?v=18eabefb1de9e6ed\">\n<script src=\"/static/look.js?v=18eabefb21aa1849\"></script>\n</head><body class=\"crew-page\">\n<main class=\"cr-full\">\n  <div class=\"cr-top\">\n    <div class=\"cr-row\"><img src=\"/static/brand/relay-mark.svg\" width=\"26\" height=\"26\" alt=\"\"><b>Relay</b></div>\n    <h1 class=\"cr-msg\">This notification link is not valid any more.</h1>\n  </div>\n  <a class=\"cr-confirm cr-center\" href=\"/crew\">Open the crew page</a>\n</main>\n\n<script>\n  (function () {                       // the time it was sent, in this phone's own clock\n    var t = document.getElementById('crSent'), ts = t && Number(t.dataset.ts);\n    if (ts) t.textContent = new Date(ts * 1000).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });\n  })();\n</script>\n</body></html>"
+}

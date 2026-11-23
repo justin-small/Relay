@@ -1,0 +1,21 @@
+{
+ "template": "rundown.html",
+ "uses": [
+  "rundown.html"
+ ],
+ "context": {
+  "font_px": 40,
+  "source_language": "ENGLISH",
+  "source_label": "English",
+  "source_iso": "en",
+  "present": false,
+  "rundown_view": "side",
+  "rundown_layout": "fit",
+  "rundown_cards": "person",
+  "rundown_team": "",
+  "rundown_time": "",
+  "rundown_type": "",
+  "rundown_captions": "/screen?stream=translation&lang=ES"
+ },
+ "html": "<!doctype html>\n<html lang=\"en\"><head>\n<meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">\n<meta name=\"theme-color\" content=\"#0c0c0d\">\n<meta name=\"robots\" content=\"noindex\">\n<title>Rundown</title>\n<link rel=\"icon\" href=\"/static/brand/favicon.ico\" sizes=\"32x32\"><link rel=\"icon\" href=\"/static/brand/favicon.svg\" type=\"image/svg+xml\"><link rel=\"apple-touch-icon\" href=\"/static/brand/apple-touch-icon.png\"><link rel=\"manifest\" href=\"/static/brand/site.webmanifest\">\n<link rel=\"stylesheet\" href=\"/static/rundown.css?v=18eabefb21e347d1\">\n</head>\n\n<body class=\"rd-side rd-fit rd-cards-person\"\n      data-view=\"side\" data-layout=\"fit\" data-cards=\"person\"\n      data-team=\"\" data-time=\"\" data-type=\"\">\n<div class=\"stage\" id=\"stage\">\n  <div class=\"msg\" id=\"msg\" hidden></div>\n\n  \n  <div class=\"side\" id=\"body\">\n    <div class=\"caps\"><iframe src=\"/screen?stream=translation&amp;lang=ES\" title=\"Captions\"></iframe></div>\n    <div class=\"ruler mini\" id=\"ruler\"></div>\n  </div>\n  \n</div>\n<script src=\"/static/relay-ui.js?v=18eabefb21e0f8ff\"></script>\n<script src=\"/static/rundown.js?v=18eabefb21e6cd84\"></script>\n</body></html>"
+}

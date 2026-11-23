@@ -1,0 +1,32 @@
+{
+ "template": "board.html",
+ "uses": [
+  "board.html"
+ ],
+ "context": {
+  "data": {
+   "board": {
+    "id": "b1",
+    "name": "Front desk",
+    "ratio": "16:9",
+    "cols": 12,
+    "rows": 6,
+    "public": false,
+    "rev": "r1",
+    "pages": [
+     {
+      "id": "p1",
+      "name": "Main",
+      "items": []
+     }
+    ]
+   },
+   "press": [
+    "link"
+   ],
+   "state": {}
+  },
+  "title": "Front desk"
+ },
+ "html": "<!doctype html>\n\n<html lang=\"en\"><head>\n<meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1,viewport-fit=cover\">\n<meta name=\"theme-color\" content=\"#000000\">\n<meta name=\"referrer\" content=\"no-referrer\">\n<title>Front desk</title>\n<link rel=\"icon\" href=\"/static/brand/favicon.ico\" sizes=\"32x32\"><link rel=\"icon\" href=\"/static/brand/favicon.svg\" type=\"image/svg+xml\"><link rel=\"apple-touch-icon\" href=\"/static/brand/apple-touch-icon.png\"><link rel=\"manifest\" href=\"/static/brand/site.webmanifest\">\n<link rel=\"stylesheet\" href=\"/static/tokens.css?v=18eabefb1d3bf1bf\"><link rel=\"stylesheet\" href=\"/static/layout.css?v=18eabefb21a26735\"><script src=\"/static/look.js?v=18eabefb21aa1849\"></script>\n<style>\nhtml,body{margin:0;height:100%;background:#000;color:#fafafa;font-family:var(--font,var(--font))}\nbody{display:flex;flex-direction:column;overflow:hidden}\n#board{flex:1;min-height:0;display:flex}\n#boardView{flex:1;min-height:0;padding:1vmin;box-sizing:border-box;display:flex;align-items:center;justify-content:center}\n#boardView .rl-grid{flex:none;contain:size}\n#toast{position:fixed;left:50%;bottom:20px;transform:translateX(-50%);background:#7a1f1f;color:#fff;padding:10px 18px;border-radius:8px;font-size:16px;z-index:30}\n.empty{margin:auto;color:#a1a1aa;text-align:center;padding:24px}\n</style>\n</head><body>\n<div id=\"board\"></div>\n<div id=\"toast\" role=\"status\" aria-live=\"polite\" hidden></div>\n<script id=\"boardData\" type=\"application/json\">{\"board\": {\"cols\": 12, \"id\": \"b1\", \"name\": \"Front desk\", \"pages\": [{\"id\": \"p1\", \"items\": [], \"name\": \"Main\"}], \"public\": false, \"ratio\": \"16:9\", \"rev\": \"r1\", \"rows\": 6}, \"press\": [\"link\"], \"state\": {}}</script>\n<script src=\"/static/relay-ui.js?v=18eabefb21e0f8ff\"></script>\n<script src=\"/static/layout-render.js?v=18eabefb218e867c\"></script>\n<script src=\"/static/board-live.js?v=18eabefb20c750ee\"></script>\n<script src=\"/static/board.js?v=18eabefb20cdddb2\"></script>\n</body></html>"
+}

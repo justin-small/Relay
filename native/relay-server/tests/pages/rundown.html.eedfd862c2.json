@@ -1,0 +1,21 @@
+{
+ "template": "rundown.html",
+ "uses": [
+  "rundown.html"
+ ],
+ "context": {
+  "font_px": 40,
+  "source_language": "ENGLISH",
+  "source_label": "English",
+  "source_iso": "en",
+  "present": false,
+  "rundown_view": "full",
+  "rundown_layout": "fit",
+  "rundown_cards": "person",
+  "rundown_team": "",
+  "rundown_time": "",
+  "rundown_type": "",
+  "rundown_captions": ""
+ },
+ "html": "<!doctype html>\n<html lang=\"en\"><head>\n<meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">\n<meta name=\"theme-color\" content=\"#0c0c0d\">\n<meta name=\"robots\" content=\"noindex\">\n<title>Rundown</title>\n<link rel=\"icon\" href=\"/static/brand/favicon.ico\" sizes=\"32x32\"><link rel=\"icon\" href=\"/static/brand/favicon.svg\" type=\"image/svg+xml\"><link rel=\"apple-touch-icon\" href=\"/static/brand/apple-touch-icon.png\"><link rel=\"manifest\" href=\"/static/brand/site.webmanifest\">\n<link rel=\"stylesheet\" href=\"/static/rundown.css?v=18eabefb21e347d1\">\n</head>\n\n<body class=\"rd-full rd-fit rd-cards-person\"\n      data-view=\"full\" data-layout=\"fit\" data-cards=\"person\"\n      data-team=\"\" data-time=\"\" data-type=\"\">\n<div class=\"stage\" id=\"stage\">\n  <div class=\"msg\" id=\"msg\" hidden></div>\n\n  \n  \n  <div class=\"full\" id=\"body\">\n    <div class=\"ruler\" id=\"ruler\"></div>\n    <div class=\"nowcol\">\n      <div class=\"lbl\"><span class=\"livetag\" id=\"hLive\" hidden>LIVE</span><span id=\"hSvc\">Service</span> · <span id=\"hClock\">–</span></div>\n      <h1 class=\"ttl\" id=\"hTitle\">Waiting for the plan</h1>\n      <div class=\"sub\"><span class=\"key\" id=\"hKey\" hidden></span><span id=\"hLead\"></span></div>\n      <div class=\"left\" id=\"hLeft\">–</div>\n      <div class=\"prog\" id=\"hProg\" hidden><i id=\"hBar\"></i><em id=\"hFrom\"></em><em id=\"hTo\"></em></div>\n      <div class=\"slip\" id=\"hSlip\"></div>\n      <div class=\"then\"><span class=\"lbl\" id=\"hNextAt\">Then</span><div class=\"nx\" id=\"hNext\">–</div></div>\n      <div class=\"lbl mh\" id=\"micsFor\">On mics</div>\n      <div class=\"fit\"><div class=\"onmics\" id=\"mics\"></div></div>\n    </div>\n    <div class=\"rcol\">\n      <div class=\"block notesbox\"><div class=\"lbl\" id=\"notesH\">Notes</div><div class=\"fit\"><div class=\"notes\" id=\"notes\"></div></div></div>\n      <div class=\"block rosterbox\"><div class=\"lbl\" id=\"teamNote\">Serving without a mic</div><div class=\"fit\"><div class=\"roster\" id=\"roster\"></div></div></div>\n    </div>\n  </div>\n  \n</div>\n<script src=\"/static/relay-ui.js?v=18eabefb21e0f8ff\"></script>\n<script src=\"/static/rundown.js?v=18eabefb21e6cd84\"></script>\n</body></html>"
+}

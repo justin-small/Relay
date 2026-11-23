@@ -1,0 +1,15 @@
+{
+ "template": "alert.html",
+ "uses": [
+  "alert.html"
+ ],
+ "context": {
+  "font_px": 40,
+  "source_language": "ENGLISH",
+  "source_label": "English",
+  "source_iso": "en",
+  "present": false,
+  "account": "Singer"
+ },
+ "html": "<!doctype html>\n<html lang=\"en\"><head>\n<meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1,viewport-fit=cover\">\n<meta name=\"theme-color\" content=\"#000000\">\n<title>Alerts</title>\n<link rel=\"icon\" href=\"/static/brand/favicon.ico\" sizes=\"32x32\"><link rel=\"icon\" href=\"/static/brand/favicon.svg\" type=\"image/svg+xml\"><link rel=\"apple-touch-icon\" href=\"/static/brand/apple-touch-icon.png\"><link rel=\"manifest\" href=\"/static/brand/site.webmanifest\">\n<link rel=\"stylesheet\" href=\"/static/viewer.css?v=18eabefb1d726926\"><link rel=\"stylesheet\" href=\"/static/tokens.css?v=18eabefb1d3bf1bf\"><script src=\"/static/look.js?v=18eabefb21aa1849\"></script>\n</head><body class=\"alert-page\" data-account=\"Singer\">\n\n<header class=\"alert-head\">\n  <div>\n    <h1>Need someone?</h1>\n    \n    <p class=\"alert-as\" id=\"sendingAs\">as <strong id=\"senderName\">Singer</strong> &middot; <a class=\"linklike\" href=\"/home\">home</a></p>\n    \n  </div>\n  <span class=\"dot\" id=\"statusDot\" title=\"Connection\"></span>\n</header>\n\n\n\n<div class=\"alert-level\" id=\"levelRow\">\n  <label for=\"levelPick\">Level</label>\n  <select id=\"levelPick\">\n    <option value=\"\">Each button's own</option>\n    <option value=\"info\">Info (blue)</option>\n    <option value=\"attention\">Attention (amber, flashes)</option>\n    <option value=\"urgent\">Urgent (red, flashes)</option>\n  </select>\n</div>\n\n<main class=\"alert-buttons\" id=\"buttons\" aria-live=\"polite\"></main>\n<p class=\"alert-empty\" id=\"empty\" hidden>No alert buttons yet. The operator sets them up in Relay admin, under Alerts.</p>\n<p class=\"alert-note alert-foot\">Tap a card to flash its screens. Tap it again to stop.</p>\n\n<section class=\"alert-section\" id=\"msgSection\" hidden>\n  <h2>Message the stage</h2>\n  <div class=\"msg-presets\" id=\"msgPresets\"></div>\n  <form class=\"msg-free\" id=\"msgForm\" hidden>\n    <input type=\"text\" id=\"msgText\" maxlength=\"80\" placeholder=\"Type a message\" aria-label=\"Message\">\n    <label><input type=\"checkbox\" id=\"msgBanner\"> Banner</label>\n    <button type=\"submit\">Send</button>\n  </form>\n  <div id=\"msgLive\"></div>\n</section>\n\n<div class=\"toast\" id=\"toast\"></div>\n<script src=\"/static/alert-icons.js?v=18eabefb20a83b8c\"></script>\n<script src=\"/static/alert.js?v=18eabefb20adb033\"></script>\n</body></html>"
+}

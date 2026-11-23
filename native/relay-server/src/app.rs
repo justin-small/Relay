@@ -28,6 +28,8 @@ const APP_WAIT: Duration = Duration::from_secs(60);
 
 pub struct Options {
     pub config_path: PathBuf,
+    /// The folder holding `static/`, `templates/` and `modules/<id>/{static,templates}/` (the Python app's `app/`), #654.
+    pub app_dir: PathBuf,
     /// `http://127.0.0.1:18080`: the running FastAPI app. `None` serves only the routes the server has.
     pub upstream: Option<String>,
     /// `RELAY_FRONT_TOKEN`: lets the two programs ask each other for the listeners and the bound ports.
@@ -137,7 +139,7 @@ impl App {
         };
 
         let panel = Panel::start(&tls::cert_dir(), &settings.admin_fqdn, &names_for(&settings, &net))?;
-        let server = Arc::new(Server::new(registry.routes(), upstream));
+        let server = Arc::new(Server::new(registry.routes().merge(crate::statics::routes(&opts.app_dir)), upstream));
         let mut listener_prefixes = plan.listener_prefixes.clone();
         listener_prefixes.extend(registry.listener_prefixes());
         server.set_prefixes(Prefixes { listener: listener_prefixes, panel: plan.panel_prefixes.clone() });

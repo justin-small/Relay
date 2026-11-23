@@ -169,3 +169,35 @@ last saw); the desktop shell's `sidecar` messages (#664).
   modules receive through `Host`. Settled in #655 and #656 when there is state to share.
 - **Windows config permissions**: Python restricts config.json with an owner-only ACL; the Rust save sets mode 0600 on Unix
   and leaves the ACL for #656.
+
+## Static files and pages (#654)
+
+`relay-server` serves `/static` and renders the Jinja templates itself, so a page no longer needs Python.
+
+| Python (`app/main.py`) | Rust (`native/relay-server/src/`) |
+|---|---|
+| `RevalidatedStaticFiles` on `/static` and `/static/modules/<id>` | `statics.rs`: `tower-http`'s `ServeDir` for the file, then `Cache-Control: no-cache`, an `ETag` and `Last-Modified`, and a 304 on a matching `If-None-Match` |
+| `templates.env.globals["static"]` (`_static_url`) | `pages::static_url`: `/static/<path>?v=<mtime in nanoseconds, hex>` |
+| `Jinja2Templates` with `ChoiceLoader` + `PrefixLoader` | `pages.rs`: `minijinja` with a loader that reads `app/templates/<name>` and `app/modules/<id>/templates/<file>` (a module's template is `<id>/<file>`) |
+
+The server finds the folder with `--app-dir` or `RELAY_APP_DIR` (default `app`), the one holding `static/`, `templates/` and `modules/`.
+
+Where minijinja differs from Jinja2 and what `pages.rs` does about it:
+
+- `None`, `True` and `False` print as Python prints them (`None`, not `none`).
+- Escaping is markupsafe's five characters (`& < > ' "`), not minijinja's, which also writes `/` as `&#x2f;`.
+- `tojson` sorts keys, uses `", "` and `": "`, writes non-ASCII as `\uXXXX` and escapes `< > & '`, as Jinja's does.
+- Python's `str`, `list` and `dict` methods (`startswith`, `items`) come from `minijinja-contrib`'s `pycompat`.
+- minijinja lists cannot be appended to, so `admin.html` builds its two lists without `.append` (an inline `if ... else none`, then `reject('none')`). A template must not mutate a list, in either server.
+
+**The check.** `tools/capture_pages.py` wraps Jinja2's `render` while the Python test scripts run, and `tools/capture_pages_all.py` visits every
+page with every module on (and renders the few pages no test server reaches, from contexts shaped like their handlers'). Each render is
+saved as `native/relay-server/tests/pages/<template>.<hash>.json`: the template, the context and the HTML. `tests/pages.rs` renders the
+same context with minijinja and requires the same bytes, and requires every template (a module's admin page counts when `admin.html`
+included it) to be in some capture. `tests/pages_allowed.txt` lists reviewed differences; it is empty. Run
+`.venv/bin/python tools/capture_pages.py` again after a template or a handler's context changes.
+
+`crew/offline.html` has no Jinja; Python sends the file as it is.
+
+Not in this issue: routes that render a page. The page handlers (their contexts come from accounts, settings and the modules) arrive with
+#655, #656 and #661; each calls `Pages::render` with the context its Python handler builds. Until then the front door forwards those routes.

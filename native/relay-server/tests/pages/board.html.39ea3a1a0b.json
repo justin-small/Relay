@@ -1,0 +1,165 @@
+{
+ "template": "board.html",
+ "uses": [
+  "board.html"
+ ],
+ "context": {
+  "data": {
+   "board": {
+    "id": "lobby-tv",
+    "name": "Front lobby",
+    "ratio": "4:3",
+    "cols": 8,
+    "rows": 6,
+    "public": true,
+    "rev": "0366bb09c602",
+    "pages": [
+     {
+      "id": "p1",
+      "name": "Page 1",
+      "items": [
+       {
+        "id": "cap",
+        "type": "captions",
+        "x": 0,
+        "y": 0,
+        "w": 8,
+        "h": 3,
+        "style": {
+         "label": "",
+         "shape": "rounded",
+         "bg": "#18181b",
+         "fg": "#fafafa",
+         "pressed": "#3f3f46",
+         "icon": "cc"
+        },
+        "props": {
+         "lang": "SOURCE",
+         "lines": "3"
+        },
+        "kind": "captions",
+        "title": "English (original speech)"
+       },
+       {
+        "id": "clk",
+        "type": "clock",
+        "x": 0,
+        "y": 3,
+        "w": 2,
+        "h": 2,
+        "style": {
+         "label": "",
+         "shape": "rounded",
+         "bg": "#18181b",
+         "fg": "#fafafa",
+         "pressed": "#3f3f46",
+         "icon": "clock"
+        },
+        "props": {
+         "h24": false
+        },
+        "kind": "clock",
+        "title": "Clock"
+       },
+       {
+        "id": "cd",
+        "type": "countdown",
+        "x": 2,
+        "y": 3,
+        "w": 2,
+        "h": 1,
+        "style": {
+         "label": "",
+         "shape": "rounded",
+         "bg": "#18181b",
+         "fg": "#fafafa",
+         "pressed": "#3f3f46",
+         "icon": "clock"
+        },
+        "props": {
+         "at": "10:30"
+        },
+        "kind": "countdown",
+        "title": "Countdown"
+       },
+       {
+        "id": "txt",
+        "type": "text",
+        "x": 4,
+        "y": 3,
+        "w": 3,
+        "h": 1,
+        "style": {
+         "label": "",
+         "shape": "rounded",
+         "bg": "#18181b",
+         "fg": "#fafafa",
+         "pressed": "#3f3f46",
+         "icon": ""
+        },
+        "props": {
+         "text": "Hi\nthere xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+        },
+        "kind": "text",
+        "title": "Text"
+       },
+       {
+        "id": "cue",
+        "type": "lighting.cue",
+        "x": 2,
+        "y": 4,
+        "w": 2,
+        "h": 1,
+        "style": {
+         "label": "<b>Walk</b>",
+         "shape": "rounded",
+         "bg": "#2b5fd9",
+         "fg": "#ffffff",
+         "pressed": "#5b8bff",
+         "icon": ""
+        },
+        "props": {
+         "cue": "walk"
+        },
+        "kind": "button",
+        "title": "Walk-in"
+       },
+       {
+        "id": "lnk",
+        "type": "link",
+        "x": 4,
+        "y": 4,
+        "w": 2,
+        "h": 1,
+        "style": {
+         "label": "",
+         "shape": "rounded",
+         "bg": "#1e3a8a",
+         "fg": "#fafafa",
+         "pressed": "#3b5bdb",
+         "icon": "arrow"
+        },
+        "props": {
+         "board": "lobby-tv-2"
+        },
+        "kind": "button",
+        "title": "Lobby TV"
+       }
+      ]
+     }
+    ]
+   },
+   "press": [
+    "link"
+   ],
+   "state": {
+    "page": "p1",
+    "rotate": null,
+    "key": "one",
+    "why": "Always Page 1"
+   }
+  },
+  "title": "Front lobby"
+ },
+ "html": "<!doctype html>\n\n<html lang=\"en\"><head>\n<meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1,viewport-fit=cover\">\n<meta name=\"theme-color\" content=\"#000000\">\n<meta name=\"referrer\" content=\"no-referrer\">\n<title>Front lobby</title>\n<link rel=\"icon\" href=\"/static/brand/favicon.ico\" sizes=\"32x32\"><link rel=\"icon\" href=\"/static/brand/favicon.svg\" type=\"image/svg+xml\"><link rel=\"apple-touch-icon\" href=\"/static/brand/apple-touch-icon.png\"><link rel=\"manifest\" href=\"/static/brand/site.webmanifest\">\n<link rel=\"stylesheet\" href=\"/static/tokens.css?v=18eabefb1d3bf1bf\"><link rel=\"stylesheet\" href=\"/static/layout.css?v=18eabefb21a26735\"><script src=\"/static/look.js?v=18eabefb21aa1849\"></script>\n<style>\nhtml,body{margin:0;height:100%;background:#000;color:#fafafa;font-family:var(--font,var(--font))}\nbody{display:flex;flex-direction:column;overflow:hidden}\n#board{flex:1;min-height:0;display:flex}\n#boardView{flex:1;min-height:0;padding:1vmin;box-sizing:border-box;display:flex;align-items:center;justify-content:center}\n#boardView .rl-grid{flex:none;contain:size}\n#toast{position:fixed;left:50%;bottom:20px;transform:translateX(-50%);background:#7a1f1f;color:#fff;padding:10px 18px;border-radius:8px;font-size:16px;z-index:30}\n.empty{margin:auto;color:#a1a1aa;text-align:center;padding:24px}\n</style>\n</head><body>\n<div id=\"board\"></div>\n<div id=\"toast\" role=\"status\" aria-live=\"polite\" hidden></div>\n<script id=\"boardData\" type=\"application/json\">{\"board\": {\"cols\": 8, \"id\": \"lobby-tv\", \"name\": \"Front lobby\", \"pages\": [{\"id\": \"p1\", \"items\": [{\"h\": 3, \"id\": \"cap\", \"kind\": \"captions\", \"props\": {\"lang\": \"SOURCE\", \"lines\": \"3\"}, \"style\": {\"bg\": \"#18181b\", \"fg\": \"#fafafa\", \"icon\": \"cc\", \"label\": \"\", \"pressed\": \"#3f3f46\", \"shape\": \"rounded\"}, \"title\": \"English (original speech)\", \"type\": \"captions\", \"w\": 8, \"x\": 0, \"y\": 0}, {\"h\": 2, \"id\": \"clk\", \"kind\": \"clock\", \"props\": {\"h24\": false}, \"style\": {\"bg\": \"#18181b\", \"fg\": \"#fafafa\", \"icon\": \"clock\", \"label\": \"\", \"pressed\": \"#3f3f46\", \"shape\": \"rounded\"}, \"title\": \"Clock\", \"type\": \"clock\", \"w\": 2, \"x\": 0, \"y\": 3}, {\"h\": 1, \"id\": \"cd\", \"kind\": \"countdown\", \"props\": {\"at\": \"10:30\"}, \"style\": {\"bg\": \"#18181b\", \"fg\": \"#fafafa\", \"icon\": \"clock\", \"label\": \"\", \"pressed\": \"#3f3f46\", \"shape\": \"rounded\"}, \"title\": \"Countdown\", \"type\": \"countdown\", \"w\": 2, \"x\": 2, \"y\": 3}, {\"h\": 1, \"id\": \"txt\", \"kind\": \"text\", \"props\": {\"text\": \"Hi\\nthere xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\"}, \"style\": {\"bg\": \"#18181b\", \"fg\": \"#fafafa\", \"icon\": \"\", \"label\": \"\", \"pressed\": \"#3f3f46\", \"shape\": \"rounded\"}, \"title\": \"Text\", \"type\": \"text\", \"w\": 3, \"x\": 4, \"y\": 3}, {\"h\": 1, \"id\": \"cue\", \"kind\": \"button\", \"props\": {\"cue\": \"walk\"}, \"style\": {\"bg\": \"#2b5fd9\", \"fg\": \"#ffffff\", \"icon\": \"\", \"label\": \"\\u003cb\\u003eWalk\\u003c/b\\u003e\", \"pressed\": \"#5b8bff\", \"shape\": \"rounded\"}, \"title\": \"Walk-in\", \"type\": \"lighting.cue\", \"w\": 2, \"x\": 2, \"y\": 4}, {\"h\": 1, \"id\": \"lnk\", \"kind\": \"button\", \"props\": {\"board\": \"lobby-tv-2\"}, \"style\": {\"bg\": \"#1e3a8a\", \"fg\": \"#fafafa\", \"icon\": \"arrow\", \"label\": \"\", \"pressed\": \"#3b5bdb\", \"shape\": \"rounded\"}, \"title\": \"Lobby TV\", \"type\": \"link\", \"w\": 2, \"x\": 4, \"y\": 4}], \"name\": \"Page 1\"}], \"public\": true, \"ratio\": \"4:3\", \"rev\": \"0366bb09c602\", \"rows\": 6}, \"press\": [\"link\"], \"state\": {\"key\": \"one\", \"page\": \"p1\", \"rotate\": null, \"why\": \"Always Page 1\"}}</script>\n<script src=\"/static/relay-ui.js?v=18eabefb21e0f8ff\"></script>\n<script src=\"/static/layout-render.js?v=18eabefb218e867c\"></script>\n<script src=\"/static/board-live.js?v=18eabefb20c750ee\"></script>\n<script src=\"/static/board.js?v=18eabefb20cdddb2\"></script>\n</body></html>"
+}

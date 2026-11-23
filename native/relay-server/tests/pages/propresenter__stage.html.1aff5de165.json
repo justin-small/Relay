@@ -1,0 +1,8 @@
+{
+ "template": "propresenter/stage.html",
+ "uses": [
+  "propresenter/stage.html"
+ ],
+ "context": {},
+ "html": "<!doctype html>\n<html lang=\"en\"><head>\n<meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">\n<meta name=\"robots\" content=\"noindex\">\n<title>Slide view</title><link rel=\"icon\" href=\"/static/brand/favicon.ico\" sizes=\"32x32\"><link rel=\"icon\" href=\"/static/brand/favicon.svg\" type=\"image/svg+xml\"><link rel=\"apple-touch-icon\" href=\"/static/brand/apple-touch-icon.png\"><link rel=\"manifest\" href=\"/static/brand/site.webmanifest\">\n<link rel=\"stylesheet\" href=\"/static/tokens.css?v=18eabefb1d3bf1bf\"><link rel=\"stylesheet\" href=\"/static/viewer.css?v=18eabefb1d726926\">\n<link rel=\"stylesheet\" href=\"/static/modules/propresenter/slideview.css?v=18eabefb20cc5d17\">\n<style>body { display:block; padding:16px; margin:0; } #sv { max-width:1400px; margin:0 auto; }</style>\n</head><body>\n<div id=\"sv\"></div>\n<script src=\"/static/relay-ui.js?v=18eabefb21e0f8ff\"></script>\n<script src=\"/static/modules/propresenter/slideview.js?v=18eabefb20d2fd38\"></script>\n<script>RelaySlideView.create(document.getElementById('sv'), { base: '/api/stage/live' });</script>\n</body></html>"
+}

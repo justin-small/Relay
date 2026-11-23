@@ -1,0 +1,20 @@
+{
+ "template": "signage/player.html",
+ "uses": [
+  "signage/player.html"
+ ],
+ "context": {
+  "screen": {
+   "id": 1,
+   "slug": "lobby-left",
+   "name": "Lobby left",
+   "sound": true,
+   "playlist_id": 1,
+   "group_id": 1,
+   "created_at": "2026-11-23T18:41:51Z",
+   "core_id": 1
+  },
+  "player_js": "/signage/_/player.js?v=1795457387"
+ },
+ "html": "<!doctype html>\n\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n<meta name=\"robots\" content=\"noindex\">\n<title>Lobby left</title>\n<style>\n  html, body { margin:0; height:100%; background:#000; overflow:hidden; cursor:none; }\n  #stage { position:fixed; inset:0; background:#000; }\n</style>\n</head>\n<body>\n<div id=\"stage\"></div>\n<script src=\"/signage/_/player.js?v=1795457387\"></script>\n<script>\n(function () {\n  var slug = \"lobby-left\";\n  var player = new SignagePlayer(document.getElementById('stage'), {\n    nowUrl: '/signage/_/now/' + slug,\n    doneUrl: '/signage/_/done/' + slug\n  });\n  player.follow('/signage/_/state/' + slug, '/signage/_/events/' + slug);\n  // Browsers only go full screen after a click or key press; a kiosk browser already is.\n  function full() {\n    var d = document.documentElement, f = d.requestFullscreen || d.webkitRequestFullscreen;\n    if (f && !document.fullscreenElement) { try { f.call(d); } catch (e) { /* not allowed */ } }\n  }\n  document.addEventListener('click', full);\n  document.addEventListener('keydown', full);\n})();\n</script>\n</body>\n</html>"
+}

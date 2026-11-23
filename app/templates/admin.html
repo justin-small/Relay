@@ -43,22 +43,23 @@ window.relayCan = function (perm) { return window.RELAY_ME.permissions.indexOf(p
     {% if 'boards.view' in perms %}<a href="#boards" data-page="boards" data-tip="Boards"><svg class="i" viewBox="0 0 16 16" aria-hidden="true"><rect x="1.5" y="2.5" width="13" height="11" rx="1.5"/><path d="M1.5 7.5h8M9.5 2.5v11"/></svg><span class="nl">Boards</span></a>{% endif %}
     {% if 'schedules.view' in perms %}<a href="#schedules" data-page="schedules" data-tip="Schedules"><svg class="i" viewBox="0 0 16 16" aria-hidden="true"><rect x="2" y="3" width="12" height="11" rx="1.5"/><path d="M2 7h12M5.5 1.5v3M10.5 1.5v3"/></svg><span class="nl">Schedules</span></a>{% endif %}
     {% for m in module_nav %}{% if loop.first or m.section != loop.previtem.section %}<div class="grp">{{ m.section }}</div>{% endif %}
-    {% if m.tabbed and m.pages|length > 1 %}{% set p = m.pages[0] %}{% set tl = [] %}{% for q in m.pages %}{% set _ = tl.append([q.id, q.title]) %}{% endfor %}<a href="#{{ p.id }}" data-page="{{ p.id }}" data-pages="{{ m.pages|map(attribute='id')|join(' ') }}" data-tabs='{{ tl|tojson }}' data-mod="{{ m.id }}" data-tip="{{ m.name }}"><svg class="i" viewBox="0 0 16 16" aria-hidden="true">{{ m.icon|safe }}</svg><span class="nl">{{ m.name }}</span></a>
+    {% if m.tabbed and m.pages|length > 1 %}{% set p = m.pages[0] %}<a href="#{{ p.id }}" data-page="{{ p.id }}" data-pages="{{ m.pages|map(attribute='id')|join(' ') }}" data-tabs='[{% for q in m.pages %}{{ [q.id, q.title]|tojson }}{% if not loop.last %}, {% endif %}{% endfor %}]' data-mod="{{ m.id }}" data-tip="{{ m.name }}"><svg class="i" viewBox="0 0 16 16" aria-hidden="true">{{ m.icon|safe }}</svg><span class="nl">{{ m.name }}</span></a>
     {% elif m.pages|length == 1 %}{% set p = m.pages[0] %}<a href="#{{ p.id }}" data-page="{{ p.id }}" data-mod="{{ m.id }}" data-tip="{{ p.title }}"><svg class="i" viewBox="0 0 16 16" aria-hidden="true">{{ p.icon|safe }}</svg><span class="nl">{{ p.title }}</span></a>
     {% else %}<div class="has" data-mod="{{ m.id }}"><button type="button" class="nb" data-tip="{{ m.name }}" aria-expanded="false"><svg class="i" viewBox="0 0 16 16" aria-hidden="true">{{ m.icon|safe }}</svg><span class="nl">{{ m.name }}</span>{{ chev }}</button><div class="subm"><div><ul>{% for p in m.pages %}{{ sub(p.id, p.title) }}{% endfor %}</ul></div></div></div>
     {% endif %}{% endfor %}
     {% if 'modules.view' in perms or 'users.view' in perms or 'credentials.manage' in perms or 'network.view' in perms or 'settings.manage' in perms or 'audit.view' in perms or 'helpers.view' in perms or 'connections.view' in perms %}
     <div class="grp">Settings</div>
-    {% set sys = [] %}
-    {% if 'modules.view' in perms %}{% set _ = sys.append(["modules", "Modules"]) %}{% endif %}
-    {% if 'users.view' in perms %}{% set _ = sys.append(["users", "Users"]) %}{% endif %}
-    {% if 'credentials.manage' in perms %}{% set _ = sys.append(["credentials", "Credentials"]) %}{% endif %}
-    {% if 'settings.manage' in perms %}{% set _ = sys.append(["aimodels", "AI models"]) %}{% endif %}
-    {% if 'network.view' in perms %}{% set _ = sys.append(["network", "Network"]) %}{% endif %}
-    {% if 'connections.view' in perms %}{% set _ = sys.append(["connections", "Connections"]) %}{% endif %}
-    {% if 'settings.manage' in perms %}{% set _ = sys.append(["appearance", "Appearance & tuning"]) %}{% endif %}
-    {% if 'helpers.view' in perms %}{% set _ = sys.append(["helpers", "Helpers"]) %}{% endif %}
-    {% if 'audit.view' in perms %}{% set _ = sys.append(["audit", "Audit log"]) %}{% endif %}
+    {% set sys = [
+      ["modules", "Modules"] if 'modules.view' in perms else none,
+      ["users", "Users"] if 'users.view' in perms else none,
+      ["credentials", "Credentials"] if 'credentials.manage' in perms else none,
+      ["aimodels", "AI models"] if 'settings.manage' in perms else none,
+      ["network", "Network"] if 'network.view' in perms else none,
+      ["connections", "Connections"] if 'connections.view' in perms else none,
+      ["appearance", "Appearance & tuning"] if 'settings.manage' in perms else none,
+      ["helpers", "Helpers"] if 'helpers.view' in perms else none,
+      ["audit", "Audit log"] if 'audit.view' in perms else none
+    ] | reject('none') | list %}
     {# System is one entry; its pages are the tabs across the top of each of them (shell.js, #591). #}
     <a href="#{{ sys[0][0] }}" data-page="{{ sys[0][0] }}" data-pages="{{ sys|map('first')|join(' ') }}" data-tabs='{{ sys|tojson }}' data-tip="System"><svg class="i" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="2.2"/><path d="M8 1.5v1.6M8 12.9v1.6M1.5 8h1.6M12.9 8h1.6M3.4 3.4l1.1 1.1M11.5 11.5l1.1 1.1M3.4 12.6l1.1-1.1M11.5 4.5l1.1-1.1"/></svg><span class="nl">System</span></a>
     {% endif %}

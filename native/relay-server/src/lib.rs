@@ -12,5 +12,7 @@ pub mod gate;
 pub mod listen;
 pub mod netinfo;
 pub mod netroute;
+pub mod pages;
 pub mod serve;
+pub mod statics;
 pub mod tls;
