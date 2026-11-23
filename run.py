@@ -73,6 +73,31 @@ def _module_listeners(host: str, cfg: dict, taken: set[int]):
     return groups, lines
 
 
+def _upstream_port() -> int:
+    """`--upstream-port N`: run behind the Rust server (native/relay-server), on loopback port N, instead of owning the sockets."""
+    args = sys.argv[1:]
+    for i, a in enumerate(args):
+        if a == "--upstream-port" and i + 1 < len(args):
+            return int(args[i + 1])
+        if a.startswith("--upstream-port="):
+            return int(a.split("=", 1)[1])
+    return 0
+
+
+def _serve_upstream(port: int) -> None:
+    """Serve the app on 127.0.0.1:`port` over plain HTTP for the Rust server (app/front.py). The server owns the viewer,
+    panel and module ports, the panel certificate and the mDNS announcement, and tells this app what it bound."""
+    from app import front
+
+    if not front.enabled():
+        raise SystemExit("--upstream-port needs RELAY_FRONT_TOKEN, the same secret relay-server is started with.")
+    os.environ["RELAY_ANNOUNCE"] = "0"   # the Rust server announces
+    import uvicorn
+
+    print(f"Relay's app is listening on http://127.0.0.1:{port} for the Rust server.")
+    uvicorn.run("app.main:app", host="127.0.0.1", port=port, log_level="info", access_log=False)
+
+
 def main() -> None:
     config.ensure_file()
     cfg = config.load()
@@ -85,6 +110,10 @@ def main() -> None:
     # The listeners ask which port a traffic class is routed to, and that reads the gear table: migrate first, or a
     # route saved in the config crashes the first start on a computer whose database does not exist yet.
     db.init()
+    upstream_port = _upstream_port()
+    if upstream_port:
+        _serve_upstream(upstream_port)
+        return
     host, admin_host = cfg["host"], cfg["admin_host"]
     viewers = serving.listen_group("viewers", "viewer pages", "viewers", host, int(cfg["port"]))
     try:

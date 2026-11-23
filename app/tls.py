@@ -271,6 +271,11 @@ class Panel:
                 self._load_into_context()
             return minted
 
+    def adopt(self, fingerprint: str, names: list[str], expires: str, changed: dict | None) -> None:
+        """Take the certificate the Rust server serves (app/front.py): it mints and renews it, this app only says so."""
+        self.info = Info(fingerprint, list(names), [], expires, True)
+        self.changed = changed or None
+
     def describe(self) -> dict:
         info = self.info
         return {

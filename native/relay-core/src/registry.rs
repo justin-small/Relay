@@ -13,7 +13,17 @@ use axum::Router;
 
 use crate::config::Config;
 use crate::error::{AppError, ErrorCode};
-use crate::module::{Host, Module};
+use crate::module::{Host, Listener, Module};
+
+/// A listener of a module that is on.
+#[derive(Clone, Debug)]
+pub struct ActiveListener {
+    pub module: &'static str,
+    pub module_name: &'static str,
+    pub listener: Listener,
+    /// The port from the module's settings.
+    pub port: u16,
+}
 
 pub struct Registry {
     modules: Vec<Arc<dyn Module>>,
@@ -130,6 +140,28 @@ impl Registry {
             app = app.merge(gated);
         }
         app
+    }
+
+    /// Each listener of the modules that are on, with the port from the module's settings (Python's `modules.listeners()`).
+    pub fn listeners(&self) -> Vec<ActiveListener> {
+        let mut out = Vec::new();
+        for module in &self.modules {
+            let m = module.manifest();
+            if !self.enabled(m.id) {
+                continue;
+            }
+            let settings = module.clean(&self.config.settings(m.settings_key).unwrap_or_else(|| module.defaults()));
+            for listener in module.listeners() {
+                let port = listener.port(&settings);
+                out.push(ActiveListener { module: m.id, module_name: m.name, listener, port });
+            }
+        }
+        out
+    }
+
+    /// Every path prefix a module serves only on a listener of its own, whether the module is on or not.
+    pub fn listener_prefixes(&self) -> Vec<String> {
+        self.modules.iter().flat_map(|m| m.listeners()).flat_map(|l| l.prefixes.iter().map(|p| (*p).to_owned())).collect()
     }
 
     /// Which modules are on, for a status read: `id -> (enabled, running)`.

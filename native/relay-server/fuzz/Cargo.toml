@@ -1,0 +1,32 @@
+# Fuzz targets for relay-server (cargo-fuzz, local only: needs nightly). Run from native/relay-server:
+#   cargo +nightly fuzz run paths        (or route_key); Ctrl-C to stop; a crash is saved under fuzz/artifacts/
+# Its own workspace, so the stable build, CI and cargo-deny never see libfuzzer.
+[package]
+name = "relay-server-fuzz"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+relay-server = { path = ".." }
+serde_json = "1"
+
+[[bin]]
+name = "paths"
+path = "fuzz_targets/paths.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "route_key"
+path = "fuzz_targets/route_key.rs"
+test = false
+doc = false
+bench = false
+
+[workspace]

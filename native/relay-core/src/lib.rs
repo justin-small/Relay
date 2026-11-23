@@ -14,5 +14,5 @@ pub mod shutdown;
 pub use config::Config;
 pub use error::{AppError, ErrorCode};
 pub use module::{Health, HealthState, Host, Listener, Manifest, Module};
-pub use registry::Registry;
+pub use registry::{ActiveListener, Registry};
 pub use shutdown::Shutdown;

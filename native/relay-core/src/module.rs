@@ -55,6 +55,21 @@ pub struct Listener {
     pub port_setting: &'static str,
     pub default_port: u16,
     pub prefixes: &'static [&'static str],
+    /// The traffic class whose network port it listens on (`relay-server`'s `netroute`): a core class (`"viewers"`, `"crew"`)
+    /// or one the module declares. Unrouted, it listens on every interface as before. Python's default is `"viewers"`.
+    pub traffic: &'static str,
+}
+
+impl Listener {
+    /// The port to open: the module's setting `port_setting`, or `default_port` when it is missing or not a port.
+    pub fn port(&self, settings: &Value) -> u16 {
+        settings
+            .get(self.port_setting)
+            .and_then(Value::as_u64)
+            .filter(|p| (1..=65535).contains(p))
+            .and_then(|p| u16::try_from(p).ok())
+            .unwrap_or(self.default_port)
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

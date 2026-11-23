@@ -33,7 +33,7 @@ from jinja2 import ChoiceLoader, FileSystemLoader, PrefixLoader
 from . import alerts as alertsmod
 from . import backup as backupmod
 from . import announce as announcemod
-from . import aimodels, alerthistory, audiobus, audit, boards, cables, channels, config, connections, db, devices, exporting, helperhub, importdocker, languages, metering, mixreport, netinfo, network_map, netroute, overlays, panelfw, panels, ports, prefs, redact, routing, schedules, screens, serialio, serving, setupcode, streamstatus, tally, tls, tones, transcribe, users
+from . import aimodels, alerthistory, audiobus, audit, boards, cables, channels, config, connections, db, devices, exporting, front, helperhub, importdocker, languages, metering, mixreport, netinfo, network_map, netroute, overlays, panelfw, panels, ports, prefs, redact, routing, schedules, screens, serialio, serving, setupcode, streamstatus, tally, tls, tones, transcribe, users
 from .alerts import alerts
 from . import engine as engine_mod
 from .engine import TRANSCRIPTION_STREAM, TRANSLATION_STREAM, demo_mode, engine
@@ -330,6 +330,8 @@ class _Gate:
         self.app = app
 
     async def __call__(self, scope, receive, send) -> None:
+        # Behind the Rust server (app/front.py) the socket is its, not ours: take the port the client really reached.
+        front.adopt_port(scope)
         if scope["type"] != "http":
             await self.app(scope, receive, send)
             return
@@ -4320,6 +4322,9 @@ def admin_audit(who: str = "", kind: str = "", q: str = "", days: int = 0, befor
     found = audit.search(actor=actor, kind=kind[:64] or None, q=q.strip()[:100] or None,
                          days=days if 0 < days <= 3650 else None, before=before if before > 0 else None)
     return {**found, "people": audit.people(), "kinds": audit.kinds(), "keep_days": audit.KEEP_DAYS}
+
+
+app.include_router(front.router)   # the Rust server's calls (app/front.py); 404 unless a front token is set
 
 
 @app.get("/healthz")
