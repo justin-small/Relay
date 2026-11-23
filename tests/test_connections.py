@@ -113,7 +113,7 @@ with section("What an operator types"):
     m = connections.clean(MODBUS)
     eq("a Modbus connection has a link and Modbus settings", sorted(m["settings"]), ["link", "modbus"])
     q = connections.clean(MQTT)
-    eq("an MQTT connection has its broker", (sorted(q["settings"]), q["settings"]["mqtt"]["port"]), (["mqtt"], 1883))
+    check("an MQTT connection has its broker", sorted(q["settings"]) == ["mqtt"] and q["settings"]["mqtt"]["port"] == 1883)
     eq("a local serial port keeps its framing", connections.clean(
         {"name": "Desk", "kind": "serial", "link": {"kind": "serial", "device": "/dev/ttyUSB0", "baud": 19200}}
     )["settings"]["link"]["baud"], 19200)
@@ -272,7 +272,7 @@ async def mosquitto() -> None:
                (True, "Connected, and the broker passed a test message back."))
             conn = connections.create(raw)
             client = await connections.open_mqtt(conn["id"])
-            check("a saved connection gives a connected client", await client.wait_connected(3), client.state())
+            check("a saved connection gives a connected client", await client.wait_connected(3))
             got = []
             await client.subscribe("relay/connections/#", lambda t, p, r: got.append((t, p)))
             await client.publish("relay/connections/x", b"hi", qos=1)

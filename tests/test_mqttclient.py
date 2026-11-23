@@ -304,7 +304,7 @@ async def fake_broker_tests():
         check("the password reaches the broker", first["password"] == "pw")
         eq("flags: clean session, will, will QoS 1, user, password", first["flags"], 0x02 | 0x04 | 0x08 | 0x80 | 0x40)
         check("a client with no id gets one of its own", broker.connects[1]["id"].startswith("relay-"))
-        eq("state says connected", (ca.state()["connected"], ca.state()["last_error"]), (True, ""))
+        check("state says connected", ca.state()["connected"] is True and ca.state()["last_error"] == "")
 
     with section("Fake broker: publish and subscribe"):
         await ca.subscribe("stage/+/state", a)
@@ -326,7 +326,7 @@ async def fake_broker_tests():
         await cb.publish("stage/z/state", b"fence")
         check("an unsubscribed filter hears nothing more", await await_for(lambda: len(a.got) == 5)
               and a.got[4][0] == "stage/z/state", a.got)
-        eq("the counters", (cb.state()["sent"], ca.state()["received"]), (7, 5))
+        check("the counters", cb.state()["sent"] == 7 and ca.state()["received"] == 5)
 
     with section("Fake broker: handlers"):
         async def slow(topic, payload, retain):
@@ -367,14 +367,13 @@ async def fake_broker_tests():
         await cb.subscribe("status/#", wills)
         count = len(broker.connects)
         broker.drop("alice")
-        check("alice connects again by herself", await await_for(lambda: len(broker.connects) > count and ca.connected),
-              ca.state())
+        check("alice connects again by herself", await await_for(lambda: len(broker.connects) > count and ca.connected))
         check("her will was published when she vanished", await await_for(lambda: wills.got == [
             ("status/alice", b"gone", False)]), wills.got)
         a.got.clear()
         await cb.publish("stage/back/state", b"again")
         check("alice's subscriptions came back with the connection", await await_for(lambda: len(a.got) == 1), a.got)
-        eq("and the state says so", ca.state()["subscriptions"], ["stage/+/state"])
+        check("and the state says so", ca.state()["subscriptions"] == ["stage/+/state"])
 
     with section("Fake broker: a clean close sends no will"):
         wills.got.clear()
@@ -413,11 +412,11 @@ async def fake_broker_tests():
         bad = mq.MqttClient(settings(locked.port, username="relay", password="wrong"), backoff=FAST)
         await bad.start()
         check("a wrong password says so", await await_for(lambda: bad.state()["last_error"] ==
-                                                           "The broker refused the user name or password."), bad.state())
+                                                           "The broker refused the user name or password."))
         eq("and is not connected", bad.connected, False)
         await bad.close()
         good = await connected(locked.port, username="relay", password="secret")
-        eq("the right one connects", good.state()["last_error"], "")
+        check("the right one connects", good.state()["last_error"] == "")
         await good.close()
         await locked.stop()
 
@@ -428,11 +427,11 @@ async def fake_broker_tests():
         late_client = mq.MqttClient(settings(port), backoff=FAST)
         await late_client.start()
         check("it says it could not connect", await await_for(lambda: late_client.state()["last_error"]
-                                                               .startswith("Could not connect")), late_client.state())
+                                                               .startswith("Could not connect")))
         eq("a publish says not connected", await raises(late_client.publish("a/b", b"x")), "Not connected.")
         again = Broker()
         await again.start(port)
-        check("the broker appears: it connects by itself", await late_client.wait_connected(3), late_client.state())
+        check("the broker appears: it connects by itself", await late_client.wait_connected(3))
         await late_client.close()
         await again.stop()
 
@@ -478,15 +477,14 @@ async def tls_tests():
         await untrusted.start()
         check("without the certificate it is refused, with a sentence",
               await await_for(lambda: untrusted.state()["last_error"]
-                              .startswith("The TLS connection to 127.0.0.1 port")), untrusted.state())
+                              .startswith("The TLS connection to 127.0.0.1 port")))
         await untrusted.close()
         broken = mq.MqttClient(mq.clean_mqtt({"host": "127.0.0.1", "port": broker.port, "tls": True,
                                               "ca": "-----BEGIN CERTIFICATE-----\nnope\n-----END CERTIFICATE-----"}),
                                backoff=FAST)
         await broken.start()
         check("a certificate that cannot be read says so", await await_for(
-            lambda: broken.state()["last_error"] == "The broker certificate you pasted could not be read."),
-              broken.state())
+            lambda: broken.state()["last_error"] == "The broker certificate you pasted could not be read."))
         await broken.close()
         await broker.stop()
 
@@ -512,7 +510,7 @@ async def real_mosquitto():
             await one.start()
             await two.start()
             check("both connect to the real broker (it was starting up: they retry)",
-                  await await_for(lambda: one.connected and two.connected, 5), (one.state(), two.state()))
+                  await await_for(lambda: one.connected and two.connected, 5))
             inbox = Inbox()
             await one.subscribe("relay/test/#", inbox, qos=1)
             await two.publish("relay/test/a", b"hello", qos=1)
