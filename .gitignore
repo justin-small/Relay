@@ -54,6 +54,14 @@ site/mockups/
 # Rust audio-bus spike build output
 native/mutants.out*/
 target/
+# Local Rust tooling output (cargo-fuzz, cargo-llvm-cov, cargo-flamegraph); fuzz/Cargo.lock is not committed
+native/relay-server/fuzz/corpus/
+native/relay-server/fuzz/artifacts/
+native/relay-server/fuzz/Cargo.lock
+native/llvm-cov-target/
+native/lcov.info
+flamegraph.svg
+perf.data*
 native/relay-bus/.venv-build/
 native/relay-ndi/.venv-build/
 

@@ -103,7 +103,21 @@ Every change under `native/` keeps its tests current and uses the Rust tools, no
 - **Mutation testing.** After changing a port rule, parser or other decision logic, run
   `cargo mutants -p <crate> -j2 -f <crate>/src/<file>.rs` from `native/` (paths are workspace-relative; slow, one file at a time).
   A surviving mutant is a missing test: add it, or say in the pull request why the mutant is harmless.
+- **Proptest.** Properties over inputs with structure (paths, ids) go in `tests/proptests.rs` with a grammar strategy; commit
+  any `proptest-regressions/` file a failure writes.
+- **Fuzzing (local only).** Code that reads untrusted bytes gets a target in `native/relay-server/fuzz/fuzz_targets/`; run it
+  from `native/relay-server` with `cargo +nightly fuzz run <target> -- -max_total_time=60`. A crash is saved in
+  `fuzz/artifacts/`: turn it into a normal test, fix the code, then delete the artifact.
+- **Coverage.** `cargo llvm-cov nextest -p <crate> --summary-only` from `native/`; look at what your change left unreached.
+- **Unused dependencies and unsafe.** `cargo machete` (unused dependencies) and `cargo geiger -p <crate>` (unsafe code, ours and
+  our dependencies') before adding a dependency or any `unsafe`. Run `cargo +nightly miri test -p <crate>` on any crate that
+  has `unsafe`.
+- **Docs and API.** `cargo doc --no-deps -p <crate>` and `cargo deadlinks -p <crate>` when you change doc comments;
+  `cargo public-api -p <crate>` (and `cargo semver-checks` once a crate is published) when you change a `pub` item.
+- **On demand.** `cargo expand` (macro output), `cargo bloat --release` (what makes the binary big), `cargo flamegraph`
+  (where the time goes), `cargo hack check --each-feature` (once a crate has feature flags).
 - **Clippy.** `cargo clippy --locked --all-targets --workspace -- -D warnings`, as in "Run the whole suite".
 
-`tests/run_all.py` and CI run `cargo test` and clippy; nextest and mutants are run by hand before you push, so say in the pull
-request which you ran. This Mac's cargo mirror does not resolve: use a temporary `native/.cargo/config.toml` and never commit it.
+`tests/run_all.py` and CI run `cargo test`, clippy, cargo-audit and cargo-deny; everything else here is local only and run by
+hand, so say in the pull request which you ran. Install the tools with `cargo install --locked <name>` (`flamegraph` for
+cargo-flamegraph; `rustup toolchain install nightly` and `rustup +nightly component add miri rust-src` for fuzz and Miri). This Mac's cargo mirror does not resolve: use a temporary `native/.cargo/config.toml` and never commit it.
