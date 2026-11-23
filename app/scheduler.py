@@ -25,7 +25,8 @@ import logging
 from datetime import datetime, timezone
 
 from . import config, schedules
-from .engine import demo_mode, engine
+from .engine import demo_mode
+from .stream import stream
 from . import modules
 
 log = logging.getLogger("relay.scheduler")
@@ -86,24 +87,24 @@ class Scheduler:
         scheds = engine_schedules()
         win = schedules.current_window(scheds, now, config.timezone(), plan_source())
 
-        if not engine.running:
+        if not stream.running:
             self.started_by = None
 
         if win is None:
             self.held = None
             if self.owned_until is not None:
                 owned, self.owned_until = self.owned_until, None
-                if engine.running and now >= owned:
+                if stream.running and now >= owned:
                     log.info("Scheduled window ended: stopping")
-                    await engine.stop()
+                    await stream.stop()
                     self.started_by = None
-                elif engine.running:
+                elif stream.running:
                     log.info("Schedule changed under a live session: leaving it "
                              "running for the operator to stop")
             self._fail = None
         elif self.held == win.start:
             pass
-        elif engine.running:
+        elif stream.running:
             self.owned_until, self.owned_tz = win.stop, win.tz
         else:
             await self._start(win)
@@ -122,7 +123,7 @@ class Scheduler:
                 self._fail = "demo"
             return
         try:
-            await engine.start()
+            await stream.start()
         except RuntimeError as exc:
             msg = str(exc)
             if msg != self._fail:
@@ -166,7 +167,7 @@ class Scheduler:
         nxt = schedules.next_window(scheds, now, tz, plan)
 
         stop = None
-        if self.owned_until is not None and engine.running:
+        if self.owned_until is not None and stream.running:
             stop = {"at": self.owned_until.timestamp(),
                     "label": schedules.fmt_instant(self.owned_until, self.owned_tz)}
         elif nxt is not None:
@@ -176,7 +177,7 @@ class Scheduler:
             "count": len(scheds),
             "enabled": sum(1 for s in scheds if s.get("enabled")),
             "active_schedule": ", ".join(win.names) if win else None,
-            "started_by_schedule": self.started_by if engine.running else None,
+            "started_by_schedule": self.started_by if stream.running else None,
             "held": bool(win and self.held == win.start),
             "next_scheduled_start": {
                 "at": nxt.start.timestamp(),
@@ -193,7 +194,7 @@ class Scheduler:
                (st["next_scheduled_stop"] or {}).get("at"))
         if sig != self._sig:
             self._sig = sig
-            engine._push_status()
+            stream.push_status()
 
     # -- the list the panel edits ---------------------------------------
     def listing(self, now: datetime | None = None) -> dict:

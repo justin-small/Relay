@@ -63,7 +63,7 @@ REHEARSAL MODE: captions are canned. No OpenAI session is open.
 ```
 
 ::: note
-**Start capture is switched off in rehearsal mode.** If you press it, the
+**Start is switched off in rehearsal mode.** If you press it, the
 panel says so and nothing starts. **Schedules** are skipped too: a schedule
 that comes due during a rehearsal does not start a session. Neither can open
 a billed session with your API key. To go live, stop Relay and start it again
