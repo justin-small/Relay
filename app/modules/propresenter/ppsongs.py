@@ -8,7 +8,7 @@ import base64
 from typing import Any
 
 from ... import helperhub
-from . import ppfile
+from . import ppfile, ppsongparse
 
 MAX_SONGS = 50
 MAX_SLIDES = 300
@@ -66,14 +66,16 @@ def _slide(d: Any) -> ppfile.Slide:
                                               screen=_text(a.get("screen"), 200), screen_uuid=_text(a.get("screen_uuid"), 64)))
         except ppfile.FileError as exc:
             raise SongError(exc.message) from None
-    chords = []
+    # Chords typed inline as `[G]` in the text become positions in the text without them.
+    text, inline = ppsongparse.split_chords(_text(d.get("text")))
+    chords = [(pos, name[:20]) for pos, name in inline[:200]]
     for c in (d.get("chords") or [])[:200]:
         try:
             chords.append((int(c[0]), _text(c[1], 20)))
         except (TypeError, ValueError, IndexError, KeyError):
             raise SongError("A chord is a position and a name.") from None
     return ppfile.Slide(
-        text=_text(d.get("text")), translation=_text(d.get("translation")), label=_text(d.get("label"), 80),
+        text=text, translation=_text(d.get("translation")), label=_text(d.get("label"), 80),
         label_colour=_rgb(d.get("label_colour")), notes=_text(d.get("notes")), chords=chords,
         hot_key=_text(d.get("hot_key"), 2), advance_after=_num(d.get("advance_after"), "The advance time"),
         completion=_text(d.get("completion"), 10), transition=_num(d.get("transition"), "The transition", 30),
@@ -162,7 +164,51 @@ async def send(songs: list[dict]) -> dict:
     return {"sent": len(files), "files": [f["name"] for f in files], "opened": (out or {}).get("opened", len(files))}
 
 
-def read_song(data_b64: Any) -> dict:
+def parse_text(d: Any) -> dict:
+    """A pasted lyric sheet, or a PDF (`pdf_b64`), read into sections of slides for the operator to review. Nothing is kept."""
+    if not isinstance(d, dict):
+        raise SongError("Send the text or a PDF to read.")
+    text = d.get("text")
+    if d.get("pdf_b64"):
+        try:
+            raw = base64.b64decode(str(d["pdf_b64"]), validate=True)
+        except ValueError:
+            raise SongError("The file is not valid base64.") from None
+        if not raw or len(raw) > MAX_FILE:
+            raise SongError("The file is empty or too large.")
+        try:
+            text = ppsongparse.pdf_text(raw)
+        except ppsongparse.ParseError as exc:
+            raise SongError(exc.message) from None
+    try:
+        lines = int(d.get("lines", 4))
+    except (TypeError, ValueError):
+        raise SongError("Lines per slide is a number.") from None
+    if not 0 <= lines <= 12:
+        raise SongError("Lines per slide is from 0 to 12.")
+    flag = lambda k: d.get(k) is not False   # noqa: E731
+    try:
+        out = ppsongparse.parse_text(text, lines, flag("blank_splits"), flag("headers"), flag("translation"), flag("chords"))
+    except ppsongparse.ParseError as exc:
+        raise SongError(exc.message) from None
+    return {**out, "text": text if d.get("pdf_b64") else None}
+
+
+def split_song(d: Any) -> dict:
+    """The sections cut again into slides of `lines` lines. Nothing is kept."""
+    if not isinstance(d, dict) or not isinstance(d.get("sections"), list):
+        raise SongError("Send the sections to split.")
+    try:
+        lines = int(d.get("lines", 4))
+    except (TypeError, ValueError):
+        raise SongError("Lines per slide is a number.") from None
+    if not 0 <= lines <= 12:
+        raise SongError("Lines per slide is from 0 to 12.")
+    secs = [s for s in d["sections"][:100] if isinstance(s, dict)]
+    return {"sections": ppsongparse.resplit(secs, lines)}
+
+
+def read_song(data_b64: Any, inline: bool = False) -> dict:
     """What is in a `.pro` file (lyrics by section, arrangements, CCLI and the rest), for showing or reusing it."""
     try:
         raw = base64.b64decode(str(data_b64 or ""), validate=True)
@@ -174,12 +220,17 @@ def read_song(data_b64: Any) -> dict:
         song = ppfile.parse_song(raw)
     except ppfile.FileError as exc:
         raise SongError(exc.message) from None
-    return song_to_dict(song)
+    return song_to_dict(song, inline)
 
 
-def song_to_dict(song: ppfile.Song) -> dict:
+def song_to_dict(song: ppfile.Song, inline: bool = False) -> dict:
     from dataclasses import asdict
 
     d = asdict(song)
+    if inline:   # the songs page edits chords as `[G]` in the text
+        for sec in d["sections"]:
+            for sl in sec["slides"]:
+                sl["text"] = ppsongparse.with_chords(sl["text"], sl.get("chords") or [])
+                sl.pop("chords", None)
     d["arrangements"] = [{"name": n, "sections": s} for n, s in song.arrangements]
     return d

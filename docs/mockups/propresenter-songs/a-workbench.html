@@ -1,0 +1,85 @@
+<!doctype html><html lang="en" data-theme="dark" data-preset="relay"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<link rel="stylesheet" href="../../../app/static/tokens.css"><link rel="stylesheet" href="../../../app/static/components.css"><link rel="stylesheet" href="common.css">
+<title>ProPresenter songs A · Workbench</title>
+<style>
+.work{grid-template-columns:minmax(300px,1fr) minmax(300px,1.1fr) minmax(260px,.8fr)}
+.sec{border:1px solid var(--border);border-radius:var(--r-ctl);background:var(--inset);margin-bottom:var(--sp-2)}
+.sec>.sh{display:flex;align-items:center;gap:var(--sp-2);padding:var(--sp-2) var(--sp-3)}
+.sec textarea{border:0;border-top:1px solid var(--border);border-radius:0 0 var(--r-ctl) var(--r-ctl);background:var(--bg);min-height:96px}
+.sec.bad{border-color:var(--err)}
+.ord{display:flex;align-items:center;gap:var(--sp-2);padding:var(--sp-1) var(--sp-2);border:1px solid var(--border);border-radius:var(--r-ctl);background:var(--inset);margin-bottom:var(--sp-1);cursor:grab}
+.ord .n{width:20px;color:var(--muted);font-size:var(--fs-xs)}
+.slides{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:var(--sp-2)}
+.sendbar{position:sticky;bottom:0;display:flex;align-items:center;gap:var(--sp-3);flex-wrap:wrap;padding:var(--sp-3) var(--sp-4);background:var(--card);border:1px solid var(--primary);border-radius:var(--r)}
+@media (max-width:1000px){.work{grid-template-columns:1fr}}
+</style></head><body>
+<script src="common.js"></script><script>document.write(nav("a-workbench.html"))</script>
+<div class="top"><b>ProPresenter</b><div class="tabs" style="margin:0"><button>Control</button><button>Live</button><button class="on">Songs</button><button>Settings</button></div><span class="sp"></span><span id="hp"></span><button class="sm quiet" id="tog">Preview: no helper</button></div>
+<div class="wrap stack">
+
+<div class="card"><div class="cols" style="grid-template-columns:2fr 1fr 1fr 1fr;align-items:end">
+<div class="field" style="margin:0"><label for="ti">Title</label><input id="ti" value="Goodness of God"></div>
+<div class="field" style="margin:0"><label for="ky">Key</label><select id="ky"><option>G</option><option>A</option><option>C</option></select></div>
+<div class="field" style="margin:0"><label for="cc">CCLI number</label><input id="cc" value="7117038"></div>
+<div class="field" style="margin:0"><label for="tp">Template</label><select id="tp"><option>Sunday defaults</option><option>Acoustic night</option><option>None</option></select></div></div>
+<div class="gap" style="margin-top:var(--sp-3)"><button class="sm" id="imp">Paste lyrics and chords…</button><button class="sm">Import PDF…</button><button class="sm">Open .pro file…</button><button class="sm quiet">Save as template</button><span class="grow"></span><span class="hint">Draft saved in this browser 12 s ago</span></div></div>
+
+<div class="cols work">
+<div class="card"><div class="between"><h3 style="margin:0">Sections</h3><div class="gap"><label class="check" style="margin:0"><input type="checkbox" id="ch" checked> Chords</label><button class="sm" id="add">Add section</button></div></div>
+<div id="secs" style="margin-top:var(--sp-3)"></div>
+<p class="note">Name a section Verse, Chorus, Bridge or Tag and Relay colours it like ProPresenter. A line starting with a translation mark (/) is the translation line.</p></div>
+
+<div class="card"><div class="between"><h3 style="margin:0">Live preview</h3><div class="gap"><label class="check" style="margin:0"><input type="checkbox" id="trl" checked> Translation line</label></div></div>
+<div class="gap" style="margin:var(--sp-2) 0 var(--sp-3)"><label style="margin:0">Lines per slide</label><select class="sm" id="lps" style="width:auto"><option>2</option><option selected>4</option><option>6</option></select><button class="sm" id="split">Auto-split all…</button></div>
+<div class="slides" id="slides"></div>
+<p class="note warn" id="warn"></p></div>
+
+<div class="card"><h3>Arrangements</h3>
+<div class="tabs" id="arr" style="margin-bottom:var(--sp-2)"></div>
+<div id="ord"></div>
+<div class="gap" style="margin-top:var(--sp-2)"><select class="sm" id="addsec" style="width:auto"></select><button class="sm" id="addord">Add to order</button><button class="sm quiet">New arrangement</button></div>
+<h4 style="margin-top:var(--sp-4)">Slide order</h4><p class="hint" id="so"></p></div>
+</div>
+
+<div id="nh"></div>
+<div class="sendbar"><span id="val"></span><span class="grow"></span><span class="hint">Sends “<span id="stt"></span>” to the ProPresenter computer</span><button class="primary" id="send">Send to ProPresenter</button></div>
+</div>
+<div id="dlgs"></div>
+<script>
+let helper = true, sec = SONG.sections.map(s => ({...s})), cur = 0;
+const $ = (i) => document.getElementById(i);
+function render() {
+  const show = $("ch").checked, tr = $("trl").checked, n = +$("lps").value;
+  $("secs").innerHTML = sec.map((s, i) => `<div class="sec${s.text.trim() ? "" : " bad"}"><div class="sh"><i class="sw c-${s.kind}"></i><input class="sm" style="flex:1" value="${s.name}"><span class="tag">${strip(s.text).split("\n").length} lines</span><button class="sm quiet icon" title="Delete">×</button></div>
+    <textarea>${show ? s.text : strip(s.text)}</textarea>${tr && s.tr ? `<textarea style="min-height:64px;color:var(--info)" placeholder="Translation line (optional)">${s.tr}</textarea>` : ""}</div>`).join("");
+  const order = SONG.arrangements[cur].order, all = [];
+  $("slides").innerHTML = sec.flatMap(s => slidesOf(s, n)).map(s => { all.push(s); return slideHTML(s, { tr, maxLines: n }); }).join("");
+  const bad = all.filter(s => s.lines.join("").length > 120);
+  $("warn").textContent = bad.length ? `${bad.length} slide${bad.length > 1 ? "s" : ""} over 120 characters. ProPresenter will shrink the text.` : "";
+  $("arr").innerHTML = SONG.arrangements.map((a, i) => `<button class="${i === cur ? "on" : ""}" data-i="${i}">${a.name}</button>`).join("");
+  $("ord").innerHTML = order.map((id, i) => { const s = sec.find(x => x.id === id); return `<div class="ord" draggable="true"><span class="n">${i + 1}</span><i class="sw c-${s.kind}" style="margin:0"></i><span class="grow">${s.name}</span><button class="sm quiet icon">×</button></div>`; }).join("");
+  $("addsec").innerHTML = sec.map(s => `<option>${s.name}</option>`).join("");
+  const cnt = {}; sec.forEach(s => cnt[s.id] = slidesOf(s, n).length);
+  $("so").textContent = order.reduce((a, id) => a + cnt[id], 0) + " slides: " + order.map(id => sec.find(s => s.id === id).name.replace("Verse ", "V").replace("Chorus", "C").replace("Bridge", "B")).join(" · ");
+  const empty = sec.filter(s => !s.text.trim()).length, notitle = !$("ti").value.trim();
+  $("val").innerHTML = notitle ? `<span class="err">Add a title before sending.</span>` : empty ? `<span class="err">${empty} section is empty. Fill or delete it.</span>` : `<span class="ok">Ready to send</span>`;
+  $("send").disabled = notitle || empty || !helper; $("stt").textContent = $("ti").value;
+  $("hp").innerHTML = helperPill(helper); $("nh").innerHTML = helper ? "" : noHelperNote();
+}
+document.addEventListener("click", e => { const b = e.target.closest("#arr button"); if (b) { cur = +b.dataset.i; render(); } });
+["ch", "trl", "lps", "ti"].forEach(i => $(i).addEventListener("input", render));
+$("tog").onclick = () => { helper = !helper; $("tog").textContent = helper ? "Preview: no helper" : "Preview: helper on"; render(); };
+$("add").onclick = () => { sec.push({ id: "n" + sec.length, name: "New section", kind: "verse", text: "", tr: "" }); render(); };
+function dlg(h) { $("dlgs").innerHTML = `<div class="veil"><div class="dlg">${h}</div></div>`; $("dlgs").querySelectorAll("[data-x]").forEach(b => b.onclick = () => $("dlgs").innerHTML = ""); }
+$("split").onclick = () => dlg(`<h3>Auto-split all sections?</h3><p class="note" style="margin-top:0">This will change the slides. Nothing is saved until you confirm.</p>
+<div class="dl"><span class="muted">Lines per slide</span><span>${+$("lps").value}</span><span class="muted">Before</span><span>9 slides</span><span class="muted">After</span><span class="add">11 slides (+2)</span><span class="muted">Changed</span><span>Verse 1 (5 lines → 2 slides), Chorus (4 → 1)</span></div>
+<div class="field" style="margin-top:var(--sp-3)"><label>How to split</label><div class="seg"><button class="on">Even slides</button><button>Break at blank lines</button><button>Keep short last slide</button></div></div>
+<div class="gap" style="margin-top:var(--sp-4);justify-content:flex-end"><button data-x>Cancel</button><button class="primary" data-x>Split</button></div>`);
+$("imp").onclick = () => dlg(`<h3>Paste lyrics and chords</h3><textarea style="min-height:160px" placeholder="Verse 1&#10;[G]I love You, Lord&#10;…&#10;&#10;Chorus&#10;…"></textarea>
+<div class="setrow"><span>Treat names like “Verse 1” as sections<small>Off: the whole paste becomes one section.</small></span><label class="switch"><input type="checkbox" checked><span class="slider"></span></label></div>
+<div class="setrow"><span>Keep [chords] above the lyric<small>Chords stay in the builder; ProPresenter shows only the lyric.</small></span><label class="switch"><input type="checkbox" checked><span class="slider"></span></label></div>
+<div class="notice info" style="margin-top:var(--sp-3)">Found 4 sections and 11 slides. You review them before anything replaces this song.</div>
+<div class="gap" style="margin-top:var(--sp-3);justify-content:flex-end"><button data-x>Cancel</button><button class="primary" data-x>Review import</button></div>`);
+$("send").onclick = () => dlg(`<h3>Sent</h3><p>“Goodness of God” was handed to Studio Mac. ProPresenter opens it and adds it to the library.</p><div class="gap" style="justify-content:flex-end"><button class="primary" data-x>Done</button></div>`);
+render();
+</script></body></html>

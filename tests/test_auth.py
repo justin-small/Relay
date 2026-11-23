@@ -837,6 +837,8 @@ for method, path, perm in (
     ("GET", PPX + "/songs/helper", "propresenter.view"),
     ("POST", PPX + "/songs/send", "propresenter.manage"),
     ("POST", PPX + "/songs/read", "propresenter.view"),
+    ("POST", PPX + "/songs/parse", "propresenter.view"),
+    ("POST", PPX + "/songs/split", "propresenter.view"),
     ("POST", PPX + "/discover", "propresenter.manage"),
     ("POST", PPX + "/stage", "propresenter.control"),
     ("DELETE", PPX + "/stage", "propresenter.control"),

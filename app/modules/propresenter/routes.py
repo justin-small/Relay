@@ -552,6 +552,24 @@ async def admin_pp_songs_send(payload: dict, request: Request):
 async def admin_pp_songs_read(payload: dict):
     """The lyrics, sections, arrangements and CCLI inside a `.pro` file (sent as base64 in `data_b64`)."""
     try:
-        return ppsongs.read_song(payload.get("data_b64"))
+        return ppsongs.read_song(payload.get("data_b64"), payload.get("inline") is True)
+    except ppsongs.SongError as exc:
+        raise HTTPException(status_code=400, detail=exc.message)
+
+
+@router.post("/api/admin/propresenter/songs/parse", dependencies=[Depends(require("propresenter.view"))])
+async def admin_pp_songs_parse(payload: dict):
+    """A pasted lyric sheet (`text`) or a PDF (`pdf_b64`) read into sections of slides. Reads only; nothing is kept."""
+    try:
+        return ppsongs.parse_text(payload)
+    except ppsongs.SongError as exc:
+        raise HTTPException(status_code=400, detail=exc.message)
+
+
+@router.post("/api/admin/propresenter/songs/split", dependencies=[Depends(require("propresenter.view"))])
+async def admin_pp_songs_split(payload: dict):
+    """The given sections cut again into slides of `lines` lines. Reads only; nothing is kept."""
+    try:
+        return ppsongs.split_song(payload)
     except ppsongs.SongError as exc:
         raise HTTPException(status_code=400, detail=exc.message)
