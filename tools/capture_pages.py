@@ -75,7 +75,7 @@ def _install(out: Path) -> None:
             sys.stderr.write(f"capture: {name}: {e}\n")
             return html
         body = json.dumps({"template": name, "uses": uses, "context": ctx, "html": html}, ensure_ascii=False, indent=1)
-        key = hashlib.sha1(json.dumps([name, ctx], sort_keys=True).encode()).hexdigest()[:10]
+        key = hashlib.sha256(json.dumps([name, ctx], sort_keys=True).encode()).hexdigest()[:10]
         (out / f"{name.replace('/', '__')}.{key}.json").write_text(body, encoding="utf-8")
         return html
 

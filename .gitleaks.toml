@@ -1,0 +1,9 @@
+# gitleaks' default rules, plus one allowed path.
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Recorded renders of the Python server's own pages, made against throwaway test servers (tools/capture_pages.py)"
+# Their screen and overlay keys are random values a test server made a moment before; none opens anything. A fingerprint in
+# .gitleaksignore would name a file by a hash that changes with every capture, and a squash merge loses its commit.
+paths = ['''native/relay-server/tests/pages/.*\.json''']
