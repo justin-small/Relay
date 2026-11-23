@@ -1,0 +1,57 @@
+{# The ProPresenter songs admin page (#633), rendered inside admin.html only while the ProPresenter module is on. #}
+<link rel="stylesheet" href="{{ static('modules/propresenter/ppsongs.css') }}">
+    <h2 class="title">Songs <span class="sumstate" id="sngSum"></span></h2>
+    <p class="sub">Build a song, check how the slides will look, and send it to ProPresenter. ProPresenter cannot make a song over its network, so the Relay Helper on the ProPresenter computer opens the file for it.</p>
+    <p class="note" id="sngAccessNote" hidden>You can read songs here but not send them.</p>
+    <div id="sngHelper"></div>
+    <section>
+      <div class="sngmeta">
+        <div class="field"><label for="sngTitle">Title</label><input id="sngTitle" maxlength="200"></div>
+        <div class="field"><label for="sngKey">Key</label><input id="sngKey" maxlength="6" placeholder="G"></div>
+        <div class="field"><label for="sngCcli">CCLI number</label><input id="sngCcli" inputmode="numeric" maxlength="10"></div>
+        <div class="field"><label for="sngTpl">Template</label><select id="sngTpl"></select></div>
+      </div>
+      <div class="ctl">
+        <button type="button" class="sm" id="sngPaste">Paste lyrics and chords…</button>
+        <button type="button" class="sm" id="sngPdfBtn">Import PDF…</button>
+        <button type="button" class="sm" id="sngProBtn">Open .pro file…</button>
+        <button type="button" class="sm quiet" id="sngSaveTpl">Save as template</button>
+        <input type="file" id="sngPdf" accept="application/pdf,.pdf" hidden>
+        <input type="file" id="sngPro" accept=".pro" hidden>
+        <span class="grow"></span><span class="note" id="sngDraft"></span>
+      </div>
+    </section>
+    <div id="sngImport" hidden>
+      <section>
+        <h3>Paste lyrics and chords</h3>
+        <textarea id="sngText" rows="10" aria-label="Lyrics and chords" placeholder="Verse 1&#10;[G]I love You, Lord&#10;/ Te amo, Señor&#10;&#10;Chorus&#10;…"></textarea>
+        <p class="note">A line that is only a section name (Verse 1, Chorus, Bridge) starts a section. A blank line starts a new slide. A line starting with / is the translation of the line above it. Chords as [G], or on a line above the words.</p>
+        <div id="sngImpOpts"></div>
+        <div class="ctl"><button type="button" class="primary" id="sngRead">Read it</button><button type="button" id="sngImpCancel">Cancel</button></div>
+        <div class="note err" id="sngImpErr" hidden></div>
+      </section>
+    </div>
+    <div id="sngProposal" hidden></div>
+    <div class="sngbar">
+      <div class="ctl">
+        <label class="check"><input type="checkbox" id="sngTr"> Translation line</label>
+      </div>
+      <div class="ctl">
+        <label for="sngLps">Lines per slide</label><select id="sngLps" class="sm" aria-label="Lines per slide"></select>
+        <button type="button" class="sm" id="sngSplit">Auto-split…</button>
+        <button type="button" class="sm" id="sngAddSec">Add section</button>
+      </div>
+    </div>
+    <div class="sngmain">
+      <div id="sngGrid"></div>
+      <section class="snginsp" id="sngInsp"></section>
+    </div>
+    <section class="sngdock">
+      <div class="ctl"><h3>Arrangement</h3><div class="tabs" id="sngArr" role="tablist" aria-label="Arrangements"></div><button type="button" class="sm quiet" id="sngArrNew">New</button><button type="button" class="sm quiet" id="sngArrDel">Delete</button></div>
+      <div id="sngArrPend" class="notice info" hidden></div>
+      <div class="sngchips" id="sngOrder"></div>
+      <div class="ctl"><select id="sngArrAdd" class="sm" aria-label="Add a section to the order"></select><button type="button" class="sm" id="sngArrAddBtn">Add to order</button></div>
+      <p class="note" id="sngSlideOrder"></p>
+      <div class="ctl"><span id="sngVal"></span><span class="grow"></span><button type="button" class="primary" id="sngSend">Send to ProPresenter</button></div>
+      <div class="note" id="sngSendMsg" hidden></div>
+    </section>

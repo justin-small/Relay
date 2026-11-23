@@ -1,0 +1,98 @@
+<!doctype html><html lang="en" data-theme="dark" data-preset="relay"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<link rel="stylesheet" href="../../../app/static/tokens.css"><link rel="stylesheet" href="../../../app/static/components.css"><link rel="stylesheet" href="common.css">
+<title>ProPresenter songs B · Guided steps</title>
+<style>
+.shell{display:grid;grid-template-columns:220px 1fr;gap:var(--sp-5);align-items:start}
+.steps{display:flex;flex-direction:column;gap:var(--sp-1);position:sticky;top:var(--sp-3)}
+.steps button{display:flex;align-items:center;gap:var(--sp-2);text-align:left;border-color:transparent;background:none;width:100%}
+.steps button .n{width:22px;height:22px;border-radius:50%;border:1px solid var(--border);display:grid;place-items:center;font-size:var(--fs-xs);flex:none}
+.steps button.on{background:var(--hover);color:var(--hover-fg)}
+.steps button.on .n{background:var(--primary);color:var(--primary-fg);border-color:var(--fg)}
+.steps button.done .n{border-color:var(--ok);color:var(--ok)}
+.src{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:var(--sp-3)}
+.src .card{cursor:pointer;display:flex;flex-direction:column;gap:var(--sp-2)}
+.src .card:hover{border-color:var(--primary)}
+.src .card.sel{border-color:var(--primary);background:var(--hover)}
+.rv{display:grid;grid-template-columns:1fr 1fr;gap:var(--sp-4)}
+.line{display:grid;grid-template-columns:90px 1fr 1fr 60px;gap:var(--sp-3);padding:var(--sp-2) 0;border-bottom:1px solid var(--border);align-items:start}
+.strip{display:flex;gap:var(--sp-2);overflow-x:auto;padding-bottom:var(--sp-2)}
+.strip>div{flex:0 0 132px}
+.strip .no{font-size:var(--fs-xs);color:var(--muted);margin-bottom:2px}
+.ck{display:flex;gap:var(--sp-2);align-items:center;padding:var(--sp-1) 0}
+.foot{display:flex;justify-content:space-between;gap:var(--sp-3);margin-top:var(--sp-4);padding-top:var(--sp-3);border-top:1px solid var(--border)}
+@media (max-width:860px){.shell{grid-template-columns:1fr}.steps{position:static;flex-direction:row;overflow:auto}.rv{grid-template-columns:1fr}}
+</style></head><body>
+<script src="common.js"></script><script>document.write(nav("b-guided.html"))</script>
+<div class="top"><b>ProPresenter · Songs</b><span class="sp"></span><span id="hp"></span><button class="sm quiet" id="tog">Preview: no helper</button></div>
+<div class="wrap"><div class="shell">
+<div class="steps" id="steps"></div>
+<div class="stack">
+
+<div class="pane on" id="p0"><div class="card"><h3>Where is the song?</h3><p class="hint" style="margin-top:0">Pick one. You review everything on the next step before it is kept.</p>
+<div class="src" id="src">
+<div class="card sel"><b>Paste lyrics</b><span class="hint">A lyric sheet with section names and [G] chords.</span></div>
+<div class="card"><b>Import a PDF</b><span class="hint">A lyric or chord sheet. Read the same way as a paste.</span></div>
+<div class="card"><b>Open a .pro file</b><span class="hint">Read lyrics, sections, CCLI and settings; edit them here.</span></div>
+<div class="card"><b>Start blank</b><span class="hint">Type sections yourself. Starts from a template.</span></div></div>
+<div class="field" style="margin-top:var(--sp-4)"><label for="pt">Paste here</label><textarea id="pt" style="min-height:150px">Verse 1
+[G]I love You, Lord
+For Your mercy never fails me
+[C]All my days, I've been held in Your hands
+
+Chorus
+[G]Cause You are good, good, oh
+All the time You are good</textarea></div>
+<div class="cols" style="grid-template-columns:1fr 1fr 1fr">
+<div class="field"><label>Template</label><select><option>Sunday defaults</option><option>Acoustic night</option><option>None</option></select></div>
+<div class="field"><label>Lines per slide</label><select><option>2</option><option selected>4</option><option>6</option></select></div>
+<div class="field"><label>Translation line</label><select><option>Off</option><option>Lines after each lyric line</option><option>Separate block under section</option></select></div></div>
+<div class="foot"><span class="hint">Draft saved in this browser</span><button class="primary" data-go="1">Read it</button></div></div></div>
+
+<div class="pane" id="p1"><div class="card"><div class="between"><h3 style="margin:0">Check what Relay found</h3><span class="badge ok">4 sections · 11 slides</span></div>
+<div class="notice warn" style="margin-top:var(--sp-3)"><b>2 things to look at.</b> Verse 2 has a line of 142 characters. “Bridge” was read as a single slide of 1 line.</div>
+<div class="rv" style="margin-top:var(--sp-3)"><div><h4>As you pasted it</h4><div class="line"><b class="hint">Verse 1</b><span><span class="chord">[G]</span>I love You, Lord<br>For Your mercy never fails me</span><span class="hint">2 lines</span><span></span></div>
+<div class="line"><b class="hint">Chorus</b><span><span class="chord">[G]</span>Cause You are good, good, oh<br>All the time You are good</span><span class="hint">2 lines</span><span></span></div></div>
+<div><h4>As ProPresenter will show it</h4><div class="gap" style="margin-bottom:var(--sp-2)"><label class="check" style="margin:0"><input type="checkbox" checked> Translation line</label><span class="hint">Optional. Songs work without it.</span></div><div class="strip" id="rvs"></div></div></div>
+<div class="setrow"><span>Split long sections automatically<small>Cut at 4 lines per slide. Asks before it changes anything.</small></span><label class="switch"><input type="checkbox" checked><span class="slider"></span></label></div>
+<div class="foot"><button data-go="0">Back</button><button class="primary" data-go="2">Looks right</button></div></div></div>
+
+<div class="pane" id="p2"><div class="card"><h3>Put the song in order</h3>
+<div class="gap" style="margin-bottom:var(--sp-3)"><div class="tabs" style="margin:0" id="arr"></div><button class="sm quiet">New arrangement</button></div>
+<p class="hint" style="margin-top:0">Drag sections to reorder, or use the arrows. A section can appear more than once.</p>
+<table class="dt"><thead><tr><th style="width:30px">#</th><th>Section</th><th>Slides</th><th>Hot key</th><th>Auto-advance</th><th></th></tr></thead><tbody id="ord"></tbody></table>
+<h4 style="margin-top:var(--sp-4)">Slide order, <span id="cnt"></span></h4><div class="strip" id="so"></div>
+<div class="foot"><button data-go="1">Back</button><button class="primary" data-go="3">Next: send</button></div></div></div>
+
+<div class="pane" id="p3"><div class="card"><h3>Send to ProPresenter</h3>
+<div id="nh"></div>
+<div class="cols" style="grid-template-columns:1fr 1fr"><div><h4>Before it can go</h4>
+<div class="ck"><span class="ok">✓</span> Title: Goodness of God</div><div class="ck"><span class="ok">✓</span> No empty sections</div><div class="ck"><span class="warn">!</span> 1 slide over 120 characters (still sends)</div><div class="ck"><span class="ok">✓</span> CCLI 7117038, key G</div></div>
+<div><h4>It will do this</h4><div class="dl"><span class="muted">Song</span><span>Goodness of God</span><span class="muted">Arrangements</span><span>Sunday, Short, Acoustic</span><span class="muted">Slides</span><span>11</span><span class="muted">Goes to</span><span id="goes"></span></div></div></div>
+<div class="foot"><button data-go="2">Back</button><button class="primary" id="send">Send to ProPresenter</button></div></div></div>
+
+</div></div></div>
+<div id="dlgs"></div>
+<script>
+const $ = (i) => document.getElementById(i);
+let helper = true, step = 0, cur = 0; const names = ["Get the song in", "Check it", "Arrange", "Send"];
+function show(n) { step = n; document.querySelectorAll(".pane").forEach((p, i) => p.classList.toggle("on", i === n)); render(); }
+function render() {
+  $("steps").innerHTML = names.map((t, i) => `<button class="${i === step ? "on" : i < step ? "done" : ""}" data-go="${i}"><span class="n">${i < step ? "✓" : i + 1}</span>${t}</button>`).join("");
+  $("rvs").innerHTML = SONG.sections.slice(0, 2).flatMap(s => slidesOf(s, 4)).map((s, i) => `<div><div class="no">${i + 1}</div>${slideHTML(s, { tr: true })}</div>`).join("");
+  const o = SONG.arrangements[cur].order, S = (id) => SONG.sections.find(s => s.id === id);
+  $("arr").innerHTML = SONG.arrangements.map((a, i) => `<button class="${i === cur ? "on" : ""}" data-a="${i}">${a.name}</button>`).join("");
+  $("ord").innerHTML = o.map((id, i) => { const s = S(id); return `<tr draggable="true"><td class="num muted">${i + 1}</td><td><i class="sw c-${s.kind}"></i>${s.name}</td><td class="num">${slidesOf(s, 4).length}</td><td><input class="sm" style="width:56px" placeholder="—"></td><td><input class="sm" style="width:64px" placeholder="off"></td><td><button class="sm quiet icon">↑</button><button class="sm quiet icon">↓</button><button class="sm quiet icon">×</button></td></tr>`; }).join("");
+  const all = o.flatMap(id => slidesOf(S(id), 4)); $("cnt").textContent = all.length + " slides";
+  $("so").innerHTML = all.map((s, i) => `<div><div class="no">${i + 1}</div>${slideHTML(s)}</div>`).join("");
+  $("hp").innerHTML = helperPill(helper); $("nh").innerHTML = helper ? "" : noHelperNote(); $("send").disabled = !helper;
+  $("goes").innerHTML = helper ? "Studio Mac (helper)" : `<span class="err">nowhere: no helper</span>`;
+}
+document.addEventListener("click", e => {
+  const g = e.target.closest("[data-go]"); if (g) show(+g.dataset.go);
+  const a = e.target.closest("[data-a]"); if (a) { cur = +a.dataset.a; render(); }
+  const c = e.target.closest("#src .card"); if (c) { document.querySelectorAll("#src .card").forEach(x => x.classList.toggle("sel", x === c)); }
+});
+$("tog").onclick = () => { helper = !helper; $("tog").textContent = helper ? "Preview: no helper" : "Preview: helper on"; render(); };
+$("send").onclick = () => { $("dlgs").innerHTML = `<div class="veil"><div class="dlg"><h3>Sent</h3><p>ProPresenter on Studio Mac is opening “Goodness of God”.</p><div class="gap" style="justify-content:flex-end"><button class="primary" id="ok">Done</button></div></div></div>`; $("ok").onclick = () => $("dlgs").innerHTML = ""; };
+render();
+</script></body></html>

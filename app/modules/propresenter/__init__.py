@@ -47,6 +47,8 @@ class ProPresenter(Module):
         AdminPage(id="ppcontrol", title="Control", template="control.html",
                   icon='<rect x="2" y="2.5" width="12" height="8" rx="1"/><path d="M6.5 5l3 1.5-3 1.5z" '
                        'fill="currentColor"/><path d="M4 13.5h8"/>'),
+        AdminPage(id="ppsongs", title="Songs", template="songs.html",
+                  icon='<path d="M6 12.5V3.5l7-1.5v9"/><circle cx="4.5" cy="12.5" r="1.8"/><circle cx="11.5" cy="11" r="1.8"/>'),
         AdminPage(id="pplive", title="Slide view and lobby", template="live.html",
                   icon='<rect x="1.5" y="3" width="9" height="6.5" rx="1"/><rect x="8" y="7" width="6.5" '
                        'height="5.5" rx="1" fill="#0a0b0d"/><rect x="8" y="7" width="6.5" height="5.5" rx="1"/>'),
@@ -54,7 +56,7 @@ class ProPresenter(Module):
                   icon='<rect x="2" y="2.5" width="12" height="8" rx="1"/><path d="M5 13.5h6M8 10.5v3"/>'),
     )
     admin_tabbed = True
-    admin_scripts = ("propresenter.js", "slideview.js", "ppcontrol.js", "pplive.js", "pclink.js")
+    admin_scripts = ("propresenter.js", "slideview.js", "ppcontrol.js", "ppsongs.js", "pplive.js", "pclink.js")
     route_prefixes = ("/api/admin/propresenter", "/api/stage/live", "/stage")
     permissions = (
         Permission("propresenter.view", "See ProPresenter slides, playlists and status", "ProPresenter", "viewer"),

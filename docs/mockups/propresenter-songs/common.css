@@ -1,0 +1,44 @@
+/* ProPresenter songs mockups (#633): the real tokens and components, plus the page frame only. */
+html{background:var(--bg)}
+body{margin:0;background:var(--bg);color:var(--fg);font:var(--fs-base)/1.45 var(--font)}
+.top{display:flex;align-items:center;gap:var(--sp-3);padding:var(--sp-3) var(--sp-5);background:var(--sb);border-bottom:1px solid var(--border);flex-wrap:wrap}
+.top b{font-size:var(--fs-lg)}
+.top .sp{flex:1}
+.wrap{max-width:1280px;margin:0 auto;padding:var(--sp-5)}
+.stack{display:flex;flex-direction:column;gap:var(--sp-3)}
+.cols{display:grid;gap:var(--sp-4);align-items:start}
+.between{display:flex;align-items:center;justify-content:space-between;gap:var(--sp-3);flex-wrap:wrap}
+.gap{display:flex;align-items:center;gap:var(--sp-2);flex-wrap:wrap}
+.card{padding:var(--sp-4)}
+.card h3{margin:0 0 var(--sp-2);font-size:var(--fs-lg)}
+.card h4{margin:0 0 var(--sp-2);font-size:var(--fs-md)}
+.hint{font-size:var(--fs-sm);color:var(--muted)}
+.num{font-variant-numeric:tabular-nums}
+.hidden{display:none!important}
+.pane{display:none}.pane.on{display:block}
+.setrow{display:flex;align-items:center;justify-content:space-between;gap:var(--sp-3);padding:var(--sp-2) 0;border-bottom:1px solid var(--border)}
+.setrow:last-child{border-bottom:0}
+.setrow small{display:block;color:var(--muted);font-size:var(--fs-sm)}
+.tag{font-size:var(--fs-xs);border:1px solid var(--border);border-radius:var(--r-pill);padding:0 8px;color:var(--muted)}
+/* a slide as ProPresenter draws it: 16:9, the lyric large, the translation line under it */
+.sl{position:relative;aspect-ratio:16/9;background:var(--video-bg);color:var(--knob);border:1px solid var(--border);border-radius:var(--r-sm);
+  display:flex;flex-direction:column;justify-content:center;align-items:center;text-align:center;padding:var(--sp-2);overflow:hidden;container-type:inline-size}
+.sl .l{font-size:5.2cqw;line-height:1.25;font-weight:600}
+.sl .t{font-size:3.8cqw;line-height:1.25;color:var(--info);margin-top:1.5cqw}
+.sl .ch{position:absolute;left:var(--sp-2);top:var(--sp-1);font-size:var(--fs-xs);color:var(--muted)}
+.sl .ho{position:absolute;right:var(--sp-2);top:var(--sp-1);font-size:var(--fs-xs);color:var(--warn)}
+.sl.over{border-color:var(--warn)}
+.sl .wn{position:absolute;left:var(--sp-2);bottom:var(--sp-1);font-size:var(--fs-xs);color:var(--warn)}
+.sl .cc{position:absolute;right:var(--sp-2);bottom:var(--sp-1);font-size:var(--fs-xs);color:var(--muted)}
+.chord{color:var(--ok);font-family:var(--mono);font-size:var(--fs-sm)}
+.sw{display:inline-block;width:10px;height:10px;border-radius:50%;vertical-align:middle;margin-right:6px}
+.c-verse{background:var(--info)}.c-chorus{background:var(--ok)}.c-bridge{background:var(--warn)}.c-tag{background:var(--err)}
+.nav{display:flex;gap:var(--sp-2);flex-wrap:wrap;padding:var(--sp-2) var(--sp-5);border-bottom:1px solid var(--border);background:var(--bg)}
+.nav a{font-size:var(--fs-sm);color:var(--muted);text-decoration:none;padding:2px var(--sp-2);border:1px solid var(--border);border-radius:var(--r-pill)}
+.nav a[aria-current]{color:var(--fg);border-color:var(--primary)}
+.nav a:hover{color:var(--fg)}
+.veil{position:fixed;inset:0;background:var(--scrim);z-index:30;display:flex;align-items:center;justify-content:center;padding:var(--sp-4)}
+.dlg{background:var(--card);border:1px solid var(--border);border-radius:var(--r-lg);box-shadow:var(--shadow-pop);padding:var(--sp-4);width:min(560px,100%);max-height:90vh;overflow:auto}
+.dlg h3{margin:0 0 var(--sp-2)}
+.dl{display:grid;grid-template-columns:auto 1fr;gap:2px var(--sp-3);font-size:var(--fs-md)}
+.add{color:var(--ok)}.del{color:var(--err)}
