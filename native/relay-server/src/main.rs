@@ -72,7 +72,10 @@ async fn run() -> Result<(), String> {
     tracing::info!(config = %path.display(), "reading config");
     let config = Arc::new(Config::load(&path).map_err(|e| e.to_string())?);
     let shutdown = Shutdown::new();
-    let mut registry = Registry::new(Arc::clone(&config), Host::new(shutdown.clone()).with_net(relay_core::Net::new(Arc::new(relay_server::netsock::RoutedNet::new(
+    let sealed = Arc::new(relay_config::Settings::new(&path));
+    let mut registry = Registry::new(Arc::clone(&config), Host::new(shutdown.clone())
+        .with_store(Arc::new(relay_server::modulehost::SealedStore(sealed)))
+        .with_net(relay_core::Net::new(Arc::new(relay_server::netsock::RoutedNet::new(
         Arc::clone(&config),
         std::collections::BTreeMap::new(),
     )))));

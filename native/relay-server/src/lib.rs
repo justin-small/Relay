@@ -11,6 +11,7 @@ pub mod forward;
 pub mod front;
 pub mod gate;
 pub mod listen;
+pub mod modulehost;
 pub mod netinfo;
 pub mod netroute;
 pub mod netsock;

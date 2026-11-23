@@ -15,13 +15,15 @@ use std::any::Any;
 use std::collections::BTreeMap;
 use std::future::Future;
 use std::pin::Pin;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
 
 use axum::Router;
 use serde_json::Value;
 
 use crate::error::AppError;
+use crate::access::{Authorizer, Permission};
 use crate::net::Net;
+use crate::store::SettingsStore;
 use crate::shutdown::Shutdown;
 
 pub type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
@@ -105,11 +107,52 @@ pub struct Host {
     shared: Provided,
     pub shutdown: Shutdown,
     net: Net,
+    store: Arc<OnceLock<Arc<dyn SettingsStore>>>,
+    authorizer: Arc<OnceLock<Arc<dyn Authorizer>>>,
 }
 
 impl Host {
     pub fn new(shutdown: Shutdown) -> Self {
-        Self { shared: Arc::default(), shutdown, net: Net::unrouted() }
+        Self { shared: Arc::default(), shutdown, net: Net::unrouted(), store: Arc::default(), authorizer: Arc::default() }
+    }
+
+    /// Open and seal module secrets with the server's store (built before the registry, so it is in place for `attach`).
+    pub fn with_store(self, store: Arc<dyn SettingsStore>) -> Self {
+        let _ = self.store.set(store);
+        self
+    }
+
+    /// The store used when the server gave none: settings as stored on disk. Called by `Registry::new`.
+    pub(crate) fn default_store(&self, config: &Arc<crate::config::Config>) {
+        let _ = self.store.set(Arc::new(crate::store::PlainStore(Arc::clone(config))));
+    }
+
+    /// The server hands over its accounts once they exist; until then every gated route answers 401.
+    pub fn set_authorizer(&self, authorizer: Arc<dyn Authorizer>) {
+        let _ = self.authorizer.set(authorizer);
+    }
+
+    pub fn authorizer(&self) -> Option<Arc<dyn Authorizer>> {
+        self.authorizer.get().cloned()
+    }
+
+    /// This module's settings, secrets opened. `None` when the install has none saved.
+    pub fn settings(&self, settings_key: &str) -> Option<Value> {
+        self.store.get()?.read(settings_key)
+    }
+
+    /// Save changes to the module's settings (secrets sealed on disk).
+    pub fn save_settings(&self, settings_key: &str, changes: &Value) -> Result<(), AppError> {
+        match self.store.get() {
+            Some(store) => store.save(settings_key, changes),
+            None => Err(AppError::new(crate::error::ErrorCode::Internal).because("no settings store")),
+        }
+    }
+
+    pub(crate) fn add_secret(&self, settings_key: &str, field: &str) {
+        if let Some(store) = self.store.get() {
+            store.add_secret(settings_key, field);
+        }
     }
 
     /// Use `net` for every module's outbound traffic (the server's router; `Host::new` has none, so classes are unrouted).
@@ -155,6 +198,11 @@ pub trait Module: Send + Sync + 'static {
 
     /// Settings fields holding a secret (sealed in config.json; stripped from what an API returns).
     fn secret_settings(&self) -> &'static [&'static str] {
+        &[]
+    }
+
+    /// The permissions this module adds (Python's `Module.permissions`); the server registers them with the role table.
+    fn permissions(&self) -> &'static [Permission] {
         &[]
     }
 
