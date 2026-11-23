@@ -1,4 +1,4 @@
-# cargo-deny policy for the RF monitor spike. Run from this folder: `cargo deny check`.
+# cargo-deny policy for every Rust crate under native/. Run from native/: `cargo deny check` (or `python tests/run_security.py`).
 # Same rules as desktop/src-tauri/deny.toml; the licence list differs only where this workspace needs it.
 
 [graph]
@@ -28,6 +28,7 @@ allow = [
   "BSL-1.0",
   "CC0-1.0",
   "CDLA-Permissive-2.0",
+  "IJG",   # jpeg-encoder: BSD-like, ships if the documentation credits the Independent JPEG Group (THIRD-PARTY-NOTICES.md)
   "ISC",
   "MIT",
   "MIT-0",

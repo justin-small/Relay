@@ -1,0 +1,61 @@
+# One Cargo workspace for everything Rust under native/ (#652): the audio bus, the NDI engine, the RF spike, the Relay
+# Helper, the front door spike, and the Rust server (relay-core, relay-server and, from #661, one crate per module in
+# modules/). One lockfile and one target folder, so a dependency is resolved once and `cargo clippy` lints the lot.
+# desktop/src-tauri stays its own workspace until #664 moves the server inside the desktop app.
+# The design is in docs/rust-server.md.
+[workspace]
+resolver = "2"
+members = [
+  "relay-bus/crates/relay-bus",
+  "relay-bus/crates/relay-bus-cpal",
+  "relay-bus/crates/relay-bus-py",
+  "relay-ndi/crates/relay-ndi",
+  "relay-ndi/crates/relay-ndi-py",
+  "relay-rf",
+  "relay-helper",
+  "relay-front",
+  "relay-core",
+  "relay-server",
+  "modules/*",
+]
+default-members = [
+  "relay-bus/crates/relay-bus",
+  "relay-bus/crates/relay-bus-cpal",
+  "relay-ndi/crates/relay-ndi",
+  "relay-rf",
+  "relay-helper",
+  "relay-front",
+  "relay-core",
+  "relay-server",
+  "modules/*",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+
+# The audio bus, the NDI engine and the RF code do per-sample and per-pixel loops, and their tests run an hour of audio in
+# seconds: they need optimised code. Debug assertions and overflow checks stay on, so the tests still catch arithmetic
+# mistakes. The server and its modules build unoptimised, which keeps the edit-and-test loop short.
+[profile.dev.package.relay-bus]
+opt-level = 3
+[profile.dev.package.relay-bus-cpal]
+opt-level = 3
+[profile.dev.package.relay-ndi]
+opt-level = 3
+[profile.dev.package.relay-rf]
+opt-level = 3
+[profile.dev.package."*"]
+opt-level = 3
+
+# The Relay Helper is a small program installed on a show computer: built for size, and a panic ends it (the login item
+# restarts it). A workspace has one release profile, so the helper has its own:
+#   cargo build --profile release-helper -p relay-helper        (the binary is in target/<triple>/release-helper/)
+[profile.release-helper]
+inherits = "release"
+opt-level = "s"
+lto = true
+strip = true
+codegen-units = 1
+panic = "abort"

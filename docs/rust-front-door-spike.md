@@ -13,8 +13,8 @@ frame by frame, never collected. A websocket upgrade becomes a byte pipe once bo
 unreachable Relay is a 502.
 
 ```bash
-cargo build --release --manifest-path native/relay-front/Cargo.toml
-native/relay-front/target/release/relay-front --listen 127.0.0.1:19080 --upstream http://127.0.0.1:18080 \
+cargo build --release -p relay-front --manifest-path native/Cargo.toml
+native/target/release/relay-front --listen 127.0.0.1:19080 --upstream http://127.0.0.1:18080 \
     --tls-listen 127.0.0.1:19443 --tls-upstream https://127.0.0.1:18443
 RELAY_STRESS_VIEWER=http://127.0.0.1:19080 RELAY_STRESS_ADMIN=https://127.0.0.1:19443 .venv/bin/python tools/stress.py http
 .venv/bin/python tools/front_check.py      # streams, websocket, 502

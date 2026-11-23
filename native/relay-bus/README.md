@@ -10,12 +10,12 @@ the decision comes after phase 2 puts real devices and Python in front of it.
 Nothing in `app/` or `tests/` uses this yet. It builds on its own:
 
 ```bash
-cd native/relay-bus
-cargo test
-cargo clippy --all-targets -- -D warnings
+cd native    # one Cargo workspace for everything Rust (docs/rust-server.md)
+cargo test -p relay-bus -p relay-bus-cpal
+cargo clippy --all-targets -p relay-bus -p relay-bus-cpal -p relay-bus-py -- -D warnings
 ```
 
-`target/` is ignored by git.
+`native/target/` is ignored by git.
 
 ## What is here
 

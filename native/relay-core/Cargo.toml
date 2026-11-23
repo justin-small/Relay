@@ -1,0 +1,17 @@
+[package]
+name = "relay-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+description = "Relay's Rust server core (#652): the module trait and registry, the error table, the state folder, config.json and shutdown. Knows no integration."
+
+[dependencies]
+axum = { version = "0.8", default-features = false, features = ["json"] }
+serde_json = { version = "1", features = ["preserve_order"] }
+tokio = { version = "1", features = ["sync", "rt", "macros", "time"] }
+tracing = "0.1"
+
+[dev-dependencies]
+tokio = { version = "1", features = ["sync", "rt", "macros", "time", "test-util"] }
+tower = { version = "0.5", default-features = false, features = ["util"] }

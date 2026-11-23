@@ -13,13 +13,6 @@ path = "src/lib.rs"
 name = "relay-helper"
 path = "src/main.rs"
 
-[profile.release]
-opt-level = "s"
-lto = true
-strip = true
-codegen-units = 1
-panic = "abort"
-
 [dependencies]
 base64 = "0.23.1"
 futures-util = "0.3.34"

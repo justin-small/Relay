@@ -34,6 +34,8 @@ class Wheel:
         files = [p for p in self.native.rglob("*") if p.is_file() and "target" not in p.relative_to(self.native).parts
                  and p.suffix in (".rs", ".toml", ".lock", ".py") and ".venv-build" not in p.relative_to(self.native).parts
                  and "bench" not in p.relative_to(self.native).parts]
+        # The workspace's own Cargo.toml and Cargo.lock (#652) decide which versions and profiles it builds with.
+        files += [p for p in (ROOT / "native" / "Cargo.toml", ROOT / "native" / "Cargo.lock") if p.is_file()]
         return max((p.stat().st_mtime for p in files), default=0.0)
 
     def installed(self) -> Path | None:

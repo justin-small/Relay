@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Check that the axum front door (native/relay-front, #651) passes streams and websockets through without buffering.
 
-    cargo build --release --manifest-path native/relay-front/Cargo.toml
+    cargo build --release -p relay-front --manifest-path native/Cargo.toml
     .venv/bin/python tools/front_check.py
 
 Starts a small upstream of its own (one server-sent-event stream that sends an event every 200 ms and never ends, a
@@ -28,7 +28,7 @@ import httpx
 import websockets
 
 REPO = Path(__file__).resolve().parent.parent
-FRONT_BIN = REPO / "native" / "relay-front" / "target" / "release" / "relay-front"
+FRONT_BIN = REPO / "native" / "target" / "release" / "relay-front"
 UP, FRONT = 18900, 18901
 results: list[tuple[str, bool, str]] = []
 upstream_stream_closed = asyncio.Event()
@@ -69,7 +69,7 @@ async def echo(ws) -> None:
 
 async def main() -> int:
     if not FRONT_BIN.exists():
-        print(f"build the front door first: cargo build --release --manifest-path {FRONT_BIN.parents[2]}/Cargo.toml")
+        print(f"build the front door first: cargo build --release -p relay-front --manifest-path {FRONT_BIN.parents[2]}/Cargo.toml")
         return 2
     ws_server = await websockets.serve(echo, "127.0.0.1", UP + 2)
     http_server = await asyncio.start_server(upstream_http, "127.0.0.1", UP)

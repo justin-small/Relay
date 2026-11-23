@@ -16,6 +16,9 @@ operator can switch on and off. Never add an integration to core (`app/*.py`, `a
 If it fails, fix the design; do not add the new file to `CORE_FILES` or `CORE_NETWORK` to make it pass
 unless the file really is core, and say why in the pull request.
 
+In the Rust server (`native/`), an integration is a crate `native/modules/<id>` named `relay-module-<id>`, and only `relay-server`
+depends on it. Read `docs/rust-server.md`; `tests/test_rust_modules.py` enforces it the same way.
+
 ## Shared UI helpers come from relay-ui.js (enforced)
 
 Shared UI helpers come from `app/static/relay-ui.js` (`window.relayUI`: `can`, `api`, `client`, `el`, `say`,
@@ -58,8 +61,8 @@ Running only the tests for your area is not enough. Before each push:
 ```
 
 It runs the files several at a time and ends with a line per failing file; exit 0 means it is safe to push.
-It also runs `cargo clippy --locked --all-targets -- -D warnings` on `native/relay-bus` and `native/relay-ndi`, because CI
-fails on any warning and the Rust tests alone do not lint; run the same command in a crate while you work on it.
+It also runs `cargo clippy --locked --all-targets --workspace -- -D warnings` in `native/` (one Cargo workspace for all the Rust,
+`docs/rust-server.md`), because CI fails on any warning and the Rust tests alone do not lint; run the same command while you work on a crate.
 It first builds the Rust audio bus core (`tools/build_bus_wheel.py --if-stale`, the `relay_bus` wheel the app imports),
 so Rust must be installed (rustup; on Linux also `libasound2-dev`).
 `-k <part of a name>` narrows it while you work. CI also runs `node --test tests/js/*.test.mjs`, `cargo test` in

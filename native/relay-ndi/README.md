@@ -5,10 +5,10 @@ routes, settings, templates, discovery lookups (mDNS and BirdDog), the router an
 Pillow text and PNG reading, and the Playwright page renderer, which are not hot and are not NDI.
 
 ```bash
-cd native/relay-ndi
-cargo test --workspace --exclude relay-ndi-py
-cargo clippy --locked --all-targets -- -D warnings
-python ../../tools/build_bus_wheel.py     # builds and installs relay_bus and relay_ndi
+cd native    # one Cargo workspace for everything Rust (docs/rust-server.md)
+cargo test -p relay-ndi
+cargo clippy --locked --all-targets -p relay-ndi -p relay-ndi-py -- -D warnings
+python ../tools/build_bus_wheel.py     # builds and installs relay_bus and relay_ndi
 ```
 
 | Module | What it does | Replaces |

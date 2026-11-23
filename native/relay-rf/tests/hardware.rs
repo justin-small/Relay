@@ -15,7 +15,7 @@ fn grab<S: IqSource>(s: &mut S, hz: u32) -> Vec<f32> {
 
 #[test]
 fn real_dongle() {
-    let found = sdr::enumerate().unwrap();
+    let found = sdr::enumerate().unwrap_or_default(); // no USB bus at all (WSL) is "no dongle" too
     if found.is_empty() {
         eprintln!("SKIP: no RTL-SDR plugged in");
         return;
