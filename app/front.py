@@ -110,6 +110,97 @@ def apply(report: dict) -> None:
                     str(cert.get("expires") or ""), cert.get("changed"))
 
 
+# -- what the Rust server asks of this app's modules for the audio bus (#657) ----------------------------------------------------
+# The server owns the bus, the channels and the routes. A module that is still Python owns its gear, so the server asks here which
+# audio sources and outputs are registered, which modules apply routes (and how), and to apply, read and rename on the gear.
+def _route_apis() -> dict[str, dict]:
+    from .modules import modules as registry
+
+    return {pid: api for pid, api in registry.using_all("routes.").items() if isinstance(api, dict) and callable(api.get("apply"))}
+
+
+@router.get("/api/internal/audio/registry")
+async def audio_registry(request: Request):
+    """The audio sources and outputs modules registered, for the Audio bus page's pickers."""
+    _authorised(request)
+    from . import audio
+
+    return {"sources": [{"id": s.id, "label": s.label} for s in audio.sources()],
+            "outputs": [{"id": o.id, "label": o.label} for o in audio.outputs()]}
+
+
+@router.get("/api/internal/routes/providers")
+async def route_providers(request: Request):
+    """Each module that is on and applies routes: whether its destinations take one source or mix, whether the gear has a gain,
+    and the permission that may route them. `gear` lists the modules that can rename a channel on their gear."""
+    _authorised(request)
+    from .modules import modules as registry
+
+    providers = {pid: {"exclusive": bool(api.get("exclusive")), "gain": bool(api.get("gain")),
+                       "permission": api["permission"] if isinstance(api.get("permission"), str) else None}
+                 for pid, api in _route_apis().items()}
+    gear = [pid for pid, api in registry.using_all("gear.").items()
+            if isinstance(api, dict) and callable(api.get("rename")) and callable(api.get("can_rename"))]
+    return {"providers": providers, "gear": gear}
+
+
+@router.post("/api/internal/routes/apply")
+async def route_apply(request: Request):
+    _authorised(request)
+    import asyncio
+
+    body = await request.json()
+    api = _route_apis().get(str(body.get("provider")))
+    if api is None:
+        return {"problem": "That module is not on."}
+    try:
+        said = await asyncio.to_thread(api["apply"], body["end"], body.get("wanted") or [])
+    except Exception:  # the gear's module failed; the route stays asked for
+        import logging
+
+        logging.getLogger("relay.routing").exception("routing: %s could not apply %s", body.get("provider"), (body.get("end") or {}).get("key"))
+        said = "The gear did not take that."
+    return {"problem": str(said) if said else ""}
+
+
+@router.post("/api/internal/routes/read")
+async def route_read(request: Request):
+    _authorised(request)
+    import asyncio
+
+    body = await request.json()
+    api = _route_apis().get(str(body.get("provider")))
+    read = api.get("read") if api else None
+    if not callable(read):
+        return {"read": None}
+    try:
+        got = await asyncio.to_thread(read, body["end"])
+    except Exception:  # a module's own read must not break a page
+        import logging
+
+        logging.getLogger("relay.routing").exception("routing: %s could not read %s", body.get("provider"), (body.get("end") or {}).get("key"))
+        return {"read": None}
+    return {"read": None if got is None else [{"provider": i.get("provider"), "key": i.get("key"), "gain_db": i.get("gain_db")} for i in got]}
+
+
+@router.post("/api/internal/gear/rename")
+async def gear_rename(request: Request):
+    _authorised(request)
+    import asyncio
+
+    from .modules import modules as registry
+
+    body = await request.json()
+    api = registry.using(f"gear.{body.get('provider')}")
+    if not (isinstance(api, dict) and callable(api.get("rename"))):
+        return {"ok": False}
+    try:
+        await asyncio.to_thread(api["rename"], str(body.get("key")), str(body.get("name")))
+    except ValueError:
+        return {"ok": False}
+    return {"ok": True}
+
+
 @router.get("/api/internal/front")
 async def front_plan(request: Request):
     _authorised(request)

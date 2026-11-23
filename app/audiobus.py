@@ -209,10 +209,19 @@ _module_destinations: dict[str, str] = {}
 def register_destination(key: str, label: str) -> None:
     """A module's own destination ("talkback"): key is lower_snake_case, label what the operator sees."""
     _module_destinations[str(key)] = str(label)
+    _tell_server(key, label)
 
 
 def unregister_destination(key: str) -> None:
     _module_destinations.pop(str(key), None)
+    _tell_server(key, None)
+
+
+def _tell_server(key: str, label: str | None) -> None:
+    """When the Rust server owns the bus (app/audiobus_remote.py), it keeps the destinations too."""
+    tell = getattr(bus, "register_destination", None)
+    if tell is not None:
+        tell(key, label)
 
 
 def destinations() -> list[dict]:
@@ -855,7 +864,15 @@ class Bus:
                     "matrix": self.config["matrix"]}
 
 
-bus = Bus()
+def _make_bus() -> Bus:
+    """The bus this process uses: the engine here, or, behind the Rust server with RELAY_RUST_AUDIO, the server's (#657)."""
+    from . import audiobus_remote
+
+    return audiobus_remote.RemoteBus() if audiobus_remote.active() else Bus()
+
+
+bus = _make_bus()
+REMOTE = hasattr(bus, "start_remote")       # the Rust server owns the engine; nothing here applies a setting
 
 
 def patched_lanes() -> list[dict]:

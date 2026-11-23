@@ -1,0 +1,19 @@
+[package]
+name = "relay-audio"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+description = "Relay's audio bus, routes and meters in Rust (#657, part of #650): the rules of app/audiobus.py, app/routing.py, app/channels.py and app/metering.py on relay-bus directly, with the crosspoint matrix cached in memory and written through to relay.db."
+
+[dependencies]
+relay-auth = { path = "../relay-auth" }
+relay-bus = { path = "../relay-bus/crates/relay-bus" }
+relay-bus-cpal = { path = "../relay-bus/crates/relay-bus-cpal" }
+serde_json = { version = "1", features = ["preserve_order"] }
+sqlx = { version = "0.9", default-features = false, features = ["runtime-tokio", "sqlite", "macros"] }
+tokio = { version = "1", features = ["sync", "rt", "macros", "time"] }
+tracing = "0.1"
+
+[dev-dependencies]
+tokio = { version = "1", features = ["sync", "rt", "macros", "time", "test-util"] }

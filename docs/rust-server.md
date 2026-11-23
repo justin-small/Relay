@@ -283,3 +283,47 @@ status stream to Python; mounting `streams::routes` is the one line that ends th
 router on real sockets, including 500 held-open viewers (`five_hundred_held_open_viewers_all_keep_up`), the in-Rust counterpart of
 `tools/stress.py sse`, which starts the Python app and so could not be pointed at these routes yet.
 
+
+## Audio bus, routes and meters (#657)
+
+`native/relay-audio` is `app/audiobus.py`, `app/routing.py`, `app/channels.py` and `app/metering.py` on `relay-bus` directly, with no
+PyO3 between the routes and the engine. `relay-server` mounts the routes (`audio.rs`) and a loopback door for the Python app
+(`internal.rs`, `pyapp.rs`). Start it with `relay-server --rust-audio` (or `RELAY_RUST_AUDIO=1`) **and** the app with
+`RELAY_RUST_AUDIO=1`: two programs cannot both open the sound cards, so the server owns the engine and the app follows it. Without the
+switch nothing changes.
+
+| Python | Rust |
+|---|---|
+| `audiobus.normalize`, `first_setup`, `needs_setup`, `migrate_legacy_input` | `relay-audio/src/normalize.rs`: the same clamps, drops and `int()`/`float()` coercions, on JSON values, so config.json is read and written unchanged |
+| `channels.py` (list, sync, ensure, merge, split, decline, forget, suggestions) | `channels.rs`, on migration 0014's tables |
+| `routing.py` (wanted and actual, routes, presets, permissions) | `routing.rs`, on migration 0015's tables; a destination's module is a `Provider` |
+| `audiobus.Bus` (apply, status, `play_to`, destinations, first setup) | `bus.rs`: `AudioBus` on `relay_bus::Engine` and the cpal backend, one supervisor thread, as the wheel's `Bus` did |
+| `metering.Metering` | `metering.rs`: a `ProbeHub` probe per meter, up to 32 (one per lane) |
+| the `/api/admin/audiobus*`, `metering*`, `routes*` and `network/channels*` routes | `relay-server/src/audio.rs`: the same permissions, fixed sentences, statuses and audit entries |
+
+**The matrix cache (#648).** Python rebuilt the matrix with a query per channel on every page load (371 ms with a full bus). Here the
+matrix is three queries, kept in memory, and the engine runs from it. It is invalidated by any write through this process (a route, a
+saved matrix, a channel report: each has a generation number that goes into the cache key) and re-read at most [`MAX_AGE`] (2 s) after
+the app behind the server writes a route. The routes in `relay.db` stay the stored truth, so either server reads them. Measured through
+the panel's TLS with 32 lanes, three 8-channel outputs and 768 crosspoints: **p50 17.7 ms** (`tests/test_rust_audio.py`); in process, 6 ms.
+
+**What stays Python until its module moves.** A module's gear: how to apply a route to it, read what it does, rename on it, and
+which audio sources and outputs it registered. The server asks the app under `/api/internal/` (`app/front.py`, `pyapp.rs`) and refreshes
+every 5 s, so a module switched on or off shows up. A module's network source or sender (NDI, Dante, AES67) is still opened and read by
+Python: `app/audiobus_remote.py` keeps the API every consumer uses (`bus.lane(n).subscribe`, `play_to`, `output(id).inject`) and sends
+it to `/internal/audio/*`: a lane is a streaming GET of raw float32, a source is POSTed to the engine, a sender is drained with `GET pull`,
+and the state of both is POSTed back so the Audio bus page shows it. The door answers only a loopback peer with `X-Relay-Front`.
+
+**Not done here.**
+
+- The remote intercom (`app/modules/intercom_remote`) links its mixer to `audiobus.bus.engine`, a `relay_bus.Bus` in the same process.
+  With the server owning the engine it has no such object; that follows when the intercom moves (#662).
+- The status feed (`status.rs`) is not mounted yet, so `Show` (the bus's meters for `sound=1`) is not implemented here; it is the one
+  line that mounts `streams::routes` (#659).
+- A new database made by the Rust server has no channels or routes tables (they are the Python migrations 0014 and 0015), so with
+  `--rust-audio` the server says so and leaves the routes to the app, as it does for accounts (#655).
+- PortAudio device labels ("Core Audio: Name") are mapped to cpal names by the part after the first `: ` and otherwise passed through;
+  a device the engine cannot name is reported missing, as an unplugged one is. Not run on a real interface here (only the engine's fake
+  sound card, and no sound card on the machine this was built on).
+- `setup_owner` (accounts, #655) compares `x-admin-token` to `admin_token` in config.json as stored; Python seals that secret, so the
+  setup token does not work against a config the Python app has started. Found while writing the end-to-end test; it signs in with a session instead.

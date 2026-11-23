@@ -54,6 +54,12 @@ pub struct Accounts {
 
 pub type Shared = Arc<Accounts>;
 
+/// Who asked, for a route outside this file: the user and the address the audit entry names.
+pub struct Caller {
+    pub user: User,
+    ip: String,
+}
+
 impl Accounts {
     pub fn new(auth: Auth, pages: Pages, config_path: PathBuf) -> Shared {
         Arc::new(Self { auth, lockout: Lockout::new(), pages, config_path, fail_delay: FAIL_DELAY })
@@ -120,7 +126,7 @@ fn no_store(mut resp: Response) -> Response {
     resp
 }
 
-fn detail(status: u16, sentence: &str) -> Response {
+pub(crate) fn detail(status: u16, sentence: &str) -> Response {
     (StatusCode::from_u16(status).unwrap_or(StatusCode::BAD_REQUEST), Json(json!({ "detail": sentence }))).into_response()
 }
 
@@ -199,6 +205,19 @@ impl Accounts {
     pub async fn require(&self, headers: &HeaderMap, conn: Option<Conn>, perm: &'static str) -> Result<(), Response> {
         let who = Who::of(headers, conn);
         self.user_for(&who, &Need { perm: Some(perm), pending_ok: false, tokens: true }).await.map(|_| ())
+    }
+
+    /// The signed-in user behind a request, for a route that lives outside this file (the audio routes, #657): `perm` None is "just
+    /// signed in". The refusal is the response to send. Keep the [`Caller`] to write the audit entry once the change succeeded.
+    pub async fn caller(&self, headers: &HeaderMap, conn: Option<Conn>, perm: Option<&'static str>) -> Result<Caller, Response> {
+        let who = Who::of(headers, conn);
+        let user = self.user_for(&who, &Need { perm, pending_ok: false, tokens: true }).await?;
+        Ok(Caller { user, ip: who.ip })
+    }
+
+    /// Write one audit entry for `caller` (never fails the request).
+    pub async fn record(&self, caller: &Caller, action: &str, summary: &str, target: &str, detail: Option<Value>) {
+        self.auth.record(action, summary, Record { actor: Some(&caller.user), target, detail: detail.as_ref(), ip: &caller.ip }).await;
     }
 
     /// `x-admin-token` is honoured only while no account exists, and then acts as an Owner with no row (id 0).

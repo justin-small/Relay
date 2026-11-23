@@ -27,7 +27,7 @@ import re
 import threading
 import time
 
-from . import audiobus, channels
+from . import audiobus, audiobus_remote, channels
 
 log = logging.getLogger("relay.metering")
 
@@ -258,12 +258,18 @@ def register_source(source_id: str, label: str) -> None:
     with _ext_lock:
         if source_id in _sources or len(_sources) < MAX_SOURCES:
             _sources[source_id] = {"label": str(label)[:40], "reading": None, "ts": 0.0}
+    if audiobus.REMOTE:                      # the Rust server keeps the readings and reports the channels (#657)
+        audiobus_remote.forward_metering({"register": {"id": source_id, "label": str(label)[:40]}})
+        return
     _report_sources()
 
 
 def unregister_source(source_id: str) -> None:
     with _ext_lock:
         _sources.pop(source_id, None)
+    if audiobus.REMOTE:
+        audiobus_remote.forward_metering({"unregister": source_id})
+        return
     _report_sources()
 
 
@@ -301,6 +307,8 @@ def publish(source_id: str, reading: dict) -> None:
         entry = _sources.get(source_id)
         if entry is not None and clean:
             entry["reading"], entry["ts"] = clean, time.time()
+    if audiobus.REMOTE and clean:
+        audiobus_remote.forward_metering({"publish": {"id": source_id, "reading": clean}})
 
 
 def _external_public() -> dict:
@@ -314,4 +322,4 @@ def _external_public() -> dict:
     return out
 
 
-meter = Metering()
+meter = audiobus_remote.RemoteMetering() if audiobus.REMOTE else Metering()
