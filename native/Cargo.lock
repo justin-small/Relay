@@ -2837,6 +2837,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "relay-show"
+version = "0.1.0"
+dependencies = [
+ "bytes",
+ "rand 0.8.8",
+ "serde_json",
+ "sqlx",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "ring"
 version = "0.17.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
