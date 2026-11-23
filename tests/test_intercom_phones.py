@@ -265,8 +265,9 @@ with TestClient(app, base_url="http://relay.local:8001") as member:
     presence_mod._token_times.clear(), presence_mod._token_logged.clear()
 
     check("a closed socket leaves the live set", not presence.online(pid))
-    check("the session was recorded", db.one("select ended_at from intercom_sessions where device_id = ?",
-                                              (pid,))["ended_at"] is not None)
+    # The end is written just after the socket leaves the live set, so wait for it (a slow CI runner lost this race).
+    check("the session was recorded", wait_for(lambda: (db.one("select ended_at from intercom_sessions where device_id = ?",
+                                                                (pid,)) or {}).get("ended_at") is not None))
 
     # Rotation delivers a new credential in the welcome.
     db.execute("update intercom_devices set rotates_at = ? where id = ?", (db.later(-1), pid))
