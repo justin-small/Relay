@@ -24,6 +24,7 @@ from zoneinfo import ZoneInfo
 from urllib.parse import urlencode
 
 from fastapi import Depends, FastAPI, Form, HTTPException, Request, Response, WebSocket
+from starlette.datastructures import MutableHeaders
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -169,17 +170,6 @@ PANEL_HEADERS = {
 HSTS = f"max-age={tls.HSTS_MAX_AGE}"
 
 
-@app.middleware("http")
-async def _panel_headers(request: Request, call_next):
-    response = await call_next(request)
-    if _on_panel_socket(request):
-        for k, v in PANEL_HEADERS.items():
-            response.headers[k] = v
-        if _is_https(request):
-            response.headers["Strict-Transport-Security"] = HSTS
-    return response
-
-
 # Web Serial is denied everywhere but the board flasher, which writes a panel's flash through it. An
 # exact path and not a prefix, so nothing added under it later gets the serial port too.
 FLASH_PATH = "/admin/flash"
@@ -198,31 +188,6 @@ def permissions_policy_for(path: str) -> str:
     policy = MIC_PERMISSIONS_POLICY if path in module_registry.microphone_pages() else PERMISSIONS_POLICY
     # Likewise a page a switched-on module names in `geolocation_pages` (the crew page, for check-in, #231).
     return policy.replace("geolocation=()", "geolocation=(self)") if path in module_registry.geolocation_pages() else policy
-
-
-@app.middleware("http")
-async def _permissions_policy(request: Request, call_next):
-    response = await call_next(request)
-    response.headers.setdefault("Permissions-Policy", permissions_policy_for(request.url.path))
-    return response
-
-
-@app.middleware("http")
-async def _split_admin_port(request: Request, call_next):
-    path = request.url.path
-    # A module's own port (a Listener, #205) answers only that module's routes under its prefixes; those routes
-    # answer on no other port. Until ports are published (tests, scripts) nothing is gated by port.
-    own = serving.listener_prefixes(_request_port(request))
-    if own is not None:
-        if not _module_under(path, own):
-            return JSONResponse({"error": "Not found"}, status_code=404)
-        return await call_next(request)
-    if serving.published() and _module_under(path, module_registry.listener_prefixes()):
-        return JSONResponse({"error": "Not found"}, status_code=404)
-    if (_is_admin_path(path) or _module_under(path, module_registry.panel_prefixes())) \
-            and not _on_admin_port(request):
-        return JSONResponse({"error": "Not found"}, status_code=404)
-    return await call_next(request)
 
 
 # ----------------------------------------------------- the audit log (#172)
@@ -348,18 +313,66 @@ def _audit_write(notes: list[dict], user: User, ip: str) -> None:
                      detail=n.get("detail"), ip=ip)
 
 
-@app.middleware("http")
-async def _audit_changes(request: Request, call_next):
-    """Every change made through /api/admin goes in the audit log, with who made it, once it succeeded."""
-    response = await call_next(request)
-    if (request.method in _AUDIT_METHODS and request.url.path.startswith("/api/admin/")
-            and response.status_code < 400
-            and getattr(request.scope.get("route"), "endpoint", None) not in AUDIT_SKIP_ENDPOINTS):
-        user = getattr(request.state, "user", None)
-        if isinstance(user, User):
-            notes = audit.pending(request) or [_audit_default(request)]
-            await asyncio.to_thread(_audit_write, notes, user, _client_ip(request))
-    return response
+class _Gate:
+    """Everything that looks at every request or response, in one pass.
+
+    Four `@app.middleware("http")` functions used to do this (BaseHTTPMiddleware: a task and a stream for each, so
+    about 0.75 ms of a 1.15 ms request: tools/stress.py http). This is plain ASGI, so a request costs one wrapper:
+
+    1. A port that does not serve the path answers 404 (a module's own port answers only its routes; the panel's
+       routes answer only on the panel; the viewer port never reaches them).
+    2. The response gets the Permissions-Policy and, on the panel socket, the panel's security headers.
+    3. A change made through /api/admin that succeeded goes in the audit log, with who made it, before the
+       response starts.
+    """
+
+    def __init__(self, app) -> None:
+        self.app = app
+
+    async def __call__(self, scope, receive, send) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+        request = Request(scope, receive)
+        path = request.url.path
+        # A module's own port (a Listener, #205) answers only that module's routes under its prefixes; those routes
+        # answer on no other port. Until ports are published (tests, scripts) nothing is gated by port.
+        own = serving.listener_prefixes(_request_port(request))
+        if own is not None:
+            if not _module_under(path, own):
+                await JSONResponse({"error": "Not found"}, status_code=404)(scope, receive, send)
+                return
+        elif ((serving.published() and _module_under(path, module_registry.listener_prefixes()))
+              or ((_is_admin_path(path) or _module_under(path, module_registry.panel_prefixes()))
+                  and not _on_admin_port(request))):
+            await JSONResponse({"error": "Not found"}, status_code=404)(scope, receive, send)
+            return
+
+        async def start(message) -> None:
+            if message["type"] == "http.response.start":
+                headers = MutableHeaders(scope=message)
+                if _on_panel_socket(request):
+                    for k, v in PANEL_HEADERS.items():
+                        headers[k] = v
+                    if _is_https(request):
+                        headers["Strict-Transport-Security"] = HSTS
+                headers.setdefault("Permissions-Policy", permissions_policy_for(path))
+                await self._audit(request, path, message["status"])
+            await send(message)
+
+        await self.app(scope, receive, start)
+
+    @staticmethod
+    async def _audit(request: Request, path: str, status: int) -> None:
+        if (request.method in _AUDIT_METHODS and path.startswith("/api/admin/") and status < 400
+                and getattr(request.scope.get("route"), "endpoint", None) not in AUDIT_SKIP_ENDPOINTS):
+            user = getattr(request.state, "user", None)
+            if isinstance(user, User):
+                notes = audit.pending(request) or [_audit_default(request)]
+                await asyncio.to_thread(_audit_write, notes, user, _client_ip(request))
+
+
+app.add_middleware(_Gate)
 
 
 def _on_lan_change(change: netinfo.Change) -> None:

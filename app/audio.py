@@ -79,6 +79,9 @@ _device_cache: list[dict] | None = None
 # has open. The device list is re-probed only when this is zero.
 _capture_count = 0
 _capture_lock = threading.Lock()
+# PortAudio's device table is read from worker threads (the admin pages), and a refresh restarts the backend:
+# a read that lands between the two raises "PortAudio not initialized" (found by tools/stress.py).
+_portaudio_lock = threading.RLock()
 
 
 def _capture_opened() -> None:
@@ -120,15 +123,17 @@ def _number_repeats(devices: list[dict]) -> list[dict]:
 def _probe_input_devices(reinit: bool) -> list[dict]:
     """Ask PortAudio for the device table. `reinit` restarts the backend so
     newly-connected hardware shows up -- and closes any open stream with it."""
-    if reinit:
-        try:
-            sd._terminate()
-            sd._initialize()
-        except Exception:  # pragma: no cover - PortAudio re-init is best effort
-            pass
-    apis = sd.query_hostapis()
+    with _portaudio_lock:
+        if reinit:
+            try:
+                sd._terminate()
+                sd._initialize()
+            except Exception:  # pragma: no cover - PortAudio re-init is best effort
+                pass
+        apis = sd.query_hostapis()
+        devices = list(sd.query_devices())
     out = []
-    for idx, dev in enumerate(sd.query_devices()):
+    for idx, dev in enumerate(devices):
         if dev["max_input_channels"] < 1:
             continue
         api = apis[dev["hostapi"]]["name"] if dev["hostapi"] < len(apis) else "?"
@@ -495,9 +500,11 @@ class DeviceSource(AudioSource):
 def list_output_devices() -> list[dict]:
     """Every output-capable PortAudio device. Never re-initialises the backend, so it is safe while a
     capture is live."""
-    apis = sd.query_hostapis()
+    with _portaudio_lock:
+        apis = sd.query_hostapis()
+        devices = list(sd.query_devices())
     out = []
-    for idx, dev in enumerate(sd.query_devices()):
+    for idx, dev in enumerate(devices):
         if dev["max_output_channels"] < 1:
             continue
         api = apis[dev["hostapi"]]["name"] if dev["hostapi"] < len(apis) else "?"
