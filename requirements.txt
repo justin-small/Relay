@@ -16,7 +16,7 @@ sounddevice==0.5.6
 ifaddr==0.2.0
 # Pure Python; local serial ports for modules (app/serialio.py, #629). Serial over TCP and UDP needs nothing: netsock.
 pyserial==3.5
-numpy==2.5.4
+numpy==2.5.5
 # JPEG encoding for the NDI viewer's MJPEG stream (app/modules/ndi/viewer.py, #296).
 # Pillow 13 needs Python 3.11 or newer (CI and the release build run 3.15); 12.3.0 has known CVEs.
 pillow==13.0.0
