@@ -55,7 +55,7 @@ Python's `Module` (`app/modules/__init__.py`, `docs/modules.md`) maps to the `Mo
 | `Manifest` (id, name, version, summary, settings_key, guide, uses, renamed_from, section) | `Manifest`, a `static` in the module crate |
 | `defaults`, `clean`, `secret_settings` | the methods of the same names, on `serde_json::Value` |
 | `routers()` mounted behind `require_enabled` | `routes()`; `Registry::routes()` wraps each module's router so it answers 404 while off |
-| `listeners` | `listeners()`, opened by #653's listener code |
+| `listeners` | `listeners()`, opened by the server's listener code (#653, "Listeners and TLS" below); `Listener::traffic` names the class that places it |
 | `attach`, `detach`, `provide`, `using`, `withdraw` | `attach`, `detach`, `Host::provide`, `Host::using`, `Host::withdraw_all` (a capability is an `Arc<T>`, found by name and type) |
 | `start`, `stop` (async) | `start`, `stop`, boxed futures so the trait can be a `dyn` |
 | `health` | `health`, a `Health` whose detail is a `&'static str` |
@@ -81,8 +81,10 @@ crate can only use what its `Cargo.toml` lists. `tests/test_rust_modules.py` rea
 - the sources of `relay-core`, or of `relay-server` outside `modules.rs`, name a module crate.
 
 The rule "core never opens a network connection of its own" (`CORE_NETWORK`, `MODULE_SOCKETS`) has no Rust form yet: it needs
-the Rust `netsock` that routes each kind of traffic to its port, which arrives with #653. When it does, the same test checks
-that no module source uses `std::net` or `tokio::net` directly, with a reasoned exception list like today's.
+the Rust `netsock` that routes each kind of traffic to its port. #653 ported only the half the listeners need (which address a
+listener binds, `relay-server/src/netroute.rs`); the outbound half (connect, UDP, multicast) arrives with the first Rust module
+that opens a connection (#661). When it does, the same test checks that no module source uses `std::net` or `tokio::net`
+directly, with a reasoned exception list like today's.
 Adding a module is: `cargo new native/modules/<id>` as `relay-module-<id>`, one dependency line and one `Arc::new(...)` in
 `relay-server`, and `tests/test_rust_modules.py` passes or says what is wrong.
 
@@ -125,6 +127,40 @@ on (none yet) and waits for a signal, the tests (`native/relay-core/tests/core.r
 security scans and the release build moved onto the workspace.
 
 Does not ship: a listener, TLS, templates, the database, accounts, or the front door's route list. Those are #653 to #656.
+
+## Listeners and TLS (#653)
+
+`relay-server` is now a library (`src/lib.rs`, so the tests drive it) and the program (`src/main.rs`). It does what `run.py`,
+`app/serving.py`, `app/tls.py` and the `_Gate` middleware of `app/main.py` do, with the same sentences and the same rules.
+
+| Python | Rust (`native/relay-server/src/`) |
+|---|---|
+| `app/serving.py` sockets, fallback, `plan`, `rebind` | `listen.rs` (bind, 80 to 8080 and 443 to 8443, notices), `serve.rs` (one group of sockets per listener, `Server::rebind`) |
+| `app/netroute.py` `resolve` | `netroute.rs`, a pure function of the saved routes, the ports and the LAN addresses |
+| `app/netinfo.py` ports and ids | `netinfo.rs`, read with `netdev`; the ids (`mac:<mac>`, `name:<name>`) match, because a saved route names one |
+| `app/tls.py` | `tls.rs`: `rcgen` mints, `x509-parser` reads, a rustls `ResolvesServerCert` swaps the certificate for new handshakes. Same `certs/admin.crt` and `admin.key`, so either server reads what the other wrote |
+| `_Gate` | `gate.rs`: admin routes refused on the viewer port, a module's port answers only its prefixes, the panel's headers, HSTS and the Permissions-Policy |
+| `app/announce.py` | `announce.rs`, `mdns-sd`, on the viewer port actually bound |
+
+TLS is `rustls` over a plain accept loop on hyper, not `axum-server`: `axum-server` serves one bound socket, and the listeners
+here must move (a routed port's address changes) and hot-swap a certificate, which is a few lines on a loop of our own.
+
+**The strangler.** Until the last route is ported the Rust server owns the sockets and the Python app runs behind it on one
+loopback port (`python run.py --upstream-port N`, with the same `RELAY_FRONT_TOKEN` the server gets). What the server does not
+serve goes to the app (`forward.rs`); the client's address and the port it reached travel in `X-Forwarded-For`,
+`X-Forwarded-Proto` and `X-Relay-Port`, which the app trusts from a loopback peer and the server always overwrites. Two calls
+(`front.rs`, `app/front.py`) carry what each side alone knows: the app tells the server its module listeners and reserved
+prefixes, the server tells the app what it bound, so links, notices and the Network page say what is true. Both need the token
+and neither is ever answered to a client.
+
+**Rebinding.** Every 5 seconds (Python's `netinfo.POLL_SECONDS`) the server reads config.json and the ports again: a route changed
+on the Network page moves a listener (old sockets close first, the port stays), a new LAN address re-mints the certificate if
+its names no longer fit, the announcement follows the "discovery" class's address.
+
+Left for later: outbound `netsock` (above); the module `Permissions-Policy` pages (microphone, geolocation) for routes the
+server serves itself, which arrive with the modules that name them (the app still adds its own to what it serves); the
+database-backed port names `netroute` uses in sentences when a port is unplugged (Rust says what `known_ports` in config.json
+last saw); the desktop shell's `sidecar` messages (#664).
 
 ## Questions for later issues
 
