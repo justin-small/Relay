@@ -82,9 +82,7 @@ jobs:
           toolchain: stable
       - uses: swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
-          workspaces: |
-            native/relay-bus
-            native/relay-ndi
+          workspaces: native
       # The audio bus core is a Rust extension the app imports (#601); build and install it.
       - name: Build the audio bus core
         run: python tools/build_bus_wheel.py
@@ -292,7 +290,7 @@ jobs:
           path: staged/*
           if-no-files-found: error
 
-  # The Relay Helper (native/relay-helper, #497, #636): the small program an operator installs on the show computer that
+  # The Relay Helper (native/relay-helper, #497, #636; built from the native/ workspace, #652, with the release-helper profile): the small program an operator installs on the show computer that
   # runs ProPresenter. A macOS package (Apple silicon and Intel, both built on the Apple silicon runner: the helper is
   # pure Rust, so one runner is enough and a pull request proves both) and a Windows installer. Both register the
   # helper to start at login (`relay-helper install`). Unsigned until a signing certificate exists, like the desktop
@@ -317,7 +315,7 @@ jobs:
           targets: x86_64-apple-darwin,aarch64-apple-darwin,x86_64-pc-windows-msvc
       - uses: swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
-          workspaces: native/relay-helper
+          workspaces: native
       - name: Version
         id: ver
         shell: bash
@@ -329,15 +327,15 @@ jobs:
           fi
       - name: Build
         shell: bash
-        working-directory: native/relay-helper
+        working-directory: native
         env:
           RELAY_HELPER_VERSION: ${{ steps.ver.outputs.version }}
         run: |
           if [[ "$RUNNER_OS" == macOS ]]; then
-            cargo build --release --locked --target aarch64-apple-darwin
-            cargo build --release --locked --target x86_64-apple-darwin
+            cargo build --profile release-helper -p relay-helper --locked --target aarch64-apple-darwin
+            cargo build --profile release-helper -p relay-helper --locked --target x86_64-apple-darwin
           else
-            cargo build --release --locked --target "${{ matrix.target }}"
+            cargo build --profile release-helper -p relay-helper --locked --target "${{ matrix.target }}"
           fi
       - name: Package for macOS
         if: runner.os == 'macOS'
@@ -351,7 +349,7 @@ jobs:
             target=${pair%%:*}; arch=${pair##*:}
             root="$RUNNER_TEMP/pkg-$arch"
             mkdir -p "$root/usr/local/bin"
-            cp "native/relay-helper/target/$target/release/relay-helper" "$root/usr/local/bin/relay-helper"
+            cp "native/target/$target/release-helper/relay-helper" "$root/usr/local/bin/relay-helper"
             codesign --force --sign - "$root/usr/local/bin/relay-helper"
             pkgbuild --root "$root" --identifier org.relay.helper --version "${VERSION%%-*}" \
               --scripts native/relay-helper/packaging/macos --install-location / \
@@ -368,7 +366,7 @@ jobs:
           # NSIS is not on every runner image: install it, pinned.
           choco install nsis --version 3.11 -y --no-progress
           "/c/Program Files (x86)/NSIS/makensis.exe" -V2 "-DVERSION=$VERSION" \
-            "-DEXE=$(cygpath -w "$PWD/native/relay-helper/target/${{ matrix.target }}/release/relay-helper.exe")" \
+            "-DEXE=$(cygpath -w "$PWD/native/target/${{ matrix.target }}/release-helper/relay-helper.exe")" \
             "-DOUT=$(cygpath -w "$PWD/staged/Relay-Helper-windows-x64.exe")" \
             native/relay-helper/packaging/windows/relay-helper.nsi
       - run: ls -l staged

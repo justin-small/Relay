@@ -9,9 +9,6 @@ description = "Spike for the RF monitor (issues 360-376): RTL-SDR in pure Rust, 
 rtl-sdr-rs = "0.4"
 rustfft = "6"
 
-[profile.dev]
-opt-level = 3
-
 [lib]
 name = "relay_rf"
 path = "src/lib.rs"

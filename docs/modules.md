@@ -1,5 +1,8 @@
 # Modules: how integrations are built
 
+> The Rust server (`native/`, #650) has the same rule in its own form: one crate per module, a `Module` trait that mirrors the
+> interface below. See [rust-server.md](rust-server.md).
+
 **Rule: every integration with another product is a module that can be switched on and off.**
 ProPresenter, Planning Center, mixing consoles, wireless mics, lighting, streaming encoders — anything
 that talks to something outside Relay goes in `app/modules/<id>/`, never into core. A church that uses

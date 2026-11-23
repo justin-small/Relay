@@ -1,0 +1,13 @@
+[package]
+name = "relay-server"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+description = "Relay's Rust server (#652): the program that will replace the FastAPI app. Today it loads config.json, starts the modules that are on, and waits for a shutdown signal."
+
+[dependencies]
+relay-core = { path = "../relay-core" }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "signal", "sync"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt", "env-filter", "ansi"] }

@@ -40,9 +40,7 @@ jobs:
           toolchain: stable
       - uses: swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
-          workspaces: |
-            native/relay-bus
-            native/relay-ndi
+          workspaces: native
       # The audio bus core (#601) and the NDI engine (#606) are Rust extensions the app imports; build and install them.
       - name: Build the Rust extensions
         run: python tools/build_bus_wheel.py
@@ -97,9 +95,7 @@ jobs:
           toolchain: stable
       - uses: swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
-          workspaces: |
-            native/relay-bus
-            native/relay-ndi
+          workspaces: native
       # The audio bus core (#601) and the NDI engine (#606) are Rust extensions the app imports; build and install them.
       - name: Build the Rust extensions
         run: python tools/build_bus_wheel.py
@@ -133,9 +129,7 @@ jobs:
           toolchain: stable
       - uses: swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
-          workspaces: |
-            native/relay-bus
-            native/relay-ndi
+          workspaces: native
       # The audio bus core (#601) and the NDI engine (#606) are Rust extensions the app imports; build and install them.
       - name: Build the Rust extensions
         run: python tools/build_bus_wheel.py
@@ -163,13 +157,16 @@ jobs:
         working-directory: desktop/src-tauri
         run: cargo test --locked
 
-  # The Rust audio bus (native/relay-bus): the engine's tests run on a fake device backend, so they need no sound
-  # hardware. All three platforms, because the cpal backend and the wheel build differ per OS. Linux needs the ALSA
-  # headers for cpal to compile.
-  relay-bus:
-    name: Tests (audio bus, ${{ matrix.os }})
+  # Everything Rust under native/ is one Cargo workspace (#652): the audio bus (#601), the NDI engine (#606), the Relay
+  # Helper (#497), the RF and front door spikes and the Rust server (relay-core, relay-server, modules/). The tests run on
+  # fake devices and fake peers, so they need no sound hardware, NDI install or ProPresenter. All three platforms, because the
+  # cpal backend and the helper differ per OS. Linux needs the ALSA headers for cpal to compile.
+  # Not the wheel crates (relay-bus-py, relay-ndi-py) in cargo test: they have no Rust tests, and linking one needs libpython,
+  # which a runner without Python set up may lack. The wheels are built and imported by the release build and every Python test job.
+  native:
+    name: Tests (Rust workspace, ${{ matrix.os }})
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 30
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
@@ -187,71 +184,13 @@ jobs:
           components: clippy
       - uses: swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
-          workspaces: native/relay-bus
+          workspaces: native
       - name: cargo clippy
-        working-directory: native/relay-bus
-        run: cargo clippy --locked --all-targets -- -D warnings
-      # Not the wheel crate (relay-bus-py): it has no Rust tests, and linking it needs libpython, which a runner without
-      # Python set up may lack. The wheel is built and imported by the release build and by every Python test job.
+        working-directory: native
+        run: cargo clippy --locked --all-targets --workspace -- -D warnings
       - name: cargo test
-        working-directory: native/relay-bus
-        run: cargo test --locked --workspace --exclude relay-bus-py
-
-  # The Rust NDI engine (native/relay-ndi, #606): it opens the NDI runtime with dlopen, so its tests need no NDI install.
-  relay-ndi:
-    name: Tests (NDI engine, ${{ matrix.os }})
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: 30
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # v1
-        with:
-          toolchain: stable
-          components: clippy
-      - uses: swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
-        with:
-          workspaces: native/relay-ndi
-      - name: cargo clippy
-        working-directory: native/relay-ndi
-        run: cargo clippy --locked --all-targets -- -D warnings
-      # Not the wheel crate (relay-ndi-py), for the reason the audio bus gives above.
-      - name: cargo test
-        working-directory: native/relay-ndi
-        run: cargo test --locked --workspace --exclude relay-ndi-py
-
-  # The Relay Helper (native/relay-helper, #497): a small program on a show computer that dials out to Relay. Its tests run a
-  # fake Relay and a fake ProPresenter API on this machine, so they need neither.
-  relay-helper:
-    name: Tests (Relay Helper, ${{ matrix.os }})
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: 30
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # v1
-        with:
-          toolchain: stable
-          components: clippy
-      - uses: swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
-        with:
-          workspaces: native/relay-helper
-      - name: cargo clippy
-        working-directory: native/relay-helper
-        run: cargo clippy --locked --all-targets -- -D warnings
-      - name: cargo test
-        working-directory: native/relay-helper
-        run: cargo test --locked
+        working-directory: native
+        run: cargo test --locked --workspace --exclude relay-bus-py --exclude relay-ndi-py
 
   # Known vulnerabilities in what Relay ships: the Python backend (requirements.txt and the hash-pinned
   # release set) and the desktop shell's Rust crates and npm packages. Runs on every pull request, so a new
@@ -291,12 +230,6 @@ jobs:
       - name: cargo audit
         working-directory: desktop/src-tauri
         run: cargo audit
-      - name: cargo audit (audio bus)
-        working-directory: native/relay-bus
-        run: cargo audit
-      - name: cargo audit (NDI engine)
-        working-directory: native/relay-ndi
-        run: cargo audit
-      - name: cargo audit (Relay Helper)
-        working-directory: native/relay-helper
+      - name: cargo audit (native workspace)
+        working-directory: native
         run: cargo audit

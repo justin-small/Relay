@@ -4,7 +4,7 @@ A small program that runs on a show computer (Mac or Windows) and does things Re
 It is generic: it holds one connection to Relay and runs **capabilities**. The first is ProPresenter; later ones (a
 camera, a lighting desk's local app, a file drop) are added as new capabilities without a new connection or install.
 
-Source: `native/relay-helper/` (Rust, one binary, no runtime to install). Tests: `cargo test` there (a fake Relay and a
+Source: `native/relay-helper/` (Rust, one binary, no runtime to install). Tests: `cargo test -p relay-helper` in `native/`, the Cargo workspace (a fake Relay and a
 fake ProPresenter run on the same machine). CI runs them on Linux, macOS and Windows.
 
 ## Why it exists
