@@ -2816,6 +2816,7 @@ dependencies = [
  "relay-config",
  "relay-core",
  "relay-module-remote_access",
+ "relay-show",
  "rustls",
  "serde",
  "serde_json",

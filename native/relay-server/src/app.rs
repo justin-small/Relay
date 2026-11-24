@@ -40,6 +40,8 @@ pub struct Options {
     pub tick: Duration,
     /// Run the audio bus, routes and meters here (#657) instead of in the app behind the server.
     pub rust_audio: bool,
+    /// Run alerts, stage messages and panels here (#660) instead of in the app behind the server.
+    pub rust_show: bool,
 }
 
 /// config.json's keys for the sockets.
@@ -139,6 +141,7 @@ impl App {
         let net = Net::read(&cfg);
 
         let upstream = opts.upstream.as_deref().map(Upstream::new);
+        let upstream_for_show = upstream.clone();
         let front = match (&opts.upstream, &opts.token) {
             (Some(base), Some(token)) if !token.is_empty() => Some(Front::new(base, token)),
             _ => None,
@@ -155,6 +158,7 @@ impl App {
         match relay_auth::Auth::open(&database_path(), relay_auth::Cost::standard()).await {
             Ok(auth) => {
                 let auth_pool = auth.pool().clone();
+                let auth_pool_show = auth.pool().clone();
                 let accounts = crate::accounts::Accounts::new(auth, crate::pages::Pages::new(&opts.app_dir), opts.config_path.clone());
                 registry.host().set_authorizer(Arc::new(crate::modulehost::AccountsAuthorizer(Arc::clone(&accounts))));
                 if opts.rust_audio {
@@ -167,6 +171,11 @@ impl App {
                             routes = routes.merge(crate::internal::routes(api.clone(), token));
                         }
                         routes = routes.merge(crate::audio::routes(api));
+                    }
+                }
+                if opts.rust_show {
+                    if let Some(api) = crate::show::start(auth_pool_show, Arc::clone(&accounts), &opts.config_path, upstream_for_show, shutdown.clone()).await {
+                        routes = routes.merge(crate::show::routes(api));
                     }
                 }
                 routes = routes.merge(crate::accounts::routes(accounts));

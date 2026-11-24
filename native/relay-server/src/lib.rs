@@ -20,6 +20,7 @@ pub mod netsock;
 pub mod pages;
 pub mod pyapp;
 pub mod serve;
+pub mod show;
 pub mod statics;
 pub mod status;
 pub mod streams;

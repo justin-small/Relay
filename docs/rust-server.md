@@ -327,3 +327,36 @@ and the state of both is POSTed back so the Audio bus page shows it. The door an
   sound card, and no sound card on the machine this was built on).
 - `setup_owner` (accounts, #655) compares `x-admin-token` to `admin_token` in config.json as stored; Python seals that secret, so the
   setup token does not work against a config the Python app has started. Found while writing the end-to-end test; it signs in with a session instead.
+
+## Alerts, stage messages, panels and screens (#660)
+
+`native/relay-show` is `app/alerts.py`, `app/panels.py`, `app/panelfw.py` and `app/screens.py` with no HTTP in the crate, and
+`relay-server/src/show.rs` mounts the routes. Start it with `relay-server --rust-show` (or `RELAY_RUST_SHOW=1`); without the switch
+nothing changes. Boards and the signage modules (`signage`, `signage_web`) are the rest of #660 and follow in their own pull requests.
+
+| Python | Rust |
+|---|---|
+| `alerts.py` settings (`clean_stored`, `validate`, messages, replies) | `relay-show/src/alerts/rules.rs`: the same clamps, the same fixed sentences, on JSON values, so config.json is read and written unchanged |
+| `alerts.Alerts` (press, ack, expire, stage messages, streams) | `alerts/mod.rs`: one state machine behind a mutex; `Env`, `Store` and `History` traits are what it needs from outside |
+| `panels.Registry` (check-in, feeds, rotation, lock, return, service mode, tags, firmware offers) | `panels.rs`: the same rules; operator changes take an `Update` where Python took keyword arguments |
+| `panelfw.py` (image checks, the `panel-firmware/` store) | `firmware.rs`: reads and writes the files a Python Relay wrote; the same sentences for a refused image |
+| `screens.py` and the screens, places and keys tables | `screens.rs`, on migration 0008's tables (a database the Rust server made itself has none, and the app behind it serves them) |
+| `/api/alerts/*`, `/api/panels/*`, `/stream?stream=alert`, `/api/admin/alerts*`, `/api/admin/panels*` | `show.rs`: viewer-port routes with no login, admin routes behind `alerts.*` and `panels.*`, each writing the audit entry Python's gate wrote |
+
+**Time is injected.** `Clock` gives the alert and panel timers a monotonic second count and the history a wall-clock stamp, so the tests
+move a clock instead of sleeping.
+
+**What a stalled reader costs.** A sender, panel or screen stream is a bounded queue of 16 frames. A reader that stops reading is dropped
+and its stream ends, so the browser or panel reconnects and is told the state (Python closed it the same way).
+
+**`/stream`.** Only `stream=alert` is answered here; every other feed is forwarded to the app, which still publishes the captions.
+
+**Not here yet, and why.**
+
+- The Python modules that call alerts and panels (OBS, REAPER, Dante, NDI, ProPresenter, Planning Center, tones, alert events) keep their
+  own in-memory copy of both. Run them against `--rust-show` only once #661 has ported them; until then the switch is for testing.
+- The admin page's live updates for alerts and panels ride the admin status stream, which the caption engine still feeds in Python
+  (#659). `GET /api/admin/alerts` and `/api/admin/panels` answer from Rust; the page sees changes when it asks.
+- The Screens and Places admin routes, `/screen` and the board routes move with boards and signage.
+- Planning Center's followed service types (a panel's `service_type`) are asked of the module, so until it is ported a panel cannot be set
+  to a service through the Rust route.

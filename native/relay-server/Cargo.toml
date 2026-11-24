@@ -20,6 +20,8 @@ relay-auth = { path = "../relay-auth" }
 relay-config = { path = "../relay-config" }
 relay-core = { path = "../relay-core" }
 relay-module-remote_access = { path = "../modules/remote_access" }
+relay-show = { path = "../relay-show" }
+sqlx = { version = "0.9", default-features = false, features = ["runtime-tokio", "sqlite", "macros"] }
 axum = { version = "0.8", default-features = false, features = ["http1", "json", "tokio", "ws"] }
 futures-core = "0.3"
 bytes = "1"
@@ -52,7 +54,6 @@ x509-parser = "0.16"
 windows-sys = { version = "0.59", features = ["Win32_Networking_WinSock", "Win32_System_IO"] }
 
 [dev-dependencies]
-sqlx = { version = "0.9", default-features = false, features = ["runtime-tokio", "sqlite", "macros"] }
 futures-util = "0.3"
 tokio-tungstenite = "0.30"
 rand = "0.8"
