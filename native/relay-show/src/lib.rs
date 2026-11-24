@@ -9,10 +9,14 @@
 //! Time is injected ([`Clock`]), so a test moves a clock instead of sleeping.
 
 pub mod alerts;
+pub mod boards;
 pub mod firmware;
+pub mod layout;
 pub mod panels;
+pub mod schedules;
 pub mod screens;
 pub mod text;
+pub mod timewin;
 
 use std::sync::Arc;
 
