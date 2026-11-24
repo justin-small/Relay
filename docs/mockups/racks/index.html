@@ -1,0 +1,178 @@
+<!doctype html><html lang="en" data-theme="dark" data-preset="relay"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<link rel="stylesheet" href="../../../app/static/tokens.css"><link rel="stylesheet" href="../../../app/static/components.css"><link rel="stylesheet" href="racks.css">
+<title>Racks</title></head><body>
+<div class="top"><b>Racks</b><span class="crumb" id="crumb"></span><span class="sp"></span><span class="muted">Ana Ruiz · manage</span></div>
+<div class="app">
+  <aside class="lib">
+    <h3>Devices</h3><div class="hint">Drag a device to a rack unit to add it.</div>
+    <input type="search" id="q" placeholder="Search" aria-label="Search devices">
+    <div id="lib"></div>
+  </aside>
+
+  <section class="mid">
+    <div class="bar">
+      <select id="rackSel" aria-label="Rack"></select>
+      <div class="seg" id="face" role="group" aria-label="Side"><button type="button" class="on" data-v="front">Front</button><button type="button" data-v="back">Back</button></div>
+      <div class="tools">
+        <button type="button" id="zin" aria-label="Zoom in">+</button><button type="button" id="zout" aria-label="Zoom out">−</button><button type="button" id="zfit" aria-label="Fit to screen">Fit</button>
+        <button type="button" id="undo" aria-label="Undo">↶</button><button type="button" id="redo" aria-label="Redo">↷</button>
+      </div>
+      <span class="sp"></span>
+      <button type="button" class="mode" id="cabling" title="Click a port, then the port at the other end">Cabling mode</button>
+      <button type="button" id="assign">Move to location</button>
+      <button type="button" class="primary" id="newRack">New rack</button>
+    </div>
+    <div class="stage"><div class="frame" id="frame"></div></div>
+    <div class="foot"><span><i></i>Free port</span><span><i class="u"></i>Cabled</span><span><i class="l"></i>Selected device’s cables</span><span class="sp"></span><span id="stat"></span></div>
+  </section>
+
+  <aside class="side" id="side"></aside>
+</div>
+
+<div class="modal" id="mNew"><div class="box"><h3>New rack</h3>
+  <div class="field"><label>Name</label><input id="nName" value="Rack C" maxlength="40"></div>
+  <div class="field"><label>Location</label><select id="nPlace"></select></div>
+  <div class="field"><label>Height (units)</label><select id="nU"><option>12</option><option>24</option><option selected>42</option><option>48</option></select></div>
+  <div class="row"><button type="button" data-close>Cancel</button><button type="button" class="primary" id="nGo">Create rack</button></div></div></div>
+<div class="modal" id="mMove"><div class="box"><h3>Move rack to a location</h3>
+  <div class="field"><label>Location</label><select id="mPlace"></select></div>
+  <p class="muted" style="font-size:var(--fs-sm)">Gear in the rack moves with it. A location that does not exist yet is made when you type its name in Screens.</p>
+  <div class="row"><button type="button" data-close>Cancel</button><button type="button" class="primary" id="mGo">Move</button></div></div></div>
+<div class="toast" id="toast"></div>
+
+<script>
+const PLACES=["Booth","Stage left","Server room"];
+const LIB=[["Cable Manager",1,0,"misc"],["Firewall",1,8,"eth"],["Gateway",1,8,"eth"],["Miscellaneous",1,0,"misc"],["Patch Panel",1,24,"eth"],["Rack Tray",2,0,"misc"],["Router",1,8,"eth"],["Server",2,4,"eth"],["Switch",1,24,"eth"],["UPS",2,0,"iec"]];
+let racks=[
+ {id:1,name:"Rack A",place:"Booth",u:42,gear:[
+  {id:1,key:"PP01",name:"Patch panel",kind:"Patch Panel",at:41,h:1,ports:24},
+  {id:2,key:"SW01",name:"Switch Control",kind:"Switch",at:39,h:1,ports:24},
+  {id:3,key:"SW02",name:"Switch AV (Dante)",kind:"Switch",at:38,h:1,ports:24},
+  {id:4,key:"RT01",name:"Router",kind:"Router",at:36,h:1,ports:8},
+  {id:5,key:"SV01",name:"Relay server",kind:"Server",at:33,h:2,ports:4},
+  {id:6,key:"UP01",name:"UPS",kind:"UPS",at:1,h:2,ports:0}]},
+ {id:2,name:"Rack B",place:"Stage left",u:24,gear:[{id:7,key:"SW03",name:"Switch Stage",kind:"Switch",at:22,h:1,ports:24}]}];
+let cables=[["SW01",1,"PP01",1],["SW01",2,"PP01",2],["SW01",3,"RT01",1],["SW01",4,"SV01",1],["SW02",1,"SV01",2],["SW02",2,"PP01",5],["SW01",24,"SW02",24]];
+let selP=null,cur=1,face="front",sel=2,zoom=1,cab=false,pick=null,nid=20,hist=[],fut=[];
+const $=s=>document.querySelector(s),R=()=>racks.find(r=>r.id===cur),U=34;
+const snap=()=>JSON.stringify([racks,cables]);
+function push(){hist.push(snap());fut=[];}
+function restore(s){[racks,cables]=JSON.parse(s);if(!R())cur=racks[0].id;draw();}
+function toast(t){const e=$("#toast");e.textContent=t;e.classList.add("on");clearTimeout(toast.t);toast.t=setTimeout(()=>e.classList.remove("on"),1800);}
+const cabled=(k,n)=>cables.filter(c=>(c[0]===k&&c[1]===n)||(c[2]===k&&c[3]===n));
+const find=k=>racks.flatMap(r=>r.gear).find(g=>g.key===k);
+function draw(){
+  const r=R();
+  $("#rackSel").innerHTML=racks.map(x=>`<option value="${x.id}"${x.id===cur?" selected":""}>${x.name} · ${x.place}</option>`).join("");
+  $("#crumb").innerHTML=`Locations › ${r.place} › <b>${r.name}</b>`;
+  let ruler="",slots="",devs="";
+  for(let u=r.u;u>=1;u--){ruler+=`<div>${u}</div>`;slots+=`<div class="slot" data-u="${u}"><span class="plus" title="Add a device">+</span></div>`;}
+  r.gear.forEach(g=>{
+    const top=(r.u-(g.at+g.h-1))*U,mine=sel===g.id;
+    const back=face==="back";
+    const shown=g.kind==="UPS"?g.ports:(back?Math.min(g.ports,2):g.ports);
+    let p="";
+    for(let i=1;i<=(g.kind==="UPS"?0:shown);i++){
+      const c=cabled(g.key,i),isSel=c.length&&mine,cl=(isSel?"link":c.length?"used":"");
+      const up=c.length&&!back?" up":"";
+      p+=`<span class="pt ${cl}${up}${pick&&pick[0]===g.key&&pick[1]===i?" pick":""}${selP&&selP[0]===g.key&&selP[1]===i?" psel":""}" data-k="${g.key}" data-n="${i}" title="${g.key}/${i}"></span>`;
+    }
+    devs+=`<div class="dev${mine?" on":""}" data-g="${g.id}" draggable="true" style="top:${top}px;height:${g.h*U}px"><span class="id">${g.key}</span><span class="nm">${g.name}${back&&g.kind==="UPS"?" · mains in":""}</span><span class="ports">${p}</span></div>`;
+  });
+  $("#frame").className="frame"+(face==="back"?" back":"");
+  $("#frame").style.transform=`scale(${zoom})`;
+  $("#frame").innerHTML=`<div class="ruler">${ruler}</div><div class="rack"><div class="slots">${slots}${devs}</div></div>`;
+  const used=r.gear.reduce((a,g)=>a+g.h,0);
+  $("#stat").textContent=`${used} of ${r.u} U used · ${r.gear.length} devices`;
+  side();lib();wire();
+}
+function lib(){
+  const q=$("#q").value.toLowerCase();
+  $("#lib").innerHTML=LIB.filter(l=>l[0].toLowerCase().includes(q)).map((l,i)=>`<div class="cat" draggable="true" data-i="${i}"><span>${l[0]}</span><small>${l[1]}U</small></div>`).join("");
+  document.querySelectorAll(".cat").forEach(e=>e.addEventListener("dragstart",ev=>{ev.dataTransfer.setData("lib",LIB.filter(l=>l[0].toLowerCase().includes(q))[e.dataset.i][0]);}));
+}
+function free(r,at,h,ignore){if(at<1||at+h-1>r.u)return false;return !r.gear.some(g=>g.id!==ignore&&!(at+h-1<g.at||at>g.at+g.h-1));}
+function addDev(kind,at){
+  const l=LIB.find(x=>x[0]===kind),r=R();
+  if(!free(r,at-l[1]+1,l[1])){toast("That space is taken or off the rack.");return;}
+  push();const n=r.gear.filter(g=>g.kind===kind).length+1,pre=kind.split(" ").map(w=>w[0]).join("").toUpperCase().padEnd(2,"X").slice(0,2);
+  const g={id:nid++,key:pre+String(n).padStart(2,"0")+r.name.slice(-1),name:kind,kind,at:at-l[1]+1,h:l[1],ports:l[2]};
+  r.gear.push(g);sel=g.id;draw();toast(`${kind} added at U${at}`);
+}
+function wire(){
+  document.querySelectorAll(".slot").forEach(s=>{
+    s.addEventListener("dragover",e=>{e.preventDefault();s.classList.add("over");});
+    s.addEventListener("dragleave",()=>s.classList.remove("over"));
+    s.addEventListener("drop",e=>{e.preventDefault();s.classList.remove("over");const u=+s.dataset.u,k=e.dataTransfer.getData("lib"),mv=e.dataTransfer.getData("mv");
+      if(k)addDev(k,u);
+      else if(mv){const g=R().gear.find(x=>x.id==mv);if(free(R(),u-g.h+1,g.h,g.id)){push();g.at=u-g.h+1;draw();}else toast("That space is taken.");}});
+    s.querySelector(".plus").addEventListener("click",()=>toast("Drag a device from the list onto this unit."));
+  });
+  document.querySelectorAll(".dev").forEach(d=>{
+    d.addEventListener("dragstart",e=>e.dataTransfer.setData("mv",d.dataset.g));
+    d.addEventListener("click",e=>{if(e.target.closest(".pt"))return;sel=+d.dataset.g;selP=null;draw();});
+  });
+  document.querySelectorAll(".pt").forEach(p=>p.addEventListener("click",e=>{
+    e.stopPropagation();const k=p.dataset.k,n=+p.dataset.n;
+    if(!cab){sel=find(k).id;selP=[k,n];draw();return;}
+    if(!pick){pick=[k,n];draw();toast("Now click the port at the other end.");return;}
+    if(pick[0]===k&&pick[1]===n){pick=null;draw();return;}
+    if(cabled(k,n).length||cabled(pick[0],pick[1]).length){toast("A port takes one cable. Remove it first.");pick=null;draw();return;}
+    push();cables.push([pick[0],pick[1],k,n]);pick=null;draw();toast("Cable recorded");
+  }));
+}
+const notes={};
+function portInfo(g){
+  if(!selP||selP[0]!==g.key)return"";
+  const [k,n]=selP,c=cabled(k,n)[0],o=c?(c[0]===k&&c[1]===n?[c[2],c[3]]:[c[0],c[1]]):null,og=o&&find(o[0]);
+  return `<div class="pinfo"><h4>Port ${k}/${String(n).padStart(2,"0")} <button type="button" id="pX" style="float:right;height:var(--ctl-h-sm)">Close</button></h4>
+  <dl><dt>Type</dt><dd>${g.kind==="Patch Panel"?"RJ45 (punch-down behind)":"RJ45 · 1 Gb"}</dd>
+  <dt>Link</dt><dd>${c?"Up · 1 Gb/s":"No cable"}</dd>
+  <dt>Cable to</dt><dd>${o?`${o[0]}/${String(o[1]).padStart(2,"0")} · ${og?og.name:""}`:"Nothing recorded"}</dd>
+  <dt>Where</dt><dd>${R().place} / ${R().name} / U${g.at}</dd></dl>
+  <input id="pNote" placeholder="Note for this port" value="${notes[k+"/"+n]||""}" maxlength="300">
+  ${c?`<div class="ctl" style="margin-top:var(--sp-2)"><button type="button" id="pRm" data-c="${cables.indexOf(c)}">Remove cable</button></div>`:""}</div>`;
+}
+function side(){
+  const g=R().gear.find(x=>x.id===sel);
+  if(!g){$("#side").innerHTML=`<h3>Device settings</h3><div class="empty">Pick a device in the rack.</div>`;return;}
+  const wired=[];for(let i=1;i<=g.ports;i++){const c=cabled(g.key,i)[0];if(c)wired.push([i,c]);}
+  $("#side").innerHTML=`<h3>${R().place} / ${R().name} / ${g.key}</h3>
+  ${portInfo(g)}
+  <div class="sec">Settings</div>
+  <div class="field"><label>ID</label><input id="sId" value="${g.key}"></div>
+  <div class="field"><label>Name</label><input id="sName" value="${g.name}"></div>
+  <div class="field"><label>Type</label><input value="${g.kind}" disabled></div>
+  <div class="field"><label>Size (rack units)</label><select id="sH">${[1,2,3,4,5,6,8,10].map(n=>`<option${n===g.h?" selected":""}>${n}</option>`).join("")}</select></div>
+  <div class="field"><label>Position</label><input value="U${g.at}${g.h>1?"–U"+(g.at+g.h-1):""}" disabled></div>
+  <div class="ctl"><button type="button" id="rm" class="danger">Remove from rack</button></div>
+  <div class="sec">Ports <span class="muted" style="font-weight:400">${g.ports} total</span></div>
+  <div class="muted" style="font-size:var(--fs-sm);margin-bottom:var(--sp-2)">Wired ports</div>
+  ${wired.length?wired.map(([i,c])=>{const o=c[0]===g.key&&c[1]===i?[c[2],c[3]]:[c[0],c[1]],og=find(o[0]);
+    return `<div class="wp"><div class="h"><b>${String(i).padStart(2,"0")} <span class="muted">RJ45</span></b><button type="button" data-rc="${cables.indexOf(c)}" aria-label="Remove cable">Remove</button></div>
+    <div class="path"><span class="a">${g.key}/${String(i).padStart(2,"0")}</span><span class="w">${R().place}/${R().name}/cable</span><span class="e">${o[0]}/${String(o[1]).padStart(2,"0")}</span><span class="d">${og?og.name:""}</span></div></div>`;}).join(""):`<div class="empty">No cables yet. Turn on Cabling mode, then click two ports.</div>`}`;
+  $("#sH").onchange=e=>{const n=+e.target.value,r=R();if(!free(r,g.at,n,g.id)){toast("Not enough free units above this device.");e.target.value=g.h;return;}push();g.h=n;draw();toast(`Now ${n}U`);};
+  if($("#pNote"))$("#pNote").onchange=e=>{notes[selP.join("/")]=e.target.value;toast("Note saved");};
+  if($("#pRm"))$("#pRm").onclick=()=>{push();cables.splice(+$("#pRm").dataset.c,1);draw();};
+  if($("#pX"))$("#pX").onclick=()=>{selP=null;draw();};
+  $("#sName").onchange=e=>{push();g.name=e.target.value;draw();};
+  $("#sId").onchange=e=>{const v=e.target.value.trim();if(!v)return;push();cables.forEach(c=>{if(c[0]===g.key)c[0]=v;if(c[2]===g.key)c[2]=v;});g.key=v;draw();};
+  $("#rm").onclick=()=>{push();const r=R();r.gear=r.gear.filter(x=>x!==g);cables=cables.filter(c=>c[0]!==g.key&&c[2]!==g.key);sel=null;draw();toast("Removed. Its cables went with it.");};
+  document.querySelectorAll("[data-rc]").forEach(b=>b.onclick=()=>{push();cables.splice(+b.dataset.rc,1);draw();});
+}
+const place=()=>PLACES.map(p=>`<option>${p}</option>`).join("");
+$("#nPlace").innerHTML=place();$("#mPlace").innerHTML=place();
+$("#rackSel").onchange=e=>{cur=+e.target.value;sel=null;draw();};
+$("#face").onclick=e=>{const b=e.target.closest("button");if(!b)return;face=b.dataset.v;document.querySelectorAll("#face button").forEach(x=>x.classList.toggle("on",x===b));draw();};
+$("#q").oninput=lib;
+$("#zin").onclick=()=>{zoom=Math.min(1.5,zoom+.1);draw();};$("#zout").onclick=()=>{zoom=Math.max(.5,zoom-.1);draw();};$("#zfit").onclick=()=>{zoom=1;draw();};
+$("#undo").onclick=()=>{if(!hist.length)return;fut.push(snap());restore(hist.pop());};
+$("#redo").onclick=()=>{if(!fut.length)return;hist.push(snap());restore(fut.pop());};
+$("#cabling").onclick=e=>{cab=!cab;pick=null;e.currentTarget.classList.toggle("on",cab);e.currentTarget.textContent=cab?"Cabling mode: on":"Cabling mode";draw();};
+$("#newRack").onclick=()=>$("#mNew").classList.add("on");
+$("#assign").onclick=()=>{$("#mPlace").value=R().place;$("#mMove").classList.add("on");};
+document.querySelectorAll("[data-close]").forEach(b=>b.onclick=()=>b.closest(".modal").classList.remove("on"));
+$("#nGo").onclick=()=>{push();const r={id:nid++,name:$("#nName").value.trim()||"Rack",place:$("#nPlace").value,u:+$("#nU").value,gear:[]};racks.push(r);cur=r.id;sel=null;$("#mNew").classList.remove("on");draw();toast("Rack created");};
+$("#mGo").onclick=()=>{push();R().place=$("#mPlace").value;$("#mMove").classList.remove("on");draw();toast("Rack moved");};
+draw();
+</script></body></html>
