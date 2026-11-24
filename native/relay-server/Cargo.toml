@@ -20,6 +20,7 @@ relay-auth = { path = "../relay-auth" }
 relay-config = { path = "../relay-config" }
 relay-core = { path = "../relay-core" }
 relay-module-remote_access = { path = "../modules/remote_access" }
+relay-module-ndi = { path = "../modules/ndi" }
 relay-module-signage = { path = "../modules/signage" }
 relay-show = { path = "../relay-show" }
 sqlx = { version = "0.9", default-features = false, features = ["runtime-tokio", "sqlite", "macros"] }

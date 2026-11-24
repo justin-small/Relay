@@ -584,6 +584,11 @@ impl AudioBus {
         self.state().external = state;
     }
 
+    /// What `set_external` last said.
+    pub fn external(&self) -> Value {
+        self.state().external.clone()
+    }
+
     /// Hand a block of a network source to the engine (`channels` interleaved).
     pub fn push(&self, input_id: &str, data: &[f32], channels: usize, rate: u32) -> bool {
         self.engine.push(input_id, data, channels, rate).is_ok()

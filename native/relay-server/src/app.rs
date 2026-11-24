@@ -188,6 +188,12 @@ impl App {
                         _ => None,
                     };
                     if let Some(api) = crate::audio::start(auth_pool, Arc::clone(&accounts), &opts.config_path, app, shutdown.clone()).await {
+                        registry.host().provide("core", relay_core::lanes::LANES, Arc::new(relay_core::lanes::LanesCap(Arc::new(crate::lanescap::CoreLanes::new(Arc::clone(&api.bus))))));
+                        registry.host().provide(
+                            "core",
+                            relay_core::routes::ROUTES,
+                            Arc::new(relay_core::routes::RoutesCap(Arc::new(crate::routescap::CoreRoutes { routing: Arc::clone(&api.routing), channels: Arc::clone(&api.channels) }))),
+                        );
                         if let Some(token) = opts.token.as_deref().filter(|t| !t.is_empty()) {
                             routes = routes.merge(crate::internal::routes(api.clone(), token));
                         }

@@ -71,6 +71,7 @@ pub struct Routing {
     pub channels: Arc<Channels>,
     core: RwLock<HashMap<String, Arc<dyn Provider>>>,
     external: RwLock<HashMap<String, Arc<dyn Provider>>>,
+    native: RwLock<HashMap<String, Arc<dyn Provider>>>,
     generation: AtomicU64,
 }
 
@@ -96,7 +97,7 @@ fn salvo_ref(id: i64) -> String {
 
 impl Routing {
     pub fn new(channels: Arc<Channels>) -> Arc<Self> {
-        Arc::new(Self { channels, core: RwLock::default(), external: RwLock::default(), generation: AtomicU64::new(0) })
+        Arc::new(Self { channels, core: RwLock::default(), external: RwLock::default(), native: RwLock::default(), generation: AtomicU64::new(0) })
     }
 
     /// A number that goes up whenever a route is written through this process, so a cache of what routes say can tell it is stale.
@@ -114,12 +115,22 @@ impl Routing {
         *self.external.write().unwrap_or_else(|e| e.into_inner()) = providers;
     }
 
+    /// A module ported to Rust offers its interface under its provider id; unlike `set_external` it is not replaced by the app's answer.
+    pub fn provide_native(&self, provider: &str, api: Arc<dyn Provider>) {
+        self.native.write().unwrap_or_else(|e| e.into_inner()).insert(provider.to_owned(), api);
+    }
+
+    pub fn withdraw_native(&self, provider: &str) {
+        self.native.write().unwrap_or_else(|e| e.into_inner()).remove(provider);
+    }
+
     fn api(&self, provider: &str) -> Option<Arc<dyn Provider>> {
         self.core
             .read()
             .unwrap_or_else(|e| e.into_inner())
             .get(provider)
             .cloned()
+            .or_else(|| self.native.read().unwrap_or_else(|e| e.into_inner()).get(provider).cloned())
             .or_else(|| self.external.read().unwrap_or_else(|e| e.into_inner()).get(provider).cloned())
     }
 
