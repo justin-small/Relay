@@ -479,3 +479,36 @@ pub fn epoch_of(stamp: &str) -> Option<f64> {
     let fraction = if frac.is_empty() { 0.0 } else { format!("0.{frac}").parse().unwrap_or(0.0) };
     Some((days * 86_400 + t[0] * 3600 + t[1] * 60 + t[2]) as f64 + fraction)
 }
+
+// ------------------------------------------------------------------------------------------------------------------ for modules
+use relay_core::module::BoxFuture;
+use relay_core::screens::{ScreenDirectory, ScreenError, ScreenResult};
+
+fn lift<T>(r: Result<T>) -> ScreenResult<T> {
+    r.map_err(|e| match e {
+        Error::Refused(k) => ScreenError::Refused(sentence(k)),
+        Error::Unavailable(_) => ScreenError::Unavailable,
+    })
+}
+
+/// What a module sees of the screens tables: the server hands it `Arc<dyn ScreenDirectory>` as `"core.screens"`.
+impl ScreenDirectory for Screens {
+    fn by_key<'a>(&'a self, key: &'a str) -> BoxFuture<'a, ScreenResult<Option<Value>>> {
+        Box::pin(async move { lift(Screens::by_key(self, key).await) })
+    }
+    fn adopt<'a>(&'a self, key: &'a str, name: &'a str, heard: bool) -> BoxFuture<'a, ScreenResult<Value>> {
+        Box::pin(async move { lift(Screens::adopt(self, key, name, "browser", "", "", heard).await) })
+    }
+    fn move_key<'a>(&'a self, old: &'a str, new: &'a str) -> BoxFuture<'a, ScreenResult<()>> {
+        Box::pin(async move { lift(Screens::move_key(self, old, new).await) })
+    }
+    fn forget_key<'a>(&'a self, key: &'a str) -> BoxFuture<'a, ScreenResult<()>> {
+        Box::pin(async move { lift(Screens::forget_key(self, key).await) })
+    }
+    fn rename<'a>(&'a self, id: i64, name: &'a str, panel_ok: bool) -> BoxFuture<'a, ScreenResult<i64>> {
+        Box::pin(async move { lift(Screens::rename(self, id, name, panel_ok).await) })
+    }
+    fn keys<'a>(&'a self, id: i64) -> BoxFuture<'a, ScreenResult<Vec<String>>> {
+        Box::pin(async move { lift(Screens::keys(self, id).await) })
+    }
+}

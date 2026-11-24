@@ -380,3 +380,19 @@ Two choices where Python asks something outside the crate:
 needs something that is Python-only until #661: the widgets modules offer (lighting cues, ProPresenter follow), and the live state of the
 screens asking for a board. Mounting the admin routes alone would drop module widgets from the Boards page's list. The rules are ready
 for the day those routes move.
+
+### Signage (#660): what is ready, and what the module needs
+
+Signage (`app/modules/signage`, `signage_web`) is a module, so it is a crate under `native/modules/signage` that depends on `relay-core`
+only. Ready for it:
+
+- `relay_core::timewin` and `relay_core::schedules` (moved out of `relay-show`, which re-exports them): days from Sunday = 0, daily
+  windows, and whether a named schedule is open, with the US daylight-saving rule.
+- `relay_core::screens::ScreenDirectory`: the six calls signage makes on core's screens (`by_key`, `adopt`, `move_key`, `forget_key`,
+  `rename`, `keys`). `relay_show::Screens` implements it, and the server will hand it to a module as the capability `"core.screens"`.
+
+Still to build, in this order: the module's tables (`signage_media`, `_playlists`, `_items`, `_groups`, `_screens`, `_slots`,
+`_overrides`, `_takeovers`, from the Python migrations 0001 to 0004, read in place as the audio and screens tables are); the capabilities
+the server provides (`core.db`, the alert state for the banner); the store, schedule and takeover rules; the player page and its event
+stream; media upload and serving (a file is named by its sha-256, and its type is read from its first bytes); the admin routes.
+Items from other modules' sources (ProPresenter slides, Planning Center media, YouTube) are skipped until those modules are ported (#661).

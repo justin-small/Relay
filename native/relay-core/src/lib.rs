@@ -13,8 +13,11 @@ pub mod module;
 pub mod net;
 pub mod paths;
 pub mod registry;
+pub mod schedules;
+pub mod screens;
 pub mod shutdown;
 pub mod store;
+pub mod timewin;
 
 pub use access::{Authorizer, Permission};
 pub use config::Config;
