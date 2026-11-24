@@ -1,0 +1,31 @@
+[package]
+name = "relay-module-ndi"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+description = "NDI (#294, ported in #658): finds NDI sources on the network and shares one receiver per source, with no frame entering Python."
+
+[lib]
+name = "relay_module_ndi"
+path = "src/lib.rs"
+
+[dependencies]
+relay-core = { path = "../../relay-core" }
+relay-ndi = { path = "../../relay-ndi/crates/relay-ndi" }
+axum = { version = "0.8", default-features = false, features = ["json", "tokio", "query"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["preserve_order"] }
+tokio = { version = "1", features = ["rt", "macros", "time", "sync", "net", "fs", "process", "io-util"] }
+tracing = "0.1"
+bytes = "1"
+tokio-stream = "0.1"
+rand = "0.8"
+png = "0.17"
+jpeg-decoder = { version = "0.3", default-features = false }
+base64 = "0.22"
+futures-util = "0.3"
+tokio-tungstenite = { version = "0.30", default-features = false, features = ["connect"] }
+
+[dev-dependencies]
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "time", "sync", "net"] }

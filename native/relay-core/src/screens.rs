@@ -84,6 +84,13 @@ pub fn showing(screen: &Value, schedule_open: impl Fn(&str) -> bool, signage_on:
 /// as the capability `signage.source.<kind>` ([`SIGNAGE_SOURCE`] plus the kind) and withdraws it when it stops, so signage never names it.
 pub const SIGNAGE_SOURCE: &str = "signage.source.";
 
+/// Pages another module offers as NDI outputs (`ndi.outputs.<id>`, #299): a module provides one as the capability `ndi.outputs.<id>`
+/// ([`NDI_OUTPUTS`] plus the id) and withdraws it when it stops, so the NDI module never names it. Each is
+/// `{"id", "name", "group", "url", "alpha"}`; the url is a path on this server or this machine's own address.
+pub const NDI_OUTPUTS: &str = "ndi.outputs.";
+
+pub struct PageOutputs(pub Box<dyn Fn() -> Vec<Value> + Send + Sync>);
+
 pub type ResolveFn = dyn Fn(&str) -> Option<Value> + Send + Sync;
 pub type DescribeFn = dyn Fn(&str) -> Value + Send + Sync;
 pub type ChoicesFn = dyn Fn() -> Vec<Value> + Send + Sync;
