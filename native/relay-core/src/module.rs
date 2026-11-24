@@ -191,6 +191,12 @@ impl Host {
         }
     }
 
+    /// Everything provided under a name that starts with `prefix`, as `(name without the prefix, value)`, for the ones of type `T`.
+    pub fn using_all<T: Any + Send + Sync>(&self, prefix: &str) -> Vec<(String, Arc<T>)> {
+        let Ok(map) = self.shared.lock() else { return Vec::new() };
+        map.iter().filter_map(|(name, (_, v))| Some((name.strip_prefix(prefix)?.to_owned(), Arc::clone(v).downcast::<T>().ok()?))).collect()
+    }
+
     pub fn withdraw_all(&self, owner: &str) {
         if let Ok(mut map) = self.shared.lock() {
             map.retain(|_, (who, _)| who != owner);

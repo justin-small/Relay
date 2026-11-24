@@ -79,3 +79,21 @@ pub fn showing(screen: &Value, schedule_open: impl Fn(&str) -> bool, signage_on:
     }
     serde_json::json!({"kind": kind, "ref": ref_, "why": if kind.is_empty() { "" } else { why }})
 }
+
+/// Where signage playlist items come from besides uploads (`app/modules/signage/sources.py`, #205): a module that adds items provides one
+/// as the capability `signage.source.<kind>` ([`SIGNAGE_SOURCE`] plus the kind) and withdraws it when it stops, so signage never names it.
+pub const SIGNAGE_SOURCE: &str = "signage.source.";
+
+pub type ResolveFn = dyn Fn(&str) -> Option<Value> + Send + Sync;
+pub type DescribeFn = dyn Fn(&str) -> Value + Send + Sync;
+pub type ChoicesFn = dyn Fn() -> Vec<Value> + Send + Sync;
+
+pub struct SignageSource {
+    pub label: String,
+    /// What the player shows for `ref`: `{"type": "image"|"video"|"page", "url", ...}`, or `None` to skip the item.
+    pub resolve: Box<ResolveFn>,
+    /// How the admin page lists `ref`: `{"name", "thumb", "missing"?}`.
+    pub describe: Box<DescribeFn>,
+    /// What can be added from it: `[{"ref", "name", "thumb"}]`.
+    pub choices: Box<ChoicesFn>,
+}

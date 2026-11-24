@@ -390,7 +390,7 @@ takeovers, the alert banner, the player page and its event stream. It depends on
 flashing now. `relay_core::timewin` and `relay_core::schedules` (moved out of `relay-show`, which re-exports them) read days from Sunday = 0,
 daily windows and whether a named schedule is open, with the US daylight-saving rule.
 
-The module applies the Python migrations 0001 to 0004 itself the first time it starts (namespace `signage` in `schedule_migrations`, as Python
+The module applies the Python migrations 0001 to 0004 itself the first time it starts (namespace `signage` in `schema_migrations`, as Python
 records them), so either server reads what the other wrote. Uploads are named by their sha-256 and typed from their first bytes; a thumbnail is
 made by the browser and only stored. `Host::note` writes the audit entry Python's `audit.note` wrote.
 

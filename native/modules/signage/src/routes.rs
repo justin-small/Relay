@@ -411,7 +411,7 @@ async fn admin_state(State(c): State<Ctx>) -> Response {
             "settings": st.settings(), "port": info, "screens": screens, "groups": groups, "playlists": lists, "media": lib,
             "storage": {"used": used, "free": free, "low": free >= 0 && (free as u64) < media::LOW_DISK},
             "limits": {"image": media::IMAGE_LIMIT, "video": media::VIDEO_LIMIT},
-            "sources": [{"kind": "media", "label": "Uploaded image or video"}],
+            "sources": st.source_kinds(),
             "slots": slot_rows, "overrides": over, "takeovers": taken,
             "views": crate::takeover::VIEWS.iter().map(|v| json!({"id": v, "label": crate::takeover::view(v).map_or("", |x| x.0)})).collect::<Vec<_>>(),
             "timezone": st.tz_name(),
@@ -462,8 +462,14 @@ async fn admin_preview(State(c): State<Ctx>, req: Request) -> Response {
     Json(state).into_response()
 }
 
-async fn admin_source_choices(State(_c): State<Ctx>, Path(kind): Path<String>) -> Response {
-    if kind == "media" { Json(json!({"choices": []})).into_response() } else { detail(404, "Not Found") }
+async fn admin_source_choices(State(c): State<Ctx>, Path(kind): Path<String>) -> Response {
+    if kind == "media" {
+        return Json(json!({"choices": []})).into_response();
+    }
+    match c.host.using::<relay_core::screens::SignageSource>(&format!("{}{kind}", relay_core::screens::SIGNAGE_SOURCE)) {
+        Some(src) => Json(json!({"choices": (src.choices)().into_iter().take(500).collect::<Vec<_>>()})).into_response(),
+        None => detail(404, "Not Found"),
+    }
 }
 
 macro_rules! manage {

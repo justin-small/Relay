@@ -8,7 +8,7 @@ use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use relay_core::schedules;
-use relay_core::screens::{ScreenDirectory, ScreenError};
+use relay_core::screens::{ScreenDirectory, ScreenError, SignageSource, SIGNAGE_SOURCE};
 use relay_core::timewin::{self, Date};
 use relay_core::Host;
 use serde_json::{json, Map, Value};
@@ -295,11 +295,12 @@ impl Store {
         Ok(sqlx::query_scalar("select sha256 from signage_media").fetch_all(&self.pool).await?)
     }
 
-    /// What the player shows for an item of source `kind`, or `None` to skip it. Only uploaded media is signage's own; other modules'
-    /// sources (ProPresenter slides, Planning Center media, YouTube) are skipped until those modules are ported.
+    /// What the player shows for an item of source `kind`, or `None` to skip it. Uploaded media is signage's own; another module's source
+    /// is whatever it provides as `signage.source.<kind>` while it is on (a module not ported yet provides none, so its items are skipped).
     pub async fn source_resolve(&self, kind: &str, reference: &str) -> Result<Option<Value>> {
         if kind != "media" {
-            return Ok(None);
+            let Some(src) = self.host.using::<SignageSource>(&format!("{SIGNAGE_SOURCE}{kind}")) else { return Ok(None) };
+            return Ok((src.resolve)(reference).and_then(|v| clean_target(&v)));
         }
         Ok(sqlx::query("select kind, sha256, ext from signage_media where id = ?").bind(reference).fetch_optional(&self.pool).await?.map(|r| {
             json!({"type": r.get::<String, _>("kind"), "url": format!("{}{}", media::PUBLIC_PREFIX, media::file_name(&r.get::<String, _>("sha256"), &r.get::<String, _>("ext")))})
@@ -308,13 +309,36 @@ impl Store {
 
     async fn source_describe(&self, kind: &str, reference: &str) -> Result<Value> {
         if kind != "media" {
-            return Ok(json!({"name": reference, "thumb": "", "missing": true}));
+            return Ok(match self.host.using::<SignageSource>(&format!("{SIGNAGE_SOURCE}{kind}")) {
+                None => json!({"name": reference, "thumb": "", "missing": true}),
+                Some(src) => {
+                    let d = (src.describe)(reference);
+                    json!({"name": d["name"].as_str().filter(|n| !n.is_empty()).unwrap_or(reference), "thumb": d["thumb"].as_str().unwrap_or(""), "missing": d["missing"] == true})
+                }
+            });
         }
         Ok(match sqlx::query("select id, name, has_thumb from signage_media where id = ?").bind(reference).fetch_optional(&self.pool).await? {
             None => json!({"name": "Deleted file", "thumb": "", "missing": true}),
             Some(r) => json!({"name": r.get::<String, _>("name"), "missing": false,
                 "thumb": if r.get::<i64, _>("has_thumb") != 0 { format!("/api/admin/signage/media/{}/thumb", r.get::<String, _>("id")) } else { String::new() }}),
         })
+    }
+
+    /// What a kind of item is called on the admin page.
+    pub fn source_label(&self, kind: &str) -> String {
+        if kind == "media" {
+            return "Uploaded image or video".to_owned();
+        }
+        self.host.using::<SignageSource>(&format!("{SIGNAGE_SOURCE}{kind}")).map_or_else(|| kind.to_owned(), |s| s.label.clone())
+    }
+
+    /// Every kind of item that can be added now: uploads, then each module's source that is on.
+    pub fn source_kinds(&self) -> Vec<Value> {
+        let mut out = vec![json!({"kind": "media", "label": "Uploaded image or video"})];
+        let mut more: Vec<(String, std::sync::Arc<SignageSource>)> = self.host.using_all::<SignageSource>(SIGNAGE_SOURCE);
+        more.sort_by(|a, b| a.0.cmp(&b.0));
+        out.extend(more.into_iter().map(|(k, s)| json!({"kind": k, "label": s.label})));
+        out
     }
 
     // ------------------------------------------------------------------ playlists
@@ -371,7 +395,7 @@ impl Store {
             if let (Some(o), Some(d)) = (it.as_object_mut(), described.as_object()) {
                 o.extend(d.clone());
             }
-            it["source_label"] = json!(if it["source"] == "media" { "Uploaded image or video" } else { it["source"].as_str().unwrap_or("") });
+            it["source_label"] = json!(self.source_label(it["source"].as_str().unwrap_or("")));
             by.entry(it["playlist_id"].as_i64().unwrap_or(0)).or_default().push(it);
         }
         for p in &mut lists {
@@ -936,4 +960,25 @@ fn relay_core_same_name(a: &str, b: &str) -> bool {
     let fold = |s: &str| s.split_whitespace().collect::<Vec<_>>().join(" ").to_lowercase();
     let fa = fold(a);
     !fa.is_empty() && fa == fold(b)
+}
+
+/// What a source may hand the player: one of three types and a URL, with a page's few extras bounded (`sources.resolve`).
+fn clean_target(out: &Value) -> Option<Value> {
+    let kind = out["type"].as_str().filter(|t| ["image", "video", "page"].contains(t))?;
+    let url = out["url"].as_str()?;
+    let mut res = json!({"type": kind, "url": url});
+    if kind == "page" {
+        for key in ["probe", "url_sound"] {
+            if let Some(v) = out[key].as_str().filter(|v| v.chars().count() <= 600) {
+                res[key] = json!(v);
+            }
+        }
+        if out["post_message"].is_object() {
+            res["post_message"] = out["post_message"].clone();
+        }
+        if let Some(ends) = out["end_when"].as_array().filter(|e| !e.is_empty() && e.iter().all(Value::is_object)) {
+            res["end_when"] = json!(ends.iter().take(8).collect::<Vec<_>>());
+        }
+    }
+    Some(res)
 }
