@@ -332,7 +332,7 @@ and the state of both is POSTed back so the Audio bus page shows it. The door an
 
 `native/relay-show` is `app/alerts.py`, `app/panels.py`, `app/panelfw.py` and `app/screens.py` with no HTTP in the crate, and
 `relay-server/src/show.rs` mounts the routes. Start it with `relay-server --rust-show` (or `RELAY_RUST_SHOW=1`); without the switch
-nothing changes. Boards and the signage modules (`signage`, `signage_web`) are the rest of #660 and follow in their own pull requests.
+nothing changes. The signage modules (`signage`, `signage_web`) are the rest of #660 and follow in their own pull requests.
 
 | Python | Rust |
 |---|---|
@@ -360,3 +360,23 @@ and its stream ends, so the browser or panel reconnects and is told the state (P
 - The Screens and Places admin routes, `/screen` and the board routes move with boards and signage.
 - Planning Center's followed service types (a panel's `service_type`) are asked of the module, so until it is ported a panel cannot be set
   to a service through the Rust route.
+
+### Boards (#660)
+
+`relay-show/src/boards.rs`, `layout.rs`, `timewin.rs` and `schedules.rs` are `app/boards.py`, `app/layout.py`, `app/timewin.py` and the
+part of `app/schedules.py` boards and screens ask: is a named schedule open now. They are pure functions on JSON values, so config.json is
+read and written unchanged, and `tests/boards.rs` runs the rules of `tests/test_boards.py` that need no server (bounded loading, widget
+settings checked against their definitions, pages, rotation, schedule rows, following, templates, create, update, export, import).
+
+Two choices where Python asks something outside the crate:
+
+- **Choices that come from outside.** The audio sources modules registered, and the channels a route button joins, are not known here, so
+  those select fields are marked `"open"` and keep any plain string; Python would reset an unknown one to the default.
+- **Schedules** are read as stored. The US zones' daylight-saving rule (since 2007) is in `schedules.rs`; a spring-forward time that does not
+  exist moves to the next minute that does, and a repeated fall-back time takes the first, as Python's `localize` does. A schedule that
+  adds the Planning Center plan's service times has only its own windows checked until that module is ported (#661).
+
+**The board routes are not mounted.** `/api/admin/boards*`, `/board/<id>` and its data and press routes stay in the app, because each
+needs something that is Python-only until #661: the widgets modules offer (lighting cues, ProPresenter follow), and the live state of the
+screens asking for a board. Mounting the admin routes alone would drop module widgets from the Boards page's list. The rules are ready
+for the day those routes move.
