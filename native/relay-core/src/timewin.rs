@@ -109,3 +109,22 @@ pub fn window_start(now_date: Date, now_minute: i64, start: i64, end: i64, day_o
     }
     None
 }
+
+/// A checked `HH:MM` as the pages show it: `9:30 AM`, `12:05 AM`, `8:30 PM`.
+pub fn us_clock(hhmm: &str) -> String {
+    let mins = minutes(hhmm);
+    let (h, m) = (mins / 60, mins % 60);
+    format!("{}:{m:02} {}", if h % 12 == 0 { 12 } else { h % 12 }, if h < 12 { "AM" } else { "PM" })
+}
+
+/// Whether `text` is a clock time written `HH:MM`, 24-hour.
+pub fn is_clock(text: &str) -> bool {
+    clean_clock_str(text, false).is_some_and(|c| c == text)
+}
+
+/// `YYYY-MM-DDTHH:MM:SSZ` for epoch seconds: the text every time column holds.
+pub fn iso(epoch: i64) -> String {
+    let (days, rem) = (epoch.div_euclid(86_400), epoch.rem_euclid(86_400));
+    let d = Date::from_days(days);
+    format!("{:04}-{:02}-{:02}T{:02}:{:02}:{:02}Z", d.y, d.m, d.d, rem / 3600, rem % 3600 / 60, rem % 60)
+}

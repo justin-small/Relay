@@ -28,6 +28,11 @@ pub struct Permission {
 pub trait Authorizer: Send + Sync + 'static {
     /// Is the caller of this request signed in (or holding an API token) with `permission`? `Err` is the response to send.
     fn require<'a>(&'a self, request: &'a Parts, permission: &'static str) -> BoxFuture<'a, Result<(), Response>>;
+
+    /// Write an audit entry for whoever made `request`, once the change succeeded. Never fails the request; the default writes nothing.
+    fn note<'a>(&'a self, _request: &'a Parts, _action: &'a str, _summary: &'a str, _target: &'a str, _detail: Option<serde_json::Value>) -> BoxFuture<'a, ()> {
+        Box::pin(async {})
+    }
 }
 
 async fn check(State((host, permission)): State<(Host, &'static str)>, request: Request, next: Next) -> Response {

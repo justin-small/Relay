@@ -101,6 +101,26 @@ fn database_path() -> PathBuf {
     }
 }
 
+/// What modules are handed through `Host` (#660): the database, the screens, the app folder and the addresses this machine is reached at.
+fn provide_core(host: &relay_core::Host, pool: &sqlx::SqlitePool, opts: &Options) {
+    use relay_core::screens::{AppDir, LinksCap, ScreensCap, APP_DIR, DB, LINKS, SCREENS};
+    host.provide("core", DB, Arc::new(pool.clone()));
+    host.provide("core", SCREENS, Arc::new(ScreensCap(Arc::new(relay_show::screens::Screens::new(pool.clone())))));
+    host.provide("core", APP_DIR, Arc::new(AppDir(opts.app_dir.clone())));
+    let path = opts.config_path.clone();
+    host.provide(
+        "core",
+        LINKS,
+        Arc::new(LinksCap(Box::new(move |class: &str| {
+            let Ok(cfg) = Config::load(&path) else { return Vec::new() };
+            let net = Net::read(&cfg);
+            let (label, policy) = netroute::core_classes().get(class).copied().unwrap_or((class, Policy::Fallback));
+            let resolved = netroute::resolve(class, label, policy, &net.network, &net.ports);
+            netroute::link_addresses(&resolved, &net.ports)
+        }))),
+    );
+}
+
 fn core_spec(key: &str, what: &str, class: &str, secure: bool, configured: &str, port: u16) -> Spec {
     let (label, policy) = netroute::core_classes().get(class).copied().unwrap_or((class, Policy::Fallback));
     Spec {
@@ -161,6 +181,7 @@ impl App {
                 let auth_pool_show = auth.pool().clone();
                 let accounts = crate::accounts::Accounts::new(auth, crate::pages::Pages::new(&opts.app_dir), opts.config_path.clone());
                 registry.host().set_authorizer(Arc::new(crate::modulehost::AccountsAuthorizer(Arc::clone(&accounts))));
+                provide_core(registry.host(), &auth_pool, &opts);
                 if opts.rust_audio {
                     let app = match (&opts.upstream, &opts.token) {
                         (Some(base), Some(token)) if !token.is_empty() => Some(crate::pyapp::PyApp::new(base, token)),
@@ -175,6 +196,14 @@ impl App {
                 }
                 if opts.rust_show {
                     if let Some(api) = crate::show::start(auth_pool_show, Arc::clone(&accounts), &opts.config_path, upstream_for_show, shutdown.clone()).await {
+                        let alerts = Arc::clone(&api.alerts);
+                        registry.host().provide(
+                            "core",
+                            relay_core::screens::ALERTS,
+                            Arc::new(relay_core::screens::AlertsCap(Box::new(move || {
+                                alerts.state()["buttons"].as_array().into_iter().flatten().filter(|b| b["state"] == "on").map(|b| json!({"id": b["id"], "to": b["name"], "from": b["from"]})).collect()
+                            }))),
+                        );
                         routes = routes.merge(crate::show::routes(api));
                     }
                 }

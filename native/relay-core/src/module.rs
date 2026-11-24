@@ -147,6 +147,13 @@ impl Host {
         self.authorizer.get().cloned()
     }
 
+    /// Write an audit entry for the caller of `request` (the accounts decide who that is). A request nobody signed in for writes nothing.
+    pub async fn note(&self, request: &axum::http::request::Parts, action: &str, summary: &str, target: &str, detail: Option<Value>) {
+        if let Some(a) = self.authorizer() {
+            a.note(request, action, summary, target, detail).await;
+        }
+    }
+
     /// This module's settings, secrets opened. `None` when the install has none saved.
     pub fn settings(&self, settings_key: &str) -> Option<Value> {
         self.store.get()?.read(settings_key)

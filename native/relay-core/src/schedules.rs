@@ -73,7 +73,7 @@ fn wall_of_utc(utc: i64, std: i64, dst: bool) -> i64 {
 }
 
 /// Wall-clock `date time` in the zone, as UTC minutes. A time that does not exist moves to the next minute that does.
-fn localize(date: Date, minute: i64, tz: &str) -> i64 {
+pub fn localize(date: Date, minute: i64, tz: &str) -> i64 {
     let (std, dst) = zone(tz);
     let naive = date.days() * DAY_MINUTES + minute;
     for step in 0..=180 {
@@ -128,4 +128,60 @@ pub fn is_open_local(s: &Value, now_date: Date, now_minute: i64, tz: &str) -> bo
         }
     }
     false
+}
+
+/// US zones only, in the order the dropdown lists them (`app/schedules.py` `US_TIMEZONES`).
+pub const US_TIMEZONES: [(&str, &str); 7] = [
+    ("America/New_York", "Eastern"),
+    ("America/Chicago", "Central"),
+    ("America/Denver", "Mountain"),
+    ("America/Phoenix", "Mountain – Arizona (no DST)"),
+    ("America/Los_Angeles", "Pacific"),
+    ("America/Anchorage", "Alaska"),
+    ("Pacific/Honolulu", "Hawaii"),
+];
+
+/// The wall-clock `(date, minute)` in the zone at a UTC instant, given as epoch minutes.
+pub fn local_of_utc(utc_minutes: i64, tz: &str) -> (Date, i64) {
+    let (std, dst) = zone(clean_zone(tz));
+    let wall = wall_of_utc(utc_minutes, std, dst);
+    (Date::from_days(wall.div_euclid(DAY_MINUTES)), wall.rem_euclid(DAY_MINUTES))
+}
+
+/// `YYYY-MM-DD` as `MM/DD/YYYY`.
+pub fn fmt_date(iso: &str) -> String {
+    Date::parse(iso).map_or_else(String::new, |d| format!("{:02}/{:02}/{}", d.m, d.d, d.y))
+}
+
+const DAY_ABBR: [&str; 7] = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+/// One window as a line: `Every Sun, Wed · 10:00 AM – 12:00 PM`.
+pub fn window_summary(w: &Value) -> String {
+    let (start, stop) = (w["start_time"].as_str().unwrap_or(""), w["stop_time"].as_str().unwrap_or(""));
+    let mut span = format!("{} – {}", timewin::us_clock(start), timewin::us_clock(stop));
+    if timewin::minutes(stop) <= timewin::minutes(start) {
+        span.push_str(" (next day)");
+    }
+    if w["repeat"] == "once" {
+        return format!("Once on {} · {span}", fmt_date(w["start_date"].as_str().unwrap_or("")));
+    }
+    let days: Vec<usize> = w["days"].as_array().map(|a| a.iter().filter_map(|d| d.as_u64().map(|d| d as usize)).collect()).unwrap_or_default();
+    let when = if days.len() == 7 { "Every day".to_owned() } else { format!("Every {}", days.iter().map(|d| DAY_ABBR[d % 7]).collect::<Vec<_>>().join(", ")) };
+    let (from, to) = (w["start_date"].as_str().filter(|s| !s.is_empty()), w["end_date"].as_str().filter(|s| !s.is_empty()));
+    let bounds = match (from, to) {
+        (Some(a), Some(b)) => format!(", {} to {}", fmt_date(a), fmt_date(b)),
+        (Some(a), None) => format!(", from {}", fmt_date(a)),
+        (None, Some(b)) => format!(", until {}", fmt_date(b)),
+        _ => String::new(),
+    };
+    format!("{when} · {span}{bounds}")
+}
+
+/// The schedule's windows in one line for the list.
+pub fn summary(s: &Value) -> String {
+    let mut parts: Vec<String> = s["windows"].as_array().into_iter().flatten().map(window_summary).collect();
+    if s["plan_times"] == true {
+        parts.push(format!("Planning Center service times ({} min before to {} min after)", s["plan_before"], s["plan_after"]));
+    }
+    parts.join("; ")
 }

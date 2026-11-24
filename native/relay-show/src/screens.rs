@@ -430,29 +430,7 @@ fn clean_shows(kind: &str, ref_: &str) -> Result<(String, String)> {
     Ok((kind.to_owned(), text))
 }
 
-/// What the screen shows now: `{"kind": "board"|"signage"|"", "ref", "why"}`. `schedule_open(ref)` says whether a named schedule
-/// is open. While Signage is off a signage choice falls back to the board the screen last showed.
-pub fn showing(screen: &Value, schedule_open: impl Fn(&str) -> bool, signage_on: bool) -> Value {
-    let s = |k: &str| screen[k].as_str().unwrap_or("").to_owned();
-    let (mut kind, mut ref_, mut why) = (s("normal_kind"), s("normal_ref"), "all the time");
-    if !s("during_kind").is_empty() && !s("during_schedule").is_empty() && schedule_open(&s("during_schedule")) {
-        (kind, ref_, why) = (s("during_kind"), s("during_ref"), "while its schedule is open");
-    }
-    if !s("hold_kind").is_empty() {
-        (kind, ref_, why) = (s("hold_kind"), s("hold_ref"), "held by hand");
-    }
-    if kind == "signage" && !signage_on {
-        let mut board = s("last_board");
-        if board.is_empty() && s("during_kind") == "board" {
-            board = s("during_ref");
-        }
-        if s("normal_kind") == "board" && board.is_empty() {
-            board = s("normal_ref");
-        }
-        return if board.is_empty() { json!({"kind": "", "ref": "", "why": ""}) } else { json!({"kind": "board", "ref": board, "why": "Signage is off"}) };
-    }
-    json!({"kind": kind, "ref": ref_, "why": if kind.is_empty() { "" } else { why }})
-}
+pub use relay_core::screens::showing;
 
 /// Whether the screen was heard from lately (`now` is epoch seconds).
 pub fn online(screen: &Value, now: f64) -> bool {
@@ -510,5 +488,11 @@ impl ScreenDirectory for Screens {
     }
     fn keys<'a>(&'a self, id: i64) -> BoxFuture<'a, ScreenResult<Vec<String>>> {
         Box::pin(async move { lift(Screens::keys(self, id).await) })
+    }
+    fn get<'a>(&'a self, id: i64) -> BoxFuture<'a, ScreenResult<Option<Value>>> {
+        Box::pin(async move { lift(Screens::get(self, id).await) })
+    }
+    fn touch<'a>(&'a self, id: i64, address: &'a str) -> BoxFuture<'a, ScreenResult<()>> {
+        Box::pin(async move { lift(Screens::touch(self, id, address, "").await) })
     }
 }

@@ -381,18 +381,24 @@ needs something that is Python-only until #661: the widgets modules offer (light
 screens asking for a board. Mounting the admin routes alone would drop module widgets from the Boards page's list. The rules are ready
 for the day those routes move.
 
-### Signage (#660): what is ready, and what the module needs
+### Signage (#660)
 
-Signage (`app/modules/signage`, `signage_web`) is a module, so it is a crate under `native/modules/signage` that depends on `relay-core`
-only. Ready for it:
+`native/modules/signage` (`relay-module-signage`) is `app/modules/signage`: media, playlists, groups, screens, schedule slots, overrides,
+takeovers, the alert banner, the player page and its event stream. It depends on `relay-core` only. What the server hands it through `Host`
+(`provide_core` in `app.rs`): the database (`core.db`), the screens (`core.screens`, `relay_core::screens::ScreenDirectory`, implemented by
+`relay_show::Screens`), the app folder (the player script), the addresses the machine is reached at, and, while `--rust-show` runs, the alerts
+flashing now. `relay_core::timewin` and `relay_core::schedules` (moved out of `relay-show`, which re-exports them) read days from Sunday = 0,
+daily windows and whether a named schedule is open, with the US daylight-saving rule.
 
-- `relay_core::timewin` and `relay_core::schedules` (moved out of `relay-show`, which re-exports them): days from Sunday = 0, daily
-  windows, and whether a named schedule is open, with the US daylight-saving rule.
-- `relay_core::screens::ScreenDirectory`: the six calls signage makes on core's screens (`by_key`, `adopt`, `move_key`, `forget_key`,
-  `rename`, `keys`). `relay_show::Screens` implements it, and the server will hand it to a module as the capability `"core.screens"`.
+The module applies the Python migrations 0001 to 0004 itself the first time it starts (namespace `signage` in `schedule_migrations`, as Python
+records them), so either server reads what the other wrote. Uploads are named by their sha-256 and typed from their first bytes; a thumbnail is
+made by the browser and only stored. `Host::note` writes the audit entry Python's `audit.note` wrote.
 
-Still to build, in this order: the module's tables (`signage_media`, `_playlists`, `_items`, `_groups`, `_screens`, `_slots`,
-`_overrides`, `_takeovers`, from the Python migrations 0001 to 0004, read in place as the audio and screens tables are); the capabilities
-the server provides (`core.db`, the alert state for the banner); the store, schedule and takeover rules; the player page and its event
-stream; media upload and serving (a file is named by its sha-256, and its type is read from its first bytes); the admin routes.
-Items from other modules' sources (ProPresenter slides, Planning Center media, YouTube) are skipped until those modules are ported (#661).
+**Not in the module yet**, because it needs another module or the admin shell:
+
+- the admin page and its script (the Rust module trait has no admin pages: the Python shell still lists the module and loads them);
+- items from other modules' sources (ProPresenter announcement slides, Planning Center media, web pages and YouTube) are skipped until those
+  modules are ported (#661), and so are the `signage.layer.takeover` and `signage.layer.tag` layers other modules provide;
+- offering each screen to the NDI module as an output, the Schedules page's "used by" list, and the Boards widgets (`signage.takeovers`);
+- the "bound port" a screen's address shows is the configured one, because the module cannot ask which port the listener really opened;
+- `prune_mirror` keeps every backup copy while any `relay-*.db` snapshot exists, where Python reads each snapshot to see what it names.

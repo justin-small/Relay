@@ -1,0 +1,30 @@
+[package]
+name = "relay-module-signage"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+description = "Digital signage (#204, ported in #660): media, playlists, schedules and takeovers for any TV with a browser, each screen at its own address."
+
+[lib]
+name = "relay_module_signage"
+path = "src/lib.rs"
+
+[dependencies]
+relay-core = { path = "../../relay-core" }
+axum = { version = "0.8", default-features = false, features = ["json", "tokio"] }
+bytes = "1"
+futures-core = "0.3"
+http-body-util = "0.1"
+rand = "0.8"
+serde_json = { version = "1", features = ["preserve_order"] }
+sha2 = "0.10"
+sqlx = { version = "0.9", default-features = false, features = ["runtime-tokio", "sqlite", "macros"] }
+tokio = { version = "1", features = ["rt", "macros", "time", "sync", "fs", "io-util"] }
+tracing = "0.1"
+
+[dev-dependencies]
+rand = "0.8"
+sqlx = { version = "0.9", default-features = false, features = ["runtime-tokio", "sqlite", "macros"] }
+tower = { version = "0.5", default-features = false, features = ["util"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "time", "sync", "fs", "io-util", "test-util"] }

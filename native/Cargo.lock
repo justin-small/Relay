@@ -2767,6 +2767,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "relay-module-signage"
+version = "0.1.0"
+dependencies = [
+ "axum",
+ "bytes",
+ "futures-core",
+ "http-body-util",
+ "rand 0.8.8",
+ "relay-core",
+ "serde_json",
+ "sha2 0.10.9",
+ "sqlx",
+ "tokio",
+ "tower",
+ "tracing",
+]
+
+[[package]]
 name = "relay-ndi"
 version = "0.1.0"
 dependencies = [
@@ -2816,6 +2834,7 @@ dependencies = [
  "relay-config",
  "relay-core",
  "relay-module-remote_access",
+ "relay-module-signage",
  "relay-show",
  "rustls",
  "serde",

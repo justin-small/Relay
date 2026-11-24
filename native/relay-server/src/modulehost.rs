@@ -36,6 +36,18 @@ impl Authorizer for AccountsAuthorizer {
     fn require<'a>(&'a self, request: &'a Parts, permission: &'static str) -> BoxFuture<'a, Result<(), Response>> {
         Box::pin(async move { self.0.require(&request.headers, request.extensions.get::<Conn>().cloned(), permission).await })
     }
+
+    fn note<'a>(&'a self, request: &'a Parts, action: &'a str, summary: &'a str, target: &'a str, detail: Option<Value>) -> BoxFuture<'a, ()> {
+        Box::pin(async move { self.write(request, action, summary, target, detail).await })
+    }
+}
+
+impl AccountsAuthorizer {
+    async fn write(&self, request: &Parts, action: &str, summary: &str, target: &str, detail: Option<Value>) {
+        if let Ok(caller) = self.0.caller(&request.headers, request.extensions.get::<Conn>().cloned(), None).await {
+            self.0.record(&caller, action, summary, target, detail).await;
+        }
+    }
 }
 
 /// Register every module's permissions with the role table, so the Users page lists them and `can` knows them.
