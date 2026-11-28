@@ -116,6 +116,41 @@ pub trait SignageContent: Send + Sync + 'static {
     fn playlists(&self) -> BoxFuture<'_, ContentResult<Vec<Value>>>;
     fn playlist_create<'a>(&'a self, name: &'a str) -> BoxFuture<'a, ContentResult<Value>>;
     fn playlist_set_items<'a>(&'a self, id: i64, items: &'a Value) -> BoxFuture<'a, ContentResult<()>>;
+    /// Keep a small picture for a media row (its thumbnail in the admin page). A library without thumbnails keeps nothing.
+    fn media_thumb<'a>(&'a self, _id: &'a str, _data: &'a [u8]) -> BoxFuture<'a, ContentResult<()>> {
+        Box::pin(async { Ok(()) })
+    }
+}
+
+// ----------------------------------------------------------------------------------------------------- signage's layers and control
+/// `signage.layer.<name>` (`name` is `tag`): what a module puts on a screen above the schedule, as `Arc<SignageLayer>`. Called with the screen's record
+/// and the time (epoch seconds); `Some({"playlist_id", "why"})` claims the screen.
+pub const SIGNAGE_LAYER: &str = "signage.layer.";
+
+pub type LayerFn = dyn Fn(&Value, i64) -> Option<Value> + Send + Sync;
+
+pub struct SignageLayer(pub Box<LayerFn>);
+
+/// `Arc<ControlCap>`: what a module that drives signage screens (ProPresenter's slide-note tags) needs of signage, provided while signage is on.
+pub const SIGNAGE_CONTROL: &str = "signage.control";
+
+pub struct ControlCap(pub Arc<dyn SignageControl>);
+
+pub trait SignageControl: Send + Sync + 'static {
+    fn screens(&self) -> BoxFuture<'_, ContentResult<Vec<Value>>>;
+    fn groups(&self) -> BoxFuture<'_, ContentResult<Vec<Value>>>;
+    fn playlists(&self) -> BoxFuture<'_, ContentResult<Vec<Value>>>;
+    fn media_list(&self) -> BoxFuture<'_, ContentResult<Vec<Value>>>;
+    /// Send one picture to a screen, a group (`target` is `screen`, `group` or `all`) to play once. `Err` carries signage's own sentence.
+    fn push_set<'a>(&'a self, target: &'a str, target_id: i64, media_id: &'a str) -> BoxFuture<'a, ContentResult<()>>;
+    /// Put the live captions or the service view (`captions`, `service`) on a screen until cleared.
+    fn live_view_set<'a>(&'a self, target: &'a str, target_id: i64, view: &'a str) -> BoxFuture<'a, ContentResult<()>>;
+    /// End what was put on a screen; `Ok(false)` when nothing was.
+    fn takeover_clear<'a>(&'a self, target: &'a str, target_id: i64) -> BoxFuture<'a, ContentResult<bool>>;
+    /// End every push and live view; how many ended.
+    fn takeover_clear_all(&self) -> BoxFuture<'_, ContentResult<u64>>;
+    /// Tell the players something changed.
+    fn bump(&self);
 }
 
 // ------------------------------------------------------------------------------------------------------------- directory

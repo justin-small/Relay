@@ -20,8 +20,10 @@ pub mod lobby;
 pub mod routes;
 pub mod routes_ctl;
 pub mod settings;
+pub mod signagesync;
 pub mod signagetags;
 pub mod slidetags;
+pub mod tagactions;
 pub mod view;
 pub mod web;
 
@@ -31,7 +33,7 @@ use std::sync::{Arc, Mutex, OnceLock, PoisonError};
 use axum::http::HeaderMap;
 use axum::response::Response;
 use axum::Router;
-use relay_core::caps::{ProOffers, ALERT_STAGE, PANEL_TIMERS_CHANGED, PRO_OFFERS};
+use relay_core::caps::{ProOffers, SignageLayer, ALERT_STAGE, PANEL_TIMERS_CHANGED, PRO_OFFERS, SIGNAGE_LAYER};
 use relay_core::future::BoxFuture;
 use relay_core::{AdminPage, AppError, Health, HealthState, Host, Manifest, Module, Permission};
 use serde_json::Value;
@@ -43,6 +45,7 @@ use crate::lobby::Lobby;
 use crate::view::View;
 use crate::follower::{Follower, MakeClient, Timing};
 use crate::routes::Ctx;
+use crate::signagetags::SignageTags;
 use crate::slidetags::Tags;
 
 pub const LYRICS_STREAM: &str = "lyrics";
@@ -233,7 +236,9 @@ impl Module for ProPresenter {
         let control = Control::new(Arc::clone(&follower));
         let lobby = Lobby::new(Arc::clone(&follower), Arc::clone(&control));
         let view = View::new(Arc::clone(&follower), Arc::clone(&control));
-        let _ = self.parts.set(Parts { ctx: Ctx { host: host.clone(), follower, lyrics, timers, control, lobby, view } });
+        let sync = crate::signagesync::Sync::new(Arc::clone(&follower), Arc::clone(&control));
+        let signage = SignageTags::new(host.clone());
+        let _ = self.parts.set(Parts { ctx: Ctx { host: host.clone(), follower, lyrics, timers, control, lobby, view, sync, signage } });
     }
 
     fn detach(&self, host: &Host) {
@@ -268,6 +273,12 @@ impl Module for ProPresenter {
             tasks.push(tokio::spawn(Arc::clone(&c.follower).run()));
             // Idle until the operator presses Start on the lobby rotation (never started by Relay itself).
             c.lobby.start();
+            // Idle until announcement slides for signage are switched on and a playlist is picked.
+            c.sync.start();
+            // What a slide-note tag does in Relay, and what a tag may put on a screen (signage asks for the layer while it is on).
+            tagactions::install(c.follower.tags(), &host, &c.signage);
+            let signage = Arc::clone(&c.signage);
+            host.provide(MANIFEST.id, &format!("{SIGNAGE_LAYER}tag"), Arc::new(SignageLayer(Box::new(move |screen: &Value, _now: i64| signage.layer(screen)))));
             Ok(())
         })
     }
@@ -278,6 +289,7 @@ impl Module for ProPresenter {
             if let Some(p) = self.parts.get() {
                 p.ctx.follower.shutdown();
                 p.ctx.lobby.cancel();
+                p.ctx.sync.cancel();
             }
             for t in tasks {
                 t.abort();
@@ -285,6 +297,8 @@ impl Module for ProPresenter {
             }
             if let Some(p) = self.parts.get() {
                 p.ctx.follower.tags().reset();
+                p.ctx.follower.tags().clear_actions();
+                p.ctx.signage.forget();
                 p.ctx.host.withdraw_all(MANIFEST.id);
             }
         })

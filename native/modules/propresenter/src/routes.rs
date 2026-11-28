@@ -39,6 +39,8 @@ pub struct Ctx {
     pub control: Arc<Control>,
     pub lobby: Arc<Lobby>,
     pub view: Arc<View>,
+    pub sync: Arc<crate::signagesync::Sync>,
+    pub signage: Arc<crate::signagetags::SignageTags>,
 }
 
 /// An audit entry as Python's gate wrote for a module route that noted nothing itself.
@@ -53,12 +55,14 @@ pub fn pp_error(e: &ProError) -> Response {
     error(e.route_status(), e.operator_message())
 }
 
-pub fn body_of(c: &Ctx) -> Value {
-    json!({"settings": c.follower.settings(), "state": c.follower.state(), "lyrics_readers": c.lyrics.viewer_count(), "tags": c.follower.tags().state(), "lobby": c.lobby.state()})
+pub async fn body_now(c: &Ctx) -> Value {
+    let mut signage = c.sync.state();
+    signage["held"] = c.signage.state().await;
+    json!({"settings": c.follower.settings(), "state": c.follower.state(), "lyrics_readers": c.lyrics.viewer_count(), "tags": c.follower.tags().state(), "lobby": c.lobby.state(), "signage": signage})
 }
 
 async fn get_body(State(c): State<Ctx>) -> Response {
-    Json(body_of(&c)).into_response()
+    Json(body_now(&c).await).into_response()
 }
 
 /// `saved`'s computers with the primary's host and port taken from `payload`; the first computer is made when there is none.
@@ -174,7 +178,7 @@ async fn save(State(c): State<Ctx>, req: Request) -> Response {
     c.lyrics.refresh();
     c.timers.refresh();
     c.host.announce(OFFERED_CHANGED, ""); // what a panel's menu may offer from ProPresenter changed
-    Json(body_of(&c)).into_response()
+    Json(body_now(&c).await).into_response()
 }
 
 /// `GET /version` on the address in the form (saved or not). Changes nothing.
@@ -214,7 +218,7 @@ async fn stage_set(State(c): State<Ctx>, req: Request) -> Response {
         return pp_error(&e);
     }
     audit(&c, &parts).await;
-    Json(body_of(&c)).into_response()
+    Json(body_now(&c).await).into_response()
 }
 
 async fn stage_clear(State(c): State<Ctx>, req: Request) -> Response {
@@ -223,7 +227,21 @@ async fn stage_clear(State(c): State<Ctx>, req: Request) -> Response {
         return pp_error(&e);
     }
     audit(&c, &parts).await;
-    Json(body_of(&c)).into_response()
+    Json(body_now(&c).await).into_response()
+}
+
+/// Copy the announcement playlist's slides into signage now, even if nothing seems to have changed.
+async fn signage_sync(State(c): State<Ctx>, req: Request) -> Response {
+    let (parts, _) = req.into_parts();
+    if c.follower.settings()["signage"]["enabled"] != Value::Bool(true) {
+        return error(409, "Switch on announcement slides for signage first.");
+    }
+    let out = c.sync.sync(true).await;
+    if out["error"].as_str().is_some_and(|e| !e.is_empty()) {
+        return error(409, out["error"].as_str().unwrap_or(""));
+    }
+    audit(&c, &parts).await;
+    Json(body_now(&c).await).into_response()
 }
 
 // ------------------------------------------------------------------------------------------------------------------ streams
@@ -291,6 +309,7 @@ pub fn router(c: Ctx) -> Router {
         .route(base, view(get(get_body)).merge(manage(post(save))))
         .route(&format!("{base}/test"), manage(post(test)))
         .route(&format!("{base}/discover"), manage(post(discover_route)))
+        .route(&format!("{base}/signage/sync"), manage(post(signage_sync)))
         .route(&format!("{base}/stage"), control(post(stage_set)).merge(control(delete(stage_clear))))
         .merge(crate::routes_ctl::router(&c))
         .with_state(c)

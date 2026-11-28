@@ -72,6 +72,10 @@ pub struct Inner {
     pub lobby_items: Vec<Value>,
     /// Stream messages to send once the lock is let go.
     pub pending: Vec<&'static str>,
+    /// The slides of the presentations the playlists name: `uuid` -> texts (one group, "Slides").
+    pub slides: HashMap<String, Vec<String>>,
+    /// Playlist items whose picture ProPresenter now draws differently: `"<item>-<cue>"`.
+    pub redrawn: HashSet<String>,
 }
 
 pub struct Fake {
@@ -228,10 +232,17 @@ impl Inner {
         (self.ann_on, self.announcement.as_ref().map(|a| a.0.clone()).unwrap_or_default(), self.ann_index)
     }
 
-    fn lobby_paths(&mut self, base: &str) -> Option<(u16, Vec<u8>, &'static str)> {
+    fn lobby_paths(&mut self, base: &str, path: &str) -> Option<(u16, Vec<u8>, &'static str)> {
         let ok = Some((204u16, Vec::new(), "application/json"));
-        if base == "/v1/playlist/PL-LOBBY" && !self.lobby_items.is_empty() {
-            return Some((200, format!("{}\r\n\r\n", json!({"id": {"uuid": "PL-LOBBY", "name": "Lobby", "index": 0}, "items": self.lobby_items})).into_bytes(), "application/json"));
+        if (base == "/v1/playlist/PL-LOBBY" || base == "/v1/playlist/PL-ANN") && !self.lobby_items.is_empty() {
+            return Some((200, format!("{}\r\n\r\n", json!({"id": {"uuid": base.rsplit('/').next().unwrap_or(""), "name": "Lobby", "index": 0}, "items": self.lobby_items})).into_bytes(), "application/json"));
+        }
+        if let Some((item, cue)) = base.strip_prefix("/v1/playlist/PL-ANN/").and_then(|r| r.split_once("/thumbnail/")) {
+            self.thumb_calls += 1;
+            let quality = path.split("quality=").nth(1).and_then(|q| q.split('&').next()).unwrap_or("");
+            let mut body = b"\xff\xd8\xff\xe0".to_vec();
+            body.extend_from_slice(format!("{item}-{cue}{}-{quality}", if self.redrawn.contains(&format!("{item}-{cue}")) { "-changed" } else { "" }).as_bytes());
+            return Some((200, body, "image/jpeg"));
         }
         if let Some(rest) = base.strip_prefix("/v1/playlist/PL-LOBBY/").and_then(|r| r.strip_suffix("/trigger")) {
             let item = rest.parse::<usize>().ok().and_then(|i| self.lobby_items.get(i).cloned())?;
@@ -254,7 +265,7 @@ impl Inner {
     /// `(status, body, content type)` for the control paths, or `None`.
     pub fn extra_get(&mut self, path: &str) -> Option<(u16, Vec<u8>, &'static str)> {
         let base = path.split('?').next().unwrap_or("");
-        if let Some(done) = self.lobby_paths(base) {
+        if let Some(done) = self.lobby_paths(base, path) {
             return Some(done);
         }
         let j = |o: Value| Some((200u16, format!("{o}\r\n\r\n").into_bytes(), "application/json"));
@@ -397,6 +408,8 @@ impl Fake {
                 ann_on: false,
                 lobby_items: Vec::new(),
                 pending: Vec::new(),
+                slides: HashMap::new(),
+                redrawn: HashSet::new(),
             }),
             out: Mutex::new(VecDeque::new()),
             wake: Notify::new(),
@@ -492,6 +505,10 @@ impl Fake {
         let j = |o: &Value| (200u16, if o.is_null() { Vec::new() } else { format!("{o}\r\n\r\n").into_bytes() }, "application/json");
         match method {
             "GET" => {
+                if let Some(uuid) = path.strip_prefix("/v1/presentation/").filter(|u| inner.slides.contains_key(*u)) {
+                    let texts = inner.slides[uuid].clone();
+                    return j(&json!({"presentation": {"id": {"uuid": uuid, "name": uuid}, "groups": [{"name": "Slides", "slides": texts.iter().map(|t| json!({"text": t})).collect::<Vec<_>>()}]}}));
+                }
                 let x = if path == "/v1/trigger/next" || path == "/v1/trigger/previous" { None } else { inner.extra_get(path) };
                 if let Some(x) = x.filter(|_| !(path.starts_with("/v1/presentation/") && !path.contains("/thumbnail/") && !path.contains("/trigger"))) {
                     return x;

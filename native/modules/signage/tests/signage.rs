@@ -383,6 +383,14 @@ async fn what_a_screen_plays_follows_overrides_slots_and_defaults() {
     let (now, over) = (epoch_of(2026, 11, 22, 15, 0), s.overrides().await.unwrap());
     assert_eq!(s.resolve(&nothing, now, None, Some(&over)).await.unwrap()["layer"], "override", "an override reaches a screen with nothing else");
     assert_eq!(s.resolve(&lone, now, None, Some(&over)).await.unwrap()["why"], "Put on by hand for this screen", "the more specific one wins");
+    // a module's tag layer (ProPresenter's slide-note tags) is above the override and the schedule, and gone when the module takes it back
+    let claimed = lone["id"].clone();
+    r.host.provide("propresenter", "signage.layer.tag", Arc::new(relay_core::caps::SignageLayer(Box::new(move |screen: &Value, _now: i64| (screen["id"] == claimed).then(|| json!({"playlist_id": 4242, "why": "Put on by a tag"}))))));
+    let tagged = s.resolve(&lone, now, None, Some(&over)).await.unwrap();
+    assert_eq!((tagged["layer"].clone(), tagged["playlist_id"].clone(), tagged["why"].clone()), (json!("tag"), json!(4242), json!("Put on by a tag")), "a tag beats an override");
+    assert_eq!(s.resolve(&nothing, now, None, Some(&over)).await.unwrap()["layer"], "override", "a screen the tag does not name is as before");
+    r.host.withdraw_all("propresenter");
+    assert_eq!(s.resolve(&lone, now, None, Some(&over)).await.unwrap()["layer"], "override", "the layer goes with the module");
     s.override_clear("screen", lone["id"].as_i64().unwrap()).await.unwrap();
     s.override_clear("all", 0).await.unwrap();
     assert_eq!(s.override_clear("all", 0).await, Err(Error::Invalid("There is no override to clear there.".into(), 404)));
