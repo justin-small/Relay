@@ -275,6 +275,7 @@ async fn accept_loop(listener: TcpListener, router: Router, tls: Option<TlsAccep
             let svc = service_fn(move |req: hyper::Request<Incoming>| {
                 let mut req = req.map(Body::new);
                 req.extensions_mut().insert(conn);
+                req.extensions_mut().insert(relay_core::access::Peer(conn.peer.ip()));
                 let router = router.clone();
                 async move { Ok::<_, Infallible>(router.oneshot(req).await.unwrap_or_else(|e| match e {})) }
             });

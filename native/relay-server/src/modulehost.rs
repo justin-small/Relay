@@ -44,6 +44,10 @@ impl Authorizer for AccountsAuthorizer {
     fn note<'a>(&'a self, request: &'a Parts, action: &'a str, summary: &'a str, target: &'a str, detail: Option<Value>) -> BoxFuture<'a, ()> {
         Box::pin(async move { self.write(request, action, summary, target, detail).await })
     }
+
+    fn record<'a>(&'a self, action: &'a str, summary: &'a str, target: &'a str) -> BoxFuture<'a, ()> {
+        Box::pin(async move { self.0.record_system(action, summary, target).await })
+    }
 }
 
 impl AccountsAuthorizer {

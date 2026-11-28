@@ -229,6 +229,7 @@ impl App {
                                 alerts.state()["buttons"].as_array().into_iter().flatten().filter(|b| b["state"] == "on").map(|b| json!({"id": b["id"], "to": b["name"], "from": b["from"]})).collect()
                             }))),
                         );
+                        host.provide("core", relay_core::caps::ALERT_BUTTONS, Arc::new(relay_core::caps::AlertButtonsCap(Arc::new(crate::modcaps::AlertButtonsForModules(Arc::clone(&api.alerts))))));
                         host.provide("core", relay_core::caps::PANELS, Arc::new(relay_core::caps::PanelsCap(Arc::new(crate::show::PanelsForModules(Arc::clone(&api.panels))))));
                         // ProPresenter, while it is on: the lyrics a panel may pick, a panel's own timer thresholds, an alert on the stage display.
                         let offers = host.clone();

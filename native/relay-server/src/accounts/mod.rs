@@ -144,6 +144,11 @@ impl Accounts {
         self.auth.record(action, summary, Record { actor: Some(&caller.user), target, detail: detail.as_ref(), ip: &caller.ip }).await;
     }
 
+    /// Write one audit entry with no signed-in user: a module's own doing.
+    pub async fn record_system(&self, action: &str, summary: &str, target: &str) {
+        self.auth.record(action, summary, Record { actor: None, target, detail: None, ip: "" }).await;
+    }
+
     /// `x-admin-token` is honoured only while no account exists, and then acts as an Owner with no row (id 0).
     async fn setup_owner(&self, who: &Who) -> Result<Option<User>, Error> {
         let supplied = who.headers.get("x-admin-token").and_then(|v| v.to_str().ok()).unwrap_or("");

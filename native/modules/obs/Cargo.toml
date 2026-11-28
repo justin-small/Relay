@@ -1,0 +1,31 @@
+[package]
+name = "relay-module-obs"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+description = "OBS Studio (#250, ported in #668): whether OBS is streaming and recording and how healthy it is, scene switching, the scene screen, and closed captions into the stream, over obs-websocket 5."
+
+[lib]
+name = "relay_module_obs"
+path = "src/lib.rs"
+
+[dependencies]
+relay-core = { path = "../../relay-core" }
+axum = { version = "0.8", default-features = false, features = ["json", "tokio"] }
+base64 = "0.22"
+futures-util = { version = "0.3", default-features = false, features = ["alloc", "sink"] }
+http-body-util = "0.1"
+rand = "0.8"
+serde_json = { version = "1", features = ["preserve_order"] }
+sha2 = "0.10"
+subtle = "2"
+tokio = { version = "1", features = ["rt", "macros", "time", "sync", "io-util"] }
+tokio-tungstenite = { version = "0.30", default-features = false, features = ["handshake"] }
+tracing = "0.1"
+uuid = { version = "1", features = ["v4"] }
+
+[dev-dependencies]
+quickcheck = "1"
+tower = { version = "0.5", default-features = false, features = ["util"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "time", "sync", "io-util", "net"] }

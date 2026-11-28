@@ -3104,6 +3104,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "relay-module-obs"
+version = "0.1.0"
+dependencies = [
+ "axum",
+ "base64 0.22.1",
+ "futures-util",
+ "http-body-util",
+ "quickcheck",
+ "rand 0.8.8",
+ "relay-core",
+ "serde_json",
+ "sha2 0.10.9",
+ "subtle",
+ "tokio",
+ "tokio-tungstenite 0.30.0",
+ "tower",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
 name = "relay-module-planning_center"
 version = "0.1.0"
 dependencies = [
@@ -3265,6 +3286,7 @@ dependencies = [
  "relay-config",
  "relay-core",
  "relay-module-ndi",
+ "relay-module-obs",
  "relay-module-planning_center",
  "relay-module-propresenter",
  "relay-module-remote_access",

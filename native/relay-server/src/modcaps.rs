@@ -250,3 +250,38 @@ impl ChannelCatalog for ChannelList {
         })
     }
 }
+
+// ------------------------------------------------------------------------------------------------ stream status and alert buttons
+/// The shared stream status, as a module publishes into it (`relay_core::caps::StreamBoard`).
+pub struct StreamBoardForModules(pub Arc<crate::status::StreamStatus>);
+
+impl relay_core::caps::StreamBoard for StreamBoardForModules {
+    fn publish(&self, source: &str, e: relay_core::caps::StreamEntry) -> Result<(), &'static str> {
+        self.0.publish(source, crate::status::Publish { label: &e.label, on_air: e.on_air, health: &e.health, live_since: e.live_since, viewers: None, detail: &e.detail })
+    }
+
+    fn clear(&self, source: &str) {
+        self.0.clear(source);
+    }
+}
+
+/// The operator's alert buttons, as a module that raises one needs them.
+pub struct AlertButtonsForModules(pub Arc<relay_show::alerts::Alerts>);
+
+impl relay_core::caps::AlertButtons for AlertButtonsForModules {
+    fn buttons(&self) -> Vec<(String, String)> {
+        self.0.settings()["buttons"].as_array().into_iter().flatten().filter_map(|b| Some((b["id"].as_str()?.to_owned(), b["name"].as_str().unwrap_or("").to_owned()))).collect()
+    }
+
+    fn exists(&self, id: &str) -> bool {
+        self.0.button(id).is_some()
+    }
+
+    fn is_on(&self, id: &str) -> bool {
+        self.0.is_on(id)
+    }
+
+    fn press(&self, id: &str, sender: &str) -> bool {
+        self.0.press(id, sender, None).is_ok()
+    }
+}

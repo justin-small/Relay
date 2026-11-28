@@ -277,6 +277,10 @@ impl Outside for AppOutside {
         out
     }
     fn announce(&self, event: &str) {
+        // The Rust modules that follow Start and Stop hear it here; the app's are told below.
+        if let Some(host) = &self.host {
+            host.announce(event, "");
+        }
         let (Some(app), Ok(handle)) = (self.app.clone(), tokio::runtime::Handle::try_current()) else { return };
         let event = event.to_owned();
         handle.spawn(async move {
@@ -375,7 +379,15 @@ pub fn start(s: Start) -> Api {
             }
         }));
     }
-    assemble(Assemble { acc: s.acc, captions, hub: s.hub, config: s.config, settings, show: s.show, upstream: s.upstream, shutdown: s.shutdown, registry: s.registry })
+    let host = s.host.clone();
+    let hub = Arc::clone(&s.hub);
+    let api = assemble(Assemble { acc: s.acc, captions, hub: s.hub, config: s.config, settings, show: s.show, upstream: s.upstream, shutdown: s.shutdown, registry: s.registry });
+    // What a module that watches the stream (OBS) reports to and reads from: the stream status and the lines the hub commits.
+    if let Some(host) = host {
+        host.provide("core", relay_core::caps::HUB, Arc::new(relay_core::caps::HubCap(hub)));
+        host.provide("core", relay_core::caps::STREAMS, Arc::new(relay_core::caps::StreamsCap(Arc::new(crate::modcaps::StreamBoardForModules(Arc::clone(&api.streams.status))))));
+    }
+    api
 }
 
 /// The engine, ready to serve: what [`start`] builds around the real audio, and what a test builds around its own.

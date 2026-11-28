@@ -196,6 +196,13 @@ impl Host {
         }
     }
 
+    /// Write an audit entry for something the module did on its own, with nobody signed in behind it (`audit.record`).
+    pub async fn record(&self, action: &str, summary: &str, target: &str) {
+        if let Some(a) = self.authorizer() {
+            a.record(action, summary, target).await;
+        }
+    }
+
     /// This module's settings, secrets opened. `None` when the install has none saved.
     pub fn settings(&self, settings_key: &str) -> Option<Value> {
         self.store.get()?.read(settings_key)
