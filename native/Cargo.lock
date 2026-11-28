@@ -3083,6 +3083,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "relay-module-dante"
+version = "0.1.0"
+dependencies = [
+ "axum",
+ "http-body-util",
+ "quickcheck",
+ "relay-core",
+ "serde_json",
+ "sqlx",
+ "tokio",
+ "tower",
+ "tracing",
+]
+
+[[package]]
 name = "relay-module-ndi"
 version = "0.1.0"
 dependencies = [
@@ -3285,6 +3300,7 @@ dependencies = [
  "relay-captions",
  "relay-config",
  "relay-core",
+ "relay-module-dante",
  "relay-module-ndi",
  "relay-module-obs",
  "relay-module-planning_center",

@@ -75,3 +75,4 @@ ios/**/DerivedData/
 ios/**/.build/
 ios/**/.swiftpm/
 ios/**/xcuserdata/
+reports/jscpd/

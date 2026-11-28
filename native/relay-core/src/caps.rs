@@ -385,6 +385,10 @@ pub trait AlertButtons: Send + Sync + 'static {
     fn is_on(&self, id: &str) -> bool;
     /// Press it as `sender`; `false` when it did not go (no such button, or refused).
     fn press(&self, id: &str, sender: &str) -> bool;
+    /// End the button's flashing alert (the Python `alerts.cancel`); `false` when there is no such button. The default does nothing.
+    fn cancel(&self, _id: &str) -> bool {
+        false
+    }
 }
 
 /// `Arc<HubCap>`: the caption hub, so a module can be handed every committed line (`hub.add_line_sink`). Provided by the server while it runs captions.
@@ -395,3 +399,50 @@ pub struct HubCap(pub Arc<crate::hub::Hub>);
 /// Announced when the stream starts or stops (Relay's Start and Stop): the modules that follow them begin or end what they are set to.
 pub const STREAM_STARTED: &str = "stream.started";
 pub const STREAM_STOPPED: &str = "stream.stopped";
+
+// ------------------------------------------------------------------------------------------------------------------ Dante (#674)
+/// `Arc<InterfacesCap>`: this computer's network ports, as far as a module that must know "this computer" needs (`netinfo.interfaces`).
+pub const INTERFACES: &str = "core.interfaces";
+
+/// One network port of this computer.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct LocalPort {
+    /// Its IPv4 and IPv6 addresses, without a prefix length.
+    pub addresses: Vec<String>,
+    /// `aa:bb:cc:dd:ee:ff`, or empty.
+    pub mac: String,
+    /// A virtual or tunnel port (not one a Dante network is on).
+    pub virtual_: bool,
+}
+
+pub struct InterfacesCap(pub Box<dyn Fn() -> Vec<LocalPort> + Send + Sync>);
+
+/// `Arc<GearFeed>` provided as `gear.dante` while the Dante module is on: the boxes for the network map and each device's transmit channels as
+/// core channels (`{"devices": [...], "channels": [...]}`), or `None` until the first scan has run.
+pub const GEAR_DANTE: &str = "gear.dante";
+
+pub struct GearFeed(pub Box<dyn Fn() -> Option<Value> + Send + Sync>);
+
+/// `Arc<InputLabels>` provided as `audio.input_labels`: given the audio input devices (`[{"index", "name", ...}]`), `{"<index>": {"kind", "feeds"}}`
+/// for the ones that are Dante sound cards.
+pub const INPUT_LABELS: &str = "audio.input_labels";
+
+pub type InputLabelsFn = dyn Fn(&[Value]) -> Value + Send + Sync;
+
+pub struct InputLabels(pub Box<InputLabelsFn>);
+
+/// `Arc<NoSoundSteps>` provided as `nosound.dante`: the steps of the "No sound?" walk upstream of Relay's input. `order` is where it sits on the way
+/// upstream (lower is nearer Relay: Dante is 10).
+pub const NOSOUND_DANTE: &str = "nosound.dante";
+
+pub struct NoSoundSteps {
+    pub order: i64,
+    pub steps: Box<StepsFn>,
+}
+
+pub type StepsFn = dyn Fn(&Value) -> Vec<Value> + Send + Sync;
+
+/// `Arc<DeviceList>` provided as `dante.routing`: the Dante devices Relay found, read-only (the signal map joins a patch list to it).
+pub const DANTE_ROUTING: &str = "dante.routing";
+
+pub struct DeviceList(pub Box<dyn Fn() -> Vec<Value> + Send + Sync>);

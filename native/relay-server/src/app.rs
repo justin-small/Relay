@@ -107,6 +107,7 @@ fn database_path() -> PathBuf {
 fn provide_core(host: &relay_core::Host, pool: &sqlx::SqlitePool, opts: &Options) {
     use relay_core::screens::{AppDir, LinksCap, ScreensCap, APP_DIR, DB, LINKS, SCREENS};
     host.provide("core", DB, Arc::new(pool.clone()));
+    host.provide("core", relay_core::caps::INTERFACES, Arc::new(crate::modcaps::interfaces_for_modules()));
     // Teams and positions Planning Center lists, kept in `directory_items` (#525); it reads them again when the followed plans change.
     let directory = crate::modcaps::DirectoryStore::new(pool.clone(), host.clone());
     directory.listen();

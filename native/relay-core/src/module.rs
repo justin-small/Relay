@@ -196,6 +196,11 @@ impl Host {
         }
     }
 
+    /// The name of whoever made `request`, for a module's own history (`None` when nobody is known).
+    pub async fn who(&self, request: &axum::http::request::Parts) -> Option<String> {
+        self.authorizer()?.who(request).await
+    }
+
     /// Write an audit entry for something the module did on its own, with nobody signed in behind it (`audit.record`).
     pub async fn record(&self, action: &str, summary: &str, target: &str) {
         if let Some(a) = self.authorizer() {

@@ -284,4 +284,18 @@ impl relay_core::caps::AlertButtons for AlertButtonsForModules {
     fn press(&self, id: &str, sender: &str) -> bool {
         self.0.press(id, sender, None).is_ok()
     }
+
+    fn cancel(&self, id: &str) -> bool {
+        self.0.cancel(id).is_ok()
+    }
+}
+
+/// This computer's network ports, for a module that must tell "this computer" from another one.
+pub fn interfaces_for_modules() -> relay_core::caps::InterfacesCap {
+    relay_core::caps::InterfacesCap(Box::new(|| {
+        crate::net::netinfo::interfaces()
+            .into_iter()
+            .map(|p| relay_core::caps::LocalPort { addresses: p.addresses(), mac: p.mac.clone().unwrap_or_default(), virtual_: p.virtual_ })
+            .collect()
+    }))
 }
