@@ -143,7 +143,7 @@ async fn site(tag: &str, config: Value, events: Vec<Vec<Value>>) -> Site {
         backends: Backends::builtin(),
         recorder: Recorder::new(clock::wall, clock::relay_zone),
     });
-    let api = assemble(Assemble { acc, captions: Arc::clone(&captions), hub, config: cfg, settings, show: None, upstream: None, shutdown: shutdown.clone() });
+    let api = assemble(Assemble { acc, captions: Arc::clone(&captions), hub, config: cfg, settings, show: None, upstream: None, shutdown: shutdown.clone(), registry: None });
     Site { dir, auth, router: routes(api), shutdown, captions }
 }
 

@@ -12,3 +12,7 @@ f2fcea908f30ab477c5f703058627f1cc3b32d02:tests/test_secrets.py:generic-api-key:1
 # removed in 514102e. It is still in git history, and the history is public: treat that key as exposed, never
 # trust the matching certificate, and never reuse it. Accepted here only so the scan can fail on NEW secrets.
 fd81f66870d3aa73ed47ed2e8f209e11eb12a2f9:docker-config/certs/admin.key:private-key:1
+
+# Test fixtures (fake keys in relay-config tests), not credentials.
+a2f1403f39d1976325f93b80959276052055ca5f:native/relay-config/tests/config.rs:generic-api-key:263
+a2f1403f39d1976325f93b80959276052055ca5f:native/relay-config/tests/config.rs:generic-api-key:315

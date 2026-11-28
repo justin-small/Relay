@@ -16,5 +16,6 @@ pub mod accounts;
 pub mod app;
 pub mod captions;
 pub mod gate;
+pub mod modcaps;
 pub mod modulehost;
 pub mod show;

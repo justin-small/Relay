@@ -929,3 +929,24 @@ pub fn routes_with(api: Api, stream: bool) -> Router {
     let router = if stream { router.route("/stream", get(stream_or_forward)) } else { router };
     router.with_state(api)
 }
+
+/// What a module that moves LIVE from a panel needs of the panel registry (`relay_core::caps::PanelDirectory`).
+pub struct PanelsForModules(pub Arc<Registry>);
+
+impl relay_core::caps::PanelDirectory for PanelsForModules {
+    fn known(&self, id: &str) -> bool {
+        panels::valid_id(&json!(id)) && self.0.known(id)
+    }
+
+    fn control_key(&self, id: &str) -> Option<String> {
+        self.0.control_key(id)
+    }
+
+    fn service(&self, id: &str) -> Value {
+        self.0.service(id)
+    }
+
+    fn display_name(&self, id: &str) -> String {
+        self.0.display_name(id)
+    }
+}

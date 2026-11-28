@@ -177,6 +177,20 @@ impl Registry {
         app
     }
 
+    /// The feed `name` of whichever module owns it, while that module is on. `None` for an unknown feed, a module that is off, or one that refuses.
+    pub fn stream(&self, name: &str, query: &BTreeMap<String, String>, headers: &axum::http::HeaderMap) -> Option<Response> {
+        let module = self.modules.iter().find(|m| m.streams().contains(&name))?;
+        if !self.enabled(module.manifest().id) {
+            return None;
+        }
+        module.stream(name, query, headers)
+    }
+
+    /// Every feed name a module owns, on or off.
+    pub fn stream_names(&self) -> Vec<&'static str> {
+        self.modules.iter().flat_map(|m| m.streams().iter().copied()).collect()
+    }
+
     /// Each listener of the modules that are on, with the port from the module's settings (Python's `modules.listeners()`).
     pub fn listeners(&self) -> Vec<ActiveListener> {
         let mut out = Vec::new();

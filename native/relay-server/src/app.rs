@@ -107,6 +107,10 @@ fn database_path() -> PathBuf {
 fn provide_core(host: &relay_core::Host, pool: &sqlx::SqlitePool, opts: &Options) {
     use relay_core::screens::{AppDir, LinksCap, ScreensCap, APP_DIR, DB, LINKS, SCREENS};
     host.provide("core", DB, Arc::new(pool.clone()));
+    // Teams and positions Planning Center lists, kept in `directory_items` (#525); it reads them again when the followed plans change.
+    let directory = crate::modcaps::DirectoryStore::new(pool.clone(), host.clone());
+    directory.listen();
+    host.provide("core", relay_core::caps::DIRECTORY, Arc::new(relay_core::caps::DirectoryCap(directory)));
     host.provide("core", SCREENS, Arc::new(ScreensCap(Arc::new(relay_show::screens::Screens::new(pool.clone())))));
     host.provide("core", APP_DIR, Arc::new(AppDir(opts.app_dir.clone())));
     let path = opts.config_path.clone();
@@ -201,6 +205,7 @@ impl App {
                     };
                     if let Some(api) = crate::audio::start(auth_pool, Arc::clone(&accounts), &opts.config_path, app, shutdown.clone()).await {
                         host.provide("core", relay_core::lanes::LANES, Arc::new(relay_core::lanes::LanesCap(Arc::new(crate::lanescap::CoreLanes::new(Arc::clone(&api.bus))))));
+                        host.provide("core", relay_core::caps::CHANNELS, Arc::new(relay_core::caps::ChannelsCap(crate::modcaps::ChannelList::new(Arc::clone(&api.channels)))));
                         host.provide(
                             "core",
                             relay_core::routes::ROUTES,
@@ -224,6 +229,7 @@ impl App {
                                 alerts.state()["buttons"].as_array().into_iter().flatten().filter(|b| b["state"] == "on").map(|b| json!({"id": b["id"], "to": b["name"], "from": b["from"]})).collect()
                             }))),
                         );
+                        host.provide("core", relay_core::caps::PANELS, Arc::new(relay_core::caps::PanelsCap(Arc::new(crate::show::PanelsForModules(Arc::clone(&api.panels))))));
                         show_api = Some(Arc::clone(&api));
                         // With captions here too, `/stream` is the captions' (it hands the alert feed on).
                         routes = routes.merge(crate::show::routes_with(api, !opts.rust_captions));
@@ -247,6 +253,8 @@ impl App {
                                 net: host.net().clone(),
                                 hub: relay_core::hub::Hub::with(relay_captions::redact::factory(), Box::new(relay_captions::clock::wall)),
                                 shutdown: shutdown.clone(),
+                                registry: Some(Arc::clone(&registry)),
+                                host: Some(host.clone()),
                             });
                             routes = routes.merge(crate::captions::routes(api));
                         }
