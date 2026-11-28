@@ -107,6 +107,13 @@ pub async fn resolve_v4(host: &str, port: u16) -> Result<SocketAddr, RouteError>
     found.into_iter().find(SocketAddr::is_ipv4).ok_or_else(|| RouteError::new("The address could not be found."))
 }
 
+/// Every address a name resolves to, for a module that must see all of them before it connects to any (signage_web's check that a
+/// saved address is a public one). Modules open no socket of their own, so the lookup lives here.
+pub async fn resolve_all(host: &str, port: u16) -> Result<Vec<std::net::IpAddr>, RouteError> {
+    let found = tokio::net::lookup_host((host, port)).await.map_err(|_| RouteError::new("The address could not be found."))?;
+    Ok(found.map(|a| a.ip()).collect())
+}
+
 struct Unrouted;
 
 impl Router for Unrouted {
