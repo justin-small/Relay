@@ -1,0 +1,25 @@
+exclude: ^(VERSION|Pods|Build|DerivedData).*
+repos:
+  - repo: local
+    hooks:
+      # ========== SwiftFormat (style → auto-fix) ==========
+      - id: swiftformat
+        name: SwiftFormat
+        entry: mint run swiftformat
+        language: system
+        types: [swift]
+
+      # ========== SwiftLint (safety/logic → block) ==========
+      - id: swiftlint
+        name: SwiftLint (strict)
+        entry: mint run swiftlint lint --strict
+        language: system
+        types: [swift]
+
+      # ========== Custom local hook: check image/icon size ==========
+      - id: check-image-size
+        name: Check Image and Icon Sizes
+        entry: bash scripts/check_image_size.sh
+        language: system
+        types: [file]
+        pass_filenames: false

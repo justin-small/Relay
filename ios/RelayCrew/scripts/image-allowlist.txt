@@ -1,0 +1,13 @@
+# Image-name allowlist for find_unused_images.py
+#
+# One POSIX extended-regex per line, matched against the ASSET NAME (the
+# imageset/file name without its extension). A reported unused image whose name
+# matches any pattern here is dropped from the report.
+#
+# Use this for images whose names are constructed at runtime and therefore
+# cannot be found by static analysis, e.g. Image("icon_\(type)").
+#
+# Examples (uncomment / adapt to your project):
+# ^icon_        # Image("icon_\(type)")
+# ^flag_        # country flags keyed by code
+# ^avatar_      # avatars keyed by user id

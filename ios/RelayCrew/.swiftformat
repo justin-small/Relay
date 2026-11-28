@@ -1,0 +1,98 @@
+# ===== Core Settings =====
+--swift-version 6.0             # Match iOSAppTemplate's SWIFT_VERSION (Swift 6)
+--max-width 120                 # Maximum line width
+
+# ===== Indentation & Spacing =====
+--indent tab                    # Use tabs for indentation
+--tab-width 4                   # A tab renders as 4 columns (for line-width calc)
+--ifdef no-indent               # Do not indent preprocessor directives (#if/#endif)
+--indent-strings true
+--line-between-guards false     # Add blank line after guard statements
+--type-blank-lines preserve
+--trim-whitespace nonblank-lines
+
+# ===== File & Scope Exclusions =====
+--exclude */**/Pods
+--exclude */**/Generated
+--exclude */**/Build
+--exclude */**/DerivedData
+
+# ===== Rule Management =====
+# --- Disabled Rules ---
+--disable applicationMain       # Do not replace @UIApplicationMain (needed for SwiftUI @main)
+--disable redundantSelf         # Allow explicit 'self.' to be kept
+--disable sortImports           # Keep import order as-is
+--disable unusedArguments       # Allow unused arguments (common in callbacks/closures)
+--disable blankLinesBetweenScopes
+--disable wrapMultilineStatementBraces
+
+# --- Enabled Rules ---
+# Safety & Test Best Practices
+--enable noForceTryInTests      # Disallow 'try!' in test code
+--enable noForceUnwrapInTests   # Disallow force unwrap in test code
+--enable noGuardInTests         # Disallow 'guard' in test code
+--enable urlMacro               # Replace 'URL(string:)!' with safe '#URL(...)'
+
+# Swift Best Practices / Redundant Cleanup
+--enable preferFinalClasses      # Suggest final for classes where possible
+--enable privateStateVariables   # Make state variables private
+--enable redundantAsync          # Remove unnecessary 'async'
+--enable redundantEquatable      # Remove unnecessary 'Equatable' conformance
+--enable redundantMemberwiseInit # Remove redundant memberwise initializers
+--enable redundantVariable       # Remove unnecessary property declarations
+--enable redundantPublic         # Remove unnecessary 'public' keyword
+--enable redundantReturn         # Remove unnecessary 'return'
+--enable redundantStaticSelf     # Remove unnecessary 'Self'
+--enable redundantVoidReturnType # Remove '-> Void' if optional
+--property-types inferred
+
+# Readability & Style Enhancements
+--enable blankLineAfterSwitchCase
+--enable blankLinesBetweenImports
+--enable emptyExtensions
+--enable isEmpty                 # Prefer '.isEmpty' over '.count == 0'
+--enable wrapConditionalBodies
+--enable wrapMultilineFunctionChains
+--enable wrapSwitchCases
+
+# ===== Detailed Formatting Rules =====
+# --- Commas, Semicolons & Optionals ---
+--trailing-commas never          # Never add trailing commas
+--semicolons never
+--short-optionals always
+
+# --- Wrapping & Line Breaks ---
+--wrap-arguments before-first    # Wrap function arguments before first argument
+--wrap-collections before-first  # Wrap collection literals before first element
+--wrap-return-type never
+--wrap-effects never
+--call-site-paren balanced
+--wrap-type-aliases before-first
+--allow-partial-wrapping false
+--wrap-ternary before-operators
+--wrap-string-interpolation preserve
+
+# --- Attributes Placement ---
+--func-attributes prev-line
+--type-attributes prev-line
+--stored-var-attributes same-line
+--computed-var-attributes prev-line
+--complex-attributes prev-line
+
+# --- Control Flow ---
+--else-position same-line
+--guard-else auto
+--single-line-for-each convert
+
+# --- Type & Member Organization ---
+--visibility-order beforeMarks,instanceLifecycle,open,public,package,internal,fileprivate,private
+--type-order nestedType,staticProperty,staticPropertyWithBody,classPropertyWithBody,swiftUIPropertyWrapper,instanceProperty,instancePropertyWithBody,staticMethod,classMethod,instanceMethod
+--mark-struct-threshold 20
+--mark-enum-threshold 20
+--sort-swiftui-properties first-appearance-sort
+--type-body-marks remove
+
+# --- Syntax & Doc Comments ---
+--doc-comments preserve
+--header strip
+--some-any disabled

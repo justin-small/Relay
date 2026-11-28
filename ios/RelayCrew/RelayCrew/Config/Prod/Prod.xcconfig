@@ -1,0 +1,16 @@
+//
+//  Prod.xcconfig
+//  iOSAppTemplate
+//
+//
+
+// Configuration settings file format documentation can be found at:
+// https://developer.apple.com/documentation/xcode/adding-a-build-configuration-file-to-your-project
+
+// App Configuration
+BUNDLE_ID = com.justinsmall.relay.crew.prod
+APP_NAME = RelayCrew
+
+// Compile-time environment flag (see Dev.xcconfig). Enables `#if PROD` (and
+// the `#else` branch, since release builds have no DEBUG).
+SWIFT_ACTIVE_COMPILATION_CONDITIONS = PROD

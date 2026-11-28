@@ -1,0 +1,32 @@
+# macOS
+.DS_Store
+
+# Xcode
+DerivedData/
+build/
+ui-test-results/
+*.pbxuser
+xcuserdata/
+*.xcuserstate
+
+# SwiftPM
+.swiftpm/
+.build/
+# Package.resolved is intentionally committed for reproducible builds in app projects
+
+# CocoaPods
+Pods/
+Podfile.lock
+
+# App artifacts
+*.ipa
+*.dSYM.zip
+*.xcarchive
+
+# Playground
+timeline.xctimeline
+playground.xcworkspace
+
+# Misc
+*.log
+*.zip

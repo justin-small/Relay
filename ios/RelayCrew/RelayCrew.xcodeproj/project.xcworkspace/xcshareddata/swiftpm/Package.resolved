@@ -1,0 +1,33 @@
+{
+  "originHash" : "2800c932f6e1105cf0fdaeb765accb1b3de57ee4cef2c58ebe5c90210c49b098",
+  "pins" : [
+    {
+      "identity" : "logpipe",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/konotori/LogPipe.git",
+      "state" : {
+        "revision" : "e4de9a294ebe74b6cff19e25e920729cb6edb90d",
+        "version" : "1.0.0"
+      }
+    },
+    {
+      "identity" : "navistack",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/konotori/NaviStack.git",
+      "state" : {
+        "revision" : "056386c03c5fbcea50584092816883b491c74c24",
+        "version" : "1.0.1"
+      }
+    },
+    {
+      "identity" : "restkit",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/konotori/RESTKit.git",
+      "state" : {
+        "revision" : "d6d55047fd7f083cafdb0b5c422cb897a9257ca7",
+        "version" : "1.0.0"
+      }
+    }
+  ],
+  "version" : 3
+}

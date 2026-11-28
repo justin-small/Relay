@@ -1,0 +1,22 @@
+//
+//  Dev.xcconfig
+//  iOSAppTemplate
+//
+//
+
+// Configuration settings file format documentation can be found at:
+// https://developer.apple.com/documentation/xcode/adding-a-build-configuration-file-to-your-project
+
+// App Configuration
+BUNDLE_ID = com.justinsmall.relay.crew.dev
+APP_NAME = RelayCrew-Dev
+
+// Compile-time environment flag. Combines with the project-level
+// `SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)"`, so Swift can
+// branch per environment: `#if DEV` / `#elseif STAGING` / `#else`.
+// (`#if DEBUG` alone can't tell Dev from Staging — both are Debug configs.)
+SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEV
+
+// Compile-time diagnostics (Dev only): warn on slow-to-compile code.
+// Tune the millisecond thresholds as the codebase grows (e.g. 500 to reduce noise).
+OTHER_SWIFT_FLAGS = -Xfrontend -warn-long-function-bodies=150 -Xfrontend -warn-long-expression-type-checking=150
