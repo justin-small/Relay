@@ -332,3 +332,66 @@ pub trait Helpers: Send + Sync + 'static {
 pub const BOARD_FOLLOW: &str = "board.follow.";
 
 pub struct BoardFollow(pub Box<dyn Fn() -> Option<Value> + Send + Sync>);
+
+// ------------------------------------------------------------------------------------------------------- what a module reports of itself
+/// `Arc<StreamsCap>`: the shared stream status (`app/streamstatus.py`): what a module that watches a stream (OBS) says of it, one entry per module id.
+/// Provided by the server while it serves the status feed.
+pub const STREAMS: &str = "core.streams";
+
+pub struct StreamsCap(pub Arc<dyn StreamBoard>);
+
+/// One module's entry in the stream status.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct StreamEntry {
+    pub label: String,
+    /// `None`: not known (not connected yet).
+    pub on_air: Option<bool>,
+    /// `ok`, `warn`, `error` or `idle`.
+    pub health: String,
+    /// When the stream went live, epoch seconds, so a screen counts the elapsed time itself.
+    pub live_since: Option<f64>,
+    /// For the admin page only.
+    pub detail: String,
+}
+
+pub trait StreamBoard: Send + Sync + 'static {
+    /// Replace `source`'s entry. A refusal (an id that is not a module id, a health nobody knows) is a fixed sentence.
+    fn publish(&self, source: &str, entry: StreamEntry) -> Result<(), &'static str>;
+    fn clear(&self, source: &str);
+}
+
+/// `Arc<TallyCap>`: the shared tally (`app/tally.py`): which cameras are on program and preview. No Rust server holds it yet, so a module that asks gets
+/// `None` and publishes nothing, as it does in Python with no tally screen.
+pub const TALLY: &str = "core.tally";
+
+pub struct TallyCap(pub Arc<dyn TallyBoard>);
+
+pub trait TallyBoard: Send + Sync + 'static {
+    /// Replace everything `source` knows: `[{"n", "name", "program", "preview"}]`.
+    fn publish(&self, source: &str, cameras: Vec<Value>);
+    fn clear(&self, source: &str);
+}
+
+/// `Arc<AlertButtonsCap>`: the operator's alert buttons, as far as a module that raises one of them needs (`alerts.button`, `alerts.latest`, `alerts.press`).
+pub const ALERT_BUTTONS: &str = "core.alert_buttons";
+
+pub struct AlertButtonsCap(pub Arc<dyn AlertButtons>);
+
+pub trait AlertButtons: Send + Sync + 'static {
+    /// Every button, `(id, name)`, in the operator's order.
+    fn buttons(&self) -> Vec<(String, String)>;
+    fn exists(&self, id: &str) -> bool;
+    /// The button's alert is flashing now.
+    fn is_on(&self, id: &str) -> bool;
+    /// Press it as `sender`; `false` when it did not go (no such button, or refused).
+    fn press(&self, id: &str, sender: &str) -> bool;
+}
+
+/// `Arc<HubCap>`: the caption hub, so a module can be handed every committed line (`hub.add_line_sink`). Provided by the server while it runs captions.
+pub const HUB: &str = "core.hub";
+
+pub struct HubCap(pub Arc<crate::hub::Hub>);
+
+/// Announced when the stream starts or stops (Relay's Start and Stop): the modules that follow them begin or end what they are set to.
+pub const STREAM_STARTED: &str = "stream.started";
+pub const STREAM_STOPPED: &str = "stream.stopped";

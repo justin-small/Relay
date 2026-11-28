@@ -525,6 +525,38 @@ reader panic is "could not be read". Reading runs off the request's thread.
 - Not run against a real ProPresenter. The fake is a real HTTP server that models what the live-test notes record (chunked stream, missed pushes, heartbeats,
   one unknown stream path failing the whole request, playlists found by exact name), and the Python tests' scenarios are ported onto it.
 
+### OBS Studio (#668)
+
+`native/modules/obs` (`relay-module-obs`) is `app/modules/obs`: one held obs-websocket 5 connection per OBS computer (up to four) for the scene, the outputs,
+health, scene switching (also through studio mode, the tablet scene screen and a slide tag's `obs=`), start and stop of the stream, recording and replay
+buffer, audio meters and mute, the admin preview, alerts, tally, and captions sent into the stream. It depends on `relay-core` only. Settings are read and
+cleaned as Python does (`machines`, and `passwords` as one sealed JSON string), so an existing `config.json` loads unchanged.
+
+| Python | Rust (`modules/obs/src/`) |
+|---|---|
+| `client.py` | `proto.rs`: the handshake, requests and events over a TCP stream from `Host::net()` for the `obs` class and `tokio-tungstenite` (`client_async`). Written against OBS's protocol directly: `obsr` and `obws` were not adopted, because the module needs six request kinds' worth of raw JSON and a connection that goes through the routed network port. |
+| `service.py` `Machine` | `machine.rs`: state, polling, health, events, outputs, captions, snapshot |
+| `service.py` `Service`, `clean_*` | `service.rs` and `settings.rs` |
+| `routes.py` | `routes.rs`: the admin routes and the scene screen, each behind the permission Python asked and writing the audit entry Python wrote |
+
+**What core now offers modules** (all by name, `relay_core::caps`): `core.streams` (the stream status, provided while captions run here, `--rust-captions`),
+`core.alert_buttons` (the operator's alert buttons, while alerts run here), `core.hub` (the caption hub, whose line sink sends captions), `core.tally`
+(a shape only: no Rust server holds the tally yet, so OBS publishes none), and `Host::record`, an audit entry with nobody signed in behind it. The listener
+puts each request's client address in `relay_core::access::Peer`, which the scene screen limits by. The captions engine now announces `stream.started` and
+`stream.stopped` to the Rust modules as well as to the app, and OBS provides `tag.action.obs` and `core.routes` channels (each scene is a video source).
+
+**What changed and why.**
+
+- **The scene screen is `/obs/screen?obs=<computer>&key=<key>`**, not `/screen?obs=...`: the server does not own `/screen`, which Python serves and which
+  calls the Python module's hook. A tablet's old link keeps working only while the app's OBS module is on. The admin page gets the new link from its route.
+- "The stream stopped by itself" says how long ago, not the clock time: the module has no zone to format it in. Health detail is a fixed sentence.
+- The scenes core lists are every computer's, from the last time it answered in this run; after a restart with a computer off, its scenes show as missing
+  until it connects.
+
+**Not here.** `gear.obs` (the network map marking the computers as running OBS) and the module's `test` hook: the Rust trait has none yet. Tally and the
+`/screen` hook, above. Not run against a real OBS from this Mac; the fake is a real WebSocket server that speaks the handshake, the requests and the events
+the Python tests' scenarios use, and those scenarios are ported onto it.
+
 ## Live captions (#659)
 
 `native/relay-captions` is `app/redact.py`, `app/realtime.py`, `app/transcribe.py`, `app/texttranslate.py`, `app/recorder.py`,

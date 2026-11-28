@@ -21,12 +21,21 @@ pub struct Permission {
     pub min_role: &'static str,
 }
 
+/// Set on every request by the server's listener: the address it came from, for a module that limits a public route by client.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Peer(pub std::net::IpAddr);
+
 pub trait Authorizer: Send + Sync + 'static {
     /// Is the caller of this request signed in (or holding an API token) with `permission`? `Err` is the response to send.
     fn require<'a>(&'a self, request: &'a Parts, permission: &'static str) -> BoxFuture<'a, Result<(), Response>>;
 
     /// Write an audit entry for whoever made `request`, once the change succeeded. Never fails the request; the default writes nothing.
     fn note<'a>(&'a self, _request: &'a Parts, _action: &'a str, _summary: &'a str, _target: &'a str, _detail: Option<serde_json::Value>) -> BoxFuture<'a, ()> {
+        Box::pin(async {})
+    }
+
+    /// Write an audit entry with no request behind it (a module acting on its own: OBS starting a stream because Start was pressed). Never fails.
+    fn record<'a>(&'a self, _action: &'a str, _summary: &'a str, _target: &'a str) -> BoxFuture<'a, ()> {
         Box::pin(async {})
     }
 }
