@@ -41,9 +41,11 @@ macro_rules! need {
 mod admin;
 mod audit;
 mod me;
+mod page;
 mod request;
 mod signin;
 
+pub use page::{merge as merge_admin, route as admin_route, shell_view, Shell};
 pub(crate) use request::detail;
 use request::{failure, Need, Who};
 

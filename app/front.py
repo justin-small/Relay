@@ -83,7 +83,11 @@ def plan() -> dict:
             "port": port,
             "prefixes": list(lst.prefixes),
         })
-    return {"listeners": listeners, "listener_prefixes": list(modules.listener_prefixes()),
+    # What each module adds to the role table, so the server's `can` and `/api/admin/me` know the permissions of modules it does
+    # not have yet (#719); every module, on or off, as the Users page lists them.
+    permissions = [{"id": p.id, "label": p.label, "group": p.group, "min_role": p.min_role}
+                   for mod in modules.all() for p in mod.permissions]
+    return {"listeners": listeners, "permissions": permissions, "listener_prefixes": list(modules.listener_prefixes()),
             "panel_prefixes": list(modules.panel_prefixes()),
             # What the server last reported, so a check can see the round trip (None until it has).
             "published": {"viewer_port": serving.viewer_port(0) or None, "admin_port": serving.admin_port(0) or None,
@@ -205,6 +209,17 @@ async def gear_rename(request: Request):
 async def front_plan(request: Request):
     _authorised(request)
     return plan()
+
+
+@router.get("/api/internal/front/admin")
+async def front_admin(request: Request):
+    """The modules that are on and the admin pages they add, for the server to draw the admin page with (#719)."""
+    _authorised(request)
+    import asyncio
+
+    from .modules import modules
+
+    return await asyncio.to_thread(modules.admin_listing)
 
 
 @router.post("/api/internal/front")

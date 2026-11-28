@@ -13,7 +13,8 @@ use axum::Router;
 
 use crate::config::Config;
 use crate::error::{AppError, ErrorCode};
-use crate::module::{Host, Listener, Module};
+use crate::module::{Host, HealthState, Listener, Module, TAB_PAGES};
+use serde_json::{json, Value};
 
 /// A listener of a module that is on.
 #[derive(Clone, Debug)]
@@ -23,6 +24,31 @@ pub struct ActiveListener {
     pub listener: Listener,
     /// The port from the module's settings.
     pub port: u16,
+}
+
+/// The sidebar headings, in order (`NAV_SECTIONS` in `app/modules/__init__.py`). A module whose section is not here is under "Modules".
+pub const NAV_SECTIONS: [&str; 6] = ["Show", "Crew", "Screens", "Sound", "Building", "Modules"];
+
+/// What the admin page needs from the modules that are on, for one signed-in user (Python's `admin_nav`, `admin_tabs`,
+/// `admin_scripts` and `admin_styles`), as the JSON `admin.html` is rendered with.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct AdminView {
+    /// One sidebar entry per module with a page the user may see, in `NAV_SECTIONS` order.
+    pub nav: Vec<Value>,
+    /// `{core page id: [tab, ...]}`.
+    pub tabs: BTreeMap<String, Vec<Value>>,
+    /// `<module id>/<file>` for each script of a module with a page the user may see.
+    pub scripts: Vec<String>,
+    pub styles: Vec<String>,
+}
+
+pub fn health_word(state: HealthState) -> &'static str {
+    match state {
+        HealthState::Ok => "ok",
+        HealthState::Warn => "warn",
+        HealthState::Error => "error",
+        HealthState::Idle => "idle",
+    }
 }
 
 pub struct Registry {
@@ -171,6 +197,44 @@ impl Registry {
     /// Every path prefix a module serves only on a listener of its own, whether the module is on or not.
     pub fn listener_prefixes(&self) -> Vec<String> {
         self.modules.iter().flat_map(|m| m.listeners()).flat_map(|l| l.prefixes.iter().map(|p| (*p).to_owned())).collect()
+    }
+
+    /// The admin pages, scripts and styles of the modules that are on, for a user who holds the permissions `can` says yes to.
+    /// A module with no page the user may see adds nothing, so a sidebar entry exists only for someone who may open it.
+    pub fn admin_view(&self, can: &dyn Fn(&str) -> bool) -> AdminView {
+        let mut view = AdminView::default();
+        for module in &self.modules {
+            let m = module.manifest();
+            if !self.enabled(m.id) {
+                continue;
+            }
+            let pages = module.admin_pages();
+            let perm = |p: &crate::module::AdminPage| if p.permission.is_empty() { format!("{}.view", m.id) } else { p.permission.to_owned() };
+            let allowed: Vec<_> = pages.iter().filter(|p| can(&perm(p))).collect();
+            let page_json = |p: &crate::module::AdminPage| {
+                json!({"id": p.id, "title": p.title, "icon": p.icon, "template": format!("{}/{}", m.id, p.template),
+                       "module": m.name, "version": m.version, "guide": m.guide})
+            };
+            let entries: Vec<Value> = allowed.iter().filter(|p| p.tab_of.is_empty()).map(|p| page_json(p)).collect();
+            for p in allowed.iter().filter(|p| TAB_PAGES.contains(&p.tab_of)) {
+                view.tabs.entry(p.tab_of.to_owned()).or_default().push(json!({
+                    "id": p.id, "title": p.title, "template": format!("{}/{}", m.id, p.template), "module": m.name,
+                    "module_id": m.id, "version": m.version, "guide": m.guide}));
+            }
+            if !entries.is_empty() {
+                let health = module.health();
+                let section = if NAV_SECTIONS.contains(&m.section) { m.section } else { "Modules" };
+                view.nav.push(json!({"id": m.id, "name": m.name, "section": section, "icon": entries[0]["icon"],
+                    "health": health_word(health.state), "detail": health.detail, "pages": entries, "tabbed": module.admin_tabbed()}));
+            }
+            let sees_module = if pages.is_empty() { can(&format!("{}.view", m.id)) } else { !allowed.is_empty() };
+            if sees_module {
+                view.scripts.extend(module.admin_scripts().iter().map(|s| format!("{}/{s}", m.id)));
+                view.styles.extend(module.admin_styles().iter().map(|s| format!("{}/{s}", m.id)));
+            }
+        }
+        view.nav.sort_by_key(|e| NAV_SECTIONS.iter().position(|s| Some(*s) == e["section"].as_str()));
+        view
     }
 
     /// Which modules are on, for a status read: `id -> (enabled, running)`.

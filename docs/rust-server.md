@@ -64,9 +64,28 @@ The registry's life cycle is Python's: `attach` runs at startup for every module
 `set_enabled` starts or stops it now and saves `modules.<id>.enabled`, `stop_all` runs in reverse order. A module that
 fails to start is logged and left stopped; the others still start.
 
-Not in the trait yet, because they need what a later issue builds: admin pages, crew tabs, user pages, permissions and
-traffic classes (#654, #655 and #653 bring templates, accounts and ports), `test` and `status`, boards and pills (#660),
-`network_changed`. Each is added to the trait with the issue that needs it, with its Python meaning unchanged.
+Not in the trait yet, because they need what a later issue builds: crew tabs, user pages, `test` and `status`,
+`network_changed`. (Admin pages, permissions and traffic classes are in: #719, #655 and #653.) Each is added to the trait with the issue that needs it, with its Python meaning unchanged.
+
+### Admin pages (#719)
+
+`Module::admin_pages()` returns `AdminPage { id, title, template, icon, permission, tab_of }` (empty `permission` is
+`<module id>.view`; `tab_of` is `"network"` or `"signage"` for a tab of a core page), and `admin_scripts()`, `admin_styles()` and
+`admin_tabbed()` are Python's fields of the same names. `Registry::admin_view(can)` is `admin_nav`, `admin_tabs`, `admin_scripts`
+and `admin_styles` in one call: only modules that are on, only pages `can` allows, one sidebar entry per module under its
+`NAV_SECTIONS` heading.
+
+The server serves `GET /admin` itself (`relay-server/src/accounts/page.rs`): `_page_gate`'s sign-in, forced password change and
+"members go home" answers, then `admin.html` rendered by minijinja with the same context Python gives it (`me`, `module_nav`,
+`module_tabs`, `module_scripts`, `module_styles`, `look`). Templates, scripts and styles are still read from `app/modules/<id>/`,
+and `statics.rs` serves them with the caching headers it serves every static file with.
+
+While a module is still only in Python, the page lists it too: the server asks the app for `GET /api/internal/front/admin`
+(`ModuleRegistry.admin_listing`: every module that is on, its pages with the permission of each, its scripts and styles) and
+cuts it down to the signed-in user the way `admin_view` does. A module the server has is never listed from the app, so a ported
+module's page is drawn from the Rust declaration alone and the app's copy is ignored. With no account yet, `/admin` is still the
+app's first-run form (`/admin/setup` stores the OpenAI key, which needs the sealed store). When #664 removes the app, the
+listing call and the first-run hand-over go with it.
 
 ### How "integrations are modules" is enforced
 
@@ -396,7 +415,6 @@ made by the browser and only stored. `Host::note` writes the audit entry Python'
 
 **Not in the module yet**, because it needs another module or the admin shell:
 
-- the admin page and its script (the Rust module trait has no admin pages: the Python shell still lists the module and loads them);
 - items from other modules' sources (ProPresenter announcement slides, Planning Center media, web pages and YouTube) are skipped until those
   modules are ported (#661), and so are the `signage.layer.takeover` and `signage.layer.tag` layers other modules provide;
 - offering each screen to the NDI module as an output, the Schedules page's "used by" list, and the Boards widgets (`signage.takeovers`);
@@ -421,5 +439,5 @@ link-local, shared, documentation, reserved or multicast, IPv4-mapped IPv6 judge
 was checked, not to a second lookup of the name, through `Host::net()` for the `signage_web` traffic class, so it leaves by the port the
 operator assigned. TLS is checked against the bundled roots.
 
-**Not in the module yet**, because the Rust module trait has no admin pages: the "Web & YouTube" tab and `signageweb.js`; the Python shell
-still lists the module and loads them. `tests/test_signage_web.py` stays as the check of the Python module until it is retired (#664).
+The "Web & YouTube" tab and `signageweb.js` are declared by the module (`admin_pages`, `tab_of: "signage"`, #719) and drawn by the server.
+`tests/test_signage_web.py` stays as the check of the Python module until it is retired (#664).

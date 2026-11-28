@@ -171,6 +171,15 @@ impl App {
             None => AppPlan::default(),
         };
 
+        // The app's modules add permissions this server has no module for yet; the role table must know them (`can`, `/api/admin/me`).
+        // One at a time: a permission a module here already registered, or one that is not valid, is skipped without losing the rest.
+        for p in &plan.permissions {
+            let perm = relay_auth::perms::Permission { id: p.id.clone(), label: p.label.clone(), group: p.group.clone(), min_role: p.min_role.clone() };
+            if let Err(why) = relay_auth::perms::register(&[perm]) {
+                tracing::debug!("the app's permission {} is not added here: {why}", p.id);
+            }
+        }
+
         let panel = Panel::start(&tls::cert_dir(), &settings.admin_fqdn, &names_for(&settings, &net))?;
         let mut routes = registry.routes().merge(crate::statics::routes(&opts.app_dir));
         // Accounts (#655): the sign-in forms and the account, token, device and audit routes. When the database cannot be used
@@ -213,7 +222,8 @@ impl App {
                         routes = routes.merge(crate::show::routes(api));
                     }
                 }
-                routes = routes.merge(crate::accounts::routes(accounts));
+                let shell = Arc::new(crate::accounts::Shell { registry: Arc::clone(&registry), front: front.clone(), upstream: upstream.clone() });
+                routes = routes.merge(crate::accounts::admin_route(Arc::clone(&accounts), shell)).merge(crate::accounts::routes(accounts));
             }
             Err(e) => tracing::error!("accounts are served by the app behind this server, not by it: {e}"),
         }

@@ -4,8 +4,7 @@
 //! Items need the internet. The player skips one while its screen can't reach the site, and plays it again when it can.
 //!
 //! The module provides two signage sources, `signage.source.web_page` and `signage.source.youtube`, while it is on; signage asks for them
-//! by name and never imports this crate. Not here yet: the "Web & YouTube" tab and its script (the Rust module trait has no admin pages;
-//! the Python shell still lists the module and loads them).
+//! by name and never imports this crate. The "Web & YouTube" tab and `signageweb.js` are declared in `PAGES` and drawn by the server (#719).
 
 // axum's `Response` is the error half of every route helper (the answer to send instead): the shape of the Python it ports.
 #![allow(clippy::result_large_err)]
@@ -25,7 +24,7 @@ use http_body_util::BodyExt;
 use relay_core::future::BoxFuture;
 use relay_core::gate::gate;
 use relay_core::screens::{SignageSource, SIGNAGE_SOURCE};
-use relay_core::{AppError, Health, HealthState, Host, Manifest, Module, Permission};
+use relay_core::{AdminPage, AppError, Health, HealthState, Host, Manifest, Module, Permission};
 use serde_json::{json, Value};
 
 use crate::check::{Fetch, Web};
@@ -254,6 +253,8 @@ fn source(host: &Host, kind: &'static str, label: &str) -> SignageSource {
     }
 }
 
+const PAGES: &[AdminPage] = &[AdminPage { id: "signageweb", title: "Web & YouTube", template: "admin.html", icon: r#"<circle cx="8" cy="8" r="6"/><path d="M2 8h12M8 2c2 2 2 10 0 12M8 2c-2 2-2 10 0 12"/>"#, permission: "", tab_of: "signage" }];
+
 impl Module for SignageWeb {
     fn manifest(&self) -> &Manifest {
         &MANIFEST
@@ -269,6 +270,18 @@ impl Module for SignageWeb {
 
     fn clean(&self, raw: &Value) -> Value {
         links::clean_stored(raw)
+    }
+
+    fn admin_pages(&self) -> &'static [AdminPage] {
+        PAGES
+    }
+
+    fn admin_scripts(&self) -> &'static [&'static str] {
+        &["signageweb.js"]
+    }
+
+    fn admin_styles(&self) -> &'static [&'static str] {
+        &[]
     }
 
     fn routes(&self) -> Router {

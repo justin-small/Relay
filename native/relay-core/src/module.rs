@@ -49,6 +49,26 @@ pub struct Manifest {
     pub section: &'static str,
 }
 
+/// A page the module adds to the admin panel, shown only while the module is on (Python's `AdminPage`, #719).
+#[derive(Clone, Copy, Debug)]
+pub struct AdminPage {
+    /// The `#hash` and `data-page` name; unique across Relay.
+    pub id: &'static str,
+    /// The nav label.
+    pub title: &'static str,
+    /// A template in the module's `templates/` folder, rendered as `<module id>/<template>`.
+    pub template: &'static str,
+    /// Inner SVG for the 16x16 nav icon; the module's sidebar entry uses its first page's.
+    pub icon: &'static str,
+    /// The permission needed to see the page; empty is `<module id>.view`.
+    pub permission: &'static str,
+    /// A core page this one is a tab of instead of a sidebar entry (`"network"` or `"signage"`, [`TAB_PAGES`]); empty is none.
+    pub tab_of: &'static str,
+}
+
+/// The core pages that take a module's page as a tab.
+pub const TAB_PAGES: &[&str] = &["network", "signage"];
+
 /// A plain-HTTP port of the module's own (#205): only its routes under `prefixes` answer on it.
 #[derive(Clone, Debug)]
 pub struct Listener {
@@ -257,6 +277,27 @@ pub trait Module: Send + Sync + 'static {
 
     fn listeners(&self) -> Vec<Listener> {
         Vec::new()
+    }
+
+    /// The pages it adds to the admin panel. The server lists them in the sidebar only while the module is on, and only to
+    /// someone who holds the page's permission.
+    fn admin_pages(&self) -> &'static [AdminPage] {
+        &[]
+    }
+
+    /// Scripts in the module's `static/` the admin page loads for it.
+    fn admin_scripts(&self) -> &'static [&'static str] {
+        &[]
+    }
+
+    /// Stylesheets in the module's `static/` the admin page loads for it.
+    fn admin_styles(&self) -> &'static [&'static str] {
+        &[]
+    }
+
+    /// True: the module's pages are one sidebar entry and tabs across the top of each page, not a submenu.
+    fn admin_tabbed(&self) -> bool {
+        false
     }
 
     fn attach(&self, _host: &Host) {}

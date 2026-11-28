@@ -4,8 +4,8 @@
 //! own (8090 by default), so a smart TV needs no login and no certificate. Screens can be put in groups that share a playlist, and
 //! players pick up every change live (a server-sent event stream) and keep playing what they have when Relay restarts.
 //!
-//! What stays in the app until the modules around it are ported (#661): the admin page and its script (the Rust module trait has no admin
-//! pages yet), items from other modules' sources (ProPresenter slides, Planning Center media, YouTube: they are skipped), the takeover and
+//! The admin page and its scripts are declared here (`PAGES`, #719) and drawn by the server. What stays in the app until the modules around
+//! it are ported (#661): items from other modules' sources (ProPresenter slides, Planning Center media, YouTube: they are skipped), the takeover and
 //! tag layers other modules provide, and offering each screen to the NDI module as an output.
 
 // axum's `Response` is the error half of every route helper (the answer to send instead), and the store functions take the columns of one
@@ -26,7 +26,7 @@ use std::time::Duration;
 
 use relay_core::future::BoxFuture;
 use relay_core::screens::{ScreensCap, DB, SCREENS};
-use relay_core::{AppError, ErrorCode, Health, HealthState, Host, Listener, Manifest, Module, Permission};
+use relay_core::{AdminPage, AppError, ErrorCode, Health, HealthState, Host, Listener, Manifest, Module, Permission};
 use serde_json::{json, Value};
 
 use crate::live::Live;
@@ -128,6 +128,8 @@ fn clean_settings(raw: &Value) -> Value {
     json!({"port": if (1024..=65535).contains(&port) { port } else { i64::from(DEFAULT_PORT) }, "alert_screens": alert, "alert_groups": groups, "override_until": until})
 }
 
+const PAGES: &[AdminPage] = &[AdminPage { id: "signage", title: "Signage", template: "admin.html", icon: r#"<rect x="1.5" y="2.5" width="13" height="9" rx="1"/><path d="M5.5 14h5M8 11.5V14"/>"#, permission: "", tab_of: "" }];
+
 impl Module for Signage {
     fn manifest(&self) -> &Manifest {
         &MANIFEST
@@ -143,6 +145,18 @@ impl Module for Signage {
 
     fn clean(&self, raw: &Value) -> Value {
         clean_settings(raw)
+    }
+
+    fn admin_pages(&self) -> &'static [AdminPage] {
+        PAGES
+    }
+
+    fn admin_scripts(&self) -> &'static [&'static str] {
+        &["signage.js", "player.js"]
+    }
+
+    fn admin_styles(&self) -> &'static [&'static str] {
+        &["signage.css"]
     }
 
     fn routes(&self) -> axum::Router {
