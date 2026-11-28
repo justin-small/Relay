@@ -18,6 +18,7 @@ use hyper_util::rt::TokioExecutor;
 use serde::{Deserialize, Serialize};
 
 const PATH: &str = "/api/internal/front";
+const ADMIN_PATH: &str = "/api/internal/front/admin";
 const CALL_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// One listener of a module that is on, as the app reports it.
@@ -43,6 +44,17 @@ pub struct AppPlan {
     pub listener_prefixes: Vec<String>,
     #[serde(default)]
     pub panel_prefixes: Vec<String>,
+    /// What the app's modules add to the role table (#719), so a permission of a module only the app has is known here.
+    #[serde(default)]
+    pub permissions: Vec<PermissionPlan>,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
+pub struct PermissionPlan {
+    pub id: String,
+    pub label: String,
+    pub group: String,
+    pub min_role: String,
 }
 
 #[derive(Clone, Debug, Serialize, PartialEq, Eq)]
@@ -83,6 +95,7 @@ pub struct Report {
     pub certificate: CertReport,
 }
 
+#[derive(Clone)]
 pub struct Front {
     base: String,
     token: String,
@@ -95,10 +108,10 @@ impl Front {
         Self { base: base.trim_end_matches('/').to_owned(), token: token.to_owned(), client }
     }
 
-    async fn call(&self, method: Method, body: Option<Vec<u8>>) -> Result<Bytes, &'static str> {
+    async fn call(&self, method: Method, path: &str, body: Option<Vec<u8>>) -> Result<Bytes, &'static str> {
         let req = Request::builder()
             .method(method)
-            .uri(format!("{}{PATH}", self.base))
+            .uri(format!("{}{path}", self.base))
             .header("x-relay-front", &self.token)
             .header("content-type", "application/json")
             .body(Full::new(Bytes::from(body.unwrap_or_default())))
@@ -116,13 +129,19 @@ impl Front {
 
     /// The app's listeners and reserved prefixes.
     pub async fn plan(&self) -> Result<AppPlan, &'static str> {
-        let bytes = self.call(Method::GET, None).await?;
+        let bytes = self.call(Method::GET, PATH, None).await?;
         serde_json::from_slice(&bytes).map_err(|_| "the app's plan was not understood")
+    }
+
+    /// The modules the app has that are on, with their admin pages, scripts and styles (`GET /api/internal/front/admin`, #719).
+    pub async fn admin(&self) -> Result<Vec<serde_json::Value>, &'static str> {
+        let bytes = self.call(Method::GET, ADMIN_PATH, None).await?;
+        serde_json::from_slice(&bytes).map_err(|_| "the app's module pages were not understood")
     }
 
     /// Tell the app what is really bound.
     pub async fn report(&self, report: &Report) -> Result<(), &'static str> {
         let body = serde_json::to_vec(report).map_err(|_| "report")?;
-        self.call(Method::POST, Some(body)).await.map(|_| ())
+        self.call(Method::POST, PATH, Some(body)).await.map(|_| ())
     }
 }

@@ -6,8 +6,8 @@
 //! from this machine to Cloudflare: no port forwarding, no router changes. The tunnel reaches the viewer port only; the operator
 //! panel is never on it. Switched off, cloudflared stops and the address is kept for next time.
 //!
-//! Not in the Rust module trait yet, so still served by the Python app while both run: the admin page and its script, the
-//! `test` button, the status line that lists the viewer links, and the restart when the routed network port changes.
+//! The admin page and its script are declared here (`PAGES`, #719) and drawn by the server. Not in the Rust module trait yet, so
+//! still served by the Python app while both run: the `test` button, the status line that lists the viewer links, and the restart when the routed network port changes.
 
 pub mod cloud;
 pub mod service;
@@ -22,7 +22,7 @@ use axum::routing::{get, post};
 use axum::{Json, Router};
 use relay_core::gate::gate;
 use relay_core::future::BoxFuture;
-use relay_core::{AppError, Health, HealthState, Host, Manifest, Module, Permission};
+use relay_core::{AdminPage, AppError, Health, HealthState, Host, Manifest, Module, Permission};
 use serde_json::{json, Map, Value};
 
 use crate::service::{enrolled, url, Service, KEY};
@@ -158,6 +158,8 @@ async fn release(State(slot): State<Slot>) -> Response {
     }
 }
 
+const PAGES: &[AdminPage] = &[AdminPage { id: "remoteaccess", title: "Remote access", template: "admin.html", icon: r#"<circle cx="8" cy="8" r="6"/><path d="M2 8h12M8 2c2 2 2.5 4 2.5 6S10 12 8 14M8 2C6 4 5.5 6 5.5 8S6 12 8 14"/>"#, permission: "", tab_of: "" }];
+
 impl Module for RemoteAccess {
     fn manifest(&self) -> &Manifest {
         &MANIFEST
@@ -184,6 +186,18 @@ impl Module for RemoteAccess {
             out.insert("cloud_url".into(), json!(cloud::DEFAULT_URL));
         }
         Value::Object(out)
+    }
+
+    fn admin_pages(&self) -> &'static [AdminPage] {
+        PAGES
+    }
+
+    fn admin_scripts(&self) -> &'static [&'static str] {
+        &["remoteaccess.js"]
+    }
+
+    fn admin_styles(&self) -> &'static [&'static str] {
+        &["remote_access.css"]
     }
 
     fn routes(&self) -> Router {

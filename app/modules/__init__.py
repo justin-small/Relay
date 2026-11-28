@@ -908,6 +908,23 @@ class Registry:
                         "module_id": m.id, "version": m.version, "guide": m.guide})
         return out
 
+    def admin_listing(self) -> list[dict]:
+        """Every module that is on, with its admin pages, scripts and styles and what a page needs to be shown to a user: the
+        permission of each page. For the Rust server, which draws the admin page itself and asks the modules it does not have
+        (#719). `admin_nav`, `admin_tabs`, `admin_scripts` and `admin_styles` are this, cut down to one user."""
+        out: list[dict] = []
+        for mod in self.active():
+            m = mod.manifest
+            health = self.health(mod)
+            out.append({
+                "id": m.id, "name": m.name, "version": m.version, "guide": m.guide, "section": m.section,
+                "health": health.state, "detail": health.detail, "tabbed": mod.admin_tabbed,
+                "scripts": list(mod.admin_scripts), "styles": list(mod.admin_styles),
+                "pages": [{"id": p.id, "title": p.title, "icon": p.icon, "template": p.template,
+                           "permission": self._page_permission(mod, p), "tab_of": p.tab_of} for p in mod.admin_pages],
+            })
+        return out
+
     def health_states(self, max_age: float = 5.0) -> dict[str, str]:
         """{module id: health state} for the modules that are on, for the sidebar's dots. Kept for `max_age`
         seconds, because the status it rides on is pushed on every change. The detail stays out: the status goes

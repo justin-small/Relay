@@ -93,7 +93,29 @@ with section("the module listeners are what the registry says"):
        [(f"{m}.{n}", p) for m, n, p in on])
     for x in front.plan()["listeners"]:
         check(f"{x['key']} carries its class and a policy", x["traffic"] and x["policy"] in ("strict", "fallback"), x)
+    want = [(p.id, p.min_role) for m in modules.all() for p in m.permissions]
+    eq("the permissions of every module, on or off, so the server's role table knows them (#719)",
+       [(x["id"], x["min_role"]) for x in front.plan()["permissions"]], want)
     eq("every prefix a module reserves", front.plan()["listener_prefixes"], list(modules.listener_prefixes()))
+
+with section("the admin pages of the modules that are on are listed for the server (#719)"):
+    from app.modules import modules
+
+    anon = client.get("/api/internal/front/admin", headers={"host": "relay"})
+    eq("without the token it is a 404", anon.status_code, 404)
+    got = client.get("/api/internal/front/admin", headers=HEAD)
+    eq("the right token gets the list", got.status_code, 200)
+    listing = got.json()
+    eq("one entry for each module that is on", [m["id"] for m in listing], [m.manifest.id for m in modules.active()])
+    for m in listing:
+        mod = modules.get(m["id"])
+        eq(f"{m['id']}: its scripts and styles", (m["scripts"], m["styles"]), (list(mod.admin_scripts), list(mod.admin_styles)))
+        eq(f"{m['id']}: each page carries the permission that shows it",
+           [(p["id"], p["permission"], p["tab_of"]) for p in m["pages"]],
+           [(p.id, p.permission or f"{m['id']}.view", p.tab_of) for p in mod.admin_pages])
+    eq("a module with a sidebar page is in admin_nav, which is this list cut down to one user",
+       sorted(e["id"] for e in modules.admin_nav()),
+       sorted(m["id"] for m in listing if any(not p["tab_of"] for p in m["pages"])))
 
 with section("what the server bound is published as run.py publishes it"):
     ok = client.post("/api/internal/front", headers=HEAD, json=REPORT)

@@ -28,7 +28,7 @@ mod routes;
 use std::sync::{Arc, Mutex, OnceLock};
 
 use relay_core::future::BoxFuture;
-use relay_core::{AppError, Health, HealthState, Host, Manifest, Module, Permission};
+use relay_core::{AdminPage, AppError, Health, HealthState, Host, Manifest, Module, Permission};
 use serde_json::Value;
 
 use crate::service::Service;
@@ -95,6 +95,8 @@ impl Ndi {
     }
 }
 
+const NDI_PAGES: &[AdminPage] = &[AdminPage { id: "ndi", title: "NDI", template: "ndi.html", icon: r#"<rect x="2" y="4" width="12" height="8" rx="1"/><path d="M5 7v2.5M5 7l2 2.5V7M10 7h1.5M10 9.5h1.5"/>"#, permission: "", tab_of: "" }];
+
 impl Module for Ndi {
     fn manifest(&self) -> &Manifest {
         &MANIFEST
@@ -110,6 +112,18 @@ impl Module for Ndi {
 
     fn clean(&self, raw: &Value) -> Value {
         settings::clean_settings(raw)
+    }
+
+    fn admin_pages(&self) -> &'static [AdminPage] {
+        NDI_PAGES
+    }
+
+    fn admin_scripts(&self) -> &'static [&'static str] {
+        &["ndi.js", "ndi-router.js", "ndi-analysis.js", "ndi-tests.js", "ndi-watch.js", "ndi-bridge.js"]
+    }
+
+    fn admin_styles(&self) -> &'static [&'static str] {
+        &["ndi.css"]
     }
 
     fn routes(&self) -> axum::Router {
