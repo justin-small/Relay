@@ -441,6 +441,40 @@ operator assigned. TLS is checked against the bundled roots.
 The "Web & YouTube" tab and `signageweb.js` are declared by the module (`admin_pages`, `tab_of: "signage"`, #719) and drawn by the server.
 `tests/test_signage_web.py` stays as the check of the Python module until it is retired (#664).
 
+### Planning Center (#666)
+
+`native/modules/planning_center` (`relay-module-planning_center`) is `app/modules/planning_center`: the Personal Access Token client, today's plan
+and its LIVE state (the follower), the Service feed, panels' Next / Previous / Take control / Release, the rundown for /screen, and plan files and
+text slides for signage. It depends on `relay-core` only. Settings are read and cleaned as Python does, so an existing `config.json` loads
+unchanged; the secret is sealed by the server's store. (The issue says OAuth; the Python module signs in with a token, and so does this.)
+
+| Python | Rust (`modules/planning_center/src/`) |
+|---|---|
+| `planningcenter.py` `Client`, `pick_plan`, `timers`, `clean_stored` | `client.rs` (`Services`, one `Op` per call, so a test answers from a table), `plan.rs`, `settings.rs` |
+| `pclive.py` `Follower` | `follower.rs`: same timers and rate sharing; time zones by `jiff` with its bundled database |
+| `servicefeed.py`, `pccontrol.py` | `feed.rs`, `control.rs` |
+| `rundown.py` | `rundown.rs` |
+| `signagesync.py` | `signagesync.rs` (`PlanSync`) |
+| `routes.py` | `routes.rs`, including the viewer-port press route and the two feeds |
+
+What core gained: `relay_core::caps` (the plan, the panels, signage content, the directory, the channels, feed extras), `relay_core::text`,
+`SettingsStore::replace` (a save only merges, so a key could not be removed), and `Module::streams` / `Module::stream`, which the server hands to
+`/stream` while a module is on. The server provides the panels capability while `--rust-show` runs; signage provides its content capability
+while it is on, and the module's `pc_text` source and plan capability only while Planning Center is on.
+
+**Not here yet, and why.**
+
+- **Directory and channels.** Neither exists in Rust, so refs are kept as saved and names are matched as typed (Python's rule while the
+  directory is empty). The capability traits are ready for the day they do.
+- **Python consumers of `plan.*`** (ProPresenter's link and `drive`, crew, parent paging, YouTube, mixers) still reach the Python module's
+  names; `PlanCap` is what Rust consumers will use, and `drive` and the Publishing and Check-Ins calls come with them.
+- **`plan.changed` / `directory.changed` announcements**, and the panel `targets` push when a service type is followed, need an event bus in
+  the module host; the follower and feed already expose `on_change` and `on_offered_change` for it.
+- **Health detail** is a fixed sentence, so "Following 2 service types" shows no number; an error shows one sentence, not Planning Center's reply.
+- **The admin page's "who pressed"** is "Admin page": the module is not told the signed-in user's name.
+- `/stream?stream=service` and `rundown` are served only where `/stream` is mounted (`--rust-captions`).
+- Not run against a real Planning Center account.
+
 ## Live captions (#659)
 
 `native/relay-captions` is `app/redact.py`, `app/realtime.py`, `app/transcribe.py`, `app/texttranslate.py`, `app/recorder.py`,

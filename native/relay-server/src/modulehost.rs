@@ -24,6 +24,10 @@ impl SettingsStore for SealedStore {
         self.0.save(&json!({ settings_key: changes }), &[]).map(|_| ())
     }
 
+    fn replace(&self, settings_key: &str, value: &Value) -> Result<(), AppError> {
+        self.0.save(&json!({ settings_key: value }), &[settings_key]).map(|_| ())
+    }
+
     fn add_secret(&self, settings_key: &str, field: &str) {
         self.0.add_secret(settings_key, field);
     }

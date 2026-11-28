@@ -19,6 +19,9 @@ pub trait SettingsStore: Send + Sync + 'static {
     /// Merge `changes` into the object at `settings_key`; a key named in `replace` is overwritten, not merged. Secrets are sealed.
     fn save(&self, settings_key: &str, changes: &Value) -> Result<(), AppError>;
 
+    /// Overwrite the whole object at `settings_key` with `value` (what a module that removes a key needs: `save` only merges).
+    fn replace(&self, settings_key: &str, value: &Value) -> Result<(), AppError>;
+
     /// `field` inside `settings_key` is a secret: sealed on disk, opened by `read`.
     fn add_secret(&self, settings_key: &str, field: &str);
 }
@@ -40,6 +43,12 @@ impl SettingsStore for PlainStore {
                     object.insert(k.clone(), v.clone());
                 }
             }
+        })
+    }
+
+    fn replace(&self, settings_key: &str, value: &Value) -> Result<(), AppError> {
+        self.0.update(|root| {
+            root.insert(settings_key.to_owned(), value.clone());
         })
     }
 

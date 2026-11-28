@@ -335,6 +335,8 @@ pub struct Start {
     pub net: Net,
     pub hub: Arc<Hub>,
     pub shutdown: relay_core::Shutdown,
+    /// The modules, whose own feeds `/stream` hands on while they are on.
+    pub registry: Option<Arc<relay_core::Registry>>,
 }
 
 pub fn start(s: Start) -> Api {
@@ -351,7 +353,7 @@ pub fn start(s: Start) -> Api {
         backends: Backends::builtin(),
         recorder: Recorder::new(clock::wall, clock::relay_zone),
     });
-    assemble(Assemble { acc: s.acc, captions, hub: s.hub, config: s.config, settings, show: s.show, upstream: s.upstream, shutdown: s.shutdown })
+    assemble(Assemble { acc: s.acc, captions, hub: s.hub, config: s.config, settings, show: s.show, upstream: s.upstream, shutdown: s.shutdown, registry: s.registry })
 }
 
 /// The engine, ready to serve: what [`start`] builds around the real audio, and what a test builds around its own.
@@ -364,6 +366,7 @@ pub struct Assemble {
     pub show: Option<show::Api>,
     pub upstream: Option<Arc<Upstream>>,
     pub shutdown: relay_core::Shutdown,
+    pub registry: Option<Arc<relay_core::Registry>>,
 }
 
 pub fn assemble(a: Assemble) -> Api {
@@ -379,6 +382,12 @@ pub fn assemble(a: Assemble) -> Api {
     if let Some(api) = a.show {
         // The alert feed is the alerts' own: this server's `/stream` hands it on.
         streams.provide("alert", Arc::new(move |_, _| Some(show::sender_stream(&api))));
+    }
+    if let Some(registry) = a.registry {
+        for name in registry.stream_names() {
+            let registry = Arc::clone(&registry);
+            streams.provide(name, Arc::new(move |q, headers| registry.stream(name, &q.params.iter().map(|(k, v)| (k.clone(), v.clone())).collect(), headers)));
+        }
     }
     follow(&captions, &a.settings, a.shutdown);
     Arc::new(CaptionsApi { acc: a.acc, captions, streams: Arc::new(streams), settings: a.settings })

@@ -213,6 +213,10 @@ impl SettingsStore for Settings {
         m.insert(key.to_owned(), cur);
         Ok(())
     }
+    fn replace(&self, key: &str, value: &Value) -> Result<(), relay_core::AppError> {
+        self.0.lock().unwrap().insert(key.to_owned(), value.clone());
+        Ok(())
+    }
     fn add_secret(&self, _key: &str, _field: &str) {}
 }
 

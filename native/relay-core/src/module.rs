@@ -202,6 +202,14 @@ impl Host {
         }
     }
 
+    /// Overwrite this module's whole settings object (secrets sealed on disk). `save_settings` merges, so a key could never be removed with it.
+    pub fn replace_settings(&self, settings_key: &str, value: &Value) -> Result<(), AppError> {
+        match self.store.get() {
+            Some(store) => store.replace(settings_key, value),
+            None => Err(AppError::new(crate::error::ErrorCode::Internal).because("no settings store")),
+        }
+    }
+
     pub(crate) fn add_secret(&self, settings_key: &str, field: &str) {
         if let Some(store) = self.store.get() {
             store.add_secret(settings_key, field);
@@ -298,6 +306,16 @@ pub trait Module: Send + Sync + 'static {
     /// True: the module's pages are one sidebar entry and tabs across the top of each page, not a submenu.
     fn admin_tabbed(&self) -> bool {
         false
+    }
+
+    /// The names of the event feeds the module owns, answered on the viewer port's `/stream?stream=<name>` (Python's `Module.streams`).
+    fn streams(&self) -> &'static [&'static str] {
+        &[]
+    }
+
+    /// The feed `name` for this request, or `None` when the module has no such feed or refuses it (Python's `Module.stream`).
+    fn stream(&self, _name: &str, _query: &BTreeMap<String, String>, _headers: &axum::http::HeaderMap) -> Option<axum::response::Response> {
+        None
     }
 
     fn attach(&self, _host: &Host) {}

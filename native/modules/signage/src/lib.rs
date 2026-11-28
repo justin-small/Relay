@@ -12,6 +12,7 @@
 // row: both are the shape of the Python they port, so the size and argument-count lints are not applied here.
 #![allow(clippy::result_large_err, clippy::too_many_arguments, clippy::type_complexity)]
 
+pub mod content;
 pub mod live;
 pub mod media;
 pub mod schedule;
@@ -187,6 +188,7 @@ impl Module for Signage {
             if let Ok(mut s) = self.slot.lock() {
                 *s = Some(Arc::clone(&service));
             }
+            host.provide(MANIFEST.id, relay_core::caps::SIGNAGE_CONTENT, Arc::new(relay_core::caps::ContentCap(Arc::new(content::Content(Arc::clone(&service))))));
             let shutdown = host.shutdown.clone();
             let handle = tokio::spawn(async move {
                 loop {
@@ -206,6 +208,9 @@ impl Module for Signage {
 
     fn stop(&self) -> BoxFuture<'_, ()> {
         Box::pin(async move {
+            if let Some(host) = self.host.get() {
+                host.withdraw_all(MANIFEST.id);
+            }
             let task = self.task.lock().ok().and_then(|mut t| t.take());
             if let Some(t) = task {
                 t.abort();

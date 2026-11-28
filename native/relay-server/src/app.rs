@@ -224,6 +224,7 @@ impl App {
                                 alerts.state()["buttons"].as_array().into_iter().flatten().filter(|b| b["state"] == "on").map(|b| json!({"id": b["id"], "to": b["name"], "from": b["from"]})).collect()
                             }))),
                         );
+                        host.provide("core", relay_core::caps::PANELS, Arc::new(relay_core::caps::PanelsCap(Arc::new(crate::show::PanelsForModules(Arc::clone(&api.panels))))));
                         show_api = Some(Arc::clone(&api));
                         // With captions here too, `/stream` is the captions' (it hands the alert feed on).
                         routes = routes.merge(crate::show::routes_with(api, !opts.rust_captions));
@@ -247,6 +248,7 @@ impl App {
                                 net: host.net().clone(),
                                 hub: relay_core::hub::Hub::with(relay_captions::redact::factory(), Box::new(relay_captions::clock::wall)),
                                 shutdown: shutdown.clone(),
+                                registry: Some(Arc::clone(&registry)),
                             });
                             routes = routes.merge(crate::captions::routes(api));
                         }
