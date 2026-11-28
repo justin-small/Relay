@@ -16,6 +16,7 @@ path = "src/main.rs"
 
 [dependencies]
 relay-audio = { path = "../relay-audio" }
+relay-captions = { path = "../relay-captions" }
 relay-auth = { path = "../relay-auth" }
 relay-config = { path = "../relay-config" }
 relay-core = { path = "../relay-core" }

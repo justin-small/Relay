@@ -14,6 +14,7 @@ mod net;
 pub use net::{announce, listen, netinfo, netroute, netsock, serve, tls};
 pub mod accounts;
 pub mod app;
+pub mod captions;
 pub mod gate;
 pub mod modulehost;
 pub mod show;

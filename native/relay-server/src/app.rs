@@ -42,6 +42,8 @@ pub struct Options {
     pub rust_audio: bool,
     /// Run alerts, stage messages and panels here (#660) instead of in the app behind the server.
     pub rust_show: bool,
+    /// Run live captions here (#659) instead of in the app behind the server. Needs `rust_audio`: the room's audio is a lane of the bus.
+    pub rust_captions: bool,
 }
 
 /// config.json's keys for the sockets.
@@ -191,6 +193,7 @@ impl App {
                 let accounts = crate::accounts::Accounts::new(auth, crate::pages::Pages::new(&opts.app_dir), opts.config_path.clone());
                 host.set_authorizer(Arc::new(crate::modulehost::AccountsAuthorizer(Arc::clone(&accounts))));
                 provide_core(&host, &auth_pool, &opts);
+                let mut audio_api = None;
                 if opts.rust_audio {
                     let app = match (&opts.upstream, &opts.token) {
                         (Some(base), Some(token)) if !token.is_empty() => Some(crate::pyapp::PyApp::new(base, token)),
@@ -206,11 +209,13 @@ impl App {
                         if let Some(token) = opts.token.as_deref().filter(|t| !t.is_empty()) {
                             routes = routes.merge(crate::internal::routes(api.clone(), token));
                         }
+                        audio_api = Some(Arc::clone(&api));
                         routes = routes.merge(crate::audio::routes(api));
                     }
                 }
+                let mut show_api = None;
                 if opts.rust_show {
-                    if let Some(api) = crate::show::start(auth_pool_show, Arc::clone(&accounts), &opts.config_path, upstream_for_show, shutdown.clone()).await {
+                    if let Some(api) = crate::show::start(auth_pool_show, Arc::clone(&accounts), &opts.config_path, upstream_for_show.clone(), shutdown.clone()).await {
                         let alerts = Arc::clone(&api.alerts);
                         host.provide(
                             "core",
@@ -219,7 +224,33 @@ impl App {
                                 alerts.state()["buttons"].as_array().into_iter().flatten().filter(|b| b["state"] == "on").map(|b| json!({"id": b["id"], "to": b["name"], "from": b["from"]})).collect()
                             }))),
                         );
-                        routes = routes.merge(crate::show::routes(api));
+                        show_api = Some(Arc::clone(&api));
+                        // With captions here too, `/stream` is the captions' (it hands the alert feed on).
+                        routes = routes.merge(crate::show::routes_with(api, !opts.rust_captions));
+                    }
+                }
+                if opts.rust_captions {
+                    match audio_api {
+                        Some(audio) => {
+                            let app = match (&opts.upstream, &opts.token) {
+                                (Some(base), Some(token)) if !token.is_empty() => Some(crate::pyapp::PyApp::new(base, token)),
+                                _ => None,
+                            };
+                            let api = crate::captions::start(crate::captions::Start {
+                                acc: Arc::clone(&accounts),
+                                bus: Arc::clone(&audio.bus),
+                                config: Arc::new(relay_config::Settings::new(&opts.config_path)),
+                                state_dir: opts.config_path.parent().map(std::path::Path::to_path_buf).unwrap_or_default(),
+                                app,
+                                upstream: upstream_for_show.clone(),
+                                show: show_api,
+                                net: host.net().clone(),
+                                hub: relay_core::hub::Hub::with(relay_captions::redact::factory(), Box::new(relay_captions::clock::wall)),
+                                shutdown: shutdown.clone(),
+                            });
+                            routes = routes.merge(crate::captions::routes(api));
+                        }
+                        None => tracing::error!("captions are served by the app behind this server, not by it: they read the room's audio from the audio bus, which needs --rust-audio"),
                     }
                 }
                 let shell = Arc::new(crate::accounts::Shell { registry: Arc::clone(&registry), front: front.clone(), upstream: upstream.clone() });

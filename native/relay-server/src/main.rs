@@ -92,6 +92,7 @@ async fn run() -> Result<(), String> {
         announce: announce::enabled(),
         tick: TICK,
         rust_audio: arg("--rust-audio", "RELAY_RUST_AUDIO").is_some_and(|v| v != "0" && !v.eq_ignore_ascii_case("false")) || std::env::args().any(|a| a == "--rust-audio"),
+        rust_captions: arg("--rust-captions", "RELAY_RUST_CAPTIONS").is_some_and(|v| v != "0" && !v.eq_ignore_ascii_case("false")) || std::env::args().any(|a| a == "--rust-captions"),
         rust_show: arg("--rust-show", "RELAY_RUST_SHOW").is_some_and(|v| v != "0" && !v.eq_ignore_ascii_case("false")) || std::env::args().any(|a| a == "--rust-show"),
     };
     let app = App::start(options, Arc::clone(&registry), host.clone(), shutdown.clone()).await?;

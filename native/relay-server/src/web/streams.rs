@@ -9,8 +9,9 @@
 //! stream a module owns (alerts, tally, lyrics, the rundown) is registered with [`Streams::provide`] by that module when it is
 //! ported (#660, #661), and answered before the caption feeds as Python's `module_registry.stream` is.
 //!
-//! These routes are not mounted on the live server yet: the caption engine still publishes into the Python hub (until #659), so the
-//! front door keeps forwarding `/stream` to it. Mounting [`routes`] is the one-line change that ends the forwarding.
+//! These routes are mounted by `relay-server --rust-captions` (#659), which publishes into this hub; without the switch the caption
+//! engine is the app's and the front door keeps forwarding `/stream` to it. A stream nobody here owns goes to the app
+//! ([`Streams::with_upstream`]), so a module that is still Python's keeps its feed.
 
 use std::collections::HashMap;
 use std::future::Future;
@@ -33,7 +34,7 @@ use relay_core::{languages, AppError, ErrorCode, Shutdown};
 use serde_json::Value;
 use tokio::sync::mpsc;
 
-use crate::forward::Conn;
+use crate::forward::{Conn, Upstream};
 use crate::status::{self, Show, StreamStatus};
 
 /// A heartbeat on a quiet stream (`HEARTBEAT_S` in `app/main.py`).
@@ -84,6 +85,8 @@ pub struct Streams {
     guard: Option<Guard>,
     heartbeat: Duration,
     admin_tick: Duration,
+    /// The app behind the server: a stream name nobody here owns goes to it (a module that is still Python's).
+    upstream: Option<Arc<Upstream>>,
 }
 
 impl Streams {
@@ -98,7 +101,15 @@ impl Streams {
             guard: None,
             heartbeat: HEARTBEAT,
             admin_tick: ADMIN_TICK,
+            upstream: None,
         }
+    }
+
+    /// Hand a stream nobody here owns to the app behind the server, as the front door does for every route it does not answer.
+    #[must_use]
+    pub fn with_upstream(mut self, upstream: Option<Arc<Upstream>>) -> Self {
+        self.upstream = upstream;
+        self
     }
 
     /// Require this check before the admin status stream opens.
@@ -183,7 +194,10 @@ async fn stream(State(s): State<Arc<Streams>>, req: Request) -> Response {
         return resp;
     }
     if name != TRANSCRIPTION && name != TRANSLATION {
-        return bad("unknown stream");
+        return match &s.upstream {
+            Some(up) => up.forward(req).await,
+            None => bad("unknown stream"),
+        };
     }
     let lang = if name == TRANSCRIPTION {
         match s.settings.get() {

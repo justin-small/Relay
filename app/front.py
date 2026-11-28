@@ -133,6 +133,34 @@ async def audio_registry(request: Request):
             "outputs": [{"id": o.id, "label": o.label} for o in audio.outputs()]}
 
 
+# -- what the Rust server asks of this app's modules for the live captions (#659) -------------------------------------------------
+# The server owns the caption engine and the stream's Start and Stop. What only the modules here know goes into the pages it serves
+# (the top-bar pills, each module's health, the schedule, the stream-watching modules), and the modules that follow Start are told.
+@router.get("/api/internal/captions/outside")
+async def captions_outside(request: Request):
+    _authorised(request)
+    from . import streamstatus
+    from .modules import modules as registry
+    from .scheduler import scheduler
+
+    return {"pills": registry.pills(), "module_health": registry.health_states(), "module_status": registry.status(),
+            "schedule": scheduler.status(), "streams": streamstatus.streams.entries(admin=True)}
+
+
+@router.post("/api/internal/stream/announce")
+async def stream_announce(request: Request):
+    """`stream.started` or `stream.stopped`: the Rust server opened or closed the stream, and each module that follows it hears."""
+    _authorised(request)
+    from . import modules, stream as stream_mod
+
+    body = await request.json()
+    event = str(body.get("event") or "")
+    if event not in (stream_mod.STARTED, stream_mod.STOPPED):
+        raise HTTPException(400, "unknown event")
+    modules.announce(event)
+    return {"ok": True}
+
+
 @router.get("/api/internal/routes/providers")
 async def route_providers(request: Request):
     """Each module that is on and applies routes: whether its destinations take one source or mix, whether the gear has a gain,

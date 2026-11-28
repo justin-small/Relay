@@ -2763,6 +2763,30 @@ dependencies = [
 ]
 
 [[package]]
+name = "relay-captions"
+version = "0.1.0"
+dependencies = [
+ "base64 0.22.1",
+ "bytes",
+ "crc32fast",
+ "flate2",
+ "futures-util",
+ "http-body-util",
+ "hyper",
+ "hyper-util",
+ "quickcheck",
+ "relay-core",
+ "serde_json",
+ "tokio",
+ "tokio-rustls",
+ "tokio-tungstenite 0.30.0",
+ "tracing",
+ "unicode-normalization",
+ "url",
+ "webpki-roots 0.26.11",
+]
+
+[[package]]
 name = "relay-config"
 version = "0.1.0"
 dependencies = [
@@ -2949,6 +2973,7 @@ dependencies = [
  "rcgen 0.13.2",
  "relay-audio",
  "relay-auth",
+ "relay-captions",
  "relay-config",
  "relay-core",
  "relay-module-ndi",

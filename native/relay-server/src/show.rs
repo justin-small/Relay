@@ -409,7 +409,7 @@ async fn alert_messages_stream(State(api): State<Api>) -> Response {
     stream_of(rx, || {}, Some(beat))
 }
 
-fn sender_stream(api: &Api) -> Response {
+pub fn sender_stream(api: &Api) -> Response {
     // Repeated at each heartbeat, so a panel's silence timer never fires on a quiet stream.
     let rx = api.alerts.subscribe_sender();
     let a = api.alerts.clone();
@@ -510,7 +510,7 @@ async fn stream_or_forward(State(api): State<Api>, req: Request) -> Response {
 }
 
 // ------------------------------------------------------------------------------------------------------------------ alerts (admin)
-fn alerts_frame(api: &Api) -> Value {
+pub fn alerts_frame(api: &Api) -> Value {
     let mut out = json!({"type": "alerts_admin"});
     if let (Some(o), Some(v)) = (out.as_object_mut(), api.alerts.admin_view().as_object()) {
         o.extend(v.clone());
@@ -616,7 +616,7 @@ fn firmware_boards(api: &Api, rows: &[Value]) -> Vec<Value> {
         .collect()
 }
 
-fn panels_frame(api: &Api) -> Value {
+pub fn panels_frame(api: &Api) -> Value {
     let rows = api.panels.listing();
     let boards = firmware_boards(api, &rows);
     let default = boards.iter().find(|b| b["board"] == firmware::DEFAULT_BOARD).map(|b| b["firmware"].clone()).unwrap_or(Value::Null);
@@ -894,8 +894,14 @@ async fn admin_panel_forget(State(api): State<Api>, Path(pid): Path<String>, con
     Json(json!({"ok": true})).into_response()
 }
 
+/// The routes, with `/stream` here (the alert feed, the rest forwarded to the app).
 pub fn routes(api: Api) -> Router {
-    Router::new()
+    routes_with(api, true)
+}
+
+/// The routes without `/stream` when the caption engine answers it (it hands the alert feed on to [`sender_stream`]).
+pub fn routes_with(api: Api, stream: bool) -> Router {
+    let router = Router::new()
         // panels, on the viewer port
         .route("/api/panels/checkin", post(panel_checkin))
         .route("/api/panels/firmware/{board}/{name}", get(panel_firmware_image))
@@ -909,7 +915,6 @@ pub fn routes(api: Api) -> Router {
         .route("/api/alerts/screen", get(alert_screen_stream))
         .route("/api/alerts/{button}/send", post(alert_send))
         .route("/api/alerts/{button}/cancel", post(alert_cancel))
-        .route("/stream", get(stream_or_forward))
         // the operator's side
         .route("/api/admin/alerts", get(admin_alerts_get).post(admin_alerts_save))
         .route("/api/admin/alerts/test", post(admin_alerts_test))
@@ -920,6 +925,7 @@ pub fn routes(api: Api) -> Router {
         .route("/api/admin/panels/flash", get(admin_flash_get).post(admin_flash_upload).delete(admin_flash_delete))
         .route("/api/admin/panels/flash/{name}", get(admin_flash_file))
         .route("/api/admin/panels/{id}", post(admin_panel_update).delete(admin_panel_forget))
-        .route("/api/admin/panels/{id}/reboot", post(admin_panel_reboot))
-        .with_state(api)
+        .route("/api/admin/panels/{id}/reboot", post(admin_panel_reboot));
+    let router = if stream { router.route("/stream", get(stream_or_forward)) } else { router };
+    router.with_state(api)
 }
