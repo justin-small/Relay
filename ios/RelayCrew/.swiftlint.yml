@@ -1,0 +1,119 @@
+# Never lint build artifacts or resolved dependencies (mirrors .swiftformat).
+excluded:
+  - .build
+  - DerivedData
+  - Build
+
+# Disable rules
+disabled_rules:
+  # Crude line-count proxy, easily sidestepped with extensions — function_body_length
+  # and cyclomatic_complexity capture the real "too big" signal instead.
+  - type_body_length
+  # --- Style rules: delegated entirely to SwiftFormat (avoid overlap/conflict) ---
+  - trailing_whitespace
+  - trailing_newline
+  - trailing_comma
+  - colon
+  - comma
+  - return_arrow_whitespace
+  - statement_position
+  - opening_brace
+  - vertical_whitespace
+  - mark
+
+# Opt-in rules: semantic / safety / performance checks SwiftFormat doesn't cover.
+opt_in_rules:
+  # Performance — avoid redundant traversals
+  - first_where
+  - last_where
+  - contains_over_filter_count
+  - contains_over_filter_is_empty
+  - flatmap_over_map_reduce
+  - reduce_into
+  - sorted_first_last
+  - contains_over_first_not_nil
+  # Safety
+  - force_unwrapping
+  - implicitly_unwrapped_optional
+  - fatal_error_message
+  - weak_delegate
+  - unowned_variable_capture
+  - discouraged_optional_boolean
+  # Modern Swift
+  - toggle_bool
+  - legacy_random
+
+# Modified rules
+cyclomatic_complexity:
+  ignores_case_statements: true
+force_unwrapping:
+  severity: warning
+implicitly_unwrapped_optional:
+  mode: all_except_iboutlets
+  severity: warning
+function_body_length:
+  warning: 100
+  error: 200
+type_name:
+  excluded:
+    - "^iPad.*"
+    - "^iPhone.*"
+    - "^iOS.*"
+identifier_name:
+  excluded: [vc, id]
+
+# Custom rules
+custom_rules:
+  avoid_bare_init_in_initializers:
+    name: "Avoid Bare Init in Nested Context"
+    regex: '(?<!super)(?<!Self)(?<!\w)\.init\s*\('
+    message: "Avoid using '.init()' (Bare Init) in nested structures or parameters. Use explicit type names (e.g., Nested1())."
+    severity: error
+
+  prefer_array_literal_over_init:
+    name: "Prefer Array/Dict Literal Over Initializer"
+    regex: '(\bArray\s*<.*?>\s*\(arrayLiteral:|\bDictionary\s*<.*?>\s*\(|\b(Array|Dictionary)\s*\(\s*\))'
+    message: "Avoid Array(arrayLiteral:...) and untyped dictionaries. Explicitly type large/nested dictionaries for faster compile time."
+    severity: warning
+
+  no_objcMembers:
+    name: "@objcMembers"
+    regex: "@objcMembers"
+    message: "Explicitly use @objc on each member you want to expose to Objective-C"
+    severity: error
+
+  no_direct_standard_out_logs:
+    name: "Writing log messages directly to standard out is disallowed"
+    regex: "(\\bprint|\\bdebugPrint|\\bdump|Swift\\.print|Swift\\.debugPrint|Swift\\.dump|_printChanges)\\s*\\("
+    match_kinds:
+    - identifier
+    message: "Don't commit `print(…)`, `debugPrint(…)`, `dump(…)`, or `_printChanges()` as they write to standard out in release. Either log to a dedicated logging system or silence this warning in debug-only scenarios explicitly using `// swiftlint:disable:next no_direct_standard_out_logs`"
+    severity: error
+
+  no_file_literal:
+    name: "#file is disallowed"
+    regex: "(\\b#file\\b)"
+    match_kinds:
+    - identifier
+    message: "Instead of #file, use #fileID"
+    severity: error
+
+  no_filepath_literal:
+    name: "#filePath is disallowed"
+    regex: "(\\b#filePath\\b)"
+    match_kinds:
+    - identifier
+    message: "Instead of #filePath, use #fileID."
+    severity: error
+
+  no_unchecked_sendable:
+    name: "`@unchecked Sendable` is discouraged."
+    regex: "@unchecked Sendable"
+    match_kinds:
+    - attribute.builtin
+    - typeidentifier
+    message: "Instead of using `@unchecked Sendable`, consider a safe alternative like a standard `Sendable` conformance or using `@preconcurrency import`. If you really must use `@unchecked Sendable`, you can add a `// swiftlint:disable:next no_unchecked_sendable` annotation with an explanation for how we know the type is thread-safe, and why we have to use @unchecked Sendable instead of Sendable."
+    severity: error
+
+# Reporter type (xcode, json, csv, checkstyle, junit, html, emoji, sonarqube, markdown)
+reporter: "xcode"

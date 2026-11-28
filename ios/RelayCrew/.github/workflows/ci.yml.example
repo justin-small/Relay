@@ -1,0 +1,185 @@
+# GitHub Actions CI — EXAMPLE (not active).
+#
+# The template ships no live CI by design, to stay provider-agnostic. To enable
+# it on GitHub: rename this file to `ci.yml`. If you scaffolded with
+# `make new-app`, update PROJECT/SCHEME below — and the Package.resolved path in
+# the SPM cache key — to your renamed project (the rename script does not touch
+# CI YAML).
+#
+# Two jobs run in parallel:
+#   • lint — SwiftFormat + SwiftLint via `make verify-github` (no Xcode needed,
+#     so it returns in seconds and emits inline PR annotations).
+#   • test — builds + runs the unit tests, uploads the .xcresult bundle.
+# See docs/TOOLING.md → "Adding CI".
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+# Least privilege: this workflow only reads the repo and uploads artifacts.
+permissions:
+  contents: read
+
+jobs:
+  # Job 1: SwiftFormat + SwiftLint — no Xcode/simulator, so it fails fast.
+  lint:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v5
+
+      # Cache the compiled, pinned SwiftLint/SwiftFormat binaries, keyed on the Mintfile.
+      - name: Cache Mint
+        uses: actions/cache@v5
+        with:
+          path: ~/.mint
+          key: mint-${{ runner.os }}-${{ hashFiles('Mintfile') }}
+
+      - name: Install pinned tools (Mint)
+        run: |
+          brew install mint
+          mint bootstrap
+
+      - name: Lint + format check
+        run: make verify-github
+
+  # Job 2: build + run unit tests.
+  test:
+    runs-on: macos-15
+    timeout-minutes: 30
+    env:
+      PROJECT: iOSAppTemplate.xcodeproj
+      SCHEME: iOSAppTemplate-Dev
+    steps:
+      - uses: actions/checkout@v5
+
+      # `latest-stable` floats to the newest released Xcode on the runner image.
+      # Pin a version (e.g. `xcode-version: '16.2'`) if you need byte-reproducible
+      # builds at the cost of manual bumps.
+      - name: Select Xcode
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+
+      # Cache resolved SPM checkouts, keyed on Package.resolved (committed for app
+      # projects — see .gitignore). Restore/save are split so the cache is written
+      # even when the tests fail.
+      - name: Restore SPM cache
+        uses: actions/cache/restore@v5
+        with:
+          path: SourcePackages
+          key: spm-${{ runner.os }}-${{ hashFiles('iOSAppTemplate.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
+          restore-keys: |
+            spm-${{ runner.os }}-
+
+      # xcbeautify is preinstalled on the macos-15 runner image — no `brew install`
+      # needed. Verify against the runner-images manifest if you change images.
+      - name: Test
+        run: |
+          set -o pipefail
+          xcodebuild test \
+            -project "$PROJECT" \
+            -scheme "$SCHEME" \
+            -destination "platform=iOS Simulator,name=iPhone 16" \
+            -clonedSourcePackagesDirPath SourcePackages \
+            -resultBundlePath TestResults.xcresult \
+            CODE_SIGNING_ALLOWED=NO 2>&1 | tee xcodebuild.log | xcbeautify --renderer github-actions
+
+      - name: Upload xcresult
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: TestResults
+          path: TestResults.xcresult
+          retention-days: 7
+
+      - name: Upload xcodebuild log
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: xcodebuild-log
+          path: xcodebuild.log
+          retention-days: 7
+
+      - name: Save SPM cache
+        if: always()
+        uses: actions/cache/save@v5
+        with:
+          path: SourcePackages
+          key: spm-${{ runner.os }}-${{ hashFiles('iOSAppTemplate.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
+
+  # Job 3: duplicate-image gate. No Xcode needed, so it runs on a cheap Ubuntu
+  # runner in parallel. After `make new-app`, update the scanned path
+  # (`iOSAppTemplate`) to your renamed app folder.
+  #   - On a PR: incremental — fails ONLY on duplicates the PR introduces (diffs
+  #     against the PR base; pre-existing duplicates never block an unrelated PR).
+  #   - On push to main: whole-project — fails on ANY duplicate. This catches
+  #     what a per-PR diff can't see — two PRs that each add the same image, or a
+  #     direct push. Clean any existing duplicates once before relying on it
+  #     (whole-project is robust under concurrency: every run re-scans the
+  #     current tip, so a cancelled run never permanently misses anything).
+  # See docs/IMAGE_HYGIENE.md. Leave this OUT of *required* status checks so a
+  # red result is an informative warning a maintainer can still merge past.
+  duplicate-images:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0 # needed to diff a PR against its base
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - run: pip install Pillow
+
+      - name: Check for duplicate images
+        shell: bash
+        run: |
+          set -o pipefail
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            # Incremental: gate only on duplicates this PR introduces.
+            # three-dot: diff against the merge-base, so only the PR's own
+            # changes count even if the base branch advanced meanwhile.
+            git diff --diff-filter=AMR --name-only \
+              "${{ github.event.pull_request.base.sha }}...${{ github.event.pull_request.head.sha }}" \
+              > changed.txt || true
+            if grep -qiE '\.(png|jpg|jpeg|webp|bmp|tiff|tif|pdf|svg|heic|gif)$' changed.txt; then
+              python scripts/find_duplicate_images.py iOSAppTemplate --root . \
+                --changed-list changed.txt --fail-on-found | tee duplicates.md
+            else
+              echo "No image files changed; skipping duplicate scan." | tee duplicates.md
+            fi
+          else
+            # Push to main: whole-project, fail on ANY duplicate.
+            python scripts/find_duplicate_images.py iOSAppTemplate --root . \
+              --fail-on-found | tee duplicates.md
+          fi
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: duplicate-images-report
+          path: duplicates.md
+          retention-days: 7
+
+# ── Production tuning (uncomment / adapt as the project grows) ────────────────
+# • Parallel tests — once the suite is large, shard across simulator clones:
+#       -parallel-testing-enabled YES -parallel-testing-worker-count 4
+#   (Swift Testing already parallelizes in-process; this adds cross-process
+#   sharding.) Raise `timeout-minutes` to match the longer wall-clock budget.
+# • Simulator / OS matrix — guard against version-specific breakage:
+#       strategy:
+#         matrix:
+#           destination: ['name=iPhone 16', 'name=iPhone SE (3rd generation)']
+# • Code coverage — add `-enableCodeCoverage YES`, then parse/upload the report.
+# • Release smoke build — a build-only job on the Prod scheme catches config-
+#   gated breakage the Dev tests miss.
+# • Branch protection — mark `lint` and `test` as required status checks.

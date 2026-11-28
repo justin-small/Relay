@@ -67,3 +67,11 @@ native/relay-ndi/.venv-build/
 
 # Output of tools/stress.py
 stress-results/
+
+# iOS app (ios/): build output and UI test recordings are large and rebuilt on demand
+ios/**/build/
+ios/**/ui-test-results/
+ios/**/DerivedData/
+ios/**/.build/
+ios/**/.swiftpm/
+ios/**/xcuserdata/

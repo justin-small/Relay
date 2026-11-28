@@ -1,0 +1,3 @@
+# GIFs
+
+GIF assets.

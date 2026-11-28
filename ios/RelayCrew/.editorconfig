@@ -1,0 +1,15 @@
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+
+# Swift: tabs for indentation, 4-column width, 120 max (matches .swiftformat).
+# Read per-project by Xcode 16+, VS Code, and Cursor.
+[*.swift]
+indent_style = tab
+indent_size = 4
+tab_width = 4
+max_line_length = 120

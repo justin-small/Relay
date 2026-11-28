@@ -1,0 +1,15 @@
+//
+//  Stagging.xcconfig
+//  iOSAppTemplate
+//
+//
+
+// Configuration settings file format documentation can be found at:
+// https://developer.apple.com/documentation/xcode/adding-a-build-configuration-file-to-your-project
+
+// App Configuration
+BUNDLE_ID = com.justinsmall.relay.crew.staging
+APP_NAME = RelayCrew-Staging
+
+// Compile-time environment flag (see Dev.xcconfig). Enables `#if STAGING`.
+SWIFT_ACTIVE_COMPILATION_CONDITIONS = STAGING
