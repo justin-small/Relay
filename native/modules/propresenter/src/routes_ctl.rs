@@ -15,6 +15,7 @@ use serde_json::{json, Value};
 
 use crate::control::{ControlError, Done, THUMB_QUALITY};
 use crate::lobby::LobbyError;
+use crate::pclink::{message, LinkFail};
 use crate::routes::{audit, pp_error, Ctx};
 use crate::settings::configured;
 use crate::web::{detail, error, object};
@@ -352,12 +353,86 @@ async fn stage_live_image(State(c): State<Ctx>, Path(which): Path<String>, RawQu
     view_image(&c, &which, &query_param(&q, "v")).await
 }
 
+// ------------------------------------------------------------------------------------------------------ the Planning Center link
+fn link_run(done: Result<Value, LinkFail>) -> Response {
+    match done {
+        Ok(v) => Json(v).into_response(),
+        // A fixed sentence by key, never the exception's own text.
+        Err(LinkFail::Told(key)) => error(409, message(key)),
+        Err(LinkFail::Invalid) => error(400, "That request was not valid."),
+        Err(LinkFail::Pro(e)) => pp_error(&e),
+    }
+}
+
+async fn link_get(State(c): State<Ctx>) -> Response {
+    Json(c.link.state()).into_response()
+}
+
+/// The presentations the last read found, for the operator's pairing picker (names and UUIDs only).
+async fn link_presentations(State(c): State<Ctx>) -> Response {
+    let rows: Vec<Value> = c.link.pool().iter().map(|p| json!({"uuid": p["uuid"], "name": p["name"]})).collect();
+    Json(json!({"presentations": rows})).into_response()
+}
+
+/// Read ProPresenter's playlists and libraries again and match the plan. Reads only.
+async fn link_refresh(State(c): State<Ctx>, req: Request) -> Response {
+    let (parts, _) = req.into_parts();
+    let res = match c.link.refresh().await {
+        Ok(()) => link_run(Ok(c.link.state())),
+        Err(e) => link_run(Err(LinkFail::Pro(e))),
+    };
+    audited(&c, &parts, res).await
+}
+
+/// Pair a plan item title with a presentation, or clear the pairing with an empty `uuid`.
+async fn link_mapping(State(c): State<Ctx>, req: Request) -> Response {
+    let (parts, body) = req.into_parts();
+    let payload = match object(body).await {
+        Ok(p) => p,
+        Err(r) => return r,
+    };
+    let uuid = match &payload["uuid"] {
+        Value::Null => String::new(),
+        Value::String(t) => t.clone(),
+        other => other.to_string(),
+    };
+    let res = if !uuid.is_empty() && !crate::settings::id_ok(&uuid) {
+        link_run(Err(LinkFail::Invalid))
+    } else {
+        let text_of = |k: &str| payload[k].as_str().unwrap_or("").to_owned();
+        match c.link.set_mapping(&text_of("item"), &uuid, &text_of("name")) {
+            Ok(_) => link_run(Ok(c.link.state())),
+            Err(e) => link_run(Err(e)),
+        }
+    };
+    audited(&c, &parts, res).await
+}
+
+/// Build (or rebuild) the Relay-owned playlist from the matched plan. On the operator's click only.
+async fn link_playlist(State(c): State<Ctx>, req: Request) -> Response {
+    let (parts, _) = req.into_parts();
+    let res = match c.link.build_playlist().await {
+        Ok(mut done) => {
+            done["state"] = c.link.state();
+            link_run(Ok(done))
+        }
+        Err(e) => link_run(Err(e)),
+    };
+    audited(&c, &parts, res).await
+}
+
 pub fn router(c: &Ctx) -> Router<Ctx> {
     let h = c.host.clone();
     let view = |r| gate(&h, "propresenter.view", r);
     let control = |r| gate(&h, "propresenter.control", r);
+    let manage = |r| gate(&h, "propresenter.manage", r);
     let b = "/api/admin/propresenter";
     Router::new()
+        .route(&format!("{b}/link"), view(get(link_get)))
+        .route(&format!("{b}/link/presentations"), view(get(link_presentations)))
+        .route(&format!("{b}/link/refresh"), manage(post(link_refresh)))
+        .route(&format!("{b}/link/mapping"), manage(post(link_mapping)))
+        .route(&format!("{b}/link/playlist"), manage(post(link_playlist)))
         .route(&format!("{b}/slides"), view(get(slides)))
         .route(&format!("{b}/thumbnail/{{uuid}}/{{index}}"), view(get(thumbnail)))
         .route(&format!("{b}/step"), control(post(step)))

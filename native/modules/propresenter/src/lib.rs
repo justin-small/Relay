@@ -17,6 +17,8 @@ pub mod discover;
 pub mod feeds;
 pub mod follower;
 pub mod lobby;
+pub mod pclink;
+pub mod plmatch;
 pub mod routes;
 pub mod routes_ctl;
 pub mod settings;
@@ -33,7 +35,7 @@ use std::sync::{Arc, Mutex, OnceLock, PoisonError};
 use axum::http::HeaderMap;
 use axum::response::Response;
 use axum::Router;
-use relay_core::caps::{ProOffers, SignageLayer, ALERT_STAGE, PANEL_TIMERS_CHANGED, PRO_OFFERS, SIGNAGE_LAYER};
+use relay_core::caps::{FeedExtra, ProOffers, FEED_EXTRA, PLAN_CHANGED, SignageLayer, ALERT_STAGE, PANEL_TIMERS_CHANGED, PRO_OFFERS, SIGNAGE_LAYER};
 use relay_core::future::BoxFuture;
 use relay_core::{AdminPage, AppError, Health, HealthState, Host, Manifest, Module, Permission};
 use serde_json::Value;
@@ -42,6 +44,7 @@ use crate::client::Client;
 use crate::control::Control;
 use crate::feeds::{LyricsFeed, TimersFeed};
 use crate::lobby::Lobby;
+use crate::pclink::Link;
 use crate::view::View;
 use crate::follower::{Follower, MakeClient, Timing};
 use crate::routes::Ctx;
@@ -238,7 +241,8 @@ impl Module for ProPresenter {
         let view = View::new(Arc::clone(&follower), Arc::clone(&control));
         let sync = crate::signagesync::Sync::new(Arc::clone(&follower), Arc::clone(&control));
         let signage = SignageTags::new(host.clone());
-        let _ = self.parts.set(Parts { ctx: Ctx { host: host.clone(), follower, lyrics, timers, control, lobby, view, sync, signage } });
+        let link = Link::new(Arc::clone(&follower));
+        let _ = self.parts.set(Parts { ctx: Ctx { host: host.clone(), follower, lyrics, timers, control, lobby, view, sync, signage, link } });
     }
 
     fn detach(&self, host: &Host) {
@@ -275,6 +279,13 @@ impl Module for ProPresenter {
             c.lobby.start();
             // Idle until announcement slides for signage are switched on and a playlist is picked.
             c.sync.start();
+            // Idle until the Planning Center link is switched on (follow the plan, or ProPresenter drives LIVE).
+            c.link.start();
+            // The Service feed asks which plan item ProPresenter has up; the link answers while it is following the plan.
+            let link = Arc::clone(&c.link);
+            host.provide(MANIFEST.id, FEED_EXTRA, Arc::new(FeedExtra(Box::new(move |st: &str| link.feed_extra(st)))));
+            let again = Arc::clone(&c.link);
+            host.listen(MANIFEST.id, PLAN_CHANGED, Arc::new(move |_: &str| again.changed()));
             // What a slide-note tag does in Relay, and what a tag may put on a screen (signage asks for the layer while it is on).
             tagactions::install(c.follower.tags(), &host, &c.signage);
             let signage = Arc::clone(&c.signage);
@@ -290,6 +301,7 @@ impl Module for ProPresenter {
                 p.ctx.follower.shutdown();
                 p.ctx.lobby.cancel();
                 p.ctx.sync.cancel();
+                p.ctx.link.cancel();
             }
             for t in tasks {
                 t.abort();

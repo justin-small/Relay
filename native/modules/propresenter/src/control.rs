@@ -53,7 +53,7 @@ impl From<ProError> for ControlError {
 pub type Done<T = Option<Value>> = Result<T, ControlError>;
 
 /// One path segment: a UUID, a name or an index. Refuses anything that could change the path.
-fn seg(value: &str) -> Result<String, ControlError> {
+pub fn seg(value: &str) -> Result<String, ControlError> {
     let t = value.trim();
     if id_ok(t) {
         Ok(t.to_owned())

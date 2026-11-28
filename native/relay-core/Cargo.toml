@@ -7,6 +7,7 @@ publish = false
 description = "Relay's Rust server core (#652): the module trait and registry, the error table, the state folder, config.json and shutdown. Knows no integration."
 
 [dependencies]
+unicode-normalization = "0.1"
 axum = { version = "0.8", default-features = false, features = ["json"] }
 bytes = "1"
 serde_json = { version = "1", features = ["preserve_order"] }

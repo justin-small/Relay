@@ -37,6 +37,9 @@ pub struct Pres {
 /// `(uuid, name, groups)` of an announcement.
 pub type Announcement = (String, String, Vec<(String, Vec<String>)>);
 
+/// `(uuid, name, [(presentation uuid, name)])` of a library.
+pub type Library = (String, String, Vec<(String, String)>);
+
 pub struct Inner {
     pub version: Value,
     pub presentation: Option<Pres>,
@@ -76,6 +79,14 @@ pub struct Inner {
     pub slides: HashMap<String, Vec<String>>,
     /// Playlist items whose picture ProPresenter now draws differently: `"<item>-<cue>"`.
     pub redrawn: HashSet<String>,
+    /// The church's playlists for the Planning Center link, in order: `(uuid, name, items)`. While there are any, `/v1/playlists` lists these.
+    pub lists: Vec<(String, String, Vec<Value>)>,
+    /// Libraries: `(uuid, name, [(presentation uuid, name)])`.
+    pub libs: Vec<Library>,
+    /// Presentations that are in a playlist but in no library: uuid -> the name as held.
+    pub pres_names: HashMap<String, String>,
+    /// Playlists made through the API.
+    pub created: u32,
 }
 
 pub struct Fake {
@@ -130,6 +141,19 @@ impl Inner {
             arrangement: None,
         });
         self.index = Some(0);
+    }
+
+    /// Put the presentation `uuid` named `name` up (no slides to speak of) and say so on the stream.
+    pub fn present(&mut self, uuid: &str, name: &str) {
+        self.presentation = Some(Pres { uuid: uuid.to_owned(), name: name.to_owned(), path: format!("/Users/x/Libraries/Default/{name}.pro"), groups: vec![("Slide".into(), vec!["x".into()])], arrangement: None });
+        self.index = Some(0);
+        self.pending.extend(["presentation/current", "presentation/slide_index", "status/slide"]);
+    }
+
+    /// Nothing is up.
+    pub fn nothing(&mut self) {
+        self.clear();
+        self.pending.extend(["presentation/current", "presentation/slide_index", "status/slide"]);
     }
 
     pub fn default_song(&mut self) {
@@ -230,6 +254,78 @@ impl Inner {
 
     pub fn world(&self) -> (bool, String, Option<usize>) {
         (self.ann_on, self.announcement.as_ref().map(|a| a.0.clone()).unwrap_or_default(), self.ann_index)
+    }
+
+    /// Every presentation name ProPresenter holds, exactly.
+    pub fn exact_names(&self) -> HashMap<String, String> {
+        let mut out = self.pres_names.clone();
+        for (_, _, rows) in &self.libs {
+            for (u, n) in rows {
+                out.insert(u.clone(), n.clone());
+            }
+        }
+        out
+    }
+
+    fn link_world(&mut self, method: &str, base: &str, body: &[u8]) -> Option<(u16, Vec<u8>, &'static str)> {
+        if self.lists.is_empty() && self.libs.is_empty() {
+            return None;
+        }
+        let j = |o: Value| Some((200u16, format!("{o}\r\n\r\n").into_bytes(), "application/json"));
+        match (method, base) {
+            ("GET", "/v1/playlists") => j(Value::Array(self.lists.iter().enumerate().map(|(i, (u, n, _))| json!({"id": {"uuid": u, "name": n, "index": i}, "field_type": "playlist", "children": []})).collect())),
+            ("GET", "/v1/libraries") => j(Value::Array(self.libs.iter().enumerate().map(|(i, (u, n, _))| json!({"uuid": u, "name": n, "index": i})).collect())),
+            ("GET", b) if b.starts_with("/v1/library/") => {
+                let id = b.rsplit('/').next().unwrap_or("");
+                let rows = self.libs.iter().find(|l| l.0 == id)?.2.clone();
+                j(json!({"update_type": "all", "items": rows.iter().enumerate().map(|(i, (u, n))| json!({"uuid": u, "name": n, "index": i})).collect::<Vec<_>>()}))
+            }
+            ("GET", b) if b.starts_with("/v1/playlist/") => {
+                let id = b.rsplit('/').next().unwrap_or("");
+                match self.lists.iter().find(|l| l.0 == id) {
+                    Some((u, n, items)) => j(json!({"id": {"uuid": u, "name": n, "index": 0}, "items": items})),
+                    None => None,
+                }
+            }
+            ("GET", b) if b.starts_with("/v1/presentation/") && !b.contains("/thumbnail") => {
+                let id = b.rsplit('/').next().unwrap_or("");
+                match self.exact_names().get(id) {
+                    Some(n) => j(json!({"presentation": {"id": {"uuid": id, "name": n, "index": 0}, "groups": []}})),
+                    None if self.presentation.as_ref().is_some_and(|p| p.uuid == id) => None,
+                    None => Some((404, Vec::new(), "application/json")),
+                }
+            }
+            ("POST", "/v1/playlists") => {
+                let sent: Value = serde_json::from_slice(body).unwrap_or(Value::Null);
+                self.created += 1;
+                let u = format!("PL-NEW{}", self.created);
+                self.lists.push((u.clone(), sent["name"].as_str().unwrap_or("").to_owned(), Vec::new()));
+                j(json!({"id": {"uuid": u, "name": sent["name"], "index": self.lists.len()}, "field_type": "playlist"}))
+            }
+            ("PUT", b) if b.starts_with("/v1/playlist/") => {
+                let id = b.rsplit('/').next().unwrap_or("").to_owned();
+                let sent: Vec<Value> = serde_json::from_slice(body).unwrap_or_default();
+                let exact = self.exact_names();
+                for o in &sent {
+                    // As ProPresenter 22 answers (checked live): both arrangement fields or the whole body is a 400, and a presentation item is found by its
+                    // exact name (trailing spaces too), never its UUID.
+                    if o["type"] == "presentation" {
+                        let info = &o["presentation_info"];
+                        if info.get("arrangement_name").is_none() || info.get("arrangement_uuid").is_none() {
+                            return Some((400, b"missing field arrangement".to_vec(), "text/plain"));
+                        }
+                        if exact.get(info["presentation_uuid"].as_str().unwrap_or("")).map(String::as_str) != o["id"]["name"].as_str() {
+                            return Some((404, Vec::new(), "application/json"));
+                        }
+                    }
+                }
+                let items: Vec<Value> = sent.iter().enumerate().map(|(n, o)| lobby_item(n, o["id"]["name"].as_str().unwrap_or(""), o["type"].as_str().unwrap_or(""), o["presentation_info"]["presentation_uuid"].as_str().unwrap_or(""), false)).collect();
+                let slot = self.lists.iter_mut().find(|l| l.0 == id)?;
+                slot.2 = items;
+                Some((204, Vec::new(), "application/json"))
+            }
+            _ => None,
+        }
     }
 
     fn lobby_paths(&mut self, base: &str, path: &str) -> Option<(u16, Vec<u8>, &'static str)> {
@@ -410,6 +506,10 @@ impl Fake {
                 pending: Vec::new(),
                 slides: HashMap::new(),
                 redrawn: HashSet::new(),
+                lists: Vec::new(),
+                libs: Vec::new(),
+                pres_names: HashMap::new(),
+                created: 0,
             }),
             out: Mutex::new(VecDeque::new()),
             wake: Notify::new(),
@@ -425,6 +525,20 @@ impl Fake {
             }
         });
         fake
+    }
+
+    /// Put the presentation `uuid` up and tell the stream.
+    pub fn present(&self, uuid: &str, name: &str) {
+        self.lock().present(uuid, name);
+        let pending = std::mem::take(&mut self.lock().pending);
+        self.push(&pending);
+    }
+
+    /// Nothing is up, and the stream says so.
+    pub fn nothing(&self) {
+        self.lock().nothing();
+        let pending = std::mem::take(&mut self.lock().pending);
+        self.push(&pending);
     }
 
     pub fn lock(&self) -> MutexGuard<'_, Inner> {
@@ -503,6 +617,9 @@ impl Fake {
             return (status, text.into_bytes(), "text/plain");
         }
         let j = |o: &Value| (200u16, if o.is_null() { Vec::new() } else { format!("{o}\r\n\r\n").into_bytes() }, "application/json");
+        if let Some(done) = inner.link_world(method, path.split('?').next().unwrap_or(""), body) {
+            return done;
+        }
         match method {
             "GET" => {
                 if let Some(uuid) = path.strip_prefix("/v1/presentation/").filter(|u| inner.slides.contains_key(*u)) {

@@ -26,6 +26,8 @@ pub const OFFERED_CHANGED: &str = "plan.offered_changed";
 pub const ALERT_STAGE: &str = "alerts.stage";
 /// Announced when a panel's own timer settings change: ProPresenter's timers feed sends the panel its new thresholds at once.
 pub const PANEL_TIMERS_CHANGED: &str = "panels.timers_changed";
+/// Announced when what the plan feeds say of ProPresenter changed (which plan item it has up): the Service feed is sent again.
+pub const FEED_REFRESH: &str = "plan.feed_refresh";
 /// Announced with the presentation's name when a new presentation comes up in ProPresenter (REAPER's song markers, #413).
 pub const PRESENTATION_UP: &str = "presentation.up";
 
@@ -263,3 +265,43 @@ pub const FEED_EXTRA: &str = "propresenter.feed_extra";
 pub type FeedExtraFn = dyn Fn(&str) -> Option<Value> + Send + Sync;
 
 pub struct FeedExtra(pub Box<FeedExtraFn>);
+
+// ---------------------------------------------------------------------------------------------------------- the link to the plan
+/// `Arc<PlanLink>`: the plan Planning Center follows, as far as ProPresenter's link needs it (`plan.follower`, `plan.control` and `plan.api` in Python):
+/// the followed service types with their items and LIVE state, and the means to move LIVE the way a panel's Next and Previous do. Provided by Planning
+/// Center while it is on.
+pub const PLAN_LINK: &str = "plan.link";
+
+/// One followed service type.
+#[derive(Debug, Clone, Default)]
+pub struct LinkTrack {
+    pub service_type: String,
+    /// The name Planning Center gives the service type, `""` until read.
+    pub name: String,
+    /// `{"id", "title", "dates"}` of the plan followed, or `None`.
+    pub plan: Option<Value>,
+    /// The plan's day as `YYYY-MM-DD`.
+    pub day: String,
+    /// The plan's items in order: `[{"id", "title", "type"}]`.
+    pub items: Vec<Value>,
+    /// Planning Center's LIVE answer: `{"current": {"item"}, "controller": {"id", "name"}}`.
+    pub live: Option<Value>,
+}
+
+/// How a try at moving LIVE ended: a fixed code, the steps pressed, and the name of whoever holds control when it was someone else.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct DriveResult {
+    pub result: String,
+    pub steps: u32,
+    pub who: String,
+}
+
+pub type DriveFn = dyn Fn(String, Vec<String>, Vec<String>, bool) -> BoxFuture<'static, DriveResult> + Send + Sync;
+
+pub struct PlanLink {
+    /// A token is saved: Planning Center is usable.
+    pub connected: Box<dyn Fn() -> bool + Send + Sync>,
+    pub tracks: Box<dyn Fn() -> Vec<LinkTrack> + Send + Sync>,
+    /// Move LIVE of service type `.0` to one of the item ids `.2` (`.1` is the plan's item ids in order); `.3` allows going back.
+    pub drive: Box<DriveFn>,
+}

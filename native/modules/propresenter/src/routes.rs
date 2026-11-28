@@ -41,6 +41,7 @@ pub struct Ctx {
     pub view: Arc<View>,
     pub sync: Arc<crate::signagesync::Sync>,
     pub signage: Arc<crate::signagetags::SignageTags>,
+    pub link: Arc<crate::pclink::Link>,
 }
 
 /// An audit entry as Python's gate wrote for a module route that noted nothing itself.
