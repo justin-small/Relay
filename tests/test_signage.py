@@ -29,7 +29,7 @@ from app.modules import modules as _modules  # noqa: E402
 from app.modules.signage import live, media, schedule, sources, store  # noqa: E402
 from app.modules.signage import takeover as tk  # noqa: E402
 from app.alerts import alerts as relay_alerts  # noqa: E402
-from datetime import datetime, timezone  # noqa: E402
+from datetime import datetime, timedelta, timezone  # noqa: E402
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from _harness import check, eq, fails  # noqa: E402
@@ -403,16 +403,23 @@ named = admin.post("/api/admin/signage/slots", json={"target": "screen", "target
                                                        "schedule_ref": ref, "days": [3], "start_time": "01:00", "end_time": "02:00"}).json()
 eq("its own days and times are not kept", (named["days"], named["start_time"], named["schedule_ref"]), ("", "", ref))
 eq("the slot reads as the schedule", store.slots()[0]["summary"], "Schedule: Sunday services")
-eq("it plays while the schedule is open", plays(scr_now, at(2026, 11, 15, 15, 0))["layer"], "schedule")
-eq("and not outside it", plays(scr_now, at(2026, 11, 15, 18, 0))["layer"], "screen")
+# A named schedule's windows are worked out around the real clock (store.open_ref), so these checks use the coming Sunday, in Chicago time.
+from zoneinfo import ZoneInfo
+from app import timewin
+_today = datetime.now(UTC).astimezone(ZoneInfo("America/Chicago")).date()
+_sunday = _today + timedelta(days=(7 - timewin.weekday(_today)) % 7)
+def sun(h, mi=0):
+    return datetime(_sunday.year, _sunday.month, _sunday.day, h, mi, tzinfo=ZoneInfo("America/Chicago")).astimezone(UTC)
+eq("it plays while the schedule is open", plays(scr_now, sun(9, 0))["layer"], "schedule")
+eq("and not outside it", plays(scr_now, sun(12, 0))["layer"], "screen")
 eq("the Schedules page is told where it is used", store.schedule_users(ref), [{"where": "Signage", "what": f"Slot on screen {scr_now['name']}"}])
 config.save({"schedules": [dict(svc, windows=[dict(svc["windows"][0], start_time="10:00", stop_time="12:00")])]})
-eq("moving the schedule moves the slot", (plays(scr_now, at(2026, 11, 15, 15, 30))["layer"], plays(scr_now, at(2026, 11, 15, 16, 30))["layer"]),
+eq("moving the schedule moves the slot", (plays(scr_now, sun(9, 30))["layer"], plays(scr_now, sun(10, 30))["layer"]),
    ("screen", "schedule"))
 config.save({"schedules": [dict(svc, enabled=False)]})
-eq("a schedule that is off covers nothing", plays(scr_now, at(2026, 11, 15, 16, 30))["layer"], "screen")
+eq("a schedule that is off covers nothing", plays(scr_now, sun(10, 30))["layer"], "screen")
 config.save({"schedules": []})
-eq("a deleted schedule covers nothing, and reads as deleted", (plays(scr_now, at(2026, 11, 15, 16, 30))["layer"],
+eq("a deleted schedule covers nothing, and reads as deleted", (plays(scr_now, sun(10, 30))["layer"],
                                                                 store.slots()[0]["summary"]), ("screen", "Schedule: (deleted)"))
 admin.delete(f"/api/admin/signage/slots/{named['id']}")
 

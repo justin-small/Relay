@@ -2882,6 +2882,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "relay-module-signage_web"
+version = "0.1.0"
+dependencies = [
+ "axum",
+ "bytes",
+ "http-body-util",
+ "hyper",
+ "hyper-util",
+ "quickcheck",
+ "rand 0.8.8",
+ "relay-core",
+ "rustls",
+ "serde_json",
+ "tokio",
+ "tokio-rustls",
+ "tower",
+ "url",
+ "webpki-roots 0.26.11",
+]
+
+[[package]]
 name = "relay-ndi"
 version = "0.1.0"
 dependencies = [
@@ -2933,6 +2954,7 @@ dependencies = [
  "relay-module-ndi",
  "relay-module-remote_access",
  "relay-module-signage",
+ "relay-module-signage_web",
  "relay-show",
  "rustls",
  "serde",

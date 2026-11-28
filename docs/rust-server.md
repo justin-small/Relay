@@ -332,7 +332,7 @@ and the state of both is POSTed back so the Audio bus page shows it. The door an
 
 `native/relay-show` is `app/alerts.py`, `app/panels.py`, `app/panelfw.py` and `app/screens.py` with no HTTP in the crate, and
 `relay-server/src/show.rs` mounts the routes. Start it with `relay-server --rust-show` (or `RELAY_RUST_SHOW=1`); without the switch
-nothing changes. The signage modules (`signage`, `signage_web`) are the rest of #660 and follow in their own pull requests.
+nothing changes. The signage modules (`signage`, `signage_web`) are the rest of #660; they are below.
 
 | Python | Rust |
 |---|---|
@@ -402,3 +402,24 @@ made by the browser and only stored. `Host::note` writes the audit entry Python'
 - offering each screen to the NDI module as an output, the Schedules page's "used by" list, and the Boards widgets (`signage.takeovers`);
 - the "bound port" a screen's address shows is the configured one, because the module cannot ask which port the listener really opened;
 - `prune_mirror` keeps every backup copy while any `relay-*.db` snapshot exists, where Python reads each snapshot to see what it names.
+
+### Signage: web pages and YouTube (#660)
+
+`native/modules/signage_web` (`relay-module-signage_web`) is `app/modules/signage_web`: saved web pages and YouTube links, the checks that a
+site allows being framed or a video embedded, and the two signage sources that play them. It depends on `relay-core` only. `links.rs` is
+`links.py` (address cleaning, YouTube ids, what the player is told, framing headers, the saved list in config.json `signage_web`, so either
+server reads what the other wrote); `check.rs` is the fetch and the two checks; `lib.rs` is the module and its four admin routes behind
+`signage_web.view` and `signage_web.manage`, each writing the audit entry Python's route wrote.
+
+While the module is on it provides `signage.source.web_page` and `signage.source.youtube` (`relay_core::screens::SignageSource`) and
+withdraws them when it stops, so signage plays, describes and offers the links without naming this crate; a removed link or a switched-off
+module makes a playlist skip the item, as in Python.
+
+**Checks never reach into the network Relay runs on.** Every hop of a check (the address, then each of up to three redirects) resolves the
+host with `relay_core::net::resolve_all` and is refused unless every address is public (`check::is_public`: not private, loopback,
+link-local, shared, documentation, reserved or multicast, IPv4-mapped IPv6 judged as its IPv4). The connection then goes to the address that
+was checked, not to a second lookup of the name, through `Host::net()` for the `signage_web` traffic class, so it leaves by the port the
+operator assigned. TLS is checked against the bundled roots.
+
+**Not in the module yet**, because the Rust module trait has no admin pages: the "Web & YouTube" tab and `signageweb.js`; the Python shell
+still lists the module and loads them. `tests/test_signage_web.py` stays as the check of the Python module until it is retired (#664).
