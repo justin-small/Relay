@@ -120,6 +120,12 @@ impl Health {
 
 type Provided = Arc<Mutex<BTreeMap<String, (String, Arc<dyn Any + Send + Sync>)>>>;
 
+/// Called by [`Host::announce`] with the event's argument (`""` when it has none).
+pub type Hear = Arc<dyn Fn(&str) + Send + Sync>;
+
+/// `(owner, topic, listener)`: who listens to what (Python's `modules.listen`).
+type Heard = Arc<Mutex<Vec<(String, String, Hear)>>>;
+
 /// What core hands a module: where it asks for other modules' capabilities and offers its own, and the shutdown signal.
 /// The port the viewer pages are served on, known once the server has opened it. The server keeps one handle and sets it; the
 /// [`Host`] it was given to reads it.
@@ -139,6 +145,7 @@ impl ViewerPort {
 #[derive(Clone)]
 pub struct Host {
     shared: Provided,
+    heard: Heard,
     pub shutdown: Shutdown,
     net: Net,
     store: Arc<OnceLock<Arc<dyn SettingsStore>>>,
@@ -148,7 +155,7 @@ pub struct Host {
 
 impl Host {
     pub fn new(shutdown: Shutdown) -> Self {
-        Self { shared: Arc::default(), shutdown, net: Net::unrouted(), store: Arc::default(), authorizer: Arc::default(), viewer_port: ViewerPort::default() }
+        Self { shared: Arc::default(), heard: Arc::default(), shutdown, net: Net::unrouted(), store: Arc::default(), authorizer: Arc::default(), viewer_port: ViewerPort::default() }
     }
 
     /// The port the viewer pages are served on right now (`serving.viewer_port`), 0 until the server has opened it.
@@ -240,9 +247,33 @@ impl Host {
         map.iter().filter_map(|(name, (_, v))| Some((name.strip_prefix(prefix)?.to_owned(), Arc::clone(v).downcast::<T>().ok()?))).collect()
     }
 
+    /// Take back everything `owner` provided and every event it listens to.
     pub fn withdraw_all(&self, owner: &str) {
         if let Ok(mut map) = self.shared.lock() {
             map.retain(|_, (who, _)| who != owner);
+        }
+        if let Ok(mut heard) = self.heard.lock() {
+            heard.retain(|(who, _, _)| who != owner);
+        }
+    }
+
+    /// Be called when `announce(topic, ..)` is (`plan.changed`, `directory.changed`): a module hears another's events with no
+    /// import and no matter which came on first. `withdraw_all(owner)` stops it. A listener runs on the announcer's thread and
+    /// must not block; it spawns what takes time.
+    pub fn listen(&self, owner: &str, topic: &str, listener: Hear) {
+        if let Ok(mut heard) = self.heard.lock() {
+            heard.push((owner.to_owned(), topic.to_owned(), listener));
+        }
+    }
+
+    /// Tell everyone listening to `topic`. `arg` is the event's one argument (a provider id), `""` for none.
+    pub fn announce(&self, topic: &str, arg: &str) {
+        let hearers: Vec<Hear> = match self.heard.lock() {
+            Ok(heard) => heard.iter().filter(|(_, t, _)| t == topic).map(|(_, _, f)| Arc::clone(f)).collect(),
+            Err(_) => return,
+        };
+        for f in hearers {
+            f(arg);
         }
     }
 

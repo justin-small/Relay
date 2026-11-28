@@ -464,16 +464,21 @@ while it is on, and the module's `pc_text` source and plan capability only while
 
 **Not here yet, and why.**
 
-- **Directory and channels.** Neither exists in Rust, so refs are kept as saved and names are matched as typed (Python's rule while the
-  directory is empty). The capability traits are ready for the day they do.
+- **Directory and channels** are `relay-server/src/modcaps.rs`: `DirectoryStore` (`app/directory.py`'s teams and positions, kept in
+  `directory_items`, read again when `plan.changed` is announced) and `ChannelList` (the audio channels of `relay-audio`, read again when any
+  channel was written, a merged-away ref still working). The server provides them as `core.directory` always and `core.channels` while
+  `--rust-audio` runs. Their methods are plain functions over a copy that the caller brings up to date with `refresh().await` first. People
+  links (`person_links`) are not ported: nothing in the module asks for them.
 - **Python consumers of `plan.*`** (ProPresenter's link and `drive`, crew, parent paging, YouTube, mixers) still reach the Python module's
   names; `PlanCap` is what Rust consumers will use, and `drive` and the Publishing and Check-Ins calls come with them.
-- **`plan.changed` / `directory.changed` announcements**, and the panel `targets` push when a service type is followed, need an event bus in
-  the module host; the follower and feed already expose `on_change` and `on_offered_change` for it.
+- **Events.** `Host::listen` / `announce` / `withdraw_all` are the Rust `modules.listen` / `announce`. Planning Center announces `plan.changed`
+  (the directory reads the teams again) and `plan.offered_changed` (the server pushes the panels' status, whose `service` list now comes from the
+  module's `PlanCap`); it hears `directory.changed` while on and rewrites the names saved in the rundown. Crew, the ProPresenter link and
+  wireless mics listen the same way when they are ported.
 - **Health detail** is a fixed sentence, so "Following 2 service types" shows no number; an error shows one sentence, not Planning Center's reply.
 - **The admin page's "who pressed"** is "Admin page": the module is not told the signed-in user's name.
 - `/stream?stream=service` and `rundown` are served only where `/stream` is mounted (`--rust-captions`).
-- Not run against a real Planning Center account.
+- Run against a real Planning Center account, read-only (2026-11-28, `tests/live.rs`, `--ignored`, token in `PCO_APP_ID` / `PCO_SECRET`): service types, time zone, the token's person, plans, teams, items, team members, needed positions and plan files all answer. The LIVE presses (Next, Previous, Take control, Release) have not been tried: per the Nov 10 learning they go only on a throwaway plan.
 
 ## Live captions (#659)
 

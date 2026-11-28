@@ -39,6 +39,9 @@ use crate::follower::{Follower, MakeClient};
 use crate::routes::Ctx;
 use crate::signagesync::{Memory, PlanSync};
 
+/// Announced (to `Host::listen`) when the followed plans change: the directory reads the teams again, crew and the ProPresenter link follow.
+pub use relay_core::caps::{DIRECTORY_CHANGED, OFFERED_CHANGED, PLAN_CHANGED};
+
 pub const SERVICE_STREAM: &str = "service";
 /// The rundown for /screen (#148): names, mics and notes, so only while the operator has it on, and never through the remote access tunnel.
 pub const RUNDOWN_STREAM: &str = "rundown";
@@ -182,6 +185,12 @@ impl Module for PlanningCenter {
             people: Box::new(move || people(&f5)),
             teams: Box::new(move || teams(&f6)),
         });
+        // Whoever listens (the directory, crew, the ProPresenter link) hears when the followed plans change (#666).
+        let announce = host.clone();
+        ctx.follower.on_change(Arc::new(move || announce.announce(PLAN_CHANGED, "")));
+        // A service type followed or dropped reaches open panel pickers at once: the server listens and pushes the panels' status.
+        let announce = host.clone();
+        ctx.feed.set_on_offered_change(Some(Arc::new(move || announce.announce(OFFERED_CHANGED, ""))));
         let _ = self.parts.set(Parts { ctx, plan, memory });
     }
 
@@ -194,6 +203,19 @@ impl Module for PlanningCenter {
             let Some(p) = self.parts.get() else { return Ok(()) };
             // What core and other modules ask for by name (#523), offered only while the module is on.
             host.provide(MANIFEST.id, PLAN, Arc::clone(&p.plan));
+            // A rename in Planning Center reaches the names saved in the mic mappings (heard only while the module is on).
+            let again = p.ctx.clone();
+            host.listen(
+                MANIFEST.id,
+                DIRECTORY_CHANGED,
+                Arc::new(move |provider: &str| {
+                    if tokio::runtime::Handle::try_current().is_err() {
+                        return;
+                    }
+                    let (c, provider) = (again.clone(), provider.to_owned());
+                    tokio::spawn(async move { routes::directory_changed(&c, &provider).await });
+                }),
+            );
             let source = signagesync::source(Arc::clone(&p.memory));
             host.provide(MANIFEST.id, &format!("{SIGNAGE_SOURCE}{}", signagesync::KIND), Arc::new(source));
             let mut tasks = self.tasks.lock().unwrap_or_else(std::sync::PoisonError::into_inner);

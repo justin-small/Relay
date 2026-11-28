@@ -217,11 +217,13 @@ impl Capture for TapCapture {
 pub struct AppOutside {
     app: Option<Arc<PyApp>>,
     cache: RwLock<Value>,
+    /// The Rust modules, which add their own part (the Planning Center service feeds) over the app's.
+    host: Option<relay_core::Host>,
 }
 
 impl AppOutside {
-    pub fn new(app: Option<Arc<PyApp>>) -> Arc<Self> {
-        Arc::new(Self { app, cache: RwLock::new(json!({})) })
+    pub fn new(app: Option<Arc<PyApp>>, host: Option<relay_core::Host>) -> Arc<Self> {
+        Arc::new(Self { app, cache: RwLock::new(json!({})), host })
     }
 
     /// Read the app's answer once a second, until `shutdown`.
@@ -260,10 +262,15 @@ impl Outside for AppOutside {
         self.part("module_health", json!({}))
     }
     fn module_status(&self) -> Map<String, Value> {
-        match self.part("module_status", json!({})) {
+        let mut out = match self.part("module_status", json!({})) {
             Value::Object(m) => m,
             _ => Map::new(),
+        };
+        // The service feeds a panel can pick, from the Rust Planning Center while it is on (`plan.feed.offered`).
+        if let Some(plan) = self.host.as_ref().and_then(|h| h.using::<relay_core::caps::PlanCap>(relay_core::caps::PLAN)) {
+            out.insert("service".to_owned(), Value::Array((plan.offered)()));
         }
+        out
     }
     fn announce(&self, event: &str) {
         let (Some(app), Ok(handle)) = (self.app.clone(), tokio::runtime::Handle::try_current()) else { return };
@@ -337,11 +344,13 @@ pub struct Start {
     pub shutdown: relay_core::Shutdown,
     /// The modules, whose own feeds `/stream` hands on while they are on.
     pub registry: Option<Arc<relay_core::Registry>>,
+    /// The modules' host: the viewers' payload carries what its Rust modules offer, and a service type followed or dropped pushes it.
+    pub host: Option<relay_core::Host>,
 }
 
 pub fn start(s: Start) -> Api {
     let settings = Arc::new(ConfigSettings::new(Arc::clone(&s.config), s.state_dir));
-    let outside = AppOutside::new(s.app);
+    let outside = AppOutside::new(s.app, s.host.clone());
     outside.watch(s.shutdown.clone());
     let captions = Captions::new(Parts {
         hub: Arc::clone(&s.hub),
@@ -353,6 +362,15 @@ pub fn start(s: Start) -> Api {
         backends: Backends::builtin(),
         recorder: Recorder::new(clock::wall, clock::relay_zone),
     });
+    // A service type followed or dropped in Planning Center reaches open panel pickers at once (`feed.on_offered_change`).
+    if let Some(host) = &s.host {
+        let engine = Arc::downgrade(&captions);
+        host.listen("core", relay_core::caps::OFFERED_CHANGED, Arc::new(move |_| {
+            if let Some(engine) = engine.upgrade() {
+                engine.push_status();
+            }
+        }));
+    }
     assemble(Assemble { acc: s.acc, captions, hub: s.hub, config: s.config, settings, show: s.show, upstream: s.upstream, shutdown: s.shutdown, registry: s.registry })
 }
 

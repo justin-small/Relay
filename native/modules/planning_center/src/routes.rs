@@ -98,6 +98,34 @@ fn store(c: &Ctx, settings: &Value) -> Result<(), Response> {
     c.host.replace_settings(KEY, settings).map_err(|_| error(503, "The settings could not be saved right now. Try again in a moment."))
 }
 
+/// Bring the directory and the channels up to date before a handler reads them (`with_cx` is plain code, so it cannot wait).
+pub async fn refresh_caps(host: &Host) {
+    if let Some(d) = host.using::<DirectoryCap>(DIRECTORY) {
+        d.0.refresh().await;
+    }
+    if let Some(c) = host.using::<ChannelsCap>(CHANNELS) {
+        c.0.refresh().await;
+    }
+}
+
+/// A team or position was renamed or deleted in Planning Center: update the names saved in the mic mappings and channel assignments
+/// (`_directory_changed`).
+pub async fn directory_changed(c: &Ctx, provider: &str) {
+    if provider != relay_core::caps::PCO {
+        return;
+    }
+    refresh_caps(&c.host).await;
+    let saved = c.follower.settings();
+    let mut rs = saved["rundown"].clone();
+    if with_cx(&c.host, |cx| rundown::refresh_saved(&mut rs, cx)) {
+        let mut next = saved;
+        next["rundown"] = rs;
+        if c.host.replace_settings(KEY, &next).is_err() {
+            tracing::warn!("Planning Center: could not save the renamed positions");
+        }
+    }
+}
+
 fn with_cx<R>(host: &Host, run: impl FnOnce(&Cx) -> R) -> R {
     let dir = host.using::<DirectoryCap>(DIRECTORY);
     let chans = host.using::<ChannelsCap>(CHANNELS);
@@ -361,6 +389,7 @@ fn four_digits(t: &str) -> String {
 }
 
 async fn rundown_get(State(c): State<Ctx>, RawQuery(raw): RawQuery) -> Response {
+    refresh_caps(&c.host).await;
     let q: BTreeMap<String, String> = url::form_urlencoded::parse(raw.unwrap_or_default().as_bytes()).into_owned().collect();
     let followed = c.follower.followed();
     let st = q.get("type").filter(|t| followed.contains(t)).cloned().unwrap_or_default();
@@ -384,6 +413,7 @@ async fn rundown_get(State(c): State<Ctx>, RawQuery(raw): RawQuery) -> Response 
 }
 
 async fn rundown_settings(State(c): State<Ctx>, req: Request) -> Response {
+    refresh_caps(&c.host).await;
     let (parts, body) = req.into_parts();
     let payload = match object(body).await {
         Ok(p) => p,

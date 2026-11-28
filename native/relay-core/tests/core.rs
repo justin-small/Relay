@@ -3,7 +3,7 @@
 
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use axum::body::Body;
@@ -228,4 +228,30 @@ fn a_change_does_not_undo_what_another_writer_saved_since_the_file_was_read() {
     assert_eq!(after["modules"]["demo"]["enabled"], true);
     assert!(cfg.module_enabled("demo"));
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn a_module_hears_what_another_announces_until_it_is_withdrawn() {
+    use std::sync::atomic::AtomicUsize;
+    let host = relay_core::Host::new(relay_core::Shutdown::new());
+    let (heard, other) = (Arc::new(AtomicUsize::new(0)), Arc::new(AtomicUsize::new(0)));
+    let args = Arc::new(Mutex::new(Vec::<String>::new()));
+    let (h, o, a) = (Arc::clone(&heard), Arc::clone(&other), Arc::clone(&args));
+    host.listen("crew", "plan.changed", Arc::new(move |arg| {
+        h.fetch_add(1, Ordering::SeqCst);
+        a.lock().unwrap().push(arg.to_owned());
+    }));
+    host.listen("mics", "directory.changed", Arc::new(move |_| {
+        o.fetch_add(1, Ordering::SeqCst);
+    }));
+    host.announce("plan.changed", "");
+    host.announce("plan.changed", "pco");
+    assert_eq!((heard.load(Ordering::SeqCst), other.load(Ordering::SeqCst)), (2, 0), "each listener hears only its topic");
+    assert_eq!(args.lock().unwrap().as_slice(), ["", "pco"], "with the argument it was announced with");
+    host.announce("nobody.listens", "");
+    host.withdraw_all("crew");
+    host.announce("plan.changed", "");
+    assert_eq!(heard.load(Ordering::SeqCst), 2, "a module taken back hears nothing more");
+    host.announce("directory.changed", "pco");
+    assert_eq!(other.load(Ordering::SeqCst), 1, "and the others keep listening");
 }

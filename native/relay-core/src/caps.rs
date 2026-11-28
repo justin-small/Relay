@@ -14,6 +14,14 @@ use serde_json::Value;
 
 use crate::future::BoxFuture;
 
+// ------------------------------------------------------------------------------------------------------------------ events
+/// Announced (`Host::announce`) when the followed plans change: the directory reads the teams again, crew and the ProPresenter link follow.
+pub const PLAN_CHANGED: &str = "plan.changed";
+/// Announced with a provider id when a team or position was added, renamed or went missing.
+pub const DIRECTORY_CHANGED: &str = "directory.changed";
+/// Announced when the service feeds a panel can pick change (a service type was followed or dropped): the panels' status is pushed again.
+pub const OFFERED_CHANGED: &str = "plan.offered_changed";
+
 // ---------------------------------------------------------------------------------------------------------------- the plan
 /// `Arc<PlanCap>`: what other modules and core ask of the plan Planning Center follows (`plan.*` and `directory.pco*` in Python).
 pub const PLAN: &str = "plan";
@@ -115,6 +123,10 @@ pub trait Directory: Send + Sync + 'static {
     fn describe(&self, reference: &str, saved: &str) -> Described;
     /// Whether this team or position ref is one the provider lists or listed (`directory.item` is not `None`).
     fn knows(&self, reference: &str) -> bool;
+    /// Bring what the methods above read up to date. A caller awaits this once before it reads, so the methods stay plain functions.
+    fn refresh(&self) -> BoxFuture<'_, ()> {
+        Box::pin(async {})
+    }
 }
 
 /// `"team:pco:12"`.
@@ -163,6 +175,10 @@ pub trait ChannelCatalog: Send + Sync + 'static {
     fn by_ref(&self, reference: &str) -> Option<Channel>;
     /// Every audio channel core holds.
     fn audio(&self) -> Vec<Channel>;
+    /// Bring what the methods above read up to date; awaited once before a caller reads.
+    fn refresh(&self) -> BoxFuture<'_, ()> {
+        Box::pin(async {})
+    }
 }
 
 /// The id in `"channel:relay:5"`, or `None` for anything else.

@@ -29,7 +29,7 @@ pub use access::{Authorizer, Permission};
 pub use config::Config;
 pub use store::{PlainStore, SettingsStore};
 pub use error::{AppError, ErrorCode};
-pub use module::{AdminPage, Health, HealthState, Host, Listener, Manifest, Module, ViewerPort};
+pub use module::{AdminPage, Health, HealthState, Hear, Host, Listener, Manifest, Module, ViewerPort};
 pub use net::{Net, RouteError, Router, UdpOptions};
 pub use registry::{ActiveListener, AdminView, Registry, NAV_SECTIONS};
 pub use shutdown::Shutdown;
