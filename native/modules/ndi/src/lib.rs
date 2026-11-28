@@ -7,27 +7,27 @@
 
 #![allow(clippy::result_large_err)]
 
+pub mod listen;
+pub mod viewer;
+pub mod watch;
+pub mod font;
+pub mod render;
+pub mod testpatterns;
+pub mod discovery;
 pub mod analysis;
 pub mod bus;
-pub mod discovery;
-pub mod font;
-pub mod listen;
 pub mod multiview;
 pub mod outputs;
 pub mod pool;
-pub mod render;
 pub mod router;
 pub mod service;
 pub mod settings;
-pub mod testpatterns;
-pub mod viewer;
-pub mod watch;
 
 mod routes;
 
 use std::sync::{Arc, Mutex, OnceLock};
 
-use relay_core::module::BoxFuture;
+use relay_core::future::BoxFuture;
 use relay_core::{AppError, Health, HealthState, Host, Manifest, Module, Permission};
 use serde_json::Value;
 

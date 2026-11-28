@@ -8,14 +8,14 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use relay_core::{Config, Registry, Shutdown};
+use relay_core::{Config, Host, Registry, Shutdown};
 use serde_json::json;
 
 use crate::announce::{self, Announcer};
 use crate::forward::Upstream;
-use crate::front::{AppPlan, CertReport, ChangedReport, Front, GroupReport, Report};
+use crate::front::{AppPlan, Front, GroupReport, Report};
 use crate::gate::{Kind, Prefixes};
-use crate::listen::{self, DEFAULT_ADMIN_PORT, DEFAULT_VIEWER_PORT};
+use crate::listen::{DEFAULT_ADMIN_PORT, DEFAULT_VIEWER_PORT};
 use crate::netinfo;
 use crate::netroute::{self, Policy};
 use crate::serve::{GroupInfo, Net, Server, Spec};
@@ -155,7 +155,7 @@ fn discovery_ip(net: &Net) -> Option<String> {
 
 impl App {
     /// Open everything. Fails with a plain sentence when the viewer or panel port cannot be opened at all.
-    pub async fn start(opts: Options, registry: Arc<Registry>, shutdown: Shutdown) -> Result<Arc<Self>, String> {
+    pub async fn start(opts: Options, registry: Arc<Registry>, host: Host, shutdown: Shutdown) -> Result<Arc<Self>, String> {
         let cfg = Config::load(&opts.config_path).map_err(|e| format!("{e}"))?;
         let settings = Settings::read(&cfg);
         let net = Net::read(&cfg);
@@ -180,16 +180,16 @@ impl App {
                 let auth_pool = auth.pool().clone();
                 let auth_pool_show = auth.pool().clone();
                 let accounts = crate::accounts::Accounts::new(auth, crate::pages::Pages::new(&opts.app_dir), opts.config_path.clone());
-                registry.host().set_authorizer(Arc::new(crate::modulehost::AccountsAuthorizer(Arc::clone(&accounts))));
-                provide_core(registry.host(), &auth_pool, &opts);
+                host.set_authorizer(Arc::new(crate::modulehost::AccountsAuthorizer(Arc::clone(&accounts))));
+                provide_core(&host, &auth_pool, &opts);
                 if opts.rust_audio {
                     let app = match (&opts.upstream, &opts.token) {
                         (Some(base), Some(token)) if !token.is_empty() => Some(crate::pyapp::PyApp::new(base, token)),
                         _ => None,
                     };
                     if let Some(api) = crate::audio::start(auth_pool, Arc::clone(&accounts), &opts.config_path, app, shutdown.clone()).await {
-                        registry.host().provide("core", relay_core::lanes::LANES, Arc::new(relay_core::lanes::LanesCap(Arc::new(crate::lanescap::CoreLanes::new(Arc::clone(&api.bus))))));
-                        registry.host().provide(
+                        host.provide("core", relay_core::lanes::LANES, Arc::new(relay_core::lanes::LanesCap(Arc::new(crate::lanescap::CoreLanes::new(Arc::clone(&api.bus))))));
+                        host.provide(
                             "core",
                             relay_core::routes::ROUTES,
                             Arc::new(relay_core::routes::RoutesCap(Arc::new(crate::routescap::CoreRoutes { routing: Arc::clone(&api.routing), channels: Arc::clone(&api.channels) }))),
@@ -203,7 +203,7 @@ impl App {
                 if opts.rust_show {
                     if let Some(api) = crate::show::start(auth_pool_show, Arc::clone(&accounts), &opts.config_path, upstream_for_show, shutdown.clone()).await {
                         let alerts = Arc::clone(&api.alerts);
-                        registry.host().provide(
+                        host.provide(
                             "core",
                             relay_core::screens::ALERTS,
                             Arc::new(relay_core::screens::AlertsCap(Box::new(move || {
@@ -217,11 +217,13 @@ impl App {
             }
             Err(e) => tracing::error!("accounts are served by the app behind this server, not by it: {e}"),
         }
-        let server = Arc::new(Server::new(routes, upstream));
         let mut listener_prefixes = plan.listener_prefixes.clone();
         listener_prefixes.extend(registry.listener_prefixes());
-        server.set_prefixes(Prefixes { listener: listener_prefixes, panel: plan.panel_prefixes.clone() });
-        server.set_tls(panel.server_config());
+        let server = Arc::new(
+            Server::new(routes, upstream)
+                .with_prefixes(Prefixes { listener: listener_prefixes, panel: plan.panel_prefixes.clone() })
+                .with_tls(panel.server_config()),
+        );
 
         server.open(core_spec("viewers", "viewer pages", "viewers", false, &settings.host, settings.port), &net)?;
         if let Err(e) = server.open(core_spec("panel", "operator panel", "crew", true, &settings.admin_host, settings.admin_port), &net) {
@@ -312,7 +314,7 @@ impl App {
     }
 
     pub fn fingerprint(&self) -> String {
-        self.panel.lock().map(|p| p.info.fingerprint.clone()).unwrap_or_default()
+        self.panel.lock().map(|p| p.fingerprint().to_owned()).unwrap_or_default()
     }
 
     /// The notices the admin page shows: a module port that could not open, and each listener's own.
@@ -343,24 +345,9 @@ impl App {
         for n in self.notices() {
             out.push(format!("  {n}"));
         }
-        let panel = self.panel.lock().ok();
-        if let Some(panel) = panel {
-            if panel.changed.is_some() {
-                out.push("  The panel certificate was replaced, so its fingerprint changed. Trust the new one below.".to_owned());
-            }
-            let info = &panel.info;
-            let ips: Vec<String> = info.ips.clone();
-            let primary = if self.settings.admin_fqdn.is_empty() { ips.first().cloned().unwrap_or_else(|| "127.0.0.1".to_owned()) } else { self.settings.admin_fqdn.clone() };
-            let viewer_host = ips.first().cloned().unwrap_or_else(|| "127.0.0.1".to_owned());
-            out.push(String::new());
-            out.push(format!("  Certificate names : {}", info.dns.iter().chain(info.ips.iter()).cloned().collect::<Vec<_>>().join(", ")));
-            out.push(format!("  SHA-256           : {}", info.fingerprint));
-            out.push(String::new());
-            out.push(format!("  Panel   : {}", listen::link("https", &primary, self.admin_port(), "/admin")));
-            out.push(format!("  Viewers : {}", listen::link("http", &viewer_host, self.viewer_port(), "/")));
-            out.push(String::new());
-            out.push("  The certificate is self-signed, so the browser will warn once. Check the fingerprint it".to_owned());
-            out.push("  shows against the SHA-256 above before you accept it.".to_owned());
+        if let Ok(panel) = self.panel.lock() {
+            let primary = if self.settings.admin_fqdn.is_empty() { None } else { Some(self.settings.admin_fqdn.as_str()) };
+            out.extend(panel.banner(primary, self.admin_port(), self.viewer_port()));
         }
         out
     }
@@ -398,12 +385,7 @@ impl App {
             admin_port: self.admin_port(),
             notices: self.notices.clone(),
             groups,
-            certificate: CertReport {
-                fingerprint: panel.info.fingerprint.clone(),
-                names: panel.info.dns.iter().chain(panel.info.ips.iter()).cloned().collect(),
-                expires: panel.info.not_after.clone(),
-                changed: panel.changed.as_ref().map(|c| ChangedReport { from: c.from.clone(), to: c.to.clone(), at: c.at.clone() }),
-            },
+            certificate: panel.report(),
         })
     }
 
@@ -436,7 +418,7 @@ impl App {
         let names = names_for(&self.settings, &net);
         if let Ok(mut panel) = self.panel.lock() {
             match panel.refresh(&names) {
-                Ok(true) => tracing::info!(fingerprint = %panel.info.fingerprint, "the panel certificate was renewed"),
+                Ok(true) => tracing::info!(fingerprint = %panel.fingerprint(), "the panel certificate was renewed"),
                 Ok(false) => {}
                 Err(e) => tracing::error!("the panel certificate could not be renewed: {e}"),
             }

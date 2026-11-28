@@ -33,6 +33,7 @@ fn secret(name: &str) -> &'static str {
 struct Site {
     dir: PathBuf,
     acc: Shared,
+    auth: Auth,
     router: Router,
 }
 
@@ -67,16 +68,9 @@ async fn site(tag: &str) -> Site {
     std::fs::create_dir_all(&dir).unwrap();
     let auth = Auth::open(&dir.join("relay.db"), Cost::fast()).await.unwrap();
     let app_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../app");
-    let acc = {
-        let a = Accounts::new(auth, Pages::new(&app_dir), dir.join("config.json"));
-        std::sync::Arc::try_unwrap(a).ok().map(|mut a| {
-            a.fail_delay = Duration::ZERO;
-            std::sync::Arc::new(a)
-        })
-    }
-    .unwrap();
+    let acc = Accounts::with_fail_delay(auth.clone(), Pages::new(&app_dir), dir.join("config.json"), Duration::ZERO);
     let router = routes(acc.clone());
-    Site { dir, acc, router }
+    Site { dir, acc, auth, router }
 }
 
 const LAN: &str = "192.168.1.50:5000";
@@ -115,8 +109,7 @@ impl Site {
     }
 
     async fn user(&self, username: &str, role: &str, temporary: bool) {
-        self.acc
-            .auth
+        self.auth
             .create_user(NewUser { username, name: username, role, password: secret("good"), temporary }, None)
             .await
             .unwrap();
@@ -154,8 +147,8 @@ async fn a_wrong_password_shows_the_form_with_the_sentence_and_is_audited_withou
     let r = s.form("/admin/login", "", &[("username", "nobody-at-all"), ("password", "x")], LAN).await;
     assert_eq!(r.status, StatusCode::UNAUTHORIZED);
     let cookie = {
-        let owner = s.acc.auth.get_by_username("boss").await.unwrap().unwrap();
-        format!("relay_admin={}", s.acc.auth.start_session(&owner, "password", None, "").await.unwrap().token)
+        let owner = s.auth.get_by_username("boss").await.unwrap().unwrap();
+        format!("relay_admin={}", s.auth.start_session(&owner, "password", None, "").await.unwrap().token)
     };
     let log = s.get("/api/admin/audit?kind=auth", &cookie).await.json();
     let targets: Vec<&str> = log["entries"].as_array().unwrap().iter().map(|e| e["target"].as_str().unwrap()).collect();
@@ -176,7 +169,7 @@ async fn five_failures_lock_the_address_and_only_the_fifth_is_audited() {
     assert!(r.body.contains("Too many attempts. Try again in 10 min."), "{}", r.body);
     let ok = s.form("/admin/login", "", &[("username", "boss"), ("password", secret("good"))], "10.9.9.8:1").await;
     assert_eq!(ok.status, StatusCode::SEE_OTHER, "another address is unaffected");
-    let locked = s.acc.auth.search_audit(relay_auth::Search { kind: Some("auth.locked"), ..Default::default() }).await.unwrap();
+    let locked = s.auth.search_audit(relay_auth::Search { kind: Some("auth.locked"), ..Default::default() }).await.unwrap();
     assert_eq!(locked.entries.len(), 1);
 }
 
@@ -200,11 +193,11 @@ async fn a_forwarded_address_counts_only_from_a_loopback_peer() {
     for _ in 0..5 {
         fail("192.168.1.9:1").await; // a LAN client's header is ignored: its own address is counted
     }
-    assert!(s.acc.lockout.locked("192.168.1.9").is_some() && s.acc.lockout.locked("7.7.7.7").is_none());
+    assert!(s.acc.locked("192.168.1.9").is_some() && s.acc.locked("7.7.7.7").is_none());
     for _ in 0..5 {
         fail("127.0.0.1:1").await; // a loopback peer (the reverse proxy) speaks for the client
     }
-    assert!(s.acc.lockout.locked("7.7.7.7").is_some());
+    assert!(s.acc.locked("7.7.7.7").is_some());
 }
 
 #[tokio::test]
@@ -251,7 +244,7 @@ async fn the_users_routes_follow_the_rules_and_leave_audit_entries() {
     assert_eq!((r.status, r.json()["detail"].clone()), (StatusCode::BAD_REQUEST, json!("That request is not valid.")));
     let r = s.api(Method::PUT, &format!("/api/admin/users/{id}"), &adm, json!({"role": "viewer"})).await;
     assert_eq!(r.json()["user"]["role"], "viewer");
-    let owner_id = s.acc.auth.get_by_username("boss").await.unwrap().unwrap().id;
+    let owner_id = s.auth.get_by_username("boss").await.unwrap().unwrap().id;
     let r = s.api(Method::DELETE, &format!("/api/admin/users/{owner_id}"), &adm, json!({})).await;
     assert_eq!((r.status, r.json()["detail"].clone()), (StatusCode::FORBIDDEN, json!("You cannot change an account with a higher role than yours.")));
     let r = s.api(Method::POST, &format!("/api/admin/users/{id}/password"), &adm, json!({"password": secret("reset")})).await;
@@ -313,7 +306,7 @@ async fn a_pin_signs_in_from_a_trusted_browser_and_the_device_cookie_is_long_liv
     let fran = s.sign_in("fran").await;
     let set = s.api(Method::POST, "/api/admin/me/pin", &fran, json!({"password": secret("good"), "pin": "4321"})).await;
     assert_eq!(set.json(), json!({"ok": true, "pin_set": true}));
-    let fran_id = s.acc.auth.get_by_username("fran").await.unwrap().unwrap().id;
+    let fran_id = s.auth.get_by_username("fran").await.unwrap().unwrap().id;
     let r = s.form("/admin/login/pin", "", &[("user_id", &fran_id.to_string()), ("pin", "4321")], LAN).await;
     assert_eq!(r.status, StatusCode::UNAUTHORIZED, "not from a browser nobody trusted");
     assert!(r.body.contains("This browser is not a trusted device."), "{}", r.body);

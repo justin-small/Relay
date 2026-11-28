@@ -50,7 +50,7 @@ fn epoch() -> f64 {
 // ------------------------------------------------------------------------------------------------- recording
 /// Per-frame timing for one source to a CSV for `seconds`. The file stays until the next recording replaces it.
 pub struct Recording {
-    pub path: PathBuf,
+    path: PathBuf,
     pub source: String,
     pub seconds: i64,
     began: f64,
@@ -81,6 +81,13 @@ fn safe(source: &str) -> String {
 }
 
 impl Recording {
+    /// The file's name and contents, for the download; `None` when it cannot be read any more.
+    pub fn contents(&self) -> Option<(String, Vec<u8>)> {
+        let data = std::fs::read(&self.path).ok()?;
+        let name = self.path.file_name().and_then(|n| n.to_str()).unwrap_or("recording.csv").to_owned();
+        Some((name, data))
+    }
+
     pub fn start(folder: &Path, source: &str, seconds: i64) -> std::io::Result<Recording> {
         std::fs::create_dir_all(folder)?;
         let iso = relay_core::timewin::iso(epoch() as i64).replace(['-', ':'], "").replace('T', "-").replace('Z', "");

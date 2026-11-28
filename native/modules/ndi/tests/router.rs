@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
-use relay_core::module::BoxFuture;
+use relay_core::future::BoxFuture;
 use relay_core::routes::{RouteError, RouteProvider, RouteResult, Routes, WantedSource};
 use relay_module_ndi::router::{Backend, Closer, Deps, Instance, Router};
 use serde_json::{json, Value};

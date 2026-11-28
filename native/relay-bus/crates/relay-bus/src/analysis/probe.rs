@@ -192,7 +192,7 @@ impl ProbeHub {
         let p = self.inner.probe(id)?;
         let p = lock(&p);
         let (reading, calibration_db) = match &p.kind {
-            Kind::Spl(a) => (ProbeReading::Spl(a.reading()), Some(a.calibration_db)),
+            Kind::Spl(a) => (ProbeReading::Spl(a.reading()), Some(a.calibration())),
             Kind::Loudness { meter, .. } => (ProbeReading::Loudness(meter.reading().clone()), None),
         };
         Ok(ProbeStatus { reading, dropped: p.dropped, idle_s: p.last_data.map(|t| t.elapsed().as_secs_f64()), calibration_db })
@@ -221,7 +221,7 @@ impl ProbeHub {
     pub fn set_calibration(&self, id: u64, calibration_db: f64) -> Result<(), Error> {
         let p = self.inner.probe(id)?;
         if let Kind::Spl(a) = &mut lock(&p).kind {
-            a.calibration_db = calibration_db;
+            a.set_calibration(calibration_db);
         }
         Ok(())
     }

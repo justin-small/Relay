@@ -4,32 +4,13 @@
 
 use std::sync::OnceLock;
 
-use sqlx::sqlite::SqliteRow;
 use sqlx::{Row, Sqlite, Transaction};
 
 use crate::db::{later, now, Auth};
 use crate::error::{Error, Refusal, Result};
 use crate::hash;
 use crate::perms::{rank, User, ROLES};
-use crate::sessions::PIN_ATTEMPTS;
-use crate::tokens::TOKEN_MIN_ROLE;
-
-pub(crate) const COLS: &str = "id, username, name, role, disabled, must_change_password, (pin_hash is not null) as pin_set";
-pub(crate) const COLS_U: &str =
-    "u.id, u.username, u.name, u.role, u.disabled, u.must_change_password, (u.pin_hash is not null) as pin_set";
-
-pub(crate) fn user_of(row: &SqliteRow) -> User {
-    User {
-        id: row.get("id"),
-        username: row.get("username"),
-        name: row.get("name"),
-        role: row.get("role"),
-        disabled: row.get::<i64, _>("disabled") != 0,
-        must_change_password: row.get::<i64, _>("must_change_password") != 0,
-        pin_set: row.get::<i64, _>("pin_set") != 0,
-        token_id: 0,
-    }
-}
+use crate::shared::{clean_name, user_of, COLS, PIN_ATTEMPTS, TOKEN_MIN_ROLE};
 
 /// One line of the Users page (`list_users`).
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize)]
@@ -68,16 +49,6 @@ pub(crate) fn clean_username(v: &str) -> Result<String> {
     let ok = (3..=32).contains(&v.chars().count())
         && v.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || matches!(c, '.' | '_' | '-'));
     if ok { Ok(v) } else { Err(Refusal::BadUsername.into()) }
-}
-
-pub(crate) fn clean_name(v: &str, bad: Refusal) -> Result<String> {
-    let v = v.trim();
-    let n = v.chars().count();
-    if (1..=80).contains(&n) && !v.chars().any(|c| (c as u32) < 32 || c as u32 == 127) {
-        Ok(v.to_string())
-    } else {
-        Err(bad.into())
-    }
 }
 
 fn check_password(v: &str) -> Result<()> {
@@ -404,7 +375,7 @@ impl Auth {
     }
 
     /// People who can pick their name and type a PIN on a trusted device.
-    pub async fn pin_users(&self) -> Result<Vec<(i64, String)>> {
+    pub(crate) async fn pin_users(&self) -> Result<Vec<(i64, String)>> {
         let rows = sqlx::query("select id, name from users where not disabled and pin_hash is not null order by lower(name), id")
             .fetch_all(&self.pool)
             .await?;

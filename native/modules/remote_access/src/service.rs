@@ -48,7 +48,7 @@ fn new_secret() -> String {
 pub struct Service {
     pub host: Host,
     pub cloud: Cloud,
-    pub tunnel: Tunnel,
+    tunnel: Tunnel,
     /// The kind of the last failed call to the cloud, "" when the last one worked.
     cloud_error: Arc<Mutex<String>>,
     lock: Arc<tokio::sync::Mutex<()>>,
@@ -215,5 +215,10 @@ impl Service {
 
     pub fn tunnel_state(&self) -> State {
         self.tunnel.state()
+    }
+
+    /// How many connections cloudflared holds open to Cloudflare right now.
+    pub fn tunnel_connections(&self) -> u32 {
+        self.tunnel.connections()
     }
 }

@@ -14,7 +14,7 @@ use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::sync::Arc;
 use std::time::Duration;
 
-use relay_core::module::BoxFuture;
+use relay_core::future::BoxFuture;
 use relay_core::{Config, RouteError, Router, UdpOptions};
 use serde_json::Value;
 use socket2::{Domain, Protocol, SockAddr, Socket, Type};

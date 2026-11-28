@@ -10,7 +10,7 @@ use axum::body::Body;
 use axum::http::{Request, StatusCode};
 use axum::routing::get;
 use axum::Router;
-use relay_core::module::BoxFuture;
+use relay_core::future::BoxFuture;
 use relay_core::paths::resolve_config_path;
 use relay_core::{AppError, Config, ErrorCode, Host, Manifest, Module, Registry, Shutdown};
 use serde_json::{json, Value};

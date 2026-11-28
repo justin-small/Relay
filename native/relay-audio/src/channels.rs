@@ -183,8 +183,25 @@ impl Channels {
         Arc::new(Self { pool, generation: AtomicU64::new(0), gear: RwLock::new(None) })
     }
 
-    pub fn pool(&self) -> &SqlitePool {
-        &self.pool
+    /// Which channel each merged channel went into (`None`: it is a root).
+    pub async fn merges(&self) -> Result<HashMap<i64, Option<i64>>> {
+        let rows = sqlx::query("select id, merged_into from channels").fetch_all(&self.pool).await?;
+        Ok(rows.iter().map(|r| (r.get("id"), r.get("merged_into"))).collect())
+    }
+
+    /// The kind of every channel that was not merged into another.
+    pub async fn kinds(&self) -> Result<std::collections::BTreeMap<i64, String>> {
+        let rows = sqlx::query("select id, kind from channels where merged_into is null order by id").fetch_all(&self.pool).await?;
+        Ok(rows.iter().map(|r| (r.get("id"), r.get("kind"))).collect())
+    }
+
+    /// What `provider` reports under each channel: (channel id, key, direction, still missing), in display order.
+    pub async fn ends_of(&self, provider: &str) -> Result<Vec<(i64, String, String, bool)>> {
+        let rows = sqlx::query("select channel_id, key, direction, missing from channel_ends where provider = ? order by position, id")
+            .bind(provider)
+            .fetch_all(&self.pool)
+            .await?;
+        Ok(rows.iter().map(|r| (r.get("channel_id"), r.get("key"), r.get("direction"), r.get::<i64, _>("missing") != 0)).collect())
     }
 
     /// Where a rename on the gear goes (a module's `gear.<id>`): the Python app until the module is ported.

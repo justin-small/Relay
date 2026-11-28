@@ -14,7 +14,7 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
-use relay_core::module::BoxFuture;
+use relay_core::future::BoxFuture;
 use relay_core::routes::{ReadSource, RouteError, RouteProvider, Routes, WantedSource};
 use serde_json::{json, Value};
 

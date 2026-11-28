@@ -10,7 +10,7 @@ use crate::config::ChannelSel;
 use crate::health::Glitches;
 use crate::meter::{Meter, MeterShared};
 use crate::resamp::FixedIn;
-use crate::rt::{Discard, Discards};
+use crate::discard::{Discard, Discards};
 use crate::util::LANE_RATE;
 use rtrb::{Consumer, Producer};
 use std::sync::atomic::{AtomicU64, Ordering::Relaxed};
@@ -129,13 +129,13 @@ impl InputCore {
                     if self.taps.len() < MAX_TAPS && !self.taps.iter().any(|x| x.lane == t.lane) {
                         self.taps.push(t);
                     } else {
-                        self.discards.send(Discard::Tap(t));
+                        self.discards.send(Discard::Item(t));
                     }
                 }
                 InCmd::RemoveTap(lane) => {
                     if let Some(i) = self.taps.iter().position(|t| t.lane == lane) {
                         let t = self.taps.swap_remove(i);
-                        self.discards.send(Discard::Tap(t));
+                        self.discards.send(Discard::Item(t));
                     }
                 }
                 InCmd::SetChannel(lane, sel) => {
@@ -147,14 +147,14 @@ impl InputCore {
                     Some(t) if t.sinks.len() < MAX_SINKS => t.sinks.push(sink),
                     _ => {
                         sink.glitches.rejected.fetch_add(1, Relaxed);
-                        self.discards.send(Discard::Sink(sink));
+                        self.discards.send(Discard::Item(sink));
                     }
                 },
                 InCmd::RemoveSink(lane, id) => {
                     if let Some(t) = self.taps.iter_mut().find(|t| t.lane == lane) {
                         if let Some(i) = t.sinks.iter().position(|s| s.id == id) {
                             let s = t.sinks.swap_remove(i);
-                            self.discards.send(Discard::Sink(s));
+                            self.discards.send(Discard::Item(s));
                         }
                     }
                 }

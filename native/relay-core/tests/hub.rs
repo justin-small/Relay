@@ -17,7 +17,7 @@ fn hub_with_clock() -> (Arc<Hub>, Arc<AtomicU64>) {
 
 fn frames(sub: &mut relay_core::hub::Subscription) -> Vec<String> {
     let mut out = Vec::new();
-    while let Ok(f) = sub.rx.try_recv() {
+    while let Ok(f) = sub.try_recv() {
         out.push(String::from_utf8(f.to_vec()).unwrap());
     }
     out
@@ -221,11 +221,11 @@ fn a_viewer_that_falls_behind_is_dropped_and_its_stream_ends() {
     }
     assert_eq!(hub.viewer_count(), 1, "the slow one left");
     let mut got = 0;
-    while slow.rx.try_recv().is_ok() {
+    while slow.try_recv().is_ok() {
         got += 1;
     }
     assert!(got <= MAX_QUEUE + 1, "{got} frames queued");
-    assert!(matches!(slow.rx.try_recv(), Err(tokio::sync::mpsc::error::TryRecvError::Disconnected)), "the stream ends, so the browser reconnects");
+    assert!(matches!(slow.try_recv(), Err(tokio::sync::mpsc::error::TryRecvError::Disconnected)), "the stream ends, so the browser reconnects");
     hub.publish_delta("translation", "SPANISH", "y");
     assert_eq!(frames(&mut quick).len(), 1, "the quick one carries on");
 }
@@ -346,15 +346,15 @@ fn the_status_stream_gets_every_push_and_drops_a_full_queue() {
     let mut b = hub.subscribe_status();
     assert_eq!(hub.status_count(), 2);
     hub.push_status(json!({"type": "status", "n": 1}));
-    assert_eq!(a.rx.try_recv().unwrap()["n"], 1);
+    assert_eq!(a.try_recv().unwrap()["n"], 1);
     for n in 2..=40 {
         hub.push_status(json!({"type": "status", "n": n}));
         if n < 34 {
-            a.rx.try_recv().unwrap();
+            a.try_recv().unwrap();
         }
     }
     assert_eq!(hub.status_count(), 1, "b never read, so its queue filled and it was dropped");
-    assert!(b.rx.try_recv().is_ok());
+    assert!(b.try_recv().is_ok());
     drop(a);
     assert_eq!(hub.status_count(), 0);
 }

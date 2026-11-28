@@ -107,7 +107,7 @@ pub enum CalibrateError {
 }
 
 pub struct SplAnalyzer {
-    pub calibration_db: f64,
+    calibration_db: f64,
     wa: Vec<f64>,
     wc: Vec<f64>,
     edges: Vec<(usize, usize)>,
@@ -127,6 +127,16 @@ pub struct SplAnalyzer {
 }
 
 impl SplAnalyzer {
+    /// What a digital RMS of 0 dBFS stands for, in dB SPL.
+    pub fn calibration(&self) -> f64 {
+        self.calibration_db
+    }
+
+    /// Change what 0 dBFS stands for; the next reading uses it.
+    pub fn set_calibration(&mut self, calibration_db: f64) {
+        self.calibration_db = calibration_db;
+    }
+
     pub fn new(calibration_db: f64) -> Self {
         let (wa, wc) = bin_weights(LEVEL_WINDOW);
         let mut planner = FftPlanner::new();

@@ -109,17 +109,20 @@ impl Server {
         }
     }
 
-    pub fn set_prefixes(&self, prefixes: Prefixes) {
+    /// The route prefixes that tell the listeners apart.
+    pub fn with_prefixes(self, prefixes: Prefixes) -> Self {
         if let Ok(mut slot) = self.prefixes.write() {
             *slot = prefixes;
         }
+        self
     }
 
     /// The TLS config the secure groups serve with. Set before the panel is opened.
-    pub fn set_tls(&self, config: Arc<rustls::ServerConfig>) {
+    pub fn with_tls(self, config: Arc<rustls::ServerConfig>) -> Self {
         if let Ok(mut slot) = self.tls.lock() {
             *slot = Some(config);
         }
+        self
     }
 
     fn router(&self, kind: &Kind) -> Router {

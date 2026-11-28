@@ -143,14 +143,14 @@ async fn inject(State(door): State<Door>, headers: HeaderMap, conn: Option<axum:
     let output = q.get("output").cloned().unwrap_or_default();
     let rate = number(&q, "rate", 48_000u32);
     let samples = floats(&body_of(req).await);
-    let done = door.api.bus.engine.inject(&output, &channels, &samples, rate).is_ok();
+    let done = door.api.bus.inject(&output, &channels, &samples, rate);
     Json(json!({"ok": done})).into_response()
 }
 
 async fn stop_injects(State(door): State<Door>, headers: HeaderMap, conn: Option<axum::Extension<Conn>>, req: Request) -> Response {
     door!(door, headers, conn);
     let output = query(&req).get("output").cloned().unwrap_or_default();
-    Json(json!({"ok": door.api.bus.engine.stop_injects(&output).is_ok()})).into_response()
+    Json(json!({"ok": door.api.bus.stop_injects(&output)})).into_response()
 }
 
 async fn destinations(State(door): State<Door>, headers: HeaderMap, conn: Option<axum::Extension<Conn>>, Json(body): Json<Value>) -> Response {

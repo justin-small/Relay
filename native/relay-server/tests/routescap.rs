@@ -8,7 +8,7 @@ use std::sync::{Arc, Mutex};
 
 use relay_audio::{Channels, Routing};
 use relay_auth::{Auth, Cost};
-use relay_core::module::BoxFuture;
+use relay_core::future::BoxFuture;
 use relay_core::routes::{ReadSource, RouteError, RouteProvider, Routes, WantedSource};
 use relay_server::routescap::CoreRoutes;
 use serde_json::{json, Value};
@@ -63,7 +63,7 @@ impl RouteProvider for Screen {
 async fn setup() -> (CoreRoutes, Arc<Screen>, Auth) {
     let (auth, _) = database().await;
     let channels = Channels::new(auth.pool().clone());
-    let core = CoreRoutes { routing: Routing::new(channels.clone()), channels };
+    let core = CoreRoutes { routing: Routing::new(channels.clone(), auth.pool().clone()), channels };
     let screen = Arc::new(Screen::default());
     core.register("demo", screen.clone());
     core.report(

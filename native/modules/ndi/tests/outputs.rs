@@ -2,7 +2,7 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use relay_core::module::BoxFuture;
+use relay_core::future::BoxFuture;
 use relay_module_ndi::outputs::{builtin_defs, is_page, page_url, size_of, Deps, Frames, Maker, Outputs, Sink};
 use relay_module_ndi::render::Bgra;
 use serde_json::{json, Value};

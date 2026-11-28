@@ -129,7 +129,7 @@ impl AudioOut for Out {
 struct M(Arc<Log>);
 
 impl Maker for M {
-    fn frames<'a>(&'a self, _: &'a str, _: usize, _: usize, _: bool) -> relay_core::module::BoxFuture<'a, Result<Box<dyn Frames>, String>> {
+    fn frames<'a>(&'a self, _: &'a str, _: usize, _: usize, _: bool) -> relay_core::future::BoxFuture<'a, Result<Box<dyn Frames>, String>> {
         Box::pin(async { Err("no".to_owned()) })
     }
     fn sink(&self, _: &str, _: usize, _: usize, _: f64) -> Option<Arc<dyn Sink>> {

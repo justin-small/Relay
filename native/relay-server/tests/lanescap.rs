@@ -23,7 +23,7 @@ async fn lanes() -> (CoreLanes, Auth) {
     sqlx::raw_sql(include_str!("../../../app/migrations/0015_routes.sql")).execute(auth.pool()).await.expect("routes");
     let store = Arc::new(ConfigStore(Arc::new(relay_config::Settings::new(&dir.join("config.json")))));
     let channels = Channels::new(auth.pool().clone());
-    let routing = Routing::new(channels.clone());
+    let routing = Routing::new(channels.clone(), auth.pool().clone());
     let bus = AudioBus::new(Backing::fake(), store, channels, routing);
     (CoreLanes::new(bus), auth)
 }

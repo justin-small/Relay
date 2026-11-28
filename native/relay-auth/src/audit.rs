@@ -233,7 +233,7 @@ impl Auth {
     }
 
     /// Everyone the log names, by their latest name in it: (id, name, username).
-    pub async fn audit_people(&self) -> Result<Vec<(i64, String, String)>> {
+    async fn audit_people(&self) -> Result<Vec<(i64, String, String)>> {
         let rows = sqlx::query(
             "select a.actor_id as id, a.actor_name as name, a.actor_username as username from audit_log a \
              join (select actor_id, max(id) as last from audit_log where actor_id is not null group by actor_id) m \
@@ -245,10 +245,15 @@ impl Auth {
     }
 
     /// The areas of the actions in the log ("signin", "user", a module's id, …).
-    pub async fn audit_kinds(&self) -> Result<Vec<String>> {
+    async fn audit_kinds(&self) -> Result<Vec<String>> {
         let actions: Vec<String> = sqlx::query_scalar("select distinct action from audit_log").fetch_all(&self.pool).await?;
         let kinds: BTreeSet<String> = actions.iter().map(|a| a.split('.').next().unwrap_or("").to_string()).collect();
         Ok(kinds.into_iter().collect())
+    }
+
+    /// What the audit page's two filters offer: the people who appear in the log (id, name, username) and the areas of its actions.
+    pub async fn audit_filters(&self) -> Result<(Vec<(i64, String, String)>, Vec<String>)> {
+        Ok((self.audit_people().await?, self.audit_kinds().await?))
     }
 
     /// Delete entries older than [`KEEP_DAYS`], then any beyond the newest [`MAX_ROWS`]. Returns how many went.

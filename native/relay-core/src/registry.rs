@@ -64,10 +64,6 @@ impl Registry {
         Ok(())
     }
 
-    pub fn host(&self) -> &Host {
-        &self.host
-    }
-
     /// The modules, in the order they were registered.
     pub fn modules(&self) -> &[Arc<dyn Module>] {
         &self.modules

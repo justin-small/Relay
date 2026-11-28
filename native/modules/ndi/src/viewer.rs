@@ -49,6 +49,29 @@ pub struct Feed {
 }
 
 impl Feed {
+    /// Hold the receiver this feed is fed from; `false` when the feed cannot take it.
+    pub(crate) fn hold(&self, lease: Lease) -> bool {
+        match self.lease.lock() {
+            Ok(mut slot) => {
+                *slot = Some(lease);
+                true
+            }
+            Err(_) => false,
+        }
+    }
+
+    /// Give the receiver back.
+    pub(crate) fn release(&self) {
+        let lease = self.lease.lock().ok().and_then(|mut l| l.take());
+        drop(lease);
+    }
+
+    /// Every browser is gone: forget them and give the receiver back.
+    pub(crate) fn end(&self) {
+        self.viewers.store(0, Ordering::SeqCst);
+        self.release();
+    }
+
     pub(crate) fn new(source: &str) -> Arc<Feed> {
         Arc::new(Feed { source: source.to_owned(), viewers: AtomicI64::new(1), tx: watch::channel((0, Bytes::new())).0, last: Mutex::new(None), failed: AtomicBool::new(false), lease: Mutex::new(None) })
     }
@@ -113,6 +136,18 @@ impl Feed {
     }
 }
 
+/// Something a browser watches as a stream of JPEG frames: one source, or a composed multiview.
+pub trait Frames: Send + Sync + 'static {
+    /// (sequence, JPEG) of a frame newer than `after`, waiting up to `timeout` for one.
+    fn next(&self, after: u64, timeout: Duration) -> impl std::future::Future<Output = Option<(u64, Bytes)>> + Send;
+}
+
+impl Frames for Feed {
+    async fn next(&self, after: u64, timeout: Duration) -> Option<(u64, Bytes)> {
+        Feed::next(self, after, timeout).await
+    }
+}
+
 /// One part of the multipart body: the boundary, the headers and the JPEG.
 pub fn part(jpeg: &[u8]) -> Bytes {
     let mut out = format!("--{BOUNDARY}\r\nContent-Type: image/jpeg\r\nContent-Length: {}\r\n\r\n", jpeg.len()).into_bytes();
@@ -136,7 +171,7 @@ impl Viewers {
     pub fn open(&self, source: &str) -> Option<Arc<Feed>> {
         let mut feeds = self.feeds.lock().ok()?;
         if let Some(f) = feeds.get(source) {
-            f.viewers.fetch_add(1, Ordering::SeqCst);
+            f.add_viewer();
             return Some(Arc::clone(f));
         }
         let limits = (self.settings)();
@@ -146,7 +181,9 @@ impl Viewers {
         let feed = Feed::new(source);
         let (f2, settings) = (Arc::clone(&feed), Arc::clone(&self.settings));
         let lease = self.pool.acquire(source, false, Arc::new(move |v| f2.on_frame(v, settings())), None)?;
-        *feed.lease.lock().ok()? = Some(lease);
+        if !feed.hold(lease) {
+            return None;
+        }
         feeds.insert(source.to_owned(), Arc::clone(&feed));
         Some(feed)
     }
@@ -155,7 +192,7 @@ impl Viewers {
     pub fn close(&self, feed: &Arc<Feed>) {
         let last = {
             let Ok(mut feeds) = self.feeds.lock() else { return };
-            if feed.viewers.fetch_sub(1, Ordering::SeqCst) > 1 {
+            if feed.remove_viewer() > 0 {
                 return;
             }
             if feeds.get(&feed.source).is_some_and(|f| Arc::ptr_eq(f, feed)) {
@@ -164,8 +201,7 @@ impl Viewers {
             true
         };
         if last {
-            let lease = feed.lease.lock().ok().and_then(|mut l| l.take());
-            drop(lease);
+            feed.release();
         }
     }
 
@@ -176,9 +212,7 @@ impl Viewers {
     pub fn close_all(&self) {
         let all: Vec<Arc<Feed>> = self.feeds.lock().map(|mut f| f.drain().map(|(_, f)| f).collect()).unwrap_or_default();
         for f in all {
-            f.viewers.store(0, Ordering::SeqCst);
-            let lease = f.lease.lock().ok().and_then(|mut l| l.take());
-            drop(lease);
+            f.end();
         }
     }
 }

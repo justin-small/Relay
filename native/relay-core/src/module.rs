@@ -13,21 +13,19 @@
 
 use std::any::Any;
 use std::collections::BTreeMap;
-use std::future::Future;
-use std::pin::Pin;
 use std::sync::atomic::{AtomicU16, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 
 use axum::Router;
 use serde_json::Value;
 
+use crate::future::BoxFuture;
 use crate::error::AppError;
 use crate::access::{Authorizer, Permission};
 use crate::net::Net;
 use crate::store::SettingsStore;
 use crate::shutdown::Shutdown;
 
-pub type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 
 /// What a module is. `id` is its crate's name without the `relay-module-` prefix and its key under config `"modules"`.
 #[derive(Clone, Debug)]
@@ -103,6 +101,21 @@ impl Health {
 type Provided = Arc<Mutex<BTreeMap<String, (String, Arc<dyn Any + Send + Sync>)>>>;
 
 /// What core hands a module: where it asks for other modules' capabilities and offers its own, and the shutdown signal.
+/// The port the viewer pages are served on, known once the server has opened it. The server keeps one handle and sets it; the
+/// [`Host`] it was given to reads it.
+#[derive(Clone, Default)]
+pub struct ViewerPort(Arc<AtomicU16>);
+
+impl ViewerPort {
+    pub fn set(&self, port: u16) {
+        self.0.store(port, Ordering::Relaxed);
+    }
+
+    pub fn get(&self) -> u16 {
+        self.0.load(Ordering::Relaxed)
+    }
+}
+
 #[derive(Clone)]
 pub struct Host {
     shared: Provided,
@@ -110,21 +123,23 @@ pub struct Host {
     net: Net,
     store: Arc<OnceLock<Arc<dyn SettingsStore>>>,
     authorizer: Arc<OnceLock<Arc<dyn Authorizer>>>,
-    viewer_port: Arc<AtomicU16>,
+    viewer_port: ViewerPort,
 }
 
 impl Host {
     pub fn new(shutdown: Shutdown) -> Self {
-        Self { shared: Arc::default(), shutdown, net: Net::unrouted(), store: Arc::default(), authorizer: Arc::default(), viewer_port: Arc::default() }
+        Self { shared: Arc::default(), shutdown, net: Net::unrouted(), store: Arc::default(), authorizer: Arc::default(), viewer_port: ViewerPort::default() }
     }
 
     /// The port the viewer pages are served on right now (`serving.viewer_port`), 0 until the server has opened it.
     pub fn viewer_port(&self) -> u16 {
-        self.viewer_port.load(Ordering::Relaxed)
+        self.viewer_port.get()
     }
 
-    pub fn set_viewer_port(&self, port: u16) {
-        self.viewer_port.store(port, Ordering::Relaxed);
+    /// Read the viewer port from `port`, which the server sets.
+    pub fn with_viewer_port(mut self, port: ViewerPort) -> Self {
+        self.viewer_port = port;
+        self
     }
 
     /// Open and seal module secrets with the server's store (built before the registry, so it is in place for `attach`).

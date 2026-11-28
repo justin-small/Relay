@@ -9,7 +9,7 @@ use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
-use relay_core::access::gate;
+use relay_core::gate::gate;
 use relay_core::Host;
 use bytes::Bytes;
 use serde_json::{json, Value};
@@ -58,7 +58,7 @@ async fn stream(State(slot): State<Slot>, Path(source): Path<String>) -> Respons
     let opened = {
         let s = Arc::clone(&s);
         let source = source.clone();
-        tokio::task::spawn_blocking(move || s.viewers.open(&source)).await.ok().flatten()
+        tokio::task::spawn_blocking(move || s.open_viewer(&source)).await.ok().flatten()
     };
     let Some(feed) = opened else {
         return error(StatusCode::SERVICE_UNAVAILABLE, "Too many sources are being watched, or this one cannot be received. Try again in a moment.");
@@ -66,12 +66,12 @@ async fn stream(State(slot): State<Slot>, Path(source): Path<String>) -> Respons
     let s2 = Arc::clone(&s);
     let f2 = Arc::clone(&feed);
     mjpeg(feed, move || {
-        drop(tokio::task::spawn_blocking(move || s2.viewers.close(&f2)));
+        drop(tokio::task::spawn_blocking(move || s2.close_viewer(&f2)));
     })
 }
 
 /// The multipart body for one browser: each new JPEG as a part, until the source goes quiet or the browser leaves; then `close` runs.
-fn mjpeg(feed: Arc<crate::viewer::Feed>, close: impl FnOnce() + Send + 'static) -> Response {
+fn mjpeg<F: crate::viewer::Frames>(feed: Arc<F>, close: impl FnOnce() + Send + 'static) -> Response {
     let (tx, rx) = mpsc::channel::<Result<Bytes, std::convert::Infallible>>(2);
     tokio::spawn(async move {
         let mut seq = 0;
@@ -95,14 +95,14 @@ async fn multiview_stream(State(slot): State<Slot>, Path(mid): Path<String>) -> 
     let Ok(s) = svc(&slot) else { return error(StatusCode::NOT_FOUND, "That multiview is not available.") };
     let opened = if s.running() {
         let (s2, mid2) = (Arc::clone(&s), mid.clone());
-        tokio::task::spawn_blocking(move || s2.multiviews.open(&mid2)).await.ok().flatten()
+        tokio::task::spawn_blocking(move || s2.open_multiview(&mid2)).await.ok().flatten()
     } else {
         None
     };
     let Some(comp) = opened else { return error(StatusCode::NOT_FOUND, "That multiview is not available.") };
     let (s2, c2) = (Arc::clone(&s), Arc::clone(&comp));
-    mjpeg(Arc::clone(&comp.feed), move || {
-        drop(tokio::task::spawn_blocking(move || s2.multiviews.close(&c2)));
+    mjpeg(Arc::clone(&comp), move || {
+        drop(tokio::task::spawn_blocking(move || s2.close_multiview(&c2)));
     })
 }
 
@@ -130,8 +130,8 @@ async fn level(State(slot): State<Slot>, Path(source): Path<String>) -> Response
     let Some(src) = s.sources().into_iter().find(|x| x["name"] == source && x["online"] == true) else {
         return error(StatusCode::NOT_FOUND, "That NDI source is not available.");
     };
-    let mut out = json!({"db": s.analysis.audio_level(&source), "width": src["width"], "height": src["height"], "fps": src["fps"]});
-    if let (Some(o), Some(extra)) = (out.as_object_mut(), s.analysis.audio_state(&source).as_object()) {
+    let mut out = json!({"db": s.audio_level(&source), "width": src["width"], "height": src["height"], "fps": src["fps"]});
+    if let (Some(o), Some(extra)) = (out.as_object_mut(), s.audio_state(&source).as_object()) {
         o.extend(extra.clone());
     }
     ([(header::CACHE_CONTROL, "no-store")], Json(out)).into_response()
@@ -198,7 +198,7 @@ fn key_of(payload: &Value) -> String {
 /// Start the loudness and clip counts again.
 async fn analysis_reset(State(slot): State<Slot>, Json(payload): Json<Value>) -> Response {
     match svc(&slot) {
-        Ok(s) if s.analysis.reset_audio(&key_of(&payload)) => Json(json!({"ok": true})).into_response(),
+        Ok(s) if s.reset_audio(&key_of(&payload)) => Json(json!({"ok": true})).into_response(),
         _ => bad("That analysis is not open.", StatusCode::NOT_FOUND),
     }
 }
@@ -216,24 +216,23 @@ async fn analysis_record(State((host, slot)): State<(Host, Slot)>, request: Requ
     if online(&s, &payload["source"]).is_none() {
         return bad("That NDI source is not available.", StatusCode::NOT_FOUND);
     }
-    let Some(rec) = s.analysis.record(&key_of(&payload), seconds) else { return bad("Open the analysis first.", StatusCode::CONFLICT) };
+    let Some(rec) = s.start_recording(&key_of(&payload), seconds) else { return bad("Open the analysis first.", StatusCode::CONFLICT) };
     host.note(&parts, "ndi.analysis", "Recorded NDI frame timing", payload["source"].as_str().unwrap_or(""), None).await;
     Json(rec.status()).into_response()
 }
 
 async fn analysis_record_stop(State(slot): State<Slot>, Json(payload): Json<Value>) -> Response {
     if let Ok(s) = svc(&slot) {
-        s.analysis.stop_recording(&key_of(&payload));
+        s.stop_recording(&key_of(&payload));
     }
     Json(json!({"ok": true})).into_response()
 }
 
 /// The newest recording for the source, as a CSV to send to whoever runs the network.
 async fn analysis_download(State(slot): State<Slot>, Query(q): Query<AnalysisQuery>) -> Response {
-    let rec = svc(&slot).ok().and_then(|s| s.analysis.last_recording(&akey(&q.source, q.low)));
+    let rec = svc(&slot).ok().and_then(|s| s.last_recording(&akey(&q.source, q.low)));
     let Some(rec) = rec else { return bad("There is no recording for that source yet.", StatusCode::NOT_FOUND) };
-    let Ok(data) = tokio::fs::read(&rec.path).await else { return bad("There is no recording for that source yet.", StatusCode::NOT_FOUND) };
-    let file = rec.path.file_name().and_then(|n| n.to_str()).unwrap_or("recording.csv").to_owned();
+    let Some((file, data)) = tokio::task::spawn_blocking(move || rec.contents()).await.ok().flatten() else { return bad("There is no recording for that source yet.", StatusCode::NOT_FOUND) };
     ([(header::CONTENT_TYPE, "text/csv".to_owned()), (header::CACHE_CONTROL, "no-store".to_owned()), (header::CONTENT_DISPOSITION, format!("attachment; filename=\"{file}\""))], data).into_response()
 }
 
@@ -365,7 +364,7 @@ async fn admin_outputs(State((host, slot)): State<Ctx>, request: Request) -> Res
     if uniq.len() > max {
         return too_many();
     }
-    let known: Vec<String> = s.pages.defs().iter().filter_map(|d| d["id"].as_str().map(str::to_owned)).collect();
+    let known: Vec<String> = s.page_defs().iter().filter_map(|d| d["id"].as_str().map(str::to_owned)).collect();
     if on.iter().any(|v| !known.contains(v)) {
         return bad("One of those outputs does not exist.", StatusCode::BAD_REQUEST);
     }
@@ -382,7 +381,7 @@ async fn admin_outputs(State((host, slot)): State<Ctx>, request: Request) -> Res
     s.save_settings(&json!({"out_on": on, "out_size": size, "out_fps": fps}));
     host.note(&parts, "ndi.outputs", "Changed which pages Relay sends as NDI", "", None).await;
     if s.running() {
-        s.pages.sync().await;
+        s.sync_pages().await;
     }
     Json(s.snapshot_full().await).into_response()
 }
@@ -428,18 +427,18 @@ async fn admin_tests(State((host, slot)): State<Ctx>, request: Request) -> Respo
     if on.iter().any(|v| !ids.contains(&v.as_str())) || uniq.len() > max_on {
         return bad(&format!("Switch on at most {max_on} test sources at once."), StatusCode::BAD_REQUEST);
     }
-    let taken: Vec<String> = s.pages.defs().iter().map(|d| crate::router::ndi_name(d["name"].as_str().unwrap_or("")).to_lowercase()).collect();
+    let taken: Vec<String> = s.page_defs().iter().map(|d| crate::router::ndi_name(d["name"].as_str().unwrap_or("")).to_lowercase()).collect();
     if clean_list.iter().any(|t| taken.contains(&crate::testpatterns::test_ndi_name(t).to_lowercase())) {
         return bad("A page output already has that name.", StatusCode::BAD_REQUEST);
     }
     for gone in cur["tests"].as_array().into_iter().flatten().filter_map(|t| t["id"].as_str()).filter(|i| !ids.contains(i)) {
-        s.tests.forget(gone);
+        s.forget_test(gone);
     }
     s.save_settings(&json!({"tests": clean, "tests_on": on}));
     host.note(&parts, "ndi.tests", "Changed the NDI test patterns", "", None).await;
     if s.running() {
         let s2 = Arc::clone(&s);
-        let _ = tokio::task::spawn_blocking(move || s2.tests.sync()).await;
+        let _ = tokio::task::spawn_blocking(move || s2.sync_tests()).await;
     }
     Json(s.snapshot_full().await).into_response()
 }
@@ -460,7 +459,7 @@ async fn admin_test_image(State((host, slot)): State<Ctx>, Path(tid): Path<Strin
     if !why.is_empty() {
         return bad(why, StatusCode::BAD_REQUEST);
     }
-    let path = s.tests.image_path(&tid);
+    let path = s.test_image_path(&tid);
     if let Some(dir) = path.parent() {
         let _ = tokio::fs::create_dir_all(dir).await;
     }
@@ -471,7 +470,7 @@ async fn admin_test_image(State((host, slot)): State<Ctx>, Path(tid): Path<Strin
     if s.running() {
         // Draw it again: the running source loaded the old picture when it started.
         let (s2, t2) = (Arc::clone(&s), tid.clone());
-        let _ = tokio::task::spawn_blocking(move || s2.tests.restart(&t2)).await;
+        let _ = tokio::task::spawn_blocking(move || s2.restart_test(&t2)).await;
     }
     Json(s.snapshot_full().await).into_response()
 }
@@ -490,17 +489,17 @@ async fn listen(State(slot): State<Slot>, Path(source): Path<String>, Query(q): 
         return error(StatusCode::NOT_FOUND, "That NDI source is not available.");
     }
     let Some(pick) = crate::listen::parse_channels(&q.ch) else { return error(StatusCode::BAD_REQUEST, "Channels are numbers from 1, like 1,2.") };
-    if !s.listeners.take() {
+    if !s.take_listener() {
         return error(StatusCode::SERVICE_UNAVAILABLE, &format!("At most {} people can listen at once. Try again later.", crate::listen::MAX_LISTENERS));
     }
-    let (pool, name) = (Arc::clone(&s.pool), source.clone());
-    let stream = tokio::task::spawn_blocking(move || crate::listen::Stream::open(&pool, &name, pick)).await.ok().flatten();
+    let (s3, name) = (Arc::clone(&s), source.clone());
+    let stream = tokio::task::spawn_blocking(move || s3.open_listen_stream(&name, pick)).await.ok().flatten();
     let first = match &stream {
         Some(st) => st.next(crate::listen::FIRST_WAIT).await,
         None => None,
     };
     let (Some(stream), Some(first)) = (stream, first) else {
-        s.listeners.give();
+        s.give_listener();
         return error(StatusCode::NOT_FOUND, "That source is not sending any sound.");
     };
     let (rate, channels) = (first.0, first.1);
@@ -516,7 +515,7 @@ async fn listen(State(slot): State<Slot>, Path(source): Path<String>, Query(q): 
         }
         let st = Arc::clone(&stream);
         drop(tokio::task::spawn_blocking(move || st.close()));
-        s2.listeners.give();
+        s2.give_listener();
     });
     (
         [

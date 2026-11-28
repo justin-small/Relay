@@ -6,3 +6,9 @@ fail-fast = false
 [profile.ci]
 retries = 0
 failure-output = "immediate-final"
+
+# The memory test runs minutes of simulated audio through 32 lanes and four outputs; it takes about 20 s in a debug build and passes.
+# It is slow, not hung, so it gets room that every other test does not.
+[[profile.default.overrides]]
+filter = 'test(heap_stays_flat_over_a_long_run_with_reconfigurations)'
+slow-timeout = { period = "30s", terminate-after = 3 }

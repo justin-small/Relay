@@ -2,7 +2,7 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use relay_core::module::BoxFuture;
+use relay_core::future::BoxFuture;
 use relay_module_ndi::multiview::Clock;
 use relay_module_ndi::outputs::{Frames, Maker, Sink};
 use relay_module_ndi::testpatterns::{base_picture, check_image, size_of, test_ndi_name, Burn, Deps, Tests, MAX_IMAGE};

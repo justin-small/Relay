@@ -109,10 +109,11 @@ fn a_recording_writes_a_csv_and_stops() {
     assert!(rec.status()["rows"].as_u64().is_some_and(|r| r >= 3));
     a.stop_recording("CAM");
     assert!(!rec.active());
-    let text = std::fs::read_to_string(&rec.path).expect("csv");
+    let (name, bytes) = rec.contents().expect("csv");
+    let text = String::from_utf8(bytes).expect("csv is text");
     assert!(text.starts_with("seconds,interval_ms,frame_bytes,width,height,flag\n"));
     assert!(text.lines().nth(1).is_some_and(|l| l.split(',').count() == 6));
-    assert!(rec.path.starts_with(&dir) && rec.path.extension().is_some_and(|e| e == "csv"));
+    assert!(std::path::Path::new(&name).extension().is_some_and(|e| e == "csv") && dir.join(&name).is_file());
     assert!(a.last_recording("CAM").is_some());
     let _ = std::fs::remove_dir_all(dir);
 }

@@ -11,6 +11,10 @@
 // axum's `Response` is the error half of every helper here (the answer to send instead): that is the idiom, and each is built once.
 #![allow(clippy::result_large_err)]
 
+pub mod internal;
+pub mod lanescap;
+pub mod routescap;
+
 use std::sync::Arc;
 
 use axum::body::Bytes;
@@ -507,8 +511,8 @@ pub async fn start(
         return None;
     }
     let store = Arc::new(ConfigStore(Arc::new(relay_config::Settings::new(config_path))));
-    let channels = Channels::new(pool);
-    let routing = Routing::new(channels.clone());
+    let channels = Channels::new(pool.clone());
+    let routing = Routing::new(channels.clone(), pool);
     let bus = AudioBus::new(relay_audio::Backing::Cpal, store.clone(), channels.clone(), routing.clone());
     let metering = Metering::new(bus.clone(), store);
     let gear = app.as_ref().map(crate::pyapp::gear);

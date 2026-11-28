@@ -24,7 +24,7 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 
-use relay_core::module::BoxFuture;
+use relay_core::future::BoxFuture;
 use relay_core::screens::{ScreensCap, DB, SCREENS};
 use relay_core::{AppError, ErrorCode, Health, HealthState, Host, Listener, Manifest, Module, Permission};
 use serde_json::{json, Value};
@@ -214,8 +214,8 @@ async fn housekeeping(service: &Service) {
     let work = async {
         let rows = st.media_list().await?;
         let pairs: Vec<(String, String)> = rows.iter().map(|r| (r["sha256"].as_str().unwrap_or("").to_owned(), r["ext"].as_str().unwrap_or("").to_owned())).collect();
-        st.media.mirror_missing(&pairs);
-        st.media.prune_mirror(&pairs.iter().map(|p| p.0.clone()).collect::<Vec<_>>());
+        st.mirror_missing(&pairs);
+        st.prune_mirror(&pairs.iter().map(|p| p.0.clone()).collect::<Vec<_>>());
         st.sweep_overrides().await?;
         st.takeover_sweep().await
     };

@@ -28,7 +28,7 @@ use axum::routing::{delete, get, post, put};
 use axum::{Json, Router};
 use futures_core::Stream;
 use http_body_util::BodyExt;
-use relay_core::access::gate;
+use relay_core::gate::gate;
 use relay_core::schedules;
 use relay_core::screens::{showing, LinksCap, LINKS};
 use relay_core::Host;
@@ -132,7 +132,7 @@ async fn player_payload(s: &Service, screen: &Value) -> Result<Value, Error> {
     let st = &s.store;
     let now = epoch_secs();
     let core = match screen["core_id"].as_i64() {
-        Some(id) => st.screens.get(id).await?,
+        Some(id) => st.screen(id).await?,
         None => None,
     };
     let shows = match &core {
@@ -144,11 +144,11 @@ async fn player_payload(s: &Service, screen: &Value) -> Result<Value, Error> {
     };
     let board = shows["ref"].as_str().filter(|r| shows["kind"] == "board" && !r.is_empty());
     if let (Some(board), Some(core)) = (board, &core) {
-        let known = st.host.settings("boards").and_then(|b| b.as_array().map(|a| a.iter().any(|x| x["id"] == board))).unwrap_or(false);
+        let known = st.host_settings("boards").and_then(|b| b.as_array().map(|a| a.iter().any(|x| x["id"] == board))).unwrap_or(false);
         if known {
             return Ok(json!({"screen": {"slug": screen["slug"], "name": screen["name"], "sound": screen["sound"] == true}, "playlist": null, "items": [], "today": "",
                 "server_time": now * 1000, "takeover": null, "banner": null,
-                "board": {"port": st.host.viewer_port(), "path": format!("/board/{board}?screen=screen-{}", core["id"])}}));
+                "board": {"port": st.viewer_port(), "path": format!("/board/{board}?screen=screen-{}", core["id"])}}));
         }
     }
     let mut screen = screen.clone();
@@ -180,7 +180,7 @@ async fn public_media(State(c): State<Ctx>, Path(name): Path<String>) -> Respons
         Ok(s) => s,
         Err(r) => return r,
     };
-    let Some((path, (_, mime))) = s.store.media.file_path(&name).and_then(|p| media::parse_file_name(&name).and_then(|(_, e)| media::type_of(e)).map(|t| (p, t))) else { return detail(404, "Not Found") };
+    let Some((path, (_, mime))) = s.store.media_file(&name).and_then(|p| media::parse_file_name(&name).and_then(|(_, e)| media::type_of(e)).map(|t| (p, t))) else { return detail(404, "Not Found") };
     file_response(&path, mime, IMMUTABLE)
 }
 
@@ -233,7 +233,7 @@ async fn public_events(State(c): State<Ctx>, Path(slug): Path<String>) -> Respon
                 alert_key = key_now;
                 seen = u64::MAX;
             }
-            let version = s.store.live.version();
+            let version = s.store.live_version();
             if version != seen {
                 seen = version;
                 let payload = match s.store.screen_by_slug(&slug).await {
@@ -304,9 +304,9 @@ async fn public_now(State(c): State<Ctx>, Path(slug): Path<String>, req: Request
     let body: Value = if raw.is_empty() { json!({}) } else { match serde_json::from_slice(&raw) { Ok(v) => v, Err(_) => return detail(400, "Bad request") } };
     let item = body.get("item").and_then(Value::as_i64);
     let label = body.get("label").and_then(Value::as_str).unwrap_or("");
-    s.store.live.report(&slug, item, label);
+    s.store.report_playing(&slug, item, label);
     if let Some(id) = screen["core_id"].as_i64() {
-        let _ = s.store.screens.touch(id, "").await;
+        s.store.touch_screen(id).await;
     }
     Json(json!({"ok": true})).into_response()
 }
@@ -325,7 +325,7 @@ async fn public_done(State(c): State<Ctx>, Path(slug): Path<String>, req: Reques
     };
     let body: Value = if raw.is_empty() { json!({}) } else { match serde_json::from_slice(&raw) { Ok(v) => v, Err(_) => return detail(400, "Bad request") } };
     if let Some(id) = body.get("id").and_then(Value::as_i64) {
-        s.store.live.done(&slug, id);
+        s.store.finish_playing(&slug, id);
     }
     Json(json!({"ok": true})).into_response()
 }
@@ -394,7 +394,7 @@ async fn admin_state(State(c): State<Ctx>) -> Response {
             }
             let slug = sc["slug"].as_str().unwrap_or("").to_owned();
             sc["urls"] = json!(screen_urls(&c, &slug, info["configured"].as_i64().unwrap_or(8090)).await);
-            sc["now"] = match st.live.playing(&slug) {
+            sc["now"] = match st.now_playing(&slug) {
                 Some(rep) => {
                     let it = rep.item_id.and_then(|i| items.get(&i).copied());
                     let label = it.and_then(|i| i["name"].as_str()).filter(|n| !n.is_empty()).map_or_else(|| rep.label.clone(), str::to_owned);
@@ -405,8 +405,8 @@ async fn admin_state(State(c): State<Ctx>) -> Response {
             };
             sc["group_name"] = json!(sc["group_id"].as_i64().and_then(|g| group_names.get(&g).cloned()).unwrap_or_default());
         }
-        let named: Vec<Value> = st.host.settings("schedules").and_then(|v| v.as_array().cloned()).unwrap_or_default().iter().map(|x| json!({"ref": format!("{}{}", schedules::REF_PREFIX, x["id"].as_str().unwrap_or("")), "name": x["name"], "summary": schedules::summary(x)})).collect();
-        let (used, free) = st.media.disk();
+        let named: Vec<Value> = st.host_settings("schedules").and_then(|v| v.as_array().cloned()).unwrap_or_default().iter().map(|x| json!({"ref": format!("{}{}", schedules::REF_PREFIX, x["id"].as_str().unwrap_or("")), "name": x["name"], "summary": schedules::summary(x)})).collect();
+        let (used, free) = st.disk_use();
         Ok::<Value, Error>(json!({
             "settings": st.settings(), "port": info, "screens": screens, "groups": groups, "playlists": lists, "media": lib,
             "storage": {"used": used, "free": free, "low": free >= 0 && (free as u64) < media::LOW_DISK},
@@ -502,8 +502,8 @@ async fn admin_settings(State(c): State<Ctx>, req: Request) -> Response {
             _ => None,
         };
         let Some(port) = port.filter(|p| (1024..=65535).contains(p)) else { return error(400, "The port is a number from 1024 to 65535.") };
-        let admin = st.host.settings("admin_port").and_then(|v| v.as_i64()).unwrap_or(8443);
-        if port == i64::from(st.host.viewer_port()) || port == admin {
+        let admin = st.host_settings("admin_port").and_then(|v| v.as_i64()).unwrap_or(8443);
+        if port == i64::from(st.viewer_port()) || port == admin {
             return error(400, "Relay already uses that port. Choose another.");
         }
         change.insert("port".into(), json!(port));
@@ -535,10 +535,10 @@ async fn admin_settings(State(c): State<Ctx>, req: Request) -> Response {
         return error(400, "Nothing to change.");
     }
     let change = Value::Object(change);
-    if st.host.save_settings("signage", &change).is_err() {
+    if !st.save_host_settings("signage", &change) {
         return error(500, "The signage settings could not be saved.");
     }
-    st.live.bump();
+    st.bump_live();
     note(&c, &parts, "signage.settings", "Changed the signage settings", "", Some(change)).await;
     Json(json!({"settings": st.settings(), "port": port_info(st)})).into_response()
 }
@@ -700,7 +700,7 @@ async fn media_upload(State(c): State<Ctx>, req: Request) -> Response {
         query_of(&req, "duration").and_then(|v| v.parse::<f64>().ok()).unwrap_or(0.0),
     );
     let (s, parts, body) = manage!(c, req);
-    let (sha, ext, size) = match s.store.media.receive(body).await {
+    let (sha, ext, size) = match s.store.receive_media(body).await {
         Ok(r) => r,
         Err(e) => return refuse(e.into()),
     };
@@ -755,7 +755,7 @@ async fn media_thumb_get(State(c): State<Ctx>, Path(mid): Path<String>) -> Respo
         Ok(r) => r,
         Err(e) => return refuse(e),
     };
-    match row.and_then(|r| s.store.media.thumb_path(r["sha256"].as_str().unwrap_or(""))) {
+    match row.and_then(|r| s.store.thumb_file(r["sha256"].as_str().unwrap_or(""))) {
         Some(p) => file_response(&p, "image/webp", "private, max-age=86400"),
         None => detail(404, "Not Found"),
     }
@@ -766,7 +766,7 @@ async fn media_file(State(c): State<Ctx>, Path(name): Path<String>) -> Response 
         Ok(s) => s,
         Err(r) => return r,
     };
-    match s.store.media.file_path(&name).and_then(|p| media::parse_file_name(&name).and_then(|(_, e)| media::type_of(e)).map(|t| (p, t))) {
+    match s.store.media_file(&name).and_then(|p| media::parse_file_name(&name).and_then(|(_, e)| media::type_of(e)).map(|t| (p, t))) {
         Some((p, (_, mime))) => file_response(&p, mime, "private, max-age=86400"),
         None => detail(404, "Not Found"),
     }

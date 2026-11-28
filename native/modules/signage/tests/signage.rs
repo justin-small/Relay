@@ -11,7 +11,7 @@ use axum::http::request::Parts;
 use axum::http::{header, Method, Request, StatusCode};
 use axum::response::Response;
 use http_body_util::BodyExt;
-use relay_core::module::BoxFuture;
+use relay_core::future::BoxFuture;
 use relay_core::screens::{AlertsCap, ScreenDirectory, ScreenResult, ALERTS};
 use relay_core::timewin::Date;
 use relay_core::{Authorizer, Host, Module, SettingsStore, Shutdown};
@@ -414,7 +414,7 @@ async fn takeovers_banner_and_the_player_routes() {
     let live = s.takeover_payload(&other, &taken).await.unwrap().unwrap();
     assert_eq!((live["path"].clone(), live["label"].clone()), (json!("/screen?stream=translation"), json!("Live captions (translation)")));
     // a "once" push the screen has played to its end is skipped
-    s.live.done("alone", pushed["id"].as_i64().unwrap());
+    s.finish_playing("alone", pushed["id"].as_i64().unwrap());
     assert_eq!(s.takeover_pick(&lone, &taken).unwrap()["kind"], "live");
 
     // alerts show as a banner on the chosen screens
@@ -444,7 +444,7 @@ async fn takeovers_banner_and_the_player_routes() {
 
     // the player reports what it shows, and that it finished a push
     assert_eq!(send(&r, Method::POST, "/signage/_/now/alone", Some(json!({"item": 4, "label": "Slide"}))).await.1, json!({"ok": true}));
-    assert_eq!(st(&r).live.playing("alone").unwrap().label, "Slide");
+    assert_eq!(st(&r).now_playing("alone").unwrap().label, "Slide");
     assert_eq!(send_raw(&r, Method::POST, "/signage/_/now/alone", Some(b"{nope".to_vec()), "application/json").await.0, StatusCode::BAD_REQUEST);
     assert_eq!(send(&r, Method::POST, "/signage/_/done/alone", Some(json!({"id": 3}))).await.0, StatusCode::OK);
     assert_eq!(send(&r, Method::POST, "/signage/_/now/nope", Some(json!({}))).await.0, StatusCode::NOT_FOUND);
@@ -518,5 +518,5 @@ async fn admin_routes_are_audited_and_settings_are_checked() {
     for a in ["signage.settings", "signage.group_create", "signage.group_update", "signage.group_delete"] {
         assert!(seen.contains(&a.to_owned()), "{a} in {seen:?}");
     }
-    assert!(st(&r).live.version() > 0, "every change bumps the version the players watch");
+    assert!(st(&r).live_version() > 0, "every change bumps the version the players watch");
 }
