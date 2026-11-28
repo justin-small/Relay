@@ -14,7 +14,7 @@ path = "src/lib.rs"
 relay-core = { path = "../../relay-core" }
 axum = { version = "0.8", default-features = false, features = ["json", "tokio"] }
 bytes = "1"
-futures-util = { version = "0.3", default-features = false }
+futures-util = { version = "0.3", default-features = false, features = ["alloc"] }
 http-body-util = "0.1"
 hyper = { version = "1", features = ["http1", "client"] }
 hyper-util = { version = "0.1", features = ["tokio"] }

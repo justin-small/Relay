@@ -19,7 +19,10 @@ use serde_json::{json, Value};
 
 use crate::client::ProError;
 use crate::discover;
+use crate::control::Control;
 use crate::feeds::{frame, LyricsFeed, TimersFeed};
+use crate::lobby::Lobby;
+use crate::view::View;
 use crate::follower::Follower;
 use crate::settings::{self, clean_stored};
 use crate::web::{detail, error, object, sse};
@@ -33,6 +36,9 @@ pub struct Ctx {
     pub follower: Arc<Follower>,
     pub lyrics: Arc<LyricsFeed>,
     pub timers: Arc<TimersFeed>,
+    pub control: Arc<Control>,
+    pub lobby: Arc<Lobby>,
+    pub view: Arc<View>,
 }
 
 /// An audit entry as Python's gate wrote for a module route that noted nothing itself.
@@ -48,7 +54,7 @@ pub fn pp_error(e: &ProError) -> Response {
 }
 
 pub fn body_of(c: &Ctx) -> Value {
-    json!({"settings": c.follower.settings(), "state": c.follower.state(), "lyrics_readers": c.lyrics.viewer_count(), "tags": c.follower.tags().state()})
+    json!({"settings": c.follower.settings(), "state": c.follower.state(), "lyrics_readers": c.lyrics.viewer_count(), "tags": c.follower.tags().state(), "lobby": c.lobby.state()})
 }
 
 async fn get_body(State(c): State<Ctx>) -> Response {
@@ -286,5 +292,6 @@ pub fn router(c: Ctx) -> Router {
         .route(&format!("{base}/test"), manage(post(test)))
         .route(&format!("{base}/discover"), manage(post(discover_route)))
         .route(&format!("{base}/stage"), control(post(stage_set)).merge(control(delete(stage_clear))))
+        .merge(crate::routes_ctl::router(&c))
         .with_state(c)
 }

@@ -1127,7 +1127,7 @@ impl Follower {
         squeeze(text).chars().take(STAGE_MESSAGE_MAX).collect()
     }
 
-    fn need_client(&self) -> Result<Client, ProError> {
+    pub fn need_client(&self) -> Result<Client, ProError> {
         let st = self.st();
         match (&st.client, configured(&self.settings())) {
             (Some(c), true) => Ok(c.clone()),

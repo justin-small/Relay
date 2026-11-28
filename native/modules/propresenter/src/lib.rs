@@ -12,13 +12,17 @@
 pub const KEY: &str = "propresenter";
 
 pub mod client;
+pub mod control;
 pub mod discover;
 pub mod feeds;
 pub mod follower;
+pub mod lobby;
 pub mod routes;
+pub mod routes_ctl;
 pub mod settings;
 pub mod signagetags;
 pub mod slidetags;
+pub mod view;
 pub mod web;
 
 use std::collections::BTreeMap;
@@ -33,7 +37,10 @@ use relay_core::{AdminPage, AppError, Health, HealthState, Host, Manifest, Modul
 use serde_json::Value;
 
 use crate::client::Client;
+use crate::control::Control;
 use crate::feeds::{LyricsFeed, TimersFeed};
+use crate::lobby::Lobby;
+use crate::view::View;
 use crate::follower::{Follower, MakeClient, Timing};
 use crate::routes::Ctx;
 use crate::slidetags::Tags;
@@ -223,7 +230,10 @@ impl Module for ProPresenter {
         let follower = Follower::new(host.clone(), maker, timing, Tags::new());
         let lyrics = LyricsFeed::new(Arc::clone(&follower));
         let timers = TimersFeed::new(Arc::clone(&follower));
-        let _ = self.parts.set(Parts { ctx: Ctx { host: host.clone(), follower, lyrics, timers } });
+        let control = Control::new(Arc::clone(&follower));
+        let lobby = Lobby::new(Arc::clone(&follower), Arc::clone(&control));
+        let view = View::new(Arc::clone(&follower), Arc::clone(&control));
+        let _ = self.parts.set(Parts { ctx: Ctx { host: host.clone(), follower, lyrics, timers, control, lobby, view } });
     }
 
     fn detach(&self, host: &Host) {
@@ -256,6 +266,8 @@ impl Module for ProPresenter {
             let mut tasks = self.tasks.lock().unwrap_or_else(PoisonError::into_inner);
             // Idle until an address is entered and ProPresenter is switched on on its page.
             tasks.push(tokio::spawn(Arc::clone(&c.follower).run()));
+            // Idle until the operator presses Start on the lobby rotation (never started by Relay itself).
+            c.lobby.start();
             Ok(())
         })
     }
@@ -265,6 +277,7 @@ impl Module for ProPresenter {
             let tasks: Vec<_> = self.tasks.lock().unwrap_or_else(PoisonError::into_inner).drain(..).collect();
             if let Some(p) = self.parts.get() {
                 p.ctx.follower.shutdown();
+                p.ctx.lobby.cancel();
             }
             for t in tasks {
                 t.abort();

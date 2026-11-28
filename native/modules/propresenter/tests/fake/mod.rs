@@ -66,6 +66,12 @@ pub struct Inner {
     pub media: Option<(Value, Value)>,
     /// Paths that answer a status code of the test's choosing: `(path, status, body)`.
     pub forced: Vec<(String, u16, String)>,
+    /// The announcements layer: on or off, and (through `announcement` and `ann_index`) what is up on it.
+    pub ann_on: bool,
+    /// The items of the playlist `PL-LOBBY`.
+    pub lobby_items: Vec<Value>,
+    /// Stream messages to send once the lock is let go.
+    pub pending: Vec<&'static str>,
 }
 
 pub struct Fake {
@@ -74,6 +80,36 @@ pub struct Fake {
     wake: Notify,
     kill: AtomicU64,
     pub port: u16,
+}
+
+/// The presentations the lobby tests show on the announcements layer: `(name, cues)`.
+pub fn lobby_presentation(uuid: &str) -> (String, Vec<String>) {
+    match uuid {
+        "P-A" => ("Welcome".into(), vec!["a1".into(), "a2".into(), "a3".into()]),
+        "P-B" => ("Coffee".into(), vec!["b1".into()]),
+        _ => ("Sermon".into(), vec!["x1".into(), "x2".into()]),
+    }
+}
+
+/// A playlist item as the lobby tests list them.
+pub fn lobby_item(i: usize, name: &str, kind: &str, uuid: &str, hidden: bool) -> Value {
+    let mut o = json!({"id": {"uuid": format!("I{i}"), "name": name, "index": i}, "type": kind, "is_hidden": hidden, "is_pco": false});
+    if kind == "presentation" {
+        o["presentation_info"] = json!({"presentation_uuid": uuid});
+    }
+    o
+}
+
+/// The playlist the lobby tests start from: a header, two presentations, a video, an audio bed and a hidden item.
+pub fn lobby_items() -> Vec<Value> {
+    vec![
+        lobby_item(0, "Lobby heading", "header", "", false),
+        lobby_item(1, "Welcome", "presentation", "P-A", false),
+        lobby_item(2, "Loop video", "media", "", false),
+        lobby_item(3, "Coffee", "presentation", "P-B", false),
+        lobby_item(4, "Audio bed", "audio", "", false),
+        lobby_item(5, "Hidden", "presentation", "P-X", true),
+    ]
 }
 
 fn slide(text: &str) -> Value {
@@ -177,9 +213,50 @@ impl Inner {
         json!([{"id": {"uuid": "SCR", "name": "Screen", "index": 0}, "size": {"width": 1920, "height": 1080}, "screen_type": "audience"}])
     }
 
+    /// What the announcements layer holds: the presentation `uuid` (or none, for media or nothing) at `cue`, and whether the layer is on.
+    pub fn set_world(&mut self, on: bool, uuid: &str, cue: Option<usize>) {
+        self.ann_on = on;
+        self.announcement = (!uuid.is_empty()).then(|| {
+            let (name, cues) = lobby_presentation(uuid);
+            (uuid.to_owned(), name.clone(), vec![(name, cues)])
+        });
+        self.ann_index = cue.filter(|_| !uuid.is_empty());
+        self.pending.extend(["status/layers", "announcement/active", "announcement/slide_index"]);
+    }
+
+    pub fn world(&self) -> (bool, String, Option<usize>) {
+        (self.ann_on, self.announcement.as_ref().map(|a| a.0.clone()).unwrap_or_default(), self.ann_index)
+    }
+
+    fn lobby_paths(&mut self, base: &str) -> Option<(u16, Vec<u8>, &'static str)> {
+        let ok = Some((204u16, Vec::new(), "application/json"));
+        if base == "/v1/playlist/PL-LOBBY" && !self.lobby_items.is_empty() {
+            return Some((200, format!("{}\r\n\r\n", json!({"id": {"uuid": "PL-LOBBY", "name": "Lobby", "index": 0}, "items": self.lobby_items})).into_bytes(), "application/json"));
+        }
+        if let Some(rest) = base.strip_prefix("/v1/playlist/PL-LOBBY/").and_then(|r| r.strip_suffix("/trigger")) {
+            let item = rest.parse::<usize>().ok().and_then(|i| self.lobby_items.get(i).cloned())?;
+            let uuid = item["presentation_info"]["presentation_uuid"].as_str().unwrap_or("").to_owned();
+            self.set_world(true, &uuid, Some(0));
+            return ok;
+        }
+        if let Some(n) = base.strip_prefix("/v1/announcement/active/").and_then(|r| r.strip_suffix("/trigger")) {
+            self.ann_index = n.parse().ok();
+            self.pending.push("announcement/slide_index");
+            return ok;
+        }
+        if base == "/v1/clear/layer/announcements" {
+            self.set_world(false, "", None);
+            return ok;
+        }
+        None
+    }
+
     /// `(status, body, content type)` for the control paths, or `None`.
     pub fn extra_get(&mut self, path: &str) -> Option<(u16, Vec<u8>, &'static str)> {
         let base = path.split('?').next().unwrap_or("");
+        if let Some(done) = self.lobby_paths(base) {
+            return Some(done);
+        }
         let j = |o: Value| Some((200u16, format!("{o}\r\n\r\n").into_bytes(), "application/json"));
         match base {
             "/v1/announcement/active" => return j(self.announcement_body()),
@@ -272,7 +349,7 @@ impl Inner {
             "presentation/slide_index" => self.index_body(),
             "stage/message" => json!(self.stage),
             "timers/current" => self.timer_rows.clone(),
-            "status/layers" => json!({"slide": self.presentation.is_some()}),
+            "status/layers" => json!({"slide": self.presentation.is_some(), "announcements": self.ann_on}),
             "playlist/active" => json!({}),
             "look/current" => json!({"id": {"name": "Default"}}),
             "announcement/active" => self.announcement_body(),
@@ -317,6 +394,9 @@ impl Fake {
                 slide_override: None,
                 media: None,
                 forced: Vec::new(),
+                ann_on: false,
+                lobby_items: Vec::new(),
+                pending: Vec::new(),
             }),
             out: Mutex::new(VecDeque::new()),
             wake: Notify::new(),
@@ -393,7 +473,18 @@ impl Fake {
     }
 
     fn answer(&self, method: &str, path: &str, body: &[u8]) -> (u16, Vec<u8>, &'static str) {
-        let mut inner = self.lock();
+        let (out, pending) = {
+            let mut inner = self.lock();
+            let out = Self::route(&mut inner, method, path, body);
+            (out, std::mem::take(&mut inner.pending))
+        };
+        if !pending.is_empty() {
+            self.push(&pending);
+        }
+        out
+    }
+
+    fn route(inner: &mut Inner, method: &str, path: &str, body: &[u8]) -> (u16, Vec<u8>, &'static str) {
         inner.requests.push((method.to_owned(), path.to_owned(), body.to_vec()));
         if let Some((_, status, text)) = inner.forced.iter().find(|(p, _, _)| p == path).cloned() {
             return (status, text.into_bytes(), "text/plain");
@@ -427,8 +518,7 @@ impl Fake {
                     let Ok(value) = serde_json::from_slice::<Value>(body) else { return (400, b"bad json".to_vec(), "application/json") };
                     let Some(text) = value.as_str() else { return (400, b"Json deserialize error: invalid type: map, expected a string".to_vec(), "application/json") };
                     inner.stage = text.to_owned();
-                    drop(inner);
-                    self.push(&["stage/message"]);
+                    inner.pending.push("stage/message");
                     return (204, Vec::new(), "application/json");
                 }
                 (404, Vec::new(), "application/json")
@@ -436,8 +526,7 @@ impl Fake {
             "DELETE" => {
                 if path == "/v1/stage/message" {
                     inner.stage.clear();
-                    drop(inner);
-                    self.push(&["stage/message"]);
+                    inner.pending.push("stage/message");
                     return (204, Vec::new(), "application/json");
                 }
                 (404, Vec::new(), "application/json")
@@ -637,12 +726,33 @@ impl Rig {
     }
 
     pub async fn send(&self, method: Method, uri: &str, body: Option<Value>) -> (StatusCode, Value, String) {
-        let req = Request::builder().method(method).uri(uri).header("content-type", "application/json").body(body.map_or_else(Body::empty, |b| Body::from(b.to_string()))).expect("request");
+        send_to(&self.module, method, uri, body).await
+    }
+
+    /// The raw answer: status, content type and bytes.
+    pub async fn fetch(&self, uri: &str) -> (StatusCode, String, Vec<u8>) {
+        let req = Request::builder().method(Method::GET).uri(uri).body(Body::empty()).expect("request");
         let res = self.module.routes().oneshot(req).await.expect("response");
         let status = res.status();
-        let bytes = res.into_body().collect().await.expect("body").to_bytes();
-        (status, serde_json::from_slice(&bytes).unwrap_or(Value::Null), String::from_utf8_lossy(&bytes).into_owned())
+        let ctype = res.headers().get("content-type").and_then(|v| v.to_str().ok()).unwrap_or("").to_owned();
+        (status, ctype, res.into_body().collect().await.expect("body").to_bytes().to_vec())
     }
+}
+
+pub async fn send_to(module: &ProPresenter, method: Method, uri: &str, body: Option<Value>) -> (StatusCode, Value, String) {
+    let req = Request::builder().method(method).uri(uri).header("content-type", "application/json").body(body.map_or_else(Body::empty, |b| Body::from(b.to_string()))).expect("request");
+    let res = module.routes().oneshot(req).await.expect("response");
+    let status = res.status();
+    let bytes = res.into_body().collect().await.expect("body").to_bytes();
+    (status, serde_json::from_slice(&bytes).unwrap_or(Value::Null), String::from_utf8_lossy(&bytes).into_owned())
+}
+
+/// A module on a host nobody has signed in to: every gated route answers 401.
+pub fn anonymous() -> ProPresenter {
+    let host = Host::new(Shutdown::new()).with_store(Arc::new(Store(Mutex::new(HashMap::new()))));
+    let module = ProPresenter::new();
+    module.attach(&host);
+    module
 }
 
 /// Wait up to `secs` for `cond`; polls, never a fixed sleep.
