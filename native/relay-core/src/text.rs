@@ -18,3 +18,9 @@ pub fn same_name(a: &str, b: &str) -> bool {
     let fa = fold(a);
     !fa.is_empty() && fa == fold(b)
 }
+
+/// `text` with accents removed ("José" -> "Jose"); case and punctuation kept (`strip_accents`).
+pub fn strip_accents(text: &str) -> String {
+    use unicode_normalization::{char::is_combining_mark, UnicodeNormalization};
+    text.nfkd().filter(|c| !is_combining_mark(*c)).collect()
+}

@@ -480,6 +480,51 @@ while it is on, and the module's `pc_text` source and plan capability only while
 - `/stream?stream=service` and `rundown` are served only where `/stream` is mounted (`--rust-captions`).
 - Run against a real Planning Center account, read-only (2026-11-28, `tests/live.rs`, `--ignored`, token in `PCO_APP_ID` / `PCO_SECRET`): service types, time zone, the token's person, plans, teams, items, team members, needed positions and plan files all answer. The LIVE presses (Next, Previous, Take control, Release) have not been tried: per the Nov 10 learning they go only on a throwaway plan.
 
+### ProPresenter (#667)
+
+`native/modules/propresenter` (`relay-module-propresenter`) is `app/modules/propresenter`: the follower of ProPresenter's live stream, the lyrics and
+timers feeds, control, the lobby rotation, the slide view and its public `/stage` page, slide-note tags, announcement slides and tag layers for signage,
+the link to Planning Center, and songs. It depends on `relay-core` only. Settings are read and cleaned as Python does (`computers`, `primary`, `link`,
+`lobby`, `view`, `signage` and the rest), so an existing `config.json` loads unchanged; ProPresenter has no secret to seal.
+
+| Python | Rust (`modules/propresenter/src/`) |
+|---|---|
+| `propresenter.py` `Client`, `Splitter`, `cue_*` | `client.rs`: one client, every request through `Host::net()` for the `propresenter` class; a GET that acts is `action`, and view-only refuses every write before a socket opens |
+| `propresenter.py` `Follower`, `LyricsFeed`, `TimersFeed`, `discover` | `follower.rs`, `feeds.rs`, `discover.rs` (mDNS on a routed UDP socket) |
+| `propresenter.py` `clean_*` | `settings.rs` (`relay_core::timers` holds the timer check panels and ProPresenter share) |
+| `ppcontrol.py`, `pplobby.py`, `ppview.py` | `control.rs`, `lobby.rs`, `view.rs`; the routes are `routes.rs` and `routes_ctl.rs` |
+| `slidetags.py`, `tagactions.py`, `signagetags.py`, `signagesync.py` | `slidetags.rs`, `tagactions.rs`, `signagetags.rs`, `signagesync.rs` |
+| `plmatch.py`, `pclink.py` | `plmatch.rs` (difflib's ratio, written out), `pclink.rs` |
+| `ppfile.py`, `ppsongparse.py`, `ppsongs.py` | `ppfile.rs`, `songparse.rs`, `songs.rs` |
+
+**What other modules and core now offer each other** (all by name, `relay_core::caps`; nobody names a crate):
+
+- Planning Center provides `plan.link` (`PlanLink`: the followed plans with their items and LIVE state, and `drive`, which moves LIVE the way a panel's Next
+  and Previous do and **never takes control**) and listens for `plan.feed_refresh`. ProPresenter provides `propresenter.feed_extra` (which plan item it has up).
+- ProPresenter provides `propresenter.offers` (what a panel may pick: the lyrics, the timers), `board.follow.propresenter` (what a board set to follow it reads),
+  and `signage.layer.tag`. It asks for `signage.control` (screens, groups, playlists, pushes, live views, takeovers), `signage.content` (the library), `tag.action.<name>`
+  (`light`, `obs` and `reaper` are provided by those modules when they are ported; the server provides `capture-start`, `capture-stop`, `lyrics`, `captions`,
+  `lang` and `alert`, `relay-server/src/tagacts.rs`), `core.panels` (a panel's own timer thresholds) and `core.helpers`.
+- Events: `alerts.stage` (an alert on the stage display, and its end), `panels.timers_changed`, `presentation.up` (REAPER's song markers), `plan.changed`.
+- Signage resolves the tag layer above an operator's override and the schedule (`Store::resolve`) and provides `signage.control`.
+
+**Songs.** The `.pro` file is built the way Python builds it: message types made at run time from `app/modules/propresenter/pro7/pro7.desc` with
+`prost-reflect`, and one slide ProPresenter exported (`lyric_slide.bin`) cloned for each slide. Both files are compiled in (`include_bytes!`), so the program
+needs no path to them. A PDF lyric sheet is read with `lopdf` (0.47: every earlier version has RUSTSEC-2026-0187, a stack overflow from deeply nested objects,
+and this is a file a signed-in user uploads) and laid out by each run's position, so a chord printed above a lyric stays above it; a file that makes the
+reader panic is "could not be read". Reading runs off the request's thread.
+
+**Not here, and why.**
+
+- **The helper hub.** `app/helperhub.py` (pairing, the `/ws/helper` sessions) is core and is not ported; the module asks for `core.helpers` and, with nobody
+  providing it, answers "No connected helper can do 'propresenter'" as Python does with no helper paired. The `Helpers` trait is what the port provides.
+- `gear.propresenter` (the network map's list of the ProPresenter computers) and the `Module.network_changed` / `test` hooks: the Rust trait has no such
+  hooks yet. A changed network port is picked up on the next reconnect.
+- `scheduler.manual_start` on the `capture-start` tag: the schedule is not in Rust; the stream starts, and a schedule that wants it stopped will say so.
+- Health detail is a fixed sentence: "Connected" has no version or computer name; an error is "ProPresenter is not answering".
+- Not run against a real ProPresenter. The fake is a real HTTP server that models what the live-test notes record (chunked stream, missed pushes, heartbeats,
+  one unknown stream path failing the whole request, playlists found by exact name), and the Python tests' scenarios are ported onto it.
+
 ## Live captions (#659)
 
 `native/relay-captions` is `app/redact.py`, `app/realtime.py`, `app/transcribe.py`, `app/texttranslate.py`, `app/recorder.py`,

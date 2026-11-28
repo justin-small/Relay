@@ -32,6 +32,8 @@ pub const ACTIONS: [&str; 4] = ["next", "previous", "take_control", "release"];
 pub const MIN_GAP_S: f64 = 0.25;
 pub const LOG_MAX: usize = 100;
 pub const BODY_MAX_BYTES: usize = 512;
+/// The most presses one try at moving LIVE makes.
+pub const MAX_DRIVE_STEPS: u32 = 12;
 
 /// What a panel is told when a press does not go through: a short code it words itself, and an HTTP status. The reason stays in Relay's log.
 pub fn status_of(code: &str) -> u16 {
@@ -259,6 +261,80 @@ impl Control {
                 Err(Refused("refused"))
             }
         }
+    }
+
+    // -- ProPresenter drives LIVE (the link) ------------------------------------------------------------------------------------
+    /// Move the plan's LIVE to one of the plan items in `targets` (ids), using the same Next / Previous presses as a panel, one press at a time under
+    /// the same lock. `order` is the plan's item ids in order.
+    ///
+    /// It NEVER takes control: it first reads LIVE fresh and does nothing unless Relay's own token is the controller. It goes forward to the first target
+    /// after the current item; backwards only when `allow_back` and then to the nearest target behind, never past it; and it stops as soon as an answer
+    /// shows it arrived, overshot or did not move. No secret reaches the result or the log: only the fixed codes and the controller's display name.
+    pub async fn drive(&self, st: &str, order: &[String], targets: &[String], allow_back: bool) -> relay_core::caps::DriveResult {
+        let _turn = self.lock.lock().await;
+        let done = |result: &str, steps: u32, who: &str| {
+            self.record("propresenter", st, "drive", &if steps == 0 { result.to_owned() } else { format!("{result} ({steps} step{})", if steps == 1 { "" } else { "s" }) }, Some("ProPresenter"));
+            relay_core::caps::DriveResult { result: result.to_owned(), steps, who: who.to_owned() }
+        };
+        let Some(client) = self.follower.client() else { return done("not_connected", 0, "") };
+        let Some(plan) = self.follower.track(st).and_then(|t| t.plan).map(|p| s(&p, "id")) else { return done("no_plan", 0, "") };
+        let fetched = async {
+            let live = client.call(Op::Live { st: st.to_owned(), plan: plan.clone() }).await?;
+            let me = self.my_id(client.as_ref()).await?;
+            Ok::<_, crate::client::PcError>((live, me))
+        }
+        .await;
+        let (live, me) = match fetched {
+            Ok(got) => got,
+            Err(exc) => {
+                tracing::warn!("Planning Center would not answer for ProPresenter's LIVE advance ({:?})", exc.kind);
+                return done(if exc.kind == Kind::Network { "unreachable" } else { "refused" }, 0, "");
+            }
+        };
+        self.follower.apply_live(st, live.clone(), None);
+        let ctrl = &live["controller"];
+        if !ctrl.is_object() {
+            return done("nobody", 0, "");
+        }
+        if s(ctrl, "id") != me {
+            let name = s(ctrl, "name");
+            return done("someone_else", 0, if name.is_empty() { "Someone" } else { &name });
+        }
+        let cur = live["current"]["item"].as_str().map(str::to_owned);
+        let position = |id: &str| order.iter().position(|o| o == id);
+        let at: Option<i64> = match &cur {
+            Some(c) => position(c).map(|p| p as i64),
+            None => Some(-1),
+        };
+        let Some(at) = at else { return done("unknown_item", 0, "") };
+        if cur.as_deref().is_some_and(|c| targets.iter().any(|t| t == c)) {
+            return done("already", 0, "");
+        }
+        let places: Vec<i64> = targets.iter().filter_map(|t| position(t)).map(|p| p as i64).collect();
+        let ahead = places.iter().copied().filter(|p| *p > at).min();
+        let behind = places.iter().copied().filter(|p| *p < at).max();
+        let (goal, action) = match (ahead, behind) {
+            (Some(g), _) => (g, "next"),
+            (None, Some(g)) if allow_back => (g, "previous"),
+            (None, Some(_)) => return done("behind", 0, ""),
+            (None, None) => return done("not_in_plan", 0, ""),
+        };
+        let mut steps = 0u32;
+        while steps < MAX_DRIVE_STEPS {
+            if let Err(r) = self.press_once(st, action).await {
+                return done(if r.0 == "not_controlling" { "lost_control" } else { r.0 }, steps, "");
+            }
+            steps += 1;
+            let now_at = self.follower.track(st).and_then(|t| t.live).and_then(|l| l["current"]["item"].as_str().map(str::to_owned));
+            let here = now_at.as_deref().and_then(position).map(|p| p as i64);
+            if now_at.as_deref().is_some_and(|c| targets.iter().any(|t| t == c)) {
+                return done(if action == "next" { "advanced" } else { "went_back" }, steps, "");
+            }
+            if here.is_none_or(|h| (action == "next" && h > goal) || (action == "previous" && h < goal)) {
+                return done("overshot", steps, ""); // a skipped item (excluded or a header): stop where it landed
+            }
+        }
+        done("too_far", steps, "")
     }
 
     fn record(&self, pid: &str, st: &str, action: &str, result: &str, name: Option<&str>) {

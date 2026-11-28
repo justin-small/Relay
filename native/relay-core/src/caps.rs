@@ -21,6 +21,15 @@ pub const PLAN_CHANGED: &str = "plan.changed";
 pub const DIRECTORY_CHANGED: &str = "directory.changed";
 /// Announced when the service feeds a panel can pick change (a service type was followed or dropped): the panels' status is pushed again.
 pub const OFFERED_CHANGED: &str = "plan.offered_changed";
+/// Announced when an alert goes on or off the stage display, with `{"id": "<alert id>", "text": "<text>" | null}` as JSON: ProPresenter shows
+/// the text on its stage screens and takes it down when the alert ends (#145).
+pub const ALERT_STAGE: &str = "alerts.stage";
+/// Announced when a panel's own timer settings change: ProPresenter's timers feed sends the panel its new thresholds at once.
+pub const PANEL_TIMERS_CHANGED: &str = "panels.timers_changed";
+/// Announced when what the plan feeds say of ProPresenter changed (which plan item it has up): the Service feed is sent again.
+pub const FEED_REFRESH: &str = "plan.feed_refresh";
+/// Announced with the presentation's name when a new presentation comes up in ProPresenter (REAPER's song markers, #413).
+pub const PRESENTATION_UP: &str = "presentation.up";
 
 // ---------------------------------------------------------------------------------------------------------------- the plan
 /// `Arc<PlanCap>`: what other modules and core ask of the plan Planning Center follows (`plan.*` and `directory.pco*` in Python).
@@ -59,7 +68,30 @@ pub trait PanelDirectory: Send + Sync + 'static {
     fn service(&self, id: &str) -> Value;
     /// The name the operator gave the panel.
     fn display_name(&self, id: &str) -> String;
+    /// The panel's own timer settings (`amber_s`, `red_s`, `show`), or `None` while it follows the global ones.
+    fn timers(&self, _id: &str) -> Option<Value> {
+        None
+    }
 }
+
+// ---------------------------------------------------------------------------------------------------------- ProPresenter's offers
+/// `Arc<ProOffers>`: what a panel's menu may offer from ProPresenter, provided by the ProPresenter module while it is on (`propresenter.panel_offers`).
+pub const PRO_OFFERS: &str = "propresenter.offers";
+
+pub struct ProOffers {
+    /// The slide's lyrics, while the operator has them on for panels and ProPresenter is set up.
+    pub lyrics: Box<dyn Fn() -> bool + Send + Sync>,
+    /// The timers, while ProPresenter is set up.
+    pub timers: Box<dyn Fn() -> bool + Send + Sync>,
+}
+
+/// `Arc<TagAction>` under `tag.action.<name>`: what a ProPresenter slide-note tag does in Relay, provided by whoever can do it (core for capture,
+/// panels and alerts; a module for its own: `light`, `obs`, `reaper`). It takes the tag's value and says in a sentence what it did.
+pub const TAG_ACTION: &str = "tag.action.";
+
+pub type TagActionFn = dyn Fn(Option<String>) -> BoxFuture<'static, Result<String, String>> + Send + Sync;
+
+pub struct TagAction(pub Box<TagActionFn>);
 
 // ------------------------------------------------------------------------------------------------------- signage's content
 /// `Arc<ContentCap>`: signage's library, as far as a module that adds files and playlists needs it (`signage.content`).
@@ -86,6 +118,41 @@ pub trait SignageContent: Send + Sync + 'static {
     fn playlists(&self) -> BoxFuture<'_, ContentResult<Vec<Value>>>;
     fn playlist_create<'a>(&'a self, name: &'a str) -> BoxFuture<'a, ContentResult<Value>>;
     fn playlist_set_items<'a>(&'a self, id: i64, items: &'a Value) -> BoxFuture<'a, ContentResult<()>>;
+    /// Keep a small picture for a media row (its thumbnail in the admin page). A library without thumbnails keeps nothing.
+    fn media_thumb<'a>(&'a self, _id: &'a str, _data: &'a [u8]) -> BoxFuture<'a, ContentResult<()>> {
+        Box::pin(async { Ok(()) })
+    }
+}
+
+// ----------------------------------------------------------------------------------------------------- signage's layers and control
+/// `signage.layer.<name>` (`name` is `tag`): what a module puts on a screen above the schedule, as `Arc<SignageLayer>`. Called with the screen's record
+/// and the time (epoch seconds); `Some({"playlist_id", "why"})` claims the screen.
+pub const SIGNAGE_LAYER: &str = "signage.layer.";
+
+pub type LayerFn = dyn Fn(&Value, i64) -> Option<Value> + Send + Sync;
+
+pub struct SignageLayer(pub Box<LayerFn>);
+
+/// `Arc<ControlCap>`: what a module that drives signage screens (ProPresenter's slide-note tags) needs of signage, provided while signage is on.
+pub const SIGNAGE_CONTROL: &str = "signage.control";
+
+pub struct ControlCap(pub Arc<dyn SignageControl>);
+
+pub trait SignageControl: Send + Sync + 'static {
+    fn screens(&self) -> BoxFuture<'_, ContentResult<Vec<Value>>>;
+    fn groups(&self) -> BoxFuture<'_, ContentResult<Vec<Value>>>;
+    fn playlists(&self) -> BoxFuture<'_, ContentResult<Vec<Value>>>;
+    fn media_list(&self) -> BoxFuture<'_, ContentResult<Vec<Value>>>;
+    /// Send one picture to a screen, a group (`target` is `screen`, `group` or `all`) to play once. `Err` carries signage's own sentence.
+    fn push_set<'a>(&'a self, target: &'a str, target_id: i64, media_id: &'a str) -> BoxFuture<'a, ContentResult<()>>;
+    /// Put the live captions or the service view (`captions`, `service`) on a screen until cleared.
+    fn live_view_set<'a>(&'a self, target: &'a str, target_id: i64, view: &'a str) -> BoxFuture<'a, ContentResult<()>>;
+    /// End what was put on a screen; `Ok(false)` when nothing was.
+    fn takeover_clear<'a>(&'a self, target: &'a str, target_id: i64) -> BoxFuture<'a, ContentResult<bool>>;
+    /// End every push and live view; how many ended.
+    fn takeover_clear_all(&self) -> BoxFuture<'_, ContentResult<u64>>;
+    /// Tell the players something changed.
+    fn bump(&self);
 }
 
 // ------------------------------------------------------------------------------------------------------------- directory
@@ -198,3 +265,70 @@ pub const FEED_EXTRA: &str = "propresenter.feed_extra";
 pub type FeedExtraFn = dyn Fn(&str) -> Option<Value> + Send + Sync;
 
 pub struct FeedExtra(pub Box<FeedExtraFn>);
+
+// ---------------------------------------------------------------------------------------------------------- the link to the plan
+/// `Arc<PlanLink>`: the plan Planning Center follows, as far as ProPresenter's link needs it (`plan.follower`, `plan.control` and `plan.api` in Python):
+/// the followed service types with their items and LIVE state, and the means to move LIVE the way a panel's Next and Previous do. Provided by Planning
+/// Center while it is on.
+pub const PLAN_LINK: &str = "plan.link";
+
+/// One followed service type.
+#[derive(Debug, Clone, Default)]
+pub struct LinkTrack {
+    pub service_type: String,
+    /// The name Planning Center gives the service type, `""` until read.
+    pub name: String,
+    /// `{"id", "title", "dates"}` of the plan followed, or `None`.
+    pub plan: Option<Value>,
+    /// The plan's day as `YYYY-MM-DD`.
+    pub day: String,
+    /// The plan's items in order: `[{"id", "title", "type"}]`.
+    pub items: Vec<Value>,
+    /// Planning Center's LIVE answer: `{"current": {"item"}, "controller": {"id", "name"}}`.
+    pub live: Option<Value>,
+}
+
+/// How a try at moving LIVE ended: a fixed code, the steps pressed, and the name of whoever holds control when it was someone else.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct DriveResult {
+    pub result: String,
+    pub steps: u32,
+    pub who: String,
+}
+
+pub type DriveFn = dyn Fn(String, Vec<String>, Vec<String>, bool) -> BoxFuture<'static, DriveResult> + Send + Sync;
+
+pub struct PlanLink {
+    /// A token is saved: Planning Center is usable.
+    pub connected: Box<dyn Fn() -> bool + Send + Sync>,
+    pub tracks: Box<dyn Fn() -> Vec<LinkTrack> + Send + Sync>,
+    /// Move LIVE of service type `.0` to one of the item ids `.2` (`.1` is the plan's item ids in order); `.3` allows going back.
+    pub drive: Box<DriveFn>,
+}
+
+// ------------------------------------------------------------------------------------------------------------------------------ helpers
+/// `Arc<HelpersCap>`: the Relay Helpers paired with this install and connected to it (`app/helperhub.py`), provided by the server while it holds the
+/// helpers' sockets. A module asks one that has a capability (`propresenter` can `open_files`) to run an operation on its own computer.
+pub const HELPERS: &str = "core.helpers";
+
+pub struct HelpersCap(pub Arc<dyn Helpers>);
+
+/// Why a helper call did not give an answer: a sentence the helper or Relay wrote for the operator, never an error's own text.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HelperError(pub String);
+
+pub trait Helpers: Send + Sync + 'static {
+    /// The name of the connected helper that can do `op` of `cap`, or `None`.
+    fn find(&self, cap: &str, op: &str) -> Option<String>;
+    /// How many helpers are paired, connected or not.
+    fn paired(&self) -> usize;
+    /// Ask a helper to run `op` of `cap` and return its data.
+    fn call<'a>(&'a self, cap: &'a str, op: &'a str, args: Value) -> BoxFuture<'a, Result<Value, HelperError>>;
+}
+
+// -------------------------------------------------------------------------------------------------------------------- board follow
+/// `board.follow.<source>` (`Arc<BoardFollow>`): what a board page set to follow another program reads (`Module.board_follow`): `{"name", "connected",
+/// "now": {"presentation", "group", "label"}, "suggest": {"presentation": [...], "group": [...], "label": [...]}}`. `None` while it cannot say.
+pub const BOARD_FOLLOW: &str = "board.follow.";
+
+pub struct BoardFollow(pub Box<dyn Fn() -> Option<Value> + Send + Sync>);

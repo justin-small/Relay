@@ -949,4 +949,8 @@ impl relay_core::caps::PanelDirectory for PanelsForModules {
     fn display_name(&self, id: &str) -> String {
         self.0.display_name(id)
     }
+
+    fn timers(&self, id: &str) -> Option<Value> {
+        self.0.timer_settings(id)
+    }
 }

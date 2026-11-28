@@ -26,7 +26,7 @@ use std::sync::{Arc, Mutex, OnceLock};
 use axum::http::HeaderMap;
 use axum::response::Response;
 use axum::Router;
-use relay_core::caps::{PlanCap, PLAN};
+use relay_core::caps::{FEED_REFRESH, DriveResult, LinkTrack, PlanCap, PlanLink, PLAN, PLAN_LINK};
 use relay_core::future::BoxFuture;
 use relay_core::screens::SIGNAGE_SOURCE;
 use relay_core::{AdminPage, AppError, Health, HealthState, Host, Manifest, Module, Permission};
@@ -203,6 +203,26 @@ impl Module for PlanningCenter {
             let Some(p) = self.parts.get() else { return Ok(()) };
             // What core and other modules ask for by name (#523), offered only while the module is on.
             host.provide(MANIFEST.id, PLAN, Arc::clone(&p.plan));
+            // What ProPresenter says of itself (which plan item it has up) changed: the Service feed is sent again.
+            let feed = Arc::clone(&p.ctx.feed);
+            host.listen(MANIFEST.id, FEED_REFRESH, Arc::new(move |_: &str| feed.refresh()));
+            // What ProPresenter's link needs: the followed plans with their items and LIVE state, and the means to move LIVE (never taking control).
+            let (f1, f2, c1) = (Arc::clone(&p.ctx.follower), Arc::clone(&p.ctx.follower), Arc::clone(&p.ctx.control));
+            host.provide(
+                MANIFEST.id,
+                PLAN_LINK,
+                Arc::new(PlanLink {
+                    connected: Box::new(move || {
+                        let st = f1.settings();
+                        !plan::s(&st, "app_id").is_empty() && !plan::s(&st, "secret").is_empty()
+                    }),
+                    tracks: Box::new(move || link_tracks(&f2)),
+                    drive: Box::new(move |st: String, order: Vec<String>, targets: Vec<String>, back: bool| {
+                        let c = Arc::clone(&c1);
+                        Box::pin(async move { c.drive(&st, &order, &targets, back).await }) as relay_core::future::BoxFuture<'static, DriveResult>
+                    }),
+                }),
+            );
             // A rename in Planning Center reaches the names saved in the mic mappings (heard only while the module is on).
             let again = p.ctx.clone();
             host.listen(
@@ -255,6 +275,22 @@ impl Module for PlanningCenter {
         }
         Health::new(HealthState::Ok, if n == 1 { "Following 1 service type" } else { "Following service types" })
     }
+}
+
+/// The followed service types as ProPresenter's link reads them.
+fn link_tracks(f: &Follower) -> Vec<LinkTrack> {
+    let names = f.names();
+    f.tracks()
+        .into_iter()
+        .map(|t| LinkTrack {
+            name: names.get(&t.st).cloned().unwrap_or_default(),
+            service_type: t.st,
+            plan: t.plan.as_ref().map(|p| json!({"id": p["id"], "title": p["title"], "dates": p["dates"]})),
+            day: t.day.map(|d| d.to_string()).unwrap_or_default(),
+            items: t.items.iter().map(|i| json!({"id": i["id"], "title": i["title"], "type": i["type"]})).collect(),
+            live: t.live,
+        })
+        .collect()
 }
 
 fn plan_label(f: &Follower) -> String {

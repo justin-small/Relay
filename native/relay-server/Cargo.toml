@@ -25,6 +25,7 @@ relay-module-ndi = { path = "../modules/ndi" }
 relay-module-signage = { path = "../modules/signage" }
 relay-module-signage_web = { path = "../modules/signage_web" }
 relay-module-planning_center = { path = "../modules/planning_center" }
+relay-module-propresenter = { path = "../modules/propresenter" }
 relay-show = { path = "../relay-show" }
 sqlx = { version = "0.9", default-features = false, features = ["runtime-tokio", "sqlite", "macros"] }
 axum = { version = "0.8", default-features = false, features = ["http1", "json", "tokio", "ws"] }

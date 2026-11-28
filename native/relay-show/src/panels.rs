@@ -40,8 +40,7 @@ pub const MAX_FEEDS: usize = 2;
 pub const ROTATIONS: [i64; 4] = [0, 90, 180, 270];
 pub const POLICY_MIN_RANGE: (i64, i64) = (1, 60);
 pub const DEFAULT_UNLOCK_MIN: i64 = 5;
-pub const MAX_TIMERS_SHOWN: usize = 4;
-pub const MAX_THRESHOLD_S: f64 = 86399.0;
+pub use relay_core::timers::{timer_fields, timer_id_ok, MAX_THRESHOLD_S, MAX_TIMERS_SHOWN};
 const I31: i64 = (1 << 31) - 1;
 
 pub fn update_error(key: &str) -> &'static str {
@@ -68,11 +67,6 @@ pub fn valid_id(v: &Value) -> bool {
     v.as_str().is_some_and(is_hex32)
 }
 
-fn timer_id_ok(s: &str) -> bool {
-    let b = s.as_bytes();
-    !b.is_empty() && b.len() <= 64 && b[0].is_ascii_alphanumeric() && b.iter().all(|c| c.is_ascii_alphanumeric() || matches!(c, b'.' | b'_' | b'-'))
-}
-
 fn board_ok(s: &str) -> bool {
     let b = s.as_bytes();
     !b.is_empty() && b.len() <= 32 && (b[0].is_ascii_lowercase() || b[0].is_ascii_digit()) && b.iter().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || matches!(c, b'.' | b'-'))
@@ -80,43 +74,6 @@ fn board_ok(s: &str) -> bool {
 
 fn script_ok(s: &str) -> bool {
     (2..=16).contains(&s.len()) && s.bytes().all(|b| b.is_ascii_lowercase())
-}
-
-/// A panel's timer settings (and ProPresenter's global ones): what `raw` sets, each checked. Returns them with a fixed sentence
-/// for the first thing that was wrong ("" when nothing was).
-pub fn timer_fields(raw: &Value) -> (Map<String, Value>, String) {
-    let mut out = Map::new();
-    let mut problem = String::new();
-    let empty = Map::new();
-    let raw = raw.as_object().unwrap_or(&empty);
-    for (key, label) in [("amber_s", "amber"), ("red_s", "red")] {
-        let Some(v) = raw.get(key).filter(|v| !v.is_null()) else { continue };
-        match v {
-            Value::Number(n) if n.as_f64().is_some_and(|f| (0.0..=MAX_THRESHOLD_S).contains(&f)) => {
-                out.insert(key.to_owned(), json!(n.as_f64().map_or(0, |f| f as i64)));
-            }
-            _ => {
-                if problem.is_empty() {
-                    problem = format!("The {label} threshold is a number of seconds from 0 to {}.", MAX_THRESHOLD_S as i64);
-                }
-            }
-        }
-    }
-    if let Some(show) = raw.get("show").filter(|v| !v.is_null()) {
-        let good: Vec<String> = show.as_array().map(|a| a.iter().filter_map(Value::as_str).filter(|u| timer_id_ok(u)).map(str::to_owned).collect()).unwrap_or_default();
-        if show.as_array().is_none_or(|a| a.len() != good.len()) && problem.is_empty() {
-            problem = "Timers to show is a list of timer IDs.".into();
-        }
-        let mut seen: Vec<String> = Vec::new();
-        for g in good {
-            if !seen.contains(&g) {
-                seen.push(g);
-            }
-        }
-        seen.truncate(MAX_TIMERS_SHOWN);
-        out.insert("show".into(), json!(seen));
-    }
-    (out, problem)
 }
 
 /// One or two feed choices, or `None` if `raw` is not a valid list of them.

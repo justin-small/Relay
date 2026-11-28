@@ -4,7 +4,7 @@
 use std::sync::Arc;
 
 use axum::body::Body;
-use relay_core::caps::{ContentError, ContentResult, SignageContent};
+use relay_core::caps::{ContentError, ContentResult, SignageContent, SignageControl};
 use relay_core::future::BoxFuture;
 use serde_json::{json, Value};
 
@@ -55,5 +55,64 @@ impl SignageContent for Content {
 
     fn playlist_set_items<'a>(&'a self, id: i64, items: &'a Value) -> BoxFuture<'a, ContentResult<()>> {
         Box::pin(async move { self.0.store.playlist_set_items(id, items).await.map_err(refused) })
+    }
+
+    fn media_thumb<'a>(&'a self, id: &'a str, data: &'a [u8]) -> BoxFuture<'a, ContentResult<()>> {
+        Box::pin(async move { self.0.store.media_thumb(id, data).await.map_err(refused) })
+    }
+}
+
+/// What a module that drives screens (slide-note tags) may do: pick and push, never edit.
+pub struct Control(pub Arc<Service>);
+
+/// A sentence signage wrote for the operator, or a plain one for a failure the operator cannot act on.
+fn sentence(e: crate::store::Error) -> ContentError {
+    match e {
+        crate::store::Error::Invalid(text, _) => ContentError(text),
+        crate::store::Error::Unavailable => ContentError("Signage could not be reached right now.".into()),
+    }
+}
+
+impl SignageControl for Control {
+    fn screens(&self) -> BoxFuture<'_, ContentResult<Vec<Value>>> {
+        Box::pin(async move { self.0.store.screens().await.map_err(sentence) })
+    }
+
+    fn groups(&self) -> BoxFuture<'_, ContentResult<Vec<Value>>> {
+        Box::pin(async move { self.0.store.groups().await.map_err(sentence) })
+    }
+
+    fn playlists(&self) -> BoxFuture<'_, ContentResult<Vec<Value>>> {
+        Box::pin(async move { self.0.store.playlists().await.map_err(sentence) })
+    }
+
+    fn media_list(&self) -> BoxFuture<'_, ContentResult<Vec<Value>>> {
+        Box::pin(async move { self.0.store.media_list().await.map_err(sentence) })
+    }
+
+    fn push_set<'a>(&'a self, target: &'a str, target_id: i64, media_id: &'a str) -> BoxFuture<'a, ContentResult<()>> {
+        Box::pin(async move { self.0.store.push_set(target, target_id, media_id, "once", 0).await.map(|_| ()).map_err(sentence) })
+    }
+
+    fn live_view_set<'a>(&'a self, target: &'a str, target_id: i64, view: &'a str) -> BoxFuture<'a, ContentResult<()>> {
+        Box::pin(async move { self.0.store.live_view_set(target, target_id, view).await.map(|_| ()).map_err(sentence) })
+    }
+
+    fn takeover_clear<'a>(&'a self, target: &'a str, target_id: i64) -> BoxFuture<'a, ContentResult<bool>> {
+        Box::pin(async move {
+            match self.0.store.takeover_clear(target, target_id).await {
+                Ok(()) => Ok(true),
+                Err(crate::store::Error::Invalid(_, 404)) => Ok(false),
+                Err(e) => Err(sentence(e)),
+            }
+        })
+    }
+
+    fn takeover_clear_all(&self) -> BoxFuture<'_, ContentResult<u64>> {
+        Box::pin(async move { self.0.store.takeover_clear_all().await.map_err(sentence) })
+    }
+
+    fn bump(&self) {
+        self.0.store.live.bump();
     }
 }

@@ -189,6 +189,7 @@ impl Module for Signage {
                 *s = Some(Arc::clone(&service));
             }
             host.provide(MANIFEST.id, relay_core::caps::SIGNAGE_CONTENT, Arc::new(relay_core::caps::ContentCap(Arc::new(content::Content(Arc::clone(&service))))));
+            host.provide(MANIFEST.id, relay_core::caps::SIGNAGE_CONTROL, Arc::new(relay_core::caps::ControlCap(Arc::new(content::Control(Arc::clone(&service))))));
             let shutdown = host.shutdown.clone();
             let handle = tokio::spawn(async move {
                 loop {

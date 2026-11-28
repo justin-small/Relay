@@ -230,6 +230,14 @@ impl App {
                             }))),
                         );
                         host.provide("core", relay_core::caps::PANELS, Arc::new(relay_core::caps::PanelsCap(Arc::new(crate::show::PanelsForModules(Arc::clone(&api.panels))))));
+                        // ProPresenter, while it is on: the lyrics a panel may pick, a panel's own timer thresholds, an alert on the stage display.
+                        let offers = host.clone();
+                        api.panels.set_lyrics_offered(Box::new(move || offers.using::<relay_core::caps::ProOffers>(relay_core::caps::PRO_OFFERS).is_some_and(|o| (o.lyrics)())));
+                        let told = host.clone();
+                        api.panels.set_on_timers_change(Box::new(move || told.announce(relay_core::caps::PANEL_TIMERS_CHANGED, "")));
+                        let staged = host.clone();
+                        api.alerts.set_on_stage(Some(Box::new(move |id, text| staged.announce(relay_core::caps::ALERT_STAGE, &json!({"id": id, "text": text}).to_string()))));
+                        crate::tagacts::provide_show(&host, &api);
                         show_api = Some(Arc::clone(&api));
                         // With captions here too, `/stream` is the captions' (it hands the alert feed on).
                         routes = routes.merge(crate::show::routes_with(api, !opts.rust_captions));
@@ -249,13 +257,14 @@ impl App {
                                 state_dir: opts.config_path.parent().map(std::path::Path::to_path_buf).unwrap_or_default(),
                                 app,
                                 upstream: upstream_for_show.clone(),
-                                show: show_api,
+                                show: show_api.clone(),
                                 net: host.net().clone(),
                                 hub: relay_core::hub::Hub::with(relay_captions::redact::factory(), Box::new(relay_captions::clock::wall)),
                                 shutdown: shutdown.clone(),
                                 registry: Some(Arc::clone(&registry)),
                                 host: Some(host.clone()),
                             });
+                            crate::tagacts::provide_capture(&host, &api.captions);
                             routes = routes.merge(crate::captions::routes(api));
                         }
                         None => tracing::error!("captions are served by the app behind this server, not by it: they read the room's audio from the audio bus, which needs --rust-audio"),

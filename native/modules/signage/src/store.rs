@@ -938,6 +938,11 @@ impl Store {
                 &loaded
             }
         };
+        // A module's tag layer (ProPresenter's slide-note tags) is above what an operator chose by hand and above the schedule.
+        let tagged = self.host.using::<relay_core::caps::SignageLayer>(&format!("{}tag", relay_core::caps::SIGNAGE_LAYER)).and_then(|l| (l.0)(screen, now_secs));
+        if let Some(claim) = tagged.filter(|c| c["playlist_id"].as_i64().is_some_and(|p| p > 0)) {
+            return Ok(json!({"playlist_id": claim["playlist_id"], "layer": "tag", "until": "", "why": claim["why"]}));
+        }
         let mut best: Option<(i64, &Value)> = None;
         for o in overrides {
             if !o["expires_at"].as_str().unwrap_or("").is_empty() && o["expires_at"].as_str().unwrap_or("") <= iso.as_str() {
