@@ -45,6 +45,13 @@ impl Authorizer for AccountsAuthorizer {
         Box::pin(async move { self.write(request, action, summary, target, detail).await })
     }
 
+    fn who<'a>(&'a self, request: &'a Parts) -> BoxFuture<'a, Option<String>> {
+        Box::pin(async move {
+            let caller = self.0.caller(&request.headers, request.extensions.get::<Conn>().cloned(), None).await.ok()?;
+            Some(if caller.user.name.is_empty() { caller.user.username.clone() } else { caller.user.name.clone() }).filter(|n| !n.is_empty())
+        })
+    }
+
     fn record<'a>(&'a self, action: &'a str, summary: &'a str, target: &'a str) -> BoxFuture<'a, ()> {
         Box::pin(async move { self.0.record_system(action, summary, target).await })
     }

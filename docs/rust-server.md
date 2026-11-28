@@ -557,6 +557,46 @@ puts each request's client address in `relay_core::access::Peer`, which the scen
 `/screen` hook, above. Not run against a real OBS from this Mac; the fake is a real WebSocket server that speaks the handshake, the requests and the events
 the Python tests' scenarios use, and those scenarios are ported onto it.
 
+### Dante (#674)
+
+`native/modules/dante` (`relay-module-dante`) is `app/modules/dante`: it finds the Dante devices on the network, keeps one record per device by its Dante name, checks
+each control port (ARC), reads clocks and subscriptions, watches levels (a device's multicast heartbeat, or a request that makes a hardware box push its meters),
+raises problems once and clears them, and lets a permitted operator change a receive subscription (confirm, undo, locks, saved presets). It depends on
+`relay-core` only. It keeps nothing in `config.json` (`clean` is `{}`); history, stars, locks and presets are in `relay.db`, in the tables Python's migrations
+made (the module applies `0001_monitor.sql` and `0002_routing.sql` itself, under the namespace `dante`, the first time it starts). The admin page, its script and
+its permissions are Python's, unchanged.
+
+| Python | Rust (`modules/dante/src/`) |
+|---|---|
+| `arc.py` | `arc.rs`: the layouts, every request through `Host::net()` for the `dante` class; the write packets match Dante Controller's byte for byte |
+| `heartbeat.py`, `metering.py` | `heartbeat.rs`, `metering.rs`: parsers plus one task each (a stop aborts it, so nothing waits on a thread) |
+| `core mdns.py` (Dante's part) | `mdns.rs`: the questions go out the `dante` class's port, or one socket per real local address when it is unrouted |
+| `service.py` | `inventory.rs` (folding mDNS answers), `service.rs` (scan, probe, levels, the loops, `gear_list`) |
+| `monitor.py`, `routing.py` | `monitor.rs`, `routing.rs`: devices stay JSON objects, so the page reads exactly what it read |
+| `inputs.py`, `walk.py` | `inputs.rs`, `walk.rs`: pure functions |
+| `routes.py` | `routes.rs`: a refusal is `{"detail": sentence}` with Python's status |
+
+**What core now offers modules**: `core.interfaces` (`InterfacesCap`: this computer's ports, addresses and MACs, to tell "this computer" from another one and to name the
+meter requests' sender), `AlertButtons::cancel` (the stage alert button named "Dante" is raised once and ended when the last problem ends), and
+`Authorizer::who` / `Host::who` (the signed-in user's name, for "by <who>" in the history). Dante provides, while it is on, `gear.dante`, `audio.input_labels`,
+`dante.routing` and `nosound.dante` (`relay_core::caps`): the Rust server has no network map, input picker or "No sound?" walk yet, so these are offered by name and
+read by nobody until it does.
+
+**What changed and why.**
+
+- **Health detail is a fixed sentence** ("Dante devices found", "Some devices did not answer on their control port"), not the counts or the first problem's text, because
+  `Health::detail` is a `&'static str`. The page shows the counts and problems itself.
+- **The meter and heartbeat listeners are tasks**, not threads that a stop joins; stopping the module while Relay runs does not wait for a socket timeout.
+- **A gear group names no gear id** (`gear` is `null`): core's gear registry is Python's.
+- **Not in the trait yet:** `network_changed` (a changed network port is picked up by the next scan, up to 30 seconds later; the listeners keep their sockets until the
+  module is switched off and on), the module's `status` summary and its `test` hook.
+- **Meter requests name the address the meter socket is bound to**, as Python's do: with no Dante network port chosen that is 0.0.0.0, which a hardware box cannot push to.
+  Choose the Dante port on the Network page for levels from stage boxes.
+
+**Not run against real gear from this Mac.** The fakes are real UDP sockets on loopback: a Dante device that answers the clock, receive-list, counts, info and
+rate requests and takes both write formats (the 0x3010 packet and the 0x3410 page), a heartbeat sender, a box that pushes meters, and an mDNS responder that
+announces a device, so a whole scan runs. The six Python test files' scenarios are ported onto them, along with the byte-for-byte captures of real packets.
+
 ## Live captions (#659)
 
 `native/relay-captions` is `app/redact.py`, `app/realtime.py`, `app/transcribe.py`, `app/texttranslate.py`, `app/recorder.py`,

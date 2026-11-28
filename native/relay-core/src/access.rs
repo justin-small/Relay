@@ -34,6 +34,12 @@ pub trait Authorizer: Send + Sync + 'static {
         Box::pin(async {})
     }
 
+    /// The name of whoever made `request` (their display name, else their username), for a module that puts it in its own history. `None` when it is
+    /// not known; the default knows nobody.
+    fn who<'a>(&'a self, _request: &'a Parts) -> BoxFuture<'a, Option<String>> {
+        Box::pin(async { None })
+    }
+
     /// Write an audit entry with no request behind it (a module acting on its own: OBS starting a stream because Start was pressed). Never fails.
     fn record<'a>(&'a self, _action: &'a str, _summary: &'a str, _target: &'a str) -> BoxFuture<'a, ()> {
         Box::pin(async {})

@@ -1,0 +1,10 @@
+{
+  "path": ["native"],
+  "format": ["rust"],
+  "ignore": ["**/target/**", "**/tests/**", "**/fuzz/**", "**/proptest-regressions/**"],
+  "minLines": 8,
+  "minTokens": 70,
+  "reporters": ["console", "json", "html"],
+  "output": "reports/jscpd",
+  "gitignore": true
+}
