@@ -297,8 +297,8 @@ all with a 15 second heartbeat and `X-Accel-Buffering: no`, each a task that end
 (1008), limits message size, closes with 1001 on shutdown and finishes a close as a handshake. The helper, intercom and remote intercom
 routes (#497's hub, #662) are handlers on it.
 
-**Not mounted yet.** The caption engine still publishes into the Python hub, so the front door keeps forwarding `/stream` and the
-status stream to Python; mounting `streams::routes` is the one line that ends that, done when the engine moves (#659). The tests drive the
+**Mounted by `--rust-captions`** (#659, "Live captions" below). Without it the caption engine still publishes into the Python hub, so the
+front door keeps forwarding `/stream` and the status stream to Python. The tests drive the
 router on real sockets, including 500 held-open viewers (`five_hundred_held_open_viewers_all_keep_up`), the in-Rust counterpart of
 `tools/stress.py sse`, which starts the Python app and so could not be pointed at these routes yet.
 
@@ -337,8 +337,7 @@ and the state of both is POSTed back so the Audio bus page shows it. The door an
 
 - The remote intercom (`app/modules/intercom_remote`) links its mixer to `audiobus.bus.engine`, a `relay_bus.Bus` in the same process.
   With the server owning the engine it has no such object; that follows when the intercom moves (#662).
-- The status feed (`status.rs`) is not mounted yet, so `Show` (the bus's meters for `sound=1`) is not implemented here; it is the one
-  line that mounts `streams::routes` (#659).
+- The status feed (`status.rs`) is mounted with `--rust-captions` (#659); its `sound=1` meters (`Show::sound`) are not implemented here yet.
 - A new database made by the Rust server has no channels or routes tables (they are the Python migrations 0014 and 0015), so with
   `--rust-audio` the server says so and leaves the routes to the app, as it does for accounts (#655).
 - PortAudio device labels ("Core Audio: Name") are mapped to cpal names by the part after the first `: ` and otherwise passed through;
@@ -441,3 +440,53 @@ operator assigned. TLS is checked against the bundled roots.
 
 The "Web & YouTube" tab and `signageweb.js` are declared by the module (`admin_pages`, `tab_of: "signage"`, #719) and drawn by the server.
 `tests/test_signage_web.py` stays as the check of the Python module until it is retired (#664).
+
+## Live captions (#659)
+
+`native/relay-captions` is `app/redact.py`, `app/realtime.py`, `app/transcribe.py`, `app/texttranslate.py`, `app/recorder.py`,
+`app/exporting.py`, `app/demo.py`, the part of `app/audio.py` after the source, and what `app/engine.py`, `app/stream.py` and
+`app/modules/captions` do with them. `relay-server/src/captions.rs` mounts the routes. Start it with `relay-server --rust-audio --rust-captions`
+(or `RELAY_RUST_AUDIO=1 RELAY_RUST_CAPTIONS=1`): the room's audio is a lane of the Rust bus, so captions need `--rust-audio`, and without it the
+switch says so and the app keeps captions. Without the switch nothing changes.
+
+| Python | Rust |
+|---|---|
+| `redact.Redactor` | `redact.rs`: the same rules over `char`s (Python matches with one look-behind regex; the regex crate has none), as the hub's `Redact`. A property test checks a banned word is never on screen however the text is cut into deltas. |
+| `RealtimeSession` and `ScribeSession`'s event handling | `transcript.rs`: when a line is committed, with no socket and no clock of its own (the caller passes the time) |
+| `RealtimeSession._run` (connect, hello, audio, backoff) | `session.rs`, over `Connect` (two channels), so a test is a scripted server and the real one (`net.rs`) is a TLS WebSocket through `Host::net()` for the `translation` class |
+| `transcribe.py` (`Backend`, `resolve`, the OpenAI and Scribe sessions) | `transcribe.rs`: a `SessionSpec` (URL, handshake, first frame, how audio goes) for each backend; a module registers its own with `Backends::register` |
+| `TextTranslator`, `aimodels.resolve` | `translate.rs` (one request per language, all at once, in order, a backlog sent as one) and `aimodels.rs`, over `Chat` |
+| `Recorder`, `exporting.py` | `recorder.rs` (the run directory Python wrote, `meta.json` and `lines.jsonl`) and `exporting.rs` (transcripts, pairs, fine-tune file, zip) |
+| `AudioCapture`'s meter, gate, `soxr` resample, consumers | `capture.rs`: a windowed-sinc resampler, the speaking gate with its 320 ms lead-in, and a queue per session that evicts its oldest frame and counts it |
+| `Engine`, `Stream`, `Pipeline` | `engine.rs`: `Captions`, over `Settings`, `Capture`, `Chat`, `Connect` and `Outside` |
+| `demo.py` | `demo.rs` |
+| `/api/admin/status`, `start`, `stop`, `target/{t}`, `/api/targets`, `/api/admin/recordings*`, `/stream`, `/api/admin/status/stream` | `relay-server/src/captions.rs`, each behind the permission Python asked and writing the audit entry Python's gate wrote |
+
+**What changed and why.**
+
+- **The capture is a tap on a bus lane, at 24 kHz**, converted on the bus's reader thread (`AudioBus::open_tap_at`). Python opened a sound card
+  itself; here the bus owns it, so an unplugged input is the bus's to report and there is no reconnect loop in captions.
+- **Times are in the one Relay zone** (config `timezone`), not the computer's: run ids, transcript times and the exports. The two agree
+  on every install that set its zone to the computer's.
+- **The settings change is followed within a second**, not in the route: Python's `/api/admin/config` still saves (it stays in the app until
+  settings move) and the engine reads config.json each second. A changed lane, language or `realtime` block restarts the session; `stream_captions` is
+  followed live; the AI models page and the keys move the translator only; the blocklist file reloads when its modified time changes.
+- **JSON is written compact** (`lines.jsonl`, the pairs and fine-tune files); Python put a space after each `,` and `:`. Either reads the same.
+- **A fatal error stops retrying** in both the session and the translator, as in Python; the translator's HTTP errors are `HTTP <status>: <detail>`
+  (the same text `is_fatal` reads), and its other failures are fixed sentences, not an exception's text.
+
+**Found while porting.** The backoff test caught that the first draft never reset the one-second backoff after a good connection; the
+property test on the line-committing rules found nothing wrong with Python's, but its first draft assumed passthrough text comes out unchanged,
+which `tidy` (closing up spaces) does not do, in Python either.
+
+**Not here yet, and why.**
+
+- The Python modules that follow Start (OBS, REAPER, ProPresenter and the rest) are told `stream.started` and `stream.stopped` through
+  `/api/internal/stream/announce`, and what they add to the pages (pills, health) is read from `/api/internal/captions/outside`. They are ported by #661.
+- **Python's own schedule still starts Python's pipeline** (`app/scheduler.py` calls Python's stream): leave the schedule off in the app while
+  captions run here, or both open the audio. The scheduler is not in #659's list.
+- `/api/admin/config`, `/api/admin/ai*` and the blocklist editor's save stay in the app; the engine follows what they save.
+- The audio input is a bus lane, so a card that is not on the bus cannot be captioned here; Python's PortAudio source and the `lane` source
+  are not ported.
+- Not run against the live Vercel gateway or OpenAI from this Mac, as Python's Scribe session was not either (its wire format is the
+  `@ai-sdk/gateway`'s); the tests run the real clients against local HTTP and WebSocket servers, and the session loop against a scripted one.

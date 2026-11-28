@@ -616,6 +616,11 @@ impl AudioBus {
         self.engine.open_tap(lane, TapOptions::default()).ok()
     }
 
+    /// A tap on `lane` that reads mono samples at `rate`, converted once on the reader's side (captions read 24 kHz).
+    pub fn open_tap_at(&self, lane: usize, rate: u32) -> Option<u64> {
+        self.engine.open_tap(lane, TapOptions { rate: Some(rate), ..TapOptions::default() }).ok()
+    }
+
     pub fn read_tap(&self, tap: u64, max: usize, wait: Duration) -> Option<relay_bus::TapRead> {
         self.engine.read_tap(tap, max, wait).ok()
     }

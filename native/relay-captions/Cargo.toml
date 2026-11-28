@@ -1,0 +1,30 @@
+[package]
+name = "relay-captions"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+description = "Live captions in Rust (#659, part of #650): the blocklist, the transcription sessions, the translator and the recorder of app/redact.py, app/realtime.py, app/texttranslate.py and app/recorder.py. It serves no HTTP; relay-server mounts the routes."
+
+[dependencies]
+base64 = "0.22"
+bytes = "1"
+crc32fast = "1"
+futures-util = "0.3"
+http-body-util = "0.1"
+hyper = { version = "1", features = ["http1", "client"] }
+hyper-util = { version = "0.1", features = ["tokio"] }
+flate2 = "1"
+relay-core = { path = "../relay-core" }
+serde_json = { version = "1", features = ["preserve_order"] }
+tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12"] }
+tokio-tungstenite = { version = "0.30", default-features = false, features = ["handshake"] }
+unicode-normalization = "0.1"
+url = "2"
+webpki-roots = "0.26"
+tokio = { version = "1", features = ["sync", "rt", "macros", "time", "io-util"] }
+tracing = "0.1"
+
+[dev-dependencies]
+quickcheck = "1"
+tokio = { version = "1", features = ["sync", "rt", "macros", "time", "test-util", "net", "io-util"] }

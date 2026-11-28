@@ -145,5 +145,23 @@ with section("the app's own port rules follow the port the server forwarded"):
     check("a client that is not the server cannot make itself the viewer port",
           lan.get("/admin", headers={"X-Relay-Port": "8081"}, follow_redirects=False).status_code != 404)
 
+with section("what the Rust server asks of the modules for the live captions (#659)"):
+    outside = client.get("/api/internal/captions/outside", headers=HEAD)
+    eq("the app answers", outside.status_code, 200)
+    got = outside.json()
+    eq("with what the pages show", sorted(got), ["module_health", "module_status", "pills", "schedule", "streams"])
+    eq("the pills are a list, each module's health a table", (type(got["pills"]), type(got["module_health"])), (list, dict))
+    eq("it needs the front token", client.get("/api/internal/captions/outside").status_code, 404)
+    heard = []
+    from app import modules as follow  # noqa: E402
+    follow.listen("stream.started", lambda: heard.append("started"))
+    follow.listen("stream.stopped", lambda: heard.append("stopped"))
+    eq("a start is passed to the modules that follow it",
+       client.post("/api/internal/stream/announce", headers=HEAD, json={"event": "stream.started"}).status_code, 200)
+    eq("so is a stop", client.post("/api/internal/stream/announce", headers=HEAD, json={"event": "stream.stopped"}).status_code, 200)
+    eq("they heard both", heard, ["started", "stopped"])
+    eq("no other event is announced for the server", client.post("/api/internal/stream/announce", headers=HEAD, json={"event": "x"}).status_code, 400)
+    eq("and it needs the token", client.post("/api/internal/stream/announce", json={"event": "stream.started"}).status_code, 404)
+
 serving.reset()
 done()
