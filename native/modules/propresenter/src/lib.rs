@@ -38,7 +38,7 @@ use std::sync::{Arc, Mutex, OnceLock, PoisonError};
 use axum::http::HeaderMap;
 use axum::response::Response;
 use axum::Router;
-use relay_core::caps::{FeedExtra, ProOffers, FEED_EXTRA, PLAN_CHANGED, SignageLayer, ALERT_STAGE, PANEL_TIMERS_CHANGED, PRO_OFFERS, SIGNAGE_LAYER};
+use relay_core::caps::{BoardFollow, BOARD_FOLLOW, FeedExtra, ProOffers, FEED_EXTRA, PLAN_CHANGED, SignageLayer, ALERT_STAGE, PANEL_TIMERS_CHANGED, PRO_OFFERS, SIGNAGE_LAYER};
 use relay_core::future::BoxFuture;
 use relay_core::{AdminPage, AppError, Health, HealthState, Host, Manifest, Module, Permission};
 use serde_json::Value;
@@ -152,6 +152,39 @@ impl ProPresenter {
     }
 }
 
+/// What a board page set to follow ProPresenter reads: the presentation up now, the slide's group and its label, and names to pick from (this
+/// presentation's groups and labels, and the presentations seen since start).
+fn board_follow(f: &Arc<Follower>, seen: &Mutex<Vec<String>>) -> Value {
+    let pres = f.presentation();
+    let label = pres.as_ref().zip(f.slide_index()).and_then(|(p, i)| usize::try_from(i).ok().and_then(|i| p.cues.get(i))).map(|c| client::text(c, "label").trim().to_owned()).unwrap_or_default();
+    let name = pres.as_ref().map(|p| p.name.trim().to_owned()).unwrap_or_default();
+    let remembered = {
+        let mut seen = seen.lock().unwrap_or_else(PoisonError::into_inner);
+        if !name.is_empty() {
+            seen.retain(|n| *n != name);
+            seen.insert(0, name.clone());
+            seen.truncate(100);
+        }
+        seen.clone()
+    };
+    let unique = |items: Vec<String>| -> Vec<String> {
+        let mut out: Vec<String> = Vec::new();
+        for i in items.into_iter().filter(|i| !i.is_empty()) {
+            if !out.contains(&i) {
+                out.push(i);
+            }
+        }
+        out
+    };
+    let groups = unique(pres.iter().flat_map(|p| p.groups.iter().map(|g| g.0.clone())).collect());
+    let labels = unique(pres.iter().flat_map(|p| p.cues.iter().map(|c| client::text(c, "label").trim().to_owned())).collect());
+    serde_json::json!({
+        "name": "ProPresenter", "connected": f.is_up(),
+        "now": {"presentation": name, "group": f.group_name(), "label": label},
+        "suggest": {"presentation": remembered, "group": groups, "label": labels},
+    })
+}
+
 /// What a panel's menu may offer from ProPresenter: it rides the panels' status. Both false until ProPresenter is set up.
 fn offers(follower: &Arc<Follower>) -> ProOffers {
     let (a, b) = (Arc::clone(follower), Arc::clone(follower));
@@ -258,6 +291,9 @@ impl Module for ProPresenter {
             let c = &p.ctx;
             // What a panel's menu may offer, asked for by name while this module is on.
             host.provide(MANIFEST.id, PRO_OFFERS, Arc::new(offers(&c.follower)));
+            // What a board page set to follow ProPresenter reads: the presentation up now, the slide's group and label, and names to pick from.
+            let (follower, seen) = (Arc::clone(&c.follower), Arc::new(Mutex::new(Vec::<String>::new())));
+            host.provide(MANIFEST.id, &format!("{BOARD_FOLLOW}propresenter"), Arc::new(BoardFollow(Box::new(move || Some(board_follow(&follower, &seen))))));
             // An alert flashing on the panels is shown on ProPresenter's stage screens too.
             let follower = Arc::clone(&c.follower);
             host.listen(

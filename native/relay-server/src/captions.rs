@@ -270,6 +270,10 @@ impl Outside for AppOutside {
         if let Some(plan) = self.host.as_ref().and_then(|h| h.using::<relay_core::caps::PlanCap>(relay_core::caps::PLAN)) {
             out.insert("service".to_owned(), Value::Array((plan.offered)()));
         }
+        // The ProPresenter feeds a panel can pick, from the Rust ProPresenter while it is on: the lyrics (if the operator has them on for panels) and the timers.
+        if let Some(offers) = self.host.as_ref().and_then(|h| h.using::<relay_core::caps::ProOffers>(relay_core::caps::PRO_OFFERS)) {
+            out.insert("propresenter".to_owned(), json!({"lyrics": (offers.lyrics)(), "timers": (offers.timers)()}));
+        }
         out
     }
     fn announce(&self, event: &str) {

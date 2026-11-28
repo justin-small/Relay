@@ -325,3 +325,10 @@ pub trait Helpers: Send + Sync + 'static {
     /// Ask a helper to run `op` of `cap` and return its data.
     fn call<'a>(&'a self, cap: &'a str, op: &'a str, args: Value) -> BoxFuture<'a, Result<Value, HelperError>>;
 }
+
+// -------------------------------------------------------------------------------------------------------------------- board follow
+/// `board.follow.<source>` (`Arc<BoardFollow>`): what a board page set to follow another program reads (`Module.board_follow`): `{"name", "connected",
+/// "now": {"presentation", "group", "label"}, "suggest": {"presentation": [...], "group": [...], "label": [...]}}`. `None` while it cannot say.
+pub const BOARD_FOLLOW: &str = "board.follow.";
+
+pub struct BoardFollow(pub Box<dyn Fn() -> Option<Value> + Send + Sync>);

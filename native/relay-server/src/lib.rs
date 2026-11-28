@@ -19,3 +19,4 @@ pub mod gate;
 pub mod modcaps;
 pub mod modulehost;
 pub mod show;
+pub mod tagacts;
