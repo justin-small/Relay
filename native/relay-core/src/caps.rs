@@ -305,3 +305,23 @@ pub struct PlanLink {
     /// Move LIVE of service type `.0` to one of the item ids `.2` (`.1` is the plan's item ids in order); `.3` allows going back.
     pub drive: Box<DriveFn>,
 }
+
+// ------------------------------------------------------------------------------------------------------------------------------ helpers
+/// `Arc<HelpersCap>`: the Relay Helpers paired with this install and connected to it (`app/helperhub.py`), provided by the server while it holds the
+/// helpers' sockets. A module asks one that has a capability (`propresenter` can `open_files`) to run an operation on its own computer.
+pub const HELPERS: &str = "core.helpers";
+
+pub struct HelpersCap(pub Arc<dyn Helpers>);
+
+/// Why a helper call did not give an answer: a sentence the helper or Relay wrote for the operator, never an error's own text.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HelperError(pub String);
+
+pub trait Helpers: Send + Sync + 'static {
+    /// The name of the connected helper that can do `op` of `cap`, or `None`.
+    fn find(&self, cap: &str, op: &str) -> Option<String>;
+    /// How many helpers are paired, connected or not.
+    fn paired(&self) -> usize;
+    /// Ask a helper to run `op` of `cap` and return its data.
+    fn call<'a>(&'a self, cap: &'a str, op: &'a str, args: Value) -> BoxFuture<'a, Result<Value, HelperError>>;
+}

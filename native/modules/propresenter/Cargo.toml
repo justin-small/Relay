@@ -20,6 +20,11 @@ hyper = { version = "1", features = ["http1", "client"] }
 hyper-util = { version = "0.1", features = ["tokio"] }
 serde_json = { version = "1", features = ["preserve_order"] }
 sha1 = "0.10"
+prost = "0.13"
+prost-reflect = "0.14"
+lopdf = { version = "0.47", default-features = false }
+uuid = { version = "1", features = ["v4"] }
+base64 = "0.22"
 tokio = { version = "1", features = ["rt", "macros", "time", "sync", "io-util"] }
 tracing = "0.1"
 

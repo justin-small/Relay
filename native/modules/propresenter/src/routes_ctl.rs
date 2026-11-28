@@ -18,6 +18,7 @@ use crate::lobby::LobbyError;
 use crate::pclink::{message, LinkFail};
 use crate::routes::{audit, pp_error, Ctx};
 use crate::settings::configured;
+use crate::songs::{self, SendError};
 use crate::web::{detail, error, object};
 
 /// A query value (`?v=...`), percent-decoded.
@@ -421,6 +422,70 @@ async fn link_playlist(State(c): State<Ctx>, req: Request) -> Response {
     audited(&c, &parts, res).await
 }
 
+// ------------------------------------------------------------------------------------------------------------------------- songs
+/// ProPresenter's API cannot create a song, so Relay builds the file and the Relay Helper on the ProPresenter computer opens it. Fixed sentences only, never
+/// an exception's text.
+async fn songs_helper(State(c): State<Ctx>) -> Response {
+    Json(songs::helper_state(&c.host)).into_response()
+}
+
+/// Build songs (name, sections of slides, arrangements, CCLI and the rest) and have the helper import them.
+async fn songs_send(State(c): State<Ctx>, req: Request) -> Response {
+    let (parts, body) = req.into_parts();
+    let payload = match object(body).await {
+        Ok(p) => p,
+        Err(r) => return r,
+    };
+    match songs::send(&c.host, &payload["songs"]).await {
+        Ok(done) => {
+            let names: Vec<Value> = done["files"].as_array().into_iter().flatten().take(20).cloned().collect();
+            c.host.note(&parts, "propresenter.songs", &format!("Sent {} song(s) to ProPresenter", done["sent"]), "", Some(json!({"songs": names}))).await;
+            Json(done).into_response()
+        }
+        Err(SendError::Song(e)) => detail(400, &e.message),
+        Err(SendError::Helper(why)) => detail(409, &why),
+    }
+}
+
+fn song_answer(done: Result<Value, songs::SongError>) -> Response {
+    match done {
+        Ok(v) => Json(v).into_response(),
+        Err(e) => detail(400, &e.message),
+    }
+}
+
+/// The lyrics, sections, arrangements and CCLI inside a `.pro` file (sent as base64 in `data_b64`).
+async fn songs_read(State(c): State<Ctx>, req: Request) -> Response {
+    let _ = &c;
+    let payload = match object(req.into_body()).await {
+        Ok(p) => p,
+        Err(r) => return r,
+    };
+    song_answer(songs::read_song(&payload["data_b64"], payload["inline"] == Value::Bool(true)))
+}
+
+/// A pasted lyric sheet (`text`) or a PDF (`pdf_b64`) read into sections of slides. Reads only; nothing is kept.
+async fn songs_parse(State(c): State<Ctx>, req: Request) -> Response {
+    let _ = &c;
+    let payload = match object(req.into_body()).await {
+        Ok(p) => p,
+        Err(r) => return r,
+    };
+    // Reading a PDF can take a while: it runs off the request's thread.
+    let done = tokio::task::spawn_blocking(move || songs::parse_text(&payload)).await;
+    song_answer(done.unwrap_or_else(|_| Err(songs::SongError { message: "That PDF could not be read.".into() })))
+}
+
+/// The given sections cut again into slides of `lines` lines. Reads only; nothing is kept.
+async fn songs_split(State(c): State<Ctx>, req: Request) -> Response {
+    let _ = &c;
+    let payload = match object(req.into_body()).await {
+        Ok(p) => p,
+        Err(r) => return r,
+    };
+    song_answer(songs::split_song(&payload))
+}
+
 pub fn router(c: &Ctx) -> Router<Ctx> {
     let h = c.host.clone();
     let view = |r| gate(&h, "propresenter.view", r);
@@ -428,6 +493,11 @@ pub fn router(c: &Ctx) -> Router<Ctx> {
     let manage = |r| gate(&h, "propresenter.manage", r);
     let b = "/api/admin/propresenter";
     Router::new()
+        .route(&format!("{b}/songs/helper"), view(get(songs_helper)))
+        .route(&format!("{b}/songs/send"), manage(post(songs_send)))
+        .route(&format!("{b}/songs/read"), view(post(songs_read)))
+        .route(&format!("{b}/songs/parse"), view(post(songs_parse)))
+        .route(&format!("{b}/songs/split"), view(post(songs_split)))
         .route(&format!("{b}/link"), view(get(link_get)))
         .route(&format!("{b}/link/presentations"), view(get(link_presentations)))
         .route(&format!("{b}/link/refresh"), manage(post(link_refresh)))
