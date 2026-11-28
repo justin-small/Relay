@@ -207,7 +207,7 @@ fn captions(s: &Arc<Streams>, name: &str, lang: &str, last: Option<u64>, finals:
     event_stream(move |tx| async move {
         loop {
             tokio::select! {
-                frame = sub.rx.recv() => match frame {
+                frame = sub.recv() => match frame {
                     Some(f) => if tx.send(f).await.is_err() { break },
                     // The hub dropped this viewer for falling behind: end the stream so the browser reconnects and resyncs.
                     None => break,
@@ -265,7 +265,7 @@ async fn admin_status(State(s): State<Arc<Streams>>, conn: Option<axum::Extensio
         let mut online = s.show.panels_online();
         loop {
             let msg = tokio::select! {
-                pushed = sub.rx.recv() => match pushed {
+                pushed = sub.recv() => match pushed {
                     Some(m) => (*m).clone(),
                     None => break,
                 },

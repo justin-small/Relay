@@ -20,8 +20,8 @@ use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
-use relay_core::access::gate;
-use relay_core::module::BoxFuture;
+use relay_core::gate::gate;
+use relay_core::future::BoxFuture;
 use relay_core::{AppError, Health, HealthState, Host, Manifest, Module, Permission};
 use serde_json::{json, Map, Value};
 
@@ -114,7 +114,7 @@ fn view(service: &Service) -> Value {
         "enrolled": enrolled(&s),
         "url": url(&s),
         "state": state.name(),
-        "connections": service.tunnel.connections(),
+        "connections": service.tunnel_connections(),
         "detail": tunnel_text(state),
         "cloud_error": if cloud_error.is_empty() { "" } else { cloud::message_for(&cloud_error) },
         "cloudflared": tunnel::find_binary().is_some(),

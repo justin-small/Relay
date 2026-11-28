@@ -12,7 +12,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use relay_core::languages;
-use relay_core::module::BoxFuture;
+use relay_core::future::BoxFuture;
 use serde_json::{json, Value};
 
 use crate::render::Bgra;

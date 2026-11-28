@@ -159,11 +159,11 @@ pub fn slug_for(name: &str, taken: &[String]) -> String {
 }
 
 pub struct Store {
-    pub media: Media,
-    pub pool: SqlitePool,
-    pub screens: Arc<dyn ScreenDirectory>,
-    pub live: Arc<Live>,
-    pub host: Host,
+    pub(crate) media: Media,
+    pub(crate) pool: SqlitePool,
+    pub(crate) screens: Arc<dyn ScreenDirectory>,
+    pub(crate) live: Arc<Live>,
+    pub(crate) host: Host,
 }
 
 impl Store {
@@ -183,6 +183,75 @@ impl Store {
         }
         tx.commit().await?;
         Ok(Self { media, pool, screens, live, host })
+    }
+
+    // ------------------------------------------------------------------ what the routes ask of the parts
+    /// A screen by id, with its `ref` and `place_ref`.
+    pub async fn screen(&self, id: i64) -> std::result::Result<Option<Value>, ScreenError> {
+        self.screens.get(id).await
+    }
+
+    /// The screen was heard from just now.
+    pub async fn touch_screen(&self, id: i64) {
+        let _ = self.screens.touch(id, "").await;
+    }
+
+    /// A setting of core or of another module, by its settings key.
+    pub fn host_settings(&self, key: &str) -> Option<Value> {
+        self.host.settings(key)
+    }
+
+    pub fn save_host_settings(&self, key: &str, changes: &Value) -> bool {
+        self.host.save_settings(key, changes).is_ok()
+    }
+
+    pub fn viewer_port(&self) -> u16 {
+        self.host.viewer_port()
+    }
+
+    pub fn media_file(&self, name: &str) -> Option<std::path::PathBuf> {
+        self.media.file_path(name)
+    }
+
+    pub fn thumb_file(&self, sha: &str) -> Option<std::path::PathBuf> {
+        self.media.thumb_path(sha)
+    }
+
+    pub async fn receive_media(&self, body: axum::body::Body) -> std::result::Result<(String, String, u64), media::Refused> {
+        self.media.receive(body).await
+    }
+
+    /// (bytes free, bytes the library uses).
+    pub fn disk_use(&self) -> (u64, i64) {
+        self.media.disk()
+    }
+
+    pub fn mirror_missing(&self, rows: &[(String, String)]) {
+        self.media.mirror_missing(rows);
+    }
+
+    pub fn prune_mirror(&self, current: &[String]) -> usize {
+        self.media.prune_mirror(current)
+    }
+
+    pub fn live_version(&self) -> u64 {
+        self.live.version()
+    }
+
+    pub fn bump_live(&self) {
+        self.live.bump();
+    }
+
+    pub fn report_playing(&self, slug: &str, item: Option<i64>, label: &str) {
+        self.live.report(slug, item, label);
+    }
+
+    pub fn finish_playing(&self, slug: &str, push_id: i64) {
+        self.live.done(slug, push_id);
+    }
+
+    pub fn now_playing(&self, slug: &str) -> Option<crate::live::Now> {
+        self.live.playing(slug)
     }
 
     // ------------------------------------------------------------------ settings and time

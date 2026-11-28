@@ -14,7 +14,7 @@ use std::time::Duration;
 
 use tokio::net::{TcpStream, UdpSocket};
 
-use crate::module::BoxFuture;
+use crate::future::BoxFuture;
 
 /// A routed socket could not be made. `message` is a fixed sentence fit for the admin page, never the OS's error text.
 #[derive(Clone, Debug, PartialEq, Eq)]

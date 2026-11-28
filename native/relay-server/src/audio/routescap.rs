@@ -6,7 +6,7 @@ use std::sync::Arc;
 use relay_audio::channels::{End, Fut};
 use relay_audio::routing::{Provider, ReadItem, Wanted};
 use relay_audio::{Channels, Error, Routing};
-use relay_core::module::BoxFuture;
+use relay_core::future::BoxFuture;
 use relay_core::routes::{ReadSource, RouteError, RouteProvider, RouteResult, Routes, WantedSource};
 use serde_json::{json, Value};
 

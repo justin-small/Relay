@@ -459,7 +459,7 @@ pub fn epoch_of(stamp: &str) -> Option<f64> {
 }
 
 // ------------------------------------------------------------------------------------------------------------------ for modules
-use relay_core::module::BoxFuture;
+use relay_core::future::BoxFuture;
 use relay_core::screens::{ScreenDirectory, ScreenError, ScreenResult};
 
 fn lift<T>(r: Result<T>) -> ScreenResult<T> {

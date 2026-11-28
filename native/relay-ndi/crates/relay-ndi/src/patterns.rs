@@ -22,6 +22,11 @@ impl Canvas {
         Canvas { w, h, px: vec![c; w * h] }
     }
 
+    /// Set the pixel at column `x`, row `y`.
+    fn set(&mut self, x: usize, y: usize, c: [u8; 4]) {
+        self.px[y * self.w + x] = c;
+    }
+
     /// Fill rows `y0..y1` and columns `x0..x1`, clipped to the canvas (numpy slices clip the same way).
     fn fill(&mut self, y0: usize, y1: usize, x0: usize, x1: usize, c: [u8; 4]) {
         let (y1, x1) = (y1.min(self.h), x1.min(self.w));
@@ -70,7 +75,7 @@ fn ramp(w: usize, h: usize) -> Canvas {
     let row: Vec<u8> = (0..w).map(|i| (i as f64 * step).round_ties_even() as u8).collect();
     for y in 0..h {
         for (x, v) in row.iter().enumerate() {
-            c.px[y * w + x] = [*v, *v, *v, 255];
+            c.set(x, y, [*v, *v, *v, 255]);
         }
     }
     let per = w.div_ceil(11);
@@ -78,7 +83,7 @@ fn ramp(w: usize, h: usize) -> Canvas {
     for y in top..h {
         for x in 0..w {
             let v = (((x / per).min(10)) as f64 * 25.5).round_ties_even() as u8;
-            c.px[y * w + x] = [v, v, v, 255];
+            c.set(x, y, [v, v, v, 255]);
         }
     }
     c
@@ -104,7 +109,7 @@ fn grid(w: usize, h: usize) -> Canvas {
     for y in 0..h {
         for x in 0..w {
             if ((x as f64 - cx as f64).hypot(y as f64 - cy as f64) - r).abs() < t as f64 * 1.5 {
-                c.px[y * w + x] = white;
+                c.set(x, y, white);
             }
         }
     }
@@ -127,7 +132,7 @@ fn alpha(w: usize, h: usize) -> Canvas {
     for y in 0..h {
         for x in 0..w {
             if (y / size + x / size) % 2 == 1 {
-                c.px[y * w + x] = [255, 255, 255, 255];
+                c.set(x, y, [255, 255, 255, 255]);
             }
         }
     }

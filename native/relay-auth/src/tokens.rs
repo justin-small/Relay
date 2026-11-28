@@ -5,15 +5,12 @@
 use sqlx::sqlite::SqliteRow;
 use sqlx::Row;
 
-use crate::accounts::{clean_name, user_of, COLS_U};
 use crate::db::{later, now, Auth};
 use crate::error::{Refusal, Result};
 use crate::perms::User;
-use crate::sessions::{hash_token, random_token};
+use crate::shared::{clean_name, hash_token, random_token, user_of, COLS_U};
 
 pub const TOKEN_PREFIX: &str = "relay_";
-/// Who holds `tokens.own`; a user moved below it loses their tokens.
-pub const TOKEN_MIN_ROLE: &str = "admin";
 /// Days a token lives, or never.
 pub const TOKEN_EXPIRY_DAYS: [Option<i64>; 4] = [Some(30), Some(90), Some(365), None];
 pub const TOKEN_DEFAULT_DAYS: i64 = 90;

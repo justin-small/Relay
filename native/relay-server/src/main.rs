@@ -63,7 +63,7 @@ fn fingerprint() -> Result<(), String> {
     let settings = Settings::read(&cfg);
     let names = tls::names(&settings.admin_fqdn, &relay_server::netinfo::lan_ips(&net.ports), &[]);
     let panel = Panel::start(&tls::cert_dir(), &settings.admin_fqdn, &names)?;
-    println!("{}", panel.info.fingerprint);
+    println!("{}", panel.fingerprint());
     Ok(())
 }
 
@@ -73,12 +73,12 @@ async fn run() -> Result<(), String> {
     let config = Arc::new(Config::load(&path).map_err(|e| e.to_string())?);
     let shutdown = Shutdown::new();
     let sealed = Arc::new(relay_config::Settings::new(&path));
-    let mut registry = Registry::new(Arc::clone(&config), Host::new(shutdown.clone())
+    let viewer_port = relay_core::ViewerPort::default();
+    let host = Host::new(shutdown.clone())
+        .with_viewer_port(viewer_port.clone())
         .with_store(Arc::new(relay_server::modulehost::SealedStore(sealed)))
-        .with_net(relay_core::Net::new(Arc::new(relay_server::netsock::RoutedNet::new(
-        Arc::clone(&config),
-        std::collections::BTreeMap::new(),
-    )))));
+        .with_net(relay_core::Net::new(Arc::new(relay_server::netsock::RoutedNet::new(Arc::clone(&config), std::collections::BTreeMap::new()))));
+    let mut registry = Registry::new(Arc::clone(&config), host.clone());
     modules::register_all(&mut registry).map_err(|e| e.to_string())?;
     let registry = Arc::new(registry);
 
@@ -94,8 +94,8 @@ async fn run() -> Result<(), String> {
         rust_audio: arg("--rust-audio", "RELAY_RUST_AUDIO").is_some_and(|v| v != "0" && !v.eq_ignore_ascii_case("false")) || std::env::args().any(|a| a == "--rust-audio"),
         rust_show: arg("--rust-show", "RELAY_RUST_SHOW").is_some_and(|v| v != "0" && !v.eq_ignore_ascii_case("false")) || std::env::args().any(|a| a == "--rust-show"),
     };
-    let app = App::start(options, Arc::clone(&registry), shutdown.clone()).await?;
-    registry.host().set_viewer_port(app.viewer_port());
+    let app = App::start(options, Arc::clone(&registry), host.clone(), shutdown.clone()).await?;
+    viewer_port.set(app.viewer_port());
     registry.start_enabled().await;
     for line in app.banner() {
         println!("{line}");

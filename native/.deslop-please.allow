@@ -1,0 +1,7 @@
+# Existing architectural debt suppressed by `deslop-please --allow`.
+# Fixing an entry here never fails CI; new issues not listed here fail.
+field-leak relay_bus::analysis::loudness::LoudnessMeter::silence_dbfs
+field-leak relay_bus::analysis::spl::SplAnalyzer::calibration_db
+shallow-module relay_core
+wide-directory modules/ndi/src/
+wide-directory relay-core/src/

@@ -79,7 +79,7 @@ struct World {
 async fn world() -> World {
     let (auth, _) = database().await;
     let channels = Channels::new(auth.pool().clone());
-    let routing = Routing::new(channels.clone());
+    let routing = Routing::new(channels.clone(), auth.pool().clone());
     let store = Arc::new(Memory::default());
     let bus = AudioBus::new(Backing::fake(), store.clone(), channels.clone(), routing.clone());
     World { _auth: auth, channels, routing, bus, store }

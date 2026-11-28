@@ -205,7 +205,7 @@ struct Tile {
 }
 
 pub struct Compositor {
-    pub feed: Arc<Feed>,
+    feed: Arc<Feed>,
     mv: Value,
     width: usize,
     height: usize,
@@ -238,7 +238,33 @@ fn rects(mv: &Value, width: usize, height: usize) -> Vec<(i64, i64, i64, i64)> {
         .collect()
 }
 
+impl crate::viewer::Frames for Compositor {
+    async fn next(&self, after: u64, timeout: Duration) -> Option<(u64, bytes::Bytes)> {
+        self.feed.next(after, timeout).await
+    }
+}
+
 impl Compositor {
+    /// The multiview's id.
+    pub fn id(&self) -> &str {
+        &self.feed.source
+    }
+
+    /// Another browser is watching.
+    pub(crate) fn add_viewer(&self) {
+        self.feed.add_viewer();
+    }
+
+    /// One browser fewer; the number left.
+    pub(crate) fn remove_viewer(&self) -> i64 {
+        self.feed.remove_viewer()
+    }
+
+    /// How many browsers are watching.
+    pub fn viewers(&self) -> i64 {
+        self.feed.viewers()
+    }
+
     fn new(mv: Value, limits: Limits) -> Compositor {
         let width = (limits.width as usize).max(320) / 2 * 2;
         let height = width * 9 / 16 / 2 * 2;
@@ -389,7 +415,7 @@ impl Multiviews {
     pub fn open(&self, id: &str) -> Option<Arc<Compositor>> {
         let mut open = self.open.lock().ok()?;
         if let Some(c) = open.get(id) {
-            c.feed.add_viewer();
+            c.add_viewer();
             return Some(Arc::clone(c));
         }
         let c = Arc::new(Compositor::new(self.get(id)?, (self.env.limits)()));
@@ -399,10 +425,10 @@ impl Multiviews {
     }
 
     pub fn close(&self, c: &Arc<Compositor>) {
-        if c.feed.remove_viewer() > 0 {
+        if c.remove_viewer() > 0 {
             return;
         }
-        let id = c.feed.source.clone();
+        let id = c.id().to_owned();
         if let Ok(mut open) = self.open.lock() {
             if open.get(&id).is_some_and(|o| Arc::ptr_eq(o, c)) {
                 open.remove(&id);
@@ -412,7 +438,7 @@ impl Multiviews {
     }
 
     pub fn count(&self) -> HashMap<String, i64> {
-        self.open.lock().map(|o| o.iter().map(|(k, c)| (k.clone(), c.feed.viewers())).collect()).unwrap_or_default()
+        self.open.lock().map(|o| o.iter().map(|(k, c)| (k.clone(), c.viewers())).collect()).unwrap_or_default()
     }
 
     pub fn close_all(&self) {

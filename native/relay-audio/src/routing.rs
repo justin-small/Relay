@@ -12,7 +12,7 @@ use std::sync::{Arc, RwLock};
 
 use relay_auth::now;
 use serde_json::{json, Value};
-use sqlx::Row;
+use sqlx::{Row, SqlitePool};
 
 use crate::channels::{channel_id, reference, Channel, Channels, End, Fut};
 use crate::error::{Error, Result};
@@ -69,6 +69,7 @@ struct SalvoRow {
 
 pub struct Routing {
     pub channels: Arc<Channels>,
+    pool: SqlitePool,
     core: RwLock<HashMap<String, Arc<dyn Provider>>>,
     external: RwLock<HashMap<String, Arc<dyn Provider>>>,
     native: RwLock<HashMap<String, Arc<dyn Provider>>>,
@@ -96,8 +97,18 @@ fn salvo_ref(id: i64) -> String {
 }
 
 impl Routing {
-    pub fn new(channels: Arc<Channels>) -> Arc<Self> {
-        Arc::new(Self { channels, core: RwLock::default(), external: RwLock::default(), native: RwLock::default(), generation: AtomicU64::new(0) })
+    /// `pool` is the database `channels` reads: routes and salvos live beside the channels there.
+    pub fn new(channels: Arc<Channels>, pool: SqlitePool) -> Arc<Self> {
+        Arc::new(Self { channels, pool, core: RwLock::default(), external: RwLock::default(), native: RwLock::default(), generation: AtomicU64::new(0) })
+    }
+
+    /// Every route as asked for: destination channel to its (source channel, gain), in the order they were made.
+    pub async fn asked(&self) -> Result<HashMap<i64, Vec<(i64, Option<f64>)>>> {
+        let mut asked: HashMap<i64, Vec<(i64, Option<f64>)>> = HashMap::new();
+        for r in sqlx::query("select destination, source, gain_db from routes order by id").fetch_all(&self.pool).await? {
+            asked.entry(r.get("destination")).or_default().push((r.get("source"), r.get("gain_db")));
+        }
+        Ok(asked)
     }
 
     /// A number that goes up whenever a route is written through this process, so a cache of what routes say can tell it is stale.
@@ -190,7 +201,7 @@ impl Routing {
     // -- reading ------------------------------------------------------------------------------------------------
     /// `[(route id, source root, gain)]` for what was asked of a destination, one per source.
     async fn wanted_rows(&self, dest_id: i64) -> Result<Vec<(i64, i64, Option<f64>)>> {
-        let rows = sqlx::query("select id, source, gain_db from routes where destination = ? order by id").bind(dest_id).fetch_all(self.channels.pool()).await?;
+        let rows = sqlx::query("select id, source, gain_db from routes where destination = ? order by id").bind(dest_id).fetch_all(&self.pool).await?;
         let mut seen = HashSet::new();
         let mut out = Vec::new();
         for r in rows {
@@ -217,7 +228,7 @@ impl Routing {
 
     async fn dest_ids(&self) -> Result<Vec<i64>> {
         let mut ids = Vec::new();
-        for r in sqlx::query("select distinct destination d from routes order by d").fetch_all(self.channels.pool()).await? {
+        for r in sqlx::query("select distinct destination d from routes order by d").fetch_all(&self.pool).await? {
             if let Some(root) = self.channels.root_id(r.get("d")).await? {
                 if !ids.contains(&root) {
                     ids.push(root);
@@ -399,7 +410,7 @@ impl Routing {
         }
         let gains = self.has_gain(&dest) || self.appliers(&dest).is_empty();
         let stamp = now();
-        let mut tx = self.channels.pool().begin().await?;
+        let mut tx = self.pool.begin().await?;
         sqlx::query("delete from routes where destination = ?").bind(dest.id).execute(&mut *tx).await?;
         for (src, gain) in &pairs {
             sqlx::query("insert into routes (destination, source, gain_db, created_at, updated_at) values (?, ?, ?, ?, ?)")
@@ -483,12 +494,12 @@ impl Routing {
     pub async fn salvos(&self, scope: Option<&str>) -> Result<Vec<Value>> {
         let names: HashMap<i64, String> = self.world().await?.into_iter().map(|(k, c)| (k, c.shown)).collect();
         let mut rows: HashMap<i64, Vec<SalvoRow>> = HashMap::new();
-        for x in sqlx::query("select * from salvo_routes order by rowid").fetch_all(self.channels.pool()).await? {
+        for x in sqlx::query("select * from salvo_routes order by rowid").fetch_all(&self.pool).await? {
             rows.entry(x.get("salvo_id")).or_default().push(SalvoRow { destination: x.get("destination"), source: x.get("source"), gain_db: x.get("gain_db") });
         }
         let want = scope.map(Self::scope);
         Ok(sqlx::query("select * from salvos order by id")
-            .fetch_all(self.channels.pool())
+            .fetch_all(&self.pool)
             .await?
             .iter()
             .filter(|r| want.as_ref().is_none_or(|w| r.get::<String, _>("scope") == *w))
@@ -524,7 +535,7 @@ impl Routing {
                 cells.push((did, channel_id(&s["ref"]), s["gain_db"].as_f64()));
             }
         }
-        let mut tx = self.channels.pool().begin().await?;
+        let mut tx = self.pool.begin().await?;
         let old = match sid {
             Some(id) => sqlx::query("select id from salvos where id = ?").bind(id).fetch_optional(&mut *tx).await?,
             None => None,
@@ -556,7 +567,7 @@ impl Routing {
     }
 
     pub async fn delete_salvo(&self, sid: i64) -> Result<()> {
-        let mut tx = self.channels.pool().begin().await?;
+        let mut tx = self.pool.begin().await?;
         if sqlx::query("select 1 x from salvos where id = ?").bind(sid).fetch_optional(&mut *tx).await?.is_none() {
             return Err(Error::Refused("no_salvo"));
         }
@@ -568,11 +579,11 @@ impl Routing {
 
     /// Apply every route in a preset. Returns the sentences for what would not apply (empty when all did).
     pub async fn take_salvo(&self, sid: i64) -> Result<Vec<String>> {
-        if sqlx::query("select 1 x from salvos where id = ?").bind(sid).fetch_optional(self.channels.pool()).await?.is_none() {
+        if sqlx::query("select 1 x from salvos where id = ?").bind(sid).fetch_optional(&self.pool).await?.is_none() {
             return Err(Error::Refused("no_salvo"));
         }
         let mut per: Vec<(i64, Vec<(Value, Value)>)> = Vec::new();
-        for x in sqlx::query("select * from salvo_routes where salvo_id = ? order by rowid").bind(sid).fetch_all(self.channels.pool()).await? {
+        for x in sqlx::query("select * from salvo_routes where salvo_id = ? order by rowid").bind(sid).fetch_all(&self.pool).await? {
             let dest: i64 = x.get("destination");
             if !per.iter().any(|(d, _)| *d == dest) {
                 per.push((dest, Vec::new()));

@@ -250,7 +250,7 @@ async fn a_pin_signs_in_only_from_a_trusted_device_and_the_fifth_miss_clears_it(
     let (token, dev) = auth.trust_device("Booth iPad", &boss, "Mozilla/5.0 (iPad)").await.unwrap();
     assert_eq!(auth.device_for(&token).await.unwrap().unwrap().id, dev.id);
     assert!(auth.device_for("nope").await.unwrap().is_none());
-    assert_eq!(auth.pin_users().await.unwrap(), vec![(u.id, "frank".to_string())]);
+    assert_eq!(auth.pin_picker(&token).await.unwrap().1, vec![(u.id, "frank".to_string())]);
     for _ in 0..4 {
         assert_eq!(refused(auth.authenticate_pin(u.id, "0000", Some(dev.id)).await), Refusal::WrongPin);
     }
@@ -352,8 +352,9 @@ async fn the_audit_log_records_searches_and_prunes() {
     assert_eq!(auth.search_audit(Search { q: Some("100%"), ..Default::default() }).await.unwrap().entries.len(), 0, "% is not a wildcard");
     let page = auth.search_audit(Search { limit: Some(1), ..Default::default() }).await.unwrap();
     assert!(page.more && page.entries.len() == 1);
-    assert_eq!(auth.audit_kinds().await.unwrap(), vec!["signin".to_string(), "user".to_string()]);
-    assert_eq!(auth.audit_people().await.unwrap(), vec![(admin.id, "adm".into(), "adm".into())]);
+    let (people, kinds) = auth.audit_filters().await.unwrap();
+    assert_eq!(kinds, vec!["signin".to_string(), "user".to_string()]);
+    assert_eq!(people, vec![(admin.id, "adm".into(), "adm".into())]);
     sqlx::query("update audit_log set at = '2020-01-01T00:00:00Z' where action = 'signin.failed'").execute(auth.pool()).await.unwrap();
     assert_eq!(auth.prune_audit().await.unwrap(), 1);
 }

@@ -5,27 +5,29 @@
 //! `tests/test_rust_modules.py` fails the build when a core crate depends on a module crate, or a module on another one.
 
 pub mod access;
+pub mod gate;
+pub mod schedules;
+pub mod timewin;
+pub mod lanes;
+pub mod routes;
+pub mod screens;
 pub mod config;
 pub mod error;
+pub mod future;
 pub mod hub;
 pub mod languages;
-pub mod lanes;
 pub mod module;
 pub mod net;
 pub mod paths;
 pub mod registry;
-pub mod routes;
-pub mod schedules;
-pub mod screens;
 pub mod shutdown;
 pub mod store;
-pub mod timewin;
 
 pub use access::{Authorizer, Permission};
 pub use config::Config;
 pub use store::{PlainStore, SettingsStore};
 pub use error::{AppError, ErrorCode};
-pub use module::{Health, HealthState, Host, Listener, Manifest, Module};
+pub use module::{Health, HealthState, Host, Listener, Manifest, Module, ViewerPort};
 pub use net::{Net, RouteError, Router, UdpOptions};
 pub use registry::{ActiveListener, Registry};
 pub use shutdown::Shutdown;

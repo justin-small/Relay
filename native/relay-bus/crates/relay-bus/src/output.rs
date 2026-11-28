@@ -17,7 +17,7 @@
 use crate::health::Glitches;
 use crate::meter::{Meter, MeterShared};
 use crate::resamp::FixedIn;
-use crate::rt::{Discard, Discards};
+use crate::discard::{Discard, Discards};
 use crate::util::{AtomicF32, LANE_RATE, MAX_LANES};
 use rtrb::{Consumer, RingBuffer};
 use std::sync::atomic::{AtomicU64, Ordering::Relaxed};
@@ -338,10 +338,10 @@ impl OutputCore {
                 OutCmd::SetLane(lane, rx) => {
                     if lane < MAX_LANES {
                         if let Some(old) = std::mem::replace(&mut self.lanes[lane], rx) {
-                            self.discards.send(Discard::LaneRx(old));
+                            self.discards.send(Discard::Item(old));
                         }
                     } else if let Some(rx) = rx {
-                        self.discards.send(Discard::LaneRx(rx));
+                        self.discards.send(Discard::Item(rx));
                     }
                 }
                 OutCmd::AddClip(c) => {
@@ -349,12 +349,12 @@ impl OutputCore {
                         self.clips.push(c);
                     } else {
                         self.glitches.rejected.fetch_add(1, Relaxed);
-                        self.discards.send(Discard::Clip(c));
+                        self.discards.send(Discard::Item(c));
                     }
                 }
                 OutCmd::StopClips => {
                     while let Some(c) = self.clips.pop() {
-                        self.discards.send(Discard::Clip(c));
+                        self.discards.send(Discard::Item(c));
                     }
                 }
             }
@@ -399,7 +399,7 @@ impl OutputCore {
             clip.pos += take;
             if clip.pos >= clip.samples.len() {
                 let done_clip = self.clips.swap_remove(i);
-                self.discards.send(Discard::Clip(done_clip));
+                self.discards.send(Discard::Item(done_clip));
             } else {
                 i += 1;
             }

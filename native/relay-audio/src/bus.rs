@@ -21,7 +21,6 @@ use relay_bus::fake::{signal, DeviceSpec, FakeBackend};
 use relay_bus::{Backend, Engine, ProbeHub, StreamState, TapOptions};
 use relay_bus_cpal::{list_devices as cpal_devices, ChangeSignal, CpalBackend, DeviceWatcher};
 use serde_json::{json, Value};
-use sqlx::Row;
 use tokio::sync::watch;
 
 use crate::channels::{Channels, Fut};
@@ -101,11 +100,10 @@ pub struct Route {
 }
 
 pub struct AudioBus {
-    pub engine: Arc<Engine>,
-    probes: ProbeHub,
+    engine: Arc<Engine>,
     fake: Option<Arc<FakeBackend>>,
     store: Arc<dyn Store>,
-    pub channels: Arc<Channels>,
+    channels: Arc<Channels>,
     pub routing: Arc<Routing>,
     state: Mutex<State>,
     cache: Mutex<Cache>,
@@ -202,11 +200,9 @@ impl AudioBus {
             let (e, f, s, st) = (engine.clone(), fake.clone(), signal, stop.clone());
             std::thread::Builder::new().name("relay-bus-supervisor".into()).spawn(move || supervisor(e, f, s, st)).ok()
         };
-        let probes = ProbeHub::new(engine.clone());
         let (changed, _) = watch::channel(0);
         let bus = Arc::new(Self {
             engine,
-            probes,
             fake,
             store,
             channels,
@@ -227,8 +223,25 @@ impl AudioBus {
         self.fake.as_ref()
     }
 
-    pub fn probes(&self) -> &ProbeHub {
-        &self.probes
+    /// Play `samples` into `channels` of one output, mixed over what it plays (the internal door's `inject`). `false` when the
+    /// output is unknown or the bus is not running.
+    pub fn inject(&self, output: &str, channels: &[usize], samples: &[f32], rate: u32) -> bool {
+        self.engine.inject(output, channels, samples, rate).is_ok()
+    }
+
+    /// End every clip playing into `output`. `false` when the output is unknown.
+    pub fn stop_injects(&self, output: &str) -> bool {
+        self.engine.stop_injects(output).is_ok()
+    }
+
+    /// Tell the channel directory what one provider (a module) now sees as sources and destinations.
+    pub async fn report(&self, provider: &str, found: &[Value]) {
+        self.channels.report(provider, found).await;
+    }
+
+    /// A new set of analysis probes on this bus's engine; the meters own theirs.
+    pub fn probe_hub(&self) -> ProbeHub {
+        ProbeHub::new(self.engine.clone())
     }
 
     fn state(&self) -> std::sync::MutexGuard<'_, State> {
@@ -328,7 +341,7 @@ impl AudioBus {
                 return c.routes.clone();
             }
         }
-        match read_routes(self.channels.pool()).await {
+        match read_routes(&self.channels, &self.routing).await {
             Ok(routes) => {
                 *self.cache.lock().unwrap_or_else(|e| e.into_inner()) = Cache { key, at: Some(Instant::now()), routes: routes.clone() };
                 routes
@@ -717,23 +730,19 @@ impl Drop for AudioBus {
 }
 
 // -- reading the routes: three queries -----------------------------------------------------------------------------------
-async fn read_routes(pool: &sqlx::SqlitePool) -> Result<Vec<Route>> {
+async fn read_routes(channels: &Channels, routing: &Routing) -> Result<Vec<Route>> {
     struct End {
-        provider: String,
         key: String,
         direction: String,
         missing: bool,
     }
-    let merged: HashMap<i64, Option<i64>> = sqlx::query("select id, merged_into from channels").fetch_all(pool).await?.iter().map(|r| (r.get("id"), r.get("merged_into"))).collect();
-    let kinds: BTreeMap<i64, String> = sqlx::query("select id, kind from channels where merged_into is null order by id").fetch_all(pool).await?.iter().map(|r| (r.get("id"), r.get("kind"))).collect();
+    let merged = channels.merges().await?;
+    let kinds = channels.kinds().await?;
     let mut ends: HashMap<i64, Vec<End>> = HashMap::new();
-    for r in sqlx::query("select channel_id, provider, key, direction, missing from channel_ends where provider = ? order by position, id").bind(PROVIDER).fetch_all(pool).await? {
-        ends.entry(r.get("channel_id")).or_default().push(End { provider: r.get("provider"), key: r.get("key"), direction: r.get("direction"), missing: r.get::<i64, _>("missing") != 0 });
+    for (channel, key, direction, missing) in channels.ends_of(PROVIDER).await? {
+        ends.entry(channel).or_default().push(End { key, direction, missing });
     }
-    let mut asked: HashMap<i64, Vec<(i64, Option<f64>)>> = HashMap::new();
-    for r in sqlx::query("select destination, source, gain_db from routes order by id").fetch_all(pool).await? {
-        asked.entry(r.get("destination")).or_default().push((r.get("source"), r.get("gain_db")));
-    }
+    let asked = routing.asked().await?;
     let root = |mut id: i64| -> Option<i64> {
         let mut seen = HashSet::new();
         while seen.insert(id) {
@@ -750,11 +759,11 @@ async fn read_routes(pool: &sqlx::SqlitePool) -> Result<Vec<Route>> {
             continue;
         }
         for e in ends.get(cid).into_iter().flatten() {
-            let Some((oid, ch)) = (e.provider == PROVIDER && e.direction == "destination" && !e.missing).then(|| split_out(&e.key)).flatten() else { continue };
+            let Some((oid, ch)) = (e.direction == "destination" && !e.missing).then(|| split_out(&e.key)).flatten() else { continue };
             let mut seen = HashSet::new();
             for (src, gain) in asked.get(cid).into_iter().flatten() {
                 let Some(src) = root(*src).filter(|s| s != cid && seen.insert(*s) && kinds.contains_key(s)) else { continue };
-                if let Some(x) = ends.get(&src).into_iter().flatten().find(|x| x.provider == PROVIDER && (x.key.starts_with("lane") || x.key.starts_with(DEST_PREFIX))) {
+                if let Some(x) = ends.get(&src).into_iter().flatten().find(|x| x.key.starts_with("lane") || x.key.starts_with(DEST_PREFIX)) {
                     found.push(Route { source: x.key.clone(), output: oid.clone(), channel: ch, gain_db: gain.unwrap_or(0.0) });
                 }
             }

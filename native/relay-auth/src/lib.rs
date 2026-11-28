@@ -19,6 +19,7 @@ pub mod hash;
 pub mod lockout;
 pub mod perms;
 mod sessions;
+mod shared;
 mod tokens;
 
 pub use accounts::{NewUser, UserChanges, UserRow};
@@ -28,5 +29,6 @@ pub use devices::{Device, TrustedDevice};
 pub use error::{Error, Refusal, Result};
 pub use hash::Cost;
 pub use perms::{Permission, User};
-pub use sessions::{Session, PASSWORD_SESSION_SECONDS, PIN_ATTEMPTS, PIN_SESSION_SECONDS};
-pub use tokens::{TokenRow, TOKENS_PER_USER, TOKEN_DEFAULT_DAYS, TOKEN_EXPIRY_DAYS, TOKEN_MIN_ROLE, TOKEN_PREFIX};
+pub use sessions::{Session, PASSWORD_SESSION_SECONDS, PIN_SESSION_SECONDS};
+pub use shared::{PIN_ATTEMPTS, TOKEN_MIN_ROLE};
+pub use tokens::{TokenRow, TOKENS_PER_USER, TOKEN_DEFAULT_DAYS, TOKEN_EXPIRY_DAYS, TOKEN_PREFIX};

@@ -9,19 +9,18 @@
 //! built by the engine and moved to them through SPSC queues, and everything they retire comes back through a
 //! discard queue (see `rt.rs`).
 
+mod observe;
+pub use observe::{health, meter, status, tap};
 pub mod analysis;
 pub mod backend;
 pub mod config;
 pub mod engine;
 pub mod error;
 pub mod fake;
-pub mod health;
 pub mod link;
-pub mod meter;
-pub mod status;
-pub mod tap;
 pub mod util;
 
+mod discard;
 mod input;
 mod output;
 mod resamp;

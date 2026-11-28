@@ -1,42 +1,21 @@
 //! Sign-in sessions (app/users.py "sessions"): the cookie holds a random token, only its sha256 is stored. A PIN session
 //! belongs to the trusted device it came from, so forgetting the device ends it.
 
-use base64::engine::general_purpose::URL_SAFE_NO_PAD;
-use base64::Engine;
-use rand::RngCore;
-use sha2::{Digest, Sha256};
 use sqlx::{Sqlite, Transaction};
 
-use crate::accounts::{user_of, COLS_U};
 use crate::db::{later, now, Auth};
-use crate::devices::agent;
+use crate::shared::{agent, hash_token, random_token, valid_token, user_of, COLS_U};
 use crate::error::Result;
 use crate::perms::User;
 
 pub const PASSWORD_SESSION_SECONDS: i64 = 30 * 24 * 3600;
 pub const PIN_SESSION_SECONDS: i64 = 12 * 3600;
-pub const PIN_ATTEMPTS: i64 = 5;
 
 /// A new session: the cookie text and how long it lives.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Session {
     pub token: String,
     pub max_age: i64,
-}
-
-/// 32 random bytes as URL-safe text (Python's `secrets.token_urlsafe(32)`).
-pub(crate) fn random_token() -> String {
-    let mut bytes = [0u8; 32];
-    rand::rngs::OsRng.fill_bytes(&mut bytes);
-    URL_SAFE_NO_PAD.encode(bytes)
-}
-
-pub(crate) fn hash_token(token: &str) -> String {
-    Sha256::digest(token.as_bytes()).iter().map(|b| format!("{b:02x}")).collect()
-}
-
-pub(crate) fn valid_token(token: &str) -> bool {
-    !token.is_empty() && token.chars().count() <= 200
 }
 
 pub(crate) async fn end_sessions_in(tx: &mut Transaction<'_, Sqlite>, user_id: i64, except: Option<&str>) -> Result<()> {

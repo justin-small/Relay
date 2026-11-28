@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 use axum::http::request::Parts;
 use axum::response::Response;
-use relay_core::module::BoxFuture;
+use relay_core::future::BoxFuture;
 use relay_core::{AppError, Authorizer, SettingsStore};
 use serde_json::{json, Value};
 

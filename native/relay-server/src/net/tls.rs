@@ -282,6 +282,43 @@ pub struct Panel {
 }
 
 impl Panel {
+    /// The lines the start-up banner prints about the certificate and where to open the panel and the viewer pages. `fqdn` names the
+    /// panel when one is set, else its first address does.
+    pub fn banner(&self, fqdn: Option<&str>, admin_port: u16, viewer_port: u16) -> Vec<String> {
+        let mut out = Vec::new();
+        if self.changed.is_some() {
+            out.push("  The panel certificate was replaced, so its fingerprint changed. Trust the new one below.".to_owned());
+        }
+        let info = &self.info;
+        let first = info.ips.first().cloned().unwrap_or_else(|| "127.0.0.1".to_owned());
+        let primary = fqdn.map_or_else(|| first.clone(), str::to_owned);
+        out.push(String::new());
+        out.push(format!("  Certificate names : {}", info.dns.iter().chain(info.ips.iter()).cloned().collect::<Vec<_>>().join(", ")));
+        out.push(format!("  SHA-256           : {}", info.fingerprint));
+        out.push(String::new());
+        out.push(format!("  Panel   : {}", crate::listen::link("https", &primary, admin_port, "/admin")));
+        out.push(format!("  Viewers : {}", crate::listen::link("http", &first, viewer_port, "/")));
+        out.push(String::new());
+        out.push("  The certificate is self-signed, so the browser will warn once. Check the fingerprint it".to_owned());
+        out.push("  shows against the SHA-256 above before you accept it.".to_owned());
+        out
+    }
+
+    /// The SHA-256 fingerprint of the certificate in use.
+    pub fn fingerprint(&self) -> &str {
+        &self.info.fingerprint
+    }
+
+    /// What the app behind this server is told about the certificate.
+    pub fn report(&self) -> crate::front::CertReport {
+        crate::front::CertReport {
+            fingerprint: self.info.fingerprint.clone(),
+            names: self.info.dns.iter().chain(self.info.ips.iter()).cloned().collect(),
+            expires: self.info.not_after.clone(),
+            changed: self.changed.as_ref().map(|c| crate::front::ChangedReport { from: c.from.clone(), to: c.to.clone(), at: c.at.clone() }),
+        }
+    }
+
     /// Make sure there is a certificate for these names in `dir` and load it.
     pub fn start(dir: &Path, fqdn: &str, want: &Names) -> Result<Self, String> {
         let fqdn = fqdn.trim().trim_matches('.').to_owned();

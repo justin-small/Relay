@@ -7,7 +7,7 @@ use relay_module_ndi::font;
 use relay_module_ndi::multiview::{cells, countdown_text, fit, layout, seconds_until, Canvas, Clock, Env, Multiviews};
 use relay_module_ndi::pool::{Changes, Lease, Pool};
 use relay_module_ndi::settings::clean_settings;
-use relay_module_ndi::viewer::Limits;
+use relay_module_ndi::viewer::{Frames, Limits};
 use relay_module_ndi::watch::{Ctx, Watch};
 use relay_ndi::picture::Rgb;
 use relay_ndi::watch::Kind;
@@ -95,7 +95,7 @@ async fn a_multiview_is_composed_once_and_every_browser_gets_the_same_jpeg() {
     let b = mvs.open("wall").expect("join");
     assert!(Arc::ptr_eq(&a, &b), "one compositor however many browsers");
     assert_eq!(mvs.count().get("wall"), Some(&2));
-    let (seq, jpeg) = a.feed.next(0, Duration::from_secs(5)).await.expect("a composed picture");
+    let (seq, jpeg) = a.next(0, Duration::from_secs(5)).await.expect("a composed picture");
     assert!(seq >= 1 && jpeg.starts_with(&[0xFF, 0xD8]));
     mvs.close(&a);
     assert_eq!(mvs.count().get("wall"), Some(&1), "one browser is still watching");

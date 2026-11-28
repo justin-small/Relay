@@ -430,9 +430,7 @@ async fn start(upstream: Option<Arc<Upstream>>) -> Running {
     install_provider();
     let dir = Scratch::new();
     let panel = Panel::start(&dir.0, "", &names(&["127.0.0.1"])).expect("certificate");
-    let server = Server::new(routes(), upstream);
-    server.set_prefixes(prefixes());
-    server.set_tls(panel.server_config());
+    let server = Server::new(routes(), upstream).with_prefixes(prefixes()).with_tls(panel.server_config());
     server.open(spec("viewers", false, Kind::Viewer, None), &net()).expect("viewer port");
     server.open(spec("panel", true, Kind::Panel, None), &net()).expect("panel port");
     let own = Arc::new(vec!["/signage".to_owned()]);
@@ -615,8 +613,7 @@ async fn a_listener_moves_when_its_routes_address_changes_and_keeps_its_port() {
     install_provider();
     let dir = Scratch::new();
     let panel = Panel::start(&dir.0, "", &names(&["127.0.0.1"])).expect("certificate");
-    let server = Server::new(routes(), None);
-    server.set_tls(panel.server_config());
+    let server = Server::new(routes(), None).with_tls(panel.server_config());
     let mut viewers = spec("viewers", false, Kind::Viewer, Some("viewers"));
     viewers.configured = "0.0.0.0".to_owned();
     server.open(viewers, &net()).expect("opens on every interface");

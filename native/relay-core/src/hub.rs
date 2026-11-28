@@ -178,11 +178,23 @@ fn wall_clock() -> f64 {
 
 /// A subscription to one channel. Dropping it unsubscribes.
 pub struct Subscription {
-    pub rx: mpsc::Receiver<Frame>,
+    rx: mpsc::Receiver<Frame>,
     hub: Arc<Hub>,
     stream: String,
     lang: String,
     id: u64,
+}
+
+impl Subscription {
+    /// The next frame; `None` once the hub dropped this viewer (it fell behind) or closed.
+    pub async fn recv(&mut self) -> Option<Frame> {
+        self.rx.recv().await
+    }
+
+    /// The next frame if one is waiting now.
+    pub fn try_recv(&mut self) -> Result<Frame, mpsc::error::TryRecvError> {
+        self.rx.try_recv()
+    }
 }
 
 impl Drop for Subscription {
@@ -197,9 +209,21 @@ impl Drop for Subscription {
 
 /// A subscription to the admin status stream. Dropping it unsubscribes.
 pub struct StatusSubscription {
-    pub rx: mpsc::Receiver<Arc<Value>>,
+    rx: mpsc::Receiver<Arc<Value>>,
     hub: Arc<Hub>,
     id: u64,
+}
+
+impl StatusSubscription {
+    /// The next pushed status; `None` once the hub closed.
+    pub async fn recv(&mut self) -> Option<Arc<Value>> {
+        self.rx.recv().await
+    }
+
+    /// The next status if one is waiting now.
+    pub fn try_recv(&mut self) -> Result<Arc<Value>, mpsc::error::TryRecvError> {
+        self.rx.try_recv()
+    }
 }
 
 impl Drop for StatusSubscription {

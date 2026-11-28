@@ -11,7 +11,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use relay_core::lanes::{LanesCap, LANES};
 use relay_core::routes::{Routes, RoutesCap, ROUTES};
 use relay_core::screens::{PageOutputs, NDI_OUTPUTS};
-use relay_core::{AppError, ErrorCode, Health, HealthState, Host};
+use relay_core::{AppError, ErrorCode, Health, HealthState, Host, Net};
 use serde_json::{json, Value};
 
 use crate::discovery::{self, Found};
@@ -54,20 +54,21 @@ struct Seen {
 
 pub struct Service {
     host: Host,
+    net: Net,
     settings: Arc<Mutex<Value>>,
     seen: Mutex<BTreeMap<String, Seen>>,
     servers: Mutex<Vec<Value>>,
     pub changes: Arc<Changes>,
-    pub pool: Arc<Pool>,
-    pub analysis: Arc<Analyzer>,
+    pool: Arc<Pool>,
+    analysis: Arc<Analyzer>,
     open: Mutex<HashMap<String, Open>>,
     health: Mutex<HashMap<String, String>>,
-    pub viewers: Viewers,
-    pub multiviews: Multiviews,
+    viewers: Viewers,
+    multiviews: Multiviews,
     pub watch: Watch,
-    pub pages: Outputs,
-    pub listeners: crate::listen::Listeners,
-    pub tests: Tests,
+    pages: Outputs,
+    listeners: crate::listen::Listeners,
+    tests: Tests,
     maker: Arc<dyn Maker>,
     driver: Mutex<Option<Arc<Driver>>>,
     driver_task: Mutex<Option<tokio::task::JoinHandle<()>>>,
@@ -161,6 +162,7 @@ impl Service {
             }),
         });
         Self {
+            net: host.net().clone(),
             host,
             settings: shared,
             changes,
@@ -555,6 +557,85 @@ impl Service {
         v
     }
 
+    pub fn open_viewer(&self, source: &str) -> Option<Arc<crate::viewer::Feed>> {
+        self.viewers.open(source)
+    }
+
+    pub fn close_viewer(&self, feed: &Arc<crate::viewer::Feed>) {
+        self.viewers.close(feed);
+    }
+
+    pub fn open_multiview(&self, id: &str) -> Option<Arc<crate::multiview::Compositor>> {
+        self.multiviews.open(id)
+    }
+
+    pub fn close_multiview(&self, c: &Arc<crate::multiview::Compositor>) {
+        self.multiviews.close(c);
+    }
+
+    pub fn audio_level(&self, source: &str) -> Option<f64> {
+        self.analysis.audio_level(source)
+    }
+
+    pub fn audio_state(&self, source: &str) -> Value {
+        self.analysis.audio_state(source)
+    }
+
+    pub fn reset_audio(&self, key: &str) -> bool {
+        self.analysis.reset_audio(key)
+    }
+
+    pub fn start_recording(&self, key: &str, seconds: i64) -> Option<Arc<crate::analysis::Recording>> {
+        self.analysis.record(key, seconds)
+    }
+
+    pub fn stop_recording(&self, key: &str) {
+        self.analysis.stop_recording(key);
+    }
+
+    pub fn last_recording(&self, key: &str) -> Option<Arc<crate::analysis::Recording>> {
+        self.analysis.last_recording(key)
+    }
+
+    /// The outputs as defined now (`id`, `name`, ...).
+    pub fn page_defs(&self) -> Vec<Value> {
+        self.pages.defs()
+    }
+
+    pub async fn sync_pages(&self) {
+        self.pages.sync().await;
+    }
+
+    pub fn forget_test(&self, tid: &str) {
+        self.tests.forget(tid);
+    }
+
+    pub fn sync_tests(&self) {
+        self.tests.sync();
+    }
+
+    pub fn test_image_path(&self, tid: &str) -> std::path::PathBuf {
+        self.tests.image_path(tid)
+    }
+
+    pub fn restart_test(&self, tid: &str) {
+        self.tests.restart(tid);
+    }
+
+    /// Take one of the few places to listen to a source's sound; `false` when they are all taken.
+    pub fn take_listener(&self) -> bool {
+        self.listeners.take()
+    }
+
+    pub fn give_listener(&self) {
+        self.listeners.give();
+    }
+
+    /// Hold the source's sound for one listener (blocks while the receiver opens).
+    pub fn open_listen_stream(&self, source: &str, pick: Vec<usize>) -> Option<Arc<crate::listen::Stream>> {
+        crate::listen::Stream::open(&self.pool, source, pick)
+    }
+
     pub fn running(&self) -> bool {
         self.running.load(Ordering::SeqCst)
     }
@@ -575,7 +656,7 @@ impl Service {
         let strings = |k: &str| -> Vec<String> { s[k].as_array().map(|a| a.iter().filter_map(|v| v.as_str().map(str::to_owned)).collect()).unwrap_or_default() };
         let (extra, groups, servers) = (strings("extra_ips"), strings("groups"), strings("servers"));
         let mdns = s["mdns"].as_bool().unwrap_or(true);
-        let mut found = if mdns { discovery::visible(discovery::scan(self.host.net(), 2.5, &extra).await, &groups) } else { Vec::new() };
+        let mut found = if mdns { discovery::visible(discovery::scan(&self.net, 2.5, &extra).await, &groups) } else { Vec::new() };
         let checked = self.check_servers(&servers).await;
         let reported = if !servers.is_empty() || !mdns { tokio::task::spawn_blocking(find_via_sdk).await.unwrap_or_default() } else { Vec::new() };
         self.scanning.store(false, Ordering::SeqCst);
@@ -598,7 +679,7 @@ impl Service {
         let mut out = Vec::new();
         for sv in servers {
             let (host, port) = split_server(sv);
-            let (ok, err) = match self.host.net().connect_tcp(discovery::TRAFFIC, &host, port, std::time::Duration::from_millis(1500)).await {
+            let (ok, err) = match &self.net.connect_tcp(discovery::TRAFFIC, &host, port, std::time::Duration::from_millis(1500)).await {
                 Ok(_) => (true, String::new()),
                 Err(e) if e.to_string().len() < 160 && e.to_string() != "timed out" => (false, e.to_string()),
                 Err(_) => (false, "Nothing answered on that address.".to_owned()),

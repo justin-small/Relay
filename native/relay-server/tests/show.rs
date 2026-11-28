@@ -10,7 +10,7 @@ use axum::http::{header, Method, Request, StatusCode};
 use axum::Router;
 use http_body_util::BodyExt;
 use relay_auth::{Auth, Cost, NewUser};
-use relay_server::accounts::{Accounts, Shared};
+use relay_server::accounts::Accounts;
 use relay_server::forward::Conn;
 use relay_server::pages::Pages;
 use relay_server::show::{routes, start};
@@ -30,7 +30,7 @@ fn pid(n: u32) -> String {
 
 struct Site {
     dir: PathBuf,
-    acc: Shared,
+    auth: Auth,
     router: Router,
     shutdown: relay_core::Shutdown,
 }
@@ -63,10 +63,10 @@ async fn site(tag: &str) -> Site {
     }
     let pool = auth.pool().clone();
     let app_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../app");
-    let acc = Accounts::new(auth, Pages::new(&app_dir), dir.join("config.json"));
+    let acc = Accounts::new(auth.clone(), Pages::new(&app_dir), dir.join("config.json"));
     let shutdown = relay_core::Shutdown::new();
     let api = start(pool, acc.clone(), &dir.join("config.json"), None, shutdown.clone()).await.expect("the tables are there");
-    Site { dir, acc, router: routes(api), shutdown }
+    Site { dir, auth, router: routes(api), shutdown }
 }
 
 impl Site {
@@ -103,12 +103,12 @@ impl Site {
     }
 
     async fn cookie(&self, username: &str, role: &str) -> String {
-        let user = self.acc.auth.create_user(NewUser { username, name: username, role, password: password(), temporary: false }, None).await.unwrap();
-        format!("relay_admin={}", self.acc.auth.start_session(&user, "password", None, "").await.unwrap().token)
+        let user = self.auth.create_user(NewUser { username, name: username, role, password: password(), temporary: false }, None).await.unwrap();
+        format!("relay_admin={}", self.auth.start_session(&user, "password", None, "").await.unwrap().token)
     }
 
     async fn audited(&self, kind: &str) -> Vec<String> {
-        let found = self.acc.auth.search_audit(relay_auth::Search { kind: Some(kind), ..Default::default() }).await.unwrap();
+        let found = self.auth.search_audit(relay_auth::Search { kind: Some(kind), ..Default::default() }).await.unwrap();
         found.entries.iter().map(|e| e.action.clone()).collect()
     }
 

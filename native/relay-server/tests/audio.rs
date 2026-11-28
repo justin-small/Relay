@@ -13,7 +13,7 @@ use axum::Router;
 use http_body_util::BodyExt;
 use relay_audio::{AudioBus, Backing, Channels, Metering, Routing};
 use relay_auth::{Auth, Cost, NewUser};
-use relay_server::accounts::{Accounts, Shared};
+use relay_server::accounts::Accounts;
 use relay_server::audio::{routes, AudioApi, ConfigStore};
 use relay_server::internal;
 use relay_server::forward::Conn;
@@ -32,7 +32,7 @@ fn password() -> &'static str {
 
 struct Site {
     dir: PathBuf,
-    acc: Shared,
+    auth: Auth,
     api: Arc<AudioApi>,
     router: Router,
 }
@@ -65,15 +65,15 @@ async fn site(tag: &str) -> Site {
     sqlx::raw_sql(include_str!("../../../app/migrations/0015_routes.sql")).execute(auth.pool()).await.unwrap();
     let pool = auth.pool().clone();
     let app_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../app");
-    let acc = Accounts::new(auth, Pages::new(&app_dir), dir.join("config.json"));
+    let acc = Accounts::new(auth.clone(), Pages::new(&app_dir), dir.join("config.json"));
     let store = Arc::new(ConfigStore(Arc::new(relay_config::Settings::new(&dir.join("config.json")))));
-    let channels = Channels::new(pool);
-    let routing = Routing::new(channels.clone());
+    let channels = Channels::new(pool.clone());
+    let routing = Routing::new(channels.clone(), pool);
     let bus = AudioBus::new(Backing::fake(), store.clone(), channels.clone(), routing.clone());
     let metering = Metering::new(bus.clone(), store);
     let api = Arc::new(AudioApi { acc: acc.clone(), bus, routing, channels, metering, app: None });
     let router = routes(api.clone()).merge(internal::routes(api.clone(), TOKEN));
-    Site { dir, acc, api, router }
+    Site { dir, auth, api, router }
 }
 
 impl Site {
@@ -106,12 +106,12 @@ impl Site {
 
     /// A signed-in cookie for a new user of `role`.
     async fn cookie(&self, username: &str, role: &str) -> String {
-        let user = self.acc.auth.create_user(NewUser { username, name: username, role, password: password(), temporary: false }, None).await.unwrap();
-        format!("relay_admin={}", self.acc.auth.start_session(&user, "password", None, "").await.unwrap().token)
+        let user = self.auth.create_user(NewUser { username, name: username, role, password: password(), temporary: false }, None).await.unwrap();
+        format!("relay_admin={}", self.auth.start_session(&user, "password", None, "").await.unwrap().token)
     }
 
     async fn audited(&self, kind: &str) -> Vec<String> {
-        let found = self.acc.auth.search_audit(relay_auth::Search { kind: Some(kind), ..Default::default() }).await.unwrap();
+        let found = self.auth.search_audit(relay_auth::Search { kind: Some(kind), ..Default::default() }).await.unwrap();
         found.entries.iter().map(|e| e.action.clone()).collect()
     }
 
@@ -217,7 +217,7 @@ async fn saving_the_bus_with_a_matrix_makes_routes_and_without_one_leaves_them()
     let r = s.post("/api/admin/audiobus", &owner, again).await.json();
     assert_eq!(r["config"]["matrix"].as_array().unwrap().len(), 2);
     assert_eq!(r["config"]["lanes"][0]["name"], "Renamed");
-    let audit = s.acc.auth.search_audit(relay_auth::Search { kind: Some("audio.bus"), ..Default::default() }).await.unwrap();
+    let audit = s.auth.search_audit(relay_auth::Search { kind: Some("audio.bus"), ..Default::default() }).await.unwrap();
     assert_eq!(audit.entries[0].detail["crosspoints"], 2);
     assert_eq!(audit.entries[0].summary, "Changed the audio bus");
 }

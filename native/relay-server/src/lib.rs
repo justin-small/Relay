@@ -4,27 +4,16 @@
 //! have, and forwards the rest to the running FastAPI app until the last route is ported (the strangler, #651). The program is
 //! `main.rs`; everything it does is here so the tests can drive it.
 
-pub mod accounts;
-pub mod announce;
-pub mod app;
 pub mod audio;
-pub mod forward;
-pub mod front;
+pub use audio::{internal, lanescap, routescap};
+mod web;
+pub use web::{pages, statics, status, streams, ws};
+mod bridge;
+pub use bridge::{forward, front, pyapp};
+mod net;
+pub use net::{announce, listen, netinfo, netroute, netsock, serve, tls};
+pub mod accounts;
+pub mod app;
 pub mod gate;
-pub mod internal;
-pub mod lanescap;
-pub mod listen;
 pub mod modulehost;
-pub mod netinfo;
-pub mod netroute;
-pub mod netsock;
-pub mod pages;
-pub mod pyapp;
-pub mod routescap;
-pub mod serve;
 pub mod show;
-pub mod statics;
-pub mod status;
-pub mod streams;
-pub mod tls;
-pub mod ws;

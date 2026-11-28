@@ -12,7 +12,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use relay_bus::analysis::spl::CalibrateError;
-use relay_bus::{ProbeReading, ProbeSpec};
+use relay_bus::{ProbeHub, ProbeReading, ProbeSpec};
 use serde_json::{json, Map, Value};
 
 use crate::bus::AudioBus;
@@ -134,6 +134,7 @@ struct Running {
 
 pub struct Metering {
     bus: Arc<AudioBus>,
+    probes: ProbeHub,
     store: Arc<dyn MeterStore>,
     running: Mutex<Running>,
     sources: Mutex<Vec<(String, External)>>,
@@ -145,7 +146,7 @@ fn r1(x: f64) -> f64 {
 
 impl Metering {
     pub fn new(bus: Arc<AudioBus>, store: Arc<dyn MeterStore>) -> Arc<Self> {
-        Arc::new(Self { bus, store, running: Mutex::new(Running { config: json!({"meters": []}), probes: HashMap::new() }), sources: Mutex::new(Vec::new()) })
+        Arc::new(Self { probes: bus.probe_hub(), bus, store, running: Mutex::new(Running { config: json!({"meters": []}), probes: HashMap::new() }), sources: Mutex::new(Vec::new()) })
     }
 
     fn run(&self) -> std::sync::MutexGuard<'_, Running> {
@@ -166,17 +167,17 @@ impl Metering {
             let stale: Vec<String> = run.probes.iter().filter(|(k, (_, lane))| want.get(*k).is_none_or(|m| m["lane"].as_i64() != Some(*lane))).map(|(k, _)| k.clone()).collect();
             for mid in stale {
                 if let Some((pid, _)) = run.probes.remove(&mid) {
-                    let _ = self.bus.probes().close(pid);
+                    let _ = self.probes.close(pid);
                 }
             }
             for (mid, m) in want {
                 let cal = m["calibration_db"].as_f64().unwrap_or(110.0);
                 if let Some((pid, _)) = run.probes.get(&mid) {
-                    let _ = self.bus.probes().set_calibration(*pid, cal);
+                    let _ = self.probes.set_calibration(*pid, cal);
                     continue;
                 }
                 let lane = m["lane"].as_i64().unwrap_or(1);
-                match self.bus.probes().open(ProbeSpec::Spl { lane: lane as usize, calibration_db: cal }) {
+                match self.probes.open(ProbeSpec::Spl { lane: lane as usize, calibration_db: cal }) {
                     Ok(pid) => {
                         run.probes.insert(mid, (pid, lane));
                     }
@@ -190,7 +191,7 @@ impl Metering {
     pub fn stop(&self) {
         let mut run = self.run();
         for (_, (pid, _)) in run.probes.drain() {
-            let _ = self.bus.probes().close(pid);
+            let _ = self.probes.close(pid);
         }
     }
 
@@ -212,11 +213,11 @@ impl Metering {
         let reference = reference_db.as_f64().or_else(|| py_float(reference_db)).filter(|r| !r.is_nan()).map(|r| r1(r.clamp(30.0, 140.0))).ok_or("reference")?;
         let mut run = self.run();
         let (Some((pid, _)), Some(_)) = (run.probes.get(mid).copied(), Self::meter_cfg(&run, mid)) else { return Err("off") };
-        let st = self.bus.probes().status(pid).map_err(|_| "off")?;
+        let st = self.probes.status(pid).map_err(|_| "off")?;
         if st.idle_s.is_none_or(|s| s > SILENT_S) {
             return Err("no_signal");
         }
-        let cal = match self.bus.probes().calibrate(pid, reference) {
+        let cal = match self.probes.calibrate(pid, reference) {
             Ok(Ok(c)) => c,
             Ok(Err(CalibrateError::Reference)) => return Err("reference"),
             Ok(Err(CalibrateError::TooQuiet)) | Err(_) => return Err("too_quiet"),
@@ -232,10 +233,10 @@ impl Metering {
     /// The reading of one meter, with its setting; `None` for a meter that is not in the setting.
     pub fn snapshot(&self, mid: &str) -> Option<Value> {
         let run = self.run();
-        Self::snapshot_of(&self.bus, &run, mid)
+        Self::snapshot_of(&self.probes, &run, mid)
     }
 
-    fn snapshot_of(bus: &AudioBus, run: &Running, mid: &str) -> Option<Value> {
+    fn snapshot_of(probes: &ProbeHub, run: &Running, mid: &str) -> Option<Value> {
         let cfg = Self::meter_cfg(run, mid)?;
         let mut out = json!({"id": cfg["id"], "name": cfg["name"], "enabled": cfg["enabled"], "lane": cfg["lane"], "kind": cfg["kind"],
                              "calibrated": cfg["calibrated"], "calibration_db": cfg["calibration_db"], "warn_db": cfg["warn_db"], "limit_db": cfg["limit_db"],
@@ -246,7 +247,7 @@ impl Metering {
             o
         };
         let Some((pid, _)) = run.probes.get(mid).filter(|_| cfg["enabled"] == true) else { return Some(off(out)) };
-        let Ok(st) = bus.probes().status(*pid) else { return Some(off(out)) };
+        let Ok(st) = probes.status(*pid) else { return Some(off(out)) };
         let ProbeReading::Spl(r) = st.reading else { return Some(off(out)) };
         out["state"] = json!(if st.idle_s.is_some_and(|s| s <= SILENT_S) { "ok" } else { "no_input" });
         out["dropped"] = json!(st.dropped);
@@ -259,7 +260,7 @@ impl Metering {
 
     pub fn snapshots(&self) -> Vec<Value> {
         let run = self.run();
-        run.config["meters"].as_array().into_iter().flatten().filter_map(|m| Self::snapshot_of(&self.bus, &run, m["id"].as_str().unwrap_or(""))).collect()
+        run.config["meters"].as_array().into_iter().flatten().filter_map(|m| Self::snapshot_of(&self.probes, &run, m["id"].as_str().unwrap_or(""))).collect()
     }
 
     /// What the status feed carries (the viewer port, no login): the levels and the labels that keep the number honest, nothing about
@@ -302,7 +303,7 @@ impl Metering {
             .map(|m| json!({"key": m["id"], "kind": "audio", "direction": "source", "gear_name": m["name"]}))
             .collect();
         found.extend(self.sources().into_iter().map(|(k, label)| json!({"key": k, "kind": "audio", "direction": "source", "gear_name": label})));
-        self.bus.channels.report("metering", &found).await;
+        self.bus.report("metering", &found).await;
     }
 
     pub async fn register_source(&self, id: &str, label: &str) {

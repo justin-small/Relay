@@ -4,20 +4,13 @@
 use sqlx::sqlite::SqliteRow;
 use sqlx::{Row, Sqlite, Transaction};
 
-use crate::accounts::clean_name;
 use crate::db::{later, now, Auth};
 use crate::error::{Refusal, Result};
 use crate::perms::User;
-use crate::sessions::{hash_token, random_token, valid_token};
+use crate::shared::{agent, clean_name, hash_token, random_token, valid_token};
 
 const NAME_MAX: usize = 60;
-const UA_MAX: usize = 200;
 const MAX_PER_USER: i64 = 50;
-
-/// A browser's user agent, tidied to what is stored.
-pub fn agent(raw: &str) -> String {
-    raw.split_whitespace().collect::<Vec<_>>().join(" ").chars().take(UA_MAX).collect()
-}
 
 fn default_name(ua: &str) -> &'static str {
     let ua = ua.to_lowercase();
@@ -191,6 +184,14 @@ impl Auth {
             }
         }
         Ok(Some(Device { id, name: row.get("name") }))
+    }
+
+    /// What the sign-in page needs: the trusted device a cookie token belongs to ([`Auth::device_for`]) and, only on such a device,
+    /// the people who can pick their name and type a PIN.
+    pub async fn pin_picker(&self, token: &str) -> Result<(Option<Device>, Vec<(i64, String)>)> {
+        let device = self.device_for(token).await?;
+        let people = if device.is_some() { self.pin_users().await? } else { Vec::new() };
+        Ok((device, people))
     }
 
     pub async fn list_devices(&self) -> Result<Vec<TrustedDevice>> {

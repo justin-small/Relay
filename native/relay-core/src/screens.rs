@@ -4,7 +4,7 @@
 
 use serde_json::Value;
 
-use crate::module::BoxFuture;
+use crate::future::BoxFuture;
 
 /// A failure a module can only pass on: the database is down, or the change was refused with this fixed sentence.
 #[derive(Debug, PartialEq, Eq)]
