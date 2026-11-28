@@ -2936,6 +2936,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "relay-module-propresenter"
+version = "0.1.0"
+dependencies = [
+ "axum",
+ "bytes",
+ "futures-util",
+ "http-body-util",
+ "hyper",
+ "hyper-util",
+ "quickcheck",
+ "relay-core",
+ "serde_json",
+ "sha1 0.10.7",
+ "tokio",
+ "tower",
+ "tracing",
+]
+
+[[package]]
 name = "relay-module-remote_access"
 version = "0.1.0"
 dependencies = [
@@ -3047,6 +3066,7 @@ dependencies = [
  "relay-core",
  "relay-module-ndi",
  "relay-module-planning_center",
+ "relay-module-propresenter",
  "relay-module-remote_access",
  "relay-module-signage",
  "relay-module-signage_web",

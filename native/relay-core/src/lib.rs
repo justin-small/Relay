@@ -24,6 +24,7 @@ pub mod registry;
 pub mod shutdown;
 pub mod store;
 pub mod text;
+pub mod timers;
 
 pub use access::{Authorizer, Permission};
 pub use config::Config;

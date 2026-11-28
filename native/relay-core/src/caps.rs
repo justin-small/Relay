@@ -21,6 +21,13 @@ pub const PLAN_CHANGED: &str = "plan.changed";
 pub const DIRECTORY_CHANGED: &str = "directory.changed";
 /// Announced when the service feeds a panel can pick change (a service type was followed or dropped): the panels' status is pushed again.
 pub const OFFERED_CHANGED: &str = "plan.offered_changed";
+/// Announced when an alert goes on or off the stage display, with `{"id": "<alert id>", "text": "<text>" | null}` as JSON: ProPresenter shows
+/// the text on its stage screens and takes it down when the alert ends (#145).
+pub const ALERT_STAGE: &str = "alerts.stage";
+/// Announced when a panel's own timer settings change: ProPresenter's timers feed sends the panel its new thresholds at once.
+pub const PANEL_TIMERS_CHANGED: &str = "panels.timers_changed";
+/// Announced with the presentation's name when a new presentation comes up in ProPresenter (REAPER's song markers, #413).
+pub const PRESENTATION_UP: &str = "presentation.up";
 
 // ---------------------------------------------------------------------------------------------------------------- the plan
 /// `Arc<PlanCap>`: what other modules and core ask of the plan Planning Center follows (`plan.*` and `directory.pco*` in Python).
@@ -59,7 +66,30 @@ pub trait PanelDirectory: Send + Sync + 'static {
     fn service(&self, id: &str) -> Value;
     /// The name the operator gave the panel.
     fn display_name(&self, id: &str) -> String;
+    /// The panel's own timer settings (`amber_s`, `red_s`, `show`), or `None` while it follows the global ones.
+    fn timers(&self, _id: &str) -> Option<Value> {
+        None
+    }
 }
+
+// ---------------------------------------------------------------------------------------------------------- ProPresenter's offers
+/// `Arc<ProOffers>`: what a panel's menu may offer from ProPresenter, provided by the ProPresenter module while it is on (`propresenter.panel_offers`).
+pub const PRO_OFFERS: &str = "propresenter.offers";
+
+pub struct ProOffers {
+    /// The slide's lyrics, while the operator has them on for panels and ProPresenter is set up.
+    pub lyrics: Box<dyn Fn() -> bool + Send + Sync>,
+    /// The timers, while ProPresenter is set up.
+    pub timers: Box<dyn Fn() -> bool + Send + Sync>,
+}
+
+/// `Arc<TagAction>` under `tag.action.<name>`: what a ProPresenter slide-note tag does in Relay, provided by whoever can do it (core for capture,
+/// panels and alerts; a module for its own: `light`, `obs`, `reaper`). It takes the tag's value and says in a sentence what it did.
+pub const TAG_ACTION: &str = "tag.action.";
+
+pub type TagActionFn = dyn Fn(Option<String>) -> BoxFuture<'static, Result<String, String>> + Send + Sync;
+
+pub struct TagAction(pub Box<TagActionFn>);
 
 // ------------------------------------------------------------------------------------------------------- signage's content
 /// `Arc<ContentCap>`: signage's library, as far as a module that adds files and playlists needs it (`signage.content`).
